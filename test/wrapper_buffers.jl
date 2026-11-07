@@ -25,10 +25,11 @@ end
 
 function stored(T, symmetric)
   y = symmetric ? SymmetricSparseIterate(T, 8) : SparseIterate(T, 64)
-  y[9] = 3
-  y[1] = 0.25
-  y[5] = 1
-  y[5] = 0
+  c = symmetric ? coordinates(y) : y
+  c[9] = 3
+  c[1] = 0.25
+  c[5] = 1
+  c[5] = 0
   y
 end
 

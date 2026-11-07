@@ -14,7 +14,7 @@ using Test, ProximalBase, LinearAlgebra, SparseArrays
   @test A[1, 2] == A[2, 1] == 3.0
   @test nactive(X) == 1
   @test sum(abs, θ) == 3.0
-  @test NormL1(1.0)(X) == 6.0
+  @test NormL1(1.0)(A) == 6.0                    # the matrix penalty counts both positions
 
   B = Matrix(X)
   θ[tril_index(3, 2, 1)] = 5.0
@@ -298,7 +298,7 @@ end
   coordinates(X)[2] = 4.0
   coordinates(X)[6] = -1.0
   av = activevalues(X)
-  @test av == X.nzval[1:nnz(X)]
+  @test av == X.nzval[1:nactive(X)]
   # a view taken earlier keeps its length when a coordinate becomes active
   coordinates(X)[1] = 9.0
   @test length(av) == 2 && length(activevalues(X)) == 3

@@ -370,40 +370,41 @@ end
 @testset "sparseSymmetricIterate" begin
 
     @testset "generic functions agree with the dense matrix" begin
-        # Base and LinearAlgebra read x through its indices, length and iteration
+        # Base and LinearAlgebra read matrixview(x) through its indices, length and iteration
         p = 5
         A = sprandn(p, p, 0.4)
         M = Matrix(A + A') + 2p * I       # symmetric positive definite, with zeros
         S = SymmetricSparseIterate(sparse(M))
+        V = matrixview(S)
         b, B = randn(p), randn(p, 3)
-        @test length(S) == p^2 == lastindex(S) && S[end] == M[end]
-        @test [S[i] for i in 1:p^2] == vec(S) == S[:] == reshape(S, p^2) == vec(M)
-        @test count(_ -> true, S) == p^2 && [v for v in S] == collect(S) == M
-        @test mean(S) ≈ mean(M) && sum(abs2, S) ≈ sum(abs2, M) && sum(S; dims = 1) ≈ sum(M; dims = 1)
-        @test extrema(S) == extrema(M) && findmax(S) == findmax(M)
-        @test count(!iszero, S) == count(!iszero, M) && findall(!iszero, S) == findall(!iszero, M)
-        @test norm(S) ≈ norm(M) && norm(S, 1) ≈ norm(M, 1) && norm(S, Inf) == norm(M, Inf)
-        @test S == M && S ≈ M && isequal(S, M) && hash(S) == hash(M)
-        @test Matrix{Float32}(S) == Float32.(M) && convert(Matrix{Float64}, S) == M
-        @test copyto!(zeros(p, p), S) == M && Symmetric(S) == M && Diagonal(S) == Diagonal(M)
-        @test S[2:4, 1:2] == M[2:4, 1:2] && S[:, 2] == M[:, 2] && view(S, 3, :) == M[3, :]
-        @test S[S .> 0] == M[M .> 0] && S[CartesianIndex(3, 2)] == M[3, 2]
-        @test permutedims(S) == M && hcat(S, S) == hcat(M, M) && [S S; S S] == [M M; M M]
-        @test 2 .* S .+ 1 == 2 .* M .+ 1 && S + M == 2M && -S == -M && map(abs, S) == abs.(M)
-        @test kron(S, S) == kron(M, M)
+        @test length(V) == p^2 == lastindex(V) && V[end] == M[end]
+        @test [V[i] for i in 1:p^2] == vec(V) == V[:] == reshape(V, p^2) == vec(M)
+        @test count(_ -> true, V) == p^2 && [v for v in V] == collect(V) == M
+        @test mean(V) ≈ mean(M) && sum(abs2, V) ≈ sum(abs2, M) && sum(V; dims = 1) ≈ sum(M; dims = 1)
+        @test extrema(V) == extrema(M) && findmax(V) == findmax(M)
+        @test count(!iszero, V) == count(!iszero, M) && findall(!iszero, V) == findall(!iszero, M)
+        @test norm(V) ≈ norm(M) && norm(V, 1) ≈ norm(M, 1) && norm(V, Inf) == norm(M, Inf)
+        @test V == M && V ≈ M && isequal(V, M) && hash(V) == hash(M)
+        @test Matrix{Float32}(V) == Float32.(M) && convert(Matrix{Float64}, V) == M
+        @test copyto!(zeros(p, p), V) == M && Symmetric(V) == M && Diagonal(V) == Diagonal(M)
+        @test V[2:4, 1:2] == M[2:4, 1:2] && V[:, 2] == M[:, 2] && view(V, 3, :) == M[3, :]
+        @test V[V .> 0] == M[M .> 0] && V[CartesianIndex(3, 2)] == M[3, 2]
+        @test permutedims(V) == M && hcat(V, V) == hcat(M, M) && [V V; V V] == [M M; M M]
+        @test 2 .* V .+ 1 == 2 .* M .+ 1 && V + M == 2M && -V == -M && map(abs, V) == abs.(M)
+        @test kron(V, V) == kron(M, M)
         # sparse, triu and tril build a SparseMatrixCSC from the stored entries
         @test sparse(S) isa SparseMatrixCSC && sparse(S) == M
         @test triu(S) == triu(M) && tril(S) == tril(M) && triu(S, 1) == triu(M, 1) && tril(S, -2) == tril(M, -2)
         # products
-        @test S * b ≈ M * b && S' * b ≈ M * b && b' * S ≈ b' * M && transpose(b) * S ≈ transpose(b) * M
-        @test S * Float32.(b) ≈ M * Float32.(b)
-        @test S * B ≈ M * B && B' * S ≈ B' * M && S * S ≈ M * M && S * Float32.(B) ≈ M * Float32.(B)
-        @test dot(S, M) ≈ dot(M, M) && dot(M, S) ≈ dot(M, M) && dot(S, S) ≈ dot(M, M) && dot(b, S, b) ≈ dot(b, M, b)
+        @test V * b ≈ M * b && V' * b ≈ M * b && b' * V ≈ b' * M && transpose(b) * V ≈ transpose(b) * M
+        @test V * Float32.(b) ≈ M * Float32.(b)
+        @test V * B ≈ M * B && B' * V ≈ B' * M && V * V ≈ M * M && V * Float32.(B) ≈ M * Float32.(B)
+        @test dot(S, M) ≈ dot(M, M) && dot(M, S) ≈ dot(M, M) && dot(V, V) ≈ dot(M, M) && dot(b, S, b) ≈ dot(b, M, b)
         # linear algebra
-        @test tr(S) ≈ tr(M) && diag(S) == diag(M) && issymmetric(S) && !istriu(S)
-        @test det(S) ≈ det(M) && logdet(S) ≈ logdet(M) && inv(S) ≈ inv(M) && S \ b ≈ M \ b
-        @test eigvals(S) ≈ eigvals(M) && svdvals(S) ≈ svdvals(M) && cholesky(S).L ≈ cholesky(M).L
-        @test opnorm(S) ≈ opnorm(M) && opnorm(S, 1) ≈ opnorm(M, 1) && exp(S) ≈ exp(M) && sqrt(S) ≈ sqrt(M)
+        @test tr(V) ≈ tr(M) && diag(V) == diag(M) && issymmetric(V) && !istriu(V)
+        @test det(V) ≈ det(M) && logdet(V) ≈ logdet(M) && inv(V) ≈ inv(M) && V \ b ≈ M \ b
+        @test eigvals(V) ≈ eigvals(M) && svdvals(V) ≈ svdvals(M) && cholesky(V).L ≈ cholesky(M).L
+        @test opnorm(V) ≈ opnorm(M) && opnorm(V, 1) ≈ opnorm(M, 1) && exp(V) ≈ exp(M) && sqrt(V) ≈ sqrt(M)
     end
 
     @testset "show" begin
@@ -434,13 +435,14 @@ end
       @test mul!(zeros(10), x, b) ≈ M * b
       @test_throws DimensionMismatch mul!(zeros(10), x, randn(5))
 
-      # x is symmetric: x' and transpose(x) are x, and products from the left work
+      # x is symmetric: x' and transpose(x) are x, and the products of its view work from the left
       @test transpose(x) === x && x' === x
-      @test x' * b ≈ M * b
-      @test b' * x ≈ b' * M
-      @test transpose(b) * x ≈ transpose(b) * M
+      v = matrixview(x)
+      @test v' * b ≈ M * b
+      @test b' * v ≈ b' * M
+      @test transpose(b) * v ≈ transpose(b) * M
       # other element types take the sparse product too
-      @test x * Float32.(b) ≈ M * Float32.(b)
+      @test v * Float32.(b) ≈ M * Float32.(b)
 
       # a' X b, tr(A X), and A X B for symmetric A, B
       a = randn(n)

@@ -387,7 +387,7 @@ function _store_lower!(y::SymmetricSparseIterate, a::AbstractMatrix)
 end
 _store_lower!(y::AbstractArray, a::AbstractMatrix) = copyto!(y, a)
 
-_hessian_vec_unchecked!(y::AbstractArray, f::Union{LeastSquaresLoss, GLMLoss, LogDetLoss}, x::AbstractArray, v::AbstractArray) = hessian_vec!(y, f, x, v)
+_hessian_vec_unchecked!(y::AbstractArray, f::Union{LeastSquaresLoss, GLMLoss, LogDetLoss}, x::_ArrayOrOwner, v::_ArrayOrOwner) = hessian_vec!(y, f, x, v)
 _quadratic_model_unchecked(f::GLMLoss, x::AbstractVector) = quadratic_model(f, x)
 _quadratic_model_unchecked(f::LogDetLoss, x::AbstractMatrix) = quadratic_model(f, x)
 _coordinate_lipschitz_unchecked!(L::AbstractArray, f::LeastSquaresLoss) = coordinate_lipschitz!(L, f)

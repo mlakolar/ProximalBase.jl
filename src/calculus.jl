@@ -863,6 +863,8 @@ _check_iterate_block(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate
   "Tilt and Translate on tuples do not support a $(nameof(typeof(x))) as a block"))
 _check_tuple_parameter(c::AbstractArray, x::AbstractArray) =
   (_check_iterate_block(x); size(c) == size(x) || _parameter_size_error(size(c), size(x)))
+# an owner is refused as a block, whatever the parameter
+_check_tuple_parameter(c, x::SymmetricSparseIterate) = _check_iterate_block(x)
 function _check_tuple_parameter(c::Tuple, x::Tuple)
   length(c) == length(x) || _parameter_arity_error(length(c), length(x))
   _check_tuple_parameter_blocks(c, x)

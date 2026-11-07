@@ -2373,9 +2373,8 @@ function LinearAlgebra.dot(a::AbstractVector, X::SymmetricSparseIterate, b::Abst
 end
 
 # the trace inner product tr(A'X) over the stored entries of X
-function LinearAlgebra.dot(A::AbstractMatrix, X::SymmetricSparseIterate)
+function LinearAlgebra.dot(A::StridedMatrix, X::SymmetricSparseIterate)
   _checkreal(X, A)
-  Base.require_one_based_indexing(A)
   size(A) == size(X) || throw(DimensionMismatch())
   s = zero(promote_type(eltype(A), eltype(X)))
   @inbounds for k = 1:X.nnz
@@ -2386,7 +2385,7 @@ function LinearAlgebra.dot(A::AbstractMatrix, X::SymmetricSparseIterate)
   end
   s
 end
-LinearAlgebra.dot(X::SymmetricSparseIterate, A::AbstractMatrix) = dot(A, X)
+LinearAlgebra.dot(X::SymmetricSparseIterate, A::StridedMatrix) = dot(A, X)
 
 # the 1-norm counts off-diagonal entries twice; the infinity norm needs them once
 function LinearAlgebra.norm(x::SymmetricSparseIterate, p::Real = 2)

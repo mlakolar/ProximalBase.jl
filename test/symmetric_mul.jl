@@ -240,7 +240,7 @@ end
       M = ones(T, 3, 3)
       M[2, 1] = bad
       @test isequal(dot(M, z), T(2)) && isequal(dot(z, M), T(2))
-      @test isequal(dot(M', z), T(2)) && isequal(dot(z, M'), T(2))
+      @test isequal(dot(Matrix(M'), z), T(2)) && isequal(dot(z, Matrix(M')), T(2))
       M[1, 2] = bad
       @test isequal(dot(M, z), T(2))
       M[1, 1] = bad                                         # the coefficient 2 meets bad
@@ -325,8 +325,8 @@ end
     x[2, 1] = T(3)
     M = T[1 2 3; 4 5 6; 7 8 9]
     @test dot(M, x) == T(3) * (M[2, 1] + M[1, 2]) && dot(x, M) == dot(M, x)
-    @test dot(M', x) == T(3) * (M[1, 2] + M[2, 1])
-    @test dot(Symmetric(M), x) == 6 * Symmetric(M)[2, 1]
+    @test dot(Matrix(M'), x) == T(3) * (M[1, 2] + M[2, 1])
+    @test dot(Matrix(Symmetric(M)), x) == 6 * Symmetric(M)[2, 1]
     x[3, 3] = T(2)
     @test dot(M, x) == T(3) * (M[2, 1] + M[1, 2]) + 2M[3, 3]
     # the bilinear form against the full dense products, in both orders
@@ -336,8 +336,8 @@ end
     # any vector: a column of a Symmetric matrix
     S = Symmetric(M)
     @test dot(view(S, :, 1), x, view(S, :, 2)) == dot(S[:, 1], Matrix(x) * S[:, 2])
-    # an owner and an owner, through the matrix of one of them
-    @test dot(matrixview(x), x) == sum(abs2, Matrix(x))
+    # an owner and an owner, through the matrix of one of them (there is no dot of two owners)
+    @test dot(Matrix(x), x) == sum(abs2, Matrix(x))
   end
 
   @testset "the type of the result" begin

@@ -24,7 +24,7 @@ function with_exponent_range(f, emin, emax)
   end
 end
 const WIN = 2^30 - 1
-windows_range(f) = with_exponent_range(-WIN, WIN, f)
+windows_range(f) = with_exponent_range(f, -WIN, WIN)
 default_range(f) = f()
 
 exp_clong(n) = Clong(clamp(n, typemin(Clong), typemax(Clong)))

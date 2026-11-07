@@ -240,6 +240,8 @@ const DEFAULT_PHASE = "warm"
 function addcase!(cases, family, name, op, validate; inputs::NamedTuple, T=Float64, shape="", layout="dense",
                   phase=DEFAULT_PHASE, prepare=noop, evals=prepare===noop ? nothing : 1, profile=false, work=0,
                   zero_alloc=phase == DEFAULT_PHASE)
+    # The callbacks are only stored here. Not specializing on their types (one per closure) keeps the
+    # compiler from building this method once per closure in the unfiltered catalogs.
     @nospecialize op validate
     id = case_id(family, name, T, shape, layout, phase)
     all(digestable, inputs) || error("an input of $id has no logical digest")

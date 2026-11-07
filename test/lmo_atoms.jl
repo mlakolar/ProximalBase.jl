@@ -452,7 +452,9 @@ end
   # SingularValue keeps its own conjugate through the spectrum
   Y = randn(7, 5)
   @test Conjugate(SingularValue(IndBallL1(3.0)))(Y) ≈ 3 * opnorm_ref(Y)
-  @test Conjugate(SingularValue(IndBallL1(3.0)))(fill(NaN, 2, 2)) == Inf
+  # outside the finite matrices: NaN at a NaN entry and Inf at an infinite entry (E2 of the numerical contract, #384)
+  @test isnan(Conjugate(SingularValue(IndBallL1(3.0)))(fill(NaN, 2, 2)))
+  @test Conjugate(SingularValue(IndBallL1(3.0)))([1.0 Inf; 0.0 1.0]) == Inf
   # the spectral sets: finite domain, symmetric part
   S = Spectral(IndSimplex(2.0))
   A = with_eigenvalues(Float64, [-1.0, 0.0, 3.0])

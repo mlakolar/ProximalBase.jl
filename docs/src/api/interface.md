@@ -6,7 +6,7 @@ ProximalBase
 
 ```@autodocs
 Modules = [ProximalBase]
-Pages = ["interface.jl", "second_order.jl", "metric.jl", "caches.jl"]
+Pages = ["interface.jl", "lmo_atoms.jl", "second_order.jl", "metric.jl", "caches.jl"]
 Private = false
 Filter = t -> !(t in (iszeropreserving, ProximalBase.check_parameters,
   ProximalBase.entry_parameters, ProximalBase.check_symmetric_parameters))

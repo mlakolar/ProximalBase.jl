@@ -72,4 +72,4 @@ offdiag = sort([abs(Ŝ[i, j]) for j in 1:p for i in j+1:p], rev = true)
 kept = [(i, j) for j in 1:p for i in j+1:p if !iszero(Θ[i, j])]
 println("hard thresholding: ", nactive(Θ), " stored entries (", p, " diagonal, ", length(kept), " off-diagonal)")
 @assert length(kept) == s && nactive(Θ) == p + s && all(Θ[i, i] == Ŝ[i, i] for i in 1:p)
-@assert minimum(abs(Ŝ[i, j]) for (i, j) in kept) >= offdiag[s] && Θ == Θ'
+@assert minimum(abs(Ŝ[i, j]) for (i, j) in kept) >= offdiag[s] && issymmetric(Matrix(Θ))

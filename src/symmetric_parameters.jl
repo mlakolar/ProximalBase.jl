@@ -240,7 +240,9 @@ hessian_vec(f::Union{LinearFunction, SqrNormL2, KronQuadratic, Scaled, Tilt, Tra
             x::SymmetricSparseIterate, v::_ArrayOrOwner) = hessian_vec!(_gradient_buffer(x), f, x, v)
 
 # The constants of an owner, one per coordinate, are those of the entry at the lower position.
-function coordinate_lipschitz!(L::SymmetricSparseIterate, f::_OwnerSmooth)
+# the constants of the smooth families, and of the wrappers whose constants are those of the function inside
+const _OwnerLipschitz = Union{_OwnerSmooth, Scaled, Tilt, Translate, Regularize, Precompose, _ArrayPrecompose, Sum}
+function coordinate_lipschitz!(L::SymmetricSparseIterate, f::_OwnerLipschitz)
   _check_lipschitz_arrays(f, L)
   _checkparams(f, L)
   p = L.p

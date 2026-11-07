@@ -787,9 +787,9 @@ function _add_entries!(Hv::SymmetricSparseIterate, l, ::Type{R}, v) where {R}
   Hv
 end
 
-quadratic_model(h::Precompose, x::AbstractArray) =
+quadratic_model(h::Precompose, x::_ArrayOrOwner) =
   (_check_second_order_arrays(h, x); _quadratic_model_unchecked(h, x))
-function _quadratic_model_unchecked(h::Precompose, x::AbstractArray)
+function _quadratic_model_unchecked(h::Precompose, x::_ArrayOrOwner)
   f = _quadratic_model_unchecked(h.f, _image!(h, x))
   Precompose{typeof(f), typeof(h.A), typeof(h.μ)}(f, h.A, h.μ)
 end
@@ -798,9 +798,9 @@ quadratic_model(r::Regularize, x) =
 _quadratic_model_unchecked(r::Regularize, x) =
   (_checkparam(r.c, x); Regularize(_quadratic_model_unchecked(r.f, x), r.ρ, r.c))
 
-quadratic_model!(q::Precompose, h::Precompose, x::AbstractArray) =
+quadratic_model!(q::Precompose, h::Precompose, x::_ArrayOrOwner) =
   (_check_second_order_arrays(h, x); _quadratic_model_unchecked!(q, h, x))
-function _quadratic_model_unchecked!(q::Precompose, h::Precompose, x::AbstractArray)
+function _quadratic_model_unchecked!(q::Precompose, h::Precompose, x::_ArrayOrOwner)
   q.A === h.A && q.μ == h.μ || throw(ArgumentError("the model must come from the same Precompose"))
   _quadratic_model_unchecked!(q.f, h.f, _image!(h, x))
   q

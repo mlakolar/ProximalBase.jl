@@ -60,7 +60,7 @@ weighted lasso that majorizes `f` at `x` up to a constant, has the penalty
 
 The weights include the level `λ` and the entry or group weights of `f`; to
 keep the level apart, divide them by `λ` and use `NormL1(λ, w)`. `x` may be a
-[`SparseIterate`](@ref), a [`SymmetricSparseIterate`](@ref) (for the separable penalties `CappedL1`, `LogPenalty`, `MCP` and `SCAD`, with a dense `p × p`
+[`SparseIterate`](@ref), a [`SymmetricSparseIterate`](@ref) (for the separable penalties, with a dense `p × p`
 matrix `w`; the allocating form returns a `Matrix`) or an [`AtomIterate`](@ref). `lla_weights!` allocates nothing;
 `lla_weights(f, x)` allocates `w`.
 
@@ -146,8 +146,10 @@ lla_weights(f::AbstractFunction, x::AbstractArray) = lla_weights!(_gradient_buff
 
 # A SymmetricSparseIterate point: the weights are a dense p × p matrix, w[i] the weight of the matrix entry
 # at the linear index i = (c - 1)p + r, which an off-diagonal coordinate has at both of its positions. The
-# parameters of the penalty must be exactly symmetric, as for its value and its gradient.
-const _OwnerLLA = Union{CappedL1, LogPenalty, MCP, SCAD}
+# parameters of the penalty must be exactly symmetric, as for its value and its gradient, and are checked
+# before anything is written. The separable penalties have weights (`CappedL1`, `LogPenalty`, `MCP`, `SCAD`,
+# and `NormL1` itself); the others give the error of `lla_weight`.
+const _OwnerLLA = SeparableFunction
 function lla_weights!(w::AbstractMatrix, f::_OwnerLLA, x::SymmetricSparseIterate)
   eltype(w) <: Real || _real_error(:lla_weights!)
   _checksize(w, x)

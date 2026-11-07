@@ -26,6 +26,8 @@ _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!),
   (_checkreal(f, x); _checkreal(f, y); (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checksize(y, x); true)
 
 (f::ZeroFunction)(x::AbstractArray) = (_checkreal(f, x); zero(_valtype(x)))
+# the value at an owner, which a wrapper of ZeroFunction needs (its other oracles at an owner are the proximal operator)
+(f::ZeroFunction)(x::SymmetricSparseIterate) = (_checkreal(f, x); zero(_valtype(x)))
 
 function prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, ::Real)
   x = _symmetric_argument(y, x)

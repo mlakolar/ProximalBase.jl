@@ -8,7 +8,7 @@ state(x) = map(n -> deepcopy(getfield(x, n)), fieldnames(typeof(x)))
 
 @testset "Master type and shape errors precede parameter symmetry" begin
   W = ones(3, 3); W[2, 1] = 2.
-  x = fill!(SymmetricSparseIterate(3), .5)
+  x = SymmetricSparseIterate(3); fill!(coordinates(x), .5)
   for f in (NormL1(.1, W), Scaled(NormL1(.1, W), 2.), Tilt(NormL1(.1, W), zeros(3, 3)))
     before = state(x)
     e = try prox!(x, f, complex.(Matrix(x)), 1.); nothing catch e; e end
@@ -39,7 +39,8 @@ end
     x = SymmetricSparseIterate(X); before = state(x)
     e = try op(x, h, x, steps); nothing catch e; e end
     @test e isa ArgumentError
-    @test sprint(showerror, e) == "ArgumentError: per-group steps for Regularize do not support SymmetricSparseIterate outputs"
+    # a per-group step is not supported with an owner as the output, which is left as it was
+    @test occursin("is not supported with a SymmetricSparseIterate as the output", sprint(showerror, e))
     @test isequal(state(x), before)
   end
 end
@@ -170,8 +171,10 @@ end
     f = Conjugate(NormL1(.1, W)); y = copy(x); before = state(y)
     e = try op(y, f, x, γ); nothing catch e; e end
     @test e isa ArgumentError
-    @test e.msg == message
+    # an array step is refused at an owner output, before the parameters are read
+    @test γ isa Real ? e.msg == message : occursin("is not supported with a SymmetricSparseIterate as the output", e.msg)
     @test isequal(before, state(y))
+    γ isa Real || continue
     a = CountedValueArray(ones(3, 3)); h = Conjugate(NormL1(.1, a))
     a.reads[] = 0
     op(y, h, x, γ)
@@ -192,7 +195,8 @@ end
       ref = try op(similar(point), f, point, γ); nothing catch e; e end
       @test ref !== nothing
       for alias in (false, true)
-        input = copy(x); y = alias ? input : fill!(similar(x), 7.)
+        input = copy(x)
+        y = alias ? input : (z7 = similar(x); fill!(x isa SymmetricSparseIterate ? coordinates(z7) : z7, 7.); z7)
         before = snapshot(y); xbefore = snapshot(input)
         e = try op(y, h, input, γ); nothing catch e; e end
         @test typeof(e) === typeof(ref)

@@ -89,7 +89,8 @@ end
 
 # the reference: the proximal point at the symmetric part, over dense matrices
 function _check(name, f, V, Sx, γ)
-  ref = prox(f, Matrix(Sx), γ)
+  # the ℓ0 ball counts the coordinates of the lower triangle, a mirrored pair once
+  ref = prox(f, f isa IndBallL0 ? Symmetric(Matrix(Sx), :L) : Matrix(Sx), γ)
   # singular value functions are symmetric up to rounding
   norm(ref - ref') <= 1e-10 * (1 + norm(ref)) || return :nosymmetric
   ref = (ref + ref') / 2
@@ -100,7 +101,7 @@ function _check(name, f, V, Sx, γ)
   v = value_and_prox!(y2, f, V, γ)
   @test Matrix(y2) ≈ ref atol = 1e-10
   # the value of a conjugate of a conjugate is not implemented: compare when it is
-  fy = try f(Matrix(y2)) catch e; e isa ArgumentError ? nothing : rethrow() end
+  fy = try f(f isa IndBallL0 ? Symmetric(Matrix(y2), :L) : Matrix(y2)) catch e; e isa ArgumentError ? nothing : rethrow() end
   fy === nothing || @test isapprox(v, fy; atol = 1e-8, rtol = 1e-8) || isinf(v)
   :ok
 end

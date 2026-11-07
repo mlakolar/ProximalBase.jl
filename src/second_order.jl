@@ -666,9 +666,9 @@ _quadratic_model_unchecked(t::Tilt, x) = (_checkreal(t, x); _check_tilt_model(t,
 # a tuple of coefficients pairs with the point block by block
 _check_tilt_model(t::Tilt, x) = true
 _check_tilt_model(t::Tilt, x::Tuple) = _checkparam(t.c, x)
-quadratic_model(t::Translate, x::Union{AbstractArray, Tuple}) =
+quadratic_model(t::Translate, x::Union{_ArrayOrOwner, Tuple}) =
   (_check_second_order_arrays(t, x); _quadratic_model_unchecked(t, x))
-_quadratic_model_unchecked(t::Translate, x::Union{AbstractArray, Tuple}) = Translate(_quadratic_model_unchecked(t.f, _shifted(t, x)), t.b)
+_quadratic_model_unchecked(t::Translate, x::Union{_ArrayOrOwner, Tuple}) = Translate(_quadratic_model_unchecked(t.f, _shifted(t, x)), t.b)
 quadratic_model(s::Sum, x) =
   (_check_second_order_arrays(s, x); _quadratic_model_unchecked(s, x))
 _quadratic_model_unchecked(s::Sum, x) = Sum(map(f -> _quadratic_model_unchecked(f, x), s.fs)...)
@@ -683,9 +683,9 @@ _quadratic_model_unchecked!(q::Scaled, s::Scaled, x) = (_quadratic_model_uncheck
 quadratic_model!(q::Tilt, t::Tilt, x) =
   (_check_second_order_arrays(t, x); _quadratic_model_unchecked!(q, t, x))
 _quadratic_model_unchecked!(q::Tilt, t::Tilt, x) = (_checkreal(t, x); _check_tilt_model(t, x); _quadratic_model_unchecked!(q.f, t.f, x); q)
-quadratic_model!(q::Translate, t::Translate, x::Union{AbstractArray, Tuple}) =
+quadratic_model!(q::Translate, t::Translate, x::Union{_ArrayOrOwner, Tuple}) =
   (_check_second_order_arrays(t, x); _quadratic_model_unchecked!(q, t, x))
-_quadratic_model_unchecked!(q::Translate, t::Translate, x::Union{AbstractArray, Tuple}) = (_quadratic_model_unchecked!(q.f, t.f, _shifted(t, x)); q)
+_quadratic_model_unchecked!(q::Translate, t::Translate, x::Union{_ArrayOrOwner, Tuple}) = (_quadratic_model_unchecked!(q.f, t.f, _shifted(t, x)); q)
 quadratic_model!(q::Sum, s::Sum, x) =
   (_check_second_order_arrays(s, x); _quadratic_model_unchecked!(q, s, x))
 _quadratic_model_unchecked!(q::Sum, s::Sum, x) =

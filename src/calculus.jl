@@ -2768,6 +2768,15 @@ function _projection_check_conversion(y::AbstractArray{T}, z::AbstractArray{S}) 
   end
   true
 end
+# an owner: the entries of the staged matrix are converted to its type
+function _projection_check_conversion(y::SymmetricSparseIterate{T}, z::AbstractArray{S}) where {T, S}
+  if T !== S && _projection_host(z)
+    @inbounds for v in z
+      convert(T, v)
+    end
+  end
+  true
+end
 _projection_check_commit(y::AbstractArray, z::AbstractArray) = _projection_check_conversion(y, z)
 _projection_check_commit(y::SymmetricSparseIterate, z::AbstractArray) =
   (_check_axes(y, z) && _check_symmetric(z); _projection_check_conversion(y, z))

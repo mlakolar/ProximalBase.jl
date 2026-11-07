@@ -100,7 +100,8 @@ wrappers(f) = (f, Scaled(f, 2.), Tilt(f, zeros(2, 2)),
       end
     end
     rejects(y -> lla_weights!(y, f, x), fill(-7., 2, 2), message)
-    rejects(y -> lla_weights!(y, f, x), copy(x), message)
+    # the weights are written to a dense matrix: an owner is not an output of lla_weights!
+    @test_throws MethodError lla_weights!(copy(x), f, x)
     # Dense output retains the input's ordinary entrywise semantics.
     # (an owner point reads the parameters at every entry of its matrix: they must be declared and symmetric)
     @test prox!(zeros(2, 2), f, X, .1) ≈ prox(NormL1(1., f.w), X, .1)
@@ -181,13 +182,17 @@ end
 
 @testset "Built-in separable declaration inventory" begin
   # Walk the concrete families, including any future non-exported ones.
+  undeclared = Any[]
   for name in names(PB; all = true)
     F = getfield(PB, name)
     F isa Type && F <: SeparableFunction || continue
     isabstracttype(Base.unwrap_unionall(F)) && continue
+    # a union of types is not a function type: each of its members is walked on its own
+    F isa Union && continue
     method = which(PB.entry_parameters, (F,))
-    @test method !== which(PB.entry_parameters, (SeparableFunction,))
+    method === which(PB.entry_parameters, (SeparableFunction,)) && push!(undeclared, name)
   end
+  @test isempty(undeclared)
   for f in (NormL1(), NormL1Nonneg(), ElasticNet(.1, .2), CappedL1(.1, 1.),
             LogPenalty(.1, 1.), NormLq(.1, .5), Berhu(.1, 1.), CheckLoss(.3),
             HingeLoss(), SqrHingeLoss(), EpsInsensitiveLoss(.2), BernoulliLoss(.5),

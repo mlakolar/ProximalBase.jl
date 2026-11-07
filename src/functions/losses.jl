@@ -393,9 +393,9 @@ function _conjugate_value(f::SqrHingeLoss, s::AbstractArray)
     else
       _within(u / y, zero(u), T) || return T(Inf)
       # Add the linear and quadratic terms at one scale before rounding.
-      ms, es = frexp(u)
-      my, ey = frexp(y)
-      mw, ew = frexp(w)
+      ms, es = _frexp(u)
+      my, ey = _frexp(y)
+      mw, ew = _frexp(w)
       q, eq = ms / my, es - ey
       e = max(eq, 2eq - ew)
       z = ldexp(q, eq - e) + ldexp(q^2 / (4mw), 2eq - ew - e)
@@ -602,17 +602,17 @@ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::SqrHingeLoss,
   y, u, w = convert(R, _entry(f.y, i)), convert(R, v), _entry(f.w, i)
   isfinite(u) || return _ordinary_term_add(acc, f, v, i)
   r, e = _sqrhinge_residual(y, u)
-  mr, er = frexp(r)
+  mr, er = _frexp(r)
   _weighted_term_add(acc, w, _parts(mr * mr, 2 * (er + e)))
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::EpsInsensitiveLoss, v, i) where {R}
   u = convert(R, v)
   isfinite(u) || return _ordinary_term_add(acc, f, v, i)
-  _weighted_term_add(acc, _entry(f.w, i), frexp(max(abs(u) - convert(R, f.ε), zero(R))))
+  _weighted_term_add(acc, _entry(f.w, i), _frexp(max(abs(u) - convert(R, f.ε), zero(R))))
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CheckLoss, v, i) where {R}
   u = convert(R, v)
   isfinite(u) || return _ordinary_term_add(acc, f, v, i)
   τ = convert(R, f.τ)
-  _weighted_term_add(acc, _entry(f.w, i), _parts_product(frexp(u >= 0 ? τ : τ - 1), frexp(u)))
+  _weighted_term_add(acc, _entry(f.w, i), _parts_product(_frexp(u >= 0 ? τ : τ - 1), _frexp(u)))
 end

@@ -902,8 +902,8 @@ function _sumlargest_sum(v::AbstractVector{T}, k::Int, λ) where {T}
   @inbounds for i in 1:k
     s, e = _sumlargest_add(s, e, ldexp(v[i], -a))
   end
-  u, b = frexp(S(λ))
-  w, c = frexp(S(s + e))
+  u, b = _frexp(S(λ))
+  w, c = _frexp(S(s + e))
   convert(T, ldexp(u * w, a + b + c))
 end
 
@@ -949,13 +949,13 @@ function _sumlargest_parts(v::AbstractVector{T}, k::Int, λ) where {T}
   isfinite(m) || return nothing
   s, e = _sumlargest_ordered!(v, k)
   S = float(promote_type(T, typeof(λ)))
-  isfinite(s + e) && return _parts_product(frexp(S(λ)), frexp(S(s + e)))
+  isfinite(s + e) && return _parts_product(_frexp(S(λ)), _frexp(S(s + e)))
   a = exponent(m)
   s = e = zero(T)
   @inbounds for i in 1:k
     s, e = _sumlargest_add(s, e, ldexp(v[i], -a))
   end
-  _parts_product(frexp(S(λ)), _parts(S(s + e), a))
+  _parts_product(_frexp(S(λ)), _parts(S(s + e), a))
 end
 _has_value_parts(::Type{<:SumLargest}) = true
 # Exact-zero protection: the sum of the selected entries is compensated and loses nothing to underflow
@@ -1092,8 +1092,8 @@ function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val, shift::Int 
     end
     return y
   end
-  mg, eg = frexp(g)
-  ml, el = frexp(λ)
+  mg, eg = _frexp(g)
+  ml, el = _frexp(λ)
   m, e = mg * ml, eg + el + shift
   c = iszero(shift) ? _positive_product(g, λ, one(S)) : _scaled_product(g, λ, shift)
   t = zero(S)

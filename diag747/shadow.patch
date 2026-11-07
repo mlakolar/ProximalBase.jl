@@ -1,0 +1,19 @@
+diff --git a/src/ProximalBase.jl b/src/ProximalBase.jl
+index 8e1ebfcf..fcfe90cc 100644
+--- a/src/ProximalBase.jl
++++ b/src/ProximalBase.jl
+@@ -20,6 +20,14 @@ and mutating functions take their output first, as `mul!` does:
+ """
+ module ProximalBase
+ 
++# A function of this module with the name of Base's: it shadows Base.ldexp for every call in ProximalBase (Base.ldexp is
++# neither extended nor modified). Base's ldexp(::BigFloat, n) is the exact mpfr_mul_2si only for a Clong n; for any other
++# Integer it is x * exp2(BigFloat(n)), which overflows when 2^n alone leaves the range although x·2^n is representable and
++# rounds n itself at a low precision. A C long is 32 bits on Windows, where an Int shift is not a Clong. MPFR's exponent
++# range lies within a Clong, so a shift saturated at the Clong limits overflows or underflows exactly as it should.
++@inline ldexp(x, n) = Base.ldexp(x, n)
++@inline ldexp(x::BigFloat, n::Integer) = Base.ldexp(x, Clong(clamp(n, typemin(Clong), typemax(Clong))))
++
+ using LinearAlgebra
+ using SparseArrays
+ using LinearAlgebra: LAPACKException, checksquare

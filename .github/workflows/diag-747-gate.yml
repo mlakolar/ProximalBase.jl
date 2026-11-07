@@ -1,0 +1,86 @@
+name: diag-747-gate
+# Throwaway gate for issue #747, option C (never merged): a module-local ldexp in ProximalBase, applied to a clean master tree.
+on:
+  push:
+    branches: [diag/issue-747]
+jobs:
+  gate:
+    name: gate ${{ matrix.os }} julia ${{ matrix.julia }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-latest, julia: '1.10'}
+          - {os: windows-latest, julia: '1.13.3'}
+          - {os: ubuntu-latest, julia: '1.10'}
+          - {os: ubuntu-latest, julia: '1.13.3'}
+          - {os: macos-latest, julia: '1.13.3'}
+    defaults:
+      run:
+        shell: bash
+    env:
+      LABEL: ${{ matrix.os }}-julia-${{ matrix.julia }}
+    steps:
+      - name: line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.julia }}
+      - name: instantiate (no automatic precompilation)
+        run: JULIA_PKG_PRECOMPILE_AUTO=0 julia --project -e 'using Pkg; Pkg.instantiate(); println(VERSION)'
+      - name: the tree is master plus nothing
+        run: |
+          git status --short
+          git diff --stat -- src ext || true
+      - name: record Base.ldexp before ProximalBase is loaded
+        run: julia --project --color=no diag747/gate_before.jl before.txt 2>&1 | tee gate-before-$LABEL.txt
+      - name: apply the shadow (src/ProximalBase.jl only)
+        run: |
+          git apply --ignore-whitespace diag747/shadow.patch
+          git diff --stat
+          git diff -- src | head -40
+      - name: precompile from scratch (the package's cache removed, stderr captured)
+        continue-on-error: true
+        run: |
+          D=$(julia --startup-file=no -e 'print(replace(joinpath(DEPOT_PATH[1], "compiled", "v$(VERSION.major).$(VERSION.minor)", "ProximalBase"), "\\" => "/"))')
+          echo "removing the compiled cache $D"
+          ls "$D" 2>/dev/null || echo "(none existed)"
+          rm -rf "$D"
+          julia --project --color=no -e 'using Pkg; Pkg.precompile()' > precompile-$LABEL.txt 2>&1 && echo "precompile exit 0" >> precompile-$LABEL.txt || echo "precompile exit nonzero" >> precompile-$LABEL.txt
+          cat precompile-$LABEL.txt
+          if grep -iE 'ldexp|overwrit|conflict' precompile-$LABEL.txt; then echo "FAIL: precompile output mentions ldexp, overwriting or a conflict" | tee -a gate-extra-$LABEL.txt
+          else echo "PASS: precompile output has no ldexp, overwrit or conflict" | tee -a gate-extra-$LABEL.txt; fi
+          grep -q "precompile exit 0" precompile-$LABEL.txt && echo "PASS: precompile succeeded" | tee -a gate-extra-$LABEL.txt || echo "FAIL: precompile did not succeed" | tee -a gate-extra-$LABEL.txt
+          echo "WARNING lines in the precompile output: $(grep -c WARNING precompile-$LABEL.txt || true)" | tee -a gate-extra-$LABEL.txt
+      - name: load twice, after Base.MPFR
+        continue-on-error: true
+        run: |
+          julia --project --color=no -e 'using Base.MPFR; using ProximalBase; using ProximalBase; import ProximalBase; println("loaded twice; PB.ldexp = ", ProximalBase.ldexp)' > load-twice-$LABEL.txt 2>&1 && echo "PASS: loads twice" >> load-twice-$LABEL.txt || echo "FAIL: loading twice" >> load-twice-$LABEL.txt
+          cat load-twice-$LABEL.txt
+          grep -E "^(PASS|FAIL)" load-twice-$LABEL.txt >> gate-extra-$LABEL.txt
+          if grep -iE 'overwrit|conflict|ldexp.*WARNING|WARNING.*ldexp' load-twice-$LABEL.txt; then echo "FAIL: load output warns" | tee -a gate-extra-$LABEL.txt; else echo "PASS: load output has no overwrite or conflict warning" | tee -a gate-extra-$LABEL.txt; fi
+      - name: the gate
+        continue-on-error: true
+        run: julia --project --color=no diag747/gate.jl before.txt 2>&1 | tee gate-$LABEL.txt
+      - name: summary of the row
+        run: |
+          echo "ROW $LABEL"
+          echo "PASS count: $(cat gate-$LABEL.txt gate-extra-$LABEL.txt | grep -c '^PASS')"
+          echo "FAIL count: $(cat gate-$LABEL.txt gate-extra-$LABEL.txt | grep -c '^FAIL' || true)"
+          cat gate-$LABEL.txt gate-extra-$LABEL.txt | grep '^FAIL' || echo "no FAIL lines"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gate-${{ matrix.os }}-julia-${{ matrix.julia }}
+          path: |
+            gate-*.txt
+            precompile-*.txt
+            load-twice-*.txt
+            before.txt
+      - name: fail the row on any FAIL
+        run: |
+          if cat gate-$LABEL.txt gate-extra-$LABEL.txt | grep -q '^FAIL'; then echo "the gate has FAIL lines"; exit 1; fi
+          grep -q "== done" gate-$LABEL.txt

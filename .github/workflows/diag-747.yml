@@ -3,8 +3,7 @@ name: diag-747
 # Stage BASE: the test change only (the helper tests error where _scale_pow2 does not exist).
 # Stage HEAD: the test change and the src change of the fix branch.
 on:
-  push:
-    branches: [diag/issue-747]
+  workflow_dispatch:
 jobs:
   probe:
     name: probe ${{ matrix.os }}

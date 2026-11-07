@@ -25,7 +25,7 @@ def tgroup(t): return "BigFloat" if t.startswith("BigFloat") else t
 def family(k):
     t = k.split()
     if t[0] == "broad": return "broad:" + t[1]
-    if t[0].startswith("spectral:"): return t[0]
+    if t[0].startswith("spectral:") or t[0].startswith("logdet:"): return t[0]
     if t[0].startswith("fam="): return t[0][4:]
     if " _power_factors " in k or " _scaled_product " in k or " _scaled_product3 " in k or " _fused_equal_term " in k: return "helpers"
     return "NormL1Fused-core"
@@ -392,5 +392,30 @@ for k, vh in Wh.items():
 print("W-head value lines:", dict(ldc))
 print("of which changed from W-base:", dict(ldchg))
 for b_ in ldbad: print("   OUT", b_)
+
+# ---- rejection at the entry point against coverage
+print("\n== (6) families rejected at the entry point (a constructor or an input builder that throws), against families that were evaluated")
+for nm, D_ in (("W-head", Wh),):
+    mk = collections.defaultdict(collections.Counter)
+    allerr = collections.defaultdict(lambda: [0, 0, collections.Counter()])
+    harness = []
+    for k, v in D_.items():
+        if k.startswith("harness "): harness.append((k, v)); continue
+        if k.endswith(" make") and v.startswith("ERR"): mk[family(k)][(typ(k), v[4:])] += 1
+        elif k.endswith(" input") and v.startswith("ERR"): mk[family(k) + " (input builder)"][(typ(k), v[4:])] += 1
+        elif k.endswith(" value") and (k.startswith("broad ") or k.startswith("spectral:") or k.startswith("logdet:")):
+            e = allerr[family(k)]; e[0] += 1
+            if v.startswith("ERR"): e[1] += 1; e[2][v[4:]] += 1
+    print("%s: constructors or input builders that throw ('rejected at the entry point'):" % nm)
+    for f, c in sorted(mk.items()): print("   %-44s %s" % (f, dict(c)))
+    if not mk: print("   none")
+    rej = [(f, e) for f, e in sorted(allerr.items()) if e[0] and e[1] == e[0]]
+    print("%s: families built but whose every `value` line is an error (the method rejects the argument):" % nm)
+    for f, e in rej: print("   %-44s %d lines  %s" % (f, e[0], dict(e[2])))
+    if not rej: print("   none")
+    part = [(f, e) for f, e in sorted(allerr.items()) if e[0] and 0 < e[1] < e[0]]
+    print("%s: families with some `value` lines erroring (coverage with partial rejection): %d families; the first ones: %s"
+          % (nm, len(part), [(f, "%d/%d" % (e[1], e[0])) for f, e in part[:12]]))
+    print("%s: harness group failures (an error outside the row guards): %s" % (nm, harness if harness else "none"))
 
 print("== done")

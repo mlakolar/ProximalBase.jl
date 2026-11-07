@@ -4,14 +4,25 @@ if get(ENV, "EXPRANGE", "") == "win"
   Base.MPFR.set_emax!(2^30 - 1)
   Base.MPFR.set_emin!(-(2^30 - 1))
 end
-using ProximalBase, Random
+using ProximalBase, Random, SparseArrays
 const PB = ProximalBase
 out = open(ARGS[1], "w")
+atexit(() -> isopen(out) && close(out))
 fmt(v::BigFloat) = string(v)
 fmt(v::AbstractFloat) = repr(v)
 fmt(v::Union{Tuple,AbstractArray}) = "(" * join(map(fmt, v), ", ") * ")"
 fmt(v) = repr(v)
 rec(tag, g) = println(out, tag, " => ", try fmt(g()) catch err; "ERR " * string(typeof(err)) end)
+# a group of rows that fails as a whole (an error outside rec) prints one line and the run goes on with the next group
+function guard(name, f)
+  try
+    f()
+  catch err
+    println(out, "harness ", name, " => ERR ", typeof(err))
+    println(stderr, "harness group ", name, " failed: ", sprint(showerror, err))
+  end
+  flush(out)
+end
 
 function specials(T)
   [T(NaN), T(Inf), -T(Inf), zero(T), -zero(T), T(1), T(-1), T(0.5), T(3), nextfloat(zero(T)), floatmin(T),
@@ -225,7 +236,6 @@ function families()
          fam("HingeLoss", T -> HingeLoss()), fam("SqrHingeLoss", T -> SqrHingeLoss()), fam("EpsInsensitiveLoss", T -> EpsInsensitiveLoss(T(0.5))),
          fam("CappedL1", T -> CappedL1(T(0.5), T(2))), fam("LogPenalty", T -> LogPenalty(T(0.5), T(0.5))), fam("NormLq", T -> NormLq(T(0.5), T(0.5))),
          fam("GroupMCP", T -> GroupMCP(T(0.5), groups3())), fam("GroupSCAD", T -> GroupSCAD(T(0.5), groups3())))
-  # --- smooth functions (functions/smooth.jl, leastsquares.jl, glm.jl)
   # --- further families found by the audit of every exported type: SumLargest, BernoulliLoss, KronQuadratic, matrix sets,
   # IndGraph, the sparse iterates (value, prox, gradient where they exist; a constructor or method that rejects its argument
   # prints its error, which the comparison treats like any other result)
@@ -237,6 +247,7 @@ function families()
          fam("IndGraph", T -> IndGraph(T[1 0 1; 0 1 1]); kind = :graph),
          fam("Sparse-NormL1", T -> NormL1(T(0.5)); kind = :sparse), fam("Sparse-NormL2", T -> NormL2(T(0.5)); kind = :sparse),
          fam("SymSparse-NormL1", T -> NormL1(T(0.5)); kind = :symsparse))
+  # --- smooth functions (functions/smooth.jl, leastsquares.jl, glm.jl)
   push!(F, fam("SqrNormL2", T -> SqrNormL2(T(0.5))), fam("LinearFunction", T -> LinearFunction(T[1, -2, 3], T(1))),
          fam("QuadraticFunction", T -> QuadraticFunction(T[2 1 0; 1 2 1; 0 1 2], T[1, 2, 3], T(1))),
          fam("LeastSquaresLoss", T -> LeastSquaresLoss(T[1, 2, 3], T[1 0 1; 0 1 1; 1 1 0])),
@@ -281,8 +292,8 @@ function run_broad(T, label)
   for F in families()
     f = try F.make(T) catch err; (rec("broad $(F.name) $label make", () -> throw(err)); continue) end
     for (id, x0) in triples(T, 7 * F.stride)
-      x = input(Val(F.kind), x0)
       tag = "broad $(F.name) $label x=$id"
+      x = try input(Val(F.kind), x0) catch err; (rec("$tag input", () -> throw(err)); continue) end
       rec("$tag value", () -> f(x))
       prox_ok = try isproximable(f) catch; false end
       if prox_ok
@@ -408,42 +419,33 @@ function run_logdet()
     rec("$tag vgrad", () -> (G = similar(X); (value_and_gradient!(G, f, X), G)))
     rec("$tag prox", () -> prox(f, X, big(1)))
     rec("$tag vprox", () -> (Y = similar(X); (value_and_prox!(Y, f, X, big(1)), Y)))
+    rec("$tag hvec", () -> hessian_vec(f, X, X))
   end
 end
 
-run_type(Float32, "Float32")
-run_type(Float64, "Float64")
+guard("run_type Float32", () -> run_type(Float32, "Float32"))
+guard("run_type Float64", () -> run_type(Float64, "Float64"))
 for p in (2, 53, 256)
-  setprecision(BigFloat, p) do
-    run_type(BigFloat, "BigFloat$p")
-  end
+  guard("run_type BigFloat$p", () -> setprecision(() -> run_type(BigFloat, "BigFloat$p"), BigFloat, p))
 end
-run_families(Float32, "Float32")
-run_families(Float64, "Float64")
+guard("run_families Float32", () -> run_families(Float32, "Float32"))
+guard("run_families Float64", () -> run_families(Float64, "Float64"))
 for p in (2, 5, 53, 256)
-  setprecision(BigFloat, p) do
-    run_families(BigFloat, "BigFloat$p")
-  end
+  guard("run_families BigFloat$p", () -> setprecision(() -> run_families(BigFloat, "BigFloat$p"), BigFloat, p))
 end
 # LogDetLoss at a BigFloat X
 for p in (2, 3, 5, 53, 256)
-  setprecision(BigFloat, p) do
-    run_logdet()
-  end
+  guard("run_logdet BigFloat$p", () -> setprecision(() -> run_logdet(), BigFloat, p))
 end
 # the spectral families
 for T in (Float32, Float64), p in (2, 3, 5, 53, 256)
-  setprecision(BigFloat, p) do
-    run_spectral(T)
-  end
+  guard("run_spectral $T BigFloat$p", () -> setprecision(() -> run_spectral(T), BigFloat, p))
 end
 # the broad table
-run_broad(Float32, "Float32")
-run_broad(Float64, "Float64")
+guard("run_broad Float32", () -> run_broad(Float32, "Float32"))
+guard("run_broad Float64", () -> run_broad(Float64, "Float64"))
 for p in (2, 3, 5, 16, 53, 256)
-  setprecision(BigFloat, p) do
-    run_broad(BigFloat, "BigFloat$p")
-  end
+  guard("run_broad BigFloat$p", () -> setprecision(() -> run_broad(BigFloat, "BigFloat$p"), BigFloat, p))
 end
 close(out)
 println("wrote ", ARGS[1])

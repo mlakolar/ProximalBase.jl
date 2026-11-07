@@ -575,8 +575,8 @@ end
   (P = promote_type(W, float(typeof(γ)), float(typeof(λ))); _ridge_scaled(W, P(γ), P(λ)))
 
 Base.@assume_effects :effect_free :nothrow :terminates_globally @noinline function _ridge_scaled(::Type{W}, γ::P, λ::P) where {W, P}
-  mγ, eγ = frexp(γ)
-  mλ, eλ = frexp(λ)
+  mγ, eγ = _frexp(γ)
+  mλ, eλ = _frexp(λ)
   τ = convert(W, mγ * mλ)                    # in [1/4, 1]
   k = eγ + eλ
   if k > 0
@@ -1184,11 +1184,11 @@ function _kron_exact_sum(f::KronQuadratic, ::Type{AT}) where {AT}
     for k in 1:p
       d = D[k, j]
       iszero(d) && continue
-      md, ed = frexp(convert(AT, d))
+      md, ed = _frexp(convert(AT, d))
       for i in 1:p
         a = A[i, k]
         iszero(a) && continue
-        ma, ea = frexp(convert(AT, a))
+        ma, ea = _frexp(convert(AT, a))
         col[i] = _expsum_add(col[i], ma * md, ea + ed)
       end
     end
@@ -1202,7 +1202,7 @@ function _kron_exact_sum(f::KronQuadratic, ::Type{AT}) where {AT}
     for l in 1:q
       b = B[l, j]
       iszero(b) && continue
-      mb, eb = frexp(convert(AT, b))
+      mb, eb = _frexp(convert(AT, b))
       for i in 1:p
         m = M1[i, l]
         iszero(m) && continue

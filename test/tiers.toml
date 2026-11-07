@@ -16,6 +16,7 @@ quick = [
   "docstrings",
   "int32_exponents",
   "interface",
+  "ldexp_bigfloat",
   "readme",
   "tier_selection",
   "utils",

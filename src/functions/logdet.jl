@@ -225,9 +225,9 @@ end
 
 # Carry each root's exponent separately so that small roots retain their logs.
 @inline function _logdet_root_parts(h::T, e::Int, r::T) where {T}
-  iszero(h) && return frexp(r)
-  a, b = frexp(h)
-  c, d = frexp(r)
+  iszero(h) && return _frexp(r)
+  a, b = _frexp(h)
+  c, d = _frexp(r)
   # The large-step half matrix was divided by the step.
   if r > one(T)
     a *= c * c
@@ -237,17 +237,17 @@ end
   q = max(b, d)
   x, y = ldexp(a, b - q), ldexp(c, d - q)
   z, k = if h >= 0
-    frexp(x + hypot(x, y))
+    _frexp(x + hypot(x, y))
   else
     # Use the unscaled step mantissa even when y underflows.
-    frexp(c * (c / (hypot(x, y) - x)))
+    _frexp(c * (c / (hypot(x, y) - x)))
   end
   z, k + (h >= 0 ? q : 2d - q)
 end
 
 @noinline function _scaled_logdet_prox!(Y, f::LogDetLoss{T}, X, r::T) where {T}
   A = f.eig.A
-  c, d = frexp(r)
+  c, d = _frexp(r)
   ex = _magnitude_exponent(convert(T, _maximum_abs(X)))
   es = _magnitude_exponent(_maximum_abs(f.S))
   large = r > one(T)

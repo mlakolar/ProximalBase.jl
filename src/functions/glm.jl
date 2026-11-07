@@ -185,8 +185,8 @@ curvature(::IdentityBernoulli) = Inf
 @inline function _bernoulli_curvature(c::T, p::T) where {T<:AbstractFloat}
   p² = p * p
   p² >= floatmin(T) && return c / p²
-  mc, ec = frexp(c)
-  mp, ep = frexp(p)
+  mc, ec = _frexp(c)
+  mp, ep = _frexp(p)
   ldexp(mc / (mp * mp), ec - 2 * ep)
 end
 

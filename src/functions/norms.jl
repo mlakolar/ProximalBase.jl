@@ -1077,9 +1077,10 @@ isconvex(::Type{<:NormL1Fused}) = true
   _fused_level_fits(T, f.λ1) && _fused_level_fits(T, f.λ2)
 
 # Normalize weighted terms together, so subnormal contributions round once. The product that applies the
-# exponents is a parameter: NormL1Fused passes _scaled_product_exact, with its terms scaled by
+# exponents is a parameter: the value of NormL1Fused passes _scaled_product_exact, with its terms scaled by
 # _power_factors_exact (the exponents of a BigFloat are applied exactly where a C long is 32 bits, #747).
-# The other users (FiberSum, the ordered functions) keep the default, as their terms are scaled by _power_factors.
+# Every other user keeps the default, as their terms are scaled by _power_factors: FiberSum, the ordered
+# functions, and the parts of NormL1Fused, which wrappers (Scaled, Translate) restore with _scaled_product.
 @noinline function _fused_scaled_value(terms, k, ::Type{T}, product = _scaled_product) where {T}
   R = typeof(first(terms)[2])
   m, e = _fused_scaled_sum(terms, k, product)
@@ -1088,9 +1089,9 @@ isconvex(::Type{<:NormL1Fused}) = true
   convert(T, product(one(R), m, e))::T
 end
 # the same sum as a significand and an exponent (the scaled-value mechanism)
-function _fused_scaled_parts(terms, k, product = _scaled_product)
+function _fused_scaled_parts(terms, k)
   R = typeof(first(terms)[2])
-  m, e = _fused_scaled_sum(terms, k, product)
+  m, e = _fused_scaled_sum(terms, k)
   e == typemin(Int) ? (zero(R), 0) : _parts(m, e)
 end
 # the weighted terms as s 2^e, with e = typemin(Int) when every term is zero
@@ -1115,11 +1116,11 @@ function _fused_scaled_sum(terms, k, product = _scaled_product)
 end
 
 @noinline _recover_fused_pair(f, xy, ::Type{T}) where {T} =
-  _fused_scaled_value(_fused_pair_terms(f, xy, T)..., T, _scaled_product_exact)
-function _fused_pair_terms(f, xy, ::Type{T}) where {T}
+  _fused_scaled_value(_fused_pair_terms(f, xy, T, _power_factors_exact)..., T, _scaled_product_exact)
+function _fused_pair_terms(f, xy, ::Type{T}, power = _power_factors) where {T}
   R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
   k = _magnitude_exponent(max(abs(R(xy[1])), abs(R(xy[2]))))
-  scale = _power_factors_exact(R, -k)
+  scale = power(R, -k)
   u, v = _scale_value(R(xy[1]), scale), _scale_value(R(xy[2]), scale)
   ((f.λ1, abs(u) + abs(v)), (f.λ2, abs(u - v))), k
 end
@@ -1358,14 +1359,14 @@ end
   isinf(f.λ1) && return _fused_fixed_value(T, any(isnan, x), all(iszero, x))
   _fused_equal_entries(f) && return _fused_equal_value(f, x, T, ordinary)
   all(isfinite, x) && isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
-  _fused_scaled_value(_fused_vector_terms(f, x, T)..., T, _scaled_product_exact)
+  _fused_scaled_value(_fused_vector_terms(f, x, T, _power_factors_exact)..., T, _scaled_product_exact)
 end
-function _fused_vector_terms(f, x, ::Type{T}) where {T}
+function _fused_vector_terms(f, x, ::Type{T}, power = _power_factors) where {T}
   R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
   p, a, _ = _sortperm_fused!(f, x, R)
   n = length(x)
   k = _magnitude_exponent(_maximum_abs(x))
-  scale = _power_factors_exact(R, -k)
+  scale = power(R, -k)
   s1 = s2 = c1 = c2 = zero(R)
   @inbounds for i in 1:n
     u = _scale_value(a[p[i]], scale)
@@ -1392,8 +1393,8 @@ function _value_parts(f::NormL1Fused, x::AbstractVector, v)
   (iszero(f.λ1) && iszero(f.λ2)) && return nothing
   (isfinite(f.λ1) && isfinite(f.λ2) && all(isfinite, x)) || return nothing
   T = float(eltype(x))
-  length(x) == 2 && return _fused_scaled_parts(_fused_pair_terms(f, (x[1], x[2]), _valtype((x[1], x[2])))..., _scaled_product_exact)
-  _fused_scaled_parts(_fused_vector_terms(f, x, T)..., _scaled_product_exact)
+  length(x) == 2 && return _fused_scaled_parts(_fused_pair_terms(f, (x[1], x[2]), _valtype((x[1], x[2])))...)
+  _fused_scaled_parts(_fused_vector_terms(f, x, T)...)
 end
 
 @inline function _fused_vector_value(f, x, v1, v2, ::Type{T}) where {T}

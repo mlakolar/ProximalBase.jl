@@ -1396,4 +1396,65 @@ end
   end
 end
 
+
+####################################
+#  the parts of NormL1Fused keep their results (#747): Scaled and Translate restore them with the original _scaled_product
+####################################
+
+# Scaled(NormL1Fused(λ1, λ2), α) at a vector near floatmax, α = m·2^a: the unscaled value overflows, so Scaled takes the
+# parts of the value (_value_parts) and restores them with _apply_parts, whose product is the original _scaled_product. The
+# parts are the original ones, so these results are those of the original helpers on every platform. The reference is the
+# high-precision value of α λ1 Σ|xᵢ| (the vector has equal entries, so the fusion term is zero). Where a C long is as wide as
+# an Int the original helpers are exact and the value is in the envelope; where it is narrower (Windows) they round the
+# exponent, and what is asserted is the property of the original code that must be kept: no NaN, and Inf only where the
+# reference overflows or the original code returned Inf (the differential in the diagnostic holds those values equal).
+@testset "Scaled and Translate of NormL1Fused (finite fusion level): the value from parts keeps its class (#747)" begin
+  emax = Base.MPFR.get_emax()
+  q = emax ÷ 64
+  exact_shifts = sizeof(Clong) == sizeof(Int)
+  bad = String[]
+  ncase = Ref(0)
+  nfinite = Ref(0)
+  for p in (2, 5, 53, 256)
+    setprecision(BigFloat, p) do
+      M = floatmax(BigFloat)
+      for λ2 in (0.0, 0.5), λ1 in (1.0, 0.25), n in (2, 3), (m, a) in ((1.0, -16_777_217), (1.0, -q), (1.0, q), (1.0, -q - 1),
+                                                                           (1.0, q + 1), (0.75, -q), (1.0, -1), (1.0, 0))
+        x = fill(M, n)
+        g = NormL1Fused(BigFloat(λ1), BigFloat(λ2))
+        α = ldexp(BigFloat(m), Clong(a))
+        r, E = bfscaled(x, BigFloat(λ1))
+        r2 = setprecision(BigFloat, 4000) do
+          r * BigFloat(m)
+        end
+        E2 = E + a
+        cls = bfclass(r2, E2, p)
+        tag = "p=$p λ1=$λ1 λ2=$λ2 n=$n α=$m·2^$a"
+        ncase[] += 1
+        # one wrapper and the same wrapper nested, translated and nested again: the factors multiply
+        candidates = (("Scaled", Scaled(g, α), E2, r2),
+                      ("Scaled(Scaled)", Scaled(Scaled(g, ldexp(BigFloat(m), Clong(a ÷ 2))), ldexp(one(BigFloat), Clong(a - a ÷ 2))), E2, r2),
+                      ("Scaled(Translate)", Scaled(Translate(g, zeros(BigFloat, n)), α), E2, r2),
+                      ("Translate(Scaled)", Translate(Scaled(g, α), zeros(BigFloat, n)), E2, r2))
+        for (name, h, Eh, rh) in candidates
+          y = attempt(() -> h(x))
+          if !(y isa BigFloat) || isnan(y)
+            push!(bad, "$tag $name returned $(y isa BigFloat ? repr(y) : typeof(y))")
+          elseif cls === :inf
+            isinf(y) && y > 0 || push!(bad, "$tag $name = $(repr(y)), the reference overflows")
+          elseif exact_shifts
+            bfwithin(y, rh, Eh, p) || push!(bad, "$tag $name = $(repr(y)) is outside the envelope")
+            nfinite[] += 1
+          else
+            y >= 0 || push!(bad, "$tag $name = $(repr(y)) is negative")
+          end
+        end
+      end
+    end
+  end
+  @test isempty(bad)
+  isempty(bad) || (println(length(bad), " of ", ncase[], " cases differ, the first ones:"); foreach(println, first(bad, 8)))
+  @test ncase[] > 100 && (!exact_shifts || nfinite[] > 50)
+end
+
 end

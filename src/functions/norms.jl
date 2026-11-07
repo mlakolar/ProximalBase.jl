@@ -1557,7 +1557,9 @@ end
 # of the scaling: at a low precision the rounded sum of the scaled entries can restore past the range);
 # the accuracy is that of the compensated sum and of the quotient, no more. Not proved: a small residual
 # beside overflowing entries that cancel, where it is below the range of the scaled entries (the Float32
-# and Float64 method keeps it).
+# and Float64 method keeps it). The shifts go through _projection_l1_scale, an exact Clong ldexp for a
+# BigFloat: exponent is an Int64 and frexp an Int32 on Windows (C long is 32 bits), and an Int64 shift
+# would select ldexp's rounded exp2 fallback, which overflows or loses the power of two (#736).
 function _fused_finite_mean(x, ::Type{W}, n) where {W}
   s = c = m = zero(W)
   @inbounds for i in 1:n
@@ -1570,10 +1572,10 @@ function _fused_finite_mean(x, ::Type{W}, n) where {W}
   e = exponent(m)
   s = c = zero(W)
   @inbounds for i in 1:n
-    s, c = _compensated_add(s, c, ldexp(convert(W, x[i]), -e))
+    s, c = _compensated_add(s, c, _projection_l1_scale(convert(W, x[i]), -e))
   end
   fr, ex = frexp(s + c)
-  ldexp(fr / n, ex + e)
+  _projection_l1_scale(fr / n, ex + e)
 end
 
 # The mean of finite entries, for Float32 and Float64, in two levels. With 2^sh > n, an entry of

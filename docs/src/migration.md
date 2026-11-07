@@ -168,6 +168,18 @@ the earlier behavior applies.
     `prox(SparseGroupNormL2(Inf, 0.0, [1:2], [0.0]), [3.0, 4.0, 9.0], 0.0)` is
     `[0, 0, 9]`, where it was `[NaN, NaN, 9]`, and a NaN or infinite grouped
     entry gives `0` at a positive step, where it gave NaN.
+- **GLM losses** ([#358](https://github.com/mlakolar/ProximalBase.jl/issues/358)).
+  - An observation with weight zero takes no part. A NaN or infinite response,
+    offset or row of `X` in it no longer turns the value or the gradient of the
+    active observations into `Inf` or NaN.
+  - `SmoothCheck` computes its pieces as `τ(u - hτ/2)`, `(1 - τ)(-u - h(1 - τ)/2)`
+    and `(u/h)u/2`, and chooses the piece by `u/h` against `τ` and `-(1 - τ)`.
+    Where `τ²`, `u²`, `2h` or `hτ` left the range, the value and derivative are
+    now accurate: `SmoothCheck(1e-200, 1e300)` at `u = 2e100` gives `1.5e-100`,
+    where it gave `2e-100`, and an exact fit with a subnormal `h` has derivative
+    `0`, where it had `-τ`. Elsewhere the value can differ in the last bit, and a
+    residual within a rounding of a branch point can take the other piece (the
+    loss is continuously differentiable there).
 - **Infinite entries.** A bounded projection at an argument with one infinite
   entry returns its limit, where it returned NaN or a partly NaN block
   ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).

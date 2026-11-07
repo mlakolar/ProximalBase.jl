@@ -12,6 +12,8 @@ quick = [
   # loading, interface, traits and package quality
   "aqua",
   "ci_gate",
+  "ci_plan",
+  "ci_verdict",
   "compat",
   "docstrings",
   "exponent_sums",
@@ -187,6 +189,7 @@ thorough = [
   "symmetric_parameters_writes",
   "testing",
   "value_overflow_data",
+  "value_overflow_glm",
   "value_overflow_fused",
   "value_overflow_sqrnorm",
   "weighted_overflow",

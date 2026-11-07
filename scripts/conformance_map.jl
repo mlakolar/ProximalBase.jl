@@ -407,7 +407,7 @@ function main(args = ARGS)
     markdown, complete = coverage(root; run_id, omitted_files = omitted)
     if partial
       println("partial inventory: not the complete map (no report for ", join(omitted, ", "),
-        "); its rows, the executed broken-row counts and the report-file line are not compared")
+        "); the rows of its families, the executed broken-row counts and the report-file line are not compared")
     end
     if check
       view = partial ? md -> partial_view(md, [OMITTABLE_FILES[f] for f in omitted]) : normalize_provenance

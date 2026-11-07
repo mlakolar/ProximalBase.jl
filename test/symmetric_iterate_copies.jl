@@ -5,6 +5,8 @@ module SymmetricIterateCopiesTest
 # (narrowing and structural equality).
 
 using Test, ProximalBase, LinearAlgebra, SparseArrays, Random
+using JLArrays: JLArray
+using GPUArraysCore: allowscalar
 
 lower_positions(p) = [(r, c) for c in 1:p for r in c:p]
 
@@ -44,6 +46,18 @@ function destination(T = Float64, p = 4)
 end
 
 const ASYMMETRIC = "must be symmetric"
+
+# Matching sizes need not mean matching axes.
+struct ShiftedMatrix{T} <: AbstractMatrix{T}
+  data::Matrix{T}
+end
+Base.size(A::ShiftedMatrix) = size(A.data)
+Base.axes(A::ShiftedMatrix) = (0:size(A, 1)-1, 0:size(A, 2)-1)
+Base.getindex(A::ShiftedMatrix, r::Int, c::Int) = A.data[r+1, c+1]
+
+# the allocation of one call, after a warm-up call of the same types
+allocations(f::F, x::X, A::TA) where {F, X, TA} = (f(x, A); @allocated f(x, A))
+copy_into!(x, A) = copyto!(x, A)
 
 @testset "T10: copies and import" begin
   @testset "copy keeps the state and is independent" begin
@@ -477,6 +491,144 @@ end
       @test isactive(Y, 2) == active && nactive(Y) == (active ? 1 : 0)
       @test Y[2, 1] === (active ? Float32(v) : 0.0f0)
     end
+  end
+
+  @testset "sources of every size and element type, $T, p = $p" for T in (Float32, Float64), p in (0, 1, 3)
+    S = Float64[r + c for r in 1:p, c in 1:p]
+    lower = Symmetric(S + triu(ones(p, p), 1), :L)             # not symmetric as a matrix, symmetric as a triangle
+    N = copy(S)
+    p > 0 && (N[p, 1] = N[1, p] = NaN)
+    for src in (S, sparse(S), lower, Float32.(S), Symmetric(S), Hermitian(S, :L))
+      x = SymmetricSparseIterate(T, p)
+      fill!(coordinates(x), -1)                                  # every coordinate active before the import
+      @test copyto!(x, src) === x
+      @test Matrix(x) == convert(Matrix{T}, Matrix(src))
+      @test nactive(x) == count(!iszero, [S[r, c] for (r, c) in lower_positions(p)])
+    end
+    x = SymmetricSparseIterate(T, p)
+    @test copyto!(x, N) === x && isequal(Matrix(x), convert(Matrix{T}, N))
+    # a matrix of another shape is a dimension error, with the owner unchanged
+    for src in (ones(p^2 + 1), ones(p + 1, p + 1), ones(p^2), ones(p, p, 1))
+      rejects(y -> copyto!(y, src), x, DimensionMismatch)
+    end
+  end
+
+  @testset "structured sources and axes that are not those of the owner" begin
+    rng = MersenneTwister(14)
+    M = randn(rng, 4, 4)
+    F = Matrix(Symmetric(M))
+    v, w = randn(rng, 4), randn(rng, 3)
+    rejects(x -> copyto!(x, ShiftedMatrix(F)), destination(), DimensionMismatch)
+    @test_throws DimensionMismatch SymmetricSparseIterate(ShiftedMatrix(F))
+    # symmetric by type, or exactly symmetric: imported
+    for A in (Hermitian(M), Hermitian(M, :L), Diagonal(v), SymTridiagonal(v, w), Symmetric(M, :U), Matrix(Hermitian(M)))
+      x = destination()
+      @test copyto!(x, A) === x
+      @test Matrix(x) == Matrix(A)
+    end
+    # not symmetric: rejected before anything is written
+    for A in (Bidiagonal(v, w, :U), Bidiagonal(v, w, :L), UpperTriangular(M), LowerTriangular(M), Tridiagonal(w, v, w .+ 1))
+      rejects(x -> copyto!(x, A), destination(), ArgumentError, ASYMMETRIC)
+    end
+  end
+
+  @testset "a matrix formed from an orthogonal factor is a source like any other, $T" for T in (Float32, Float64)
+    # a reflector is symmetric, the factor of a general matrix is not
+    R = lmul!(qr(reshape(T[0, 1, 0], 3, 1)).Q, Matrix{T}(I, 3, 3))
+    @test R == transpose(R)
+    x = SymmetricSparseIterate(T, 3)
+    @test copyto!(x, R) === x && Matrix(x) == R
+    G = Matrix(qr(T[1 2 3; 4 5 6; 7 8 10]).Q)
+    @test G != transpose(G)
+    rejects(x -> copyto!(x, G), SymmetricSparseIterate(T, 3), ArgumentError, ASYMMETRIC)
+  end
+
+  @testset "a device source is read as it is for a matrix: imported, or refused with the owner unchanged, $T" for T in (Float32, Float64)
+    S = Float64[r + c for r in 1:3, c in 1:3]
+    src = JLArray(T.(S))
+    x = sample(T)
+    before = state(x)
+    err = try
+      copyto!(x, src)
+      nothing
+    catch e
+      e
+    end
+    if err === nothing
+      @test Matrix(x) == S
+    else
+      @test isequal(state(x), before)
+    end
+    @test allowscalar(() -> copyto!(x, src)) === x
+    @test Matrix(x) == S
+  end
+end
+
+@testset "#236: sources derived from the coordinates and from the view" begin
+  @testset "a source that shares memory is refused, whatever its shape, p = $p" for p in (2, 3)
+    q = p * (p + 1) ÷ 2
+    # the matrix of the reversed rows and columns, built from the coordinates, is symmetric: the refusal is for
+    # the shared memory, not for the content
+    reversed = [tril_index(p, max(p + 1 - r, p + 1 - c), min(p + 1 - r, p + 1 - c)) for c in 1:p for r in 1:p]
+    x = SymmetricSparseIterate(Float64, p)
+    copyto!(coordinates(x), Float64.(1:q))
+    sources = (reshape(view(coordinates(x), reversed), p, p), view(matrixview(x), p:-1:1, p:-1:1),
+               Symmetric(reshape(view(coordinates(x), reversed), p, p)))
+    for A in sources
+      @test Base.mightalias(x, A)
+      rejects(y -> copyto!(y, A), x, ArgumentError, "shares memory")
+    end
+    # a wrong shape is reported before the sharing
+    rejects(y -> copyto!(y, reshape(view(coordinates(y), reversed), 1, p * p)), x, DimensionMismatch)
+  end
+
+  @testset "a source derived from another owner is imported, and the import allocates nothing, p = $p" for p in (2, 4)
+    other = SymmetricSparseIterate(Symmetric(reshape(Float64.(1:p*p), p, p), :L))
+    perm = p:-1:1
+    indices = [tril_index(p, max(r, c), min(r, c)) for c in perm for r in perm]
+    A = reshape(view(coordinates(other), indices), p, p)
+    x = copy(other)
+    @test !Base.mightalias(x, A)
+    @test allocations(copy_into!, x, A) == 0
+    @test Matrix(copyto!(x, A)) == Matrix(other)[p:-1:1, p:-1:1]
+  end
+
+  @testset "aliasing hooks of the coordinates" begin
+    x = destination()
+    c = coordinates(x)
+    v = view(c, [10, 6, 6, 1])
+    A = reshape(v, 2, 2)
+    other = destination()
+    @test all(id -> id in Base.dataids(v), Base.dataids(x))
+    for source in (c, v, A, view(matrixview(x), [4, 1], [4, 1]))
+      @test Base.mightalias(x, source)
+    end
+    @test !Base.mightalias(x, reshape(view(coordinates(other), [10, 6, 6, 1]), 2, 2))
+    copies = map(Base.unaliascopy, (c, v, A))
+    snapshots = map(collect, (c, v, A))
+    for (source, copied, snapshot) in zip((c, v, A), copies, snapshots)
+      @test typeof(copied) === typeof(source)
+      @test axes(copied) == axes(source)
+      @test copied == snapshot
+      @test !Base.mightalias(x, copied)
+    end
+    # copying the coordinates keeps the state of the owner: the explicit zero and the order
+    @test isequal(state(copies[1].x), state(x))
+    @test isactive(copies[1].x, tril_index(4, 3, 2)) && copies[1].x[3, 2] == 0
+    fill!(coordinates(x), 19)
+    for (copied, snapshot) in zip(copies, snapshots)
+      @test copied == snapshot
+    end
+  end
+end
+
+@testset "an import allocates nothing from any source" begin
+  M = randn(MersenneTwister(15), 4, 4)
+  M = M + M'
+  S = SymmetricSparseIterate(M)
+  x = copy(S)
+  for A in (S, M, sparse(M), view(M, [4, 2, 3, 1], [4, 2, 3, 1]), view(M, :, :), Symmetric(M))
+    @test allocations(copy_into!, x, A) == 0
   end
 end
 

@@ -302,6 +302,27 @@ end
   end
 end
 
+@testset "scaling the owner by a number scales its coordinates, in place" begin
+  ops = (("rmul!", (x, s) -> rmul!(x, s)), ("lmul!", (x, s) -> lmul!(s, x)),
+         ("rdiv!", (x, s) -> rdiv!(x, s)), ("ldiv!", (x, s) -> ldiv!(s, x)))
+  @testset "$name, $T, p = $p" for (name, op) in ops, T in (Float32, Float64), p in (0, 1, 3)
+    S = T[r + c for r in 1:p, c in 1:p]
+    for s in (T(2), T(-0.5), 4)
+      x = copyto!(SymmetricSparseIterate(T, p), S)
+      ids = collect(activecoordinates(x))
+      expected = op(copy(S), s)                                  # the same call on the dense matrix
+      @test op(x, s) === x
+      @test Matrix(x) == expected
+      @test collect(activecoordinates(x)) == ids                 # the working set is not changed
+    end
+    # a complex number is refused before anything is written
+    x = copyto!(SymmetricSparseIterate(T, p), S)
+    before = state(x)
+    @test_throws ArgumentError op(x, 2im)
+    @test isequal(state(x), before)
+  end
+end
+
 @testset "show" begin
   @testset "two arguments: a short line, not the storage" begin
     p = 4

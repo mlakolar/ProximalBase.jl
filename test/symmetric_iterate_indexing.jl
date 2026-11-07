@@ -82,6 +82,17 @@ end
     @test A[3] == A[7] == -1.0
   end
 
+  @testset "a pair write returns the owner, and reads back at both positions" begin
+    for T in (Float32, Float64)
+      x = SymmetricSparseIterate(T, 2)
+      @test setindex!(x, 7, 1, 2) === x
+      @test x[2, 1] === T(7) && x[1, 2] === T(7)
+      @test setindex!(x, 8, 2, 1) === x && x[1, 2] === T(8)
+      @test setindex!(x, 9, Int8(2), Int8(2)) === x && x[2, 2] === T(9)
+      @test nactive(x) == 2
+    end
+  end
+
   @testset "pairs of any integer type, p = $p" for p in (0, 1, 3)
     types = (Int8, Int16, Int32, Int64, Int128, UInt8, UInt, UInt128, BigInt)
     for T in (Float32, Float64)

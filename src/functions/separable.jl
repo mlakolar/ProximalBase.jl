@@ -138,6 +138,81 @@ function _value_sep(f, x::AtomIterate)
   s
 end
 
+# The scaled-value mechanism for the built-in separable functions: the terms as significands and
+# exponents, summed in power-of-two frames (`_ExpSum`) over the entries that `_value_sep` visits,
+# in the type R of the entries and the parameters, with a level common to all the terms applied
+# last. `_entry_terms(acc, f, v, i)` adds the term of entry i, possibly as several parts that
+# may cancel, and returns `nothing` for an infinite term: the value is then not recovered.
+function _sep_value_parts(f, x::AbstractArray, ::Type{R}, level = nothing) where {R}
+  acc = _sep_terms(_expsum_start(R), f, x)
+  acc === nothing && return nothing
+  m, e = _expsum_pair(R, acc)
+  (level === nothing || iszero(m)) && return (m, e)
+  _parts_product(frexp(convert(R, level)), (m, e))
+end
+function _sep_terms(acc, f, x::AbstractArray)
+  @inbounds for i in eachindex(IndexLinear(), x)
+    acc = _entry_terms(acc, f, x[i], i)
+    acc === nothing && return nothing
+  end
+  acc
+end
+function _sep_terms(acc, f, x::SparseIterate)
+  iszeropreserving(f) || return invoke(_sep_terms, Tuple{Any, Any, AbstractArray}, acc, f, x)
+  @inbounds for k in 1:x.nnz
+    acc = _entry_terms(acc, f, x.nzval[k], x.nzval2ind[k])
+    acc === nothing && return nothing
+  end
+  acc
+end
+function _sep_terms(acc, f, x::SymmetricSparseIterate)
+  iszeropreserving(f) || return invoke(_sep_terms, Tuple{Any, Any, AbstractArray}, acc, f, x)
+  p = x.p
+  @inbounds for k in 1:x.nnz
+    r, c = tril_cartesian(p, x.nzval2ind[k])
+    v = x.nzval[k]
+    acc = _entry_terms(acc, f, v, (c - 1) * p + r)
+    acc === nothing && return nothing
+    if r != c
+      acc = _entry_terms(acc, f, v, (r - 1) * p + c)
+      acc === nothing && return nothing
+    end
+  end
+  acc
+end
+function _sep_terms(acc, f, x::AtomIterate)
+  iszeropreserving(f) || return invoke(_sep_terms, Tuple{Any, Any, AbstractArray}, acc, f, x)
+  @inbounds for a in 1:x.nactive, i in x.groups[x.active[a]]
+    acc = _entry_terms(acc, f, x.storage[i], i)
+    acc === nothing && return nothing
+  end
+  acc
+end
+# the term m 2^e, or `nothing` when it is not finite
+@inline function _term_add(acc::_ExpSum{R}, m, e::Integer) where {R}
+  m = convert(R, m)
+  isfinite(m) || return nothing
+  iszero(m) && return acc
+  fm, fe = frexp(m)
+  _expsum_add(acc, fm, Int(fe) + e)
+end
+@inline _term_add(acc::_ExpSum, p::Tuple) = _term_add(acc, p[1], p[2])
+# The term w φ, with φ given as parts and the weight w ≥ 0, and the conventions of
+# `_weighted_value`: a zero weight, or an infinite weight at φ = 0, gives zero; an infinite weight
+# at φ > 0 an infinite term.
+@inline function _weighted_term_add(acc::_ExpSum{R}, w, φ::Tuple) where {R}
+  (iszero(w) || iszero(φ[1])) && return acc
+  isfinite(w) || return nothing
+  _term_add(acc, _parts_product(frexp(convert(R, w)), φ))
+end
+# the parts of a finite nonzero real, in R
+@inline _rparts(::Type{R}, v) where {R} = frexp(convert(R, v))
+@inline _rparts(::Type{R}, p::Tuple) where {R} = (convert(R, p[1]), Int(p[2]))
+# the type of the parts: the entries' and the parameters'
+_sep_parts_type(x, params...) = promote_type(_valtype(x), map(_parts_eltype, params)...)
+_parts_eltype(p) = float(eltype(p))
+_parts_eltype(::Nothing) = Union{}
+
 # the proximal operator, entry by entry; y may be x
 _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Union{Real, AbstractArray}) = _prox_sep_dense!(y, f, x, γ)
 
@@ -231,6 +306,9 @@ Values follow the overflow rule in [Overflow and underflow of values](@ref).
 An infinite weight fixes the entry at
 zero at every level (the value is `Inf` away from zero), and a zero weight
 leaves it unpenalized at every level.
+An infinite level `λ0` at a positive step fixes every penalized entry (`wᵢ > 0`)
+at zero, so its output is `0` also where the argument is NaN or `±Inf`
+(decision 49). The value is `0` at the zero vector and stays NaN at a NaN entry.
 
 See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
@@ -258,7 +336,29 @@ Base.@propagate_inbounds function value_entry(f::NormL1, v::Real, i::Integer)
   ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
 end
 Base.@propagate_inbounds prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
-  shrink(v, _weight_product(float(T), γ, f.λ0, _entry(f.w, i)))
+  first(_l1_prox_threshold(v, γ, f.λ0, _entry(f.w, i), float(T)))
+
+# Whether the level and the step, as given, fix a penalized entry (w > 0) at zero whatever it holds,
+# NaN and ±Inf included (E4 before E2): an infinite level at a positive step, finite or Inf, where
+# the domain of the entry is {0}. Never decided from the threshold γλ0w, which overflows for finite
+# parameters (R3) and is 0⋅Inf at a zero step.
+@inline _l1_fixing(γ, λ) = (γ > 0) & isinf(λ)
+@inline _l1_fixed(γ, λ, w) = (w > 0) & _l1_fixing(γ, λ)
+
+# The scalar proximal operator and its threshold γλ0w, as _weight_product forms it. In the ordinary
+# range of γλ0, where the step and the level are finite and positive, no entry is fixed, and the loop
+# keeps the bare soft thresholding.
+Base.@propagate_inbounds function _l1_prox_threshold(v, γ, λ, w, ::Type{S}) where {S}
+  R = _working_type(S, γ, λ, w)
+  ab = convert(R, γ) * convert(R, λ)
+  if floatmin(R) <= ab <= floatmax(R)
+    t = convert(S, ab * convert(R, w))
+    return shrink(v, t), t
+  end
+  t = _weight_product(S, γ, λ, w)
+  r = shrink(v, t)
+  ifelse(_l1_fixed(γ, λ, w), zero(r), r), t
+end
 
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _kkt_coefficient(eltype(g), f.λ0, _entry(f.w, i)))
@@ -269,7 +369,10 @@ function (f::NormL1{<:Real, Nothing})(x::DenseArray{<:AbstractFloat})
   T = float(eltype(x))
   iszero(f.λ0) && return zero(T)
   _level_fits(T, f.λ0) || return _converted_l1_value(f.λ0, x)
-  v = convert(T, f.λ0) * sum(abs, x)
+  s = sum(abs, x)
+  # an infinite level fixes every entry at zero (E4): the value at the zero vector is 0, not Inf⋅0
+  isinf(f.λ0) && iszero(s) && return zero(T)
+  v = convert(T, f.λ0) * s
   isfinite(v) || !isfinite(f.λ0) || !all(isfinite, x) ? v : _value_dense(f, x)
 end
 
@@ -294,7 +397,7 @@ end
 
 The weighted ℓ1 norm restricted to the nonnegative orthant:
 `f(x) = λ0 Σᵢ wᵢ xᵢ` for `x ≥ 0`, and `Inf` otherwise, the penalty of the
-nonnegative lasso. Its proximal operator is `max(x - γλ0w, 0)`.
+nonnegative lasso. Its proximal operator is `max(x - γλ0w, 0)`. A NaN entry gives NaN.
 """
 struct NormL1Nonneg{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T
@@ -321,7 +424,9 @@ Base.@propagate_inbounds function value_entry(f::NormL1Nonneg, v::T, i::Integer)
     p = _positive_product(f.λ0, w, a)
     ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
   else
-    S(Inf)
+    # NaN depends on the entry at every level and weight, so it is not turned into the Inf of a
+    # failed membership test; one type for every branch
+    oftype(_positive_product(f.λ0, _entry(f.w, i), zero(S)), isnan(v) ? NaN : Inf)
   end
 end
 Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
@@ -334,7 +439,7 @@ restrict(f::NormL1Nonneg, S::AbstractVector{<:Integer}) = NormL1Nonneg(f.λ0, _r
 
 @inline _l1_value(::NormL1, v, a) = a * abs(v)
 @inline _l1_value(::NormL1Nonneg, v::T, a) where {T} =
-  ifelse(v >= -_tol(T), a * max(v, zero(T)), T(Inf))
+  ifelse(v < -_tol(T), T(Inf), a * max(v, zero(T)))
 
 @inline function _l1_value_sum(f, x::Array{T}, allow_zero::Bool) where {T<:Union{Float32,Float64}}
   s = zero(T)
@@ -466,25 +571,41 @@ end
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
 _has_ordinary_value(::Type{<:ElasticNet}) = true
-# z/(1 + γλ2) for the soft-thresholded z. While γλ2 is finite in W this is the division, as before.
-# Where it overflows W although both factors are finite, the scaled ridge of SqrNormL2 applies the
-# weight (R3), so that a coefficient that is not representable still acts on z.
-@inline function _elastic_ridge(::Type{W}, z, γ, λ2) where {W}
-  t = _typed_product(W, γ, λ2)
-  isfinite(t) ? z / (1 + t) : _elastic_ridge_wide(W, z, γ, λ2, t)
-end
+# z/(1 + γλ2) for the soft-thresholded z, where γλ2 overflows W although both factors are finite:
+# the scaled ridge of SqrNormL2 applies the weight (R3), so that a coefficient that is not
+# representable still acts on z.
 @noinline function _elastic_ridge_wide(::Type{W}, z, γ, λ2, t) where {W}
   _recoverable_factors(γ, λ2, one(W)) ? _ridge_apply(_ridge_scaled(W, γ, λ2), convert(W, z)) : z / (1 + t)
 end
-@inline function _elastic_slope(::Type{W}, γ, λ2) where {W}
-  t = _typed_product(W, γ, λ2)
-  isfinite(t) ? inv(1 + t) : _elastic_slope_wide(W, γ, λ2, t)
-end
 @noinline _elastic_slope_wide(::Type{W}, γ, λ2, t) where {W} =
   _recoverable_factors(γ, λ2, one(W)) ? _ridge_slope(_ridge_scaled(W, γ, λ2)) : inv(1 + t)
+# γ = Inf (P1): the projection onto the minimizers of λ1 w|z| + λ2 z²/2. Each part is decided from
+# its parameters (p1: λ1 > 0, p2: λ2 > 0) and the weight, not from γλ, which is 0·Inf for a zero
+# level (E4). With an active part the map is 0 on finite arguments, and an infinite or NaN entry
+# gives NaN (no joint limit, E1); a wrapper such as Tilt can pass a NaN it formed from the step,
+# which is not a NaN entry of the caller's argument. With no active part it is shrink(v, 0), as at
+# every finite step. An infinite weight fixes the entry as at every finite step.
+@inline function _elastic_infinite_step(v::T, p1::Bool, p2::Bool, w) where {T<:Real}
+  S = float(T)
+  l1 = isinf(w) | (p1 & (w > zero(w)))
+  shrink(v, ifelse(l1, S(Inf), zero(S))) / ifelse(p2, S(Inf), one(S))
+end
+@inline function _elastic_infinite_slope(v::T, p1::Bool, p2::Bool, w) where {T<:Real}
+  free = !(isinf(w) | (p1 & (w > zero(w))) | p2)
+  _elastic_infinite_step(v, p1, p2, w), _slope(free & (abs(v) > zero(v)), one(float(T)))
+end
+# While γλ2 is finite in S this is shrink(v, γλ1w)/(1 + γλ2), as before. A nonfinite γλ2 is the
+# trigger for both exceptions: an overflow at a finite step, and every γ = Inf.
 Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  _elastic_ridge(S, shrink(v, _weight_coefficient(S, γ, f.λ1, _entry(f.w, i))), γ, f.λ2)
+  w = _entry(f.w, i)
+  t = _typed_product(S, γ, f.λ2)
+  isfinite(t) || return _elastic_prox_wide(S, f, v, w, γ, t)
+  shrink(v, _weight_coefficient(S, γ, f.λ1, w)) / (1 + t)
+end
+@noinline function _elastic_prox_wide(::Type{S}, f::ElasticNet, v, w, γ, t) where {S}
+  γ == Inf && return convert(S, _elastic_infinite_step(v, f.λ1 > zero(f.λ1), f.λ2 > zero(f.λ2), w))
+  _elastic_ridge_wide(S, shrink(v, _weight_coefficient(S, γ, f.λ1, w)), γ, f.λ2, t)
 end
 
 kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) =
@@ -796,6 +917,29 @@ _value_sep(f::NormL0, x::SparseIterate) = invoke(_value_sep, Tuple{Any, SparseIt
 _value_sep(f::NormL0, x::SymmetricSparseIterate) = invoke(_value_sep, Tuple{Any, SymmetricSparseIterate}, f, x)
 _value_sep(f::NormL0, x::AtomIterate) = invoke(_value_sep, Tuple{Any, AtomIterate}, f, x)
 
+# The scaled-value mechanism: λ times the number of nonzero entries, in parts. A count of the entries
+# of a host IEEE array as above; the iterates and other arrays sum their terms.
+_has_value_parts(::Type{<:NormL0}) = true
+# Exact-zero protection: the value is λ, converted to the value type (where it must keep its range),
+# times a count or summed over the entries: one rounding of less than δ/2 per term, |f(x)| < n δ.
+_zero_value_exponent(f::NormL0, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO :
+  _level_fits(_valtype(x), f.λ) ? _underflow_exponent(_valtype(x), length(x)) : nothing
+function _value_parts(f::NormL0, x::AbstractArray, v)
+  (iszero(f.λ) || !isfinite(f.λ)) && return nothing
+  R = _sep_parts_type(x, f.λ)
+  if x isa _HostArray && eltype(x) <: Base.IEEEFloat
+    nz, nan = _count_nan_values(x)
+    nan && return nothing
+    iszero(nz) && return (zero(R), 0)
+    return _parts_product(_rparts(R, f.λ), _rparts(R, nz))
+  end
+  _sep_value_parts(f, x, R, f.λ)
+end
+@inline function _entry_terms(acc::_ExpSum{R}, f::NormL0, v, i) where {R}
+  isnan(v) && return nothing
+  iszero(v) ? acc : _term_add(acc, one(R), 0)
+end
+
 # The value from the count; a zero level is the stored one (E4), not the level converted to T, which can underflow.
 @inline function _l0_count_value(f::NormL0, ::Type{T}, nz, nan) where {T}
   nan && !iszero(f.λ) && return convert(T, NaN)
@@ -869,10 +1013,14 @@ MCP(λ::Real, a::Real = 3) = (p = promote(λ, a); MCP{typeof(p[1])}(p...))
 
 iszeropreserving(::MCP) = true
 
+# the penalty at t ≥ 0 (a NaN t takes the first branch)
+@inline _mcp_penalty(λ, a, t) = t <= a * λ ? λ * t - t^2 / (2a) : a * λ^2 / 2
+
 Base.@propagate_inbounds function value_entry(f::MCP, v::T, ::Integer) where {T<:Real}
   S = float(T)
   λ, a, t = S(f.λ), S(f.a), abs(S(v))
-  t <= a * λ ? λ * t - t^2 / (2a) : a * λ^2 / 2
+  iszero(f.λ) && return zero(S)               # the zero function, NaN included
+  t > a * λ ? a * λ^2 / 2 : λ * t - t^2 / (2a)   # a NaN entry takes the second branch
 end
 
 Base.@propagate_inbounds function prox_entry(f::MCP, v::T, i::Integer, γ::Real) where {T<:Real}
@@ -883,12 +1031,69 @@ Base.@propagate_inbounds function prox_entry(f::MCP, v::T, i::Integer, γ::Real)
     t > a * λ && return S(v)
     return sign(S(v)) * (t - s * λ) / (1 - s / a)
   end
-  # concave between 0 and aλ: the minimizer is 0 or the largest candidate
+  # The constant and free maps come first and are read from the parameters, not from their
+  # conversions: a zero level is the identity (E4); a step γ = Inf or an infinite level (the
+  # domain is {0}) gives 0. If aλ overflows in the working type the penalty is not representable
+  # (the old result is 0 at a finite entry, a NaN entry stays NaN).
+  iszero(f.λ) && return S(v)
+  (isinf(γ) | isinf(f.λ)) && return zero(S)
+  isinf(a * λ) && return t == t ? zero(S) : S(v)
+  # A NaN entry stays NaN (E2); it is told apart here, before the objective, because the strict
+  # comparison below must stay the base's: a NaN made by the arithmetic of the objective (overflow
+  # of λ², an infinite entry) selects 0 as before.
+  t != t && return S(v)
+  # concave between 0 and aλ: the minimizer is 0 or the largest candidate; h(0) = t²/(2s) because the
+  # penalty at 0 is 0
   u = max(t, a * λ)
-  h(z) = (z - t)^2 / (2s) + value_entry(f, z, i)
-  h(u) < h(zero(S)) ? sign(S(v)) * u : zero(S)
+  hu = (u - t)^2 / (2s) + _mcp_penalty(λ, a, u)
+  ifelse(hu < t^2 / (2s), sign(S(v)) * u, zero(S))
 end
 
+# The scaled-value mechanism: the pieces of the MCP and SCAD terms as parts, where neither aλ, t²
+# nor λ² need be representable; the tests between the pieces compare the same rounded products
+# as the ordinary value. The magnitude t is given as parts (mt, et), for the group penalties.
+@inline _parts_le(a::Tuple, b::Tuple) = iszero(a[1]) || (!iszero(b[1]) && (a[2] < b[2] || (a[2] == b[2] && a[1] <= b[1])))
+# a = Inf, which the constructors accept, is the limit of both penalties: λ t at every finite t (and an
+# infinite term at an infinite entry)
+@inline function _linear_limit_terms(acc::_ExpSum{R}, λ, t::Tuple) where {R}
+  t[2] >= typemax(Int) ÷ 8 && return nothing
+  _term_add(acc, _parts_product(_rparts(R, λ), t))
+end
+function _mcp_terms(acc::_ExpSum{R}, λ, a, t::Tuple) where {R}
+  iszero(t[1]) && return acc
+  isinf(a) && return _linear_limit_terms(acc, λ, t)
+  pλ, pa = _rparts(R, λ), _rparts(R, a)
+  if _parts_le(t, _parts_product(pa, pλ))
+    # λt - t²/(2a)
+    acc = _term_add(acc, _parts_product(pλ, t))
+    acc === nothing && return nothing
+    return _term_add(acc, -(t[1] * t[1]) / (2 * pa[1]), 2t[2] - pa[2])
+  end
+  # aλ²/2
+  q = _parts_product(pa, _parts_product(pλ, pλ))
+  _term_add(acc, q[1] / 2, q[2])
+end
+function _scad_terms(acc::_ExpSum{R}, λ, a, t::Tuple) where {R}
+  iszero(t[1]) && return acc
+  isinf(a) && return _linear_limit_terms(acc, λ, t)
+  pλ, pa = _rparts(R, λ), _rparts(R, a)
+  _parts_le(t, pλ) && return _term_add(acc, _parts_product(pλ, t))
+  if _parts_le(t, _parts_product(pa, pλ))
+    # (2aλt - t² - λ²) / (2(a - 1))
+    d = _parts(convert(R, a) - one(R), 1)
+    q = _parts_product(_parts_product(pa, pλ), t)
+    acc = _term_add(acc, q[1] / d[1], q[2] + 1 - d[2])
+    acc === nothing && return nothing
+    acc = _term_add(acc, -(t[1] * t[1]) / d[1], 2t[2] - d[2])
+    acc === nothing && return nothing
+    return _term_add(acc, -(pλ[1] * pλ[1]) / d[1], 2pλ[2] - d[2])
+  end
+  # λ²(a + 1)/2
+  q = _parts_product(_parts_product(pλ, pλ), _rparts(R, convert(R, a) + one(R)))
+  _term_add(acc, q[1] / 2, q[2])
+end
+# the magnitude of an entry as parts; an infinite one exceeds every other
+@inline _magnitude_parts(::Type{R}, u) where {R} = isinf(u) ? (one(R) / 2, typemax(Int) ÷ 4) : _rparts(R, abs(u))
 kkt_violation(f::MCP, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - f.λ)
 restrict(f::MCP, ::AbstractVector{<:Integer}) = f
 
@@ -916,12 +1121,19 @@ SCAD(λ::Real, a::Real = 3.7) = (p = promote(λ, a); SCAD{typeof(p[1])}(p...))
 
 iszeropreserving(::SCAD) = true
 
-Base.@propagate_inbounds function value_entry(f::SCAD, v::T, ::Integer) where {T<:Real}
-  S = float(T)
-  λ, a, t = S(f.λ), S(f.a), abs(S(v))
+# the penalty at t ≥ 0
+@inline function _scad_penalty(λ, a, t)
   t <= λ && return λ * t
   t <= a * λ && return (2a * λ * t - t^2 - λ^2) / (2 * (a - 1))
   λ^2 * (a + 1) / 2
+end
+
+Base.@propagate_inbounds function value_entry(f::SCAD, v::T, ::Integer) where {T<:Real}
+  S = float(T)
+  λ, a, t = S(f.λ), S(f.a), abs(S(v))
+  iszero(f.λ) && return zero(S)               # the zero function, NaN included
+  # a NaN entry fails t > λ and reaches λ * t
+  t > λ ? (t > a * λ ? λ^2 * (a + 1) / 2 : (2a * λ * t - t^2 - λ^2) / (2 * (a - 1))) : λ * t
 end
 
 Base.@propagate_inbounds function prox_entry(f::SCAD, v::T, i::Integer, γ::Real) where {T<:Real}
@@ -932,8 +1144,10 @@ Base.@propagate_inbounds function prox_entry(f::SCAD, v::T, i::Integer, γ::Real
     t > a * λ && return S(v)
     return sign(S(v)) * ((a - 1) * t - s * a * λ) / (a - 1 - s)
   end
-  # concave on [λ, aλ]: compare the minimizers of the three pieces
-  h(z) = (z - t)^2 / (2s) + value_entry(f, z, i)
+  # concave on [λ, aλ]: compare the minimizers of the three pieces; a zero
+  # level is the identity at every step
+  iszero(f.λ) && return S(v)
+  h(z) = (z - t)^2 / (2s) + _scad_penalty(λ, a, z)
   best, hb = zero(S), h(zero(S))
   for z in (min(max(t - s * λ, zero(S)), λ), a * λ, max(t, a * λ))
     hz = h(z)
@@ -944,3 +1158,31 @@ end
 
 kkt_violation(f::SCAD, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - f.λ)
 restrict(f::SCAD, ::AbstractVector{<:Integer}) = f
+
+_has_value_parts(::Type{<:Union{MCP, SCAD}}) = true
+# Exact-zero protection: the pieces λt - t²/(2a), aλ²/2, (2aλt - t² - λ²)/(2(a - 1)) and λ²(a + 1)/2
+# lose less than δ/2 in each product or square that underflows, and a later factor a, 1/(2a) or
+# 1/(2(a - 1)) multiplies that loss; a term is at most λ²(a + 1)/2, so a level that underflows
+# leaves only a negligible term. The levels must keep their range in the value type. With a = Inf
+# the ordinary value is λt - t²/Inf = λt (MCP) or λt where t <= λ (SCAD, NaN beyond: kept as NaN),
+# one product per term. A subnormal a of T would pass `_level_fits`, but 1/(2a) is then not below
+# 2^(1 - e(a)), so a must be a normal number in T (or Inf); a subnormal λ is harmless as for the
+# other levels, since a term is at most λ²(a + 1)/2.
+@inline _mcp_scad_amp(a) = isinf(a) ? 0 : 3 + max(0, _upper_exponent(a)) + max(0, 2 - _upper_exponent(a))
+_zero_value_exponent(f::Union{MCP, SCAD}, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO :
+  (_level_fits(_valtype(x), f.λ) && _level_fits(_valtype(x), f.a) && abs(convert(_valtype(x), f.a)) >= floatmin(_valtype(x))) ?
+    _underflow_exponent(_valtype(x), length(x), _mcp_scad_amp(convert(_valtype(x), f.a))) : nothing
+function _value_parts(f::Union{MCP, SCAD}, x::AbstractArray, v)
+  (iszero(f.λ) || !isfinite(f.λ) || isnan(f.a)) && return nothing
+  _sep_value_parts(f, x, _sep_parts_type(x, f.λ))
+end
+@inline function _entry_terms(acc::_ExpSum{R}, f::MCP, v, i) where {R}
+  u = convert(R, v)
+  isnan(u) && return nothing
+  _mcp_terms(acc, f.λ, f.a, _magnitude_parts(R, u))
+end
+@inline function _entry_terms(acc::_ExpSum{R}, f::SCAD, v, i) where {R}
+  u = convert(R, v)
+  isnan(u) && return nothing
+  _scad_terms(acc, f.λ, f.a, _magnitude_parts(R, u))
+end

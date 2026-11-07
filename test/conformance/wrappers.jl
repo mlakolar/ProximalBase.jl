@@ -63,7 +63,6 @@ using ..Conformance
     expected = pow2(Float64, 199)
     observed = Scaled(Translate(SqrNormL2(1.0), [0.0]), pow2(Float64, -1000))([pow2(Float64, 600)])
     compare = (a, b) -> within_ulps(a, b, 16)
-    broken = (group = :G7, baseline = Returned(v -> same(v, Inf)))
   end
   @row begin
     id = "wrappers.scaled-no-level"; case = ""; family = :wrappers; oracle = :value

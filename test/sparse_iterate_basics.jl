@@ -159,7 +159,9 @@ end
         dropzeros!(x)                   # the last active coordinate moves into the gap
         @test activecoordinates(x) == [2]
         @test ncoordinates(x) == 6
-        @test coordinates(x) === x
+        @test coordinates(x) !== x
+        @test coordinates(x) isa AbstractVector && length(coordinates(x)) == 6
+        @test collect(coordinates(x)) == Vector(x)
     end
 
     @testset "setindex! converts" begin
@@ -184,7 +186,8 @@ end
         @test norm(x, 1) == 7. && norm(x, Inf) == 4. && norm(x, 0) == 2.
         @test norm(x, -Inf) == 0.                     # the entries that are not stored count
         @test fill!(x, 0) === x
-        @test nnz(x) == 0 && Vector(x) == zeros(4)
+        @test nnz(x) == 2 && activecoordinates(x) == [2, 4] && Vector(x) == zeros(4)   # a value write
+        @test nnz(dropzeros!(x)) == 0
         fill!(x, 2.)
         @test Vector(x) == fill(2., 4)
     end
@@ -288,7 +291,7 @@ end
             before = copy(coef)
             dims = ndims(coef) == 1 ? (2,) : (2, size(coef, 2))
             reference = mul!(fill(NaN, dims...), M, coef)
-            @test isnan(reference[1]) && reference[2] == 8.
+            @test reference[1] == 2. && reference[2] == 8.      # the explicit zero at 1 meets Inf and contributes nothing (M1)
             if ndims(coef) == 2
                 @test reference[:, 2] == [-3., -5.]
                 @test all(iszero, view(reference, :, 3:size(coef, 2)))

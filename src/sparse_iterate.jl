@@ -11,6 +11,24 @@ coordinates (see [`ncoordinates`](@ref)) are its entries, in linear order.
 Setting an entry to zero keeps it in the list; call `dropzeros!` to remove
 stored zeros. The stored entries are the active coordinates
 ([`activecoordinates`](@ref)).
+
+Its entries are real. The constructors, two-argument `copyto!` from an array
+(for a matrix also from a `UniformScaling` or an orthogonal factor), `copy!`,
+broadcasting into `x` and `fill!` throw an `ArgumentError` for a source or value
+of complex type, even with a zero imaginary part, before anything is written.
+For a vector `x`, `vec(x)` and `reshape(x, length(x))` are `x` itself and are
+checked too. `copy!` from a source of another size throws Base's error first,
+unless the source is a `SparseIterate` or an [`AtomIterate`](@ref): one of the
+same length is copied by value in linear order, and one of another length throws
+a `DimensionMismatch`. The check reads types: a tuple, a generator or an array of abstract element type
+such as `Vector{Any}` passes it, and its values are converted one by one. Other
+writes also convert values one by one, as writes into a plain `Array` of the
+element type of `x` do: writes through a view, through `coordinates(x)`, through
+`vec` of a matrix or a
+`reshape` to another shape, indexed assignment such as `x[i] = v` or `x[:] = c`,
+`copyto!` with offsets or index ranges, and `map!`. A complex value converted
+one by one throws an `InexactError`, possibly after part of `x` has been
+written.
 """
 mutable struct SparseIterate{T, N} <: AbstractArray{T, N}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
@@ -43,19 +61,26 @@ position writes each off-diagonal entry twice, and the second write wins.
 Whole-value writes are checked: the constructor, `copyto!`, `copy!`,
 broadcasting into `x`, `map!`, `axpy!`, `axpby!`, `transpose!`, `adjoint!`,
 `permutedims!` and `mul!`. The checks also cover indexed array assignment of
-every position in order (`x[:, :] = A`, `x[:] = v`), and broadcasting and
-`fill!` into full, in-order views and reshapes (`x[:, :] .= A`, `vec(x) .= v`).
+every position in order (`x[:, :] = A`, `x[:] = v`), and broadcasting,
+`fill!`, `copyto!` and `copy!` into full, in-order views and reshapes
+(`x[:, :] .= A`, `vec(x) .= v`, `copyto!(view(x, :, :), A)`).
 The covered wrappers are views whose parent is `x`, reshapes whose parent is
-`x`, and views of those reshapes. Use `:` or integer vectors matching each
-axis in order for a full two-index assignment or a full matrix view. A full
-single-index assignment accepts `:`, the integers `1:length(x)` in order, or
-`CartesianIndices(x)` with its shape.
-`copyto!(x, Q)` from an orthogonal factor is checked too.
+`x`, and views of those reshapes; Base makes a view of such a view a view of
+`x`, and a reshape of a reshape a reshape of `x`. Use `:` or integer vectors
+matching each axis in order for a full two-index assignment or a full matrix
+view. A full single-index assignment accepts `:`, the integers `1:length(x)`
+in order, or `CartesianIndices(x)` with its shape.
+`copyto!(x, Q)` from an orthogonal factor is checked too, as is `copyto!`
+from one into a full matrix view or reshape.
 
 Matrix values must have the axes of `x` and be exactly symmetric: entries
 `(r, c)` and `(c, r)` are equal, with `NaN` equal to `NaN`, compared before
 conversion to the element type of `x`. Linear full writes reshape their values
 in column-major order for this check; `x[:] = v` requires `p²` values.
+`copyto!` into a full view or reshape reads its source in linear order, as
+Base does, so the source needs `p²` values and not the axes of `x`:
+`copyto!(view(x, :, :), vec(A))` writes the symmetric `A`, while
+`copyto!(x, vec(A))` throws.
 If the axes differ or symmetry fails, the checked writers throw a
 `DimensionMismatch` or an `ArgumentError` before writing anything. To store
 one triangle of a matrix `A` that is not symmetric, write `Symmetric(A, :L)`
@@ -77,10 +102,13 @@ unchanged, transposed and adjoint operands; other flags throw before writing.
 
 Indexed array assignment, broadcasting and `fill!` into part of `x`, such as
 a row, a column, a block or a partial mask, throw an `ArgumentError` before
-writing. Logical-mask indexed assignment is rejected even for an all-true
-mask. `copyto!` with offsets or index ranges (including transpose flags),
+writing. `copyto!` and `copy!` into such a part through a view throw before
+writing too.
+Logical-mask indexed assignment is rejected even for an all-true mask.
+`copyto!` with offsets or index ranges (including transpose flags),
 `copy_transpose!` and `copy_adjoint!` with index ranges, `copyto!` from a tuple, a
-generator or a number, and the indexed `axpy!` also throw before writing.
+generator or a number, and the indexed `axpy!` also throw before writing, as
+does `copyto!` with offsets into a view or reshape.
 Out-of-bounds indices still throw a `BoundsError`.
 
 The position-wise writers `reverse!`, `sort!`, `accumulate!`, `kron!` and
@@ -112,10 +140,12 @@ results. Allocating `lu`, `qr`, `cholesky` and `bunchkaufman` use dense copies.
 
 Other functions that write an arbitrary array position by position are not
 checked; apply them to `Matrix(x)`. Scalar-write loops over every position
-stay unchecked. Other writes through a view or reshape, such as `copyto!`
-into a view and scalar writes through a view, stay unchecked too. The checks
-do not extend to other nested wrappers, such as `vec(view(x, :, :))`,
-including broadcasts and fills through them.
+stay unchecked. Other writes through a view or reshape stay unchecked too:
+indexed assignment such as `view(x, :, :)[:, :] = A`, scalar writes through a
+view, `copyto!` with index ranges, and `copyto!` from a tuple, a generator, a
+number or another non-array iterator.
+The checks do not extend to other nested wrappers, such as `vec(view(x, :, :))`
+or a view of it, including broadcasts, fills and copies through them.
 Two-argument `copyto!(x, itr)` from other non-array iterators is unchecked.
 A Base function can write part of `x` before reaching a check. `rand!` and
 `randn!` give a symmetric matrix but draw each off-diagonal entry twice.
@@ -282,10 +312,24 @@ function isactive end
 """
     coordinates(x)
 
-A vector view of the coordinates of `x` (see [`ncoordinates`](@ref)): `x`
-itself for a [`SparseIterate`](@ref), whose coordinates are its entries in
-linear order, and the entries of the lower triangle for a
-[`SymmetricSparseIterate`](@ref). Writing through the view writes `x`.
+A vector view of the coordinates of `x` (see [`ncoordinates`](@ref)): the
+entries of a [`SparseIterate`](@ref) in linear order, whatever its shape, and the
+entries of the lower triangle for a [`SymmetricSparseIterate`](@ref). The view is
+an `AbstractVector` of length `ncoordinates(x)` indexed by coordinate, live (a
+later write to `x` shows through it) and writable, and building it copies
+nothing. It is never `x` itself.
+
+The view is an ordinary vector of the element type of `x`. A write through it is
+a value write: it activates the coordinates it makes nonzero and removes none,
+and converts the value as a write into a plain vector does, so a complex value
+throws an `InexactError`, possibly after part of `x` has been written; the view
+has no complex check of its own. Its products and reductions are those of an
+ordinary vector (IEEE, `O(length(x))`): for the sparse product use `x` itself, as
+in `dot(v, x)`. `copyto!(coordinates(x), coordinates(y))` is a value write, while
+`copyto!(x, y)` is the state copy. A `copyto!`, `copy!` or broadcast that takes both `x` and
+`coordinates(x)` copies the source once first, so that its result is that of copying
+the source before writing; other calls, such as `mul!` with the view as both output and
+input, behave as they do on an aliased plain vector.
 """
 function coordinates end
 
@@ -566,7 +610,36 @@ Base.IndexStyle(::Type{<:SparseIterate}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(x::SparseIterate, i::Int) = _getstored(x, i)
 Base.@propagate_inbounds Base.setindex!(x::SparseIterate, v, i::Int) = _setstored!(x, v, i)
 
-coordinates(x::SparseIterate) = x
+# the coordinates of x, its entries in linear order, as a vector
+struct SparseCoordinates{T, N} <: AbstractVector{T}
+  x::SparseIterate{T, N}
+end
+
+# the error is built from x, so that the view does not escape on the checked path
+@noinline _coordinates_boundserror(x::SparseIterate, i) = throw(BoundsError(SparseCoordinates(x), i))
+
+Base.size(c::SparseCoordinates) = (length(c.x),)
+Base.IndexStyle(::Type{<:SparseCoordinates}) = IndexLinear()
+Base.@propagate_inbounds function Base.getindex(c::SparseCoordinates, i::Int)
+  @boundscheck (1 <= i <= length(c.x)) || _coordinates_boundserror(c.x, i)
+  @inbounds _getstored(c.x, i)
+end
+Base.@propagate_inbounds function Base.setindex!(c::SparseCoordinates, v, i::Int)
+  @boundscheck (1 <= i <= length(c.x)) || _coordinates_boundserror(c.x, i)
+  @inbounds _setstored!(c.x, v, i)
+  c
+end
+
+# aliasing hooks from Base (non-public functions): the view overlaps x, and an aliased
+# source is copied first
+Base.dataids(c::SparseCoordinates) = Base.dataids(c.x)
+Base.unaliascopy(c::SparseCoordinates) = coordinates(copy(c.x))
+
+# the value is converted as for a plain vector of the element type, then written as
+# fill!(x, v) writes it: a zero goes to the stored entries only
+Base.fill!(c::SparseCoordinates{T}, v) where {T} = (fill!(c.x, convert(T, v)); c)
+
+@inline coordinates(x::SparseIterate{T, N}) where {T, N} = SparseCoordinates{T, N}(x)
 
 ## similar
 #
@@ -637,14 +710,96 @@ Base.Array(x::SparseIterate{T, 1}) where {T} = Vector(x)
 Base.Array(x::SparseIterate{T, 2}) where {T} = Matrix(x)
 
 
+# Between iterates of the same size, a state copy. Another shape of the same length is
+# a value write in linear order, as from any other array.
 function Base.copyto!(x::SparseIterate, y::SparseIterate)
-    size(x) == size(y) || throw(DimensionMismatch())
-    _copyto_stored!(x, y)
+    _checkreal_broadcast(x, y)
+    size(x) == size(y) && return _copyto_stored!(x, y)
+    _check_iterate_lengths(x, y)
+    invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
+end
+Base.copy!(x::SparseIterate, y::SparseIterate) = copyto!(x, y)
+
+# A copy between two array iterates of different lengths throws before writing.
+_check_iterate_lengths(x, y) = length(x) == length(y) ||
+    throw(DimensionMismatch("destination has length $(length(x)), source has length $(length(y))"))
+
+# The check reads the element type and runs before anything is written; a source
+# of abstract element type converts entry by entry, as in Base.
+function Base.copyto!(x::SparseIterate, y::AbstractArray)
+  _checkreal_broadcast(x, y)
+  invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
+end
+# Resolve ambiguities with SparseArrays: each runs the method that applies without the check.
+@static if isdefined(@__MODULE__, :_AbstractSparseMatrixCSC)
+  function Base.copyto!(x::SparseIterate{<:Any, 2}, y::_AbstractSparseMatrixCSC)
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix, _AbstractSparseMatrixCSC}, x, y)
+  end
+  function Base.copyto!(x::SparseIterate{T, 2}, y::Union{Adjoint{<:Any, <:_AbstractSparseMatrixCSC},
+                                                         Transpose{<:Any, <:_AbstractSparseMatrixCSC}}) where {T}
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
+  end
+end
+# Newer SparseArrays also specializes matrix views and transposed sparse vectors.
+@static if isdefined(@__MODULE__, :_SparseMatrixCSCOrView)
+  function Base.copyto!(x::SparseIterate{T, 2}, y::_SparseMatrixCSCOrView) where {T}
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
+  end
+end
+@static if isdefined(@__MODULE__, :_AdjOrTransSparseVectorOrView)
+  function Base.copyto!(x::SparseIterate{T, 2}, y::_AdjOrTransSparseVectorOrView) where {T}
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
+  end
+end
+@static if isdefined(@__MODULE__, :_CHOLMODDense)
+  function Base.copyto!(x::SparseIterate, y::_CHOLMODDense)
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractArray, _CHOLMODDense}, x, y)
+  end
+  @static if isdefined(@__MODULE__, :_CHOLMODVTypes)
+    function Base.copyto!(x::SparseIterate{T}, y::_CHOLMODDense{T}) where {T<:_CHOLMODVTypes}
+      _checkreal_broadcast(x, y)
+      invoke(copyto!, Tuple{AbstractArray{T}, _CHOLMODDense{T}}, x, y)
+    end
+    function Base.copyto!(x::SparseIterate{T, 2}, y::_CHOLMODDense{T}) where {T<:_CHOLMODVTypes}
+      _checkreal_broadcast(x, y)
+      invoke(copyto!, Tuple{AbstractArray{T, 2}, _CHOLMODDense{T}}, x, y)
+    end
+  end
+end
+# I and orthogonal factors are not arrays, so their element type is checked here.
+function Base.copyto!(x::SparseIterate{<:Any, 2}, y::UniformScaling)
+  !(eltype(y) <: Complex) || _real_error(:SparseIterate)
+  invoke(copyto!, Tuple{AbstractMatrix, UniformScaling}, x, y)
+end
+@static if isdefined(@__MODULE__, :_AbstractQ)
+  function Base.copyto!(x::SparseIterate{<:Any, 2}, y::_AbstractQ)
+    !(eltype(y) <: Complex) || _real_error(:SparseIterate)
+    invoke(copyto!, Tuple{AbstractMatrix, _AbstractQ}, x, y)
+  end
 end
 
 function Base.copyto!(x::SparseIterate, bc::Broadcast.Broadcasted{Nothing})
   _checkreal_broadcast(x, bc)
-  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{Nothing}}, x, bc)
+  _broadcast_loop!(x, bc)
+end
+
+# A broadcast into an array iterate is the explicit loop over the unaliased
+# right-hand side: Base's loop without its shortcut to copyto!(x, y), which would
+# make x .= y a state copy when y is an iterate of the same kind. For a matrix the
+# loop runs over Cartesian indices, in linear order.
+@inline function _broadcast_loop!(x::AbstractArray, bc::Broadcast.Broadcasted{Nothing})
+  axes(x) == axes(bc) ||
+    throw(DimensionMismatch("destination axes $(axes(x)) do not match the broadcast axes $(axes(bc))"))
+  bc′ = Broadcast.preprocess(x, bc)
+  @inbounds for I in eachindex(bc′)
+    x[I] = bc′[I]
+  end
+  x
 end
 
 function Base.copyto!(x::_StoredIterate, bc::Broadcast.Broadcasted{S}) where {S<:Broadcast.DefaultArrayStyle{0}}
@@ -652,13 +807,19 @@ function Base.copyto!(x::_StoredIterate, bc::Broadcast.Broadcasted{S}) where {S<
   invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{S}}, x, bc)
 end
 
-# fill!(x, 0) removes the stored entries, as zeros are not stored
-function Base.fill!(x::SparseIterate, v)
-  if iszero(v)
-    _clear!(x)
+# fill! is a value write: the value is checked and converted first, and a zero is
+# written into the stored entries, which stay stored (dropzeros!(fill!(x, 0))
+# removes them)
+function Base.fill!(x::SparseIterate{T}, v) where {T}
+  _checkreal_broadcast(x, v)
+  s = convert(T, v)
+  if iszero(s)
+    @inbounds for k in 1:x.nnz
+      x.nzval[k] = s
+    end
   else
     @inbounds for i in eachindex(x)
-      x[i] = v
+      x[i] = s
     end
   end
   x
@@ -754,6 +915,12 @@ end
 
 ## multiplication
 
+# In the products and inner products below, a zero coefficient of the iterate,
+# stored or not, contributes nothing, even against ±Inf or NaN in the other
+# operand (numerics M1): each kernel tests the stored value, before any scaling
+# by α, so that an α·c that underflows still multiplies and α = Inf does not
+# turn a zero coefficient into NaN.
+
 function *(A::StridedMatrix{Ta}, x::SparseIterate{Tx, 1}) where {Ta,Tx}
   _checkreal(x, A)
     m, n = size(A)
@@ -774,8 +941,10 @@ function LinearAlgebra.mul!(out::StridedVector, A::StridedMatrix, coef::SparseIt
   iszero(α) && return out
   scale = _product_scale(A, coef, α)
   @inbounds for inz = 1:nnz(coef)
+    v = coef.nzval[inz]
+    iszero(v) && continue
     indColumn = coef.nzval2ind[inz]
-    c = scale * coef.nzval[inz]
+    c = scale * v
     @simd for i = 1:size(A, 1)
       out[i] += c*A[i, indColumn]
     end
@@ -807,8 +976,10 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIt
   if 32 * nnz(coef) <= length(coef)
     p = size(coef, 1)
     @inbounds for inz = 1:nnz(coef)
+      v = coef.nzval[inz]
+      iszero(v) && continue
       j, k = mod1(coef.nzval2ind[inz], p), cld(coef.nzval2ind[inz], p)
-      c = scale * coef.nzval[inz]
+      c = scale * v
       @simd for i = 1:size(A, 1)
         out[i, k] += c * A[i, j]
       end
@@ -817,7 +988,9 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIt
     @inbounds for k = 1:size(coef, 2), j = 1:size(coef, 1)
       pos = coef.ind2nzval[j, k]
       pos == 0 && continue
-      c = scale * coef.nzval[pos]
+      v = coef.nzval[pos]
+      iszero(v) && continue
+      c = scale * v
       @simd for i = 1:size(A, 1)
         out[i, k] += c * A[i, j]
       end
@@ -865,7 +1038,8 @@ function LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::SparseI
   iszero(α) && return out
   scale = _product_scale(A, x, α)
   @inbounds for k in 1:x.nnz
-    _symmetric_axpy!(out, A, x.nzval2ind[k], scale * x.nzval[k])
+    v = x.nzval[k]
+    iszero(v) || _symmetric_axpy!(out, A, x.nzval2ind[k], scale * v)
   end
   out
 end
@@ -880,8 +1054,10 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::_StridedSymmetric, x::SparseI
   scale = _product_scale(A, x, α)
   p = size(x, 1)
   @inbounds for k in 1:x.nnz
+    v = x.nzval[k]
+    iszero(v) && continue
     j, col = mod1(x.nzval2ind[k], p), cld(x.nzval2ind[k], p)
-    _symmetric_axpy!(view(out, :, col), A, j, scale * x.nzval[k])
+    _symmetric_axpy!(view(out, :, col), A, j, scale * v)
   end
   out
 end
@@ -908,11 +1084,16 @@ function LinearAlgebra.mul!(out::StridedVector, trans_a::TransposedStridedMatrix
     length(out) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of out is $(length(out))"))
 
     iszero(α) && return _scale_product_output!(out, β)
+    # No nonzero coefficient: the sum is empty, and out becomes β·out as on the strided
+    # path, also for an α of Inf or NaN. The test stops at the first nonzero coefficient.
+    any(!iszero, view(coef.nzval, 1:nnz(coef))) || return _scale_product_output!(out, β)
     scale = _product_scale(A, coef, α)
     @inbounds for j = 1:size(A, 2)
         s = zero(eltype(out))
         @simd for inz = 1:nnz(coef)
-            s += A[coef.nzval2ind[inz], j] * coef.nzval[inz]
+            v = coef.nzval[inz]
+            t = A[coef.nzval2ind[inz], j] * v
+            s += ifelse(iszero(v), zero(t), t)    # a select, not a branch, keeps the loop vectorized
         end
         out[j] = iszero(β) ? scale * s : scale * s + β * out[j]
     end
@@ -927,18 +1108,23 @@ function LinearAlgebra.dot(v::StridedVector, coef::SparseIterate{<:Any, 1})
     length(v) == length(coef) || throw(DimensionMismatch())
     s = zero(promote_type(eltype(v), eltype(coef)))
     @inbounds @simd for icoef = 1:nnz(coef)
-        s += dot(v[coef.nzval2ind[icoef]], coef.nzval[icoef])
+        c = coef.nzval[icoef]
+        t = dot(v[coef.nzval2ind[icoef]], c)
+        s += ifelse(iszero(c), zero(t), t)    # a select, not a branch, keeps the loop vectorized
     end
     s
 end
 LinearAlgebra.dot(coef::SparseIterate{<:Any, 1}, v::StridedVector) = dot(v, coef)
 
+# Both operands are iterates, so a zero of either contributes nothing.
 function LinearAlgebra.dot(x::SparseIterate{<:Any, 1}, y::SparseIterate{<:Any, 1})
     length(x) == length(y) || throw(DimensionMismatch())
     nnz(x) > nnz(y) && return dot(y, x)
     s = zero(promote_type(eltype(x), eltype(y)))
     @inbounds for k = 1:nnz(x)
-        s += dot(x.nzval[k], y[x.nzval2ind[k]])
+        a, b = x.nzval[k], y[x.nzval2ind[k]]
+        t = dot(a, b)
+        s += ifelse(iszero(a) | iszero(b), zero(t), t)    # a select: a branch on the data mispredicts
     end
     s
 end
@@ -950,8 +1136,10 @@ function LinearAlgebra.dot(a::StridedVector, X::SparseIterate{<:Any, 2}, b::Stri
   m = size(X, 1)
   s = zero(promote_type(eltype(a), eltype(X), eltype(b)))
   @inbounds for k = 1:nnz(X)
+    v = X.nzval[k]
+    iszero(v) && continue
     i = X.nzval2ind[k]
-    s += a[mod1(i, m)] * X.nzval[k] * b[cld(i, m)]
+    s += a[mod1(i, m)] * v * b[cld(i, m)]
   end
   s
 end
@@ -1751,6 +1939,59 @@ function Base.fill!(dest::_SymmetricBroadcastDest, v)
   fill!(x, v)
   dest
 end
+
+# copyto! through a full view or reshape uses the checked matrix writer. As in
+# Base, the source is read in linear order and needs the length, not the axes, of
+# the destination. A source with the axes of x keeps its own copyto! method.
+const _SymmetricArrayDest{T} = Union{_SymmetricView{T}, _SymmetricReshape{T}, _SymmetricReshapeView{T}}
+const _SymmetricMatrixDest{T} = Union{_SymmetricView{T, 2}, _SymmetricReshape{T, 2}, _SymmetricReshapeView{T, 2}}
+function _copyto_symmetric!(dest, src)
+  x = _checked_symmetric_parent(dest, "copyto!")
+  length(src) == length(dest) || throw(DimensionMismatch(
+    "copyto! source has $(length(src)) values and the destination has $(length(dest))"))
+  _copyto_reshaped!(x, src)
+  dest
+end
+_copyto_reshaped!(x, src) = axes(src) == axes(x) ? copyto!(x, src) : copyto!(x, reshape(src, size(x)))
+Base.copyto!(dest::_SymmetricBroadcastDest, src::AbstractArray) = _copyto_symmetric!(dest, src)
+# Resolve the sparse-source and factorization ambiguities, as for x itself.
+@static if isdefined(@__MODULE__, :_AbstractSparseMatrixCSC)
+  Base.copyto!(dest::_SymmetricMatrixDest, src::_AbstractSparseMatrixCSC) = _copyto_symmetric!(dest, src)
+  Base.copyto!(dest::_SymmetricMatrixDest, src::Union{Adjoint{<:Any,<:_AbstractSparseMatrixCSC},
+                                                    Transpose{<:Any,<:_AbstractSparseMatrixCSC}}) =
+    _copyto_symmetric!(dest, src)
+end
+@static if isdefined(@__MODULE__, :_SparseMatrixCSCOrView)
+  Base.copyto!(dest::_SymmetricMatrixDest, src::_SparseMatrixCSCOrView) = _copyto_symmetric!(dest, src)
+end
+@static if isdefined(@__MODULE__, :_AdjOrTransSparseVectorOrView)
+  Base.copyto!(dest::_SymmetricMatrixDest, src::_AdjOrTransSparseVectorOrView) = _copyto_symmetric!(dest, src)
+end
+@static if isdefined(@__MODULE__, :_CHOLMODDense)
+  Base.copyto!(dest::_SymmetricBroadcastDest, src::_CHOLMODDense) = _copyto_symmetric!(dest, src)
+  @static if isdefined(@__MODULE__, :_CHOLMODVTypes)
+    Base.copyto!(dest::_SymmetricArrayDest{T}, src::_CHOLMODDense{T}) where
+        {T<:_CHOLMODVTypes} = _copyto_symmetric!(dest, src)
+    Base.copyto!(dest::_SymmetricMatrixDest{T}, src::_CHOLMODDense{T}) where
+        {T<:_CHOLMODVTypes} = _copyto_symmetric!(dest, src)
+  end
+end
+# LinearAlgebra writes an identity before applying Q, so form the value in a buffer.
+function Base.copyto!(dest::_SymmetricMatrixDest, Q::_AbstractQ)
+  x = _checked_symmetric_parent(dest, "copyto!")
+  A = Matrix{promote_type(eltype(dest), eltype(Q))}(I, size(dest))
+  lmul!(Q, A)
+  _copyto_reshaped!(x, A)
+  dest
+end
+# Offsets copy part of the values, even when they cover every position.
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, ::AbstractArray) = _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, ::AbstractArray, ::Integer) = _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, ::AbstractArray, ::Integer, ::Integer) =
+  _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, src) = _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, src, ::Integer) = _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, src, ::Integer, ::Integer) = _throw_partial("copyto! with offsets")
 
 # Transposition and dimension permutation still require exactly symmetric values.
 LinearAlgebra.transpose!(x::SymmetricSparseIterate, A::AbstractMatrix) = copyto!(x, transpose(A))

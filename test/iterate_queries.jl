@@ -3,6 +3,9 @@ module IterateQueriesTest
 using Test
 using ProximalBase
 using SparseArrays
+using LinearAlgebra
+
+const PT = ProximalBase.Testing
 
 function check_query_copies(x)
   result = findnz(x)
@@ -79,6 +82,72 @@ end
       dropzeros!(x)
       @test collect(zip(activecoordinates(x), nonzeros(x))) == [(6, T(4)), (4, T(-3))]
       @test findnz(x) == findnz(sparsevec([6, 4], T[4, -3], 7))
+    end
+  end
+end
+
+
+# FT01: coordinates(x) of a SparseIterate is a coordinate-vector view, for both shapes
+@testset "coordinates of a SparseIterate" begin
+  ws(x) = collect(activecoordinates(x))
+  x = SparseIterate(Float64, 2, 3)
+  y = SparseIterate(Float64, 2, 3); y[1, 1] = 3
+  v = SparseIterate(4); v[1] = 1
+  w = SparseIterate([1.0, 2.0, 3.0, 4.0])
+
+  c = coordinates(x)
+  @test c isa AbstractVector{Float64}
+  @test length(c) == 6 == ncoordinates(x)
+  @test axes(c, 1) == 1:6
+  @test c !== x
+  c[4] = 2.0                        # 4 = (2 - 1) * 2 + 2, by hand
+  @test x[2, 2] == 2.0
+  @test ws(x) == [4]
+  activate!(x, 6)
+  @test x[2, 3] == 0.0 && ws(x) == [4, 6]
+  @test_throws BoundsError c[7]
+  @test_throws BoundsError c[0] = 1.0
+  err = try c[7]; catch e; e; end
+  @test err isa BoundsError && err.a isa AbstractVector && length(err.a) == 6 && err.i == 7
+
+  cv = coordinates(v)
+  @test cv isa AbstractVector{Float64} && cv !== v
+  @test length(cv) == 4 && cv[1] == 1
+  cv[3] = 5
+  @test v[3] == 5
+  @test Base.dataids(c) == Base.dataids(x)
+  @test Base.mightalias(c, x) && !Base.mightalias(c, y) && !Base.mightalias(c, coordinates(y))
+
+  # products through the view are ordinary-vector products (IEEE), unlike those of x
+  @test isnan(dot([1, NaN, 0, 0], cv))
+  @test isnan(dot([1, NaN, 0, 0, 0, 0], c))
+  @test dot([1, NaN, 0, 0], v) == 1.0
+
+  # a copy between two views is a value write, not a state copy
+  copyto!(coordinates(x), coordinates(y))
+  @test ws(x) == [4, 6, 1]
+  @test Array(x) == [3.0 0 0; 0 0 0]
+  @test ws(y) == [1]
+
+  # an aliased import copies the source first
+  copyto!(w, coordinates(w))
+  @test Vector(w) == [1, 2, 3, 4]
+  w = SparseIterate([1.0, 2.0, 3.0, 4.0])
+  copyto!(w, 2, coordinates(w), 1, 3)
+  @test Vector(w) == [1, 1, 2, 3]
+
+  # the view is live and independent of the state copies
+  z = SparseIterate(Float64, 2, 3); cz = coordinates(z)
+  z[1, 2] = 7
+  @test cz[3] == 7
+  copyto!(z, y)
+  @test cz[1] == 3 && cz[3] == 0
+
+  # building the view allocates nothing
+  @testset "$T" for T in (Float32, Float64)
+    for shape in ((5,), (2, 3))
+      a = SparseIterate(T, shape...); a[2] = 1
+      @test PT.allocations(coordinates, a) == 0
     end
   end
 end

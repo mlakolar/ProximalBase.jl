@@ -42,6 +42,9 @@ extended suite adds `Constrained(SqrNormL2, IndHyperplane)` with per-entry steps
 and cold calls) and a scalar-step control (`layout=constrained`).
 The matrix group includes partial/full decompositions and fallback inputs.
 Construction plus first use is measured separately from workspace reuse.
+The sparse operands of the `products` group hold exactly density × N nonzeros, rounded to the
+nearest integer and at least 1 (N the number of entries), at random positions drawn from their
+own scenario keys, so the `work` of a case is the same in every repetition.
 
 The `owner` group measures `SymmetricSparseIterate` (reads, writes, first activation,
 coordinate sweeps, `mul!` (also with half of the stored coordinates explicit zeros), the
@@ -61,6 +64,8 @@ iterate-family design, the cases of the
 `baselines/iterate-family-0.5.md`. The FD-7 handle sweeps that `owner` once held are the
 `sweep_activecoordinates` cases of these groups. [Iterate-family groups](#iterate-family-groups)
 lists the fixtures and the rows that need a note.
+The inputs of that baseline and the tools that regenerate it are described in
+[`baselines/tools/README.md`](baselines/tools/README.md).
 
 For example, select matrix operations across the extended input sizes:
 
@@ -76,14 +81,18 @@ to independently checked accuracy on physical GPU hardware.
 
 `benchmark/check_only.jl` builds the same cases and runs every selected case's reference checks
 and warm-up, without timing it. It does what `measure!` does before and after the timed trial:
-`validate()`, three `prepare(); op()` rounds and the allocation probe. A case with an automatic
-evaluation count then gets two samples of ten evaluations and `validate()` again. The cases run
-in the measurement order of the repetition. The script reads `PB_SUITE`, `PB_GROUPS`,
+`validate()` and the digests of the case's read-only inputs, three `prepare(); op()` rounds and the
+allocation probe. A case with an automatic evaluation count then gets two samples of ten
+evaluations. Every case then has its inputs compared with their digests, and a case with an
+automatic evaluation count gets `validate()` again (see [Read-only inputs](#read-only-inputs)).
+The cases run in the measurement order of the repetition. The script reads `PB_SUITE`, `PB_GROUPS`,
 `PB_CASES`, `PB_REPETITION` and `PB_EXPECTED_PACKAGE_ROOT`. With `PB_OUTPUT` set, it writes
 `check-rep<NN>-errors.tsv` there: every failure with its exception and full stack trace, written
 and flushed as it occurs, so a timeout keeps what was recorded. It prints the ID of every failing
 case and exits with status 1 if any case fails. `benchmark/check_only_test.jl` tests the driver on
-synthetic cases in a few seconds.
+synthetic cases and the read-only input checks on a few real cases, then runs
+`benchmark/cases_test.jl`, which tests the sparse operands of the `products` cases and runs their
+reference checks for repetitions 1–10.
 
 ```sh
 JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/check_only.jl
@@ -91,12 +100,13 @@ PB_SUITE=extended PB_GROUPS=products,sparse,atom,owner JULIA_NUM_THREADS=1 \
   julia --project=benchmark benchmark/check_only.jl
 ```
 
-CI runs the driver's tests and the quick suite (693 cases, about a minute) on Julia lts and 1
-whenever the package tests run or the benchmark harness changes, and uploads the errors file of a
-failing run as the artifact `benchmark-check-errors-<version>-<attempt>`. The extended suite
-(5,195 cases, about four minutes) is a manual run; its `products,sparse,atom,owner` cases need
-about 16 GB of memory in one process. The script includes `run.jl` unchanged, so it does not
-change the harness hash of a baseline.
+CI runs the driver's tests and the quick suite (839 cases) on Julia lts and 1 whenever the package
+tests run or the benchmark harness changes, and uploads the errors file of a failing run as the
+artifact `benchmark-check-errors-<version>-<attempt>`. On recent pull-request runs, CI's step for
+the driver's tests took 15–73 s and its quick-suite step between about 1.5 and 4 minutes. The extended suite
+(5,540 cases) is a manual run; its `products,sparse,atom,owner` cases need about 16 GB of memory
+in one process. `check_only.jl` is not part of the harness hash, which covers `run.jl` and
+`cases.jl`.
 
 ## Iterate-family groups
 
@@ -114,10 +124,14 @@ A new case in `sparse`, `atom` or `owner` must keep these rules:
   (`storage`) to a write through `atom(x, k)`, and the layout-cache reset of `samegroups`
   (`layout_cache`) to no reset. The row keeps its ID and measures the other path.
 - It is checked against an independent reference built from the harness's own data (a dense
-  array, a CSC matrix, a formula), never against the kernel under test. A product starts from a
+  array, a CSC matrix, a formula), never against the kernel under test. A reference that depends on
+  an array the operation reads is computed when the case is built. A product starts from a
   sentinel output, so that a call that does nothing cannot pass. Where 0.5.x and 0.6 differ (the
   working set after a clear, the inactive entries after `rmul!(x, Inf)`), only the values both
   agree on are checked.
+- It declares its read-only inputs (see [Read-only inputs](#read-only-inputs)): the shared working
+  iterate only where the case leaves it logically unchanged, and the snapshot that `prepare`
+  restores it from where the case changes it.
 - A case that changes state restores it in `prepare`, outside the timed region, and runs with
   `evals = 1`. Every first activation takes distinct absent coordinates or groups, and the
   restore asserts that none is active.
@@ -275,6 +289,27 @@ and unexpected warmed allocations. Single-run ratios are exploratory. Failed
 checks, missing repetitions, unmatched cases or incompatible settings prevent
 a comparison and retain diagnostics. An interval containing one is inconclusive.
 
+To compare only some repetitions, name them with `--reps` after the positional
+arguments, each as a number `k` or an inclusive range `a-b`:
+
+```sh
+python3 benchmark/compare.py benchmark/results/before benchmark/results/after \
+  benchmark/results/comparison --expected-runs 10 --reps 6-10
+```
+
+`--reps 6-10`, `--reps 6 7 8 9 10` and `--reps 6-8 --reps 9 10` are the same
+selection; `--reps 1-3 7` is allowed. A repetition outside `1..N` for
+`--expected-runs N`, one named twice (also through overlapping ranges) or a
+reversed range is an error. Both directories are still validated whole: every
+repetition `1..N` must exist and be valid, also those not compared. Everything
+except `settings.json` uses only the chosen repetitions: coverage, the
+timer-limited rule, the unexpected-allocation flag, the intervals and the
+timing outcomes, and `paired_runs` is the number chosen (one chosen repetition
+is a single run). Below its title, `REPORT.md` names the compared
+repetitions, for example `Repetitions compared: 6-10 (5 of the 10 per Julia
+version in each directory).`, and `coverage.json` lists them under
+`repetitions`; both are present without `--reps` as well.
+
 `check_bounds` and `os` are compared separately for each Julia version present on both sides;
 values of different versions are never compared. Two different known values in any version
 reject the comparison, and `errors.json` names each version and key. A record older than these
@@ -334,8 +369,9 @@ A measurement is timer-limited when `median_ns * evals < K * timer_floor_ns`
 `evals` is also timer-limited. Older records can be summarized but fail record
 validation. Both analysis tools accept `--timer-limit-multiple K` (positive and finite; default 10). Any limited
 repetition marks the case/version's `timer_limited` column; comparisons check
-both sides. A ratio gate must filter on `timer_limited`. Comparisons retain
-ratios, intervals and allocation warnings, with a `timer-limited` assessment.
+both sides over the compared repetitions only. A ratio gate must filter on
+`timer_limited`. Comparisons retain ratios, intervals and allocation warnings,
+with a `timer-limited` assessment.
 Their CSV also records `timer_limited_by` (for example,
 `before:rep01,rep03;after:rep02`), `timer_limit_multiple`, and distinct
 `before_evals` / `after_evals` joined with `/`. Summary reports give the timer
@@ -352,6 +388,8 @@ python3 benchmark/validate.py benchmark/results benchmark/results/validation.jso
 python3 benchmark/check_analysis.py
 ```
 
+`check_analysis.py` also runs [`baselines/tools/check_historical.py`](baselines/tools/README.md), the checks of the 0.5 baseline.
+
 Generated results, environments and profiles are ignored by Git. Put the concise
 finding and relevant limitations in the PR, and use durable attachments when
 detailed records are needed. Historical experiments remain recoverable in the
@@ -359,3 +397,56 @@ detailed records are needed. Historical experiments remain recoverable in the
 The repeated CPU baseline and its raw-data locations are documented with
 [PR #102](https://github.com/mlakolar/ProximalBase.jl/pull/102) and its
 [original report](https://github.com/mlakolar/ProximalBase.jl/blob/0111d1bb4ca51b40c28d8ea5dab0f63be4d76e6a/benchmark/campaign/baselines/discovery-2026-10-25/README.md).
+
+### Read-only inputs
+
+Every case declares its read-only inputs (`addcase!(…; inputs = (; x, …))`, a required keyword): the
+arrays and iterates that the operation or `prepare` reads and must leave logically unchanged. These
+include operands, steps, weights, directions, index and trial-point arrays, the snapshots that
+`prepare` restores from, the arrays of the call site that a function object holds, and the shared
+working iterate of a case that leaves it unchanged. Destinations, state that a case changes (even
+when `prepare` restores it), workspaces, caches, scalars and function objects are not declared. A case
+with nothing to declare passes `inputs = (;)` with a comment.
+
+`measure!` and `check_only.jl` digest the inputs right after the pre-trial `validate()` (another case
+may legitimately have changed shared state before) and compare the digests after the trial, for every
+case, before the post-trial `validate()` of an automatic evaluation count (the sparse and atom
+validations restore the shared iterate first). A change throws
+``read-only input `x` changed during the trial of <id>``, and no metrics row is written. Profiling
+runs after the last check; it is diagnostic and writes no metrics.
+
+The digest is 64 bits over a logical record, computed by a loop over every stored element of type
+`Float32`, `Float64` or an integer type (an input of another element type is rejected when the case
+is built): a dense array by its size and elements (with `isequal` semantics: `-0.0` differs from `0.0`, NaNs are equal),
+a `Transpose` by its parent, a `Symmetric` by its whole parent (only the referenced triangle is
+meaningful), a view by its elements, a `SparseIterate` or `SymmetricSparseIterate` by its stored
+(coordinate, value) pairs, stored zeros included, sorted by coordinate, an `AtomIterate` by its sorted
+active groups, its entries and its group layout (through the build-time spelling of `atomindices`), and
+a tuple by its leaves. A digest names the input, not the entry.
+
+The builders (`addprox!`, `addcold!`, `addgrad!`, `addblockprox!`, `addblockgrad!`) compute their
+references when the case is built, from the untouched input and a copy of the function object, and
+start every validation by comparing their inputs with digests taken then
+(``read-only input `x` changed after the case was built``). So do the CD trace and the copies whose
+source is also the reference. Every other reference that depends on an array the operation reads is
+also computed when the case is built. A few comparisons use a value computed at check time instead of
+a stored reference: the value returned with a proximal output is compared with `f(y)`, and the
+residual of the CD trace with `y - X*β`. The checks of a quadratic model evaluate the model at check
+time (`q(x)`, `gradient(q, x)`, `hessian_vec(q, x, v)`) and compare the results with stored references.
+
+### The symmetric owner on both revisions
+
+The 0.6 `SymmetricSparseIterate` is not an array: its coordinates are independent values, and
+`Matrix(X)` and `matrixview(X)` give its mathematical matrix. The harness builds the owner cases on
+both representations, so one run on each revision gives the before and after comparison; this is a
+way to migrate, and does not keep the old array-like public API in 0.6. The helpers `ambient_work`
+(the p² entries of the matrix, not the coordinates), `dense`, `finite_entries` and `digestable` have
+a method for the owner that uses only operations both revisions define.
+
+`owner/fill!_zero` clears the whole owner with `fill!(X, 0)` and is registered only while the owner is
+an array. On the 0.6 owner it is not applicable: it is neither passed nor failed, and has no row.
+`owner/fill!_coordinates_zero` and `owner/fill!_coordinates_zero_dropzeros` run on both. Both sides of a
+performance comparison must use the same updated harness (this change alters the harness hash), and an
+operation that exists on one revision only is not a comparable case. The archived 0.5.x baseline under
+`baselines/` is historical evidence and is not changed. The two-representation support is temporary: a
+later cleanup removes it after the 0.6 release and its comparisons.

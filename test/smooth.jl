@@ -481,7 +481,8 @@ end
       finite = @inferred f(X)
       @test isfinite(finite)
       for bad in (-X, zeros(Tx, 3, 3), Tx[1 1 0; 0 1 0; 0 0 1], fill(Tx(Inf), 3, 3), fill(Tx(NaN), 3, 3))
-        @test (@inferred f(bad)) === oftype(finite, Inf)
+        # E2: a NaN entry gives NaN; outside the domain otherwise
+        @test isequal((@inferred f(bad)), oftype(finite, any(isnan, bad) ? NaN : Inf))
       end
       for γ in (Tx(0.25), one(Tx), Tx(4))
         Y_data = zeros(Td, 3, 3)
@@ -733,7 +734,7 @@ end
     for bad in (T(NaN), T(Inf))
       Z = Matrix{T}(I, 2, 2)
       Z[1,1] = bad
-      @test f(Z) == T(Inf)
+      @test isequal(f(Z), isnan(bad) ? T(NaN) : T(Inf))   # E2
     end
     symmetric_part = (X + transpose(X)) / 2
     for γ in (T(0.3), T(3))

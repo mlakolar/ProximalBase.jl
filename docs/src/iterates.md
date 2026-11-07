@@ -10,9 +10,15 @@ which are derived in [Coordinate descent](@ref).
 | [`SymmetricSparseIterate`](@ref) | A sparse symmetric matrix | One lower-triangular entry and its symmetric counterpart |
 | [`AtomIterate`](@ref) | A vector partitioned into groups | One group of entries |
 
-The entries of an iterate are real. A complex element type, or a complex
-operand of an iterate product, raises an `ArgumentError`; see
-[Precision](@ref).
+The entries of an iterate are real. A complex element type, or a complex operand
+of an iterate product, raises an `ArgumentError`; see [Precision](@ref). Writing
+a complex source or value into a `SparseIterate` or an `AtomIterate` with the
+constructor, `copyto!`, `copy!`, a broadcast or `fill!` raises it too, before
+anything is written, even when the imaginary part is zero. A write into either
+of them through a view, through `vec` of a matrix or a `reshape` to another
+shape, or through [`atom`](@ref) converts each value as a plain array would, so
+a complex value raises an `InexactError`, possibly after part of the iterate has
+been written.
 
 ## Entries and coordinates
 
@@ -39,7 +45,8 @@ Reading or writing any entry is therefore ``O(1)``, and a product ``Xx`` costs
 ``O(n\cdot\mathrm{nnz})``. The stored entries are the active coordinates
 ([`activecoordinates`](@ref), [`nactive`](@ref)). Setting an entry to zero keeps
 it stored, so that an active set does not change during a sweep. `dropzeros!`
-removes the zeros between sweeps. `nnz(x)` counts stored zeros too.
+removes the zeros between sweeps. `nnz(x)` counts stored zeros too;
+[Counting coordinates](@ref) lists the other counts.
 `nonzeros(x)` gives a view of the stored values, paired with
 `activecoordinates(x)` in storage order; the view is invalidated when the
 stored set changes. `findnz(x)` returns copies of the stored indices and
@@ -469,19 +476,279 @@ Block coordinate descent for the group lasso computes the trial point
 ``u = x_{G_k} - \nabla_{G_k} f(x)/L_k`` for group ``k``, with
 ``L_k = \|X_{G_k}\|_2^2`` for least squares. It then takes the block step
 `prox_coordinate!(x, g, k, u, 1/L_k)`, which is block soft thresholding and
-activates the group only when it ends nonzero. `AtomIterate(p, g)` builds an
+activates the group only when it ends nonzero. [Block trials](@ref) gives the
+rules of this form. `AtomIterate(p, g)` builds an
 iterate that shares the groups of a group penalty `g`.
 
+### The groups of an iterate
+
+[`atomindices`](@ref)`(x, k)` returns the indices of the entries of group `k`, in the order in
+which `x` stores them, and `ProximalBase.samegroups(a, b)` tells whether two layouts are equal.
+Use them instead of reading the fields of `x`, which are private.
+
+`atomindices(x, k)` is a read-only `AbstractVector{<:Integer}`. A group that `x` stores as a
+range comes back as that range, with its own index type: a group stored as a
+`UnitRange{Int32}` is a `UnitRange{Int32}`, and `AtomIterate(p, K)` stores `UnitRange{Int}`s.
+Every other group is stored as a `Vector{Int}`, and comes back as a read-only wrapper whose
+element type is `Int`, so `Int32` vectors, mixed groups and collections of other integer types
+all give `Int`. Writing through the wrapper (`h[i] = v`, `fill!`, `copyto!`, `h .= v`, a `sort!`
+that moves an entry) throws an `ArgumentError` and leaves the layout unchanged; `copy` and
+`collect` give an ordinary array. The call takes constant time, does not allocate, and throws a
+`BoundsError` unless `k` is in `1:ncoordinates(x)`. The result stays valid for the lifetime
+of `x`: the groups of an iterate do not change, and activating groups, `dropzeros!`, `copyto!`
+and writes of values do not affect it. It indexes other arrays like any integer vector, for
+instance `view(g, atomindices(x, k))`. A vector group is wrapped, so such a view is not
+indexed by a `Vector{Int}`, and its norms and dot products take the generic paths.
+
+`atomindices` is the supported route to the layout. `parentindices(atom(x, k))` returns the
+private group array itself, and changing that array is unsupported: the groups and the map from
+entries to groups would disagree. The same holds for the fields of the wrapper that
+`atomindices` returns (`h.ids`) and for the fields of the iterate: they are internal, reading or
+writing them is not covered by this contract, and ProximalBase does not block `getproperty`.
+What the contract does cover is every documented operation on the result, and the exceptions
+that `atomindices(x, k)` and its wrapper throw: they name the range of valid groups or the
+wrapper, and do not hold a stored group. (`atom(x, k)` is unchanged: its `BoundsError` still names
+the stored groups.)
+
+`samegroups(a, b)` is `true` when `a` and `b` have the same number of groups and the same
+indices in the same order in every group, and `false` otherwise. `a` and `b` are two iterates,
+or an iterate and a group penalty or [`IndBallGroupL0`](@ref), in either order. Ranges and vectors
+with the same indices are equal, whatever their index types, and reordering the groups or the
+indices inside a group gives `false`. For a group penalty, it is the check that [`prox_coordinate!`](@ref) makes
+before it writes and that the four-argument [`kkt_violation`](@ref)`(f, g, x, k)` makes before it
+computes; each throws a `DimensionMismatch` when it is `false`. The whole-array oracles do not
+require it: they compute the function of the vector for any layout, and use `samegroups` only to
+choose the faster active-group paths.
+
 An iterate and a group penalty whose groups are equal but were built separately
-also take the active-group paths. The first check compares the two layouts in
-full; the iterate then remembers the penalty's group array, so later checks take
-constant time. `copy` and `similar` keep what the iterate remembers, `copyto!`
-keeps the destination's, and an iterate built from a restricted penalty starts
-with nothing remembered.
+also take the active-group paths. Each iterate remembers one group array that it found equal to
+its own:
+
+- When `a` and `b` share their group array, `samegroups` takes constant time.
+- When two iterates remember the same array, or one remembers the other's, it also takes
+  constant time and writes nothing.
+- Otherwise it compares the two layouts in full, which takes time proportional to the total
+  size of the groups. If they are equal, the iterate (the first argument when both are iterates)
+  remembers the other's group array, so that asking again about that array takes constant time.
+  If they differ, it returns `false` and the iterate keeps what it remembered.
+- The slot holds one array. Alternating between two equal group arrays that are different
+  objects compares at every call, and an iterate that is also used with a penalty remembers
+  only the one it was last compared with.
+
+`copy` and `similar` keep what the iterate remembers, `copyto!` between two iterates
+keeps the destination's, and an iterate built from a restricted penalty starts with nothing
+remembered. Comparisons use no table or other storage.
 
 Group arrays and the indices inside them must not be mutated after a penalty
 or an iterate is built. This also applies to arrays retained by inner
 constructors.
+
+## Coordinate oracles
+
+[`prox_coordinate!`](@ref) and the four-argument [`kkt_violation`](@ref) act on
+one coordinate ``k`` of an iterate: an entry of a `SparseIterate`, or a group of
+an `AtomIterate` (see [Entries and coordinates](@ref)). This section states what
+they do on these two iterates. For a `SymmetricSparseIterate`, see also
+[What each call checks](@ref).
+
+### Steps on one coordinate
+
+`prox_coordinate!(x, f, k, γ)` applies the proximal operator of ``\gamma f`` to
+the current value of coordinate ``k``. `prox_coordinate!(x, f, k, u, γ)` applies
+it to a trial value `u` instead, without writing `u` into `x` first. The trial
+is a number for a `SparseIterate`, and a vector of the group's length for an
+`AtomIterate`. Both forms write the result into coordinate ``k`` and return
+it: the new value of the entry for a `SparseIterate`, and `atom(x, k)` for an
+`AtomIterate`.
+
+Only coordinate ``k`` can join the working set:
+
+- A coordinate that is absent and whose result is zero stays absent.
+- A coordinate whose result is nonzero becomes active.
+- An active coordinate stays active, even when the step sets it to zero. No
+  coordinate is removed, and no other coordinate changes.
+
+Both forms support separable functions on both iterates. On an `AtomIterate`
+they also support the group penalties of the package (`GroupNormL2`,
+`GroupNormLinf`, `SparseGroupNormL2`, `GroupMCP` and `GroupSCAD`) whose groups
+are those of `x`, and their `Scaled` and `Regularize` versions. The arguments
+are checked before anything is written, and after each of these errors `x` is
+unchanged:
+
+| Error | Cause |
+|:------|:------|
+| `BoundsError` | `k` is not a coordinate of `x` |
+| `DimensionMismatch` | the groups of a group penalty differ from those of `x` (see [The groups of an iterate](@ref)) |
+| `ArgumentError` | any other function, such as a group penalty on a `SparseIterate`, `IndBallGroupL0`, or `Precompose` of a group penalty with an array |
+| `DimensionMismatch` | a parameter array, such as the weights of `NormL1` or the center of `Regularize`, whose length is not `length(x)` |
+| `ArgumentError` | a trial `u` whose element type is not real |
+| `DimensionMismatch` | for an `AtomIterate`, a trial `u` whose length is not the size of group ``k`` |
+
+On an `AtomIterate`, an error outside this list, such as an entry of `u` whose
+reading throws or a value `1.5` for an iterate of integers, can leave entries of
+the group written. A group with a nonzero entry is then active.
+
+```@example coordinate_steps
+using ProximalBase
+
+x = SparseIterate(4)
+x[1] = 0.5
+v = prox_coordinate!(x, NormL1(1.0), 1, 1.0)        # soft thresholding of 0.5 at 1
+@assert v == 0 && isactive(x, 1)                    # an active entry stays active at zero
+v = prox_coordinate!(x, NormL1(1.0), 2, 3.0, 1.0)   # the trial value 3.0 is not written first
+@assert v == 2.0 == x[2] && isactive(x, 2)
+prox_coordinate!(x, NormL1(1.0), 3, 0.5, 1.0)       # a zero result
+@assert !isactive(x, 3)                             # leaves an absent entry absent
+try
+    prox_coordinate!(x, NormL1(1.0, ones(3)), 4, 1.0)   # three weights for four entries
+    error("expected a DimensionMismatch")
+catch e
+    @assert e isa DimensionMismatch
+end
+@assert Vector(x) == [0.0, 2.0, 0.0, 0.0]
+Vector(x)
+```
+
+A trial `u` that shares memory with `x`, such as `atom(x, j)` or a view of `x`
+with its entries permuted, is copied before anything is written, so the result
+does not depend on the order of the writes. Here the trial is group 1 itself in
+reverse order. Writing its entries one at a time without the copy would give
+the trial ``(4, 4)`` and the result ``(3, 3)``.
+
+```@example coordinate_steps
+f = GroupNormL2(1.0, [1:2, 3:4])                    # weights √2
+a = AtomIterate([3.0, 4.0, 0.0, 0.0], f)
+r = prox_coordinate!(a, f, 1, view(a, [2, 1]), 1.0) # the trial (4, 3)
+@assert collect(r) ≈ (1 - sqrt(2) / 5) .* [4.0, 3.0]
+@assert r == atom(a, 1)
+```
+
+### Block trials
+
+Block coordinate descent computes a trial point ``u`` for group ``k`` (see
+[AtomIterate](@ref)). The supported way to take the group step at ``u`` is
+`prox_coordinate!(x, f, k, u, γ)`. It gives the values that writing `u` into
+group ``k`` and then calling `prox_coordinate!(x, f, k, γ)` gives. The working
+sets differ: writing a nonzero `u` activates the group, while the five-argument
+form activates it only when the result is nonzero. A group whose step ends at
+zero therefore leaves no trace in the working set. After an error of the list
+in [Steps on one coordinate](@ref), `x` is unchanged.
+
+```@example block_trials
+using ProximalBase
+
+f = GroupNormL2(1.0, [1:2, 3:4])
+x = AtomIterate(4, f)
+r = prox_coordinate!(x, f, 1, [3.0, 4.0], 1.0)
+@assert collect(r) ≈ (1 - sqrt(2) / 5) .* [3.0, 4.0]
+@assert collect(activecoordinates(x)) == [1]
+prox_coordinate!(x, f, 2, [0.5, 0.5], 1.0)          # the norm of u is below √2
+@assert iszero(atom(x, 2)) && !isactive(x, 2)
+
+z = AtomIterate(4, f)                               # writing the trial first
+z[3] = 0.5
+z[4] = 0.5
+prox_coordinate!(z, f, 2, 1.0)
+@assert iszero(atom(z, 2)) && isactive(z, 2)        # same values, but the write activated group 2
+
+before = (Vector(x), collect(activecoordinates(x)))
+try
+    prox_coordinate!(x, GroupNormL2(1.0, [[1, 3], [2, 4]]), 1, [9.0, 9.0], 1.0)
+    error("expected a DimensionMismatch")
+catch e
+    @assert e isa DimensionMismatch
+end
+@assert (Vector(x), collect(activecoordinates(x))) == before
+```
+
+Writing the trial into the internal storage of `x` (its fields) and then
+calling the four-argument form is not supported. While such a write is
+pending, the iterate disagrees with its working set if group ``k`` was
+inactive before the write: the group is missing from it, and `nactive(x)` does
+not count it, although `Vector(x)` is not zero in that group. In that case,
+functions that visit only the active groups ignore the written entries. If the
+next call fails one of the checks listed in [Steps on one coordinate](@ref),
+nothing is written and the iterate stays in that state.
+
+### Screening a zero coordinate
+
+`kkt_violation(f, g, x, k)`, with `g` the gradient of the smooth part at `x`,
+screens coordinate ``k`` at zero. A positive value means that the coordinate,
+if it is zero, should enter the working set, and a value ``\le 0`` that zero
+satisfies its optimality condition. It is not a stationarity residual of a
+nonzero coordinate.
+
+On an `AtomIterate`, ``k`` is a group. For a group penalty, the screen uses the
+penalty's own dual norm and weights, and it does not read the values of `x` in
+group ``k``:
+
+| Function | Screen of group ``k`` |
+|:---------|:----------------------|
+| `GroupNormL2(λ0, groups, w)` | ``\lVert g_{G_k}\rVert_2 - \lambda_0 w_k`` |
+| `GroupNormLinf(λ0, groups, w)` | ``\lVert g_{G_k}\rVert_1 - \lambda_0 w_k`` |
+| `SparseGroupNormL2(λ1, λ2, groups, w)` | ``\lVert S_{\lambda_1}(g_{G_k})\rVert_2 - \lambda_2 w_k``, with ``S_{\lambda_1}`` soft thresholding at ``\lambda_1`` |
+| `GroupMCP(λ, groups, w)`, `GroupSCAD(λ, groups, w)` | ``\lVert g_{G_k}\rVert_2 - \lambda w_k`` |
+| `Scaled(f, α)` with ``\alpha > 0`` | ``\alpha`` times the screen of `f` at ``g/\alpha`` |
+| `Regularize(f, ρ, c)` | the screen of `f` at ``g - \rho c``, or at ``g`` without `c` |
+| a separable `f` | the largest `kkt_violation(f, g, i)` over the entries ``i`` of group ``k`` |
+
+The weights ``w_k`` are those of the penalty, with the defaults of its
+docstring: the square root of the group size, and 1 for `GroupNormLinf`.
+`Scaled(f, 0)` is the function that [`Scaled`](@ref) builds at zero scale. For
+a group penalty with finite levels, a finite shape parameter (`a` of `GroupMCP`
+and `GroupSCAD`) and finite weights this is the zero function, whose screen on
+an `AtomIterate` is `maximum(abs, view(g, atomindices(x, k)))`; a level or shape
+parameter that is not finite makes `Scaled(f, 0)` throw an `ArgumentError`
+when it is built. Otherwise, as
+with an infinite weight or an indicator, the screen is that of the function
+`Scaled` builds.
+
+The table is not exhaustive. `IndBallGroupL0` has no screen and throws a
+`MethodError`, and so do some functions without a screen of their own, such as
+`NormL2`. Other functions behave differently: the array `Precompose` of a group
+penalty has a screen on an `AtomIterate` (see [Entrywise scaling](@ref)), and
+`MoreauEnvelope` of a function that is not separable throws an
+`ArgumentError`. On an `AtomIterate`, the call throws a
+`DimensionMismatch` when the groups of a group penalty differ from those of
+`x`, and a `BoundsError` when ``k`` is not a group.
+
+The screens differ in sign where it matters. At ``g = (5/8, 5/8)`` with
+``\lambda_0 = 1``, the screen of `GroupNormLinf` is 0.25, so the group must
+enter, while the ℓ₂ formula with weight 1 is about ``-0.116`` and would screen
+the group out.
+
+```@example screening
+using ProximalBase
+
+x2 = AtomIterate(2, [1:2])
+g = [5 / 8, 5 / 8]
+v = kkt_violation(GroupNormLinf(1.0, [1:2]), g, x2, 1)
+@assert v == 0.25                                   # ‖g‖₁ − 1 > 0: the group must enter
+@assert sqrt(sum(abs2, g)) - 1 ≈ -0.11611652351681556   # the ℓ₂ formula would screen it out
+@assert kkt_violation(GroupNormL2(1.0, [1:2]), g, x2, 1) ≈ sqrt(sum(abs2, g)) - sqrt(2)
+@assert kkt_violation(Scaled(GroupNormLinf(1.0, [1:2]), 2.0), g, x2, 1) == 2 * (sum(g) / 2 - 1)
+@assert kkt_violation(Regularize(GroupNormL2(1.0, [1:2]), 1.0, [1.0, 1.0]), [3.0, 4.0], x2, 1) ≈
+        sqrt(13) - sqrt(2)                          # the screen at (3, 4) − (1, 1)
+v
+```
+
+On a `SparseIterate`, ``k`` is an entry. For a separable `f` the call returns
+`kkt_violation(f, g, k)`. It checks neither ``k`` nor the length of `g` against
+`x`. A group penalty screens
+each entry with its group. When every entry of the group is zero in `x`, the
+call returns the screen of the group in the table. Otherwise it returns the
+screen of an entry at zero inside a nonzero group, `abs(g[k])`, or
+`abs(g[k]) - λ1` for `SparseGroupNormL2`. An entry in no group gives
+`abs(g[k])`.
+
+```@example screening
+f = GroupNormL2(1.0, [1:2, 3:4])
+y = SparseIterate(4)
+gs = [3.0, 4.0, 0.0, 0.0]
+@assert kkt_violation(f, gs, y, 1) ≈ 5 - sqrt(2)    # group 1 of y is zero: the group screen
+y[2] = 1.0
+@assert kkt_violation(f, gs, y, 1) == 3.0           # entry 1 of a nonzero group: abs(gs[1])
+```
 
 ## Tracking an active set
 
@@ -494,7 +761,7 @@ the set being traversed does not change.
 | [`ncoordinates`](@ref)`(x)` | Number of possible coordinates |
 | [`nactive`](@ref)`(x)` | Number of stored active coordinates |
 | [`activecoordinates`](@ref)`(x)` | Read-only list of the indices of the active coordinates |
-| [`activevalues`](@ref)`(x)` | Writable view of their values, in the same order |
+| [`activevalues`](@ref)`(x)` | Writable view of their values, in the same order (`SparseIterate` and `SymmetricSparseIterate`) |
 | [`isactive`](@ref)`(x, k)` | Whether coordinate `k` is active |
 | [`activate!`](@ref)`(x, k)` | Add a coordinate to the active set |
 | `dropzeros!(x)` | Remove stored zero entries or zero groups |
@@ -508,3 +775,102 @@ Use [`kkt_violation`](@ref) to test excluded zero coordinates and
 [`restrict`](@ref) to construct a supported restricted problem. The
 [Coordinate descent](@ref) chapter explains the full optimality checks that
 must accompany these storage operations.
+
+### What an oracle leaves in an iterate
+
+After [`prox!`](@ref), [`value_and_prox!`](@ref), [`gradient!`](@ref), `mul!` or
+[`prox_coordinate!`](@ref) writes a `SparseIterate` or an `AtomIterate`, the
+values of the iterate are the result, and every coordinate with a nonzero
+result is active. Which zero coordinates stay active is unspecified: it can
+depend on the function and on the type of the argument. Call `dropzeros!` to
+make the working set the support. `prox_coordinate!` follows the stricter rules
+of [Steps on one coordinate](@ref).
+
+In this example, group 1 of the destination is inactive and becomes nonzero,
+and group 2 is active and becomes zero.
+
+```@example oracle_destinations
+using ProximalBase, LinearAlgebra
+
+v = [3.0, 0.0, 0.0, 0.0]
+oracles = [
+    (y -> prox!(y, NormL1(1.0), v, 1.0), [2.0, 0.0, 0.0, 0.0]),
+    (y -> value_and_prox!(y, NormL1(1.0), v, 1.0), [2.0, 0.0, 0.0, 0.0]),
+    (y -> gradient!(y, SqrNormL2(1.0), v), [3.0, 0.0, 0.0, 0.0]),
+    (y -> mul!(y, Matrix(2.0I, 4, 4), v), [6.0, 0.0, 0.0, 0.0]),
+]
+for (oracle!, result) in oracles
+    a = AtomIterate(4, [1:2, 3:4])
+    a[3] = 1.0                                      # group 2 active, group 1 inactive
+    oracle!(a)
+    @assert Vector(a) == result
+    @assert isactive(a, 1)                          # the group with a nonzero result
+    dropzeros!(a)
+    @assert collect(activecoordinates(a)) == [1]    # the support
+end
+```
+
+### Counting coordinates
+
+Four counts describe an iterate, and each has its own spelling.
+
+| Count | `SparseIterate` | `AtomIterate` |
+|:------|:----------------|:--------------|
+| Coordinates | `ncoordinates(x) == length(x)` | `ncoordinates(x)`, the number of groups |
+| Active coordinates, stored zeros included | `nactive(x) == nnz(x)` | `nactive(x)`, the active groups |
+| Nonzeros | `count(!iszero, activevalues(x))` | entries: `sum(k -> count(!iszero, atom(x, k)), activecoordinates(x); init = 0)`; groups: `count(k -> any(!iszero, atom(x, k)), activecoordinates(x))` |
+| Capacity | a slot for each of the `length(x)` entries | `length(x)` values and a slot for each group |
+
+On a `SparseIterate`, `nnz`, `nonzeros` and `findnz` keep their SparseArrays
+meaning and include stored zeros: `nnz(x) == nactive(x)`, `nonzeros(x)` is the
+view `activevalues(x)`, in the order of `activecoordinates(x)`, and `findnz(x)`
+returns copies sorted by index. The size of a model is the number of nonzeros,
+`count(!iszero, activevalues(x))`, or `nactive(x)` after `dropzeros!`.
+
+An `AtomIterate` has no `nnz`, `nonzeros`, `findnz` or `activevalues`; calling
+them throws a `MethodError`. Loop over its active entries with
+`for k in activecoordinates(x), j in atomindices(x, k)`, reading or writing
+`x[j]`.
+
+The slots of both iterates are reserved at construction, so activating a
+coordinate does not change the size of the arrays that the iterate stores.
+
+For a `SymmetricSparseIterate`, `nnz(x)` counts the stored coordinates of the
+lower triangle, stored zeros included. Because an off-diagonal pair counts once
+and a stored zero counts too, `nnz(x)` can differ from the number of nonzero
+entries of `Matrix(x)`. Its other
+counts are tracked in
+[#391](https://github.com/mlakolar/ProximalBase.jl/issues/391).
+
+```@example counting
+using ProximalBase, SparseArrays
+
+y = SparseIterate(5)
+y[4] = 1.0
+activate!(y, 2)                                     # an explicit zero
+@assert nnz(y) == nactive(y) == length(nonzeros(y)) == 2
+@assert collect(activecoordinates(y)) == [4, 2] && nonzeros(y) == [1.0, 0.0]
+@assert findnz(y) == ([2, 4], [0.0, 1.0])           # sorted by index
+@assert count(!iszero, activevalues(y)) == 1        # the model size
+dropzeros!(y)
+@assert nactive(y) == nnz(y) == 1
+
+a = AtomIterate(6, [1:2, 3:4, 5:6])
+a[1] = 1.0
+a[4] = -2.0
+activate!(a, 3)                                     # an active group of zeros
+entries = sum(k -> count(!iszero, atom(a, k)), activecoordinates(a); init = 0)
+groups = count(k -> any(!iszero, atom(a, k)), activecoordinates(a))
+@assert (ncoordinates(a), nactive(a), groups, entries) == (3, 3, 2, 2)
+@assert sum(a[j]^2 for k in activecoordinates(a) for j in atomindices(a, k)) == 5.0
+try
+    nnz(a)
+    error("expected a MethodError")
+catch e
+    @assert e isa MethodError
+end
+
+m = SymmetricSparseIterate(3)
+m[2, 1] = 3.0
+@assert nnz(m) == 1 && count(!iszero, Matrix(m)) == 2
+```

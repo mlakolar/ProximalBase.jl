@@ -1,5 +1,7 @@
 name: diag-747
-# Throwaway diagnostic for issue #747: never merged. Base = master e8a45a8a.
+# Throwaway diagnostic for issue #747: never merged. Package code on this branch = master e8a45a8a.
+# Stage BASE: the test change only (the helper tests error where _scale_pow2 does not exist).
+# Stage HEAD: the test change and the src change of the fix branch.
 on:
   push:
     branches: [diag/issue-747]
@@ -7,7 +9,7 @@ jobs:
   probe:
     name: probe ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -15,21 +17,106 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      OSN: ${{ runner.os }}
     steps:
+      - name: line endings
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: '1.13.3'
       - uses: julia-actions/cache@v3
       - run: julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
-      - name: base probe
+
+      # ---------------- BASE ----------------
+      - name: base, apply the test change
+        run: |
+          git apply --ignore-whitespace diag747/test.patch
+          git diff --stat
+      - name: base, focused test (scripts/test.jl)
         continue-on-error: true
-        run: julia --project diag747/probe.jl | tee probe-${{ runner.os }}.txt
-      - name: base differential
+        run: |
+          julia --color=no scripts/test.jl normfused_infinite_fusion 2>&1 | tee base-test-$OSN.txt
+      - name: base, test file run directly (a summary per test set)
+        continue-on-error: true
+        run: |
+          julia --project --color=no --check-bounds=yes -e 'include("test/normfused_infinite_fusion.jl")' 2>&1 | tee base-direct-$OSN.txt
+      - name: base, failing items
+        continue-on-error: true
+        run: |
+          grep -nE "Test Failed|Error During Test|Test threw|Test Summary|Pass +Fail|Pass +Error|\| +[0-9]+ +[0-9]+|UndefVarError|precision [0-9]+:|^p=[0-9]+" base-direct-$OSN.txt > items-base-$OSN.txt || true
+          wc -l items-base-$OSN.txt
+          grep -nE "Test Failed|Error During Test|Test threw|Passed|Failed|FAILED" base-test-$OSN.txt | head -60 || true
+      - name: base, probe
+        continue-on-error: true
+        run: julia --project diag747/probe.jl 2>&1 | tee probe-$OSN.txt
+      - name: base, differential
         continue-on-error: true
         run: julia --project diag747/differential.jl base.txt && wc -l base.txt
+      - name: base, IR
+        continue-on-error: true
+        run: julia --project diag747/ir.jl 2>&1 | tee ir-base.txt
+
+      # ---------------- HEAD ----------------
+      - name: head, apply the src change
+        run: |
+          git apply --ignore-whitespace diag747/src.patch
+          git diff --stat -- src
+          julia --project -e 'using Pkg; Pkg.precompile()'
+      - name: head, focused test (scripts/test.jl)
+        id: headtest
+        continue-on-error: true
+        run: |
+          julia --color=no scripts/test.jl normfused_infinite_fusion 2>&1 | tee head-test-$OSN.txt
+      - name: head, test file run directly (a summary per test set)
+        continue-on-error: true
+        run: |
+          julia --project --color=no --check-bounds=yes -e 'include("test/normfused_infinite_fusion.jl")' 2>&1 | tee head-direct-$OSN.txt
+          grep -nE "Test Failed|Error During Test|Test threw|Test Summary|Pass +Fail|Pass +Error|\| +[0-9]+ +[0-9]+|UndefVarError|precision [0-9]+:|^p=[0-9]+" head-direct-$OSN.txt > items-head-$OSN.txt || true
+      - name: head, probe
+        continue-on-error: true
+        run: julia --project diag747/probe.jl 2>&1 | tee probe-head-$OSN.txt
+      - name: head, differential
+        continue-on-error: true
+        run: julia --project diag747/differential.jl head.txt && wc -l head.txt
+      - name: head, IR
+        continue-on-error: true
+        run: julia --project diag747/ir.jl 2>&1 | tee ir-head.txt
+
+      # ---------------- comparison ----------------
+      - name: comparison
+        continue-on-error: true
+        run: |
+          echo "== sweep FAIL counts"
+          grep -n "FAIL count" probe-$OSN.txt probe-head-$OSN.txt || true
+          echo "== differential"
+          diff base.txt head.txt > differential-$OSN.diff || true
+          wc -l differential-$OSN.diff
+          echo "changed base lines: $(grep -c '^<' differential-$OSN.diff)  changed head lines: $(grep -c '^>' differential-$OSN.diff)"
+          echo "== IR, raw (timings excluded)"
+          grep -v '^TIMING' ir-base.txt > ir-base.cmp.txt
+          grep -v '^TIMING' ir-head.txt > ir-head.cmp.txt
+          diff ir-base.cmp.txt ir-head.cmp.txt > ir-raw-$OSN.diff || true
+          wc -l ir-raw-$OSN.diff
+          echo "== IR, symbol suffixes normalized"
+          sed -E 's/(julia_[A-Za-z0-9_]*)_[0-9]+/\1_N/g; s/_[0-9]+\b/_N/g' ir-base.cmp.txt > ir-base.norm.txt
+          sed -E 's/(julia_[A-Za-z0-9_]*)_[0-9]+/\1_N/g; s/_[0-9]+\b/_N/g' ir-head.cmp.txt > ir-head.norm.txt
+          diff ir-base.norm.txt ir-head.norm.txt > ir-norm-$OSN.diff || true
+          wc -l ir-norm-$OSN.diff
+          echo "== allocations and timings"
+          grep -hE "^(ALLOC|TIMING)" ir-base.txt | sed 's/^/base /'
+          grep -hE "^(ALLOC|TIMING)" ir-head.txt | sed 's/^/head /'
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: diag-${{ matrix.os }}
-          path: '*.txt'
+          path: |
+            *.txt
+            *.diff
+      - name: fail if the head focused test failed
+        if: steps.headtest.outcome == 'failure'
+        run: |
+          echo "the head focused test failed"
+          exit 1

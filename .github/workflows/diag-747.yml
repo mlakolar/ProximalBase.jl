@@ -82,6 +82,21 @@ jobs:
         continue-on-error: true
         run: julia --project diag747/ir.jl 2>&1 | tee ir-head.txt
 
+      # ---------------- HEAD + the merged #736 fix (the mean path) ----------------
+      - name: head+746, apply the merged change of the mean (src and test)
+        run: |
+          git apply --ignore-whitespace diag747/pr746.patch
+          git diff --stat
+          julia --project -e 'using Pkg; Pkg.precompile()'
+      - name: head+746, focused test (scripts/test.jl)
+        id: head746test
+        continue-on-error: true
+        run: |
+          julia --color=no scripts/test.jl normfused_infinite_fusion 2>&1 | tee head746-test-$RUNNER_OS.txt
+      - name: head+746, probe
+        continue-on-error: true
+        run: julia --project diag747/probe.jl 2>&1 | tee probe-head746-$RUNNER_OS.txt
+
       # ---------------- comparison ----------------
       - name: comparison
         continue-on-error: true
@@ -102,6 +117,13 @@ jobs:
           sed -E 's/(julia_[A-Za-z0-9_]*)_[0-9]+/\1_N/g; s/_[0-9]+\b/_N/g' ir-head.cmp.txt > ir-head.norm.txt
           diff ir-base.norm.txt ir-head.norm.txt > ir-norm-$RUNNER_OS.diff || true
           wc -l ir-norm-$RUNNER_OS.diff
+          echo "== IR, symbol suffixes and block labels normalized"
+          sed -E 's/L[0-9]+/L/g' ir-base.norm.txt > ir-base.lab.txt
+          sed -E 's/L[0-9]+/L/g' ir-head.norm.txt > ir-head.lab.txt
+          diff ir-base.lab.txt ir-head.lab.txt > ir-lab-$RUNNER_OS.diff || true
+          wc -l ir-lab-$RUNNER_OS.diff
+          echo "== sweep FAIL counts incl. head+746"
+          grep -n "FAIL count" probe-$RUNNER_OS.txt probe-head-$RUNNER_OS.txt probe-head746-$RUNNER_OS.txt || true
           echo "== allocations and timings"
           grep -hE "^(ALLOC|TIMING)" ir-base.txt | sed 's/^/base /'
           grep -hE "^(ALLOC|TIMING)" ir-head.txt | sed 's/^/head /'
@@ -113,8 +135,8 @@ jobs:
           path: |
             *.txt
             *.diff
-      - name: fail if the head focused test failed
-        if: steps.headtest.outcome == 'failure'
+      - name: fail if the head+746 focused test failed
+        if: steps.head746test.outcome == 'failure'
         run: |
-          echo "the head focused test failed"
+          echo "the head+746 focused test failed (head alone: ${{ steps.headtest.outcome }})"
           exit 1

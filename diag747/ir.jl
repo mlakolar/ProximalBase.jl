@@ -62,7 +62,9 @@ function loopf(::Type{T}, n) where {T}
   end
   s
 end
-mintime(g) = minimum(begin t0 = time_ns(); g(); (time_ns() - t0) / 1e7 end for _ in 1:5)
+# the result of every repetition is accumulated into a sink that is printed, so that no call can be dropped
+const SINK = Ref(0.0)
+mintime(g) = minimum(begin t0 = time_ns(); SINK[] += Float64(g()); (time_ns() - t0) / 1e7 end for _ in 1:5)
 println("== timings (ns per call)")
 for T in (Float32, Float64)
   w, v = T(0.75), T(3.5)
@@ -71,4 +73,5 @@ for T in (Float32, Float64)
   println("TIMING _scaled_product(::$T, ::$T, ::$T, ::Int) = ", mintime(() -> loop3(w, v, 10^7)), " ns")
   println("TIMING _power_factors(::Type{$T}, ::Int) = ", mintime(() -> loopf(T, 10^7)), " ns")
 end
+println("sink = ", SINK[])
 println("== done")

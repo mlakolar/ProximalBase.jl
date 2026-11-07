@@ -1,5 +1,5 @@
 diff --git a/test/normfused_infinite_fusion.jl b/test/normfused_infinite_fusion.jl
-index 5612c24b..e650639d 100644
+index 5612c24b..2d1044d2 100644
 --- a/test/normfused_infinite_fusion.jl
 +++ b/test/normfused_infinite_fusion.jl
 @@ -977,4 +977,346 @@ end
@@ -185,12 +185,12 @@ index 5612c24b..e650639d 100644
 +        end
 +      end
 +      f = NormL1Fused(big(0.25), inf)
-+      @test f(BigFloat[inf, 1, 2]) == inf && f((big(1), inf)) == inf
++      @test f(BigFloat[inf, 1, 2]) == inf && f((BigFloat(1), inf)) == inf
 +      # at the zero output the value is zero, not NaN
 +      y = zeros(BigFloat, 3)
-+      @test iszero(value_and_prox!(y, NormL1Fused(big(5), inf), BigFloat[1, -2, 0.5], one(BigFloat))) && all(iszero, y)
++      @test iszero(value_and_prox!(y, NormL1Fused(BigFloat(5), inf), BigFloat[1, -2, 0.5], one(BigFloat))) && all(iszero, y)
 +      # an unequal finite vector, an unequal pair: Inf
-+      @test f(BigFloat[1, 2, 3]) == inf && f((big(1), big(2))) == inf && f((M, prevfloat(M))) == inf
++      @test f(BigFloat[1, 2, 3]) == inf && f((BigFloat(1), BigFloat(2))) == inf && f((M, prevfloat(M))) == inf
 +    end
 +  end
 +end
@@ -321,8 +321,8 @@ index 5612c24b..e650639d 100644
 +        y = attempt(() -> PB._scaled_product(w, -v, k))
 +        @test y isa BigFloat && signbit(y) && bfwithin(-y, r, E, p)
 +      end
-+      three = ((big(0.25), big(3), M, 0), (big(0.25), M, one_, 1), (big(0.75), M, one_, -emax), (one_, small, one_, emax),
-+               (big(0.75), big(3), M, -2))
++      three = ((big(0.25), BigFloat(3), M, 0), (big(0.25), M, one_, 1), (big(0.75), M, one_, -emax), (one_, small, one_, emax),
++               (big(0.75), BigFloat(3), M, -2))
 +      for (a, b, c, k) in three
 +        y = attempt(() -> PB._scaled_product(a, b, c, k))
 +        r, E = bfproduct(k, a, b, c)

@@ -190,6 +190,22 @@ reach its tolerance it falls back to the full decomposition (`fallback = false` 
 instead). The rank-``k`` Fantope has only the exact path, because one Krylov vector cannot
 find all of a repeated eigenvalue's eigenspace.
 
+**Memory.** Three quantities differ and none is the peak of the process. The returned atom is
+small (the storage column above). The default path, `method = :full`, keeps its LAPACK
+workspace in the set object after the first call, so that later calls do not allocate it
+again: its size grows with the matrix, in proportion to ``mn`` (``n^2`` for the spectral
+sets), and was about six times the dense nuclear-norm input in the cases measured (48 MB for a
+`1000 × 1000` Float64 matrix, 192 MB for a `2000 × 2000` sparse gradient, which that path
+densifies) and about the size of the input for a density matrix. It stays allocated for the
+lifetime of the set object, which is why one set object per task is the rule, and it is
+counted neither by the allocation figures of `@allocated` and BenchmarkTools (a few kilobytes
+per call for `:full`) nor, for the native part, by Julia's allocation counters at all.
+`method = :krylov` keeps nothing in the set: its temporary arrays are the Lanczos bases, of
+order ``(m + n)`` times the number of steps (megabytes for the sparse gradients of order
+``10^4`` measured), and they are freed at the return, so the allocation figure of one call
+exceeds the size of the atom that it returns (100 to 160 kilobytes there). Peak resident
+memory has to be measured on the process, not read from either figure.
+
 **Symmetry.** The spectral sets live in the symmetric matrices, where
 ``\langle g, S\rangle = \langle (g + g^\top)/2, S\rangle``. The oracle therefore minimizes
 against the symmetric part of ``g``, as the proximal operators read the symmetric part of their

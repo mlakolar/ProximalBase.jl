@@ -9,6 +9,7 @@ on:
 jobs:
   diff:
     name: diff ${{ matrix.tag }}
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     strategy:
@@ -59,6 +60,7 @@ jobs:
 
   compare:
     name: compare the differentials
+    if: github.event_name == 'workflow_dispatch'
     needs: diff
     runs-on: ubuntu-latest
     steps:
@@ -91,6 +93,7 @@ jobs:
         shell: bash
     env:
       LABEL: ${{ matrix.os }}-julia-${{ matrix.julia }}
+      ROUNDS: ${{ matrix.julia == '1.10' && 7 || 3 }}
     steps:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@v7
@@ -101,7 +104,7 @@ jobs:
       - name: IR, allocations and timings, base and head alternating (the patch is reversed and reapplied)
         run: |
           git apply --ignore-whitespace diag747/head-src.patch      # start at the head
-          for r in 1 2 3; do
+          for r in $(seq 1 $ROUNDS); do
             if [ $((r % 2)) -eq 1 ]; then
               git apply --ignore-whitespace -R diag747/head-src.patch
               julia --project --color=no diag747/perf.jl > vb-base-r$r.txt 2>&1
@@ -125,6 +128,7 @@ jobs:
 
   tests:
     name: tests ${{ matrix.os }} julia ${{ matrix.julia }}
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:

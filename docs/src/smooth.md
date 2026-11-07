@@ -117,7 +117,9 @@ row of ``X`` holds, NaN and infinities included, the value and the gradient
 are those of the problem without it. The weights are read at each call, so
 setting a weight to zero removes the observation and setting it back restores
 it. A non-finite entry of an active observation follows E2 (the ordinary terms
-stand).
+stand). This concerns the oracles: the constructor still checks every
+observation, whatever its weight (the offset must be finite, and a response of
+`IdentityBernoulli` must lie in ``[0, 1]``).
 
 | Scalar loss | ``\ell(\eta, y)`` | ``\ell'(\eta, y)`` | ``c_\ell`` | Constructor |
 |:-----|:-----|:-----|:-----|:-----|

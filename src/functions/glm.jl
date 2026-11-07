@@ -22,12 +22,16 @@ check these properties. The losses are [`ProximalBase.Squared`](@ref),
 [`ProximalBase.ConvolutionCheck`](@ref);
 they are not exported, as names such as `Poisson` belong to distributions.
 
-In a `GLMLoss`, a weighted term `wᵢ ℓ(ηᵢ, yᵢ)` (and `wᵢ ℓ'(ηᵢ, yᵢ)`) of a
-built-in loss keeps its accuracy when `ℓ` alone overflows before a small weight,
-or underflows before a large one, and when `ηᵢ` itself is beyond the range of the
-buffer type (the predictor is then recomputed in power-of-two units). For a user's
-loss, the term is `wᵢ ℓ(ηᵢ, yᵢ)` evaluated as written: these recomputations use
-internal methods that only the built-in losses implement.
+In a `GLMLoss`, a weighted term `wᵢ ℓ(ηᵢ, yᵢ)` (and `wᵢ ℓ'(ηᵢ, yᵢ)`) of
+`Squared`, `Logistic`, `Poisson`, `Huber`, `SquaredHinge`, `SmoothCheck` or
+`ConvolutionCheck` keeps its accuracy when `ℓ` alone overflows before a small
+weight, or underflows before a large one, and when `ηᵢ` itself is beyond the range
+of the buffer type. These recomputations use internal methods that only those
+losses implement. For `IdentityBernoulli`, `ProximalBase.Smoothed` and a
+user's loss, the term is `wᵢ ℓ(ηᵢ, yᵢ)` evaluated as written. For every loss, a
+predictor whose partial sums leave the range of the buffer type is recomputed in
+power-of-two units, and `ℓ` is evaluated at the recomputed `ηᵢ` where that value
+is representable.
 """
 abstract type ScalarLoss end
 

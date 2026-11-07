@@ -145,6 +145,7 @@ function _soc_project!(y, x::AbstractArray{T}, G) where {T}
 end
 
 function prox!(y::AbstractArray, f::IndSOC, x::AbstractArray, ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   _cone_project!(y, f, x, _soc_project!)
 end
@@ -331,6 +332,7 @@ function _rotatedsoc_project!(y, x::AbstractArray{T}, G) where {T}
 end
 
 function prox!(y::AbstractArray, f::IndRotatedSOC, x::AbstractArray, ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   _cone_project!(y, f, x, _rotatedsoc_project!)
 end
@@ -709,6 +711,7 @@ function _exp_project!(y, x::AbstractArray{T}, G, dual::Bool) where {T}
 end
 
 function prox!(y::AbstractArray, f::_ExpCone, x::AbstractArray, ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   T = float(promote_type(eltype(y), eltype(x)))
   z = _ScaledArray(x, one(T))

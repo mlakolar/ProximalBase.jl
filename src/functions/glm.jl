@@ -17,8 +17,9 @@ values it supports, and `curvature` must bound its second derivative (it may be
 `Inf`). `GLMLoss` reports itself smooth and convex on that basis and does not
 check these properties. The losses are [`ProximalBase.Squared`](@ref),
 [`ProximalBase.Logistic`](@ref), [`ProximalBase.Poisson`](@ref),
-[`ProximalBase.Huber`](@ref), [`ProximalBase.SquaredHinge`](@ref),
-[`ProximalBase.SmoothCheck`](@ref) and [`ProximalBase.ConvolutionCheck`](@ref);
+[`ProximalBase.IdentityBernoulli`](@ref), [`ProximalBase.Huber`](@ref),
+[`ProximalBase.SquaredHinge`](@ref), [`ProximalBase.SmoothCheck`](@ref) and
+[`ProximalBase.ConvolutionCheck`](@ref);
 they are not exported, as names such as `Poisson` belong to distributions.
 """
 abstract type ScalarLoss end
@@ -114,6 +115,74 @@ deriv2(::Poisson, η::Real, ::Real) = exp(float(η))
 curvature(::Poisson) = Inf
 
 """
+    ProximalBase.IdentityBernoulli()
+
+The Bernoulli negative log-likelihood with the identity link, `ℓ(η, y) = -y log(η) -
+(1 - y) log(1 - η)`: the linear predictor `η` is itself the probability, as in a
+risk or risk-difference regression, and the response is `y ∈ [0, 1]` (binary or a
+proportion). It is the loss of [`BernoulliLoss`](@ref)`(y)` at `p = η`, and
+[`BernoulliLoss`](@ref) is the choice when a proximal operator is needed.
+
+The loss is finite only for `0 < η < 1`, and at the endpoints where the response
+agrees: `η = 0` for `y = 0` and `η = 1` for `y = 1`, where `ℓ = 0`. Elsewhere,
+at a predictor outside `[0, 1]` or infinite, `ℓ = Inf` and the derivatives are `NaN`;
+at a `NaN` predictor all three are `NaN`. At the two valid endpoints the derivatives
+are one-sided limits: `ℓ' = 1`, `ℓ'' = 1` at `(0, 0)` and `ℓ' = -1`, `ℓ'' = 1` at
+`(1, 1)`. A term with a zero coefficient is omitted, never evaluated as `0 ⋅ log(0)`.
+`ℓ''` is formed without an intermediate underflow of `η²` whenever the result is
+representable, and is `Inf` when it is not. Its curvature is unbounded, so
+`lipschitz` of a [`GLMLoss`](@ref) with it is `Inf`: a step needs a feasible point
+and a line search, and `GLMLoss` neither projects nor clamps the predictor.
+
+[`GLMLoss`](@ref) rejects a response that is not in `[0, 1]` (also `NaN` and `±Inf`),
+whatever its weight.
+"""
+struct IdentityBernoulli <: ScalarLoss end
+@inline function value_and_deriv(::IdentityBernoulli, η::Real, y::Real)
+  p, b = promote(float(η), float(y))
+  w = one(p)
+  (_bernoulli_value(p, b, w), _bernoulli_gradient(p, b, w))
+end
+@inline function (::IdentityBernoulli)(η::Real, y::Real)
+  p, b = promote(float(η), float(y))
+  _bernoulli_value(p, b, one(p))
+end
+@inline function deriv(::IdentityBernoulli, η::Real, y::Real)
+  p, b = promote(float(η), float(y))
+  _bernoulli_gradient(p, b, one(p))
+end
+@inline function deriv2(::IdentityBernoulli, η::Real, y::Real)
+  p, b = promote(float(η), float(y))
+  T = typeof(p)
+  isnan(p) && return p
+  _bernoulli_domain(p, b, one(T)) || return T(NaN)
+  left = iszero(b) ? zero(T) : _bernoulli_curvature(b, p)
+  right = b == 1 ? zero(T) : _bernoulli_curvature(1 - b, 1 - p)
+  left + right
+end
+curvature(::IdentityBernoulli) = Inf
+
+# c / p² for 0 < p <= 1 and c >= 0 without forming p², which underflows at p below
+# about sqrt(floatmin) while the quotient is representable; the quotient is Inf when it
+# overflows. The exponents are held apart from the significands in that case.
+@inline function _bernoulli_curvature(c::T, p::T) where {T<:AbstractFloat}
+  p² = p * p
+  p² >= floatmin(T) && return c / p²
+  mc, ec = frexp(c)
+  mp, ep = frexp(p)
+  ldexp(mc / (mp * mp), ec - 2 * ep)
+end
+
+# The responses of an IdentityBernoulli loss are probabilities. `_check_responses` is a
+# no-op for the other losses; the predicate is an isbits Function, like the checks of the
+# weights, so that `all` can reduce a device array.
+_check_responses(::ScalarLoss, y, ::Type) = nothing
+struct _UnitResponse{T} <: Function end
+(::_UnitResponse{T})(t) where {T} = t isa Real && (r = convert(T, t); 0 <= r <= 1)
+_check_responses(::IdentityBernoulli, y, ::Type{T}) where {T} =
+  all(_UnitResponse{T}(), y) || throw(ArgumentError("the responses of an IdentityBernoulli loss must be in [0, 1]"))
+
+"""
     ProximalBase.Huber(δ)
 
 The Huber loss of the residual `r = η - y`: `r²/2` for `|r| ≤ δ` and
@@ -167,6 +236,13 @@ struct GLMLoss{L<:ScalarLoss, T<:AbstractFloat, Ty<:AbstractVector, TX<:Abstract
       O<:Union{Nothing, AbstractVector}, V<:AbstractVector{T}}
     all(a -> a === nothing || eltype(a) <: Real,
         (y, X, weights, offset, η, d)) || _real_error(:GLMLoss)
+    _check_responses(loss, y, T)
+    # η and d are scratch that gradient!, hessian_vec! and quadratic_model! overwrite, the
+    # last staging two values per observation in them: they must be two arrays, neither of
+    # them y, weights or offset. Identity only: a view or a reshape is not detected.
+    (η === d || η === y || η === weights || η === offset ||
+     d === y || d === weights || d === offset) &&
+      throw(ArgumentError("the buffers η and d of a GLMLoss must be separate arrays, and not y, weights or offset"))
     new{L, T, Ty, TX, W, O, V}(loss, y, X, weights, offset, η, d)
   end
 end
@@ -187,14 +263,24 @@ function GLMLoss(loss::ScalarLoss, y::AbstractVector, X::AbstractMatrix;
   offset === nothing || length(offset) == n || throw(DimensionMismatch("offset must have length $n"))
   T = float(promote_type(eltype(y), eltype(X)))
   # finite in the working precision, where the oracles use them
-  weights === nothing || all(t -> t isa Real && t >= 0 && isfinite(convert(T, t)), weights) ||
+  weights === nothing || all(_FiniteWeight{T}(), weights) ||
     throw(ArgumentError("the weights must be finite and nonnegative"))
-  offset === nothing || all(t -> t isa Real && isfinite(convert(T, t)), offset) ||
+  offset === nothing || all(_FiniteOffset{T}(), offset) ||
     throw(ArgumentError("the offset must be finite"))
   η, d = _zeros_like(y, T, n), _zeros_like(y, T, n)
   GLMLoss{typeof(loss), T, typeof(y), typeof(X), typeof(weights), typeof(offset), typeof(η)}(
     loss, y, X, weights, offset, η, d)
 end
+
+# The constructor's checks in the working precision T. They are singleton
+# structs, not closures over T: a closure that captures a type is not isbits,
+# and a GPU reduction (`all` on a device array, as Adapt rebuilds the loss)
+# cannot take it as a kernel argument. They are Functions, since GPUArrays
+# sends only `all(f::Function, A)` to a device reduction.
+struct _FiniteWeight{T} <: Function end
+(::_FiniteWeight{T})(t) where {T} = t isa Real && t >= 0 && isfinite(convert(T, t))
+struct _FiniteOffset{T} <: Function end
+(::_FiniteOffset{T})(t) where {T} = t isa Real && isfinite(convert(T, t))
 
 """
     LogisticLoss(y, X; weights = nothing, offset = nothing)

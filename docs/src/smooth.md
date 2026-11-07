@@ -117,6 +117,7 @@ over the observations and one product with ``X^\top``.
 | `Squared()` | ``\tfrac12(\eta - y)^2`` | ``\eta - y`` | ``1`` | `GLMLoss(ProximalBase.Squared(), y, X)` |
 | `Logistic()` | ``\log(1 + e^\eta) - y\eta`` | ``\sigma(\eta) - y`` | ``1/4`` | [`LogisticLoss`](@ref)`(y, X)` |
 | `Poisson()` | ``e^\eta - y\eta`` | ``e^\eta - y`` | ``\infty`` | [`PoissonLoss`](@ref)`(y, X)` |
+| `IdentityBernoulli()` | ``-y\log\eta - (1-y)\log(1-\eta)``, ``0 \le y \le 1`` | ``(1-y)/(1-\eta) - y/\eta`` | ``\infty`` | `GLMLoss(ProximalBase.IdentityBernoulli(), y, X)` |
 | `Huber(δ)` | ``\tfrac12 r^2`` if ``\lvert r\rvert \le \delta``, else ``\delta(\lvert r\rvert - \delta/2)``, with ``r = \eta - y`` | ``\operatorname{clamp}(r, -\delta, \delta)`` | ``1`` | [`HuberLoss`](@ref)`(y, X, δ)` |
 | `SquaredHinge()` | ``\max(0, 1 - y\eta)^2``, ``y = \pm 1`` | ``-2y\max(0, 1 - y\eta)`` | ``2`` | `GLMLoss(ProximalBase.SquaredHinge(), y, X)` |
 | `SmoothCheck(τ, h)` | the Moreau envelope of ``\rho_\tau`` at ``u = y - \eta`` | ``-\operatorname{clamp}(u/h, \tau - 1, \tau)`` | ``1/h`` | `GLMLoss(ProximalBase.SmoothCheck(τ, h), y, X)` |
@@ -177,6 +178,56 @@ reflection, evaluated without cancellation near zero. If a fractional
 response's result rounds to an endpoint, the nearest interior float in the
 argument's floating type is returned. A narrower output may still round to
 the endpoint. `value_and_prox!` evaluates the stored result.
+
+### The identity-link Bernoulli loss of `GLMLoss`
+
+`GLMLoss(ProximalBase.IdentityBernoulli(), y, X; weights, offset)` is
+``f(\beta) = \sum_i w_i\,\ell(p_i, y_i)`` with the probabilities
+``p = X\beta + \text{offset}`` and
+``\ell(p, y) = -y\log p - (1-y)\log(1-p)``, the Bernoulli negative
+log-likelihood of an identity-link binomial regression: the coefficients are
+adjusted risks or risk differences, and the model is not logistic regression.
+It has the value, gradient, Hessian-vector product and IRLS model of every
+[`GLMLoss`](@ref), and no proximal operator; [`BernoulliLoss`](@ref)`(b, w)`
+on ``p = X\beta`` is the choice when a proximal operator is needed, and
+[`LogisticLoss`](@ref) the choice for the logit scale.
+
+The responses are ``0 \le y_i \le 1``, binary or proportions. The constructor
+throws an `ArgumentError` for a response outside ``[0, 1]``, `NaN` or
+infinite, whatever its weight. The scalar loss follows `BernoulliLoss`.
+For a positive weight, ``\ell`` is finite for ``0 < p < 1`` and at the endpoint
+that agrees with the response, ``p = 0`` for ``y = 0`` and ``p = 1`` for
+``y = 1``, where it is zero (``0\log 0 = 0``; a term with a zero coefficient is
+left out, never evaluated). Elsewhere it is ``+\infty`` and its derivatives
+are `NaN`; a `NaN` predictor gives `NaN`. At the two endpoints the derivatives
+are one-sided limits, ``\ell' = 1`` and ``\ell'' = 1`` at ``(0, 0)``, and
+``\ell' = -1`` and ``\ell'' = 1`` at ``(1, 1)``. A zero weight masks the
+observation, as for every `GLMLoss`: it contributes zero to the value, the
+gradient and the Hessian, also at a finite predictor outside ``[0, 1]``.
+The second derivative ``(1-y)/(1-p)^2 + y/p^2`` is formed without squaring a
+probability that underflows, and is `Inf` only where it overflows.
+
+The curvature is unbounded, so `lipschitz(f)` and `coordinate_lipschitz(f, k)`
+are `Inf`: no fixed step is justified, and a Newton or coordinate step needs a
+feasible point and a line search that rejects a step with a predictor outside
+the domain. The loss does not project or clamp the predictor, and a minimizer
+may lie on the boundary, where the one-sided derivatives do not make an
+unrestricted Newton step feasible. [`quadratic_model`](@ref) at an
+interior predictor has the gradient of `f`. At a finite predictor outside the
+domain, for a positive weight, it throws an `ArgumentError` that names the
+observation and leaves the model unchanged; a predictor that is not finite
+propagates, as for the other losses.
+
+```julia
+using ProximalBase, LinearAlgebra
+y = [0.0, 1.0, 0.5]
+X = Matrix{Float64}(I, 3, 3)
+f = GLMLoss(ProximalBase.IdentityBernoulli(), y, X)
+β = [0.2, 0.7, 0.4]            # a feasible point: every entry of Xβ lies in (0, 1)
+f(β)                           # -log(0.8) - log(0.7) - 0.5 log(0.4) - 0.5 log(0.6)
+gradient(f, β)                 # (1 - y)/(1 - p) - y/p
+lipschitz(f)                   # Inf
+```
 
 ## The Gaussian log-likelihood
 
@@ -246,7 +297,79 @@ q(\beta) = \tfrac12 \sum_i w_i\,\ell''_i\,\big(\eta_i(\beta) - z_i\big)^2 + \tex
 with ``\ell'_i`` and ``\ell''_i`` evaluated at the current linear predictor. The
 curvature ``\ell''_i`` is floored at ``\sqrt{\varepsilon}``, so that the working
 responses stay finite where it vanishes (a Huber loss beyond ``\delta``); the
-gradient of ``q`` at the current point is still exact.
+gradient of ``q`` at the current point is still ``\nabla f``, up to the rounding of ``\eta_i - z_i``,
+which loses ``\ell'_i/\ell''_i`` when ``|\eta_i|`` exceeds it by more than ``1/\varepsilon``
+(a Poisson loss at ``\eta = -10^{30}``, say).
+
+The coefficients ``w_i\ell''_i`` are the effective ones, kept finite whenever they
+are representable: for a Poisson loss, ``w_i e^{\eta_i}`` is formed without the
+overflowing ``e^{\eta_i}`` and the working response is
+``z_i = \eta_i - 1 + y_i e^{-\eta_i}``, so weight ``1/8`` at ``\eta = 710`` gives
+the coefficient ``e^{710}/8`` and the response ``709``. A coefficient or response that
+cannot be represented raises a [`PrecisionError`](@ref), and
+[`quadratic_model!`](@ref) then leaves the model as it was. A finite predictor outside the
+domain of the loss, for a positive weight, raises an `ArgumentError` instead (the
+identity-link Bernoulli loss above), with the model unchanged.
+
+The class of a Poisson coefficient is exact (numerics R4). The coefficient is rejected,
+as `Inf`, exactly when ``w_i e^{\eta_i}`` rounds beyond `floatmax`, and a coefficient that is
+representable is not rejected, also within a few ulps of that threshold (up to the precision
+limit stated below). An ordinary product,
+or the recovery that holds the power of two outside the range, is accepted when it is finite and
+below ``0.999\,\text{floatmax}``: both are accurate to far better than ``10^{-3}``, so the
+class is certain there, and the value is accurate as such a product is. A coefficient closer to
+`floatmax` than that, or not finite, is rejected at once when a logarithmic estimate puts it
+clearly beyond the range, and otherwise it is evaluated in `BigFloat` arithmetic of an explicit
+precision with directed rounding, which is raised until both bounds round to the same `T`.
+That value is the correctly rounded ``w_i e^{\eta_i}``, and it is `Inf` exactly when the
+product rounds beyond `floatmax`. The precision is doubled at most up to 40960 bits for `Float32`
+and 35328 bits for `Float64`; bounds that still round differently there put ``w_i e^{\eta_i}``
+within about ``2^{-35000}`` (relative) of a rounding boundary of `T`.
+No such input is known, but none is ruled out either, and for one the update raises a
+[`PrecisionError`](@ref) rather than return a coefficient it has not certified. Below the curvature floor the coefficient is the single
+product ``w_i\sqrt\varepsilon``, and
+the response ``\eta_i + (y_i - e^{\eta_i})/\sqrt\varepsilon`` is formed so that a
+cancelling pair of terms that leave the range does not fail where their sum fits
+(``\eta = -\text{floatmax}`` and ``y/\sqrt\varepsilon`` just above it): the sum is
+formed in double-word arithmetic and rounded once, so only a sum that does not fit is an error. This holds for `Float32` and `Float64` responses (S1). A response of another type is first converted to the working float type, as the ordinary expression `e - y` converts it (numerics T3), and the sum is that of the converted response; a `BigFloat` response is computed in the current `BigFloat` precision and then delivered in the type of the loss (T7). Non-finite data propagate as ``\mathrm{NaN}`` or ``\mathrm{Inf}``
+in the update of a model, without an error and without the recovery above;
+[`quadratic_model`](@ref) builds a new loss and checks the offset again, which must be finite as in
+the constructor, so an offset made non-finite after construction is an `ArgumentError`
+there.
+
+What an update allocates, and which global state it uses, depends on the case.
+
+1. An ordinary successful update in `Float32` or `Float64` allocates nothing, as long as the
+   staged coefficients and responses are finite and no coefficient vanished.
+2. The recovery in IEEE arithmetic that needs no certified evaluation (the exponent split of
+   ``e^{\eta_i}``, the floor response above and the correction of a subnormal coefficient)
+   allocates nothing either.
+3. Three things may allocate. The certified evaluation of a coefficient within about 0.1% of
+   `floatmax`, or beyond it without being clearly beyond, allocates a few hundred bytes and
+   takes microseconds, for that coefficient only. When a staged value is not finite (a
+   non-finite observation, a predictor that overflowed in ``X\beta`` plus the offset even
+   for finite `X`, ``\beta`` and offset) or a coefficient vanished, the update checks the staged
+   values in a new vector of the length of `y`, whether it then throws or returns. A `BigFloat`
+   response is computed in the current `BigFloat` precision (T7) and allocates even when the
+   whole staged pair is finite.
+4. The process-global `BigFloat` precision and rounding mode are neither read nor changed for
+   `Float32` and `Float64` data, including the certified evaluation, which fixes its own
+   precision and rounding. A `BigFloat` response reads the current precision, as in 3, and
+   nothing here changes it.
+
+That all-or-nothing update has a measured cost: the pair of every observation is
+staged in the buffers of the loss and copied into the model last. The cost was
+measured with the protocol of the benchmark policy (paired fresh processes, one
+core, `p = 1`, Julia 1.13.3) against the implementation that wrote the model
+directly, and the maintainers accepted it as the price of failure atomicity.
+For a Huber loss `quadratic_model!` takes **1.40 to 1.72 times as long** (Float32 and
+Float64, ``n = 10^3`` and ``10^5``; +0.14 to +0.59 ns per observation), for a Logistic
+loss in `Float64` **1.058 to 1.067 times** (+0.8 to +0.9 ns per observation); a Poisson
+loss is 0.82 to 0.93 times as long, because it evaluates `exp` once, and that gain
+does not offset the other two. Nothing allocates. The overhead is linear in ``n``
+and does not depend on the columns of `X`: with more columns it is diluted by the
+Hessian work that follows (Huber `Float64`, ``n = 1024``, ``p = 256``: about +1%;
+``n = 128``, ``p = 32``: +12%).
 
 For [`LogDetLoss`](@ref)`(S, w)`, with ``W = X^{-1}``, the expansion of
 ``w(\operatorname{tr}(SZ) - \log\det Z)`` at ``X`` in the step ``\Delta = Z - X`` is,

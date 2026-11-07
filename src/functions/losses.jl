@@ -43,7 +43,8 @@ Base.@propagate_inbounds function value_entry(f::CheckLoss, v::T, i::Integer) wh
   τ = convert(float(T), f.τ)
   w = _entry(f.w, i)
   φ = v >= 0 ? τ * v : (τ - 1) * v
-  _weighted_value(w * φ, φ)
+  p = w * φ
+  iszero(w) ? zero(p) : _weighted_value(p, φ)          # a zero weight leaves the entry free, NaN included
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::CheckLoss, v::T, i::Integer) where {T<:Real}
   τ = convert(float(T), f.τ)
@@ -54,7 +55,16 @@ Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ:
   S = float(T)
   w = _entry(f.w, i)
   s, τ, u = convert(S, _weight_coefficient(γ, w)), convert(S, f.τ), S(v)
-  u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) : zero(S))
+  # The ordinary value is the base expression (a NaN u compares false twice and gives 0). A NaN u
+  # is repaired in one select: it stays NaN (E2) unless the map is constant, that is for the step
+  # γ == Inf with a positive weight, or a hard weight w == Inf (a zero weight is free: E4 first).
+  # This is read from the parameters and not from the derived coefficient s, which also overflows
+  # to Inf for finite parameters, and whose threshold s(1 - τ) is NaN for a hard weight when τ
+  # rounds to 1 (such a finite u still gives 0). A NaN step (unchecked) keeps the old zero.
+  # Weights are nonnegative, so w < Inf is also false for a NaN weight.
+  a, b = s * τ, s * (1 - τ)
+  r = ifelse(u > a, u - a, ifelse(u < -b, u + b, zero(S)))
+  ifelse((u != u) & (γ == γ) & ((γ == Inf) ? (w == 0) : (w < Inf)), u, r)
 end
 
 # from zero, the objective decreases upward at rate -gᵢ - wᵢτ and downward at
@@ -99,7 +109,8 @@ _checkparams(f::HingeLoss, x) = (_checkparam(f.y, x); _checkparam(f.w, x); true)
 Base.@propagate_inbounds function value_entry(f::HingeLoss, v::T, i::Integer) where {T<:Real}
   w = _entry(f.w, i)
   φ = max(1 - _entry(f.y, i) * v, zero(float(T)))
-  _weighted_value(w * φ, φ)
+  p = w * φ
+  iszero(w) ? zero(p) : _weighted_value(p, φ)          # a zero weight leaves the entry free, NaN included
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::HingeLoss, v::T, i::Integer) where {T<:Real} =
   _entry(f.w, i) * max(1 - _entry(f.y, i) * v, zero(float(T)))
@@ -111,7 +122,8 @@ Base.@propagate_inbounds function prox_entry(f::HingeLoss, v::T, i::Integer, γ:
   w = _entry(f.w, i)
   s = convert(S, _weight_coefficient(γ, w)) * y^2
   u = y * S(v)
-  (u >= 1 ? u : (u < 1 - s ? u + s : one(S))) / y
+  # a NaN margin fails u < 1 and stays NaN: the test of u >= 1 is its complement
+  (u < 1 ? (u < 1 - s ? u + s : one(S)) : u) / y
 end
 
 # f is differentiable at zero, with derivative -wᵢyᵢ
@@ -167,27 +179,27 @@ restrict(f::SqrHingeLoss, S::AbstractVector{<:Integer}) = SqrHingeLoss(_restrict
 @inline function _sqrhinge_residual(y::T, v::T) where {T}
   r = max(one(T) - y * v, zero(T))
   isfinite(r) && return r, 0
-  my, ey = frexp(y)
-  mv, ev = frexp(v)
+  my, ey = _frexp(y)
+  mv, ev = _frexp(v)
   e = ey + ev
   ldexp(one(T), -e) - my * mv, e
 end
 
-@inline function _sqrhinge_value(w::T, r::T, e::Int) where {T}
+@inline function _sqrhinge_value(w::T, r::T, e::Integer) where {T}
   e == 0 && return _positive_product(w, r, r)
-  mw, ew = frexp(w)
-  mr, er = frexp(r)
+  mw, ew = _frexp(w)
+  mr, er = _frexp(r)
   ldexp(mw * mr * mr, ew + 2 * (er + e))
 end
 
 # The factor 2 must also survive when w|y|r is below the subnormal range.
-@inline function _sqrhinge_slope(y::T, w::T, r::T, e::Int) where {T}
+@inline function _sqrhinge_slope(y::T, w::T, r::T, e::Integer) where {T}
   (iszero(w) || iszero(r)) && return zero(T)
   p = _positive_product(w, abs(y), r)
   e == 0 && floatmin(T) <= p <= floatmax(T) && return 2p
-  mw, ew = frexp(w)
-  my, ey = frexp(abs(y))
-  mr, er = frexp(r)
+  mw, ew = _frexp(w)
+  my, ey = _frexp(abs(y))
+  mr, er = _frexp(r)
   ldexp(2 * mw * my * mr, ew + ey + er + e)
 end
 
@@ -201,10 +213,10 @@ end
 # Scale the numerator and denominator separately when a blend weight or its
 # endpoint is outside the floating-point range, but their product need not be.
 @noinline function _sqrhinge_prox(v::T, y::T, w::T, γ::T) where {T}
-  mv, ev = frexp(v)
-  my, ey = frexp(y)
-  mw, ew = frexp(w)
-  mg, eg = frexp(γ)
+  mv, ev = _frexp(v)
+  my, ey = _frexp(y)
+  mw, ew = _frexp(w)
+  mg, eg = _frexp(γ)
   et = eg + ew + 2ey
   ed = max(0, et)
   d = ldexp(one(T), -ed) + ldexp(2 * mg * mw * my^2, et - ed)
@@ -246,7 +258,9 @@ Base.@propagate_inbounds function _sqrhinge_gradient(f::SqrHingeLoss, v::Real, i
   -copysign(_sqrhinge_slope(y, w, r, e), y)
 end
 
-function gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
+gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray) =
+  (_check_oracle_arrays(gradient!, f, g, x); _gradient_unchecked!(g, f, x))
+function _gradient_unchecked!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
   _checkwrite(gradient!, f, g, x)
   @inbounds for i in eachindex(IndexLinear(), g, x)
     g[i] = _sqrhinge_gradient(f, x[i], i)
@@ -254,7 +268,9 @@ function gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
   g
 end
 
-function value_and_gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
+value_and_gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray) =
+  (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
+function _value_and_gradient_unchecked!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
   T = float(eltype(x))
   v = zero(T)
@@ -319,6 +335,12 @@ _checkparams(f::EpsInsensitiveLoss, x) = (_checkparam(f.w, x); true)
 Base.@propagate_inbounds function value_entry(f::EpsInsensitiveLoss, v::T, i::Integer) where {T<:Real}
   w = _entry(f.w, i)
   φ = max(abs(v) - convert(float(T), f.ε), zero(float(T)))
+  # An infinite ε makes the loss zero, whatever the entry.
+  isinf(f.ε) && return zero(w * φ)
+  # Where φ is NaN (a NaN entry, or an infinite one where a finite ε rounds to Inf in the entry's
+  # type), a zero weight leaves the entry free; other weights give NaN, and other entries take
+  # the expression below unchanged.
+  isnan(φ) && return iszero(w) ? zero(w * φ) : w * φ
   _weighted_value(w * φ, φ)
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::EpsInsensitiveLoss, v::T, i::Integer) where {T<:Real} =
@@ -391,7 +413,7 @@ function _conjugate_value(f::EpsInsensitiveLoss, s::AbstractArray)
     _within(a, convert(T, _entry(f.w, i)), T) || return T(Inf)
     v += a
   end
-  iszero(f.ε) ? zero(T) : convert(T, f.ε) * v
+  iszero(f.ε) || iszero(v) ? zero(T) : convert(T, f.ε) * v
 end
 
 ####################################
@@ -508,3 +530,89 @@ function deriv2(ℓ::ConvolutionCheck, η::Real, y::Real)
 end
 curvature(ℓ::ConvolutionCheck{<:Any, :uniform}) = inv(2 * float(ℓ.h))
 curvature(ℓ::ConvolutionCheck{<:Any, :epanechnikov}) = 3 / (4 * float(ℓ.h))
+
+####################################
+#  values as a significand and an exponent
+####################################
+
+# The scaled-value mechanism (`_sep_value_parts`, separable.jl): the terms w φ with φ as parts,
+# so that neither a margin y v, a square nor a product with a weight need be representable. A
+# term at a non-finite entry or label is the ordinary one.
+_has_value_parts(::Type{<:Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss, CheckLoss}}) = true
+# Exact-zero protection, a proof per operation where a term can round into the subnormal range of the
+# value type T (each such rounding loses less than δ/2, δ the smallest subnormal of T).
+# - Hinge and squared hinge without weights, with labels that are absent, integers or Float16/32/64
+#   (decided by the type): the term is computed in the promotion S of T and the labels' type, and
+#   max(1 - t, 0), t the margin y v rounded in S, is 0 or at least eps(S)/2 >= 2^-54, a normal
+#   number in every argument type (1 - t for a float t < 1); its square is at least 2^-108, also
+#   normal. A margin that rounds to 1 or more is a zero within the accuracy of the ordinary
+#   computation, measured against the magnitudes of 1 and y v (R1), and the parts round the same
+#   margin. Labels of a wider type (BigFloat, and BigInt, whose margin is formed in BigFloat) can
+#   give a term below the normal range of T, which converting it to T loses: the bound below
+#   applies instead. Fixed-width integer and Bool labels promote with T to T or to Float64.
+# - ε-insensitive without weights, with an ε of a type that converts exactly into every argument
+#   type (Bool, 8- and 16-bit integers, Float16, Float32): |v| - ε that is subnormal is an exact
+#   difference, and a sum whose result is subnormal is exact. Another ε is rounded to T first; an ε
+#   that keeps its range in T is rounded with a relative error, so a zero term is within the
+#   accuracy of the ordinary computation (measured against ε), and only the last roundings lose:
+#   the bound below; an ε that does not keep its range (a subnormal or zero in T) has no bound.
+# In those trait cases a zero or subnormal value is exact, and Scaled skips the recovery for it.
+const _HingeExactLabels = Union{Nothing, AbstractArray{<:Union{Bool, Base.BitInteger, Float16, Float32, Float64}}}
+const _ExactEps = Union{Bool, Int8, UInt8, Int16, UInt16, Float16, Float32}
+_zero_value_exact(::Union{HingeLoss{<:_HingeExactLabels, Nothing}, SqrHingeLoss{<:_HingeExactLabels, Nothing},
+                          EpsInsensitiveLoss{<:_ExactEps, Nothing}}) = true
+# Otherwise the term w φ (or φ, or its conversion to T) is the last product, which loses less than
+# δ/2: |f(x)| < n δ. The check loss rounds τ to T (which must keep its range there) and τ v first,
+# which loses less than δ/2 where it is subnormal and is then multiplied by a weight: one pass over
+# the weights bounds them (the unweighted loss multiplies by 1).
+function _zero_value_exponent(f::Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}, x::AbstractArray)
+  _zero_value_exact(f) && return _EXACT_ZERO
+  if f isa EpsInsensitiveLoss
+    T = _valtype(x)
+    # an ε that converts exactly to T makes |v| - ε exact where it is subnormal, as for the trait
+    f.w === nothing && convert(T, f.ε) == f.ε && return _EXACT_ZERO
+    _level_fits(T, f.ε) || return nothing
+  end
+  _underflow_exponent(_valtype(x), length(x))
+end
+function _zero_value_exponent(f::CheckLoss, x::AbstractArray)
+  _level_fits(_valtype(x), f.τ) || return nothing
+  f.w === nothing && return _underflow_exponent(_valtype(x), length(x))
+  we = _weight_exponents(f.w)
+  we === nothing ? nothing : _underflow_exponent(_valtype(x), length(x), 1 + max(0, we[2]))
+end
+function _value_parts(f::Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}, x::AbstractArray, v)
+  iszero(v) && _zero_value_exact(f) && return nothing
+  _sep_value_parts(f, x, _sep_parts_type(x, f isa EpsInsensitiveLoss ? f.ε : f.y, f.w))
+end
+_value_parts(f::CheckLoss, x::AbstractArray, v) = _sep_value_parts(f, x, _sep_parts_type(x, f.τ, f.w))
+_parameter_alias(f::Union{HingeLoss, SqrHingeLoss}, out) = _mightalias_parameter(out, f.y) || _mightalias_parameter(out, f.w)
+_parameter_alias(f::Union{EpsInsensitiveLoss, CheckLoss}, out) = _mightalias_parameter(out, f.w)
+
+# a term computed as the ordinary one, for a non-finite entry or parameter
+@inline _ordinary_term_add(acc::_ExpSum, f, v, i) = _term_add(acc, value_entry(f, v, i), 0)
+
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::HingeLoss, v, i) where {R}
+  y, u, w = convert(R, _entry(f.y, i)), convert(R, v), _entry(f.w, i)
+  (isfinite(y) && isfinite(u)) || return _ordinary_term_add(acc, f, v, i)
+  r, e = _sqrhinge_residual(y, u)
+  _weighted_term_add(acc, w, _parts(r, e))
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::SqrHingeLoss, v, i) where {R}
+  y, u, w = convert(R, _entry(f.y, i)), convert(R, v), _entry(f.w, i)
+  isfinite(u) || return _ordinary_term_add(acc, f, v, i)
+  r, e = _sqrhinge_residual(y, u)
+  mr, er = frexp(r)
+  _weighted_term_add(acc, w, _parts(mr * mr, 2 * (er + e)))
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::EpsInsensitiveLoss, v, i) where {R}
+  u = convert(R, v)
+  isfinite(u) || return _ordinary_term_add(acc, f, v, i)
+  _weighted_term_add(acc, _entry(f.w, i), frexp(max(abs(u) - convert(R, f.ε), zero(R))))
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CheckLoss, v, i) where {R}
+  u = convert(R, v)
+  isfinite(u) || return _ordinary_term_add(acc, f, v, i)
+  τ = convert(R, f.τ)
+  _weighted_term_add(acc, _entry(f.w, i), _parts_product(frexp(u >= 0 ? τ : τ - 1), frexp(u)))
+end

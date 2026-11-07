@@ -44,6 +44,7 @@ makedocs(
             "Coordinate descent" => "coordinate_descent.md",
             "Sparse iterates" => "iterates.md",
             "Proximal operators and interface" => "interface.md",
+            "Numerical contract" => "numerics.md",
         ],
         "Functions" => [
             "Smooth functions" => "smooth.md",

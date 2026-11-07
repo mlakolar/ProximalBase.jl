@@ -12,18 +12,36 @@ function coefficient(s, w)
   ifelse(isnan(p) & !isnan(s), oftype(p, w), p)
 end
 coefficient(γ, λ, w) = coefficient(γ * λ, w)
+# Numerics T3 (#503): the product of the factors is formed in the promotion of the destination
+# type S and the factors' types, and rounded once to S. ElasticNet, Berhu and CappedL1 follow it;
+# the entries of the other families below keep the frozen formulas of 546dc86.
+promotion(::Type{S}, xs...) where {S} = promote_type(S, map(x -> x isa Bool ? Float16 : typeof(x), xs)...)
+# While γλ is a normal number in R the coefficient is the frozen formula. Otherwise, for finite nonzero
+# factors, the product is exact (BigFloat) and rounded once to S, which recovers a γλ that leaves the
+# range of R (R3); zero, infinite and NaN factors keep their meaning.
+function tcoefficient(::Type{S}, γ, λ, w) where {S}
+  R = promotion(S, γ, λ, w)
+  a, b, c = convert(R, γ), convert(R, λ), convert(R, w)
+  if !(floatmin(R) <= a * b <= floatmax(R)) && all(isfinite, (a, b, c)) && !iszero(a) && !iszero(b) && !iszero(c)
+    return setprecision(BigFloat, 512) do
+      convert(S, BigFloat(a) * BigFloat(b) * BigFloat(c))
+    end
+  end
+  convert(S, coefficient(a, b, c))
+end
+tproduct(::Type{S}, a, b) where {S} = (R = promotion(S, a, b); convert(S, convert(R, a) * convert(R, b)))
 
 function reference_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  shrink_ref(v, convert(S, coefficient(γ, f.λ1, entry(f.w, i)))) / (1 + convert(S, γ * f.λ2))
+  shrink_ref(v, tcoefficient(S, γ, f.λ1, entry(f.w, i))) / (1 + tproduct(S, γ, f.λ2))
 end
 
 # as since #289: an identity prox for a zero step, level or finite weight
 function reference_entry(f::Berhu, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  step, λ, w = S(γ), S(f.λ), S(entry(f.w, i))
-  !isinf(w) && (iszero(step) || iszero(λ) || iszero(w)) && return S(v)
-  c = coefficient(step, λ, w)
+  w = entry(f.w, i)
+  !isinf(w) && (iszero(γ) || iszero(f.λ) || iszero(w)) && return S(v)
+  c = tcoefficient(S, γ, f.λ, w)
   M, t = S(f.M), abs(S(v))
   t <= M + c ? shrink_ref(S(v), c) : S(v) * M / (M + c)
 end
@@ -32,7 +50,10 @@ function reference_entry(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Rea
   S = float(T)
   w = entry(f.w, i)
   s, τ, u = convert(S, coefficient(γ, w)), convert(S, f.τ), S(v)
-  u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) : zero(S))
+  # a NaN u stays NaN (E2), unless the map is constant: the step γ = Inf or an infinite weight
+  # (not a finite γw that overflows to Inf); a NaN coefficient keeps the old zero (#561)
+  u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) :
+    (isnan(u) && !isnan(s) && !(γ == Inf || isinf(w)) ? u : zero(S)))
 end
 
 function reference_entry(f::EpsInsensitiveLoss, v::T, i::Integer, γ::Real) where {T<:Real}
@@ -49,12 +70,12 @@ function reference_entry(f::HingeLoss, v::T, i::Integer, γ::Real) where {T<:Rea
   w = entry(f.w, i)
   s = convert(S, coefficient(γ, w)) * y^2
   u = y * S(v)
-  (u >= 1 ? u : (u < 1 - s ? u + s : one(S))) / y
+  (u >= 1 ? u : (u < 1 - s ? u + s : (isnan(u) ? u : one(S)))) / y      # a NaN margin stays NaN (E2, #561)
 end
 
 function reference_entry(f::CappedL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c = coefficient(S(γ), S(f.λ), S(entry(f.w, i)))
+  c = tcoefficient(S, γ, f.λ, entry(f.w, i))
   a, t = S(f.a), abs(S(v))
   z1 = min(max(t - c, zero(S)), a)          # the ℓ1 piece |z| ≤ a: soft thresholding, clipped at a
   z2 = max(t, a)                             # the constant piece |z| ≥ a
@@ -117,7 +138,7 @@ PB._conjugate_isindicator(::Type{Frozen{F}}) where {F} = PB._conjugate_isindicat
         end
       end
     end
-    # Mixed factors must retain their conversion order.
+    # Mixed factors: the product is formed in their promotion and rounded once (T3).
     for f in (families(Float64, Float64.(w))..., families(T, Float64.(w))...)
       check_case(f, x, ordinary)
     end
@@ -128,7 +149,21 @@ PB._conjugate_isindicator(::Type{Frozen{F}}) where {F} = PB._conjugate_isindicat
       z = randn(rng, T, length(x))
       @test all(samebits.(prox(Scaled(f, T(2)), z, ordinary), prox(Scaled(Frozen(f), T(2)), z, ordinary)))
       if !(f isa CappedL1)
-        @test all(samebits.(prox(Conjugate(f), z, ordinary), prox(Conjugate(Frozen(f)), z, ordinary)))
+        a = prox(Conjugate(f), z, ordinary)
+        b = prox(Conjugate(Frozen(f)), z, ordinary)
+        if f isa CheckLoss
+          # Direct clipping avoids Moreau cancellation; compare both to the box.
+          setprecision(BigFloat, 4096) do
+            ref = [clamp(BigFloat(z[i]), -BigFloat(entry(f.w, i)) * (1 - BigFloat(f.τ)),
+                         BigFloat(entry(f.w, i)) * BigFloat(f.τ)) for i in eachindex(z)]
+            direct, moreau = abs.(BigFloat.(a) .- ref), abs.(BigFloat.(b) .- ref)
+            @test all(direct .<= 4BigFloat(eps(T)) .* abs.(ref) .+ 2BigFloat(nextfloat(zero(T))))
+            @test maximum(direct) <= maximum(moreau)
+            @test sum(direct) <= sum(moreau)
+          end
+        else
+          @test all(samebits.(a, b))
+        end
       end
     end
     # Cross every exceptional input with zero and infinite weights.

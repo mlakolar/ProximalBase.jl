@@ -24,6 +24,8 @@ on a sparse iterate the value and the proximal operator touch only the stored
 entries. With [`LogDetLoss`](@ref) in ADMM it gives the Gaussian maximum
 likelihood estimate on a known graph. On a `SymmetricSparseIterate` the pattern
 must be symmetric.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 struct IndPattern{N} <: SeparableFunction
   P::BitArray{N}
@@ -328,6 +330,7 @@ Base.@propagate_inbounds function _symmetric_diagonal_mean(x::AbstractMatrix, n:
 end
 
 function prox!(y::AbstractMatrix, f::IndToeplitz, x::AbstractMatrix, ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   m, n = size(x)
   if _symmetric_toeplitz(f, x)

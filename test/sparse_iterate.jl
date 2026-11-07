@@ -1,11 +1,14 @@
 module SparseIterateTest
 
+# The active-set, storage and copy invariants, and one product of each kind, run in the Quick tier
+# from sparse_iterate_basics.jl; this file keeps the exhaustive product grids and the rest.
 
 using Test
 using ProximalBase
 using Random
 using LinearAlgebra
 using SparseArrays
+
 using Statistics
 
 Random.seed!(1)
@@ -27,115 +30,23 @@ function check_product_state(x, before)
     @test x.ind2nzval == before.ind2nzval
 end
 
+# The M1 reference: the sum over the coordinates where the iterate's coefficient is nonzero
+# (where both iterates' are, for two). The finite entries are small integers, so every
+# summation order gives the same result and isequal compares classes (FN-4); a zero of a
+# dense operand is an IEEE zero.
+strong(v, x) = sum((v[j] * x[j] for j in 1:length(x) if !iszero(x[j])); init = zero(promote_type(eltype(v), eltype(x))))
+strong2(x, y) = sum((x[j] * y[j] for j in 1:length(x) if !iszero(x[j]) && !iszero(y[j]));
+                    init = zero(promote_type(eltype(x), eltype(y))))
+
+# The five-argument form into a reused out: β = 0 overwrites the NaN already in out, β = 1 keeps it.
+function check_five(M, x, ref)
+    T = eltype(ref)
+    o = fill(T(NaN), size(ref)); o[end] = 1
+    @test isequal(mul!(copy(o), M, x, 2, 0), 2 .* ref)
+    @test isequal(mul!(copy(o), M, x, 2, 1), 2 .* ref .+ o)
+end
+
 @testset "sparseIterate" begin
-
-    @testset "issparse" begin
-        @test issparse(SparseIterate(sparse(fill(1,5,5))))
-        @test issparse(SparseIterate(fill(1,5,5)))
-        @test issparse(SparseIterate(fill(1,5)))
-    end
-
-    @testset "dropzeros and nnz" begin
-        x = SparseIterate(3)
-        x[3] = 2.
-        x[1] = 1.
-        @test nnz(x) == 2
-        x[1] = 0.
-        @test nnz(x) == 2
-        dropzeros!(x)
-        @test nnz(x) == 1
-        @test Vector(x) == [0., 0., 2.]
-
-        x = SparseIterate(3)
-        x[3] = 2.
-        x[1] = 1.
-        x[3] = 0.
-        x[1] = 0.
-        @test nnz(x) == 2
-        dropzeros!(x)
-        @test nnz(x) == 0
-        @test Vector(x) == [0., 0., 0.]
-    end
-
-    @testset "activate!" begin
-        x = SparseIterate(5)
-        x[2] = 1.
-        x[4] = 0.                       # assigning a zero does not store the entry
-        @test nnz(x) == 1
-        @test activate!(x, 4) === x
-        @test nnz(x) == 2
-        @test x[4] == 0.
-        @test x.nzval2ind[1:nnz(x)] == [2, 4]
-        @test x.nzval[1:nnz(x)] == [1., 0.]
-
-        # activating a stored entry changes nothing
-        activate!(x, 2)
-        activate!(x, 4)
-        @test nnz(x) == 2
-        @test Vector(x) == [0., 1., 0., 0., 0.]
-
-        # the activated entry is written in place, and dropzeros! removes it while zero
-        x[4] = 3.
-        @test nnz(x) == 2
-        @test Vector(x) == [0., 1., 0., 3., 0.]
-        x[4] = 0.
-        dropzeros!(x)
-        @test nnz(x) == 1
-        @test x.nzval2ind[1:nnz(x)] == [2]
-
-        @test_throws BoundsError activate!(x, 6)
-
-        y = SparseIterate(Float32, 2, 3)
-        activate!(y, 5)
-        @test nnz(y) == 1
-        @test y[1, 3] === 0f0
-    end
-
-    @testset "active coordinates" begin
-        x = SparseIterate(6)
-        x[4] = 1.
-        x[2] = 3.
-        activate!(x, 6)
-        @test nactive(x) == 3
-        @test activecoordinates(x) == [4, 2, 6]
-        @test isactive(x, 2) && isactive(x, 6) && !isactive(x, 1)
-        @test_throws BoundsError activecoordinates(x)[4]
-        dropzeros!(x)
-        @test activecoordinates(x) == [4, 2]
-        x[4] = 0.
-        dropzeros!(x)                   # the last active coordinate moves into the gap
-        @test activecoordinates(x) == [2]
-        @test ncoordinates(x) == 6
-        @test coordinates(x) === x
-    end
-
-    @testset "setindex! converts" begin
-        x = SparseIterate(3)
-        x[1] = 1                        # an Int
-        x[2] = 2f0                      # a Float32
-        @test Vector(x) == [1., 2., 0.]
-        x[1] = 0                        # a stored entry stays stored
-        x[3] = 0                        # a zero is not stored
-        @test nnz(x) == 2
-        @test_throws InexactError (SparseIterate(Int, 2)[1] = 0.5)
-        @test_throws BoundsError (x[4] = 1.)
-
-        y = SparseIterate(2, 2)
-        y[2, 1] = 3
-        @test Matrix(y) == [0. 0.; 3. 0.]
-    end
-
-    @testset "fill! and norm" begin
-        x = SparseIterate([0., 3., 0., -4.])
-        @test norm(x) == 5.
-        @test norm(x, 1) == 7. && norm(x, Inf) == 4. && norm(x, 0) == 2.
-        @test norm(x, -Inf) == 0.                     # the entries that are not stored count
-        @test fill!(x, 0) === x
-        @test nnz(x) == 0 && Vector(x) == zeros(4)
-        fill!(x, 2.)
-        @test Vector(x) == fill(2., 4)
-    end
-
 
     @testset "show" begin
         io = IOBuffer()
@@ -179,41 +90,6 @@ end
         show(io, MIME"text/plain"(), y)
         @test String(take!(io)) == "2×3 $(typeof(y)) with 2 stored entries:\n  [2, 2]  =  2.0\n  [1, 3]  =  1.0"
     end
-
-    @testset "copy" begin
-        v = sprand(20, 0.4)
-        x = SparseIterate(v)
-        y = copy(x)
-        @test Vector(y) == Vector(v)
-        @test Vector(y) == Vector(x)
-        @test !(x === y)
-
-        M = sprand(10, 20, 0.2)
-        x = SparseIterate(M)
-        y = copy(x)
-        @test Matrix(y) == Matrix(M)
-        @test Matrix(y) == Matrix(x)
-        @test !(x === y)
-
-        # copyto! into an iterate that holds other entries, via the sparse and the dense path
-        for d in (0.02, 0.6)
-            v, w = sprandn(200, d), sprandn(200, d)
-            x, y = SparseIterate(v), SparseIterate(w)
-            @test copyto!(x, y) === x
-            @test Vector(x) == Vector(w)
-            @test nnz(x) == nnz(y)
-            @test Vector(copyto!(x, x)) == Vector(w)
-
-            # entries set afterwards are stored correctly
-            i = findfirst(iszero, Vector(w))
-            x[i] = 7.
-            @test x[i] == 7.
-            @test nnz(x) == nnz(y) + 1
-            @test Vector(y) == Vector(w)
-        end
-        @test_throws DimensionMismatch copyto!(SparseIterate(3), SparseIterate(4))
-    end
-
 
     @testset "other" begin
         x = SparseIterate(3)
@@ -363,39 +239,6 @@ end
         end
     end
 
-    @testset "five-argument stored zeros" begin
-        A = [Inf 1. 3.; 2. 4. 5.]
-        B = Matrix(transpose(A))
-        x = SparseIterate([0., 2., 0.])
-        activate!(x, 1)
-        X = SparseIterate([0. 0.; 2. 0.; 0. -1.])
-        activate!(X, 1)
-        X_sparse = SparseIterate(3, 32)
-        X_sparse[2, 1], X_sparse[3, 2] = 2., -1.
-        activate!(X_sparse, 1)
-        @test 32 * nnz(X_sparse) == length(X_sparse)
-        @test 32 * nnz(X) > length(X)
-        for (M, coef) in ((A, x), (A, X_sparse), (A, X), (transpose(B), x), (adjoint(B), x))
-            before = copy(coef)
-            dims = ndims(coef) == 1 ? (2,) : (2, size(coef, 2))
-            reference = mul!(fill(NaN, dims...), M, coef)
-            @test isnan(reference[1]) && reference[2] == 8.
-            if ndims(coef) == 2
-                @test reference[:, 2] == [-3., -5.]
-                @test all(iszero, view(reference, :, 3:size(coef, 2)))
-            end
-            for (α, β) in ((1.0, 0.0), (2.5, -0.5))
-                out = fill(iszero(β) ? NaN : 3., dims...)
-                expected = iszero(β) ? α .* reference : α .* reference .+ β * 3.
-                @test isequal(mul!(out, M, coef, α, β), expected)
-            end
-            @test mul!(fill(NaN, dims...), M, coef, 0.0, 0.0) == zeros(dims...)
-            @test mul!(fill(3., dims...), M, coef, 0.0, -0.5) == fill(-1.5, dims...)
-            @test all(isnan, mul!(fill(NaN, dims...), M, coef, 1.0, 1.0))
-            check_product_state(coef, before)
-        end
-    end
-
     @testset "five-argument product dimensions" begin
         A = zeros(3, 4)
         for α in (0.0, 2.5), β in (0.0, -0.5)
@@ -412,32 +255,119 @@ end
             end
         end
     end
+
+    @testset "zero coefficients are strong (M1, FT12)" begin
+        for T in (Float32, Float64), bad in T.((NaN, Inf, -Inf)), k in 1:5, stored in (true, false)
+            # coefficients [0, 2, 0, -1, 0]: explicit zeros at 1 and 5, an unstored zero at 3
+            x = SparseIterate(T, 5); x[2] = 2; x[4] = -1; activate!(x, 1); activate!(x, 5)
+            stored || dropzeros!(x)
+            before = copy(x)
+            v = T[1, 2, 3, 4, 5]; v[k] = bad                          # a non-finite entry at k
+            A = T[1 2 3 4 5; -1 0 2 1 3]; A[:, k] .= bad              # a non-finite column k
+            ref = [strong(view(A, i, :), x) for i in 1:2]
+            @test isequal(dot(v, x), strong(v, x)) && isequal(dot(x, v), strong(v, x))
+            @test isequal(dot(view(A, 2, :), x), ref[2])
+            for M in (A, transpose(permutedims(A)), permutedims(A)')
+                @test isequal(M * x, ref)
+                check_five(M, x, ref)
+            end
+            P = T[2 1 0 1 3; 1 2 1 0 1; 0 1 2 1 0; 1 0 1 2 1; 3 1 0 1 2]; P[k, :] .= bad; P[:, k] .= bad
+            for uplo in (:U, :L)
+                refP = [strong(view(P, i, :), x) for i in 1:5]
+                @test isequal(Symmetric(P, uplo) * x, refP)
+                check_five(Symmetric(P, uplo), x, refP)
+            end
+            # two iterates: y holds the non-finite entry alone, or with explicit zeros
+            # everywhere else, so that dot walks y or x
+            for padded in (false, true)
+                y = SparseIterate(T, 5); y[k] = bad
+                padded && foreach(j -> activate!(y, j), 1:5)
+                @test isequal(dot(x, y), strong2(x, y)) && isequal(dot(y, x), strong2(x, y))
+            end
+            # a non-finite coefficient that meets a zero of a dense operand propagates
+            w = copy(x); w[2] = bad
+            @test isnan(dot(T[1, 0, 1, 1, 1], w)) && isequal(dot(T[1, 0, 1, 1, 1], w), strong(T[1, 0, 1, 1, 1], w))
+            B = T[1 2 3 4 5; -1 0 2 1 3]                                # B[2, 2] == 0 meets w[2]
+            @test isnan((B * w)[2]) && isequal(B * w, [strong(view(B, i, :), w) for i in 1:2])
+            @test isequal(transpose(permutedims(B)) * w, B * w)
+            check_product_state(x, before)
+        end
+    end
+
+    @testset "matrix coefficients: zero coefficients are strong (M1, FT12)" begin
+        for T in (Float32, Float64), bad in T.((NaN, Inf, -Inf)), p in (64, 3), k in 1:3, stored in (true, false)
+            # explicit zeros at (1, 1) and (1, 2)
+            X = SparseIterate(T, p, 2); X[2, 1] = 2; X[3, 2] = -1; activate!(X, 1); activate!(X, p + 1)
+            stored || dropzeros!(X)
+            @test (32 * nnz(X) <= length(X)) == (p == 64)           # the stored-entry walk for p = 64
+            before = copy(X)
+            Xd = Matrix(X)
+            A = T.(reshape(0:2p-1, 2, p) .% 5 .- 2); A[:, k] .= bad
+            ref = [strong(view(A, i, :), view(Xd, :, c)) for i in 1:2, c in 1:2]
+            @test isequal(A * X, ref)                               # LinearAlgebra's * reaches this mul!
+            @test parentmodule(which(mul!, typeof.((ref, A, X)))) == ProximalBase
+            check_five(A, X, ref)
+            P = T.(reshape(0:p*p-1, p, p) .% 3); P = P + P'; P[k, :] .= bad; P[:, k] .= bad
+            for uplo in (:U, :L)
+                refP = [strong(view(P, i, :), view(Xd, :, c)) for i in 1:p, c in 1:2]
+                @test isequal(Symmetric(P, uplo) * X, refP)
+                check_five(Symmetric(P, uplo), X, refP)
+            end
+            a = T.(1:p); a[k] = bad; b = T[1, -1]
+            @test isequal(dot(a, X, b), sum((a[i] * Xd[i, j] * b[j] for i in 1:p, j in 1:2 if !iszero(Xd[i, j])); init = zero(T)))
+            check_product_state(X, before)
+        end
+    end
+
+    @testset "the zero test comes before α (M1)" begin
+        x = SparseIterate(2); x[2] = 1e-300; activate!(x, 1)
+        # α·c underflows to zero, and the nonzero coefficient still meets NaN
+        @test isnan(only(mul!(zeros(1), [Inf NaN], x, 1e-300, 0)))
+        @test isnan(only(mul!(zeros(1), transpose([Inf; NaN;;]), x, 1e-300, 0)))
+        @test isnan(mul!(zeros(2), Symmetric([1.0 NaN; NaN 1.0]), x, 1e-300, 0)[1])
+        for p in (64, 3)
+            X = SparseIterate(p, 1); X[2, 1] = 1e-300; activate!(X, 1)
+            @test isnan(only(mul!(zeros(1, 1), fill(NaN, 1, p), X, 1e-300, 0)))
+            @test isnan(mul!(zeros(p, 1), Symmetric(fill(NaN, p, p)), X, 1e-300, 0)[1])
+        end
+        # α = Inf does not meet the explicit zero: no Inf · 0
+        x[2] = 1
+        @test mul!(zeros(1), [5.0 2.0], x, Inf, 0) == [Inf]
+        @test mul!(zeros(2), Symmetric([5.0 2.0; 2.0 1.0]), x, Inf, 0) == [Inf, Inf]
+        for p in (64, 3)
+            X = SparseIterate(p, 1); X[2, 1] = 1; activate!(X, 1)
+            @test mul!(zeros(1, 1), fill(2.0, 1, p), X, Inf, 0) == fill(Inf, 1, 1)
+        end
+    end
+
+    @testset "an empty product ignores α (M1)" begin
+        # no nonzero coefficient: out becomes β·out on every path, also for α = Inf or NaN
+        A = [1.0 2.0 3.0; 4.0 5.0 6.0]
+        for coef in (SparseIterate(3), (z = SparseIterate(3); activate!(z, 1); activate!(z, 3); z)),
+            α in (Inf, NaN), β in (0.0, 1.0)
+            o = [7.0, NaN]
+            expected = iszero(β) ? zeros(2) : o
+            @test isequal(mul!(copy(o), A, coef, α, β), expected)
+            for M in (transpose(permutedims(A)), permutedims(A)')
+                @test isequal(mul!(copy(o), M, coef, α, β), expected)
+            end
+            @test isequal(mul!([7.0, NaN, 1.0], Symmetric([1.0 2 3; 2 4 5; 3 5 6]), coef, α, β),
+                          iszero(β) ? zeros(3) : [7.0, NaN, 1.0])
+        end
+    end
+
+    @testset "finite overflow can depend on the order (FN-4, A1)" begin
+        # The sum follows the walk, which takes the argument with fewer stored entries (the
+        # first at a tie), so a finite partial sum can overflow in one order only. The values
+        # are those of today and are allowed to differ (numerics M1 and A1).
+        M = floatmax(Float64)
+        x = SparseIterate([M, M, -M]); y = SparseIterate(3); y[1] = 1; y[3] = 1; y[2] = 1
+        @test dot(x, y) == Inf
+        @test dot(y, x) == M
+    end
 end
 
 @testset "sparseSymmetricIterate" begin
-
-    @testset "a symmetric matrix" begin
-        s = SymmetricSparseIterate(3)
-        s[2, 1] = 1                     # setindex! converts, as for SparseIterate
-        s[1, 3] = 2f0
-        @test s[1, 2] === 1. && s[3, 1] === 2.
-        s[2, 2] = 5.
-        M = [0. 1. 2.; 1. 5. 0.; 2. 0. 0.]
-        @test Matrix(s) == M
-        # linear indices, length and iteration follow the dense matrix
-        @test length(s) == 9 && size(s) == (3, 3)
-        @test [s[i] for i in 1:9] == vec(M)
-        @test collect(s) == M
-        @test vec(s) == vec(M)
-        @test sum(s) == sum(M)
-        @test s == M
-        # an index outside the matrix does not alias an entry of the lower triangle
-        @test_throws BoundsError s[4, 1]
-        @test_throws BoundsError s[1, 4]
-        @test_throws BoundsError (s[4, 1] = -1.)
-        @test_throws BoundsError s[10]
-        @test s[2, 2] == 5. && nnz(s) == 3
-    end
 
     @testset "generic functions agree with the dense matrix" begin
         # Base and LinearAlgebra read x through its indices, length and iteration
@@ -474,168 +404,6 @@ end
         @test det(S) ≈ det(M) && logdet(S) ≈ logdet(M) && inv(S) ≈ inv(M) && S \ b ≈ M \ b
         @test eigvals(S) ≈ eigvals(M) && svdvals(S) ≈ svdvals(M) && cholesky(S).L ≈ cholesky(M).L
         @test opnorm(S) ≈ opnorm(M) && opnorm(S, 1) ≈ opnorm(M, 1) && exp(S) ≈ exp(M) && sqrt(S) ≈ sqrt(M)
-    end
-
-    @testset "writes update each entry once" begin
-        p = 5
-        A = sprandn(p, p, 0.4)
-        S = SymmetricSparseIterate(sparse(A + A') + 2p * I)
-        # a linear index is an entry of the dense matrix, and writing it writes
-        # its mirror image
-        S[7] = -1.                       # (2, 2)
-        @test S[2, 2] == -1.
-        S[2] = 3.                        # (2, 1), so (1, 2) too
-        @test S[1, 2] == S[2, 1] == 3.
-        @test_throws BoundsError S[0]
-        @test_throws BoundsError S[p^2 + 1]
-        @test_throws BoundsError (S[p^2 + 1] = 1.)
-        # scaling and axpy update an off-diagonal entry once, not twice
-        M = Matrix(S)
-        @test Matrix(rmul!(copy(S), 2.)) == 2M && Matrix(lmul!(2., copy(S))) == 2M
-        @test Matrix(rdiv!(copy(S), 2.)) == M / 2 && Matrix(ldiv!(2., copy(S))) == M / 2
-        @test Matrix(axpy!(2., M, copy(S))) ≈ 3M && Matrix(axpby!(2., M, 3., copy(S))) ≈ 5M
-        @test Matrix(axpy!(2., S, copy(S))) ≈ 3M
-        @test_throws DimensionMismatch axpy!(2., vec(M), copy(S))
-        @test Matrix(axpy!(0., fill(NaN, p, p), copy(S))) == M
-        @test_throws DimensionMismatch axpy!(1., ones(3, 3), copy(S))
-        @test_throws DimensionMismatch axpby!(1., ones(3, 3), 1., copy(S))
-        # a stored zero stays stored, and a SparseIterate is scaled in O(nnz)
-        x = SparseIterate(sparse([1., 0., 2.]))
-        @test rmul!(x, 3.) === x && Vector(x) == [3., 0., 6.] && nnz(x) == 2
-        @test Vector(ldiv!(3., x)) == [1., 0., 2.]
-    end
-
-    @testset "coordinates" begin
-        p = 4
-        s = SymmetricSparseIterate(p)
-        s[3, 2] = 1.5
-        s[1, 1] = -2.
-        @test ncoordinates(s) == p * (p + 1) ÷ 2
-        @test nactive(s) == 2
-        @test activecoordinates(s) == [tril_index(p, 3, 2), tril_index(p, 1, 1)]
-        @test isactive(s, tril_index(p, 3, 2)) && !isactive(s, tril_index(p, 2, 1))
-        c = coordinates(s)
-        @test c isa AbstractVector && length(c) == ncoordinates(s)
-        @test c[tril_index(p, 3, 2)] == 1.5 && c[tril_index(p, 4, 1)] == 0.
-        c[tril_index(p, 4, 1)] = 7.             # writes the entries (4, 1) and (1, 4)
-        @test s[1, 4] == 7. && nnz(s) == 3
-        @test_throws BoundsError c[ncoordinates(s) + 1]
-        @test activate!(s, tril_index(p, 2, 2)) === s
-        @test nactive(s) == 4 && s[2, 2] == 0.
-        for k in 1:ncoordinates(s)
-            r, cc = tril_cartesian(p, k)
-            @test r >= cc && tril_index(p, r, cc) == k
-        end
-    end
-
-    @testset "dropzeros and nnz" begin
-        x = SymmetricSparseIterate(2)
-        x[2, 2] = 2.
-        x[1, 1] = 1.
-        @test nnz(x) == 2
-        x[1, 1] = 0.
-        @test nnz(x) == 2
-        dropzeros!(x)
-        @test nnz(x) == 1
-        @test Matrix(x) == [0.  0.; 0. 2.]
-    end
-
-    @testset "construct" begin
-      n = 10
-      M = sprandn(n, n, 0.1)
-      M = (M + M') / 2
-      x = SymmetricSparseIterate(M)
-      @test ncoordinates(x) == n * (n+1) / 2
-      @test Matrix(x) == Matrix(M)
-      @test Array(x) == Matrix(M)
-      @test typeof(SymmetricSparseIterate(2)) == SymmetricSparseIterate{Float64}
-      # from a matrix that is not symmetric, only through Symmetric(D, :L)
-      D = randn(4, 4)
-      @test_throws ArgumentError SymmetricSparseIterate(D)
-      @test_throws ArgumentError SymmetricSparseIterate(sparse(D))
-      y = SymmetricSparseIterate(Symmetric(D, :L))
-      @test Matrix(y) == Matrix(Symmetric(D, :L))
-      @test nnz(y) == 10
-      @test size(SymmetricSparseIterate(0)) == (0, 0)
-      for p in (-1, -2)
-        @test_throws ArgumentError SymmetricSparseIterate(p)
-        @test_throws ArgumentError SymmetricSparseIterate(Float32, p)
-      end
-    end
-
-    @testset "broadcasting and copyto!" begin
-      D = randn(5, 5); D = D + D'
-      s = SymmetricSparseIterate(D)
-      s .= 2 .* s                      # each entry of the lower triangle once
-      @test Matrix(s) ≈ 2D
-      s .= abs.(s) .- 1
-      @test Matrix(s) ≈ abs.(2D) .- 1
-      t = similar(s)
-      t .= s .+ D
-      @test Matrix(t) ≈ abs.(2D) .- 1 .+ D
-      # copyto! and broadcasting take a symmetric matrix, and one triangle of
-      # a matrix that is not symmetric only through Symmetric
-      E = randn(5, 5)
-      F = E + E'
-      @test_throws ArgumentError copyto!(t, E)
-      @test Matrix(copyto!(t, Symmetric(E, :L))) == Matrix(Symmetric(E, :L))
-      for source in (view(E, :, :), transpose(E), sparse(E), UpperTriangular(E))
-        @test_throws ArgumentError copyto!(t, source)
-      end
-      for source in (view(F, :, :), transpose(F), sparse(F), Symmetric(sparse(E), :U))
-        @test copyto!(t, source) === t
-        @test Matrix(t) == Matrix(source)
-      end
-      for T in (Float64,)
-        @test_throws ArgumentError copyto!(SymmetricSparseIterate(T, 5), SparseArrays.CHOLMOD.Dense(T.(E)))
-        source = SparseArrays.CHOLMOD.Dense(T.(F))
-        dest = SymmetricSparseIterate(T, 5)
-        @test copyto!(dest, source) === dest
-        @test Matrix(dest) == T.(F)
-        # The differently typed destination takes CHOLMOD's untyped
-        # intersection rather than its element-type-matched method.
-        mixed = SymmetricSparseIterate(Float32, 5)
-        @test copyto!(mixed, source) === mixed
-        @test Matrix(mixed) == Float32.(F)
-      end
-      @test_throws DimensionMismatch copyto!(t, view(F, 1:4, 1:4))
-      @test_throws ArgumentError t .= E
-      t .= Symmetric(E, :L)
-      @test Matrix(t) == Matrix(Symmetric(E, :L))
-      fill!(t, 0)
-      @test nnz(t) == 0
-      fill!(t, 1.)
-      @test Matrix(t) == ones(5, 5) && nnz(t) == 15
-    end
-
-    @testset "copyto! from sparse wrappers" begin
-      A = sparse(Float64[1 3; 5 0])      # not symmetric
-      B = sparse(Float64[1 3; 3 0])      # symmetric
-      wraps = Any[transpose, adjoint]
-      @static if isdefined(SparseArrays, :SparseMatrixCSCOrView)
-        push!(wraps, M -> view(M, :, 1:2))
-      end
-      for wrap in wraps
-        dest = fill!(SymmetricSparseIterate(Float64, 2), 9)
-        @test_throws ArgumentError copyto!(dest, wrap(A))
-        @test Matrix(dest) == fill(9, 2, 2)
-        source = wrap(B)
-        @test copyto!(dest, source) === dest
-        @test Matrix(dest) == Matrix(source)
-        @test_throws DimensionMismatch copyto!(SymmetricSparseIterate(3), source)
-      end
-      @static if isdefined(SparseArrays, :AdjOrTransSparseVectorOrView)
-        v = sparse(Float64[2])
-        B = sparse(reshape(Float64[2], 1, 1))
-        for parent in (v, view(v, :), view(B, :, 1)), wrap in (transpose, adjoint)
-          source = wrap(parent)
-          dest = SymmetricSparseIterate(Float64, 1)
-          @test copyto!(dest, source) === dest
-          @test Matrix(dest) == Matrix(source)
-          @test_throws DimensionMismatch copyto!(SymmetricSparseIterate(2), source)
-        end
-        @test_throws DimensionMismatch copyto!(SymmetricSparseIterate(1), transpose(sparse([1., 2.])))
-      end
     end
 
     @testset "show" begin
@@ -686,63 +454,6 @@ end
       y = SymmetricSparseIterate(n)
       y[4, 2] = 1.
       @test Σx * y * Σy ≈ Σx * Matrix(y) * Σy
-    end
-
-    @testset "copy" begin
-      n = 6
-      M = sprandn(n, n, 0.4)
-      M = (M + M') / 2
-      x = SymmetricSparseIterate(M)
-
-      y = similar(x)
-      @test y isa SymmetricSparseIterate{Float64}
-      @test size(y) == size(x)
-      @test nnz(y) == 0
-      @test similar(x, Float32) isa SymmetricSparseIterate{Float32}
-
-      copyto!(y, x)
-      @test Matrix(y) == Matrix(x)
-      @test nnz(y) == nnz(x)
-      @test_throws DimensionMismatch copyto!(SymmetricSparseIterate(3), x)
-      z = copy(x)
-      @test z isa SymmetricSparseIterate && Matrix(z) == Matrix(x)
-
-      # into a destination that holds other entries (sparse path)
-      x = SymmetricSparseIterate(20); x[3, 1] = 1.; x[5, 5] = 2.
-      y = SymmetricSparseIterate(20); y[5, 5] = -1.; y[9, 2] = 4.
-      copyto!(x, y)
-      @test Matrix(x) == Matrix(y)
-      @test nnz(x) == 2
-      x[1, 3] = 6.
-      @test x[3, 1] == 6.
-      @test nnz(x) == 3
-      @test Matrix(y)[3, 1] == 0.
-    end
-end
-
-
-@testset "sparse triple products agree with dense products" begin
-    rng = Xoshiro(20261025)
-    for T in (Float32, Float64)
-        m, n = 8, 10
-        A = Symmetric(randn(rng, T, m, m))
-        B = Symmetric(randn(rng, T, n, n))
-        # Concentrated support exercises each multiplication order, and no
-        # support verifies the empty-product dimensions. Stored zeros must
-        # contribute neither a row nor a column to the restricted product.
-        for (rows, columns) in (([2], [3, 7]), ([2, 6], [3]), (Int[], Int[]))
-            dense = zeros(T, m, n)
-            for i in rows, j in columns
-                dense[i, j] = T(i - j)
-            end
-            sparse = SparseIterate(dense)
-            activate!(sparse, 1)
-            product = A * sparse * B
-            @test product ≈ A * dense * B
-            @test size(product) == (m, n)
-            @test eltype(product) == T
-            @test Matrix(sparse) == dense
-        end
     end
 end
 

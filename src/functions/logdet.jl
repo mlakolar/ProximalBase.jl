@@ -9,10 +9,12 @@
 
 The Gaussian negative log-likelihood `f(X) = w (tr(SX) - log det X)` for finite
 `w > 0`, of a
-precision matrix `X`, for a symmetric `S` such as a sample covariance, and
-`Inf` when `X` is not positive definite, has a nonfinite entry, or fails the
+precision matrix `X`, for an exactly symmetric `S` such as a sample covariance (`S` that is not
+symmetric, even by one ulp, throws an `ArgumentError`: pass `Symmetric(S, :L)` or
+`Symmetric(S, :U)` to use a triangle), and
+`Inf` when `X` is not positive definite, has an infinite entry, or fails the
 symmetry check `abs(X[i,j] - X[j,i]) ≤ sqrt(eps(T)) * max(1, abs(X[i,j]),
-abs(X[j,i]))`, with `T = eltype(X)`. The loss of the graphical lasso.
+abs(X[j,i]))`, with `T = eltype(X)`; `NaN` when `X` has a `NaN` entry. The loss of the graphical lasso.
 
 It is smooth on the positive definite matrices, with gradient `w(S - X⁻¹)`,
 which [`value_and_gradient!`](@ref) computes from one Cholesky factorization;
@@ -28,7 +30,8 @@ log-determinant is not accurate. Entries exceeding `floatmax` within the
 reconstruction's rounding bound saturate. The log-determinant uses the mapped
 roots and the trace uses the stored output. That output can round to a singular
 matrix, so the returned value can be finite even when `f(Y)` is `Inf`.
-At a non-finite input, the proximal output is all `NaN` and the returned value is `NaN`.
+At a non-finite input, the proximal output is all `NaN` and the returned value is `NaN` when an
+entry is `NaN`, `Inf` otherwise.
 For a nonsymmetric proximal input, `X` is replaced by its symmetric part:
 the skew part contributes only a constant to the proximal objective.
 Both use workspaces that `f` owns, sized by `S`, and
@@ -36,8 +39,7 @@ allocate nothing; do not share `f` between threads. The workspace has the data's
 precision (`Float32` or `Float64`); outputs of any precision are written by rounding,
 and values are rounded to the type of the argument (see the Precision section
 of the manual).
-When an intermediate sum overflows although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct LogDetLoss{T<:_BlasReal} <: AbstractFunction
   S::Matrix{T}
@@ -57,7 +59,9 @@ function LogDetLoss(S::AbstractMatrix, w::Real = 1)
   eltype(S) <: Real || _real_error(:LogDetLoss)
   T = float(promote_type(eltype(S), typeof(w)))
   T <: _BlasReal || throw(ArgumentError("LogDetLoss needs Float32 or Float64 entries, got $T"))
-  LogDetLoss{T}(Matrix{T}(Symmetric(S)), convert(T, w))
+  checksquare(S)
+  _check_symmetric_host(S, "S", "S")
+  LogDetLoss{T}(Matrix{T}(S), convert(T, w))
 end
 
 issmooth(::Type{<:LogDetLoss}) = true
@@ -103,29 +107,38 @@ function (f::LogDetLoss{T})(X::AbstractMatrix) where {T}
   _checkreal(f, X)
   X = _is_device_array(X) ? copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X) : X
   ld = _logdet_chol!(f, X)
-  ld === nothing ? _valtype(X)(Inf) : _value_at(_logdet_value(f, X, ld), X)
+  # outside the domain; a NaN entry gives NaN (E2), tested only on this branch
+  ld === nothing ? _nonfinite_value(X, _valtype(X)) : _value_at(_logdet_value(f, X, ld), X)
 end
 
 @inline function _logdet_value(f::LogDetLoss, X::AbstractMatrix, ld)
-  v = f.w * (dot(f.S, X) - ld)
-  isfinite(v) || !isfinite(ld) || !(all(isfinite, f.S) && all(isfinite, X)) ? v :
-    oftype(v, _scaled_logdet_value(f, X, ld))
+  d = dot(f.S, X) - ld
+  v = f.w * d
+  (isfinite(v) && !_logdet_lifted(f.w, d, length(X))) || !isfinite(ld) ||
+    !(all(isfinite, f.S) && all(isfinite, X)) ? v : oftype(v, _scaled_logdet_value(f, X, ld))
 end
+# A weight above one can lift a difference that underflowed, or lost terms to
+# underflow, into the normal range (R1): then the products are summed again.
+@inline _logdet_lifted(w, d, n) = (w > one(w)) & (abs(d) < n * (floatmin(typeof(d)) / eps(typeof(d))))
 
-# The products that overflow are summed in units of 2^(ks + kx) and the others
-# in their own units, so that huge products that cancel keep the moderate ones
-# and the log-determinant; the two parts are combined exactly when the dot is
-# representable.
+# The products that overflow are summed in units of 2^(ks + kx), those that
+# underflow in units of 2^-U, and the others in their own units, so that huge
+# products that cancel keep the moderate ones and the log-determinant, and tiny
+# ones survive until the weight; without tiny products the two other parts are
+# combined exactly when the dot is representable.
 @noinline function _scaled_logdet_value(f::LogDetLoss{T}, X::AbstractMatrix, ld) where {T}
   R = float(promote_type(T, eltype(X)))
   ks = _magnitude_exponent(_maximum_abs(f.S))
   kx = _magnitude_exponent(_maximum_abs(X))
   k = ks + kx
-  big, small = _split_dot(f.S, X, _power_factors(R, -ks), _power_factors(R, -kx))
+  big, small, tiny = _split_dot(f.S, X, _power_factors(R, -ks), _power_factors(R, -kx))
   w, l = convert(R, f.w), convert(R, ld)
-  d = ldexp(big, k) + small
-  isfinite(d) && return w * (d - l)
-  _scaled_product(w, big + _scale_value(small - l, _power_factors(R, -k)), k)
+  if iszero(tiny)
+    d = ldexp(big, k) + small
+    isfinite(d) && return w * (d - l)
+    return _scaled_product(w, big + _scale_value(small - l, _power_factors(R, -k)), k)
+  end
+  _pow2_weighted(R, w, (big, k), (small - l, 0), (tiny, -_tiny_unit(R)))
 end
 
 function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix) where {T}
@@ -149,10 +162,22 @@ function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMat
   _value_at(v, X)
 end
 
+# The square root of the step times the weight. A negative step raises the DomainError of the
+# square root; a NaN step has no proximal point, and raises one as well. The step is checked
+# before the input, so that block sums can check it before writing any block. An empty input
+# has no eigenvalue to fail at, and accepts a NaN step.
+@inline function _logdet_root_step(f::LogDetLoss{T}, γ::Real, X::AbstractMatrix) where {T}
+  g = convert(T, γ)
+  isnan(g) && !isempty(X) && throw(DomainError(g, "the step of LogDetLoss must not be NaN"))
+  sqrt(g) * sqrt(f.w)
+end
+_checkstep(op::O, f::LogDetLoss, y::AbstractMatrix, x::AbstractMatrix, γ::Real) where {O} =
+  (_logdet_root_step(f, γ, x); true)
+
 function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, γ::Real) where {T}
   _checkwrite(value_and_prox!, f, Y, X)
-  all(isfinite, X) || (fill!(Y, _valtype(Y)(NaN)); return _valtype(Y)(NaN))
-  root_step = sqrt(convert(T, γ)) * sqrt(f.w)
+  root_step = _logdet_root_step(f, γ, X)
+  all(isfinite, X) || (v = _nonfinite_value(X, _valtype(Y)); fill!(Y, _valtype(Y)(NaN)); return v)
   X = _is_device_array(X) ? copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X) : X
   B = _blas_ready(Y) ? Y : f.C
   A = f.eig.A

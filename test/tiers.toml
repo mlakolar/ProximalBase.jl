@@ -1,0 +1,229 @@
+# The test tiers. Read by test/tiers.jl, test/runtests.jl and scripts/ci_plan.jl; checked by
+# test/tier_selection.jl. CONTRIBUTING.md explains the workflow, test/TESTING.md records why each
+# file sits where it does, and .github/tier-rules.toml says which tier CI runs for a change.
+#
+# [tiers]: each test file (its path under test/ without .jl) is listed once, under the lowest
+# tier that runs it. A tier runs its own files and those of every tier above it in this file,
+# so full runs every test file. A new test file must be added here: an unlisted file stops
+# every test run and the CI plan job.
+
+[tiers]
+quick = [
+  # loading, interface, traits and package quality
+  "aqua",
+  "ci_gate",
+  "compat",
+  "docstrings",
+  "int32_exponents",
+  "interface",
+  "readme",
+  "tier_selection",
+  "utils",
+  # iterates: active sets, value writes versus state copies, symmetric coordinates, aliasing
+  "active_handle",
+  "atom_iterate",
+  "iterate_invariants",
+  "iterate_queries",
+  "iterate_writes",
+  "matrixview",
+  "sparse_iterate_basics",
+  "symmetric_parameters",
+  "symmetric_products",
+  "wrapper_buffers",
+  # values, gradients and proximal operators of representative functions
+  "caches",
+  "conjugate_basics",
+  "constrained_basics",
+  "deprecated",
+  "entropy",
+  "intersection",
+  "lla",
+  "losses",
+  "nested_box_values",
+  "sets",
+  "lmo",
+  "spectral",
+  "spectralfunction",
+  # precision, boundaries, non-finite values, validation before writes
+  "block_step_failures",
+  "conformance/tolerances",
+  "model_precision",
+  "nested_scaled",
+  "scaled_overflow",
+  "spectral_box_tolerance",
+  "spectral_mask",
+  # device arrays, LAPACK workspaces and hot-path allocations
+  "allocations_basics",
+  "gpu_smoke",
+  "lapack",
+]
+
+# Most function families, wrappers, constraints and the examples.
+standard = [
+  "affine",
+  "ballconstrained",
+  "indicator_steps",
+  "direct_projection_infinite",
+  "constrained_box_infeasible",
+  "constrained_norml1_infinite",
+  "constrained_groupnorml2_infinite",
+  "symmetric_sphere",
+  "bernoulli",
+  "binary",
+  "composition",
+  "constrained_nonconvex",
+  "cubenorm",
+  "distance",
+  "envelope",
+  "examples",
+  "infinite_level_values",
+  "infinite_weights",
+  "matrixsets",
+  "metric_steps",
+  "minimum",
+  "nonconvex",
+  "norms",
+  "ordered",
+  "second_order",
+  "hessian_alias",
+  "separable",
+  "singular",
+  "smooth",
+  "soc",
+  "sparse_value_cost",
+  "sparsegroup",
+  "sqrhinge",
+  "stiefel",
+  "sumlargest",
+  "scaled_no_level",
+  "nested_scaled_values",
+  "threshold_factor_type",
+  "threshold_precision",
+  "argument_threshold_precision",
+  "conjugate_precision",
+]
+
+# What shared or numerical changes can break: precision, overflow, non-finite values, spectral
+# domains, the conformance suite, symmetric writes and parameters, steps, wrappers, block checks,
+# iterate grids, and the specialized families.
+thorough = [
+  "block_step",
+  "blockchecks",
+  "box_bounds_overflow",
+  "calculus",
+  "conformance/data_functions",
+  "conformance/data_functions_2",
+  "conformance/element_types",
+  "conformance/failures_storage",
+  "conformance/gpu_arrays",
+  "conformance/harness",
+  "conformance/kernels",
+  "conformance/linear_sets",
+  "conformance/linear_sets_2",
+  "conformance/second_order",
+  "conformance/special_values",
+  "conformance/spectral",
+  "conformance/steps",
+  "conformance/wrappers",
+  "conjugate_steps",
+  "constrained",
+  "converted_weights",
+  "elasticnet_zero_levels",
+  "zero_level_infinite_step",
+  "expcone",
+  "extreme_normals",
+  "fibers",
+  "fibers_midpoint_overflow",
+  "gradient_alias",
+  "graph",
+  "infinite_group_weights",
+  "infinite_level_nan",
+  "normfused_infinite_fusion",
+  "scaled_infinite_level_underflow",
+  "l2_nan_blocks",
+  "large_inputs",
+  "logdet_overflow",
+  "metric",
+  "nonfinite_inputs",
+  "nonfinite_scalar",
+  "l0_kernels_nan",
+  "l0_nan",
+  "normlinf_infinite_level",
+  "ordered_nan",
+  "partial",
+  "polyhedron",
+  "precision",
+  "ridge_precision",
+  "rotatedsoc",
+  "sparse_iterate",
+  "sparsegroup_infinite_level",
+  "sparsegroup_infinite_prox",
+  "spectral_domain",
+  "spectral_fused_values",
+  "spectral_nonfinite_values",
+  "spectral_overflow",
+  "spectral_overflow_prox",
+  "spectral_overflow_wrappers",
+  "spectral_overflow_values",
+  "spectral_constant_values",
+  "spectral_tolerance",
+  "symmetric_argument",
+  "symmetric_groups",
+  "symmetric_mul",
+  "symmetric_parameters_extensions",
+  "symmetric_parameters_merge",
+  "symmetric_parameters_paths",
+  "symmetric_parameters_trait",
+  "symmetric_parameters_writes",
+  "symmetric_writes",
+  "testing",
+  "value_overflow_data",
+  "value_overflow_fused",
+  "value_overflow_sqrnorm",
+  "weighted_overflow",
+  "zero_weight_nan",
+]
+
+# Exhaustive catalogs whose cases repeat paths the tiers above already reach, and family files
+# that the CI rules run beside any change to their family.
+full = [
+  "allocations",
+  "blockchecks_steps",
+  "blockchecks_values",
+  "blockchecks_workspace",
+  "blockchecks_wrappers",
+  "conjugate_projections",
+  "distl2",
+  "gpu",
+  "hyperslab",
+  "image",
+  "precision_mixed",
+  "precompose_array",
+  "real_functions",
+  "real_iterates",
+  "real_wrappers",
+  "separable_blocks",
+  "stepchecks",
+  "symmetric_mutator_errors",
+  "symmetric_mutators",
+  "symmetric_parameters_centers",
+  "symmetric_parameters_inventory",
+  "symmetric_parameters_inventory_walk",
+  "weight_steps",
+]
+
+[not_tests]
+# Included by test files or by the runner, never run on their own.
+helpers = ["conformance/common", "gpu_prelude", "gpu_suite", "gpu_suite_basics", "testutils", "tiers"]
+# Directories with a Project.toml of their own, run by hand: cuda/ needs an NVIDIA GPU and
+# oracles/ needs JuMP and conic solvers. No tier runs them.
+environments = ["cuda", "oracles"]
+
+[not_tests.run_through]
+# The test files that run each helper, directly or through another helper; the error for a
+# helper given as a test name names them. A helper that the runner loads for every test file
+# (testutils, conformance/common) has no entry. A helper under a directory is a quoted key.
+gpu_prelude = ["gpu", "gpu_smoke"]
+gpu_suite = ["gpu"]
+gpu_suite_basics = ["gpu_smoke"]
+tiers = ["tier_selection"]

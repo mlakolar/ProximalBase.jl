@@ -29,8 +29,11 @@ function source_metadata()
     catch
         true
     end
+    # the harness itself (this file and the case definitions), so a baseline names what produced it
+    here = @__DIR__
+    harness = [joinpath(here, "run.jl"), joinpath(here, "cases.jl")]
     Dict("source_path"=>root, "source_sha"=>revision, "source_dirty"=>dirty,
-         "source_hash"=>fingerprint(root, files))
+         "source_hash"=>fingerprint(root, files), "harness_hash"=>fingerprint(here, harness))
 end
 
 clean(s) = replace(string(s), '\t'=>' ', '\n'=>' ', '\r'=>' ')
@@ -104,11 +107,27 @@ function profile_alloc!(io, c::PerfCase)
     flush(io)
 end
 
+# The reference checks around a trial; `check!` in check_only.jl runs the same two steps.
+# Before: the case's validation, then the digests of its read-only inputs. They are taken after the
+# validation, not at construction: another case may legitimately have changed shared state, and the
+# question is whether this case changes its inputs during its own warm-up, probes and trial.
+function checks_before_trial(c::PerfCase)
+    c.validate()
+    input_digests(c.inputs)
+end
+# After: the inputs are compared with those digests for every case, fixed or automatic evaluation count,
+# before the post-trial validation (the sparse and atom validations restore the shared iterate first).
+function checks_after_trial(c::PerfCase, start)
+    check_inputs(c.inputs, start, "during the trial of $(c.meta.id)")
+    c.evals===nothing && c.validate()
+    nothing
+end
+
 function measure!(c::PerfCase, metrics, raw, allocations, profiles, allocation_profiles,
                   rep, samples, seconds, profile_seconds)
     op,prep=c.operation,c.prepare
     # JIT work and correctness checks are outside measured samples.
-    c.validate()
+    start=checks_before_trial(c)
     for _ in 1:3
         prep(); op()
     end
@@ -121,7 +140,8 @@ function measure!(c::PerfCase, metrics, raw, allocations, profiles, allocation_p
     else
         run(b;evals=c.evals,samples=samples,seconds=seconds)
     end
-    c.evals===nothing && c.validate()
+    # the metrics row is written only after both checks pass
+    checks_after_trial(c,start)
     times=trial.times
     isempty(times) && error("empty benchmark trial")
     gc_share=sum(trial.gctimes)/max(sum(times),1)
@@ -168,6 +188,10 @@ function main()
     started=time()
     Random.seed!(rep)
     cases=build_cases(rep;suite,groups)
+    # Cases are built first, so their inputs do not depend on the selection.
+    selection=get(ENV,"PB_CASES","")
+    isempty(selection) || filter!(c -> occursin(Regex(selection),c.meta.id),cases)
+    isempty(cases) && error("PB_CASES selects no case")
     if get(ENV,"PB_LIST","false")=="true"
         foreach(c -> println(c.meta.id),cases)
         return
@@ -234,6 +258,8 @@ function main()
               "slurm_job_id"=>get(ENV,"SLURM_JOB_ID","none"),"julia_threads"=>Threads.nthreads(),
               "blas_threads"=>BLAS.get_num_threads(),"blas"=>string(BLAS.get_config()),
               "cpu"=>Sys.CPU_NAME,"cpu_model"=>Sys.cpu_info()[1].model,"benchmarktools"=>string(pkgversion(BenchmarkTools)),
+              "check_bounds"=>("default","yes","no")[Base.JLOptions().check_bounds+1],
+              "os"=>string(Sys.KERNEL," ",Sys.MACHINE),
               "cases"=>length(cases),"failures"=>failures,"samples_target"=>samples,
               "seconds_limit"=>seconds,"profile_seconds"=>profile_seconds,"elapsed_s"=>time()-started)
     merge!(meta,source_metadata())

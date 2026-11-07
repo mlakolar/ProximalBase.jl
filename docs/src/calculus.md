@@ -25,7 +25,11 @@ from known ones.
 
 The allocating forms `prox`, `gradient`, `value_and_gradient` and `hessian_vec`
 of a `SeparableSum` act on tuples of blocks, as do `Scaled` and `Conjugate` of
-a `SeparableSum`, for the oracles each provides.
+a `SeparableSum`, for the oracles each provides. So does a `Sum` of such
+functions, other `Sum`s included: every summand acts on the whole tuple, and
+the gradient and the Hessian-vector product add those of the summands block by
+block. So do `Tilt` and `Translate`, with a tuple of the same structure for the
+coefficient or the translation; see [Tilt and Translate on tuples](@ref).
 
 ## Derivations
 
@@ -72,6 +76,85 @@ x, c, γ = [2.0, -1.0, 0.5], [0.3, 0.3, -0.3], 0.7
 prox(Tilt(NormL1(1.0), c, 0.0), x, γ) ≈ prox(NormL1(1.0), x - γ * c, γ)
 ```
 
+## Tilt and Translate on tuples
+
+When the variable is a tuple of arrays, possibly nested, as for a
+[`SeparableSum`](@ref), the coefficient `c` of [`Tilt`](@ref) and the translation
+`b` of [`Translate`](@ref) are tuples of the same structure whose leaves are real
+arrays of the sizes of the blocks of `x`. The tuples are not flattened: every block
+is shifted on its own, and the structure of the input is that of the output.
+The two differ as for arrays. For ``t(x) = f(x) + \langle c, x\rangle + d`` with
+``\langle c, x\rangle = \sum_k \langle c_k, x_k\rangle``,
+```math
+\nabla t(x) = \nabla f(x) + c, \qquad \nabla^2 t(x)v = \nabla^2 f(x)v, \qquad
+\operatorname{prox}_{\gamma t}(x) = \operatorname{prox}_{\gamma f}(x - \gamma c),
+```
+and for ``u(x) = f(x - b)``,
+```math
+\nabla u(x) = \nabla f(x - b), \qquad \nabla^2 u(x)v = \nabla^2 f(x - b)v, \qquad
+\operatorname{prox}_{\gamma u}(x) = b + \operatorname{prox}_{\gamma f}(x - b),
+```
+with every sum, difference and shift taken block by block.
+
+```@example calculus
+f = SeparableSum(SqrNormL2(1.5), NormL1(0.5))   # a smooth block and a penalty on a product space
+x = ([2.0, -1.0], [3.0, -2.0])
+c = ([0.25, -0.5], [1.0, 0.0])
+b = ([0.3, -0.1], [0.5, 1.5])
+t, u = Tilt(f, c, 1.25), Translate(f, b)
+y = prox(t, x, 0.4)
+@assert y[1] ≈ prox(f.fs[1], x[1] - 0.4 * c[1], 0.4) # hide
+@assert y[2] ≈ prox(f.fs[2], x[2] - 0.4 * c[2], 0.4) # hide
+prox(u, x, 0.4)[2] ≈ b[2] + prox(NormL1(0.5), x[2] - b[2], 0.4)
+```
+
+The parameters are held by reference, not copied. Their structure and the size of
+every leaf must equal those of the variable, and the oracles check this, with the
+function's own parameters, before they write anything: a coefficient with the
+entries of a matrix block but another shape is rejected with a `DimensionMismatch`
+like one of another length, and nothing broadcasts. Scalar leaves, named tuples and
+nonreal arrays are rejected by the constructors. A `SparseIterate`,
+`SymmetricSparseIterate` or `AtomIterate` is refused with an `ArgumentError` as a
+block of the variable, because the staged buffers do not carry their stored entries
+or their per-entry parameter checks; supporting them would need its own design.
+No other array type is refused for being sparse or a view, but only dense arrays and
+views of them are tested as blocks. Tilt and Translate cover the value,
+the gradient, the fused value and gradient, the proximal operator and its fused
+value, the Hessian-vector product and the quadratic model, whenever the inner
+function does, with a real scalar step. The model of a tilt is the tilt of the
+model, and that of a translation the translation of the model at ``x - b``. The
+coordinate-level interfaces (`prox_entry`, `kkt_violation`, `restrict`) take array
+coefficients only, and the conjugate of a `Translate` with a tuple translation is
+not supported (the conjugate of a `Tilt` is).
+
+Both wrappers keep buffers that they own, so do not share one object between
+threads. A `Tilt` forms ``x - \gamma c`` in one buffer, and a `Translate` keeps one
+buffer for the shifted argument of values, gradients and Hessian products and a
+second for the proximal operator, as for arrays. The buffers follow the precision
+policy of [Precision](@ref): the shifted argument has the precision of the
+argument, and the proximal buffer that of the output, rounded block by block as
+for arrays, so Float64 data do not widen Float32 blocks. After a warm-up, calls
+with the same structure and sizes reuse them and allocate nothing; another
+structure, size or output type renews them.
+
+The proximal operator works on the buffer: the inner function acts on it in place,
+which the built-in proximal operators support, and the result is written to the
+output last. A failure found before the output is written, in the structure,
+the sizes, a parameter, a step or a nested function, leaves the output unchanged,
+also when `y` is `x`. `prox!(x, t, x, γ)` returns `x` and agrees with the call
+that does not alias. The gradient and the Hessian-vector product refuse an output
+that is the point (or the direction) or one of its blocks. For the gradient, the
+proximal operator and the Hessian-vector product, an output block that is `Symmetric`,
+`Hermitian`, `Diagonal`, `Bidiagonal`, `Tridiagonal`, `SymTridiagonal`, triangular or
+`UpperHessenberg` is refused with an `ArgumentError` by its type, since the result
+fills the whole block. All of these checks come before the first write and before the
+inner function runs, also when the function is inside a [`Scaled`](@ref), a
+[`Sum`](@ref) or a [`SeparableSum`](@ref), which check their parts before they write.
+A shape error keeps its `DimensionMismatch` when the output also has a refused type.
+The fused value of `Tilt` is formed from the staged result before the output is
+written.
+Failures inside user-defined oracles and external libraries are not rolled back.
+
 ## Entrywise scaling
 
 [`Precompose`](@ref)`(f, a)` with a real array `a` represents
@@ -90,7 +173,8 @@ The wrapper supports diagonal steps, coordinate updates, optimality tests
 and restriction. Its coordinate curvatures are ``a_i^2 L_i``, and its gradient
 has Lipschitz constant at most ``\max_i a_i^2 L_f``. Entrywise values require
 `f` to be a `SeparableFunction`. On a `SymmetricSparseIterate`, both `a` and
-the inner parameters must be symmetric. The image uses the promoted floating
+the inner parameters must be symmetric; see [Symmetric parameters](@ref).
+The image uses the promoted floating
 type of `x` and `a`; values are computed at that image and have the
 argument's precision, as in [Precision](@ref).
 The scaled inputs, effective steps and results must fit
@@ -306,7 +390,27 @@ at ``\lambda = 0`` this leaves the indicator unchanged, since the linear term
 vanishes at ``y = 0``.
 
 [`Conjugate`](@ref) knows these values, and those of the other norms and balls,
-so `value_and_prox!` reports them. The proximal operator of any convex,
+so `value_and_prox!` reports them. The conjugate of a convex indicator is its
+support function, ``\sigma_C(y) = \langle y, \operatorname{lmo}(C, -y)\rangle``,
+and for an indicator that has a linear minimization oracle
+([`haslmo`](@ref)) but no formula of its own the package evaluates it this way.
+``-y`` is read lazily, and the minimizer is written to an array of the shape of ``y``
+(an oracle that needs the matrix gets the matrix) in a per-task buffer that later calls
+reuse, so a warmed call allocates nothing. The buffers form a stack: an oracle that
+evaluates another conjugate while it holds its destination does not overwrite it. The
+sum is in `Float64` for the narrower types, and in `Float64` a product that overflows or
+underflows is rescaled by powers of two, so the value is accurate wherever it is
+representable and `Inf` where it is not. A `NaN` in ``y`` gives `NaN`. An entry at which the
+minimizer is zero adds nothing, also when ``y_i`` is infinite, and opposite infinities give
+`NaN`. `value_and_prox!` computes the proximal point and the value in a buffer of its own and writes the
+output only after both succeed, so an error from the oracle of a user's set leaves the output
+unchanged, also for `y === x`; the staging costs one copy of the result. The oracle runs in the element type of
+``y``, so a bound that does not fit it is an `ArgumentError`. The formulas above, the capped
+simplex's sum of the ``k`` largest entries and the other direct values take precedence, because
+they are faster and treat the extreme scales better; an indicator without an oracle, and
+every unbounded set, keeps its own value. A set without an oracle is *unsupported*, which is not the
+same as having an infinite support: the conjugate of a halfspace is finite on one ray and
+infinite elsewhere. The proximal operator of any convex,
 proximable function's conjugate is available. Where the standalone value is
 not implemented, `value_and_prox!` computes it at the proximal point from
 the Fenchel equality ``f^*(y) = \langle p, y\rangle - f(p)``, with ``p`` the corresponding
@@ -465,6 +569,10 @@ the maximizer is the soft thresholding of ``v`` scaled onto the sphere when some
 ``\sum_i |z_i| \ge \|z\|_2`` the maximizer puts all the mass on the entry where
 ``|v_i| - \gamma\lambda`` is largest. The group norm works the same way with the
 margins ``\|v_G\| - \gamma\lambda w_G``, and the ℓ0 ball keeps the ``s`` largest
+entries. On a [`SymmetricSparseIterate`](@ref) the sphere is the Frobenius one,
+so an off-diagonal pair ``(r, c)``, ``(c, r)`` counts twice: its margin is
+``\sqrt 2\,(|v_{rc}| - \gamma\lambda w_{rc})`` against the margin of a diagonal
+entry, and a pair that wins is written as ``\pm r/\sqrt 2`` in each of its two
 entries. These are the steps of the penalized matrix decomposition (Witten,
 Tibshirani and Hastie, 2009) and of the truncated power method (Yuan and Zhang,
 2013) for sparse principal components.

@@ -36,13 +36,16 @@ by slice, on views, and allocate nothing beyond what the `fₖ` do. `SliceSum` h
 the traits that all the `fₖ` share. The `fₖ` are given as arguments, or as a
 vector when there are many of one type.
 Before writing any output, the oracles check all slices, including functions
-inside wrappers, against the checks their own oracles run before writing.
-Scalar-step checks also follow supported wrappers before writing. Remaining
-gaps include array steps, entrywise steps inside box and linear constraints,
-spectral and singular-value wrappers, distance wrappers, intersections, ball,
-sphere and affine constraints, `NegLog`'s square root, and `Conjugate`'s finite
-result check. Failures during computation and user-defined oracle checks beyond
-`check_parameters` can still leave earlier slices written.
+inside wrappers, against the checks their own oracles run before writing:
+shapes, parameters, and the scalar step, also through the supported wrappers.
+The check covers the conditions known without computing, the step validation
+that the supported functions and wrappers implement; it is not meant to reject
+a step that the function itself accepts. It does not cover every failure. A
+failure found only while computing can leave earlier slices written: a step that
+a function rejects according to the values it sees, `Conjugate`'s check that a
+finite input gave a finite result, a search that finds a constraint empty, a
+failure inside an external library, and the oracles of user-defined functions
+beyond `check_parameters`. Block sums take scalar steps only.
 
 With `fₖ = LogDetLoss(Sₖ, nₖ/n)` it is the smooth part of the joint graphical
 lasso of K classes, whose penalty on the entries across the classes is a
@@ -83,12 +86,13 @@ end
 (s::SliceSum)(x::AbstractArray) = (_checkreal(s, x); _checkslices(s, x); _value_at(_sumslices((f, k) -> f(_slice(x, k)), s.fs), x))
 
 function value_and_prox!(y::AbstractArray, s::SliceSum, x::AbstractArray, γ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(value_and_prox!, s, y, x, γ)
   _checkstep(value_and_prox!, s, y, x, γ)
   _value_at(_sumslices((f, k) -> value_and_prox!(_slice(y, k), f, _slice(x, k), γ), s.fs), y)
 end
 prox!(y::AbstractArray, s::SliceSum, x::AbstractArray, γ::Real) =
-  (_checkwrite(prox!, s, y, x); _checkstep(prox!, s, y, x, γ); value_and_prox!(y, s, x, γ); y)
+  (x = _symmetric_argument(y, x); _checkwrite(prox!, s, y, x); _checkstep(prox!, s, y, x, γ); value_and_prox!(y, s, x, γ); y)
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::SliceSum, y::AbstractArray, x::AbstractArray)
   _checkreal(s, x)
@@ -142,13 +146,16 @@ rule. The proximal operator applies the proximal operator of `f` to each fiber,
 on views, and allocates nothing beyond what that of `f` does. On a matrix, the
 fibers are its rows.
 Before writing any output, the oracles check all fibers, including functions
-inside wrappers, against the checks their own oracles run before writing.
-Scalar-step checks also follow supported wrappers before writing. Remaining
-gaps include array steps, entrywise steps inside box and linear constraints,
-spectral and singular-value wrappers, distance wrappers, intersections, ball,
-sphere and affine constraints, `NegLog`'s square root, and `Conjugate`'s finite
-result check. Failures during computation and user-defined oracle checks beyond
-`check_parameters` can still leave earlier fibers written.
+inside wrappers, against the checks their own oracles run before writing:
+shapes, parameters, and the scalar step, also through the supported wrappers.
+The check covers the conditions known without computing, the step validation
+that the supported functions and wrappers implement; it is not meant to reject
+a step that the function itself accepts. It does not cover every failure. A
+failure found only while computing can leave earlier fibers written: a step that
+a function rejects according to the values it sees, `Conjugate`'s check that a
+finite input gave a finite result, a search that finds a constraint empty, a
+failure inside an external library, and the oracles of user-defined functions
+beyond `check_parameters`. Block sums take scalar steps only.
 
 With `symmetric = true` the slices are taken to be symmetric, as precision
 matrices are: only the fibers with `i ≥ j` are read, and the proximal operator
@@ -257,9 +264,9 @@ function _checkwrite(op::O, fb::FiberSum, y::AbstractArray, x::AbstractArray, γ
 end
 
 value_and_prox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real) =
-  (_checkwrite(value_and_prox!, fb, y, x, γ); _checkstep(value_and_prox!, fb, y, x, γ); _fiberprox!(y, fb, x, γ, Val(true)))
+  (x = _symmetric_argument(y, x); _checkwrite(value_and_prox!, fb, y, x, γ); _checkstep(value_and_prox!, fb, y, x, γ); _fiberprox!(y, fb, x, γ, Val(true)))
 prox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real) =
-  (_checkwrite(prox!, fb, y, x, γ); _checkstep(prox!, fb, y, x, γ); _fiberprox!(y, fb, x, γ, Val(false)); y)
+  (x = _symmetric_argument(y, x); _checkwrite(prox!, fb, y, x, γ); _checkstep(prox!, fb, y, x, γ); _fiberprox!(y, fb, x, γ, Val(false)); y)
 
 _fiberprox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real, v::Val) = _fiberprox_views!(y, fb, x, γ, v)
 
@@ -301,24 +308,85 @@ function _fiberprox!(y::AbstractArray{<:Any, 3}, fb::FiberSum{<:NormL1Fused, D},
   size(x, 3) == 2 || return _fiberprox_views!(y, fb, x, γ, Val(V))
   own = _owndiagonal(fb, x)
   T = float(eltype(y))
+  # the functions that an infinite ℓ1 level fixes at zero, from the levels and the step as given
+  z = (_fused_zero(fb.f, γ), fb.diagonal !== nothing && _fused_zero(fb.diagonal, γ))
+  v = if fb.symmetric
+    own ? _fiberprox_pairs!(y, fb, x, T(γ), z, Val(true), Val(true), T, Val(V)) :
+      _fiberprox_pairs!(y, fb, x, T(γ), z, Val(true), Val(false), T, Val(V))
+  else
+    own ? _fiberprox_pairs!(y, fb, x, T(γ), z, Val(false), Val(true), T, Val(V)) :
+      _fiberprox_pairs!(y, fb, x, T(γ), z, Val(false), Val(false), T, Val(V))
+  end
+  f = fb.f
+  if V
+    fits = _fused_levels_fit(T, f) &&
+      (fb.diagonal === nothing || _fused_levels_fit(T, fb.diagonal))
+    isfinite(v) && fits && return v
+    # the recoveries below decline an infinite level; a function that it fixes adds no value
+    (z[1] || z[2]) && return _fixed_fibers_value!(y, fb, x, γ, T, v)
+    !isfinite(v) && _fused_equal_fibers(fb) && return _equal_fibers_value!(y, fb, x, γ, T, v)
+    if !isfinite(v) && !Base.mightalias(y, x)
+      return _recover_fused_fiberprox!(y, fb, x, γ, own, T, v)
+    end
+    return _recover_fused_fibers(fb, y, own, T, v)
+  end
+  v
+end
+
+# A function of the fibers with an infinite fusion level and a finite ℓ1 level (#664): the loop's value
+# is Inf⋅0 at a constant pair. The value is always that of the fiber functions at the stored output
+# (O2), the standalone one, which holds the rule of the infinite fusion level, at every step. The output
+# itself is recomputed only at a finite positive step: a separate output is then recomputed with the
+# checked midpoint, which the loop skips there; at a zero, infinite, negative or NaN step the loop's
+# output is kept exactly. An output with other axes keeps the loop's value, as the fiber views need
+# one-based axes.
+@inline _fused_equal_fibers(fb) = _fused_equal_entries(fb.f) ||
+  (fb.diagonal !== nothing && _fused_equal_entries(fb.diagonal))
+@noinline function _equal_fibers_value!(y, fb, x, γ, ::Type{T}, ordinary) where {T}
+  Base.has_offset_axes(y) && return ordinary
+  γ > 0 && isfinite(γ) && !Base.mightalias(y, x) && prox!(y, fb, x, γ)
+  convert(T, fb(y))
+end
+
+# Disjoint outputs can retry an overflowing midpoint from the original inputs.
+@inline function _fiberprox_pairs!(y, fb, x, γT, z, s, o, ::Type{T}, v::Val{V}) where {T, V}
+  if z[1] || z[2] || _fused_fiber_identity(fb, T, γT)
+    return V && !Base.mightalias(y, x) ? _fiberprox_pairs_identity!(y, fb, x, γT, z, s, o, T, v, Val(false)) :
+      _fiberprox_pairs_identity!(y, fb, x, γT, z, s, o, T, v, Val(true))
+  end
+  V && !Base.mightalias(y, x) ? _fiberprox_pairs!(y, fb, x, γT, s, o, T, v, Val(false)) :
+    _fiberprox_pairs!(y, fb, x, γT, s, o, T, v, Val(true))
+end
+
+# Whether the function of the off-diagonal pairs or the diagonal function is in an identity regime
+# (both levels zero, or a zero step): the condition itself, also when levels and step are already zero.
+@inline function _fused_fiber_identity(fb, ::Type{T}, γT) where {T}
+  f = fb.f
+  _fused_pair_identity(T(f.λ1), T(f.λ2), γT) ||
+    (fb.diagonal !== nothing && _fused_pair_identity(T(fb.diagonal.λ1), T(fb.diagonal.λ2), γT))
+end
+
+# Specialize the loop rules so the midpoint fallback does not inhibit vectorization.
+@noinline function _fiberprox_pairs!(y, fb::FiberSum{<:NormL1Fused, D}, x, γT,
+                                   ::Val{S}, ::Val{O}, ::Type{T}, ::Val{V}, ::Val{C}) where {D, S, O, T, V, C}
   a, b = firstindex(x, 3), firstindex(x, 3) + 1
-  f, γT = fb.f, T(γ)
+  f = fb.f
   v = zero(T)
   @inbounds for j in axes(x, 2), i in axes(x, 1)
-    fb.symmetric && i < j && continue
-    if own && i == j
+    S && i < j && continue
+    if O && i == j
       d = fb.diagonal
       if d === nothing
         y[i, i, a], y[i, i, b] = x[i, i, a], x[i, i, b]
       else
-        u, w = _prox_l1fused(T(x[i, i, a]), T(x[i, i, b]), T(d.λ1), T(d.λ2), γT)
+        u, w = _prox_l1fused(T(x[i, i, a]), T(x[i, i, b]), T(d.λ1), T(d.λ2), γT, Val(C))
         y[i, i, a], y[i, i, b] = u, w
         V && (v += T(d.λ1) * (abs(u) + abs(w)) + T(d.λ2) * abs(u - w))
       end
     else
-      u, w = _prox_l1fused(T(x[i, j, a]), T(x[i, j, b]), T(f.λ1), T(f.λ2), γT)
+      u, w = _prox_l1fused(T(x[i, j, a]), T(x[i, j, b]), T(f.λ1), T(f.λ2), γT, Val(C))
       y[i, j, a], y[i, j, b] = u, w
-      c = fb.symmetric && i != j ? 2 : 1
+      c = S && i != j ? 2 : 1
       if c == 2
         y[j, i, a], y[j, i, b] = u, w
       end
@@ -326,6 +394,120 @@ function _fiberprox!(y::AbstractArray{<:Any, 3}, fb::FiberSum{<:NormL1Fused, D},
     end
   end
   v
+end
+
+
+# The same loop in the regimes where a function of the fiber is the identity (see _fused_pair_levels):
+# only these calls pay for the levels being decided, the ordinary loop above is unchanged. A zero level
+# adds no value, whatever the entries (E4). The same loop serves a function that an infinite ℓ1 level
+# fixes at zero (zf for the off-diagonal pairs, zd for the diagonal): its pairs are zero whatever they
+# hold, and add no value.
+@noinline function _fiberprox_pairs_identity!(y, fb::FiberSum{<:NormL1Fused, D}, x, γT, (zf, zd),
+                                   ::Val{S}, ::Val{O}, ::Type{T}, ::Val{V}, ::Val{C}) where {D, S, O, T, V, C}
+  a, b = firstindex(x, 3), firstindex(x, 3) + 1
+  f = fb.f
+  # the identity regimes (both levels zero, zero step) are decided before the loop, per function
+  fl1, fl2, fγ = _fused_pair_levels(T(f.λ1), T(f.λ2), γT)
+  if fb.diagonal === nothing
+    dl1 = dl2 = dγ = zero(T)
+  else
+    dl1, dl2, dγ = _fused_pair_levels(T(fb.diagonal.λ1), T(fb.diagonal.λ2), γT)
+  end
+  # a zero level contributes no value, whatever the entries (E4)
+  fz1, fz2 = iszero(f.λ1), iszero(f.λ2)
+  fv1, fv2 = T(f.λ1), T(f.λ2)
+  if fb.diagonal === nothing
+    dz1 = dz2 = true
+    dv1 = dv2 = zero(T)
+  else
+    dz1, dz2 = iszero(fb.diagonal.λ1), iszero(fb.diagonal.λ2)
+    dv1, dv2 = T(fb.diagonal.λ1), T(fb.diagonal.λ2)
+  end
+  v = zero(T)
+  @inbounds for j in axes(x, 2), i in axes(x, 1)
+    S && i < j && continue
+    if O && i == j
+      d = fb.diagonal
+      if d === nothing
+        y[i, i, a], y[i, i, b] = x[i, i, a], x[i, i, b]
+      else
+        u, w = zd ? (zero(T), zero(T)) : _prox_l1fused(T(x[i, i, a]), T(x[i, i, b]), dl1, dl2, dγ, Val(C))
+        y[i, i, a], y[i, i, b] = u, w
+        V && !zd && (v += ifelse(dz1, zero(T), dv1 * (abs(u) + abs(w))) + ifelse(dz2, zero(T), dv2 * abs(u - w)))
+      end
+    else
+      u, w = zf ? (zero(T), zero(T)) : _prox_l1fused(T(x[i, j, a]), T(x[i, j, b]), fl1, fl2, fγ, Val(C))
+      y[i, j, a], y[i, j, b] = u, w
+      c = S && i != j ? 2 : 1
+      if c == 2
+        y[j, i, a], y[j, i, b] = u, w
+      end
+      V && !zf && (v += c * (ifelse(fz1, zero(T), fv1 * (abs(u) + abs(w))) + ifelse(fz2, zero(T), fv2 * abs(u - w))))
+    end
+  end
+  v
+end
+
+# The value when an infinite ℓ1 level fixes one of the functions and the sum of the other's terms is
+# not finite or its levels do not fit: the value at the stored output, where the fixed pairs are zero
+# and their entries, NaN included, are not read again. A separate output is first recomputed with the
+# checked midpoint, which the loop skips there.
+@noinline function _fixed_fibers_value!(y, fb, x, γ, ::Type{T}, ordinary) where {T}
+  isfinite(ordinary) || Base.mightalias(y, x) || prox!(y, fb, x, γ)
+  convert(T, fb(y))
+end
+
+# A separate output whose value is not finite: the loop took the unchecked midpoint, which overflows
+# for a pair near floatmax. With finite levels the output is recomputed with the checked midpoint
+# (prox!) and the value is decided on the stored output y, not on the argument (O2). Where the entries
+# of x are not all finite, a NaN gives a NaN output in the ordinary regimes and ends the recovery there.
+# Where a function of the fiber is the identity (both levels zero, or a zero step), or the diagonal is
+# left free, those NaN entries stay in their own fibers and add no value (E4), so they do not stand in
+# the way of an unrelated fiber. When x is finite but y is not (an infinity in a free fiber that the
+# narrower element type of y created), the scaled recovery would read that infinity as the scale of the
+# sum, so the value is that of the fiber functions at y. In both, the value is fb(y), which keeps a NaN
+# in a coupled pair (E2) and an overflow of the stored result (E3). The fiber views of fb(y) need
+# one-based axes: an output with other axes, which the pair kernel accepts, keeps the earlier recovery.
+@noinline function _recover_fused_fiberprox!(y, fb, x, γ, own, ::Type{T}, ordinary) where {T}
+  f, d = fb.f, fb.diagonal
+  isfinite(f.λ1) && isfinite(f.λ2) &&
+    (d === nothing || (isfinite(d.λ1) && isfinite(d.λ2))) || return ordinary
+  if Base.has_offset_axes(y)
+    all(isfinite, x) || return ordinary
+    prox!(y, fb, x, γ)
+    return _recover_fused_fibers(fb, y, own, T, ordinary)
+  end
+  if !all(isfinite, x)
+    _fused_fiber_identity(fb, T, T(γ)) || d === nothing || return ordinary
+    prox!(y, fb, x, γ)
+    return convert(T, fb(y))
+  end
+  prox!(y, fb, x, γ)
+  all(isfinite, y) || return convert(T, fb(y))
+  _recover_fused_fibers(fb, y, own, T, ordinary)
+end
+
+@noinline function _recover_fused_fibers(fb, y, own, ::Type{T}, ordinary) where {T}
+  f, d = fb.f, fb.diagonal
+  R = d === nothing ? promote_type(T, float(typeof(f.λ1))) :
+    promote_type(T, float(typeof(f.λ1)), float(typeof(d.λ1)))
+  isfinite(f.λ1) && isfinite(f.λ2) &&
+    (d === nothing || (isfinite(d.λ1) && isfinite(d.λ2))) || return ordinary
+  m = _maximum_abs(y)
+  isfinite(m) || return ordinary
+  iszero(m) && return zero(T)
+  a, b = firstindex(y, 3), firstindex(y, 3) + 1
+  terms = (begin
+    g = own && i == j ? d : f
+    u, w = R(y[i, j, a]), R(y[i, j, b])
+    k = _magnitude_exponent(max(abs(u), abs(w)))
+    scale = _power_factors(R, -k)
+    u, w = _scale_value(u, scale), _scale_value(w, scale)
+    c = fb.symmetric && i != j ? 2 : 1
+    h == 1 ? (g.λ1, c * (abs(u) + abs(w)), k) : (g.λ2, c * abs(u - w), k)
+  end for i in axes(y, 1), j in axes(y, 2), h in 1:2
+    if !(fb.symmetric && i < j) && !(own && i == j && d === nothing))
+  isempty(terms) ? zero(T) : _fused_scaled_value(terms, 0, T)
 end
 
 _checkstep(op::O, s::SliceSum, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =

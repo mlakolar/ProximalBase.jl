@@ -27,6 +27,10 @@ end
 # The label that declares a change to one iterate implementation narrow (CONTRIBUTING.md).
 const NARROW_LABEL = "test:iterate-narrow"
 
+# The label that asks for the benchmark reference checks (scripts/ci_plan.jl reads it); like the
+# narrow label it names no tier.
+const BENCHMARK_LABEL = "test:benchmark"
+
 """
     Manifest
 
@@ -369,7 +373,8 @@ end
 
 The tier of a pull request that changes `paths` and carries `labels`: [`classify`](@ref), with
 `narrow` set by the label test:iterate-narrow, then raised by test:standard, test:thorough or
-test:full (labels never lower the tier). No changed paths give quick. `focus` leaves out the
+test:full (labels never lower the tier); test:benchmark and test:iterate-narrow are not tiers and
+leave the tier alone. No changed paths give quick. `focus` leaves out the
 files the tier runs anyway; `notes` describe the labels.
 """
 function pr_tier(m::Manifest, paths, labels; manifest_additions = nothing)
@@ -378,10 +383,11 @@ function pr_tier(m::Manifest, paths, labels; manifest_additions = nothing)
   isempty(paths) && (tier = "quick"; push!(notes, "No changed files were found; the minimum is quick."))
   for label in labels
     label == NARROW_LABEL && continue # applied by classify, shown in the decisions
+    label == BENCHMARK_LABEL && continue # read by the planner, no tier
     mt = match(r"^test:(.+)$", label)
     mt === nothing && continue
     t = String(mt.captures[1])
-    rank(t) > 0 || throw(ArgumentError("label `$label` names no tier; use test:$(join(TIERS, ", test:")) or $NARROW_LABEL"))
+    rank(t) > 0 || throw(ArgumentError("label `$label` names no tier; use test:$(join(TIERS, ", test:")) or $NARROW_LABEL, $BENCHMARK_LABEL"))
     push!(notes, "Label `$label` asks for at least $t.")
     (tier == "none" || rank(t) > rank(tier)) && (tier = t)
   end

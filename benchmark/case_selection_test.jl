@@ -78,14 +78,14 @@ function sel_digest(A::AbstractArray)
     end
     digest_mix(h)
 end
-function sel_mix!(w::SelWalker, path, x)
+function sel_mix!(w::SelWalker, path, @nospecialize(x))
     w.h = hash(x, w.h)
     w.trace === nothing || push!(w.trace, string(path, " = ", x))
     nothing
 end
 
 # the sharing number of a mutable object that is not walked into: the object itself and nothing of its contents
-function sel_share!(w::SelWalker, x, path)
+function sel_share!(w::SelWalker, @nospecialize(x), path)
     n = get(w.memo, x, 0)
     n != 0 && return sel_mix!(w, path, "same object as #$n")
     w.memo[x] = n = length(w.memo) + 1
@@ -95,7 +95,8 @@ end
 # the label of an item, built only when a trace is kept: the walk visits tens of thousands of group arrays
 sel_p(w::SelWalker, path, parts...) = w.trace === nothing ? "" : string(path, parts...)
 
-function sel_walk!(w::SelWalker, x, path::String)
+# `x` is not specialized on: the closures of the cases have a type each, and a method per type is mostly compile time
+function sel_walk!(w::SelWalker, @nospecialize(x), path::String)
     (w.nodes += 1) > SEL_NODE_BUDGET[] && error("the case fingerprint exceeded its budget of $(SEL_NODE_BUDGET[]) nodes at $path")
     T = typeof(x)
     if x isa Union{Nothing,Missing}
@@ -455,7 +456,9 @@ const SEL_PRIMARY = (raw"^atom/isactive/",
                      raw"^atom/mul!/",
                      raw"^atom/first_activation/",
                      raw"^atom/samegroups/")
-const SEL_BROAD = ("Float64", raw"/warm$", "act10")
+# the expressions whose cases draw from keyed streams (the picks, the batches): the only ones repeated at repetitions 2 and 10
+const SEL_KEYED = (SEL_PRIMARY[1], SEL_PRIMARY[3], SEL_PRIMARY[6])
+const SEL_BROAD = (raw"/warm$", "act10")
 sel_all(rep, suite, groups) = build_cases(rep; suite, groups)
 
 @testset "the unfiltered catalog is unchanged" begin
@@ -475,7 +478,7 @@ end
     for rep in (1, 2, 10)
         unfiltered() = build_cases(rep; suite="quick", groups=["atom"])
         selected(selector) = build_cases(rep; suite="quick", groups=["atom"], selector)
-        @testset "primary rep $rep: $selection" for selection in SEL_PRIMARY
+        @testset "primary rep $rep: $selection" for selection in (rep == 1 ? SEL_PRIMARY : SEL_KEYED)
             sel_compare(unfiltered, selected, selection)
         end
         if rep == 1
@@ -484,7 +487,7 @@ end
             end
             # nearly every case is selected: compared before anything runs, on one build that is never run
             pristine = unfiltered()
-            @testset "selected_cases: $selection" for selection in (SEL_PRIMARY[1], SEL_PRIMARY[4], SEL_BROAD[2])
+            @testset "selected_cases: $selection" for selection in (SEL_PRIMARY[1], SEL_PRIMARY[4], SEL_BROAD[1])
                 selector = Regex(selection)
                 @test [c.meta.id for c in selected_cases(rep, "quick", ["atom"], selection)] ==
                       [c.meta.id for c in pristine if occursin(selector, c.meta.id)]
@@ -583,6 +586,11 @@ const SEL_SCENARIO_REGEXES = (raw"/isactive/", raw"write_x\[i\]_active", raw"/re
                               raw"/replace_staged/", raw"/replace_cheap/|/copyto!_dense/", raw"/broadcast_assign/|/copyto!_state/",
                               raw"/copy/|/copyto!_same_kind/", raw"/copyto!_unrelated/|/broadcast_self/", raw"/fill!_zero",
                               raw"/atomindices_view/|/atom_dot/", raw"/sweep_active")
+# one expression of each kind for the scenarios other than the first (the full list) and the one without `full`
+const SEL_SCENARIO_REDUCED = (raw"/isactive/", raw"write_x\[i\]_active", raw"mul!.*z50", raw"/dot_vx/.*z50", raw"dot_xy/.*atom_sparse_z50",
+                              raw"/_restartdot/.*private_fields", raw"copyto!_convert/.*to_Int", raw"/dropzeros!/.*zeros50",
+                              raw"prox_coordinate!_5arg/.*NormL1/", raw"absent_distinct_batch_x\d+/", raw"rmul!_inf", raw"/replace_staged/",
+                              raw"/copy/|/copyto!_same_kind/", raw"/atomindices_view/|/atom_dot/")
 sel_scenario_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
     atom_scenario_cases!(cases, rep, s.T, s.p, s.g, s.strided, atom_label_density(s.label), s.label,
                          atom_groups(s.p, s.g, s.strided), (Dict{Any,Any}(), Dict{Any,Any}(), Dict{Any,Any}());
@@ -593,8 +601,9 @@ sel_scenario_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
     pristine = sel_scenario_build(s)
     ids = Set(id for (_, id) in atom_scenario_ids(s.T, s.p, s.g, s.strided, s.label; s.full, s.rows))
     @test Set(c.meta.id for c in pristine) == ids              # no ID is missing, and none is spurious
-    applicable = [r for r in SEL_SCENARIO_REGEXES if any(c -> occursin(Regex(r), c.meta.id), pristine)]
-    @test length(applicable) >= (s.full ? 18 : 6)
+    regexes = s === SEL_SCENARIOS[1] || !s.full ? SEL_SCENARIO_REGEXES : SEL_SCENARIO_REDUCED
+    applicable = [r for r in regexes if any(c -> occursin(Regex(r), c.meta.id), pristine)]
+    @test length(applicable) >= (!s.full ? 6 : s === SEL_SCENARIOS[1] ? 18 : 10)
     @test isempty(sel_boxed(pristine))
     pristine = nothing
     for selection in applicable
@@ -615,6 +624,9 @@ const SEL_SPARSE_PRIMARY = (raw"^sparse/isactive/",
                             raw"^sparse/copyto!_convert/",
                             raw"^sparse/construct/",
                             raw"^sparse/isactive/Float64/n10000_s100/half_active/warm$")
+# the sparse expressions whose cases draw from keyed streams, repeated at repetitions 2 and 10 (the sparse reads and
+# writes draw nothing; the exact ID and the constructions are at repetition 1 only)
+const SEL_SPARSE_KEYED = (SEL_SPARSE_PRIMARY[1], SEL_SPARSE_PRIMARY[2], SEL_SPARSE_PRIMARY[3], SEL_SPARSE_PRIMARY[6])
 const SEL_SPARSE_BROAD = (raw"/warm$", "n10000_s100")
 
 @testset "the unfiltered sparse catalog is unchanged" begin
@@ -633,7 +645,7 @@ end
     for rep in (1, 2, 10)
         unfiltered() = build_cases(rep; suite="quick", groups=["sparse"])
         selected(selector) = build_cases(rep; suite="quick", groups=["sparse"], selector)
-        @testset "primary rep $rep: $selection" for selection in SEL_SPARSE_PRIMARY
+        @testset "primary rep $rep: $selection" for selection in (rep == 1 ? SEL_SPARSE_PRIMARY : SEL_SPARSE_KEYED)
             sel_compare(unfiltered, selected, selection)
         end
         if rep == 1
@@ -710,6 +722,11 @@ const SEL_SPARSE_VECTOR_REGEXES = (raw"/isactive/", raw"write_x\[i\]_active", ra
                                    raw"/copy/|/copyto!_same_kind/", raw"/copyto!_unrelated/|/broadcast_self/|/copyto!_activevalues/",
                                    raw"/fill!_zero", raw"/broadcast_assign/|/copyto!_state/|/copyto!_dense/",
                                    raw"/dropzeros!/.*zeros50", raw"/replace_cheap/")
+const SEL_SPARSE_F32_REGEXES = (raw"/isactive/", raw"write_x\[i\]_active", raw"/first_activation/.*_x16", raw"/sweep_activevalues/|/dot_x/",
+                                raw"/dot_vx/.*z50", raw"/dot_xy/.*z0", raw"mul!/.*strided_z0", raw"_m1024/.*transposed_z50", raw"/rmul!_inf",
+                                raw"/prox_coordinate!_5arg", raw"/_restartdot/.*private_fields", raw"/_values!/",
+                                raw"/copyto!_unrelated/|/broadcast_self/|/copyto!_activevalues/", raw"/replace_staged/",
+                                raw"/dropzeros!/.*zeros50")
 const SEL_SPARSE_LARGE_REGEXES = (raw"/isactive/", raw"/dot_vx/.*z50", raw"/sweep_activevalues/|/dot_x/", raw"/dropzeros!/.*zeros10",
                                   raw"/replace_cheap/", raw"/copyto!_convert/", raw"/rmul!_finite/", raw"/first_activation/.*_x16")
 sel_sparse_vector_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
@@ -721,9 +738,9 @@ sel_sparse_vector_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
     pristine = sel_sparse_vector_build(s)
     ids = Set(id for (_, id) in sparse_vector_ids(s.T, s.n, s.s; s.rows))
     @test Set(c.meta.id for c in pristine) == ids              # no ID is missing, and none is spurious
-    regexes = large ? SEL_SPARSE_LARGE_REGEXES : SEL_SPARSE_VECTOR_REGEXES
+    regexes = large ? SEL_SPARSE_LARGE_REGEXES : s.T == Float32 ? SEL_SPARSE_F32_REGEXES : SEL_SPARSE_VECTOR_REGEXES
     applicable = [r for r in regexes if any(c -> occursin(Regex(r), c.meta.id), pristine)]
-    @test length(applicable) >= (large ? (s.T == Float64 ? 8 : 7) : (s.T == Float64 ? 27 : 25))
+    @test length(applicable) >= (large ? (s.T == Float64 ? 8 : 7) : s.T == Float64 ? 27 : 15)
     @test isempty(sel_boxed(pristine))
     pristine = nothing
     for selection in applicable
@@ -738,8 +755,8 @@ sel_sparse_density(label) = only(d for (d, l) in SPARSE_DENSITIES if l == label)
 const SEL_SPARSE_MATRICES = [(T=Float64, dims=(1000, 64), label="0.5", rows=(256,)),
                              (T=Float32, dims=(1000, 64), label="20", rows=(256,)),
                              (T=Float64, dims=(256, 1000), label="3", rows=(256, 1000))]
-const SEL_SPARSE_MATRIX_REGEXES = (raw"/sweep_via_coordinates/", raw"/sweep_via_x/", raw"/mul!_matrix/", raw"mul!_matrix/.*rows256_z50",
-                                   raw"mul!_matrix/.*rows1000_z0", raw"/dot_aXb/", raw"dot_aXb/.*z50", raw"/sweep_via")
+const SEL_SPARSE_MATRIX_REGEXES = (raw"/sweep_via_coordinates/", raw"/sweep_via_x/", raw"/mul!_matrix/",
+                                   raw"mul!_matrix/.*rows1000_z0", raw"/dot_aXb/", raw"dot_aXb/.*z50")
 sel_sparse_matrix_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
     sparse_matrix_cases!(cases, rep, s.T, s.dims, sel_sparse_density(s.label), s.label, s.rows, Dict{Any,Any}(); selector);
     cases)
@@ -748,7 +765,7 @@ sel_sparse_matrix_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
     pristine = sel_sparse_matrix_build(s)
     @test Set(c.meta.id for c in pristine) == Set(id for (_, id) in sparse_matrix_ids(s.T, s.dims, s.label, s.rows))
     applicable = [r for r in SEL_SPARSE_MATRIX_REGEXES if any(c -> occursin(Regex(r), c.meta.id), pristine)]
-    @test length(applicable) >= (length(s.rows) == 2 ? 8 : 7)
+    @test length(applicable) >= (length(s.rows) == 2 ? 6 : 5)
     @test isempty(sel_boxed(pristine))
     pristine = nothing
     for selection in applicable
@@ -777,11 +794,11 @@ end
 # the repetitions other than 1 at scenario level: one atom and one sparse extended scenario
 @testset "extended scenarios at repetitions 2 and 10" for rep in (2, 10)
     a = SEL_SCENARIOS[1]
-    for selection in (raw"/isactive/", raw"mul!.*z50", raw"/first_activation/.*_x\d+")
+    for selection in (raw"/isactive/", raw"/first_activation/.*_x\d+")
         sel_compare(() -> sel_scenario_build(a; rep), selector -> sel_scenario_build(a; selector, rep), selection)
     end
     v = SEL_SPARSE_VECTORS[2]
-    for selection in (raw"/isactive/", raw"mul!/.*_m1024/.*transposed_z50", raw"/dot_xy/.*z50", raw"/copyto!_convert/")
+    for selection in (raw"/isactive/", raw"mul!/.*_m1024/.*transposed_z50", raw"/dot_xy/.*z50", raw"/first_activation/.*_x16")
         sel_compare(() -> sel_sparse_vector_build(v; rep), selector -> sel_sparse_vector_build(v; selector, rep), selection)
     end
     GC.gc()

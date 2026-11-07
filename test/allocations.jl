@@ -542,7 +542,8 @@ end
       @test allocs(a_prox!, ya, f, xa, γ) == 0
     end
     X = T[1 0.4 0; 0.4 0 0; 0 0 0] .* M
-    for F in (IndHyperplane, IndHalfspace), a in (ones(T, 3, 3), T(1), up .* ones(T, 3, 3)), γ in (T(1), T[1 2 3; 2 1 2; 3 2 1])
+    # an owner output takes a scalar step only
+    for F in (IndHyperplane, IndHalfspace), a in (ones(T, 3, 3), T(1), up .* ones(T, 3, 3)), γ in (T(1),)
       f = F(a, 0)
       xs, ys = SymmetricSparseIterate(X), SymmetricSparseIterate(T, 3)
       a_prox!(ys, f, xs, γ)

@@ -181,23 +181,41 @@ for F in (:ZeroFunction, :LinearFunction, :SqrNormL2, :QuadraticFunction, :KronQ
   end
 end
 
-hessian_vec!(Hv::AbstractArray, f::Union{ZeroFunction, LinearFunction}, x::AbstractArray, v::AbstractArray) =
+hessian_vec!(Hv::AbstractArray, f::ZeroFunction, x::AbstractArray, v::AbstractArray) =
   (_check_second_order_arrays(f, x, Hv, v); _hessian_vec_unchecked!(Hv, f, x, v))
-function _hessian_vec_unchecked!(Hv::AbstractArray, f::Union{ZeroFunction, LinearFunction}, x::AbstractArray, v::AbstractArray)
+function _hessian_vec_unchecked!(Hv::AbstractArray, f::ZeroFunction, x::AbstractArray, v::AbstractArray)
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(f, x)
   fill!(Hv, zero(eltype(Hv)))
 end
-
-hessian_vec!(Hv::AbstractArray, f::SqrNormL2, x::AbstractArray, v::AbstractArray) =
+# The owner of a symmetric matrix as the point, the direction or the output: the zero of the
+# output is written to its active coordinates, as it is to every entry of an array.
+hessian_vec!(Hv::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner, v::_ArrayOrOwner) =
   (_check_second_order_arrays(f, x, Hv, v); _hessian_vec_unchecked!(Hv, f, x, v))
-function _hessian_vec_unchecked!(Hv::AbstractArray, f::SqrNormL2, x::AbstractArray, v::AbstractArray)
+function _hessian_vec_unchecked!(Hv::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner, v::_ArrayOrOwner)
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(f, x)
-  copyto!(Hv, v)
-  Hv .*= convert(eltype(Hv), f.λ)
+  fill!(Hv isa SymmetricSparseIterate ? coordinates(Hv) : Hv, zero(eltype(Hv)))
+  Hv
+end
+
+# λ v, whose symmetric part is written to an owner; an owner direction is read through its matrix
+hessian_vec!(Hv::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner, v::_ArrayOrOwner) =
+  (_check_second_order_arrays(f, x, Hv, v); _hessian_vec_unchecked!(Hv, f, x, v))
+function _hessian_vec_unchecked!(Hv::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner, v::_ArrayOrOwner)
+  _checksize(Hv, x)
+  _checkdirection(v, x)
+  _checkparams(f, x)
+  λ = convert(eltype(Hv), f.λ)
+  if Hv isa SymmetricSparseIterate
+    _symmetric_coordinates!(Hv, (u, j) -> λ * u, v)
+  else
+    copyto!(Hv, v isa SymmetricSparseIterate ? matrixview(v) : v)
+    Hv .*= λ
+  end
+  Hv
 end
 
 function hessian_vec!(Hv::AbstractVector, f::QuadraticFunction, x::AbstractVector, v::AbstractVector)
@@ -222,9 +240,9 @@ function hessian_vec!(Hv::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVec
 end
 
 # A V B, symmetrized when the variable is a symmetric matrix
-hessian_vec!(Hv::AbstractArray, f::KronQuadratic, Θ::AbstractArray, V::AbstractArray) =
+hessian_vec!(Hv::_ArrayOrOwner, f::KronQuadratic, Θ::_ArrayOrOwner, V::_ArrayOrOwner) =
   (_check_second_order_arrays(f, Θ, Hv, V); _hessian_vec_unchecked!(Hv, f, Θ, V))
-function _hessian_vec_unchecked!(Hv::AbstractArray, f::KronQuadratic, Θ::AbstractArray, V::AbstractArray)
+function _hessian_vec_unchecked!(Hv::_ArrayOrOwner, f::KronQuadratic, Θ::_ArrayOrOwner, V::_ArrayOrOwner)
   _checkshape(f, Hv)
   _checkshape(f, Θ)
   D = _densify!(f, V)

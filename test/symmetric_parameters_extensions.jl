@@ -32,6 +32,8 @@ PB.prox_entry(::PublicSeparableSquare,v,i,γ)=v/(1+γ)
 @testset "Unchecked forwarding preserves public extensions" begin
   X=[.5 .2;.2 .8]
   for f in (PublicSquare(),PublicSeparableSquare()), x in (copy(X),SymmetricSparseIterate(X))
+    # a function that is not separable has no oracle for an owner, unless its author adds them
+    f isa PublicSquare && x isa SymmetricSparseIterate && continue
     h=Scaled(f,2.); y=copy(x)
     fill!(calls,0)
     @test h(x) ≈ sum(abs2,X)
@@ -200,6 +202,13 @@ PB.value_and_prox!(y::AbstractArray, ::ArrayStepSquare, x::AbstractArray, γ::Ab
       h in (Scaled(ArrayStepSquare(), 2.), Translate(ArrayStepSquare(), zeros(2, 2)),
             Tilt(ArrayStepSquare(), zeros(2, 2)))
     fill!(calls, 0); y = similar(x)
+    if x isa SymmetricSparseIterate
+      # an array step is not supported with an owner as the output
+      err = try value_and_prox!(y, h, x, γ); nothing catch e; e end
+      @test err isa ArgumentError && occursin("is not supported with a SymmetricSparseIterate as the output", err.msg)
+      @test calls[3] == 0 && nactive(y) == 0
+      continue
+    end
     divisor = h isa Scaled ? 3 : 2
     scale = h isa Scaled ? 2 : 1
     @test value_and_prox!(y, h, x, γ) ≈ scale * sum(abs2, X / divisor) / 2

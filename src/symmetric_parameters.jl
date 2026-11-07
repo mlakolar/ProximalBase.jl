@@ -212,18 +212,47 @@ function _check_write_arrays(op::O, f::SeparableSum, y::Tuple, x::Tuple) where {
 end
 @generated _check_write_array_blocks(fs::Tuple, y::Tuple) =
   _blockwise(k -> :(_check_entry_arrays(fs[$k], y[$k])), min(fieldcount(fs), fieldcount(y)), true)
-_entry_steps(::AbstractFunction) = true
-_entry_steps(::AbstractGroupPenalty) = false
-_entry_steps(f::Union{Scaled, Regularize, Tilt, Translate, Conjugate, _ScalarPrecompose, _ArrayPrecompose}) = _entry_steps(f.f)
-_check_steps(op, f, y, x, γ) = true
-@inline function _check_steps(op::O, f, y::SymmetricSparseIterate, x, γ::AbstractArray) where {O}
-  _entry_steps(f) || return true
-  if x isa SymmetricSparseIterate && _stored_domain(op, f)
-    _check_entry_array(nothing, :γ, γ, y, _StoredPairs(x, y))
-  else
-    _check_entry_array(nothing, :γ, γ, y, _AllPairs())
-  end
+
+# A SymmetricSparseIterate output takes a scalar step, the Frobenius proximal operator of the
+# symmetric matrix. An array or per-group step is refused before anything is written: the
+# active coordinates, the values and the metadata of the output are untouched. Scaled has array-step
+# methods of its own that do not constrain the output, so it needs methods here to stay unambiguous.
+@noinline _throw_owner_step(γ) = throw(ArgumentError(
+  "a step γ of type $(typeof(γ)) is not supported with a SymmetricSparseIterate as the output; " *
+  "use a scalar step, or Matrix(x) or matrixview(x) with a dense output"))
+prox!(y::SymmetricSparseIterate, f::AbstractFunction, x, γ::AbstractArray) = _throw_owner_step(γ)
+prox!(y::SymmetricSparseIterate, f::Scaled, x, γ::AbstractArray) = _throw_owner_step(γ)
+value_and_prox!(y::SymmetricSparseIterate, f::AbstractFunction, x, γ::AbstractArray) = _throw_owner_step(γ)
+value_and_prox!(y::SymmetricSparseIterate, f::Scaled, x, γ::AbstractArray) = _throw_owner_step(γ)
+prox(f::AbstractFunction, x::SymmetricSparseIterate, γ::AbstractArray) = _throw_owner_step(γ)
+# The allocating oracles at the owner of a symmetric matrix, for the families that accept it. The
+# proximal operator is an independent owner, and the gradient a dense exactly symmetric matrix.
+const _OwnerSeparable = Union{SeparableFunction, LinearFunction, SqrNormL2}
+const _OwnerSmooth = Union{LinearFunction, SqrNormL2, SqrHingeLoss, BernoulliLoss, KronQuadratic}
+prox(f::_OwnerSeparable, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
+gradient(f::_OwnerSmooth, x::SymmetricSparseIterate) = gradient!(_gradient_buffer(x), f, x)
+function value_and_gradient(f::_OwnerSmooth, x::SymmetricSparseIterate)
+  g = _gradient_buffer(x)
+  v = value_and_gradient!(g, f, x)
+  v, g
 end
+hessian_vec(f::Union{LinearFunction, SqrNormL2, KronQuadratic}, x::SymmetricSparseIterate, v::_ArrayOrOwner) =
+  hessian_vec!(_gradient_buffer(x), f, x, v)
+
+# The constants of an owner, one per coordinate, are those of the entry at the lower position.
+function coordinate_lipschitz!(L::SymmetricSparseIterate, f::_OwnerSmooth)
+  _check_lipschitz_arrays(f, L)
+  _checkparams(f, L)
+  p = L.p
+  @inbounds for c in 1:p, r in c:p
+    _setstored!(L, coordinate_lipschitz(f, (c - 1) * p + r), tril_index(p, r, c))
+  end
+  L
+end
+
+# an owner output that shares memory with a parameter array
+_mightalias_parameter(out::SymmetricSparseIterate, p::AbstractArray) = _aliases(out, p)
+
 _has_symmetric(x) = false
 _has_symmetric(::SymmetricSparseIterate) = true
 @generated _has_symmetric(x::Tuple) = _blockany(k -> :(_has_symmetric(x[$k])), fieldcount(x))
@@ -237,7 +266,6 @@ function _check_oracle_arrays(op::O, f, y, x, γ = nothing) where {O}
   if _has_symmetric(y)
     γ === nothing ? _checkwrite(op, f, y, x) : _checkwrite(op, f, y, x, γ)
     _check_write_arrays(op, f, y, x)
-    _check_steps(op, f, y, x, γ)
   end
   true
 end
@@ -252,13 +280,54 @@ Base.size(g::_SymmetricGradient) = size(g.g)
 Base.IndexStyle(::Type{<:_SymmetricGradient}) = IndexLinear()
 function Base.getindex(g::_SymmetricGradient, i::Int)
   r, c = mod1(i, g.p), (i - 1) ÷ g.p + 1
-  a, b = g.g[i], g.g[(r - 1) * g.p + c]
+  _symmetric_pair(g.g[i], g.g[(r - 1) * g.p + c], r, c)
+end
+# the symmetric part of the pair of entries (r, c) and (c, r), which is the entry itself when they
+# are equal, and the mean otherwise; opposite infinities have none
+@inline function _symmetric_pair(a, b, r, c)
   _symequal(a, b) && return a
   isinf(a) && isinf(b) && a == -b && _throw_gradient_pair(r, c, a, b)
   a / 2 + b / 2
 end
 @noinline _throw_gradient_pair(r, c, a, b) = throw(ArgumentError(
   "the gradient g has no symmetric part: entry ($r, $c) is $a and entry ($c, $r) is $b"))
+
+# The owner g written one coordinate at a time. Coordinate (r, c) takes entry(v, j) at the lower
+# position of a point x whose matrix is symmetric (an owner, or an argument that has been symmetrized),
+# j being the linear index (c - 1)p + r of the matrix where the parameters are read.
+@inline function _lower_coordinates!(g::SymmetricSparseIterate, entry::F, x) where {F}
+  p = g.p
+  @inbounds for c in 1:p, r in c:p
+    _setstored!(g, entry(x[r, c], (c - 1) * p + r), tril_index(p, r, c))
+  end
+  g
+end
+# The same for an entrywise gradient at any point: the symmetric part of the computed gradient, from
+# the two positions of a pair when x is not an owner, whose matrix is symmetric.
+@inline function _symmetric_coordinates!(g::SymmetricSparseIterate, entry::F, x) where {F}
+  p = g.p
+  @inbounds for c in 1:p, r in c:p
+    v = entry(x[r, c], (c - 1) * p + r)
+    if r != c && !(x isa SymmetricSparseIterate)
+      v = _symmetric_pair(v, entry(x[c, r], (r - 1) * p + c), r, c)
+    end
+    _setstored!(g, v, tril_index(p, r, c))
+  end
+  g
+end
+
+# ⟨a, x⟩ over the matrix that the owner x represents, for a read at the linear indices of a p × p matrix:
+# an off-diagonal coordinate counts at both of its positions, each with its own entry of a
+function _owner_dot(a, x::SymmetricSparseIterate)
+  s = zero(float(promote_type(eltype(a), eltype(x))))
+  @inbounds for k in 1:x.nnz
+    r, c = tril_cartesian(x.p, x.nzval2ind[k])
+    v = a[(c - 1) * x.p + r]
+    r == c || (v += a[(r - 1) * x.p + c])
+    s += v * x.nzval[k]
+  end
+  s
+end
 
 _kkt_violation(s::Scaled, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) =
   _chained(s) ? _nested_kkt((f, h) -> _kkt_violation(f, h, x, k), s, g) :

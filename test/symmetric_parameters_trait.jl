@@ -80,9 +80,14 @@ wrappers(f) = (f, Scaled(f, 2.), Tilt(f, zeros(2, 2)),
     @test PB.entry_parameters(f) === (f isa MyL1{false} ? nothing : (:w => W,))
     for h in wrappers(f)
       rejects(y -> h(y), copy(x), message)
-      for γ in (.1, fill(.1, 2, 2))
-        rejects(y -> prox!(y, h, x, γ), copy(x), message)
-        rejects(y -> value_and_prox!(y, h, x, γ), copy(x), message)
+      rejects(y -> prox!(y, h, x, .1), copy(x), message)
+      rejects(y -> value_and_prox!(y, h, x, .1), copy(x), message)
+      # an array step is refused with an owner as the output, whatever the parameters
+      for op in (prox!, value_and_prox!)
+        y = copy(x); before = state(y)
+        err = try op(y, h, x, fill(.1, 2, 2)); nothing catch e; e end
+        @test err isa ArgumentError && occursin("is not supported with a SymmetricSparseIterate as the output", err.msg)
+        @test isequal(state(y), before)
       end
       rejects(y -> prox_coordinate!(y, h, 2, .1), copy(x), message)
       rejects(y -> kkt_violation(h, ones(2, 2), y, 2), copy(x), message)
@@ -116,11 +121,9 @@ end
       x = SymmetricSparseIterate(X)
       @test PB.check_symmetric_parameters(h, x)
       @test h(x) ≈ b(x)
-      for γ in (.1, fill(.1, 2, 2))
-        y = copy(x)
-        @test Matrix(prox!(y, h, x, γ)) ≈ Matrix(prox(b, x, γ))
-        @test value_and_prox!(y, h, x, γ) ≈ b(prox(b, x, γ))
-      end
+      y = copy(x)
+      @test Matrix(prox!(y, h, x, .1)) ≈ Matrix(prox(b, x, .1))
+      @test value_and_prox!(y, h, x, .1) ≈ b(prox(b, x, .1))
       y = copy(x); z = copy(x)
       @test prox_coordinate!(y, h, 2, .1) ≈ prox_coordinate!(z, b, 2, .1)
     end

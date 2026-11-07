@@ -9,14 +9,13 @@ on:
 jobs:
   diff:
     name: diff ${{ matrix.tag }}
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {os: windows-latest, tag: W, range: '', variants: 'base head head2'}
+          - {os: windows-latest, tag: W, range: '', variants: 'base head'}
           - {os: ubuntu-latest, tag: L, range: '', variants: 'base head'}
           - {os: ubuntu-latest, tag: Lw, range: 'win', variants: 'base head'}
     defaults:
@@ -29,7 +28,7 @@ jobs:
         with:
           version: '1.13.3'
       - run: julia --project -e 'using Pkg; Pkg.instantiate()'
-      - name: 'the differential on one machine - base (master), head (the src and ext of the issue branch), head2 (head with the exponent sums of _exceptional_product in Int)'
+      - name: 'the differential on one machine - base (master), head (the src and ext of the issue branch)'
         env:
           EXPRANGE: ${{ matrix.range }}
         run: |
@@ -60,7 +59,6 @@ jobs:
 
   compare:
     name: compare the differentials
-    if: github.event_name == 'workflow_dispatch'
     needs: diff
     runs-on: ubuntu-latest
     steps:
@@ -93,7 +91,7 @@ jobs:
         shell: bash
     env:
       LABEL: ${{ matrix.os }}-julia-${{ matrix.julia }}
-      ROUNDS: ${{ matrix.julia == '1.10' && 7 || 3 }}
+      ROUNDS: 3
     steps:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@v7
@@ -128,7 +126,6 @@ jobs:
 
   tests:
     name: tests ${{ matrix.os }} julia ${{ matrix.julia }}
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:

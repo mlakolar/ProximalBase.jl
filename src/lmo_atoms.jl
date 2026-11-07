@@ -181,10 +181,12 @@ bound on `f(x) - f*`. Only the default path gives the oracle's answer up to the 
 decomposition.
 
 Construct one set object per task: the full path caches its workspace in the set, as `prox!`
-does, and the workspace stays allocated with the set. A Krylov call that converges, or any call with
-`fallback = false`, allocates local arrays only, of order `(m + n)` times `maxiter` (allocated for the
-limit, and eligible for garbage collection after the return); with `fallback = true` a call that does
-not converge runs the full decomposition, which caches its workspace in the set.
+does, and the workspace stays allocated with the set. A call with `method = :krylov` that
+converges, or that has `fallback = false`, adds no cached decomposition to the set and allocates local
+arrays of order `(m + n)` times `maxiter` (allocated for the limit, and eligible for garbage collection
+after the return); a workspace cached by an earlier full call stays. With `fallback = true` a Krylov call
+that does not converge runs the full decomposition, which caches its workspace in the set, and a call
+without `method = :krylov` is a full call whatever `fallback` is.
 """
 function lmo_atom(C::AbstractFunction, g::AbstractArray; kwargs...)
   haslmo(C) || _lmo_unsupported(C)

@@ -59,7 +59,7 @@ function write_csv(path, lines)
   open(tmp, "w") do io
     foreach(r -> println(io, r), lines)
   end
-  mv(tmp, path; force = true)
+  Base.Filesystem.rename(tmp, path)     # a POSIX rename replaces the destination atomically; `mv(; force = true)` removes it first
 end
 # test hook for the failure-path smoke test (benchmark/csv_failure_smoke.jl): a small step limit makes the Krylov oracle
 # fail to converge; the default is the default of lmo_atom, which the measurements use
@@ -238,6 +238,7 @@ function record_fw(rep, method, res, bytes, fail_at)
       push!(get!(times, ("fw-" * method, t), Float64[]), NaN)
     end
   end
+  write_rows()                                          # the rows of this method are on disk before the next one starts
 end
 # the paired decision: the median over repetitions of the ratio FW time / FISTA time, per tolerance
 function paired_report()

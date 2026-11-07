@@ -190,10 +190,10 @@ reach its tolerance it falls back to the full decomposition (`fallback = false` 
 instead). The rank-``k`` Fantope has only the exact path, because one Krylov vector cannot
 find all of a repeated eigenvalue's eigenspace.
 
-**Memory.** Four quantities differ, and none of them is the peak of the process: the storage of
-the returned atom (the storage column above); the workspace retained in the set object; the
-Julia heap bytes allocated by one call (what `@allocated` and BenchmarkTools report); and the
-peak resident memory of the process, which has to be measured on the process.
+**Memory.** Four quantities differ: the storage of the returned atom (the storage column above);
+the workspace retained in the set object; the Julia heap bytes allocated by one call (what
+`@allocated` and BenchmarkTools report); and the peak resident memory of the process. The first
+three are not the peak, which has to be measured on the process.
 
 The default path, `method = :full`, keeps its LAPACK workspace in the set object after the
 first call, so that later calls do not allocate it again. Its size grows with the matrix, in
@@ -205,8 +205,10 @@ object per task is the rule. The native part of it is not counted by Julia's all
 counters, and the allocation of one warmed call (a few kilobytes for a dense input) does not
 include the dense copy that the spectral sets make of a sparse input at every call.
 
-A `method = :krylov` call that converges, and every call with `fallback = false`, keeps nothing
-in the set. Its temporary arrays are the Lanczos bases, of order ``(m + n)`` times the step
+A `method = :krylov` call that converges, or that runs with `fallback = false`, adds no cached
+decomposition to the set (a workspace cached by an earlier full call stays, and a call with
+`fallback = false` but without `method = :krylov` is a full call, which caches as above). Its
+temporary arrays are the Lanczos bases, of order ``(m + n)`` times the step
 limit `maxiter` (they are allocated for the limit, not for the number of steps taken: megabytes
 for the sparse gradients of order ``10^4`` measured); they become eligible for garbage
 collection after the return, which is not the same as being freed at once. The allocation of one

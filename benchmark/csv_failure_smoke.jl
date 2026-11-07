@@ -57,7 +57,17 @@ mktempdir() do tmp
     @test any(r -> r["family"] == "fantope", rows)              # the run went on to the end
     @test any(r -> r["family"] == "density" && r["method"] == "full", rows)
   end
+  @testset "lmo_atoms.jl, a forced abort keeps the rows written before it" begin
+    out = joinpath(tmp, "lmo_abort.csv")
+    @test_throws ProcessFailedException run_script("lmo_atoms.jl", ["smoke-abort", out, "smoke"]; env = ["LMO_BENCH_ABORT_AFTER" => "density"])
+    header, rows = read_csv(out)                                # the file exists although the run did not finish
+    families = Set(r["family"] for r in rows)
+    @test issubset(Set(["vertex", "nuclear-dense", "nuclear-sparse", "density"]), families)
+    @test !("fantope" in families) && !("storage" in families)  # and it stops where the run stopped
+    @test count(r -> r["family"] == "vertex", rows) == 8
+  end
   common = ["60", "60", "3", "0.3", "1", "145"]
+  ntol(rows, method) = count(r -> r["method"] == method, rows)
   @testset "frank_wolfe_prototype.jl, normal run" begin
     out = joinpath(tmp, "fw_ok.csv")
     run_script("frank_wolfe_prototype.jl", [out, common..., "60"])
@@ -65,6 +75,7 @@ mktempdir() do tmp
     @test length(header) == 17
     @test any(r -> r["method"] == "reference" && startswith(r["note"], "accepted"), rows)
     @test any(r -> r["method"] == "fw-krylov" && r["time_s"] != "NaN", rows)
+    @test ntol(rows, "fw-krylov") == 3 && ntol(rows, "fw-full") == 3 && ntol(rows, "fista-nuclear") == 3   # one row per tolerance
   end
   @testset "frank_wolfe_prototype.jl, the Krylov oracle fails" begin
     out = joinpath(tmp, "fw_fail.csv")
@@ -72,7 +83,8 @@ mktempdir() do tmp
     header, rows = read_csv(out)
     @test length(header) == 17
     krylov = filter(r -> r["method"] == "fw-krylov", rows)
-    @test !isempty(krylov) && all(r -> r["time_s"] == "NaN" && occursin("did not converge", r["note"]), krylov)
+    @test length(krylov) == 3 && all(r -> r["time_s"] == "NaN" && occursin("did not converge", r["note"]), krylov)
+    @test ntol(rows, "fista-nuclear") == 3
     @test any(r -> r["method"] == "fista-nuclear", rows)         # the comparator rows of the same repetition are kept
     @test any(r -> r["method"] == "reference", rows)
   end
@@ -82,6 +94,6 @@ mktempdir() do tmp
     header, rows = read_csv(out)
     @test length(header) == 17
     @test any(r -> occursin("censored", r["note"]), rows)
-    @test any(r -> r["method"] == "fista-nuclear", rows)
+    @test ntol(rows, "fw-krylov") == 3 && ntol(rows, "fista-nuclear") == 3
   end
 end

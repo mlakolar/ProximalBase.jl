@@ -644,8 +644,6 @@ end
   end
 end
 
-end
-
 @testset "review round 3: NaN and Inf in the support values of the spectral sets (E2)" begin
   # a NaN entry of the logical matrix gives NaN, which takes precedence over an infinite entry elsewhere; an infinite
   # entry alone gives Inf; an entry of the unused triangle of a Symmetric or Hermitian wrapper has no influence
@@ -695,4 +693,6 @@ end
     @test Conjugate(Spectral(IndSimplex(zero(T))))(fill(T(NaN), n, n)) == 0
     @test Conjugate(Fantope(0))(fill(T(NaN), n, n)) == 0
   end
+end
+
 end

@@ -52,7 +52,10 @@ function write_rows()
     println(io, header)
     foreach(r -> println(io, r), rows)
   end
-  mv(tmp, out; force = true)
+  Base.Filesystem.rename(tmp, out)      # a POSIX rename replaces the destination atomically; `mv(; force = true)` removes it first
+  # test hook for benchmark/csv_failure_smoke.jl: stop after the file holding a given family has been written
+  abort_after = get(ENV, "LMO_BENCH_ABORT_AFTER", "")
+  isempty(abort_after) || any(r -> split(r, ",")[2] == abort_after, rows) && error("forced abort after family $abort_after")
 end
 # test hook for the failure-path smoke test (benchmark/csv_failure_smoke.jl): a small step limit makes every Krylov call
 # fail to converge; the default is the limit used by the measurements
@@ -180,7 +183,7 @@ for T in (Float64, Float32), n in (suite == "memgate" ? Int[] : suite == "smoke"
   D = Spectral(IndSimplex(T(1)))        # for the dense oracle and the support value below
   for method in (:full, :krylov)
     Dm = Spectral(IndSimplex(T(1)))     # one set object per method: `retained_bytes` is that method's own workspace
-    f = method === :krylov ? () -> lmo_atom(Dm, A; method, fallback = false) : () -> lmo_atom(Dm, A; method)
+    f = method === :krylov ? () -> lmo_atom(Dm, A; method, maxiter = KRYLOV_MAXITER, fallback = false) : () -> lmo_atom(Dm, A; method)
     if method === :krylov                # fallback = false: a call that does not converge is reported, not densified
       converged = try
         f(); true
@@ -209,6 +212,7 @@ for T in (Float64, Float32), n in (suite == "memgate" ? Int[] : suite == "smoke"
     ref = sum(λ[1:k])
     record!("fantope", "gaussian", "full", T, "n=$n;k=$k", t; first = f1, atom_bytes = string(Base.summarysize(a)), retained = string(Base.summarysize(F)), err = abs(dot(A, a) - ref) / max(abs(ref), 1),
             note = "factor storage $(sizeof(a.U)) B")
+    write_rows()
   end
   # the dense oracle and the support value, without and with materialization
   S = zeros(T, n, n)
@@ -216,6 +220,7 @@ for T in (Float64, Float32), n in (suite == "memgate" ? Int[] : suite == "smoke"
   record!("density", "dense-lmo!", "full", T, "n=$n", t; first = f1)
   t, f1 = measure(() -> Conjugate(D)(A))
   record!("density", "conjugate", "eigvals", T, "n=$n", t; first = f1, err = abs(Conjugate(D)(A) - λ[end]) / abs(λ[end]))
+  write_rows()
 end
 
 # ---- storage ----------------------------------------------------------------------------------

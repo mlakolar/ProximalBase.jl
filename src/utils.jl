@@ -572,17 +572,17 @@ _all_finite(::Nothing) = true
   end
   s = m1 + ldexp(m2, e2 - e1)
   iszero(s) && return s, 0
-  ms, es = frexp(s)
+  ms, es = _frexp(s)
   ms, es + e1
 end
 
 # The products of `_scaled_product`, w v 2^k and a b c 2^k, kept as a significand and
 # an exponent: ldexp of the pair rounds once to the same value. Finite factors.
 @inline _pow2_pair(w::T, v::T, k::Int) where {T<:AbstractFloat} =
-  (iszero(w) || iszero(v)) ? (zero(T), 0) : (fw = frexp(w); fv = frexp(v); (fw[1] * fv[1], fw[2] + fv[2] + k))
+  (iszero(w) || iszero(v)) ? (zero(T), 0) : (fw = _frexp(w); fv = _frexp(v); (fw[1] * fv[1], fw[2] + fv[2] + k))
 @inline function _pow2_pair(a::T, b::T, c::T, k::Int) where {T<:AbstractFloat}
   (iszero(a) || iszero(b) || iszero(c)) && return zero(T), 0
-  fa, fb, fc = frexp(a), frexp(b), frexp(c)
+  fa, fb, fc = _frexp(a), _frexp(b), _frexp(c)
   (fa[1] * fb[1]) * fc[1], fa[2] + fb[2] + fc[2] + k
 end
 

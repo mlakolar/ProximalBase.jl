@@ -450,8 +450,8 @@ _pure_everywhere(::SquaredHinge) = true   # src/functions/glm.jl
 @inline function _sqrhinge_margin(y::T, ηs::T, k::Int) where {T}
   k == 0 && return _sqrhinge_residual(y, ηs)
   (iszero(y) || y * ηs > 0) && return (iszero(y) ? one(T) : zero(T)), 0
-  my, ey = frexp(y)
-  mv, ev = frexp(ηs)
+  my, ey = _frexp(y)
+  mv, ev = _frexp(ηs)
   e = ey + ev + k
   ldexp(one(T), -e) - my * mv, e
 end
@@ -527,7 +527,7 @@ _pure_everywhere(::SmoothCheck) = true
 @inline function _smoothcheck_parts(ℓ::SmoothCheck, ηs::T, k::Int, y::T) where {T}
   m, e = _residual_pow2(ηs, k, y)
   τ, h = convert(T, ℓ.τ), convert(T, ℓ.h)
-  mh, eh = frexp(h)
+  mh, eh = _frexp(h)
   qm, qe = -m / mh, e - eh
   zone = _pow2_cmp(qm, qe, τ) >= 0 ? 1 : _pow2_cmp(qm, qe, -(1 - τ)) <= 0 ? -1 : 0
   -m, e, τ, h, zone
@@ -535,8 +535,8 @@ end
 # the sign of a 2^ea - b, for finite a and b
 @inline function _pow2_cmp(a::T, ea::Int, b::T) where {T}
   (iszero(a) || iszero(b) || signbit(a) != signbit(b)) && return cmp(a, b)
-  ma, xa = frexp(a)
-  mb, xb = frexp(b)
+  ma, xa = _frexp(a)
+  mb, xb = _frexp(b)
   xa += ea
   xa == xb && return cmp(ma, mb)
   s = xa > xb ? 1 : -1
@@ -545,19 +545,19 @@ end
 # c t/2 in units of 2^e, for positive c and t, without forming c t in T (it can
 # underflow before the units restore it)
 @inline _half_product_units(c::T, t::T, e::Int) where {T} =
-  (fc = frexp(c); ft = frexp(t); ldexp(fc[1] * ft[1], fc[2] + ft[2] - 1 - e))
+  (fc = _frexp(c); ft = _frexp(t); ldexp(fc[1] * ft[1], fc[2] + ft[2] - 1 - e))
 function _weighted_pair(ℓ::SmoothCheck, w::T, ηs::T, k::Int, y::T) where {T}
   m, e, τ, h, zone = _smoothcheck_parts(ℓ, ηs, k, y)
   zone > 0 && return _pow2_pair(w, τ, m - _half_product_units(h, τ, e), e)
   zone < 0 && return _pow2_pair(w, 1 - τ, -m - _half_product_units(h, 1 - τ, e), e)
-  mh, eh = frexp(h)
+  mh, eh = _frexp(h)
   _pow2_pair(w, m * m / (2mh), 2e - eh)
 end
 function _weighted_deriv(ℓ::SmoothCheck, w::T, ηs::T, k::Int, y::T) where {T}
   m, e, τ, h, zone = _smoothcheck_parts(ℓ, ηs, k, y)
   zone > 0 && return w * -τ
   zone < 0 && return w * (1 - τ)
-  mh, eh = frexp(h)
+  mh, eh = _frexp(h)
   _scaled_product(w, -m / mh, e - eh)
 end
 
@@ -631,11 +631,11 @@ function _weighted_deriv(ℓ::ConvolutionCheck, w::T, ηs::T, k::Int, y::T) wher
   u = ldexp(m, e)
   u >= h && return w * -τ
   u <= -h && return w * (1 - τ)
-  mh, eh = frexp(h)
+  mh, eh = _frexp(h)
   ms, es = m / mh, e - eh
   s = ldexp(ms, es)
-  b, eb = abs(s) >= floatmin(T) ? frexp(-_kernel_abs(ℓ, s)[2] / 2) : (-convert(T, _kernel_slope0(ℓ)) * ms / 2, es)
-  a, ea = _pow2_add2(frexp(-(τ - one(τ) / 2))..., b, eb)
+  b, eb = abs(s) >= floatmin(T) ? _frexp(-_kernel_abs(ℓ, s)[2] / 2) : (-convert(T, _kernel_slope0(ℓ)) * ms / 2, es)
+  a, ea = _pow2_add2(_frexp(-(τ - one(τ) / 2))..., b, eb)
   _scaled_product(w, a, ea)
 end
 function _weighted_pair(ℓ::ConvolutionCheck, w::T, ηs::T, k::Int, y::T) where {T}
@@ -646,7 +646,7 @@ function _weighted_pair(ℓ::ConvolutionCheck, w::T, ηs::T, k::Int, y::T) where
   u >= h && return _pow2_pair(w, τ, m, e)
   u <= -h && return _pow2_pair(w, τ - 1, m, e)
   ma, ea = _product_pow2(τ - one(τ) / 2, m)
-  mh, eh = frexp(h)
+  mh, eh = _frexp(h)
   a, b = _pow2_add2(ma, ea + e, mh * _kernel_abs(ℓ, u / h)[1] / 2, eh)
   _pow2_pair(w, a, b)
 end

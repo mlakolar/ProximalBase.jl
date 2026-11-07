@@ -307,7 +307,7 @@ end
 # the weight w > 0 applied last: the value as a significand and an exponent (so
 # that terms beyond floatmax can still cancel in the sum), the derivative in T,
 # rounded once. The default, for losses without a method, is the ordinary term.
-_weighted_pair(ℓ::ScalarLoss, w::T, ηs::T, k::Int, y::T) where {T} = frexp(w * convert(T, ℓ(ldexp(ηs, k), y)))
+_weighted_pair(ℓ::ScalarLoss, w::T, ηs::T, k::Int, y::T) where {T} = _frexp(w * convert(T, ℓ(ldexp(ηs, k), y)))
 _weighted_deriv(ℓ::ScalarLoss, w::T, ηs::T, k::Int, y::T) where {T} = w * convert(T, deriv(ℓ, ldexp(ηs, k), y))
 
 # The term of one observation in the recovery: the ordinary term where it is
@@ -317,11 +317,11 @@ _weighted_deriv(ℓ::ScalarLoss, w::T, ηs::T, k::Int, y::T) where {T} = w * con
   if isfinite(η)
     v = ℓ(η, y)
     p = w * convert(T, v)
-    _value_ok(ℓ, w, v, p, η, y) && return frexp(p)
+    _value_ok(ℓ, w, v, p, η, y) && return _frexp(p)
     ηs, k = η, 0
   end
   yt = convert(T, y)
-  isfinite(ηs) & isfinite(yt) || return frexp(w * convert(T, ℓ(η, y)))
+  isfinite(ηs) & isfinite(yt) || return _frexp(w * convert(T, ℓ(η, y)))
   _weighted_pair(ℓ, w, ηs, k, yt)
 end
 @inline _recovered_value(ℓ, w::T, η::T, ηs::T, k::Int, y, ::Type{T}) where {T} = ldexp(_recovered_pair(ℓ, w, η, ηs, k, y, T)...)
@@ -341,16 +341,16 @@ end
 @inline function _residual_pow2(ηs::T, k::Int, y::T) where {T}
   if k == 0
     r = ηs - y
-    isfinite(r) && return frexp(r)
-    m, e = frexp(ηs / 2 - y / 2)
+    isfinite(r) && return _frexp(r)
+    m, e = _frexp(ηs / 2 - y / 2)
     return m, e + 1
   end
-  m, e = frexp(ηs - ldexp(y, -k))
+  m, e = _frexp(ηs - ldexp(y, -k))
   m, e + k
 end
 # a ⋅ b as a significand and an exponent
 @inline _product_pow2(a::T, b::T) where {T} = (iszero(a) || iszero(b)) ? (zero(T), 0) :
-  (fa = frexp(a); fb = frexp(b); (fa[1] * fb[1], fa[2] + fb[2]))
+  (fa = _frexp(a); fb = _frexp(b); (fa[1] * fb[1], fa[2] + fb[2]))
 
 # Squared: (η - y)²/2 and η - y. A subnormal difference is exact, so the
 # derivative loses nothing to underflow.
@@ -386,7 +386,7 @@ _lost_deriv(::Logistic, v, η, y) = _below_normal(v)
   m, j = _exp_split(-s)
   j < -(precision(T) + 2) && return m, j
   t = ldexp(m, j)
-  frexp(sigmoid ? t / (1 + t) : log1p(t))
+  _frexp(sigmoid ? t / (1 + t) : log1p(t))
 end
 function _weighted_pair(::Logistic, w::T, ηs::T, k::Int, y::T) where {T}
   s = abs(ηs)
@@ -397,7 +397,7 @@ function _weighted_pair(::Logistic, w::T, ηs::T, k::Int, y::T) where {T}
 end
 function _weighted_deriv(::Logistic, w::T, ηs::T, k::Int, y::T) where {T}
   ms, es = _logistic_tail(abs(ηs), k, true)
-  m, e = ηs > 0 ? _pow2_add2(frexp(one(T) - y)..., -ms, es) : _pow2_add2(ms, es, frexp(-y)...)
+  m, e = ηs > 0 ? _pow2_add2(_frexp(one(T) - y)..., -ms, es) : _pow2_add2(ms, es, _frexp(-y)...)
   _scaled_product(w, m, e)
 end
 
@@ -419,7 +419,7 @@ end
 function _weighted_deriv(::Poisson, w::T, ηs::T, k::Int, y::T) where {T}
   ηs > 0 && (k > 0 || ηs > _exp_bound(T)) && return T(Inf)
   me, je = _poisson_exp(ηs, k)
-  m, e = _pow2_add2(me, je, frexp(-y)...)
+  m, e = _pow2_add2(me, je, _frexp(-y)...)
   _scaled_product(w, m, e)
 end
 
@@ -742,8 +742,8 @@ function _pow2_broadcast_sum(::Type{T}, f::F, η::AbstractVector, args::Vararg{A
   g = nu <= one(T) / 8 ? nu / (one(T) - nu) : zero(T)   # n > 1/(16u): keep the sums
   big, small = _beyond_error(bs + bc, g, ba), _beyond_error(ss + sc, g, sa)
   E2 == typemin(Int) && return ldexp(big, E)
-  mb, eb = frexp(big)
-  ms, es = frexp(small)
+  mb, eb = _frexp(big)
+  ms, es = _frexp(small)
   m, e = _pow2_add2(mb, eb + E, ms, es + E2)
   ldexp(m, e)
 end

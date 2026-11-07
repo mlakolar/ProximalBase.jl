@@ -441,6 +441,26 @@ end
 deriv(ℓ::SquaredHinge, η::Real, y::Real) = value_and_deriv(ℓ, η, y)[2]
 deriv2(::SquaredHinge, η::Real, y::Real) = (t = float(η); y * t < 1 ? 2 * abs2(y) * one(t) : zero(t))
 curvature(::SquaredHinge) = 2.0
+# The margin m = max(1 - yη, 0) of η = ηs 2^k as r 2^e, by the helpers of
+# SqrHingeLoss, which keep an overflowing yη apart. An active margin is at least
+# about ulp(1)/2, so m² does not underflow; the derivative -2ym does when |y| is
+# far below 1.
+_lost_deriv(::SquaredHinge, v, η, y) = _below_normal(v) & !iszero(y) & (y * η < 1)
+_pure_everywhere(::SquaredHinge) = true   # src/functions/glm.jl
+@inline function _sqrhinge_margin(y::T, ηs::T, k::Int) where {T}
+  k == 0 && return _sqrhinge_residual(y, ηs)
+  (iszero(y) || y * ηs > 0) && return (iszero(y) ? one(T) : zero(T)), 0
+  my, ey = _frexp(y)
+  mv, ev = _frexp(ηs)
+  e = ey + ev + k
+  ldexp(one(T), -e) - my * mv, e
+end
+function _weighted_pair(::SquaredHinge, w::T, ηs::T, k::Int, y::T) where {T}
+  r, e = _sqrhinge_margin(y, ηs, k)
+  _pow2_pair(w, r, r, 2e)
+end
+_weighted_deriv(::SquaredHinge, w::T, ηs::T, k::Int, y::T) where {T} =
+  -copysign(_sqrhinge_slope(y, w, _sqrhinge_margin(y, ηs, k)...), y)
 
 """
     ProximalBase.SmoothCheck(τ, h)
@@ -464,21 +484,82 @@ struct SmoothCheck{T<:Real} <: ScalarLoss
   end
 end
 SmoothCheck(τ::Real, h::Real) = (p = promote(τ, h); SmoothCheck{typeof(p[1])}(p...))
+# In forms that avoid a material loss of accuracy in their intermediates: the
+# branch is chosen by q = u/h against τ and -(1 - τ), not u against hτ (hτ can
+# underflow and misplace the branch, at an exact fit with a subnormal h for
+# instance); the linear branches take the small factor τ (or 1 - τ) out,
+# τ(u - hτ/2) rather than τu - hτ²/2 (τ² can underflow before the product with a
+# large h); the middle one is q u/2 rather than u²/(2h) (u² can underflow, or 2h
+# overflow). In the middle |q| < 1, and where the value is normal q is at worst
+# one bit below floatmin. A value or derivative below floatmin has lost accuracy
+# (the recovery recomputes it where a weight lifts it).
 @inline function value_and_deriv(ℓ::SmoothCheck, η::Real, y::Real)
   u = float(y - η)
   τ, h = convert(typeof(u), ℓ.τ), convert(typeof(u), ℓ.h)
-  u >= h * τ && return (τ * u - h * τ^2 / 2, -τ)
-  u <= -h * (1 - τ) && return ((τ - 1) * u - h * (1 - τ)^2 / 2, 1 - τ)
-  (u^2 / (2h), -u / h)
+  σ = 1 - τ
+  q = u / h
+  q >= τ && return (τ * (u - h * τ / 2), -τ)
+  q <= -σ && return (σ * (-u - h * σ / 2), σ)
+  (q * u / 2, -q)
 end
 (ℓ::SmoothCheck)(η::Real, y::Real) = value_and_deriv(ℓ, η, y)[1]
 deriv(ℓ::SmoothCheck, η::Real, y::Real) = value_and_deriv(ℓ, η, y)[2]
 function deriv2(ℓ::SmoothCheck, η::Real, y::Real)
   u = float(y - η)
   τ, h = convert(typeof(u), ℓ.τ), convert(typeof(u), ℓ.h)
-  -h * (1 - τ) < u < h * τ ? inv(h) : zero(u)
+  -(1 - τ) < u / h < τ ? inv(h) : zero(u)   # the branches of value_and_deriv
 end
 curvature(ℓ::SmoothCheck) = inv(float(ℓ.h))
+# The residual u = y - η as m 2^e; the branches as in value_and_deriv, the linear
+# ones as τ(u - hτ/2) and (1 - τ)(-u - h(1 - τ)/2) in units of 2^e, the middle one
+# as m²/(2 mₕ) in units of 2^(2e - eₕ).
+# with the forms of value_and_deriv a normal value is accurate; a value below
+# floatmin has lost accuracy, which only a weight w > 1 can lift (the default)
+_lost_value(::SmoothCheck, v, η, y) = _below_normal(v) & (η != y)
+_lost_deriv(::SmoothCheck, v, η, y) = _below_normal(v) & (η != y)
+# linear beyond a bounded zone of u = y - η, NaN in it; ℓ' bounded by max(τ, 1 - τ)
+# (src/functions/glm.jl, `_value_traps` and `_deriv_in_value`)
+_value_traps(::SmoothCheck) = true
+_deriv_in_value(::SmoothCheck) = true
+_pure_everywhere(::SmoothCheck) = true
+# the branch from q = u/h = (m/mₕ) 2^(e - eₕ) against τ and -(1 - τ), compared
+# in significand and exponent, so that neither q nor hτ underflows on the way
+@inline function _smoothcheck_parts(ℓ::SmoothCheck, ηs::T, k::Int, y::T) where {T}
+  m, e = _residual_pow2(ηs, k, y)
+  τ, h = convert(T, ℓ.τ), convert(T, ℓ.h)
+  mh, eh = _frexp(h)
+  qm, qe = -m / mh, e - eh
+  zone = _pow2_cmp(qm, qe, τ) >= 0 ? 1 : _pow2_cmp(qm, qe, -(1 - τ)) <= 0 ? -1 : 0
+  -m, e, τ, h, zone
+end
+# the sign of a 2^ea - b, for finite a and b
+@inline function _pow2_cmp(a::T, ea::Int, b::T) where {T}
+  (iszero(a) || iszero(b) || signbit(a) != signbit(b)) && return cmp(a, b)
+  ma, xa = _frexp(a)
+  mb, xb = _frexp(b)
+  xa += ea
+  xa == xb && return cmp(ma, mb)
+  s = xa > xb ? 1 : -1
+  signbit(a) ? -s : s
+end
+# c t/2 in units of 2^e, for positive c and t, without forming c t in T (it can
+# underflow before the units restore it)
+@inline _half_product_units(c::T, t::T, e::Int) where {T} =
+  (fc = _frexp(c); ft = _frexp(t); ldexp(fc[1] * ft[1], fc[2] + ft[2] - 1 - e))
+function _weighted_pair(ℓ::SmoothCheck, w::T, ηs::T, k::Int, y::T) where {T}
+  m, e, τ, h, zone = _smoothcheck_parts(ℓ, ηs, k, y)
+  zone > 0 && return _pow2_pair(w, τ, m - _half_product_units(h, τ, e), e)
+  zone < 0 && return _pow2_pair(w, 1 - τ, -m - _half_product_units(h, 1 - τ, e), e)
+  mh, eh = _frexp(h)
+  _pow2_pair(w, m * m / (2mh), 2e - eh)
+end
+function _weighted_deriv(ℓ::SmoothCheck, w::T, ηs::T, k::Int, y::T) where {T}
+  m, e, τ, h, zone = _smoothcheck_parts(ℓ, ηs, k, y)
+  zone > 0 && return w * -τ
+  zone < 0 && return w * (1 - τ)
+  mh, eh = _frexp(h)
+  _scaled_product(w, -m / mh, e - eh)
+end
 
 """
     ProximalBase.ConvolutionCheck(τ, h; kernel = :epanechnikov)
@@ -530,6 +611,45 @@ function deriv2(ℓ::ConvolutionCheck, η::Real, y::Real)
 end
 curvature(ℓ::ConvolutionCheck{<:Any, :uniform}) = inv(2 * float(ℓ.h))
 curvature(ℓ::ConvolutionCheck{<:Any, :epanechnikov}) = 3 / (4 * float(ℓ.h))
+# The residual u = y - η as m 2^e: the linear branches c u in units of 2^e, the
+# kernel zone (τ - 1/2)u + h m(u/h)/2 as two terms added in power-of-two units.
+# The derivative -(τ - 1/2) - m'(s)/2 is bounded, but s = u/h is subnormal for a
+# subnormal residual: there m'(s) = s (uniform) or 3s/2 (Epanechnikov, s³ negligible),
+# kept as (u/h) in units of 2^(e - eₕ).
+_lost_value(::ConvolutionCheck, v, η, y) = _below_normal(v)
+_lost_deriv(::ConvolutionCheck, v, η, y) = _below_normal(v)
+# linear for |u| ≥ h, NaN in the kernel zone; ℓ' bounded by 1/2 + |τ - 1/2|
+_value_traps(::ConvolutionCheck) = true
+_deriv_in_value(::ConvolutionCheck) = true
+_pure_everywhere(::ConvolutionCheck) = true
+_kernel_slope0(::ConvolutionCheck{<:Any, :uniform}) = 1
+_kernel_slope0(::ConvolutionCheck{<:Any, :epanechnikov}) = 3 // 2
+function _weighted_deriv(ℓ::ConvolutionCheck, w::T, ηs::T, k::Int, y::T) where {T}
+  m, e = _residual_pow2(ηs, k, y)
+  m = -m
+  τ, h = convert(T, ℓ.τ), convert(T, ℓ.h)
+  u = ldexp(m, e)
+  u >= h && return w * -τ
+  u <= -h && return w * (1 - τ)
+  mh, eh = _frexp(h)
+  ms, es = m / mh, e - eh
+  s = ldexp(ms, es)
+  b, eb = abs(s) >= floatmin(T) ? _frexp(-_kernel_abs(ℓ, s)[2] / 2) : (-convert(T, _kernel_slope0(ℓ)) * ms / 2, es)
+  a, ea = _pow2_add2(_frexp(-(τ - one(τ) / 2))..., b, eb)
+  _scaled_product(w, a, ea)
+end
+function _weighted_pair(ℓ::ConvolutionCheck, w::T, ηs::T, k::Int, y::T) where {T}
+  m, e = _residual_pow2(ηs, k, y)
+  m = -m
+  τ, h = convert(T, ℓ.τ), convert(T, ℓ.h)
+  u = ldexp(m, e)
+  u >= h && return _pow2_pair(w, τ, m, e)
+  u <= -h && return _pow2_pair(w, τ - 1, m, e)
+  ma, ea = _product_pow2(τ - one(τ) / 2, m)
+  mh, eh = _frexp(h)
+  a, b = _pow2_add2(ma, ea + e, mh * _kernel_abs(ℓ, u / h)[1] / 2, eh)
+  _pow2_pair(w, a, b)
+end
 
 ####################################
 #  values as a significand and an exponent

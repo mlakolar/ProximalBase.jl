@@ -614,6 +614,29 @@ _all_finite(x) = all(isfinite, _stored_values(x))
 _all_finite(x::_WrappedSparse) = _all_finite(parent(x))
 _all_finite(::Nothing) = true
 
+# m₁2^e₁ + m₂2^e₂ as a significand in [1/2, 1) (or 0) and its exponent, aligned to
+# the larger term: two terms that cancel do so exactly before renormalizing. A
+# scalar function for device kernels as well (no tuples of varying length).
+@inline function _pow2_add2(m1::T, e1::Int, m2::T, e2::Int) where {T<:AbstractFloat}
+  if iszero(m1) || (!iszero(m2) && e1 < e2)
+    m1, e1, m2, e2 = m2, e2, m1, e1
+  end
+  s = m1 + ldexp(m2, e2 - e1)
+  iszero(s) && return s, 0
+  ms, es = _frexp(s)
+  ms, es + e1
+end
+
+# The products of `_scaled_product`, w v 2^k and a b c 2^k, kept as a significand and
+# an exponent: ldexp of the pair rounds once to the same value. Finite factors.
+@inline _pow2_pair(w::T, v::T, k::Int) where {T<:AbstractFloat} =
+  (iszero(w) || iszero(v)) ? (zero(T), 0) : (fw = _frexp(w); fv = _frexp(v); (fw[1] * fv[1], fw[2] + fv[2] + k))
+@inline function _pow2_pair(a::T, b::T, c::T, k::Int) where {T<:AbstractFloat}
+  (iszero(a) || iszero(b) || iszero(c)) && return zero(T), 0
+  fa, fb, fc = _frexp(a), _frexp(b), _frexp(c)
+  (fa[1] * fb[1]) * fc[1], fa[2] + fb[2] + fc[2] + k
+end
+
 # w Σ mᵢ 2^eᵢ over finite mᵢ, for the terms of a value recomputed in different
 # power-of-two units (R1). The terms are added from the largest exponent down
 # to an accumulator kept as a significand in [1/2, 1) and its own exponent,

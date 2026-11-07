@@ -36,7 +36,8 @@ function _projection_accumulate(a::_ProjectionScale, b::Real)
   _ProjectionScale(m, Int(a.e + eb + e))
 end
 _projection_product(a, b, w) = _positive_product(a, b, w)
-_projection_product(a::_ProjectionScale, b, w) = _scaled_product(a.m, b, w, a.e)
+# the stored exponent may have wrapped: Int sums (#767)
+_projection_product(a::_ProjectionScale, b, w) = _scaled_product_retained(a.m, b, w, a.e)
 # f scaled by an accumulated factor, as nested wrappers when the factor is not a normal number:
 # pieces of at most half the exponent range, so that each is stored exactly
 _projection_scaled(f, α::Real) = Scaled(f, α)
@@ -625,7 +626,8 @@ _value_parts_scaled(f, x, v, α) = _value_parts(f, x, v)
 function _apply_parts(α, m, e::Integer)
   ma, ea = _projection_scale_parts(α)
   P = promote_type(typeof(float(ma)), typeof(m))
-  _scaled_product(convert(P, ma), convert(P, m), Int(ea) + e)
+  # ea is a retained exponent that may have wrapped: Int sums (#767)
+  _scaled_product_retained(convert(P, ma), convert(P, m), Int(ea) + e)
 end
 @inline _scaled_value(s, x, v, recover_inner_small = true) = _scaled_value_by(s.f, s.α, x, v, recover_inner_small)
 (s::Scaled)(x) =

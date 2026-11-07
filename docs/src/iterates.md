@@ -260,25 +260,26 @@ of steps, or one step per group, is not supported on an owner: it throws an `Arg
 before anything is written, and the dense and other iterate outputs are unchanged. Use a
 scalar step, or `Matrix(x)` as the output.
 
-### Replacing the array operations of 0.5
+### Array operations and the calls to use instead
 
-Before 0.6 the owner was a matrix for Julia, and generic array functions reached it. They
-no longer exist for it; each has a replacement that says what is meant.
+An array function is not defined for the owner. Each of the following says what to
+call for the question that the array function would have answered.
 
-| 0.5 | 0.6 |
-|:----|:----|
-| `x[k]` for a variable | `coordinates(x)[k]` |
-| read or iterate the matrix, `x[:, j]`, `sum(x)`, `view(x, ...)` | the same call on `matrixview(x)` |
-| `length(x)` | `size(x, 1)` for ``p``, `ncoordinates(x)` or `length(coordinates(x))` for ``q`` |
-| `nnz(x)` | `nactive(x)`, when the size of the working set is meant |
-| `fill!(x, 0)` | `fill!(coordinates(x), 0); dropzeros!(x)` |
-| `x.nzval` | `activevalues(x)` |
+| To get | Use |
+|:-------|:----|
+| a variable by its id | `coordinates(x)[k]` |
+| a matrix read or iteration: `x[:, j]`, `sum`, `map`, `view`, broadcasting | the same call on `matrixview(x)` |
+| ``p`` | `size(x, 1)` |
+| ``q`` | `ncoordinates(x)`, or `length(coordinates(x))` |
+| the size of the working set | `nactive(x)` |
+| the number of nonzeros of the matrix | `count(!iszero, Matrix(x))`, or `nnz(sparse(matrixview(x)))` |
+| to clear the owner | `fill!(coordinates(x), 0); dropzeros!(x)` |
+| the stored values | `activevalues(x)` |
 | writable dense storage | `Matrix(x)` |
-| `sparse(x)`, `triu(x, k)`, `tril(x, k)` | the same calls on `matrixview(x)` |
-| `mul!(x, A, B)` | compute into a dense matrix, `C = A * B`, and `copyto!(x, C)` if a symmetric import is meant |
-| `x .= f.(y)`, `map!(f, x, y)`, `x .+= ...` | write `coordinates(x)`, or compute a symmetric matrix and import it |
+| the matrix as a sparse matrix, or a triangle of it | `sparse(matrixview(x))`, `triu(matrixview(x), k)`, `tril(matrixview(x), k)` |
+| the product of two matrices stored in the owner | compute `C = A * B` into a dense matrix, and `copyto!(x, C)` if a symmetric import is meant |
 
-[Compatibility and migration](@ref) gives the 0.5 behavior of each row in full.
+[Compatibility and migration](@ref) lists what each of these was in 0.5.
 
 Its coordinates are the
 ``p(p+1)/2`` entries ``(r, c)``, ``r \ge c``, of the lower triangle, numbered

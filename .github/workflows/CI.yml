@@ -89,8 +89,10 @@ jobs:
     if: needs.plan.outputs.run_tests == 'true'
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.version == 'pre' }}
-    # Per tier in test/tiers.toml, well above the targets to allow for cold caches.
-    timeout-minutes: ${{ fromJSON(needs.plan.outputs.timeout) }}
+    # Per tier in .github/tier-rules.toml, well above the targets to allow for cold caches; a matrix
+    # entry may set its own (macOS full: the 3-core, 3.3 GiB M1 runners take 43-78 min and one run
+    # was cancelled at the 90 min limit, #736).
+    timeout-minutes: ${{ matrix.timeout || fromJSON(needs.plan.outputs.timeout) }}
     env:
       FULL_TESTS: ${{ needs.plan.outputs.tier == 'full' }}
       # Thorough and full run every conformance file, so they write and check the reports.
@@ -111,7 +113,7 @@ jobs:
         # The full tier adds these. The free-memory default gives one worker on the macOS runner.
         include: >-
           ${{ fromJSON(needs.plan.outputs.tier == 'full' &&
-          '[{"version": "1", "os": "macos-latest", "arch": "aarch64", "ptr_jobs": "2"},
+          '[{"version": "1", "os": "macos-latest", "arch": "aarch64", "ptr_jobs": "2", "timeout": 120},
           {"version": "1", "os": "windows-latest", "arch": "x64"},
           {"version": "pre", "os": "ubuntu-latest", "arch": "x64"}]' || '[]') }}
     steps:

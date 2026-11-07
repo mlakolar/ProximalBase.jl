@@ -87,9 +87,87 @@ the earlier behavior applies.
     where they were zeros.
   - A zero-level function, such as `NuclearNorm(0)`, returns `0` at a NaN
     entry.
+  - `NormL1Nonneg` at a NaN entry is NaN, where it was `Inf`, and
+    `EpsInsensitiveLoss` with `ε = Inf` is `0` at NaN and `±Inf` entries,
+    where it was NaN.
   - At an admitted infinite step, a proximal map that is constant on finite
     arguments ignores a NaN entry: `prox(NormL1(1.0), [NaN], Inf)` is `[0]`,
     where it was `[NaN]`.
+  - An infinite level whose proximal map is constant ignores a NaN or infinite
+    entry (decision 49): `prox(NormL1(Inf), [1.0, NaN], 1.0)` is `[0, 0]`,
+    where it was `[0, NaN]`, and so for `SLOPE` with an infinite first weight
+    and `NormL1Fused` with an infinite ℓ1 level at a positive finite step.
+    At the zero vector, `NormL1(Inf)` (a dense array, no weights) and
+    `NormL1Fused(Inf, λ2)` give the value `0`, where they gave NaN.
+  - `NormLinf(Inf)` is the indicator of `{0}` (decision 49, #663): at a finite
+    positive step its proximal map is zero at every entry,
+    `prox(NormLinf(Inf), [1.0, NaN], 1.0)` is `[0, 0]`, where it was
+    `[-Inf, NaN]`. Its value at the zero vector is `0`, where it was NaN, and
+    so is the value of the conjugate of `IndBallL1(Inf)` there. A zero,
+    infinite, negative or NaN step keeps its results.
+  - `NormL1Fused` with an infinite fusion level `λ2 = Inf` and a finite `λ1` projects onto
+    the vectors of equal entries and then shrinks (decision 49, #664): at a positive finite
+    step the proximal point of a vector of K ≠ 2 entries is `shrink(mean, γλ1)` in every entry,
+    `prox(NormL1Fused(1.0, Inf), [1.0, -2.0, 0.5], 1.0)` is `[0, 0, 0]`, where it was
+    `[-Inf, Inf, NaN]`, and `prox(NormL1Fused(0.5, Inf), [3.0], 1.0)` is `[2.5]`, where it was
+    `[NaN]`; a NaN entry gives NaN in every entry. The value at equal finite entries is
+    `λ1 Σ|v|`, where it was NaN (`Inf⋅0`), for a vector, a pair, a tuple of arrays and
+    `FiberSum`, and the value of `value_and_prox!` is that of the stored output; a vector of
+    unequal entries has the value `Inf` as before. `value_and_prox!` of a tuple of arrays or of
+    `FiberSum` of two slices into a separate output stores the output of `prox!` for a pair near
+    `floatmax`, where it stored `Inf`. The pair, the tuple of arrays and the vector of two
+    entries gave the common value already. The mean of a vector of K ≠ 2 entries is formed in the
+    precision of the argument and of the output, and rounded when stored:
+    `prox!(zeros(Float32, 3), NormL1Fused(0.0, Inf), [1e100, -1e100, 3.0], 1.0)` is `[1, 1, 1]`.
+    `λ1 = Inf`, a finite `λ2`, and the proximal outputs at a zero, infinite, negative or NaN
+    step keep their results, the stored output of `value_and_prox!` included (the repair of a
+    separate output near `floatmax` is taken at a finite positive step only); the value that
+    `value_and_prox!` returns is the value at that stored output, at every step, for
+    `FiberSum` as well (an output with a non-one-based axis keeps the value of its loop). An argument of element type `Real` is read at the precision of its entries.
+  - A wrapper step that is not a normal number keeps the hard domain of an
+    infinite level (decision 49, #666): `prox(Scaled(NormL1(Inf), 1e-300), [1.0, 2.0, 3.0], 1e-300)`
+    is `[0, 0, 0]`, where it was the identity `[1, 2, 3]`, and `SLOPE` with an
+    infinite first weight, `NormL1Fused` with an infinite ℓ1 level, `NormLinf(Inf)`,
+    `ElasticNet` and `SparseGroupNormL2` with an infinite level that fixes every coordinate
+    that their other levels touch give zeros, where they gave NaN or the identity. This
+    holds for a product `αγ` that underflows, is subnormal or overflows, for chains of
+    `Scaled`, blocks of sums, array steps with positive finite entries and
+    `value_and_prox!`. The call returns what the same function returns at an ordinary positive
+    step, the hard domain `{0}` at finite arguments included, up to the sign of a zero
+    (`ElasticNet(1.0, Inf)` at `[-1.0]` gives `[0.0]` at step 1 and `[-0.0]` at step 0.75 and in the
+    wrapper); a NaN or infinite entry follows the
+    leaf's own rule at an ordinary step (decision 49 for `NormL1`, `SLOPE`, `NormL1Fused` and
+    `NormLinf`; the others are tracked in #662), so `prox(Scaled(NormL1Nonneg(Inf), 1e-300), [Inf, 1.0], 1e-300)`
+    is `[NaN, 0]`, as `NormL1Nonneg(Inf)` gives at step 1. Nothing finite is folded, multiplied or combined on this route, so a
+    finite level, a finite factor and the working precision keep their results. Declined, with
+    the earlier result: a finite level that acts on a coordinate that the infinite level leaves
+    free (a zero weight), a finite sibling block next to an infinite one, a factor or step that
+    is zero, negative, infinite or NaN (in the chain, in a block, under an indicator, or an array entry), an
+    indicator that is not on the list of plain-data indicators (an intersection, a constrained or composed
+    indicator, a user type; also under a `Scaled` or a `Translate`), and a
+    function without a stored infinite level; an infinite level can still be lost there, and a
+    follow-up issue tracks these configurations.
+  - A box that misses the domain of an infinite-level `NormL1` raises before writing
+    (decision 49, #666): `prox(Constrained(NormL1(Inf), IndBox(1.0, 2.0)), [1.0, 2.0], 1.0)`
+    throws `ArgumentError("the IndBox misses the domain of NormL1")`, where it returned
+    `[1.0, 1.0]`, the clamp of the hard zero into the box. The same holds for `prox!`,
+    `value_and_prox!`, array steps and `Scaled(Constrained(...), α)` at a positive step, with
+    the check on the entries of positive weight (a zero weight leaves its entry free), and
+    nothing is written before the error. A box that contains zero keeps the hard zero of an
+    infinite level. Finite levels, a zero step, other penalties in the box and the standalone
+    value (`Inf` away from the domain) keep their earlier behaviour. Coordinate updates of a `SparseIterate` or an `AtomIterate`
+    do not run the check yet.
+  - `value_and_prox!` of `FiberSum(NormL1Fused(...))` on two slices, into a separate output, at a zero level,
+    a zero step or a free diagonal (`diagonal = nothing`) beside a fused pair near `floatmax`, stores
+    the output of `prox!` (finite there, where a midpoint overflow stored `Inf`) and returns the value of
+    that output, where it returned `Inf` or NaN (#667). The same holds for finite arguments stored into
+    a narrower destination (Float64 into Float32), where free fibers become infinite: the value is that
+    of the stored output, which those fibers do not enter. An output with offset axes keeps its earlier result.
+  - `SparseGroupNormL2` with an infinite ℓ1 level sets every grouped entry to
+    zero at every step, also with a zero group level or weight:
+    `prox(SparseGroupNormL2(Inf, 0.0, [1:2], [0.0]), [3.0, 4.0, 9.0], 0.0)` is
+    `[0, 0, 9]`, where it was `[NaN, NaN, 9]`, and a NaN or infinite grouped
+    entry gives `0` at a positive step, where it gave NaN.
 - **GLM losses** ([#358](https://github.com/mlakolar/ProximalBase.jl/issues/358)).
   - An observation with weight zero takes no part. A NaN or infinite response,
     offset or row of `X` in it no longer turns the value or the gradient of the
@@ -161,6 +239,9 @@ helpers with `mul!` on `view(A, :, G)` or its transpose.
 For `A_mul_X_mul_B`, use `A * X * B`, with `X` represented as a
 `SparseIterate` matrix rather than a vector of its entries. A single entry is
 `dot(view(A, :, r), X, view(B, :, c))` for symmetric real `A` and `B`.
+That `dot` skips the zero coefficients of `X` (M1 of the
+[Numerical contract](@ref numerics-storage)) and `A * X * B` is not one of M1's
+products, so the two can differ when `A` or `B` has a non-finite entry.
 For `A_mul_UUt_mul_B`, use `(A * U) * transpose(B * U)`; its entry helper
 becomes `dot(U' * view(A, :, r), U' * view(B, :, c))` in the same real setting.
 
@@ -278,6 +359,14 @@ an `ArgumentError` instead of a `MethodError`. Restricting a group-penalty
 envelope, including as the smooth term of an active-set solver, is no longer
 supported. These coordinate operations require a separable underlying function.
 
+## The groups of an `AtomIterate` (0.6)
+
+The fields of an [`AtomIterate`](@ref), including `groups`, are private. Read the indices of
+group `k` with [`atomindices`](@ref)`(x, k)`, a read-only vector, instead of `x.groups[k]`, and
+compare layouts with `ProximalBase.samegroups(a, b)` instead of comparing `a.groups` and
+`b.groups`. `similar(x)` makes an iterate with the same groups. Changing the array that
+`parentindices(atom(x, k))` returns is not supported. See [AtomIterate](@ref).
+
 ## Writes through `atom(x, k)` (0.6)
 
 Writes through [`atom`](@ref)`(x, k)` now activate the group, as `x[i] = v`
@@ -311,3 +400,144 @@ It now gives `[Inf, NaN, NaN, NaN]` with active coordinates `[1, 2, 3, 4]`.
 Finite multipliers and finite nonzero divisors still cost `O(nnz)` and give
 the same results as before. `SymmetricSparseIterate` keeps the earlier
 behavior for now.
+
+## Complex values written into a `SparseIterate` or an `AtomIterate` (0.6)
+
+Two-argument `copyto!`, `copy!` and `fill!` into a [`SparseIterate`](@ref) or
+an [`AtomIterate`](@ref) now check the element type of the source or value, as
+the constructors and broadcasts already did. A complex source or value throws
+an `ArgumentError` before anything is written. Before 0.6, `copyto!` and
+`copy!` from a complex array converted entry by entry: a nonzero imaginary
+part threw an `InexactError` after the earlier entries had been written, and a
+zero imaginary part was accepted. `fill!` threw an `InexactError` for a
+nonzero imaginary part and accepted `fill!(x, 1 + 0im)` and `fill!(x, 0im)`.
+`copyto!(x, λ * I)` and `copyto!(x, Q)` from an orthogonal factor into a
+matrix `SparseIterate` are checked too. Before 0.6, a complex one with zero
+imaginary parts, such as `(1 + 0im) * I`, was accepted, and one with a nonzero
+imaginary part wrote `x` before it failed.
+
+Writes through a view, through `vec` of a matrix or a `reshape` to another
+shape, and through `atom(x, k)` keep Base's conversion: a complex value throws
+an `InexactError`, possibly after a partial write.
+
+| Before 0.6 | Now |
+|:---|:---|
+| `copyto!(x, c)` or `copy!(x, c)` with a complex `c` whose imaginary parts are zero | `copyto!(x, real(c))` |
+| `fill!(x, 1 + 0im)` or `fill!(x, 0im)` | `fill!(x, real(v))` |
+| `copyto!(x, (1 + 0im) * I)`, or a complex orthogonal factor with zero imaginary parts | `copyto!(x, real(λ) * I)`, or a real factor |
+
+## Writes into a `SparseIterate` or `AtomIterate` keep the working set (0.6)
+
+Every write through the array interface is now a value write: it activates the
+coordinates (groups) it makes nonzero and removes none. Only `dropzeros!`
+removes coordinates. Three spellings change.
+
+- `fill!(x, 0)` and `x .= 0` no longer clear the working set. They write zeros
+  into the active coordinates, which stay active. Base and LinearAlgebra
+  mutators that start with a `fill!`, such as `sum!(x, A)`, keep the working
+  set too. To clear, write `dropzeros!(fill!(x, 0))`.
+- `x .= y` with `y` an iterate of the same kind (a `SparseIterate` of the same
+  size, or an `AtomIterate` with equal groups) is a value write, like every
+  other broadcast: `x` keeps its working set and gains the nonzeros of `y`.
+  Before 0.6 it copied the working set of `y`. For that copy, write
+  `copyto!(x, y)`, which costs `O(nnz)` where the broadcast costs `O(length(x))`.
+- `copyto!` and `copy!` between two `SparseIterate`s of different shapes and
+  the same length are value writes in linear order. Before 0.6, `copyto!`
+  threw a `DimensionMismatch` and `copy!` an `ArgumentError`. Between two
+  array iterates of different lengths, both now throw a `DimensionMismatch`
+  before writing. Before 0.6, `copyto!` between a `SparseIterate` and an
+  `AtomIterate` copied a shorter source into the first entries and threw a
+  `BoundsError` for a longer one, and `copy!` threw a `MethodError` (an
+  `ArgumentError` between a matrix and a vector).
+
+For example, take `x = SparseIterate(4); x[4] = 7; activate!(x, 2)`.
+`fill!(x, 0)` gave active coordinates `[]`. It now gives `[4, 2]`, and
+`dropzeros!(fill!(x, 0))` gives `[]`.
+
+To replace the working set by the support of an array `A`, first check
+`length(A) == length(x)` (else throw a `DimensionMismatch`) and
+`eltype(A) <: Real` (else throw an `ArgumentError`). Then write
+`copyto!(dropzeros!(fill!(x, 0)), A)` when `A` is not an iterate of the same
+kind as `x`, shares no memory with `x`, and its reads and conversions to
+`eltype(x)` cannot fail, for example a real floating-point array into a
+floating-point `x`. Otherwise stage the values first, which leaves `x`
+unchanged if a read or conversion fails:
+
+```julia
+t = similar(x)
+for (i, j) in zip(eachindex(t), eachindex(A))
+    t[i] = A[j]
+end
+copyto!(x, t)
+```
+
+## `coordinates(x)` of a `SparseIterate` is a vector view (0.6)
+
+[`coordinates`](@ref)`(x)` of a [`SparseIterate`](@ref) is now a vector view of
+the entries of `x`, for a vector and for a matrix alike, as it already was for a
+[`SymmetricSparseIterate`](@ref). Before 0.6 it was `x` itself, of the shape of
+`x`. Code that relied on that changes in six ways.
+
+- `coordinates(x) === x` no longer holds. For a matrix `x`, `size(coordinates(x))`
+  is `(length(x),)` and not `size(x)`, so a loop over `axes(coordinates(x), 1)`
+  now visits every coordinate. Indexing by coordinate, `coordinates(x)[k]`, is
+  unchanged.
+- A write through the view converts the value as a write into a plain vector
+  does. A complex value throws an `InexactError`, possibly after part of `x` has
+  been written, where `coordinates(x) .= c` threw an `ArgumentError` before
+  writing for a vector `x`, and a `DimensionMismatch` for a matrix `x` (the view
+  was the matrix, of another shape than `c`). `fill!(coordinates(x), 0im)` and `fill!(coordinates(x), 1 + 0im)` are
+  accepted, and `fill!(coordinates(x), 2im)` throws before writing.
+- Products and reductions of the view are those of an ordinary vector: IEEE
+  arithmetic, and `O(length(x))`. `dot(v, coordinates(x))` was the sparse
+  `O(nnz)` product that skips absent coordinates, so with a NaN in `v` at an
+  absent coordinate it gave a number and now gives NaN. For the sparse product
+  write `dot(v, x)`.
+- `copyto!(coordinates(x), coordinates(y))` is a value write: `x` keeps its
+  working set and gains the nonzeros of `y`. Before 0.6, for a vector it copied
+  the working set of `y`. For that copy, write `copyto!(x, y)`.
+- The view as a source is a plain vector too. `copyto!(x, coordinates(y))` and
+  `copy!(x, coordinates(y))` were the state copy and are now a value write: `x`
+  keeps its working set and gains the nonzeros of `y`; for the state copy write
+  `copyto!(x, y)`. A view shorter than `x` copies a prefix, as any vector does,
+  where `copyto!(x, y)` throws a `DimensionMismatch`. For a matrix `x`,
+  `copy!(xm, coordinates(ym))` throws Base's `ArgumentError` for the axes of a
+  vector and a matrix.
+- `fill!(coordinates(x), 0)` writes zeros into the stored entries, which stay
+  active, as `fill!(x, 0)` does; to clear, write `dropzeros!(fill!(x, 0))`.
+
+## Products of an iterate: zero coefficients are strong (0.6)
+
+In the products and inner products that ProximalBase defines for a
+[`SparseIterate`](@ref) or an [`AtomIterate`](@ref), a zero coefficient of the
+iterate, stored or not, now contributes nothing, even against `±Inf` or NaN in
+the other operand. These are `dot` with a strided vector or another iterate,
+`dot(a, X, b)` for a matrix `X`, and `mul!` and `*` with a strided, transposed,
+adjoint or `Symmetric` matrix; M1 of the
+[Numerical contract](@ref numerics-storage) lists them. Before 0.6, the
+`SparseIterate` products skipped unstored zeros and multiplied stored ones, so
+`0 · NaN` gave NaN, and the `AtomIterate` `dot` multiplied the zeros of its
+active groups: a result could change with `dropzeros!` and with the order of
+the arguments.
+
+For example, take `A = [NaN 1 0; NaN 1 0]` and
+`u = SparseIterate(3); u[2] = 1; activate!(u, 1)`, with an explicit zero at 1.
+`A * u` gave `[NaN, NaN]`, and `[1.0, 1.0]` after `dropzeros!(u)`; it now gives
+`[1.0, 1.0]` both times. With `s = [1, 0, 0]` and `t = [0, NaN, 0]` as
+`SparseIterate`s, `dot(s, t)` gave `0.0` and `dot(t, s)` NaN; both now give
+`0.0`. Values and gradients computed through these products change with them:
+`LeastSquaresLoss([1, 1], [NaN 1; NaN 1])` at `z = SparseIterate([0.0, 1.0])`
+gave `0.0`, and NaN once `activate!(z, 1)` stored an explicit zero at 1; it now
+gives `0.0` both times. With no nonzero coefficient, the five-argument `mul!`
+now leaves `β * out` (zero for `β = 0`) also for an infinite or NaN `α`, where
+the transposed product gave NaN, and so did the others when every stored
+coefficient was zero.
+
+A non-finite entry that meets a nonzero coefficient still propagates, and a
+zero of a dense operand is still an IEEE zero: with `w[1] = Inf`,
+`dot([0, 1, 0], w)` is NaN. For IEEE propagation through a zero coefficient,
+multiply the dense array: `A * Vector(x)`. Products that ProximalBase does not
+define, such as `sparse(A) * x`, products of objects built from an iterate,
+such as `view(x, :)`, `coordinates(x)` and `atom(x, k)`, and scaling by a number
+follow IEEE arithmetic and are unchanged. The products of a
+`SymmetricSparseIterate` keep the earlier behavior for now.

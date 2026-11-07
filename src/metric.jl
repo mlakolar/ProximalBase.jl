@@ -61,14 +61,26 @@ value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ:
 prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (x = _symmetric_argument(y, x); _value_and_prox_unchecked!(y, f, x, γ); y)
 value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::AbstractVector) = (_checkreal(f, γ); _checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
-# the entrywise reciprocal of an array of steps, without allocating
+# the entrywise reciprocal of an array of steps, without allocating. Its element type T is the
+# promotion of the model precision W and the float type of the steps, as for a scalar step
+# (`_moreau_reciprocal`), and each step is converted to T before it is inverted
 struct _ReciprocalArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}
   γ::A
 end
-_ReciprocalArray(γ::AbstractArray{T, N}) where {T, N} = _ReciprocalArray{float(T), N, typeof(γ)}(γ)
+# An array of steps whose element type is a union or abstract (`Union{Float32, Float64}[...]`) has no
+# concrete promotion: the model precision W stands for it, and each stored step is converted to the
+# promotion of W and its own type before it is inverted, then rounded once to W.
+_reciprocal_type(::Type{W}, ::Type{S}) where {W, S} =
+  (T = promote_type(W, float(S)); isconcretetype(T) ? T : W)
+_ReciprocalArray(::Type{W}, γ::AbstractArray{S, N}) where {W, S, N} =
+  _ReciprocalArray{_reciprocal_type(W, S), N, typeof(γ)}(γ)
+_ReciprocalArray(f, y, x, γ::AbstractArray) = _ReciprocalArray(_moreau_model(f, y, x), γ)
 Base.size(a::_ReciprocalArray) = size(a.γ)
 Base.IndexStyle(::Type{<:_ReciprocalArray}) = IndexLinear()
-Base.@propagate_inbounds Base.getindex(a::_ReciprocalArray{T}, i::Int) where {T} = inv(convert(T, a.γ[i]))
+Base.@propagate_inbounds function Base.getindex(a::_ReciprocalArray{T}, i::Int) where {T}
+  v = a.γ[i]
+  convert(T, inv(convert(promote_type(T, float(typeof(v))), v)))
+end
 
 # functions built from functions pass the steps on, entry by entry
 prox!(y::AbstractArray, h::_ScalarPrecompose, x::AbstractArray, γ::AbstractArray) =
@@ -103,29 +115,33 @@ end
 struct _RegularizeSteps{T, N, A<:AbstractArray} <: AbstractArray{T, N}
   γ::A
   ρ::T
+  zero_level::Bool      # the level is zero as given, not as converted to T
 end
-_RegularizeSteps(γ::AbstractArray{<:Any, N}, ρ::T) where {T, N} =
-  _RegularizeSteps{T, N, typeof(γ)}(γ, ρ)
+_RegularizeSteps(γ::AbstractArray{<:Any, N}, ρ::T, zero_level::Bool) where {T, N} =
+  _RegularizeSteps{T, N, typeof(γ)}(γ, ρ, zero_level)
 Base.size(a::_RegularizeSteps) = size(a.γ)
 Base.IndexStyle(::Type{<:_RegularizeSteps}) = IndexLinear()
-Base.@propagate_inbounds Base.getindex(a::_RegularizeSteps{T}, i::Int) where {T} =
-  _regularize_step(convert(T, a.γ[i]), a.ρ)
+Base.@propagate_inbounds function Base.getindex(a::_RegularizeSteps{T}, i::Int) where {T}
+  γ = a.γ[i]
+  _regularize_step(convert(T, γ), a.ρ, a.zero_level & (γ == Inf))
+end
 
-@inline function _regularize_shrink(v, γ, ρ::T) where {T}
-  a, b = _ridge_weights(convert(T, γ), ρ)
+# the step γ is the step as given: the endpoint is decided before it is converted to T
+@inline function _regularize_shrink(v, γ, ρ::T, zero_level::Bool) where {T}
+  a, b = _regularize_weights(convert(T, γ), ρ, zero_level & (γ == Inf))
   a * v
 end
-@inline function _regularize_shrink(v, c, γ, ρ::T) where {T}
-  a, b = _ridge_weights(convert(T, γ), ρ)
+@inline function _regularize_shrink(v, c, γ, ρ::T, zero_level::Bool) where {T}
+  a, b = _regularize_weights(convert(T, γ), ρ, zero_level & (γ == Inf))
   _ridge_blend(v, c, a, b)
 end
 
 function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
   T = float(eltype(y))
-  ρ = convert(T, r.ρ)
-  r.c === nothing ? (y .= _regularize_shrink.(x, _checked_parameter(y, γ), ρ)) :
-                    (y .= _regularize_shrink.(x, _checked_parameter(y, r.c), _checked_parameter(y, γ), ρ))
-  _RegularizeSteps(γ, ρ)
+  ρ, zero_level = convert(T, r.ρ), iszero(r.ρ)
+  r.c === nothing ? (y .= _regularize_shrink.(x, _checked_parameter(y, γ), ρ, zero_level)) :
+                    (y .= _regularize_shrink.(x, _checked_parameter(y, r.c), _checked_parameter(y, γ), ρ, zero_level))
+  _RegularizeSteps(γ, ρ, zero_level)
 end
 
 function _check_regularize_group_steps(op, r, y, x, γ)
@@ -156,17 +172,17 @@ function _value_and_prox_regularize_groups!(y, r::Regularize{<:AbstractGroupPena
   _checkwrite(op, r, y, x)
   z = _output_buffer!(r.scratch, y)
   T = float(eltype(z))
-  ρ = convert(T, r.ρ)
+  ρ, zero_level = convert(T, r.ρ), iszero(r.ρ)
   for k in eachindex(r.f.groups)
-    step = convert(T, γ[k])
+    step = γ[k]
     @inbounds for i in r.f.groups[k]
-      z[i] = r.c === nothing ? _regularize_shrink(x[i], step, ρ) :
-                              _regularize_shrink(x[i], r.c[i], step, ρ)
+      z[i] = r.c === nothing ? _regularize_shrink(x[i], step, ρ, zero_level) :
+                              _regularize_shrink(x[i], r.c[i], step, ρ, zero_level)
     end
   end
   # Run in the buffer even for dense outputs, committing only after success.
   w = _wrapper_output(z, z)
-  steps = _RegularizeSteps(γ, ρ)
+  steps = _RegularizeSteps(γ, ρ, zero_level)
   if op === prox!
     _prox_unchecked!(w, r.f, z, steps)
     return _wrapper_commit!(y, w)
@@ -215,14 +231,26 @@ value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
   (_checkparams(s, x); _array_route(s, x, γ) ? _value_and_prox_chain!(y, s, x, γ) :
-   _value_at(s.α * _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)), y))
+   _value_at(_scaled_value_overflow(s.f, s.α, y, _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α))), y))
+# α v at the output y of an array step with a factor inside the band: a product that overflows
+# with α < 1 is recovered as for a scalar step (the levels with the factor folded in, or the
+# parts of the value); an underflow is not (#359). An indicator ignores its scale and stays on this
+# route for any factor: its value is exactly 0 or Inf, so an infinite factor at 0 gives 0, as
+# `_scaled_nan_value` certifies on the other routes, and a NaN value stays NaN.
+@inline function _scaled_value_overflow(f, α, y, v)
+  r = α * v
+  (!isfinite(r) && _scale_below_one(α)) ? _scaled_value_recover(f, α, y, v, r) : _indicator_product(f, r, v)
+end
+@inline _indicator_product(f, r, v) = _isindicator(f) ? _weighted_value(r, v) : r
 
 # Whether an entry of an array step may leave the range in the product with the factors. A chain whose
 # factors have a product that is not a normal number takes the route below. A single factor does
 # when it is far from one, outside the band of a quarter of the exponent range (2^±255 for Float64,
 # 2^±31 for Float32), whatever the entries are: reading them to decide would cost a pass over the step
 # on every call. An entry of the step that is itself within a quarter of the range limit, with a factor
-# inside the band, is rounded with the product as before. An indicator ignores its scale.
+# inside the band, is rounded with the product as before. An indicator ignores its scale. An infinite
+# factor over any other function takes the route below too, which hands it on as before and applies the
+# rule of its value there.
 @inline _factor_band(::Type{T}) where {T<:AbstractFloat} = exponent(floatmax(T)) ÷ 4
 @inline _wide_factor(α::Real, ::Type{T}) where {T<:AbstractFloat} =
   !(ldexp(one(T), -_factor_band(T)) <= α <= ldexp(one(T), _factor_band(T)))
@@ -231,7 +259,7 @@ _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
 @inline _wide_factor(α::Real, ::Nothing) = false
 @inline function _wide_scale(s::Scaled, x, γ::AbstractArray)
   α = s.α
-  (isfinite(α) && α > 0 && !_isindicator(s.f)) || return false
+  (α > 0 && !_isindicator(s.f)) || return false
   _wide_factor(α, float(promote_type(eltype(γ), typeof(α)))) || _wide_factor(α, _wide_factor_type(x))
 end
 @inline _array_route(s::Scaled, x, γ::AbstractArray) = _chained(s) || _wide_scale(s, x, γ)
@@ -249,6 +277,12 @@ end
 #   function with no level to fold takes each step multiplied by the factors with the exponent
 #   applied last, rounded into the step's type.
 function _array_fold(f, a, γ)
+  # a function that a stored infinite level fixes does not depend on the factors and the steps, when all
+  # are positive finite numbers (`_hard_function`): its steps are the caller's array, and nothing is folded
+  if _has_infinite_level(f) && _hard_scale(a) && _steps_hard(γ)
+    h = _hard_function(f)
+    h === nothing || return h, γ, :folded
+  end
   g = _fold_level(f, _NormalScale(a))
   g === nothing || return g, γ, :folded
   shifted = _shifted_fold(f, a, γ)
@@ -271,12 +305,20 @@ function _shifted_fold(f, a::_ProjectionScale, γ::AbstractArray)
   end
   nothing
 end
+# a single infinite factor: the steps multiplied by it, as for a factor inside the band
+@inline _infinite_alone(s) = s isa Scaled && !_chained(s) && isinf(s.α)
 function _prox_chain!(y, s, x, γ::AbstractArray)
+  _infinite_alone(s) && return _prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α))
   f, a = _scaled_chain(s)
   g, steps, _ = _array_fold(f, a, γ)
   _prox_unchecked!(y, g, x, steps)
 end
 function _value_and_prox_chain!(y, s, x, γ::AbstractArray)
+  if _infinite_alone(s)
+    # the value at the stored output under the rule of an infinite factor (`_scaled_nan_value`)
+    v = _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α))
+    return _value_at(_scaled_product_value(s.f, s.α, y, v), y)
+  end
   f, a = _scaled_chain(s)
   g, steps, kind = _array_fold(f, a, γ)
   kind === :folded && return _value_at(_value_and_prox_unchecked!(y, g, x, steps), y)
@@ -370,7 +412,7 @@ function _prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::
     y .= x .- z
   else
     z .= x ./ γ
-    _prox_unchecked!(z, c.f, z, _ReciprocalArray(γ))
+    _prox_unchecked!(z, c.f, z, _ReciprocalArray(c.f, z, x, γ))
     _checkmoreau(y, x, z, γ, γ, true)
     y .= x .- _checked_parameter(y, γ) .* z
   end
@@ -411,7 +453,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractA
   T = float(eltype(y))
   p = _array_buffer!(c.scratch, T, x)
   p .= x ./ γ
-  fp = _value_and_prox_unchecked!(p, c.f, p, _ReciprocalArray(γ))
+  fp = _value_and_prox_unchecked!(p, c.f, p, _ReciprocalArray(c.f, p, x, γ))
   _checkmoreau(y, x, p, γ, γ, true)
   y .= x .- _checked_parameter(y, γ) .* p
   _value_at(dot(p, y) - fp, y)
@@ -474,19 +516,77 @@ function _prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace
   _checksize(y, x)
   _checkparams(f, x)
   _checkparam(γ, x)
-  _check_metric_steps(f, γ)
-  T = float(eltype(y))
-  if _isscaled(f)
-    a = _normalized_normal(f.a, f.s)
-    g = _dot_normal(a, x) - _scaled_offset(f)
-    f isa IndHalfspace && (g = max(g, zero(g)))
-    t = convert(T, g / _metric_sqnorm(f, x, γ))
-    return y .= x .- t .* (_checked_parameter(y, γ) .* _checked_parameter(y, a))
+  mγ = _check_linear_steps(f, γ)
+  # Branch before passing the normal: the scaled and unscaled normals have different types.
+  _isscaled(f) ? _metric_set_prox!(y, f, x, γ, _normalized_normal(f.a, f.s), _scaled_offset(f), mγ) :
+                 _metric_set_prox!(y, f, x, γ, f.a, f.b, mγ)
+end
+
+# _check_metric_steps, which also returns the largest step: the loop reads every step anyway. For
+# Float32 and Float64 it is branch-free, so that it vectorizes, and works on the bit patterns, which
+# are ordered like the values among the positive finite numbers (as _maximum_abs uses): the steps
+# are all positive and finite exactly when the smallest pattern is positive as an integer (a zero,
+# a negative number and -0.0 are not) and the largest is below that of Inf (Inf and NaN are not).
+# It throws for an invalid step before the largest is returned.
+function _check_linear_steps(f, γ::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  U = _int_type(T)
+  lo, hi = typemax(U), zero(U)
+  @inbounds @simd for i in eachindex(γ)
+    b = reinterpret(U, γ[i])
+    lo = min(lo, b)
+    hi = max(hi, b)
   end
-  g = _dot_normal(f.a, x) - f.b
-  f isa IndHalfspace && (g = max(g, zero(g)))
-  t = convert(T, g / _metric_sqnorm(f, x, γ))
-  y .= x .- t .* _checked_parameter(y, γ) .* _checked_parameter(y, f.a)
+  (lo > zero(U)) & (hi < reinterpret(U, T(Inf))) || _throw_linear_steps(f)
+  reinterpret(T, hi)
+end
+function _check_linear_steps(f, γ::AbstractArray)
+  m = zero(eltype(γ))
+  for g in γ
+    g > zero(g) && isfinite(g) || _throw_linear_steps(f)
+    m = ifelse(g > m, g, m)
+  end
+  m
+end
+@noinline _throw_linear_steps(f) =
+  throw(ArgumentError("the steps of $(nameof(typeof(f))) must be positive and finite"))
+
+# The working normal a and offset b: those of f, or the normalized ones; mγ = max γᵢ.
+function _metric_set_prox!(y, f, x, γ, a, b, mγ)
+  g = _dot_normal(a, x) - b                  # the residual; a halfspace clamps it only below
+  d = _metric_sqnorm(f, x, γ)
+  t = _model_coefficient(y, f isa IndHalfspace ? max(g, zero(g)) : g, d)
+  if !_metric_step_safe(f, a, g, d, t, mγ) && _extreme_projection!(y, f, x, a, d, γ, typeof(t))
+    return y
+  end
+  if _isscaled(f)
+    # γᵢâᵢ in the coefficient's type, as for IndHyperslab.
+    return _hyperslab_metric_output!(y, x, a, γ, t)
+  end
+  y .= x .- t .* _checked_parameter(y, γ) .* _checked_parameter(y, a)
+end
+
+# The diagonal-step counterpart of _scalar_step_safe (see src/functions/sets.jl for the facts F1
+# and F2 and for B = floatmax(S) / 2, S the type of t). The order of evaluation is the dot
+# product, g, then d = Σᵢ γᵢαᵢ² (formed by _metric_sqnorm, as before), then t = g / d, and then
+# the correction cᵢ = (t γᵢ) αᵢ for a normal that is not scaled, or t (γᵢ âᵢ) for a scaled one,
+# where the scaled normal's products are formed in the order of _hyperslab_metric_output!.
+# - By (F1), a finite g covers the dot product and the offset (for a hyperplane the test of t
+#   below covers it: g is infinite or NaN exactly when t is, d being finite and positive).
+# - The terms of d are nonnegative, so a finite d covers every γᵢαᵢ² and the sum (αᵢ² itself
+#   cannot overflow, since |αᵢ| ≤ 2^(emax / 4), or < 2 when scaled). Without it, d = Inf and a
+#   finite g would give t = 0 and y = x without a warning.
+# - An infinite or NaN t fails the two products below, since mγ > 0.
+# - Let mγ = max γᵢ, R = |α| for a scalar normal and R = √q ≥ max |αᵢ| (1 - 2^-p) for an array
+#   normal, and P = mγ R ≥ γᵢ|αᵢ| (up to the same rounding). By (F2), |t| mγ ≤ B covers every
+#   partial product t γᵢ of a normal that is not scaled, P ≤ B every partial product γᵢ âᵢ of a
+#   scaled one, and |t| P ≤ B every final product. A P that overflows in S is Inf and fails.
+# It fires on an argument whose formula was finite only within a factor 2 of an overflow of one
+# of these, and for an array normal and steps of very different sizes up to 2 √n times that.
+@inline function _metric_step_safe(f, a, g, d, t::S, mγ) where {S}
+  B, m, γm = _half_floatmax(S), abs(t), convert(S, mγ)
+  p = γm * _normal_bound(f, a, S)
+  _raw_finite(f, g) && _finite_value(d) &&
+    (_isscaled(f) ? p <= B && m * p <= B : m * γm <= B && m * p <= B)
 end
 
 prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::AbstractArray) =
@@ -596,7 +696,7 @@ for [`GLMLoss`](@ref), and `Inf` where none exists:
 | `f` | `Lₖ` |
 |:----|:-----|
 | [`LeastSquaresLoss`](@ref) | `‖X[:, j]‖²` for the row `j` of entry `k` |
-| [`GLMLoss`](@ref) | `curvature(ℓ) ⋅ Σᵢ wᵢ X[i, k]²`; `Inf` for `PoissonLoss` |
+| [`GLMLoss`](@ref) | `curvature(ℓ) ⋅ Σᵢ wᵢ X[i, k]²`; `Inf` for `PoissonLoss` and an `IdentityBernoulli` loss |
 | [`QuadraticFunction`](@ref) | `A[k, k]` |
 | [`KronQuadratic`](@ref) | `A[r, r] B[c, c]` for entry `(r, c)` of `Θ` |
 | [`SqrNormL2`](@ref)`(λ)` | `λ` |

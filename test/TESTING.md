@@ -87,6 +87,19 @@ Every file is listed once in `tiers.toml`; full runs all of them, so the full ti
 exactly the files the old complete suite ran, plus the new files split out of them.
 `test/tier_selection.jl` checks this, the cumulative inclusion, and the CI risk rules.
 
+Files added since then sit with the files of the code they test. `infinite_level_values`
+(standard) holds the values of `NormL2`, `NormLinf`, `NuclearNorm` and `Scaled` with an infinite
+level or factor: family behaviour beside `norms` and `infinite_weights`, a few seconds of small
+cases, with no grid that would need the thorough tier. `sparsegroup_infinite_prox` (thorough)
+holds the proximal map of `SparseGroupNormL2` with an infinite ℓ1 level: a grid over group levels,
+weights, steps and non-finite entries on vectors, `AtomIterate`, `SymmetricSparseIterate`
+outputs, JLArrays and the wrappers, about 60,000 assertions, beside its siblings
+`sparsegroup_infinite_level` and `l2_nan_blocks`.
+`nested_scaled_values` (standard) holds the values of nested `Scaled` chains whose product does not
+fold into a normal level, a grid over the levelled families and the wrappers that fold them in both
+directions and in Float32 and Float64, and the fused values at the stored output, next to
+`nested_scaled`: a few seconds, with no grid that would need the thorough tier.
+
 ## Measured times on GitHub
 
 End to end is from the run's creation to its last job (the gate); the test jobs run in
@@ -350,9 +363,9 @@ change is narrow, shared or architectural is the author's declaration, checked i
 
 **Focus groups**, chosen by what the files protect (worker seconds on Julia lts from the full
 run 41364805347), beside the iterate files of quick (`active_handle`, `atom_iterate`,
-`iterate_invariants`, `iterate_queries`, `matrixview`, `sparse_iterate_basics`,
-`symmetric_parameters`, `symmetric_products`, `wrapper_buffers`, `allocations_basics`,
-`block_step_failures`):
+`iterate_invariants`, `iterate_queries`, `iterate_writes`, `matrixview`,
+`sparse_iterate_basics`, `symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
+`allocations_basics`, `block_step_failures`):
 
 | Rule | Focus files | Why | Worker s |
 |---|---|---|---:|
@@ -376,8 +389,10 @@ parsed lists at the base and the head (`TestTiers.manifest_additions`): when the
 names of test files that the PR adds (absent at the base, present at the head) and nothing
 outside `[tiers]` changed, the lists decide quick and the new files run as changed test files.
 A removed, moved or renamed file, an added name that is not a new file, or a change to the
-helpers or environments still needs full; a listed name without a file stops the plan. Order
-and comments alone change nothing (quick).
+helpers, the environments or `[not_tests.run_through]` (the test files that run each helper)
+still needs full; a listed name without a file stops the plan. Order within the tier lists and
+comments alone change nothing (quick); reordering a `helpers` or `run_through` array is a change
+outside `[tiers]` and needs full.
 
 **Measured on GitHub** (scenario PRs #477–#483 against `ci/iterate-scenarios`, this branch at
 5bd6d95a; each changes a comment, so the time is the tests' alone; end to end from the run's
@@ -404,8 +419,13 @@ symmetric) can be split into separate files without losing a test.
 `test/tier_selection.jl` checks the policy (the table of CONTRIBUTING, label precedence, that
 the label never lowers another path or changes the focus files, order independence, that every
 focus file is in full and only the iterate rules have a `narrow` tier) and the additive rule
-(additions, order and comments, a removed, moved or renamed file, an unknown added name, helper
-and environment changes, unreadable TOML, and the plan with and without additions). The planner
+(additions, order and comments, a removed, moved or renamed file, an unknown added name, helper,
+environment and `run_through` changes, unreadable TOML, and the plan with and without
+additions). It also checks the problems of `[not_tests.run_through]` and that the table agrees
+with the sources both ways, on the real catalog and on synthetic sources: each recorded test names
+the helper's file, directly or through one other helper, and each test that names a helper's file
+is recorded for it, except for the helpers that the runner loads for every test file (`testutils`,
+`conformance/common`). The planner
 was also run on synthetic commits: a new file and its line gave quick and the file; a moved file
 gave full with the reason; a listed name without a file stopped the plan.
 
@@ -442,6 +462,9 @@ input changed.
 From the full run 41364805347 (Julia lts on an AMD EPYC 9V74, Windows on an EPYC 9V45). A file's
 time includes compiling what earlier files on its worker had not compiled, so it depends on
 the order: `gpu_smoke` takes 9 s on Windows because `gpu` had already run on that worker.
+Files added after that run have no time in the table: `spectral_fused_values` (thorough) checks
+that the value `value_and_prox!` returns for the counting functions of `SingularValue` and
+`Spectral`, and for `IndBallRank`, is the standalone value at the matrix it stored.
 
 <details><summary>Every test file, its tier and its time</summary>
 

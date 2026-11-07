@@ -50,7 +50,9 @@ function (f::TotalVariation1D)(x::AbstractVector)
   isfinite(f.λ) && all(isfinite, x) ? _recover_ordered_value(zero(f.λ), f.λ, x, T) : v
 end
 
-@noinline function _recover_ordered_value(λ1, λ2, x, ::Type{T}) where {T}
+@noinline _recover_ordered_value(λ1, λ2, x, ::Type{T}) where {T} =
+  _fused_scaled_value(_ordered_scaled_terms(λ1, λ2, x, T)..., T)
+function _ordered_scaled_terms(λ1, λ2, x, ::Type{T}) where {T}
   R = promote_type(T, float(typeof(λ1)), float(typeof(λ2)))
   k = _magnitude_exponent(_maximum_abs(x))
   scale = _power_factors(R, -k)
@@ -60,7 +62,21 @@ end
     gap = abs(_scale_value(R(x[i + 1]), scale) - _scale_value(R(x[i]), scale))
     s2, c = _compensated_add(s2, c, gap)
   end
-  _fused_scaled_value(((λ1, s1), (λ2, s2 + c)), k, T)
+  ((λ1, s1), (λ2, s2 + c)), k
+end
+
+# The scaled-value mechanism: the recovery above as a significand and an exponent. A level or an
+# entry that is not finite gives a value that is not recovered.
+_has_value_parts(::Type{<:TotalVariation1D}) = true
+# Exact-zero protection, for these and FusedLasso: the gaps and the entries are exact where they are
+# subnormal, and their sums lose nothing to underflow; the products with the levels round into the
+# subnormal range (or the recovery above rounds once), so a zero value is below n δ.
+_zero_value_exponent(f::TotalVariation1D, x::AbstractVector) =
+  iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
+function _value_parts(f::TotalVariation1D, x::AbstractVector, v)
+  iszero(f.λ) && return nothing
+  (isfinite(f.λ) && all(isfinite, x)) || return nothing
+  _fused_scaled_parts(_ordered_scaled_terms(zero(f.λ), f.λ, x, _valtype(x))...)
 end
 
 prox!(y::AbstractVector, f::TotalVariation1D, x::AbstractVector, γ::Real) =
@@ -205,6 +221,15 @@ function prox!(y::AbstractVector, f::FusedLasso, x::AbstractVector, γ::Real)
   y .= shrink.(y, c)
 end
 value_and_prox!(y::AbstractVector, f::FusedLasso, x::AbstractVector, γ::Real) = f(prox!(y, f, x, γ))
+
+_has_value_parts(::Type{<:FusedLasso}) = true
+_zero_value_exponent(f::FusedLasso, x::AbstractVector) =
+  iszero(f.λ1) && iszero(f.λ2) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
+function _value_parts(f::FusedLasso, x::AbstractVector, v)
+  iszero(f.λ1) && iszero(f.λ2) && return nothing
+  (isfinite(f.λ1) && isfinite(f.λ2) && all(isfinite, x)) || return nothing
+  _fused_scaled_parts(_ordered_scaled_terms(f.λ1, f.λ2, x, _valtype(x))...)
+end
 
 ####################################
 #  pooling adjacent violators
@@ -472,6 +497,9 @@ are not all equal, because the rank of each entry, and so its threshold, depends
 every other entry; with equal weights each entry is soft-thresholded on its own and
 only the `NaN` entry stays `NaN`, and with all weights zero the function is zero and
 its proximal operator the identity, at every step.
+With `λ₁ = Inf` every `x ≠ 0` has an infinite value, so at a positive finite step
+the proximal output is zero whatever `x` holds, `NaN` and `±Inf` entries included
+(decision 49): `-0.0` where an entry is negative, `0.0` elsewhere, and its value `0`.
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct SLOPE{V<:AbstractVector{<:Real}} <: AbstractFunction
@@ -622,6 +650,11 @@ end
   isempty(λ) && return zero(T)
   (iszero(magnitude(1)) || iszero(λ[1])) && return zero(T)
   isfinite(λ[1]) || return ordinary
+  t, e = _slope_scaled_sum(T, λ, magnitude)
+  convert(T, _scaled_product(one(t), t, e))::T
+end
+# Σ λₖ aₖ as s 2^e, with both factors scaled before the sum
+function _slope_scaled_sum(::Type{T}, λ, magnitude::F) where {T, F}
   R = promote_type(T, float(eltype(λ)))
   ea = _magnitude_exponent(magnitude(1))
   eλ = _magnitude_exponent(convert(R, λ[1]))
@@ -631,7 +664,28 @@ end
     term = _scale_value(convert(R, magnitude(k)), sa) * _scale_value(convert(R, λ[k]), sλ)
     s, err = _compensated_add(s, err, term)
   end
-  convert(T, _scaled_product(one(R), s + err, ea + eλ))::T
+  (s + err, ea + eλ)
+end
+
+# The scaled-value mechanism: the sum above as a significand and an exponent, after sorting the
+# magnitudes again. A NaN or an infinite magnitude or weight gives a value that is not recovered.
+_has_value_parts(::Type{<:SLOPE}) = true
+# Exact-zero protection: Σ λₖ a₍ₖ₎ with the weights converted to the value type where they keep their
+# range (the recovery above otherwise), n products that each lose less than δ/2: |f(x)| < n δ.
+_zero_value_exponent(f::SLOPE, x::AbstractVector) =
+  (isempty(f.λ) || iszero(f.λ[1])) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
+function _value_parts(f::SLOPE, x::AbstractVector, v)
+  Base.require_one_based_indexing(x)
+  T = float(eltype(x))
+  n = length(x)
+  (n == 0 || length(f.λ) != n) && return nothing
+  p, a, nan = _sortperm_abs!(f, x, T)
+  nan && return nothing
+  λ = f.λ
+  magnitude = k -> @inbounds a[p[k]]
+  (iszero(magnitude(1)) || iszero(λ[1])) && return (zero(T), 0)
+  (isfinite(λ[1]) && isfinite(magnitude(1))) || return nothing
+  _parts(_slope_scaled_sum(T, λ, magnitude)...)
 end
 
 # the magnitude a less γλ, in the output type, rounded once when γ or λ does not fit it
@@ -700,6 +754,16 @@ end
   f(y)
 end
 
+# The zero proximal point of an infinite first weight, with the signs that the computation below
+# gives a finite entry (a NaN entry gives 0.0), and its value at the stored output (O2).
+@noinline function _slope_zero!(y::AbstractVector, f::SLOPE, x::AbstractVector, ::Type{T}) where {T}
+  @inbounds for j in eachindex(y, x)
+    xj = x[j]
+    y[j] = signbit(xj) & !isnan(xj) ? -zero(T) : zero(T)    # each entry once, so y may be x
+  end
+  f(y)
+end
+
 function value_and_prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Real)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
@@ -707,9 +771,14 @@ function value_and_prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Rea
   # E4 first: with every weight zero the function is zero and its proximal map the identity,
   # at every step (the product γλ is not formed, so γ = Inf gives no NaN)
   n > 0 && iszero(f.λ[1]) && return _slope_identity!(y, x, T)
+  # an infinite first weight: every x ≠ 0 has |x|₍₁₎ > 0 and an infinite value, so the domain is
+  # {0} and at a positive finite step the proximal point is zero whatever x holds (E4 before E2);
+  # read from the weight and the step as given (R3)
+  n > 0 && isinf(f.λ[1]) && γ > 0 && isfinite(γ) && return _slope_zero!(y, f, x, T)
   p, a, nan = _sortperm_abs!(f, x, T)
   # a NaN entry: the ranks, and so the thresholds, of the others depend on it (E2)
-  # (an infinite step or an infinite weight keeps the computation below, see LIM-056)
+  # (an infinite step, or an infinite weight at a zero or infinite step, keeps the computation
+  # below, see LIM-056)
   nan && !isinf(γ) && !isinf(f.λ[1]) && return _slope_nan!(y, f, x, γ, T)
   w = _buffer!(f.vals, T, n)
   g = convert(T, γ)
@@ -836,6 +905,76 @@ function _sumlargest_sum(v::AbstractVector{T}, k::Int, λ) where {T}
   u, b = frexp(S(λ))
   w, c = frexp(S(s + e))
   convert(T, ldexp(u * w, a + b + c))
+end
+
+# The compensated sum s + e of v[1:k], whose entries are finite, with opposite signs cancelled first, as in
+# _sumlargest_sum
+function _sumlargest_ordered!(v::AbstractVector{T}, k::Int) where {T}
+  # Cancel opposite signs first. Scaling every entry immediately could erase
+  # a tiny remainder, as in [floatmax, -floatmax, nextfloat(0)].
+  lo, hi = 1, k
+  @inbounds while lo <= hi
+    if v[lo] >= 0
+      lo += 1
+    else
+      v[lo], v[hi] = v[hi], v[lo]
+      hi -= 1
+    end
+  end
+  p, q = 1, lo
+  s = e = zero(T)
+  @inbounds while p < lo || q <= k
+    if q <= k && (s >= 0 || p == lo)
+      z = v[q]
+      q += 1
+    else
+      z = v[p]
+      p += 1
+    end
+    s, e = _sumlargest_add(s, e, z)
+    isfinite(s) || break
+  end
+  s, e
+end
+
+# The scaled-value mechanism: the sum of the k largest entries times λ as a significand and an
+# exponent, after selecting them again in the buffer of f. A NaN or an infinite entry gives a
+# value that is not recovered.
+function _sumlargest_parts(v::AbstractVector{T}, k::Int, λ) where {T}
+  m = zero(T)
+  @inbounds for i in 1:k
+    m = max(m, abs(v[i]))
+  end
+  iszero(m) && return (zero(T), 0)
+  isfinite(m) || return nothing
+  s, e = _sumlargest_ordered!(v, k)
+  S = float(promote_type(T, typeof(λ)))
+  isfinite(s + e) && return _parts_product(frexp(S(λ)), frexp(S(s + e)))
+  a = exponent(m)
+  s = e = zero(T)
+  @inbounds for i in 1:k
+    s, e = _sumlargest_add(s, e, ldexp(v[i], -a))
+  end
+  _parts_product(frexp(S(λ)), _parts(S(s + e), a))
+end
+_has_value_parts(::Type{<:SumLargest}) = true
+# Exact-zero protection: the sum of the selected entries is compensated and loses nothing to underflow
+# (a zero from cancellation is within its accuracy); λ multiplies it once, or the scaled branch rounds
+# once: |f(x)| < n δ.
+_zero_value_exponent(f::SumLargest, x::AbstractArray) =
+  iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
+function _value_parts(f::SumLargest, x::AbstractArray, v)
+  iszero(f.λ) && return nothing
+  f.k <= length(x) || return nothing
+  T = float(eltype(x))
+  n = length(x)
+  w = _buffer!(f.sums, T, n)
+  @inbounds for (i, xi) in enumerate(x)
+    w[i] = xi
+    isnan(w[i]) && return nothing
+  end
+  f.k < n && _kth_largest!(view(w, 1:n), f.k)
+  _sumlargest_parts(w, f.k, f.λ)
 end
 
 function (f::SumLargest)(x::AbstractArray)

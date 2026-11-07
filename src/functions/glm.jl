@@ -17,8 +17,9 @@ values it supports, and `curvature` must bound its second derivative (it may be
 `Inf`). `GLMLoss` reports itself smooth and convex on that basis and does not
 check these properties. The losses are [`ProximalBase.Squared`](@ref),
 [`ProximalBase.Logistic`](@ref), [`ProximalBase.Poisson`](@ref),
-[`ProximalBase.Huber`](@ref), [`ProximalBase.SquaredHinge`](@ref),
-[`ProximalBase.SmoothCheck`](@ref) and [`ProximalBase.ConvolutionCheck`](@ref);
+[`ProximalBase.IdentityBernoulli`](@ref), [`ProximalBase.Huber`](@ref),
+[`ProximalBase.SquaredHinge`](@ref), [`ProximalBase.SmoothCheck`](@ref) and
+[`ProximalBase.ConvolutionCheck`](@ref);
 they are not exported, as names such as `Poisson` belong to distributions.
 
 In a `GLMLoss`, a weighted term `wᵢ ℓ(ηᵢ, yᵢ)` (and `wᵢ ℓ'(ηᵢ, yᵢ)`) of a
@@ -125,6 +126,74 @@ struct Poisson <: ScalarLoss end
 deriv(::Poisson, η::Real, y::Real) = (@inline exp(float(η))) - y
 deriv2(::Poisson, η::Real, ::Real) = exp(float(η))
 curvature(::Poisson) = Inf
+
+"""
+    ProximalBase.IdentityBernoulli()
+
+The Bernoulli negative log-likelihood with the identity link, `ℓ(η, y) = -y log(η) -
+(1 - y) log(1 - η)`: the linear predictor `η` is itself the probability, as in a
+risk or risk-difference regression, and the response is `y ∈ [0, 1]` (binary or a
+proportion). It is the loss of [`BernoulliLoss`](@ref)`(y)` at `p = η`, and
+[`BernoulliLoss`](@ref) is the choice when a proximal operator is needed.
+
+The loss is finite only for `0 < η < 1`, and at the endpoints where the response
+agrees: `η = 0` for `y = 0` and `η = 1` for `y = 1`, where `ℓ = 0`. Elsewhere,
+at a predictor outside `[0, 1]` or infinite, `ℓ = Inf` and the derivatives are `NaN`;
+at a `NaN` predictor all three are `NaN`. At the two valid endpoints the derivatives
+are one-sided limits: `ℓ' = 1`, `ℓ'' = 1` at `(0, 0)` and `ℓ' = -1`, `ℓ'' = 1` at
+`(1, 1)`. A term with a zero coefficient is omitted, never evaluated as `0 ⋅ log(0)`.
+`ℓ''` is formed without an intermediate underflow of `η²` whenever the result is
+representable, and is `Inf` when it is not. Its curvature is unbounded, so
+`lipschitz` of a [`GLMLoss`](@ref) with it is `Inf`: a step needs a feasible point
+and a line search, and `GLMLoss` neither projects nor clamps the predictor.
+
+[`GLMLoss`](@ref) rejects a response that is not in `[0, 1]` (also `NaN` and `±Inf`),
+whatever its weight.
+"""
+struct IdentityBernoulli <: ScalarLoss end
+@inline function value_and_deriv(::IdentityBernoulli, η::Real, y::Real)
+  p, b = promote(float(η), float(y))
+  w = one(p)
+  (_bernoulli_value(p, b, w), _bernoulli_gradient(p, b, w))
+end
+@inline function (::IdentityBernoulli)(η::Real, y::Real)
+  p, b = promote(float(η), float(y))
+  _bernoulli_value(p, b, one(p))
+end
+@inline function deriv(::IdentityBernoulli, η::Real, y::Real)
+  p, b = promote(float(η), float(y))
+  _bernoulli_gradient(p, b, one(p))
+end
+@inline function deriv2(::IdentityBernoulli, η::Real, y::Real)
+  p, b = promote(float(η), float(y))
+  T = typeof(p)
+  isnan(p) && return p
+  _bernoulli_domain(p, b, one(T)) || return T(NaN)
+  left = iszero(b) ? zero(T) : _bernoulli_curvature(b, p)
+  right = b == 1 ? zero(T) : _bernoulli_curvature(1 - b, 1 - p)
+  left + right
+end
+curvature(::IdentityBernoulli) = Inf
+
+# c / p² for 0 < p <= 1 and c >= 0 without forming p², which underflows at p below
+# about sqrt(floatmin) while the quotient is representable; the quotient is Inf when it
+# overflows. The exponents are held apart from the significands in that case.
+@inline function _bernoulli_curvature(c::T, p::T) where {T<:AbstractFloat}
+  p² = p * p
+  p² >= floatmin(T) && return c / p²
+  mc, ec = frexp(c)
+  mp, ep = frexp(p)
+  ldexp(mc / (mp * mp), ec - 2 * ep)
+end
+
+# The responses of an IdentityBernoulli loss are probabilities. `_check_responses` is a
+# no-op for the other losses; the predicate is an isbits Function, like the checks of the
+# weights, so that `all` can reduce a device array.
+_check_responses(::ScalarLoss, y, ::Type) = nothing
+struct _UnitResponse{T} <: Function end
+(::_UnitResponse{T})(t) where {T} = t isa Real && (r = convert(T, t); 0 <= r <= 1)
+_check_responses(::IdentityBernoulli, y, ::Type{T}) where {T} =
+  all(_UnitResponse{T}(), y) || throw(ArgumentError("the responses of an IdentityBernoulli loss must be in [0, 1]"))
 
 """
     ProximalBase.Huber(δ)
@@ -382,6 +451,7 @@ struct GLMLoss{L<:ScalarLoss, T<:AbstractFloat, Ty<:AbstractVector, TX<:Abstract
       O<:Union{Nothing, AbstractVector}, V<:AbstractVector{T}}
     all(a -> a === nothing || eltype(a) <: Real,
         (y, X, weights, offset, η, d)) || _real_error(:GLMLoss)
+    _check_responses(loss, y, T)
     # η and d are scratch that gradient!, hessian_vec! and quadratic_model! overwrite, the
     # last staging two values per observation in them: they must be two arrays, neither of
     # them y, weights or offset. Identity only: a view or a reshape is not detected.

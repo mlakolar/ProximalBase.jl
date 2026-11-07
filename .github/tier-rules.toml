@@ -7,7 +7,7 @@
 quick = 20
 standard = 30
 thorough = 45
-full = 90
+full = 90         # the macOS full job sets 120 in .github/workflows/CI.yml (#736)
 
 [policy]
 # A PR that changes src/ or ext/ and no test file gets at least this tier.

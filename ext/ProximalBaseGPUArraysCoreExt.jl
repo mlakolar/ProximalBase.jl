@@ -73,7 +73,11 @@ end
 
 # Reciprocal steps stay a lazy device broadcast, without indexing their wrapper.
 _steps(γ::AbstractArray, x) = _reshapeparam(γ, x)
-_steps(γ::ProximalBase._ReciprocalArray, x) = broadcasted(inv, _steps(γ.γ, x))
+# each stored step is converted to the element type T of the lazy reciprocal before it is inverted, as
+# its getindex does on the host (#576); a callable of the type, so that the kernel captures no array
+struct _InvAs{T} end
+(::_InvAs{T})(v) where {T} = convert(T, inv(convert(promote_type(T, float(typeof(v))), v)))
+_steps(γ::ProximalBase._ReciprocalArray{T}, x) where {T} = broadcasted(_InvAs{T}(), _steps(γ.γ, x))
 function ProximalBase._prox_sep!(y::AnyGPUArray, f, x::AnyGPUArray, γ::AbstractArray)
   _checkreal(f, γ)
   ProximalBase._checkwrite(prox!, f, y, x)
@@ -82,13 +86,16 @@ function ProximalBase._prox_sep!(y::AnyGPUArray, f, x::AnyGPUArray, γ::Abstract
   y
 end
 # Parameter arrays cannot be captured in the kernel's function object.
-_enet_prox(v::T, γ, λ1, λ2, w) where {T} =
-  shrink(v, convert(float(T), _weight_coefficient(γ, λ1, w))) / (1 + convert(float(T), γ * λ2))
+# At γ = Inf the parts are decided as in prox_entry, from host decisions on the levels (G5).
+_enet_prox(v::T, γ, λ1, λ2, w, p1::Bool, p2::Bool) where {T} =
+  γ == Inf ? ProximalBase._elastic_infinite_step(v, p1, p2, w) :
+             shrink(v, convert(float(T), _weight_coefficient(γ, λ1, w))) / (1 + convert(float(T), γ * λ2))
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::ElasticNet, x::AnyGPUArray, γ::AbstractArray)
   _checkreal(f, γ)
   ProximalBase._checkwrite(prox!, f, y, x)
   ProximalBase._checkparam(γ, x)
-  y .= _enet_prox.(x, _steps(γ, x), _device_level(float(eltype(y)), f.λ1), _device_level(float(eltype(y)), f.λ2), _reshapeparam(_param(f.w), x))
+  y .= _enet_prox.(x, _steps(γ, x), _device_level(float(eltype(y)), f.λ1), _device_level(float(eltype(y)), f.λ2), _reshapeparam(_param(f.w), x),
+               f.λ1 > zero(f.λ1), f.λ2 > zero(f.λ2))
   y
 end
 
@@ -117,8 +124,15 @@ function ProximalBase._prox_sep!(y::AnyGPUArray, f::NormL1, x::AnyGPUArray, γ::
   _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= shrink.(x, _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...).(_reshapeparam(_param(f.w), x)))
+  w = _reshapeparam(_param(f.w), x)
+  t = _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...)
+  # the rule of prox_entry, decided on the host from the level and the step as given
+  ProximalBase._l1_fixing(γ, f.λ0) || return (y .= shrink.(x, t.(w)))
+  y .= _l1_fixed_prox.(x, t.(w), w)
 end
+# prox_entry of a NormL1 whose infinite level fixes the penalized entries at zero
+_l1_fixed_prox(v, t, w) = (r = shrink(v, t); ifelse(w > 0, zero(r), r))
+
 # Keep the ordinary reduction; recover exceptional sums in power-of-two units.
 function ProximalBase._value_dense(f::NormL1, x::GPUArray)
   _checkreal(f, x)
@@ -153,7 +167,7 @@ function ProximalBase._value_dense(f::NormL1Nonneg, x::GPUArray)
   _checkreal(f, x)
   T = float(eltype(x))
   t = _tol(T)
-  _all(v -> v >= -t, x) || return T(Inf)
+  _all(v -> v >= -t, x) || return mapreduce(isnan, |, x; init = false) ? T(NaN) : T(Inf)
   f.w === nothing && iszero(f.λ0) && return zero(T)
   _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(max, x, zero(T))), _reshapeparam(_param(f.w), x))
 end
@@ -163,6 +177,8 @@ function ProximalBase._prox_sep!(y::AnyGPUArray, f::ElasticNet, x::AnyGPUArray, 
   _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
+  # γλ is 0·Inf for a zero level; the parts are decided from the levels on the host (G5)
+  γ == Inf && return (y .= ProximalBase._elastic_infinite_step.(x, f.λ1 > zero(f.λ1), f.λ2 > zero(f.λ2), _reshapeparam(_param(f.w), x)))
   y .= shrink.(x, _weight_coefficient.(_scalar(y, γ * f.λ1), _reshapeparam(_param(f.w), x))) ./ (1 + _scalar(y, γ * f.λ2))
 end
 function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
@@ -364,6 +380,7 @@ end
 function ProximalBase._weighted_normlinf(λ::Real, x::GPUArray)
   T = float(eltype(x))
   n = mapreduce(abs, max, x; init = zero(T))
+  isinf(λ) && return iszero(n) ? zero(T) : n * T(Inf)
   _level_fits(T, λ) && return convert(T, λ) * n
   R = promote_type(T, float(typeof(λ)))
   convert(T, convert(R, λ) * convert(R, n))
@@ -374,6 +391,10 @@ function ProximalBase.value_and_prox!(y::GPUArray, f::NormLinf, x::GPUArray, γ:
   _checkreal(f, y)
   _checksize(y, x)
   T = float(eltype(y))
+  if isinf(f.λ) && γ > 0 && isfinite(γ)       # the indicator of {0}: zero at every entry
+    fill!(y, zero(eltype(y)))
+    return zero(T)
+  end
   if iszero(f.λ)
     y === x || copyto!(y, x)
     return zero(T)
@@ -743,6 +764,10 @@ end
 end
 function _weighted_grouped_l1(::Type{T}, λ, xv, lay) where {T}
   iszero(λ) && return zero(T)
+  if isinf(λ)    # an infinite level fixes every grouped entry at zero, as in _sparse_l1_value
+    v = _grouped_l1(T, xv, lay)
+    return convert(T, _weighted_value(λ * v, v))
+  end
   v = _level_fits(T, λ) ? convert(T, λ) * _grouped_l1(T, xv, lay) : T(Inf)
   isfinite(v) ? v : _scaled_grouped_l1(T, λ, xv, lay)
 end
@@ -818,6 +843,13 @@ function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where
   _checkgroups(f, x)
   S = float(eltype(y))
   y === x || copyto!(y, x)
+  # an infinite ℓ1 level, as stored, fixes every grouped entry at zero at every step, whatever the
+  # entry, the group level and the weights, as on the host; the value is 0
+  if isinf(f.λ1)
+    yl = view(vec(y), 1:length(lay.gid))
+    yl .= _SparseScale(zero(S), length(lay.pos)).(yl, zero(S), lay.gid)
+    return zero(S)
+  end
   zero_group = iszero(f.λ0) && !_has_infinite_group_weight(lay)
   zero_group && iszero(f.λ1) && return zero(S)
   yv = vec(y)
@@ -910,14 +942,51 @@ function _value(f::IndBallGroupL0, lay, x)
   _checkreal(f, x)
   _checkgroups(f, x)
   xv = vec(x)
-  nz, ok = 0, true
+  K = length(lay.pos)
+  nz, ok, nan = 0, true, false
   for b in lay.blocks
-    c = _segreduce(!iszero, +, 0, _gather(xv, b), b)
+    # the nonzero entries of each group and, in the high bits, its NaN entries, in one reduction
+    c = _segreduce(_nonzero_nan, +, 0, _gather(xv, b), b)
     nz += _sum(Int, >(0), c)
-    ok &= _all(<=(f.k), c)
+    # a NaN in a group the value depends on (E2): every group when fewer than all
+    # may be nonzero, and with a bound k the groups with more than k entries. One
+    # reduction when every group fits and none has such a NaN, as on ordinary
+    # inputs; the two are told apart only otherwise.
+    d = _NoDependentNaN(f.s < K, f.k)
+    _all(_FitsNoDependentNaN(_CountFits(f.k), d), c, b.len) && continue
+    nan |= !_all(d, c, b.len)
+    ok &= _all(_CountFits(f.k), c)
   end
-  return _ind(ok && nz <= f.s, float(eltype(x)))
+  return nan ? float(eltype(x))(NaN) : _ind(ok && nz <= f.s, float(eltype(x)))
 end
+
+# One for a nonzero entry, NaN included, plus 2^32 for a NaN entry: a group has
+# fewer than 2^32 entries, so the low bits count its nonzero entries and the high
+# bits its NaN entries.
+const _NAN_UNIT = 1 << 32
+_nonzero_nan(v) = Int(!iszero(v)) + (isnan(v) ? _NAN_UNIT : 0)
+struct _CountFits
+  k::Int
+end
+(f::_CountFits)(c) = (c & (_NAN_UNIT - 1)) <= f.k
+# whether a group has no NaN entry that the value depends on
+struct _NoDependentNaN
+  all::Bool       # every group counts
+  k::Int
+end
+(d::_NoDependentNaN)(c, len) = !((c >= _NAN_UNIT) & (d.all | (len > d.k)))
+struct _FitsNoDependentNaN
+  fits::_CountFits
+  d::_NoDependentNaN
+end
+(p::_FitsNoDependentNaN)(c, len) = p.fits(c) & p.d(c, len)
+
+# The norm of a group from its largest magnitude m and scaled sum of squares q:
+# Inf at an infinite entry, where m⋅√q is NaN ((Inf/Inf)²), as on the CPU, so
+# that only a NaN entry gives NaN.
+_l0_group_norm(m, q) = isinf(m) ? m : m * sqrt(q)
+
+_nan_if(v, nan, _) = nan ? oftype(v, NaN) : v
 
 _keep(v, keep, _) = keep ? v : zero(v)
 
@@ -925,7 +994,7 @@ _keep(v, keep, _) = keep ? v : zero(v)
 # the s largest on the host, among the K norms, as the CPU does, the earlier
 # groups first among ties. With a bound k on the entries of a group, it would
 # need a selection inside each group, which runs on the CPU only.
-function _group_prox!(y, f::IndBallGroupL0, lay, x, ::Real, ::Val)
+function _group_prox!(y, f::IndBallGroupL0, lay, x, ::Real, ::Val{V}) where {V}
   _checkreal(f, x)
   _checkreal(f, y)
   _checksize(y, x)
@@ -938,9 +1007,21 @@ function _group_prox!(y, f::IndBallGroupL0, lay, x, ::Real, ::Val)
   K = length(lay.pos)
   norms = similar(yv, S, K)
   for b in lay.blocks
-    view(norms, b.pos) .= vec(_group_norms(_gather(yv, b), b, S))
+    m, q = _group_norm_parts(_gather(yv, b), b, S)
+    view(norms, b.pos) .= vec(_l0_group_norm.(m, q))
   end
-  keep = _keep_groups(Array(norms), lay.pos, f.s)
+  hnorms = Array(norms)
+  # s = 0 zeroes every group below, whatever the entries (E4 first), and s ≥ K
+  # keeps them all. Otherwise which groups are kept depends on every grouped
+  # entry, so a NaN norm, which only a NaN entry gives, makes every grouped output
+  # NaN (E2), as on the CPU; the fused value is then NaN.
+  if 0 < f.s < K && any(isnan, hnorms)
+    grouped = fill(true, K + 1)
+    grouped[K + 1] = false
+    _scatter_back!(_nan_if, yv, lay, copyto!(similar(yv, Bool, K + 1), grouped))
+    return V ? S(NaN) : zero(S)
+  end
+  keep = _keep_groups(hnorms, lay.pos, f.s)
   _scatter_back!(_keep, yv, lay, copyto!(similar(yv, Bool, K + 1), keep))
   return zero(S)
 end

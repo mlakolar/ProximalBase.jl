@@ -16,7 +16,12 @@ over disjoint groups `Gₖ = groups[k]` of (linear) indices of `x`, with the
 weights `wₖ = √|Gₖ|` by default, as in [`GroupNormL2`](@ref). The group term
 selects groups and the ℓ1 term zeroes entries inside a selected group (Simon,
 Friedman, Hastie and Tibshirani, 2013); `λ1 = 0` gives the group lasso. Indices
-in no group are not penalized.
+in no group are not penalized. An infinite `λ1` fixes every grouped entry at
+zero: the value is then 0 when those entries are zero, `Inf` when one is nonzero
+and NaN when one is NaN, and the proximal output is zero at every grouped entry
+at every step, `γ = 0` and `γ = Inf` included, whatever the entry holds and
+whatever `λ2` and the weights are (zero included), so it does not depend on the
+step. Indices in no group stay free.
 
 Its proximal operator is exact: soft thresholding at `γλ1`, then the shrinkage of
 each group at `γλ2wₖ`, in one pass over a group, which also gives the value.
@@ -67,6 +72,9 @@ _group_norm(::SparseGroupNormL2, x, G) = _group_norm2(x, G)
 # The L1 sum covers penalized groups only, including for an active iterate.
 @inline function _sparse_l1_value(f, x, v, ::Type{T}) where {T}
   iszero(f.λ1) && return zero(T)
+  # an infinite level fixes every grouped entry at zero: v, a sum of absolute values, is zero exactly
+  # when each entry is, so the term is 0 there, Inf where v > 0 and NaN where v is NaN
+  isinf(f.λ1) && return convert(T, _weighted_value(f.λ1 * v, v))
   _level_fits(T, f.λ1) && isfinite(v) && return convert(T, f.λ1) * v
   _scaled_sparse_l1(f, x, T)
 end
@@ -259,11 +267,29 @@ value_and_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Re
 
 # the step γ is a scalar or a vector with a step per group (see metric.jl)
 function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Union{Real, AbstractVector})
-  if isfinite(f.λ1) && _ordinary_group_weights(f, _model_type(y, x))
+  isinf(f.λ1) && return _infinite_l1_prox!(y, f, x, γ)
+  if _ordinary_group_weights(f, _model_type(y, x))
     _sparse_group_prox!(y, f, x, γ, Val(true))
   else
     _sparse_group_prox!(y, f, x, γ, Val(false))
   end
+end
+
+# An infinite ℓ1 level, as stored (a finite level never counts, R3), fixes every grouped entry at zero
+# at every step, γ = 0 and γ = Inf included, whatever the entry holds and whatever the group level
+# and weight are: the projection onto the domain, decided before any threshold γ⋅λ1 is formed. The
+# checks the kernel runs come first; indices in no group are copied. The value at the output is 0:
+# the fixed groups and the ℓ1 term of zero entries give 0, and indices in no group are not penalized.
+function _infinite_l1_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Union{Real, AbstractVector})
+  _checksize(y, x)
+  _checkgroups(f, x)
+  _checkgroupsteps(f, γ)
+  T = float(eltype(y))
+  _copy_ungrouped!(y, f, x)
+  for G in f.groups
+    _fixed_sparse_group!(y, G, _group_writes(y, G), T)
+  end
+  zero(T)
 end
 
 function _sparse_group_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
@@ -323,7 +349,17 @@ value_and_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Real) 
 function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Union{Real, AbstractVector})
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, SparseGroupNormL2, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
-  if isfinite(f.λ1) && _ordinary_group_weights(f, float(eltype(y)), x.active, x.nactive)
+  if isinf(f.λ1)
+    # as _infinite_l1_prox!: the active groups are zeroed and stay active, the others are zero
+    _checkgroupsteps(f, γ)
+    T = float(eltype(y))
+    copyto!(y, x)
+    for a in 1:y.nactive
+      _fixed_sparse_group!(y.storage, f.groups[y.active[a]], nothing, T)
+    end
+    return zero(T)
+  end
+  if _ordinary_group_weights(f, float(eltype(y)), x.active, x.nactive)
     _sparse_group_prox!(y, f, x, γ, Val(true))
   else
     _sparse_group_prox!(y, f, x, γ, Val(false))
@@ -364,6 +400,11 @@ end
 
 @inline function _unchecked_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k, γ, ctx)
   T = float(eltype(x))
+  # an infinite ℓ1 level fixes the group at zero at every step, as _infinite_l1_prox!; its activity is kept
+  if isinf(f.λ1)
+    _fixed_sparse_group!(x.storage, x.groups[k], nothing, T)
+    return atom(x, k)
+  end
   if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
     _soft_group_only!(x.storage, x.storage, x.groups[k], _l1_threshold(T, γ, f.λ1))
     _allzero(x.storage, x.groups[k]) || activate!(x, k)

@@ -124,6 +124,7 @@ stand).
 | `Squared()` | ``\tfrac12(\eta - y)^2`` | ``\eta - y`` | ``1`` | `GLMLoss(ProximalBase.Squared(), y, X)` |
 | `Logistic()` | ``\log(1 + e^\eta) - y\eta`` | ``\sigma(\eta) - y`` | ``1/4`` | [`LogisticLoss`](@ref)`(y, X)` |
 | `Poisson()` | ``e^\eta - y\eta`` | ``e^\eta - y`` | ``\infty`` | [`PoissonLoss`](@ref)`(y, X)` |
+| `IdentityBernoulli()` | ``-y\log\eta - (1-y)\log(1-\eta)``, ``0 \le y \le 1`` | ``(1-y)/(1-\eta) - y/\eta`` | ``\infty`` | `GLMLoss(ProximalBase.IdentityBernoulli(), y, X)` |
 | `Huber(δ)` | ``\tfrac12 r^2`` if ``\lvert r\rvert \le \delta``, else ``\delta(\lvert r\rvert - \delta/2)``, with ``r = \eta - y`` | ``\operatorname{clamp}(r, -\delta, \delta)`` | ``1`` | [`HuberLoss`](@ref)`(y, X, δ)` |
 | `SquaredHinge()` | ``\max(0, 1 - y\eta)^2``, ``y = \pm 1`` | ``-2y\max(0, 1 - y\eta)`` | ``2`` | `GLMLoss(ProximalBase.SquaredHinge(), y, X)` |
 | `SmoothCheck(τ, h)` | the Moreau envelope of ``\rho_\tau`` at ``u = y - \eta`` | ``-\operatorname{clamp}(u/h, \tau - 1, \tau)`` | ``1/h`` | `GLMLoss(ProximalBase.SmoothCheck(τ, h), y, X)` |
@@ -189,6 +190,56 @@ reflection, evaluated without cancellation near zero. If a fractional
 response's result rounds to an endpoint, the nearest interior float in the
 argument's floating type is returned. A narrower output may still round to
 the endpoint. `value_and_prox!` evaluates the stored result.
+
+### The identity-link Bernoulli loss of `GLMLoss`
+
+`GLMLoss(ProximalBase.IdentityBernoulli(), y, X; weights, offset)` is
+``f(\beta) = \sum_i w_i\,\ell(p_i, y_i)`` with the probabilities
+``p = X\beta + \text{offset}`` and
+``\ell(p, y) = -y\log p - (1-y)\log(1-p)``, the Bernoulli negative
+log-likelihood of an identity-link binomial regression: the coefficients are
+adjusted risks or risk differences, and the model is not logistic regression.
+It has the value, gradient, Hessian-vector product and IRLS model of every
+[`GLMLoss`](@ref), and no proximal operator; [`BernoulliLoss`](@ref)`(b, w)`
+on ``p = X\beta`` is the choice when a proximal operator is needed, and
+[`LogisticLoss`](@ref) the choice for the logit scale.
+
+The responses are ``0 \le y_i \le 1``, binary or proportions. The constructor
+throws an `ArgumentError` for a response outside ``[0, 1]``, `NaN` or
+infinite, whatever its weight. The scalar loss follows `BernoulliLoss`.
+For a positive weight, ``\ell`` is finite for ``0 < p < 1`` and at the endpoint
+that agrees with the response, ``p = 0`` for ``y = 0`` and ``p = 1`` for
+``y = 1``, where it is zero (``0\log 0 = 0``; a term with a zero coefficient is
+left out, never evaluated). Elsewhere it is ``+\infty`` and its derivatives
+are `NaN`; a `NaN` predictor gives `NaN`. At the two endpoints the derivatives
+are one-sided limits, ``\ell' = 1`` and ``\ell'' = 1`` at ``(0, 0)``, and
+``\ell' = -1`` and ``\ell'' = 1`` at ``(1, 1)``. A zero weight masks the
+observation, as for every `GLMLoss`: it contributes zero to the value, the
+gradient and the Hessian, also at a finite predictor outside ``[0, 1]``.
+The second derivative ``(1-y)/(1-p)^2 + y/p^2`` is formed without squaring a
+probability that underflows, and is `Inf` only where it overflows.
+
+The curvature is unbounded, so `lipschitz(f)` and `coordinate_lipschitz(f, k)`
+are `Inf`: no fixed step is justified, and a Newton or coordinate step needs a
+feasible point and a line search that rejects a step with a predictor outside
+the domain. The loss does not project or clamp the predictor, and a minimizer
+may lie on the boundary, where the one-sided derivatives do not make an
+unrestricted Newton step feasible. [`quadratic_model`](@ref) at an
+interior predictor has the gradient of `f`. At a finite predictor outside the
+domain, for a positive weight, it throws an `ArgumentError` that names the
+observation and leaves the model unchanged; a predictor that is not finite
+propagates, as for the other losses.
+
+```julia
+using ProximalBase, LinearAlgebra
+y = [0.0, 1.0, 0.5]
+X = Matrix{Float64}(I, 3, 3)
+f = GLMLoss(ProximalBase.IdentityBernoulli(), y, X)
+β = [0.2, 0.7, 0.4]            # a feasible point: every entry of Xβ lies in (0, 1)
+f(β)                           # -log(0.8) - log(0.7) - 0.5 log(0.4) - 0.5 log(0.6)
+gradient(f, β)                 # (1 - y)/(1 - p) - y/p
+lipschitz(f)                   # Inf
+```
 
 ## The Gaussian log-likelihood
 
@@ -268,7 +319,9 @@ overflowing ``e^{\eta_i}`` and the working response is
 ``z_i = \eta_i - 1 + y_i e^{-\eta_i}``, so weight ``1/8`` at ``\eta = 710`` gives
 the coefficient ``e^{710}/8`` and the response ``709``. A coefficient or response that
 cannot be represented raises a [`PrecisionError`](@ref), and
-[`quadratic_model!`](@ref) then leaves the model as it was.
+[`quadratic_model!`](@ref) then leaves the model as it was. A finite predictor outside the
+domain of the loss, for a positive weight, raises an `ArgumentError` instead (the
+identity-link Bernoulli loss above), with the model unchanged.
 
 The class of a Poisson coefficient is exact (numerics R4). The coefficient is rejected,
 as `Inf`, exactly when ``w_i e^{\eta_i}`` rounds beyond `floatmax`, and a coefficient that is

@@ -693,7 +693,7 @@ end
     for f in (NuclearNorm(0.5), IndBallRank(1), IndStiefel(), TracePSD(0.5),
               IndPSD(), IndPSD(rank = 1), Spectral(NormL1(0.5)),
               SingularValue(NormL1(0.5)), LogDetLoss(Matrix{T}(I, n, n)))
-      @test same(f(DeviceArray(X)), f(X))
+      @test isequal(f(DeviceArray(X)), f(X)) || same(f(DeviceArray(X)), f(X))
       if !all(isfinite, X)
         Y = fill(T(17), size(X))
         DY = DeviceArray(Y)
@@ -766,6 +766,20 @@ end
       @test vd === vc
       @test host(DYoverflow) == Yoverflow
     end
+    # Standalone values at an overflowing spectrum and at NaN entries come from the host spectrum.
+    for make in (() -> SingularValue(NormL1(T(1)/4)), () -> Spectral(NormL1(T(1)/4)),
+                 () -> Spectral(SumLargest(2, T(1)/4)), () -> SingularValue(ElasticNet(T(1)/4, T === Float32 ? T(2)^-140 : T(1e-310))),
+                 () -> Spectral(Constrained(NormL1(T(1)/4), IndBox(0, Inf))),
+                 () -> SingularValue(Conjugate(IndBallL1(T(1)/4)))),
+        Xv in (fill(M, 2, 2), -fill(M, 2, 2), T[NaN 0; 0 1], T[Inf 0; 0 1])
+      vc = make()(Xv)
+      vd = make()(DeviceArray(Xv))
+      @test isequal(vd, vc) || same(vd, vc)
+      isfinite(Xv[1]) && (@test isfinite(vc) || Xv[1] < 0)
+      Xv[1] isa T && isnan(Xv[1]) && @test isnan(vd)
+    end
+    @test same(Conjugate(SingularValue(IndBallL1(T(1)/4)))(DeviceArray(fill(M, 2, 2))),
+               Conjugate(SingularValue(IndBallL1(T(1)/4)))(fill(M, 2, 2)))
     # Mapped roots and the half spectrum can overflow at finite inputs.
     for n in (2, 3), (w, γ) in ((one(T), one(T)), (T(1)/4, T(4)))
       Xlarge = fill(M, n, n)

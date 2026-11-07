@@ -1,6 +1,8 @@
 module SymmetricMutatorsTest
 
 using Test, ProximalBase, LinearAlgebra, SparseArrays, Random
+using JLArrays: JLArray
+using GPUArraysCore: allowscalar
 
 state(x) = (Matrix(x), nnz(x), copy(activecoordinates(x)), x.nzval[1:nnz(x)])
 
@@ -188,6 +190,152 @@ struct ScalarStyle <: Base.Broadcast.AbstractArrayStyle{0} end
                 ArgumentError, "must be symmetric")
       end
     end
+  end
+
+  @testset "copies through wrappers" begin
+    for T in DataType[Float64, Float32], p in Any[0, 1, 3]
+      S = symmetric(p)
+      A = S + triu(ones(p, p), 1)      # not symmetric for p > 1
+      N = copy(S)
+      p > 0 && (N[p, 1] = N[1, p] = NaN)
+      for make in Any[x -> view(x, :, :), x -> view(x, 1:p, collect(1:p)),
+                   x -> view(x, :), x -> vec(x), x -> reshape(x, 1, p^2),
+                   x -> view(reshape(x, 1, p^2), :, :),
+                   x -> view(reshape(x, 1, p^2), 1, :),
+                   x -> view(view(x, :, :), :, :), x -> reshape(vec(x), p, p)]
+        x = initial(T, p)
+        dest = make(x)
+        for src in Any[reshape(S, size(dest)), S, vec(S), sparse(S), Symmetric(A, :L),
+                    SymmetricSparseIterate(S), Float32.(S)]
+          fill!(x, -1)
+          @test copyto!(dest, src) === dest
+          @test Matrix(x) == S
+        end
+        fill!(x, -1)
+        @test copyto!(dest, N) === dest
+        @test isequal(Matrix(x), N)
+        # sources that alias x, including one read in reverse
+        copyto!(x, S)
+        for src in Any[x, x', view(x, :, :), vec(x)]
+          @test copyto!(dest, src) === dest
+          @test Matrix(x) == S
+        end
+        @test copyto!(dest, view(x, p:-1:1, p:-1:1)) === dest
+        @test Matrix(x) == rot180(S)
+        copyto!(x, S)
+        @test copy!(dest, reshape(S, size(dest))) === dest
+        @test Matrix(x) == S
+        fill!(x, -1)
+        if p > 1
+          for src in Any[reshape(A, size(dest)), A, vec(A), sparse(A)]
+            rejects(x -> copyto!(make(x), src), x, ArgumentError, "must be symmetric")
+          end
+          rejects(x -> copy!(make(x), reshape(A, size(make(x)))), x, ArgumentError, "must be symmetric")
+          rejects(x -> copyto!(make(x), fill(1 + 2im, p, p)), x, ArgumentError,
+                  "SymmetricSparseIterate requires real entries")
+        end
+        for src in Any[ones(p^2 + 1), ones(p + 1, p + 1), zeros(0)]
+          length(src) == p^2 && continue
+          rejects(x -> copyto!(make(x), src), x, DimensionMismatch, "copyto! source has")
+        end
+        p > 0 && rejects(x -> copyto!(make(x), ones(p^2 - 1)), x, DimensionMismatch)
+        for f in Any[x -> copyto!(make(x), 1, vec(S)), x -> copyto!(make(x), 1, vec(S), 1),
+                  x -> copyto!(make(x), 1, vec(S), 1, p^2),
+                  x -> copyto!(make(x), 1, (1.0 for _ in 1:p^2)),
+                  x -> copyto!(make(x), 1, (1.0 for _ in 1:p^2), 1),
+                  x -> copyto!(make(x), 1, (1.0 for _ in 1:p^2), 1, p^2)]
+          rejects(f, x, ArgumentError, "copyto! with offsets")
+        end
+      end
+      x = initial(T, p)
+      @test copyto!(view(x, :, :), zeros(p^2)) isa SubArray
+      @test Matrix(x) == zeros(p, p)
+      # a one-dimensional copy! resizes for a source of another length, which a reshape cannot do
+      fill!(x, -1)
+      rejects(x -> copy!(vec(x), ones(p^2 + 1)), x, Exception)
+      rejects(x -> copy!(view(x, :, :), vec(S)), x, ArgumentError, "same axes")
+    end
+    # An orthogonal factor is formed in a buffer before the checked write.
+    for T in DataType[Float64, Float32]
+      for p in Any[0, 1, 3]
+        Q = qr(Matrix{T}(I, p, p)).Q
+        for make in Any[x -> view(x, :, :), x -> view(view(x, :, :), :, :)]
+          x = initial(T, p)
+          dest = make(x)
+          @test copyto!(dest, Q) === dest
+          @test Matrix(x) == Matrix{T}(I, p, p)
+        end
+      end
+      Q = qr(reshape(T[0, 1, 0], 3, 1)).Q
+      expected = lmul!(Q, Matrix{T}(I, 3, 3))
+      x = initial(T, 3)
+      @test copyto!(view(x, 1:3, :), Q) isa SubArray
+      @test Matrix(x) == expected
+      Q = qr(T[1 2 3; 4 5 6; 7 8 10]).Q
+      for make in Any[x -> view(x, :, :), x -> view(x, 1:3, collect(1:3)), x -> reshape(vec(x), 3, 3)]
+        rejects(x -> copyto!(make(x), Q), x, ArgumentError, "must be symmetric")
+      end
+      rejects(x -> copyto!(view(x, 1:2, 1:2), Q), x, ArgumentError, "copyto! into a view")
+      rejects(x -> copyto!(reshape(x, 1, 9), Q), x, DimensionMismatch)
+    end
+    @static if isdefined(SparseArrays, :CHOLMOD) && isdefined(SparseArrays.CHOLMOD, :Dense)
+      S = symmetric(3)
+      for T in DataType[Float64, Float32], make in Any[x -> view(x, :, :), x -> vec(x), x -> reshape(x, 1, 9)]
+        x = initial(T, 3)
+        dest = make(x)
+        @test copyto!(dest, SparseArrays.CHOLMOD.Dense(S)) === dest
+        @test Matrix(x) == S
+        rejects(x -> copyto!(make(x), SparseArrays.CHOLMOD.Dense(S + triu(ones(3, 3), 1))), x,
+                ArgumentError, "must be symmetric")
+      end
+    end
+    # A device source behaves as it does in copyto!(x, A).
+    S = symmetric(3)
+    for T in DataType[Float64, Float32], src in Any[JLArray(T.(S)), JLArray(vec(T.(S)))]
+      allowscalar(false)
+      x = initial(T, 3)
+      expected = try
+        copyto!(x, reshape(src, 3, 3))
+        nothing
+      catch e
+        typeof(e)
+      end
+      for make in Any[x -> view(x, :, :), x -> vec(x), x -> reshape(x, 1, 9)]
+        if expected === nothing
+          @test copyto!(make(x), src) isa AbstractArray
+          @test Matrix(x) == S
+          fill!(x, -1)
+        else
+          rejects(x -> copyto!(make(x), src), x, expected)
+        end
+      end
+      for make in Any[x -> view(x, :, :), x -> vec(x)]
+        fill!(x, -1)
+        allowscalar(() -> copyto!(make(x), src))
+        @test Matrix(x) == S
+      end
+    end
+    # Partial destinations throw before writing, and dense destinations are unchanged.
+    for T in DataType[Float64, Float32]
+      x = initial(T, 3)
+      for f in Any[x -> copyto!(view(x, 2:2, 1:1), fill(7.0, 1, 1)),
+                x -> copyto!(view(x, 1:2, 1), [5.0, 6.0]),
+                x -> copyto!(view(x, [3, 2, 1], :), symmetric(3)),
+                x -> copyto!(view(x, 1:2, 1:2), sparse([1.0 2; 2 1])),
+                x -> copy!(view(x, 1:2, 1:2), [1.0 2; 2 1]),
+                x -> copyto!(view(vec(x), 2:4), [1.0, 2, 3]),
+                x -> copyto!(view(vec(x), 9:-1:1), vec(symmetric(3))),
+                x -> copyto!(view(x, 1, :), 1, [1.0, 2, 3], 1, 3)]
+        rejects(f, x, ArgumentError)
+      end
+    end
+    A = [1.0 3; 2 4]
+    M = zeros(2, 2)
+    @test copyto!(view(M, :, :), A) == A
+    @test copyto!(vec(M), vec(2A)) == vec(2A)
+    @test M == 2A
+    @test copyto!(view(M, 2:2, 1:1), fill(7.0, 1, 1)) == fill(7.0, 1, 1)
+    @test M == [2 6; 7 8]
   end
 
   @testset "transposition and permutation" begin

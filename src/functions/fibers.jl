@@ -308,18 +308,23 @@ function _fiberprox!(y::AbstractArray{<:Any, 3}, fb::FiberSum{<:NormL1Fused, D},
   size(x, 3) == 2 || return _fiberprox_views!(y, fb, x, γ, Val(V))
   own = _owndiagonal(fb, x)
   T = float(eltype(y))
+  # the functions that an infinite ℓ1 level fixes at zero, from the levels and the step as given
+  z = (_fused_zero(fb.f, γ), fb.diagonal !== nothing && _fused_zero(fb.diagonal, γ))
   v = if fb.symmetric
-    own ? _fiberprox_pairs!(y, fb, x, T(γ), Val(true), Val(true), T, Val(V)) :
-      _fiberprox_pairs!(y, fb, x, T(γ), Val(true), Val(false), T, Val(V))
+    own ? _fiberprox_pairs!(y, fb, x, T(γ), z, Val(true), Val(true), T, Val(V)) :
+      _fiberprox_pairs!(y, fb, x, T(γ), z, Val(true), Val(false), T, Val(V))
   else
-    own ? _fiberprox_pairs!(y, fb, x, T(γ), Val(false), Val(true), T, Val(V)) :
-      _fiberprox_pairs!(y, fb, x, T(γ), Val(false), Val(false), T, Val(V))
+    own ? _fiberprox_pairs!(y, fb, x, T(γ), z, Val(false), Val(true), T, Val(V)) :
+      _fiberprox_pairs!(y, fb, x, T(γ), z, Val(false), Val(false), T, Val(V))
   end
   f = fb.f
   if V
     fits = _fused_levels_fit(T, f) &&
       (fb.diagonal === nothing || _fused_levels_fit(T, fb.diagonal))
     isfinite(v) && fits && return v
+    # the recoveries below decline an infinite level; a function that it fixes adds no value
+    (z[1] || z[2]) && return _fixed_fibers_value!(y, fb, x, γ, T, v)
+    !isfinite(v) && _fused_equal_fibers(fb) && return _equal_fibers_value!(y, fb, x, γ, T, v)
     if !isfinite(v) && !Base.mightalias(y, x)
       return _recover_fused_fiberprox!(y, fb, x, γ, own, T, v)
     end
@@ -328,11 +333,26 @@ function _fiberprox!(y::AbstractArray{<:Any, 3}, fb::FiberSum{<:NormL1Fused, D},
   v
 end
 
+# A function of the fibers with an infinite fusion level and a finite ℓ1 level (#664): the loop's value
+# is Inf⋅0 at a constant pair. The value is always that of the fiber functions at the stored output
+# (O2), the standalone one, which holds the rule of the infinite fusion level, at every step. The output
+# itself is recomputed only at a finite positive step: a separate output is then recomputed with the
+# checked midpoint, which the loop skips there; at a zero, infinite, negative or NaN step the loop's
+# output is kept exactly. An output with other axes keeps the loop's value, as the fiber views need
+# one-based axes.
+@inline _fused_equal_fibers(fb) = _fused_equal_entries(fb.f) ||
+  (fb.diagonal !== nothing && _fused_equal_entries(fb.diagonal))
+@noinline function _equal_fibers_value!(y, fb, x, γ, ::Type{T}, ordinary) where {T}
+  Base.has_offset_axes(y) && return ordinary
+  γ > 0 && isfinite(γ) && !Base.mightalias(y, x) && prox!(y, fb, x, γ)
+  convert(T, fb(y))
+end
+
 # Disjoint outputs can retry an overflowing midpoint from the original inputs.
-@inline function _fiberprox_pairs!(y, fb, x, γT, s, o, ::Type{T}, v::Val{V}) where {T, V}
-  if _fused_fiber_identity(fb, T, γT)
-    return V && !Base.mightalias(y, x) ? _fiberprox_pairs_identity!(y, fb, x, γT, s, o, T, v, Val(false)) :
-      _fiberprox_pairs_identity!(y, fb, x, γT, s, o, T, v, Val(true))
+@inline function _fiberprox_pairs!(y, fb, x, γT, z, s, o, ::Type{T}, v::Val{V}) where {T, V}
+  if z[1] || z[2] || _fused_fiber_identity(fb, T, γT)
+    return V && !Base.mightalias(y, x) ? _fiberprox_pairs_identity!(y, fb, x, γT, z, s, o, T, v, Val(false)) :
+      _fiberprox_pairs_identity!(y, fb, x, γT, z, s, o, T, v, Val(true))
   end
   V && !Base.mightalias(y, x) ? _fiberprox_pairs!(y, fb, x, γT, s, o, T, v, Val(false)) :
     _fiberprox_pairs!(y, fb, x, γT, s, o, T, v, Val(true))
@@ -379,8 +399,10 @@ end
 
 # The same loop in the regimes where a function of the fiber is the identity (see _fused_pair_levels):
 # only these calls pay for the levels being decided, the ordinary loop above is unchanged. A zero level
-# adds no value, whatever the entries (E4).
-@noinline function _fiberprox_pairs_identity!(y, fb::FiberSum{<:NormL1Fused, D}, x, γT,
+# adds no value, whatever the entries (E4). The same loop serves a function that an infinite ℓ1 level
+# fixes at zero (zf for the off-diagonal pairs, zd for the diagonal): its pairs are zero whatever they
+# hold, and add no value.
+@noinline function _fiberprox_pairs_identity!(y, fb::FiberSum{<:NormL1Fused, D}, x, γT, (zf, zd),
                                    ::Val{S}, ::Val{O}, ::Type{T}, ::Val{V}, ::Val{C}) where {D, S, O, T, V, C}
   a, b = firstindex(x, 3), firstindex(x, 3) + 1
   f = fb.f
@@ -409,28 +431,59 @@ end
       if d === nothing
         y[i, i, a], y[i, i, b] = x[i, i, a], x[i, i, b]
       else
-        u, w = _prox_l1fused(T(x[i, i, a]), T(x[i, i, b]), dl1, dl2, dγ, Val(C))
+        u, w = zd ? (zero(T), zero(T)) : _prox_l1fused(T(x[i, i, a]), T(x[i, i, b]), dl1, dl2, dγ, Val(C))
         y[i, i, a], y[i, i, b] = u, w
-        V && (v += ifelse(dz1, zero(T), dv1 * (abs(u) + abs(w))) + ifelse(dz2, zero(T), dv2 * abs(u - w)))
+        V && !zd && (v += ifelse(dz1, zero(T), dv1 * (abs(u) + abs(w))) + ifelse(dz2, zero(T), dv2 * abs(u - w)))
       end
     else
-      u, w = _prox_l1fused(T(x[i, j, a]), T(x[i, j, b]), fl1, fl2, fγ, Val(C))
+      u, w = zf ? (zero(T), zero(T)) : _prox_l1fused(T(x[i, j, a]), T(x[i, j, b]), fl1, fl2, fγ, Val(C))
       y[i, j, a], y[i, j, b] = u, w
       c = S && i != j ? 2 : 1
       if c == 2
         y[j, i, a], y[j, i, b] = u, w
       end
-      V && (v += c * (ifelse(fz1, zero(T), fv1 * (abs(u) + abs(w))) + ifelse(fz2, zero(T), fv2 * abs(u - w))))
+      V && !zf && (v += c * (ifelse(fz1, zero(T), fv1 * (abs(u) + abs(w))) + ifelse(fz2, zero(T), fv2 * abs(u - w))))
     end
   end
   v
 end
 
+# The value when an infinite ℓ1 level fixes one of the functions and the sum of the other's terms is
+# not finite or its levels do not fit: the value at the stored output, where the fixed pairs are zero
+# and their entries, NaN included, are not read again. A separate output is first recomputed with the
+# checked midpoint, which the loop skips there.
+@noinline function _fixed_fibers_value!(y, fb, x, γ, ::Type{T}, ordinary) where {T}
+  isfinite(ordinary) || Base.mightalias(y, x) || prox!(y, fb, x, γ)
+  convert(T, fb(y))
+end
+
+# A separate output whose value is not finite: the loop took the unchecked midpoint, which overflows
+# for a pair near floatmax. With finite levels the output is recomputed with the checked midpoint
+# (prox!) and the value is decided on the stored output y, not on the argument (O2). Where the entries
+# of x are not all finite, a NaN gives a NaN output in the ordinary regimes and ends the recovery there.
+# Where a function of the fiber is the identity (both levels zero, or a zero step), or the diagonal is
+# left free, those NaN entries stay in their own fibers and add no value (E4), so they do not stand in
+# the way of an unrelated fiber. When x is finite but y is not (an infinity in a free fiber that the
+# narrower element type of y created), the scaled recovery would read that infinity as the scale of the
+# sum, so the value is that of the fiber functions at y. In both, the value is fb(y), which keeps a NaN
+# in a coupled pair (E2) and an overflow of the stored result (E3). The fiber views of fb(y) need
+# one-based axes: an output with other axes, which the pair kernel accepts, keeps the earlier recovery.
 @noinline function _recover_fused_fiberprox!(y, fb, x, γ, own, ::Type{T}, ordinary) where {T}
   f, d = fb.f, fb.diagonal
   isfinite(f.λ1) && isfinite(f.λ2) &&
-    (d === nothing || (isfinite(d.λ1) && isfinite(d.λ2))) && all(isfinite, x) || return ordinary
+    (d === nothing || (isfinite(d.λ1) && isfinite(d.λ2))) || return ordinary
+  if Base.has_offset_axes(y)
+    all(isfinite, x) || return ordinary
+    prox!(y, fb, x, γ)
+    return _recover_fused_fibers(fb, y, own, T, ordinary)
+  end
+  if !all(isfinite, x)
+    _fused_fiber_identity(fb, T, T(γ)) || d === nothing || return ordinary
+    prox!(y, fb, x, γ)
+    return convert(T, fb(y))
+  end
   prox!(y, fb, x, γ)
+  all(isfinite, y) || return convert(T, fb(y))
   _recover_fused_fibers(fb, y, own, T, ordinary)
 end
 

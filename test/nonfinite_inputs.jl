@@ -3,6 +3,7 @@ module NonfiniteInputsTest
 using Test
 using ProximalBase
 using LinearAlgebra
+using SparseArrays
 using ..TestUtils
 
 const PB = ProximalBase
@@ -74,7 +75,7 @@ end
       result = op(y, f, x, 1.0)
       @test all(isnan, y)
       alias || @test isequal(x, input)
-      op === value_and_prox! && @test result === (f isa SumLargest ? NaN : f isa IndStiefel ? Inf : 0.0)
+      op === value_and_prox! && @test isequal(result, f isa SumLargest ? NaN : f isa IndStiefel ? (isnan(v) ? NaN : Inf) : 0.0)
     end
   end
   f = IndPolyhedron(ones(Float32, 1, 2), -Inf, 1)
@@ -125,7 +126,8 @@ end
     fresh = deepcopy(f)
     value = value_and_prox!(y, f, x, 1.0)
     @test all(isnan, y)
-    @test value === Inf
+    # E2, except the rank indicator, which gives its value at the all-NaN output (O2)
+    @test isequal(value, f isa IndBallRank ? NaN : isnan(v) ? NaN : Inf)
     finite = [2.0 0.0; 0.0 1.0]
     @test isequal(prox(f, finite), prox(fresh, finite))
   end
@@ -180,8 +182,14 @@ end
       # The native identity shortcut needs no decomposition; the wrapper does.
       @test isequal(w, identity ? input : y)
       if op === value_and_prox!
-        @test vg === vf
-        @test vf === T(Inf)
+        # A counting function gives its value at the all-NaN output of a decomposition (O2):
+        # NaN, or zero when it is constant (r ≥ 2, every matrix); IndBallRank(2) copies its input
+        # and gives the value of the copy. The other functions follow E2 (NaN at a NaN entry, Inf
+        # at an infinite one), except the zero level of the nuclear norm, the zero function (E4,
+        # row S6).
+        e2 = g isa NuclearNorm && iszero(g.λ) ? zero(T) : isnan(v) ? T(NaN) : T(Inf)
+        @test isequal(vf, f isa SingularValue && f.f isa IndBallL0 ? (f.f.s >= 2 ? zero(T) : T(NaN)) : e2)
+        @test isequal(vg, g isa IndBallRank ? (identity ? (isinf(v) ? T(Inf) : zero(T)) : T(NaN)) : e2)
       else
         @test vf === y
         @test vg === w
@@ -200,7 +208,7 @@ end
       y = alias ? x : zeros(T, 2, 2)
       result = op(y, f, x, one(T))
       @test isequal(y, fill(T(NaN), 2, 2))
-      op === value_and_prox! && @test result === T(Inf)
+      op === value_and_prox! && @test isequal(result, isnan(v) ? T(NaN) : T(Inf))
       alias || @test isequal(x, input)
       f isa Spectral && @test f.eig === nothing
       f isa LogDetLoss && @test iszero(f.eig.A)
@@ -226,6 +234,40 @@ end
       @test isequal(y, expected)
     end
   end
+end
+
+# FT13: products that ProximalBase does not define, and products of objects built from an
+# iterate, see the iterate as the dense array of its entries and follow IEEE arithmetic (M1).
+@testset "Products outside M1 follow IEEE arithmetic (FT13)" begin
+  s = SparseIterate(2); s[2] = 1.0
+  A = [NaN 1.0; NaN 1.0]
+  for (f, expected) in ((x -> sparse(A) * x, [NaN, NaN]), (x -> Diagonal([NaN, 1.0]) * x, [NaN, 1.0]),
+                        (x -> dot(sparsevec([1, 2], [NaN, 1.0]), x), NaN),
+                        (x -> dot(view([NaN, 1.0, 0.0], [1, 2]), x), NaN), (x -> sum(x .* [NaN, 1.0]), NaN))
+    @test isequal(f(s), f(Vector(s))) && isequal(f(s), expected)
+  end
+  a = AtomIterate(4, [1:2, 3:4]); a[3] = 1.0; activate!(a, 1)      # an active group of zeros
+  for f in (x -> sparse([NaN 0.0 1.0 0.0]) * x, x -> dot(sparsevec([1, 3], [NaN, 1.0], 4), x),
+            x -> transpose(permutedims([NaN 0.0 1.0 0.0])) * x)
+    @test isequal(f(a), f(Vector(a))) && all(isnan, f(a))
+  end
+  # the boundary is the object a call returns: vec of a vector is the iterate itself
+  s0 = SparseIterate([0.0, 1.0]); b0 = AtomIterate([0.0, 1.0], [1:1, 2:2])
+  @test vec(s0) === s0 && vec(b0) === b0
+  @test dot([NaN, 1.0], vec(s0)) == dot([NaN, 1.0], s0) == 1.0
+  @test dot([NaN, 1.0], vec(b0)) == 1.0
+  @test isnan(dot([NaN, 1.0], view(s0, :)))
+  @test isnan(dot([NaN, 1.0], coordinates(s0)))
+  m = SparseIterate(2, 2); m[2, 2] = 1.0
+  @test isnan(dot([NaN, 0.0, 0.0, 1.0], vec(m)))
+  a2 = AtomIterate(4, [1:2, 3:4]); a2[2] = 1.0
+  @test isequal(dot(atom(a2, 1), [NaN, 1.0]), dot([0.0, 1.0], [NaN, 1.0])) && isnan(dot(atom(a2, 1), [NaN, 1.0]))
+  # the owner's view outside M1's item 5: the matrix-matrix mul! and dot with a matrix
+  X = SymmetricSparseIterate(3); X[2, 2] = 1.0; activate!(X, tril_index(3, 3, 1))
+  M = [1.0 2.0 NaN; 2.0 3.0 4.0; NaN 4.0 5.0]
+  B = reshape([Inf, 1.0, 0.0], 3, 1)
+  @test isequal(mul!(zeros(3, 1), matrixview(X), B), mul!(zeros(3, 1), Matrix(X), B))
+  @test isequal(dot(M, matrixview(X)), dot(M, Matrix(X)))
 end
 
 end

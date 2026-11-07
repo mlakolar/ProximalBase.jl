@@ -48,8 +48,14 @@ _checkparams(f::CappedL1, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::CappedL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  λ, w, m = S(f.λ), S(_entry(f.w, i)), min(abs(S(v)), S(f.a))
-  _weighted_value(_weight_coefficient(λ, w) * m, m)
+  w0 = _entry(f.w, i)
+  λ, w, m = S(f.λ), S(w0), min(abs(S(v)), S(f.a))
+  r = _weighted_value(_weight_coefficient(λ, w) * m, m)
+  # A zero weight, or a zero level at a finite weight, leaves the entry free, NaN included; an
+  # infinite weight keeps its constraint. The parameters decide, not their conversions. (Of the
+  # equivalent forms, this one keeps the sparse value loops at their speed.)
+  iszero(f.λ) && return isinf(w0) ? r : zero(S)
+  ifelse(iszero(w0), zero(S), r)
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::CappedL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
@@ -59,7 +65,12 @@ _has_ordinary_value(::Type{<:CappedL1}) = true
 
 Base.@propagate_inbounds function prox_entry(f::CappedL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c = _weight_coefficient(S, γ, f.λ, _entry(f.w, i))
+  # A level that is zero as given and the step Inf make γλ the product Inf⋅0. The coefficient is
+  # then that of the step 1, which is also that of every positive finite step (0 with the sign of the
+  # level, or Inf at an infinite weight). Any other step, NaN and negative ones included, keeps the
+  # arithmetic of the coefficient. The choice depends on the function and the step only, so a loop
+  # over entries keeps its vectorization.
+  c = _weight_coefficient(S, ifelse(iszero(f.λ) & (γ == Inf), one(γ), γ), f.λ, _entry(f.w, i))
   a, t = S(f.a), abs(S(v))
   z1 = min(max(t - c, zero(S)), a)          # the ℓ1 piece |z| ≤ a: soft thresholding, clipped at a
   z2 = max(t, a)                             # the constant piece |z| ≥ a
@@ -113,9 +124,13 @@ _checkparams(f::LogPenalty, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::LogPenalty, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  λ, w, φ = S(f.λ), S(_entry(f.w, i)), log1p(abs(S(v)) / S(f.ε))
+  w0 = _entry(f.w, i)
+  λ, w, φ = S(f.λ), S(w0), log1p(abs(S(v)) / S(f.ε))
   # The ratio can round to zero away from the fixed point.
-  isinf(w) && return isnan(v) ? S(v) : iszero(v) ? zero(S) : S(Inf)
+  isinf(w0) && return isnan(v) ? S(v) : iszero(v) ? zero(S) : S(Inf)
+  # A zero level or weight, or an infinite ε (the zero function on finite arguments), leaves the
+  # entry free, NaN included; the parameters decide, not their conversions.
+  (iszero(f.λ) | iszero(w0) | isinf(f.ε)) && return zero(S)
   _weighted_value(_weight_coefficient(λ, w) * φ, φ)
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::LogPenalty, v::T, i::Integer) where {T<:Real}
@@ -124,22 +139,39 @@ Base.@propagate_inbounds function _value_entry_ordinary(f::LogPenalty, v::T, i::
 end
 _has_ordinary_value(::Type{<:LogPenalty}) = true
 
+# The result at a NaN z, decided by the parameters and not by the rounded coefficient c: an infinite
+# ε makes f the zero function on finite arguments (the identity); a NaN coefficient is the zero
+# level at γ = Inf (0⋅Inf), which is free; an infinite level has the domain {0}, so the map is
+# zero; a NaN entry stays NaN, unless the step is Inf, where the map is constant. (A finite γλw
+# that overflows to Inf is no endpoint.)
+@noinline function _log_penalty_nan(v::S, c::S, t::S, f, γ) where {S}
+  isinf(f.ε) && return v
+  isnan(c) && return iszero(f.λ) ? v : zero(S)
+  isinf(f.λ) && return zero(S)               # an infinite level: the domain is {0}, the map is 0
+  isnan(t) && !(γ == Inf) ? v : zero(S)
+end
+
 Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c = _weight_coefficient(S, γ, f.λ, _entry(f.w, i))
+  w = _entry(f.w, i)
+  c = _weight_coefficient(S, γ, f.λ, w)
   ε, t = S(f.ε), abs(S(v))
+  # a zero level or weight leaves the entry free, an infinite weight fixes it at
+  # zero: both come before any NaN
   iszero(c) && return S(v)
-  isinf(_entry(f.w, i)) && return isnan(v) ? S(v) : zero(S)
+  isinf(w) && return zero(S)
   # the stationary points of c log(1 + z/ε) + (z - t)²/2 on z > 0 are the roots
   # of z² + (ε - t)z + c - εt; the larger is a local minimum. Without real roots
   # the objective increases on [0, ∞)
   d = (t + ε)^2 - 4c
-  d > 0 || return zero(S)
+  d <= 0 && return zero(S)
   r = sqrt(d)
   # the larger root, without cancellation: from the product c - εt of the roots
   # when the smaller one is computed accurately
   z = t >= ε ? (t - ε + r) / 2 : 2 * (c - ε * t) / (t - ε - r)
-  z > 0 || return zero(S)
+  # A NaN d (a NaN entry, a NaN coefficient: the zero level at γ = Inf, 0⋅Inf, or an infinite ε)
+  # is not <= 0 and reaches here as a NaN z, which the helper classifies.
+  z > 0 || return isnan(z) ? _log_penalty_nan(S(v), c, t, f, γ) : zero(S)
   c * log1p(z / ε) + (z - t)^2 / 2 < t^2 / 2 ? sign(S(v)) * z : zero(S)
 end
 
@@ -199,8 +231,13 @@ _checkparams(f::NormLq, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::NormLq, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  λ, w, φ = S(f.λ), S(_entry(f.w, i)), abs(S(v))^S(f.q)
-  _weighted_value(_weight_coefficient(λ, w) * φ, φ)
+  w0 = _entry(f.w, i)
+  λ, w, φ = S(f.λ), S(w0), abs(S(v))^S(f.q)
+  r = _weighted_value(_weight_coefficient(λ, w) * φ, φ)
+  # A zero weight, or a zero level at a finite weight, leaves the entry free, NaN included; an
+  # infinite weight keeps its constraint. The parameters decide, not their conversions. There r
+  # is ±0 or NaN, so only a NaN result needs the test, off the ordinary path.
+  isnan(r) && (iszero(w0) | (iszero(f.λ) & !isinf(w0))) ? zero(S) : r
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::NormLq, v::T, i::Integer) where {T<:Real}
   S = float(T)
@@ -653,6 +690,17 @@ of group IHT with sparsity within the groups. The projection ranks the groups by
 the norm of their `k` largest entries, keeps the `s` best, and within each the
 `k` largest entries (exactly `k` when there are ties, the earlier entries
 first).
+
+A NaN entry is undefined (E2 in the numerical contract). Let `K` be the number of
+groups. For `s = 0` or `k = 0` the projection is zero on every group whatever the
+argument, and its fused value is `0`. For `0 < s < K`, which groups are kept
+depends on every grouped entry, so a NaN in any group makes every grouped output
+NaN; on an [`AtomIterate`](@ref) all its groups are then active. For `s ≥ K`, a
+NaN in a group with more than `k` entries makes that group NaN, and the other
+groups are copied. Indices in no group are copied. [`value_and_prox!`](@ref)
+returns NaN when a NaN output is made, and `0` otherwise. The value at an
+argument with a NaN in a group is NaN unless `s ≥ K` and the group has at most
+`k` entries.
 """
 struct IndBallGroupL0{G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractFunction
   s::Int
@@ -680,82 +728,147 @@ _checkgroups(f::IndBallGroupL0, x::AbstractArray) =
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndBallGroupL0, y::AbstractArray, x::AbstractArray) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkgroups(f, x); true)
 
-_samegroups(f::IndBallGroupL0, x::AtomIterate) = _samelayout(f, x)
+# the functions whose groups an AtomIterate can be compared with
+const _GroupFunction = Union{AbstractGroupPenalty, IndBallGroupL0}
+samegroups(x::AtomIterate, f::_GroupFunction) = _samelayout(f, x)
+samegroups(f::_GroupFunction, x::AtomIterate) = _samelayout(f, x)
 
-# whether the entries of x in G are all zero, and, if not, whether there are at
-# most k of them
-function _group_status(x::AbstractArray, G, k::Int)
-  _allzero(x, G) && return (true, true)
-  length(G) <= k && return (false, true)
-  c = 0
-  @inbounds for i in G
-    c += !iszero(x[i])
+# Whether the value depends on the entries of the group G (E2): every group does
+# when fewer than all groups may be nonzero (s = 0 included), and a group with
+# more than k entries does through its count. Otherwise the set holds every
+# vector in G, NaN included.
+_group_l0_depends(f::IndBallGroupL0, G) = f.s < length(f.groups) || length(G) > f.k
+
+# whether the entries of x in G are all zero, whether there are at most k of
+# them, and, where the value depends on G, whether one is NaN. The NaN test reads
+# the whole group in one vectorized pass, a sum of magnitudes that is zero
+# exactly for a zero group and NaN exactly for a NaN entry.
+function _group_status(x::AbstractArray, G, k::Int, depends::Bool)
+  if !depends
+    _allzero(x, G) && return (true, true, false)
+    length(G) <= k && return (false, true, false)
   end
-  return (false, c <= k)
+  if length(G) <= k
+    a = _sumabs(x, G)
+    return (iszero(a), true, isnan(a))
+  end
+  c, nan = 0, false
+  @inbounds @simd for i in G
+    v = x[i]
+    c += !iszero(v)
+    nan |= v != v
+  end
+  return (iszero(c), c <= k, nan)
 end
 
 function (f::IndBallGroupL0)(x::AbstractArray)
   _checkreal(f, x)
   _checkgroups(f, x)
-  nz, ok = 0, true
+  nz, ok, nan = 0, true, false
   for G in f.groups
-    z, fits = _group_status(x, G, f.k)
+    z, fits, n = _group_status(x, G, f.k, _group_l0_depends(f, G))
     nz += !z
     ok &= fits
+    nan |= n
   end
-  _ind(ok && nz <= f.s, _valtype(x))
+  nan ? _valtype(x)(NaN) : _ind(ok && nz <= f.s, _valtype(x))
 end
 
 function (f::IndBallGroupL0)(x::AtomIterate)
   _checkreal(f, x)
-  _samegroups(f, x) || return invoke(f, Tuple{AbstractArray}, x)
-  nz, ok = 0, true
+  _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
+  nz, ok, nan = 0, true, false
   for a in 1:x.nactive
-    z, fits = _group_status(x.storage, f.groups[x.active[a]], f.k)
+    G = f.groups[x.active[a]]
+    z, fits, n = _group_status(x.storage, G, f.k, _group_l0_depends(f, G))
     nz += !z
     ok &= fits
+    nan |= n
   end
-  _ind(ok && nz <= f.s, _valtype(x))
+  nan ? _valtype(x)(NaN) : _ind(ok && nz <= f.s, _valtype(x))
 end
 
 function prox!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray, ::Real)
   x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
-  y === x || copyto!(y, x)
-  _keep_largest_groups!(y, f, eachindex(f.groups))
+  _group_l0_dense!(y, f, x)
+  y
 end
 
 function prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
   _checkwrite(prox!, f, y, x)
-  _samegroups(f, y) && _samegroups(f, x) ||
+  _samelayout(f, y) && _samelayout(f, x) ||
     return invoke(prox!, Tuple{AbstractArray, IndBallGroupL0, AbstractArray, Real}, y, f, x, γ)
+  _group_l0_prox!(y, f, x)
+  y
+end
+
+# The value at the output (O2): NaN where the projection made a NaN output that
+# the value depends on, and zero otherwise, since the output is in the set. The
+# shortcut of the indicators, zero, would be a false feasibility.
+function _value_and_prox_body!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray, γ::Real)
+  _checkwrite(value_and_prox!, f, y, x)
+  T = _valtype(y)
+  _group_l0_dense!(y, f, x) == 0 ? zero(T) : T(NaN)
+end
+function _value_and_prox_body!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
+  _checkwrite(value_and_prox!, f, y, x)
+  _samelayout(f, y) && _samelayout(f, x) ||
+    return invoke(_value_and_prox_body!, Tuple{AbstractArray, IndBallGroupL0, AbstractArray, Real}, y, f, x, γ)
+  T = _valtype(y)
+  _group_l0_prox!(y, f, x) == 0 ? zero(T) : T(NaN)
+end
+
+# The projection into y, with the status of _keep_largest_groups!.
+function _group_l0_dense!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray)
+  y === x || copyto!(y, x)
+  _keep_largest_groups!(y, f, eachindex(f.groups))
+end
+# On an iterate with the groups of f, only the active groups are visited. When
+# every grouped output is NaN, the inactive groups are too, so all are activated.
+function _group_l0_prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate)
   copyto!(y, x)
-  _keep_largest_groups!(y.storage, f, view(y.active, 1:y.nactive))
+  status = _keep_largest_groups!(y.storage, f, view(y.active, 1:y.nactive))
+  status == 2 && fill!(y, NaN)
   dropzeros!(y)
+  status
 end
 
-# the magnitudes of entries of y in G, in w[1:length(G)]
+# the magnitudes of entries of y in G, in w[1:length(G)], and whether one is NaN
 function _group_magnitudes!(w::AbstractVector{T}, y::AbstractArray, G) where {T}
+  nan = false
   @inbounds for (t, i) in enumerate(G)
-    w[t] = abs(convert(T, y[i]))
+    a = abs(convert(T, y[i]))
+    w[t] = a
+    nan |= isnan(a)
   end
-  view(w, 1:length(G))
+  view(w, 1:length(G)), nan
 end
 
-# the norm of the k largest magnitudes of entries of y in G
+# the norm of the k largest magnitudes of entries of y in G; NaN exactly when an
+# entry is NaN, which is told before the selection that it would mislead
 function _top_norm(f::IndBallGroupL0, y::AbstractArray, G, ::Type{T}) where {T}
   length(G) <= f.k && return convert(T, _group_norm2(y, G))
   f.k == 0 && return zero(T)
-  v = _group_magnitudes!(_buffer!(f.entries, T, length(G)), y, G)
+  v, nan = _group_magnitudes!(_buffer!(f.entries, T, length(G)), y, G)
+  nan && return T(NaN)
   _kth_largest!(v, f.k)
   return norm(view(v, 1:f.k))
 end
 
 # zero all but the k entries of largest magnitude of y in G, the earlier first
-# among ties
+# among ties. Which entries are kept depends on every entry, so a NaN makes the
+# group NaN (E2), unless k = 0 zeroes it whatever its entries (E4 first). Returns
+# whether a NaN did.
 function _keep_largest_entries!(y::AbstractArray, f::IndBallGroupL0, G, ::Type{T}) where {T}
-  length(G) <= f.k && return y
-  v = _group_magnitudes!(_buffer!(f.entries, T, length(G)), y, G)
+  length(G) <= f.k && return false
+  v, nan = _group_magnitudes!(_buffer!(f.entries, T, length(G)), y, G)
+  if nan && f.k != 0
+    @inbounds for i in G
+      y[i] = T(NaN)
+    end
+    return true
+  end
   τ = f.k == 0 ? T(Inf) : _kth_largest!(v, f.k)
   above = 0
   @inbounds for i in G
@@ -772,25 +885,37 @@ function _keep_largest_entries!(y::AbstractArray, f::IndBallGroupL0, G, ::Type{T
       y[i] = zero(eltype(y))
     end
   end
-  return y
+  return false
 end
 
 # zero all but the s groups of largest norm among the groups ks of y, and with
 # a bound k on the entries, all but the k largest entries of each group kept;
-# the groups are ranked by the norm of those entries
+# the groups are ranked by the norm of those entries. Returns 0, or 1 when a NaN
+# made some groups NaN, or 2 when it made every grouped output NaN.
 function _keep_largest_groups!(y::AbstractArray, f::IndBallGroupL0, ks)
   T = float(eltype(y))
   n = length(ks)
   buf = _buffer!(f.scratch, T, 2n)
   nz = 0
+  nan = false
   @inbounds for (j, k) in enumerate(ks)
     nrm = _top_norm(f, y, f.groups[k], T)
     buf[j] = nrm
     nz += !iszero(nrm) || !_allzero(y, f.groups[k])
+    nan |= isnan(nrm)
+  end
+  # s = 0 and k = 0 zero every group below, whatever the entries (E4 first).
+  # Otherwise, with fewer places than groups, which groups are kept depends on
+  # every grouped entry, so a NaN norm, which only a NaN entry gives, makes every
+  # grouped output NaN (E2). The groups of an iterate that ks omits are zero.
+  if nan && 0 < f.s < length(f.groups) && f.k != 0
+    @inbounds for k in ks, i in f.groups[k]
+      y[i] = T(NaN)
+    end
+    return 2
   end
   if nz <= f.s
-    _keep_entries_of_groups!(y, f, ks, T)
-    return y
+    return _keep_entries_of_groups!(y, f, ks, T) ? 1 : 0
   end
   # the s-th largest norm, from a copy that the selection reorders
   @inbounds for j in 1:n
@@ -816,13 +941,163 @@ function _keep_largest_groups!(y::AbstractArray, f::IndBallGroupL0, ks)
       end
     end
   end
-  y
+  return 0
 end
 
 function _keep_entries_of_groups!(y::AbstractArray, f::IndBallGroupL0, ks, ::Type{T}) where {T}
-  f.k == typemax(Int) && return y
+  f.k == typemax(Int) && return false
+  nan = false
   for k in ks
-    _keep_largest_entries!(y, f, f.groups[k], T)
+    nan |= _keep_largest_entries!(y, f, f.groups[k], T)
   end
-  return y
+  return nan
+end
+
+####################################
+#  values as a significand and an exponent
+####################################
+
+# The scaled-value mechanism (`_sep_value_parts`, separable.jl): the terms λ w φ in parts, with
+# φ = min(|v|, a), log(1 + |v|/ε) (in parts where |v|/ε leaves the range) and |v|^q. An infinite
+# weight at a nonzero entry is an infinite term, and the value is kept.
+_has_value_parts(::Type{<:Union{CappedL1, LogPenalty, NormLq}}) = true
+function _value_parts(f::Union{CappedL1, LogPenalty, NormLq}, x::AbstractArray, v)
+  (iszero(f.λ) || !isfinite(f.λ)) && return nothing
+  shape = f isa CappedL1 ? f.a : f isa LogPenalty ? f.ε : f.q
+  _sep_value_parts(f, x, _sep_parts_type(x, f.λ, shape, f.w), f.λ)
+end
+_parameter_alias(f::Union{CappedL1, LogPenalty, NormLq}, out) = _mightalias_parameter(out, f.w)
+# Exact-zero protection: a proof per operation where a term can round into the subnormal range of the
+# value type T, each such rounding losing less than δ/2. The levels are converted to T, where they
+# must keep their range (normal or zero). The ordinary term is (λ w) φ with the weight converted to T
+# first, so weights of a wider type than T have no bound (the parts form λ w in the wider type).
+# - CappedL1: λ w loses less than δ/2 where it underflows, and φ = min(|v|, a) < 2^e(a) multiplies
+#   that loss; the product with φ loses less than δ/2. Per term less than (2^e(a) + 1) δ/2.
+# - LogPenalty: q = |v|/ε loses less than δ/2 where it underflows, and φ = log1p(q) passes that on,
+#   which λ w < 2^(e(λ) + e(w)) multiplies; λ w loses less than δ/2 where it underflows, which
+#   φ ≤ log(floatmax/ε) + 1 < log(floatmax) + |log floatmin| + 1 < 2^(L + 1) multiplies (ε is normal
+#   in T; L = _log_exponent(T)); the product loses less than δ/2. When λ times the smallest nonzero
+#   weight is a normal number, λ w never underflows, and the per-term loss is below
+#   (2^(e(λ) + e(w)) + 1) δ/2; otherwise below (2^(L+1) + 2^(e(λ) + e(w)) + 1) δ/2.
+# - NormLq: φ = |v|^q >= |v| is never zero for v ≠ 0, and where φ is subnormal its rounding loses
+#   less than δ/2 <= φ, so the true φ is below twice the rounded one; a coefficient λ w that can
+#   underflow (λ times the smallest nonzero weight below floatmin) is multiplied by an unbounded φ:
+#   no bound. Otherwise a zero term is the product rounded to zero, below δ/2, or 2 δ/2 for a
+#   subnormal φ.
+@inline _weights_fit(::Type{T}, w) where {T} = w === nothing || promote_type(T, float(eltype(w))) === T
+function _zero_value_exponent(f::CappedL1, x::AbstractArray)
+  T = _valtype(x)
+  iszero(f.λ) && return _EXACT_ZERO
+  (_level_fits(T, f.λ) && _level_fits(T, f.a) && _weights_fit(T, f.w)) || return nothing
+  _underflow_exponent(T, length(x), f.w === nothing ? 0 : 1 + max(0, _upper_exponent(convert(T, f.a))))
+end
+function _zero_value_exponent(f::LogPenalty, x::AbstractArray)
+  T = _valtype(x)
+  iszero(f.λ) && return _EXACT_ZERO
+  (_level_fits(T, f.λ) && _level_fits(T, f.ε) && _weights_fit(T, f.w)) || return nothing
+  eλ = _upper_exponent(convert(T, f.λ))
+  f.w === nothing && return _underflow_exponent(T, length(x), max(0, eλ))
+  we = _weight_exponents(f.w)
+  we === nothing && return nothing
+  ec = eλ + we[2]
+  # λ is normal in T, so λ >= 2^(eλ - 1), and the smallest nonzero weight is at least 2^we[1]
+  eλ - 1 + we[1] > exponent(floatmin(T)) && return _underflow_exponent(T, length(x), max(0, ec))
+  _underflow_exponent(T, length(x), 1 + max(_log_exponent(T) + 1, ec))
+end
+function _zero_value_exponent(f::NormLq, x::AbstractArray)
+  T = _valtype(x)
+  iszero(f.λ) && return _EXACT_ZERO
+  (_level_fits(T, f.λ) && _weights_fit(T, f.w)) || return nothing
+  f.w === nothing && return _underflow_exponent(T, length(x), 1)
+  we = _weight_exponents(f.w)
+  (we !== nothing && _upper_exponent(convert(T, f.λ)) - 1 + we[1] > exponent(floatmin(T))) || return nothing
+  _underflow_exponent(T, length(x), 1)
+end
+# A NaN entry of CappedL1, and a NaN or infinite entry of NormLq: no term where a zero weight, or
+# a zero level at a finite weight, leaves the entry free (as in value_entry), and otherwise no
+# recovery. The raw parameters decide; value_entry's value cannot enter the sum, which already
+# includes the level applied last, and a q that converts to zero makes it finite.
+Base.@propagate_inbounds function _nonfinite_entry_term(acc, f::Union{CappedL1, NormLq}, i)
+  w0 = _entry(f.w, i)
+  (iszero(w0) | (iszero(f.λ) & !isinf(w0))) ? acc : nothing
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CappedL1, v, i) where {R}
+  u = convert(R, v)
+  isnan(u) && return _nonfinite_entry_term(acc, f, i)
+  _weighted_term_add(acc, _entry(f.w, i), frexp(min(abs(u), convert(R, f.a))))
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::LogPenalty, v, i) where {R}
+  # a zero weight or an infinite ε leaves the entry free, NaN included, as in value_entry
+  (iszero(_entry(f.w, i)) || isinf(f.ε)) && return acc
+  t, ε = abs(convert(R, v)), convert(R, f.ε)
+  isfinite(t) || return nothing
+  iszero(t) && return acc
+  q = t / ε
+  φ = if isinf(q)
+    frexp(log(t) - log(ε))
+  elseif q < floatmin(R)
+    mt, et = frexp(t)
+    mε, eε = frexp(ε)
+    _parts(mt / mε, et - eε)
+  else
+    frexp(log1p(q))
+  end
+  _weighted_term_add(acc, _entry(f.w, i), φ)
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::NormLq, v, i) where {R}
+  t = abs(convert(R, v))
+  isfinite(t) || return _nonfinite_entry_term(acc, f, i)
+  _weighted_term_add(acc, _entry(f.w, i), frexp(t^convert(R, f.q)))
+end
+
+# The group penalties: Σₖ pₖ(‖x[Gₖ]‖₂) with the norm of a group and the level λwₖ as parts, and the
+# pieces of the MCP and SCAD terms (separable.jl). A group with an infinite coefficient and a
+# nonzero entry is an infinite term, and the value is kept; a zero level is exact.
+_has_value_parts(::Type{<:_RadialGroupPenalty}) = true
+# Exact-zero protection: the group norms are accurate (no square is rounded into the subnormal range
+# before the root) and zero only for a zero group, and the MCP or SCAD terms of the groups lose as for
+# the scalar penalties (separable.jl); a term is at most λ²wₖ²(a + 1)/2, so a coefficient λwₖ that
+# underflows leaves only a negligible term. That cap needs a finite a: with a = Inf the term is
+# λwₖ t with no cap, and a coefficient λwₖ that underflows is multiplied by an unbounded group norm
+# t, so an infinite a has no bound (the scalar penalties have a single level λ, which fits T).
+_zero_value_exponent(f::_RadialGroupPenalty, x::AbstractArray) = iszero(f.λ0) ? _EXACT_ZERO :
+  _level_fits(_valtype(x), f.a) && isfinite(f.a) && abs(convert(_valtype(x), f.a)) >= floatmin(_valtype(x)) ?
+    _underflow_exponent(_valtype(x), length(f.groups) + 1, _mcp_scad_amp(convert(_valtype(x), f.a))) : nothing
+function _value_parts(f::_RadialGroupPenalty, x::AbstractArray, v)
+  (iszero(f.λ0) || !isfinite(f.λ0) || isnan(f.a)) && return nothing
+  R = promote_type(_valtype(x), float(typeof(f.λ0)))
+  acc = _expsum_start(R)
+  for k in eachindex(f.groups)
+    G, w = f.groups[k], f.w[k]
+    iszero(w) && continue                       # a zero weight leaves the group free, NaN included
+    t = _group_norm_parts(R, x, G)
+    t === nothing && return nothing
+    iszero(t[1]) && continue
+    isfinite(w) || return nothing
+    λ = _parts_product(_rparts(R, f.λ0), _rparts(R, w))
+    acc = f isa GroupMCP ? _mcp_terms(acc, λ, f.a, t) : _scad_terms(acc, λ, f.a, t)
+    acc === nothing && return nothing
+  end
+  _expsum_pair(R, acc)
+end
+# ‖x[G]‖₂ as parts, with the entries scaled by the largest before squaring; `nothing` for a NaN
+# entry
+function _group_norm_parts(::Type{R}, x::AbstractArray, G) where {R}
+  m = zero(R)
+  inf = false
+  @inbounds for i in G
+    a = abs(convert(R, x[i]))
+    isnan(a) && return nothing
+    isinf(a) ? (inf = true) : (m = max(m, a))
+  end
+  # an infinite entry and no NaN: an infinite norm, as `_magnitude_parts` marks it, so that the MCP
+  # and SCAD terms take their cap (E3) and a = Inf gives an infinite term
+  inf && return (one(R) / 2, typemax(Int) ÷ 4)
+  iszero(m) && return (m, 0)
+  e = exponent(m)
+  s = zero(R)
+  @inbounds for i in G
+    s += abs2(ldexp(convert(R, x[i]), -e))
+  end
+  _parts(sqrt(s), e)
 end

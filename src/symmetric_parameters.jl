@@ -585,11 +585,20 @@ end
   w = _OwnerMatrix(y)
   x.x === y ? op(w, f, w, γ) : op(w, f, x, γ)
 end
-# the ℓ0 ball counts the coordinates of the lower triangle: an owner argument is a Symmetric one
+# The ℓ0 ball counts the coordinates of the lower triangle, a mirrored pair once: every point reaches it as the
+# symmetric matrix that it represents, which is the point itself, or its symmetric part, as a Symmetric one
 @inline function _owner_call(op::O, y, f::IndBallL0, x::SymmetricSparseIterate, γ) where {O}
   w = _OwnerMatrix(y)
   x === y ? op(w, f, Symmetric(w, :L), γ) : op(w, f, Symmetric(matrixview(x), :L), γ)
 end
+@inline function _owner_call(op::O, y, f::IndBallL0, x::SymmetricMatrixView, γ) where {O}
+  w = _OwnerMatrix(y)
+  x.x === y ? op(w, f, Symmetric(w, :L), γ) : op(w, f, Symmetric(x, :L), γ)
+end
+@inline _owner_call(op::O, y, f::IndBallL0, x::AbstractMatrix, γ) where {O} =
+  op(_OwnerMatrix(y), f, _l0_point(_symmetric_argument(y, x)), γ)
+@inline _l0_point(x::AbstractMatrix) = Symmetric(x, :L)
+@inline _l0_point(x::Symmetric) = x
 
 # The owner of a symmetric matrix inside code written for matrices. `_ow(y)` is the matrix that a broadcast
 # writes through (each coordinate once, from its lower position) and `_vw(x)` the read-only matrix of an

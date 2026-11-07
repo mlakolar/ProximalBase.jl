@@ -165,4 +165,28 @@ end
   @test (@allocated value_and_prox!(y, f, y, T(0.5))) == 0
 end
 
+@testset "IndBallL0 at every kind of point, $T" for T in (Float32, Float64)
+  A = T[0 3; 3 0]
+  for f in (IndBallL0(1), IndBallL0(1; diagonal = false))
+    for kind in (:owner, :inplace, :view, :dense, :symmetric)
+      y = SymmetricSparseIterate(A)
+      x = kind == :owner ? SymmetricSparseIterate(A) : kind == :inplace ? y : kind == :view ? matrixview(y) :
+          kind == :dense ? A : Symmetric(A, :L)
+      @test Matrix(prox!(y, f, x, one(T))) == A
+      y = SymmetricSparseIterate(A)
+      x = kind == :owner ? SymmetricSparseIterate(A) : kind == :inplace ? y : kind == :view ? matrixview(y) :
+          kind == :dense ? A : Symmetric(A, :L)
+      @test value_and_prox!(y, f, x, one(T)) == 0
+      @test Matrix(y) == A
+    end
+  end
+  # a ranking in which the off-diagonal counts √2, over a point that is not symmetric
+  B = T[1 2 0; 2 3 0.5; 0 0.5 1.2]
+  ref = Matrix(prox!(SymmetricSparseIterate(T, 3), IndBallL0(2), SymmetricSparseIterate(B), one(T)))
+  y = SymmetricSparseIterate(T, 3)
+  @test Matrix(prox!(y, IndBallL0(2), B, one(T))) == ref
+  y = SymmetricSparseIterate(T, 3)
+  @test Matrix(prox!(y, IndBallL0(2), B + T[0 0.5 0; -0.5 0 0; 0 0 0], one(T))) == ref
+end
+
 end

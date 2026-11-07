@@ -177,6 +177,16 @@ end
 # coefficient at an infinite entry); NaN arguments propagate
 @inline _weighted_value(p, φ) = ifelse(isnan(p) & !isnan(φ), zero(p), p)
 
+# Keep the power outside the floating-point range until the final rounding.
+@inline function _scaled_product(w::T, v::T, k::Integer) where {T<:AbstractFloat}
+  (iszero(w) || iszero(v)) && return w * v
+  (isfinite(w) && isfinite(v)) || return w * v
+  k = Int(k)
+  mw, ew = _frexp(w)
+  mv, ev = _frexp(abs(v))
+  copysign(ldexp(_positive_product(mw, mv, one(T)), ew + ev + k), v)
+end
+
 # Scale by a power of two. Base's ldexp(::BigFloat, n) is the exact mpfr_mul_2si only for a Clong n; any other
 # Integer takes x * exp2(BigFloat(n)), which overflows when 2^n alone leaves the range although x·2^n is
 # representable, and rounds n itself at a low precision. A C long is 32 bits on Windows, where an Int shift is not a Clong.
@@ -184,8 +194,10 @@ end
 @inline _scale_pow2(x, e::Integer) = ldexp(x, e)
 @inline _scale_pow2(x::BigFloat, e::Integer) = ldexp(x, Clong(clamp(e, typemin(Clong), typemax(Clong))))
 
-# Keep the power outside the floating-point range until the final rounding.
-@inline function _scaled_product(w::T, v::T, k::Integer) where {T<:AbstractFloat}
+# The exact siblings of _scaled_product (two factors) and _power_factors: the same bodies with _scale_pow2. The
+# originals stay as they are because their callers pair them with raw ldexp shifts of an Int, so converting one
+# side alone would mix an exact scale with a rounded one on Windows; a family of callers is converted at a time.
+@inline function _scaled_product_exact(w::T, v::T, k::Integer) where {T<:AbstractFloat}
   (iszero(w) || iszero(v)) && return w * v
   (isfinite(w) && isfinite(v)) || return w * v
   k = Int(k)
@@ -218,7 +230,7 @@ end
   ma, ea = _frexp(a)
   mb, eb = _frexp(b)
   mc, ec = _frexp(c)
-  _scale_pow2((ma * mb) * mc, ea + eb + ec + k)
+  ldexp((ma * mb) * mc, ea + eb + ec + k)
 end
 
 @inline function _compensated_add(s, e, v)
@@ -416,6 +428,11 @@ _tol(::Type) = sqrt(eps(Float64))
 # Powers of two keep the units of a comparison without rounding the scale.
 # Split a power that is outside the range of a single floating-point factor.
 @inline function _power_factors(::Type{T}, k::Integer) where {T<:AbstractFloat}
+  k = Int(k)
+  k1 = clamp(k, exponent(nextfloat(zero(T))), exponent(floatmax(T)))
+  (ldexp(one(T), k1), ldexp(one(T), k - k1))
+end
+@inline function _power_factors_exact(::Type{T}, k::Integer) where {T<:AbstractFloat}
   k = Int(k)
   k1 = clamp(k, exponent(nextfloat(zero(T))), exponent(floatmax(T)))
   (_scale_pow2(one(T), k1), _scale_pow2(one(T), k - k1))

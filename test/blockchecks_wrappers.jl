@@ -444,4 +444,44 @@ end
   @test value == value_and_prox!(zeros(1), SqrNormL2(2.0), [3.0], 0.5) + 2.0
 end
 
+# The wrappers reach the fused oracle of the box. Every reference below is built from the definition
+# of the wrapper and the explicit formulas for g = f* + δ_box, f = ElasticNet(λ1, λ2): f*(y) = Σ max(|yᵢ| - λ1, 0)² / (2λ2),
+# prox_{γg}(v) = clamp(v - γ prox_{f/γ}(v/γ)) with prox_{f/γ}(w) = soft(w, λ1/γ) / (1 + λ2/γ), and
+# g*(s) = Σ s yᵢ - f*(yᵢ) at yᵢ = clamp(sign(s)(λ1 + λ2|s|)).
+@testset "Wrappers of the conjugate of an elastic net on a box" begin
+  λ1, λ2 = 0.5, 0.7
+  l, u = [-1.0, -2.0, -0.5, -3.0], [1.0, 2.0, 0.5, 3.0]
+  soft(w, t) = sign(w) * max(abs(w) - t, 0)
+  fstar(y) = sum(max.(abs.(y) .- λ1, 0) .^ 2) / (2λ2)
+  gprox(v, γ) = clamp.(v .- γ .* soft.(v ./ γ, λ1 / γ) ./ (1 + λ2 / γ), l, u)
+  function gconj(s)
+    yc = clamp.(sign.(s) .* (λ1 .+ λ2 .* abs.(s)), l, u)
+    sum(s .* yc .- max.(abs.(yc) .- λ1, 0) .^ 2 ./ (2λ2))
+  end
+  g = Constrained(Conjugate(ElasticNet(λ1, λ2)), IndBox(l, u))
+  c, b, ρ, α, a, μ = [0.3, -0.2, 0.4, 0.1], [0.5, 0.25, -1.5, 2.0], 0.8, 2.5, 2.0, 0.4
+  # the inputs clamp some coordinates and leave others inside the box
+  for x in ([3.0, -0.3, 2.0, -5.0], [0.2, 4.0, -0.1, 1.0], [-6.0, 0.7, 0.3, 5.5]), γ in (0.6, 1.7)
+    cases = (
+      ("Scaled", Scaled(g, α), gprox(x, γ * α), y -> α * fstar(y)),
+      ("Translate", Translate(g, b), b .+ gprox(x .- b, γ), y -> fstar(y .- b)),
+      ("Tilt", Tilt(g, c, 0.25), gprox(x .- γ .* c, γ), y -> fstar(y) + sum(c .* y) + 0.25),
+      ("Regularize", Regularize(g, ρ, c), gprox((x .+ γ * ρ .* c) ./ (1 + γ * ρ), γ / (1 + γ * ρ)),
+       y -> fstar(y) + ρ / 2 * sum((y .- c) .^ 2)),
+      ("Precompose", Precompose(g, a), gprox(a .* x, γ * a^2) ./ a, y -> fstar(a .* y)),
+      ("MoreauEnvelope", MoreauEnvelope(g, μ), x .+ γ / (μ + γ) .* (gprox(x, μ + γ) .- x),
+       y -> (p = gprox(y, μ); fstar(p) + sum((y .- p) .^ 2) / (2μ))),
+      ("Conjugate", Conjugate(g), x .- γ .* gprox(x ./ γ, 1 / γ), gconj))
+    for (name, h, point, value) in cases, alias in (false, true)
+      @testset "$name, alias = $alias" begin
+        y = alias ? copy(x) : fill(-77.0, 4)
+        v = value_and_prox!(y, h, alias ? y : x, γ)
+        @test y ≈ point rtol = 1e-12 atol = 1e-12
+        @test v ≈ value(point) rtol = 1e-11 atol = 1e-12
+        @test v ≈ value(y) rtol = 1e-11 atol = 1e-12
+      end
+    end
+  end
+end
+
 end

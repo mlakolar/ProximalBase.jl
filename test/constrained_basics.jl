@@ -291,6 +291,18 @@ function Base.similar(bc::Broadcast.Broadcasted{Broadcast.ArrayStyle{OffsetVec}}
   OffsetVec(Vector{T}(undef, length(ax)), first(ax) - 1)
 end
 
+# A unit range of a type that is not Base's, which counts the reads of its elements (the storage a selector like it
+# could forward to is unknown).
+struct CountingRange <: AbstractUnitRange{Int}
+  data::Vector{Int}
+  reads::Base.RefValue{Int}
+end
+Base.first(::CountingRange) = 1
+Base.last(::CountingRange) = 2
+Base.length(::CountingRange) = 2
+Base.size(::CountingRange) = (2,)
+Base.getindex(r::CountingRange, i::Int) = (r.reads[] += 1; r.data[i])
+
 a_value_and_prox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
 a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 
@@ -601,6 +613,9 @@ end
       ("colon view", () -> view(zeros(T, 4, 2), :, 1), vx, dense(() -> view(zeros(T, 4, 2), :, 1), vx), false),
       ("scalar-index view", () -> view(zeros(T, 2, 4), 1, :), vx, dense(() -> view(zeros(T, 2, 4), 1, :), vx), false),
       ("view of a reshape", () -> view(reshape(zeros(T, 8), 2, 4), 1:2, 2:3), mx, dense(() -> view(reshape(zeros(T, 8), 2, 4), 1:2, 2:3), mx), false),
+      ("UInt8-range view", () -> view(zeros(T, 7), UInt8(2):UInt8(5)), vx, dense(() -> view(zeros(T, 7), UInt8(2):UInt8(5)), vx), false),
+      ("Int8 step-range view", () -> view(zeros(T, 9), Int8(1):Int8(2):Int8(7)), vx, dense(() -> view(zeros(T, 9), Int8(1):Int8(2):Int8(7)), vx), false),
+      ("OneTo view", () -> view(zeros(T, 6), Base.OneTo(4)), vx, dense(() -> view(zeros(T, 6), Base.OneTo(4)), vx), false),
       ("reshape", () -> reshape(zeros(T, 4), 2, 2), mx, dense(() -> reshape(zeros(T, 4), 2, 2), mx), false),
       ("SparseIterate, Vector x", () -> SparseIterate(T, 4), vx, () -> SparseIterate(sparse(vx)), false),
       ("SparseIterate, SparseIterate x", () -> SparseIterate(T, 4), SparseIterate(sparse(vx)), () -> SparseIterate(sparse(vx)), false),
@@ -838,6 +853,85 @@ end
       f = ElasticNet{S, W}(l..., wv)
       @test PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5)
     end
+  end
+  @testset "selector forms of a view" begin
+    A, v = zeros(6, 6), zeros(10)
+    for V in (A, v, reshape(v, 2, 5), view(A, :, :))
+      @test PB._elastic_host(V)
+    end
+    for V in (view(A, :, 2:3), view(A, 1, :), view(A, 1:2:5), view(A, big(1), :), view(A, Colon()), view(v, UInt8(1):UInt8(3)),
+              view(v, Int8(1):Int8(2):Int8(7)), view(v, Base.OneTo(3)), view(reshape(v, 2, 5), :, 2:3), view(reshape(v, 2, 5), 1, :),
+              view(A, 2:3, Base.Slice(1:2)), view(A, 1:0), view(A, CartesianIndex(1, 2)))
+      @test PB._elastic_host(V)
+    end
+    for V in (view(A, big(1):big(2)), view(A, 1:2, [1, 2]), view(v, [4, 1, 2]), view(v, StepRangeLen(2, 0, 3)),
+              SubArray(view(v, 2:5), (1:3,)), reshape(view(v, 2:5), 2, 2), A',
+              view(v, CountingRange([1, 2], Ref(0))), view(A, CountingRange([1, 2], Ref(0)), 1:2))
+      @test !PB._elastic_host(V)
+    end
+  end
+  @testset "custom unit ranges are never read" begin
+    reads = Ref(0)
+    r = CountingRange([1, 2], reads)
+    sel(val) = view(fill(val, 3, 3), r, 1:2)
+    box = IndBox(-2.0, 2.0)
+    base = Constrained(Conjugate(ElasticNet(1.0, 0.5)), box)
+    x2 = fill(5.0, 2, 2)
+    cases = (("output", base, () -> sel(-77.0), x2, 0.5),
+             ("input", base, () -> fill(-77.0, 2, 2), sel(5.0), 0.5),
+             ("lower", Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(sel(-2.0), 2.0)), () -> fill(-77.0, 2, 2), x2, 0.5),
+             ("upper", Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, sel(2.0))), () -> fill(-77.0, 2, 2), x2, 0.5),
+             ("both bounds", Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(sel(-2.0), sel(2.0))), () -> fill(-77.0, 2, 2), x2, 0.5),
+             ("step", base, () -> fill(-77.0, 2, 2), x2, sel(0.5)),
+             ("weights", Constrained(Conjugate(ElasticNet(1.0, 0.5, sel(1.0))), box), () -> fill(-77.0, 2, 2), x2, 0.5),
+             ("weights, λ2 = 0", Constrained(Conjugate(ElasticNet(1.0, 0.0, sel(1.0))), box), () -> fill(-77.0, 2, 2), x2, 0.5))
+    for (role, c, mkdest, x, γ) in cases
+      @testset "$role" begin
+        y = mkdest()
+        before = copy(parent(y))
+        reads[] = 0
+        @test refused_value(value_and_prox!, y, c, x, γ)
+        @test reads[] == 0 && parent(y) == before
+        if γ isa Real
+          s = SeparableSum(SqrNormL2(2.0), c)
+          dest = ([7.0], mkdest())
+          reads[] = 0
+          @test refused_value(value_and_prox!, dest, s, ([3.0], x), γ)
+          @test reads[] == 0 && dest[1] == [7.0] && parent(dest[2]) == before
+        end
+        if role == "output"
+          z = sel(-77.0); copyto!(z, x); zb = copy(parent(z)); reads[] = 0
+          @test refused_value(value_and_prox!, z, c, z, γ)
+          @test reads[] == 0 && parent(z) == zb
+        end
+      end
+    end
+  end
+  @testset "level and weight declarations that the value path cannot take" begin
+    box = IndBox(-2.0, 2.0)
+    Us = (Union{Float64, Rational{Int64}}, Union{Float64, Irrational{:π}}, Union{Float64, BigFloat}, Union{Int, Float64},
+          AbstractFloat, Union{Float32, Float64})
+    Ws = (Nothing, Vector{Float64}, Union{Vector{Float64}, Matrix{Float64}}, AbstractVector, Union{Nothing, Vector{Float64}})
+    for S in Us, W in Ws, wv in (nothing, [1.0, 3.0, 1.0])
+      f = try
+        ElasticNet{S, W}(1.0, 0.5, wv)
+      catch
+        nothing
+      end
+      f === nothing && continue
+      c = Constrained(Conjugate(f), box)
+      @test PB._elastic_value_route(c, zeros(3), x, 0.5) === false
+      refusal(c, () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    end
+    # stored levels that are not machine numbers, where the constructor takes them
+    for (S, l) in ((Union{Float64, Rational{Int64}}, (1 // 2, 1 // 3)), (Union{Float64, Irrational{:π}}, (π, 0.5)), (Union{Float64, BigFloat}, (big"1.0", big"0.5")))
+      c = Constrained(Conjugate(ElasticNet{S, Nothing}(l..., nothing)), box)
+      @test PB._elastic_value_route(c, zeros(3), x, 0.5) === false
+      refusal(c, () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    end
+    # a union of two array types that both hold machine numbers is a declaration that the value path takes
+    f = ElasticNet{Float64, Union{Vector{Float64}, Matrix{Float64}}}(1.0, 0.5, [1.0, 3.0, 1.0])
+    check_fused(Constrained(Conjugate(f), box), () -> zeros(3), x, 0.5; alias = () -> copy(x))
   end
   @testset "array steps" begin
     for γ in (OffsetVec([0.5, 0.5, 0.5], -1), Real[0.5, 0.25, 1])

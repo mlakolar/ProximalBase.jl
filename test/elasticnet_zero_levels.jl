@@ -349,4 +349,46 @@ end
   end
 end
 
+# A user-defined unit range may keep its elements on a device: it is not one of the Base selectors that `view`
+# produces for a host array, and the fused value refuses it in every role before it is read.
+struct DeviceUnitRange{A<:AbstractVector{Int}} <: AbstractUnitRange{Int}
+  data::A
+end
+Base.first(::DeviceUnitRange) = 1
+Base.last(::DeviceUnitRange) = 2
+Base.length(::DeviceUnitRange) = 2
+Base.size(::DeviceUnitRange) = (2,)
+Base.getindex(r::DeviceUnitRange, i::Int) = r.data[i]
+
+@testset "views with device-backed unit ranges are refused before they are read" begin
+  r = DeviceUnitRange(JLArray([1, 2]))
+  for T in (Float32, Float64)
+    sel(val) = @allowscalar view(fill(T(val), 3, 3), r, 1:2)
+    x2 = fill(T(5), 2, 2)
+    f = ElasticNet(T(1), T(0.5))
+    box = IndBox(T(-2), T(2))
+    c0 = Constrained(Conjugate(f), box)
+    cases = (("output", c0, () -> sel(-77), x2, T(0.5)),
+             ("input", c0, () -> fill(T(-77), 2, 2), sel(5), T(0.5)),
+             ("lower", Constrained(Conjugate(f), @allowscalar IndBox(sel(-2), T(2))), () -> fill(T(-77), 2, 2), x2, T(0.5)),
+             ("upper", Constrained(Conjugate(f), @allowscalar IndBox(T(-2), sel(2))), () -> fill(T(-77), 2, 2), x2, T(0.5)),
+             ("step", c0, () -> fill(T(-77), 2, 2), x2, sel(0.5)),
+             ("weights", Constrained(Conjugate(@allowscalar ElasticNet(T(1), T(0.5), sel(1))), box), () -> fill(T(-77), 2, 2), x2, T(0.5)),
+             ("weights, λ2 = 0", Constrained(Conjugate(@allowscalar ElasticNet(T(1), T(0), sel(1))), box), () -> fill(T(-77), 2, 2), x2, T(0.5)))
+    for (role, c, mkdest, x, γ) in cases
+      allowscalar(false)
+      y = mkdest()
+      before = copy(parent(y))
+      @test_throws "is not implemented" value_and_prox!(y, c, x, γ)
+      @test parent(y) == before
+      if γ isa Real
+        s = SeparableSum(SqrNormL2(2.0), c)
+        dest = ([7.0], mkdest())
+        @test_throws "is not implemented" value_and_prox!(dest, s, ([3.0], x), γ)
+        @test dest[1] == [7.0] && parent(dest[2]) == before
+      end
+    end
+  end
+end
+
 end

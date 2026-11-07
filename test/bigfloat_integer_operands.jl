@@ -342,6 +342,40 @@ end
     end
   end
 
+  # The value λ1 n |z| of a vector of entries near floatmax, in the scaled form: the product with the exact n
+  # is rounded once (on the significand of z), then the product with λ1, then the exact power of two, and
+  # the result is Inf when that exceeds floatmax (Base.ldexp with a Clong exponent overflows to Inf, which
+  # is what the model does). A count rounded to p bits would give a finite value where the exact one
+  # overflows: at two bits n = 5 is 4, and 0.25 · 4 · floatmax is floatmax, while 0.25 · 5 · floatmax is not
+  # representable.
+  @testset "overflow near floatmax" begin
+    for p in (2, 3, 5), n in 3:9, λ1 in (BigFloat(0.25), BigFloat(1)), γ in (1 // 2, 1)
+      setprecision(BigFloat, p) do
+        fm = floatmax(BigFloat)
+        f = NormL1Fused(λ1, BigFloat(Inf))
+        x = fill(fm, n)
+        @test f(x) == m_equal_value(fm, n, λ1)
+        y = similar(x)
+        v = value_and_prox!(y, f, x, γ)
+        z = m_inf_prox(x, λ1, γ)
+        @test y == fill(z, n)
+        want = m_equal_value(z, n, λ1)
+        @test v == want
+        @test f(y) == want
+      end
+    end
+    setprecision(BigFloat, 2) do
+      fm = floatmax(BigFloat)
+      f = NormL1Fused(BigFloat(0.25), BigFloat(Inf))
+      @test f(fill(fm, 5)) == Inf
+      @test m_equal_value(fm, 5, BigFloat(0.25)) == Inf
+      @test value_and_prox!(similar(fill(fm, 5)), f, fill(fm, 5), 1) == Inf
+      v3 = f(fill(fm, 3))
+      @test v3 == m_equal_value(fm, 3, BigFloat(0.25))
+      @test isfinite(v3)
+    end
+  end
+
   @testset "deterministic inputs, n = 3:9" begin
     for p in (2, 3, 5, 256)
       setprecision(BigFloat, p) do

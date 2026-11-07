@@ -511,7 +511,7 @@ end
           for n in (33, 2, 17), λ in (one(T), -zero(T))
             X = wrap(Matrix(Diagonal(vcat(one(T), fill(δ, n - 1)))))
             f.λ = λ
-            @test samebits(f(X), λ * tr(dense(X)))
+            @test samebits(f(X), λ * (X isa SymmetricSparseIterate ? sum(diag(Matrix(X))) : tr(X)))      # an owner sums its diagonal
           end
         end
         for wrap in (identity, SymmetricSparseIterate, SparseIterate)

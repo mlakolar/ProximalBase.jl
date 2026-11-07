@@ -66,6 +66,18 @@ sel_anonymous(T::DataType) = startswith(string(nameof(T)), "#")
 sel_anonymous(T) = false
 sel_flat(T) = isbitstype(T)           # an array of immutable bits goes by digest; any other is walked element by element
 
+# `sel_mix!` takes scalars (numbers, symbols, strings, small tuples of those) and nothing else: `Base.hash` of an
+# array samples a large one, so an array reaches the walker's hash only through `sel_digest`, a loop over every
+# element (the harness digest where the element type has a digest word, a fold of the elements' own hashes else).
+sel_mix!(w::SelWalker, path, x::AbstractArray) = error("an array reached the walker's hash at $path; use sel_digest")
+function sel_digest(A::AbstractArray)
+    digestable(A) && return digest(A)
+    h = digest_size(DIGEST_SEED, A)
+    for v in A
+        h = digest_step(h, hash(v))
+    end
+    digest_mix(h)
+end
 function sel_mix!(w::SelWalker, path, x)
     w.h = hash(x, w.h)
     w.trace === nothing || push!(w.trace, string(path, " = ", x))
@@ -108,12 +120,12 @@ function sel_walk!(w::SelWalker, x, path::String)
         # the digest sorts the active coordinates: the live state in its order is added, through the accessors
         # that exist on 0.5.x and 0.6 (the live part only: a stale tail of a backing array can be uninitialized)
         ids = collect(activecoordinates(x))
-        sel_mix!(w, sel_p(w, path, " active order"), ids)
+        sel_mix!(w, sel_p(w, path, " active order"), sel_digest(ids))
         if x isa AtomIterate
             indices = group_indices_by()
-            sel_mix!(w, sel_p(w, path, " active values"), [x[i] for k in ids for i in indices(x, k)])
+            sel_mix!(w, sel_p(w, path, " active values"), sel_digest([x[i] for k in ids for i in indices(x, k)]))
         else
-            sel_mix!(w, sel_p(w, path, " active values"), collect(activevalues(x)))
+            sel_mix!(w, sel_p(w, path, " active values"), sel_digest(collect(activevalues(x))))
         end
         # the sharing of every mutable backing array, by number alone: never hashed beyond the live entries
         for name in fieldnames(T)
@@ -134,7 +146,7 @@ function sel_walk!(w::SelWalker, x, path::String)
                 return sel_mix!(w, sel_p(w, path, " digest"), digest(x))
             end
             w.nodes += length(x)
-            return sel_mix!(w, sel_p(w, path, " elements"), [hash(v) for v in x])
+            return sel_mix!(w, sel_p(w, path, " elements"), sel_digest(x))
         end
         for (i, v) in enumerate(x)
             sel_walk!(w, v, sel_p(w, path, "[", i, "]"))
@@ -376,6 +388,63 @@ end
         @test isempty(differences(a, a))
         @test isempty(differences(b, b))
     end
+end
+
+# Base.hash samples a large array: a difference at one position of a long array, in the order of the active
+# coordinates, in their values, in the sharing of elements and in a type without a digest word must still be seen.
+# The validators are no-ops, so that only the captured state can tell the builds apart.
+@testset "the walker digests every live order and value of a long array" begin
+    n = 10_000
+    function swapped(v, i=3, j=5)
+        w = copy(v)
+        w[i], w[j] = w[j], w[i]
+        w
+    end
+    function sparse_state(ids, vals)
+        z = build_iterate(Float64, (2n,), ids, vals)
+        c = PerfCase[]
+        addcase!(c, "t", "order", () -> collect(activecoordinates(z))[3], noop; inputs=(; z))
+        c
+    end
+    atom_groups_20000 = [(2i - 1):(2i) for i in 1:n]
+    function atom_state(aids, vals)
+        z = build_atom(Float64, 2n, atom_groups_20000, aids, vals)
+        c = PerfCase[]
+        addcase!(c, "t", "order", () -> collect(activecoordinates(z))[3], noop; inputs=(; z))
+        c
+    end
+    function arrays_state(shared)
+        arrs = [[Float64(i)] for i in 1:n]
+        arrs[5] = shared ? arrs[3] : [3.0]        # equal contents, one object or two
+        c = PerfCase[]
+        addcase!(c, "t", "same", () -> arrs[3] === arrs[5], noop; inputs=(;))
+        c
+    end
+    half_state(T, pos) = (a = fill(T(1), n); pos > 0 && (a[pos] = T(2)); c = PerfCase[];
+                          addcase!(c, "t", "flat", () -> sum(a), noop; inputs=(;)); c)
+    ids, ids_swapped = collect(1:n), swapped(collect(1:n))
+    ones_n, distinct = ones(n), Float64.(1:n)
+    pairs = [("sparse order", () -> sparse_state(ids, ones_n), () -> sparse_state(ids_swapped, ones_n)),
+             ("atom order", () -> atom_state(ids, ones(2n)), () -> atom_state(ids_swapped, ones(2n))),
+             ("sparse values", () -> sparse_state(ids, distinct), () -> sparse_state(ids, swapped(distinct))),
+             ("atom values", () -> atom_state(ids, Float64.(1:2n)), () -> atom_state(ids, swapped(Float64.(1:2n)))),
+             ("sparse order and values", () -> sparse_state(ids, distinct), () -> sparse_state(ids_swapped, swapped(distinct))),
+             ("shared elements", () -> arrays_state(true), () -> arrays_state(false))]
+    for pos in (2, 3, 5, 4999, 5001, 7777)
+        push!(pairs, ("flat Float16 at $pos", () -> half_state(Float16, pos), () -> half_state(Float16, 0)))
+    end
+    @testset "$name" for (name, a, b) in pairs
+        ca, cb = a(), b()
+        @test only(case_fingerprint(ca...)) != only(case_fingerprint(cb...))
+        @test !isempty(sel_differences(a, selector -> b(), "^t/"))
+        @test isempty(sel_differences(a, selector -> a(), "^t/"))
+    end
+    # a changed element of a long flat array that has no digest word, directly
+    u, v = fill(Float16(1), n), fill(Float16(1), n)
+    v[5001] = Float16(2)
+    @test sel_fingerprint(() -> u) != sel_fingerprint(() -> v)
+    # an array never reaches the hash
+    @test occursin("sel_digest", sel_message(() -> sel_mix!(SelWalker(), "x", [1.0])))
 end
 
 # ---- the regex matrix on the quick atom group ----------------------------------------------------------------

@@ -8,12 +8,17 @@
 # verdict job but not the gate.
 #
 #   julia scripts/ci_gate.jl --repo=OWNER/NAME --run-id=ID --attempt=N --sha=SHA \
-#     --event=pull_request --gate="PR merge gate" --verdict="PR required jobs"
+#     --event=pull_request --gate="PR merge gate" --verdict="PR required jobs" \
+#     --pr=NUMBER --labels=LABEL,LABEL
 #
-# It reads only this run (actions/runs/ID) through `gh api` and needs `actions: read`. It
-# fails closed: a failed, cancelled, skipped or missing verdict, a run for another commit or
-# event, API errors for more than 15 minutes, or no decision before the deadline. test/ci_gate.jl
-# tests the decisions. No packages are needed.
+# It reads this run (actions/runs/ID) through `gh api` and needs `actions: read`. For a pull
+# request it also reads the PR's labels (`pull-requests: read`) and compares its test: labels
+# with --labels, those in the run's event: the plan of a run depends on them, so when they have
+# changed a newer run decides and this gate fails (a re-run of an older run, or of only its
+# gate, does not turn a stricter newer run's red gate green). It fails closed: a failed, cancelled,
+# skipped or missing verdict, a run for another commit or event, changed labels, API errors for
+# more than 15 minutes (the labels: four attempts), or no decision before the deadline.
+# test/ci_gate.jl tests the decisions. No packages are needed.
 
 module CIGate
 
@@ -155,6 +160,50 @@ function watch(fetch; attempt, verdict, gate, deadline, grace = 90, api_budget =
   end
 end
 
+const LABELS_CHANGED = "labels changed since this run; the newer run decides"
+
+# The labels that decide the plan of a run: the test: labels.
+test_labels(labels) = Set{String}(String(l) for l in labels if startswith(l, "test:"))
+
+"""
+    labels_problem(current, expected) -> message or nothing
+
+Compares the test: labels of the pull request now (`current`) with those of the run's event
+(`expected`), as sets. Other labels do not matter.
+"""
+function labels_problem(current, expected)
+  have, ran = test_labels(current), test_labels(expected)
+  have == ran && return nothing
+  list(set) = isempty(set) ? "none" : join(sort!(collect(set)), ", ")
+  return "$LABELS_CHANGED (now: $(list(have)); this run: $(list(ran)))"
+end
+
+"""
+    check_labels(fetch, expected; attempts = 4, wait = 15, sleep, log) -> (action, message)
+
+`fetch()` returns the PR's current labels or throws. The answer is retried `attempts` times; an
+error that persists fails the check, so an unreadable label list does not pass.
+"""
+function check_labels(fetch, expected; attempts = 4, wait = 15, sleep = Base.sleep, log = println)
+  last = "no answer"
+  for attempt in 1:attempts
+    current = try
+      fetch()
+    catch err
+      err isa InterruptException && rethrow()
+      last = first(sprint(showerror, err), 300)
+      log("API error reading the labels (attempt $attempt): ", last)
+      nothing
+    end
+    if current !== nothing
+      problem = labels_problem(current, expected)
+      return problem === nothing ? (:pass, "the test: labels are those of this run") : (:fail, problem)
+    end
+    attempt < attempts && sleep(wait)
+  end
+  return (:fail, "could not read the labels of the pull request: $last")
+end
+
 # `gh api` with a time limit: a hung request counts as an API error.
 function gh(args::Vector{String}; timeout = 60)
   out, err = IOBuffer(), IOBuffer()
@@ -175,7 +224,7 @@ function options(args)
     opts[m.captures[1]] = m.captures[2]
   end
   required = ("repo", "run-id", "attempt", "sha", "event", "gate", "verdict")
-  known = (required..., "deadline")
+  known = (required..., "deadline", "pr", "labels")
   for k in keys(opts)
     k in known || error("unknown option --$k; the options are $(join(known, ", "))")
   end
@@ -212,10 +261,31 @@ function main(args)
     return 1
   end
 
+  # A pull request run is valid only while the PR still has the labels it was planned with.
+  labels_ok = () -> true
+  if event == "pull_request"
+    pr = get(opts, "pr", "")
+    if isempty(pr) || !haskey(opts, "labels")
+      println("::error::--pr and --labels are required for a pull request.")
+      return 1
+    end
+    expected = filter(!isempty, split(opts["labels"], ','))
+    fetch_labels() = String.(filter(!isempty, split(gh(["repos/$repo/issues/$pr/labels?per_page=100", "--paginate",
+                                                          "--jq", ".[].name"]), '\n')))
+    labels_ok = function ()
+      outcome, text = check_labels(fetch_labels, expected)
+      outcome == :pass ? println(text) : println("::error::", text)
+      return outcome == :pass
+    end
+    labels_ok() || return 1
+  end
+
   fetch() = parse_jobs(gh(["repos/$repo/actions/runs/$run_id/jobs?filter=latest&per_page=100",
                            "--paginate", "--jq", JOBS_JQ]))
   action, message = watch(fetch; attempt, verdict, gate, deadline)
   if action == :pass
+    # The labels may have changed while the gate waited.
+    labels_ok() || return 1
     println("Passed: ", message)
     return 0
   end

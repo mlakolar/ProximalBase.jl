@@ -1235,6 +1235,8 @@ end
 # (the groups of a penalty, a sphere, a spectral decomposition) and store each result in the
 # coordinate of its pair. Internal: the public view is read-only, and an owner is written through
 # the methods that name it.
+# A broadcast into it reads each coordinate from its lower position and expects operands that are symmetric:
+# an operand that is not is read from its lower position, not averaged.
 struct _OwnerMatrix{T} <: AbstractMatrix{T}
   x::SymmetricSparseIterate{T}
 end
@@ -1579,7 +1581,8 @@ _check_axes(x::SymmetricSparseIterate, A::AbstractArray) = axes(A) == _owner_axe
 # input is symmetric: a SymmetricSparseIterate keeps the lower one
 _copyto_rounded!(Y, B) = copyto!(Y, B)
 _copyto_rounded!(Y::SymmetricSparseIterate, B) = copyto!(Y, Symmetric(B, :L))
-_copyto_rounded!(Y::_OwnerMatrix, B) = (copyto!(Y.x, Symmetric(B, :L)); Y)
+# the lower triangle of B, one coordinate at a time: a proximal value write keeps the coordinates that are active
+_copyto_rounded!(Y::_OwnerMatrix, B) = (_store_lower!(Y.x, B); Y)
 
 # The destination, and the argument, as the kernels that write through the matrix of an owner see them: x is
 # the destination itself, or its read-only view, when the call is in place, and the matrix of x otherwise.

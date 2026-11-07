@@ -189,4 +189,23 @@ end
   @test Matrix(prox!(y, IndBallL0(2), B + T[0 0.5 0; -0.5 0 0; 0 0 0], one(T))) == ref
 end
 
+@testset "a proximal value write keeps the active coordinates of the spectral steps, $T" for T in (Float32, Float64)
+  function with_active_zeros()
+    y = SymmetricSparseIterate(T, 2)
+    fill!(coordinates(y), T(1))
+    fill!(coordinates(y), T(0))
+    y
+  end
+  for (f, X) in ((IndBallRank(1), zeros(T, 2, 2)), (IndBallRank(1), T[2 0; 0 0]), (NuclearNorm(T(0.5)), T[2 0; 0 0]),
+                 (IndPSD(), zeros(T, 2, 2)), (TracePSD(T(0.5)), zeros(T, 2, 2)))
+    y = with_active_zeros()
+    ids = copy(activecoordinates(y))
+    prox!(y, f, X, one(T))
+    @test nactive(y) == 3 && activecoordinates(y) == ids
+    y = with_active_zeros()
+    value_and_prox!(y, f, X, one(T))
+    @test nactive(y) == 3 && activecoordinates(y) == ids
+  end
+end
+
 end

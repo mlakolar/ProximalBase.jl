@@ -441,7 +441,7 @@ function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, L) where {U, T
       m * scale
     else
       am, em = _frexp(m)
-      _ldexp_once((am / at) * aq, em + eq - et)
+      _ldexp_once((am / at) * aq, _exponent_sum(U, em, eq, -et))
     end
     _layout_put!(L, y, k, copysign(convert(T, z), xi))
   end

@@ -39,23 +39,33 @@ function rnd(q::Rational{BigInt})
   BigFloat(v; precision = precision(BigFloat))
 end
 
+# the significand of x in [1/2, 1) as an exact rational and the exponent; Base's frexp and the conversion to
+# a rational round at the current precision, so they run at the precision of x
+function split_exact(x::BigFloat)
+  setprecision(BigFloat, precision(x)) do
+    fr, ex = frexp(x)
+    Rational{BigInt}(fr), Int(ex)
+  end
+end
+
 # x * k and x / k with the integer k exact, rounded once. The exponent of x is split off (the
-# significand has at most p bits and lies in [1/2, 1)), so that an entry near floatmax is not expanded.
+# significand lies in [1/2, 1)), so that an entry near floatmax is not expanded.
 function mul_int(x::BigFloat, k::Integer)
   isnan(x) && return x
   if iszero(x) || isinf(x)
     isinf(x) && iszero(k) && return BigFloat(NaN)
     return k < 0 ? -x : copy(x)
   end
-  fr, ex = frexp(x)
-  Base.ldexp(rnd(Rational{BigInt}(fr) * big(k)), ex)
+  iszero(k) && return signbit(x) ? -BigFloat(0) : BigFloat(0)
+  fr, ex = split_exact(x)
+  Base.ldexp(rnd(fr * big(k)), Clong(ex))
 end
 function div_int(x::BigFloat, k::Integer)
   iszero(k) && throw(DivideError())
   isnan(x) && return x
   (iszero(x) || isinf(x)) && return k < 0 ? -x : copy(x)
-  fr, ex = frexp(x)
-  Base.ldexp(rnd(Rational{BigInt}(fr) / big(k)), ex)
+  fr, ex = split_exact(x)
+  Base.ldexp(rnd(fr / big(k)), Clong(ex))
 end
 
 # the soft threshold, as the package forms it
@@ -282,20 +292,17 @@ end
 # mean 12/5 = 2.4 is rounded to 2.0) and shrinks by 1, so its mean is 2.0 and its output 1.0.
 # A platform that rounds the divisor 5 to 4 at two bits would divide by 4 and obtain 3.0 and 2.0.
 
-function check_inf(x::Vector{BigFloat}, λ1::BigFloat, γ; value::Bool = BigFloat(length(x)) == length(x))
+function check_inf(x::Vector{BigFloat}, λ1::BigFloat, γ)
   n = length(x)
   f = NormL1Fused(λ1, BigFloat(Inf))
   z = m_inf_prox(x, λ1, γ)
   y0 = fill(z, n)
   y, v = check_prox(f, x, γ, y0)
   @test all(==(y[1]), y)
-  # The product with the factor n of the value is tested separately: it differs from the model
-  # wherever p bits cannot hold n.
-  if value
-    want = m_equal_value(z, n, λ1)
-    @test v == want
-    @test f(y) == want
-  end
+  # the value at the stored output: λ1 n |z| with the factor n exact
+  want = m_equal_value(z, n, λ1)
+  @test v == want
+  @test f(y) == want
 end
 
 @testset "infinite fusion level: the mean and the value" begin
@@ -315,6 +322,23 @@ end
       @test all(==(1.0), y)
       # the real mean 13/5 and the real proximal point 8/5 are not two-bit numbers
       @test div_int(BigFloat(8), 5) == 1.5
+    end
+  end
+
+  # The value at the stored output is λ1 n |z|: the factor n is an integer operand of the product, and a
+  # precision of p bits holds n only below 2^p (p = 2: 3, 4, 6, 8). The cases of every n are checked
+  # here for the value alone.
+  @testset "the factor n of the value" begin
+    for p in (2, 3, 5, 256), n in 3:9, λ1 in (BigFloat(1), BigFloat(0.75)), γ in (1 // 2, 1)
+      setprecision(BigFloat, p) do
+        f = NormL1Fused(λ1, BigFloat(Inf))
+        for x in (fill(BigFloat(3), n), BigFloat[i <= n - 2 ? 3 : 2 for i in 1:n])
+          z = m_inf_prox(x, λ1, γ)
+          want = m_equal_value(z, n, λ1)
+          @test value_and_prox!(similar(x), f, x, γ) == want
+          @test f(fill(z, n)) == want
+        end
+      end
     end
   end
 
@@ -562,6 +586,169 @@ end
       y0 = m_finite_prox(c, BigFloat(0.25), BigFloat(0.5), γ)[1]
       prox!(y, ff, c, γ)
       @test y == y0
+    end
+  end
+end
+
+####################################
+#  the helpers of the integer operands
+####################################
+
+# equal values, with the sign of a zero and NaN equal to NaN
+same(a::BigFloat, b::BigFloat) = (isnan(a) && isnan(b)) || (a == b && signbit(a) == signbit(b))
+
+@testset "the integer-operand helpers" begin
+  counts = Any[3, 4, 5, 6, 7, 8, 9, -5, 1, 2^40, typemax(Int64), typemin(Int64) + 1,
+               Int128(typemax(Int64)) + 1, -Int128(typemax(Int64)) - 2, typemax(UInt64), big(2)^70, -big(2)^70,
+               Int32(7), UInt8(5), typemax(Clong), typemin(Clong), Int128(typemax(Clong)) + 1]
+  @testset "BigFloat, precision $p" for p in (2, 3, 5, 53, 256)
+    setprecision(BigFloat, p) do
+      xs = BigFloat[0, -0.0, 1.5, -1.5, 3, -7, 0.75, Inf, -Inf, NaN, floatmax(BigFloat), -floatmax(BigFloat),
+                    Base.ldexp(BigFloat(1.5), Clong(10^8)), Base.ldexp(BigFloat(-1.5), Clong(-10^8))]
+      for x in xs, k in counts
+        @test same(PB._int_mul(x, k), mul_int(x, k))
+        @test same(PB._int_mul(k, x), mul_int(x, k))
+        @test same(PB._int_div(x, k), div_int(x, k))
+      end
+      for k in counts
+        tiny = floatmin(BigFloat)
+        @test same(PB._int_mul(tiny, k), mul_int(tiny, k))
+      end
+      # an entry with more bits than p, the operand of every count
+      g = Lcg(UInt64(77 + p))
+      for _ in 1:20
+        x = setprecision(BigFloat, 256) do
+          BigFloat(nextint!(g, 10^9)) / nextint!(g, 10^4)
+        end
+        for k in 3:9
+          @test same(PB._int_mul(x, k), mul_int(x, k))
+          @test same(PB._int_mul(k, x), mul_int(x, k))
+          @test same(PB._int_div(x, k), div_int(x, k))
+        end
+      end
+      # the exact products of the sites
+      for n in 3:9
+        for gap in BigFloat[1.5, -3, 0.75, 7, 0]
+          for i in 1:(n - 1)
+            @test same(PB._count_pair_mul(BigFloat, i, n - i, gap), mul_int(gap, i * (n - i)))
+          end
+          @test same(PB._count_mul(BigFloat, n, gap), mul_int(gap, n))
+          for k in 1:n
+            @test same(PB._int_mul(2k - n - 1, gap), mul_int(gap, 2k - n - 1))
+            @test same(PB._int_mul(gap, 2k - n - 1), mul_int(gap, 2k - n - 1))
+          end
+        end
+      end
+      # the product i (n - i) of two 64-bit factors does not overflow
+      big_gap = BigFloat(3)
+      @test same(PB._count_pair_mul(BigFloat, typemax(Int64), typemax(Int64), big_gap),
+                 mul_int(big_gap, big(typemax(Int64))^2))
+    end
+  end
+
+  # The result has the current default precision, whatever the precision of the operand, as x * y
+  # does for a BigFloat y: the integer is exact and the product is rounded once to that precision.
+  @testset "the precision of the result" begin
+    x = setprecision(() -> BigFloat(1) / 3, BigFloat, 256)
+    setprecision(BigFloat, 5) do
+      for r in (PB._int_mul(x, 7), PB._int_mul(7, x), PB._int_div(x, 7), PB._int_mul(x, big(2)^70))
+        @test precision(r) == 5
+      end
+      @test PB._int_mul(x, 7) == mul_int(x, 7)
+      @test PB._int_mul(7, x) == mul_int(x, 7)
+      @test PB._int_div(x, 7) == div_int(x, 7)
+    end
+  end
+
+  @testset "inference" begin
+    for K in (Int, Int128, UInt64, Int32, BigInt)
+      @test Base.return_types(PB._int_mul, (BigFloat, K)) == [BigFloat]
+      @test Base.return_types(PB._int_mul, (K, BigFloat)) == [BigFloat]
+      @test Base.return_types(PB._int_div, (BigFloat, K)) == [BigFloat]
+    end
+    @test Base.return_types(PB._count_mul, (Type{BigFloat}, Int, BigFloat)) == [BigFloat]
+    @test Base.return_types(PB._count_pair_mul, (Type{BigFloat}, Int, Int, BigFloat)) == [BigFloat]
+  end
+
+  # the other floating types keep the operation as written, bit for bit
+  @testset "$T is the plain operation" for T in (Float16, Float32, Float64)
+    U = T === Float16 ? UInt16 : T === Float32 ? UInt32 : UInt64
+    bits(v) = reinterpret(U, v)
+    xs = T[0, -0.0, 1.5, -3.25, Inf, -Inf, NaN, floatmax(T), floatmin(T), nextfloat(T(0)), T(0.1), T(-7)]
+    for x in xs, k in (3, 5, 7, 9, -5, 1)
+      @test bits(PB._int_mul(x, k)) == bits(x * k)
+      @test bits(PB._int_mul(k, x)) == bits(k * x)
+      @test bits(PB._int_div(x, k)) == bits(x / k)
+    end
+    for n in 3:9, i in 1:(n - 1), gap in xs
+      @test bits(PB._count_pair_mul(T, i, n - i, gap)) == bits((T(i) * T(n - i)) * gap)
+      @test bits(PB._count_mul(T, n, gap)) == bits(T(n) * gap)
+    end
+  end
+end
+
+####################################
+#  the pooling in means (entries near the end of the exponent range)
+####################################
+
+# The pooling of IndIsotonic in block means, for an entry too large for the sums: the mean of two blocks
+# of ca and cb entries is a·wa + b·wb clamped into [min(a, b), max(a, b)], with the weights wa = ca/t and
+# wb = cb/t of the exact integer t = ca + cb, each rounded once. The model records every merge.
+function m_pool_means(x::Vector{BigFloat}, σ::Int)
+  m = BigFloat[]
+  c = Int[]
+  merges = NamedTuple[]
+  for e in x
+    push!(m, e)
+    push!(c, 1)
+    while length(m) > 1 && (σ > 0 ? m[end - 1] > m[end] : m[end - 1] < m[end])
+      a, b = m[end - 1], m[end]
+      ca, cb = c[end - 1], c[end]
+      t = ca + cb
+      wa = rnd(Rational{BigInt}(ca, t))
+      wb = rnd(Rational{BigInt}(cb, t))
+      mean = clamp(a * wa + b * wb, min(a, b), max(a, b))
+      push!(merges, (; ca, cb, wa, wb, a, b, mean))
+      m[end - 1] = mean
+      c[end - 1] += cb
+      pop!(m)
+      pop!(c)
+    end
+  end
+  y = BigFloat[]
+  for b in eachindex(m), _ in 1:c[b]
+    push!(y, m[b])
+  end
+  y, merges
+end
+
+@testset "pooling in means at the end of the exponent range" begin
+  # unit = 2^(E - 13): the entries are 2-bit multiples of it, at most 384 unit, below floatmax/16
+  # (above the bound of the sums, so the pooling is redone in means)
+  shapes = (("3+2", [12, 8, 6, 96, -192]),
+            ("5+4", [12, 8, 6, 4, 3, 96, 48, 24, -192]),
+            ("4+5", [12, 8, 6, 4, 96, 48, 24, 12, -384]))
+  wanted = Dict("3+2" => (3, 2), "5+4" => (5, 4), "4+5" => (4, 5))
+  for p in (2, 3, 5)
+    setprecision(BigFloat, p) do
+      E = Int(exponent(floatmax(BigFloat)))
+      for (name, cs) in shapes, σ in (1, -1)
+        n = length(cs)
+        x = BigFloat[Base.ldexp(BigFloat(c), Clong(E - 13)) for c in cs]
+        σ < 0 && (x = -x)
+        bound = Base.ldexp(floatmax(BigFloat), Clong(-(2 * ceil(Int, log2(n)) + 2)))
+        @test any(e -> abs(e) > bound, x)
+        @test maximum(abs, x) < floatmax(BigFloat) / 8
+        y0, merges = m_pool_means(x, σ)
+        @test (wanted[name]) in [(mg.ca, mg.cb) for mg in merges]
+        for mg in merges
+          # the weights add to one up to their two roundings, and the mean stays between the two means
+          @test abs(Rational{BigInt}(mg.wa) + Rational{BigInt}(mg.wb) - 1) <= 1 // big(2)^p
+          @test min(mg.a, mg.b) <= mg.mean <= max(mg.a, mg.b)
+        end
+        f = IndIsotonic(decreasing = σ < 0)
+        check_prox(f, x, 1, y0)
+      end
     end
   end
 end

@@ -340,8 +340,10 @@ end
     bases = ("direct" => A, "view" => view(A, :, :), "nestedview" => view(view(A, :, :), :, :),
              "transpose" => Transpose(A), "adjoint" => Adjoint(A), "reshape" => reshape(vec(A), size(A)))
     for (basename, B) in bases
-      sources = Any[("plain", B), ("view", view(B, :, :)), ("vec", vec(B)), ("transpose", Transpose(B)),
-                    ("adjoint", Adjoint(B))]
+      sources = Any[("plain", B), ("view", view(B, :, :)), ("vec", vec(B))]
+      # a wrapper of the same kind is not nested in itself: Julia 1.14 refuses Transpose(::Transpose)
+      B isa Transpose || push!(sources, ("transpose", Transpose(B)))
+      B isa Adjoint || push!(sources, ("adjoint", Adjoint(B)))
       for tri in (:L, :U), F in (Symmetric, Hermitian)
         C = F(B, tri)
         push!(sources, ("$(nameof(F))-$tri", C), ("view-$(nameof(F))-$tri", view(C, :, :)),

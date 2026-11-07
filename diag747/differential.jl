@@ -133,6 +133,32 @@ function run_families(T, label)
     rec("fam=fibers $label $nm r=$r f", () -> fb(A))
     rec("fam=fibers $label $nm r=$r vprox", () -> (Y = similar(A); (value_and_prox!(Y, fb, A, g), Y)))
   end
+  # Scaled, nested Scaled and Translate of NormL1Fused with a FINITE fusion level (zero included): the value of a vector near
+  # floatmax overflows, so the wrappers take the parts of the value and restore them with the original _scaled_product. The
+  # parts path is unchanged: these lines must not change on any platform.
+  emx = T === BigFloat ? Base.MPFR.get_emax() : exponent(floatmax(T)) + 1
+  q = emx ÷ 64
+  exps = unique((-16_777_217, -q, -q - 1, q, q + 1, -1, 0, 1, -emx ÷ 2, -emx + 5, emx ÷ 2, 5 - emx ÷ 3))
+  exps = T === BigFloat ? exps : [e for e in exps if abs(e) < emx]
+  vecs = Vector{Tuple{String, Vector{T}}}()
+  for (i, a) in enumerate(P), n in (2, 3)
+    push!(vecs, ("f$i^$n", fill(a, n)))
+  end
+  for (i, a) in enumerate(P), (j, b) in enumerate(P)
+    push!(vecs, ("m$i,$j", T[a, b]))
+  end
+  for (l1, l2) in ((1.0, 0.0), (1.0, 0.5), (0.25, 0.5), (0.0, 0.5)), (ie, e) in enumerate(exps), (vid, x) in vecs
+    g = NormL1Fused(T(l1), T(l2))
+    α = ldexp(one(T), Clong(e))
+    α2 = ldexp(one(T), Clong(e ÷ 2))
+    α3 = ldexp(one(T), Clong(e - e ÷ 2))
+    id = "$label λ=($l1,$l2) e=$e x=$vid"
+    z = zeros(T, length(x))
+    rec("fam=scaledNF-fin $id scaled", () -> Scaled(g, α)(x))
+    rec("fam=scaledNF-fin $id nested", () -> Scaled(Scaled(g, α2), α3)(x))
+    rec("fam=scaledNF-fin $id scaled-translate", () -> Scaled(Translate(g, z), α)(x))
+    rec("fam=scaledNF-fin $id translate-scaled", () -> Translate(Scaled(g, α), z)(x))
+  end
   # Scaled(NormL1Fused) takes the value as parts (the NormL1Fused family)
   for (iα, α) in enumerate((T(0.5), T(1.5))), (ia, a) in enumerate(P), (ib, b) in enumerate(P)
     f = NormL1Fused(T(0.25), T(Inf))

@@ -11,6 +11,8 @@ a, b = load(sys.argv[1]), load(sys.argv[2])
 def family(k):
     t = k.split()
     if t[0].startswith("fam="):
+        if t[0] == "fam=fibers":
+            return "fibers-" + t[2].split("-")[1], t[1]     # fib-inf, fib-fin
         return t[0][4:], t[1]
     lab = t[0]
     body = k
@@ -37,5 +39,5 @@ for key in sorted(tot):
     print("%-26s %-9s %9d %9d" % (key[0], key[1], tot[key], chg[key]))
 print("changed in total:", sum(chg.values()))
 for key in sorted(ex):
-    if key[0] not in ("NormL1Fused", "helpers-exact (new)", "scaledNF"):
+    if key[0] not in ("NormL1Fused", "helpers-exact (new)", "scaledNF", "fibers-inf", "fibers-fin"):
         print("UNEXPECTED change", key, ex[key][:5])

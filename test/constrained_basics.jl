@@ -272,6 +272,18 @@ function check_elastic_value(v, T, ref)
   end
 end
 
+# A vector with indices o+1:o+n, as OffsetArrays provides, defined here to add no dependency.
+struct OffsetVec{T} <: AbstractVector{T}
+  data::Vector{T}
+  offset::Int
+end
+Base.size(a::OffsetVec) = size(a.data)
+Base.axes(a::OffsetVec) = (Base.IdentityUnitRange((1:length(a.data)) .+ a.offset),)
+Base.IndexStyle(::Type{<:OffsetVec}) = IndexLinear()
+Base.getindex(a::OffsetVec, i::Int) = a.data[i - a.offset]
+Base.setindex!(a::OffsetVec, v, i::Int) = (a.data[i - a.offset] = v)
+Base.similar(a::OffsetVec, ::Type{T}, dims::Dims) where {T} = OffsetVec(similar(a.data, T, dims), a.offset)
+
 a_value_and_prox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
 a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 
@@ -425,6 +437,36 @@ a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
       alias = SymmetricSparseIterate(M)
       @test value_and_prox!(alias, c, alias, γ) == vd
       @test Matrix(alias) == Yd
+    end
+  end
+
+  @testset "destinations whose indices do not start at one" begin
+    for off in (-1, 4)
+      for (λ2, expected, ys) in ((0.5, 2.0, [2.0, -2.0]), (0.0, 0.0, [1.0, -1.0]))
+        c = Constrained(Conjugate(ElasticNet(1.0, λ2)), IndBox(-2.0, 2.0))
+        xo = OffsetVec([5.0, -5.0], off)
+        y = OffsetVec([-77.0, -77.0], off)
+        @test prox!(OffsetVec(zeros(2), off), c, xo, 0.5).data == ys
+        @test value_and_prox!(y, c, xo, 0.5) === expected
+        @test y.data == ys
+        # weights read with the same indices as y, and a value that depends on them
+        wo = OffsetVec([1.0, 3.0], off)
+        cw = Constrained(Conjugate(ElasticNet(1.0, λ2, wo)), IndBox(-2.0, 2.0))
+        y = OffsetVec([-77.0, -77.0], off)
+        v = value_and_prox!(y, cw, xo, 0.5)
+        # levels 1 and 3: the first entry has the residual 1, the second none
+        @test v === (λ2 > 0 ? 1.0 : 0.0)
+        @test y.data == (λ2 > 0 ? [2.0, -2.0] : [1.0, -2.0])
+        # in place
+        z = OffsetVec([5.0, -5.0], off)
+        @test value_and_prox!(z, c, z, 0.5) === expected
+        @test z.data == ys
+      end
+      # weights with other indices than y are refused before writing, as for any other value that is not available
+      c = Constrained(Conjugate(ElasticNet(1.0, 0.5, [1.0, 3.0])), IndBox(-2.0, 2.0))
+      y = OffsetVec([-77.0, -77.0], off)
+      @test_throws ArgumentError value_and_prox!(y, c, OffsetVec([5.0, -5.0], off), 0.5)
+      @test y.data == [-77.0, -77.0]
     end
   end
 

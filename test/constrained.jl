@@ -588,6 +588,40 @@ end
     end
   end
 
+  @testset "mixed precision: residuals that the output type cannot hold" begin
+    # The residual max(|y| - λ1 w, 0) and its square are formed in the promoted type; only the value is rounded.
+    Y = Float32[2.0^-140]                              # subnormal in Float32
+    for (λ1, λ2, w, expected) in ((Float64(Y[1]) - 2.0^-150, 2.0^-300, nothing, 0.5),      # the residual 2^-150 is below Float32
+                                  (Float64(Y[1]) - 3 * 2.0^-150, 2.0^-300, nothing, 4.5),   # and 3 * 2^-150 is not a Float32
+                                  (1.0, 2.0^-300, [Float64(Y[1]) - 2.0^-150], 0.5),         # a level from a wider weight
+                                  (Float64(Y[1]) - 2.0^-150, 2.0^-310, nothing, 0.5 * 2.0^10))
+      v, y = stored(Y, ElasticNet(λ1, λ2, w))
+      @test v isa Float32
+      @test v == Float32(expected)
+      check_range_value(v, Float32, elastic_conjugate_value_reference(λ1, λ2, w, y))
+    end
+    # several entries, subnormal and normal, with a Float64 level and ridge
+    Y = Float32[2.0^-140, -2.0^-135, 1, 0]
+    w = [1.0, 1.0, 0.5, 2.0]
+    for (λ1, λ2) in ((2.0^-141, 2.0^-300), (2.0^-141, 1e-30), (0.25, 2.0^-300), (0.0, 2.0^-20))
+      v, y = stored(Y, ElasticNet(λ1, λ2, w))
+      check_range_value(v, Float32, elastic_conjugate_value_reference(λ1, λ2, w, y))
+    end
+    # a ridge level in a wider type than the level and the output: the square of the residual is below Float32
+    Y = Float32[1e-20, -3e-20]
+    for (λ1, λ2) in ((0f0, 1e-40), (1f-21, 1f-20), (1f-21, 1e-60), (0.0, 1e-50))
+      v, y = stored(Y, ElasticNet(λ1, λ2))
+      check_range_value(v, Float32, elastic_conjugate_value_reference(λ1, λ2, nothing, y))
+    end
+    # the other direction: Float64 output, parameters of a narrower type
+    Y = [3.0, 1e-3, -1e-300, 2.0^-1000]
+    for (λ1, λ2, w) in ((0.1f0, 0.3f0, nothing), (0.1f0, 0.3f0, Float32[1, 2, 0, 3]), (0f0, 1f-30, nothing), (1f-3, nextfloat(0f0), nothing))
+      v, y = stored(Y, ElasticNet(λ1, λ2, w))
+      @test v isa Float64
+      check_range_value(v, Float64, elastic_conjugate_value_reference(λ1, λ2, w, y))
+    end
+  end
+
   @testset "large finite arguments" begin
     for xl in ([1e150, -1e150, 3.0], [1e300, -1e300, 3.0])
       c = Constrained(Conjugate(ElasticNet(1.0, 1.0)), IndBox(-Inf, Inf))

@@ -20,9 +20,10 @@ and mutating functions take their output first, as `mul!` does:
 """
 module ProximalBase
 
-# ProximalBase defines its own ldexp. Base's ldexp(::BigFloat, n) is the exact mpfr_mul_2si only for a Clong n; for any
-# other Integer it is x * exp2(BigFloat(n)), which overflows when 2^n alone leaves the range although x·2^n is
-# representable, and rounds n itself at a low precision. A C long is 32 bits on Windows, where an Int shift is not a Clong.
+# ProximalBase defines its own ldexp. Base's ldexp(::BigFloat, n) is exact (mpfr_mul_2si, mpfr_mul_2ui) for a Clong or a
+# Culong n, and forwards narrower integers to them; any other integer type reaches the fallback x * exp2(BigFloat(n)),
+# which overflows when 2^n alone leaves the range although x·2^n is representable, and rounds n at a low precision. A C
+# long is 32 bits on Windows, where an Int64 shift takes that fallback.
 # This function shadows Base.ldexp for every unqualified call in the module (it does not extend Base's), so it must stay
 # above every use of the name; write Base.ldexp where a query of Base's method table is meant. MPFR's exponent range
 # lies within a Clong, so a shift saturated at the Clong limits still overflows or underflows exactly as it should.

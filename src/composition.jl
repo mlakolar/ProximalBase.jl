@@ -592,7 +592,7 @@ end
 
 function _add_ridge_gradient!(g, r::Regularize, x)
   ρ = convert(eltype(g), r.ρ)
-  r.c === nothing ? (g .+= ρ .* x) : (g .+= ρ .* (x .- _checked_parameter(g, r.c)))
+  r.c === nothing ? (g .+= ρ .* _vw(x)) : (g .+= ρ .* (_vw(x) .- _checked_parameter(g, r.c)))
 end
 # an owner gradient receives the symmetric part of ρ(x - c), from the lower entries when x is symmetric
 function _add_ridge_gradient!(g::SymmetricSparseIterate, r::Regularize, x)

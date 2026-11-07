@@ -1287,8 +1287,14 @@ function *(A::Symmetric{T, <:StridedMatrix{T}}, X::SparseIterate{T, 2},
     ind = X.nzval2ind[k]
     _add_coefficient!(C, A, B, mod1(ind, m), cld(ind, m), x, a, ax, b)
   end
-  for j = 1:n, i = 1:m                # one scan for the entries that the ordinary sum left non-finite
-    isfinite(C[i, j]) || _rescue_entry!(C, A, X, B, i, j)
+  finite = true                       # one vectorized scan for entries that the ordinary sum left non-finite
+  @inbounds @simd for idx in eachindex(C)
+    finite &= isfinite(C[idx])
+  end
+  if !finite
+    for j = 1:n, i = 1:m
+      isfinite(C[i, j]) || _rescue_entry!(C, A, X, B, i, j)
+    end
   end
   C
 end

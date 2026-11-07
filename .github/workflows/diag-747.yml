@@ -28,7 +28,7 @@ jobs:
         with:
           version: '1.13.3'
       - run: julia --project -e 'using Pkg; Pkg.instantiate()'
-      - name: the differential on one machine: base (master), head (the src and ext of the issue branch), head2 (head with the exponent sums of _exceptional_product in Int)
+      - name: 'the differential on one machine - base (master), head (the src and ext of the issue branch), head2 (head with the exponent sums of _exceptional_product in Int)'
         env:
           EXPRANGE: ${{ matrix.range }}
         run: |

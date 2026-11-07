@@ -38,32 +38,84 @@ end
 # ---- the walker ----------------------------------------------------------------------------------------------
 #
 # `case_fingerprint(cases...)` hashes the logical state that the `operation`, `prepare` and `validate` of each
-# case reach: the captured fields of closures and callable structs (their names and, for closures, their field
-# types, so that a `Core.Box` or a `Union{Nothing,...}` field changes the result), nested closures, `Core.Box`
-# and `Ref` contents, numbers, symbols, strings, `nothing`, arrays by content (a dense array by its elements, a
-# sparse array through its storage arrays), iterates through the harness digest, and penalty and layout objects
-# field by field. Every mutable object is numbered at its first visit, with the numbering shared by the cases of
-# one call, so that aliasing between cases is part of the result; a cycle ends at the number. Raw pointers,
-# addresses and the names of anonymous closure types never enter it; named types do. Only the layout caches and
-# the scratch workspaces of the penalties are skipped (`SEL_SKIPPED_FIELDS`): the calls that the cases measure
-# fill them, and a workspace starts as uninitialized memory, so neither is part of what a case holds. The walk
-# stops with an error beyond a budget of nodes.
+# case reach. The encoding is typed and self-delimiting: every value starts with its kind and its full type
+# (`sel_type_token`: the names of anonymous closure types are left out, named types stay) and ends with a closing
+# marker; a container carries its length (an array its size) and every dictionary or set entry its begin and end
+# markers; a closure or a struct carries its field count, its field names and, for a closure, its field types (so
+# that a `Core.Box` or a `Union{Nothing,...}` field changes the result). `nothing` and `missing` are two kinds, a
+# `Ref{T}` carries T, and a `Core.Box` is its own kind. Dense arrays go by content (a bit-element array through the
+# harness digest or a loop over every element, an array of anything else element by element), a sparse array through
+# its storage, the iterates through the harness digest plus their live order and values, and penalty and layout
+# objects field by field. Every mutable object is numbered at its first visit, with the numbering shared by the
+# cases of one call, so that aliasing between cases is part of the result; a cycle ends at the number. For an
+# iterate the sharing graph also has an edge to every initialized child array of an array-of-arrays field (the
+# groups of an `AtomIterate`): the identity of the child, never its contents. Raw addresses and the names of
+# anonymous closure types never enter it. Only the layout caches and the scratch workspaces of the penalties are
+# skipped (`SEL_SKIPPED_FIELDS`): the calls that the cases measure fill them, and a workspace starts as
+# uninitialized memory, so neither is part of what a case holds.
+#
+# The walk is closed: a value whose kind is not in `SEL_SUPPORTED` makes it throw, with the case ID (added by
+# `case_fingerprint`), the capture path and the kind. The walk stops with an error beyond a budget of nodes per case.
 const SEL_SKIPPED_FIELDS = (:layout_cache, :scratch)
 const SEL_NODE_BUDGET = Ref(5_000_000)
+
+# the supported kinds of captured value, each with the reason that the cases need it; `sel_kind` assigns them
+const SEL_SUPPORTED = [
+    :nothing => "an absent option or reference",
+    :missing => "a missing marker, distinct from nothing",
+    :number => "scalars: step sizes, sizes, expected values (the type is part of the value)",
+    :symbol => "names and option flags",
+    :string => "labels and messages",
+    :char => "the triangle of a Symmetric operand",
+    :type => "element types and types passed as arguments",
+    :module => "a module held as a value, by name",
+    :flat_array => "dense arrays of immutable bits: iterates' inputs, operands, references, destinations",
+    :array => "arrays of anything else, element by element: vectors of arrays, unions, layouts",
+    :range => "index ranges and group ranges",
+    :wrapper => "array wrappers walked by their fields: views, a BitMatrix mask, transposes, Symmetric, Diagonal, sparse matrices by storage",
+    :tuple => "tuples of captured values",
+    :namedtuple => "named tuples of captured values",
+    :dict => "dictionaries, entries in a deterministic order",
+    :set => "sets, elements in a deterministic order",
+    :ref => "a Ref, with its element type",
+    :box => "a Core.Box of a closure variable that the compiler boxed",
+    :function => "closures and function objects, by their fields",
+    :struct => "callable structs, penalties, layouts and other structs of this package or of the harness",
+    :iterate => "the iterates, through the harness digest, their live order and values, and their sharing graph"]
+const SEL_SUPPORTED_KINDS = Set(first.(SEL_SUPPORTED))
+# modules whose structs the walker accepts, by the root of the defining module; of Base only the named wrappers
+const SEL_STRUCT_ROOTS = (:Main, :ProximalBase, :LinearAlgebra, :SparseArrays)
+const SEL_BASE_STRUCTS = (:SubArray, :BitArray)
 
 mutable struct SelWalker
     h::UInt64
     memo::IdDict{Any,Int}
     nodes::Int
     trace::Union{Nothing,Vector{String}}
+    census::Union{Nothing,IdDict{Any,Set{Symbol}}}        # the kinds met per type, instead of a hash
 end
-SelWalker(; trace=nothing) = SelWalker(0x0, IdDict{Any,Int}(), 0, trace)
+SelWalker(; trace=nothing, census=nothing) = SelWalker(0x0, IdDict{Any,Int}(), 0, trace, census)
+
+# the path of a value, built from the links of the walk and rendered only when it is needed
+struct SelPath
+    parent::Union{Nothing,SelPath}
+    sep::String
+    label::Any
+end
+SelPath(label) = SelPath(nothing, "", label)
+function Base.show(io::IO, p::SelPath)
+    p.parent === nothing || show(io, p.parent)
+    p.label isa Integer ? print(io, '[', p.label, ']') : print(io, p.sep, p.label)
+end
+sel_at(p::SelPath, sep, label) = SelPath(p, sep, label)
 
 # a type, without the names of anonymous closure types
 const SEL_TOKENS = IdDict{Any,String}()
-sel_type_token(T) = get!(() -> replace(string(T), r"#[#A-Za-z0-9_!]*" => "#"), SEL_TOKENS, T)
-sel_anonymous(T::DataType) = startswith(string(nameof(T)), "#")
-sel_anonymous(T) = false
+function sel_type_token(T)
+    s = get(SEL_TOKENS, T, nothing)
+    s === nothing || return s
+    SEL_TOKENS[T] = replace(string(T), r"#[#A-Za-z0-9_!]*" => "#")
+end
 sel_flat(T) = isbitstype(T)           # an array of immutable bits goes by digest; any other is walked element by element
 
 # `sel_mix!` takes scalars (numbers, symbols, strings, small tuples of those) and nothing else: `Base.hash` of an
@@ -84,111 +136,267 @@ function sel_mix!(w::SelWalker, path, @nospecialize(x))
     nothing
 end
 
-# the sharing number of a mutable object that is not walked into: the object itself and nothing of its contents
-function sel_share!(w::SelWalker, @nospecialize(x), path)
-    n = get(w.memo, x, 0)
-    n != 0 && return sel_mix!(w, path, "same object as #$n")
-    w.memo[x] = n = length(w.memo) + 1
-    sel_mix!(w, path, "object #$n")
-end
-
-# the label of an item, built only when a trace is kept: the walk visits tens of thousands of group arrays
+# the label of an item, built only when a trace is kept
 sel_p(w::SelWalker, path, parts...) = w.trace === nothing ? "" : string(path, parts...)
 
+# the sharing number of a mutable object: positive at its first visit (the object is registered), negative at a
+# later one. The object itself and nothing of its contents is mixed in; the result tells whether it was new.
+function sel_share!(w::SelWalker, @nospecialize(x), path, idx=0)
+    n = get(w.memo, x, 0)
+    seen = n != 0
+    seen || (w.memo[x] = n = length(w.memo) + 1)
+    n = seen ? -n : n
+    if w.trace === nothing
+        w.h = hash(n, w.h)
+    else
+        sel_mix!(w, string(path, idx == 0 ? "" : "[$idx]", seen ? " same object as" : " new object"), n)
+    end
+    !seen
+end
+
+# a mutable array that an iterate or a layout holds
+sel_object_array(f) = f isa AbstractArray && ismutable(f)
+
+sel_struct_ok(T::DataType) =
+    (m = T.name.module; nameof(Base.moduleroot(m)) in SEL_STRUCT_ROOTS || (m === Base && nameof(T) in SEL_BASE_STRUCTS))
+
+# the kind of a value; a value of no supported kind is `:unsupported`
+function sel_kind(@nospecialize(x))
+    x === nothing && return :nothing
+    x === missing && return :missing
+    x isa Array && return isbitstype((typeof(x)::DataType).parameters[1]) ? :flat_array : :array
+    x isa Number && return :number
+    x isa Symbol && return :symbol
+    x isa AbstractString && return :string
+    x isa AbstractChar && return :char
+    x isa Type && return :type
+    x isa Module && return :module
+    x isa Core.Box && return :box
+    x isa Base.RefValue && return :ref
+    x isa Union{AtomIterate,SparseIterate,SymmetricSparseIterate} && return :iterate
+    x isa AbstractRange && return :range
+    x isa AbstractDict && return :dict
+    x isa AbstractSet && return :set
+    x isa Tuple && return :tuple
+    x isa NamedTuple && return :namedtuple
+    x isa AbstractArray && return sel_struct_ok(typeof(x)) ? :wrapper : :unsupported
+    x isa Function && return :function
+    isstructtype(typeof(x)) && sel_struct_ok(typeof(x)) ? :struct : :unsupported
+end
+
+# a deterministic order for the entries of a dictionary or set that depends on nothing but the keys' content (never
+# on `Base.hash` of an array); a key of a kind that cannot be ordered this way is an error
+function sel_keyhash(@nospecialize(k))::UInt64
+    if k isa Union{Nothing,Missing,Number,Symbol,AbstractString,AbstractChar}
+        hash(k, hash(sel_type_token(typeof(k))))
+    elseif k isa Type
+        hash(sel_type_token(k), UInt64(1))
+    elseif k isa Module
+        hash(string(k), UInt64(2))
+    elseif k isa Union{Tuple,NamedTuple}
+        h = hash(sel_type_token(typeof(k)), UInt64(3))
+        for e in k
+            h = hash(sel_keyhash(e), h)
+        end
+        h
+    elseif k isa Array && sel_flat(eltype(k))
+        hash(sel_digest(k), hash((sel_type_token(typeof(k)), size(k)), UInt64(4)))
+    else
+        error("a key of kind $(sel_type_token(typeof(k))) in a dictionary or set cannot be ordered deterministically")
+    end
+end
+function sel_entries(x::AbstractDict)
+    es = collect(x)
+    es[sortperm([sel_keyhash(e.first) for e in es]; alg=MergeSort)]
+end
+function sel_entries(x::AbstractSet)
+    es = collect(x)
+    es[sortperm([sel_keyhash(e) for e in es]; alg=MergeSort)]
+end
+
 # `x` is not specialized on: the closures of the cases have a type each, and a method per type is mostly compile time
-function sel_walk!(w::SelWalker, @nospecialize(x), path::String)
+function sel_walk!(w::SelWalker, @nospecialize(x), path::SelPath)
     (w.nodes += 1) > SEL_NODE_BUDGET[] && error("the case fingerprint exceeded its budget of $(SEL_NODE_BUDGET[]) nodes at $path")
     T = typeof(x)
-    if x isa Union{Nothing,Missing}
-        return sel_mix!(w, path, :nothing)
-    elseif x isa Union{Number,Symbol,AbstractString,AbstractChar}
-        sel_mix!(w, sel_p(w, path, "::type"), sel_type_token(T))
-        return sel_mix!(w, path, x)
-    elseif x isa Union{Type,Module,Ptr}
-        return sel_mix!(w, path, x isa Ptr ? "pointer" : string(x))
+    kind = sel_kind(x)
+    token = sel_type_token(T)
+    w.census === nothing || push!(get!(Set{Symbol}, w.census, T), kind)
+    if kind === :unsupported
+        w.census === nothing || return nothing
+        error("unsupported captured value of kind $token at $path")
     end
-    if ismutable(x)
-        n = get(w.memo, x, 0)
-        if n != 0
-            return sel_mix!(w, path, "same object as #$n")
-        end
-        w.memo[x] = n = length(w.memo) + 1
-        sel_mix!(w, path, "object #$n")
-    end
-    if x isa Union{AtomIterate,SparseIterate,SymmetricSparseIterate} && digestable(x)
-        sel_mix!(w, sel_p(w, path, "::type"), sel_type_token(T))
-        sel_mix!(w, sel_p(w, path, " digest"), digest(x))
-        # the digest sorts the active coordinates: the live state in its order is added, through the accessors
-        # that exist on 0.5.x and 0.6 (the live part only: a stale tail of a backing array can be uninitialized)
-        ids = collect(activecoordinates(x))
-        sel_mix!(w, sel_p(w, path, " active order"), sel_digest(ids))
-        if x isa AtomIterate
-            indices = group_indices_by()
-            sel_mix!(w, sel_p(w, path, " active values"), sel_digest([x[i] for k in ids for i in indices(x, k)]))
-        else
-            sel_mix!(w, sel_p(w, path, " active values"), sel_digest(collect(activevalues(x))))
-        end
-        # the sharing of every mutable backing array, by number alone: never hashed beyond the live entries
-        for name in fieldnames(T)
-            name in SEL_SKIPPED_FIELDS && continue
-            f = getfield(x, name)
-            f isa AbstractArray && ismutable(f) && sel_share!(w, f, sel_p(w, path, ".", name))
-        end
-        return nothing
-    elseif x isa Core.Box
-        return isdefined(x, :contents) ? sel_walk!(w, x.contents, sel_p(w, path, ".contents")) : sel_mix!(w, path, :undef)
-    elseif x isa Base.RefValue
-        return sel_walk!(w, x[], sel_p(w, path, "[]"))
-    elseif x isa Array
-        sel_mix!(w, sel_p(w, path, "::type"), sel_type_token(T))
-        sel_mix!(w, sel_p(w, path, " size"), size(x))
-        if sel_flat(eltype(x))
-            if digestable(x)
-                return sel_mix!(w, sel_p(w, path, " digest"), digest(x))
+    sel_mix!(w, sel_p(w, path, "::kind"), kind)
+    sel_mix!(w, sel_p(w, path, "::type"), token)
+    if kind === :nothing || kind === :missing
+    elseif kind === :number || kind === :symbol || kind === :string || kind === :char
+        sel_mix!(w, path, x)
+    elseif kind === :type
+        sel_mix!(w, path, sel_type_token(x))
+    elseif kind === :module
+        sel_mix!(w, path, string(x))
+    else
+        if ismutable(x)
+            if !sel_share!(w, x, path)
+                return sel_mix!(w, sel_p(w, path, "::end"), kind)
             end
-            w.nodes += length(x)
-            return sel_mix!(w, sel_p(w, path, " elements"), sel_digest(x))
         end
-        for (i, v) in enumerate(x)
-            sel_walk!(w, v, sel_p(w, path, "[", i, "]"))
-        end
-        return nothing
-    elseif x isa AbstractDict
-        for (k, v) in sort!(collect(x); by=pair -> hash(pair.first))
-            sel_walk!(w, k, sel_p(w, path, ".key")); sel_walk!(w, v, sel_p(w, path, "[key]"))
-        end
-        return nothing
-    elseif x isa AbstractSet
-        for k in sort!(collect(x); by=hash)
-            sel_walk!(w, k, sel_p(w, path, ".element"))
-        end
-        return nothing
+        sel_body!(w, x, path, Val(kind), T)
     end
-    closure = x isa Function || sel_anonymous(T)
-    sel_mix!(w, sel_p(w, path, "::type"), sel_anonymous(T) ? "closure" : sel_type_token(T))
-    for i in 1:fieldcount(T)
-        name = T <: Tuple ? i : fieldname(T, i)
+    sel_mix!(w, sel_p(w, path, "::end"), kind)
+end
+
+sel_body!(w, @nospecialize(x), path, ::Val{:box}, T) =
+    isdefined(x, :contents) ? sel_walk!(w, x.contents, sel_at(path, ".", "contents")) : sel_mix!(w, path, :undef)
+sel_body!(w, @nospecialize(x), path, ::Val{:ref}, T) =
+    isdefined(x, 1) ? sel_walk!(w, x[], sel_at(path, "", "[]")) : sel_mix!(w, path, :undef)
+
+function sel_body!(w, @nospecialize(x), path, ::Val{:iterate}, T)
+    digestable(x) || error("unsupported captured value of kind $(sel_type_token(T)) at $path: the element type has no digest word")
+    w.census === nothing || return nothing
+    sel_mix!(w, sel_p(w, path, " digest"), digest(x))
+    # the digest sorts the active coordinates: the live state in its order is added, through the accessors
+    # that exist on 0.5.x and 0.6 (the live part only: a stale tail of a backing array can be uninitialized)
+    ids = collect(activecoordinates(x))
+    sel_mix!(w, sel_p(w, path, " active order"), sel_digest(ids))
+    if x isa AtomIterate
+        indices = group_indices_by()
+        sel_mix!(w, sel_p(w, path, " active values"), sel_digest([x[i] for k in ids for i in indices(x, k)]))
+    else
+        sel_mix!(w, sel_p(w, path, " active values"), sel_digest(collect(activevalues(x))))
+    end
+    # the sharing graph: every mutable backing array by its number, never hashed beyond the live entries, and, for
+    # an array of arrays (the groups), an edge to every initialized child array when the layout array is new
+    for name in fieldnames(T)
         name in SEL_SKIPPED_FIELDS && continue
-        fpath = sel_p(w, path, ".", name)
+        f = getfield(x, name)
+        sel_object_array(f) || continue
+        fpath = sel_at(path, ".", name)
+        sel_mix!(w, sel_p(w, fpath, "::field"), name)
+        sel_share!(w, f, fpath) && !sel_flat(eltype(f)) || continue
+        w.nodes += length(f)
+        sel_children!(w, f, fpath)
+    end
+    nothing
+end
+# the edges to the initialized child arrays of an array of arrays (specialized on the element type: the groups of
+# a long layout are tens of thousands of arrays)
+function sel_children!(w::SelWalker, f::AbstractArray, fpath)
+    for i in eachindex(f)
+        isassigned(f, i) || continue
+        c = f[i]
+        c isa AbstractArray && ismutable(c) && sel_share!(w, c, fpath, i)
+    end
+end
+
+function sel_body!(w, @nospecialize(x), path, ::Val{:flat_array}, T)
+    sel_mix!(w, sel_p(w, path, " size"), size(x))
+    dig = digestable(x)
+    dig || (w.nodes += length(x))
+    w.census === nothing && sel_mix!(w, sel_p(w, path, " digest"), dig ? digest(x) : sel_digest(x))
+    nothing
+end
+
+function sel_body!(w, @nospecialize(x), path, ::Val{:array}, T)
+    sel_mix!(w, sel_p(w, path, " size"), size(x))
+    for i in eachindex(x)
+        ipath = sel_at(path, "", i)
+        isassigned(x, i) ? sel_walk!(w, x[i], ipath) : sel_mix!(w, sel_p(w, ipath, ""), :undef)
+    end
+    nothing
+end
+
+function sel_body!(w, @nospecialize(x), path, ::Val{:range}, T)
+    sel_mix!(w, sel_p(w, path, " length"), length(x))
+    isempty(x) && return nothing
+    sel_walk!(w, first(x), sel_at(path, ".", "first"))
+    sel_walk!(w, step(x), sel_at(path, ".", "step"))
+    nothing
+end
+
+function sel_body!(w, @nospecialize(x), path, ::Val{:dict}, T)
+    sel_mix!(w, sel_p(w, path, " length"), length(x))
+    for (k, v) in sel_entries(x)
+        sel_mix!(w, sel_p(w, path, " entry"), :begin)
+        sel_walk!(w, k, sel_at(path, ".", "key")); sel_walk!(w, v, sel_at(path, "", "[key]"))
+        sel_mix!(w, sel_p(w, path, " entry"), :end)
+    end
+    nothing
+end
+
+function sel_body!(w, @nospecialize(x), path, ::Val{:set}, T)
+    sel_mix!(w, sel_p(w, path, " length"), length(x))
+    for k in sel_entries(x)
+        sel_mix!(w, sel_p(w, path, " entry"), :begin)
+        sel_walk!(w, k, sel_at(path, ".", "element"))
+        sel_mix!(w, sel_p(w, path, " entry"), :end)
+    end
+    nothing
+end
+
+function sel_body!(w, @nospecialize(x), path, ::Val{:tuple}, T)
+    sel_mix!(w, sel_p(w, path, " length"), length(x))
+    for i in 1:length(x)
+        sel_walk!(w, x[i], sel_at(path, "", i))
+    end
+    nothing
+end
+
+function sel_body!(w, @nospecialize(x), path, ::Val{:namedtuple}, T)
+    sel_mix!(w, sel_p(w, path, " names"), keys(x))
+    for name in keys(x)
+        sel_walk!(w, x[name], sel_at(path, ".", name))
+    end
+    nothing
+end
+
+# closures, function objects, structs and array wrappers: by their fields
+function sel_body!(w, @nospecialize(x), path, ::Val, T)
+    closure = x isa Function
+    sel_mix!(w, sel_p(w, path, " fields"), fieldcount(T))
+    for i in 1:fieldcount(T)
+        name = fieldname(T, i)
+        fpath = sel_at(path, ".", name)
+        sel_mix!(w, sel_p(w, fpath, "::field"), name)
+        name in SEL_SKIPPED_FIELDS && continue
         closure && sel_mix!(w, sel_p(w, fpath, "::fieldtype"), sel_type_token(fieldtype(T, i)))
         isdefined(x, i) ? sel_walk!(w, getfield(x, i), fpath) : sel_mix!(w, fpath, :undef)
     end
     nothing
 end
 
-# one hash per case; `trace` (a vector) receives the visited items, for locating a difference
-function case_fingerprint(cases::PerfCase...; trace=nothing)
-    w = SelWalker(; trace)
-    map(cases) do c
-        w.h = 0x0
-        for (name, f) in ((:operation, c.operation), (:prepare, c.prepare), (:validate, c.validate))
-            sel_mix!(w, string(c.meta.id, "/", name), name)
-            sel_walk!(w, f, string(name))
-        end
-        w.h
-    end
+# one hash per case; `trace` (a vector) receives the visited items, for locating a difference. The cases are not
+# specialized on (each has a type of its own, and a method per case type is compile time): their callbacks are read
+# through `getfield`, and the result is a vector of hashes.
+function sel_root!(w::SelWalker, id, name::Symbol, @nospecialize(f))
+    sel_mix!(w, string(id, "/", name), name)
+    sel_walk!(w, f, SelPath(string(name)))
 end
-sel_fingerprint(x; trace=nothing) = (w = SelWalker(; trace); sel_walk!(w, x, "x"); w.h)
+function sel_case!(w::SelWalker, @nospecialize(c))
+    id = getfield(c, :meta).id
+    w.h = 0x0
+    w.nodes = 0
+    try
+        sel_root!(w, id, :operation, getfield(c, :operation))
+        sel_root!(w, id, :prepare, getfield(c, :prepare))
+        sel_root!(w, id, :validate, getfield(c, :validate))
+    catch err
+        err isa ErrorException ? throw(ErrorException("case $id: $(err.msg)")) : rethrow()
+    end
+    w.h
+end
+function case_fingerprint(@nospecialize(cases::PerfCase...); trace=nothing)
+    w = SelWalker(; trace)
+    UInt64[sel_case!(w, c) for c in cases]
+end
+sel_fingerprint(x; trace=nothing) = (w = SelWalker(; trace); sel_walk!(w, x, SelPath("x")); w.h)
+
+# the (kind, type) pairs that the walker meets in the captured state of `cases`: the same traversal, with the same
+# memo and budget, without the digests of array contents, and without an error for an unsupported kind
+function sel_census(cases)
+    w = SelWalker(; census=IdDict{Any,Set{Symbol}}())
+    foreach(c -> sel_case!(w, c), cases)
+    Set((kind, sel_type_token(T)) for (T, kinds) in w.census for kind in kinds)
+end
 
 # ---- the differential oracle ---------------------------------------------------------------------------------
 # the captured variables that the compiler boxed (a `Core.Box` field costs every timed call a dynamic dispatch)
@@ -344,6 +552,25 @@ end
     @test sel_fingerprint((ax, ax.storage)) != sel_fingerprint((ax, copy(ax.storage)))
     @test sel_fingerprint((ax, ax.storage)) == sel_fingerprint((ax, ax.storage))
     @test sel_fingerprint((sx, sx.nzval)) != sel_fingerprint((sx, copy(sx.nzval)))
+    # the encoding is typed and self-delimiting
+    @test sel_fingerprint(Any[nothing]) != sel_fingerprint(Any[missing])
+    @test sel_fingerprint(Any[Ref{Int}(1)]) != sel_fingerprint(Any[Ref{Any}(1)])
+    @test sel_fingerprint(Any[Ref{Any}(1)]) != sel_fingerprint(Any[Core.Box(1)])
+    @test sel_fingerprint(Any[Dict{Int,Int}()]) != sel_fingerprint(Any[Dict{Symbol,Int}()])
+    @test sel_fingerprint(Any[Set{Int}()]) != sel_fingerprint(Any[Set{Symbol}()])
+    @test sel_fingerprint(Any[Dict{Int,Int}()]) != sel_fingerprint(Any[Set{Int}()])
+    @test sel_fingerprint((("ab", "c"),)) != sel_fingerprint((("a", "bc"),))
+    @test sel_fingerprint(((1, 2), 3)) != sel_fingerprint((1, (2, 3)))
+    @test sel_fingerprint((a = 1, b = 2)) != sel_fingerprint((b = 1, a = 2))
+    @test sel_fingerprint(Any[[1.0], [2.0]]) != sel_fingerprint(Any[[1.0, 2.0]])
+    @test sel_fingerprint(Any[1:3]) != sel_fingerprint(Any[1:4]) && sel_fingerprint(Any[1:3]) != sel_fingerprint(Any[1:2:5])
+    @test sel_fingerprint(Any[Dict(:a => 1, :b => 2)]) == sel_fingerprint(Any[Dict(:b => 2, :a => 1)])      # an entry order that depends on nothing else
+    @test sel_fingerprint(Dict{Any,Int}([1.0] => 1, [2.0] => 2)) == sel_fingerprint(Dict{Any,Int}([2.0] => 2, [1.0] => 1))
+    # an undefined element is a marker, not an error
+    @test sel_fingerprint(Vector{Any}(undef, 2)) != sel_fingerprint(Any[nothing, nothing])
+    # a value of another kind is an error that names the path and the kind, and a key that cannot be ordered too
+    @test occursin("unsupported captured value of kind Ptr{Nothing} at x[2]", sel_message(() -> sel_fingerprint(Any[1, Ptr{Nothing}(8)])))
+    @test occursin("cannot be ordered deterministically", sel_message(() -> sel_fingerprint(Dict(Ref(1) => 1))))
     # the walk is bounded
     budget = SEL_NODE_BUDGET[]
     SEL_NODE_BUDGET[] = 10
@@ -391,6 +618,74 @@ end
     end
 end
 
+# Pairs of states that the validators cannot tell apart (all no-ops), that a callback does tell apart, through the
+# complete oracle: each pair shows that the fault fired (the callbacks' results differ between the two sides), that the
+# oracle reports a difference, and that independently rebuilt equal states agree.
+@testset "the oracle sees what the encoding must tell apart" begin
+    probe(z, f) = PerfCase((; id="probe"), () -> f(z), noop, noop, nothing, false, (;))
+    function check_pair(a, b, f)
+        @test !isequal(f(a()), f(b()))
+        @test !isempty(sel_differences(() -> [probe(a(), f)], sel -> [probe(b(), f)], "probe"))
+        @test isempty(sel_differences(() -> [probe(a(), f)], sel -> [probe(a(), f)], "probe"))
+        @test isempty(sel_differences(() -> [probe(b(), f)], sel -> [probe(b(), f)], "probe"))
+    end
+    @testset "nested layout sharing" begin
+        p(shared) = (x = build_atom(Float64, 8, atom_groups(8, 2, true), [1, 2], [1., 2., 3., 4.]);
+                     (x, shared ? x.groups[1] : copy(x.groups[1])))
+        check_pair(() -> p(true), () -> p(false), z -> z[2] === z[1].groups[1])
+    end
+    @testset "nested dictionaries" begin
+        ks = sort!([:a, :b, :c, :d]; by=hash)
+        k1, k2, k3 = ks[1:3]
+        a() = Dict{Symbol,Any}(k1 => Dict{Symbol,Any}(k2 => [1.0]), k3 => [2.0])
+        b() = Dict{Symbol,Any}(k1 => Dict{Symbol,Any}(k2 => [1.0], k3 => [2.0]))
+        check_pair(a, b, length)
+    end
+    @testset "nothing and missing" begin
+        check_pair(() -> Any[nothing], () -> Any[missing], z -> z[1] === nothing)
+    end
+    @testset "the type parameter of a Ref" begin
+        check_pair(() -> Any[Ref{Int}(1)], () -> Any[Ref{Any}(1)], z -> typeof(z[1]))
+    end
+    @testset "a Ref and a Core.Box" begin
+        check_pair(() -> Any[Ref{Any}(1)], () -> Any[Core.Box(1)], z -> typeof(z[1]))
+    end
+    @testset "empty containers of other element types" begin
+        check_pair(() -> Any[Dict{Int,Int}()], () -> Any[Dict{Symbol,Int}()], z -> typeof(z[1]))
+        check_pair(() -> Any[Set{Int}()], () -> Any[Set{Symbol}()], z -> typeof(z[1]))
+        check_pair(() -> Any[Dict{Int,Int}()], () -> Any[Set{Int}()], z -> typeof(z[1]))
+    end
+    @testset "sets of arrays and dictionaries with tuple keys" begin
+        q(shared) = (v = [1.0, 2.0]; (Set{Any}([v]), shared ? v : copy(v)))
+        check_pair(() -> q(true), () -> q(false), z -> any(e -> e === z[2], z[1]))
+        check_pair(() -> Dict((:a, 1) => 1, (:b, 2) => 2), () -> Dict((:a, 2) => 1, (:b, 1) => 2), z -> get(z, (:a, 1), 0))
+        check_pair(() -> Dict{Any,Int}([1.0] => 1), () -> Dict{Any,Int}([2.0] => 1), z -> only(keys(z)))
+    end
+end
+
+# a value of a kind that the walker does not encode is an error with the case ID, the path and the kind, never a
+# placeholder; the census reports it instead
+@testset "the walker fails closed" begin
+    for (what, value, kind) in (("ptr", Ptr{Cvoid}(UInt(8)), "Ptr"), ("channel", Channel{Int}(1), "Channel"),
+                                ("task", Task(() -> nothing), "Task"), ("io", IOBuffer(), "(IOBuffer|GenericIOBuffer)"),
+                                ("weakref", WeakRef([1.0]), "WeakRef"), ("expr", :(a + b), "Expr"))
+        t = (1, value)
+        c = PerfCase((; id="probe/$what"), () -> t, noop, noop, nothing, false, (;))
+        msg = sel_message(() -> case_fingerprint(c))
+        @test occursin(Regex("case probe/$what: unsupported captured value of kind (Base\\.)?$kind"), msg)
+        @test occursin("at operation.t[2]", msg)
+        @test (:unsupported, sel_type_token(typeof(value))) in sel_census([c])
+        # a nested closure and a field of a struct give the path of the field
+        inner = let v = value
+            () -> v
+        end
+        d = PerfCase((; id="probe/nested/$what"), () -> inner, noop, noop, nothing, false, (;))
+        @test occursin("at operation.inner.v", sel_message(() -> case_fingerprint(d)))
+    end
+    # an iterate whose element type has no digest word is not walked into its backing arrays
+    @test occursin("unsupported captured value", sel_message(() -> sel_fingerprint(AtomIterate(Float16, 4, [1:2, 3:4]))))
+end
+
 # Base.hash samples a large array: a difference at one position of a long array, in the order of the active
 # coordinates, in their values, in the sharing of elements and in a type without a digest word must still be seen.
 # The validators are no-ops, so that only the captured state can tell the builds apart.
@@ -402,14 +697,14 @@ end
         w
     end
     function sparse_state(ids, vals)
-        z = build_iterate(Float64, (2n,), ids, vals)
+        z = build_iterate(Float64, (2length(ids),), ids, vals)
         c = PerfCase[]
         addcase!(c, "t", "order", () -> collect(activecoordinates(z))[3], noop; inputs=(; z))
         c
     end
-    atom_groups_20000 = [(2i - 1):(2i) for i in 1:n]
     function atom_state(aids, vals)
-        z = build_atom(Float64, 2n, atom_groups_20000, aids, vals)
+        m = length(aids)
+        z = build_atom(Float64, 2m, [(2i - 1):(2i) for i in 1:m], aids, vals)
         c = PerfCase[]
         addcase!(c, "t", "order", () -> collect(activecoordinates(z))[3], noop; inputs=(; z))
         c
@@ -421,19 +716,45 @@ end
         addcase!(c, "t", "same", () -> arrs[3] === arrs[5], noop; inputs=(;))
         c
     end
-    half_state(T, pos) = (a = fill(T(1), n); pos > 0 && (a[pos] = T(2)); c = PerfCase[];
-                          addcase!(c, "t", "flat", () -> sum(a), noop; inputs=(;)); c)
+    half_state(mk, pos) = (a = mk(); pos > 0 && (a[pos] += oftype(a[pos], 1)); c = PerfCase[];
+                           addcase!(c, "t", "flat", () -> sum(a), noop; inputs=(;)); c)
+    # A position that the running Julia's `hash` of the vector does not read at all, among the first thousand (changing
+    # the element there leaves the hash alone), so that a difference there is invisible to a sampled hash and must come
+    # from the walker's own digest; none where `hash` reads every element, and then that sub-test is skipped. Julia 1.13
+    # reads every element of a vector of 10,000 and skips the first of one of 100,000; Julia 1.10 skips it in both. (The
+    # order tests at positions 3 and 5 below fail with the sampled hash of Julia 1.10 either way.)
+    function unsampled(A, change)
+        h, B = hash(A), copy(A)
+        for i in first(eachindex(A)):min(last(eachindex(A)), 1000)
+            B[i] = change(A[i])
+            hash(B) == h && return i
+            B[i] = A[i]
+        end
+        nothing
+    end
     ids, ids_swapped = collect(1:n), swapped(collect(1:n))
     ones_n, distinct = ones(n), Float64.(1:n)
     pairs = [("sparse order", () -> sparse_state(ids, ones_n), () -> sparse_state(ids_swapped, ones_n)),
              ("atom order", () -> atom_state(ids, ones(2n)), () -> atom_state(ids_swapped, ones(2n))),
-             ("sparse values", () -> sparse_state(ids, distinct), () -> sparse_state(ids, swapped(distinct))),
-             ("atom values", () -> atom_state(ids, Float64.(1:2n)), () -> atom_state(ids, swapped(Float64.(1:2n)))),
              ("sparse order and values", () -> sparse_state(ids, distinct), () -> sparse_state(ids_swapped, swapped(distinct))),
              ("shared elements", () -> arrays_state(true), () -> arrays_state(false))]
+    # the values of an iterate, and a flat Float16 array, in vectors long enough that `hash` of the current Julia skips
+    # an element (the values of 100,000 coordinates for the sparse iterate, of 200,000 for the atom)
+    long = 100_000
+    ids_long, values_long, values_atom = collect(1:long), Float64.(1:long), Float64.(1:2long)
+    bump(A, i) = (B = copy(A); B[i] += 0.5; B)
+    pv, pa = unsampled(values_long, x -> x + 0.5), unsampled(values_atom, x -> x + 0.5)
+    pv === nothing || push!(pairs, ("sparse values at unsampled position $pv", () -> sparse_state(ids_long, values_long),
+                                    () -> sparse_state(ids_long, bump(values_long, pv))))
+    pa === nothing || push!(pairs, ("atom values at unsampled position $pa", () -> atom_state(ids_long, values_atom),
+                                    () -> atom_state(ids_long, bump(values_atom, pa))))
+    ones_half() = fill(Float16(1), n)
+    long_half() = Float16.(mod.(1:long, 251))
     for pos in (2, 3, 5, 4999, 5001, 7777)
-        push!(pairs, ("flat Float16 at $pos", () -> half_state(Float16, pos), () -> half_state(Float16, 0)))
+        push!(pairs, ("flat Float16 at $pos", () -> half_state(ones_half, pos), () -> half_state(ones_half, 0)))
     end
+    ph = unsampled(long_half(), x -> x + Float16(1))
+    ph === nothing || push!(pairs, ("flat Float16 at unsampled position $ph", () -> half_state(long_half, ph), () -> half_state(long_half, 0)))
     @testset "$name" for (name, a, b) in pairs
         ca, cb = a(), b()
         @test only(case_fingerprint(ca...)) != only(case_fingerprint(cb...))
@@ -441,7 +762,7 @@ end
         @test isempty(sel_differences(a, selector -> a(), "^t/"))
     end
     # a changed element of a long flat array that has no digest word, directly
-    u, v = fill(Float16(1), n), fill(Float16(1), n)
+    u, v = ones_half(), ones_half()
     v[5001] = Float16(2)
     @test sel_fingerprint(() -> u) != sel_fingerprint(() -> v)
     # an array never reaches the hash
@@ -460,6 +781,10 @@ const SEL_PRIMARY = (raw"^atom/isactive/",
 const SEL_KEYED = (SEL_PRIMARY[1], SEL_PRIMARY[3], SEL_PRIMARY[6])
 const SEL_BROAD = (raw"/warm$", "act10")
 sel_all(rep, suite, groups) = build_cases(rep; suite, groups)
+
+# the (kind, type) pairs met in the captured state of every catalog that this file builds for a comparison
+const SEL_SEEN = Set{Tuple{Symbol,String}}()
+sel_note!(cases) = (union!(SEL_SEEN, sel_census(cases)); cases)
 
 @testset "the unfiltered catalog is unchanged" begin
     for rep in (1, 2, 10)
@@ -502,7 +827,7 @@ end
     # an alternation across families, with another group
     groups = ["atom", "vectors"]
     # (the destination of a `separable/.../prox!` case is uninitialized memory, so those cases are not compared)
-    unfiltered_two() = build_cases(1; suite="quick", groups)
+    unfiltered_two() = sel_note!(build_cases(1; suite="quick", groups))
     sel_compare(unfiltered_two, selector -> build_cases(1; suite="quick", groups, selector), raw"^atom/isactive/|^separable/NormL1/value/")
     GC.gc()
 end
@@ -547,7 +872,7 @@ end
 end
 
 @testset "the enumerated IDs are complete: quick grid" begin
-    all_cases = sel_all(1, "quick", ["atom"])
+    all_cases = sel_note!(sel_all(1, "quick", ["atom"]))
     scenarios = atom_scenarios(true)
     @test length(scenarios) == 3
     registered = Set(c.meta.id for c in all_cases)
@@ -598,7 +923,7 @@ sel_scenario_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
     cases)
 
 @testset "extended scenarios: $(s.T) g=$(s.g) strided=$(s.strided) act$(s.label) full=$(s.full) rows=$(s.rows)" for s in SEL_SCENARIOS
-    pristine = sel_scenario_build(s)
+    pristine = sel_note!(sel_scenario_build(s))
     ids = Set(id for (_, id) in atom_scenario_ids(s.T, s.p, s.g, s.strided, s.label; s.full, s.rows))
     @test Set(c.meta.id for c in pristine) == ids              # no ID is missing, and none is spurious
     regexes = s === SEL_SCENARIOS[1] || !s.full ? SEL_SCENARIO_REGEXES : SEL_SCENARIO_REDUCED
@@ -671,7 +996,7 @@ end
 end
 
 @testset "the enumerated sparse IDs are complete: quick grid" begin
-    all_cases = sel_all(1, "quick", ["sparse"])
+    all_cases = sel_note!(sel_all(1, "quick", ["sparse"]))
     scenarios = sparse_scenarios(true)
     @test (length(scenarios.constructs), length(scenarios.vectors), length(scenarios.matrices),
            length(scenarios.symmetrics), length(scenarios.converts)) == (2, 2, 2, 1, 1)
@@ -735,7 +1060,7 @@ sel_sparse_vector_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
 
 @testset "sparse extended scenarios: $(s.T) n=$(s.n) s=$(s.s) rows=$(s.rows)" for s in SEL_SPARSE_VECTORS
     large = s.n >= 10^6
-    pristine = sel_sparse_vector_build(s)
+    pristine = sel_note!(sel_sparse_vector_build(s))
     ids = Set(id for (_, id) in sparse_vector_ids(s.T, s.n, s.s; s.rows))
     @test Set(c.meta.id for c in pristine) == ids              # no ID is missing, and none is spurious
     regexes = large ? SEL_SPARSE_LARGE_REGEXES : s.T == Float32 ? SEL_SPARSE_F32_REGEXES : SEL_SPARSE_VECTOR_REGEXES
@@ -762,7 +1087,7 @@ sel_sparse_matrix_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
     cases)
 
 @testset "sparse extended matrices: $(s.T) $(s.dims) d$(s.label) rows=$(s.rows)" for s in SEL_SPARSE_MATRICES
-    pristine = sel_sparse_matrix_build(s)
+    pristine = sel_note!(sel_sparse_matrix_build(s))
     @test Set(c.meta.id for c in pristine) == Set(id for (_, id) in sparse_matrix_ids(s.T, s.dims, s.label, s.rows))
     applicable = [r for r in SEL_SPARSE_MATRIX_REGEXES if any(c -> occursin(Regex(r), c.meta.id), pristine)]
     @test length(applicable) >= (length(s.rows) == 2 ? 6 : 5)
@@ -802,4 +1127,28 @@ end
         sel_compare(() -> sel_sparse_vector_build(v; rep), selector -> sel_sparse_vector_build(v; selector, rep), selection)
     end
     GC.gc()
+end
+
+# ---- the census ----------------------------------------------------------------------------------------------
+# The kinds of captured value that the walker meets, over the catalogs that this file compares (the quick `atom`,
+# `sparse` and `vectors` groups and the extended scenarios), must all be supported, and the supported list holds nothing
+# else but the kinds that a self-test needs and the kinds that only groups the oracle never compares reach. The census of
+# the whole quick catalog (`sel_census(build_cases(1))`, 839 cases) is not part of this test: it needs the builds of all
+# eleven groups, about two minutes cold, and belongs to the one-off audit.
+const SEL_SELF_TEST_KINDS = (:missing, :symbol, :string, :module, :box, :dict, :set)
+const SEL_NOT_COMPARED = [:ref => "constraints, matrices, owner"]
+
+@testset "the census of the captured state" begin
+    kinds = Set(first.(SEL_SEEN))
+    @test !isempty(SEL_SEEN)
+    @test :unsupported ∉ kinds
+    @test issubset(kinds, SEL_SUPPORTED_KINDS)
+    @test length(SEL_SUPPORTED_KINDS) == length(SEL_SUPPORTED)             # no kind is listed twice
+    @test setdiff(SEL_SUPPORTED_KINDS, kinds) == Set(SEL_SELF_TEST_KINDS) ∪ Set(first.(SEL_NOT_COMPARED))
+    @test isdisjoint(kinds, Set(SEL_SELF_TEST_KINDS) ∪ Set(first.(SEL_NOT_COMPARED)))
+    # every kind of the list is assigned by `sel_kind`, for a value of that kind
+    samples = (nothing, missing, 1, :a, "a", 'a', Int, Base, Core.Box(1), Ref(1), AtomIterate(2, [1:1, 2:2]), [1.0], Any[1], 1:2,
+               view([1.0, 2.0], 1:1), (1,), (a = 1,), Dict(1 => 1), Set([1]), () -> 1, SelNode(nothing))
+    @test Set(map(sel_kind, samples)) == SEL_SUPPORTED_KINDS
+    @test sel_kind(Ptr{Nothing}(0)) === :unsupported && sel_kind(Channel{Int}(1)) === :unsupported
 end

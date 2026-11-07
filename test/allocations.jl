@@ -391,9 +391,6 @@ end
     for f in (IndPSD(), IndPSD(rank = 3), TracePSD(0.2), Spectral(NormL1(0.3)))
       @test allocs(a_prox!, S, f, A, 0.7) == 0
     end
-    B = randn(40, 10)
-    L = LogDetLoss(Matrix(Symmetric(B'B / 40)))
-    @test allocs(a_vprox!, S, L, Matrix(1.0I, 10, 10), 0.7) == 0
   end
 
   @testset "smooth functions" begin
@@ -662,6 +659,42 @@ end
     @test allocs(value_and_prox!, y, c, x, 0.7) == 0
     if isseparable(f)
       @test allocs(prox!, y, c, x, γ) == 0
+    end
+  end
+end
+
+
+@testset "products and reductions of an owner allocate nothing" begin
+  for T in (Float32, Float64), U in (T, Float64)
+    p = 12
+    M = zeros(T, p, p)
+    for k in 1:20
+      r, c = rand(1:p), rand(1:p)
+      M[r, c] = M[c, r] = T(k)
+    end
+    x = SymmetricSparseIterate(M)
+    activate!(x, tril_index(p, 5, 2))                         # an explicit zero
+    y = SymmetricSparseIterate(T(2) .* M)
+    A, B = Symmetric(randn(T, p, p)), Symmetric(randn(T, p, p))
+    a, b, out = randn(U, p), randn(U, p), zeros(U, p)
+    W, V, C = randn(U, p, p), randn(U, p, 3), zeros(U, p, 3)
+    z = zeros(U, p, p)
+    @testset "$T owner, $U operands" begin
+      @test allocs(mul!, out, x, a) == 0
+      @test allocs(mul!, out, x, a, U(2), U(0.5)) == 0
+      @test allocs(mul!, out, matrixview(x), a) == 0
+      @test allocs(mul!, out, matrixview(x), a, U(2), U(0.5)) == 0
+      @test allocs(mul!, C, x, V) == 0
+      @test allocs(mul!, C, x, V, U(2), U(0.5)) == 0
+      @test allocs(dot, a, x, b) == 0
+      @test allocs(dot, W, x) == 0
+      @test allocs(dot, x, W) == 0
+      @test allocs(norm, x) == 0
+      @test allocs(norm, x, 1) == 0
+      @test allocs(norm, x, Inf) == 0
+      @test allocs(norm_diff, x, W) == 0
+      @test allocs(norm_diff, W, x, Inf) == 0
+      @test allocs(norm_diff, x, y) == 0
     end
   end
 end

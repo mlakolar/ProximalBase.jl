@@ -517,26 +517,39 @@ end
     op(y, Conjugate(f), x, γ)
     @test y == ref
   end
-  # These remain genuine array calls, with the reciprocal of the narrowed step.
-  f = Scaled(SqrNormL2(), γ)
-  @test prox(Conjugate(f), Float32[γ], γ) == Float32[γ]
-  f = Scaled(MoreauEnvelope(NormL1(), 1.0), γ)
-  @test_throws ArgumentError prox(Conjugate(f), Float32[γ], γ)
+  # These remain genuine array calls. The reciprocal comes from the stored Float64 step (#576), so
+  # it is finite in the promoted type and the point is the exact one, γ/2; the Float32 reciprocal
+  # of the narrowed step overflowed to Inf and gave γ, and an error for the envelope.
+  for base in (SqrNormL2(), MoreauEnvelope(NormL1(), 1.0))
+    f = Scaled(base, γ)
+    @test prox(Conjugate(f), Float32[γ], γ) ≈ Float32[γ / 2] rtol = 1e-4
+    @test prox(Conjugate(f), [γ], γ) ≈ [γ / 2] rtol = 8eps()
+  end
 
-  # Float32's original reciprocal overflows on master as well.
+  # In a Float32 model the Float32 reciprocal of this step overflows, on master as well, and the call is
+  # rejected before anything is written; with a Float64 block the model is Float64, the reciprocal of
+  # the stored step is finite (#576), and the point is the exact one, γ/2 (the first block is 1).
   bad = Float32(γ)
   f = Scaled(MoreauEnvelope(NormL1(), 1.0), γ)
   @test_throws ArgumentError tuple_reference(SeparableSum(f), (Float32[bad],), bad)
-  for nested in (false, true), op in (prox!, value_and_prox!), warm in (false, true), alias in (false, true)
+  for nested in (false, true), op in (prox!, value_and_prox!), warm in (false, true), alias in (false, true), wide in (false, true)
     s = nested ? SeparableSum(NormL1(), SeparableSum(f)) : SeparableSum(NormL1(), f)
-    x = nested ? ([3.0], (Float32[bad],)) : ([3.0], Float32[bad])
+    lead = wide ? [3.0] : Float32[3]
+    x = nested ? (lead, (Float32[bad],)) : (lead, Float32[bad])
     c = Conjugate(s)
     y = alias ? x : deepcopy(x)
     warm && op(deepcopy(y), c, deepcopy(x), 1.0)
     before_y, before_x = deepcopy(y), deepcopy(x)
-    @test_throws ArgumentError op(y, c, x, bad)
-    @test y == before_y
-    @test x == before_x
+    if wide
+      op(y, c, x, bad)
+      tail = nested ? y[2][1] : y[2]
+      @test y[1] == [1.0]
+      @test tail ≈ Float32[bad / 2] rtol = 1e-4
+    else
+      @test_throws ArgumentError op(y, c, x, bad)
+      @test y == before_y
+      @test x == before_x
+    end
   end
 end
 
@@ -552,11 +565,10 @@ end
   # y = x tc / (1 + tc) and its value y^2 / (2c), not the zero of the rounded step. The references use
   # the stored γ, α and factor in BigFloat.
   # - A power of two γ has an exact reciprocal: the reference holds to rounding of the Float64 result.
-  # - γ = 1f30 does not: the Moreau route forms inv(γ) in the type of the step (Float32 here), as it does
-  #   on the base of #566 for steps with no scaling at all (#576), so the point is that of the Float32
-  #   reciprocal and agrees with the stored-γ reference only to Float32 precision.
+  # - γ = 1f30 does not: the reciprocal is formed from the stored Float32 step in the Float64 model
+  #   (#576), so the point agrees with the stored-γ reference to Float64 precision as well.
   for (α, γ, factor, rtol) in ((2f0^-100, 2f0^100, 2.0^200, 8eps(Float64)),
-                               (1f-30, 1f30, 1e60, 2eps(Float32)))
+                               (1f-30, 1f30, 1e60, 8eps(Float64)))
     sub = Scaled(SeparableSum(SqrNormL2()), factor)
     c = Conjugate(Scaled(SeparableSum(NormL1(), sub), α))
     coefficient = big(factor) * big(α)

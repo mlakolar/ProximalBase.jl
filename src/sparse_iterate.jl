@@ -1151,12 +1151,13 @@ Base.@propagate_inbounds function Base.setindex!(x::SymmetricSparseIterate, v, r
 end
 # one unsigned comparison per index, combined without a branch between them
 @inline _checkpair(x::SymmetricSparseIterate, r::Int, c::Int) =
-  (((r - 1) % UInt < x.p % UInt) & ((c - 1) % UInt < x.p % UInt)) || throw(BoundsError(x, (r, c)))
+  (((r - 1) % UInt < x.p % UInt) & ((c - 1) % UInt < x.p % UInt)) || _throw_pair(x, r, c)
+@noinline _throw_pair(x::SymmetricSparseIterate, r, c) = throw(BoundsError(x, (r, c)))
 
 # Other integer types: the bounds are checked in the type of the index, before it is narrowed to
 # Int, so that an out-of-range index of any integer type is a BoundsError.
 @inline function _int_pair(x::SymmetricSparseIterate, r::Integer, c::Integer)
-  (1 <= r <= x.p && 1 <= c <= x.p) || throw(BoundsError(x, (r, c)))
+  (1 <= r <= x.p && 1 <= c <= x.p) || _throw_pair(x, r, c)
   (Int(r), Int(c))
 end
 Base.@propagate_inbounds function Base.getindex(x::SymmetricSparseIterate, r::Integer, c::Integer)

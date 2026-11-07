@@ -70,10 +70,15 @@ end
     Z = prox!(SymmetricSparseIterate(80), g, S, 1.0)
     @test !usedfull(g)
     @test Matrix(Z) ≈ Matrix(Symmetric(Y, :L)) rtol = 1e-8 atol = 1e-10
-    # an argument that is exactly symmetric gives today's result
+    # an argument that is exactly symmetric gives today's result; IndBallRank at an owner is formed from the
+    # eigendecomposition of the symmetric argument, so it agrees with the SVD kernel up to rounding
     g2 = f()
     Z2 = prox!(SymmetricSparseIterate(80), g2, Ssym, 1.0)
-    @test Matrix(Z2) == Matrix(Symmetric(Y, :L))
+    if g2 isa IndBallRank
+      @test Matrix(Z2) ≈ Matrix(Symmetric(Y, :L)) rtol = 1e-8 atol = 1e-10
+    else
+      @test Matrix(Z2) == Matrix(Symmetric(Y, :L))
+    end
   end
 end
 

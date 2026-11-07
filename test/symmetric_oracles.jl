@@ -1,6 +1,6 @@
 module SymmetricOraclesTest
 
-using Test, ProximalBase, LinearAlgebra
+using Test, ProximalBase, LinearAlgebra, Random
 using ..TestUtils: allocs
 
 # the state of an owner: its values, its active coordinates and the arrays behind them
@@ -305,6 +305,66 @@ end
     end
     @test nactive(y) == length(ids)
     @test activecoordinates(y) == ids
+  end
+end
+
+# IndBallRank at an owner is the Eckart-Young projection over the symmetric matrices: the r eigenpairs of largest |λ|
+# of the argument. At a tie of the |λ| the dense truncated SVD is not symmetric, and the owner must still hold a
+# feasible symmetric minimizer. Bounds: with E = 16 p eps(T) ‖A‖_F, the Frobenius distance of the stored matrix to
+# the argument is within E of the optimal distance (the root of the sum of the squared discarded eigenvalues), and its
+# singular value r + 1 is below E.
+@testset "IndBallRank at an owner returns a feasible symmetric minimizer, $T" for T in (Float32, Float64)
+  rotation(n, θ) = (R = Matrix{Float64}(I, n, n); R[1, 1] = cos(θ); R[1, 2] = -sin(θ); R[2, 1] = sin(θ); R[2, 2] = cos(θ); R)
+  fixtures = ("[0 1; 1 0]" => T[0 1; 1 0], "diag(1, -1)" => T[1 0; 0 -1], "diag(1, -1, 0)" => T[1 0 0; 0 -1 0; 0 0 0],
+              "diag(2, -2, 1)" => T[2 0 0; 0 -2 0; 0 0 1],
+              "rotated diag(1, -1, 0)" => (Q = rotation(3, 0.3); T.((Q * Diagonal([1.0, -1, 0]) * Q' + (Q * Diagonal([1.0, -1, 0]) * Q')') / 2)),
+              "rotated diag(2, -2, 1)" => (Q = rotation(3, 0.7); T.((Q * Diagonal([2.0, -2, 1]) * Q' + (Q * Diagonal([2.0, -2, 1]) * Q')') / 2)))
+  @testset "$label, r = $r, $kind, $op" for (label, A) in fixtures, r in (1, 2), kind in ("owner", "dense", "Symmetric"),
+                                            op in (prox!, value_and_prox!, prox)
+    size(A, 1) <= r && continue
+    op === prox && kind != "owner" && continue
+    point = kind == "owner" ? SymmetricSparseIterate(A) : kind == "dense" ? A : Symmetric(A, :L)
+    f = IndBallRank(r)
+    y = SymmetricSparseIterate(T, size(A, 1))
+    if op === prox
+      Y = prox(f, point, one(T))
+      y = Y
+    elseif op === prox!
+      prox!(y, f, point, T(0.5))
+    else
+      v = value_and_prox!(y, f, point, T(0.5))
+      @test v == 0
+    end
+    M = Matrix(y)
+    λ = sort(eigvals(Symmetric(Float64.(A))); by = abs, rev = true)
+    E = 16 * size(A, 1) * eps(T) * norm(A)
+    @test M == M'
+    @test svdvals(Float64.(M))[r + 1] <= E
+    @test abs(norm(Float64.(M) - Float64.(A)) - sqrt(sum(abs2, λ[r+1:end]))) <= E
+  end
+  # the call at the point of the tie in place, and the in-place active set
+  y = SymmetricSparseIterate(T[0 1; 1 0])
+  prox!(y, IndBallRank(1), y, one(T))
+  @test svdvals(Float64.(Matrix(y)))[2] <= 16 * 2 * eps(T) * sqrt(2) && Matrix(y) == Matrix(y)'
+  # a random symmetric sweep against the dense kernel on the matrix of the point, reflected from its lower triangle
+  rng = MersenneTwister(808 + sizeof(T))
+  for p in 1:12, scale in (0.01, 1, 100), r in (1, 2)
+    B = randn(rng, T, p, p); B = (B + B') / 2
+    A = T(scale) .* B
+    f = IndBallRank(r)
+    ref = zeros(T, p, p)
+    prox!(ref, f, Matrix(A), one(T))
+    y = SymmetricSparseIterate(T, p)
+    prox!(y, f, SymmetricSparseIterate(A), one(T))
+    M = Matrix(y)
+    nA = norm(A); E = 16 * p * eps(T) * nA
+    @test M == M'
+    p > r && @test svdvals(Float64.(M))[r + 1] <= E
+    @test abs(norm(Float64.(M) - Float64.(A)) - norm(Float64.(ref) - Float64.(A))) <= E
+    μ = sort(abs.(eigvals(Symmetric(Float64.(A)))); rev = true)
+    if p > r && μ[r] - μ[r + 1] >= 0.1 * μ[1]            # the minimizer is unique and well conditioned
+      @test maximum(abs.(Float64.(M) - Float64.(Matrix(Symmetric(ref, :L))))) <= 64 * p * eps(T) * opnorm(Float64.(A))
+    end
   end
 end
 

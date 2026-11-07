@@ -1158,9 +1158,9 @@ function _triple(a::T, x::T, b::T) where {T<:Union{Float32, Float64}}
   infinite = isinf(a) | isinf(x) | isinf(b)
   (iszero(a) | iszero(x) | iszero(b)) && return ifelse(infinite, T(NaN), zero(T))
   infinite && return ifelse(signbit(a) ⊻ signbit(x) ⊻ signbit(b), -T(Inf), T(Inf))
-  ma, ea = frexp(a)
-  mx, ex = frexp(x)
-  mb, eb = frexp(b)
+  ma, ea = _frexp(a)
+  mx, ex = _frexp(x)
+  mb, eb = _frexp(b)
   ldexp((ma * mx) * mb, ea + ex + eb)
 end
 
@@ -1246,9 +1246,9 @@ function _rescue_entry!(C::Matrix{T}, A, X::Union{SparseIterate{T, 2}, Symmetric
       a, b = A[i, r], B[c, j]
       isfinite(a) & isfinite(x) & isfinite(b) || return nothing
       (iszero(a) | iszero(b)) && continue
-      ma, ea = frexp(a)
-      mx, ex = frexp(x)
-      mb, eb = frexp(b)
+      ma, ea = _frexp(a)
+      mx, ex = _frexp(x)
+      mb, eb = _frexp(b)
       e = ea + ex + eb
       if !seen || e > emax
         S = ldexp(S, emax - e)        # S is zero before the first term

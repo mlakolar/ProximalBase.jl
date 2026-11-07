@@ -78,7 +78,7 @@ export
   # iterates
   SparseIterate, SymmetricSparseIterate, AtomIterate,
   ncoordinates, coordinates, nactive, activecoordinates, activevalues, matrixview, isactive,
-  activate!, atom,
+  activate!, atom, atomindices,
   nnz, dropzeros!,
 
   # utilities
@@ -86,10 +86,10 @@ export
 
 # A public statement does not parse on Julia 1.10.
 VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public,
-  :ScalarLoss, :Squared, :Logistic, :Poisson, :Huber, :SquaredHinge,
+  :ScalarLoss, :Squared, :Logistic, :Poisson, :IdentityBernoulli, :Huber, :SquaredHinge,
   :SmoothCheck, :ConvolutionCheck, :deriv, :deriv2, :curvature,
   :value_and_deriv, :Smoothed, :AbstractGroupPenalty, :Testing, :check_parameters,
-  :entry_parameters, :check_symmetric_parameters))
+  :entry_parameters, :check_symmetric_parameters, :samegroups))
 
 include("compat.jl")
 include("utils.jl")
@@ -138,6 +138,7 @@ include("distance.jl")
 include("composition.jl")
 include("image.jl")
 include("minimum.jl")
+include("model_data.jl")
 include("metric.jl")
 include("symmetric_parameters.jl")
 include("caches.jl")

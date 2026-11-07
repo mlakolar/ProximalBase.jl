@@ -1987,6 +1987,227 @@ amendment 21A, and withdrawn after the second review; it was never approved.
 `prox(NormL1(1.0), [Inf], Inf)` stays NaN. The changes are listed in
 [Compatibility and migration](../../src/migration.md).
 
+### 49. Infinite levels whose proximal map is constant (E2, E3, E4; #595)
+
+**Decided** (maintainer, 2026-11-05, option A on #595). Where an admitted
+infinite level makes a proximal map, or an output entry or block, constant on
+all finite arguments, a NaN in an entry that the constant does not depend on
+does not reach it: the output is the constant, normally zero. This is E2's
+dependence rule applied after E4's restriction, with the parameters and the
+step fixed. It is not a rule that infinite parameters map NaN to zero:
+each family proves its constant map first. Standalone values follow E2 and E3
+as before (NaN at a NaN entry), and `value_and_prox!` returns the value at the
+stored output (O2). The level and the step are read as given, before any
+conversion, so a finite level that overflows the working precision keeps its
+finite meaning (R3).
+
+The first families, with the proofs:
+
+- *`NormL1`, `f(x) = λ0 Σᵢ wᵢ|xᵢ|`.* At a step `γ > 0` (finite, or the
+  named endpoint `Inf`), an entry with `λ0 = Inf` and `wᵢ > 0` has the term
+  `+Inf⋅|xᵢ|` except at `xᵢ = 0`, so its separable proximal problem has the
+  unique minimizer `0` for every finite `xᵢ`. An entry with `wᵢ = 0` is free
+  (E4). Array steps apply the rule entry by entry. A `±Inf` entry in a fixed
+  coordinate also gives `0`: with the step fixed the map is constant, and at
+  `γ = Inf` every finite step gives the zero map, so the joint limit is `0`
+  (E3, decision 48). The domain of the entry is `{0}` whatever linear term a
+  wrapper such as `Tilt` adds, so the constant is right at `γ = Inf` too.
+  The value of `NormL1(Inf)` at the zero vector, which the dense unweighted
+  path gave as NaN (`Inf⋅0`), is `0`, the value at the point of the domain
+  `{0}` (E4, E6).
+- *`SLOPE`, `f(x) = Σₖ λₖ|x|₍ₖ₎` with `λ₁ ≥ λ₂ ≥ … ≥ 0`.* With `λ₁ = Inf`,
+  every `x ≠ 0` has `|x|₍₁₎ > 0` and `f(x) = Inf`, so the domain is `{0}` and
+  at every finite `γ > 0` the proximal point is `0` for every finite argument.
+  The output keeps the sign the finite computation gives an entry (`-0.0` for a
+  negative one) and is `0.0` at a NaN.
+- *`NormL1Fused`.* The vector form is `λ1 Σₖ|vₖ| + λ2 Σ_{k<l}|vₖ - vₗ|`, the
+  tuple form `Σᵢ λ1(|x1ᵢ| + |x2ᵢ|) + λ2|x1ᵢ - x2ᵢ|`. With `λ1 = Inf` and any
+  `λ2 ≥ 0` (finite or infinite) the domain of both is `{0}`, and at every
+  finite `γ > 0` the proximal point is `0`, for the pair, the tuple, the vector
+  of any length and each function of a `FiberSum` (the diagonal one on its
+  own). The value is `0` at zero, `Inf` at a nonzero argument and NaN at a NaN
+  entry.
+- *`NormL1Fused` with `λ2 = Inf` and a finite `λ1` (#664).* The domain is the
+  vectors of equal entries (the pairs `x1ᵢ = x2ᵢ` in the tuple form). This is
+  not a constant map, so the rule of this decision (a NaN does not reach a
+  constant output) does not apply, and E2 stands. On the constants `z·1` of
+  length K the objective is `K(z − m)²/(2γ) + Kλ1|z|` up to a constant, with
+  `m` the mean of the entries, so at a positive finite step the proximal point
+  is `z·1`, `z = shrink(m, γλ1)` (the threshold is `γλ1`, not `Kγλ1`). A vector
+  of one entry has no pairs and is shrunk by `γλ1`. A NaN entry gives NaN in
+  every entry of its group (E2), infinite entries of one sign give that
+  infinity and of both signs NaN, as the pair form already gave. The value is
+  `λ1 Σₖ|vₖ|` at equal finite entries (the fusion term is exactly zero, E4,
+  where the products gave `Inf⋅0`), `Inf` at any other finite argument and NaN
+  at a NaN entry, and `value_and_prox!` returns it at the stored output (O2),
+  a separate output included (O7). The route reads the stored `λ2` and `λ1`
+  and the step as given (R3): a finite `λ2` whose product with the step
+  overflows keeps the finite-level computation, `λ1 = Inf` keeps the hard zero
+  above, and a zero, infinite, negative or NaN step keeps the earlier proximal
+  outputs in every form, the stored output of `value_and_prox!` included
+  (the repair of a separate output at a pair near `floatmax` is taken at a
+  finite positive step only), which the library does not document as supported
+  for a vector of K ≥ 3 entries (#311, #665); the value that `value_and_prox!`
+  returns is the value at that stored output, by the value rule above, at every
+  step: for `FiberSum` as well, where only the recomputation of a separate
+  output is limited to a finite positive step; an output with a non-one-based
+  axis keeps the loop's value there (the fiber views need one-based axes). The proximal output of the pair, the tuple of arrays, the
+  vector of two entries and the pair route of `FiberSum` was this one already
+  (their value was not). The mean of the other vectors and the threshold
+  are formed in the promoted type of the argument and of the output (at least
+  `Float32`), and `z` is rounded once, when it is stored (T3, R3): a finite
+  entry of a wider argument is never narrowed to an infinity before the mean.
+  The sum is a compensated sum, except that the entries whose sums could
+  overflow (above `floatmax 2⁻ˢʰ` for `2ˢʰ > K`) are summed exactly as
+  integers: if they cancel exactly, the mean is that of the other entries, so a
+  small residual is kept; otherwise the total is combined in scaled pieces and
+  the quotient carries the exponent separately. The accuracy that is proved is
+  the rounding of the compensated sum, plus at most two minimum subnormals
+  where the scaled pieces of the small entries underflow; correct rounding is
+  not claimed. The exact integer sum supports vectors of fewer than `2³⁶`
+  (`Float64`) or `2⁵¹` (`Float32`) entries (the sum is below `2^(2sh + p)`
+  and must fit `Int128`); a longer vector, or a working type without the binary
+  exponent interface (`exponent`, `frexp`, `ldexp`), declines the route and
+  keeps the earlier result. Another binary floating-point type (`BigFloat`)
+  scales the entries by the power of two of the largest magnitude when its sum
+  overflows, and keeps no residual that lies below the rounding of an
+  inexact partial sum. For every type the computed mean of finite entries is
+  clamped into `[min(x), max(x)]`, which contains the true mean (and its
+  correctly rounded value): the clamp never changes a result already in the
+  interval, and it is the proof that the mean of finite entries is finite at
+  any precision (the scaling alone does not bound the rounding of the
+  accumulated sum: a constant vector of `floatmax` entries at a five-bit
+  precision restored to `Inf`). The accuracy claimed is that of the compensated
+  sum and of the quotient, no more. For an argument whose
+  element type is not concrete (`Vector{Real}`) the working type is the
+  promoted type of the types of the entries. The pair, tuple and K = 2 routes, and the ordinary finite-level
+  route, still convert the argument to the type of the output, as before
+  (follow-up).
+- *`NormLinf`, `f(x) = λ maxᵢ|xᵢ|`.* With `λ = Inf`, `f(z) = Inf⋅max|zᵢ|`
+  is `0` at `z = 0` and `+Inf` at every other finite `z`, so `f` is the
+  indicator of `{0}`. For a fixed finite `γ > 0` the unique minimizer of
+  `f(z) + ‖z - x‖²/(2γ)` is `0` for every finite `x`. A `±Inf` entry also gives
+  `0`: with the step fixed the map is the constant map (E3). The output is
+  `+0.0` at every entry (no signed-zero convention), `value_and_prox!` returns
+  `0`, and the finite-level coupled block is unchanged. The standalone value is
+  `0` at the zero vector, where the dense reduction gave NaN (`Inf⋅0`) (E4, E6),
+  `Inf` at a nonzero finite argument and NaN at a NaN entry. The value of the
+  conjugate of `IndBallL1(Inf)`, which shares the reduction, follows at the
+  zero vector.
+
+A wrapper step that is not a normal number keeps this domain (#666). `Scaled(f, α)`
+at a positive finite step `γ` reads `f` at `αγ`; when the product underflows to
+zero, is subnormal or overflows, a level that is stored as `Inf` made the old fold
+give up and the leaf receive the rounded step `0` (the identity of `γ = 0` for
+`NormL1`, the NaN of `Inf⋅0` for `SLOPE`, `NormL1Fused` and `NormLinf`). An infinite
+level is a hard constraint that no positive finite factor or step changes, so the call
+takes a route on which nothing finite is folded, multiplied or combined. The contract of
+that route is exact: *the call returns what the same function returns at a step whose
+product is an ordinary (normal) positive number*, the hard domain `{0}` at finite
+arguments included, up to the sign of a zero (`ElasticNet(1.0, Inf)` at `[-1.0]` is `[0.0]` at
+step 1 and `[-0.0]` at step 0.75 and in the wrapper). It is not the mathematical constant map at every nonfinite argument:
+how a leaf treats a NaN or infinite entry at an ordinary step is that leaf's own rule
+(this decision settles `NormL1`, `SLOPE`, `NormL1Fused` and `NormLinf`; the others are
+tracked in #662), and the call follows it. The infinite level is read as stored (R3): a
+finite level whose product overflows or underflows is never read as infinite. The route is
+taken only when all of these hold, and every other call keeps the route that it had:
+
+- the function holds a stored infinite level, through `Scaled`, `Translate` and sums;
+- every factor of the whole tree, indicators and translated or nested wrappers included,
+  and the step, is a positive finite number; for an array step, every entry. The factors are
+  validated before any block is classified, so that no shortcut for an indicator or a hard
+  leaf skips one;
+- every block is a function with an infinite level whose other levels the infinite level
+  makes irrelevant (it fixes every coordinate that they touch), or an indicator or the zero
+  function of the library's closed list of plain-data indicators (`IndBox`, `IndNonnegative`,
+  `IndBinary`, `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndSphereL2`, `IndSimplex`,
+  `IndHyperplane`, `IndHalfspace`, `IndHyperslab`, `IndSOC`, `IndRotatedSOC`, `IndExpPrimal`,
+  `IndExpDual`, `IndPattern`, `IndBanded`, `IndToeplitz`, `IndIsotonic`, `IndBallGroupL0`: the
+  fields of each are numbers, arrays of numbers, flags, index lists or internal buffers; a
+  positive finite `Scaled` or a `Translate` of one is classified as the wrapper it is, and is
+  accepted; any other indicator is declined as a whole, by dispatch on the list and with no
+  reflection on field types: intersections, constrained or composed indicators, spectral and
+  factorized ones, user types): `NormL1`,
+  `NormL1Nonneg`, `NormL2`, `NormLinf`, the group norms, `NuclearNorm` and `TracePSD` with an
+  infinite level; `SLOPE` and `NormL1Fused` with an infinite first level (the domain is `{0}`;
+  the other levels of a `SLOPE` become zeros as a block, which keeps them nonincreasing);
+  `ElasticNet` with an infinite ridge level, or with an infinite ℓ1 level and every weight
+  positive, or with the finite levels zero; `SparseGroupNormL2` with an infinite ℓ1 level (as
+  #657 defines it), or with an infinite group level and every group weight positive, or a
+  zero ℓ1 level. The weights are tested by value, with no arithmetic on them, and a weight of
+  zero leaves its coordinate free, where a finite level acts. Each accepted leaf gives the
+  hard zero at a finite argument at an ordinary step, which is checked.
+
+On that route the leaf gets a step of any positive finite size and the array step is the
+caller's; the levels that the infinite level makes irrelevant are removed, and the factors
+of the blocks are dropped, since they cannot change the constant map.
+
+*Declined*, where the earlier result stays and an infinite level can be lost (a follow-up
+issue tracks them): a finite level that is relevant on a coordinate that the infinite level
+leaves free (a zero weight of `ElasticNet` or `SparseGroupNormL2`, or a finite level of a
+function whose infinite level does not fix it); a finite sibling block next to an infinite
+one; a factor or step that is zero, negative, infinite or NaN, in the chain, in a block or in
+an array step, also under an indicator or a translated indicator; an indicator that is not on the list above, also under a `Scaled` or a `Translate`; a function without a stored infinite level (including a level that is finite
+as stored but overflows a conversion); and every function that is not in the list above
+(`Conjugate`, `Tilt`, the finite `SLOPE` or `NormL1Fused`, and so on). A finite level is never
+folded, rescaled, shortcut or discarded by its size: the exact statements above are the whole
+treatment, which is also why the working precision and the finite results are those of before.
+
+An infinite-level `NormL1` on a box that misses its domain raises before writing (#666,
+O6). `Constrained(NormL1(Inf), IndBox(l, u))` at a finite or infinite positive step fixes
+every coordinate with a weight `wᵢ > 0` (all coordinates without weights; an infinite weight
+is positive) at `0`, so a feasible point exists only where `lᵢ ≤ 0 ≤ uᵢ`; the clamp of the
+hard zero into a box that excludes it, which returned the nearest endpoint, is not feasible.
+`prox!` and `value_and_prox!` throw `ArgumentError("the IndBox misses the domain of NormL1")`
+(the wording of the hyperplane case) before the first write, decided from the stored level,
+the weights, the step and the bounds as given. A coordinate with `wᵢ = 0` is free and is not
+checked, and a box that contains `0` keeps the hard zero of the infinite level. The
+standalone value of the infeasible function stays `Inf`. Only `NormL1` directly under `Constrained` with an
+infinite level is decided: a finite level, `NormL1Nonneg`, `ElasticNet`, the group norms,
+wrappers inside the box, and the coordinate updates of the sparse and atom iterates are
+unchanged (follow-ups).
+
+Excluded, and unchanged:
+
+- `γ = 0` with an infinite level. P1 makes the separable `γ = 0` limit the
+  projection onto the closure of the domain, which this decision does not
+  assert for `NormL1(Inf)`; the identity that the implementation returns is
+  kept until the maintainer rules on it.
+- `γ = Inf` for `SLOPE` and `NormL1Fused`, which name no endpoint, and
+  negative or NaN steps, which are not validated yet (#311).
+- `NormLinf(Inf)` at `γ = 0`, at `γ = Inf`, and at a negative or NaN step: the
+  rule above covers a finite positive step only, and these steps keep their
+  results.
+- `NormL1` with a finite level at `γ = Inf`. Its endpoint map is zero at
+  every finite argument, but a NaN entry keeps the earlier result: a wrapper
+  such as `Tilt` shifts the argument by `γc`, which forms NaN by itself at
+  `γ = Inf`, and the inner map cannot tell that NaN from the caller's. The rule
+  at `γ = Inf` is kept only where the entry is fixed by its own domain, as
+  under an infinite level.
+- An infinite fusion level alone, `NormL1Fused(λ1, Inf)` with a finite
+  `λ1`: its domain is the vectors with equal entries (`x1 = x2` for the tuple
+  form), which is not a constant map, so the rule above does not cover it. It
+  is no longer unchanged: #664 gives it the projection onto the equal entries
+  followed by the ℓ1 shrink (the `NormL1Fused` bullet with `λ2 = Inf` above).
+- An infinite coordinate weight under a finite level. Its entry is constant
+  too, but testing every weight costs the weighted loops 8–28%, so it is a
+  separate question for all the separable families.
+- Other families with infinite levels (`NormL1Nonneg`, `FusedLasso`,
+  `ElasticNet`, the nonconvex penalties, spectral functions):
+  each needs its own proof, and is listed for follow-up.
+
+`Constrained(NormL1, IndBallL2)` and `Constrained(NormL1, IndSphereL2)`
+classify an entry under an infinite level at a positive step as hard-fixed,
+as they classify an infinite weight, so their outputs agree with the inner
+proximal map whether or not the output is the argument (O7).
+
+*History.* #595 asked whether an infinite level is (a) a constant-zero map,
+whose NaN entries become `0` by E2, or (b) outside the NaN rules, with the
+documentation saying so. The campaign pull requests for E2 (#571, #572) had
+kept the old results for infinite levels until this was settled. Option (a)
+treats a map that is constant on finite arguments as constant, and keeps a NaN
+where an output depends on it. Implemented in #615.
+
 ## Evidence used
 
 - Acceptance cases V1–V9, S1–S10 and the logistic tail, run at `3f90a29`;

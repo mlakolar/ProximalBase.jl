@@ -14,6 +14,7 @@ quick = [
   "ci_gate",
   "compat",
   "docstrings",
+  "int32_exponents",
   "interface",
   "readme",
   "tier_selection",
@@ -23,6 +24,7 @@ quick = [
   "atom_iterate",
   "iterate_invariants",
   "iterate_queries",
+  "iterate_writes",
   "matrixview",
   "sparse_iterate_basics",
   "symmetric_parameters",
@@ -63,6 +65,7 @@ standard = [
   "ballconstrained",
   "indicator_steps",
   "direct_projection_infinite",
+  "constrained_box_infeasible",
   "constrained_norml1_infinite",
   "constrained_groupnorml2_infinite",
   "symmetric_sphere",
@@ -74,6 +77,7 @@ standard = [
   "distance",
   "envelope",
   "examples",
+  "infinite_level_values",
   "infinite_weights",
   "matrixsets",
   "metric_steps",
@@ -92,9 +96,12 @@ standard = [
   "sqrhinge",
   "stiefel",
   "sumlargest",
+  "scaled_no_level",
+  "nested_scaled_values",
   "threshold_factor_type",
   "threshold_precision",
   "argument_threshold_precision",
+  "conjugate_precision",
 ]
 
 # What shared or numerical changes can break: precision, overflow, non-finite values, spectral
@@ -122,18 +129,27 @@ thorough = [
   "conjugate_steps",
   "constrained",
   "converted_weights",
+  "elasticnet_zero_levels",
+  "zero_level_infinite_step",
   "expcone",
   "extreme_normals",
   "fibers",
+  "fibers_midpoint_overflow",
   "gradient_alias",
   "graph",
   "infinite_group_weights",
+  "infinite_level_nan",
+  "normfused_infinite_fusion",
+  "scaled_infinite_level_underflow",
   "l2_nan_blocks",
   "large_inputs",
   "logdet_overflow",
   "metric",
   "nonfinite_inputs",
+  "nonfinite_scalar",
+  "l0_kernels_nan",
   "l0_nan",
+  "normlinf_infinite_level",
   "ordered_nan",
   "partial",
   "polyhedron",
@@ -141,11 +157,16 @@ thorough = [
   "ridge_precision",
   "rotatedsoc",
   "sparse_iterate",
+  "sparsegroup_infinite_level",
+  "sparsegroup_infinite_prox",
   "spectral_domain",
+  "spectral_fused_values",
   "spectral_nonfinite_values",
   "spectral_overflow",
   "spectral_overflow_prox",
   "spectral_overflow_wrappers",
+  "spectral_overflow_values",
+  "spectral_constant_values",
   "spectral_tolerance",
   "symmetric_argument",
   "symmetric_groups",
@@ -161,6 +182,7 @@ thorough = [
   "value_overflow_fused",
   "value_overflow_sqrnorm",
   "weighted_overflow",
+  "zero_weight_nan",
 ]
 
 # Exhaustive catalogs whose cases repeat paths the tiers above already reach, and family files
@@ -197,3 +219,12 @@ helpers = ["conformance/common", "gpu_prelude", "gpu_suite", "gpu_suite_basics",
 # Directories with a Project.toml of their own, run by hand: cuda/ needs an NVIDIA GPU and
 # oracles/ needs JuMP and conic solvers. No tier runs them.
 environments = ["cuda", "oracles"]
+
+[not_tests.run_through]
+# The test files that run each helper, directly or through another helper; the error for a
+# helper given as a test name names them. A helper that the runner loads for every test file
+# (testutils, conformance/common) has no entry. A helper under a directory is a quoted key.
+gpu_prelude = ["gpu", "gpu_smoke"]
+gpu_suite = ["gpu"]
+gpu_suite_basics = ["gpu_smoke"]
+tiers = ["tier_selection"]

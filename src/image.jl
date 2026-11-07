@@ -192,16 +192,16 @@ end
 
 # Keep a scale's exponent separate until it meets both multiplicands.
 function _image_inverse_scale(v, ::Type{T}) where {T}
-  m, e = frexp(float(v))
+  m, e = _frexp(float(v))
   convert(T, inv(m)), -e
 end
-@inline function _image_product(a, b, scale::Tuple{T, Int}) where {T}
-  ma, ea = frexp(convert(T, a))
-  mb, eb = frexp(convert(T, b))
+@inline function _image_product(a, b, scale::Tuple{T, Integer}) where {T}
+  ma, ea = _frexp(convert(T, a))
+  mb, eb = _frexp(convert(T, b))
   ldexp((ma * mb) * scale[1], ea + eb + scale[2])
 end
 
-function _image_scaled_dot(a, b, scale::Tuple{T, Int}) where {T}
+function _image_scaled_dot(a, b, scale::Tuple{T, Integer}) where {T}
   v = zero(T)
   @inbounds for i in eachindex(a, b)
     v += _image_product(a[i], b[i], scale)

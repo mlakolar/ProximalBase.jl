@@ -168,6 +168,22 @@ end
   end
 end
 
+a_coordinates(x) = coordinates(x)
+a_fill_coordinates!(x, v) = (fill!(coordinates(x), v); nothing)
+a_get_coordinate(x, k) = coordinates(x)[k]
+a_set_coordinate!(x, k, v) = (coordinates(x)[k] = v; nothing)
+
+@testset "the coordinate view of a SparseIterate allocates nothing" begin
+  @testset "$T, $(length(shape))-dimensional" for T in (Float32, Float64), shape in ((40,), (5, 8))
+    x = SparseIterate(T, shape...); x[4] = 2; activate!(x, 9)
+    @test allocs(a_coordinates, x) == 0
+    @test allocs(a_get_coordinate, x, 4) == 0
+    @test allocs(a_set_coordinate!, x, 5, one(T)) == 0
+    @test allocs(a_fill_coordinates!, x, 0) == 0
+    @test allocs(a_fill_coordinates!, x, zero(T)) == 0
+  end
+end
+
 @testset "zero allocations" begin
   n, p = 50, 20
   X = randn(n, p)
@@ -495,6 +511,43 @@ end
         @test g.live[6].buf[].compact
         @test allocs(a_cold_prox!, y, g, x, γ, original) == 0
       end
+    end
+  end
+end
+
+# The projections that recompute in powers of two when the dot product, the residual or the
+# correction overflows (#563) also allocate nothing: scalar and vector steps, plain and rescaled
+# normals, scalar and array normals, arrays and iterates.
+@testset "zero allocations when the projection overflows" begin
+  for T in (Float32, Float64)
+    M = floatmax(T)
+    e4 = exponent(M) ÷ 4
+    up = ldexp(one(T), e4 + 45)
+    original = T[M, 0.4M, 0.4M]
+    for F in (IndHyperplane, IndHalfspace), a in (T[1, 1, 1], T(1), up .* T[1, 1, 1], up),
+        γ in (T(1), T[1, 2, 3], fill(M / 2, 3))
+      f = F(a, 0)
+      x, y = copy(original), similar(original)
+      @test a_prox!(y, f, x, γ) === y
+      @test all(isfinite, y)
+      @test allocs(a_reset_prox!, y, f, x, γ, original) == 0
+      @test allocs(a_reset_vprox!, y, f, x, γ, original) == 0
+      @test allocs(a_reset_prox!, x, f, x, γ, original) == 0
+      @test allocs(a_reset_vprox!, x, f, x, γ, original) == 0
+      xs, ys = SparseIterate(original), SparseIterate(T, 3)
+      a_prox!(ys, f, xs, γ)
+      @test allocs(a_prox!, ys, f, xs, γ) == 0
+      xa, ya = AtomIterate(original, [1:1, 2:3]), AtomIterate(T, 3, [1:1, 2:3])
+      a_prox!(ya, f, xa, γ)
+      @test allocs(a_prox!, ya, f, xa, γ) == 0
+    end
+    X = T[1 0.4 0; 0.4 0 0; 0 0 0] .* M
+    for F in (IndHyperplane, IndHalfspace), a in (ones(T, 3, 3), T(1), up .* ones(T, 3, 3)), γ in (T(1), T[1 2 3; 2 1 2; 3 2 1])
+      f = F(a, 0)
+      xs, ys = SymmetricSparseIterate(X), SymmetricSparseIterate(T, 3)
+      a_prox!(ys, f, xs, γ)
+      @test allocs(a_prox!, ys, f, xs, γ) == 0
+      @test allocs(a_vprox!, ys, f, xs, γ) == 0
     end
   end
 end

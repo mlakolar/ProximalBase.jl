@@ -18,7 +18,9 @@ anything is written, even when the imaginary part is zero. A write into either
 of them through a view, through `vec` of a matrix or a `reshape` to another
 shape, or through [`atom`](@ref) converts each value as a plain array would, so
 a complex value raises an `InexactError`, possibly after part of the iterate has
-been written.
+been written. A [`SymmetricSparseIterate`](@ref) refuses a complex source or element
+type with an `ArgumentError`, and a complex value written to one of its entries
+raises an `InexactError`.
 
 ## Entries and coordinates
 
@@ -33,8 +35,8 @@ The two calls index different spaces:
   bounds.
 - `prox_coordinate!` takes a coordinate ``k`` of the iterate.
 
-The two coincide for a `SparseIterate`. A coordinate is an entry of the lower
-triangle for a `SymmetricSparseIterate`, and a group for an `AtomIterate`.
+The two coincide for a `SparseIterate`. A coordinate is a variable, an entry of the
+lower triangle, for a `SymmetricSparseIterate`, and a group for an `AtomIterate`.
 
 ## SparseIterate
 
@@ -74,98 +76,209 @@ scale, equal weight) it costs 2.5–5% of the time of the faster walk, 11–32% 
 
 ## SymmetricSparseIterate
 
-A [`SymmetricSparseIterate`](@ref) is a sparse symmetric ``p \times p`` matrix
-that stores its lower triangle. For indexing, length, iteration and
-broadcasting it is an ordinary ``p \times p`` matrix, except that writing
-``x_{rc}`` also writes ``x_{cr}``.
+A [`SymmetricSparseIterate`](@ref), the *owner* below, holds the
+``q = p(p+1)/2`` variables of a real symmetric ``p \times p`` matrix: the
+entries of its lower triangle, in the compact list of a `SparseIterate`. **The
+owner is not an array.** It has a size, `size(x) == (p, p)`, an element type and
+the operations named below; it has no `length`, `iterate`, `eachindex`,
+`nnz`, whole-owner broadcasting, `fill!` or one-index access, and a function of
+Julia or of a package that treats its argument as an array, such as `sum`, `map`,
+`sort!`, `view`, `reshape` or `lu`, fails for it: with a `MethodError`, or, when it
+asks for `axes(x)` first, with the `ArgumentError` described below. One matrix entry
+is not one variable: writing the position ``(r, c)`` also writes ``(c, r)``, so a
+loop that writes every position would write each off-diagonal variable twice, and
+the owner has no array method that could do so for you. Read it through a handle
+instead, or copy it.
 
-Read and write entries through the lower triangle, ``r \ge c``, for example
-with `for c in 1:p, r in c:p`. The position `x[c, r]` is the same entry as
-`x[r, c]`, so writing either position writes both. A loop over every position
-writes each off-diagonal entry twice, and the second write wins.
+| Handle | What it is |
+|:-------|:-----------|
+| `coordinates(x)` | a live, writable vector of the ``q`` variables, in the column-major order of the lower triangle |
+| `matrixview(x)` | a live, read-only ``p \times p`` matrix: ordinary matrix indexing, both triangles |
+| `activecoordinates(x)`, `activevalues(x)` | the ids of the active variables, and a writable view of their values in the same order |
+| `Matrix(x)`, `Array(x)` | an independent dense copy, which is writable |
 
-Whole-value writes are checked. These include the constructor, `copyto!`,
-`copy!`, broadcasting into ``x``, `map!`, `axpy!`, `axpby!`, `transpose!`,
-`adjoint!`, `permutedims!` and `mul!`. Indexed array assignment of every
-position in order (`x[:, :] = A`, `x[:] = v`), and broadcasting and `fill!`
-into full, in-order views and reshapes (`x[:, :] .= A`, `vec(x) .= v`), use
-the same checks. They cover a view whose parent is ``x``, a reshape whose
-parent is ``x``, and a view of such a reshape. Use `:` or integer vectors
-matching each axis in order for a full two-index assignment or a full matrix
-view. A full single-index assignment accepts `:`, the integers `1:length(x)`
-in order, or `CartesianIndices(x)` with its shape. `copyto!(x, Q)` from an orthogonal factor is checked too.
+### Three index spaces
 
-Matrix values must have the axes of ``x``, with equal entries ``(r, c)`` and
-``(c, r)`` and `NaN` equal to `NaN`. These comparisons precede conversion to
-the element type of ``x``. Linear full writes reshape their values in
-column-major order for the check; `x[:] = v` needs ``p^2`` values. If the
-axes differ or symmetry fails, the checked writers throw a
-`DimensionMismatch` or an `ArgumentError` before writing anything.
-`Symmetric(A, :L)` stores the lower triangle of a matrix ``A`` that is not
-symmetric, and `Symmetric(A, :U)` its upper triangle. Each entry of the lower
-triangle is written once. Sources that are symmetric by their type, such as
-another `SymmetricSparseIterate`, a `Symmetric` or a `Diagonal`, skip the
-symmetry check. A broadcast whose arguments do not show that its value is
-symmetric is first evaluated at both positions of each off-diagonal entry.
-A function with side effects can therefore run more often and give a value
-that is not symmetric.
+A pair, a variable and an active slot are indexed differently. Mixing them is the
+usual mistake of code written for 0.5, where `x[k]` could be either of the first two.
 
-With two array operands, `mul!` into ``x`` checks the unscaled product for
-exact symmetry in a buffer promoted from the destination and operand types,
-applies scalars and conversion at the final write, and leaves the product
-out when α = 0, as LinearAlgebra does. For `mul!` by a number, the array
-operand must have the axes of ``x``. The seven-argument
-`mul!(x, tA, tB, A, B, α, β)`, when available, uses the same checks with
-flags `'N'`, `'T'` and `'C'` for unchanged, transposed and adjoint operands;
-other flags throw before writing. `fillband!(x, v, l, u)` checks that `v` is
-real and writes a symmetric band (`l == -u`) through the lower triangle
-once. An empty band (`l > u`) returns ``x`` unchanged.
+| Space | Index | Meaning | Range |
+|:------|:------|:--------|:------|
+| pair | `x[i, j]` | the variable of the position ``(i, j)``, from either triangle | `i`, `j` in `1:p` |
+| variable id | `coordinates(x)[k]` | variable ``k`` of the lower triangle, numbered by [`tril_index`](@ref) | `1:ncoordinates(x)` |
+| active slot | `activecoordinates(x)[a]` and `activevalues(x)[a]` | the id and the value of the ``a``-th active variable | `1:nactive(x)` |
 
-Indexed array assignment, broadcasting and `fill!` into part of ``x``, such
-as a row, a column, a block or a partial mask, throw an `ArgumentError`
-before writing. Logical-mask indexed assignment is rejected even for an
-all-true mask. `copyto!` with offsets or index ranges (including transpose
-flags), `copy_transpose!` and `copy_adjoint!` with index ranges, `copyto!` from a
-tuple, a generator or a number, and the indexed `axpy!` also throw before
-writing. Out-of-bounds indices still throw a `BoundsError`.
+`matrixview(x)[i]` with one index is a *matrix* linear index in column-major
+order, from `1` to ``p^2``, not a variable id; and `x[k]` with one integer is an
+`ArgumentError` that says so, because the two readings differ.
 
-`reverse!`, `sort!`, `accumulate!`, `kron!` and `copytrito!` (when available)
-throw an `ArgumentError` before writing. This also rejects `reverse(x)`
-with or without `dims`, `cumsum!`, `cumprod!`, and allocating `cumsum`,
-`cumprod` and `accumulate` with `dims`. `circshift!` and `circshift` of a
-nonempty ``x`` by a nonempty shift throw too.
-`triu!(x, k)` returns ``x`` unchanged when ``k \le 1-p``, and `tril!(x, k)`
-when ``k \ge p-1``. Both return ``x`` for every `k` when ``p=0``. Otherwise
-they throw an `ArgumentError` before writing.
+```@example owner_index_spaces
+using ProximalBase
 
-`lmul!`, `rmul!`, `ldiv!` and `rdiv!` by a matrix, a factorization, an
-orthogonal factor or a rotation throw an `ArgumentError` before writing.
-So does `ldiv!(x, A, B)` for such an operator ``A``. Reductions into ``x``
-(`sum!`, `prod!`, `maximum!`, `minimum!`, `count!`, `all!`, `any!`,
-`extrema!`, `findmax!` and `findmin!` with ``x`` as either destination),
-in-place factorizations (`lu!`, `qr!`, `cholesky!` and `bunchkaufman!`),
-`get!` and `sortperm!` also throw before writing. Nonempty bands of `fillband!` that are not symmetric,
-`read!`, `readbytes!` and `hex2bytes!` also throw before writing; these
-reading and decoding calls do not consume their input. Apply these
-operations to `Matrix(x)`, or compute into a dense matrix and `copyto!` a
-symmetric result.
+p = 3
+x = SymmetricSparseIterate(p)
+x[2, 2] = 7.0                                        # the pair (2, 2) is variable 4
+x[3, 1] = 5.0                                        # the pairs (3, 1) and (1, 3) are variable 3
+@assert x[1, 3] == 5.0 && coordinates(x)[3] == 5.0
+@assert tril_index(p, 2, 2) == 4 && coordinates(x)[4] == 7.0
+@assert collect(activecoordinates(x)) == [4, 3]      # variable ids, in the order of activation
+@assert collect(activevalues(x)) == [7.0, 5.0]       # their values, slot by slot
+@assert matrixview(x)[4] == 0.0                      # linear index 4 is the position (1, 2), a different variable
+@assert matrixview(x)[5] == 7.0                      # and linear index 5 is (2, 2)
+try
+    x[3]
+    error("expected an ArgumentError")
+catch e
+    @assert e isa ArgumentError
+    showerror(stdout, e)
+    println()
+end
+```
 
-`fill!`, and `rmul!`, `lmul!`, `rdiv!` and `ldiv!` by a number or a
-`UniformScaling`, keep ``x`` symmetric. `replace` and `replace!` visit each
-entry of the lower triangle once, and their `count` counts those entries,
-column by column. `triu`, `tril` and `sparse` return a `SparseMatrixCSC`.
-`sort(x; dims)` and `accumulate(op, x)` without `dims` keep their dense
-results. Allocating `lu`, `qr`, `cholesky` and `bunchkaufman` use dense copies.
+A write `x[i, j] = v` converts `v` to the element type first. It stores a nonzero
+converted value (`NaN` included) as an active variable, does not activate a variable
+for a zero, and keeps an active variable active when it writes a zero. Use
+[`activate!`](@ref) for an explicit active zero, and `dropzeros!` to remove active
+zeros. A pair outside `1:p` is a `BoundsError`. A complex value is an `InexactError`,
+and a complex source or element type is refused with an `ArgumentError`, before
+anything is written: the entries of an owner are real.
 
-Other functions that write an arbitrary array position by position are not
-checked; apply them to `Matrix(x)`. Loops of scalar writes over every
-position stay unchecked. Other writes through a view or reshape, such as
-`copyto!` into a view and scalar writes through a view, stay unchecked too. Broadcasts and fills through other
-nested wrappers, such as `vec(view(x, :, :))`, are also unchecked.
-Two-argument `copyto!(x, itr)` from other non-array iterators is unchecked.
-A Base function can write part of ``x`` before reaching a check. `rand!`
-and `randn!` give a symmetric matrix but draw each off-diagonal entry twice.
-`shuffle!` and `shuffle` give wrong values; use `Matrix(x)` instead.
+`axes(x)` throws an `ArgumentError`. Julia derives `axes` from `size` for any object
+that has a size, and generic code that asks for the axes of the owner would then
+treat it as an array; the owner defines this one method so that it fails at once.
+Use `size(x)`, `coordinates(x)` for its variables, or `axes(matrixview(x))`.
+
+### Copies, imports and equality
+
+- `copy(x)` is an independent state: the values, the active zeros and the order of
+  activation. `similar(x)` and `similar(x, S)` are empty owners of the same size.
+- `copyto!(y, x)` between owners replaces the state of `y` by a copy of that of `x`,
+  working set included; the sizes must agree.
+- `copyto!(x, M)` and `SymmetricSparseIterate(M)` *import* a matrix `M` and replace the
+  working set: `M` must be real, of size `(p, p)`, exactly symmetric (`NaN` matches `NaN`,
+  `0.0` matches `-0.0`, compared before conversion to the element type) and must not share
+  memory with `x`. The checks run before anything is written. The working set becomes the
+  variables whose converted value is nonzero, in increasing order of id, so an active zero
+  of `x` is not carried by `Matrix(x)`. `copyto!(x, matrixview(x))` is refused for sharing
+  memory, while `prox!(x, f, matrixview(x), γ)` is supported: a proximal map reads its
+  argument before it writes.
+- An asymmetric matrix is not repaired. Pass `Symmetric(M, :L)`, or `Symmetric(M, :U)`, to
+  choose a triangle yourself: the caller selects it, and ProximalBase does not guess. A
+  *proximal* call is different: `prox!` into an owner reads its point through its symmetric
+  part ``(V + V^\top)/2`` ([The argument of a proximal map](@ref)), because that is the
+  proximal point over symmetric matrices.
+
+```@example owner_copies
+using ProximalBase, LinearAlgebra
+
+x = SymmetricSparseIterate(3)
+x[2, 1] = 1.0
+activate!(x, 6)                                      # an explicit zero at (3, 3)
+y = copy(x)
+@assert collect(activecoordinates(y)) == [2, 6] && isactive(y, 6)
+
+w = SymmetricSparseIterate(3)
+copyto!(w, Matrix(x))                                # an import: the explicit zero is not carried
+@assert collect(activecoordinates(w)) == [2]
+
+A = [1.0 2.0 0.0; 2.5 1.0 0.0; 0.0 0.0 1.0]          # not symmetric
+try
+    copyto!(w, A)
+    error("expected an ArgumentError")
+catch e
+    @assert e isa ArgumentError
+end
+@assert collect(activecoordinates(w)) == [2]         # nothing was written
+copyto!(w, Symmetric(A, :L))                         # the lower triangle, chosen by the caller
+@assert w[1, 2] == 2.5
+
+try
+    copyto!(w, matrixview(w))                        # the source shares memory with w
+    error("expected an ArgumentError")
+catch e
+    @assert e isa ArgumentError
+end
+prox!(w, NormL1(0.1), matrixview(w), 1.0)            # a proximal map from its own view is fine
+@assert w[2, 1] ≈ 2.4
+```
+
+Two owners are `==` and `isequal` when their matrices are: `isequal(x, y)` is
+`isequal(Matrix(x), Matrix(y))`, whatever the active sets and their order. An active
+`-0.0` is therefore different under `isequal` from an absent coordinate, which is
+`+0.0`, and is equal to it under `==`; two `NaN`s are `isequal` and not `==`. Equal
+matrices have equal hashes. There is no comparison of an owner with an array, and
+there is no `isapprox` for owners: compare `Matrix(x)` or `matrixview(x)`, which are
+ordinary matrices.
+
+```@example owner_equality
+using ProximalBase
+
+x = SymmetricSparseIterate(3)
+x[2, 1] = 1.0
+activate!(x, 6)                                      # an active zero at (3, 3)
+y = SymmetricSparseIterate(3)
+y[2, 1] = 1.0
+@assert isequal(x, y) && x == y && hash(x) == hash(y) # an active zero is an absent coordinate
+y[2, 1] = 1.0 + 1e-9
+@assert !isequal(x, y)
+@assert isapprox(matrixview(x), matrixview(y); atol = 1e-6)   # an approximation compares the matrices
+try
+    isapprox(x, y)
+    error("expected a MethodError")
+catch e
+    @assert e isa MethodError
+end
+```
+
+### The multiplicity of an off-diagonal variable
+
+A variable ``(r, c)`` with ``r \ne c`` stands for two entries of the matrix.
+Everything that is a function of the matrix counts both: `norm(x)` is the Frobenius norm
+of `Matrix(x)`, `dot(A, x)` and `dot(a, x, b)` are the inner products of the matrix, a
+penalty such as `NormL1` takes the sum over both triangles, the gradient and the curvature
+along a coordinate are those of the direction ``E_{rc} + E_{cr}``, and a proximal step is
+the Frobenius one. The values of the variables themselves, `x[r, c]`, are not rescaled.
+`kkt_violation` screens a coordinate at zero: a positive value says the coordinate should
+enter the working set, and a value that is not positive does not certify that a returned
+solution is stationary.
+
+```@example owner_multiplicity
+using ProximalBase, LinearAlgebra
+
+x = SymmetricSparseIterate(3)
+x[2, 1] = 3.0
+x[3, 3] = 4.0
+@assert norm(x) ≈ sqrt(2 * 3.0^2 + 4.0^2)           # (2, 1) counts twice
+@assert norm(x) ≈ norm(Matrix(x))
+@assert NormL1(1.0)(x) == 2 * 3.0 + 4.0
+@assert dot(ones(3, 3), x) == 2 * 3.0 + 4.0
+@assert x[1, 2] == 3.0                               # the variable itself is not rescaled
+```
+
+An owner as the output of a proximal map takes a *scalar* Frobenius step ``\gamma``. An array
+of steps, or one step per group, is not supported on an owner: it throws an `ArgumentError`
+before anything is written, and the dense and other iterate outputs are unchanged. Use a
+scalar step, or `Matrix(x)` as the output.
+
+### Replacing the array operations of 0.5
+
+Before 0.6 the owner was a matrix for Julia, and generic array functions reached it. They
+no longer exist for it; each has a replacement that says what is meant.
+
+| 0.5 | 0.6 |
+|:----|:----|
+| `x[k]` for a variable | `coordinates(x)[k]` |
+| read or iterate the matrix, `x[:, j]`, `sum(x)`, `view(x, ...)` | the same call on `matrixview(x)` |
+| `length(x)` | `size(x, 1)` for ``p``, `ncoordinates(x)` or `length(coordinates(x))` for ``q`` |
+| `nnz(x)` | `nactive(x)`, when the size of the working set is meant |
+| `fill!(x, 0)` | `fill!(coordinates(x), 0); dropzeros!(x)` |
+| `x.nzval` | `activevalues(x)` |
+| writable dense storage | `Matrix(x)` |
+| `sparse(x)`, `triu(x, k)`, `tril(x, k)` | the same calls on `matrixview(x)` |
+| `mul!(x, A, B)` | compute into a dense matrix, `C = A * B`, and `copyto!(x, C)` if a symmetric import is meant |
+| `x .= f.(y)`, `map!(f, x, y)`, `x .+= ...` | write `coordinates(x)`, or compute a symmetric matrix and import it |
+
+[Compatibility and migration](@ref) gives the 0.5 behavior of each row in full.
 
 Its coordinates are the
 ``p(p+1)/2`` entries ``(r, c)``, ``r \ge c``, of the lower triangle, numbered
@@ -201,15 +314,62 @@ coordinates take the step ``2/a`` where the diagonal takes ``1/a``.
 ### A read-only matrix view
 
 [`matrixview`](@ref)`(x)` returns a live, read-only ``p \times p`` view of a
-`SymmetricSparseIterate`: ordinary matrix indices, both triangles, no copy.
-Pass it to code that only reads a matrix. Writes to `x` show through it, and
-nothing can be written through it or through a wrapper derived from it.
-`mul!(y, matrixview(x), v)` costs ``O(p + \mathrm{nactive}(x))``. Its linear
-indices are matrix indices, not coordinates: for ``p = 3``,
+`SymmetricSparseIterate`: ordinary matrix indices, both triangles, no copy. Pass it
+to code that only reads a matrix. Writes to `x` show through it, and nothing can be
+written through it or through a wrapper derived from it (`view`, `reshape`,
+`transpose`, `Symmetric`): the write is refused and `x` is unchanged. A generic
+allocating operation on the view (`A .+ 1`, `similar(A)`, `collect(A)`) returns an
+ordinary writable dense array. `mul!(y, matrixview(x), v)` costs
+``O(p + \mathrm{nactive}(x))``; other generic matrix operations read all ``p^2``
+entries. `sparse(matrixview(x))`, `triu(matrixview(x), k)` and `tril(matrixview(x), k)`
+return a `SparseMatrixCSC` built from the active variables in
+``O(\mathrm{nactive}(x))``; an active zero is not an entry of the result.
+
+Its linear indices are matrix indices, not coordinates: for ``p = 3``,
 `coordinates(x)[4]` is the variable at ``(2, 2)`` and `matrixview(x)[4]` is the
 entry at ``(1, 2)``. [`activevalues`](@ref)`(x)` gives the values of the active
-coordinates in the order of [`activecoordinates`](@ref)`(x)`; like that list,
-take it again after a coordinate becomes active or after `dropzeros!`.
+coordinates in the order of [`activecoordinates`](@ref)`(x)`.
+
+A variable that becomes active, `dropzeros!`, and a `copyto!` that replaces the state
+of `x` change its working set, and a handle taken earlier does not follow: an
+`activecoordinates` or `activevalues` handle keeps its length when a variable becomes
+active, and after `dropzeros!` or a state replacement it may show other slots, though
+reading it stays in bounds. Take it again after any of them. The views
+`matrixview(x)` and `coordinates(x)` read the live state and need no refresh.
+An active zero stays active when a zero is written to it, so that the set being swept
+does not change: `fill!(coordinates(x), 0)` writes zeros to the active variables only,
+in ``O(\mathrm{nactive}(x))``, and `dropzeros!(x)` then empties the owner.
+
+```@example owner_view
+using ProximalBase, SparseArrays, LinearAlgebra
+
+x = SymmetricSparseIterate(4)
+x[3, 1] = 2.0
+x[4, 4] = 5.0
+activate!(x, 2)                                      # an active zero at (2, 1)
+A = matrixview(x)
+S = sparse(A)
+@assert S isa SparseMatrixCSC && S == sparse(Matrix(x))
+@assert nnz(S) == 3                                  # (3, 1), (1, 3) and (4, 4); the active zero is no entry
+@assert triu(A) == triu(Matrix(x)) && tril(A, -1) == tril(Matrix(x), -1)
+@assert nnz(triu(A, 1)) == 1 && nnz(tril(A, -1)) == 1
+try
+    A[1, 1] = 1.0
+    error("expected the write to be refused")
+catch e
+    @assert occursin(r"setindex!|read-only|not defined", sprint(showerror, e))
+end
+@assert x[1, 1] == 0.0
+
+ids = activecoordinates(x)
+@assert length(ids) == nactive(x) == 3
+x[4, 3] = 1.0                                        # a new active variable
+@assert length(ids) == 3 && length(activecoordinates(x)) == 4   # the old handle did not follow
+fill!(coordinates(x), 0)                             # writes the active variables only
+@assert nactive(x) == 4 && all(iszero, Matrix(x))
+dropzeros!(x)
+@assert nactive(x) == 0
+```
 
 ### Symmetric parameters
 
@@ -296,7 +456,6 @@ vector of length ``p^2``, it uses column-major order: `(c - 1)p + r` for
 | array `Precompose` | scale `a` |
 | `IndHyperplane`, `IndHalfspace`, `IndHyperslab` | normal `a` |
 | `KronQuadratic` | linear coefficient `C` |
-| proximal call with an array step | step at each entry |
 
 Design matrices and image data have different indexing and are not covered
 by this rule. Neither are arrays indexed by groups, ranks or eigenvalues.
@@ -344,7 +503,6 @@ argument must be a `SymmetricSparseIterate` for these checks to apply.
 | `f(x)` | Input `x` | Every pair, or only stored pairs as with weighted `NormL1` |
 | [`prox!`](@ref), [`value_and_prox!`](@ref) | Output | Every pair, or pairs stored in either input or output as with weighted `NormL1` |
 | [`gradient!`](@ref), [`value_and_gradient!`](@ref) | Output | Every pair |
-| [`gradient_mapping!`](@ref) | Output | Both functions' parameters, using the gradient and proximal rules above |
 | Both forms of [`prox_coordinate!`](@ref) | Iterate `x` | The pair at the chosen coordinate |
 | Four-argument [`kkt_violation`](@ref) | Iterate `x` | The pair at the chosen coordinate |
 | [`hessian_vec!`](@ref) | Point `x`, even with dense output | Every pair |
@@ -354,17 +512,16 @@ argument must be a `SymmetricSparseIterate` for these checks to apply.
 | [`ProximalBase.check_symmetric_parameters`](@ref) | Iterate `x` | Every declared pair, also inside built-in wrappers and `SeparableSum` blocks |
 
 Comparing only stored pairs in a proximal call requires both input and output
-to be symmetric iterates. An array of per-entry steps is checked at the same
-pairs as the function's parameters. For tuple arguments, these rules apply
-to each symmetric block.
+to be symmetric iterates. For tuple arguments, these rules apply to each symmetric
+block. A `SymmetricSparseIterate` output takes a scalar step only; an array step is an
+`ArgumentError` (see [The multiplicity of an off-diagonal variable](@ref)), and
+`gradient_mapping` and `gradient_mapping!` have no method for an owner: pass `Matrix(x)`.
 
 For a `SymmetricSparseIterate` input `x`:
 
 - `prox(f, x)` returns a `SymmetricSparseIterate`, so it checks like `prox!`.
 - `gradient(f, x)` returns a dense matrix; symmetric `x` alone triggers no check.
 - `value_and_gradient(f, x)` returns a value and a dense gradient matrix;
-  symmetric `x` alone triggers no check.
-- `gradient_mapping(f, g, x, γ)` returns a dense matrix;
   symmetric `x` alone triggers no check.
 - `lla_weights(f, x)` returns a dense matrix and checks every parameter pair
   because it checks `x`.
@@ -403,8 +560,7 @@ or a `SymTridiagonal` is used as it is, at no extra cost, and `Symmetric(x, :L)`
 still selects the lower triangle. `+Inf` at one position and `-Inf` at its mirror give
 `NaN`, as their sum does. For a tuple output, as in a `SeparableSum`, each block is
 treated this way at every depth of nesting, so no block fails before another is written.
-The rule holds for the methods with an array of steps too (`γ` an array that is
-symmetric), and for an argument on a device, which is read on the host.
+The rule holds for an argument on a device too, which is read on the host.
 
 ```@example symmetric_parameters
 V = [0.0 1.0; 3.0 0.0]                   # not symmetric
@@ -422,8 +578,9 @@ type for a dense output as well, instead of reading its upper triangle.
 symmetric part of the result into a `SymmetricSparseIterate` output, also when
 the point is a dense matrix that is not symmetric.
 
-Weights, groups and steps that are not symmetric are parameters, not the argument,
-and still cause an `ArgumentError`.
+Weights and groups that are not symmetric are parameters, not the argument, and still
+cause an `ArgumentError`. `Symmetric(x, :L)` is a choice of the caller, who selects the
+triangle to read; the package never picks one for a parameter.
 
 #### When no check happens
 
@@ -835,11 +992,11 @@ them throws a `MethodError`. Loop over its active entries with
 The slots of both iterates are reserved at construction, so activating a
 coordinate does not change the size of the arrays that the iterate stores.
 
-For a `SymmetricSparseIterate`, `nnz(x)` counts the stored coordinates of the
-lower triangle, stored zeros included. Because an off-diagonal pair counts once
-and a stored zero counts too, `nnz(x)` can differ from the number of nonzero
-entries of `Matrix(x)`. Its other
-counts are tracked in
+A `SymmetricSparseIterate` has no `nnz`. `nactive(x)` counts the active variables of
+the lower triangle, active zeros included; `ncoordinates(x)` is ``p(p+1)/2``. Because
+an off-diagonal variable counts once, and an active zero counts too, `nactive(x)` can
+differ from the number of nonzero entries of `Matrix(x)`; for that number count
+`Matrix(x)` or `sparse(matrixview(x))`. Its other counts are tracked in
 [#391](https://github.com/mlakolar/ProximalBase.jl/issues/391).
 
 ```@example counting
@@ -872,5 +1029,12 @@ end
 
 m = SymmetricSparseIterate(3)
 m[2, 1] = 3.0
-@assert nnz(m) == 1 && count(!iszero, Matrix(m)) == 2
+@assert nactive(m) == 1 && count(!iszero, Matrix(m)) == 2
+@assert nnz(sparse(matrixview(m))) == 2             # the entries of the matrix, counted by position
+try
+    nnz(m)
+    error("expected a MethodError")
+catch e
+    @assert e isa MethodError
+end
 ```

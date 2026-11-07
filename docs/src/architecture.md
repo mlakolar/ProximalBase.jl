@@ -129,15 +129,16 @@ Representative source: [basic wrappers](https://github.com/mlakolar/ProximalBase
 
 ## [Iterates and coordinate storage](@id architecture-storage)
 
-![Sparse and atom iterates subtype Julia arrays and contain entry maps, lower-triangle storage or active group data.](assets/architecture/04-storage-device.svg)
+![SparseIterate and AtomIterate subtype Julia arrays and contain entry maps or active group data. SymmetricSparseIterate is not an array: it stores the lower triangle, and its coordinates and matrix views are the array handles.](assets/architecture/04-storage-device.svg)
 
 [Mermaid source](assets/architecture/04-storage-device.mmd).
 
 `SparseIterate` stores selected entries and index maps. `SymmetricSparseIterate`
 stores the lower triangle of a symmetric matrix; one stored off-diagonal
-coordinate represents two matrix entries. Its coordinate view is distinct
-from ordinary matrix linear indexing. `AtomIterate` stores dense data together
-with the active groups used by block updates.
+coordinate represents two matrix entries. It is not an array: `coordinates(x)` is
+its vector of variables and `matrixview(x)` its read-only matrix, and the two index
+differently, so a matrix linear index is not a coordinate. `AtomIterate` stores dense
+data together with the active groups used by block updates.
 
 Coordinate methods translate a storage coordinate into the appropriate entry
 or group. Full-array methods use the array interface or specialized stored-entry

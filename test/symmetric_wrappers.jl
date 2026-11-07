@@ -562,6 +562,22 @@ end
     @test err isa MethodError && err.f === op
     @test isequal(tstate(y), before)
   end
+  # a scaled sum of blocks as a block: the preflight descends to its leaves, nested sums and scales included
+  @testset "scaled sum of blocks, $name, $role, $op" for (name, bad) in rejecting, (role, make) in roles[1:2], op in (prox!, value_and_prox!)
+    nl1 = NormL1(T(0.5))
+    extra(t, v) = t isa SymmetricSparseIterate ? mkowner(v) : fill(T(v), 2, 2)
+    for (f, depth) in ((SeparableSum(nl1, Scaled(SeparableSum(nl1, bad), T(2))), 1),
+                       (SeparableSum(nl1, Scaled(Scaled(SeparableSum(nl1, bad), T(2)), T(3))), 1),
+                       (SeparableSum(nl1, Scaled(SeparableSum(nl1, Scaled(SeparableSum(nl1, bad), T(2))), T(3))), 2))
+      y, x = make()                                    # (a, b) and its point; the nested pair holds the rejecting block last
+      y = depth == 1 ? (y[1], (y[2], extra(y[2], 5))) : (y[1], (y[2], (extra(y[2], 5), extra(y[2], 6))))
+      x = depth == 1 ? (x[1], (x[2], extra(x[2], 5))) : (x[1], (x[2], (extra(x[2], 5), extra(x[2], 6))))
+      before = tstate(y)
+      err = try op(y, f, x, T(0.5)); nothing catch e; e end
+      @test err isa MethodError && err.f === op
+      @test isequal(tstate(y), before)
+    end
+  end
   # parameter validation wins over the MethodError
   @testset "invalid parameters under $wname, $op" for (wname, wrap) in forwarding, op in (prox!, value_and_prox!)
     for (_, bad) in invalid

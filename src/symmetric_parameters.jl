@@ -379,6 +379,8 @@ _owner_role_preflight(op, f, y, x, γ) =
   ((y isa SymmetricSparseIterate || x isa SymmetricSparseIterate) && !_owner_role_supported(op, f) &&
      _owner_role_error(op, y, f, x, γ); true)
 _owner_role_preflight(op, s::SeparableSum, y::Tuple, x::Tuple, γ) = _owner_role_preflight_blocks(op, s.fs, y, x, γ)
+# a scaled sum of blocks passes its tuple arguments to its inner sum
+_owner_role_preflight(op, s::Scaled, y::Tuple, x::Tuple, γ) = _owner_role_preflight(op, s.f, y, x, γ)
 @generated _owner_role_preflight_blocks(op, fs::Tuple, y::Tuple, x::Tuple, γ) =
   _blockwise(k -> :(_owner_role_preflight(op, fs[$k], y[$k], x[$k], γ)), min(fieldcount(fs), fieldcount(y), fieldcount(x)), true)
 _value_and_gradient_unchecked!(y, f::AbstractFunction, x) = value_and_gradient!(y, f, x)

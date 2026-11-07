@@ -1144,12 +1144,105 @@ function LinearAlgebra.dot(a::StridedVector, X::SparseIterate{<:Any, 2}, b::Stri
   s
 end
 
+# The scalar three-factor term for the product A * X * B, the exact extended-real product of the
+# three factors rounded to T: a NaN factor gives NaN, a zero factor against an infinite one gives
+# NaN (the genuine 0 * Inf), a zero factor otherwise gives zero, an infinite factor otherwise gives
+# an infinity of the sign of the product, and three finite nonzero factors give their product with
+# the accuracy of an ordinary product, where overflow and underflow are decided by the final value
+# and not by a partial product. Only the exceptional entries of the product kernel reach it.
+function _triple(a::T, x::T, b::T) where {T<:Union{Float32, Float64}}
+  (isnan(a) | isnan(x) | isnan(b)) && return T(NaN)
+  infinite = isinf(a) | isinf(x) | isinf(b)
+  (iszero(a) | iszero(x) | iszero(b)) && return ifelse(infinite, T(NaN), zero(T))
+  infinite && return ifelse(signbit(a) ⊻ signbit(x) ⊻ signbit(b), -T(Inf), T(Inf))
+  ma, ea = frexp(a)
+  mx, ex = frexp(x)
+  mb, eb = frexp(b)
+  ldexp((ma * mx) * mb, ea + ex + eb)
+end
+
+# C[:, j] += ax * b[j]
+@inline function _axpy_terms!(C::Matrix{T}, ax::Vector{T}, b::Vector{T}, j::Int) where {T}
+  bj = b[j]
+  @inbounds @simd for i in eachindex(ax)
+    C[i, j] += ax[i] * bj
+  end
+end
+
+"""
+    *(A::Symmetric{T}, X::SparseIterate{T, 2}, B::Symmetric{T}) where {T<:Union{Float32, Float64}}
+
+The product `C = A * X * B` for a sparse iterate `X`, with `C[i, j]` the sum of
+`A[i, k] * X[k, l] * B[l, j]` over the coordinates `(k, l)` where `X` is
+mathematically nonzero, in `O(nnz(X) * m * n)` operations and `O(m * n)` memory for
+`X` of size `m × n`. A stored zero and an unstored entry are the same: no term is formed,
+and an `X` without nonzeros gives the zero matrix without reading `A` or `B`. A nonzero
+coefficient of `X`, including `NaN` and `±Inf`, always contributes; the zeros of `A` and
+`B` are ordinary zeros, so a nonzero `Inf` of `X` against a zero of `A` or `B` gives `NaN`.
+The result need not equal `A * Matrix(X) * B`.
+
+Each term is the exact product of the three factors rounded once to `T`, as far as that
+is possible with a product of two roundings: a finite product is decided by its final value,
+not by the first partial product, so `2^600 * 2^600 * 2^-600` is `2^600` and an overflowing
+or underflowing intermediate product does not change the class of the term. Terms are
+added in the storage order of `X` in the precision `T`, so a sum that overflows before
+a later cancellation is `Inf` or `NaN`, and tiny terms next to large ones are rounded away,
+as in any floating-point sum. A sum that is exactly zero is `+0.0`.
+
+The guarantee covers `Float32` and `Float64` with `Symmetric` wrappers of strided matrices
+of the same element type as `X`. Other element types, and mixed element types, are outside
+the guarantee and take other methods of `*`. See [Numerical contract](@ref numerics-storage).
+"""
+function *(A::Symmetric{T, <:StridedMatrix{T}}, X::SparseIterate{T, 2},
+           B::Symmetric{T, <:StridedMatrix{T}}) where {T<:Union{Float32, Float64}}
+  _checkreal(X, A); _checkreal(X, B)
+  m, n = size(X)
+  size(A, 2) == m && size(B, 1) == n || throw(DimensionMismatch())
+  C = zeros(T, m, n)
+  a, ax, b = Vector{T}(undef, m), Vector{T}(undef, m), Vector{T}(undef, n)
+  lo = floatmin(T)
+  for k = 1:nnz(X)
+    x = X.nzval[k]
+    iszero(x) && continue
+    ind = X.nzval2ind[k]
+    r, c = mod1(ind, m), cld(ind, m)
+    exceptional = false
+    for i = 1:m                       # the logical column r of A: the ignored triangle is not read
+      ai = A[i, r]
+      a[i] = ai
+      axi = ai * x
+      ax[i] = axi
+      exceptional |= !(lo <= abs(axi) < T(Inf)) & !iszero(ai)
+    end
+    for j = 1:n
+      b[j] = B[c, j]                  # the logical row c of B
+    end
+    if exceptional                    # some a * x is not a finite normal number
+      for j = 1:n
+        bj = b[j]
+        for i = 1:m
+          axi = ax[i]
+          t = (lo <= abs(axi) < T(Inf)) | iszero(a[i]) ? axi * bj : _triple(a[i], x, bj)
+          C[i, j] += t
+        end
+      end
+    else                              # a * x is finite and normal, so (a * x) * b is the final rounding
+      for j = 1:n
+        _axpy_terms!(C, ax, b, j)
+      end
+    end
+  end
+  C
+end
+
 """
     *(A::Symmetric, X::Union{SymmetricSparseIterate, SparseIterate{T, 2}}, B::Symmetric)
 
 The product `A * X * B` for a sparse iterate `X`, restricted to the rows and
 columns where `X` has nonzeros: O(p² k) for nonzeros in k rows, instead of the
-O(p³) of dense products.
+O(p³) of dense products. This is the path of the owner `SymmetricSparseIterate` and of
+matrix iterates of other element types than `Float32` and `Float64`; the guarantee of the
+direct method above does not cover it.
 """
 function *(A::Symmetric{T}, X::SparseIterate{T, 2}, B::Symmetric{T}) where {T}
   _checkreal(X, A); _checkreal(X, B)

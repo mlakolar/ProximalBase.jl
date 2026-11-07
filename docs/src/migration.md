@@ -227,9 +227,18 @@ helpers with `mul!` on `view(A, :, G)` or its transpose.
 For `A_mul_X_mul_B`, use `A * X * B`, with `X` represented as a
 `SparseIterate` matrix rather than a vector of its entries. A single entry is
 `dot(view(A, :, r), X, view(B, :, c))` for symmetric real `A` and `B`.
-That `dot` skips the zero coefficients of `X` (M1 of the
-[Numerical contract](@ref numerics-storage)) and `A * X * B` is not one of M1's
-products, so the two can differ when `A` or `B` has a non-finite entry.
+In 0.6, `A * X * B` for a matrix `SparseIterate` `X` skips the zero coefficients
+of `X`, stored or not, as that `dot` does (M1, item 6, of the
+[Numerical contract](@ref numerics-storage)). This is a breaking change from
+0.5.x, where the result depended on the density of `X` and a zero coefficient
+could meet a `NaN` or `Inf` of `A` or `B`; the new result need not equal
+`A * Matrix(X) * B` when `A` or `B` has a non-finite entry. The guarantee is for
+`Float32` and `Float64` with `Symmetric` strided `A` and `B` and `X` of the same
+element type. A call with mixed element types, or with another element type,
+is outside it and takes the previous methods (mixed types are tracked in #751).
+The deprecated `A_mul_X_mul_B` forwards to the same method for `Float32` and
+`Float64` matrix iterates. The three-factor product of a `SymmetricSparseIterate`
+does not follow this rule yet.
 For `A_mul_UUt_mul_B`, use `(A * U) * transpose(B * U)`; its entry helper
 becomes `dot(U' * view(A, :, r), U' * view(B, :, c))` in the same real setting.
 

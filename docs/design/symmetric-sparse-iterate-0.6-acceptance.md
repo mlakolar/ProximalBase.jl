@@ -26,7 +26,9 @@
 >   oracle destinations follow
 >   [FD-4](iterate-family-0.6.md#fd-4-oracle-destinations); and the owner keeps
 >   0.5.x's `*(A::Symmetric, X::SymmetricSparseIterate, B::Symmetric)`, whose
->   class is the open decision [FD-16](iterate-family-0.6.md#fd-16-three-factor-products) (#419);
+>   class follows [FD-16](iterate-family-0.6.md#fd-16-three-factor-products) (#419,
+>   decided 2026-11-06: the direct sum over the nonzero entries of `X`), which the
+>   owner's method does not implement yet;
 >   and in T10, a state copy converts only the source's active values and one
 >   that throws leaves the destination unchanged (#416,
 >   [FW-4](iterate-family-0.6.md#23-the-working-set-fw)).

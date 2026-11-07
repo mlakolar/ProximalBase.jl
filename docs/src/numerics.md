@@ -924,7 +924,12 @@ methods are exactly these:
    `dot(a::StridedVector, X, b::StridedVector)`; and
    `dot(M::StridedMatrix, X)` and `dot(X, M)`. A sparse-aware `dot` on
    `matrixview(X)`, if one is added, is a method of the package and joins
-   this item.
+   this item;
+6. `A * X * B` for `X::SparseIterate{T,2}` and `A`, `B` `Symmetric` strided
+   matrices, with the same element type `T`, `Float32` or `Float64`, for all
+   three. Its result is defined term by term, in the paragraph after this
+   list. The three-factor product of a `SymmetricSparseIterate` `X` is not yet
+   covered; it follows the owner work (#419, #391).
 
 Which terms enter their results therefore does not depend on whether a zero
 is stored or on the order of the arguments. Each result is the IEEE sum, in
@@ -942,10 +947,41 @@ item 5. Every other object built from an iterate (`view(x, …)`,
 ordinary vector or matrix and follows IEEE arithmetic, as does a product
 that ProximalBase does not define, such as `sparse(A) * x`,
 `Diagonal(d) * x`, `transpose(A) * x` for an `AtomIterate`, or
-`sum(x .* v)`. Three-factor products `A * X * B` are not among these
-products. Scaling an iterate by a number (`rmul!`,
+`sum(x .* v)`. Scaling an iterate by a number (`rmul!`,
 `lmul!`, `rdiv!`, `ldiv!`) is not among these products either: it follows
 IEEE arithmetic, as `x .*= s` does.
+
+**The product `A * X * B` (item 6)** is the sum `C[i, j] = Σ A[i, k] ·
+X[k, l] · B[l, j]` over the coordinates `(k, l)` where `X[k, l]` is
+mathematically nonzero, and over no others.
+
+- A stored zero and an unstored entry are the same: no term is formed for
+  either, even against `±Inf` or NaN in `A` or `B`. An `X` without nonzeros
+  gives the zero matrix.
+- A nonzero coefficient, including NaN and `±Inf`, always contributes. The
+  zeros of `A` and `B` are ordinary IEEE zeros, so `0 · Inf` in a term whose
+  coefficient is nonzero is NaN. The result need not equal
+  `A * Matrix(X) * B`, where a zero of `X` meets a non-finite entry.
+- Each term is the product of its three factors rounded once, as far as
+  that can be done with the product of two numbers followed by one more: a NaN
+  factor gives NaN; a zero factor against an infinite one gives NaN; a zero
+  factor otherwise gives zero; an infinite factor otherwise gives `±Inf` with
+  the sign of the product; and for finite nonzero factors the term has the
+  accuracy of an ordinary product, with overflow and underflow decided by
+  the final value, not by the first partial product. So `2^600 · 2^600 · 2^-600`
+  is `2^600` and an underflowing `a · x` against `Inf` is `Inf`, not NaN. This
+  is the guarantee of range recovery for finite factors, to the extent that the
+  implementation covers it and the tests check it.
+- The terms are added in the element type in the storage order of `X`, under
+  A1 and R2. A finite sum can overflow, or can lose tiny terms, before a later
+  cancellation, and is then not recovered: three terms near `floatmax` with
+  signs `+`, `+`, `−` on one entry give a non-finite result although the exact
+  value is finite. A sum that is exactly zero is `+0.0`; sign-bit agreement with
+  dense multiplication is not claimed.
+- The guarantee covers `Float32` and `Float64` with `Symmetric` wrappers of
+  strided matrices and a matrix `SparseIterate` of the same element type.
+  Other element types, and mixed element types (#751), are outside the
+  guarantee and take the previous methods.
 
 Since linear coefficients are finite (E4), a sparse inner product may skip
 unstored entries.

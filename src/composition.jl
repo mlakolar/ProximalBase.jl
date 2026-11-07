@@ -769,8 +769,9 @@ _add_ridge_direction!(Hv::AbstractArray, ρ, x, v) = (Hv .+= convert(eltype(Hv),
 # ρ v added to an owner: the level and the entries in the model precision, the wider of the output, the point and
 # the direction, and each entry rounded to the output once, when it is stored; a level that this precision
 # cannot hold is multiplied in a wider type
-function _add_ridge_direction!(Hv::SymmetricSparseIterate, ρ, x, v)
-  W = _model_precision(eltype(Hv), eltype(x), eltype(v))
+_add_ridge_direction!(Hv::SymmetricSparseIterate, ρ, x, v) =
+  _add_ridge_direction!(Hv, ρ, _scaling_model(eltype(Hv), eltype(x), eltype(v)), v)
+function _add_ridge_direction!(Hv::SymmetricSparseIterate, ρ, ::Type{W}, v) where {W}
   if _level_fits(W, ρ)
     _add_entries!(Hv, convert(W, ρ), W, v)
   else

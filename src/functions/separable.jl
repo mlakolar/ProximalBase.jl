@@ -280,6 +280,13 @@ function _prox_sep!(y::SymmetricSparseIterate, f, x::Union{AbstractMatrix, Symme
   y
 end
 
+# The matrix of an owner as the destination: the coordinate kernel above, which reads and writes each
+# coordinate of a mirrored pair once. A traversal of both positions of a pair would read the second one after
+# the first has been written when the argument is the destination.
+_prox_sep!(y::_OwnerMatrix, f, x::AbstractArray, γ::Real) = (_prox_sep!(y.x, f, _coordinate_source(x), γ); y)
+_coordinate_source(x::AbstractArray) = x
+_coordinate_source(x::Union{_OwnerMatrix, SymmetricMatrixView}) = x.x
+
 # the proximal operator, then the value at the result: two vectorized passes are
 # several times faster than one that stores and sums, which does not vectorize;
 # an indicator function is 0 at its projection

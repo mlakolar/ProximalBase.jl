@@ -146,4 +146,23 @@ end
   @test g[2, 1] == 3d
 end
 
+@testset "a constrained ℓ1 step in place reads each pair once, $T" for T in (Float32, Float64)
+  f = Constrained(NormL1(T(1)), IndBallL2(T(10)))
+  A = T[1 3; 3 2]
+  ref = sign.(A) .* max.(abs.(A) .- T(0.5), 0)
+  for point in (:inplace, :view, :separate, :dense)
+    y = SymmetricSparseIterate(A)
+    x = point == :inplace ? y : point == :view ? matrixview(y) : point == :separate ? SymmetricSparseIterate(A) : A
+    v = value_and_prox!(y, f, x, T(0.5))
+    @test Matrix(y) == ref
+    @test v == sum(abs, ref)
+    y = SymmetricSparseIterate(A)
+    x = point == :inplace ? y : point == :view ? matrixview(y) : point == :separate ? SymmetricSparseIterate(A) : A
+    @test Matrix(prox!(y, f, x, T(0.5))) == ref
+  end
+  y = SymmetricSparseIterate(A)
+  value_and_prox!(y, f, y, T(0.5))
+  @test (@allocated value_and_prox!(y, f, y, T(0.5))) == 0
+end
+
 end

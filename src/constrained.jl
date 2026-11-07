@@ -320,59 +320,39 @@ end
 # `_prox_sep!` is not repeated. Only finite levels and finite nonnegative weights take this route;
 # everything else keeps the generic method, which refuses before writing. The wrappers of the
 # conjugate are not covered: `_check_box_value` and `_box_value_available` are unchanged.
-# The arrays and numbers that the fused value is defined for, decided from their types and axes before
-# anything is written or read by index. The route reads and writes with linear indices, converts entries to the
-# promoted floating type of the output, the level and the weights, and recovers an overflowing or underflowing
-# value through `Conjugate(SqrNormL2)`, which scales through arrays that know their size only. A host array is
-# an Array, a reshape of an Array, or a view of either whose every index is a machine integer, a Base unit range
-# or step range of machine integers (a colon included): the storage of any other selector (an index vector, a range that can repeat an
-# index, a device array, a range of a user-defined type) is not known to be host memory apart from the output,
-# and a view of a view is not followed. The route is taken only for
-#   * the output: a host array of Float32 or Float64, a SparseIterate or a SymmetricSparseIterate, with
-#     one-based axes;
-#   * the input: the same representations with a machine-number element type (a Bool, integer or IEEE float),
-#     or the symmetric part that a SymmetricSparseIterate output reads of a matrix that is not symmetric;
-#   * the levels: both of a machine-number type, as stored (an ElasticNet of an abstract type parameter can hold
-#     any real number); the weights: absent, or a host array of a machine-number type, finite,
-#     nonnegative, one-based and not sharing memory with the output (the value reads them after it is written);
-#   * array bounds and array steps: host arrays of a machine-number type with one-based axes; scalar bounds and
-#     steps of any real type;
+# The value of the conjugate at the stored output is taken only for the representations below, decided from their
+# types before anything is written or indexed; every other combination keeps the generic method, which refuses
+# before writing (`_checkvalue` of the conjugate has no value to offer). The route reads and writes with linear
+# indices and recovers an overflowing or underflowing value through `Conjugate(SqrNormL2)`, which scales through
+# arrays that know their size only, so an array is accepted only as itself, never through a view, a reshape or a
+# wrapper, whose storage it would have to inspect:
+#   * the output: an Array of Float32 or Float64, a SparseIterate or a SymmetricSparseIterate (all one-based);
+#   * the input: an Array, a SparseIterate or a SymmetricSparseIterate of a machine-number element type (Bool, an
+#     integer or an IEEE float), or the symmetric part that a SymmetricSparseIterate output reads of a matrix;
+#   * the levels: scalars of a machine-number type as stored, finite, with an ElasticNet declared as Real or
+#     as a machine-number type; the weights: absent, or an Array of a machine-number type, finite, nonnegative and
+#     not sharing memory with the output (the value reads them after the output is written);
+#   * bounds and steps: scalars, or Arrays of a machine-number type;
 #   * the working type float(promote(output, level, weights, ridge)): Float32 or Float64.
-# An abstract or union element type, an offset axis, a device array and every other representation keep the
-# generic method, which refuses before writing; `_checkvalue` of the conjugate has no value to offer.
-const _ElasticParent = Union{Array, Base.ReshapedArray{<:Any, <:Any, <:Array}}
-# The selectors that `view` of a host array stores, as a closed list of Base types: it normalizes a scalar index
-# to an Int and a colon to a Base.Slice; a range of any other type (a user-defined AbstractUnitRange, say, whose
-# elements may come from any storage) is not on the list and is never read.
-const _ElasticRange = Union{Base.OneTo{<:Base.BitInteger}, UnitRange{<:Base.BitInteger}, StepRange{<:Base.BitInteger, <:Base.BitInteger}}
-const _ElasticIndex = Union{Base.BitInteger, _ElasticRange, Base.Slice{Base.OneTo{Int}}, Base.Slice{UnitRange{Int}}}
-_elastic_host(::Array) = true
-_elastic_host(::Base.ReshapedArray{<:Any, <:Any, <:Array}) = true
-_elastic_host(::SubArray{<:Any, <:Any, <:_ElasticParent, <:Tuple{Vararg{_ElasticIndex}}}) = true
-_elastic_host(::Any) = false
-_elastic_array(a) = _elastic_host(a) || a isa SparseIterate || a isa SymmetricSparseIterate
 _elastic_number(::Type{T}) where {T} = isconcretetype(T) && T <: Union{Base.IEEEFloat, Base.BitInteger, Bool}
-_elastic_output(y) = _elastic_array(y) && (eltype(y) === Float32 || eltype(y) === Float64) && !Base.has_offset_axes(y)
-_elastic_operand(a) = _elastic_array(a) && _elastic_number(eltype(a)) && !Base.has_offset_axes(a)
+_elastic_array(a) = a isa Array || a isa SparseIterate || a isa SymmetricSparseIterate
+_elastic_output(y) = _elastic_array(y) && (eltype(y) === Float32 || eltype(y) === Float64)
+_elastic_operand(a) = _elastic_array(a) && _elastic_number(eltype(a))
 _elastic_operand(a::_SymmetricPart) = _elastic_operand(a.A)
 _elastic_parameter(::Union{Nothing, Real}) = true
+_elastic_parameter(a::Array) = _elastic_number(eltype(a))
 _elastic_parameter(::Any) = false
-_elastic_parameter(a::AbstractArray) = _elastic_host(a) && _elastic_number(eltype(a)) && !Base.has_offset_axes(a)
-# True when the declared type parameters (level S, weights W) are those that `_shrink_type` handles without a
-# type-level error: the level is Real or a concrete machine-number type, the weights are Nothing or an array type.
-# Only the type parameters are read, so that no `float` of a union or of an abstract type is taken.
-_elastic_level_declared(::Type{S}) where {S} = S === Real || _elastic_number(S)
-_elastic_weights_declared(::Type{Nothing}) = true
-_elastic_weights_declared(::Type{W}) where {W} = W <: AbstractArray
+# the declared level S is Real or a machine-number type and the declared weights W are Nothing or an array type:
+# only type parameters are read, so no `float` of a union or of an abstract type is taken
 function _elastic_declared(f::ElasticNet)
-  P = typeof(f).parameters
-  _elastic_level_declared(P[1]) && _elastic_weights_declared(P[2])
+  S, W = typeof(f).parameters
+  (S === Real || _elastic_number(S)) && (W === Nothing || W <: AbstractArray)
 end
 _elastic_working(::Type{T}, f) where {T} = (S = float(promote_type(_shrink_type(T, f), typeof(f.λ2))); S === Float32 || S === Float64)
 _elastic_alias(y, ::Nothing) = false
 _elastic_alias(y, w) = Base.mightalias(y, w)
 _finite_nonneg(::Nothing) = true
-_finite_nonneg(w::AbstractArray) = all(v -> isfinite(v) && v >= 0, w)
+_finite_nonneg(w::Array) = all(v -> isfinite(v) && v >= 0, w)
 function _elastic_value_route(c::BoxConstrained{<:Conjugate{<:ElasticNet}}, y, x)
   f = c.f.f
   _elastic_output(y) && _elastic_operand(x) && _elastic_number(typeof(f.λ1)) && _elastic_number(typeof(f.λ2)) &&

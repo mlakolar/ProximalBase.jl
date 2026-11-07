@@ -581,6 +581,59 @@ snap(a) = collect(a)
 snap(a::AtomIterate) = copy(a.storage)
 snap(t::Tuple) = map(snap, t)
 
+# The eight role cases of a representation `arr(val)` that gives a 2×2 array holding `val`: it is the output, the input, the
+# lower or the upper bound, the array step and the weights (for both ridge levels) of the fused value. A case is
+# `nothing` when Base refuses to build the function with that representation.
+function role_cases(arr)
+  box = IndBox(-2.0, 2.0)
+  x2 = fill(5.0, 2, 2)
+  dest() = fill(-77.0, 2, 2)
+  base = Constrained(Conjugate(ElasticNet(1.0, 0.5)), box)
+  attempt(f) = try
+    f()
+  catch
+    nothing
+  end
+  specs = (("output", () -> (base, arr(-77.0), x2, 0.5)),
+           ("input", () -> (base, dest(), arr(5.0), 0.5)),
+           ("lower", () -> (Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(arr(-2.0), 2.0)), dest(), x2, 0.5)),
+           ("upper", () -> (Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, arr(2.0))), dest(), x2, 0.5)),
+           ("step", () -> (base, dest(), x2, arr(0.5))),
+           ("weights", () -> (Constrained(Conjugate(ElasticNet(1.0, 0.5, arr(1.0))), box), dest(), x2, 0.5)),
+           ("weights, λ2 = 0", () -> (Constrained(Conjugate(ElasticNet(1.0, 0.0, arr(1.0))), box), dest(), x2, 0.5)))
+  [(role, attempt(spec)) for (role, spec) in specs]
+end
+dest_snapshot(y) = y isa SubArray ? copy(parent(y)) : copy(y)
+# the predicate says no without throwing, and the call refuses before writing: directly, in place and as a later block
+function check_refused_case(role, case)
+  c, y, x, γ = case
+  before = dest_snapshot(y)
+  @test PB._elastic_value_route(c, y, x, γ) === false
+  @test refused_value(value_and_prox!, y, c, x, γ)
+  @test isequal(dest_snapshot(y), before)
+  if γ isa Real
+    s = SeparableSum(SqrNormL2(2.0), c)
+    dest = ([7.0], deepcopy(y))
+    before2 = dest_snapshot(dest[2])
+    @test refused_value(value_and_prox!, dest, s, ([3.0], x), γ)
+    @test dest[1] == [7.0] && isequal(dest_snapshot(dest[2]), before2)
+  end
+  if role == "output"
+    z = deepcopy(y)
+    filled = try
+      copyto!(z, x)
+      true
+    catch
+      false          # Base cannot store into this representation: there is no in-place fixture
+    end
+    if filled
+      zb = dest_snapshot(z)
+      @test refused_value(value_and_prox!, z, c, z, γ)
+      @test isequal(dest_snapshot(z), zb)
+    end
+  end
+end
+
 function check_fused(c, mkdest, x, γ; alias = nothing)
   f = c.f.f
   T = eltype(mkdest())
@@ -598,6 +651,8 @@ function check_fused(c, mkdest, x, γ; alias = nothing)
   end
 end
 
+# The representations that take the fused value are Arrays, SparseIterates and SymmetricSparseIterates; views, reshapes
+# and every other representation are refused (see `representations that keep the refusal`).
 @testset "representations that take the fused value" begin
   for T in (Float32, Float64)
     vx = T[5, -5, 0.5, 1.2]
@@ -608,15 +663,7 @@ end
     reps = (
       ("vector", () -> zeros(T, 4), vx, dense(() -> zeros(T, 4), vx), false),
       ("matrix", () -> zeros(T, 2, 2), mx, dense(() -> zeros(T, 2, 2), mx), false),
-      ("range view", () -> view(zeros(T, 7), 2:5), vx, dense(() -> view(zeros(T, 7), 2:5), vx), false),
-      ("strided view", () -> view(zeros(T, 8), 1:2:7), vx, dense(() -> view(zeros(T, 8), 1:2:7), vx), false),
-      ("colon view", () -> view(zeros(T, 4, 2), :, 1), vx, dense(() -> view(zeros(T, 4, 2), :, 1), vx), false),
-      ("scalar-index view", () -> view(zeros(T, 2, 4), 1, :), vx, dense(() -> view(zeros(T, 2, 4), 1, :), vx), false),
-      ("view of a reshape", () -> view(reshape(zeros(T, 8), 2, 4), 1:2, 2:3), mx, dense(() -> view(reshape(zeros(T, 8), 2, 4), 1:2, 2:3), mx), false),
-      ("UInt8-range view", () -> view(zeros(T, 7), UInt8(2):UInt8(5)), vx, dense(() -> view(zeros(T, 7), UInt8(2):UInt8(5)), vx), false),
-      ("Int8 step-range view", () -> view(zeros(T, 9), Int8(1):Int8(2):Int8(7)), vx, dense(() -> view(zeros(T, 9), Int8(1):Int8(2):Int8(7)), vx), false),
-      ("OneTo view", () -> view(zeros(T, 6), Base.OneTo(4)), vx, dense(() -> view(zeros(T, 6), Base.OneTo(4)), vx), false),
-      ("reshape", () -> reshape(zeros(T, 4), 2, 2), mx, dense(() -> reshape(zeros(T, 4), 2, 2), mx), false),
+      ("reshape of a Vector (an Array)", () -> reshape(zeros(T, 4), 2, 2), mx, dense(() -> reshape(zeros(T, 4), 2, 2), mx), false),
       ("SparseIterate, Vector x", () -> SparseIterate(T, 4), vx, () -> SparseIterate(sparse(vx)), false),
       ("SparseIterate, SparseIterate x", () -> SparseIterate(T, 4), SparseIterate(sparse(vx)), () -> SparseIterate(sparse(vx)), false),
       ("SymmetricSparseIterate, symmetric x", () -> SymmetricSparseIterate(T, 3), S3, () -> SymmetricSparseIterate(S3), true),
@@ -648,15 +695,13 @@ end
       al = () -> copy(xs)
       wdense = [1.0, 0, 2, 0.5]
       levels = ((T(0.25), T(0.7)), (0.25, 0.7), (0.25f0, 0.7f0), (1, 1), (0.25, 0.0), (1, 0), (0.25f0, 0f0))
-      weights = (nothing, wdense, Float32.(wdense), [1, 0, 2, 1], reshape(wdense, 2, 2), view([9.0, 1, 0, 2, 0.5, 9], 2:5),
-                 reshape(wdense, 4, 1))
+      weights = (nothing, wdense, Float32.(wdense), [1, 0, 2, 1], Matrix(reshape(wdense, 2, 2)), Matrix(reshape(wdense, 4, 1)))
       for (λ1, λ2) in levels, w in weights
         check_fused(Constrained(Conjugate(ElasticNet(λ1, λ2, w)), IndBox(T(-2), T(2))), mk, xs, T(0.5); alias = al)
       end
-      steps = (0.5, 0.5f0, 1, T(0.5), 1 // 2, [0.5, 0.25, 1, 2], Float32[0.5, 0.25, 1, 2], [1, 1, 2, 2], view([9.0, 0.5, 0.25, 1, 2, 9], 2:5))
+      steps = (0.5, 0.5f0, 1, T(0.5), 1 // 2, [0.5, 0.25, 1, 2], Float32[0.5, 0.25, 1, 2], [1, 1, 2, 2])
       bounds = (IndBox(-2.0, 2.0), IndBox(-2, 2), IndBox(T(-2), T(2)), IndBox([-2.0, -1, -3, -2], [2.0, 1, 3, 2]),
-                IndBox([-2, -1, -3, -2], [2, 1, 3, 2]), IndBox(Float32[-2, -1, -3, -2], Float32[2, 1, 3, 2]),
-                IndBox(view([9.0, -2, -1, -3, -2, 9], 2:5), view([9.0, 2, 1, 3, 2, 9], 2:5)), IndNonnegative())
+                IndBox([-2, -1, -3, -2], [2, 1, 3, 2]), IndBox(Float32[-2, -1, -3, -2], Float32[2, 1, 3, 2]), IndNonnegative())
       for γ in steps, box in bounds, (λ1, λ2) in ((T(0.25), T(0.7)), (T(0.25), T(0)))
         check_fused(Constrained(Conjugate(ElasticNet(λ1, λ2)), box), mk, xs, γ; alias = al)
       end
@@ -669,7 +714,7 @@ end
         n = prod(sz)
         for (vals, λ1, λ2) in ((fill(huge, n), T(0), λbig), (fill(huge, n), T(0.5) * huge, λbig), (fill(huge, n), T(0), T(1)),
                                (fill(tiny, n), T(0), tiny), (fill(tiny, n), T(0), λzero), (sym ? T[min(i, j) for i in 1:sz[1], j in 1:sz[2]] : T.(1:n), T(0.5), T(0.25)))
-          Y = reshape(vals, sz)
+          Y = collect(reshape(vals, sz))
           c = Constrained(Conjugate(ElasticNet(λ1, λ2)), IndBox(Y, Y))
           check_fused(c, mkdest, x, T(1))
         end
@@ -854,20 +899,57 @@ end
       @test PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5)
     end
   end
-  @testset "selector forms of a view" begin
-    A, v = zeros(6, 6), zeros(10)
-    for V in (A, v, reshape(v, 2, 5), view(A, :, :))
-      @test PB._elastic_host(V)
+  @testset "views, reshapes and other representations are refused in every role" begin
+    U = Union{Int8, Int16}
+    forms = (("range view", v -> view(fill(v, 3, 3), 1:2, 1:2)),
+             ("strided view", v -> view(fill(v, 4, 4), 1:2:3, 1:2:3)),
+             ("colon view", v -> view(fill(v, 2, 3), :, 1:2)),
+             ("scalar-index view", v -> view(fill(v, 2, 2, 2), 1, :, :)),
+             ("view of a reshape", v -> view(reshape(fill(v, 8), 2, 4), 1:2, 2:3)),
+             ("UInt8-range view", v -> view(fill(v, 3, 3), UInt8(1):UInt8(2), 1:2)),
+             ("Int8 step-range view", v -> view(fill(v, 4, 4), Int8(1):Int8(2):Int8(3), 1:2)),
+             ("OneTo view", v -> view(fill(v, 3, 3), Base.OneTo(2), 1:2)),
+             ("reshape of a view", v -> reshape(view(fill(v, 6), 2:5), 2, 2)),
+             ("index-vector view", v -> view(fill(v, 3, 3), [1, 2], 1:2)),
+             ("repeated-index view", v -> view(fill(v, 3, 3), [1, 1], 1:2)),
+             ("view of a view", v -> SubArray(view(fill(v, 3, 3), 1:2, 1:3), (1:2, 1:2))),
+             ("zero-step range", v -> view(fill(v, 3, 3), StepRangeLen(1, 0, 2), 1:2)),
+             ("UnitRange{Union} view", v -> view(fill(v, 3, 3), UnitRange{U}(Int8(1), Int16(2)), 1:2)),
+             ("StepRange{Union} view", v -> view(fill(v, 3, 3), StepRange{U, Int8}(Int8(1), Int8(1), Int16(2)), 1:2)),
+             ("adjoint", v -> fill(v, 2, 2)'),
+             ("Union-element Array", v -> Array{Union{Float64, Int}}(fill(v, 2, 2))),
+             ("view of a Union-element Array", v -> view(Array{Union{Float64, Int}}(fill(v, 3, 3)), 1:2, 1:2)))
+    unbuilt = String[]
+    for (name, arr) in forms
+      built = try
+        arr(0.0) isa AbstractArray
+      catch
+        false
+      end
+      built || (push!(unbuilt, name); continue)
+      for (role, case) in role_cases(arr)
+        if case === nothing
+          push!(unbuilt, name * ": " * role)
+        else
+          @testset "$name, $role" check_refused_case(role, case)
+        end
+      end
     end
-    for V in (view(A, :, 2:3), view(A, 1, :), view(A, 1:2:5), view(A, big(1), :), view(A, Colon()), view(v, UInt8(1):UInt8(3)),
-              view(v, Int8(1):Int8(2):Int8(7)), view(v, Base.OneTo(3)), view(reshape(v, 2, 5), :, 2:3), view(reshape(v, 2, 5), 1, :),
-              view(A, 2:3, Base.Slice(1:2)), view(A, 1:0), view(A, CartesianIndex(1, 2)))
-      @test PB._elastic_host(V)
-    end
-    for V in (view(A, big(1):big(2)), view(A, 1:2, [1, 2]), view(v, [4, 1, 2]), view(v, StepRangeLen(2, 0, 3)),
-              SubArray(view(v, 2:5), (1:3,)), reshape(view(v, 2:5), 2, 2), A',
-              view(v, CountingRange([1, 2], Ref(0))), view(A, CountingRange([1, 2], Ref(0)), 1:2))
-      @test !PB._elastic_host(V)
+    # the output, input and step roles of the reproducing selector are built (Base refuses it as a bound or a weight)
+    @test !any(in(("UnitRange{Union} view: output", "UnitRange{Union} view: input", "UnitRange{Union} view: step")), unbuilt)
+    println("forms that Base cannot build: ", join(unbuilt, "; "))
+    # the review's reproducer: the earlier block of the sum keeps its value, and so does the destination
+    r = UnitRange{Union{Int8, Int16}}(Int8(1), Int16(2))
+    v = view(fill(-77.0, 3, 3), r, 1:2)
+    c = Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, 2.0))
+    d = ([9.0], v)
+    @test refused_value(value_and_prox!, d, SeparableSum(SqrNormL2(1.0), c), ([3.0], fill(5.0, 2, 2)), 0.5)
+    @test d[1] == [9.0] && parent(v) == fill(-77.0, 3, 3)
+    # only the Array of a machine-number type, and the two iterates, are representations of the route
+    @test PB._elastic_array(zeros(3)) && PB._elastic_array(zeros(2, 2)) && PB._elastic_array(SparseIterate(3)) && PB._elastic_array(SymmetricSparseIterate(3))
+    for (_, arr) in forms
+      V = arr(0.0)
+      V isa Array || @test !PB._elastic_array(V)
     end
   end
   @testset "custom unit ranges are never read" begin

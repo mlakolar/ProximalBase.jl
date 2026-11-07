@@ -72,29 +72,29 @@ end
 
 println("== 5. sweep against an independent reference")
 # r = exact sum scaled by 2^-Ex (Ex = exponent of max|x|); result value = r * 2^Ex, never formed when it overflows.
-struct Ref; r::BigFloat; Ex::Int; end
+struct RefV; r::BigFloat; Ex::Int; end
 function refpair(λ1w, x, γw, kind)    # kind :f  -> λ1 Σ|x| ; :vp -> λ1 n |softthreshold(mean, γ λ1)| rounded to p bits
   p = precision(BigFloat)
   setprecision(BigFloat, 4000) do
     xs = filter(!iszero, x)
-    isempty(xs) && return Ref(zero(BigFloat), 0)
+    isempty(xs) && return RefV(zero(BigFloat), 0)
     Ex = Int(maximum(exponent(BigFloat(a)) for a in xs))
     sc(a) = ldexp(BigFloat(a), Clong(-Ex))
     l1 = BigFloat(λ1w)
     n = length(x)
     if kind === :f
-      return Ref(l1 * sum(abs(sc(a)) for a in x), Ex)
+      return RefV(l1 * sum(abs(sc(a)) for a in x), Ex)
     else
       m = sum(sc(a) for a in x) / n
       thr = try ldexp(BigFloat(γw) * l1, Clong(-Ex)) catch; BigFloat(Inf) end
       y = sign(m) * max(abs(m) - thr, zero(m))
       yr = BigFloat(y, RoundNearest; precision = p)       # the stored output
-      return Ref(l1 * n * abs(yr), Ex)
+      return RefV(l1 * n * abs(yr), Ex)
     end
   end
 end
 # classify expected: (:inf | :under | :finite), and the signed relative error
-function judge(val, rf::Ref)
+function judge(val, rf::RefV)
   p = precision(BigFloat)
   mM, eM = frexp(floatmax(BigFloat))          # at precision p
   eMin = Int128(exponent(floatmin(BigFloat)))

@@ -268,12 +268,12 @@ function run_broad(T, label)
       x = input(Val(F.kind), x0)
       tag = "broad $(F.name) $label x=$id"
       rec("$tag value", () -> f(x))
-      prox_ok = try isproximable(f) catch false end
+      prox_ok = try isproximable(f) catch; false end
       if prox_ok
         rec("$tag prox", () -> prox(f, x, g))
         rec("$tag vprox", () -> (y = similar(x); (value_and_prox!(y, f, x, g), y)))
       end
-      smooth_ok = try issmooth(f) catch false end
+      smooth_ok = try issmooth(f) catch; false end
       smooth_ok && rec("$tag vgrad", () -> (gr = similar(x); (value_and_gradient!(gr, f, x), gr)))
     end
   end

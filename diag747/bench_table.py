@@ -1,5 +1,6 @@
 # Combine vb-base-r*.txt and vb-head-r*.txt (separate processes, alternating order) into one table.
 import sys, glob, re, collections
+sys.stdout.reconfigure(encoding="utf-8")
 def load(prefix):
     d = collections.defaultdict(list)
     for p in sorted(glob.glob(prefix + "-r*.txt")):
@@ -37,7 +38,9 @@ def ir_blocks(path):
         elif cur is not None: cur.append(line)
     return out
 def norm(s):
-    s = _re.sub(r"\b(julia|j)_([A-Za-z0-9_#$.]*?)_[0-9]+", r"\1_\2_N", s)
+    s = _re.sub(r"\b(julia|j)_([^\s\"(@]*?)_[0-9]+", r"\1_\2_N", s)         # compiled function names with a counter
+    s = _re.sub(r"jl_global#[0-9]+", "jl_global#N", s)
+    s = _re.sub(r"\b[0-9]{9,}\b", "N", s)                                # type tags and addresses of a process
     return _re.sub(r"\bL[0-9]+", "L", s)
 print("\n== IR: base against head (the first process of each, names and block labels normalized)")
 ba, ha = ir_blocks(sorted(glob.glob("vb-base-r*.txt"))[0]), ir_blocks(sorted(glob.glob("vb-head-r*.txt"))[0])

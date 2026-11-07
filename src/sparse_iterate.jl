@@ -1360,7 +1360,7 @@ end
 @inline function _product3(a::T, b::T, c::T) where {T<:AbstractFloat}
   (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
   (isfinite(a) && isfinite(b) && isfinite(c)) || return a * b * c
-  fa, ea = frexp(a); fb, eb = frexp(b); fc, ec = frexp(c)
+  fa, ea = _frexp(a); fb, eb = _frexp(b); fc, ec = _frexp(c)
   ldexp(fa * fb * fc, ea + eb + ec)
 end
 

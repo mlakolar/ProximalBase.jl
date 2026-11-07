@@ -289,7 +289,7 @@ _distance_buffer(f::DistL2, ::Type{T}, x::AbstractArray) where {T} = _array_buff
 # endpoints before subtraction also covers an overflowing single residual.
 function _distl2_parts(x::AbstractArray, p::AbstractArray)
   r = norm_diff(x, p)
-  isfinite(r) && return frexp(r)
+  isfinite(r) && return _frexp(r)
   S = float(promote_type(eltype(x), eltype(p)))
   m = zero(S)
   @inbounds for i in eachindex(x, p)
@@ -302,13 +302,13 @@ function _distl2_parts(x::AbstractArray, p::AbstractArray)
     d = _distl2_ldexp(S(x[i]), -k) - _distl2_ldexp(S(p[i]), -k)
     r = hypot(r, abs(d))
   end
-  m, e = frexp(r)
+  m, e = _frexp(r)
   m, e + k
 end
 
 # Delay narrowing λ until its exponent has been combined with the distance.
 @inline function _distl2_value(::Type{T}, λ::Real, m::Real, e::Integer) where {T}
-  a, k = frexp(float(λ))
+  a, k = _frexp(float(λ))
   T(ldexp(a * m, k + e))
 end
 
@@ -336,7 +336,7 @@ function _distance_value_parts(f, x::AbstractArray, square::Bool)
   m = float(m)
   isfinite(m) || return nothing
   iszero(m) && return (m, 0)
-  _parts_product(frexp(float(f.λ)), square ? _parts(m * m / 2, 2e) : (m, e))
+  _parts_product(_frexp(float(f.λ)), square ? _parts(m * m / 2, 2e) : (m, e))
 end
 _value_parts(f::DistL2, x::AbstractArray, v) = _distance_value_parts(f, x, false)
 # Exact-zero protection: the distance is accurate (hypot where its square leaves the range) and zero
@@ -378,7 +378,7 @@ _value_parts(f::SqrDistL2, x::AbstractArray, v) = _distance_value_parts(f, x, tr
     d = p / 2 - x / 2
     k = 1
   end
-  r, j = frexp(d)
+  r, j = _frexp(d)
   x + ldexp(m * r, e + j + k)
 end
 

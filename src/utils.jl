@@ -31,9 +31,9 @@ end
 @noinline function _exceptional_product(a::T, b::T, c::T, p::T) where {T<:AbstractFloat}
   (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
   (isfinite(a) && isfinite(b) && isfinite(c)) || return p
-  ma, ea = frexp(a)
-  mb, eb = frexp(b)
-  mc, ec = frexp(c)
+  ma, ea = _frexp(a)
+  mb, eb = _frexp(b)
+  mc, ec = _frexp(c)
   ldexp((ma * mb) * mc, ea + eb + ec)
 end
 @inline _positive_product(a::Real, b::Real, c::Real) = _positive_product(promote(float(a), float(b), float(c))...)
@@ -536,8 +536,8 @@ _tiny_limit(::Type{R}) where {R} = ldexp(floatmin(R), precision(R) + 1)
     small, es = _compensated_add(acc.small, acc.es, p)
     return _SplitAcc{R}(acc.big, acc.eb, small, es, acc.tiny, acc.et, acc.t)
   end
-  ma, ea = frexp(ar)
-  mx, ex = frexp(xr)
+  ma, ea = _frexp(ar)
+  mx, ex = _frexp(xr)
   tiny, et = _compensated_add(acc.tiny, acc.et, ldexp(ma * mx, ea + ex + _tiny_unit(R)))
   _SplitAcc{R}(acc.big, acc.eb, acc.small, acc.es, tiny, et, acc.t)
 end
@@ -585,14 +585,14 @@ function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {
     end
     j == 0 && break
     used = Base.setindex(used, true, j)
-    mj, fj = frexp(ms[j])
+    mj, fj = _frexp(ms[j])
     D = fj + es[j]
     if iszero(s)
       s, E = mj, D
     else              # the larger of the two sets the units (a remainder of a cancellation may be the smaller)
       s = D <= E ? s + ldexp(mj, D - E) : ldexp(s, E - D) + mj
       E = max(E, D)
-      iszero(s) || ((s, f) = frexp(s); E += f)
+      iszero(s) || ((s, f) = _frexp(s); E += f)
     end
   end
   iszero(s) && return convert(R, w) * zero(R)
@@ -714,7 +714,7 @@ end
 # the product of two values given as parts, normalized
 @inline function _parts_product(a::Tuple, b::Tuple)
   P = promote_type(typeof(a[1]), typeof(b[1]))
-  _parts(convert(P, a[1]) * convert(P, b[1]), a[2] + b[2])
+  _parts(convert(P, a[1]) * convert(P, b[1]), Int(a[2]) + Int(b[2]))
 end
 
 ####################################
@@ -753,14 +753,14 @@ end
 # the term a b 2^k, with the product of the significands rounded once per factor
 @inline function _expsum_product(acc::_ExpSum{R}, a, b, k::Int = 0) where {R}
   (iszero(a) || iszero(b)) && return acc
-  ma, ea = frexp(convert(R, a))
-  mb, eb = frexp(convert(R, b))
+  ma, ea = _frexp(convert(R, a))
+  mb, eb = _frexp(convert(R, b))
   _expsum_add(acc, ma * mb, ea + eb + k)
 end
 @inline function _expsum_term(acc::_ExpSum{R}, a, xi, mj::R, ej::Integer, k::Int) where {R}
   (iszero(a) || iszero(xi)) && return acc
-  ma, ea = frexp(convert(R, a))
-  mi, ei = frexp(convert(R, xi))
+  ma, ea = _frexp(convert(R, a))
+  mi, ei = _frexp(convert(R, xi))
   _expsum_add(acc, (ma * mi) * mj, ea + ei + ej + k)
 end
 
@@ -770,7 +770,7 @@ function _expsum_quadratic(acc::_ExpSum{R}, A::AbstractMatrix, x::AbstractVector
   @inbounds for j in 1:size(A, 2)
     xj = x[j]
     iszero(xj) && continue
-    mj, ej = frexp(convert(R, xj))
+    mj, ej = _frexp(convert(R, xj))
     for i in 1:size(A, 1)
       acc = _expsum_term(acc, A[i, j], x[i], mj, ej, k)
     end
@@ -782,7 +782,7 @@ function _expsum_quadratic(acc::_ExpSum{R}, A::SparseArrays.SparseMatrixCSC, x::
   @inbounds for j in 1:size(A, 2)
     xj = x[j]
     iszero(xj) && continue
-    mj, ej = frexp(convert(R, xj))
+    mj, ej = _frexp(convert(R, xj))
     for p in nzrange(A, j)
       acc = _expsum_term(acc, nz[p], x[rv[p]], mj, ej, k)
     end
@@ -794,7 +794,7 @@ function _expsum_quadratic(acc::_ExpSum{R}, A::Diagonal, x::AbstractVector, k::I
   @inbounds for i in eachindex(d)
     xi = x[i]
     iszero(xi) && continue
-    mi, ei = frexp(convert(R, xi))
+    mi, ei = _frexp(convert(R, xi))
     acc = _expsum_term(acc, d[i], xi, mi, ei, k)
   end
   acc
@@ -1399,7 +1399,7 @@ end
   k == typemax(Int) && return nothing
   k == typemin(Int) && return (zero(R), 0)
   s = _square_scaled_sum(x, y, k, R)
-  _parts_product(frexp(convert(R, λ)), _parts(s, 2k - 1))
+  _parts_product(_frexp(convert(R, λ)), _parts(s, 2k - 1))
 end
 
 ####################################

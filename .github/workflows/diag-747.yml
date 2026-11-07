@@ -17,8 +17,6 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
-      OSN: ${{ runner.os }}
     steps:
       - name: line endings
         run: git config --global core.autocrlf false
@@ -37,20 +35,20 @@ jobs:
       - name: base, focused test (scripts/test.jl)
         continue-on-error: true
         run: |
-          julia --color=no scripts/test.jl normfused_infinite_fusion 2>&1 | tee base-test-$OSN.txt
+          julia --color=no scripts/test.jl normfused_infinite_fusion 2>&1 | tee base-test-$RUNNER_OS.txt
       - name: base, test file run directly (a summary per test set)
         continue-on-error: true
         run: |
-          julia --project --color=no --check-bounds=yes -e 'include("test/normfused_infinite_fusion.jl")' 2>&1 | tee base-direct-$OSN.txt
+          julia --project --color=no --check-bounds=yes -e 'include("test/normfused_infinite_fusion.jl")' 2>&1 | tee base-direct-$RUNNER_OS.txt
       - name: base, failing items
         continue-on-error: true
         run: |
-          grep -nE "Test Failed|Error During Test|Test threw|Test Summary|Pass +Fail|Pass +Error|\| +[0-9]+ +[0-9]+|UndefVarError|precision [0-9]+:|^p=[0-9]+" base-direct-$OSN.txt > items-base-$OSN.txt || true
-          wc -l items-base-$OSN.txt
-          grep -nE "Test Failed|Error During Test|Test threw|Passed|Failed|FAILED" base-test-$OSN.txt | head -60 || true
+          grep -nE "Test Failed|Error During Test|Test threw|Test Summary|Pass +Fail|Pass +Error|\| +[0-9]+ +[0-9]+|UndefVarError|precision [0-9]+:|^p=[0-9]+" base-direct-$RUNNER_OS.txt > items-base-$RUNNER_OS.txt || true
+          wc -l items-base-$RUNNER_OS.txt
+          grep -nE "Test Failed|Error During Test|Test threw|Passed|Failed|FAILED" base-test-$RUNNER_OS.txt | head -60 || true
       - name: base, probe
         continue-on-error: true
-        run: julia --project diag747/probe.jl 2>&1 | tee probe-$OSN.txt
+        run: julia --project diag747/probe.jl 2>&1 | tee probe-$RUNNER_OS.txt
       - name: base, differential
         continue-on-error: true
         run: julia --project diag747/differential.jl base.txt && wc -l base.txt
@@ -68,15 +66,15 @@ jobs:
         id: headtest
         continue-on-error: true
         run: |
-          julia --color=no scripts/test.jl normfused_infinite_fusion 2>&1 | tee head-test-$OSN.txt
+          julia --color=no scripts/test.jl normfused_infinite_fusion 2>&1 | tee head-test-$RUNNER_OS.txt
       - name: head, test file run directly (a summary per test set)
         continue-on-error: true
         run: |
-          julia --project --color=no --check-bounds=yes -e 'include("test/normfused_infinite_fusion.jl")' 2>&1 | tee head-direct-$OSN.txt
-          grep -nE "Test Failed|Error During Test|Test threw|Test Summary|Pass +Fail|Pass +Error|\| +[0-9]+ +[0-9]+|UndefVarError|precision [0-9]+:|^p=[0-9]+" head-direct-$OSN.txt > items-head-$OSN.txt || true
+          julia --project --color=no --check-bounds=yes -e 'include("test/normfused_infinite_fusion.jl")' 2>&1 | tee head-direct-$RUNNER_OS.txt
+          grep -nE "Test Failed|Error During Test|Test threw|Test Summary|Pass +Fail|Pass +Error|\| +[0-9]+ +[0-9]+|UndefVarError|precision [0-9]+:|^p=[0-9]+" head-direct-$RUNNER_OS.txt > items-head-$RUNNER_OS.txt || true
       - name: head, probe
         continue-on-error: true
-        run: julia --project diag747/probe.jl 2>&1 | tee probe-head-$OSN.txt
+        run: julia --project diag747/probe.jl 2>&1 | tee probe-head-$RUNNER_OS.txt
       - name: head, differential
         continue-on-error: true
         run: julia --project diag747/differential.jl head.txt && wc -l head.txt
@@ -89,21 +87,21 @@ jobs:
         continue-on-error: true
         run: |
           echo "== sweep FAIL counts"
-          grep -n "FAIL count" probe-$OSN.txt probe-head-$OSN.txt || true
+          grep -n "FAIL count" probe-$RUNNER_OS.txt probe-head-$RUNNER_OS.txt || true
           echo "== differential"
-          diff base.txt head.txt > differential-$OSN.diff || true
-          wc -l differential-$OSN.diff
-          echo "changed base lines: $(grep -c '^<' differential-$OSN.diff)  changed head lines: $(grep -c '^>' differential-$OSN.diff)"
+          diff base.txt head.txt > differential-$RUNNER_OS.diff || true
+          wc -l differential-$RUNNER_OS.diff
+          echo "changed base lines: $(grep -c '^<' differential-$RUNNER_OS.diff)  changed head lines: $(grep -c '^>' differential-$RUNNER_OS.diff)"
           echo "== IR, raw (timings excluded)"
           grep -v '^TIMING' ir-base.txt > ir-base.cmp.txt
           grep -v '^TIMING' ir-head.txt > ir-head.cmp.txt
-          diff ir-base.cmp.txt ir-head.cmp.txt > ir-raw-$OSN.diff || true
-          wc -l ir-raw-$OSN.diff
+          diff ir-base.cmp.txt ir-head.cmp.txt > ir-raw-$RUNNER_OS.diff || true
+          wc -l ir-raw-$RUNNER_OS.diff
           echo "== IR, symbol suffixes normalized"
           sed -E 's/(julia_[A-Za-z0-9_]*)_[0-9]+/\1_N/g; s/_[0-9]+\b/_N/g' ir-base.cmp.txt > ir-base.norm.txt
           sed -E 's/(julia_[A-Za-z0-9_]*)_[0-9]+/\1_N/g; s/_[0-9]+\b/_N/g' ir-head.cmp.txt > ir-head.norm.txt
-          diff ir-base.norm.txt ir-head.norm.txt > ir-norm-$OSN.diff || true
-          wc -l ir-norm-$OSN.diff
+          diff ir-base.norm.txt ir-head.norm.txt > ir-norm-$RUNNER_OS.diff || true
+          wc -l ir-norm-$RUNNER_OS.diff
           echo "== allocations and timings"
           grep -hE "^(ALLOC|TIMING)" ir-base.txt | sed 's/^/base /'
           grep -hE "^(ALLOC|TIMING)" ir-head.txt | sed 's/^/head /'

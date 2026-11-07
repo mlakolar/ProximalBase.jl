@@ -2,7 +2,7 @@ module ElasticNetZeroLevelsTest
 
 using Test, ProximalBase, LinearAlgebra, SparseArrays
 using JLArrays: JLArray
-using GPUArraysCore: allowscalar
+using GPUArraysCore: allowscalar, @allowscalar
 using Adapt: adapt
 
 const PB = ProximalBase
@@ -319,6 +319,33 @@ end
     z = JLArray(T[5, -5, 0.5])
     @test_throws "is not implemented" value_and_prox!(z, c, z, T(0.5))
     @test Array(z) == T[5, -5, 0.5]
+  end
+end
+
+# A view whose index vector is a device array has host storage for its data and device storage for its selector:
+# in any role, the fused value refuses it before anything is indexed or written, with scalar indexing disabled.
+@testset "views with device selectors are refused before any index is read" begin
+  for T in (Float32, Float64)
+    sel(v) = @allowscalar view(v, JLArray([1, 2, 3]))
+    plain = (y = fill(T(-7), 3), x = T[5, -5, 0.5], γ = T(0.5))
+    function attempt(role, c, y, x, γ)
+      allowscalar(false)
+      before = @allowscalar collect(y)
+      @test_throws "is not implemented" value_and_prox!(y, c, x, γ)
+      @test (@allowscalar collect(y)) == before
+    end
+    ones6 = ones(T, 4)
+    box = IndBox(T(-2), T(2))
+    f = ElasticNet(T(1), T(0.5))
+    c0 = Constrained(Conjugate(f), box)
+    attempt(:output, c0, sel(fill(T(-7), 4)), plain.x, plain.γ)
+    attempt(:input, c0, copy(plain.y), sel(T[5, -5, 0.5, 1]), plain.γ)
+    attempt(:step, c0, copy(plain.y), plain.x, sel(fill(T(0.5), 4)))
+    attempt(:lower, Constrained(Conjugate(f), @allowscalar IndBox(sel(fill(T(-2), 4)), T(2))), copy(plain.y), plain.x, plain.γ)
+    attempt(:upper, Constrained(Conjugate(f), @allowscalar IndBox(T(-2), sel(fill(T(2), 4)))), copy(plain.y), plain.x, plain.γ)
+    for λ2 in (T(0.5), T(0))
+      attempt(:weights, Constrained(Conjugate(@allowscalar ElasticNet(T(1), λ2, sel(copy(ones6)))), box), copy(plain.y), plain.x, plain.γ)
+    end
   end
 end
 

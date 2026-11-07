@@ -598,8 +598,9 @@ end
       ("matrix", () -> zeros(T, 2, 2), mx, dense(() -> zeros(T, 2, 2), mx), false),
       ("range view", () -> view(zeros(T, 7), 2:5), vx, dense(() -> view(zeros(T, 7), 2:5), vx), false),
       ("strided view", () -> view(zeros(T, 8), 1:2:7), vx, dense(() -> view(zeros(T, 8), 1:2:7), vx), false),
-      ("index-vector view", () -> view(zeros(T, 6), [5, 1, 3, 2]), vx, dense(() -> view(zeros(T, 6), [5, 1, 3, 2]), vx), false),
-      ("repeated-index view", () -> view(zeros(T, 3), [1, 1, 2, 3]), vx, nothing, false),
+      ("colon view", () -> view(zeros(T, 4, 2), :, 1), vx, dense(() -> view(zeros(T, 4, 2), :, 1), vx), false),
+      ("scalar-index view", () -> view(zeros(T, 2, 4), 1, :), vx, dense(() -> view(zeros(T, 2, 4), 1, :), vx), false),
+      ("view of a reshape", () -> view(reshape(zeros(T, 8), 2, 4), 1:2, 2:3), mx, dense(() -> view(reshape(zeros(T, 8), 2, 4), 1:2, 2:3), mx), false),
       ("reshape", () -> reshape(zeros(T, 4), 2, 2), mx, dense(() -> reshape(zeros(T, 4), 2, 2), mx), false),
       ("SparseIterate, Vector x", () -> SparseIterate(T, 4), vx, () -> SparseIterate(sparse(vx)), false),
       ("SparseIterate, SparseIterate x", () -> SparseIterate(T, 4), SparseIterate(sparse(vx)), () -> SparseIterate(sparse(vx)), false),
@@ -762,6 +763,80 @@ end
     # machine-number levels are admitted, with the value checked at the stored output
     for T in (Float32, Float64), (l1, l2) in ((T(1), T(0.5)), (T(1), T(0)), (1.0, 0.5f0), (1f0, 0.5))
       check_fused(Constrained(Conjugate(ElasticNet(l1, l2)), IndBox(T(-2), T(2))), () -> zeros(T, 3), T.(x), T(0.5); alias = () -> T.(x))
+    end
+  end
+  @testset "views whose selectors are not proven host ranges" begin
+    # three entries chosen from a longer vector by each selector; every one of them is refused in every role
+    selectors = (("index vector", v -> view(v, [4, 1, 2])),
+                 ("repeated index", v -> view(v, [1, 1, 2])),
+                 ("view of a view", v -> (vv = SubArray(view(v, 2:5), (1:3,)); @assert parent(vv) isa SubArray; vv)),
+                 ("zero-step range", v -> view(v, StepRangeLen(2, 0, 3))))
+    box = IndBox(-2.0, 2.0)
+    c0 = Constrained(Conjugate(ElasticNet(1.0, 0.5)), box)
+    ones6() = fill(1.0, 6)
+    for (name, sel) in selectors
+      @testset "$name" begin
+        # as the output, the input, the bounds, the steps and the weights
+        refusal(c0, () -> sel(fill(-7.0, 6)), x, 0.5; mkalias = () -> (y = sel(fill(-7.0, 6)); copyto!(y, x); y))
+        refusal(c0, () -> fill(-7.0, 3), sel([5.0, -5.0, 0.5, 1.0, 2.0, 3.0]), 0.5)
+        refusal(Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(sel(-2 .* ones6()), sel(2 .* ones6()))), () -> fill(-7.0, 3), x, 0.5;
+                mkalias = () -> copy(x))
+        refusal(Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, sel(2 .* ones6()))), () -> fill(-7.0, 3), x, 0.5)
+        refusal(c0, () -> fill(-7.0, 3), x, sel(0.5 .* ones6()); mkalias = () -> copy(x))
+        refusal(Constrained(Conjugate(ElasticNet(1.0, 0.5, sel(ones6()))), box), () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+        refusal(Constrained(Conjugate(ElasticNet(1.0, 0.0, sel(ones6()))), box), () -> fill(-7.0, 3), x, 0.5)
+      end
+    end
+    # a selector whose storage is the output: the review's reproducer, in each role (all run with bounds checking)
+    bits(y) = copy(reinterpret(Int64, y))
+    function aliased()
+      y = collect(reinterpret(Float64, Int64[1, 2]))
+      idx = view(reinterpret(Int64, y), 2:-1:1)
+      y, idx
+    end
+    let (y, idx) = aliased()
+      c = Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, view([2.0, 2.0], idx)))
+      before = bits(y)
+      @test refused_value(value_and_prox!, y, c, [5.0, -5.0], 0.5)
+      @test bits(y) == before
+    end
+    let (y, idx) = aliased()
+      c = Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(view([-2.0, -2.0], idx), view([2.0, 2.0], idx)))
+      before = bits(y)
+      @test refused_value(value_and_prox!, y, c, [5.0, -5.0], 0.5)
+      @test bits(y) == before
+    end
+    let (y, idx) = aliased()
+      c = Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, 2.0))
+      before = bits(y)
+      @test refused_value(value_and_prox!, y, c, view([5.0, -5.0], idx), 0.5)
+      @test bits(y) == before
+    end
+    let (y, idx) = aliased()
+      c = Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, 2.0))
+      before = bits(y)
+      @test refused_value(value_and_prox!, y, c, [5.0, -5.0], view([0.5, 0.5], idx))
+      @test bits(y) == before
+    end
+    let (y, idx) = aliased()
+      c = Constrained(Conjugate(ElasticNet(1.0, 0.5, view([1.0, 1.0], idx))), IndBox(-2.0, 2.0))
+      before = bits(y)
+      @test refused_value(value_and_prox!, y, c, [5.0, -5.0], 0.5)
+      @test bits(y) == before
+    end
+  end
+  @testset "weight fields declared as unions" begin
+    box = IndBox(-2.0, 2.0)
+    for W in (Union{Nothing, Vector{Float64}}, Union{Nothing, AbstractVector}), wv in (nothing, [1.0, 3.0, 1.0])
+      f = ElasticNet{Float64, W}(1.0, 0.5, wv)
+      @test !PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5)
+      refusal(Constrained(Conjugate(f), box), () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    end
+    # concrete declarations take the route, whatever their type parameters are
+    for W in (Nothing, Vector{Float64}, AbstractVector), (S, l) in ((Float64, (1.0, 0.5)), (Real, (1.0, 0.5)), (Float32, (1f0, 0.5f0)), (Int, (1, 1)))
+      wv = W === Nothing ? nothing : [1.0, 3.0, 1.0]
+      f = ElasticNet{S, W}(l..., wv)
+      @test PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5)
     end
   end
   @testset "array steps" begin

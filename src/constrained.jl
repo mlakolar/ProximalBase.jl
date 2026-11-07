@@ -321,11 +321,15 @@ end
 # everything else keeps the generic method, which refuses before writing. The wrappers of the
 # conjugate are not covered: `_check_box_value` and `_box_value_available` are unchanged.
 # The arrays and numbers that the fused value is defined for, decided from their types and axes before
-# anything is written. The route reads and writes with linear indices, converts entries to the promoted
-# floating type of the output, the level and the weights, and recovers an overflowing or underflowing value
-# through `Conjugate(SqrNormL2)`, which scales through arrays that know their size only. It is taken only for
-#   * the output: a host array (an Array, or a view or reshape of one) of Float32 or Float64, a SparseIterate
-#     or a SymmetricSparseIterate, with one-based axes;
+# anything is written or read by index. The route reads and writes with linear indices, converts entries to the
+# promoted floating type of the output, the level and the weights, and recovers an overflowing or underflowing
+# value through `Conjugate(SqrNormL2)`, which scales through arrays that know their size only. A host array is
+# an Array, a reshape of an Array, or a view of either whose every index is an integer, a unit range (a colon
+# included) or a step range: the storage of any other selector (an index vector, a range that can repeat an
+# index, a device array) is not known to be host memory apart from the output, and a view of a view is not
+# followed. The route is taken only for
+#   * the output: a host array of Float32 or Float64, a SparseIterate or a SymmetricSparseIterate, with
+#     one-based axes;
 #   * the input: the same representations with a machine-number element type (a Bool, integer or IEEE float),
 #     or the symmetric part that a SymmetricSparseIterate output reads of a matrix that is not symmetric;
 #   * the levels: both of a machine-number type, as stored (an ElasticNet of an abstract type parameter can hold
@@ -336,13 +340,23 @@ end
 #   * the working type float(promote(output, level, weights, ridge)): Float32 or Float64.
 # An abstract or union element type, an offset axis, a device array and every other representation keep the
 # generic method, which refuses before writing; `_checkvalue` of the conjugate has no value to offer.
-const _ElasticArray = Union{_HostArray, SparseIterate, SymmetricSparseIterate}
+const _ElasticParent = Union{Array, Base.ReshapedArray{<:Any, <:Any, <:Array}}
+const _ElasticIndex = Union{Integer, AbstractUnitRange, StepRange}
+_elastic_host(::Array) = true
+_elastic_host(::Base.ReshapedArray{<:Any, <:Any, <:Array}) = true
+_elastic_host(::SubArray{<:Any, <:Any, <:_ElasticParent, <:Tuple{Vararg{_ElasticIndex}}}) = true
+_elastic_host(::Any) = false
+_elastic_array(a) = _elastic_host(a) || a isa SparseIterate || a isa SymmetricSparseIterate
 _elastic_number(::Type{T}) where {T} = isconcretetype(T) && T <: Union{Base.IEEEFloat, Base.BitInteger, Bool}
-_elastic_output(y) = y isa _ElasticArray && (eltype(y) === Float32 || eltype(y) === Float64) && !Base.has_offset_axes(y)
-_elastic_operand(a) = a isa _ElasticArray && _elastic_number(eltype(a)) && !Base.has_offset_axes(a)
+_elastic_output(y) = _elastic_array(y) && (eltype(y) === Float32 || eltype(y) === Float64) && !Base.has_offset_axes(y)
+_elastic_operand(a) = _elastic_array(a) && _elastic_number(eltype(a)) && !Base.has_offset_axes(a)
 _elastic_operand(a::_SymmetricPart) = _elastic_operand(a.A)
 _elastic_parameter(::Union{Nothing, Real}) = true
-_elastic_parameter(a::AbstractArray) = a isa _HostArray && _elastic_number(eltype(a)) && !Base.has_offset_axes(a)
+_elastic_parameter(a::AbstractArray) = _elastic_host(a) && _elastic_number(eltype(a)) && !Base.has_offset_axes(a)
+# true when the weight field is declared Nothing or an array type: the declarations that `_shrink_type` handles
+_elastic_declared(::ElasticNet{<:Real, Nothing}) = true
+_elastic_declared(::ElasticNet{<:Real, <:AbstractArray}) = true
+_elastic_declared(::ElasticNet) = false
 _elastic_working(::Type{T}, f) where {T} = (S = float(promote_type(_shrink_type(T, f), typeof(f.λ2))); S === Float32 || S === Float64)
 _elastic_alias(y, ::Nothing) = false
 _elastic_alias(y, w) = Base.mightalias(y, w)
@@ -351,7 +365,7 @@ _finite_nonneg(w::AbstractArray) = all(v -> isfinite(v) && v >= 0, w)
 function _elastic_value_route(c::BoxConstrained{<:Conjugate{<:ElasticNet}}, y, x)
   f = c.f.f
   _elastic_output(y) && _elastic_operand(x) && _elastic_number(typeof(f.λ1)) && _elastic_number(typeof(f.λ2)) &&
-    _elastic_parameter(f.w) && _elastic_parameter(c.box.l) && _elastic_parameter(c.box.u) &&
+    _elastic_declared(f) && _elastic_parameter(f.w) && _elastic_parameter(c.box.l) && _elastic_parameter(c.box.u) &&
     _elastic_working(eltype(y), f) &&
     isfinite(f.λ1) && isfinite(f.λ2) && _finite_nonneg(f.w) && !_elastic_alias(y, f.w)
 end

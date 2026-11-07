@@ -122,6 +122,39 @@ for k, v in Wb.items():
     if typ(k).startswith("BigFloat") and v != Lwb.get(k) and Wh.get(k) == v: still[family(k)] += 1
 print("lines where W-base differs from Lw-base and W-head is unchanged (the shadow did not repair them): %d  %s" % (sum(still.values()), dict(still.most_common(10))))
 
+# ---- element-level regressions: an element equal to the oracle (the same code on a platform without the defect) at base and
+# different from it at head (the head made a correct element wrong), and the head2 variant (head with Int exponent sums in
+# _exceptional_product) against the oracle
+print("\n== (3a) element-level: lines with an element correct at base and wrong at head, against the oracle")
+def elem_regressions(Wb_, Wx_, label):
+    reg = collections.Counter(); ex = {}
+    for k, vb in Wb_.items():
+        if not typ(k).startswith("BigFloat"): continue
+        vh = Wx_.get(k); vo = Lwh.get(k)
+        if vh is None or vh == vb or vb.startswith("ERR") or vh.startswith("ERR"): continue
+        tb, th, to = NUM.findall(vb), NUM.findall(vh), NUM.findall(vo)
+        if not (len(tb) == len(th) == len(to)): continue
+        if any(tb[i] == to[i] and th[i] != to[i] for i in range(len(tb))):
+            reg[family(k)] += 1; ex.setdefault(family(k), []).append((k, vb[:50], vh[:50], vo[:50]))
+    print("%s: %d lines  %s" % (label, sum(reg.values()), dict(reg)))
+    for f in sorted(ex):
+        for e in ex[f][:2]: print("    ", f, e)
+elem_regressions(Wb, Wh, "head")
+if os.path.exists(os.path.join(D, "diff-W-head2.txt")):
+    Wh2 = load("W-head2")
+    print("\n== (5) the variant head2: head with the exponent sums of _exceptional_product in Int (Windows), against the oracle")
+    mm2 = collections.Counter(); tot2 = 0
+    for k, v in Wh2.items():
+        if typ(k).startswith("BigFloat"):
+            tot2 += 1
+            if v != Lwh.get(k): mm2[family(k)] += 1
+    print("BigFloat lines %d, head2 differs from the oracle in %d  %s" % (tot2, sum(mm2.values()), dict(mm2.most_common(12))))
+    fl2 = [k for k in Wh2 if not typ(k).startswith("BigFloat") and Wh2[k] != Wb.get(k)]
+    print("Float32/Float64 lines differing between W-base and W-head2: %d" % len(fl2))
+    elem_regressions(Wb, Wh2, "head2")
+    ch2 = sum(1 for k in Wh2 if Wh2[k] != Wh.get(k))
+    print("lines of head2 that differ from head: %d" % ch2)
+
 # ---- independent closed forms for a sample of the changed lines (NormL1, NormL2, IndSOC at clean margins)
 print("\n== (3b) independent closed forms for the changed lines of NormL1, NormL2 and IndSOC (positive scalars, scaled arithmetic)")
 EMAX = 2**30 - 1

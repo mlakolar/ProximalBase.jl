@@ -8,19 +8,16 @@ on:
   workflow_dispatch:
 jobs:
   diff:
-    name: diff ${{ matrix.run }}
+    name: diff ${{ matrix.tag }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {os: windows-latest, run: W-base, patch: 'no', range: ''}
-          - {os: windows-latest, run: W-head, patch: 'yes', range: ''}
-          - {os: ubuntu-latest, run: L-base, patch: 'no', range: ''}
-          - {os: ubuntu-latest, run: L-head, patch: 'yes', range: ''}
-          - {os: ubuntu-latest, run: Lw-base, patch: 'no', range: 'win'}
-          - {os: ubuntu-latest, run: Lw-head, patch: 'yes', range: 'win'}
+          - {os: windows-latest, tag: W, range: '', variants: 'base head head2'}
+          - {os: ubuntu-latest, tag: L, range: '', variants: 'base head'}
+          - {os: ubuntu-latest, tag: Lw, range: 'win', variants: 'base head'}
     defaults:
       run:
         shell: bash
@@ -31,24 +28,33 @@ jobs:
         with:
           version: '1.13.3'
       - run: julia --project -e 'using Pkg; Pkg.instantiate()'
-      - name: apply the src and ext of the issue branch
-        if: matrix.patch == 'yes'
-        run: |
-          git apply --ignore-whitespace diag747/head-src.patch
-          git diff --stat
-      - name: the differential
+      - name: the differential on one machine: base (master), head (the src and ext of the issue branch), head2 (head with the exponent sums of _exceptional_product in Int)
         env:
           EXPRANGE: ${{ matrix.range }}
         run: |
-          date
-          julia --project --color=no diag747/diff2.jl diff-${{ matrix.run }}.txt
-          date
-          wc -l diff-${{ matrix.run }}.txt
-          ls -la diff-${{ matrix.run }}.txt
+          for v in ${{ matrix.variants }}; do
+            if [ "$v" = head ]; then git apply --ignore-whitespace diag747/head-src.patch; fi
+            if [ "$v" = head2 ]; then git apply --ignore-whitespace diag747/exc-product.patch; fi
+            date
+            julia --project --color=no diag747/diff2.jl diff-${{ matrix.tag }}-$v.txt
+            date
+            wc -l diff-${{ matrix.tag }}-$v.txt
+          done
+          git diff --stat
+      - name: the mechanisms behind the remaining differences
+        continue-on-error: true
+        env:
+          EXPRANGE: ${{ matrix.range }}
+        run: |
+          git diff --quiet || true
+          julia --project --color=no diag747/probe_mismatch.jl 2>&1 | tee probe-${{ matrix.tag }}.txt
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: diff-${{ matrix.run }}
-          path: diff-${{ matrix.run }}.txt
+          name: diff-${{ matrix.tag }}
+          path: |
+            diff-${{ matrix.tag }}-*.txt
+            probe-${{ matrix.tag }}.txt
           compression-level: 6
 
   compare:

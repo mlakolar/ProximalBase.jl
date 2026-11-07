@@ -1,0 +1,17 @@
+diff --git a/src/utils.jl b/src/utils.jl
+index c85a8b24..410119f9 100644
+--- a/src/utils.jl
++++ b/src/utils.jl
+@@ -31,9 +31,9 @@ end
+ @noinline function _exceptional_product(a::T, b::T, c::T, p::T) where {T<:AbstractFloat}
+   (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
+   (isfinite(a) && isfinite(b) && isfinite(c)) || return p
+-  ma, ea = frexp(a)
+-  mb, eb = frexp(b)
+-  mc, ec = frexp(c)
++  ma, ea = _frexp(a)
++  mb, eb = _frexp(b)
++  mc, ec = _frexp(c)
+   ldexp((ma * mb) * mc, ea + eb + ec)
+ end
+ @inline _positive_product(a::Real, b::Real, c::Real) = _positive_product(promote(float(a), float(b), float(c))...)

@@ -4,7 +4,7 @@
 > installed release.** This guide explains how real callers move to the
 > [contract](symmetric-sparse-iterate-0.6.md) and how a future implementer
 > proves conformance. It links to the contract's requirement IDs and restates
-> none of the rules. Nothing in it is implemented. Every `julia` block that uses
+> none of the rules. Nothing in it is implemented, except the three-factor product `A * X * B` of FD-16 (#419) for homogeneous `Float32` and `Float64`; the remaining owner changes are future work. Every `julia` block that uses
 > `matrixview`, `activevalues` or an owner that is not an `AbstractMatrix` is a
 > *future* example; none is a doctest.
 

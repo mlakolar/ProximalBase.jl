@@ -1,7 +1,7 @@
 # SymmetricSparseIterate in ProximalBase 0.6: the contract
 
 > **Draft for maintainer review — proposed 0.6 behavior, not a description of an
-> installed release.** Nothing here is implemented. This file is the only
+> installed release.** Nothing here is implemented, except the three-factor product `A * X * B` of FD-16 (#419) for homogeneous `Float32` and `Float64`; the remaining owner changes are future work. This file is the only
 > normative document of the pair; the companion
 > [migration and acceptance guide](symmetric-sparse-iterate-0.6-acceptance.md)
 > links back to it and restates none of its rules.

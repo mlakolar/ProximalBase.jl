@@ -978,7 +978,8 @@ mathematically nonzero, and over no others.
   exactly zero is `+0.0`; sign-bit agreement with dense multiplication is not
   claimed.
 - The guarantee covers `Float32` and `Float64` with `Symmetric` wrappers of
-  strided matrices and a matrix `SparseIterate` of the same element type.
+  strided matrices and a matrix `SparseIterate` or a `SymmetricSparseIterate`
+  of the same element type.
   Other element types, and mixed element types (#751), are outside the
   guarantee and take the previous methods.
 

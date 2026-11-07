@@ -374,8 +374,17 @@ end
       free = label == "zero weight"
       # finite entries: fixed at 0 (hard weight, infinite step, overflow) or free (zero weight)
       y, v = prox_paths(CheckLoss(tau, fill(w, length(x))), x, γ)
-      @test isequal(y, free ? x : zeros(T, length(x)))
-      @test iszero(v)
+      if label == "finite coefficient overflow"
+        # The thresholds γτw and γ(1-τ)w are formed in the promotion of the factors and rounded once to T
+        # (coefficient contract T3), not from a quantile first rounded to T: where such a threshold is finite
+        # in T it is an endpoint (e.g. 1 - τ = 2^-53 keeps γ(1-τ)w ≈ 1e23 finite), and where it overflows
+        # or underflows it is the rounded value, Inf or 0.
+        hi, lo = convert(T, big(γ) * big(tau) * big(w)), convert(T, big(γ) * (1 - big(tau)) * big(w))
+        @test isequal(y, T[u > hi ? u - hi : (u < -lo ? u + lo : zero(T)) for u in x])
+      else
+        @test isequal(y, free ? x : zeros(T, length(x)))
+        @test iszero(v)
+      end
       # a NaN entry: 0 for a hard weight or an infinite step, NaN (copied) for a zero weight, whose
       # value stays 0, and NaN for the finite overflow, whose stored output makes the value NaN
       y, v = prox_paths(CheckLoss(tau, [w]), T[NaN], γ)

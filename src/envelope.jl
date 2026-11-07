@@ -245,8 +245,8 @@ curvature(ℓ::Smoothed) = inv(float(ℓ.γ))
 
 # ∂prox_{γφ₁}(r)/∂r ∈ [0, 1]: exact for the piecewise linear proxes, by a central
 # difference otherwise
-_prox_slope(φ::NormL1, r::T, γ::T) where {T} = abs(r) > _weight_coefficient(γ, φ.λ0, _entry(φ.w, 1)) ? one(T) : zero(T)
-_prox_slope(φ::NormL1Nonneg, r::T, γ::T) where {T} = r > _weight_coefficient(γ, φ.λ0, _entry(φ.w, 1)) ? one(T) : zero(T)
+_prox_slope(φ::NormL1, r::T, γ::T) where {T} = abs(r) > _weight_coefficient(T, γ, φ.λ0, _entry(φ.w, 1)) ? one(T) : zero(T)
+_prox_slope(φ::NormL1Nonneg, r::T, γ::T) where {T} = r > _weight_coefficient(T, γ, φ.λ0, _entry(φ.w, 1)) ? one(T) : zero(T)
 _prox_slope(φ::ElasticNet, r::T, γ::T) where {T} = last(_prox_entry_slope(φ, r, 1, γ))
 _prox_slope(φ::IndBox, r::T, ::T) where {T} = _entry(φ.l, 1) < r < _entry(φ.u, 1) ? one(T) : zero(T)
 _prox_slope(::IndNonnegative, r::T, ::T) where {T} = r > 0 ? one(T) : zero(T)

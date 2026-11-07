@@ -147,4 +147,42 @@ end
   end
 end
 
+
+# the matrix-shaped sources of the storage of an owner (the aliases of test/symmetric_iterate_copies.jl): its matrix
+# view, and views, transposes and Symmetric and Hermitian wrappers of it, in both triangles
+function view_aliases(A)
+  out = Any["plain" => A, "view" => view(A, :, :), "nested view" => view(view(A, :, :), :, :), "transpose" => transpose(A),
+            "adjoint" => A', "view of 1:3" => view(A, 1:3, 1:3)]
+  for tri in (:L, :U), F in (Symmetric, Hermitian)
+    C = F(A, tri)
+    push!(out, "$(nameof(F)) $tri" => C, "view of $(nameof(F)) $tri" => view(C, :, :))
+  end
+  out
+end
+state(y) = (Matrix(y), nactive(y), copy(activecoordinates(y)), copy(y.nzval), copy(y.nzval2ind), copy(y.ind2nzval))
+
+@testset "an owner output aliased through its matrix view is refused" begin
+  C = [1.0 0.5 -1.0; 0.5 2.0 0.25; -1.0 0.25 1.5]
+  X = [0.5 0.0 0.3; 0.0 0.6 -1.1; 0.3 -1.1 0.0]          # distinct entries, some coordinates inactive
+  fs = ("SqrNormL2" => SqrNormL2(2.0), "Sum" => Sum(SqrNormL2(2.0), SqrNormL2(3.0)), "Sum of three" => Sum(SqrNormL2(2.0), LinearFunction(C), SqrNormL2(3.0)),
+        "Scaled" => Scaled(SqrNormL2(1.5), 2.0), "Regularize" => Regularize(LinearFunction(C), 1.0),
+        "Tilt" => Tilt(SqrNormL2(1.5), C, 0.2), "Precompose" => Precompose(SqrNormL2(1.5), -2.0))
+  for (fname, f) in fs, (name, _) in view_aliases(matrixview(SymmetricSparseIterate(X))), op in (gradient!, value_and_gradient!)
+    y = SymmetricSparseIterate(X)
+    x = Dict(view_aliases(matrixview(y)))[name]
+    before = state(y)
+    @test_throws alias_error op(y, f, x)
+    @test isequal(state(y), before)
+    # the same values in another owner are not an alias
+    z = SymmetricSparseIterate(X)
+    @test op(y, f, Dict(view_aliases(matrixview(z)))[name]) isa Union{SymmetricSparseIterate, Real}
+  end
+  # the original report
+  y = SymmetricSparseIterate(ones(2, 2)); f = Sum(SqrNormL2(2.0), SqrNormL2(3.0))
+  @test_throws alias_error value_and_gradient!(y, f, matrixview(y))
+  @test_throws alias_error gradient!(y, f, matrixview(y))
+  @test Matrix(y) == ones(2, 2)
+  @test gradient!(y, f, ones(2, 2)) === y && Matrix(y) == fill(5.0, 2, 2)
+end
+
 end

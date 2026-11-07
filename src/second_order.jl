@@ -159,6 +159,10 @@ end
 _checkhessian_output(Hv, x, v) =
   (Hv === x && throw(ArgumentError("the Hessian product must not overwrite x"));
    Hv === v && throw(ArgumentError("the Hessian product must not overwrite v")); nothing)
+# an owner output is also aliased by a matrix that shares its storage (its matrix view and the wrappers of it)
+_checkhessian_output(Hv::SymmetricSparseIterate, x, v) =
+  (_owner_shares(Hv, x) && throw(ArgumentError("the Hessian product must not overwrite x"));
+   _owner_shares(Hv, v) && throw(ArgumentError("the Hessian product must not overwrite v")); nothing)
 @generated _checkhessian_output(Hv::Tuple, x::Tuple, v::Tuple) =
   _blockwise(k -> :(_checkhessian_output(Hv[$k], x[$k], v[$k])), min(fieldcount(Hv), fieldcount(x), fieldcount(v)), nothing)
 

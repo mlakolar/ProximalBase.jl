@@ -266,6 +266,14 @@ _checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
 _argument_type(::Type{<:AbstractFunction}) = Any
 _checkargument(f, x) = x isa _argument_type(typeof(f)) || throw(MethodError(f, (x,)))
 _checkgradient_output(g, x) = (g === x && throw(ArgumentError("the gradient must not overwrite x")); nothing)
+# An owner output is also aliased by a matrix that shares its storage, such as its matrix view and the wrappers of
+# that view, which a gradient written coordinate by coordinate would change before the point is read again
+_checkgradient_output(g::SymmetricSparseIterate, x) =
+  (_owner_shares(g, x) && throw(ArgumentError("the gradient must not overwrite x")); nothing)
+_owner_shares(g::SymmetricSparseIterate, x) = g === x
+_owner_shares(g::SymmetricSparseIterate, x::AbstractArray) = Base.mightalias(g, x)
+_owner_shares(g::SymmetricSparseIterate, x::SymmetricSparseIterate) =
+  g === x || (g.p > 0 && x.p > 0 && any(id -> id in Base.dataids(g), Base.dataids(x)))
 # blocks pair up to the shorter tuple; the size checks report a length mismatch
 @generated _checkgradient_output(g::Tuple, x::Tuple) =
   _blockwise(k -> :(_checkgradient_output(g[$k], x[$k])), min(fieldcount(g), fieldcount(x)), nothing)

@@ -139,6 +139,8 @@ end
   square, rectangle = representations((4, 4)), representations((2, 8))
   grid = vcat(square, rectangle)
   for c in grid, x in grid
+    # an owner is a point, not a parameter array of a function
+    c isa SymmetricSparseIterate && continue
     @testset "$(typeof(c)) $(size(c)) vs $(typeof(x)) $(size(x))" begin
       expected = outcome(dot, c, x)[1]
       @test outcome(PB._checkvalue, LinearFunction(c), x)[1] === expected

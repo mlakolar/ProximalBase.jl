@@ -82,12 +82,16 @@ to independently checked accuracy on physical GPU hardware.
 To avoid building the inputs of cases that are not selected, the `atom` and
 `sparse` builders take the selection (`selected_cases` in `run.jl` passes the compiled expression to
 `build_cases`). Each scenario lists the full IDs it can register, from cheap fields only, and is skipped
-only if none of them matches. Inside a scenario, an operation group is run only if one of its operation
-names has a matching ID. The working iterate and its snapshot are built for every retained group; the
-other fixtures (dense references, further iterates, operands) are built on first use and shared by the
-groups that read them. The scenario's setup arrays (the permutation of the groups, the active values, the
-second iterate's group list) and the draws of the one random stream that must keep its order are made
-whatever the selection. A scenario or group whose IDs cannot be listed cheaply is built. A
+only if none of them matches. In the `atom` vector scenarios and the `sparse` vector and matrix scenarios,
+an operation group is run only if one of its operation names has a matching ID. Such a scenario builds
+its working iterate and its snapshot, and a few setup arrays (the permutation of the groups, the active
+values, the group list of the second iterate), whenever it is retained; its other fixtures (dense
+references, further iterates, operands) are built on first use and shared by the groups that read them.
+The other builders of the two families (constructors, layouts, symmetric and conversion cases) are
+guarded as a whole: each is built, with its fixtures, when one of its IDs can match. A group that draws
+from a shared random stream (the scalar reads and writes of `atom`) draws all its picks in the original
+order whenever it runs, even if only some of its cases are selected, so that the inputs of a selected
+case do not depend on the selection. A scenario or group whose IDs cannot be listed cheaply is built. A
 false positive costs build time; a false exclusion would be a bug. The expression itself is never
 inspected or parsed, only matched against full IDs.
 

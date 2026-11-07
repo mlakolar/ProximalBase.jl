@@ -23,7 +23,7 @@ for each measurement series; existing repetitions are never overwritten.
 | `PB_SUITE=quick` | Small representative cases; the default. |
 | `PB_SUITE=extended` | Float32/Float64, larger inputs and broader cases. |
 | `PB_GROUPS=vectors,smooth` | Select groups before constructing their inputs. |
-| `PB_CASES=ordered/SLOPE` | Keep only the cases whose ID matches this regular expression, after the groups are built (inputs are unchanged by the selection). |
+| `PB_CASES=ordered/SLOPE` | Keep only the cases whose ID matches this regular expression. It is compiled once, before anything is built, so an invalid one fails at once. The `atom` and `sparse` builders skip, before building their fixtures, the scenarios and operation groups whose case IDs cannot match, and the exact filter that follows decides which cases remain. The inputs of a selected case do not depend on the selection (see [Selecting cases before building them](#selecting-cases-before-building-them)). |
 | `PB_REPETITION=1` | Seeded process/input draw, numbered 1–10. |
 | `PB_OUTPUT=/absolute/path` | Output directory; defaults to `benchmark/results`. |
 | `PB_LIST=true` | List selected case IDs without measuring them. |
@@ -77,6 +77,45 @@ PB_SUITE=extended PB_GROUPS=matrices PB_OUTPUT=benchmark/results/matrices \
 The optional [GPU solver suite](gpu_solver/README.md) measures CPU/CUDA time
 to independently checked accuracy on physical GPU hardware.
 
+### Selecting cases before building them
+
+To avoid building the inputs of cases that are not selected, the `atom` and
+`sparse` builders take the selection (`selected_cases` in `run.jl` passes the compiled expression to
+`build_cases`). Each scenario lists the full IDs it can register, from cheap fields only, and is skipped
+only if none of them matches. In the `atom` vector scenarios and the `sparse` vector and matrix scenarios,
+an operation group is run only if one of its operation names has a matching ID. Such a scenario builds
+its working iterate and its snapshot, and a few setup arrays (the permutation of the groups, the active
+values, the group list of the second iterate), whenever it is retained; its other fixtures (dense
+references, further iterates, operands) are built on first use and shared by the groups that read them.
+The other builders of the two families (constructors, layouts, symmetric and conversion cases) are
+guarded as a whole: each is built, with its fixtures, when one of its IDs can match. A group that draws
+from a shared random stream (the scalar reads and writes of `atom`) draws all its picks in the original
+order whenever it runs, even if only some of its cases are selected, so that the inputs of a selected
+case do not depend on the selection. A scenario or group whose IDs cannot be listed cheaply is built. A
+false positive costs build time; a false exclusion would be a bug. The expression itself is never
+inspected or parsed, only matched against full IDs.
+
+- The exact filter stays in `run.jl` and `check_only.jl` (`selected_cases`): the builders return a
+  superset of the matching cases, in the original relative order. `PB_CASES` that selects nothing
+  still fails with `PB_CASES selects no case`.
+- Every other builder builds everything, and the filter then decides.
+- The guarded calls are dynamic (`Base.invokelatest`). A cold build is mostly compilation, and a branch
+  around inline code would still be compiled.
+- The empty selection builds the whole catalog in the old order, and nothing is enumerated.
+
+`benchmark/case_selection_test.jl`, which `check_only_test.jl` includes, tests the selection. A
+differential oracle builds a selection and compares each case with the same case of the unfiltered
+build: IDs and order, metadata, `evals`, `profile`, the digests of the declared inputs, the captured
+state (through a test-only walker), the success or error message of `validate` before and after the
+case runs, and the captured state after `prepare` and `operation` (the return values of the callbacks
+are not compared). The walker has an explicit list of supported kinds and fails closed on any other, and
+a census reports the kinds met. Further checks cover the completeness of the ID enumerators, the digests of the unfiltered
+quick `atom` and `sparse` groups, and the random draws. The extended `atom` and `sparse` branches are
+tested one scenario at a time, so these tests build no unfiltered extended group of either. A parity
+audit of the whole extended catalog is a manual run in one process that holds the unfiltered catalog
+(about 16 GiB) and the selected builds and walker state on top of it (measured peak about 22 GiB of
+resident memory).
+
 ### Reference checks without timing
 
 `benchmark/check_only.jl` builds the same cases and runs every selected case's reference checks
@@ -92,7 +131,8 @@ and flushed as it occurs, so a timeout keeps what was recorded. It prints the ID
 case and exits with status 1 if any case fails. `benchmark/check_only_test.jl` tests the driver on
 synthetic cases and the read-only input checks on a few real cases, then runs
 `benchmark/cases_test.jl`, which tests the sparse operands of the `products` cases and runs their
-reference checks for repetitions 1–10.
+reference checks for repetitions 1–10, and `benchmark/case_selection_test.jl`, which tests the
+selection of cases.
 
 ```sh
 JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/check_only.jl
@@ -102,8 +142,9 @@ PB_SUITE=extended PB_GROUPS=products,sparse,atom,owner JULIA_NUM_THREADS=1 \
 
 CI runs the driver's tests and the quick suite (839 cases) on Julia lts and 1 whenever the package
 tests run or the benchmark harness changes, and uploads the errors file of a failing run as the
-artifact `benchmark-check-errors-<version>-<attempt>`. On recent pull-request runs, CI's step for
-the driver's tests took 15–73 s and its quick-suite step between about 1.5 and 4 minutes. The extended suite
+artifact `benchmark-check-errors-<version>-<attempt>`. On recent pull-request runs, CI's
+quick-suite step took between about 1.5 and 4 minutes; its step for the driver's tests also runs
+`case_selection_test.jl`. The extended suite
 (5,540 cases) is a manual run; its `products,sparse,atom,owner` cases need about 16 GB of memory
 in one process. `check_only.jl` is not part of the harness hash, which covers `run.jl` and
 `cases.jl`.
@@ -224,7 +265,10 @@ whose recorded values differ for the same Julia version (see [Compare revisions]
 edit to either changes it, and `compare.py` requires it, like the suite and the groups, to
 match. After such an edit, measure the baseline source again with the same harness in the same
 session. The owner baseline `baselines/symmetric-owner-0.5.md` was recorded with an earlier
-harness, so its rows are a reference and not a comparison point for the current one.
+harness, so its rows are a reference and not a comparison point for the current one. The same holds
+for the iterate-family baseline: the selection of cases changed `run.jl` and `cases.jl`, hence the
+harness hash, so the committed 0.5.x baselines are references and not comparison points for the
+current harness. Measurements of two revisions use the same harness on both sides, as before.
 
 Whether a case can gate a 5% slowdown is decided by an A/A control, not by the spread of the
 repetitions: every repetition draws its own inputs (`PB_REPETITION` is a seed), so the spread mixes

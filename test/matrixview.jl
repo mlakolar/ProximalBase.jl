@@ -1,6 +1,6 @@
 module MatrixViewTest
 
-using Test, ProximalBase, LinearAlgebra, SparseArrays
+using Test, ProximalBase, LinearAlgebra, SparseArrays, Random
 
 # the example of the 0.6 contract (docs/design/symmetric-sparse-iterate-0.6.md)
 @testset "matrixview: live, read-only, independent copy" begin
@@ -21,7 +21,7 @@ using Test, ProximalBase, LinearAlgebra, SparseArrays
   θ[tril_index(3, 2, 1)] = 5.0
   @test A[1, 2] == 5.0 && B[1, 2] == 3.0
   @test Matrix(A) == Matrix(X) && Array(A) == Matrix(X)
-  @test sparse(A) == sparse(X)
+  @test sparse(A) == sparse(Matrix(X))
   @test all(A .== Matrix(X))
 end
 
@@ -259,6 +259,65 @@ end
   A1 = matrixview(X1)
   @test A1 == [2.0;;] && coordinates(X1) == [2.0]
   @test_throws BoundsError A1[2, 1]
+end
+
+# the triangles of a matrix, from the definition: the entry (i, j) is kept when j - i >= k (triu) or j - i <= k (tril)
+triu_reference(D, k) = [j - i >= k ? D[i, j] : zero(eltype(D)) for i in axes(D, 1), j in axes(D, 2)]
+tril_reference(D, k) = [j - i <= k ? D[i, j] : zero(eltype(D)) for i in axes(D, 1), j in axes(D, 2)]
+
+@testset "matrixview: sparse, triu and tril are sparse matrices of the nonzero entries" begin
+  @testset "$T, p = $p" for T in (Float32, Float64), p in (0, 1, 2, 3, 6)
+    rng = MersenneTwister(77 + p)
+    q = p * (p + 1) ÷ 2
+    X = SymmetricSparseIterate(T, p)
+    # nonzero values, active zeros (positive and negative) and coordinates that are absent
+    for k in randperm(rng, q)
+      u = rand(rng)
+      if u < 0.35
+        continue
+      elseif u < 0.55
+        activate!(X, k)
+      elseif u < 0.65
+        activate!(X, k)
+        coordinates(X)[k] = -zero(T)
+      else
+        coordinates(X)[k] = randn(rng, T)
+      end
+    end
+    p >= 2 && activate!(X, 2)
+    D = Matrix(X)
+    A = matrixview(X)
+    S = sparse(A)
+    @test S isa SparseMatrixCSC{T, Int} && size(S) == (p, p) && S == sparse(D) && S == D
+    @test nnz(S) == count(!iszero, D)                    # a stored zero is not an entry
+    @test issymmetric(S)
+    for k in -p-1:p+1
+      U, L = triu(A, k), tril(A, k)
+      @test U isa SparseMatrixCSC{T, Int} && L isa SparseMatrixCSC{T, Int}
+      @test U == triu_reference(D, k) && L == tril_reference(D, k)
+      @test nnz(U) == count(!iszero, triu_reference(D, k)) && nnz(L) == count(!iszero, tril_reference(D, k))
+      -p + 1 <= k <= p + 1 && @test U == triu(D, k) && L == tril(D, k)
+    end
+    @test triu(A) == triu(D) && tril(A) == tril(D)
+    @test triu(A, 1) + tril(A) == D                      # the strict upper triangle and the lower one
+  end
+
+  @testset "the cost is that of the active coordinates, not of the p² entries" begin
+    p = 3000
+    X = SymmetricSparseIterate(Float64, p)
+    for (i, j) in ((5, 2), (700, 700), (3000, 1), (1500, 1499))
+      X[i, j] = i + j / 10_000
+    end
+    activate!(X, tril_index(p, 10, 3))
+    A = matrixview(X)
+    for f in (A -> sparse(A), A -> triu(A), A -> tril(A, -1), A -> triu(A, 2))
+      f(A)
+      @test (@allocated f(A)) < 1_000_000              # the dense matrix has 72 MB
+    end
+    S = sparse(A)
+    @test nnz(S) == 7 && S[2, 5] == S[5, 2] == 5 + 2 / 10_000 && S[1, 3000] == 3000 + 1 / 10_000
+    @test nnz(triu(A, 1)) == 3 && nnz(tril(A, -1)) == 3 && nnz(triu(A)) == 4
+  end
 end
 
 @testset "matrixview: show" begin

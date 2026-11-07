@@ -1500,7 +1500,6 @@ Base.transpose(A::SymmetricMatrixView) = A
 Base.adjoint(A::SymmetricMatrixView{<:Real}) = A
 Base.Matrix(A::SymmetricMatrixView) = Matrix(A.x)
 Base.Array(A::SymmetricMatrixView) = Matrix(A.x)
-SparseArrays.sparse(A::SymmetricMatrixView) = sparse(A.x)
 
 # the stored-entry product, O(p + nactive), not the generic p² scan
 LinearAlgebra.mul!(C::AbstractVector, A::SymmetricMatrixView, B::AbstractVector) = mul!(C, A.x, B)
@@ -1917,10 +1916,10 @@ _checkreal_broadcast(x, a) = true
 _checkreal_broadcast(x, a::Union{AbstractArray, Ref, Number}) =
   !(eltype(a) <: Complex) || _real_error(nameof(typeof(x)))
 
-# The stored entries as a SparseMatrixCSC, in O(nnz): each nonzero (r, c) of the
-# lower triangle gives the entries (r, c) and (c, r) for which keep holds. The
-# generic sparse visits all p² entries, and the generic triu and tril work in
-# similar(x), which, being symmetric, cannot hold a triangle.
+# The stored entries as a SparseMatrixCSC, in O(nactive): each nonzero (r, c) of the
+# lower triangle gives the entries (r, c) and (c, r) for which keep holds. The generic
+# sparse of a matrix visits all p² entries, and the generic triu and tril of the view
+# return a dense matrix.
 function _sparse(x::SymmetricSparseIterate{T}, keep::F) where {T, F}
   I, J, V = Int[], Int[], T[]
   for k = 1:x.nnz
@@ -1932,9 +1931,10 @@ function _sparse(x::SymmetricSparseIterate{T}, keep::F) where {T, F}
   end
   sparse(I, J, V, x.p, x.p)
 end
-SparseArrays.sparse(x::SymmetricSparseIterate) = _sparse(x, (i, j) -> true)
-LinearAlgebra.triu(x::SymmetricSparseIterate, k::Integer = 0) = _sparse(x, (i, j) -> j - i >= k)
-LinearAlgebra.tril(x::SymmetricSparseIterate, k::Integer = 0) = _sparse(x, (i, j) -> j - i <= k)
+# the view and its triangles as sparse matrices; a stored zero is not an entry
+SparseArrays.sparse(A::SymmetricMatrixView) = _sparse(A.x, (i, j) -> true)
+LinearAlgebra.triu(A::SymmetricMatrixView, k::Integer = 0) = _sparse(A.x, (i, j) -> j - i >= k)
+LinearAlgebra.tril(A::SymmetricMatrixView, k::Integer = 0) = _sparse(A.x, (i, j) -> j - i <= k)
 
 # one line: the shape, the type and the number of active coordinates, not the storage arrays
 function Base.show(io::IO, S::SymmetricSparseIterate)

@@ -76,10 +76,12 @@ const ABSENT_READS = Pair{String, Function}[
   "lu(X)" => X -> lu(X),
   "qr(X)" => X -> qr(X),
   "cholesky(X)" => X -> cholesky(X),
+  "bunchkaufman(X)" => X -> bunchkaufman(X),
   "sort(X)" => X -> sort(X; dims = 1),
   "reverse(X)" => X -> reverse(X),
   "rot180(X)" => X -> rot180(X),
   "cumsum(X)" => X -> cumsum(X; dims = 1),
+  "accumulate(op, X)" => X -> accumulate(+, X),
   "Symmetric(X)" => X -> Symmetric(X),
   "convert(Matrix, X)" => X -> convert(Matrix{Float64}, X),
   "Array{Float64}(X)" => X -> Array{Float64}(X),
@@ -187,6 +189,14 @@ const ABSENT_COPIES = Pair{String, Function}[
   push!(ABSENT_COPIES, "copy_adjoint!" => X -> LinearAlgebra.copy_adjoint!(X, 1:3, 1:3, AM, 1:3, 1:3))
 end
 
+const ABSENT_BUILDS = Pair{String, Function}[
+  "sparse(X)" => X -> sparse(X),
+  "triu(X)" => X -> triu(X),
+  "tril(X)" => X -> tril(X),
+  "triu(X, k)" => X -> triu(X, 1),
+  "tril(X, k)" => X -> tril(X, -1),
+]
+
 @testset "T09: the interface surface" begin
   @testset "what an owner has, $T, p = $p" for T in (Float32, Float64, Int), p in (0, 1, 3, 6)
     X = SymmetricSparseIterate(T, p)
@@ -245,7 +255,8 @@ end
   # active zero and a diagonal entry.
   @testset "operations that an owner does not have, $name" for (name, rows) in (
       ("reading and traversal", ABSENT_READS), ("writing and filling", ABSENT_WRITES),
-      ("in-place algebra", ABSENT_ALGEBRA), ("copies and index writes", ABSENT_COPIES))
+      ("in-place algebra", ABSENT_ALGEBRA), ("copies and index writes", ABSENT_COPIES),
+      ("matrices built from the owner", ABSENT_BUILDS))
     @testset "$row" for (row, f) in rows
       X = absent_owner()
       before = state(X)
@@ -545,6 +556,34 @@ end
     @test occursin("with 3 stored entries", out) && nactive(s) == 3
     @test occursin("[3, 3]  =  0.0", out)
     @test occursin("SymmetricSparseIterate", sprint(show, MIME"text/plain"(), matrixview(s)))
+  end
+
+  @testset "the cost of a display: empty, small and large owners" begin
+    E = SymmetricSparseIterate(0)
+    @test sprint(show, E) == "0×0 $(typeof(E)) with 0 stored entries"
+    @test sprint(show, MIME"text/plain"(), E) == "0×0 $(typeof(E)) with 0 stored entries in the lower triangle"
+    @test !occursin("nnz", sprint(show, SymmetricSparseIterate(2))) &&
+          !occursin("nnz", sprint(show, MIME"text/plain"(), SymmetricSparseIterate(2)))
+    # three active coordinates whatever p: the display does not grow with the p² entries
+    function owner3(p)
+      X = SymmetricSparseIterate(Float64, p)
+      X[2, 1] = 1.5
+      X[p, p] = -2.0
+      X[p, 1] = 4.0
+      X
+    end
+    allocated(f, X) = (f(X); @allocated f(X))
+    small, large = owner3(100), owner3(2000)
+    for f in (X -> sprint(show, X), X -> string(X), X -> repr(X), X -> sprint(show, MIME"text/plain"(), X))
+      @test allocated(f, large) <= allocated(f, small) + 64
+      @test allocated(f, large) < 65_536
+    end
+    # a very large owner: the storage is not touched
+    X = owner3(10_000)
+    @test sprint(show, X) == "10000×10000 $(typeof(X)) with 3 stored entries"
+    out = sprint(show, MIME"text/plain"(), X)
+    @test startswith(out, "10000×10000 $(typeof(X)) with 3 stored entries in the lower triangle:")
+    @test count('\n', out) == 3 && occursin("[10000, 10000]  =  -2.0", out)
   end
 end
 

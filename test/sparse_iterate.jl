@@ -392,9 +392,9 @@ end
         @test permutedims(V) == M && hcat(V, V) == hcat(M, M) && [V V; V V] == [M M; M M]
         @test 2 .* V .+ 1 == 2 .* M .+ 1 && V + M == 2M && -V == -M && map(abs, V) == abs.(M)
         @test kron(V, V) == kron(M, M)
-        # sparse, triu and tril build a SparseMatrixCSC from the stored entries
-        @test sparse(S) isa SparseMatrixCSC && sparse(S) == M
-        @test triu(S) == triu(M) && tril(S) == tril(M) && triu(S, 1) == triu(M, 1) && tril(S, -2) == tril(M, -2)
+        # sparse, triu and tril of the view build a SparseMatrixCSC from the stored entries
+        @test sparse(V) isa SparseMatrixCSC && sparse(V) == M
+        @test triu(V) == triu(M) && tril(V) == tril(M) && triu(V, 1) == triu(M, 1) && tril(V, -2) == tril(M, -2)
         # products
         @test V * b ≈ M * b && V' * b ≈ M * b && b' * V ≈ b' * M && transpose(b) * V ≈ transpose(b) * M
         @test V * Float32.(b) ≈ M * Float32.(b)

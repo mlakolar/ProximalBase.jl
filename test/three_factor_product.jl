@@ -38,8 +38,9 @@ end
 # An entry whose factors are all finite (every nonzero coefficient of X at that entry, with the a and
 # b it meets) is the exact sum of its terms, over every term including one that overflows alone:
 # a finite entry must satisfy abs(C - exact) <= (s + 8) * eps(T) * sum(abs(t)), plus (s + 2)
-# subnormal spacings when a term or the sum is below floatmin; an infinite entry needs the sign of
-# the exact sum and a magnitude within that tolerance of floatmax. exact = true asks for the
+# subnormal spacings when a term or the sum is below floatmin; an infinite entry needs
+# the exact sum within that tolerance of the range of T on its side (an exact sum that is small
+# against the terms leaves the sign of an infinite result open). exact = true asks for the
 # correctly rounded exact sum (isequal) instead. An entry with a NaN or infinite factor follows the
 # ordinary IEEE sum, so its class is that of the terms by the scalar rule; there, finite terms whose
 # magnitudes sum beyond floatmax, or a term within rounding of the overflow threshold, make the class
@@ -85,8 +86,8 @@ function mismatches(C::AbstractMatrix{T}, A, X, B; exact::Bool = false) where {T
         small |= abs(total) < BigFloat(floatmin(T))
         tol = (s + 8) * BigFloat(eps(T)) * mag
         small && (tol += (s + 2) * BigFloat(nextfloat(zero(T))))
-        if isinf(c)
-          (signbit(c) == (total < 0) && abs(total) >= fmax - tol) || push!(bad, (i, j, c, want))
+        if isinf(c)                     # beyond the range, within the accumulation tolerance of the exact sum
+          (signbit(c) ? total - tol <= -fmax : total + tol >= fmax) || push!(bad, (i, j, c, want))
         else
           (!isnan(c) && abs(BigFloat(c) - total) <= tol) || push!(bad, (i, j, c, want))
         end

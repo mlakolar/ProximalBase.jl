@@ -33,7 +33,30 @@ function stored(T, symmetric)
   y
 end
 
-# The original path transformed y, called f in place, then added the translation.
+# The original path transformed y, called f in place, then added the translation. An owner is written
+# one lower coordinate at a time, as a broadcast into its matrix is.
+function original!(op, y::SymmetricSparseIterate, f, x, γ)
+  p = y.p
+  if f isa Tilt
+    for c in 1:p, r in c:p
+      y[r, c] = x[r, c] - convert(float(eltype(y)), γ) * f.c[r, c]
+    end
+    v = op(y, f.f, y, γ)
+    return op === prox! ? y : ProximalBase._value_at(v + ProximalBase._owner_dot(f.c, y) + f.d, y)
+  elseif f isa Translate
+    for c in 1:p, r in c:p
+      y[r, c] = x[r, c] - f.b[r, c]
+    end
+    v = op(y, f.f, y, γ)
+    for c in 1:p, r in c:p
+      y[r, c] = y[r, c] + f.b[r, c]
+    end
+    return op === prox! ? y : ProximalBase._value_at(v, y)
+  end
+  step = ProximalBase._shrunk!(y, f, x, γ)
+  v = op(y, f.f, y, step)
+  op === prox! ? y : ProximalBase._value_at(v + ProximalBase._ridge(f, y), y)
+end
 function original!(op, y, f, x, γ)
   if f isa Tilt
     y .= x .- (γ isa Real ? convert(float(eltype(y)), γ) : γ) .* f.c
@@ -66,15 +89,27 @@ end
       @test isequal(state(y), before)
       @test isequal(state(x), input)
     end
-    for op in (prox!, value_and_prox!), f in wrappers(NormL1(0.5), c), aliased in (false, true), step in (f isa Regularize ? (T(0.75),) : (T(0.75), fill(T(0.75), size(template))))
+    # an array step is refused at an owner, with the state unchanged
+    for op in (prox!, value_and_prox!), f in wrappers(NormL1(0.5), c), aliased in (false, true), step in
+        (f isa Regularize || symmetric ? (T(0.75),) : (T(0.75), fill(T(0.75), size(template))))
       y, expected = deepcopy(template), deepcopy(template)
       x = aliased ? y : deepcopy(template)
       refx = aliased ? expected : deepcopy(template)
       value = original!(op, expected, f, refx, step)
       result = op(y, f, x, step)
       @test isequal(state(y), state(expected))
-      @test op === prox! ? result === y : isequal(result, value)
+      @test op === prox! ? result === y : (symmetric ? result ≈ value : isequal(result, value))
       @test allocs(op, y, f, x, step) == 0
+    end
+    if symmetric
+      for op in (prox!, value_and_prox!), f in wrappers(NormL1(0.5), c), aliased in (false, true)
+        y = deepcopy(template)
+        x = aliased ? y : deepcopy(template)
+        before, input = state(y), state(x)
+        @test_throws ArgumentError op(y, f, x, fill(T(0.75), size(template)))
+        @test isequal(state(y), before)
+        @test isequal(state(x), input)
+      end
     end
   end
 end

@@ -52,7 +52,7 @@ function _catalog(p, Sx)
     "IndSimplex" => IndSimplex(2.0; equality = false),
     "NormL2" => NormL2(0.3),
     "CubeNormL2" => CubeNormL2(0.3),
-    "NormLinf" => NormLinf(0.3),
+    # NormLinf has no proximal operator into an owner (only its conjugate is a kept family)
     "SumLargest" => SumLargest(2, 0.3),
     "IndHyperplane" => IndHyperplane(a, 0.5),
     "IndHalfspace" => IndHalfspace(a, 0.5),

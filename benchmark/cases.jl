@@ -214,9 +214,6 @@ end
 unaliased(r, x) = x isa AbstractArray && r isa AbstractArray && Base.mightalias(r, x) ? copy(r) : r
 const AFTER_BUILD = "after the case was built"
 
-# `inputs` is required: what the operation, or prepare, reads and must leave logically unchanged (not the
-# destinations, the state that a case changes, workspaces, caches, scalars or function objects). The
-# harness digests them after the pre-trial validate and compares after the trial.
 # The canonical spelling of a case ID: the registration and the cheap ID enumerators of the guarded builders
 # below share it. `wants(selector, id)` is the selection rule of `build_cases(...; selector)`: `nothing` selects
 # every case, a Regex the IDs it matches (`occursin`); the selector is never inspected or parsed.
@@ -225,6 +222,9 @@ wants(::Nothing, id::AbstractString) = true
 wants(selector::Regex, id::AbstractString) = occursin(selector, id)
 const DEFAULT_PHASE = "warm"
 
+# `inputs` is required: what the operation, or prepare, reads and must leave logically unchanged (not the
+# destinations, the state that a case changes, workspaces, caches, scalars or function objects). The
+# harness digests them after the pre-trial validate and compares after the trial.
 function addcase!(cases, family, name, op, validate; inputs::NamedTuple, T=Float64, shape="", layout="dense",
                   phase=DEFAULT_PHASE, prepare=noop, evals=prepare===noop ? nothing : 1, profile=false, work=0,
                   zero_alloc=phase == DEFAULT_PHASE)
@@ -1828,388 +1828,616 @@ function sparse_convert_cases!(cases, rep, dims, ids, key, shape)
     end
 end
 
-function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
+# ---- the cheap ID enumerators and the grid of the sparse group ----
+#
+# What `sparse_cases!` registers, spelled from cheap fields only (type, sizes, labels, the arithmetic for the
+# batch count, the repetitions of `rmul!` and the branch of the conversions), as (operation name, ID) pairs: the
+# builders skip a scenario or function none of whose IDs the selector matches, and the tests use the same lists.
+# A missing ID would be a false exclusion, so the tests compare them with the registered IDs.
+
+const SPARSE_POOL = 4096                      # absent coordinates kept per vector scenario
+const SPARSE_ZLABELS = ("z0", "z50")
+const SPARSE_CONVERT_TYPES = (Float64, Float32, Int)
+const SPARSE_COMPACTION = (("zeros10", 0.1), ("zeros50", 0.5))
+const SPARSE_MOMENTUM_LAYOUTS = ("accessors", "private_fields")
+sparse_vector_shape(n, s) = "n$(n)_s$(s)"
+sparse_matrix_shape(dims, label) = "$(dims[1])x$(dims[2])_d$label"
+sparse_symmetric_shape(p, s) = "p$(p)_s$(s)"
+sparse_convert_shape(dims) = "$(dims[1])x$(dims[2])_d20"
+sparse_batch_count() = min(16, SPARSE_POOL ÷ 256)
+sparse_rmul_repeats(T, s) = min(exponent(floatmax(T)) - 4, repeats_for(s, 16384))
+sparse_batch_layouts() = [how * suffix for suffix in ("", "_x$(sparse_batch_count())")
+                          for how in ("absent_distinct_batch", "activate_distinct_batch")]
+
+# the branch of the copy kernel once source and destination hold the same entries (4(nnz + nnz) < length)
+sparse_convert_branch(dims, k) = 4 * (2 * k) < prod(dims) ? "sparse_branch" : "dense_branch"
+function sparse_convert_ids(dims, k, shape)
+    branch = sparse_convert_branch(dims, k)
+    [("copyto!_convert", case_id("sparse", "copyto!_convert", Float64, shape, "to_$(Td)_$(branch)", DEFAULT_PHASE))
+     for Td in SPARSE_CONVERT_TYPES]
+end
+sparse_matrix_convert_ids(dims) = sparse_convert_ids(dims, round(Int, 0.2 * prod(dims)), sparse_convert_shape(dims))
+sparse_construct_ids(T, n) =
+    [("construct", case_id("sparse", "construct", T, "n$n", "empty", "construct"))]
+
+# the pairs of `sparse_vector_cases!` for (T, n, s); `rows` are the rows of the dense operands of `mul!`
+function sparse_vector_ids(T, n, s; rows=())
+    shape = sparse_vector_shape(n, s)
+    ids = Tuple{String,String}[]
+    add(name, layout, phase=DEFAULT_PHASE; shape=shape) = push!(ids, (name, case_id("sparse", name, T, shape, layout, phase)))
+    add("read_x[i]", "active"); add("read_x[i]", "absent")
+    add("write_x[i]_active", "active")
+    add("isactive", "half_active")
+    for layout in sparse_batch_layouts()
+        add("first_activation", layout, "first_activation")
+    end
+    add("sweep_full", "vector"); add("sweep_active_update", "trivial_update")
+    add("sweep_activecoordinates", "vector"); add("sweep_activevalues", "vector")
+    add("sweep_via_coordinates", "rank1"); add("sweep_via_x", "rank1")
+    add("dot_via_coordinates", "rank1"); add("dot_x", "rank1")
+    for z in SPARSE_ZLABELS
+        add("dot_vx", z); add("dot_xy", z)
+    end
+    for m in rows, name in ("strided", "transposed"), z in SPARSE_ZLABELS
+        add("mul!", "$(name)_$z"; shape=shape * "_m$m")
+    end
+    r = sparse_rmul_repeats(T, s)
+    add("rmul!_finite", "x$r"); add("rmul!_inf", "x$r")
+    add("fill!_coordinates_zero", "vector")
+    add("prox_coordinate!_5arg", "NormL1_scalar_u")
+    for layout in SPARSE_MOMENTUM_LAYOUTS, name in ("_values!", "_setvalues!", "_restartdot")
+        add(name, layout)
+    end
+    add("copyto!_unrelated", "dense_same_nonzeros")
+    add("broadcast_self", "abs")
+    add("copyto!_activevalues", "slot_order")
+    add("fill!_zero", "vector"); add("fill!_zero_dropzeros", "vector")
+    add("broadcast_assign", "vector"); add("copyto!_state", "vector")
+    add("copy", "vector", "allocating")
+    add("copyto!_same_kind", "same_entries")
+    add("copyto!_dense", "dense_other_nonzeros")
+    T == Float64 && append!(ids, sparse_convert_ids((n,), s, shape))
+    add("replace_cheap", "vector"); add("replace_staged", "vector")
+    for (zlabel, _) in SPARSE_COMPACTION
+        add("dropzeros!", zlabel)
+    end
+    ids
+end
+
+# the pairs of `sparse_matrix_cases!` for (T, dims, label); the 20% conversions are `sparse_matrix_convert_ids`
+function sparse_matrix_ids(T, dims, label, rows)
+    shape = sparse_matrix_shape(dims, label)
+    ids = Tuple{String,String}[]
+    add(name, layout) = push!(ids, (name, case_id("sparse", name, T, shape, layout, DEFAULT_PHASE)))
+    add("sweep_via_coordinates", "rank2"); add("sweep_via_x", "rank2")
+    for mrows in rows, z in SPARSE_ZLABELS
+        add("mul!_matrix", "rows$(mrows)_$z")
+    end
+    for z in SPARSE_ZLABELS
+        add("dot_aXb", z)
+    end
+    ids
+end
+
+function sparse_symmetric_ids(T, p, density)
+    shape = sparse_symmetric_shape(p, round(Int, density * p))
+    [("mul!", case_id("sparse", "mul!", T, shape, "symmetric_$z", DEFAULT_PHASE)) for z in SPARSE_ZLABELS]
+end
+
+# The grid of the sparse group, with its scenarios in building order: the constructions, the vectors (the dense
+# operands of `mul!` only at (n, s) = (10⁴, 10²)), the matrices, the Symmetric operands and the 20% conversions.
+function sparse_grid(quick)
+    (; types=quick ? (Float64,) : (Float32, Float64),
+       vectors=quick ? ((10^4, 10^2), (10^6, 10^3)) : ((10^4, 10^2), (10^6, 10^2), (10^6, 10^3), (10^6, 10^4)),
+       rows=quick ? (256,) : (256, 1024),       # rows of the dense operands, and p of the Symmetric ones
+       matrix_dims=((1000, 64), (256, 1000)),
+       densities=quick ? SPARSE_DENSITIES[2:2] : SPARSE_DENSITIES,
+       symmetric_densities=quick ? SPARSE_DENSITIES[2:2] : SPARSE_DENSITIES[2:3],
+       convert_dims=quick ? ((1000, 64),) : ((1000, 64), (256, 1000)))
+end
+function sparse_scenarios(quick)
+    grid = sparse_grid(quick)
+    (; constructs=[(; T, n) for T in grid.types for n in unique(first.(grid.vectors))],
+       vectors=[(; T, n, s, rows=(n, s) == (10^4, 10^2) ? grid.rows : ()) for T in grid.types for (n, s) in grid.vectors],
+       matrices=[(; T, dims, density, label, rows=grid.rows) for T in grid.types for dims in grid.matrix_dims
+                 for (density, label) in grid.densities],
+       symmetrics=[(; T, p, density, label) for T in grid.types for p in grid.rows for (density, label) in grid.symmetric_densities],
+       converts=collect(grid.convert_dims))
+end
+
+# FW-4 on the dense branch of the copy kernel: a matrix at 20%, a dedicated iterate with Float64 sources
+function sparse_matrix_convert_cases!(cases, rep, dims)
+    L = prod(dims)
+    key = "sparse/convert/$(dims[1])x$(dims[2])/20"
+    ids = randperm(scenario_rng(rep, key * "/ids"), L)[1:round(Int, 0.2 * L)]
+    sparse_convert_cases!(cases, rep, dims, ids, key, sparse_convert_shape(dims))
+end
+
+function sparse_construct_case!(cases, T, n)
+    addcase!(cases, "sparse", "construct", () -> (SparseIterate(T, n); nothing),
+             function ()
+                 x = SparseIterate(T, n)
+                 # retained memory: one T array and two Int arrays of length n, plus headers
+                 abs(Base.summarysize(x) - (sizeof(T) + 2 * sizeof(Int)) * n) <= 1024 || error("unexpected retained size")
+                 nactive(x) == 0 || error("a new iterate has active coordinates")
+             end;
+             # the operation reads only scalars
+             inputs=(;), T, shape="n$n", layout="empty", phase="construct", evals=1, zero_alloc=false, work=n)
+end
+
+# The operations of a vector scenario are registered by groups, in the original order. With a `selector` a group
+# none of whose operation names has a matching ID is not run, through `Base.invokelatest` so that it is not
+# compiled either, and the fixtures beyond `x` and its snapshot are built, once, by the accessors below, when a
+# group that reads them runs. Without a selector every group runs and nothing is enumerated. Every random draw of
+# this scenario comes from its own keyed `scenario_rng` stream (the reads and writes draw nothing), so a draw
+# that is skipped with its fixture changes no other fixture and no global stream is used.
+function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=(), selector=nothing)
     key = "sparse/vector/$T/$n/$s"
-    shape = "n$(n)_s$(s)"
+    shape = sparse_vector_shape(n, s)
     # one permutation: the active coordinates, a pool of absent ones (the batches of first activations,
     # the block trial) and the extra coordinates of the second iterate are disjoint slices of it
     perm = randperm(scenario_rng(rep, key * "/ids"), n)
     ids = perm[1:s]
-    pool = perm[s+1:s+4096]
-    ids_y = vcat(ids[1:s÷2], perm[s+4097:s+4096+(s-s÷2)])
+    pool = perm[s+1:s+SPARSE_POOL]
+    ids_y = vcat(ids[1:s÷2], perm[s+SPARSE_POOL+1:s+SPARSE_POOL+(s-s÷2)])
     vals = fixture_values(scenario_rng(rep, key * "/values"), T, s)
-    vals_y = fixture_values(scenario_rng(rep, key * "/values_y"), T, s)
-    slots = zero_slots(scenario_rng(rep, key * "/zeros"), s, 0.5)
-    slots_y = zero_slots(scenario_rng(rep, key * "/zeros_y"), s, 0.5)
+    wanted = selector === nothing ? nothing : operations_wanted(selector, sparse_vector_ids(T, n, s; rows))
+    want(names...) = want_any(wanted, names)
     x = build_iterate(T, (n,), ids, vals)
     snap = copy(x)
-    d = dense_array(T, (n,), ids, vals)
-    y = build_iterate(T, (n,), ids_y, vals_y)
-    dy = dense_array(T, (n,), ids_y, vals_y)
-    vals50 = with_zeros(vals, slots)
-    vals_y50 = with_zeros(vals_y, slots_y)
-    x50 = build_iterate(T, (n,), ids, vals50)
-    y50 = build_iterate(T, (n,), ids_y, vals_y50)
-    v = get!(() -> randn(scenario_rng(rep, "sparse/v/$T/$n"), T, n), vcache, (T, n))::Vector{T}
+    memo = Dict{Symbol,Any}()
+    d_() = get!(() -> dense_array(T, (n,), ids, vals), memo, :d)::Vector{T}
+    vals_y_() = get!(() -> fixture_values(scenario_rng(rep, key * "/values_y"), T, s), memo, :vals_y)::Vector{T}
+    vals50_() = get!(() -> with_zeros(vals, zero_slots(scenario_rng(rep, key * "/zeros"), s, 0.5)), memo, :vals50)::Vector{T}
+    vals_y50_() = get!(() -> with_zeros(vals_y_(), zero_slots(scenario_rng(rep, key * "/zeros_y"), s, 0.5)), memo, :vals_y50)::Vector{T}
+    y_() = get!(() -> build_iterate(T, (n,), ids_y, vals_y_()), memo, :y)::typeof(x)
+    dy_() = get!(() -> dense_array(T, (n,), ids_y, vals_y_()), memo, :dy)::Vector{T}
+    x50_() = get!(() -> build_iterate(T, (n,), ids, vals50_()), memo, :x50)::typeof(x)
+    y50_() = get!(() -> build_iterate(T, (n,), ids_y, vals_y50_()), memo, :y50)::typeof(x)
+    d50_() = get!(() -> dense_array(T, (n,), ids, vals50_()), memo, :d50)::Vector{T}
+    dy50_() = get!(() -> dense_array(T, (n,), ids_y, vals_y50_()), memo, :dy50)::Vector{T}
+    v_() = get!(() -> randn(scenario_rng(rep, "sparse/v/$T/$n"), T, n), vcache, (T, n))::Vector{T}
+    # the digests of the dense vectors that the copy and replace cases compare with at construction
+    d_source_() = get!(() -> (; d=d_()), memo, :d_source)::NamedTuple{(:d,),Tuple{Vector{T}}}
+    dy_source_() = get!(() -> (; dy=dy_()), memo, :dy_source)::NamedTuple{(:dy,),Tuple{Vector{T}}}
+    d_built_() = get!(() -> input_digests(d_source_()), memo, :d_built)::Vector{UInt64}
+    dy_built_() = get!(() -> input_digests(dy_source_()), memo, :dy_built)::Vector{UInt64}
     restore_state!() = (copyto!(x, snap); nothing)
     guarded(check) = restored(restore_state!, check)
 
-    # scalar reads: 256 reads of active and, separately, of absent coordinates
-    nread = 256
-    for (kind, src) in (("active", ids), ("absent", pool))
-        rids = cycled(src, nread)
-        expected = sum_reads(d, rids, T)
-        addcase!(cases, "sparse", "read_x[i]", () -> sum_reads(x, rids, T),
-                 guarded(() -> sum_reads(x, rids, T) == expected || error("reads differ from the dense vector"));
-                 inputs=(; x, rids), T, shape, layout=kind, zero_alloc=true, work=nread)
-    end
-    # writes to 1024 active coordinates, with the values they hold: the state is unchanged, and the
-    # check first overwrites them
-    wids = cycled(ids, 1024)
-    wvals = d[wids]
-    function check_write()
-        write_values!(x, wids, -wvals)
-        Array(x)[wids] == -wvals || error("writes were not stored")
-        write_values!(x, wids, wvals)
-        Array(x) == d || error("writes were not stored")
-        nactive(x) == s || error("a write to an active coordinate changed the working set")
-        nothing
-    end
-    addcase!(cases, "sparse", "write_x[i]_active", () -> write_values!(x, wids, wvals), guarded(check_write);
-             inputs=(; x, wids, wvals), T, shape, layout="active", zero_alloc=true, work=length(wids))
-    # isactive: 256 queries, half of them active
-    qids = shuffle(scenario_rng(rep, key * "/queries"), vcat(cycled(ids, 128), pool[1:128]))
-    idset = Set(ids)
-    expected_active = count(in(idset), qids)          # the stored membership of the fixture, not the values
-    addcase!(cases, "sparse", "isactive", () -> count_active(x, qids),
-             guarded(function ()
-                         count_active(x, qids) == expected_active || error("isactive differs from the stored membership")
-                         check_isactive_stored_zero(T)
-                     end);
-             inputs=(; x, qids), T, shape, layout="half_active", zero_alloc=true, work=length(qids))
-
-    # first activation: a batch of distinct absent coordinates per call, by assignment and by activate!;
-    # the companion has up to 16 disjoint batches in one call, which a timer can resolve
-    nbatch = min(16, length(pool) ÷ 256)
-    for (suffix, bids) in (("", pool[1:256]), ("_x16", pool[1:256*nbatch]))
-        bvals = fixture_values(scenario_rng(rep, key * "/batch_values$suffix"), T, length(bids))
-        for (how, op, written, inputs) in (("absent_distinct_batch", () -> write_values!(x, bids, bvals), bvals, (; bids, bvals)),
-                                           ("activate_distinct_batch", () -> activate_all!(x, bids), zeros(T, length(bids)), (; bids)))
-            function restore_batch!()      # outside the timed region
-                @inbounds for k in bids
-                    x[k] = zero(T)
-                end
-                dropzeros!(x)
-                any(k -> isactive(x, k), bids) && error("a batch coordinate is still active: not a first activation")
-                nothing
-            end
-            # the activated coordinates and their values, copied when the case is built
-            bids0, written0 = copy(bids), copy(written)
-            function check_activation()
-                copyto!(x, snap)
-                restore_batch!()
-                length(unique(bids)) == length(bids) || error("batch coordinates are not distinct")
-                op()
-                all(k -> isactive(x, k), bids) || error("activation did not add every coordinate")
-                nactive(x) == s + length(bids) || error("unexpected working set after the activations")
-                expected = copy(d)
-                expected[bids0] = written0
-                Array(x) == expected || error("activated values differ from the dense reference")
-                restore_batch!()
-                nactive(x) == s && Array(x) == d || error("restore did not recover the iterate")
-                copyto!(x, snap)
-                nothing
-            end
-            addcase!(cases, "sparse", "first_activation", op, check_activation; inputs, T, shape, layout=how * suffix,
-                     phase="first_activation", prepare=restore_batch!, evals=1, zero_alloc=true, work=length(bids))
+    reads_writes = function ()
+        d = d_()
+        # scalar reads: 256 reads of active and, separately, of absent coordinates
+        nread = 256
+        for (kind, src) in (("active", ids), ("absent", pool))
+            rids = cycled(src, nread)
+            expected = sum_reads(d, rids, T)
+            addcase!(cases, "sparse", "read_x[i]", () -> sum_reads(x, rids, T),
+                     guarded(() -> sum_reads(x, rids, T) == expected || error("reads differ from the dense vector"));
+                     inputs=(; x, rids), T, shape, layout=kind, zero_alloc=true, work=nread)
         end
-    end
-
-    # a full sweep and an active sweep with a trivial update: the iterate is unchanged
-    unchanged() = Array(x) == d && nactive(x) == s || error("the sweep changed the iterate")
-    addcase!(cases, "sparse", "sweep_full", () -> full_sweep!(x),
-             guarded(() -> (full_sweep!(x); unchanged())); inputs=(; x), T, shape, layout="vector", zero_alloc=true, work=n)
-    addcase!(cases, "sparse", "sweep_active_update", () -> active_sweep!(x),
-             guarded(function ()
-                         active_sweep!(x) == s || error("the sweep did not visit every active coordinate")
-                         unchanged()
-                     end);
-             inputs=(; x), T, shape, layout="trivial_update", zero_alloc=true, work=s)
-
-    # FD-7: sweeps through the handles created inside the call
-    sorted_ids = sort(ids)
-    addcase!(cases, "sparse", "sweep_activecoordinates", () -> sum_active_ids(x),
-             guarded(function ()
-                         sum_active_ids(x) == sum(ids) || error("sweep visited the wrong coordinates")
-                         sort!(collect(activecoordinates(x))) == sorted_ids || error("the active coordinates are not the fixture's (a sum can agree)")
-                     end);
-             inputs=(; x), T, shape, layout="vector", zero_alloc=true, work=s)
-    absvals = sum(abs, vals)
-    addcase!(cases, "sparse", "sweep_activevalues", () -> sum_active_values(x, T),
-             guarded(() -> close_scalar(sum_active_values(x, T), sum(vals), absvals, T));
-             inputs=(; x), T, shape, layout="vector", zero_alloc=true, work=s)
-
-    # FD-5: a read-write sweep and a product through coordinates(x), against the same through x
-    addcase!(cases, "sparse", "sweep_via_coordinates", () -> coordinate_sweep!(x),
-             guarded(() -> (coordinate_sweep!(x); unchanged())); inputs=(; x), T, shape, layout="rank1", zero_alloc=true, work=n)
-    addcase!(cases, "sparse", "sweep_via_x", () -> index_sweep!(x),
-             guarded(() -> (index_sweep!(x); unchanged())); inputs=(; x), T, shape, layout="rank1", zero_alloc=true, work=n)
-    # the references of the products are computed here, as the operand v is read by the operation
-    absdot = dot(abs.(v), abs.(d))
-    ref_dot = dot(v, d)
-    addcase!(cases, "sparse", "dot_via_coordinates", () -> dot(v, coordinates(x)),
-             guarded(() -> close_scalar(dot(v, coordinates(x)), ref_dot, absdot, T));
-             inputs=(; x, v), T, shape, layout="rank1", zero_alloc=false, work=s)
-    addcase!(cases, "sparse", "dot_x", () -> dot(v, x),
-             guarded(() -> close_scalar(dot(v, x), ref_dot, absdot, T));
-             inputs=(; x, v), T, shape, layout="rank1", zero_alloc=true, work=s)
-
-    # FD-9: products, with 0% and 50% of the stored values exactly zero at random slots
-    for (zlabel, xz, yz, valsz, vals_yz) in (("z0", x, y, vals, vals_y), ("z50", x50, y50, vals50, vals_y50))
-        dz = zlabel == "z0" ? d : dense_array(T, (n,), ids, valsz)
-        dyz = zlabel == "z0" ? dy : dense_array(T, (n,), ids_y, vals_yz)
-        ref_vx, scale_vx = dot(v, dz), dot(abs.(v), abs.(dz))
-        ref_xy, scale_xy = dot(dz, dyz), dot(abs.(dz), abs.(dyz))
-        addcase!(cases, "sparse", "dot_vx", () -> dot(v, xz),
-                 guarded(() -> close_scalar(dot(v, xz), ref_vx, scale_vx, T));
-                 inputs=(; x=xz, v), T, shape, layout=zlabel, zero_alloc=true, work=s)
-        addcase!(cases, "sparse", "dot_xy", () -> dot(xz, yz),
-                 guarded(() -> close_scalar(dot(xz, yz), ref_xy, scale_xy, T));
-                 inputs=(; x=xz, y=yz), T, shape, layout=zlabel, zero_alloc=false, work=s)
-    end
-    for m in rows        # dense operands, only at (n, s) = (10⁴, 10²)
-        A = randn(scenario_rng(rep, "sparse/A/$T/$n/$m"), T, m, n)
-        tB = transpose(randn(scenario_rng(rep, "sparse/B/$T/$n/$m"), T, n, m))
-        out = zeros(T, m)
-        for (name, M) in (("strided", A), ("transposed", tB)), (zlabel, xz, valsz) in (("z0", x, vals), ("z50", x50, vals50))
-            ref_mul = M * dense_array(T, (n,), ids, valsz)
-            function check_mul()
-                fill!(out, T(1000))        # a stale output must not pass
-                mul!(out, M, xz)
-                close_enough(out, ref_mul)
-            end
-            addcase!(cases, "sparse", "mul!", () -> mul!(out, M, xz), guarded(check_mul);
-                     inputs=(; M, x=xz), T, shape=shape * "_m$m", layout="$(name)_$zlabel", zero_alloc=true, work=m * s)
-        end
-    end
-
-    # FN-9: scaling by a number; a call repeats rmul! so that it takes a few µs at small s (the scale is a
-    # power of two, and the repetitions stop before the values overflow, so the result is exact). For Inf
-    # only the active entries are checked: the inactive ones stay 0 on 0.5.x and become NaN on 0.6.
-    r = min(exponent(floatmax(T)) - 4, repeats_for(s, 16384))
-    rscale = ldexp(one(T), r)
-    check_finite() = (rmul_repeat!(x, T(2), r); Array(x) == d .* rscale || error("rmul! differs from the dense reference"))
-    check_inf() = (rmul_repeat!(x, T(Inf), r);
-                   all(x[k] == sign(d[k]) * T(Inf) for k in ids) || error("rmul!(x, Inf) differs at the active entries"))
-    # the cases that change the iterate declare the snapshot that prepare restores it from
-    addcase!(cases, "sparse", "rmul!_finite", () -> rmul_repeat!(x, T(2), r), guarded(check_finite);
-             inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * s)
-    addcase!(cases, "sparse", "rmul!_inf", () -> rmul_repeat!(x, T(Inf), r), guarded(check_inf);
-             inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * s)
-
-    # FP-7: fill!(coordinates(x), 0); only the values are checked (0.6 keeps the working set)
-    addcase!(cases, "sparse", "fill!_coordinates_zero", () -> fill!(coordinates(x), 0),
-             guarded(() -> (fill!(coordinates(x), 0); iszero(Array(x)) || error("an entry is not zero after the fill")));
-             inputs=(; snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=true, work=s)
-
-    # FD-12: the five-argument prox_coordinate! with a scalar u. One step takes about 1.5 ns on the pinned
-    # source, so a call takes 1536 distinct coordinates: the active ones (at most 768), moved by a step
-    # that keeps them nonzero, and absent ones that mostly end at zero and stay inactive, as in a solver.
-    f, γ = NormL1(T(0.1)), T(0.5)
-    nprox = 1536
-    na = min(s, 768)
-    kb = vcat(ids[1:na], pool[257:256+nprox-na])
-    rng_u = scenario_rng(rep, key * "/steps")
-    ub = T[(rand(rng_u, Bool) ? 1 : -1) * T(j <= na ? 0.1 + 0.4 * rand(rng_u) : 0.055 * rand(rng_u)) for j in 1:nprox]
-    # the coordinates and their soft-thresholded values, computed when the case is built
-    prox_ids = copy(kb)
-    prox_vals = [sign(ub[j]) * max(abs(ub[j]) - γ * T(0.1), zero(T)) for j in eachindex(kb)]
-    function check_prox()
-        prox_batch!(x, f, kb, ub, γ)
-        expected = copy(d)
-        for j in eachindex(prox_ids)
-            expected[prox_ids[j]] = prox_vals[j]
-        end
-        close_enough(Array(x), expected)
-    end
-    addcase!(cases, "sparse", "prox_coordinate!_5arg", () -> prox_batch!(x, f, kb, ub, γ), guarded(check_prox);
-             inputs=(; kb, ub, snap), T, shape, layout="NormL1_scalar_u", prepare=restore_state!, zero_alloc=false, work=length(kb))
-
-    # FD-8: the momentum value loops, through the accessor and through the private array
-    ybuf = randn(scenario_rng(rep, key * "/momentum_y"), T, s)
-    xcur = randn(scenario_rng(rep, key * "/momentum_cur"), T, s)
-    xprev = randn(scenario_rng(rep, key * "/momentum_prev"), T, s)
-    buf = zeros(T, s)
-    # in the slot order of the snapshot, which a state copy keeps
-    rd_total, rd_magnitude = restart_reference(d[collect(activecoordinates(snap))], ybuf, xcur, xprev)
-    for (layout, getvals) in (("accessors", activevalues), ("private_fields", stored_values_by_field(x)))
-        w = copy(vals)
-        values_op, setvalues_op, dot_op = momentum_ops(getvals, x, buf, w, ybuf, xcur, xprev, s)
-        function check_values()
-            fill!(buf, zero(T))
-            values_op()
-            buf == d[collect(activecoordinates(x))] || error("_values! differs from the dense gather")
-        end
-        function check_setvalues()
-            fill!(activevalues(x), zero(T))
-            setvalues_op()
-            Array(x) == d || error("_setvalues! differs from the dense reference")
-        end
-        check_restartdot() = close_scalar(dot_op(), rd_total, rd_magnitude, T)
-        for (name, op, check, inputs) in (("_values!", values_op, check_values, (; x)),
-                                          ("_setvalues!", setvalues_op, check_setvalues, (; x, w)),
-                                          ("_restartdot", dot_op, check_restartdot, (; x, ybuf, xcur, xprev)))
-            addcase!(cases, "sparse", name, op, guarded(check); inputs, T, shape, layout, zero_alloc=true, work=s)
-        end
-    end
-
-    # FD-14: aliasing and self-reference. A copy whose source is the reference first compares the source
-    # with its digest at construction.
-    d_source, dy_source = (; d), (; dy)
-    d_built, dy_built = input_digests(d_source), input_digests(dy_source)
-    function check_unrelated()
-        check_inputs(d_source, d_built, AFTER_BUILD)
-        write_values!(x, ids, -vals)
-        copyto!(x, d)
-        Array(x) == d && nactive(x) == s || error("copyto! from a dense vector differs from the reference")
-    end
-    addcase!(cases, "sparse", "copyto!_unrelated", () -> (copyto!(x, d); nothing), guarded(check_unrelated);
-             inputs=(; x, d), T, shape, layout="dense_same_nonzeros", zero_alloc=false, work=n)
-    addcase!(cases, "sparse", "broadcast_self", () -> (x .= abs.(x); nothing),
-             guarded(() -> (x .= abs.(x); Array(x) == abs.(d) || error("x .= abs.(x) differs from the dense reference")));
-             inputs=(; snap), T, shape, layout="abs", prepare=restore_state!, zero_alloc=false, work=n)
-    # the aliasing copy on its own iterate whose active coordinates are 1:s in slot order, so that the
-    # result is the identity with or without the aliasing defect of 0.5.x
-    va = fixture_values(scenario_rng(rep, key * "/alias_values"), T, s)
-    xa = build_iterate(T, (n,), 1:s, va)
-    da = dense_array(T, (n,), 1:s, va)
-    function check_alias()
-        collect(activecoordinates(xa)) == collect(1:s) || error("the aliasing fixture is not in slot order")
-        copyto!(xa, activevalues(xa))
-        Array(xa) == da && nactive(xa) == s || error("copyto!(x, activevalues(x)) changed the values")
-    end
-    addcase!(cases, "sparse", "copyto!_activevalues", () -> (copyto!(xa, activevalues(xa)); nothing), check_alias;
-             inputs=(; xa), T, shape, layout="slot_order", zero_alloc=false, work=s)
-
-    # FD-2: clearing and assigning, against the state copy; values only
-    addcase!(cases, "sparse", "fill!_zero", () -> (fill!(x, 0); nothing),
-             guarded(() -> (fill!(x, 0); iszero(Array(x)) || error("fill! left a nonzero entry")));
-             inputs=(; snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=s)
-    addcase!(cases, "sparse", "fill!_zero_dropzeros", () -> (dropzeros!(fill!(x, 0)); nothing),
-             guarded(() -> (dropzeros!(fill!(x, 0)); iszero(Array(x)) || error("fill! and dropzeros! left a nonzero entry")));
-             inputs=(; snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=s)
-    addcase!(cases, "sparse", "broadcast_assign", () -> (x .= y; nothing),
-             guarded(() -> (x .= y; Array(x) == dy || error("x .= y differs from y")));
-             inputs=(; y, snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=n)
-    addcase!(cases, "sparse", "copyto!_state", () -> (copyto!(x, y); nothing),
-             guarded(() -> (copyto!(x, y); Array(x) == dy || error("copyto!(x, y) differs from y")));
-             inputs=(; y, snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=2 * s)
-
-    # copy and import
-    addcase!(cases, "sparse", "copy", () -> (copy(x); nothing),
-             guarded(() -> (c = copy(x); c !== x && Array(c) == d || error("copy differs from the iterate")));
-             inputs=(; x), T, shape, layout="vector", phase="allocating", evals=1, zero_alloc=false, work=n)
-    # a state copy onto an iterate that already holds the same entries (the state is unchanged); the check
-    # clears the iterate first, so that a copy that does nothing cannot pass
-    addcase!(cases, "sparse", "copyto!_same_kind", () -> (copyto!(x, snap); nothing),
-             guarded(() -> (fill!(x, 0); copyto!(x, snap); Array(x) == d || error("state copy differs from the source")));
-             inputs=(; x, snap), T, shape, layout="same_entries", zero_alloc=false, work=2 * s)
-    addcase!(cases, "sparse", "copyto!_dense", () -> (copyto!(x, dy); nothing),
-             guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); copyto!(x, dy);
-                            Array(x) == dy || error("import differs from the dense array")));
-             inputs=(; dy, snap), T, shape, layout="dense_other_nonzeros", prepare=restore_state!, zero_alloc=false, work=n)
-
-    # FW-4: conversions on dedicated iterates; the sources are Float64
-    T == Float64 && sparse_convert_cases!(cases, rep, (n,), ids, key, shape)
-
-    # FW-6: the cheap replace against the staged one
-    addcase!(cases, "sparse", "replace_cheap", () -> replace_cheap!(x, dy),
-             guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_cheap!(x, dy);
-                            Array(x) == dy || error("replace differs from the dense array")));
-             inputs=(; dy, snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=n)
-    addcase!(cases, "sparse", "replace_staged", () -> replace_staged!(x, dy),
-             guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_staged!(x, dy);
-                            Array(x) == dy || error("staged replace differs from the dense array")));
-             inputs=(; dy, snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=n)
-
-    # compaction: dropzeros! with 10% and 50% of the active coordinates holding an explicit zero
-    for (zlabel, fraction) in (("zeros10", 0.1), ("zeros50", 0.5))
-        zslots = zero_slots(scenario_rng(rep, key * "/compaction_$zlabel"), s, fraction)
-        expected = with_zeros(vals, zslots)
-        dz = dense_array(T, (n,), ids, expected)
-        function prepare_zeros!()          # the snapshot with explicit zeros at those slots
-            copyto!(x, snap)
-            av = activevalues(x)
-            @inbounds for p in zslots
-                av[p] = zero(T)
-            end
+        # writes to 1024 active coordinates, with the values they hold: the state is unchanged, and the
+        # check first overwrites them
+        wids = cycled(ids, 1024)
+        wvals = d[wids]
+        function check_write()
+            write_values!(x, wids, -wvals)
+            Array(x)[wids] == -wvals || error("writes were not stored")
+            write_values!(x, wids, wvals)
+            Array(x) == d || error("writes were not stored")
+            nactive(x) == s || error("a write to an active coordinate changed the working set")
             nothing
         end
-        function check_compaction()
-            prepare_zeros!()
-            nactive(x) == s || error("the zeros were not stored")
-            dropzeros!(x)
-            nactive(x) == s - length(zslots) || error("dropzeros! left the wrong number of coordinates")
-            all(!iszero, activevalues(x)) || error("dropzeros! left a stored zero")
-            Array(x) == dz || error("dropzeros! changed the values")
-        end
-        addcase!(cases, "sparse", "dropzeros!", () -> dropzeros!(x), guarded(check_compaction);
-                 inputs=(; snap, zslots), T, shape, layout=zlabel, prepare=prepare_zeros!, zero_alloc=true, work=s)
+        addcase!(cases, "sparse", "write_x[i]_active", () -> write_values!(x, wids, wvals), guarded(check_write);
+                 inputs=(; x, wids, wvals), T, shape, layout="active", zero_alloc=true, work=length(wids))
     end
+    want("read_x[i]", "write_x[i]_active") && Base.invokelatest(reads_writes)
+
+    isactive_group = function ()
+        # isactive: 256 queries, half of them active
+        qids = shuffle(scenario_rng(rep, key * "/queries"), vcat(cycled(ids, 128), pool[1:128]))
+        idset = Set(ids)
+        expected_active = count(in(idset), qids)          # the stored membership of the fixture, not the values
+        addcase!(cases, "sparse", "isactive", () -> count_active(x, qids),
+                 guarded(function ()
+                             count_active(x, qids) == expected_active || error("isactive differs from the stored membership")
+                             check_isactive_stored_zero(T)
+                         end);
+                 inputs=(; x, qids), T, shape, layout="half_active", zero_alloc=true, work=length(qids))
+    end
+    want("isactive") && Base.invokelatest(isactive_group)
+
+    first_activation_group = function ()
+        d = d_()
+        # first activation: a batch of distinct absent coordinates per call, by assignment and by activate!;
+        # the companion has up to 16 disjoint batches in one call, which a timer can resolve
+        nbatch = sparse_batch_count()
+        for (suffix, bids) in (("", pool[1:256]), ("_x$nbatch", pool[1:256*nbatch]))
+            bvals = fixture_values(scenario_rng(rep, key * "/batch_values$suffix"), T, length(bids))
+            for (how, op, written, inputs) in (("absent_distinct_batch", () -> write_values!(x, bids, bvals), bvals, (; bids, bvals)),
+                                               ("activate_distinct_batch", () -> activate_all!(x, bids), zeros(T, length(bids)), (; bids)))
+                function restore_batch!()      # outside the timed region
+                    @inbounds for k in bids
+                        x[k] = zero(T)
+                    end
+                    dropzeros!(x)
+                    any(k -> isactive(x, k), bids) && error("a batch coordinate is still active: not a first activation")
+                    nothing
+                end
+                # the activated coordinates and their values, copied when the case is built
+                bids0, written0 = copy(bids), copy(written)
+                function check_activation()
+                    copyto!(x, snap)
+                    restore_batch!()
+                    length(unique(bids)) == length(bids) || error("batch coordinates are not distinct")
+                    op()
+                    all(k -> isactive(x, k), bids) || error("activation did not add every coordinate")
+                    nactive(x) == s + length(bids) || error("unexpected working set after the activations")
+                    expected = copy(d)
+                    expected[bids0] = written0
+                    Array(x) == expected || error("activated values differ from the dense reference")
+                    restore_batch!()
+                    nactive(x) == s && Array(x) == d || error("restore did not recover the iterate")
+                    copyto!(x, snap)
+                    nothing
+                end
+                addcase!(cases, "sparse", "first_activation", op, check_activation; inputs, T, shape, layout=how * suffix,
+                         phase="first_activation", prepare=restore_batch!, evals=1, zero_alloc=true, work=length(bids))
+            end
+        end
+    end
+    want("first_activation") && Base.invokelatest(first_activation_group)
+
+    sweeps_group = function ()
+        d = d_()
+        v = v_()
+        # a full sweep and an active sweep with a trivial update: the iterate is unchanged
+        unchanged() = Array(x) == d && nactive(x) == s || error("the sweep changed the iterate")
+        addcase!(cases, "sparse", "sweep_full", () -> full_sweep!(x),
+                 guarded(() -> (full_sweep!(x); unchanged())); inputs=(; x), T, shape, layout="vector", zero_alloc=true, work=n)
+        addcase!(cases, "sparse", "sweep_active_update", () -> active_sweep!(x),
+                 guarded(function ()
+                             active_sweep!(x) == s || error("the sweep did not visit every active coordinate")
+                             unchanged()
+                         end);
+                 inputs=(; x), T, shape, layout="trivial_update", zero_alloc=true, work=s)
+
+        # FD-7: sweeps through the handles created inside the call
+        sorted_ids = sort(ids)
+        addcase!(cases, "sparse", "sweep_activecoordinates", () -> sum_active_ids(x),
+                 guarded(function ()
+                             sum_active_ids(x) == sum(ids) || error("sweep visited the wrong coordinates")
+                             sort!(collect(activecoordinates(x))) == sorted_ids || error("the active coordinates are not the fixture's (a sum can agree)")
+                         end);
+                 inputs=(; x), T, shape, layout="vector", zero_alloc=true, work=s)
+        absvals = sum(abs, vals)
+        addcase!(cases, "sparse", "sweep_activevalues", () -> sum_active_values(x, T),
+                 guarded(() -> close_scalar(sum_active_values(x, T), sum(vals), absvals, T));
+                 inputs=(; x), T, shape, layout="vector", zero_alloc=true, work=s)
+
+        # FD-5: a read-write sweep and a product through coordinates(x), against the same through x
+        addcase!(cases, "sparse", "sweep_via_coordinates", () -> coordinate_sweep!(x),
+                 guarded(() -> (coordinate_sweep!(x); unchanged())); inputs=(; x), T, shape, layout="rank1", zero_alloc=true, work=n)
+        addcase!(cases, "sparse", "sweep_via_x", () -> index_sweep!(x),
+                 guarded(() -> (index_sweep!(x); unchanged())); inputs=(; x), T, shape, layout="rank1", zero_alloc=true, work=n)
+        # the references of the products are computed here, as the operand v is read by the operation
+        absdot = dot(abs.(v), abs.(d))
+        ref_dot = dot(v, d)
+        addcase!(cases, "sparse", "dot_via_coordinates", () -> dot(v, coordinates(x)),
+                 guarded(() -> close_scalar(dot(v, coordinates(x)), ref_dot, absdot, T));
+                 inputs=(; x, v), T, shape, layout="rank1", zero_alloc=false, work=s)
+        addcase!(cases, "sparse", "dot_x", () -> dot(v, x),
+                 guarded(() -> close_scalar(dot(v, x), ref_dot, absdot, T));
+                 inputs=(; x, v), T, shape, layout="rank1", zero_alloc=true, work=s)
+    end
+    want("sweep_full", "sweep_active_update", "sweep_activecoordinates", "sweep_activevalues", "sweep_via_coordinates",
+         "sweep_via_x", "dot_via_coordinates", "dot_x") && Base.invokelatest(sweeps_group)
+
+    products_group = function ()
+        v = v_()
+        d = d_()
+        x50 = x50_()
+        vals50 = vals50_()
+        # FD-9: products, with 0% and 50% of the stored values exactly zero at random slots
+        for (zlabel, xz, valsz) in (("z0", x, vals), ("z50", x50, vals50))
+            dz = zlabel == "z0" ? d : d50_()
+            if want("dot_vx")
+                ref_vx, scale_vx = dot(v, dz), dot(abs.(v), abs.(dz))
+                addcase!(cases, "sparse", "dot_vx", () -> dot(v, xz),
+                         guarded(() -> close_scalar(dot(v, xz), ref_vx, scale_vx, T));
+                         inputs=(; x=xz, v), T, shape, layout=zlabel, zero_alloc=true, work=s)
+            end
+            if want("dot_xy")
+                yz = zlabel == "z0" ? y_() : y50_()
+                dyz = zlabel == "z0" ? dy_() : dy50_()
+                ref_xy, scale_xy = dot(dz, dyz), dot(abs.(dz), abs.(dyz))
+                addcase!(cases, "sparse", "dot_xy", () -> dot(xz, yz),
+                         guarded(() -> close_scalar(dot(xz, yz), ref_xy, scale_xy, T));
+                         inputs=(; x=xz, y=yz), T, shape, layout=zlabel, zero_alloc=false, work=s)
+            end
+        end
+        want("mul!") || return
+        for m in rows        # dense operands, only at (n, s) = (10⁴, 10²)
+            A = randn(scenario_rng(rep, "sparse/A/$T/$n/$m"), T, m, n)
+            tB = transpose(randn(scenario_rng(rep, "sparse/B/$T/$n/$m"), T, n, m))
+            out = zeros(T, m)
+            for (name, M) in (("strided", A), ("transposed", tB)), (zlabel, xz, valsz) in (("z0", x, vals), ("z50", x50, vals50))
+                ref_mul = M * dense_array(T, (n,), ids, valsz)
+                function check_mul()
+                    fill!(out, T(1000))        # a stale output must not pass
+                    mul!(out, M, xz)
+                    close_enough(out, ref_mul)
+                end
+                addcase!(cases, "sparse", "mul!", () -> mul!(out, M, xz), guarded(check_mul);
+                         inputs=(; M, x=xz), T, shape=shape * "_m$m", layout="$(name)_$zlabel", zero_alloc=true, work=m * s)
+            end
+        end
+    end
+    want("dot_vx", "dot_xy", "mul!") && Base.invokelatest(products_group)
+
+    rmul_group = function ()
+        d = d_()
+        # FN-9: scaling by a number; a call repeats rmul! so that it takes a few µs at small s (the scale is a
+        # power of two, and the repetitions stop before the values overflow, so the result is exact). For Inf
+        # only the active entries are checked: the inactive ones stay 0 on 0.5.x and become NaN on 0.6.
+        r = sparse_rmul_repeats(T, s)
+        rscale = ldexp(one(T), r)
+        check_finite() = (rmul_repeat!(x, T(2), r); Array(x) == d .* rscale || error("rmul! differs from the dense reference"))
+        check_inf() = (rmul_repeat!(x, T(Inf), r);
+                       all(x[k] == sign(d[k]) * T(Inf) for k in ids) || error("rmul!(x, Inf) differs at the active entries"))
+        # the cases that change the iterate declare the snapshot that prepare restores it from
+        addcase!(cases, "sparse", "rmul!_finite", () -> rmul_repeat!(x, T(2), r), guarded(check_finite);
+                 inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * s)
+        addcase!(cases, "sparse", "rmul!_inf", () -> rmul_repeat!(x, T(Inf), r), guarded(check_inf);
+                 inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * s)
+    end
+    want("rmul!_finite", "rmul!_inf") && Base.invokelatest(rmul_group)
+
+    fill_prox_group = function ()
+        d = d_()
+        # FP-7: fill!(coordinates(x), 0); only the values are checked (0.6 keeps the working set)
+        addcase!(cases, "sparse", "fill!_coordinates_zero", () -> fill!(coordinates(x), 0),
+                 guarded(() -> (fill!(coordinates(x), 0); iszero(Array(x)) || error("an entry is not zero after the fill")));
+                 inputs=(; snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=true, work=s)
+
+        # FD-12: the five-argument prox_coordinate! with a scalar u. One step takes about 1.5 ns on the pinned
+        # source, so a call takes 1536 distinct coordinates: the active ones (at most 768), moved by a step
+        # that keeps them nonzero, and absent ones that mostly end at zero and stay inactive, as in a solver.
+        f, γ = NormL1(T(0.1)), T(0.5)
+        nprox = 1536
+        na = min(s, 768)
+        kb = vcat(ids[1:na], pool[257:256+nprox-na])
+        rng_u = scenario_rng(rep, key * "/steps")
+        ub = T[(rand(rng_u, Bool) ? 1 : -1) * T(j <= na ? 0.1 + 0.4 * rand(rng_u) : 0.055 * rand(rng_u)) for j in 1:nprox]
+        # the coordinates and their soft-thresholded values, computed when the case is built
+        prox_ids = copy(kb)
+        prox_vals = [sign(ub[j]) * max(abs(ub[j]) - γ * T(0.1), zero(T)) for j in eachindex(kb)]
+        function check_prox()
+            prox_batch!(x, f, kb, ub, γ)
+            expected = copy(d)
+            for j in eachindex(prox_ids)
+                expected[prox_ids[j]] = prox_vals[j]
+            end
+            close_enough(Array(x), expected)
+        end
+        addcase!(cases, "sparse", "prox_coordinate!_5arg", () -> prox_batch!(x, f, kb, ub, γ), guarded(check_prox);
+                 inputs=(; kb, ub, snap), T, shape, layout="NormL1_scalar_u", prepare=restore_state!, zero_alloc=false, work=length(kb))
+    end
+    want("fill!_coordinates_zero", "prox_coordinate!_5arg") && Base.invokelatest(fill_prox_group)
+
+    momentum_group = function ()
+        d = d_()
+        # FD-8: the momentum value loops, through the accessor and through the private array
+        ybuf = randn(scenario_rng(rep, key * "/momentum_y"), T, s)
+        xcur = randn(scenario_rng(rep, key * "/momentum_cur"), T, s)
+        xprev = randn(scenario_rng(rep, key * "/momentum_prev"), T, s)
+        buf = zeros(T, s)
+        # in the slot order of the snapshot, which a state copy keeps
+        rd_total, rd_magnitude = restart_reference(d[collect(activecoordinates(snap))], ybuf, xcur, xprev)
+        for (layout, getvals) in (("accessors", activevalues), ("private_fields", stored_values_by_field(x)))
+            w = copy(vals)
+            values_op, setvalues_op, dot_op = momentum_ops(getvals, x, buf, w, ybuf, xcur, xprev, s)
+            function check_values()
+                fill!(buf, zero(T))
+                values_op()
+                buf == d[collect(activecoordinates(x))] || error("_values! differs from the dense gather")
+            end
+            function check_setvalues()
+                fill!(activevalues(x), zero(T))
+                setvalues_op()
+                Array(x) == d || error("_setvalues! differs from the dense reference")
+            end
+            check_restartdot() = close_scalar(dot_op(), rd_total, rd_magnitude, T)
+            for (name, op, check, inputs) in (("_values!", values_op, check_values, (; x)),
+                                              ("_setvalues!", setvalues_op, check_setvalues, (; x, w)),
+                                              ("_restartdot", dot_op, check_restartdot, (; x, ybuf, xcur, xprev)))
+                addcase!(cases, "sparse", name, op, guarded(check); inputs, T, shape, layout, zero_alloc=true, work=s)
+            end
+        end
+    end
+    want("_values!", "_setvalues!", "_restartdot") && Base.invokelatest(momentum_group)
+
+    copies_group = function ()
+        d = d_()
+        dy = dy_()
+        # FD-14: aliasing and self-reference. A copy whose source is the reference first compares the source
+        # with its digest at construction.
+        d_source, d_built, dy_source, dy_built = d_source_(), d_built_(), dy_source_(), dy_built_()
+        y = y_()
+        function check_unrelated()
+            check_inputs(d_source, d_built, AFTER_BUILD)
+            write_values!(x, ids, -vals)
+            copyto!(x, d)
+            Array(x) == d && nactive(x) == s || error("copyto! from a dense vector differs from the reference")
+        end
+        addcase!(cases, "sparse", "copyto!_unrelated", () -> (copyto!(x, d); nothing), guarded(check_unrelated);
+                 inputs=(; x, d), T, shape, layout="dense_same_nonzeros", zero_alloc=false, work=n)
+        addcase!(cases, "sparse", "broadcast_self", () -> (x .= abs.(x); nothing),
+                 guarded(() -> (x .= abs.(x); Array(x) == abs.(d) || error("x .= abs.(x) differs from the dense reference")));
+                 inputs=(; snap), T, shape, layout="abs", prepare=restore_state!, zero_alloc=false, work=n)
+        # the aliasing copy on its own iterate whose active coordinates are 1:s in slot order, so that the
+        # result is the identity with or without the aliasing defect of 0.5.x
+        va = fixture_values(scenario_rng(rep, key * "/alias_values"), T, s)
+        xa = build_iterate(T, (n,), 1:s, va)
+        da = dense_array(T, (n,), 1:s, va)
+        function check_alias()
+            collect(activecoordinates(xa)) == collect(1:s) || error("the aliasing fixture is not in slot order")
+            copyto!(xa, activevalues(xa))
+            Array(xa) == da && nactive(xa) == s || error("copyto!(x, activevalues(x)) changed the values")
+        end
+        addcase!(cases, "sparse", "copyto!_activevalues", () -> (copyto!(xa, activevalues(xa)); nothing), check_alias;
+                 inputs=(; xa), T, shape, layout="slot_order", zero_alloc=false, work=s)
+
+        # FD-2: clearing and assigning, against the state copy; values only
+        addcase!(cases, "sparse", "fill!_zero", () -> (fill!(x, 0); nothing),
+                 guarded(() -> (fill!(x, 0); iszero(Array(x)) || error("fill! left a nonzero entry")));
+                 inputs=(; snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=s)
+        addcase!(cases, "sparse", "fill!_zero_dropzeros", () -> (dropzeros!(fill!(x, 0)); nothing),
+                 guarded(() -> (dropzeros!(fill!(x, 0)); iszero(Array(x)) || error("fill! and dropzeros! left a nonzero entry")));
+                 inputs=(; snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=s)
+        addcase!(cases, "sparse", "broadcast_assign", () -> (x .= y; nothing),
+                 guarded(() -> (x .= y; Array(x) == dy || error("x .= y differs from y")));
+                 inputs=(; y, snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=n)
+        addcase!(cases, "sparse", "copyto!_state", () -> (copyto!(x, y); nothing),
+                 guarded(() -> (copyto!(x, y); Array(x) == dy || error("copyto!(x, y) differs from y")));
+                 inputs=(; y, snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=2 * s)
+
+        # copy and import
+        addcase!(cases, "sparse", "copy", () -> (copy(x); nothing),
+                 guarded(() -> (c = copy(x); c !== x && Array(c) == d || error("copy differs from the iterate")));
+                 inputs=(; x), T, shape, layout="vector", phase="allocating", evals=1, zero_alloc=false, work=n)
+        # a state copy onto an iterate that already holds the same entries (the state is unchanged); the check
+        # clears the iterate first, so that a copy that does nothing cannot pass
+        addcase!(cases, "sparse", "copyto!_same_kind", () -> (copyto!(x, snap); nothing),
+                 guarded(() -> (fill!(x, 0); copyto!(x, snap); Array(x) == d || error("state copy differs from the source")));
+                 inputs=(; x, snap), T, shape, layout="same_entries", zero_alloc=false, work=2 * s)
+        addcase!(cases, "sparse", "copyto!_dense", () -> (copyto!(x, dy); nothing),
+                 guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); copyto!(x, dy);
+                                Array(x) == dy || error("import differs from the dense array")));
+                 inputs=(; dy, snap), T, shape, layout="dense_other_nonzeros", prepare=restore_state!, zero_alloc=false, work=n)
+    end
+    want("copyto!_unrelated", "broadcast_self", "copyto!_activevalues", "fill!_zero", "fill!_zero_dropzeros",
+         "broadcast_assign", "copyto!_state", "copy", "copyto!_same_kind", "copyto!_dense") && Base.invokelatest(copies_group)
+
+    # FW-4: conversions on dedicated iterates; the sources are Float64
+    T == Float64 && want("copyto!_convert") && Base.invokelatest(sparse_convert_cases!, cases, rep, (n,), ids, key, shape)
+
+    replace_group = function ()
+        dy = dy_()
+        dy_source, dy_built = dy_source_(), dy_built_()
+        # FW-6: the cheap replace against the staged one
+        addcase!(cases, "sparse", "replace_cheap", () -> replace_cheap!(x, dy),
+                 guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_cheap!(x, dy);
+                                Array(x) == dy || error("replace differs from the dense array")));
+                 inputs=(; dy, snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=n)
+        addcase!(cases, "sparse", "replace_staged", () -> replace_staged!(x, dy),
+                 guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_staged!(x, dy);
+                                Array(x) == dy || error("staged replace differs from the dense array")));
+                 inputs=(; dy, snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=n)
+    end
+    want("replace_cheap", "replace_staged") && Base.invokelatest(replace_group)
+
+    dropzeros_group = function ()
+        # compaction: dropzeros! with 10% and 50% of the active coordinates holding an explicit zero
+        for (zlabel, fraction) in SPARSE_COMPACTION
+            zslots = zero_slots(scenario_rng(rep, key * "/compaction_$zlabel"), s, fraction)
+            expected = with_zeros(vals, zslots)
+            dz = dense_array(T, (n,), ids, expected)
+            function prepare_zeros!()          # the snapshot with explicit zeros at those slots
+                copyto!(x, snap)
+                av = activevalues(x)
+                @inbounds for p in zslots
+                    av[p] = zero(T)
+                end
+                nothing
+            end
+            function check_compaction()
+                prepare_zeros!()
+                nactive(x) == s || error("the zeros were not stored")
+                dropzeros!(x)
+                nactive(x) == s - length(zslots) || error("dropzeros! left the wrong number of coordinates")
+                all(!iszero, activevalues(x)) || error("dropzeros! left a stored zero")
+                Array(x) == dz || error("dropzeros! changed the values")
+            end
+            addcase!(cases, "sparse", "dropzeros!", () -> dropzeros!(x), guarded(check_compaction);
+                     inputs=(; snap, zslots), T, shape, layout=zlabel, prepare=prepare_zeros!, zero_alloc=true, work=s)
+        end
+    end
+    want("dropzeros!") && Base.invokelatest(dropzeros_group)
     nothing
 end
 
-# rank 2: the read-write sweeps of FD-5 and the products of FD-9
-function sparse_matrix_cases!(cases, rep, T, dims, density, label, rows, acache)
+# rank 2: the read-write sweeps of FD-5 and the products of FD-9; like the vector scenarios, in groups. The
+# dense operands `A`, `a` and `b` come from `acache`, keyed per (type, shape).
+function sparse_matrix_cases!(cases, rep, T, dims, density, label, rows, acache; selector=nothing)
     m, ncol = dims
     L = m * ncol
     k = round(Int, density * L)               # exactly round(d·L) distinct entries
     key = "sparse/matrix/$T/$(m)x$(ncol)/$label"
-    shape = "$(m)x$(ncol)_d$label"
+    shape = sparse_matrix_shape(dims, label)
     ids = randperm(scenario_rng(rep, key * "/ids"), L)[1:k]
     vals = fixture_values(scenario_rng(rep, key * "/values"), T, k)
-    vals50 = with_zeros(vals, zero_slots(scenario_rng(rep, key * "/zeros"), k, 0.5))
+    wanted = selector === nothing ? nothing : operations_wanted(selector, sparse_matrix_ids(T, dims, label, rows))
+    want(names...) = want_any(wanted, names)
     X = build_iterate(T, dims, ids, vals)
     snap = copy(X)
-    D = dense_array(T, dims, ids, vals)
-    X50 = build_iterate(T, dims, ids, vals50)
+    memo = Dict{Symbol,Any}()
+    vals50_() = get!(() -> with_zeros(vals, zero_slots(scenario_rng(rep, key * "/zeros"), k, 0.5)), memo, :vals50)::Vector{T}
+    X50_() = get!(() -> build_iterate(T, dims, ids, vals50_()), memo, :X50)::typeof(X)
     restore_state!() = (copyto!(X, snap); nothing)
     guarded(check) = restored(restore_state!, check)
-    unchanged() = Array(X) == D && nactive(X) == k || error("the sweep changed the iterate")
-    addcase!(cases, "sparse", "sweep_via_coordinates", () -> coordinate_sweep!(X),
-             guarded(() -> (coordinate_sweep!(X); unchanged())); inputs=(; X), T, shape, layout="rank2", zero_alloc=true, work=L)
-    addcase!(cases, "sparse", "sweep_via_x", () -> index_sweep!(X),
-             guarded(() -> (index_sweep!(X); unchanged())); inputs=(; X), T, shape, layout="rank2", zero_alloc=true, work=L)
-    # the matrix mul! walks the stored entries when 32 nnz <= length and the columns otherwise
-    function check_walk(Z)
-        (32 * nnz(Z) <= length(Z)) == (density < 0.1) || error("the density $density changed the walk of mul!")
+
+    sweeps_group = function ()
+        D = dense_array(T, dims, ids, vals)
+        unchanged() = Array(X) == D && nactive(X) == k || error("the sweep changed the iterate")
+        addcase!(cases, "sparse", "sweep_via_coordinates", () -> coordinate_sweep!(X),
+                 guarded(() -> (coordinate_sweep!(X); unchanged())); inputs=(; X), T, shape, layout="rank2", zero_alloc=true, work=L)
+        addcase!(cases, "sparse", "sweep_via_x", () -> index_sweep!(X),
+                 guarded(() -> (index_sweep!(X); unchanged())); inputs=(; X), T, shape, layout="rank2", zero_alloc=true, work=L)
     end
-    for mrows in rows
-        A = get!(() -> randn(scenario_rng(rep, "sparse/A/$T/$(m)x$(ncol)/$mrows"), T, mrows, m), acache,
-                 (T, dims, mrows))::Matrix{T}
-        out = zeros(T, mrows, ncol)
-        for (zlabel, Z, valsz) in (("z0", X, vals), ("z50", X50, vals50))
-            # through a CSC copy of the dense reference: the same product, at the cost of the stored entries
-            ref_mul = A * sparse(dense_array(T, dims, ids, valsz))
-            function check_mul()
-                check_walk(Z)
-                fill!(out, T(1000))        # a stale output must not pass
-                mul!(out, A, Z)
-                close_enough(out, ref_mul)
+    want("sweep_via_coordinates", "sweep_via_x") && Base.invokelatest(sweeps_group)
+
+    mul_group = function ()
+        X50 = X50_()
+        vals50 = vals50_()
+        # the matrix mul! walks the stored entries when 32 nnz <= length and the columns otherwise
+        function check_walk(Z)
+            (32 * nnz(Z) <= length(Z)) == (density < 0.1) || error("the density $density changed the walk of mul!")
+        end
+        for mrows in rows
+            A = get!(() -> randn(scenario_rng(rep, "sparse/A/$T/$(m)x$(ncol)/$mrows"), T, mrows, m), acache,
+                     (T, dims, mrows))::Matrix{T}
+            out = zeros(T, mrows, ncol)
+            for (zlabel, Z, valsz) in (("z0", X, vals), ("z50", X50, vals50))
+                # through a CSC copy of the dense reference: the same product, at the cost of the stored entries
+                ref_mul = A * sparse(dense_array(T, dims, ids, valsz))
+                function check_mul()
+                    check_walk(Z)
+                    fill!(out, T(1000))        # a stale output must not pass
+                    mul!(out, A, Z)
+                    close_enough(out, ref_mul)
+                end
+                addcase!(cases, "sparse", "mul!_matrix", () -> mul!(out, A, Z), guarded(check_mul);
+                         inputs=(; A, Z), T, shape, layout="rows$(mrows)_$zlabel", zero_alloc=true, work=mrows * k)
             end
-            addcase!(cases, "sparse", "mul!_matrix", () -> mul!(out, A, Z), guarded(check_mul);
-                     inputs=(; A, Z), T, shape, layout="rows$(mrows)_$zlabel", zero_alloc=true, work=mrows * k)
         end
     end
-    a = get!(() -> randn(scenario_rng(rep, "sparse/a/$T/$(m)x$(ncol)"), T, m), acache, (T, dims, :a))::Vector{T}
-    b = get!(() -> randn(scenario_rng(rep, "sparse/b/$T/$(m)x$(ncol)"), T, ncol), acache, (T, dims, :b))::Vector{T}
-    for (zlabel, Z, valsz) in (("z0", X, vals), ("z50", X50, vals50))
-        Dz = dense_array(T, dims, ids, valsz)
-        ref_dot, scale_dot = dot(a, Dz * b), dot(abs.(a), abs.(Dz) * abs.(b))
-        check_dot() = close_scalar(dot(a, Z, b), ref_dot, scale_dot, T)
-        addcase!(cases, "sparse", "dot_aXb", () -> dot(a, Z, b), guarded(check_dot);
-                 inputs=(; a, Z, b), T, shape, layout=zlabel, zero_alloc=false, work=k)
+    want("mul!_matrix") && Base.invokelatest(mul_group)
+
+    dot_group = function ()
+        X50 = X50_()
+        vals50 = vals50_()
+        a = get!(() -> randn(scenario_rng(rep, "sparse/a/$T/$(m)x$(ncol)"), T, m), acache, (T, dims, :a))::Vector{T}
+        b = get!(() -> randn(scenario_rng(rep, "sparse/b/$T/$(m)x$(ncol)"), T, ncol), acache, (T, dims, :b))::Vector{T}
+        for (zlabel, Z, valsz) in (("z0", X, vals), ("z50", X50, vals50))
+            Dz = dense_array(T, dims, ids, valsz)
+            ref_dot, scale_dot = dot(a, Dz * b), dot(abs.(a), abs.(Dz) * abs.(b))
+            check_dot() = close_scalar(dot(a, Z, b), ref_dot, scale_dot, T)
+            addcase!(cases, "sparse", "dot_aXb", () -> dot(a, Z, b), guarded(check_dot);
+                     inputs=(; a, Z, b), T, shape, layout=zlabel, zero_alloc=false, work=k)
+        end
     end
+    want("dot_aXb") && Base.invokelatest(dot_group)
     nothing
 end
 
@@ -2217,7 +2445,7 @@ end
 function sparse_symmetric_cases!(cases, rep, T, p, density, label, scache)
     s = round(Int, density * p)
     key = "sparse/symmetric/$T/$p/$label"
-    shape = "p$(p)_s$(s)"
+    shape = sparse_symmetric_shape(p, s)
     S = get!(() -> Symmetric(randn(scenario_rng(rep, "sparse/S/$T/$p"), T, p, p)), scache, (T, p))::Symmetric{T,Matrix{T}}
     ids = randperm(scenario_rng(rep, key * "/ids"), p)[1:s]
     vals = fixture_values(scenario_rng(rep, key * "/values"), T, s)
@@ -2237,39 +2465,32 @@ function sparse_symmetric_cases!(cases, rep, T, p, density, label, scache)
     nothing
 end
 
-function sparse_cases!(cases, rep; quick=false)
-    types = quick ? (Float64,) : (Float32, Float64)
-    grid = quick ? ((10^4, 10^2), (10^6, 10^3)) : ((10^4, 10^2), (10^6, 10^2), (10^6, 10^3), (10^6, 10^4))
-    rows = quick ? (256,) : (256, 1024)       # rows of the dense operands, and p of the Symmetric ones
-    densities = quick ? SPARSE_DENSITIES[2:2] : SPARSE_DENSITIES
+# With a `selector` (see `build_cases`) a scenario or function none of whose IDs matches is not built, and the
+# operation groups inside a scenario are run only when wanted. The guarded calls go through `Base.invokelatest`,
+# so that what is skipped is not compiled. Without a selector nothing is enumerated and everything is built.
+function sparse_cases!(cases, rep; quick=false, selector=nothing)
+    scenarios = sparse_scenarios(quick)
     vcache, acache, scache = Dict{Any,Any}(), Dict{Any,Any}(), Dict{Any,Any}()
-    for T in types, n in unique(first.(grid))
-        addcase!(cases, "sparse", "construct", () -> (SparseIterate(T, n); nothing),
-                 function ()
-                     x = SparseIterate(T, n)
-                     # retained memory: one T array and two Int arrays of length n, plus headers
-                     abs(Base.summarysize(x) - (sizeof(T) + 2 * sizeof(Int)) * n) <= 1024 || error("unexpected retained size")
-                     nactive(x) == 0 || error("a new iterate has active coordinates")
-                 end;
-                 # the operation reads only scalars
-                 inputs=(;), T, shape="n$n", layout="empty", phase="construct", evals=1, zero_alloc=false, work=n)
+    for s in scenarios.constructs
+        selector === nothing || any_wanted(selector, sparse_construct_ids(s.T, s.n)) || continue
+        Base.invokelatest(sparse_construct_case!, cases, s.T, s.n)
     end
-    for T in types, (n, s) in grid
-        sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=(n, s) == (10^4, 10^2) ? rows : ())
+    for s in scenarios.vectors
+        selector === nothing || any_wanted(selector, sparse_vector_ids(s.T, s.n, s.s; s.rows)) || continue
+        Base.invokelatest(sparse_vector_cases!, cases, rep, s.T, s.n, s.s, vcache; s.rows, selector)
     end
-    for T in types, dims in ((1000, 64), (256, 1000)), (density, label) in densities
-        sparse_matrix_cases!(cases, rep, T, dims, density, label, rows, acache)
+    for s in scenarios.matrices
+        selector === nothing || any_wanted(selector, sparse_matrix_ids(s.T, s.dims, s.label, s.rows)) || continue
+        Base.invokelatest(sparse_matrix_cases!, cases, rep, s.T, s.dims, s.density, s.label, s.rows, acache; selector)
     end
-    sym_densities = quick ? SPARSE_DENSITIES[2:2] : SPARSE_DENSITIES[2:3]
-    for T in types, p in rows, (density, label) in sym_densities
-        sparse_symmetric_cases!(cases, rep, T, p, density, label, scache)
+    for s in scenarios.symmetrics
+        selector === nothing || any_wanted(selector, sparse_symmetric_ids(s.T, s.p, s.density)) || continue
+        Base.invokelatest(sparse_symmetric_cases!, cases, rep, s.T, s.p, s.density, s.label, scache)
     end
     # FW-4 on the dense branch of the copy kernel: matrices at 20% (dedicated, Float64 sources)
-    for dims in (quick ? ((1000, 64),) : ((1000, 64), (256, 1000)))
-        L = prod(dims)
-        key = "sparse/convert/$(dims[1])x$(dims[2])/20"
-        ids = randperm(scenario_rng(rep, key * "/ids"), L)[1:round(Int, 0.2 * L)]
-        sparse_convert_cases!(cases, rep, dims, ids, key, "$(dims[1])x$(dims[2])_d20")
+    for dims in scenarios.converts
+        selector === nothing || any_wanted(selector, sparse_matrix_convert_ids(dims)) || continue
+        Base.invokelatest(sparse_matrix_convert_cases!, cases, rep, dims)
     end
     nothing
 end
@@ -3362,7 +3583,7 @@ end
 
 const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks", "owner", "sparse", "atom", "ridge")
 
-# `selector` (a Regex or `nothing`) lets the builders that take it, `atom_cases!` only, skip scenarios and
+# `selector` (a Regex or `nothing`) lets the builders that take it, `sparse_cases!` and `atom_cases!`, skip scenarios and
 # operations none of whose case IDs it matches, before their fixtures exist. The result is a superset of the
 # cases whose IDs match, in the original relative order, with the fixtures they always had; the caller applies
 # the exact filter. Without a selector it is the whole catalog.
@@ -3376,7 +3597,7 @@ function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS), selector::
     # Select groups and sizes before allocating data or constructing function objects.
     for (group,builder) in zip(CASE_GROUPS,builders)
         group in groups || continue
-        builder === atom_cases! ? builder(cases,rep;quick=suite=="quick",selector) : builder(cases,rep;quick=suite=="quick")
+        builder in (sparse_cases!, atom_cases!) ? builder(cases,rep;quick=suite=="quick",selector) : builder(cases,rep;quick=suite=="quick")
     end
     suite == "extended" && "vectors" in groups && group_layout_cases!(cases, rep)
     ids=[c.meta.id for c in cases]

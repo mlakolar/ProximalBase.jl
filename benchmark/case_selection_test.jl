@@ -19,6 +19,11 @@ const ATOM_QUICK_CASES = 118
 const ATOM_QUICK_CATALOG_SHA1 = "3d34cb6c7097496992359bfdda543fb2c77c9cf8"
 const ATOM_QUICK_ORDER_SHA1 = "76f5ab38e0617715ca06dd85ea621a8ac8524820"
 
+# The quick `sparse` group likewise (117 cases; the same for repetitions 1, 2 and 10).
+const SPARSE_QUICK_CASES = 117
+const SPARSE_QUICK_CATALOG_SHA1 = "d0a29c2a31041ec99b75ae531eef7d469d1c2365"
+const SPARSE_QUICK_ORDER_SHA1 = "ed770d220b57af5f6b76c95b6a5c62f8ebc5c86e"
+
 sel_catalog_sha1(cases) = bytes2hex(sha1(join(sort!([c.meta.id for c in cases]), '\n')))
 function sel_order_sha1(cases)
     io = IOBuffer()
@@ -243,6 +248,19 @@ end
           ["atom/samegroups/Float64/p80_g8_contiguous/$l/warm" for l in ("shared", "distinct_first_seen", "alternating")]
     @test [id for (_, id) in atom_symmetric_ids(Float32, 64)] ==
           ["atom/mul!/Float32/p1024_g64_contiguous_act10/symmetric_$z/warm" for z in ("z0", "z50")]
+    @test only(sparse_construct_ids(Float32, 1000)) == ("construct", "sparse/construct/Float32/n1000/empty/construct")
+    @test [id for (_, id) in sparse_symmetric_ids(Float64, 256, 0.03)] ==
+          ["sparse/mul!/Float64/p256_s8/symmetric_$z/warm" for z in ("z0", "z50")]
+    # the branch of a conversion follows 4 * (2k) < length
+    @test [id for (_, id) in sparse_convert_ids((1000, 64), 12800, "1000x64_d20")] ==
+          ["sparse/copyto!_convert/Float64/1000x64_d20/to_$(Td)_dense_branch/warm" for Td in (Float64, Float32, Int)]
+    @test [id for (_, id) in sparse_convert_ids((10^4,), 100, "n10000_s100")] ==
+          ["sparse/copyto!_convert/Float64/n10000_s100/to_$(Td)_sparse_branch/warm" for Td in (Float64, Float32, Int)]
+    # a vector scenario spells the mul! shape with the rows, and the first-activation layouts with the batch count
+    ids = sparse_vector_ids(Float32, 10^4, 10^2; rows=(256,))
+    @test ("mul!", "sparse/mul!/Float32/n10000_s100_m256/transposed_z50/warm") in ids
+    @test ("first_activation", "sparse/first_activation/Float32/n10000_s100/activate_distinct_batch_x16/first_activation") in ids
+    @test !any(pair -> occursin("copyto!_convert", pair[2]), ids)
 end
 
 mutable struct SelNode
@@ -447,6 +465,13 @@ end
         build_cases(1; suite="quick", groups=["atom"], selector)
         @test rand(UInt64, 4) == control
     end
+    # nor do the sparse builders: every draw of a scenario has its own keyed stream
+    for selector in (nothing, r"^sparse/isactive/", r"^sparse/first_activation/", r"^sparse/dot_xy/", r"^sparse/mul!_matrix/",
+                     r"^sparse/copyto!_convert/")
+        Random.seed!(1)
+        build_cases(1; suite="quick", groups=["sparse"], selector)
+        @test rand(UInt64, 4) == control
+    end
 end
 
 @testset "the enumerated IDs are complete: quick grid" begin
@@ -489,8 +514,8 @@ const SEL_SCENARIO_REGEXES = (raw"/isactive/", raw"write_x\[i\]_active", raw"/re
                               raw"/replace_staged/", raw"/replace_cheap/|/copyto!_dense/", raw"/broadcast_assign/|/copyto!_state/",
                               raw"/copy/|/copyto!_same_kind/", raw"/copyto!_unrelated/|/broadcast_self/", raw"/fill!_zero",
                               raw"/atomindices_view/|/atom_dot/", raw"/sweep_active")
-sel_scenario_build(s; selector=nothing) = (cases = PerfCase[];
-    atom_scenario_cases!(cases, 1, s.T, s.p, s.g, s.strided, atom_label_density(s.label), s.label,
+sel_scenario_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
+    atom_scenario_cases!(cases, rep, s.T, s.p, s.g, s.strided, atom_label_density(s.label), s.label,
                          atom_groups(s.p, s.g, s.strided), (Dict{Any,Any}(), Dict{Any,Any}(), Dict{Any,Any}());
                          s.full, s.rows, selector);
     cases)
@@ -508,5 +533,187 @@ sel_scenario_build(s; selector=nothing) = (cases = PerfCase[];
     end
     # a selection that matches no ID builds nothing
     @test isempty(sel_scenario_build(s; selector=r"^no such ID$"))
+    GC.gc()
+end
+
+# ---- the sparse group: the quick group, through build_cases --------------------------------------------------
+const SEL_SPARSE_PRIMARY = (raw"^sparse/isactive/",
+                            raw"^sparse/dot_vx/",
+                            raw"^sparse/dot_xy/",
+                            raw"^sparse/mul!/",
+                            raw"^sparse/mul!_matrix/",
+                            raw"^sparse/first_activation/",
+                            raw"^sparse/copyto!_convert/",
+                            raw"^sparse/construct/",
+                            raw"^sparse/isactive/Float64/n10000_s100/half_active/warm$")
+const SEL_SPARSE_BROAD = (raw"/warm$", "n10000_s100")
+
+@testset "the unfiltered sparse catalog is unchanged" begin
+    for rep in (1, 2, 10)
+        Random.seed!(rep)
+        cases = build_cases(rep; suite="quick", groups=["sparse"])
+        @test length(cases) == SPARSE_QUICK_CASES
+        @test sel_catalog_sha1(cases) == SPARSE_QUICK_CATALOG_SHA1
+        @test sel_order_sha1(cases) == SPARSE_QUICK_ORDER_SHA1
+    end
+    @test [c.meta.id for c in selected_cases(1, "quick", ["sparse"], "")] ==
+          [c.meta.id for c in build_cases(1; suite="quick", groups=["sparse"])]
+end
+
+@testset "selection of the quick sparse group" begin
+    for rep in (1, 2, 10)
+        unfiltered() = build_cases(rep; suite="quick", groups=["sparse"])
+        selected(selector) = build_cases(rep; suite="quick", groups=["sparse"], selector)
+        @testset "primary rep $rep: $selection" for selection in SEL_SPARSE_PRIMARY
+            sel_compare(unfiltered, selected, selection)
+        end
+        if rep == 1
+            # nearly every case is selected: compared before anything runs, on one build that is never run
+            pristine = unfiltered()
+            @testset "selected_cases: $selection" for selection in (SEL_SPARSE_PRIMARY[1], SEL_SPARSE_PRIMARY[5], SEL_SPARSE_BROAD[1])
+                selector = Regex(selection)
+                @test [c.meta.id for c in selected_cases(rep, "quick", ["sparse"], selection)] ==
+                      [c.meta.id for c in pristine if occursin(selector, c.meta.id)]
+            end
+            @testset "broad: $selection" for selection in SEL_SPARSE_BROAD
+                sel_compare(pristine, selected, selection; targeted=false, run=false)
+            end
+            pristine = nothing
+        end
+        GC.gc()
+    end
+    # an alternation across families, with another group
+    groups = ["sparse", "atom"]
+    unfiltered_two() = build_cases(1; suite="quick", groups)
+    sel_compare(unfiltered_two, selector -> build_cases(1; suite="quick", groups, selector), raw"^sparse/isactive/|^atom/isactive/")
+    GC.gc()
+end
+
+@testset "the enumerated sparse IDs are complete: quick grid" begin
+    all_cases = sel_all(1, "quick", ["sparse"])
+    scenarios = sparse_scenarios(true)
+    @test (length(scenarios.constructs), length(scenarios.vectors), length(scenarios.matrices),
+           length(scenarios.symmetrics), length(scenarios.converts)) == (2, 2, 2, 1, 1)
+    registered = Set(c.meta.id for c in all_cases)
+    enumerated = Set{String}()
+    mine(shapes...) = Set(c.meta.id for c in all_cases if c.meta.shape in shapes)
+    for s in scenarios.constructs
+        ids = Set(id for (_, id) in sparse_construct_ids(s.T, s.n))
+        @test ids == Set(c.meta.id for c in all_cases if c.meta.name == "construct" && c.meta.shape == "n$(s.n)")
+        union!(enumerated, ids)
+    end
+    for s in scenarios.vectors
+        ids = Set(id for (_, id) in sparse_vector_ids(s.T, s.n, s.s; s.rows))
+        shape = sparse_vector_shape(s.n, s.s)
+        @test ids == mine(shape, (shape * "_m$m" for m in s.rows)...)
+        union!(enumerated, ids)
+    end
+    for s in scenarios.matrices
+        ids = Set(id for (_, id) in sparse_matrix_ids(s.T, s.dims, s.label, s.rows))
+        @test ids == mine(sparse_matrix_shape(s.dims, s.label))
+        union!(enumerated, ids)
+    end
+    for s in scenarios.symmetrics
+        ids = Set(id for (_, id) in sparse_symmetric_ids(s.T, s.p, s.density))
+        @test ids == mine(sparse_symmetric_shape(s.p, round(Int, s.density * s.p)))
+        union!(enumerated, ids)
+    end
+    for dims in scenarios.converts
+        ids = Set(id for (_, id) in sparse_matrix_convert_ids(dims))
+        @test ids == mine(sparse_convert_shape(dims))
+        union!(enumerated, ids)
+    end
+    @test enumerated == registered
+    @test isempty(sel_boxed(all_cases))
+end
+
+# ---- the sparse extended branches, one scenario at a time ----------------------------------------------------
+const SEL_SPARSE_VECTORS = [(T=Float32, n=10^4, s=10^2, rows=(256, 1024)),
+                            (T=Float64, n=10^4, s=10^2, rows=(256, 1024)),
+                            (T=Float64, n=10^6, s=10^3, rows=()),
+                            (T=Float32, n=10^6, s=10^4, rows=())]
+const SEL_SPARSE_VECTOR_REGEXES = (raw"/isactive/", raw"write_x\[i\]_active", raw"/read_x\[i\]/", raw"/first_activation/.*_x16",
+                                   raw"/activate_distinct_batch/", raw"/sweep_activevalues/|/dot_x/", raw"/sweep_full/",
+                                   raw"/dot_vx/.*z50", raw"/dot_xy/.*z0", raw"mul!/.*strided_z0", raw"_m1024/.*transposed_z50",
+                                   raw"/rmul!_inf", raw"/rmul!_finite", raw"/fill!_coordinates_zero", raw"/prox_coordinate!_5arg",
+                                   raw"/_restartdot/.*private_fields", raw"/_setvalues!/.*accessors", raw"/_values!/",
+                                   raw"/copyto!_convert/", raw"copyto!_convert/.*to_Int", raw"/replace_staged/",
+                                   raw"/copy/|/copyto!_same_kind/", raw"/copyto!_unrelated/|/broadcast_self/|/copyto!_activevalues/",
+                                   raw"/fill!_zero", raw"/broadcast_assign/|/copyto!_state/|/copyto!_dense/",
+                                   raw"/dropzeros!/.*zeros50", raw"/replace_cheap/")
+const SEL_SPARSE_LARGE_REGEXES = (raw"/isactive/", raw"/dot_vx/.*z50", raw"/sweep_activevalues/|/dot_x/", raw"/dropzeros!/.*zeros10",
+                                  raw"/replace_cheap/", raw"/copyto!_convert/", raw"/rmul!_finite/", raw"/first_activation/.*_x16")
+sel_sparse_vector_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
+    sparse_vector_cases!(cases, rep, s.T, s.n, s.s, Dict{Any,Any}(); s.rows, selector);
+    cases)
+
+@testset "sparse extended scenarios: $(s.T) n=$(s.n) s=$(s.s) rows=$(s.rows)" for s in SEL_SPARSE_VECTORS
+    large = s.n >= 10^6
+    pristine = sel_sparse_vector_build(s)
+    ids = Set(id for (_, id) in sparse_vector_ids(s.T, s.n, s.s; s.rows))
+    @test Set(c.meta.id for c in pristine) == ids              # no ID is missing, and none is spurious
+    regexes = large ? SEL_SPARSE_LARGE_REGEXES : SEL_SPARSE_VECTOR_REGEXES
+    applicable = [r for r in regexes if any(c -> occursin(Regex(r), c.meta.id), pristine)]
+    @test length(applicable) >= (large ? (s.T == Float64 ? 8 : 7) : (s.T == Float64 ? 27 : 25))
+    @test isempty(sel_boxed(pristine))
+    pristine = nothing
+    for selection in applicable
+        sel_compare(() -> sel_sparse_vector_build(s), selector -> sel_sparse_vector_build(s; selector), selection)
+    end
+    # a selection that matches no ID builds nothing
+    @test isempty(sel_sparse_vector_build(s; selector=r"^no such ID$"))
+    GC.gc()
+end
+
+sel_sparse_density(label) = only(d for (d, l) in SPARSE_DENSITIES if l == label)
+const SEL_SPARSE_MATRICES = [(T=Float64, dims=(1000, 64), label="0.5", rows=(256,)),
+                             (T=Float32, dims=(1000, 64), label="20", rows=(256,)),
+                             (T=Float64, dims=(256, 1000), label="3", rows=(256, 1000))]
+const SEL_SPARSE_MATRIX_REGEXES = (raw"/sweep_via_coordinates/", raw"/sweep_via_x/", raw"/mul!_matrix/", raw"mul!_matrix/.*rows256_z50",
+                                   raw"mul!_matrix/.*rows1000_z0", raw"/dot_aXb/", raw"dot_aXb/.*z50", raw"/sweep_via")
+sel_sparse_matrix_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
+    sparse_matrix_cases!(cases, rep, s.T, s.dims, sel_sparse_density(s.label), s.label, s.rows, Dict{Any,Any}(); selector);
+    cases)
+
+@testset "sparse extended matrices: $(s.T) $(s.dims) d$(s.label) rows=$(s.rows)" for s in SEL_SPARSE_MATRICES
+    pristine = sel_sparse_matrix_build(s)
+    @test Set(c.meta.id for c in pristine) == Set(id for (_, id) in sparse_matrix_ids(s.T, s.dims, s.label, s.rows))
+    applicable = [r for r in SEL_SPARSE_MATRIX_REGEXES if any(c -> occursin(Regex(r), c.meta.id), pristine)]
+    @test length(applicable) >= (length(s.rows) == 2 ? 8 : 7)
+    @test isempty(sel_boxed(pristine))
+    pristine = nothing
+    for selection in applicable
+        sel_compare(() -> sel_sparse_matrix_build(s), selector -> sel_sparse_matrix_build(s; selector), selection)
+    end
+    @test isempty(sel_sparse_matrix_build(s; selector=r"^no such ID$"))
+    GC.gc()
+end
+
+# the functions that are guarded as a whole: the Symmetric operands and the conversions of the 20% matrices
+@testset "sparse extended whole-function scenarios: enumerated IDs" begin
+    for (T, p, label) in ((Float64, 256, "3"), (Float32, 1024, "20"), (Float64, 1024, "3"))
+        cases = PerfCase[]
+        sparse_symmetric_cases!(cases, 1, T, p, sel_sparse_density(label), label, Dict{Any,Any}())
+        @test Set(c.meta.id for c in cases) == Set(id for (_, id) in sparse_symmetric_ids(T, p, sel_sparse_density(label)))
+        @test length(cases) == 2
+    end
+    for dims in ((1000, 64), (256, 1000))
+        cases = PerfCase[]
+        sparse_matrix_convert_cases!(cases, 1, dims)
+        @test Set(c.meta.id for c in cases) == Set(id for (_, id) in sparse_matrix_convert_ids(dims))
+        @test all(c -> occursin("_dense_branch/", c.meta.id), cases) && length(cases) == 3
+    end
+end
+
+# the repetitions other than 1 at scenario level: one atom and one sparse extended scenario
+@testset "extended scenarios at repetitions 2 and 10" for rep in (2, 10)
+    a = SEL_SCENARIOS[1]
+    for selection in (raw"/isactive/", raw"mul!.*z50", raw"/first_activation/.*_x\d+")
+        sel_compare(() -> sel_scenario_build(a; rep), selector -> sel_scenario_build(a; selector, rep), selection)
+    end
+    v = SEL_SPARSE_VECTORS[2]
+    for selection in (raw"/isactive/", raw"mul!/.*_m1024/.*transposed_z50", raw"/dot_xy/.*z50", raw"/copyto!_convert/")
+        sel_compare(() -> sel_sparse_vector_build(v; rep), selector -> sel_sparse_vector_build(v; selector, rep), selection)
+    end
     GC.gc()
 end

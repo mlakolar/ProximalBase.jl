@@ -154,7 +154,7 @@ g32(x, n) = Base.ldexp(x, n)
 f16(x, n) = PB.ldexp(x, n)
 g16(x, n) = Base.ldexp(x, n)
 alloc(h, x, n) = @allocated h(x, n)
-normir(s) = replace(replace(s, r"julia_[fg](64|32|16)_[0-9]+" => "julia_F"), r"L[0-9]+" => "L")
+normir(s) = replace(replace(replace(s, r"julia_[fg](64|32|16)_[0-9]+" => "julia_F"), r"\b[fg](64|32|16)\(" => "F("), r"L[0-9]+" => "L")
 for (T, f, g) in ((Float64, f64, g64), (Float32, f32, g32), (Float16, f16, g16))
   fi = sprint(io -> code_llvm(io, f, Tuple{T, Int}; debuginfo = :none))
   gi = sprint(io -> code_llvm(io, g, Tuple{T, Int}; debuginfo = :none))
@@ -222,12 +222,13 @@ for f in sort(readdir("ext"))
     occursin("ldexp", l) && println("  ext/$f:$i: ", strip(l))
   end
 end
-println("fact: both calls are in _group_levels(::Type{T}, γ, λ) with R = promote_type(T, float(typeof(γ)), float(typeof(λ))), so R is BigFloat for BigFloat")
-println("      levels; the shifts are fld(e, 2) and e - fld(e, 2) of (m, e) = frexp(c), whose exponent for a BigFloat is a Clong (Int32 on Windows):")
-println("      the shift is then Base's exact method, so the calls are exact without the shadow.")
-println("      frexp(BigFloat) exponent type here: ", typeof(frexp(big(1.0))[2]), "   Clong = ", Clong)
-check("frexp(::BigFloat) returns a Clong exponent, so ext/ shifts of BigFloat are exact Base calls", () -> typeof(frexp(big(1.0))[2]) === Clong)
-check("their shift fld(e, 2) of a Clong stays a Clong", () -> typeof(fld(frexp(big(1.0))[2], 2)) === Clong)
+println("FACT: both calls are in _group_levels(::Type{T}, γ, λ) with R = promote_type(T, float(typeof(γ)), float(typeof(λ))), so R is BigFloat for BigFloat")
+println("      levels; the shifts are fld(e, 2) and e - fld(e, 2) of (m, e) = frexp(c) with the literal 2 (an Int).")
+let e = frexp(big(1.0))[2]
+  println("FACT: typeof(frexp(::BigFloat)[2]) = ", typeof(e), ";  typeof(fld(e, 2)) = ", typeof(fld(e, 2)), ";  typeof(e - fld(e, 2)) = ", typeof(e - fld(e, 2)),
+          ";  Clong = ", Clong)
+  println("FACT: the ext shifts are ", typeof(fld(e, 2)) === Clong ? "Clong: Base's exact method" : "not a Clong: Base's Integer fallback where Clong is narrower than Int (Windows), so the shadow of the package module does not cover them and they need their own fix")
+end
 
 println("== summary")
 println("julia ", VERSION, " ", Sys.MACHINE, ": PASS ", NPASS[], "  FAIL ", NFAIL[])

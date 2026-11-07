@@ -1253,13 +1253,12 @@ unchanged. A generic allocating operation on the view (`A .+ 1`, `similar(A)`,
 dense vector costs `O(p + nactive(x))`; other generic matrix operations on the
 view read all `p²` entries. Use `Matrix(x)` for an independent dense copy.
 
-!!! warning "Non-finite vectors"
-    The product skips absent coordinates but multiplies by stored ones, an
-    explicit stored zero included. With a non-finite `v`, a stored zero gives
-    `0 * Inf = NaN` where an absent coordinate gives `0`, so `dropzeros!(x)` can
-    change `mul!(y, matrixview(x), v)` although the matrix does not. This does
-    not yet satisfy the rule of the 0.6 contract (the same result, or the same
-    error, before and after `dropzeros!`); it is to be settled with the 0.6 owner.
+!!! note "Non-finite vectors"
+    A coefficient of `x` that is zero contributes nothing to the product, whether
+    it is absent or an explicitly stored zero: a non-finite entry of `v` that meets
+    only zero coefficients does not reach the result, and `mul!(y, matrixview(x), v)`
+    is the same before and after `dropzeros!(x)`, up to the order of the finite
+    summation. A NaN coefficient is not zero and gives NaN.
 
 Entries `(r, c)` and `(c, r)` are one variable of `x`; a coordinate of `x` is
 reached through [`coordinates`](@ref), not through this view, so
@@ -2407,7 +2406,9 @@ function _mul_symsparse!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::
     v = A.nzval[i]
     ind = A.nzval2ind[i]
     r, c = tril_cartesian(size(A, 1), ind)
-    if r == c
+    if iszero(v)
+      # a zero coefficient contributes nothing, even against a non-finite entry of B
+    elseif r == c
       for k=1:size(C, 2)
         @inbounds C[r, k] += B[c, k] * v
       end
@@ -2443,7 +2444,9 @@ function LinearAlgebra.mul!(C::AbstractVector, A::SymmetricSparseIterate, B::Abs
     v = A.nzval[i]
     ind = A.nzval2ind[i]
     r, c = tril_cartesian(size(A, 1), ind)
-    if r == c
+    if iszero(v)
+      # a zero coefficient contributes nothing, even against a non-finite entry of B
+    elseif r == c
         @inbounds C[r] += B[c] * v
     else
         @inbounds C[r] += B[c] * v
@@ -2462,8 +2465,9 @@ function LinearAlgebra.dot(a::AbstractVector, X::SymmetricSparseIterate, b::Abst
   length(a) == X.p == length(b) || throw(DimensionMismatch())
   s = zero(promote_type(eltype(a), eltype(X), eltype(b)))
   @inbounds for k = 1:X.nnz
-    r, c = tril_cartesian(X.p, X.nzval2ind[k])
     v = X.nzval[k]
+    iszero(v) && continue     # a zero coefficient contributes nothing, even against a non-finite entry
+    r, c = tril_cartesian(X.p, X.nzval2ind[k])
     s += r == c ? a[r] * v * b[c] : (a[r] * b[c] + a[c] * b[r]) * v
   end
   s
@@ -2476,8 +2480,9 @@ function LinearAlgebra.dot(A::AbstractMatrix, X::SymmetricSparseIterate)
   size(A) == size(X) || throw(DimensionMismatch())
   s = zero(promote_type(eltype(A), eltype(X)))
   @inbounds for k = 1:X.nnz
-    r, c = tril_cartesian(X.p, X.nzval2ind[k])
     v = X.nzval[k]
+    iszero(v) && continue     # a zero coefficient contributes nothing, even against a non-finite entry
+    r, c = tril_cartesian(X.p, X.nzval2ind[k])
     s += r == c ? dot(A[r, c], v) : dot(A[r, c] + A[c, r], v)
   end
   s
@@ -2545,8 +2550,8 @@ end
 
 # C = α A B + β C over the stored entries of A, O(p + nactive(A)) and no allocation.
 # As in BLAS, C is not read when β is zero and B is not read when α is zero.
-# A stored explicit zero still multiplies B, so with a non-finite B the product
-# can depend on whether a zero is stored (see the documentation of matrixview).
+# A coefficient that is zero, stored or not, contributes nothing, even against a
+# non-finite entry of B or a non-finite α.
 function _mul_stored!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector, α::Number, β::Number)
   p = A.p
   length(B) == p || throw(DimensionMismatch("A has $p columns but B has length $(length(B))"))
@@ -2555,8 +2560,10 @@ function _mul_stored!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractV
   iszero(β) ? fill!(C, zero(eltype(C))) : isone(β) || rmul!(C, β)
   iszero(α) && return C
   @inbounds for k in 1:A.nnz
+    v0 = A.nzval[k]
+    iszero(v0) && continue
     r, c = tril_cartesian(p, A.nzval2ind[k])
-    v = α * A.nzval[k]
+    v = α * v0
     C[r] += B[c] * v
     r == c || (C[c] += B[r] * v)
   end
@@ -2573,8 +2580,10 @@ function _mul_stored!(C::AbstractMatrix, A::SymmetricSparseIterate, B::AbstractM
   iszero(α) && return C
   n = size(C, 2)
   @inbounds for k in 1:A.nnz
+    v0 = A.nzval[k]
+    iszero(v0) && continue
     r, c = tril_cartesian(p, A.nzval2ind[k])
-    v = α * A.nzval[k]
+    v = α * v0
     for j in 1:n
       C[r, j] += B[c, j] * v
       r == c || (C[c, j] += B[r, j] * v)

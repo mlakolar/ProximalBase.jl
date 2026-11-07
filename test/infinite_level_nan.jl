@@ -305,11 +305,13 @@ end
       @test isequal(prox(f, (nan, T(1)), γ), (nan, nan))
       @test isequal(prox(f, (T[NaN, 1], T[2, NaN]), γ), (fill(nan, 2), fill(nan, 2)))
     end
-    # an infinite fusion level alone restricts the domain to equal entries: not a constant map
+    # an infinite fusion level alone restricts the domain to equal entries: not a constant map. Not an
+    # unchanged case since #664: the proximal point is the shrunk mean, and a NaN entry gives NaN in
+    # every entry (test/normfused_infinite_fusion.jl)
     g = NormL1Fused(T(1), T(Inf))
-    @test isequal(prox(g, T[1, -2, 0.5], T(1)), T[-Inf, Inf, nan])
+    @test isequal(prox(g, T[1, -2, 0.5], T(1)), zeros(T, 3))
     @test isequal(prox(g, T[3, 1], T(1)), T[1, 1])
-    @test isequal(prox(g, T[1, NaN, 0.5], T(1)), T[Inf, nan, -Inf])
+    @test isequal(prox(g, T[1, NaN, 0.5], T(1)), fill(nan, 3))
   end
   # a finite ℓ1 level that overflows Float32 is not infinite (R3)
   f = NormL1Fused(1e300, 1.0)

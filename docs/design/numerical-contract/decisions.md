@@ -2027,6 +2027,62 @@ The first families, with the proofs:
   of any length and each function of a `FiberSum` (the diagonal one on its
   own). The value is `0` at zero, `Inf` at a nonzero argument and NaN at a NaN
   entry.
+- *`NormL1Fused` with `λ2 = Inf` and a finite `λ1` (#664).* The domain is the
+  vectors of equal entries (the pairs `x1ᵢ = x2ᵢ` in the tuple form). This is
+  not a constant map, so the rule of this decision (a NaN does not reach a
+  constant output) does not apply, and E2 stands. On the constants `z·1` of
+  length K the objective is `K(z − m)²/(2γ) + Kλ1|z|` up to a constant, with
+  `m` the mean of the entries, so at a positive finite step the proximal point
+  is `z·1`, `z = shrink(m, γλ1)` (the threshold is `γλ1`, not `Kγλ1`). A vector
+  of one entry has no pairs and is shrunk by `γλ1`. A NaN entry gives NaN in
+  every entry of its group (E2), infinite entries of one sign give that
+  infinity and of both signs NaN, as the pair form already gave. The value is
+  `λ1 Σₖ|vₖ|` at equal finite entries (the fusion term is exactly zero, E4,
+  where the products gave `Inf⋅0`), `Inf` at any other finite argument and NaN
+  at a NaN entry, and `value_and_prox!` returns it at the stored output (O2),
+  a separate output included (O7). The route reads the stored `λ2` and `λ1`
+  and the step as given (R3): a finite `λ2` whose product with the step
+  overflows keeps the finite-level computation, `λ1 = Inf` keeps the hard zero
+  above, and a zero, infinite, negative or NaN step keeps the earlier proximal
+  outputs in every form, the stored output of `value_and_prox!` included
+  (the repair of a separate output at a pair near `floatmax` is taken at a
+  finite positive step only), which the library does not document as supported
+  for a vector of K ≥ 3 entries (#311, #665); the value that `value_and_prox!`
+  returns is the value at that stored output, by the value rule above, at every
+  step: for `FiberSum` as well, where only the recomputation of a separate
+  output is limited to a finite positive step; an output with a non-one-based
+  axis keeps the loop's value there (the fiber views need one-based axes). The proximal output of the pair, the tuple of arrays, the
+  vector of two entries and the pair route of `FiberSum` was this one already
+  (their value was not). The mean of the other vectors and the threshold
+  are formed in the promoted type of the argument and of the output (at least
+  `Float32`), and `z` is rounded once, when it is stored (T3, R3): a finite
+  entry of a wider argument is never narrowed to an infinity before the mean.
+  The sum is a compensated sum, except that the entries whose sums could
+  overflow (above `floatmax 2⁻ˢʰ` for `2ˢʰ > K`) are summed exactly as
+  integers: if they cancel exactly, the mean is that of the other entries, so a
+  small residual is kept; otherwise the total is combined in scaled pieces and
+  the quotient carries the exponent separately. The accuracy that is proved is
+  the rounding of the compensated sum, plus at most two minimum subnormals
+  where the scaled pieces of the small entries underflow; correct rounding is
+  not claimed. The exact integer sum supports vectors of fewer than `2³⁶`
+  (`Float64`) or `2⁵¹` (`Float32`) entries (the sum is below `2^(2sh + p)`
+  and must fit `Int128`); a longer vector, or a working type without the binary
+  exponent interface (`exponent`, `frexp`, `ldexp`), declines the route and
+  keeps the earlier result. Another binary floating-point type (`BigFloat`)
+  scales the entries by the power of two of the largest magnitude when its sum
+  overflows, and keeps no residual that lies below the rounding of an
+  inexact partial sum. For every type the computed mean of finite entries is
+  clamped into `[min(x), max(x)]`, which contains the true mean (and its
+  correctly rounded value): the clamp never changes a result already in the
+  interval, and it is the proof that the mean of finite entries is finite at
+  any precision (the scaling alone does not bound the rounding of the
+  accumulated sum: a constant vector of `floatmax` entries at a five-bit
+  precision restored to `Inf`). The accuracy claimed is that of the compensated
+  sum and of the quotient, no more. For an argument whose
+  element type is not concrete (`Vector{Real}`) the working type is the
+  promoted type of the types of the entries. The pair, tuple and K = 2 routes, and the ordinary finite-level
+  route, still convert the argument to the type of the output, as before
+  (follow-up).
 - *`NormLinf`, `f(x) = λ maxᵢ|xᵢ|`.* With `λ = Inf`, `f(z) = Inf⋅max|zᵢ|`
   is `0` at `z = 0` and `+Inf` at every other finite `z`, so `f` is the
   indicator of `{0}`. For a fixed finite `γ > 0` the unique minimizer of
@@ -2130,7 +2186,9 @@ Excluded, and unchanged:
   under an infinite level.
 - An infinite fusion level alone, `NormL1Fused(λ1, Inf)` with a finite
   `λ1`: its domain is the vectors with equal entries (`x1 = x2` for the tuple
-  form), which is not a constant map.
+  form), which is not a constant map, so the rule above does not cover it. It
+  is no longer unchanged: #664 gives it the projection onto the equal entries
+  followed by the ℓ1 shrink (the `NormL1Fused` bullet with `λ2 = Inf` above).
 - An infinite coordinate weight under a finite level. Its entry is constant
   too, but testing every weight costs the weighted loops 8–28%, so it is a
   separate question for all the separable families.

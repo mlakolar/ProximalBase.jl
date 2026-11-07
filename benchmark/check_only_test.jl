@@ -258,4 +258,41 @@ end
     end
 end
 
+@testset "owner cases: read-only owner input and the catalog of the clears" begin
+    # a write to an active coordinate of the swept owner during the trial is a change of a declared input
+    c = byid("owner/sweep_activecoordinates/Float64/p500_s100/trivial_update/warm")
+    Xs = c.inputs.Xs; r, k = ProximalBase.tril_cartesian(500, first(activecoordinates(Xs))); old = Xs[r, k]
+    @test occursin(during("Xs", c), message(() -> check!(with_operation(c, on_call(c, 20, () -> (Xs[r, k] = old + 1))))))
+    Xs[r, k] = old
+    @test message(() -> check!(c)) == ""
+    # the catalog of the clears, of the live quick grid (three scenarios): fill!(X, 0) is registered only
+    # when the owner is an array; the clears through coordinates(X) are registered in both cases
+    ids = [c.meta.id for c in CS]
+    n_zero = count(startswith("owner/fill!_zero/"), ids)
+    n_coords = count(startswith("owner/fill!_coordinates_zero/"), ids)
+    n_dropzeros = count(startswith("owner/fill!_coordinates_zero_dropzeros/"), ids)
+    @test n_coords == n_dropzeros > 0
+    @test n_zero == (owner_is_array() ? n_dropzeros : 0)
+    for c in CS
+        startswith(c.meta.id, "owner/fill!_zero/") && @test message(() -> check!(c)) == ""
+    end
+    # the quick symmetric-owner proximal cases keep their IDs and work
+    for name in ("prox!", "value_and_prox!")
+        c = byid("sparse_penalties/symmetric_NormL1/$name/Float64/32x32/symmetric_sparse/warm")
+        @test c.meta.work == 1024
+        @test message(c.validate) == ""
+    end
+    # a proximal case of an owner of size 8: shape, work and validation
+    for T in (Float32, Float64)
+        B = Matrix(Symmetric(randn(T, 8, 8)))
+        sp = SymmetricSparseIterate(B .* (abs.(B) .> T(1.0)))
+        cs = PerfCase[]
+        addprox!(cs, "sparse_penalties", "symmetric_NormL1", NormL1(T(0.3)), sp; layout = "symmetric_sparse")
+        @test [c.meta.id for c in cs] == ["sparse_penalties/symmetric_NormL1/prox!/$T/8x8/symmetric_sparse/warm",
+                                          "sparse_penalties/symmetric_NormL1/value_and_prox!/$T/8x8/symmetric_sparse/warm"]
+        @test all(c -> c.meta.work == 64, cs)
+        @test all(c -> message(c.validate) == "", cs)
+    end
+end
+
 include("cases_test.jl")

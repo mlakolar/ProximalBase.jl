@@ -433,3 +433,20 @@ also computed when the case is built. A few comparisons use a value computed at 
 a stored reference: the value returned with a proximal output is compared with `f(y)`, and the
 residual of the CD trace with `y - X*β`. The checks of a quadratic model evaluate the model at check
 time (`q(x)`, `gradient(q, x)`, `hessian_vec(q, x, v)`) and compare the results with stored references.
+
+### The symmetric owner on both revisions
+
+The 0.6 `SymmetricSparseIterate` is not an array: its coordinates are independent values, and
+`Matrix(X)` and `matrixview(X)` give its mathematical matrix. The harness builds the owner cases on
+both representations, so one run on each revision gives the before and after comparison; this is a
+way to migrate, and does not keep the old array-like public API in 0.6. The helpers `ambient_work`
+(the p² entries of the matrix, not the coordinates), `dense`, `finite_entries` and `digestable` have
+a method for the owner that uses only operations both revisions define.
+
+`owner/fill!_zero` clears the whole owner with `fill!(X, 0)` and is registered only while the owner is
+an array. On the 0.6 owner it is not applicable: it is neither passed nor failed, and has no row.
+`owner/fill!_coordinates_zero` and `owner/fill!_coordinates_zero_dropzeros` run on both. Both sides of a
+performance comparison must use the same updated harness (this change alters the harness hash), and an
+operation that exists on one revision only is not a comparable case. The archived 0.5.x baseline under
+`baselines/` is historical evidence and is not changed. The two-representation support is temporary: a
+later cleanup removes it after the 0.6 release and its comparisons.

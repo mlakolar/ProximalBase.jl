@@ -1032,8 +1032,22 @@ tuple form, only the pair that holds the `NaN` is `NaN`.
 With `λ1 = Inf` the domain is `{0}`, whatever `λ2`: at a positive finite step the
 proximal output is zero in every form, also where the argument is `NaN` or `±Inf`
 (decision 49), and the value is `0` at zero, `Inf` at a nonzero argument and `NaN`
-at a `NaN` entry. An infinite `λ2` alone restricts the domain to equal entries,
-which is not a constant map, and has no such rule.
+at a `NaN` entry. An infinite `λ2` with a finite `λ1` restricts the domain to vectors of equal entries (and
+to pairs with `x1ᵢ = x2ᵢ` in the tuple form), which is not a constant map: at a positive finite
+step the proximal output of a vector is `z` in every entry, `z = shrink(mean(v), γλ1)`, the
+projection onto the constant vectors followed by the ℓ1 shrink (the threshold is `γλ1`: the
+squared distance on the constants is `K (z - mean(v))² / 2γ` and the ℓ1 term `K λ1 |z|`), with
+the mean formed without overflow in the precision of the argument and of the output (at least
+`Float32`), and `z` rounded once, when it is stored. A single entry has no pairs and is shrunk by `γλ1`. A `NaN` entry
+gives `NaN` in every entry (every entry is fused with it), a pair with `NaN` gives `NaN` in both,
+and `±Inf` entries give the form of a pair: infinities of one sign give that infinity, of both signs
+`NaN`. The value is `λ1 Σₖ |vₖ|` at a vector of equal finite entries (the fusion term is exactly
+zero), `Inf` at any other finite vector, and `NaN` at a `NaN` entry; `value_and_prox!` returns it
+at the stored output. A zero, infinite, negative or `NaN` step keeps the earlier proximal outputs in
+every form, the stored output of `value_and_prox!` included, which are not documented as supported; the
+value that `value_and_prox!` returns is the value at that stored output, by the rule above, at every step
+(an output with a non-one-based axis, for `FiberSum` of two slices, keeps the value of its loop)
+(decision 49, #664).
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct NormL1Fused{T<:Real} <: AbstractFunction
@@ -1140,12 +1154,14 @@ end
 @noinline function _checked_fused_pair_value(f, xy, ::Type{T}) where {T}
   isinf(f.λ1) && return _fused_fixed_value(T, isnan(xy[1]) | isnan(xy[2]), iszero(xy[1]) & iszero(xy[2]))
   ordinary = _fused_pair_value(f, xy)
+  _fused_equal_entries(f) && return _fused_equal_value(f, (xy[1], xy[2]), T, ordinary)
   all(isfinite, xy) && isfinite(f.λ1) && isfinite(f.λ2) ? _recover_fused_pair(f, xy, T) : ordinary
 end
 
 @noinline function _recover_fused_arrays(f, x, ::Type{T}, ordinary) where {T}
   isinf(f.λ1) && return _fused_fixed_value(T, any(isnan, x[1]) || any(isnan, x[2]),
                                            all(iszero, x[1]) && all(iszero, x[2]))
+  _fused_equal_entries(f) && return _fused_equal_arrays_value(f, x, T, ordinary)
   R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
   isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
   m = zero(R)
@@ -1162,6 +1178,51 @@ end
     u, w = _scale_value(u, scale), _scale_value(w, scale)
     h == 1 ? (f.λ1, abs(u) + abs(w), k) : (f.λ2, abs(u - w), k)
   end for i in eachindex(x[1], x[2]), h in 1:2)
+  _fused_scaled_value(terms, 0, T)
+end
+
+# An infinite fusion level with a finite ℓ1 level (#664): the domain is the equal entries, so the value
+# is the ℓ1 term at an argument of equal finite entries (the fusion term is exactly zero there, never
+# Inf⋅0), Inf at another finite argument and NaN at a NaN entry (E2). An infinite entry keeps the
+# ordinary value. Read from the stored levels (R3): the ordinary sums never reach here with finite
+# values, so only the checked paths decide.
+@inline _fused_equal_entries(f::NormL1Fused) = isinf(f.λ2) && isfinite(f.λ1)
+
+# λ1 times n |c|, scaled so that neither the product nor the factor overflows
+function _fused_equal_term(λ1, ::Type{T}, n::Integer, c) where {T}
+  (iszero(λ1) || iszero(c) || n == 0) && return zero(T)
+  R = promote_type(T, float(typeof(λ1)), float(typeof(c)))
+  rc = R(c)
+  k = _magnitude_exponent(abs(rc))
+  u = _scale_value(rc, _power_factors(R, -k))
+  _fused_scaled_value(((λ1, R(n) * abs(u)),), k, T)
+end
+
+# a vector, or the two entries of a pair
+function _fused_equal_value(f, x, ::Type{T}, ordinary) where {T}
+  any(isnan, x) && return T(NaN)
+  all(isfinite, x) || return ordinary
+  isempty(x) && return zero(T)
+  c = first(x)
+  all(==(c), x) || return T(Inf)
+  _fused_equal_term(f.λ1, T, length(x), c)
+end
+
+# the tuple form: independent pairs, every pair of equal entries
+function _fused_equal_arrays_value(f, x, ::Type{T}, ordinary) where {T}
+  x1, x2 = x
+  (any(isnan, x1) || any(isnan, x2)) && return T(NaN)
+  (all(isfinite, x1) && all(isfinite, x2)) || return ordinary
+  for i in eachindex(x1, x2)
+    x1[i] == x2[i] || return T(Inf)
+  end
+  (isempty(x1) || iszero(f.λ1)) && return zero(T)
+  R = promote_type(T, float(typeof(f.λ1)))
+  terms = (begin
+    u = R(x1[i])
+    k = _magnitude_exponent(abs(u))
+    (f.λ1, 2 * abs(_scale_value(u, _power_factors(R, -k))), k)
+  end for i in eachindex(x1, x2))
   _fused_scaled_value(terms, 0, T)
 end
 
@@ -1248,7 +1309,10 @@ function value_and_prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused,
 end
 
 @noinline function _recover_fused_arrayprox!(y, f, x, γ, ordinary)
-  isfinite(f.λ1) && isfinite(f.λ2) && all(isfinite, x[1]) && all(isfinite, x[2]) || return ordinary
+  # an infinite fusion level with a finite ℓ1 level is recovered too, at a finite positive step: the
+  # unchecked midpoint of a pair near floatmax overflows there as well (#664). A zero, infinite,
+  # negative or NaN step keeps the earlier result
+  isfinite(f.λ1) && (isfinite(f.λ2) || (γ > 0 && isfinite(γ))) && all(isfinite, x[1]) && all(isfinite, x[2]) || return ordinary
   f(prox!(y, f, x, γ))
 end
 
@@ -1288,6 +1352,7 @@ end
 
 @noinline function _recover_fused_vector(f, x, ::Type{T}, ordinary) where {T}
   isinf(f.λ1) && return _fused_fixed_value(T, any(isnan, x), all(iszero, x))
+  _fused_equal_entries(f) && return _fused_equal_value(f, x, T, ordinary)
   all(isfinite, x) && isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
   _fused_scaled_value(_fused_vector_terms(f, x, T)..., T)
 end
@@ -1387,6 +1452,15 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), l1, l2, g)
     return V ? @inbounds(f((y[1], y[2]))) : zero(T)
   end
+  # an infinite fusion level with a finite ℓ1 level, at a positive finite step: the projection onto
+  # the constant vectors, then the ℓ1 shrink (#664). Decided from the stored levels and the step as
+  # given, before the order of the entries and the thresholds γλ2 (2k - n - 1) are formed.
+  if n > 0 && isinf(f.λ2) && isfinite(f.λ1) && γ > 0 && isfinite(γ)
+    W = _fused_work_type(T, x)
+    # a working type without the binary exponent interface, or a vector too long for the exact sum
+    # below, declines the route: the earlier result is kept
+    _fused_mean_supported(W, n) && return _prox_fused_equal!(y, f, x, γ, Val(V), T, W)
+  end
   p, a, nan = _sortperm_fused!(f, x, T)     # x is read here, so y may be x
   # a NaN entry: the fusion couples every entry to it (E2), unless the step or λ2 is zero; an infinite
   # step, an infinite λ2, or an infinite ℓ1 level at a zero or infinite step keeps the computation
@@ -1410,6 +1484,152 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     v2 += (2k - n - 1) * wk
   end
   V ? _fused_vector_value(f, y, v1, v2, T) : zero(T)
+end
+
+# the common output z of an infinite fusion level, z = shrink(mean(x), γλ1), and the value at it. The
+# mean and the threshold are formed in a working type W that keeps the precision of the argument and of
+# the output (at least Float32), and z is rounded once, when it is stored: a finite entry of a wider
+# argument is never narrowed to an infinity or rounded before the mean (T3, R3). The mean is read
+# first, so y may be x. A NaN entry gives NaN, infinite entries of one sign that infinity and of both
+# signs NaN, as the pair form does (decision 49, #664).
+@noinline function _prox_fused_equal!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real,
+                                      ::Val{V}, ::Type{T}, ::Type{W}) where {V, T, W}
+  z = shrink(_fused_mean(x, W), _level_product(W, γ, f.λ1))
+  fill!(y, convert(T, z))
+  V ? f(y) : zero(T)
+end
+
+# The working type: the promoted type of the output and of the argument's element type, at least
+# Float32. For an element type that is not concrete (Real, a Union) it is the promoted type of the types
+# of the actual entries, never the output type alone.
+function _fused_work_type(::Type{T}, x) where {T}
+  X = eltype(x)
+  isconcretetype(X) && return promote_type(Float32, T, float(X))
+  W = promote_type(Float32, T)
+  for e in x
+    W = promote_type(W, float(typeof(e)))
+  end
+  W
+end
+
+# Whether the route can form the mean in W for a vector of n entries. Float32 and Float64 use the exact
+# integer sum of the large entries, which needs 2sh + p <= 126 for 2^sh > n (n < 2^36 for Float64,
+# 2^51 for Float32; the sum of n entries is below 2^(2sh + p), and a rounded piece of it must fit
+# Int128). Another concrete AbstractFloat needs the binary exponent interface (exponent, frexp, ldexp).
+# Otherwise the route is declined.
+_fused_mean_supported(::Type{W}, n) where {W<:Union{Float32, Float64}} =
+  2 * (8 * sizeof(n) - leading_zeros(n)) + precision(W) <= 126
+_fused_mean_supported(::Type{W}, n) where {W} =
+  isconcretetype(W) && W <: AbstractFloat && hasmethod(exponent, Tuple{W}) &&
+  hasmethod(frexp, Tuple{W}) && hasmethod(ldexp, Tuple{W, Int})
+
+# The mean of the entries of x in the working type W, which holds every entry exactly. NaN and
+# infinite entries are decided first (NaN, or the infinity, or NaN for both signs). For finite entries
+# the mean of _fused_finite_mean is clamped into [min(x), max(x)]: the true mean lies in that interval
+# (and so does its correctly rounded value, the interval's ends being representable), so the clamp can
+# only reduce the error of the computed mean and never changes a result that is already in the interval.
+# It is the proof that the mean of finite entries is finite, at any precision and length: scaling the
+# entries protects the terms from overflow, but the rounding of the accumulated sum can still push the
+# restored quotient past the range (a constant vector of floatmax entries at a five-bit precision).
+function _fused_mean(x::AbstractVector, ::Type{W}) where {W}
+  n = length(x)
+  nan = pinf = ninf = false
+  lo, hi = W(Inf), W(-Inf)
+  @inbounds for i in 1:n
+    a = convert(W, x[i])
+    nan |= isnan(a)
+    pinf |= a == W(Inf)
+    ninf |= a == W(-Inf)
+    lo = min(lo, a)
+    hi = max(hi, a)
+  end
+  (nan | (pinf & ninf)) && return W(NaN)
+  pinf && return W(Inf)
+  ninf && return W(-Inf)
+  clamp(_fused_finite_mean(x, W, n), lo, hi)
+end
+
+# Any other binary AbstractFloat (BigFloat, ...): a compensated (Neumaier) sum divided by n. If the sum
+# overflows, the entries are scaled by the power of two 2^-e of the largest magnitude (exponent, ldexp:
+# exact unless an entry underflows), summed by a compensated sum, and the quotient takes the significand
+# and the exponent of the total separately (the significand divided by n, one ldexp). Proved: the
+# result is finite for finite entries because _fused_mean clamps it into [min(x), max(x)] (not because
+# of the scaling: at a low precision the rounded sum of the scaled entries can restore past the range);
+# the accuracy is that of the compensated sum and of the quotient, no more. Not proved: a small residual
+# beside overflowing entries that cancel, where it is below the range of the scaled entries (the Float32
+# and Float64 method keeps it).
+function _fused_finite_mean(x, ::Type{W}, n) where {W}
+  s = c = m = zero(W)
+  @inbounds for i in 1:n
+    a = convert(W, x[i])
+    s, c = _compensated_add(s, c, a)
+    m = max(m, abs(a))
+  end
+  t = s + c
+  isfinite(t) && return t / n
+  e = exponent(m)
+  s = c = zero(W)
+  @inbounds for i in 1:n
+    s, c = _compensated_add(s, c, ldexp(convert(W, x[i]), -e))
+  end
+  fr, ex = frexp(s + c)
+  ldexp(fr / n, ex + e)
+end
+
+# The mean of finite entries, for Float32 and Float64, in two levels. With 2^sh > n, an entry of
+# magnitude at most B = floatmax 2^-sh is "small": the partial sums of n of them stay below floatmax,
+# and they are summed unscaled by a compensated (Neumaier) sum. An entry above B is "large", the only
+# kind whose sum can overflow: it is an integer multiple of q = 2^(emax - sh - p + 1) (emax the largest
+# exponent, p the precision), at most 2^(sh + p) q, so the large entries are summed exactly as
+# integers (Int128; the sum of n of them is below 2^(2sh + p)). Supported length: 2sh + p <= 126, that
+# is n < 2^36 for Float64 and n < 2^51 for Float32, so that the sum and every rounded piece fit Int128
+# (_fused_mean_supported); a longer vector declines the route and keeps the earlier result.
+# Proved:
+#  * With no large entry the mean is the compensated sum divided by n, as for any other type: accurate
+#    to the rounding of the compensated sum and of the quotient (not exact under cancellation of small
+#    entries).
+#  * The sum of the large entries is exact. If it is exactly zero (for instance entries that cancel in
+#    pairs) the mean is the compensated sum of the small entries divided by n, formed unscaled: a small
+#    residual is kept (65 entries [M, M, -M, -M, 0, ..., 2080 d], M = floatmax and d the minimum
+#    subnormal, give 32 d).
+#  * Otherwise the total, in units of 2^sh, is the compensated sum of the exact large sum, as pieces
+#    rounded to p bits with exact remainders, and the two pieces of the small sum scaled by 2^-sh. The
+#    scaled small pieces lose what lies below the subnormal range: at most two minimum subnormals of
+#    absolute error in the mean. The quotient takes the significand and the exponent of the total
+#    separately (the significand divided by n, one ldexp), so that no underflowing quotient is formed
+#    before the exponent is restored; a subnormal result is rounded by that ldexp after the rounding of
+#    the significand quotient.
+# Not proved: correct rounding, and the accuracy of the small pieces where the large sum and the small
+# sum nearly cancel each other. The result is clamped into [min(x), max(x)] by _fused_mean, as for every
+# type (the finiteness of the mean rests on that clamp).
+function _fused_finite_mean(x, ::Type{W}, n) where {W<:Union{Float32, Float64}}
+  p = precision(W)
+  emax = exponent(floatmax(W))
+  sh = 8 * sizeof(n) - leading_zeros(n)          # n < 2^sh
+  bound = ldexp(floatmax(W), -sh)
+  k = sh + p - 1 - emax                          # a 2^k is an integer for |a| > bound
+  N = Int128(0)
+  s = c = zero(W)
+  @inbounds for i in 1:n
+    a = convert(W, x[i])
+    if abs(a) > bound
+      N += Int128(ldexp(a, k))
+    else
+      s, c = _compensated_add(s, c, a)
+    end
+  end
+  iszero(N) && return (s + c) / n
+  ts = tc = zero(W)
+  r = N
+  while !iszero(r)                               # N q as the exact sum of rounded pieces
+    piece = W(r)
+    r -= Int128(piece)
+    ts, tc = _compensated_add(ts, tc, ldexp(piece, -k - sh))
+  end
+  ts, tc = _compensated_add(ts, tc, ldexp(s, -sh))
+  ts, tc = _compensated_add(ts, tc, ldexp(c, -sh))
+  fr, ex = frexp(ts + tc)
+  ldexp(fr / n, ex + sh)
 end
 
 # _prox_fused! at an argument with a NaN entry, for a finite step and finite levels, not both

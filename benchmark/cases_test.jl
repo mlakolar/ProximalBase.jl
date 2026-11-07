@@ -192,3 +192,106 @@ end
         quick = nothing
     end
 end
+
+# ---- the helpers of the symmetric owner (a real owner, not a stand-in) ----
+
+# The owner of p = 5 with positive, negative, off-diagonal, exact-zero and explicitly stored zero entries
+# (the stored zero is at (4, 3)); its matrix is written out below.
+function symmetric_owner(T)
+    X = SymmetricSparseIterate(T, 5)
+    X[1, 1] = 2; X[3, 1] = T(-1.5); X[2, 4] = T(0.5); X[5, 5] = -3
+    activate!(X, only(k for k in 1:15 if ProximalBase.tril_cartesian(5, k) == (4, 3)))
+    X
+end
+function symmetric_matrix(T)
+    E = zeros(T, 5, 5)
+    E[1, 1] = 2; E[3, 1] = E[1, 3] = -3 / 2; E[2, 4] = E[4, 2] = 1 / 2; E[5, 5] = -3
+    E
+end
+
+@testset "ambient_work" begin
+    for T in (Float32, Float64)
+        X = symmetric_owner(T)
+        @test ambient_work(X) == 25
+        @test ambient_work(X) != ncoordinates(X) && ncoordinates(X) == 15
+        @test ambient_work(SymmetricSparseIterate(T, 7)) == 49
+        @test ambient_work(zeros(T, 3, 4)) == 12
+        @test ambient_work(zeros(T, 7)) == 7
+    end
+end
+
+@testset "dense of an owner" begin
+    for T in (Float32, Float64)
+        X = symmetric_owner(T)
+        D = dense(X)
+        @test D isa Matrix{T}
+        @test D == symmetric_matrix(T)
+        @test D[3, 1] == D[1, 3] == T(-1.5) && D[4, 2] == D[2, 4] == T(0.5)
+        @test D[4, 3] == 0 && D[3, 4] == 0 && nactive(X) == 5     # the stored zero is active
+        @test dense(zeros(T, 2, 2)) == zeros(T, 2, 2)
+    end
+end
+
+@testset "finite_entries of an owner" begin
+    for T in (Float32, Float64)
+        X = symmetric_owner(T)
+        @test finite_entries(X)
+        @test size(owner_matrix(X)) == (5, 5)                     # the whole matrix is checked
+        @test finite_entries(randn(T, 3)) && !finite_entries(T[1, NaN])
+        for bad in (T(NaN), T(Inf), T(-Inf))
+            Y = symmetric_owner(T); Y[5, 5] = bad                 # a diagonal entry
+            @test !finite_entries(Y)
+            Y = symmetric_owner(T); Y[2, 4] = bad                 # an off-diagonal entry, both triangles
+            @test !finite_entries(Y) && count(!isfinite, Matrix(Y)) == 2
+            Y = symmetric_owner(T); Y[4, 3] = bad                 # the stored zero
+            @test !finite_entries(Y)
+        end
+    end
+end
+
+@testset "logical digest of an owner" begin
+    for T in (Float32, Float64)
+        X = symmetric_owner(T)
+        @test digestable(X) && digest(X) isa UInt64
+        h = digest(X)
+        @test digest(X) == h && digest(copy(X)) == h
+        Y = symmetric_owner(T); Y[1, 1] = 3                       # a stored value
+        @test digest(Y) != h
+        Y = symmetric_owner(T)                                    # an explicit zero; the matrix is unchanged
+        activate!(Y, only(k for k in 1:15 if ProximalBase.tril_cartesian(5, k) == (5, 1)))
+        @test Matrix(Y) == Matrix(X) && digest(Y) != h
+        Y = symmetric_owner(T)                                    # 0.0 becomes -0.0
+        a = only(a for (a, k) in enumerate(activecoordinates(Y)) if ProximalBase.tril_cartesian(5, k) == (4, 3))
+        activevalues(Y)[a] = -zero(T)
+        @test Matrix(Y) == Matrix(X) && digest(Y) != h
+        @test digest(SymmetricSparseIterate(T, 5)) != h
+    end
+end
+
+@testset "copy, similar and copyto! of an owner" begin
+    for T in (Float32, Float64)
+        X = symmetric_owner(T); h = digest(X)
+        Y = copy(X); Y[1, 1] = 9
+        @test digest(X) == h && Matrix(X) == symmetric_matrix(T)
+        S = similar(X)
+        @test S isa SymmetricSparseIterate{T} && size(S) == (5, 5) && nactive(S) == 0 && digest(X) == h
+        Z = SymmetricSparseIterate(T, 5)
+        copyto!(Z, X)
+        @test sort(collect(activecoordinates(Z))) == sort(collect(activecoordinates(X)))
+        @test nactive(Z) == 5 && count(iszero, activevalues(Z)) == 1     # the explicit zero is kept
+        @test Matrix(Z) == symmetric_matrix(T) && digest(Z) == h
+        Z[5, 5] = 7; Z[1, 2] = 1
+        @test digest(X) == h && Matrix(X) == symmetric_matrix(T)
+    end
+end
+
+@testset "clears of an owner through its coordinates" begin
+    for T in (Float32, Float64)
+        X = symmetric_owner(T)
+        fill!(coordinates(X), 0)
+        @test all(iszero, activevalues(X)) && all(iszero, Matrix(X)) && ncoordinates(X) == 15
+        dropzeros!(X)
+        @test nactive(X) == 0 && all(iszero, Matrix(X))
+    end
+end
+

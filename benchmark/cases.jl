@@ -58,6 +58,17 @@ noop() = nothing
 tolerance(::Type{Float32}) = 5e-4
 tolerance(::Type{Float64}) = 2e-8
 dense(x) = Array(x)
+# the full symmetric matrix, both triangles (never the coordinates)
+dense(x::SymmetricSparseIterate) = Matrix(x)
+# the number of entries of the operand that an operation visits: p^2 for the owner, whose entries are
+# the matrix entries (not its p(p+1)/2 coordinates)
+ambient_work(x) = length(x)
+ambient_work(x::SymmetricSparseIterate) = prod(size(x))
+# the matrix an owner presents to the products: the matrix view when there is one, else the owner itself
+owner_matrix(X) = isdefined(ProximalBase, :matrixview) ? ProximalBase.matrixview(X) : X
+# whether every entry of an output is finite; the owner is checked through its whole matrix
+finite_entries(y) = all(isfinite, y)
+finite_entries(y::SymmetricSparseIterate) = all(isfinite, owner_matrix(y))
 
 function close_enough(x, y)
     t = tolerance(float(eltype(x)))
@@ -199,6 +210,7 @@ digest(x) = digest_mix(digest!(DIGEST_SEED, x))
 digestable(x) = false
 digestable(::Union{Nothing,DigestReal}) = true
 digestable(::AbstractArray{<:DigestReal}) = true
+digestable(::SymmetricSparseIterate{<:DigestReal}) = true
 digestable(@nospecialize(xs::AbstractArray)) = all(digestable, xs)
 digestable(@nospecialize(xs::Union{Tuple,NamedTuple})) = all(digestable, xs)
 # the digests of the inputs, in their order
@@ -245,11 +257,11 @@ function addprox!(cases, family, name, f, x; γ=eltype(x)(0.7), layout="dense",
         check_inputs(declared, built, AFTER_BUILD)
         prepare(); prox!(y, f, x, γ)
         close_enough(y, r)
-        all(isfinite, y) || error("nonfinite proximal output")
+        finite_entries(y) || error("nonfinite proximal output")
         nothing
     end
     addcase!(cases, family, name * "/prox!", () -> prox!(y, f, x, γ), check!;
-             inputs=declared, T, shape=join(size(x), "x"), layout, prepare, profile, work=length(x))
+             inputs=declared, T, shape=join(size(x), "x"), layout, prepare, profile, work=ambient_work(x))
     if value
         function checkvalue!()
             check!()
@@ -261,14 +273,14 @@ function addprox!(cases, family, name, f, x; γ=eltype(x)(0.7), layout="dense",
                 error("returned value differs from f(prox): $v versus $expected")
         end
         addcase!(cases, family, name * "/value_and_prox!", () -> value_and_prox!(y, f, x, γ), checkvalue!;
-                 inputs=declared, T, shape=join(size(x), "x"), layout, prepare, work=length(x))
+                 inputs=declared, T, shape=join(size(x), "x"), layout, prepare, work=ambient_work(x))
     end
     if alias
         z = copy(x)
         prep_alias!() = copyto!(z, x)
         check_alias!() = (check_inputs(declared, built, AFTER_BUILD); prep_alias!(); prox!(z, f, z, γ); close_enough(z, r))
         addcase!(cases, family, name * "/prox!_alias", () -> prox!(z, f, z, γ), check_alias!;
-                 inputs=declared, T, shape=join(size(x), "x"), layout, prepare=prep_alias!, work=length(x))
+                 inputs=declared, T, shape=join(size(x), "x"), layout, prepare=prep_alias!, work=ambient_work(x))
     end
     r
 end
@@ -281,13 +293,13 @@ function addcold!(cases, family, name, makef, x; γ=eltype(x)(0.7), inputs=(;))
     reference = unaliased(prox(deepcopy(makef()), x isa Array ? x : dense(x), γ), x)
     check!() = (check_inputs(declared, built, AFTER_BUILD); op(); close_enough(y, reference))
     addcase!(cases, family, name, op, check!; inputs=declared, T=eltype(x), shape=join(size(x), "x"),
-             phase="construct_and_first_prox", profile=eltype(x)==Float64, work=length(x))
+             phase="construct_and_first_prox", profile=eltype(x)==Float64, work=ambient_work(x))
 end
 
 function addgrad!(cases, family, name, f, x; profile=false, second=true, inputs=(;))
     T = eltype(x)
     g = zeros(T, size(x))
-    v = fill(T(inv(sqrt(length(x)))), size(x))
+    v = fill(T(inv(sqrt(ambient_work(x)))), size(x))
     hv = similar(g)
     declared = merge((; x), inputs)
     declared_v = merge(declared, (; v))
@@ -308,10 +320,10 @@ function addgrad!(cases, family, name, f, x; profile=false, second=true, inputs=
         end
     end
     shape = join(size(x), "x")
-    addcase!(cases, family, name * "/value", () -> f(x), checkgrad!; inputs=declared, T, shape, work=length(x))
-    addcase!(cases, family, name * "/gradient!", () -> gradient!(g, f, x), checkgrad!; inputs=declared, T, shape, profile, work=length(x))
+    addcase!(cases, family, name * "/value", () -> f(x), checkgrad!; inputs=declared, T, shape, work=ambient_work(x))
+    addcase!(cases, family, name * "/gradient!", () -> gradient!(g, f, x), checkgrad!; inputs=declared, T, shape, profile, work=ambient_work(x))
     addcase!(cases, family, name * "/value_and_gradient!", () -> value_and_gradient!(g, f, x), checkgrad!;
-             inputs=declared, T, shape, work=length(x))
+             inputs=declared, T, shape, work=ambient_work(x))
     if second && hashessian(f)
         δh = T == Float32 ? T(0.01) : T(1e-5)
         huber = f isa GLMLoss && f.loss isa ProximalBase.Huber
@@ -335,13 +347,13 @@ function addgrad!(cases, family, name, f, x; profile=false, second=true, inputs=
                      rtol=T==Float32 ? 0.02 : 1e-4) || error("Hessian direction check failed")
         end
         addcase!(cases, family, name * "/hessian_vec!", () -> hessian_vec!(hv, f, x, v), checkhess!;
-                 inputs=declared_v, T, shape, work=length(x))
+                 inputs=declared_v, T, shape, work=ambient_work(x))
         q = quadratic_model(f, x)
         ref_grad = unaliased(gradient(f0, x), x)
         checkmodel!() = (check_inputs(declared_v, built, AFTER_BUILD); quadratic_model!(q, f, x);
                          close_enough(gradient(q, x), ref_grad))
         addcase!(cases, family, name * "/quadratic_model!", () -> quadratic_model!(q, f, x), checkmodel!;
-                 inputs=declared, T, shape, work=length(x))
+                 inputs=declared, T, shape, work=ambient_work(x))
     end
 end
 
@@ -1108,8 +1120,6 @@ end
 # prox_coordinate! with a lower-triangle coordinate ID, mul! and Matrix on the matrix
 # view when there is one), so one harness run on each revision gives the before/after
 # comparison. No case here depends on the owner being an AbstractMatrix.
-owner_matrix(X) = isdefined(ProximalBase, :matrixview) ? ProximalBase.matrixview(X) : X
-
 function owner_fixture(rng, T, p, s)
     q = p * (p + 1) ÷ 2
     ids = randperm(rng, q)[1:s]               # distinct lower-triangle coordinate IDs
@@ -1301,6 +1311,9 @@ end
 clear_coordinates!(X) = (fill!(coordinates(X), 0); nothing)
 clear_coordinates_dropzeros!(X) = (fill!(coordinates(X), 0); dropzeros!(X); nothing)
 clear_owner!(X) = (fill!(X, 0); nothing)
+# fill!(X, 0) on the whole owner exists only while the owner is an array; the 0.6 owner has no
+# whole-owner fill!, and fill!(coordinates(X), 0) is its supported clear (the other two clear cases)
+owner_is_array() = SymmetricSparseIterate <: AbstractArray
 
 function owner_extra_cases!(cases, rep; quick=false)
     T = Float64
@@ -1358,8 +1371,10 @@ function owner_extra_cases!(cases, rep; quick=false)
         addcase!(cases, "owner", "fill!_coordinates_zero_dropzeros", () -> clear_coordinates_dropzeros!(X),
                  guarded(() -> check_clear(clear_coordinates_dropzeros!));
                  inputs=(; snap), T, shape, layout="owner", prepare=restore_state!, zero_alloc=true, work=q)
-        addcase!(cases, "owner", "fill!_zero", () -> clear_owner!(X), guarded(() -> check_clear(clear_owner!));
-                 inputs=(; snap), T, shape, layout="owner", prepare=restore_state!, zero_alloc=false, work=s)
+        if owner_is_array()
+            addcase!(cases, "owner", "fill!_zero", () -> clear_owner!(X), guarded(() -> check_clear(clear_owner!));
+                     inputs=(; snap), T, shape, layout="owner", prepare=restore_state!, zero_alloc=false, work=s)
+        end
 
         # FD-8: the momentum value loops over the stored values, through the accessor and through the
         # private array; the reference is the fixture's values in slot order

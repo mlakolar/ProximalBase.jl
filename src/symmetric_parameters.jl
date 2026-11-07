@@ -236,8 +236,8 @@ function value_and_gradient(f::_OwnerSmooth, x::SymmetricSparseIterate)
   v = value_and_gradient!(g, f, x)
   v, g
 end
-hessian_vec(f::Union{LinearFunction, SqrNormL2, KronQuadratic}, x::SymmetricSparseIterate, v::_ArrayOrOwner) =
-  hessian_vec!(_gradient_buffer(x), f, x, v)
+hessian_vec(f::Union{LinearFunction, SqrNormL2, KronQuadratic, Scaled, Tilt, Translate, Regularize, Precompose, Sum},
+            x::SymmetricSparseIterate, v::_ArrayOrOwner) = hessian_vec!(_gradient_buffer(x), f, x, v)
 
 # The constants of an owner, one per coordinate, are those of the entry at the lower position.
 function coordinate_lipschitz!(L::SymmetricSparseIterate, f::_OwnerSmooth)
@@ -615,14 +615,37 @@ end
 @inline _baxes(y::AbstractArray) = axes(y)
 @inline _baxes(y::SymmetricSparseIterate) = axes(matrixview(y))
 
-# g += b into an owner, one coordinate at a time from the lower entry of b, which is symmetric (a parameter
-# that has been checked, or the dense result of a kernel on a symmetric point); a coordinate whose sum is
-# zero stays as it is
+# g += b into an owner, one coordinate at a time, with the symmetric part of b: the entry itself when the two
+# positions of a pair are equal (a parameter that has been checked, or the dense result of a kernel at a
+# symmetric point), and their mean otherwise (the gradient at a point that is not symmetric); a coordinate
+# whose sum is zero stays as it is
 function _accumulate!(g::SymmetricSparseIterate, b::AbstractMatrix)
   p = g.p
   @inbounds for c in 1:p, r in c:p
     k = tril_index(p, r, c)
-    _setstored!(g, _getstored(g, k) + b[r, c], k)
+    v = r == c ? b[r, c] : _symmetric_pair(b[r, c], b[c, r], r, c)
+    _setstored!(g, _getstored(g, k) + v, k)
   end
   g
 end
+
+# y = x for a proximal step that is the identity: an array takes the copy, an owner the lower entries of x,
+# one coordinate at a time (a coordinate that is active stays active), and nothing when x is y
+_assign!(y::AbstractArray, x) = copyto!(y, _vw(x))
+_assign!(y::SymmetricSparseIterate, x) = (x === y ? y : _store_lower!(y, _vw(x)))
+
+# The allocating oracles of the wrappers at an owner. The proximal operator is an independent owner, and the
+# gradient a dense exactly symmetric matrix.
+const _OwnerWrapperProx = Union{Scaled, Tilt, Translate, Regularize, Precompose, MoreauEnvelope, Conjugate, SqrDistL2,
+                                DistL2, BoxConstrained}
+prox(f::_OwnerWrapperProx, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
+const _OwnerWrapperSmooth = Union{Scaled, Tilt, Translate, Regularize, Precompose, Sum}
+gradient(f::_OwnerWrapperSmooth, x::SymmetricSparseIterate) = gradient!(_gradient_buffer(x), f, x)
+function value_and_gradient(f::_OwnerWrapperSmooth, x::SymmetricSparseIterate)
+  g = _gradient_buffer(x)
+  v = value_and_gradient!(g, f, x)
+  v, g
+end
+# the allocating proximal operator of the families with a scalar-step proximal operator into an owner
+prox(f::Union{ZeroFunction, CubeNormL2, SumLargest, IndBallGroupL0}, x::SymmetricSparseIterate, γ::Real = 1) =
+  prox!(similar(x, float(eltype(x))), f, x, γ)

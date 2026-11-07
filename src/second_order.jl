@@ -625,9 +625,9 @@ _hessian_vec_unchecked!(Hv, s::Scaled, x, v) = _chained(s) ?
 hessian_vec!(Hv, t::Tilt, x, v) =
   (_check_second_order_arrays(t, x, Hv, v); _hessian_vec_unchecked!(Hv, t, x, v))
 _hessian_vec_unchecked!(Hv, t::Tilt, x, v) = (_checkparams(t, x); _hessian_vec_unchecked!(Hv, t.f, x, v))
-hessian_vec!(Hv, t::Translate, x::Union{AbstractArray, Tuple}, v) =
+hessian_vec!(Hv, t::Translate, x::Union{_ArrayOrOwner, Tuple}, v) =
   (_check_second_order_arrays(t, x, Hv, v); _hessian_vec_unchecked!(Hv, t, x, v))
-_hessian_vec_unchecked!(Hv, t::Translate, x::Union{AbstractArray, Tuple}, v) = _hessian_vec_unchecked!(Hv, t.f, _shifted(t, x), v)
+_hessian_vec_unchecked!(Hv, t::Translate, x::Union{_ArrayOrOwner, Tuple}, v) = _hessian_vec_unchecked!(Hv, t.f, _shifted(t, x), v)
 
 # the remaining functions' products added into Hv through the buffer b
 _add_hessian_vecs!(Hv, b, x, v, ::Tuple{}) = Hv
@@ -637,9 +637,9 @@ function _add_hessian_vecs!(Hv, b, x, v, fs::Tuple)
   _add_hessian_vecs!(Hv, b, x, v, Base.tail(fs))
 end
 
-hessian_vec!(Hv::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple}, v::Union{AbstractArray, Tuple}) =
+hessian_vec!(Hv::Union{_ArrayOrOwner, Tuple}, s::Sum, x::Union{_ArrayOrOwner, Tuple}, v::Union{_ArrayOrOwner, Tuple}) =
   (_check_second_order_arrays(s, x, Hv, v); _hessian_vec_unchecked!(Hv, s, x, v))
-function _hessian_vec_unchecked!(Hv::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple}, v::Union{AbstractArray, Tuple})
+function _hessian_vec_unchecked!(Hv::Union{_ArrayOrOwner, Tuple}, s::Sum, x::Union{_ArrayOrOwner, Tuple}, v::Union{_ArrayOrOwner, Tuple})
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(s, x)

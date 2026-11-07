@@ -510,6 +510,10 @@ end
 # gradient already written, which the parts must not read in place of a parameter. A NaN product at
 # a value that is not NaN, which the fold does not recover, is Inf⋅0 at an infinite factor: 0 where
 # f is certainly 0 (`_scaled_nan_value`), and otherwise what the parts give.
+# The recoveries read the entries of the argument: an owner is read as the matrix that it represents, which
+# counts an off-diagonal coordinate at both of its positions
+@noinline _scaled_value_recover(f, α, x::SymmetricSparseIterate, v, r, out = nothing) =
+  _scaled_value_recover(f, α, matrixview(x), v, r, out)
 @noinline function _scaled_value_recover(f, α, x, v, r, out = nothing)
   g = _fold_level(f, _value_fold_scale(α))
   g === nothing || return convert(typeof(r), _value_unchecked(g, x))
@@ -593,7 +597,7 @@ end
 # only for a value that is infinite, zero or subnormal. An exactly zero value whose true value,
 # times α, cannot be a normal number (`_zero_value_exponent`) is not recomputed.
 @inline _parts_argument(x) = false
-@inline _parts_argument(::Union{Array, _HostArray, SparseIterate, SymmetricSparseIterate, AtomIterate,
+@inline _parts_argument(::Union{Array, _HostArray, SparseIterate, SymmetricSparseIterate, SymmetricMatrixView, AtomIterate,
                                 SparseArrays.AbstractSparseArray, AbstractRange}) = true
 @inline function _parts_wanted(f, α, x, v, out)
   _has_value_parts(typeof(f)) || return false
@@ -1607,6 +1611,63 @@ _conjugate_checkbuffer(s::Scratch, y::AbstractArray, x::AbstractArray) = _checkb
 (c::Conjugate)(y::Union{AbstractArray, Tuple}) =
   (_check_value_arrays(c, y); _value_checked(c, y))
 _value_unchecked(c::Conjugate, y::Union{AbstractArray, Tuple}) = (_checkparams(c, y); _value_at(_conjugate_value(c.f, y), y))
+# the value at the matrix that an owner represents
+(c::Conjugate)(y::SymmetricSparseIterate) = (_check_value_arrays(c, y); _value_checked(c, y))
+_value_unchecked(c::Conjugate, y::SymmetricSparseIterate) =
+  (_checkparams(c, y); _value_at(_conjugate_value(c.f, matrixview(y)), y))
+
+# The proximal point of the conjugate with an owner as the output: it is formed in a staged matrix by the
+# kernel for matrices, which reads the owner point as its matrix, and written to the owner last, one
+# coordinate at a time, after the commit check of a staged result (symmetric, in the axes of the owner, and
+# converted without failure). A rejected call leaves the owner as it was. The staged matrix is a frame, not
+# the scratch of c, which the kernel uses. An owner point with a dense output reads the matrix of the
+# owner, whose parameters are checked first.
+prox!(y::SymmetricSparseIterate, c::Conjugate, x::_ArrayOrOwner, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+function _prox_unchecked!(y::SymmetricSparseIterate, c::Conjugate, x::_ArrayOrOwner, γ::Real)
+  frame = _acquire_frame!(_STAGE_FRAMES)
+  try
+    z = _stage!(frame, y, x)
+    _prox_unchecked!(z, c, _vw(x), γ)
+    _stage_commit!(y, z)
+  finally
+    _release_frame!(_STAGE_FRAMES)
+  end
+  y
+end
+value_and_prox!(y::SymmetricSparseIterate, c::Conjugate, x::_ArrayOrOwner, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::Conjugate, x::_ArrayOrOwner, γ::Real)
+  frame = _acquire_frame!(_STAGE_FRAMES)
+  try
+    z = _stage!(frame, y, x)
+    v = _value_and_prox_unchecked!(z, c, _vw(x), γ)
+    _stage_commit!(y, z)
+    return _value_at(v, y)
+  finally
+    _release_frame!(_STAGE_FRAMES)
+  end
+end
+_stage!(s::Scratch, y::SymmetricSparseIterate, x) = _frame_array!(s, float(eltype(y)), _vw(x))
+# op(y, f, x, γ) for an owner y by the kernel for matrices on a staged matrix, written to the owner last after
+# the commit check of a staged result: a rejected call leaves the owner as it was
+function _staged_owner!(op::O, y::SymmetricSparseIterate, f, x0, γ) where {O}
+  x = _symmetric_argument(y, x0)
+  frame = _acquire_frame!(_STAGE_FRAMES)
+  try
+    z = _stage!(frame, y, x)
+    r = op(z, f, _vw(x), γ)
+    _stage_commit!(y, z)
+    return op === prox! ? y : _value_at(r, y)
+  finally
+    _release_frame!(_STAGE_FRAMES)
+  end
+end
+_stage_commit!(y::SymmetricSparseIterate, z) = (_projection_check_commit(y, z); _store_lower!(y, z); y)
+prox!(y::AbstractArray, c::Conjugate, x::SymmetricSparseIterate, γ::Real) =
+  (_check_entry_arrays(c, x); prox!(y, c, matrixview(x), γ))
+value_and_prox!(y::AbstractArray, c::Conjugate, x::SymmetricSparseIterate, γ::Real) =
+  (_check_entry_arrays(c, x); value_and_prox!(y, c, matrixview(x), γ))
 
 _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, c::Conjugate{<:SumLargest}, y::AbstractArray, x::AbstractArray) =
   _checkwrite(op, c.f, y, x)
@@ -2258,9 +2319,9 @@ _checkvalue(s::Sum, x) = (map(f -> _checkvalue(f, x), s.fs); true)
 # products are added into the output: an array of the output's type and size, or
 # the tuple of such arrays, kept while the shapes and types agree. The check
 # versions leave the cache alone.
-_sum_buffer!(s::Scratch, g::AbstractArray, x) = _array_buffer!(s, eltype(g), size(g))
+_sum_buffer!(s::Scratch, g::_ArrayOrOwner, x) = _array_buffer!(s, eltype(g), size(g))
 _sum_buffer!(s::Scratch, g::Tuple, x::Tuple) = _tuple_buffer!(s, g, x)
-_sum_checkbuffer(s::Scratch, g::AbstractArray, x) = _checkbuffer(s, eltype(g), size(g))
+_sum_checkbuffer(s::Scratch, g::_ArrayOrOwner, x) = _checkbuffer(s, eltype(g), size(g))
 _sum_checkbuffer(s::Scratch, g::Tuple, x::Tuple) = _conjugate_checkbuffer(s, g, x)
 
 # Adding the functions' results writes every entry of the output, which Symmetric and
@@ -2275,7 +2336,7 @@ _accumulate!(g, b) = (g .+= b)
 @generated _accumulate!(g::Tuple, b::Tuple) =
   _blockwise(k -> :(_accumulate!(g[$k], b[$k])), min(fieldcount(g), fieldcount(b)), :g)
 
-function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::Union{AbstractArray, Tuple}, x::Union{AbstractArray, Tuple})
+function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::Union{_ArrayOrOwner, Tuple}, x::Union{_ArrayOrOwner, Tuple})
   _checkreal(s, g); _checkreal(s, x)
   _checkgradient_output(g, x)
   _checksize(g, x)
@@ -2297,9 +2358,9 @@ function _add_gradients!(g, b, x, v, fs::Tuple)
   _add_gradients!(g, b, x, v + w, Base.tail(fs))
 end
 
-value_and_gradient!(g::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple}) =
+value_and_gradient!(g::Union{_ArrayOrOwner, Tuple}, s::Sum, x::Union{_ArrayOrOwner, Tuple}) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
-function _value_and_gradient_unchecked!(g::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple})
+function _value_and_gradient_unchecked!(g::Union{_ArrayOrOwner, Tuple}, s::Sum, x::Union{_ArrayOrOwner, Tuple})
   _checkwrite(value_and_gradient!, s, g, x)
   v = _value_and_gradient_unchecked!(g, first(s.fs), x)
   length(s.fs) == 1 && return _value_at(v, x)

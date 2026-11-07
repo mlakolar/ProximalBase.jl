@@ -61,9 +61,9 @@ _all_indicators(::Tuple{}) = true
 _all_indicators(fs::Tuple) = _isindicator(first(fs)) && _all_indicators(Base.tail(fs))
 _checkparams(g::PointwiseMinimum, x) = (map(f -> _checkparams(f, x), g.fs); true)
 
-(g::PointwiseMinimum)(x::AbstractArray) =
+(g::PointwiseMinimum)(x::_ArrayOrOwner) =
   (_check_value_arrays(g, x); _value_checked(g, x))
-function _value_unchecked(g::PointwiseMinimum, x::AbstractArray)
+function _value_unchecked(g::PointwiseMinimum, x::_ArrayOrOwner)
   _checkparams(g, x)
   _value_at(minimum(map(f -> _value_unchecked(f, x), g.fs)), x)
 end
@@ -172,7 +172,9 @@ function _minimum_candidates!(best, current, x, γ, indicator, v, score, fs::Tup
   _minimum_candidates!(best, current, x, γ, indicator, v, score, Base.tail(fs))
 end
 
-value_and_prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real) =
+# At an owner the parameters are checked before anything is written, which is all that is defined for the
+# proximal operator: the candidates are compared over arrays
+value_and_prox!(y::_ArrayOrOwner, g::PointwiseMinimum, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, g, y, x, γ); _value_and_prox_unchecked!(y, g, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, g, y, x)
@@ -187,7 +189,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::Ab
   _value_at(isnan(first(score)) ? oftype(float(v), NaN) : (indicator ? zero(v) : v), y)
 end
 
-prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real) =
+prox!(y::_ArrayOrOwner, g::PointwiseMinimum, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, g, y, x, γ); _prox_unchecked!(y, g, x, γ))
 function _prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)
   _checkwrite(prox!, g, y, x)

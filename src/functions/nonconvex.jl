@@ -795,6 +795,12 @@ function prox!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray, ::Real)
   y
 end
 
+# an owner output, formed in a staged matrix and written to the owner last: groups that are not closed under
+# transposition give a result that is not symmetric, which the commit refuses
+prox!(y::SymmetricSparseIterate, f::IndBallGroupL0, x::_ArrayOrOwner, γ::Real) = _staged_owner!(prox!, y, f, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, f::IndBallGroupL0, x::_ArrayOrOwner, γ::Real) =
+  _staged_owner!(value_and_prox!, y, f, x, γ)
+
 function prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
   _checkwrite(prox!, f, y, x)
   _samelayout(f, y) && _samelayout(f, x) ||

@@ -14,7 +14,8 @@ using Test, ProximalBase, LinearAlgebra, SparseArrays
   @test A[1, 2] == A[2, 1] == 3.0
   @test nactive(X) == 1
   @test sum(abs, θ) == 3.0
-  @test NormL1(1.0)(A) == 6.0                    # the matrix penalty counts both positions
+  @test NormL1(1.0)(X) == 6.0                    # the owner and its matrix count both positions
+  @test NormL1(1.0)(A) == 6.0
 
   B = Matrix(X)
   θ[tril_index(3, 2, 1)] = 5.0

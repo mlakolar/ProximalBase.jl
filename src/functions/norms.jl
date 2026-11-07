@@ -204,7 +204,7 @@ isproximable(::Type{<:CubeNormL2}) = true
 isconvex(::Type{<:CubeNormL2}) = true
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)},
-            f::CubeNormL2, y::AbstractArray, x::AbstractArray) =
+            f::CubeNormL2, y::_ArrayOrOwner, x::_ArrayOrOwner) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x))
 
 # A finite array can have an unrepresentable norm. Only the norm calculation
@@ -340,6 +340,9 @@ end
 
 value_and_prox!(y::AbstractArray, f::CubeNormL2, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); prox!(y, f, x, γ); f(y))
+# an owner output, formed in a staged matrix and written to the owner last
+prox!(y::SymmetricSparseIterate, f::CubeNormL2, x::_ArrayOrOwner, γ::Real) = _staged_owner!(prox!, y, f, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, f::CubeNormL2, x::_ArrayOrOwner, γ::Real) = _staged_owner!(value_and_prox!, y, f, x, γ)
 
 lipschitz(f::CubeNormL2) = _ind(iszero(f.λ), float(typeof(f.λ)))
 

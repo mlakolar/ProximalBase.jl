@@ -2133,7 +2133,7 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=(), selector=not
     want("sweep_full", "sweep_active_update", "sweep_activecoordinates", "sweep_activevalues", "sweep_via_coordinates",
          "sweep_via_x", "dot_via_coordinates", "dot_x") && Base.invokelatest(sweeps_group)
 
-    products_group = function ()
+    dots_group = function ()
         v = v_()
         d = d_()
         x50 = x50_()
@@ -2156,7 +2156,12 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=(), selector=not
                          inputs=(; x=xz, y=yz), T, shape, layout=zlabel, zero_alloc=false, work=s)
             end
         end
-        want("mul!") || return
+    end
+    want("dot_vx", "dot_xy") && Base.invokelatest(dots_group)
+
+    mul_group = function ()
+        x50 = x50_()
+        vals50 = vals50_()
         for m in rows        # dense operands, only at (n, s) = (10⁴, 10²)
             A = randn(scenario_rng(rep, "sparse/A/$T/$n/$m"), T, m, n)
             tB = transpose(randn(scenario_rng(rep, "sparse/B/$T/$n/$m"), T, n, m))
@@ -2173,7 +2178,7 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=(), selector=not
             end
         end
     end
-    want("dot_vx", "dot_xy", "mul!") && Base.invokelatest(products_group)
+    want("mul!") && Base.invokelatest(mul_group)
 
     rmul_group = function ()
         d = d_()

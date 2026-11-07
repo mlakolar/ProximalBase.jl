@@ -217,10 +217,18 @@ const AFTER_BUILD = "after the case was built"
 # `inputs` is required: what the operation, or prepare, reads and must leave logically unchanged (not the
 # destinations, the state that a case changes, workspaces, caches, scalars or function objects). The
 # harness digests them after the pre-trial validate and compares after the trial.
+# The canonical spelling of a case ID: the registration and the cheap ID enumerators of the guarded builders
+# below share it. `wants(selector, id)` is the selection rule of `build_cases(...; selector)`: `nothing` selects
+# every case, a Regex the IDs it matches (`occursin`); the selector is never inspected or parsed.
+case_id(family, name, T, shape, layout, phase) = join((family, name, string(T), shape, layout, phase), "/")
+wants(::Nothing, id::AbstractString) = true
+wants(selector::Regex, id::AbstractString) = occursin(selector, id)
+const DEFAULT_PHASE = "warm"
+
 function addcase!(cases, family, name, op, validate; inputs::NamedTuple, T=Float64, shape="", layout="dense",
-                  phase="warm", prepare=noop, evals=prepare===noop ? nothing : 1, profile=false, work=0,
-                  zero_alloc=phase == "warm")
-    id = join((family, name, string(T), shape, layout, phase), "/")
+                  phase=DEFAULT_PHASE, prepare=noop, evals=prepare===noop ? nothing : 1, profile=false, work=0,
+                  zero_alloc=phase == DEFAULT_PHASE)
+    id = case_id(family, name, T, shape, layout, phase)
     all(digestable, inputs) || error("an input of $id has no logical digest")
     meta = (;id, family, name, dtype=string(T), shape, layout, phase, work, zero_alloc)
     push!(cases, PerfCase(meta, op, prepare, validate, evals, profile, inputs))
@@ -2573,10 +2581,115 @@ function prox_batch_reference(name, f, T, p, g, groups, d, ks, ubases, γ)
     expected
 end
 
+# Selection of atom cases before their fixtures are built. A scenario (or function) lists the IDs it registers
+# from cheap fields only (type, sizes, label, `full`, the arithmetic of its counts), as (operation name, ID)
+# pairs. With a selector it is skipped when none of them matches, and inside a retained scenario an operation
+# group runs only when one of its names has a matching ID. A missing ID is a false exclusion (the one bug that
+# matters), an extra ID only costs build time. The registrations and the enumerators spell shapes, keys,
+# layouts and counts through the helpers below and `case_id`. A scenario or function whose IDs cannot be listed
+# completely and cheaply is built, and the exact filter that follows `build_cases` decides.
+atom_kind(strided) = strided ? "strided" : "contiguous"
+atom_shape(p, g, strided, label) = "p$(p)_g$(g)_$(atom_kind(strided))_act$label"
+atom_layout_shape(p, g, strided) = "p$(p)_g$(g)_$(atom_kind(strided))"
+atom_symmetric_shape(g) = "p1024_g$(g)_contiguous_act10"
+atom_key(T, p, g, strided, label) = "atom/$T/$p/$g/$(atom_kind(strided))/$label"
+atom_label_density(label) = only(d for (d, l) in ATOM_DENSITIES if l == label)
+atom_nactive_groups(density, K) = max(1, round(Int, density * K))
+atom_batch_count(K, na) = min(16, (K - na) ÷ 256)
+atom_rmul_repeats(T, p) = min(exponent(floatmax(T)) - 4, repeats_for(p, 16384))
+atom_penalties(full) = full ? ("GroupNormL2", "GroupNormLinf", "SparseGroupNormL2", "NormL1") : ("GroupNormL2", "NormL1")
+atom_prox_layout(pname) = "$(pname)_strided_u"
+atom_mul_layout(m, zlabel) = "rows$(m)_$zlabel"
+const ATOM_PROX_NAMES = ("prox_coordinate!_5arg", "prox_coordinate!_staged")
+const ATOM_ZLABELS = ("z0", "z50")
+const ATOM_MOMENTUM_LAYOUTS = ("accessors", "private_fields")
+const ATOM_MOMENTUM_NAMES = ("_nvalues", "_values!", "_setvalues!", "_restartdot")
+const ATOM_CONVERT_TYPES = (Float64, Float32, Int)
+const ATOM_COMPACTION = (("zeros10", 0.1), ("zeros50", 0.5))
+const ATOM_LAYOUTS = (; isactive="half_active", update="trivial_update", loops="active_groups", dense_same="dense_same_entries",
+                      abs="abs", same_entries="same_entries", dense_other="dense_other_entries")
+atom_batch_layouts(nbatch) = [how * suffix for suffix in ("", "_x$nbatch") for how in ("absent_distinct_batch", "activate_distinct_batch")]
+
+# the (operation name, ID) pairs that `atom_scenario_cases!` registers for this scenario, `full` and `rows`
+function atom_scenario_ids(T, p, g, strided, label; full=true, rows=(), density=atom_label_density(label))
+    K = p ÷ g
+    na = atom_nactive_groups(density, K)
+    shape = atom_shape(p, g, strided, label)
+    lay = "atoms"
+    ids = Tuple{String,String}[]
+    add(name, layout, phase=DEFAULT_PHASE; type=T) = push!(ids, (name, case_id("atom", name, type, shape, layout, phase)))
+    add("read_x[i]", "active"); add("read_x[i]", "absent")
+    add("write_x[i]_active", "active")
+    add("isactive", ATOM_LAYOUTS.isactive)
+    for layout in atom_batch_layouts(atom_batch_count(K, na))
+        add("first_activation", layout, "first_activation")
+    end
+    add("sweep_active_update", ATOM_LAYOUTS.update)
+    add("sweep_activecoordinates", lay)
+    add("atom_norm", lay); add("atom_dot", lay)
+    add("atomindices_loop", ATOM_LAYOUTS.loops)
+    add("atomindices_view", strided ? "view_vector_group" : "view_range_group")
+    for z in ATOM_ZLABELS
+        add("dot_vx", z)
+    end
+    for m in rows, z in ATOM_ZLABELS
+        add("mul!", atom_mul_layout(m, z))
+    end
+    r = atom_rmul_repeats(T, p)
+    add("rmul!_finite", "x$r"); add("rmul!_inf", "x$r")
+    for pname in atom_penalties(full), name in ATOM_PROX_NAMES
+        add(name, atom_prox_layout(pname))
+    end
+    if full
+        for z in ATOM_ZLABELS
+            add("dot_xy", "atom_atom_$z"); add("dot_xy", "atom_sparse_$z")
+        end
+        for layout in ATOM_MOMENTUM_LAYOUTS, name in ATOM_MOMENTUM_NAMES
+            add(name, layout)
+        end
+        add("copyto!_unrelated", ATOM_LAYOUTS.dense_same)
+        add("broadcast_self", ATOM_LAYOUTS.abs)
+        add("fill!_zero", lay); add("fill!_zero_dropzeros", lay)
+        add("broadcast_assign", lay); add("copyto!_state", lay)
+        add("copy", lay, "allocating")
+        add("copyto!_same_kind", ATOM_LAYOUTS.same_entries)
+        add("copyto!_dense", ATOM_LAYOUTS.dense_other)
+        if T == Float64
+            for Td in ATOM_CONVERT_TYPES
+                add("copyto!_convert", "to_$(Td)"; type=Float64)
+            end
+        end
+        add("replace_cheap", lay); add("replace_staged", lay)
+        for (zlabel, _) in ATOM_COMPACTION
+            add("dropzeros!", zlabel)
+        end
+    end
+    ids
+end
+
+function atom_construct_ids(T, p, g, strided)
+    [("construct", case_id("atom", "construct", T, atom_layout_shape(p, g, strided), "empty", "construct"))]
+end
+function atom_layout_ids(p, g, strided)
+    [("samegroups", case_id("atom", "samegroups", Float64, atom_layout_shape(p, g, strided), layout, DEFAULT_PHASE))
+     for layout in ("shared", "distinct_first_seen", "alternating")]
+end
+function atom_symmetric_ids(T, g)
+    [("mul!", case_id("atom", "mul!", T, atom_symmetric_shape(g), "symmetric_$z", DEFAULT_PHASE)) for z in ATOM_ZLABELS]
+end
+
+any_wanted(::Nothing, pairs) = true
+any_wanted(selector::Regex, pairs) = any(pair -> occursin(selector, pair[2]), pairs)
+# the operation names of a scenario with a selected ID, or `nothing` (every operation) without a selector
+operations_wanted(::Nothing, pairs) = nothing
+operations_wanted(selector::Regex, pairs) = Set{String}(name for (name, id) in pairs if occursin(selector, id))
+want_any(::Nothing, names) = true
+want_any(wanted::Set{String}, names) = any(in(wanted), names)
+
 # FD-12: the five-argument block trial against staging u and the four-argument step, with a strided u (a
 # view with stride 2 of a longer vector), for the four penalties; the batch has distinct groups, half of
 # them active (moved to nonzero values) and half inactive (small trial points, which mostly stay at zero)
-function atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, snap, d, aids, pool, fcache, penalties)
+function atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, snap, d, aids, pool, fcache, penalties; selector=nothing)
     γ = T(0.5)
     nb = atom_prox_batch(g)
     na_b = min(length(aids), nb ÷ 2)
@@ -2594,6 +2707,9 @@ function atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, s
     us = [view(ub, 1:2:2g) for ub in ubases]
     indices = group_indices_by()
     for pname in penalties
+        # a penalty none of whose IDs is selected builds neither its penalty, its iterate nor its reference
+        selector === nothing || any(name -> wants(selector, case_id("atom", name, T, shape, atom_prox_layout(pname), DEFAULT_PHASE)),
+                                    ATOM_PROX_NAMES) || continue
         f = get!(() -> atom_penalty(pname, T, groups), fcache, (T, p, g, strided, pname))
         # a group penalty requires an iterate with its layout; NormL1 takes the iterate of the scenario
         xf, snapf = if pname == "NormL1"
@@ -2623,10 +2739,10 @@ function atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, s
             restore!()
             nothing
         end
-        layout = "$(pname)_strided_u"
-        addcase!(cases, "atom", "prox_coordinate!_5arg", op5, () -> check_pair(op5, opstaged); inputs=(; ks, ubases, snapf),
+        layout = atom_prox_layout(pname)
+        addcase!(cases, "atom", ATOM_PROX_NAMES[1], op5, () -> check_pair(op5, opstaged); inputs=(; ks, ubases, snapf),
                  T, shape, layout, prepare=restore!, zero_alloc=true, work=nb * g)
-        addcase!(cases, "atom", "prox_coordinate!_staged", opstaged, () -> check_pair(opstaged, op5); inputs=(; ks, ubases, snapf),
+        addcase!(cases, "atom", ATOM_PROX_NAMES[2], opstaged, () -> check_pair(opstaged, op5); inputs=(; ks, ubases, snapf),
                  T, shape, layout, prepare=restore!, zero_alloc=false, work=nb * g)
     end
     nothing
@@ -2659,13 +2775,22 @@ end
 # one scenario (T, p, g, strided, density): the working iterate, its snapshot and the references; the
 # cases of a scenario run one at a time, so they share the iterate and restore it. `full` is false for
 # the layouts that the quick suite builds only in part. Dense operands exist only for `rows`.
-function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, groups, caches; full=true, rows=())
+#
+# With a `selector` the scenario builds what the operations with a selected ID read. The operations are
+# registered by groups, each a closure run through `Base.invokelatest` when one of its operation names has a
+# selected ID: a branch around inline code would still be inferred and compiled, and compiling is most of the
+# cost of a cold build. Without a selector every group runs, in this order. The iterate and its snapshot are
+# built for every retained operation; the other fixtures are built, once and shared by the operations that
+# read them, by the accessors below (`memo`), whose results have concrete types so that the timed closures
+# capture what they always captured. The draws of `rng_pick` are one stream in registration order, and the
+# draws after the read cases are made even when only the writes are built; every other draw has its own
+# keyed stream and goes with its fixture.
+function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, groups, caches; full=true, rows=(), selector=nothing)
     vcache, acache, fcache = caches
     K = p ÷ g
-    na = max(1, round(Int, density * K))
-    kind = strided ? "strided" : "contiguous"
-    key = "atom/$T/$p/$g/$kind/$label"
-    shape = "p$(p)_g$(g)_$(kind)_act$label"
+    na = atom_nactive_groups(density, K)
+    key = atom_key(T, p, g, strided, label)
+    shape = atom_shape(p, g, strided, label)
     lay = "atoms"
     # one permutation: the active groups, in the order they join, and the other groups, in random order
     perm = randperm(scenario_rng(rep, key * "/groups"), K)
@@ -2676,183 +2801,242 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
     # the second iterate shares half of the active groups, and has the other half among inactive ones
     ny = na - na ÷ 2
     aids_y = vcat(aids[1:na÷2], pool[end-ny+1:end])
-    vals_y = fixture_values(scenario_rng(rep, key * "/values_y"), T, nvals)
-    vals50 = with_zeros(vals, zero_slots(scenario_rng(rep, key * "/zeros"), nvals, 0.5))
-    vals_y50 = with_zeros(vals_y, zero_slots(scenario_rng(rep, key * "/zeros_y"), nvals, 0.5))
+    wanted = selector === nothing ? nothing :
+             operations_wanted(selector, atom_scenario_ids(T, p, g, strided, label; full, rows, density))
+    want(names...) = want_any(wanted, names)
     x = build_atom(T, p, groups, aids, vals)
     snap = copy(x)
-    d = dense_atom(T, p, groups, aids, vals)
-    y = fill_atom!(similar(x), groups, aids_y, vals_y)
-    dy = dense_atom(T, p, groups, aids_y, vals_y)
-    x50 = fill_atom!(similar(x), groups, aids, vals50)
-    y50 = fill_atom!(similar(x), groups, aids_y, vals_y50)
-    d50 = dense_atom(T, p, groups, aids, vals50)
-    dy50 = dense_atom(T, p, groups, aids_y, vals_y50)
-    v = get!(() -> randn(scenario_rng(rep, "atom/v/$T/$p"), T, p), vcache, (T, p))::Vector{T}
+    memo = Dict{Symbol,Any}()
+    aentries_() = get!(() -> group_entries(groups, aids), memo, :aentries)::Vector{Int}
+    d_() = get!(() -> dense_atom(T, p, groups, aids, vals), memo, :d)::Vector{T}
+    vals_y_() = get!(() -> fixture_values(scenario_rng(rep, key * "/values_y"), T, nvals), memo, :vals_y)::Vector{T}
+    vals50_() = get!(() -> with_zeros(vals, zero_slots(scenario_rng(rep, key * "/zeros"), nvals, 0.5)), memo, :vals50)::Vector{T}
+    vals_y50_() = get!(() -> with_zeros(vals_y_(), zero_slots(scenario_rng(rep, key * "/zeros_y"), nvals, 0.5)), memo, :vals_y50)::Vector{T}
+    y_() = get!(() -> fill_atom!(similar(x), groups, aids_y, vals_y_()), memo, :y)::typeof(x)
+    dy_() = get!(() -> dense_atom(T, p, groups, aids_y, vals_y_()), memo, :dy)::Vector{T}
+    x50_() = get!(() -> fill_atom!(similar(x), groups, aids, vals50_()), memo, :x50)::typeof(x)
+    y50_() = get!(() -> fill_atom!(similar(x), groups, aids_y, vals_y50_()), memo, :y50)::typeof(x)
+    d50_() = get!(() -> dense_atom(T, p, groups, aids, vals50_()), memo, :d50)::Vector{T}
+    dy50_() = get!(() -> dense_atom(T, p, groups, aids_y, vals_y50_()), memo, :dy50)::Vector{T}
+    v_() = get!(() -> randn(scenario_rng(rep, "atom/v/$T/$p"), T, p), vcache, (T, p))::Vector{T}
+    # the digests of the dense vectors that the copy and replace cases compare with at construction
+    d_source_() = get!(() -> (; d=d_()), memo, :d_source)::NamedTuple{(:d,),Tuple{Vector{T}}}
+    dy_source_() = get!(() -> (; dy=dy_()), memo, :dy_source)::NamedTuple{(:dy,),Tuple{Vector{T}}}
+    d_built_() = get!(() -> input_digests(d_source_()), memo, :d_built)::Vector{UInt64}
+    dy_built_() = get!(() -> input_digests(dy_source_()), memo, :dy_built)::Vector{UInt64}
     restore_state!() = (copyto!(x, snap); nothing)
     guarded(check) = restored(restore_state!, check)
-    aentries = group_entries(groups, aids)
-    rng_pick = scenario_rng(rep, key * "/picks")
 
-    # scalar reads: 256 reads of entries of active and, separately, of inactive groups
-    nread = 256
-    active_reads = cycled(aentries[randperm(rng_pick, nvals)[1:min(nread, nvals)]], nread)
-    absent_reads = Int[groups[k][rand(rng_pick, 1:g)] for k in cycled(pool, nread)]
-    for (what, rids) in (("active", active_reads), ("absent", absent_reads))
-        expected = sum_reads(d, rids, T)
-        addcase!(cases, "atom", "read_x[i]", () -> sum_reads(x, rids, T),
-                 guarded(() -> sum_reads(x, rids, T) == expected || error("reads differ from the dense vector"));
-                 inputs=(; x, rids), T, shape, layout=what, zero_alloc=true, work=nread)
+    reads_writes = function ()
+        d = d_()
+        aentries = aentries_()
+        rng_pick = scenario_rng(rep, key * "/picks")
+        # scalar reads: 256 reads of entries of active and, separately, of inactive groups
+        nread = 256
+        active_reads = cycled(aentries[randperm(rng_pick, nvals)[1:min(nread, nvals)]], nread)
+        absent_reads = Int[groups[k][rand(rng_pick, 1:g)] for k in cycled(pool, nread)]
+        if want("read_x[i]")
+            for (what, rids) in (("active", active_reads), ("absent", absent_reads))
+                expected = sum_reads(d, rids, T)
+                addcase!(cases, "atom", "read_x[i]", () -> sum_reads(x, rids, T),
+                         guarded(() -> sum_reads(x, rids, T) == expected || error("reads differ from the dense vector"));
+                         inputs=(; x, rids), T, shape, layout=what, zero_alloc=true, work=nread)
+            end
+        end
+        # writes to 1024 entries of active groups, with the values they hold: the state is unchanged, and the
+        # check first overwrites them
+        wids = cycled(aentries[randperm(rng_pick, nvals)[1:min(1024, nvals)]], 1024)
+        if want("write_x[i]_active")
+            wvals = d[wids]
+            function check_write()
+                write_values!(x, wids, -wvals)
+                Vector(x)[wids] == -wvals || error("writes were not stored")
+                write_values!(x, wids, wvals)
+                Vector(x) == d || error("writes were not stored")
+                nactive(x) == na || error("a write to an active group changed the working set")
+                nothing
+            end
+            addcase!(cases, "atom", "write_x[i]_active", () -> write_values!(x, wids, wvals), guarded(check_write);
+                     inputs=(; x, wids, wvals), T, shape, layout="active", zero_alloc=true, work=length(wids))
+        end
     end
-    # writes to 1024 entries of active groups, with the values they hold: the state is unchanged, and the
-    # check first overwrites them
-    wids = cycled(aentries[randperm(rng_pick, nvals)[1:min(1024, nvals)]], 1024)
-    wvals = d[wids]
-    function check_write()
-        write_values!(x, wids, -wvals)
-        Vector(x)[wids] == -wvals || error("writes were not stored")
-        write_values!(x, wids, wvals)
-        Vector(x) == d || error("writes were not stored")
-        nactive(x) == na || error("a write to an active group changed the working set")
-        nothing
-    end
-    addcase!(cases, "atom", "write_x[i]_active", () -> write_values!(x, wids, wvals), guarded(check_write);
-             inputs=(; x, wids, wvals), T, shape, layout="active", zero_alloc=true, work=length(wids))
-    # isactive: 256 queries, half of them active
-    qgroups = shuffle(scenario_rng(rep, key * "/queries"), vcat(cycled(aids, 128), pool[1:128]))
-    aidset = Set(aids)
-    expected_active = count(in(aidset), qgroups)       # the stored membership of the fixture, not the values
-    addcase!(cases, "atom", "isactive", () -> count_active(x, qgroups),
-             guarded(function ()
-                         count_active(x, qgroups) == expected_active || error("isactive differs from the stored membership")
-                         check_isactive_stored_zero_atom(T)
-                     end);
-             inputs=(; x, qgroups), T, shape, layout="half_active", zero_alloc=true, work=length(qgroups))
+    want("read_x[i]", "write_x[i]_active") && Base.invokelatest(reads_writes)
 
-    # first activation: a nonzero write to the first entry of each of a batch of distinct inactive groups,
-    # and activate!; the companion has as many disjoint batches of 256 groups as fit (up to 16) in one call,
-    # which a timer can resolve
-    nbatch = min(16, length(pool) ÷ 256)
-    for (suffix, bgroups) in (("", pool[1:256]), ("_x$nbatch", pool[1:256*nbatch]))
-        bents = Int[first(groups[k]) for k in bgroups]
-        bvals = fixture_values(scenario_rng(rep, key * "/batch_values$suffix"), T, length(bgroups))
-        for (how, op, written, inputs) in (("absent_distinct_batch", () -> write_values!(x, bents, bvals), bvals, (; bents, bvals, bgroups)),
-                                           ("activate_distinct_batch", () -> activate_all!(x, bgroups), zeros(T, length(bgroups)), (; bgroups, bents)))
-            function restore_batch!()      # outside the timed region
-                @inbounds for i in bents
-                    x[i] = zero(T)
+    isactive_group = function ()
+        # isactive: 256 queries, half of them active
+        qgroups = shuffle(scenario_rng(rep, key * "/queries"), vcat(cycled(aids, 128), pool[1:128]))
+        aidset = Set(aids)
+        expected_active = count(in(aidset), qgroups)       # the stored membership of the fixture, not the values
+        addcase!(cases, "atom", "isactive", () -> count_active(x, qgroups),
+                 guarded(function ()
+                             count_active(x, qgroups) == expected_active || error("isactive differs from the stored membership")
+                             check_isactive_stored_zero_atom(T)
+                         end);
+                 inputs=(; x, qgroups), T, shape, layout=ATOM_LAYOUTS.isactive, zero_alloc=true, work=length(qgroups))
+    end
+    want("isactive") && Base.invokelatest(isactive_group)
+
+    first_activation_group = function ()
+        d = d_()
+        # first activation: a nonzero write to the first entry of each of a batch of distinct inactive groups,
+        # and activate!; the companion has as many disjoint batches of 256 groups as fit (up to 16) in one call,
+        # which a timer can resolve
+        nbatch = atom_batch_count(K, na)
+        for (suffix, bgroups) in (("", pool[1:256]), ("_x$nbatch", pool[1:256*nbatch]))
+            bents = Int[first(groups[k]) for k in bgroups]
+            bvals = fixture_values(scenario_rng(rep, key * "/batch_values$suffix"), T, length(bgroups))
+            for (how, op, written, inputs) in (("absent_distinct_batch", () -> write_values!(x, bents, bvals), bvals, (; bents, bvals, bgroups)),
+                                               ("activate_distinct_batch", () -> activate_all!(x, bgroups), zeros(T, length(bgroups)), (; bgroups, bents)))
+                function restore_batch!()      # outside the timed region
+                    @inbounds for i in bents
+                        x[i] = zero(T)
+                    end
+                    dropzeros!(x)
+                    any(k -> isactive(x, k), bgroups) && error("a batch group is still active: not a first activation")
+                    nothing
                 end
-                dropzeros!(x)
-                any(k -> isactive(x, k), bgroups) && error("a batch group is still active: not a first activation")
-                nothing
+                # the activated entries and their values, copied when the case is built
+                bents0, written0 = copy(bents), copy(written)
+                function check_activation()
+                    copyto!(x, snap)
+                    restore_batch!()
+                    length(unique(bgroups)) == length(bgroups) || error("batch groups are not distinct")
+                    op()
+                    all(k -> isactive(x, k), bgroups) || error("activation did not add every group")
+                    nactive(x) == na + length(bgroups) || error("unexpected working set after the activations")
+                    expected = copy(d)
+                    expected[bents0] = written0
+                    Vector(x) == expected || error("activated values differ from the dense reference")
+                    restore_batch!()
+                    nactive(x) == na && Vector(x) == d || error("restore did not recover the iterate")
+                    copyto!(x, snap)
+                    nothing
+                end
+                addcase!(cases, "atom", "first_activation", op, check_activation; inputs, T, shape, layout=how * suffix,
+                         phase="first_activation", prepare=restore_batch!, evals=1, zero_alloc=true, work=length(bgroups))
             end
-            # the activated entries and their values, copied when the case is built
-            bents0, written0 = copy(bents), copy(written)
-            function check_activation()
-                copyto!(x, snap)
-                restore_batch!()
-                length(unique(bgroups)) == length(bgroups) || error("batch groups are not distinct")
-                op()
-                all(k -> isactive(x, k), bgroups) || error("activation did not add every group")
-                nactive(x) == na + length(bgroups) || error("unexpected working set after the activations")
-                expected = copy(d)
-                expected[bents0] = written0
-                Vector(x) == expected || error("activated values differ from the dense reference")
-                restore_batch!()
-                nactive(x) == na && Vector(x) == d || error("restore did not recover the iterate")
-                copyto!(x, snap)
-                nothing
-            end
-            addcase!(cases, "atom", "first_activation", op, check_activation; inputs, T, shape, layout=how * suffix,
-                     phase="first_activation", prepare=restore_batch!, evals=1, zero_alloc=true, work=length(bgroups))
         end
     end
+    want("first_activation") && Base.invokelatest(first_activation_group)
 
-    # an active sweep with a trivial update (the state is unchanged) and FD-7: the sweep through the handle
-    # created inside the call
-    addcase!(cases, "atom", "sweep_active_update", () -> atom_update_sweep!(x),
-             guarded(function ()
-                         atom_update_sweep!(x) == nvals || error("the sweep did not visit every entry of the active groups")
-                         Vector(x) == d && nactive(x) == na || error("the sweep changed the iterate")
-                     end);
-             inputs=(; x), T, shape, layout="trivial_update", zero_alloc=true, work=nvals)
-    sorted_aids = sort(aids)
-    addcase!(cases, "atom", "sweep_activecoordinates", () -> sum_active_ids(x),
-             guarded(function ()
-                         sum_active_ids(x) == sum(aids) || error("sweep visited the wrong groups")
-                         sort!(collect(activecoordinates(x))) == sorted_aids || error("the active groups are not the fixture's (a sum can agree)")
-                     end);
-             inputs=(; x), T, shape, layout=lay, zero_alloc=true, work=na)
+    sweeps_group = function ()
+        d = d_()
+        # an active sweep with a trivial update (the state is unchanged) and FD-7: the sweep through the handle
+        # created inside the call
+        addcase!(cases, "atom", "sweep_active_update", () -> atom_update_sweep!(x),
+                 guarded(function ()
+                             atom_update_sweep!(x) == nvals || error("the sweep did not visit every entry of the active groups")
+                             Vector(x) == d && nactive(x) == na || error("the sweep changed the iterate")
+                         end);
+                 inputs=(; x), T, shape, layout=ATOM_LAYOUTS.update, zero_alloc=true, work=nvals)
+        sorted_aids = sort(aids)
+        addcase!(cases, "atom", "sweep_activecoordinates", () -> sum_active_ids(x),
+                 guarded(function ()
+                             sum_active_ids(x) == sum(aids) || error("sweep visited the wrong groups")
+                             sort!(collect(activecoordinates(x))) == sorted_aids || error("the active groups are not the fixture's (a sum can agree)")
+                         end);
+                 inputs=(; x), T, shape, layout=lay, zero_alloc=true, work=na)
 
-    # atom access: norm and dot of atom(x, k) over 64 active groups per call
-    ks64 = cycled(aids, 64)
-    w = randn(scenario_rng(rep, key * "/atom_w"), T, g)
-    expected_norm = sum(norm(d[groups[k]]) for k in ks64)
-    expected_dot = sum(dot(d[groups[k]], w) for k in ks64)
-    scale_dot = sum(dot(abs.(d[groups[k]]), abs.(w)) for k in ks64)
-    addcase!(cases, "atom", "atom_norm", () -> sum_atom_norms(x, ks64, T),
-             guarded(() -> close_scalar(sum_atom_norms(x, ks64, T), expected_norm, expected_norm, T));
-             inputs=(; x, ks64), T, shape, layout=lay, zero_alloc=true, work=64 * g)
-    addcase!(cases, "atom", "atom_dot", () -> sum_atom_dots(x, ks64, w, T),
-             guarded(() -> close_scalar(sum_atom_dots(x, ks64, w, T), expected_dot, scale_dot, T));
-             inputs=(; x, ks64, w), T, shape, layout=lay, zero_alloc=true, work=64 * g)
+        # atom access: norm and dot of atom(x, k) over 64 active groups per call
+        ks64 = cycled(aids, 64)
+        w = randn(scenario_rng(rep, key * "/atom_w"), T, g)
+        expected_norm = sum(norm(d[groups[k]]) for k in ks64)
+        expected_dot = sum(dot(d[groups[k]], w) for k in ks64)
+        scale_dot = sum(dot(abs.(d[groups[k]]), abs.(w)) for k in ks64)
+        addcase!(cases, "atom", "atom_norm", () -> sum_atom_norms(x, ks64, T),
+                 guarded(() -> close_scalar(sum_atom_norms(x, ks64, T), expected_norm, expected_norm, T));
+                 inputs=(; x, ks64), T, shape, layout=lay, zero_alloc=true, work=64 * g)
+        addcase!(cases, "atom", "atom_dot", () -> sum_atom_dots(x, ks64, w, T),
+                 guarded(() -> close_scalar(sum_atom_dots(x, ks64, w, T), expected_dot, scale_dot, T));
+                 inputs=(; x, ks64, w), T, shape, layout=lay, zero_alloc=true, work=64 * g)
 
-    # FD-6: the indices of every active group through atomindices(x, k) (0.5.x: x.groups[k]), and the sum of
-    # a dense vector over them (a range in the contiguous layout, a vector in the strided one)
-    loop_op, view_op = atom_index_ops(group_indices_by(), x, v)
-    expected_indices = foldl(⊻, (j for k in aids for j in groups[k]); init=0)
-    addcase!(cases, "atom", "atomindices_loop", loop_op,
-             guarded(() -> loop_op() == expected_indices || error("the indices of the active groups differ from the layout"));
-             inputs=(; x), T, shape, layout="active_groups", zero_alloc=true, work=nvals)
-    expected_view = sum(sum(v[groups[k]]) for k in aids)
-    scale_view = sum(sum(abs, v[groups[k]]) for k in aids)
-    addcase!(cases, "atom", "atomindices_view", view_op,
-             guarded(() -> close_scalar(view_op(), expected_view, scale_view, T));
-             inputs=(; x, v), T, shape, layout=strided ? "view_vector_group" : "view_range_group", zero_alloc=true, work=nvals)
-
-    # FD-9: products, with 0% and 50% of the entries of the active groups exactly zero at random places in
-    # storage order (a group left all zero stays active)
-    absv = abs.(v)
-    for (zlabel, xz, dz) in (("z0", x, d), ("z50", x50, d50))
-        scale = dot(absv, abs.(dz))
-        expected = dot(v, dz)
-        addcase!(cases, "atom", "dot_vx", () -> dot(v, xz),
-                 guarded(() -> close_scalar(dot(v, xz), expected, scale, T));
-                 inputs=(; x=xz, v), T, shape, layout=zlabel, zero_alloc=true, work=nvals)
+        # FD-6: the indices of every active group through atomindices(x, k) (0.5.x: x.groups[k]), and the sum of
+        # a dense vector over them (a range in the contiguous layout, a vector in the strided one)
+        v = v_()
+        loop_op, view_op = atom_index_ops(group_indices_by(), x, v)
+        expected_indices = foldl(⊻, (j for k in aids for j in groups[k]); init=0)
+        addcase!(cases, "atom", "atomindices_loop", loop_op,
+                 guarded(() -> loop_op() == expected_indices || error("the indices of the active groups differ from the layout"));
+                 inputs=(; x), T, shape, layout=ATOM_LAYOUTS.loops, zero_alloc=true, work=nvals)
+        expected_view = sum(sum(v[groups[k]]) for k in aids)
+        scale_view = sum(sum(abs, v[groups[k]]) for k in aids)
+        addcase!(cases, "atom", "atomindices_view", view_op,
+                 guarded(() -> close_scalar(view_op(), expected_view, scale_view, T));
+                 inputs=(; x, v), T, shape, layout=strided ? "view_vector_group" : "view_range_group", zero_alloc=true, work=nvals)
     end
-    for m in rows
-        A = get!(() -> randn(scenario_rng(rep, "atom/A/$T/$m/$p"), T, m, p), acache, (T, m, p))::Matrix{T}
-        out = zeros(T, m)
-        for (zlabel, xz, dz) in (("z0", x, d), ("z50", x50, d50))
-            ref_mul = A * dz
-            check_mul() = (fill!(out, T(1000)); mul!(out, A, xz); close_enough(out, ref_mul))
-            addcase!(cases, "atom", "mul!", () -> mul!(out, A, xz), guarded(check_mul);
-                     inputs=(; A, x=xz), T, shape, layout="rows$(m)_$zlabel", zero_alloc=true, work=m * nvals)
+    want("sweep_active_update", "sweep_activecoordinates", "atom_norm", "atom_dot", "atomindices_loop", "atomindices_view") &&
+        Base.invokelatest(sweeps_group)
+
+    products_group = function ()
+        v = v_()
+        d = d_()
+        # FD-9: products, with 0% and 50% of the entries of the active groups exactly zero at random places in
+        # storage order (a group left all zero stays active)
+        if want("dot_vx")
+            absv = abs.(v)
+            for zlabel in ATOM_ZLABELS
+                xz = zlabel == "z0" ? x : x50_()
+                dz = zlabel == "z0" ? d : d50_()
+                scale = dot(absv, abs.(dz))
+                expected = dot(v, dz)
+                addcase!(cases, "atom", "dot_vx", () -> dot(v, xz),
+                         guarded(() -> close_scalar(dot(v, xz), expected, scale, T));
+                         inputs=(; x=xz, v), T, shape, layout=zlabel, zero_alloc=true, work=nvals)
+            end
+        end
+        if want("mul!")
+            for m in rows
+                A = get!(() -> randn(scenario_rng(rep, "atom/A/$T/$m/$p"), T, m, p), acache, (T, m, p))::Matrix{T}
+                out = zeros(T, m)
+                for zlabel in ATOM_ZLABELS
+                    xz = zlabel == "z0" ? x : x50_()
+                    dz = zlabel == "z0" ? d : d50_()
+                    ref_mul = A * dz
+                    check_mul() = (fill!(out, T(1000)); mul!(out, A, xz); close_enough(out, ref_mul))
+                    addcase!(cases, "atom", "mul!", () -> mul!(out, A, xz), guarded(check_mul);
+                             inputs=(; A, x=xz), T, shape, layout=atom_mul_layout(m, zlabel), zero_alloc=true, work=m * nvals)
+                end
+            end
         end
     end
+    want("dot_vx", "mul!") && Base.invokelatest(products_group)
 
-    # FN-9: scaling by a number. AtomIterate has no rmul! method, so the generic loop runs: O(p) for a finite
-    # scale, and rmul!(x, Inf) writes NaN into every inactive entry and activates every group. The scale is a
-    # power of two and the repetitions stop before the values overflow, so the finite result is exact; for Inf
-    # the whole vector is compared with isequal (NaN where the entry was zero). prepare restores by a state
-    # copy, which zeroes the entries of every active group and so also resets the poisoning.
-    r = min(exponent(floatmax(T)) - 4, repeats_for(p, 16384))
-    rscale = ldexp(one(T), r)
-    check_finite() = (rmul_repeat!(x, T(2), r); Vector(x) == d .* rscale || error("rmul! differs from the dense reference"))
-    check_inf() = (rmul_repeat!(x, T(Inf), r); isequal(Vector(x), d .* T(Inf)) || error("rmul!(x, Inf) differs from the dense reference"))
-    addcase!(cases, "atom", "rmul!_finite", () -> rmul_repeat!(x, T(2), r), guarded(check_finite);
-             inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * p)
-    addcase!(cases, "atom", "rmul!_inf", () -> rmul_repeat!(x, T(Inf), r), guarded(check_inf);
-             inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * p)
+    rmul_group = function ()
+        d = d_()
+        # FN-9: scaling by a number. AtomIterate has no rmul! method, so the generic loop runs: O(p) for a finite
+        # scale, and rmul!(x, Inf) writes NaN into every inactive entry and activates every group. The scale is a
+        # power of two and the repetitions stop before the values overflow, so the finite result is exact; for Inf
+        # the whole vector is compared with isequal (NaN where the entry was zero). prepare restores by a state
+        # copy, which zeroes the entries of every active group and so also resets the poisoning.
+        r = atom_rmul_repeats(T, p)
+        rscale = ldexp(one(T), r)
+        check_finite() = (rmul_repeat!(x, T(2), r); Vector(x) == d .* rscale || error("rmul! differs from the dense reference"))
+        check_inf() = (rmul_repeat!(x, T(Inf), r); isequal(Vector(x), d .* T(Inf)) || error("rmul!(x, Inf) differs from the dense reference"))
+        addcase!(cases, "atom", "rmul!_finite", () -> rmul_repeat!(x, T(2), r), guarded(check_finite);
+                 inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * p)
+        addcase!(cases, "atom", "rmul!_inf", () -> rmul_repeat!(x, T(Inf), r), guarded(check_inf);
+                 inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * p)
+    end
+    want("rmul!_finite", "rmul!_inf") && Base.invokelatest(rmul_group)
 
-    # FD-12: the block trial, the five-argument call against staging
-    penalties = full ? ("GroupNormL2", "GroupNormLinf", "SparseGroupNormL2", "NormL1") : ("GroupNormL2", "NormL1")
-    atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, snap, d, aids, pool, fcache, penalties)
+    prox_group = function ()
+        # FD-12: the block trial, the five-argument call against staging
+        atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, snap, d_(), aids, pool, fcache, atom_penalties(full); selector)
+    end
+    want(ATOM_PROX_NAMES...) && Base.invokelatest(prox_group)
 
-    if full
+    full || return nothing
+
+    dot_xy_group = function ()
+        d, dy = d_(), dy_()
         # FD-9: dot(x, y) of two iterates that share the layout, and with a SparseIterate
         idsy = group_entries(groups, aids_y)
-        for (zlabel, xz, yz, dz, dyz, valsyz) in (("z0", x, y, d, dy, vals_y), ("z50", x50, y50, d50, dy50, vals_y50))
+        for zlabel in ATOM_ZLABELS
+            xz = zlabel == "z0" ? x : x50_()
+            yz = zlabel == "z0" ? y_() : y50_()
+            dz = zlabel == "z0" ? d : d50_()
+            dyz = zlabel == "z0" ? dy : dy50_()
+            valsyz = zlabel == "z0" ? vals_y_() : vals_y50_()
             sz = build_iterate(T, (p,), idsy, valsyz)
             scale = dot(abs.(dz), abs.(dyz))
             expected = dot(dz, dyz)
@@ -2863,7 +3047,11 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                      guarded(() -> close_scalar(dot(xz, sz), expected, scale, T));
                      inputs=(; x=xz, y=sz), T, shape, layout="atom_sparse_$zlabel", zero_alloc=false, work=nvals)
         end
+    end
+    want("dot_xy") && Base.invokelatest(dot_xy_group)
 
+    momentum_group = function ()
+        d = d_()
         # FD-8: the momentum value loops, through the accessors and through the private fields
         ybuf = randn(scenario_rng(rep, key * "/momentum_y"), T, nvals)
         xcur = randn(scenario_rng(rep, key * "/momentum_cur"), T, nvals)
@@ -2871,7 +3059,8 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
         buf = zeros(T, nvals)
         gather = group_entries(groups, aids)
         rd_total, rd_magnitude = restart_reference(d[gather], ybuf, xcur, xprev)
-        for (layout, loops) in (("accessors", AtomAccessors(group_indices_by())), ("private_fields", atom_loops_by(x, group_indices_by())))
+        for (layout, loops) in ((ATOM_MOMENTUM_LAYOUTS[1], AtomAccessors(group_indices_by())),
+                                (ATOM_MOMENTUM_LAYOUTS[2], atom_loops_by(x, group_indices_by())))
             wm = copy(vals)
             nvalues_op, values_op, setvalues_op, dot_op = atom_momentum_ops(loops, x, buf, wm, ybuf, xcur, xprev)
             function check_nvalues()
@@ -2888,74 +3077,100 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                 Vector(x) == d || error("_setvalues! differs from the dense reference")
             end
             check_restartdot() = close_scalar(dot_op(), rd_total, rd_magnitude, T)
-            for (name, op, check, inputs) in (("_nvalues", nvalues_op, check_nvalues, (; x)), ("_values!", values_op, check_values, (; x)),
-                                              ("_setvalues!", setvalues_op, check_setvalues, (; x, w=wm)),
-                                              ("_restartdot", dot_op, check_restartdot, (; x, ybuf, xcur, xprev)))
+            for (name, op, check, inputs) in ((ATOM_MOMENTUM_NAMES[1], nvalues_op, check_nvalues, (; x)),
+                                              (ATOM_MOMENTUM_NAMES[2], values_op, check_values, (; x)),
+                                              (ATOM_MOMENTUM_NAMES[3], setvalues_op, check_setvalues, (; x, w=wm)),
+                                              (ATOM_MOMENTUM_NAMES[4], dot_op, check_restartdot, (; x, ybuf, xcur, xprev)))
                 # _nvalues takes the length of each active group: one step per group, not per entry
                 addcase!(cases, "atom", name, op, guarded(check); inputs, T, shape, layout, zero_alloc=true,
                          work=name == "_nvalues" ? na : nvals)
             end
         end
+    end
+    want(ATOM_MOMENTUM_NAMES...) && Base.invokelatest(momentum_group)
 
+    copy_group = function ()
+        d = d_()
+        aentries = aentries_()
         # FD-14: copyto! from an unrelated dense vector with the same entries, and a self broadcast. A copy
         # whose source is the reference first compares the source with its digest at construction.
-        d_source, dy_source = (; d), (; dy)
-        d_built, dy_built = input_digests(d_source), input_digests(dy_source)
-        function check_unrelated()
-            check_inputs(d_source, d_built, AFTER_BUILD)
-            write_values!(x, aentries, -d[aentries])
-            copyto!(x, d)
-            Vector(x) == d || error("copyto! from a dense vector differs from the reference")
+        want("copyto!_unrelated") && let d_source = d_source_(), d_built = d_built_()
+            function check_unrelated()
+                check_inputs(d_source, d_built, AFTER_BUILD)
+                write_values!(x, aentries, -d[aentries])
+                copyto!(x, d)
+                Vector(x) == d || error("copyto! from a dense vector differs from the reference")
+            end
+            addcase!(cases, "atom", "copyto!_unrelated", () -> (copyto!(x, d); nothing), guarded(check_unrelated);
+                     inputs=(; x, d), T, shape, layout=ATOM_LAYOUTS.dense_same, zero_alloc=false, work=p)
         end
-        addcase!(cases, "atom", "copyto!_unrelated", () -> (copyto!(x, d); nothing), guarded(check_unrelated);
-                 inputs=(; x, d), T, shape, layout="dense_same_entries", zero_alloc=false, work=p)
-        addcase!(cases, "atom", "broadcast_self", () -> (x .= abs.(x); nothing),
-                 guarded(() -> (x .= abs.(x); Vector(x) == abs.(d) || error("x .= abs.(x) differs from the dense reference")));
-                 inputs=(; snap), T, shape, layout="abs", prepare=restore_state!, zero_alloc=false, work=p)
+        want("broadcast_self") &&
+            addcase!(cases, "atom", "broadcast_self", () -> (x .= abs.(x); nothing),
+                     guarded(() -> (x .= abs.(x); Vector(x) == abs.(d) || error("x .= abs.(x) differs from the dense reference")));
+                     inputs=(; snap), T, shape, layout=ATOM_LAYOUTS.abs, prepare=restore_state!, zero_alloc=false, work=p)
 
         # FD-2: clearing and assigning, against the state copy; values only
-        addcase!(cases, "atom", "fill!_zero", () -> (fill!(x, 0); nothing),
-                 guarded(() -> (fill!(x, 0); iszero(Vector(x)) || error("fill! left a nonzero entry")));
-                 inputs=(; snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=nvals)
-        addcase!(cases, "atom", "fill!_zero_dropzeros", () -> (dropzeros!(fill!(x, 0)); nothing),
-                 guarded(() -> (dropzeros!(fill!(x, 0)); iszero(Vector(x)) || error("fill! and dropzeros! left a nonzero entry")));
-                 inputs=(; snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=nvals)
-        addcase!(cases, "atom", "broadcast_assign", () -> (x .= y; nothing),
-                 guarded(() -> (x .= y; Vector(x) == dy || error("x .= y differs from y")));
-                 inputs=(; y, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
-        addcase!(cases, "atom", "copyto!_state", () -> (copyto!(x, y); nothing),
-                 guarded(() -> (copyto!(x, y); Vector(x) == dy || error("copyto!(x, y) differs from y")));
-                 inputs=(; y, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=2 * nvals)
+        want("fill!_zero") &&
+            addcase!(cases, "atom", "fill!_zero", () -> (fill!(x, 0); nothing),
+                     guarded(() -> (fill!(x, 0); iszero(Vector(x)) || error("fill! left a nonzero entry")));
+                     inputs=(; snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=nvals)
+        want("fill!_zero_dropzeros") &&
+            addcase!(cases, "atom", "fill!_zero_dropzeros", () -> (dropzeros!(fill!(x, 0)); nothing),
+                     guarded(() -> (dropzeros!(fill!(x, 0)); iszero(Vector(x)) || error("fill! and dropzeros! left a nonzero entry")));
+                     inputs=(; snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=nvals)
+        want("broadcast_assign") && let y = y_(), dy = dy_()
+            addcase!(cases, "atom", "broadcast_assign", () -> (x .= y; nothing),
+                     guarded(() -> (x .= y; Vector(x) == dy || error("x .= y differs from y")));
+                     inputs=(; y, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
+        end
+        want("copyto!_state") && let y = y_(), dy = dy_()
+            addcase!(cases, "atom", "copyto!_state", () -> (copyto!(x, y); nothing),
+                     guarded(() -> (copyto!(x, y); Vector(x) == dy || error("copyto!(x, y) differs from y")));
+                     inputs=(; y, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=2 * nvals)
+        end
 
         # copy and import
-        addcase!(cases, "atom", "copy", () -> (copy(x); nothing),
-                 guarded(() -> (c = copy(x); c !== x && Vector(c) == d && nactive(c) == na || error("copy differs from the iterate")));
-                 inputs=(; x), T, shape, layout=lay, phase="allocating", evals=1, zero_alloc=false, work=p)
+        want("copy") &&
+            addcase!(cases, "atom", "copy", () -> (copy(x); nothing),
+                     guarded(() -> (c = copy(x); c !== x && Vector(c) == d && nactive(c) == na || error("copy differs from the iterate")));
+                     inputs=(; x), T, shape, layout=lay, phase="allocating", evals=1, zero_alloc=false, work=p)
         # a state copy onto an iterate that already holds the same entries (the state is unchanged); the check
         # clears the iterate first, so that a copy that does nothing cannot pass
-        addcase!(cases, "atom", "copyto!_same_kind", () -> (copyto!(x, snap); nothing),
-                 guarded(() -> (fill!(x, 0); copyto!(x, snap); Vector(x) == d || error("state copy differs from the source")));
-                 inputs=(; x, snap), T, shape, layout="same_entries", zero_alloc=false, work=2 * nvals)
-        addcase!(cases, "atom", "copyto!_dense", () -> (copyto!(x, dy); nothing),
-                 guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); copyto!(x, dy);
-                                Vector(x) == dy || error("import differs from the dense array")));
-                 inputs=(; dy, snap), T, shape, layout="dense_other_entries", prepare=restore_state!, zero_alloc=false, work=p)
+        want("copyto!_same_kind") &&
+            addcase!(cases, "atom", "copyto!_same_kind", () -> (copyto!(x, snap); nothing),
+                     guarded(() -> (fill!(x, 0); copyto!(x, snap); Vector(x) == d || error("state copy differs from the source")));
+                     inputs=(; x, snap), T, shape, layout=ATOM_LAYOUTS.same_entries, zero_alloc=false, work=2 * nvals)
+        want("copyto!_dense") && let dy = dy_(), dy_source = dy_source_(), dy_built = dy_built_()
+            addcase!(cases, "atom", "copyto!_dense", () -> (copyto!(x, dy); nothing),
+                     guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); copyto!(x, dy);
+                                    Vector(x) == dy || error("import differs from the dense array")));
+                     inputs=(; dy, snap), T, shape, layout=ATOM_LAYOUTS.dense_other, prepare=restore_state!, zero_alloc=false, work=p)
+        end
 
         # FW-4: conversions on dedicated iterates; the sources are Float64
-        T == Float64 && atom_convert_cases!(cases, rep, p, g, groups, x, aids, key, shape)
+        T == Float64 && want("copyto!_convert") &&
+            Base.invokelatest(atom_convert_cases!, cases, rep, p, g, groups, x, aids, key, shape)
 
         # FW-6: the cheap replace against the staged one
-        addcase!(cases, "atom", "replace_cheap", () -> replace_cheap!(x, dy),
-                 guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_cheap!(x, dy);
-                                Vector(x) == dy || error("replace differs from the dense array")));
-                 inputs=(; dy, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
-        addcase!(cases, "atom", "replace_staged", () -> replace_staged!(x, dy),
-                 guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_staged!(x, dy);
-                                Vector(x) == dy || error("staged replace differs from the dense array")));
-                 inputs=(; dy, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
+        want("replace_cheap", "replace_staged") && let dy = dy_(), dy_source = dy_source_(), dy_built = dy_built_()
+            want("replace_cheap") &&
+                addcase!(cases, "atom", "replace_cheap", () -> replace_cheap!(x, dy),
+                         guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_cheap!(x, dy);
+                                        Vector(x) == dy || error("replace differs from the dense array")));
+                         inputs=(; dy, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
+            want("replace_staged") &&
+                addcase!(cases, "atom", "replace_staged", () -> replace_staged!(x, dy),
+                         guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_staged!(x, dy);
+                                        Vector(x) == dy || error("staged replace differs from the dense array")));
+                         inputs=(; dy, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
+        end
+    end
+    want("copyto!_unrelated", "broadcast_self", "fill!_zero", "fill!_zero_dropzeros", "broadcast_assign", "copyto!_state", "copy",
+         "copyto!_same_kind", "copyto!_dense", "copyto!_convert", "replace_cheap", "replace_staged") && Base.invokelatest(copy_group)
 
+    dropzeros_group = function ()
         # compaction: dropzeros! with 10% and 50% of the active groups all zero (they stay active until the call)
-        for (zlabel, fraction) in (("zeros10", 0.1), ("zeros50", 0.5))
+        for (zlabel, fraction) in ATOM_COMPACTION
             nz = max(1, round(Int, fraction * na))
             zpos = randperm(scenario_rng(rep, key * "/compaction_$zlabel"), na)[1:nz]
             valsz = copy(vals)
@@ -2980,6 +3195,7 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                      inputs=(; snapz), T, shape, layout=zlabel, prepare=prepare_zeros!, zero_alloc=true, work=nvals)
         end
     end
+    want("dropzeros!") && Base.invokelatest(dropzeros_group)
     nothing
 end
 
@@ -2990,8 +3206,7 @@ end
 function atom_layout_cases!(cases, p, g, strided, groups)
     T = Float64
     K = p ÷ g
-    kind = strided ? "strided" : "contiguous"
-    shape = "p$(p)_g$(g)_$kind"
+    shape = atom_layout_shape(p, g, strided)
     f = GroupNormL2(T(0.1), groups)           # a penalty owns a copy of the groups
     f2 = GroupNormL2(T(0.1), groups)
     x_shared = AtomIterate(T, p, f)           # shares f.groups
@@ -3056,7 +3271,7 @@ function atom_symmetric_cases!(cases, rep, T, g, scache)
     K = p ÷ g
     na = max(1, round(Int, 0.1 * K))
     key = "atom/symmetric/$T/$p/$g"
-    shape = "p$(p)_g$(g)_contiguous_act10"
+    shape = atom_symmetric_shape(g)
     S = get!(() -> Symmetric(randn(scenario_rng(rep, "atom/S/$T/$p"), T, p, p)), scache, (T, p))::Symmetric{T,Matrix{T}}
     groups = atom_groups(p, g, false)
     aids = randperm(scenario_rng(rep, key * "/groups"), K)[1:na]
@@ -3090,40 +3305,67 @@ function atom_construct_case!(cases, T, p, g, strided, groups)
         length(x) == p && ncoordinates(x) == K && nactive(x) == 0 || error("a new iterate is not empty")
     end
     addcase!(cases, "atom", "construct", () -> (AtomIterate(T, p, groups); nothing), check; inputs=(; groups),
-             T, shape="p$(p)_g$(g)_$(strided ? "strided" : "contiguous")", layout="empty", phase="construct", evals=1,
+             T, shape=atom_layout_shape(p, g, strided), layout="empty", phase="construct", evals=1,
              zero_alloc=false, work=p)
 end
 
-function atom_cases!(cases, rep; quick=false)
-    types = quick ? (Float64,) : (Float32, Float64)
-    sizes = quick ? (8 * 10^4,) : (8 * 10^4, 8 * 10^5)
-    layouts = quick ? [(1, false), (8, false), (8, true)] : [(g, s) for g in (1, 8, 64) for s in (false, true)]
-    densities = quick ? ATOM_DENSITIES[2:2] : ATOM_DENSITIES
-    rows = quick ? (256,) : (256, 1024)       # rows of the dense operands, at p = 8·10⁴ only
+# The scenarios of the atom group, in building order: the grid of sizes, layouts and densities of the suite, with
+# the rows of the dense operands (at p = 8·10⁴ only) and whether the scenario builds every operation (`full`).
+function atom_grid(quick)
+    (; types=quick ? (Float64,) : (Float32, Float64),
+       sizes=quick ? (8 * 10^4,) : (8 * 10^4, 8 * 10^5),
+       layouts=quick ? [(1, false), (8, false), (8, true)] : [(g, s) for g in (1, 8, 64) for s in (false, true)],
+       densities=quick ? ATOM_DENSITIES[2:2] : ATOM_DENSITIES,
+       rows=quick ? (256,) : (256, 1024),
+       symmetric_groups=quick ? (8,) : (1, 8, 64))
+end
+function atom_scenarios(quick)
+    grid = atom_grid(quick)
+    scenarios = NamedTuple[]
+    for T in grid.types, p in grid.sizes, (g, strided) in grid.layouts, (density, label) in grid.densities
+        full = !quick || (g == 8 && !strided)
+        push!(scenarios, (; T, p, g, strided, density, label, full, rows=p == 8 * 10^4 ? grid.rows : ()))
+    end
+    scenarios
+end
+
+# With a `selector` (see `build_cases`) a scenario or function none of whose IDs matches is not built, and the
+# group layouts are built only for what is. The guarded calls go through `Base.invokelatest`, so that a function
+# that is skipped is not compiled. Without a selector nothing is enumerated and everything is built.
+function atom_cases!(cases, rep; quick=false, selector=nothing)
+    grid = atom_grid(quick)
     caches = (Dict{Any,Any}(), Dict{Any,Any}(), Dict{Any,Any}())     # vectors, dense operands, penalties
     scache = Dict{Any,Any}()
     gcache = Dict{Any,Any}()
     groups_of(p, g, strided) = get!(() -> atom_groups(p, g, strided), gcache, (p, g, strided))
-    for T in types, p in sizes, (g, strided) in layouts
-        atom_construct_case!(cases, T, p, g, strided, groups_of(p, g, strided))
+    for T in grid.types, p in grid.sizes, (g, strided) in grid.layouts
+        selector === nothing || any_wanted(selector, atom_construct_ids(T, p, g, strided)) || continue
+        Base.invokelatest(atom_construct_case!, cases, T, p, g, strided, groups_of(p, g, strided))
     end
-    for T in types, p in sizes, (g, strided) in layouts, (density, label) in densities
-        full = !quick || (g == 8 && !strided)
-        atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, groups_of(p, g, strided), caches;
-                             full, rows=p == 8 * 10^4 ? rows : ())
+    for s in atom_scenarios(quick)
+        selector === nothing ||
+            any_wanted(selector, atom_scenario_ids(s.T, s.p, s.g, s.strided, s.label; s.full, s.rows, s.density)) || continue
+        Base.invokelatest(atom_scenario_cases!, cases, rep, s.T, s.p, s.g, s.strided, s.density, s.label,
+                          groups_of(s.p, s.g, s.strided), caches; s.full, s.rows, selector)
     end
-    for p in sizes, (g, strided) in layouts
-        atom_layout_cases!(cases, p, g, strided, groups_of(p, g, strided))
+    for p in grid.sizes, (g, strided) in grid.layouts
+        selector === nothing || any_wanted(selector, atom_layout_ids(p, g, strided)) || continue
+        Base.invokelatest(atom_layout_cases!, cases, p, g, strided, groups_of(p, g, strided))
     end
-    for T in types, g in (quick ? (8,) : (1, 8, 64))
-        atom_symmetric_cases!(cases, rep, T, g, scache)
+    for T in grid.types, g in grid.symmetric_groups
+        selector === nothing || any_wanted(selector, atom_symmetric_ids(T, g)) || continue
+        Base.invokelatest(atom_symmetric_cases!, cases, rep, T, g, scache)
     end
     nothing
 end
 
 const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks", "owner", "sparse", "atom", "ridge")
 
-function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS))
+# `selector` (a Regex or `nothing`) lets the builders that take it, `atom_cases!` only, skip scenarios and
+# operations none of whose case IDs it matches, before their fixtures exist. The result is a superset of the
+# cases whose IDs match, in the original relative order, with the fixtures they always had; the caller applies
+# the exact filter. Without a selector it is the whole catalog.
+function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS), selector::Union{Nothing,Regex}=nothing)
     suite in ("quick", "extended") || error("PB_SUITE must be quick or extended")
     isempty(groups) && error("Select at least one benchmark group")
     all(in(CASE_GROUPS), groups) || error("PB_GROUPS must select from $(join(CASE_GROUPS, ','))")
@@ -3132,7 +3374,8 @@ function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS))
     builders=(separable_cases!,smooth_cases!,matrix_cases!,constrained_cases!,tensor_cases!,product_cases!,block_cases!,owner_cases!,sparse_cases!,atom_cases!,ridge_cases!)
     # Select groups and sizes before allocating data or constructing function objects.
     for (group,builder) in zip(CASE_GROUPS,builders)
-        group in groups && builder(cases,rep;quick=suite=="quick")
+        group in groups || continue
+        builder === atom_cases! ? builder(cases,rep;quick=suite=="quick",selector) : builder(cases,rep;quick=suite=="quick")
     end
     suite == "extended" && "vectors" in groups && group_layout_cases!(cases, rep)
     ids=[c.meta.id for c in cases]

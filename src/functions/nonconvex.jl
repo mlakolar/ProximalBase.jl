@@ -1101,3 +1101,15 @@ function _group_norm_parts(::Type{R}, x::AbstractArray, G) where {R}
   end
   _parts(sqrt(s), e)
 end
+
+####################################
+#  a SymmetricSparseIterate
+####################################
+
+# The proximal operators of the group penalties into the owner of a symmetric matrix, with a scalar
+# step: the groups must be closed under transposition, which is checked before anything is written,
+# and each stored coordinate is written once. The group coordinates and the group values at an owner
+# are not defined.
+const _OwnerGroups = Union{GroupNormL2, GroupNormLinf, SparseGroupNormL2, GroupMCP, GroupSCAD}
+value_and_prox!(y::SymmetricSparseIterate, f::_OwnerGroups, x::_ArrayOrOwner, γ::Real) = _owner_value_and_prox!(y, f, x, γ)
+prox!(y::SymmetricSparseIterate, f::_OwnerGroups, x::_ArrayOrOwner, γ::Real) = _owner_prox!(y, f, x, γ)

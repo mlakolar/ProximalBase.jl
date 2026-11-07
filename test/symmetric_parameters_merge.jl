@@ -157,6 +157,7 @@ end
   @test value_and_gradient!(g, h, X) ≈ 2sum(c .* X)
   @test g == 2c
   f = IndHalfspace(c, 0.)
+  @test_throws ArgumentError prox!(g, f, x, 1.)
   @test prox!(g, f, X, 1.) ≈ X - sum(c .* X) / sum(abs2, c) * c
 end
 

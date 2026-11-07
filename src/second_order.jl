@@ -711,3 +711,11 @@ end
   _blocktuple(k -> :(_quadratic_model_unchecked(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)))
 @generated _quadratic_blocks!(qs::Tuple, fs::Tuple, x::Tuple) =
   _blockwise(k -> :(_quadratic_model_unchecked!(qs[$k], fs[$k], x[$k])), min(fieldcount(qs), fieldcount(fs), fieldcount(x)), nothing)
+
+# The product of the Hessian of a LogDetLoss with an owner of a symmetric matrix as the point or the
+# direction: a dense output.
+hessian_vec!(Hv::AbstractMatrix, f::LogDetLoss, X::SymmetricSparseIterate, V::_MatrixOrOwner) =
+  hessian_vec!(Hv, f, matrixview(X), V isa SymmetricSparseIterate ? matrixview(V) : V)
+hessian_vec!(Hv::AbstractMatrix, f::LogDetLoss, X::AbstractMatrix, V::SymmetricSparseIterate) =
+  hessian_vec!(Hv, f, X, matrixview(V))
+hessian_vec(f::LogDetLoss, X::SymmetricSparseIterate, V::_MatrixOrOwner) = hessian_vec!(_gradient_buffer(X), f, X, V)

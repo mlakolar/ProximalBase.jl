@@ -272,7 +272,7 @@ end
 
 # Keep the vectorized sum-of-squares path for ordinary magnitudes; use a
 # scaled norm when squaring overflows or loses the subnormal entries.
-function _norm2(x::AbstractArray)
+function _norm2(x::_ArrayOrOwner)
   eltype(x) <: AbstractFloat || return _norm2_scaled(x)
   s = _sumabs2(x)
   isfinite(s) && s >= floatmin(typeof(s)) && return sqrt(s)

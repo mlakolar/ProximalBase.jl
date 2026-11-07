@@ -253,7 +253,7 @@ end
     @test samebits(Y, R)
     S = SymmetricSparseIterate(Float32, 3)
     @test isequal(value_and_prox!(S, F, X, 1.0f0), v)
-    @test samebits(S, Symmetric(Y, :L))
+    @test samebits(Matrix(S), Matrix(Symmetric(Y, :L)))
     @test measured(Y, F, X, 1.0f0) == 0
   end
   # An entry that overflows on conversion keeps the ordinary outcome.

@@ -61,7 +61,7 @@ l1ball_proj(y, r) = norm(y, 1) <= r ? y : sign.(y) .* simplex_proj(abs.(y), r)
   D = randn(p, p); D = D + D'
   S = SymmetricSparseIterate(D)
   Z = prox(IndBallL0(5), S)
-  @test nnz(dropzeros!(copy(Z))) == 5
+  @test nactive(dropzeros!(copy(Z))) == 5
   @test Matrix(Z) == Matrix(Z)'                          # an entry and its transpose together
   # the five entries of largest magnitude, an off-diagonal entry counting √2 times
   wa(X, r, c) = (r == c ? 1 : sqrt(2)) * abs(X[r, c])

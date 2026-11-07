@@ -160,11 +160,11 @@ end
   As = (T[1 2 3; 2 4 5; 3 5 6], T[1 nan 3; nan 4 5; 3 5 6], T[1 2 nan; 2 inf inf; nan inf 6])
   for λ2 in (zero(T), one(T), inf), w in (T[0, 1], T[1, 1], T[inf, 0])
     f = SparseGroupNormL2(inf, λ2, groups, w)
-    for A in As, γ in (zero(T), one(T), inf, T[0, inf])
+    for A in As, γ in (zero(T), one(T), inf)
       wanty = want(f, A)
       for source in (Matrix, SparseIterate, SymmetricSparseIterate)
         y = SymmetricSparseIterate(T, 3)
-        fill!(y, -1)
+        fill!(coordinates(y), -1)
         v = value_and_prox!(y, f, source(copy(A)), γ)
         @test agree(Matrix(y), wanty)
         @test v === zero(T)
@@ -175,6 +175,12 @@ end
       x = SymmetricSparseIterate(copy(A))
       @test value_and_prox!(x, f, x, γ) === zero(T)
       @test agree(Matrix(x), wanty)
+    end
+    # a step per group is refused for an owner, before anything is written
+    for op in (prox!, value_and_prox!)
+      x = SymmetricSparseIterate(copy(As[1]))
+      @test_throws ArgumentError op(x, f, x, T[0, inf])
+      @test isequal(Matrix(x), As[1])
     end
   end
 end

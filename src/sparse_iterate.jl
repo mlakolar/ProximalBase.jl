@@ -169,6 +169,7 @@ end
 
 # the stored entries of an iterate: the recoveries of R1 read only these
 _stored_maxabs(x::Union{SparseIterate, SymmetricSparseIterate}) = _maximum_abs(view(x.nzval, 1:x.nnz))
+_maximum_abs(x::SymmetricSparseIterate) = _maximum_abs(view(x.nzval, 1:x.nnz))
 _all_finite(x::Union{SparseIterate, SymmetricSparseIterate}) = all(isfinite, view(x.nzval, 1:x.nnz))
 
 
@@ -1230,6 +1231,14 @@ struct SymmetricMatrixView{T} <: AbstractMatrix{T}
   x::SymmetricSparseIterate{T}
 end
 
+# The matrix that an owner represents, written through by the kernels that address a position of it
+# (the groups of a penalty, a sphere, a spectral decomposition) and store each result in the
+# coordinate of its pair. Internal: the public view is read-only, and an owner is written through
+# the methods that name it.
+struct _OwnerMatrix{T} <: AbstractMatrix{T}
+  x::SymmetricSparseIterate{T}
+end
+
 """
     matrixview(x::SymmetricSparseIterate)
 
@@ -1259,6 +1268,29 @@ matrixview(x::SymmetricSparseIterate) = SymmetricMatrixView(x)
 Base.size(A::SymmetricMatrixView) = size(A.x)
 Base.IndexStyle(::Type{<:SymmetricMatrixView}) = IndexCartesian()
 Base.@propagate_inbounds Base.getindex(A::SymmetricMatrixView, r::Int, c::Int) = A.x[r, c]
+
+Base.size(A::_OwnerMatrix) = size(A.x)
+Base.IndexStyle(::Type{<:_OwnerMatrix}) = IndexCartesian()
+Base.@propagate_inbounds Base.getindex(A::_OwnerMatrix, r::Int, c::Int) = A.x[r, c]
+Base.@propagate_inbounds function Base.setindex!(A::_OwnerMatrix, v, r::Int, c::Int)
+  A.x[r, c] = v
+  A
+end
+Base.dataids(A::_OwnerMatrix) = Base.dataids(A.x)
+# a zero reaches the active coordinates only, as for fill!(coordinates(x), 0)
+Base.fill!(A::_OwnerMatrix, v) = (fill!(coordinates(A.x), v); A)
+# A broadcast into the matrix of an owner stores each coordinate once, from its lower position, so that an
+# update such as y .= f.(y) is applied once; the operands are symmetric, as the caller has ensured.
+function Base.copyto!(A::_OwnerMatrix, bc::Broadcast.Broadcasted{Nothing})
+  axes(A) == axes(bc) || throw(DimensionMismatch("destination axes $(axes(A)) do not match $(axes(bc))"))
+  bc′ = Broadcast.preprocess(A, bc)
+  x = A.x
+  p = x.p
+  @inbounds for c = 1:p, r = c:p
+    _setstored!(x, bc′[CartesianIndex(r, c)], tril_index(p, r, c))
+  end
+  A
+end
 # aliasing hooks from Base (non-public functions)
 Base.dataids(A::SymmetricMatrixView) = Base.dataids(A.x)
 Base.unaliascopy(A::SymmetricMatrixView) = SymmetricMatrixView(copy(A.x))
@@ -1311,8 +1343,8 @@ _symequal(a, b) = isequal(a, b) || (a == b) === true
 
 # sources whose entries (r, c) and (c, r) are equal by construction
 _symmetric_by_type(A) = false
-_symmetric_by_type(::Union{SymmetricSparseIterate, Symmetric{<:Number}, Hermitian{<:Real},
-                           Diagonal{<:Number}, SymTridiagonal{<:Number}}) = true
+_symmetric_by_type(::Union{SymmetricSparseIterate, SymmetricMatrixView, _OwnerMatrix, Symmetric{<:Number},
+                           Hermitian{<:Real}, Diagonal{<:Number}, SymTridiagonal{<:Number}}) = true
 _symmetric_by_type(A::Union{Adjoint, Transpose}) = _symmetric_by_type(parent(A))
 
 # The symmetric part (A + A') / 2, read lazily. The proximal point over symmetric
@@ -1399,6 +1431,7 @@ function _symmetric_argument(y::SymmetricSparseIterate, x::AbstractMatrix)
   _is_device_array(x) && return _symmetric_argument(y, Array(x))
   _exactly_symmetric(x) ? x : _SymmetricPart(x)
 end
+_symmetric_argument(y::_OwnerMatrix, x::AbstractMatrix) = _symmetric_argument(y.x, x)
 _exactly_symmetric(x::AbstractMatrix) = size(x, 1) == size(x, 2) && _issymmetric_exact(x, _symequal)
 # A spectral function is defined on symmetric matrices, so its proximal map reads the
 # symmetric part of a matrix that is not symmetric by type, whatever the output.
@@ -1546,6 +1579,13 @@ _check_axes(x::SymmetricSparseIterate, A::AbstractArray) = axes(A) == _owner_axe
 # input is symmetric: a SymmetricSparseIterate keeps the lower one
 _copyto_rounded!(Y, B) = copyto!(Y, B)
 _copyto_rounded!(Y::SymmetricSparseIterate, B) = copyto!(Y, Symmetric(B, :L))
+_copyto_rounded!(Y::_OwnerMatrix, B) = (copyto!(Y.x, Symmetric(B, :L)); Y)
+
+# The destination, and the argument, as the kernels that write through the matrix of an owner see them: x is
+# the destination itself, or its read-only view, when the call is in place, and the matrix of x otherwise.
+_owner_point(::_OwnerMatrix, x) = x
+_owner_point(w::_OwnerMatrix, x::SymmetricSparseIterate) = x === w.x ? w : matrixview(x)
+_owner_point(w::_OwnerMatrix, x::SymmetricMatrixView) = x.x === w.x ? w : x
 
 Base.convert(::Type{SymmetricSparseIterate{T}}, ::Union{AbstractArray, SymmetricSparseIterate}) where {T<:Complex} =
   _real_error(:SymmetricSparseIterate)
@@ -2452,7 +2492,8 @@ function LinearAlgebra.norm(x::SymmetricSparseIterate, p::Real = 2)
     end
     return s
   end
-  invoke(norm, Tuple{Any, Real}, x, p)
+  p == 2 && return _norm2_scaled(x)
+  norm(matrixview(x), p)
 end
 
 function *(A::Symmetric{T}, X::SymmetricSparseIterate{T}, B::Symmetric{T}) where {T}

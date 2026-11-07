@@ -93,6 +93,7 @@ function legacy_prox!(Y, f::LogDetLoss{T}, X, γ) where {T}
   Y
 end
 
+legacy_gradient!(G, f::LogDetLoss, X::SymmetricSparseIterate) = legacy_gradient!(G, f, Matrix(X))
 function legacy_gradient!(G, f::LogDetLoss, X)
   PB._logdet_chol!(f, X)
   C, S, w = f.C, f.S, f.w
@@ -112,6 +113,10 @@ function value_functions(::Type{T}) where {T}
    SingularValue(NormL1(one(T))), SingularValue(NormL0(one(T))),
    Spectral(IndNonnegative()), Spectral(IndBox(-one(T), one(T))))
 end
+
+# the reference formulas read a matrix: the matrix that an owner represents
+dense(X) = X isa SymmetricSparseIterate ? Matrix(X) : X
+nstored(Z) = Z isa SymmetricSparseIterate ? nactive(Z) : nnz(Z)
 
 function logical_inputs(X::Matrix{T}) where {T}
   padded = fill(T(NaN), size(X, 1) + 2, size(X, 2) + 2)
@@ -276,8 +281,8 @@ end
           @test samebits(f(Z), f(X))
         end
         for Z in (SparseIterate(X), SymmetricSparseIterate(X))
-          @test nnz(Z) < length(Z.nzval)
-          Z.nzval[nnz(Z)+1:end] .= T(NaN)
+          @test nstored(Z) < length(Z.nzval)
+          Z.nzval[nstored(Z)+1:end] .= T(NaN)
           before = copy(Z.nzval)
           for f in value_functions(T)
             @test samebits(f(Z), f(X))
@@ -310,7 +315,7 @@ end
           for f in (IndBallRank(1), IndBallRank(2), SingularValue(IndBallL0(1)),
                     SingularValue(NormL1(one(T))), SingularValue(NormL0(one(T)))), Z in (X, L)
             before = copy(Z)
-            @test samebits(f(Z), base_value(f, Z))
+            @test samebits(f(Z), base_value(f, dense(Z)))
             @test Z == before
           end
         end
@@ -319,7 +324,7 @@ end
           for X in (B + B', B * B', B[:, 1:1] * B[:, 1:1]', B)
             for Z in logical_inputs(X), f in value_functions(T)
               before = Matrix(Z)
-              @test samebits(f(Z), base_value(f, Z))
+              @test samebits(f(Z), base_value(f, dense(Z)))
               @test Matrix(Z) == before
             end
           end
@@ -506,7 +511,7 @@ end
           for n in (33, 2, 17), λ in (one(T), -zero(T))
             X = wrap(Matrix(Diagonal(vcat(one(T), fill(δ, n - 1)))))
             f.λ = λ
-            @test samebits(f(X), λ * tr(X))
+            @test samebits(f(X), λ * tr(dense(X)))
           end
         end
         for wrap in (identity, SymmetricSparseIterate, SparseIterate)

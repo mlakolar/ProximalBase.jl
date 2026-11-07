@@ -46,6 +46,10 @@ abstract type AbstractFunction end
 # the owner, does not accept it.
 const _ArrayOrOwner = Union{AbstractArray, SymmetricSparseIterate}
 
+# A matrix, or the owner of one: the destination or the point of the oracles of the families that
+# are defined on matrices and write whole results (a spectral function, a set of matrices)
+const _MatrixOrOwner = Union{AbstractMatrix, SymmetricSparseIterate}
+
 # the number of entries of the array, or of the matrix that the owner represents
 _nentries(x::AbstractArray) = length(x)
 _nentries(x::SymmetricSparseIterate) = x.p^2

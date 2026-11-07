@@ -284,7 +284,7 @@ end
                         (sparse_pairs, T[0 nan 0; nan 0.9 0; 0 0 1.9]))
         for op in (prox!, value_and_prox!)
           y = SymmetricSparseIterate(T, 3)
-          fill!(y, -1)
+          fill!(coordinates(y), -1)
           v = op(y, f, A, T(1))
           @test agree(Matrix(y), want)
           op === value_and_prox! && @test isnan(v)
@@ -298,8 +298,8 @@ end
           @test isequal(Matrix(x), A)
         end
       end
-      # a group step per group: the identity at a zero step (NaN in its own entry), the NaN block when the
-      # product only underflowed
+      # a group step per group, on a dense output: the identity at a zero step (NaN in its own entry), the NaN
+      # block when the product only underflowed
       A2 = T[NaN 1 0.5; 1 2 1; 0.5 1 3]
       tiny = sqrt(floatmin(T)) * eps(T)
       for (f, γ, want) in ((GroupNormL2(T(1), [[1, 2, 4, 5]], T[1]), T[0], T[nan 1 0.5; 1 2 1; 0.5 1 3]),
@@ -308,14 +308,15 @@ end
                            (SparseGroupNormL2(T(0.1), T(1), [[1, 2, 4, 5]], T[1]), T[0], T[nan 1 0.5; 1 2 1; 0.5 1 3]),
                            (SparseGroupNormL2(T(0.1), tiny, [[1, 2, 4, 5]], T[1]), T[tiny], T[nan nan 0.5; nan nan 1; 0.5 1 3]))
         for op in (prox!, value_and_prox!)
+          # an owner takes no step per group: refused before anything is written
           y = SymmetricSparseIterate(T, 3)
-          fill!(y, -1)
-          v = op(y, f, A2, γ)
-          @test agree(Matrix(y), want)
-          op === value_and_prox! && @test isnan(v)
+          fill!(coordinates(y), -1)
+          before = (Matrix(y), nactive(y))
+          @test_throws ArgumentError op(y, f, A2, γ)
+          @test isequal((Matrix(y), nactive(y)), before)
           x = SymmetricSparseIterate(A2)
-          op(x, f, x, γ)
-          @test agree(Matrix(x), want)
+          @test_throws ArgumentError op(x, f, x, γ)
+          @test isequal(Matrix(x), A2)
           yd = fill(T(-7), 3, 3)
           op(yd, f, copy(A2), γ)
           @test agree(yd, want)

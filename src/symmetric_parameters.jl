@@ -272,6 +272,19 @@ function _check_oracle_arrays(op::O, f, y, x, γ = nothing) where {O}
   end
   true
 end
+# The same checks for a destination that is the matrix of an owner: the write checks see the matrix,
+# and the parameters are those of the owner, as for the owner itself.
+function _check_oracle_arrays(op::O, f, y::_OwnerMatrix, x, γ = nothing) where {O}
+  _checkreal(f, y)
+  _checkreal(f, x)
+  γ === nothing || _checkreal(f, γ)
+  γ === nothing ? _checkwrite(op, f, y, x) : _checkwrite(op, f, y, x, γ)
+  _check_write_arrays(op, f, y.x, _owner_of(x))
+  true
+end
+_owner_of(x) = x
+_owner_of(x::_OwnerMatrix) = x.x
+_owner_of(x::SymmetricMatrixView) = x.x
 _value_unchecked(f, x) = f(x)
 
 # Symmetrize computed gradients before any wrapper scales or shifts them.
@@ -557,3 +570,23 @@ _value_checked(f::IndIntersection, x::SymmetricSparseIterate) =
   _ind(_in_checked_sets(f.sets, x), _valtype(x))
 _in_checked_sets(::Tuple{}, x) = true
 _in_checked_sets(sets::Tuple, x) = iszero(_value_checked(first(sets), x)) && _in_checked_sets(Base.tail(sets), x)
+
+# A proximal step into an owner by a kernel written for matrices: the kernel writes through the matrix
+# of the owner, which stores the lower triangle of the result, and the argument is that matrix itself
+# when the call is in place. One method per type of argument, so that the call is inferred.
+@inline _owner_value_and_prox!(y::SymmetricSparseIterate, f, x, γ) = _owner_call(value_and_prox!, y, f, x, γ)
+@inline _owner_prox!(y::SymmetricSparseIterate, f, x, γ) = (_owner_call(prox!, y, f, x, γ); y)
+@inline _owner_call(op::O, y, f, x, γ) where {O} = op(_OwnerMatrix(y), f, x, γ)
+@inline function _owner_call(op::O, y, f, x::SymmetricSparseIterate, γ) where {O}
+  w = _OwnerMatrix(y)
+  x === y ? op(w, f, w, γ) : op(w, f, matrixview(x), γ)
+end
+@inline function _owner_call(op::O, y, f, x::SymmetricMatrixView, γ) where {O}
+  w = _OwnerMatrix(y)
+  x.x === y ? op(w, f, w, γ) : op(w, f, x, γ)
+end
+# the ℓ0 ball counts the coordinates of the lower triangle: an owner argument is a Symmetric one
+@inline function _owner_call(op::O, y, f::IndBallL0, x::SymmetricSparseIterate, γ) where {O}
+  w = _OwnerMatrix(y)
+  x === y ? op(w, f, Symmetric(w, :L), γ) : op(w, f, Symmetric(matrixview(x), :L), γ)
+end

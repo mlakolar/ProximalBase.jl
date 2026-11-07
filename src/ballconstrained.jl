@@ -448,7 +448,7 @@ function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, L) where {U, T
   convert(T, _value_unchecked(f, y))
 end
 
-function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
+function _value_and_prox_unchecked!(y::_OwnerMatrix, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
   _checkstep_nonneg(γ)
   _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
@@ -515,7 +515,7 @@ end
 # On a SymmetricSparseIterate an off-diagonal index is two entries, so a point of
 # norm r takes r/√2 in each of them; a diagonal index and any other output take r.
 _write_unit!(y, i, r) = (y[i] = r; y)
-function _write_unit!(y::SymmetricSparseIterate, i::Integer, r)
+function _write_unit!(y::_OwnerMatrix, i::Integer, r)
   p = size(y, 1)
   row, col = mod1(i, p), cld(i, p)
   y[row, col] = row == col ? r : r / sqrt(oftype(r, 2))
@@ -523,7 +523,7 @@ function _write_unit!(y::SymmetricSparseIterate, i::Integer, r)
 end
 # the first index of a group that is a diagonal entry of a SymmetricSparseIterate, else its first
 _diagonal_first(y, G) = first(G)
-function _diagonal_first(y::SymmetricSparseIterate, G)
+function _diagonal_first(y::_OwnerMatrix, G)
   p = size(y, 1)
   for i in G
     mod1(i, p) == cld(i, p) && return i
@@ -755,7 +755,7 @@ function _l1_nonfinite!(y::AbstractArray, c, x::AbstractArray, γ::Real)
   f = c.f
   sphere = c isa SphereConstrained
   r = convert(T, sphere ? c.sphere.r : c.ball.r)
-  L = y isa SymmetricSparseIterate ? _LowerLayout(size(y, 1)) : _DenseLayout()
+  L = y isa _OwnerMatrix ? _LowerLayout(size(y, 1)) : _DenseLayout()
   if !sphere && iszero(r)                      # the ball of radius zero is the singleton {0}
     fill!(y, zero(eltype(y)))
     return zero(T)
@@ -801,7 +801,7 @@ function _finite_ball!(y, c, x, γ, ::Type{U}) where {U}
   # larger value (a coordinate that underflows to zero in y) or be infinite in T
   any(isnan, y) ? convert(T, NaN) : convert(T, _value_unchecked(c.f, y))
 end
-_narrow_into!(y::SymmetricSparseIterate, b) = (p = size(y, 1); for c in 1:p, r in c:p
+_narrow_into!(y::_OwnerMatrix, b) = (p = size(y, 1); for c in 1:p, r in c:p
     y[r, c] = convert(eltype(y), b[r, c])
   end; y)
 _narrow_into!(y::AbstractArray, b) = (for k in eachindex(IndexLinear(), y)
@@ -939,7 +939,7 @@ function _group_nonfinite!(y::AbstractArray, c, x::AbstractArray, γ::Real)
   f = c.f
   sphere = c isa SphereConstrained
   r = convert(T, sphere ? c.sphere.r : c.ball.r)
-  L = y isa SymmetricSparseIterate ? _LowerLayout(size(y, 1)) : _DenseLayout()
+  L = y isa _OwnerMatrix ? _LowerLayout(size(y, 1)) : _DenseLayout()
   # the ball of radius zero is the singleton {0} (E2); the test is on the radius itself, not on its rounding to T
   if !sphere && iszero(c.ball.r)
     fill!(y, zero(eltype(y)))
@@ -970,7 +970,7 @@ _finite_group!(y, c::SphereConstrained, x, γ) = _sphere_group!(y, c, x, γ, fal
 # y[G] ← r x[G]/‖x_G‖ for a group G of a sphere's shrinkage, scaled as _scale_l2!. A SymmetricSparseIterate stores each
 # mirrored pair once, so its group is written through the lower positions only (the pair is one stored value).
 _group_direction!(y::AbstractArray, x, G, r, nG) = _scale_l2!(view(y, G), view(x, G), r, nG)
-function _group_direction!(y::SymmetricSparseIterate, x, G, r, nG)
+function _group_direction!(y::_OwnerMatrix, x, G, r, nG)
   W = _group_writes(y, G)
   t = r / nG
   if isfinite(nG) && nG >= floatmin(typeof(nG)) && isfinite(t) && t >= floatmin(typeof(t))
@@ -1037,3 +1037,21 @@ function _sphere_finite_threshold(f::GroupNormL2, γ, ::Type{U}, x) where {U}
   end
   false
 end
+
+####################################
+#  a SymmetricSparseIterate
+####################################
+
+# The ℓ1 norm and the group ℓ2 norm on a ball or a sphere with the owner of a symmetric matrix as the
+# destination or as the argument: the argument is read through its symmetric part, a mirrored pair is one
+# coordinate counted twice in the norm, and the output is written through the lower triangle. The
+# value at an owner is that of the matrix that it represents.
+const _OwnerConstrained = Union{BallConstrained{<:Union{NormL1, GroupNormL2}},
+                                SphereConstrained{<:Union{NormL1, GroupNormL2}}}
+prox!(y::SymmetricSparseIterate, c::_OwnerConstrained, x::_ArrayOrOwner, γ::Real) = _owner_prox!(y, c, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, c::_OwnerConstrained, x::_ArrayOrOwner, γ::Real) =
+  _owner_value_and_prox!(y, c, x, γ)
+prox(c::_OwnerConstrained, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), c, x, γ)
+(c::_OwnerConstrained)(x::SymmetricSparseIterate) = (_check_value_arrays(c, x); _value_checked(c, x))
+# the values of the set and of the group norm at the matrix that an owner represents
+_value_unchecked(f::Union{IndBallL2, IndSphereL2, GroupNormL2}, x::SymmetricSparseIterate) = f(matrixview(x))

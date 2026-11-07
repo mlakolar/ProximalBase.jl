@@ -369,6 +369,44 @@ end
 end
 
 ####################################
+#  LogDetLoss at a BigFloat X: S and w are Float64 (the constructor rejects BigFloat), X is copied into the Float workspace for
+#  the Cholesky factor, but the value keeps the BigFloat X: d = <S, X> - log det X, v = w d, and where w d is lifted out of the
+#  bottom of the BigFloat range the value is recomputed in scaled units (_scaled_logdet_value), whose shifts are ProximalBase.ldexp
+####################################
+
+# The review's case: t is at the bottom of the exponent range, X = [1 t; t 1], S = [0 1/2; 1/2 0], w = 2^30. The Float64
+# copy of X is the identity, so log det X is 0 there; the exact value 2^30 (t - log(1 - t²)) = 2^30 t (1 + t + ...) rounds to
+# the power of two 2^30 t. With Base's Int64 shift on Windows the recomputation rounded the shift -E + 31 and gave 0.
+@testset "LogDetLoss at BigFloat X = [1 t; t 1] near the bottom of the exponent range (default range and Windows range)" begin
+  for rng in (default_range, windows_range), p in (2, 5, 53)
+    rng() do
+      setprecision(BigFloat, p) do
+        emin = Base.MPFR.get_emin()
+        sh(k) = Base.ldexp(one(BigFloat), Clong(k))
+        S = [0.0 0.5; 0.5 0.0]
+        for t in (floatmin(BigFloat), sh(emin - 1), sh(emin + 8), sh(emin + 400)), k in (30, 100)
+          X = BigFloat[1 t; t 1]
+          v = LogDetLoss(S, 2.0^k)(X)
+          @test v isa BigFloat && v == Base.ldexp(t, Clong(k))
+          # control, not lifted: S = I, <S, X> = 2, 2^k (2 - log(1 - t²)) = 2^(k+1)
+          @test LogDetLoss([1.0 0.0; 0.0 1.0], 2.0^k)(X) == Base.ldexp(big(2.0), Clong(k))
+        end
+        # control at an ordinary t and w = 1: the formula in 4000 bits, within the p-bit envelope or the Float64 budget of the
+        # Cholesky factor that the matrix precision of the package allows
+        for t in (big(0.5), sh(-4))
+          X = BigFloat[1 t; t 1]
+          v = LogDetLoss(S, 1.0)(X)
+          @test setprecision(BigFloat, 4000) do
+            ref = t - log(1 - t^2)
+            abs(big(v) - ref) <= max(2 * Base.ldexp(one(BigFloat), Clong(1 - p)), 64 * Base.ldexp(one(BigFloat), Clong(-52))) * ref
+          end
+        end
+      end
+    end
+  end
+end
+
+####################################
 #  the GPU extension calls the same ldexp
 ####################################
 

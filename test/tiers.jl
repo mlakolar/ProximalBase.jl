@@ -33,7 +33,7 @@ const NARROW_LABEL = "test:iterate-narrow"
 The parsed tiers.toml: the lowest tier of each test file, the helper files that are not tests,
 the test files that run some of the helpers and the directories with environments of their
 own; with tier-rules.toml also the rules that map changed paths to tiers, the policy for
-package code without tests and the CI timeouts.
+package code without tests, the CI timeouts and the focus files that a pull request label adds.
 """
 struct Manifest
   tier::Dict{String, String}
@@ -43,6 +43,7 @@ struct Manifest
   rules::Vector{Rule}
   untested::String
   timeouts::Dict{String, Int}
+  label_focus::Dict{String, Vector{String}}
 end
 
 struct ManifestError <: Exception
@@ -146,8 +147,33 @@ function parse_manifest(data::AbstractDict)
     rank(t) > 0 && minutes isa Integer && minutes > 0 || push!(problems, "timeouts.$t = $minutes: use a tier and a positive number of minutes")
     timeouts[t] = minutes
   end
+  # The test files that a label adds to a pull request, whatever its tier.
+  label_focus = Dict{String, Vector{String}}()
+  table = get(data, "label_focus", Dict{String, Any}())
+  if !(table isa AbstractDict)
+    push!(problems, "label_focus must be a table of label = [test names]")
+    table = Dict{String, Any}()
+  end
+  for label in sort!(collect(keys(table)))
+    names = table[label]
+    if !(startswith(label, "test:") && length(label) > 5)
+      push!(problems, "label_focus: `$label` is not a label of the form test:<name>")
+    elseif label == NARROW_LABEL || rank(label[6:end]) > 0
+      push!(problems, "label_focus: `$label` is the label of a tier or of $NARROW_LABEL, which have their own meaning")
+    end
+    if !(names isa AbstractVector && !isempty(names) && all(n -> n isa AbstractString, names))
+      push!(problems, "label_focus: `$label` needs a non-empty list of test names")
+      continue
+    end
+    names = String[names...]
+    for name in unique(names)
+      count(==(name), names) > 1 && push!(problems, "label_focus: `$label` lists `$name` more than once")
+      haskey(tier, name) || push!(problems, "label_focus: `$label` has focus `$name`, which is in no tier")
+    end
+    label_focus[label] = names
+  end
   isempty(problems) || throw(ManifestError(problems))
-  return Manifest(tier, helpers, environments, run_through, rules, untested, timeouts)
+  return Manifest(tier, helpers, environments, run_through, rules, untested, timeouts, label_focus)
 end
 
 isenvironment(environments::AbstractVector, name) = any(dir -> startswith(name, dir * "/"), environments)
@@ -369,8 +395,10 @@ end
 
 The tier of a pull request that changes `paths` and carries `labels`: [`classify`](@ref), with
 `narrow` set by the label test:iterate-narrow, then raised by test:standard, test:thorough or
-test:full (labels never lower the tier). No changed paths give quick. `focus` leaves out the
-files the tier runs anyway; `notes` describe the labels.
+test:full (labels never lower the tier). No changed paths give quick. A label named in
+`label_focus` (test:gpu) adds its test files to `focus` and raises tier none to quick, so that
+the files run (a plan with tier none runs nothing). `focus` leaves out the files the tier runs
+anyway; `notes` describe the labels.
 """
 function pr_tier(m::Manifest, paths, labels; manifest_additions = nothing)
   tier, focus, decisions = classify(m, paths; narrow = NARROW_LABEL in labels, manifest_additions)
@@ -378,10 +406,18 @@ function pr_tier(m::Manifest, paths, labels; manifest_additions = nothing)
   isempty(paths) && (tier = "quick"; push!(notes, "No changed files were found; the minimum is quick."))
   for label in labels
     label == NARROW_LABEL && continue # applied by classify, shown in the decisions
+    if haskey(m.label_focus, label)
+      names = m.label_focus[label]
+      focus = sort!(union(focus, names))
+      push!(notes, "Label `$label` adds the test files $(join(names, ", ")).")
+      tier == "none" && (tier = "quick"; push!(notes, "Label `$label` asks for tests, so the minimum is quick."))
+      continue
+    end
     mt = match(r"^test:(.+)$", label)
     mt === nothing && continue
     t = String(mt.captures[1])
-    rank(t) > 0 || throw(ArgumentError("label `$label` names no tier; use test:$(join(TIERS, ", test:")) or $NARROW_LABEL"))
+    rank(t) > 0 || throw(ArgumentError("label `$label` names no tier; use test:$(join(TIERS, ", test:")), $NARROW_LABEL" *
+                                       join([", " * l for l in sort!(collect(keys(m.label_focus)))])))
     push!(notes, "Label `$label` asks for at least $t.")
     (tier == "none" || rank(t) > rank(tier)) && (tier = t)
   end

@@ -95,7 +95,10 @@ jobs:
     timeout-minutes: ${{ matrix.timeout || fromJSON(needs.plan.outputs.timeout) }}
     env:
       FULL_TESTS: ${{ needs.plan.outputs.tier == 'full' }}
-      # Thorough and full run every conformance file, so they write and check the reports.
+      # Thorough and full write and check the conformance reports. Full runs every conformance
+      # file; thorough all but gpu_arrays (a full-tier file), which a change to the conformance
+      # suite, its scripts or the coverage map, or the label test:gpu, adds. Without it the check
+      # compares a partial inventory; below full the artifacts are named ...-partial-...
       CONFORMANCE: ${{ needs.plan.outputs.tier == 'thorough' || needs.plan.outputs.tier == 'full' }}
     permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
       actions: write
@@ -155,9 +158,11 @@ jobs:
         # One job checks the committed map: the moving Julia release must not turn master red.
         if: ${{ matrix.version == 'lts' && matrix.os == 'ubuntu-latest' && env.CONFORMANCE == 'true' }}
         shell: bash
-        run: julia --startup-file=no scripts/conformance_map.jl "$RUNNER_TEMP/conformance" --check --run-id "$CONFORMANCE_RUN_ID"
+        run: julia --startup-file=no scripts/conformance_map.jl "$RUNNER_TEMP/conformance" --check --run-id "$CONFORMANCE_RUN_ID" --tier "$TIER" --extra "$FOCUS"
         env:
           CONFORMANCE_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.version }}-${{ matrix.os }}
+          TIER: ${{ needs.plan.outputs.tier }}
+          FOCUS: ${{ needs.plan.outputs.focus }}
       - name: Check that the conformance reports were written
         # Required on every job. The upload below may be best-effort; the reports are not.
         if: ${{ !cancelled() && env.CONFORMANCE == 'true' }}
@@ -175,14 +180,16 @@ jobs:
       # !cancelled() keeps the upload after a failed test or check step. Only a run whose test step
       # succeeded is named conformance-reports-...: the rows record passes and known breaks, not
       # unexpected failures, so a matching map alone does not show that the tests passed. A failed
-      # check step after successful tests still gives a usable baseline.
+      # check step after successful tests still gives a usable baseline. Below the full tier the
+      # name has the infix -partial (conformance-reports-partial-...): those reports may lack
+      # gpu_arrays and never serve to regenerate the map.
       - name: Upload the conformance reports
         id: upload
         if: ${{ !cancelled() && env.CONFORMANCE == 'true' }}
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.tests.outcome == 'success' && 'conformance-reports' || 'diagnostic-conformance-reports' }}-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_attempt }}
+          name: ${{ steps.tests.outcome == 'success' && 'conformance-reports' || 'diagnostic-conformance-reports' }}${{ needs.plan.outputs.tier == 'full' && '' || '-partial' }}-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/conformance
           if-no-files-found: error
           retention-days: 14
@@ -196,7 +203,7 @@ jobs:
         continue-on-error: ${{ !(matrix.version == 'lts' && matrix.os == 'ubuntu-latest') }}
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.tests.outcome == 'success' && 'conformance-reports' || 'diagnostic-conformance-reports' }}-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_attempt }}
+          name: ${{ steps.tests.outcome == 'success' && 'conformance-reports' || 'diagnostic-conformance-reports' }}${{ needs.plan.outputs.tier == 'full' && '' || '-partial' }}-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/conformance
           if-no-files-found: error
           retention-days: 14

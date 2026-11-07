@@ -418,6 +418,144 @@ withenv("CONFORMANCE_REPORT" => nothing) do
       end
     end
   end
+  @testset "Partial inventory: the check with --tier" begin
+    # The text that a call prints on stdout and stderr, with its exit code.
+    function run_text(args)
+      mktemp() do out_path, out_io
+        mktemp() do err_path, err_io
+          code = redirect_stdio(() -> ReportScript.main(args); stdout = out_io, stderr = err_io)
+          flush(out_io); flush(err_io)
+          code, read(out_path, String), read(err_path, String)
+        end
+      end
+    end
+    all_files = ReportScript.EXPECTED_FILES
+    others = filter(!=("gpu_arrays"), all_files)
+    # The tier lists decide which reports each tier needs: gpu_arrays is the only one that
+    # thorough does not run, and the focus files add to the tier.
+    @test sort(ReportScript.required_files("full", String[])) == sort(all_files)
+    @test sort(ReportScript.required_files("thorough", String[])) == sort(others)
+    @test sort(ReportScript.required_files("thorough", ["conformance/gpu_arrays", "norms"])) == sort(all_files)
+    @test ReportScript.omittable_files("full", String[]) == String[]
+    @test ReportScript.omittable_files("thorough", String[]) == ["gpu_arrays"]
+    @test ReportScript.omittable_files("thorough", ["conformance/gpu_arrays"]) == String[]
+    @test_throws r"writes no conformance reports" ReportScript.omittable_files("quick", String[])
+    @test_throws r"writes no conformance reports" ReportScript.omittable_files("standard", String[])
+    @test_throws r"unknown tier `fast`" ReportScript.omittable_files("fast", String[])
+    # A complete run in which every required row, case and cell is outside gpu_arrays.jsonl, so
+    # that removing that file leaves exactly what a thorough run writes (written to disk
+    # directly: row ids are reserved once per source file and process).
+    mktempdir() do dir
+      run = joinpath(dir, "fixture-key")
+      mkpath(run)
+      header = Conformance.json_object((; kind = "header", julia = "1", platform = "p", bounds = "1",
+                                        pkgsha = "stub-sha", harness = "stub-blob", run = "partial-run"))
+      row(id, case, family) = Conformance.json_object((; id, case, family, oracle = "value", types = "Float64",
+        backend = "cpu", rules = "T3", problem = "identity", group = "", status = "pass",
+        expected = "1.0", observed = "1.0"))
+      families = filter(!=("gpu_arrays"), getproperty.(ReportScript.EXPECTED_CELLS, :family))
+      rows = [row(id, first(split(id, '.')), families[mod1(i, length(families))])
+              for (i, id) in enumerate(ReportScript.REQUIRED_ROW_IDS)]
+      plain = filter(!in(("linear_sets_2", "gpu_arrays")), all_files)
+      for (k, name) in enumerate(plain)
+        write(joinpath(run, name * ".jsonl"), join([header; rows[k:length(plain):end]], "\n") * "\n")
+      end
+      write(joinpath(run, "linear_sets_2.jsonl"), join([header, row("stub-split-1", "", "linear_sets")], "\n") * "\n")
+      gpu_path = joinpath(run, "gpu_arrays.jsonl")
+      write(gpu_path, join([header, row("stub-gpu-1", "", "gpu_arrays"), row("stub-gpu-2", "", "gpu_arrays")], "\n") * "\n")
+      @test sort(first.(splitext.(readdir(run)))) == sort(all_files)
+      mktempdir() do other
+        out = joinpath(other, "coverage.md")
+        # the committed map: a complete run
+        @test runmain([dir, "--out", out]) == 0
+        committed = read(out, String)
+        @test occursin("| gpu_arrays | ", committed) && occursin("(missing report file): none.", committed)
+        edit(text) = (path = joinpath(other, "edited.md"); write(path, text); path)
+        # the map that the reports generate, as text (the generator writes it before it judges it)
+        generated() = (runmain([dir, "--out", joinpath(other, "generated.md")]); read(joinpath(other, "generated.md"), String))
+        check(args...; map = out) = run_text([dir, "--out", map, "--check", args...])
+        # with every report present, --tier changes nothing: the complete check
+        for args in (String[], ["--tier", "full"], ["--tier=thorough"], ["--tier", "thorough", "--extra", "conformance/kernels"])
+          code, text, _ = check(args...)
+          @test code == 0 && !occursin("partial inventory", text)
+        end
+        # the complete check still sees a changed row of the absent family
+        gpu_line = only(filter(l -> startswith(l, "| gpu_arrays | ") && endswith(l, "passes |"), split(committed, '\n')))
+        gpu_edited = edit(replace(committed, gpu_line => replace(gpu_line, "passes |" => "broken (G1) |")))
+        @test check("--tier", "thorough"; map = gpu_edited)[1] == 1
+        # gpu_arrays absent
+        saved = read(gpu_path, String)
+        rm(gpu_path)
+        for args in (["--tier", "thorough"], ["--tier=thorough"], ["--tier", "thorough", "--extra", ""],
+                     ["--tier", "thorough", "--extra", "conformance/kernels,norms"])
+          code, text, err = check(args...)
+          @test code == 0
+          @test occursin("partial inventory: not the complete map (no report for gpu_arrays)", text)
+          @test err == ""
+        end
+        # the partial check ignores the rows of the absent family, in the committed map too, and
+        # the executed broken-row counts, which those rows enter, but nothing else
+        @test check("--tier", "thorough"; map = gpu_edited)[1] == 0
+        counts = edit(replace(committed, r"^\| G1 \| \d+ \|$"m => "| G1 | 99 |"))
+        @test counts != committed && check("--tier", "thorough"; map = counts)[1] == 0
+        @test check(; map = counts)[1] == 1
+        kernels_line = first(filter(l -> startswith(l, "| kernels | ") && endswith(l, "passes |"), split(committed, '\n')))
+        row_edited = edit(replace(committed, kernels_line => replace(kernels_line, "passes |" => "broken (G1) |")))
+        code, _, err = check("--tier", "thorough"; map = row_edited)
+        @test code == 1 && occursin("coverage differs from $row_edited", err) && occursin(kernels_line, err)
+        for (old, new) in (("Case ids without a row: none." => "Case ids without a row: V1."),
+                           ("Required row ids without a row (missing): none." => "Required row ids without a row (missing): V5.value."))
+          @test occursin(old, committed)
+          @test check("--tier", "thorough"; map = edit(replace(committed, old => new)))[1] == 1
+        end
+        @test check("--tier", "thorough"; map = edit(replace(committed, "(missing report file): none." => "(missing report file): gpu_arrays.")))[1] == 0
+        @test check("--tier", "thorough"; map = joinpath(other, "none.md"))[1] == 1
+        # without --tier, at full, and when the tier requires the file: it is missing
+        for args in (String[], ["--tier", "full"], ["--tier", "thorough", "--extra", "conformance/gpu_arrays"])
+          code, text, err = check(args...)
+          @test code == 1 && !occursin("partial inventory", text)
+          @test occursin("coverage differs from $out", err) && occursin("(missing report file): gpu_arrays.", err)
+        end
+        @test occursin("(missing report file): gpu_arrays.", generated())
+        # any other missing report file fails, with or without --tier
+        for name in ("kernels", "linear_sets_2")
+          path = joinpath(run, name * ".jsonl")
+          text = read(path, String)
+          rm(path)
+          @test check("--tier", "thorough")[1] == 1
+          @test occursin("(missing report file): $(join(sort(["gpu_arrays", name]), ", ")).", generated())
+          write(path, text)
+        end
+        # a report file that no tier expects is rejected as before
+        cp(joinpath(run, "kernels.jsonl"), joinpath(run, "extra.jsonl"))
+        code, _, err = check("--tier", "thorough")
+        @test code == 1 && occursin("unexpected report file", err)
+        rm(joinpath(run, "extra.jsonl"))
+        # a partial inventory is never written, and needs one run directory
+        written = joinpath(other, "written.md")
+        code, _, err = run_text([dir, "--out", written, "--tier", "thorough"])
+        @test code == 1 && occursin("never written", err) && !ispath(written)
+        @test run_text([dir, "--out", written])[1] == 1 && isfile(written) # without --tier: incomplete, written as before
+        rm(written)
+        cp(run, joinpath(dir, "second-run"))
+        code, _, err = check("--tier", "thorough")
+        @test code == 1 && occursin("exactly one run directory", err)
+        rm(joinpath(dir, "second-run"); recursive = true)
+        # quick and standard write no reports; an unknown tier and a lone --extra are errors
+        for tier in ("quick", "standard")
+          code, _, err = check("--tier", tier)
+          @test code == 1 && occursin("tier $tier writes no conformance reports", err)
+        end
+        @test occursin("unknown tier `fast`", check("--tier", "fast")[3])
+        @test occursin("--extra needs --tier", check("--extra", "conformance/kernels")[3])
+        @test check("--tier")[1] == 1 && check("--extra")[1] == 1
+        # with the file back, the complete check again
+        write(gpu_path, saved)
+        @test check("--tier", "thorough")[1] == 0 && !occursin("partial inventory", check("--tier", "thorough")[2])
+        @test check("--tier", "thorough"; map = gpu_edited)[1] == 1
+      end
+    end
+  end
   @testset "Provenance normalization" begin
     normalize = ReportScript.normalize_provenance
     text = join(["# Title", "", "## Run: key-a", "", "Baseline SHA (package under test): `aaa`  ",

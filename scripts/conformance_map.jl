@@ -1,3 +1,6 @@
+# The tier lists decide which report files a tier writes (`--tier`).
+include(joinpath(@__DIR__, "..", "test", "tiers.jl"))
+
 # Required coverage data tables: the row ids of each acceptance case (the parts of
 # a case are separate rows, so a passing part cannot hide a missing one).
 const CASE_IDS = vcat(["V$i" for i in 1:13], ["S$i" for i in 1:10],
@@ -47,6 +50,44 @@ const EXPECTED_FILES = [
   "gpu_arrays", "kernels", "linear_sets", "linear_sets_2", "second_order",
   "special_values", "spectral", "steps", "tolerances", "wrappers",
 ]
+
+# The expected report files that a partial inventory may lack, each with the family of rows it
+# writes: the tiers below full run them only beside a change to the GPU files, the map or the
+# conformance scripts (.github/tier-rules.toml), or with the label test:gpu. The check with
+# `--tier` accepts their absence when the tier does not require them.
+const OMITTABLE_FILES = Dict("gpu_arrays" => "gpu_arrays")
+
+# The report files that `tier` writes, with the conformance files that `extra` adds: the
+# conformance files of the tier's test files and of `extra` (test names, as test/tiers.toml
+# lists them), by stem. The conformance harness test writes no report file of its own.
+function required_files(tier, extra)
+  root = joinpath(@__DIR__, "..")
+  manifest = TestTiers.load(joinpath(root, "test", "tiers.toml"), joinpath(root, ".github", "tier-rules.toml"))
+  names = union(TestTiers.select(manifest, tier), extra)
+  stems = sort!(unique([name[(length("conformance/") + 1):end] for name in names if startswith(name, "conformance/")]))
+  unknown = setdiff(stems, EXPECTED_FILES, ["harness"])
+  isempty(unknown) || error("conformance test files without an expected report file: ", join(unknown, ", "))
+  filter(in(EXPECTED_FILES), stems)
+end
+
+# The report files that a partial inventory may lack at `tier` (with `extra` added): the
+# omittable files that the tier does not require, after checking that every other expected
+# file is required.
+function omittable_files(tier, extra)
+  tier == "full" && return String[]
+  TestTiers.rank(tier) > 0 || error("unknown tier `$tier`; the tiers are $(join(TestTiers.TIERS, ", "))")
+  tier in ("quick", "standard") &&
+    error("tier $tier writes no conformance reports (it runs only some of the conformance files); use thorough or full")
+  required = required_files(tier, extra)
+  omittable = sort!(filter(!in(required), collect(keys(OMITTABLE_FILES))))
+  other = setdiff(EXPECTED_FILES, required, omittable)
+  isempty(other) || error("tier $tier does not run the conformance files ", join(other, ", "),
+    ", whose reports are expected; add them to OMITTABLE_FILES or run them in the tier")
+  omittable
+end
+
+# The report file names (without `.jsonl`) in a run directory.
+report_names(dir) = first.(splitext.(filter(endswith(".jsonl"), readdir(dir))))
 
 # The report format is a flat JSON object of strings. Parse without eval or a
 # dependency, and reject malformed/truncated input rather than losing rows.
@@ -193,10 +234,29 @@ function normalize_provenance(markdown)
   join(lines, '\n')
 end
 
-function print_diff(io, out, markdown)
-  old = isfile(out) ? split(normalize_provenance(read(out, String)), '\n') : String[]
-  new = split(normalize_provenance(markdown), '\n')
-  println(io, "--- ", out, "\n+++ regenerated coverage (run provenance ignored)")
+# What a partial check compares: the map without the run provenance, without the rows of the
+# families whose reports are absent, with the executed broken-row counts and the line listing
+# the missing report files left out. Case-id and required-row lines stay.
+function partial_view(markdown, families)
+  lines = String[]
+  for line in String.(split(normalize_provenance(markdown), '\n'))
+    if startswith(line, '|') && any(f -> startswith(line, "| " * _md(f) * " | "), families)
+      continue
+    elseif occursin(r"^\| G\d+ \| \d+ \|$", line)
+      line = replace(line, r"\d+ \|$" => "* |")
+    elseif startswith(line, MISSING_FILES_PREFIX)
+      line = "<" * MISSING_FILES_PREFIX * "omitted>"
+    end
+    push!(lines, line)
+  end
+  join(lines, '\n')
+end
+
+function print_diff(io, out, markdown; normalize = normalize_provenance)
+  old = isfile(out) ? split(normalize(read(out, String)), '\n') : String[]
+  new = split(normalize(markdown), '\n')
+  println(io, "--- ", out, "\n+++ regenerated coverage (", normalize === normalize_provenance ?
+    "run provenance ignored)" : "partial inventory: run provenance, absent families, group counts ignored)")
   for i in 1:max(length(old), length(new))
     before = i <= length(old) ? old[i] : nothing
     after = i <= length(new) ? new[i] : nothing
@@ -207,8 +267,15 @@ function print_diff(io, out, markdown)
   end
 end
 
+const MISSING_FILES_PREFIX = "Expected report files without a file (missing report file): "
+
+# `omitted_files` are report files of OMITTABLE_FILES that a partial inventory lacks: the
+# generated map still lists them as missing, but they and the cells of their families no
+# longer make it incomplete (it is then compared with `partial_view`, never written).
 function coverage(root; case_ids = CASE_IDS, required_ids = REQUIRED_ROW_IDS,
-                  expected_cells = EXPECTED_CELLS, expected_files = EXPECTED_FILES, run_id = nothing)
+                  expected_cells = EXPECTED_CELLS, expected_files = EXPECTED_FILES, run_id = nothing,
+                  omitted_files = String[])
+  omitted_families = [OMITTABLE_FILES[f] for f in omitted_files]
   dirs = run_directories(root)
   isempty(dirs) && error("no report files in $root")
   io = IOBuffer()
@@ -252,7 +319,7 @@ function coverage(root; case_ids = CASE_IDS, required_ids = REQUIRED_ROW_IDS,
       values = (cell.family, cell.oracle, cell.types, cell.backend)
       if !any(key -> all(v == "*" || v == k for (v, k) in zip(values, key)), keys(cells))
         println(io, "| ", join(_md.(values), " | "), " | | | | missing |")
-        complete = false
+        cell.family in omitted_families || (complete = false)
       end
     end
     println(io, "\n| Group | Executed broken rows |\n|:---|---:|")
@@ -263,19 +330,23 @@ function coverage(root; case_ids = CASE_IDS, required_ids = REQUIRED_ROW_IDS,
     executed = filter(r -> r["status"] != "notcovered", rows)
     missing_cases = setdiff(case_ids, [r["case"] for r in executed])
     missing_rows = setdiff(required_ids, [r["id"] for r in executed])
-    missing_files = setdiff(expected_files, first.(splitext.(basename.(filter(endswith(".jsonl"), readdir(dir))))))
-    println(io, "\nExpected report files without a file (missing report file): ", _list(missing_files), ".")
+    missing_files = setdiff(expected_files, report_names(dir))
+    println(io, "\n", MISSING_FILES_PREFIX, _list(missing_files), ".")
     println(io, "\nCase ids without a row: ", _list(missing_cases), ".")
     println(io, "\nRequired row ids without a row (missing): ", _list(missing_rows), ".\n")
-    complete &= isempty(missing_cases) && isempty(missing_rows) && isempty(missing_files)
+    complete &= isempty(missing_cases) && isempty(missing_rows) && isempty(setdiff(missing_files, omitted_files))
   end
   String(take!(io)), complete
 end
 
 function main(args = ARGS)
-  usage = "Usage: julia scripts/conformance_map.jl <report-dir> [--out docs/design/numerical-contract/coverage.md] [--check] [--run-id ID]\n" *
+  usage = "Usage: julia scripts/conformance_map.jl <report-dir> [--out docs/design/numerical-contract/coverage.md] [--check] [--run-id ID] [--tier TIER [--extra FILES]]\n" *
     "--check compares the generated map with the file and ignores the run provenance lines " *
-    "(run heading, baseline SHA, run id, harness revision, Julia line); everything else must match."
+    "(run heading, baseline SHA, run id, harness revision, Julia line); everything else must match.\n" *
+    "--tier thorough or full names the tier that wrote the reports, and --extra the comma-separated test " *
+    "files that ran beside it: a report file of a conformance file that the tier does not run (gpu_arrays) " *
+    "may then be absent, and --check compares a partial inventory (the other rows, the case-id and " *
+    "required-row lines) instead of the complete map. Without --tier every report file is required."
   if "--help" in args
     println(usage)
     return 0
@@ -286,26 +357,63 @@ function main(args = ARGS)
     out = joinpath(@__DIR__, "..", "docs", "design", "numerical-contract", "coverage.md")
     check = false
     run_id = nothing
+    tier = nothing
+    extra = String[]
     i = 2
     while i <= length(args)
-      if args[i] == "--out" && i < length(args)
-        i += 1
-        out = args[i]
-      elseif args[i] == "--run-id" && i < length(args)
-        i += 1
-        run_id = args[i]
-      elseif args[i] == "--check"
+      arg = args[i]
+      eq = findfirst('=', arg)
+      name = eq === nothing ? arg : arg[1:prevind(arg, eq)]
+      value = nothing
+      if name in ("--out", "--run-id", "--tier", "--extra")
+        if eq !== nothing
+          value = arg[nextind(arg, eq):end]
+        elseif i < length(args)
+          i += 1
+          value = args[i]
+        end
+      end
+      if name == "--out" && value !== nothing
+        out = value
+      elseif name == "--run-id" && value !== nothing
+        run_id = value
+      elseif name == "--tier" && value !== nothing
+        tier = value
+      elseif name == "--extra" && value !== nothing
+        extra = String.(filter(!isempty, strip.(split(value, ','))))
+      elseif arg == "--check"
         check = true
       else
-        error("unknown or incomplete option: $(args[i])\n$usage")
+        error("unknown or incomplete option: $arg\n$usage")
       end
       i += 1
     end
-    markdown, complete = coverage(root; run_id)
+    tier === nothing && !isempty(extra) && error("--extra needs --tier\n$usage")
+    # A partial inventory only where an omittable report is really absent: with every report
+    # present the check is the complete one, whatever the tier says.
+    omitted = String[]
+    if tier !== nothing
+      candidates = omittable_files(tier, extra)
+      dirs = run_directories(root)
+      absent = isempty(dirs) ? String[] : sort!(unique(reduce(vcat, [setdiff(candidates, report_names(dir)) for dir in dirs])))
+      if !isempty(absent)
+        length(dirs) == 1 || error("a partial inventory needs exactly one run directory in $root, found $(length(dirs))")
+        omitted = absent
+      end
+    end
+    partial = !isempty(omitted)
+    partial && !check &&
+      error("the reports lack $(join(omitted, ", ")), so they give a partial inventory, which is not the coverage map and is never written; run scripts/conformance_run.jl for the map")
+    markdown, complete = coverage(root; run_id, omitted_files = omitted)
+    if partial
+      println("partial inventory: not the complete map (no report for ", join(omitted, ", "),
+        "); its rows, the executed broken-row counts and the report-file line are not compared")
+    end
     if check
-      if !isfile(out) || normalize_provenance(read(out, String)) != normalize_provenance(markdown)
+      view = partial ? md -> partial_view(md, [OMITTABLE_FILES[f] for f in omitted]) : normalize_provenance
+      if !isfile(out) || view(read(out, String)) != view(markdown)
         println(stderr, "coverage differs from $out; regenerate without --check")
-        print_diff(stderr, out, markdown)
+        print_diff(stderr, out, markdown; normalize = view)
         return 1
       end
     else

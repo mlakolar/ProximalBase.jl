@@ -639,6 +639,10 @@ end
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::AbstractArray, α::_ProjectionScale) = (g .= _apply_scale.(α, g))
+# an owner gradient: every coordinate that is stored, which are the coordinates of the symmetric gradient
+# that are not zero
+_scale!(g::SymmetricSparseIterate, α) = (v = activevalues(g); v .*= α; g)
+_scale!(g::SymmetricSparseIterate, α::_ProjectionScale) = (v = activevalues(g); v .= _apply_scale.(α, v); g)
 @generated _scale!(g::Tuple, α) = _blockwise(k -> :(_scale!(g[$k], α)), fieldcount(g), :g)
 value_and_gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
@@ -943,6 +947,7 @@ gradient!(g, t::Tilt, x) =
   (_check_oracle_arrays(gradient!, t, g, x); _gradient_unchecked!(g, t, x))
 _gradient_unchecked!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); _gradient_unchecked!(g, t.f, x); _add_tilt!(g, t.c))
 @inline _add_tilt!(g, c) = (g .+= _checked_parameter(g, c))
+_add_tilt!(g::SymmetricSparseIterate, c::AbstractMatrix) = _accumulate!(g, c)
 _add_tilt!(g::Tuple, c::Tuple) = _accumulate!(g, c)
 
 function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
@@ -952,40 +957,42 @@ function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), ty
   _check_tilt_axes(g, x, t.c)
   _checkwrite(op, t.f, g, x)
 end
-@inline _check_tilt_axes(g, x, c) = (Base.Broadcast.check_broadcast_axes(axes(g), c); _check_parameter_axes(g, c))
+@inline _check_tilt_axes(g, x, c) = (Base.Broadcast.check_broadcast_axes(_baxes(g), c); _check_parameter_axes(g, c))
 # exact sizes, so that no block of c broadcasts into a block of g
 _check_tilt_axes(g::Tuple, x::Tuple, c::Tuple) = (_check_block_output(g); _checksize(g, x))
 
-function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+function _checkwrite(op::O, t::Tilt, y::_ArrayOrOwner, x::_ArrayOrOwner) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checkreal(t, y); _checkreal(t, x)
   _check_wrapper_output(y)
   _checksize(y, x)
   _checkparams(t, x)
-  Base.Broadcast.check_broadcast_axes(axes(y), x, t.c)
+  Base.Broadcast.check_broadcast_axes(_baxes(y), _vw(x), t.c)
   _check_parameter_axes(y, t.c)
   _checkwrite(op, t.f, y, y)
 end
 
 # x - γc in a buffer owned by t, so that y is unchanged when f throws
-prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real) =
+prox!(y::_ArrayOrOwner, t::Tilt, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
-function _prox_unchecked!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
+function _prox_unchecked!(y::_ArrayOrOwner, t::Tilt, x::_ArrayOrOwner, γ::Real)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.scratch, y)
-  z .= x .- convert(float(eltype(y)), γ) .* _checked_parameter(z, t.c)
+  zz = _ow(z)
+  zz .= _pt(zz, x) .- convert(float(eltype(y)), γ) .* _checked_parameter(z, t.c)
   w = _wrapper_output(y, z)
   _prox_unchecked!(w, t.f, z, γ)
   _wrapper_commit!(y, w)
 end
-value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real) =
+value_and_prox!(y::_ArrayOrOwner, t::Tilt, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
-function _value_and_prox_unchecked!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
+function _value_and_prox_unchecked!(y::_ArrayOrOwner, t::Tilt, x::_ArrayOrOwner, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.scratch, y)
-  z .= x .- convert(float(eltype(y)), γ) .* _checked_parameter(z, t.c)
+  zz = _ow(z)
+  zz .= _pt(zz, x) .- convert(float(eltype(y)), γ) .* _checked_parameter(z, t.c)
   w = _wrapper_output(y, z)
   v = _value_and_prox_unchecked!(w, t.f, z, γ)
-  v = _value_at(v + dot(t.c, w) + t.d, w)
+  v = _value_at(v + _tuple_dot(t.c, w) + t.d, w)
   _wrapper_commit!(y, w)
   v
 end
@@ -1074,16 +1081,16 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Translate{F}}) where {F} = $trait(F)
 end
 
-function _shifted_buffer(t::Translate, x::AbstractArray)
+function _shifted_buffer(t::Translate, x::_ArrayOrOwner)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
   _checkparams(t, x)
   _array_buffer!(t.scratch, float(eltype(x)), size(x))
 end
 
 # x - b in a buffer owned by t
-function _shifted(t::Translate, x::AbstractArray)
+function _shifted(t::Translate, x::_ArrayOrOwner)
   z = _shifted_buffer(t, x)
-  z .= x .- _checked_parameter(z, t.b)
+  z .= _vw(x) .- _checked_parameter(z, t.b)
 end
 
 # the shifted argument of a tuple, in a buffer of the argument's precision
@@ -1093,22 +1100,22 @@ function _shifted_buffer(t::Translate, x::Tuple)
 end
 _shifted(t::Translate, x::Tuple) = _shift_translate!(_shifted_buffer(t, x), x, t.b)
 
-(t::Translate)(x::Union{AbstractArray, Tuple}) =
+(t::Translate)(x::Union{_ArrayOrOwner, Tuple}) =
   (_check_value_arrays(t, x); _value_checked(t, x))
-_value_unchecked(t::Translate, x::Union{AbstractArray, Tuple}) = _value_at(_value_unchecked(t.f, _shifted(t, x)), x)
-value_and_gradient!(g, t::Translate, x::Union{AbstractArray, Tuple}) =
+_value_unchecked(t::Translate, x::Union{_ArrayOrOwner, Tuple}) = _value_at(_value_unchecked(t.f, _shifted(t, x)), x)
+value_and_gradient!(g, t::Translate, x::Union{_ArrayOrOwner, Tuple}) =
   (_check_oracle_arrays(value_and_gradient!, t, g, x); _value_and_gradient_unchecked!(g, t, x))
-_value_and_gradient_unchecked!(g, t::Translate, x::Union{AbstractArray, Tuple}) =
+_value_and_gradient_unchecked!(g, t::Translate, x::Union{_ArrayOrOwner, Tuple}) =
   (_checkwrite(value_and_gradient!, t, g, x); _value_at(_value_and_gradient_unchecked!(g, t.f, _shifted(t, x)), x))
-gradient!(g, t::Translate, x::Union{AbstractArray, Tuple}) =
+gradient!(g, t::Translate, x::Union{_ArrayOrOwner, Tuple}) =
   (_check_oracle_arrays(gradient!, t, g, x); _gradient_unchecked!(g, t, x))
-_gradient_unchecked!(g, t::Translate, x::Union{AbstractArray, Tuple}) =
+_gradient_unchecked!(g, t::Translate, x::Union{_ArrayOrOwner, Tuple}) =
   (_checkwrite(gradient!, t, g, x); _gradient_unchecked!(g, t.f, _shifted(t, x)))
 
-_checkwrite(op::O, t::Translate, g, x::AbstractArray) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
+_checkwrite(op::O, t::Translate, g, x::_ArrayOrOwner) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
   (_checkgradient_output(g, x); _check_parameter_axes(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
 
-function _checkshifted(t::Translate, x::AbstractArray)
+function _checkshifted(t::Translate, x::_ArrayOrOwner)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
   _checkparams(t, x)
   _checkbuffer(t.scratch, float(eltype(x)), size(x))
@@ -1120,7 +1127,7 @@ end
 _checkwrite(op::O, t::Translate, g::Tuple, x::Tuple) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
   (_checkreal(t, g); _checkreal(t, x); _checkgradient_output(g, x); _check_block_output(g); _checksize(g, x); _checkwrite(op, t.f, g, _checkshifted(t, x)))
 _checkvalue(t::Translate, x::Tuple) = (_checkreal(t, x); _checkvalue(t.f, _checkshifted(t, x)))
-_checkvalue(t::Translate, x::AbstractArray) = (_checkreal(t, x); _checkvalue(t.f, _checkshifted(t, x)))
+_checkvalue(t::Translate, x::_ArrayOrOwner) = (_checkreal(t, x); _checkvalue(t.f, _checkshifted(t, x)))
 # The value of f at x - b as a significand and an exponent, while x - b is in range: an argument
 # that overflowed on translation is not recovered (#357).
 _has_value_parts(::Type{<:Translate{F}}) where {F} = _has_value_parts(F)
@@ -1137,7 +1144,7 @@ _zero_value_exponent(t::Translate, x) = _zero_value_exponent(t.f, x)
 _infinite_value_exact(t::Translate, x) = _infinite_value_exact(t.f, x)
 _parameter_alias(t::Translate, out) = _mightalias_parameter(out, t.b) || _parameter_alias(t.f, out)
 
-function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+function _checkwrite(op::O, t::Translate, y::_ArrayOrOwner, x::_ArrayOrOwner) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checkreal(t, y); _checkreal(t, x)
   _check_wrapper_output(y)
   _checksize(y, x)
@@ -1149,26 +1156,30 @@ function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) wh
 end
 
 # x - b in a buffer owned by t, so that y is unchanged when f throws
-prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real) =
+prox!(y::_ArrayOrOwner, t::Translate, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
-function _prox_unchecked!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
+function _prox_unchecked!(y::_ArrayOrOwner, t::Translate, x::_ArrayOrOwner, γ::Real)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
-  z .= x .- _checked_parameter(z, t.b)
+  zz = _ow(z)
+  zz .= _pt(zz, x) .- _checked_parameter(z, t.b)
   w = _wrapper_output(y, z)
   _prox_unchecked!(w, t.f, z, γ)
-  w .+= _checked_parameter(w, t.b)
+  ww = _ow(w)
+  ww .+= _checked_parameter(w, t.b)
   _wrapper_commit!(y, w)
 end
-value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real) =
+value_and_prox!(y::_ArrayOrOwner, t::Translate, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
-function _value_and_prox_unchecked!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
+function _value_and_prox_unchecked!(y::_ArrayOrOwner, t::Translate, x::_ArrayOrOwner, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
-  z .= x .- _checked_parameter(z, t.b)
+  zz = _ow(z)
+  zz .= _pt(zz, x) .- _checked_parameter(z, t.b)
   w = _wrapper_output(y, z)
   v = _value_and_prox_unchecked!(w, t.f, z, γ)
-  w .+= _checked_parameter(w, t.b)
+  ww = _ow(w)
+  ww .+= _checked_parameter(w, t.b)
   _wrapper_commit!(y, w)
   _value_at(v, y)
 end
@@ -1640,6 +1651,8 @@ _moreau_output!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ) =
 @generated _moreau_output!(y::Tuple, x::Tuple, p::Tuple, γ) =
   _blockwise(k -> :(_moreau_output!(y[$k], x[$k], p[$k], γ)), min(fieldcount(y), fieldcount(x), fieldcount(p)), :y)
 _tuple_dot(x::AbstractArray, y::AbstractArray) = dot(x, y)
+# a parameter and an owner: the off-diagonal coordinates count at both of their positions
+_tuple_dot(c::AbstractArray, x::SymmetricSparseIterate) = _owner_dot(c, x)
 @generated _tuple_dot(x::Tuple, y::Tuple) = _blocksum(k -> :(_tuple_dot(x[$k], y[$k])), min(fieldcount(x), fieldcount(y)))
 
 # as for arrays, with every block checked before any block is written

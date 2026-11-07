@@ -101,7 +101,7 @@ function _checkimage(h::Precompose, x)
 end
 _checkimage(h::_ScalarPrecompose, x) = _checkbuffer(h.image, float(promote_type(eltype(x), typeof(h.A))), size(x))
 
-function _checkwrite(op::O, h::Precompose, y::AbstractArray, x::AbstractArray) where {O}
+function _checkwrite(op::O, h::Precompose, y::_ArrayOrOwner, x::_ArrayOrOwner) where {O}
   _checkreal(h, y); _checkreal(h, x)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
@@ -111,7 +111,7 @@ function _checkwrite(op::O, h::Precompose, y::AbstractArray, x::AbstractArray) w
       _checkbuffer(h.inner, eltype(z), size(z))
   _checkwrite(op, h.f, b, z)
 end
-_checkvalue(h::Precompose, x::AbstractArray) = (_checkreal(h, x); _checkvalue(h.f, _checkimage(h, x)))
+_checkvalue(h::Precompose, x::_ArrayOrOwner) = (_checkreal(h, x); _checkvalue(h.f, _checkimage(h, x)))
 
 for trait in (:issmooth, :isproximable, :isconvex)
   @eval $trait(::Type{<:Precompose{F}}) where {F} = $trait(F)
@@ -122,6 +122,9 @@ _isindicator(::Type{<:Precompose{F}}) where {F} = _isindicator(F)
 
 # the image Ax in a buffer that h owns
 _image!(h::Precompose, x::AbstractArray) = _linear_image!(h.image, h.A, x)
+# the scalar form of an owner: the image is the dense matrix a x, which is symmetric; a matrix operator
+# does not take an owner (its argument is a vector)
+_image!(h::_ScalarPrecompose, x::SymmetricSparseIterate) = _linear_image!(h.image, h.A, matrixview(x))
 function _linear_image!(scratch::Scratch, A, x)
   T = float(promote_type(eltype(x), eltype(A)))
   z = _array_buffer!(scratch, T, (size(A, 1),))
@@ -132,15 +135,16 @@ function _linear_image!(scratch::Scratch, a::Real, x)
   z = _array_buffer!(scratch, T, size(x))
   z .= a .* x
 end
+_linear_image!(scratch::Scratch, a::Real, x::SymmetricSparseIterate) = _linear_image!(scratch, a, matrixview(x))
 _inner_buffer(h::Precompose, z::AbstractArray) = _array_buffer!(h.inner, eltype(z), size(z))
 
-(h::Precompose)(x::AbstractArray) =
+(h::Precompose)(x::_ArrayOrOwner) =
   (_check_value_arrays(h, x); _value_checked(h, x))
-_value_unchecked(h::Precompose, x::AbstractArray) = _value_at(_value_unchecked(h.f, _image!(h, x)), x)
+_value_unchecked(h::Precompose, x::_ArrayOrOwner) = _value_at(_value_unchecked(h.f, _image!(h, x)), x)
 
-value_and_gradient!(g::AbstractArray, h::Precompose, x::AbstractArray) =
+value_and_gradient!(g::_ArrayOrOwner, h::Precompose, x::_ArrayOrOwner) =
   (_check_oracle_arrays(value_and_gradient!, h, g, x); _value_and_gradient_unchecked!(g, h, x))
-function _value_and_gradient_unchecked!(g::AbstractArray, h::Precompose, x::AbstractArray)
+function _value_and_gradient_unchecked!(g::_ArrayOrOwner, h::Precompose, x::_ArrayOrOwner)
   _checkwrite(value_and_gradient!, h, g, x)
   z = _image!(h, x)
   _checkparams(h.f, z)
@@ -149,9 +153,9 @@ function _value_and_gradient_unchecked!(g::AbstractArray, h::Precompose, x::Abst
   _adjoint_apply!(g, h, b)
   _value_at(v, x)
 end
-gradient!(g::AbstractArray, h::Precompose, x::AbstractArray) =
+gradient!(g::_ArrayOrOwner, h::Precompose, x::_ArrayOrOwner) =
   (_check_oracle_arrays(gradient!, h, g, x); _gradient_unchecked!(g, h, x))
-function _gradient_unchecked!(g::AbstractArray, h::Precompose, x::AbstractArray)
+function _gradient_unchecked!(g::_ArrayOrOwner, h::Precompose, x::_ArrayOrOwner)
   _checkwrite(gradient!, h, g, x)
   z = _image!(h, x)
   _checkparams(h.f, z)
@@ -163,18 +167,29 @@ end
 # g = A'b
 _adjoint_apply!(g, h::Precompose, b) = mul!(g, h.A', b)
 _adjoint_apply!(g, h::_ScalarPrecompose, b) = (g .= h.A .* b)
+# an owner receives the symmetric part of a b, one coordinate at a time
+_adjoint_apply!(g::SymmetricSparseIterate, h::_ScalarPrecompose, b) = _scale_coordinates!(g, h.A, b)
+function _scale_coordinates!(g::SymmetricSparseIterate, a, b)
+  p = g.p
+  @inbounds for c in 1:p, r in c:p
+    v = a * b[r, c]
+    r == c || (v = _symmetric_pair(v, a * b[c, r], r, c))
+    _setstored!(g, v, tril_index(p, r, c))
+  end
+  g
+end
 
 # y = x + A'(P - Ax)/μ, with P - Ax in the buffer; for a scalar a, y = P/a
-prox!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real) =
+prox!(y::_ArrayOrOwner, h::Precompose, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, h, y, x, γ); _prox_unchecked!(y, h, x, γ))
-function _prox_unchecked!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real)
+function _prox_unchecked!(y::_ArrayOrOwner, h::Precompose, x::_ArrayOrOwner, γ::Real)
   _checkwrite(prox!, h, y, x)
   _value_and_prox_precompose!(y, h, x, γ, false)
   y
 end
-value_and_prox!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real) =
+value_and_prox!(y::_ArrayOrOwner, h::Precompose, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, h, y, x, γ); _value_and_prox_unchecked!(y, h, x, γ))
-_value_and_prox_unchecked!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real) =
+_value_and_prox_unchecked!(y::_ArrayOrOwner, h::Precompose, x::_ArrayOrOwner, γ::Real) =
   (_checkwrite(value_and_prox!, h, y, x); _value_at(_value_and_prox_precompose!(y, h, x, γ, true), y))
 
 function _value_and_prox_precompose!(y, h::Precompose, x, γ, withvalue::Bool)
@@ -195,7 +210,8 @@ function _value_and_prox_precompose!(y, h::_ScalarPrecompose, x, γ, withvalue::
   T = eltype(z)
   μγ = convert(T, h.μ) * convert(T, γ)
   v = withvalue ? _value_and_prox_unchecked!(z, h.f, z, μγ) : (_prox_unchecked!(z, h.f, z, μγ); zero(T))
-  y .= z ./ h.A
+  yy = _ow(y)
+  yy .= z ./ h.A
   withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _precompose_prox_value(h, y) : v
 end
 
@@ -287,15 +303,16 @@ function _image!(h::_ArrayPrecompose, x::AbstractArray)
   z = _array_buffer!(h.image, T, size(x))
   copyto!(z, _PrecomposeArray(x, h.a, Val(false)))
 end
+_image!(h::_ArrayPrecompose, x::SymmetricSparseIterate) = _image!(h, matrixview(x))
 _inner_buffer(h::_ArrayPrecompose, z::AbstractArray) = _array_buffer!(h.inner, eltype(z), size(z))
-(h::_ArrayPrecompose)(x::AbstractArray) =
+(h::_ArrayPrecompose)(x::_ArrayOrOwner) =
   (_check_value_arrays(h, x); _value_checked(h, x))
-_value_unchecked(h::_ArrayPrecompose, x::AbstractArray) = (_checkparams(h, x); _value_at(_value_unchecked(h.f, _image!(h, x)), x))
+_value_unchecked(h::_ArrayPrecompose, x::_ArrayOrOwner) = (_checkparams(h, x); _value_at(_value_unchecked(h.f, _image!(h, x)), x))
 
 _sparse_precompose(y, x) = (y isa SparseIterate && x isa SparseIterate) ||
-  (y isa SymmetricSparseIterate && x isa AbstractMatrix)
+  (y isa SymmetricSparseIterate && (x isa AbstractMatrix || x isa SymmetricSparseIterate))
 
-function _checkwrite(op::O, h::_ArrayPrecompose, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+function _checkwrite(op::O, h::_ArrayPrecompose, y::_ArrayOrOwner, x::_ArrayOrOwner) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
   _checkreal(h, y); _checkreal(h, x)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
@@ -335,7 +352,7 @@ function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
   if isseparable(h) && _sparse_precompose(y, x)
     T = float(promote_type(eltype(y), eltype(h.a)))
     # from the dense image of what the sparse loop reads, before y is written
-    v = joint ? _array_precompose_joint_value(h, y isa SymmetricSparseIterate ? Symmetric(x, :L) : x, γ) : zero(T)
+    v = joint ? _array_precompose_joint_value(h, y isa SymmetricSparseIterate ? Symmetric(_vw(x), :L) : x, γ) : zero(T)
     _prox_sep!(y, h, x, γ)
     return withvalue && !joint ? (_isindicator(h) ? zero(T) : _value_unchecked(h, y)) : v
   end
@@ -366,16 +383,16 @@ function _array_precompose_value(h::_ArrayPrecompose, y)
   _isindicator(h.f) ? zero(v) : v
 end
 
-prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real) =
+prox!(y::_ArrayOrOwner, h::_ArrayPrecompose, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, h, y, x, γ); _prox_unchecked!(y, h, x, γ))
-function _prox_unchecked!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real)
+function _prox_unchecked!(y::_ArrayOrOwner, h::_ArrayPrecompose, x::_ArrayOrOwner, γ::Real)
   _checkwrite(prox!, h, y, x)
   _value_and_prox_array!(y, h, x, γ, false)
   y
 end
-value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real) =
+value_and_prox!(y::_ArrayOrOwner, h::_ArrayPrecompose, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, h, y, x, γ); _value_and_prox_unchecked!(y, h, x, γ))
-function _value_and_prox_unchecked!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real)
+function _value_and_prox_unchecked!(y::_ArrayOrOwner, h::_ArrayPrecompose, x::_ArrayOrOwner, γ::Real)
   _checkwrite(value_and_prox!, h, y, x)
   _value_at(_value_and_prox_array!(y, h, x, γ, true), y)
 end
@@ -393,24 +410,35 @@ Base.@propagate_inbounds function value_entry(h::_ArrayPrecompose{<:SeparableFun
   value_entry(h.f, convert(T, h.a[i]) * convert(T, v), i)
 end
 
-gradient!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractArray) =
+gradient!(g::_ArrayOrOwner, h::_ArrayPrecompose, x::_ArrayOrOwner) =
   (_check_oracle_arrays(gradient!, h, g, x); _gradient_unchecked!(g, h, x))
-function _gradient_unchecked!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractArray)
+function _gradient_unchecked!(g::_ArrayOrOwner, h::_ArrayPrecompose, x::_ArrayOrOwner)
   _checkwrite(gradient!, h, g, x)
   z = _image!(h, x)
   b = _inner_buffer(h, z)
   _gradient_unchecked!(b, h.f, z)
-  g .= h.a .* b
+  _scale_gradient!(g, h.a, b)
 end
-value_and_gradient!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractArray) =
+value_and_gradient!(g::_ArrayOrOwner, h::_ArrayPrecompose, x::_ArrayOrOwner) =
   (_check_oracle_arrays(value_and_gradient!, h, g, x); _value_and_gradient_unchecked!(g, h, x))
-function _value_and_gradient_unchecked!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractArray)
+function _value_and_gradient_unchecked!(g::_ArrayOrOwner, h::_ArrayPrecompose, x::_ArrayOrOwner)
   _checkwrite(value_and_gradient!, h, g, x)
   z = _image!(h, x)
   b = _inner_buffer(h, z)
   v = _value_and_gradient_unchecked!(b, h.f, z)
-  g .= h.a .* b
+  _scale_gradient!(g, h.a, b)
   _value_at(v, x)
+end
+# g = a ⊙ b; an owner takes the symmetric part, from the lower entries of a symmetric a
+_scale_gradient!(g::AbstractArray, a, b) = (g .= a .* b)
+function _scale_gradient!(g::SymmetricSparseIterate, a, b)
+  p = g.p
+  @inbounds for c in 1:p, r in c:p
+    v = a[r, c] * b[r, c]
+    r == c || (v = _symmetric_pair(v, a[c, r] * b[c, r], r, c))
+    _setstored!(g, v, tril_index(p, r, c))
+  end
+  g
 end
 
 function kkt_violation(h::_ArrayPrecompose, g::AbstractArray, i::Integer)
@@ -517,11 +545,13 @@ end
 iszeropreserving(r::Regularize) = r.c === nothing && isfinite(r.ρ) && iszeropreserving(r.f)
 
 _ridge(r::Regularize, x::AbstractArray) = _square_value(r.ρ, x, r.c)
+# a center is read at every entry of the matrix that the owner represents
+_ridge(r::Regularize, x::SymmetricSparseIterate) = _square_value(r.ρ, r.c === nothing ? x : matrixview(x), r.c)
 
-(r::Regularize)(x::AbstractArray) =
+(r::Regularize)(x::_ArrayOrOwner) =
   (_check_value_arrays(r, x); _value_checked(r, x))
-_value_unchecked(r::Regularize, x::AbstractArray) = (_checkparams(r, x); _value_at(_value_unchecked(r.f, x) + _ridge(r, x), x))
-function _checkvalue(r::Regularize, x::AbstractArray)
+_value_unchecked(r::Regularize, x::_ArrayOrOwner) = (_checkparams(r, x); _value_at(_value_unchecked(r.f, x) + _ridge(r, x), x))
+function _checkvalue(r::Regularize, x::_ArrayOrOwner)
   _checkreal(r, x)
   _checkparams(r, x)
   _checkvalue(r.f, x)
@@ -529,26 +559,26 @@ function _checkvalue(r::Regularize, x::AbstractArray)
   true
 end
 
-value_and_gradient!(g::AbstractArray, r::Regularize, x::AbstractArray) =
+value_and_gradient!(g::_ArrayOrOwner, r::Regularize, x::_ArrayOrOwner) =
   (_check_oracle_arrays(value_and_gradient!, r, g, x); _value_and_gradient_unchecked!(g, r, x))
-function _value_and_gradient_unchecked!(g::AbstractArray, r::Regularize, x::AbstractArray)
+function _value_and_gradient_unchecked!(g::_ArrayOrOwner, r::Regularize, x::_ArrayOrOwner)
   _checkwrite(value_and_gradient!, r, g, x)
   v = _value_and_gradient_unchecked!(g, r.f, x)
   _add_ridge_gradient!(g, r, x)
   _value_at(v + _ridge(r, x), x)
 end
-gradient!(g::AbstractArray, r::Regularize, x::AbstractArray) =
+gradient!(g::_ArrayOrOwner, r::Regularize, x::_ArrayOrOwner) =
   (_check_oracle_arrays(gradient!, r, g, x); _gradient_unchecked!(g, r, x))
-_gradient_unchecked!(g::AbstractArray, r::Regularize, x::AbstractArray) =
+_gradient_unchecked!(g::_ArrayOrOwner, r::Regularize, x::_ArrayOrOwner) =
   (_checkwrite(gradient!, r, g, x); _gradient_unchecked!(g, r.f, x); _add_ridge_gradient!(g, r, x))
 
-function _checkwrite(op::O, r::Regularize, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+function _checkwrite(op::O, r::Regularize, y::_ArrayOrOwner, x::_ArrayOrOwner) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
   _checkreal(r, y); _checkreal(r, x)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   (op === prox! || op === value_and_prox!) && _check_wrapper_output(y)
   _checksize(y, x)
   _checkparams(r, x)
-  r.c === nothing || Base.Broadcast.check_broadcast_axes(axes(y), x, r.c)
+  r.c === nothing || Base.Broadcast.check_broadcast_axes(_baxes(y), _vw(x), r.c)
   if op === value_and_prox! || op === value_and_gradient!
     r.c === nothing || size(x) == size(r.c) ||
       throw(DimensionMismatch("the arrays have sizes $(size(x)) and $(size(r.c))"))
@@ -559,6 +589,20 @@ end
 function _add_ridge_gradient!(g, r::Regularize, x)
   ρ = convert(eltype(g), r.ρ)
   r.c === nothing ? (g .+= ρ .* x) : (g .+= ρ .* (x .- _checked_parameter(g, r.c)))
+end
+# an owner gradient receives the symmetric part of ρ(x - c), from the lower entries when x is symmetric
+function _add_ridge_gradient!(g::SymmetricSparseIterate, r::Regularize, x)
+  ρ = convert(eltype(g), r.ρ)
+  p = g.p
+  @inbounds for c in 1:p, i in c:p
+    v = ρ * (r.c === nothing ? x[i, c] : x[i, c] - r.c[i, c])
+    if i != c && !(x isa SymmetricSparseIterate)
+      v = _symmetric_pair(v, ρ * (r.c === nothing ? x[c, i] : x[c, i] - r.c[c, i]), i, c)
+    end
+    k = tril_index(p, i, c)
+    _setstored!(g, _getstored(g, k) + v, k)
+  end
+  g
 end
 
 # the point (v + γρc)/(1 + γρ) in y, and the step γ/(1 + γρ) of f
@@ -588,26 +632,27 @@ end
   _ridge_weights(ifelse(endpoint, one(T), γ), ρ)
 @inline _regularize_step(γ::T, ρ::T, endpoint::Bool) where {T} =
   ifelse(endpoint, γ, _regularize_step(γ, ρ))
-function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
+function _shrunk!(y::_ArrayOrOwner, r::Regularize, x::_ArrayOrOwner, γ::Real)
   T = float(eltype(y))
   a, b, step = _regularize_parameters(convert(T, γ), convert(T, r.ρ), _regularize_endpoint(r, γ))
-  r.c === nothing ? (y .= a .* x) : (y .= _ridge_blend.(x, _checked_parameter(y, r.c), a, b))
+  yy = _ow(y)
+  r.c === nothing ? (yy .= a .* _pt(yy, x)) : (yy .= _ridge_blend.(_pt(yy, x), _checked_parameter(y, r.c), a, b))
   step
 end
 
 # the shrunk point in a buffer owned by r, so that y is unchanged when f throws
-prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real) =
+prox!(y::_ArrayOrOwner, r::Regularize, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, r, y, x, γ); _prox_unchecked!(y, r, x, γ))
-function _prox_unchecked!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
+function _prox_unchecked!(y::_ArrayOrOwner, r::Regularize, x::_ArrayOrOwner, γ::Real)
   _checkwrite(prox!, r, y, x)
   z = _output_buffer!(r.scratch, y)
   w = r.scratch === nothing ? z : _wrapper_output(y, z)
   _prox_unchecked!(w, r.f, z, _shrunk!(z, r, x, γ))
   _wrapper_commit!(y, w)
 end
-value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real) =
+value_and_prox!(y::_ArrayOrOwner, r::Regularize, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, r, y, x, γ); _value_and_prox_unchecked!(y, r, x, γ))
-function _value_and_prox_unchecked!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
+function _value_and_prox_unchecked!(y::_ArrayOrOwner, r::Regularize, x::_ArrayOrOwner, γ::Real)
   _checkwrite(value_and_prox!, r, y, x)
   z = _output_buffer!(r.scratch, y)
   w = r.scratch === nothing ? z : _wrapper_output(y, z)
@@ -694,9 +739,9 @@ lipschitz(r::Regularize) = lipschitz(r.f) + r.ρ
 hashessian(::Type{<:Precompose{F}}) where {F} = hashessian(F)
 hashessian(::Type{<:Regularize{F}}) where {F} = hashessian(F)
 
-hessian_vec!(Hv::AbstractArray, h::Precompose, x::AbstractArray, v::AbstractArray) =
+hessian_vec!(Hv::_ArrayOrOwner, h::Precompose, x::_ArrayOrOwner, v::_ArrayOrOwner) =
   (_check_second_order_arrays(h, x, Hv, v); _hessian_vec_unchecked!(Hv, h, x, v))
-function _hessian_vec_unchecked!(Hv::AbstractArray, h::Precompose, x::AbstractArray, v::AbstractArray)
+function _hessian_vec_unchecked!(Hv::_ArrayOrOwner, h::Precompose, x::_ArrayOrOwner, v::_ArrayOrOwner)
   _checksize(Hv, x)
   _checkdirection(v, x)
   z = _image!(h, x)
@@ -707,14 +752,39 @@ function _hessian_vec_unchecked!(Hv::AbstractArray, h::Precompose, x::AbstractAr
   _adjoint_apply!(Hv, h, b)
 end
 
-hessian_vec!(Hv::AbstractArray, r::Regularize, x::AbstractArray, v::AbstractArray) =
+hessian_vec!(Hv::_ArrayOrOwner, r::Regularize, x::_ArrayOrOwner, v::_ArrayOrOwner) =
   (_check_second_order_arrays(r, x, Hv, v); _hessian_vec_unchecked!(Hv, r, x, v))
-function _hessian_vec_unchecked!(Hv::AbstractArray, r::Regularize, x::AbstractArray, v::AbstractArray)
+function _hessian_vec_unchecked!(Hv::_ArrayOrOwner, r::Regularize, x::_ArrayOrOwner, v::_ArrayOrOwner)
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(r, x)
   _hessian_vec_unchecked!(Hv, r.f, x, v)
-  Hv .+= convert(eltype(Hv), r.ρ) .* v
+  _add_ridge_direction!(Hv, r.ρ, x, v)
+end
+_add_ridge_direction!(Hv::AbstractArray, ρ, x, v) = (Hv .+= convert(eltype(Hv), ρ) .* _vw(v))
+# ρ v added to an owner: the level and the entries in the model precision, the wider of the output, the point and
+# the direction, and each entry rounded to the output once, when it is stored; a level that this precision
+# cannot hold is multiplied in a wider type
+function _add_ridge_direction!(Hv::SymmetricSparseIterate, ρ, x, v)
+  W = _model_precision(eltype(Hv), eltype(x), eltype(v))
+  if _level_fits(W, ρ)
+    _add_entries!(Hv, convert(W, ρ), W, v)
+  else
+    R = promote_type(W, float(typeof(ρ)))
+    _add_entries!(Hv, convert(R, ρ), R, v)
+  end
+end
+function _add_entries!(Hv::SymmetricSparseIterate, l, ::Type{R}, v) where {R}
+  p = Hv.p
+  @inbounds for c in 1:p, r in c:p
+    u = l * convert(R, v[r, c])
+    if r != c && !(v isa SymmetricSparseIterate)
+      u = _symmetric_pair(u, l * convert(R, v[c, r]), r, c)
+    end
+    k = tril_index(p, r, c)
+    _setstored!(Hv, _getstored(Hv, k) + u, k)
+  end
+  Hv
 end
 
 quadratic_model(h::Precompose, x::AbstractArray) =

@@ -590,3 +590,30 @@ end
   w = _OwnerMatrix(y)
   x === y ? op(w, f, Symmetric(w, :L), γ) : op(w, f, Symmetric(matrixview(x), :L), γ)
 end
+
+# The owner of a symmetric matrix inside code written for matrices. `_ow(y)` is the matrix that a broadcast
+# writes through (each coordinate once, from its lower position) and `_vw(x)` the read-only matrix of an
+# argument; `_pt(dest, x)` is the argument as it is read while `dest` is written, which is `dest` itself for
+# a call in place. For an array all three are the array, so that a kernel written with them is the kernel
+# of the array.
+@inline _ow(y::SymmetricSparseIterate) = _OwnerMatrix(y)
+@inline _ow(y) = y
+@inline _vw(x::SymmetricSparseIterate) = matrixview(x)
+@inline _vw(x) = x
+@inline _pt(dest, x) = _vw(x)
+@inline _pt(dest::_OwnerMatrix, x) = _owner_point(dest, x)
+# the axes that a broadcast of the matrix of y has
+@inline _baxes(y::AbstractArray) = axes(y)
+@inline _baxes(y::SymmetricSparseIterate) = axes(matrixview(y))
+
+# g += b into an owner, one coordinate at a time from the lower entry of b, which is symmetric (a parameter
+# that has been checked, or the dense result of a kernel on a symmetric point); a coordinate whose sum is
+# zero stays as it is
+function _accumulate!(g::SymmetricSparseIterate, b::AbstractMatrix)
+  p = g.p
+  @inbounds for c in 1:p, r in c:p
+    k = tril_index(p, r, c)
+    _setstored!(g, _getstored(g, k) + b[r, c], k)
+  end
+  g
+end

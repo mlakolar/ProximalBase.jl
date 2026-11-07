@@ -599,8 +599,8 @@ function _group_levels(::Type{T}, γ, λ) where {T}
   c = convert(R, γ) * convert(R, λ)
   _level_fits(T, c) && return (one(T), convert(T, c))
   m, e = frexp(c)
-  a = ldexp(one(R), fld(e, 2))
-  b = ldexp(m, e - fld(e, 2))
+  a = ProximalBase.ldexp(one(R), fld(e, 2))      # the exact shift of a BigFloat, as in the package
+  b = ProximalBase.ldexp(m, e - fld(e, 2))
   _level_fits(T, a) && _level_fits(T, b) ? (convert(T, a), convert(T, b)) : (one(T), convert(T, c))
 end
 

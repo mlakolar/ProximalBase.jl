@@ -1076,17 +1076,13 @@ isconvex(::Type{<:NormL1Fused}) = true
 @inline _fused_levels_fit(::Type{T}, f::NormL1Fused) where {T} =
   _fused_level_fits(T, f.λ1) && _fused_level_fits(T, f.λ2)
 
-# Normalize weighted terms together, so subnormal contributions round once. The product that applies the
-# exponents is a parameter: the value of NormL1Fused passes _scaled_product_exact, with its terms scaled by
-# _power_factors_exact (the exponents of a BigFloat are applied exactly where a C long is 32 bits, #747).
-# Every other user keeps the default, as their terms are scaled by _power_factors: FiberSum, the ordered
-# functions, and the parts of NormL1Fused, which wrappers (Scaled, Translate) restore with _scaled_product.
-@noinline function _fused_scaled_value(terms, k, ::Type{T}, product = _scaled_product) where {T}
+# Normalize weighted terms together, so subnormal contributions round once.
+@noinline function _fused_scaled_value(terms, k, ::Type{T}) where {T}
   R = typeof(first(terms)[2])
-  m, e = _fused_scaled_sum(terms, k, product)
+  m, e = _fused_scaled_sum(terms, k)
   e == typemin(Int) && return zero(T)
   # Generator inference can lose the term type on Julia 1.10.
-  convert(T, product(one(R), m, e))::T
+  convert(T, _scaled_product(one(R), m, e))::T
 end
 # the same sum as a significand and an exponent (the scaled-value mechanism)
 function _fused_scaled_parts(terms, k)
@@ -1095,7 +1091,7 @@ function _fused_scaled_parts(terms, k)
   e == typemin(Int) ? (zero(R), 0) : _parts(m, e)
 end
 # the weighted terms as s 2^e, with e = typemin(Int) when every term is zero
-function _fused_scaled_sum(terms, k, product = _scaled_product)
+function _fused_scaled_sum(terms, k)
   R = typeof(first(terms)[2])
   e = typemin(Int)
   for term in terms
@@ -1110,17 +1106,16 @@ function _fused_scaled_sum(terms, k, product = _scaled_product)
   for term in terms
     λ, v = term[1], term[2]
     units = length(term) == 2 ? k : term[3]
-    s, c = _compensated_add(s, c, product(R(λ), v, units - e))
+    s, c = _compensated_add(s, c, _scaled_product(R(λ), v, units - e))
   end
   (s + c, e)
 end
 
-@noinline _recover_fused_pair(f, xy, ::Type{T}) where {T} =
-  _fused_scaled_value(_fused_pair_terms(f, xy, T, _power_factors_exact)..., T, _scaled_product_exact)
-function _fused_pair_terms(f, xy, ::Type{T}, power = _power_factors) where {T}
+@noinline _recover_fused_pair(f, xy, ::Type{T}) where {T} = _fused_scaled_value(_fused_pair_terms(f, xy, T)..., T)
+function _fused_pair_terms(f, xy, ::Type{T}) where {T}
   R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
   k = _magnitude_exponent(max(abs(R(xy[1])), abs(R(xy[2]))))
-  scale = power(R, -k)
+  scale = _power_factors(R, -k)
   u, v = _scale_value(R(xy[1]), scale), _scale_value(R(xy[2]), scale)
   ((f.λ1, abs(u) + abs(v)), (f.λ2, abs(u - v))), k
 end
@@ -1179,11 +1174,11 @@ end
   terms = (begin
     u, w = R(x[1][i]), R(x[2][i])
     k = _magnitude_exponent(max(abs(u), abs(w)))
-    scale = _power_factors_exact(R, -k)
+    scale = _power_factors(R, -k)
     u, w = _scale_value(u, scale), _scale_value(w, scale)
     h == 1 ? (f.λ1, abs(u) + abs(w), k) : (f.λ2, abs(u - w), k)
   end for i in eachindex(x[1], x[2]), h in 1:2)
-  _fused_scaled_value(terms, 0, T, _scaled_product_exact)
+  _fused_scaled_value(terms, 0, T)
 end
 
 # An infinite fusion level with a finite ℓ1 level (#664): the domain is the equal entries, so the value
@@ -1199,8 +1194,8 @@ function _fused_equal_term(λ1, ::Type{T}, n::Integer, c) where {T}
   R = promote_type(T, float(typeof(λ1)), float(typeof(c)))
   rc = R(c)
   k = _magnitude_exponent(abs(rc))
-  u = _scale_value(rc, _power_factors_exact(R, -k))
-  _fused_scaled_value(((λ1, R(n) * abs(u)),), k, T, _scaled_product_exact)
+  u = _scale_value(rc, _power_factors(R, -k))
+  _fused_scaled_value(((λ1, R(n) * abs(u)),), k, T)
 end
 
 # a vector, or the two entries of a pair
@@ -1226,9 +1221,9 @@ function _fused_equal_arrays_value(f, x, ::Type{T}, ordinary) where {T}
   terms = (begin
     u = R(x1[i])
     k = _magnitude_exponent(abs(u))
-    (f.λ1, 2 * abs(_scale_value(u, _power_factors_exact(R, -k))), k)
+    (f.λ1, 2 * abs(_scale_value(u, _power_factors(R, -k))), k)
   end for i in eachindex(x1, x2))
-  _fused_scaled_value(terms, 0, T, _scaled_product_exact)
+  _fused_scaled_value(terms, 0, T)
 end
 
 function (f::NormL1Fused)(x::Tuple{AbstractArray, AbstractArray})
@@ -1359,14 +1354,14 @@ end
   isinf(f.λ1) && return _fused_fixed_value(T, any(isnan, x), all(iszero, x))
   _fused_equal_entries(f) && return _fused_equal_value(f, x, T, ordinary)
   all(isfinite, x) && isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
-  _fused_scaled_value(_fused_vector_terms(f, x, T, _power_factors_exact)..., T, _scaled_product_exact)
+  _fused_scaled_value(_fused_vector_terms(f, x, T)..., T)
 end
-function _fused_vector_terms(f, x, ::Type{T}, power = _power_factors) where {T}
+function _fused_vector_terms(f, x, ::Type{T}) where {T}
   R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
   p, a, _ = _sortperm_fused!(f, x, R)
   n = length(x)
   k = _magnitude_exponent(_maximum_abs(x))
-  scale = power(R, -k)
+  scale = _power_factors(R, -k)
   s1 = s2 = c1 = c2 = zero(R)
   @inbounds for i in 1:n
     u = _scale_value(a[p[i]], scale)
@@ -1526,7 +1521,7 @@ _fused_mean_supported(::Type{W}, n) where {W<:Union{Float32, Float64}} =
   2 * (8 * sizeof(n) - leading_zeros(n)) + precision(W) <= 126
 _fused_mean_supported(::Type{W}, n) where {W} =
   isconcretetype(W) && W <: AbstractFloat && hasmethod(exponent, Tuple{W}) &&
-  hasmethod(frexp, Tuple{W}) && hasmethod(ldexp, Tuple{W, Int})
+  hasmethod(frexp, Tuple{W}) && hasmethod(Base.ldexp, Tuple{W, Int})
 
 # The mean of the entries of x in the working type W, which holds every entry exactly. NaN and
 # infinite entries are decided first (NaN, or the infinity, or NaN for both signs). For finite entries
@@ -1562,9 +1557,9 @@ end
 # of the scaling: at a low precision the rounded sum of the scaled entries can restore past the range);
 # the accuracy is that of the compensated sum and of the quotient, no more. Not proved: a small residual
 # beside overflowing entries that cancel, where it is below the range of the scaled entries (the Float32
-# and Float64 method keeps it). The shifts go through _projection_l1_scale, an exact Clong ldexp for a
-# BigFloat: exponent is an Int64 and frexp an Int32 on Windows (C long is 32 bits), and an Int64 shift
-# would select ldexp's rounded exp2 fallback, which overflows or loses the power of two (#736).
+# and Float64 method keeps it). The shifts go through _projection_l1_scale, which is the ldexp of this module,
+# exact for a BigFloat: exponent is an Int64 and frexp an Int32 on Windows (C long is 32 bits), where Base's
+# Int64 shift would be its rounded exp2 fallback, which overflows or loses the power of two (#736).
 function _fused_finite_mean(x, ::Type{W}, n) where {W}
   s = c = m = zero(W)
   @inbounds for i in 1:n
@@ -1784,11 +1779,6 @@ function _projection_group_maxabs(x::AbstractArray, G)
 end
 
 @inline _projection_l1_scale(v, e) = ldexp(v, e)
-function _projection_l1_scale(v::BigFloat, e)
-  # Windows Int exponents otherwise select ldexp's rounded exp2 fallback.
-  # MPFR's full exponent span fits Clong; wider shifts necessarily saturate.
-  ldexp(v, Clong(clamp(e, typemin(Clong), typemax(Clong))))
-end
 
 # Julia 1.10's ldexp truncates some values below the smallest subnormal.
 # A normal power-of-two scaling followed by multiplication rounds only once.

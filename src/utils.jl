@@ -187,25 +187,6 @@ end
   copysign(ldexp(_positive_product(mw, mv, one(T)), ew + ev + k), v)
 end
 
-# Scale by a power of two. Base's ldexp(::BigFloat, n) is the exact mpfr_mul_2si only for a Clong n; any other
-# Integer takes x * exp2(BigFloat(n)), which overflows when 2^n alone leaves the range although x·2^n is
-# representable, and rounds n itself at a low precision. A C long is 32 bits on Windows, where an Int shift is not a Clong.
-# MPFR's exponent range lies within a Clong, so a shift saturated at the Clong limits still overflows or underflows exactly as it should.
-@inline _scale_pow2(x, e::Integer) = ldexp(x, e)
-@inline _scale_pow2(x::BigFloat, e::Integer) = ldexp(x, Clong(clamp(e, typemin(Clong), typemax(Clong))))
-
-# The exact siblings of _scaled_product (two factors) and _power_factors: the same bodies with _scale_pow2. The
-# originals stay as they are because their callers pair them with raw ldexp shifts of an Int, so converting one
-# side alone would mix an exact scale with a rounded one on Windows; a family of callers is converted at a time.
-@inline function _scaled_product_exact(w::T, v::T, k::Integer) where {T<:AbstractFloat}
-  (iszero(w) || iszero(v)) && return w * v
-  (isfinite(w) && isfinite(v)) || return w * v
-  k = Int(k)
-  mw, ew = _frexp(w)
-  mv, ev = _frexp(abs(v))
-  copysign(_scale_pow2(_positive_product(mw, mv, one(T)), ew + ev + k), v)
-end
-
 # A converted parameter must retain normal precision on the ordinary path.
 @inline _level_fits(::Type, ::Real) = true
 # A level already stored in this precision needs no conversion check.
@@ -431,11 +412,6 @@ _tol(::Type) = sqrt(eps(Float64))
   k = Int(k)
   k1 = clamp(k, exponent(nextfloat(zero(T))), exponent(floatmax(T)))
   (ldexp(one(T), k1), ldexp(one(T), k - k1))
-end
-@inline function _power_factors_exact(::Type{T}, k::Integer) where {T<:AbstractFloat}
-  k = Int(k)
-  k1 = clamp(k, exponent(nextfloat(zero(T))), exponent(floatmax(T)))
-  (_scale_pow2(one(T), k1), _scale_pow2(one(T), k - k1))
 end
 @inline _scale_value(v, s) = (float(v) * s[1]) * s[2]
 @inline _magnitude_exponent(v) = iszero(v) ? 0 : Int(exponent(v))

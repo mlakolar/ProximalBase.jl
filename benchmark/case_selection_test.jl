@@ -307,9 +307,16 @@ end
 
 function sel_body!(w, @nospecialize(x), path, ::Val{:range}, T)
     sel_mix!(w, sel_p(w, path, " length"), length(x))
-    isempty(x) && return nothing
+    # an empty range is a value too (its `first`, `step` and endpoint are observable): they are encoded for every
+    # range. The endpoint is the stored stop where the type has one; any other range type (a `StepRangeLen`, whose
+    # `last` is out of bounds when it is empty) gets `last` when it is not empty.
     sel_walk!(w, first(x), sel_at(path, ".", "first"))
     sel_walk!(w, step(x), sel_at(path, ".", "step"))
+    if x isa Union{UnitRange,StepRange,Base.OneTo,LinRange}
+        sel_walk!(w, x.stop, sel_at(path, ".", "stop"))
+    elseif !isempty(x)
+        sel_walk!(w, last(x), sel_at(path, ".", "last"))
+    end
     nothing
 end
 
@@ -618,12 +625,27 @@ end
     end
 end
 
+# structs of the degenerate-instance pairs below (a struct cannot be defined inside a test set)
+struct SelEmptyA end
+struct SelEmptyB end
+struct SelCallA end
+struct SelCallB end
+(::SelCallA)(x) = x
+(::SelCallB)(x) = -x
+mutable struct SelPartial
+    a
+    SelPartial() = new()
+    SelPartial(a) = new(a)
+end
+
 # Pairs of states that the validators cannot tell apart (all no-ops), that a callback does tell apart, through the
 # complete oracle: each pair shows that the fault fired (the callbacks' results differ between the two sides), that the
 # oracle reports a difference, and that independently rebuilt equal states agree.
 @testset "the oracle sees what the encoding must tell apart" begin
-    probe(z, f) = PerfCase((; id="probe"), () -> f(z), noop, noop, nothing, false, (;))
-    function check_pair(a, b, f)
+    # the probe holds its state and callback through `Any` references: one closure type serves every pair (a
+    # method per pair type is compile time)
+    probe(@nospecialize(z), @nospecialize(f)) = (r = Ref{Any}((z, f)); PerfCase((; id="probe"), () -> r[][2](r[][1]), noop, noop, nothing, false, (;)))
+    function check_pair(@nospecialize(a), @nospecialize(b), @nospecialize(f))
         @test !isequal(f(a()), f(b()))
         @test !isempty(sel_differences(() -> [probe(a(), f)], sel -> [probe(b(), f)], "probe"))
         @test isempty(sel_differences(() -> [probe(a(), f)], sel -> [probe(a(), f)], "probe"))
@@ -660,6 +682,57 @@ end
         check_pair(() -> q(true), () -> q(false), z -> any(e -> e === z[2], z[1]))
         check_pair(() -> Dict((:a, 1) => 1, (:b, 2) => 2), () -> Dict((:a, 2) => 1, (:b, 1) => 2), z -> get(z, (:a, 1), 0))
         check_pair(() -> Dict{Any,Int}([1.0] => 1), () -> Dict{Any,Int}([2.0] => 1), z -> only(keys(z)))
+    end
+    # degenerate instances of the supported kinds: empty or undefined, still observable by a callback
+    @testset "empty ranges of every range type" begin
+        check_pair(() -> 1:2:0, () -> 3:2:2, first)                       # the same StepRange{Int64,Int64}, length zero, step two
+        check_pair(() -> 1:2:0, () -> 1:3:0, step)
+        check_pair(() -> 1:0, () -> 5:4, first)
+        check_pair(() -> Base.OneTo(0), () -> 5:4, first)
+        check_pair(() -> Base.OneTo(0), () -> 1:0, typeof)
+        check_pair(() -> StepRangeLen(1.0, 2.0, 0), () -> StepRangeLen(3.0, 2.0, 0), first)
+        check_pair(() -> StepRangeLen(1.0, 2.0, 0), () -> StepRangeLen(1.0, 3.0, 0), step)
+        check_pair(() -> LinRange(1.0, 2.0, 0), () -> LinRange(3.0, 4.0, 0), first)
+        check_pair(() -> LinRange(1, 2, 0), () -> LinRange(1, 3, 0), step)
+        check_pair(() -> 1:3, () -> 1:4, last)                           # a nonempty range: the endpoint
+    end
+    @testset "empty arrays" begin
+        check_pair(() -> Int[], () -> Float64[], typeof)
+        check_pair(() -> zeros(0, 3), () -> zeros(3, 0), size)
+        check_pair(() -> Vector{Vector{Int}}(), () -> Vector{Vector{Float64}}(), typeof)
+        check_pair(() -> Any[Int[]], () -> Any[Float64[]], z -> typeof(z[1]))
+        check_pair(() -> Any[], () -> Int[], typeof)
+    end
+    @testset "empty tuples, named tuples and strings" begin
+        check_pair(() -> (), () -> NamedTuple(), typeof)
+        check_pair(() -> Any[()], () -> Any[NamedTuple()], z -> typeof(z[1]))
+        check_pair(() -> (a=1,), () -> (b=1,), keys)
+        check_pair(() -> "", () -> SubString("a", 1, 0), typeof)
+        check_pair(() -> "", () -> Symbol(""), typeof)
+    end
+    @testset "empty dictionaries and sets: key and value types" begin
+        check_pair(() -> Dict{Int,Int}(), () -> Dict{Int,Symbol}(), typeof)
+        check_pair(() -> Set{Int}(), () -> Set{Int8}(), typeof)
+    end
+    @testset "zero-field structs and callable structs without captures" begin
+        check_pair(() -> SelEmptyA(), () -> SelEmptyB(), typeof)
+        check_pair(() -> SelCallA(), () -> SelCallB(), z -> z(1))
+        @test isempty(sel_differences(() -> [probe(SelEmptyA(), typeof)], sel -> [probe(SelEmptyA(), typeof)], "probe"))
+        @test isempty(sel_differences(() -> [probe(SelCallA(), f -> f(1))], sel -> [probe(SelCallA(), f -> f(1))], "probe"))
+    end
+    @testset "undefined fields and elements" begin
+        check_pair(() -> SelPartial(), () -> SelPartial(1), z -> isdefined(z, :a))
+        check_pair(() -> Ref{Any}(), () -> Ref{Any}(1), isassigned)
+        check_pair(() -> Core.Box(), () -> Core.Box(1), z -> isdefined(z, :contents))
+        check_pair(() -> Vector{Any}(undef, 1), () -> Any[nothing], z -> isassigned(z, 1))
+        check_pair(() -> Vector{Vector{Int}}(undef, 1), () -> [Int[]], z -> isassigned(z, 1))
+    end
+    @testset "empty closures" begin
+        # a closure without captures is its type and no fields: two instances of one definition agree, and it is
+        # not a zero-field struct (its code is the same in every build and is not state)
+        e() = () -> 1
+        @test isempty(sel_differences(() -> [probe(e(), f -> f())], sel -> [probe(e(), f -> f())], "probe"))
+        check_pair(() -> e(), () -> SelEmptyA(), z -> z isa Function)
     end
 end
 

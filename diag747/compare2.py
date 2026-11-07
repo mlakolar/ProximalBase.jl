@@ -10,12 +10,17 @@ sys.stdout.reconfigure(encoding="utf-8")
 c = getcontext(); c.prec = 200; c.Emax = decimal.MAX_EMAX; c.Emin = decimal.MIN_EMIN
 
 D = sys.argv[1]
+F32 = re.compile(r"(?<=[0-9])f(?=-?[0-9])")
+def norm32(v):
+    """Julia prints Float32 as 1.2f38 and Inf32/NaN32; read them as 1.2e38, Inf, NaN"""
+    if v.startswith("ERR"): return v
+    return F32.sub("e", v).replace("Inf32", "Inf").replace("NaN32", "NaN")
 def load(name):
     d = {}
     with open(os.path.join(D, "diff-%s.txt" % name), encoding="utf8") as f:
         for line in f:
             k, _, v = line.rstrip("\n").partition(" => ")
-            d[k] = v
+            d[k] = norm32(v)
     return d
 TYPE = re.compile(r"\b(BigFloat\d+|Float32|Float64)\b")
 def typ(k):
@@ -268,19 +273,23 @@ def spec_parse(k):
         scales = (D2(h), D2(h)) if sid == "n1" else (D2(h), D2(-h))
     return fam, mat, mid, lv, scales, t[-1]
 def spec_ok(printed, ref, mat, p):
+    """'in p-bit envelope' (|v - ref| <= 2^(2-p) |ref|, p < 200; vacuous at p = 2), 'in matrix-precision budget only'
+    (within 64 ulp of the matrix type but outside the p-bit envelope), 'overflow' (Inf accepted above floatmax), or 'OUT'"""
     nb, ex, M, fm = Tconst(mat)
     eps = D2(1 - nb)
-    d = 1
     if printed in ("Inf", "NaN") or printed.startswith("ERR"): pv = None
     else: pv = Decimal(printed)
     b = 64 * 2 * eps * abs(ref) + fm
     if abs(ref) + b >= M:
-        if printed == "Inf": return True
-        if abs(ref) - b > M: return False
-    if pv is None: return False
-    return abs(pv - ref) <= b
+        if printed == "Inf": return "overflow"
+        if abs(ref) - b > M: return "OUT"
+    if pv is None: return "OUT"
+    dv = abs(pv - ref)
+    if p < 200 and dv <= D2(2 - p) * abs(ref) + fm: return "vacuous p=2 envelope" if p == 2 else "in p-bit envelope"
+    return "in matrix-precision budget only" if dv <= b else "OUT"
+def psplit(p): return "p=2 (envelope vacuous)" if p == 2 else ("p=3..199" if p < 200 else "p>=200")
 chk = collections.Counter(); bad = []
-chg_chk = collections.Counter()
+chg_chk = collections.Counter(); chk_p = collections.Counter(); chg_p = collections.Counter()
 for k, vh in Wh.items():
     if not k.startswith("spectral:") or not k.endswith(" value") or "lapack" in k.split()[0]: continue
     fam, mat, mid, lv, scales, ent = spec_parse(k)
@@ -288,11 +297,11 @@ for k, vh in Wh.items():
     if ref is None:
         chk["no closed form"] += 1; continue
     p = int(typ(k)[8:])
-    ok = spec_ok(vh, ref, mat, p)
-    chk["in budget" if ok else "OUT"] += 1
-    if not ok and len(bad) < 10: bad.append((k, vh[:30], str(ref)[:30]))
+    res = spec_ok(vh, ref, mat, p)
+    chk[res] += 1; chk_p[(psplit(p), res)] += 1
+    if res == "OUT" and len(bad) < 10: bad.append((k, vh[:30], str(ref)[:30]))
     if Wb.get(k) != vh:
-        chg_chk["changed, in budget" if ok else "changed, OUT"] += 1
+        chg_chk["changed, " + res] += 1; chg_p[(psplit(p), res)] += 1
 
 def spec_prox_ref(fam, T, mid, lid):
     """the entries [a11, a21, a12, a22] of the prox at step 1 for the diagonal matrices, or None"""
@@ -330,6 +339,8 @@ for b_ in pbad: print("   PROX", b_)
 
 print("W-head spectral value lines with an independent reference:", dict(chk))
 print("of which changed from W-base:", dict(chg_chk))
+print("by precision (p = 2: the p-bit envelope 2^(2-p)|ref| is vacuous, so those lines are only checked by the oracle comparison):")
+for (pg, res), n in sorted(chk_p.items()): print("   %-24s %-34s all %-5d changed %d" % (pg, res, n, chg_p.get((pg, res), 0)))
 for b_ in bad: print("   OUT", b_)
 
 # ---- scalar finite-to-Inf spectral lines: a genuine overflow (the exact value is above floatmax) against an overflow-edge allowance

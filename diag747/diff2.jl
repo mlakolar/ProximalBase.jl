@@ -276,13 +276,16 @@ function families()
   end
   push!(F, fam("Translate-L1", T -> Translate(NormL1(T(0.5)), T[1, 2, 3])), fam("Translate-L2", T -> Translate(NormL2(T(0.5)), zeros(T, 3))),
          fam("Tilt", T -> Tilt(NormL1(T(0.5)), T[1, 2, 3])), fam("Precompose", T -> Precompose(NormL1(T(0.5)), T(2))),
-         fam("Precompose-A", T -> Precompose(NormL1(T(0.5)), T[1 0 1; 0 1 1], T(2)); stride = 4),
+         # src/composition.jl:79-83: A*A' must equal mu*I (rows orthogonal, norm^2 mu); here mu = 9
+         fam("Precompose-A", T -> Precompose(NormL1(T(0.5)), T[1 2 2; 2 1 -2], T(9)); stride = 4),
          fam("Regularize", T -> Regularize(NormL1(T(0.5)), T(0.25))), fam("MoreauEnvelope-L1", T -> MoreauEnvelope(NormL1(T(0.5)), T(1))),
          fam("MoreauEnvelope-L2", T -> MoreauEnvelope(NormL2(T(0.5)), T(1))), fam("Conjugate-L2", T -> Conjugate(NormL2(T(0.5)))),
          fam("Conjugate-L1", T -> Conjugate(NormL1(T(0.5)))), fam("DistL2", T -> DistL2(IndBox(T(-1), T(1)))), fam("SqrDistL2", T -> SqrDistL2(IndBox(T(-1), T(1)))),
          fam("PointwiseMinimum", T -> PointwiseMinimum(NormL1(T(0.5)), NormL2(T(0.5)))), fam("Constrained-L1-ball", T -> Constrained(NormL1(T(0.5)), IndBallL2(T(1)))),
-         fam("Constrained-L2-sphere", T -> Constrained(SqrNormL2(T(0.5)), IndSphereL2(T(1)))), fam("Sum-L1-L2", T -> Sum(NormL1(T(0.5)), NormL2(T(0.5)))),
-         fam("LinearImage", T -> LinearImage(NormL2(T(0.5)), T[1 0 1; 0 1 1], T(2)); stride = 4),
+         # src/ballconstrained.jl:90-92: the sphere takes NormL1, GroupNormL2 or IndBallL0 only
+         fam("Constrained-L2-sphere", T -> Constrained(NormL1(T(0.5)), IndSphereL2(T(1)))), fam("Sum-L1-L2", T -> Sum(NormL1(T(0.5)), NormL2(T(0.5)))),
+         # src/image.jl:110-115: L'*L must equal mu*I (columns orthogonal, norm^2 mu, at least as many rows as columns); here mu = 4
+         fam("LinearImage", T -> LinearImage(NormL2(T(0.5)), T[1 1 1; 1 -1 1; 1 1 -1; 1 -1 -1], T(4)); stride = 4),
          fam("SeparableSum", T -> SeparableSum(NormL1(T(0.5)), NormL2(T(0.5))); kind = :tuple),
          fam("SliceSum", T -> SliceSum(NormL1(T(0.5)), NormL2(T(0.5))); kind = :slice))
   F

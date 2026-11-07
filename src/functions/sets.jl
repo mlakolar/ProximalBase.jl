@@ -1455,3 +1455,5 @@ end
 # a step that the indicator projections reject, found before any block of a sum is written
 _checkstep(op::O, ::Union{IndBallL0, IndBallL1, IndBallL2, IndSphereL2, IndSimplex}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
   _checkstep_nonneg(γ)
+
+# diagnostic change for CI validation (not for merge)

@@ -1,0 +1,35 @@
+name: diag-747
+# Throwaway diagnostic for issue #747: never merged. Base = master e8a45a8a.
+on:
+  push:
+    branches: [diag/issue-747]
+jobs:
+  probe:
+    name: probe ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.13.3'
+      - uses: julia-actions/cache@v3
+      - run: julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+      - name: base probe
+        continue-on-error: true
+        run: julia --project diag747/probe.jl | tee probe-${{ runner.os }}.txt
+      - name: base differential
+        continue-on-error: true
+        run: julia --project diag747/differential.jl base.txt && wc -l base.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diag-${{ matrix.os }}
+          path: '*.txt'

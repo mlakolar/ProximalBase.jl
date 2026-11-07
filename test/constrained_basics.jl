@@ -747,6 +747,23 @@ end
       refusal(Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(l, u)), () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
     end
   end
+  @testset "levels of an ElasticNet of an abstract type parameter" begin
+    box = IndBox(-2.0, 2.0)
+    # a stored level that is no machine number, in either position: refused, though the type parameter is Real
+    for (l1, l2) in ((1.0, 1 // 2), (1.0, π), (1.0, big"0.5"), (1.0, big(0.5)), (1 // 1, 0.5), (π, 0.5), (big"1.0", 0.5))
+      f = ElasticNet{Real, Nothing}(l1, l2, nothing)
+      c = Constrained(Conjugate(f), box)
+      refusal(c, () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+      # the proximal operator is not touched by the route: it runs for every one of these functions, as before
+      y = zeros(3)
+      @test prox!(y, c, x, 0.5) === y
+      @test y == [2.0, -2.0, 0.5]
+    end
+    # machine-number levels are admitted, with the value checked at the stored output
+    for T in (Float32, Float64), (l1, l2) in ((T(1), T(0.5)), (T(1), T(0)), (1.0, 0.5f0), (1f0, 0.5))
+      check_fused(Constrained(Conjugate(ElasticNet(l1, l2)), IndBox(T(-2), T(2))), () -> zeros(T, 3), T.(x), T(0.5); alias = () -> T.(x))
+    end
+  end
   @testset "array steps" begin
     for γ in (OffsetVec([0.5, 0.5, 0.5], -1), Real[0.5, 0.25, 1])
       refusal(c0, () -> fill(-7.0, 3), x, γ; mkalias = () -> copy(x))

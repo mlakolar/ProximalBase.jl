@@ -328,7 +328,8 @@ end
 #     or a SymmetricSparseIterate, with one-based axes;
 #   * the input: the same representations with a machine-number element type (a Bool, integer or IEEE float),
 #     or the symmetric part that a SymmetricSparseIterate output reads of a matrix that is not symmetric;
-#   * the levels: a machine-number type; the weights: absent, or a host array of a machine-number type, finite,
+#   * the levels: both of a machine-number type, as stored (an ElasticNet of an abstract type parameter can hold
+#     any real number); the weights: absent, or a host array of a machine-number type, finite,
 #     nonnegative, one-based and not sharing memory with the output (the value reads them after it is written);
 #   * array bounds and array steps: host arrays of a machine-number type with one-based axes; scalar bounds and
 #     steps of any real type;
@@ -349,7 +350,7 @@ _finite_nonneg(::Nothing) = true
 _finite_nonneg(w::AbstractArray) = all(v -> isfinite(v) && v >= 0, w)
 function _elastic_value_route(c::BoxConstrained{<:Conjugate{<:ElasticNet}}, y, x)
   f = c.f.f
-  _elastic_output(y) && _elastic_operand(x) && _elastic_number(typeof(f.λ1)) &&
+  _elastic_output(y) && _elastic_operand(x) && _elastic_number(typeof(f.λ1)) && _elastic_number(typeof(f.λ2)) &&
     _elastic_parameter(f.w) && _elastic_parameter(c.box.l) && _elastic_parameter(c.box.u) &&
     _elastic_working(eltype(y), f) &&
     isfinite(f.λ1) && isfinite(f.λ2) && _finite_nonneg(f.w) && !_elastic_alias(y, f.w)

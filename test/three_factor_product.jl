@@ -2,8 +2,10 @@ module ThreeFactorProductTest
 
 # The direct strong-zero product A * X * B of two Symmetric matrices and a matrix SparseIterate X
 # with Float32 or Float64 entries (#419): C[i, j] is the sum of A[i, k] * X[k, l] * B[l, j] over the
-# coordinates where X is mathematically nonzero, a term is the exact product of its three factors
-# rounded to the element type, and the terms are added in that precision in the storage order of X.
+# coordinates where X is mathematically nonzero, a term has the accuracy of an ordinary product of
+# three numbers (within a neighbouring float of the correctly rounded exact product), the terms are
+# added in that precision in the storage order of X, and an entry that the sum leaves non-finite is
+# recomputed as a scaled sum when every factor at that entry is finite.
 
 using Test, ProximalBase, LinearAlgebra, SparseArrays, Random
 
@@ -33,21 +35,27 @@ function term_class(a, x, b)
 end
 
 # the entries of C that disagree with the reference, as (i, j, computed, expected) tuples.
-# exact: finite entries must equal the correctly rounded exact sum (the powers of two of the range
-# tests); otherwise abs(C - exact) <= (s + 8) * eps(T) * sum(abs(t)), plus (s + 2) subnormal spacings
-# when a term or the sum is below floatmin. An entry whose finite terms sum above floatmax in
-# magnitude, or that has a term within rounding of the overflow threshold, is skipped unless a NaN
-# term decides it: that sum may overflow before a cancellation, the limitation of the method.
+# An entry whose factors are all finite (every nonzero coefficient of X at that entry, with the a and
+# b it meets) is the exact sum of its terms, over every term including one that overflows alone:
+# a finite entry must satisfy abs(C - exact) <= (s + 8) * eps(T) * sum(abs(t)), plus (s + 2)
+# subnormal spacings when a term or the sum is below floatmin; an infinite entry needs the sign of
+# the exact sum and a magnitude within that tolerance of floatmax. exact = true asks for the
+# correctly rounded exact sum (isequal) instead. An entry with a NaN or infinite factor follows the
+# ordinary IEEE sum, so its class is that of the terms by the scalar rule; there, finite terms whose
+# magnitudes sum beyond floatmax, or a term within rounding of the overflow threshold, make the class
+# depend on the order of an ordinary sum, and the entry is skipped unless a NaN term decides it.
 function mismatches(C::AbstractMatrix{T}, A, X, B; exact::Bool = false) where {T}
   M, Am, Bm = Matrix(X), Matrix(A), Matrix(B)
   m, n = size(M)
   nzs = [(k, l) for l in 1:n for k in 1:m if !iszero(M[k, l])]
   bad = Tuple[]
   size(C) == (m, n) || return [(0, 0, size(C), (m, n))]
+  fmax = setprecision(() -> BigFloat(floatmax(T)), BigFloat, REFPREC)
   setprecision(BigFloat, REFPREC) do
     for j in 1:n, i in 1:m
       nan = false; pinf = false; minf = false
       total = BigFloat(0); mag = BigFloat(0); s = 0; small = false; edge = false
+      allfinite = all(isfinite(Am[i, k]) && isfinite(M[k, l]) && isfinite(Bm[l, j]) for (k, l) in nzs)
       for (k, l) in nzs
         a, x, b = Am[i, k], M[k, l], Bm[l, j]
         cls = term_class(a, x, b)
@@ -58,32 +66,43 @@ function mismatches(C::AbstractMatrix{T}, A, X, B; exact::Bool = false) where {T
           (signbit(a) ⊻ signbit(x) ⊻ signbit(b)) ? (minf = true) : (pinf = true)
         else
           t = BigFloat(a) * BigFloat(x) * BigFloat(b)
-          if isinf(T(t))                # the product alone is beyond the range of T
-            signbit(t) ? (minf = true) : (pinf = true)
-            # within a few units of rounding of the overflow threshold, the two roundings of a
-            # computed product may land on either side: that entry is not asserted
-            abs(t) <= BigFloat(floatmax(T)) * (1 + 4 * BigFloat(eps(T))) && (edge = true)
-          else
+          if allfinite || !isinf(T(t))
             total += t; mag += abs(t); s += 1
             small |= abs(t) < BigFloat(floatmin(T))
+          else                          # the product alone is beyond the range of T
+            signbit(t) ? (minf = true) : (pinf = true)
+            abs(t) <= fmax * (1 + 4 * BigFloat(eps(T))) && (edge = true)
           end
         end
       end
       c = C[i, j]
-      # finite terms whose magnitudes sum beyond floatmax may overflow, with either sign, before
-      # a later term: the class of such an entry is not asserted unless a NaN term decides it
-      !nan && (edge || mag > BigFloat(floatmax(T))) && continue
+      want = T(total)
+      if allfinite
+        if exact
+          isequal(c, want) || push!(bad, (i, j, c, want))
+          continue
+        end
+        small |= abs(total) < BigFloat(floatmin(T))
+        tol = (s + 8) * BigFloat(eps(T)) * mag
+        small && (tol += (s + 2) * BigFloat(nextfloat(zero(T))))
+        if isinf(c)
+          (signbit(c) == (total < 0) && abs(total) >= fmax - tol) || push!(bad, (i, j, c, want))
+        else
+          (!isnan(c) && abs(BigFloat(c) - total) <= tol) || push!(bad, (i, j, c, want))
+        end
+        continue
+      end
+      !nan && (edge || mag > fmax) && continue
       if nan || (pinf && minf)
         isnan(c) || push!(bad, (i, j, c, T(NaN)))
       elseif pinf || minf
-        want = pinf ? T(Inf) : -T(Inf)
-        c === want || push!(bad, (i, j, c, want))
+        w = pinf ? T(Inf) : -T(Inf)
+        c === w || push!(bad, (i, j, c, w))
       else
-        want = T(total)
         if exact
           isequal(c, want) || push!(bad, (i, j, c, want))
         else
-          (isfinite(c) && !isnan(c)) || (push!(bad, (i, j, c, want)); continue)
+          isfinite(c) || (push!(bad, (i, j, c, want)); continue)
           small |= abs(total) < BigFloat(floatmin(T))
           tol = (s + 8) * BigFloat(eps(T)) * mag
           small && (tol += (s + 2) * BigFloat(nextfloat(zero(T))))
@@ -518,21 +537,133 @@ end
     end
   end
 
-  @testset "sums that overflow before a cancellation (documented limitation)" begin
-    # Three terms of magnitude near floatmax with signs +, +, -: the high-precision value of the
-    # entry is finite, while the sum in the element type overflows at the second term and stays
-    # non-finite. This is the behavior of the method, not a promise of the contract.
+  @testset "a sum that overflows before a cancellation is recovered" begin
     for T in (Float32, Float64)
       h = T(0.9) * floatmax(T)
       A, B = Symmetric(Matrix{T}(I, 3, 3)), Symmetric(ones(T, 3, 3))
-      X = iterate_of(T, 3, 3, [((1, 1), h), ((1, 2), h), ((1, 3), -h)])
-      C = A * X * B
-      exact = setprecision(BigFloat, REFPREC) do
-        T(BigFloat(h) + BigFloat(h) - BigFloat(h))
+      # three terms near floatmax on one entry, both sign patterns, the cancelling term first,
+      # second or third in the storage order of X
+      for signs in ((1, 1, -1), (-1, -1, 1)), order in ([1, 2, 3], [3, 1, 2], [2, 3, 1], [1, 3, 2], [3, 2, 1])
+        X = iterate_of(T, 3, 3, [((1, l), signs[l] * h) for l in order])
+        C = A * X * B
+        @test isempty(mismatches(C, A, X, B))
+        @test all(c -> isapprox(c, sum(signs) * h; rtol = 20 * eps(T)), C[1, :])
+        @test all(iszero, C[2:3, :])
       end
-      @test isfinite(exact)
-      @test !isfinite(C[1, 1])
-      @test all(iszero, C[2:3, :])
+      # a sum that is legitimately beyond the range stays infinite, with its sign
+      for sgn in (1, -1)
+        X = iterate_of(T, 3, 3, [((1, l), sgn * h) for l in 1:3])
+        C = A * X * B
+        @test all(c -> c === sgn * T(Inf), C[1, :])
+        @test isempty(mismatches(C, A, X, B))
+      end
+      # terms that overflow one by one (each beyond floatmax) and cancel: the exact sum is finite
+      big = pow2(T, emax(T) ÷ 2 + 2)
+      Ab, Bb = Symmetric(Matrix(Diagonal(T[big, 1, 1]))), Symmetric(ones(T, 3, 3))
+      X = iterate_of(T, 3, 3, [((1, 1), big), ((1, 2), -big)])
+      C = Ab * X * Bb
+      @test all(c -> c === zero(T), C[1, :])
+      @test isempty(mismatches(C, Ab, X, Bb))
+      # a NaN or infinite factor at the entry: the ordinary IEEE value stands, even when the other
+      # terms are huge and cancel; entries without such a factor are recovered
+      X = iterate_of(T, 3, 3, [((1, 1), h), ((1, 2), h), ((1, 3), -h)])
+      B2 = ones(T, 3, 3); B2[1, 1] = Inf; B2[2, 2] = NaN
+      C = A * X * Symmetric(B2)
+      @test C[1, 1] === T(Inf)               # an Inf factor, with the cancelling terms huge
+      @test isnan(C[1, 2])                   # a NaN factor
+      @test isfinite(C[1, 3]) && isapprox(C[1, 3], h; rtol = 20 * eps(T))
+      @test isempty(mismatches(C, A, X, Symmetric(B2)))
+      A2 = Matrix{T}(I, 3, 3); A2[1, 1] = Inf
+      C = Symmetric(A2) * X * B                # Inf of A meets +h, +h, -h: Inf + Inf - Inf
+      @test all(isnan, C[1, :])
+      @test isempty(mismatches(C, Symmetric(A2), X, B))
+      Xn = iterate_of(T, 3, 3, [((1, 1), h), ((1, 2), T(NaN)), ((1, 3), -h)])
+      C = A * Xn * B
+      @test all(isnan, C[1, :])
+    end
+  end
+
+  @testset "a finite entry is the plain sum of (a * x) * b" begin
+    direct(A, X, B) = begin
+      Am, Bm = Matrix(A), Matrix(B)
+      m, n = size(X)
+      C = zeros(eltype(X), m, n)
+      for k in 1:nnz(X)
+        x = X.nzval[k]; iszero(x) && continue
+        r, c = mod1(X.nzval2ind[k], m), cld(X.nzval2ind[k], m)
+        for j in 1:n, i in 1:m
+          C[i, j] += (Am[i, r] * x) * Bm[c, j]
+        end
+      end
+      C
+    end
+    for T in (Float32, Float64)
+      rng = MersenneTwister(23)
+      for trial in 1:60
+        m, n = rand(rng, 1:8), rand(rng, 1:8)
+        A, X, B = random_case(rng, T, m, n, rand(rng, (0.1, 0.4, 1.0)); mode = :finite)
+        @test isequal(A * X * B, direct(A, X, B))
+      end
+      # an overflowing entry elsewhere does not change the finite entries
+      Am = randn(rng, T, 6, 6); Bm = randn(rng, T, 5, 5)
+      X = iterate_of(T, 6, 5, [((2, 3), T(1.5)), ((5, 1), T(-2)), ((4, 4), floatmax(T))])
+      A, B = Symmetric(Am), Symmetric(Bm)
+      C, D = A * X * B, direct(A, X, B)
+      @test any(!isfinite, D)
+      @test all(isequal(C[i, j], D[i, j]) for i in 1:6, j in 1:5 if isfinite(D[i, j]))
+    end
+  end
+
+  @testset "terms within one neighbouring float of the correctly rounded value" begin
+    # A product of three numbers by two roundings can land one neighbouring float away from the
+    # correctly rounded exact triple (S3 does not promise correct rounding), also for (a * x) * b.
+    # The result must be the correctly rounded value or its immediate neighbour: the neighbour of
+    # floatmax is Inf and the neighbour of zero is the smallest subnormal of the same sign.
+    exactvalue(a::T, x::T, b::T) where {T} = setprecision(BigFloat, REFPREC) do
+      T(BigFloat(a) * BigFloat(x) * BigFloat(b))
+    end
+    near(c, a, x, b) = begin
+      want = exactvalue(a, x, b)
+      neg = signbit(a) ⊻ signbit(x) ⊻ signbit(b)
+      (c == want || c == prevfloat(want) || c == nextfloat(want)) && (iszero(c) || signbit(c) == neg)
+    end
+    for T in (Float32, Float64)
+      sp = nextfloat(zero(T))
+      # the reviewer's triples, with the current values documented: the neighbouring float
+      cases = [(nextfloat(one(T)), prevfloat(T(0.5)), sp, zero(T)),         # the exact value rounds to sp
+               (nextfloat(one(T)), prevfloat(one(T)), floatmax(T), floatmax(T))]  # the exact value rounds to Inf
+      T === Float64 && push!(cases, (1.226278181895881, 1.5567582826485364, 9.416843948814027e307, Inf))
+      for (a, x, b, got) in cases, sgn in (1, -1)
+        C = scalar_product(a, sgn * x, b)[1, 1]
+        @test near(C, a, sgn * x, b)
+        @test C === (iszero(got) ? zero(T) : sgn * got)
+        @test near(SI._triple(a, sgn * x, b), a, sgn * x, b)
+      end
+      @test exactvalue(cases[1][1:3]...) === sp
+      @test exactvalue(cases[2][1:3]...) === T(Inf)
+      # random terms on both sides of the overflow threshold and of half the smallest subnormal
+      rng = MersenneTwister(31)
+      eps_ = eps(T)
+      for trial in 1:4000
+        δ = (2 * rand(rng) - 1) * 4 * eps_
+        a = T(0.8) + rand(rng, T) / 2
+        sgn = rand(rng, Bool) ? 1 : -1
+        if isodd(trial)      # near floatmax: x * b is the product divided by a
+          x = T(0.8) + rand(rng, T) / 2
+          b = setprecision(BigFloat, REFPREC) do
+            T(BigFloat(floatmax(T)) * (1 + BigFloat(δ)) / (BigFloat(a) * BigFloat(x)))
+          end
+        else                 # near half the smallest subnormal: b is a small multiple of it
+          k = rand(rng, 1:3); j = rand(rng, 0:k)
+          b = k * sp
+          x = setprecision(BigFloat, REFPREC) do
+            T((j + BigFloat(1) / 2) * (1 + BigFloat(δ)) / (k * BigFloat(a)))
+          end
+        end
+        (isfinite(b) && isfinite(x) && !iszero(x) && !iszero(b)) || continue
+        @test near(scalar_product(a, sgn * x, b)[1, 1], a, sgn * x, b)
+        @test near(SI._triple(a, sgn * x, b), a, sgn * x, b)
+      end
     end
   end
 

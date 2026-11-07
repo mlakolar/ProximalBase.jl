@@ -962,22 +962,20 @@ mathematically nonzero, and over no others.
   zeros of `A` and `B` are ordinary IEEE zeros, so `0 · Inf` in a term whose
   coefficient is nonzero is NaN. The result need not equal
   `A * Matrix(X) * B`, where a zero of `X` meets a non-finite entry.
-- Each term is the product of its three factors rounded once, as far as
-  that can be done with the product of two numbers followed by one more: a NaN
-  factor gives NaN; a zero factor against an infinite one gives NaN; a zero
-  factor otherwise gives zero; an infinite factor otherwise gives `±Inf` with
-  the sign of the product; and for finite nonzero factors the term has the
-  accuracy of an ordinary product, with overflow and underflow decided by
-  the final value, not by the first partial product. So `2^600 · 2^600 · 2^-600`
-  is `2^600` and an underflowing `a · x` against `Inf` is `Inf`, not NaN. This
-  is the guarantee of range recovery for finite factors, to the extent that the
+- Each term: a NaN factor gives NaN; a zero factor against an infinite one gives NaN; a zero factor otherwise gives zero; an infinite factor otherwise gives `±Inf` with the sign of the product; and for finite nonzero factors the term has the accuracy of an ordinary product of three numbers: it differs from the correctly rounded exact product by at most one neighbouring floating-point number for a normal result (a relative error below about `2 eps(T)`) and by at most one spacing for a subnormal one. A term within that error of the overflow threshold or of half the smallest subnormal can fall on either side of it (the neighbour of `floatmax` being `Inf`, the neighbour of zero being the smallest subnormal). Correct rounding is not promised (S3). Beyond that margin the class is decided by the final value and never by the first partial product, so `2^600 · 2^600 · 2^-600` and its underflow mirror are exact. An underflowing `a · x` against `Inf` is `Inf`, not NaN. This is
+  the guarantee of range recovery for finite factors, to the extent that the
   implementation covers it and the tests check it.
 - The terms are added in the element type in the storage order of `X`, under
-  A1 and R2. A finite sum can overflow, or can lose tiny terms, before a later
-  cancellation, and is then not recovered: three terms near `floatmax` with
-  signs `+`, `+`, `−` on one entry give a non-finite result although the exact
-  value is finite. A sum that is exactly zero is `+0.0`; sign-bit agreement with
-  dense multiplication is not claimed.
+  A1 and R2. Tiny terms lost against large ones before a later cancellation are
+  ordinary rounding. A sum that overflows before a later cancellation is
+  recovered when every factor of every nonzero coefficient at that entry is
+  finite: an entry that the ordinary sum leaves non-finite is recomputed as a sum
+  scaled by the largest exponent of its terms, so three terms near `floatmax`
+  with signs `+`, `+`, `−` give their finite value, and a sum beyond the range
+  of the element type is `±Inf`. If any of those factors is NaN or infinite, the
+  IEEE value stands, so a genuine NaN or `Inf` is never dropped. A sum that is
+  exactly zero is `+0.0`; sign-bit agreement with dense multiplication is not
+  claimed.
 - The guarantee covers `Float32` and `Float64` with `Symmetric` wrappers of
   strided matrices and a matrix `SparseIterate` of the same element type.
   Other element types, and mixed element types (#751), are outside the

@@ -1144,12 +1144,15 @@ function LinearAlgebra.dot(a::StridedVector, X::SparseIterate{<:Any, 2}, b::Stri
   s
 end
 
-# The scalar three-factor term for the product A * X * B, the exact extended-real product of the
-# three factors rounded to T: a NaN factor gives NaN, a zero factor against an infinite one gives
-# NaN (the genuine 0 * Inf), a zero factor otherwise gives zero, an infinite factor otherwise gives
-# an infinity of the sign of the product, and three finite nonzero factors give their product with
-# the accuracy of an ordinary product, where overflow and underflow are decided by the final value
-# and not by a partial product. Only the exceptional entries of the product kernel reach it.
+# The scalar three-factor term for the product A * X * B. A NaN factor gives NaN, a zero factor
+# against an infinite one gives NaN (the genuine 0 * Inf), a zero factor otherwise gives zero, and an
+# infinite factor otherwise gives an infinity of the sign of the product. Three finite nonzero
+# factors give a product with the accuracy of an ordinary product of three numbers: the result is
+# within one neighbouring floating-point number of the correctly rounded exact product for a normal
+# result, and within one spacing for a subnormal one, and a term within that margin of the overflow
+# threshold or of half the smallest subnormal can fall on either side of it. Correct rounding is not
+# promised. Overflow and underflow are decided by the final value, not by a partial product, beyond
+# that margin. Only the exceptional entries of the product kernel reach it.
 function _triple(a::T, x::T, b::T) where {T<:Union{Float32, Float64}}
   (isnan(a) | isnan(x) | isnan(b)) && return T(NaN)
   infinite = isinf(a) | isinf(x) | isinf(b)
@@ -1169,6 +1172,76 @@ end
   end
 end
 
+# Adds the terms A[:, r] * x * B[c, :] of one nonzero coefficient x of X, at the coordinate (r, c),
+# into C; a, ax and b are buffers of the lengths of the column of A and the row of B. Written so
+# that an owner method can call it once for each stored coefficient (and, for an off-diagonal
+# coordinate, for its transpose).
+function _add_coefficient!(C::Matrix{T}, A, B, r::Int, c::Int, x::T,
+                           a::Vector{T}, ax::Vector{T}, b::Vector{T}) where {T}
+  m, n = size(C)
+  lo = floatmin(T)
+  exceptional = false
+  for i = 1:m                         # the logical column r of A: the ignored triangle is not read
+    ai = A[i, r]
+    a[i] = ai
+    axi = ai * x
+    ax[i] = axi
+    exceptional |= !(lo <= abs(axi) < T(Inf)) & !iszero(ai)
+  end
+  for j = 1:n
+    b[j] = B[c, j]                    # the logical row c of B
+  end
+  if exceptional                      # some a * x is not a finite normal number
+    for j = 1:n
+      bj = b[j]
+      for i = 1:m
+        axi = ax[i]
+        t = (lo <= abs(axi) < T(Inf)) | iszero(a[i]) ? axi * bj : _triple(a[i], x, bj)
+        C[i, j] += t
+      end
+    end
+  else                                # a * x is finite and normal, so (a * x) * b is the final rounding
+    for j = 1:n
+      _axpy_terms!(C, ax, b, j)
+    end
+  end
+  nothing
+end
+
+# Recomputes the entry (i, j) of C, which the ordinary sum left non-finite, as the sum of its terms
+# scaled by the largest exponent among them, so that a partial sum that overflows before a later
+# cancellation (+big, +big, -big) gives the finite value. It covers an entry whose terms all have
+# finite factors, whether the ordinary result was Inf, -Inf or NaN (Inf - Inf); a sum that is
+# beyond the range of T stays +-Inf, and an exactly zero sum is +0.0. It does not recover tiny terms
+# lost against large ones, which is ordinary rounding. If any factor of any nonzero coefficient
+# at this entry (a of A, x of X, b of B) is NaN or infinite, the entry is left as the ordinary sum
+# made it, so a genuine NaN or Inf is never dropped.
+function _rescue_entry!(C::Matrix{T}, A, X::SparseIterate{T, 2}, B, i::Int, j::Int) where {T}
+  m = size(X, 1)
+  S = zero(T)
+  emax = 0
+  seen = false
+  for k = 1:nnz(X)
+    x = X.nzval[k]
+    iszero(x) && continue
+    ind = X.nzval2ind[k]
+    a, b = A[i, mod1(ind, m)], B[cld(ind, m), j]
+    isfinite(a) & isfinite(x) & isfinite(b) || return nothing
+    (iszero(a) | iszero(b)) && continue
+    ma, ea = frexp(a)
+    mx, ex = frexp(x)
+    mb, eb = frexp(b)
+    e = ea + ex + eb
+    if !seen || e > emax
+      S = ldexp(S, emax - e)          # S is zero before the first term
+      emax, seen = e, true
+    end
+    S += ldexp((ma * mx) * mb, e - emax)
+  end
+  C[i, j] = ldexp(S, emax)
+  nothing
+end
+
 """
     *(A::Symmetric{T}, X::SparseIterate{T, 2}, B::Symmetric{T}) where {T<:Union{Float32, Float64}}
 
@@ -1181,13 +1254,21 @@ coefficient of `X`, including `NaN` and `±Inf`, always contributes; the zeros o
 `B` are ordinary zeros, so a nonzero `Inf` of `X` against a zero of `A` or `B` gives `NaN`.
 The result need not equal `A * Matrix(X) * B`.
 
-Each term is the exact product of the three factors rounded once to `T`, as far as that
-is possible with a product of two roundings: a finite product is decided by its final value,
-not by the first partial product, so `2^600 * 2^600 * 2^-600` is `2^600` and an overflowing
-or underflowing intermediate product does not change the class of the term. Terms are
-added in the storage order of `X` in the precision `T`, so a sum that overflows before
-a later cancellation is `Inf` or `NaN`, and tiny terms next to large ones are rounded away,
-as in any floating-point sum. A sum that is exactly zero is `+0.0`.
+A term with three finite nonzero factors has the accuracy of an ordinary product of three
+numbers: it differs from the correctly rounded exact product by at most one neighbouring
+floating-point number for a normal result (a relative error below about `2 eps(T)`), and by at
+most one spacing for a subnormal one. A term within that error of the overflow threshold or of
+half the smallest subnormal can fall on either side of it, the neighbour of `floatmax(T)` being
+`Inf` and the neighbour of zero being the smallest subnormal. Correct rounding is not promised.
+Beyond that margin the class of a term is decided by its final value and not by the first partial
+product, so `2^600 * 2^600 * 2^-600` is `2^600` and its underflow mirror is exact.
+
+Terms are added in the storage order of `X` in the precision `T`, so tiny terms next to large ones
+are rounded away, as in any floating-point sum. An entry whose ordinary sum is non-finite is
+recomputed from its terms as a scaled sum when every factor of every nonzero coefficient at that
+entry is finite, so a sum that overflows before a later cancellation gives its finite value, and a
+sum beyond the range of `T` is `±Inf`. If any such factor is `NaN` or infinite the ordinary
+IEEE value stands. A sum that is exactly zero is `+0.0`.
 
 The guarantee covers `Float32` and `Float64` with `Symmetric` wrappers of strided matrices
 of the same element type as `X`. Other element types, and mixed element types, are outside
@@ -1200,37 +1281,14 @@ function *(A::Symmetric{T, <:StridedMatrix{T}}, X::SparseIterate{T, 2},
   size(A, 2) == m && size(B, 1) == n || throw(DimensionMismatch())
   C = zeros(T, m, n)
   a, ax, b = Vector{T}(undef, m), Vector{T}(undef, m), Vector{T}(undef, n)
-  lo = floatmin(T)
   for k = 1:nnz(X)
     x = X.nzval[k]
     iszero(x) && continue
     ind = X.nzval2ind[k]
-    r, c = mod1(ind, m), cld(ind, m)
-    exceptional = false
-    for i = 1:m                       # the logical column r of A: the ignored triangle is not read
-      ai = A[i, r]
-      a[i] = ai
-      axi = ai * x
-      ax[i] = axi
-      exceptional |= !(lo <= abs(axi) < T(Inf)) & !iszero(ai)
-    end
-    for j = 1:n
-      b[j] = B[c, j]                  # the logical row c of B
-    end
-    if exceptional                    # some a * x is not a finite normal number
-      for j = 1:n
-        bj = b[j]
-        for i = 1:m
-          axi = ax[i]
-          t = (lo <= abs(axi) < T(Inf)) | iszero(a[i]) ? axi * bj : _triple(a[i], x, bj)
-          C[i, j] += t
-        end
-      end
-    else                              # a * x is finite and normal, so (a * x) * b is the final rounding
-      for j = 1:n
-        _axpy_terms!(C, ax, b, j)
-      end
-    end
+    _add_coefficient!(C, A, B, mod1(ind, m), cld(ind, m), x, a, ax, b)
+  end
+  for j = 1:n, i = 1:m                # one scan for the entries that the ordinary sum left non-finite
+    isfinite(C[i, j]) || _rescue_entry!(C, A, X, B, i, j)
   end
   C
 end

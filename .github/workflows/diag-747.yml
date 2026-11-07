@@ -1,141 +1,155 @@
 name: diag-747
-# Throwaway diagnostic for issue #747: never merged. Package code on this branch = master (merged in).
-# Stage BASE: the test change only (the helper tests error where _scale_pow2 does not exist).
-# Stage HEAD: the test change and the src change of the fix branch.
+# Throwaway diagnostic for issue #747, option C (never merged). BASE = master (this tree); HEAD = master plus the src and ext of the
+# issue branch (diag747/head-src.patch). Jobs: the differential in six runs (Windows and Linux, and Linux with the exponent range of
+# Windows as the oracle), its comparison, Float32/Float64 IR / allocations / timings, and the focused tests at the head.
 on:
+  push:
+    branches: [diag/issue-747]
   workflow_dispatch:
 jobs:
-  probe:
-    name: probe ${{ matrix.os }}
+  diff:
+    name: diff ${{ matrix.run }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        include:
+          - {os: windows-latest, run: W-base, patch: 'no', range: ''}
+          - {os: windows-latest, run: W-head, patch: 'yes', range: ''}
+          - {os: ubuntu-latest, run: L-base, patch: 'no', range: ''}
+          - {os: ubuntu-latest, run: L-head, patch: 'yes', range: ''}
+          - {os: ubuntu-latest, run: Lw-base, patch: 'no', range: 'win'}
+          - {os: ubuntu-latest, run: Lw-head, patch: 'yes', range: 'win'}
     defaults:
       run:
         shell: bash
     steps:
-      - name: line endings
-        run: git config --global core.autocrlf false
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: '1.13.3'
-      - uses: julia-actions/cache@v3
-      - run: julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
-
-      # ---------------- BASE ----------------
-      - name: base, apply the test change
+      - run: julia --project -e 'using Pkg; Pkg.instantiate()'
+      - name: apply the src and ext of the issue branch
+        if: matrix.patch == 'yes'
         run: |
-          git apply --ignore-whitespace diag747/test.patch
+          git apply --ignore-whitespace diag747/head-src.patch
           git diff --stat
-      - name: base, focused test (scripts/test.jl)
-        continue-on-error: true
+      - name: the differential
+        env:
+          EXPRANGE: ${{ matrix.range }}
         run: |
-          julia --color=no scripts/test.jl normfused_infinite_fusion 2>&1 | tee base-test-$RUNNER_OS.txt
-      - name: base, test file run directly (a summary per test set)
-        continue-on-error: true
-        run: |
-          julia --project --color=no --check-bounds=yes -e 'include("test/normfused_infinite_fusion.jl")' 2>&1 | tee base-direct-$RUNNER_OS.txt
-      - name: base, failing items
-        continue-on-error: true
-        run: |
-          grep -nE "Test Failed|Error During Test|Test threw|Test Summary|Pass +Fail|Pass +Error|\| +[0-9]+ +[0-9]+|UndefVarError|precision [0-9]+:|^p=[0-9]+" base-direct-$RUNNER_OS.txt > items-base-$RUNNER_OS.txt || true
-          wc -l items-base-$RUNNER_OS.txt
-          grep -nE "Test Failed|Error During Test|Test threw|Passed|Failed|FAILED" base-test-$RUNNER_OS.txt | head -60 || true
-      - name: base, probe
-        continue-on-error: true
-        run: julia --project diag747/probe.jl 2>&1 | tee probe-$RUNNER_OS.txt
-      - name: base, differential
-        continue-on-error: true
-        run: julia --project diag747/differential.jl base.txt && wc -l base.txt
-      - name: base, IR
-        continue-on-error: true
-        run: |
-          julia --project diag747/ir.jl 2>&1 | tee ir-base.txt
-          julia --project diag747/ir_exact.jl 2>&1 | tee ir-exact-base.txt
+          date
+          julia --project --color=no diag747/diff2.jl diff-${{ matrix.run }}.txt
+          date
+          wc -l diff-${{ matrix.run }}.txt
+          ls -la diff-${{ matrix.run }}.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diff-${{ matrix.run }}
+          path: diff-${{ matrix.run }}.txt
+          compression-level: 6
 
-      # ---------------- HEAD ----------------
-      - name: head, apply the src change
-        run: |
-          git apply --ignore-whitespace diag747/src.patch
-          git diff --stat -- src
-          julia --project -e 'using Pkg; Pkg.precompile()'
-      - name: head, focused test (scripts/test.jl)
-        id: headtest
-        continue-on-error: true
-        run: |
-          julia --color=no scripts/test.jl normfused_infinite_fusion 2>&1 | tee head-test-$RUNNER_OS.txt
-      - name: head, test file run directly (a summary per test set)
-        continue-on-error: true
-        run: |
-          julia --project --color=no --check-bounds=yes -e 'include("test/normfused_infinite_fusion.jl")' 2>&1 | tee head-direct-$RUNNER_OS.txt
-          grep -nE "Test Failed|Error During Test|Test threw|Test Summary|Pass +Fail|Pass +Error|\| +[0-9]+ +[0-9]+|UndefVarError|precision [0-9]+:|^p=[0-9]+" head-direct-$RUNNER_OS.txt > items-head-$RUNNER_OS.txt || true
-      - name: head, probe
-        continue-on-error: true
-        run: julia --project diag747/probe.jl 2>&1 | tee probe-head-$RUNNER_OS.txt
-      - name: head, differential
-        continue-on-error: true
-        run: julia --project diag747/differential.jl head.txt && wc -l head.txt
-      - name: head, IR
-        continue-on-error: true
-        run: |
-          julia --project diag747/ir.jl 2>&1 | tee ir-head.txt
-          julia --project diag747/ir_exact.jl 2>&1 | tee ir-exact-head.txt
-
-      # ---------------- whole-call value benchmark, base and head alternating (the src patch is reversed and reapplied) ----------------
-      - name: value bench
-        continue-on-error: true
-        run: |
-          for r in 1 2 3; do
-            if [ $((r % 2)) -eq 1 ]; then
-              git apply --ignore-whitespace -R diag747/src.patch
-              julia --project diag747/value_bench.jl 2>&1 | tee vb-base-r$r.txt
-              git apply --ignore-whitespace diag747/src.patch
-              julia --project diag747/value_bench.jl 2>&1 | tee vb-head-r$r.txt
-            else
-              julia --project diag747/value_bench.jl 2>&1 | tee vb-head-r$r.txt
-              git apply --ignore-whitespace -R diag747/src.patch
-              julia --project diag747/value_bench.jl 2>&1 | tee vb-base-r$r.txt
-              git apply --ignore-whitespace diag747/src.patch
-            fi
-          done
-          git diff --stat -- src
-          python3 -I diag747/bench_table.py | tee value-bench-$RUNNER_OS.txt
-
-      # ---------------- comparison ----------------
-      - name: comparison
-        continue-on-error: true
-        run: |
-          echo "== sweep FAIL counts"
-          grep -n "FAIL count" probe-$RUNNER_OS.txt probe-head-$RUNNER_OS.txt || true
-          echo "== differential"
-          diff base.txt head.txt > differential-$RUNNER_OS.diff || true
-          wc -l differential-$RUNNER_OS.diff
-          python3 -I diag747/classify.py base.txt head.txt | tee families-$RUNNER_OS.txt
-          echo "== IR of the originals, raw (timings excluded)"
-          grep -v '^TIMING' ir-base.txt > ir-base.cmp.txt
-          grep -v '^TIMING' ir-head.txt > ir-head.cmp.txt
-          cmp ir-base.cmp.txt ir-head.cmp.txt && echo "originals: IR byte-identical" || echo "originals: IR DIFFERS"
-          diff ir-base.cmp.txt ir-head.cmp.txt > ir-raw-$RUNNER_OS.diff || true
-          wc -l ir-raw-$RUNNER_OS.diff
-          echo "== exact siblings vs originals (head)"
-          grep -E "^(IR exact|exact siblings|ALLOC|TIMING|return types)" ir-exact-head.txt || true
-          echo "== allocations and timings of the originals"
-          grep -hE "^(ALLOC|TIMING)" ir-base.txt | sed 's/^/base /'
-          grep -hE "^(ALLOC|TIMING)" ir-head.txt | sed 's/^/head /'
-
+  compare:
+    name: compare the differentials
+    needs: diff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: diff-*
+          merge-multiple: true
+          path: artifacts
+      - run: ls -la artifacts
+      - name: compare
+        run: python3 -I diag747/compare2.py artifacts 2>&1 | tee compare.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: diag-${{ matrix.os }}
-          path: |
-            *.txt
-            *.diff
-      - name: fail if the head focused test failed
-        if: steps.headtest.outcome == 'failure'
+          name: compare
+          path: compare.txt
+
+  perf:
+    name: perf ${{ matrix.os }} julia ${{ matrix.julia }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        julia: ['1.10', '1.13.3']
+    defaults:
+      run:
+        shell: bash
+    env:
+      LABEL: ${{ matrix.os }}-julia-${{ matrix.julia }}
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.julia }}
+      - run: julia --project -e 'using Pkg; Pkg.instantiate()'
+      - name: IR, allocations and timings, base and head alternating (the patch is reversed and reapplied)
         run: |
-          echo "the head focused test failed"
-          exit 1
+          git apply --ignore-whitespace diag747/head-src.patch      # start at the head
+          for r in 1 2 3; do
+            if [ $((r % 2)) -eq 1 ]; then
+              git apply --ignore-whitespace -R diag747/head-src.patch
+              julia --project --color=no diag747/perf.jl > vb-base-r$r.txt 2>&1
+              git apply --ignore-whitespace diag747/head-src.patch
+              julia --project --color=no diag747/perf.jl > vb-head-r$r.txt 2>&1
+            else
+              julia --project --color=no diag747/perf.jl > vb-head-r$r.txt 2>&1
+              git apply --ignore-whitespace -R diag747/head-src.patch
+              julia --project --color=no diag747/perf.jl > vb-base-r$r.txt 2>&1
+              git apply --ignore-whitespace diag747/head-src.patch
+            fi
+          done
+          PYTHONIOENCODING=utf-8 python3 -I diag747/bench_table.py | tee perf-$LABEL.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-${{ matrix.os }}-julia-${{ matrix.julia }}
+          path: |
+            perf-*.txt
+            vb-*.txt
+
+  tests:
+    name: tests ${{ matrix.os }} julia ${{ matrix.julia }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        julia: ['1.10', '1.13.3']
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.julia }}
+      - name: apply the src, ext and tests of the issue branch
+        run: |
+          git apply --ignore-whitespace diag747/head-src.patch
+          git apply --ignore-whitespace diag747/head-test.patch
+          git diff --stat
+      - name: focused tests
+        continue-on-error: true
+        id: focused
+        run: |
+          julia --color=no scripts/test.jl ldexp_bigfloat normfused_infinite_fusion int32_exponents utils docstrings aqua soc rotatedsoc expcone scaled_overflow nested_scaled value_overflow ordered sets norms separable nonconvex fibers distance image calculus composition 2>&1 | tee focused-${{ matrix.os }}-julia-${{ matrix.julia }}.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tests-${{ matrix.os }}-julia-${{ matrix.julia }}
+          path: focused-*.txt
+      - name: fail if the focused tests failed
+        if: steps.focused.outcome == 'failure'
+        run: exit 1

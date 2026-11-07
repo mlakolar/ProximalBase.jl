@@ -26,3 +26,27 @@ print("processes: base %d, head %d" % (len(next(iter(b.values()))), len(next(ite
 print("flagged:", len(flag))
 for key, r, ab, ah, sb, sh in flag:
     print("FLAG", key, "ratio %.3f" % r, "alloc", ab, ah, "spread base %.2f..%.2f head %.2f..%.2f" % (sb + sh))
+
+# ---- the LLVM IR blocks of the first process of each side, names and labels normalized
+import re as _re
+def ir_blocks(path):
+    out, cur, name = {}, None, None
+    for line in open(path, encoding="utf8"):
+        if line.startswith("#IR-BEGIN "): name = line[10:].strip(); cur = []
+        elif line.startswith("#IR-END "): out[name] = "".join(cur); cur = None
+        elif cur is not None: cur.append(line)
+    return out
+def norm(s):
+    s = _re.sub(r"\b(julia|j)_([A-Za-z0-9_#$.]*?)_[0-9]+", r"\1_\2_N", s)
+    return _re.sub(r"\bL[0-9]+", "L", s)
+print("\n== IR: base against head (the first process of each, names and block labels normalized)")
+ba, ha = ir_blocks(sorted(glob.glob("vb-base-r*.txt"))[0]), ir_blocks(sorted(glob.glob("vb-head-r*.txt"))[0])
+nsame = 0
+for k in sorted(ba):
+    same = k in ha and norm(ba[k]) == norm(ha[k])
+    nsame += same
+    print("%-48s %s  (%d lines)" % (k, "identical" if same else "DIFFERENT", ba[k].count("\n")))
+    if not same and k in ha:
+        import difflib
+        for l in list(difflib.unified_diff(norm(ba[k]).splitlines(), norm(ha[k]).splitlines(), lineterm="", n=0))[:12]: print("      ", l[:150])
+print("IR blocks identical: %d of %d" % (nsame, len(ba)))

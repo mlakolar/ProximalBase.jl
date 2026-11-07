@@ -1,8 +1,7 @@
 name: diag-747-gate
 # Throwaway gate for issue #747, option C (never merged): a module-local ldexp in ProximalBase, applied to a clean master tree.
 on:
-  push:
-    branches: [diag/issue-747]
+  workflow_dispatch:
 jobs:
   gate:
     name: gate ${{ matrix.os }} julia ${{ matrix.julia }}

@@ -1,8 +1,8 @@
 diff --git a/test/normfused_infinite_fusion.jl b/test/normfused_infinite_fusion.jl
-index 5612c24b..2d1044d2 100644
+index 185cfbae..2c5c0c9d 100644
 --- a/test/normfused_infinite_fusion.jl
 +++ b/test/normfused_infinite_fusion.jl
-@@ -977,4 +977,346 @@ end
+@@ -1015,4 +1015,385 @@ end
    end
  end
  
@@ -14,8 +14,9 @@ index 5612c24b..2d1044d2 100644
 +# shift takes x * exp2(BigFloat(n)) instead, which overflows when 2^n alone is out of range although x·2^n is not, and rounds n
 +# at a low precision. The reference below shares no helper with the package and types every shift as a Clong.
 +
-+# λ1 Σ|xᵢ| of BigFloat entries x as r·2^E, never formed at the working range: E = exponent(max|xᵢ|) and r is the exact
-+# scaled value in 4000 bits (λ1 is converted from the precision it is stored at, exactly).
++# λ1 Σ|xᵢ| of BigFloat entries x as r·2^E, never formed at the working range: E = exponent(max|xᵢ|) and r is a
++# high-precision value (4000 bits) of the scaled sum. Each scaled entry and λ1 (converted from the precision it is stored
++# at) are exact, and the sum is rounded to 4000 bits, so an entry far below the largest one may be rounded away.
 +function bfscaled(x, λ1)
 +  E = exponent(maximum(abs, x))
 +  r = setprecision(BigFloat, 4000) do
@@ -27,35 +28,40 @@ index 5612c24b..2d1044d2 100644
 +function bfrounded(r, E)
 +  ldexp(BigFloat(r, RoundNearest; precision = precision(BigFloat)), Clong(E))
 +end
-+# y against r·2^E within 2 ulps at the working precision p, compared in the scaled domain (the spacing of p bits at r
-+# is at most ldexp(|r|, 1 - p))
++# y against r·2^E in a relative-error envelope of 2·2^(1-p)|r|, compared in the scaled domain (the spacing of p bits at r
++# is at most 2^(1-p)|r|, so the envelope is at most four ulps). At p = 2 it is the whole interval of positive values
++# below 2r, so y is also required to be finite and positive.
 +function bfwithin(y, r, E, p)
-+  (y isa BigFloat && isfinite(y)) || return false
++  (y isa BigFloat && isfinite(y) && y > 0) || return false
 +  setprecision(BigFloat, 4000) do
 +    abs(ldexp(big(y), Clong(-E)) - r) <= 2 * ldexp(abs(r), Clong(1 - p))
 +  end
 +end
-+# The exact value r·2^E at the working precision p is :finite when it lies at least 4 ulps (of the result) below the overflow
-+# threshold, :inf when it is at least twice floatmax, and :skip when it is on the rounding edge of overflow.
-+# At most 8 entries of scaled size below 2 and λ1 ≤ 1 give r < 16, so a value below 2^(emax-3) is far from the edge.
++# Whether the exact value r·2^E overflows when it is rounded once to the working precision p: :finite or :inf.
++# At most 8 entries of scaled size below 2 and λ1 ≤ 1 give r < 16, so a value in the top binades has E ≥ emax - 5 and
++# floatmax·2^-E is in range.
 +function bfclass(r, E, p)
-+  emax = Base.MPFR.get_emax()
-+  exponent(r) + E <= emax - 4 && return :finite
-+  Ms = ldexp(floatmax(BigFloat), Clong(-E))
-+  setprecision(BigFloat, 4000) do
-+    threshold = Ms + ldexp(one(BigFloat), Clong(exponent(Ms) - p))
-+    r + 4 * ldexp(abs(r), Clong(1 - p)) <= threshold && return :finite
-+    r >= 2 * Ms ? :inf : :skip
-+  end
++  exponent(r) + E <= Base.MPFR.get_emax() - 2 && return :finite
++  BigFloat(r, RoundNearest; precision = p) <= ldexp(floatmax(BigFloat), Clong(-E)) ? :finite : :inf
 +end
-+# whether y is λ1 Σ|zᵢ| (z not all zero: zero) within the reference, and the class of the case
++# Whether y is λ1 Σ|zᵢ| (zero for a vector of zeros), and the class of the case. A value that overflows is Inf, any
++# other is finite, positive and in the envelope. The multiplicity n of a vector of equal entries is converted to the
++# working precision, where it is not always representable (5 at p = 2 is 4), and that rounding is a known source of
++# disagreement with the correctly rounded value at the overflow edge: where it changes the class, the case is :edge
++# and y is only required to be positive and not NaN.
 +function bfverdict(y, z, λ1)
 +  y isa BigFloat || return (:raised, false)
 +  iszero(maximum(abs, z)) && return (:zero, iszero(y))
 +  r, E = bfscaled(z, λ1)
 +  p = precision(BigFloat)
 +  cls = bfclass(r, E, p)
-+  cls === :skip && return (cls, true)
++  if all(==(z[1]), z)
++    n, neff = length(z), BigFloat(length(z))
++    r2 = setprecision(BigFloat, 4000) do
++      r * neff / n
++    end
++    bfclass(r2, E, p) === cls || return (:edge, y > 0 && !isnan(y))
++  end
 +  (cls, cls === :inf ? y == Inf : bfwithin(y, r, E, p))
 +end
 +bfok(y, z, λ1) = last(bfverdict(y, z, λ1))
@@ -106,7 +112,7 @@ index 5612c24b..2d1044d2 100644
 +# f is Inf at an unequal vector. The step is so small at a constant vector that the output is the vector itself, so the
 +# value of value_and_prox! is that of the vector; at another vector the output is a constant inside [min x, max x] and the
 +# value is the reference of that output.
-+function bfcase!(bad, tally, x, λ1, tag)
++function bfcase!(bad, tally, edges, x, λ1, tag)
 +  p = precision(BigFloat)
 +  f = NormL1Fused(λ1, big(Inf))
 +  allsame = all(==(x[1]), x)
@@ -114,6 +120,7 @@ index 5612c24b..2d1044d2 100644
 +  judge = function (what, y, z)
 +    cls, ok = bfverdict(y, z, λ1)
 +    tally[cls] = get(tally, cls, 0) + 1
++    cls === :edge && push!(edges, "$tag $what")
 +    ok || push!(bad, "$tag $what = $(y isa BigFloat ? repr(y) : typeof(y)), class $cls")
 +  end
 +  yf = attempt(() -> f(x))
@@ -142,11 +149,12 @@ index 5612c24b..2d1044d2 100644
 +
 +@testset "NormL1Fused(λ1, Inf): BigFloat values at every precision, sign, length and vector kind (#747)" begin
 +  tally = Dict{Symbol, Int}()
++  edges = String[]
 +  for p in (2, 3, 5, 8, 16, 53, 256)
 +    bad = String[]
 +    setprecision(BigFloat, p) do
 +      for λ in (0.25, 1.0), n in (1, 2, 3, 5), s in (1, -1), kind in bfkinds
-+        bfcase!(bad, tally, bfvector(kind, n, s), BigFloat(λ), "p=$p λ1=$λ n=$n s=$s $kind")
++        bfcase!(bad, tally, edges, bfvector(kind, n, s), BigFloat(λ), "p=$p λ1=$λ n=$n s=$s $kind")
 +      end
 +    end
 +    @test isempty(bad)
@@ -154,6 +162,9 @@ index 5612c24b..2d1044d2 100644
 +  end
 +  # the sweep holds finite values and overflowing ones, and no case raised
 +  @test get(tally, :finite, 0) > 20 && get(tally, :inf, 0) > 20 && get(tally, :raised, 0) == 0
++  # the only exclusions are the cases where the multiplicity 5 is not representable: p = 2, n = 5
++  @test all(e -> startswith(e, "p=2 ") && occursin(" n=5 ", e), edges) && length(edges) == get(tally, :edge, 0)
++  isempty(edges) || println("overflow-edge cases at which the multiplicity is rounded (", length(edges), "): ", first(edges, 3), " ...")
 +end
 +
 +@testset "NormL1Fused(λ1, Inf): BigFloat zero, NaN and infinite entries keep their values (#747)" begin
@@ -278,24 +289,27 @@ index 5612c24b..2d1044d2 100644
 +  end
 +end
 +
-+@testset "_power_factors(BigFloat, k): the factors are exact powers of two at every precision" begin
++@testset "_power_factors_exact(BigFloat, k): the factors are exact powers of two at every precision" begin
 +  emax = Base.MPFR.get_emax()
 +  for p in (2, 5, 16, 256)
 +    setprecision(BigFloat, p) do
 +      for k in (emax - 1, emax, emax + 5, -emax - 5, -emax + 1)
-+        s = PB._power_factors(BigFloat, k)
++        s = PB._power_factors_exact(BigFloat, k)
 +        # each factor lies in the range, so it is finite and nonzero, and a power of two
 +        @test all(a -> isfinite(a) && !iszero(a) && ldexp(a, Clong(-exponent(a))) == 1, s)
 +        # and their product is 2^k where that is representable, else the overflow or underflow of 2^k
 +        @test isequal(PB._scale_value(one(BigFloat), s), ldexp(one(BigFloat), Clong(k)))
 +      end
 +      # the first factor of a shift of emax-1 is 2^(emax-1) itself
-+      @test PB._power_factors(BigFloat, emax - 1)[1] == ldexp(one(BigFloat), Clong(emax - 1))
++      @test PB._power_factors_exact(BigFloat, emax - 1)[1] == ldexp(one(BigFloat), Clong(emax - 1))
 +    end
++  end
++  for T in (Float32, Float64), k in (0, 5, -5, 127, 1100, -1100, 2000, -2000)
++    @test PB._power_factors_exact(T, k) === PB._power_factors(T, k)
 +  end
 +end
 +
-+# w·v·2^k (and a third factor): the significands exactly in 4000 bits, as r·2^E with E the sum of the exponents
++# w·v·2^k: the significands exactly in 4000 bits, as r·2^E with E the sum of the exponents
 +function bfproduct(k, factors...)
 +  E = k + sum(exponent, factors)
 +  r = setprecision(BigFloat, 4000) do
@@ -304,47 +318,72 @@ index 5612c24b..2d1044d2 100644
 +  r, E
 +end
 +
-+@testset "_scaled_product: the final shift of a representable result, two and three factors" begin
++@testset "_scaled_product_exact: the final shift of a representable result" begin
 +  emax = Base.MPFR.get_emax()
 +  for p in (2, 5, 256)
 +    setprecision(BigFloat, p) do
 +      M = floatmax(BigFloat)
 +      one_ = one(BigFloat)
 +      small = ldexp(M, Clong(-emax))
-+      two = ((big(0.75), M, 0), (one_, M, 0), (big(0.25), M, 0), (M, M, -emax), (big(0.75), M, -emax),
-+             (one_, small, emax), (big(0.375), M, 1))
-+      for (w, v, k) in two
-+        y = attempt(() -> PB._scaled_product(w, v, k))
++      cases = ((big(0.75), M, 0), (one_, M, 0), (big(0.25), M, 0), (M, M, -emax), (big(0.75), M, -emax),
++               (one_, small, emax), (big(0.375), M, 1))
++      for (w, v, k) in cases
++        y = attempt(() -> PB._scaled_product_exact(w, v, k))
 +        r, E = bfproduct(k, w, v)
 +        @test bfwithin(y, r, E, p)
 +        # the sign is that of v
-+        y = attempt(() -> PB._scaled_product(w, -v, k))
++        y = attempt(() -> PB._scaled_product_exact(w, -v, k))
 +        @test y isa BigFloat && signbit(y) && bfwithin(-y, r, E, p)
 +      end
-+      three = ((big(0.25), BigFloat(3), M, 0), (big(0.25), M, one_, 1), (big(0.75), M, one_, -emax), (one_, small, one_, emax),
-+               (big(0.75), BigFloat(3), M, -2))
-+      for (a, b, c, k) in three
-+        y = attempt(() -> PB._scaled_product(a, b, c, k))
-+        r, E = bfproduct(k, a, b, c)
-+        @test bfwithin(y, r, E, p)
-+      end
++      # zero and non-finite factors keep their products
++      @test iszero(PB._scaled_product_exact(zero(M), M, 5)) && isnan(PB._scaled_product_exact(big(NaN), M, 5))
++      @test PB._scaled_product_exact(big(Inf), M, 5) == Inf
 +    end
++  end
++  for T in (Float32, Float64), w in (T(0.75), T(3), floatmin(T)), v in (T(-2.5), floatmax(T), T(0.1)), k in (0, 3, -3, 1100, -1100)
++    @test isequal(PB._scaled_product_exact(w, v, k), PB._scaled_product(w, v, k))
 +  end
 +end
 +
-+@testset "ldexp(::BigFloat, ::Int) against the exact shift (the dispatch that _scale_pow2 avoids)" begin
++@testset "_power_factors and _scaled_product keep their ldexp forms (the callers pair them with raw ldexp shifts)" begin
++  for T in (Float32, Float64)
++    for k in (0, 5, -5, 127, 128, 1100, -1100, 2000, -2000)
++      k1 = clamp(k, exponent(nextfloat(zero(T))), exponent(floatmax(T)))
++      @test PB._power_factors(T, k) === (ldexp(one(T), k1), ldexp(one(T), k - k1))
++    end
++    @test PB._scaled_product(T(0.75), T(-2.5), 1) === T(-3.75)
++    @test PB._scaled_product(T(3), floatmax(T), -3) === T(0.375) * floatmax(T)
++    @test PB._scaled_product(T(0.5), nextfloat(zero(T)), 2) === 2 * nextfloat(zero(T))
++    @test PB._scaled_product(T(0.75), T(3), T(2), 3) === T(36)
++  end
++end
++
++@testset "ldexp(::BigFloat, ::Int) against the exact shift: the helper does not depend on Base's choice" begin
 +  emax = Base.MPFR.get_emax()
 +  x = big(0.375)
 +  exact = ldexp(big(0.75), Clong(emax))
-+  if sizeof(Clong) < sizeof(Int)
-+    # a C long narrower than Int: an Int shift misses the exact method, takes x * exp2(BigFloat(n)), and overflows
-+    @test which(ldexp, Tuple{BigFloat, Int}).sig.parameters[3] === Integer
-+    @test !isfinite(ldexp(x, Int(emax + 1)))
-+    @test isfinite(PB._scale_pow2(x, Int(emax + 1))) && PB._scale_pow2(x, Int(emax + 1)) == exact
-+  else
-+    # an Int is a Clong: Base's ldexp is the exact shift, and the helper is the same function
-+    @test isequal(PB._scale_pow2(x, Int(emax + 1)), ldexp(x, Int(emax + 1)))
-+    @test PB._scale_pow2(x, Int(emax + 1)) == exact
++  # Base's method for an Int shift depends on the size of a C long and may change; the helper is the exact Clong shift
++  @test which(ldexp, Tuple{BigFloat, Int}) isa Method
++  for e in (Int(emax + 1), Int64(emax + 1), Int128(emax + 1))
++    y = PB._scale_pow2(x, e)
++    @test isfinite(y) && y == exact
++  end
++  @test isequal(PB._scale_pow2(x, Clong(emax + 1)), ldexp(x, Clong(emax + 1)))
++end
++
++####################################
++#  the cone callers keep their results (#747): they pair the original helpers with raw ldexp shifts
++####################################
++
++@testset "IndSOC and IndRotatedSOC: low-precision BigFloat scales are unchanged" begin
++  setprecision(BigFloat, 5) do
++    a = ldexp(one(BigFloat), Clong(35))
++    x = fill(a, 3)
++    @test iszero(IndRotatedSOC()(x))
++    M = floatmax(BigFloat)
++    z = fill(M, 2)
++    @test iszero(IndSOC()(z))
++    @test prox(IndSOC(), z) == z
 +  end
 +end
 +

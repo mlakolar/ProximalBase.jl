@@ -1,10 +1,133 @@
+diff --git a/src/functions/norms.jl b/src/functions/norms.jl
+index 5dc44efb..35340e72 100644
+--- a/src/functions/norms.jl
++++ b/src/functions/norms.jl
+@@ -1076,22 +1076,25 @@ isconvex(::Type{<:NormL1Fused}) = true
+ @inline _fused_levels_fit(::Type{T}, f::NormL1Fused) where {T} =
+   _fused_level_fits(T, f.λ1) && _fused_level_fits(T, f.λ2)
+ 
+-# Normalize weighted terms together, so subnormal contributions round once.
+-@noinline function _fused_scaled_value(terms, k, ::Type{T}) where {T}
++# Normalize weighted terms together, so subnormal contributions round once. The product that applies the
++# exponents is a parameter: NormL1Fused passes _scaled_product_exact, with its terms scaled by
++# _power_factors_exact (the exponents of a BigFloat are applied exactly where a C long is 32 bits, #747).
++# The other users (FiberSum, the ordered functions) keep the default, as their terms are scaled by _power_factors.
++@noinline function _fused_scaled_value(terms, k, ::Type{T}, product = _scaled_product) where {T}
+   R = typeof(first(terms)[2])
+-  m, e = _fused_scaled_sum(terms, k)
++  m, e = _fused_scaled_sum(terms, k, product)
+   e == typemin(Int) && return zero(T)
+   # Generator inference can lose the term type on Julia 1.10.
+-  convert(T, _scaled_product(one(R), m, e))::T
++  convert(T, product(one(R), m, e))::T
+ end
+ # the same sum as a significand and an exponent (the scaled-value mechanism)
+-function _fused_scaled_parts(terms, k)
++function _fused_scaled_parts(terms, k, product = _scaled_product)
+   R = typeof(first(terms)[2])
+-  m, e = _fused_scaled_sum(terms, k)
++  m, e = _fused_scaled_sum(terms, k, product)
+   e == typemin(Int) ? (zero(R), 0) : _parts(m, e)
+ end
+ # the weighted terms as s 2^e, with e = typemin(Int) when every term is zero
+-function _fused_scaled_sum(terms, k)
++function _fused_scaled_sum(terms, k, product = _scaled_product)
+   R = typeof(first(terms)[2])
+   e = typemin(Int)
+   for term in terms
+@@ -1106,16 +1109,17 @@ function _fused_scaled_sum(terms, k)
+   for term in terms
+     λ, v = term[1], term[2]
+     units = length(term) == 2 ? k : term[3]
+-    s, c = _compensated_add(s, c, _scaled_product(R(λ), v, units - e))
++    s, c = _compensated_add(s, c, product(R(λ), v, units - e))
+   end
+   (s + c, e)
+ end
+ 
+-@noinline _recover_fused_pair(f, xy, ::Type{T}) where {T} = _fused_scaled_value(_fused_pair_terms(f, xy, T)..., T)
++@noinline _recover_fused_pair(f, xy, ::Type{T}) where {T} =
++  _fused_scaled_value(_fused_pair_terms(f, xy, T)..., T, _scaled_product_exact)
+ function _fused_pair_terms(f, xy, ::Type{T}) where {T}
+   R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
+   k = _magnitude_exponent(max(abs(R(xy[1])), abs(R(xy[2]))))
+-  scale = _power_factors(R, -k)
++  scale = _power_factors_exact(R, -k)
+   u, v = _scale_value(R(xy[1]), scale), _scale_value(R(xy[2]), scale)
+   ((f.λ1, abs(u) + abs(v)), (f.λ2, abs(u - v))), k
+ end
+@@ -1174,11 +1178,11 @@ end
+   terms = (begin
+     u, w = R(x[1][i]), R(x[2][i])
+     k = _magnitude_exponent(max(abs(u), abs(w)))
+-    scale = _power_factors(R, -k)
++    scale = _power_factors_exact(R, -k)
+     u, w = _scale_value(u, scale), _scale_value(w, scale)
+     h == 1 ? (f.λ1, abs(u) + abs(w), k) : (f.λ2, abs(u - w), k)
+   end for i in eachindex(x[1], x[2]), h in 1:2)
+-  _fused_scaled_value(terms, 0, T)
++  _fused_scaled_value(terms, 0, T, _scaled_product_exact)
+ end
+ 
+ # An infinite fusion level with a finite ℓ1 level (#664): the domain is the equal entries, so the value
+@@ -1194,8 +1198,8 @@ function _fused_equal_term(λ1, ::Type{T}, n::Integer, c) where {T}
+   R = promote_type(T, float(typeof(λ1)), float(typeof(c)))
+   rc = R(c)
+   k = _magnitude_exponent(abs(rc))
+-  u = _scale_value(rc, _power_factors(R, -k))
+-  _fused_scaled_value(((λ1, R(n) * abs(u)),), k, T)
++  u = _scale_value(rc, _power_factors_exact(R, -k))
++  _fused_scaled_value(((λ1, R(n) * abs(u)),), k, T, _scaled_product_exact)
+ end
+ 
+ # a vector, or the two entries of a pair
+@@ -1221,9 +1225,9 @@ function _fused_equal_arrays_value(f, x, ::Type{T}, ordinary) where {T}
+   terms = (begin
+     u = R(x1[i])
+     k = _magnitude_exponent(abs(u))
+-    (f.λ1, 2 * abs(_scale_value(u, _power_factors(R, -k))), k)
++    (f.λ1, 2 * abs(_scale_value(u, _power_factors_exact(R, -k))), k)
+   end for i in eachindex(x1, x2))
+-  _fused_scaled_value(terms, 0, T)
++  _fused_scaled_value(terms, 0, T, _scaled_product_exact)
+ end
+ 
+ function (f::NormL1Fused)(x::Tuple{AbstractArray, AbstractArray})
+@@ -1354,14 +1358,14 @@ end
+   isinf(f.λ1) && return _fused_fixed_value(T, any(isnan, x), all(iszero, x))
+   _fused_equal_entries(f) && return _fused_equal_value(f, x, T, ordinary)
+   all(isfinite, x) && isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
+-  _fused_scaled_value(_fused_vector_terms(f, x, T)..., T)
++  _fused_scaled_value(_fused_vector_terms(f, x, T)..., T, _scaled_product_exact)
+ end
+ function _fused_vector_terms(f, x, ::Type{T}) where {T}
+   R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
+   p, a, _ = _sortperm_fused!(f, x, R)
+   n = length(x)
+   k = _magnitude_exponent(_maximum_abs(x))
+-  scale = _power_factors(R, -k)
++  scale = _power_factors_exact(R, -k)
+   s1 = s2 = c1 = c2 = zero(R)
+   @inbounds for i in 1:n
+     u = _scale_value(a[p[i]], scale)
+@@ -1388,8 +1392,8 @@ function _value_parts(f::NormL1Fused, x::AbstractVector, v)
+   (iszero(f.λ1) && iszero(f.λ2)) && return nothing
+   (isfinite(f.λ1) && isfinite(f.λ2) && all(isfinite, x)) || return nothing
+   T = float(eltype(x))
+-  length(x) == 2 && return _fused_scaled_parts(_fused_pair_terms(f, (x[1], x[2]), _valtype((x[1], x[2])))...)
+-  _fused_scaled_parts(_fused_vector_terms(f, x, T)...)
++  length(x) == 2 && return _fused_scaled_parts(_fused_pair_terms(f, (x[1], x[2]), _valtype((x[1], x[2])))..., _scaled_product_exact)
++  _fused_scaled_parts(_fused_vector_terms(f, x, T)..., _scaled_product_exact)
+ end
+ 
+ @inline function _fused_vector_value(f, x, v1, v2, ::Type{T}) where {T}
 diff --git a/src/utils.jl b/src/utils.jl
-index c85a8b24..caf1417c 100644
+index c85a8b24..aac33d18 100644
 --- a/src/utils.jl
 +++ b/src/utils.jl
-@@ -177,6 +177,13 @@ end
- # coefficient at an infinite entry); NaN arguments propagate
- @inline _weighted_value(p, φ) = ifelse(isnan(p) & !isnan(φ), zero(p), p)
+@@ -187,6 +187,25 @@ end
+   copysign(ldexp(_positive_product(mw, mv, one(T)), ew + ev + k), v)
+ end
  
 +# Scale by a power of two. Base's ldexp(::BigFloat, n) is the exact mpfr_mul_2si only for a Clong n; any other
 +# Integer takes x * exp2(BigFloat(n)), which overflows when 2^n alone leaves the range although x·2^n is
@@ -13,33 +136,30 @@ index c85a8b24..caf1417c 100644
 +@inline _scale_pow2(x, e::Integer) = ldexp(x, e)
 +@inline _scale_pow2(x::BigFloat, e::Integer) = ldexp(x, Clong(clamp(e, typemin(Clong), typemax(Clong))))
 +
- # Keep the power outside the floating-point range until the final rounding.
- @inline function _scaled_product(w::T, v::T, k::Integer) where {T<:AbstractFloat}
-   (iszero(w) || iszero(v)) && return w * v
-@@ -184,7 +191,7 @@ end
-   k = Int(k)
-   mw, ew = _frexp(w)
-   mv, ev = _frexp(abs(v))
--  copysign(ldexp(_positive_product(mw, mv, one(T)), ew + ev + k), v)
++# The exact siblings of _scaled_product (two factors) and _power_factors: the same bodies with _scale_pow2. The
++# originals stay as they are because their callers pair them with raw ldexp shifts of an Int, so converting one
++# side alone would mix an exact scale with a rounded one on Windows; a family of callers is converted at a time.
++@inline function _scaled_product_exact(w::T, v::T, k::Integer) where {T<:AbstractFloat}
++  (iszero(w) || iszero(v)) && return w * v
++  (isfinite(w) && isfinite(v)) || return w * v
++  k = Int(k)
++  mw, ew = _frexp(w)
++  mv, ev = _frexp(abs(v))
 +  copysign(_scale_pow2(_positive_product(mw, mv, one(T)), ew + ev + k), v)
- end
- 
++end
++
  # A converted parameter must retain normal precision on the ordinary path.
-@@ -211,7 +218,7 @@ end
-   ma, ea = _frexp(a)
-   mb, eb = _frexp(b)
-   mc, ec = _frexp(c)
--  ldexp((ma * mb) * mc, ea + eb + ec + k)
-+  _scale_pow2((ma * mb) * mc, ea + eb + ec + k)
- end
- 
- @inline function _compensated_add(s, e, v)
-@@ -411,7 +418,7 @@ _tol(::Type) = sqrt(eps(Float64))
- @inline function _power_factors(::Type{T}, k::Integer) where {T<:AbstractFloat}
-   k = Int(k)
+ @inline _level_fits(::Type, ::Real) = true
+ # A level already stored in this precision needs no conversion check.
+@@ -413,6 +432,11 @@ _tol(::Type) = sqrt(eps(Float64))
    k1 = clamp(k, exponent(nextfloat(zero(T))), exponent(floatmax(T)))
--  (ldexp(one(T), k1), ldexp(one(T), k - k1))
-+  (_scale_pow2(one(T), k1), _scale_pow2(one(T), k - k1))
+   (ldexp(one(T), k1), ldexp(one(T), k - k1))
  end
++@inline function _power_factors_exact(::Type{T}, k::Integer) where {T<:AbstractFloat}
++  k = Int(k)
++  k1 = clamp(k, exponent(nextfloat(zero(T))), exponent(floatmax(T)))
++  (_scale_pow2(one(T), k1), _scale_pow2(one(T), k - k1))
++end
  @inline _scale_value(v, s) = (float(v) * s[1]) * s[2]
  @inline _magnitude_exponent(v) = iszero(v) ? 0 : Int(exponent(v))
+ @inline _comparison_exponent(es::Integer...) = max(0, map(Int, es)...)

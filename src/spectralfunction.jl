@@ -572,7 +572,7 @@ end
 function _conjugate_spectrum_scaled(g::SqrNormL2{<:Real, Nothing}, f0, s, k, b, a)
   (g.λ > 0 && isfinite(g.λ)) || return nothing
   mλ, eλ = frexp(float(g.λ))
-  m, e = frexp(a.m * mλ)
+  m, e = _frexp(a.m * mλ)
   _spectrum_scaled(ElasticNet(zero(m), inv(m)), s, k, _ProjectionScale(b.m, b.e - a.e - Int(eλ) - Int(e)))
 end
 # Decided functions: the domain in the units of the spectrum first, then the value.

@@ -218,7 +218,7 @@ function _cube_norm_parts(x, n, ::Type{T}) where {T}
   (iszero(m) || !isfinite(m)) && return (convert(T, m), 0)
   _, e = _frexp(m)
   s = _power_factors(T, -e)
-  a, k = frexp(sqrt(_scaled_sumabs2(x, s)))
+  a, k = _frexp(sqrt(_scaled_sumabs2(x, s)))
   a, e + k
 end
 
@@ -226,7 +226,7 @@ end
 # does for three. In particular, neither λ/3 nor n³ needs to be representable.
 function _cube_value_parts(λ::T, m::T, e::Integer) where {T}
   (iszero(m) || !isfinite(m)) && return λ * m
-  a, k = frexp(λ)
+  a, k = _frexp(λ)
   ldexp(((a * m) * m) * (m / 3), k + 3e)
 end
 
@@ -256,7 +256,7 @@ function _value_parts(f::CubeNormL2, x::AbstractArray, v)
   m, e = _cube_norm_parts(x, _norm2(x), S)
   iszero(m) && return (zero(S), 0)
   isfinite(m) || return nothing
-  a, k = frexp(convert(S, f.λ))
+  a, k = _frexp(convert(S, f.λ))
   _parts(((a * m) * m) * (m / 3), k + 3e)
 end
 
@@ -270,7 +270,7 @@ _zero_value_exponent(f::CubeNormL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZE
 @inline function _cube_scale(v::Real, m::T, e::Integer) where {T}
   a = convert(T, v)
   iszero(a) && return a
-  b, k = frexp(a)
+  b, k = _frexp(a)
   ldexp(b * m, k + e)
 end
 
@@ -286,7 +286,7 @@ function gradient!(g::AbstractArray, f::CubeNormL2, x::AbstractArray)
   end
   m, e = _cube_norm_parts(x, n, T)
   (iszero(m) || !isfinite(m)) && return g .= (λ * m) .* x
-  b, k = frexp(λ)
+  b, k = _frexp(λ)
   g .= _cube_scale.(x, b * m, k + e)
 end
 
@@ -1545,7 +1545,7 @@ _fused_mean_supported(::Type{W}, n) where {W<:Union{Float32, Float64}} =
   2 * (8 * sizeof(n) - leading_zeros(n)) + precision(W) <= 126
 _fused_mean_supported(::Type{W}, n) where {W} =
   isconcretetype(W) && W <: AbstractFloat && hasmethod(exponent, Tuple{W}) &&
-  hasmethod(frexp, Tuple{W}) && hasmethod(ldexp, Tuple{W, Int})
+  hasmethod(frexp, Tuple{W}) && hasmethod(Base.ldexp, Tuple{W, Int})
 
 # The mean of the entries of x in the working type W, which holds every entry exactly. NaN and
 # infinite entries are decided first (NaN, or the infinity, or NaN for both signs). For finite entries
@@ -1581,9 +1581,9 @@ end
 # of the scaling: at a low precision the rounded sum of the scaled entries can restore past the range);
 # the accuracy is that of the compensated sum and of the quotient, no more. Not proved: a small residual
 # beside overflowing entries that cancel, where it is below the range of the scaled entries (the Float32
-# and Float64 method keeps it). The shifts go through _projection_l1_scale, an exact Clong ldexp for a
-# BigFloat: exponent is an Int64 and frexp an Int32 on Windows (C long is 32 bits), and an Int64 shift
-# would select ldexp's rounded exp2 fallback, which overflows or loses the power of two (#736).
+# and Float64 method keeps it). The shifts go through _projection_l1_scale, which is the ldexp of this module,
+# exact for a BigFloat: exponent is an Int64 and frexp an Int32 on Windows (C long is 32 bits), where Base's
+# Int64 shift would be its rounded exp2 fallback, which overflows or loses the power of two (#736).
 function _fused_finite_mean(x, ::Type{W}, n) where {W}
   s = c = m = zero(W)
   @inbounds for i in 1:n
@@ -1598,7 +1598,7 @@ function _fused_finite_mean(x, ::Type{W}, n) where {W}
   @inbounds for i in 1:n
     s, c = _compensated_add(s, c, _projection_l1_scale(convert(W, x[i]), -e))
   end
-  fr, ex = frexp(s + c)
+  fr, ex = _frexp(s + c)
   _projection_l1_scale(fr / n, ex + e)
 end
 
@@ -1654,7 +1654,7 @@ function _fused_finite_mean(x, ::Type{W}, n) where {W<:Union{Float32, Float64}}
   end
   ts, tc = _compensated_add(ts, tc, ldexp(s, -sh))
   ts, tc = _compensated_add(ts, tc, ldexp(c, -sh))
-  fr, ex = frexp(ts + tc)
+  fr, ex = _frexp(ts + tc)
   ldexp(fr / n, ex + sh)
 end
 
@@ -1700,14 +1700,14 @@ function _project_l2_scaled!(y, x, λ, α, w, c, n)
   (!isfinite(m) || !isfinite(λ) || !isfinite(α)) && return (y .= min(one(n), c / n) .* x)
   iszero(m) && return copyto!(y, x)
   # Scaling only the reduction avoids losing tiny original coordinates.
-  a, e = frexp(m)
+  a, e = _frexp(m)
   q = sqrt(mapreduce(identity, +, Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_square, x, m)); init = zero(m)))
   r1, e1 = _projection_scale_parts(α)
-  r2, e2 = frexp(float(λ))
-  r3, e3 = frexp(float(w))
+  r2, e2 = _frexp(float(λ))
+  r3, e3 = _frexp(float(w))
   r = ((r1 * r2) * r3) / (a * q)
   k = e1 + e2 + e3 - e
-  fr, er = frexp(r)
+  fr, er = _frexp(r)
   k += er
   (k > 1 || (k == 1 && fr >= 0.5)) && return copyto!(y, x)
   y .= _projection_scale.(x, fr, k)
@@ -1753,12 +1753,12 @@ function _project_l2_group_scaled!(y, x, G, λ, α, w, c, n)
   @inbounds for i in G
     s, err = _compensated_add(s, err, _projection_square(x[i], m))
   end
-  a, e = frexp(m)
+  a, e = _frexp(m)
   r1, e1 = _projection_scale_parts(α)
-  r2, e2 = frexp(float(λ))
-  r3, e3 = frexp(float(w))
+  r2, e2 = _frexp(float(λ))
+  r3, e3 = _frexp(float(w))
   r = ((r1 * r2) * r3) / (a * sqrt(s + err))
-  fr, er = frexp(r)
+  fr, er = _frexp(r)
   k = e1 + e2 + e3 - e + er
   (k > 1 || (k == 1 && fr >= 0.5)) && return _project_l2_group_scale!(y, x, G, 1)
   @inbounds for i in G
@@ -1803,11 +1803,6 @@ function _projection_group_maxabs(x::AbstractArray, G)
 end
 
 @inline _projection_l1_scale(v, e) = ldexp(v, e)
-function _projection_l1_scale(v::BigFloat, e)
-  # Windows Int exponents otherwise select ldexp's rounded exp2 fallback.
-  # MPFR's full exponent span fits Clong; wider shifts necessarily saturate.
-  ldexp(v, Clong(clamp(e, typemin(Clong), typemax(Clong))))
-end
 
 # Julia 1.10's ldexp truncates some values below the smallest subnormal.
 # A normal power-of-two scaling followed by multiplication rounds only once.
@@ -1857,14 +1852,14 @@ _projection_l1_product(::Tuple{}, h, l, e, δ, ::Type{R}) where {R} = (h, l, e, 
 function _projection_l1_product(fs::Tuple, h, l, e, δ, ::Type{R}) where {R}
   b = first(fs)
   if !isone(b)
-    mb, eb = b isa Real ? frexp(convert(R, b)) : _projection_scale_parts(b)
+    mb, eb = b isa Real ? _frexp(convert(R, b)) : _projection_scale_parts(b)
     v = convert(R, mb)
     p = h * v
     residual = fma(h, v, -p)
     q = residual + l * v
     t = p + q
     lo = (p - t) + q
-    hi, shift = frexp(t)
+    hi, shift = _frexp(t)
     if !iszero(residual) || !iszero(l)
       δ = nextfloat(δ + (1 + δ) * 16eps(R)^2)
     end

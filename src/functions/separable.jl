@@ -149,7 +149,7 @@ function _sep_value_parts(f, x::AbstractArray, ::Type{R}, level = nothing) where
   acc === nothing && return nothing
   m, e = _expsum_pair(R, acc)
   (level === nothing || iszero(m)) && return (m, e)
-  _parts_product(frexp(convert(R, level)), (m, e))
+  _parts_product(_frexp(convert(R, level)), (m, e))
 end
 function _sep_terms(acc, f, x::AbstractArray)
   @inbounds for i in eachindex(IndexLinear(), x)
@@ -194,7 +194,7 @@ end
   m = convert(R, m)
   isfinite(m) || return nothing
   iszero(m) && return acc
-  fm, fe = frexp(m)
+  fm, fe = _frexp(m)
   _expsum_add(acc, fm, Int(fe) + e)
 end
 @inline _term_add(acc::_ExpSum, p::Tuple) = _term_add(acc, p[1], p[2])
@@ -204,10 +204,10 @@ end
 @inline function _weighted_term_add(acc::_ExpSum{R}, w, φ::Tuple) where {R}
   (iszero(w) || iszero(φ[1])) && return acc
   isfinite(w) || return nothing
-  _term_add(acc, _parts_product(frexp(convert(R, w)), φ))
+  _term_add(acc, _parts_product(_frexp(convert(R, w)), φ))
 end
 # the parts of a finite nonzero real, in R
-@inline _rparts(::Type{R}, v) where {R} = frexp(convert(R, v))
+@inline _rparts(::Type{R}, v) where {R} = _frexp(convert(R, v))
 @inline _rparts(::Type{R}, p::Tuple) where {R} = (convert(R, p[1]), Int(p[2]))
 # the type of the parts: the entries' and the parameters'
 _sep_parts_type(x, params...) = promote_type(_valtype(x), map(_parts_eltype, params)...)

@@ -220,7 +220,8 @@ def Tconst(T):
 def spec_sigma(T, mid):
     nb, ex, M, fm = Tconst(T)
     return {"d1": [M, M / 2], "d2": [M, M], "d3": [M, fm], "d4": [Decimal(3), Decimal(1)], "d5": [M, M / 2],
-            "s1": [M, M / 2], "s2": [M, M], "s3": [Decimal(3), Decimal(1)], "s4": [M, Decimal(0)]}.get(mid)
+            "s1": [M, M / 2], "s2": [M, M], "s3": [Decimal(3), Decimal(1)], "s4": [M, Decimal(0)],
+            "p6": [M, M / 2], "f7": [2 * M, Decimal(0)], "s5": [2 * M, Decimal(0)]}.get(mid)
 def spec_level(T, lid):
     nb, ex, M, fm = Tconst(T)
     W = WE - 8
@@ -330,5 +331,66 @@ for b_ in pbad: print("   PROX", b_)
 print("W-head spectral value lines with an independent reference:", dict(chk))
 print("of which changed from W-base:", dict(chg_chk))
 for b_ in bad: print("   OUT", b_)
+
+# ---- scalar finite-to-Inf spectral lines: a genuine overflow (the exact value is above floatmax) against an overflow-edge allowance
+# (the exact value is at most floatmax, e.g. exactly floatmax, and the overflow budget of the references accepts Inf)
+print("\n== (3e) spectral value lines that are Inf at the head: genuine overflow or overflow-edge allowance")
+inf_cls = collections.Counter(); inf_ex = []
+chg_cls = collections.Counter()
+for k, vh in Wh.items():
+    if not k.startswith("spectral:") or not k.endswith(" value") or vh != "Inf": continue
+    fam, mat, mid, lv, scales, ent = spec_parse(k)
+    ref = spec_value_ref(fam, mat, mid, lv, scales)
+    lap = "lapack" in k.split()[0]
+    if ref is None: inf_cls[("no closed form", lap)] += 1; continue
+    nb, ex, M, fm = Tconst(mat)
+    kind_ = "genuine overflow (exact value > floatmax)" if abs(ref) > M else "overflow-edge allowance (exact value <= floatmax)"
+    inf_cls[(kind_, lap)] += 1
+    if abs(ref) <= M and len(inf_ex) < 4: inf_ex.append((k, str(ref)[:24]))
+    vb = Wb.get(k)
+    if vb is not None and vb != "Inf" and not vb.startswith("ERR"): chg_cls[(kind_, lap, "finite at base")] += 1
+for (kk, lap), n in sorted(inf_cls.items(), key=str): print("  %-52s %-18s %d" % (kk, "informational" if lap else "strict", n))
+print("  of which finite at W-base:", {("%s, %s" % (a[0][:22], "lapack" if a[1] else "strict")): v for a, v in chg_cls.items()})
+for e in inf_ex: print("   EDGE", e)
+
+# ---- LogDetLoss at a BigFloat X: the value against the exact formula
+print("\n== (3d) logdet:LogDetLoss: BigFloat X = [1 t; t 1], S Float64, w Float64: the value against w (<S, X> - log det X)")
+c.prec = 160
+def logdet_parse(k):
+    t = k.split()
+    kv = dict(x.split("=") for x in t[2:] if "=" in x)
+    return kv["S"], int(kv["e"]), kv["w"], t[-1]
+def logdet_ref(sid, e, wid):
+    w = {"w0": Decimal(1), "w30": D2(30), "w100": D2(100), "w1000": D2(1000)}[wid]
+    tt = D2(e)
+    dot = {"s1": tt, "s2": Decimal(2), "s3": tt / 2}[sid]
+    ld = -(tt * tt + tt ** 4 / 2) if e < -300 else (1 - tt * tt).ln()
+    return w, dot, ld, w * (dot - ld)
+eps64 = D2(-52)
+minpos = D2(-WE - 1)
+ldc = collections.Counter(); ldchg = collections.Counter(); ldbad = []
+for k, vh in Wh.items():
+    if not k.startswith("logdet:") or not k.endswith(" value"): continue
+    sid, e, wid, _ = logdet_parse(k)
+    p = int(typ(k)[8:])
+    try: pv = Decimal(vh)
+    except Exception: pv = None
+    w, dot, ld, ref = logdet_ref(sid, e, wid)
+    envA = 2 * D2(1 - p) * abs(ref) + minpos
+    envB = 64 * eps64 * w * (abs(dot) + abs(ld)) + minpos
+    # a result below the smallest BigFloat is 0, and one above the range is Inf
+    top = (1 - D2(-p)) * D2(WE + 1)
+    if abs(ref) > top: res = "overflow" if vh in ("Inf", "-Inf") else "OUT"
+    elif pv is None: res = "OUT"
+    else:
+        dv = abs(pv - ref)
+        res = "in p-bit envelope" if dv <= envA else ("in matrix-precision budget only" if dv <= envB else "OUT")
+    ldc[res] += 1
+    changed = Wb.get(k) != vh
+    if changed: ldchg[res] += 1
+    if res == "OUT" and len(ldbad) < 8: ldbad.append((k, vh[:30], str(ref)[:30]))
+print("W-head value lines:", dict(ldc))
+print("of which changed from W-base:", dict(ldchg))
+for b_ in ldbad: print("   OUT", b_)
 
 print("== done")

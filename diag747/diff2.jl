@@ -205,6 +205,10 @@ fam(name, make; kind = :vec, stride = 1) = Fam(name, make, kind, stride)
 input(::Val{:vec}, x) = x
 input(::Val{:tuple}, x) = (x[1:2], x[3:3])
 input(::Val{:slice}, x) = hcat(x, reverse(x))
+input(::Val{:mat}, x) = [x[1] x[2]; x[2] x[3]]            # a symmetric 2 x 2 matrix
+input(::Val{:graph}, x) = (x, x[1:2])
+input(::Val{:sparse}, x) = SparseIterate(sparsevec(x))
+input(::Val{:symsparse}, x) = SymmetricSparseIterate([x[1] x[2]; x[2] x[3]])
 function groups3() Vector{Int}[[1, 2], [3]] end
 function families()
   F = Fam[]
@@ -222,6 +226,17 @@ function families()
          fam("CappedL1", T -> CappedL1(T(0.5), T(2))), fam("LogPenalty", T -> LogPenalty(T(0.5), T(0.5))), fam("NormLq", T -> NormLq(T(0.5), T(0.5))),
          fam("GroupMCP", T -> GroupMCP(T(0.5), groups3())), fam("GroupSCAD", T -> GroupSCAD(T(0.5), groups3())))
   # --- smooth functions (functions/smooth.jl, leastsquares.jl, glm.jl)
+  # --- further families found by the audit of every exported type: SumLargest, BernoulliLoss, KronQuadratic, matrix sets,
+  # IndGraph, the sparse iterates (value, prox, gradient where they exist; a constructor or method that rejects its argument
+  # prints its error, which the comparison treats like any other result)
+  push!(F, fam("SumLargest", T -> SumLargest(2, T(0.5))), fam("BernoulliLoss", T -> BernoulliLoss(T[0.5, 0.25, 0.75])),
+         fam("KronQuadratic", T -> KronQuadratic(T[2 1; 1 2], T[1 0; 0 1]); kind = :mat),
+         fam("IndBanded", T -> IndBanded(0, (2, 2)); kind = :mat), fam("IndToeplitz", T -> IndToeplitz(symmetric = true); kind = :mat),
+         fam("IndPattern", T -> IndPattern(Bool[1 0; 0 1]); kind = :mat), fam("IndPSD", T -> IndPSD(); kind = :mat),
+         fam("IndBallRank", T -> IndBallRank(1); kind = :mat), fam("IndStiefel", T -> IndStiefel(); kind = :mat),
+         fam("IndGraph", T -> IndGraph(T[1 0 1; 0 1 1]); kind = :graph),
+         fam("Sparse-NormL1", T -> NormL1(T(0.5)); kind = :sparse), fam("Sparse-NormL2", T -> NormL2(T(0.5)); kind = :sparse),
+         fam("SymSparse-NormL1", T -> NormL1(T(0.5)); kind = :symsparse))
   push!(F, fam("SqrNormL2", T -> SqrNormL2(T(0.5))), fam("LinearFunction", T -> LinearFunction(T[1, -2, 3], T(1))),
          fam("QuadraticFunction", T -> QuadraticFunction(T[2 1 0; 1 2 1; 0 1 2], T[1, 2, 3], T(1))),
          fam("LeastSquaresLoss", T -> LeastSquaresLoss(T[1, 2, 3], T[1 0 1; 0 1 1; 1 1 0])),
@@ -250,6 +265,7 @@ function families()
   end
   push!(F, fam("Translate-L1", T -> Translate(NormL1(T(0.5)), T[1, 2, 3])), fam("Translate-L2", T -> Translate(NormL2(T(0.5)), zeros(T, 3))),
          fam("Tilt", T -> Tilt(NormL1(T(0.5)), T[1, 2, 3])), fam("Precompose", T -> Precompose(NormL1(T(0.5)), T(2))),
+         fam("Precompose-A", T -> Precompose(NormL1(T(0.5)), T[1 0 1; 0 1 1], T(2)); stride = 4),
          fam("Regularize", T -> Regularize(NormL1(T(0.5)), T(0.25))), fam("MoreauEnvelope-L1", T -> MoreauEnvelope(NormL1(T(0.5)), T(1))),
          fam("MoreauEnvelope-L2", T -> MoreauEnvelope(NormL2(T(0.5)), T(1))), fam("Conjugate-L2", T -> Conjugate(NormL2(T(0.5)))),
          fam("Conjugate-L1", T -> Conjugate(NormL1(T(0.5)))), fam("DistL2", T -> DistL2(IndBox(T(-1), T(1)))), fam("SqrDistL2", T -> SqrDistL2(IndBox(T(-1), T(1)))),
@@ -275,6 +291,12 @@ function run_broad(T, label)
       end
       smooth_ok = try issmooth(f) catch; false end
       smooth_ok && rec("$tag vgrad", () -> (gr = similar(x); (value_and_gradient!(gr, f, x), gr)))
+      if F.kind === :vec
+        # the scalar entry points of the separable functions, the coordinate curvature and the Hessian-vector product of smooth ones
+        (try isseparable(f) catch; false end) && rec("$tag entry", () -> (value_entry(f, x[1], 1), prox_entry(f, x[1], 1, g)))
+        smooth_ok && rec("$tag coordlip", () -> coordinate_lipschitz(f, 1))
+        (smooth_ok && (try hashessian(f) catch; false end)) && rec("$tag hvec", () -> hessian_vec(f, x, x))
+      end
     end
   end
 end
@@ -366,6 +388,29 @@ end
 # the scale pairs of a scaled family: the plain Scaled takes one factor (the first of each pair)
 spec_scaled_fams_scales(name) = name == "SV-Scaled-NormL1" ? [("/" * s[1], s[2], s[3]) for s in spec_scales()] : [("/" * s[1], s[2], s[3]) for s in spec_scales()]
 
+
+####################################
+#  LogDetLoss at a BigFloat X: S and w are stored in Float32/Float64 (the constructor rejects BigFloat), X is copied into the
+#  Float workspace for the Cholesky factor, but the dot product, the value and its scaled recovery keep the BigFloat X
+####################################
+function run_logdet()
+  p = precision(BigFloat)
+  emin = Base.MPFR.get_emin()
+  sh(k) = ldexp(one(BigFloat), Clong(k))
+  ts = Any[("fm", floatmin(BigFloat)), ("m0", sh(emin - 1)), ("m8", sh(emin + 8)), ("m400", sh(emin + 400)), ("n35", sh(-35)), ("h", big(0.5))]
+  Ss = Any[("s1", [0.0 0.5; 0.5 0.0]), ("s2", [1.0 0.0; 0.0 1.0]), ("s3", [0.0 0.25; 0.25 0.0])]
+  ws = Any[("w0", 1.0), ("w30", 2.0^30), ("w100", 2.0^100), ("w1000", 2.0^1000)]
+  for (sid, S) in Ss, (tid, t) in ts, (wid, w) in ws
+    tag = "logdet:LogDetLoss BigFloat$p S=$sid t=$tid e=$(exponent(t)) w=$wid"
+    f = try LogDetLoss(S, w) catch err; (rec("$tag make", () -> throw(err)); continue) end
+    X = BigFloat[1 t; t 1]
+    rec("$tag value", () -> f(X))
+    rec("$tag vgrad", () -> (G = similar(X); (value_and_gradient!(G, f, X), G)))
+    rec("$tag prox", () -> prox(f, X, big(1)))
+    rec("$tag vprox", () -> (Y = similar(X); (value_and_prox!(Y, f, X, big(1)), Y)))
+  end
+end
+
 run_type(Float32, "Float32")
 run_type(Float64, "Float64")
 for p in (2, 53, 256)
@@ -378,6 +423,12 @@ run_families(Float64, "Float64")
 for p in (2, 5, 53, 256)
   setprecision(BigFloat, p) do
     run_families(BigFloat, "BigFloat$p")
+  end
+end
+# LogDetLoss at a BigFloat X
+for p in (2, 3, 5, 53, 256)
+  setprecision(BigFloat, p) do
+    run_logdet()
   end
 end
 # the spectral families

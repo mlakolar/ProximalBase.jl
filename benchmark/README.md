@@ -83,8 +83,11 @@ To avoid building the inputs of cases that are not selected, the `atom` and
 `sparse` builders take the selection (`selected_cases` in `run.jl` passes the compiled expression to
 `build_cases`). Each scenario lists the full IDs it can register, from cheap fields only, and is skipped
 only if none of them matches. Inside a scenario, an operation group is run only if one of its operation
-names has a matching ID, and the fixtures beyond the working iterate and its snapshot are built once,
-when a group that reads them runs. A scenario or group whose IDs cannot be listed cheaply is built. A
+names has a matching ID. The working iterate and its snapshot are built for every retained group; the
+other fixtures (dense references, further iterates, operands) are built on first use and shared by the
+groups that read them. The scenario's setup arrays (the permutation of the groups, the active values, the
+second iterate's group list) and the draws of the one random stream that must keep its order are made
+whatever the selection. A scenario or group whose IDs cannot be listed cheaply is built. A
 false positive costs build time; a false exclusion would be a bug. The expression itself is never
 inspected or parsed, only matched against full IDs.
 
@@ -99,13 +102,15 @@ inspected or parsed, only matched against full IDs.
 `benchmark/case_selection_test.jl`, which `check_only_test.jl` includes, tests the selection. A
 differential oracle builds a selection and compares each case with the same case of the unfiltered
 build: IDs and order, metadata, `evals`, `profile`, the digests of the declared inputs, the captured
-state (through a test-only walker) and the outcomes of `validate` and of `prepare`/`operation`. The
-walker has an explicit list of supported kinds and fails closed on any other, and a census reports the
-kinds met. Further checks cover the completeness of the ID enumerators, the digests of the unfiltered
-quick `atom` and `sparse` groups, and the random draws. The extended branches are tested one scenario
-at a time, and CI builds no unfiltered extended group. A parity audit of the whole extended catalog is a
-manual run in one process that holds the unfiltered catalog (about 16 GB) and the selected builds
-and walker state on top of it (measured peak about 22 GB of resident memory).
+state (through a test-only walker), the success or error message of `validate` before and after the
+case runs, and the captured state after `prepare` and `operation` (the return values of the callbacks
+are not compared). The walker has an explicit list of supported kinds and fails closed on any other, and
+a census reports the kinds met. Further checks cover the completeness of the ID enumerators, the digests of the unfiltered
+quick `atom` and `sparse` groups, and the random draws. The extended `atom` and `sparse` branches are
+tested one scenario at a time, so these tests build no unfiltered extended group of either. A parity
+audit of the whole extended catalog is a manual run in one process that holds the unfiltered catalog
+(about 16 GiB) and the selected builds and walker state on top of it (measured peak about 22 GiB of
+resident memory).
 
 ### Reference checks without timing
 

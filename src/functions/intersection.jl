@@ -138,6 +138,11 @@ end
 # the alternating projections run over arrays
 prox!(out::_ArrayOrOwner, f::IndIntersection, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(out, x); _check_oracle_arrays(prox!, f, out, x, γ); _prox_unchecked!(out, f, x, γ))
+# the joint operation has no kernel for an owner either: its owner roles end in the MethodError of value_and_prox!
+value_and_prox!(out::SymmetricSparseIterate, f::IndIntersection, x::_ArrayOrOwner, γ::Real = 1) =
+  (x = _symmetric_argument(out, x); _check_oracle_arrays(value_and_prox!, f, out, x, γ); _value_and_prox_unchecked!(out, f, x, γ))
+value_and_prox!(out::AbstractArray, f::IndIntersection, x::SymmetricSparseIterate, γ::Real = 1) =
+  (x = _symmetric_argument(out, x); _check_oracle_arrays(value_and_prox!, f, out, x, γ); _value_and_prox_unchecked!(out, f, x, γ))
 function _prox_unchecked!(out::AbstractArray, f::IndIntersection, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, out, x)
   T = float(eltype(out))

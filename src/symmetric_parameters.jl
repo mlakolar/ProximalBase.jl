@@ -357,6 +357,16 @@ _kkt_violation(r::Regularize, g::AbstractArray, x::SymmetricSparseIterate, k::In
 # Fallbacks for functions outside the entry-array kernels.
 _prox_unchecked!(y, f::AbstractFunction, x, γ) = prox!(y, f, x, γ)
 _value_and_prox_unchecked!(y, f::AbstractFunction, x, γ) = value_and_prox!(y, f, x, γ)
+# The functions whose proximal operator runs over arrays, and has no kernel for an owner: their public methods check
+# the parameters of an owner role and end here, where the fallbacks above would call the public method again.
+# The call is the one that has no method; the argument x is the one that the caller gave, not its symmetric part.
+@noinline _owner_role_error(op, y, f, x, γ) = throw(MethodError(op, (y, f, x isa _SymmetricPart ? x.A : x, γ)))
+for F in (PointwiseMinimum, IndIntersection, LinearConstrained), (op, unchecked) in ((prox!, :_prox_unchecked!), (value_and_prox!, :_value_and_prox_unchecked!))
+  @eval begin
+    $unchecked(y::SymmetricSparseIterate, f::$F, x::_ArrayOrOwner, γ::Real) = _owner_role_error($op, y, f, x, γ)
+    $unchecked(y::AbstractArray, f::$F, x::SymmetricSparseIterate, γ::Real) = _owner_role_error($op, y, f, x, γ)
+  end
+end
 _value_and_gradient_unchecked!(y, f::AbstractFunction, x) = value_and_gradient!(y, f, x)
 _hessian_vec_unchecked!(y, f, x, v) = hessian_vec!(y, f, x, v)
 _quadratic_model_unchecked!(q, f, x) = quadratic_model!(q, f, x)

@@ -304,6 +304,38 @@ end
   @test isequal(state(y), before)
 end
 
+@testset "a rejection-only owner role ends in a MethodError, never in recursion, $T" for T in (Float32, Float64)
+  W = ones(T, 2, 2); W[2, 1] = 2                       # not symmetric
+  valid = ("PointwiseMinimum" => PointwiseMinimum(NormL1(T(0.2)), SqrNormL2(T(0.3))),
+           "IndIntersection" => IndIntersection(IndBox(-T(1), T(1)), IndBallL2(T(1))),
+           "LinearConstrained" => Constrained(NormL1(T(0.2)), IndHalfspace(ones(T, 2, 2), T(1))))
+  invalid = ("PointwiseMinimum" => PointwiseMinimum(NormL1(T(0.2), W), SqrNormL2(T(0.3))),
+             "IndIntersection" => IndIntersection(IndBox(-W, T(1)), IndBallL2(T(1))),
+             "LinearConstrained" => Constrained(NormL1(T(0.2)), IndHalfspace(W, T(1))))
+  X = T[1 0.5; 0.5 2]
+  roles = ("owner output, owner point" => () -> (SymmetricSparseIterate(T, 2), SymmetricSparseIterate(X)),
+           "owner output, dense point" => () -> (SymmetricSparseIterate(T, 2), X),
+           "owner output, matrix view" => () -> (y = SymmetricSparseIterate(X); (y, matrixview(y))),
+           "dense output, owner point" => () -> (zeros(T, 2, 2), SymmetricSparseIterate(X)))
+  snapshot(y::SymmetricSparseIterate) = state(y)
+  snapshot(y) = copy(y)
+  @testset "$name, $role, $op" for ((name, f), (_, bad)) in zip(valid, invalid), (role, make) in roles, op in (prox!, value_and_prox!)
+    y, x = make()
+    before = snapshot(y)
+    err = try op(y, f, x, T(0.2)); nothing catch e; e end
+    @test err isa MethodError && err.f === op
+    @test isequal(snapshot(y), before)
+    y, x = make()
+    before = snapshot(y)
+    @test_throws ArgumentError op(y, bad, x, T(0.2))
+    @test isequal(snapshot(y), before)
+  end
+  # the dense operations are untouched
+  for (_, f) in valid
+    @test prox!(zeros(T, 2, 2), f, X, T(0.2)) isa Matrix
+  end
+end
+
 @testset "the entry wrappers allocate nothing after warm-up" begin
   x = SymmetricSparseIterate(X)
   for f in (Scaled(NormL1(0.3), 2.0), Constrained(NormL1(0.3), IndBox(-1.0, 1.0)), Scaled(Scaled(NormL1(0.3), 2.0), 0.5))

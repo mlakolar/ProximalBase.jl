@@ -3650,7 +3650,7 @@ function loss_coefficient_cases!(cases, rep; quick=false)
                 isapprox(Float64(out[1]), r; rtol=1e-3, atol=1e-3 * sqrt(n)) || error("kkt sum differs from formula: $(out[1]) versus $r")
             end
             addcase!(cases, "loss_coefficients", name * "/kkt_violation", () -> kkt_sum!(out, f, g), checkkkt!;
-                     T, shape=string(n), work=n)
+                     inputs=(; g, w, labels), T, shape=string(n), work=n)
         end
         lw = similar(x)
         for (name, f, ref) in (("NormL1_weighted", NormL1(T(0.3), w), i -> T(0.3) * w[i]),
@@ -3661,7 +3661,7 @@ function loss_coefficient_cases!(cases, rep; quick=false)
                 all(i -> isapprox(Float64(lw[i]), Float64(ref(i)); rtol=1e-3, atol=1e-6), eachindex(x)) || error("lla weights differ from formula")
             end
             addcase!(cases, "loss_coefficients", name * "/lla_weights!", () -> lla_weights!(lw, f, x), checklla!;
-                     T, shape=string(n), work=n)
+                     inputs=(; x, w), T, shape=string(n), work=n)
         end
     end
 end

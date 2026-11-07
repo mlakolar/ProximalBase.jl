@@ -1195,7 +1195,7 @@ function _fused_equal_term(λ1, ::Type{T}, n::Integer, c) where {T}
   rc = R(c)
   k = _magnitude_exponent(abs(rc))
   u = _scale_value(rc, _power_factors(R, -k))
-  _fused_scaled_value(((λ1, R(n) * abs(u)),), k, T)
+  _fused_scaled_value(((λ1, _count_mul(R, n, abs(u))),), k, T)
 end
 
 # a vector, or the two entries of a pair
@@ -1368,7 +1368,7 @@ function _fused_vector_terms(f, x, ::Type{T}) where {T}
     s1, c1 = _compensated_add(s1, c1, abs(u))
     if i < n
       gap = _scale_value(a[p[i + 1]], scale) - u
-      s2, c2 = _compensated_add(s2, c2, (R(i) * R(n - i)) * gap)
+      s2, c2 = _compensated_add(s2, c2, _count_pair_mul(R, i, n - i, gap))
     end
   end
   ((f.λ1, s1 + c1), (f.λ2, s2 + c2)), k
@@ -1413,7 +1413,7 @@ end
   v1, v2 = zero(T), zero(T)
   @inbounds for k in 1:n
     v1 += abs(a[p[k]])
-    v2 += (2k - n - 1) * a[p[k]]
+    v2 += _int_mul(2k - n - 1, a[p[k]])
   end
   _fused_vector_value(f, x, v1, v2, T)
 end
@@ -1469,7 +1469,7 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
   w = _buffer!(f.vals, T, n)
   t = convert(T, γ) * λ2
   @inbounds for k in 1:n
-    w[k] = a[p[k]] - t * (2k - n - 1)
+    w[k] = a[p[k]] - _int_mul(t, 2k - n - 1)
   end
   # the buffers may be longer than x, which changes length from call to call
   wn = view(w, 1:n)
@@ -1481,7 +1481,7 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     wk = shrink(w[k], c)
     y[p[k]] = wk
     v1 += abs(wk)
-    v2 += (2k - n - 1) * wk
+    v2 += _int_mul(2k - n - 1, wk)
   end
   V ? _fused_vector_value(f, y, v1, v2, T) : zero(T)
 end
@@ -1568,14 +1568,14 @@ function _fused_finite_mean(x, ::Type{W}, n) where {W}
     m = max(m, abs(a))
   end
   t = s + c
-  isfinite(t) && return t / n
+  isfinite(t) && return _int_div(t, n)
   e = exponent(m)
   s = c = zero(W)
   @inbounds for i in 1:n
     s, c = _compensated_add(s, c, _projection_l1_scale(convert(W, x[i]), -e))
   end
   fr, ex = _frexp(s + c)
-  _projection_l1_scale(fr / n, ex + e)
+  _projection_l1_scale(_int_div(fr, n), ex + e)
 end
 
 # The mean of finite entries, for Float32 and Float64, in two levels. With 2^sh > n, an entry of

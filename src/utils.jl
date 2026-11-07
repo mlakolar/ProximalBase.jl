@@ -220,6 +220,30 @@ end
   t, e
 end
 
+# A count, a block size or a multiplicity is an exact integer. The generic methods are the operation as
+# written, in the order written, for every type. For a BigFloat the integer must not be rounded to the
+# working precision first: where a C long is 32 bits (Windows), x * k, k * x and x / k with an Int64 k
+# convert k with BigFloat(k) at the working precision, so that 5 becomes 4 at two bits, while the product
+# or quotient with a Clong (mpfr_mul_si, mpfr_div_si) or a BigInt (mpfr_mul_z, mpfr_div_z) is exact and
+# rounded once. The integer is a Clong when it fits and a BigInt otherwise, never truncated or clamped.
+@inline _int_mul(a, b) = a * b
+@inline _int_div(x, k) = x / k
+@inline _int_mul(x::BigFloat, k::Integer) =
+  typemin(Clong) <= k <= typemax(Clong) ? x * Clong(k) : x * BigInt(k)
+@inline _int_mul(k::Integer, x::BigFloat) =
+  typemin(Clong) <= k <= typemax(Clong) ? Clong(k) * x : BigInt(k) * x
+@inline _int_div(x::BigFloat, k::Integer) =
+  typemin(Clong) <= k <= typemax(Clong) ? x / Clong(k) : x / BigInt(k)
+
+# R(n) * u for a count n and a value u of the working type R: the conversion of n to R is the old
+# expression for every type; for a BigFloat the count is exact
+@inline _count_mul(::Type{R}, n, u) where {R} = R(n) * u
+@inline _count_mul(::Type{BigFloat}, n::Integer, u::BigFloat) = _int_mul(n, u)
+
+# (R(i) * R(m)) * gap for the counts i and m; for a BigFloat the product i m is an exact integer
+@inline _count_pair_mul(::Type{R}, i, m, gap) where {R} = (R(i) * R(m)) * gap
+@inline _count_pair_mul(::Type{BigFloat}, i::Integer, m::Integer, gap::BigFloat) = _int_mul(widemul(i, m), gap)
+
 ####################################
 #
 #  Buffers

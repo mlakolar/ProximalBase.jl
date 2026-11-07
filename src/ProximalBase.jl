@@ -47,7 +47,7 @@ export
   SeparableFunction, value_entry, iszeropreserving,
   gradient_mapping, gradient_mapping!, lipschitz, opnorm2,
   reset_cache!,
-  haslmo, lmo!, lmo,
+  haslmo, lmo!, lmo, lmo_atom, VertexAtom, LowRankAtom,
   hashessian, hessian_vec!, hessian_vec, quadratic_model, quadratic_model!,
   coordinate_lipschitz, coordinate_lipschitz!,
   lla_weight, lla_weights!, lla_weights,
@@ -138,6 +138,7 @@ include("lla.jl")
 include("calculus.jl")
 include("constrained.jl")
 include("spectralfunction.jl")
+include("lmo_atoms.jl")
 include("ballconstrained.jl")
 include("affineconstrained.jl")
 include("constrained_nonconvex.jl")

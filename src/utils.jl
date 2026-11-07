@@ -214,6 +214,29 @@ end
   ldexp((ma * mb) * mc, _exponent_sum(typeof(a), ea, eb, ec, k))
 end
 
+# _scaled_product with the exponents summed in Int, for a power k that is the retained exponent of a
+# _ProjectionScale (issue #767). That exponent is an Int that may already have wrapped; the Int sum is
+# taken modulo 2^64 too, so it returns the right exponent whenever the final one fits in Int. Widening
+# the wrapped k as if it were true would lose that.
+@inline function _scaled_product_retained(w::T, v::T, k::Integer) where {T<:AbstractFloat}
+  (iszero(w) || iszero(v)) && return w * v
+  (isfinite(w) && isfinite(v)) || return w * v
+  k = Int(k)
+  mw, ew = _frexp(w)
+  mv, ev = _frexp(abs(v))
+  copysign(ldexp(_positive_product(mw, mv, one(T)), ew + ev + k), v)
+end
+@inline function _scaled_product_retained(a::Real, b::Real, c::Real, k::Integer)
+  a, b, c = promote(float(a), float(b), float(c))
+  (iszero(a) || iszero(b) || iszero(c)) && return zero(a)
+  (isfinite(a) && isfinite(b) && isfinite(c)) || return (a * b) * c
+  k = Int(k)
+  ma, ea = _frexp(a)
+  mb, eb = _frexp(b)
+  mc, ec = _frexp(c)
+  ldexp((ma * mb) * mc, ea + eb + ec + k)
+end
+
 @inline function _compensated_add(s, e, v)
   t = s + v
   e += abs(s) >= abs(v) ? (s - t) + v : (v - t) + s

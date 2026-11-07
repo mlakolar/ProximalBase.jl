@@ -185,6 +185,44 @@ end
   end
 end
 
+# the number of Scaled layers
+depth(f) = f isa Scaled ? 1 + depth(f.f) : 0
+
+# A chain of three extreme factors has a retained exponent beyond Int64 that is stored wrapped. The Int sums
+# of the retained call sites return the right exponent whenever the final one fits (#767).
+@testset "wrapped retained exponents, precision $p" for p in (53, 256, 5, 2)
+  setprecision(BigFloat, p) do
+    P, Q = 3_100_000_000_000_000_000, 3_000_000_000_000_000_000
+    if EMAX == 2^62 - 1
+      @test 3 * Int128(P) > typemax(Int64)
+      a = pw(P)
+      f = CheckLoss(pw(-Q), [pw(-Q)])
+      s = Scaled(Scaled(Scaled(f, a), a), a)
+      @test depth(s) == 3
+      y = prox(Conjugate(s), [pw(3_400_000_000_000_000_000)], one(BigFloat))
+      @test y == [pw(3 * Int128(P) - 2 * Int128(Q))]
+
+      a = pw(-P)
+      f = CheckLoss(big(0.5), [pw(Q)])
+      s = Scaled(Scaled(Scaled(f, a), a), a)
+      @test depth(s) == 3
+      y = prox(Conjugate(s), [big(1)], one(BigFloat))
+      @test y == [big(0)]
+    end
+  end
+end
+
+@testset "_projection_product keeps its Int sums for Float64 and Float32" begin
+  for T in (Float64, Float32)
+    a = PB._ProjectionScale(T(0.75), 3)
+    @test @inferred(PB._projection_product(a, T(2), T(5))) isa T
+    @test PB._projection_product(a, T(2), T(5)) == T(0.75) * 8 * 2 * 5
+    pp(a, b, w) = @allocated PB._projection_product(a, b, w)
+    pp(a, T(2), T(5))
+    @test pp(a, T(2), T(5)) == 0
+  end
+end
+
 @testset "Float64 and Float32 keep their Int sums" begin
   @test PB._product3(2.0^1000, 2.0^1000, 2.0^-1000) == 2.0^1000
   @test PB._product3(2.0^1000, -2.0^1000, 2.0^-1000) == -2.0^1000

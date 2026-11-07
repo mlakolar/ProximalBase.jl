@@ -77,7 +77,7 @@ function omittable_files(tier, extra)
   tier == "full" && return String[]
   TestTiers.rank(tier) > 0 || error("unknown tier `$tier`; the tiers are $(join(TestTiers.TIERS, ", "))")
   tier in ("quick", "standard") &&
-    error("tier $tier writes no conformance reports (it runs only some of the conformance files); use thorough or full")
+    error("CI's $tier runs write no conformance reports (they run only some of the conformance files); use thorough or full")
   required = required_files(tier, extra)
   omittable = sort!(filter(!in(required), collect(keys(OMITTABLE_FILES))))
   other = setdiff(EXPECTED_FILES, required, omittable)

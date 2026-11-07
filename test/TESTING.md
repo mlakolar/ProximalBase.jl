@@ -217,7 +217,8 @@ these is first seen by the nightly run. 31 test files load JLArrays as a second 
 catalogs; they stay in their tiers, so device arrays remain exercised by `src/` changes.
 
 A focus run of `conformance/gpu_arrays` below thorough executes its assertions and writes no report
-(only thorough and full write reports). Thorough without it writes 13 of the 14 report files, and
+(the reports are written whenever `CONFORMANCE_REPORT` and `CONFORMANCE_RUN_ID` are set, and CI sets them
+only for thorough and full runs). Thorough without it writes 13 of the 14 report files, and
 `scripts/conformance_map.jl --check --tier thorough --extra <focus files>` then compares a partial
 inventory (CONTRIBUTING.md, `docs/design/numerical-contract/README.md`); the full check, with all
 14 files, is unchanged.

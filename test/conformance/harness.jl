@@ -439,8 +439,8 @@ withenv("CONFORMANCE_REPORT" => nothing) do
     @test ReportScript.omittable_files("full", String[]) == String[]
     @test ReportScript.omittable_files("thorough", String[]) == ["gpu_arrays"]
     @test ReportScript.omittable_files("thorough", ["conformance/gpu_arrays"]) == String[]
-    @test_throws r"writes no conformance reports" ReportScript.omittable_files("quick", String[])
-    @test_throws r"writes no conformance reports" ReportScript.omittable_files("standard", String[])
+    @test_throws r"runs write no conformance reports" ReportScript.omittable_files("quick", String[])
+    @test_throws r"runs write no conformance reports" ReportScript.omittable_files("standard", String[])
     @test_throws r"unknown tier `fast`" ReportScript.omittable_files("fast", String[])
     # A complete run in which every required row, case and cell is outside gpu_arrays.jsonl, so
     # that removing that file leaves exactly what a thorough run writes (written to disk
@@ -541,10 +541,10 @@ withenv("CONFORMANCE_REPORT" => nothing) do
         code, _, err = check("--tier", "thorough")
         @test code == 1 && occursin("exactly one run directory", err)
         rm(joinpath(dir, "second-run"); recursive = true)
-        # quick and standard write no reports; an unknown tier and a lone --extra are errors
+        # CI writes no reports for quick and standard; an unknown tier and a lone --extra are errors
         for tier in ("quick", "standard")
           code, _, err = check("--tier", tier)
-          @test code == 1 && occursin("tier $tier writes no conformance reports", err)
+          @test code == 1 && occursin("CI's $tier runs write no conformance reports", err)
         end
         @test occursin("unknown tier `fast`", check("--tier", "fast")[3])
         @test occursin("--extra needs --tier", check("--extra", "conformance/kernels")[3])

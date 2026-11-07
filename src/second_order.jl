@@ -214,8 +214,13 @@ end
 # λ v with the level and the entries in the model precision, the wider of the output, the point and the
 # direction, and each entry rounded to the output once, when it is stored; a level that the model
 # precision cannot hold is multiplied in a wider type (T3, R3)
-function _scale_direction!(Hv, λ, x, v)
-  W = _model_precision(eltype(Hv), eltype(x), eltype(v))
+_scale_direction!(Hv, λ, x, v) = _scale_direction!(Hv, λ, _scaling_model(eltype(Hv), eltype(x), eltype(v)), x, v)
+# The model precision as a function of the three entry types, with the scaling a method on the precision as a type
+# parameter: the precision is then known when the scaling is compiled, where a `Type` value passed along at run
+# time makes the dispatch and the broadcast over the entries allocate, and the entries are written by a loop.
+Base.@assume_effects :foldable _scaling_model(::Type{D}, ::Type{X}, ::Type{V}) where {D, X, V} =
+  _model_precision(D, X, V)
+function _scale_direction!(Hv, λ, ::Type{W}, x, v) where {W}
   if _level_fits(W, λ)
     _scale_entries!(Hv, convert(W, λ), W, v)
   else
@@ -228,7 +233,9 @@ function _scale_entries!(Hv::SymmetricSparseIterate, l, ::Type{R}, v) where {R}
 end
 function _scale_entries!(Hv::AbstractArray, l, ::Type{R}, v) where {R}
   w = v isa SymmetricSparseIterate ? matrixview(v) : v
-  Hv .= l .* convert.(R, w)
+  @inbounds for I in eachindex(Hv, w)
+    Hv[I] = l * convert(R, w[I])
+  end
   Hv
 end
 

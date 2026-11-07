@@ -928,8 +928,9 @@ methods are exactly these:
 6. `A * X * B` for `X::SparseIterate{T,2}` and `A`, `B` `Symmetric` strided
    matrices, with the same element type `T`, `Float32` or `Float64`, for all
    three. Its result is defined term by term, in the paragraph after this
-   list. The three-factor product of a `SymmetricSparseIterate` `X` is not yet
-   covered; it follows the owner work (#419, #391).
+   list. The same holds for `A * X * B` with `X::SymmetricSparseIterate{T}`, whose
+   off-diagonal coefficient counts for both of its entries (M2): the product is
+   the sum over the nonzero entries `(k, l)` of the symmetric matrix `X`.
 
 Which terms enter their results therefore does not depend on whether a zero
 is stored or on the order of the arguments. Each result is the IEEE sum, in
@@ -985,8 +986,9 @@ Since linear coefficients are finite (E4), a sparse inner product may skip
 unstored entries.
 
 **M2. Multiplicity.** A `SymmetricSparseIterate` stores each off-diagonal
-coordinate once; it counts twice in reductions and is written once. Its
-parameters follow the symmetric-matrix rule of [Sparse iterates](@ref).
+coordinate once; it counts twice in reductions and is written once, and the
+product `A * X * B` (M1, item 6) counts a stored off-diagonal coefficient for
+both of its entries. Its parameters follow the symmetric-matrix rule of [Sparse iterates](@ref).
 
 **M3. Caches.** A cache is computational state, and a result does not depend
 on its history. `reset_cache!` and reconstruction follow [Conventions](@ref),

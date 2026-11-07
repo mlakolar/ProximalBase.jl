@@ -1216,30 +1216,64 @@ end
 # lost against large ones, which is ordinary rounding. If any factor of any nonzero coefficient
 # at this entry (a of A, x of X, b of B) is NaN or infinite, the entry is left as the ordinary sum
 # made it, so a genuine NaN or Inf is never dropped.
-function _rescue_entry!(C::Matrix{T}, A, X::SparseIterate{T, 2}, B, i::Int, j::Int) where {T}
+# The stored coefficients of an iterate and the logical coordinates (r, c) of each: the second pair
+# is (0, 0) when there is none (an off-diagonal coefficient of a SymmetricSparseIterate stands for
+# (r, c) and (c, r)).
+@inline _nstored(X::SparseIterate) = nnz(X)
+@inline _nstored(X::SymmetricSparseIterate) = X.nnz
+@inline function _logical_coordinates(X::SparseIterate{<:Any, 2}, k::Int)
   m = size(X, 1)
+  ind = X.nzval2ind[k]
+  (mod1(ind, m), cld(ind, m), 0, 0)
+end
+@inline function _logical_coordinates(X::SymmetricSparseIterate, k::Int)
+  r, c = tril_cartesian(X.p, X.nzval2ind[k])
+  r == c ? (r, c, 0, 0) : (r, c, c, r)
+end
+
+function _rescue_entry!(C::Matrix{T}, A, X::Union{SparseIterate{T, 2}, SymmetricSparseIterate{T}}, B,
+                        i::Int, j::Int) where {T}
   S = zero(T)
   emax = 0
   seen = false
-  for k = 1:nnz(X)
+  for k = 1:_nstored(X)
     x = X.nzval[k]
     iszero(x) && continue
-    ind = X.nzval2ind[k]
-    a, b = A[i, mod1(ind, m)], B[cld(ind, m), j]
-    isfinite(a) & isfinite(x) & isfinite(b) || return nothing
-    (iszero(a) | iszero(b)) && continue
-    ma, ea = frexp(a)
-    mx, ex = frexp(x)
-    mb, eb = frexp(b)
-    e = ea + ex + eb
-    if !seen || e > emax
-      S = ldexp(S, emax - e)          # S is zero before the first term
-      emax, seen = e, true
+    r1, c1, r2, c2 = _logical_coordinates(X, k)
+    for t = 1:2
+      r, c = t == 1 ? (r1, c1) : (r2, c2)
+      r == 0 && continue
+      a, b = A[i, r], B[c, j]
+      isfinite(a) & isfinite(x) & isfinite(b) || return nothing
+      (iszero(a) | iszero(b)) && continue
+      ma, ea = frexp(a)
+      mx, ex = frexp(x)
+      mb, eb = frexp(b)
+      e = ea + ex + eb
+      if !seen || e > emax
+        S = ldexp(S, emax - e)        # S is zero before the first term
+        emax, seen = e, true
+      end
+      S += ldexp((ma * mx) * mb, e - emax)
     end
-    S += ldexp((ma * mx) * mb, e - emax)
   end
   C[i, j] = ldexp(S, emax)
   nothing
+end
+
+# One vectorized scan of C for entries that the ordinary sum left non-finite, each recomputed by
+# _rescue_entry!; nothing else is done on the ordinary path.
+function _rescue_nonfinite!(C::Matrix{T}, A, X, B) where {T}
+  finite = true
+  @inbounds @simd for idx in eachindex(C)
+    finite &= isfinite(C[idx])
+  end
+  if !finite
+    for j = 1:size(C, 2), i = 1:size(C, 1)
+      isfinite(C[i, j]) || _rescue_entry!(C, A, X, B, i, j)
+    end
+  end
+  C
 end
 
 """
@@ -1287,16 +1321,7 @@ function *(A::Symmetric{T, <:StridedMatrix{T}}, X::SparseIterate{T, 2},
     ind = X.nzval2ind[k]
     _add_coefficient!(C, A, B, mod1(ind, m), cld(ind, m), x, a, ax, b)
   end
-  finite = true                       # one vectorized scan for entries that the ordinary sum left non-finite
-  @inbounds @simd for idx in eachindex(C)
-    finite &= isfinite(C[idx])
-  end
-  if !finite
-    for j = 1:n, i = 1:m
-      isfinite(C[i, j]) || _rescue_entry!(C, A, X, B, i, j)
-    end
-  end
-  C
+  _rescue_nonfinite!(C, A, X, B)
 end
 
 """
@@ -1304,9 +1329,9 @@ end
 
 The product `A * X * B` for a sparse iterate `X`, restricted to the rows and
 columns where `X` has nonzeros: O(p² k) for nonzeros in k rows, instead of the
-O(p³) of dense products. This is the path of the owner `SymmetricSparseIterate` and of
-matrix iterates of other element types than `Float32` and `Float64`; the guarantee of the
-direct method above does not cover it.
+O(p³) of dense products. This is the path of matrix iterates of element types other than
+`Float32` and `Float64` (and, through `SymmetricSparseIterate`'s own method, of an owner of such a
+type); the guarantee of the direct methods does not cover it.
 """
 function *(A::Symmetric{T}, X::SparseIterate{T, 2}, B::Symmetric{T}) where {T}
   _checkreal(X, A); _checkreal(X, B)
@@ -2617,6 +2642,54 @@ LinearAlgebra.mul!(C::SymmetricSparseIterate, A::SymmetricSparseIterate, B::Line
 function *(A::Symmetric, X::Union{SparseIterate{<:Any, 2}, SymmetricSparseIterate}, B::Symmetric)
   _checkreal(X, A); _checkreal(X, B)
   invoke(*, Tuple{AbstractMatrix, AbstractMatrix, AbstractMatrix}, A, X, B)
+end
+
+"""
+    *(A::Symmetric{T}, X::SymmetricSparseIterate{T}, B::Symmetric{T}) where {T<:Union{Float32, Float64}}
+
+The product `C = A * X * B` for a symmetric sparse iterate `X`, with the same contract as the
+product for a matrix `SparseIterate`: `C[i, j]` is the sum of `A[i, k] * X[k, l] * B[l, j]` over the
+entries `(k, l)` of the `p × p` matrix `X` that are mathematically nonzero, in `O(X.nnz * p^2)`
+operations and `O(p^2)` memory. A stored off-diagonal coefficient stands for the two entries
+`(r, c)` and `(c, r)`, each contributing one term, and a diagonal coefficient for one. A stored
+zero and an unstored entry are the same: no term is formed, and an `X` without nonzeros gives the
+zero matrix without reading `A` or `B`. A nonzero coefficient, including `NaN` and `±Inf`, always
+contributes; the zeros of `A` and `B` are ordinary zeros, so `0 * Inf` is `NaN`. The result need
+not equal `A * Matrix(X) * B`.
+
+A term with three finite nonzero factors has the accuracy of an ordinary product of three
+numbers: it differs from the correctly rounded exact product by at most one neighbouring
+floating-point number for a normal result (a relative error below about `2 eps(T)`), and by at
+most one spacing for a subnormal one. A term within that error of the overflow threshold or of
+half the smallest subnormal can fall on either side of it. Correct rounding is not promised.
+Beyond that margin the class of a term is decided by its final value and not by the first partial
+product. Terms are added in the storage order of `X` in the precision `T`, the entry `(r, c)` of a
+coefficient before `(c, r)`, so tiny terms next to large ones are rounded away, as in any
+floating-point sum. An entry whose ordinary sum is non-finite is recomputed from its terms as a
+scaled sum when every factor of every nonzero entry of `X` at that entry is finite, so a sum that
+overflows before a later cancellation gives its finite value; if any such factor is `NaN` or
+infinite the ordinary IEEE value stands. A sum that is exactly zero is `+0.0`.
+
+The guarantee covers `Float32` and `Float64` with `Symmetric` wrappers of strided matrices of the
+same element type as `X`. Other element types, and mixed element types, are outside the guarantee
+and take other methods of `*`. The method reads the stored fields `nzval`, `nzval2ind`, `nnz` and
+`p`. See [Numerical contract](@ref numerics-storage).
+"""
+function *(A::Symmetric{T, <:StridedMatrix{T}}, X::SymmetricSparseIterate{T},
+           B::Symmetric{T, <:StridedMatrix{T}}) where {T<:Union{Float32, Float64}}
+  _checkreal(X, A); _checkreal(X, B)
+  p = X.p
+  size(A, 2) == p == size(B, 1) || throw(DimensionMismatch())
+  C = zeros(T, p, p)
+  a, ax, b = Vector{T}(undef, p), Vector{T}(undef, p), Vector{T}(undef, p)
+  for k = 1:X.nnz
+    x = X.nzval[k]
+    iszero(x) && continue
+    r, c = tril_cartesian(p, X.nzval2ind[k])
+    _add_coefficient!(C, A, B, r, c, x, a, ax, b)
+    r == c || _add_coefficient!(C, A, B, c, r, x, a, ax, b)
+  end
+  _rescue_nonfinite!(C, A, X, B)
 end
 
 LinearAlgebra.mul!(C::SymmetricSparseIterate, A::SymmetricSparseIterate,

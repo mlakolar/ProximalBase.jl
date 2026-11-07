@@ -668,6 +668,324 @@ end
     end
   end
 
+  @testset "the owner SymmetricSparseIterate" begin
+    # The reference reads Matrix(X), the full symmetric matrix, so the multiplicity of an off-diagonal
+    # coefficient comes from the reference and not from the production loop.
+    owner_of(::Type{T}, p, entries) where {T} = begin
+      X = SymmetricSparseIterate(T, p)
+      for ((r, c), v) in entries
+        iszero(v) && (X[r, c] = one(T))      # a zero value of an unstored entry is not stored: store it, then zero it
+        X[r, c] = v
+      end
+      X
+    end
+    random_owner(rng, ::Type{T}, p, dens; mode = :all) where {T} = begin
+      P = pool(T, mode)
+      Am = rand(rng, P, p, p); Bm = rand(rng, P, p, p)
+      X = SymmetricSparseIterate(T, p)
+      for c in 1:p, r in c:p
+        rand(rng) < dens && (X[r, c] = rand(rng, P))
+      end
+      uplo = rand(rng, (:U, :L))
+      Symmetric(Am, uplo), X, Symmetric(Bm, uplo === :U ? :L : :U)
+    end
+    owner_scalar(a::T, x::T, b::T) where {T} =
+      Symmetric(fill(a, 1, 1)) * owner_of(T, 1, [((1, 1), x)]) * Symmetric(fill(b, 1, 1))
+    new_sig = Tuple{typeof(*), Symmetric{T, <:StridedMatrix{T}}, SymmetricSparseIterate{T},
+                    Symmetric{T, <:StridedMatrix{T}}} where {T<:Union{Float32, Float64}}
+
+    @testset "FT11 fixtures with symmetric coordinates" begin
+      for T in (Float32, Float64)
+        one_x(p, coords) = owner_of(T, p, [(c, one(T)) for c in coords])
+        # p1: the coefficient (3, 1) stands for (3, 1) and (1, 3)
+        Am = Matrix{T}(I, 4, 4); Am[1, 2] = Am[2, 1] = Inf
+        A, B = Symmetric(Am), Symmetric(ones(T, 4, 4) + 3I)
+        X = one_x(4, [(1, 1), (2, 2), (3, 1)])
+        C = A * X * B
+        @test C isa Matrix{T}
+        @test isequal(C, T[Inf Inf Inf Inf; Inf Inf Inf Inf; 4 1 1 1; 0 0 0 0])
+        @test isempty(mismatches(C, A, X, B))
+        # p4: B[4, 1] = NaN meets the nonzero X[1, 1]: column 4 is NaN, the others are finite
+        A4 = Symmetric(Matrix{T}(I, 4, 4) .+ 1)
+        Bm = Matrix{T}(I, 4, 4) .+ 1; Bm[4, 1] = Bm[1, 4] = NaN
+        X = one_x(4, [(1, 1), (2, 2), (3, 3), (2, 1), (3, 2)])
+        C = A4 * X * Symmetric(Bm)
+        @test all(isnan, C[:, 4]) && all(isfinite, C[:, 1:3])
+        @test isempty(mismatches(C, A4, X, Symmetric(Bm)))
+        # p6
+        A6, B6 = Symmetric(Matrix(Diagonal(T[Inf, 1, 1, 1]))), Symmetric(Matrix{T}(I, 4, 4))
+        X = one_x(4, [(1, 1), (2, 1), (3, 1)])
+        C = A6 * X * B6
+        @test isequal(C, T[NaN NaN NaN NaN; 1 0 0 0; 1 0 0 0; 0 0 0 0])
+        @test isempty(mismatches(C, A6, X, B6))
+        # R5
+        AR, BR = Symmetric(T[NaN 0 0; 0 1 0; 0 0 1]), Symmetric(Matrix{T}(I, 3, 3))
+        X1, X2 = one_x(3, [(2, 2)]), one_x(3, [(2, 2), (3, 2), (3, 3)])
+        @test isequal(AR * X1 * BR, T[0 0 0; 0 1 0; 0 0 0])
+        @test isequal(AR * X2 * BR, T[0 0 0; 0 1 1; 0 1 1])
+        @test isempty(mismatches(AR * X2 * BR, AR, X2, BR))
+        # the mixed range fixture
+        u = pow2(T, cld(3 * emax(T), 5))
+        Am, Bm = Symmetric(T[Inf 0; 0 u]), Symmetric(T[1 0; 0 1/u])
+        X = owner_of(T, 2, [((1, 1), one(T)), ((2, 2), u)])
+        C = Am * X * Bm
+        @test isequal(C, T[Inf NaN; 0 u])
+        @test C[2, 2] == u
+        @test isempty(mismatches(C, Am, X, Bm))
+      end
+    end
+
+    @testset "multiplicity: an off-diagonal coefficient counts for (r, c) and (c, r)" begin
+      for T in (Float32, Float64)
+        Ai = T[2 -1 3; -1 4 5; 3 5 -2]; Bi = T[1 2 -3; 2 0 4; -3 4 7]
+        A, B = Symmetric(Ai), Symmetric(Bi)
+        X = owner_of(T, 3, [((3, 1), T(3))])
+        want = T(3) .* (Ai[:, 3] * Bi[1, :]' + Ai[:, 1] * Bi[3, :]')
+        @test A * X * B == want
+        X = owner_of(T, 3, [((2, 2), T(3))])
+        @test A * X * B == T(3) .* (Ai[:, 2] * Bi[2, :]')
+        X = owner_of(T, 3, [((1, 2), T(3))])        # the upper position writes the same coefficient
+        @test A * X * B == T(3) .* (Ai[:, 2] * Bi[1, :]' + Ai[:, 1] * Bi[2, :]')
+        @test A * X * B == A * Matrix(X) * B         # finite exact values: the dense product agrees
+      end
+    end
+
+    @testset "stored zeros, empty and all-zero owners" begin
+      for T in (Float32, Float64), special in (T(NaN), T(Inf), -T(Inf))
+        Az, Bz = Symmetric(fill(special, 4, 4)), Symmetric(fill(special, 4, 4))
+        @test all(c -> c === zero(T), Az * SymmetricSparseIterate(T, 4) * Bz)
+        Xz = owner_of(T, 4, [((2, 1), zero(T)), ((3, 3), -zero(T)), ((4, 2), zero(T))])
+        @test Xz.nnz == 3
+        C = Az * Xz * Bz
+        @test C isa Matrix{T} && size(C) == (4, 4)
+        @test all(c -> c === zero(T), C)
+      end
+    end
+
+    @testset "NaN and Inf in each operand, participating or meeting a zero" begin
+      for T in (Float32, Float64), special in (T(NaN), T(Inf), -T(Inf)), place in (:A, :X, :B)
+        Am, Bm = T[1 2 3; 2 4 5; 3 5 6], T[2 1 0; 1 3 1; 0 1 4]
+        X = owner_of(T, 3, [((2, 1), T(2)), ((3, 3), T(-1))])   # entries (2, 1), (1, 2) and (3, 3)
+        place === :A && (Am[1, 1] = special)
+        place === :B && (Bm[2, 2] = special)
+        place === :X && (X = owner_of(T, 3, [((2, 1), special), ((3, 3), T(-1))]))
+        A, B = Symmetric(Am), Symmetric(Bm)
+        C = A * X * B
+        @test isempty(mismatches(C, A, X, B))
+        @test !all(isfinite, C)
+        Xz = owner_of(T, 3, [((2, 1), zero(T)), ((3, 3), T(-1))])
+        Cz = A * Xz * B
+        @test isempty(mismatches(Cz, A, Xz, B))
+        @test all(isfinite, Cz)           # no term meets the special value
+      end
+      for T in (Float32, Float64)
+        A, B = Symmetric(T[0 0; 0 1]), Symmetric(T[1 0; 0 1])
+        X = owner_of(T, 2, [((1, 1), T(Inf))])
+        C = A * X * B
+        @test all(isnan, C)
+        @test isempty(mismatches(C, A, X, B))
+      end
+    end
+
+    @testset "range through a 2 × 2 owner" begin
+      for T in (Float32, Float64)
+        hi = (emax(T) ÷ 2 + 1, 3 * emax(T) ÷ 4, emax(T) - 1, emax(T))
+        lo = (-esub(T) ÷ 2 + 1, -emin(T) - 1, -emin(T), emax(T))
+        big = pow2(T, emax(T))
+        perms = ((1, 2, 3), (2, 3, 1), (3, 1, 2), (1, 3, 2))
+        permuted(v, q) = (v[q[1]], v[q[2]], v[q[3]])
+        two(a, x, b) = begin     # the product sits at (2, 2) of a 2 × 2 owner whose other coefficient is a stored zero
+          A, B = Symmetric(T[1 0; 0 a]), Symmetric(T[1 0; 0 b])
+          X = owner_of(T, 2, [((2, 1), zero(T)), ((2, 2), x)])
+          (A * X * B)[2, 2]
+        end
+        for e in hi, sgn in (1, -1), q in perms
+          @test two(permuted((pow2(T, e), sgn * pow2(T, e), pow2(T, -e)), q)...) === sgn * pow2(T, e)
+        end
+        for e in lo, sgn in (1, -1), q in perms
+          @test two(permuted((pow2(T, -e), sgn * pow2(T, -e), pow2(T, e)), q)...) === sgn * pow2(T, -e)
+        end
+        for sgn in (1, -1)
+          @test two(big, sgn * big, big) === sgn * T(Inf)
+          @test owner_scalar(floatmax(T), sgn * T(2), T(1))[1, 1] === sgn * T(Inf)
+        end
+        @test two(big, big, zero(T)) === zero(T)
+        @test two(zero(T), big, big) === zero(T)
+        # random exponents against the reference, through the 1 × 1 owner
+        rng = MersenneTwister(77)
+        lo_, hi_ = esub(T), emax(T)
+        for trial in 1:400
+          ea, ex = rand(rng, lo_:hi_), rand(rng, lo_:hi_)
+          eb = isodd(trial) ? rand(rng, lo_:hi_) : clamp(rand(rng, lo_-3:hi_+3) - ea - ex, lo_, hi_)
+          mk(e) = (rand(rng, Bool) ? 1 : -1) * (1 + rand(rng, T)) * pow2(T, e)
+          a, x, b = mk(ea), mk(ex), mk(eb)
+          A, X, B = Symmetric(fill(a, 1, 1)), owner_of(T, 1, [((1, 1), x)]), Symmetric(fill(b, 1, 1))
+          @test isempty(mismatches(A * X * B, A, X, B))
+        end
+      end
+    end
+
+    @testset "random owners with every class" begin
+      for T in (Float32, Float64)
+        rng = MersenneTwister(9)
+        for trial in 1:300
+          p = rand(rng, 1:6)
+          A, X, B = random_owner(rng, T, p, rand(rng, (0.1, 0.3, 0.7, 1.0)))
+          C = A * X * B
+          @test C isa Matrix{T} && size(C) == (p, p)
+          @test isempty(mismatches(C, A, X, B))
+        end
+        for dens in (0.05, 0.3, 1.0)
+          A, X, B = random_owner(MersenneTwister(5), T, 12, dens; mode = :finite)
+          @test isempty(mismatches(A * X * B, A, X, B))
+        end
+      end
+    end
+
+    @testset "a sum that overflows before a cancellation is recovered" begin
+      for T in (Float32, Float64)
+        h = T(0.9) * floatmax(T)
+        A, B = Symmetric(Matrix{T}(I, 3, 3)), Symmetric(ones(T, 3, 3))
+        for signs in ((1, 1, -1), (-1, -1, 1)), order in ([1, 2, 3], [3, 1, 2], [2, 3, 1], [1, 3, 2], [3, 2, 1])
+          # row 1 of the symmetric X is (signs[1] h, signs[2] h, signs[3] h), stored as the lower coefficients
+          entries = [(((l, 1), signs[l] * h)) for l in order]
+          X = owner_of(T, 3, entries)
+          C = A * X * B
+          @test isempty(mismatches(C, A, X, B))
+          @test all(c -> isapprox(c, sum(signs) * h; rtol = 20 * eps(T)), C[1, :])
+        end
+        for sgn in (1, -1)
+          X = owner_of(T, 3, [((l, 1), sgn * h) for l in 1:3])
+          C = A * X * B
+          @test all(c -> c === sgn * T(Inf), C[1, :])
+        end
+        # a genuine NaN or Inf is not overwritten, even when the other terms are huge and cancel
+        X = owner_of(T, 3, [((1, 1), h), ((2, 1), h), ((3, 1), -h)])
+        B2 = ones(T, 3, 3); B2[1, 1] = Inf; B2[2, 2] = NaN
+        C = A * X * Symmetric(B2)
+        @test !isfinite(C[1, 1])               # Inf of B, and the 0 * Inf of A[1, 2] = 0 against it: NaN
+        @test isnan(C[1, 2])
+        @test isfinite(C[1, 3]) && isapprox(C[1, 3], h; rtol = 20 * eps(T))
+        @test isempty(mismatches(C, A, X, Symmetric(B2)))
+        A2 = Matrix{T}(I, 3, 3); A2[1, 1] = Inf
+        C = Symmetric(A2) * X * B
+        @test all(isnan, C[1, :])
+        Xn = owner_of(T, 3, [((1, 1), h), ((2, 1), T(NaN)), ((3, 1), -h)])
+        @test all(isnan, (A * Xn * B)[1, :])
+      end
+    end
+
+    @testset "storage order, dropzeros!, the ignored triangle, immutability" begin
+      for T in (Float32, Float64)
+        rng = MersenneTwister(12)
+        for trial in 1:40
+          p = rand(rng, 2:7)
+          A, Xr, B = random_owner(rng, T, p, 0.4; mode = :moderate)
+          entries = [((r, c), Xr[r, c]) for c in 1:p for r in c:p if !iszero(Xr[r, c])]
+          results = Matrix{T}[]
+          for ord in 1:4
+            ord == 2 && (entries = reverse(entries))
+            ord == 3 && shuffle!(rng, entries)
+            X = owner_of(T, p, entries)
+            if ord == 4
+              for (r, c) in ((1, 1), (p, 1), (p, p))
+                iszero(Xr[r, c]) && (X[r, c] = one(T); X[r, c] = zero(T))
+              end
+            end
+            C = A * X * B
+            @test isempty(mismatches(C, A, X, B))
+            push!(results, C)
+            ord == 4 && (dropzeros!(X); @test isequal(A * X * B, C))
+          end
+          for C in results[2:end]
+            @test isequal(isnan.(C), isnan.(results[1]))
+            @test isequal(ifelse.(isinf.(C), sign.(C), 0), ifelse.(isinf.(results[1]), sign.(results[1]), 0))
+          end
+        end
+        for uplo in (:U, :L)
+          Am, Bm = randn(rng, T, 5, 5), randn(rng, T, 5, 5)
+          X = owner_of(T, 5, [((2, 3), T(1.5)), ((5, 1), T(-2)), ((4, 4), T(0.25))])
+          ignored(M) = uplo === :U ? tril(trues(size(M)), -1) : triu(trues(size(M)), 1)
+          Cok = Symmetric(Am, uplo) * X * Symmetric(Bm, uplo)
+          Ap, Bp = copy(Am), copy(Bm)
+          Ap[ignored(Ap)] .= T(NaN); Bp[ignored(Bp)] .= T(Inf)
+          before = (copy(Ap), copy(Bp), Matrix(X), X.nzval[1:X.nnz], X.nnz, X.nzval2ind[1:X.nnz])
+          C = Symmetric(Ap, uplo) * X * Symmetric(Bp, uplo)
+          @test isequal(C, Cok) && all(isfinite, C)
+          @test isequal(before[1], Ap) && isequal(before[2], Bp) && isequal(before[3], Matrix(X)) &&
+                before[4] == X.nzval[1:X.nnz] && before[5] == X.nnz && before[6] == X.nzval2ind[1:X.nnz]
+        end
+      end
+    end
+
+    @testset "aggregate zero, shape, dimension mismatch" begin
+      for T in (Float32, Float64)
+        A, B = Symmetric(ones(T, 3, 3)), Symmetric(ones(T, 3, 3))
+        X = owner_of(T, 3, [((1, 1), T(2)), ((2, 2), -T(2)), ((3, 1), T(-0.0))])
+        C = A * X * B
+        @test C isa Matrix{T} && size(C) == (3, 3)
+        @test all(c -> c === zero(T), C)
+        @test all(c -> c === -T(1), Symmetric(ones(T, 3, 3)) * owner_of(T, 3, [((1, 1), -T(1))]) * B)
+        @test_throws DimensionMismatch Symmetric(ones(T, 3, 3)) * SymmetricSparseIterate(T, 4) * Symmetric(ones(T, 4, 4))
+        @test_throws DimensionMismatch Symmetric(ones(T, 4, 4)) * SymmetricSparseIterate(T, 4) * Symmetric(ones(T, 3, 3))
+        @test size(Symmetric(zeros(T, 0, 0)) * SymmetricSparseIterate(T, 0) * Symmetric(zeros(T, 0, 0))) == (0, 0)
+      end
+    end
+
+    @testset "dispatch" begin
+      fwd(A, X, B) = which(*, Tuple{typeof(A), typeof(X), typeof(B)})
+      for T in (Float32, Float64)
+        A, B = Symmetric(randn(T, 4, 4)), Symmetric(randn(T, 4, 4))
+        X = owner_of(T, 4, [((3, 1), one(T))])
+        @test fwd(A, X, B).sig <: new_sig
+        @test A * X * B isa Matrix{T}
+      end
+      A32, B64 = Symmetric(randn(Float32, 4, 4)), Symmetric(randn(4, 4))
+      X64 = owner_of(Float64, 4, [((3, 1), 1.0)])
+      @test !(fwd(A32, X64, B64).sig <: new_sig)
+      @test A32 * X64 * B64 ≈ Matrix(A32) * Matrix(X64) * Matrix(B64)
+      for T in (Float16, BigFloat)
+        A, B = Symmetric(T.(randn(4, 4))), Symmetric(T.(randn(4, 4)))
+        X = owner_of(T, 4, [((3, 1), one(T)), ((2, 2), T(-2))])
+        @test !(fwd(A, X, B).sig <: new_sig)
+        @test A * X * B ≈ Matrix(A) * Matrix(X) * Matrix(B) rtol = (T === Float16 ? 1e-2 : 1e-12)
+      end
+      amb = filter(Test.detect_ambiguities(ProximalBase)) do (m1, m2)
+        m1.name === :* && m2.name === :* && endswith(string(m1.file), "sparse_iterate.jl") &&
+          endswith(string(m2.file), "sparse_iterate.jl")
+      end
+      @test isempty(amb)
+    end
+
+    @testset "allocation does not grow with the number of stored coefficients" begin
+      @noinline measure(A, X, B) = minimum((@allocated A * X * B) for _ in 1:7)
+      for T in (Float32, Float64)
+        p = 30
+        A, B = Symmetric(randn(T, p, p)), Symmetric(randn(T, p, p))
+        X1 = owner_of(T, p, [((i + 1, i), one(T)) for i in 1:2])
+        X2 = owner_of(T, p, [((r, c), T(r - c + 1)) for c in 1:p for r in c:p if (r + 2c) % 3 == 0])
+        Xe = SymmetricSparseIterate(T, p)
+        for X in (X1, X2, Xe)
+          A * X * B
+        end
+        a1, a2, a0 = measure(A, X1, B), measure(A, X2, B), measure(A, Xe, B)
+        @test X2.nnz > 10 * X1.nnz
+        @test a1 == a2 == a0
+        @test a1 <= sizeof(T) * (p * p + 3p) + 1024
+      end
+    end
+
+    @testset "the deprecated forwarder for an owner" begin
+      for T in (Float32, Float64)
+        A, B = Symmetric(randn(T, 5, 5)), Symmetric(randn(T, 5, 5))
+        X = owner_of(T, 5, [((3, 1), T(1.5)), ((4, 4), T(-2))])
+        C = @test_deprecated A_mul_X_mul_B(A, X, B)
+        @test isequal(C, A * X * B)
+        @test isapprox(C, Matrix(A) * Matrix(X) * Matrix(B); rtol = 1000 * eps(T), atol = 1000 * eps(T))
+      end
+    end
+  end
+
   @testset "the deprecated forwarder reaches the product method" begin
     for T in (Float32, Float64)
       A, B = Symmetric(randn(T, 5, 5)), Symmetric(randn(T, 5, 5))

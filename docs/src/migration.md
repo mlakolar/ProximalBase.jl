@@ -237,8 +237,10 @@ could meet a `NaN` or `Inf` of `A` or `B`; the new result need not equal
 element type. A call with mixed element types, or with another element type,
 is outside it and takes the previous methods (mixed types are tracked in #751).
 The deprecated `A_mul_X_mul_B` forwards to the same method for `Float32` and
-`Float64` matrix iterates. The three-factor product of a `SymmetricSparseIterate`
-does not follow this rule yet.
+`Float64` matrix iterates and for owners. The three-factor product of a
+`SymmetricSparseIterate` of `Float32` or `Float64` follows the same rule, with an
+off-diagonal stored coefficient counting for both of its entries, `(r, c)` and
+`(c, r)`; an owner of another element type keeps the previous method.
 For `A_mul_UUt_mul_B`, use `(A * U) * transpose(B * U)`; its entry helper
 becomes `dot(U' * view(A, :, r), U' * view(B, :, c))` in the same real setting.
 

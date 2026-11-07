@@ -29,11 +29,13 @@
 >   - oracle destinations follow
 >     [FD-4](iterate-family-0.6.md#fd-4-oracle-destinations), consistent with
 >     ORC-3 and ORC-6;
->   - the owner keeps 0.5.x's
->     `*(A::Symmetric, X::SymmetricSparseIterate, B::Symmetric)`; its class follows
+>   - the owner's
+>     `*(A::Symmetric, X::SymmetricSparseIterate, B::Symmetric)` follows
 >     [FD-16](iterate-family-0.6.md#fd-16-three-factor-products) (#419, decided
->     2026-11-06: the direct sum over the nonzero entries of `X`), which the
->     owner's method does not implement yet;
+>     2026-11-06: the direct sum over the nonzero entries of `X`, an off-diagonal
+>     coefficient counting for both of its entries) for `Float32` and `Float64`,
+>     implemented against the stored fields `nzval`, `nzval2ind`, `nnz` and `p`
+>     and rechecked when #737 changes the storage; other element types keep 0.5.x's method;
 >   - CPY-3's state copy converts only the source's active values, and one
 >     that throws leaves `X` unchanged (#416,
 >     [FW-4](iterate-family-0.6.md#23-the-working-set-fw)). This strengthens,

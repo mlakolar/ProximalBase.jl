@@ -27,6 +27,10 @@ end
 # The label that declares a change to one iterate implementation narrow (CONTRIBUTING.md).
 const NARROW_LABEL = "test:iterate-narrow"
 
+# The label that asks for the benchmark reference checks (scripts/ci_plan.jl reads it); like the
+# narrow label it names no tier.
+const BENCHMARK_LABEL = "test:benchmark"
+
 """
     Manifest
 
@@ -158,8 +162,8 @@ function parse_manifest(data::AbstractDict)
     names = table[label]
     if !(startswith(label, "test:") && length(label) > 5)
       push!(problems, "label_focus: `$label` is not a label of the form test:<name>")
-    elseif label == NARROW_LABEL || rank(label[6:end]) > 0
-      push!(problems, "label_focus: `$label` is the label of a tier or of $NARROW_LABEL, which have their own meaning")
+    elseif label == NARROW_LABEL || label == BENCHMARK_LABEL || rank(label[6:end]) > 0
+      push!(problems, "label_focus: `$label` is the label of a tier, of $NARROW_LABEL or of $BENCHMARK_LABEL, which have their own meaning")
     end
     if !(names isa AbstractVector && !isempty(names) && all(n -> n isa AbstractString, names))
       push!(problems, "label_focus: `$label` needs a non-empty list of test names")
@@ -395,10 +399,11 @@ end
 
 The tier of a pull request that changes `paths` and carries `labels`: [`classify`](@ref), with
 `narrow` set by the label test:iterate-narrow, then raised by test:standard, test:thorough or
-test:full (labels never lower the tier). No changed paths give quick. A label named in
-`label_focus` (test:gpu) adds its test files to `focus` and raises tier none to quick, so that
-the files run (a plan with tier none runs nothing). `focus` leaves out the files the tier runs
-anyway; `notes` describe the labels.
+test:full, which raise the tier or leave it alone. test:iterate-narrow lowers the tier of an
+iterate rule, through `classify`; test:benchmark is not a tier and does not affect it. A label
+named in `label_focus` (test:gpu) adds its test files to `focus` and raises tier none to quick, so
+that the files run (a plan with tier none runs nothing). No changed paths give quick. `focus` leaves
+out the files the tier runs anyway; `notes` describe the labels.
 """
 function pr_tier(m::Manifest, paths, labels; manifest_additions = nothing)
   tier, focus, decisions = classify(m, paths; narrow = NARROW_LABEL in labels, manifest_additions)
@@ -406,6 +411,7 @@ function pr_tier(m::Manifest, paths, labels; manifest_additions = nothing)
   isempty(paths) && (tier = "quick"; push!(notes, "No changed files were found; the minimum is quick."))
   for label in labels
     label == NARROW_LABEL && continue # applied by classify, shown in the decisions
+    label == BENCHMARK_LABEL && continue # read by the planner, no tier
     if haskey(m.label_focus, label)
       names = m.label_focus[label]
       focus = sort!(union(focus, names))
@@ -416,7 +422,7 @@ function pr_tier(m::Manifest, paths, labels; manifest_additions = nothing)
     mt = match(r"^test:(.+)$", label)
     mt === nothing && continue
     t = String(mt.captures[1])
-    rank(t) > 0 || throw(ArgumentError("label `$label` names no tier; use test:$(join(TIERS, ", test:")), $NARROW_LABEL" *
+    rank(t) > 0 || throw(ArgumentError("label `$label` names no tier; use test:$(join(TIERS, ", test:")) or $NARROW_LABEL, $BENCHMARK_LABEL" *
                                        join([", " * l for l in sort!(collect(keys(m.label_focus)))])))
     push!(notes, "Label `$label` asks for at least $t.")
     (tier == "none" || rank(t) > rank(tier)) && (tier = t)

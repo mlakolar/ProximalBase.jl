@@ -417,6 +417,7 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
   @test classify(".github/tier-rules.toml")[1] == "full"
   @test classify("test/tiers.jl")[1] == "full"
   @test classify("scripts/ci_gate.jl")[1] == "full"
+  @test classify("scripts/ci_verdict.jl")[1] == "full"
   # the tier lists decide what every tier runs, so any change to them gets full, also the line
   # of a new test file
   @test classify("test/tiers.toml")[1] == "full"
@@ -579,9 +580,9 @@ end
   problems_of(text) = problems(() -> TestTiers.parse_manifest(manifest_with(text)))
   @test only(problems_of("[label_focus]\n\"test:x\" = [\"zz\"]\n")) ==
         "label_focus: `test:x` has focus `zz`, which is in no tier"
-  # a label of a tier, of the narrow label, or without the prefix has its own meaning or none
-  for label in ("test:quick", "test:standard", "test:thorough", "test:full", "test:iterate-narrow")
-    @test occursin("label of a tier or of test:iterate-narrow", only(problems_of("[label_focus]\n\"$label\" = [\"a\"]\n")))
+  # a label of a tier, the narrow or the benchmark label, or without the prefix has its own meaning or none
+  for label in ("test:quick", "test:standard", "test:thorough", "test:full", "test:iterate-narrow", "test:benchmark")
+    @test occursin("label of a tier, of test:iterate-narrow or of test:benchmark", only(problems_of("[label_focus]\n\"$label\" = [\"a\"]\n")))
   end
   for label in ("gpu", "test:")
     @test occursin("is not a label of the form test:<name>", only(problems_of("[label_focus]\n\"$label\" = [\"a\"]\n")))
@@ -648,101 +649,57 @@ end
 end
 
 
-# The planner itself (scripts/ci_plan.jl), on the nightly path, with a fake GitHub CLI: the
-# nightly run skips the full tier only after a successful non-PR full run on the same commit in
-# the last 24 hours, and an API failure or malformed answer runs the full tier.
+# The planner's benchmark decision (CIPlan.benchmark_check, [events.*] benchmark and
+# [benchmark_check] in .github/tier-rules.toml): a harness path, a label, or the event decides;
+# never documentation only. test/ci_plan.jl tests the whole plan.
 module CIPlan
 include(joinpath(dirname(@__DIR__), "scripts", "ci_plan.jl"))
 end
 
-const SHA = "a" ^ 40
-const NOW = 1_800_000_000.0 # Unix time
-const FULLJOBS = ["Test plan", "Julia lts - ubuntu-latest - x64 - full", "Julia 1 - windows-latest - x64 - full", "CI result"]
-const QUICKJOBS = ["Test plan", "Julia lts - ubuntu-latest - x64 - quick", "Julia 1 - ubuntu-latest - x64 - quick", "CI result"]
-# A line of `gh run list` as recent_full_run asks for it: id, event, created (Unix time), conclusion, commit.
-runline(id, event; hours = 2, conclusion = "success", sha = SHA) = join([id, event, string(NOW - hours * 3600), conclusion, sha], '\t')
-
-# A fake `gh`: the run list, the job names of each run; `fail` makes every call throw, as the
-# real CLI does on an API error. `calls` records the arguments.
-function fakegh(runs, jobs = Dict{String, Vector{String}}(); fail = false, calls = Vector{String}[])
-  return function (args)
-    push!(calls, String.(args))
-    fail && error("gh: HTTP 502")
-    args[1:2] == ["run", "list"] && return runs
-    args[1:2] == ["run", "view"] && return get(() -> error("gh: run $(args[3]) not found"), jobs, args[3])
-    error("unexpected gh call: $args")
-  end
-end
-
-nightly(gh) = CIPlan.plan(Dict("event" => "schedule", "sha" => SHA, "repo" => "owner/name"); gh, at = NOW)
-nightly_tier(gh) = nightly(gh)[1].tier
-
-@testset "nightly plan" begin
-  # no earlier run: full
-  @test nightly_tier(fakegh(String[])) == "full"
-  # a successful full run on this commit, from the nightly, a push or a manual run: skip
-  for event in ("schedule", "push", "workflow_dispatch")
-    result, lines = nightly(fakegh([runline("11", event)], Dict("11" => FULLJOBS)))
-    @test result.tier == "none" && !result.run_tests
-    @test any(occursin("Run 11 already passed the full tier", l) for l in lines)
-  end
-  # the first qualifying run decides; others before it are passed over
-  runs = [runline("12", "pull_request"), runline("13", "schedule"; conclusion = "failure"), runline("14", "push")]
-  @test nightly_tier(fakegh(runs, Dict("14" => FULLJOBS))) == "none"
-  # only quick or standard runs on this commit: full
-  @test nightly_tier(fakegh([runline("21", "workflow_dispatch")], Dict("21" => QUICKJOBS))) == "full"
-  # a full run on another commit (the CLI is asked for this commit, but the answer is checked)
-  @test nightly_tier(fakegh([runline("31", "push"; sha = "b" ^ 40)], Dict("31" => FULLJOBS))) == "full"
-  # older than 24 hours, or created after the plan's time: full; just inside the window: skip
-  @test nightly_tier(fakegh([runline("41", "schedule"; hours = 25)], Dict("41" => FULLJOBS))) == "full"
-  @test nightly_tier(fakegh([runline("42", "schedule"; hours = -1)], Dict("42" => FULLJOBS))) == "full"
-  @test nightly_tier(fakegh([runline("43", "schedule"; hours = 23.9)], Dict("43" => FULLJOBS))) == "none"
-  # a failed, cancelled or unfinished full run: full
-  for conclusion in ("failure", "cancelled", "timed_out", "")
-    @test nightly_tier(fakegh([runline("51", "schedule"; conclusion)], Dict("51" => FULLJOBS))) == "full"
-  end
-  # a full run for a pull request on the same commit does not count
-  @test nightly_tier(fakegh([runline("61", "pull_request")], Dict("61" => FULLJOBS))) == "full"
-  # the API fails or answers something else: full, and the plan says why
-  result, lines = nightly(fakegh(String[]; fail = true))
-  @test result.tier == "full" && any(occursin("Could not check for an earlier full run", l) for l in lines)
-  for bad in (["11\tschedule\tsuccess"], ["11\tschedule\tyesterday\tsuccess\t$SHA"], ["garbage"])
-    @test nightly_tier(fakegh(bad, Dict("11" => FULLJOBS))) == "full"
-  end
-  @test nightly_tier(fakegh([runline("71", "schedule")])) == "full" # its jobs cannot be listed
-  # the CLI is asked for this workflow's successful runs on this commit
-  calls = Vector{String}[]
-  nightly(fakegh([runline("81", "schedule")], Dict("81" => FULLJOBS); calls))
-  list = first(calls)
-  @test list[1:2] == ["run", "list"] && all(in(list), ["--repo", "owner/name", "--workflow", "CI.yml", "--commit", SHA, "--status", "success"])
-  @test calls[2][1:3] == ["run", "view", "81"]
-  # without the commit and repository the nightly plan runs full and asks nothing
-  calls = Vector{String}[]
-  @test CIPlan.plan(Dict("event" => "schedule"); gh = fakegh(String[]; calls))[1].tier == "full" && isempty(calls)
-end
-
-# Whether the benchmark reference checks run (CIPlan.benchmark_check, [benchmark_check] in
-# .github/tier-rules.toml): with the package tests, or for a change to the benchmark harness or
-# its environment alone; never for documentation only.
 @testset "benchmark check plan" begin
-  bc(paths; run_tests = false) = CIPlan.benchmark_check(paths, run_tests)
-  @test bc(["src/sparse_iterate.jl"]; run_tests = true)
-  @test bc(nothing; run_tests = true) && !bc(nothing)
+  bc(paths; event = "pull_request", labels = String[], inputs = Dict{String, String}(), tier = nothing) =
+    CIPlan.benchmark_check(event, paths, labels, inputs; tier)
+  # a pull request: the harness or its environment, or the workflow file that defines the jobs
   for path in ("benchmark/run.jl", "benchmark/cases.jl", "benchmark/check_only.jl", "benchmark/setup.jl",
-               "benchmark/check_only_test.jl", "benchmark/Project.toml")
+               "benchmark/check_only_test.jl", "benchmark/Project.toml", ".github/workflows/CI.yml")
     @test bc([path]) && bc(["docs/src/index.md", path])
   end
-  for path in ("benchmark/README.md", "benchmark/baselines/iterate-family-0.5.csv", "benchmark/compare.py",
+  # package tests alone do not start them, and documentation never does
+  for path in ("src/sparse_iterate.jl", "benchmark/README.md", "benchmark/baselines/iterate-family-0.5.csv", "benchmark/compare.py",
                "benchmark/gpu_solver/analysis.py", "docs/src/index.md", "README_extra.md")
     @test !bc([path])
   end
-  @test !bc(String[])
+  @test !bc(String[]) && !bc(nothing)
+  # the labels test:benchmark and test:full ask for them; others do not
+  @test bc(["src/utils.jl"]; labels = ["test:benchmark"]) && bc(nothing; labels = ["test:benchmark"])
+  @test bc(["src/utils.jl"]; labels = ["test:full"]) && !bc(["src/utils.jl"]; labels = ["test:thorough", "bug"])
+  # a push to master: the harness paths only; a tag and the nightly run: always
+  @test bc(["benchmark/run.jl"]; event = "push") && !bc(["src/utils.jl"]; event = "push") && !bc(nothing; event = "push")
+  @test bc(nothing; event = "tag") && bc(["docs/src/index.md"]; event = "tag") && bc(nothing; event = "schedule")
+  # a manual run: its input, or the full tier
+  @test !bc(nothing; event = "workflow_dispatch", tier = "quick") && bc(nothing; event = "workflow_dispatch", tier = "full")
+  @test bc(nothing; event = "workflow_dispatch", tier = "quick", inputs = Dict("benchmark" => "true"))
+  @test !bc(nothing; event = "workflow_dispatch", tier = "quick", inputs = Dict("benchmark" => "false"))
   # the rules file the workflow reads has the section, and the tiers agree: these paths need no package tests
   @test first(classify("benchmark/cases.jl")) == "none" && first(classify("benchmark/Project.toml")) == "none"
-  # the plan's outputs carry it: a nightly full run checks, a skipped nightly does not
-  @test nightly(fakegh(String[]))[1].benchmark
-  @test !nightly(fakegh([runline("91", "schedule")], Dict("91" => FULLJOBS)))[1].benchmark
-  @test CIPlan.plan(Dict("event" => "workflow_dispatch", "tier" => "quick"))[1].benchmark
+  @test ".github/workflows/CI.yml" in CIPlan.benchmark_paths()
+end
+
+# Labels that are not tiers (test:benchmark, test:iterate-narrow) leave the tier of a PR alone.
+@testset "labels that are not tiers" begin
+  for paths in (["src/utils.jl"], ["docs/src/index.md"], ["test/norms.jl"], ["src/functions/sets.jl"], ["Project.toml"])
+    base = pr(paths...)
+    @test pr(paths...; labels = ["test:benchmark"]) == base
+    @test pr(paths...; labels = ["bug", "test:benchmark", "documentation"]) == base
+  end
+  @test pr("docs/src/index.md"; labels = ["test:benchmark"]) == ("none", String[])
+  @test pr("test/norms.jl"; labels = ["test:benchmark", "test:thorough"])[1] == "thorough"
+  _, _, _, notes = TestTiers.pr_tier(MANIFEST, ["src/utils.jl"], ["test:benchmark"])
+  @test !any(occursin("test:benchmark", n) for n in notes)
+  # a label that names no tier is still an error, and says which labels exist
+  @test_throws ArgumentError pr("src/utils.jl"; labels = ["test:fast"])
+  e = try pr("src/utils.jl"; labels = ["test:fast"]) catch err; err end
+  @test occursin("test:benchmark", e.msg) && occursin("test:iterate-narrow", e.msg)
 end
 
 end

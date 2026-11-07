@@ -1,24 +1,125 @@
-# Which test tier CI runs. Read by test/tiers.jl for scripts/ci_plan.jl and checked by
-# test/tier_selection.jl; the test files of each tier are in test/tiers.toml. CONTRIBUTING.md
-# explains the workflow.
+# What CI runs. Read by test/tiers.jl and scripts/ci_plan.jl and checked by
+# test/tier_selection.jl, test/ci_plan.jl and test/ci_verdict.jl; the test files of each tier
+# are in test/tiers.toml. CONTRIBUTING.md explains the workflow.
+#
+# The plan decides five things independently: the tier (how many test files), the platforms
+# (which Julia versions and systems run them), coverage, the benchmark reference checks, and,
+# from the tier, the conformance reports. [events.*] says how each kind of run decides them,
+# [platforms.*] defines the job lists, [timeouts] and [policy] are per tier, and the risk
+# rules below map changed paths to the minimum tier of a pull request. scripts/ci_plan.jl
+# validates the [events.*] and [platforms.*] tables and their values (an unknown key, mode or tier
+# there is an error). Each of the other tables is validated by its own reader, as that reader
+# defines: test/tiers.jl reads [timeouts], [policy] and [[risk]], scripts/ci_plan.jl reads
+# [benchmark_check]. scripts/ci_verdict.jl keeps its own copy of the job lists of the modes,
+# which test/ci_verdict.jl compares with the tables below.
 
 [timeouts]
-# Minutes per CI test job, well above each tier's target to allow for cold caches.
+# Minutes per CI test job, well above each tier's target to allow for cold caches. A job of a
+# platform mode may set its own (macOS below).
 quick = 20
 standard = 30
 thorough = 45
-full = 90         # the macOS full job sets 120 in .github/workflows/CI.yml (#736)
+full = 90
+
+# One table per kind of run. A push is told apart from a tag push by its ref type.
+#   tier:      "risk" (the risk rules and labels below), a tier, or "input" (the manual run's tier).
+#   skip_without_tests: a run whose changed paths need no package tests (documentation) has tier
+#              none; without it (tag, nightly) the tier is fixed.
+#   platforms: a mode of [platforms.*], "by_tier" (platforms_by_tier gives the mode of each tier,
+#              none included, and label_platforms the mode that a label opts into) or "input"
+#              (the manual run's platforms; "auto" takes auto_platforms of the tier).
+#   coverage:  true, false or "input".
+#   benchmark: the benchmark reference checks (benchmark/check_only.jl on the quick suite):
+#              "paths" (a changed path of [benchmark_check] below, or a label of benchmark_labels),
+#              "always", "never" or "input" (the manual run's input, or a tier of benchmark_tiers).
+# A label raises a pull request's tier or leaves it alone, with one exception: test:iterate-narrow
+# lowers the tier of its iterate rule (see the risk rules). test:benchmark does not affect the tier.
+
+[events.pull_request]
+tier = "risk"
+platforms = "by_tier"
+coverage = false
+benchmark = "paths"
+benchmark_labels = ["test:benchmark", "test:full"]
+platforms_by_tier = { none = "stable", quick = "stable", standard = "stable", thorough = "linux", full = "linux" }
+# test:full opts into the cross-platform matrix; a path rule that needs the full tier runs it
+# on Linux only.
+label_platforms = { "test:full" = "cross" }
+
+[events.push]
+# A push to master: the thorough tier on Linux (none when only documentation changed; a push
+# whose previous commit is missing, zero or not fetchable is still thorough).
+tier = "thorough"
+skip_without_tests = true
+platforms = "linux"
+coverage = false
+benchmark = "paths"
+
+[events.tag]
+tier = "full"
+platforms = "cross"
+coverage = false
+benchmark = "always"
+
+[events.schedule]
+# The nightly run: the full tier on the cross platforms, with coverage, every night.
+tier = "full"
+platforms = "cross"
+coverage = true
+benchmark = "always"
+
+[events.workflow_dispatch]
+tier = "input"
+platforms = "input"
+coverage = "input"
+benchmark = "input"
+benchmark_tiers = ["full"]
+auto_platforms = { quick = "linux", standard = "linux", thorough = "linux", full = "cross" }
+
+# The jobs of each platform mode. A job is a Julia version, a system and an architecture; its
+# name in CI is "Julia <version> - <os> - <arch> - <tier>". `advisory` jobs are reported and
+# do not change the result of the run (continue-on-error); `ptr_jobs` sets the number of test workers (the
+# free-memory default gives one worker on the macOS runner); `timeout` replaces the minutes of
+# [timeouts] (the 3-core, 3.3 GiB macOS runners take 43-78 min on the full tier and one run was
+# cancelled at the 90 min limit, #736).
+#   stable: Julia 1 on Linux.
+#   linux:  Julia 1 and lts on Linux; the conformance map check and the required report upload
+#           run on lts.
+#   cross:  linux, Julia 1 on macOS and Windows, and Julia pre on Linux (advisory).
+# The conformance map check and the required upload run on Julia lts on Linux when the mode has
+# it, otherwise on Julia 1 on Linux; coverage runs on Julia 1 on Linux.
+
+[platforms.stable]
+jobs = [
+  { version = "1", os = "ubuntu-latest", arch = "x64" },
+]
+
+[platforms.linux]
+jobs = [
+  { version = "lts", os = "ubuntu-latest", arch = "x64" },
+  { version = "1", os = "ubuntu-latest", arch = "x64" },
+]
+
+[platforms.cross]
+jobs = [
+  { version = "lts", os = "ubuntu-latest", arch = "x64" },
+  { version = "1", os = "ubuntu-latest", arch = "x64" },
+  { version = "1", os = "macos-latest", arch = "aarch64", ptr_jobs = "2", timeout = 120 },
+  { version = "1", os = "windows-latest", arch = "x64" },
+  { version = "pre", os = "ubuntu-latest", arch = "x64", advisory = true },
+]
 
 [policy]
 # A PR that changes src/ or ext/ and no test file gets at least this tier.
 source_without_tests = "standard"
 
 [benchmark_check]
-# The benchmark reference checks (benchmark/check_only.jl on the quick suite, the "Benchmark
-# reference checks" jobs) run whenever the package tests run, and also when one of these paths
-# changes, although the risk rules below give benchmark/** no package tests. Documentation-only
-# changes run neither. The benchmark analysis scripts have their own job, which always runs.
-paths = ["benchmark/*.jl", "benchmark/Project.toml"]
+# The paths that start the benchmark reference checks (benchmark/check_only.jl on the quick
+# suite, the "Benchmark reference checks" jobs) in the events whose `benchmark` is "paths",
+# although the risk rules below give benchmark/** no package tests; the workflow file is one of
+# them because it defines these jobs. The benchmark analysis scripts have their own job, which
+# always runs.
+paths = ["benchmark/*.jl", "benchmark/Project.toml", ".github/workflows/CI.yml"]
 
 [label_focus]
 # Pull request labels that add test files to the run (their tier stays what the paths and the
@@ -71,7 +172,7 @@ paths = [
 ]
 
 [[risk]]
-why = "test runner, CI, dependencies or extensions: every tier and platform must still work"
+why = "test runner, CI, dependencies or extensions: the whole catalog must still pass"
 tier = "full"
 paths = [
   ".github/tier-rules.toml",
@@ -80,6 +181,7 @@ paths = [
   "ext/**",
   "scripts/ci_gate.jl",
   "scripts/ci_plan.jl",
+  "scripts/ci_verdict.jl",
   "scripts/test.jl",
   "scripts/test_report.jl",
   "src/lapack.jl",

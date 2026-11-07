@@ -122,7 +122,8 @@ the earlier behavior applies.
     `λ1 = Inf`, a finite `λ2`, and the proximal outputs at a zero, infinite, negative or NaN
     step keep their results, the stored output of `value_and_prox!` included (the repair of a
     separate output near `floatmax` is taken at a finite positive step only); the value that
-    `value_and_prox!` returns is the value at that stored output.
+    `value_and_prox!` returns is the value at that stored output, at every step, for
+    `FiberSum` as well. An argument of element type `Real` is read at the precision of its entries.
   - A wrapper step that is not a normal number keeps the hard domain of an
     infinite level (decision 49, #666): `prox(Scaled(NormL1(Inf), 1e-300), [1.0, 2.0, 3.0], 1e-300)`
     is `[0, 0, 0]`, where it was the identity `[1, 2, 3]`, and `SLOPE` with an

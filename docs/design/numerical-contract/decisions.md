@@ -2048,7 +2048,9 @@ The first families, with the proofs:
   (the repair of a separate output at a pair near `floatmax` is taken at a
   finite positive step only), which the library does not document as supported
   for a vector of K ≥ 3 entries (#311, #665); the value that `value_and_prox!`
-  returns is the value at that stored output, by the value rule above. The proximal output of the pair, the tuple of arrays, the
+  returns is the value at that stored output, by the value rule above, at every
+  step: for `FiberSum` as well, where only the recomputation of a separate
+  output is limited to a finite positive step. The proximal output of the pair, the tuple of arrays, the
   vector of two entries and the pair route of `FiberSum` was this one already
   (their value was not). The mean of the other vectors and the threshold
   are formed in the promoted type of the argument and of the output (at least
@@ -2061,7 +2063,16 @@ The first families, with the proofs:
   the quotient carries the exponent separately. The accuracy that is proved is
   the rounding of the compensated sum, plus at most two minimum subnormals
   where the scaled pieces of the small entries underflow; correct rounding is
-  not claimed. The pair, tuple and K = 2 routes, and the ordinary finite-level
+  not claimed. The exact integer sum supports vectors of fewer than `2³⁶`
+  (`Float64`) or `2⁵¹` (`Float32`) entries (the sum is below `2^(2sh + p)`
+  and must fit `Int128`); a longer vector, or a working type without the binary
+  exponent interface (`exponent`, `frexp`, `ldexp`), declines the route and
+  keeps the earlier result. Another binary floating-point type (`BigFloat`)
+  scales the entries by the power of two of the largest magnitude when its sum
+  overflows, so its mean is finite for finite entries, and keeps no residual
+  that lies below the rounding of an inexact partial sum. For an argument whose
+  element type is not concrete (`Vector{Real}`) the working type is the
+  promoted type of the types of the entries. The pair, tuple and K = 2 routes, and the ordinary finite-level
   route, still convert the argument to the type of the output, as before
   (follow-up).
 - *`NormLinf`, `f(x) = λ maxᵢ|xᵢ|`.* With `λ = Inf`, `f(z) = Inf⋅max|zᵢ|`

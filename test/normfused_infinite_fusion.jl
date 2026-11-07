@@ -757,4 +757,145 @@ end
   @test y == ([M], [M]) && v === M
 end
 
+####################################
+#  round 3: abstract element types, the generic mean, the value at endpoint steps, the length bound
+####################################
+
+@testset "NormL1Fused(λ1, Inf): abstract element types keep the precision of the entries" begin
+  f0 = NormL1Fused(0.0, Inf)
+  for op in (prox!, value_and_prox!)
+    y = zeros(Float32, 3)
+    op(y, f0, Real[1e100, -1e100, 3.0], 1.0)
+    @test y == ones(Float32, 3)
+    y = zeros(Float32, 3)
+    op(y, f0, Real[16777217.0, -16777216.0, 2.0], 1.0)
+    @test y == ones(Float32, 3)
+    y = zeros(Float32, 4)
+    op(y, f0, Real[1e100, -1e100, 3, 2.0f0], 1.0)
+    @test y == fill(Float32(1.25), 4)
+    y = zeros(Float32, 3)
+    op(y, f0, Union{Float32, Float64}[1e100, -1e100, 3.0f0], 1.0)
+    @test y == ones(Float32, 3)
+    y = zeros(Float64, 3)
+    op(y, f0, Real[1f0, 2.0, 6], 1.0)
+    @test y == fill(3.0, 3)
+    y = zeros(Float32, 3)
+    op(y, f0, Real[BigFloat(1e100), BigFloat(-1e100), 3.0], 1.0)
+    @test y == ones(Float32, 3)
+  end
+  # the value at the stored output, and an aliased abstract argument into the same type
+  y = zeros(Float32, 3)
+  v = value_and_prox!(y, NormL1Fused(0.5, Inf), Real[1e100, -1e100, 3.0], 1.0)
+  @test y == fill(0.5f0, 3) && v === f0(y) + 0.75f0
+  z = Real[4.0, 2.0, 6.0]
+  prox!(z, NormL1Fused(1.0, Inf), z, 1.0)
+  @test all(==(3.0), z)
+end
+
+@testset "NormL1Fused(λ1, Inf): the mean of a type with a binary exponent, near the range limit" begin
+  M = floatmax(BigFloat)
+  f = NormL1Fused(BigFloat(0), BigFloat(Inf))
+  rel(a, b) = isapprox(a, b; rtol = 8 * eps(BigFloat))
+  # same sign: the sum overflows, the mean does not
+  for n in (3, 4, 5, 7, 10, 33)
+    y = prox(f, fill(M, n), BigFloat(1))
+    @test all(rel(v, M) for v in y) && all(isfinite, y)
+    y = prox(f, fill(-M, n), BigFloat(1))
+    @test all(rel(v, -M) for v in y)
+  end
+  x = BigFloat[M, M * BigFloat(0.75), M * BigFloat(0.5)]
+  @test all(rel(v, M * BigFloat(0.75)) for v in prox(f, x, BigFloat(1)))
+  # opposite signs: cancellation, and a residual of unit size beside entries at the range limit
+  r = BigFloat[M, M, -M, -M, 1]
+  for perm in ([1, 2, 3, 4, 5], [5, 1, 3, 2, 4], [3, 5, 1, 4, 2], [1, 3, 5, 2, 4])
+    y = prox(f, r[perm], BigFloat(1))
+    @test all(rel(v, BigFloat(1) / 5) for v in y)
+  end
+  y = copy(r)
+  value_and_prox!(y, f, y, BigFloat(1))
+  @test all(rel(v, BigFloat(1) / 5) for v in y)
+  # pairs of entries of magnitude M that cancel (every partial sum is exact: at most 2M), and a tail
+  # of integers: the scaled compensated sum keeps a tail of unit size (what this generic method proves is
+  # a finite mean and the compensated sum's accuracy; a tail far below the rounding of an inexact partial
+  # sum is not proved)
+  rng = MersenneTwister(20261108)
+  for n in (6, 9, 20, 65), pairs in (1, 2), _ in 1:4
+    tail = BigFloat.(rand(rng, 1:100, n - 2pairs))
+    x = [fill(M, pairs); fill(-M, pairs); tail]
+    shuffle!(rng, x)
+    expected = sum(tail) / n
+    @test all(rel(v, expected) for v in prox(f, x, BigFloat(1)))
+  end
+  # the level and the step in the same type, a nonzero level, the value at the stored output
+  g = NormL1Fused(BigFloat(0.25), BigFloat(Inf))
+  y = zeros(BigFloat, 3)
+  v = value_and_prox!(y, g, fill(M, 3), BigFloat(1))
+  @test all(rel(w, M) for w in y) && v == g(y)
+  # no overflow: a plain mean, K ≠ 2
+  @test prox(f, BigFloat[1, 2, 6], BigFloat(1)) == fill(BigFloat(3), 3)
+  @test prox(f, BigFloat[1, NaN, 6], BigFloat(1)) |> y -> all(isnan, y)
+  @test prox(f, BigFloat[1, Inf, 6], BigFloat(1)) == fill(BigFloat(Inf), 3)
+end
+
+# a concrete floating-point type without the binary exponent interface declines the route
+struct FakeFloat <: AbstractFloat
+  v::Float64
+end
+
+@testset "NormL1Fused(λ1, Inf): the length bound of the exact sum and the types that decline" begin
+  sup = PB._fused_mean_supported
+  # 2 sh + p <= 126 with 2^sh > n: n < 2^36 for Float64, n < 2^51 for Float32
+  @test sup(Float64, 3) && sup(Float64, 10_000) && sup(Float64, 2^36 - 1)
+  @test !sup(Float64, 2^36) && !sup(Float64, typemax(Int))
+  @test sup(Float32, 2^50 - 1) && !sup(Float32, 2^51)
+  @test sup(BigFloat, 5) && sup(BigFloat, typemax(Int))
+  @test !sup(FakeFloat, 3) && !sup(Real, 3)
+  # the exact sums at the supported bound fit Int128: the sum of n entries is below 2^(2sh + p) <= 2^126
+  for (T, nmax) in ((Float64, 2^36 - 1), (Float32, 2^51 - 1))
+    sh = 8 * sizeof(nmax) - leading_zeros(nmax)
+    @test 2sh + precision(T) <= 126 && BigInt(nmax) * BigInt(2)^(sh + precision(T)) < BigInt(2)^126
+  end
+end
+
+@testset "FiberSum, tuple form and vector: the returned value is the value at the stored output at every step" begin
+  nan = NaN
+  f = NormL1Fused(0.5, Inf)
+  for (K, diagonal) in ((2, nothing), (2, f), (3, nothing), (3, f)), sym in (false, true)
+    fb = FiberSum(f; diagonal, symmetric = sym)
+    for x in (ones(2, 2, K), reshape(Float64.(1:4K), 2, 2, K) ./ 3, fill(floatmax(), 2, 2, K)),
+        γ in (0.0, Inf, -1.0, NaN, 1.0)
+      x = sym ? (x .+ permutedims(x, (2, 1, 3))) ./ 2 : x
+      y = similar(x)
+      v = value_and_prox!(y, fb, x, γ)
+      a = copy(x)
+      w = value_and_prox!(a, fb, a, γ)
+      @test isequal(v, fb(y)) && isequal(w, fb(a))
+      @test isequal(prox!(similar(x), fb, x, γ), a)
+    end
+  end
+  # the reviewer's example
+  fb = FiberSum(f; diagonal = nothing)
+  x = ones(2, 2, 2)
+  y = similar(x)
+  @test value_and_prox!(y, fb, x, 0.0) === 2.0 && fb(y) === 2.0 && y == x
+  offdiag = [I for I in CartesianIndices(x) if I[1] != I[2]]
+  @test value_and_prox!(y, fb, x, Inf) === 0.0 && fb(y) === 0.0 && all(iszero, y[offdiag])
+  a = copy(x)
+  @test value_and_prox!(a, fb, a, 0.0) === 2.0 && a == x
+  a = copy(x)
+  @test value_and_prox!(a, fb, a, Inf) === 0.0 && all(iszero, a[offdiag])
+  # the tuple form and the vectors of two and three entries
+  for γ in (0.0, Inf, -1.0, NaN, 1.0)
+    y = ([0.0, 0.0], [0.0, 0.0])
+    v = value_and_prox!(y, f, ([1.0, 2.0], [1.0, 4.0]), γ)
+    @test isequal(v, f(y))
+    a = ([1.0, 2.0], [1.0, 4.0])
+    @test isequal(value_and_prox!(a, f, a, γ), f(a))
+    for x in ([1.0, 3.0], [1.0, 2.0, 3.0])
+      y = zeros(length(x))
+      @test isequal(value_and_prox!(y, f, x, γ), f(y))
+    end
+  end
+end
+
 end

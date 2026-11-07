@@ -1455,7 +1455,10 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
   # the constant vectors, then the ℓ1 shrink (#664). Decided from the stored levels and the step as
   # given, before the order of the entries and the thresholds γλ2 (2k - n - 1) are formed.
   if n > 0 && isinf(f.λ2) && isfinite(f.λ1) && γ > 0 && isfinite(γ)
-    return _prox_fused_equal!(y, f, x, γ, Val(V), T)
+    W = _fused_work_type(T, x)
+    # a working type without the binary exponent interface, or a vector too long for the exact sum
+    # below, declines the route: the earlier result is kept
+    _fused_mean_supported(W, n) && return _prox_fused_equal!(y, f, x, γ, Val(V), T, W)
   end
   p, a, nan = _sortperm_fused!(f, x, T)     # x is read here, so y may be x
   # a NaN entry: the fusion couples every entry to it (E2), unless the step or λ2 is zero; an infinite
@@ -1483,20 +1486,41 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
 end
 
 # the common output z of an infinite fusion level, z = shrink(mean(x), γλ1), and the value at it. The
-# mean and the threshold are formed in a working type that keeps the precision of the argument and of
+# mean and the threshold are formed in a working type W that keeps the precision of the argument and of
 # the output (at least Float32), and z is rounded once, when it is stored: a finite entry of a wider
 # argument is never narrowed to an infinity or rounded before the mean (T3, R3). The mean is read
 # first, so y may be x. A NaN entry gives NaN, infinite entries of one sign that infinity and of both
 # signs NaN, as the pair form does (decision 49, #664).
 @noinline function _prox_fused_equal!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real,
-                                      ::Val{V}, ::Type{T}) where {V, T}
-  W = _fused_work_type(T, eltype(x))
+                                      ::Val{V}, ::Type{T}, ::Type{W}) where {V, T, W}
   z = shrink(_fused_mean(x, W), _level_product(W, γ, f.λ1))
   fill!(y, convert(T, z))
   V ? f(y) : zero(T)
 end
-@inline _fused_work_type(::Type{T}, ::Type{X}) where {T, X} =
-  isconcretetype(X) ? promote_type(Float32, T, float(X)) : promote_type(Float32, T)
+
+# The working type: the promoted type of the output and of the argument's element type, at least
+# Float32. For an element type that is not concrete (Real, a Union) it is the promoted type of the types
+# of the actual entries, never the output type alone.
+function _fused_work_type(::Type{T}, x) where {T}
+  X = eltype(x)
+  isconcretetype(X) && return promote_type(Float32, T, float(X))
+  W = promote_type(Float32, T)
+  for e in x
+    W = promote_type(W, float(typeof(e)))
+  end
+  W
+end
+
+# Whether the route can form the mean in W for a vector of n entries. Float32 and Float64 use the exact
+# integer sum of the large entries, which needs 2sh + p <= 126 for 2^sh > n (n < 2^36 for Float64,
+# 2^51 for Float32; the sum of n entries is below 2^(2sh + p), and a rounded piece of it must fit
+# Int128). Another concrete AbstractFloat needs the binary exponent interface (exponent, frexp, ldexp).
+# Otherwise the route is declined.
+_fused_mean_supported(::Type{W}, n) where {W<:Union{Float32, Float64}} =
+  2 * (8 * sizeof(n) - leading_zeros(n)) + precision(W) <= 126
+_fused_mean_supported(::Type{W}, n) where {W} =
+  isconcretetype(W) && W <: AbstractFloat && hasmethod(exponent, Tuple{W}) &&
+  hasmethod(frexp, Tuple{W}) && hasmethod(ldexp, Tuple{W, Int})
 
 # The mean of the entries of x in the working type W, which holds every entry exactly. NaN and
 # infinite entries are decided first (NaN, or the infinity, or NaN for both signs); finite entries go
@@ -1516,13 +1540,29 @@ function _fused_mean(x::AbstractVector, ::Type{W}) where {W}
   _fused_finite_mean(x, W, n)
 end
 
-# Types other than Float32 and Float64: the compensated (Neumaier) sum divided by n.
+# Any other binary AbstractFloat (BigFloat, ...): a compensated (Neumaier) sum divided by n. If the sum
+# overflows, the entries are scaled by the power of two 2^-e of the largest magnitude (exponent, ldexp:
+# exact unless an entry underflows), summed by a compensated sum, and the quotient takes the significand
+# and the exponent of the total separately (the significand divided by n, one ldexp). Proved: finite
+# entries give a finite mean, accurate to the rounding of the compensated sum and of the quotient. Not
+# proved: a small residual beside overflowing entries that cancel, where it is below the range of the
+# scaled entries (the Float32 and Float64 method keeps it).
 function _fused_finite_mean(x, ::Type{W}, n) where {W}
+  s = c = m = zero(W)
+  @inbounds for i in 1:n
+    a = convert(W, x[i])
+    s, c = _compensated_add(s, c, a)
+    m = max(m, abs(a))
+  end
+  t = s + c
+  isfinite(t) && return t / n
+  e = exponent(m)
   s = c = zero(W)
   @inbounds for i in 1:n
-    s, c = _compensated_add(s, c, convert(W, x[i]))
+    s, c = _compensated_add(s, c, ldexp(convert(W, x[i]), -e))
   end
-  (s + c) / n
+  fr, ex = frexp(s + c)
+  ldexp(fr / n, ex + e)
 end
 
 # The mean of finite entries, for Float32 and Float64, in two levels. With 2^sh > n, an entry of
@@ -1530,7 +1570,9 @@ end
 # and they are summed unscaled by a compensated (Neumaier) sum. An entry above B is "large", the only
 # kind whose sum can overflow: it is an integer multiple of q = 2^(emax - sh - p + 1) (emax the largest
 # exponent, p the precision), at most 2^(sh + p) q, so the large entries are summed exactly as
-# integers (Int128; the sum of n of them is below 2^(2sh + p)).
+# integers (Int128; the sum of n of them is below 2^(2sh + p)). Supported length: 2sh + p <= 126, that
+# is n < 2^36 for Float64 and n < 2^51 for Float32, so that the sum and every rounded piece fit Int128
+# (_fused_mean_supported); a longer vector declines the route and keeps the earlier result.
 # Proved:
 #  * With no large entry the mean is the compensated sum divided by n, as for any other type: accurate
 #    to the rounding of the compensated sum and of the quotient (not exact under cancellation of small

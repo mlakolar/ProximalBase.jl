@@ -844,9 +844,9 @@ SumLargest(k::Integer, λ::Real = 1) = SumLargest{typeof(λ)}(k, λ)
 
 isproximable(::Type{<:SumLargest}) = true
 isconvex(::Type{<:SumLargest}) = true
-_checkparams(f::SumLargest, x) = f.k <= length(x) ||
-  throw(DimensionMismatch("k = $(f.k) exceeds the argument's length $(length(x))"))
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SumLargest, y::_ArrayOrOwner, x::_ArrayOrOwner) =
+_checkparams(f::SumLargest, x) = f.k <= _nentries(x) ||
+  throw(DimensionMismatch("k = $(f.k) exceeds the argument's length $(_nentries(x))"))
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SumLargest, y::AbstractArray, x::AbstractArray) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkparams(f, x); Base.require_one_based_indexing(y, x); true)
 
 # Compensation preserves cancellation when the selected entries have both signs.

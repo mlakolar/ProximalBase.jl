@@ -346,7 +346,11 @@ function _precompose_steps!(h::_ArrayPrecompose{<:AbstractGroupPenalty}, z, γ::
   steps
 end
 
-function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
+# a dense output reads the matrix of an owner point, whose parameters have been checked
+_dense_point(y::AbstractArray, x::SymmetricSparseIterate) = matrixview(x)
+_dense_point(y, x) = x
+function _value_and_prox_array!(y, h::_ArrayPrecompose, x0, γ, withvalue::Bool)
+  x = _dense_point(y, x0)
   # an inner function without a standalone value gives it with its proximal point
   joint = withvalue && !_isindicator(h) && !_has_value(h.f)
   if isseparable(h) && _sparse_precompose(y, x)

@@ -57,10 +57,13 @@ point(kind, T, x) = kind == :dense ? T.(X) : kind == :symmetric ? Symmetric(T.(X
     @test isapprox(Matrix(y), ref; rtol, atol = rtol)
     fy === nothing || @test isapprox(v, fy; rtol = 10rtol, atol = 10rtol)
   end
-  # an owner point with a dense output, and the allocating form
-  z = zeros(T, 3, 3)
-  @test prox!(z, f, SymmetricSparseIterate(T.(X)), T(0.7)) === z
-  @test isapprox(z, ref; rtol, atol = rtol)
+  # an owner point with a dense output (not defined for the families whose proximal operator is an owner's only), and
+  # the allocating form
+  if !(f isa Union{ZeroFunction, CubeNormL2, SumLargest, IndBallGroupL0})
+    z = zeros(T, 3, 3)
+    @test prox!(z, f, SymmetricSparseIterate(T.(X)), T(0.7)) === z
+    @test isapprox(z, ref; rtol, atol = rtol)
+  end
   p = prox(f, SymmetricSparseIterate(T.(X)), T(0.7))
   @test p isa SymmetricSparseIterate && isapprox(Matrix(p), ref; rtol, atol = rtol)
   # an array step is not supported at an owner, which is left as it was
@@ -137,13 +140,20 @@ end
 end
 
 @testset "Regularize adds its level times the direction in the model precision" begin
-  f = Regularize(LinearFunction(zeros(2, 2)), 1e40)
-  for (TH, Tx, Tv) in ((Float32, Float64, Float64), (Float32, Float32, Float64), (Float64, Float32, Float32))
+  # a Float64 level that a Float32 model cannot hold, against the exact product rounded once to the output
+  for ρ in (1e40, 1e-40, 3.0), (TH, Tx, Tv) in ((Float32, Float64, Float64), (Float32, Float32, Float64),
+                                                (Float64, Float32, Float32), (Float32, Float32, Float32))
+    f = Regularize(LinearFunction(zeros(2, 2)), ρ)
     H = SymmetricSparseIterate(TH, 2)
     x = SymmetricSparseIterate(Tx, 2)
-    v = fill(Tv(1e-40), 2, 2)
+    v = fill(Tv(1e-30), 2, 2)
     hessian_vec!(H, f, x, v)
-    @test Matrix(H) == fill(TH(1.0), 2, 2)
+    W = promote_type(TH, Tx, Tv)
+    level = isfinite(W(ρ)) && W(ρ) >= floatmin(W) ? W(ρ) : ρ
+    ref = setprecision(BigFloat, 512) do
+      TH(BigFloat(level) * BigFloat(v[1]))
+    end
+    @test Matrix(H) == fill(ref, 2, 2)
   end
 end
 

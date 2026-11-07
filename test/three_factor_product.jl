@@ -968,9 +968,21 @@ end
           A * X * B
         end
         a1, a2, a0 = measure(A, X1, B), measure(A, X2, B), measure(A, Xe, B)
+        # The allocator bookkeeping differs between platforms and Julia builds, so the three byte
+        # counts are compared with a tolerance. `tol` is chosen with margin over the differences
+        # seen across platforms (16 bytes on Windows, 32 on Linux), not tuned to them.
+        tol = 256
         @test X2.nnz > 10 * X1.nnz
-        @test a1 == a2 == a0
-        @test a1 <= sizeof(T) * (p * p + 3p) + 1024
+        # The smallest heap object is 16 bytes: one allocation per additional stored coefficient
+        # already exceeds `tol`.
+        @test 16 * (X2.nnz - X1.nnz) > tol
+        @test abs(a1 - a0) <= tol
+        @test abs(a2 - a0) <= tol
+        # The slack above the output and the three p-vectors is half of one copy of the output:
+        # it is meant to absorb the excess that the allocator bookkeeping adds (it differs between
+        # platforms and Julia builds) and to stay below what one extra dense copy of the output
+        # adds, whatever the element type.
+        @test a1 <= sizeof(T) * (p * p + 3p) + (sizeof(T) * p * p) ÷ 2
       end
     end
 

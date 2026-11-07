@@ -963,25 +963,27 @@ end
         A, B = Symmetric(randn(T, p, p)), Symmetric(randn(T, p, p))
         X1 = owner_of(T, p, [((i + 1, i), one(T)) for i in 1:2])
         X2 = owner_of(T, p, [((r, c), T(r - c + 1)) for c in 1:p for r in c:p if (r + 2c) % 3 == 0])
+        Xd = owner_of(T, p, [((r, c), T(r - c + 1)) for c in 1:p for r in c:p])    # the full lower triangle
         Xe = SymmetricSparseIterate(T, p)
-        for X in (X1, X2, Xe)
+        for X in (X1, X2, Xd, Xe)
           A * X * B
         end
-        a1, a2, a0 = measure(A, X1, B), measure(A, X2, B), measure(A, Xe, B)
-        # The allocator bookkeeping differs between platforms and Julia builds, so the three byte
-        # counts are compared with a tolerance. `tol` is chosen with margin over the differences
+        a1, a2, ad, a0 = measure(A, X1, B), measure(A, X2, B), measure(A, Xd, B), measure(A, Xe, B)
+        # The allocator bookkeeping differs between platforms and Julia builds, so the byte counts
+        # are compared with a tolerance. `tol` is chosen with margin over the differences
         # seen across platforms (16 bytes on Windows, 32 on Linux), not tuned to them.
         tol = 256
         @test X2.nnz > 10 * X1.nnz
-        # The smallest heap object is 16 bytes: one allocation per additional stored coefficient
-        # already exceeds `tol`.
-        @test 16 * (X2.nnz - X1.nnz) > tol
+        # Between the empty owner and the full lower triangle, an allocation that grows by even
+        # one byte per additional stored coefficient exceeds `tol`.
+        @test Xd.nnz - Xe.nnz > tol
         @test abs(a1 - a0) <= tol
         @test abs(a2 - a0) <= tol
+        @test abs(ad - a0) <= tol
         # The slack above the output and the three p-vectors is half of one copy of the output:
         # it is meant to absorb the excess that the allocator bookkeeping adds (it differs between
         # platforms and Julia builds) and to stay below what one extra dense copy of the output
-        # adds, whatever the element type.
+        # adds, for Float32 and Float64.
         @test a1 <= sizeof(T) * (p * p + 3p) + (sizeof(T) * p * p) ÷ 2
       end
     end

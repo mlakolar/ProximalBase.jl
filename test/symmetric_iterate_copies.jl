@@ -327,6 +327,46 @@ end
   @test Base.unalias(sample(), S) === S
 end
 
+@testset "Base.unalias copies Symmetric and Hermitian wrappers through derived parents" begin
+  # a wrapper of a view, a reshape or a transpose of the matrix view, of the coordinates or of the active values,
+  # in both nestings (Symmetric(view(A)) and view(Symmetric(A))), in both triangles
+  for basekind in (:matrix, :coordinates, :activevalues)
+    x = SymmetricSparseIterate(3)
+    fill!(coordinates(x), 2.0)
+    A = basekind === :matrix ? matrixview(x) :
+        reshape(view(basekind === :coordinates ? coordinates(x) : activevalues(x), [1, 2, 2, 4]), 2, 2)
+    bases = ("direct" => A, "view" => view(A, :, :), "nestedview" => view(view(A, :, :), :, :),
+             "transpose" => Transpose(A), "adjoint" => Adjoint(A), "reshape" => reshape(vec(A), size(A)))
+    for (basename, B) in bases
+      sources = Any[("plain", B), ("view", view(B, :, :)), ("vec", vec(B)), ("transpose", Transpose(B)),
+                    ("adjoint", Adjoint(B))]
+      for tri in (:L, :U), F in (Symmetric, Hermitian)
+        C = F(B, tri)
+        push!(sources, ("$(nameof(F))-$tri", C), ("view-$(nameof(F))-$tri", view(C, :, :)),
+              ("nestedview-$(nameof(F))-$tri", view(view(C, :, :), :, :)),
+              ("reshape-$(nameof(F))-$tri", reshape(C, length(C))))
+      end
+      for (wrap, a) in sources
+        label = "$basekind/$basename/$wrap"
+        saved = copy(a)
+        b = try
+          Base.unalias(x, a)
+        catch e
+          e
+        end
+        @test b isa AbstractArray
+        b isa AbstractArray || continue
+        @test typeof(b) === typeof(a)
+        @test isequal(b, a) && Base.mightalias(x, a) && !Base.mightalias(x, b)
+        a isa Union{Symmetric, Hermitian} && @test b.uplo == a.uplo
+        fill!(coordinates(x), 3.0)             # a later write of the owner is not seen by the copy
+        @test isequal(b, saved)
+        fill!(coordinates(x), 2.0)
+      end
+    end
+  end
+end
+
 @testset "T06: narrowing and structural equality" begin
   ASYM = ArgumentError
   @testset "pairs equal in Float32 but not in Float64 are rejected before anything changes" begin

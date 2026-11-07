@@ -172,6 +172,7 @@ thorough = [
   "symmetric_argument",
   "symmetric_groups",
   "symmetric_mul",
+  "symmetric_oracles",
   "symmetric_parameters_extensions",
   "symmetric_parameters_merge",
   "symmetric_parameters_paths",

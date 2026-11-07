@@ -146,13 +146,18 @@ end
 @testset "Value proof does not leak into mixed writes" begin
   X = [.5 .2; .2 .8]; x = SymmetricSparseIterate(X)
   c = [1. 2.; 3. 4.]; f = LinearFunction(c); g = zeros(2, 2)
-  @test value_and_gradient!(g, f, x) ≈ sum(c .* X)
+  # an owner point reads the parameters at every entry of its matrix: an asymmetric array is refused,
+  # for the value and for the gradient or the proximal step into a dense output
+  @test_throws ArgumentError f(x)
+  @test_throws ArgumentError value_and_gradient!(g, f, x)
+  @test g == zeros(2, 2)
+  @test value_and_gradient!(g, f, X) ≈ sum(c .* X)
   @test g == c
   h = Tilt(LinearFunction(c), c)
-  @test value_and_gradient!(g, h, x) ≈ 2sum(c .* X)
+  @test value_and_gradient!(g, h, X) ≈ 2sum(c .* X)
   @test g == 2c
   f = IndHalfspace(c, 0.)
-  @test prox!(g, f, x, 1.) ≈ X - sum(c .* X) / sum(abs2, c) * c
+  @test prox!(g, f, X, 1.) ≈ X - sum(c .* X) / sum(abs2, c) * c
 end
 
 @testset "Direct conjugate projections check parameters once" begin

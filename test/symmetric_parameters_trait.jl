@@ -102,7 +102,9 @@ wrappers(f) = (f, Scaled(f, 2.), Tilt(f, zeros(2, 2)),
     rejects(y -> lla_weights!(y, f, x), fill(-7., 2, 2), message)
     rejects(y -> lla_weights!(y, f, x), copy(x), message)
     # Dense output retains the input's ordinary entrywise semantics.
-    @test prox!(zeros(2, 2), f, x, .1) ≈ prox(NormL1(1., f.w), X, .1)
+    # (an owner point reads the parameters at every entry of its matrix: they must be declared and symmetric)
+    @test prox!(zeros(2, 2), f, X, .1) ≈ prox(NormL1(1., f.w), X, .1)
+    @test_throws ArgumentError prox!(zeros(2, 2), f, x, .1)
     for z in (X, SparseIterate(X))
       @test f(z) ≈ NormL1(1., f.w)(z)
       @test Matrix(prox(f, z, .1)) ≈ Matrix(prox(NormL1(1., f.w), z, .1))

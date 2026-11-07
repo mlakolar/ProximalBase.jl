@@ -208,13 +208,27 @@ function _hessian_vec_unchecked!(Hv::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwn
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(f, x)
-  λ = convert(eltype(Hv), f.λ)
-  if Hv isa SymmetricSparseIterate
-    _symmetric_coordinates!(Hv, (u, j) -> λ * u, v)
+  _scale_direction!(Hv, f.λ, x, v)
+  Hv
+end
+# λ v with the level and the entries in the model precision, the wider of the output, the point and the
+# direction, and each entry rounded to the output once, when it is stored; a level that the model
+# precision cannot hold is multiplied in a wider type (T3, R3)
+function _scale_direction!(Hv, λ, x, v)
+  W = _model_precision(eltype(Hv), eltype(x), eltype(v))
+  if _level_fits(W, λ)
+    _scale_entries!(Hv, convert(W, λ), W, v)
   else
-    copyto!(Hv, v isa SymmetricSparseIterate ? matrixview(v) : v)
-    Hv .*= λ
+    R = promote_type(W, float(typeof(λ)))
+    _scale_entries!(Hv, convert(R, λ), R, v)
   end
+end
+function _scale_entries!(Hv::SymmetricSparseIterate, l, ::Type{R}, v) where {R}
+  _symmetric_coordinates!(Hv, (u, j) -> l * convert(R, u), v)
+end
+function _scale_entries!(Hv::AbstractArray, l, ::Type{R}, v) where {R}
+  w = v isa SymmetricSparseIterate ? matrixview(v) : v
+  Hv .= l .* convert.(R, w)
   Hv
 end
 
@@ -249,7 +263,7 @@ function _hessian_vec_unchecked!(Hv::_ArrayOrOwner, f::KronQuadratic, Θ::_Array
   mul!(f.AD, f.A, D)
   mul!(f.W, f.AD, f.B)
   (Θ isa SymmetricSparseIterate || Hv isa SymmetricSparseIterate) && _symmetrize!(f.W)
-  copyto!(Hv, f.W)
+  _store_lower!(Hv, f.W)
 end
 
 ####################################

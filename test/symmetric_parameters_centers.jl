@@ -137,8 +137,10 @@ const cases = (
           @test quadratic_model(h,x)(x) ≈ sum(φ(X[i],B[i]) for i in eachindex(X))
         end
       end
-      # The dense output keeps ordinary per-entry semantics.
-      @test prox!(zeros(3,3), f, x, .2) == prox!(zeros(3,3), f, X, .2)
+      # The dense output keeps ordinary per-entry semantics at a dense point; an owner point reads the
+      # parameters at every entry of its matrix, so they must be exactly symmetric.
+      @test prox!(zeros(3,3), f, X, .2) isa Matrix
+      rejects(_ -> prox!(zeros(3,3), f, x, .2), copy(x), name, F)
     end
   end
 end

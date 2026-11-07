@@ -1093,7 +1093,7 @@ function _value_and_gradient_unchecked!(G::_ArrayOrOwner, f::KronQuadratic, Θ::
   end
   # the part of the gradient that acts on symmetric matrices: also when only the output is symmetric
   (Θ isa SymmetricSparseIterate || G isa SymmetricSparseIterate) && _symmetrize!(W)
-  copyto!(G, W)
+  _store_lower!(G, W)
   _value_at(_kron_checked(f, v, Θ), Θ)
 end
 

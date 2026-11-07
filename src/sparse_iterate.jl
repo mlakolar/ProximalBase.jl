@@ -1267,6 +1267,25 @@ Base.unaliascopy(A::SymmetricMatrixView) = SymmetricMatrixView(copy(A.x))
 # Julia 1.10, where the copy must have the type of the original
 Base.unaliascopy(A::Symmetric{<:Any, <:SymmetricMatrixView}) = Symmetric(Base.unaliascopy(A.data), Symbol(A.uplo))
 Base.unaliascopy(A::Hermitian{<:Any, <:SymmetricMatrixView}) = Hermitian(Base.unaliascopy(A.data), Symbol(A.uplo))
+# Base.unalias(x, A) of the owner x copies a source that shares memory with it, keeping the type of the
+# source. Base does that through unaliascopy of each wrapper, and on Julia 1.10 it has no such copy for a
+# Symmetric or Hermitian wrapper (a copy of the wrapper has a dense parent), so a wrapper of a view or a
+# reshape of x, or a view of such a wrapper, was refused. The copy here goes through every derived parent,
+# the wrapper types of Base and LinearAlgebra that the views of an owner can be in, and keeps the type, the
+# triangle and the independence; any other source takes the copy of Base. The method is for the owner as the
+# destination, so that it adds nothing to a function of Base for Base's types.
+function Base.unalias(dest::SymmetricSparseIterate, A::AbstractArray)
+  Base.mightalias(dest, A) ? _unaliascopy(A) : A
+end
+Base.unalias(::SymmetricSparseIterate, A::AbstractRange) = A
+_unaliascopy(A) = Base.unaliascopy(A)
+_unaliascopy(A::Symmetric) = Symmetric(_unaliascopy(A.data), Symbol(A.uplo))
+_unaliascopy(A::Hermitian) = Hermitian(_unaliascopy(A.data), Symbol(A.uplo))
+_unaliascopy(A::SubArray) =
+  typeof(A)(_unaliascopy(A.parent), map(Base.unaliascopy, A.indices), A.offset1, A.stride1)
+_unaliascopy(A::Base.ReshapedArray) = typeof(A)(_unaliascopy(A.parent), A.dims, A.mi)
+_unaliascopy(A::Transpose) = Transpose(_unaliascopy(A.parent))
+_unaliascopy(A::Adjoint) = Adjoint(_unaliascopy(A.parent))
 Base.transpose(A::SymmetricMatrixView) = A
 Base.adjoint(A::SymmetricMatrixView{<:Real}) = A
 Base.Matrix(A::SymmetricMatrixView) = Matrix(A.x)

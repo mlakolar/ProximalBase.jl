@@ -266,6 +266,9 @@ function _check_oracle_arrays(op::O, f, y, x, γ = nothing) where {O}
   if _has_symmetric(y)
     γ === nothing ? _checkwrite(op, f, y, x) : _checkwrite(op, f, y, x, γ)
     _check_write_arrays(op, f, y, x)
+  elseif x isa SymmetricSparseIterate
+    # an owner point with another output: the parameters are read at every entry of the matrix
+    _check_entry_arrays(f, x)
   end
   true
 end
@@ -287,7 +290,7 @@ end
 @inline function _symmetric_pair(a, b, r, c)
   _symequal(a, b) && return a
   isinf(a) && isinf(b) && a == -b && _throw_gradient_pair(r, c, a, b)
-  a / 2 + b / 2
+  _symmetric_mean(promote(a, b)...)
 end
 @noinline _throw_gradient_pair(r, c, a, b) = throw(ArgumentError(
   "the gradient g has no symmetric part: entry ($r, $c) is $a and entry ($c, $r) is $b"))
@@ -357,7 +360,17 @@ _symmetric_by_type(::_CheckedParameter) = true
 @inline _checked_parameter(y::SymmetricSparseIterate, a::AbstractMatrix) =
   _symmetric_by_type(a) ? a : _CheckedParameter(a)
 _copy_parameter!(y, a) = copyto!(y, a)
-_copy_parameter!(y::SymmetricSparseIterate, a::AbstractMatrix) = copyto!(y, _checked_parameter(y, a))
+# an owner output takes the values of a parameter matrix that has been checked to be symmetric, one
+# coordinate at a time from its lower entry: a coordinate that is active stays active
+_copy_parameter!(y::SymmetricSparseIterate, a::AbstractMatrix) = _store_lower!(y, a)
+function _store_lower!(y::SymmetricSparseIterate, a::AbstractMatrix)
+  p = y.p
+  @inbounds for c in 1:p, r in c:p
+    _setstored!(y, a[r, c], tril_index(p, r, c))
+  end
+  y
+end
+_store_lower!(y::AbstractArray, a::AbstractMatrix) = copyto!(y, a)
 
 _hessian_vec_unchecked!(y::AbstractArray, f::Union{LeastSquaresLoss, GLMLoss, LogDetLoss}, x::AbstractArray, v::AbstractArray) = hessian_vec!(y, f, x, v)
 _quadratic_model_unchecked(f::GLMLoss, x::AbstractVector) = quadratic_model(f, x)
@@ -389,6 +402,9 @@ function _check_second_order_arrays(f, x, Hv, v)
   _checkhessian_output(Hv, x, v)
   _check_hessian_shape(f, x, Hv, v)
   _check_entry_arrays(f, x)
+  # the output is written at every entry: its parameters are checked too, before the first write
+  Hv isa SymmetricSparseIterate && !(x isa SymmetricSparseIterate) && _check_entry_arrays(f, Hv)
+  true
 end
 _check_lipschitz_arrays(f, L) =
   (eltype(L) <: Real || _real_error(:coordinate_lipschitz!); _check_entry_arrays(f, L))

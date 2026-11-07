@@ -1684,9 +1684,12 @@ _prox_unchecked!(y::AbstractArray, c::Conjugate{<:SumLargest}, x::AbstractArray,
   _sumlargest_prox!(y, c.f, x, 1, Val(true))
 
 _tuple_buffer_type(::Type{<:AbstractArray{T, N}}) where {T, N} = Array{float(T), N}
+# the staged block of an owner is a dense matrix, which the commit check turns into the lower triangle
+_tuple_buffer_type(::Type{<:SymmetricSparseIterate{T}}) where {T} = Matrix{float(T)}
 @generated _tuple_buffer_type(::Type{X}) where {X<:Tuple} =
   _inline(Expr(:curly, :Tuple, (:(_tuple_buffer_type(fieldtype(X, $k))) for k in 1:fieldcount(X))...))
 _same_buffer_sizes(b::AbstractArray, x::AbstractArray) = size(b) == size(x)
+_same_buffer_sizes(b::AbstractArray, x::SymmetricSparseIterate) = size(b) == size(x)
 @generated _same_buffer_sizes(b::Tuple, x::Tuple) =
   _blockall(k -> :(_same_buffer_sizes(b[$k], x[$k])), fieldcount(b))
 

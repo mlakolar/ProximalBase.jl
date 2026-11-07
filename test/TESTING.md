@@ -196,7 +196,7 @@ comes from the GPU extension, the GPU test files or code that dispatches on devi
 | File | Before | After | Worker time, Julia 1.13.3 on one cluster node, one sample each |
 |---|---|---|---:|
 | `gpu_smoke` | quick | full | 90.4 s in the full quick tier at the base (16 workers), 83.8 s in standard (82% compilation); 58.4 s alone |
-| `conformance/gpu_arrays` | thorough | full | 42.2 s alone (3 workers on 4 cores) |
+| `conformance/gpu_arrays` | thorough | full | 67.1 s in the thorough tier at the base (16 workers); 42.2 s alone (3 workers on 4 cores) |
 | `gpu` | full | full | not on the pull-request path |
 | `gpu_extension_ambiguities` | (new) | quick | 11.0 s alone (same run as the two above) |
 

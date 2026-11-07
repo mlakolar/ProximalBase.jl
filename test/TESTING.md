@@ -216,9 +216,10 @@ is full), or when it carries the label `test:gpu`. A change that affects device 
 these is first seen by the nightly run. 31 test files load JLArrays as a second array type for CPU
 catalogs; they stay in their tiers, so device arrays remain exercised by `src/` changes.
 
-A focus run of `conformance/gpu_arrays` below thorough executes its assertions and writes no report
-(the reports are written whenever `CONFORMANCE_REPORT` and `CONFORMANCE_RUN_ID` are set, and CI sets them
-only for thorough and full runs). Thorough without it writes 13 of the 14 report files, and
+In CI, a focus run of `conformance/gpu_arrays` below thorough executes its assertions and writes no
+report (the harness writes reports as rows are emitted when `CONFORMANCE_REPORT` and
+`CONFORMANCE_RUN_ID` are both nonempty; CI sets the run id for every tier and gives `CONFORMANCE_REPORT`
+a value only for thorough and full runs). Thorough without it writes 13 of the 14 report files, and
 `scripts/conformance_map.jl --check --tier thorough --extra <focus files>` then compares a partial
 inventory (CONTRIBUTING.md, `docs/design/numerical-contract/README.md`); the full check, with all
 14 files, is unchanged.

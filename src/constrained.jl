@@ -320,12 +320,14 @@ end
 # `_prox_sep!` is not repeated. Only finite levels and finite nonnegative weights take this route;
 # everything else keeps the generic method, which refuses before writing. The wrappers of the
 # conjugate are not covered: `_check_box_value` and `_box_value_available` are unchanged.
-# The weights are read with the index of y, as `_prox_sep!` does, so they must have the same linear indices.
-_elastic_value_route(f::ElasticNet, y) = isfinite(f.λ1) && isfinite(f.λ2) && _finite_nonneg(f.w) && _same_indices(f.w, y)
+# Only destinations and weights with conventional one-based indices take this route: the SqrNormL2
+# conjugate value, which recovers an overflowing value, scales through arrays that know their size only.
+_elastic_value_route(f::ElasticNet, y) = isfinite(f.λ1) && isfinite(f.λ2) && _finite_nonneg(f.w) &&
+  !Base.has_offset_axes(y) && _one_based(f.w)
 _finite_nonneg(::Nothing) = true
 _finite_nonneg(w::AbstractArray) = all(v -> isfinite(v) && v >= 0, w)
-_same_indices(::Nothing, y) = true
-_same_indices(w::AbstractArray, y::AbstractArray) = eachindex(IndexLinear(), w) == eachindex(IndexLinear(), y)
+_one_based(::Nothing) = true
+_one_based(w::AbstractArray) = !Base.has_offset_axes(w)
 
 function _checkwrite(op::O, c::BoxConstrained{<:Conjugate{<:ElasticNet}}, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   if op === value_and_prox! && _elastic_value_route(c.f.f, y)
@@ -371,7 +373,7 @@ function _elastic_conjugate_value(f::ElasticNet, y::AbstractArray)
   convert(T, _conjugate_value(SqrNormL2(f.λ2), z))
 end
 
-# The entries max(|yᵢ| - λ1 wᵢ, 0), read lazily with the indices of y, in the wider of the types of y,
+# The entries max(|yᵢ| - λ1 wᵢ, 0), read lazily, in the wider of the types of y,
 # λ1 and w (the threshold is zero for λ1 = 0 or wᵢ = 0). NaN and infinite entries are kept.
 struct _ElasticShrunkArray{R, N, F<:ElasticNet, Y<:AbstractArray} <: AbstractArray{R, N}
   f::F
@@ -384,7 +386,6 @@ function _ElasticShrunkArray(f::ElasticNet, y::AbstractArray{<:Real, N}) where {
   _ElasticShrunkArray{R, N, typeof(f), typeof(y)}(f, y)
 end
 Base.size(a::_ElasticShrunkArray) = size(a.y)
-Base.axes(a::_ElasticShrunkArray) = axes(a.y)
 Base.IndexStyle(::Type{<:_ElasticShrunkArray}) = IndexLinear()
 Base.@propagate_inbounds function Base.getindex(a::_ElasticShrunkArray{R}, i::Int) where {R}
   v = abs(convert(R, a.y[i]))

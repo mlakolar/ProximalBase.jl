@@ -407,6 +407,7 @@ a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
       out = SparseIterate(5)
       v = value_and_prox!(out, c, xs, γ)
       @test v == vd && Vector(out) == yd
+      @test !Base.has_offset_axes(out) && PB._elastic_value_route(c.f.f, out)
       @test isapprox(v, Float64(elastic_conjugate_reference(0.25, 0.7, [1.0, 2.0, 0.0, 0.5, 3.0], yd)); rtol = 1e-13)
       alias = copy(xs)
       @test value_and_prox!(alias, c, alias, γ) == vd
@@ -432,6 +433,7 @@ a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
       S = SymmetricSparseIterate(3)
       v = value_and_prox!(S, c, M, γ)
       @test v == vd && Matrix(S) == Yd
+      @test !Base.has_offset_axes(S) && PB._elastic_value_route(c.f.f, S)
       @test Yd == Yd'
       @test isapprox(v, Float64(elastic_conjugate_reference(λ1, λ2, w, Yd)); rtol = 1e-13)
       alias = SymmetricSparseIterate(M)
@@ -440,33 +442,59 @@ a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
     end
   end
 
-  @testset "destinations whose indices do not start at one" begin
-    for off in (-1, 4)
-      for (λ2, expected, ys) in ((0.5, 2.0, [2.0, -2.0]), (0.0, 0.0, [1.0, -1.0]))
-        c = Constrained(Conjugate(ElasticNet(1.0, λ2)), IndBox(-2.0, 2.0))
-        xo = OffsetVec([5.0, -5.0], off)
-        y = OffsetVec([-77.0, -77.0], off)
-        @test prox!(OffsetVec(zeros(2), off), c, xo, 0.5).data == ys
-        @test value_and_prox!(y, c, xo, 0.5) === expected
-        @test y.data == ys
-        # weights read with the same indices as y, and a value that depends on them
-        wo = OffsetVec([1.0, 3.0], off)
-        cw = Constrained(Conjugate(ElasticNet(1.0, λ2, wo)), IndBox(-2.0, 2.0))
-        y = OffsetVec([-77.0, -77.0], off)
-        v = value_and_prox!(y, cw, xo, 0.5)
-        # levels 1 and 3: the first entry has the residual 1, the second none
-        @test v === (λ2 > 0 ? 1.0 : 0.0)
-        @test y.data == (λ2 > 0 ? [2.0, -2.0] : [1.0, -2.0])
-        # in place
-        z = OffsetVec([5.0, -5.0], off)
-        @test value_and_prox!(z, c, z, 0.5) === expected
-        @test z.data == ys
-      end
-      # weights with other indices than y are refused before writing, as for any other value that is not available
-      c = Constrained(Conjugate(ElasticNet(1.0, 0.5, [1.0, 3.0])), IndBox(-2.0, 2.0))
+  @testset "destinations and weights that do not start at one are refused before writing" begin
+    refused(f, args...) = try
+      f(args...)
+      false
+    catch e
+      e isa ArgumentError && occursin("is not implemented", e.msg)
+    end
+    for off in (-1, 4), λ2 in (0.5, 0.0)
+      c = Constrained(Conjugate(ElasticNet(1.0, λ2)), IndBox(-2.0, 2.0))
+      xo = OffsetVec([5.0, -5.0], off)
+      @test !Base.has_offset_axes([1.0]) && Base.has_offset_axes(xo)
+      # the proximal operator still works, as without the value
+      @test prox!(OffsetVec(zeros(2), off), c, xo, 0.5).data == (λ2 > 0 ? [2.0, -2.0] : [1.0, -1.0])
       y = OffsetVec([-77.0, -77.0], off)
-      @test_throws ArgumentError value_and_prox!(y, c, OffsetVec([5.0, -5.0], off), 0.5)
+      @test refused(value_and_prox!, y, c, xo, 0.5)
       @test y.data == [-77.0, -77.0]
+      @test_throws ArgumentError value_and_prox!(y, c, [5.0, -5.0], 0.5)
+      @test y.data == [-77.0, -77.0]
+      # in place
+      z = OffsetVec([5.0, -5.0], off)
+      @test refused(value_and_prox!, z, c, z, 0.5)
+      @test z.data == [5.0, -5.0]
+      # weights with one-based or with offset indices
+      for w in ([1.0, 3.0], OffsetVec([1.0, 3.0], off))
+        cw = Constrained(Conjugate(ElasticNet(1.0, λ2, w)), IndBox(-2.0, 2.0))
+        y = OffsetVec([-77.0, -77.0], off)
+        @test refused(value_and_prox!, y, cw, xo, 0.5)
+        @test y.data == [-77.0, -77.0]
+        w isa OffsetVec && @test refused(value_and_prox!, fill(-77.0, 2), cw, [5.0, -5.0], 0.5)
+      end
+      # a block after an earlier block
+      s = SeparableSum(SqrNormL2(2.0), c)
+      dest, point = ([7.0], y), ([3.0], xo)
+      before = (copy(dest[1]), copy(y.data))
+      @test refused(value_and_prox!, dest, s, point, 0.5)
+      @test dest[1] == before[1] && y.data == before[2]
+      @test point[1] == [3.0] && xo.data == [5.0, -5.0]
+    end
+    # an overflowing value: finite on a one-based destination, refused before writing on an offset one
+    for T in (Float64, Float32)
+      b = floatmax(T)
+      m = T(0.8) * b
+      box = IndBox(m, m)
+      c = Constrained(Conjugate(ElasticNet(T(0), b)), box)
+      y = zeros(T, 2)
+      v = value_and_prox!(y, c, zeros(T, 2), T(1))
+      @test y == [m, m]
+      @test v isa T && isapprox(v, T(BigFloat(m)^2 / BigFloat(b)); rtol = 1000 * eps(T))
+      for off in (-1, 4)
+        yo = OffsetVec(fill(T(-7), 2), off)
+        @test refused(value_and_prox!, yo, c, OffsetVec(zeros(T, 2), off), T(1))
+        @test yo.data == fill(T(-7), 2)
+      end
     end
   end
 

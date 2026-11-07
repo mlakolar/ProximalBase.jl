@@ -852,6 +852,29 @@ function smooth_cases!(cases, rep; quick=false)
             addgrad!(cases,"smooth",name,f,x; profile=T==Float64 && n==1024,
                      inputs=name in ("least_squares","huber") ? (; X, y) : (; X))
         end
+        # weighted GLMs of the other built-in losses (extended suite), with their own stream so
+        # that the cases above keep their data; the last two recompute weighted terms on every
+        # call: a logistic tail lifted by its weight, and exp(η) beyond the range before a tiny weight
+        if !quick
+            rngw = scenario_rng(rep,"smooth_weighted/$T/$n/$p")
+            yh = T.(2 .* rand(rngw,0:1,n) .- 1)
+            w = T(0.25) .+ T(2) .* rand(rngw,T,n)
+            far = T == Float32 ? T(100) : T(750)
+            tail = [i <= 4 ? far : zero(T) for i in 1:n]
+            tiny = [i <= 4 ? (T == Float32 ? T(1e-35) : T(1e-300)) : one(T) for i in 1:n]
+            yp = rand(rngw,0:3,n); wl = w .+ 1; ones_n, zeros_n = ones(T,n), zeros(T,n)
+            # the losses hold X and the arrays named after them in `inputs`
+            for (name,f,held) in (("squared_weighted",GLMLoss(ProximalBase.Squared(),y,X;weights=w),(; X, y, w)),
+                      ("poisson_weighted",PoissonLoss(yp,X;weights=w),(; X, yp, w)),
+                      ("huber_weighted",HuberLoss(y,X,T(0.5);weights=w),(; X, y, w)),
+                      ("squared_hinge_weighted",GLMLoss(ProximalBase.SquaredHinge(),yh,X;weights=w),(; X, yh, w)),
+                      ("smooth_check_weighted",GLMLoss(ProximalBase.SmoothCheck(T(0.3),T(0.5)),y,X;weights=w),(; X, y, w)),
+                      ("convolution_check_weighted",GLMLoss(ProximalBase.ConvolutionCheck(T(0.3),T(0.5)),y,X;weights=w),(; X, y, w)),
+                      ("logistic_tail_weighted",LogisticLoss(ones_n,X;weights=wl,offset=tail),(; X, ones_n, wl, tail)),
+                      ("poisson_far_tiny_weight",PoissonLoss(zeros_n,X;weights=tiny,offset=tail),(; X, zeros_n, tiny, tail)))
+                addgrad!(cases,"smooth",name,f,x; second=false, inputs=held)
+            end
+        end
         ls = LeastSquaresLoss(y,X)
         ref_lipschitz = opnorm(X)^2
         check_global_curvature!() = begin

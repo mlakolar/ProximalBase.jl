@@ -178,6 +178,7 @@ thorough = [
   "symmetric_writes",
   "testing",
   "value_overflow_data",
+  "value_overflow_glm",
   "value_overflow_fused",
   "value_overflow_sqrnorm",
   "weighted_overflow",

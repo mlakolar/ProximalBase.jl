@@ -2393,14 +2393,13 @@ function _mul_symmetric!(x::SymmetricSparseIterate, A, B, α, β)
 end
 
 LinearAlgebra.mul!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::AbstractMatrix{T}) where T = _mul_symsparse!(C, A, B)
-# resolves ambiguity with LinearAlgebra's mul!(::AbstractMatrix, ::AbstractMatrix, ::AbstractTriangular)
-LinearAlgebra.mul!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::LinearAlgebra.AbstractTriangular{T}) where T = _mul_symsparse!(C, A, B)
 
 function _mul_symsparse!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::AbstractMatrix{T}) where T
   _checkreal(A, C); _checkreal(A, B)
   size(A, 2) == size(B, 1) || throw(DimensionMismatch())
   size(A, 1) == size(C, 1) || throw(DimensionMismatch())
   size(B, 2) == size(C, 2) || throw(DimensionMismatch())
+  _checkalias(C, A, B)
 
   fill!(C, zero(T))
   i = 1
@@ -2457,8 +2456,9 @@ end
 
 # a' X b over the stored entries of X: the entry (A X B)[r, c] of symmetric A, B
 # is dot(view(A, :, r), X, view(B, :, c))
-function LinearAlgebra.dot(a::StridedVector, X::SymmetricSparseIterate, b::StridedVector)
+function LinearAlgebra.dot(a::AbstractVector, X::SymmetricSparseIterate, b::AbstractVector)
   _checkreal(X, a); _checkreal(X, b)
+  Base.require_one_based_indexing(a, b)
   length(a) == X.p == length(b) || throw(DimensionMismatch())
   s = zero(promote_type(eltype(a), eltype(X), eltype(b)))
   @inbounds for k = 1:X.nnz
@@ -2470,8 +2470,9 @@ function LinearAlgebra.dot(a::StridedVector, X::SymmetricSparseIterate, b::Strid
 end
 
 # the trace inner product tr(A'X) over the stored entries of X
-function LinearAlgebra.dot(A::StridedMatrix, X::SymmetricSparseIterate)
+function LinearAlgebra.dot(A::AbstractMatrix, X::SymmetricSparseIterate)
   _checkreal(X, A)
+  Base.require_one_based_indexing(A)
   size(A) == size(X) || throw(DimensionMismatch())
   s = zero(promote_type(eltype(A), eltype(X)))
   @inbounds for k = 1:X.nnz
@@ -2481,7 +2482,7 @@ function LinearAlgebra.dot(A::StridedMatrix, X::SymmetricSparseIterate)
   end
   s
 end
-LinearAlgebra.dot(X::SymmetricSparseIterate, A::StridedMatrix) = dot(A, X)
+LinearAlgebra.dot(X::SymmetricSparseIterate, A::AbstractMatrix) = dot(A, X)
 
 # the 1-norm counts off-diagonal entries twice; the infinity norm needs them once
 function LinearAlgebra.norm(x::SymmetricSparseIterate, p::Real = 2)
@@ -2528,15 +2529,16 @@ function *(A::Symmetric{T}, X::SymmetricSparseIterate{T}, B::Symmetric{T}) where
 end
 
 
+# the other element types: the stored-entry kernel of the five-argument product
 function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate, B::AbstractMatrix)
   _checkreal(A, C); _checkreal(A, B)
-  invoke(mul!, Tuple{AbstractMatrix, AbstractMatrix, AbstractMatrix}, C, A, B)
-end
-function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate, B::LinearAlgebra.AbstractTriangular)
-  _checkreal(A, C); _checkreal(A, B)
-  invoke(mul!, Tuple{AbstractMatrix, AbstractMatrix, LinearAlgebra.AbstractTriangular}, C, A, B)
+  _mul_stored!(C, A, B, true, false)
 end
 function LinearAlgebra.mul!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector, α::Number, β::Number)
+  _checkreal(A, C); _checkreal(A, B); _checkreal(A, α); _checkreal(A, β)
+  _mul_stored!(C, A, B, α, β)
+end
+function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate, B::AbstractMatrix, α::Number, β::Number)
   _checkreal(A, C); _checkreal(A, B); _checkreal(A, α); _checkreal(A, β)
   _mul_stored!(C, A, B, α, β)
 end
@@ -2560,20 +2562,57 @@ function _mul_stored!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractV
   end
   C
 end
-function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate, B::AbstractMatrix, α::Number, β::Number)
-  _checkreal(A, C); _checkreal(A, B); _checkreal(A, α); _checkreal(A, β)
-  invoke(mul!, Tuple{AbstractMatrix, AbstractMatrix, AbstractMatrix, Number, Number}, C, A, B, α, β)
+function _mul_stored!(C::AbstractMatrix, A::SymmetricSparseIterate, B::AbstractMatrix, α::Number, β::Number)
+  p = A.p
+  Base.require_one_based_indexing(C, B)
+  size(B, 1) == p || throw(DimensionMismatch("A has $p columns but B has $(size(B, 1)) rows"))
+  size(C, 1) == p || throw(DimensionMismatch("A has $p rows but C has $(size(C, 1))"))
+  size(C, 2) == size(B, 2) || throw(DimensionMismatch("B has $(size(B, 2)) columns but C has $(size(C, 2))"))
+  _checkalias(C, A, B)
+  iszero(β) ? fill!(C, zero(eltype(C))) : isone(β) || rmul!(C, β)
+  iszero(α) && return C
+  n = size(C, 2)
+  @inbounds for k in 1:A.nnz
+    r, c = tril_cartesian(p, A.nzval2ind[k])
+    v = α * A.nzval[k]
+    for j in 1:n
+      C[r, j] += B[c, j] * v
+      r == c || (C[c, j] += B[r, j] * v)
+    end
+  end
+  C
 end
-function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate, B::LinearAlgebra.AbstractTriangular, α::Number, β::Number)
-  _checkreal(A, C); _checkreal(A, B); _checkreal(A, α); _checkreal(A, β)
-  invoke(mul!, Tuple{AbstractMatrix, AbstractMatrix, LinearAlgebra.AbstractTriangular, Number, Number}, C, A, B, α, β)
+
+# the allocating products: the type of the sum of the products, as for a matrix
+_product_eltype(::Type{Ta}, ::Type{Tb}) where {Ta, Tb} =
+  (T = Base.promote_op(*, Ta, Tb); Base.promote_op(+, T, T))
+function Base.:*(A::SymmetricSparseIterate, x::AbstractVector)
+  _checkreal(A, x)
+  mul!(Vector{_product_eltype(eltype(A), eltype(x))}(undef, A.p), A, x)
 end
-function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate,
-                            B::Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal}, α::Number, β::Number)
-  _checkreal(A, C); _checkreal(A, B); _checkreal(A, α); _checkreal(A, β)
-  invoke(mul!, Tuple{AbstractMatrix, AbstractMatrix, Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal}, Number, Number},
-         C, A, B, α, β)
+function Base.:*(A::SymmetricSparseIterate, B::AbstractMatrix)
+  _checkreal(A, B)
+  mul!(Matrix{_product_eltype(eltype(A), eltype(B))}(undef, A.p, size(B, 2)), A, B)
 end
+
+# norm_diff(A, B, p) of the matrices that the arguments represent: both triangles of an owner
+norm_diff(A::SymmetricSparseIterate, B::SymmetricSparseIterate, p::Real = 2) =
+  norm_diff(matrixview(A), matrixview(B), p)
+norm_diff(A::SymmetricSparseIterate, B::AbstractArray, p::Real = 2) = norm_diff(matrixview(A), B, p)
+norm_diff(A::AbstractArray, B::SymmetricSparseIterate, p::Real = 2) = norm_diff(A, matrixview(B), p)
+
+# Mixed real operands keep LinearAlgebra's multiplication order.
+function *(A::Symmetric, X::SparseIterate{<:Any, 2}, B::Symmetric)
+  _checkreal(X, A); _checkreal(X, B)
+  invoke(*, Tuple{AbstractMatrix, AbstractMatrix, AbstractMatrix}, A, X, B)
+end
+# an owner of another element type than the factors: the dense product of the matrix it represents
+function *(A::Symmetric, X::SymmetricSparseIterate, B::Symmetric)
+  _checkreal(X, A); _checkreal(X, B)
+  size(A, 2) == X.p == size(B, 1) || throw(DimensionMismatch())
+  (A * Matrix(X)) * B
+end
+
 LinearAlgebra.mul!(C::SymmetricSparseIterate, A::SymmetricSparseIterate, B::AbstractMatrix, α::Number, β::Number) =
   _mul_symmetric!(C, A, B, α, β)
 LinearAlgebra.mul!(C::SymmetricSparseIterate, A::SymmetricSparseIterate, B::LinearAlgebra.AbstractTriangular, α::Number, β::Number) =
@@ -2582,12 +2621,6 @@ LinearAlgebra.mul!(C::SymmetricSparseIterate, A::SymmetricSparseIterate, B::Abst
   _mul_symmetric!(C, A, B, true, false)
 LinearAlgebra.mul!(C::SymmetricSparseIterate, A::SymmetricSparseIterate, B::LinearAlgebra.AbstractTriangular) =
   _mul_symmetric!(C, A, B, true, false)
-
-# Mixed real operands keep LinearAlgebra's multiplication order.
-function *(A::Symmetric, X::Union{SparseIterate{<:Any, 2}, SymmetricSparseIterate}, B::Symmetric)
-  _checkreal(X, A); _checkreal(X, B)
-  invoke(*, Tuple{AbstractMatrix, AbstractMatrix, AbstractMatrix}, A, X, B)
-end
 
 LinearAlgebra.mul!(C::SymmetricSparseIterate, A::SymmetricSparseIterate,
                   B::Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal}, α::Number, β::Number) =

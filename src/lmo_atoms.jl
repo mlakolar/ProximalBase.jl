@@ -181,7 +181,10 @@ bound on `f(x) - f*`. Only the default path gives the oracle's answer up to the 
 decomposition.
 
 Construct one set object per task: the full path caches its workspace in the set, as `prox!`
-does. The Krylov path allocates local arrays only, `(m + n)` times the number of steps.
+does, and the workspace stays allocated with the set. A Krylov call that converges, or any call with
+`fallback = false`, allocates local arrays only, of order `(m + n)` times `maxiter` (allocated for the
+limit, and eligible for garbage collection after the return); with `fallback = true` a call that does
+not converge runs the full decomposition, which caches its workspace in the set.
 """
 function lmo_atom(C::AbstractFunction, g::AbstractArray; kwargs...)
   haslmo(C) || _lmo_unsupported(C)
@@ -720,8 +723,10 @@ end
 #  conjugate values, the support functions
 ####################################
 
-# The domain is the finite matrices, as for the value of Spectral and SingularValue: a non-finite entry
-# gives Inf. The conjugate of f ∘ λ is f* ∘ λ (Lewis, 1996) on the symmetric matrices, where F is finite, so
+# The domain is the finite matrices, as for the value of Spectral and SingularValue: an infinite entry gives
+# Inf, and a NaN entry gives NaN (E2), which takes precedence over an infinite entry elsewhere, as for the
+# conjugate of SingularValue. The entries are those of the logical triangle of a Symmetric or Hermitian
+# wrapper (the scan _max_abs is over the stored triangle only). The conjugate of f ∘ λ is f* ∘ λ (Lewis, 1996) on the symmetric matrices, where F is finite, so
 # F*(Y) = F*((Y + Yᵀ)/2): the values are those of the eigenvalues of the symmetric part of Y.
 # r λ_max for the density matrices, r max(λ_max, 0) for the PSD matrices of trace at most r, and the
 # sum of the k largest eigenvalues for the Fantope, without an atom or a dense matrix.
@@ -749,7 +754,8 @@ function _conjugate_value(s::Union{_Spectrahedron, _Fantope}, Y::AbstractMatrix)
   end
   _is_device_array(Y) && throw(ArgumentError("the conjugate value of $(nameof(typeof(s))) does not support device arrays"))
   mx = _max_abs(Y, T)
-  isfinite(mx) || return T(Inf)
+  isnan(mx) && return T(NaN)        # E2: _max_abs returns NaN when any logical entry is NaN
+  isinf(mx) && return T(Inf)
   iszero(mx) && return zero(T)
   e = _scale_exponent(mx)
   ws = _eig_workspace(s.eig, T, n)

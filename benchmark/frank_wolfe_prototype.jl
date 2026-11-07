@@ -43,6 +43,27 @@ seed = length(ARGS) >= 7 ? parse(Int, ARGS[7]) : 145
 budget = length(ARGS) >= 8 ? parse(Float64, ARGS[8]) : 600.0
 gapcheck_only = length(ARGS) >= 9 && ARGS[9] == "gapcheck"   # only the approximate-versus-exact gap rows, no timed run
 const HEADER = "m,n,rank,obs,seed,rep,method,criterion,tol,time_s,iterations,atoms_or_rank,state_bytes,dense_bytes,reference_residual,value,note"
+# One writer for every row of the comma separated file (no quoting): a field never contains a comma or a line break
+# (free text is sanitized), and a row has as many fields as the header, checked when the row is built and again, as
+# the number of commas, before every write. A file is written atomically (a temporary file, then a rename).
+const NCOLS = count(==(','), HEADER) + 1
+csvfield(x) = replace(string(x), r"[,\r\n]" => ";")
+function csvrow(fields...)
+  length(fields) == NCOLS || error("a row has $(length(fields)) fields, the header has $NCOLS: $(first(fields, 6))")
+  join(map(csvfield, fields), ",")
+end
+function write_csv(path, lines)
+  bad = [r for r in lines if count(==(','), r) != NCOLS - 1]
+  isempty(bad) || error("$(length(bad)) rows do not have $NCOLS fields, first: $(first(bad))")
+  tmp = path * ".tmp"
+  open(tmp, "w") do io
+    foreach(r -> println(io, r), lines)
+  end
+  mv(tmp, path; force = true)
+end
+# test hook for the failure-path smoke test (benchmark/csv_failure_smoke.jl): a small step limit makes the Krylov oracle
+# fail to converge; the default is the default of lmo_atom, which the measurements use
+const KRYLOV_KW = haskey(ENV, "FW_BENCH_KRYLOV_MAXITER") ? (; maxiter = parse(Int, ENV["FW_BENCH_KRYLOV_MAXITER"])) : (;)
 const REF_RESIDUAL_MAX = 1e-8                           # acceptance of the reference solution: relative proximal-gradient residual
 tols = (1e-2, 1e-3, 1e-4)
 
@@ -119,11 +140,8 @@ let g = NuclearNorm(λ; partial = true), V = copy(Xλ), Z = similar(Xλ)
 end
 @printf("reference residual ‖X − prox(X − ∇f)‖/‖X‖ = %.2e (acceptance threshold %.0e)\n", ref_residual, REF_RESIDUAL_MAX)
 if !(ref_residual <= REF_RESIDUAL_MAX)                   # a reference that is not a solution makes every f* and δ meaningless
-  open(out, "w") do io
-    println(io, HEADER)
-    println(io, join((m, n, rnk, nobs, seed, 0, "reference", "proximal_gradient_residual", 0, "NaN", 0, 0, 0, 8 * m * n,
-                      @sprintf("%.3e", ref_residual), "NaN", "REJECTED: residual above $REF_RESIDUAL_MAX; no timing was done"), ","))
-  end
+  write_csv(out, [HEADER, csvrow(m, n, rnk, nobs, seed, 0, "reference", "proximal_gradient_residual", 0, "NaN", 0, 0, 0, 8 * m * n,
+                                 @sprintf("%.3e", ref_residual), "NaN", "REJECTED: residual above $REF_RESIDUAL_MAX; no timing was done")])
   error("the reference solution of the penalized problem is not accurate enough (residual $ref_residual > $REF_RESIDUAL_MAX)")
 end
 @printf("m=%d n=%d rank=%d obs=%d  λ=%.4g δ=‖X_λ‖_*=%.4g  rank(X_λ)=%d  f*=%.6g f(0)=%.6g\n", m, n, rnk, nobs, λ, δ,
@@ -147,7 +165,7 @@ function frank_wolfe(; method, maxiter, tol, exactgap = false, budget = Inf)
       @. R = Xo - y                                    # the gradient is P_Ω(X) − y on the pattern
       copyto!(Gk.nzval, R)
       a = try                                          # S = −δ u vᵀ, two vectors; no dense fallback behind a Krylov call
-        method === :krylov ? lmo_atom(C, Gk; method, fallback = false) : lmo_atom(C, Gk; method)
+        method === :krylov ? lmo_atom(C, Gk; method, fallback = false, KRYLOV_KW...) : lmo_atom(C, Gk; method)
       catch ex
         ex isa ErrorException || rethrow()
         fail_at = k + 1
@@ -204,11 +222,11 @@ fista(λ; maxiter = 2)
 fista(λ; maxiter = 2, target = -Inf, f0F0 = 0.0)
 
 rows = [HEADER]
-push!(rows, join((m, n, rnk, nobs, seed, 0, "reference", "proximal_gradient_residual", 0, "NaN", 0, 0, 0, 8 * m * n,
-                  @sprintf("%.3e", ref_residual), @sprintf("%.3e", ref_residual), "accepted: residual <= $REF_RESIDUAL_MAX"), ","))
+push!(rows, csvrow(m, n, rnk, nobs, seed, 0, "reference", "proximal_gradient_residual", 0, "NaN", 0, 0, 0, 8 * m * n,
+                   @sprintf("%.3e", ref_residual), @sprintf("%.3e", ref_residual), "accepted: residual <= $REF_RESIDUAL_MAX"))
 times = Dict{Tuple{String, Float64}, Vector{Float64}}()
 row(rep, method, crit, t, tm, it, atoms, bytes; value = "", note = "") =
-  push!(rows, join((m, n, rnk, nobs, seed, rep, method, crit, t, tm, it, atoms, bytes, 8 * m * n, @sprintf("%.3e", ref_residual), value, note), ","))
+  push!(rows, csvrow(m, n, rnk, nobs, seed, rep, method, crit, t, tm, it, atoms, bytes, 8 * m * n, @sprintf("%.3e", ref_residual), value, note))
 function record_fw(rep, method, res, bytes, fail_at)
   note = fail_at == 0 ? "" : "oracle did not converge at iteration $fail_at (fallback = false): run stopped, later tolerances censored"
   for t in tols
@@ -234,9 +252,7 @@ function paired_report()
   end
   flush(stdout)
 end
-write_rows() = open(out, "w") do io
-  foreach(r -> println(io, r), rows)
-end
+write_rows() = write_csv(out, rows)
 for rep in 1:(gapcheck_only ? 0 : reps)
   # interleaved within a repetition: FW with the Krylov oracle, FW with the full oracle, the comparator
   res, _, bytes, fail = frank_wolfe(; method = :krylov, maxiter = 5_000, tol = 0.0, budget)

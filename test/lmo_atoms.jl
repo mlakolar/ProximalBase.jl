@@ -645,3 +645,54 @@ end
 end
 
 end
+
+@testset "review round 3: NaN and Inf in the support values of the spectral sets (E2)" begin
+  # a NaN entry of the logical matrix gives NaN, which takes precedence over an infinite entry elsewhere; an infinite
+  # entry alone gives Inf; an entry of the unused triangle of a Symmetric or Hermitian wrapper has no influence
+  n = 4
+  for T in (Float32, Float64)
+    tol = T == Float32 ? 1e-4 : 1e-10
+    A = randn(Xoshiro(11), T, n, n); S = (A + A') / 2
+    λ = eigvals(Symmetric(S))
+    sets = ((Spectral(IndSimplex(T(2))), r -> 2 * λ[end]),
+            (Spectral(IndSimplex(T(2); equality = false)), r -> 2 * max(λ[end], 0)),
+            (Fantope(1), r -> λ[end]), (Fantope(2), r -> λ[end] + λ[end - 1]))
+    for (set, ref) in sets
+      @test abs(Conjugate(set)(S) - ref(nothing)) <= tol * max(1, abs(ref(nothing)))
+      for (i, j) in ((2, 1), (1, 2), (3, 3))
+        Y = copy(S); Y[i, j] = T(NaN)
+        @test isnan(Conjugate(set)(Y))
+        Y[4, 4] = T(Inf)                                              # NaN beats Inf
+        @test isnan(Conjugate(set)(Y))
+        Y = copy(S); Y[i, j] = T(-Inf)
+        @test Conjugate(set)(Y) == T(Inf)                              # an infinite entry alone: Inf
+      end
+      @test Conjugate(set)(fill(T(Inf), n, n)) == T(Inf)
+      @test isnan(Conjugate(set)(fill(T(NaN), n, n)))
+      for wrapper in (Symmetric, Hermitian), uplo in (:U, :L)
+        logical = uplo == :U ? (1, 2) : (2, 1)
+        hidden = uplo == :U ? (2, 1) : (1, 2)
+        for parent_of in (identity, sparse)
+          P = copy(S); P[logical...] = T(NaN)
+          @test isnan(Conjugate(set)(wrapper(parent_of(P), uplo)))
+          P[3, 3] = T(Inf)
+          @test isnan(Conjugate(set)(wrapper(parent_of(P), uplo)))     # logical NaN and logical Inf
+          P = copy(S); P[3, 3] = T(Inf)
+          @test Conjugate(set)(wrapper(parent_of(P), uplo)) == T(Inf)
+          for h in (T(NaN), T(Inf), -T(Inf))                            # hidden entries are not read
+            P = copy(S); P[hidden...] = h
+            Ref = Matrix(wrapper(S, uplo))
+            v = Conjugate(set)(wrapper(parent_of(P), uplo))
+            λw = eigvals(Symmetric(Ref))
+            expected = set === sets[1][1] ? 2 * λw[end] : set === sets[2][1] ? 2 * max(λw[end], 0) :
+                       set === sets[3][1] ? λw[end] : λw[end] + λw[end - 1]
+            @test isfinite(v) && abs(v - expected) <= tol * max(1, abs(expected))
+          end
+        end
+      end
+    end
+    # the input-independent cases keep their short-circuits (nothing is read)
+    @test Conjugate(Spectral(IndSimplex(zero(T))))(fill(T(NaN), n, n)) == 0
+    @test Conjugate(Fantope(0))(fill(T(NaN), n, n)) == 0
+  end
+end

@@ -1,6 +1,6 @@
 # Benchmarks of the atoms of the linear minimization oracles (issue #518).
 #
-#   julia --project=benchmark benchmark/lmo_atoms.jl <label> <out.csv> [quick|standard|large|memgate]
+#   julia --project=benchmark benchmark/lmo_atoms.jl <label> <out.csv> [smoke|quick|standard|large|memgate]
 #
 # Correctness references (full svd/eigen) are computed outside the timed regions. Each case is
 # called once before it is timed (that first call is also recorded, with its compilation, as
@@ -27,17 +27,42 @@ using ProximalBase, BenchmarkTools, Random, LinearAlgebra, SparseArrays, Printf
 BLAS.set_num_threads(1)           # one thread, recorded in every row's `note`
 label, out = ARGS[1], ARGS[2]
 suite = length(ARGS) >= 3 ? ARGS[3] : "standard"
-BenchmarkTools.DEFAULT_PARAMETERS.seconds = suite == "quick" ? 0.2 : 1.0
+BenchmarkTools.DEFAULT_PARAMETERS.seconds = suite == "smoke" ? 0.05 : suite == "quick" ? 0.2 : 1.0
 BenchmarkTools.DEFAULT_PARAMETERS.samples = 10_000
 
 rows = String[]
 header = "label,family,case,method,T,shape,median_ms,min_ms,allocs,bytes,atom_bytes,retained_bytes,maxrss_mb,first_call_s_cold_only_for_first_case,steps,fallback,converged,rel_obj_err,note"
 
+# One writer for every row. The file is comma separated without quoting, so a field never contains a comma or a
+# line break (free text is sanitized, not quoted), and a row has exactly as many fields as the header: both are
+# checked when the row is built and again, as the number of commas, before every write.
+const NCOLS = count(==(','), header) + 1
+csvfield(x) = replace(string(x), r"[,\r\n]" => ";")
+function push_row!(fields...)
+  length(fields) == NCOLS || error("a row has $(length(fields)) fields, the header has $NCOLS: $(first(fields, 6))")
+  push!(rows, join(map(csvfield, fields), ","))
+end
+# The rows collected so far are written atomically (a temporary file, then a rename), after every case, so that a
+# later failure leaves the earlier results on disk.
+function write_rows()
+  bad = [r for r in rows if count(==(','), r) != NCOLS - 1]
+  isempty(bad) || error("$(length(bad)) rows do not have $NCOLS fields, first: $(first(bad))")
+  tmp = out * ".tmp"
+  open(tmp, "w") do io
+    println(io, header)
+    foreach(r -> println(io, r), rows)
+  end
+  mv(tmp, out; force = true)
+end
+# test hook for the failure-path smoke test (benchmark/csv_failure_smoke.jl): a small step limit makes every Krylov call
+# fail to converge; the default is the limit used by the measurements
+const KRYLOV_MAXITER = parse(Int, get(ENV, "LMO_BENCH_KRYLOV_MAXITER", "150"))
+
 function record!(family, case, method, T, shape, t; first = NaN, steps = "", fallback = "", converged = "", atom_bytes = "", retained = "", err = NaN, note = "")
   note = replace(string(note, note == "" ? "" : "; ", "blas=", BLAS.get_num_threads(), " julia=", Threads.nthreads()), "," => ";")   # the CSV has no quoting
-  push!(rows, join((label, family, case, method, T, shape, @sprintf("%.4f", median(t).time / 1e6),
-                    @sprintf("%.4f", minimum(t).time / 1e6), t.allocs, t.memory, atom_bytes, retained, @sprintf("%.1f", Sys.maxrss() / 2^20), @sprintf("%.3f", first),
-                    steps, fallback, converged, @sprintf("%.2e", err), note), ","))
+  push_row!(label, family, case, method, T, shape, @sprintf("%.4f", median(t).time / 1e6),
+           @sprintf("%.4f", minimum(t).time / 1e6), t.allocs, t.memory, atom_bytes, retained, @sprintf("%.1f", Sys.maxrss() / 2^20), @sprintf("%.3f", first),
+           steps, fallback, converged, @sprintf("%.2e", err), note)
   @printf("%-10s %-22s %-8s %-8s %-12s %10.3f ms %8d allocs %12d B  err %.1e %s\n",
           family, case, method, T, shape, median(t).time / 1e6, t.allocs, t.memory, err, note)
 end
@@ -52,7 +77,7 @@ end
 σmax(G) = svdvals(Matrix(G))[1]
 
 # ---- vertex atoms ------------------------------------------------------------------------
-for T in (Float64, Float32), n in (suite == "memgate" ? Int[] : [1_000, 1_000_000])
+for T in (Float64, Float32), n in (suite == "memgate" ? Int[] : suite == "smoke" ? [100] : [1_000, 1_000_000])
   g = randn(Xoshiro(1), T, n)
   s = zeros(T, n)
   for (name, C) in (("simplex", IndSimplex(T(1))), ("l1ball", IndBallL1(T(1))))
@@ -61,6 +86,7 @@ for T in (Float64, Float32), n in (suite == "memgate" ? Int[] : [1_000, 1_000_00
     t, f1 = measure(() -> lmo_atom(C, g))
     record!("vertex", name, "atom", T, "n=$n", t; first = f1, atom_bytes = string(Base.summarysize(lmo_atom(C, g))))
   end
+  write_rows()
 end
 
 # ---- matrix families -----------------------------------------------------------------------
@@ -82,7 +108,7 @@ function nuclear_case(family, name, G, r; methods, T = Float64, reference = true
     f = if method === :full
       () -> lmo_atom(C, G)
     elseif method === :krylov
-      () -> lmo_atom(C, G; method = :krylov, rtol = sqrt(eps(T)), maxiter = 150, fallback = false)
+      () -> lmo_atom(C, G; method = :krylov, rtol = sqrt(eps(T)), maxiter = KRYLOV_MAXITER, fallback = false)
     elseif method === :partial        # the existing randomized subspace iteration of #45 on a dense copy;
       P = IndBallRank(1; partial = true)   # warm: the same input again, so the stored block is accepted at once
       Y = zeros(T, size(G))
@@ -101,8 +127,8 @@ function nuclear_case(family, name, G, r; methods, T = Float64, reference = true
         false
       end
       if !converged
-        push!(rows, join((label, family, name, "krylov", T, shape, "", "", "", "", "", "", "", "", "", "disabled", "false", "",
-                          "did not reach rtol within maxiter = 150 with fallback = false: not timed, no dense fallback used; blas=$(BLAS.get_num_threads())"), ","))
+        push_row!(label, family, name, "krylov", T, shape, "", "", "", "", "", "", "", "", "", "disabled", "false", "",
+                  "did not reach rtol within maxiter = $KRYLOV_MAXITER with fallback = false: not timed, no dense fallback used; blas=$(BLAS.get_num_threads())")
         @printf("%-10s %-22s krylov   %s: NOT CONVERGED (fallback = false)\n", family, name, shape)
         continue
       end
@@ -112,10 +138,10 @@ function nuclear_case(family, name, G, r; methods, T = Float64, reference = true
     retained = method in (:partial, :partialcold) ? "" : string(Base.summarysize(C))
     method === :partial && (retained = string(Base.summarysize(P)))
     if method === :krylov
-      a = lmo_atom(C, G; method = :krylov, rtol = sqrt(eps(T)), maxiter = 150, fallback = false)
+      a = lmo_atom(C, G; method = :krylov, rtol = sqrt(eps(T)), maxiter = KRYLOV_MAXITER, fallback = false)
       err = reference ? abs(dot(G, a) + r * ref) / (r * ref) : NaN
       e = ProximalBase._scale_exponent(ProximalBase._max_abs(G, T))
-      _, _, _, _, st, ok = ProximalBase._gkl_top(G, T, e, sqrt(eps(T)), 150)
+      _, _, _, _, st, ok = ProximalBase._gkl_top(G, T, e, sqrt(eps(T)), KRYLOV_MAXITER)
       steps, fb, conv, abytes = string(st), "disabled", string(ok), string(Base.summarysize(a))
     elseif method === :full
       a = lmo_atom(C, G)
@@ -125,14 +151,15 @@ function nuclear_case(family, name, G, r; methods, T = Float64, reference = true
     record!(method in (:partial, :partialcold) ? "projection-baseline" : family, name, string(method), T, shape, t; first = f1, steps, fallback = fb, converged = conv, atom_bytes = abytes, retained, err,
             note = method in (:partial, :partialcold) ? "rank-1 projection of #45, not an LMO; dense copy made outside the timing; warm = same input again" : (G isa SparseMatrixCSC && method === :full ? "includes densification" : ""))
   end
+  write_rows()
 end
 
-sizes = suite == "memgate" ? Tuple{Int,Int}[] : suite == "quick" ? [(100, 100), (500, 500)] : [(100, 100), (500, 500), (1000, 1000), (2000, 500)]
+sizes = suite == "memgate" ? Tuple{Int,Int}[] : suite == "smoke" ? [(60, 60)] : suite == "quick" ? [(100, 100), (500, 500)] : [(100, 100), (500, 500), (1000, 1000), (2000, 500)]
 for T in (Float64, Float32), (m, n) in sizes
   G = randn(Xoshiro(2), T, m, n)
   nuclear_case("nuclear-dense", "gaussian", G, 2.0; methods = (:full, :krylov, :partial, :partialcold), T)
 end
-for (m, n, p) in (suite == "memgate" ? Tuple{Int,Int,Float64}[] : suite == "quick" ? [(2000, 2000, 0.01)] : [(2000, 2000, 0.01), (3000, 1000, 0.02)])
+for (m, n, p) in (suite == "memgate" ? Tuple{Int,Int,Float64}[] : suite == "smoke" ? [(300, 300, 0.05)] : suite == "quick" ? [(2000, 2000, 0.01)] : [(2000, 2000, 0.01), (3000, 1000, 0.02)])
   Gs = completion_gradient(Xoshiro(3), m, n, p)
   nuclear_case("nuclear-sparse", "completion", Gs, 10.0; methods = (:full, :krylov, :partial, :partialcold))
   Gr = sprandn(Xoshiro(4), m, n, p)
@@ -147,17 +174,33 @@ if suite in ("large", "memgate")
 end
 
 # ---- spectral sets ---------------------------------------------------------------------------
-for T in (Float64, Float32), n in (suite == "memgate" ? Int[] : suite == "quick" ? [100, 500] : [100, 500, 1000])
+for T in (Float64, Float32), n in (suite == "memgate" ? Int[] : suite == "smoke" ? [40] : suite == "quick" ? [100, 500] : [100, 500, 1000])
   A = randn(Xoshiro(6), T, n, n); A = (A + A') / 2
   λ = eigvals(Symmetric(A))
-  D = Spectral(IndSimplex(T(1)))
+  D = Spectral(IndSimplex(T(1)))        # for the dense oracle and the support value below
   for method in (:full, :krylov)
-    f = () -> lmo_atom(D, A; method)
+    Dm = Spectral(IndSimplex(T(1)))     # one set object per method: `retained_bytes` is that method's own workspace
+    f = method === :krylov ? () -> lmo_atom(Dm, A; method, fallback = false) : () -> lmo_atom(Dm, A; method)
+    if method === :krylov                # fallback = false: a call that does not converge is reported, not densified
+      converged = try
+        f(); true
+      catch ex
+        ex isa ErrorException || rethrow()
+        false
+      end
+      if !converged
+        push_row!(label, "density", "gaussian", "krylov", T, "n=$n", "", "", "", "", "", "", "", "", "", "disabled", "false", "",
+                  "did not converge with fallback = false: not timed, no dense fallback used; blas=$(BLAS.get_num_threads())")
+        @printf("%-10s %-22s krylov   n=%d: NOT CONVERGED (fallback = false)\n", "density", "gaussian", n)
+        continue
+      end
+    end
     t, f1 = measure(f)
-    a = lmo_atom(D, A; method)
-    record!("density", "gaussian", string(method), T, "n=$n", t; first = f1, atom_bytes = string(Base.summarysize(a)), retained = string(Base.summarysize(D)), err = abs(dot(A, a) - λ[1]) / abs(λ[1]),
-            fallback = method === :krylov ? "enabled" : "", note = method === :krylov ? "dense input: fallback = true, whether it was used is not recorded" : "")
+    a = f()
+    record!("density", "gaussian", string(method), T, "n=$n", t; first = f1, atom_bytes = string(Base.summarysize(a)), retained = string(Base.summarysize(Dm)), err = abs(dot(A, a) - λ[1]) / abs(λ[1]),
+            fallback = method === :krylov ? "disabled" : "", converged = method === :krylov ? "true" : "")
   end
+  write_rows()
   for k in (1, 5, 20, n ÷ 2, n - 1)
     F = Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, k)))
     f = () -> lmo_atom(F, A)
@@ -176,17 +219,24 @@ for T in (Float64, Float32), n in (suite == "memgate" ? Int[] : suite == "quick"
 end
 
 # ---- storage ----------------------------------------------------------------------------------
-for n in (1_000, 10_000)
+for n in (suite == "smoke" ? (200, 400) : (1_000, 10_000))
   G = completion_gradient(Xoshiro(7), n, n, 0.002)
-  a = lmo_atom(SingularValue(IndBallL1(1.0)), G; method = :krylov, fallback = false)
-  push!(rows, join((label, "storage", "nuclear atom", "krylov", "Float64", "$(n)x$n", "", "", "", "", Base.summarysize(a), "", @sprintf("%.1f", Sys.maxrss() / 2^20), "", "", "disabled", "", "",
-                    "atom size only (atom_bytes); the Julia heap bytes allocated by a call are in the bytes column of the timing rows (not a peak; native workspace not counted); dense matrix would be $(8n * n) B"), ","))
-  @printf("storage: %dx%d atom %d B, dense %d B\n", n, n, Base.summarysize(a), 8n * n)
+  a = try
+    lmo_atom(SingularValue(IndBallL1(1.0)), G; method = :krylov, maxiter = KRYLOV_MAXITER, fallback = false)
+  catch ex
+    ex isa ErrorException || rethrow()
+    nothing
+  end
+  if a === nothing
+    push_row!(label, "storage", "nuclear atom", "krylov", "Float64", "$(n)x$n", "", "", "", "", "", "", @sprintf("%.1f", Sys.maxrss() / 2^20), "", "", "disabled", "false", "",
+              "did not converge with fallback = false: no atom; dense matrix would be $(8n * n) B")
+    @printf("storage: %dx%d NOT CONVERGED (fallback = false)\n", n, n)
+  else
+    push_row!(label, "storage", "nuclear atom", "krylov", "Float64", "$(n)x$n", "", "", "", "", Base.summarysize(a), "", @sprintf("%.1f", Sys.maxrss() / 2^20), "", "", "disabled", "true", "",
+              "atom size only (atom_bytes); the Julia heap bytes allocated by a call are in the bytes column of the timing rows (not a peak; native workspace not counted); dense matrix would be $(8n * n) B")
+    @printf("storage: %dx%d atom %d B, dense %d B\n", n, n, Base.summarysize(a), 8n * n)
+  end
+  write_rows()
 end
 
-bad = [r for r in rows if count(==(','), r) != count(==(','), header)]   # no quoting: a comma in a field would shift the columns
-isempty(bad) || error("$(length(bad)) rows do not have $(count(==(','), header) + 1) fields, first: $(first(bad))")
-open(out, "w") do io
-  println(io, header)
-  foreach(r -> println(io, r), rows)
-end
+write_rows()

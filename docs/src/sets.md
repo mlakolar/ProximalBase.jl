@@ -190,21 +190,29 @@ reach its tolerance it falls back to the full decomposition (`fallback = false` 
 instead). The rank-``k`` Fantope has only the exact path, because one Krylov vector cannot
 find all of a repeated eigenvalue's eigenspace.
 
-**Memory.** Three quantities differ and none is the peak of the process. The returned atom is
-small (the storage column above). The default path, `method = :full`, keeps its LAPACK
-workspace in the set object after the first call, so that later calls do not allocate it
-again: its size grows with the matrix, in proportion to ``mn`` (``n^2`` for the spectral
-sets), and was about six times the dense nuclear-norm input in the cases measured (48 MB for a
-`1000 × 1000` Float64 matrix, 192 MB for a `2000 × 2000` sparse gradient, which that path
-densifies) and about the size of the input for a density matrix. It stays allocated for the
-lifetime of the set object, which is why one set object per task is the rule, and it is
-counted neither by the allocation figures of `@allocated` and BenchmarkTools (a few kilobytes
-per call for `:full`) nor, for the native part, by Julia's allocation counters at all.
-`method = :krylov` keeps nothing in the set: its temporary arrays are the Lanczos bases, of
-order ``(m + n)`` times the number of steps (megabytes for the sparse gradients of order
-``10^4`` measured), and they are freed at the return, so the allocation figure of one call
-exceeds the size of the atom that it returns (100 to 160 kilobytes there). Peak resident
-memory has to be measured on the process, not read from either figure.
+**Memory.** Four quantities differ, and none of them is the peak of the process: the storage of
+the returned atom (the storage column above); the workspace retained in the set object; the
+Julia heap bytes allocated by one call (what `@allocated` and BenchmarkTools report); and the
+peak resident memory of the process, which has to be measured on the process.
+
+The default path, `method = :full`, keeps its LAPACK workspace in the set object after the
+first call, so that later calls do not allocate it again. Its size grows with the matrix, in
+proportion to ``mn`` (``n^2`` for the spectral sets), and was about six times the dense
+nuclear-norm input in the cases measured (48 MB for a `1000 × 1000` Float64 matrix, 192 MB for a
+`2000 × 2000` sparse gradient, which that path densifies) and about the size of the input for a
+density matrix. It stays allocated for the lifetime of the set object, which is why one set
+object per task is the rule. The native part of it is not counted by Julia's allocation
+counters, and the allocation of one warmed call (a few kilobytes for a dense input) does not
+include the dense copy that the spectral sets make of a sparse input at every call.
+
+A `method = :krylov` call that converges, and every call with `fallback = false`, keeps nothing
+in the set. Its temporary arrays are the Lanczos bases, of order ``(m + n)`` times the step
+limit `maxiter` (they are allocated for the limit, not for the number of steps taken: megabytes
+for the sparse gradients of order ``10^4`` measured); they become eligible for garbage
+collection after the return, which is not the same as being freed at once. The allocation of one
+call therefore exceeds the size of the atom that it returns (100 to 160 kilobytes there). With the
+default `fallback = true`, a call that does not converge runs the full decomposition, and the set
+then retains its workspace as above.
 
 **Symmetry.** The spectral sets live in the symmetric matrices, where
 ``\langle g, S\rangle = \langle (g + g^\top)/2, S\rangle``. The oracle therefore minimizes

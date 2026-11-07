@@ -1652,9 +1652,14 @@ function _import_matrix!(x::SymmetricSparseIterate{T}, y::AbstractMatrix) where 
   x
 end
 # Whether y shares memory with the storage of x. An empty array shares nothing, as for
-# Base.mightalias: all empty arrays of a type can share one empty buffer.
-_aliases(x::SymmetricSparseIterate, y) =
-  x.p > 0 && !isempty(y) && any(id -> id in Base.dataids(x), Base.dataids(y))
+# Base.mightalias: all empty arrays of a type can share one empty buffer. The wrappers of
+# LinearAlgebra do not all report the data of their parent, so the parents are followed.
+_aliases(x::SymmetricSparseIterate, y) = x.p > 0 && !isempty(y) && _shares_data(Base.dataids(x), y)
+function _shares_data(ids, y)
+  any(id -> id in ids, Base.dataids(y)) && return true
+  q = parent(y)
+  q === y ? false : _shares_data(ids, q)
+end
 # A source with another number of dimensions cannot have the axes of x.
 Base.copyto!(x::SymmetricSparseIterate, y::AbstractArray) = _throw_axes(x, y)
 

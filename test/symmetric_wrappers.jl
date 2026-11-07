@@ -8,6 +8,18 @@ using Test, ProximalBase, LinearAlgebra, Random
 using ..TestUtils: allocs
 
 const PB = ProximalBase
+# the set of the one skew-symmetric matrix with entries 1 below and -1 above the diagonal: its projection is that matrix
+struct SkewSet <: PB.AbstractFunction end
+PB._isindicator(::Type{SkewSet}) = true
+PB.isproximable(::Type{SkewSet}) = true
+PB.isconvex(::Type{SkewSet}) = true
+function PB.prox!(y::AbstractMatrix, ::SkewSet, x::AbstractMatrix, γ::Real)
+  for c in axes(y, 2), r in axes(y, 1)
+    y[r, c] = r > c ? one(eltype(y)) : r < c ? -one(eltype(y)) : zero(eltype(y))
+  end
+  y
+end
+PB.value_and_prox!(y::AbstractMatrix, f::SkewSet, x::AbstractMatrix, γ::Real) = (PB.prox!(y, f, x, γ); zero(eltype(y)))
 state(x) = (Matrix(x), nactive(x), copy(activecoordinates(x)), copy(x.nzval), copy(x.nzval2ind), copy(x.ind2nzval))
 
 const X = [1.5 -0.8 0.3; -0.8 0.6 -1.1; 0.3 -1.1 2.2]
@@ -244,16 +256,18 @@ function owner_point(kind, A, y)
   kind == "view" ? matrixview(SymmetricSparseIterate(A)) : Symmetric(A, :L)
 end
 
-@testset "a spectral result reaches an owner up to rounding, $T, p = $p" for T in (Float32, Float64), p in (3, 6)
+# The nuclear norm is the one spectral function whose wrappers (Conjugate, MoreauEnvelope, the scalar Precompose)
+# store the lower triangle of the dense result at an owner without the pair test: its proximal point at a symmetric
+# point is unique and symmetric, and the two triangles of the computed matrix differ by rounding.
+@testset "a nuclear-norm result reaches an owner up to rounding, $T, p = $p" for T in (Float32, Float64), p in (3, 6)
   rng = MersenneTwister(100p + sizeof(T))
   A = randn(rng, T, p, p); A = (A + A') / 2
   rtol = T == Float32 ? 1e-3 : 1e-10
   q = p * (p + 1) ÷ 2
   wrappers = ("Conjugate of NuclearNorm" => Conjugate(NuclearNorm(T(0.4))),
+              "Conjugate of a partial NuclearNorm" => Conjugate(NuclearNorm(T(0.4); partial = true)),
               "MoreauEnvelope of NuclearNorm" => MoreauEnvelope(NuclearNorm(T(0.4)), T(0.5)),
-              "Precompose of NuclearNorm" => Precompose(NuclearNorm(T(0.4)), T(1)),
-              "SqrDistL2 of IndBallRank" => SqrDistL2(IndBallRank(1), T(0.7)),
-              "DistL2 of IndBallRank" => DistL2(IndBallRank(1), T(0.7)))
+              "Precompose of NuclearNorm" => Precompose(NuclearNorm(T(0.4)), T(1)))
   @testset "$name" for (name, f) in wrappers, op in (prox!, value_and_prox!)
     ref = zeros(T, p, p)
     vref = op(ref, f, A, T(0.5))
@@ -271,6 +285,161 @@ end
       @test Matrix(y) == Matrix(y)' && nactive(y) == q
       op === value_and_prox! && @test isapprox(v, vref; rtol = 10rtol, atol = 10rtol)
     end
+  end
+end
+
+# The dense result of the inner function of a wrapper is stored from its lower triangle only when it is exactly
+# symmetric (every pair equal, NaNs, infinities and signed zeros included): the check has no tolerance, so a
+# result that is asymmetric by any amount, at any size, is refused before the owner is written.
+@testset "a wrapper refuses a dense result that is asymmetric at any size, Float32" begin
+  # the inner projection keeps the lower triangle and zeros the upper one: the restricted proximal solution of
+  # the sum of the square distance and the step is 2 / (2 + γ) = 0.8, not the 1 of the lower entries
+  p = 2048
+  A = ones(Float32, p, p)
+  upper = [r + (c - 1) * p for c in 1:p for r in 1:c-1]
+  @testset "$(nameof(typeof(f))), $op" for f in (SqrDistL2(IndBallGroupL0(0, [upper]), 1f0), DistL2(IndBallGroupL0(0, [upper]), 1f0)),
+                                          op in (prox!, value_and_prox!)
+    y = SymmetricSparseIterate(Float32, p)
+    @test_throws ArgumentError op(y, f, A, 0.5f0)
+    @test nactive(y) == 0 && y[2, 1] == 0 && y[p, p] == 0
+  end
+  # a skew-symmetric result (lower entries 1, upper entries -1: the maximal relative asymmetry) at p = 2050, from an
+  # inner set that is a single skew matrix
+  p = 2050
+  A = ones(Float32, p, p)
+  @testset "skew result, $(nameof(typeof(f))), $op" for f in (SqrDistL2(SkewSet(), 1f0), MoreauEnvelope(SkewSet(), 0.5f0)),
+                                                       op in (prox!, value_and_prox!)
+    y = SymmetricSparseIterate(Float32, p)
+    @test_throws ArgumentError op(y, f, A, 0.5f0)
+    @test nactive(y) == 0 && y[2, 1] == 0
+  end
+end
+
+# the point of the restricted problem x -> (nuclear norm), at scales that make the dense computation cancel
+@testset "the nuclear-norm wrappers at an owner agree with their references at every scale, $T" for T in (Float32, Float64)
+  rng = MersenneTwister(2020 + sizeof(T))
+  # reference of the proximal point of c ‖·‖_* at a symmetric matrix, in Float64: the eigenvalues, soft-thresholded
+  spectral(A, g) = (E = eigen(Symmetric(Float64.(A))); R = E.vectors * Diagonal(g.(E.values)) * E.vectors'; (R + R') / 2)
+  λc, γ, t, λe = T(0.35), T(0.3), T(0.4), T(0.4)
+  worst = 0.0
+  for p in 1:20, scale in (0.01, 1, 100)
+    B = randn(rng, T, p, p); B = (B + B') / 2
+    A = T(scale) .* B
+    nA = opnorm(Float64.(A))
+    # The conjugate of the nuclear norm is the projection onto the spectral-norm ball: the eigenvalues clipped to
+    # [-λ, λ]. The error of a backward stable eigendecomposition is a few eps ‖A‖₂; the bound is 32 eps(T) max(‖A‖₂, λ)
+    # in every entry (the largest ratio of the sweep is below 11)
+    for op in (prox!, value_and_prox!)
+      y = SymmetricSparseIterate(T, p)
+      op(y, Conjugate(NuclearNorm(λc)), A, γ)
+      err = maximum(abs.(Float64.(Matrix(y)) .- spectral(A, e -> clamp(e, -λc, λc))))
+      @test err <= 32 * eps(T) * max(nA, Float64(λc))
+      @test Matrix(y) == Matrix(y)' && nactive(y) == p * (p + 1) ÷ 2
+      worst = max(worst, err / (eps(T) * max(nA, Float64(λc))))
+    end
+    # the envelope: x + t / (γ + t) (P - x) with P the eigenvalues soft-thresholded at (γ + t) λ
+    env = MoreauEnvelope(NuclearNorm(λe), γ)
+    y = SymmetricSparseIterate(T, p)
+    prox!(y, env, A, t)
+    P = spectral(A, e -> sign(e) * max(abs(e) - Float64(γ + t) * Float64(λe), 0))
+    Y = Float64.(A) .+ Float64(t / (γ + t)) .* (P .- Float64.(A))
+    @test maximum(abs.(Float64.(Matrix(y)) .- Y)) <= 32 * eps(T) * max(nA, 1.0)
+    # the envelope and the scalar precomposition store the lower triangle of the dense call on the matrix of the point
+    for f in (env, Precompose(NuclearNorm(λe), T(1.5)))
+      for point in (A, SymmetricSparseIterate(A), matrixview(SymmetricSparseIterate(A)))
+        point isa SymmetricSparseIterate && f === env && continue            # no owner point for the envelope
+        y = SymmetricSparseIterate(T, p)
+        prox!(y, f, point, t)
+        ref = zeros(T, p, p)
+        prox!(ref, f, Matrix(A), t)
+        @test Matrix(y) == Matrix(Symmetric(ref, :L))
+      end
+    end
+  end
+  @test worst < 32
+  # the point that the review of the check reports: the dense computation subtracts quantities of size 100
+  A = T(100) .* T[1 0.3; 0.3 -0.8]
+  expected = spectral(A, e -> clamp(e, -0.35, 0.35))
+  for point in (A, SymmetricSparseIterate(A), matrixview(SymmetricSparseIterate(A))), op in (prox!, value_and_prox!)
+    y = SymmetricSparseIterate(T, 2)
+    op(y, Conjugate(NuclearNorm(T(0.35))), point, T(0.3))
+    @test maximum(abs.(Float64.(Matrix(y)) .- expected)) <= 32 * eps(T) * 106
+    @test Matrix(y) == Matrix(y)' && nactive(y) == 3
+  end
+end
+
+# Nothing else is derived: the wrappers of a nuclear norm (Scaled, Translate, Regularize, a conjugate, nested
+# inside another wrapper) and every other spectral function take the exact check. Each call is refused before the
+# owner is written, or the inner result is exactly symmetric and the owner stores the lower triangle of the dense
+# result; some of the calls are refused.
+@testset "the exact check applies to every other combination, $T" for T in (Float32, Float64)
+  nuc(c) = NuclearNorm(T(c))
+  combos = ("Conjugate(Scaled(NuclearNorm))" => Conjugate(Scaled(nuc(0.4), T(2))),
+            "Conjugate(Translate(NuclearNorm))" => Conjugate(Translate(nuc(0.4), zeros(T, 3, 3))),
+            "Conjugate(Regularize(NuclearNorm))" => Conjugate(Regularize(nuc(0.4), T(0.5))),
+            "MoreauEnvelope(Scaled(NuclearNorm))" => MoreauEnvelope(Scaled(nuc(0.4), T(2)), T(0.5)),
+            "MoreauEnvelope(Conjugate(NuclearNorm))" => MoreauEnvelope(Conjugate(nuc(0.4)), T(0.5)),
+            "Precompose(Scaled(NuclearNorm))" => Precompose(Scaled(nuc(0.4), T(2)), T(1.5)))
+  @testset "$name, $op" for (name, f) in combos, op in (prox!, value_and_prox!)
+    refused = 0
+    for trial in 1:12
+      rng = MersenneTwister(1000trial + sizeof(T))
+      A = randn(rng, T, 3, 3); A = (A + A') / 2
+      y = SymmetricSparseIterate(T, 3)
+      coordinates(y)[1] = T(5); coordinates(y)[3] = T(-2)
+      before = state(y)
+      ref = zeros(T, 3, 3)
+      op(ref, f, A, T(0.5))
+      stored = try op(y, f, A, T(0.5)); true catch e; e isa ArgumentError ? false : rethrow() end
+      if stored
+        @test Matrix(y) == Matrix(Symmetric(ref, :L))
+      else
+        refused += 1
+        @test isequal(state(y), before)
+      end
+    end
+    @test refused > 0
+  end
+end
+
+# At a tie of the singular values the projection onto the rank-1 matrices is not unique, and the dense result at a
+# symmetric point need not be symmetric. The rank balls take the exact check and nothing else: an exactly symmetric
+# dense result is a minimizer of the restricted problem and is stored; any other is refused with the owner unchanged.
+# The lower triangle of an asymmetric result is never stored. Outcomes recorded for the points below:
+# the diagonal tie is stored by all three wrappers, its rotation is refused by all three.
+@testset "rank-ball ties: the dense minimizer is stored exactly or the call is refused, $T" for T in (Float32, Float64)
+  θ = T(0.3)
+  Q = T[cos(θ) -sin(θ); sin(θ) cos(θ)]
+  D = T[1 0; 0 -1]
+  points = ("diagonal" => D, "rotated" => (S = Q * D * Q'; (S + S') / 2))
+  γ, λ, μ = T(0.5), T(0.7), T(0.8)
+  # the value of each wrapper at the symmetric matrix U (Eckart-Young for the distance to the rank-1 matrices)
+  dist2(U) = sum(abs2, svdvals(Float64.(U))[2:end])
+  objective(::SqrDistL2, U, X) = Float64(λ) / 2 * dist2(U) + sum(abs2, Float64.(U) .- Float64.(X)) / (2 * Float64(γ))
+  objective(::DistL2, U, X) = Float64(λ) * sqrt(dist2(U)) + sum(abs2, Float64.(U) .- Float64.(X)) / (2 * Float64(γ))
+  # the indicator of rank(μ U) ≤ 1: feasible up to the rounding of the stored matrix, else infinite
+  function objective(::Precompose, U, X)
+    s = svdvals(Float64.(U))
+    s[2] <= 64 * eps(T) * s[1] ? sum(abs2, Float64.(U) .- Float64.(X)) / (2 * Float64(γ)) : Inf
+  end
+  outcome = Dict("diagonal" => :stored, "rotated" => :refused)
+  @testset "$name, $label, $op" for (name, f) in ("SqrDistL2" => SqrDistL2(IndBallRank(1), λ), "DistL2" => DistL2(IndBallRank(1), λ),
+                                                  "Precompose" => Precompose(IndBallRank(1), μ)),
+                                    (label, X) in points, op in (prox!, value_and_prox!)
+    y = SymmetricSparseIterate(T, 2)
+    coordinates(y)[1] = T(5); coordinates(y)[2] = T(-2)
+    before = state(y)
+    ref = zeros(T, 2, 2)
+    op(ref, f, X, γ)
+    stored = try op(y, f, X, γ); true catch e; e isa ArgumentError ? false : rethrow() end
+    if stored
+      @test ref == ref'                                 # only an exactly symmetric dense result is stored
+      @test Matrix(y) == ref
+      @test objective(f, Matrix(y), X) <= objective(f, ref, X) * (1 + 8 * eps(T)) + 8 * eps(T)
+    else
+      @test isequal(state(y), before)
+    end
+    @test (stored ? :stored : :refused) == outcome[label]
   end
 end
 

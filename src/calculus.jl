@@ -1631,7 +1631,7 @@ function _prox_unchecked!(y::SymmetricSparseIterate, c::Conjugate, x::_ArrayOrOw
   try
     z = _stage!(frame, y, x)
     _prox_unchecked!(z, c, _vw(x), γ)
-    _stage_commit!(y, z)
+    _stage_commit!(y, z, c.f)
   finally
     _release_frame!(_STAGE_FRAMES)
   end
@@ -1644,7 +1644,7 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::Conjugate, x::
   try
     z = _stage!(frame, y, x)
     v = _value_and_prox_unchecked!(z, c, _vw(x), γ)
-    _stage_commit!(y, z)
+    _stage_commit!(y, z, c.f)
     return _value_at(v, y)
   finally
     _release_frame!(_STAGE_FRAMES)
@@ -1665,7 +1665,8 @@ function _staged_owner!(op::O, y::SymmetricSparseIterate, f, x0, γ) where {O}
     _release_frame!(_STAGE_FRAMES)
   end
 end
-_stage_commit!(y::SymmetricSparseIterate, z) = (_projection_check_commit(y, z); _store_lower!(y, z); y)
+_stage_commit!(y::SymmetricSparseIterate, z, f = nothing) =
+  (_projection_check_commit(y, z, _rounding_symmetric_prox(f)); _store_lower!(y, z); y)
 # f** = f: the oracles of f, in the domain of f (stored coordinates, for the entry kernels of an owner)
 prox!(y::SymmetricSparseIterate, c::Conjugate{<:Conjugate}, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
@@ -2792,52 +2793,27 @@ function _projection_check_conversion(y::SymmetricSparseIterate{T}, z::AbstractA
   true
 end
 _projection_check_commit(y::AbstractArray, z::AbstractArray) = _projection_check_conversion(y, z)
-_projection_check_commit(y::SymmetricSparseIterate, z::AbstractArray) =
-  (_check_axes(y, z) && _check_computed_symmetric(z); _projection_check_conversion(y, z))
+# An owner stores the lower triangle of a staged matrix, so the matrix must be exactly symmetric (every pair
+# (i, j), i > j, `_symequal`: equal NaNs, infinities and signed zeros included): a pair that differs is refused
+# before anything is written. `rounded` is the one exemption, for the wrappers named at `_rounding_symmetric_prox`.
+_projection_check_commit(y::SymmetricSparseIterate, z::AbstractArray, rounded::Bool = false) =
+  (_check_axes(y, z) && (rounded || _check_staged_symmetric(z)); _projection_check_conversion(y, z))
+_check_staged_symmetric(z::AbstractMatrix) =
+  _check_symmetric(z, "the staged result written into a SymmetricSparseIterate", "z")
 
-# The check of a computed matrix z, such as the staged result of a spectral function, that an owner stores
-# from its lower triangle: the two triangles of such a result agree only up to the rounding of the
-# computation, so a pair (i, j), i > j, passes when its entries are equal (`_symequal`: equal NaNs,
-# infinities and signed zeros included) or both finite and within 4 p eps(T) ‖z‖_F, the band of the
-# reconstruction of a spectral function; any other pair throws before anything is written. This is not the
-# check of an array that the user supplies, which must be exactly symmetric (`_check_symmetric`).
-function _check_computed_symmetric(z::AbstractMatrix)
-  _symmetric_by_type(z) && return true
-  _asymmetric_pair(z, _symequal) === nothing && return true
-  _computed_pairs_within(z, _rounding_band(z)) ||
-    _throw_asymmetric(z, "the staged result written into a SymmetricSparseIterate", "z")
-  true
-end
-# 4 p eps(T) ‖z‖_F, the norm of the finite entries formed without overflow; zero when no entry is
-# finite and nonzero
-function _rounding_band(z::AbstractMatrix)
-  T = float(real(eltype(z)))
-  m = zero(T)
-  @inbounds for v in z
-    a = abs(convert(T, v))
-    isfinite(a) && a > m && (m = a)
-  end
-  iszero(m) && return zero(T)
-  s = zero(T)
-  @inbounds for v in z
-    a = abs(convert(T, v))
-    isfinite(a) && (s += (a / m)^2)
-  end
-  min(T(4 * size(z, 1)) * eps(T) * m * sqrt(s), floatmax(T))
-end
-function _computed_pairs_within(z::AbstractMatrix, τ::T) where {T}
-  @inbounds for c in axes(z, 2), r in c+1:size(z, 1)
-    a, b = z[r, c], z[c, r]
-    _symequal(a, b) && continue
-    a, b = convert(T, a), convert(T, b)
-    d = abs(a - b)
-    isfinite(a) && isfinite(b) && isfinite(d) && d <= τ || return false
-  end
-  true
-end
-# a dense result of the inner function of a wrapper, checked before it is blended into an owner
-_check_staged_result(y, z) = true
-_check_staged_result(y::Union{SymmetricSparseIterate, _OwnerMatrix}, z::AbstractArray) = _check_computed_symmetric(z)
+# The functions whose proximal point at a symmetric point is symmetric by mathematics but is computed, in a
+# dense matrix, with the two triangles differing by rounding: the nuclear norm is convex, so its proximal point
+# is unique, and it is invariant under transposition. `Conjugate(f)`, `MoreauEnvelope(f)` and the scalar
+# `Precompose(f, μ)` of such an f store the lower triangle of the dense result at an owner without the pair
+# test. No other function has it, and nothing is derived through other wrappers: `Scaled(NuclearNorm)` or
+# `Conjugate(NuclearNorm)` as the inner function, `IndBallRank`, `IndPSD` and the rest take the exact check.
+_rounding_symmetric_prox(f) = false
+_rounding_symmetric_prox(::NuclearNorm) = true
+
+# a dense result of the inner function f of a wrapper, checked before it is blended into an owner
+_check_staged_result(y, z, f = nothing) = true
+_check_staged_result(y::Union{SymmetricSparseIterate, _OwnerMatrix}, z::AbstractArray, f = nothing) =
+  _rounding_symmetric_prox(f) || _check_staged_symmetric(z)
 @generated _projection_check_commit(y::Tuple, z::Tuple) =
   _blockwise(k -> :(_projection_check_commit(y[$k], z[$k])), min(fieldcount(y), fieldcount(z)), true)
 _projection_copy!(y::AbstractArray, z::AbstractArray) = copyto!(y, z)

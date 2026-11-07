@@ -284,8 +284,12 @@ Base.IndexStyle(::Type{<:OffsetVec}) = IndexLinear()
 Base.getindex(a::OffsetVec, i::Int) = a.data[i - a.offset]
 Base.setindex!(a::OffsetVec, v, i::Int) = (a.data[i - a.offset] = v)
 Base.similar(a::OffsetVec, ::Type{T}, dims::Dims) where {T} = OffsetVec(similar(a.data, T, dims), a.offset)
-Base.similar(::Type{T}, axs::Tuple{Base.IdentityUnitRange{<:Any}}) where {T<:AbstractArray} =
-  OffsetVec(Vector{eltype(T)}(undef, length(axs[1])), first(axs[1]) - 1)
+# Broadcasting over an OffsetVec (as IndBox does with array bounds) allocates through a style that the fixture owns.
+Base.BroadcastStyle(::Type{<:OffsetVec}) = Broadcast.ArrayStyle{OffsetVec}()
+function Base.similar(bc::Broadcast.Broadcasted{Broadcast.ArrayStyle{OffsetVec}}, ::Type{T}) where {T}
+  ax = axes(bc)[1]
+  OffsetVec(Vector{T}(undef, length(ax)), first(ax) - 1)
+end
 
 a_value_and_prox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
 a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
@@ -762,6 +766,40 @@ end
     @test refused_value(value_and_prox!, dest, s, ([3.0], x), 0.5)
     @test dest == ([7.0], fill(-7.0, 3))
   end
+end
+
+# The fixtures above extend no behaviour of Base for other array types: allocation requests with offset axes are
+# answered as in a fresh session, which is run here for comparison.
+@testset "the OffsetVec fixture leaves Base.similar as it is" begin
+  probe = """
+    for T in (Vector{Float64}, Vector{Int}, BitVector, Array{Float32, 1}, typeof(view(zeros(3), 1:2)), Vector{Bool})
+      r = try
+        string(typeof(similar(T, (Base.IdentityUnitRange(1:3),))))
+      catch e
+        string(typeof(e))
+      end
+      println(T, " => ", r)
+    end
+    """
+  fresh = readchomp(`$(Base.julia_cmd()) --startup-file=no -e $probe`)
+  here = join((string(T, " => ", try
+                        string(typeof(similar(T, (Base.IdentityUnitRange(1:3),))))
+                      catch e
+                        string(typeof(e))
+                      end)
+               for T in (Vector{Float64}, Vector{Int}, BitVector, Array{Float32, 1}, typeof(view(zeros(3), 1:2)), Vector{Bool})), "\n")
+  @test here == fresh
+  @test !occursin("OffsetVec", here)
+  # the fixture's own allocation still works: for broadcasts over it and for similar of an instance
+  a, b = OffsetVec([1.0, 2.0], -1), OffsetVec([2.0, 1.0], -1)
+  m = a .<= b
+  @test m isa OffsetVec{Bool} && axes(m) == axes(a) && m.data == [true, false]
+  @test similar(a, Float32, (3,)) isa OffsetVec{Float32}
+  @test all(a .<= OffsetVec([5.0, 5.0], -1))
+  # every method of similar that this file defines has the fixture in its signature
+  mine = filter(m -> m.module === @__MODULE__, collect(methods(similar)))
+  @test length(mine) == 2
+  @test all(m -> occursin("OffsetVec", string(m.sig)), mine)
 end
 
 end

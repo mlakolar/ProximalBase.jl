@@ -1666,6 +1666,11 @@ function _staged_owner!(op::O, y::SymmetricSparseIterate, f, x0, γ) where {O}
   end
 end
 _stage_commit!(y::SymmetricSparseIterate, z) = (_projection_check_commit(y, z); _store_lower!(y, z); y)
+# f** = f: the oracles of f, in the domain of f (stored coordinates, for the entry kernels of an owner)
+prox!(y::SymmetricSparseIterate, c::Conjugate{<:Conjugate}, x::_ArrayOrOwner, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c.f.f, x, γ))
+value_and_prox!(y::SymmetricSparseIterate, c::Conjugate{<:Conjugate}, x::_ArrayOrOwner, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c.f.f, x, γ))
 prox!(y::AbstractArray, c::Conjugate, x::SymmetricSparseIterate, γ::Real) =
   (_check_entry_arrays(c, x); prox!(y, c, matrixview(x), γ))
 value_and_prox!(y::AbstractArray, c::Conjugate, x::SymmetricSparseIterate, γ::Real) =

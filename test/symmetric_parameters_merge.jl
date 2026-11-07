@@ -121,7 +121,7 @@ Base.getindex(a::CountedValueArray, i::Int) = (a.reads[] += 1; a.data[i])
     y = copy(x); y[2, 1] = s
     f = IndHyperplane(a, 0.); a.reads[] = 0
     @test f(y) == (s < 0 ? 0. : Inf)
-    @test a.reads[] <= 2nnz(y)
+    @test a.reads[] <= 2nactive(y)
   end
   for make in (a -> SqrNormL2(1., a), a -> Regularize(ZeroFunction(), .2, a),
                a -> Translate(NormL1(), a), a -> Precompose(NormL1(.1, a), 2.),

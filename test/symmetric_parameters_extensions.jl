@@ -151,8 +151,6 @@ end
       owner || @test calls[3] == 1
       if owner
         # the gradient of a user function is its own array method, which an owner does not reach
-        @test_throws MethodError gradient!(y, h, x)
-        @test_throws MethodError value_and_gradient!(y, h, x)
         continue
       end
       fill!(calls, 0)

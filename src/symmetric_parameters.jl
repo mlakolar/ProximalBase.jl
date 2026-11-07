@@ -638,10 +638,10 @@ _assign!(y::SymmetricSparseIterate, x) = (x === y ? y : _store_lower!(y, _vw(x))
 
 # The allocating oracles of the wrappers at an owner. The proximal operator is an independent owner, and the
 # gradient a dense exactly symmetric matrix.
-const _OwnerWrapperProx = Union{Scaled, Tilt, Translate, Regularize, Precompose, MoreauEnvelope, Conjugate, SqrDistL2,
-                                DistL2, BoxConstrained}
+const _OwnerWrapperProx = Union{Scaled, Tilt, Translate, Regularize, Precompose, _ArrayPrecompose, MoreauEnvelope, Conjugate,
+                                SqrDistL2, DistL2, BoxConstrained}
 prox(f::_OwnerWrapperProx, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
-const _OwnerWrapperSmooth = Union{Scaled, Tilt, Translate, Regularize, Precompose, Sum}
+const _OwnerWrapperSmooth = Union{Scaled, Tilt, Translate, Regularize, Precompose, _ArrayPrecompose, Sum}
 gradient(f::_OwnerWrapperSmooth, x::SymmetricSparseIterate) = gradient!(_gradient_buffer(x), f, x)
 function value_and_gradient(f::_OwnerWrapperSmooth, x::SymmetricSparseIterate)
   g = _gradient_buffer(x)

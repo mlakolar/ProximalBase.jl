@@ -284,8 +284,9 @@ function families()
          fam("PointwiseMinimum", T -> PointwiseMinimum(NormL1(T(0.5)), NormL2(T(0.5)))), fam("Constrained-L1-ball", T -> Constrained(NormL1(T(0.5)), IndBallL2(T(1)))),
          # src/ballconstrained.jl:90-92: the sphere takes NormL1, GroupNormL2 or IndBallL0 only
          fam("Constrained-L2-sphere", T -> Constrained(NormL1(T(0.5)), IndSphereL2(T(1)))), fam("Sum-L1-L2", T -> Sum(NormL1(T(0.5)), NormL2(T(0.5)))),
-         # src/image.jl:110-115: L'*L must equal mu*I (columns orthogonal, norm^2 mu, at least as many rows as columns); here mu = 4
-         fam("LinearImage", T -> LinearImage(NormL2(T(0.5)), T[1 1 1; 1 -1 1; 1 1 -1; 1 -1 -1], T(4)); stride = 4),
+         # src/image.jl:110-115: L'*L must equal mu*I; src/image.jl:170-171 (_checkparams): the argument has length size(L, 1), so L is square 3x3
+         # (the harness feeds length-3 vectors); mu = 9
+         fam("LinearImage", T -> LinearImage(NormL2(T(0.5)), T[1 2 2; 2 1 -2; 2 -2 1], T(9))),
          fam("SeparableSum", T -> SeparableSum(NormL1(T(0.5)), NormL2(T(0.5))); kind = :tuple),
          fam("SliceSum", T -> SliceSum(NormL1(T(0.5)), NormL2(T(0.5))); kind = :slice))
   F

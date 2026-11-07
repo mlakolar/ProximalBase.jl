@@ -105,6 +105,25 @@ the earlier behavior applies.
     `[-Inf, NaN]`. Its value at the zero vector is `0`, where it was NaN, and
     so is the value of the conjugate of `IndBallL1(Inf)` there. A zero,
     infinite, negative or NaN step keeps its results.
+  - `NormL1Fused` with an infinite fusion level `λ2 = Inf` and a finite `λ1` projects onto
+    the vectors of equal entries and then shrinks (decision 49, #664): at a positive finite
+    step the proximal point of a vector of K ≠ 2 entries is `shrink(mean, γλ1)` in every entry,
+    `prox(NormL1Fused(1.0, Inf), [1.0, -2.0, 0.5], 1.0)` is `[0, 0, 0]`, where it was
+    `[-Inf, Inf, NaN]`, and `prox(NormL1Fused(0.5, Inf), [3.0], 1.0)` is `[2.5]`, where it was
+    `[NaN]`; a NaN entry gives NaN in every entry. The value at equal finite entries is
+    `λ1 Σ|v|`, where it was NaN (`Inf⋅0`), for a vector, a pair, a tuple of arrays and
+    `FiberSum`, and the value of `value_and_prox!` is that of the stored output; a vector of
+    unequal entries has the value `Inf` as before. `value_and_prox!` of a tuple of arrays or of
+    `FiberSum` of two slices into a separate output stores the output of `prox!` for a pair near
+    `floatmax`, where it stored `Inf`. The pair, the tuple of arrays and the vector of two
+    entries gave the common value already. The mean of a vector of K ≠ 2 entries is formed in the
+    precision of the argument and of the output, and rounded when stored:
+    `prox!(zeros(Float32, 3), NormL1Fused(0.0, Inf), [1e100, -1e100, 3.0], 1.0)` is `[1, 1, 1]`.
+    `λ1 = Inf`, a finite `λ2`, and the proximal outputs at a zero, infinite, negative or NaN
+    step keep their results, the stored output of `value_and_prox!` included (the repair of a
+    separate output near `floatmax` is taken at a finite positive step only); the value that
+    `value_and_prox!` returns is the value at that stored output, at every step, for
+    `FiberSum` as well (an output with a non-one-based axis keeps the value of its loop). An argument of element type `Real` is read at the precision of its entries.
   - A wrapper step that is not a normal number keeps the hard domain of an
     infinite level (decision 49, #666): `prox(Scaled(NormL1(Inf), 1e-300), [1.0, 2.0, 3.0], 1e-300)`
     is `[0, 0, 0]`, where it was the identity `[1, 2, 3]`, and `SLOPE` with an

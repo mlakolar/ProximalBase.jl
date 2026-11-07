@@ -24,7 +24,9 @@ legacy_inbox(v, l, u, t) = (v >= l - t * max(one(t), abs(l))) & (v <= u + t * ma
           Spectral(Conjugate(IndNonnegative())), Conjugate(SingularValue(NormLinf(o))), TracePSD(o))
     for X in (T[Inf 0; 0 1], T[-Inf 0; 0 1], T[NaN 0; 0 1], T[1 Inf; Inf 1], T[1 NaN; NaN 1])
       for f in fs
-        @test f(X) === T(Inf)
+        # E2: NaN at a NaN entry; the zero level of NuclearNorm is the zero function (E4, row S6)
+        expected = f isa NuclearNorm && iszero(f.λ) ? zero(T) : any(isnan, X) ? T(NaN) : T(Inf)
+        @test isequal(f(X), expected)
       end
       @test Spectral(NormL1Nonneg(o))(X) === TracePSD(o)(X)
       @test SingularValue(NormL1(o))(X) === NuclearNorm(o)(X)
@@ -37,8 +39,8 @@ legacy_inbox(v, l, u, t) = (v >= l - t * max(one(t), abs(l))) & (v <= u + t * ma
 
     # the logical entries decide, not the storage behind them
     S = sparse(T[NaN 0; 0 1])
-    @test NuclearNorm(o)(S) === T(Inf)
-    @test Spectral(NormL1(o))(S) === T(Inf)
+    @test isequal(NuclearNorm(o)(S), T(NaN))
+    @test isequal(Spectral(NormL1(o))(S), T(NaN))
     P = fill(T(NaN), 3, 3)
     P[1:2, 1:2] .= T[2 0; 0 1]
     V = view(P, 1:2, 1:2)

@@ -1,13 +1,17 @@
 # Case definitions are independent of the scheduler and of measurement settings.
 # Random data use stable scenario keys, so adding a scenario does not change others.
-struct PerfCase{F,S,V,M}
+struct PerfCase{F,S,V,M,I<:NamedTuple}
     meta::M
     operation::F
     prepare::S
     validate::V
     evals::Union{Int,Nothing}
     profile::Bool
+    # the read-only inputs: what the operation or prepare reads and must leave logically unchanged
+    inputs::I
 end
+PerfCase(meta, operation, prepare, validate, evals, profile) =
+    PerfCase(meta, operation, prepare, validate, evals, profile, (;))
 
 function scenario_rng(rep, key)
     seed = UInt64(0xcbf29ce484222325) ⊻ UInt64(rep)
@@ -17,114 +21,339 @@ function scenario_rng(rep, key)
     Xoshiro(seed)
 end
 
+# Number of nonzeros of a sparse operand with N entries at the given density: density * N
+# rounded to the nearest integer, at least 1.
+function fixed_count(N::Integer, density::Real)
+    N >= 1 || throw(ArgumentError("the number of entries must be at least 1, got $N"))
+    0 < density <= 1 || throw(ArgumentError("density must be in (0, 1], got $density"))
+    clamp(round(Int, density * N), 1, N)
+end
+
+# k standard normal values of type T, each redrawn from rng until it is not zero.
+function nonzero_randn(rng::AbstractRNG, ::Type{T}, k::Integer) where {T}
+    v = randn(rng, T, k)
+    for i in eachindex(v)
+        while iszero(v[i])
+            v[i] = randn(rng, T)
+        end
+    end
+    v
+end
+
+# A sparse vector or matrix with exactly fixed_count(N, density) nonzeros: distinct positions
+# drawn without replacement from rng, then normal values (never zero) from the same rng.
+function sprandn_fixed(rng::AbstractRNG, ::Type{T}, n::Integer, density::Real) where {T}
+    k = fixed_count(n, density)
+    ind = sort!(randperm(rng, n)[1:k])
+    SparseVector(Int(n), ind, nonzero_randn(rng, T, k))
+end
+
+function sprandn_fixed(rng::AbstractRNG, ::Type{T}, m::Integer, n::Integer, density::Real) where {T}
+    k = fixed_count(m * n, density)
+    lin = sort!(randperm(rng, m * n)[1:k])
+    sparse(mod1.(lin, m), cld.(lin, m), nonzero_randn(rng, T, k), Int(m), Int(n))
+end
+
 noop() = nothing
 tolerance(::Type{Float32}) = 5e-4
 tolerance(::Type{Float64}) = 2e-8
 dense(x) = Array(x)
+# the full symmetric matrix, both triangles (never the coordinates)
+dense(x::SymmetricSparseIterate) = Matrix(x)
+# the number of entries of the operand that an operation visits: p^2 for the owner, whose entries are
+# the matrix entries (not its p(p+1)/2 coordinates)
+ambient_work(x) = length(x)
+ambient_work(x::SymmetricSparseIterate) = prod(size(x))
+# the matrix an owner presents to the products: the matrix view when there is one, else the owner itself
+owner_matrix(X) = isdefined(ProximalBase, :matrixview) ? ProximalBase.matrixview(X) : X
+# whether every entry of an output is finite; the owner is checked through its whole matrix
+finite_entries(y) = all(isfinite, y)
+finite_entries(y::SymmetricSparseIterate) = all(isfinite, owner_matrix(y))
 
 function close_enough(x, y)
     t = tolerance(float(eltype(x)))
     isapprox(dense(x), dense(y); atol=t, rtol=t) || error("output differs from dense reference")
 end
 
-function addcase!(cases, family, name, op, validate; T=Float64, shape="", layout="dense",
+# ---- logical digests of the read-only inputs ----
+#
+# A 64-bit digest of the logical record of an input, taken by a loop over every stored element (never
+# Base.hash of an array, which samples large arrays). Elements compare with isequal semantics: -0.0 and
+# 0.0 differ, any two NaNs are equal. Each step is the round of xxHash64, a bijection of the state for a
+# given word, so one changed word always changes the digest; a final murmur3 fmix64 spreads it.
+# the element types with a digest word; digestable rejects the others (Float16, BigFloat, …) when the case
+# is built, as no input uses them
+const DigestReal = Union{Float32,Float64,Integer}
+const DIGEST_SEED = 0x243f6a8885a308d3
+const DIGEST_P1 = 0x9e3779b185ebca87
+const DIGEST_P2 = 0xc2b2ae3d27d4eb4f
+@inline digest_step(h::UInt64, u::Integer) = bitrotate(h + (u % UInt64) * DIGEST_P2, 31) * DIGEST_P1
+@inline function digest_mix(h::UInt64)
+    h ⊻= h >> 33
+    h *= 0xff51afd7ed558ccd
+    h ⊻= h >> 33
+    h *= 0xc4ceb9fe1a85ec53
+    h ⊻ (h >> 33)
+end
+@inline digest_word(v::Float64) = isnan(v) ? 0x7ff8000000000000 : reinterpret(UInt64, v)
+@inline digest_word(v::Float32) = isnan(v) ? UInt64(0x7fc00000) : UInt64(reinterpret(UInt32, v))
+@inline digest_word(v::Integer) = v % UInt64
+# one tag word per kind of record, so that, e.g., a Transpose and its parent differ
+const DIGEST_TAGS = (; nothing=1, number=2, array=3, range=4, transpose=5, symmetric=6, diagonal=7, csc=8,
+                     stored=9, atom=10, tuple=11, container=12)
+@inline digest_tag(h::UInt64, tag::Symbol) = digest_step(h, getfield(DIGEST_TAGS, tag))
+function digest_size(h::UInt64, A)
+    for n in size(A)
+        h = digest_step(h, n)
+    end
+    h
+end
+# the elements in linear order; four interleaved chains for a long array
+function digest_elements(h::UInt64, A)
+    n = length(A)
+    if n < 16
+        for v in A
+            h = digest_step(h, digest_word(v))
+        end
+        return h
+    end
+    l1, l2, l3, l4 = h + DIGEST_P1, h + DIGEST_P2, h ⊻ DIGEST_P1, h ⊻ DIGEST_P2
+    i = firstindex(A)
+    last = i + n - 4
+    if IndexStyle(A) isa IndexLinear
+        @inbounds while i <= last
+            l1 = digest_step(l1, digest_word(A[i]))
+            l2 = digest_step(l2, digest_word(A[i+1]))
+            l3 = digest_step(l3, digest_word(A[i+2]))
+            l4 = digest_step(l4, digest_word(A[i+3]))
+            i += 4
+        end
+        @inbounds while i < firstindex(A) + n
+            l1 = digest_step(l1, digest_word(A[i]))
+            i += 1
+        end
+    else
+        k = 0
+        for v in A
+            u = digest_word(v)
+            r = k & 3
+            r == 0 ? (l1 = digest_step(l1, u)) : r == 1 ? (l2 = digest_step(l2, u)) :
+                r == 2 ? (l3 = digest_step(l3, u)) : (l4 = digest_step(l4, u))
+            k += 1
+        end
+    end
+    digest_step(digest_step(digest_step(digest_step(h, l1), l2), l3), l4)
+end
+digest!(h::UInt64, ::Nothing) = digest_tag(h, :nothing)
+digest!(h::UInt64, x::DigestReal) = digest_step(digest_tag(h, :number), digest_word(x))
+digest!(h::UInt64, A::AbstractArray{<:DigestReal}) = digest_elements(digest_size(digest_tag(h, :array), A), A)
+digest!(h::UInt64, r::AbstractRange{<:Integer}) =
+    digest_step(digest_step(digest_step(digest_tag(h, :range), first(r)), step(r)), length(r))
+digest!(h::UInt64, A::Union{Transpose{<:DigestReal},Adjoint{<:DigestReal}}) = digest!(digest_tag(h, :transpose), parent(A))
+# only the referenced triangle is meaningful; the whole parent is digested
+digest!(h::UInt64, A::Symmetric{<:DigestReal}) = digest!(digest_step(digest_tag(h, :symmetric), UInt8(A.uplo)), parent(A))
+digest!(h::UInt64, A::Diagonal{<:DigestReal}) = digest!(digest_tag(h, :diagonal), A.diag)
+digest!(h::UInt64, A::SparseMatrixCSC{<:DigestReal}) =
+    digest!(digest!(digest!(digest_size(digest_tag(h, :csc), A), A.colptr), A.rowval), A.nzval)
+# the stored (coordinate, value) pairs, stored zeros included, sorted by coordinate: the slot order is not
+# part of the state. The accessors exist on 0.5.x and 0.6 and stop at the stored count, so a stale storage
+# tail is not read. The coordinates of the owner are lower-triangle IDs.
+function digest!(h::UInt64, x::Union{SparseIterate{<:DigestReal},SymmetricSparseIterate{<:DigestReal}})
+    h = digest_step(digest_step(digest_size(digest_tag(h, :stored), x), ncoordinates(x)), nactive(x))
+    ids = collect(activecoordinates(x))
+    vals = activevalues(x)
+    @inbounds for j in sortperm(ids)
+        h = digest_step(digest_step(h, ids[j]), digest_word(vals[j]))
+    end
+    h
+end
+# the active groups (sorted), every entry, and the group layout, which is part of the state; the indices
+# through the build-time spelling of atomindices (defined with the atom group below), never the cache
+function digest!(h::UInt64, x::AtomIterate{<:DigestReal})
+    h = digest_step(digest_step(digest_tag(h, :atom), length(x)), ncoordinates(x))
+    h = digest!(h, sort!(collect(activecoordinates(x))))
+    h = digest_elements(h, x)
+    digest_groups(h, x, group_indices_by())
+end
+function digest_groups(h::UInt64, x, indices::F) where {F}
+    for k in 1:ncoordinates(x)
+        G = indices(x, k)
+        h = G isa AbstractRange ? digest!(h, G) : digest_elements(digest_step(h, length(G)), G)
+    end
+    h
+end
+# a tuple is not specialized on: its leaves dispatch at run time, and the many tuple types of the block
+# cases would otherwise each compile their own method
+function digest!(h::UInt64, @nospecialize(xs::Union{Tuple,NamedTuple}))
+    h = digest_step(digest_tag(h, :tuple), length(xs))
+    for x in xs
+        h = digest!(h, x)
+    end
+    h
+end
+# a container of arrays (a group layout): specialized, so that each element is a direct call
+function digest!(h::UInt64, xs::AbstractArray{<:AbstractArray})
+    h = digest_size(digest_tag(h, :container), xs)
+    for x in xs
+        h = digest!(h, x)
+    end
+    h
+end
+function digest!(h::UInt64, @nospecialize(xs::AbstractArray))
+    h = digest_size(digest_tag(h, :container), xs)
+    for x in xs
+        h = digest!(h, x)
+    end
+    h
+end
+digest(x) = digest_mix(digest!(DIGEST_SEED, x))
+digestable(x) = false
+digestable(::Union{Nothing,DigestReal}) = true
+digestable(::AbstractArray{<:DigestReal}) = true
+digestable(::SymmetricSparseIterate{<:DigestReal}) = true
+digestable(@nospecialize(xs::AbstractArray)) = all(digestable, xs)
+digestable(@nospecialize(xs::Union{Tuple,NamedTuple})) = all(digestable, xs)
+# the digests of the inputs, in their order
+input_digests(@nospecialize(inputs::NamedTuple)) = UInt64[digest(inputs[k]) for k in keys(inputs)]
+# throws, naming the first input whose digest differs
+function check_inputs(@nospecialize(inputs::NamedTuple), digests::Vector{UInt64}, when::AbstractString)
+    for (j, name) in enumerate(keys(inputs))
+        digest(inputs[name]) == digests[j] || error("read-only input `$name` changed $when")
+    end
+    nothing
+end
+# the reference computed when a case is built: a copy where it could share memory with the input
+unaliased(r, x) = x isa AbstractArray && r isa AbstractArray && Base.mightalias(r, x) ? copy(r) : r
+const AFTER_BUILD = "after the case was built"
+
+# `inputs` is required: what the operation, or prepare, reads and must leave logically unchanged (not the
+# destinations, the state that a case changes, workspaces, caches, scalars or function objects). The
+# harness digests them after the pre-trial validate and compares after the trial.
+function addcase!(cases, family, name, op, validate; inputs::NamedTuple, T=Float64, shape="", layout="dense",
                   phase="warm", prepare=noop, evals=prepare===noop ? nothing : 1, profile=false, work=0,
                   zero_alloc=phase == "warm")
     id = join((family, name, string(T), shape, layout, phase), "/")
+    all(digestable, inputs) || error("an input of $id has no logical digest")
     meta = (;id, family, name, dtype=string(T), shape, layout, phase, work, zero_alloc)
-    push!(cases, PerfCase(meta, op, prepare, validate, evals, profile))
+    push!(cases, PerfCase(meta, op, prepare, validate, evals, profile, inputs))
 end
 
+# The builders compute their references once, when the case is built, from the untouched input (read, not
+# changed; a reference that could share its memory is copied) and from a copy of the function object (so
+# building does not run the measured object), digest their inputs, and
+# start every validation by comparing the inputs with those digests. `inputs` adds arrays of the call site
+# that the function object holds; `reference` passes a reference already computed for the same call.
+# Reference construction and checks are deliberately outside all measurements. The reference is returned.
 function addprox!(cases, family, name, f, x; γ=eltype(x)(0.7), layout="dense",
-                  prepare=noop, profile=false, alias=false, value=true, reference_function=f)
+                  prepare=noop, profile=false, alias=false, value=true, reference_function=f,
+                  inputs=(;), reference=nothing)
     T = eltype(x)
     y = similar(x)
-    reference = Ref{Any}(nothing)
-    # Reference construction and checks are deliberately outside all measurements.
+    declared = merge((; x), γ isa AbstractArray ? (; γ) : (;), inputs)
+    built = input_digests(declared)
+    # an Array input is not copied (prox does not change its argument); another input is made dense
+    r = reference === nothing ? unaliased(prox(deepcopy(reference_function), x isa Array ? x : dense(x), γ), x) : reference
     function check!()
-        r = prox(reference_function, dense(x), γ)
-        reference[] = r
+        check_inputs(declared, built, AFTER_BUILD)
         prepare(); prox!(y, f, x, γ)
         close_enough(y, r)
-        all(isfinite, y) || error("nonfinite proximal output")
+        finite_entries(y) || error("nonfinite proximal output")
         nothing
     end
     addcase!(cases, family, name * "/prox!", () -> prox!(y, f, x, γ), check!;
-             T, shape=join(size(x), "x"), layout, prepare, profile, work=length(x))
+             inputs=declared, T, shape=join(size(x), "x"), layout, prepare, profile, work=ambient_work(x))
     if value
         function checkvalue!()
             check!()
             prepare(); v = value_and_prox!(y, f, x, γ)
-            close_enough(y, reference[])
+            close_enough(y, r)
             expected = f(y)
             t = tolerance(T)
             (v == expected || isapprox(v, expected; atol=t, rtol=t)) ||
                 error("returned value differs from f(prox): $v versus $expected")
         end
         addcase!(cases, family, name * "/value_and_prox!", () -> value_and_prox!(y, f, x, γ), checkvalue!;
-                 T, shape=join(size(x), "x"), layout, prepare, work=length(x))
+                 inputs=declared, T, shape=join(size(x), "x"), layout, prepare, work=ambient_work(x))
     end
     if alias
         z = copy(x)
         prep_alias!() = copyto!(z, x)
-        check_alias!() = (prep_alias!(); prox!(z, f, z, γ); close_enough(z, prox(f, dense(x), γ)))
+        check_alias!() = (check_inputs(declared, built, AFTER_BUILD); prep_alias!(); prox!(z, f, z, γ); close_enough(z, r))
         addcase!(cases, family, name * "/prox!_alias", () -> prox!(z, f, z, γ), check_alias!;
-                 T, shape=join(size(x), "x"), layout, prepare=prep_alias!, work=length(x))
+                 inputs=declared, T, shape=join(size(x), "x"), layout, prepare=prep_alias!, work=ambient_work(x))
     end
+    r
 end
 
-function addcold!(cases, family, name, makef, x; γ=eltype(x)(0.7))
+function addcold!(cases, family, name, makef, x; γ=eltype(x)(0.7), inputs=(;))
     y = similar(x)
     op() = prox!(y, makef(), x, γ)
-    check!() = (op(); close_enough(y, prox(makef(), dense(x), γ)))
-    addcase!(cases, family, name, op, check!; T=eltype(x), shape=join(size(x), "x"),
-             phase="construct_and_first_prox", profile=eltype(x)==Float64, work=length(x))
+    declared = merge((; x), inputs)
+    built = input_digests(declared)
+    reference = unaliased(prox(deepcopy(makef()), x isa Array ? x : dense(x), γ), x)
+    check!() = (check_inputs(declared, built, AFTER_BUILD); op(); close_enough(y, reference))
+    addcase!(cases, family, name, op, check!; inputs=declared, T=eltype(x), shape=join(size(x), "x"),
+             phase="construct_and_first_prox", profile=eltype(x)==Float64, work=ambient_work(x))
 end
 
-function addgrad!(cases, family, name, f, x; profile=false, second=true)
+function addgrad!(cases, family, name, f, x; profile=false, second=true, inputs=(;))
     T = eltype(x)
     g = zeros(T, size(x))
-    v = fill(T(inv(sqrt(length(x)))), size(x))
+    v = fill(T(inv(sqrt(ambient_work(x)))), size(x))
     hv = similar(g)
+    declared = merge((; x), inputs)
+    declared_v = merge(declared, (; v))
+    built = input_digests(declared_v)
+    # the input is read, not changed, while the references are computed
+    f0, xd = deepcopy(f), x isa Array ? x : dense(x)
+    ref_value = f0(x)
+    δfd = 1e-5
+    ref_fd = T == Float64 ? (f0(xd .+ δfd .* v) - f0(xd .- δfd .* v)) / (2δfd) : nothing
     function checkgrad!()
+        check_inputs(declared_v, built, AFTER_BUILD)
         val = value_and_gradient!(g, f, x)
         t = tolerance(T)
-        isapprox(val, f(x); atol=t, rtol=t) || error("value/gradient objective mismatch")
+        isapprox(val, ref_value; atol=t, rtol=t) || error("value/gradient objective mismatch")
         all(isfinite, g) || error("nonfinite gradient")
         if T == Float64
-            δ = 1e-5
-            fd = (f(dense(x) .+ δ .* v) - f(dense(x) .- δ .* v)) / (2δ)
-            isapprox(dot(g, v), fd; atol=1e-5, rtol=1e-4) || error("directional gradient check failed")
+            isapprox(dot(g, v), ref_fd; atol=1e-5, rtol=1e-4) || error("directional gradient check failed")
         end
     end
     shape = join(size(x), "x")
-    addcase!(cases, family, name * "/value", () -> f(x), checkgrad!; T, shape, work=length(x))
-    addcase!(cases, family, name * "/gradient!", () -> gradient!(g, f, x), checkgrad!; T, shape, profile, work=length(x))
-    addcase!(cases, family, name * "/value_and_gradient!", () -> value_and_gradient!(g, f, x), checkgrad!; T, shape, work=length(x))
+    addcase!(cases, family, name * "/value", () -> f(x), checkgrad!; inputs=declared, T, shape, work=ambient_work(x))
+    addcase!(cases, family, name * "/gradient!", () -> gradient!(g, f, x), checkgrad!; inputs=declared, T, shape, profile, work=ambient_work(x))
+    addcase!(cases, family, name * "/value_and_gradient!", () -> value_and_gradient!(g, f, x), checkgrad!;
+             inputs=declared, T, shape, work=ambient_work(x))
     if second && hashessian(f)
+        δh = T == Float32 ? T(0.01) : T(1e-5)
+        huber = f isa GLMLoss && f.loss isa ProximalBase.Huber
+        ref_hv = if huber
+            η = f0.X*xd
+            f0.offset===nothing || (η .+= f0.offset)
+            hweights = T.(abs.(η .- f0.y).<=f0.loss.δ)
+            f0.weights===nothing || (hweights .*= f0.weights)
+            f0.X'*(hweights.*(f0.X*v))
+        else
+            (gradient(f0, xd .+ δh .* v) .- gradient(f0, xd .- δh .* v)) ./ (2δh)
+        end
         function checkhess!()
+            check_inputs(declared_v, built, AFTER_BUILD)
             hessian_vec!(hv, f, x, v)
-            δ = T == Float32 ? T(0.01) : T(1e-5)
-            if f isa GLMLoss && f.loss isa ProximalBase.Huber
-                η=f.X*dense(x)
-                f.offset===nothing || (η .+= f.offset)
-                weights=T.(abs.(η .- f.y).<=f.loss.δ)
-                f.weights===nothing || (weights .*= f.weights)
-                reference=f.X'*(weights.*(f.X*v))
-                close_enough(hv,reference)
+            if huber
+                close_enough(hv, ref_hv)
                 return
             end
-            gp = gradient(f, dense(x) .+ δ .* v)
-            gm = gradient(f, dense(x) .- δ .* v)
-            isapprox(hv, (gp .- gm) ./ (2δ); atol=T==Float32 ? 0.02 : 1e-5,
+            isapprox(hv, ref_hv; atol=T==Float32 ? 0.02 : 1e-5,
                      rtol=T==Float32 ? 0.02 : 1e-4) || error("Hessian direction check failed")
         end
         addcase!(cases, family, name * "/hessian_vec!", () -> hessian_vec!(hv, f, x, v), checkhess!;
-                 T, shape, work=length(x))
+                 inputs=declared_v, T, shape, work=ambient_work(x))
         q = quadratic_model(f, x)
-        checkmodel!() = (quadratic_model!(q, f, x); close_enough(gradient(q, x), gradient(f, x)))
+        ref_grad = unaliased(gradient(f0, x), x)
+        checkmodel!() = (check_inputs(declared_v, built, AFTER_BUILD); quadratic_model!(q, f, x);
+                         close_enough(gradient(q, x), ref_grad))
         addcase!(cases, family, name * "/quadratic_model!", () -> quadratic_model!(q, f, x), checkmodel!;
-                 T, shape, work=length(x))
+                 inputs=declared, T, shape, work=ambient_work(x))
     end
 end
 
@@ -173,25 +402,28 @@ function addblockprox!(cases, name, f, x; value=true, operation="prox!")
     T=block_type(x); γ=T(0.7); y=block_similar(x)
     shape="$(block_count(x))x$(length(first_leaf(x)))"; work=block_work(x)
     fs=block_functions(f)
+    declared=(; x); built=input_digests(declared)
+    fs0,xc=deepcopy(fs),deepcopy(x)
+    reference=block_prox(fs0,xc,γ)
     function check!()
-        reference=block_prox(fs,x,γ)
+        check_inputs(declared,built,AFTER_BUILD)
         prox!(y,f,x,γ)
         close_enough(y,reference)
         block_finite(y) || error("nonfinite proximal output")
     end
     addcase!(cases,"blocks",name*"/"*operation,()->prox!(y,f,x,γ),check!;
-             T,shape,work)
+             inputs=declared,T,shape,work)
     if value
+        expected=block_prox_value(fs0,xc,γ)
         function checkvalue!()
-            reference=block_prox(fs,x,γ)
-            expected=block_prox_value(fs,x,γ)
+            check_inputs(declared,built,AFTER_BUILD)
             val=value_and_prox!(y,f,x,γ)
             close_enough(y,reference)
             block_finite(y) || error("nonfinite proximal output")
             block_close_value(val,expected,T)
         end
         addcase!(cases,"blocks",name*"/value_and_prox!",()->value_and_prox!(y,f,x,γ),checkvalue!;
-                 T,shape,work)
+                 inputs=declared,T,shape,work)
     end
 end
 
@@ -202,38 +434,46 @@ function addblockgrad!(cases, name, f, x, v; full=true)
     T=block_type(x); g=block_similar(x); hv=block_similar(x)
     shape="$(block_count(x))x$(length(first_leaf(x)))"; work=block_work(x)
     fs=block_functions(f)
-    checkvalue!() = block_close_value(f(x),block_value(fs,x),T)
+    declared=(; x); declared_v=(; x, v); built=input_digests(declared_v)
+    fs0,xc,vc=deepcopy(fs),deepcopy(x),deepcopy(v)
+    ref_value,ref_grad,ref_hv=block_value(fs0,xc),block_gradient(fs0,xc),block_hessian(fs0,xc,vc)
+    verify()=check_inputs(declared_v,built,AFTER_BUILD)
+    checkvalue!() = (verify(); block_close_value(f(x),ref_value,T))
     function checkgrad!()
+        verify()
         gradient!(g,f,x)
-        close_enough(g,block_gradient(fs,x))
+        close_enough(g,ref_grad)
     end
     function checkvaluegrad!()
+        verify()
         val=value_and_gradient!(g,f,x)
-        close_enough(g,block_gradient(fs,x))
-        block_close_value(val,block_value(fs,x),T)
+        close_enough(g,ref_grad)
+        block_close_value(val,ref_value,T)
     end
     function checkhess!()
+        verify()
         hessian_vec!(hv,f,x,v)
-        close_enough(hv,block_hessian(fs,x,v))
+        close_enough(hv,ref_hv)
     end
     if full
-        addcase!(cases,"blocks",name*"/value",()->f(x),checkvalue!;T,shape,work)
-        addcase!(cases,"blocks",name*"/gradient!",()->gradient!(g,f,x),checkgrad!;T,shape,work)
+        addcase!(cases,"blocks",name*"/value",()->f(x),checkvalue!;inputs=declared,T,shape,work)
+        addcase!(cases,"blocks",name*"/gradient!",()->gradient!(g,f,x),checkgrad!;inputs=declared,T,shape,work)
     end
     addcase!(cases,"blocks",name*"/value_and_gradient!",()->value_and_gradient!(g,f,x),checkvaluegrad!;
-             T,shape,work)
+             inputs=declared,T,shape,work)
     addcase!(cases,"blocks",name*"/hessian_vec!",()->hessian_vec!(hv,f,x,v),checkhess!;
-             T,shape,work)
+             inputs=declared_v,T,shape,work)
     if full
         q=quadratic_model(f,x)
         function checkmodel!()
+            verify()
             quadratic_model!(q,f,x)
-            block_close_value(q(x),block_value(fs,x),T)
-            close_enough(gradient(q,x),block_gradient(fs,x))
-            close_enough(hessian_vec(q,x,v),block_hessian(fs,x,v))
+            block_close_value(q(x),ref_value,T)
+            close_enough(gradient(q,x),ref_grad)
+            close_enough(hessian_vec(q,x,v),ref_hv)
         end
         addcase!(cases,"blocks",name*"/quadratic_model!",()->quadratic_model!(q,f,x),checkmodel!;
-                 T,shape,work)
+                 inputs=declared,T,shape,work)
     end
 end
 
@@ -281,6 +521,23 @@ function block_cases!(cases, rep; quick=false)
     end
 end
 
+# references of the ad hoc value checks, computed when the case is built, from copies
+entrywise_value(f, z) = (f0 = deepcopy(f); z0 = copy(z); sum(value_entry(f0, z0[i], i) for i in eachindex(z0)))
+function entrywise_steps(f, x, γ)
+    f0, x0, γ0 = deepcopy(f), copy(x), copy(γ)
+    r = [prox_entry(f0, x0[i], i, γ0[i]) for i in eachindex(x0)]
+    r isa Vector{eltype(x)} || error("the entrywise reference has element type $(eltype(r))")
+    r
+end
+function ordered_reference(f, x)
+    tv = sum(abs, diff(x))
+    f isa TotalVariation1D ? f.λ * tv : f.λ1 * sum(abs, x) + f.λ2 * tv
+end
+function slope_reference(f, x)
+    m = sort(abs.(x); rev = true)
+    sum(k -> f.λ[k] * m[k], 1:length(x))
+end
+
 function separable_cases!(cases, rep; quick=false)
     for T in (quick ? (Float64,) : (Float32, Float64)), n in (quick ? (256,) : (256, 100_000))
         rng = scenario_rng(rep, "separable/$T/$n")
@@ -296,13 +553,16 @@ function separable_cases!(cases, rep; quick=false)
             quick && !(k in (1, 4)) && continue
             weighted = f isa Union{NormL1,NormL1Nonneg} && f.w !== nothing
             name = string(nameof(typeof(f)), weighted ? "_weighted" : "")
-            addprox!(cases, "separable", name, f, x; profile=T==Float64 && n==100_000 && k in (1,9,10,19), alias=k in (1,4) || weighted)
+            # the weights are held by the function object
+            addprox!(cases, "separable", name, f, x; profile=T==Float64 && n==100_000 && k in (1,9,10,19), alias=k in (1,4) || weighted,
+                     inputs=weighted || f isa KLDivergence ? (; w) : (;))
             if weighted
                 z = f isa NormL1Nonneg ? abs.(x) : x
-                checkvalue() = isapprox(f(z), sum(value_entry(f,z[i],i) for i in eachindex(z));
+                ref_weighted = entrywise_value(f, z)
+                checkvalue() = isapprox(f(z), ref_weighted;
                                        rtol=tolerance(T), atol=tolerance(T)) || error("weighted value differs from entrywise sum")
                 addcase!(cases, "separable", name * "/value", () -> f(z), checkvalue;
-                         T, shape=string(n), work=n)
+                         inputs=(; z, w), T, shape=string(n), work=n)
             end
         end
         if !quick
@@ -312,10 +572,11 @@ function separable_cases!(cases, rep; quick=false)
                 z = F === NormL1Nonneg ? abs.(x) : x
                 for (suffix, level, weights) in (("zero_weights", T(0.3), wz), ("zero_level", zero(T), w))
                     f = F(level, weights)
-                    checkzero() = isapprox(f(z), sum(value_entry(f,z[i],i) for i in eachindex(z));
+                    ref_zero = entrywise_value(f, z)
+                    checkzero() = isapprox(f(z), ref_zero;
                                           rtol=tolerance(T), atol=tolerance(T)) || error("zero-factor value differs from entrywise sum")
                     addcase!(cases, "separable", string(nameof(F), "_", suffix, "/value"), () -> f(z), checkzero;
-                             T, shape=string(n), work=n)
+                             inputs=(; z, weights), T, shape=string(n), work=n)
                 end
             end
         end
@@ -339,14 +600,15 @@ function separable_cases!(cases, rep; quick=false)
                           CheckLoss(T(0.3), weights), EpsInsensitiveLoss(T(0.2), weights),
                           HingeLoss(nothing, weights), CappedL1(T(0.3), one(T), weights))
                     y = similar(x)
+                    # the comparison is exact (isequal), so the digest of the reference stands for it
+                    ref_steps = digest(entrywise_steps(f, x, γ))
                     function checksteps!()
-                        reference = [prox_entry(f, x[i], i, γ[i]) for i in eachindex(x)]
                         prox!(y, f, x, γ)
-                        isequal(y, reference) || error("weighted steps differ from entrywise reference")
+                        digest(y) == ref_steps || error("weighted steps differ from entrywise reference")
                     end
                     addcase!(cases, "metric", string(nameof(typeof(f)), "_weighted_", suffix, "/prox!"),
                              () -> prox!(y, f, x, γ), checksteps!;
-                             T, shape=string(n), layout="diagonal_step", work=n)
+                             inputs=(; x, γ, weights), T, shape=string(n), layout="diagonal_step", work=n)
                 end
             end
         end
@@ -362,14 +624,13 @@ function separable_cases!(cases, rep; quick=false)
         for f in (TotalVariation1D(T(0.4)), FusedLasso(T(0.2),T(0.4)), IndIsotonic(),
                   SLOPE(collect(range(T(0.5),T(0.1);length=n))))
             if f isa Union{TotalVariation1D,FusedLasso}
+                ref_ordered = ordered_reference(f, copy(x))
                 function checkvalue!()
-                    tv = sum(abs, diff(x))
-                    reference = f isa TotalVariation1D ? f.λ * tv : f.λ1 * sum(abs,x) + f.λ2 * tv
-                    isapprox(f(x),reference;atol=tolerance(T),rtol=tolerance(T)) ||
+                    isapprox(f(x),ref_ordered;atol=tolerance(T),rtol=tolerance(T)) ||
                         error("ordered value differs from direct sum")
                 end
                 addcase!(cases,"ordered",string(nameof(typeof(f)),"/value"),()->f(x),checkvalue!;
-                         T,shape=string(n),profile=T==Float64 && n==100_000,work=n)
+                         inputs=(; x),T,shape=string(n),profile=T==Float64 && n==100_000,work=n)
             end
             quick && !(f isa Union{TotalVariation1D,SLOPE}) && continue
             addprox!(cases, "ordered", string(nameof(typeof(f))), f, x; profile=T==Float64 && n==100_000)
@@ -380,21 +641,23 @@ function separable_cases!(cases, rep; quick=false)
                   SparseGroupNormL2(T(0.2),T(0.3),groups,weights),
                   GroupMCP(T(0.3),groups,weights), GroupSCAD(T(0.3),groups,weights))
             quick && !(f isa GroupNormL2) && continue
-            addprox!(cases, "groups", string(nameof(typeof(f))), f, x; profile=T==Float64 && n==100_000 && f isa SparseGroupNormL2)
+            # the group weights are held by the penalty
+            addprox!(cases, "groups", string(nameof(typeof(f))), f, x; profile=T==Float64 && n==100_000 && f isa SparseGroupNormL2,
+                     inputs=(; weights))
             if !quick
                 steps = T(0.2) .+ rand(rng, T, length(groups))
-                addprox!(cases, "groups", string(nameof(typeof(f))), f, x; γ=steps, layout="group_steps")
+                addprox!(cases, "groups", string(nameof(typeof(f))), f, x; γ=steps, layout="group_steps", inputs=(; weights))
             end
             xa = copy(x); xa[1:n÷2] .= 0
             atomx = AtomIterate(xa,f)
-            addprox!(cases, "groups", string(nameof(typeof(f))), f, atomx; layout="atom_half_active")
+            addprox!(cases, "groups", string(nameof(typeof(f))), f, atomx; layout="atom_half_active", inputs=(; weights))
             z = copy(atomx)
             step = T(0.7)
             group_index = length(groups)
             prep!() = copyto!(z,atomx)
             check!() = (prep!(); prox_coordinate!(z,f,group_index,step); all(isfinite,z) || error("nonfinite group update"))
             addcase!(cases, "coordinates", string(nameof(typeof(f))), () -> prox_coordinate!(z,f,group_index,step), check!;
-                     T, shape=string(n), layout="atom", prepare=prep!, work=length(last(groups)))
+                     inputs=(; atomx), T, shape=string(n), layout="atom", prepare=prep!, work=length(last(groups)))
         end
     end
     if !quick
@@ -404,14 +667,13 @@ function separable_cases!(cases, rep; quick=false)
             rng = scenario_rng(rep, "ordered/SLOPE/value/$T/$n")
             x = randn(rng, T, n)
             f = SLOPE(collect(range(T(0.5), T(0.1); length = n)))
+            ref_slope = slope_reference(f, copy(x))
             function checkslope!()
-                m = sort(abs.(x); rev = true)
-                reference = sum(k -> f.λ[k] * m[k], 1:n)
-                isapprox(f(x), reference; atol = tolerance(T), rtol = tolerance(T)) ||
+                isapprox(f(x), ref_slope; atol = tolerance(T), rtol = tolerance(T)) ||
                     error("SLOPE value differs from sorted-magnitude sum")
             end
             addcase!(cases, "ordered", "SLOPE/value", () -> f(x), checkslope!;
-                     T, shape = string(n), work = n)
+                     inputs = (; x), T, shape = string(n), work = n)
         end
     end
 end
@@ -460,15 +722,15 @@ function group_layout_cases!(cases, rep)
             error("proximal value differs from dense reference")
         end
         addcase!(cases, "group_layouts", name * "/coordinate", () -> prox_coordinate!(z, f, k, step), checkcoordinate!;
-                 T, shape=string(K), layout, prepare=prepare!, work=8)
+                 inputs=(; x), T, shape=string(K), layout, prepare=prepare!, work=8)
         addcase!(cases, "group_layouts", name * "/kkt", () -> kkt_violation(f, grad, x, k), checkkkt!;
-                 T, shape=string(K), layout, work=8)
+                 inputs=(; x, grad), T, shape=string(K), layout, work=8)
         addcase!(cases, "group_layouts", name * "/value", () -> f(x), checkvalue!;
-                 T, shape=string(K), layout, work=64)
+                 inputs=(; x), T, shape=string(K), layout, work=64)
         addcase!(cases, "group_layouts", name * "/prox!", () -> prox!(y, f, x, step), checkprox!;
-                 T, shape=string(K), layout, work=64)
+                 inputs=(; x), T, shape=string(K), layout, work=64)
         addcase!(cases, "group_layouts", name * "/value_and_prox!", () -> value_and_prox!(y, f, x, step), checkvprox!;
-                 T, shape=string(K), layout, work=64)
+                 inputs=(; x), T, shape=string(K), layout, work=64)
         if !shared
           other = F === SparseGroupNormL2 ? F(T(0.2), T(0.3), groups) : F(T(0.3), groups)
           function checkalternating!()
@@ -477,7 +739,7 @@ function group_layout_cases!(cases, rep)
               error("alternating value differs from dense reference")
           end
           addcase!(cases, "group_layouts", name * "/value_alternating", () -> (f(x), other(x)), checkalternating!;
-                   T, shape=string(K), layout, work=128)
+                   inputs=(; x), T, shape=string(K), layout, work=128)
         end
       end
     end
@@ -494,12 +756,13 @@ function underflow_cases!(cases, rep; quick=false)
         S = sprandn(rng,T,n,n,min(1.0,5/n)); Asp = S'S + I
         for (layout,A) in (("dense",H),("sparse",Asp),("diagonal",Diagonal(diag(H))))
             f = QuadraticFunction(A,b,zero(T)); g = zeros(T,n); Ad = Matrix(A)
-            ref() = dot(x,Ad*x)/2 + dot(b,x)
-            checkv!() = isapprox(f(x),ref();rtol=100tolerance(T),atol=100tolerance(T)) || error("value differs from reference")
-            checkg!() = isapprox(value_and_gradient!(g,f,x),ref();rtol=100tolerance(T),atol=100tolerance(T)) || error("value differs from reference")
-            addcase!(cases,"quadratic_underflow","quadratic/value",() -> f(x),checkv!;T,shape=string(n),layout,work=n*n)
+            ref_quadratic = dot(x,Ad*x)/2 + dot(b,x)
+            checkv!() = isapprox(f(x),ref_quadratic;rtol=100tolerance(T),atol=100tolerance(T)) || error("value differs from reference")
+            checkg!() = isapprox(value_and_gradient!(g,f,x),ref_quadratic;rtol=100tolerance(T),atol=100tolerance(T)) || error("value differs from reference")
+            # the function holds A and b
+            addcase!(cases,"quadratic_underflow","quadratic/value",() -> f(x),checkv!;inputs=(; x, A, b),T,shape=string(n),layout,work=n*n)
             addcase!(cases,"quadratic_underflow","quadratic/value_and_gradient!",() -> value_and_gradient!(g,f,x),checkg!;
-                     T,shape=string(n),layout,work=n*n)
+                     inputs=(; x, A, b),T,shape=string(n),layout,work=n*n)
         end
     end
     for T in (quick ? (Float64,) : (Float32,Float64)), (p,q) in (quick ? ((4,4),(1,16)) : ((4,4),(32,32),(128,128),(1,64),(64,4)))
@@ -509,12 +772,12 @@ function underflow_cases!(cases, rep; quick=false)
         Θ = randn(rng,T,p,q); C = randn(rng,T,p,q)
         for (layout,f) in (("plain",KronQuadratic(A,B)),("linear",KronQuadratic(A,B,C)))
             G = zeros(T,p,q)
-            ref() = dot(Θ,A*Θ*B)/2 + (layout=="linear" ? dot(C,Θ) : zero(T))
-            checkv!() = isapprox(f(Θ),ref();rtol=100tolerance(T),atol=100tolerance(T)) || error("value differs from reference")
-            checkg!() = isapprox(value_and_gradient!(G,f,Θ),ref();rtol=100tolerance(T),atol=100tolerance(T)) || error("value differs from reference")
-            addcase!(cases,"quadratic_underflow","kron/value",() -> f(Θ),checkv!;T,shape="$(p)x$q",layout,work=p*q*(p+q))
+            ref_kron = dot(Θ,A*Θ*B)/2 + (layout=="linear" ? dot(C,Θ) : zero(T))
+            checkv!() = isapprox(f(Θ),ref_kron;rtol=100tolerance(T),atol=100tolerance(T)) || error("value differs from reference")
+            checkg!() = isapprox(value_and_gradient!(G,f,Θ),ref_kron;rtol=100tolerance(T),atol=100tolerance(T)) || error("value differs from reference")
+            addcase!(cases,"quadratic_underflow","kron/value",() -> f(Θ),checkv!;inputs=(; Θ),T,shape="$(p)x$q",layout,work=p*q*(p+q))
             addcase!(cases,"quadratic_underflow","kron/value_and_gradient!",() -> value_and_gradient!(G,f,Θ),checkg!;
-                     T,shape="$(p)x$q",layout,work=p*q*(p+q))
+                     inputs=(; Θ),T,shape="$(p)x$q",layout,work=p*q*(p+q))
         end
     end
     # a value that is exactly zero at a nonzero argument (A = 0, or an argument in the null space with normal
@@ -530,9 +793,9 @@ function underflow_cases!(cases, rep; quick=false)
             f = QuadraticFunction(A); g = zeros(T,n)
             checkv!() = f(x) == 0 || error("value differs from reference")
             checkg!() = value_and_gradient!(g,f,x) == 0 || error("value differs from reference")
-            addcase!(cases,"quadratic_underflow","quadratic/value",() -> f(x),checkv!;T,shape=string(n),layout,work=n*n)
+            addcase!(cases,"quadratic_underflow","quadratic/value",() -> f(x),checkv!;inputs=(; x, A),T,shape=string(n),layout,work=n*n)
             addcase!(cases,"quadratic_underflow","quadratic/value_and_gradient!",() -> value_and_gradient!(g,f,x),checkg!;
-                     T,shape=string(n),layout,work=n*n)
+                     inputs=(; x, A),T,shape=string(n),layout,work=n*n)
         end
     end
     for T in (quick ? (Float64,) : (Float32,Float64)), (p,q) in (quick ? ((4,4),) : ((4,4),(32,32)))
@@ -541,9 +804,9 @@ function underflow_cases!(cases, rep; quick=false)
         f = KronQuadratic(zeros(T,p,p),B); G = zeros(T,p,q)
         checkv!() = f(Θ) == 0 || error("value differs from reference")
         checkg!() = value_and_gradient!(G,f,Θ) == 0 || error("value differs from reference")
-        addcase!(cases,"quadratic_underflow","kron/value",() -> f(Θ),checkv!;T,shape="$(p)x$q",layout="zero",work=p*q*(p+q))
+        addcase!(cases,"quadratic_underflow","kron/value",() -> f(Θ),checkv!;inputs=(; Θ),T,shape="$(p)x$q",layout="zero",work=p*q*(p+q))
         addcase!(cases,"quadratic_underflow","kron/value_and_gradient!",() -> value_and_gradient!(G,f,Θ),checkg!;
-                 T,shape="$(p)x$q",layout="zero",work=p*q*(p+q))
+                 inputs=(; Θ),T,shape="$(p)x$q",layout="zero",work=p*q*(p+q))
     end
     # the recomputation: every call takes it (diagnostic; reported apart from the ordinary cases)
     for T in (quick ? (Float64,) : (Float32,Float64))
@@ -554,16 +817,16 @@ function underflow_cases!(cases, rep; quick=false)
         k = T===Float32 ? -140 : -1060
         Aq = ldexp.(H,k); xq = ldexp.(randn(rng,T,n),T===Float32 ? 30 : 40)
         fq = QuadraticFunction(Aq); gq = zeros(T,n)
-        refq() = Float64(dot(big.(xq),big.(Aq)*big.(xq))/2)
-        checkq!() = isapprox(Float64(fq(xq)),refq();rtol=1e-4) || error("recovered value differs from BigFloat reference")
-        addcase!(cases,"quadratic_underflow","quadratic/value",() -> fq(xq),checkq!;T,shape=string(n),layout="recovery",
+        ref_q = Float64(dot(big.(xq),big.(Aq)*big.(xq))/2)
+        checkq!() = isapprox(Float64(fq(xq)),ref_q;rtol=1e-4) || error("recovered value differs from BigFloat reference")
+        addcase!(cases,"quadratic_underflow","quadratic/value",() -> fq(xq),checkq!;inputs=(; xq, Aq),T,shape=string(n),layout="recovery",
                  work=n*n,zero_alloc=false)
         p, q = 8, 8
         Ak = ldexp.(H[1:p,1:p],sa); Bk = ldexp.(H[1:q,1:q],sb); Θk = ldexp.(randn(rng,T,p,q),sx)
         fk = KronQuadratic(Ak,Bk)
-        refk() = Float64(dot(big.(Θk),big.(Ak)*big.(Θk)*big.(Bk))/2)
-        checkk!() = isapprox(Float64(fk(Θk)),refk();rtol=1e-4) || error("recovered value differs from BigFloat reference")
-        addcase!(cases,"quadratic_underflow","kron/value",() -> fk(Θk),checkk!;T,shape="$(p)x$q",layout="recovery",
+        ref_k = Float64(dot(big.(Θk),big.(Ak)*big.(Θk)*big.(Bk))/2)
+        checkk!() = isapprox(Float64(fk(Θk)),ref_k;rtol=1e-4) || error("recovered value differs from BigFloat reference")
+        addcase!(cases,"quadratic_underflow","kron/value",() -> fk(Θk),checkk!;inputs=(; Θk),T,shape="$(p)x$q",layout="recovery",
                  work=p*q*(p+q),zero_alloc=false)
     end
 end
@@ -577,34 +840,40 @@ function smooth_cases!(cases, rep; quick=false)
                   ("poisson",PoissonLoss(rand(rng,0:3,n),X)), ("huber",HuberLoss(y,X,T(0.5))),
                   ("logistic_weighted_offset",LogisticLoss(rand(rng,0:1,n),X;weights=rand(rng,T,n),offset=randn(rng,T,n))))
             quick && !(name in ("least_squares", "logistic")) && continue
-            addgrad!(cases,"smooth",name,f,x; profile=T==Float64 && n==1024)
+            # the losses hold X (and y where they use it; the other labels are inline)
+            addgrad!(cases,"smooth",name,f,x; profile=T==Float64 && n==1024,
+                     inputs=name in ("least_squares","huber") ? (; X, y) : (; X))
         end
         ls = LeastSquaresLoss(y,X)
+        ref_lipschitz = opnorm(X)^2
         check_global_curvature!() = begin
             bound = lipschitz(ls)
-            reference = opnorm(X)^2
-            isfinite(bound) && bound >= reference * (1 - tolerance(T)) ||
+            isfinite(bound) && bound >= ref_lipschitz * (1 - tolerance(T)) ||
                 error("invalid global curvature bound")
         end
         addcase!(cases,"setup","least_squares_lipschitz",() -> lipschitz(ls),check_global_curvature!;
-                 T,shape="$(n)x$p",phase="setup",zero_alloc=false,work=n*p)
-        addprox!(cases,"least_squares","tall",ls,x;profile=T==Float64 && n==1024)
-        addcold!(cases,"least_squares","tall",() -> LeastSquaresLoss(y,X),x)
+                 inputs=(; X, y),T,shape="$(n)x$p",phase="setup",zero_alloc=false,work=n*p)
+        addprox!(cases,"least_squares","tall",ls,x;profile=T==Float64 && n==1024,inputs=(; X, y))
+        addcold!(cases,"least_squares","tall",() -> LeastSquaresLoss(y,X),x;inputs=(; X, y))
         B = randn(rng,T,p,3); Y = randn(rng,T,n,3)
-        addgrad!(cases,"least_squares_multi","three_responses",LeastSquaresLoss(Y,X),B)
+        addgrad!(cases,"least_squares_multi","three_responses",LeastSquaresLoss(Y,X),B;inputs=(; X, Y))
         L = zeros(T,p)
-        checkL!() = (coordinate_lipschitz!(L,ls); close_enough(L,vec(sum(abs2,X;dims=1))))
-        addcase!(cases,"coordinates","least_squares_curvatures",() -> coordinate_lipschitz!(L,ls),checkL!;T,shape="$(n)x$p",work=n*p)
+        ref_curvatures = vec(sum(abs2,X;dims=1))
+        checkL!() = (coordinate_lipschitz!(L,ls); close_enough(L,ref_curvatures))
+        addcase!(cases,"coordinates","least_squares_curvatures",() -> coordinate_lipschitz!(L,ls),checkL!;
+                 inputs=(; X, y),T,shape="$(n)x$p",work=n*p)
         G = zeros(T,p); penalty=NormL1(T(0.3)); step=T(0.1)/sum(abs2,X)
         checkG!() = (gradient_mapping!(G,ls,penalty,x,step);all(isfinite,G) || error("nonfinite gradient mapping"))
-        addcase!(cases,"calculus","gradient_mapping!",() -> gradient_mapping!(G,ls,penalty,x,step),checkG!;T,shape="$(n)x$p",work=n*p)
+        addcase!(cases,"calculus","gradient_mapping!",() -> gradient_mapping!(G,ls,penalty,x,step),checkG!;
+                 inputs=(; x, X, y),T,shape="$(n)x$p",work=n*p)
         H=Matrix(Symmetric(X'X+I)); q=QuadraticFunction(H,randn(rng,T,p),zero(T))
-        addgrad!(cases,"quadratic","dense",q,x)
-        addprox!(cases,"quadratic","dense",q,x)
-        addcold!(cases,"quadratic","dense",() -> QuadraticFunction(H,zeros(T,p),zero(T)),x)
+        addgrad!(cases,"quadratic","dense",q,x;inputs=(; H))
+        addprox!(cases,"quadratic","dense",q,x;inputs=(; H))
+        addcold!(cases,"quadratic","dense",() -> QuadraticFunction(H,zeros(T,p),zero(T)),x;inputs=(; H))
         for f in (Regularize(ls,T(0.3)), Precompose(SqrNormL2(T(0.3)),T(-2)),
                   Translate(SqrNormL2(T(0.3)),ones(T,p)), Sum(ls,SqrNormL2(T(0.3))))
-            addgrad!(cases,"compositions",string(nameof(typeof(f))),f,x)
+            addgrad!(cases,"compositions",string(nameof(typeof(f))),f,x;
+                     inputs=f isa Union{Regularize,Sum} ? (; X, y) : (;))
         end
         # An actual fixed-work solver trace, with reset outside the measured block.
         β=zeros(T,p); grad=similar(β); r=copy(y); a=vec(sum(abs2,X;dims=1))
@@ -617,21 +886,29 @@ function smooth_cases!(cases, rep; quick=false)
             end
             β
         end
-        checkcd!() = (prep_cd!();cdtrace!(); close_enough(r,y-X*β); ls(β)+penalty(β)<=sum(abs2,y)/2+1e-3 || error("CD objective increased"))
-        addcase!(cases,"solver_traces","lasso_5_sweeps",cdtrace!,checkcd!;T,shape="$(n)x$p",prepare=prep_cd!,profile=T==Float64 && n==1024,work=5n*p)
+        # the objective bound is fixed here; the residual depends on the output β, so X and y are first
+        # compared with their digests at construction
+        cd_inputs = (; X, y, a)
+        cd_built = input_digests(cd_inputs)
+        cd_bound = sum(abs2,y)/2+1e-3
+        checkcd!() = (check_inputs(cd_inputs,cd_built,AFTER_BUILD); prep_cd!();cdtrace!(); close_enough(r,y-X*β);
+                      ls(β)+penalty(β)<=cd_bound || error("CD objective increased"))
+        addcase!(cases,"solver_traces","lasso_5_sweeps",cdtrace!,checkcd!;inputs=cd_inputs,T,shape="$(n)x$p",prepare=prep_cd!,
+                 profile=T==Float64 && n==1024,work=5n*p)
     end
     for T in (quick ? (Float64,) : (Float32,Float64)), (n,p) in (quick ? ((32,128),) : ((32,128),(128,1024)))
         rng=scenario_rng(rep,"wide/$T/$n/$p")
         X,y,x=randn(rng,T,n,p),randn(rng,T,n),randn(rng,T,p)
         f=LeastSquaresLoss(y,X)
-        addprox!(cases,"least_squares","wide",f,x;profile=T==Float64 && p==1024)
-        addcold!(cases,"least_squares","wide",() -> LeastSquaresLoss(y,X),x)
+        addprox!(cases,"least_squares","wide",f,x;profile=T==Float64 && p==1024,inputs=(; X, y))
+        addcold!(cases,"least_squares","wide",() -> LeastSquaresLoss(y,X),x;inputs=(; X, y))
         sparsex=SparseIterate(sprandn(rng,T,p,0.01))
-        addgrad!(cases,"sparse_smooth","least_squares",f,sparsex;second=false)
+        addgrad!(cases,"sparse_smooth","least_squares",f,sparsex;second=false,inputs=(; X, y))
         A=randn(rng,T,4,p); b=zeros(T,4); C=IndAffine(A,b)
         constrained=Constrained(f,C)
-        addprox!(cases,"affine_constrained","least_squares",constrained,x)
-        addcold!(cases,"affine_constrained","least_squares",() -> Constrained(LeastSquaresLoss(y,X),C),x)
+        # IndAffine holds A (not b)
+        addprox!(cases,"affine_constrained","least_squares",constrained,x;inputs=(; X, y, A))
+        addcold!(cases,"affine_constrained","least_squares",() -> Constrained(LeastSquaresLoss(y,X),C),x;inputs=(; X, y, A))
     end
 end
 
@@ -673,8 +950,10 @@ function matrix_cases!(cases, rep; quick=false)
             previous=x .+ T(1e-5).*randn(rng,T,size(x)); scratch=similar(x)
             # The warm call always starts from a nearby point, not its own answer.
             prep!() = prox!(scratch,f,previous,T(0.7))
-            addprox!(cases,"partial",name,f,x;prepare=prep!,profile=T==Float64 && p==512,reference_function=full)
-            addprox!(cases,"partial",name*"_full",full,x;value=false)
+            # prepare reads `previous`; the two cases share the reference prox(full, x)
+            r = addprox!(cases,"partial",name,f,x;prepare=prep!,profile=T==Float64 && p==512,reference_function=full,
+                         inputs=(; previous))
+            addprox!(cases,"partial",name*"_full",full,x;value=false,reference=r)
             makef = name=="nuclear" ? () -> NuclearNorm(T(0.5);partial=true) :
                     name=="rank4" ? () -> IndBallRank(4;partial=true) :
                     name=="psd_rank4" ? () -> IndPSD(rank=4,partial=true) :
@@ -706,7 +985,7 @@ function constrained_cases!(cases,rep; quick=false)
         for (name,f) in zip(("l1_box","scad_box","zero_sum_lasso","capped_simplex","simplex_elastic_net","l1_ball","l1_sphere"),fs)
             previous=x .+ T(0.001).*randn(rng,T,n); scratch=similar(x)
             prep!() = prox!(scratch,f,previous,T(0.7))
-            addprox!(cases,"constrained",name,f,x;prepare=prep!,profile=T==Float64 && n==100_000)
+            addprox!(cases,"constrained",name,f,x;prepare=prep!,profile=T==Float64 && n==100_000,inputs=(; previous))
             # Reset the multiplier, retaining allocated workspace, before a cold call.
             if name in ("zero_sum_lasso", "capped_simplex", "simplex_elastic_net")
                 cold!() = (f.last[] = T(NaN); nothing)
@@ -727,9 +1006,10 @@ function constrained_cases!(cases,rep; quick=false)
             C=IndIntersection(IndNonnegative(),IndHyperplane(one(T),T(10));warmstart=false)
             out=similar(x)
             step=T(0.7)
-            check!() = (prox!(out,C,x,step);C.converged || error("Dykstra failed to converge");close_enough(out,prox(IndSimplex(T(10)),x)))
+            ref_dykstra=prox(IndSimplex(T(10)),copy(x))
+            check!() = (prox!(out,C,x,step);C.converged || error("Dykstra failed to converge");close_enough(out,ref_dykstra))
             addcase!(cases,"intersection","simplex_cold_corrections",()->prox!(out,C,x,step),check!;
-                     T,shape=string(n),profile=T==Float64,work=n)
+                     inputs=(; x),T,shape=string(n),profile=T==Float64,work=n)
         end
     end
 end
@@ -747,52 +1027,74 @@ function tensor_cases!(cases,rep; quick=false)
     end
 end
 
+# The sparse operand of a product case, drawn from its own subkey; args are (n, density) or
+# (m, n, density).
+product_operand(rep, key, ::Type{T}, args...) where {T} = sprandn_fixed(scenario_rng(rep, key), T, args...)
+
+# The coefficient matrix of a switch_matrix case: the operand S and a SparseIterate x with the
+# same entries, stored in a random order drawn from the same subkey after S.
+function switch_operand(rep, ::Type{T}, m, density; p=1024, q=4) where {T}
+    rng = scenario_rng(rep, "products/switch/$T/$m/$density/x")
+    S = sprandn_fixed(rng, T, p, q, density)
+    I, J, V = findnz(S)
+    x = SparseIterate(T, p, q)
+    for k in randperm(rng, length(I)); x[I[k], J[k]] = V[k]; end
+    x, S
+end
+
+# Sparse operands hold exactly fixed_count(N, density) nonzeros, so `work` is the same in
+# every repetition; references are built from the operand itself.
 function product_cases!(cases,rep; quick=false)
     for T in (quick ? (Float64,) : (Float32,Float64)), p in (quick ? (256,) : (256,1024)), density in (quick ? (0.01,) : (0.01,0.2)), triangle in (quick ? (:U,) : (:U,:L))
         rng=scenario_rng(rep,"products/$T/$p/$density/$triangle")
         A=Symmetric(randn(rng,T,p,p),triangle)
-        xs=SparseIterate(sprandn(rng,T,p,density))
+        S=product_operand(rep,"products/$T/$p/$density/$triangle/xs",T,p,density)
+        xs=SparseIterate(S)
+        xd=Array(S)
         groups=[j:min(j+7,p) for j in 1:8:p]
-        xa=AtomIterate(dense(xs),GroupNormL2(T(0.3),groups))
+        xa=AtomIterate(xd,GroupNormL2(T(0.3),groups))
         for (layout,x) in (("sparse",xs),("atom",xa))
-            y=zeros(T,p); ref=A*dense(x)
+            y=zeros(T,p); ref=A*xd
             check!()=(mul!(y,A,x);close_enough(y,ref))
             addcase!(cases,"products","symmetric_$triangle",()->mul!(y,A,x),check!;
-                     T,shape=string(p),layout="$(layout)_$density",evals=10,
+                     inputs=(; A, x),T,shape=string(p),layout="$(layout)_$density",evals=10,
                      profile=T==Float64 && p==1024 && density==0.01 && triangle==:U,work=nnz(xs))
         end
     end
     n = 512
     for T in (quick ? (Float64,) : (Float32,Float64)), p in (quick ? (256,) : (256,1024)), density in (quick ? (0.01,) : (0.01,0.2))
-        rng=scenario_rng(rep,"products/strided/$T/$p/$density")
+        key="products/strided/$T/$p/$density"
+        rng=scenario_rng(rep,key)
         A=randn(rng,T,n,p)
-        xs=SparseIterate(sprandn(rng,T,p,density))
-        xm=SparseIterate(sprandn(rng,T,p,4,density))
+        Sxs=product_operand(rep,key*"/xs",T,p,density)
+        Sxm=product_operand(rep,key*"/xm",T,p,4,density)
+        Sxt=product_operand(rep,key*"/xt",T,n,density)
+        xs=SparseIterate(Sxs)
+        xm=SparseIterate(Sxm)
         groups=[j:min(j+7,p) for j in 1:8:p]
-        xa=AtomIterate(dense(xs),GroupNormL2(T(0.3),groups))
-        xt=SparseIterate(sprandn(rng,T,n,density))
-        for (name,B,x) in (("strided_vector",A,xs),("strided_matrix",A,xm),
-                           ("strided_atom",A,xa),("transposed_vector",transpose(A),xt))
+        xa=AtomIterate(Array(Sxs),GroupNormL2(T(0.3),groups))
+        xt=SparseIterate(Sxt)
+        for (name,B,x,S) in (("strided_vector",A,xs,Sxs),("strided_matrix",A,xm,Sxm),
+                             ("strided_atom",A,xa,Sxs),("transposed_vector",transpose(A),xt,Sxt))
             shape="$(n)x$p" * (x === xm ? "x4" : "")
             layout="$(x isa AtomIterate ? "atom" : "sparse")_$density"
-            xd=dense(x)
+            xd=Array(S)
             out=x isa AbstractVector ? zeros(T,size(B,1)) : zeros(T,size(B,1),size(x,2))
             reference=B*xd
             work=size(B,1)*count(!iszero,xd)
             check!()=(mul!(out,B,x);close_enough(out,reference))
             addcase!(cases,"products",name*"/mul!",()->mul!(out,B,x),check!;
-                     T,shape,layout,evals=10,work)
+                     inputs=(; B, x),T,shape,layout,evals=10,work)
             original=fill(T(0.25),size(out))
             α,β=T(1.5),T(0.5)
             prepare!()=copyto!(out,original)
+            expected_scaled=mul!(copy(original),B,xd,α,β)
             function checkscaled!()
-                expected=copy(original)
-                mul!(expected,B,xd,α,β)
                 prepare!(); mul!(out,B,x,α,β)
-                close_enough(out,expected)
+                close_enough(out,expected_scaled)
             end
             addcase!(cases,"products",name*"/mul!_scaled",()->mul!(out,B,x,α,β),checkscaled!;
-                     T,shape,layout,prepare=prepare!,evals=1,work)
+                     inputs=(; B, x, original),T,shape,layout,prepare=prepare!,evals=1,work)
         end
     end
     # Matrix coefficients with entries stored in random order, at densities on both
@@ -802,17 +1104,14 @@ function product_cases!(cases,rep; quick=false)
         rng=scenario_rng(rep,"products/switch/$T/$m/$density")
         p,q=1024,4
         A=randn(rng,T,m,p)
-        I,J,V=findnz(sprandn(rng,T,p,q,density))
-        perm=randperm(rng,length(I))
-        x=SparseIterate(T,p,q)
-        for k in perm; x[I[k],J[k]]=V[k]; end
-        xd=dense(x)
+        x,S=switch_operand(rep,T,m,density;p,q)
+        xd=Array(S)
         out=zeros(T,m,q)
         reference=A*xd
         work=m*count(!iszero,xd)
         check!()=(mul!(out,A,x);close_enough(out,reference))
         addcase!(cases,"products","switch_matrix/mul!",()->mul!(out,A,x),check!;
-                 T,shape="$(m)x$(p)x$q",layout="random_$density",evals=10,work)
+                 inputs=(; A, x),T,shape="$(m)x$(p)x$q",layout="random_$density",evals=10,work)
     end
 end
 
@@ -821,8 +1120,6 @@ end
 # prox_coordinate! with a lower-triangle coordinate ID, mul! and Matrix on the matrix
 # view when there is one), so one harness run on each revision gives the before/after
 # comparison. No case here depends on the owner being an AbstractMatrix.
-owner_matrix(X) = isdefined(ProximalBase, :matrixview) ? ProximalBase.matrixview(X) : X
-
 function owner_fixture(rng, T, p, s)
     q = p * (p + 1) ÷ 2
     ids = randperm(rng, q)[1:s]               # distinct lower-triangle coordinate IDs
@@ -871,7 +1168,7 @@ function owner_cases!(cases, rep; quick=false)
             expected_read = sum(S[r, c] for (r, c) in pos)
             read_op() = (acc = zero(T); @inbounds for (r, c) in pos; acc += X[r, c]; end; acc)
             check_read!() = isapprox(read_op(), expected_read; rtol=1e-12) || error("owner reads differ from the CSC reference")
-            addcase!(cases, "owner", "read_X[i,j]", read_op, check_read!; T, shape, layout="$(kind)_$(side)", work=nread)
+            addcase!(cases, "owner", "read_X[i,j]", read_op, check_read!; inputs=(; X, pos), T, shape, layout="$(kind)_$(side)", work=nread)
         end
         # writes to already active coordinates, with a changing value
         wpos = active
@@ -884,7 +1181,8 @@ function owner_cases!(cases, rep; quick=false)
             all(Xw[r, c] == val for (r, c) in wpos) || error("owner writes were not stored")
             length(collect(activecoordinates(Xw))) == s || error("a write to an active coordinate changed the working set")
         end
-        addcase!(cases, "owner", "write_X[i,j]_active", write_op, check_write!; T, shape, layout="active", work=length(wpos))
+        # Xw is not an input: every call writes a new value into it
+        addcase!(cases, "owner", "write_X[i,j]_active", write_op, check_write!; inputs=(; wpos), T, shape, layout="active", work=length(wpos))
         # first activation: always an absent coordinate; restored outside the timed region
         Xa = copy(fx.X)
         # a batch of 256 distinct, initially inactive coordinates per call: one activation is below the timer floor
@@ -906,7 +1204,7 @@ function owner_cases!(cases, rep; quick=false)
             restore!()
             length(collect(activecoordinates(Xa))) == s || error("restore did not recover the working set")
         end
-        addcase!(cases, "owner", "first_activation", activate_op, check_activate!; T, shape, layout="absent_distinct_batch",
+        addcase!(cases, "owner", "first_activation", activate_op, check_activate!; inputs=(; batch, batch_ids), T, shape, layout="absent_distinct_batch",
                  phase="first_activation", prepare=restore!, evals=1, zero_alloc=true, work=length(batch))
         # sweeps over the active coordinates
         Xs = copy(fx.X)
@@ -918,7 +1216,7 @@ function owner_cases!(cases, rep; quick=false)
                      sweep_ids() == expected_sum || error("sweep visited the wrong coordinates")
                      sort!(collect(activecoordinates(Xs))) == sorted_owner_ids || error("the active coordinates are not the fixture's (a sum can agree)")
                  end;
-                 T, shape, layout="trivial_update", work=s)
+                 inputs=(; Xs), T, shape, layout="trivial_update", work=s)
         f = NormL1(T(0.1))
         step = T(0.5)
         prox_sweep() = (for k in activecoordinates(Xs); prox_coordinate!(Xs, f, k, step); end; nothing)
@@ -933,7 +1231,8 @@ function owner_cases!(cases, rep; quick=false)
             ok || error("coordinate sweep gave the wrong soft threshold")
             prep_sweep!()
         end
-        addcase!(cases, "owner", "sweep_prox_coordinate!", prox_sweep, check_sweep!; T, shape, layout="NormL1",
+        addcase!(cases, "owner", "sweep_prox_coordinate!", prox_sweep, check_sweep!; inputs=(; fx_ids=fx.ids, fx_vals=fx.vals),
+                 T, shape, layout="NormL1",
                  prepare=prep_sweep!, evals=1, work=s)
         # matrix product with a dense vector
 
@@ -941,23 +1240,23 @@ function owner_cases!(cases, rep; quick=false)
         A = owner_matrix(X)
         mul_op() = (mul!(y, A, v); nothing)
         check_mul!() = (mul_op(); isapprox(y, ref; rtol=1e-10, atol=1e-10) || error("owner product differs from the CSC product"))
-        addcase!(cases, "owner", "mul!", mul_op, check_mul!; T, shape, layout="owner", evals=10, work=s)
+        addcase!(cases, "owner", "mul!", mul_op, check_mul!; inputs=(; X, v), T, shape, layout="owner", evals=10, work=s)
         # baselines in the same session
         ycsc = zeros(T, p)
         addcase!(cases, "owner", "mul!", () -> (mul!(ycsc, S, v); nothing),
                  () -> (mul!(ycsc, S, v); isapprox(ycsc, ref; rtol=1e-10, atol=1e-10) || error("CSC product mismatch"));
-                 T, shape, layout="csc_baseline", evals=10, work=s)
+                 inputs=(; S, v), T, shape, layout="csc_baseline", evals=10, work=s)
         if p <= 2000
             D = Symmetric(Matrix(S), :L); yd = zeros(T, p)
             addcase!(cases, "owner", "mul!", () -> (mul!(yd, D, v); nothing),
                      () -> (mul!(yd, D, v); isapprox(yd, ref; rtol=1e-10, atol=1e-10) || error("dense product mismatch"));
-                     T, shape, layout="dense_symmetric_baseline", evals=10, work=p * p)
+                     inputs=(; D, v), T, shape, layout="dense_symmetric_baseline", evals=10, work=p * p)
         end
         # conversion to a dense matrix
         if p <= 2000 || s == 100
             addcase!(cases, "owner", "Matrix", () -> (Matrix(A); nothing),
                      () -> (M = Matrix(A); sparse(M) == S || error("Matrix(owner) differs from the CSC reference"));
-                     T, shape, layout="owner", phase="allocating", zero_alloc=false, evals=1, work=p * p)
+                     inputs=(; X), T, shape, layout="owner", phase="allocating", zero_alloc=false, evals=1, work=p * p)
         end
     end
     # construction (empty owner), quadratic in p
@@ -969,7 +1268,8 @@ function owner_cases!(cases, rep; quick=false)
                      # retained memory: one T array and two Int arrays of length q, plus headers
                      abs(Base.summarysize(X) - (sizeof(T) + 2 * sizeof(Int)) * q) <= 1024 || error("unexpected retained size")
                  end;
-                 T, shape="p$p", layout="empty", phase="construct", zero_alloc=false, evals=1, work=p * (p + 1) ÷ 2)
+                 # the operation reads only scalars
+                 inputs=(;), T, shape="p$p", layout="empty", phase="construct", zero_alloc=false, evals=1, work=p * (p + 1) ÷ 2)
     end
     owner_extra_cases!(cases, rep; quick)
 end
@@ -1011,6 +1311,9 @@ end
 clear_coordinates!(X) = (fill!(coordinates(X), 0); nothing)
 clear_coordinates_dropzeros!(X) = (fill!(coordinates(X), 0); dropzeros!(X); nothing)
 clear_owner!(X) = (fill!(X, 0); nothing)
+# fill!(X, 0) on the whole owner exists only while the owner is an array; the 0.6 owner has no
+# whole-owner fill!, and fill!(coordinates(X), 0) is its supported clear (the other two clear cases)
+owner_is_array() = SymmetricSparseIterate <: AbstractArray
 
 function owner_extra_cases!(cases, rep; quick=false)
     T = Float64
@@ -1050,7 +1353,7 @@ function owner_extra_cases!(cases, rep; quick=false)
             isapprox(y, ref; rtol=1e-10, atol=1e-10) || error("owner product with stored zeros differs from the CSC reference")
         end
         addcase!(cases, "owner", "mul!", () -> (mul!(y, A50, v); nothing), check_mul50;
-                 T, shape, layout="owner_z50", evals=10, zero_alloc=true, work=s)
+                 inputs=(; X50, v), T, shape, layout="owner_z50", evals=10, zero_alloc=true, work=s)
 
         # FP-7: the clears. The clear through coordinates(X) writes a value into each of the q
         # coordinates and keeps the working set; fill!(X, 0) is O(s) and clears the working set. Only the
@@ -1064,12 +1367,14 @@ function owner_extra_cases!(cases, rep; quick=false)
         end
         addcase!(cases, "owner", "fill!_coordinates_zero", () -> clear_coordinates!(X),
                  guarded(() -> check_clear(clear_coordinates!));
-                 T, shape, layout="owner", prepare=restore_state!, zero_alloc=true, work=q)
+                 inputs=(; snap), T, shape, layout="owner", prepare=restore_state!, zero_alloc=true, work=q)
         addcase!(cases, "owner", "fill!_coordinates_zero_dropzeros", () -> clear_coordinates_dropzeros!(X),
                  guarded(() -> check_clear(clear_coordinates_dropzeros!));
-                 T, shape, layout="owner", prepare=restore_state!, zero_alloc=true, work=q)
-        addcase!(cases, "owner", "fill!_zero", () -> clear_owner!(X), guarded(() -> check_clear(clear_owner!));
-                 T, shape, layout="owner", prepare=restore_state!, zero_alloc=false, work=s)
+                 inputs=(; snap), T, shape, layout="owner", prepare=restore_state!, zero_alloc=true, work=q)
+        if owner_is_array()
+            addcase!(cases, "owner", "fill!_zero", () -> clear_owner!(X), guarded(() -> check_clear(clear_owner!));
+                     inputs=(; snap), T, shape, layout="owner", prepare=restore_state!, zero_alloc=false, work=s)
+        end
 
         # FD-8: the momentum value loops over the stored values, through the accessor and through the
         # private array; the reference is the fixture's values in slot order
@@ -1077,8 +1382,10 @@ function owner_extra_cases!(cases, rep; quick=false)
         xcur = randn(scenario_rng(rep, key * "/momentum_cur"), T, s)
         xprev = randn(scenario_rng(rep, key * "/momentum_prev"), T, s)
         buf = zeros(T, s)
+        rd_total, rd_magnitude = restart_reference(fx.vals, ybuf, xcur, xprev)
         for (layout, getvals) in (("accessors", activevalues), ("private_fields", stored_values_by_field(X)))
-            values_op, setvalues_op, dot_op = momentum_ops(getvals, X, buf, copy(fx.vals), ybuf, xcur, xprev, s)
+            w = copy(fx.vals)
+            values_op, setvalues_op, dot_op = momentum_ops(getvals, X, buf, w, ybuf, xcur, xprev, s)
             function check_values()
                 collect(activecoordinates(X)) == fx.ids || error("the owner is not in the fixture's slot order")
                 fill!(buf, zero(T))
@@ -1091,21 +1398,45 @@ function owner_extra_cases!(cases, rep; quick=false)
                 activevalues(X) == fx.vals || error("_setvalues! differs from the fixture's values")
                 all(X[r, c] == v for ((r, c), v) in zip(coords, fx.vals)) || error("_setvalues! did not write the fixture's values")
             end
-            function check_restartdot()
-                total, magnitude = zero(T), zero(T)
-                for j in 1:s
-                    term = (fx.vals[j] - ybuf[j]) * (xcur[j] - xprev[j])
-                    total += term
-                    magnitude += abs(term)
-                end
-                close_scalar(dot_op(), total, magnitude, T)
-            end
-            for (name, op, check) in (("_values!", values_op, check_values), ("_setvalues!", setvalues_op, check_setvalues),
-                                      ("_restartdot", dot_op, check_restartdot))
-                addcase!(cases, "owner", name, op, guarded(check); T, shape, layout, zero_alloc=true, work=s)
+            check_restartdot() = close_scalar(dot_op(), rd_total, rd_magnitude, T)
+            for (name, op, check, inputs) in (("_values!", values_op, check_values, (; X)),
+                                              ("_setvalues!", setvalues_op, check_setvalues, (; X, w)),
+                                              ("_restartdot", dot_op, check_restartdot, (; X, ybuf, xcur, xprev)))
+                addcase!(cases, "owner", name, op, guarded(check); inputs, T, shape, layout, zero_alloc=true, work=s)
             end
         end
     end
+end
+
+# The BigFloat solution of the ridge problem on the hyperplane a'z = b with per-entry steps, in the form
+# that the check reads: a pair of Float64 per entry (hi + lo is within 2⁻¹⁰⁶ of the BigFloat value, far
+# below the tolerance) and the scale of the tolerance. Computed when the case is built.
+# Entry by entry (two passes), so that no BigFloat array is held.
+function hyperplane_reference(::Type{T}, λ, x, a, b, cen, steps) where {T}
+    function pq(i)
+        s = big(T(steps[i]))                       # the steps as the search converts them
+        t = s * big(λ)
+        c = cen === nothing ? big(0) : big(cen[i])
+        ((big(x[i]) + t * c) / (1 + t), s * big(a[i]) / (1 + t))
+    end
+    ap, aq = big(0), big(0)
+    for i in eachindex(x)
+        p, q = pq(i)
+        ap += big(a[i]) * p
+        aq += big(a[i]) * q
+    end
+    μ = (ap - big(b)) / aq
+    hi, lo = zeros(Float64, length(x)), zeros(Float64, length(x))
+    rmax, xmax = big(0), big(0)
+    for i in eachindex(x)
+        p, q = pq(i)
+        r = p - μ * q
+        hi[i] = Float64(r)
+        lo[i] = Float64(r - big(hi[i]))
+        rmax = max(rmax, abs(r))
+        xmax = max(xmax, abs(big(x[i])))
+    end
+    (; hi, lo, scale = rmax + xmax)
 end
 
 # Ridge: ordinary calls in the three precision mixes, a coordinate loop, and the
@@ -1133,31 +1464,33 @@ function ridge_cases!(cases, rep; quick=false)
         scale = [max(abs(big(x[i])), abs(big(cf[i])), big(eps(T))) for i in 1:n]
         close_ref(y, r) = all(i -> abs(big(y[i]) - r[i]) <= 4 * eps(T) * (scale[i] * (iszero(λ) ? 1 : max(1, big(λ)))), eachindex(y)) ||
             error("output differs from the reference")
+        # the center is held by the function (nothing when uncentered)
         addcase!(cases, "ridge", name * "/prox!", () -> prox!(z, f, x, γ),
-                 () -> (prox!(z, f, x, γ); close_ref(z, refprox)); T, shape, work=n)
+                 () -> (prox!(z, f, x, γ); close_ref(z, refprox)); inputs=(; x, c), T, shape, work=n)
         # independent entries, as a vectorizable sweep, and a dependent chain, as in
         # coordinate descent (each update feeds the next argument)
         addcase!(cases, "ridge", name * "/prox_entry_loop",
                  () -> begin @inbounds for i in eachindex(x) z[i] = prox_entry(f, x[i], i, γ) end end,
                  () -> (for i in eachindex(x); z[i] = prox_entry(f, x[i], i, γ); end; close_ref(z, refprox));
-                 T, shape, layout="coordinate", work=n)
+                 inputs=(; x, c), T, shape, layout="coordinate", work=n)
         chain() = (v = zero(T); @inbounds for i in eachindex(x) v = prox_entry(f, x[i] + T(0.5) * v, i, γ) end; v)
         addcase!(cases, "ridge", name * "/prox_entry_chain", chain,
-                 () -> isfinite(chain()) || error("nonfinite chain"); T, shape, layout="coordinate", work=n)
+                 () -> isfinite(chain()) || error("nonfinite chain"); inputs=(; x, c), T, shape, layout="coordinate", work=n)
         addcase!(cases, "ridge", name * "/value_and_prox!", () -> value_and_prox!(z, f, x, γ),
                  () -> (v = value_and_prox!(z, f, x, γ); close_ref(z, refprox);
                         isapprox(v, f(z); rtol=100 * eps(T), atol=100 * eps(T)) || error("value differs from f(prox)"));
-                 T, shape, work=n)
+                 inputs=(; x, c), T, shape, work=n)
         addcase!(cases, "ridge", name * "/gradient!", () -> gradient!(g, f, x),
-                 () -> (gradient!(g, f, x); close_ref(g, refgrad)); T, shape, work=n)
+                 () -> (gradient!(g, f, x); close_ref(g, refgrad)); inputs=(; x, c), T, shape, work=n)
+        ref_fx = deepcopy(f)(copy(x))
         addcase!(cases, "ridge", name * "/value_and_gradient!", () -> value_and_gradient!(g, f, x),
                  () -> (v = value_and_gradient!(g, f, x); close_ref(g, refgrad);
-                        isapprox(v, f(x); rtol=100 * eps(T), atol=100 * eps(T)) || error("value mismatch"));
-                 T, shape, work=n)
+                        isapprox(v, ref_fx; rtol=100 * eps(T), atol=100 * eps(T)) || error("value mismatch"));
+                 inputs=(; x, c), T, shape, work=n)
         refvalue = big(λ) / 2 * sum(abs2, big.(x) .- big.(cf))
         addcase!(cases, "ridge", name * "/value", () -> f(x),
                  () -> isapprox(big(f(x)), refvalue; rtol=1000 * eps(T)) || error("value differs from the reference");
-                 T, shape, work=n)
+                 inputs=(; x, c), T, shape, work=n)
     end
     # Recovery path: separate from the ordinary calls above.
     let
@@ -1173,18 +1506,19 @@ function ridge_cases!(cases, rep; quick=false)
       fc = SqrNormL2(big_level, Float32.(c64))
       ff = SqrNormL2(pow2(Float64, -400), far)          # Float32 data, centers outside Float32
       finite(y) = all(isfinite, y) || error("nonfinite recovery output")
+      half = x ./ 2
       addcase!(cases, "ridge", "recovery/coefficient_in_band_after_product/prox!", () -> prox!(z, f0, x, tiny_step),
-               () -> (prox!(z, f0, x, tiny_step); all(i -> z[i] == x[i] / 2, 1:n) || error("unexpected prox")); T=Float32, layout="recovery", shape=string(n), work=n)
+               () -> (prox!(z, f0, x, tiny_step); all(i -> z[i] == half[i], 1:n) || error("unexpected prox")); inputs=(; x), T=Float32, layout="recovery", shape=string(n), work=n)
       addcase!(cases, "ridge", "recovery/coefficient_scaled/prox!", () -> prox!(z, f0, x, 1.0),
-               () -> (prox!(z, f0, x, 1.0); finite(z)); T=Float32, layout="recovery", shape=string(n), work=n)
+               () -> (prox!(z, f0, x, 1.0); finite(z)); inputs=(; x), T=Float32, layout="recovery", shape=string(n), work=n)
       addcase!(cases, "ridge", "recovery/coefficient_scaled_centered/prox!", () -> prox!(z, fc, x, 1.0),
-               () -> (prox!(z, fc, x, 1.0); finite(z)); T=Float32, layout="recovery", shape=string(n), work=n)
+               () -> (prox!(z, fc, x, 1.0); finite(z)); inputs=(; x), T=Float32, layout="recovery", shape=string(n), work=n)
       addcase!(cases, "ridge", "recovery/level_outside/gradient!", () -> gradient!(g, SqrNormL2(big_level), x .* pow2(Float32, -100)),
-               () -> (gradient!(g, SqrNormL2(big_level), x .* pow2(Float32, -100)); finite(g)); T=Float32, layout="recovery", shape=string(n), work=n, zero_alloc=false)
+               () -> (gradient!(g, SqrNormL2(big_level), x .* pow2(Float32, -100)); finite(g)); inputs=(; x), T=Float32, layout="recovery", shape=string(n), work=n, zero_alloc=false)
       addcase!(cases, "ridge", "recovery/center_outside/prox!", () -> prox!(z, ff, x, 1.0),
-               () -> (prox!(z, ff, x, 1.0); finite(z)); T=Float32, layout="recovery", shape=string(n), work=n)
+               () -> (prox!(z, ff, x, 1.0); finite(z)); inputs=(; x, far), T=Float32, layout="recovery", shape=string(n), work=n)
       addcase!(cases, "ridge", "recovery/center_outside/value", () -> ff(x),
-               () -> isfinite(ff(x)) || error("nonfinite value"); T=Float32, layout="recovery", shape=string(n), work=n, zero_alloc=false)
+               () -> isfinite(ff(x)) || error("nonfinite value"); inputs=(; x, far), T=Float32, layout="recovery", shape=string(n), work=n, zero_alloc=false)
     end
     # Constrained ridge on a hyperplane with per-entry steps (extended suite only): repeated
     # calls start from the last multiplier; "cold" calls start from zero; the scalar step is
@@ -1204,23 +1538,24 @@ function ridge_cases!(cases, rep; quick=false)
         c = Constrained(SqrNormL2(λ, cen), IndHyperplane(a, b))
         z = similar(x)
         name = string("constrained/", label, centered ? "/centered" : "/uncentered")
-        function check_hyperplane(steps)
+        function check_hyperplane(steps, ref)
             prox!(z, c, x, steps)
-            t = big.(T.(steps)) .* big(λ)                  # the steps as the search converts them
-            cc = cen === nothing ? zeros(BigFloat, n) : big.(cen)
-            p = (big.(x) .+ t .* cc) ./ (1 .+ t)
-            q = big.(T.(steps)) .* big.(a) ./ (1 .+ t)
-            r = p .- (sum(big.(a) .* p) - big(b)) / sum(big.(a) .* q) .* q
-            maximum(abs.(big.(z) .- r)) <= 64 * eps(T) * (maximum(abs, r) + maximum(abs, big.(x))) ||
+            r = big.(ref.hi) .+ big.(ref.lo)
+            maximum(abs.(big.(z) .- r)) <= 64 * eps(T) * ref.scale ||
                 error("constrained output differs from the reference")
         end
+        # the vector steps and the cold calls share one reference; the scalar step is checked through
+        # the equal vector of steps, as before
+        γfill = fill(γ, n)
+        ref_vector = hyperplane_reference(T, λ, x, a, b, cen, γs)
+        ref_scalar = hyperplane_reference(T, λ, x, a, b, cen, γfill)
         addcase!(cases, "ridge", name * "/vector_steps/prox!", () -> prox!(z, c, x, γs),
-                 () -> check_hyperplane(γs); T, shape=string(n), layout="constrained", work=n)
+                 () -> check_hyperplane(γs, ref_vector); inputs=(; x, γs, a, cen), T, shape=string(n), layout="constrained", work=n)
         addcase!(cases, "ridge", name * "/vector_steps_cold/prox!", () -> prox!(z, c, x, γs),
-                 () -> check_hyperplane(γs); T, shape=string(n), layout="constrained", work=n,
+                 () -> check_hyperplane(γs, ref_vector); inputs=(; x, γs, a, cen), T, shape=string(n), layout="constrained", work=n,
                  prepare=() -> (c.last[] = NaN; c.slope[] = NaN))
         addcase!(cases, "ridge", name * "/scalar_step/prox!", () -> prox!(z, c, x, γ),
-                 () -> check_hyperplane(fill(γ, n)); T, shape=string(n), layout="constrained", work=n)
+                 () -> check_hyperplane(γfill, ref_scalar); inputs=(; x, a, cen), T, shape=string(n), layout="constrained", work=n)
     end
     # one step below the band: the search keeps the tested entries
     let
@@ -1234,7 +1569,7 @@ function ridge_cases!(cases, rep; quick=false)
       z = similar(x)
       addcase!(cases, "ridge", "recovery/constrained_step_outside/prox!", () -> prox!(z, c, x, γs),
                () -> (prox!(z, c, x, γs); all(isfinite, z) || error("nonfinite constrained output"));
-               T=Float32, layout="recovery", shape=string(n), work=n)
+               inputs=(; x, γs, a), T=Float32, layout="recovery", shape=string(n), work=n)
     end
 end
 
@@ -1302,6 +1637,18 @@ stored_values_by_field(x) = hasfield(typeof(x), :nzval) ? private_nzval : active
 
 # a repetition count for an operation of `units` steps, so that a call takes about 2 µs on the pinned source
 repeats_for(units, target) = max(1, cld(target, units))
+
+# the reference of the restart dot products: Σ (vals[j] - y[j]) (xcur[j] - xprev[j]) and the sum of the
+# magnitudes of the terms, in this order; computed when the case is built
+function restart_reference(vals, y, xcur, xprev)
+    total, magnitude = zero(eltype(y)), zero(eltype(y))
+    for j in eachindex(vals)
+        term = (vals[j] - y[j]) * (xcur[j] - xprev[j])
+        total += term
+        magnitude += abs(term)
+    end
+    total, magnitude
+end
 
 # ---- the sparse group: SparseIterate vectors and matrices ----
 #
@@ -1483,7 +1830,7 @@ function sparse_convert_cases!(cases, rep, dims, ids, key, shape)
             end
             nothing
         end
-        addcase!(cases, "sparse", "copyto!_convert", op, check; T=Float64, shape,
+        addcase!(cases, "sparse", "copyto!_convert", op, check; inputs=(; src), T=Float64, shape,
                  layout="to_$(Td)_$(branch)", zero_alloc=false, work=branch == "sparse_branch" ? k : prod(dims))
     end
 end
@@ -1521,7 +1868,7 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
         expected = sum_reads(d, rids, T)
         addcase!(cases, "sparse", "read_x[i]", () -> sum_reads(x, rids, T),
                  guarded(() -> sum_reads(x, rids, T) == expected || error("reads differ from the dense vector"));
-                 T, shape, layout=kind, zero_alloc=true, work=nread)
+                 inputs=(; x, rids), T, shape, layout=kind, zero_alloc=true, work=nread)
     end
     # writes to 1024 active coordinates, with the values they hold: the state is unchanged, and the
     # check first overwrites them
@@ -1536,7 +1883,7 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
         nothing
     end
     addcase!(cases, "sparse", "write_x[i]_active", () -> write_values!(x, wids, wvals), guarded(check_write);
-             T, shape, layout="active", zero_alloc=true, work=length(wids))
+             inputs=(; x, wids, wvals), T, shape, layout="active", zero_alloc=true, work=length(wids))
     # isactive: 256 queries, half of them active
     qids = shuffle(scenario_rng(rep, key * "/queries"), vcat(cycled(ids, 128), pool[1:128]))
     idset = Set(ids)
@@ -1546,15 +1893,15 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
                          count_active(x, qids) == expected_active || error("isactive differs from the stored membership")
                          check_isactive_stored_zero(T)
                      end);
-             T, shape, layout="half_active", zero_alloc=true, work=length(qids))
+             inputs=(; x, qids), T, shape, layout="half_active", zero_alloc=true, work=length(qids))
 
     # first activation: a batch of distinct absent coordinates per call, by assignment and by activate!;
     # the companion has up to 16 disjoint batches in one call, which a timer can resolve
     nbatch = min(16, length(pool) ÷ 256)
     for (suffix, bids) in (("", pool[1:256]), ("_x16", pool[1:256*nbatch]))
         bvals = fixture_values(scenario_rng(rep, key * "/batch_values$suffix"), T, length(bids))
-        for (how, op, written) in (("absent_distinct_batch", () -> write_values!(x, bids, bvals), bvals),
-                                   ("activate_distinct_batch", () -> activate_all!(x, bids), zeros(T, length(bids))))
+        for (how, op, written, inputs) in (("absent_distinct_batch", () -> write_values!(x, bids, bvals), bvals, (; bids, bvals)),
+                                           ("activate_distinct_batch", () -> activate_all!(x, bids), zeros(T, length(bids)), (; bids)))
             function restore_batch!()      # outside the timed region
                 @inbounds for k in bids
                     x[k] = zero(T)
@@ -1563,6 +1910,8 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
                 any(k -> isactive(x, k), bids) && error("a batch coordinate is still active: not a first activation")
                 nothing
             end
+            # the activated coordinates and their values, copied when the case is built
+            bids0, written0 = copy(bids), copy(written)
             function check_activation()
                 copyto!(x, snap)
                 restore_batch!()
@@ -1571,14 +1920,14 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
                 all(k -> isactive(x, k), bids) || error("activation did not add every coordinate")
                 nactive(x) == s + length(bids) || error("unexpected working set after the activations")
                 expected = copy(d)
-                expected[bids] = written
+                expected[bids0] = written0
                 Array(x) == expected || error("activated values differ from the dense reference")
                 restore_batch!()
                 nactive(x) == s && Array(x) == d || error("restore did not recover the iterate")
                 copyto!(x, snap)
                 nothing
             end
-            addcase!(cases, "sparse", "first_activation", op, check_activation; T, shape, layout=how * suffix,
+            addcase!(cases, "sparse", "first_activation", op, check_activation; inputs, T, shape, layout=how * suffix,
                      phase="first_activation", prepare=restore_batch!, evals=1, zero_alloc=true, work=length(bids))
         end
     end
@@ -1586,13 +1935,13 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
     # a full sweep and an active sweep with a trivial update: the iterate is unchanged
     unchanged() = Array(x) == d && nactive(x) == s || error("the sweep changed the iterate")
     addcase!(cases, "sparse", "sweep_full", () -> full_sweep!(x),
-             guarded(() -> (full_sweep!(x); unchanged())); T, shape, layout="vector", zero_alloc=true, work=n)
+             guarded(() -> (full_sweep!(x); unchanged())); inputs=(; x), T, shape, layout="vector", zero_alloc=true, work=n)
     addcase!(cases, "sparse", "sweep_active_update", () -> active_sweep!(x),
              guarded(function ()
                          active_sweep!(x) == s || error("the sweep did not visit every active coordinate")
                          unchanged()
                      end);
-             T, shape, layout="trivial_update", zero_alloc=true, work=s)
+             inputs=(; x), T, shape, layout="trivial_update", zero_alloc=true, work=s)
 
     # FD-7: sweeps through the handles created inside the call
     sorted_ids = sort(ids)
@@ -1601,49 +1950,53 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
                          sum_active_ids(x) == sum(ids) || error("sweep visited the wrong coordinates")
                          sort!(collect(activecoordinates(x))) == sorted_ids || error("the active coordinates are not the fixture's (a sum can agree)")
                      end);
-             T, shape, layout="vector", zero_alloc=true, work=s)
+             inputs=(; x), T, shape, layout="vector", zero_alloc=true, work=s)
     absvals = sum(abs, vals)
     addcase!(cases, "sparse", "sweep_activevalues", () -> sum_active_values(x, T),
              guarded(() -> close_scalar(sum_active_values(x, T), sum(vals), absvals, T));
-             T, shape, layout="vector", zero_alloc=true, work=s)
+             inputs=(; x), T, shape, layout="vector", zero_alloc=true, work=s)
 
     # FD-5: a read-write sweep and a product through coordinates(x), against the same through x
     addcase!(cases, "sparse", "sweep_via_coordinates", () -> coordinate_sweep!(x),
-             guarded(() -> (coordinate_sweep!(x); unchanged())); T, shape, layout="rank1", zero_alloc=true, work=n)
+             guarded(() -> (coordinate_sweep!(x); unchanged())); inputs=(; x), T, shape, layout="rank1", zero_alloc=true, work=n)
     addcase!(cases, "sparse", "sweep_via_x", () -> index_sweep!(x),
-             guarded(() -> (index_sweep!(x); unchanged())); T, shape, layout="rank1", zero_alloc=true, work=n)
+             guarded(() -> (index_sweep!(x); unchanged())); inputs=(; x), T, shape, layout="rank1", zero_alloc=true, work=n)
+    # the references of the products are computed here, as the operand v is read by the operation
     absdot = dot(abs.(v), abs.(d))
+    ref_dot = dot(v, d)
     addcase!(cases, "sparse", "dot_via_coordinates", () -> dot(v, coordinates(x)),
-             guarded(() -> close_scalar(dot(v, coordinates(x)), dot(v, d), absdot, T));
-             T, shape, layout="rank1", zero_alloc=false, work=s)
+             guarded(() -> close_scalar(dot(v, coordinates(x)), ref_dot, absdot, T));
+             inputs=(; x, v), T, shape, layout="rank1", zero_alloc=false, work=s)
     addcase!(cases, "sparse", "dot_x", () -> dot(v, x),
-             guarded(() -> close_scalar(dot(v, x), dot(v, d), absdot, T));
-             T, shape, layout="rank1", zero_alloc=true, work=s)
+             guarded(() -> close_scalar(dot(v, x), ref_dot, absdot, T));
+             inputs=(; x, v), T, shape, layout="rank1", zero_alloc=true, work=s)
 
     # FD-9: products, with 0% and 50% of the stored values exactly zero at random slots
     for (zlabel, xz, yz, valsz, vals_yz) in (("z0", x, y, vals, vals_y), ("z50", x50, y50, vals50, vals_y50))
         dz = zlabel == "z0" ? d : dense_array(T, (n,), ids, valsz)
         dyz = zlabel == "z0" ? dy : dense_array(T, (n,), ids_y, vals_yz)
+        ref_vx, scale_vx = dot(v, dz), dot(abs.(v), abs.(dz))
+        ref_xy, scale_xy = dot(dz, dyz), dot(abs.(dz), abs.(dyz))
         addcase!(cases, "sparse", "dot_vx", () -> dot(v, xz),
-                 guarded(() -> close_scalar(dot(v, xz), dot(v, dz), dot(abs.(v), abs.(dz)), T));
-                 T, shape, layout=zlabel, zero_alloc=true, work=s)
+                 guarded(() -> close_scalar(dot(v, xz), ref_vx, scale_vx, T));
+                 inputs=(; x=xz, v), T, shape, layout=zlabel, zero_alloc=true, work=s)
         addcase!(cases, "sparse", "dot_xy", () -> dot(xz, yz),
-                 guarded(() -> close_scalar(dot(xz, yz), dot(dz, dyz), dot(abs.(dz), abs.(dyz)), T));
-                 T, shape, layout=zlabel, zero_alloc=false, work=s)
+                 guarded(() -> close_scalar(dot(xz, yz), ref_xy, scale_xy, T));
+                 inputs=(; x=xz, y=yz), T, shape, layout=zlabel, zero_alloc=false, work=s)
     end
     for m in rows        # dense operands, only at (n, s) = (10⁴, 10²)
         A = randn(scenario_rng(rep, "sparse/A/$T/$n/$m"), T, m, n)
         tB = transpose(randn(scenario_rng(rep, "sparse/B/$T/$n/$m"), T, n, m))
         out = zeros(T, m)
         for (name, M) in (("strided", A), ("transposed", tB)), (zlabel, xz, valsz) in (("z0", x, vals), ("z50", x50, vals50))
+            ref_mul = M * dense_array(T, (n,), ids, valsz)
             function check_mul()
-                dz = dense_array(T, (n,), ids, valsz)
                 fill!(out, T(1000))        # a stale output must not pass
                 mul!(out, M, xz)
-                close_enough(out, M * dz)
+                close_enough(out, ref_mul)
             end
             addcase!(cases, "sparse", "mul!", () -> mul!(out, M, xz), guarded(check_mul);
-                     T, shape=shape * "_m$m", layout="$(name)_$zlabel", zero_alloc=true, work=m * s)
+                     inputs=(; M, x=xz), T, shape=shape * "_m$m", layout="$(name)_$zlabel", zero_alloc=true, work=m * s)
         end
     end
 
@@ -1655,15 +2008,16 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
     check_finite() = (rmul_repeat!(x, T(2), r); Array(x) == d .* rscale || error("rmul! differs from the dense reference"))
     check_inf() = (rmul_repeat!(x, T(Inf), r);
                    all(x[k] == sign(d[k]) * T(Inf) for k in ids) || error("rmul!(x, Inf) differs at the active entries"))
+    # the cases that change the iterate declare the snapshot that prepare restores it from
     addcase!(cases, "sparse", "rmul!_finite", () -> rmul_repeat!(x, T(2), r), guarded(check_finite);
-             T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * s)
+             inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * s)
     addcase!(cases, "sparse", "rmul!_inf", () -> rmul_repeat!(x, T(Inf), r), guarded(check_inf);
-             T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * s)
+             inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * s)
 
     # FP-7: fill!(coordinates(x), 0); only the values are checked (0.6 keeps the working set)
     addcase!(cases, "sparse", "fill!_coordinates_zero", () -> fill!(coordinates(x), 0),
              guarded(() -> (fill!(coordinates(x), 0); iszero(Array(x)) || error("an entry is not zero after the fill")));
-             T, shape, layout="vector", prepare=restore_state!, zero_alloc=true, work=s)
+             inputs=(; snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=true, work=s)
 
     # FD-12: the five-argument prox_coordinate! with a scalar u. One step takes about 1.5 ns on the pinned
     # source, so a call takes 1536 distinct coordinates: the active ones (at most 768), moved by a step
@@ -1674,24 +2028,30 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
     kb = vcat(ids[1:na], pool[257:256+nprox-na])
     rng_u = scenario_rng(rep, key * "/steps")
     ub = T[(rand(rng_u, Bool) ? 1 : -1) * T(j <= na ? 0.1 + 0.4 * rand(rng_u) : 0.055 * rand(rng_u)) for j in 1:nprox]
+    # the coordinates and their soft-thresholded values, computed when the case is built
+    prox_ids = copy(kb)
+    prox_vals = [sign(ub[j]) * max(abs(ub[j]) - γ * T(0.1), zero(T)) for j in eachindex(kb)]
     function check_prox()
         prox_batch!(x, f, kb, ub, γ)
         expected = copy(d)
-        for j in eachindex(kb)
-            expected[kb[j]] = sign(ub[j]) * max(abs(ub[j]) - γ * T(0.1), zero(T))
+        for j in eachindex(prox_ids)
+            expected[prox_ids[j]] = prox_vals[j]
         end
         close_enough(Array(x), expected)
     end
     addcase!(cases, "sparse", "prox_coordinate!_5arg", () -> prox_batch!(x, f, kb, ub, γ), guarded(check_prox);
-             T, shape, layout="NormL1_scalar_u", prepare=restore_state!, zero_alloc=false, work=length(kb))
+             inputs=(; kb, ub, snap), T, shape, layout="NormL1_scalar_u", prepare=restore_state!, zero_alloc=false, work=length(kb))
 
     # FD-8: the momentum value loops, through the accessor and through the private array
     ybuf = randn(scenario_rng(rep, key * "/momentum_y"), T, s)
     xcur = randn(scenario_rng(rep, key * "/momentum_cur"), T, s)
     xprev = randn(scenario_rng(rep, key * "/momentum_prev"), T, s)
     buf = zeros(T, s)
+    # in the slot order of the snapshot, which a state copy keeps
+    rd_total, rd_magnitude = restart_reference(d[collect(activecoordinates(snap))], ybuf, xcur, xprev)
     for (layout, getvals) in (("accessors", activevalues), ("private_fields", stored_values_by_field(x)))
-        values_op, setvalues_op, dot_op = momentum_ops(getvals, x, buf, copy(vals), ybuf, xcur, xprev, s)
+        w = copy(vals)
+        values_op, setvalues_op, dot_op = momentum_ops(getvals, x, buf, w, ybuf, xcur, xprev, s)
         function check_values()
             fill!(buf, zero(T))
             values_op()
@@ -1702,33 +2062,29 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
             setvalues_op()
             Array(x) == d || error("_setvalues! differs from the dense reference")
         end
-        function check_restartdot()
-            ac = collect(activecoordinates(x))
-            total, magnitude = zero(T), zero(T)
-            for j in 1:s
-                term = (d[ac[j]] - ybuf[j]) * (xcur[j] - xprev[j])
-                total += term
-                magnitude += abs(term)
-            end
-            close_scalar(dot_op(), total, magnitude, T)
-        end
-        for (name, op, check) in (("_values!", values_op, check_values), ("_setvalues!", setvalues_op, check_setvalues),
-                                  ("_restartdot", dot_op, check_restartdot))
-            addcase!(cases, "sparse", name, op, guarded(check); T, shape, layout, zero_alloc=true, work=s)
+        check_restartdot() = close_scalar(dot_op(), rd_total, rd_magnitude, T)
+        for (name, op, check, inputs) in (("_values!", values_op, check_values, (; x)),
+                                          ("_setvalues!", setvalues_op, check_setvalues, (; x, w)),
+                                          ("_restartdot", dot_op, check_restartdot, (; x, ybuf, xcur, xprev)))
+            addcase!(cases, "sparse", name, op, guarded(check); inputs, T, shape, layout, zero_alloc=true, work=s)
         end
     end
 
-    # FD-14: aliasing and self-reference
+    # FD-14: aliasing and self-reference. A copy whose source is the reference first compares the source
+    # with its digest at construction.
+    d_source, dy_source = (; d), (; dy)
+    d_built, dy_built = input_digests(d_source), input_digests(dy_source)
     function check_unrelated()
+        check_inputs(d_source, d_built, AFTER_BUILD)
         write_values!(x, ids, -vals)
         copyto!(x, d)
         Array(x) == d && nactive(x) == s || error("copyto! from a dense vector differs from the reference")
     end
     addcase!(cases, "sparse", "copyto!_unrelated", () -> (copyto!(x, d); nothing), guarded(check_unrelated);
-             T, shape, layout="dense_same_nonzeros", zero_alloc=false, work=n)
+             inputs=(; x, d), T, shape, layout="dense_same_nonzeros", zero_alloc=false, work=n)
     addcase!(cases, "sparse", "broadcast_self", () -> (x .= abs.(x); nothing),
              guarded(() -> (x .= abs.(x); Array(x) == abs.(d) || error("x .= abs.(x) differs from the dense reference")));
-             T, shape, layout="abs", prepare=restore_state!, zero_alloc=false, work=n)
+             inputs=(; snap), T, shape, layout="abs", prepare=restore_state!, zero_alloc=false, work=n)
     # the aliasing copy on its own iterate whose active coordinates are 1:s in slot order, so that the
     # result is the identity with or without the aliasing defect of 0.5.x
     va = fixture_values(scenario_rng(rep, key * "/alias_values"), T, s)
@@ -1740,45 +2096,48 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
         Array(xa) == da && nactive(xa) == s || error("copyto!(x, activevalues(x)) changed the values")
     end
     addcase!(cases, "sparse", "copyto!_activevalues", () -> (copyto!(xa, activevalues(xa)); nothing), check_alias;
-             T, shape, layout="slot_order", zero_alloc=false, work=s)
+             inputs=(; xa), T, shape, layout="slot_order", zero_alloc=false, work=s)
 
     # FD-2: clearing and assigning, against the state copy; values only
     addcase!(cases, "sparse", "fill!_zero", () -> (fill!(x, 0); nothing),
              guarded(() -> (fill!(x, 0); iszero(Array(x)) || error("fill! left a nonzero entry")));
-             T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=s)
+             inputs=(; snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=s)
     addcase!(cases, "sparse", "fill!_zero_dropzeros", () -> (dropzeros!(fill!(x, 0)); nothing),
              guarded(() -> (dropzeros!(fill!(x, 0)); iszero(Array(x)) || error("fill! and dropzeros! left a nonzero entry")));
-             T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=s)
+             inputs=(; snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=s)
     addcase!(cases, "sparse", "broadcast_assign", () -> (x .= y; nothing),
              guarded(() -> (x .= y; Array(x) == dy || error("x .= y differs from y")));
-             T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=n)
+             inputs=(; y, snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=n)
     addcase!(cases, "sparse", "copyto!_state", () -> (copyto!(x, y); nothing),
              guarded(() -> (copyto!(x, y); Array(x) == dy || error("copyto!(x, y) differs from y")));
-             T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=2 * s)
+             inputs=(; y, snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=2 * s)
 
     # copy and import
     addcase!(cases, "sparse", "copy", () -> (copy(x); nothing),
              guarded(() -> (c = copy(x); c !== x && Array(c) == d || error("copy differs from the iterate")));
-             T, shape, layout="vector", phase="allocating", evals=1, zero_alloc=false, work=n)
+             inputs=(; x), T, shape, layout="vector", phase="allocating", evals=1, zero_alloc=false, work=n)
     # a state copy onto an iterate that already holds the same entries (the state is unchanged); the check
     # clears the iterate first, so that a copy that does nothing cannot pass
     addcase!(cases, "sparse", "copyto!_same_kind", () -> (copyto!(x, snap); nothing),
              guarded(() -> (fill!(x, 0); copyto!(x, snap); Array(x) == d || error("state copy differs from the source")));
-             T, shape, layout="same_entries", zero_alloc=false, work=2 * s)
+             inputs=(; x, snap), T, shape, layout="same_entries", zero_alloc=false, work=2 * s)
     addcase!(cases, "sparse", "copyto!_dense", () -> (copyto!(x, dy); nothing),
-             guarded(() -> (copyto!(x, dy); Array(x) == dy || error("import differs from the dense array")));
-             T, shape, layout="dense_other_nonzeros", prepare=restore_state!, zero_alloc=false, work=n)
+             guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); copyto!(x, dy);
+                            Array(x) == dy || error("import differs from the dense array")));
+             inputs=(; dy, snap), T, shape, layout="dense_other_nonzeros", prepare=restore_state!, zero_alloc=false, work=n)
 
     # FW-4: conversions on dedicated iterates; the sources are Float64
     T == Float64 && sparse_convert_cases!(cases, rep, (n,), ids, key, shape)
 
     # FW-6: the cheap replace against the staged one
     addcase!(cases, "sparse", "replace_cheap", () -> replace_cheap!(x, dy),
-             guarded(() -> (replace_cheap!(x, dy); Array(x) == dy || error("replace differs from the dense array")));
-             T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=n)
+             guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_cheap!(x, dy);
+                            Array(x) == dy || error("replace differs from the dense array")));
+             inputs=(; dy, snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=n)
     addcase!(cases, "sparse", "replace_staged", () -> replace_staged!(x, dy),
-             guarded(() -> (replace_staged!(x, dy); Array(x) == dy || error("staged replace differs from the dense array")));
-             T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=n)
+             guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_staged!(x, dy);
+                            Array(x) == dy || error("staged replace differs from the dense array")));
+             inputs=(; dy, snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=false, work=n)
 
     # compaction: dropzeros! with 10% and 50% of the active coordinates holding an explicit zero
     for (zlabel, fraction) in (("zeros10", 0.1), ("zeros50", 0.5))
@@ -1802,7 +2161,7 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
             Array(x) == dz || error("dropzeros! changed the values")
         end
         addcase!(cases, "sparse", "dropzeros!", () -> dropzeros!(x), guarded(check_compaction);
-                 T, shape, layout=zlabel, prepare=prepare_zeros!, zero_alloc=true, work=s)
+                 inputs=(; snap, zslots), T, shape, layout=zlabel, prepare=prepare_zeros!, zero_alloc=true, work=s)
     end
     nothing
 end
@@ -1825,9 +2184,9 @@ function sparse_matrix_cases!(cases, rep, T, dims, density, label, rows, acache)
     guarded(check) = restored(restore_state!, check)
     unchanged() = Array(X) == D && nactive(X) == k || error("the sweep changed the iterate")
     addcase!(cases, "sparse", "sweep_via_coordinates", () -> coordinate_sweep!(X),
-             guarded(() -> (coordinate_sweep!(X); unchanged())); T, shape, layout="rank2", zero_alloc=true, work=L)
+             guarded(() -> (coordinate_sweep!(X); unchanged())); inputs=(; X), T, shape, layout="rank2", zero_alloc=true, work=L)
     addcase!(cases, "sparse", "sweep_via_x", () -> index_sweep!(X),
-             guarded(() -> (index_sweep!(X); unchanged())); T, shape, layout="rank2", zero_alloc=true, work=L)
+             guarded(() -> (index_sweep!(X); unchanged())); inputs=(; X), T, shape, layout="rank2", zero_alloc=true, work=L)
     # the matrix mul! walks the stored entries when 32 nnz <= length and the columns otherwise
     function check_walk(Z)
         (32 * nnz(Z) <= length(Z)) == (density < 0.1) || error("the density $density changed the walk of mul!")
@@ -1837,25 +2196,26 @@ function sparse_matrix_cases!(cases, rep, T, dims, density, label, rows, acache)
                  (T, dims, mrows))::Matrix{T}
         out = zeros(T, mrows, ncol)
         for (zlabel, Z, valsz) in (("z0", X, vals), ("z50", X50, vals50))
+            # through a CSC copy of the dense reference: the same product, at the cost of the stored entries
+            ref_mul = A * sparse(dense_array(T, dims, ids, valsz))
             function check_mul()
                 check_walk(Z)
                 fill!(out, T(1000))        # a stale output must not pass
                 mul!(out, A, Z)
-                close_enough(out, A * dense_array(T, dims, ids, valsz))
+                close_enough(out, ref_mul)
             end
             addcase!(cases, "sparse", "mul!_matrix", () -> mul!(out, A, Z), guarded(check_mul);
-                     T, shape, layout="rows$(mrows)_$zlabel", zero_alloc=true, work=mrows * k)
+                     inputs=(; A, Z), T, shape, layout="rows$(mrows)_$zlabel", zero_alloc=true, work=mrows * k)
         end
     end
     a = get!(() -> randn(scenario_rng(rep, "sparse/a/$T/$(m)x$(ncol)"), T, m), acache, (T, dims, :a))::Vector{T}
     b = get!(() -> randn(scenario_rng(rep, "sparse/b/$T/$(m)x$(ncol)"), T, ncol), acache, (T, dims, :b))::Vector{T}
     for (zlabel, Z, valsz) in (("z0", X, vals), ("z50", X50, vals50))
-        function check_dot()
-            Dz = dense_array(T, dims, ids, valsz)
-            close_scalar(dot(a, Z, b), dot(a, Dz * b), dot(abs.(a), abs.(Dz) * abs.(b)), T)
-        end
+        Dz = dense_array(T, dims, ids, valsz)
+        ref_dot, scale_dot = dot(a, Dz * b), dot(abs.(a), abs.(Dz) * abs.(b))
+        check_dot() = close_scalar(dot(a, Z, b), ref_dot, scale_dot, T)
         addcase!(cases, "sparse", "dot_aXb", () -> dot(a, Z, b), guarded(check_dot);
-                 T, shape, layout=zlabel, zero_alloc=false, work=k)
+                 inputs=(; a, Z, b), T, shape, layout=zlabel, zero_alloc=false, work=k)
     end
     nothing
 end
@@ -1872,13 +2232,14 @@ function sparse_symmetric_cases!(cases, rep, T, p, density, label, scache)
     out = zeros(T, p)
     for (zlabel, valsz) in (("z0", vals), ("z50", vals50))
         x = build_iterate(T, (p,), ids, valsz)
+        ref_mul = S * dense_array(T, (p,), ids, valsz)
         function check_mul()
             fill!(out, T(1000))        # a stale output must not pass
             mul!(out, S, x)
-            close_enough(out, S * dense_array(T, (p,), ids, valsz))
+            close_enough(out, ref_mul)
         end
         addcase!(cases, "sparse", "mul!", () -> mul!(out, S, x), check_mul;
-                 T, shape, layout="symmetric_$zlabel", zero_alloc=true, work=p * s)
+                 inputs=(; S, x), T, shape, layout="symmetric_$zlabel", zero_alloc=true, work=p * s)
     end
     nothing
 end
@@ -1897,7 +2258,8 @@ function sparse_cases!(cases, rep; quick=false)
                      abs(Base.summarysize(x) - (sizeof(T) + 2 * sizeof(Int)) * n) <= 1024 || error("unexpected retained size")
                      nactive(x) == 0 || error("a new iterate has active coordinates")
                  end;
-                 T, shape="n$n", layout="empty", phase="construct", evals=1, zero_alloc=false, work=n)
+                 # the operation reads only scalars
+                 inputs=(;), T, shape="n$n", layout="empty", phase="construct", evals=1, zero_alloc=false, work=n)
     end
     for T in types, (n, s) in grid
         sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=(n, s) == (10^4, 10^2) ? rows : ())
@@ -2256,9 +2618,14 @@ function atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, s
             z, copy(z)
         end
         op5, opstaged, restore! = atom_prox_ops(staging_by(xf, indices), xf, snapf, f, ks, us, γ)
+        # the reference on the entries of the batch, computed when the case is built (the trial points are
+        # read by the operations); the other entries keep the scenario's dense vector
+        ents = group_entries(groups, ks)
+        ents_vals = prox_batch_reference(pname, f, T, p, g, groups, d, copy(ks), deepcopy(ubases), γ)[ents]
         # both spellings must reach the reference and each other (values only, not the working set)
         function check_pair(op_a, op_b)
-            expected = prox_batch_reference(pname, f, T, p, g, groups, d, ks, ubases, γ)
+            expected = copy(d)
+            expected[ents] = ents_vals
             restore!()
             op_a()
             ra = Vector(xf)
@@ -2272,10 +2639,10 @@ function atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, s
             nothing
         end
         layout = "$(pname)_strided_u"
-        addcase!(cases, "atom", "prox_coordinate!_5arg", op5, () -> check_pair(op5, opstaged); T, shape, layout,
-                 prepare=restore!, zero_alloc=true, work=nb * g)
-        addcase!(cases, "atom", "prox_coordinate!_staged", opstaged, () -> check_pair(opstaged, op5); T, shape, layout,
-                 prepare=restore!, zero_alloc=false, work=nb * g)
+        addcase!(cases, "atom", "prox_coordinate!_5arg", op5, () -> check_pair(op5, opstaged); inputs=(; ks, ubases, snapf),
+                 T, shape, layout, prepare=restore!, zero_alloc=true, work=nb * g)
+        addcase!(cases, "atom", "prox_coordinate!_staged", opstaged, () -> check_pair(opstaged, op5); inputs=(; ks, ubases, snapf),
+                 T, shape, layout, prepare=restore!, zero_alloc=false, work=nb * g)
     end
     nothing
 end
@@ -2300,7 +2667,7 @@ function atom_convert_cases!(cases, rep, p, g, groups, x, aids, key, shape)
             end
             nothing
         end
-        addcase!(cases, "atom", "copyto!_convert", op, check; T=Float64, shape, layout="to_$(Td)", zero_alloc=false, work=nvals)
+        addcase!(cases, "atom", "copyto!_convert", op, check; inputs=(; src), T=Float64, shape, layout="to_$(Td)", zero_alloc=false, work=nvals)
     end
 end
 
@@ -2350,7 +2717,7 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
         expected = sum_reads(d, rids, T)
         addcase!(cases, "atom", "read_x[i]", () -> sum_reads(x, rids, T),
                  guarded(() -> sum_reads(x, rids, T) == expected || error("reads differ from the dense vector"));
-                 T, shape, layout=what, zero_alloc=true, work=nread)
+                 inputs=(; x, rids), T, shape, layout=what, zero_alloc=true, work=nread)
     end
     # writes to 1024 entries of active groups, with the values they hold: the state is unchanged, and the
     # check first overwrites them
@@ -2365,7 +2732,7 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
         nothing
     end
     addcase!(cases, "atom", "write_x[i]_active", () -> write_values!(x, wids, wvals), guarded(check_write);
-             T, shape, layout="active", zero_alloc=true, work=length(wids))
+             inputs=(; x, wids, wvals), T, shape, layout="active", zero_alloc=true, work=length(wids))
     # isactive: 256 queries, half of them active
     qgroups = shuffle(scenario_rng(rep, key * "/queries"), vcat(cycled(aids, 128), pool[1:128]))
     aidset = Set(aids)
@@ -2375,7 +2742,7 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                          count_active(x, qgroups) == expected_active || error("isactive differs from the stored membership")
                          check_isactive_stored_zero_atom(T)
                      end);
-             T, shape, layout="half_active", zero_alloc=true, work=length(qgroups))
+             inputs=(; x, qgroups), T, shape, layout="half_active", zero_alloc=true, work=length(qgroups))
 
     # first activation: a nonzero write to the first entry of each of a batch of distinct inactive groups,
     # and activate!; the companion has as many disjoint batches of 256 groups as fit (up to 16) in one call,
@@ -2384,8 +2751,8 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
     for (suffix, bgroups) in (("", pool[1:256]), ("_x$nbatch", pool[1:256*nbatch]))
         bents = Int[first(groups[k]) for k in bgroups]
         bvals = fixture_values(scenario_rng(rep, key * "/batch_values$suffix"), T, length(bgroups))
-        for (how, op, written) in (("absent_distinct_batch", () -> write_values!(x, bents, bvals), bvals),
-                                   ("activate_distinct_batch", () -> activate_all!(x, bgroups), zeros(T, length(bgroups))))
+        for (how, op, written, inputs) in (("absent_distinct_batch", () -> write_values!(x, bents, bvals), bvals, (; bents, bvals, bgroups)),
+                                           ("activate_distinct_batch", () -> activate_all!(x, bgroups), zeros(T, length(bgroups)), (; bgroups, bents)))
             function restore_batch!()      # outside the timed region
                 @inbounds for i in bents
                     x[i] = zero(T)
@@ -2394,6 +2761,8 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                 any(k -> isactive(x, k), bgroups) && error("a batch group is still active: not a first activation")
                 nothing
             end
+            # the activated entries and their values, copied when the case is built
+            bents0, written0 = copy(bents), copy(written)
             function check_activation()
                 copyto!(x, snap)
                 restore_batch!()
@@ -2402,14 +2771,14 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                 all(k -> isactive(x, k), bgroups) || error("activation did not add every group")
                 nactive(x) == na + length(bgroups) || error("unexpected working set after the activations")
                 expected = copy(d)
-                expected[bents] = written
+                expected[bents0] = written0
                 Vector(x) == expected || error("activated values differ from the dense reference")
                 restore_batch!()
                 nactive(x) == na && Vector(x) == d || error("restore did not recover the iterate")
                 copyto!(x, snap)
                 nothing
             end
-            addcase!(cases, "atom", "first_activation", op, check_activation; T, shape, layout=how * suffix,
+            addcase!(cases, "atom", "first_activation", op, check_activation; inputs, T, shape, layout=how * suffix,
                      phase="first_activation", prepare=restore_batch!, evals=1, zero_alloc=true, work=length(bgroups))
         end
     end
@@ -2421,14 +2790,14 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                          atom_update_sweep!(x) == nvals || error("the sweep did not visit every entry of the active groups")
                          Vector(x) == d && nactive(x) == na || error("the sweep changed the iterate")
                      end);
-             T, shape, layout="trivial_update", zero_alloc=true, work=nvals)
+             inputs=(; x), T, shape, layout="trivial_update", zero_alloc=true, work=nvals)
     sorted_aids = sort(aids)
     addcase!(cases, "atom", "sweep_activecoordinates", () -> sum_active_ids(x),
              guarded(function ()
                          sum_active_ids(x) == sum(aids) || error("sweep visited the wrong groups")
                          sort!(collect(activecoordinates(x))) == sorted_aids || error("the active groups are not the fixture's (a sum can agree)")
                      end);
-             T, shape, layout=lay, zero_alloc=true, work=na)
+             inputs=(; x), T, shape, layout=lay, zero_alloc=true, work=na)
 
     # atom access: norm and dot of atom(x, k) over 64 active groups per call
     ks64 = cycled(aids, 64)
@@ -2438,10 +2807,10 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
     scale_dot = sum(dot(abs.(d[groups[k]]), abs.(w)) for k in ks64)
     addcase!(cases, "atom", "atom_norm", () -> sum_atom_norms(x, ks64, T),
              guarded(() -> close_scalar(sum_atom_norms(x, ks64, T), expected_norm, expected_norm, T));
-             T, shape, layout=lay, zero_alloc=true, work=64 * g)
+             inputs=(; x, ks64), T, shape, layout=lay, zero_alloc=true, work=64 * g)
     addcase!(cases, "atom", "atom_dot", () -> sum_atom_dots(x, ks64, w, T),
              guarded(() -> close_scalar(sum_atom_dots(x, ks64, w, T), expected_dot, scale_dot, T));
-             T, shape, layout=lay, zero_alloc=true, work=64 * g)
+             inputs=(; x, ks64, w), T, shape, layout=lay, zero_alloc=true, work=64 * g)
 
     # FD-6: the indices of every active group through atomindices(x, k) (0.5.x: x.groups[k]), and the sum of
     # a dense vector over them (a range in the contiguous layout, a vector in the strided one)
@@ -2449,12 +2818,12 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
     expected_indices = foldl(⊻, (j for k in aids for j in groups[k]); init=0)
     addcase!(cases, "atom", "atomindices_loop", loop_op,
              guarded(() -> loop_op() == expected_indices || error("the indices of the active groups differ from the layout"));
-             T, shape, layout="active_groups", zero_alloc=true, work=nvals)
+             inputs=(; x), T, shape, layout="active_groups", zero_alloc=true, work=nvals)
     expected_view = sum(sum(v[groups[k]]) for k in aids)
     scale_view = sum(sum(abs, v[groups[k]]) for k in aids)
     addcase!(cases, "atom", "atomindices_view", view_op,
              guarded(() -> close_scalar(view_op(), expected_view, scale_view, T));
-             T, shape, layout=strided ? "view_vector_group" : "view_range_group", zero_alloc=true, work=nvals)
+             inputs=(; x, v), T, shape, layout=strided ? "view_vector_group" : "view_range_group", zero_alloc=true, work=nvals)
 
     # FD-9: products, with 0% and 50% of the entries of the active groups exactly zero at random places in
     # storage order (a group left all zero stays active)
@@ -2464,15 +2833,16 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
         expected = dot(v, dz)
         addcase!(cases, "atom", "dot_vx", () -> dot(v, xz),
                  guarded(() -> close_scalar(dot(v, xz), expected, scale, T));
-                 T, shape, layout=zlabel, zero_alloc=true, work=nvals)
+                 inputs=(; x=xz, v), T, shape, layout=zlabel, zero_alloc=true, work=nvals)
     end
     for m in rows
         A = get!(() -> randn(scenario_rng(rep, "atom/A/$T/$m/$p"), T, m, p), acache, (T, m, p))::Matrix{T}
         out = zeros(T, m)
         for (zlabel, xz, dz) in (("z0", x, d), ("z50", x50, d50))
-            check_mul() = (fill!(out, T(1000)); mul!(out, A, xz); close_enough(out, A * dz))
+            ref_mul = A * dz
+            check_mul() = (fill!(out, T(1000)); mul!(out, A, xz); close_enough(out, ref_mul))
             addcase!(cases, "atom", "mul!", () -> mul!(out, A, xz), guarded(check_mul);
-                     T, shape, layout="rows$(m)_$zlabel", zero_alloc=true, work=m * nvals)
+                     inputs=(; A, x=xz), T, shape, layout="rows$(m)_$zlabel", zero_alloc=true, work=m * nvals)
         end
     end
 
@@ -2486,9 +2856,9 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
     check_finite() = (rmul_repeat!(x, T(2), r); Vector(x) == d .* rscale || error("rmul! differs from the dense reference"))
     check_inf() = (rmul_repeat!(x, T(Inf), r); isequal(Vector(x), d .* T(Inf)) || error("rmul!(x, Inf) differs from the dense reference"))
     addcase!(cases, "atom", "rmul!_finite", () -> rmul_repeat!(x, T(2), r), guarded(check_finite);
-             T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * p)
+             inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * p)
     addcase!(cases, "atom", "rmul!_inf", () -> rmul_repeat!(x, T(Inf), r), guarded(check_inf);
-             T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * p)
+             inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * p)
 
     # FD-12: the block trial, the five-argument call against staging
     penalties = full ? ("GroupNormL2", "GroupNormLinf", "SparseGroupNormL2", "NormL1") : ("GroupNormL2", "NormL1")
@@ -2503,10 +2873,10 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
             expected = dot(dz, dyz)
             addcase!(cases, "atom", "dot_xy", () -> dot(xz, yz),
                      guarded(() -> close_scalar(dot(xz, yz), expected, scale, T));
-                     T, shape, layout="atom_atom_$zlabel", zero_alloc=false, work=nvals)
+                     inputs=(; x=xz, y=yz), T, shape, layout="atom_atom_$zlabel", zero_alloc=false, work=nvals)
             addcase!(cases, "atom", "dot_xy", () -> dot(xz, sz),
                      guarded(() -> close_scalar(dot(xz, sz), expected, scale, T));
-                     T, shape, layout="atom_sparse_$zlabel", zero_alloc=false, work=nvals)
+                     inputs=(; x=xz, y=sz), T, shape, layout="atom_sparse_$zlabel", zero_alloc=false, work=nvals)
         end
 
         # FD-8: the momentum value loops, through the accessors and through the private fields
@@ -2515,8 +2885,10 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
         xprev = randn(scenario_rng(rep, key * "/momentum_prev"), T, nvals)
         buf = zeros(T, nvals)
         gather = group_entries(groups, aids)
+        rd_total, rd_magnitude = restart_reference(d[gather], ybuf, xcur, xprev)
         for (layout, loops) in (("accessors", AtomAccessors(group_indices_by())), ("private_fields", atom_loops_by(x, group_indices_by())))
-            nvalues_op, values_op, setvalues_op, dot_op = atom_momentum_ops(loops, x, buf, copy(vals), ybuf, xcur, xprev)
+            wm = copy(vals)
+            nvalues_op, values_op, setvalues_op, dot_op = atom_momentum_ops(loops, x, buf, wm, ybuf, xcur, xprev)
             function check_nvalues()
                 nvalues_op() == nvals || error("_nvalues differs from the layout")
             end
@@ -2530,72 +2902,72 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                 setvalues_op()
                 Vector(x) == d || error("_setvalues! differs from the dense reference")
             end
-            function check_restartdot()
-                total, magnitude = zero(T), zero(T)
-                for j in 1:nvals
-                    term = (d[gather[j]] - ybuf[j]) * (xcur[j] - xprev[j])
-                    total += term
-                    magnitude += abs(term)
-                end
-                close_scalar(dot_op(), total, magnitude, T)
-            end
-            for (name, op, check) in (("_nvalues", nvalues_op, check_nvalues), ("_values!", values_op, check_values),
-                                      ("_setvalues!", setvalues_op, check_setvalues), ("_restartdot", dot_op, check_restartdot))
+            check_restartdot() = close_scalar(dot_op(), rd_total, rd_magnitude, T)
+            for (name, op, check, inputs) in (("_nvalues", nvalues_op, check_nvalues, (; x)), ("_values!", values_op, check_values, (; x)),
+                                              ("_setvalues!", setvalues_op, check_setvalues, (; x, w=wm)),
+                                              ("_restartdot", dot_op, check_restartdot, (; x, ybuf, xcur, xprev)))
                 # _nvalues takes the length of each active group: one step per group, not per entry
-                addcase!(cases, "atom", name, op, guarded(check); T, shape, layout, zero_alloc=true,
+                addcase!(cases, "atom", name, op, guarded(check); inputs, T, shape, layout, zero_alloc=true,
                          work=name == "_nvalues" ? na : nvals)
             end
         end
 
-        # FD-14: copyto! from an unrelated dense vector with the same entries, and a self broadcast
+        # FD-14: copyto! from an unrelated dense vector with the same entries, and a self broadcast. A copy
+        # whose source is the reference first compares the source with its digest at construction.
+        d_source, dy_source = (; d), (; dy)
+        d_built, dy_built = input_digests(d_source), input_digests(dy_source)
         function check_unrelated()
+            check_inputs(d_source, d_built, AFTER_BUILD)
             write_values!(x, aentries, -d[aentries])
             copyto!(x, d)
             Vector(x) == d || error("copyto! from a dense vector differs from the reference")
         end
         addcase!(cases, "atom", "copyto!_unrelated", () -> (copyto!(x, d); nothing), guarded(check_unrelated);
-                 T, shape, layout="dense_same_entries", zero_alloc=false, work=p)
+                 inputs=(; x, d), T, shape, layout="dense_same_entries", zero_alloc=false, work=p)
         addcase!(cases, "atom", "broadcast_self", () -> (x .= abs.(x); nothing),
                  guarded(() -> (x .= abs.(x); Vector(x) == abs.(d) || error("x .= abs.(x) differs from the dense reference")));
-                 T, shape, layout="abs", prepare=restore_state!, zero_alloc=false, work=p)
+                 inputs=(; snap), T, shape, layout="abs", prepare=restore_state!, zero_alloc=false, work=p)
 
         # FD-2: clearing and assigning, against the state copy; values only
         addcase!(cases, "atom", "fill!_zero", () -> (fill!(x, 0); nothing),
                  guarded(() -> (fill!(x, 0); iszero(Vector(x)) || error("fill! left a nonzero entry")));
-                 T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=nvals)
+                 inputs=(; snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=nvals)
         addcase!(cases, "atom", "fill!_zero_dropzeros", () -> (dropzeros!(fill!(x, 0)); nothing),
                  guarded(() -> (dropzeros!(fill!(x, 0)); iszero(Vector(x)) || error("fill! and dropzeros! left a nonzero entry")));
-                 T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=nvals)
+                 inputs=(; snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=nvals)
         addcase!(cases, "atom", "broadcast_assign", () -> (x .= y; nothing),
                  guarded(() -> (x .= y; Vector(x) == dy || error("x .= y differs from y")));
-                 T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
+                 inputs=(; y, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
         addcase!(cases, "atom", "copyto!_state", () -> (copyto!(x, y); nothing),
                  guarded(() -> (copyto!(x, y); Vector(x) == dy || error("copyto!(x, y) differs from y")));
-                 T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=2 * nvals)
+                 inputs=(; y, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=2 * nvals)
 
         # copy and import
         addcase!(cases, "atom", "copy", () -> (copy(x); nothing),
                  guarded(() -> (c = copy(x); c !== x && Vector(c) == d && nactive(c) == na || error("copy differs from the iterate")));
-                 T, shape, layout=lay, phase="allocating", evals=1, zero_alloc=false, work=p)
+                 inputs=(; x), T, shape, layout=lay, phase="allocating", evals=1, zero_alloc=false, work=p)
         # a state copy onto an iterate that already holds the same entries (the state is unchanged); the check
         # clears the iterate first, so that a copy that does nothing cannot pass
         addcase!(cases, "atom", "copyto!_same_kind", () -> (copyto!(x, snap); nothing),
                  guarded(() -> (fill!(x, 0); copyto!(x, snap); Vector(x) == d || error("state copy differs from the source")));
-                 T, shape, layout="same_entries", zero_alloc=false, work=2 * nvals)
+                 inputs=(; x, snap), T, shape, layout="same_entries", zero_alloc=false, work=2 * nvals)
         addcase!(cases, "atom", "copyto!_dense", () -> (copyto!(x, dy); nothing),
-                 guarded(() -> (copyto!(x, dy); Vector(x) == dy || error("import differs from the dense array")));
-                 T, shape, layout="dense_other_entries", prepare=restore_state!, zero_alloc=false, work=p)
+                 guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); copyto!(x, dy);
+                                Vector(x) == dy || error("import differs from the dense array")));
+                 inputs=(; dy, snap), T, shape, layout="dense_other_entries", prepare=restore_state!, zero_alloc=false, work=p)
 
         # FW-4: conversions on dedicated iterates; the sources are Float64
         T == Float64 && atom_convert_cases!(cases, rep, p, g, groups, x, aids, key, shape)
 
         # FW-6: the cheap replace against the staged one
         addcase!(cases, "atom", "replace_cheap", () -> replace_cheap!(x, dy),
-                 guarded(() -> (replace_cheap!(x, dy); Vector(x) == dy || error("replace differs from the dense array")));
-                 T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
+                 guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_cheap!(x, dy);
+                                Vector(x) == dy || error("replace differs from the dense array")));
+                 inputs=(; dy, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
         addcase!(cases, "atom", "replace_staged", () -> replace_staged!(x, dy),
-                 guarded(() -> (replace_staged!(x, dy); Vector(x) == dy || error("staged replace differs from the dense array")));
-                 T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
+                 guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_staged!(x, dy);
+                                Vector(x) == dy || error("staged replace differs from the dense array")));
+                 inputs=(; dy, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
 
         # compaction: dropzeros! with 10% and 50% of the active groups all zero (they stay active until the call)
         for (zlabel, fraction) in (("zeros10", 0.1), ("zeros50", 0.5))
@@ -2620,7 +2992,7 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                 Vector(x) == dense_atom(T, p, groups, aids, valsz) || error("dropzeros! changed the values")
             end
             addcase!(cases, "atom", "dropzeros!", () -> dropzeros!(x), guarded(check_compaction);
-                     T, shape, layout=zlabel, prepare=prepare_zeros!, zero_alloc=true, work=nvals)
+                     inputs=(; snapz), T, shape, layout=zlabel, prepare=prepare_zeros!, zero_alloc=true, work=nvals)
         end
     end
     nothing
@@ -2681,11 +3053,15 @@ function atom_layout_cases!(cases, p, g, strided, groups)
         end
         check_false()
     end
-    addcase!(cases, "atom", "samegroups", op_shared, check_shared; T, shape, layout="shared", zero_alloc=false, work=1)
-    addcase!(cases, "atom", "samegroups", op_first, check_first; T, shape, layout="distinct_first_seen",
+    # the group arrays of the penalties, reached through hasfield (the layout cache is not an input)
+    f_groups = hasfield(typeof(f), :groups) ? (; f_groups=f.groups) : (;)
+    f2_groups = hasfield(typeof(f2), :groups) ? (; f2_groups=f2.groups) : (;)
+    addcase!(cases, "atom", "samegroups", op_shared, check_shared; inputs=merge((; x_shared), f_groups),
+             T, shape, layout="shared", zero_alloc=false, work=1)
+    addcase!(cases, "atom", "samegroups", op_first, check_first; inputs=merge((; xs_first), f_groups), T, shape, layout="distinct_first_seen",
              prepare=reset_first, evals=1, zero_alloc=false, work=nfirst * K)
-    addcase!(cases, "atom", "samegroups", op_alt, check_alternating; T, shape, layout="alternating",
-             zero_alloc=false, work=2 * K)
+    addcase!(cases, "atom", "samegroups", op_alt, check_alternating; inputs=merge((; x_alt), f_groups, f2_groups),
+             T, shape, layout="alternating", zero_alloc=false, work=2 * K)
     nothing
 end
 
@@ -2704,13 +3080,14 @@ function atom_symmetric_cases!(cases, rep, T, g, scache)
     out = zeros(T, p)
     for (zlabel, valsz) in (("z0", vals), ("z50", vals50))
         x = build_atom(T, p, groups, aids, valsz)
+        ref_mul = S * dense_atom(T, p, groups, aids, valsz)
         function check_mul()
             fill!(out, T(1000))
             mul!(out, S, x)
-            close_enough(out, S * dense_atom(T, p, groups, aids, valsz))
+            close_enough(out, ref_mul)
         end
         addcase!(cases, "atom", "mul!", () -> mul!(out, S, x), check_mul;
-                 T, shape, layout="symmetric_$zlabel", zero_alloc=true, work=p * na * g)
+                 inputs=(; S, x), T, shape, layout="symmetric_$zlabel", zero_alloc=true, work=p * na * g)
     end
     nothing
 end
@@ -2727,7 +3104,7 @@ function atom_construct_case!(cases, T, p, g, strided, groups)
         end
         length(x) == p && ncoordinates(x) == K && nactive(x) == 0 || error("a new iterate is not empty")
     end
-    addcase!(cases, "atom", "construct", () -> (AtomIterate(T, p, groups); nothing), check;
+    addcase!(cases, "atom", "construct", () -> (AtomIterate(T, p, groups); nothing), check; inputs=(; groups),
              T, shape="p$(p)_g$(g)_$(strided ? "strided" : "contiguous")", layout="empty", phase="construct", evals=1,
              zero_alloc=false, work=p)
 end

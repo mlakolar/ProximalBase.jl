@@ -332,11 +332,24 @@ end
     representable = isfinite(v[i]) & isfinite(z[i]) & !iszero(v[i])
     finite_data = isfinite(η[i]) & isfinite(f.y[i]) & isfinite(w)
     (representable | !finite_data) && continue   # a non-finite predictor, response or weight propagates
+    _irls_domain(f.loss, η[i], f.y[i]) ||
+      throw(ArgumentError("the linear predictor $(η[i]) at observation $i is outside the domain of the loss " *
+        "$(f.loss) for the response $(f.y[i]), so the quadratic model has no IRLS coefficient there; " *
+        "the model is unchanged"))
     throw(PrecisionError("the quadratic model of a GLMLoss has no representable IRLS coefficient and " *
       "working response in $T at observation $i (linear predictor $(η[i]), weight $w, " *
       "coefficient $(v[i]), working response $(z[i])); the model is unchanged"))
   end
   nothing
+end
+
+# Whether a finite predictor lies in the domain of the scalar loss at the response y: a loss
+# with a restricted domain (IdentityBernoulli) says no, and `_irls_check` then reports the
+# observation instead of a precision failure. Only read on that path.
+_irls_domain(::ScalarLoss, η, y) = true
+function _irls_domain(::IdentityBernoulli, η, y)
+  p, b = promote(float(η), float(y))
+  _bernoulli_domain(p, b, one(p))
 end
 
 # (wℓ'', η - ℓ'/ℓ'') with ℓ'' floored at `floor`

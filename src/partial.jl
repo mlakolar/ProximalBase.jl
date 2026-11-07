@@ -515,7 +515,7 @@ function _partial_nuclear!(Y::AbstractMatrix, f, X::AbstractMatrix, c::T) where 
     v += ws.s[j] - c
   end
   _partial_svd_out!(Y, ws, k, σ -> σ - c)
-  _spectral_level_value(f.λ, v, view(ws.s, 1:k), c)
+  _nuclear_level_value(f.λ, v, view(ws.s, 1:k), c)
 end
 
 # IndBallRank: the r largest triplets; returns Y, or nothing to fall back

@@ -37,7 +37,8 @@ the zero-penalty entries; when every free entry (group) is penalized it throws.
 
 For a `NormL1` `f`, an argument with a NaN or infinite entry has these limits
 (decision 48). An entry with an infinite weight is hard-fixed: its output is zero
-whatever the argument. A NaN free entry, or two infinite free entries, give NaN in
+whatever the argument. So is a penalized entry under an infinite level at a positive
+step (decision 49). A NaN free entry, or two infinite free entries, give NaN in
 every free output, since their limit depends on how the argument diverges. One
 infinite free entry gives ±r there and zero elsewhere, the limit along finite
 arguments; in a `SymmetricSparseIterate` a mirrored off-diagonal pair is one
@@ -647,7 +648,7 @@ const _FREE_L1 = 1
 const _PENALIZED_L1 = 2
 
 @inline function _l1_class(f::NormL1, γ, ::Type{U}, k) where {U}
-  isinf(_entry(f.w, k)) && return _HARD_L1
+  (isinf(_entry(f.w, k)) | ((γ > 0) & isinf(f.λ0) & (_entry(f.w, k) > 0))) && return _HARD_L1
   iszero(_weight_product(U, γ, f.λ0, _entry(f.w, k))) ? _FREE_L1 : _PENALIZED_L1
 end
 @inline _governed_l1(cls, γ) = cls == _FREE_L1 || (cls == _PENALIZED_L1 && !isinf(γ))

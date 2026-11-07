@@ -101,13 +101,36 @@ Base.@propagate_inbounds Base.getindex(a::_ShiftedArray, i::Int) = a.g[i] + a.c[
 
 The function `α f(x)` for `α ≥ 0`, with the roles of `f`: its gradient is
 `α ∇f`, and its proximal operator `prox_{γαf}`, so that `0.5 * f` halves a loss
-and `(1/n) * f` averages one.
+and `(1/n) * f` averages one. An infinite factor gives the value `0` where `f` is certainly `0`:
+an indicator inside its set, and `NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`, `NuclearNorm`,
+`ElasticNet`, `GroupNormL2`, `GroupNormLinf` and `SparseGroupNormL2` where `f` is `0` at an argument
+that is zero on every entry they penalize (an entry under a zero level or weight, or in no group, may
+hold anything); elsewhere a computed zero of `f` gives NaN, except where the value of `f` is recovered
+from its significand and exponent (the functions without a level listed below, on host arrays), which
+gives `±Inf` at a value that underflowed.
 
 When `α f(x)` overflows or underflows although it is representable, the value
 is computed with the scale folded into the level for `NormL1`, `NormL1Nonneg`,
 `NormL2`, `NormLinf`, `ElasticNet`, the homogeneous group norms,
 `SparseGroupNormL2`, `NuclearNorm`, `TracePSD`, and the support functions of
-the ℓ1 and ℓ2 balls.
+the ℓ1 and ℓ2 balls. For functions without such a level, it is computed from
+the value of `f` as a significand and a power of two, with `α` applied last, for
+`SqrNormL2`, `CubeNormL2`, `SqrDistL2`, `DistL2`, `NormL1Fused`,
+`TotalVariation1D`, `FusedLasso`, `SLOPE`, `SumLargest`, `NegEntropy`,
+`KLDivergence`, `NegLog`, `Berhu`, `HingeLoss`, `SqrHingeLoss`,
+`EpsInsensitiveLoss`, `CheckLoss`, `NormL0`, `CappedL1`, `LogPenalty`, `NormLq`,
+`MCP`, `SCAD`, `GroupMCP` and `GroupSCAD`, and for `Translate` and nested
+`Scaled` of these. This holds for the value, the value of
+`value_and_gradient!` and, when `α f` overflows, the value of `value_and_prox!`,
+on host arrays (an `Array`, a view or a reshape of one, the iterates, sparse
+arrays and ranges); other array types and tuple arguments keep the ordinary
+result. A `value_and_gradient!` whose gradient output may share memory with a
+parameter of `f` returns the ordinary value. Not covered: the data functions
+(`LinearFunction`, `QuadraticFunction`, the least-squares and GLM losses,
+`BernoulliLoss`; #609), the sums and other wrappers (`Sum`, `SeparableSum`,
+`Tilt`, `MoreauEnvelope`, `Conjugate`; #359), wrappers that transform the
+argument (#357), spectral functions (#384), and `Regularize`, `Constrained`,
+`PointwiseMinimum` and the gradients of these functions (#610).
 
 `Scaled(Scaled(f, a), b)` is `Scaled(f, a * b)` when the product is an ordinary
 number. When it underflows, is subnormal or overflows, although the factors are
@@ -120,8 +143,13 @@ or applied to the result with its exponent last, so a chain such as `Scaled(Scal
 is the penalty `1e-100 * norm(x, 1)`. The levels are folded through `Translate`, `Sum` and
 `SeparableSum` of such functions (indicators and the zero function pass through). The conjugate
 value of a function without levels to fold, under a product that is not a number in range,
-throws. Not recovered: the value of a chain whose leaf value overflows while the folded level is
-itself not a number in range.
+throws. The value of a function with levels, whose leaf value overflows or underflows when the whole
+product does not fold into normal levels (`Scaled(Scaled(Scaled(NormL1(1e300), 1e-300), 1e-300), 1e-300)`
+at `[1e300]` is `1e-300`), is computed at levels that are normal numbers, with the power of two
+that this takes out of the product applied last. Not recovered: levels whose exponents are too far
+apart for one normal fold (`Sum(NormL1(1e300), NormL2(1e-300))` under such a chain at `[1e300]`),
+weights or entries for which no normal level gives a leaf value that is a finite normal number, and
+results that are subnormal.
 
 A step is not rounded together with the factors. For a scalar step whose product with the
 factor is not a normal number, the exponent of the factors and of the step goes into the levels
@@ -134,10 +162,35 @@ the band `2^-E` to `2^E`, with `E` a quarter of the exponent range of the elemen
 inside the band, an entry of the step that is itself within `E` of a limit of the range is rounded
 together with the factor. Array-step entries whose exponents spread too far for the levels to hold
 them are rounded, and so are the steps of a function without levels to fold.
-A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its value, gradient and
-Hessian product at its own scale before the factors are applied, so an intermediate that leaves the
-range is lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` has
-the value, gradient and Hessian product `Inf` at `[1e10]`, not `5e-81`, `1e-90` and `1e-90`.
+A level that is stored as infinite is a hard constraint, which no product of a factor and a step can
+change: `Scaled(NormL1(Inf), 1e-300)` at the step `1e-300` has the proximal map of the domain `{0}`, as at
+the step `1`, and not the identity of a step rounded to zero. The contract of this route is exact: the call
+returns what the same function returns at a step whose product is an ordinary (normal) positive number, the
+hard domain `{0}` at finite arguments included, up to the sign of a zero (`ElasticNet(1.0, Inf)` at `[-1.0]` gives
+`[0.0]` at the step `1` and `[-0.0]` at the step `0.75` and in the wrapper). How a leaf treats a NaN or infinite entry of the argument at an
+ordinary step is that leaf's own rule (decision 49 settles `NormL1`, `SLOPE`, `NormL1Fused` and `NormLinf`; the
+others are tracked in #662), and the call follows it. A call takes this route only when its function holds a
+stored infinite level (through `Scaled`, `Translate` and sums), every factor of the whole tree, indicators and
+translated or nested wrappers included, and the step are positive finite numbers (for an array step, every
+entry), and every block is a function with an infinite level whose other levels the infinite level makes
+irrelevant, or an indicator of the library's list of plain-data indicators (`IndBox`, `IndNonnegative`, `IndBinary`,
+`IndBallL0`, `IndBallL1`, `IndBallL2`, `IndSphereL2`, `IndSimplex`, `IndHyperplane`, `IndHalfspace`, `IndHyperslab`, `IndSOC`,
+`IndRotatedSOC`, `IndExpPrimal`, `IndExpDual`, `IndPattern`, `IndBanded`, `IndToeplitz`, `IndIsotonic`, `IndBallGroupL0`), also
+under a positive finite `Scaled` or a `Translate`. These are `NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`,
+the group norms, `NuclearNorm` and `TracePSD` with an infinite level; `SLOPE` and `NormL1Fused` with an infinite
+first level; `ElasticNet` with an infinite ridge level, or an infinite ℓ1 level and every weight positive, or with
+the finite levels zero; `SparseGroupNormL2` with an infinite ℓ1 level, or an infinite group level and every group
+weight positive, or a zero ℓ1 level. No finite level or factor is folded, multiplied or combined on this route:
+the leaf gets the step of any positive finite size, and the levels that the infinite level makes irrelevant are
+removed. Every other call, a function with a finite level that acts, a finite sibling block, a factor or step that
+is zero, negative, infinite or NaN anywhere in the tree, an indicator that is not on that list (an intersection, a
+constrained or composed indicator, a spectral or factorized one, a user type; also under a `Scaled` or a `Translate`), or a
+function without a stored infinite level, takes the route that it always had.
+A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its gradient and Hessian
+product at its own scale before the factors are applied, so an intermediate that leaves the range is
+lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` at `[1e10]`
+has the value `5e-81`, recovered as above, but the gradient and Hessian product `Inf`, not `1e-90`
+(#610).
 
 At zero scale, supported finite-parameter penalties and losses simplify to
 [`ZeroFunction`](@ref), while an indicator retains its domain and is returned
@@ -340,20 +393,239 @@ function _fold_level_step(f::ElasticNet, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
 end
 
-# Retry exceptional products in the function's own units and domain.
-@noinline function _scaled_value_recover(f, α, x, r)
-  g = _fold_level(f, α)
-  g === nothing ? r : convert(typeof(r), _value_unchecked(g, x))
+# The scale of the fold that recovers a value: only a fold into normal levels is used. A subnormal
+# level has fewer bits than the factors give, and the partial fold below recovers those values at
+# normal levels. A factor that is not a finite positive IEEE number (an infinite one, an Int or a
+# BigFloat) folds as it is.
+_value_fold_scale(α::_ProjectionScale) = _NormalScale(α)
+_value_fold_scale(α::Base.IEEEFloat) = isfinite(α) && α > 0 ? _NormalScale(_scale_start(α)) : α
+_value_fold_scale(α) = α
+
+# The partial fold. When no normal level holds the whole factor, the value of a function with
+# levels is still the value at levels that do: it is positively homogeneous in them, so the factor
+# α splits as 2^k β, with β small or large enough that β times every level is a normal number, the
+# function folded with β is evaluated at x, and 2^k is applied last, to the significand of that value.
+#
+# `_fold_level(f, probe)` runs the fold of every function that has one (the levels of `ElasticNet`
+# and `SparseGroupNormL2`, a `Translate`, `Sum` or `SeparableSum` of such functions with the
+# factors of their `Scaled` terms, the radius of the conjugate of a ball) with a scale that records
+# instead of multiplying. For a level λ times the factors inside, in [2^q, 2^(q+1)), a shift s makes
+# β = a.m 2^s times it a normal number of the type T of the fold when q + s - 1 ≥ exponent(floatmin(T))
+# and q + s + 1 ≤ exponent(floatmax(T)). The product of the two significands is in [1/4, 1), so these
+# bounds are conservative by up to a binade at each end (and by one more at the top, where floatmax
+# is below 2^(exponent + 1)): every shift in the window gives levels that `_NormalScale` accepts,
+# and the window may miss a shift at its very edge. The bounds are also those of the type of the
+# value, so that the levels are normal there too. The window of several levels is the
+# intersection. It is empty when their exponents are too far apart, and for an infinite level,
+# which is refused; the partial fold then gives no value.
+mutable struct _ShiftWindow
+  lo::Int
+  hi::Int
+end
+struct _LevelProbe{S}
+  w::_ShiftWindow
+  a::_ProjectionScale{S}   # the factors of the `Scaled` terms inside, as a product
+  emin::Int                # the exponent range of the type of the value
+  emax::Int
+end
+function _apply_scale(p::_LevelProbe, λ)
+  w = float(λ)
+  T = promote_type(typeof(p.a.m), typeof(w))
+  if !isfinite(w) || !(T <: Base.IEEEFloat)
+    p.w.lo = typemax(Int)
+    return w
+  end
+  mλ, eλ = frexp(w)
+  _, e = frexp(convert(T, p.a.m) * convert(T, mλ))
+  q = p.a.e + Int(eλ) + Int(e) - 1
+  p.w.lo = max(p.w.lo, max(exponent(floatmin(T)), p.emin) + 1 - q)
+  p.w.hi = min(p.w.hi, min(exponent(floatmax(T)), p.emax) - 1 - q)
+  w
+end
+function _projection_accumulate(p::_LevelProbe, b::Real)
+  c = _projection_accumulate(p.a, b)
+  c isa _ProjectionScale ? _LevelProbe(p.w, c, p.emin, p.emax) : c
+end
+# The shifts (lo, hi) at which every level of f folds into a normal number, or nothing.
+function _level_window(f, ::Type{S}, ::Type{V}) where {S, V}
+  w = _ShiftWindow(typemin(Int), typemax(Int))
+  g = _fold_level(f, _LevelProbe(w, _ProjectionScale(S(0.5), 1), exponent(floatmin(V)), exponent(floatmax(V))))
+  g === nothing || w.lo == typemin(Int) || w.hi == typemax(Int) || w.lo > w.hi ? nothing : (w.lo, w.hi)
+end
+# The value of f folded with the shift s, when it is a finite normal number.
+function _shifted_fold_value(f, a::_ProjectionScale, s::Int, x)
+  g = _fold_level(f, _NormalScale(_ProjectionScale(a.m, s)))
+  g === nothing && return nothing
+  u = _value_unchecked(g, x)
+  u isa Base.IEEEFloat && isfinite(u) && abs(u) >= floatmin(typeof(u)) ? u : nothing
+end
+_partial_scale(α::_ProjectionScale{<:Base.IEEEFloat}) = isfinite(α.m) && !iszero(α.m) ? α : nothing
+_partial_scale(α::Base.IEEEFloat) = isfinite(α) && α > 0 ? _scale_start(α) : nothing
+_partial_scale(α) = nothing
+# The factor as a product and the direction of the partial fold: -1 where the leaf value overflowed under
+# a factor below one, so that the levels are taken as low as they go; 1 where it is zero or subnormal
+# under a factor above one, so as high as they go; 0 where neither holds (a NaN or a normal value, whose
+# product is already the correctly rounded value, or a factor of one) or the factor is not a finite
+# positive IEEE number.
+@inline function _partial_plan(α, v)
+  v isa Base.IEEEFloat || return nothing, 0
+  a = _partial_scale(α)
+  a === nothing && return nothing, 0
+  isinf(v) && return a, _scale_below_one(a) ? -1 : 0
+  a, _scaled_small(v) && _scale_above_one(a) ? 1 : 0
+end
+# The value α f(x) by the partial fold, or nothing where it gives no finite normal value at any level of
+# the window: the caller then keeps what it had. The first evaluation is at the end of the window that
+# the direction asks for; a value within a few precisions of either end of the range of its type is
+# evaluated once more with the shift that brings it to the middle (the sum of its terms is then not at
+# the edge of the range of the terms), and that value is used if it is a finite normal number. The power
+# of two goes last, through `_apply_parts`: a normal result is the folded significand rounded once, and a
+# result outside the range is 0 or ±Inf.
+@noinline function _scaled_value_partial(f, a::_ProjectionScale, d::Int, x, v, r)
+  d > 0 && iszero(v) && _exactly_zero_at(f, x) && return nothing
+  win = _level_window(f, typeof(a.m), typeof(v))
+  win === nothing && return nothing
+  lo, hi = win
+  s = d < 0 ? lo : hi
+  u = _shifted_fold_value(f, a, s, x)
+  u === nothing && return nothing
+  T = typeof(u)
+  e = exponent(u)
+  if e < exponent(floatmin(T)) + precision(T) + 16 || e > exponent(floatmax(T)) - precision(T) - 16
+    s1 = clamp(s - e, lo, hi)
+    u1 = s1 == s ? nothing : _shifted_fold_value(f, a, s1, x)
+    if u1 !== nothing
+      s = s1
+      u = u1
+    end
+  end
+  m, k = frexp(u)
+  convert(typeof(r), _apply_parts(_ProjectionScale(oftype(a.m, 0.5), a.e - s + 1), m, k))
+end
+
+# Retry exceptional products in the function's own units and domain: with the scale folded into
+# the levels, or else (where the levels have no normal fold) with the factor split in two, the
+# fold into a subnormal level where that finds no value either, or else from the value of f as a
+# significand and a power of two (`_value_parts`), with the exponents applied last. `out` is a
+# gradient already written, which the parts must not read in place of a parameter. A NaN product at
+# a value that is not NaN, which the fold does not recover, is Inf⋅0 at an infinite factor: 0 where
+# f is certainly 0 (`_scaled_nan_value`), and otherwise what the parts give.
+@noinline function _scaled_value_recover(f, α, x, v, r, out = nothing)
+  g = _fold_level(f, _value_fold_scale(α))
+  g === nothing || return convert(typeof(r), _value_unchecked(g, x))
+  a, d = _partial_plan(α, v)
+  if d != 0
+    z = _scaled_value_partial(f, a, d, x, v, r)
+    z === nothing || return z
+    # no level that is a normal number gives a finite normal leaf value (levels of very different
+    # size, say): the fold into a subnormal level, which has fewer bits but may still hold the value
+    g = _fold_level(f, α)
+    g === nothing || return convert(typeof(r), _value_unchecked(g, x))
+  end
+  if isnan(r) && !isnan(v)
+    z = _scaled_nan_value(f, α, x, r)
+    iszero(z) && return z
+  end
+  _parts_wanted(f, α, x, v, out) || return r
+  _recover_from_parts(f, α, x, v, r)
+end
+@noinline function _recover_from_parts(f, α, x, v, r)
+  p = _value_parts_scaled(f, x, v, α)
+  p === nothing ? r : convert(typeof(r), _apply_parts(α, p[1], p[2]))
 end
 _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
 # The value α v of the function f with the scale α at the unscaled value v.
-@inline function _scaled_value_by(f, α, x, v, recover_inner_small = true)
+@inline function _scaled_value_by(f, α, x, v, recover_inner_small = true, out = nothing)
   r = _apply_scale(α, v)
   if (!isfinite(r) && _scale_below_one(α)) || (_scaled_small(r) && !iszero(v)) ||
-     (recover_inner_small && _scaled_small(v) && _scale_above_one(α))
-    return _scaled_value_recover(f, α, x, r)
+     (recover_inner_small && !_zero_value_exact(f) && _scaled_small(v) && _scale_above_one(α))
+    return _scaled_value_recover(f, α, x, v, r, out)
   end
   r
+end
+# Inf⋅0 at an infinite factor: 0 only where f is certainly 0 at x (`_exactly_zero_at`); otherwise the
+# product r is returned unchanged. A computed 0 may be a positive value that underflowed, whose scaled
+# value is ±Inf: the recovery then tries the parts of the value, which give ±Inf for such a value on
+# host arrays, and the NaN stays where they do not apply.
+@noinline _scaled_nan_value(f, α, x, r) = _infinite_factor(α) && _exactly_zero_at(f, x) ? zero(r) : r
+_infinite_factor(α::Real) = isinf(α)
+_infinite_factor(α) = false
+# α v with an infinite factor α, for the array-step route, which does not recover a product
+_scaled_product_value(f, α, y, v) = (r = α * v; isnan(r) && !isnan(v) ? _scaled_nan_value(f, α, y, r) : r)
+
+# Whether f(x) is exactly 0, decided from the argument and the stored parameters, never from a
+# computed value. Called only where the computed value of f is 0 (not NaN). An indicator: its value
+# is exactly 0 or Inf. The families below: their value is 0 exactly when every entry they penalize
+# is 0. The entries they leave free (a zero level or weight, an index in no group) do not enter the
+# value, whatever they hold, as in the function's own value. Any other function: false.
+_exactly_zero_at(f, x) = _isindicator(f)
+_host_entries(x::AbstractArray) = _is_device_array(x) ? Array(x) : x
+_host_entries(::Nothing) = nothing
+# an entry with the weight w under the level λ is penalized (an infinite weight at any level)
+@inline _penalized(λ, w) = w > 0 && (λ > 0 || isinf(w))
+_exactly_zero_at(f::Union{NormL2, NormLinf, NuclearNorm}, x::AbstractArray) = iszero(f.λ) || all(iszero, _host_entries(x))
+function _exactly_zero_at(f::Union{NormL1, NormL1Nonneg, ElasticNet}, x::AbstractArray)
+  h, w = _host_entries(x), _host_entries(f.w)
+  w === nothing || length(w) == length(h) || return false
+  λ = f isa ElasticNet ? f.λ1 : f.λ0
+  quadratic = f isa ElasticNet && f.λ2 > 0
+  for (j, i) in enumerate(eachindex(h))
+    wi = w === nothing ? one(λ) : w[j]
+    (quadratic || _penalized(λ, wi)) && !iszero(h[i]) && return false
+  end
+  true
+end
+function _exactly_zero_at(f::Union{GroupNormL2, GroupNormLinf, SparseGroupNormL2}, x::AbstractArray)
+  h = _host_entries(x)
+  length(f.group_of) <= length(h) || return false
+  l1 = f isa SparseGroupNormL2 && f.λ1 > 0
+  for (i, xi) in enumerate(h)
+    k = i <= length(f.group_of) ? f.group_of[i] : 0
+    k != 0 && (l1 || _penalized(f.λ0, f.w[k])) && !iszero(xi) && return false
+  end
+  true
+end
+
+# The scaled-value mechanism (R1, "Wrappers"). A function with `_has_value_parts` returns its
+# value at x as (m, e), the value m 2^e with a finite significand m, or `nothing` to keep the
+# ordinary result (`_value_parts`, defaults in utils.jl). Only host arrays take it; a NaN value
+# stays NaN, and a normal value is its own significand and exponent, so the function is asked
+# only for a value that is infinite, zero or subnormal. An exactly zero value whose true value,
+# times α, cannot be a normal number (`_zero_value_exponent`) is not recomputed.
+@inline _parts_argument(x) = false
+@inline _parts_argument(::Union{Array, _HostArray, SparseIterate, SymmetricSparseIterate, AtomIterate,
+                                SparseArrays.AbstractSparseArray, AbstractRange}) = true
+@inline function _parts_wanted(f, α, x, v, out)
+  _has_value_parts(typeof(f)) || return false
+  _parts_argument(x) || return false
+  v isa AbstractFloat || return false
+  if iszero(v)
+    E = _zero_value_exponent(f, x)
+    E === _EXACT_ZERO && return false
+    # |α f(x)| < 2^(E + e) for α < 2^e: below the normal range of the value when E + e is at most
+    # the exponent of its floatmin. The value is returned in the type of x (`_value_at`), whose
+    # normal range is the narrower when α is wider than x (a Float64 factor at a Float32 argument):
+    # the larger of the two exponents decides.
+    E === nothing || E + _scale_upper_exponent(α) >
+      max(exponent(floatmin(_valtype(x))), exponent(floatmin(typeof(float(_apply_scale(α, v)))))) || return false
+  elseif isinf(v)
+    _infinite_value_exact(f, x) && return false
+  elseif isnan(v) || abs(v) >= floatmin(v)
+    return false
+  end
+  out === nothing || !_parameter_alias(f, out)
+end
+_scaled_parts(f, α, x, v, out) = _parts_wanted(f, α, x, v, out) ? _value_parts_scaled(f, x, v, α) : nothing
+# e with α < 2^e
+@inline _scale_upper_exponent(α::Real) = _upper_exponent(α)
+@inline _scale_upper_exponent(a::_ProjectionScale) = a.e
+# the parts of f, for wrappers that pass the scale on to the function inside them
+_value_parts_scaled(f, x, v, α) = _value_parts(f, x, v)
+# α m 2^e, rounded once: the product of the significands, with the exponents applied last
+function _apply_parts(α, m, e::Integer)
+  ma, ea = _projection_scale_parts(α)
+  P = promote_type(typeof(float(ma)), typeof(m))
+  _scaled_product(convert(P, ma), convert(P, m), Int(ea) + e)
 end
 @inline _scaled_value(s, x, v, recover_inner_small = true) = _scaled_value_by(s.f, s.α, x, v, recover_inner_small)
 (s::Scaled)(x) =
@@ -371,13 +643,13 @@ _scale!(g::AbstractArray, α::_ProjectionScale) = (g .= _apply_scale.(α, g))
 value_and_gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
 _value_and_gradient_unchecked!(g, s::Scaled, x) = _chained(s) ? _value_and_gradient_chain!(g, s, x) :
-  (_checkwrite(value_and_gradient!, s, g, x); v = _value_and_gradient_unchecked!(g, s.f, x); _scale!(g, s.α); _value_at(_scaled_value(s, x, v), x))
+  (_checkwrite(value_and_gradient!, s, g, x); v = _value_and_gradient_unchecked!(g, s.f, x); _scale!(g, s.α); _value_at(_scaled_value_by(s.f, s.α, x, v, true, g), x))
 function _value_and_gradient_chain!(g, s, x)
   _checkwrite(value_and_gradient!, s, g, x)
   f, a = _scaled_chain(s)
   v = _value_and_gradient_unchecked!(g, f, x)
   _scale!(g, a)
-  _value_at(_scaled_value_by(f, a, x, v), x)
+  _value_at(_scaled_value_by(f, a, x, v, true, g), x)
 end
 gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(gradient!, s, g, x); _gradient_unchecked!(g, s, x))
@@ -432,6 +704,12 @@ function _nested_step(s::Scaled, γ::Real)
   T = typeof(step)
   (T <: AbstractFloat && isfinite(γ) && γ > 0 && !(floatmin(T) <= step <= floatmax(T))) || return (f, step, a)
   mγ, eγ = frexp(float(γ))
+  # A function with a stored infinite level, all of whose blocks are fixed by it, does not depend on the
+  # factor and the step (`_hard_function`): nothing finite is folded. Otherwise the earlier route.
+  if _has_infinite_level(f) && _hard_scale(a)
+    h = _hard_function(f)
+    h === nothing || return (h, convert(typeof(step), mγ), nothing)
+  end
   ma, ea = _projection_scale_parts(a)
   g = _fold_level_step(f, _ProjectionScale(ma, Int(ea + eγ)))
   # g carries the levels without the ridge that may have been dropped: it is not the chain, and
@@ -449,7 +727,7 @@ end
 value_and_prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _value_and_prox_chain!(y, s, x, γ) :
-  (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ)); _value_at(_scaled_value(s, y, v, false), y))
+  (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ)); _value_at(_scaled_value(s, y, v, isinf(s.α)), y))
 @noinline function _value_and_prox_chain!(y, s, x, γ::Real)
   _checkwrite(value_and_prox!, s, y, x)
   g, step, a = _nested_step(s, γ)
@@ -511,6 +789,42 @@ function _nested_kkt(kkt, s::Scaled, g)
 end
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
 _restrict_unchecked(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(_restrict_unchecked(s.f, S), s.α)
+
+# The parts of a scaled function inside another wrapper: those of the function under the chain,
+# times the product of its factors, which the scale still to apply multiplies further.
+_has_value_parts(::Type{<:Scaled{F}}) where {F} = _has_value_parts(F)
+_value_parts(s::Scaled, x, v) = _value_parts_scaled(s, x, v, true)
+function _value_parts_scaled(s::Scaled, x, v, α)
+  f, a = _scaled_chain(s)
+  isfinite(a.m) && !iszero(a.m) || return nothing
+  vf = _value_unchecked(f, x)
+  vf isa AbstractFloat || return nothing
+  p = isfinite(vf) && abs(vf) >= floatmin(vf) ? frexp(vf) :
+    _scaled_parts(f, _scale_times(α, a), x, vf, nothing)
+  p === nothing && return nothing
+  P = promote_type(typeof(a.m), typeof(p[1]))
+  m, e = frexp(convert(P, a.m) * convert(P, p[1]))
+  (m, e + a.e + p[2])
+end
+# the product of a factor and a chain's product, as a factor
+function _scale_times(α, a::_ProjectionScale)
+  ma, ea = _projection_scale_parts(α)
+  P = promote_type(typeof(float(ma)), typeof(a.m))
+  m, e = frexp(convert(P, ma) * convert(P, a.m))
+  _ProjectionScale(m, Int(ea) + a.e + e)
+end
+# A zero value of s is a zero value of s.f, times the factor (|α f| < 2^(E + e)), or the product of
+# the factor and a value of s.f that is nonzero: Scaled's own trigger then fires (the product is
+# small while the value is not zero) and the result is α v rounded once, or the parts of a subnormal
+# v rounded once, so that the zero is below δ. E is the larger of the two.
+function _zero_value_exponent(s::Scaled, x)
+  E = _zero_value_exponent(s.f, x)
+  E === nothing && return nothing
+  U = _underflow_exponent(_valtype(x), 1)
+  E === _EXACT_ZERO ? U : max(E + _upper_exponent(s.α), U)
+end
+_parameter_alias(s::Scaled, out) = _parameter_alias(s.f, out)
+_infinite_value_exact(s::Scaled, x) = _infinite_value_exact(s.f, x)
 
 ####################################
 #  f + ⟨c, ⋅⟩ + d
@@ -807,6 +1121,21 @@ _checkwrite(op::O, t::Translate, g::Tuple, x::Tuple) where {O<:Union{typeof(grad
   (_checkreal(t, g); _checkreal(t, x); _checkgradient_output(g, x); _check_block_output(g); _checksize(g, x); _checkwrite(op, t.f, g, _checkshifted(t, x)))
 _checkvalue(t::Translate, x::Tuple) = (_checkreal(t, x); _checkvalue(t.f, _checkshifted(t, x)))
 _checkvalue(t::Translate, x::AbstractArray) = (_checkreal(t, x); _checkvalue(t.f, _checkshifted(t, x)))
+# The value of f at x - b as a significand and an exponent, while x - b is in range: an argument
+# that overflowed on translation is not recovered (#357).
+_has_value_parts(::Type{<:Translate{F}}) where {F} = _has_value_parts(F)
+_value_parts(t::Translate, x, v) = _value_parts_scaled(t, x, v, true)
+function _value_parts_scaled(t::Translate, x::AbstractArray, v, α)
+  z = _shifted(t, x)
+  _all_finite(z) || return nothing
+  _scaled_parts(t.f, α, z, v, nothing)
+end
+_value_parts_scaled(t::Translate, x, v, α) = nothing
+# the bound of the inner function, for its value at the shifted argument as computed (the argument
+# the ordinary value and the parts both use), which has the length of x
+_zero_value_exponent(t::Translate, x) = _zero_value_exponent(t.f, x)
+_infinite_value_exact(t::Translate, x) = _infinite_value_exact(t.f, x)
+_parameter_alias(t::Translate, out) = _mightalias_parameter(out, t.b) || _parameter_alias(t.f, out)
 
 function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checkreal(t, y); _checkreal(t, x)
@@ -1820,6 +2149,85 @@ function _fold_level_step(s::Sum, α)
   gs = map(f -> _fold_block_step(f, α), s.fs)
   any(isnothing, gs) ? nothing : Sum(gs, s.scratch)
 end
+# The functions that a stored infinite level fixes, for a positive finite factor and step. The infinite level
+# makes the map the constant map of its domain, whatever positive finite number the factors and the step
+# are, so the call needs no factor and no step folded into a finite level: `_hard_function(f)` is f without the
+# factors of its blocks and with the finite levels that the infinite level makes irrelevant removed, or
+# `nothing` when some block is not of this kind, and the call keeps the route that it had.
+_hard_scale(a::Real) = isfinite(a) && a > 0
+_hard_scale(a::_ProjectionScale) = isfinite(a.m) && a.m > 0
+_steps_hard(γ) = all(g -> g isa Real && isfinite(g) && g > 0, γ)
+# a stored infinite level in the function tree, read from the parameters as stored
+_has_infinite_level(::AbstractFunction) = false
+for (F, fields) in ((:NormL1, (:λ0,)), (:NormL1Nonneg, (:λ0,)), (:NormL2, (:λ,)), (:NormLinf, (:λ,)),
+                    (:ElasticNet, (:λ1, :λ2)), (:GroupNormL2, (:λ0,)), (:GroupNormLinf, (:λ0,)),
+                    (:SparseGroupNormL2, (:λ1, :λ0)), (:NormL1Fused, (:λ1, :λ2)), (:NuclearNorm, (:λ,)),
+                    (:TracePSD, (:λ,)))
+  @eval _has_infinite_level(f::$F) = $(foldl((a, b) -> :($a || isinf(f.$b)), fields[2:end]; init = :(isinf(f.$(fields[1])))))
+end
+_has_infinite_level(f::SLOPE) = any(isinf, f.λ)
+_has_infinite_level(f::Scaled) = _has_infinite_level(f.f)
+_has_infinite_level(f::Translate) = _has_infinite_level(f.f)
+_has_infinite_level(f::Union{SeparableSum, Sum}) = any(_has_infinite_level, f.fs)
+# the weights are tested by value, with no arithmetic on them
+_weights_positive(::Nothing) = true
+_weights_positive(w) = all(x -> x > 0, w)
+# The wrappers are classified first, so that every factor of the tree is validated (`_hard(::Scaled)`) before
+# anything is accepted: a scaled or translated indicator is a wrapper and is never taken as a leaf. An
+# indicator is accepted as a leaf only when it is one of the library's plain-data indicators, listed here by
+# name (their fields are numbers, arrays of numbers, flags, index lists and internal buffers, none of which
+# can hold a function); every other indicator (constrained, composed or intersected ones, spectral and
+# factorized ones, user types, any other subtype) is declined as a whole. The classification is by dispatch
+# on this list, with no reflection on the fields of a type, so it is total.
+const _PlainIndicator = Union{IndBox, IndNonnegative, IndBinary, IndBallL0, IndBallL1, IndBallL2, IndSphereL2,
+                              IndSimplex, IndHyperplane, IndHalfspace, IndHyperslab, IndSOC, IndRotatedSOC,
+                              IndExpPrimal, IndExpDual, IndPattern, IndBanded, IndToeplitz, IndIsotonic,
+                              IndBallGroupL0}
+_hard_function(f::Union{Scaled, Translate, SeparableSum, Sum}) = _hard(f)
+_hard_function(f::_PlainIndicator) = f
+_hard_function(f) = _hard(f)
+_hard(_) = nothing
+_hard(f::ZeroFunction) = f
+# one level, infinite
+for (F, level) in ((:NormL1, :λ0), (:NormL1Nonneg, :λ0), (:NormL2, :λ), (:NormLinf, :λ), (:GroupNormL2, :λ0),
+                   (:GroupNormLinf, :λ0), (:NuclearNorm, :λ), (:TracePSD, :λ))
+  @eval _hard(f::$F) = isinf(f.$level) ? f : nothing
+end
+# an infinite first level fixes every entry (the domain is {0}); the other levels are zeros, as a block, which
+# keeps the levels of a SLOPE nonincreasing
+_hard(f::SLOPE) = any(isinf, f.λ) ? SLOPE(map(λ -> isinf(λ) ? λ : zero(float(λ)), f.λ)) : nothing
+_hard(f::NormL1Fused) = isinf(f.λ1) ? NormL1Fused(f.λ1, isinf(f.λ2) ? f.λ2 : zero(f.λ2)) : nothing
+# two levels: the finite level is irrelevant when the infinite level fixes every coordinate that it
+# touches (a weight of zero leaves its coordinate free), or when it is zero
+function _hard(f::ElasticNet)
+  (isinf(f.λ1) || isinf(f.λ2)) || return nothing
+  zeroed = (isinf(f.λ1) || iszero(f.λ1)) && (isinf(f.λ2) || iszero(f.λ2))
+  (zeroed || isinf(f.λ2) || _weights_positive(f.w)) || return nothing
+  ElasticNet(isinf(f.λ1) ? f.λ1 : zero(f.λ1), isinf(f.λ2) ? f.λ2 : zero(f.λ2), f.w)
+end
+# an infinite ℓ1 level fixes every grouped entry at every step, whatever the group level and weights are
+function _hard(f::SparseGroupNormL2)
+  isinf(f.λ1) && return f
+  isinf(f.λ0) && (iszero(f.λ1) || _weights_positive(f.w)) || return nothing
+  SparseGroupNormL2(zero(f.λ1), f.λ0, f.groups, f.w)
+end
+# a factor is irrelevant when it is a positive finite number; any other factor keeps the earlier route
+function _hard(f::Scaled)
+  c = f.α
+  (c isa Real && isfinite(c) && c > 0) ? _hard_function(f.f) : nothing
+end
+function _hard(t::Translate)
+  g = _hard_function(t.f)
+  g === nothing ? nothing : Translate(g, t.b, t.scratch, t.proxscratch)
+end
+function _hard(s::SeparableSum)
+  gs = map(_hard_function, s.fs)
+  any(isnothing, gs) ? nothing : SeparableSum(gs)
+end
+function _hard(s::Sum)
+  gs = map(_hard_function, s.fs)
+  any(isnothing, gs) ? nothing : Sum(gs, s.scratch)
+end
 # a chain anywhere among the blocks may refuse the value of the conjugate
 _chained_scaled(t::Union{Translate, SingularValue}) = _chained_scaled(t.f)
 _chained_scaled(s::Union{SeparableSum, Sum}) = any(_chained_scaled, s.fs)
@@ -2587,8 +2995,14 @@ function _spectrum_value(f::Scaled, v::AbstractVector{T}, k::Int) where {T}
     ordinary = f(v)
     isfinite(ordinary) && return convert(T, ordinary)
   end
+  # An overflowing spectrum: the scales reach the leaf, after the domain decisions.
+  if k > 0 && !_isindicator(f)
+    s = _spectrum_scaled(f, v, k, _unit_scale(T))
+    s === nothing || return convert(T, s)
+  end
   a = _spectrum_value(f.f, v, k)
   r = f.α * a
+  isnan(r) && !isnan(a) && return convert(T, _scaled_nan_value(f.f, f.α, v, r))   # Inf⋅0, as for the value
   if (!isfinite(r) && f.α < 1) || (_scaled_small(r) && !iszero(a)) ||
      (_scaled_small(a) && f.α > 1)
     g = _fold_level(f.f, f.α)

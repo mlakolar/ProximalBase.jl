@@ -11,10 +11,6 @@ const baselines = Dict{String,Any}(
   "linear_sets.wider.ProximalBase.IndHalfspace.array" => [0.6666666567325592, -0.3333333432674408, -0.3333333432674408],
   "linear_sets.wider.ProximalBase.IndHyperslab.scalar" => [0.6666666269302368, -0.3333333432674408, -0.3333333432674408],
   "linear_sets.wider.ProximalBase.IndHyperslab.array" => [0.6666666269302368, -0.3333333432674408, -0.3333333432674408],
-  "linear_sets.coefficient.ProximalBase.IndHyperplane.false" => Float32[7.888609f-31],
-  "linear_sets.coefficient.ProximalBase.IndHyperplane.true" => Float32[7.888609f-31],
-  "linear_sets.coefficient.ProximalBase.IndHalfspace.false" => Float32[7.888609f-31],
-  "linear_sets.coefficient.ProximalBase.IndHalfspace.true" => Float32[7.888609f-31],
 )
 components(v, r, n) = eltype(v) == eltype(r) && all(within_ulps(v[i], r[i], n) for i in eachindex(r))
 
@@ -94,7 +90,6 @@ end
       problem = "normal 2^100, offset 0, argument 2^-100; coefficient 2^-200 times normal is 2^-100"
       expected = Float32[0]
       observed = prox!(zeros(Float32, 1), F(pow2(Float64, 100), 0.0), Float32[pow2(Float32, -100)], diagonal ? Float32[1] : 1f0)
-      broken = (group = :G5, baseline = Returned(v -> same(v, baselines[id])))
     end
   end
   # #363: integer input sums must not wrap before conversion.

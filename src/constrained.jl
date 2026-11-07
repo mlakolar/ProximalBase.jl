@@ -81,7 +81,13 @@ The caller must ensure that the set meets the domain of `f`. For a convex
 function on a box, the method clamps the unconstrained proximal point even
 when the intersection is empty. Neither that point nor the returned value
 certifies feasibility; `value_and_prox!` returns zero for an indicator even in
-this improper case. On a hyperplane, halfspace or hyperslab, the search throws
+this improper case. The exception is a [`NormL1`](@ref) with a stored infinite level
+`λ0 = Inf`: at a positive step it fixes every entry with a positive weight at zero, so a
+box that excludes zero at such an entry raises an `ArgumentError` ("the IndBox misses the
+domain of NormL1") before anything is written. A zero weight leaves its entry free, a
+zero or non-positive step is not decided here, and other functions and wrappers are not
+checked. The standalone value of an infeasible function at an argument stays `Inf`.
+On a hyperplane, halfspace or hyperslab, the search throws
 an `ArgumentError` if it cannot bracket a multiplier. This is not a general test
 for an empty intersection: rounding may put a point on the closure of an open
 domain, and a finite multiplier may not exist when the set meets only the
@@ -164,6 +170,10 @@ _scale_invariant(f::BoxConstrained) = _scale_invariant(f.f) && _cone_bound(f.box
   (_check_value_arrays(c, x); _value_checked(c, x))
 _value_unchecked(c::BoxConstrained, x::AbstractArray) =
   (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.box, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
+# MCP, SCAD and NormL0 on a box: a NaN entry gives NaN where the value depends
+# on it (constrained_nonconvex.jl).
+_value_unchecked(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x::AbstractArray) =
+  (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.box, x)) ? convert(T, _value_unchecked(c.f, x)) : _box_nan_value(c, x, T))
 
 # the scalar problem is convex, so its minimizer on an interval is the nearest
 # point to its unconstrained minimizer
@@ -294,12 +304,32 @@ end
 @inline function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArray, γ) where {O}
   _checkreal(c, γ)
   _checkwrite(op, c, y, x)
+  _check_box_domain(c, x, γ)
   if op === value_and_prox! && !_isindicator(c)
     _checkparam(γ, x)
     _check_box_value(c.f, y, _BoxProxArray(y, c, x, γ))
   end
   true
 end
+
+# An infinite level at a positive step fixes every penalized entry (w > 0) of NormL1 at zero, and the
+# clamp of that zero into a box that excludes it is not feasible. Decided from the stored level, the
+# weights, the step and the bounds as given, before anything is written; nothing is evaluated for
+# another function, for a finite level, or for a box that contains zero. Other families are not decided.
+_check_box_domain(::BoxConstrained, x, γ) = nothing
+@inline function _check_box_domain(c::BoxConstrained{<:NormL1}, x, γ)
+  isinf(c.f.λ0) && !c.box.zp && _check_box_fixed(c, x, γ)
+  nothing
+end
+function _check_box_fixed(c::BoxConstrained{<:NormL1}, x, γ)
+  f, box = c.f, c.box
+  for i in eachindex(IndexLinear(), x)
+    _l1_fixed(_entry(γ, i), f.λ0, _entry(f.w, i)) &&
+      !((_entry(box.l, i) <= 0) & (_entry(box.u, i) >= 0)) && _box_misses_domain(f)
+  end
+  nothing
+end
+@noinline _box_misses_domain(f) = throw(ArgumentError("the IndBox misses the domain of $(nameof(typeof(f)))"))
 
 # Membership can return Inf without evaluating the inner value.
 _checkvalue(c::BoxConstrained, x::AbstractArray) = (_checkreal(c, x); _checkparams(c, x))
@@ -1128,8 +1158,9 @@ Base.@propagate_inbounds _prox_entry_slope(f::SqrNormL2, v::Real, i::Integer, γ
 Base.@propagate_inbounds _prox_entry_slope(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) = _ridge_prox_slope(r, v, i, γ)
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = _weight_product(S, γ, f.λ0, _entry(f.w, i))
-  shrink(v, t), _slope(abs(v) > t, one(S))
+  # a fixed entry has an infinite threshold, so its slope is zero
+  z, t = _l1_prox_threshold(v, γ, f.λ0, _entry(f.w, i), S)
+  z, _slope(abs(v) > t, one(S))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
@@ -1138,8 +1169,19 @@ Base.@propagate_inbounds function _prox_entry_slope(f::NormL1Nonneg, v::T, i::In
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = _weight_coefficient(S, γ, f.λ1, _entry(f.w, i))
-  _elastic_ridge(S, shrink(v, t), γ, f.λ2), _slope(abs(v) > t, _elastic_slope(S, γ, f.λ2))
+  w = _entry(f.w, i)
+  r = _typed_product(S, γ, f.λ2)
+  isfinite(r) || return _elastic_prox_slope_wide(S, f, v, w, γ, r)
+  t = _weight_coefficient(S, γ, f.λ1, w)
+  shrink(v, t) / (1 + r), _slope(abs(v) > t, inv(1 + r))
+end
+@noinline function _elastic_prox_slope_wide(::Type{S}, f::ElasticNet, v, w, γ, r) where {S}
+  if γ == Inf
+    z, dz = _elastic_infinite_slope(v, f.λ1 > zero(f.λ1), f.λ2 > zero(f.λ2), w)
+    return convert(S, z), convert(S, dz)
+  end
+  t = _weight_coefficient(S, γ, f.λ1, w)
+  _elastic_ridge_wide(S, shrink(v, t), γ, f.λ2, r), _slope(abs(v) > t, _elastic_slope_wide(S, γ, f.λ2, r))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::IndBox, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)

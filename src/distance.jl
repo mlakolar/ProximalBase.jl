@@ -283,7 +283,7 @@ end
 
 _distance_buffer(f::DistL2, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(f.scratch, T, size(x))
 
-@inline _distl2_ldexp(x::Real, e::Int) = ldexp(x, e)
+@inline _distl2_ldexp(x::Real, e::Integer) = ldexp(x, e)
 
 # Keep distances beyond floatmax in units of a power of two. Scaling the
 # endpoints before subtraction also covers an overflowing single residual.
@@ -307,7 +307,7 @@ function _distl2_parts(x::AbstractArray, p::AbstractArray)
 end
 
 # Delay narrowing λ until its exponent has been combined with the distance.
-@inline function _distl2_value(::Type{T}, λ::Real, m::Real, e::Int) where {T}
+@inline function _distl2_value(::Type{T}, λ::Real, m::Real, e::Integer) where {T}
   a, k = frexp(float(λ))
   T(ldexp(a * m, k + e))
 end
@@ -324,9 +324,52 @@ function _value_unchecked(f::DistL2, x::AbstractArray)
   _distl2_value(T, f.λ, m, e)
 end
 
+# The scaled-value mechanism: the distance as a significand and an exponent (_distl2_parts), times
+# λ for DistL2 and λ/2 times its square for SqrDistL2, after one more projection.
+_has_value_parts(::Type{<:Union{DistL2, SqrDistL2}}) = true
+function _distance_value_parts(f, x::AbstractArray, square::Bool)
+  (iszero(f.λ) || !isfinite(f.λ)) && return nothing
+  T = float(eltype(x))
+  p = _distance_buffer(f, T, x)
+  _prox_unchecked!(p, f.f, x, one(T))
+  m, e = _distl2_parts(x, p)
+  m = float(m)
+  isfinite(m) || return nothing
+  iszero(m) && return (m, 0)
+  _parts_product(frexp(float(f.λ)), square ? _parts(m * m / 2, 2e) : (m, e))
+end
+_value_parts(f::DistL2, x::AbstractArray, v) = _distance_value_parts(f, x, false)
+# Exact-zero protection: the distance is accurate (hypot where its square leaves the range) and zero
+# only at a point of the set. DistL2 applies λ to its parts and rounds once; SqrDistL2 squares the
+# product of the distance and √(λ/2), whose rounding to zero, or whose own underflow, leaves less
+# than δ (1 + 4 eps). A level that does not keep its range in the value type of SqrDistL2 (which
+# converts it) has no such bound.
+# A gradient output that shares memory with the set's data would be read back by the projection
+# that the parts make after the gradient is written: an O(1) walk over the arrays the set stores
+# (into nested sets and tuples), which answers true when it cannot tell.
+_parameter_alias(f::Union{DistL2, SqrDistL2}, out) = _stored_mightalias(out, f.f, 0)
+_stored_mightalias(out, p::AbstractArray, depth) = _mightalias_parameter(out, p)
+_stored_mightalias(out, ::Union{Number, Nothing, Symbol, Scratch}, depth) = false
+_stored_mightalias(out, p::Tuple, depth) = any(q -> _stored_mightalias(out, q, depth + 1), p)
+@noinline function _stored_mightalias(out, s, depth)
+  T = typeof(s)
+  # a primitive value that is not a pointer (a Char, an enum, an integer) holds no memory to share
+  isprimitivetype(T) && !(T <: Ptr) && return false
+  (isstructtype(T) && depth < 8) || return true
+  for i in 1:fieldcount(T)
+    isdefined(s, i) || continue
+    _stored_mightalias(out, getfield(s, i), depth + 1) && return true
+  end
+  false
+end
+_zero_value_exponent(f::DistL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), 1)
+_zero_value_exponent(f::SqrDistL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO :
+  _level_fits(float(eltype(x)), f.λ) ? _underflow_exponent(_valtype(x), 1) : nothing
+_value_parts(f::SqrDistL2, x::AbstractArray, v) = _distance_value_parts(f, x, true)
+
 # A subnormal interpolation weight can still move a large endpoint. Apply
 # its exponent only after multiplication by the residual's significand.
-@inline function _distl2_blend(x::Real, p::Real, a::T, b::T, m::T, e::Int) where {T}
+@inline function _distl2_blend(x::Real, p::Real, a::T, b::T, m::T, e::Integer) where {T}
   x, p = T(x), T(p)
   b >= floatmin(T) && return _ridge_blend(x, p, a, b)
   d = p - x
@@ -341,7 +384,7 @@ end
 
 # Near the threshold, subtract squared distances with their rounding errors
 # retained. Subtracting a rounded norm would lose the small remaining distance.
-@inline function _distl2_square_parts(x::Real, p::Real, e::Int, ::Type{S}) where {S}
+@inline function _distl2_square_parts(x::Real, p::Real, e::Integer, ::Type{S}) where {S}
   x, p = S(x), S(p)
   d = x - p
   k = -e
@@ -357,7 +400,7 @@ end
   q, fma(v, v, -q) + 2v * r + r * r
 end
 
-function _distl2_margin(x, p, gm::S, lm::S, k::Int, e::Int) where {S}
+function _distl2_margin(x, p, gm::S, lm::S, k::Integer, e::Integer) where {S}
   s, err = zero(S), zero(S)
   @inbounds for i in eachindex(x, p)
     q, r = _distl2_square_parts(x[i], p[i], e, S)
@@ -377,9 +420,9 @@ function _distl2_prox!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ:
   iszero(γ) && return copyto!(y, x)
   S = promote_type(float(eltype(x)), float(eltype(y)), typeof(float(γ)), typeof(float(λ)))
   dm, de = _distl2_parts(x, p)
-  gm, ge = frexp(S(γ))
-  lm, le = frexp(S(λ))
-  tm, te = frexp(gm * lm)
+  gm, ge = _frexp(S(γ))
+  lm, le = _frexp(S(λ))
+  tm, te = _frexp(gm * lm)
   te += ge + le
   # Non-finite arguments must propagate even when the step is infinite.
   snap = isfinite(dm) && !isnan(tm) && (isinf(tm) ||
@@ -400,7 +443,7 @@ function _distl2_prox!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ:
     y .= x .+ (tm / dm) .* (p .- x)
     return y
   end
-  m, e = frexp(tm / S(dm))
+  m, e = _frexp(tm / S(dm))
   e += te - de
   b = refined ? one(S) - a : ldexp(m, e)
   refined || (a = (S(dm) - ldexp(tm, te - de)) / S(dm))

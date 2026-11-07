@@ -79,10 +79,15 @@ projection. Accuracy beyond what the conditioning of the problem allows.
 
 **S4. One rule for the package.** Every rule applies to every function,
 including data losses, wrappers and functions with a proximal value but no
-standalone value. A function that does not meet a rule is a gap, tracked in
-#366 and brought under the rule, not a documented limitation. The one
-stated limitation is in R1: wrappers around inner functions whose argument
-overflows, where no supported transformation exists.
+standalone value. Base and LinearAlgebra functions applied to wrappers of
+iterates are not functions of the package; O6 states what they do. A function
+that does not meet a rule is a gap, tracked in #366 and brought under the rule,
+not a documented limitation. The one stated limitation is in R1: wrappers around
+inner functions whose argument overflows, where no supported transformation
+exists. M1 states one boundary of its own: a product of an iterate that
+ProximalBase does not define, a product of an object built from an iterate that
+is not the iterate itself, and scaling by a number follow IEEE arithmetic, and
+these are outside the strong-zero rule, not gaps.
 
 ## [Types and precision](@id numerics-types)
 
@@ -322,11 +327,15 @@ chain; the steps of a proximal operator pass the product of the factors and the
 step to the function when that is a normal number, and otherwise fold the exponent into the
 levels, with the step reduced to its significand, for the functions of the
 scaled-value mechanism. Conjugates and their projections accumulate the factors the same way. A
-function that folds no level (a `SqrNormL2`, a loss, a `Tilt`) forms its value, gradient and Hessian
-product at its own scale before the factors are applied, so an intermediate that leaves the range is
-lost, not only a proximal step or a conjugate value (`Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)`
-at `[1e10]` gives `Inf` for all three, not `5e-81`, `1e-90` and `1e-90`; a single `Scaled` does the
-same); it receives the step as the product rounds it,
+function that folds no level (a `SqrNormL2`, a loss, a `Tilt`) recovers its *value* through the
+scaled-value mechanism when it implements it (the built-in functions that the `Scaled` docstring
+lists, on host arrays): `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` at `[1e10]` has the value
+`5e-81`, as a single `Scaled` does. Its gradient and Hessian product are still formed at its own
+scale before the factors are applied, so an intermediate that leaves the range is lost there: they
+are `Inf` at that point, not `1e-90` (#610). `Tilt` and the data functions (`LinearFunction`,
+`QuadraticFunction`, the least-squares and GLM losses, `BernoulliLoss`) do not
+implement the mechanism, and their value is lost in the same way (#359 and
+#609). Such a function receives the step as the product rounds it,
 and its conjugate value under such a product throws instead of returning a wrong number; a
 `value_and_prox!` of the conjugate then leaves its output as it was, however many ordinary wrappers
 (`Scaled`, `Translate`, `SingularValue`, `SeparableSum`) lie above the chain. An indicator has the same
@@ -341,8 +350,11 @@ A chain takes the route always. A single factor takes it when it lies outside th
 `2^E`, `E` a quarter of the exponent range of the element type (255 for `Float64`, 31 for
 `Float32`), a test on the factor alone, so that an ordinary call reads nothing more than before; for
 a factor inside the band, an entry of the step that is itself within `E` of a limit of the range is
-rounded together with the factor. Not recovered: the value of a chain whose leaf value overflows
-while the folded level is itself not a number in range; array-step entries whose exponents spread too
+rounded together with the factor. When no normal level holds the whole product, the value of a
+function with levels is computed at levels that are normal numbers, with the power of two that this
+takes out of the product applied last. Not recovered: levels whose exponents are too far apart for
+one normal fold, weights or entries for which no normal level gives a leaf value that is a finite
+normal number, and subnormal results; array-step entries whose exponents spread too
 far for the levels to hold them, which are rounded with the factors; and the steps of a function
 without levels to fold. Exact zero and `Inf` scales merge as before.
 
@@ -568,6 +580,9 @@ dependency matrix at runtime.
   if the stored projection itself depends on a NaN. An input-independent
   finite projection has its ordinary value at the stored output (O2).
 - In a sum of terms, NaN takes precedence over `±Inf`.
+- *Exception for iterates (M1).* In the products and inner products that M1
+  lists, a zero coefficient of the iterate contributes nothing, so a NaN of the
+  other operand that meets only zero coefficients does not reach the result.
 
 Thus `prox(NormL1(1.0), [NaN, 4.0], 1.0)` is
 `[NaN, 3.0]`, whereas `prox(NormL2(1.0), [NaN, 4.0], 1.0)`
@@ -683,6 +698,10 @@ semantics are not introduced by these finite-radius formulas.
 `value_and_prox!` returns the value at the *stored proximal
 output* under O2, not the standalone value at the original
 infinite argument.
+
+In the products and inner products that M1 lists, `0 · ±Inf` contributes `0`
+when the zero is a coefficient of the iterate, and NaN when the zero belongs to
+a dense operand.
 
 **E4. Zero and infinite parameters.**
 
@@ -846,7 +865,14 @@ constant, so gradients agree while values differ by that constant. A conjugate
 may give a value with its proximal output and have no standalone value.
 Neither is a numerical bug.
 
-**O6. Outputs after a failure.** The guarantee depends on the kind of failure.
+**O6. Outputs after a failure.** These guarantees cover the methods that
+ProximalBase defines. A Base or LinearAlgebra function applied to a wrapper of
+an iterate (`view`, `reshape`, `vec`, `atom`) behaves as it does on the same
+wrapper of a plain array of the same element type, and applied to
+`coordinates(x)` as it does on a plain vector of that element type holding the
+same entries: a conversion that throws can leave a partial write.
+
+The guarantee depends on the kind of failure.
 
 1. *Validation:* shapes, types, steps and parameters, detected before any
    work. The call raises a `DimensionMismatch` for sizes and an
@@ -882,10 +908,60 @@ documents otherwise (see [Conventions](@ref)).
 
 ## [Sparse and symmetric storage](@id numerics-storage)
 
-**M1. Implicit zeros are entries.** An operation on a sparse iterate skips
-them only when they contribute nothing. A centered ridge moves an implicit
-zero, and `NegLog` is `+Inf` at zero. Since linear coefficients are finite
-(E4), a sparse inner product may skip unstored entries.
+**M1. Implicit zeros are entries; zero coefficients of an iterate are
+strong.** An unstored entry of a sparse iterate is an entry whose value is
+zero, and an operation skips it only when it contributes nothing: a
+centered ridge moves an implicit zero, and `NegLog` is `+Inf` at zero. In
+the products and inner products listed below, a zero coefficient of the
+iterate, stored or unstored, contributes nothing, even against `±Inf` or NaN
+in the other operand, as `false * NaN` is `0.0` in Julia and as BLAS treats
+`α = 0`. A non-finite entry that meets a nonzero coefficient propagates as
+E2 and E3 say, and a zero of a dense operand is an ordinary IEEE zero. The
+methods are exactly these:
+
+1. `dot(v::StridedVector, x::SparseIterate{T,1})`,
+   `dot(x::SparseIterate{T,1}, v::StridedVector)` and
+   `dot(x::SparseIterate{T,1}, y::SparseIterate{T,1})`;
+2. `dot(v, x::AtomIterate)` for `v` a `StridedVector`, a
+   `SparseIterate{T,1}` or an `AtomIterate`, and `dot(x::AtomIterate, v)`
+   for `v` a `StridedVector` or a `SparseIterate{T,1}`;
+3. `dot(a::StridedVector, X::SparseIterate{T,2}, b::StridedVector)`;
+4. `mul!(out, A, x)`, its five-argument form and `A * x`, for
+   `x::SparseIterate{T,1}` with `A` a `StridedMatrix`, a transposed or
+   adjoint `StridedMatrix`, or a `Symmetric` strided matrix; for
+   `x::SparseIterate{T,2}` with `A` a `StridedMatrix` or a `Symmetric`
+   strided matrix; and for `x::AtomIterate` with `A` a `StridedMatrix` or a
+   `Symmetric` strided matrix;
+5. for a `SymmetricSparseIterate` `X`: `mul!(y, matrixview(X), v)` and its
+   five-argument form, and `matrixview(X) * v`, which reaches that `mul!`;
+   `dot(a::StridedVector, X, b::StridedVector)`; and
+   `dot(M::StridedMatrix, X)` and `dot(X, M)`. A sparse-aware `dot` on
+   `matrixview(X)`, if one is added, is a method of the package and joins
+   this item.
+
+Which terms enter their results therefore does not depend on whether a zero
+is stored or on the order of the arguments. Each result is the IEEE sum, in
+an unspecified order, of the products over the iterate's nonzero
+coefficients; the order can change the rounding, and a finite partial sum
+can overflow in one order and not in another, which follows A1, as R2 says
+for products. A value or gradient that a function computes
+through one of them at an iterate argument, such as `LeastSquaresLoss` at a
+`SparseIterate`, inherits the rule. The rule applies to the iterate object
+itself, which includes `vec(x)` of a vector and `reshape(x, length(x))`,
+since Base returns `x` for those, and to the `matrixview(X)` products of
+item 5. Every other object built from an iterate (`view(x, …)`,
+`atom(x, k)`, `coordinates(x)`, `activevalues(x)`, `vec(x)` of a matrix, a
+`reshape` to another shape, and `matrixview(X)` in any other product) is an
+ordinary vector or matrix and follows IEEE arithmetic, as does a product
+that ProximalBase does not define, such as `sparse(A) * x`,
+`Diagonal(d) * x`, `transpose(A) * x` for an `AtomIterate`, or
+`sum(x .* v)`. Three-factor products `A * X * B` are not among these
+products. Scaling an iterate by a number (`rmul!`,
+`lmul!`, `rdiv!`, `ldiv!`) is not among these products either: it follows
+IEEE arithmetic, as `x .*= s` does.
+
+Since linear coefficients are finite (E4), a sparse inner product may skip
+unstored entries.
 
 **M2. Multiplicity.** A `SymmetricSparseIterate` stores each off-diagonal
 coordinate once; it counts twice in reductions and is written once. Its
@@ -931,7 +1007,10 @@ within the accuracy are allowed, and a pull request that changes
 all-`Float64` results says so. Comparing bits remains a test technique for a
 change meant to leave results alone, not a promise. A function whose
 quantitative bound is still pending is checked against independent references
-with a stated error budget.
+with a stated error budget. M1's strong zeros changed the class of some products
+of iterates in 0.6, where a zero coefficient of an iterate, stored or not, met a
+non-finite entry; classes changed from NaN to finite values or to ±Inf. That
+change was signed off with M1, and C1 protects the classes that M1 defines.
 
 **C2. Ordinary path first.** Recovery runs only on a reliable trigger. A small
 fixed cost per call for a guarantee is accepted, as for R1. Extra passes over

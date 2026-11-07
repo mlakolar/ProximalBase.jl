@@ -1149,8 +1149,27 @@ Base.@propagate_inbounds function Base.setindex!(x::SymmetricSparseIterate, v, r
   @boundscheck _checkpair(x, r, c)
   @inbounds _setstored!(x, v, _coordinate(x, r, c))
 end
-@inline _checkpair(x::SymmetricSparseIterate, r::Integer, c::Integer) =
+# one unsigned comparison per index, combined without a branch between them
+@inline _checkpair(x::SymmetricSparseIterate, r::Int, c::Int) =
+  (((r - 1) % UInt < x.p % UInt) & ((c - 1) % UInt < x.p % UInt)) || throw(BoundsError(x, (r, c)))
+
+# Other integer types: the bounds are checked in the type of the index, before it is narrowed to
+# Int, so that an out-of-range index of any integer type is a BoundsError.
+@inline function _int_pair(x::SymmetricSparseIterate, r::Integer, c::Integer)
   (1 <= r <= x.p && 1 <= c <= x.p) || throw(BoundsError(x, (r, c)))
+  (Int(r), Int(c))
+end
+Base.@propagate_inbounds function Base.getindex(x::SymmetricSparseIterate, r::Integer, c::Integer)
+  i, j = _int_pair(x, r, c)
+  @inbounds x[i, j]
+end
+Base.@propagate_inbounds function Base.setindex!(x::SymmetricSparseIterate, v, r::Integer, c::Integer)
+  i, j = _int_pair(x, r, c)
+  @inbounds setindex!(x, v, i, j)
+end
+# resolves the ambiguity with the method for an array value and any list of indices, below
+Base.setindex!(x::SymmetricSparseIterate, v::AbstractArray, r::Integer, c::Integer) =
+  invoke(setindex!, Tuple{SymmetricSparseIterate, Any, Integer, Integer}, x, v, r, c)
 
 # x[k] has two natural readings, the coordinate and the matrix linear index
 @noinline _throw_linear_index(x::SymmetricSparseIterate, k) = throw(ArgumentError(
@@ -1660,6 +1679,10 @@ function _shares_data(ids, y)
   q = parent(y)
   q === y ? false : _shares_data(ids, q)
 end
+# aliasing hooks from Base: an owner is not an array, so Base.unalias copies a view of it
+# (through the unaliascopy methods of the views) when it is the destination
+Base.mightalias(x::SymmetricSparseIterate, a::AbstractArray) = _aliases(x, a)
+Base.mightalias(a::AbstractArray, x::SymmetricSparseIterate) = _aliases(x, a)
 # A source with another number of dimensions cannot have the axes of x.
 Base.copyto!(x::SymmetricSparseIterate, y::AbstractArray) = _throw_axes(x, y)
 

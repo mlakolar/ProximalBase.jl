@@ -260,6 +260,42 @@ const ASYMMETRIC = "must be symmetric"
   end
 end
 
+@testset "Base.mightalias and Base.unalias see through an owner" begin
+  X = sample()
+  A = matrixview(X)
+  views = Any[A, coordinates(X), activevalues(X), activecoordinates(X), view(A, :, :), view(coordinates(X), 1:2),
+              Symmetric(A), Symmetric(A, :L), transpose(A), A', reshape(A, 9), vec(A), view(A, 1:2, 1:2),
+              view(activevalues(X), 1:2), reshape(coordinates(X), 2, 3), transpose(coordinates(X))]
+  for a in views
+    @test Base.mightalias(X, a) && Base.mightalias(a, X)
+  end
+  Y = sample()
+  for a in (matrixview(Y), coordinates(Y), activevalues(Y), activecoordinates(Y), Symmetric(matrixview(Y)),
+            Matrix(X), zeros(3), zeros(3, 3), view(zeros(3, 3), :, 1))
+    @test !Base.mightalias(X, a) && !Base.mightalias(a, X)
+  end
+  # an empty array shares nothing
+  E = SymmetricSparseIterate(Float64, 0)
+  @test !Base.mightalias(E, matrixview(E)) && !Base.mightalias(coordinates(E), E)
+  # unalias copies a view of the owner, and the copy does not follow later writes
+  for f in (matrixview, coordinates, activevalues, activecoordinates)
+    Z = sample()
+    a = f(Z)
+    b = Base.unalias(Z, a)
+    @test b !== a && b == a && !Base.mightalias(Z, b)
+    before = copy(b)
+    Z[3, 1] = -1.0
+    Z[2, 1] = 8.0
+    @test b == before
+    @test Base.unalias(Z, zeros(2)) isa Vector
+  end
+  M = zeros(3, 3)
+  @test Base.unalias(X, M) === M
+  # a view of another owner is returned as it is
+  W = matrixview(Y)
+  @test Base.unalias(X, W) === W
+end
+
 @testset "T06: narrowing and structural equality" begin
   ASYM = ArgumentError
   @testset "pairs equal in Float32 but not in Float64 are rejected before anything changes" begin

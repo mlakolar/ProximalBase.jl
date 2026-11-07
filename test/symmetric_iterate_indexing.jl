@@ -82,6 +82,44 @@ end
     @test A[3] == A[7] == -1.0
   end
 
+  @testset "pairs of any integer type, p = $p" for p in (0, 1, 3)
+    types = (Int8, Int16, Int32, Int64, Int128, UInt8, UInt, UInt128, BigInt)
+    for T in (Float32, Float64)
+      X = SymmetricSparseIterate(T, p)
+      D = zeros(T, p, p)
+      for I in types, J in (Int, I), r in 1:p, c in 1:p
+        v = T(10r + c)
+        X[I(r), J(c)] = v
+        D[r, c] = D[c, r] = v
+        @test X[I(r), J(c)] === v && X[J(c), I(r)] === v && X[r, c] === v
+        @test X[I(c), J(r)] === v
+      end
+      @test Matrix(X) == D
+      snapshot = state(X)
+      # an index out of range is a BoundsError in every integer type, never an InexactError
+      for I in types
+        bad = Any[0, p + 1, 1000]
+        I <: Signed && push!(bad, -1)
+        I === BigInt && push!(bad, big(2)^70, -big(2)^70)
+        I === Int128 && push!(bad, Int128(2)^100)
+        I === UInt128 && push!(bad, UInt128(2)^100)
+        I === UInt && push!(bad, typemax(UInt))
+        for b in bad
+          b isa Integer || continue
+          I <: Unsigned && b < 0 && continue
+          (I === BigInt || typemax(I) >= b) || continue
+          @test_throws BoundsError X[I(b), I(1)]
+          @test_throws BoundsError X[I(1), I(b)]
+          @test_throws BoundsError X[I(b), 1]
+          @test_throws BoundsError X[1, I(b)]
+          @test_throws BoundsError (X[I(b), I(1)] = one(T))
+          @test_throws BoundsError (X[1, I(b)] = one(T))
+        end
+      end
+      @test isequal(state(X), snapshot)
+    end
+  end
+
   @testset "the IDs follow the column-major order of the lower triangle, p = $p" for p in (2, 5, 8)
     positions = lower_positions(p)
     @test length(positions) == p * (p + 1) ÷ 2 == ncoordinates(SymmetricSparseIterate(p))

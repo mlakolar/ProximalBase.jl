@@ -977,4 +977,346 @@ end
   end
 end
 
+####################################
+#  BigFloat values near the range limit (#747), against an independent scaled reference
+####################################
+
+# Base's ldexp(::BigFloat, n) is the exact mpfr_mul_2si only for a Clong n. Where a C long is 32 bits (Windows) an Int
+# shift takes x * exp2(BigFloat(n)) instead, which overflows when 2^n alone is out of range although x·2^n is not, and rounds n
+# at a low precision. The reference below shares no helper with the package and types every shift as a Clong.
+
+# λ1 Σ|xᵢ| of BigFloat entries x as r·2^E, never formed at the working range: E = exponent(max|xᵢ|) and r is the exact
+# scaled value in 4000 bits (λ1 is converted from the precision it is stored at, exactly).
+function bfscaled(x, λ1)
+  E = exponent(maximum(abs, x))
+  r = setprecision(BigFloat, 4000) do
+    BigFloat(λ1) * sum(a -> abs(ldexp(big(a), Clong(-E))), x)
+  end
+  r, E
+end
+# r·2^E rounded once to the working precision; Inf where it overflows
+function bfrounded(r, E)
+  ldexp(BigFloat(r, RoundNearest; precision = precision(BigFloat)), Clong(E))
+end
+# y against r·2^E within 2 ulps at the working precision p, compared in the scaled domain (the spacing of p bits at r
+# is at most ldexp(|r|, 1 - p))
+function bfwithin(y, r, E, p)
+  (y isa BigFloat && isfinite(y)) || return false
+  setprecision(BigFloat, 4000) do
+    abs(ldexp(big(y), Clong(-E)) - r) <= 2 * ldexp(abs(r), Clong(1 - p))
+  end
+end
+# The exact value r·2^E at the working precision p is :finite when it lies at least 4 ulps (of the result) below the overflow
+# threshold, :inf when it is at least twice floatmax, and :skip when it is on the rounding edge of overflow.
+# At most 8 entries of scaled size below 2 and λ1 ≤ 1 give r < 16, so a value below 2^(emax-3) is far from the edge.
+function bfclass(r, E, p)
+  emax = Base.MPFR.get_emax()
+  exponent(r) + E <= emax - 4 && return :finite
+  Ms = ldexp(floatmax(BigFloat), Clong(-E))
+  setprecision(BigFloat, 4000) do
+    threshold = Ms + ldexp(one(BigFloat), Clong(exponent(Ms) - p))
+    r + 4 * ldexp(abs(r), Clong(1 - p)) <= threshold && return :finite
+    r >= 2 * Ms ? :inf : :skip
+  end
+end
+# whether y is λ1 Σ|zᵢ| (z not all zero: zero) within the reference, and the class of the case
+function bfverdict(y, z, λ1)
+  y isa BigFloat || return (:raised, false)
+  iszero(maximum(abs, z)) && return (:zero, iszero(y))
+  r, E = bfscaled(z, λ1)
+  p = precision(BigFloat)
+  cls = bfclass(r, E, p)
+  cls === :skip && return (cls, true)
+  (cls, cls === :inf ? y == Inf : bfwithin(y, r, E, p))
+end
+bfok(y, z, λ1) = last(bfverdict(y, z, λ1))
+# the value of a call, or the exception it raised, so that a failing case is recorded instead of ending the test set
+attempt(g) = try g() catch err; err end
+
+@testset "NormL1Fused(λ1, Inf): the value at floatmax in 256 bits, against the scaled reference (#747)" begin
+  setprecision(BigFloat, 256) do
+    M = floatmax(BigFloat)
+    f = NormL1Fused(big(0.25), big(Inf))
+    x = fill(M, 3)
+    want = BigFloat(0.75) * M
+    r, E = bfscaled(x, f.λ1)
+    @test isfinite(want) && want == bfrounded(r, E) && bfwithin(want, r, E, 256)
+    y = f(x)
+    @test isfinite(y) && y == want
+    # value_and_prox! returns the independent value, not f of its own output
+    out = similar(x)
+    v = value_and_prox!(out, f, x, one(BigFloat))
+    @test isfinite(v) && v == want && all(==(M), out)
+    a = copy(x)
+    w = value_and_prox!(a, f, a, one(BigFloat))
+    @test isfinite(w) && w == want && all(==(M), a)
+    for s in (1, -1)
+      @test f(s .* x) == want
+    end
+  end
+end
+
+# the vectors of the sweep: constant (at floatmax, at half of it, at a power of two below it, at 3/4 of it, small),
+# nearly constant, and unequal ones (large and small entries, exponents descending from the limit)
+const bfkinds = (:constM, :constHalf, :pow2, :constQ, :small, :nearconst, :mixed, :nearemax)
+function bfvector(kind, n, s)
+  M = floatmax(BigFloat)
+  emin = Base.MPFR.get_emin()
+  base = kind === :constM ? fill(M, n) :
+         kind === :constHalf ? fill(M / 2, n) :
+         kind === :pow2 ? fill(ldexp(one(BigFloat), Clong(exponent(M) - 1)), n) :
+         kind === :constQ ? fill(BigFloat(0.75) * M, n) :
+         kind === :small ? fill(ldexp(one(BigFloat), Clong(emin + 400)), n) :
+         kind === :nearconst ? [isodd(i) ? M : prevfloat(M) for i in 1:n] :
+         kind === :mixed ? [(M, one(BigFloat), -one(BigFloat), nextfloat(floatmin(BigFloat)))[mod1(i, 4)] for i in 1:n] :
+         [i == 1 ? M : ldexp(M, Clong(-i)) for i in 1:n]
+  s .* base
+end
+
+# One vector: the value of f, and of value_and_prox! into a separate and into the aliased output, against the reference;
+# f is Inf at an unequal vector. The step is so small at a constant vector that the output is the vector itself, so the
+# value of value_and_prox! is that of the vector; at another vector the output is a constant inside [min x, max x] and the
+# value is the reference of that output.
+function bfcase!(bad, tally, x, λ1, tag)
+  p = precision(BigFloat)
+  f = NormL1Fused(λ1, big(Inf))
+  allsame = all(==(x[1]), x)
+  γ = allsame ? ldexp(one(BigFloat), Clong(exponent(maximum(abs, x)) - p - 12)) : one(BigFloat)
+  judge = function (what, y, z)
+    cls, ok = bfverdict(y, z, λ1)
+    tally[cls] = get(tally, cls, 0) + 1
+    ok || push!(bad, "$tag $what = $(y isa BigFloat ? repr(y) : typeof(y)), class $cls")
+  end
+  yf = attempt(() -> f(x))
+  if allsame
+    judge("f(x)", yf, x)
+  else
+    (yf isa BigFloat && yf == Inf) || push!(bad, "$tag f(x) = $(yf isa BigFloat ? repr(yf) : typeof(yf)), expected Inf")
+  end
+  pr = attempt(() -> prox(f, x, γ))
+  out = similar(x)
+  v = attempt(() -> value_and_prox!(out, f, x, γ))
+  alias = copy(x)
+  w = attempt(() -> value_and_prox!(alias, f, alias, γ))
+  if pr isa Vector{BigFloat} && v isa BigFloat && w isa BigFloat
+    good = isequal(out, pr) && isequal(alias, pr) && all(isfinite, out) && all(==(out[1]), out) &&
+           minimum(x) <= out[1] <= maximum(x)
+    allsame && (good &= out == x)
+    good || push!(bad, "$tag output differs from the expected one")
+    judge("value_and_prox!", v, out)
+    judge("value_and_prox! aliased", w, out)
+  else
+    push!(bad, "$tag raised in prox, value_and_prox! or its aliased form: $(typeof(pr)) $(typeof(v)) $(typeof(w))")
+  end
+  bad
+end
+
+@testset "NormL1Fused(λ1, Inf): BigFloat values at every precision, sign, length and vector kind (#747)" begin
+  tally = Dict{Symbol, Int}()
+  for p in (2, 3, 5, 8, 16, 53, 256)
+    bad = String[]
+    setprecision(BigFloat, p) do
+      for λ in (0.25, 1.0), n in (1, 2, 3, 5), s in (1, -1), kind in bfkinds
+        bfcase!(bad, tally, bfvector(kind, n, s), BigFloat(λ), "p=$p λ1=$λ n=$n s=$s $kind")
+      end
+    end
+    @test isempty(bad)
+    isempty(bad) || (println("precision $p: $(length(bad)) cases differ, the first ones:"); foreach(println, first(bad, 8)))
+  end
+  # the sweep holds finite values and overflowing ones, and no case raised
+  @test get(tally, :finite, 0) > 20 && get(tally, :inf, 0) > 20 && get(tally, :raised, 0) == 0
+end
+
+@testset "NormL1Fused(λ1, Inf): BigFloat zero, NaN and infinite entries keep their values (#747)" begin
+  for p in (256, 5)
+    setprecision(BigFloat, p) do
+      M = floatmax(BigFloat)
+      inf, nan = big(Inf), big(NaN)
+      for λ1 in (0.0, 0.25)
+        f = NormL1Fused(BigFloat(λ1), inf)
+        # zeros: the fusion term is exactly zero (no Inf⋅0) and the value is the positive zero
+        for z in (zeros(BigFloat, 3), BigFloat[-0.0, 0.0, -0.0], BigFloat[0.0], BigFloat[])
+          v = f(z)
+          @test iszero(v) && !signbit(v)
+        end
+        y = [BigFloat(-7) for _ in 1:5]
+        v = value_and_prox!(y, f, zeros(BigFloat, 5), one(BigFloat))
+        @test iszero(v) && all(iszero, y)
+        # a NaN entry gives NaN: the value, and every entry of the output
+        for x in (BigFloat[1, nan, 1], BigFloat[nan, 2, 3], BigFloat[M, M, nan], BigFloat[nan, nan, nan])
+          @test isnan(f(x))
+          y = [BigFloat(-7) for _ in 1:3]
+          @test isnan(value_and_prox!(y, f, x, one(BigFloat))) && all(isnan, y)
+          @test all(isnan, prox(f, x, one(BigFloat)))
+        end
+        # infinite entries: the infinity of one sign, NaN for both signs
+        for (x, e) in ((BigFloat[1, inf, 2], inf), (BigFloat[1, -inf, 2], -inf), (BigFloat[inf, inf, 2], inf),
+                       (BigFloat[inf, -inf, 2], nan))
+          @test isequal(prox(f, x, one(BigFloat)), fill(e, 3))
+        end
+      end
+      f = NormL1Fused(big(0.25), inf)
+      @test f(BigFloat[inf, 1, 2]) == inf && f((BigFloat(1), inf)) == inf
+      # at the zero output the value is zero, not NaN
+      y = zeros(BigFloat, 3)
+      @test iszero(value_and_prox!(y, NormL1Fused(BigFloat(5), inf), BigFloat[1, -2, 0.5], one(BigFloat))) && all(iszero, y)
+      # an unequal finite vector, an unequal pair: Inf
+      @test f(BigFloat[1, 2, 3]) == inf && f((BigFloat(1), BigFloat(2))) == inf && f((M, prevfloat(M))) == inf
+    end
+  end
+end
+
+@testset "NormL1Fused(λ1, Inf): the pair, the K = 2 vector and the tuple of arrays at floatmax (#747)" begin
+  for p in (256, 5), λ in (0.25, 1.0)
+    setprecision(BigFloat, p) do
+      M = floatmax(BigFloat)
+      λ1 = BigFloat(λ)
+      f = NormL1Fused(λ1, big(Inf))
+      for a in (M, -M, M / 2)
+        # the same value from every route: the vector, the pair, the arrays of one pair, the arrays of two pairs
+        @test bfok(attempt(() -> f([a, a])), [a, a], λ1)
+        @test bfok(attempt(() -> f((a, a))), [a, a], λ1)
+        @test bfok(attempt(() -> f(([a], [a]))), [a, a], λ1)
+        @test bfok(attempt(() -> f(([a, a / 2], [a, a / 2]))), [a, a, a / 2, a / 2], λ1)
+        # K = 2 vector and tuple of arrays through value_and_prox!, separate and aliased: the output keeps the entries
+        # (the step is one, far below the spacing of the entries)
+        x = [a, a]
+        y = similar(x)
+        v = attempt(() -> value_and_prox!(y, f, x, one(BigFloat)))
+        @test bfok(v, x, λ1) && y == x
+        z = copy(x)
+        v = attempt(() -> value_and_prox!(z, f, z, one(BigFloat)))
+        @test bfok(v, x, λ1) && z == x
+        t = ([a, a / 2], [a, a / 2])
+        yt = (similar(t[1]), similar(t[2]))
+        v = attempt(() -> value_and_prox!(yt, f, t, one(BigFloat)))
+        @test bfok(v, [t[1]; t[2]], λ1) && yt == t
+        zt = (copy(t[1]), copy(t[2]))
+        v = attempt(() -> value_and_prox!(zt, f, zt, one(BigFloat)))
+        @test bfok(v, [t[1]; t[2]], λ1) && zt == t
+      end
+    end
+  end
+end
+
+####################################
+#  the private helpers
+####################################
+
+@testset "_scale_pow2: Float32 and Float64 are ldexp, whatever the shift" begin
+  for T in (Float32, Float64)
+    xs = (T(0.375), T(-1.5), T(3), floatmax(T), -floatmax(T), floatmin(T), nextfloat(zero(T)), zero(T), -zero(T),
+          T(NaN), T(Inf), -T(Inf))
+    es = (0, 1, -1, 5, 127, -127, 1023, 1100, -1100, 2000, -2000, 10^6, -10^6, 2^40, -2^40, typemax(Int32),
+          typemin(Int32), Int8(7), Int32(-9), UInt16(300))
+    @test all(x -> all(e -> isequal(PB._scale_pow2(x, e), ldexp(x, e)), es), xs)
+    @test PB._scale_pow2(T(0.375), 4) === T(6)
+    @test PB._scale_pow2(T(1), 2^40) === T(Inf) && PB._scale_pow2(T(1), -2^40) === zero(T)
+  end
+end
+
+@testset "_scale_pow2: a BigFloat shift is the exact Clong shift" begin
+  emax = Base.MPFR.get_emax()
+  for p in (2, 5, 256)
+    setprecision(BigFloat, p) do
+      # 0.375·2^(emax+1) = 0.75·2^emax is finite (an Int shift that is not a Clong overflows in Base's fallback)
+      y = PB._scale_pow2(big(0.375), Int64(emax + 1))
+      @test isfinite(y) && y == ldexp(big(0.75), Clong(emax))
+      # the shift is exact at a precision where BigFloat(n) is not
+      @test PB._scale_pow2(big(1.0), emax - 1) == ldexp(big(1.0), Clong(emax - 1))
+      for e in (0, 1, -1, 3, 1000, -1000, emax - 1, -emax)
+        @test isequal(PB._scale_pow2(big(1.0), e), ldexp(big(1.0), Clong(e)))
+        @test isequal(PB._scale_pow2(big(-0.75), e), ldexp(big(-0.75), Clong(e)))
+      end
+      # a shift beyond the Clong saturates, and 2^emax overflows whatever the significand
+      @test PB._scale_pow2(big(1.0), typemax(Int)) == Inf
+      @test PB._scale_pow2(big(-1.0), typemax(Int)) == -Inf
+      lo = PB._scale_pow2(big(1.0), typemin(Int))
+      @test iszero(lo) && !signbit(lo)
+      lo = PB._scale_pow2(big(-1.0), typemin(Int))
+      @test iszero(lo) && signbit(lo)
+      @test PB._scale_pow2(big(1.0), emax) == Inf && PB._scale_pow2(big(1.0), emax + 5) == Inf
+      # NaN, infinities and signed zeros keep their meaning
+      @test isnan(PB._scale_pow2(big(NaN), 5)) && isnan(PB._scale_pow2(big(NaN), typemax(Int)))
+      @test PB._scale_pow2(big(Inf), typemin(Int)) == Inf && PB._scale_pow2(big(-Inf), typemax(Int)) == -Inf
+      for e in (0, 7, typemax(Int), typemin(Int))
+        z = PB._scale_pow2(big(0.0), e)
+        @test iszero(z) && !signbit(z)
+        z = PB._scale_pow2(big(-0.0), e)
+        @test iszero(z) && signbit(z)
+      end
+    end
+  end
+end
+
+@testset "_power_factors(BigFloat, k): the factors are exact powers of two at every precision" begin
+  emax = Base.MPFR.get_emax()
+  for p in (2, 5, 16, 256)
+    setprecision(BigFloat, p) do
+      for k in (emax - 1, emax, emax + 5, -emax - 5, -emax + 1)
+        s = PB._power_factors(BigFloat, k)
+        # each factor lies in the range, so it is finite and nonzero, and a power of two
+        @test all(a -> isfinite(a) && !iszero(a) && ldexp(a, Clong(-exponent(a))) == 1, s)
+        # and their product is 2^k where that is representable, else the overflow or underflow of 2^k
+        @test isequal(PB._scale_value(one(BigFloat), s), ldexp(one(BigFloat), Clong(k)))
+      end
+      # the first factor of a shift of emax-1 is 2^(emax-1) itself
+      @test PB._power_factors(BigFloat, emax - 1)[1] == ldexp(one(BigFloat), Clong(emax - 1))
+    end
+  end
+end
+
+# w·v·2^k (and a third factor): the significands exactly in 4000 bits, as r·2^E with E the sum of the exponents
+function bfproduct(k, factors...)
+  E = k + sum(exponent, factors)
+  r = setprecision(BigFloat, 4000) do
+    prod(a -> ldexp(big(a), Clong(-exponent(a))), factors)
+  end
+  r, E
+end
+
+@testset "_scaled_product: the final shift of a representable result, two and three factors" begin
+  emax = Base.MPFR.get_emax()
+  for p in (2, 5, 256)
+    setprecision(BigFloat, p) do
+      M = floatmax(BigFloat)
+      one_ = one(BigFloat)
+      small = ldexp(M, Clong(-emax))
+      two = ((big(0.75), M, 0), (one_, M, 0), (big(0.25), M, 0), (M, M, -emax), (big(0.75), M, -emax),
+             (one_, small, emax), (big(0.375), M, 1))
+      for (w, v, k) in two
+        y = attempt(() -> PB._scaled_product(w, v, k))
+        r, E = bfproduct(k, w, v)
+        @test bfwithin(y, r, E, p)
+        # the sign is that of v
+        y = attempt(() -> PB._scaled_product(w, -v, k))
+        @test y isa BigFloat && signbit(y) && bfwithin(-y, r, E, p)
+      end
+      three = ((big(0.25), BigFloat(3), M, 0), (big(0.25), M, one_, 1), (big(0.75), M, one_, -emax), (one_, small, one_, emax),
+               (big(0.75), BigFloat(3), M, -2))
+      for (a, b, c, k) in three
+        y = attempt(() -> PB._scaled_product(a, b, c, k))
+        r, E = bfproduct(k, a, b, c)
+        @test bfwithin(y, r, E, p)
+      end
+    end
+  end
+end
+
+@testset "ldexp(::BigFloat, ::Int) against the exact shift (the dispatch that _scale_pow2 avoids)" begin
+  emax = Base.MPFR.get_emax()
+  x = big(0.375)
+  exact = ldexp(big(0.75), Clong(emax))
+  if sizeof(Clong) < sizeof(Int)
+    # a C long narrower than Int: an Int shift misses the exact method, takes x * exp2(BigFloat(n)), and overflows
+    @test which(ldexp, Tuple{BigFloat, Int}).sig.parameters[3] === Integer
+    @test !isfinite(ldexp(x, Int(emax + 1)))
+    @test isfinite(PB._scale_pow2(x, Int(emax + 1))) && PB._scale_pow2(x, Int(emax + 1)) == exact
+  else
+    # an Int is a Clong: Base's ldexp is the exact shift, and the helper is the same function
+    @test isequal(PB._scale_pow2(x, Int(emax + 1)), ldexp(x, Int(emax + 1)))
+    @test PB._scale_pow2(x, Int(emax + 1)) == exact
+  end
+end
+
 end

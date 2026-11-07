@@ -177,6 +177,13 @@ end
 # coefficient at an infinite entry); NaN arguments propagate
 @inline _weighted_value(p, φ) = ifelse(isnan(p) & !isnan(φ), zero(p), p)
 
+# Scale by a power of two. Base's ldexp(::BigFloat, n) is the exact mpfr_mul_2si only for a Clong n; any other
+# Integer takes x * exp2(BigFloat(n)), which overflows when 2^n alone leaves the range although x·2^n is
+# representable, and rounds n itself at a low precision. A C long is 32 bits on Windows, where an Int shift is not a Clong.
+# MPFR's exponent range lies within a Clong, so a shift saturated at the Clong limits still overflows or underflows exactly as it should.
+@inline _scale_pow2(x, e::Integer) = ldexp(x, e)
+@inline _scale_pow2(x::BigFloat, e::Integer) = ldexp(x, Clong(clamp(e, typemin(Clong), typemax(Clong))))
+
 # Keep the power outside the floating-point range until the final rounding.
 @inline function _scaled_product(w::T, v::T, k::Integer) where {T<:AbstractFloat}
   (iszero(w) || iszero(v)) && return w * v
@@ -184,7 +191,7 @@ end
   k = Int(k)
   mw, ew = _frexp(w)
   mv, ev = _frexp(abs(v))
-  copysign(ldexp(_positive_product(mw, mv, one(T)), ew + ev + k), v)
+  copysign(_scale_pow2(_positive_product(mw, mv, one(T)), ew + ev + k), v)
 end
 
 # A converted parameter must retain normal precision on the ordinary path.
@@ -211,7 +218,7 @@ end
   ma, ea = _frexp(a)
   mb, eb = _frexp(b)
   mc, ec = _frexp(c)
-  ldexp((ma * mb) * mc, ea + eb + ec + k)
+  _scale_pow2((ma * mb) * mc, ea + eb + ec + k)
 end
 
 @inline function _compensated_add(s, e, v)
@@ -411,7 +418,7 @@ _tol(::Type) = sqrt(eps(Float64))
 @inline function _power_factors(::Type{T}, k::Integer) where {T<:AbstractFloat}
   k = Int(k)
   k1 = clamp(k, exponent(nextfloat(zero(T))), exponent(floatmax(T)))
-  (ldexp(one(T), k1), ldexp(one(T), k - k1))
+  (_scale_pow2(one(T), k1), _scale_pow2(one(T), k - k1))
 end
 @inline _scale_value(v, s) = (float(v) * s[1]) * s[2]
 @inline _magnitude_exponent(v) = iszero(v) ? 0 : Int(exponent(v))

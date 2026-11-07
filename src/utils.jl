@@ -34,7 +34,7 @@ end
   ma, ea = _frexp(a)
   mb, eb = _frexp(b)
   mc, ec = _frexp(c)
-  ldexp((ma * mb) * mc, ea + eb + ec)
+  ldexp((ma * mb) * mc, _exponent_sum(T, ea, eb, ec))
 end
 @inline _positive_product(a::Real, b::Real, c::Real) = _positive_product(promote(float(a), float(b), float(c))...)
 
@@ -184,7 +184,7 @@ end
   k = Int(k)
   mw, ew = _frexp(w)
   mv, ev = _frexp(abs(v))
-  copysign(ldexp(_positive_product(mw, mv, one(T)), ew + ev + k), v)
+  copysign(ldexp(_positive_product(mw, mv, one(T)), _exponent_sum(T, ew, ev, k)), v)
 end
 
 # A converted parameter must retain normal precision on the ordinary path.
@@ -211,7 +211,7 @@ end
   ma, ea = _frexp(a)
   mb, eb = _frexp(b)
   mc, ec = _frexp(c)
-  ldexp((ma * mb) * mc, ea + eb + ec + k)
+  ldexp((ma * mb) * mc, _exponent_sum(typeof(a), ea, eb, ec, k))
 end
 
 @inline function _compensated_add(s, e, v)
@@ -421,6 +421,10 @@ end
   m, e = frexp(x)
   (m, Int(e))
 end
+# MPFR exponents reach ±(2^62 - 1), so a sum of three of them leaves Int64. A BigFloat's exponent terms are widened to
+# Int128 before the first addition; other types keep their Int sums.
+@inline _exponent_sum(::Type{BigFloat}, es::Integer...) = foldl(+, map(Int128, es))
+@inline _exponent_sum(::Type, es::Integer...) = +(es...)
 
 # The stored values suffice for maxima; symmetric multiplicities do not matter.
 _stored_values(x::AbstractArray) = x

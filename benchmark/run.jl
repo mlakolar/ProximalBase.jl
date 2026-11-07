@@ -282,3 +282,5 @@ end
 if abspath(PROGRAM_FILE) == @__FILE__
     main()
 end
+
+# diagnostic change for CI validation, not for merge

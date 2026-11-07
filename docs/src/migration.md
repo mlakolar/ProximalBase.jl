@@ -311,11 +311,13 @@ storage.
 | `x.nzval`, the stored values | `activevalues(x)`, paired with `activecoordinates(x)` |
 | `Matrix(x)`, writable dense storage | unchanged |
 | `sparse(x)`, `triu(x, k)`, `tril(x, k)` | `sparse(matrixview(x))`, `triu(matrixview(x), k)`, `tril(matrixview(x), k)`: sparse matrices of the active variables, in ``O(\mathrm{nactive}(x))`` |
-| `rmul!(x, s)`, `lmul!(s, x)`, `rdiv!(x, s)`, `ldiv!(s, x)` by a number `s` | `rmul!(coordinates(x), s)`, `lmul!(s, coordinates(x))`, `rdiv!(coordinates(x), s)`, `ldiv!(s, coordinates(x))`: ordinary operations on the vector of the ``p(p+1)/2`` variables, which follow IEEE arithmetic and leave the active set as it is |
+| `rmul!(x, s)`, `lmul!(s, x)`, `rdiv!(x, s)`, `ldiv!(s, x)` by a number `s` | `rmul!(coordinates(x), s)`, `lmul!(s, coordinates(x))`, `rdiv!(coordinates(x), s)`, `ldiv!(s, coordinates(x))`: ordinary operations on the vector of the ``p(p+1)/2`` variables, which follow IEEE arithmetic. A scale that maps an absent coordinate to a nonzero value (`Inf`, `NaN`, a zero divisor) stores that value and so activates the coordinate: `x = SymmetricSparseIterate(2); rmul!(coordinates(x), Inf)` changes `nactive(x)` from 0 to 3 and stores three `NaN`s. A finite scale leaves the active set as it is. A handle taken before the call (`activecoordinates(x)`, `activevalues(x)`) does not follow the change: call them again |
 | `mul!(x, A, B)`, `mul!(x, A, s)`, `mul!(x, tA, tB, A, B, α, β)`, `lmul!(D, x)`, `rmul!(x, D)`, `ldiv!(F, x)` | compute into a dense matrix and `copyto!(x, C)` when a symmetric import is meant: `C = A * B; copyto!(x, C)` |
-| `x .= A`, `map!(f, x, A)`, `axpy!(α, A, x)`, `axpby!`, `x[:, :] = A`, `view(x, :, :) .= A`, `transpose!(x, A)`, `copy!(x, A)` | `copyto!(x, A)` with a symmetric `A`; `Symmetric(A, :L)` in place of `A` keeps the lower-triangle values that the 0.5 methods kept |
+| `x .= A`, `x[:, :] = A`, `view(x, :, :) .= A`, `transpose!(x, A)`, `copy!(x, A)`, assignment of the matrix `A` | `copyto!(x, A)` with a symmetric `A`; `Symmetric(A, :L)` in place of `A` keeps the lower-triangle values that the 0.5 methods kept |
+| `map!(f, x, A)`, `axpy!(α, A, x)`, `axpby!(α, A, β, x)`: these compute a result from `A` and, for the last two, from the previous value of `x` | compute the result in a dense matrix and import it, with a symmetric `A`: `C = map(f, A); copyto!(x, C)`, `C = α .* A .+ Matrix(x); copyto!(x, C)`, `C = α .* A .+ β .* Matrix(x); copyto!(x, C)`. `copyto!(x, A)` alone would store `A` and lose `f`, `α` and the old `x` |
 | a matrix symmetric only up to rounding, such as `X' * (w .* X)` or `inv(S)` | symmetrize it, or compute it exactly symmetric: `inv(cholesky(S))`, `inv(Symmetric(S))` |
-| `copyto!(x, v)`, `map!(f, x, v)` or `axpy!(α, v, x)` with a vector `v` of `p²` entries | `copyto!(x, reshape(v, p, p))`, which must be symmetric |
+| `copyto!(x, v)` with a vector `v` of `p²` entries | `copyto!(x, reshape(v, p, p))`, which must be symmetric |
+| `map!(f, x, v)` or `axpy!(α, v, x)` with a vector `v` of `p²` entries | the dense computation, then the import: `copyto!(x, reshape(map(f, v), p, p))`, `copyto!(x, reshape(α .* v, p, p) .+ Matrix(x))`; the result must be symmetric |
 | `x[i, :] = v`, `x[I, J] = A`, `copyto!` with offsets or ranges, `copyto!(x, itr)` from a tuple or a generator | scalar pair writes over the lower triangle, or one whole symmetric matrix |
 | `replace(x, ...)`, `replace!`, `cumsum(x; dims)`, `reverse(x)`, `triu!(x)`, `lu!(x)`, `sum!(x, A)`, `sort(x)`, `lu(x)` | apply them to `Matrix(x)`, or compute into a dense matrix and `copyto!` a symmetric result |
 | `x == y`, `isequal(x, y)`, `hash(x)` of two owners | unchanged in meaning: they compare the matrices. `x == Matrix(x)`, which was `true`, is now `false`, and there is no `isapprox(x, y)`: compare `Matrix(x)` or `matrixview(x)` |
@@ -325,7 +327,7 @@ storage.
 For example, to reset an owner to the empty working set and to copy its sparse pattern:
 
 ```@example owner_migration
-using ProximalBase, SparseArrays
+using ProximalBase, SparseArrays, LinearAlgebra
 
 x = SymmetricSparseIterate(4)
 x[3, 1] = 2.0
@@ -345,6 +347,18 @@ copyto!(x, C)
 fill!(coordinates(x), 0)                        # was fill!(x, 0)
 dropzeros!(x)
 @assert nactive(x) == 0 && all(iszero, Matrix(x))
+
+A = [1.0 2.0; 2.0 3.0]
+y = SymmetricSparseIterate(ones(2, 2))
+copyto!(y, map(v -> 2v, A))                     # was map!(v -> 2v, y, A): the result, then the import
+@assert Matrix(y) == [2.0 4.0; 4.0 6.0]
+y = SymmetricSparseIterate(ones(2, 2))
+copyto!(y, 2 .* A .+ Matrix(y))                 # was axpy!(2, A, y)
+@assert Matrix(y) == [3.0 5.0; 5.0 7.0]
+
+z = SymmetricSparseIterate(2)
+rmul!(coordinates(z), Inf)                      # was rmul!(z, Inf): the NaNs of 0 * Inf are nonzero, so they activate
+@assert nactive(z) == 3 && all(isnan, coordinates(z))
 ```
 
 ## Per-entry parameters on a `SymmetricSparseIterate` (0.6)
@@ -366,8 +380,8 @@ The linked operation table explains which symmetric arguments trigger checks.
 | Spectral `prox!` read the upper triangle of a dense argument that is not symmetric | It decomposes the symmetric part, for dense outputs too |
 | `gradient!` and `hessian_vec!` of `KronQuadratic` into a symmetric output threw at a dense point that is not symmetric | They write the symmetric part of the result |
 | Values did not check parameter symmetry | Symmetric inputs trigger checks of stored pairs or all pairs, depending on the computation |
-| Gradients and gradient mappings did not check parameter symmetry | Symmetric outputs trigger checks; gradient mappings check both functions |
-| Hessian products and quadratic models did not check parameter symmetry | A symmetric point triggers full parameter validation, even with a dense Hessian-product output |
+| Gradients and gradient mappings did not check parameter symmetry | A symmetric output or point triggers checks, also for the allocating `gradient` and `value_and_gradient` of an owner point; gradient mappings check both functions |
+| Hessian products and quadratic models did not check parameter symmetry | A symmetric point triggers full parameter validation, even with a dense Hessian-product output, and a symmetric Hessian-product output triggers it even at a dense point |
 | Coordinate curvature calls did not check parameter symmetry | Symmetric `L` in `coordinate_lipschitz!` triggers full validation |
 | Symmetric coordinate steps read the lower-triangle parameter without comparing its mirror | `prox_coordinate!` checks the pair at the chosen coordinate |
 | Four-argument `kkt_violation` read the lower entry of `g` | It uses the symmetric part at the chosen pair and checks that parameter pair; `+Inf` and `-Inf` at that pair throw `ArgumentError` |

@@ -139,9 +139,10 @@ A write `x[i, j] = v` converts `v` to the element type first. It stores a nonzer
 converted value (`NaN` included) as an active variable, does not activate a variable
 for a zero, and keeps an active variable active when it writes a zero. Use
 [`activate!`](@ref) for an explicit active zero, and `dropzeros!` to remove active
-zeros. A pair outside `1:p` is a `BoundsError`. A complex value is an `InexactError`,
-and a complex source or element type is refused with an `ArgumentError`, before
-anything is written: the entries of an owner are real.
+zeros. A pair outside `1:p` is a `BoundsError`. A complex scalar converts when its
+imaginary part is zero (`x[1, 1] = 1 + 0im` stores `1`); a nonzero imaginary part is an
+`InexactError`. A complex matrix source and a complex element type are refused with an
+`ArgumentError`, before anything is written: the entries of an owner are real.
 
 `axes(x)` throws an `ArgumentError`. Julia derives `axes` from `size` for any object
 that has a size, and generic code that asks for the axes of the owner would then
@@ -502,11 +503,11 @@ argument must be a `SymmetricSparseIterate` for these checks to apply.
 | Operation | Checked when this argument is a `SymmetricSparseIterate` | Which pairs are compared |
 |:---|:---|:---|
 | `f(x)` | Input `x` | Every pair, or only stored pairs as with weighted `NormL1` |
-| [`prox!`](@ref), [`value_and_prox!`](@ref) | Output | Every pair, or pairs stored in either input or output as with weighted `NormL1` |
-| [`gradient!`](@ref), [`value_and_gradient!`](@ref) | Output | Every pair |
+| [`prox!`](@ref), [`value_and_prox!`](@ref) | Output, or the point `x` with a dense output | Every pair, or pairs stored in either input or output as with weighted `NormL1` |
+| [`gradient!`](@ref), [`value_and_gradient!`](@ref) | Output, or the point `x` with a dense output | Every pair |
 | Both forms of [`prox_coordinate!`](@ref) | Iterate `x` | The pair at the chosen coordinate |
 | Four-argument [`kkt_violation`](@ref) | Iterate `x` | The pair at the chosen coordinate |
-| [`hessian_vec!`](@ref) | Point `x`, even with dense output | Every pair |
+| [`hessian_vec!`](@ref) | Point `x`, even with dense output; the output, even at a dense point | Every pair |
 | [`quadratic_model`](@ref), [`quadratic_model!`](@ref) | Point `x` | Every pair |
 | [`coordinate_lipschitz!`](@ref) | Output `L` | Every pair |
 | Separable [`lla_weights!`](@ref), [`lla_weights`](@ref) | Input `x`, even with dense output | Every pair |
@@ -521,9 +522,11 @@ block. A `SymmetricSparseIterate` output takes a scalar step only; an array step
 For a `SymmetricSparseIterate` input `x`:
 
 - `prox(f, x)` returns a `SymmetricSparseIterate`, so it checks like `prox!`.
-- `gradient(f, x)` returns a dense matrix; symmetric `x` alone triggers no check.
-- `value_and_gradient(f, x)` returns a value and a dense gradient matrix;
-  symmetric `x` alone triggers no check.
+- `gradient(f, x)` returns a dense matrix; the owner `x` is checked all the same, and
+  an asymmetric parameter is an `ArgumentError` (`LinearFunction([1.0 2; 3 1])` at an
+  owner point throws).
+- `value_and_gradient(f, x)` returns a value and a dense gradient matrix, and checks
+  the owner `x` in the same way.
 - `lla_weights(f, x)` returns a dense matrix and checks every parameter pair
   because it checks `x`.
 
@@ -595,8 +598,10 @@ triangle to read; the package never picks one for a parameter.
   of their entries. The wrapper defines equal mirrored values by reading one
   triangle; it does not verify agreement between the triangles of `W`.
 - Dense arrays, `SparseIterate` and `AtomIterate` do not trigger this
-  symmetric-parameter check. For example, `gradient!` into a dense matrix
-  does not check, even when `x` is a `SymmetricSparseIterate`.
+  symmetric-parameter check. For example, `gradient!` into a dense matrix at a
+  dense point does not check. A call checks as soon as one of its iterate arguments
+  is a `SymmetricSparseIterate`, as the point (`gradient!` into a dense matrix at
+  an owner point throws for an asymmetric parameter) or as the output.
 - An override of a public oracle replaces the generic check. Its author must
   call `ProximalBase.check_symmetric_parameters`; declaring parameters alone
   does not run the check.

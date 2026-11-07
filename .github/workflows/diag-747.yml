@@ -86,6 +86,26 @@ jobs:
           julia --project diag747/ir.jl 2>&1 | tee ir-head.txt
           julia --project diag747/ir_exact.jl 2>&1 | tee ir-exact-head.txt
 
+      # ---------------- whole-call value benchmark, base and head alternating (the src patch is reversed and reapplied) ----------------
+      - name: value bench
+        continue-on-error: true
+        run: |
+          for r in 1 2 3; do
+            if [ $((r % 2)) -eq 1 ]; then
+              git apply --ignore-whitespace -R diag747/src.patch
+              julia --project diag747/value_bench.jl 2>&1 | tee vb-base-r$r.txt
+              git apply --ignore-whitespace diag747/src.patch
+              julia --project diag747/value_bench.jl 2>&1 | tee vb-head-r$r.txt
+            else
+              julia --project diag747/value_bench.jl 2>&1 | tee vb-head-r$r.txt
+              git apply --ignore-whitespace -R diag747/src.patch
+              julia --project diag747/value_bench.jl 2>&1 | tee vb-base-r$r.txt
+              git apply --ignore-whitespace diag747/src.patch
+            fi
+          done
+          git diff --stat -- src
+          python3 -I diag747/bench_table.py | tee value-bench-$RUNNER_OS.txt
+
       # ---------------- comparison ----------------
       - name: comparison
         continue-on-error: true

@@ -208,4 +208,21 @@ end
   end
 end
 
+@testset "IndToeplitz at a symmetric dense point, $T" for T in (Float32, Float64)
+  y = SymmetricSparseIterate(T, 1)
+  @test Matrix(prox!(y, IndToeplitz(), reshape(T[2], 1, 1), one(T))) == reshape(T[2], 1, 1)
+  S = T[2 1; 1 3]
+  ref = prox(IndToeplitz(symmetric = true), S)
+  for f in (IndToeplitz(), IndToeplitz(symmetric = true))
+    y = SymmetricSparseIterate(T, 2)
+    @test Matrix(prox!(y, f, S, one(T))) == ref
+    y = SymmetricSparseIterate(T, 2)
+    @test Matrix(prox!(y, f, Symmetric(S, :L), one(T))) == ref
+    y = SymmetricSparseIterate(T, 2)
+    @test Matrix(prox!(y, f, SymmetricSparseIterate(S), one(T))) == ref
+  end
+  # a point that is not symmetric, with a set that is not, has a result that an owner cannot hold
+  @test_throws ArgumentError prox!(SymmetricSparseIterate(T, 2), IndToeplitz(), T[1 2; 3 4], one(T))
+end
+
 end

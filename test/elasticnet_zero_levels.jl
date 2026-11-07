@@ -306,4 +306,20 @@ end
   end
 end
 
+# The fused value of the conjugate of ElasticNet on a box is taken for host arrays only; a device array keeps the
+# refusal of a value that is not available, before anything is written.
+@testset "the conjugate of an elastic net on a box refuses device arrays before writing" begin
+  allowscalar(false)
+  for T in (Float32, Float64), (λ1, λ2) in ((T(1), T(0.5)), (T(1), T(0)))
+    c = Constrained(Conjugate(ElasticNet(λ1, λ2)), IndBox(T(-2), T(2)))
+    x = JLArray(T[5, -5, 0.5])
+    y = JLArray(fill(T(-7), 3))
+    @test_throws "is not implemented" value_and_prox!(y, c, x, T(0.5))
+    @test Array(y) == fill(T(-7), 3) && Array(x) == T[5, -5, 0.5]
+    z = JLArray(T[5, -5, 0.5])
+    @test_throws "is not implemented" value_and_prox!(z, c, z, T(0.5))
+    @test Array(z) == T[5, -5, 0.5]
+  end
+end
+
 end

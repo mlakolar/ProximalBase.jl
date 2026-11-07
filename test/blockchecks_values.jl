@@ -55,8 +55,17 @@ end
 
 @testset "Conjugate standalone values before writes" begin
   x = [0.5, -0.5]
-  for set in (IndBox(-1.0, 1.0), IndHyperplane([1.0, 1.0], 0.0))
-    f = Constrained(Conjugate(ElasticNet(1.0, 1.0)), set)
+  # on a box the value is that of the conjugate at the stored output: Σ max(|yᵢ| - 1, 0)² / 2
+  for (box, point, expected) in ((IndBox(-1.0, 1.0), x, 0.0), (IndBox(-3.0, 3.0), [5.0, -0.5], 2.0))
+    f = Constrained(Conjugate(ElasticNet(1.0, 1.0)), box)
+    y = zeros(2)
+    @test value_and_prox!(y, f, point, 1.0) === expected
+    @test y == (point == x ? x : [3.0, -0.5])
+    z = copy(point)
+    @test value_and_prox!(z, f, z, 1.0) === expected
+    @test z == y
+  end
+  let f = Constrained(Conjugate(ElasticNet(1.0, 1.0)), IndHyperplane([1.0, 1.0], 0.0))
     block_failure(value_and_prox!, f, x, ArgumentError)
     y = copy(x)
     @test prox!(y, f, x, 1.0) === y

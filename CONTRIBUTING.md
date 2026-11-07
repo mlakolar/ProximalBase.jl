@@ -66,8 +66,8 @@ updating the table, or every test run stops on the manifest problem.
 ### Which tests CI runs
 
 The plan job of the CI workflow decides what each run does with `scripts/ci_plan.jl`
-and the rules in [`.github/tier-rules.toml`](.github/tier-rules.toml); the run's
-summary page shows its decision for each changed file. `julia scripts/ci_plan.jl`
+and the rules in [`.github/tier-rules.toml`](.github/tier-rules.toml); for a pull
+request, the run's summary page shows the decision for each changed file. `julia scripts/ci_plan.jl`
 prints the same decision for your working tree against `origin/master`. The plan
 makes five independent decisions: the **tier** (how many test files run), the
 **platforms** (which Julia versions and systems run them), whether to collect
@@ -88,7 +88,9 @@ The platform modes are `stable` (Julia 1 on Linux), `linux` (Julia 1 and lts on
 Linux) and `cross` (`linux`, Julia 1 on macOS and Windows, and Julia pre on Linux,
 which is advisory: reported, not counted). They are defined in
 `.github/tier-rules.toml`; the planner validates its `[events.*]` and
-`[platforms.*]` tables (an unknown key, mode or tier there is an error). A push whose previous commit is unknown still runs thorough.
+`[platforms.*]` tables (an unknown key, mode or tier there is an error), and each
+other table is validated by its own reader (`test/tiers.jl` or
+`scripts/ci_plan.jl`). A push whose previous commit is unknown runs thorough.
 
 - **Pull requests** run the tier for the changed files, and beside it the changed
   test files and the focus files of the matched rules:
@@ -209,25 +211,30 @@ Branch protection on master requires two checks, both from GitHub Actions:
 **PR required jobs** and **PR merge gate**. PR required jobs
 (`scripts/ci_verdict.jl`, tested in `test/ci_verdict.jl`) runs after the plan,
 the tests, the benchmark reference checks and the benchmark analysis controls,
-and passes when the plan succeeded with a valid tier, the benchmark analysis
+and passes when the plan succeeded with a tier, the benchmark analysis
 controls passed, the benchmark reference checks passed if the plan asked for them
 (and were skipped if it did not), and each test job the plan lists as required
-passed; Julia pre is advisory and printed, not counted. It checks the plan's
-list of required jobs against a minimum that it derives itself from the kind of
-run and the plan's platform mode: the floor of the run (Julia 1 on Linux for a
-pull request, with lts from the thorough tier, and for a manual run; Julia 1 and
-lts on Linux for a push to master; Julia 1 and lts on Linux, Julia 1 on macOS and
-Julia 1 on Windows for a tag and the nightly run) together with the jobs of the
-mode (`stable`, `linux` or `cross`). The advisory list may hold Julia pre on
-Linux and nothing else, and tier none is accepted for a pull request and a push
-to master only. A plan that lists fewer jobs than this minimum, names an unknown
-mode or lists another advisory job fails. It checks nothing beyond that minimum:
-a plan that lists the minimum but leaves out other jobs it should have chosen
-(the `cross` jobs of a PR with `test:full`, if its mode said `linux`) passes. A failed, cancelled, skipped, timed
-out or missing required job fails it, and so does a Julia job the plan did not
-ask for, a name that is both required and advisory, a plan that found an
-unclassified test file or gave no tier, and a job list that cannot be read. When
-no tests run, each Julia job it lists must have been skipped. The gate job starts with the run, so a push or a label replaces the
+passed; Julia pre is advisory and printed, not counted. The plan outputs it
+validates are the tier, `run_tests`, the benchmark flag, the lists of required
+and advisory jobs, and, when tests run, the platforms mode; it does not validate the
+others. It compares the plan's list of required jobs with a minimum that it
+writes out itself from the kind of run and the plan's platforms mode: the floor
+of the run (Julia 1 on Linux for a pull request, with lts from the thorough tier,
+and for a manual run; Julia 1 and lts on Linux for a push to master; Julia 1 and
+lts on Linux, Julia 1 on macOS and Julia 1 on Windows for a tag and the nightly
+run) together with the jobs of the mode (`stable`, `linux` or `cross`). The
+advisory list may hold Julia pre on Linux and nothing else, and tier none is
+accepted for a pull request and a push to master only. When tests run, a plan
+that omits a job of the minimum from the required list, names a platforms mode
+other than those three, or lists another advisory job fails. The minimum does not
+validate the planner's choice of mode or tier: a plan that lists the minimum and
+more passes, including one whose mode is smaller than its labels asked for (the
+`cross` jobs of a PR with `test:full`, if its mode said `linux`). The verdict
+still checks each listed required job and its conclusion. A failed, cancelled,
+skipped, timed out or missing required job fails it, and so does a Julia job that
+is neither required nor advisory, a name that is both required and advisory, a
+plan that gave no tier, and a job list that cannot be read. When no tests run,
+each Julia job it lists must have been skipped. The gate job starts with the run, so a push or a label replaces the
 commit's earlier green gate with a pending one within seconds; it waits for the
 run's PR required jobs and passes only if they passed. It also compares the test
 labels (`test:*`) of the pull request, read through the API, with those the run
@@ -235,7 +242,7 @@ was started with, and fails with "labels changed since this run; the newer run
 decides" when they differ or cannot be read: a re-run of an older run, or of only its gate,
 does not turn a stricter newer run's red gate green. Pushes, tags, the
 nightly run and manual runs name the two checks **CI required jobs** and **CI
-result**, so a manual run on a PR branch cannot stand in for the PR's checks.
+result**, so a manual run on a PR branch does not report under the PR's check names.
 Coverage is collected only by the nightly run and by manual runs that ask for it,
 so Codecov reports on master from the nightly run; its statuses are informational.
 

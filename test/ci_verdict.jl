@@ -23,7 +23,8 @@ const PRE = "Julia pre - ubuntu-latest - x64"
 
 cross(tier) = ["$LTS - $tier", "$L1 - $tier", "$MAC - $tier", "$WIN - $tier"]
 
-# The platform mode the planner gives a run of this kind.
+# The default platform mode of a fixture: by event and tier (stable for a manual run). It does
+# not model the planner's choices for a PR with the label test:full or for the manual defaults.
 default_platforms(event, ref_type, tier) =
   event == "pull_request" ? (tier in ("thorough", "full") ? "linux" : "stable") :
   event == "workflow_dispatch" ? "stable" : event == "push" && ref_type == "branch" ? "linux" : "cross"
@@ -62,7 +63,7 @@ passes(; kw...) = isempty(go(; kw...).errors)
   @test isempty(r.errors) && isempty(r.failed) && !r.linux_failed
 end
 
-@testset "the plan and the verdict agree on every kind of run" begin
+@testset "the plan and the verdict agree on the kinds of run listed here" begin
   manifest = CIPlan.default_manifest()
   policy = CIPlan.load_policy()
   plans = [("pull_request", "", CIPlan.decide("pull_request"; paths = ["test/norms.jl"], manifest, policy)[1]),
@@ -137,7 +138,7 @@ end
   @test passes(tier = "quick", advisory = ["$PRE - quick"], conclusions = Dict("$PRE - quick" => "failure"))
 end
 
-@testset "tier none: every Julia job must have been skipped" begin
+@testset "tier none: each listed Julia job must have been skipped" begin
   none(js...) = go(tier = "none", jobs = [("Test plan", "success"), js...])
   @test isempty(none((TEMPLATE, "skipped")).errors)
   @test isempty(go(tier = "none", jobs = Tuple{String, String}[]).errors)
@@ -183,7 +184,7 @@ end
   @test !passes(plan = "cancelled") && !passes(plan = "skipped")
 end
 
-@testset "the minimum of each kind of run, whatever the plan lists" begin
+@testset "the minimum of each kind of run, checked against the plan's lists" begin
   # a planner that drops a platform from the matrix and the list together
   @test !passes(tier = "thorough", event = "push", ref_type = "branch", required = ["$L1 - thorough"])
   @test !passes(tier = "thorough", event = "push", ref_type = "branch", required = ["$LTS - thorough"])
@@ -321,7 +322,7 @@ end
   # also when no tests run
   @test passes(tier = "none", benchmark = "success", run_benchmark = "true")
   @test !passes(tier = "none", benchmark = "skipped", run_benchmark = "true")
-  # the controls always run
+  # the controls are required with and without tests
   for r in ("failure", "cancelled", "skipped", "")
     @test !passes(analysis = r)
     @test !passes(tier = "none", analysis = r)

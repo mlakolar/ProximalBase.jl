@@ -1,31 +1,35 @@
 # The verdict job of the CI workflow ("PR required jobs" on pull requests, "CI required jobs"
 # otherwise): it runs after the plan, the test jobs, the benchmark reference checks and the
-# benchmark controls, even when one of them failed, and passes only if the checks below hold. It
-# treats a missing or malformed plan output as a failure:
+# benchmark controls, even when one of them failed, and passes only if the checks below hold.
+# The plan outputs it validates are the tier, run_tests, the benchmark flag, `required`,
+# `advisory`, and the platforms mode when tests run; it does not validate the others (focus, matrix,
+# coverage, conformance, timeout):
 #
-# - the plan succeeded and gave a valid tier (tier none only for a pull request or a push to
-#   master); the benchmark controls succeeded; the benchmark reference checks succeeded when the
-#   plan asked for them and were skipped when it did not;
-# - when tests run (a tier other than none), `required` (the ';'-separated names of the test
-#   jobs the plan lists) is not empty and holds a minimum that the verdict derives itself: the
-#   floor of the event (Julia 1 on Ubuntu for a pull request, with lts from the thorough tier,
-#   and for a manual run; Julia 1 and lts on Ubuntu for a push to master; the four cross jobs
-#   for a tag and the nightly run) together with the jobs of the plan's platform mode (stable,
-#   linux or cross). `advisory` holds at most Julia pre on Ubuntu, and shares no name with
-#   `required`. Every required job of this run is listed with the conclusion success (missing,
-#   failed, cancelled, skipped and timed out fail), and any other "Julia ..." job fails (a
-#   platform the plan did not name);
-# - with tier none every "Julia ..." job must be skipped (GitHub lists a skipped matrix job
-#   under its unexpanded name template);
+# - the plan succeeded and gave a tier (tier none only for a pull request or a push to master),
+#   and run_tests agrees with it; the benchmark controls succeeded; the benchmark reference
+#   checks succeeded when the plan asked for them and were skipped when it did not;
+# - when tests run (a tier other than none), a recognized platforms mode (stable, linux or
+#   cross) is required, and `required` (the ';'-separated names of the test jobs the plan
+#   lists) is not empty and contains a minimum that the verdict writes out itself: the floor of
+#   the event (Julia 1 on Ubuntu for a pull request, with lts from the thorough tier, and for a
+#   manual run; Julia 1 and lts on Ubuntu for a push to master; the four cross jobs for a tag
+#   and the nightly run) together with the jobs of the plan's platforms mode. `advisory` holds
+#   at most Julia pre on Ubuntu, and shares no name with `required`. Each required job of this
+#   run is listed with the conclusion success (missing, failed, cancelled, skipped and timed out
+#   fail), and a "Julia ..." job that is neither required nor advisory fails;
+# - with tier none each listed "Julia ..." job must be skipped (GitHub lists a skipped matrix job
+#   under its unexpanded name template), and the plan lists no test jobs;
 # - advisory jobs (Julia pre) are printed and do not change the result;
 # - the job list comes from `gh api`, retried; without it the run does not pass.
 #
-# The minimum is written out here, not read from the planner, so a planner bug that changes the
-# jobs of a mode is caught; test/ci_verdict.jl compares it with the planner's tables. The step
-# reads the environment (see `main`) and writes `failed` (the names of the failed jobs,
-# ';'-separated) and `linux_failed` (whether the failure is anything but a failed non-Linux test
-# job) to $GITHUB_OUTPUT for the report job. test/ci_verdict.jl tests the decisions. No packages
-# are needed.
+# The minimum does not validate the planner's choice of mode or tier: a plan that lists the
+# minimum and more passes, and so does a plan that lists a smaller mode than the event's labels
+# asked for. Omitting a job of the minimum from `required` fails. The minimum is written out
+# here, not read from the planner; test/ci_verdict.jl compares its table with the planner's to
+# detect drift. The step reads the environment (see `main`) and writes `failed` (the names of
+# the failed jobs, ';'-separated) and `linux_failed` (whether the failure is anything but a
+# failed non-Linux test job) to $GITHUB_OUTPUT for the report job. test/ci_verdict.jl tests the
+# decisions. No packages are needed.
 
 module CIVerdict
 
@@ -286,7 +290,7 @@ function main(env::AbstractDict = ENV;
   end
   foreach(n -> log(n), result.notes)
   foreach(e -> log("::error::", e), result.errors)
-  isempty(result.errors) && log("All required jobs passed.")
+  isempty(result.errors) && log("No problem found.")
   path = get_("GITHUB_OUTPUT")
   isempty(path) || open(path, "a") do io
     println(io, "failed=", join(result.failed, ";"))

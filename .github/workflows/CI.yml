@@ -19,8 +19,8 @@ name: CI
 # one, and it passes when this run's "PR required jobs" passed and the PR's test labels are still
 # those of this run. "PR required jobs" itself is required because GitHub re-runs it with a test
 # job that is re-run, but not the gate. Other
-# events name them "CI result" and "CI required jobs", so a manual run cannot stand in for a PR's
-# checks. CONTRIBUTING.md describes the workflow.
+# events name them "CI result" and "CI required jobs", which are not the names that branch
+# protection requires. CONTRIBUTING.md describes the workflow.
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -38,7 +38,7 @@ on:
         options: [full, thorough, standard, quick]
         default: full
       platforms:
-        description: 'Platforms (auto: all of them for tier full, otherwise Julia 1 and lts on Linux; stable: Julia 1 on Linux; cross: also macOS, Windows and Julia pre)'
+        description: 'Platforms (auto: cross for tier full, otherwise Julia 1 and lts on Linux; stable: Julia 1 on Linux; cross: also macOS, Windows and Julia pre)'
         type: choice
         options: [auto, stable, linux, cross]
         default: auto
@@ -192,7 +192,7 @@ jobs:
           echo "${#reports[@]} conformance report files"
           [ ${#reports[@]} -gt 0 ] || { echo "::error::The test step wrote no conformance reports."; exit 1; }
       # Upload policy: an upload counts only when its step succeeded and returned an artifact id;
-      # otherwise it is retried once after 30 s, on every job. The artifact of the matrix.map job
+      # otherwise it is retried once after 30 s, on each job that writes the reports. The artifact of the matrix.map job
       # (Julia lts, Linux, when the run has it) is the one the coverage map is regenerated from,
       # so its upload stays required; on the other
       # jobs an unconfirmed upload after the retry is a warning in the job and its summary,
@@ -312,10 +312,10 @@ jobs:
     # test/ci_verdict.jl). It passes only if the plan and the benchmark controls passed, the
     # reference checks passed when the plan asked for them (and were skipped when it did not),
     # and, when the plan asked for tests, each test job the plan lists as required passed, the
-    # list holds the floor of the event and the jobs of the plan's platforms mode, the advisory
-    # list holds at most Julia pre, and no other Julia job ran; with no tests each listed Julia
-    # job must have been skipped. Julia pre is advisory. A job list it cannot read, or a plan
-    # output it does not recognize, fails it.
+    # list holds the floor of the event and the jobs of the plan's platforms mode (a recognized
+    # mode is required when tests run), the advisory list holds at most Julia pre, and no other
+    # Julia job ran; with no tests each listed Julia job must have been skipped. Julia pre is
+    # advisory. A job list it cannot read fails it.
     # Branch protection requires it beside the gate below, which waits for it: re-running a
     # single test job re-runs this job too, but not the gate.
     name: ${{ github.event_name == 'pull_request' && 'PR required jobs' || 'CI required jobs' }}

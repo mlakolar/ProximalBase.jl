@@ -8,9 +8,10 @@
 # [platforms.*] defines the job lists, [timeouts] and [policy] are per tier, and the risk
 # rules below map changed paths to the minimum tier of a pull request. scripts/ci_plan.jl
 # validates the [events.*] and [platforms.*] tables and their values (an unknown key, mode or tier
-# there is an error); the other tables are read by test/tiers.jl, which ignores keys it does not
-# know. scripts/ci_verdict.jl keeps its own copy of the job lists of the modes, which
-# test/ci_verdict.jl compares with the tables below.
+# there is an error). Each of the other tables is validated by its own reader, as that reader
+# defines: test/tiers.jl reads [timeouts], [policy] and [[risk]], scripts/ci_plan.jl reads
+# [benchmark_check]. scripts/ci_verdict.jl keeps its own copy of the job lists of the modes,
+# which test/ci_verdict.jl compares with the tables below.
 
 [timeouts]
 # Minutes per CI test job, well above each tier's target to allow for cold caches. A job of a

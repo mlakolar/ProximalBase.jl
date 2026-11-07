@@ -151,7 +151,7 @@ jobs:
         continue-on-error: true
         id: focused
         run: |
-          julia --color=no scripts/test.jl ldexp_bigfloat normfused_infinite_fusion int32_exponents utils docstrings aqua soc rotatedsoc expcone scaled_overflow nested_scaled value_overflow ordered sets norms separable nonconvex fibers distance image calculus composition 2>&1 | tee focused-${{ matrix.os }}-julia-${{ matrix.julia }}.txt
+          julia --color=no scripts/test.jl ldexp_bigfloat normfused_infinite_fusion int32_exponents utils docstrings aqua soc rotatedsoc expcone scaled_overflow nested_scaled value_overflow ordered sets norms separable nonconvex fibers distance image calculus composition spectral singular logdet_overflow lapack 2>&1 | tee focused-${{ matrix.os }}-julia-${{ matrix.julia }}.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:

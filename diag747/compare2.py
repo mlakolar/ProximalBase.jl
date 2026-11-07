@@ -25,6 +25,7 @@ def tgroup(t): return "BigFloat" if t.startswith("BigFloat") else t
 def family(k):
     t = k.split()
     if t[0] == "broad": return "broad:" + t[1]
+    if t[0].startswith("spectral:"): return t[0]
     if t[0].startswith("fam="): return t[0][4:]
     if " _power_factors " in k or " _scaled_product " in k or " _scaled_product3 " in k or " _fused_equal_term " in k: return "helpers"
     return "NormL1Fused-core"
@@ -53,8 +54,13 @@ Wb, Wh = load("W-base"), load("W-head")
 print("\n== (2) the oracle: Windows head against Linux head with the exponent range of Windows")
 byfam = collections.defaultdict(lambda: [0, 0, []])    # BigFloat lines: total, mismatching
 nfl = [0, 0]
+lapack_info = collections.Counter(); lapack_tot = collections.Counter()
 for k, v in Wh.items():
     t = typ(k)
+    if t.startswith("BigFloat") and family(k).startswith("spectral:lapack:"):
+        lapack_tot[family(k)] += 1
+        if v != Lwh.get(k): lapack_info[family(k)] += 1
+        continue
     if t.startswith("BigFloat"):
         e = byfam[family(k)]; e[0] += 1
         if v != Lwh.get(k):
@@ -69,6 +75,8 @@ for f in sorted(byfam):
     tot += byfam[f][0]; mm += byfam[f][1]
     if byfam[f][1]: print("%-34s %9d %9d" % (f, byfam[f][0], byfam[f][1]))
 print("BigFloat lines in total %d, W-head differs from the oracle in %d" % (tot, mm))
+print("spectral:lapack:* lines (matrices whose LAPACK output may depend on the platform; informational): %d lines, %d differ from the oracle  %s"
+      % (sum(lapack_tot.values()), sum(lapack_info.values()), dict(lapack_info.most_common(6))))
 for f in sorted(byfam):
     for x in byfam[f][2]: print("   MISMATCH", f, x)
 print("Float32/Float64 lines of W-head differing from both L-base and L-head (informational, libm): %d of %d" % (nfl[1], nfl[0]))
@@ -197,4 +205,130 @@ for k, vb in Wb.items():
     r = check_value(k, vh, p)
     chk[(f, "checked-in-envelope" if r else ("skipped" if r is None else "OUT-OF-ENVELOPE"))] += 1
 print(dict(chk))
+
+# ---- independent references for the spectral lines (exact spectra of the diagonal matrices; Decimal at 120 digits)
+print("\n== (3c) spectral families: independent references for the lines of W-head and for the changed lines")
+c.prec = 120
+WE = 2**30 - 1
+def D2(k): return Decimal(2) ** k
+TS = {"Float32": (24, 127), "Float64": (53, 1023)}
+def Tconst(T):
+    nb, ex = TS[T]
+    M = (1 - D2(-nb)) * D2(ex + 1)
+    fm = D2(-ex + 1) if False else D2(-(ex - 1))      # floatmin = 2^(1 - emax)
+    return nb, ex, M, fm
+def spec_sigma(T, mid):
+    nb, ex, M, fm = Tconst(T)
+    return {"d1": [M, M / 2], "d2": [M, M], "d3": [M, fm], "d4": [Decimal(3), Decimal(1)], "d5": [M, M / 2],
+            "s1": [M, M / 2], "s2": [M, M], "s3": [Decimal(3), Decimal(1)], "s4": [M, Decimal(0)]}.get(mid)
+def spec_level(T, lid):
+    nb, ex, M, fm = Tconst(T)
+    W = WE - 8
+    return {"a": Decimal("0.5"), "b": Decimal("1.5") * D2(-ex), "c": D2(-W), "d": D2(W), "e": Decimal("1.5") * D2(-ex - 20)}[lid]
+def spec_value_ref(fam, T, mid, lid, scales):
+    sg = spec_sigma(T, mid)
+    if sg is None: return None
+    lam = spec_level(T, lid)
+    sa = sum(sg); s2 = sum(x * x for x in sg)
+    h = (WE - 8) // 2 + 5
+    a, b = scales if scales else (None, None)
+    if fam == "SV-NormL1": return lam * sa
+    if fam == "SV-NormL2": return lam * s2.sqrt()
+    if fam == "SV-NormLinf": return lam * max(sg)
+    if fam == "SV-SqrNormL2": return lam / 2 * s2
+    if fam == "SV-ElasticNet": return lam * sa + lam / 2 * s2
+    if fam == "SV-SumLargest": return lam * max(sg)
+    if fam == "SV-NormL1w": return lam * (sg[0] + 2 * sg[1]) if False else None
+    if fam in ("SV-Scaled-NormL1",): return lam * sa * a
+    if fam in ("SV-Nested-NormL1",): return lam * sa * a * b
+    if fam in ("SV-Nested-NormL2",): return lam * s2.sqrt() * a * b
+    if fam in ("NuclearNorm", "SV-NormL1Nonneg", "Sp-NormL1"): return lam * sa
+    if fam == "SV-Constrained-Nonneg": return lam * sa
+    if fam == "Sp-Nonneg": return lam * sa if mid in ("s2", "s3", "s4") else None
+    if fam == "SV-CubeNormL2": return lam / 3 * s2.sqrt() ** 3
+    if fam == "SV-SLOPE": return lam * (max(sg) + min(sg) / 2)
+    if fam == "Sp-NormL2": return lam * s2.sqrt()
+    if fam == "Sp-SqrNormL2": return lam / 2 * s2
+    if fam in ("Sp-SumLargest", "Sp-Conj-IndBallL1"): return lam * max(sg)
+    if fam == "Spectral-Nested-NormL1": return lam * sa * a * b
+    if fam == "SV-Conj-IndBallL1": return lam * max(sg)
+    if fam == "SV-Conj-IndBallL2": return lam * s2.sqrt()
+    if fam == "SV-Conj-SqrNormL2": return s2 / (2 * lam)
+    return None
+def spec_parse(k):
+    t = k.split()
+    fam = t[0].split(":")[-1]
+    T = dict(x.split("=") for x in t[2:5] if "=" in x)
+    mid = T["M"]; mat = T["mat"]; lv = T["lvl"]
+    scales = None
+    if "/" in lv:
+        lv, sid = lv.split("/")
+        h = (WE - 8) // 2 + 5
+        scales = (D2(h), D2(h)) if sid == "n1" else (D2(h), D2(-h))
+    return fam, mat, mid, lv, scales, t[-1]
+def spec_ok(printed, ref, mat, p):
+    nb, ex, M, fm = Tconst(mat)
+    eps = D2(1 - nb)
+    d = 1
+    if printed in ("Inf", "NaN") or printed.startswith("ERR"): pv = None
+    else: pv = Decimal(printed)
+    b = 64 * 2 * eps * abs(ref) + fm
+    if abs(ref) + b >= M:
+        if printed == "Inf": return True
+        if abs(ref) - b > M: return False
+    if pv is None: return False
+    return abs(pv - ref) <= b
+chk = collections.Counter(); bad = []
+chg_chk = collections.Counter()
+for k, vh in Wh.items():
+    if not k.startswith("spectral:") or not k.endswith(" value") or "lapack" in k.split()[0]: continue
+    fam, mat, mid, lv, scales, ent = spec_parse(k)
+    ref = spec_value_ref(fam, mat, mid, lv, scales)
+    if ref is None:
+        chk["no closed form"] += 1; continue
+    p = int(typ(k)[8:])
+    ok = spec_ok(vh, ref, mat, p)
+    chk["in budget" if ok else "OUT"] += 1
+    if not ok and len(bad) < 10: bad.append((k, vh[:30], str(ref)[:30]))
+    if Wb.get(k) != vh:
+        chg_chk["changed, in budget" if ok else "changed, OUT"] += 1
+
+def spec_prox_ref(fam, T, mid, lid):
+    """the entries [a11, a21, a12, a22] of the prox at step 1 for the diagonal matrices, or None"""
+    nb, ex, M, fm = Tconst(T)
+    dg = {"d1": (M, M / 2), "d2": (M, M), "d3": (M, fm), "d4": (Decimal(3), Decimal(1)), "d5": (-M, M / 2),
+          "s1": (M, -M / 2), "s2": (M, M), "s3": (Decimal(3), Decimal(1)), "s4": (M, Decimal(0))}.get(mid)
+    if dg is None: return None
+    lam = spec_level(T, lid)
+    soft = lambda d: (1 if d >= 0 else -1) * max(abs(d) - lam, Decimal(0))
+    if fam in ("SV-NormL1", "Sp-NormL1", "NuclearNorm"): out = [soft(dg[0]), soft(dg[1])]
+    elif fam in ("SV-NormL1Nonneg", "Sp-NormL1Nonneg"): out = [(1 if d >= 0 else -1) * max(abs(d) - lam, Decimal(0)) if fam == "SV-NormL1Nonneg" else max(d - lam, Decimal(0)) for d in dg]
+    else: return None
+    return [out[0], Decimal(0), Decimal(0), out[1]]
+nprox = collections.Counter(); pbad = []
+for k, vh in Wh.items():
+    if not k.startswith("spectral:") or "lapack" in k.split()[0]: continue
+    if not (k.endswith(" prox") or k.endswith(" vprox")): continue
+    fam, mat, mid, lv, scales, ent = spec_parse(k)
+    ref = spec_prox_ref(fam, mat, mid, lv)
+    if ref is None: continue
+    toks = NUM.findall(vh)
+    toks = toks[-4:]
+    if len(toks) != 4 or any(t.lstrip("-") in ("Inf", "NaN") for t in toks):
+        nprox["non-finite output"] += 1
+        if len(pbad) < 6: pbad.append((k, vh[:50]))
+        continue
+    nb, ex, M, fm = Tconst(mat)
+    eps = D2(1 - nb)
+    ok = all(abs(Decimal(t) - r) <= 64 * 2 * eps * abs(r) + fm for t, r in zip(toks, ref))
+    nprox["in budget" if ok else "OUT"] += 1
+    if not ok and len(pbad) < 6: pbad.append((k, vh[:50], [str(r)[:12] for r in ref]))
+    if fam.endswith("Nonneg") and any(Decimal(t) < 0 and fam.startswith("Sp") for t in toks): nprox["infeasible (negative eigenvalue)"] += 1
+print("W-head prox/vprox outputs on diagonal matrices against the soft-threshold of the exact spectrum:", dict(nprox))
+for b_ in pbad: print("   PROX", b_)
+
+print("W-head spectral value lines with an independent reference:", dict(chk))
+print("of which changed from W-base:", dict(chg_chk))
+for b_ in bad: print("   OUT", b_)
+
 print("== done")

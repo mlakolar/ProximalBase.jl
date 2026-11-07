@@ -279,6 +279,93 @@ function run_broad(T, label)
   end
 end
 
+
+####################################
+#  spectral families: SingularValue and Spectral of functions with BigFloat levels, scales and weights, on tiny exact matrices
+####################################
+# The matrices are Float32/Float64 and tiny (diagonal, exactly representable) so that LAPACK returns the same spectrum on every
+# platform; the permuted diagonal and the constant matrix (σ = (2 floatmax, 0), an overflowing spectrum) are named ":lapack"
+# and are informational. The levels, weights and scales are BigFloat at precision p, from the normal range of T to the
+# exponent range limits of BigFloat.
+function spec_mats(T)
+  M = floatmax(T); h = M / 2; fm = floatmin(T)
+  Any[("d1", T[M 0; 0 h], false), ("d2", T[M 0; 0 M], false), ("d3", T[M 0; 0 fm], false), ("d4", T[3 0; 0 1], false),
+      ("d5", T[-M 0; 0 h], false), ("p6", T[0 M; h 0], true), ("f7", fill(M, 2, 2), true)]
+end
+function spec_symm(T)
+  M = floatmax(T); h = M / 2
+  Any[("s1", T[M 0; 0 -h], false), ("s2", T[M 0; 0 M], false), ("s3", T[3 0; 0 1], false), ("s4", T[M 0; 0 0], false),
+      ("s5", fill(M, 2, 2), true)]
+end
+function spec_levels(T)
+  ex = exponent(floatmax(T))
+  W = Base.MPFR.get_emax() - 8
+  Any[("a", big(0.5)), ("b", ldexp(big(1.5), Clong(-ex))), ("c", ldexp(big(1.0), Clong(-W))), ("d", ldexp(big(1.0), Clong(W))),
+      ("e", ldexp(big(1.5), Clong(-ex - 20)))]
+end
+# the scales of the nested wrappers: (2^h, 2^h) overflows as a product, (2^h, 2^-h) is one; h = W/2 + 5
+function spec_scales()
+  W = Base.MPFR.get_emax() - 8
+  h = W ÷ 2 + 5
+  Any[("n1", ldexp(big(1.0), Clong(h)), ldexp(big(1.0), Clong(h))), ("n2", ldexp(big(1.0), Clong(h)), ldexp(big(1.0), Clong(-h)))]
+end
+# (name, constructor from a level, entries)  entries: :value, :prox (value, prox, value_and_prox!)
+function spec_fams(T)
+  F = Any[]
+  push!(F, ("SV-NormL1", λ -> SingularValue(NormL1(λ)), :prox), ("SV-NormL2", λ -> SingularValue(NormL2(λ)), :prox),
+         ("SV-NormLinf", λ -> SingularValue(NormLinf(λ)), :prox), ("SV-SqrNormL2", λ -> SingularValue(SqrNormL2(λ)), :prox),
+         ("SV-ElasticNet", λ -> SingularValue(ElasticNet(λ, λ)), :prox), ("SV-SumLargest", λ -> SingularValue(SumLargest(1, λ)), :prox),
+         ("SV-SLOPE", λ -> SingularValue(SLOPE([λ, λ / 2])), :prox), ("SV-NormL1w", λ -> SingularValue(NormL1(λ, [big(1.0), big(2.0)])), :prox),
+         ("SV-NormL1Nonneg", λ -> SingularValue(NormL1Nonneg(λ)), :prox), ("SV-CubeNormL2", λ -> SingularValue(CubeNormL2(λ)), :value),
+         ("SV-Conj-IndBallL1", λ -> SingularValue(Conjugate(IndBallL1(λ))), :value), ("SV-Conj-IndBallL2", λ -> SingularValue(Conjugate(IndBallL2(λ))), :value),
+         ("SV-Conj-IndSimplex", λ -> SingularValue(Conjugate(IndSimplex(λ))), :value), ("SV-Conj-SqrNormL2", λ -> SingularValue(Conjugate(SqrNormL2(λ))), :value),
+         ("SV-Conj-Scaled-NormL1", λ -> SingularValue(Conjugate(Scaled(NormL1(λ), big(4.0)))), :value),
+         ("SV-Constrained-Nonneg", λ -> SingularValue(Constrained(NormL1(λ), IndBox(0, Inf))), :value),
+         ("NuclearNorm", λ -> NuclearNorm(λ), :prox), ("TracePSD", λ -> TracePSD(λ), :prox))
+  F
+end
+function spec_scaled_fams()
+  Any[("SV-Scaled-NormL1", (λ, a, b) -> SingularValue(Scaled(NormL1(λ), a))),
+      ("SV-Nested-NormL1", (λ, a, b) -> SingularValue(Scaled(Scaled(NormL1(λ), a), b))),
+      ("SV-Nested-NormL2", (λ, a, b) -> SingularValue(Scaled(Scaled(NormL2(λ), a), b))),
+      ("Spectral-Nested-NormL1", (λ, a, b) -> Spectral(Scaled(Scaled(NormL1(λ), a), b)))]
+end
+function spec_symm_fams()
+  Any[("Sp-NormL1", λ -> Spectral(NormL1(λ)), :prox), ("Sp-NormL2", λ -> Spectral(NormL2(λ)), :prox),
+      ("Sp-SumLargest", λ -> Spectral(SumLargest(1, λ)), :prox), ("Sp-Nonneg", λ -> Spectral(Constrained(NormL1(λ), IndBox(0, Inf))), :value),
+      ("Sp-NormL1Nonneg", λ -> Spectral(NormL1Nonneg(λ)), :prox), ("Sp-SqrNormL2", λ -> Spectral(SqrNormL2(λ)), :prox),
+      ("Sp-Conj-IndBallL1", λ -> Spectral(Conjugate(IndBallL1(λ))), :value)]
+end
+function spec_record(fam, T, p, mid, lid, lapack, f, Z, entries)
+  fn = lapack ? "spectral:lapack:$fam" : "spectral:$fam"
+  tag = "$fn BigFloat$p mat=$T M=$mid lvl=$lid"
+  rec("$tag value", () -> f(Z))
+  if entries === :prox
+    g = one(T)
+    rec("$tag prox", () -> prox(f, Z, g))
+    rec("$tag vprox", () -> (Y = similar(Z); (value_and_prox!(Y, f, Z, g), Y)))
+  end
+end
+function run_spectral(T)
+  p = precision(BigFloat)
+  lv = spec_levels(T)
+  for (name, make, entries) in spec_fams(T), (mid, Z, lap) in spec_mats(T), (lid, λ) in lv
+    f = try make(λ) catch err; rec("spectral:$name BigFloat$p mat=$T M=$mid lvl=$lid make", () -> throw(err)); continue end
+    spec_record(name, T, p, mid, lid, lap, f, Z, entries)
+  end
+  for (name, make, entries) in spec_symm_fams(), (mid, Z, lap) in spec_symm(T), (lid, λ) in lv
+    f = try make(λ) catch err; rec("spectral:$name BigFloat$p mat=$T M=$mid lvl=$lid make", () -> throw(err)); continue end
+    spec_record(name, T, p, mid, lid, lap, f, Z, entries)
+  end
+  for (name, make) in spec_scaled_fams(), (mid, Z, lap) in (name == "Spectral-Nested-NormL1" ? spec_symm(T) : spec_mats(T)), (lid, λ) in lv, (sid, a, b) in spec_scaled_fams_scales(name)
+    f = try make(λ, a, b) catch err; rec("spectral:$name BigFloat$p mat=$T M=$mid lvl=$lid$sid make", () -> throw(err)); continue end
+    fn = lap ? "spectral:lapack:$name" : "spectral:$name"
+    rec("$fn BigFloat$p mat=$T M=$mid lvl=$lid$sid value", () -> f(Z))
+  end
+end
+# the scale pairs of a scaled family: the plain Scaled takes one factor (the first of each pair)
+spec_scaled_fams_scales(name) = name == "SV-Scaled-NormL1" ? [("/" * s[1], s[2], s[3]) for s in spec_scales()] : [("/" * s[1], s[2], s[3]) for s in spec_scales()]
+
 run_type(Float32, "Float32")
 run_type(Float64, "Float64")
 for p in (2, 53, 256)
@@ -291,6 +378,12 @@ run_families(Float64, "Float64")
 for p in (2, 5, 53, 256)
   setprecision(BigFloat, p) do
     run_families(BigFloat, "BigFloat$p")
+  end
+end
+# the spectral families
+for T in (Float32, Float64), p in (2, 3, 5, 53, 256)
+  setprecision(BigFloat, p) do
+    run_spectral(T)
   end
 end
 # the broad table

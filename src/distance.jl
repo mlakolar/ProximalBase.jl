@@ -421,9 +421,18 @@ function _distl2_margin(x, p, gm::S, lm::S, k::Integer, e::Integer) where {S}
   (s - q) + (err - (fma(t, t, -q) + 2t * r + r * r)), t
 end
 
+# The point as it is read while y is written has one of two types at an owner (the matrix of the output itself, or
+# the view of another owner). A value that is either is a union of two types that hold a reference, which is boxed
+# when it is formed, so the step is called with each type in its own branch.
 function _distl2_prox!(y::_ArrayOrOwner, x0::_ArrayOrOwner, p::AbstractArray, γ::Real, λ::Real)
   yy = _ow(y)
-  x = _pt(yy, x0)
+  _with_point(x -> _distl2_prox_at!(y, yy, x, x0, p, γ, λ), yy, x0)
+end
+@inline _with_point(f::F, dest::_OwnerMatrix, x::SymmetricSparseIterate) where {F} =
+  x === dest.x ? f(dest) : f(matrixview(x))
+@inline _with_point(f::F, dest::_OwnerMatrix, x::SymmetricMatrixView) where {F} = x.x === dest.x ? f(dest) : f(x)
+@inline _with_point(f::F, dest, x) where {F} = f(_pt(dest, x))
+function _distl2_prox_at!(y, yy, x, x0, p::AbstractArray, γ::Real, λ::Real)
   iszero(γ) && return _assign!(y, x0)
   S = promote_type(float(eltype(x)), float(eltype(y)), typeof(float(γ)), typeof(float(λ)))
   dm, de = _distl2_parts(x, p)

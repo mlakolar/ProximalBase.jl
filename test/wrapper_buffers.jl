@@ -190,4 +190,15 @@ end
   end
 end
 
+@testset "DistL2 and SqrDistL2 at an owner allocate nothing, $T" for T in (Float32, Float64)
+  for f in (DistL2(IndBox(-T(0.2), T(0.4)), T(0.7)), SqrDistL2(IndBox(-T(0.2), T(0.4)), T(0.7)),
+            DistL2(IndBallL2(T(0.5)), T(0.7))), op in (prox!, value_and_prox!), n in (1, 2, 3)
+    y = SymmetricSparseIterate(ones(T, n, n))
+    for x in (y, matrixview(y), SymmetricSparseIterate(fill(T(2), n, n)), fill(T(2), n, n))
+      op(y, f, x, T(0.7))
+      @test allocs(op, y, f, x, T(0.7)) == 0
+    end
+  end
+end
+
 end

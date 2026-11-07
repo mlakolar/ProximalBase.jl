@@ -42,6 +42,7 @@ quick = [
   "nested_box_values",
   "sets",
   "lmo",
+  "lmo_atoms",
   "spectral",
   "spectralfunction",
   # precision, boundaries, non-finite values, validation before writes

@@ -479,7 +479,8 @@ end
   end
 
   @testset "allocation does not grow with the number of nonzeros" begin
-    @noinline measure(A, X, B) = @allocated A * X * B
+    # the minimum of several calls: a single call can show a few more bytes of allocator bookkeeping
+    @noinline measure(A, X, B) = minimum((@allocated A * X * B) for _ in 1:7)
     for T in (Float32, Float64)
       m, n = 30, 20
       A, B = Symmetric(randn(T, m, m)), Symmetric(randn(T, n, n))

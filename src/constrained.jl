@@ -312,6 +312,81 @@ end
   true
 end
 
+# The conjugate of an elastic net has no standalone value, but on a box the value at the stored
+# output y is known in closed form: for f = ElasticNet(λ1, λ2, w) and λ2 > 0,
+# f*(y) = Σᵢ max(|yᵢ| - λ1 wᵢ, 0)² / (2 λ2), the SqrNormL2(λ2) conjugate at the soft-thresholded y;
+# for λ2 = 0, f* is the indicator of |yᵢ| ≤ λ1 wᵢ, the NormL1 conjugate. The value is taken at the
+# clamped proximal point y that is stored, not at the proximal point of the inner function, and
+# `_prox_sep!` is not repeated. Only finite levels and finite nonnegative weights take this route;
+# everything else keeps the generic method, which refuses before writing. The wrappers of the
+# conjugate are not covered: `_check_box_value` and `_box_value_available` are unchanged.
+_elastic_value_route(f::ElasticNet) = isfinite(f.λ1) && isfinite(f.λ2) && _finite_nonneg(f.w)
+_finite_nonneg(::Nothing) = true
+_finite_nonneg(w::AbstractArray) = all(v -> isfinite(v) && v >= 0, w)
+
+function _checkwrite(op::O, c::BoxConstrained{<:Conjugate{<:ElasticNet}}, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  if op === value_and_prox! && _elastic_value_route(c.f.f)
+    _checkreal(c, y); _checkreal(c, x)
+    _checksize(y, x)
+    _checkparams(c, x)
+    return true
+  end
+  invoke(_checkwrite, Tuple{O, BoxConstrained, AbstractArray, AbstractArray}, op, c, y, x)
+end
+@inline function _checkwrite(op::O, c::BoxConstrained{<:Conjugate{<:ElasticNet}}, y::AbstractArray, x::AbstractArray, γ) where {O}
+  if op === value_and_prox! && _elastic_value_route(c.f.f)
+    _checkreal(c, γ)
+    _checkwrite(op, c, y, x)
+    _check_box_domain(c, x, γ)
+    _checkparam(γ, x)
+    return true
+  end
+  invoke(_checkwrite, Tuple{O, BoxConstrained, AbstractArray, AbstractArray, Any}, op, c, y, x, γ)
+end
+function _value_and_prox_box!(y, c::BoxConstrained{<:Conjugate{<:ElasticNet}}, x, γ)
+  _elastic_value_route(c.f.f) || return invoke(_value_and_prox_box!, Tuple{Any, BoxConstrained, Any, Any}, y, c, x, γ)
+  _checkwrite(value_and_prox!, c, y, x, γ)
+  _prox_sep!(y, c, x, γ)
+  _elastic_conjugate_value(c.f.f, y)
+end
+
+function _elastic_conjugate_value(f::ElasticNet, y::AbstractArray)
+  iszero(f.λ2) && return _conjugate_value(NormL1(f.λ1, f.w), y)
+  z = _ElasticShrunkArray(f, y)
+  T = float(eltype(y))
+  S = float(promote_type(T, typeof(f.λ2)))
+  # The sum of squares over 2λ2, with one rounding of the quotient, when no square or the quotient
+  # leaves the normal range; the conjugate of SqrNormL2 recovers the other cases (and NaN, Inf).
+  s = zero(S)
+  @inbounds for i in eachindex(IndexLinear(), z)
+    s += abs2(convert(S, z[i]))
+  end
+  q = s / (2 * convert(S, f.λ2))
+  isfinite(s) && s >= sqrt(floatmin(S)) && floatmin(S) <= q <= floatmax(S) && return convert(T, q)
+  _conjugate_value(SqrNormL2(f.λ2), z)
+end
+
+# The entries max(|yᵢ| - λ1 wᵢ, 0), read lazily; the threshold is formed in the wider of the
+# types of y, λ1 and w, and is zero for λ1 = 0 or wᵢ = 0. NaN and infinite entries are kept.
+struct _ElasticShrunkArray{T, R, N, F<:ElasticNet, Y<:AbstractArray} <: AbstractArray{T, N}
+  f::F
+  y::Y
+end
+_shrink_type(::Type{T}, f::ElasticNet{S, Nothing}) where {T, S} = promote_type(T, float(S))
+_shrink_type(::Type{T}, f::ElasticNet{S, <:AbstractArray}) where {T, S} = promote_type(T, float(S), float(eltype(f.w)))
+function _ElasticShrunkArray(f::ElasticNet, y::AbstractArray{<:Real, N}) where {N}
+  T = float(eltype(y))
+  _ElasticShrunkArray{T, _shrink_type(T, f), N, typeof(f), typeof(y)}(f, y)
+end
+Base.size(a::_ElasticShrunkArray) = size(a.y)
+Base.IndexStyle(::Type{<:_ElasticShrunkArray}) = IndexLinear()
+Base.@propagate_inbounds function Base.getindex(a::_ElasticShrunkArray{T, R}, i::Int) where {T, R}
+  v = abs(convert(R, a.y[i]))
+  t = _weight_coefficient(convert(R, a.f.λ1), convert(R, _entry(a.f.w, i)))
+  (isnan(v) | isinf(v)) && return convert(T, v)
+  v > t ? convert(T, v - t) : zero(T)
+end
+
 # An infinite level at a positive step fixes every penalized entry (w > 0) of NormL1 at zero, and the
 # clamp of that zero into a box that excludes it is not feasible. Decided from the stored level, the
 # weights, the step and the bounds as given, before anything is written; nothing is evaluated for

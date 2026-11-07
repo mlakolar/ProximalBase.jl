@@ -393,4 +393,55 @@ _allocation_value_and_prox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
   end
 end
 
+@testset "The conjugate of an elastic net on a box checks before writes" begin
+  x = [5.0, -5.0, 0.5]
+  box = IndBox(-2.0, 2.0)
+  f = Conjugate(ElasticNet(1.0, 0.5))
+  # An unsupported value is refused before anything is written, and the proximal operator still works.
+  unsupported = (Tilt(Conjugate(NormL1Nonneg(1.0)), zeros(3)),             # a fused-only inner function
+                 Scaled(f, 2.0), Translate(f, zeros(3)), Tilt(f, zeros(3)),
+                 Constrained(f, IndBox(0.0, 1.0)),                         # a box under the box
+                 Conjugate(ElasticNet(Inf, 0.5)), Conjugate(ElasticNet(1.0, Inf)),
+                 Conjugate(ElasticNet(Inf, Inf)), Conjugate(ElasticNet(1.0, 0.5, [1.0, Inf, 1.0])),
+                 Conjugate(ElasticNet(Inf, 0.5, [1.0, 0.0, 1.0])))
+  for inner in unsupported
+    @testset "$(nameof(typeof(inner))) in a box" begin
+      h = Constrained(inner, box)
+      block_failure(h, x, (value_and_prox! => ArgumentError,))
+      y = fill(-77.0, 3)
+      @test prox!(y, h, x, 1.0) === y
+      @test all(!=(-77.0), y)
+    end
+  end
+  # Shapes and steps are checked before writing, for the supported route as well.
+  bad = (Constrained(Conjugate(ElasticNet(1.0, 0.5, ones(2))), box),
+         Constrained(Conjugate(ElasticNet(1.0, 0.0, ones(4))), box),
+         Constrained(f, IndBox(-ones(2), ones(2))),
+         Constrained(f, IndBox(-ones(4), ones(4))))
+  for h in bad
+    block_failure(h, x, errors(proximal, DimensionMismatch))
+  end
+  for γ in ([0.5, 0.5], [0.5, 0.5, 0.5, 0.5]), alias in (false, true)
+    h = Constrained(f, box)
+    point = copy(x)
+    y = alias ? point : fill(-77.0, 3)
+    for op in proximal
+      @test_throws DimensionMismatch op(y, h, point, γ)
+      @test point == x
+      @test y == (alias ? x : fill(-77.0, 3))
+    end
+    s = SeparableSum(SqrNormL2(2.0), h)
+    dest = alias ? ([3.0], point) : ([7.0], y)
+    @test_throws DimensionMismatch PB._checkwrite(value_and_prox!, s, dest, ([3.0], point), γ)
+    @test dest[1] == (alias ? [3.0] : [7.0])
+    @test dest[2] == (alias ? x : fill(-77.0, 3))
+  end
+  # the supported route writes the proximal point in a block and leaves the other blocks to their own oracles
+  s = SeparableSum(SqrNormL2(2.0), Constrained(f, box))
+  dest = ([7.0], fill(-77.0, 3))
+  value = value_and_prox!(dest, s, ([3.0], x), 0.5)
+  @test dest[2] == [2.0, -2.0, 0.5]
+  @test value == value_and_prox!(zeros(1), SqrNormL2(2.0), [3.0], 0.5) + 2.0
+end
+
 end

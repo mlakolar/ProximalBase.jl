@@ -12,6 +12,8 @@ using Random
 
 using ..TestUtils
 
+const PB = ProximalBase
+
 Random.seed!(1)
 
 # the projection onto the capped simplex {0 ≤ x ≤ u, Σᵢ xᵢ = k}, by bisection on
@@ -242,6 +244,236 @@ end
     @test value_and_prox!(out, c, x, one(T)) ≈ -sum(log, expected)
     @test out ≈ expected
     @test all(>(zero(T)), out)
+  end
+end
+
+# The value of the conjugate of ElasticNet(λ1, λ2, w) at y, from the explicit formula in BigFloat: for
+# λ2 > 0, Σᵢ max(|yᵢ| - λ1 wᵢ, 0)² / (2λ2); for λ2 = 0, the indicator of |yᵢ| ≤ λ1 wᵢ, within the
+# relative tolerance sqrt(eps) that the package gives to the values of indicators.
+function elastic_conjugate_reference(λ1, λ2, w, y)
+  S = BigFloat
+  level(i) = S(λ1) * (w === nothing ? one(S) : S(w[i]))
+  if λ2 > 0
+    sum((max(abs(S(y[i])) - level(i), 0)^2 for i in eachindex(y)); init = zero(S)) / (2 * S(λ2))
+  else
+    tol = sqrt(S(eps(float(eltype(y)))))
+    all(i -> abs(S(y[i])) - level(i) <= tol * max(1, level(i)), eachindex(y)) ? zero(S) : S(Inf)
+  end
+end
+
+function check_elastic_value(v, T, ref)
+  @test v isa T
+  if isinf(ref)
+    @test v == T(Inf)
+  elseif iszero(ref)
+    @test v == 0
+  else
+    @test isapprox(v, T(ref); rtol = 1000 * eps(T))
+  end
+end
+
+a_value_and_prox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
+a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
+
+@testset "value_and_prox! of the conjugate of an elastic net on a box" begin
+  f = Conjugate(ElasticNet(1.0, 0.5))
+  x = [5.0, -5.0, 0.5]
+
+  @testset "the value is taken at the stored output" begin
+    # clamped at ±2: the value at [2, -2, 0.5] is (1² + 1² + 0) / (2 0.5) = 2, while the
+    # unclamped proximal point [3, -3, 0.5] has the value 8
+    c = Constrained(f, IndBox(-2.0, 2.0))
+    y = zeros(3)
+    @test value_and_prox!(y, c, x, 0.5) === 2.0
+    @test y == [2.0, -2.0, 0.5]
+    @test y == prox(c, x, 0.5)
+    @test value_and_prox!(zeros(3), Constrained(f, IndBox(-10.0, 10.0)), x, 0.5) === 8.0
+    # the original box: the stored output is inside the domain, where the value is zero
+    y = zeros(3)
+    @test value_and_prox!(y, Constrained(f, IndBox(-1.0, 1.0)), [1.0, 2.0, -0.5], 0.5) === 0.0
+    @test y == [1.0, 1.0, -0.5]
+    z = copy(x)
+    @test value_and_prox!(z, c, z, 0.5) === 2.0
+    @test z == [2.0, -2.0, 0.5]
+    @test value_and_prox!(zeros(3), c, x, [0.5, 0.5, 0.5]) === 2.0
+    @test value_and_prox!(zeros(3), Constrained(f, IndNonnegative()), x, 0.5) === 4.0
+    @test value_and_prox!(Float64[], c, Float64[], 0.5) === 0.0
+    empty = Constrained(Conjugate(ElasticNet(1.0, 0.5, Float64[])), IndBox(-2.0, 2.0))
+    @test value_and_prox!(Float64[], empty, Float64[], 0.5) === 0.0
+  end
+
+  @testset "standalone values stay unavailable" begin
+    c = Constrained(f, IndBox(-2.0, 2.0))
+    @test_throws ArgumentError f([1.0, 1.0, 0.0])
+    @test_throws ArgumentError c([1.0, 1.0, 0.0])
+    @test !PB._has_value(c)
+    @test !PB._has_value(f)
+    @test !PB._has_conjugate_value(ElasticNet(1.0, 0.5))
+  end
+
+  @testset "against the explicit formula" begin
+    onbound = Set{Int}()
+    for T in (Float32, Float64)
+      xin = T[5, -5, 0.5, 1.2, -0.05, 0, 3]
+      n = length(xin)
+      weights = (nothing, T[1, 0, 2, 0.5, 3, 1, 0])
+      lo, hi = -T[2, 1, 0.5, 3, 0.1, 1, 2], T[2, 1, 0.5, 3, 0.2, 1, 2]
+      boxes = ((IndBox(T(-10), T(10)), fill(T(-10), n), fill(T(10), n)),
+               (IndBox(T(-1), T(1)), fill(T(-1), n), fill(T(1), n)),
+               (IndBox(lo, hi), lo, hi),
+               (IndNonnegative(), zeros(T, n), fill(T(Inf), n)),
+               (IndBox(T(0.25), T(0.25)), fill(T(0.25), n), fill(T(0.25), n)))
+      steps = (T(0.5), T[0.5, 0.25, 1, 2, 0.75, 0.5, 1])
+      # λ1 and the weights give exact levels, so that the reference does not depend on a rounded level
+      for w in weights, (λ1, λ2) in ((T(0.25), T(0.7)), (T(0), T(0.7)), (T(0.25), T(0)), (T(0), T(0)), (T(0.25), T(1e-6))),
+          (box, l, u) in boxes, γ in steps, alias in (false, true)
+        c = Constrained(Conjugate(ElasticNet(λ1, λ2, w)), box)
+        expected = prox!(similar(xin), c, xin, γ)
+        y = alias ? copy(xin) : similar(xin)
+        v = a_value_and_prox!(y, c, alias ? y : xin, γ)
+        @test y == expected
+        alias || @test xin == T[5, -5, 0.5, 1.2, -0.05, 0, 3]
+        check_elastic_value(v, T, elastic_conjugate_reference(λ1, λ2, w, y))
+        λ2 > 0 && push!(onbound, count(i -> y[i] == l[i] || y[i] == u[i], 1:n))
+      end
+    end
+    # no entry, some entries and every entry sit on a bound
+    @test 0 in onbound && 7 in onbound && any(k -> 0 < k < 7, onbound)
+  end
+
+  @testset "levels, bounds and the domain of the indicator" begin
+    for T in (Float32, Float64)
+      w = T[1, 2, 4]
+      level = T(0.5) .* w                                       # 0.5, 1, 2 exactly
+      big = fill(T(1e3), 3)
+      # the stored output is the bound: exactly at the level and one float on each side
+      for (y0, λ2) in ((level, T(0.5)),
+                       (T[level[1], nextfloat(level[2]), prevfloat(level[3])], T(0.5)),
+                       (T[prevfloat(level[1]), level[2], nextfloat(level[3])], T(1)),
+                       (-T[level[1], nextfloat(level[2]), prevfloat(level[3])], T(2)))
+        c = Constrained(Conjugate(ElasticNet(T(0.5), λ2, w)), IndBox(y0, y0))
+        y = zeros(T, 3)
+        v = value_and_prox!(y, c, big, T(1))
+        @test y == y0
+        check_elastic_value(v, T, elastic_conjugate_reference(T(0.5), λ2, w, y))
+      end
+      # λ2 = 0: the indicator of |yᵢ| ≤ λ1 wᵢ, with the tolerance of the NormL1 conjugate
+      indicator = Conjugate(NormL1(T(0.5), w))
+      for (y0, expected) in ((level, T(0)),
+                             (T[level[1], nextfloat(level[2]), prevfloat(level[3])], T(0)),
+                             (-nextfloat.(level), T(0)),
+                             (level .* T(1 + 1e-3), T(Inf)),
+                             (T[level[1], level[2], 3], T(Inf)),
+                             (T[0, 0, 0], T(0)))
+        c = Constrained(Conjugate(ElasticNet(T(0.5), T(0), w)), IndBox(y0, y0))
+        y = zeros(T, 3)
+        v = value_and_prox!(y, c, big, T(1))
+        @test y == y0
+        @test v === expected
+        @test v === indicator(y)
+      end
+      # the box misses the domain of the indicator: the output is clamped there, and its value is +Inf;
+      # with λ2 > 0 the value at the clamped output is finite
+      c = Constrained(Conjugate(ElasticNet(T(0.5), T(0), w)), IndBox(T(5), T(6)))
+      y = zeros(T, 3)
+      @test value_and_prox!(y, c, T[0, 1, -1], T(1)) === T(Inf)
+      @test y == fill(T(5), 3)
+      @test y == prox(c, T[0, 1, -1], T(1))
+      c = Constrained(Conjugate(ElasticNet(T(0.5), T(0.5), w)), IndBox(T(5), T(6)))
+      v = value_and_prox!(y, c, T[0, 1, -1], T(1))
+      @test y == fill(T(5), 3)
+      @test v ≈ 45.25
+    end
+  end
+
+  @testset "dense, sparse and symmetric arguments" begin
+    c = Constrained(Conjugate(ElasticNet(0.25, 0.7, [1.0, 2.0, 0.0, 0.5, 3.0])), IndBox(-1.0, 1.0))
+    xs = SparseIterate(sparse([0.0, 3.0, 0.0, -2.0, 0.0]))
+    for γ in (0.7, [0.7, 0.5, 1.0, 0.7, 0.9])
+      yd = zeros(5)
+      vd = value_and_prox!(yd, c, Vector(xs), γ)
+      out = SparseIterate(5)
+      v = value_and_prox!(out, c, xs, γ)
+      @test v == vd && Vector(out) == yd
+      @test isapprox(v, Float64(elastic_conjugate_reference(0.25, 0.7, [1.0, 2.0, 0.0, 0.5, 3.0], yd)); rtol = 1e-13)
+      alias = copy(xs)
+      @test value_and_prox!(alias, c, alias, γ) == vd
+      @test Vector(alias) == yd
+    end
+    # a zero stays inside the box, and a box that excludes it moves every entry
+    for box in (IndNonnegative(), IndBox(0.2, 1.0)), f in (ElasticNet(0.25, 0.7), ElasticNet(0.25, 0.0))
+      c = Constrained(Conjugate(f), box)
+      yd = zeros(5)
+      vd = value_and_prox!(yd, c, Vector(xs), 0.7)
+      out = SparseIterate(5)
+      @test value_and_prox!(out, c, xs, 0.7) == vd
+      @test Vector(out) == yd
+      @test isapprox(vd, Float64(elastic_conjugate_reference(0.25, f.λ2, nothing, yd)); rtol = 1e-13)
+    end
+    # the symmetric matrix: every entry, off-diagonals included
+    M = [2.0 0.5 -3.0; 0.5 -1.0 4.0; -3.0 4.0 0.1]
+    W = [1.0 2.0 0.0; 2.0 0.5 1.0; 0.0 1.0 3.0]
+    for w in (nothing, W), (λ1, λ2) in ((0.25, 0.7), (0.25, 0.0)), γ in (0.7, fill(0.7, 3, 3))
+      c = Constrained(Conjugate(ElasticNet(λ1, λ2, w)), IndBox(-1.0, 1.0))
+      Yd = zeros(3, 3)
+      vd = value_and_prox!(Yd, c, M, γ)
+      S = SymmetricSparseIterate(3)
+      v = value_and_prox!(S, c, M, γ)
+      @test v == vd && Matrix(S) == Yd
+      @test Yd == Yd'
+      @test isapprox(v, Float64(elastic_conjugate_reference(λ1, λ2, w, Yd)); rtol = 1e-13)
+      alias = SymmetricSparseIterate(M)
+      @test value_and_prox!(alias, c, alias, γ) == vd
+      @test Matrix(alias) == Yd
+    end
+  end
+
+  @testset "blocks of a separable sum" begin
+    c = Constrained(f, IndBox(-2.0, 2.0))
+    s = SeparableSum(SqrNormL2(2.0), c)
+    point = ([3.0], x)
+    dest = ([7.0], zeros(3))
+    ref1, ref2 = zeros(1), zeros(3)
+    expected = value_and_prox!(ref1, SqrNormL2(2.0), [3.0], 0.5) + value_and_prox!(ref2, c, x, 0.5)
+    @test value_and_prox!(dest, s, point, 0.5) == expected
+    @test dest == (ref1, ref2)
+    @test point == ([3.0], [5.0, -5.0, 0.5])
+  end
+
+  @testset "allocations" begin
+    x64 = [5.0, -5.0, 0.5]
+    steps = (0.5, [0.5, 0.25, 1.0])
+    for T in (Float32, Float64), γ in steps
+      xt = T.(x64)
+      step = γ isa Real ? T(γ) : T.(γ)
+      for g in (ElasticNet(T(1), T(0.5)), ElasticNet(T(1), T(0.5), T[1, 0, 2]),
+                ElasticNet(T(1), T(0)), ElasticNet(T(1), T(0), T[1, 0, 2]), ElasticNet(T(0), T(0.5)))
+        for box in (IndBox(T(-2), T(2)), IndBox(fill(T(-2), 3), fill(T(2), 3)), IndNonnegative())
+          c = Constrained(Conjugate(g), box)
+          y = zeros(T, 3)
+          @test allocs(value_and_prox!, y, c, xt, step) == 0
+          z = copy(xt)
+          @test allocs(value_and_prox!, z, c, z, step) == 0
+          @test allocs(prox!, y, c, xt, step) == 0
+        end
+      end
+    end
+  end
+
+  @testset "controls: values that were available" begin
+    xc = [5.0, -5.0, 0.5, 1.2]
+    for g in (NormL1(0.3), NormL1(0.3, [1.0, 0.0, 2.0, 0.5]), NormL1Nonneg(0.3), ElasticNet(0.3, 0.4),
+              ElasticNet(0.3, 0.4, [1.0, 0.0, 2.0, 0.5]), SqrNormL2(0.7), SqrNormL2(0.7, [1.0, 0.0, 2.0, 0.5]),
+              IndBox(-1.5, 1.5), Conjugate(NormL1(0.3)), Conjugate(SqrNormL2(0.7)), Conjugate(IndBox(-1.0, 1.0))),
+        box in (IndBox(-1.0, 1.0), IndNonnegative()), γ in (0.6, [0.6, 0.3, 1.0, 0.8])
+      c = Constrained(g, box)
+      y = zeros(4)
+      v = value_and_prox!(y, c, xc, γ)
+      @test y == prox(c, xc, γ)
+      @test v ≈ c(y)
+      @test PB._has_value(c)
+      @test allocs(value_and_prox!, y, c, xc, γ) == 0
+    end
   end
 end
 

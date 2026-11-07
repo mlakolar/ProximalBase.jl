@@ -6,8 +6,11 @@
 # (which Julia versions and systems run them), coverage, the benchmark reference checks, and,
 # from the tier, the conformance reports. [events.*] says how each kind of run decides them,
 # [platforms.*] defines the job lists, [timeouts] and [policy] are per tier, and the risk
-# rules below map changed paths to the minimum tier of a pull request. The planner rejects an
-# unknown key, mode or tier in this file.
+# rules below map changed paths to the minimum tier of a pull request. scripts/ci_plan.jl
+# validates the [events.*] and [platforms.*] tables and their values (an unknown key, mode or tier
+# there is an error); the other tables are read by test/tiers.jl, which ignores keys it does not
+# know. scripts/ci_verdict.jl keeps its own copy of the job lists of the modes, which
+# test/ci_verdict.jl compares with the tables below.
 
 [timeouts]
 # Minutes per CI test job, well above each tier's target to allow for cold caches. A job of a
@@ -20,7 +23,7 @@ full = 90
 # One table per kind of run. A push is told apart from a tag push by its ref type.
 #   tier:      "risk" (the risk rules and labels below), a tier, or "input" (the manual run's tier).
 #   skip_without_tests: a run whose changed paths need no package tests (documentation) has tier
-#              none; without it (tag, nightly) the run is never skipped.
+#              none; without it (tag, nightly) the tier is fixed.
 #   platforms: a mode of [platforms.*], "by_tier" (platforms_by_tier gives the mode of each tier,
 #              none included, and label_platforms the mode that a label opts into) or "input"
 #              (the manual run's platforms; "auto" takes auto_platforms of the tier).
@@ -28,7 +31,8 @@ full = 90
 #   benchmark: the benchmark reference checks (benchmark/check_only.jl on the quick suite):
 #              "paths" (a changed path of [benchmark_check] below, or a label of benchmark_labels),
 #              "always", "never" or "input" (the manual run's input, or a tier of benchmark_tiers).
-# Labels never lower a tier.
+# A label raises a pull request's tier or leaves it alone, with one exception: test:iterate-narrow
+# lowers the tier of its iterate rule (see the risk rules). test:benchmark does not affect the tier.
 
 [events.pull_request]
 tier = "risk"
@@ -57,7 +61,7 @@ coverage = false
 benchmark = "always"
 
 [events.schedule]
-# The nightly run: everything, every night.
+# The nightly run: the full tier on the cross platforms, with coverage, every night.
 tier = "full"
 platforms = "cross"
 coverage = true
@@ -73,7 +77,7 @@ auto_platforms = { quick = "linux", standard = "linux", thorough = "linux", full
 
 # The jobs of each platform mode. A job is a Julia version, a system and an architecture; its
 # name in CI is "Julia <version> - <os> - <arch> - <tier>". `advisory` jobs are reported and
-# never counted (continue-on-error); `ptr_jobs` sets the number of test workers (the
+# do not change the result of the run (continue-on-error); `ptr_jobs` sets the number of test workers (the
 # free-memory default gives one worker on the macOS runner); `timeout` replaces the minutes of
 # [timeouts] (the 3-core, 3.3 GiB macOS runners take 43-78 min on the full tier and one run was
 # cancelled at the 90 min limit, #736).

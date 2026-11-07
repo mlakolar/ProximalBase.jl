@@ -236,7 +236,7 @@ input(inputs, name, default) = (v = get(inputs, name, ""); isempty(v) ? default 
 
 Whether the benchmark reference checks (benchmark/check_only.jl) run, as `[events.<event>]
 benchmark` of the rules file says: `paths` matches a pattern of `[benchmark_check] paths` or a
-label is in `benchmark_labels`; always; never; or, for a manual run, the input `benchmark` or a
+label is in `benchmark_labels`; `always`; `never`; or, for a manual run, the input `benchmark` or a
 tier of `benchmark_tiers`. `event` is the name of the table (`push` for master, `tag` for a tag
 push). `paths === nothing` (no list of changed files) decides on the labels alone.
 Documentation-only changes match nothing.

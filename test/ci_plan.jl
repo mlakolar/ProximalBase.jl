@@ -92,7 +92,7 @@ end
 end
 
 @testset "pull request: labels" begin
-  # a label raises the tier and never lowers it
+  # a tier label raises the tier or leaves it alone
   @test pr("test/norms.jl"; labels = ["test:standard"]).tier == "standard"
   r = pr("test/norms.jl"; labels = ["test:thorough"])
   @test r.tier == "thorough" && r.platforms == "linux" && !r.benchmark

@@ -373,8 +373,9 @@ end
 
 The tier of a pull request that changes `paths` and carries `labels`: [`classify`](@ref), with
 `narrow` set by the label test:iterate-narrow, then raised by test:standard, test:thorough or
-test:full (labels never lower the tier); test:benchmark and test:iterate-narrow are not tiers and
-leave the tier alone. No changed paths give quick. `focus` leaves out the
+test:full, which raise the tier or leave it alone. test:iterate-narrow lowers the tier of an
+iterate rule, through `classify`; test:benchmark is not a tier and does not affect it. No changed
+paths give quick. `focus` leaves out the
 files the tier runs anyway; `notes` describe the labels.
 """
 function pr_tier(m::Manifest, paths, labels; manifest_additions = nothing)

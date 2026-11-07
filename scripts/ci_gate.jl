@@ -14,8 +14,8 @@
 # It reads this run (actions/runs/ID) through `gh api` and needs `actions: read`. For a pull
 # request it also reads the PR's labels (`pull-requests: read`) and compares its test: labels
 # with --labels, those in the run's event: the plan of a run depends on them, so when they have
-# changed a newer run decides and this gate fails (an older run that is re-run, or only its gate,
-# cannot turn a stricter newer run's red gate green). It fails closed: a failed, cancelled,
+# changed a newer run decides and this gate fails (a re-run of an older run, or of only its
+# gate, does not turn a stricter newer run's red gate green). It fails closed: a failed, cancelled,
 # skipped or missing verdict, a run for another commit or event, changed labels, API errors for
 # more than 15 minutes (the labels: four attempts), or no decision before the deadline.
 # test/ci_gate.jl tests the decisions. No packages are needed.
@@ -182,7 +182,7 @@ end
     check_labels(fetch, expected; attempts = 4, wait = 15, sleep, log) -> (action, message)
 
 `fetch()` returns the PR's current labels or throws. The answer is retried `attempts` times; an
-error that persists fails the check, so an unreadable label list never passes.
+error that persists fails the check, so an unreadable label list does not pass.
 """
 function check_labels(fetch, expected; attempts = 4, wait = 15, sleep = Base.sleep, log = println)
   last = "no answer"

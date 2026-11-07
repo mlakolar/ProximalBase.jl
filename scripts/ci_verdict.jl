@@ -1,25 +1,31 @@
 # The verdict job of the CI workflow ("PR required jobs" on pull requests, "CI required jobs"
 # otherwise): it runs after the plan, the test jobs, the benchmark reference checks and the
-# benchmark controls, even when one of them failed, and passes only if everything the plan asked
-# for passed. It fails closed:
+# benchmark controls, even when one of them failed, and passes only if the checks below hold. It
+# treats a missing or malformed plan output as a failure:
 #
-# - the plan succeeded and gave a valid tier; the benchmark controls succeeded; the benchmark
-#   reference checks succeeded when the plan asked for them and were skipped when it did not;
+# - the plan succeeded and gave a valid tier (tier none only for a pull request or a push to
+#   master); the benchmark controls succeeded; the benchmark reference checks succeeded when the
+#   plan asked for them and were skipped when it did not;
 # - when tests run (a tier other than none), `required` (the ';'-separated names of the test
-#   jobs the plan lists) is not empty, holds the minimum of the event ("Julia 1" on Ubuntu for a
-#   pull request or a manual run, Julia 1 and lts on Ubuntu for a push to master, the four cross
-#   jobs for a tag and the nightly run), shares no name with `advisory`, and every required job
-#   of this run is listed with the conclusion success (missing, failed, cancelled, skipped and
-#   timed out fail); any other "Julia ..." job fails (a platform the plan did not name);
+#   jobs the plan lists) is not empty and holds a minimum that the verdict derives itself: the
+#   floor of the event (Julia 1 on Ubuntu for a pull request, with lts from the thorough tier,
+#   and for a manual run; Julia 1 and lts on Ubuntu for a push to master; the four cross jobs
+#   for a tag and the nightly run) together with the jobs of the plan's platform mode (stable,
+#   linux or cross). `advisory` holds at most Julia pre on Ubuntu, and shares no name with
+#   `required`. Every required job of this run is listed with the conclusion success (missing,
+#   failed, cancelled, skipped and timed out fail), and any other "Julia ..." job fails (a
+#   platform the plan did not name);
 # - with tier none every "Julia ..." job must be skipped (GitHub lists a skipped matrix job
 #   under its unexpanded name template);
-# - advisory jobs (Julia pre) are printed and never counted;
-# - the job list comes from `gh api`, retried; without it there is no pass.
+# - advisory jobs (Julia pre) are printed and do not change the result;
+# - the job list comes from `gh api`, retried; without it the run does not pass.
 #
-# The step reads the environment (see `main`) and writes `failed` (the names of the failed
-# jobs, ';'-separated) and `linux_failed` (whether the failure is anything but a failed
-# non-Linux test job) to $GITHUB_OUTPUT for the report job. test/ci_verdict.jl tests the
-# decisions. No packages are needed.
+# The minimum is written out here, not read from the planner, so a planner bug that changes the
+# jobs of a mode is caught; test/ci_verdict.jl compares it with the planner's tables. The step
+# reads the environment (see `main`) and writes `failed` (the names of the failed jobs,
+# ';'-separated) and `linux_failed` (whether the failure is anything but a failed non-Linux test
+# job) to $GITHUB_OUTPUT for the report job. test/ci_verdict.jl tests the decisions. No packages
+# are needed.
 
 module CIVerdict
 
@@ -30,19 +36,41 @@ const JOBS_JQ = """.jobs[] | [.name, (.conclusion // "")] | @tsv"""
 
 jobname(version, os, arch, tier) = "Julia $version - $os - $arch - $tier"
 
-"""
-    minimum_jobs(event, ref_type, tier) -> Vector{String}
+# The jobs (version, os, arch) of each platform mode, apart from the advisory Julia pre job. They
+# are the verdict's own copy of [platforms.*] in .github/tier-rules.toml.
+const MODE_JOBS = Dict(
+  "stable" => [("1", "ubuntu-latest", "x64")],
+  "linux" => [("lts", "ubuntu-latest", "x64"), ("1", "ubuntu-latest", "x64")],
+  "cross" => [("lts", "ubuntu-latest", "x64"), ("1", "ubuntu-latest", "x64"),
+              ("1", "macos-latest", "aarch64"), ("1", "windows-latest", "x64")],
+)
+const ADVISORY_JOB = ("pre", "ubuntu-latest", "x64")
 
-The test jobs an event must pass, whatever the plan lists: Julia 1 on Ubuntu for a pull request
-or a manual run, Julia 1 and lts on Ubuntu for a push to master, Julia 1 and lts on Ubuntu,
-Julia 1 on macOS and Julia 1 on Windows for a tag push and the nightly run. Throws for another
-event or ref type.
 """
-function minimum_jobs(event, ref_type, tier)
+    mode_jobs(platforms, tier) -> Vector{String}
+
+The names of the required test jobs of a platform mode (`stable`, `linux` or `cross`) at `tier`.
+Throws for another mode.
+"""
+function mode_jobs(platforms, tier)
+  haskey(MODE_JOBS, platforms) || error("unknown platforms `$platforms`; the modes are stable, linux and cross")
+  return [jobname(v, os, arch, tier) for (v, os, arch) in MODE_JOBS[platforms]]
+end
+
+"""
+    floor_jobs(event, ref_type, tier) -> Vector{String}
+
+The test jobs an event needs, independent of the plan's platform mode: Julia 1 on Ubuntu for a pull
+request (and Julia lts on Ubuntu from the thorough tier) and for a manual run, Julia 1 and lts
+on Ubuntu for a push to master, and those with Julia 1 on macOS and on Windows for a tag push and
+the nightly run. Throws for another event or ref type.
+"""
+function floor_jobs(event, ref_type, tier)
   linux1 = jobname("1", "ubuntu-latest", "x64", tier)
   lts = jobname("lts", "ubuntu-latest", "x64", tier)
-  cross = [lts, linux1, jobname("1", "macos-latest", "aarch64", tier), jobname("1", "windows-latest", "x64", tier)]
-  event in ("pull_request", "workflow_dispatch") && return [linux1]
+  cross = mode_jobs("cross", tier)
+  event == "pull_request" && return tier in ("thorough", "full") ? [lts, linux1] : [linux1]
+  event == "workflow_dispatch" && return [linux1]
   event == "schedule" && return cross
   if event == "push"
     ref_type == "branch" && return [lts, linux1]
@@ -52,23 +80,34 @@ function minimum_jobs(event, ref_type, tier)
   error("unknown event `$event`")
 end
 
+"""
+    minimum_jobs(event, ref_type, tier, platforms) -> Vector{String}
+
+The test jobs a run must list as required: the floor of the event ([`floor_jobs`](@ref)) together
+with the jobs of the plan's platform mode ([`mode_jobs`](@ref)).
+"""
+minimum_jobs(event, ref_type, tier, platforms) = unique([floor_jobs(event, ref_type, tier); mode_jobs(platforms, tier)])
+
+# Tier none (no package tests) is planned for a pull request and for a push to master only.
+none_allowed(event, ref_type) = event == "pull_request" || (event == "push" && ref_type == "branch")
+
 splitnames(text) = String[n for n in split(text, ';') if !isempty(strip(n))]
 
 isjulia(name) = startswith(name, "Julia ")
 
 """
     verdict(; event, ref_type, plan, tests, analysis, benchmark, run_benchmark, run_tests, tier,
-            required, advisory, jobs) -> (; errors, notes, failed, linux_failed)
+            platforms, required, advisory, jobs) -> (; errors, notes, failed, linux_failed)
 
 The decision. `plan`, `tests`, `analysis` and `benchmark` are the results of the jobs
-(`success`, `failure`, `cancelled`, `skipped`), `run_benchmark`, `run_tests`, `tier`, `required`
-and `advisory` the plan's outputs (strings, possibly empty), and `jobs` this run's test jobs as
+(`success`, `failure`, `cancelled`, `skipped`), `run_benchmark`, `run_tests`, `tier`, `platforms`,
+`required` and `advisory` the plan's outputs (strings, possibly empty), and `jobs` this run's test jobs as
 `(name, conclusion)` pairs, or `nothing` when they could not be listed. The run passes exactly
 when `errors` is empty. `notes` are lines to print, `failed` the names of the failed jobs and
 `linux_failed` whether a failure is anything but a failed test job that is not on Linux.
 """
 function verdict(; event, ref_type = "", plan, tests, analysis, benchmark, run_benchmark, run_tests, tier,
-                 required, advisory, jobs)
+                 platforms, required, advisory, jobs)
   errors = String[]
   notes = String[]
   failed = String[]
@@ -93,9 +132,11 @@ function verdict(; event, ref_type = "", plan, tests, analysis, benchmark, run_b
     if !(tier == "none" || tier in TIERS)
       problem("The plan gave no valid tier ('$tier').")
     elseif tier == "none"
+      none_allowed(event, ref_type) ||
+        problem("Tier none is planned for a pull request or a push to master only, not for a $event run.")
       run_tests == "false" || problem("Tier none, but run_tests is '$run_tests'.")
       tests == "skipped" || problem("Tier none, but the test jobs are $tests.")
-      isempty(splitnames(required)) || problem("Tier none, but the plan lists required jobs.")
+      isempty(splitnames(required)) && isempty(splitnames(advisory)) || problem("Tier none, but the plan lists test jobs.")
       if jobs === nothing
         problem("The jobs of this run could not be listed, so tier none cannot be confirmed.")
       else
@@ -115,14 +156,24 @@ function verdict(; event, ref_type = "", plan, tests, analysis, benchmark, run_b
       for name in intersect(req, adv)
         problem("`$name` is both required and advisory.")
       end
-      minimum = try
-        minimum_jobs(event, ref_type, tier)
+      allowed = jobname(ADVISORY_JOB..., tier)
+      for name in unique(adv)
+        name == allowed || problem("`$name` is listed as advisory, but only `$allowed` may be.")
+      end
+      floor = try
+        floor_jobs(event, ref_type, tier)
       catch err
         problem(first(sprint(showerror, err), 300))
         String[]
       end
-      for name in minimum
-        name in req || problem("The required jobs do not include `$name`, which every $event run needs.")
+      mode = try
+        mode_jobs(platforms, tier)
+      catch err
+        problem(first(sprint(showerror, err), 300))
+        String[]
+      end
+      for name in unique([floor; mode])
+        name in req || problem("The required jobs do not include `$name`, which a $event run on the platforms `$platforms` needs.")
       end
       tests in ("cancelled", "skipped") && problem("The test jobs are $tests.")
       if jobs === nothing
@@ -188,7 +239,7 @@ end
     list_jobs(fetch; attempts = 4, wait = 15, sleep = Base.sleep, log = println) -> jobs or nothing
 
 Call `fetch()` until it returns the job list; `nothing` after `attempts` failures, which the
-verdict treats as a failure and never as a pass.
+verdict treats as a failure, not as a pass.
 """
 function list_jobs(fetch; attempts = 4, wait = 15, sleep = Base.sleep, log = println)
   for attempt in 1:attempts
@@ -207,7 +258,7 @@ end
     main(env = ENV; fetch, sleep, log) -> exit status
 
 Reads PLAN, TESTS, ANALYSIS, BENCHMARK (the results of the jobs), RUN_BENCHMARK, RUN_TESTS, TIER,
-FOCUS, REQUIRED and ADVISORY (the plan's outputs), EVENT, REF_TYPE, COMMIT, GITHUB_REPOSITORY,
+FOCUS, PLATFORMS, REQUIRED and ADVISORY (the plan's outputs), EVENT, REF_TYPE, COMMIT, GITHUB_REPOSITORY,
 GITHUB_RUN_ID and GH_TOKEN; prints the decision; appends `failed` and `linux_failed` to
 the file named by GITHUB_OUTPUT. Returns 0 when the run passes, 1 when it does not.
 """
@@ -227,7 +278,7 @@ function main(env::AbstractDict = ENV;
   result = try
     verdict(; event = get_("EVENT"), ref_type = get_("REF_TYPE"), plan = get_("PLAN"), tests = get_("TESTS"),
             analysis = get_("ANALYSIS"), benchmark = get_("BENCHMARK"), run_benchmark = get_("RUN_BENCHMARK"),
-            run_tests = get_("RUN_TESTS"), tier, required = get_("REQUIRED"), advisory = get_("ADVISORY"), jobs)
+            run_tests = get_("RUN_TESTS"), tier, platforms = get_("PLATFORMS"), required = get_("REQUIRED"), advisory = get_("ADVISORY"), jobs)
   catch err
     err isa InterruptException && rethrow()
     (; errors = ["The verdict could not be decided: " * first(sprint(showerror, err), 300)], notes = String[],

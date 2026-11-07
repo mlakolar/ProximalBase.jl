@@ -67,7 +67,7 @@ updating the table, or every test run stops on the manifest problem.
 
 The plan job of the CI workflow decides what each run does with `scripts/ci_plan.jl`
 and the rules in [`.github/tier-rules.toml`](.github/tier-rules.toml); the run's
-summary page shows its decision for every changed file. `julia scripts/ci_plan.jl`
+summary page shows its decision for each changed file. `julia scripts/ci_plan.jl`
 prints the same decision for your working tree against `origin/master`. The plan
 makes five independent decisions: the **tier** (how many test files run), the
 **platforms** (which Julia versions and systems run them), whether to collect
@@ -77,18 +77,18 @@ tier, whether the test jobs write the **conformance reports** (thorough and full
 
 | Run | Tier | Platforms | Coverage | Benchmark reference checks |
 |---|---|---|---|---|
-| pull request | the minimum for the changed files, raised by labels | quick, standard, none: Julia 1 on Linux; thorough, full: Julia 1 and lts on Linux | no | changed benchmark harness or `CI.yml`, or the label `test:benchmark` |
-| pull request with `test:full` | full | every platform | no | yes |
-| push to master | thorough (none for documentation only) | Julia 1 and lts on Linux | no | changed benchmark harness or `CI.yml` |
-| tag push | full | every platform | no | yes |
-| nightly | full, whatever ran before | every platform | yes | yes |
-| manual | the input `tier` (full) | the input `platforms` (auto) | the input `coverage` (off) | the input `benchmark`, and always with tier full |
+| pull request | the minimum for the changed files, raised by labels | quick, standard, none: `stable`; thorough, full: `linux` | no | changed benchmark harness or `CI.yml`, or the label `test:benchmark` |
+| pull request with `test:full` | full | `cross` | no | yes |
+| push to master | thorough (none for documentation only) | `linux` | no | changed benchmark harness or `CI.yml` |
+| tag push | full | `cross` | no | yes |
+| nightly | full, also when an earlier run passed | `cross` | yes | yes |
+| manual | the input `tier` (full) | the input `platforms` (auto) | the input `coverage` (off) | the input `benchmark`, and also with tier full |
 
 The platform modes are `stable` (Julia 1 on Linux), `linux` (Julia 1 and lts on
 Linux) and `cross` (`linux`, Julia 1 on macOS and Windows, and Julia pre on Linux,
-which is advisory: reported, never counted). They are defined in
-`.github/tier-rules.toml`, which the planner validates (an unknown key, mode or
-tier is an error). A push whose previous commit is unknown still runs thorough.
+which is advisory: reported, not counted). They are defined in
+`.github/tier-rules.toml`; the planner validates its `[events.*]` and
+`[platforms.*]` tables (an unknown key, mode or tier there is an error). A push whose previous commit is unknown still runs thorough.
 
 - **Pull requests** run the tier for the changed files, and beside it the changed
   test files and the focus files of the matched rules:
@@ -114,34 +114,34 @@ tier is an error). A push whose previous commit is unknown still runs thorough.
     renaming a listed file, or changing the helpers, the environments or
     `[not_tests.run_through]`, still gets full;
   - a path no rule knows: full.
-- **Labels** `test:standard`, `test:thorough` and `test:full` raise a PR's tier;
-  they never lower it. `test:full` also runs every platform (macOS, Windows and
-  Julia pre) and the benchmark reference checks; a path rule that needs the full
-  tier runs it on Linux only. `test:benchmark` adds the benchmark reference checks
-  to any PR and changes nothing else; it names no tier.
-  `test:iterate-narrow` declares a narrow change to one iterate implementation; it
-  lowers only that implementation's rule, never another path. Adding or removing
-  any label starts a new run. Add `test:thorough` when a change touches
+- **Labels** `test:standard`, `test:thorough` and `test:full` raise a PR's tier or
+  leave it alone. `test:full` also selects the `cross` platforms (macOS, Windows
+  and Julia pre besides Linux) and the benchmark reference checks; a path rule
+  that needs the full tier runs it on `linux` only. `test:benchmark` adds the
+  benchmark reference checks and does not change the tier or the platforms; it
+  names no tier. `test:iterate-narrow` declares a narrow change to one iterate
+  implementation; it lowers that implementation's rule and no other path.
+  Adding or removing a label starts a new run. Add `test:thorough` when a change touches
   element-type promotion, precision, overflow-safe scaling or non-finite
   handling, which the paths cannot show, `test:full` for a release or a
   platform-sensitive change, and `test:benchmark` for a change that can affect
   the benchmark suite without touching its files. A label starts a new run on the
   same commit, and its gate replaces the earlier gate as a pending check as soon
-  as GitHub creates the run (a few seconds after the label), so an earlier green
-  gate cannot be used to merge.
+  as GitHub creates the run (a few seconds after the label), so the earlier green
+  gate no longer stands.
 - **Pushes to master** run thorough on Julia 1 and lts on Linux, with the
   conformance reports (none for a documentation-only push), and no coverage.
-  **Tags** run the full tier on every platform, with the benchmark reference
-  checks. The **nightly** run is the only scheduled one and the only one that
-  collects coverage: the full tier on every platform, with the benchmark
-  reference checks, every night, whether or not a run passed on the same commit,
-  so it catches changes in dependencies and Julia releases and in the platforms
-  that pull requests and pushes do not run.
+  **Tags** run the full tier on the `cross` platforms, with the benchmark
+  reference checks. The **nightly** run is the scheduled run, and it collects
+  coverage by default (a manual run can ask for it): the full tier on the `cross`
+  platforms, with the benchmark reference checks, every night, also when a run
+  passed on the same commit. It covers changes in dependencies and Julia
+  releases and the platforms that pull requests and pushes do not run.
 - **Manual runs** test any branch:
   `gh workflow run CI.yml --ref <branch> -f tier=thorough -f platforms=linux`.
-  The inputs are `tier` (`full` by default), `platforms` (`auto`: every platform
-  for full, Julia 1 and lts on Linux otherwise; `stable`, `linux` and `cross`
-  choose a mode), `benchmark` (the reference checks; they always run with tier
+  The inputs are `tier` (`full` by default), `platforms` (`auto`: `cross`
+  for full, `linux` otherwise; `stable`, `linux` and `cross`
+  choose a mode), `benchmark` (the reference checks; they also run with tier
   full) and `coverage` (collect coverage on Julia 1 on Linux and upload it to
   Codecov; the nightly run does so too). `tier=full -f platforms=cross -f
   coverage=true` runs what the nightly run runs. On a PR branch the result
@@ -211,23 +211,29 @@ Branch protection on master requires two checks, both from GitHub Actions:
 the tests, the benchmark reference checks and the benchmark analysis controls,
 and passes when the plan succeeded with a valid tier, the benchmark analysis
 controls passed, the benchmark reference checks passed if the plan asked for them
-(and were skipped if it did not), and every test job the plan lists as required
-passed; Julia pre is advisory and printed, never counted. It checks the plan
-against a minimum of its own for the kind of run (Julia 1 on Linux for a pull
-request or a manual run; Julia 1 and lts on Linux for a push to master; the four
-required jobs of the cross mode for a tag and the nightly run), so a planner
-that drops a platform from the matrix and from its list together still fails. A
-failed, cancelled, skipped, timed out or missing required job fails it, and so
-does a Julia job the plan did not ask for, a name that is both required and
-advisory, a plan that found an unclassified test file or gave no tier, and a job
-list that cannot be read. When no tests run, every Julia job must have been
-skipped. The gate job starts with the run, so a push or a label replaces the
+(and were skipped if it did not), and each test job the plan lists as required
+passed; Julia pre is advisory and printed, not counted. It checks the plan's
+list of required jobs against a minimum that it derives itself from the kind of
+run and the plan's platform mode: the floor of the run (Julia 1 on Linux for a
+pull request, with lts from the thorough tier, and for a manual run; Julia 1 and
+lts on Linux for a push to master; Julia 1 and lts on Linux, Julia 1 on macOS and
+Julia 1 on Windows for a tag and the nightly run) together with the jobs of the
+mode (`stable`, `linux` or `cross`). The advisory list may hold Julia pre on
+Linux and nothing else, and tier none is accepted for a pull request and a push
+to master only. A plan that lists fewer jobs than this minimum, names an unknown
+mode or lists another advisory job fails. It checks nothing beyond that minimum:
+a plan that lists the minimum but leaves out other jobs it should have chosen
+(the `cross` jobs of a PR with `test:full`, if its mode said `linux`) passes. A failed, cancelled, skipped, timed
+out or missing required job fails it, and so does a Julia job the plan did not
+ask for, a name that is both required and advisory, a plan that found an
+unclassified test file or gave no tier, and a job list that cannot be read. When
+no tests run, each Julia job it lists must have been skipped. The gate job starts with the run, so a push or a label replaces the
 commit's earlier green gate with a pending one within seconds; it waits for the
 run's PR required jobs and passes only if they passed. It also compares the test
 labels (`test:*`) of the pull request, read through the API, with those the run
 was started with, and fails with "labels changed since this run; the newer run
-decides" when they differ or cannot be read: an older run that is re-run, or only
-its gate, cannot turn a stricter newer run's red gate green. Pushes, tags, the
+decides" when they differ or cannot be read: a re-run of an older run, or of only its gate,
+does not turn a stricter newer run's red gate green. Pushes, tags, the
 nightly run and manual runs name the two checks **CI required jobs** and **CI
 result**, so a manual run on a PR branch cannot stand in for the PR's checks.
 Coverage is collected only by the nightly run and by manual runs that ask for it,
@@ -250,7 +256,7 @@ Each test job's summary page lists the selected files, the workers, the time
 before the test runner started (Julia, test environment, precompilation), the
 runner's wall time, the worker time of every file with its compilation share,
 and the slowest files. Thorough and full runs also write the conformance reports
-(every job checks that they exist), check the committed coverage map and upload
+(each of those jobs checks that they exist), check the committed coverage map and upload
 the reports. The map check and the required upload run on Julia lts on Linux when
 the run has it, otherwise (a manual run on the `stable` platforms) on Julia 1 on
 Linux. An upload counts only when GitHub returns an artifact id for it; otherwise

@@ -1543,7 +1543,7 @@ end
   (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
   (isfinite(a) && isfinite(b) && isfinite(c)) || return a * b * c
   fa, ea = _frexp(a); fb, eb = _frexp(b); fc, ec = _frexp(c)
-  ldexp(fa * fb * fc, ea + eb + ec)
+  ldexp(fa * fb * fc, _exponent_sum(T, ea, eb, ec))
 end
 
 # The argument that a proximal map into y reads: x itself when y is not a

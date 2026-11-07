@@ -2167,11 +2167,11 @@ _value_unchecked(s::SeparableSum, x::Tuple) = (_checkparams(s, x); _value_at(_su
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
 _prox_unchecked!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(prox!, s, y, x, γ); _checkstep(prox!, s, y, x, γ); _prox_blocks!(s.fs, y, x, γ); y)
+  (_checkwrite(prox!, s, y, x, γ); _checkstep(prox!, s, y, x, γ); _owner_role_preflight(prox!, s, y, x, γ); _prox_blocks!(s.fs, y, x, γ); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(value_and_prox!, s, y, x, γ); _checkstep(value_and_prox!, s, y, x, γ); _value_at(_value_and_prox_blocks!(s.fs, y, x, γ), y))
+  (_checkwrite(value_and_prox!, s, y, x, γ); _checkstep(value_and_prox!, s, y, x, γ); _owner_role_preflight(value_and_prox!, s, y, x, γ); _value_at(_value_and_prox_blocks!(s.fs, y, x, γ), y))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
 _value_and_gradient_unchecked!(g::Tuple, s::SeparableSum, x::Tuple) =

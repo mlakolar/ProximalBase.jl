@@ -367,6 +367,18 @@ for F in (PointwiseMinimum, IndIntersection, LinearConstrained), (op, unchecked)
     $unchecked(y::AbstractArray, f::$F, x::SymmetricSparseIterate, γ::Real) = _owner_role_error($op, y, f, x, γ)
   end
 end
+# Whether the proximal operator of f has a method at an owner (as the output or as the point): false for the
+# functions above, whose owner roles end in the MethodError of the operation. A block of a separable sum asks it
+# before any block is written, so that a tuple call that is known to fail does not change its first blocks.
+_owner_role_supported(op, f) = true
+_owner_role_supported(op, ::Union{PointwiseMinimum, IndIntersection, LinearConstrained}) = false
+# the preflight of a block: the error of the direct call, with the arguments of the tuple call
+_owner_role_preflight(op, f, y, x, γ) =
+  ((y isa SymmetricSparseIterate || x isa SymmetricSparseIterate) && !_owner_role_supported(op, f) &&
+     _owner_role_error(op, y, f, x, γ); true)
+_owner_role_preflight(op, s::SeparableSum, y::Tuple, x::Tuple, γ) = _owner_role_preflight_blocks(op, s.fs, y, x, γ)
+@generated _owner_role_preflight_blocks(op, fs::Tuple, y::Tuple, x::Tuple, γ) =
+  _blockwise(k -> :(_owner_role_preflight(op, fs[$k], y[$k], x[$k], γ)), min(fieldcount(fs), fieldcount(y), fieldcount(x)), true)
 _value_and_gradient_unchecked!(y, f::AbstractFunction, x) = value_and_gradient!(y, f, x)
 _hessian_vec_unchecked!(y, f, x, v) = hessian_vec!(y, f, x, v)
 _quadratic_model_unchecked!(q, f, x) = quadratic_model!(q, f, x)

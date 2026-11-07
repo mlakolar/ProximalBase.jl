@@ -505,6 +505,71 @@ end
   end
 end
 
+# The block preflight of a separable sum asks, after the parameters are validated and before any block is written,
+# whether the owner role of each block has a method: the three rejection-only functions end in the MethodError of
+# the operation, with every block, owner or dense, as it was.
+@testset "a separable sum with a rejection-only owner block writes no block, $T" for T in (Float32, Float64)
+  W = ones(T, 2, 2); W[2, 1] = 2                       # not symmetric
+  rejecting = ("PointwiseMinimum" => PointwiseMinimum(NormL1(T(0.2)), SqrNormL2(T(0.3))),
+               "IndIntersection" => IndIntersection(IndBox(-T(1), T(1)), IndBallL2(T(1))),
+               "LinearConstrained" => Constrained(NormL1(T(0.2)), IndHalfspace(ones(T, 2, 2), T(1))))
+  invalid = ("PointwiseMinimum" => PointwiseMinimum(NormL1(T(0.2), W), SqrNormL2(T(0.3))),
+             "IndIntersection" => IndIntersection(IndBox(-W, T(1)), IndBallL2(T(1))),
+             "LinearConstrained" => Constrained(NormL1(T(0.2)), IndHalfspace(W, T(1))))
+  mkowner(v) = SymmetricSparseIterate(fill(T(v), 2, 2))
+  point() = ones(T, 2, 2)
+  tstate(t::Tuple) = map(tstate, t)
+  tstate(y::SymmetricSparseIterate) = state(y)
+  tstate(y) = copy(y)
+  # the outputs and the points of a call, as a tuple of two or of a block and a nested pair
+  roles = ("owner outputs, dense points" => () -> ((mkowner(1), mkowner(2)), (point(), point())),
+           "dense outputs, owner points" => () -> ((fill(T(3), 2, 2), fill(T(4), 2, 2)), (mkowner(1), mkowner(2))),
+           "owner and dense outputs, dense points" => () -> ((mkowner(1), fill(T(4), 2, 2)), (point(), point())))
+  @testset "$name, $role, $where, $op" for (name, bad) in rejecting, (role, make) in roles,
+                                           where in ("second", "first", "nested"), op in (prox!, value_and_prox!)
+    nl1 = NormL1(T(0.5))
+    y, x = make()                                       # the outputs and the points of two blocks
+    if where == "second"
+      f, ry, rx = SeparableSum(nl1, bad), y[2], x[2]
+    elseif where == "first"
+      f, ry, rx = SeparableSum(bad, nl1), y[1], x[1]
+    else                                                # (a, (b, c)) with the rejecting block last, of the kind of b
+      ey = y[2] isa SymmetricSparseIterate ? mkowner(5) : fill(T(5), 2, 2)
+      ex = x[2] isa SymmetricSparseIterate ? mkowner(6) : point()
+      f, ry, rx = SeparableSum(nl1, SeparableSum(nl1, bad)), ey, ex
+      y, x = (y[1], (y[2], ey)), (x[1], (x[2], ex))
+    end
+    before = tstate(y)
+    err = try op(y, f, x, T(0.5)); nothing catch e; e end
+    if ry isa SymmetricSparseIterate || rx isa SymmetricSparseIterate
+      @test err isa MethodError && err.f === op
+      @test isequal(tstate(y), before)
+    else                                                # a role without an owner is a dense call, which is supported
+      @test err === nothing
+    end
+  end
+  # a block with invalid parameters is refused by the parameter check, whichever block is rejection-only
+  @testset "invalid parameters, $name, $op" for ((name, bad), (_, good)) in zip(invalid, rejecting), op in (prox!, value_and_prox!)
+    for f in (SeparableSum(NormL1(T(0.5), W), good), SeparableSum(NormL1(T(0.5)), bad), SeparableSum(bad, NormL1(T(0.5))))
+      y = (mkowner(1), mkowner(2)); before = tstate(y)
+      @test_throws ArgumentError op(y, f, (point(), point()), T(0.5))
+      @test isequal(tstate(y), before)
+    end
+  end
+  # a tuple of supported blocks is unchanged: the owner holds the dense result, nested or not
+  @testset "supported blocks, $op" for op in (prox!, value_and_prox!)
+    for f in (SeparableSum(NormL1(T(0.5)), SqrNormL2(T(0.3))), SeparableSum(NormL1(T(0.5)), SeparableSum(SqrNormL2(T(0.3)), NormL1(T(0.1)))))
+      nested = f.fs[2] isa SeparableSum
+      y = nested ? (mkowner(1), (mkowner(2), mkowner(3))) : (mkowner(1), mkowner(2))
+      d = nested ? (ones(T, 2, 2), (ones(T, 2, 2), ones(T, 2, 2))) : (ones(T, 2, 2), ones(T, 2, 2))
+      x = nested ? (point(), (point(), point())) : (point(), point())
+      op(y, f, x, T(0.5)); op(d, f, x, T(0.5))
+      @test Matrix(y[1]) == d[1]
+      @test nested ? (Matrix(y[2][1]) == d[2][1] && Matrix(y[2][2]) == d[2][2]) : Matrix(y[2]) == d[2]
+    end
+  end
+end
+
 @testset "the entry wrappers allocate nothing after warm-up" begin
   x = SymmetricSparseIterate(X)
   for f in (Scaled(NormL1(0.3), 2.0), Constrained(NormL1(0.3), IndBox(-1.0, 1.0)), Scaled(Scaled(NormL1(0.3), 2.0), 0.5))

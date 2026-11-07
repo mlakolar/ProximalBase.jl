@@ -157,6 +157,50 @@ end
   end
 end
 
+@testset "Regularize forms its gradient in the model precision, at both extremes" begin
+  # the point makes the model Float64, the output is Float32: the level and the entries meet before the output
+  for (ρ, xv) in ((1e40, 1e-40), (1e-300, 1e300)), c in (nothing, fill(0.0, 2, 2))
+    f = c === nothing ? Regularize(LinearFunction(zeros(2, 2)), ρ) : Regularize(LinearFunction(zeros(2, 2)), ρ, c)
+    x = SymmetricSparseIterate(fill(xv, 2, 2))
+    ones32 = fill(1f0, 2, 2)
+    g = SymmetricSparseIterate(Float32, 2)
+    @test gradient!(g, f, x) === g
+    @test Matrix(g) == ones32
+    g = SymmetricSparseIterate(Float32, 2)
+    @test value_and_gradient!(g, f, x) isa Real
+    @test Matrix(g) == ones32
+    d = zeros(Float32, 2, 2)
+    @test gradient!(d, f, x) === d
+    @test d == ones32
+    d = zeros(Float32, 2, 2)
+    @test value_and_gradient!(d, f, x) isa Real
+    @test d == ones32
+    # a dense point with an owner output
+    g = SymmetricSparseIterate(Float32, 2)
+    gradient!(g, f, fill(xv, 2, 2))
+    @test Matrix(g) == ones32
+    # the Hessian product: the direction is the point, whatever the kind of the roles
+    f0 = Regularize(LinearFunction(zeros(2, 2)), ρ)
+    v = SymmetricSparseIterate(fill(xv, 2, 2))
+    for (Hv, point, dir) in ((zeros(Float32, 2, 2), x, v), (zeros(Float32, 2, 2), x, fill(xv, 2, 2)),
+                             (zeros(Float32, 2, 2), fill(xv, 2, 2), v), (SymmetricSparseIterate(Float32, 2), x, v),
+                             (SymmetricSparseIterate(Float32, 2), fill(xv, 2, 2), fill(xv, 2, 2)))
+      hessian_vec!(Hv, f0, point, dir)
+      @test Matrix(Hv) == ones32
+    end
+  end
+  # the entry is added to the gradient of the inner function, and rounded to the output once
+  f = Regularize(SqrNormL2(1.0), 1e40)
+  g = SymmetricSparseIterate(Float32, 2)
+  gradient!(g, f, SymmetricSparseIterate(fill(1e-40, 2, 2)))
+  @test Matrix(g) == fill(1f0, 2, 2)
+  # a Float32 level that Float32 holds, and a center of the output's width
+  f = Regularize(LinearFunction(zeros(2, 2)), 3f0, fill(1f0, 2, 2))
+  g = SymmetricSparseIterate(Float32, 2)
+  gradient!(g, f, SymmetricSparseIterate(fill(2f0, 2, 2)))
+  @test Matrix(g) == fill(3f0, 2, 2)
+end
+
 @testset "rejection before any write, in the wrapper tree" begin
   W = ones(3, 3); W[2, 1] = 2.0                  # not symmetric
   inner = NormL1(0.1, W)

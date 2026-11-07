@@ -595,20 +595,46 @@ function _add_ridge_gradient!(g, r::Regularize, x)
   ρ = convert(eltype(g), r.ρ)
   r.c === nothing ? (g .+= ρ .* _vw(x)) : (g .+= ρ .* (_vw(x) .- _checked_parameter(g, r.c)))
 end
+# A gradient and a point of which one is an owner: ρ(x - c) is formed in the model precision, the widest of the
+# output, the point and the center, where a level that the precision cannot hold is multiplied in a wider
+# type and an entry that overflows in x - c is repaired, as for SqrNormL2; each entry is rounded to the output
+# once, when it is added there. The model is a type parameter of the methods that form the entries, so that
+# the entries are written by a loop that does not allocate.
+_add_ridge_gradient!(g::AbstractArray, r::Regularize, x::SymmetricSparseIterate) =
+  _add_ridge_gradient!(g, r.ρ, _ridge_model(eltype(g), eltype(x), r.c), r.c, matrixview(x))
 # an owner gradient receives the symmetric part of ρ(x - c), from the lower entries when x is symmetric
-function _add_ridge_gradient!(g::SymmetricSparseIterate, r::Regularize, x)
-  ρ = convert(eltype(g), r.ρ)
-  p = g.p
-  @inbounds for c in 1:p, i in c:p
-    v = ρ * (r.c === nothing ? x[i, c] : x[i, c] - r.c[i, c])
-    if i != c && !(x isa SymmetricSparseIterate)
-      v = _symmetric_pair(v, ρ * (r.c === nothing ? x[c, i] : x[c, i] - r.c[c, i]), i, c)
-    end
-    k = tril_index(p, i, c)
-    _setstored!(g, _getstored(g, k) + v, k)
+_add_ridge_gradient!(g::SymmetricSparseIterate, r::Regularize, x) =
+  _add_ridge_gradient!(g, r.ρ, _ridge_model(eltype(g), eltype(x), r.c), r.c, x)
+_ridge_model(::Type{G}, ::Type{X}, ::Nothing) where {G, X} = _scaling_model(G, X, X)
+_ridge_model(::Type{G}, ::Type{X}, c::AbstractArray) where {G, X} = _scaling_model(G, X, eltype(c))
+function _add_ridge_gradient!(g, ρ, ::Type{W}, c, x) where {W}
+  if _level_fits(W, ρ)
+    _add_ridge_entries!(g, W, convert(W, ρ), c, x)
+  else
+    _add_ridge_entries!(g, W, convert(promote_type(W, float(typeof(ρ))), ρ), c, x)
   end
   g
 end
+# the entry ρ(x - c) of a level l, which is of type W unless W cannot hold the level
+@inline _ridge_entry(::Type{W}, l, v, ::Nothing, i, j) where {W} = l * v
+@inline _ridge_entry(::Type{W}, l, v, c, i, j) where {W} = _ridge_entry(W, l, v, @inbounds c[i, j])
+@inline _ridge_entry(::Type{W}, l::W, v, cij) where {W} = _ridge_gradient_entry(l, v, cij)
+@inline _ridge_entry(::Type{W}, l, v, cij) where {W} = _ridge_gradient_wide(W, l, v, cij)
+function _add_ridge_entries!(g::SymmetricSparseIterate, ::Type{W}, l, c, x) where {W}
+  p = g.p
+  @inbounds for j in 1:p, i in j:p
+    u = _ridge_entry(W, l, x[i, j], c, i, j)
+    if i != j && !(x isa SymmetricSparseIterate)
+      u = _symmetric_pair(u, _ridge_entry(W, l, x[j, i], c, j, i), i, j)
+    end
+    k = tril_index(p, i, j)
+    _setstored!(g, _getstored(g, k) + u, k)
+  end
+  g
+end
+# a dense output, whose center may broadcast
+_add_ridge_entries!(g::AbstractArray, ::Type{W}, l, ::Nothing, x) where {W} = (g .+= l .* x)
+_add_ridge_entries!(g::AbstractArray, ::Type{W}, l, c, x) where {W} = (g .+= _ridge_entry.(W, l, x, c))
 
 # the point (v + γρc)/(1 + γρ) in y, and the step γ/(1 + γρ) of f
 @inline function _regularize_step(γ::T, ρ::T) where {T}
@@ -767,6 +793,27 @@ function _hessian_vec_unchecked!(Hv::_ArrayOrOwner, r::Regularize, x::_ArrayOrOw
   _add_ridge_direction!(Hv, r.ρ, x, v)
 end
 _add_ridge_direction!(Hv::AbstractArray, ρ, x, v) = (Hv .+= convert(eltype(Hv), ρ) .* _vw(v))
+# a dense output with an owner as the point or the direction: ρ v in the model precision, as for an owner output
+for (X, V) in ((:SymmetricSparseIterate, :Any), (:Any, :SymmetricSparseIterate),
+               (:SymmetricSparseIterate, :SymmetricSparseIterate))
+  @eval _add_ridge_direction!(Hv::AbstractArray, ρ, x::$X, v::$V) =
+    _add_ridge_dense_direction!(Hv, ρ, _scaling_model(eltype(Hv), eltype(x), eltype(v)), v)
+end
+function _add_ridge_dense_direction!(Hv::AbstractArray, ρ, ::Type{W}, v) where {W}
+  if _level_fits(W, ρ)
+    _add_dense_entries!(Hv, convert(W, ρ), W, v)
+  else
+    R = promote_type(W, float(typeof(ρ)))
+    _add_dense_entries!(Hv, convert(R, ρ), R, v)
+  end
+end
+function _add_dense_entries!(Hv::AbstractArray, l, ::Type{R}, v) where {R}
+  w = _vw(v)
+  @inbounds for I in eachindex(Hv, w)
+    Hv[I] += l * convert(R, w[I])
+  end
+  Hv
+end
 # ρ v added to an owner: the level and the entries in the model precision, the wider of the output, the point and
 # the direction, and each entry rounded to the output once, when it is stored; a level that this precision
 # cannot hold is multiplied in a wider type

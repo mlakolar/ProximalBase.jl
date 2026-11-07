@@ -794,6 +794,19 @@ step, such as `γλ`, is a combined expression under T3 and R3. Every route
 treats the step the same way: `prox!`, `value_and_prox!`, [`prox_entry`](@ref)
 and the checks of block functions before they write.
 
+The reciprocal `1/γ` that [`Conjugate`](@ref) needs in Moreau's identity is such
+an expression. It is formed from the stored `γ` in the promotion `P` of the model
+precision (T3) and the step's own type, as `inv(convert(P, γ))`, and is passed on
+in `P`; it is never `inv(γ)` rounded in the step's type first. With the `Float32`
+step `γ = 3f0` and `Float64` arguments and outputs, the quadratic block of
+`Conjugate(SeparableSum(NormL1(), SqrNormL2()))` at the unit input is `1/(1 + 3)`
+to `Float64` accuracy, and the call gives the same bits as the step `3.0`. In a
+`Float32` model with a `Float32` step the reciprocal stays a `Float32`. A step
+whose `Float32` reciprocal would overflow, such as `1f-40`, has a finite
+reciprocal in a `Float64` model. A call on a tuple widens the step once to the
+promotion over all its blocks, so that every block and the check before writing
+form the same reciprocal.
+
 **P3. Diagonal metrics that do not fit in `W`.** Some metrics are not
 representable in `W` after conversion: the `Float64` steps `[1e-50, 2e-50]`
 become zeros in `Float32`, yet define the same projection as `[1, 2]`. Such a

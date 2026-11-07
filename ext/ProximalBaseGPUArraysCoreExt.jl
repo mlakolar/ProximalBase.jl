@@ -71,7 +71,11 @@ end
 
 # Reciprocal steps stay a lazy device broadcast, without indexing their wrapper.
 _steps(γ::AbstractArray, x) = _reshapeparam(γ, x)
-_steps(γ::ProximalBase._ReciprocalArray, x) = broadcasted(inv, _steps(γ.γ, x))
+# each stored step is converted to the element type T of the lazy reciprocal before it is inverted, as
+# its getindex does on the host (#576); a callable of the type, so that the kernel captures no array
+struct _InvAs{T} end
+(::_InvAs{T})(v) where {T} = convert(T, inv(convert(promote_type(T, float(typeof(v))), v)))
+_steps(γ::ProximalBase._ReciprocalArray{T}, x) where {T} = broadcasted(_InvAs{T}(), _steps(γ.γ, x))
 function ProximalBase._prox_sep!(y::AnyGPUArray, f, x::AnyGPUArray, γ::AbstractArray)
   _checkreal(f, γ)
   ProximalBase._checkwrite(prox!, f, y, x)
@@ -595,8 +599,8 @@ function _group_levels(::Type{T}, γ, λ) where {T}
   c = convert(R, γ) * convert(R, λ)
   _level_fits(T, c) && return (one(T), convert(T, c))
   m, e = frexp(c)
-  a = ldexp(one(R), fld(e, 2))
-  b = ldexp(m, e - fld(e, 2))
+  a = ProximalBase.ldexp(one(R), fld(e, 2))      # the exact shift of a BigFloat, as in the package
+  b = ProximalBase.ldexp(m, e - fld(e, 2))
   _level_fits(T, a) && _level_fits(T, b) ? (convert(T, a), convert(T, b)) : (one(T), convert(T, c))
 end
 
@@ -1233,11 +1237,11 @@ function _projection_parts(m::T, q, λ, α, w)::Tuple{T, Int} where {T}
   isinf(w) && return (one(m), 0)
   (iszero(λ) || iszero(α) || iszero(w)) && return (zero(m), 0)
   (iszero(m) || isinf(λ) || isinf(α)) && return (one(m), 0)
-  a, e = frexp(m)
+  a, e = ProximalBase._frexp(m)
   r1, e1 = ProximalBase._projection_scale_parts(α)
-  r2, e2 = frexp(float(λ))
-  r3, e3 = frexp(float(w))
-  r, k = frexp(((r1 * r2) * r3) / (a * sqrt(q)))
+  r2, e2 = ProximalBase._frexp(float(λ))
+  r3, e3 = ProximalBase._frexp(float(w))
+  r, k = ProximalBase._frexp(((r1 * r2) * r3) / (a * sqrt(q)))
   k += e1 + e2 + e3 - e
   k > 1 || (k == 1 && r >= 0.5) ? (one(r), 0) : (r, k)
 end

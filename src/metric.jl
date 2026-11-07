@@ -61,14 +61,26 @@ value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ:
 prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (x = _symmetric_argument(y, x); _value_and_prox_unchecked!(y, f, x, γ); y)
 value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::AbstractVector) = (_checkreal(f, γ); _checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
-# the entrywise reciprocal of an array of steps, without allocating
+# the entrywise reciprocal of an array of steps, without allocating. Its element type T is the
+# promotion of the model precision W and the float type of the steps, as for a scalar step
+# (`_moreau_reciprocal`), and each step is converted to T before it is inverted
 struct _ReciprocalArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}
   γ::A
 end
-_ReciprocalArray(γ::AbstractArray{T, N}) where {T, N} = _ReciprocalArray{float(T), N, typeof(γ)}(γ)
+# An array of steps whose element type is a union or abstract (`Union{Float32, Float64}[...]`) has no
+# concrete promotion: the model precision W stands for it, and each stored step is converted to the
+# promotion of W and its own type before it is inverted, then rounded once to W.
+_reciprocal_type(::Type{W}, ::Type{S}) where {W, S} =
+  (T = promote_type(W, float(S)); isconcretetype(T) ? T : W)
+_ReciprocalArray(::Type{W}, γ::AbstractArray{S, N}) where {W, S, N} =
+  _ReciprocalArray{_reciprocal_type(W, S), N, typeof(γ)}(γ)
+_ReciprocalArray(f, y, x, γ::AbstractArray) = _ReciprocalArray(_moreau_model(f, y, x), γ)
 Base.size(a::_ReciprocalArray) = size(a.γ)
 Base.IndexStyle(::Type{<:_ReciprocalArray}) = IndexLinear()
-Base.@propagate_inbounds Base.getindex(a::_ReciprocalArray{T}, i::Int) where {T} = inv(convert(T, a.γ[i]))
+Base.@propagate_inbounds function Base.getindex(a::_ReciprocalArray{T}, i::Int) where {T}
+  v = a.γ[i]
+  convert(T, inv(convert(promote_type(T, float(typeof(v))), v)))
+end
 
 # functions built from functions pass the steps on, entry by entry
 prox!(y::AbstractArray, h::_ScalarPrecompose, x::AbstractArray, γ::AbstractArray) =
@@ -400,7 +412,7 @@ function _prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::
     y .= x .- z
   else
     z .= x ./ γ
-    _prox_unchecked!(z, c.f, z, _ReciprocalArray(γ))
+    _prox_unchecked!(z, c.f, z, _ReciprocalArray(c.f, z, x, γ))
     _checkmoreau(y, x, z, γ, γ, true)
     y .= x .- _checked_parameter(y, γ) .* z
   end
@@ -441,7 +453,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractA
   T = float(eltype(y))
   p = _array_buffer!(c.scratch, T, x)
   p .= x ./ γ
-  fp = _value_and_prox_unchecked!(p, c.f, p, _ReciprocalArray(γ))
+  fp = _value_and_prox_unchecked!(p, c.f, p, _ReciprocalArray(c.f, p, x, γ))
   _checkmoreau(y, x, p, γ, γ, true)
   y .= x .- _checked_parameter(y, γ) .* p
   _value_at(dot(p, y) - fp, y)

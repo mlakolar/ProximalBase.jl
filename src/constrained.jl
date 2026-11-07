@@ -320,17 +320,54 @@ end
 # `_prox_sep!` is not repeated. Only finite levels and finite nonnegative weights take this route;
 # everything else keeps the generic method, which refuses before writing. The wrappers of the
 # conjugate are not covered: `_check_box_value` and `_box_value_available` are unchanged.
-# Only destinations and weights with conventional one-based indices take this route: the SqrNormL2
-# conjugate value, which recovers an overflowing value, scales through arrays that know their size only.
-_elastic_value_route(f::ElasticNet, y) = isfinite(f.λ1) && isfinite(f.λ2) && _finite_nonneg(f.w) &&
-  !Base.has_offset_axes(y) && _one_based(f.w)
+# The arrays and numbers that the fused value is defined for, decided from their types and axes before
+# anything is written. The route reads and writes with linear indices, converts entries to the promoted
+# floating type of the output, the level and the weights, and recovers an overflowing or underflowing value
+# through `Conjugate(SqrNormL2)`, which scales through arrays that know their size only. It is taken only for
+#   * the output: a host array (an Array, or a view or reshape of one) of Float32 or Float64, a SparseIterate
+#     or a SymmetricSparseIterate, with one-based axes;
+#   * the input: the same representations with a machine-number element type (a Bool, integer or IEEE float),
+#     or the symmetric part that a SymmetricSparseIterate output reads of a matrix that is not symmetric;
+#   * the levels: a machine-number type; the weights: absent, or a host array of a machine-number type, finite,
+#     nonnegative, one-based and not sharing memory with the output (the value reads them after it is written);
+#   * array bounds and array steps: host arrays of a machine-number type with one-based axes; scalar bounds and
+#     steps of any real type;
+#   * the working type float(promote(output, level, weights, ridge)): Float32 or Float64.
+# An abstract or union element type, an offset axis, a device array and every other representation keep the
+# generic method, which refuses before writing; `_checkvalue` of the conjugate has no value to offer.
+const _ElasticArray = Union{_HostArray, SparseIterate, SymmetricSparseIterate}
+_elastic_number(::Type{T}) where {T} = isconcretetype(T) && T <: Union{Base.IEEEFloat, Base.BitInteger, Bool}
+_elastic_output(y) = y isa _ElasticArray && (eltype(y) === Float32 || eltype(y) === Float64) && !Base.has_offset_axes(y)
+_elastic_operand(a) = a isa _ElasticArray && _elastic_number(eltype(a)) && !Base.has_offset_axes(a)
+_elastic_operand(a::_SymmetricPart) = _elastic_operand(a.A)
+_elastic_parameter(::Union{Nothing, Real}) = true
+_elastic_parameter(a::AbstractArray) = a isa _HostArray && _elastic_number(eltype(a)) && !Base.has_offset_axes(a)
+_elastic_working(::Type{T}, f) where {T} = (S = float(promote_type(_shrink_type(T, f), typeof(f.λ2))); S === Float32 || S === Float64)
+_elastic_alias(y, ::Nothing) = false
+_elastic_alias(y, w) = Base.mightalias(y, w)
 _finite_nonneg(::Nothing) = true
 _finite_nonneg(w::AbstractArray) = all(v -> isfinite(v) && v >= 0, w)
-_one_based(::Nothing) = true
-_one_based(w::AbstractArray) = !Base.has_offset_axes(w)
+function _elastic_value_route(c::BoxConstrained{<:Conjugate{<:ElasticNet}}, y, x)
+  f = c.f.f
+  _elastic_output(y) && _elastic_operand(x) && _elastic_number(typeof(f.λ1)) &&
+    _elastic_parameter(f.w) && _elastic_parameter(c.box.l) && _elastic_parameter(c.box.u) &&
+    _elastic_working(eltype(y), f) &&
+    isfinite(f.λ1) && isfinite(f.λ2) && _finite_nonneg(f.w) && !_elastic_alias(y, f.w)
+end
+_elastic_value_route(c, y, x, γ) = _elastic_value_route(c, y, x) && _elastic_parameter(γ)
+# the checks that the generic methods make, except that of the value
+function _elastic_checks(c, y, x, γ)
+  _checkreal(c, γ)
+  _checkreal(c, y); _checkreal(c, x)
+  _checksize(y, x)
+  _checkparams(c, x)
+  _check_box_domain(c, x, γ)
+  _checkparam(γ, x)
+  true
+end
 
 function _checkwrite(op::O, c::BoxConstrained{<:Conjugate{<:ElasticNet}}, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
-  if op === value_and_prox! && _elastic_value_route(c.f.f, y)
+  if op === value_and_prox! && _elastic_value_route(c, y, x)
     _checkreal(c, y); _checkreal(c, x)
     _checksize(y, x)
     _checkparams(c, x)
@@ -339,18 +376,15 @@ function _checkwrite(op::O, c::BoxConstrained{<:Conjugate{<:ElasticNet}}, y::Abs
   invoke(_checkwrite, Tuple{O, BoxConstrained, AbstractArray, AbstractArray}, op, c, y, x)
 end
 @inline function _checkwrite(op::O, c::BoxConstrained{<:Conjugate{<:ElasticNet}}, y::AbstractArray, x::AbstractArray, γ) where {O}
-  if op === value_and_prox! && _elastic_value_route(c.f.f, y)
-    _checkreal(c, γ)
-    _checkwrite(op, c, y, x)
-    _check_box_domain(c, x, γ)
-    _checkparam(γ, x)
-    return true
-  end
+  op === value_and_prox! && _elastic_value_route(c, y, x, γ) && return _elastic_checks(c, y, x, γ)
+  # a refusal does what the generic method does for a value that is not available: the step is checked
+  # as a number, then the arrays; the generic 5-argument method would reach the check above
+  op === value_and_prox! && return (_checkreal(c, γ); invoke(_checkwrite, Tuple{O, BoxConstrained, AbstractArray, AbstractArray}, op, c, y, x))
   invoke(_checkwrite, Tuple{O, BoxConstrained, AbstractArray, AbstractArray, Any}, op, c, y, x, γ)
 end
 function _value_and_prox_box!(y, c::BoxConstrained{<:Conjugate{<:ElasticNet}}, x, γ)
-  _elastic_value_route(c.f.f, y) || return invoke(_value_and_prox_box!, Tuple{Any, BoxConstrained, Any, Any}, y, c, x, γ)
-  _checkwrite(value_and_prox!, c, y, x, γ)
+  _elastic_value_route(c, y, x, γ) || return invoke(_value_and_prox_box!, Tuple{Any, BoxConstrained, Any, Any}, y, c, x, γ)
+  _elastic_checks(c, y, x, γ)
   _prox_sep!(y, c, x, γ)
   _elastic_conjugate_value(c.f.f, y)
 end

@@ -484,4 +484,16 @@ end
   end
 end
 
+@testset "Wrappers around a box with abstract weights refuse before writes" begin
+  x = [5.0, -5.0, 0.5]
+  g = Constrained(Conjugate(ElasticNet(0.5, 0.7, AbstractFloat[1f0, 3.0, 1.0])), IndBox(-2.0, 2.0))
+  c, b = [0.3, -0.2, 0.4], [0.5, 0.25, -1.5]
+  for h in (Scaled(g, 2.5), Translate(g, b), Tilt(g, c, 0.25), Regularize(g, 0.8, c), Precompose(g, 2.0),
+            MoreauEnvelope(g, 0.4), Conjugate(g))
+    @testset "$(nameof(typeof(h)))" begin
+      block_failure(h, x, (value_and_prox! => ArgumentError,))
+    end
+  end
+end
+
 end

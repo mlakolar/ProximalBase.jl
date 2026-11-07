@@ -1,6 +1,7 @@
 module SymmetricOraclesTest
 
 using Test, ProximalBase, LinearAlgebra
+using ..TestUtils: allocs
 
 # the state of an owner: its values, its active coordinates and the arrays behind them
 state(x) = (Matrix(x), nactive(x), copy(activecoordinates(x)), copy(x.nzval), copy(x.nzval2ind), copy(x.ind2nzval))
@@ -146,6 +147,9 @@ end
   @test g[2, 1] == 3d
 end
 
+# ------------------------------------------------------------------------------------------------
+# a kernel that runs over the matrix positions of an owner must read each mirrored pair once and write it once
+
 @testset "a constrained ℓ1 step in place reads each pair once, $T" for T in (Float32, Float64)
   f = Constrained(NormL1(T(1)), IndBallL2(T(10)))
   A = T[1 3; 3 2]
@@ -161,8 +165,7 @@ end
     @test Matrix(prox!(y, f, x, T(0.5))) == ref
   end
   y = SymmetricSparseIterate(A)
-  value_and_prox!(y, f, y, T(0.5))
-  @test (@allocated value_and_prox!(y, f, y, T(0.5))) == 0
+  @test allocs(value_and_prox!, y, f, y, T(0.5)) == 0
 end
 
 @testset "IndBallL0 at every kind of point, $T" for T in (Float32, Float64)
@@ -223,6 +226,86 @@ end
   end
   # a point that is not symmetric, with a set that is not, has a result that an owner cannot hold
   @test_throws ArgumentError prox!(SymmetricSparseIterate(T, 2), IndToeplitz(), T[1 2; 3 4], one(T))
+end
+
+# ------------------------------------------------------------------------------------------------
+# the families of the previous step, through the writable matrix of the owner
+
+function audit_catalog(::Type{T}) where {T}
+  groups = [[1], [2, 4], [3, 7], [5], [6, 8], [9]]      # closed under transposition, for p = 3
+  S = T[1 2 3; 2 4 5; 3 5 6]
+  a = T[1 0.5 -1; 0.5 2 0.25; -1 0.25 1.5]
+  Any[
+    ("NuclearNorm", NuclearNorm(T(0.4)), T(1)), ("IndBallRank", IndBallRank(2), T(1)), ("IndPSD", IndPSD(), T(1)),
+    ("IndPSD rank", IndPSD(rank = 2), T(1)), ("TracePSD", TracePSD(T(0.4)), T(1)),
+    ("SingularValue", SingularValue(NormL1(T(0.4))), T(1)), ("Spectral", Spectral(NormL1(T(0.4))), T(1)),
+    ("NormL2", NormL2(T(0.3)), T(0.7)),
+    ("GroupNormL2", GroupNormL2(T(0.3), groups), T(0.7)), ("GroupNormLinf", GroupNormLinf(T(0.3), groups), T(0.7)),
+    ("SparseGroupNormL2", SparseGroupNormL2(T(0.2), T(0.3), groups), T(0.7)),
+    ("GroupMCP", GroupMCP(T(0.3), groups; a = T(2)), T(0.7)), ("GroupSCAD", GroupSCAD(T(0.3), groups; a = T(3.7)), T(0.7)),
+    ("ball NormL1", Constrained(NormL1(T(0.3)), IndBallL2(T(2))), T(0.7)),
+    ("ball NormL1 inactive", Constrained(NormL1(T(0.3)), IndBallL2(T(20))), T(0.7)),
+    ("sphere NormL1", Constrained(NormL1(T(0.3)), IndSphereL2(T(2))), T(0.7)),
+    ("ball GroupNormL2", Constrained(GroupNormL2(T(0.3), groups), IndBallL2(T(2))), T(0.7)),
+    ("sphere GroupNormL2", Constrained(GroupNormL2(T(0.3), groups), IndSphereL2(T(2))), T(0.7)),
+    ("IndBallL1", IndBallL1(T(3)), T(1)), ("IndBallL2", IndBallL2(T(3)), T(1)), ("IndSphereL2", IndSphereL2(T(3)), T(1)),
+    ("IndSimplex", IndSimplex(T(10); equality = false), T(1)),
+    ("IndBallL0", IndBallL0(3), T(1)), ("IndBallL0 free diagonal", IndBallL0(2; diagonal = false), T(1)),
+    ("IndHyperplane", IndHyperplane(a, T(0.5)), T(1)), ("IndHalfspace", IndHalfspace(a, T(0.5)), T(1)),
+    ("IndHyperslab", IndHyperslab(a, T(-0.5), T(0.5)), T(1)),
+    ("IndToeplitz", IndToeplitz(), T(1)), ("IndToeplitz symmetric", IndToeplitz(symmetric = true), T(1)),
+  ]
+end
+
+dense_reference(f, X, γ) = prox(f, X, γ)
+dense_reference(f::IndBallL0, X, γ) = prox(f, Symmetric(X, :L), γ)
+
+@testset "$name at every kind of point, $T" for T in (Float32, Float64), (name, f, γ) in audit_catalog(T)
+  X = T[1.5 -0.8 0.3; -0.8 0.6 -1.1; 0.3 -1.1 2.2]
+  ref = Matrix(dense_reference(f, X, γ))
+  ref = (ref + ref') / 2
+  rtol = T == Float32 ? 2e-4 : 1e-10
+  atol = T == Float32 ? 2e-4 : 1e-10
+  for kind in (:inplace, :view, :owner, :dense, :symmetric)
+    y = SymmetricSparseIterate(X)
+    x = kind == :inplace ? y : kind == :view ? matrixview(y) : kind == :owner ? SymmetricSparseIterate(X) :
+        kind == :dense ? X : Symmetric(X, :L)
+    kind == :owner && (y = SymmetricSparseIterate(T, 3))
+    @test prox!(y, f, x, γ) === y
+    @test isapprox(Matrix(y), ref; rtol, atol)
+    y = SymmetricSparseIterate(X)
+    x = kind == :inplace ? y : kind == :view ? matrixview(y) : kind == :owner ? SymmetricSparseIterate(X) :
+        kind == :dense ? X : Symmetric(X, :L)
+    kind == :owner && (y = SymmetricSparseIterate(T, 3))
+    # the value of IndToeplitz at an owner is not defined, so the joint call has no owner destination
+    f isa IndToeplitz && continue
+    value_and_prox!(y, f, x, γ)
+    @test isapprox(Matrix(y), ref; rtol, atol)
+  end
+end
+
+@testset "an owner destination keeps its active coordinates at an all-zero result, $T" for T in (Float32, Float64)
+  function with_active_zeros()
+    y = SymmetricSparseIterate(T, 3)
+    fill!(coordinates(y), T(1))
+    fill!(coordinates(y), T(0))
+    y
+  end
+  Z = zeros(T, 3, 3)
+  for (name, f, γ) in audit_catalog(T)
+    # the sphere and the hyperplane have no all-zero projection of a zero point
+    (occursin("sphere", lowercase(name)) || name == "IndHyperplane") && continue
+    y = with_active_zeros()
+    ids = copy(activecoordinates(y))
+    try
+      prox!(y, f, Z, γ)
+    catch err
+      err isa ArgumentError || rethrow()
+      continue
+    end
+    @test nactive(y) == length(ids)
+    @test activecoordinates(y) == ids
+  end
 end
 
 end

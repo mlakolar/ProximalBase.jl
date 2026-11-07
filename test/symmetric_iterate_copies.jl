@@ -332,7 +332,9 @@ end
   # in both nestings (Symmetric(view(A)) and view(Symmetric(A))), in both triangles
   for basekind in (:matrix, :coordinates, :activevalues)
     x = SymmetricSparseIterate(3)
-    fill!(coordinates(x), 2.0)
+    # distinct entries, so that a copy that remaps the indices is caught
+    vals = [2.0, 3.25, 5.5, 7.75, 11.0, 13.25]
+    copyto!(coordinates(x), vals)
     A = basekind === :matrix ? matrixview(x) :
         reshape(view(basekind === :coordinates ? coordinates(x) : activevalues(x), [1, 2, 2, 4]), 2, 2)
     bases = ("direct" => A, "view" => view(A, :, :), "nestedview" => view(view(A, :, :), :, :),
@@ -359,9 +361,9 @@ end
         @test typeof(b) === typeof(a)
         @test isequal(b, a) && Base.mightalias(x, a) && !Base.mightalias(x, b)
         a isa Union{Symmetric, Hermitian} && @test b.uplo == a.uplo
-        fill!(coordinates(x), 3.0)             # a later write of the owner is not seen by the copy
+        copyto!(coordinates(x), vals .+ 100)   # a later write of the owner is not seen by the copy
         @test isequal(b, saved)
-        fill!(coordinates(x), 2.0)
+        copyto!(coordinates(x), vals)
       end
     end
   end

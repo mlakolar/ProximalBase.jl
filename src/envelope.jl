@@ -149,6 +149,7 @@ function _prox_unchecked!(y::_ArrayOrOwner, e::MoreauEnvelope, x::_ArrayOrOwner,
   _checkwrite(prox!, e, y, x)
   P = _envelope_buffer(e, T, x)
   _prox_unchecked!(P, e.f, x, combined)
+  _check_staged_result(y, P)
   yy = _ow(y)
   yy .= _ridge_blend.(_pt(yy, x), P, γ / combined, t / combined)
   y
@@ -166,6 +167,7 @@ function _value_and_prox_unchecked!(y::_ArrayOrOwner, e::MoreauEnvelope, x::_Arr
   P = _envelope_buffer(e, T, x)
   v = _value_and_prox_unchecked!(P, e.f, x, combined)
   a, b = γ / combined, t / combined
+  _check_staged_result(y, P)
   yy = _ow(y)
   yy .= _ridge_blend.(_pt(yy, x), P, a, b)
   _value_at(v + _envelope_energy(_vw(y), P, γ), y)

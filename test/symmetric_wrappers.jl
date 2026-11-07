@@ -4,7 +4,7 @@ module SymmetricWrappersTest
 # BoxConstrained, Sum) and the proximal operators of ZeroFunction, CubeNormL2, SumLargest and IndBallGroupL0 on a
 # SymmetricSparseIterate, against the dense computation on the matrix that it represents.
 
-using Test, ProximalBase, LinearAlgebra
+using Test, ProximalBase, LinearAlgebra, Random
 using ..TestUtils: allocs
 
 const PB = ProximalBase
@@ -190,6 +190,73 @@ end
   f = Conjugate(GroupNormLinf(1.0, groups, w))
   y = SymmetricSparseIterate(fill(7.0, 2, 2)); before = state(y)
   @test_throws ArgumentError prox!(y, f, ones(2, 2), 1.0)
+  @test isequal(state(y), before)
+end
+
+# the points of a call at an owner y: a dense matrix, an owner, the matrix view of the output (y holds the
+# matrix), the view of another owner and a Symmetric wrapper
+function owner_point(kind, A, y)
+  kind == "dense" ? A : kind == "owner" ? SymmetricSparseIterate(A) : kind == "view of the output" ? matrixview(y) :
+  kind == "view" ? matrixview(SymmetricSparseIterate(A)) : Symmetric(A, :L)
+end
+
+@testset "a spectral result reaches an owner up to rounding, $T, p = $p" for T in (Float32, Float64), p in (3, 6)
+  rng = MersenneTwister(100p + sizeof(T))
+  A = randn(rng, T, p, p); A = (A + A') / 2
+  rtol = T == Float32 ? 1e-3 : 1e-10
+  q = p * (p + 1) ÷ 2
+  wrappers = ("Conjugate of NuclearNorm" => Conjugate(NuclearNorm(T(0.4))),
+              "MoreauEnvelope of NuclearNorm" => MoreauEnvelope(NuclearNorm(T(0.4)), T(0.5)),
+              "Precompose of NuclearNorm" => Precompose(NuclearNorm(T(0.4)), T(1)),
+              "SqrDistL2 of IndBallRank" => SqrDistL2(IndBallRank(1), T(0.7)),
+              "DistL2 of IndBallRank" => DistL2(IndBallRank(1), T(0.7)))
+  @testset "$name" for (name, f) in wrappers, op in (prox!, value_and_prox!)
+    ref = zeros(T, p, p)
+    vref = op(ref, f, A, T(0.5))
+    @testset "$kind" for kind in ("dense", "view of the output", "view", "Symmetric", "owner")
+      y = kind == "view of the output" ? SymmetricSparseIterate(A) : SymmetricSparseIterate(T, p)
+      x = owner_point(kind, A, y)
+      # the owner as the point of a wrapper of a spectral function is not defined, but for the conjugate and the scalar
+      # precomposition, which read its matrix (the check of the inner function reads a matrix)
+      if kind == "owner" && !(f isa Union{Conjugate, Precompose})
+        @test_throws MethodError op(y, f, x, T(0.5))
+        continue
+      end
+      v = op(y, f, x, T(0.5))
+      @test isapprox(Matrix(y), ref; rtol, atol = rtol * norm(ref))
+      @test Matrix(y) == Matrix(y)' && nactive(y) == q
+      op === value_and_prox! && @test isapprox(v, vref; rtol = 10rtol, atol = 10rtol)
+    end
+  end
+end
+
+@testset "a wrapper refuses a dense result that is not symmetric before any write, $T" for T in (Float32, Float64)
+  g = GroupNormL2(T(1), [[1], [2], [3], [4]], T[0.1, 0.5, 2.0, 0.1])     # the groups are not closed under transposition
+  C = IndBallGroupL0(0, [[2]])
+  wrappers = ("MoreauEnvelope" => MoreauEnvelope(g, T(0.5)), "Precompose" => Precompose(g, T(1)),
+              "SqrDistL2" => SqrDistL2(C, T(1)), "DistL2" => DistL2(C, T(1)))
+  A = ones(T, 2, 2)
+  @testset "$name" for (name, f) in wrappers, op in (prox!, value_and_prox!)
+    @testset "$kind" for kind in ("dense", "owner", "view of the output", "view", "Symmetric")
+      y = SymmetricSparseIterate(A)
+      if kind != "view of the output"
+        y = SymmetricSparseIterate(T, 2)
+        coordinates(y)[1] = T(5); coordinates(y)[3] = T(-2)     # some active coordinates, one inactive
+      end
+      before = state(y)
+      x = owner_point(kind, A, y)
+      # an owner point is not defined for the wrappers whose inner function has no owner point (MethodError)
+      @test_throws (kind == "owner" && !(f isa Precompose) ? MethodError : ArgumentError) op(y, f, x, T(0.5))
+      @test isequal(state(y), before)
+    end
+    # a dense output takes the result as it is
+    d = zeros(T, 2, 2)
+    @test op(d, f, A, T(0.5)) isa Union{Matrix, Real}
+  end
+  # the same inner function directly at an owner is refused as well
+  y = SymmetricSparseIterate(ones(T, 2, 2)); before = state(y)
+  @test_throws ArgumentError prox!(y, g, ones(T, 2, 2), T(0.5))
+  @test_throws ArgumentError prox!(y, C, ones(T, 2, 2), T(0.5))
   @test isequal(state(y), before)
 end
 

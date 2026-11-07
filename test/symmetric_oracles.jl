@@ -308,4 +308,48 @@ end
   end
 end
 
+@testset "the commit check of a computed matrix is bounded by rounding, $T" for T in (Float32, Float64)
+  e = eps(T)
+  commit(z) = (y = SymmetricSparseIterate(T, size(z, 1)); ProximalBase._stage_commit!(y, z); y)
+  # two triangles that differ by rounding: accepted, and the owner keeps the lower position
+  z = T[2 1; 1 + 2e 3]
+  @test Matrix(commit(z)) == T[2 1+2e; 1+2e 3]
+  z = T[2 1+2e; 1 3]
+  @test Matrix(commit(z)) == T[2 1; 1 3]
+  # a larger asymmetry, one non-finite entry against a different entry, opposite infinities: refused, nothing written
+  for z in (T[1 0.5; 0 1], T[1 1; NaN 1], T[1 NaN; 1 1], T[1 Inf; -Inf 1], T[1 Inf; 1 1], T[1 1; -Inf 1],
+            T[1 1+1000e; 1 1], T[0 0; 1e-30 0])
+    y = SymmetricSparseIterate(T, 2); fill!(coordinates(y), T(7)); before = state(y)
+    @test_throws ArgumentError ProximalBase._stage_commit!(y, z)
+    @test isequal(state(y), before)
+  end
+  # equal non-finite pairs, signed zeros and a zero matrix
+  @test isequal(Matrix(commit(T[NaN 1; 1 NaN])), T[NaN 1; 1 NaN])
+  @test isequal(Matrix(commit(T[1 NaN; NaN 1])), T[1 NaN; NaN 1])
+  @test isequal(Matrix(commit(T[1 Inf; Inf 1])), T[1 Inf; Inf 1])
+  @test Matrix(commit(T[0 -0.0; 0.0 0])) == zeros(T, 2, 2)
+  @test_throws ArgumentError ProximalBase._stage_commit!(SymmetricSparseIterate(T, 2), T[0 e; 0 0])
+  # the band scales with the norm of the finite entries, formed without overflow
+  big = floatmax(T) / 2
+  @test Matrix(commit(T[big 0; 0 big])) == T[big 0; 0 big]
+  zlow = big + big * 2e
+  @test Matrix(commit(T[big big; zlow big])) == T[big zlow; zlow big]
+  @test_throws ArgumentError commit(T[big big; big * (1 + 100e) big])
+  # a larger matrix: p = 6 enlarges the band
+  Z = T.(reshape(1:36, 6, 6)); Z = Z + Z'
+  Z[2, 1] += 20 * e * norm(Z)
+  @test Matrix(commit(Z))[1, 2] == Z[2, 1]
+  Z[2, 1] += 60 * e * norm(Z)
+  @test_throws ArgumentError commit(Z)
+  # the arrays that the user supplies are not relaxed: an exact check still refuses a rounding difference
+  W = fill(T(1), 2, 2); W[2, 1] = 1 + 2e
+  y = SymmetricSparseIterate(T, 2)
+  @test_throws ArgumentError prox!(y, NormL1(T(0.1), W), ones(T, 2, 2), T(0.5))
+  # the check allocates nothing after warm-up
+  z = T[2 1; 1 + 2e 3]
+  y = SymmetricSparseIterate(T, 2)
+  ProximalBase._projection_check_commit(y, z)
+  @test allocs(ProximalBase._projection_check_commit, y, z) == 0
+end
+
 end

@@ -210,6 +210,7 @@ function _value_and_prox_precompose!(y, h::_ScalarPrecompose, x, γ, withvalue::
   T = eltype(z)
   μγ = convert(T, h.μ) * convert(T, γ)
   v = withvalue ? _value_and_prox_unchecked!(z, h.f, z, μγ) : (_prox_unchecked!(z, h.f, z, μγ); zero(T))
+  _check_staged_result(y, z)
   yy = _ow(y)
   yy .= z ./ h.A
   withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _precompose_prox_value(h, y) : v

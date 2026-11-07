@@ -172,6 +172,7 @@ function _prox_unchecked!(y::_ArrayOrOwner, f::SqrDistL2, x::_ArrayOrOwner, γ::
   (iszero(λ) || iszero(step)) && return _assign!(y, x)
   p = _distance_buffer(f, T, x)
   _prox_unchecked!(p, f.f, x, one(T))
+  _check_staged_result(y, p)
   yy = _ow(y)
   yy .= _distance_blend.(_pt(yy, x), p, step, λ)
   y
@@ -186,6 +187,7 @@ function _value_and_prox_unchecked!(y::_ArrayOrOwner, f::SqrDistL2, x::_ArrayOrO
   iszero(λ) && (_assign!(y, x); return zero(T))
   p = _distance_buffer(f, T, x)
   _prox_unchecked!(p, f.f, x, one(T))
+  _check_staged_result(y, p)
   yy = _ow(y)
   yy .= _distance_blend.(_pt(yy, x), p, step, λ)
   _distance_energy(_vw(y), p, λ)
@@ -464,6 +466,7 @@ function _prox_unchecked!(y::_ArrayOrOwner, f::DistL2, x::_ArrayOrOwner, γ::Rea
   T = float(eltype(y))
   p = _distance_buffer(f, T, x)
   _prox_unchecked!(p, f.f, x, one(T))
+  _check_staged_result(y, p)
   _distl2_prox!(y, x, p, γ, f.λ)
 end
 
@@ -475,6 +478,7 @@ function _value_and_prox_unchecked!(y::_ArrayOrOwner, f::DistL2, x::_ArrayOrOwne
   iszero(f.λ) && (_assign!(y, x); return zero(T))
   p = _distance_buffer(f, T, x)
   _prox_unchecked!(p, f.f, x, one(T))
+  _check_staged_result(y, p)
   _distl2_prox!(y, x, p, γ, f.λ)
   m, e = _distl2_parts(_vw(y), p)
   _distl2_value(T, f.λ, m, e)

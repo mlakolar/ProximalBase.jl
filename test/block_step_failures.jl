@@ -129,7 +129,7 @@ end
   @test sprint(showerror, e5) == sprint(showerror, e4)
   y = copy(x)
   @test_throws ArgumentError prox_coordinate!(y, f, k, 1., .2)
-  @test Matrix(y) == Matrix(x) && nnz(y) == 0
+  @test Matrix(y) == Matrix(x) && nactive(y) == 0
 end
 
 end

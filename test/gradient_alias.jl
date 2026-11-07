@@ -18,12 +18,13 @@ function PB.value_and_gradient!(g, f::CustomSquare, x)
   f(x)
 end
 
-function check_alias(f, x)
+# owner_output = false: the function has no gradient into an owner (the owner is the point, with a dense output)
+function check_alias(f, x; owner_output = true)
   before = copy(x)
   reference = gradient(f, x)
   value = f(x)
   for op in (gradient!, value_and_gradient!)
-    @test_throws alias_error op(x, f, x)
+    owner_output && @test_throws alias_error op(x, f, x)
     @test x == before
     g = similar(reference)
     result = op(g, f, x)
@@ -72,7 +73,13 @@ end
     @testset "matrix $(typeof(f))" begin
       input = f isa LogDetLoss ? X + P : X
       check_alias(f, copy(input))
-      check_alias(f, SymmetricSparseIterate(input))
+      # At an owner, the gradients of the families that the contract keeps: the smooth families and their
+      # wrappers. ZeroFunction, LeastSquaresLoss, CubeNormL2, the envelope and the squared distance have none,
+      # and LogDetLoss has a gradient at an owner into a dense output only.
+      kept = !(f isa Union{ZeroFunction, LeastSquaresLoss, MoreauEnvelope, SqrDistL2}) &&
+             !(f isa Sum && any(g -> g isa CubeNormL2, f.fs)) &&
+             !(f isa Regularize && f.f isa ZeroFunction)
+      kept && check_alias(f, SymmetricSparseIterate(input); owner_output = !(f isa LogDetLoss))
     end
   end
 
@@ -85,7 +92,8 @@ end
 @testset "CubeNormL2 documented aliasing" begin
   f = CubeNormL2()
   X = [0.2 0.4; 0.4 0.7]
-  for x in ([0.2, 0.4, 0.6, 0.7], X, SymmetricSparseIterate(X))
+  # an owner is not a gradient point of CubeNormL2, whose aliased gradient would write the point
+  for x in ([0.2, 0.4, 0.6, 0.7], X)
     reference = gradient(f, x)
     value = f(x)
     for op in (gradient!, value_and_gradient!)

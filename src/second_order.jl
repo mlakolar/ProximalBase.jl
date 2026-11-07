@@ -181,23 +181,62 @@ for F in (:ZeroFunction, :LinearFunction, :SqrNormL2, :QuadraticFunction, :KronQ
   end
 end
 
-hessian_vec!(Hv::AbstractArray, f::Union{ZeroFunction, LinearFunction}, x::AbstractArray, v::AbstractArray) =
+hessian_vec!(Hv::AbstractArray, f::ZeroFunction, x::AbstractArray, v::AbstractArray) =
   (_check_second_order_arrays(f, x, Hv, v); _hessian_vec_unchecked!(Hv, f, x, v))
-function _hessian_vec_unchecked!(Hv::AbstractArray, f::Union{ZeroFunction, LinearFunction}, x::AbstractArray, v::AbstractArray)
+function _hessian_vec_unchecked!(Hv::AbstractArray, f::ZeroFunction, x::AbstractArray, v::AbstractArray)
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(f, x)
   fill!(Hv, zero(eltype(Hv)))
 end
-
-hessian_vec!(Hv::AbstractArray, f::SqrNormL2, x::AbstractArray, v::AbstractArray) =
+# The owner of a symmetric matrix as the point, the direction or the output: the zero of the
+# output is written to its active coordinates, as it is to every entry of an array.
+hessian_vec!(Hv::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner, v::_ArrayOrOwner) =
   (_check_second_order_arrays(f, x, Hv, v); _hessian_vec_unchecked!(Hv, f, x, v))
-function _hessian_vec_unchecked!(Hv::AbstractArray, f::SqrNormL2, x::AbstractArray, v::AbstractArray)
+function _hessian_vec_unchecked!(Hv::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner, v::_ArrayOrOwner)
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(f, x)
-  copyto!(Hv, v)
-  Hv .*= convert(eltype(Hv), f.λ)
+  fill!(Hv isa SymmetricSparseIterate ? coordinates(Hv) : Hv, zero(eltype(Hv)))
+  Hv
+end
+
+# λ v, whose symmetric part is written to an owner; an owner direction is read through its matrix
+hessian_vec!(Hv::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner, v::_ArrayOrOwner) =
+  (_check_second_order_arrays(f, x, Hv, v); _hessian_vec_unchecked!(Hv, f, x, v))
+function _hessian_vec_unchecked!(Hv::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner, v::_ArrayOrOwner)
+  _checksize(Hv, x)
+  _checkdirection(v, x)
+  _checkparams(f, x)
+  _scale_direction!(Hv, f.λ, x, v)
+  Hv
+end
+# λ v with the level and the entries in the model precision, the wider of the output, the point and the
+# direction, and each entry rounded to the output once, when it is stored; a level that the model
+# precision cannot hold is multiplied in a wider type (T3, R3)
+_scale_direction!(Hv, λ, x, v) = _scale_direction!(Hv, λ, _scaling_model(eltype(Hv), eltype(x), eltype(v)), x, v)
+# The model precision as a function of the three entry types, with the scaling a method on the precision as a type
+# parameter: the precision is then known when the scaling is compiled, where a `Type` value passed along at run
+# time makes the dispatch and the broadcast over the entries allocate, and the entries are written by a loop.
+Base.@assume_effects :foldable _scaling_model(::Type{D}, ::Type{X}, ::Type{V}) where {D, X, V} =
+  _model_precision(D, X, V)
+function _scale_direction!(Hv, λ, ::Type{W}, x, v) where {W}
+  if _level_fits(W, λ)
+    _scale_entries!(Hv, convert(W, λ), W, v)
+  else
+    R = promote_type(W, float(typeof(λ)))
+    _scale_entries!(Hv, convert(R, λ), R, v)
+  end
+end
+function _scale_entries!(Hv::SymmetricSparseIterate, l, ::Type{R}, v) where {R}
+  _symmetric_coordinates!(Hv, (u, j) -> l * convert(R, u), v)
+end
+function _scale_entries!(Hv::AbstractArray, l, ::Type{R}, v) where {R}
+  w = v isa SymmetricSparseIterate ? matrixview(v) : v
+  @inbounds for I in eachindex(Hv, w)
+    Hv[I] = l * convert(R, w[I])
+  end
+  Hv
 end
 
 function hessian_vec!(Hv::AbstractVector, f::QuadraticFunction, x::AbstractVector, v::AbstractVector)
@@ -222,16 +261,16 @@ function hessian_vec!(Hv::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVec
 end
 
 # A V B, symmetrized when the variable is a symmetric matrix
-hessian_vec!(Hv::AbstractArray, f::KronQuadratic, Θ::AbstractArray, V::AbstractArray) =
+hessian_vec!(Hv::_ArrayOrOwner, f::KronQuadratic, Θ::_ArrayOrOwner, V::_ArrayOrOwner) =
   (_check_second_order_arrays(f, Θ, Hv, V); _hessian_vec_unchecked!(Hv, f, Θ, V))
-function _hessian_vec_unchecked!(Hv::AbstractArray, f::KronQuadratic, Θ::AbstractArray, V::AbstractArray)
+function _hessian_vec_unchecked!(Hv::_ArrayOrOwner, f::KronQuadratic, Θ::_ArrayOrOwner, V::_ArrayOrOwner)
   _checkshape(f, Hv)
   _checkshape(f, Θ)
   D = _densify!(f, V)
   mul!(f.AD, f.A, D)
   mul!(f.W, f.AD, f.B)
   (Θ isa SymmetricSparseIterate || Hv isa SymmetricSparseIterate) && _symmetrize!(f.W)
-  copyto!(Hv, f.W)
+  _store_lower!(Hv, f.W)
 end
 
 ####################################
@@ -593,9 +632,9 @@ _hessian_vec_unchecked!(Hv, s::Scaled, x, v) = _chained(s) ?
 hessian_vec!(Hv, t::Tilt, x, v) =
   (_check_second_order_arrays(t, x, Hv, v); _hessian_vec_unchecked!(Hv, t, x, v))
 _hessian_vec_unchecked!(Hv, t::Tilt, x, v) = (_checkparams(t, x); _hessian_vec_unchecked!(Hv, t.f, x, v))
-hessian_vec!(Hv, t::Translate, x::Union{AbstractArray, Tuple}, v) =
+hessian_vec!(Hv, t::Translate, x::Union{_ArrayOrOwner, Tuple}, v) =
   (_check_second_order_arrays(t, x, Hv, v); _hessian_vec_unchecked!(Hv, t, x, v))
-_hessian_vec_unchecked!(Hv, t::Translate, x::Union{AbstractArray, Tuple}, v) = _hessian_vec_unchecked!(Hv, t.f, _shifted(t, x), v)
+_hessian_vec_unchecked!(Hv, t::Translate, x::Union{_ArrayOrOwner, Tuple}, v) = _hessian_vec_unchecked!(Hv, t.f, _shifted(t, x), v)
 
 # the remaining functions' products added into Hv through the buffer b
 _add_hessian_vecs!(Hv, b, x, v, ::Tuple{}) = Hv
@@ -605,9 +644,9 @@ function _add_hessian_vecs!(Hv, b, x, v, fs::Tuple)
   _add_hessian_vecs!(Hv, b, x, v, Base.tail(fs))
 end
 
-hessian_vec!(Hv::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple}, v::Union{AbstractArray, Tuple}) =
+hessian_vec!(Hv::Union{_ArrayOrOwner, Tuple}, s::Sum, x::Union{_ArrayOrOwner, Tuple}, v::Union{_ArrayOrOwner, Tuple}) =
   (_check_second_order_arrays(s, x, Hv, v); _hessian_vec_unchecked!(Hv, s, x, v))
-function _hessian_vec_unchecked!(Hv::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple}, v::Union{AbstractArray, Tuple})
+function _hessian_vec_unchecked!(Hv::Union{_ArrayOrOwner, Tuple}, s::Sum, x::Union{_ArrayOrOwner, Tuple}, v::Union{_ArrayOrOwner, Tuple})
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(s, x)
@@ -634,9 +673,9 @@ _quadratic_model_unchecked(t::Tilt, x) = (_checkreal(t, x); _check_tilt_model(t,
 # a tuple of coefficients pairs with the point block by block
 _check_tilt_model(t::Tilt, x) = true
 _check_tilt_model(t::Tilt, x::Tuple) = _checkparam(t.c, x)
-quadratic_model(t::Translate, x::Union{AbstractArray, Tuple}) =
+quadratic_model(t::Translate, x::Union{_ArrayOrOwner, Tuple}) =
   (_check_second_order_arrays(t, x); _quadratic_model_unchecked(t, x))
-_quadratic_model_unchecked(t::Translate, x::Union{AbstractArray, Tuple}) = Translate(_quadratic_model_unchecked(t.f, _shifted(t, x)), t.b)
+_quadratic_model_unchecked(t::Translate, x::Union{_ArrayOrOwner, Tuple}) = Translate(_quadratic_model_unchecked(t.f, _shifted(t, x)), t.b)
 quadratic_model(s::Sum, x) =
   (_check_second_order_arrays(s, x); _quadratic_model_unchecked(s, x))
 _quadratic_model_unchecked(s::Sum, x) = Sum(map(f -> _quadratic_model_unchecked(f, x), s.fs)...)
@@ -651,9 +690,9 @@ _quadratic_model_unchecked!(q::Scaled, s::Scaled, x) = (_quadratic_model_uncheck
 quadratic_model!(q::Tilt, t::Tilt, x) =
   (_check_second_order_arrays(t, x); _quadratic_model_unchecked!(q, t, x))
 _quadratic_model_unchecked!(q::Tilt, t::Tilt, x) = (_checkreal(t, x); _check_tilt_model(t, x); _quadratic_model_unchecked!(q.f, t.f, x); q)
-quadratic_model!(q::Translate, t::Translate, x::Union{AbstractArray, Tuple}) =
+quadratic_model!(q::Translate, t::Translate, x::Union{_ArrayOrOwner, Tuple}) =
   (_check_second_order_arrays(t, x); _quadratic_model_unchecked!(q, t, x))
-_quadratic_model_unchecked!(q::Translate, t::Translate, x::Union{AbstractArray, Tuple}) = (_quadratic_model_unchecked!(q.f, t.f, _shifted(t, x)); q)
+_quadratic_model_unchecked!(q::Translate, t::Translate, x::Union{_ArrayOrOwner, Tuple}) = (_quadratic_model_unchecked!(q.f, t.f, _shifted(t, x)); q)
 quadratic_model!(q::Sum, s::Sum, x) =
   (_check_second_order_arrays(s, x); _quadratic_model_unchecked!(q, s, x))
 _quadratic_model_unchecked!(q::Sum, s::Sum, x) =
@@ -679,3 +718,11 @@ end
   _blocktuple(k -> :(_quadratic_model_unchecked(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)))
 @generated _quadratic_blocks!(qs::Tuple, fs::Tuple, x::Tuple) =
   _blockwise(k -> :(_quadratic_model_unchecked!(qs[$k], fs[$k], x[$k])), min(fieldcount(qs), fieldcount(fs), fieldcount(x)), nothing)
+
+# The product of the Hessian of a LogDetLoss with an owner of a symmetric matrix as the point or the
+# direction: a dense output.
+hessian_vec!(Hv::AbstractMatrix, f::LogDetLoss, X::SymmetricSparseIterate, V::_MatrixOrOwner) =
+  hessian_vec!(Hv, f, matrixview(X), V isa SymmetricSparseIterate ? matrixview(V) : V)
+hessian_vec!(Hv::AbstractMatrix, f::LogDetLoss, X::AbstractMatrix, V::SymmetricSparseIterate) =
+  hessian_vec!(Hv, f, X, matrixview(V))
+hessian_vec(f::LogDetLoss, X::SymmetricSparseIterate, V::_MatrixOrOwner) = hessian_vec!(_gradient_buffer(X), f, X, V)

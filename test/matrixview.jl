@@ -14,7 +14,8 @@ using Test, ProximalBase, LinearAlgebra, SparseArrays
   @test A[1, 2] == A[2, 1] == 3.0
   @test nactive(X) == 1
   @test sum(abs, θ) == 3.0
-  @test NormL1(1.0)(X) == 6.0
+  @test NormL1(1.0)(X) == 6.0                    # the owner and its matrix count both positions
+  @test NormL1(1.0)(A) == 6.0
 
   B = Matrix(X)
   θ[tril_index(3, 2, 1)] = 5.0
@@ -231,11 +232,9 @@ end
   @test_throws ArgumentError mul!(zeros(3), A, ones(3), 1.0 + 2.0im, 0.0)
 end
 
-# Limitation inherited from the owner, to be resolved with the 0.6 owner (Phase 1c of #391):
-# a stored explicit zero multiplies a non-finite entry of v, an absent coordinate does not, so
-# dropzeros! changes the product although the matrix is unchanged. The contract requires the
-# same result, or the same documented error, before and after dropzeros!.
-@testset "matrixview: non-finite vector and a stored zero (known limitation)" begin
+# A coefficient of the owner that is zero contributes nothing: a stored explicit zero does not
+# multiply a non-finite entry of v, and dropzeros! leaves the product unchanged.
+@testset "matrixview: non-finite vector and a stored zero" begin
   v = [Inf, 1.0, 0.0]
   for form in (:three, :five)
     X = SymmetricSparseIterate(Float64, 3)
@@ -248,8 +247,7 @@ end
     after = run!()
     @test nactive(X) == 1
     @test after == [1.0, Inf, 0.0]
-    @test isnan(before[3])                           # documents today's behavior
-    @test_broken isequal(before, after)              # the contract: unchanged by compaction
+    @test isequal(before, after)                     # unchanged by compaction
   end
 end
 
@@ -298,7 +296,7 @@ end
   coordinates(X)[2] = 4.0
   coordinates(X)[6] = -1.0
   av = activevalues(X)
-  @test av == X.nzval[1:nnz(X)]
+  @test av == X.nzval[1:nactive(X)]
   # a view taken earlier keeps its length when a coordinate becomes active
   coordinates(X)[1] = 9.0
   @test length(av) == 2 && length(activevalues(X)) == 3

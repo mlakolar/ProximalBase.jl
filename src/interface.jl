@@ -41,6 +41,19 @@ See [Symmetric parameters](@ref) for which arrays must be symmetric and which ca
 """
 abstract type AbstractFunction end
 
+# Where the oracles of the families that support it take either an array or the owner of a
+# symmetric matrix. The owner is not an array: a method that is not written with this type, or with
+# the owner, does not accept it.
+const _ArrayOrOwner = Union{AbstractArray, SymmetricSparseIterate}
+
+# A matrix, or the owner of one: the destination or the point of the oracles of the families that
+# are defined on matrices and write whole results (a spectral function, a set of matrices)
+const _MatrixOrOwner = Union{AbstractMatrix, SymmetricSparseIterate}
+
+# the number of entries of the array, or of the matrix that the owner represents
+_nentries(x::AbstractArray) = length(x)
+_nentries(x::SymmetricSparseIterate) = x.p^2
+
 function value_and_prox! end
 function gradient! end
 function hessian_vec! end
@@ -123,7 +136,9 @@ Store the proximal operator
 in `y` and return `y`. For a nonconvex `f` the result is one of the minimizers.
 
 The output may be the argument itself: `prox!(x, f, x, γ)` works for every
-function. Any other sharing of memory between `y` and `x` is not supported and
+function. A [`SymmetricSparseIterate`](@ref) output takes a scalar step `γ`, the Frobenius
+proximal operator of the symmetric matrix; an array or per-group step is an `ArgumentError`
+before anything is written (use `Matrix(x)` or `matrixview(x)` with a dense output). Any other sharing of memory between `y` and `x` is not supported and
 is not detected, even when the two cover the same entries: a call such as
 `prox!(view(x, :), f, x, γ)`, or with a shifted or reversed view of `x`, can
 return wrong values without an error. Copy the argument first, as in
@@ -136,7 +151,8 @@ prox!(y, f::AbstractFunction, x) = prox!(y, f, x, 1)
 """
     prox(f, x, γ = 1)
 
-Allocating version of [`prox!`](@ref).
+Allocating version of [`prox!`](@ref). For a [`SymmetricSparseIterate`](@ref) `x` the result is an
+independent `SymmetricSparseIterate` of the float element type, and `γ` is a scalar.
 """
 prox(f::AbstractFunction, x::AbstractArray, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
 # a Symmetric or Hermitian wrapper does not accept off-diagonal writes: a dense result
@@ -193,7 +209,7 @@ For a [`SeparableFunction`](@ref) `WeightedSquare` with a weight vector `w`:
 
 ```julia
 function ProximalBase.check_parameters(f::WeightedSquare, x)
-  length(f.w) == length(x) || throw(DimensionMismatch("a parameter array has length \$(length(f.w)) and the argument has length \$(length(x))"))
+  length(f.w) == prod(size(x)) || throw(DimensionMismatch("a parameter array has length \$(length(f.w)) and the argument has \$(prod(size(x))) entries"))
   nothing
 end
 ```
@@ -296,7 +312,8 @@ _checkconjugate(f, y) = (_checkreal(f, y); true)
 
 Store the gradient of `f` at `x` in `g` and return `g`.
 `g` must not be `x` unless the function documents otherwise; built-in functions
-throw an `ArgumentError`.
+throw an `ArgumentError`. A [`SymmetricSparseIterate`](@ref) `g` receives the symmetric part
+of the gradient, the derivative over symmetric matrices.
 """
 gradient!(g, f::AbstractFunction, x) =
   (_check_oracle_arrays(gradient!, f, g, x); _gradient_body!(g, f, x))
@@ -318,8 +335,9 @@ throw an `ArgumentError`.
 """
 function value_and_gradient! end
 
-# a dense array for the gradient at x, also when x is a sparse iterate
+# a dense array for the gradient at x, also when x is a sparse iterate or the owner of a symmetric matrix
 _gradient_buffer(x::AbstractArray) = similar(Array{float(eltype(x))}, axes(x))
+_gradient_buffer(x::SymmetricSparseIterate) = Matrix{float(eltype(x))}(undef, size(x))
 @generated _gradient_buffer(x::Tuple) = _blocktuple(k -> :(_gradient_buffer(x[$k])), fieldcount(x))
 
 _prox_buffer(x::AbstractArray) = similar(x, float(eltype(x)))
@@ -338,7 +356,8 @@ prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = prox!(_prox_buffer(x), f, x,
 """
     gradient(f, x)
 
-Allocating version of [`gradient!`](@ref).
+Allocating version of [`gradient!`](@ref). At a [`SymmetricSparseIterate`](@ref) the gradient
+is a new dense, exactly symmetric `Matrix`, not an iterate.
 """
 gradient(f::AbstractFunction, x::AbstractArray) = gradient!(_gradient_buffer(x), f, x)
 gradient(f::AbstractFunction, x::Tuple) = gradient!(_gradient_buffer(x), f, x)

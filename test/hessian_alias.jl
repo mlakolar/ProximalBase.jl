@@ -70,7 +70,9 @@ end
             Regularize(SqrNormL2(), 1.0), Regularize(SqrNormL2(), 1.0, C))
     @testset "matrix $(typeof(f))" begin
       check_alias(f, copy(X), copy(V))
-      check_alias(f, SymmetricSparseIterate(X), SymmetricSparseIterate(V))
+      # ZeroFunction and LeastSquaresLoss have no products at an owner
+      f isa Union{ZeroFunction, LeastSquaresLoss} ||
+        check_alias(f, SymmetricSparseIterate(X), SymmetricSparseIterate(V))
     end
   end
 

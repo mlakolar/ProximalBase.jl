@@ -63,7 +63,7 @@ iszeropreserving(f::SqrDistL2) = isseparable(f) && (iszero(f.λ) || iszeropreser
 _zero_scaled(::SqrDistL2) = ZeroFunction()
 _checkparams(f::SqrDistL2, x) = _checkparams(f.f, x)
 
-function _checkwrite(op::O, f::SqrDistL2, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+function _checkwrite(op::O, f::SqrDistL2, y::_ArrayOrOwner, x::_ArrayOrOwner) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
   _checkreal(f, x)
   _checkreal(f, y)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
@@ -78,7 +78,7 @@ function _checkwrite(op::O, f::SqrDistL2, y::AbstractArray, x::AbstractArray) wh
   true
 end
 
-_distance_buffer(f::SqrDistL2, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(f.scratch, T, size(x))
+_distance_buffer(f::SqrDistL2, ::Type{T}, x::_ArrayOrOwner) where {T} = _array_buffer!(f.scratch, T, size(x))
 
 # Scale the distance before squaring, without taking the reciprocal of λ.
 # Scale endpoints separately only when their subtraction itself overflows.
@@ -100,16 +100,16 @@ end
   isfinite(d) ? λ * d : λ * x - λ * p
 end
 
-(f::SqrDistL2)(x::AbstractArray) =
+(f::SqrDistL2)(x::_ArrayOrOwner) =
   (_check_value_arrays(f, x); _value_checked(f, x))
-function _value_unchecked(f::SqrDistL2, x::AbstractArray)
+function _value_unchecked(f::SqrDistL2, x::_ArrayOrOwner)
   _checkwrite(prox!, f, x, x)
   T = float(eltype(x))
   λ = convert(T, f.λ)
   iszero(λ) && return zero(T)
   p = _distance_buffer(f, T, x)
   _prox_unchecked!(p, f.f, x, one(T))
-  _distance_energy(x, p, λ)
+  _distance_energy(_vw(x), p, λ)
 end
 
 value_and_gradient!(g::AbstractArray, f::SqrDistL2, x::AbstractArray) =
@@ -163,29 +163,32 @@ end
   p + correction
 end
 
-prox!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real) =
+prox!(y::_ArrayOrOwner, f::SqrDistL2, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
-function _prox_unchecked!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real)
+function _prox_unchecked!(y::_ArrayOrOwner, f::SqrDistL2, x::_ArrayOrOwner, γ::Real)
   _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   λ, step = convert(T, f.λ), convert(T, γ)
-  (iszero(λ) || iszero(step)) && return copyto!(y, x)
+  (iszero(λ) || iszero(step)) && return _assign!(y, x)
   p = _distance_buffer(f, T, x)
   _prox_unchecked!(p, f.f, x, one(T))
-  y .= _distance_blend.(x, p, step, λ)
+  yy = _ow(y)
+  yy .= _distance_blend.(_pt(yy, x), p, step, λ)
+  y
 end
 
-value_and_prox!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real) =
+value_and_prox!(y::_ArrayOrOwner, f::SqrDistL2, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_unchecked!(y, f, x, γ))
-function _value_and_prox_unchecked!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real)
+function _value_and_prox_unchecked!(y::_ArrayOrOwner, f::SqrDistL2, x::_ArrayOrOwner, γ::Real)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
   λ, step = convert(T, f.λ), convert(T, γ)
-  iszero(λ) && (copyto!(y, x); return zero(T))
+  iszero(λ) && (_assign!(y, x); return zero(T))
   p = _distance_buffer(f, T, x)
   _prox_unchecked!(p, f.f, x, one(T))
-  y .= _distance_blend.(x, p, step, λ)
-  _distance_energy(y, p, λ)
+  yy = _ow(y)
+  yy .= _distance_blend.(_pt(yy, x), p, step, λ)
+  _distance_energy(_vw(y), p, λ)
 end
 
 Base.@propagate_inbounds function prox_entry(f::SqrDistL2, v::Real, i::Integer, γ::Real)
@@ -270,7 +273,7 @@ isconvex(::Type{<:DistL2{F}}) where {F} = isconvex(F)
 _zero_scaled(::DistL2) = ZeroFunction()
 _checkparams(f::DistL2, x) = _checkparams(f.f, x)
 
-function _checkwrite(op::O, f::DistL2, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+function _checkwrite(op::O, f::DistL2, y::_ArrayOrOwner, x::_ArrayOrOwner) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checkreal(f, x)
   _checkreal(f, y)
   _checksize(y, x)
@@ -281,7 +284,7 @@ function _checkwrite(op::O, f::DistL2, y::AbstractArray, x::AbstractArray) where
   true
 end
 
-_distance_buffer(f::DistL2, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(f.scratch, T, size(x))
+_distance_buffer(f::DistL2, ::Type{T}, x::_ArrayOrOwner) where {T} = _array_buffer!(f.scratch, T, size(x))
 
 @inline _distl2_ldexp(x::Real, e::Integer) = ldexp(x, e)
 
@@ -312,15 +315,15 @@ end
   T(ldexp(a * m, k + e))
 end
 
-(f::DistL2)(x::AbstractArray) =
+(f::DistL2)(x::_ArrayOrOwner) =
   (_check_value_arrays(f, x); _value_checked(f, x))
-function _value_unchecked(f::DistL2, x::AbstractArray)
+function _value_unchecked(f::DistL2, x::_ArrayOrOwner)
   _checkwrite(prox!, f, x, x)
   T = float(eltype(x))
   iszero(f.λ) && return zero(T)
   p = _distance_buffer(f, T, x)
   _prox_unchecked!(p, f.f, x, one(T))
-  m, e = _distl2_parts(x, p)
+  m, e = _distl2_parts(_vw(x), p)
   _distl2_value(T, f.λ, m, e)
 end
 
@@ -416,8 +419,10 @@ function _distl2_margin(x, p, gm::S, lm::S, k::Integer, e::Integer) where {S}
   (s - q) + (err - (fma(t, t, -q) + 2t * r + r * r)), t
 end
 
-function _distl2_prox!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ::Real, λ::Real)
-  iszero(γ) && return copyto!(y, x)
+function _distl2_prox!(y::_ArrayOrOwner, x0::_ArrayOrOwner, p::AbstractArray, γ::Real, λ::Real)
+  yy = _ow(y)
+  x = _pt(yy, x0)
+  iszero(γ) && return _assign!(y, x0)
   S = promote_type(float(eltype(x)), float(eltype(y)), typeof(float(γ)), typeof(float(λ)))
   dm, de = _distl2_parts(x, p)
   gm, ge = _frexp(S(γ))
@@ -438,38 +443,39 @@ function _distl2_prox!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ:
       refined = true
     end
   end
-  snap && return copyto!(y, p)
+  snap && return _assign!(y, p)
   if !isfinite(dm) || !isfinite(tm)
-    y .= x .+ (tm / dm) .* (p .- x)
+    yy .= x .+ (tm / dm) .* (p .- x)
     return y
   end
   m, e = _frexp(tm / S(dm))
   e += te - de
   b = refined ? one(S) - a : ldexp(m, e)
   refined || (a = (S(dm) - ldexp(tm, te - de)) / S(dm))
-  y .= _distl2_blend.(x, p, a, b, m, e)
+  yy .= _distl2_blend.(x, p, a, b, m, e)
+  y
 end
 
-prox!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real) =
+prox!(y::_ArrayOrOwner, f::DistL2, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
-function _prox_unchecked!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real)
+function _prox_unchecked!(y::_ArrayOrOwner, f::DistL2, x::_ArrayOrOwner, γ::Real)
   _checkwrite(prox!, f, y, x)
-  (iszero(f.λ) || iszero(γ)) && return copyto!(y, x)
+  (iszero(f.λ) || iszero(γ)) && return _assign!(y, x)
   T = float(eltype(y))
   p = _distance_buffer(f, T, x)
   _prox_unchecked!(p, f.f, x, one(T))
   _distl2_prox!(y, x, p, γ, f.λ)
 end
 
-value_and_prox!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real) =
+value_and_prox!(y::_ArrayOrOwner, f::DistL2, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_unchecked!(y, f, x, γ))
-function _value_and_prox_unchecked!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real)
+function _value_and_prox_unchecked!(y::_ArrayOrOwner, f::DistL2, x::_ArrayOrOwner, γ::Real)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
-  iszero(f.λ) && (copyto!(y, x); return zero(T))
+  iszero(f.λ) && (_assign!(y, x); return zero(T))
   p = _distance_buffer(f, T, x)
   _prox_unchecked!(p, f.f, x, one(T))
   _distl2_prox!(y, x, p, γ, f.λ)
-  m, e = _distl2_parts(y, p)
+  m, e = _distl2_parts(_vw(y), p)
   _distl2_value(T, f.λ, m, e)
 end

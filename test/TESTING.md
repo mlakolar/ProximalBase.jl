@@ -98,7 +98,9 @@ outputs, JLArrays and the wrappers, about 60,000 assertions, beside its siblings
 `nested_scaled_values` (standard) holds the values of nested `Scaled` chains whose product does not
 fold into a normal level, a grid over the levelled families and the wrappers that fold them in both
 directions and in Float32 and Float64, and the fused values at the stored output, next to
-`nested_scaled`: a few seconds, with no grid that would need the thorough tier.
+`nested_scaled`: a few seconds, with no grid that would need the thorough tier. `bigfloat_integer_operands` (standard) holds the exact integer operands of BigFloat
+arithmetic in `NormL1Fused` and the pooling of `IndIsotonic` and `SLOPE`, at precisions of two to five bits where the
+platform decides whether an integer such as 5 is rounded: a few seconds, with no large grid.
 
 ## Measured times on GitHub
 

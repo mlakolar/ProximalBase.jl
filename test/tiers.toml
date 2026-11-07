@@ -46,6 +46,7 @@ quick = [
   "nested_box_values",
   "sets",
   "lmo",
+  "lmo_atoms",
   "spectral",
   "spectralfunction",
   # precision, boundaries, non-finite values, validation before writes
@@ -65,6 +66,7 @@ quick = [
 # Most function families, wrappers, constraints and the examples.
 standard = [
   "affine",
+  "bigfloat_integer_operands",
   "ballconstrained",
   "indicator_steps",
   "direct_projection_infinite",

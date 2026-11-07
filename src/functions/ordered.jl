@@ -261,7 +261,7 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
     s[nb] = e
     c[nb] = 1
     # the means of the last two blocks out of order: s₁/c₁ > s₂/c₂, times σ
-    while nb > 1 && σ * (s[nb - 1] * c[nb] - s[nb] * c[nb - 1]) > 0
+    while nb > 1 && σ * (_int_mul(s[nb - 1], c[nb]) - _int_mul(s[nb], c[nb - 1])) > 0
       s[nb - 1] += s[nb]
       c[nb - 1] += c[nb]
       nb -= 1
@@ -275,7 +275,7 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
   end
   i = 0
   @inbounds for b in 1:nb
-    m = s[b] / c[b]
+    m = _int_div(s[b], c[b])
     for _ in 1:c[b]
       i += 1
       y[i] = m
@@ -298,7 +298,7 @@ function _pava_means!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vec
     m[nb] = convert(W, v[i])
     c[nb] = 1
     while nb > 1 && (σ > 0 ? m[nb - 1] > m[nb] : m[nb - 1] < m[nb])
-      m[nb - 1] = _convex_mean(m[nb - 1], m[nb], W(c[nb - 1]), W(c[nb]))
+      m[nb - 1] = _pooled_mean(m[nb - 1], m[nb], c[nb - 1], c[nb], W)
       c[nb - 1] += c[nb]
       nb -= 1
     end
@@ -318,6 +318,19 @@ end
 @inline function _convex_mean(a, b, wa, wb)
   t = wa + wb
   clamp(a * (wa / t) + b * (wb / t), min(a, b), max(a, b))
+end
+
+# the mean of two blocks of ca and cb entries with the means a and b, in the working type W
+@inline _pooled_mean(a, b, ca, cb, ::Type{W}) where {W} = _convex_mean(a, b, W(ca), W(cb))
+# For a BigFloat the counts are exact: W(ca) + W(cb) would round the counts and their sum to the working
+# precision (3 + 2 is 4 at two bits), and the weights would not add to one. Each weight is one rounding of
+# the exact quotient ca / (ca + cb) (the numerator is held in 64 bits, the counts are below 2^63), and the
+# mean keeps the convex form, clamped into the interval of the two means, so that no product overflows.
+@inline function _pooled_mean(a::BigFloat, b::BigFloat, ca::Int, cb::Int, ::Type{BigFloat})
+  t = ca + cb
+  wa = _int_div(BigFloat(ca; precision = 64), t)
+  wb = _int_div(BigFloat(cb; precision = 64), t)
+  clamp(a * wa + b * wb, min(a, b), max(a, b))
 end
 
 # Weighted isotonic regression of x into y, with weights γmin/γᵢ and direction

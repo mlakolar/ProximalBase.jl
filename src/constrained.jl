@@ -312,42 +312,37 @@ end
   true
 end
 
-# The conjugate of an elastic net has no standalone value, but on a box the value at the stored
-# output y is known in closed form: for f = ElasticNet(λ1, λ2, w) and λ2 > 0,
-# f*(y) = Σᵢ max(|yᵢ| - λ1 wᵢ, 0)² / (2 λ2), the SqrNormL2(λ2) conjugate at the soft-thresholded y;
-# for λ2 = 0, f* is the indicator of |yᵢ| ≤ λ1 wᵢ, the NormL1 conjugate. The value is taken at the
-# clamped proximal point y that is stored, not at the proximal point of the inner function, and
-# `_prox_sep!` is not repeated. Only finite levels and finite nonnegative weights take this route;
-# everything else keeps the generic method, which refuses before writing. The wrappers of the
-# conjugate are not covered: `_check_box_value` and `_box_value_available` are unchanged.
-# The value of the conjugate at the stored output is taken only for the representations below, decided from their
-# types before anything is written or indexed; every other combination keeps the generic method, which refuses
-# before writing (`_checkvalue` of the conjugate has no value to offer). The route reads and writes with linear
-# indices and recovers an overflowing or underflowing value through `Conjugate(SqrNormL2)`, which scales through
-# arrays that know their size only, so an array is accepted only as itself, never through a view, a reshape or a
-# wrapper, whose storage it would have to inspect:
+# The conjugate of an elastic net has no standalone value, but on a box the value at the stored output y is known
+# in closed form: for f = ElasticNet(λ1, λ2, w) and λ2 > 0, f*(y) = Σᵢ max(|yᵢ| - λ1 wᵢ, 0)² / (2 λ2), the
+# SqrNormL2(λ2) conjugate at the soft-thresholded y; for λ2 = 0, f* is the indicator of |yᵢ| ≤ λ1 wᵢ, the NormL1
+# conjugate. The value is taken at the clamped proximal point y that is stored (`_prox_sep!` is not repeated), and
+# only for the combinations below, decided from types before anything is written or indexed; every other
+# combination keeps the generic method, which refuses before writing (`_checkvalue` of the conjugate has no value
+# to offer). The route reads and writes with linear indices and recovers an overflowing or underflowing value
+# through `Conjugate(SqrNormL2)`, which scales through arrays that know their size only, so an array is accepted
+# only as itself, never through a view, a reshape or a wrapper, whose storage it would have to inspect:
 #   * the output: an Array of Float32 or Float64, a SparseIterate or a SymmetricSparseIterate (all one-based);
 #   * the input: an Array, a SparseIterate or a SymmetricSparseIterate of a machine-number element type (Bool, an
 #     integer or an IEEE float), or the symmetric part that a SymmetricSparseIterate output reads of a matrix;
-#   * the levels: scalars of a machine-number type as stored, finite, with an ElasticNet declared as Real or
-#     as a machine-number type; the weights: absent, or an Array of a machine-number type, finite, nonnegative and
-#     not sharing memory with the output (the value reads them after the output is written);
-#   * bounds and steps: scalars, or Arrays of a machine-number type;
+#   * the function: an ElasticNet declared with a machine-number type for its levels and with Nothing or a concrete
+#     Array type for its weights, so that no abstract or union type reaches the working type; finite levels of
+#     that type; weights absent, or an Array of a machine-number type, finite, nonnegative and not sharing memory
+#     with the output (the value reads them after the output is written);
+#   * bounds and steps: machine-number scalars, or Arrays of a machine-number type;
 #   * the working type float(promote(output, level, weights, ridge)): Float32 or Float64.
 _elastic_number(::Type{T}) where {T} = isconcretetype(T) && T <: Union{Base.IEEEFloat, Base.BitInteger, Bool}
 _elastic_array(a) = a isa Array || a isa SparseIterate || a isa SymmetricSparseIterate
 _elastic_output(y) = _elastic_array(y) && (eltype(y) === Float32 || eltype(y) === Float64)
 _elastic_operand(a) = _elastic_array(a) && _elastic_number(eltype(a))
 _elastic_operand(a::_SymmetricPart) = _elastic_operand(a.A)
-_elastic_parameter(::Union{Nothing, Real}) = true
+_elastic_parameter(x::Real) = _elastic_number(typeof(x))
 _elastic_parameter(a::Array) = _elastic_number(eltype(a))
 _elastic_parameter(::Any) = false
-# the declared level S is Real or a machine-number type and the declared weights W are Nothing or an array type:
-# only type parameters are read, so no `float` of a union or of an abstract type is taken
-function _elastic_declared(f::ElasticNet)
-  S, W = typeof(f).parameters
-  (S === Real || _elastic_number(S)) && (W === Nothing || W <: AbstractArray)
-end
+_elastic_weights(::Nothing) = true
+_elastic_weights(w::Array) = _elastic_number(eltype(w))
+_elastic_weights(::Any) = false
+# only the type parameters are read, so no `float` of a union or of an abstract type is ever taken
+_elastic_declared(::ElasticNet{S, W}) where {S, W} = _elastic_number(S) && (W === Nothing || (W <: Array && isconcretetype(W)))
 _elastic_working(::Type{T}, f) where {T} = (S = float(promote_type(_shrink_type(T, f), typeof(f.λ2))); S === Float32 || S === Float64)
 _elastic_alias(y, ::Nothing) = false
 _elastic_alias(y, w) = Base.mightalias(y, w)
@@ -356,7 +351,7 @@ _finite_nonneg(w::Array) = all(v -> isfinite(v) && v >= 0, w)
 function _elastic_value_route(c::BoxConstrained{<:Conjugate{<:ElasticNet}}, y, x)
   f = c.f.f
   _elastic_output(y) && _elastic_operand(x) && _elastic_number(typeof(f.λ1)) && _elastic_number(typeof(f.λ2)) &&
-    _elastic_declared(f) && _elastic_parameter(f.w) && _elastic_parameter(c.box.l) && _elastic_parameter(c.box.u) &&
+    _elastic_declared(f) && _elastic_weights(f.w) && _elastic_parameter(c.box.l) && _elastic_parameter(c.box.u) &&
     _elastic_working(eltype(y), f) &&
     isfinite(f.λ1) && isfinite(f.λ2) && _finite_nonneg(f.w) && !_elastic_alias(y, f.w)
 end

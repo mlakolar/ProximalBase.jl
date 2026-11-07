@@ -303,6 +303,22 @@ Base.length(::CountingRange) = 2
 Base.size(::CountingRange) = (2,)
 Base.getindex(r::CountingRange, i::Int) = (r.reads[] += 1; r.data[i])
 
+# A Real that has comparisons (so that an IndBox can be built from it) and no arithmetic; every comparison is counted.
+const BAD_OPS = Ref(0)
+struct BadReal <: Real
+  v::Float64
+end
+Base.:(<=)(a::BadReal, b::BadReal) = (BAD_OPS[] += 1; a.v <= b.v)
+Base.:(<=)(a::BadReal, b::Real) = (BAD_OPS[] += 1; a.v <= b)
+Base.:(<=)(a::Real, b::BadReal) = (BAD_OPS[] += 1; a <= b.v)
+Base.:(>=)(a::BadReal, b::Real) = (BAD_OPS[] += 1; a.v >= b)
+Base.:(>=)(a::Real, b::BadReal) = (BAD_OPS[] += 1; a >= b.v)
+Base.:(==)(a::BadReal, b::Real) = (BAD_OPS[] += 1; a.v == b)
+Base.:(==)(a::Real, b::BadReal) = (BAD_OPS[] += 1; a == b.v)
+Base.isless(a::BadReal, b::Real) = (BAD_OPS[] += 1; a.v < b)
+Base.isless(a::Real, b::BadReal) = (BAD_OPS[] += 1; a < b.v)
+Base.isless(a::BadReal, b::BadReal) = (BAD_OPS[] += 1; a.v < b.v)
+
 a_value_and_prox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
 a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 
@@ -699,7 +715,7 @@ end
       for (λ1, λ2) in levels, w in weights
         check_fused(Constrained(Conjugate(ElasticNet(λ1, λ2, w)), IndBox(T(-2), T(2))), mk, xs, T(0.5); alias = al)
       end
-      steps = (0.5, 0.5f0, 1, T(0.5), 1 // 2, [0.5, 0.25, 1, 2], Float32[0.5, 0.25, 1, 2], [1, 1, 2, 2])
+      steps = (0.5, 0.5f0, 1, T(0.5), [0.5, 0.25, 1, 2], Float32[0.5, 0.25, 1, 2], [1, 1, 2, 2])
       bounds = (IndBox(-2.0, 2.0), IndBox(-2, 2), IndBox(T(-2), T(2)), IndBox([-2.0, -1, -3, -2], [2.0, 1, 3, 2]),
                 IndBox([-2, -1, -3, -2], [2, 1, 3, 2]), IndBox(Float32[-2, -1, -3, -2], Float32[2, 1, 3, 2]), IndNonnegative())
       for γ in steps, box in bounds, (λ1, λ2) in ((T(0.25), T(0.7)), (T(0.25), T(0)))
@@ -892,11 +908,30 @@ end
       @test !PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5)
       refusal(Constrained(Conjugate(f), box), () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
     end
-    # concrete declarations take the route, whatever their type parameters are
-    for W in (Nothing, Vector{Float64}, AbstractVector), (S, l) in ((Float64, (1.0, 0.5)), (Real, (1.0, 0.5)), (Float32, (1f0, 0.5f0)), (Int, (1, 1)))
-      wv = W === Nothing ? nothing : [1.0, 3.0, 1.0]
+    # declarations with a machine-number level type and Nothing or a concrete Array type for the weights take the route
+    for (W, wv) in ((Nothing, nothing), (Vector{Float64}, [1.0, 3.0, 1.0]), (Matrix{Float64}, [1.0 3.0 1.0])),
+        (S, l) in ((Float64, (1.0, 0.5)), (Float32, (1f0, 0.5f0)), (Int, (1, 1)))
       f = ElasticNet{S, W}(l..., wv)
       @test PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5)
+      check_fused(Constrained(Conjugate(f), box), () -> zeros(3), x, 0.5; alias = () -> copy(x))
+    end
+    # every other declaration is refused: a Real level type (even with machine-number levels stored), and weight types that are
+    # abstract (AbstractVector, a Vector without its element type) or unions
+    for (S, l) in ((Real, (1.0, 0.5)), (AbstractFloat, (1.0, 0.5))), (W, wv) in ((Nothing, nothing), (Vector{Float64}, [1.0, 3.0, 1.0]))
+      f = ElasticNet{S, W}(l..., wv)
+      @test PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5) === false
+      refusal(Constrained(Conjugate(f), box), () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    end
+    for W in (AbstractVector, AbstractArray, Vector, Matrix, Union{Vector{Float64}, Matrix{Float64}}), (S, l) in ((Float64, (1.0, 0.5)), (Float32, (1f0, 0.5f0)))
+      wv = W <: Matrix ? [1.0 3.0 1.0] : [1.0, 3.0, 1.0]
+      f = try
+        ElasticNet{S, W}(l..., wv)
+      catch
+        nothing
+      end
+      f === nothing && continue
+      @test PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5) === false
+      refusal(Constrained(Conjugate(f), box), () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
     end
   end
   @testset "views, reshapes and other representations are refused in every role" begin
@@ -1011,9 +1046,31 @@ end
       @test PB._elastic_value_route(c, zeros(3), x, 0.5) === false
       refusal(c, () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
     end
-    # a union of two array types that both hold machine numbers is a declaration that the value path takes
+    # a union of two array types that both hold machine numbers is refused as well
     f = ElasticNet{Float64, Union{Vector{Float64}, Matrix{Float64}}}(1.0, 0.5, [1.0, 3.0, 1.0])
-    check_fused(Constrained(Conjugate(f), box), () -> zeros(3), x, 0.5; alias = () -> copy(x))
+    @test PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5) === false
+    refusal(Constrained(Conjugate(f), box), () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+  end
+  @testset "scalar bounds and steps that are not machine numbers" begin
+    fn = ElasticNet(1.0, 0.5)
+    boxes = (IndBox(big(-2.0), big(2.0)), IndBox(-2 // 1, 2 // 1), IndBox(-2.0, big(2.0)), IndBox(-π, π))
+    for box in boxes
+      c = Constrained(Conjugate(fn), box)
+      @test PB._elastic_value_route(c, zeros(3), x, 0.5) === false
+      refusal(c, () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    end
+    c = Constrained(Conjugate(fn), IndBox(-2.0, 2.0))
+    for γ in (big(0.5), 1 // 2, π, BadReal(0.5))
+      @test PB._elastic_value_route(c, zeros(3), x, γ) === false
+      refusal(c, () -> fill(-7.0, 3), x, γ; mkalias = () -> copy(x))
+    end
+    # a Real that cannot do arithmetic: as a bound or a step it is refused, and nothing is computed with it
+    BAD_OPS[] = 0
+    cb = Constrained(Conjugate(fn), IndBox(BadReal(-2.0), BadReal(2.0)))
+    BAD_OPS[] = 0
+    @test PB._elastic_value_route(cb, zeros(3), x, 0.5) === false
+    refusal(cb, () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    @test BAD_OPS[] == 0
   end
   @testset "array steps" begin
     for γ in (OffsetVec([0.5, 0.5, 0.5], -1), Real[0.5, 0.25, 1])

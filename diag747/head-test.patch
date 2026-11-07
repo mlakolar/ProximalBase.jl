@@ -1,9 +1,9 @@
 diff --git a/test/ldexp_bigfloat.jl b/test/ldexp_bigfloat.jl
 new file mode 100644
-index 00000000..90afa4a7
+index 00000000..39beea9a
 --- /dev/null
 +++ b/test/ldexp_bigfloat.jl
-@@ -0,0 +1,386 @@
+@@ -0,0 +1,390 @@
 +module LdexpBigFloatTest
 +
 +# ProximalBase defines its own ldexp (src/ProximalBase.jl): Base's ldexp(::BigFloat, n) is the exact mpfr_mul_2si only for a
@@ -348,23 +348,27 @@ index 00000000..90afa4a7
 +  end
 +end
 +
-+# QuadraticFunction at [floatmax, -tiny, 1] (the differential's `x=5,-7,1`): ½x'Ax + b'x + c = floatmax² + floatmax + ... is
-+# about 2^(2 emax), far above floatmax, so the correctly rounded value is Inf. Where a C long is 32 bits the exponents of the
-+# terms are added as raw Int32 in _expsum_term (ea + ei + ej = 2^31 for A[1,1] x1 x1 at the exponent range of Windows, which
-+# wraps to -2^31), the term 2 x1² is lost and the value comes out as about floatmax. Known, not repaired by this change.
-+@testset "QuadraticFunction at an overflowing value: Inf (the Int32 wrap of _expsum_term is a known failure where Clong is 32 bits)" begin
++# QuadraticFunction at [floatmax, -tiny, 1] (the differential's `x=5,-7,1`): ½x'Ax + b'x + c = floatmax² + floatmax + 4 + ... is
++# about 2^(2 emax), far above floatmax, so the correctly rounded value is +Inf. Its terms are summed as significands and
++# exponents; their exponents were added as raw frexp exponents, Int32 where a C long is 32 bits: for 2 x1² at the exponent
++# range of Windows 2 + emax + emax = 2^31 wrapped to -2^31, the term was lost and the value came out as about floatmax.
++# The gradient A x + b is (2 floatmax + ..., floatmax + 1 + 2 - 2 tiny, 5 - tiny) = (Inf, floatmax, 5), the last entry
++# rounded to p bits.
++@testset "QuadraticFunction at an overflowing value: Inf, and the gradient of the reference (exponent range of Windows)" begin
 +  windows_range() do
-+    for p in (2, 3)
++    for p in (2, 3, 5, 53)
 +      setprecision(BigFloat, p) do
 +        M = floatmax(BigFloat)
 +        tiny = Base.ldexp(one(BigFloat), Clong(Base.MPFR.get_emin() + 8))
 +        f = QuadraticFunction(BigFloat[2 1 0; 1 2 1; 0 1 2], BigFloat[1, 2, 3], one(BigFloat))
-+        v = f([M, -tiny, one(BigFloat)])
-+        if sizeof(Clong) < sizeof(Int)
-+          @test_broken isinf(v)
-+        else
-+          @test isinf(v) && v > 0
++        x = [M, -tiny, one(BigFloat)]
++        @test f(x) == Inf
++        g = similar(x)
++        v = value_and_gradient!(g, f, x)
++        r5 = setprecision(BigFloat, 4000) do
++          BigFloat(5)
 +        end
++        @test v == Inf && g[1] == Inf && g[2] == M && refwithin(g[3], r5, 0, p)
 +      end
 +    end
 +  end

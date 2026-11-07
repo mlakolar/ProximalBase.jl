@@ -1,5 +1,5 @@
 diff --git a/ext/ProximalBaseGPUArraysCoreExt.jl b/ext/ProximalBaseGPUArraysCoreExt.jl
-index 8d55a69b..7deb3236 100644
+index 8d55a69b..3ead073c 100644
 --- a/ext/ProximalBaseGPUArraysCoreExt.jl
 +++ b/ext/ProximalBaseGPUArraysCoreExt.jl
 @@ -599,8 +599,8 @@ function _group_levels(::Type{T}, γ, λ) where {T}
@@ -13,6 +13,22 @@ index 8d55a69b..7deb3236 100644
    _level_fits(T, a) && _level_fits(T, b) ? (convert(T, a), convert(T, b)) : (one(T), convert(T, c))
  end
  
+@@ -1237,11 +1237,11 @@ function _projection_parts(m::T, q, λ, α, w)::Tuple{T, Int} where {T}
+   isinf(w) && return (one(m), 0)
+   (iszero(λ) || iszero(α) || iszero(w)) && return (zero(m), 0)
+   (iszero(m) || isinf(λ) || isinf(α)) && return (one(m), 0)
+-  a, e = frexp(m)
++  a, e = ProximalBase._frexp(m)
+   r1, e1 = ProximalBase._projection_scale_parts(α)
+-  r2, e2 = frexp(float(λ))
+-  r3, e3 = frexp(float(w))
+-  r, k = frexp(((r1 * r2) * r3) / (a * sqrt(q)))
++  r2, e2 = ProximalBase._frexp(float(λ))
++  r3, e3 = ProximalBase._frexp(float(w))
++  r, k = ProximalBase._frexp(((r1 * r2) * r3) / (a * sqrt(q)))
+   k += e1 + e2 + e3 - e
+   k > 1 || (k == 1 && r >= 0.5) ? (one(r), 0) : (r, k)
+ end
 diff --git a/src/ProximalBase.jl b/src/ProximalBase.jl
 index 8e1ebfcf..179a6ee3 100644
 --- a/src/ProximalBase.jl
@@ -33,10 +49,425 @@ index 8e1ebfcf..179a6ee3 100644
  using LinearAlgebra
  using SparseArrays
  using LinearAlgebra: LAPACKException, checksquare
+diff --git a/src/ballconstrained.jl b/src/ballconstrained.jl
+index 404ed5d6..ebb5afb6 100644
+--- a/src/ballconstrained.jl
++++ b/src/ballconstrained.jl
+@@ -430,8 +430,8 @@ function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, L) where {U, T
+   q = ru / root
+   scale = q / top
+   direct = isfinite(scale) && scale >= floatmin(U)
+-  aq, eq = frexp(q)
+-  at, et = frexp(top)
++  aq, eq = _frexp(q)
++  at, et = _frexp(top)
+   @inbounds for k in inds
+     xi = x[k]
+     m = _l1_margin(x, f, γ, U, k)
+@@ -440,7 +440,7 @@ function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, L) where {U, T
+     elseif direct
+       m * scale
+     else
+-      am, em = frexp(m)
++      am, em = _frexp(m)
+       _ldexp_once((am / at) * aq, em + eq - et)
+     end
+     _layout_put!(L, y, k, copysign(convert(T, z), xi))
+diff --git a/src/calculus.jl b/src/calculus.jl
+index f73acdac..c6e2416b 100644
+--- a/src/calculus.jl
++++ b/src/calculus.jl
+@@ -16,7 +16,7 @@ Base.iszero(a::_ProjectionScale) = iszero(a.m)
+ Base.isone(a::_ProjectionScale) = a.m == 0.5 && a.e == 1
+ _projection_real(a::Real) = a
+ _projection_real(a::_ProjectionScale) = ldexp(a.m, a.e)
+-_projection_scale_parts(a::Real) = frexp(float(a))
++_projection_scale_parts(a::Real) = _frexp(float(a))
+ _projection_scale_parts(a::_ProjectionScale) = (a.m, a.e)
+ function _projection_accumulate(a::Real, b::Real)
+   isone(a) && return b
+@@ -24,15 +24,15 @@ function _projection_accumulate(a::Real, b::Real)
+   p = float(a) * float(b)
+   (!isfinite(a) || !isfinite(b) || iszero(a) || iszero(b)) && return p
+   floatmin(typeof(float(p))) <= abs(p) <= floatmax(typeof(float(p))) && return p
+-  ma, ea = frexp(float(a))
+-  mb, eb = frexp(float(b))
+-  m, e = frexp(ma * mb)
++  ma, ea = _frexp(float(a))
++  mb, eb = _frexp(float(b))
++  m, e = _frexp(ma * mb)
+   _ProjectionScale(m, Int(ea + eb + e))
+ end
+ function _projection_accumulate(a::_ProjectionScale, b::Real)
+   (!isfinite(b) || iszero(b)) && return b
+-  mb, eb = frexp(float(b))
+-  m, e = frexp(a.m * mb)
++  mb, eb = _frexp(float(b))
++  m, e = _frexp(a.m * mb)
+   _ProjectionScale(m, Int(a.e + eb + e))
+ end
+ _projection_product(a, b, w) = _positive_product(a, b, w)
+@@ -308,7 +308,7 @@ end
+   (iszero(w) || !isfinite(w)) && return a.m * w
+   # the significand of v, so that neither a subnormal v nor the product of significands loses bits
+   R = promote_type(typeof(a.m), typeof(w))
+-  mv, ev = frexp(convert(R, w))
++  mv, ev = _frexp(convert(R, w))
+   ldexp(a.m * mv, a.e + ev)
+ end
+ # a < 1 and a > 1 of the product (the significand is in [1/2, 1))
+@@ -319,7 +319,7 @@ end
+ # the reciprocal of a factor, as a factor
+ _scale_inverse(a::Real) = inv(a)
+ function _scale_inverse(a::_ProjectionScale)
+-  m, e = frexp(inv(a.m))
++  m, e = _frexp(inv(a.m))
+   _ProjectionScale(m, Int(e - a.e))
+ end
+ 
+@@ -499,7 +499,7 @@ end
+       u = u1
+     end
+   end
+-  m, k = frexp(u)
++  m, k = _frexp(u)
+   convert(typeof(r), _apply_parts(_ProjectionScale(oftype(a.m, 0.5), a.e - s + 1), m, k))
+ end
+ 
+@@ -703,7 +703,7 @@ function _nested_step(s::Scaled, γ::Real)
+   step = _apply_scale(a, γ)
+   T = typeof(step)
+   (T <: AbstractFloat && isfinite(γ) && γ > 0 && !(floatmin(T) <= step <= floatmax(T))) || return (f, step, a)
+-  mγ, eγ = frexp(float(γ))
++  mγ, eγ = _frexp(float(γ))
+   # A function with a stored infinite level, all of whose blocks are fixed by it, does not depend on the
+   # factor and the step (`_hard_function`): nothing finite is folded. Otherwise the earlier route.
+   if _has_infinite_level(f) && _hard_scale(a)
+@@ -799,18 +799,18 @@ function _value_parts_scaled(s::Scaled, x, v, α)
+   isfinite(a.m) && !iszero(a.m) || return nothing
+   vf = _value_unchecked(f, x)
+   vf isa AbstractFloat || return nothing
+-  p = isfinite(vf) && abs(vf) >= floatmin(vf) ? frexp(vf) :
++  p = isfinite(vf) && abs(vf) >= floatmin(vf) ? _frexp(vf) :
+     _scaled_parts(f, _scale_times(α, a), x, vf, nothing)
+   p === nothing && return nothing
+   P = promote_type(typeof(a.m), typeof(p[1]))
+-  m, e = frexp(convert(P, a.m) * convert(P, p[1]))
++  m, e = _frexp(convert(P, a.m) * convert(P, p[1]))
+   (m, e + a.e + p[2])
+ end
+ # the product of a factor and a chain's product, as a factor
+ function _scale_times(α, a::_ProjectionScale)
+   ma, ea = _projection_scale_parts(α)
+   P = promote_type(typeof(float(ma)), typeof(a.m))
+-  m, e = frexp(convert(P, ma) * convert(P, a.m))
++  m, e = _frexp(convert(P, ma) * convert(P, a.m))
+   _ProjectionScale(m, Int(ea) + a.e + e)
+ end
+ # A zero value of s is a zero value of s.f, times the factor (|α f| < 2^(E + e)), or the product of
+diff --git a/src/distance.jl b/src/distance.jl
+index 06d9a7de..64504754 100644
+--- a/src/distance.jl
++++ b/src/distance.jl
+@@ -289,7 +289,7 @@ _distance_buffer(f::DistL2, ::Type{T}, x::AbstractArray) where {T} = _array_buff
+ # endpoints before subtraction also covers an overflowing single residual.
+ function _distl2_parts(x::AbstractArray, p::AbstractArray)
+   r = norm_diff(x, p)
+-  isfinite(r) && return frexp(r)
++  isfinite(r) && return _frexp(r)
+   S = float(promote_type(eltype(x), eltype(p)))
+   m = zero(S)
+   @inbounds for i in eachindex(x, p)
+@@ -302,13 +302,13 @@ function _distl2_parts(x::AbstractArray, p::AbstractArray)
+     d = _distl2_ldexp(S(x[i]), -k) - _distl2_ldexp(S(p[i]), -k)
+     r = hypot(r, abs(d))
+   end
+-  m, e = frexp(r)
++  m, e = _frexp(r)
+   m, e + k
+ end
+ 
+ # Delay narrowing λ until its exponent has been combined with the distance.
+ @inline function _distl2_value(::Type{T}, λ::Real, m::Real, e::Integer) where {T}
+-  a, k = frexp(float(λ))
++  a, k = _frexp(float(λ))
+   T(ldexp(a * m, k + e))
+ end
+ 
+@@ -336,7 +336,7 @@ function _distance_value_parts(f, x::AbstractArray, square::Bool)
+   m = float(m)
+   isfinite(m) || return nothing
+   iszero(m) && return (m, 0)
+-  _parts_product(frexp(float(f.λ)), square ? _parts(m * m / 2, 2e) : (m, e))
++  _parts_product(_frexp(float(f.λ)), square ? _parts(m * m / 2, 2e) : (m, e))
+ end
+ _value_parts(f::DistL2, x::AbstractArray, v) = _distance_value_parts(f, x, false)
+ # Exact-zero protection: the distance is accurate (hypot where its square leaves the range) and zero
+@@ -378,7 +378,7 @@ _value_parts(f::SqrDistL2, x::AbstractArray, v) = _distance_value_parts(f, x, tr
+     d = p / 2 - x / 2
+     k = 1
+   end
+-  r, j = frexp(d)
++  r, j = _frexp(d)
+   x + ldexp(m * r, e + j + k)
+ end
+ 
+diff --git a/src/functions/cones.jl b/src/functions/cones.jl
+index 55077480..d4529867 100644
+--- a/src/functions/cones.jl
++++ b/src/functions/cones.jl
+@@ -513,7 +513,7 @@ end
+ function _exp_product(a::T, b::T) where {T}
+   iszero(a) && return a
+   log(floatmin(T)) <= b < log(floatmax(T)) && return a * exp(b)
+-  m, k = frexp(a)
++  m, k = _frexp(a)
+   logtwo = log(T(2))
+   b > (exponent(floatmax(T)) - k + 2) * logtwo && return copysign(T(Inf), a)
+   b < (exponent(nextfloat(zero(T))) - k - 2) * logtwo && return copysign(zero(T), a)
+diff --git a/src/functions/entropy.jl b/src/functions/entropy.jl
+index 1da18744..0720e34f 100644
+--- a/src/functions/entropy.jl
++++ b/src/functions/entropy.jl
+@@ -292,9 +292,9 @@ end
+ @inline function _bernoulli_ratio(w::T, b::T, p::T) where {T<:AbstractFloat}
+   r = inv(p)
+   isfinite(r) && return _positive_product(w, b, r)
+-  mw, ew = frexp(w)
+-  mb, eb = frexp(b)
+-  mp, ep = frexp(p)
++  mw, ew = _frexp(w)
++  mb, eb = _frexp(b)
++  mp, ep = _frexp(p)
+   ldexp((mw * mb) / mp, ew + eb - ep)
+ end
+ 
+@@ -357,8 +357,8 @@ function _bernoulli_prox(v::T, b::T, γ::T, w::T) where {T<:AbstractFloat}
+   end
+ 
+   # Scale by a power of two at least as large as μ = γw, without forming μ.
+-  mg0, eg = frexp(γ)
+-  mw, ew = frexp(w)
++  mg0, eg = _frexp(γ)
++  mw, ew = _frexp(w)
+   power = eg + ew
+   shift = max(0, power)
+   unit = ldexp(one(T), -shift)
+@@ -594,18 +594,18 @@ end
+   t = convert(R, v)
+   (isfinite(t) && t >= 0) || return nothing
+   iszero(t) && return acc
+-  mt, et = frexp(t)
++  mt, et = _frexp(t)
+   _term_add(acc, mt * log(t), et)
+ end
+ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::KLDivergence, v, i) where {R}
+   t, q = convert(R, v), convert(R, _entry(f.q, i))
+   (isfinite(t) && isfinite(q)) || return nothing
+   t < 0 && return nothing
+-  acc = _term_add(acc, frexp(q))
++  acc = _term_add(acc, _frexp(q))
+   (acc === nothing || iszero(t)) && return acc
+   ratio = t / q
+   logratio = isfinite(ratio) && !iszero(ratio) ? log(ratio) : log(t) - log(q)
+-  mt, et = frexp(t)
++  mt, et = _frexp(t)
+   acc = _term_add(acc, mt * logratio, et)
+   acc === nothing && return nothing
+   _term_add(acc, -mt, et)
+@@ -625,10 +625,10 @@ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::Berhu, v, i)
+   (iszero(w)) && return acc
+   isfinite(w) || return nothing
+   c = _parts_product(_rparts(R, f.λ), _rparts(R, w))
+-  t <= M && return _term_add(acc, _parts_product(c, frexp(t)))
++  t <= M && return _term_add(acc, _parts_product(c, _frexp(t)))
+   # c (t² + M²)/(2M) = c t²/(2M) + c M/2
+-  mt, et = frexp(t)
+-  mM, eM = frexp(M)
++  mt, et = _frexp(t)
++  mM, eM = _frexp(M)
+   acc = _term_add(acc, _parts_product(c, _parts(mt * mt / mM, 2et - eM - 1)))
+   acc === nothing && return nothing
+   _term_add(acc, _parts_product(c, (mM, eM - 1)))
+diff --git a/src/functions/glm.jl b/src/functions/glm.jl
+index 4e444e1c..b4db251d 100644
+--- a/src/functions/glm.jl
++++ b/src/functions/glm.jl
+@@ -168,8 +168,8 @@ curvature(::IdentityBernoulli) = Inf
+ @inline function _bernoulli_curvature(c::T, p::T) where {T<:AbstractFloat}
+   p² = p * p
+   p² >= floatmin(T) && return c / p²
+-  mc, ec = frexp(c)
+-  mp, ep = frexp(p)
++  mc, ec = _frexp(c)
++  mp, ep = _frexp(p)
+   ldexp(mc / (mp * mp), ec - 2 * ep)
+ end
+ 
+diff --git a/src/functions/logdet.jl b/src/functions/logdet.jl
+index af20a425..80a2de71 100644
+--- a/src/functions/logdet.jl
++++ b/src/functions/logdet.jl
+@@ -225,9 +225,9 @@ end
+ 
+ # Carry each root's exponent separately so that small roots retain their logs.
+ @inline function _logdet_root_parts(h::T, e::Int, r::T) where {T}
+-  iszero(h) && return frexp(r)
+-  a, b = frexp(h)
+-  c, d = frexp(r)
++  iszero(h) && return _frexp(r)
++  a, b = _frexp(h)
++  c, d = _frexp(r)
+   # The large-step half matrix was divided by the step.
+   if r > one(T)
+     a *= c * c
+@@ -237,17 +237,17 @@ end
+   q = max(b, d)
+   x, y = ldexp(a, b - q), ldexp(c, d - q)
+   z, k = if h >= 0
+-    frexp(x + hypot(x, y))
++    _frexp(x + hypot(x, y))
+   else
+     # Use the unscaled step mantissa even when y underflows.
+-    frexp(c * (c / (hypot(x, y) - x)))
++    _frexp(c * (c / (hypot(x, y) - x)))
+   end
+   z, k + (h >= 0 ? q : 2d - q)
+ end
+ 
+ @noinline function _scaled_logdet_prox!(Y, f::LogDetLoss{T}, X, r::T) where {T}
+   A = f.eig.A
+-  c, d = frexp(r)
++  c, d = _frexp(r)
+   ex = _magnitude_exponent(convert(T, _maximum_abs(X)))
+   es = _magnitude_exponent(_maximum_abs(f.S))
+   large = r > one(T)
+diff --git a/src/functions/losses.jl b/src/functions/losses.jl
+index d3141397..5158dfe8 100644
+--- a/src/functions/losses.jl
++++ b/src/functions/losses.jl
+@@ -393,9 +393,9 @@ function _conjugate_value(f::SqrHingeLoss, s::AbstractArray)
+     else
+       _within(u / y, zero(u), T) || return T(Inf)
+       # Add the linear and quadratic terms at one scale before rounding.
+-      ms, es = frexp(u)
+-      my, ey = frexp(y)
+-      mw, ew = frexp(w)
++      ms, es = _frexp(u)
++      my, ey = _frexp(y)
++      mw, ew = _frexp(w)
+       q, eq = ms / my, es - ey
+       e = max(eq, 2eq - ew)
+       z = ldexp(q, eq - e) + ldexp(q^2 / (4mw), 2eq - ew - e)
+@@ -602,17 +602,17 @@ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::SqrHingeLoss,
+   y, u, w = convert(R, _entry(f.y, i)), convert(R, v), _entry(f.w, i)
+   isfinite(u) || return _ordinary_term_add(acc, f, v, i)
+   r, e = _sqrhinge_residual(y, u)
+-  mr, er = frexp(r)
++  mr, er = _frexp(r)
+   _weighted_term_add(acc, w, _parts(mr * mr, 2 * (er + e)))
+ end
+ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::EpsInsensitiveLoss, v, i) where {R}
+   u = convert(R, v)
+   isfinite(u) || return _ordinary_term_add(acc, f, v, i)
+-  _weighted_term_add(acc, _entry(f.w, i), frexp(max(abs(u) - convert(R, f.ε), zero(R))))
++  _weighted_term_add(acc, _entry(f.w, i), _frexp(max(abs(u) - convert(R, f.ε), zero(R))))
+ end
+ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CheckLoss, v, i) where {R}
+   u = convert(R, v)
+   isfinite(u) || return _ordinary_term_add(acc, f, v, i)
+   τ = convert(R, f.τ)
+-  _weighted_term_add(acc, _entry(f.w, i), _parts_product(frexp(u >= 0 ? τ : τ - 1), frexp(u)))
++  _weighted_term_add(acc, _entry(f.w, i), _parts_product(_frexp(u >= 0 ? τ : τ - 1), _frexp(u)))
+ end
+diff --git a/src/functions/nonconvex.jl b/src/functions/nonconvex.jl
+index c47dc1af..66035557 100644
+--- a/src/functions/nonconvex.jl
++++ b/src/functions/nonconvex.jl
+@@ -1024,7 +1024,7 @@ end
+ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CappedL1, v, i) where {R}
+   u = convert(R, v)
+   isnan(u) && return _nonfinite_entry_term(acc, f, i)
+-  _weighted_term_add(acc, _entry(f.w, i), frexp(min(abs(u), convert(R, f.a))))
++  _weighted_term_add(acc, _entry(f.w, i), _frexp(min(abs(u), convert(R, f.a))))
+ end
+ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::LogPenalty, v, i) where {R}
+   # a zero weight or an infinite ε leaves the entry free, NaN included, as in value_entry
+@@ -1034,20 +1034,20 @@ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::LogPenalty, v
+   iszero(t) && return acc
+   q = t / ε
+   φ = if isinf(q)
+-    frexp(log(t) - log(ε))
++    _frexp(log(t) - log(ε))
+   elseif q < floatmin(R)
+-    mt, et = frexp(t)
+-    mε, eε = frexp(ε)
++    mt, et = _frexp(t)
++    mε, eε = _frexp(ε)
+     _parts(mt / mε, et - eε)
+   else
+-    frexp(log1p(q))
++    _frexp(log1p(q))
+   end
+   _weighted_term_add(acc, _entry(f.w, i), φ)
+ end
+ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::NormLq, v, i) where {R}
+   t = abs(convert(R, v))
+   isfinite(t) || return _nonfinite_entry_term(acc, f, i)
+-  _weighted_term_add(acc, _entry(f.w, i), frexp(t^convert(R, f.q)))
++  _weighted_term_add(acc, _entry(f.w, i), _frexp(t^convert(R, f.q)))
+ end
+ 
+ # The group penalties: Σₖ pₖ(‖x[Gₖ]‖₂) with the norm of a group and the level λwₖ as parts, and the
 diff --git a/src/functions/norms.jl b/src/functions/norms.jl
-index 5dc44efb..5a0511ae 100644
+index 5dc44efb..b4d0cfe6 100644
 --- a/src/functions/norms.jl
 +++ b/src/functions/norms.jl
+@@ -198,7 +198,7 @@ function _cube_norm_parts(x, n, ::Type{T}) where {T}
+   (iszero(m) || !isfinite(m)) && return (convert(T, m), 0)
+   _, e = _frexp(m)
+   s = _power_factors(T, -e)
+-  a, k = frexp(sqrt(_scaled_sumabs2(x, s)))
++  a, k = _frexp(sqrt(_scaled_sumabs2(x, s)))
+   a, e + k
+ end
+ 
+@@ -206,7 +206,7 @@ end
+ # does for three. In particular, neither λ/3 nor n³ needs to be representable.
+ function _cube_value_parts(λ::T, m::T, e::Integer) where {T}
+   (iszero(m) || !isfinite(m)) && return λ * m
+-  a, k = frexp(λ)
++  a, k = _frexp(λ)
+   ldexp(((a * m) * m) * (m / 3), k + 3e)
+ end
+ 
+@@ -236,7 +236,7 @@ function _value_parts(f::CubeNormL2, x::AbstractArray, v)
+   m, e = _cube_norm_parts(x, _norm2(x), S)
+   iszero(m) && return (zero(S), 0)
+   isfinite(m) || return nothing
+-  a, k = frexp(convert(S, f.λ))
++  a, k = _frexp(convert(S, f.λ))
+   _parts(((a * m) * m) * (m / 3), k + 3e)
+ end
+ 
+@@ -250,7 +250,7 @@ _zero_value_exponent(f::CubeNormL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZE
+ @inline function _cube_scale(v::Real, m::T, e::Integer) where {T}
+   a = convert(T, v)
+   iszero(a) && return a
+-  b, k = frexp(a)
++  b, k = _frexp(a)
+   ldexp(b * m, k + e)
+ end
+ 
+@@ -266,7 +266,7 @@ function gradient!(g::AbstractArray, f::CubeNormL2, x::AbstractArray)
+   end
+   m, e = _cube_norm_parts(x, n, T)
+   (iszero(m) || !isfinite(m)) && return g .= (λ * m) .* x
+-  b, k = frexp(λ)
++  b, k = _frexp(λ)
+   g .= _cube_scale.(x, b * m, k + e)
+ end
+ 
 @@ -1521,7 +1521,7 @@ _fused_mean_supported(::Type{W}, n) where {W<:Union{Float32, Float64}} =
    2 * (8 * sizeof(n) - leading_zeros(n)) + precision(W) <= 126
  _fused_mean_supported(::Type{W}, n) where {W} =
@@ -59,6 +490,60 @@ index 5dc44efb..5a0511ae 100644
  function _fused_finite_mean(x, ::Type{W}, n) where {W}
    s = c = m = zero(W)
    @inbounds for i in 1:n
+@@ -1574,7 +1574,7 @@ function _fused_finite_mean(x, ::Type{W}, n) where {W}
+   @inbounds for i in 1:n
+     s, c = _compensated_add(s, c, _projection_l1_scale(convert(W, x[i]), -e))
+   end
+-  fr, ex = frexp(s + c)
++  fr, ex = _frexp(s + c)
+   _projection_l1_scale(fr / n, ex + e)
+ end
+ 
+@@ -1630,7 +1630,7 @@ function _fused_finite_mean(x, ::Type{W}, n) where {W<:Union{Float32, Float64}}
+   end
+   ts, tc = _compensated_add(ts, tc, ldexp(s, -sh))
+   ts, tc = _compensated_add(ts, tc, ldexp(c, -sh))
+-  fr, ex = frexp(ts + tc)
++  fr, ex = _frexp(ts + tc)
+   ldexp(fr / n, ex + sh)
+ end
+ 
+@@ -1676,14 +1676,14 @@ function _project_l2_scaled!(y, x, λ, α, w, c, n)
+   (!isfinite(m) || !isfinite(λ) || !isfinite(α)) && return (y .= min(one(n), c / n) .* x)
+   iszero(m) && return copyto!(y, x)
+   # Scaling only the reduction avoids losing tiny original coordinates.
+-  a, e = frexp(m)
++  a, e = _frexp(m)
+   q = sqrt(mapreduce(identity, +, Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_square, x, m)); init = zero(m)))
+   r1, e1 = _projection_scale_parts(α)
+-  r2, e2 = frexp(float(λ))
+-  r3, e3 = frexp(float(w))
++  r2, e2 = _frexp(float(λ))
++  r3, e3 = _frexp(float(w))
+   r = ((r1 * r2) * r3) / (a * q)
+   k = e1 + e2 + e3 - e
+-  fr, er = frexp(r)
++  fr, er = _frexp(r)
+   k += er
+   (k > 1 || (k == 1 && fr >= 0.5)) && return copyto!(y, x)
+   y .= _projection_scale.(x, fr, k)
+@@ -1729,12 +1729,12 @@ function _project_l2_group_scaled!(y, x, G, λ, α, w, c, n)
+   @inbounds for i in G
+     s, err = _compensated_add(s, err, _projection_square(x[i], m))
+   end
+-  a, e = frexp(m)
++  a, e = _frexp(m)
+   r1, e1 = _projection_scale_parts(α)
+-  r2, e2 = frexp(float(λ))
+-  r3, e3 = frexp(float(w))
++  r2, e2 = _frexp(float(λ))
++  r3, e3 = _frexp(float(w))
+   r = ((r1 * r2) * r3) / (a * sqrt(s + err))
+-  fr, er = frexp(r)
++  fr, er = _frexp(r)
+   k = e1 + e2 + e3 - e + er
+   (k > 1 || (k == 1 && fr >= 0.5)) && return _project_l2_group_scale!(y, x, G, 1)
+   @inbounds for i in G
 @@ -1779,11 +1779,6 @@ function _projection_group_maxabs(x::AbstractArray, G)
  end
  
@@ -71,8 +556,229 @@ index 5dc44efb..5a0511ae 100644
  
  # Julia 1.10's ldexp truncates some values below the smallest subnormal.
  # A normal power-of-two scaling followed by multiplication rounds only once.
+@@ -1833,14 +1828,14 @@ _projection_l1_product(::Tuple{}, h, l, e, δ, ::Type{R}) where {R} = (h, l, e,
+ function _projection_l1_product(fs::Tuple, h, l, e, δ, ::Type{R}) where {R}
+   b = first(fs)
+   if !isone(b)
+-    mb, eb = b isa Real ? frexp(convert(R, b)) : _projection_scale_parts(b)
++    mb, eb = b isa Real ? _frexp(convert(R, b)) : _projection_scale_parts(b)
+     v = convert(R, mb)
+     p = h * v
+     residual = fma(h, v, -p)
+     q = residual + l * v
+     t = p + q
+     lo = (p - t) + q
+-    hi, shift = frexp(t)
++    hi, shift = _frexp(t)
+     if !iszero(residual) || !iszero(l)
+       δ = nextfloat(δ + (1 + δ) * 16eps(R)^2)
+     end
+diff --git a/src/functions/ordered.jl b/src/functions/ordered.jl
+index 75c575c5..0bae488b 100644
+--- a/src/functions/ordered.jl
++++ b/src/functions/ordered.jl
+@@ -902,8 +902,8 @@ function _sumlargest_sum(v::AbstractVector{T}, k::Int, λ) where {T}
+   @inbounds for i in 1:k
+     s, e = _sumlargest_add(s, e, ldexp(v[i], -a))
+   end
+-  u, b = frexp(S(λ))
+-  w, c = frexp(S(s + e))
++  u, b = _frexp(S(λ))
++  w, c = _frexp(S(s + e))
+   convert(T, ldexp(u * w, a + b + c))
+ end
+ 
+@@ -949,13 +949,13 @@ function _sumlargest_parts(v::AbstractVector{T}, k::Int, λ) where {T}
+   isfinite(m) || return nothing
+   s, e = _sumlargest_ordered!(v, k)
+   S = float(promote_type(T, typeof(λ)))
+-  isfinite(s + e) && return _parts_product(frexp(S(λ)), frexp(S(s + e)))
++  isfinite(s + e) && return _parts_product(_frexp(S(λ)), _frexp(S(s + e)))
+   a = exponent(m)
+   s = e = zero(T)
+   @inbounds for i in 1:k
+     s, e = _sumlargest_add(s, e, ldexp(v[i], -a))
+   end
+-  _parts_product(frexp(S(λ)), _parts(S(s + e), a))
++  _parts_product(_frexp(S(λ)), _parts(S(s + e), a))
+ end
+ _has_value_parts(::Type{<:SumLargest}) = true
+ # Exact-zero protection: the sum of the selected entries is compensated and loses nothing to underflow
+@@ -1092,8 +1092,8 @@ function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val, shift::Int
+     end
+     return y
+   end
+-  mg, eg = frexp(g)
+-  ml, el = frexp(λ)
++  mg, eg = _frexp(g)
++  ml, el = _frexp(λ)
+   m, e = mg * ml, eg + el + shift
+   c = iszero(shift) ? _positive_product(g, λ, one(S)) : _scaled_product(g, λ, shift)
+   t = zero(S)
+diff --git a/src/functions/separable.jl b/src/functions/separable.jl
+index f1cd0bc8..8b2122d6 100644
+--- a/src/functions/separable.jl
++++ b/src/functions/separable.jl
+@@ -148,7 +148,7 @@ function _sep_value_parts(f, x::AbstractArray, ::Type{R}, level = nothing) where
+   acc === nothing && return nothing
+   m, e = _expsum_pair(R, acc)
+   (level === nothing || iszero(m)) && return (m, e)
+-  _parts_product(frexp(convert(R, level)), (m, e))
++  _parts_product(_frexp(convert(R, level)), (m, e))
+ end
+ function _sep_terms(acc, f, x::AbstractArray)
+   @inbounds for i in eachindex(IndexLinear(), x)
+@@ -193,7 +193,7 @@ end
+   m = convert(R, m)
+   isfinite(m) || return nothing
+   iszero(m) && return acc
+-  fm, fe = frexp(m)
++  fm, fe = _frexp(m)
+   _expsum_add(acc, fm, Int(fe) + e)
+ end
+ @inline _term_add(acc::_ExpSum, p::Tuple) = _term_add(acc, p[1], p[2])
+@@ -203,10 +203,10 @@ end
+ @inline function _weighted_term_add(acc::_ExpSum{R}, w, φ::Tuple) where {R}
+   (iszero(w) || iszero(φ[1])) && return acc
+   isfinite(w) || return nothing
+-  _term_add(acc, _parts_product(frexp(convert(R, w)), φ))
++  _term_add(acc, _parts_product(_frexp(convert(R, w)), φ))
+ end
+ # the parts of a finite nonzero real, in R
+-@inline _rparts(::Type{R}, v) where {R} = frexp(convert(R, v))
++@inline _rparts(::Type{R}, v) where {R} = _frexp(convert(R, v))
+ @inline _rparts(::Type{R}, p::Tuple) where {R} = (convert(R, p[1]), Int(p[2]))
+ # the type of the parts: the entries' and the parameters'
+ _sep_parts_type(x, params...) = promote_type(_valtype(x), map(_parts_eltype, params)...)
+diff --git a/src/functions/smooth.jl b/src/functions/smooth.jl
+index 3eb78cf1..07e8eb4f 100644
+--- a/src/functions/smooth.jl
++++ b/src/functions/smooth.jl
+@@ -575,8 +575,8 @@ end
+   (P = promote_type(W, float(typeof(γ)), float(typeof(λ))); _ridge_scaled(W, P(γ), P(λ)))
+ 
+ Base.@assume_effects :effect_free :nothrow :terminates_globally @noinline function _ridge_scaled(::Type{W}, γ::P, λ::P) where {W, P}
+-  mγ, eγ = frexp(γ)
+-  mλ, eλ = frexp(λ)
++  mγ, eγ = _frexp(γ)
++  mλ, eλ = _frexp(λ)
+   τ = convert(W, mγ * mλ)                    # in [1/4, 1]
+   k = eγ + eλ
+   if k > 0
+@@ -1184,11 +1184,11 @@ function _kron_exact_sum(f::KronQuadratic, ::Type{AT}) where {AT}
+     for k in 1:p
+       d = D[k, j]
+       iszero(d) && continue
+-      md, ed = frexp(convert(AT, d))
++      md, ed = _frexp(convert(AT, d))
+       for i in 1:p
+         a = A[i, k]
+         iszero(a) && continue
+-        ma, ea = frexp(convert(AT, a))
++        ma, ea = _frexp(convert(AT, a))
+         col[i] = _expsum_add(col[i], ma * md, ea + ed)
+       end
+     end
+@@ -1202,7 +1202,7 @@ function _kron_exact_sum(f::KronQuadratic, ::Type{AT}) where {AT}
+     for l in 1:q
+       b = B[l, j]
+       iszero(b) && continue
+-      mb, eb = frexp(convert(AT, b))
++      mb, eb = _frexp(convert(AT, b))
+       for i in 1:p
+         m = M1[i, l]
+         iszero(m) && continue
+diff --git a/src/minimum.jl b/src/minimum.jl
+index f8c3e0d0..341217dc 100644
+--- a/src/minimum.jl
++++ b/src/minimum.jl
+@@ -84,16 +84,16 @@ end
+ # the norm itself exceeds the floating-point range.
+ function _minimum_distance(x::AbstractArray, p::AbstractArray)
+   r = norm_diff(x, p)
+-  isfinite(r) && return frexp(r)
++  isfinite(r) && return _frexp(r)
+   isnan(r) && return (r, 0)
+   scale = zero(r)
+   @inbounds for i in eachindex(x, p)
+     scale = max(scale, abs(x[i]), abs(p[i]))
+   end
+   isfinite(scale) || return (r, 0)
+-  _, e = frexp(scale)
++  _, e = _frexp(scale)
+   a = ldexp(one(scale), -e)
+-  m, k = frexp(norm_diff(_ScaledArray(x, a), _ScaledArray(p, a)))
++  m, k = _frexp(norm_diff(_ScaledArray(x, a), _ScaledArray(p, a)))
+   (m, k + e)
+ end
+ 
+@@ -106,13 +106,13 @@ function _minimum_score(v::Real, x, p, γ::Real, indicator::Bool)
+   if !isfinite(γ)
+     energy = _envelope_energy(x, p, γ)
+     !isfinite(energy) && return (v + energy, zero(r), 0)
+-    m, e = frexp(energy)
++    m, e = _frexp(energy)
+     return (v, m, e)
+   end
+   (!isfinite(v) || !isfinite(r)) && return (v + r, zero(r), 0)
+   iszero(r) && return (v, r, 0)
+-  gm, ge = frexp(float(γ))
+-  m, e = frexp(abs2(r) / (2gm))
++  gm, ge = _frexp(float(γ))
++  m, e = _frexp(abs2(r) / (2gm))
+   (v, m, e + 2re - ge)
+ end
+ 
+@@ -143,8 +143,8 @@ end
+   s = am + bm
+   t = s - am
+   residual = (am - (s - t)) + (bm - t)
+-  sm, se = frexp(s)
+-  rm, re = frexp(residual)
++  sm, se = _frexp(s)
++  rm, re = _frexp(residual)
+   ((sm, se + ae), (rm, re + ae))
+ end
+ 
+@@ -155,8 +155,8 @@ end
+   isnan(av) && return false
+   isnan(bv) && return true
+   (!isfinite(av) || !isfinite(bv)) && return av < bv
+-  ah, al = _minimum_add(frexp(av), (am, ae))
+-  bh, bl = _minimum_add(frexp(bv), (bm, be))
++  ah, al = _minimum_add(_frexp(av), (am, ae))
++  bh, bl = _minimum_add(_frexp(bv), (bm, be))
+   _minimum_pair_less(ah, bh) || (!_minimum_pair_less(bh, ah) && _minimum_pair_less(al, bl))
+ end
+ 
+diff --git a/src/sparse_iterate.jl b/src/sparse_iterate.jl
+index f1048074..9fe76b85 100644
+--- a/src/sparse_iterate.jl
++++ b/src/sparse_iterate.jl
+@@ -1360,7 +1360,7 @@ end
+ @inline function _product3(a::T, b::T, c::T) where {T<:AbstractFloat}
+   (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
+   (isfinite(a) && isfinite(b) && isfinite(c)) || return a * b * c
+-  fa, ea = frexp(a); fb, eb = frexp(b); fc, ec = frexp(c)
++  fa, ea = _frexp(a); fb, eb = _frexp(b); fc, ec = _frexp(c)
+   ldexp(fa * fb * fc, ea + eb + ec)
+ end
+ 
+diff --git a/src/spectralfunction.jl b/src/spectralfunction.jl
+index 8a96bf8e..0be41cc6 100644
+--- a/src/spectralfunction.jl
++++ b/src/spectralfunction.jl
+@@ -572,7 +572,7 @@ end
+ function _conjugate_spectrum_scaled(g::SqrNormL2{<:Real, Nothing}, f0, s, k, b, a)
+   (g.λ > 0 && isfinite(g.λ)) || return nothing
+   mλ, eλ = frexp(float(g.λ))
+-  m, e = frexp(a.m * mλ)
++  m, e = _frexp(a.m * mλ)
+   _spectrum_scaled(ElasticNet(zero(m), inv(m)), s, k, _ProjectionScale(b.m, b.e - a.e - Int(eλ) - Int(e)))
+ end
+ # Decided functions: the domain in the units of the spectrum first, then the value.
 diff --git a/src/utils.jl b/src/utils.jl
-index c85a8b24..410119f9 100644
+index c85a8b24..eec87547 100644
 --- a/src/utils.jl
 +++ b/src/utils.jl
 @@ -31,9 +31,9 @@ end
@@ -88,3 +794,95 @@ index c85a8b24..410119f9 100644
    ldexp((ma * mb) * mc, ea + eb + ec)
  end
  @inline _positive_product(a::Real, b::Real, c::Real) = _positive_product(promote(float(a), float(b), float(c))...)
+@@ -536,8 +536,8 @@ _tiny_limit(::Type{R}) where {R} = ldexp(floatmin(R), precision(R) + 1)
+     small, es = _compensated_add(acc.small, acc.es, p)
+     return _SplitAcc{R}(acc.big, acc.eb, small, es, acc.tiny, acc.et, acc.t)
+   end
+-  ma, ea = frexp(ar)
+-  mx, ex = frexp(xr)
++  ma, ea = _frexp(ar)
++  mx, ex = _frexp(xr)
+   tiny, et = _compensated_add(acc.tiny, acc.et, ldexp(ma * mx, ea + ex + _tiny_unit(R)))
+   _SplitAcc{R}(acc.big, acc.eb, acc.small, acc.es, tiny, et, acc.t)
+ end
+@@ -585,14 +585,14 @@ function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {
+     end
+     j == 0 && break
+     used = Base.setindex(used, true, j)
+-    mj, fj = frexp(ms[j])
++    mj, fj = _frexp(ms[j])
+     D = fj + es[j]
+     if iszero(s)
+       s, E = mj, D
+     else              # the larger of the two sets the units (a remainder of a cancellation may be the smaller)
+       s = D <= E ? s + ldexp(mj, D - E) : ldexp(s, E - D) + mj
+       E = max(E, D)
+-      iszero(s) || ((s, f) = frexp(s); E += f)
++      iszero(s) || ((s, f) = _frexp(s); E += f)
+     end
+   end
+   iszero(s) && return convert(R, w) * zero(R)
+@@ -714,7 +714,7 @@ end
+ # the product of two values given as parts, normalized
+ @inline function _parts_product(a::Tuple, b::Tuple)
+   P = promote_type(typeof(a[1]), typeof(b[1]))
+-  _parts(convert(P, a[1]) * convert(P, b[1]), a[2] + b[2])
++  _parts(convert(P, a[1]) * convert(P, b[1]), Int(a[2]) + Int(b[2]))
+ end
+ 
+ ####################################
+@@ -753,14 +753,14 @@ end
+ # the term a b 2^k, with the product of the significands rounded once per factor
+ @inline function _expsum_product(acc::_ExpSum{R}, a, b, k::Int = 0) where {R}
+   (iszero(a) || iszero(b)) && return acc
+-  ma, ea = frexp(convert(R, a))
+-  mb, eb = frexp(convert(R, b))
++  ma, ea = _frexp(convert(R, a))
++  mb, eb = _frexp(convert(R, b))
+   _expsum_add(acc, ma * mb, ea + eb + k)
+ end
+ @inline function _expsum_term(acc::_ExpSum{R}, a, xi, mj::R, ej::Integer, k::Int) where {R}
+   (iszero(a) || iszero(xi)) && return acc
+-  ma, ea = frexp(convert(R, a))
+-  mi, ei = frexp(convert(R, xi))
++  ma, ea = _frexp(convert(R, a))
++  mi, ei = _frexp(convert(R, xi))
+   _expsum_add(acc, (ma * mi) * mj, ea + ei + ej + k)
+ end
+ 
+@@ -770,7 +770,7 @@ function _expsum_quadratic(acc::_ExpSum{R}, A::AbstractMatrix, x::AbstractVector
+   @inbounds for j in 1:size(A, 2)
+     xj = x[j]
+     iszero(xj) && continue
+-    mj, ej = frexp(convert(R, xj))
++    mj, ej = _frexp(convert(R, xj))
+     for i in 1:size(A, 1)
+       acc = _expsum_term(acc, A[i, j], x[i], mj, ej, k)
+     end
+@@ -782,7 +782,7 @@ function _expsum_quadratic(acc::_ExpSum{R}, A::SparseArrays.SparseMatrixCSC, x::
+   @inbounds for j in 1:size(A, 2)
+     xj = x[j]
+     iszero(xj) && continue
+-    mj, ej = frexp(convert(R, xj))
++    mj, ej = _frexp(convert(R, xj))
+     for p in nzrange(A, j)
+       acc = _expsum_term(acc, nz[p], x[rv[p]], mj, ej, k)
+     end
+@@ -794,7 +794,7 @@ function _expsum_quadratic(acc::_ExpSum{R}, A::Diagonal, x::AbstractVector, k::I
+   @inbounds for i in eachindex(d)
+     xi = x[i]
+     iszero(xi) && continue
+-    mi, ei = frexp(convert(R, xi))
++    mi, ei = _frexp(convert(R, xi))
+     acc = _expsum_term(acc, d[i], xi, mi, ei, k)
+   end
+   acc
+@@ -1399,7 +1399,7 @@ end
+   k == typemax(Int) && return nothing
+   k == typemin(Int) && return (zero(R), 0)
+   s = _square_scaled_sum(x, y, k, R)
+-  _parts_product(frexp(convert(R, λ)), _parts(s, 2k - 1))
++  _parts_product(_frexp(convert(R, λ)), _parts(s, 2k - 1))
+ end
+ 
+ ####################################

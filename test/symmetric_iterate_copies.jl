@@ -296,6 +296,37 @@ end
   @test Base.unalias(X, W) === W
 end
 
+@testset "Base.unalias copies wrapped sources of an owner" begin
+  wrappers = (
+    "Symmetric" => A -> Symmetric(A), "Symmetric :L" => A -> Symmetric(A, :L), "Hermitian" => A -> Hermitian(A),
+    "view of Symmetric" => A -> view(Symmetric(A), :, :), "view of Hermitian" => A -> view(Hermitian(A, :L), :, :),
+    "Transpose" => A -> transpose(A), "Adjoint" => A -> A', "reshape" => A -> reshape(A, 9),
+    "view of view" => A -> view(view(A, :, :), 1:2, 2:3),
+    "nested view of Symmetric" => A -> view(view(Symmetric(A), :, :), 1:2, 1:2),
+    "reshape of Symmetric" => A -> reshape(Symmetric(A), 9),
+    "transpose of Symmetric" => A -> transpose(Symmetric(A)))
+  for (name, wrap) in wrappers
+    @testset "$name" begin
+      Z = sample()
+      a = wrap(matrixview(Z))
+      @test Base.mightalias(Z, a)
+      b = Base.unalias(Z, a)
+      @test b !== a && b == a && !Base.mightalias(Z, b)
+      a isa Union{Symmetric, Hermitian} && @test typeof(b) === typeof(a) && b.uplo == a.uplo
+      before = copy(b)
+      Z[3, 1] = -1.0
+      Z[2, 1] = 8.0
+      @test b == before
+      # a source of another owner shares nothing, and is returned as it is
+      W = wrap(matrixview(sample()))
+      @test Base.unalias(Z, W) === W
+      @test Base.unalias(Z, wrap(zeros(3, 3))) isa AbstractArray
+    end
+  end
+  S = Symmetric(zeros(3, 3))
+  @test Base.unalias(sample(), S) === S
+end
+
 @testset "T06: narrowing and structural equality" begin
   ASYM = ArgumentError
   @testset "pairs equal in Float32 but not in Float64 are rejected before anything changes" begin

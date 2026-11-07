@@ -1262,6 +1262,11 @@ Base.@propagate_inbounds Base.getindex(A::SymmetricMatrixView, r::Int, c::Int) =
 # aliasing hooks from Base (non-public functions)
 Base.dataids(A::SymmetricMatrixView) = Base.dataids(A.x)
 Base.unaliascopy(A::SymmetricMatrixView) = SymmetricMatrixView(copy(A.x))
+# A Symmetric or Hermitian wrapper of the view is copied through its parent, as a wrapper of the same
+# type and the same triangle: copy of the wrapper has a dense parent, which Base.unalias refuses on
+# Julia 1.10, where the copy must have the type of the original
+Base.unaliascopy(A::Symmetric{<:Any, <:SymmetricMatrixView}) = Symmetric(Base.unaliascopy(A.data), Symbol(A.uplo))
+Base.unaliascopy(A::Hermitian{<:Any, <:SymmetricMatrixView}) = Hermitian(Base.unaliascopy(A.data), Symbol(A.uplo))
 Base.transpose(A::SymmetricMatrixView) = A
 Base.adjoint(A::SymmetricMatrixView{<:Real}) = A
 Base.Matrix(A::SymmetricMatrixView) = Matrix(A.x)

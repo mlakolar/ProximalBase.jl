@@ -2050,7 +2050,8 @@ The first families, with the proofs:
   for a vector of K ≥ 3 entries (#311, #665); the value that `value_and_prox!`
   returns is the value at that stored output, by the value rule above, at every
   step: for `FiberSum` as well, where only the recomputation of a separate
-  output is limited to a finite positive step. The proximal output of the pair, the tuple of arrays, the
+  output is limited to a finite positive step; an output with a non-one-based
+  axis keeps the loop's value there (the fiber views need one-based axes). The proximal output of the pair, the tuple of arrays, the
   vector of two entries and the pair route of `FiberSum` was this one already
   (their value was not). The mean of the other vectors and the threshold
   are formed in the promoted type of the argument and of the output (at least
@@ -2069,8 +2070,15 @@ The first families, with the proofs:
   exponent interface (`exponent`, `frexp`, `ldexp`), declines the route and
   keeps the earlier result. Another binary floating-point type (`BigFloat`)
   scales the entries by the power of two of the largest magnitude when its sum
-  overflows, so its mean is finite for finite entries, and keeps no residual
-  that lies below the rounding of an inexact partial sum. For an argument whose
+  overflows, and keeps no residual that lies below the rounding of an
+  inexact partial sum. For every type the computed mean of finite entries is
+  clamped into `[min(x), max(x)]`, which contains the true mean (and its
+  correctly rounded value): the clamp never changes a result already in the
+  interval, and it is the proof that the mean of finite entries is finite at
+  any precision (the scaling alone does not bound the rounding of the
+  accumulated sum: a constant vector of `floatmax` entries at a five-bit
+  precision restored to `Inf`). The accuracy claimed is that of the compensated
+  sum and of the quotient, no more. For an argument whose
   element type is not concrete (`Vector{Real}`) the working type is the
   promoted type of the types of the entries. The pair, tuple and K = 2 routes, and the ordinary finite-level
   route, still convert the argument to the type of the output, as before

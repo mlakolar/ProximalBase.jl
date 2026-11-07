@@ -898,4 +898,83 @@ end
   end
 end
 
+####################################
+#  round 4: the mean is clamped into [min(x), max(x)] (finiteness at every precision)
+####################################
+
+@testset "NormL1Fused(λ1, Inf): the reviewer's five-bit reproducer, both signs, prox! and value_and_prox!" begin
+  setprecision(BigFloat, 5) do
+    M = floatmax(BigFloat)
+    f = NormL1Fused(BigFloat(0), BigFloat(Inf))
+    for sgn in (1, -1)
+      x = fill(sgn * M, 65)
+      y = prox(f, x, BigFloat(1))
+      @test all(isfinite, y) && all(==(sgn * M), y)
+      y = similar(x)
+      prox!(y, f, x, BigFloat(1))
+      @test all(==(sgn * M), y)
+      y = similar(x)
+      v = value_and_prox!(y, f, x, BigFloat(1))
+      @test all(==(sgn * M), y) && v == f(y)
+      a = copy(x)
+      value_and_prox!(a, f, a, BigFloat(1))
+      @test all(==(sgn * M), a)
+    end
+  end
+end
+
+@testset "NormL1Fused(λ1, Inf): BigFloat precisions 2 to 64, near the range limit: finite, inside [min, max]" begin
+  rng = MersenneTwister(20261109)
+  for prec in 2:64
+    setprecision(BigFloat, prec) do
+      M = floatmax(BigFloat)
+      f = NormL1Fused(BigFloat(0), BigFloat(Inf))
+      for n in (3, 4, 5, 7, 16, 33, 65), kind in 1:4, sgn in (1, -1)
+        x = if kind == 1                       # constant
+          fill(sgn * M, n)
+        elseif kind == 2                       # nearly constant, a few ulps apart
+          [sgn * (rand(rng) < 0.5 ? M : prevfloat(M)) for _ in 1:n]
+        elseif kind == 3                       # mixed signs and magnitudes near the limit
+          [(rand(rng, (-1, 1))) * M * BigFloat(rand(rng, (1.0, 0.5, 0.75, 0.25))) for _ in 1:n]
+        else                                   # the limit and small entries
+          [rand(rng) < 0.7 ? sgn * M : BigFloat(rand(rng, -5:5)) for _ in 1:n]
+        end
+        y = prox(f, x, BigFloat(1))
+        lo, hi = minimum(x), maximum(x)
+        ok = all(isfinite, y) && all(==(y[1]), y) && lo <= y[1] <= hi
+        # constant input: the mean is the constant
+        kind == 1 && (ok &= y[1] == x[1])
+        @test ok
+        # against the high-precision mean (scaled sum): the result is within the interval, so within hi - lo
+        ref = setprecision(BigFloat, 2000) do
+          sh = 8 * sizeof(n) - leading_zeros(n)
+          ldexp(sum(ldexp(BigFloat(a), -sh) for a in x) / n, sh)
+        end
+        @test abs(big(y[1]) - ref) <= big(hi) - big(lo) + 4 * ldexp(abs(ref), -prec)
+      end
+    end
+  end
+end
+
+@testset "NormL1Fused(λ1, Inf): the clamp keeps the earlier results (Float32, Float64, the exact cases)" begin
+  for T in (Float32, Float64)
+    d, M = nextfloat(zero(T)), floatmax(T)
+    x = zeros(T, 65)
+    x[1:4] = T[M, M, -M, -M]
+    x[end] = 2080d
+    @test prox(NormL1Fused(zero(T), T(Inf)), x, one(T)) == fill(32d, 65)
+    @test prox(NormL1Fused(zero(T), T(Inf)), T[M, M, M], one(T)) == fill(M, 3)
+    @test prox(NormL1Fused(zero(T), T(Inf)), T[-M, -M, -M, -M], one(T)) == fill(-M, 4)
+    @test prox(NormL1Fused(zero(T), T(Inf)), T[M, -M, 5], one(T)) == fill(T(5) / 3, 3)
+  end
+  # the mean of a value that is not in the interval of the entries cannot be returned
+  f = NormL1Fused(0.0, Inf)
+  rng = MersenneTwister(1)
+  for _ in 1:200
+    x = randn(rng, 7) .* 1e300
+    y = prox(f, x, 1.0)
+    @test minimum(x) <= y[1] <= maximum(x)
+  end
+end
+
 end

@@ -1045,8 +1045,9 @@ and `±Inf` entries give the form of a pair: infinities of one sign give that in
 zero), `Inf` at any other finite vector, and `NaN` at a `NaN` entry; `value_and_prox!` returns it
 at the stored output. A zero, infinite, negative or `NaN` step keeps the earlier proximal outputs in
 every form, the stored output of `value_and_prox!` included, which are not documented as supported; the
-value that `value_and_prox!` returns is the value at that stored output, by the rule above (decision 49,
-#664).
+value that `value_and_prox!` returns is the value at that stored output, by the rule above, at every step
+(an output with a non-one-based axis, for `FiberSum` of two slices, keeps the value of its loop)
+(decision 49, #664).
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct NormL1Fused{T<:Real} <: AbstractFunction
@@ -1523,30 +1524,40 @@ _fused_mean_supported(::Type{W}, n) where {W} =
   hasmethod(frexp, Tuple{W}) && hasmethod(ldexp, Tuple{W, Int})
 
 # The mean of the entries of x in the working type W, which holds every entry exactly. NaN and
-# infinite entries are decided first (NaN, or the infinity, or NaN for both signs); finite entries go
-# to _fused_finite_mean.
+# infinite entries are decided first (NaN, or the infinity, or NaN for both signs). For finite entries
+# the mean of _fused_finite_mean is clamped into [min(x), max(x)]: the true mean lies in that interval
+# (and so does its correctly rounded value, the interval's ends being representable), so the clamp can
+# only reduce the error of the computed mean and never changes a result that is already in the interval.
+# It is the proof that the mean of finite entries is finite, at any precision and length: scaling the
+# entries protects the terms from overflow, but the rounding of the accumulated sum can still push the
+# restored quotient past the range (a constant vector of floatmax entries at a five-bit precision).
 function _fused_mean(x::AbstractVector, ::Type{W}) where {W}
   n = length(x)
   nan = pinf = ninf = false
+  lo, hi = W(Inf), W(-Inf)
   @inbounds for i in 1:n
     a = convert(W, x[i])
     nan |= isnan(a)
     pinf |= a == W(Inf)
     ninf |= a == W(-Inf)
+    lo = min(lo, a)
+    hi = max(hi, a)
   end
   (nan | (pinf & ninf)) && return W(NaN)
   pinf && return W(Inf)
   ninf && return W(-Inf)
-  _fused_finite_mean(x, W, n)
+  clamp(_fused_finite_mean(x, W, n), lo, hi)
 end
 
 # Any other binary AbstractFloat (BigFloat, ...): a compensated (Neumaier) sum divided by n. If the sum
 # overflows, the entries are scaled by the power of two 2^-e of the largest magnitude (exponent, ldexp:
 # exact unless an entry underflows), summed by a compensated sum, and the quotient takes the significand
-# and the exponent of the total separately (the significand divided by n, one ldexp). Proved: finite
-# entries give a finite mean, accurate to the rounding of the compensated sum and of the quotient. Not
-# proved: a small residual beside overflowing entries that cancel, where it is below the range of the
-# scaled entries (the Float32 and Float64 method keeps it).
+# and the exponent of the total separately (the significand divided by n, one ldexp). Proved: the
+# result is finite for finite entries because _fused_mean clamps it into [min(x), max(x)] (not because
+# of the scaling: at a low precision the rounded sum of the scaled entries can restore past the range);
+# the accuracy is that of the compensated sum and of the quotient, no more. Not proved: a small residual
+# beside overflowing entries that cancel, where it is below the range of the scaled entries (the Float32
+# and Float64 method keeps it).
 function _fused_finite_mean(x, ::Type{W}, n) where {W}
   s = c = m = zero(W)
   @inbounds for i in 1:n
@@ -1589,7 +1600,8 @@ end
 #    before the exponent is restored; a subnormal result is rounded by that ldexp after the rounding of
 #    the significand quotient.
 # Not proved: correct rounding, and the accuracy of the small pieces where the large sum and the small
-# sum nearly cancel each other.
+# sum nearly cancel each other. The result is clamped into [min(x), max(x)] by _fused_mean, as for every
+# type (the finiteness of the mean rests on that clamp).
 function _fused_finite_mean(x, ::Type{W}, n) where {W<:Union{Float32, Float64}}
   p = precision(W)
   emax = exponent(floatmax(W))

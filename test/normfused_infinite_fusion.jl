@@ -956,6 +956,44 @@ end
   end
 end
 
+# On Windows (C long is 32 bits) exponent returns an Int64 and frexp an Int32, and an Int64 shift makes
+# ldexp(::BigFloat, n) form x * exp2(n): that overflows beside floatmax and rounds n at a low precision.
+# The reference shifts by Clong, an exact mpfr_mul_2si everywhere, and sums entries of magnitude below 2
+# in 4000 bits (exact), so none of its intermediates comes near the exponent limit.
+@testset "NormL1Fused(λ1, Inf): BigFloat restore of the mean takes an exact power-of-two shift (#736)" begin
+  for p in (2, 3, 5, 8, 16, 53, 256), sgn in (1, -1)
+    setprecision(BigFloat, p) do
+      M = floatmax(BigFloat)
+      h, q = ldexp(M, Clong(-1)), prevfloat(M)
+      f0, f1 = NormL1Fused(BigFloat(0), BigFloat(Inf)), NormL1Fused(BigFloat(0.25), BigFloat(Inf))
+      for x0 in ([M, M, M], [M, M, h], [M, h, h], [M, M, -M], [M, M, -M, -M, M], [M, q, M, h, q, M, M])
+        x = sgn .* x0
+        ref = setprecision(BigFloat, 4000) do
+          E = exponent(M)
+          ldexp(sum(ldexp(big(a), Clong(-E)) for a in x) / length(x), Clong(E))
+        end
+        lo, hi = extrema(x)
+        for f in (f0, f1)
+          y = prox(f, x, BigFloat(1))
+          z = y[1]
+          ok = all(isfinite, y) && all(==(z), y) && lo <= z <= hi
+          allequal(x) && (ok &= z == x[1])
+          # f0 does not shrink: z is the mean to a few ulps (f1 shrinks by 0.25, below an ulp of M)
+          f === f0 && (ok &= abs(big(z) - ref) <= ldexp(abs(ref), Clong(2 - p)))
+          @test ok
+          out = similar(x)
+          @test isequal(prox!(out, f, x, BigFloat(1)), y) && isequal(out, y)
+          out = similar(x)
+          v = value_and_prox!(out, f, x, BigFloat(1))
+          @test isequal(out, y) && isequal(v, f(out))
+          a = copy(x)
+          @test isequal(value_and_prox!(a, f, a, BigFloat(1)), v) && isequal(a, y)
+        end
+      end
+    end
+  end
+end
+
 @testset "NormL1Fused(λ1, Inf): the clamp keeps the earlier results (Float32, Float64, the exact cases)" begin
   for T in (Float32, Float64)
     d, M = nextfloat(zero(T)), floatmax(T)

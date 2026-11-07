@@ -372,6 +372,8 @@ end
 # before any block is written, so that a tuple call that is known to fail does not change its first blocks.
 _owner_role_supported(op, f) = true
 _owner_role_supported(op, ::Union{PointwiseMinimum, IndIntersection, LinearConstrained}) = false
+# the wrappers that forward their owner role to the inner function, and end in its MethodError
+_owner_role_supported(op, f::Union{Scaled, Translate, Tilt}) = _owner_role_supported(op, f.f)
 # the preflight of a block: the error of the direct call, with the arguments of the tuple call
 _owner_role_preflight(op, f, y, x, γ) =
   ((y isa SymmetricSparseIterate || x isa SymmetricSparseIterate) && !_owner_role_supported(op, f) &&

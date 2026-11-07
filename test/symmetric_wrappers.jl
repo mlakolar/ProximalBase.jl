@@ -548,6 +548,28 @@ end
       @test err === nothing
     end
   end
+  # the wrappers that forward to a rejection-only function (Scaled, Translate, Tilt, nested) end in its MethodError too
+  forwarding = (("Scaled", f -> Scaled(f, T(2))), ("Translate", f -> Translate(f, zeros(T, 2, 2))),
+                ("Tilt", f -> Tilt(f, T[0.1 0.2; 0.2 0.3])), ("Scaled of Translate", f -> Scaled(Translate(f, zeros(T, 2, 2)), T(2))),
+                ("Tilt of Scaled", f -> Tilt(Scaled(f, T(2)), T[0.1 0.2; 0.2 0.3])))
+  @testset "$wname of $name, $role, $where, $op" for (wname, wrap) in forwarding, (name, bad) in rejecting,
+                                                     (role, make) in roles[1:2], where in ("second", "first"), op in (prox!, value_and_prox!)
+    nl1 = NormL1(T(0.5))
+    f = where == "second" ? SeparableSum(nl1, wrap(bad)) : SeparableSum(wrap(bad), nl1)
+    y, x = make()
+    before = tstate(y)
+    err = try op(y, f, x, T(0.5)); nothing catch e; e end
+    @test err isa MethodError && err.f === op
+    @test isequal(tstate(y), before)
+  end
+  # parameter validation wins over the MethodError
+  @testset "invalid parameters under $wname, $op" for (wname, wrap) in forwarding, op in (prox!, value_and_prox!)
+    for (_, bad) in invalid
+      y = (mkowner(1), mkowner(2)); before = tstate(y)
+      @test_throws ArgumentError op(y, SeparableSum(NormL1(T(0.5)), wrap(bad)), (point(), point()), T(0.5))
+      @test isequal(tstate(y), before)
+    end
+  end
   # a block with invalid parameters is refused by the parameter check, whichever block is rejection-only
   @testset "invalid parameters, $name, $op" for ((name, bad), (_, good)) in zip(invalid, rejecting), op in (prox!, value_and_prox!)
     for f in (SeparableSum(NormL1(T(0.5), W), good), SeparableSum(NormL1(T(0.5)), bad), SeparableSum(bad, NormL1(T(0.5))))

@@ -55,10 +55,11 @@ end
 SelWalker(; trace=nothing) = SelWalker(0x0, IdDict{Any,Int}(), 0, trace)
 
 # a type, without the names of anonymous closure types
-sel_type_token(T) = replace(string(T), r"#[#A-Za-z0-9_!]*" => "#")
+const SEL_TOKENS = IdDict{Any,String}()
+sel_type_token(T) = get!(() -> replace(string(T), r"#[#A-Za-z0-9_!]*" => "#"), SEL_TOKENS, T)
 sel_anonymous(T::DataType) = startswith(string(nameof(T)), "#")
 sel_anonymous(T) = false
-sel_flat(T) = isbitstype(T) || (T <: Array && isbitstype(eltype(T)))
+sel_flat(T) = isbitstype(T)           # an array of immutable bits goes by digest; any other is walked element by element
 
 function sel_mix!(w::SelWalker, path, x)
     w.h = hash(x, w.h)
@@ -66,13 +67,24 @@ function sel_mix!(w::SelWalker, path, x)
     nothing
 end
 
+# the sharing number of a mutable object that is not walked into: the object itself and nothing of its contents
+function sel_share!(w::SelWalker, x, path)
+    n = get(w.memo, x, 0)
+    n != 0 && return sel_mix!(w, path, "same object as #$n")
+    w.memo[x] = n = length(w.memo) + 1
+    sel_mix!(w, path, "object #$n")
+end
+
+# the label of an item, built only when a trace is kept: the walk visits tens of thousands of group arrays
+sel_p(w::SelWalker, path, parts...) = w.trace === nothing ? "" : string(path, parts...)
+
 function sel_walk!(w::SelWalker, x, path::String)
     (w.nodes += 1) > SEL_NODE_BUDGET[] && error("the case fingerprint exceeded its budget of $(SEL_NODE_BUDGET[]) nodes at $path")
     T = typeof(x)
     if x isa Union{Nothing,Missing}
         return sel_mix!(w, path, :nothing)
     elseif x isa Union{Number,Symbol,AbstractString,AbstractChar}
-        sel_mix!(w, path * "::type", sel_type_token(T))
+        sel_mix!(w, sel_p(w, path, "::type"), sel_type_token(T))
         return sel_mix!(w, path, x)
     elseif x isa Union{Type,Module,Ptr}
         return sel_mix!(w, path, x isa Ptr ? "pointer" : string(x))
@@ -86,44 +98,61 @@ function sel_walk!(w::SelWalker, x, path::String)
         sel_mix!(w, path, "object #$n")
     end
     if x isa Union{AtomIterate,SparseIterate,SymmetricSparseIterate} && digestable(x)
-        sel_mix!(w, path * "::type", sel_type_token(T))
-        return sel_mix!(w, path * " digest", digest(x))
+        sel_mix!(w, sel_p(w, path, "::type"), sel_type_token(T))
+        sel_mix!(w, sel_p(w, path, " digest"), digest(x))
+        # the digest sorts the active coordinates: the live state in its order is added, through the accessors
+        # that exist on 0.5.x and 0.6 (the live part only: a stale tail of a backing array can be uninitialized)
+        ids = collect(activecoordinates(x))
+        sel_mix!(w, sel_p(w, path, " active order"), ids)
+        if x isa AtomIterate
+            indices = group_indices_by()
+            sel_mix!(w, sel_p(w, path, " active values"), [x[i] for k in ids for i in indices(x, k)])
+        else
+            sel_mix!(w, sel_p(w, path, " active values"), collect(activevalues(x)))
+        end
+        # the sharing of every mutable backing array, by number alone: never hashed beyond the live entries
+        for name in fieldnames(T)
+            name in SEL_SKIPPED_FIELDS && continue
+            f = getfield(x, name)
+            f isa AbstractArray && ismutable(f) && sel_share!(w, f, sel_p(w, path, ".", name))
+        end
+        return nothing
     elseif x isa Core.Box
-        return isdefined(x, :contents) ? sel_walk!(w, x.contents, path * ".contents") : sel_mix!(w, path, :undef)
+        return isdefined(x, :contents) ? sel_walk!(w, x.contents, sel_p(w, path, ".contents")) : sel_mix!(w, path, :undef)
     elseif x isa Base.RefValue
-        return sel_walk!(w, x[], path * "[]")
+        return sel_walk!(w, x[], sel_p(w, path, "[]"))
     elseif x isa Array
-        sel_mix!(w, path * "::type", sel_type_token(T))
-        sel_mix!(w, path * " size", size(x))
+        sel_mix!(w, sel_p(w, path, "::type"), sel_type_token(T))
+        sel_mix!(w, sel_p(w, path, " size"), size(x))
         if sel_flat(eltype(x))
             if digestable(x)
-                return sel_mix!(w, path * " digest", digest(x))
+                return sel_mix!(w, sel_p(w, path, " digest"), digest(x))
             end
             w.nodes += length(x)
-            return sel_mix!(w, path * " elements", [hash(v) for v in x])
+            return sel_mix!(w, sel_p(w, path, " elements"), [hash(v) for v in x])
         end
         for (i, v) in enumerate(x)
-            sel_walk!(w, v, string(path, "[", i, "]"))
+            sel_walk!(w, v, sel_p(w, path, "[", i, "]"))
         end
         return nothing
     elseif x isa AbstractDict
         for (k, v) in sort!(collect(x); by=pair -> hash(pair.first))
-            sel_walk!(w, k, path * ".key"); sel_walk!(w, v, path * "[key]")
+            sel_walk!(w, k, sel_p(w, path, ".key")); sel_walk!(w, v, sel_p(w, path, "[key]"))
         end
         return nothing
     elseif x isa AbstractSet
         for k in sort!(collect(x); by=hash)
-            sel_walk!(w, k, path * ".element")
+            sel_walk!(w, k, sel_p(w, path, ".element"))
         end
         return nothing
     end
     closure = x isa Function || sel_anonymous(T)
-    sel_mix!(w, path * "::type", sel_anonymous(T) ? "closure" : sel_type_token(T))
+    sel_mix!(w, sel_p(w, path, "::type"), sel_anonymous(T) ? "closure" : sel_type_token(T))
     for i in 1:fieldcount(T)
         name = T <: Tuple ? i : fieldname(T, i)
         name in SEL_SKIPPED_FIELDS && continue
-        fpath = string(path, ".", name)
-        closure && sel_mix!(w, fpath * "::fieldtype", sel_type_token(fieldtype(T, i)))
+        fpath = sel_p(w, path, ".", name)
+        closure && sel_mix!(w, sel_p(w, fpath, "::fieldtype"), sel_type_token(fieldtype(T, i)))
         isdefined(x, i) ? sel_walk!(w, getfield(x, i), fpath) : sel_mix!(w, fpath, :undef)
     end
     nothing
@@ -156,36 +185,47 @@ sel_message(f) = (err = sel_error(f); err === nothing ? "" : sprint(showerror, e
 # `unfiltered`: a function that builds the unfiltered catalog (run cases leave their destinations changed, so the
 # oracle starts from a fresh build), or, with `run=false`, an unfiltered build that was never run; `build_selected(selector)`
 # builds with the selector. The cases of the selection must agree item by item, and so must the state after running
-# them (`run`).
-function sel_compare(unfiltered, build_selected, selection::AbstractString; targeted=true, run=true)
+# them (`run`). `sel_differences` returns the dictionary of differences found (empty when there is none), with the
+# builds, for `sel_compare`, which asserts on them.
+function sel_differences_full(unfiltered, build_selected, selection::AbstractString; run=true)
     run && !(unfiltered isa Function) && error("an unfiltered build that is reused must not be run")
     all_cases = unfiltered isa Function ? unfiltered() : unfiltered
     selector = Regex(selection)
     expected = filter(c -> occursin(selector, c.meta.id), all_cases)
     built = build_selected(selector)
     actual = filter(c -> occursin(selector, c.meta.id), built)
-    @test !isempty(expected)
-    targeted && @test length(built) < length(all_cases)
-    @test [c.meta.id for c in actual] == [c.meta.id for c in expected]
-    length(actual) == length(expected) || return nothing
     differences = Dict{String,Vector{String}}()
     note(what, c) = push!(get!(differences, what, String[]), c.meta.id)
-    fe, fa = case_fingerprint(expected...), case_fingerprint(actual...)
-    for (i, (e, a)) in enumerate(zip(expected, actual))
-        e.meta == a.meta || note("meta", e)
-        e.evals === a.evals && e.profile == a.profile || note("evals or profile", e)
-        input_digests(e.inputs) == input_digests(a.inputs) || note("input digests", e)
-        fe[i] == fa[i] || note("state before", e)
-        run || continue
-        sel_message(e.validate) == sel_message(a.validate) || note("validate", e)
-        for c in (e, a)
-            c.prepare(); c.operation()
+    if [c.meta.id for c in actual] == [c.meta.id for c in expected]
+        fe, fa = case_fingerprint(expected...), case_fingerprint(actual...)
+        for (i, (e, a)) in enumerate(zip(expected, actual))
+            e.meta == a.meta || note("meta", e)
+            e.evals === a.evals && e.profile == a.profile || note("evals or profile", e)
+            input_digests(e.inputs) == input_digests(a.inputs) || note("input digests", e)
+            fe[i] == fa[i] || note("state before", e)
+            run || continue
+            sel_message(e.validate) == sel_message(a.validate) || note("validate", e)
+            for c in (e, a)
+                c.prepare(); c.operation()
+            end
+            only(case_fingerprint(e)) == only(case_fingerprint(a)) || note("state after", e)
+            sel_message(e.validate) == sel_message(a.validate) || note("validate after", e)
         end
-        only(case_fingerprint(e)) == only(case_fingerprint(a)) || note("state after", e)
-        sel_message(e.validate) == sel_message(a.validate) || note("validate after", e)
+    else
+        differences["ids"] = [c.meta.id for c in actual]
     end
-    @test isempty(differences)
-    isempty(differences) || println(stderr, "selection ", repr(selection), " differs: ", differences)
+    (; all_cases, expected, built, actual, differences)
+end
+sel_differences(unfiltered, build_selected, selection; run=true, targeted=true) =
+    sel_differences_full(unfiltered, build_selected, selection; run).differences
+
+function sel_compare(unfiltered, build_selected, selection::AbstractString; targeted=true, run=true)
+    r = sel_differences_full(unfiltered, build_selected, selection; run)
+    @test !isempty(r.expected)
+    targeted && @test length(r.built) < length(r.all_cases)
+    @test [c.meta.id for c in r.actual] == [c.meta.id for c in r.expected]
+    @test isempty(r.differences)
+    isempty(r.differences) || println(stderr, "selection ", repr(selection), " differs: ", r.differences)
     nothing
 end
 
@@ -254,6 +294,25 @@ end
     @test sel_fingerprint(cyc) isa UInt64
     n1 = SelNode(nothing); n2 = SelNode(n1); n1.next = n2
     @test sel_fingerprint(n1) isa UInt64
+    # the order of the active coordinates, which the harness digest sorts away
+    g = [1:2, 3:4]
+    ax = build_atom(Float64, 4, g, [1, 2], [1.0, 2.0, 3.0, 4.0])
+    ay = build_atom(Float64, 4, g, [2, 1], [3.0, 4.0, 1.0, 2.0])
+    @test digest(ax) == digest(ay) && Vector(ax) == Vector(ay)
+    @test sel_fingerprint(ax) != sel_fingerprint(ay)
+    @test sel_fingerprint(ax) == sel_fingerprint(build_atom(Float64, 4, g, [1, 2], [1.0, 2.0, 3.0, 4.0]))
+    sx, sy = SparseIterate(Float64, 4), SparseIterate(Float64, 4)
+    sx[1] = 1.0; sx[2] = 2.0; sy[2] = 2.0; sy[1] = 1.0
+    @test digest(sx) == digest(sy) && Array(sx) == Array(sy)
+    @test sel_fingerprint(sx) != sel_fingerprint(sy)
+    # an array of mutable elements is walked element by element: one array twice against two equal arrays
+    a1 = [1.0]
+    @test sel_fingerprint([a1, a1]) != sel_fingerprint([[1.0], [1.0]])
+    @test sel_fingerprint([[1.0], [1.0]]) == sel_fingerprint([[1.0], [1.0]])
+    # the backing array of an iterate: shared with a captured one, or an equal copy
+    @test sel_fingerprint((ax, ax.storage)) != sel_fingerprint((ax, copy(ax.storage)))
+    @test sel_fingerprint((ax, ax.storage)) == sel_fingerprint((ax, ax.storage))
+    @test sel_fingerprint((sx, sx.nzval)) != sel_fingerprint((sx, copy(sx.nzval)))
     # the walk is bounded
     budget = SEL_NODE_BUDGET[]
     SEL_NODE_BUDGET[] = 10
@@ -261,6 +320,43 @@ end
         @test occursin("exceeded its budget of 10 nodes", sel_message(() -> sel_fingerprint(Any[string(i) for i in 1:100])))
     finally
         SEL_NODE_BUDGET[] = budget
+    end
+end
+
+# the oracle reports a difference that it should see, and none between independently rebuilt identical builds
+@testset "the oracle sees order and sharing" begin
+    g = [1:2, 3:4]
+    atom_pair(order) = (x = build_atom(Float64, 4, g, order, order == [1, 2] ? [1.0, 2.0, 3.0, 4.0] : [3.0, 4.0, 1.0, 2.0]);
+                        c = PerfCase[];
+                        addcase!(c, "t", "order", () -> first(activecoordinates(x)),
+                                 () -> first(activecoordinates(x)) == 1 || error("the first active group is not 1");
+                                 inputs=(; x));
+                        c)
+    sparse_pair(order) = (x = SparseIterate(Float64, 4); foreach(i -> x[i] = Float64(i), order);
+                          c = PerfCase[];
+                          addcase!(c, "t", "order", () -> first(activecoordinates(x)),
+                                   () -> first(activecoordinates(x)) == 1 || error("the first active coordinate is not 1");
+                                   inputs=(; x));
+                          c)
+    arrays_pair(shared) = (a = [1.0]; arrs = shared ? [a, a] : [[1.0], [1.0]]; c = PerfCase[];
+                           addcase!(c, "t", "same", () -> arrs[1] === arrs[2],
+                                    () -> arrs[1] === arrs[2] || error("two arrays");
+                                    inputs=(;));
+                           c)
+    storage_pair(shared) = (x = build_atom(Float64, 4, g, [1, 2], [1.0, 2.0, 3.0, 4.0]); st = shared ? x.storage : copy(x.storage);
+                            c = PerfCase[];
+                            addcase!(c, "t", "same", () -> st === x.storage,
+                                     () -> st === x.storage || error("not the storage");
+                                     inputs=(; x));
+                            c)
+    differences(a, b) = sel_differences(() -> a(), selector -> b(), "^t/")
+    for (a, b) in ((() -> atom_pair([1, 2]), () -> atom_pair([2, 1])),
+                   (() -> sparse_pair([1, 2]), () -> sparse_pair([2, 1])),
+                   (() -> arrays_pair(true), () -> arrays_pair(false)),
+                   (() -> storage_pair(true), () -> storage_pair(false)))
+        @test !isempty(differences(a, b))
+        @test isempty(differences(a, a))
+        @test isempty(differences(b, b))
     end
 end
 

@@ -2967,39 +2967,40 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
     want("sweep_active_update", "sweep_activecoordinates", "atom_norm", "atom_dot", "atomindices_loop", "atomindices_view") &&
         Base.invokelatest(sweeps_group)
 
-    products_group = function ()
+    dot_vx_group = function ()
         v = v_()
         d = d_()
         # FD-9: products, with 0% and 50% of the entries of the active groups exactly zero at random places in
         # storage order (a group left all zero stays active)
-        if want("dot_vx")
-            absv = abs.(v)
+        absv = abs.(v)
+        for zlabel in ATOM_ZLABELS
+            xz = zlabel == "z0" ? x : x50_()
+            dz = zlabel == "z0" ? d : d50_()
+            scale = dot(absv, abs.(dz))
+            expected = dot(v, dz)
+            addcase!(cases, "atom", "dot_vx", () -> dot(v, xz),
+                     guarded(() -> close_scalar(dot(v, xz), expected, scale, T));
+                     inputs=(; x=xz, v), T, shape, layout=zlabel, zero_alloc=true, work=nvals)
+        end
+    end
+    want("dot_vx") && Base.invokelatest(dot_vx_group)
+
+    mul_group = function ()
+        d = d_()
+        for m in rows
+            A = get!(() -> randn(scenario_rng(rep, "atom/A/$T/$m/$p"), T, m, p), acache, (T, m, p))::Matrix{T}
+            out = zeros(T, m)
             for zlabel in ATOM_ZLABELS
                 xz = zlabel == "z0" ? x : x50_()
                 dz = zlabel == "z0" ? d : d50_()
-                scale = dot(absv, abs.(dz))
-                expected = dot(v, dz)
-                addcase!(cases, "atom", "dot_vx", () -> dot(v, xz),
-                         guarded(() -> close_scalar(dot(v, xz), expected, scale, T));
-                         inputs=(; x=xz, v), T, shape, layout=zlabel, zero_alloc=true, work=nvals)
-            end
-        end
-        if want("mul!")
-            for m in rows
-                A = get!(() -> randn(scenario_rng(rep, "atom/A/$T/$m/$p"), T, m, p), acache, (T, m, p))::Matrix{T}
-                out = zeros(T, m)
-                for zlabel in ATOM_ZLABELS
-                    xz = zlabel == "z0" ? x : x50_()
-                    dz = zlabel == "z0" ? d : d50_()
-                    ref_mul = A * dz
-                    check_mul() = (fill!(out, T(1000)); mul!(out, A, xz); close_enough(out, ref_mul))
-                    addcase!(cases, "atom", "mul!", () -> mul!(out, A, xz), guarded(check_mul);
-                             inputs=(; A, x=xz), T, shape, layout=atom_mul_layout(m, zlabel), zero_alloc=true, work=m * nvals)
-                end
+                ref_mul = A * dz
+                check_mul() = (fill!(out, T(1000)); mul!(out, A, xz); close_enough(out, ref_mul))
+                addcase!(cases, "atom", "mul!", () -> mul!(out, A, xz), guarded(check_mul);
+                         inputs=(; A, x=xz), T, shape, layout=atom_mul_layout(m, zlabel), zero_alloc=true, work=m * nvals)
             end
         end
     end
-    want("dot_vx", "mul!") && Base.invokelatest(products_group)
+    want("mul!") && Base.invokelatest(mul_group)
 
     rmul_group = function ()
         d = d_()

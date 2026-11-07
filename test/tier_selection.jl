@@ -437,7 +437,7 @@ pr(paths...; labels = String[]) = TestTiers.pr_tier(MANIFEST, collect(paths), la
 const NARROW = [TestTiers.NARROW_LABEL]
 const ATOM = ["block_step", "infinite_group_weights", "norms", "real_iterates", "sparsegroup"]
 const SPARSE = ["block_step", "conformance/failures_storage", "real_iterates", "sparse_iterate", "sparse_value_cost",
-                "symmetric_argument", "symmetric_mul", "symmetric_mutator_errors", "symmetric_mutators", "symmetric_writes"]
+                "symmetric_argument", "symmetric_mul"]
 const SYMPARAMS = ["symmetric_parameters_extensions", "symmetric_parameters_merge", "symmetric_parameters_paths",
                    "symmetric_parameters_trait", "symmetric_parameters_writes"]
 instandard(names) = filter(n -> !(n in TestTiers.select(MANIFEST, "standard")), names)

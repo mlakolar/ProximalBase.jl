@@ -129,7 +129,7 @@ iterate files that quick always runs (`active_handle`, `atom_iterate`,
 | Change | Before merge |
 |---|---|
 | `src/atom_iterate.jl`, narrow | quick + `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` |
-| `src/sparse_iterate.jl`, narrow | quick + `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_writes`, `symmetric_mul`, `symmetric_argument`, `symmetric_mutators`, `symmetric_mutator_errors` |
+| `src/sparse_iterate.jl`, narrow | quick + `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` |
 | `src/symmetric_parameters.jl`, narrow | quick + `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` |
 | one of them, not declared narrow | standard + the same focus files |
 | two of them | standard + both groups (the label does not apply) |

@@ -33,6 +33,160 @@ function owner_from(rng, ::Type{T}, v, p) where {T}
   X
 end
 
+# the owner of the table of absent operations, and the operands of its rows
+absent_owner() = (X = SymmetricSparseIterate(Float64, 3); X[2, 1] = 2.0; X[3, 3] = 5.0; activate!(X, 4); X)
+const AM = Float64[1 2 3; 2 4 5; 3 5 6]
+const AD = Diagonal([1.0, 2.0, 3.0])
+const AQ = qr(AM).Q
+const AIDX = CartesianIndices((1:3, 1:3))
+
+# the rows whose call, on some Julia versions, asks for axes(X) before it looks for a method
+const AXES_ROWS = ("accumulate!", "permutedims!")
+
+const ABSENT_READS = Pair{String, Function}[
+  "length" => X -> length(X),
+  "iterate" => X -> iterate(X),
+  "eachindex" => X -> eachindex(X),
+  "firstindex" => X -> firstindex(X),
+  "lastindex" => X -> lastindex(X),
+  "ndims" => X -> ndims(X),
+  "nnz" => X -> nnz(X),
+  "sum" => X -> sum(X),
+  "maximum" => X -> maximum(X),
+  "extrema" => X -> extrema(X),
+  "any" => X -> any(isnan, X),
+  "findall" => X -> findall(iszero, X),
+  "map" => X -> map(identity, X),
+  "collect" => X -> collect(X),
+  "zero" => X -> zero(X),
+  "one" => X -> one(X),
+  "X + X" => X -> X + X,
+  "2 * X" => X -> 2 * X,
+  "X * X" => X -> X * X,
+  "A * X" => X -> AM * X,
+  "dot(X, X)" => X -> dot(X, X),
+  "X .+ 1" => X -> X .+ 1,
+  "broadcast" => X -> broadcast(+, X, 1),
+  "isapprox" => X -> isapprox(X, copy(X)),
+  "X[1:2, 1]" => X -> X[1:2, 1],
+  "X[:, 1]" => X -> X[:, 1],
+  "X[:]" => X -> X[:],
+  "X[CartesianIndex(1, 2)]" => X -> X[CartesianIndex(1, 2)],
+  "X[end]" => X -> X[end],
+  "lu(X)" => X -> lu(X),
+  "qr(X)" => X -> qr(X),
+  "cholesky(X)" => X -> cholesky(X),
+  "sort(X)" => X -> sort(X; dims = 1),
+  "reverse(X)" => X -> reverse(X),
+  "rot180(X)" => X -> rot180(X),
+  "cumsum(X)" => X -> cumsum(X; dims = 1),
+  "Symmetric(X)" => X -> Symmetric(X),
+  "convert(Matrix, X)" => X -> convert(Matrix{Float64}, X),
+  "Array{Float64}(X)" => X -> Array{Float64}(X),
+  "similar(X, 2, 2)" => X -> similar(X, 2, 2),
+  "view(X, :, :)" => X -> view(X, :, :),
+  "view(X, 1:2, 1:2)" => X -> view(X, 1:2, 1:2),
+  "view(X, :)" => X -> view(X, :),
+  "reshape(X, 9)" => X -> reshape(X, 9),
+  "vec(X)" => X -> vec(X),
+]
+
+const ABSENT_WRITES = Pair{String, Function}[
+  "X .= 1" => X -> (X .= 1),
+  "X .= A" => X -> (X .= AM),
+  "X .+= 1" => X -> (X .+= 1),
+  "fill!(X, v)" => X -> fill!(X, 1),
+  "map!(f, X, A)" => X -> map!(identity, X, AM),
+  "map!(f, X, A, B)" => X -> map!(+, X, AM, AM),
+  "map!(f, X)" => X -> map!(identity, X),
+  "replace!(f, X)" => X -> replace!(identity, X),
+  "replace!(X, a => b)" => X -> replace!(X, 1.0 => 2.0),
+  "replace(X, a => b)" => X -> replace(X, 1.0 => 2.0),
+  "setindex!(X, A, :, :)" => X -> setindex!(X, AM, :, :),
+  "setindex!(X, vec(A), :)" => X -> setindex!(X, vec(AM), :),
+  "setindex!(X, v, 1:2, 1)" => X -> setindex!(X, [1.0, 2.0], 1:2, 1),
+  "setindex!(X, v, 1:2)" => X -> setindex!(X, [1.0, 2.0], 1:2),
+  "setindex!(X, A, CartesianIndices)" => X -> setindex!(X, AM, AIDX),
+  "X[CartesianIndex(1, 2)] = v" => X -> (X[CartesianIndex(1, 2)] = 1.0),
+  "fillband!" => X -> LinearAlgebra.fillband!(X, 1.0, 0, 0),
+  "read!" => X -> read!(IOBuffer(zeros(UInt8, 100)), X),
+  "readbytes!" => X -> readbytes!(IOBuffer(zeros(UInt8, 100)), X),
+  "hex2bytes!" => X -> hex2bytes!(X, "01020304"),
+  "get!" => X -> get!(X, AM, (1:3, 1:3), 7.0),
+  "sortperm!" => X -> sortperm!(X, AM; dims = 1),
+  "accumulate!" => X -> accumulate!(+, X, AM; dims = 1),
+  "cumsum!" => X -> cumsum!(X, AM; dims = 1),
+  "sum!" => X -> sum!(X, ones(3, 3, 2)),
+  "maximum!" => X -> maximum!(X, ones(3, 3, 2)),
+  "count!" => X -> count!(X, trues(3, 3, 2)),
+  "findmax!" => X -> findmax!(X, fill(CartesianIndex(0, 0, 0), 3, 3), ones(3, 3, 2)),
+]
+
+const ABSENT_ALGEBRA = Pair{String, Function}[
+  "reverse!" => X -> reverse!(X),
+  "sort!" => X -> sort!(X; dims = 1),
+  "kron!(X, A, B)" => X -> kron!(X, AM, ones(1, 1)),
+  "kron!(X, A, s)" => X -> kron!(X, AM, 2.0),
+  "triu!" => X -> triu!(X),
+  "triu!(X, k)" => X -> triu!(X, -5),
+  "tril!" => X -> tril!(X),
+  "tril!(X, k)" => X -> tril!(X, 5),
+  "lmul!(D, X)" => X -> lmul!(AD, X),
+  "lmul!(A, X)" => X -> lmul!(AM, X),
+  "lmul!(Q, X)" => X -> lmul!(AQ, X),
+  "lmul!(2I, X)" => X -> lmul!(2I, X),
+  "rmul!(X, D)" => X -> rmul!(X, AD),
+  "rmul!(X, A)" => X -> rmul!(X, AM),
+  "rmul!(X, Q)" => X -> rmul!(X, AQ),
+  "rmul!(X, 2I)" => X -> rmul!(X, 2I),
+  "ldiv!(D, X)" => X -> ldiv!(AD, X),
+  "ldiv!(F, X)" => X -> ldiv!(lu(AM), X),
+  "ldiv!(2I, X)" => X -> ldiv!(2I, X),
+  "ldiv!(X, F, B)" => X -> ldiv!(X, lu(AM), AM),
+  "rdiv!(X, D)" => X -> rdiv!(X, AD),
+  "rdiv!(X, 2I)" => X -> rdiv!(X, 2I),
+  "lu!" => X -> lu!(X),
+  "qr!" => X -> qr!(X),
+  "cholesky!" => X -> cholesky!(X),
+  "bunchkaufman!" => X -> bunchkaufman!(X),
+  "transpose!" => X -> transpose!(X, AM),
+  "adjoint!" => X -> adjoint!(X, AM),
+  "permutedims!" => X -> permutedims!(X, AM, (2, 1)),
+  "axpy!" => X -> axpy!(2.0, AM, X),
+  "axpby!" => X -> axpby!(2.0, AM, 3.0, X),
+  "axpy! with index lists" => X -> axpy!(1.0, [1.0, 2.0], [1, 2], X, [2, 3]),
+  "mul!(X, A, B)" => X -> mul!(X, AM, AM),
+  "mul!(X, A, s)" => X -> mul!(X, AM, 2.0),
+  "mul!(X, s, A)" => X -> mul!(X, 2.0, AM),
+  "mul!(X, A, B, α, β)" => X -> mul!(X, AM, AM, 1.0, 0.0),
+  "mul!(X, Y, Z)" => X -> mul!(X, absent_owner(), absent_owner()),
+  "mul!(X, 'N', 'N', A, B, α, β)" => X -> mul!(X, 'N', 'N', AM, AM, 1.0, 0.0),
+]
+@static if isdefined(LinearAlgebra, :copytrito!)
+  push!(ABSENT_ALGEBRA, "copytrito!" => X -> LinearAlgebra.copytrito!(X, AM, 'L'))
+end
+
+const ABSENT_COPIES = Pair{String, Function}[
+  "copy!(X, A)" => X -> copy!(X, AM),
+  "copy!(X, Y)" => X -> copy!(X, absent_owner()),
+  "copyto!(X, offset, v)" => X -> copyto!(X, 1, vec(AM)),
+  "copyto!(X, offset, v, offset)" => X -> copyto!(X, 1, vec(AM), 1),
+  "copyto!(X, offset, v, offset, n)" => X -> copyto!(X, 1, vec(AM), 1, 9),
+  "copyto!(X, CartesianIndices, A, CartesianIndices)" => X -> copyto!(X, AIDX, AM, AIDX),
+  "copyto!(X, ranges, A, ranges)" => X -> copyto!(X, 1:3, 1:3, AM, 1:3, 1:3),
+  "copy_transpose! with a flag" => X -> LinearAlgebra.copy_transpose!(X, 1:3, 1:3, 'T', AM, 1:3, 1:3),
+  "copy_transpose!" => X -> LinearAlgebra.copy_transpose!(X, 1:3, 1:3, AM, 1:3, 1:3),
+  "copyto!(X, tuple)" => X -> copyto!(X, (1.0, 2.0)),
+  "copyto!(X, generator)" => X -> copyto!(X, (1.0 for _ in 1:9)),
+  "copyto!(X, number)" => X -> copyto!(X, 1.0),
+  "copyto!(X, 2I)" => X -> copyto!(X, 2I),
+  "copyto!(X, Q)" => X -> copyto!(X, AQ),
+  "copyto!(X, broadcast)" => X -> copyto!(X, Base.Broadcast.broadcasted(identity, AM)),
+]
+@static if isdefined(LinearAlgebra, :copy_adjoint!)
+  push!(ABSENT_COPIES, "copy_adjoint!" => X -> LinearAlgebra.copy_adjoint!(X, 1:3, 1:3, AM, 1:3, 1:3))
+end
+
 @testset "T09: the interface surface" begin
   @testset "what an owner has, $T, p = $p" for T in (Float32, Float64, Int), p in (0, 1, 3, 6)
     X = SymmetricSparseIterate(T, p)
@@ -84,6 +238,31 @@ end
     @test length(coordinates(X)) == 6 && length(matrixview(X)) == 9
     @test axes(matrixview(X)) == (Base.OneTo(3), Base.OneTo(3))
     @test nnz(sparse(matrixview(X))) == 0
+  end
+
+  # One table of the array operations that an owner has no method for. Each call is a MethodError, and
+  # a call that took the owner as its destination leaves it unchanged. The owner is 3 × 3, with an
+  # active zero and a diagonal entry.
+  @testset "operations that an owner does not have, $name" for (name, rows) in (
+      ("reading and traversal", ABSENT_READS), ("writing and filling", ABSENT_WRITES),
+      ("in-place algebra", ABSENT_ALGEBRA), ("copies and index writes", ABSENT_COPIES))
+    @testset "$row" for (row, f) in rows
+      X = absent_owner()
+      before = state(X)
+      err = try
+        f(X)
+        nothing
+      catch e
+        e
+      end
+      if row in AXES_ROWS
+        # Julia reaches axes(X) first, on some versions: the one throwing method of the owner
+        @test err isa MethodError || (err isa ArgumentError && occursin("has no axes", sprint(showerror, err)))
+      else
+        @test err isa MethodError
+      end
+      @test isequal(state(X), before)
+    end
   end
 
   @testset "D3: the one throwing axes method" begin

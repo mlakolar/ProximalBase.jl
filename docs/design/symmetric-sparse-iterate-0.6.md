@@ -181,8 +181,7 @@ document. That is what removes the need for a catalog of forbidden mutators
 (compare the `SymmetricSparseIterate` override list in
 [`src/sparse_iterate.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/abaceda25442bf6cc61601c8c1d3b2a16e1a3492/src/sparse_iterate.jl#L896)
 and the 1,130 lines of
-`test/symmetric_mutators.jl`, `test/symmetric_mutator_errors.jl` and
-`test/symmetric_writes.jl`).
+tests that guarded it).
 
 **What this does not make safe.** An explicit double loop over `(i, j)` that
 *reads and writes* `X[i, j]` still updates a mirrored variable twice. The

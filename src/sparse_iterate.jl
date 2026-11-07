@@ -420,40 +420,6 @@ function _clear!(x::_StoredIterate)
   x
 end
 
-# These fallback methods serve SymmetricSparseIterate and scale stored entries
-# in O(nnz). Generic methods would scale mirrored entries twice because they share
-# storage. For scalars that map zero to a nonzero value (Inf, NaN, a zero divisor),
-# the result depends on storage until #391 changes the owner's scaling.
-function LinearAlgebra.rmul!(x::_StoredIterate, s::Number)
-  _checkreal(x, s)
-  @inbounds for k = 1:x.nnz
-    x.nzval[k] *= s
-  end
-  x
-end
-function LinearAlgebra.lmul!(s::Number, x::_StoredIterate)
-  _checkreal(x, s)
-  @inbounds for k = 1:x.nnz
-    x.nzval[k] = s * x.nzval[k]
-  end
-  x
-end
-function LinearAlgebra.rdiv!(x::_StoredIterate, s::Number)
-  _checkreal(x, s)
-  @inbounds for k = 1:x.nnz
-    x.nzval[k] /= s
-  end
-  x
-end
-function LinearAlgebra.ldiv!(s::Number, x::_StoredIterate)
-  _checkreal(x, s)
-  @inbounds for k = 1:x.nnz
-    x.nzval[k] = s \ x.nzval[k]
-  end
-  x
-end
-
-
 # Scaling a SparseIterate is a value write equal to its broadcast in values,
 # working set and slot order. It costs O(nnz) when the scalar maps zero to zero,
 # and O(n) otherwise. The operation is assumed to be ordinary, pure arithmetic.

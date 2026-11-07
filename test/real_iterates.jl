@@ -117,9 +117,6 @@ end
   for source in (Z, sparse(Z), transpose(sparse(Z)), Symmetric(Z), Hermitian(Z))
     rejects(() -> copyto!(x, source), name, x)
   end
-  for scale! in (s -> rmul!(x, s), s -> lmul!(s, x), s -> rdiv!(x, s), s -> ldiv!(s, x))
-    rejects(() -> scale!(1 + 0im), name, x)
-  end
   # the vector of coordinates is an ordinary vector: it converts one value at a time
   @test_throws InexactError (coordinates(x)[2] = 2im)
   @test_throws InexactError fill!(coordinates(x), 1 + 1im)
@@ -167,10 +164,14 @@ end
     @test mul!(zeros(2, 2), matrixview(x), B) == A * B
   end
   for scale in (true, 2, 1//2)
-    @test Matrix(rmul!(copy(x), scale)) == A .* scale
-    @test Matrix(lmul!(scale, copy(x))) == scale .* A
-    @test Matrix(rdiv!(copy(x), scale)) == A ./ scale
-    @test Matrix(ldiv!(scale, copy(x))) == A ./ scale
+    y = copy(x); rmul!(coordinates(y), scale)
+    @test Matrix(y) == A .* scale
+    y = copy(x); lmul!(scale, coordinates(y))
+    @test Matrix(y) == scale .* A
+    y = copy(x); rdiv!(coordinates(y), scale)
+    @test Matrix(y) == A ./ scale
+    y = copy(x); ldiv!(scale, coordinates(y))
+    @test Matrix(y) == A ./ scale
   end
 end
 

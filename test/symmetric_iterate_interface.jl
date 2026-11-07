@@ -147,6 +147,10 @@ const ABSENT_ALGEBRA = Pair{String, Function}[
   "ldiv!(X, F, B)" => X -> ldiv!(X, lu(AM), AM),
   "rdiv!(X, D)" => X -> rdiv!(X, AD),
   "rdiv!(X, 2I)" => X -> rdiv!(X, 2I),
+  "rmul!(X, s)" => X -> rmul!(X, 2),
+  "lmul!(s, X)" => X -> lmul!(2, X),
+  "rdiv!(X, s)" => X -> rdiv!(X, 2),
+  "ldiv!(s, X)" => X -> ldiv!(2, X),
   "lu!" => X -> lu!(X),
   "qr!" => X -> qr!(X),
   "cholesky!" => X -> cholesky!(X),
@@ -492,24 +496,33 @@ end
   end
 end
 
-@testset "scaling the owner by a number scales its coordinates, in place" begin
-  ops = (("rmul!", (x, s) -> rmul!(x, s)), ("lmul!", (x, s) -> lmul!(s, x)),
-         ("rdiv!", (x, s) -> rdiv!(x, s)), ("ldiv!", (x, s) -> ldiv!(s, x)))
-  @testset "$name, $T, p = $p" for (name, op) in ops, T in (Float32, Float64), p in (0, 1, 3)
+# the replacement of the absent scaling of the owner by a number: ordinary vector operations on the
+# vector of the variables, which follow IEEE arithmetic (also for Inf, NaN and a zero divisor)
+@testset "scaling the coordinates of the owner by a number is an ordinary vector operation" begin
+  ops = (("rmul!", (x, s) -> rmul!(x, s), (a, s) -> a * s), ("lmul!", (x, s) -> lmul!(s, x), (a, s) -> s * a),
+         ("rdiv!", (x, s) -> rdiv!(x, s), (a, s) -> a / s), ("ldiv!", (x, s) -> ldiv!(s, x), (a, s) -> s \ a))
+  @testset "$name, $T, p = $p" for (name, op, scalar) in ops, T in (Float32, Float64), p in (0, 1, 3)
     S = T[r + c for r in 1:p, c in 1:p]
-    for s in (T(2), T(-0.5), 4)
+    for s in (T(2), T(-0.5), 4, T(Inf), T(NaN), T(0))
       x = copyto!(SymmetricSparseIterate(T, p), S)
       ids = collect(activecoordinates(x))
-      expected = op(copy(S), s)                                  # the same call on the dense matrix
-      @test op(x, s) === x
-      @test Matrix(x) == expected
-      @test collect(activecoordinates(x)) == ids                 # the working set is not changed
+      v = collect(coordinates(x))
+      expected = op(copy(v), s)                                  # the same call on an ordinary vector
+      @test op(coordinates(x), s) isa AbstractVector
+      @test isequal(collect(coordinates(x)), expected)
+      @test isequal(Matrix(x), dense_from(T, expected, p))
+      # a scale that maps zero to zero changes no active set
+      iszero(scalar(zero(T), s)) && @test collect(activecoordinates(x)) == ids
     end
-    # a complex number is refused before anything is written
-    x = copyto!(SymmetricSparseIterate(T, p), S)
-    before = state(x)
-    @test_throws ArgumentError op(x, 2im)
-    @test isequal(state(x), before)
+  end
+  @testset "the active set of a finite scale" begin
+    x = SymmetricSparseIterate(Float64, 3)
+    x[2, 1] = 1.0; activate!(x, 4)
+    ids = collect(activecoordinates(x))
+    rmul!(coordinates(x), 2.0)
+    @test collect(activecoordinates(x)) == ids && x[2, 1] == 2.0 && x[2, 2] == 0.0
+    rmul!(coordinates(x), 0.0)
+    @test collect(activecoordinates(x)) == ids && iszero(Matrix(x))
   end
 end
 

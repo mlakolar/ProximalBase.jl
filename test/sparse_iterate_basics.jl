@@ -392,11 +392,13 @@ end
         @test isequal(Array(x), Array(expected))
         @test collect(activecoordinates(x)) == collect(activecoordinates(expected))
 
-        # The owner's result depends on storage until #391 changes it; pin it deliberately.
+        # the owner has no scaling by a number: the vector of its coordinates follows IEEE arithmetic, and
+        # the NaN written into a zero activates it
         X = SymmetricSparseIterate(3); X[2, 1] = 1.0; activate!(X, 1)
-        rmul!(X, Inf)
-        @test isequal(collect(coordinates(X)), [NaN, Inf, 0.0, 0.0, 0.0, 0.0])
-        @test collect(activecoordinates(X)) == [2, 1]
+        @test_throws MethodError rmul!(X, Inf)
+        rmul!(coordinates(X), Inf)
+        @test isequal(collect(coordinates(X)), [NaN, Inf, NaN, NaN, NaN, NaN])
+        @test collect(activecoordinates(X)) == [2, 1, 3, 4, 5, 6]
     end
 
 end
@@ -442,8 +444,11 @@ end
         @test_throws BoundsError (S[p + 1, 1] = 1.)
         # scaling updates an off-diagonal entry once, not twice
         M = Matrix(S)
-        @test Matrix(rmul!(copy(S), 2.)) == 2M && Matrix(lmul!(2., copy(S))) == 2M
-        @test Matrix(rdiv!(copy(S), 2.)) == M / 2 && Matrix(ldiv!(2., copy(S))) == M / 2
+        for (op!, expected) in ((c -> rmul!(c, 2.), 2M), (c -> lmul!(2., c), 2M),
+                                (c -> rdiv!(c, 2.), M / 2), (c -> ldiv!(2., c), M / 2))
+            Y = copy(S); op!(coordinates(Y))
+            @test Matrix(Y) == expected
+        end
         # a stored zero stays stored, and a SparseIterate is scaled in O(nnz)
         x = SparseIterate(sparse([1., 0., 2.]))
         @test rmul!(x, 3.) === x && Vector(x) == [3., 0., 6.] && nnz(x) == 2

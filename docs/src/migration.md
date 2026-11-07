@@ -311,6 +311,7 @@ storage.
 | `x.nzval`, the stored values | `activevalues(x)`, paired with `activecoordinates(x)` |
 | `Matrix(x)`, writable dense storage | unchanged |
 | `sparse(x)`, `triu(x, k)`, `tril(x, k)` | `sparse(matrixview(x))`, `triu(matrixview(x), k)`, `tril(matrixview(x), k)`: sparse matrices of the active variables, in ``O(\mathrm{nactive}(x))`` |
+| `rmul!(x, s)`, `lmul!(s, x)`, `rdiv!(x, s)`, `ldiv!(s, x)` by a number `s` | `rmul!(coordinates(x), s)`, `lmul!(s, coordinates(x))`, `rdiv!(coordinates(x), s)`, `ldiv!(s, coordinates(x))`: ordinary operations on the vector of the ``p(p+1)/2`` variables, which follow IEEE arithmetic and leave the active set as it is |
 | `mul!(x, A, B)`, `mul!(x, A, s)`, `mul!(x, tA, tB, A, B, α, β)`, `lmul!(D, x)`, `rmul!(x, D)`, `ldiv!(F, x)` | compute into a dense matrix and `copyto!(x, C)` when a symmetric import is meant: `C = A * B; copyto!(x, C)` |
 | `x .= A`, `map!(f, x, A)`, `axpy!(α, A, x)`, `axpby!`, `x[:, :] = A`, `view(x, :, :) .= A`, `transpose!(x, A)`, `copy!(x, A)` | `copyto!(x, A)` with a symmetric `A`; `Symmetric(A, :L)` in place of `A` keeps the lower-triangle values that the 0.5 methods kept |
 | a matrix symmetric only up to rounding, such as `X' * (w .* X)` or `inv(S)` | symmetrize it, or compute it exactly symmetric: `inv(cholesky(S))`, `inv(Symmetric(S))` |
@@ -436,8 +437,7 @@ For example, take `x = SparseIterate(4); x[1] = 1; activate!(x, 2)`.
 It now gives `[Inf, NaN, NaN, NaN]` with active coordinates `[1, 2, 3, 4]`.
 
 Finite multipliers and finite nonzero divisors still cost `O(nnz)` and give
-the same results as before. `SymmetricSparseIterate` keeps the earlier
-behavior for now.
+the same results as before.
 
 ## Complex values written into a `SparseIterate` or an `AtomIterate` (0.6)
 

@@ -1264,8 +1264,12 @@ function _device_projection_scale(::Type{T}, a::Real) where {T}
   end
   c
 end
+# The exponent of a scale from a BigFloat chain can lie beyond Int. The device kernels add exponents of at most 2^11 in
+# magnitude to it, so a magnitude above 2^61 decides every comparison and every shift as the exact one would.
+_device_exponent(e::Int) = e
+_device_exponent(e::Integer) = clamp(e, -2^61, 2^61)
 _device_projection_scale(::Type{T}, a::ProximalBase._ProjectionScale) where {T} =
-  ProximalBase._ProjectionScale(_device_level(T, a.m), a.e)
+  ProximalBase._ProjectionScale(_device_level(T, a.m), _device_exponent(a.e))
 _device_projection_check(v, l, u, w) = clamp(v,
   -ProximalBase._projection_coefficient(l, 1, w), ProximalBase._projection_coefficient(u, 1, w))
 

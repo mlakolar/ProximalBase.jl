@@ -22,6 +22,7 @@ quick = [
   "ldexp_bigfloat",
   "platform_focus",
   "readme",
+  "retained_scale_exponents",
   "tier_selection",
   "utils",
   # iterates: active sets, value writes versus state copies, symmetric coordinates, aliasing

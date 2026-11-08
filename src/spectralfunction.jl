@@ -567,8 +567,13 @@ function _conjugate_ball_scaled(s::AbstractVector{T}, λ, a::_ProjectionScale, k
   S = float(promote_type(T, typeof(λ), typeof(a.m)))
   iszero(λ) && return _spectrum_ball_scaled(s, zero(S), 0, k, p)
   mλ, eλ = frexp(S(λ))
-  _spectrum_ball_scaled(s, S(a.m) * mλ, a.e + Int(eλ), k, p)
+  _spectrum_ball_scaled(s, S(a.m) * mλ, _ball_exponent(a.e + Int(eλ)), k, p)
 end
+# The exponent of a ball's bound reaches only shifts by ldexp, which saturates. An exponent beyond Int (a
+# BigFloat chain) is brought to a magnitude of 3 * 2^61, beyond the range of every floating-point type here
+# (at most 2^62) by more than the spectrum's own exponents, so that the shift saturates as it would unclamped.
+@inline _ball_exponent(e::Int) = e
+@inline _ball_exponent(e::Integer) = Int(clamp(e, -3 * 2^61, 3 * 2^61))
 # (aλ/2 ‖⋅‖²)*(y) = ‖y‖²/(2aλ) is ElasticNet(0, 1/m) with the factor 2^-e, for aλ = m 2^e.
 function _conjugate_spectrum_scaled(g::SqrNormL2{<:Real, Nothing}, f0, s, k, b, a)
   (g.λ > 0 && isfinite(g.λ)) || return nothing

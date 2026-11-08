@@ -5,10 +5,23 @@
 ####################################
 
 # Retain exceptional wrapper products until the leaf coefficient is formed.
-struct _ProjectionScale{T}
+#
+# The exponent is exact. Its type follows the significand: Int for every type but BigFloat, whose
+# MPFR exponents reach ±(2^62 - 1), so that a product of three or more extreme factors has an
+# exponent beyond Int64; it is an Int128 there, which is the width of `_exponent_sum(BigFloat, …)`.
+# One composition adds at most about 2^63 to the magnitude of the exponent, so an Int128 is exact
+# for chains of up to 2^64 factors, and a chain of that length does not fit in memory. A retained
+# exponent is never narrowed or saturated before its last use; only the final shift of `ldexp`
+# saturates.
+_scale_exponent_type(::Type) = Int
+_scale_exponent_type(::Type{BigFloat}) = Int128
+struct _ProjectionScale{T, E<:Integer}
   m::T
-  e::Int
+  e::E
+  _ProjectionScale{T, E}(m, e) where {T, E<:Integer} = new{T, E}(m, e)
 end
+_ProjectionScale(m::T, e::Integer) where {T} =
+  _ProjectionScale{T, _scale_exponent_type(T)}(m, convert(_scale_exponent_type(T), e))
 Base.broadcastable(a::_ProjectionScale) = Ref(a)
 Base.isfinite(a::_ProjectionScale) = isfinite(a.m)
 Base.isinf(a::_ProjectionScale) = isinf(a.m)
@@ -27,17 +40,16 @@ function _projection_accumulate(a::Real, b::Real)
   ma, ea = _frexp(float(a))
   mb, eb = _frexp(float(b))
   m, e = _frexp(ma * mb)
-  _ProjectionScale(m, Int(ea + eb + e))
+  _ProjectionScale(m, _exponent_sum(typeof(m), ea, eb, e))
 end
 function _projection_accumulate(a::_ProjectionScale, b::Real)
   (!isfinite(b) || iszero(b)) && return b
   mb, eb = _frexp(float(b))
   m, e = _frexp(a.m * mb)
-  _ProjectionScale(m, Int(a.e + eb + e))
+  _ProjectionScale(m, _exponent_sum(typeof(m), a.e, eb, e))
 end
 _projection_product(a, b, w) = _positive_product(a, b, w)
-# the stored exponent may have wrapped: Int sums (#767)
-_projection_product(a::_ProjectionScale, b, w) = _scaled_product_retained(a.m, b, w, a.e)
+_projection_product(a::_ProjectionScale, b, w) = _scaled_product(a.m, b, w, a.e)
 # f scaled by an accumulated factor, as nested wrappers when the factor is not a normal number:
 # pieces of at most half the exponent range, so that each is stored exactly
 _projection_scaled(f, α::Real) = Scaled(f, α)
@@ -321,7 +333,7 @@ end
 _scale_inverse(a::Real) = inv(a)
 function _scale_inverse(a::_ProjectionScale)
   m, e = _frexp(inv(a.m))
-  _ProjectionScale(m, Int(e - a.e))
+  _ProjectionScale(m, _exponent_sum(typeof(m), e, -a.e))
 end
 
 # Fold a scale into a normal level, retaining exact zero levels.
@@ -332,8 +344,8 @@ function _folded_level(λ, α)
 end
 # A scale that only folds into levels that are normal numbers. A subnormal level has fewer bits and
 # is no longer the coefficient that an array step multiplies, entry by entry.
-struct _NormalScale{T}
-  s::_ProjectionScale{T}
+struct _NormalScale{P<:_ProjectionScale}
+  s::P
 end
 _apply_scale(a::_NormalScale, v) = _apply_scale(a.s, v)
 # An explicit zero or infinite factor is not a scale to fold: the accumulation returns it as a plain
@@ -423,9 +435,9 @@ mutable struct _ShiftWindow
   lo::Int
   hi::Int
 end
-struct _LevelProbe{S}
+struct _LevelProbe{P<:_ProjectionScale}
   w::_ShiftWindow
-  a::_ProjectionScale{S}   # the factors of the `Scaled` terms inside, as a product
+  a::P                     # the factors of the `Scaled` terms inside, as a product
   emin::Int                # the exponent range of the type of the value
   emax::Int
 end
@@ -626,8 +638,7 @@ _value_parts_scaled(f, x, v, α) = _value_parts(f, x, v)
 function _apply_parts(α, m, e::Integer)
   ma, ea = _projection_scale_parts(α)
   P = promote_type(typeof(float(ma)), typeof(m))
-  # ea is a retained exponent that may have wrapped: Int sums (#767)
-  _scaled_product_retained(convert(P, ma), convert(P, m), Int(ea) + e)
+  _scaled_product(convert(P, ma), convert(P, m), ea + e)
 end
 @inline _scaled_value(s, x, v, recover_inner_small = true) = _scaled_value_by(s.f, s.α, x, v, recover_inner_small)
 (s::Scaled)(x) =
@@ -713,7 +724,7 @@ function _nested_step(s::Scaled, γ::Real)
     h === nothing || return (h, convert(typeof(step), mγ), nothing)
   end
   ma, ea = _projection_scale_parts(a)
-  g = _fold_level_step(f, _ProjectionScale(ma, Int(ea + eγ)))
+  g = _fold_level_step(f, _ProjectionScale(ma, _exponent_sum(typeof(ma), ea, eγ)))
   # g carries the levels without the ridge that may have been dropped: it is not the chain, and
   # its value is not the value of the chain (`nothing` marks this)
   g === nothing ? (f, step, a) : (g, convert(typeof(step), mγ), nothing)
@@ -813,7 +824,7 @@ function _scale_times(α, a::_ProjectionScale)
   ma, ea = _projection_scale_parts(α)
   P = promote_type(typeof(float(ma)), typeof(a.m))
   m, e = _frexp(convert(P, ma) * convert(P, a.m))
-  _ProjectionScale(m, Int(ea) + a.e + e)
+  _ProjectionScale(m, _exponent_sum(typeof(m), ea, a.e, e))
 end
 # A zero value of s is a zero value of s.f, times the factor (|α f| < 2^(E + e)), or the product of
 # the factor and a value of s.f that is nonzero: Scaled's own trigger then fires (the product is

@@ -483,7 +483,7 @@ end
 @inline _l0_mag(::Type{A}, v) where {A} = abs(A(v))
 @inline _l0_square(a, sh::Int) = isinf(a) ? zero(a) : (b = ldexp(a, -sh); b * b)
 
-# the scaled magnitudes of the nonzero diagonal entries, and of the nonzero pairs, in the order of the
+# the magnitudes of the nonzero diagonal entries, and of the nonzero pairs, in the order of the
 # lower triangle by columns
 function _l0_gather_diagonal!(buf, x, p::Int, ::Type{A}) where {A}
   k = 0

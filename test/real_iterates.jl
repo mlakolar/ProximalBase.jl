@@ -303,7 +303,8 @@ end
     for write! in (x -> (x .= complex.(z1, z2)), x -> (x .= complex.(z1)),
                    x -> (x .= Complex.(z1, 0.0)), x -> (x .= (v -> v + 0im).(z1)),
                    x -> (x .= sqrt.(Complex.(z1))), x -> (x .= complex.(x, 0.0)),
-                   x -> (x .= opaque[].(z1)), x -> (x .= opaque[].(z1, z2)),
+                   x -> (x .= (v -> opaque[](v)).(z1)), x -> (x .= ((u, v) -> opaque[](u, v)).(z1, z2)),
+                   x -> (x .= opaque[].(z1)),
                    x -> (x .= (v -> v > 0.5 ? 1im : 1.0).(z1)),
                    x -> (x .= (v -> v > 0.5 ? 1.0 : 1im).(shaped([0.0, 0, 0, 1.0]))),
                    x -> (x .= shaped(Any[1.0, 2im, 0, 0])),
@@ -325,8 +326,9 @@ end
     @test vals(x) == saved
     # an exception of f while the result is evaluated happens before any write
     late = Ref{Any}(v -> v == 4 ? error("late") : v)
+    late_f(v) = late[](v)
     x = make(); saved = vals(x); nsaved = nactive(x); w = shaped([1.0, 2, 3, 4])
-    @test_throws ErrorException (x .= late[].(w))
+    @test_throws ErrorException (x .= late_f.(w))
     @test vals(x) == saved && nactive(x) == nsaved
     x = make(); saved = vals(x); nsaved = nactive(x)
     @test_throws DomainError (x .= sqrt.(-z1 .- 1))
@@ -342,10 +344,11 @@ end
     @test vals((x .= shaped(Any[1.0, 2, 0, 0]))) == shaped([1.0, 2, 0, 0])
     # a staged result is computed from the unmodified x, then written
     g = Ref{Any}(v -> v > 5 ? 10.0 : 2v)
-    x = make(); expected = g[].(vals(x))
-    @test vals((x .= g[].(x))) == expected
+    gf(v) = g[](v)
+    x = make(); expected = gf.(vals(x))
+    @test vals((x .= gf.(x))) == expected
     x = make(); w = shaped([1.0, 2, 3, 4])
-    @test vals((x .= g[].(x .+ w))) == g[].(w .+ shaped([0.0, 0, 0, 7]))
+    @test vals((x .= gf.(x .+ w))) == gf.(w .+ shaped([0.0, 0, 0, 7]))
     # accepted as before
     x = make(); @test vals((x .= real.(complex.(z1, z2)))) == z1
     x = make(); @test vals((x .= abs.(complex.(z1, z2)))) == z1 .+ z2

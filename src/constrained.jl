@@ -528,9 +528,14 @@ end
 _constraint_gap(c, x::AbstractArray, ν::T, γ, v::Val = Val(false)) where {T} =
   _constraint_gap(c.f, c.set.a, c.set.b, x, ν, γ, v)
 
-function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, ::Val{S}) where {T, S}
+# The pass is summed in blocks of _GAP_BLOCK entries for a Float32 model: the sums of a block are formed in Float32, in the
+# lanes of the loop, and the sums of the blocks in Float64, so that the rounding of the sum is that of a block and not of
+# n additions. The other precisions form one sum over the entries, as before. φ and its scale are rounded once to T.
+const _GAP_BLOCK = 1024
+
+function _gap_sums(f, a, x::AbstractArray, ν::T, γ, r, ::Val{S}) where {T, S}
   s, m, d = zero(T), zero(T), zero(T)
-  @inbounds @simd for i in eachindex(IndexLinear(), x)
+  @inbounds @simd for i in r
     aᵢ = convert(T, _entry(a, i))
     γᵢ = convert(T, _entry(γ, i))
     v = x[i] - γᵢ * ν * aᵢ
@@ -540,8 +545,28 @@ function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, ::Val{S}) where {
     m += abs(t)
     S && (d += γᵢ * aᵢ * aᵢ * convert(T, dz))
   end
-  b = convert(T, b)
-  S ? (s - b, m + abs(b), -d) : (s - b, m + abs(b))
+  s, m, d
+end
+
+function _gap_sums(f, a, x::AbstractArray, ν::Float32, γ, ::Val{S}) where {S}
+  idx = eachindex(IndexLinear(), x)
+  s, m, d = 0.0, 0.0, 0.0f0
+  @inbounds for lo in first(idx):_GAP_BLOCK:last(idx)
+    sb, mb, db = _gap_sums(f, a, x, ν, γ, lo:min(lo + (_GAP_BLOCK - 1), last(idx)), Val(S))
+    s += sb
+    m += mb
+    d += db
+  end
+  s, m, d
+end
+_gap_sums(f, a, x::AbstractArray, ν::T, γ, v::Val) where {T} = _gap_sums(f, a, x, ν, γ, eachindex(IndexLinear(), x), v)
+
+function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, ::Val{S}) where {T, S}
+  s, m, d = _gap_sums(f, a, x, ν, γ, Val(S))
+  A = T === Float32 ? Float64 : T
+  b = convert(A, b)
+  φ, M = convert(T, s - b), convert(T, m + abs(b))
+  S ? (φ, M, -d) : (φ, M)
 end
 
 # Σᵢ γᵢaᵢ², the steepest slope of φ
@@ -769,9 +794,10 @@ end
 # The Float32 search stops where |φ| is at most 2 eps m, m = Σᵢ |aᵢzᵢ| + |b|. Where φ is flat that leaves the
 # multiplier, and so the output, far off: by the firm nonexpansiveness of the proximal map in the metric of
 # Diagonal(1 ./ γ), ‖z(ν̂) - z(ν*)‖² ≤ |ν̂ - ν*| |φ(ν̂)| ≤ φ(ν̂)² / s, s the slope of φ between them. The evaluation
-# of φ has a noise floor, taken as _NOISE_C eps m (the rounding of the entries and of the sum; measured against exact
-# arithmetic to be 0.1 eps m at the median and, for the sum in Float32, up to 0.15 √n eps m, so that a constant
-# covers n up to a few hundred in the worst case), so the output is accepted when
+# of φ has a noise floor, taken as _NOISE_C eps m (the rounding of the entries and of the sums of a block; measured
+# against exact arithmetic to be 0.02 to 0.12 eps m at the median and 3.8 eps m at the largest over problems of n = 64
+# to 100 000, the largest being a single block; the constant leaves out the rare largest values, for refining the
+# call whenever they could occur costs a tenth of the ordinary calls), so the output is accepted when
 #     max(|φ̂|, _NOISE_C eps m) / √s ≤ _ACCEPT_K eps S,    S = m / (2 √Σᵢγᵢaᵢ²) + |ν̂| √s   (norms of Diagonal(1 ./ γ)),
 # with s the slope of the search at its last step. The first term of S is a lower bound of ‖ẑ‖ that costs no pass
 # (Σᵢ|aᵢẑᵢ| ≥ |b| and the Cauchy-Schwarz inequality), the second is the size of what the output pass rounds: the entries
@@ -782,7 +808,7 @@ end
 # is not accepted: the computed argument of an entry is then infinite where the exact one is moderate, and the entry
 # looks like an exact clamp.
 const _ACCEPT_K = 16
-const _NOISE_C = 4.0
+const _NOISE_C = 2.0
 
 # Σᵢ γᵢaᵢ² and Σᵢ γᵢ (a scalar step is not summed), for the steps rounded to Float32 as the passes round them
 _step_sums(set, x::AbstractArray, γ::Real) = (g = convert(Float32, γ); (Float64(_metric_sqnorm(set, x, g)), Float64(g)))

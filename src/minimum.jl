@@ -61,9 +61,9 @@ _all_indicators(::Tuple{}) = true
 _all_indicators(fs::Tuple) = _isindicator(first(fs)) && _all_indicators(Base.tail(fs))
 _checkparams(g::PointwiseMinimum, x) = (map(f -> _checkparams(f, x), g.fs); true)
 
-(g::PointwiseMinimum)(x::AbstractArray) =
+(g::PointwiseMinimum)(x::_ArrayOrOwner) =
   (_check_value_arrays(g, x); _value_checked(g, x))
-function _value_unchecked(g::PointwiseMinimum, x::AbstractArray)
+function _value_unchecked(g::PointwiseMinimum, x::_ArrayOrOwner)
   _checkparams(g, x)
   _value_at(minimum(map(f -> _value_unchecked(f, x), g.fs)), x)
 end
@@ -84,16 +84,16 @@ end
 # the norm itself exceeds the floating-point range.
 function _minimum_distance(x::AbstractArray, p::AbstractArray)
   r = norm_diff(x, p)
-  isfinite(r) && return frexp(r)
+  isfinite(r) && return _frexp(r)
   isnan(r) && return (r, 0)
   scale = zero(r)
   @inbounds for i in eachindex(x, p)
     scale = max(scale, abs(x[i]), abs(p[i]))
   end
   isfinite(scale) || return (r, 0)
-  _, e = frexp(scale)
+  _, e = _frexp(scale)
   a = ldexp(one(scale), -e)
-  m, k = frexp(norm_diff(_ScaledArray(x, a), _ScaledArray(p, a)))
+  m, k = _frexp(norm_diff(_ScaledArray(x, a), _ScaledArray(p, a)))
   (m, k + e)
 end
 
@@ -106,13 +106,13 @@ function _minimum_score(v::Real, x, p, γ::Real, indicator::Bool)
   if !isfinite(γ)
     energy = _envelope_energy(x, p, γ)
     !isfinite(energy) && return (v + energy, zero(r), 0)
-    m, e = frexp(energy)
+    m, e = _frexp(energy)
     return (v, m, e)
   end
   (!isfinite(v) || !isfinite(r)) && return (v + r, zero(r), 0)
   iszero(r) && return (v, r, 0)
-  gm, ge = frexp(float(γ))
-  m, e = frexp(abs2(r) / (2gm))
+  gm, ge = _frexp(float(γ))
+  m, e = _frexp(abs2(r) / (2gm))
   (v, m, e + 2re - ge)
 end
 
@@ -143,8 +143,8 @@ end
   s = am + bm
   t = s - am
   residual = (am - (s - t)) + (bm - t)
-  sm, se = frexp(s)
-  rm, re = frexp(residual)
+  sm, se = _frexp(s)
+  rm, re = _frexp(residual)
   ((sm, se + ae), (rm, re + ae))
 end
 
@@ -155,8 +155,8 @@ end
   isnan(av) && return false
   isnan(bv) && return true
   (!isfinite(av) || !isfinite(bv)) && return av < bv
-  ah, al = _minimum_add(frexp(av), (am, ae))
-  bh, bl = _minimum_add(frexp(bv), (bm, be))
+  ah, al = _minimum_add(_frexp(av), (am, ae))
+  bh, bl = _minimum_add(_frexp(bv), (bm, be))
   _minimum_pair_less(ah, bh) || (!_minimum_pair_less(bh, ah) && _minimum_pair_less(al, bl))
 end
 
@@ -172,7 +172,9 @@ function _minimum_candidates!(best, current, x, γ, indicator, v, score, fs::Tup
   _minimum_candidates!(best, current, x, γ, indicator, v, score, Base.tail(fs))
 end
 
-value_and_prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real) =
+# At an owner the parameters are checked before anything is written, which is all that is defined for the
+# proximal operator: the candidates are compared over arrays
+value_and_prox!(y::_ArrayOrOwner, g::PointwiseMinimum, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, g, y, x, γ); _value_and_prox_unchecked!(y, g, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, g, y, x)
@@ -187,7 +189,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::Ab
   _value_at(isnan(first(score)) ? oftype(float(v), NaN) : (indicator ? zero(v) : v), y)
 end
 
-prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real) =
+prox!(y::_ArrayOrOwner, g::PointwiseMinimum, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, g, y, x, γ); _prox_unchecked!(y, g, x, γ))
 function _prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)
   _checkwrite(prox!, g, y, x)

@@ -41,6 +41,19 @@ See [Symmetric parameters](@ref) for which arrays must be symmetric and which ca
 """
 abstract type AbstractFunction end
 
+# Where the oracles of the families that support it take either an array or the owner of a
+# symmetric matrix. The owner is not an array: a method that is not written with this type, or with
+# the owner, does not accept it.
+const _ArrayOrOwner = Union{AbstractArray, SymmetricSparseIterate}
+
+# A matrix, or the owner of one: the destination or the point of the oracles of the families that
+# are defined on matrices and write whole results (a spectral function, a set of matrices)
+const _MatrixOrOwner = Union{AbstractMatrix, SymmetricSparseIterate}
+
+# the number of entries of the array, or of the matrix that the owner represents
+_nentries(x::AbstractArray) = length(x)
+_nentries(x::SymmetricSparseIterate) = x.p^2
+
 function value_and_prox! end
 function gradient! end
 function hessian_vec! end
@@ -123,7 +136,9 @@ Store the proximal operator
 in `y` and return `y`. For a nonconvex `f` the result is one of the minimizers.
 
 The output may be the argument itself: `prox!(x, f, x, γ)` works for every
-function. Any other sharing of memory between `y` and `x` is not supported and
+function. A [`SymmetricSparseIterate`](@ref) output takes a scalar step `γ`, the Frobenius
+proximal operator of the symmetric matrix; an array or per-group step is an `ArgumentError`
+before anything is written (use `Matrix(x)` or `matrixview(x)` with a dense output). Any other sharing of memory between `y` and `x` is not supported and
 is not detected, even when the two cover the same entries: a call such as
 `prox!(view(x, :), f, x, γ)`, or with a shifted or reversed view of `x`, can
 return wrong values without an error. Copy the argument first, as in
@@ -136,7 +151,8 @@ prox!(y, f::AbstractFunction, x) = prox!(y, f, x, 1)
 """
     prox(f, x, γ = 1)
 
-Allocating version of [`prox!`](@ref).
+Allocating version of [`prox!`](@ref). For a [`SymmetricSparseIterate`](@ref) `x` the result is an
+independent `SymmetricSparseIterate` of the float element type, and `γ` is a scalar.
 """
 prox(f::AbstractFunction, x::AbstractArray, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
 # a Symmetric or Hermitian wrapper does not accept off-diagonal writes: a dense result
@@ -193,7 +209,7 @@ For a [`SeparableFunction`](@ref) `WeightedSquare` with a weight vector `w`:
 
 ```julia
 function ProximalBase.check_parameters(f::WeightedSquare, x)
-  length(f.w) == length(x) || throw(DimensionMismatch("a parameter array has length \$(length(f.w)) and the argument has length \$(length(x))"))
+  length(f.w) == prod(size(x)) || throw(DimensionMismatch("a parameter array has length \$(length(f.w)) and the argument has \$(prod(size(x))) entries"))
   nothing
 end
 ```
@@ -250,6 +266,14 @@ _checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
 _argument_type(::Type{<:AbstractFunction}) = Any
 _checkargument(f, x) = x isa _argument_type(typeof(f)) || throw(MethodError(f, (x,)))
 _checkgradient_output(g, x) = (g === x && throw(ArgumentError("the gradient must not overwrite x")); nothing)
+# An owner output is also aliased by a matrix that shares its storage, such as its matrix view and the wrappers of
+# that view, which a gradient written coordinate by coordinate would change before the point is read again
+_checkgradient_output(g::SymmetricSparseIterate, x) =
+  (_owner_shares(g, x) && throw(ArgumentError("the gradient must not overwrite x")); nothing)
+_owner_shares(g::SymmetricSparseIterate, x) = g === x
+_owner_shares(g::SymmetricSparseIterate, x::AbstractArray) = Base.mightalias(g, x)
+_owner_shares(g::SymmetricSparseIterate, x::SymmetricSparseIterate) =
+  g === x || (g.p > 0 && x.p > 0 && any(id -> id in Base.dataids(g), Base.dataids(x)))
 # blocks pair up to the shorter tuple; the size checks report a length mismatch
 @generated _checkgradient_output(g::Tuple, x::Tuple) =
   _blockwise(k -> :(_checkgradient_output(g[$k], x[$k])), min(fieldcount(g), fieldcount(x)), nothing)
@@ -296,7 +320,8 @@ _checkconjugate(f, y) = (_checkreal(f, y); true)
 
 Store the gradient of `f` at `x` in `g` and return `g`.
 `g` must not be `x` unless the function documents otherwise; built-in functions
-throw an `ArgumentError`.
+throw an `ArgumentError`. A [`SymmetricSparseIterate`](@ref) `g` receives the symmetric part
+of the gradient, the derivative over symmetric matrices.
 """
 gradient!(g, f::AbstractFunction, x) =
   (_check_oracle_arrays(gradient!, f, g, x); _gradient_body!(g, f, x))
@@ -318,8 +343,9 @@ throw an `ArgumentError`.
 """
 function value_and_gradient! end
 
-# a dense array for the gradient at x, also when x is a sparse iterate
+# a dense array for the gradient at x, also when x is a sparse iterate or the owner of a symmetric matrix
 _gradient_buffer(x::AbstractArray) = similar(Array{float(eltype(x))}, axes(x))
+_gradient_buffer(x::SymmetricSparseIterate) = Matrix{float(eltype(x))}(undef, size(x))
 @generated _gradient_buffer(x::Tuple) = _blocktuple(k -> :(_gradient_buffer(x[$k])), fieldcount(x))
 
 _prox_buffer(x::AbstractArray) = similar(x, float(eltype(x)))
@@ -338,7 +364,8 @@ prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = prox!(_prox_buffer(x), f, x,
 """
     gradient(f, x)
 
-Allocating version of [`gradient!`](@ref).
+Allocating version of [`gradient!`](@ref). At a [`SymmetricSparseIterate`](@ref) the gradient
+is a new dense, exactly symmetric `Matrix`, not an iterate.
 """
 gradient(f::AbstractFunction, x::AbstractArray) = gradient!(_gradient_buffer(x), f, x)
 gradient(f::AbstractFunction, x::Tuple) = gradient!(_gradient_buffer(x), f, x)
@@ -711,7 +738,10 @@ type: [`IndBox`](@ref) has an oracle when every bound is finite, and
 [`IndSimplex`](@ref), [`IndBallL1`](@ref) and [`IndBallL2`](@ref) when the radius
 is finite, and the capped simplex `Constrained(IndBox(0, 1), IndHyperplane(a, k))`
 when `a` is `1` or an array of ones and `k` is a nonnegative integer; a scalar `a`
-does not know the dimension, so `0 ≤ k ≤ n` is checked by `lmo!`. A `false` means that the oracle is unsupported, which is a different
+does not know the dimension, so `0 ≤ k ≤ n` is checked by `lmo!`. It is also `true` for the matrix sets
+`SingularValue(IndBallL1(r))` (the nuclear-norm ball), `Spectral(IndSimplex(r))` (the density matrices and,
+with `equality = false`, the PSD trace ball) and the Fantope `Spectral(Constrained(IndBox(0, 1),
+IndHyperplane(1, k)))`, under the same conditions on `r` and `k`. A `false` means that the oracle is unsupported, which is a different
 statement from "the linear objective is unbounded below": an unbounded set can
 have a finite minimum for some directions, and `lmo!` makes no promise about
 sets outside the compact families it lists.
@@ -728,8 +758,12 @@ before writing. Supported sets: [`IndSimplex`](@ref) (equality and inequality),
 [`IndBallL1`](@ref), [`IndBallL2`](@ref), [`IndBox`](@ref) and
 [`IndBallLinf`](@ref) with finite bounds, and the capped simplex
 `Constrained(IndBox(0, 1), IndHyperplane(1, k))` (the normal `1` or an array of
-ones, an integer `0 ≤ k ≤ length(g)`). No other `LinearConstrained` set has an
-oracle: other bounds, normals, halfspaces and hyperslabs do not.
+ones, an integer `0 ≤ k ≤ length(g)`). The matrix sets `SingularValue(IndBallL1(r))`,
+`Spectral(IndSimplex(r))` and the Fantope have dense oracles for a real square (spectral sets) or
+rectangular `g`, which write `-r u vᵀ`, `r v vᵀ` and `Q Qᵀ`, and [`lmo_atom`](@ref) returns the same
+minimizers in factored form without the dense matrix; see there for their ties, symmetric-part
+convention and exactness. A non-finite entry of such a `g` gives an all-`NaN` `s`. No other
+`LinearConstrained` set has an oracle: other bounds, normals, halfspaces and hyperslabs do not.
 
 | Set | `s` | Ties and degenerate cases |
 |:----|:----|:--------------------------|

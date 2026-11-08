@@ -185,7 +185,9 @@ end
     @test Matrix(prox!(ys, h, xs, 0.2)) ≈ p
     @test value_and_prox!(ys, h, xs, 0.2) ≈ h(p)
     @test h(xs) ≈ h(X)
-    @test Matrix(prox(h, xs, fill(0.2, 3, 3))) ≈ p
+    @test Matrix(prox(h, xs, 0.2)) ≈ p
+    # an array step is not supported at an owner
+    @test_throws ArgumentError prox(h, xs, fill(0.2, 3, 3))
   end
 end
 

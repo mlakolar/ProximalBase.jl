@@ -794,6 +794,19 @@ step, such as `γλ`, is a combined expression under T3 and R3. Every route
 treats the step the same way: `prox!`, `value_and_prox!`, [`prox_entry`](@ref)
 and the checks of block functions before they write.
 
+The reciprocal `1/γ` that [`Conjugate`](@ref) needs in Moreau's identity is such
+an expression. It is formed from the stored `γ` in the promotion `P` of the model
+precision (T3) and the step's own type, as `inv(convert(P, γ))`, and is passed on
+in `P`; it is never `inv(γ)` rounded in the step's type first. With the `Float32`
+step `γ = 3f0` and `Float64` arguments and outputs, the quadratic block of
+`Conjugate(SeparableSum(NormL1(), SqrNormL2()))` at the unit input is `1/(1 + 3)`
+to `Float64` accuracy, and the call gives the same bits as the step `3.0`. In a
+`Float32` model with a `Float32` step the reciprocal stays a `Float32`. A step
+whose `Float32` reciprocal would overflow, such as `1f-40`, has a finite
+reciprocal in a `Float64` model. A call on a tuple widens the step once to the
+promotion over all its blocks, so that every block and the check before writing
+form the same reciprocal.
+
 **P3. Diagonal metrics that do not fit in `W`.** Some metrics are not
 representable in `W` after conversion: the `Float64` steps `[1e-50, 2e-50]`
 become zeros in `Float32`, yet define the same projection as `[1, 2]`. Such a
@@ -924,7 +937,13 @@ methods are exactly these:
    `dot(a::StridedVector, X, b::StridedVector)`; and
    `dot(M::StridedMatrix, X)` and `dot(X, M)`. A sparse-aware `dot` on
    `matrixview(X)`, if one is added, is a method of the package and joins
-   this item.
+   this item;
+6. `A * X * B` for `X::SparseIterate{T,2}` and `A`, `B` `Symmetric` strided
+   matrices, with the same element type `T`, `Float32` or `Float64`, for all
+   three. Its result is defined term by term, in the paragraph after this
+   list. The same holds for `A * X * B` with `X::SymmetricSparseIterate{T}`, whose
+   off-diagonal coefficient counts for both of its entries (M2): the product is
+   the sum over the nonzero entries `(k, l)` of the symmetric matrix `X`.
 
 Which terms enter their results therefore does not depend on whether a zero
 is stored or on the order of the arguments. Each result is the IEEE sum, in
@@ -942,17 +961,48 @@ item 5. Every other object built from an iterate (`view(x, …)`,
 ordinary vector or matrix and follows IEEE arithmetic, as does a product
 that ProximalBase does not define, such as `sparse(A) * x`,
 `Diagonal(d) * x`, `transpose(A) * x` for an `AtomIterate`, or
-`sum(x .* v)`. Three-factor products `A * X * B` are not among these
-products. Scaling an iterate by a number (`rmul!`,
+`sum(x .* v)`. Scaling an iterate by a number (`rmul!`,
 `lmul!`, `rdiv!`, `ldiv!`) is not among these products either: it follows
 IEEE arithmetic, as `x .*= s` does.
+
+**The product `A * X * B` (item 6)** is the sum `C[i, j] = Σ A[i, k] ·
+X[k, l] · B[l, j]` over the coordinates `(k, l)` where `X[k, l]` is
+mathematically nonzero, and over no others.
+
+- A stored zero and an unstored entry are the same: no term is formed for
+  either, even against `±Inf` or NaN in `A` or `B`. An `X` without nonzeros
+  gives the zero matrix.
+- A nonzero coefficient, including NaN and `±Inf`, always contributes. The
+  zeros of `A` and `B` are ordinary IEEE zeros, so `0 · Inf` in a term whose
+  coefficient is nonzero is NaN. The result need not equal
+  `A * Matrix(X) * B`, where a zero of `X` meets a non-finite entry.
+- Each term: a NaN factor gives NaN; a zero factor against an infinite one gives NaN; a zero factor otherwise gives zero; an infinite factor otherwise gives `±Inf` with the sign of the product; and for finite nonzero factors the term has the accuracy of an ordinary product of three numbers: it differs from the correctly rounded exact product by at most one neighbouring floating-point number for a normal result (a relative error below about `2 eps(T)`) and by at most one spacing for a subnormal one. A term within that error of the overflow threshold or of half the smallest subnormal can fall on either side of it (the neighbour of `floatmax` being `Inf`, the neighbour of zero being the smallest subnormal). Correct rounding is not promised (S3). Beyond that margin the class is decided by the final value and never by the first partial product, so `2^600 · 2^600 · 2^-600` and its underflow mirror are exact. An underflowing `a · x` against `Inf` is `Inf`, not NaN. This is
+  the guarantee of range recovery for finite factors, to the extent that the
+  implementation covers it and the tests check it.
+- The terms are added in the element type in the storage order of `X`, under
+  A1 and R2. Tiny terms lost against large ones before a later cancellation are
+  ordinary rounding. A sum that overflows before a later cancellation is
+  recovered when every factor of every nonzero coefficient at that entry is
+  finite: an entry that the ordinary sum leaves non-finite is recomputed as a sum
+  scaled by the largest exponent of its terms, so three terms near `floatmax`
+  with signs `+`, `+`, `−` give their finite value, and a sum beyond the range
+  of the element type is `±Inf`. If any of those factors is NaN or infinite, the
+  IEEE value stands, so a genuine NaN or `Inf` is never dropped. A sum that is
+  exactly zero is `+0.0`; sign-bit agreement with dense multiplication is not
+  claimed.
+- The guarantee covers `Float32` and `Float64` with `Symmetric` wrappers of
+  strided matrices and a matrix `SparseIterate` or a `SymmetricSparseIterate`
+  of the same element type.
+  Other element types, and mixed element types (#751), are outside the
+  guarantee and take the previous methods.
 
 Since linear coefficients are finite (E4), a sparse inner product may skip
 unstored entries.
 
 **M2. Multiplicity.** A `SymmetricSparseIterate` stores each off-diagonal
-coordinate once; it counts twice in reductions and is written once. Its
-parameters follow the symmetric-matrix rule of [Sparse iterates](@ref).
+coordinate once; it counts twice in reductions and is written once, and the
+product `A * X * B` (M1, item 6) counts a stored off-diagonal coefficient for
+both of its entries. Its parameters follow the symmetric-matrix rule of [Sparse iterates](@ref).
 
 **M3. Caches.** A cache is computational state, and a result does not depend
 on its history. `reset_cache!` and reconstruction follow [Conventions](@ref),

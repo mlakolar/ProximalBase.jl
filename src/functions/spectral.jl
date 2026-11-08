@@ -81,7 +81,7 @@ function _issymmetric_tol(X::AbstractMatrix)
   end
   true
 end
-_issymmetric_tol(::SymmetricSparseIterate) = true
+_issymmetric_tol(::Union{SymmetricMatrixView, _OwnerMatrix}) = true
 
 # the symmetric Y = Σⱼ f(λⱼ) vⱼvⱼ' from the eigendecomposition V, λ, through the
 # n × n matrix buffer when BLAS cannot write Y or Y has a different element type
@@ -822,7 +822,7 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::TracePS
 end
 
 _trace!(::TracePSD, X::AbstractMatrix) = tr(X)
-function _trace!(f::TracePSD, X::Union{SparseIterate{<:Any, 2}, SymmetricSparseIterate})
+function _trace!(f::TracePSD, X::Union{SparseIterate{<:Any, 2}, SymmetricMatrixView, _OwnerMatrix})
   n = checksquare(X)
   d = _buffer!(f.diag, eltype(X), n)
   length(d) == n || resize!(d, n)
@@ -882,3 +882,57 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
 end
 prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) =
   (X = _spectral_argument(X); value_and_prox!(Y, f, X, γ); Y)
+
+####################################
+#  a SymmetricSparseIterate
+####################################
+
+# The value is that of the matrix that the owner represents, which is symmetric by construction; the
+# proximal operator writes the lower triangle of its result into the owner, and reads its argument
+# through the symmetric part. The owner is not touched by a value.
+const _OwnerSpectral = Union{NuclearNorm, IndBallRank, IndPSD, TracePSD}
+
+# The truncated decomposition of IndBallRank into an owner. The owner holds a symmetric matrix, so its
+# minimizer over the symmetric matrices is the one that the Eckart-Young theorem gives for a symmetric
+# argument: the r eigenpairs of largest |λ| of the lower triangle of the argument, which an arbitrary
+# truncated SVD of the dense kernel is not at a tie of the singular values (the result need not be symmetric,
+# and mirroring one of its triangles can leave the set). At a tie of the |λ| any choice is a minimizer.
+# The lower triangle of the reconstruction is computed and stored, one coordinate at a time, so the two
+# triangles are the same numbers and the coordinates that are active stay active. `partial` is ignored: the
+# decomposition is the full one. A rank that is not below the dimension, a non-finite argument and a spectrum
+# that overflows take the kernel for matrices.
+function _rank_prox!(Y::_OwnerMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
+  n = size(X, 1)
+  (n <= f.r || !all(isfinite, X)) && return _rank_prox_dense!(Y, f, X, γ)
+  T = float(eltype(Y))
+  A = Matrix{T}(undef, n, n)
+  @inbounds for c in 1:n, r in c:n
+    A[r, c] = X[r, c]
+  end
+  E = eigen!(Symmetric(A, :L))
+  λ, V = E.values, E.vectors
+  all(isfinite, λ) || return _rank_prox_dense!(Y, f, X, γ)
+  keep = partialsortperm(λ, 1:f.r; by = abs, rev = true)
+  B = zeros(T, n, n)
+  @inbounds for c in 1:n, r in c:n
+    t = zero(T)
+    for j in keep
+      t += (λ[j] * V[r, j]) * V[c, j]
+    end
+    B[r, c] = t
+  end
+  _copyto_rounded!(Y, B)
+  maximum(j -> abs(λ[j]), keep)
+end
+_rank_prox_dense!(Y, f, X, γ) =
+  invoke(_rank_prox!, Tuple{AbstractMatrix, IndBallRank, AbstractMatrix, Real}, Y, f, X, γ)
+
+(f::NuclearNorm)(X::SymmetricSparseIterate) = f(matrixview(X))
+(f::IndBallRank)(X::SymmetricSparseIterate) = f(matrixview(X))
+(f::IndPSD)(X::SymmetricSparseIterate) = f(matrixview(X))
+(f::TracePSD)(X::SymmetricSparseIterate) = f(matrixview(X))
+value_and_prox!(Y::SymmetricSparseIterate, f::_OwnerSpectral, X::_MatrixOrOwner, γ::Real) = _owner_value_and_prox!(Y, f, X, γ)
+prox!(Y::SymmetricSparseIterate, f::_OwnerSpectral, X::_MatrixOrOwner, γ::Real) = _owner_prox!(Y, f, X, γ)
+value_and_prox!(Y::AbstractMatrix, f::_OwnerSpectral, X::SymmetricSparseIterate, γ::Real) = value_and_prox!(Y, f, matrixview(X), γ)
+prox!(Y::AbstractMatrix, f::_OwnerSpectral, X::SymmetricSparseIterate, γ::Real) = prox!(Y, f, matrixview(X), γ)
+prox(f::_OwnerSpectral, X::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(X, float(eltype(X))), f, X, γ)

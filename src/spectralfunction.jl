@@ -87,6 +87,7 @@ $_SPECTRAL_NOTE
 mutable struct Spectral{F<:AbstractFunction} <: AbstractFunction
   f::F
   eig::Any         # the eigendecomposition
+  top::Any         # the workspace of the smallest eigenpairs, for the linear minimization oracle
   z::Scratch       # the eigenvalues of the result
   out::Scratch     # the result, for an output BLAS cannot write
 
@@ -94,7 +95,7 @@ mutable struct Spectral{F<:AbstractFunction} <: AbstractFunction
     isproximable(f) || throw(ArgumentError("Spectral needs a proximable function, and $(nameof(typeof(f))) is not"))
     _ispermutationinvariant(f) ||
       throw(ArgumentError("Spectral needs a function that does not depend on the order of the entries, unlike this $(nameof(typeof(f)))"))
-    new{F}(f, nothing, Scratch(), Scratch())
+    new{F}(f, nothing, nothing, Scratch(), Scratch())
   end
 end
 Spectral(f::AbstractFunction) = Spectral{typeof(f)}(f)
@@ -572,7 +573,7 @@ end
 function _conjugate_spectrum_scaled(g::SqrNormL2{<:Real, Nothing}, f0, s, k, b, a)
   (g.λ > 0 && isfinite(g.λ)) || return nothing
   mλ, eλ = frexp(float(g.λ))
-  m, e = frexp(a.m * mλ)
+  m, e = _frexp(a.m * mλ)
   _spectrum_scaled(ElasticNet(zero(m), inv(m)), s, k, _ProjectionScale(b.m, b.e - a.e - Int(eλ) - Int(e)))
 end
 # Decided functions: the domain in the units of the spectrum first, then the value.
@@ -610,3 +611,12 @@ end
   _scaled_spectral_input!(ws.A, _is_device_array(X) ? ws.A : X)
   _spectrum_overflow_value(s.f, _eigvals!(ws), k, v)
 end
+
+# The owner of a symmetric matrix: its value is that of the matrix it represents, and the proximal
+# operator writes the lower triangle of its result into it (see NuclearNorm).
+(s::Spectral)(X::SymmetricSparseIterate) = s(matrixview(X))
+value_and_prox!(Y::SymmetricSparseIterate, s::Spectral, X::_MatrixOrOwner, γ::Real) = _owner_value_and_prox!(Y, s, X, γ)
+prox!(Y::SymmetricSparseIterate, s::Spectral, X::_MatrixOrOwner, γ::Real) = _owner_prox!(Y, s, X, γ)
+value_and_prox!(Y::AbstractMatrix, s::Spectral, X::SymmetricSparseIterate, γ::Real) = value_and_prox!(Y, s, matrixview(X), γ)
+prox!(Y::AbstractMatrix, s::Spectral, X::SymmetricSparseIterate, γ::Real) = prox!(Y, s, matrixview(X), γ)
+prox(s::Spectral, X::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(X, float(eltype(X))), s, X, γ)

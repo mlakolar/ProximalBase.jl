@@ -78,9 +78,9 @@ _isindicator(::Type{<:IndIntersection}) = true
 isconvex(::Type{IndIntersection{S}}) where {S} = all(isconvex, fieldtypes(S))
 
 # 0 when x is in every set, within the tolerance of each
-(f::IndIntersection)(x::AbstractArray) =
+(f::IndIntersection)(x::_ArrayOrOwner) =
   (_check_value_arrays(f, x); _value_checked(f, x))
-_value_unchecked(f::IndIntersection, x::AbstractArray) = _ind(_in_every_set(f.sets, x), _valtype(x))
+_value_unchecked(f::IndIntersection, x::_ArrayOrOwner) = _ind(_in_every_set(f.sets, x), _valtype(x))
 _in_every_set(::Tuple{}, x) = true
 _in_every_set(sets::Tuple, x) = iszero(first(sets)(x)) && _in_every_set(Base.tail(sets), x)
 
@@ -134,8 +134,15 @@ function _dykstra_round!(sets::Tuple, P, k, y, w, s)
   _dykstra_round!(Base.tail(sets), P, k + 1, y, w, s)
 end
 
-prox!(out::AbstractArray, f::IndIntersection, x::AbstractArray, γ::Real) =
+# At an owner the parameters of the sets are checked before anything is written, which is all that is defined:
+# the alternating projections run over arrays
+prox!(out::_ArrayOrOwner, f::IndIntersection, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(out, x); _check_oracle_arrays(prox!, f, out, x, γ); _prox_unchecked!(out, f, x, γ))
+# the joint operation has no kernel for an owner either: its owner roles end in the MethodError of value_and_prox!
+value_and_prox!(out::SymmetricSparseIterate, f::IndIntersection, x::_ArrayOrOwner, γ::Real = 1) =
+  (x = _symmetric_argument(out, x); _check_oracle_arrays(value_and_prox!, f, out, x, γ); _value_and_prox_unchecked!(out, f, x, γ))
+value_and_prox!(out::AbstractArray, f::IndIntersection, x::SymmetricSparseIterate, γ::Real = 1) =
+  (x = _symmetric_argument(out, x); _check_oracle_arrays(value_and_prox!, f, out, x, γ); _value_and_prox_unchecked!(out, f, x, γ))
 function _prox_unchecked!(out::AbstractArray, f::IndIntersection, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, out, x)
   T = float(eltype(out))

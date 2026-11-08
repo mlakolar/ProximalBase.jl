@@ -33,7 +33,7 @@ L = opnorm(Σx) * opnorm(Σy)                                    # Lipschitz con
 G = zeros(p, p)
 for _ in 1:1500
     gradient!(G, f, Δ)                     # (ΣxΔΣy + ΣyΔΣx)/2 + Σx - Σy
-    Δ .= Δ .- G ./ L                       # each entry of the lower triangle once
+    copyto!(Δ, Matrix(Δ) .- G ./ L)        # Δ - G/L, a symmetric matrix written to the lower triangle
     prox!(Δ, g, Δ, 1 / L)                  # soft thresholding of the stored entries
     dropzeros!(Δ)                          # forget the entries it set to zero
 end
@@ -41,7 +41,7 @@ end
 # the coordinates of Δ are the entries of its lower triangle; the stored ones are
 # the active coordinates, and tril_cartesian gives their (row, column)
 edges = sort([tril_cartesian(p, k) for k in activecoordinates(Δ)])
-println("stored entries: ", nnz(Δ), " of ", ncoordinates(Δ), " coordinates")
+println("stored entries: ", nactive(Δ), " of ", ncoordinates(Δ), " coordinates")
 for (r, c) in edges
     println("Δ[", r, ", ", c, "] = ", round(Δ[r, c], digits = 3), "   truth ", Ωx[r, c] - Ωy[r, c])
 end

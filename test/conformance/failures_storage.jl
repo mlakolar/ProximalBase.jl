@@ -585,7 +585,7 @@ m1_M() = [1.0 2.0 NaN; 2.0 3.0 4.0; NaN 4.0 5.0]
 m1_f() = LeastSquaresLoss([1, 1], [NaN 1; NaN 1])
 m1_fs(stored) = (s = SparseIterate(2); s[2] = 1.0; activate!(s, 1); m1_drop(s, stored))
 const M1_PRODUCT = "FT12: a zero coefficient of the iterate, stored or not, contributes nothing against NaN or Inf; reference: the sum over the nonzero coefficients."
-const M1_OWNER = "FT12, the owner (#391 Phase 1c): the matrixview products and inner products skip zero coefficients."
+const M1_OWNER = "FT12, the owner: the products and inner products skip zero coefficients."
 const M1_VALUE = "FT14: a data-loss value through an iterate product inherits strong zeros; reference: the residual over the nonzero coefficients."
 
 @row begin
@@ -709,43 +709,36 @@ for (tag, stored) in (("stored", true), ("dropped", false))
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = [1.0]; observed = [NaN 0.0 1.0 0.0] * m1_a(stored)
   end
-  # The owner: marked until #391 Phase 1c brings the 0.6 owner under M1.
-  owner = (base) -> stored ? (group = :G2, baseline = Returned(v -> same(v, base))) : nothing
+  # The owner.
   @row begin
     id = "failures_storage.strong-zero.owner.mul.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_OWNER
     expected = [0.0, 1.0, 0.0]; observed = mul!(zeros(3), matrixview(m1_owner(stored)), [Inf, 1.0, 0.0])
-    broken = owner([0.0, 1.0, NaN])
   end
   @row begin
     id = "failures_storage.strong-zero.owner.mul5.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_OWNER
     expected = [0.0, 1.0, 0.0]; observed = mul!(zeros(3), matrixview(m1_owner(stored)), [Inf, 1.0, 0.0], 1.0, 0.0)
-    broken = owner([0.0, 1.0, NaN])
   end
   @row begin
     id = "failures_storage.strong-zero.owner.times.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_OWNER
     expected = [0.0, 1.0, 0.0]; observed = matrixview(m1_owner(stored)) * [Inf, 1.0, 0.0]
-    broken = owner([0.0, 1.0, NaN])
   end
   @row begin
     id = "failures_storage.strong-zero.owner.dot-M-X.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_OWNER
     expected = 3.0; observed = dot(m1_M(), m1_owner(stored))
-    broken = owner(NaN)
   end
   @row begin
     id = "failures_storage.strong-zero.owner.dot-X-M.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_OWNER
     expected = 3.0; observed = dot(m1_owner(stored), m1_M())
-    broken = owner(NaN)
   end
   @row begin
     id = "failures_storage.strong-zero.owner.dot3.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_OWNER
     expected = 1.0; observed = dot([NaN, 1.0, 1.0], m1_owner(stored), [1.0, 1.0, 1.0])
-    broken = owner(NaN)
   end
   @row begin
     id = "failures_storage.strong-zero.value.least-squares.$tag"; case = ""; family = :failures_storage; oracle = :value

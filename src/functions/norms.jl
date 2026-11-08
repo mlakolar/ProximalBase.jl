@@ -31,9 +31,9 @@ isconvex(::Type{<:NormL2}) = true
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NormL2, y::AbstractArray, x::AbstractArray) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); true)
 
-(f::NormL2)(x::AbstractArray) = (_checkreal(f, x); _weighted_norm2(f.λ, x))
+(f::NormL2)(x::_ArrayOrOwner) = (_checkreal(f, x); _weighted_norm2(f.λ, x))
 
-function _weighted_norm2(λ::Real, x::AbstractArray)
+function _weighted_norm2(λ::Real, x::_ArrayOrOwner)
   T = _valtype(x)
   iszero(λ) && return zero(T)
   _level_fits(T, λ) || return _converted_norm2(λ, x)
@@ -47,7 +47,11 @@ end
 # without leaving the range is never infinite (R3). A finite level recovers an overflow.
 @noinline _nonfinite_norm2(v, λ, c, n, x) = isinf(λ) ? _weighted_value(v, n) : _norm2_value(v, c, x)
 
+# the recoveries read the entries of the matrix that an owner represents
+@noinline _nonfinite_norm2(v, λ, c, n, x::SymmetricSparseIterate) = _nonfinite_norm2(v, λ, c, n, matrixview(x))
+
 # Scale in the parameter's precision, without narrowing its level first.
+@noinline _converted_norm2(λ, x::SymmetricSparseIterate) = _converted_norm2(λ, matrixview(x))
 @noinline function _converted_norm2(λ, x)
   T = _valtype(x)
   R = promote_type(T, float(typeof(λ)))
@@ -110,6 +114,11 @@ value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _norm2_prox!(y, f, x, γ, Val(true)))
 prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (x = _symmetric_argument(y, x); _norm2_prox!(y, f, x, γ, Val(false)); y)
 
+value_and_prox!(y::SymmetricSparseIterate, f::NormL2, x::_ArrayOrOwner, γ::Real) = _owner_value_and_prox!(y, f, x, γ)
+value_and_prox!(y::AbstractArray, f::NormL2, x::SymmetricSparseIterate, γ::Real) = value_and_prox!(y, f, matrixview(x), γ)
+prox!(y::AbstractArray, f::NormL2, x::SymmetricSparseIterate, γ::Real) = prox!(y, f, matrixview(x), γ)
+prox!(y::SymmetricSparseIterate, f::NormL2, x::_ArrayOrOwner, γ::Real) = _owner_prox!(y, f, x, γ)
+
 @inline _norm2_shrink!(f::NormL2, y::AbstractArray, x::AbstractArray, c) =
   _shrink_group!(f, y, x, eachindex(IndexLinear(), x), c)
 
@@ -123,10 +132,15 @@ end
 @inline _writes(W, G) = W
 _group_writes(y::AbstractArray, G) = nothing
 _group_writes(y::SymmetricSparseIterate, G) = Iterators.filter(_LowerGroupPosition(size(y, 1)), G)
+_group_writes(y::_OwnerMatrix, G) = Iterators.filter(_LowerGroupPosition(size(y, 1)), G)
 
-@inline function _norm2_shrink!(f::NormL2, y::SymmetricSparseIterate, x::AbstractArray, c)
+@inline function _norm2_shrink!(f::NormL2, y::_OwnerMatrix, x::AbstractArray, c)
   G = eachindex(IndexLinear(), x)
   _shrink_group!(f, y, x, G, c, _group_writes(y, G))
+end
+@inline function _norm2_shrink!(f::NormL2, y::SymmetricSparseIterate, x::_ArrayOrOwner, c)
+  w = _OwnerMatrix(y)
+  _norm2_shrink!(f, w, _owner_point(w, x), c)
 end
 
 # A finite input scaled by its maximum cannot need another rescaling. Keeping
@@ -151,6 +165,12 @@ function _rescaled_group_prox!(::NormL2, y, x, G, c::S, scale, W = nothing)::S w
     y[i] *= scale
   end
   n * scale
+end
+
+# the rescaled branch, called with the owner itself
+function _rescaled_group_prox!(f::NormL2, y::SymmetricSparseIterate, x, G, c::S, scale, W = nothing)::S where {S}
+  w = _OwnerMatrix(y)
+  _rescaled_group_prox!(f, w, _owner_point(w, x), G, c, scale, W)
 end
 
 ####################################
@@ -184,7 +204,7 @@ isproximable(::Type{<:CubeNormL2}) = true
 isconvex(::Type{<:CubeNormL2}) = true
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)},
-            f::CubeNormL2, y::AbstractArray, x::AbstractArray) =
+            f::CubeNormL2, y::_ArrayOrOwner, x::_ArrayOrOwner) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x))
 
 # A finite array can have an unrepresentable norm. Only the norm calculation
@@ -198,7 +218,7 @@ function _cube_norm_parts(x, n, ::Type{T}) where {T}
   (iszero(m) || !isfinite(m)) && return (convert(T, m), 0)
   _, e = _frexp(m)
   s = _power_factors(T, -e)
-  a, k = frexp(sqrt(_scaled_sumabs2(x, s)))
+  a, k = _frexp(sqrt(_scaled_sumabs2(x, s)))
   a, e + k
 end
 
@@ -206,7 +226,7 @@ end
 # does for three. In particular, neither λ/3 nor n³ needs to be representable.
 function _cube_value_parts(λ::T, m::T, e::Integer) where {T}
   (iszero(m) || !isfinite(m)) && return λ * m
-  a, k = frexp(λ)
+  a, k = _frexp(λ)
   ldexp(((a * m) * m) * (m / 3), k + 3e)
 end
 
@@ -236,7 +256,7 @@ function _value_parts(f::CubeNormL2, x::AbstractArray, v)
   m, e = _cube_norm_parts(x, _norm2(x), S)
   iszero(m) && return (zero(S), 0)
   isfinite(m) || return nothing
-  a, k = frexp(convert(S, f.λ))
+  a, k = _frexp(convert(S, f.λ))
   _parts(((a * m) * m) * (m / 3), k + 3e)
 end
 
@@ -250,7 +270,7 @@ _zero_value_exponent(f::CubeNormL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZE
 @inline function _cube_scale(v::Real, m::T, e::Integer) where {T}
   a = convert(T, v)
   iszero(a) && return a
-  b, k = frexp(a)
+  b, k = _frexp(a)
   ldexp(b * m, k + e)
 end
 
@@ -266,7 +286,7 @@ function gradient!(g::AbstractArray, f::CubeNormL2, x::AbstractArray)
   end
   m, e = _cube_norm_parts(x, n, T)
   (iszero(m) || !isfinite(m)) && return g .= (λ * m) .* x
-  b, k = frexp(λ)
+  b, k = _frexp(λ)
   g .= _cube_scale.(x, b * m, k + e)
 end
 
@@ -320,6 +340,9 @@ end
 
 value_and_prox!(y::AbstractArray, f::CubeNormL2, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); prox!(y, f, x, γ); f(y))
+# an owner output, formed in a staged matrix and written to the owner last
+prox!(y::SymmetricSparseIterate, f::CubeNormL2, x::_ArrayOrOwner, γ::Real) = _staged_owner!(prox!, y, f, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, f::CubeNormL2, x::_ArrayOrOwner, γ::Real) = _staged_owner!(value_and_prox!, y, f, x, γ)
 
 lipschitz(f::CubeNormL2) = _ind(iszero(f.λ), float(typeof(f.λ)))
 
@@ -780,6 +803,7 @@ _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::AbstractGroupPen
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkgroups(f, x); _check_symmetric_groups(f, y))
 
 _check_symmetric_groups(f, y::AbstractArray) = true
+_check_symmetric_groups(f, y::_OwnerMatrix) = _check_symmetric_groups(f, y.x)
 
 function _check_symmetric_groups(f, y::SymmetricSparseIterate)
   p = size(y, 1)
@@ -1195,7 +1219,7 @@ function _fused_equal_term(λ1, ::Type{T}, n::Integer, c) where {T}
   rc = R(c)
   k = _magnitude_exponent(abs(rc))
   u = _scale_value(rc, _power_factors(R, -k))
-  _fused_scaled_value(((λ1, R(n) * abs(u)),), k, T)
+  _fused_scaled_value(((λ1, _count_mul(R, n, abs(u))),), k, T)
 end
 
 # a vector, or the two entries of a pair
@@ -1368,7 +1392,7 @@ function _fused_vector_terms(f, x, ::Type{T}) where {T}
     s1, c1 = _compensated_add(s1, c1, abs(u))
     if i < n
       gap = _scale_value(a[p[i + 1]], scale) - u
-      s2, c2 = _compensated_add(s2, c2, (R(i) * R(n - i)) * gap)
+      s2, c2 = _compensated_add(s2, c2, _count_pair_mul(R, i, n - i, gap))
     end
   end
   ((f.λ1, s1 + c1), (f.λ2, s2 + c2)), k
@@ -1413,7 +1437,7 @@ end
   v1, v2 = zero(T), zero(T)
   @inbounds for k in 1:n
     v1 += abs(a[p[k]])
-    v2 += (2k - n - 1) * a[p[k]]
+    v2 += _int_mul(2k - n - 1, a[p[k]])
   end
   _fused_vector_value(f, x, v1, v2, T)
 end
@@ -1469,7 +1493,7 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
   w = _buffer!(f.vals, T, n)
   t = convert(T, γ) * λ2
   @inbounds for k in 1:n
-    w[k] = a[p[k]] - t * (2k - n - 1)
+    w[k] = a[p[k]] - _int_mul(t, 2k - n - 1)
   end
   # the buffers may be longer than x, which changes length from call to call
   wn = view(w, 1:n)
@@ -1481,7 +1505,7 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     wk = shrink(w[k], c)
     y[p[k]] = wk
     v1 += abs(wk)
-    v2 += (2k - n - 1) * wk
+    v2 += _int_mul(2k - n - 1, wk)
   end
   V ? _fused_vector_value(f, y, v1, v2, T) : zero(T)
 end
@@ -1521,7 +1545,7 @@ _fused_mean_supported(::Type{W}, n) where {W<:Union{Float32, Float64}} =
   2 * (8 * sizeof(n) - leading_zeros(n)) + precision(W) <= 126
 _fused_mean_supported(::Type{W}, n) where {W} =
   isconcretetype(W) && W <: AbstractFloat && hasmethod(exponent, Tuple{W}) &&
-  hasmethod(frexp, Tuple{W}) && hasmethod(ldexp, Tuple{W, Int})
+  hasmethod(frexp, Tuple{W}) && hasmethod(Base.ldexp, Tuple{W, Int})
 
 # The mean of the entries of x in the working type W, which holds every entry exactly. NaN and
 # infinite entries are decided first (NaN, or the infinity, or NaN for both signs). For finite entries
@@ -1557,7 +1581,9 @@ end
 # of the scaling: at a low precision the rounded sum of the scaled entries can restore past the range);
 # the accuracy is that of the compensated sum and of the quotient, no more. Not proved: a small residual
 # beside overflowing entries that cancel, where it is below the range of the scaled entries (the Float32
-# and Float64 method keeps it).
+# and Float64 method keeps it). The shifts go through _projection_l1_scale, which is the ldexp of this module,
+# exact for a BigFloat: exponent is an Int64 and frexp an Int32 on Windows (C long is 32 bits), where Base's
+# Int64 shift would be its rounded exp2 fallback, which overflows or loses the power of two (#736).
 function _fused_finite_mean(x, ::Type{W}, n) where {W}
   s = c = m = zero(W)
   @inbounds for i in 1:n
@@ -1566,14 +1592,14 @@ function _fused_finite_mean(x, ::Type{W}, n) where {W}
     m = max(m, abs(a))
   end
   t = s + c
-  isfinite(t) && return t / n
+  isfinite(t) && return _int_div(t, n)
   e = exponent(m)
   s = c = zero(W)
   @inbounds for i in 1:n
-    s, c = _compensated_add(s, c, ldexp(convert(W, x[i]), -e))
+    s, c = _compensated_add(s, c, _projection_l1_scale(convert(W, x[i]), -e))
   end
-  fr, ex = frexp(s + c)
-  ldexp(fr / n, ex + e)
+  fr, ex = _frexp(s + c)
+  _projection_l1_scale(_int_div(fr, n), ex + e)
 end
 
 # The mean of finite entries, for Float32 and Float64, in two levels. With 2^sh > n, an entry of
@@ -1628,7 +1654,7 @@ function _fused_finite_mean(x, ::Type{W}, n) where {W<:Union{Float32, Float64}}
   end
   ts, tc = _compensated_add(ts, tc, ldexp(s, -sh))
   ts, tc = _compensated_add(ts, tc, ldexp(c, -sh))
-  fr, ex = frexp(ts + tc)
+  fr, ex = _frexp(ts + tc)
   ldexp(fr / n, ex + sh)
 end
 
@@ -1674,14 +1700,14 @@ function _project_l2_scaled!(y, x, λ, α, w, c, n)
   (!isfinite(m) || !isfinite(λ) || !isfinite(α)) && return (y .= min(one(n), c / n) .* x)
   iszero(m) && return copyto!(y, x)
   # Scaling only the reduction avoids losing tiny original coordinates.
-  a, e = frexp(m)
+  a, e = _frexp(m)
   q = sqrt(mapreduce(identity, +, Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_square, x, m)); init = zero(m)))
   r1, e1 = _projection_scale_parts(α)
-  r2, e2 = frexp(float(λ))
-  r3, e3 = frexp(float(w))
+  r2, e2 = _frexp(float(λ))
+  r3, e3 = _frexp(float(w))
   r = ((r1 * r2) * r3) / (a * q)
   k = e1 + e2 + e3 - e
-  fr, er = frexp(r)
+  fr, er = _frexp(r)
   k += er
   (k > 1 || (k == 1 && fr >= 0.5)) && return copyto!(y, x)
   y .= _projection_scale.(x, fr, k)
@@ -1727,12 +1753,12 @@ function _project_l2_group_scaled!(y, x, G, λ, α, w, c, n)
   @inbounds for i in G
     s, err = _compensated_add(s, err, _projection_square(x[i], m))
   end
-  a, e = frexp(m)
+  a, e = _frexp(m)
   r1, e1 = _projection_scale_parts(α)
-  r2, e2 = frexp(float(λ))
-  r3, e3 = frexp(float(w))
+  r2, e2 = _frexp(float(λ))
+  r3, e3 = _frexp(float(w))
   r = ((r1 * r2) * r3) / (a * sqrt(s + err))
-  fr, er = frexp(r)
+  fr, er = _frexp(r)
   k = e1 + e2 + e3 - e + er
   (k > 1 || (k == 1 && fr >= 0.5)) && return _project_l2_group_scale!(y, x, G, 1)
   @inbounds for i in G
@@ -1777,11 +1803,6 @@ function _projection_group_maxabs(x::AbstractArray, G)
 end
 
 @inline _projection_l1_scale(v, e) = ldexp(v, e)
-function _projection_l1_scale(v::BigFloat, e)
-  # Windows Int exponents otherwise select ldexp's rounded exp2 fallback.
-  # MPFR's full exponent span fits Clong; wider shifts necessarily saturate.
-  ldexp(v, Clong(clamp(e, typemin(Clong), typemax(Clong))))
-end
 
 # Julia 1.10's ldexp truncates some values below the smallest subnormal.
 # A normal power-of-two scaling followed by multiplication rounds only once.
@@ -1831,14 +1852,14 @@ _projection_l1_product(::Tuple{}, h, l, e, δ, ::Type{R}) where {R} = (h, l, e, 
 function _projection_l1_product(fs::Tuple, h, l, e, δ, ::Type{R}) where {R}
   b = first(fs)
   if !isone(b)
-    mb, eb = b isa Real ? frexp(convert(R, b)) : _projection_scale_parts(b)
+    mb, eb = b isa Real ? _frexp(convert(R, b)) : _projection_scale_parts(b)
     v = convert(R, mb)
     p = h * v
     residual = fma(h, v, -p)
     q = residual + l * v
     t = p + q
     lo = (p - t) + q
-    hi, shift = frexp(t)
+    hi, shift = _frexp(t)
     if !iszero(residual) || !iszero(l)
       δ = nextfloat(δ + (1 + δ) * 16eps(R)^2)
     end

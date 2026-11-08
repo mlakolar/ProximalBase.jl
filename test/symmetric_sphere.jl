@@ -212,22 +212,22 @@ end
   c = Constrained(GroupNormL2(1.0, [[1], [4]]), IndSphereL2(1.0))
   y = SymmetricSparseIterate(2)
   v = value_and_prox!(y, c, S(z), 1.0)
-  @test norm(y) ≈ 1 && v ≈ c.f(y) == 0
+  @test norm(y) ≈ 1 && v ≈ c.f(matrixview(y)) == 0
   # a group over every index with an off-diagonal first index
   c = Constrained(GroupNormL2(1.0, [[3, 2, 1, 4]]), IndSphereL2(1.0))
   y = SymmetricSparseIterate(2)
   v = value_and_prox!(y, c, S(z), 1.0)
-  @test norm(y) ≈ 1 && v ≈ c.f(y)
+  @test norm(y) ≈ 1 && v ≈ c.f(matrixview(y))
   # the pair is its own group with the lowest weight, the diagonal entries are groups of their own
   c = Constrained(GroupNormL2(1.0, [[1], [4], [3, 2]], [3.0, 3.0, 1.0]), IndSphereL2(2.0))
   y = SymmetricSparseIterate(2)
   v = value_and_prox!(y, c, S(z), 1.0)
   @test y[1, 1] == 0 && y[2, 2] == 0
   @test y[1, 2] == y[2, 1] ≈ 2 / sqrt(2)
-  @test v ≈ c.f(y) ≈ 2
+  @test v ≈ c.f(matrixview(y)) ≈ 2
   # a diagonal index that is not first
   c = Constrained(GroupNormL2(1.0, [[2, 3, 4, 1]]), IndSphereL2(3.0))
   y = SymmetricSparseIterate(2)
   v = value_and_prox!(y, c, S(z), 1.0)
-  @test norm(y) ≈ 3 && v ≈ c.f(y)
+  @test norm(y) ≈ 3 && v ≈ c.f(matrixview(y))
 end

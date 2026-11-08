@@ -95,7 +95,8 @@ end
   block_failure(NormL1Fused(1.0, 1.0), (1.0, 2.0), errors(proximal, MethodError))
   block_failure(NormL1Fused(1.0, 1.0), (ones(2), ones(3)), errors(proximal, DimensionMismatch))
   block_failure(IndToeplitz(symmetric = true), ones(2, 3), errors(proximal, DimensionMismatch))
-  block_failure(IndToeplitz(), M, errors(proximal, ArgumentError);
+  # a point that is not symmetric, with a set that is not, has a projection that an owner cannot hold
+  block_failure(IndToeplitz(), [2.0 1.0; 5.0 3.0], errors(proximal, ArgumentError);
                 output = SymmetricSparseIterate(M), modes = (false,))
 
   cases = Any[
@@ -203,6 +204,8 @@ function dot_case(c, x)
   @nospecialize c x
   f = LinearFunction(c)
   expected = outcome(dot, c, x)
+  # an owner has dot with some representations of c only, which the reductions of the owner define
+  x isa SymmetricSparseIterate && expected[1] === MethodError && return
   @test isequal(outcome(f, x), expected)
   g = fill(7.0, size(x))
   @test isequal(outcome(value_and_gradient!, g, f, x), expected)
@@ -293,9 +296,10 @@ end
   # SqrDistL2 projects into its own dense buffer, so the set sees no
   # SymmetricSparseIterate output.
   d, M = SqrDistL2(IndToeplitz()), [2.0 1; 1 3]
-  for op in oracles
+  # (the gradient of SqrDistL2 is not defined at an owner: its owner oracles are the value and the proximal operator)
+  for op in proximal
     @test isequal(oracle!(op, SymmetricSparseIterate(2), d, M), oracle!(op, zeros(2, 2), d, M)) ||
-          op in (prox!, gradient!)
+          op === prox!
     @test oracle!(op, SymmetricSparseIterate(2), d, M) !== nothing
   end
   # A zero weight skips the projection but not the structural checks.

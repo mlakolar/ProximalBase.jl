@@ -1,7 +1,7 @@
 # The iterate family in ProximalBase 0.6: the contract
 
-> **The 0.6 design as signed off by the maintainer on 2026-11-01 (FD-16 open), not a
-> description of an installed release.** Nothing here is implemented. This file is the only
+> **The 0.6 design as signed off by the maintainer on 2026-11-01 (FD-16 decided on 2026-11-06: the direct product), not a
+> description of an installed release.** Part of it is implemented on the development branch: Phase 1 of the symmetric owner (see [its contract](symmetric-sparse-iterate-0.6.md): the non-array owner, its oracles and wrappers, its products and reductions), the three-factor product `A * X * B` of a matrix `SparseIterate` and of a `SymmetricSparseIterate` for `Float32` and `Float64` (FD-16, #419), and the behavior that `docs/src/migration.md` lists under 0.6. The other phases of #391, the migration of the solvers (#527) and the release remain. This file is the only
 > normative document of the pair; the companion
 > [compatibility and acceptance plan](iterate-family-0.6-acceptance.md) links
 > back to it and restates none of its rules.
@@ -283,7 +283,7 @@ state copy (Part 4).
 
 | ID | requirement | status | types |
 |:--|:--|:--|:--|
-| FN-1 | **Strong zeros.** In the products and inner products of FN-2, a zero coefficient of the iterate, stored or not, *must* contribute nothing, even against `±Inf` or NaN. A non-finite entry that meets a nonzero coefficient propagates as numerics E2 and E3 say. A zero of a dense operand is an ordinary IEEE zero. So which terms enter a product with one iterate operand does not change when stored zeros are dropped and does not depend on the order of the arguments; the summation order and its rounding are FN-4's. The rule applies to the iterate object itself and to the `matrixview(X)` products of FN-2 item (5), not to other objects built from it (FN-3). Three-factor products are a separate, open decision (FN-10). | 0.6 target (breaking; FD-9 amends numerics M1) | S, A, O |
+| FN-1 | **Strong zeros.** In the products and inner products of FN-2, a zero coefficient of the iterate, stored or not, *must* contribute nothing, even against `±Inf` or NaN. A non-finite entry that meets a nonzero coefficient propagates as numerics E2 and E3 say. A zero of a dense operand is an ordinary IEEE zero. So which terms enter a product with one iterate operand does not change when stored zeros are dropped and does not depend on the order of the arguments; the summation order and its rounding are FN-4's. The rule applies to the iterate object itself and to the `matrixview(X)` products of FN-2 item (5), not to other objects built from it (FN-3). Three-factor products follow the decided rule of FN-10 (FD-16): the direct sum over the nonzero coefficients. | 0.6 target (breaking; FD-9 amends numerics M1) | S, A, O |
 | FN-2 | The methods, exactly: (1) `dot(v::StridedVector, x::SparseIterate{T,1})`, `dot(x::SparseIterate{T,1}, v::StridedVector)` and `dot(x::SparseIterate{T,1}, y::SparseIterate{T,1})`; (2) `dot(v, x::AtomIterate)` for `v` a `StridedVector`, a `SparseIterate{T,1}` or an `AtomIterate`, and `dot(x::AtomIterate, v)` for `v` a `StridedVector` or a `SparseIterate{T,1}`; (3) `dot(a::StridedVector, X::SparseIterate{T,2}, b::StridedVector)`; (4) `mul!(out, A, x)`, its five-argument form and `A * x`, for `x::SparseIterate{T,1}` with `A` a `StridedMatrix`, a transposed or adjoint `StridedMatrix`, or a `Symmetric` strided matrix, for `x::SparseIterate{T,2}` with `A` a `StridedMatrix` or a `Symmetric` strided matrix, and for `x::AtomIterate` with `A` a `StridedMatrix` or a `Symmetric` strided matrix; (5) for the owner, in their 0.6 form (#388), `mul!(y, matrixview(X), v)` and its five-argument form, and `matrixview(X) * v`, which reaches that `mul!` (`src/sparse_iterate.jl:996–997`); `dot(a::StridedVector, X, b::StridedVector)`; and ORC-10's `dot(M::StridedMatrix, X)` and `dot(X, M)`. A sparse-aware `dot` on the view, if added as PERF-8 recommends, is a package method and joins this item. | 0.6 target | S, A, O |
 | FN-3 | **The boundary.** A product that ProximalBase does not define (`sparse(A) * x`, `Diagonal(d) * x`, `dot(sparsevec, x)`, `dot(view(v, idx), x)` for a non-strided view, `transpose(A) * x` for an `AtomIterate`, `A * X * B` with a plain matrix `A`, `sum(x .* v)`) sees the iterate as the dense array of its entries and follows IEEE arithmetic. The boundary is drawn by the object a call returns. Base returns `x` itself for `vec(x)` of a vector and for the full-length `reshape(x, n)`, so those keep the iterate's own semantics (FN-1, FX-4): with `s = SparseIterate([0., 1.])`, `dot([NaN, 1.], vec(s)) == dot([NaN, 1.], s) == 1.0`, one and the same dispatch. Every other object built from an iterate is an ordinary vector or matrix, as CRD-4 makes the owner's `θ`: `view(x, :)` and other views, `atom(x, k)`, `coordinates(x)`, `activevalues(x)`, `vec(x)` of a matrix (a Base `ReshapedArray`), a `reshape` to another shape, and `matrixview(X)` outside FN-2 item (5). Their products follow IEEE arithmetic, also where ProximalBase defines a faster method for them, such as `dot` of an `atom` view (`src/atom_iterate.jl:354–357`). So do the matrix–matrix `mul!(C, matrixview(X), B)` (LinearAlgebra's generic method) and `dot(M, matrixview(X))` (LinearAlgebra's generic `dot`); the 0.5.x matrix method at `src/sparse_iterate.jl:1928` is on the owner, not on the view. The rule says so; the difference is not a gap. | 0.6 target (the behavior is 0.5.x, except FC-3's new view) | S, A |
 | FN-4 | **What the class guarantee covers.** The result of an FN-2 method is the IEEE sum, in an unspecified order, of the products over the iterate's nonzero coefficients. As far as zeros and non-finite entries go, its class *must not* depend on whether a zero is stored or on the order of the arguments: a NaN or `±Inf` in the result comes from a non-finite entry or a finite overflow, never from a zero coefficient. The summation order (slot order, argument order) can change the rounding, and a finite partial sum can overflow in one order and not in another; that follows A1, as numerics R2's last sentence says of products. Example: `M = floatmax(Float64)`, `x = SparseIterate([M, M, -M])` and `y` with ones activated in the order 1, 3, 2 give `dot(x, y) == Inf` and `dot(y, x) == M`, where the exact sum is `M` (ran). `dot` and `mul!` scan no operand for non-finite values. | 0.6 target | S, A, O |
@@ -292,7 +292,7 @@ state copy (Part 4).
 | FN-7 | Non-finite values are values: NaN and `±Inf` activate their coordinate, and `dropzeros!` keeps them. | 0.5.x | S, A |
 | FN-8 | **Wrappers.** A write through an object that wraps an array iterate and is not `x` itself (`view(x, …)`, `vec(x)` of a matrix, a `reshape` to another shape, `atom(x, k)`) *must* behave like the same write through the same wrapper of a plain array of element type `T`, plus FW-2's activation; a write through `coordinates(x)` *must* behave as on a plain vector of element type `T` holding the same entries, plus FW-2's activation. Base's conversion applies: a complex value throws `InexactError`, possibly after a partial write (#364). `vec(x)` of a vector and `reshape(x, length(x))` are `x` itself and get FX-4's check before writing. | 0.6 target (stated; the behavior is 0.5.x) | S, A |
 | FN-9 | **Scaling by a number.** `rmul!(x, s)`, `lmul!(s, x)`, `rdiv!(x, s)` and `ldiv!(s, x)` *must* be IEEE value writes equal to `x .*= s` (respectively `x ./= s`) in values and in working set; FN-1 does not apply, since the other operand is one scalar. *Recommended:* loop over the active coordinates (`O(s)`, or `O(active entries)` for A) when the scalar is finite and, for a division, nonzero, which is exact because `0 · s == 0` there; otherwise write every entry and activate per FW-2. | 0.6 target (breaking for S: `rmul!(x, Inf)` on `[1, 0, 0, 0]` with an explicit zero at 2 gives `[Inf, NaN, 0, 0]` today, `x .*= Inf` gives `[Inf, NaN, NaN, NaN]`) | S, A |
-| FN-10 | **Three-factor products** `*(A::Symmetric, X::SparseIterate{T,2}, B::Symmetric)` and `*(A::Symmetric, X::SymmetricSparseIterate{T}, B::Symmetric)`: their class guarantee is decided separately, in FD-16. Recommended there: every finite entry of the ordinary BLAS path is kept, and only the non-finite entries are recomputed term by term with the zeros of `X` strong; finite partial products that overflow follow A1 (the last sentence of numerics R2). | open (FD-16) | S, O |
+| FN-10 | **Three-factor products** `*(A::Symmetric, X::SparseIterate{T,2}, B::Symmetric)` and `*(A::Symmetric, X::SymmetricSparseIterate{T}, B::Symmetric)`: their class guarantee is decided separately, in FD-16, which the maintainer decided on 2026-11-06: the product is the **direct sum over the mathematically nonzero coefficients of `X` only**. A stored zero and an unstored entry are the same and form no term; a participating NaN or `±Inf` follows IEEE, and `0 · Inf` in a term of a nonzero coefficient is NaN; zeros of `A` and `B` are ordinary zeros; the result *need not* equal `A * Matrix(X) * B`. A term has the accuracy of an ordinary product of three numbers (within one neighbouring floating-point number of the correctly rounded exact product; overflow and underflow decided by the final value, not by the first partial product, beyond that margin); the terms are added in the element type in the storage order of `X`, under A1 and R2. The guarantee is for `Float32` and `Float64` with `Symmetric` strided operands of one element type (the matrix iterate and the owner: implemented; mixed types: #751). An off-diagonal coefficient of the owner stands for the two entries `(r, c)` and `(c, r)`, each contributing one term, and a diagonal one for one. The owner's product is implemented against the stored fields `nzval`, `nzval2ind`, `nnz` and `p` and must be rechecked when #737 changes the owner's storage. | decided (FD-16); 0.6 target, breaking | S, O |
 
 ## 2.7 Coordinate oracles (FA)
 
@@ -338,7 +338,7 @@ gives `−0.5303300858899107`).
 | FP-3 | **Capacity is dense-sized.** Construction reserves room for every coordinate, so activation never grows storage, and construction costs `O(n)`, `O(p + K)` or `O(q)`. Retained memory of an empty iterate: S, three arrays of length `n`, 24 bytes per entry for `Float64` (20 for `Float32`); A, the dense values and the entry-to-group map (16 bytes per entry for `Float64`), two `O(K)` maps of the active groups (16 bytes per group) and the layout (16 bytes per range group, or 8 bytes per index plus a vector header per vector group); O, `O(q)`, 24 bytes per coordinate (PERF-2). "Sparse" promises sparse *work*, not sparse *memory*. | 0.5.x (stated) | S, A, O |
 | FP-4 | *Recommended:* add another storage backend (hash maps, growing storage) only for a motivating workload, with a benchmark that shows the gain. | recommendation | S, A, O |
 | FP-5 | `mul!(out, A, x)` *must* cost `O(m s)` for a `SparseIterate` vector and `A` with m rows (for a matrix `x`, the stored-entry walk or the column walk, switched at density 1/32 as today), `O(m · active entries)` for an `AtomIterate`, and `dot(v, x)` `O(s)` or `O(active entries)`. FN-1 adds no pass. | 0.5.x | S, A |
-| FP-6 | Each 0.6 change on a hot path is measured against the 0.5.x baseline: sweeps through the read-only handle; indexing and products through the `coordinates` view; the strong-zero branch of `dot` and `mul!`; the five-argument block trial against staged writes; the momentum loop through `atomindices`; `atomindices` iteration; `unalias` copies; scaling by a number; and, if FD-16 adopts an option that changes the triple product, its cases. A repeatable slowdown above 5% on a representative case *must* be investigated and reported on the implementing pull request, and merging it needs the maintainer's recorded approval (numerics C3). The companion's protocol measures each case. | 0.6 target | S, A, O |
+| FP-6 | Each 0.6 change on a hot path is measured against the 0.5.x baseline: sweeps through the read-only handle; indexing and products through the `coordinates` view; the strong-zero branch of `dot` and `mul!`; the five-argument block trial against staged writes; the momentum loop through `atomindices`; `atomindices` iteration; `unalias` copies; scaling by a number; and the direct three-factor product of FD-16 (`A * X * B` against the 0.5.x kernel for `Float32` and `Float64`, matrix iterate and owner). A repeatable slowdown above 5% on a representative case *must* be investigated and reported on the implementing pull request, and merging it needs the maintainer's recorded approval (numerics C3). The companion's protocol measures each case. | 0.6 target | S, A, O |
 
 ## 2.9 Fields (FF)
 
@@ -382,7 +382,7 @@ own:
    signed without either.
 2. **FD-9**, strong zeros in products with one iterate operand, with its
    numerics amendment.
-3. **FD-16**, three-factor products, an open decision with its own options.
+3. **FD-16**, three-factor products, decided on 2026-11-06 (the direct product); the options below are kept as background.
 
 ## 3.2 Status quo affirmed
 
@@ -888,7 +888,7 @@ coefficients: they skip unstored zeros and multiply stored ones
 `:840–842`, `:851–853`, `:863–866`; for the owner `:1826–1836`,
 `:1839–1849`, `:1913–1927`). An `AtomIterate`'s `mul!` skips zero values
 (`src/atom_iterate.jl:307`, `:330`); its `dot` does not (`:342–344`).
-Three-factor products `A * X * B` are a separate decision (FD-16). Numerics
+Three-factor products `A * X * B` are FD-16's. Numerics
 M1 lets an operation skip an implicit zero "only when
 they contribute nothing", and E2 and E3 make `0 · NaN` and `0 · Inf` NaN.
 PERF-6 requires the owner's product to be the same, or to raise the same
@@ -1056,8 +1056,7 @@ implemented under #366 group G2):
 > ordinary vector or matrix and follows IEEE arithmetic, as does a product
 > that ProximalBase does not define, such as `sparse(A) * x`,
 > `Diagonal(d) * x`, `transpose(A) * x` for an `AtomIterate`, or
-> `sum(x .* v)`. Three-factor products `A * X * B` are not among these
-> products. Scaling an iterate by a number (`rmul!`,
+> `sum(x .* v)`. Scaling an iterate by a number (`rmul!`,
 > `lmul!`, `rdiv!`, `ldiv!`) is not among these products either: it follows
 > IEEE arithmetic, as `x .*= s` does.
 
@@ -1086,7 +1085,7 @@ implemented under #366 group G2):
 PERF-6's recommended default: the `ArgumentError` after an `O(p)` scan is
 replaced by FN-1. T13's parenthesis "the recommended default throws in both"
 becomes "gives `[0, 1, 0]` in both". ORC-10's `dot(M, X)` is in FN-2. The
-owner's three-factor product is FD-16's.
+owner's three-factor product is FD-16's (decided and implemented).
 
 *PERF-6's requirement (option (i), chosen by the maintainer, 2026-11-01).* PERF-6 requires the same result,
 or the same error, before and after `dropzeros!` for a non-finite `v`. FN-1
@@ -1406,7 +1405,18 @@ needs grouped rows.
 
 ### FD-16. Three-factor products
 
-*Status: open, awaiting a separate decision (#419); option (a) is recommended.*
+*Status: decided by the maintainer on 2026-11-06 (#419): the direct sum over the mathematically nonzero entries of `X` only. Options (a) to (d) below are the historical alternatives, kept as background; (a) is rejected and superseded.*
+
+*Decision.* `A * X * B` for a matrix `SparseIterate` `X` and `Symmetric` `A` and `B` is the sum `C[i, j] = Σ A[i, k] · X[k, l] · B[l, j]` over the coordinates `(k, l)` where `X[k, l]` is mathematically nonzero.
+
+- A stored zero and an unstored entry are the same: no term, even against `±Inf` or NaN of `A` or `B`. An `X` without nonzeros gives the zero matrix.
+- A nonzero coefficient, NaN and `±Inf` included, contributes; zeros of `A` and `B` keep IEEE behavior, so `0 · Inf` is NaN. The result is intentionally allowed to differ from `A * Matrix(X) * B`.
+- A term: a NaN factor gives NaN; a zero factor against an infinite one gives NaN; a zero factor otherwise gives zero; an infinite factor otherwise gives `±Inf` with the sign of the product; and for finite nonzero factors the term has the accuracy of an ordinary product of three numbers: it differs from the correctly rounded exact product by at most one neighbouring floating-point number for a normal result (a relative error below about `2 eps(T)`) and by at most one spacing for a subnormal one. A term within that error of the overflow threshold or of half the smallest subnormal can fall on either side of it (the neighbour of `floatmax` being `Inf`, the neighbour of zero being the smallest subnormal). Correct rounding is not promised (S3). Beyond that margin the class is decided by the final value and never by the first partial product, so `2^600 · 2^600 · 2^-600` and its underflow mirror are exact. An exceptional scalar kernel handles the products whose first partial product is not a finite normal number; the ordinary case is a vectorized loop.
+- The terms are accumulated in the element type in the storage order of `X` under A1 and R2. Tiny terms lost against large ones are ordinary rounding. An entry that the ordinary sum leaves non-finite is recomputed as a scaled sum when every factor of every nonzero coefficient at that entry is finite, which recovers a sum that overflows before a later cancellation; if any such factor is NaN or infinite the IEEE value stands (one `O(m n)` scan of the output is the only cost on the ordinary path).
+- The guarantee covers `Float32` and `Float64` with `Symmetric` strided operands of one element type. Mixed element types are not specialized (#751), other element types keep the previous methods, and optimization of the cost, `O(nnz(X) · m · n)` with no BLAS, is #750. Any material slowdown against the 0.5.x kernel goes to the maintainer as a decision (numerics C3, FP-6).
+- The matrix iterate and the owner implement it. The owner's product is the same rule over its stored lower triangle: each stored off-diagonal coefficient is visited as `(r, c)` and `(c, r)` (two terms), a diagonal one once, and the term kernel and the scaled-sum recovery are shared with the matrix iterate. The owner's product is implemented against the stored fields `nzval`, `nzval2ind`, `nnz` and `p` and must be rechecked when #737 changes the owner's storage.
+
+*Numerics text adopted (numerics M1, item 6 and the paragraph after the list):* in `docs/src/numerics.md`. The text proposed for option (a) below is not adopted.
 
 *Background.* `*(A::Symmetric, X::SparseIterate{T,2}, B::Symmetric)`
 (`src/sparse_iterate.jl:877–902`) multiplies a dense sub-block of `X` on its
@@ -1448,7 +1458,7 @@ path skips every zero of `X`. FD-9 does not cover these methods (FN-10).
 *Options.*
 
 - **(a) Keep the ordinary path's finite entries; recompute only the
-  non-finite ones term by term** (recommended). Each non-finite entry becomes
+  non-finite ones term by term** (rejected and superseded by the direct sum). Each non-finite entry becomes
   the sum of `(A[i, k] * X[k, l]) * B[l, j]` over the nonzero `X[k, l]`, in
   column-major order of `X`; the zeros of `X` are strong, those of `A` and `B`
   IEEE.
@@ -1490,17 +1500,16 @@ path skips every zero of `X`. FD-9 does not cover these methods (FN-10).
     association (the cases above); the rule says so.
   - *Downstream, numerics, performance:* none.
 
-*Recommendation and reason.* (a): it keeps the values of the ordinary path,
+*Recommendation and reason (superseded by the decision above).* (a): it keeps the values of the ordinary path,
 fixes the class wherever a zero of `X` meets a non-finite entry, for the cost
 of one output scan, and leaves overflow where the numerical contract already
 puts matrix products (A1).
 
-*Kind:* breaking 0.6 for (a), (b) and (c); none for (d).
+*Kind:* breaking 0.6 for (a), (b) and (c); none for (d). The adopted direct sum is breaking in 0.6.
 
 *Migration.* None in the audited code.
 
-*Proposed numerics text for option (a), word for word* (to
-`docs/src/numerics.md`):
+*Proposed numerics text for option (a), word for word* (rejected, not adopted; kept as background):
 
 > **M1**, a new last paragraph: For `*(A::Symmetric, X, B::Symmetric)` with a
 > sparse iterate `X`, each entry that the ordinary product computes as finite
@@ -1514,8 +1523,7 @@ puts matrix products (A1).
 `*(A::Symmetric, X::SymmetricSparseIterate, B::Symmetric)`, and FD-16 decides
 its class.
 
-*Sign-off (separate, §3.1):* ☐ option (a) · (b) · (c) · (d) · ☐ numerics text
-(for (a) or (b)).
+*Sign-off (separate, §3.1):* ☑ the direct sum over the nonzero entries of `X`, maintainer, 2026-11-06 (#419) · ☐ the numerics text of M1, item 6, with the pull request that implements it.
 
 ---
 
@@ -1533,7 +1541,7 @@ Found while auditing; each is a current fault, with the rule that fixes it.
 | 0 | writable `activecoordinates` corrupts a `SparseIterate`, and an `AtomIterate`, whose `dropzeros!` then never returns | FC-7 (FD-7) | #405 (0.5.x bug fix) |
 | 1 | `dot(x, y)` of two `SparseIterate`s depends on the argument order (`0.0` against NaN) | FN-1, FN-4 (FD-9) | this contract |
 | 2 | a stored zero changes products: `A * s`, `dot(a, s)`, `dot(a, X, b)`; `AtomIterate` `dot`; the owner's `mul!(y, matrixview(X), [Inf, 1, 0])` (`[0, 1, NaN]` against `[0, 1, 0]`) | FN-1, FN-4 (FD-9) | this contract; PERF-6 for the owner |
-| 3 | `A * X * B` changes class with the density of `X` (`[0, 0, 0]` against `[NaN, NaN, NaN]`); neither path is strong, and the class depends on the association | FN-10 (FD-16, open) | this contract |
+| 3 | `A * X * B` changes class with the density of `X` (`[0, 0, 0]` against `[NaN, NaN, NaN]`); neither path is strong, and the class depends on the association | FN-10 (FD-16, decided) | this contract |
 | 4 | the working set depends on the spelling of a write (`x .= 0`, `fill!`, `sum!` clear; `x .= y` state-copies) | FW-2, FW-3 (FD-2) | this contract |
 | 5 | an oracle's destination working set depends on its branch | FW-8 (FD-4): allowed, now stated | this contract |
 | 6 | `fill!(x, 0)` clears, unlike SparseArrays' `fill!` (`sparsevector.jl:2434–2443`, which converts and keeps stored zeros); `AtomIterate`'s `fill!` tests for zero before converting and activates both groups for `1e-100` | FW-2 (FD-2), FN-6 | this contract |

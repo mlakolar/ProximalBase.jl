@@ -261,7 +261,7 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
     s[nb] = e
     c[nb] = 1
     # the means of the last two blocks out of order: s₁/c₁ > s₂/c₂, times σ
-    while nb > 1 && σ * (s[nb - 1] * c[nb] - s[nb] * c[nb - 1]) > 0
+    while nb > 1 && σ * (_int_mul(s[nb - 1], c[nb]) - _int_mul(s[nb], c[nb - 1])) > 0
       s[nb - 1] += s[nb]
       c[nb - 1] += c[nb]
       nb -= 1
@@ -275,7 +275,7 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
   end
   i = 0
   @inbounds for b in 1:nb
-    m = s[b] / c[b]
+    m = _int_div(s[b], c[b])
     for _ in 1:c[b]
       i += 1
       y[i] = m
@@ -298,7 +298,7 @@ function _pava_means!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vec
     m[nb] = convert(W, v[i])
     c[nb] = 1
     while nb > 1 && (σ > 0 ? m[nb - 1] > m[nb] : m[nb - 1] < m[nb])
-      m[nb - 1] = _convex_mean(m[nb - 1], m[nb], W(c[nb - 1]), W(c[nb]))
+      m[nb - 1] = _pooled_mean(m[nb - 1], m[nb], c[nb - 1], c[nb], W)
       c[nb - 1] += c[nb]
       nb -= 1
     end
@@ -318,6 +318,19 @@ end
 @inline function _convex_mean(a, b, wa, wb)
   t = wa + wb
   clamp(a * (wa / t) + b * (wb / t), min(a, b), max(a, b))
+end
+
+# the mean of two blocks of ca and cb entries with the means a and b, in the working type W
+@inline _pooled_mean(a, b, ca, cb, ::Type{W}) where {W} = _convex_mean(a, b, W(ca), W(cb))
+# For a BigFloat the counts are exact: W(ca) + W(cb) would round the counts and their sum to the working
+# precision (3 + 2 is 4 at two bits), and the weights would not add to one. Each weight is one rounding of
+# the exact quotient ca / (ca + cb) (the numerator is held in 64 bits, the counts are below 2^63), and the
+# mean keeps the convex form, clamped into the interval of the two means, so that no product overflows.
+@inline function _pooled_mean(a::BigFloat, b::BigFloat, ca::Int, cb::Int, ::Type{BigFloat})
+  t = ca + cb
+  wa = _int_div(BigFloat(ca; precision = 64), t)
+  wb = _int_div(BigFloat(cb; precision = 64), t)
+  clamp(a * wa + b * wb, min(a, b), max(a, b))
 end
 
 # Weighted isotonic regression of x into y, with weights γmin/γᵢ and direction
@@ -844,8 +857,8 @@ SumLargest(k::Integer, λ::Real = 1) = SumLargest{typeof(λ)}(k, λ)
 
 isproximable(::Type{<:SumLargest}) = true
 isconvex(::Type{<:SumLargest}) = true
-_checkparams(f::SumLargest, x) = f.k <= length(x) ||
-  throw(DimensionMismatch("k = $(f.k) exceeds the argument's length $(length(x))"))
+_checkparams(f::SumLargest, x) = f.k <= _nentries(x) ||
+  throw(DimensionMismatch("k = $(f.k) exceeds the argument's length $(_nentries(x))"))
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SumLargest, y::AbstractArray, x::AbstractArray) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkparams(f, x); Base.require_one_based_indexing(y, x); true)
 
@@ -902,8 +915,8 @@ function _sumlargest_sum(v::AbstractVector{T}, k::Int, λ) where {T}
   @inbounds for i in 1:k
     s, e = _sumlargest_add(s, e, ldexp(v[i], -a))
   end
-  u, b = frexp(S(λ))
-  w, c = frexp(S(s + e))
+  u, b = _frexp(S(λ))
+  w, c = _frexp(S(s + e))
   convert(T, ldexp(u * w, a + b + c))
 end
 
@@ -949,13 +962,13 @@ function _sumlargest_parts(v::AbstractVector{T}, k::Int, λ) where {T}
   isfinite(m) || return nothing
   s, e = _sumlargest_ordered!(v, k)
   S = float(promote_type(T, typeof(λ)))
-  isfinite(s + e) && return _parts_product(frexp(S(λ)), frexp(S(s + e)))
+  isfinite(s + e) && return _parts_product(_frexp(S(λ)), _frexp(S(s + e)))
   a = exponent(m)
   s = e = zero(T)
   @inbounds for i in 1:k
     s, e = _sumlargest_add(s, e, ldexp(v[i], -a))
   end
-  _parts_product(frexp(S(λ)), _parts(S(s + e), a))
+  _parts_product(_frexp(S(λ)), _parts(S(s + e), a))
 end
 _has_value_parts(::Type{<:SumLargest}) = true
 # Exact-zero protection: the sum of the selected entries is compensated and loses nothing to underflow
@@ -1092,8 +1105,8 @@ function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val, shift::Int 
     end
     return y
   end
-  mg, eg = frexp(g)
-  ml, el = frexp(λ)
+  mg, eg = _frexp(g)
+  ml, el = _frexp(λ)
   m, e = mg * ml, eg + el + shift
   c = iszero(shift) ? _positive_product(g, λ, one(S)) : _scaled_product(g, λ, shift)
   t = zero(S)
@@ -1117,6 +1130,9 @@ end
 prox!(y::AbstractArray, f::SumLargest, x::AbstractArray, γ::Real) =
   _sumlargest_prox!(y, f, _symmetric_argument(y, x), γ, Val(false))
 value_and_prox!(y::AbstractArray, f::SumLargest, x::AbstractArray, γ::Real) = f(prox!(y, f, x, γ))
+# an owner output, formed in a staged matrix and written to the owner last
+prox!(y::SymmetricSparseIterate, f::SumLargest, x::_ArrayOrOwner, γ::Real) = _staged_owner!(prox!, y, f, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, f::SumLargest, x::_ArrayOrOwner, γ::Real) = _staged_owner!(value_and_prox!, y, f, x, γ)
 
 function _checkstep(op::O, f::SumLargest, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
   T = float(eltype(y))

@@ -25,9 +25,9 @@ function consistent(x::AtomIterate)
     all(a -> x.position[act[a]] == a, eachindex(act)) &&
     all(k -> isactive(x, k) || all(iszero, x.storage[x.groups[k]]), eachindex(x.groups))
 end
-consistent(x) = all(j -> x.ind2nzval[x.nzval2ind[j]] == j, 1:nnz(x))
+consistent(x) = all(j -> x.ind2nzval[x.nzval2ind[j]] == j, 1:x.nnz)
 state(x::AtomIterate) = (copy(x.storage), nactive(x), collect(activecoordinates(x)), copy(x.position))
-state(x) = (Array(x), nnz(x), collect(activecoordinates(x)), copy(x.ind2nzval))
+state(x) = (Array(x), nactive(x), collect(activecoordinates(x)), copy(x.ind2nzval))
 nested_scaled(f, α) = (s = Scaled(f, α); Scaled{typeof(s), typeof(α)}(s, α))
 
 function check_block(x::AtomIterate, f, k, u, γ)
@@ -52,7 +52,7 @@ function check_block(x::AtomIterate, f, k, u, γ)
 end
 
 function check_block(x, f, k, u, γ)
-  x[4] = 2
+  x isa SymmetricSparseIterate ? (x[2, 2] = 2) : (x[4] = 2)
   before = Array(x)
   written = copy(x)
   if x isa SymmetricSparseIterate
@@ -128,13 +128,13 @@ end
     for x in (SparseIterate(zeros(4)), SparseIterate(zeros(2, 2)), SymmetricSparseIterate(2))
       for k in (1, 2)
         order = collect(activecoordinates(x))
-        n = nnz(x)
+        n = nactive(x)
         prox_coordinate!(x, NormL1(1.), k, 0.1, 1.)
-        @test nnz(x) == n && activecoordinates(x) == order && consistent(x)
+        @test nactive(x) == n && activecoordinates(x) == order && consistent(x)
         prox_coordinate!(x, NormL1(1.), k, 3., 1.)
-        @test nnz(x) == n + 1 && consistent(x)
+        @test nactive(x) == n + 1 && consistent(x)
         prox_coordinate!(x, NormL1(1.), k, 0., 1.)
-        @test nnz(x) == n + 1 && consistent(x)
+        @test nactive(x) == n + 1 && consistent(x)
       end
     end
   end

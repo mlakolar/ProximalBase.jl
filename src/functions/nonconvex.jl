@@ -795,6 +795,12 @@ function prox!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray, ::Real)
   y
 end
 
+# an owner output, formed in a staged matrix and written to the owner last: groups that are not closed under
+# transposition give a result that is not symmetric, which the commit refuses
+prox!(y::SymmetricSparseIterate, f::IndBallGroupL0, x::_ArrayOrOwner, γ::Real) = _staged_owner!(prox!, y, f, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, f::IndBallGroupL0, x::_ArrayOrOwner, γ::Real) =
+  _staged_owner!(value_and_prox!, y, f, x, γ)
+
 function prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
   _checkwrite(prox!, f, y, x)
   _samelayout(f, y) && _samelayout(f, x) ||
@@ -1024,7 +1030,7 @@ end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CappedL1, v, i) where {R}
   u = convert(R, v)
   isnan(u) && return _nonfinite_entry_term(acc, f, i)
-  _weighted_term_add(acc, _entry(f.w, i), frexp(min(abs(u), convert(R, f.a))))
+  _weighted_term_add(acc, _entry(f.w, i), _frexp(min(abs(u), convert(R, f.a))))
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::LogPenalty, v, i) where {R}
   # a zero weight or an infinite ε leaves the entry free, NaN included, as in value_entry
@@ -1034,20 +1040,20 @@ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::LogPenalty, v
   iszero(t) && return acc
   q = t / ε
   φ = if isinf(q)
-    frexp(log(t) - log(ε))
+    _frexp(log(t) - log(ε))
   elseif q < floatmin(R)
-    mt, et = frexp(t)
-    mε, eε = frexp(ε)
+    mt, et = _frexp(t)
+    mε, eε = _frexp(ε)
     _parts(mt / mε, et - eε)
   else
-    frexp(log1p(q))
+    _frexp(log1p(q))
   end
   _weighted_term_add(acc, _entry(f.w, i), φ)
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::NormLq, v, i) where {R}
   t = abs(convert(R, v))
   isfinite(t) || return _nonfinite_entry_term(acc, f, i)
-  _weighted_term_add(acc, _entry(f.w, i), frexp(t^convert(R, f.q)))
+  _weighted_term_add(acc, _entry(f.w, i), _frexp(t^convert(R, f.q)))
 end
 
 # The group penalties: Σₖ pₖ(‖x[Gₖ]‖₂) with the norm of a group and the level λwₖ as parts, and the
@@ -1101,3 +1107,15 @@ function _group_norm_parts(::Type{R}, x::AbstractArray, G) where {R}
   end
   _parts(sqrt(s), e)
 end
+
+####################################
+#  a SymmetricSparseIterate
+####################################
+
+# The proximal operators of the group penalties into the owner of a symmetric matrix, with a scalar
+# step: the groups must be closed under transposition, which is checked before anything is written,
+# and each stored coordinate is written once. The group coordinates and the group values at an owner
+# are not defined.
+const _OwnerGroups = Union{GroupNormL2, GroupNormLinf, SparseGroupNormL2, GroupMCP, GroupSCAD}
+value_and_prox!(y::SymmetricSparseIterate, f::_OwnerGroups, x::_ArrayOrOwner, γ::Real) = _owner_value_and_prox!(y, f, x, γ)
+prox!(y::SymmetricSparseIterate, f::_OwnerGroups, x::_ArrayOrOwner, γ::Real) = _owner_prox!(y, f, x, γ)

@@ -20,7 +20,7 @@ ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 ProximalBase.iszeropreserving(::WeightedSquare) = true
 ProximalBase.isconvex(::Type{WeightedSquare}) = true
 function ProximalBase.check_parameters(f::WeightedSquare, x)
-  length(f.w) == length(x) || throw(DimensionMismatch("a parameter array has length $(length(f.w)) and the argument has length $(length(x))"))
+  length(f.w) == prod(size(x)) || throw(DimensionMismatch("a parameter array has length $(length(f.w)) and the argument has $(prod(size(x))) entries"))
   nothing
 end
 
@@ -219,6 +219,7 @@ end
       @test_throws DimensionMismatch h(x)
       for step in (0.5, fill(0.5, size(x))), op in (prox!, value_and_prox!), alias in (false, true)
         step isa AbstractArray && h isa Regularize && continue
+        step isa AbstractArray && x isa SymmetricSparseIterate && continue     # refused with an owner output
         input = copy(x)
         output = alias ? input : copy(x)
         before = Array(output)
@@ -246,7 +247,7 @@ end
   for x in (SparseIterate(4), SymmetricSparseIterate(2), AtomIterate(4, [1:2, 3:4]))
     @test_throws DimensionMismatch f(x)
     @test_throws DimensionMismatch prox!(x, f, x, 0.5)
-    @test all(iszero, x)
+    @test all(iszero, x isa SymmetricSparseIterate ? matrixview(x) : x)
   end
   for T in (Float32, Float64)
     A = Matrix{T}(I, 3, 3)

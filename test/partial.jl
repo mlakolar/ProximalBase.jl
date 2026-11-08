@@ -70,10 +70,15 @@ end
     Z = prox!(SymmetricSparseIterate(80), g, S, 1.0)
     @test !usedfull(g)
     @test Matrix(Z) ≈ Matrix(Symmetric(Y, :L)) rtol = 1e-8 atol = 1e-10
-    # an argument that is exactly symmetric gives today's result
+    # an argument that is exactly symmetric gives today's result; IndBallRank at an owner is formed from the
+    # eigendecomposition of the symmetric argument, so it agrees with the SVD kernel up to rounding
     g2 = f()
     Z2 = prox!(SymmetricSparseIterate(80), g2, Ssym, 1.0)
-    @test Matrix(Z2) == Matrix(Symmetric(Y, :L))
+    if g2 isa IndBallRank
+      @test Matrix(Z2) ≈ Matrix(Symmetric(Y, :L)) rtol = 1e-8 atol = 1e-10
+    else
+      @test Matrix(Z2) == Matrix(Symmetric(Y, :L))
+    end
   end
 end
 
@@ -253,7 +258,7 @@ end
   @test usedfull(h)
   # symmetric sparse iterates in and out, in place, and Float32
   # Sm is symmetric only up to rounding; an iterate takes its lower triangle explicitly
-  @test prox(g, SymmetricSparseIterate(Symmetric(Sm, :L))) ≈ psd_proj(Sm) rtol = 1e-10
+  @test Matrix(prox(g, SymmetricSparseIterate(Symmetric(Sm, :L)))) ≈ psd_proj(Sm) rtol = 1e-10
   @test Matrix(prox!(SymmetricSparseIterate(n), g, Sm, 1.0)) ≈ psd_proj(Sm) rtol = 1e-10
   Z = copy(Sm)
   @test prox!(Z, g, Z, 1.0) ≈ psd_proj(Sm) rtol = 1e-10

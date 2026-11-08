@@ -12,10 +12,15 @@ quick = [
   # loading, interface, traits and package quality
   "aqua",
   "ci_gate",
+  "ci_plan",
+  "ci_verdict",
   "compat",
   "docstrings",
+  "exponent_sums",
   "int32_exponents",
   "interface",
+  "ldexp_bigfloat",
+  "platform_focus",
   "readme",
   "tier_selection",
   "utils",
@@ -27,6 +32,9 @@ quick = [
   "iterate_writes",
   "matrixview",
   "sparse_iterate_basics",
+  "symmetric_iterate_copies",
+  "symmetric_iterate_indexing",
+  "symmetric_iterate_interface",
   "symmetric_parameters",
   "symmetric_products",
   "wrapper_buffers",
@@ -42,6 +50,7 @@ quick = [
   "nested_box_values",
   "sets",
   "lmo",
+  "lmo_atoms",
   "spectral",
   "spectralfunction",
   # precision, boundaries, non-finite values, validation before writes
@@ -52,15 +61,16 @@ quick = [
   "scaled_overflow",
   "spectral_box_tolerance",
   "spectral_mask",
-  # device arrays, LAPACK workspaces and hot-path allocations
+  # the GPU extension's ambiguity guard, LAPACK workspaces and hot-path allocations
   "allocations_basics",
-  "gpu_smoke",
+  "gpu_extension_ambiguities",
   "lapack",
 ]
 
 # Most function families, wrappers, constraints and the examples.
 standard = [
   "affine",
+  "bigfloat_integer_operands",
   "ballconstrained",
   "indicator_steps",
   "direct_projection_infinite",
@@ -100,11 +110,12 @@ standard = [
   "threshold_factor_type",
   "threshold_precision",
   "argument_threshold_precision",
+  "conjugate_precision",
 ]
 
 # What shared or numerical changes can break: precision, overflow, non-finite values, spectral
-# domains, the conformance suite, symmetric writes and parameters, steps, wrappers, block checks,
-# iterate grids, and the specialized families.
+# domains, the conformance suite (all but conformance/gpu_arrays), symmetric writes and
+# parameters, steps, wrappers, block checks, iterate grids, and the specialized families.
 thorough = [
   "block_step",
   "blockchecks",
@@ -114,7 +125,6 @@ thorough = [
   "conformance/data_functions_2",
   "conformance/element_types",
   "conformance/failures_storage",
-  "conformance/gpu_arrays",
   "conformance/harness",
   "conformance/kernels",
   "conformance/linear_sets",
@@ -155,6 +165,7 @@ thorough = [
   "ridge_precision",
   "rotatedsoc",
   "sparse_iterate",
+  "three_factor_product",
   "sparsegroup_infinite_level",
   "sparsegroup_infinite_prox",
   "spectral_domain",
@@ -169,14 +180,16 @@ thorough = [
   "symmetric_argument",
   "symmetric_groups",
   "symmetric_mul",
+  "symmetric_oracles",
+  "symmetric_wrappers",
   "symmetric_parameters_extensions",
   "symmetric_parameters_merge",
   "symmetric_parameters_paths",
   "symmetric_parameters_trait",
   "symmetric_parameters_writes",
-  "symmetric_writes",
   "testing",
   "value_overflow_data",
+  "value_overflow_glm",
   "value_overflow_fused",
   "value_overflow_sqrnorm",
   "weighted_overflow",
@@ -184,16 +197,22 @@ thorough = [
 ]
 
 # Exhaustive catalogs whose cases repeat paths the tiers above already reach, and family files
-# that the CI rules run beside any change to their family.
+# that the CI rules run beside any change to their family. The device-array suites on GPUArrays'
+# reference backend (gpu, gpu_smoke, conformance/gpu_arrays) are here: the nightly run covers
+# them, and a change to the GPU files, the GPU extension or the label test:gpu runs them in a
+# pull request. The CPU catalogs that load JLArrays as a second array type stay in the tiers
+# above, and the ambiguity guard for the GPU extension is in quick (gpu_extension_ambiguities).
 full = [
   "allocations",
   "blockchecks_steps",
   "blockchecks_values",
   "blockchecks_workspace",
   "blockchecks_wrappers",
+  "conformance/gpu_arrays",
   "conjugate_projections",
   "distl2",
   "gpu",
+  "gpu_smoke",
   "hyperslab",
   "image",
   "precision_mixed",
@@ -203,8 +222,6 @@ full = [
   "real_wrappers",
   "separable_blocks",
   "stepchecks",
-  "symmetric_mutator_errors",
-  "symmetric_mutators",
   "symmetric_parameters_centers",
   "symmetric_parameters_inventory",
   "symmetric_parameters_inventory_walk",
@@ -213,7 +230,7 @@ full = [
 
 [not_tests]
 # Included by test files or by the runner, never run on their own.
-helpers = ["conformance/common", "gpu_prelude", "gpu_suite", "gpu_suite_basics", "testutils", "tiers"]
+helpers = ["conformance/common", "gpu_ambiguities", "gpu_prelude", "gpu_suite", "gpu_suite_basics", "testutils", "tiers"]
 # Directories with a Project.toml of their own, run by hand: cuda/ needs an NVIDIA GPU and
 # oracles/ needs JuMP and conic solvers. No tier runs them.
 environments = ["cuda", "oracles"]
@@ -222,6 +239,7 @@ environments = ["cuda", "oracles"]
 # The test files that run each helper, directly or through another helper; the error for a
 # helper given as a test name names them. A helper that the runner loads for every test file
 # (testutils, conformance/common) has no entry. A helper under a directory is a quoted key.
+gpu_ambiguities = ["gpu_extension_ambiguities", "gpu_smoke"]
 gpu_prelude = ["gpu", "gpu_smoke"]
 gpu_suite = ["gpu"]
 gpu_suite_basics = ["gpu_smoke"]

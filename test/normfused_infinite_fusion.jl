@@ -956,6 +956,44 @@ end
   end
 end
 
+# On Windows (C long is 32 bits) exponent returns an Int64 and frexp an Int32, and an Int64 shift makes
+# ldexp(::BigFloat, n) form x * exp2(n): that overflows beside floatmax and rounds n at a low precision.
+# The reference shifts by Clong, an exact mpfr_mul_2si everywhere, and sums entries of magnitude below 2
+# in 4000 bits (exact), so none of its intermediates comes near the exponent limit.
+@testset "NormL1Fused(λ1, Inf): BigFloat restore of the mean takes an exact power-of-two shift (#736)" begin
+  for p in (2, 3, 5, 8, 16, 53, 256), sgn in (1, -1)
+    setprecision(BigFloat, p) do
+      M = floatmax(BigFloat)
+      h, q = ldexp(M, Clong(-1)), prevfloat(M)
+      f0, f1 = NormL1Fused(BigFloat(0), BigFloat(Inf)), NormL1Fused(BigFloat(0.25), BigFloat(Inf))
+      for x0 in ([M, M, M], [M, M, h], [M, h, h], [M, M, -M], [M, M, -M, -M, M], [M, q, M, h, q, M, M])
+        x = sgn .* x0
+        ref = setprecision(BigFloat, 4000) do
+          E = exponent(M)
+          ldexp(sum(ldexp(big(a), Clong(-E)) for a in x) / length(x), Clong(E))
+        end
+        lo, hi = extrema(x)
+        for f in (f0, f1)
+          y = prox(f, x, BigFloat(1))
+          z = y[1]
+          ok = all(isfinite, y) && all(==(z), y) && lo <= z <= hi
+          allequal(x) && (ok &= z == x[1])
+          # f0 does not shrink: z is the mean to a few ulps (f1 shrinks by 0.25, below an ulp of M)
+          f === f0 && (ok &= abs(big(z) - ref) <= ldexp(abs(ref), Clong(2 - p)))
+          @test ok
+          out = similar(x)
+          @test isequal(prox!(out, f, x, BigFloat(1)), y) && isequal(out, y)
+          out = similar(x)
+          v = value_and_prox!(out, f, x, BigFloat(1))
+          @test isequal(out, y) && isequal(v, f(out))
+          a = copy(x)
+          @test isequal(value_and_prox!(a, f, a, BigFloat(1)), v) && isequal(a, y)
+        end
+      end
+    end
+  end
+end
+
 @testset "NormL1Fused(λ1, Inf): the clamp keeps the earlier results (Float32, Float64, the exact cases)" begin
   for T in (Float32, Float64)
     d, M = nextfloat(zero(T)), floatmax(T)
@@ -974,6 +1012,239 @@ end
     x = randn(rng, 7) .* 1e300
     y = prox(f, x, 1.0)
     @test minimum(x) <= y[1] <= maximum(x)
+  end
+end
+
+####################################
+#  BigFloat values near the range limit (#747), against an independent scaled reference
+####################################
+
+# ProximalBase defines its own ldexp (src/ProximalBase.jl): Base's ldexp(::BigFloat, n) is the exact shift only for a Clong n.
+# The reference below shares no helper with the package and types every shift as a Clong.
+
+# λ1 Σ|xᵢ| of BigFloat entries x as r·2^E, never formed at the working range: E = exponent(max|xᵢ|) and r is a
+# high-precision value (4000 bits) of the scaled sum. λ1 (converted from the precision it is stored at) and the scaled
+# entries are exact, except an entry so far below the largest one that scaling it underflows; the sum is rounded to 4000
+# bits, so such an entry is dropped, which is far below the envelopes used here.
+function bfscaled(x, λ1)
+  E = exponent(maximum(abs, x))
+  r = setprecision(BigFloat, 4000) do
+    BigFloat(λ1) * sum(a -> abs(ldexp(big(a), Clong(-E))), x)
+  end
+  r, E
+end
+# r·2^E rounded once to the working precision; Inf where it overflows
+function bfrounded(r, E)
+  ldexp(BigFloat(r, RoundNearest; precision = precision(BigFloat)), Clong(E))
+end
+# y against r·2^E in a relative-error envelope of 2·2^(1-p)|r|, compared in the scaled domain (the spacing of p bits at r
+# is at most 2^(1-p)|r|, so the envelope is at most four ulps). At p = 2 it is the whole interval of positive values
+# below 2r, so y is also required to be finite and positive.
+function bfwithin(y, r, E, p)
+  (y isa BigFloat && isfinite(y) && y > 0) || return false
+  setprecision(BigFloat, 4000) do
+    abs(ldexp(big(y), Clong(-E)) - r) <= 2 * ldexp(abs(r), Clong(1 - p))
+  end
+end
+# Whether the exact value r·2^E overflows when it is rounded once to the working precision p: :finite or :inf.
+# At most 8 entries of scaled size below 2 and λ1 ≤ 1 give r < 16, so a value in the top binades has E ≥ emax - 5 and
+# floatmax·2^-E is in range.
+function bfclass(r, E, p)
+  exponent(r) + E <= Base.MPFR.get_emax() - 2 && return :finite
+  BigFloat(r, RoundNearest; precision = p) <= ldexp(floatmax(BigFloat), Clong(-E)) ? :finite : :inf
+end
+# Whether y is λ1 Σ|zᵢ| (zero for a vector of zeros), and the class of the case. A value that overflows is Inf, any
+# other is finite, positive and in the envelope. The multiplicity n of a vector of equal entries is converted to the
+# working precision, where it is not always representable (5 at p = 2 is 4), and that rounding is a known source of
+# disagreement with the correctly rounded value at the overflow edge: where it changes the class, the case is :edge
+# and y is only required to be positive and not NaN.
+function bfverdict(y, z, λ1)
+  y isa BigFloat || return (:raised, false)
+  iszero(maximum(abs, z)) && return (:zero, iszero(y))
+  r, E = bfscaled(z, λ1)
+  p = precision(BigFloat)
+  cls = bfclass(r, E, p)
+  if all(==(z[1]), z)
+    n, neff = length(z), BigFloat(length(z))
+    r2 = setprecision(BigFloat, 4000) do
+      r * neff / n
+    end
+    bfclass(r2, E, p) === cls || return (:edge, y > 0 && !isnan(y))
+  end
+  (cls, cls === :inf ? y == Inf : bfwithin(y, r, E, p))
+end
+bfok(y, z, λ1) = last(bfverdict(y, z, λ1))
+# the value of a call, or the exception it raised, so that a failing case is recorded instead of ending the test set
+attempt(g) = try g() catch err; err end
+
+@testset "NormL1Fused(λ1, Inf): the value at floatmax in 256 bits, against the scaled reference (#747)" begin
+  setprecision(BigFloat, 256) do
+    M = floatmax(BigFloat)
+    f = NormL1Fused(big(0.25), big(Inf))
+    x = fill(M, 3)
+    want = BigFloat(0.75) * M
+    r, E = bfscaled(x, f.λ1)
+    @test isfinite(want) && want == bfrounded(r, E) && bfwithin(want, r, E, 256)
+    y = f(x)
+    @test isfinite(y) && y == want
+    # value_and_prox! returns the independent value, not f of its own output
+    out = similar(x)
+    v = value_and_prox!(out, f, x, one(BigFloat))
+    @test isfinite(v) && v == want && all(==(M), out)
+    a = copy(x)
+    w = value_and_prox!(a, f, a, one(BigFloat))
+    @test isfinite(w) && w == want && all(==(M), a)
+    for s in (1, -1)
+      @test f(s .* x) == want
+    end
+  end
+end
+
+# the vectors of the sweep: constant (at floatmax, at half of it, at a power of two below it, at 3/4 of it, small),
+# nearly constant, and unequal ones (large and small entries, exponents descending from the limit)
+const bfkinds = (:constM, :constHalf, :pow2, :constQ, :small, :nearconst, :mixed, :nearemax)
+function bfvector(kind, n, s)
+  M = floatmax(BigFloat)
+  emin = Base.MPFR.get_emin()
+  base = kind === :constM ? fill(M, n) :
+         kind === :constHalf ? fill(M / 2, n) :
+         kind === :pow2 ? fill(ldexp(one(BigFloat), Clong(exponent(M) - 1)), n) :
+         kind === :constQ ? fill(BigFloat(0.75) * M, n) :
+         kind === :small ? fill(ldexp(one(BigFloat), Clong(emin + 400)), n) :
+         kind === :nearconst ? [isodd(i) ? M : prevfloat(M) for i in 1:n] :
+         kind === :mixed ? [(M, one(BigFloat), -one(BigFloat), nextfloat(floatmin(BigFloat)))[mod1(i, 4)] for i in 1:n] :
+         [i == 1 ? M : ldexp(M, Clong(-i)) for i in 1:n]
+  s .* base
+end
+
+# One vector: the value of f, and of value_and_prox! into a separate and into the aliased output, against the reference;
+# f is Inf at an unequal vector. The step is so small at a constant vector that the output is the vector itself, so the
+# value of value_and_prox! is that of the vector; at another vector the output is a constant inside [min x, max x] and the
+# value is the reference of that output.
+function bfcase!(bad, tally, edges, x, λ1, tag)
+  p = precision(BigFloat)
+  f = NormL1Fused(λ1, big(Inf))
+  allsame = all(==(x[1]), x)
+  γ = allsame ? ldexp(one(BigFloat), Clong(exponent(maximum(abs, x)) - p - 12)) : one(BigFloat)
+  judge = function (what, y, z)
+    cls, ok = bfverdict(y, z, λ1)
+    tally[cls] = get(tally, cls, 0) + 1
+    cls === :edge && push!(edges, "$tag $what")
+    ok || push!(bad, "$tag $what = $(y isa BigFloat ? repr(y) : typeof(y)), class $cls")
+  end
+  yf = attempt(() -> f(x))
+  if allsame
+    judge("f(x)", yf, x)
+  else
+    (yf isa BigFloat && yf == Inf) || push!(bad, "$tag f(x) = $(yf isa BigFloat ? repr(yf) : typeof(yf)), expected Inf")
+  end
+  pr = attempt(() -> prox(f, x, γ))
+  out = similar(x)
+  v = attempt(() -> value_and_prox!(out, f, x, γ))
+  alias = copy(x)
+  w = attempt(() -> value_and_prox!(alias, f, alias, γ))
+  if pr isa Vector{BigFloat} && v isa BigFloat && w isa BigFloat
+    good = isequal(out, pr) && isequal(alias, pr) && all(isfinite, out) && all(==(out[1]), out) &&
+           minimum(x) <= out[1] <= maximum(x)
+    allsame && (good &= out == x)
+    good || push!(bad, "$tag output differs from the expected one")
+    judge("value_and_prox!", v, out)
+    judge("value_and_prox! aliased", w, out)
+  else
+    push!(bad, "$tag raised in prox, value_and_prox! or its aliased form: $(typeof(pr)) $(typeof(v)) $(typeof(w))")
+  end
+  bad
+end
+
+@testset "NormL1Fused(λ1, Inf): BigFloat values at every precision, sign, length and vector kind (#747)" begin
+  tally = Dict{Symbol, Int}()
+  edges = String[]
+  for p in (2, 3, 5, 8, 16, 53, 256)
+    bad = String[]
+    setprecision(BigFloat, p) do
+      for λ in (0.25, 1.0), n in (1, 2, 3, 5), s in (1, -1), kind in bfkinds
+        bfcase!(bad, tally, edges, bfvector(kind, n, s), BigFloat(λ), "p=$p λ1=$λ n=$n s=$s $kind")
+      end
+    end
+    @test isempty(bad)
+    isempty(bad) || (println("precision $p: $(length(bad)) cases differ, the first ones:"); foreach(println, first(bad, 8)))
+  end
+  # the sweep holds finite values and overflowing ones, and no case raised
+  @test get(tally, :finite, 0) > 20 && get(tally, :inf, 0) > 20 && get(tally, :raised, 0) == 0
+  # the only exclusions are the cases where the multiplicity 5 is not representable: p = 2, n = 5
+  @test all(e -> startswith(e, "p=2 ") && occursin(" n=5 ", e), edges) && length(edges) == get(tally, :edge, 0)
+  isempty(edges) || println("overflow-edge cases at which the multiplicity is rounded (", length(edges), "): ", first(edges, 3), " ...")
+end
+
+@testset "NormL1Fused(λ1, Inf): BigFloat zero, NaN and infinite entries keep their values (#747)" begin
+  for p in (256, 5)
+    setprecision(BigFloat, p) do
+      M = floatmax(BigFloat)
+      inf, nan = big(Inf), big(NaN)
+      for λ1 in (0.0, 0.25)
+        f = NormL1Fused(BigFloat(λ1), inf)
+        # zeros: the fusion term is exactly zero (no Inf⋅0) and the value is the positive zero
+        for z in (zeros(BigFloat, 3), BigFloat[-0.0, 0.0, -0.0], BigFloat[0.0], BigFloat[])
+          v = f(z)
+          @test iszero(v) && !signbit(v)
+        end
+        y = [BigFloat(-7) for _ in 1:5]
+        v = value_and_prox!(y, f, zeros(BigFloat, 5), one(BigFloat))
+        @test iszero(v) && all(iszero, y)
+        # a NaN entry gives NaN: the value, and every entry of the output
+        for x in (BigFloat[1, nan, 1], BigFloat[nan, 2, 3], BigFloat[M, M, nan], BigFloat[nan, nan, nan])
+          @test isnan(f(x))
+          y = [BigFloat(-7) for _ in 1:3]
+          @test isnan(value_and_prox!(y, f, x, one(BigFloat))) && all(isnan, y)
+          @test all(isnan, prox(f, x, one(BigFloat)))
+        end
+        # infinite entries: the infinity of one sign, NaN for both signs
+        for (x, e) in ((BigFloat[1, inf, 2], inf), (BigFloat[1, -inf, 2], -inf), (BigFloat[inf, inf, 2], inf),
+                       (BigFloat[inf, -inf, 2], nan))
+          @test isequal(prox(f, x, one(BigFloat)), fill(e, 3))
+        end
+      end
+      f = NormL1Fused(big(0.25), inf)
+      @test f(BigFloat[inf, 1, 2]) == inf && f((BigFloat(1), inf)) == inf
+      # at the zero output the value is zero, not NaN
+      y = zeros(BigFloat, 3)
+      @test iszero(value_and_prox!(y, NormL1Fused(BigFloat(5), inf), BigFloat[1, -2, 0.5], one(BigFloat))) && all(iszero, y)
+      # an unequal finite vector, an unequal pair: Inf
+      @test f(BigFloat[1, 2, 3]) == inf && f((BigFloat(1), BigFloat(2))) == inf && f((M, prevfloat(M))) == inf
+    end
+  end
+end
+
+@testset "NormL1Fused(λ1, Inf): the pair, the K = 2 vector and the tuple of arrays at floatmax (#747)" begin
+  for p in (256, 5), λ in (0.25, 1.0)
+    setprecision(BigFloat, p) do
+      M = floatmax(BigFloat)
+      λ1 = BigFloat(λ)
+      f = NormL1Fused(λ1, big(Inf))
+      for a in (M, -M, M / 2)
+        # the same value from every route: the vector, the pair, the arrays of one pair, the arrays of two pairs
+        @test bfok(attempt(() -> f([a, a])), [a, a], λ1)
+        @test bfok(attempt(() -> f((a, a))), [a, a], λ1)
+        @test bfok(attempt(() -> f(([a], [a]))), [a, a], λ1)
+        @test bfok(attempt(() -> f(([a, a / 2], [a, a / 2]))), [a, a, a / 2, a / 2], λ1)
+        # K = 2 vector and tuple of arrays through value_and_prox!, separate and aliased: the output keeps the entries
+        # (the step is one, far below the spacing of the entries)
+        x = [a, a]
+        y = similar(x)
+        v = attempt(() -> value_and_prox!(y, f, x, one(BigFloat)))
+        @test bfok(v, x, λ1) && y == x
+        z = copy(x)
+        v = attempt(() -> value_and_prox!(z, f, z, one(BigFloat)))
+        @test bfok(v, x, λ1) && z == x
+        t = ([a, a / 2], [a, a / 2])
+        yt = (similar(t[1]), similar(t[2]))
+        v = attempt(() -> value_and_prox!(yt, f, t, one(BigFloat)))
+        @test bfok(v, [t[1]; t[2]], λ1) && yt == t
+        zt = (copy(t[1]), copy(t[2]))
+        v = attempt(() -> value_and_prox!(zt, f, zt, one(BigFloat)))
+        @test bfok(v, [t[1]; t[2]], λ1) && zt == t
+      end
+    end
   end
 end
 

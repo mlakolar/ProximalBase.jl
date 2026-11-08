@@ -166,13 +166,13 @@ _scale_invariant(f::BoxConstrained) = _scale_invariant(f.f) && _cone_bound(f.box
 #  on a box
 ####################################
 
-(c::BoxConstrained)(x::AbstractArray) =
+(c::BoxConstrained)(x::_ArrayOrOwner) =
   (_check_value_arrays(c, x); _value_checked(c, x))
-_value_unchecked(c::BoxConstrained, x::AbstractArray) =
+_value_unchecked(c::BoxConstrained, x::_ArrayOrOwner) =
   (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.box, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
 # MCP, SCAD and NormL0 on a box: a NaN entry gives NaN where the value depends
 # on it (constrained_nonconvex.jl).
-_value_unchecked(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x::AbstractArray) =
+_value_unchecked(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x::_ArrayOrOwner) =
   (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.box, x)) ? convert(T, _value_unchecked(c.f, x)) : _box_nan_value(c, x, T))
 
 # the scalar problem is convex, so its minimizer on an interval is the nearest
@@ -181,15 +181,15 @@ Base.@propagate_inbounds prox_entry(c::BoxConstrained, v::Real, i::Integer, γ::
   prox_entry(c.box, prox_entry(c.f, v, i, γ), i, γ)
 
 # γ is a scalar step or an array of steps, one per entry
-prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) =
+prox!(y::_ArrayOrOwner, c::BoxConstrained, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
-_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = (_checkwrite(prox!, c, y, x, γ); _prox_sep!(y, c, x, γ))
+_prox_unchecked!(y::_ArrayOrOwner, c::BoxConstrained, x::_ArrayOrOwner, γ::Real) = (_checkwrite(prox!, c, y, x, γ); _prox_sep!(y, c, x, γ))
 prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 _prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = (_checkwrite(prox!, c, y, x, γ); _prox_sep!(y, c, x, γ))
-value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) =
+value_and_prox!(y::_ArrayOrOwner, c::BoxConstrained, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
-_value_and_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _value_and_prox_box!(y, c, x, γ)
+_value_and_prox_unchecked!(y::_ArrayOrOwner, c::BoxConstrained, x::_ArrayOrOwner, γ::Real) = _value_and_prox_box!(y, c, x, γ)
 value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 _value_and_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_box!(y, c, x, γ)
@@ -201,7 +201,7 @@ function _value_and_prox_box!(y, c, x, γ)
 end
 
 _checkparams(c::BoxConstrained, x) = (_checkparams(c.f, x); _checkparams(c.box, x); true)
-function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+function _checkwrite(op::O, c::BoxConstrained, y::_ArrayOrOwner, x::_ArrayOrOwner) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checkreal(c, y); _checkreal(c, x)
   _checksize(y, x)
   _checkparams(c, x)
@@ -487,9 +487,9 @@ _restrict_unchecked(c::BoxConstrained, S::AbstractVector{<:Integer}) =
 #  on a hyperplane, halfspace or hyperslab
 ####################################
 
-(c::LinearConstrained)(x::AbstractArray) =
+(c::LinearConstrained)(x::_ArrayOrOwner) =
   (_check_value_arrays(c, x); _value_checked(c, x))
-_value_unchecked(c::LinearConstrained, x::AbstractArray) = (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.set, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
+_value_unchecked(c::LinearConstrained, x::_ArrayOrOwner) = (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.set, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
 
 _checkparams(c::LinearConstrained, x) = (_checkparams(c.f, x); _checkparams(c.set, x); true)
 function _checkwrite(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
@@ -504,7 +504,9 @@ end
 # γ is a scalar step, or an array of steps, one per entry: the proximal operator
 # in the metric of Diagonal(1 ./ γ), where z(ν) has the entries
 # prox_{γᵢfᵢ}(xᵢ - γᵢνaᵢ)
-prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
+# At an owner the parameters are checked before anything is written, which is all that is defined: the
+# multiplier search runs over arrays
+prox!(y::_ArrayOrOwner, c::LinearConstrained, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 _prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
   _linear_constrained_prox!(y, c, x, convert(float(eltype(y)), γ))
@@ -612,7 +614,7 @@ _linear_constrained_output!(y, f::SqrNormL2, a, x, s::_RidgeSteps, ν::T) where 
 _metric_sqnorm(set::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::AbstractArray, s::_RidgeSteps) =
   _metric_sqnorm(set, x, s.γ)
 
-value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
+value_and_prox!(y::_ArrayOrOwner, c::LinearConstrained, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 _value_and_prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) = _value_and_prox_linear!(y, c, x, γ)
 value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =

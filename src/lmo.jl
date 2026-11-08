@@ -26,6 +26,10 @@ function lmo!(s::AbstractArray, f::_LMOSet, g::AbstractArray)
   s
 end
 
+# the owner of a symmetric matrix is not an output of lmo!
+lmo!(s::SymmetricSparseIterate, f::_LMOSet, g::AbstractArray) = throw(ArgumentError(
+  "the output of lmo! must be an Array, or a view of one, of floating-point numbers; got $(typeof(s))"))
+
 # parameters, before any write
 _lmo_fits(::Type{T}, v::Real) where {T} = isfinite(convert(T, v))
 _lmo_fits(::Type{T}, v::AbstractArray) where {T} =
@@ -60,39 +64,33 @@ function _lmo_extreme(g, by, better)
   bi, best, nan
 end
 
-function _lmo_body!(s, f::IndSimplex, g, ::Type{T}) where {T}
+# The vertex that the oracle of a simplex or an ℓ1 ball selects, as (index, value, nan): the first
+# index of the extreme entry and the signed radius, index 0 and value 0 for the origin, and nan when
+# an entry of g is NaN. lmo! writes it into an array and lmo_atom keeps it as it is.
+function _lmo_vertex(f::IndSimplex, g, ::Type{T}) where {T}
   r = convert(T, f.r)
-  if iszero(r) || isempty(g)
-    fill!(s, zero(T))
-    return
-  end
+  (iszero(r) || isempty(g)) && return 0, zero(T), false
   i, m, nan = _lmo_extreme(g, identity, <)
-  if nan
-    fill!(s, T(NaN))
-  elseif !f.equality && m >= 0
-    fill!(s, zero(T))
-  else
-    fill!(s, zero(T))
-    @inbounds s[i] = r
-  end
+  nan && return 0, T(NaN), true
+  !f.equality && m >= 0 && return 0, zero(T), false
+  i, r, false
 end
 
-function _lmo_body!(s, f::IndBallL1, g, ::Type{T}) where {T}
+function _lmo_vertex(f::IndBallL1, g, ::Type{T}) where {T}
   r = convert(T, f.r)
-  if iszero(r) || isempty(g)
-    fill!(s, zero(T))
-    return
-  end
+  (iszero(r) || isempty(g)) && return 0, zero(T), false
   i, m, nan = _lmo_extreme(g, v -> abs(float(v)), >)
+  nan && return 0, T(NaN), true
+  iszero(m) && return 0, zero(T), false
   gi = @inbounds g[i]
-  if nan
-    fill!(s, T(NaN))
-  elseif iszero(m)
-    fill!(s, zero(T))
-  else
-    fill!(s, zero(T))
-    @inbounds s[i] = gi < 0 ? r : -r
-  end
+  i, gi < 0 ? r : -r, false
+end
+
+function _lmo_body!(s, f::Union{IndSimplex, IndBallL1}, g, ::Type{T}) where {T}
+  i, v, nan = _lmo_vertex(f, g, T)
+  fill!(s, nan ? T(NaN) : zero(T))
+  i > 0 && (@inbounds s[i] = v)
+  s
 end
 
 function _lmo_body!(s, f::IndBallL2, g, ::Type{T}) where {T}

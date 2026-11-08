@@ -3,8 +3,9 @@
 # parameters, losses, array steps, overflow, infinite weights), each testset calling
 # allowscalar(false). gpu_suite.jl keeps the rest of each split loop and the other cases.
 # At the end: _maximum_abs of a Diagonal of a device vector (dispatch, values, a LeastSquaresLoss
-# with a Diagonal design) and the guard against ambiguities with the GPU extension, which
-# every GPU run executes (gpu_smoke in the Quick tier, and the physical CUDA run).
+# with a Diagonal design) and the guard against ambiguities with the GPU extension
+# (gpu_ambiguities.jl), which every GPU run executes (gpu_smoke in the Full tier, and the
+# physical CUDA run); the Quick tier runs the guard alone (gpu_extension_ambiguities.jl).
 # The entry point supplies DeviceArray, test_types, host, and ≃.
 
 @testset "separable functions on GPU arrays" begin
@@ -170,6 +171,91 @@ end
   end
 end
 
+@testset "GLM weights and predictors that leave the range on GPU arrays" begin
+  allowscalar(false)
+  # the remaining cases are in value_overflow_glm.jl
+  for T in test_types
+    M = floatmax(T)
+    lo, hi, ηa, ηb = T === Float32 ? (1f-35, 1f35, 100f0, 120f0) : (1e-300, 1e300, 1000.0, 800.0)
+    for f in (PoissonLoss(T[0], ones(T, 1, 1); weights = T[lo]),                       # exp(η) overflows before w
+              LogisticLoss(T[1], ones(T, 1, 1); weights = T[hi]),                       # the tail underflows before w
+              GLMLoss(ProximalBase.Squared(), T[0.5], reshape(T[M, -M, 1], 1, 3); weights = T[1.5]))   # X β cancels
+      @testset "$(nameof(typeof(f.loss))), $T" begin
+        βc = length(f.y) == 1 && size(f.X, 2) == 1 ? T[f isa PoissonLoss ? ηa : ηb] : T[2, 2, 3]
+        fg = Adapt.adapt(DeviceArray, f)
+        βg = DeviceArray(βc)
+        vc = f(βc)
+        @test isfinite(vc) && vc > floatmin(T)
+        @test fg(βg) ≃ vc
+        gc = similar(βc)
+        @test value_and_gradient!(gc, f, βc) ≃ vc
+        gg = similar(βg)
+        @test value_and_gradient!(gg, fg, βg) ≃ vc
+        @test host(gg) ≃ gc
+        fill!(gg, 0)
+        gradient!(gg, fg, βg)
+        @test host(gg) ≃ gc
+      end
+    end
+  end
+end
+
+@testset "SmoothCheck without intermediates out of range on GPU arrays" begin
+  allowscalar(false)
+  # the review's witnesses (PR #539): the value against the formula in BigFloat
+  setprecision(BigFloat, 512) do
+    for T in test_types
+      F32 = T === Float32
+      for (τ, h, u) in ((T(0.5), F32 ? T(1e-15) : T(1e-150), F32 ? T(1e-22) : T(1e-160)),
+                        (F32 ? T(1e-30) : T(1e-200), F32 ? T(1e30) : T(1e300), F32 ? T(2) : T(2e100)))
+        tb, hb, ub = big(τ), big(h), big(u)
+        vr = ub >= hb * tb ? tb * ub - hb * tb^2 / 2 : ub^2 / (2hb)
+        dr = ub >= hb * tb ? -tb : -ub / hb
+        for w in (T(0.5), T(2))
+          f = GLMLoss(ProximalBase.SmoothCheck(τ, h), DeviceArray(T[0]), DeviceArray(ones(T, 1, 1)); weights = DeviceArray(T[w]))
+          β, g = DeviceArray(T[-u]), DeviceArray(zeros(T, 1))
+          @test abs(big(f(β)) - big(w) * vr) <= 3eps(T) * big(w) * abs(vr)
+          @test abs(big(value_and_gradient!(g, f, β)) - big(w) * vr) <= 3eps(T) * big(w) * abs(vr)
+          @test abs(big(host(g)[1]) - big(w) * dr) <= 3eps(T) * big(w) * abs(dr)
+        end
+      end
+    end
+  end
+end
+
+@testset "inactive observations with non-finite rows on GPU arrays" begin
+  allowscalar(false)
+  # an observation with weight zero takes no part: the oracles equal those of the
+  # problem without it, also when the active ones need the recovery (PR #539)
+  for T in test_types
+    F32 = T === Float32
+    tiny, bb = F32 ? T(1e-30) : T(1e-300), F32 ? T(100) : T(1000)
+    Xa, ya, wa = T[1 0.5; 0.25 1], T[0, 1], T[tiny, 2]
+    β = T[bb, -1]
+    fa = GLMLoss(ProximalBase.Poisson(), DeviceArray(ya), DeviceArray(Xa); weights = DeviceArray(wa))
+    ga = DeviceArray(zeros(T, 2))
+    va = value_and_gradient!(ga, fa, DeviceArray(β))
+    @test isfinite(va) && all(isfinite, host(ga))
+    for (xrow, yi) in ((T[0 0], T(NaN)), (T[NaN 1], T(0)), (T[Inf -Inf], T(Inf)), (T[NaN NaN], T(-Inf)))
+      X = vcat(Xa[1:1, :], xrow, Xa[2:2, :]); y = T[ya[1], yi, ya[2]]; w = T[wa[1], 0, wa[2]]
+      f = GLMLoss(ProximalBase.Poisson(), DeviceArray(y), DeviceArray(X); weights = DeviceArray(w))
+      g1, g2 = DeviceArray(zeros(T, 2)), DeviceArray(zeros(T, 2))
+      @test f(DeviceArray(β)) ≈ va rtol = 4eps(T)
+      @test value_and_gradient!(g1, f, DeviceArray(β)) ≈ va rtol = 4eps(T)
+      @test host(g1) ≈ host(ga) rtol = 4eps(T)
+      gradient!(g2, f, DeviceArray(β))
+      @test host(g2) ≈ host(ga) rtol = 4eps(T)
+    end
+    # a mutated offset of the inactive observation
+    f = GLMLoss(ProximalBase.Poisson(), DeviceArray(T[0, 0, 1]), DeviceArray(vcat(Xa[1:1, :], T[0 0], Xa[2:2, :]));
+                weights = DeviceArray(T[tiny, 0, 2]), offset = DeviceArray(zeros(T, 3)))
+    copyto!(f.offset, DeviceArray(T[0, NaN, 0]))
+    g1 = DeviceArray(zeros(T, 2))
+    @test value_and_gradient!(g1, f, DeviceArray(β)) ≈ va rtol = 4eps(T)
+    @test host(g1) ≈ host(ga) rtol = 4eps(T)
+  end
+end
+
 @testset "GLMLoss weight and offset checks on GPU arrays" begin
   allowscalar(false)
   # the checks run as a device reduction, also when Adapt rebuilds the loss (#579)
@@ -331,20 +417,5 @@ end
   end
 end
 
-@testset "no new ambiguities with the GPU extension" begin
-  allowscalar(false)
-  # These matrix-set intersections predate the host decomposition paths.
-  D = typeof(DeviceArray(zeros(Float32, 1)))
-  F = Nothing
-  device_value = which(ProximalBase._value_dense, Tuple{F, D})
-  device_prox = which(ProximalBase._prox_sep!, Tuple{D, F, D, Float64})
-  known = (Set((device_value, which(ProximalBase._value_dense, Tuple{IndPattern, Vector{Float64}}))),
-           Set((device_value, which(ProximalBase._value_dense, Tuple{IndBanded, Matrix{Float64}}))),
-           Set((device_prox, which(ProximalBase._prox_sep!, Tuple{Matrix{Float64}, IndBanded, Matrix{Float64}, Float64}))))
-  # Only methods the package defines: another test file on the same worker may have added
-  # methods to ProximalBase functions (symmetric_parameters_trait's lla_weight does).
-  ours(m) = Base.moduleroot(m.module) !== Main
-  # Julia 1.10 prints the evaluated sides of ==, so a failure lists the pairs
-  unexpected = filter(pair -> all(ours, pair) && !(Set(pair) in known), Test.detect_ambiguities(ProximalBase))
-  @test unexpected == []
-end
+# The ambiguity guard is in its own file so that the Quick tier runs it without these cases.
+include(joinpath(@__DIR__, "gpu_ambiguities.jl"))

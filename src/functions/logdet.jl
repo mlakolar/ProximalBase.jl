@@ -225,9 +225,9 @@ end
 
 # Carry each root's exponent separately so that small roots retain their logs.
 @inline function _logdet_root_parts(h::T, e::Int, r::T) where {T}
-  iszero(h) && return frexp(r)
-  a, b = frexp(h)
-  c, d = frexp(r)
+  iszero(h) && return _frexp(r)
+  a, b = _frexp(h)
+  c, d = _frexp(r)
   # The large-step half matrix was divided by the step.
   if r > one(T)
     a *= c * c
@@ -237,17 +237,17 @@ end
   q = max(b, d)
   x, y = ldexp(a, b - q), ldexp(c, d - q)
   z, k = if h >= 0
-    frexp(x + hypot(x, y))
+    _frexp(x + hypot(x, y))
   else
     # Use the unscaled step mantissa even when y underflows.
-    frexp(c * (c / (hypot(x, y) - x)))
+    _frexp(c * (c / (hypot(x, y) - x)))
   end
   z, k + (h >= 0 ? q : 2d - q)
 end
 
 @noinline function _scaled_logdet_prox!(Y, f::LogDetLoss{T}, X, r::T) where {T}
   A = f.eig.A
-  c, d = frexp(r)
+  c, d = _frexp(r)
   ex = _magnitude_exponent(convert(T, _maximum_abs(X)))
   es = _magnitude_exponent(_maximum_abs(f.S))
   large = r > one(T)
@@ -323,3 +323,18 @@ prox!(Y::AbstractMatrix, f::LogDetLoss, X::AbstractMatrix, γ::Real) =
 
 # the gradient S - X⁻¹ is not Lipschitz on the positive definite matrices
 lipschitz(::LogDetLoss{T}) where {T} = T(Inf)
+
+# The owner of a symmetric matrix as the point: the value, the gradient (a dense, exactly symmetric
+# matrix) and the proximal operator into a dense matrix are those at the matrix that it represents. The
+# proximal operator into an owner is not defined.
+(f::LogDetLoss)(X::SymmetricSparseIterate) = f(matrixview(X))
+value_and_gradient!(G::AbstractMatrix, f::LogDetLoss, X::SymmetricSparseIterate) = value_and_gradient!(G, f, matrixview(X))
+gradient!(G::AbstractMatrix, f::LogDetLoss, X::SymmetricSparseIterate) = (value_and_gradient!(G, f, X); G)
+gradient(f::LogDetLoss, X::SymmetricSparseIterate) = gradient!(_gradient_buffer(X), f, X)
+function value_and_gradient(f::LogDetLoss, X::SymmetricSparseIterate)
+  G = _gradient_buffer(X)
+  v = value_and_gradient!(G, f, X)
+  v, G
+end
+value_and_prox!(Y::AbstractMatrix, f::LogDetLoss, X::SymmetricSparseIterate, γ::Real) = value_and_prox!(Y, f, matrixview(X), γ)
+prox!(Y::AbstractMatrix, f::LogDetLoss, X::SymmetricSparseIterate, γ::Real) = prox!(Y, f, matrixview(X), γ)

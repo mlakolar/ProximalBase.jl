@@ -172,7 +172,7 @@ Test files run in parallel worker processes and belong to four cumulative tiers:
 `standard` and `thorough` add more, and plain `julia scripts/test.jl` runs every file.
 Names select files (`julia scripts/test.jl lapack caches`), `--list` lists them and
 `--jobs=2` sets the workers; the same arguments work through `Pkg.test(; test_args=...)`.
-Pull requests run the tier their changes need and master runs everything; see
+Pull requests run the tier their changes need, master runs the thorough tier and the nightly run everything on every platform; see
 [CONTRIBUTING.md](CONTRIBUTING.md) for the tiers and CI.
 
 To build the documentation or run benchmarks, use `scripts/instantiate.jl`

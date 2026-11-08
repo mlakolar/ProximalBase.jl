@@ -262,6 +262,31 @@ end
   @test GLMLoss(PB.SmoothCheck(0.3, 1e-8), yr, X)(β) ≈ sum(ρ.(0.3, yr .- η)) rtol = 1e-6
 end
 
+# Poisson and Float64 Logistic inline `exp` in `deriv`, so that the loop of `gradient!` vectorizes.
+# The derivatives must stay those of Base `exp`, bit for bit, at every predictor.
+poisson_deriv_ref(η, y) = exp(η) - y
+function logistic_deriv_ref(η, y)
+  e = exp(-abs(η))
+  η > 0 ? (1 - y) - e / (1 + e) : e / (1 + e) - y
+end
+
+@testset "Poisson and Logistic gradients use Base exp, bitwise" begin
+  for T in (Float32, Float64), (ℓ, ref, hi) in ((PB.Poisson(), poisson_deriv_ref, log(floatmax(T)) - 2),
+                                                (PB.Logistic(), logistic_deriv_ref, T(120)))
+    η = vcat(T.(range(-hi, hi; length = 4001)), T.(30 .* randn(2000)),
+             T[0, -0.0, nextfloat(zero(T)), -nextfloat(zero(T)), floatmin(T), -log(floatmax(T))])
+    n = length(η)
+    y = ℓ isa PB.Logistic ? T.(rand(0:1, n)) : T.(rand(0:4, n))
+    # weights at most one: a weight above one may send an underflowed derivative to the recovery
+    for w in (nothing, T(0.2) .+ T(0.8) .* rand(T, n))
+      f = GLMLoss(ℓ, y, ones(T, n, 1); offset = η, weights = w)
+      gradient!(zeros(T, 1), f, T[0])
+      d = w === nothing ? ref.(η, y) : w .* ref.(η, y)
+      @test all(isequal.(f.d, d))     # bit for bit: tells -0.0 from 0.0
+    end
+  end
+end
+
 a_value(f, x) = f(x)
 a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)

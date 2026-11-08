@@ -172,6 +172,12 @@ paths = [
 ]
 
 [[risk]]
+why = "the on-demand focused platform workflow and its script: their own test checks them"
+tier = "quick"
+focus = ["platform_focus"]
+paths = [".github/workflows/platform-focused.yml", "scripts/platform_focus.jl"]
+
+[[risk]]
 why = "test runner, CI, dependencies or extensions: the whole catalog must still pass"
 tier = "full"
 paths = [

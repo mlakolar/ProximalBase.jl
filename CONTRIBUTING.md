@@ -158,6 +158,104 @@ other table is validated by its own reader (`test/tiers.jl` or
   Codecov; the nightly run does so too). `tier=full -f platforms=cross -f
   coverage=true` runs what the nightly run runs. On a PR branch the result
   appears on the head commit beside the PR's own checks.
+  One test file on Windows and macOS only: see "Focused runs on Windows and
+  macOS" below.
+
+#### Focused runs on Windows and macOS
+
+The workflow `platform-focused.yml` runs one declared test file on a branch that
+contains this workflow and its companion scripts, on native Windows and macOS
+(Linux as a comparator on request), so that a platform bug can be reproduced and
+its fix checked without a full cross-platform run. It is
+advisory: nothing in `CI.yml`, its verdict or gate, or branch protection refers
+to it, so a red run does not change a PR's required checks.
+
+```sh
+gh workflow run platform-focused.yml --ref <branch> -f os=both -f test_file=three_factor_product
+gh run list --workflow platform-focused.yml --branch <branch>   # the run id
+gh run watch <id>
+gh run view <id> --log-failed
+gh run download <id>
+```
+
+| Input | Meaning |
+|---|---|
+| `os` | `windows` (windows-latest, x64), `macos` (macos-latest, aarch64), `linux` (ubuntu-latest, x64), `both` (Windows and macOS, the default) or `all` (all three) |
+| `test_file` | one declared test name, exactly as in `test/tiers.toml` (`three_factor_product`, `conformance/tolerances`); required |
+| `julia_version` | `1` (the default), `lts`, `pre`, `1.N` or `1.N.P`; a `1.N` or `1.N.P` below the `julia` bound of `Project.toml` is refused. An old version may have no macOS aarch64 build |
+| `expected_sha` | optional, 7 to 40 hex digits; the plan job fails unless they are the start of the dispatched commit |
+
+- **One file.** `scripts/test.jl <name>` runs every test whose name starts with
+  `<name>` (`blockchecks` selects five files). The workflow passes the name
+  followed by `!<other>` for every other declared test that starts with it, and
+  no `--tier` or `--extra`, so the runner's name filter keeps that file and no
+  other declared test. A declared name that is also the start of other names
+  (such as `blockchecks`) is accepted and runs only that file. When the check
+  step runs (it does not after a cancellation), `scripts/platform_focus.jl
+  check-log` reads the header that `test/runtests.jl` prints before any worker
+  starts and fails the job unless it says `1 files` and lists exactly the file;
+  it runs also when the tests failed.
+- **Checks before any other system starts.** The plan job (Linux) refuses an
+  unknown name, an undeclared prefix of test names (`three_factor`), a
+  directory, a helper, an environment, a name that is not letters, digits, `_`
+  and `/` (shell metacharacters, `..`, a leading `!` or `-`, a newline), a name
+  whose file is missing, an `os` that is not in the table, a `julia_version`
+  that is not in the table or is below the bound, an `expected_sha` that is not
+  hex or is not the start of the dispatched commit, and a checkout that is not
+  the dispatched commit. It reports the detected dispatch-input validation failures together rather
+  than stopping at the first bad field, as `::error::` lines in which a rejected input is quoted and percent-encoded, so that an input cannot
+  add a workflow command of its own. The jobs for the other systems need the
+  plan job, so none is started when it fails. In the `run:` steps the inputs are
+  read only from environment variables.
+- **Results.** A job that reaches the test step writes the timing table, the
+  failing lines and the last lines of the log, and the run metadata (commit,
+  ref, run, system image, Julia `versioninfo`, selector, seconds) to its
+  summary, and uploads the artifact
+  `focus-<test name with / as ->-<system>-<julia version>-<attempt>` (14 days)
+  with `test-output.log`, `metadata.txt` and a copy of the test file. This is
+  best effort: the timing summary is `continue-on-error`, the copy of the test
+  file ignores failure, a cancellation suppresses the upload, and an
+  infrastructure failure can leave any of it missing. The plan job has a
+  different summary (the inputs, or the refused inputs). A later dispatch for the
+  same branch, file, `os` and Julia version cancels an earlier one that is still
+  running. No cache is used; a first cold run for a single file took about 2 to
+  3 minutes per system on GitHub-hosted runners.
+- **The loop.** Push the branch, dispatch with `-f test_file=<file>` (add
+  `-f expected_sha=<commit>` to be sure of the commit), wait with `gh run
+  watch`, read `gh run view <id> --log-failed` and the summary, download the
+  artifact if the stack trace is needed, reproduce on Linux (below), push the
+  fix and dispatch again. A platform bug counts as fixed only with a green
+  native run of the file at the fixing commit.
+- **Reproducing on Linux.** Where a C `long` has 32 bits (Windows), some
+  `BigFloat` and exponent code takes another path. The existing tests probe it
+  from Linux in two ways. An explicit `Int32` argument exercises the methods that
+  dispatch on an `Int32` exponent; `Clong` is `Int64` on Linux x64, so a
+  `Clong`-typed value does not do that, and the tests use `Clong`-typed shifts as
+  exact references. A constrained MPFR exponent range (`Base.MPFR.set_emax!` and
+  `set_emin!`, with the previous range restored) reaches the overflow and
+  underflow cases of the smaller range of Windows.
+  - `test/int32_exponents.jl` passes `Int32` exponents to the helpers that take
+    one, compares with the same call with an `Int` exponent, and runs the
+    `BigFloat` paths that produce them.
+  - `test/ldexp_bigfloat.jl` compares the package's `ldexp` and what depends on
+    it with references built from `Clong`-typed shifts. Its cases that need the
+    exponent range of Windows (`2^30 - 1`) run under it with `windows_range`
+    (some of them also in the default range); its other cases run in the default
+    range.
+  - `test/exponent_sums.jl` builds its exponents relative to the platform's own
+    range (`get_emax`, `get_emin`), so the same body runs where the range is
+    smaller, and uses `Clong`-typed powers of two as exact operands.
+  - `test/bigfloat_integer_operands.jl` compares results with integer operands
+    (of several integer types, `Int32` among them) at two to five bits and at 256
+    bits with a model, written in the file, that forms the integer exactly; it
+    does not change the exponent range.
+
+  A reproduction on Linux can show a cause and give the fix a test; the native
+  run above is what shows the fix on the platform.
+- **A new workflow file** cannot be dispatched until one run of that path has
+  registered it (for example a run from a temporary `push` trigger on the
+  branch); a dispatch of a file that exists only on a branch is refused with HTTP
+  404 before that. Once the file is on master it is registered.
 
 ### Iterate changes
 

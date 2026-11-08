@@ -1602,10 +1602,13 @@ end
 """
     PrecisionError(msg)
 
-A result cannot be certified or represented in the working precision (O6,
+A result cannot be checked or represented in the working precision (O6,
 case 3). Such a failure is distinct from invalid input and is not an
-`ArgumentError`. In this release only [`quadratic_model`](@ref) and
-[`quadratic_model!`](@ref) of a [`GLMLoss`](@ref) raise it.
+`ArgumentError`. In this release [`quadratic_model`](@ref) and
+[`quadratic_model!`](@ref) of a [`GLMLoss`](@ref) raise it, and so does a
+[`Constrained`](@ref) function on a hyperplane, halfspace or hyperslab in
+`Float32` whose multiplier fails the accuracy check and cannot be recovered in
+`Float64`; nothing is written to the destination in either case.
 """
 struct PrecisionError <: Exception
   msg::String

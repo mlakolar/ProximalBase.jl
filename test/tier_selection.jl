@@ -687,51 +687,67 @@ end
   @test ".github/workflows/CI.yml" in CIPlan.benchmark_paths()
 end
 
-# The grids files of the five quick hotspots (test/TESTING.md) are in the full tier. A pull request
-# adds them as focus files for a change to the source of their own family (the map below); the tests
-# check the focus of the listed and the named unrelated paths, not the selection for every source path.
-const GRIDS = Dict(  # grids file => its quick file
-  "atom_iterate_grids" => "atom_iterate",
-  "conjugate_basics_grids" => "conjugate_basics",
-  "lmo_atoms_grids" => "lmo_atoms",
-  "nested_scaled_grids" => "nested_scaled",
-  "sparse_iterate_basics_grids" => "sparse_iterate_basics")
-const GRIDS_OF = Dict(  # source path => its grids focus files: the direct-family paths and representatives of the shared rule
-  "src/atom_iterate.jl" => ["atom_iterate_grids"],
-  "src/functions/norms.jl" => ["atom_iterate_grids"],
-  "src/functions/sparsegroup.jl" => ["atom_iterate_grids"],
-  "src/functions/nonconvex.jl" => ["atom_iterate_grids"],
-  "src/sparse_iterate.jl" => ["sparse_iterate_basics_grids"],
-  "src/calculus.jl" => ["conjugate_basics_grids", "nested_scaled_grids"],
-  "src/metric.jl" => ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"],
-  "src/utils.jl" => ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"],
-  "src/functions/spectral.jl" => ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"],
-  "src/lmo.jl" => ["lmo_atoms_grids"],
-  "src/lmo_atoms.jl" => ["lmo_atoms_grids"],
-  "src/functions/losses.jl" => ["conjugate_basics_grids"],
-  "src/functions/singular.jl" => ["lmo_atoms_grids", "nested_scaled_grids"])
+# The grids files (test/TESTING.md) are in the full tier. A pull request adds one as a focus file
+# for a change to the source of its own family (the table below); the tests check the focus of the
+# listed and the named unrelated paths, not the selection for every source path. A later pull
+# request adds a row to the table; the expectations below are derived from it.
+#   grids:     the grids file (full tier);
+#   base:      the file whose cases it repeats, and base_tier, the tier that file is in;
+#   paths:     the source paths of its own family, each with the tier the rules give a change to it.
+const GRIDS = [
+  (grids = "atom_iterate_grids", base = "atom_iterate", base_tier = "quick",
+   paths = ["src/atom_iterate.jl" => "standard", "src/functions/norms.jl" => "standard",
+            "src/functions/sparsegroup.jl" => "standard", "src/functions/nonconvex.jl" => "standard"]),
+  (grids = "conjugate_basics_grids", base = "conjugate_basics", base_tier = "quick",
+   paths = ["src/calculus.jl" => "thorough", "src/functions/losses.jl" => "standard"]),
+  (grids = "constrained_basics_grids", base = "constrained_basics", base_tier = "quick",
+   paths = ["src/constrained.jl" => "standard"]),
+  (grids = "lmo_atoms_grids", base = "lmo_atoms", base_tier = "quick",
+   paths = ["src/lmo.jl" => "standard", "src/lmo_atoms.jl" => "standard", "src/functions/singular.jl" => "standard"]),
+  (grids = "nested_scaled_grids", base = "nested_scaled", base_tier = "quick",
+   paths = ["src/calculus.jl" => "thorough", "src/functions/singular.jl" => "standard"]),
+  (grids = "sparse_iterate_basics_grids", base = "sparse_iterate_basics", base_tier = "quick",
+   paths = ["src/sparse_iterate.jl" => "standard"])]
+# representatives of the rule for the code shared by every function: each gets SHARED_GRIDS
+const SHARED_GRIDS_PATHS = ["src/metric.jl", "src/utils.jl", "src/functions/spectral.jl"]
+const ALL_GRIDS = sort!([row.grids for row in GRIDS])
+# source path => (its tier, its grids focus files): the direct-family paths of the rows, and the
+# representatives of the shared rule
+const GRIDS_OF = let d = Dict{String,Tuple{String,Vector{String}}}()
+  for row in GRIDS, (path, tier) in row.paths
+    old = get(d, path, (tier, String[]))
+    d[path] = (tier, sort!([old[2]; row.grids]))
+    @assert old[1] == tier
+  end
+  for path in SHARED_GRIDS_PATHS
+    d[path] = ("thorough", SHARED_GRIDS)
+  end
+  d
+end
 
 @testset "the grids files of the quick hotspots" begin
-  allgrids = sort!(collect(keys(GRIDS)))
-  quick = TestTiers.select(MANIFEST, "quick")
+  allgrids = ALL_GRIDS
+  @test allunique(allgrids)
   thorough = TestTiers.select(MANIFEST, "thorough")
   full = TestTiers.select(MANIFEST, "full")
-  for (grids, base) in GRIDS
+  for row in GRIDS
     # in the full tier and in no lower one
-    @test MANIFEST.tier[grids] == "full"
-    @test !(grids in thorough)
-    # its quick file stays in quick, and its name starts with the quick file's name
-    @test base in quick && startswith(grids, base)
+    @test MANIFEST.tier[row.grids] == "full"
+    @test !(row.grids in thorough)
+    # its base file is in the tier base_tier, and its name starts with the base file's name
+    @test MANIFEST.tier[row.base] == row.base_tier
+    @test row.base in TestTiers.select(MANIFEST, row.base_tier) && startswith(row.grids, row.base)
   end
   # master pushes (thorough) run none of them, the nightly run (full) all
   @test isdisjoint(allgrids, thorough) && issubset(allgrids, full)
   # the listed source paths get their grids files as focus (the shared rule lists other paths too,
   # such as src/interface.jl, with the same three), and the tier the path had before
-  for (path, names) in GRIDS_OF
+  for (path, (want_tier, names)) in GRIDS_OF
     tier, focus = classify(path)
     @test sort(filter(in(allgrids), focus)) == names
-    @test tier == (path in ("src/calculus.jl", "src/metric.jl", "src/utils.jl", "src/functions/spectral.jl") ? "thorough" : "standard")
+    @test tier == want_tier
   end
+  @test pr("src/constrained.jl") == ("standard", ["constrained_basics_grids"])
   # the narrow label on a change to one iterate source still gives quick, with the iterate's own grids file
   @test pr("src/atom_iterate.jl"; labels = NARROW) == ("quick", ATOM)
   @test "atom_iterate_grids" in pr("src/atom_iterate.jl"; labels = NARROW)[2]
@@ -739,7 +755,7 @@ const GRIDS_OF = Dict(  # source path => its grids focus files: the direct-famil
   @test pr("src/sparse_iterate.jl"; labels = NARROW)[1] == "quick"
   # the policy, as representative checks: these unrelated source paths get no grids file as focus
   for path in ("src/functions/entropy.jl", "src/deprecated.jl", "src/functions/sets.jl", "src/composition.jl",
-               "src/symmetric_parameters.jl", "src/constrained.jl", "src/functions/cones.jl", "src/functions/smooth.jl")
+               "src/symmetric_parameters.jl", "src/functions/cones.jl", "src/functions/smooth.jl")
     @test isdisjoint(classify(path)[2], allgrids)
   end
   # a changed grids test file selects itself; test:full gives the full tier

@@ -80,8 +80,8 @@ parallel batch.
   symmetric writes, products and parameters, block steps, metrics, the wrapper calculus,
   the remaining iterate and constraint grids, and the specialized families (cones, graphs,
   fibers, polyhedra). Three Thorough files, `scaled_infinite_level_underflow`,
-  `zero_level_infinite_step` and `symmetric_groups`, keep the Float64 cases (all but the
-  Float64 indicator-wrapper variants of `scaled_infinite_level_underflow`) and Float32
+  `zero_level_infinite_step` and `symmetric_groups`, keep the Float64 cases (all except the
+  wrapper variants of 16 indicators in `scaled_infinite_level_underflow`) and Float32
   representatives; the Float32 passes and indicator-wrapper variants that repeat those are in
   `scaled_infinite_level_underflow_grids`, `zero_level_infinite_step_grids` and
   `symmetric_groups_grids`, which are in Full (below).

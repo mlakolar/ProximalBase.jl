@@ -80,7 +80,8 @@ parallel batch.
   symmetric writes, products and parameters, block steps, metrics, the wrapper calculus,
   the remaining iterate and constraint grids, and the specialized families (cones, graphs,
   fibers, polyhedra). Three Thorough files, `scaled_infinite_level_underflow`,
-  `zero_level_infinite_step` and `symmetric_groups`, keep the Float64 passes and Float32
+  `zero_level_infinite_step` and `symmetric_groups`, keep the Float64 cases (all but the
+  Float64 indicator-wrapper variants of `scaled_infinite_level_underflow`) and Float32
   representatives; the Float32 passes and indicator-wrapper variants that repeat those are in
   `scaled_infinite_level_underflow_grids`, `zero_level_infinite_step_grids` and
   `symmetric_groups_grids`, which are in Full (below).
@@ -200,8 +201,7 @@ runs both. The cases are moved with their assertions; the loop guards and the co
 adjusted. Quick
 keeps the Float64 pass of each operation family, a Float32 representative of each, and an atomicity,
 aliasing or NaN case of each kind for a representative function (listed per file below). The Float64
-cases that moved are the ones the table names for `atom_iterate` and for
-`scaled_infinite_level_underflow` (the wrapper variants of 16 indicators).
+cases that moved are listed per file in the table below.
 
 | Base file + companion (Full) | What the companion holds | Assertions: before = base file + grids |
 |---|---|---|
@@ -238,7 +238,7 @@ The base file does not run these cases (Quick for six companions, Thorough for t
     rules, the rule for `src/calculus.jl` and the rule for the shared sources, list these three companions, so a
     pull request on one of those paths runs them beside thorough, and the base files run the Float64 cases
     and the Float32 representatives that stay. No standard-tier rule lists them: the rule of such a path alone does not run the base files, and a
-    companion would run the Float32 repeats without the Float64 cases they repeat. A pull request that is
+    companion would run the Float32 repeats without the Float64 baseline that the base file keeps. A pull request that is
     thorough for another reason (the label `test:thorough`, or a path whose rule does not list them) runs the
     base files without these companions when no changed file or other rule adds one (a changed companion
     selects itself, and a change to `src/utils.jl` or `src/calculus.jl` adds all three), and the cases that

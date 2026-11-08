@@ -293,10 +293,11 @@ focus = ["examples"]
 paths = ["examples/**"]
 
 # The grids files. atom_iterate_grids, conjugate_basics_grids, constrained_basics_grids,
-# lmo_atoms_grids, nested_scaled_grids and sparse_iterate_basics_grids are in the full tier. Each
-# holds cases that repeat cases of a base file that a lower tier keeps for Float64, a Float32
-# representative or a representative function (test/TESTING.md lists them; the base file of
-# constrained_basics_grids is the quick file constrained_basics, which keeps the Float64 pass, a
+# lmo_atoms_grids, nested_scaled_grids, scaled_infinite_level_underflow_grids,
+# sparse_iterate_basics_grids, symmetric_groups_grids and zero_level_infinite_step_grids are in the
+# full tier. Each holds cases that repeat cases of a base file that a lower tier keeps for Float64,
+# a Float32 representative or a representative function (test/TESTING.md lists them; the base file
+# of constrained_basics_grids is the quick file constrained_basics, which keeps the Float64 pass, a
 # Float32 vector and one case of each refusal branch). A pull request runs them, beside its tier,
 # for a change to the source of their own family:
 #   atom_iterate_grids:          src/atom_iterate.jl, src/functions/norms.jl,
@@ -308,6 +309,16 @@ paths = ["examples/**"]
 #   lmo_atoms_grids:             src/lmo.jl, src/lmo_atoms.jl, the shared sources,
 #                                src/functions/singular.jl
 #   constrained_basics_grids:    src/constrained.jl
+#   scaled_infinite_level_underflow_grids, zero_level_infinite_step_grids, symmetric_groups_grids:
+#                                src/calculus.jl and the shared sources
+# The last three hold the Float32 passes and indicator-wrapper variants of three thorough-tier
+# files (scaled_infinite_level_underflow, zero_level_infinite_step, symmetric_groups) that repeat
+# Float64 cases or Float32 representatives those files keep. Their base files are thorough-tier
+# files, which a pull request ran when its tier was thorough, and the two thorough rules (the rule
+# for src/calculus.jl and the rule for the shared sources) list the three grids files, so those
+# pull requests run the cases that moved. A standard-tier rule does not list them: a pull request
+# on such a path did not run those base files, and a grids file would run the Float32 repeats
+# without the Float64 cases they repeat.
 # Other source paths do not add them as automatic focus files. They still run when the tier of the
 # pull request is full (for example a change to src/lapack.jl or another infrastructure path, or
 # the label test:full; also the nightly run and tag runs), when the grids file itself changes, when
@@ -361,7 +372,14 @@ paths = ["src/symmetric_parameters.jl"]
 [[risk]]
 why = "shared by every function: interface, traits, numerical helpers, wrappers, steps"
 tier = "thorough"
-focus = ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"]
+focus = [
+  "conjugate_basics_grids",
+  "lmo_atoms_grids",
+  "nested_scaled_grids",
+  "scaled_infinite_level_underflow_grids",
+  "symmetric_groups_grids",
+  "zero_level_infinite_step_grids",
+]
 paths = [
   "src/ProximalBase.jl",
   "src/compat.jl",
@@ -378,7 +396,14 @@ paths = [
 [[risk]]
 why = "the wrappers, whose rejected-step catalog (stepchecks) is in the full tier"
 tier = "thorough"
-focus = ["stepchecks", "nested_scaled_grids", "conjugate_basics_grids"]
+focus = [
+  "stepchecks",
+  "nested_scaled_grids",
+  "conjugate_basics_grids",
+  "scaled_infinite_level_underflow_grids",
+  "symmetric_groups_grids",
+  "zero_level_infinite_step_grids",
+]
 paths = ["src/calculus.jl"]
 
 # Families used only by their own tests: quick and those tests, if the PR changes a test.

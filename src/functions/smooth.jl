@@ -236,6 +236,11 @@ gives `2^-700` in `Float64`, where `1/(1 + γλ)` is not a number. The ordinary
 computation runs first, and the recovery is chosen once per call from the
 parameters, except for a `Float64` center entry outside the range of a `Float32`
 model, which is handled for that entry.
+
+The proximal operator of `Conjugate(SqrNormL2(λ, y))` at a finite positive step
+is `(λ/(λ + γ))(x - γy)`, computed from the significands and exponents of its
+factors: it does not divide `x` by the step, so a point that the model represents
+is returned at a step where `x / γ` is not (see [`Conjugate`](@ref)).
 """
 struct SqrNormL2{T<:Real, Y<:Union{Nothing, AbstractArray}} <: AbstractFunction
   λ::T

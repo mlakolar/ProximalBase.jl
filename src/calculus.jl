@@ -1329,6 +1329,19 @@ projections; translations return the linear value ⟨b,y⟩. Array steps retain
 their existing behaviour for these nonseparable families. Other storage and
 axes, including device ℓ∞ conjugates, retain Moreau's identity.
 
+For [`SqrNormL2`](@ref)`(λ, y)` the proximal point at a scalar step `γ` is
+`(λ/(λ + γ))(x - γy)`, formed without dividing by `γ`, in a `Float32` or `Float64`
+model, when `λ` and `γ` are finite and positive: a point that the model
+precision represents is returned within about two ulps, where Moreau's identity
+overflows at a small step (`x = 1e300`, `γ = 1e-10`) or cancels at a large one.
+A point that the model does not represent at a finite input raises the
+`ArgumentError` of the identity, before the output is written. A non-finite entry
+of `x` gives `NaN`. A zero or infinite level, a step that is not finite and positive,
+an array step, a model of another precision (`BigFloat`), and the conjugates of
+`Scaled(SqrNormL2(…), α)`, `Translate(SqrNormL2(…), b)` and of a
+[`SeparableSum`](@ref) of quadratics use Moreau's identity as before. [`prox_entry`](@ref)
+follows the same route.
+
 Other families use Moreau's identity, including `NuclearNorm`, singular-value
 and spectral wrappers, `SLOPE`, TV and fused penalties, and cones other than
 `IndNonnegative`. Cancellation can lose small results at large inputs. `SumLargest` retains its dedicated method. Where a
@@ -1577,6 +1590,12 @@ Base.@propagate_inbounds function _conjugate_entry(f, v, i, γ)
   else
     v - γ * prox_entry(f, v / γ, i, _moreau_reciprocal(promote_type(float(typeof(v)), _data_of(f)), γ))
   end
+end
+# the ridge with a finite positive level at a finite positive step: the route of its array method
+Base.@propagate_inbounds function _conjugate_entry(f::SqrNormL2, v, i, γ)
+  c = γ isa Real ? _conjugate_ridge(float(promote_type(typeof(v), typeof(γ))), f.λ, γ) : nothing
+  c === nothing && return invoke(_conjugate_entry, Tuple{Any, Any, Any, Any}, f, v, i, γ)
+  f.y === nothing ? c(v) : c(v, f.y[i])
 end
 Base.@propagate_inbounds function _conjugate_entry(f::IndBox, v, i, γ)
   S = float(promote_type(typeof(v), typeof(γ)))
@@ -2619,7 +2638,8 @@ function _conjugate_moreau_by!(z, f, x, γ, α::_ProjectionScale)
   end
   z
 end
-function _conjugate_moreau!(z::AbstractArray, f, x::AbstractArray, γ)
+_conjugate_moreau!(z::AbstractArray, f, x::AbstractArray, γ) = _conjugate_moreau_identity!(z, f, x, γ)
+function _conjugate_moreau_identity!(z::AbstractArray, f, x::AbstractArray, γ)
   T = float(eltype(z))
   step = convert(T, γ)
   if _moreau_free(typeof(f))
@@ -2632,6 +2652,114 @@ function _conjugate_moreau!(z::AbstractArray, f, x::AbstractArray, γ)
     _checkmoreau(z, x, z, step, γ, true)
     z .= x .- step .* z
   end
+  z
+end
+
+# The proximal point of the conjugate of f(x) = (λ/2)‖x - y‖² (y = 0 when omitted) at a scalar step γ,
+#   prox_{γf*}(x) = a (x - γy),   a = λ/(λ + γ),
+# for a finite γ > 0 and a finite λ > 0, in the model precision W = Float32 or Float64. It divides
+# neither x nor y by γ and forms neither λy nor γ/λ: a = (ah + al)·2^ae is kept as a pair of
+# significands and an exponent, γ = gm·2^ge as a significand and an exponent, and x - γy is one fused
+# multiply-add, so that a result that W represents is not lost to an intermediate that it does not.
+# The factors λ and γ are rounded once to W: a is formed from the unrounded factors in their
+# promotion P with W, and gm is the significand of the unrounded step.
+struct _ConjugateRidge{W<:Union{Float32, Float64}}
+  ah::W
+  al::W
+  ae::Int
+  gm::W
+  ge::Int
+  aw::W         # ldexp(ah, ae), ldexp(al, ae) and ldexp(gm, ge), read where the flags below hold
+  alw::W
+  gw::W
+  fast::Bool    # the exponent of a is at least _conjugate_ridge_amin(W): a·x is a plain product
+  fastc::Bool   # and γ is a normal number of W as well: x - γy is a plain fused multiply-add
+end
+
+# Exponents ae at or above this keep ldexp(ah, ae), and ldexp(al, ae) for an al of half an ulp of ah, in the
+# normal range of W; below it the significand route is taken.
+@inline _conjugate_ridge_amin(::Type{Float64}) = -900
+@inline _conjugate_ridge_amin(::Type{Float32}) = -90
+
+# nothing for a model other than Float32 and Float64, a step or a level that is not finite and
+# positive, and a type of factor that P does not hold in Float32 or Float64
+@inline function _conjugate_ridge(::Type{W}, λ::Real, γ::Real) where {W}
+  W <: Union{Float32, Float64} || return nothing
+  P = promote_type(W, float(typeof(λ)), float(typeof(γ)))
+  P <: Union{Float32, Float64} || return nothing
+  l, g = convert(P, λ), convert(P, γ)
+  (isfinite(l) & isfinite(g) & (l > 0) & (g > 0)) || return nothing
+  _conjugate_ridge_factors(W, l, g)
+end
+function _conjugate_ridge_factors(::Type{W}, λ::P, γ::P) where {W, P}
+  ml, el = _frexp(λ)
+  mg, eg = _frexp(γ)
+  e0 = max(el, eg)
+  # λ + γ = s·2^e0 with s the sum of the aligned significands; err is its rounding error. The aligned
+  # smaller significand may be rounded to a subnormal number or to zero, which a sum of at least 1/2
+  # does not show.
+  Λ, Γ = ldexp(ml, el - e0), ldexp(mg, eg - e0)
+  s = Λ + Γ
+  bb = s - Λ
+  err = (Λ - (s - bb)) + (Γ - bb)
+  # a = (ml/s)·2^(el - e0), as aH + aL with aL the correction of the quotient
+  aH = ml / s
+  aL = (fma(-aH, s, ml) - aH * err) / s
+  ah = convert(W, aH)
+  al = convert(W, (aH - convert(P, ah)) + aL)
+  ae = el - e0
+  gm = convert(W, mg)
+  gw = ldexp(gm, eg)
+  fast = ae >= _conjugate_ridge_amin(W)
+  _ConjugateRidge{W}(ah, al, ae, gm, eg, ldexp(ah, ae), ldexp(al, ae), gw, fast,
+                     fast & isfinite(gw) & (abs(gw) >= floatmin(W)))
+end
+
+# The center is rounded once to W. The plain route applies where that rounding leaves it zero or a
+# normal number; any other center goes the significand route.
+@inline _conjugate_ridge_center_fits(::Type{W}, y) where {W} =
+  promote_type(W, float(typeof(y))) === W || (yw = convert(W, y); iszero(y) | (isfinite(yw) & (abs(yw) >= floatmin(W))))
+
+@inline function (c::_ConjugateRidge{W})(x) where {W}
+  xw = convert(W, x)
+  isfinite(xw) || return W(NaN)
+  c.fast ? fma(c.aw, xw, c.alw * xw) : _conjugate_ridge_scaled(c, xw, nothing)
+end
+@inline function (c::_ConjugateRidge{W})(x, y) where {W}
+  xw = convert(W, x)
+  if c.fastc && _conjugate_ridge_center_fits(W, y)
+    u = fma(-c.gw, convert(W, y), xw)
+    isfinite(u) && return fma(c.aw, u, c.alw * u)
+  end
+  _conjugate_ridge_scaled(c, xw, y)
+end
+
+# a (x - γy) from the significands and exponents of x, y, γ and a. The exponent of the larger of x and
+# γy is taken out of both, so that the fused multiply-add sees terms below 1 in size and a zero
+# operand does not set the scale. A non-finite x gives NaN, as Moreau's identity does.
+@noinline function _conjugate_ridge_scaled(c::_ConjugateRidge{W}, x::W, y) where {W}
+  isfinite(x) || return W(NaN)
+  mx, ex = _frexp(x)
+  y === nothing && return ldexp(fma(c.ah, mx, c.al * mx), c.ae + ex)
+  my, ey = _frexp(float(y))
+  none = -(1 << 40)
+  ex1 = iszero(mx) ? none : ex
+  ey1 = iszero(my) ? none : c.ge + ey
+  e = max(ex1, ey1)
+  e == none && return zero(W)
+  u = fma(-c.gm, ldexp(convert(W, my), c.ge + ey - e), ldexp(mx, ex - e))
+  ldexp(fma(c.ah, u, c.al * u), c.ae + e)
+end
+
+# the route above where it applies, Moreau's identity elsewhere (the other steps and levels, and the
+# other models). A result that is not finite at a finite input is refused before y is written, as for
+# the identity.
+function _conjugate_moreau!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ)
+  c = γ isa Real ? _conjugate_ridge(_moreau_model(f, z, x), f.λ, γ) : nothing
+  c === nothing && return _conjugate_moreau_identity!(z, f, x, γ)
+  f.y === nothing ? (z .= c.(x)) : (z .= c.(x, f.y))
+  bad = Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_nonfinite, x, z))
+  mapreduce(identity, |, bad; init = false) && _moreau_error(γ)
   z
 end
 _conjugate_moreau!(z::Tuple, f, x::Tuple, γ) = _conjugate_moreau_block!(z, f, x, γ)

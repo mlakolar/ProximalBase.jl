@@ -228,7 +228,12 @@ end
     end
   end
   @test prox(Conjugate(SqrNormL2()), [0.0, 1e-300], 1e-310) == [0.0, 1e-300]
-  @test isequal(prox(Conjugate(SqrNormL2()), [NaN, 1.0], 0.5), formula(SqrNormL2(), [NaN, 1.0], 0.5))
+  # a NaN entry stays NaN, the other entry is the rounded reference
+  p = prox(Conjugate(SqrNormL2()), [NaN, 1.0], 0.5)
+  @test isnan(p[1])
+  setprecision(BigFloat, 400) do
+    @test within_ulps(p[2], sqr_conjugate_ref(1, 1.0, 0.5), Float64)
+  end
 end
 
 @testset "Conjugate(SqrNormL2) at a finite positive step: the representable point" begin

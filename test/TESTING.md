@@ -197,7 +197,7 @@ aliasing and NaN case once.
 | `atom_iterate` + `atom_iterate_grids` | the mixed Float32 x Float64 triple and the Float32 strided views of the five-argument products; the atomicity cases of the group wrappers for `GroupNormLinf` and `GroupSCAD`; the Float32 pass of the group view norms and dots | 3998 = 3752 + 246 |
 | `lmo_atoms` + `lmo_atoms_grids` | the Float32 passes of the density matrices, the Krylov method, the `Symmetric` and `Hermitian` wrappers and the NaN and Inf support values | 3673 = 3029 + 644 |
 | `conjugate_basics` + `conjugate_basics_grids` | the Float32 `CheckLoss`, `IndNonnegative` and `Translate` families of the direct conjugate projections | 5858 = 5675 + 183 |
-| `sparse_iterate_basics` + `sparse_iterate_basics_grids` | the Float16 pass and the Float32 `lmul!`, `ldiv!` cases of the scaling by a number (FN-9); the Float32 sparse triple products | 2844 = 1608 + 1236 |
+| `sparse_iterate_basics` + `sparse_iterate_basics_grids` | the Float16 pass and the Float32 `lmul!`, `ldiv!` cases of the scaling by a number (FN-9); the Float32 sparse triple products | 2840 = 1604 + 1236 |
 
 Quick no longer runs these cases. A change to a source path that the cases test runs the companion
 beside the tier, through the `focus` lists of `.github/tier-rules.toml`: `atom_iterate_grids` with

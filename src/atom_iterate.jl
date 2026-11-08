@@ -318,9 +318,24 @@ end
 
 Deactivate the active groups of `x` whose entries are all zero and return `x`.
 The last active group moves into the place of each removed one, so the order
-of [`activecoordinates`](@ref) can change. The entries of `x` do not change.
+of [`activecoordinates`](@ref) can change. When every entry of every active
+group is zero, all groups are deactivated. The entries of `x` do not change.
 """
 function SparseArrays.dropzeros!(x::AtomIterate)
+  allzero = true
+  for a in 1:x.nactive
+    if !all(iszero, _atom_storage(x, x.active[a]))
+      allzero = false
+      break
+    end
+  end
+  if allzero
+    for a in 1:x.nactive
+      x.position[x.active[a]] = 0
+    end
+    x.nactive = 0
+    return x
+  end
   i = 1
   while i <= x.nactive
     k = x.active[i]

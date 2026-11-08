@@ -44,8 +44,8 @@ function expect(r, N::Integer, s::Integer = 1; what = "")
   @test ok
 end
 
-function with_precisions(f, name)
-  @testset "$name, precision $p" for p in PRECISIONS
+function with_precisions(f, name; precisions = PRECISIONS)
+  @testset "$name, precision $p" for p in precisions
     setprecision(BigFloat, p) do
       f()
     end
@@ -226,9 +226,10 @@ end
 end
 
 # The retained exponent leaves Int64 and returns into range through the level and the step (the scale folds into the
-# levels, and the step is part of the fold), or through the level and the weight (the projections form the product of the
-# scale, the level and the weight). The products of a level and a weight that leave the range are not folded by the value
-# or by the proximal map of a weighted norm, so those are not asked here.
+# levels, and the step is part of the fold), through the level and the weight in the projections (they form the
+# product of the scale, the level and the weight), or through the weights of an L1 norm, which absorb the scale when
+# the level cannot (the testset "the weights absorb the exponent that the level cannot take"). The cases below that
+# stay beyond the range assert the class of the result only.
 @testset "a retained exponent that returns into range" begin
   with_precisions("prox through the level and the step") do
     found = 0
@@ -269,6 +270,100 @@ end
       v = value_and_gradient!([big(0.0)], smooth, [big(1.0)])
       expect(v, T - 1; what = ("SqrNormL2 value_and_gradient!", F, l))
     end
+  end
+end
+
+const PW = frac(672)                 # the issue's P and L, as fractions of EMAX: 3 PW leaves Int64, 3 PW - 2 LW is in range
+const LW = frac(650)
+const XW = frac(737)                 # an entry above the threshold 2^(3 PW - 2 LW), and one below it
+const XL = frac(650)
+
+# A weighted L1 norm under a chain whose product with the level is out of range, but whose product with the level and the
+# weight is in range: the weights absorb the exponent that the level cannot take.
+@testset "the weights absorb the exponent that the level cannot take" begin
+  T = 3 * PW - 2 * LW
+  @assert XL < T < XW
+  BEYOND && @test 3 * Int128(PW) > typemax(Int64)
+
+  with_precisions("the second case of the issue") do
+    s = chain(NormL1(pw(-LW), [pw(-LW), pw(-LW)]), [PW, PW, PW])
+    @test depth(s) == 3
+    thr = pw(T)
+    x = [pw(XW), pw(XL)]
+    expected = [pw(XW) - thr, big(0.0)]
+    @test prox(s, x, big(1.0)) == expected
+    @test prox(s, -x, big(1.0)) == -expected
+    y = zeros(BigFloat, 2)
+    prox!(y, s, x, big(1.0))
+    @test y == expected
+    # the converse: a threshold above the first entry
+    @test prox(s, [pw(T - 1), pw(XL)], big(1.0)) == [0, 0]
+    @test prox(s, [pw(T), pw(XL)], big(1.0)) == [0, 0]
+    # one entry at a time
+    @test prox_entry(s, x[1], 1, big(1.0)) == expected[1]
+    @test iszero(prox_entry(s, x[2], 2, big(1.0)))
+    # the value of the chain: 2 entries of weight 2^-LW at 1, under the scale 2^(3 PW) and the level 2^-LW
+    expect(s([big(1.0), big(1.0)]), T + 1; what = "value")
+    # the value at the output: y_1 = x_1 (the threshold is far below it) and the weight is 2^-LW, so the value is
+    # 2^(3 PW - 2 LW + XW), which is beyond the range
+    y = zeros(BigFloat, 2)
+    v = value_and_prox!(y, s, x, big(1.0))
+    @test y == expected
+    expect(v, T + XW; what = "value_and_prox!")
+    # NormL1Nonneg: the same threshold on a positive entry, and everything else at zero
+    sn = chain(NormL1Nonneg(pw(-LW), [pw(-LW), pw(-LW)]), [PW, PW, PW])
+    @test prox(sn, x, big(1.0)) == expected
+    @test prox(sn, -x, big(1.0)) == [0, 0]
+    # a negative scale exponent: the chain 2^-PW three times, the level and the weight 2^LW bring it back
+    t = chain(NormL1(pw(LW), [pw(LW), pw(LW)]), [-PW, -PW, -PW])
+    @test prox(t, [pw(-T + 1), pw(-T - 5)], big(1.0)) == [pw(-T), 0]
+  end
+
+  with_precisions("a value that is in range") do
+    P3, L3 = frac(680), frac(800)
+    T3 = 3 * P3 - 2 * L3
+    s = chain(NormL1(pw(-L3), [pw(-L3), pw(-L3)]), [P3, P3, P3])
+    x = [pw(T3 + 1), pw(T3 - 4)]
+    @test prox(s, x, big(1.0)) == [pw(T3), 0]
+    expect(s([big(1.0), big(1.0)]), T3 + 1; what = "value")
+    y = zeros(BigFloat, 2)
+    v = value_and_prox!(y, s, x, big(1.0))
+    @test y == [pw(T3), 0]
+    # the weight 2^-L3 and the level 2^-L3 are applied to |y_1| = 2^T3 under the scale 2^(3 P3)
+    expect(v, 2 * T3; what = "value_and_prox!")
+    @test v == pw(2 * T3)
+  end
+
+  with_precisions("weights of different exponents, a zero weight and an infinite weight") do
+    d = frac(50)
+    s = chain(NormL1(pw(-LW), [pw(-LW), pw(-LW + d)]), [PW, PW, PW])
+    # two thresholds, 2^T and 2^(T + d)
+    @test prox(s, [pw(T + 1), pw(T + d + 1)], big(1.0)) == [pw(T), pw(T + d)]
+    @test prox(s, [pw(T + d), pw(T + d)], big(1.0)) == [pw(T + d) - pw(T), 0]
+    @test s([big(1.0), big(1.0)]) == pw(T) + pw(T + d)
+    # a zero weight leaves its entry alone, an infinite one fixes it at zero
+    z = chain(NormL1(pw(-LW), [pw(-LW), big(0.0), big(Inf)]), [PW, PW, PW])
+    @test prox(z, [pw(T + 1), big(3.0), pw(T + 5)], big(1.0)) == [pw(T), 3, 0]
+    @test prox_entry(z, big(3.0), 2, big(1.0)) == 3
+    @test iszero(prox_entry(z, pw(T + 5), 3, big(1.0)))
+    # a weight spread too wide to fold with the level and the scale (the product 2^(3 PW - LW + 0.3 EMAX) is beyond the
+    # range): no fold, which is the behaviour without the weight fold; the call must not throw, and gives numbers
+    wide = chain(NormL1(pw(-LW), [pw(-LW), pw(frac(300))]), [PW, PW, PW])
+    y = prox(wide, [pw(T + 1), pw(T + 1)], big(1.0))
+    @test length(y) == 2 && !any(isnan, y)
+  end
+
+  # (the L1 projection returns zero at two bits already for ordinary numbers, with or without this change, so this
+  # testset runs at the two wider precisions)
+  with_precisions("the L1 ball of a conjugate, the radius being the retained product"; precisions = (53, 256)) do
+    R = 3 * PW - 2 * LW
+    # the radius is 2^R: the part of the first entry above it is cut
+    G = chain(GroupNormLinf(pw(-LW), [1:2], [pw(-LW)]), [PW, PW, PW])
+    @test prox(Conjugate(G), [pw(R + 1), big(0.0)], big(1.0)) == [pw(R), 0]
+    @test prox(Conjugate(G), [pw(R - 3), big(0.0)], big(1.0)) == [pw(R - 3), 0]
+    # the radius 2^(3 PW - LW) is beyond the range: the point is inside
+    N = chain(NormLinf(pw(-LW)), [PW, PW, PW])
+    @test prox(Conjugate(N), [pw(R + 1), big(0.0)], big(1.0)) == [pw(R + 1), 0]
   end
 end
 
@@ -634,6 +729,24 @@ end
     @test @inferred(PB._scale_below_one(a)) isa Bool
     @test PB._projection_product(a, T(2), T(5)) == T(0.75) * 8 * 2 * 5
     @test PB._apply_scale(a, T(3)) == T(0.75) * 8 * 3
+
+    # the weights are not folded into a Float scale: the level fold that fails stays refused
+    @test PB._fold_level_step(NormL1(T(1e30), T[1, 2]), PB._ProjectionScale(T(0.5), T === Float64 ? 1000 : 100)) === nothing
+    # the weighted chain of nested_scaled.jl ("chain, weights" in "the level and the factors have no product in range"):
+    # a level 10^l2 under two factors 10^-fa, the step 10^g2, entries 10^(l2 - 2fa + g2) [3, -3, 0.5]; the reference is
+    # the soft threshold at a λ w γ formed in BigFloat, as there
+    fa, l2, g2 = T === Float64 ? (200, 80, 80) : (25, 10, 20)
+    tens(k) = T(10)^k
+    ff = Scaled(Scaled(NormL1(tens(l2), T[1, 2, 4]), tens(-fa)), tens(-fa))
+    fx = T[3, -3, 0.5] .* T(10)^(l2 - 2fa + g2)
+    soft(v, t) = sign(v) * max(abs(v) - t, 0)
+    ref = [soft(big(fx[i]), big(tens(-fa)) * big(tens(-fa)) * big(tens(l2)) * big(T[1, 2, 4][i]) * big(tens(g2))) for i in 1:3]
+    near(v, r) = isfinite(v) && (iszero(r) ? iszero(v) : abs(big(v) - r) <= 8 * eps(T) * abs(r))
+    fy = zeros(T, 3)
+    prox!(fy, ff, fx, tens(g2))
+    @test all(i -> near(fy[i], ref[i]), 1:3)
+    prox!(fy, ff, fx, fill(tens(g2), 3))
+    @test all(i -> near(fy[i], ref[i]), 1:3)
 
     # no allocation after a warm-up call
     alloc_product(a, b, w) = @allocated PB._projection_product(a, b, w)

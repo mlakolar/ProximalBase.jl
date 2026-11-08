@@ -366,6 +366,37 @@ for (F, level) in ((:NormL1, :λ0), (:NormL1Nonneg, :λ0), (:NormL2, :λ), (:Nor
     c === nothing ? nothing : $F($(args.args...))
   end
 end
+# A scale with a BigFloat significand that no level takes (its product with the level is outside the range) is
+# absorbed into the weights instead, which bring the products of scale, level and weight back into range: the
+# level becomes the significand mλ of λ = mλ 2^eλ, and the weights are mα w 2^(E + eλ) for the scale mα 2^E, the
+# exponents summed exactly (only the final shift saturates). A zero weight stays zero and an infinite weight
+# stays infinite. The fold is refused (`nothing`, as without it) when there are no weights, the level or the
+# scale is zero or not finite, or a nonzero finite weight leaves the range of normal numbers. Only BigFloat
+# scales take it; every other type folds as before. The array-step route (`_shifted_fold`) has no fold of its own.
+function _fold_weights(f::Union{NormL1, NormL1Nonneg}, α::_ProjectionScale{BigFloat})
+  w, λ = f.w, f.λ0
+  (w isa AbstractVector && isfinite(λ) && !iszero(λ) && isfinite(α.m) && !iszero(α.m)) || return nothing
+  mλ, eλ = _frexp(float(λ))
+  a = _ProjectionScale(α.m, α.e + eλ)
+  out = Vector{BigFloat}(undef, length(w))
+  for i in eachindex(w)
+    wi = w[i]
+    if iszero(wi) || isinf(wi)
+      out[i] = wi
+    else
+      r = _apply_scale(a, wi)
+      (isfinite(r) && !iszero(r) && _level_fits(BigFloat, r)) || return nothing
+      out[i] = r
+    end
+  end
+  f isa NormL1 ? NormL1(mλ, out) : NormL1Nonneg(mλ, out)
+end
+for F in (:NormL1, :NormL1Nonneg)
+  @eval function _fold_level(f::$F, α::_NormalScale{<:_ProjectionScale{BigFloat}})
+    c = _folded_level(f.λ0, α)
+    c === nothing ? _fold_weights(f, α.s) : $F(c, f.w)
+  end
+end
 function _fold_level(f::ElasticNet, α)
   c1, c2 = _folded_level(f.λ1, α), _folded_level(f.λ2, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
@@ -397,6 +428,12 @@ _fold_level(f::Scaled, α) = _fold_level(f.f, _projection_accumulate(α, f.α))
 # level that falls below the range multiplies the step by less than the range can resolve, so it
 # is dropped instead of discarding the fold.
 _fold_level_step(f, α) = _fold_level(f, α)
+for F in (:NormL1, :NormL1Nonneg)
+  @eval function _fold_level_step(f::$F, α::_ProjectionScale{BigFloat})
+    g = _fold_level(f, α)
+    g === nothing ? _fold_weights(f, α) : g
+  end
+end
 _fold_block_step(f, α) = _isindicator(f) ? f : _fold_level_step(f, α)
 _fold_block_step(f::ZeroFunction, α) = f
 function _fold_level_step(f::ElasticNet, α)

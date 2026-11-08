@@ -518,26 +518,30 @@ end
         @test prox(IndHalfspace(T[1, 1], 0), T[-M, -M]) == T[-M, -M]
       end
 
-      @testset "scalar normals" begin
-        for F in (IndHyperplane, IndHalfspace)
-          check_overflow_steps(F(T(1), 0), T[M, M], steps(2))
-          check_overflow_steps(F(T(-3), 0), T[M / 4, M / 4], steps(2))
-          check_overflow_steps(F(T(2), T(0.5) * M), T[M / 2, M / 4, M / 8], steps(3))
-          check_overflow_steps(F(1, 0), T[M, M], steps(2))
+      # Float32 keeps array normals and the steps whose weighted squared norm or product overflows; its other
+      # blocks are in extreme_normals_grids.jl
+      if T === Float64
+        @testset "scalar normals" begin
+          for F in (IndHyperplane, IndHalfspace)
+            check_overflow_steps(F(T(1), 0), T[M, M], steps(2))
+            check_overflow_steps(F(T(-3), 0), T[M / 4, M / 4], steps(2))
+            check_overflow_steps(F(T(2), T(0.5) * M), T[M / 2, M / 4, M / 8], steps(3))
+            check_overflow_steps(F(1, 0), T[M, M], steps(2))
+          end
         end
-      end
 
-      @testset "rescaled normals" begin
-        for F in (IndHyperplane, IndHalfspace), c in (up, down)
-          check_overflow_steps(F(c .* T[1, 1.5], 0), T[M, M], steps(2))
-          check_overflow_steps(F(c .* T[1, -0.5, 0.25], 0), T[M / 2, M / 4, M / 2], steps(3))
-          check_overflow_steps(F(c, 0), T[M, M], steps(2))
-        end
-        # The dot product and the rescaled offset b·2^300 both overflow (Inf - Inf), or only the offset does.
-        for F in (IndHyperplane, IndHalfspace)
-          a = T(1.5) * down .* T[1, 1]
-          check_overflow_steps(F(a, T(2.5) * (M * down)), T[M, M], steps(2))
-          check_overflow_steps(F(a, T(1.2) * (M * down)), T[M / 6, M / 6], steps(2))
+        @testset "rescaled normals" begin
+          for F in (IndHyperplane, IndHalfspace), c in (up, down)
+            check_overflow_steps(F(c .* T[1, 1.5], 0), T[M, M], steps(2))
+            check_overflow_steps(F(c .* T[1, -0.5, 0.25], 0), T[M / 2, M / 4, M / 2], steps(3))
+            check_overflow_steps(F(c, 0), T[M, M], steps(2))
+          end
+          # The dot product and the rescaled offset b·2^300 both overflow (Inf - Inf), or only the offset does.
+          for F in (IndHyperplane, IndHalfspace)
+            a = T(1.5) * down .* T[1, 1]
+            check_overflow_steps(F(a, T(2.5) * (M * down)), T[M, M], steps(2))
+            check_overflow_steps(F(a, T(1.2) * (M * down)), T[M / 6, M / 6], steps(2))
+          end
         end
       end
 
@@ -560,33 +564,34 @@ end
         end
       end
 
-      @testset "tiny entries keep their bits" begin
-        # y₃ = x₃ - t a₃ with a₃ the smallest subnormal: scaling x by 2^-k would drop x₃
-        for F in (IndHyperplane, IndHalfspace)
-          check_overflow_steps(F(T[1, 1, nextfloat(zero(T))], 0), T[M, M, ldexp(one(T), -em ÷ 17)], steps(3))
+      if T === Float64
+        @testset "tiny entries keep their bits" begin
+          # y₃ = x₃ - t a₃ with a₃ the smallest subnormal: scaling x by 2^-k would drop x₃
+          for F in (IndHyperplane, IndHalfspace)
+            check_overflow_steps(F(T[1, 1, nextfloat(zero(T))], 0), T[M, M, ldexp(one(T), -em ÷ 17)], steps(3))
+          end
         end
-      end
 
-      @testset "the halfspace is judged by the residual, not by an overflowed dot product" begin
-        # A sequential sum of x reaches -Inf, although the sum is 0 and the residual is 2^k > 0.
-        k = em - 4
-        x = T[-M / 2, -M / 2, -M / 2, M / 2, M / 2, M / 2]
-        check_overflow_steps(IndHalfspace(one(T), -ldexp(one(T), k)), x, steps(6))
-        check_overflow_steps(IndHalfspace(ones(T, 6), -ldexp(one(T), k)), x, steps(6))
-        # a normal that is scaled: the residual is 2^k in the scaled units
-        check_overflow_steps(IndHalfspace(fill(down, 6), -ldexp(one(T), k - e4 - 45)), x, steps(6))
-        check_overflow_steps(IndHalfspace(fill(up, 6), -ldexp(one(T), k + e4 + 45 - em)), x, steps(6))
-        # the other side stays inactive, and is returned unchanged
-        for H in (IndHalfspace(one(T), ldexp(one(T), k)), IndHalfspace(ones(T, 6), ldexp(one(T), k)))
-          @test prox(H, x, one(T)) == x
-          @test prox(H, x, steps(6)[1]) == x
+        @testset "the halfspace is judged by the residual, not by an overflowed dot product" begin
+          # A sequential sum of x reaches -Inf, although the sum is 0 and the residual is 2^k > 0.
+          k = em - 4
+          x = T[-M / 2, -M / 2, -M / 2, M / 2, M / 2, M / 2]
+          check_overflow_steps(IndHalfspace(one(T), -ldexp(one(T), k)), x, steps(6))
+          check_overflow_steps(IndHalfspace(ones(T, 6), -ldexp(one(T), k)), x, steps(6))
+          # a normal that is scaled: the residual is 2^k in the scaled units
+          check_overflow_steps(IndHalfspace(fill(down, 6), -ldexp(one(T), k - e4 - 45)), x, steps(6))
+          check_overflow_steps(IndHalfspace(fill(up, 6), -ldexp(one(T), k + e4 + 45 - em)), x, steps(6))
+          # the other side stays inactive, and is returned unchanged
+          for H in (IndHalfspace(one(T), ldexp(one(T), k)), IndHalfspace(ones(T, 6), ldexp(one(T), k)))
+            @test prox(H, x, one(T)) == x
+            @test prox(H, x, steps(6)[1]) == x
+          end
         end
       end
     end
   end
 
   @testset "narrow and wide destinations" begin
-    M32 = floatmax(Float32)
     # A Float64 model with a Float32 output: the Float64 dot product 2^900 (x₁ + x₂) overflows, the
     # projection is formed in Float64 and rounded once. A well-conditioned projection that fits
     # Float32 has an argument of that size too.
@@ -595,17 +600,13 @@ end
       check_overflow(F(2.0^900, 0.0), [2.0^127, 2.0^124], γ, Float32)
       check_overflow(F(2.0^900 .* [1.0, -0.5, 0.25], 2.0^1000), [2.0^127, -2.0^124, 2.0^125], [1.0, 2.0, 3.0] .* (γ isa Real ? γ : γ[1]), Float32)
     end
-    # Float32 data whose Float32 dot product overflows, projected into a Float64 output
-    for F in (IndHyperplane, IndHalfspace), γ in (1.0, [1.0, 2.0])
-      check_overflow(F(Float32[1, 1], 0f0), Float32[M32, M32], γ, Float64)
-      check_overflow(F(Float32[1, 1], 2f0^100), Float32[M32, M32], γ, Float64)
-      check_overflow(F(Float32[1, 1.5], 0f0), Float32[M32, M32 / 2], γ, Float64)
-      check_overflow(F(2f0^40 .* Float32[1, 1], 0f0), Float32[2f0^100, 2f0^99], γ, Float64)
-    end
+    # The Float32 data whose Float32 dot product overflows, projected into a Float64 output, are in
+    # extreme_normals_grids.jl
   end
 
   @testset "iterates" begin
-    for T in (Float64, Float32), F in (IndHyperplane, IndHalfspace)
+    # the Float32 pass is in extreme_normals_grids.jl
+    for T in (Float64,), F in (IndHyperplane, IndHalfspace)
       M = floatmax(T)
       up = ldexp(one(T), exponent(M) ÷ 4 + 45)
       # 1.8 floatmax in the sum, 0.6 floatmax in the correction
@@ -650,7 +651,8 @@ end
   end
 
   @testset "the neighbourhood of the thresholds" begin
-    for T in (Float64, Float32)
+    # the Float32 pass is in extreme_normals_grids.jl
+    for T in (Float64,)
       M = floatmax(T)
       # u runs from far below to the largest arguments, around where a sum overflows
       for F in (IndHyperplane, IndHalfspace), u in T.(M .* 2.0 .^ range(-5, 0; length = 21))

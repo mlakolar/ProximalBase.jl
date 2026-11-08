@@ -521,6 +521,64 @@ through `env:` (`run-name` and `concurrency` read them directly), uses the actio
 read with CRLF endings turned into LF, since the quick tier also runs on Windows in the nightly run.
 The native runs themselves are not part of the test; the PR carries that evidence.
 
+## Nightly triage and release validation (#773)
+
+The nightly run, tags and release validation now check more than the verdict of each test
+job, and four quick-tier test files cover the scripts and the workflow wiring behind that.
+The nightly and release runs themselves can only be observed on GitHub, after the merge for the
+scheduled run; these tests use logs cut from a real failed run (a macOS and a Windows job that
+both failed `three_factor_product`) and an in-memory GitHub, never the network or a real issue.
+
+- **`ci_result`** tests `scripts/ci_result.jl`, the reader of a test job's log. It extracts the
+  files the runner announced, what became of each (passed, failed, crashed, started and never
+  finished) and every failure with its file, test set, kind and a signature that stays the same from
+  night to night (numbers and absolute paths removed), from the real macOS and Windows logs in each
+  shape the log comes in (raw, colored, the API's timestamps, `gh run view --log`, Windows paths
+  and carriage returns). It also covers an exception, a test that threw, a crash, a bounded
+  excerpt and a log that is not a test log (never silence: it is reported as unrecognized). The
+  inventory check compares the header's files with the tier's files and the header's count, and
+  the command line step the workflow runs ("Check the test inventory") is run on logs that pass
+  and fail it: a job that ran fewer or other files must not count as a pass.
+- **`ci_triage`** tests `scripts/ci_triage.jl`, the reporter behind the `alert`, `triage` and
+  `stale` jobs, against an in-memory GitHub that records every call. The cases are those the
+  issue asks for: a new failure on Windows next to a Linux failure of the same night (separate
+  issues, with different severity), a repeat (one comment per run, a changed signature said so),
+  recovery (resolved only when every recorded system and Julia alias ran the file and passed, and
+  never on missing, unreadable or incomplete data), closed issues (reopened, except one closed as
+  not planned; flaky never closed), jobs that failed without a test failure (infrastructure), API
+  outages and failed writes (nothing is changed on a failed read), the alert of a failed push to
+  master, a stale nightly, a story of several nights, the dry run and the rehearsal labels, text
+  safety (mentions, fences, size cap), the adapter against a fake `gh` and the `[triage]` table
+  (every deferred pattern must match a test file of `test/tiers.toml`, so a rename cannot leave a
+  stale entry).
+- **`release_record`** tests `scripts/release_record.jl`. The record is a pure function of its
+  data, and the test pins what makes it say PASSED: the plan, the tests, the verdict and the gate
+  all succeeded, the run is a manual run of the exact commit (the full lowercase SHA that equals the
+  run's, not a short, uppercase, empty or different one), the four required test jobs each
+  succeeded and the jobs and artifacts could be listed. Each other case is FAILED, with the reason;
+  an unreadable job or artifact listing is a FAILED record, never a PASSED one. Julia pre is listed as
+  advisory and a failure of it does not change the heading. The text from the inputs is reduced to
+  plain characters. `main` is run with a fake `gh` and an environment dictionary: it writes the file
+  and the job summary, exits 0 for a FAILED record as for a PASSED one (the verdict decides the
+  run's conclusion; the record is its evidence), 1 when it cannot write and 2 for a missing or
+  malformed variable.
+- **`ci_workflow`** reads `.github/workflows/CI.yml` as text, cutting out each job by its key (no YAML
+  library), and pins the wiring that no other test sees: the old `report` job is gone, only
+  `alert`, `triage` and `stale` have `issues: write` (and no job of the test code does), the `if` of
+  each reporting job and of the release record (none runs for a pull request, and the reporters not
+  for a manual run), separate concurrency groups that do not cancel, no `${{ ... }}` expression in
+  any `run:` of these jobs (so no event field or input reaches a script line), the check names
+  (the PR names appear only in expressions guarded by `pull_request`, and the nightly's names are
+  not the required ones), the step "Run package tests" with `id: tests` equal to the reporter's
+  `TEST_STEP` and the inventory step after it with its condition, the Codecov step that fails the
+  nightly and a release run, and the `release-record` artifact kept 90 days.
+
+New CI behavior that these tests pin, and the PR's own run shows: the nightly, tag and release test
+jobs fail unless their log announced exactly the files of the tier (the step "Check the test
+inventory"); the verdict of those runs also needs the `conformance-reports-...` artifact of each
+required job (`test/ci_verdict.jl`); a lost Codecov upload fails the nightly and a release run,
+which the reporter files as an infrastructure failure; and a release run writes the record.
+
 ## Per-file times
 
 From the full run 41364805347 (Julia lts on an AMD EPYC 9V74, Windows on an EPYC 9V45). A file's

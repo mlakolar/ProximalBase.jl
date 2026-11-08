@@ -14,7 +14,8 @@
 # [benchmark_check], and scripts/ci_triage.jl reads and validates [triage] (the issue labels, the
 # deferred test files and the stale limit of the nightly triage). scripts/ci_verdict.jl keeps its
 # own copy of the job lists of the modes, which test/ci_verdict.jl compares with the tables below;
-# scripts/ci_result.jl checks the inventory of a test log against the tier lists.
+# scripts/ci_result.jl checks the inventory of a test log against the tier lists, and
+# scripts/release_record.jl writes the record of a release run (the manual run with release=true).
 
 [timeouts]
 # Minutes per CI test job, well above each tier's target to allow for cold caches. A job of a
@@ -252,6 +253,7 @@ paths = [
   "scripts/ci_result.jl",
   "scripts/ci_triage.jl",
   "scripts/ci_verdict.jl",
+  "scripts/release_record.jl",
   "scripts/test.jl",
   "scripts/test_report.jl",
   "src/lapack.jl",

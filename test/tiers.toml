@@ -16,6 +16,7 @@ quick = [
   "ci_result",
   "ci_triage",
   "ci_verdict",
+  "ci_workflow",
   "compat",
   "docstrings",
   "exponent_sums",
@@ -24,6 +25,7 @@ quick = [
   "ldexp_bigfloat",
   "platform_focus",
   "readme",
+  "release_record",
   "tier_selection",
   "utils",
   # iterates: active sets, value writes versus state copies, symmetric coordinates, aliasing

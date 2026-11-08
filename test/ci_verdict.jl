@@ -650,8 +650,9 @@ end
     @test occursin("      $key: \${{ steps.verdict.outputs.$key }}", segment)
   end
   @test occursin("scripts/ci_verdict.jl", segment) && occursin("actions: read", segment) && occursin("timeout 120", segment)
-  # the gate and the reporter read the outputs and the labels
-  @test occursin("needs.verdict.outputs.failed", workflow) && occursin("Nightly CI failing", workflow)
+  # the gate and the alert job read the outputs and the labels
+  @test occursin("needs.verdict.outputs.failed", workflow) && occursin("scripts/ci_triage.jl alert", workflow)
+  @test !occursin("Nightly CI failing", workflow)
   @test occursin("pull-requests: read", workflow)
 end
 

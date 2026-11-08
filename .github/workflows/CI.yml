@@ -11,7 +11,7 @@ name: CI
 # - pushes to master: the thorough tier on Julia 1 and lts on Linux (none for documentation only);
 # - tags: the full tier on the cross platforms, with the benchmark reference checks;
 # - the nightly run: the full tier on the cross platforms, with coverage and the benchmark
-#   reference checks, also when an earlier run passed;
+#   reference checks, also when an earlier run passed; a lost coverage upload fails it;
 # - manual runs: the tier, platforms (auto: the cross platforms for full, otherwise Julia 1 and
 #   lts on Linux), benchmark and coverage inputs (`gh workflow run CI.yml --ref <branch>`);
 # - release validation, a manual run with release=true and the full SHA of the commit as
@@ -25,6 +25,14 @@ name: CI
 # job that is re-run, but not the gate. Other
 # events name them "CI result" and "CI required jobs", which are not the names that branch
 # protection requires. CONTRIBUTING.md describes the workflow.
+# Failures of trusted runs are reported by scripts/ci_triage.jl (the only jobs with issues: write,
+# which run default-branch code of a push to master or of the schedule and no pull request or
+# manual-branch code): `alert` opens or updates the issue "CI failing on master" after a failed
+# verdict of a push to master, `triage` files and resolves one issue per system and test file after
+# every nightly run, and `stale` notes a nightly run that is missing or old after each push to
+# master. A release run also writes a release record (the `release-record` job: job summary and an
+# artifact kept 90 days). Each nightly, tag and release test job also fails unless its log shows
+# that it ran exactly the test files of its tier (the step "Check the test inventory").
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -198,6 +206,16 @@ jobs:
         run: julia --startup-file=no scripts/test_report.jl "$RUNNER_TEMP/test-output.log" "$(cat "$RUNNER_TEMP/test-seconds")" >> "$GITHUB_STEP_SUMMARY"
         env:
           TEST_REPORT_TITLE: Julia ${{ matrix.version }}, ${{ matrix.os }}, tier ${{ needs.plan.outputs.tier }}
+      - name: Check the test inventory
+        # A nightly, tag or release job fails unless the runner's header announced exactly the files
+        # of its tier (scripts/ci_result.jl, tested in test/ci_result.jl), so a job that ran fewer
+        # files cannot count as a pass. The plan's `inventory` output says which runs need it.
+        if: ${{ !cancelled() && needs.plan.outputs.inventory == 'true' && steps.tests.outcome != 'skipped' }}
+        shell: bash
+        run: julia --startup-file=no scripts/ci_result.jl check-inventory "$RUNNER_TEMP/test-output.log" "--tier=$TIER" ${FOCUS:+"--extra=$FOCUS"}
+        env:
+          TIER: ${{ needs.plan.outputs.tier }}
+          FOCUS: ${{ needs.plan.outputs.focus }}
       - name: Check the conformance coverage map
         # One job checks the committed map: the moving Julia release must not turn master red.
         # It is Julia lts on Linux when the run has it, otherwise Julia 1 on Linux (matrix.map).
@@ -274,7 +292,10 @@ jobs:
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
+          # A lost coverage upload makes the nightly and a release run red; the triage reporter
+          # records it as an infrastructure failure (the failed step is not the test step). Other
+          # runs that ask for coverage are unchanged.
+          fail_ci_if_error: ${{ github.event_name == 'schedule' || needs.plan.outputs.release == 'true' }}
   benchmark-check:
     # Every reference check of the quick benchmark suite, without timing (benchmark/check_only.jl),
     # after the driver's own tests. The extended suite stays a manual run.
@@ -433,55 +454,152 @@ jobs:
           julia --startup-file=no scripts/ci_gate.jl "--repo=$GITHUB_REPOSITORY" "--run-id=$GITHUB_RUN_ID"
           "--attempt=$GITHUB_RUN_ATTEMPT" "--sha=$COMMIT" "--event=$GITHUB_EVENT_NAME" "--gate=$GATE"
           "--verdict=$VERDICT" "--pr=$PR_NUMBER" "--labels=$LABELS"
-  report:
-    # Only a failed verdict of a push to master or of the nightly run opens an issue: manual
-    # runs, tags and pull requests report nothing. Only these trusted runs get write access to
-    # issues; no pull request code runs here.
-    name: Report a failing master run
+  alert:
+    # A failed verdict of a push to master: the issue "CI failing on master" (scripts/ci_triage.jl
+    # alert). Tags, manual runs, pull requests and the nightly run do not trigger it. Only trusted
+    # runs get write access to issues, and the code of this job is the pushed commit of master; no
+    # pull request or manual-branch code runs here, and no event field is part of a script line.
+    name: Alert for a failing master run
     needs: verdict
-    if: always() && needs.verdict.result == 'failure' && ((github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'schedule')
+    if: always() && needs.verdict.result == 'failure' && github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
+    concurrency:
+      group: ci-alert
+      cancel-in-progress: false
     permissions:
+      actions: read # the jobs of this run and their logs
+      contents: read
       issues: write # open or update the issue
     steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
       - name: Open or update the issue
         env:
           GH_TOKEN: ${{ github.token }}
           FAILED: ${{ needs.verdict.outputs.failed }}
           LINUX_FAILED: ${{ needs.verdict.outputs.linux_failed }}
+        run: julia --startup-file=no scripts/ci_triage.jl alert
+  triage:
+    # The nightly run, green or red (scripts/ci_triage.jl triage): one issue per system and test
+    # file for the failures, and the resolution of the issues whose file passed. It must run when
+    # the verdict passed (to resolve issues) and when the plan failed, so only a cancelled run
+    # skips it. Only the schedule triggers it: it has write access to issues, and what it runs is
+    # the code of the default branch; no pull request or manual-branch code runs here, and no
+    # event field is part of a script line.
+    name: Triage the nightly run
+    needs: [plan, verdict]
+    if: always() && github.event_name == 'schedule' && needs.verdict.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: ci-triage
+      cancel-in-progress: false
+    permissions:
+      actions: read # the jobs of this run and their logs
+      contents: read
+      issues: write # open, comment on, reopen and close the triage issues
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - name: File and resolve the triage issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUIRED: ${{ needs.plan.outputs.required }}
+          ADVISORY: ${{ needs.plan.outputs.advisory }}
+        run: julia --startup-file=no scripts/ci_triage.jl triage
+  stale:
+    # Every push to master (scripts/ci_triage.jl stale): the issue "Nightly CI is stale" when the
+    # last completed nightly run is older than the limit in .github/tier-rules.toml. It has no
+    # `needs`, so it also reports when the rest of the run failed. It has write access to issues,
+    # so only a push to master (the code of that commit) triggers it; no pull request or
+    # manual-branch code runs here, and no event field is part of a script line.
+    name: Check that the nightly run is recent
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: ci-stale
+      cancel-in-progress: false
+    permissions:
+      actions: read # the scheduled runs of the workflow
+      contents: read
+      issues: write # open or update the issue
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: julia --startup-file=no scripts/ci_triage.jl stale
+  release-record:
+    # A release run (the plan's `release` output; a manual run with release=true) writes the record
+    # of the validation: PASSED or FAILED, the exact commit, the jobs and artifacts of the run, and
+    # a section for the decisions of a maintainer (scripts/release_record.jl, tested in
+    # test/release_record.jl). It writes the job summary and the artifact `release-record`, kept
+    # 90 days. The script says PASSED only when the plan, the tests, the verdict and the gate
+    # succeeded and the run is of the commit named by expected_sha. This job fails when the record
+    # cannot be written or uploaded. It reads this run's jobs and writes nothing else.
+    name: Release record
+    needs: [plan, test, verdict, gate]
+    if: always() && needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read # this run's jobs and artifacts
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Compare the workflow files with the default branch
+        id: differs
+        shell: bash
         run: |
-          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
-            title="Nightly CI failing"
-            what="The nightly run"
-          else
-            title="CI failing on master"
-            what="The $GITHUB_EVENT_NAME run"
+          # true: the workflow, the rules or a script of the checks differs from the default branch;
+          # unknown: the default branch could not be fetched.
+          differs=unknown
+          if git fetch --no-tags --depth=1 origin master; then
+            status=0
+            git diff --quiet FETCH_HEAD -- .github/workflows/CI.yml .github/tier-rules.toml scripts/ci_plan.jl scripts/ci_verdict.jl scripts/ci_result.jl scripts/release_record.jl || status=$?
+            case $status in
+              0) differs=false ;;
+              1) differs=true ;;
+            esac
           fi
-          body="$what $url failed at $GITHUB_SHA."
-          if [ -n "$FAILED" ]; then
-            body+=$'\n\nFailed jobs:'
-            IFS=';' read -ra failed_jobs <<< "$FAILED"
-            for job in "${failed_jobs[@]}"; do
-              [ -n "$job" ] || continue
-              body+=$'\n'"- $job"
-            done
-          else
-            body+=$'\n\nThe failed jobs are not known; see the run.'
-          fi
-          case "$LINUX_FAILED" in
-            true) body+=$'\n\nA Linux job, or a check that is not a test job, failed.' ;;
-            false) body+=$'\n\nOnly jobs on other systems failed (no Linux job did).' ;;
-          esac
-          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
-            body+=$'\n\nCheck whether the failure comes from a dependency or a Julia release; see CONTRIBUTING.md.'
-          else
-            body+=$'\n\nFix or revert promptly; see CONTRIBUTING.md.'
-          fi
-          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
-          if [ -n "$number" ]; then
-            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
-          else
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
-          fi
+          echo "differs=$differs" >> "$GITHUB_OUTPUT"
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - name: Write the release record
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN: ${{ needs.plan.result }}
+          TESTS: ${{ needs.test.result }}
+          VERDICT: ${{ needs.verdict.result }}
+          GATE: ${{ needs.gate.result }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          WORKFLOW_DIFFERS: ${{ steps.differs.outputs.differs }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        # The script also appends the record to the job summary.
+        run: julia --startup-file=no scripts/release_record.jl "$RUNNER_TEMP/release-record/release-record.md"
+      - name: Upload the release record
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-record
+          path: ${{ runner.temp }}/release-record
+          if-no-files-found: error
+          retention-days: 90

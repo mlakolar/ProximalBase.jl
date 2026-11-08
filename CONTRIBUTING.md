@@ -74,6 +74,8 @@ makes five independent decisions: the **tier** (how many test files run), the
 **coverage**, whether to run the **benchmark reference checks**
 (`benchmark/check_only.jl` on the quick suite, Julia lts and 1), and, from the
 tier, whether the test jobs write the **conformance reports** (thorough and full).
+For the nightly run, tags and release validation the plan also asks each test job
+to show that it ran the whole catalog of its tier (the **inventory**, below).
 
 | Run | Tier | Platforms | Coverage | Benchmark reference checks |
 |---|---|---|---|---|
@@ -81,8 +83,9 @@ tier, whether the test jobs write the **conformance reports** (thorough and full
 | pull request with `test:full` | full | `cross` | no | yes |
 | push to master | thorough (none for documentation only) | `linux` | no | changed benchmark harness or `CI.yml` |
 | tag push | full | `cross` | no | yes |
-| nightly | full, also when an earlier run passed | `cross` | yes | yes |
+| nightly | full, also when an earlier run passed | `cross` | yes (a lost upload to Codecov fails the run) | yes |
 | manual | the input `tier` (full) | the input `platforms` (auto) | the input `coverage` (off) | the input `benchmark`, and also with tier full |
+| release validation (manual, `release=true`) | full | `cross` | yes (a lost upload fails the run) | yes |
 
 The platform modes are `stable` (Julia 1 on Linux), `linux` (Julia 1 and lts on
 Linux) and `cross` (`linux`, Julia 1 on macOS and Windows, and Julia pre on Linux,
@@ -156,7 +159,8 @@ other table is validated by its own reader (`test/tiers.jl` or
   choose a mode), `benchmark` (the reference checks; they also run with tier
   full) and `coverage` (collect coverage on Julia 1 on Linux and upload it to
   Codecov; the nightly run does so too). `tier=full -f platforms=cross -f
-  coverage=true` runs what the nightly run runs. On a PR branch the result
+  coverage=true` runs what the nightly run runs, except that a lost Codecov upload
+  fails only the nightly run and a release run. On a PR branch the result
   appears on the head commit beside the PR's own checks.
   One test file on Windows and macOS only: see "Focused runs on Windows and
   macOS" below.
@@ -353,6 +357,9 @@ nightly run and manual runs name the two checks **CI required jobs** and **CI
 result**, so a manual run on a PR branch does not report under the PR's check names.
 Coverage is collected only by the nightly run and by manual runs that ask for it,
 so Codecov reports on master from the nightly run; its statuses are informational.
+The upload step fails the job only in the nightly run and in a release run (see
+below), so a lost upload turns that run red; the triage reporter files it as an
+infrastructure failure, because the failed step is not the test step.
 
 To retry jobs of a PR run:
 
@@ -366,6 +373,18 @@ To retry jobs of a PR run:
   it, so the PR is blocked while the job runs and stays blocked if the job
   fails. After a failed run, the gate keeps its failure even when the re-run
   passes; then use **Re-run failed jobs**, which re-runs only the gate.
+
+**Inventory and reports of the nightly, tag and release runs.** In these runs each
+test job must also show that it ran the whole catalog: the step "Check the test
+inventory" (`scripts/ci_result.jl check-inventory`, tested in `test/ci_result.jl`)
+compares the files the runner announced in the log's header with the files of the
+tier, and fails the job when they differ, so a job that ran fewer files does not
+count as a pass. The required verdict job (`scripts/ci_verdict.jl`) also needs the
+artifact `conformance-reports-<version>-<os>-<arch>-<attempt>` of every required test
+job, written by the attempt that job ran in; a report artifact named `partial` or
+`diagnostic`, or one from an earlier attempt, does not count, and neither does a
+list of artifacts that could not be read. Julia pre is not checked. Pull requests,
+pushes to master and plain manual runs do not run these checks.
 
 Each test job's summary page lists the selected files, the workers, the time
 before the test runner started (Julia, test environment, precompilation), the
@@ -385,16 +404,130 @@ Only the artifact of a full run (not the `partial` one) serves to regenerate the
 jobs a missing upload is a warning in the job and its summary, and the job keeps
 the result of its tests.
 
-**When a master or nightly run fails**, the workflow opens (or comments on) an
-issue listing the failed jobs: "CI failing on master" for a failed push to master,
-"Nightly CI failing" for the nightly run, which also says whether a Linux job
-failed or only jobs on other systems (Windows, macOS). Manual runs, tags and pull
-requests report nothing. Fix the regression or revert the PR that caused it the
-same day; reproduce locally with `julia scripts/test.jl <file>` and the Julia
-version of the failing job. A PR that merged after quick or standard is not at
-fault for passing its gate; the post-merge run exists to catch what the smaller
-tiers leave out, and the nightly run what the pull request and push runs do not
-run on the other systems.
+### When a master or nightly run fails
+
+Three jobs of the CI workflow report failures: `alert` and `triage` below, and `stale`
+(see further down). Each runs `scripts/ci_triage.jl` from the checked-out commit of a push
+to master or of the schedule; no pull request or manual run starts them, and they are the
+only jobs of the workflow with write access to issues. Tags, manual runs and pull
+requests open no issue.
+
+- **A failed push to master.** The `alert` job opens (or comments on) the issue
+  **"CI failing on master"** when the required jobs check of a push to master failed.
+  Master runs Linux jobs only, so this is a core failure: fix or revert promptly.
+  Reproduce locally with `julia scripts/test.jl <file>` and the Julia version of the
+  failing job. When the job's log is readable, the issue lists the failing test files
+  and test sets. The issue is a standing one: a later failed push comments on it while
+  it is open. After the fix has merged and a push to master has passed, close it by
+  hand (`gh issue close <number>`); nothing closes it automatically.
+- **The nightly run.** The `triage` job runs after every nightly run, green or red.
+  It opens one issue per operating system and test file (for example
+  `windows/three_factor_product`), labelled `nightly-triage`. A job that failed
+  outside the test files (a step other than the tests, a timeout, a cancelled or
+  missing job, or a log that cannot be read) gets one issue per system and Julia alias
+  (`<os>/job:<alias>`). The
+  nightly run is red on its own run: its checks are named **CI required jobs** and
+  **CI result**, never **PR required jobs** or **PR merge gate**, so it does not change
+  the check that branch protection requires on a pull request.
+
+Each nightly issue has a **severity** and a **kind** label:
+
+| Label | Meaning |
+|---|---|
+| `triage:core` | a Linux job on Julia lts or 1, and a test file that is not deferred: core CPU correctness; fix promptly (revert the change that caused it when that is the quickest fix) |
+| `triage:deferred` | Windows, macOS, Julia pre, or a deferred file on any system (the device-array suites and the extreme-precision and exponent-range files): normally deferred, ordered by impact (how many users and which functions the failure touches) |
+| `triage:unclassified` | the kind is not known yet; every new issue starts here |
+| `triage:bug`, `triage:flaky`, `triage:portability` | set by a maintainer once the cause is known: a genuine bug, a flaky or timing-dependent test (the reporter never closes such an issue), a test or code that does not port to that system |
+| `triage:infrastructure` | set by the reporter for a job that failed outside the test files; a maintainer may set it for a cause found later |
+
+The deferred files are the `[[triage.deferred]]` groups of the `[triage]` table in
+`.github/tier-rules.toml` (each with a `why` and a list of test names or globs as in
+`test/tiers.toml`; `test/ci_triage.jl` checks that each entry matches a test file, so
+a rename cannot leave a stale entry). To defer or un-defer a file, edit that table
+in a pull request: severity is computed from it each night, and the table also holds the
+labels, their colors and the stale limit.
+
+An issue holds the commit SHA and run URL, the operating system and the Julia alias
+(`lts`, `1` or `pre`), the test file and test set, a signature of the failure (the
+first failing expression or error line), the job link and a link to its log. The
+signature has its numbers replaced and its absolute paths without spaces removed, so
+failures that differ only in numbers or in the checkout path share one; a path with
+spaces is not removed and can make a signature differ between systems.
+
+Repeats do not open new issues:
+
+- a failure of an open issue's file and system gets one comment per run (a re-run of
+  failed jobs does not repeat it), and a changed signature is a comment that says so;
+- a failure whose issue was closed reopens that issue, except one closed as not
+  planned, which gets a comment only;
+- an issue labelled `triage:flaky` is only commented on, never closed automatically.
+
+An open issue is **resolved** when a nightly run ran its file on every system and
+Julia alias recorded for it and the file passed there: the reporter comments with the
+SHA and run URL and closes the issue. A job that is missing, failed outside the tests
+or has no readable log resolves nothing, and neither does a listing that could not be
+read: the reporter then stops without changing any issue.
+
+The `stale` job runs on every push to master. When no nightly run has completed in the
+last 48 hours (`stale_hours`), it opens or comments on the issue **"Nightly CI is
+stale"** (one comment per day), and it closes that issue once a recent run exists.
+GitHub also stops scheduled runs after 60 days without repository activity, which
+shows up the same way.
+
+To check a platform fix before the next nightly run, use the focused native run
+(`platform-focused.yml`, "Focused runs on Windows and macOS" above): it runs one test
+file on Windows and macOS. A passing nightly run on every recorded system is what
+resolves the issue. A PR that merged after quick or standard is not at fault for
+passing its gate; the post-merge run exists to catch what the smaller tiers leave out,
+and the nightly run what the pull request and push runs do not run on the other systems.
+
+### Release validation
+
+To validate the exact commit of a release candidate, dispatch the workflow on the
+ref with the full SHA of the commit:
+
+```sh
+gh workflow run CI.yml --ref <ref> -f release=true -f expected_sha=<full sha>
+```
+
+The plan job fails before any test job starts unless the dispatched commit is
+`expected_sha`, the full 40-character lowercase SHA, and unless `tier` and `platforms`
+are `full` and `auto` or `cross` (the defaults). A release run needs:
+
+- the full tier on Julia lts and 1 on Linux, on macOS and on Windows, each job running
+  the whole catalog of the tier (the inventory step);
+- coverage with a successful upload to Codecov, and the benchmark reference checks;
+- the conformance reports of every one of those jobs, as uploaded by the attempt the
+  job ran in.
+
+Julia pre runs and is reported in the record, but it is not counted. A nightly run or
+an older run cannot satisfy it: the required jobs check compares the commit of the run
+with `expected_sha`, so only the release run of that commit counts.
+
+The `release-record` job writes the **release record** after the run: the job summary
+and the artifact `release-record`, kept for 90 days. The record says
+`Release validation: PASSED` only when the plan, the tests, the required jobs check
+and the gate succeeded, the run is a manual run of the commit named by `expected_sha`
+and the jobs and artifacts of the run could be listed; otherwise it says `FAILED` with
+the reasons (a listing that could not be read is a failure). It also holds the commit
+SHA, ref, run URL and attempt, the commit of the workflow file and whether the
+workflow, the rules and the scripts differ from the default branch (a run of an
+older ref uses that ref's own files, which the record states), the version of
+`Project.toml`, a table of the latest attempt of every job with its conclusion
+(required jobs and Julia pre marked), and the names of the run's artifacts.
+
+For the release checklist, find the run of the release commit with:
+
+```sh
+gh run list --workflow CI.yml --event workflow_dispatch --json headSha,conclusion,url
+```
+
+and open the record of the run whose `headSha` is the release SHA. A known
+exception (a failure accepted for the release) is decided by a maintainer and written
+under "Maintainer decisions" of the record; the workflow has none, and
+`continue-on-error` is not a way to record one. A ref older than this workflow
+cannot run release mode: the dispatch has no `release` input there, so release
+validation needs a ref that contains this workflow.
 
 Documentation, benchmarks and optional conic tests each have their own
 `Project.toml` with additional tools. The setup script installs those tools

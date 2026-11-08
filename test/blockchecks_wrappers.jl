@@ -397,4 +397,89 @@ _allocation_value_and_prox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
   end
 end
 
+####################################
+#  A wrapped function without a proximal operator fails before any block is written
+####################################
+
+hasplaceholder(a) = a isa Union{PB._StepInput, PB._StepBuffer} || (a isa Tuple && any(hasplaceholder, a))
+
+function caught(op, y, f, x, γ)
+  @nospecialize
+  try
+    op(y, f, x, γ)
+  catch e
+    return e
+  end
+  nothing
+end
+
+# The call raises the MethodError of the proximal operator of the leaf, with the arguments of the leaf and
+# without a placeholder, and writes nothing.
+function leaf_unchanged(op, h, point, γ, Leaf; output = point)
+  @nospecialize
+  for alias in (false, true)
+    alias && typeof(output) !== typeof(point) && continue
+    x = deepcopy(point)
+    y = alias ? x : deepcopy(output)
+    input, before = deepcopy(x), deepcopy(y)
+    e = caught(op, y, deepcopy(h), x, γ)
+    @test e isa MethodError
+    if e isa MethodError
+      @test e.f === prox!
+      @test any(a -> a isa Leaf, e.args)
+      @test !any(hasplaceholder, e.args)
+    end
+    @test isequal(x, input)
+    @test isequal(y, before)
+  end
+end
+
+function wrapped_leaf_routes(h, x, γ, Leaf; output = x)
+  @nospecialize
+  T = real(eltype(x))
+  two = SqrNormL2(T(2))
+  for op in proximal
+    alone = caught(op, deepcopy(output), deepcopy(h), deepcopy(x), γ)
+    @test alone isa MethodError
+    alone isa MethodError && @test any(a -> a isa Leaf, alone.args)
+    leaf_unchanged(op, SeparableSum(two, h), (T[3], x), γ, Leaf; output = (T[7], output))
+    leaf_unchanged(op, SeparableSum(two, SeparableSum(h)), (T[3], (x,)), γ, Leaf; output = (T[7], (output,)))
+    slices = cat(x, x; dims = ndims(x) + 1)
+    sliced = cat(output, output; dims = ndims(output) + 1)
+    leaf_unchanged(op, SliceSum(two, h), slices, γ, Leaf; output = sliced)
+    leaf_unchanged(op, SliceSum(AbstractFunction[two, h]), slices, γ, Leaf; output = sliced)
+    fibers = reshape(repeat(x, 4), 2, 2, length(x))
+    out = reshape(repeat(output, 4), 2, 2, length(output))
+    leaf_unchanged(op, FiberSum(h; diagonal = two), fibers, γ, Leaf; output = out)
+    leaf_unchanged(op, FiberSum(two; diagonal = h, symmetric = true), fibers, γ, Leaf; output = out)
+  end
+end
+
+@testset "Wrappers of a function without a proximal operator" begin
+  for T in (Float32, Float64)
+    L = LogisticLoss(ones(T, 2), ones(T, 2, 4))
+    x = ones(T, 4)
+    v = ones(T, 4)
+    for h in (Scaled(L, T(2)), Scaled(Scaled(L, T(2)), T(3)), Translate(L, v), Tilt(L, v),
+              Regularize(L, T(1), zeros(T, 4)), Regularize(L, T(1)), Conjugate(L),
+              Conjugate(Conjugate(L)), Precompose(L, T(2)),
+              Precompose(L, Matrix{T}(I, 4, 4), T(1)), Scaled(Translate(Tilt(L, v), v), T(2)),
+              Translate(Scaled(L, T(2)), v))
+      wrapped_leaf_routes(h, x, T(0.5), typeof(L))
+    end
+    S = Sum(L, NormL1(T(1)))
+    for h in (Scaled(S, T(2)), Translate(S, v), Tilt(S, v), Regularize(S, T(1), zeros(T, 4)),
+              Conjugate(S), Precompose(S, T(2)))
+      wrapped_leaf_routes(h, x, T(0.5), typeof(S))
+    end
+    K = KronQuadratic(ones(T, 2, 2), ones(T, 2, 2))
+    for h in (Scaled(K, T(2)), Translate(K, ones(T, 2, 2)), Tilt(K, ones(T, 2, 2)), Regularize(K, T(1)))
+      for op in proximal
+        leaf_unchanged(op, SeparableSum(SqrNormL2(T(2)), h), (T[3], ones(T, 2, 2)), T(0.5), typeof(K);
+                       output = (T[7], ones(T, 2, 2)))
+      end
+    end
+  end
+end
+
 end

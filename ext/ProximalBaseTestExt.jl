@@ -421,7 +421,7 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
     end
     @test Matrix(S) ≈ _dense(prox(f, X, γ))
     @test Matrix(y) ≈ _dense(prox(f, X, γ))
-    @test nnz(y) == count(!iszero, y.nzval[1:nnz(y)])
+    @test nactive(y) == count(!iszero, activevalues(y))
     test_iterate(y)
   end
   p

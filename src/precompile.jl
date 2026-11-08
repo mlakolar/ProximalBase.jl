@@ -65,7 +65,7 @@ using PrecompileTools: @setup_workload, @compile_workload
     xa = AtomIterate(x, fg)
     prox_coordinate!(xa, fg, 1, 1.0)
     kkt_violation(fg, g, xa, 1)
-    # the Kronecker quadratic and the hard threshold of a symmetric matrix
+    # the Kronecker quadratic at an owner, and the hard threshold of a symmetric matrix into one
     value_and_gradient!(similar(P), KronQuadratic(P, P, P), S)
     prox!(similar(S), IndBallL0(5; diagonal = false), Symmetric(P, :L), 1.0)
   end

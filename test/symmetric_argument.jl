@@ -52,7 +52,7 @@ function _catalog(p, Sx)
     "IndSimplex" => IndSimplex(2.0; equality = false),
     "NormL2" => NormL2(0.3),
     "CubeNormL2" => CubeNormL2(0.3),
-    "NormLinf" => NormLinf(0.3),
+    # NormLinf has no proximal operator into an owner (only its conjugate is a kept family)
     "SumLargest" => SumLargest(2, 0.3),
     "IndHyperplane" => IndHyperplane(a, 0.5),
     "IndHalfspace" => IndHalfspace(a, 0.5),
@@ -89,7 +89,8 @@ end
 
 # the reference: the proximal point at the symmetric part, over dense matrices
 function _check(name, f, V, Sx, γ)
-  ref = prox(f, Matrix(Sx), γ)
+  # the ℓ0 ball counts the coordinates of the lower triangle, a mirrored pair once
+  ref = prox(f, f isa IndBallL0 ? Symmetric(Matrix(Sx), :L) : Matrix(Sx), γ)
   # singular value functions are symmetric up to rounding
   norm(ref - ref') <= 1e-10 * (1 + norm(ref)) || return :nosymmetric
   ref = (ref + ref') / 2
@@ -100,7 +101,7 @@ function _check(name, f, V, Sx, γ)
   v = value_and_prox!(y2, f, V, γ)
   @test Matrix(y2) ≈ ref atol = 1e-10
   # the value of a conjugate of a conjugate is not implemented: compare when it is
-  fy = try f(Matrix(y2)) catch e; e isa ArgumentError ? nothing : rethrow() end
+  fy = try f(f isa IndBallL0 ? Symmetric(Matrix(y2), :L) : Matrix(y2)) catch e; e isa ArgumentError ? nothing : rethrow() end
   fy === nothing || @test isapprox(v, fy; atol = 1e-8, rtol = 1e-8) || isinf(v)
   :ok
 end
@@ -214,47 +215,30 @@ end
   @test _symmetric_argument(((zeros(2, 2), zeros(2, 2)), zeros(2, 2)), xs) === xs
 end
 
-@testset "array steps read the symmetric part too" begin
+@testset "an array step is refused with an owner as the output" begin
   p = 4
   rng = Xoshiro(7)
   V = randn(rng, p, p); Sx = (V + V') / 2
-  γ = 0.7
-  Γ = fill(γ, p, p)                       # a symmetric array of equal steps: the scalar problem
-  @test prox!(SymmetricSparseIterate(2), NormL1(0.5), [0.0 1.0; 3.0 0.0], ones(2, 2))[2, 1] == 1.5
-  covered = Set{Method}()
+  Γ = fill(0.7, p, p)                     # even a symmetric array of equal steps
+  unchanged(y, before) = (y.nnz, copy(y.nzval), copy(y.nzval2ind), copy(y.ind2nzval)) == before
   for (name, f) in _catalog(p, Sx)
     f === nothing && continue
-    hasmethod(prox!, Tuple{_SSI, typeof(f), Matrix{Float64}, Matrix{Float64}}) || continue
-    for op in (prox!, value_and_prox!)
-      push!(covered, which(op, Tuple{_SSI, typeof(f), Matrix{Float64}, Matrix{Float64}}))
+    for op in (prox!, value_and_prox!), step in (Γ, fill(0.7, 3), [0.7])
+      y = SymmetricSparseIterate(Float64, p)
+      y[2, 1] = 1.0
+      activate!(y, 5)
+      before = (y.nnz, copy(y.nzval), copy(y.nzval2ind), copy(y.ind2nzval))
+      err = try op(y, f, V, step); nothing catch e; e end
+      @test err isa ArgumentError
+      @test occursin("is not supported with a SymmetricSparseIterate as the output", sprint(showerror, err))
+      @test unchanged(y, before)
     end
-    ref = prox(f, Matrix(Sx), γ)
-    norm(ref - ref') <= 1e-10 * (1 + norm(ref)) || continue
-    y = SymmetricSparseIterate(Float64, p)
-    # a wrapper whose inner function has no array-step method (for example a conjugate
-    # of SumLargest) fails the same way for a dense output: not a matter of the argument
-    try prox!(zeros(p, p), f, Matrix(Sx), Γ) catch e; e isa MethodError ? continue : rethrow() end
-    prox!(y, f, V, Γ)
-    @test Matrix(y) ≈ (ref + ref') / 2 atol = 1e-10
-    y2 = SymmetricSparseIterate(Float64, p)
-    value_and_prox!(y2, f, V, Γ)
-    @test Matrix(y2) ≈ (ref + ref') / 2 atol = 1e-10
   end
-  # every array-step method that accepts a symmetric output is exercised, or listed here
-  accepting = Method[]
-  for op in (prox!, value_and_prox!), m in methods(op)
-    m.module === ProximalBase || continue
-    sig = Base.unwrap_unionall(m.sig).parameters
-    length(sig) == 5 || continue
-    Base.typeintersect(sig[2], _SSI) !== Union{} && Base.typeintersect(sig[4], Matrix{Float64}) !== Union{} &&
-      Base.typeintersect(sig[5], Matrix{Float64}) !== Union{} && push!(accepting, m)
-  end
-  skipped = ("IndIsotonic", "LinearConstrained", "PointwiseMinimum", "BoxConstrained", "IndHyperslab",
-             "IndHalfspace", "IndHyperplane", "IndSimplex", "IndBallL1", "Conjugate")
-  unexplained = [m for m in accepting if m ∉ covered &&
-                 !any(s -> occursin(s, string(Base.unwrap_unionall(m.sig).parameters[3])), skipped)]
-  @test isempty(unexplained)
-  isempty(unexplained) || foreach(m -> println("not covered: ", m), unexplained)
+  @test_throws ArgumentError prox(NormL1(0.5), SymmetricSparseIterate(2), ones(2, 2))
+  # the scalar step projects the argument onto its symmetric part
+  @test prox!(SymmetricSparseIterate(2), NormL1(0.5), [0.0 1.0; 3.0 0.0], 1.0)[2, 1] == 1.5
+  # a dense output keeps its array steps
+  @test prox!(zeros(2, 2), NormL1(0.5), [0.0 1.0; 3.0 0.0], ones(2, 2)) == [0.0 0.5; 2.5 0.0]
 end
 
 @testset "the symmetric product keeps a subnormal scale" begin

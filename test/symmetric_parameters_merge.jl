@@ -8,7 +8,7 @@ state(x) = map(n -> deepcopy(getfield(x, n)), fieldnames(typeof(x)))
 
 @testset "Master type and shape errors precede parameter symmetry" begin
   W = ones(3, 3); W[2, 1] = 2.
-  x = fill!(SymmetricSparseIterate(3), .5)
+  x = SymmetricSparseIterate(3); fill!(coordinates(x), .5)
   for f in (NormL1(.1, W), Scaled(NormL1(.1, W), 2.), Tilt(NormL1(.1, W), zeros(3, 3)))
     before = state(x)
     e = try prox!(x, f, complex.(Matrix(x)), 1.); nothing catch e; e end
@@ -39,7 +39,8 @@ end
     x = SymmetricSparseIterate(X); before = state(x)
     e = try op(x, h, x, steps); nothing catch e; e end
     @test e isa ArgumentError
-    @test sprint(showerror, e) == "ArgumentError: per-group steps for Regularize do not support SymmetricSparseIterate outputs"
+    # a per-group step is not supported with an owner as the output, which is left as it was
+    @test occursin("is not supported with a SymmetricSparseIterate as the output", sprint(showerror, e))
     @test isequal(state(x), before)
   end
 end
@@ -120,7 +121,7 @@ Base.getindex(a::CountedValueArray, i::Int) = (a.reads[] += 1; a.data[i])
     y = copy(x); y[2, 1] = s
     f = IndHyperplane(a, 0.); a.reads[] = 0
     @test f(y) == (s < 0 ? 0. : Inf)
-    @test a.reads[] <= 2nnz(y)
+    @test a.reads[] <= 2nactive(y)
   end
   for make in (a -> SqrNormL2(1., a), a -> Regularize(ZeroFunction(), .2, a),
                a -> Translate(NormL1(), a), a -> Precompose(NormL1(.1, a), 2.),
@@ -146,13 +147,19 @@ end
 @testset "Value proof does not leak into mixed writes" begin
   X = [.5 .2; .2 .8]; x = SymmetricSparseIterate(X)
   c = [1. 2.; 3. 4.]; f = LinearFunction(c); g = zeros(2, 2)
-  @test value_and_gradient!(g, f, x) ≈ sum(c .* X)
+  # an owner point reads the parameters at every entry of its matrix: an asymmetric array is refused,
+  # for the value and for the gradient or the proximal step into a dense output
+  @test_throws ArgumentError f(x)
+  @test_throws ArgumentError value_and_gradient!(g, f, x)
+  @test g == zeros(2, 2)
+  @test value_and_gradient!(g, f, X) ≈ sum(c .* X)
   @test g == c
   h = Tilt(LinearFunction(c), c)
-  @test value_and_gradient!(g, h, x) ≈ 2sum(c .* X)
+  @test value_and_gradient!(g, h, X) ≈ 2sum(c .* X)
   @test g == 2c
   f = IndHalfspace(c, 0.)
-  @test prox!(g, f, x, 1.) ≈ X - sum(c .* X) / sum(abs2, c) * c
+  @test_throws ArgumentError prox!(g, f, x, 1.)
+  @test prox!(g, f, X, 1.) ≈ X - sum(c .* X) / sum(abs2, c) * c
 end
 
 @testset "Direct conjugate projections check parameters once" begin
@@ -164,8 +171,10 @@ end
     f = Conjugate(NormL1(.1, W)); y = copy(x); before = state(y)
     e = try op(y, f, x, γ); nothing catch e; e end
     @test e isa ArgumentError
-    @test e.msg == message
+    # an array step is refused at an owner output, before the parameters are read
+    @test γ isa Real ? e.msg == message : occursin("is not supported with a SymmetricSparseIterate as the output", e.msg)
     @test isequal(before, state(y))
+    γ isa Real || continue
     a = CountedValueArray(ones(3, 3)); h = Conjugate(NormL1(.1, a))
     a.reads[] = 0
     op(y, h, x, γ)
@@ -186,7 +195,8 @@ end
       ref = try op(similar(point), f, point, γ); nothing catch e; e end
       @test ref !== nothing
       for alias in (false, true)
-        input = copy(x); y = alias ? input : fill!(similar(x), 7.)
+        input = copy(x)
+        y = alias ? input : (z7 = similar(x); fill!(x isa SymmetricSparseIterate ? coordinates(z7) : z7, 7.); z7)
         before = snapshot(y); xbefore = snapshot(input)
         e = try op(y, h, input, γ); nothing catch e; e end
         @test typeof(e) === typeof(ref)

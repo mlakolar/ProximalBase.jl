@@ -107,19 +107,9 @@ end
       rejects(() -> mul!(C, x, B, α, β), name, C, x)
     end
   end
-  rejects(() -> x * ComplexF64[1, 2], name, x)
-  for (L, R) in ((Z, A), (A, Z), (UpperTriangular(Z), A), (A, UpperTriangular(Z)), (im * I, A), (A, im * I))
-    rejects(() -> mul!(x, L, R), name, x)
-    rejects(() -> mul!(x, L, R, 0, 2), name, x)
-  end
-  for (α, β) in ((1 + 0im, 0), (0, 1 + 0im))
-    rejects(() -> mul!(x, A, A, α, β), name, x)
-  end
   for (a, b) in ((ComplexF64[1, 2], [1., 2.]), ([1., 2.], ComplexF64[1, 2]))
     rejects(() -> dot(a, x, b), name, x)
   end
-  rejects(() -> mul!(x, x, Z), name, x)
-  rejects(() -> mul!(x, x, Z, 0, 2), name, x)
   rejects(() -> dot(Z, x), name, x)
   rejects(() -> dot(x, Z), name, x)
   rejects(() -> *(Symmetric(Z), x, Symmetric(A)), name, x)
@@ -127,26 +117,20 @@ end
   for source in (Z, sparse(Z), transpose(sparse(Z)), Symmetric(Z), Hermitian(Z))
     rejects(() -> copyto!(x, source), name, x)
   end
-  for scale! in (s -> rmul!(x, s), s -> lmul!(s, x), s -> rdiv!(x, s), s -> ldiv!(s, x))
-    rejects(() -> scale!(1 + 0im), name, x)
-  end
-  rejects(() -> (x .= real.(Z)), name, x)
-  rejects(() -> map!(real, x, Z), name, x)
-  rejects(() -> map!(+, x, A, Z), name, x)
-  rejects(() -> map!((a, b, c, d) -> a + b + c + real(d), x, A, A, A, Z), name, x)
-  rejects(() -> axpy!(0, Z, x), name, x)
-  rejects(() -> axpby!(0, A, 1 + 0im, x), name, x)
+  # the vector of coordinates is an ordinary vector: it converts one value at a time
+  @test_throws InexactError (coordinates(x)[2] = 2im)
+  @test_throws InexactError fill!(coordinates(x), 1 + 1im)
   for B in ([1., 2.], A, UpperTriangular(A))
     out = zeros(size(B))
-    @test mul!(out, x, B, 2., 0.) ≈ 2Matrix(x) * B
+    @test mul!(out, matrixview(x), B, 2., 0.) ≈ 2Matrix(x) * B
   end
   out = zeros(Float32, 2, 2)
-  @test mul!(out, x, Float32.(A)) ≈ Matrix(x) * A
+  @test mul!(out, matrixview(x), Float32.(A)) ≈ Matrix(x) * A
 end
 
 @testset "broadcast data and control arguments" begin
   A = [1.2 2.8; 2.8 3.1]
-  for x in (SparseIterate(A), SymmetricSparseIterate(A), AtomIterate(vec(A), 2))
+  for x in (SparseIterate(A), AtomIterate(vec(A), 2))
     data = reshape(A, size(x))
     @test (x .= round.(x, RoundDown)) == floor.(data)
     @test (x .= ((v, f) -> f(v)).(data, identity)) == data
@@ -163,14 +147,6 @@ end
       rejects(() -> (x .= real.(data .+ value)), nameof(typeof(x)), x)
     end
   end
-  x = SymmetricSparseIterate(2)
-  modes = fill(RoundDown, 2, 2)
-  labels = fill(:keep, 2, 2)
-  @test map!((v, mode) -> round(v, mode), x, A, modes) == floor.(A)
-  @test map!(mode -> round(1.2, mode), x, modes) == ones(2, 2)
-  @test map!((a, b, mode) -> round(a + b, mode), x, A, A, modes) == floor.(2A)
-  @test map!((a, b, mode, label) -> label === :keep ? round(a + b, mode) : 0,
-             x, A, A, modes, labels) == floor.(2A)
 end
 
 @testset "real scalar and structured operands" begin
@@ -185,17 +161,17 @@ end
   end
   x = SymmetricSparseIterate(A)
   for B in (Diagonal([1., 2.]), transpose(A), adjoint(A))
-    @test mul!(zeros(2, 2), x, B) == A * B
+    @test mul!(zeros(2, 2), matrixview(x), B) == A * B
   end
   for scale in (true, 2, 1//2)
-    @test Matrix(rmul!(copy(x), scale)) == A .* scale
-    @test Matrix(lmul!(scale, copy(x))) == scale .* A
-    @test Matrix(rdiv!(copy(x), scale)) == A ./ scale
-    @test Matrix(ldiv!(scale, copy(x))) == A ./ scale
-    for (L, R) in ((A, scale * I), (scale * I, A))
-      y = copy(x)
-      @test mul!(y, L, R, true, false) == A .* scale
-    end
+    y = copy(x); rmul!(coordinates(y), scale)
+    @test Matrix(y) == A .* scale
+    y = copy(x); lmul!(scale, coordinates(y))
+    @test Matrix(y) == scale .* A
+    y = copy(x); rdiv!(coordinates(y), scale)
+    @test Matrix(y) == A ./ scale
+    y = copy(x); ldiv!(scale, coordinates(y))
+    @test Matrix(y) == A ./ scale
   end
 end
 

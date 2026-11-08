@@ -65,6 +65,11 @@ parallel batch.
   (`gpu_extension_ambiguities`). The device-array suites on JLArrays are in Full (below).
   The five most expensive files contributed representative cases, moved into new files
   (below), so that Quick keeps their main identities and regressions without their grids.
+  Five of the Quick files, `atom_iterate`, `conjugate_basics`, `lmo_atoms`, `nested_scaled`
+  and `sparse_iterate_basics`, keep the Float64 pass of each operation family and a Float32
+  representative of it; the cases that repeat those (Float32 and Float16 passes, one mixed-type
+  product, the atomicity cases of `GroupNormLinf` and `GroupSCAD`) are in the Full-tier `_grids`
+  files (below).
 - **Standard** adds the files of most function families, wrappers, constraints, smooth losses
   and the examples: what an ordinary implementation change can break.
 - **Thorough** adds what shared or numerical changes can break: precision and overflow
@@ -100,7 +105,8 @@ outputs, JLArrays and the wrappers, about 60,000 assertions, beside its siblings
 `nested_scaled_values` (standard) holds the values of nested `Scaled` chains whose product does not
 fold into a normal level, a grid over the levelled families and the wrappers that fold them in both
 directions and in Float32 and Float64, and the fused values at the stored output, next to
-`nested_scaled`: a few seconds, with no grid that would need the thorough tier. `bigfloat_integer_operands` (standard) holds the exact integer operands of BigFloat
+`nested_scaled`, which takes a minute of compilation in a fresh process (its Float32 repeats are in
+`nested_scaled_grids`, below); the values add no grid that would need the thorough tier. `bigfloat_integer_operands` (standard) holds the exact integer operands of BigFloat
 arithmetic in `NormL1Fused` and the pooling of `IndIsotonic` and `SLOPE`, the segment lengths of the total-variation kernel of
 `TotalVariation1D` and `FusedLasso`, and the value at the stored output of `NormL1Fused`, at precisions of two to five bits where the
 platform decides whether an integer such as 5 is rounded: a few seconds, with no large grid.
@@ -149,10 +155,10 @@ nothing was deleted. Assertion counts (from the runner) confirm it.
 
 | New file (quick) | From (later tier) | What moved | Assertions: before = after + new |
 |---|---|---|---|
-| `sparse_iterate_basics` | `sparse_iterate` (thorough) | 17 whole testsets: construction, `dropzeros!`/nnz, `activate!`, active coordinates, converting writes, `fill!`/norm, copies and the conversion-failure regression (#416), stored zeros in `mul!` (Float64), the symmetric matrix (coordinates, mirrored writes, exact symmetry, `copyto!`), triple products (Float32, Float64), aliasing of views | 2897 = 2577 + 320 |
+| `sparse_iterate_basics` | `sparse_iterate` (thorough) | 17 whole testsets: construction, `dropzeros!`/nnz, `activate!`, active coordinates, converting writes, `fill!`/norm, copies and the conversion-failure regression (#416), stored zeros in `mul!` (Float64), the symmetric matrix (coordinates, mirrored writes, exact symmetry, `copyto!`), triple products (Float64 in quick, Float32 in `sparse_iterate_basics_grids`, below), aliasing of views | 2897 = 2577 + 320 |
 | `allocations_basics` | `allocations` (full) | Loop entries: block steps on a `SparseIterate` and with `NormL1`/`GroupNormL2`; `GroupNormL2` with distinct group layouts; `NormL1` on vectors, sparse, atom and symmetric iterates; `GroupNormL2` prox; `LeastSquaresLoss` gradients | 2910 = 2766 + 144 |
 | `constrained_basics` | `constrained` (thorough) | `NormL1` and centered `SqrNormL2` on four boxes with the brute-force optimality check; coordinate steps on a box; `Scaled(NormL1)` wrappers; simplices, closed forms, the zero-sum lasso KKT check, errors, general normals with a box, Float32 cases; Float64 open-domain boxes | 4108 = 3526 + 581 (+1, see below) |
-| `conjugate_basics` | `conjugate_projections` (full) | Seven direct conjugate families (clipping, check loss, orthant, l2 ball, group l2 ball, huge·tiny scale, shift) in Float64 and Float32; the Float64 Moreau identity with infinite weights; nested mixed sums and failure atomicity; output aliasing of parameters; biconjugates; Float64 l1-ball radius accuracy and group l1 balls | 265693 = 259835 + 5858 |
+| `conjugate_basics` | `conjugate_projections` (full) | Seven direct conjugate families (clipping, check loss, orthant, l2 ball, group l2 ball, huge·tiny scale, shift) in Float64, and in Float32 (four of the seven families stay in quick; the other three are in `conjugate_basics_grids`, below); the Float64 Moreau identity with infinite weights; nested mixed sums and failure atomicity; output aliasing of parameters; biconjugates; Float64 l1-ball radius accuracy and group l1 balls | 265693 = 259835 + 5858 |
 | `gpu_smoke` (with `gpu_prelude`, `gpu_suite_basics`; full tier since #771) | `gpu` (full) | `NormL1` (plain and weighted) and the user bits type; `NormL2`, `IndSimplex`; `GroupNormL2` on host and device layouts; weighted norms at device overflow; least-squares and logistic losses with a design matrix; infinite weights; Moreau array steps | 21767 = 21469 + 298 |
 
 The ambiguity guard for the GPU extension moved from `gpu` to `gpu_smoke` (through `gpu_suite_basics`;
@@ -177,6 +183,54 @@ covers 14160 of 14618 lines (96.86%), the same 14160 lines as master at the base
 **Assertions.** At the same base, every full job passes exactly 116 more assertions than master's
 run 41341879373 (Julia 1: 639818 against 639702; broken counts equal): the 117 of
 `tier_selection` less the one random-draw-dependent check in `constrained`.
+
+### The `_grids` files of five quick files
+
+Five Quick files have a Full-tier companion with the cases that repeat one that stays in Quick for
+another element type or wrapper. Each companion is a self-contained module with the fixtures it needs
+copied, and its name starts with the name of the Quick file, so `julia scripts/test.jl atom_iterate`
+runs both. The cases are moved with their assertions; the loop guards and the copied fixtures were
+adjusted. Quick
+keeps the Float64 pass of each operation family, a Float32 representative of each, and an atomicity,
+aliasing or NaN case of each kind for a representative function (listed per file below). The Float64
+cases that moved are the ones the table names for `atom_iterate`.
+
+| Quick file + companion (Full) | What the companion holds | Assertions: before = quick + grids |
+|---|---|---|
+| `nested_scaled` + `nested_scaled_grids` | the Float32 conjugates of the nested scales (#333), five `check` calls of the steps outside the range (#566) and the explicit infinite factor under the fold (#566); the Float32 allocation check of `Conjugate(Scaled(...))` stays in Quick | 1192 = 1057 + 135 |
+| `atom_iterate` + `atom_iterate_grids` | the Float32 x Float64 -> Float64 product and the Float32 strided views of the five-argument products (the Float64 x Float32 -> Float64 triple stays in Quick); the failed-step atomicity cases of the group wrappers for `GroupNormLinf` and `GroupSCAD`, in Float64 (`GroupNormL2`, `GroupMCP` and `SparseGroupNormL2` stay in Quick); the Float32 pass of the group view norms and dots | 3998 = 3752 + 246 |
+| `lmo_atoms` + `lmo_atoms_grids` | the Float32 passes of the density matrices, the Krylov method, the `Symmetric` and `Hermitian` wrappers and the NaN and Inf support values | 3673 = 3029 + 644 |
+| `conjugate_basics` + `conjugate_basics_grids` | the Float32 `CheckLoss`, `IndNonnegative` and `Translate` families of the direct conjugate projections | 5858 = 5675 + 183 |
+| `sparse_iterate_basics` + `sparse_iterate_basics_grids` | the Float16 pass and the Float32 `lmul!`, `ldiv!` cases of the scaling by a number (FN-9); the Float32 sparse triple products | 2840 = 1604 + 1236 |
+
+Quick does not run these cases. They run in these places:
+
+- In a pull request, for a change to the source of their own family, beside the tier (`focus` lists
+  in `.github/tier-rules.toml`; the rules add focus files and do not change a tier):
+  - `atom_iterate_grids`: `src/atom_iterate.jl`, `src/functions/norms.jl`,
+    `src/functions/sparsegroup.jl`, `src/functions/nonconvex.jl`;
+  - `sparse_iterate_basics_grids`: `src/sparse_iterate.jl`;
+  - `nested_scaled_grids`: `src/calculus.jl`, the sources shared by every function (`src/metric.jl`,
+    `src/utils.jl`, `src/interface.jl`, ...), `src/functions/singular.jl`;
+  - `conjugate_basics_grids`: `src/calculus.jl`, the shared sources, `src/functions/losses.jl`;
+  - `lmo_atoms_grids`: `src/lmo.jl`, `src/lmo_atoms.jl`, the shared sources, `src/functions/singular.jl`.
+  With the label `test:iterate-narrow`, a pull request that changes a single `AtomIterate` or
+  `SparseIterate` implementation source (`src/atom_iterate.jl` or `src/sparse_iterate.jl`) and no path
+  that needs a higher tier gives quick and that iterate's own grids file. `src/symmetric_parameters.jl`
+  gives quick with no grids file, two iterate implementations give standard, and a simultaneous change
+  to shared code such as `src/utils.jl` gives thorough.
+- In the full tier: the nightly run, tag runs, and a pull request whose tier is full (the label
+  `test:full`, or a path whose rule needs full, such as `src/lapack.jl`).
+- When requested: `julia scripts/test.jl <name>_grids`, or a change to the grids file itself.
+
+Other source paths do not add the grids files as automatic focus files in a pull request. A master
+push that changes package tests or code runs the thorough tier, which has none of them
+(a documentation-only push runs no package tests).
+`test/tier_selection.jl` checks that each companion is in Full and in no lower tier, that its Quick
+file is in Quick, the map above with `classify` (the direct-family paths, with some of the shared
+sources as representatives: `src/interface.jl`, for example, also gets the three shared grids files),
+that the named unrelated paths (`entropy.jl`, `deprecated.jl`, `sets.jl`, ...) get no grids file as
+focus, and what a master push, the nightly run and `test:full` select.
 
 ## JLArrays and CUDA
 
@@ -410,12 +464,13 @@ change is narrow, shared or architectural is the author's declaration, checked i
 run 41364805347), beside the iterate files of quick (`active_handle`, `atom_iterate`,
 `iterate_invariants`, `iterate_queries`, `iterate_writes`, `matrixview`,
 `sparse_iterate_basics`, `symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
-`allocations_basics`, `block_step_failures`):
+`allocations_basics`, `block_step_failures`). The grids file of each of the first two rules
+(`atom_iterate_grids`, `sparse_iterate_basics_grids`, above) is a focus file of it:
 
 | Rule | Focus files | Why | Worker s |
 |---|---|---|---:|
-| `src/atom_iterate.jl` | `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` | constructors and products; block steps over groups (activation order, staging, pre-write errors, aliased trial points); the group norms and sparse group on atoms; active-group visits with infinite weights | 165 |
-| `src/sparse_iterate.jl` (both stored iterates and their shared code) | `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` | the complete iterate tests; products and dispatch; block steps; no dense pass in value oracles; storage after failures; the products of the symmetric owner, the symmetric part read by `prox!`/`gradient!` | 532 |
+| `src/atom_iterate.jl` | `atom_iterate_grids`, `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` | constructors and products; block steps over groups (activation order, staging, pre-write errors, aliased trial points); the group norms and sparse group on atoms; active-group visits with infinite weights | 165 |
+| `src/sparse_iterate.jl` (both stored iterates and their shared code) | `sparse_iterate`, `sparse_iterate_basics_grids`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` | the complete iterate tests; products and dispatch; block steps; no dense pass in value oracles; storage after failures; the products of the symmetric owner, the symmetric part read by `prox!`/`gradient!` | 532 |
 | `src/symmetric_parameters.jl` | `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` | the check paths, the trait, writes, merged and extension parameters; the catalogs (`_centers`, `_inventory`, `_inventory_walk`) stay in full | 133 |
 
 Left out on purpose and still in thorough or full: `symmetric_groups` (group-norm writes into a

@@ -225,6 +225,24 @@ tier = "quick"
 focus = ["examples"]
 paths = ["examples/**"]
 
+# The grids files. atom_iterate_grids, conjugate_basics_grids, lmo_atoms_grids,
+# nested_scaled_grids and sparse_iterate_basics_grids are in the full tier. They hold cases that
+# repeat cases that quick keeps for Float64, a Float32 representative or a representative function
+# (test/TESTING.md lists them). A pull request runs them, beside its tier, for a change to the source of their own family:
+#   atom_iterate_grids:          src/atom_iterate.jl, src/functions/norms.jl,
+#                                src/functions/sparsegroup.jl, src/functions/nonconvex.jl
+#   sparse_iterate_basics_grids: src/sparse_iterate.jl
+#   nested_scaled_grids:         src/calculus.jl, the shared sources (src/metric.jl, ...),
+#                                src/functions/singular.jl
+#   conjugate_basics_grids:      src/calculus.jl, the shared sources, src/functions/losses.jl
+#   lmo_atoms_grids:             src/lmo.jl, src/lmo_atoms.jl, the shared sources,
+#                                src/functions/singular.jl
+# Other source paths do not add them as automatic focus files. They still run when the tier of the
+# pull request is full (for example a change to src/lapack.jl or another infrastructure path, or
+# the label test:full; also the nightly run and tag runs), when the grids file itself changes, when
+# another changed path's rule lists them, and when requested by name
+# (julia scripts/test.jl <name>_grids).
+#
 # The iterates. A change to one implementation runs standard and its focus files: the
 # iterate's own tests and those of its main interactions, beside the iterate files of quick
 # (active_handle, atom_iterate, iterate_invariants, iterate_queries, matrixview,
@@ -237,7 +255,7 @@ paths = ["examples/**"]
 why = "AtomIterate: groups, activation, copies, products, block steps over groups"
 tier = "standard"
 narrow = "quick"
-focus = ["real_iterates", "block_step", "norms", "sparsegroup", "infinite_group_weights"]
+focus = ["atom_iterate_grids", "real_iterates", "block_step", "norms", "sparsegroup", "infinite_group_weights"]
 paths = ["src/atom_iterate.jl"]
 
 [[risk]]
@@ -246,6 +264,7 @@ tier = "standard"
 narrow = "quick"
 focus = [
   "sparse_iterate",
+  "sparse_iterate_basics_grids",
   "real_iterates",
   "block_step",
   "sparse_value_cost",
@@ -271,6 +290,7 @@ paths = ["src/symmetric_parameters.jl"]
 [[risk]]
 why = "shared by every function: interface, traits, numerical helpers, wrappers, steps"
 tier = "thorough"
+focus = ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"]
 paths = [
   "src/ProximalBase.jl",
   "src/compat.jl",
@@ -287,7 +307,7 @@ paths = [
 [[risk]]
 why = "the wrappers, whose rejected-step catalog (stepchecks) is in the full tier"
 tier = "thorough"
-focus = ["stepchecks"]
+focus = ["stepchecks", "nested_scaled_grids", "conjugate_basics_grids"]
 paths = ["src/calculus.jl"]
 
 # Families used only by their own tests: quick and those tests, if the PR changes a test.
@@ -300,7 +320,7 @@ paths = ["src/functions/entropy.jl"]
 [[risk]]
 why = "a self-contained family"
 tier = "quick"
-focus = ["losses", "sqrhinge"]
+focus = ["losses", "sqrhinge", "conjugate_basics_grids"]
 paths = ["src/functions/losses.jl"]
 
 [[risk]]
@@ -354,7 +374,7 @@ paths = ["src/functions/graph.jl"]
 [[risk]]
 why = "a self-contained family"
 tier = "quick"
-focus = ["singular"]
+focus = ["singular", "lmo_atoms_grids", "nested_scaled_grids"]
 paths = ["src/functions/singular.jl"]
 
 [[risk]]
@@ -416,6 +436,18 @@ why = "sets, including the hyperslab, whose tests are in the full tier"
 tier = "standard"
 focus = ["hyperslab"]
 paths = ["src/functions/sets.jl"]
+
+[[risk]]
+why = "the matrix oracles and atoms, whose Float32 passes are in lmo_atoms_grids"
+tier = "standard"
+focus = ["lmo_atoms_grids"]
+paths = ["src/lmo.jl", "src/lmo_atoms.jl"]
+
+[[risk]]
+why = "the group penalties, whose atomicity cases for GroupNormLinf and GroupSCAD are in atom_iterate_grids"
+tier = "standard"
+focus = ["atom_iterate_grids"]
+paths = ["src/functions/norms.jl", "src/functions/sparsegroup.jl", "src/functions/nonconvex.jl"]
 
 [[risk]]
 why = "package code: functions, wrappers and constraints"

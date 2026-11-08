@@ -525,4 +525,55 @@ end
   end
 end
 
+# ---- SumLargest: a + b + c of the final shift ----
+
+# SumLargest(k, 2^le)(sg 2^TOP ones(k)) is sg k 2^(le + TOP). The shift a + b + c is exponent(max |x|) = TOP, the frexp
+# exponent le + 1 of λ, and the frexp exponent c of the scaled sum k (c = 2, 2, 3, 4 for k = 2, 3, 4, 8): in the
+# default range its total first leaves Int64 at k = 4 for le = TOP
+@testset "SumLargest value, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    total(le, c) = TOP + (le + 1) + c
+    if EMAX == 2^62 - 1
+      @test total(TOP, 2) == typemax(Int64)
+      @test total(TOP, 3) == Int128(typemax(Int64)) + 1
+    end
+    for (k, c) in ((2, 2), (4, 3), (8, 4)), le in (BOT, 0, TOP - 3, TOP - 1, TOP), sg in (1, -1)
+      r = SumLargest(k, pw(le))([pw(TOP, sg) for _ in 1:k])
+      check_result(r, sg, le + TOP + c - 1)
+    end
+    # k = 3: 3 2^(le + TOP) is not a power of two
+    for sg in (1, -1)
+      r = SumLargest(3, pw(BOT))([pw(TOP, sg) for _ in 1:3])
+      @test isfinite(r) && r == 3 * pw(BOT + TOP, sg)
+      for le in (0, TOP - 1, TOP)
+        r = SumLargest(3, pw(le))([pw(TOP, sg) for _ in 1:3])
+        @test isinf(r) && signbit(r) == (sg < 0)
+      end
+    end
+    # the k largest of a longer array
+    for le in (TOP - 1, TOP)
+      r = SumLargest(4, pw(le))(vcat([pw(TOP) for _ in 1:4], [pw(0), pw(1)]))
+      @test isinf(r) && r > 0
+    end
+  end
+end
+
+@testset "SumLargest with Float64 or mixed data, precision $p" for p in (5, 53)
+  setprecision(BigFloat, p) do
+    # Float64 data and a BigFloat level: the sum 2^1025 overflows Float64, the working type is BigFloat
+    for (le, n) in ((TOP, TOP + 1025), (-2000, -975), (BOT, BOT + 1025))
+      check_value(SumLargest(4, pw(le))(fill(2.0^1023, 4)), 1, n)
+    end
+    # BigFloat data and a Float64 level
+    check_result(SumLargest(4, 2.0^-1000)([pw(TOP) for _ in 1:4]), 1, TOP + 2 - 1000)
+    check_result(SumLargest(4, 2.0^1000)([pw(TOP, -1) for _ in 1:4]), -1, TOP + 1002)
+  end
+end
+
+@testset "SumLargest with Float64 data keeps its sums" begin
+  for (k, c) in ((2, 2), (4, 3), (8, 4)), (le, sg) in ((1023, 1), (1023, -1), (-1000, 1), (-1000, -1), (-1074, 1))
+    check_result(SumLargest(k, Base.ldexp(1.0, le))(fill(sg * 2.0^1023, k)), sg, le + 1023 + c - 1)
+  end
+end
+
 end

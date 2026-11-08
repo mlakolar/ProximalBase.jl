@@ -917,7 +917,7 @@ function _sumlargest_sum(v::AbstractVector{T}, k::Int, λ) where {T}
   end
   u, b = _frexp(S(λ))
   w, c = _frexp(S(s + e))
-  convert(T, ldexp(u * w, a + b + c))
+  convert(T, ldexp(u * w, _exponent_sum(S, a, b, c)))
 end
 
 # The compensated sum s + e of v[1:k], whose entries are finite, with opposite signs cancelled first, as in

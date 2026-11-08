@@ -65,11 +65,14 @@ a complex factor, a size other than `size(x)`, a failure to materialize `Q` and 
 failing conversion (an `InexactError` when `x` has integer entries) all throw
 before anything is written and leave `x` unchanged.
 
-The write is an ordinary value write, like `copyto!(x, Matrix(Q))`, not a copy of
+The write is an ordinary value write of the full logical matrix of `Q`, which
+has size `size(Q)` (for `qr(randn(4, 3)).Q` that is ``4\times 4``, while
+`Matrix(Q)` is the thin ``4\times 3`` factor), not a copy of
 a working-set state: an active coordinate whose new value is zero stays active, and
 a nonzero value activates its coordinate. The dense temporary and its allocation are
-deliberate. A caller who cares about performance can form the dense matrix once and
-pass it to `copyto!`.
+deliberate. A caller who cares about performance can form the full dense matrix once, as
+`lmul!(Q, Matrix{T}(I, size(Q)))` for the element type `T` of `Q` (not `Matrix(Q)`,
+which is thin for a rectangular factorization), and pass it to `copyto!`.
 
 ### Matrix coefficients
 

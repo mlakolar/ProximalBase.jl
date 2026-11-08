@@ -488,7 +488,9 @@ active zero slots may remain active. For `QRCompactWYQ`, `LQPackedQ` and
 overwrite `x` with the identity and then throw a `MethodError`; `QRPackedQ`
 (`qr(A, ColumnNorm()).Q`) worked. Now a complex factor, a size mismatch, a
 failed materialization and a failed conversion throw before `x` is written. The
-temporary is deliberate; for speed, pass a precomputed dense matrix.
+temporary is deliberate. The write uses the full `size(Q)` matrix, which for a
+rectangular factorization is larger than the thin `Matrix(Q)`; for speed, pass the
+full dense matrix `lmul!(Q, Matrix{T}(I, size(Q)))`, not `Matrix(Q)`.
 
 Writes through a view, through `vec` of a matrix or a `reshape` to another
 shape, and through `atom(x, k)` keep Base's conversion: a complex value throws

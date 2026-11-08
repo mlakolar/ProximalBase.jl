@@ -41,7 +41,9 @@ integer `x`) throw before anything is written, so `x` is unchanged. The write is
 a value write, not a copy of a working-set state: an active coordinate whose new
 value is zero stays active, and no coordinate is deactivated. The dense temporary
 and its allocation are deliberate; a caller who needs speed can pass a
-precomputed dense matrix.
+precomputed dense matrix of the full size `size(Q)`, such as
+`lmul!(Q, Matrix{T}(I, size(Q)))` (`Matrix(Q)` is only the thin factor of a
+rectangular factorization).
 """
 mutable struct SparseIterate{T, N} <: AbstractArray{T, N}
     nzval::Vector{T}            # stored nonzero values (1:nnz)

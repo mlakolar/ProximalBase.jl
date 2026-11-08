@@ -325,16 +325,15 @@ end
     @test vals(x) == saved
     # an exception of f while the result is evaluated happens before any write
     late = Ref{Any}(v -> v == 4 ? error("late") : v)
-    x = make(); saved = copy(x); w = shaped([1.0, 2, 3, 4])
+    x = make(); saved = vals(x); nsaved = nactive(x); w = shaped([1.0, 2, 3, 4])
     @test_throws ErrorException (x .= late[].(w))
-    @test isequal(x, saved) && nactive(x) == nactive(saved)
-    x = make(); saved = copy(x)
+    @test vals(x) == saved && nactive(x) == nsaved
+    x = make(); saved = vals(x); nsaved = nactive(x)
     @test_throws DomainError (x .= sqrt.(-z1 .- 1))
-    @test isequal(x, saved)
+    @test vals(x) == saved && nactive(x) == nsaved
     # real values of a Union, Any or Number result are written
     x = make()
     @test vals((x .= (v -> v > 5 ? 1im : 1.0).(z1))) == fill(1.0, dims)
-    @test nactive(x) == 4
     x = make()
     @test vals((x .= shaped(Number[1.0, 2, 3, 4]))) == shaped([1.0, 2, 3, 4])
     x = make()

@@ -192,10 +192,17 @@ end
   @test prox(c, x, 0.5) == map(xk -> xk .- 0.5 .* prox(SqrNormL2(), xk ./ 0.5, inv(0.5)), x)
 end
 
+# prox_{γf*}(x) = λ(x - γy)/(λ + γ) for f = SqrNormL2(λ, y), from the stored parameters in BigFloat
+sqr_conjugate_ref(λ, x, γ, y = 0) = big(λ) * (big(x) - big(γ) * big(y)) / (big(λ) + big(γ))
+# within n ulps of the rounded reference where that is a normal number, n subnormal spacings below it
+function within_ulps(got, ref, ::Type{T} = typeof(got), n = 2) where {T}
+  r = T(ref)
+  isfinite(r) || return false
+  abs(big(got) - ref) <= n * (abs(r) < floatmin(T) ? big(nextfloat(zero(T))) : big(eps(r)))
+end
+
 @testset "fallback: finite results at finite inputs" begin
-  for (f, x, γ) in ((SqrNormL2(), [0.0, 1.0], 1e-310),
-                    (LinearFunction([1.0, 2.0]), [0.0, 1e-300], 1e-310),
-                    (SqrNormL2(), Float32[0.5, 1], 1e300),
+  for (f, x, γ) in ((LinearFunction([1.0, 2.0]), [0.0, 1e-300], 1e-310),
                     (ElasticNet(0.4, 0.7), [0.0, 1.0], 1e-310),
                     (Berhu(1.0, 2.0), [0.0, 1.0], 1e-310))
     c = Conjugate(f)
@@ -210,7 +217,7 @@ end
   end
   # elsewhere bitwise the base computation
   formula(f, x, γ) = x .- γ .* prox(f, x ./ γ, inv(γ))
-  for f in (SqrNormL2(), ElasticNet(0.4, 0.7), Berhu(1.0, 2.0), LinearFunction([1.0, 2.0, -1.0]),
+  for f in (ElasticNet(0.4, 0.7), Berhu(1.0, 2.0), LinearFunction([1.0, 2.0, -1.0]),
             SqrHingeLoss(), NegEntropy()),
       (x, γ) in (([0.3, -1.2, 2.0], 0.3), ([0.3, -1.2, 2.0], 7.0), ([0.0, 1e-300, -2e-300], 1e-310))
     expected = formula(f, x, γ)
@@ -222,6 +229,42 @@ end
   end
   @test prox(Conjugate(SqrNormL2()), [0.0, 1e-300], 1e-310) == [0.0, 1e-300]
   @test isequal(prox(Conjugate(SqrNormL2()), [NaN, 1.0], 0.5), formula(SqrNormL2(), [NaN, 1.0], 0.5))
+end
+
+@testset "Conjugate(SqrNormL2) at a finite positive step: the representable point" begin
+  fm = floatmax(Float64)
+  cases = ((SqrNormL2(), [0.0, 1.0], 1e-310),
+           (SqrNormL2(), Float32[0.5, 1], 1e300),
+           (SqrNormL2(), [0.0, 1e-300, -2e-300], 1e-310),
+           (SqrNormL2(), [1e300, -5.0, 1e-310], 1e-10),
+           (SqrNormL2(), [0.3, -1.2, 2.0], 0.3),
+           (SqrNormL2(), Float32[3f38, -1f0], 0.1f0),
+           (SqrNormL2(1e-300), [1e300, 1.0], 1e300),
+           (SqrNormL2(1e300), [1e300, 1.0], 1e-300),
+           (SqrNormL2(1e-12), [1.0, 2.0], 1.0),
+           (SqrNormL2(1.0), [1.0, 2.0], 1e10),
+           (SqrNormL2(2.0, [1e300, 1e-300]), [3.0, 5.0], 1e-10),
+           (SqrNormL2(2.0, [3.0, -1.0]), [1e300, -1e-300], 1e-300),
+           (SqrNormL2(15.0, [fm, -fm]), [fm, -fm], 1.5),
+           (SqrNormL2(1.0, [-0.6fm]), [fm], 4.0),
+           (SqrNormL2(1.0, Float32[1f0, 2f0]), Float32[1f30, -3f0], 1e-10))
+  setprecision(BigFloat, 400) do
+    for (f, x, γ) in cases, op in (prox!, value_and_prox!), alias in (false, true)
+      T = float(eltype(x))
+      c = Conjugate(f)
+      y = f.y === nothing ? zero(x) : f.y
+      refs = [sqr_conjugate_ref(f.λ, x[i], γ, y[i]) for i in eachindex(x)]
+      input = copy(x)
+      out = alias ? input : fill(T(7), length(x))
+      op(out, c, input, γ)
+      @test all(i -> within_ulps(out[i], refs[i], T), eachindex(x))
+      alias || @test input == x
+      for i in eachindex(x)
+        e = prox_entry(c, x[i], i, γ)
+        @test within_ulps(e, refs[i], typeof(e))
+      end
+    end
+  end
 end
 
 @testset "prox_entry" begin
@@ -302,6 +345,17 @@ end
     prox!(y, c, x, 0.5)
     @test allocs(prox!, y, c, x, 0.5) == 0
     f isa SqrNormL2 || @test allocs(prox!, y, c, x, 1e-310) == 0
+  end
+  # the closed form of the quadratic: no allocation at an ordinary or at an extreme step
+  for T in (Float32, Float64), f in (SqrNormL2(), SqrNormL2(T(2), T[0.5, -1, 2, 0, 1, 3, -2, 1, 0.5, 1]))
+    xT, yT = rand(T, 10), zeros(T, 10)
+    c = Conjugate(f)
+    for γ in (T(0.5), T(1e-30), T(1e30))
+      prox!(yT, c, xT, γ)
+      @test allocs(prox!, yT, c, xT, γ) == 0
+      value_and_prox!(yT, c, xT, γ)
+      @test allocs(value_and_prox!, yT, c, xT, γ) == 0
+    end
   end
   twice = Conjugate(Conjugate(NormL1()))
   prox!(y, twice, x, 1e-310)

@@ -331,6 +331,59 @@ end
   end
 end
 
+# A conjugate quadratic at a step where x/γ overflows but the point is representable
+@testset "Conjugate(SqrNormL2) in a block at an extreme step" begin
+  setprecision(BigFloat, 400) do
+    ref(λ, x, γ) = big(λ) * big(x) / (big(λ) + big(γ))
+    near(::Type{T}, got, r) where {T} = abs(big(got) - r) <= 2 * (abs(T(r)) < floatmin(T) ? big(nextfloat(zero(T))) : big(eps(T(r))))
+    for (T, x2, γ, λ1) in ((Float64, 1e300, 1e-10, 2.0), (Float32, 3f38, 0.1f0, 2f0))
+      c = Conjugate(SqrNormL2(T(1)))
+      s = SeparableSum(SqrNormL2(λ1), c, NormL1(T(0.25)))
+      x = (T[3], T[x2], T[2, -0.1])
+      r1 = (big(T(3))) / (1 + big(γ) * big(λ1))
+      r2 = ref(T(1), T(x2), γ)
+      r3 = (big(T(2)) - big(γ) / 4, -(big(T(0.1)) - big(γ) / 4))
+      for op in proximal, alias in (false, true)
+        input = deepcopy(x)
+        y = alias ? input : (T[7], T[7], T[7, 7])
+        v = op(y, s, input, γ)
+        @test near(T, y[1][1], r1) && near(T, y[2][1], r2) && near(T, y[3][1], r3[1]) && near(T, y[3][2], r3[2])
+        alias || @test isequal(input, x)
+        op === value_and_prox! && @test v isa T
+      end
+      # the standalone conjugate agrees
+      @test near(T, prox(c, T[x2], γ)[1], r2)
+      @test prox_entry(c, T(x2), 1, γ) == prox(c, T[x2], γ)[1]
+      # the value of the point is not representable: Inf, as for the standalone call
+      if T === Float64
+        y = (T[7], T[7], T[7, 7])
+        @test value_and_prox!(y, s, x, γ) == Inf
+        @test value_and_prox!(T[7], c, T[x2], γ) == Inf
+      end
+    end
+  end
+end
+
+@testset "Conjugate(SqrNormL2) in a block at a step that is not finite and positive" begin
+  # The conjugate raises its error before it writes: the standalone call leaves its output as it was and
+  # the block call raises the same error, with the block of the conjugate and the input of that block
+  # unchanged. A block before it is written, as it was before the closed form.
+  s = SeparableSum(SqrNormL2(2.0), Conjugate(SqrNormL2()))
+  for γ in (0.0, NaN, Inf, -1.0), op in proximal, alias in (false, true)
+    alone = [7.0]
+    ref = thrown(op, alone, Conjugate(SqrNormL2()), [1e300], γ)
+    @test ref isa ArgumentError
+    @test alone == [7.0]
+    x = ([3.0], [1e300])
+    input = deepcopy(x)
+    y = alias ? input : ([7.0], [7.0])
+    e = thrown(op, y, s, input, γ)
+    @test same_exception(e, ref)
+    @test isequal(y[2], alias ? x[2] : [7.0])
+    @test isequal(input[2], x[2])
+  end
+end
+
 @testset "Exact empty and bounded box-linear failures" begin
   for set in (IndHyperplane(1.0, 1.0), IndHalfspace(1.0, -1.0))
     block_failure(Constrained(NormL1(), set), Float64[], 1.0)

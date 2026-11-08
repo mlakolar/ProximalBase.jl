@@ -8,7 +8,8 @@
 # - eigenvalue shrinkage: `TracePSD(μ)`, the trace on the PSD cone, whose
 #   proximal operator subtracts μ from the eigenvalues and clips at zero;
 # - hard thresholding of a covariance: `IndBallL0(s; diagonal = false)` keeps the
-#   s largest off-diagonal entries of a symmetric matrix, and its diagonal.
+#   at most fld(s, 2) of the largest nonzero off-diagonal pairs of a symmetric matrix,
+#   and its diagonal (s counts entries, a pair twice; a larger budget changes nothing).
 #
 # The spectral functions call LAPACK through workspaces that they own.
 
@@ -63,11 +64,12 @@ println("TracePSD(", μ, "): rank ", count(>(1e-10), eigvals(Symmetric(T))), " o
 
 # --- hard thresholding a sample covariance ----------------------------------
 # Keep the diagonal and the s largest off-diagonal pairs (i, j), j < i, in a
-# SymmetricSparseIterate, which stores only the lower triangle.
+# SymmetricSparseIterate, which stores only the lower triangle. The budget of
+# IndBallL0 counts entries and a pair is two of them, so s pairs take 2s.
 s = 6
 Ŝ = Symmetric(B'B / 30)
 Θ = SymmetricSparseIterate(p)
-prox!(Θ, IndBallL0(s; diagonal = false), Symmetric(Matrix(Ŝ), :L), 1.0)
+prox!(Θ, IndBallL0(2s; diagonal = false), Symmetric(Matrix(Ŝ), :L), 1.0)
 offdiag = sort([abs(Ŝ[i, j]) for j in 1:p for i in j+1:p], rev = true)
 kept = [(i, j) for j in 1:p for i in j+1:p if !iszero(Θ[i, j])]
 println("hard thresholding: ", nactive(Θ), " stored entries (", p, " diagonal, ", length(kept), " off-diagonal)")

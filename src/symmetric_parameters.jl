@@ -613,7 +613,7 @@ end
   w = _OwnerMatrix(y)
   x.x === y ? op(w, f, w, γ) : op(w, f, x, γ)
 end
-# The ℓ0 ball counts the coordinates of the lower triangle, a mirrored pair once: every point reaches it as the
+# The ℓ0 ball counts the entries of the symmetric matrix, a mirrored pair twice: every point reaches it as the
 # symmetric matrix that it represents, which is the point itself, or its symmetric part, as a Symmetric one
 @inline function _owner_call(op::O, y, f::IndBallL0, x::SymmetricSparseIterate, γ) where {O}
   w = _OwnerMatrix(y)

@@ -49,6 +49,7 @@ quick = [
   "losses",
   "nested_box_values",
   "sets",
+  "l0_symmetric_full_entry",
   "lmo",
   "lmo_atoms",
   "spectral",

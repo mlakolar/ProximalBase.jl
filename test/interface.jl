@@ -231,6 +231,14 @@ ProximalBase.kkt_violation(f::KktCustom, g::AbstractArray, i::Integer) = abs(g[i
       @test Array(x) == xc
       @test nactive(x) == 0
     end
+    # a valid id of another integer type, and a view or a transpose as the gradient
+    for x in (SparseIterate(T, 4), SparseIterate(T, 2, 2)), k in (Int8(3), UInt(3), UInt8(3), big(3))
+      @test kkt_violation(f, g, x, k) == T(6)
+    end
+    @test kkt_violation(f, g, SparseIterate(T, 4), true) == T(2)
+    @test kkt_violation(f, view(vcat(T(0), g, T(0)), 2:5), SparseIterate(T, 4), 3) == T(6)
+    @test kkt_violation(f, transpose(reshape(g, 2, 2)), SparseIterate(T, 2, 2), 2) == abs(g[3]) - 1
+    @test kkt_violation(f, reshape(g, 2, 2)', SparseIterate(T, 4), 2) == abs(g[3]) - 1
     # the issue example: g of length 3 and k = 3 on a SparseIterate(2)
     @test_throws BoundsError kkt_violation(NormL1(T(1)), T[1, 2, 7], SparseIterate(T, 2), 3)
     @test_throws DimensionMismatch kkt_violation(NormL1(T(1)), T[1], SparseIterate(T, 2), 1)
@@ -260,6 +268,12 @@ ProximalBase.kkt_violation(f::KktCustom, g::AbstractArray, i::Integer) = abs(g[i
       @test [kkt_violation(f, gg, S, k) for k in 1:3] == [abs(sym[1, 1]) - 1, abs(sym[2, 1]) - 1, abs(sym[2, 2]) - 1]
       @test all(kkt_violation(f, gg, S, k) isa T for k in 1:3)
     end
+    for k in (Int8(2), UInt(2), big(2), UInt8(2))
+      @test kkt_violation(f, G, S, k) == abs(sym[2, 1]) - 1
+    end
+    @test kkt_violation(f, G, S, true) == abs(sym[1, 1]) - 1
+    @test kkt_violation(f, view(vcat(T(0), vec(G), T(0)), 2:5), S, 2) == abs(sym[2, 1]) - 1
+    @test kkt_violation(f, transpose(G), S, 2) == abs(sym[2, 1]) - 1
     Gc = copy(G)
     for k in (0, 4, 10^6, big_ids..., big(4), UInt(4), Int8(4))
       @test_throws BoundsError kkt_violation(f, G, S, k)

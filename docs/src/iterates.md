@@ -557,9 +557,9 @@ chosen coordinate. It keeps equal entries exactly; otherwise it computes
 `g[r, c] / 2 + g[c, r] / 2`. Dividing first avoids overflow to `Inf` when
 adding two large finite entries. `+Inf` at one position and `-Inf` at its
 mirror have no symmetric part and cause an `ArgumentError` at the chosen
-coordinate. The call does not search the rest of `g` for such pairs. Before it reads
-the gradient it checks that `k` is one of `1:ncoordinates(x)` (a `BoundsError`
-otherwise) and that `g` has `p^2` entries, as a matrix or flat (a `DimensionMismatch`
+coordinate. The call does not search the rest of `g` for such pairs. After the check of the real
+element types, it checks that `k` is one of `1:ncoordinates(x)` (a `BoundsError`
+otherwise) and then that `g` has `p^2` entries, as a matrix or flat (a `DimensionMismatch`
 otherwise).
 
 To validate every declared parameter pair before a solver starts, call
@@ -920,10 +920,11 @@ v = kkt_violation(GroupNormLinf(1.0, [1:2]), g, x2, 1)
 v
 ```
 
-On a `SparseIterate`, ``k`` is an entry. The call first checks that ``k`` is
-one of `1:ncoordinates(x)` (a `BoundsError` otherwise) and that `g` has the
-length of `x` (a `DimensionMismatch` otherwise); a matrix-shaped or flat `g` of
-that length is accepted, and `g` is not scanned. For a separable `f` the call
+On a `SparseIterate`, ``k`` is an entry. After the check of the real
+element types, the call checks that ``k`` is one of `1:ncoordinates(x)` (a
+`BoundsError` otherwise) and then that `g` has the length of `x` (a
+`DimensionMismatch` otherwise); a matrix-shaped or flat `g` of that length is
+accepted, and `g` is not scanned. For a separable `f` the call
 then returns `kkt_violation(f, g, k)`. A group penalty screens
 each entry with its group. When every entry of the group is zero in `x`, the
 call returns the screen of the group in the table. Otherwise it returns the

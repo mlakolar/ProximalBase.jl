@@ -586,11 +586,13 @@ end
     kkt_violation(f, g, x, k)
 
 How much a coordinate at zero violates the optimality conditions of `h + f`,
-where `g = ∇h(x)` is the gradient of the smooth part. In the second form `k` must be a
-coordinate of `x`, or a `BoundsError` is thrown, and, for a [`SparseIterate`](@ref) or a
-[`SymmetricSparseIterate`](@ref), `g` must have the extent of the problem, `length(x)` or
-`p^2`, or a `DimensionMismatch` is thrown; a matrix-shaped or flat `g` of that length is
-accepted. On an [`AtomIterate`](@ref), `k` is a group and the group layout is checked as before. On a
+where `g = ∇h(x)` is the gradient of the smooth part. For a
+[`SparseIterate`](@ref) or a [`SymmetricSparseIterate`](@ref) `x`, the second form checks
+the real element types, then that `k` is one of `1:ncoordinates(x)` (a `BoundsError`
+otherwise), then that `g` has `length(x)` entries, or `p^2` for the symmetric iterate (a
+`DimensionMismatch` otherwise); a matrix-shaped or flat `g` of that length is accepted. For an
+[`AtomIterate`](@ref), `k` is a group, and the group layout and the group `k` are checked as
+before. For other arrays `x` the second form does not check `k` or `g` against `x`. On a
 [`SymmetricSparseIterate`](@ref), use the symmetric part of `g`; an opposing
 pair of infinite entries has no symmetric part and throws `ArgumentError`.
 A positive value means

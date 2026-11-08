@@ -32,6 +32,9 @@ quick = [
   "iterate_writes",
   "matrixview",
   "sparse_iterate_basics",
+  "symmetric_iterate_copies",
+  "symmetric_iterate_indexing",
+  "symmetric_iterate_interface",
   "symmetric_parameters",
   "symmetric_products",
   "wrapper_buffers",
@@ -46,6 +49,7 @@ quick = [
   "losses",
   "nested_box_values",
   "sets",
+  "l0_symmetric_full_entry",
   "lmo",
   "lmo_atoms",
   "spectral",
@@ -182,12 +186,13 @@ thorough = [
   "symmetric_argument",
   "symmetric_groups",
   "symmetric_mul",
+  "symmetric_oracles",
+  "symmetric_wrappers",
   "symmetric_parameters_extensions",
   "symmetric_parameters_merge",
   "symmetric_parameters_paths",
   "symmetric_parameters_trait",
   "symmetric_parameters_writes",
-  "symmetric_writes",
   "testing",
   "value_overflow_data",
   "value_overflow_glm",
@@ -203,28 +208,37 @@ thorough = [
 # them, and a change to the GPU files, the GPU extension or the label test:gpu runs them in a
 # pull request. The CPU catalogs that load JLArrays as a second array type stay in the tiers
 # above, and the ambiguity guard for the GPU extension is in quick (gpu_extension_ambiguities).
+# The <name>_grids files hold the redundant Float32 passes and type grids of five quick files
+# (atom_iterate, conjugate_basics, lmo_atoms, nested_scaled, sparse_iterate_basics): the cases
+# there repeat cases that stay in the quick file for Float64, a Float32 representative or a
+# representative function (test/TESTING.md lists them). A pull request adds a grids file as a focus
+# file for a change to the source of its own family (.github/tier-rules.toml); a run of the full
+# tier (including a pull request whose tier is full) or by name also runs them.
 full = [
   "allocations",
+  "atom_iterate_grids",
   "blockchecks_steps",
   "blockchecks_values",
   "blockchecks_workspace",
   "blockchecks_wrappers",
   "conformance/gpu_arrays",
+  "conjugate_basics_grids",
   "conjugate_projections",
   "distl2",
   "gpu",
   "gpu_smoke",
   "hyperslab",
   "image",
+  "lmo_atoms_grids",
+  "nested_scaled_grids",
   "precision_mixed",
   "precompose_array",
   "real_functions",
   "real_iterates",
   "real_wrappers",
   "separable_blocks",
+  "sparse_iterate_basics_grids",
   "stepchecks",
-  "symmetric_mutator_errors",
-  "symmetric_mutators",
   "symmetric_parameters_centers",
   "symmetric_parameters_inventory",
   "symmetric_parameters_inventory_walk",

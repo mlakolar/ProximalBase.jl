@@ -31,6 +31,14 @@ Base.:*(x::C, y::C) = C(x.v * y.v)
 
 zeros_made(f) = (ZEROS[] = 0; v = f(); (ZEROS[], v))
 
+# the number of stored coordinates, and the matrix an owner represents for the generic controls
+nstored(x) = x isa SymmetricSparseIterate ? nactive(x) : nnz(x)
+as_generic(x) = x isa SymmetricSparseIterate ? matrixview(x) : x
+
+# Values at an owner that are not defined for it (use f(matrixview(X)) or f(Matrix(X))).
+unsupported_at_owner(f) =
+  f isa Union{CubeNormL2, IndBallL1, IndBallL2, IndSphereL2, IndSimplex, NormLinf}
+
 # Writing a nonzero first keeps the coordinate stored when its value is zero.
 function make_iterate(T, kind, data; p = 100)
   x = kind == :sym ? SymmetricSparseIterate(T, p) :
@@ -72,13 +80,13 @@ end
   @testset "Detector control" begin
     for kind in (:sym, :mat)
       x = make_iterate(C, kind, [(1, 1, 1.0), (2, 1, 0.5)]; p = 200)
-      controls = (y -> invoke(PB._sumabs2, Tuple{AbstractArray}, y),
-                  y -> invoke(norm, Tuple{Any, Real}, y, 2),
-                  y -> sum(abs2, y))
+      controls = (y -> invoke(PB._sumabs2, Tuple{AbstractArray}, as_generic(y)),
+                  y -> invoke(norm, Tuple{Any, Real}, as_generic(y), 2),
+                  y -> sum(abs2, as_generic(y)))
       for (name, f) in zip(("generic sumabs2", "generic norm", "sum abs2"), controls)
         @testset "$kind $name" begin
           n, _ = zeros_made(() -> f(x))
-          @test n >= length(x) - 2nnz(x)
+          @test n >= length(as_generic(x)) - 2nstored(x)
         end
       end
     end
@@ -94,10 +102,10 @@ end
       y = make_iterate(Float64, kind, data)
       names = ("sumabs2", "norm2", "norm2_scaled", "scaled_sum", "scaled_sumabs2", "scaled_dot")
       for (name, f, g) in zip(names, helpers(x), helpers(y))
-        @testset "$kind $name stored=$(nnz(x))" begin
+        @testset "$kind $name stored=$(nstored(x))" begin
           n, value = zeros_made(() -> f(x))
-          if nnz(x) == 0 && name in ("norm2", "norm2_scaled")
-            # An empty-view norm may create one zero; a dense pass would create length(x) zeros.
+          if nstored(x) == 0 && name in ("norm2", "norm2_scaled")
+            # An empty-view norm may create one zero; a dense pass would create one zero for each entry of the matrix.
             @test n <= 1
           else
             @test n == 0
@@ -121,6 +129,7 @@ end
       IndBallL1(1.0), IndBallL1(1e308), IndBallL1(floatmax(Float64)))
     for kind in (:sym, :mat), magnitude in (1.0, 1e-300, 1e300),
         sign in (-1, 1), f in oracles
+      kind == :sym && unsupported_at_owner(f) && continue
       data = [(1, 1, sign * magnitude), (2, 1, magnitude), (3, 3, 0.0)]
       check_oracle(f, kind, data)
     end
@@ -129,7 +138,8 @@ end
     for r in (1e308, floatmax(Float64))
       slack = r + PB._tol(Float64) * max(1.0, r)
       @test isfinite(slack) == (r == 1e308)
-      for f in (IndBallL1(r), IndBallL2(r)), kind in (:sym, :mat)
+      # these balls have no value at an owner
+      for f in (IndBallL1(r), IndBallL2(r)), kind in (:mat,)
         check_oracle(f, kind, [(1, 1, 1e300), (2, 1, 1e300)]; expected = 0.0)
         data = [(1, 1, floatmax(Float64)), (2, 2, floatmax(Float64))]
         check_oracle(f, kind, data; expected = Inf)
@@ -150,9 +160,19 @@ end
       (IndSphereL2(1.0), 1.0, 2.0), (IndBallLinf(1.0), 0.0, 2.0),
       (IndBox(-1.0, 1.0), 0.0, 2.0), (IndNonnegative(), 0.0, -1.0))
     for kind in (:sym, :mat), (f, inside, outside) in indicators
+      kind == :sym && unsupported_at_owner(f) && continue
       check_oracle(f, kind, [(1, 1, inside)]; expected = 0.0)
       check_oracle(f, kind, [(1, 1, outside)]; expected = Inf)
     end
+
+    # The value of the ℓ0 ball at an owner reads the stored coefficients only: a diagonal entry counts one
+    # and a pair two, as the entries of the dense matrix.
+    data = [(1, 1, 1.0), (2, 1, 0.5), (3, 3, 0.0)]
+    for s in 0:4, diagonal in (true, false)
+      check_oracle(IndBallL0(s; diagonal), :sym, data; expected = s >= (diagonal ? 3 : 2) ? 0.0 : Inf)
+    end
+    check_oracle(IndBallL0(2), :sym, [(1, 1, 1.0), (2, 1, NaN)]; expected = NaN)
+    check_oracle(IndBallL0(2; diagonal = false), :sym, [(1, 1, NaN), (2, 1, 1.0)]; expected = 0.0)
   end
 
   @testset "Known dense paths" begin
@@ -160,13 +180,13 @@ end
       x = make_iterate(C, kind, [(1, 1, 1e300), (2, 1, 1e300)])
       n, _ = zeros_made(() -> NormL2(1e100)(x))
       @test_broken n == 0
-      x = make_iterate(C, kind, [(1, 1, 1.0), (2, 1, 0.5)])
-      n, _ = zeros_made(() -> IndSimplex(2.0)(x))
-      @test_broken n == 0
     end
+    x = make_iterate(C, :mat, [(1, 1, 1.0), (2, 1, 0.5)])
+    n, _ = zeros_made(() -> IndSimplex(2.0)(x))
+    @test_broken n == 0
     x = make_iterate(C, :sym, [(1, 1, 1.0), (2, 1, 0.5)])
     n, _ = zeros_made(() -> IndBallL0(3)(x))
-    @test_broken n == 0
+    @test n == 0
     x = make_iterate(C, :mat, [(1, 1, 1.0), (2, 1, 0.5)])
     f = LinearFunction(ones(size(x)))
     n, _ = zeros_made(() -> f(x))
@@ -190,10 +210,15 @@ end
         x = make_iterate(T, :sym, data; p = d)
         for p in (1, Inf, 0, 2, 3, -Inf)
           value = norm(x, p)
-          generic = invoke(norm, Tuple{Any, Real}, x, p)
+          generic = norm(matrixview(x), p)
           reference = norm(Matrix(x), p)
           @test typeof(value) == typeof(generic) == typeof(reference)
-          if p == Inf || p in (0, -Inf) || all(t -> isinteger(abs(t[3])), data)
+          if p == 2
+            # the scaled accumulation over the stored entries rounds differently from the pass over all p²
+            tol = 8eps(typeof(value))
+            @test isequal(value, reference) || isapprox(value, reference; rtol = tol)
+            @test isequal(value, generic) || isapprox(value, generic; rtol = tol)
+          elseif p == Inf || p in (0, -Inf) || all(t -> isinteger(abs(t[3])), data)
             @test isequal(value, reference)
             @test isequal(value, generic)
           else
@@ -201,7 +226,8 @@ end
             @test isequal(value, generic) || isapprox(value, generic)
           end
         end
-        @test isequal(norm(x), invoke(norm, Tuple{Any, Real}, x, 2))
+        @test isequal(norm(x), norm(x, 2))
+        @test isequal(norm(x), norm(matrixview(x), 2)) || isapprox(norm(x), norm(matrixview(x), 2); rtol = 8eps(typeof(norm(x))))
       end
     end
   end

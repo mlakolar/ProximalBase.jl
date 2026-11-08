@@ -350,7 +350,7 @@ end
   for y in (zeros(2, 2), SymmetricSparseIterate(2))
     v = value_and_prox!(y, c, zeros(2, 2), 2f0^80)
     @test v == 2.0^80                    # λ0 ⋅ w ⋅ r; the threshold is 2^160
-    @test y[1, 1] == 1.0 && sum(abs2, y) == 1.0
+    @test y[1, 1] == 1.0 && sum(abs2, Matrix(y)) == 1.0
   end
   @test_throws ArgumentError value_and_prox!(zeros(Float32, 2, 2), c, zeros(Float32, 2, 2), 2f0^80)
 

@@ -80,9 +80,14 @@ wrappers(f) = (f, Scaled(f, 2.), Tilt(f, zeros(2, 2)),
     @test PB.entry_parameters(f) === (f isa MyL1{false} ? nothing : (:w => W,))
     for h in wrappers(f)
       rejects(y -> h(y), copy(x), message)
-      for γ in (.1, fill(.1, 2, 2))
-        rejects(y -> prox!(y, h, x, γ), copy(x), message)
-        rejects(y -> value_and_prox!(y, h, x, γ), copy(x), message)
+      rejects(y -> prox!(y, h, x, .1), copy(x), message)
+      rejects(y -> value_and_prox!(y, h, x, .1), copy(x), message)
+      # an array step is refused with an owner as the output, whatever the parameters
+      for op in (prox!, value_and_prox!)
+        y = copy(x); before = state(y)
+        err = try op(y, h, x, fill(.1, 2, 2)); nothing catch e; e end
+        @test err isa ArgumentError && occursin("is not supported with a SymmetricSparseIterate as the output", err.msg)
+        @test isequal(state(y), before)
       end
       rejects(y -> prox_coordinate!(y, h, 2, .1), copy(x), message)
       rejects(y -> kkt_violation(h, ones(2, 2), y, 2), copy(x), message)
@@ -95,9 +100,12 @@ wrappers(f) = (f, Scaled(f, 2.), Tilt(f, zeros(2, 2)),
       end
     end
     rejects(y -> lla_weights!(y, f, x), fill(-7., 2, 2), message)
-    rejects(y -> lla_weights!(y, f, x), copy(x), message)
+    # the weights are written to a dense matrix: an owner is not an output of lla_weights!
+    @test_throws MethodError lla_weights!(copy(x), f, x)
     # Dense output retains the input's ordinary entrywise semantics.
-    @test prox!(zeros(2, 2), f, x, .1) ≈ prox(NormL1(1., f.w), X, .1)
+    # (an owner point reads the parameters at every entry of its matrix: they must be declared and symmetric)
+    @test prox!(zeros(2, 2), f, X, .1) ≈ prox(NormL1(1., f.w), X, .1)
+    @test_throws ArgumentError prox!(zeros(2, 2), f, x, .1)
     for z in (X, SparseIterate(X))
       @test f(z) ≈ NormL1(1., f.w)(z)
       @test Matrix(prox(f, z, .1)) ≈ Matrix(prox(NormL1(1., f.w), z, .1))
@@ -116,11 +124,9 @@ end
       x = SymmetricSparseIterate(X)
       @test PB.check_symmetric_parameters(h, x)
       @test h(x) ≈ b(x)
-      for γ in (.1, fill(.1, 2, 2))
-        y = copy(x)
-        @test Matrix(prox!(y, h, x, γ)) ≈ Matrix(prox(b, x, γ))
-        @test value_and_prox!(y, h, x, γ) ≈ b(prox(b, x, γ))
-      end
+      y = copy(x)
+      @test Matrix(prox!(y, h, x, .1)) ≈ Matrix(prox(b, x, .1))
+      @test value_and_prox!(y, h, x, .1) ≈ b(prox(b, x, .1))
       y = copy(x); z = copy(x)
       @test prox_coordinate!(y, h, 2, .1) ≈ prox_coordinate!(z, b, 2, .1)
     end
@@ -176,13 +182,17 @@ end
 
 @testset "Built-in separable declaration inventory" begin
   # Walk the concrete families, including any future non-exported ones.
+  undeclared = Any[]
   for name in names(PB; all = true)
     F = getfield(PB, name)
     F isa Type && F <: SeparableFunction || continue
     isabstracttype(Base.unwrap_unionall(F)) && continue
+    # a union of types is not a function type: each of its members is walked on its own
+    F isa Union && continue
     method = which(PB.entry_parameters, (F,))
-    @test method !== which(PB.entry_parameters, (SeparableFunction,))
+    method === which(PB.entry_parameters, (SeparableFunction,)) && push!(undeclared, name)
   end
+  @test isempty(undeclared)
   for f in (NormL1(), NormL1Nonneg(), ElasticNet(.1, .2), CappedL1(.1, 1.),
             LogPenalty(.1, 1.), NormLq(.1, .5), Berhu(.1, 1.), CheckLoss(.3),
             HingeLoss(), SqrHingeLoss(), EpsInsensitiveLoss(.2), BernoulliLoss(.5),

@@ -239,7 +239,9 @@ Base.getindex(a::CountedArray, i::Int) = (a.reads += 1; a.data[i])
               @test f(AtomIterate(x, [1:1, 2:2])) == f(x)
               X = T[x[1] 0; 0 x[2]]
               @test f(SparseIterate(X)) == f(X)
-              @test f(SymmetricSparseIterate(X)) == f(X)
+              # the value of these sets at an owner is not defined: use the matrix view
+              @test_throws MethodError f(SymmetricSparseIterate(X))
+              @test f(matrixview(SymmetricSparseIterate(X))) == f(X)
             end
           end
           for A in (T[1 -1], sparse(T[1 -1])), off in (false, true)
@@ -254,7 +256,7 @@ Base.getindex(a::CountedArray, i::Int) = (a.reads += 1; a.data[i])
             X = T[M 0; 0 (off ? M / 2 : M)]
             @test f(X) == (off ? T(Inf) : zero(T))
             @test f(SparseIterate(X)) == f(X)
-            @test f(SymmetricSparseIterate(X)) == f(X)
+            @test_throws MethodError f(SymmetricSparseIterate(X))      # the value of IndToeplitz at an owner is not defined
           end
         end
 
@@ -368,14 +370,14 @@ Base.getindex(a::CountedArray, i::Int) = (a.reads += 1; a.data[i])
           x = SymmetricSparseIterate(p)
           x[1, 1] = 1.0
           x[2, 1] = s
-          @test nnz(x) == 2
+          @test nactive(x) == 2
           a = CountedArray(fill(c, p, p))
           f = IndHyperplane(a, 0.0)
           a.reads = 0
           @test f(x) == expected
           # Dense evaluation reads all p^2 entries of the normal; sparse evaluation
           # reads at most the two mirrored entries per stored entry.
-          @test 0 < a.reads <= 2nnz(x)
+          @test 0 < a.reads <= 2nactive(x)
         end
       end
     end

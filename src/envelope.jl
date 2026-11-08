@@ -47,9 +47,9 @@ isseparable(::Type{<:MoreauEnvelope{F}}) where {F} = isseparable(F)
 isconvex(::Type{<:MoreauEnvelope{F}}) where {F} = isconvex(F)
 
 # the proximal point of f, in the buffer that e owns
-_envelope_buffer(e::MoreauEnvelope, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(e.scratch, T, size(x))
+_envelope_buffer(e::MoreauEnvelope, ::Type{T}, x::_ArrayOrOwner) where {T} = _array_buffer!(e.scratch, T, size(x))
 
-function _checkwrite(op::O, e::MoreauEnvelope, y::AbstractArray, x::AbstractArray) where {O}
+function _checkwrite(op::O, e::MoreauEnvelope, y::_ArrayOrOwner, x::_ArrayOrOwner) where {O}
   _checkreal(e, y); _checkreal(e, x)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
@@ -63,7 +63,7 @@ function _checkwrite(op::O, e::MoreauEnvelope, y::AbstractArray, x::AbstractArra
   end
   true
 end
-_checkvalue(e::MoreauEnvelope, x::AbstractArray) =
+_checkvalue(e::MoreauEnvelope, x::_ArrayOrOwner) =
   (_checkreal(e, x); _checkwrite(value_and_prox!, e.f, _checkbuffer(e.scratch, float(eltype(x)), size(x)), x))
 
 # Form the distance in units of sqrt(2γ) before squaring it: an unscaled
@@ -96,14 +96,14 @@ end
   isfinite(d) ? d / γ : x / γ - p / γ
 end
 
-(e::MoreauEnvelope)(x::AbstractArray) =
+(e::MoreauEnvelope)(x::_ArrayOrOwner) =
   (_check_value_arrays(e, x); _value_checked(e, x))
-function _value_unchecked(e::MoreauEnvelope, x::AbstractArray)
+function _value_unchecked(e::MoreauEnvelope, x::_ArrayOrOwner)
   T = float(eltype(x))
   γ = convert(T, e.γ)
   p = _envelope_buffer(e, T, x)
   v = _value_and_prox_unchecked!(p, e.f, x, γ)
-  _value_at(v + _envelope_energy(x, p, γ), x)
+  _value_at(v + _envelope_energy(_vw(x), p, γ), x)
 end
 
 value_and_gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray) =
@@ -138,9 +138,9 @@ end
 # is f(P) + ‖y - P‖²/(2γ), with ‖y - P‖ = γ/(γ + t) ‖x - P‖
 # The step is checked after the sizes and parameters and before the inner
 # function, as before the pre-write checks.
-prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real) =
+prox!(y::_ArrayOrOwner, e::MoreauEnvelope, x::_ArrayOrOwner, t::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, e, y, x, t); _prox_unchecked!(y, e, x, t))
-function _prox_unchecked!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
+function _prox_unchecked!(y::_ArrayOrOwner, e::MoreauEnvelope, x::_ArrayOrOwner, t::Real)
   _checksize(y, x)
   _checkparams(e, x)
   T = float(eltype(y))
@@ -149,12 +149,15 @@ function _prox_unchecked!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray,
   _checkwrite(prox!, e, y, x)
   P = _envelope_buffer(e, T, x)
   _prox_unchecked!(P, e.f, x, combined)
-  y .= _ridge_blend.(x, P, γ / combined, t / combined)
+  _check_staged_result(y, P, e.f)
+  yy = _ow(y)
+  yy .= _ridge_blend.(_pt(yy, x), P, γ / combined, t / combined)
+  y
 end
 
-value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real) =
+value_and_prox!(y::_ArrayOrOwner, e::MoreauEnvelope, x::_ArrayOrOwner, t::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, e, y, x, t); _value_and_prox_unchecked!(y, e, x, t))
-function _value_and_prox_unchecked!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
+function _value_and_prox_unchecked!(y::_ArrayOrOwner, e::MoreauEnvelope, x::_ArrayOrOwner, t::Real)
   _checksize(y, x)
   _checkparams(e, x)
   T = float(eltype(y))
@@ -164,8 +167,10 @@ function _value_and_prox_unchecked!(y::AbstractArray, e::MoreauEnvelope, x::Abst
   P = _envelope_buffer(e, T, x)
   v = _value_and_prox_unchecked!(P, e.f, x, combined)
   a, b = γ / combined, t / combined
-  y .= _ridge_blend.(x, P, a, b)
-  _value_at(v + _envelope_energy(y, P, γ), y)
+  _check_staged_result(y, P, e.f)
+  yy = _ow(y)
+  yy .= _ridge_blend.(_pt(yy, x), P, a, b)
+  _value_at(v + _envelope_energy(_vw(y), P, γ), y)
 end
 
 Base.@propagate_inbounds function prox_entry(e::MoreauEnvelope, v::Real, i::Integer, t::Real)

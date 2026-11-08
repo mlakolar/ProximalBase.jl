@@ -483,7 +483,7 @@ Base.@propagate_inbounds function prox_entry(f::SqrHingeLoss, v::Real, i::Intege
   S(_sqrhinge_prox(u, y, w, step))
 end
 
-function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::SqrHingeLoss, g::AbstractArray, x::AbstractArray)
+function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::SqrHingeLoss, g::_ArrayOrOwner, x::_ArrayOrOwner)
   _checkreal(f, x)
   _checkreal(f, g)
   _checkgradient_output(g, x)
@@ -499,7 +499,7 @@ Base.@propagate_inbounds function _sqrhinge_gradient(f::SqrHingeLoss, v::Real, i
   -copysign(_sqrhinge_slope(y, w, r, e), y)
 end
 
-gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray) =
+gradient!(g::_ArrayOrOwner, f::SqrHingeLoss, x::_ArrayOrOwner) =
   (_check_oracle_arrays(gradient!, f, g, x); _gradient_unchecked!(g, f, x))
 function _gradient_unchecked!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
   _checkwrite(gradient!, f, g, x)
@@ -508,9 +508,25 @@ function _gradient_unchecked!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArra
   end
   g
 end
+# an owner point with a dense output: the entries of the matrix that the owner represents
+_gradient_unchecked!(g::AbstractArray, f::SqrHingeLoss, x::SymmetricSparseIterate) =
+  _gradient_unchecked!(g, f, matrixview(x))
+# an owner output: the symmetric part of the entrywise gradient
+function _gradient_unchecked!(g::SymmetricSparseIterate, f::SqrHingeLoss, x::_ArrayOrOwner)
+  _checkwrite(gradient!, f, g, x)
+  _symmetric_coordinates!(g, (v, j) -> _sqrhinge_gradient(f, v, j), x)
+end
 
-value_and_gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray) =
+value_and_gradient!(g::_ArrayOrOwner, f::SqrHingeLoss, x::_ArrayOrOwner) =
   (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
+_value_and_gradient_unchecked!(g::AbstractArray, f::SqrHingeLoss, x::SymmetricSparseIterate) =
+  _value_and_gradient_unchecked!(g, f, matrixview(x))
+function _value_and_gradient_unchecked!(g::SymmetricSparseIterate, f::SqrHingeLoss, x::_ArrayOrOwner)
+  _checkwrite(value_and_gradient!, f, g, x)
+  v = _value_unchecked(f, x)
+  _symmetric_coordinates!(g, (u, j) -> _sqrhinge_gradient(f, u, j), x)
+  v
+end
 function _value_and_gradient_unchecked!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
   T = float(eltype(x))

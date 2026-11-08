@@ -247,7 +247,9 @@ gh run download <id>
     smaller, and uses `Clong`-typed powers of two as exact operands.
   - `test/bigfloat_integer_operands.jl` compares results with integer operands
     (of several integer types, `Int32` among them) at two to five bits and at 256
-    bits with a model, written in the file, that forms the integer exactly; it
+    bits with a model, written in the file, that forms the integer exactly (it
+    covers the segment lengths of the total-variation kernel of `TotalVariation1D`
+    and `FusedLasso`, and the value at the stored output of `NormL1Fused`); it
     does not change the exponent range.
 
   A reproduction on Linux can show a cause and give the fix a test; the native
@@ -266,12 +268,22 @@ that thorough adds. The focus files are in `.github/tier-rules.toml`, beside the
 iterate files that quick always runs (`active_handle`, `atom_iterate`,
 `iterate_invariants`, `iterate_queries`, `matrixview`, `sparse_iterate_basics`,
 `symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
-`allocations_basics`):
+`allocations_basics`). The cases that five quick files leave out (Float32 repeats and
+type grids: `atom_iterate_grids`, `conjugate_basics_grids`, `lmo_atoms_grids`,
+`nested_scaled_grids`, `sparse_iterate_basics_grids`, listed in `test/TESTING.md`) are
+in the full tier. A pull request runs a grids file for a change to the source of its
+own family (`.github/tier-rules.toml` lists the paths, `test/TESTING.md` the map), the
+nightly run and `test:full` run all of them, and `julia scripts/test.jl <name>_grids`
+runs one by name. Other source paths do not add them as automatic focus files; they
+still run when the pull request's tier is full (for example `src/lapack.jl`, other
+infrastructure paths, the label `test:full`), when the grids file itself changes, or
+when another changed path's rule lists them.
+The iterate rows:
 
 | Change | Before merge |
 |---|---|
-| `src/atom_iterate.jl`, narrow | quick + `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` |
-| `src/sparse_iterate.jl`, narrow | quick + `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_writes`, `symmetric_mul`, `symmetric_argument`, `symmetric_mutators`, `symmetric_mutator_errors` |
+| `src/atom_iterate.jl`, narrow | quick + `atom_iterate_grids`, `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` |
+| `src/sparse_iterate.jl`, narrow | quick + `sparse_iterate`, `sparse_iterate_basics_grids`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` |
 | `src/symmetric_parameters.jl`, narrow | quick + `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` |
 | one of them, not declared narrow | standard + the same focus files |
 | two of them | standard + both groups (the label does not apply) |

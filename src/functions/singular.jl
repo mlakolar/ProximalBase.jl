@@ -371,3 +371,12 @@ end
   _spectral_rescale!(Y, B, e, max(size(X)...), σ)
   convert(T, v)
 end
+
+# The owner of a symmetric matrix: its value is that of the matrix it represents, and the proximal
+# operator writes the lower triangle of its result into it (see NuclearNorm).
+(F::SingularValue)(X::SymmetricSparseIterate) = F(matrixview(X))
+value_and_prox!(Y::SymmetricSparseIterate, F::SingularValue, X::_MatrixOrOwner, γ::Real) = _owner_value_and_prox!(Y, F, X, γ)
+prox!(Y::SymmetricSparseIterate, F::SingularValue, X::_MatrixOrOwner, γ::Real) = _owner_prox!(Y, F, X, γ)
+value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::SymmetricSparseIterate, γ::Real) = value_and_prox!(Y, F, matrixview(X), γ)
+prox!(Y::AbstractMatrix, F::SingularValue, X::SymmetricSparseIterate, γ::Real) = prox!(Y, F, matrixview(X), γ)
+prox(F::SingularValue, X::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(X, float(eltype(X))), F, X, γ)

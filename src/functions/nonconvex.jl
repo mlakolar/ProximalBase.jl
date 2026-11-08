@@ -828,6 +828,12 @@ function prox!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray, ::Real)
   y
 end
 
+# an owner output, formed in a staged matrix and written to the owner last: groups that are not closed under
+# transposition give a result that is not symmetric, which the commit refuses
+prox!(y::SymmetricSparseIterate, f::IndBallGroupL0, x::_ArrayOrOwner, γ::Real) = _staged_owner!(prox!, y, f, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, f::IndBallGroupL0, x::_ArrayOrOwner, γ::Real) =
+  _staged_owner!(value_and_prox!, y, f, x, γ)
+
 function prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
   _checkwrite(prox!, f, y, x)
   _samelayout(f, y) && _samelayout(f, x) ||
@@ -1134,3 +1140,15 @@ function _group_norm_parts(::Type{R}, x::AbstractArray, G) where {R}
   end
   _parts(sqrt(s), e)
 end
+
+####################################
+#  a SymmetricSparseIterate
+####################################
+
+# The proximal operators of the group penalties into the owner of a symmetric matrix, with a scalar
+# step: the groups must be closed under transposition, which is checked before anything is written,
+# and each stored coordinate is written once. The group coordinates and the group values at an owner
+# are not defined.
+const _OwnerGroups = Union{GroupNormL2, GroupNormLinf, SparseGroupNormL2, GroupMCP, GroupSCAD}
+value_and_prox!(y::SymmetricSparseIterate, f::_OwnerGroups, x::_ArrayOrOwner, γ::Real) = _owner_value_and_prox!(y, f, x, γ)
+prox!(y::SymmetricSparseIterate, f::_OwnerGroups, x::_ArrayOrOwner, γ::Real) = _owner_prox!(y, f, x, γ)

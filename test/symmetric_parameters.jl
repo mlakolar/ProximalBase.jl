@@ -6,6 +6,9 @@ Random.seed!(191)
 
 const ASYMMETRIC = "must be symmetric"
 
+# an owner with every coordinate stored at v, as the array fill! did
+filled(x, v) = (fill!(coordinates(x), v); x)
+
 # everything a failed write must leave unchanged, in storage order
 state(x) = map(name -> deepcopy(getfield(x, name)), fieldnames(typeof(x)))
 
@@ -30,13 +33,13 @@ end
     A = [1.0 3.0; 2.0 4.0]
     xs = SymmetricSparseIterate([2.0 1.0; 1.0 2.0])
     for f in (LinearFunction(A), Tilt(SqrNormL2(), A))
-      rejects(g -> gradient!(g, f, xs), fill!(SymmetricSparseIterate(2), -1), ArgumentError, ASYMMETRIC)
-      rejects(y -> prox!(y, f, xs, 1.0), fill!(SymmetricSparseIterate(2), -1), ArgumentError, ASYMMETRIC)
+      rejects(g -> gradient!(g, f, xs), filled(SymmetricSparseIterate(2), -1), ArgumentError, ASYMMETRIC)
+      rejects(y -> prox!(y, f, xs, 1.0), filled(SymmetricSparseIterate(2), -1), ArgumentError, ASYMMETRIC)
     end
     @test Matrix(gradient!(SymmetricSparseIterate(2), LinearFunction(Symmetric(A, :L)), xs)) == [1 2; 2 4]
     rejects(g -> gradient!(g, LinearFunction(vec(A)), xs), SymmetricSparseIterate(2), DimensionMismatch)
     # a block sum checks every block before it writes one
-    y = (fill!(SymmetricSparseIterate(2), -1), fill!(SymmetricSparseIterate(2), -1))
+    y = (filled(SymmetricSparseIterate(2), -1), filled(SymmetricSparseIterate(2), -1))
     for f in (Tilt(NormL1(1.0), A), Tilt(SqrNormL2(), A), LinearFunction(A), SqrNormL2(1.0, A),
               Translate(NormL1(1.0), A), Translate(SqrNormL2(), A), Precompose(SqrNormL2(), A))
       h = SeparableSum(SqrNormL2(), f)
@@ -51,9 +54,9 @@ end
         @test Matrix(y[1]) == Matrix(y[2]) == fill(-1, 2, 2)
       end
     end
-    # entrywise steps are written too
-    rejects(y -> prox!(y, Tilt(NormL1(1.0), [1.0 2.0; 2.0 1.0]), xs, A), fill!(SymmetricSparseIterate(2), -1),
-            ArgumentError, ASYMMETRIC)
+    # an array step is not supported with an owner as the output, whatever its entries
+    rejects(y -> prox!(y, Tilt(NormL1(1.0), [1.0 2.0; 2.0 1.0]), xs, A), filled(SymmetricSparseIterate(2), -1),
+            ArgumentError, "is not supported with a SymmetricSparseIterate as the output")
   end
 
   @testset "SVD-based prox of a symmetric matrix" begin

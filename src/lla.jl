@@ -60,8 +60,8 @@ weighted lasso that majorizes `f` at `x` up to a constant, has the penalty
 
 The weights include the level `λ` and the entry or group weights of `f`; to
 keep the level apart, divide them by `λ` and use `NormL1(λ, w)`. `x` may be a
-[`SparseIterate`](@ref), a [`SymmetricSparseIterate`](@ref) (with a `p × p`
-array `w`) or an [`AtomIterate`](@ref). `lla_weights!` allocates nothing;
+[`SparseIterate`](@ref), a [`SymmetricSparseIterate`](@ref) (for the separable penalties, with a dense `p × p`
+matrix `w`; the allocating form returns a `Matrix`) or an [`AtomIterate`](@ref). `lla_weights!` allocates nothing;
 `lla_weights(f, x)` allocates `w`. The weights are computed in the wider of the
 types of `w` and `x` and rounded once to `eltype(w)` (numerics T3, T4): a
 `Float32` point `x` gives `Float64` weights of the `Float64` slopes at the
@@ -184,6 +184,27 @@ function lla_weights!(w::AbstractArray, f::LogPenalty, x::AbstractArray)
 end
 
 lla_weights(f::AbstractFunction, x::AbstractArray) = lla_weights!(_gradient_buffer(x), f, x)
+
+# A SymmetricSparseIterate point: the weights are a dense p × p matrix, w[i] the weight of the matrix entry
+# at the linear index i = (c - 1)p + r, which an off-diagonal coordinate has at both of its positions. The
+# parameters of the penalty must be exactly symmetric, as for its value and its gradient, and are checked
+# before anything is written. The separable penalties have weights (`CappedL1`, `LogPenalty`, `MCP`, `SCAD`,
+# and `NormL1` itself); the others give the error of `lla_weight`.
+const _OwnerLLA = SeparableFunction
+function lla_weights!(w::AbstractMatrix, f::_OwnerLLA, x::SymmetricSparseIterate)
+  eltype(w) <: Real || _real_error(:lla_weights!)
+  _checksize(w, x)
+  _checkparams(f, x)
+  check_symmetric_parameters(f, x)
+  T = eltype(w)
+  p = x.p
+  @inbounds for c in 1:p, r in 1:p
+    i = (c - 1) * p + r
+    w[i] = convert(T, lla_weight(f, x[r, c], i))
+  end
+  return w
+end
+lla_weights(f::_OwnerLLA, x::SymmetricSparseIterate) = lla_weights!(_gradient_buffer(x), f, x)
 
 ####################################
 #  group penalties

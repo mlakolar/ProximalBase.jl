@@ -398,13 +398,13 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
   @test classify("src/functions/cones.jl", "test/soc.jl") == ("quick", ["expcone", "rotatedsoc", "soc"])
   # package code without any test change: at least standard
   @test classify("src/functions/entropy.jl") == ("standard", ["entropy"])
-  @test classify("src/functions/norms.jl", "test/norms.jl") == ("standard", ["norms"])
+  @test classify("src/functions/norms.jl", "test/norms.jl") == ("standard", ["atom_iterate_grids", "norms"])
   # a family whose own tests are in the full tier runs them beside standard
   @test classify("src/functions/sets.jl", "test/sets.jl") == ("standard", ["hyperslab", "sets"])
   @test classify("src/composition.jl") == ("standard", ["composition", "precompose_array"])
   # shared code
   @test classify("src/utils.jl")[1] == "thorough"
-  @test classify("src/calculus.jl", "test/calculus.jl") == ("thorough", ["calculus", "stepchecks"])
+  @test classify("src/calculus.jl", "test/calculus.jl") == ("thorough", ["calculus", "conjugate_basics_grids", "nested_scaled_grids", "stepchecks"])
   @test classify("src/interface.jl", "docs/src/interface.md")[1] == "thorough"
   # the conformance suite and its coverage map
   # (its gpu_arrays reports are written beside the tier, so the check has the complete inventory)
@@ -444,9 +444,9 @@ end
 # The tier and focus files a PR gets, as the plan job reports them.
 pr(paths...; labels = String[]) = TestTiers.pr_tier(MANIFEST, collect(paths), labels)[1:2]
 const NARROW = [TestTiers.NARROW_LABEL]
-const ATOM = ["block_step", "infinite_group_weights", "norms", "real_iterates", "sparsegroup"]
-const SPARSE = ["block_step", "conformance/failures_storage", "real_iterates", "sparse_iterate", "sparse_value_cost",
-                "symmetric_argument", "symmetric_mul", "symmetric_mutator_errors", "symmetric_mutators", "symmetric_writes"]
+const ATOM = ["atom_iterate_grids", "block_step", "infinite_group_weights", "norms", "real_iterates", "sparsegroup"]
+const SPARSE = ["block_step", "conformance/failures_storage", "real_iterates", "sparse_iterate", "sparse_iterate_basics_grids",
+                "sparse_value_cost", "symmetric_argument", "symmetric_mul"]
 const SYMPARAMS = ["symmetric_parameters_extensions", "symmetric_parameters_merge", "symmetric_parameters_paths",
                    "symmetric_parameters_trait", "symmetric_parameters_writes"]
 instandard(names) = filter(n -> !(n in TestTiers.select(MANIFEST, "standard")), names)
@@ -482,7 +482,7 @@ instandard(names) = filter(n -> !(n in TestTiers.select(MANIFEST, "standard")), 
   @test pr("src/atom_iterate.jl", "src/functions/entropy.jl"; labels = NARROW)[1] == "standard"
   @test pr("src/atom_iterate.jl", "src/functions/norms.jl", "test/norms.jl"; labels = NARROW)[1] == "standard"
   @test pr("src/functions/entropy.jl", "test/entropy.jl"; labels = NARROW) == ("quick", String[])
-  @test pr("src/functions/norms.jl"; labels = NARROW) == pr("src/functions/norms.jl") == ("standard", String[])
+  @test pr("src/functions/norms.jl"; labels = NARROW) == pr("src/functions/norms.jl") == ("standard", ["atom_iterate_grids"])
   # the label only adds information: the same paths without it never get a lower tier, and the
   # focus files are the same
   for paths in (["src/atom_iterate.jl"], ["src/sparse_iterate.jl", "src/utils.jl"], ["src/functions/sets.jl"],
@@ -511,6 +511,8 @@ instandard(names) = filter(n -> !(n in TestTiers.select(MANIFEST, "standard")), 
 end
 
 const GPU = ["conformance/gpu_arrays", "gpu", "gpu_smoke"]
+# the grids files that the rule for the code shared by every function (src/utils.jl, ...) runs
+const SHARED_GRIDS = ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"]
 
 @testset "the device-array suites run in the full tier and beside changes to the GPU files" begin
   # outside the default tiers, inside full, each listed once (the manifest checks reject a duplicate)
@@ -544,14 +546,14 @@ const GPU = ["conformance/gpu_arrays", "gpu", "gpu_smoke"]
   for path in ("src/functions/norms.jl", "src/utils.jl", "src/composition.jl", "test/norms.jl", "README.md")
     @test isdisjoint(pr(path)[2], GPU)
   end
-  @test pr("src/functions/norms.jl") == ("standard", String[])
+  @test pr("src/functions/norms.jl") == ("standard", ["atom_iterate_grids"])
   # the label test:gpu adds the three files to any change; labels never lower the tier
-  @test pr("src/functions/norms.jl"; labels = ["test:gpu"]) == ("standard", GPU)
-  @test pr("src/utils.jl"; labels = ["test:gpu"]) == ("thorough", GPU)
-  @test pr("src/utils.jl"; labels = ["test:gpu", "test:standard"]) == ("thorough", GPU)
-  @test pr("src/functions/norms.jl"; labels = ["test:gpu", "test:thorough"]) == ("thorough", GPU)
+  @test pr("src/functions/norms.jl"; labels = ["test:gpu"]) == ("standard", ["atom_iterate_grids"; GPU])
+  @test pr("src/utils.jl"; labels = ["test:gpu"]) == ("thorough", sort!([GPU; SHARED_GRIDS]))
+  @test pr("src/utils.jl"; labels = ["test:gpu", "test:standard"]) == ("thorough", sort!([GPU; SHARED_GRIDS]))
+  @test pr("src/functions/norms.jl"; labels = ["test:gpu", "test:thorough"]) == ("thorough", ["atom_iterate_grids"; GPU])
   @test pr("src/functions/norms.jl"; labels = ["test:full", "test:gpu"]) == ("full", String[])
-  @test pr("src/functions/norms.jl"; labels = ["test:gpu", NARROW...]) == ("standard", GPU)
+  @test pr("src/functions/norms.jl"; labels = ["test:gpu", NARROW...]) == ("standard", ["atom_iterate_grids"; GPU])
   # a change that needs no package tests runs quick with the files (a plan with tier none runs nothing)
   _, _, _, notes = TestTiers.pr_tier(MANIFEST, ["docs/src/index.md"], ["test:gpu"])
   @test pr("docs/src/index.md"; labels = ["test:gpu"]) == ("quick", GPU)
@@ -561,7 +563,7 @@ const GPU = ["conformance/gpu_arrays", "gpu", "gpu_smoke"]
   @test pr(; labels = ["test:gpu"]) == ("quick", GPU) # no changed files: quick
   # the label names are labels: SubStrings, as split gives them, work, and an unknown label next to
   # test:gpu is still an error that lists test:gpu
-  @test pr("src/utils.jl"; labels = split("test:gpu,bug", ',')) == ("thorough", GPU)
+  @test pr("src/utils.jl"; labels = split("test:gpu,bug", ',')) == ("thorough", sort!([GPU; SHARED_GRIDS]))
   err = try pr("src/utils.jl"; labels = ["test:gpu", "test:gpuu"]); nothing catch e; e end
   @test err isa ArgumentError && occursin("`test:gpuu` names no tier", err.msg) && occursin("test:gpu", err.msg)
   # the label table is part of the manifest: names, their focus files in tiers
@@ -683,6 +685,82 @@ end
   # the rules file the workflow reads has the section, and the tiers agree: these paths need no package tests
   @test first(classify("benchmark/cases.jl")) == "none" && first(classify("benchmark/Project.toml")) == "none"
   @test ".github/workflows/CI.yml" in CIPlan.benchmark_paths()
+end
+
+# The grids files of the five quick hotspots (test/TESTING.md) are in the full tier. A pull request
+# adds them as focus files for a change to the source of their own family (the map below); the tests
+# check the focus of the listed and the named unrelated paths, not the selection for every source path.
+const GRIDS = Dict(  # grids file => its quick file
+  "atom_iterate_grids" => "atom_iterate",
+  "conjugate_basics_grids" => "conjugate_basics",
+  "lmo_atoms_grids" => "lmo_atoms",
+  "nested_scaled_grids" => "nested_scaled",
+  "sparse_iterate_basics_grids" => "sparse_iterate_basics")
+const GRIDS_OF = Dict(  # source path => its grids focus files: the direct-family paths and representatives of the shared rule
+  "src/atom_iterate.jl" => ["atom_iterate_grids"],
+  "src/functions/norms.jl" => ["atom_iterate_grids"],
+  "src/functions/sparsegroup.jl" => ["atom_iterate_grids"],
+  "src/functions/nonconvex.jl" => ["atom_iterate_grids"],
+  "src/sparse_iterate.jl" => ["sparse_iterate_basics_grids"],
+  "src/calculus.jl" => ["conjugate_basics_grids", "nested_scaled_grids"],
+  "src/metric.jl" => ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"],
+  "src/utils.jl" => ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"],
+  "src/functions/spectral.jl" => ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"],
+  "src/lmo.jl" => ["lmo_atoms_grids"],
+  "src/lmo_atoms.jl" => ["lmo_atoms_grids"],
+  "src/functions/losses.jl" => ["conjugate_basics_grids"],
+  "src/functions/singular.jl" => ["lmo_atoms_grids", "nested_scaled_grids"])
+
+@testset "the grids files of the quick hotspots" begin
+  allgrids = sort!(collect(keys(GRIDS)))
+  quick = TestTiers.select(MANIFEST, "quick")
+  thorough = TestTiers.select(MANIFEST, "thorough")
+  full = TestTiers.select(MANIFEST, "full")
+  for (grids, base) in GRIDS
+    # in the full tier and in no lower one
+    @test MANIFEST.tier[grids] == "full"
+    @test !(grids in thorough)
+    # its quick file stays in quick, and its name starts with the quick file's name
+    @test base in quick && startswith(grids, base)
+  end
+  # master pushes (thorough) run none of them, the nightly run (full) all
+  @test isdisjoint(allgrids, thorough) && issubset(allgrids, full)
+  # the listed source paths get their grids files as focus (the shared rule lists other paths too,
+  # such as src/interface.jl, with the same three), and the tier the path had before
+  for (path, names) in GRIDS_OF
+    tier, focus = classify(path)
+    @test sort(filter(in(allgrids), focus)) == names
+    @test tier == (path in ("src/calculus.jl", "src/metric.jl", "src/utils.jl", "src/functions/spectral.jl") ? "thorough" : "standard")
+  end
+  # the narrow label on a change to one iterate source still gives quick, with the iterate's own grids file
+  @test pr("src/atom_iterate.jl"; labels = NARROW) == ("quick", ATOM)
+  @test "atom_iterate_grids" in pr("src/atom_iterate.jl"; labels = NARROW)[2]
+  @test "sparse_iterate_basics_grids" in pr("src/sparse_iterate.jl"; labels = NARROW)[2]
+  @test pr("src/sparse_iterate.jl"; labels = NARROW)[1] == "quick"
+  # the policy, as representative checks: these unrelated source paths get no grids file as focus
+  for path in ("src/functions/entropy.jl", "src/deprecated.jl", "src/functions/sets.jl", "src/composition.jl",
+               "src/symmetric_parameters.jl", "src/constrained.jl", "src/functions/cones.jl", "src/functions/smooth.jl")
+    @test isdisjoint(classify(path)[2], allgrids)
+  end
+  # a changed grids test file selects itself; test:full gives the full tier
+  for grids in allgrids
+    @test classify("test/$grids.jl") == ("quick", [grids])
+    @test pr("test/$grids.jl") == ("quick", [grids])
+  end
+  @test pr("src/functions/entropy.jl"; labels = ["test:full"]) == ("full", String[])
+  # the planner: a master push of package code runs the thorough tier and the nightly run the full tier,
+  # both without focus files
+  # (the planner reads the manifest with its own copy of test/tiers.jl)
+  pm, policy = CIPlan.default_manifest(), CIPlan.load_policy()
+  planned(event; kw...) = CIPlan.decide(event; manifest = pm, policy, kw...)[1]
+  r = planned("push"; ref_type = "branch", paths = ["src/atom_iterate.jl"])
+  @test r.tier == "thorough" && isempty(r.focus) && isdisjoint(allgrids, CIPlan.TestTiers.select(pm, r.tier))
+  r = planned("schedule")
+  @test r.tier == "full" && issubset(allgrids, CIPlan.TestTiers.select(pm, r.tier))
+  r = planned("pull_request"; paths = ["src/atom_iterate.jl"], labels = ["test:full"])
+  @test r.tier == "full" && issubset(allgrids, CIPlan.TestTiers.select(pm, r.tier))
+  r = planned("pull_request"; paths = ["src/atom_iterate.jl"])
+  @test r.tier == "standard" && "atom_iterate_grids" in split(r.focus, ',')
 end
 
 # Labels that are not tiers (test:benchmark, test:iterate-narrow) leave the tier of a PR alone.

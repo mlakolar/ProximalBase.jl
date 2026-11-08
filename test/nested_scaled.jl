@@ -323,101 +323,105 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
       end
 
       @testset "conjugates" begin
-        for (f, λ) in ((small, λs), (large, λl))
-          c = Conjugate(f)
-          r = T(λ)                                    # the dual box has radius λ
-          # the value of an indicator carries the package's tolerance, which has an absolute part
-          # for balls smaller than one: such a ball is probed far outside, and a large one at 1 %
-          inside, outside = T[r * T(0.99)], T[r > 1 ? r * T(1.01) : one(T)]
-          @test c(inside) === zero(T)
-          @test c(outside) === T(Inf)
-          @test c(T[-r * T(0.99)]) === zero(T)
-          @test c(zeros(T, 1)) === zero(T)
-          # projection onto the box [-λ, λ], at any step
-          for γ in (one(T), T(0.25))
-            y = zeros(T, 3)
-            prox!(y, c, T[2r, -3r, r / 2], γ)
-            @test y ≈ T[r, -r, r / 2] rtol = 8eps(T)
-            y = T[2r, -3r, r / 2]
-            prox!(y, c, y, γ)
-            @test y ≈ T[r, -r, r / 2] rtol = 8eps(T)
+        # the Float32 pass keeps the allocation check of a Float32 step in this file; the rest of its
+        # conjugates runs in nested_scaled_grids.jl
+        if T === Float64
+          for (f, λ) in ((small, λs), (large, λl))
+            c = Conjugate(f)
+            r = T(λ)                                    # the dual box has radius λ
+            # the value of an indicator carries the package's tolerance, which has an absolute part
+            # for balls smaller than one: such a ball is probed far outside, and a large one at 1 %
+            inside, outside = T[r * T(0.99)], T[r > 1 ? r * T(1.01) : one(T)]
+            @test c(inside) === zero(T)
+            @test c(outside) === T(Inf)
+            @test c(T[-r * T(0.99)]) === zero(T)
+            @test c(zeros(T, 1)) === zero(T)
+            # projection onto the box [-λ, λ], at any step
+            for γ in (one(T), T(0.25))
+              y = zeros(T, 3)
+              prox!(y, c, T[2r, -3r, r / 2], γ)
+              @test y ≈ T[r, -r, r / 2] rtol = 8eps(T)
+              y = T[2r, -3r, r / 2]
+              prox!(y, c, y, γ)
+              @test y ≈ T[r, -r, r / 2] rtol = 8eps(T)
+            end
+            y = zeros(T, 1)
+            @test value_and_prox!(y, c, T[2r], one(T)) === zero(T)
+            @test y ≈ T[r] rtol = 8eps(T)
+            @test prox_entry(c, T(2r), 1, one(T)) ≈ r rtol = 8eps(T)
           end
-          y = zeros(T, 1)
-          @test value_and_prox!(y, c, T[2r], one(T)) === zero(T)
-          @test y ≈ T[r] rtol = 8eps(T)
-          @test prox_entry(c, T(2r), 1, one(T)) ≈ r rtol = 8eps(T)
-        end
-        # a Moreau route (a leaf without a direct projection) and a block sum
-        q = Scaled(Scaled(SqrNormL2(tens(T, -l)), tens(T, a)), tens(T, a))
-        λq = T(effective(q, f -> f.λ))
-        yq = zeros(T, 1)
-        prox!(yq, Conjugate(q), T[2λq], one(T))        # prox of f* at x: x - prox_{f}(x): f' = λ x
-        @test yq ≈ T[2λq - 2λq / (1 + λq)] rtol = 64eps(T)
-        sep = Scaled(Scaled(SeparableSum(NormL1(tens(T, -l)), NormL1(tens(T, -l))), tens(T, a)), tens(T, a))
-        r = T(λl)
-        z = (zeros(T, 1), zeros(T, 1))
-        prox!(z, Conjugate(sep), (T[3r], T[-3r]), one(T))
-        @test z[1] ≈ T[r] rtol = 8eps(T)
-        @test z[2] ≈ T[-r] rtol = 8eps(T)
-        # the value and the value at the proximal point, on blocks
-        @test Conjugate(sep)((T[r / 2], T[-r / 2])) === zero(T)
-        @test Conjugate(sep)((T[r * T(1.01)], T[0])) === T(Inf)
-        z = (zeros(T, 1), zeros(T, 1))
-        @test value_and_prox!(z, Conjugate(sep), (T[3r], T[-3r]), one(T)) === zero(T)
-        @test z[1] ≈ T[r] rtol = 8eps(T)
-        # a function without a level to fold: the conjugate value is refused, not wrong, and a
-        # refused value_and_prox! leaves its output as it was
-        @test_throws ArgumentError Conjugate(q)(T[1])
-        y = T[-777]
-        @test_throws ArgumentError value_and_prox!(y, Conjugate(q), T[1], one(T))
-        @test y == T[-777]
-        y = (T[-777], T[-777])
-        @test_throws ArgumentError value_and_prox!(y, Conjugate(SeparableSum(q, q)), (T[1], T[1]), one(T))
-        @test y == (T[-777], T[-777])
-        # the chain may sit below ordinary wrappers: an ordinary outer scale, a translation, a
-        # block of a sum, a singular-value wrapper; the output is still left as it was, in place too
-        for g in (Scaled(Translate(q, T[0]), T(2)),
-                  Scaled(Scaled(Translate(q, T[0]), T(2)), T(3)),
-                  Translate(Scaled(q, T(2)), T[0]),
-                  Scaled(Translate(Scaled(q, T(2)), T[0]), T(3)))
-          @test PB._chained_scaled(g)
+          # a Moreau route (a leaf without a direct projection) and a block sum
+          q = Scaled(Scaled(SqrNormL2(tens(T, -l)), tens(T, a)), tens(T, a))
+          λq = T(effective(q, f -> f.λ))
+          yq = zeros(T, 1)
+          prox!(yq, Conjugate(q), T[2λq], one(T))        # prox of f* at x: x - prox_{f}(x): f' = λ x
+          @test yq ≈ T[2λq - 2λq / (1 + λq)] rtol = 64eps(T)
+          sep = Scaled(Scaled(SeparableSum(NormL1(tens(T, -l)), NormL1(tens(T, -l))), tens(T, a)), tens(T, a))
+          r = T(λl)
+          z = (zeros(T, 1), zeros(T, 1))
+          prox!(z, Conjugate(sep), (T[3r], T[-3r]), one(T))
+          @test z[1] ≈ T[r] rtol = 8eps(T)
+          @test z[2] ≈ T[-r] rtol = 8eps(T)
+          # the value and the value at the proximal point, on blocks
+          @test Conjugate(sep)((T[r / 2], T[-r / 2])) === zero(T)
+          @test Conjugate(sep)((T[r * T(1.01)], T[0])) === T(Inf)
+          z = (zeros(T, 1), zeros(T, 1))
+          @test value_and_prox!(z, Conjugate(sep), (T[3r], T[-3r]), one(T)) === zero(T)
+          @test z[1] ≈ T[r] rtol = 8eps(T)
+          # a function without a level to fold: the conjugate value is refused, not wrong, and a
+          # refused value_and_prox! leaves its output as it was
+          @test_throws ArgumentError Conjugate(q)(T[1])
           y = T[-777]
-          @test_throws ArgumentError value_and_prox!(y, Conjugate(g), T[1], one(T))
+          @test_throws ArgumentError value_and_prox!(y, Conjugate(q), T[1], one(T))
           @test y == T[-777]
-          y = T[-777]
-          @test_throws ArgumentError value_and_prox!(y, Conjugate(g), y, one(T))
-          @test y == T[-777]
-        end
-        for g in (Scaled(SeparableSum(Translate(q, T[0]), SqrNormL2(one(T))), T(2)),
-                  SeparableSum(Scaled(q, T(2)), SqrNormL2(one(T))),
-                  SeparableSum(SqrNormL2(one(T)), Scaled(Translate(q, T[0]), T(2))))
-          @test PB._chained_scaled(g)
           y = (T[-777], T[-777])
-          @test_throws ArgumentError value_and_prox!(y, Conjugate(g), (T[1], T[1]), one(T))
+          @test_throws ArgumentError value_and_prox!(y, Conjugate(SeparableSum(q, q)), (T[1], T[1]), one(T))
           @test y == (T[-777], T[-777])
-        end
-        for g in (SingularValue(q), Scaled(SingularValue(q), T(2)))
-          @test PB._chained_scaled(g)
-          Y = fill(T(-777), 2, 2)
-          @test_throws ArgumentError value_and_prox!(Y, Conjugate(g), Matrix{T}(I, 2, 2), one(T))
-          @test Y == fill(T(-777), 2, 2)
-        end
-        # a chain that folds under ordinary wrappers still gives a value, and commits its point
-        for (g, mult) in ((Scaled(Translate(large, T[0]), T(2)), 2),
-                          (Scaled(Scaled(Translate(large, T[0]), T(2)), T(3)), 6))
-          @test PB._chained_scaled(g)
-          r = T(mult * λl)                              # the dual box of a multiple of the level
-          y = T[-777]
-          @test value_and_prox!(y, Conjugate(g), T[3r], one(T)) === zero(T)
-          @test y ≈ T[r] rtol = 8eps(T)
-          y = T[3r]
-          @test value_and_prox!(y, Conjugate(g), y, one(T)) === zero(T)
-          @test y ≈ T[r] rtol = 8eps(T)
-        end
-        # ordinary wrappers are not staged, and cost nothing extra
-        for g in (Scaled(Translate(SqrNormL2(one(T)), T[0]), T(2)), Scaled(Scaled(SqrNormL2(one(T)), T(2)), T(3)),
-                  SeparableSum(Scaled(SqrNormL2(one(T)), T(2)), SqrNormL2(one(T))), SingularValue(SqrNormL2(one(T))))
-          @test !PB._chained_scaled(g)
+          # the chain may sit below ordinary wrappers: an ordinary outer scale, a translation, a
+          # block of a sum, a singular-value wrapper; the output is still left as it was, in place too
+          for g in (Scaled(Translate(q, T[0]), T(2)),
+                    Scaled(Scaled(Translate(q, T[0]), T(2)), T(3)),
+                    Translate(Scaled(q, T(2)), T[0]),
+                    Scaled(Translate(Scaled(q, T(2)), T[0]), T(3)))
+            @test PB._chained_scaled(g)
+            y = T[-777]
+            @test_throws ArgumentError value_and_prox!(y, Conjugate(g), T[1], one(T))
+            @test y == T[-777]
+            y = T[-777]
+            @test_throws ArgumentError value_and_prox!(y, Conjugate(g), y, one(T))
+            @test y == T[-777]
+          end
+          for g in (Scaled(SeparableSum(Translate(q, T[0]), SqrNormL2(one(T))), T(2)),
+                    SeparableSum(Scaled(q, T(2)), SqrNormL2(one(T))),
+                    SeparableSum(SqrNormL2(one(T)), Scaled(Translate(q, T[0]), T(2))))
+            @test PB._chained_scaled(g)
+            y = (T[-777], T[-777])
+            @test_throws ArgumentError value_and_prox!(y, Conjugate(g), (T[1], T[1]), one(T))
+            @test y == (T[-777], T[-777])
+          end
+          for g in (SingularValue(q), Scaled(SingularValue(q), T(2)))
+            @test PB._chained_scaled(g)
+            Y = fill(T(-777), 2, 2)
+            @test_throws ArgumentError value_and_prox!(Y, Conjugate(g), Matrix{T}(I, 2, 2), one(T))
+            @test Y == fill(T(-777), 2, 2)
+          end
+          # a chain that folds under ordinary wrappers still gives a value, and commits its point
+          for (g, mult) in ((Scaled(Translate(large, T[0]), T(2)), 2),
+                            (Scaled(Scaled(Translate(large, T[0]), T(2)), T(3)), 6))
+            @test PB._chained_scaled(g)
+            r = T(mult * λl)                              # the dual box of a multiple of the level
+            y = T[-777]
+            @test value_and_prox!(y, Conjugate(g), T[3r], one(T)) === zero(T)
+            @test y ≈ T[r] rtol = 8eps(T)
+            y = T[3r]
+            @test value_and_prox!(y, Conjugate(g), y, one(T)) === zero(T)
+            @test y ≈ T[r] rtol = 8eps(T)
+          end
+          # ordinary wrappers are not staged, and cost nothing extra
+          for g in (Scaled(Translate(SqrNormL2(one(T)), T[0]), T(2)), Scaled(Scaled(SqrNormL2(one(T)), T(2)), T(3)),
+                    SeparableSum(Scaled(SqrNormL2(one(T)), T(2)), SqrNormL2(one(T))), SingularValue(SqrNormL2(one(T))))
+            @test !PB._chained_scaled(g)
+          end
         end
         let g = Conjugate(Scaled(Translate(SqrNormL2(one(T)), zeros(T, 3)), T(2))), y = zeros(T, 3), x = T[0.3, -0.7, 1.1]
           @test allocs(value_and_prox!, y, g, x, one(T)) == 0
@@ -585,8 +589,10 @@ steps566(::Type{Float32}) = (a = 25, l = 30, g = 10, l2 = 10, g2 = 20)
       check(weighted, x, T[1, 2, 4] .* tens(T, -a), "single factor, entries of different size")
       en = Scaled(ElasticNet(tens(T, l), tens(T, l)), tens(T, -a))
       check(en, x, fill(tens(T, -a), 3), "single factor, ElasticNet")
-      tr = Scaled(Translate(NormL1(tens(T, l)), T[0, 0, 0]), tens(T, -a))
-      check(tr, x, fill(tens(T, -a), 3), "single factor, Translate")
+      if T === Float64
+        tr = Scaled(Translate(NormL1(tens(T, l)), T[0, 0, 0]), tens(T, -a))
+        check(tr, x, fill(tens(T, -a), 3), "single factor, Translate")
+      end
       # a chain with an array step: the factors are 10^-a twice, the step is 10^-g
       θc = T(10)^(l - 2a - g)
       xc = T[3, -3, 0.5] .* θc
@@ -598,13 +604,17 @@ steps566(::Type{Float32}) = (a = 25, l = 30, g = 10, l2 = 10, g2 = 20)
       check(Scaled(Scaled(ElasticNet(tens(T, l), tens(T, l)), tens(T, -a)), tens(T, -a)), xc, fill(tens(T, -g), 3), "chain, ElasticNet")
       check(Scaled(Scaled(NormL1(tens(T, l)), tens(T, -a)), tens(T, -a)), xc, T[1, 1e3, 1e-3] .* tens(T, -g), "chain, entries of different size")
       # a step per group
-      grp = Scaled(Scaled(GroupNormL2(tens(T, l), [1:2, 3:3], T[1, 1]), tens(T, -a)), tens(T, -a))
-      xg = T[3, 4, 0.5] .* θc
-      check(grp, xg, fill(tens(T, -g), 2), "chain, GroupNormL2 with a step per group")
-      grp1 = Scaled(GroupNormL2(tens(T, l), [1:2, 3:3], T[1, 1]), tens(T, -a))
-      check(grp1, T[3, 4, 0.5] .* θ, fill(tens(T, -a), 2), "single factor, GroupNormL2 with a step per group")
-      # a function with a level but no array-step proximal operator takes the scalar route
-      check(Scaled(NormL2(tens(T, l)), tens(T, -a)), T[3, 4] .* θ, tens(T, -a), "single factor, NormL2"; array = false)
+      if T === Float64
+        grp = Scaled(Scaled(GroupNormL2(tens(T, l), [1:2, 3:3], T[1, 1]), tens(T, -a)), tens(T, -a))
+        xg = T[3, 4, 0.5] .* θc
+        check(grp, xg, fill(tens(T, -g), 2), "chain, GroupNormL2 with a step per group")
+        grp1 = Scaled(GroupNormL2(tens(T, l), [1:2, 3:3], T[1, 1]), tens(T, -a))
+        check(grp1, T[3, 4, 0.5] .* θ, fill(tens(T, -a), 2), "single factor, GroupNormL2 with a step per group")
+      end
+      if T === Float64
+        # a function with a level but no array-step proximal operator takes the scalar route
+        check(Scaled(NormL2(tens(T, l)), tens(T, -a)), T[3, 4] .* θ, tens(T, -a), "single factor, NormL2"; array = false)
+      end
 
       @testset "the level and the factors have no product in range" begin
         # the level times the factors is subnormal, the step is large and the coefficient is 10^(l2 - 2a + g2):
@@ -620,7 +630,9 @@ steps566(::Type{Float32}) = (a = 25, l = 30, g = 10, l2 = 10, g2 = 20)
         # entries far apart: only a shift that raises the level as far as the entries allow holds it
         check(low, T[3, 3] .* θ2, T[tens(T, g2), tens(T, -g2)], "chain, entries far apart")
         check(Scaled(Scaled(NormL1(tens(T, l2), T[1, 2, 4]), tens(T, -a)), tens(T, -a)), x2, fill(tens(T, g2), 3), "chain, weights")
-        check(Scaled(Scaled(GroupNormL2(tens(T, l2), [1:2, 3:3], T[1, 1]), tens(T, -a)), tens(T, -a)), T[3, 4, 0.5] .* θ2, fill(tens(T, g2), 2), "chain, GroupNormL2 with a step per group")
+        if T === Float64
+          check(Scaled(Scaled(GroupNormL2(tens(T, l2), [1:2, 3:3], T[1, 1]), tens(T, -a)), tens(T, -a)), T[3, 4, 0.5] .* θ2, fill(tens(T, g2), 2), "chain, GroupNormL2 with a step per group")
+        end
         # the value at the point is the value of the chain, not that of the shifted function
         xb = T[tens(T, (T === Float64 ? -300 : -30) - (l2 - 2a)), 0]
         y = zeros(T, 2)
@@ -740,28 +752,30 @@ end
         # a step of another length than the argument is still refused
         @test_throws DimensionMismatch prox!(T[], Scaled(NormL1(one(T)), sub), T[], T[1])
       end
-      @testset "an explicit infinite factor" begin
-        inner = Scaled(NormL1(one(T)), T(Inf))
-        z, γ = T[3, 0.5, -7], T[1, 1, 1]
-        for s in (Scaled(Translate(inner, zeros(T, 3)), tiny),
-                  Scaled(Scaled(Translate(inner, zeros(T, 3)), tiny), tiny),
-                  Scaled(Scaled(NormL1(one(T)), T(Inf)), tiny),
-                  Scaled(Scaled(NormL1(one(T)), tiny), T(Inf)),
-                  Scaled(Scaled(Scaled(NormL1(one(T)), T(Inf)), tiny), tiny))
-          # the point of the scalar step, which the base of #566 gives for both
-          y, ys = fill(T(-7), 3), fill(T(-7), 3)
-          @test prox!(y, s, z, γ) === y
-          prox!(ys, s, z, T(1))
-          @test isequal(y, ys)
-          @test all(iszero, y) || all(isnan, y)
-          y2 = fill(T(-7), 3)
-          v = value_and_prox!(y2, s, z, γ)
-          @test isequal(y2, y)
-          @test isequal(v, value_and_prox!(copy(ys), s, z, T(1)))
+      if T === Float64
+        @testset "an explicit infinite factor" begin
+          inner = Scaled(NormL1(one(T)), T(Inf))
+          z, γ = T[3, 0.5, -7], T[1, 1, 1]
+          for s in (Scaled(Translate(inner, zeros(T, 3)), tiny),
+                    Scaled(Scaled(Translate(inner, zeros(T, 3)), tiny), tiny),
+                    Scaled(Scaled(NormL1(one(T)), T(Inf)), tiny),
+                    Scaled(Scaled(NormL1(one(T)), tiny), T(Inf)),
+                    Scaled(Scaled(Scaled(NormL1(one(T)), T(Inf)), tiny), tiny))
+            # the point of the scalar step, which the base of #566 gives for both
+            y, ys = fill(T(-7), 3), fill(T(-7), 3)
+            @test prox!(y, s, z, γ) === y
+            prox!(ys, s, z, T(1))
+            @test isequal(y, ys)
+            @test all(iszero, y) || all(isnan, y)
+            y2 = fill(T(-7), 3)
+            v = value_and_prox!(y2, s, z, γ)
+            @test isequal(y2, y)
+            @test isequal(v, value_and_prox!(copy(ys), s, z, T(1)))
+          end
+          # an ordinary factor over the infinite one, and a scalar step, as controls
+          ordinary = Scaled(Translate(inner, zeros(T, 3)), one(T))
+          @test prox(ordinary, z, γ) == prox(ordinary, z, T(1)) == zeros(T, 3)
         end
-        # an ordinary factor over the infinite one, and a scalar step, as controls
-        ordinary = Scaled(Translate(inner, zeros(T, 3)), one(T))
-        @test prox(ordinary, z, γ) == prox(ordinary, z, T(1)) == zeros(T, 3)
       end
     end
   end

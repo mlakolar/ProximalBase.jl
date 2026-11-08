@@ -9,6 +9,7 @@ const baselines = Dict{String,Any}(
   "second_order.hvp.Float32.Float32.Float64.Float64" => Inf32,
   "second_order.hvp.Float64.Float32.Float64.Float32" => Inf32,
   "second_order.hvp.Float64.Float32.Float64.Float64" => Inf32,
+  "second_order.lla.Float64" => 0.0,
   "second_order.model_precision.weight" => 2.7182817f0,
   "second_order.model_precision.response" => 0.0f0,
 )

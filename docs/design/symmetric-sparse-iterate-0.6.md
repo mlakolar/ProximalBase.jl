@@ -1,7 +1,7 @@
 # SymmetricSparseIterate in ProximalBase 0.6: the contract
 
 > **Draft for maintainer review — proposed 0.6 behavior, not a description of an
-> installed release.** Nothing here is implemented, except the three-factor product `A * X * B` of FD-16 (#419) for homogeneous `Float32` and `Float64`; the remaining owner changes are future work. This file is the only
+> installed release.** Phase 1 of the owner is implemented on the development branch: the owner is not an array, with `coordinates`, `matrixview`, the active-coordinate handles, pair indexing, state copies and checked imports, owner-to-owner equality and `hash`, the one throwing `axes`, the proximal, gradient and Hessian oracles and the wrappers that the owner supports, and the products and reductions with strong zeros, including the three-factor product `A * X * B` of FD-16 (#419) for homogeneous `Float32` and `Float64`. The other phases of #391, the migration of the solvers that use the owner (#527) and the release remain. This file is the only
 > normative document of the pair; the companion
 > [migration and acceptance guide](symmetric-sparse-iterate-0.6-acceptance.md)
 > links back to it and restates none of its rules.
@@ -181,8 +181,7 @@ document. That is what removes the need for a catalog of forbidden mutators
 (compare the `SymmetricSparseIterate` override list in
 [`src/sparse_iterate.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/abaceda25442bf6cc61601c8c1d3b2a16e1a3492/src/sparse_iterate.jl#L896)
 and the 1,130 lines of
-`test/symmetric_mutators.jl`, `test/symmetric_mutator_errors.jl` and
-`test/symmetric_writes.jl`).
+tests that guarded it).
 
 **What this does not make safe.** An explicit double loop over `(i, j)` that
 *reads and writes* `X[i, j]` still updates a mirrored variable twice. The

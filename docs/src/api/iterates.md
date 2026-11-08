@@ -12,7 +12,7 @@ Filter = t -> !(t isa Function && nameof(t) in (:nnz, :nonzeros, :findnz, :dropz
 ```
 
 ```@docs
-nnz(::Union{SparseIterate, SymmetricSparseIterate})
+nnz(::SparseIterate)
 nonzeros(::SparseIterate)
 findnz(::SparseIterate{<:Any, 1})
 dropzeros!(::Union{SparseIterate, SymmetricSparseIterate})

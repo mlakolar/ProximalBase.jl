@@ -220,8 +220,12 @@ end
     for op in (prox!, value_and_prox!), alias in (false, true)
       src = copy(s)
       out = alias ? src : SymmetricSparseIterate(ones(2, 2))
-      op(out, f, src, [0.2 0.3; 0.3 0.7])
+      op(out, f, src, 0.2)
       @test Matrix(out) == prox(f, X)
+      # an array step is not supported with an owner as the output
+      before = copy(out)
+      @test_throws ArgumentError op(out, f, src, [0.2 0.3; 0.3 0.7])
+      @test isequal(out, before)
     end
   end
   @test Matrix(prox(IndBinary(-1, 1), SymmetricSparseIterate(2))) == -ones(2, 2)
@@ -255,6 +259,7 @@ end
   for x in points
     for f in (IndBinary(zeros(2), 1), IndBinary(0, ones(2))),
         step in (0.7, fill(0.7, size(x))), op in (prox!, value_and_prox!), alias in (false, true)
+      step isa AbstractArray && x isa SymmetricSparseIterate && continue     # refused with an owner output
       src = copy(x)
       out = alias ? src : copy(x)
       before = Array(out)
@@ -265,6 +270,7 @@ end
       stored === nothing || @test activecoordinates(out) == stored
     end
     for op in (prox!, value_and_prox!), alias in (false, true)
+      x isa SymmetricSparseIterate && continue                               # refused with an owner output
       src = copy(x)
       out = alias ? src : copy(x)
       stored = out isa Array ? nothing : copy(activecoordinates(out))

@@ -707,4 +707,74 @@ if EMAX == Int128(2)^62 - 1
   end
 end
 
+# ---- KronQuadratic tier 1: the sum exponent(mn) + k of _scale_exponent! ----
+
+# KronQuadratic(A, B)(Θ) with A = 2^pa [0 1; 1 0], B = 2^pb [0 1; 1 0] and Θ = diag(2^pM, 2^pt) is ½ ⟨Θ, A Θ B⟩ =
+# 2^(pa + pb + pM + pt). For pM = TOP and pb = BOT the product A Θ overflows and the value is recomputed in tiers. In these
+# calls tier 1 scales Θ by 2^-kd1 with kd1 = (pM + 1) + (pa + 5): the bound exponent of Θ and δ = -(pa + 1 + 1 + 3).
+# _scale_exponent! then compares exponent(2^pt) + k, k = -kd1, with exponent(floatmin) = BOT: the entry 2^pt is lost by the
+# scaling when pt - kd1 < BOT, and then tier 2 recomputes the value. The Int total pt - kd1 fits Int64 from
+# pt_fit = typemin(Int64) + kd1 on.
+function kron_values(pa, pM, pt, pb)
+  a, b = pw(pa), pw(pb)
+  f = KronQuadratic(BigFloat[0 a; a 0], BigFloat[0 b; b 0])
+  Θ = BigFloat[pw(pM) 0; 0 pw(pt)]
+  f(Θ), value_and_gradient!(zeros(BigFloat, 2, 2), f, Θ)
+end
+
+# the exponents pt of the cases that exist in the range of the platform
+function kron_exponents(pt_fit)
+  filter(t -> BOT <= t <= TOP, Int128[pt_fit - 1000, pt_fit - 1, pt_fit, pt_fit + 1, pt_fit + 100, BOT, BOT + 7, 0, TOP])
+end
+
+@testset "KronQuadratic value, scale exponent at the Int64 boundary, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    pa = (TOP + 2) ÷ 2
+    pt_fit = Int128(typemin(Int64)) + TOP + pa + 6
+    pts = kron_exponents(pt_fit)
+    if EMAX == 2^62 - 1
+      @test pa == 2^61 && pt_fit == -Int128(2)^61 + 4
+      @test (pt_fit - 1) in pts && pt_fit in pts
+    end
+    for pt in pts
+      n = pa + BOT + TOP + pt
+      v, w = kron_values(pa, TOP, pt, BOT)
+      check_result(v, 1, n)
+      check_result(w, 1, n)
+    end
+  end
+end
+
+@testset "scale exponent of BigFloat data at the Int64 boundary, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    pa = (TOP + 2) ÷ 2
+    kd1 = TOP + pa + 6
+    k = Int(-kd1)
+    for pt in kron_exponents(Int128(typemin(Int64)) + kd1)
+      X = BigFloat[pw(TOP) 0; 0 pw(pt)]
+      lossless = PB._scale_exponent!(X, BigFloat, k)
+      survives = pt + Int128(k) >= BOT
+      @test lossless == survives
+      if lossless && survives
+        @test X[1, 1] == pw(TOP + k)
+        @test X[2, 2] == pw(pt + k)
+      end
+    end
+  end
+end
+
+@testset "KronQuadratic with Float64 data keeps its sums" begin
+  f = KronQuadratic([0.0 2.0^500; 2.0^500 0.0], [0.0 2.0^-1000; 2.0^-1000 0.0])
+  Θ = [2.0^1000 0.0; 0.0 2.0^-1000]
+  check_result(f(Θ), 1, -500)
+  check_result(value_and_gradient!(zeros(2, 2), f, Θ), 1, -500)
+  for (T, hi, lo, k_fit, k_lost) in ((Float64, 1000, -1000, -10, -30), (Float32, 100, -100, -10, -30))
+    X = T[Base.ldexp(one(T), hi) 0; 0 Base.ldexp(one(T), lo)]
+    Y = copy(X)
+    @test @inferred(PB._scale_exponent!(Y, T, k_fit)) === true       # lo + k_fit >= exponent(floatmin(T))
+    @test Y == T[Base.ldexp(one(T), hi + k_fit) 0; 0 Base.ldexp(one(T), lo + k_fit)]
+    @test PB._scale_exponent!(copy(X), T, k_lost) === false          # lo + k_lost < exponent(floatmin(T))
+  end
+end
+
 end

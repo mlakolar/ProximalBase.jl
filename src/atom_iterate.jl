@@ -30,11 +30,15 @@ Writing through this view follows the same activation rule as writing to `x`.
 Its entries are real. The constructors, two-argument `copyto!` from an array,
 `copy!`, broadcasting into `x` and `fill!` throw an `ArgumentError` for a source
 or value of complex type, even with a zero imaginary part, before anything is
-written. `vec(x)` and `reshape(x, length(x))` are `x` itself and are checked
+written. A broadcast into `x` checks its leaves and its result: a result known
+to be complex from the types is rejected, and a result of another non-real type
+(a `Union` with a complex member, `Any`, `Number`) is evaluated before writing
+and rejected if an element is complex, with `x` unchanged. `vec(x)` and `reshape(x, length(x))` are `x` itself and are checked
 too. `copy!` from a source of another length throws Base's error first, unless
 the source is an `AtomIterate` or a [`SparseIterate`](@ref), which throws a
-`DimensionMismatch`. The check reads types: a tuple, a generator or an array of abstract element type
-such as `Vector{Any}` passes it, and its values are converted one by one. Other
+`DimensionMismatch`. The two-argument `copyto!` and `copy!` read types: a tuple, a generator or an
+array of abstract element type such as `Vector{Any}` passes the check, and its
+values are converted one by one. Other
 writes also convert values one by one, as writes into a plain `Vector` of the
 element type of `x` do: writes through `atom(x, k)` or another view, indexed
 assignment such as `x[i] = v` or `x[:] = c`, `copyto!` with offsets or index
@@ -409,7 +413,7 @@ Base.copy!(x::AtomIterate, y::SparseIterate) = copyto!(x, y)
 
 function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{Nothing})
   _checkreal_broadcast(x, bc)
-  _broadcast_loop!(x, bc)
+  _real_broadcast!(x, bc)
 end
 
 function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{S}) where {S<:Broadcast.DefaultArrayStyle{0}}

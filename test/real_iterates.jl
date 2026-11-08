@@ -290,6 +290,80 @@ end
   end
 end
 
+@testset "broadcast results" begin
+  makers = ((() -> (x = SparseIterate(4); x[4] = 7.0; x), :SparseIterate, (4,)),
+            (() -> (x = AtomIterate(4, 2); x[4] = 7.0; x), :AtomIterate, (4,)),
+            (() -> (x = SparseIterate(2, 2); x[2, 2] = 7.0; x), :SparseIterate, (2, 2)))
+  for (make, name, dims) in makers
+    shaped(v) = reshape(v, dims)
+    vals(x) = ndims(x) == 2 ? Matrix(x) : Vector(x)
+    z1 = shaped([1.0, 0, 0, 0]); z2 = shaped([0.0, 1, 0, 0])
+    opaque = Ref{Any}(complex)
+    # a complex result is rejected before any write, even with a zero imaginary part
+    for write! in (x -> (x .= complex.(z1, z2)), x -> (x .= complex.(z1)),
+                   x -> (x .= Complex.(z1, 0.0)), x -> (x .= (v -> v + 0im).(z1)),
+                   x -> (x .= sqrt.(Complex.(z1))), x -> (x .= complex.(x, 0.0)),
+                   x -> (x .= opaque[].(z1)), x -> (x .= opaque[].(z1, z2)),
+                   x -> (x .= (v -> v > 0.5 ? 1im : 1.0).(z1)),
+                   x -> (x .= (v -> v > 0.5 ? 1.0 : 1im).(shaped([0.0, 0, 0, 1.0]))),
+                   x -> (x .= shaped(Any[1.0, 2im, 0, 0])),
+                   x -> (x .= (v -> v).(shaped(Any[1.0, 2im, 0, 0]))),
+                   x -> (x .= (v -> v).(shaped(Any[1.0, 0, 0, 0im]))),
+                   x -> (x .= (v -> v).(shaped(Number[1.0, 2, 3, 4im]))),
+                   x -> (x .= (v -> v > 5 ? 1im : 2v).(x)),
+                   # complex leaves and scalars, rejected as before
+                   x -> (x .= z1 .+ 0im), x -> (x .= fill(0im, dims)), x -> (x .= 1.0 + 0im),
+                   x -> (x .= Ref(1.0) .+ 0im), x -> (x .= sqrt.(complex.(1.0))),
+                   x -> (x .= exp.(im .* x)), x -> (x .+= 1im),
+                   x -> (x .= real.(z1 .+ (1 + 2im))))
+      x = make()
+      rejects(() -> write!(x), name, x)
+    end
+    # the complex element of a Union result at the last position leaves no partial write
+    x = make(); saved = vals(x)
+    rejects(() -> (x .= (v -> v > 0.5 ? 1im : v).(shaped([0.0, 0.25, 0.0, 1.0]))), name, x)
+    @test vals(x) == saved
+    # an exception of f while the result is evaluated happens before any write
+    late = Ref{Any}(v -> v == 4 ? error("late") : v)
+    x = make(); saved = copy(x); w = shaped([1.0, 2, 3, 4])
+    @test_throws ErrorException (x .= late[].(w))
+    @test isequal(x, saved) && nactive(x) == nactive(saved)
+    x = make(); saved = copy(x)
+    @test_throws DomainError (x .= sqrt.(-z1 .- 1))
+    @test isequal(x, saved)
+    # real values of a Union, Any or Number result are written
+    x = make()
+    @test vals((x .= (v -> v > 5 ? 1im : 1.0).(z1))) == fill(1.0, dims)
+    @test nactive(x) == 4
+    x = make()
+    @test vals((x .= shaped(Number[1.0, 2, 3, 4]))) == shaped([1.0, 2, 3, 4])
+    x = make()
+    @test vals((x .= (v -> v).(shaped(Number[1.0, 2, 3, 4])))) == shaped([1.0, 2, 3, 4])
+    x = make()
+    @test vals((x .= shaped(Any[1.0, 2, 0, 0]))) == shaped([1.0, 2, 0, 0])
+    # a staged result is computed from the unmodified x, then written
+    g = Ref{Any}(v -> v > 5 ? 10.0 : 2v)
+    x = make(); expected = g[].(vals(x))
+    @test vals((x .= g[].(x))) == expected
+    x = make(); w = shaped([1.0, 2, 3, 4])
+    @test vals((x .= g[].(x .+ w))) == g[].(w .+ shaped([0.0, 0, 0, 7]))
+    # accepted as before
+    x = make(); @test vals((x .= real.(complex.(z1, z2)))) == z1
+    x = make(); @test vals((x .= abs.(complex.(z1, z2)))) == z1 .+ z2
+    x = make(); @test vals((x .= Float32.(shaped([1, 2, 3, 4])))) == shaped([1.0, 2, 3, 4])
+    x = make(); @test vals((x .= (v -> BigFloat(v)).(z1))) == z1
+    x = make(); @test vals((x .+= 1)) == shaped([1.0, 1, 1, 8])
+    x = make(); @test vals((x .= 2 .* x)) == shaped([0.0, 0, 0, 14])
+  end
+  # the 0-dimensional methods reject a complex value through fill!
+  for (make, name, dims) in makers
+    for write! in (x -> (x .= 1im), x -> (x .= Ref(1im)), x -> (x .= complex.(1.0)))
+      x = make()
+      rejects(() -> write!(x), name, x)
+    end
+  end
+end
+
 @testset "iterate dispatch" begin
   ambiguities = Test.detect_ambiguities(ProximalBase, LinearAlgebra; recursive = true)
   owned = filter(ambiguities) do pair

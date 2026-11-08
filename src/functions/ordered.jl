@@ -123,7 +123,7 @@ function _tv_denoise!(z::AbstractVector, x::AbstractVector, λ::T) where {T}
         umax = -λ
         umin = convert(T, x[k]) - λ - vmin
       else                                          # the last segment
-        v = vmin + umin / (k - k0 + 1)
+        v = vmin + _int_div(umin, k - k0 + 1)
         for i in k0:N
           z[i] = v
         end
@@ -158,12 +158,12 @@ function _tv_denoise!(z::AbstractVector, x::AbstractVector, λ::T) where {T}
       umin += xk - vmin
       umax += xk - vmax
       if umin >= λ
-        vmin += (umin - λ) / (k - k0 + 1)
+        vmin += _int_div(umin - λ, k - k0 + 1)
         umin = λ
         kmin = k
       end
       if umax <= -λ
-        vmax += (umax + λ) / (k - k0 + 1)
+        vmax += _int_div(umax + λ, k - k0 + 1)
         umax = -λ
         kplus = k
       end

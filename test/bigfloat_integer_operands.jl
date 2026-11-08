@@ -69,7 +69,7 @@ function div_int(x::BigFloat, k::Integer)
 end
 
 # the soft threshold, as the package forms it
-mshrink(v::BigFloat, c::BigFloat) = max(v - c, zero(v)) + min(v + c, zero(v))
+mshrink(v::T, c::T) where {T<:AbstractFloat} = max(v - c, zero(v)) + min(v + c, zero(v))
 
 # a small deterministic generator of the inputs (the same on every platform)
 mutable struct Lcg
@@ -784,6 +784,252 @@ end
         check_prox(f, x, 1, y0)
       end
     end
+  end
+end
+
+
+####################################
+#  the segment lengths of the total-variation kernel
+####################################
+
+# TotalVariation1D and FusedLasso denoise with Condat's recurrence. The recurrence divides by the
+# length k - k0 + 1 of the current segment at three places: the common value of the last segment
+# (:last), and the lower and the upper bound of the tube when the running sum leaves it (:lower and
+# :upper). The length is an exact integer, so that at two bits 5 is 5 and not 4: each quotient is the
+# exact quotient rounded once, as div_int. The model below is the recurrence written here, with the
+# division at each site a parameter dv(x, k, site), and it records the site and the length of every
+# division in rec.
+m_div(dv, rec, site::Symbol, x, k::Int) = (rec === nothing || push!(rec, (site, k)); dv(x, k, site))
+
+function m_tv(x::Vector{T}, λ::T, dv, rec = nothing) where {T<:AbstractFloat}
+  N = length(x)
+  z = similar(x)
+  λ > 0 || return copy(x)
+  k = k0 = kmin = kplus = 1
+  vmin, vmax = x[1] - λ, x[1] + λ
+  umin, umax = λ, -λ
+  while true
+    while k == N
+      if umin < 0                                      # a negative jump before the end
+        for i in k0:kmin
+          z[i] = vmin
+        end
+        kmin += 1
+        k = k0 = kmin
+        vmin = x[k]
+        umin = λ
+        umax = x[k] + λ - vmax
+      elseif umax > 0                                  # a positive jump before the end
+        for i in k0:kplus
+          z[i] = vmax
+        end
+        kplus += 1
+        k = k0 = kplus
+        vmax = x[k]
+        umax = -λ
+        umin = x[k] - λ - vmin
+      else                                             # the last segment
+        v = vmin + m_div(dv, rec, :last, umin, k - k0 + 1)
+        for i in k0:N
+          z[i] = v
+        end
+        return z
+      end
+      if k == N                                        # the last entry alone
+        z[N] = vmin + umin
+        return z
+      end
+    end
+    xk = x[k + 1]
+    if xk + umin < vmin - λ                            # a negative jump
+      for i in k0:kmin
+        z[i] = vmin
+      end
+      kmin += 1
+      k = k0 = kplus = kmin
+      vmin = x[k]
+      vmax = vmin + 2λ
+      umin, umax = λ, -λ
+    elseif xk + umax > vmax + λ                        # a positive jump
+      for i in k0:kplus
+        z[i] = vmax
+      end
+      kplus += 1
+      k = k0 = kmin = kplus
+      vmax = x[k]
+      vmin = vmax - 2λ
+      umin, umax = λ, -λ
+    else                                               # no jump
+      k += 1
+      umin += xk - vmin
+      umax += xk - vmax
+      if umin >= λ
+        vmin += m_div(dv, rec, :lower, umin - λ, k - k0 + 1)
+        umin = λ
+        kmin = k
+      end
+      if umax <= -λ
+        vmax += m_div(dv, rec, :upper, umax + λ, k - k0 + 1)
+        umax = -λ
+        kplus = k
+      end
+    end
+  end
+end
+
+const TV_SITES = (:last, :lower, :upper)
+
+# the divisions of the model: the exact quotient rounded once, the quotient with the length rounded to
+# the working precision first (a platform that rounds the integer), and that quotient at one site only
+m_exact(x::BigFloat, k::Int, site) = div_int(x, k)
+m_rounded(x::BigFloat, k::Int, site) = x / BigFloat(k)
+m_rounded_at(s::Symbol) = (x::BigFloat, k::Int, site) -> site === s ? x / BigFloat(k) : div_int(x, k)
+m_plain(x::AbstractFloat, k::Int, site) = x / k      # the arithmetic of the type, for Float32 and Float64
+
+# The model on an input; nothing when the recurrence leaves 1:N. That happens at two bits on inputs such
+# as x = [1, -3, -1.5, 1, 2, 1, -0.5], λ = 4: the state of the kernel is inconsistent there (a negative
+# jump to the entry after the last) for a reason that is not the division, and such an input is never
+# given to the package, which reads out of range under @inbounds.
+function m_tv_or_nothing(x, λ, dv, rec = nothing)
+  try
+    m_tv(x, λ, dv, rec)
+  catch e
+    e isa BoundsError || rethrow()
+    nothing
+  end
+end
+
+# deterministic inputs at the precision p: the entries have at most min(p, 4) significant bits
+function tv_inputs(p::Integer)
+  g = Lcg(UInt64(3000 + p))
+  bits = min(p, 4)
+  cases = Tuple{Vector{BigFloat}, BigFloat}[]
+  for n in 3:12, λ in BigFloat[0.25, 0.75, 1.5, 4, 32]
+    for _ in 1:10
+      push!(cases, (BigFloat[pbit!(g, bits) for _ in 1:n], λ))
+    end
+    push!(cases, (BigFloat[pbit!(g, bits; signed = false) for _ in 1:n], λ))
+    push!(cases, (BigFloat[isodd(i) ? 3 : -3 for i in 1:n], λ))                    # alternating
+    push!(cases, (BigFloat[isodd(i) ? 4 : -2 for i in 1:n], λ))
+    push!(cases, (BigFloat[i % 3 == 0 ? 0.5 : 3 for i in 1:n], λ))
+    push!(cases, (BigFloat[i % 4 == 0 ? 6 : 3 for i in 1:n], λ))                   # near the thresholds
+    push!(cases, (fill(BigFloat(3), n), λ))                                         # ties
+    push!(cases, (BigFloat[i + 1 for i in 1:n], λ))                                 # a ramp
+    push!(cases, (BigFloat[i <= n ÷ 2 ? 2 : -2 for i in 1:n], λ))                   # two segments
+    for k in (3, 5, 7)
+      k < n && push!(cases, (step_input(n, k), λ))
+    end
+  end
+  push!(cases, (BigFloat[4, -2, 0.5, 3, 3], BigFloat(4)))                          # the example
+  cases
+end
+
+# the package against the model, every call form, with ==
+function check_tv(x::Vector{BigFloat}, λ::BigFloat, γ, z::Vector{BigFloat})
+  x0 = copy(x)
+  f = TotalVariation1D(λ)
+  @test prox(f, x, γ) == z
+  @test x == x0
+  y = similar(x)
+  @test prox!(y, f, x, γ) === y
+  @test y == z
+  x2 = copy(x)
+  prox!(x2, f, x2, γ)
+  @test x2 == z
+  y3 = similar(x)
+  v = value_and_prox!(y3, f, x, γ)
+  @test y3 == z
+  @test v == f(y3)
+  for λ1 in BigFloat[0.25, 1]
+    g = FusedLasso(λ1, λ)
+    zf = BigFloat[mshrink(v, γ * λ1) for v in z]
+    @test prox(g, x, γ) == zf
+    @test x == x0
+    y = similar(x)
+    @test prox!(y, g, x, γ) === y
+    @test y == zf
+    x2 = copy(x)
+    prox!(x2, g, x2, γ)
+    @test x2 == zf
+    y3 = similar(x)
+    v = value_and_prox!(y3, g, x, γ)
+    @test y3 == zf
+    @test v == g(y3)
+  end
+end
+
+@testset "total-variation kernel: the segment length is exact" begin
+  @testset "the example at two bits" begin
+    setprecision(BigFloat, 2) do
+      x = BigFloat[4, -2, 0.5, 3, 3]
+      # the one segment has five entries: the quotient is 5/5 (and not 5/4) of the sum
+      @test prox(TotalVariation1D(BigFloat(4)), x, 1) == fill(BigFloat(1.5), 5)
+      @test prox(FusedLasso(BigFloat(0.25), BigFloat(4)), x, 1) == fill(BigFloat(1.0), 5)
+      rec = Tuple{Symbol, Int}[]
+      @test m_tv(x, BigFloat(4), m_exact, rec) == fill(BigFloat(1.5), 5)
+      @test (:last, 5) in rec
+      # the division by the length rounded to two bits gives the other value (2.0) that a platform
+      # which rounds the integer gives
+      @test m_tv(x, BigFloat(4), m_rounded) == fill(BigFloat(2.0), 5)
+    end
+  end
+
+  @testset "package against the model, precision $p" for p in (2, 3, 4, 5, 53, 256)
+    setprecision(BigFloat, p) do
+      compared = 0
+      for (x, λ) in tv_inputs(p), γ in (1, 2)
+        z = m_tv_or_nothing(x, γ * λ, m_exact)
+        z === nothing && continue
+        compared += 1
+        check_tv(x, λ, γ, z)
+      end
+      @test compared > 0
+    end
+  end
+
+  @testset "each division is reached and discriminates (precision 2)" begin
+    setprecision(BigFloat, 2) do
+      lengths = Dict(s => Set{Int}() for s in TV_SITES)
+      differs = Dict(s => 0 for s in TV_SITES)
+      for (x, λ) in tv_inputs(2), γ in (1, 2)
+        rec = Tuple{Symbol, Int}[]
+        z = m_tv_or_nothing(x, γ * λ, m_exact, rec)
+        z === nothing && continue
+        for (s, k) in rec
+          push!(lengths[s], k)
+        end
+        for s in TV_SITES
+          zr = m_tv_or_nothing(x, γ * λ, m_rounded_at(s))
+          zr === nothing || zr == z || (differs[s] += 1)
+        end
+      end
+      for s in TV_SITES
+        @test issubset((5, 7, 9), lengths[s])
+        @test differs[s] > 0
+      end
+    end
+  end
+
+  @testset "$T is the plain quotient" for T in (Float32, Float64)
+    U = T === Float32 ? UInt32 : UInt64
+    bits(v) = reinterpret(U, v)
+    g = Lcg(UInt64(4000) + UInt64(sizeof(T)))
+    compared = 0
+    for n in 3:12, λ in T[0.1, 0.5, 1.25, 3, 10], rep in 1:60
+      x = T[T(nextint!(g, 2001) - 1001) / 100 for _ in 1:n]
+      z = m_tv_or_nothing(x, λ, m_plain)
+      z === nothing && continue
+      compared += 1
+      y = similar(x)
+      prox!(y, TotalVariation1D(λ), x, 1)
+      @test bits.(y) == bits.(z)
+      for λ1 in T[0.2, 1]
+        yf = similar(x)
+        prox!(yf, FusedLasso(λ1, λ), x, 1)
+        @test bits.(yf) == bits.(mshrink.(z, λ1))
+      end
+    end
+    @test compared > 0
   end
 end
 

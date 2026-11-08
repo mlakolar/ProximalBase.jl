@@ -318,7 +318,7 @@ end
   end
   # random entries of mixed magnitude: the support is optimal up to the rounding of the comparison
   for _ in 1:4, p in 2:4
-    A = [rand(Bool) ? randn(T) * fm / 8 : randn(T) * fn for _ in 1:p, _ in 1:p]
+    A = [rand(Bool) ? (fm / 8) * randn(T) : fn * randn(T) for _ in 1:p, _ in 1:p]
     X = tril(A) + tril(A, -1)'
     for diagonal in (true, false), s in budgets(p, diagonal)
       run_case(X, s, diagonal, :range)

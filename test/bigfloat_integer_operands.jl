@@ -71,6 +71,9 @@ end
 # the soft threshold, as the package forms it
 mshrink(v::T, c::T) where {T<:AbstractFloat} = max(v - c, zero(v)) + min(v + c, zero(v))
 
+# equal values, with the sign of a zero and NaN equal to NaN
+same(a::BigFloat, b::BigFloat) = (isnan(a) && isnan(b)) || (a == b && signbit(a) == signbit(b))
+
 # a small deterministic generator of the inputs (the same on every platform)
 mutable struct Lcg
   s::UInt64
@@ -160,10 +163,10 @@ function m_pool(w::Vector{BigFloat}, σ::Int)
   y, c
 end
 
-# the proximal point of NormL1Fused(λ1, λ2) at x (length > 2), finite levels, a positive finite step:
+# the proximal point of NormL1Fused(λ1, λ2) at x (length > 2), finite levels, a finite step:
 # the output in the order of x, the sizes of the pooled blocks, and the output in the order of the sorted
-# entries (at a precision of a few bits the pooled means need not be increasing in that order: the
-# value of value_and_prox! is formed in it, and the value of f(y) after sorting y)
+# entries (at a precision of a few bits the pooled means need not be increasing in that order, and the
+# value at the output is the one of the sorted output)
 function m_finite_prox(x::Vector{BigFloat}, λ1::BigFloat, λ2::BigFloat, γ)
   n = length(x)
   p = sortperm(x)
@@ -183,9 +186,9 @@ end
 # the value of NormL1Fused(λ1, λ2) at y (length > 2): λ1 Σ|a_k| + λ2 Σ (2k - n - 1) a_k with the entries
 # sorted increasingly, and whether the ordinary expression is the one that the package returns (the value is
 # finite and the fusion sum is not negative: the other values are recovered by a scaled sum)
-function m_finite_value(y::Vector{BigFloat}, λ1::BigFloat, λ2::BigFloat; presorted::Bool = false)
+function m_finite_value(y::Vector{BigFloat}, λ1::BigFloat, λ2::BigFloat)
   n = length(y)
-  a = presorted ? y : sort(y)
+  a = sort(y)
   v1 = v2 = zero(BigFloat)
   for k in 1:n
     v1 += abs(a[k])
@@ -438,14 +441,13 @@ step_input(n::Int, k::Int) = BigFloat[i <= k ? 1 : 8 for i in 1:n]
 
 function check_finite(x::Vector{BigFloat}, λ1::BigFloat, λ2::BigFloat, γ, seen::Set{Int})
   f = NormL1Fused(λ1, λ2)
-  y0, sizes, ys = m_finite_prox(x, λ1, λ2, γ)
+  y0, sizes, _ = m_finite_prox(x, λ1, λ2, γ)
   union!(seen, sizes)
   y, v = check_prox(f, x, γ, y0)
-  # the value at the stored output; a value that the ordinary expression does not give (a fusion sum
-  # that rounding made negative) is recovered by a scaled sum and is not modelled
-  want, ok = m_finite_value(ys, λ1, λ2; presorted = true)
-  ok && @test v == want
+  # the value at the stored output (the entries of y sorted); a value that the ordinary expression does
+  # not give (a fusion sum that rounding made negative) is recovered by a scaled sum and is not modelled
   want, ok = m_finite_value(y0, λ1, λ2)
+  ok && @test v == want
   ok && @test f(y) == want
   vx, okx = m_finite_value(x, λ1, λ2)
   okx && @test f(x) == vx
@@ -514,6 +516,133 @@ end
         check_finite(d, λ1, λ2, γ, s)
       end
     end
+  end
+end
+
+####################################
+#  the value at the stored output of the finite fusion levels
+####################################
+
+# At a precision of two or three bits the rounded block means of the pooling need not be nondecreasing
+# in the order of the sorted entries (a pooled sequence [1, 0.75, ...]). The stored output is that
+# sequence soft-thresholded, placed at the entries; f(y) sorts y, which is another sequence, so a value
+# accumulated in the order of the pooled sequence is not the value at y. value_and_prox! returns the
+# value at the stored output, f(y), and the stored output is the one that prox! stores.
+
+# the number of positions of the sequence at which it decreases
+inversions(w) = count(k -> w[k + 1] < w[k], 1:length(w) - 1)
+
+# one input of NormL1Fused: the stored output is the model's proximal point and equals the one of prox,
+# the returned value is the value at it, for a separate and for an in-place output
+function check_stored_value(x::Vector{BigFloat}, λ1::BigFloat, λ2::BigFloat, γ, counts)
+  f = NormL1Fused(λ1, λ2)
+  y0, _, ys = m_finite_prox(x, λ1, λ2, γ)
+  yp = prox(f, x, γ)
+  @test same_vec(yp, y0)
+  y = similar(x)
+  v = value_and_prox!(y, f, x, γ)
+  @test same_vec(y, y0)
+  @test same_vec(y, yp)
+  @test v == f(y)
+  want, ok = m_finite_value(y, λ1, λ2)
+  ok && @test v == want
+  x2 = copy(x)
+  v2 = value_and_prox!(x2, f, x2, γ)
+  @test same_vec(x2, y0)
+  @test v2 == v
+  inversions(ys) > 0 ? (counts[1] += 1) : (counts[2] += 1)
+  nothing
+end
+same_vec(a, b) = length(a) == length(b) && all(same.(a, b))
+
+@testset "NormL1Fused: the value at the stored output" begin
+  @testset "the two examples at two bits" begin
+    setprecision(BigFloat, 2) do
+      f = NormL1Fused(BigFloat(0.25), BigFloat(0.5))
+      x = BigFloat[2.0, 0.5, 1.0, 2.0, -1.0, 1.0]
+      y = similar(x)
+      v = value_and_prox!(y, f, x, 1)
+      @test y == BigFloat[0.5, 0.5, 0.5, 0.5, 0.75, 0.5]       # as prox stores it
+      @test y == prox(f, x, 1)
+      @test f(y) == 2.0
+      @test v == f(y)
+      x = BigFloat[-1, -1, 1.5, -2, -0.5, 0.5]
+      y = similar(x)
+      v = value_and_prox!(y, f, x, 1)
+      @test y == BigFloat[-0.125, -0.125, -0.25, -0.125, -0.125, -0.125]
+      @test y == prox(f, x, 1)
+      @test f(y) == 0.375
+      @test v == f(y)
+    end
+  end
+
+  @testset "the same inputs at precision $p" for p in (3, 5, 53)
+    setprecision(BigFloat, p) do
+      f = NormL1Fused(BigFloat(0.25), BigFloat(0.5))
+      counts = [0, 0]
+      for x in (BigFloat[2.0, 0.5, 1.0, 2.0, -1.0, 1.0], BigFloat[-1, -1, 1.5, -2, -0.5, 0.5])
+        check_stored_value(x, BigFloat(0.25), BigFloat(0.5), 1, counts)
+        y = similar(x)
+        @test value_and_prox!(y, f, x, 1) == f(y)
+        @test all(==(y[1]), y)                                  # one pooled block, no inversion
+      end
+      @test counts == [0, 2]                                    # no inversion of the stored sequence
+      if p == 3
+        y = Vector{BigFloat}(undef, 6)
+        @test value_and_prox!(y, f, BigFloat[2.0, 0.5, 1.0, 2.0, -1.0, 1.0], 1) == 1.25
+        @test value_and_prox!(y, f, BigFloat[-1, -1, 1.5, -2, -0.5, 0.5], 1) == 0.3125
+      elseif p == 5
+        y = Vector{BigFloat}(undef, 6)
+        @test value_and_prox!(y, f, BigFloat[2.0, 0.5, 1.0, 2.0, -1.0, 1.0], 1) == 0.96875
+        @test value_and_prox!(y, f, BigFloat[-1, -1, 1.5, -2, -0.5, 0.5], 1) == 0.265625
+      end
+    end
+  end
+
+  # the matrix: signed, tied and descending entries, two pairs of levels, three steps (a zero step among
+  # them), a separate and an in-place output; the counts of the inputs whose stored sequence has an
+  # inversion and of those whose has none, so that the matrix discriminates
+  @testset "the matrix" begin
+    levels = ((BigFloat(0.25), BigFloat(0.5)), (BigFloat(0.375), BigFloat(0.75)))
+    counts = Dict(p => [0, 0] for p in (2, 3, 4, 5, 53, 256))
+    for p in (2, 3, 4, 5, 53, 256)
+      setprecision(BigFloat, p) do
+        g = Lcg(UInt64(5000 + p))
+        bits = min(p, 5)
+        c = counts[p]
+        for n in 3:10, (λ1, λ2) in levels, γ in (0, 1 // 2, 1)
+          for _ in 1:20
+            check_stored_value(BigFloat[pbit!(g, bits) for _ in 1:n], λ1, λ2, γ, c)
+          end
+          check_stored_value(BigFloat[pbit!(g, bits; signed = false) for _ in 1:n], λ1, λ2, γ, c)
+          check_stored_value(fill(BigFloat(3), n), λ1, λ2, γ, c)                                 # ties
+          check_stored_value(BigFloat[isodd(i) ? 2 : 3 for i in 1:n], λ1, λ2, γ, c)
+          check_stored_value(step_input(n, n ÷ 2), λ1, λ2, γ, c)
+          check_stored_value(reverse(step_input(n, n ÷ 2)), λ1, λ2, γ, c)
+          check_stored_value(sort(BigFloat[pbit!(g, bits) for _ in 1:n]; rev = true), λ1, λ2, γ, c)   # descending
+        end
+      end
+    end
+    for p in (2, 3)
+      @test counts[p][1] > 0           # inputs with an inversion of the stored sequence
+      @test counts[p][2] > 0           # and inputs without
+    end
+  end
+
+  # the plain types: the value returned is the value at the stored output
+  @testset "$T" for T in (Float16, Float32, Float64)
+    g = Lcg(UInt64(6000) + UInt64(sizeof(T)))
+    n_cases = 0
+    for n in 3:12, (l1, l2) in ((0.25, 0.5), (0.1, 0.3), (1.0, 0.5)), γ in (0.5, 1), _ in 1:60
+      x = T[T(nextint!(g, 65) - 33) * T(0.37) for _ in 1:n]
+      f = NormL1Fused(T(l1), T(l2))
+      y = similar(x)
+      v = value_and_prox!(y, f, x, γ)
+      @test isfinite(v)
+      @test v == f(y)
+      n_cases += 1
+    end
+    @test n_cases > 0
   end
 end
 
@@ -627,9 +756,6 @@ end
 ####################################
 #  the helpers of the integer operands
 ####################################
-
-# equal values, with the sign of a zero and NaN equal to NaN
-same(a::BigFloat, b::BigFloat) = (isnan(a) && isnan(b)) || (a == b && signbit(a) == signbit(b))
 
 @testset "the integer-operand helpers" begin
   counts = Any[3, 4, 5, 6, 7, 8, 9, -5, 1, 2^40, typemax(Int64), typemin(Int64) + 1,

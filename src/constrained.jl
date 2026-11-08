@@ -390,8 +390,24 @@ function _value_and_prox_box!(y, c::BoxConstrained{<:Conjugate{<:ElasticNet}}, x
   _elastic_conjugate_value(c.f.f, y)
 end
 
+# For λ2 = 0 the conjugate is the indicator of |yᵢ| ≤ λ1 wᵢ, with the comparison of the NormL1 conjugate (`_within`: the
+# relative tolerance of the output type, and a NaN entry is infeasible). The threshold is formed in the working type of the
+# output, the level and the weights after both factors are converted, so that no product wraps or rounds in a narrower
+# type; a threshold that overflows exceeds every finite entry, and an infinite entry is never feasible.
+function _elastic_indicator_value(f::ElasticNet, y::AbstractArray)
+  T = float(eltype(y))
+  S = _shrink_type(T, f)
+  λ = convert(S, f.λ1)
+  @inbounds for i in eachindex(IndexLinear(), y)
+    v = y[i]
+    thr = λ * convert(S, _entry(f.w, i))
+    (isinf(v) || !_within(abs(v), thr, T)) && return T(Inf)
+  end
+  zero(T)
+end
+
 function _elastic_conjugate_value(f::ElasticNet, y::AbstractArray)
-  iszero(f.λ2) && return _conjugate_value(NormL1(f.λ1, f.w), y)
+  iszero(f.λ2) && return _elastic_indicator_value(f, y)
   z = _ElasticShrunkArray(f, y)
   T = float(eltype(y))
   # Everything up to the value is formed in the promoted type of y, λ1, w and λ2, and only the value

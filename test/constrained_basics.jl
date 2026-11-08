@@ -552,7 +552,9 @@ a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
       xt = T.(x64)
       step = γ isa Real ? T(γ) : T.(γ)
       for g in (ElasticNet(T(1), T(0.5)), ElasticNet(T(1), T(0.5), T[1, 0, 2]),
-                ElasticNet(T(1), T(0)), ElasticNet(T(1), T(0), T[1, 0, 2]), ElasticNet(T(0), T(0.5)))
+                ElasticNet(T(1), T(0)), ElasticNet(T(1), T(0), T[1, 0, 2]), ElasticNet(T(0), T(0.5)),
+                ElasticNet(Int8(2), Int8(0), Int8[1, 0, 2]), ElasticNet(Float16(0.5), Float16(0), Float16[1, 0, 2]),
+                ElasticNet(0.5f0, 0f0, Float32[1, 0, 2]), ElasticNet(true, false, Bool[1, 0, 1]))
         for box in (IndBox(T(-2), T(2)), IndBox(fill(T(-2), 3), fill(T(2), 3)), IndNonnegative())
           c = Constrained(Conjugate(g), box)
           y = zeros(T, 3)
@@ -664,6 +666,87 @@ function check_fused(c, mkdest, x, γ; alias = nothing)
     v = value_and_prox!(z, c, z, γ)
     @test snap(z) == snap(expected)
     check_elastic_value(v, T, elastic_conjugate_reference(f.λ1, f.λ2, w, snap(z)))
+  end
+end
+
+# For a zero ridge the value is the indicator of |yᵢ| ≤ λ1 wᵢ (with the relative tolerance of the output type); the threshold
+# is formed after both factors are converted to the working type, so that no product wraps or rounds in the type of the
+# parameters. The references are the exact BigFloat products at the stored output.
+@testset "the zero-ridge indicator in the working type" begin
+  ind(v, T) = isinf(v) ? T(Inf) : zero(T)
+  # the three products that wrapped or rounded in the type of the parameters, at a stored output, on every destination class
+  h = Float16(0.1)
+  cases = (("Int8 product wraps", Int8(100), Int8(0), Int8(2), [-77.0, 77.0, 199.0, 201.0]),
+           ("Float32 product overflows", Float32(1e38), 0f0, Float32(4), [1e100, 3e38, 4e38, 5e38]),
+           ("Float16 product rounds", h, Float16(0), h, [Float64(h)^2, 0.0, 0.0101, 0.02]))
+  for (name, λ, λ0, w1, Ys) in cases, T in (Float32, Float64), Y1 in Ys
+    Yt = T(Y1)
+    isfinite(Yt) || continue          # a box cannot store an infinite entry
+    f1 = ElasticNet(λ, λ0, [w1])
+    f2 = ElasticNet(λ, λ0, fill(w1, 1, 1))
+    for (kind, mkdest, Y, f, x) in (("dense", () -> zeros(T, 1), T[Yt], f1, T[0]),
+                                    ("SparseIterate", () -> SparseIterate(T, 1), T[Yt], f1, T[0]),
+                                    ("SymmetricSparseIterate", () -> SymmetricSparseIterate(T, 1), fill(Yt, 1, 1), f2, zeros(T, 1, 1)))
+      c = Constrained(Conjugate(f), IndBox(Y, Y))
+      @testset "$name, $T, $kind, y = $Y1" begin
+        y = mkdest()
+        v = value_and_prox!(y, c, x, 1.0)
+        ys = collect(y)
+        @test ys == Y
+        ref = elastic_conjugate_reference(λ, λ0, collect(f.w), ys)
+        @test v === ind(ref, T)
+        # in place
+        z = kind == "dense" ? zeros(T, 1) : kind == "SparseIterate" ? SparseIterate(T, 1) : SymmetricSparseIterate(T, 1)
+        @test value_and_prox!(z, c, z, 1.0) === v
+        # a later block, the earlier block keeping its value
+        s = SeparableSum(SqrNormL2(2.0), c)
+        v1 = value_and_prox!(zeros(1), SqrNormL2(2.0), [3.0], 1.0)
+        d2 = mkdest()
+        total = Float64(value_and_prox!(([7.0], d2), s, ([3.0], x), 1.0))
+        isinf(v) ? (@test total == Inf) : @test isapprox(total, Float64(v1); rtol = 1e-6)
+        @test collect(d2) == Y
+      end
+    end
+  end
+  # every pair of parameter types, with thresholds that overflow, underflow or sit on the tolerance boundary: the private loop
+  # at stored outputs that a box cannot store (an infinite entry) as well as ordinary ones
+  levels = ((Bool, (true, false)), (Int8, (Int8(0), Int8(1), Int8(100), Int8(127))), (Int64, (0, 3, 10^18, typemax(Int64))),
+            (UInt8, (UInt8(0), UInt8(1), UInt8(200), UInt8(255))), (Float16, (Float16(0), Float16(0.1), floatmax(Float16), Float16(6e-8))),
+            (Float32, (0f0, 1f0, 1f38, floatmax(Float32), 1f-40)), (Float64, (0.0, 1.0, 1e300, floatmax(Float64), 1e-300, 5e-324)))
+  checked = 0
+  mismatches = []
+  for T in (Float32, Float64), (_, ls) in levels, λ in ls, (_, ws) in levels, w in ws
+    f = ElasticNet(λ, zero(λ), [w])
+    thr = BigFloat(λ) * BigFloat(w)
+    Tthr = T(thr)
+    tolb = thr + sqrt(BigFloat(eps(T))) * max(1, thr)
+    pts = T[0, T(1), T(1e-9), T(1e-5), T(1e-2), floatmax(T), T(Inf), T(NaN), Tthr, T(tolb * (1 - big"1e-3")), T(tolb * (1 + big"1e-3"))]
+    isfinite(Tthr) && append!(pts, [prevfloat(Tthr), nextfloat(Tthr)])
+    for p in pts, sign in (1, -1)
+      yv = [sign * p]
+      v = PB._elastic_indicator_value(f, yv)
+      ref = elastic_conjugate_reference(λ, zero(λ), [w], yv)
+      v === ind(ref, T) || push!(mismatches, (T, λ, w, yv[1], v))
+      checked += 1
+    end
+  end
+  @test isempty(mismatches)
+  @test checked > 10_000
+  # a stored NaN keeps the convention of the NormL1 conjugate: the value is +Inf
+  for T in (Float32, Float64)
+    c = Constrained(Conjugate(ElasticNet(Int8(2), Int8(0), Int8[1])), IndBox(-2.0, 2.0))
+    y = zeros(T, 1)
+    @test value_and_prox!(y, c, T[NaN], 1.0) === T(Inf)
+    @test isnan(y[1])
+    # scalar and array bounds and steps, empty arrays
+    for box in (IndBox(-2.0, 2.0), IndBox(T[-2], T[2])), γ in (T(0.5), T[0.5])
+      c = Constrained(Conjugate(ElasticNet(Float16(1), Float16(0), Float16[1])), box)
+      y = zeros(T, 1)
+      v = value_and_prox!(y, c, T[5], γ)
+      @test v === ind(elastic_conjugate_reference(Float16(1), Float16(0), Float16[1], y), T)
+    end
+    c = Constrained(Conjugate(ElasticNet(Int8(2), Int8(0), Int8[])), IndBox(-2.0, 2.0))
+    @test value_and_prox!(T[], c, T[], 1.0) === zero(T)
   end
 end
 

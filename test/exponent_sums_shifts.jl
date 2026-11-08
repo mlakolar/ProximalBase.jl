@@ -994,7 +994,8 @@ end
 # for an even b >= 200, at the precisions used here. The Int total of h = k + j + e + i is 3b + 1 (k = j = e = b + 1,
 # i = -2): typemax(Int64) at b = P1 and above Int64 from b = P1 + 2 (b is even); on the negative side 3 P1 = 2^63 - 2, so it is
 # typemin(Int64) + 3 at b = -P1 (the last even b that fits) and typemin(Int64) - 3 at b = -P1 - 2 (the first that does not). The
-# mixed-parameter cases below reach typemin(Int64) and typemin(Int64) - 1 exactly.
+# mixed-parameter cases below reach typemin(Int64) and typemin(Int64) - 1 exactly on the 64-bit Unix range (they are
+# filtered out on a smaller one).
 cube_prox_exponent(b) = b >= 200 ? -(b ÷ 2) : b
 cube_prox(γ, λ, x) = (y = similar(x, float(eltype(x))); prox!(y, CubeNormL2(λ), x, γ); y)
 

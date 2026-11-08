@@ -266,12 +266,17 @@ that thorough adds. The focus files are in `.github/tier-rules.toml`, beside the
 iterate files that quick always runs (`active_handle`, `atom_iterate`,
 `iterate_invariants`, `iterate_queries`, `matrixview`, `sparse_iterate_basics`,
 `symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
-`allocations_basics`):
+`allocations_basics`). The Float32 repeats and type grids that quick leaves out of
+`atom_iterate` and `sparse_iterate_basics` are in the full-tier files
+`atom_iterate_grids` and `sparse_iterate_basics_grids`; a family's grids file runs
+for a change to its source path (the rows below, and the other paths named in
+`.github/tier-rules.toml`) and in the nightly run; the quick, standard and thorough
+tiers do not include it:
 
 | Change | Before merge |
 |---|---|
-| `src/atom_iterate.jl`, narrow | quick + `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` |
-| `src/sparse_iterate.jl`, narrow | quick + `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_writes`, `symmetric_mul`, `symmetric_argument`, `symmetric_mutators`, `symmetric_mutator_errors` |
+| `src/atom_iterate.jl`, narrow | quick + `atom_iterate_grids`, `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` |
+| `src/sparse_iterate.jl`, narrow | quick + `sparse_iterate`, `sparse_iterate_basics_grids`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_writes`, `symmetric_mul`, `symmetric_argument`, `symmetric_mutators`, `symmetric_mutator_errors` |
 | `src/symmetric_parameters.jl`, narrow | quick + `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` |
 | one of them, not declared narrow | standard + the same focus files |
 | two of them | standard + both groups (the label does not apply) |

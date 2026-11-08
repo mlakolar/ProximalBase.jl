@@ -120,8 +120,10 @@ end
 end
 
 @testset "whether the workflow differs from the default branch" begin
-  @test occursin("are the same as on the default branch", record(workflow_differs = "false").text)
-  @test occursin("differ from the default branch", record(workflow_differs = "true").text)
+  scope = "The CI workflow, its rules, the check scripts and the test selection files"
+  @test occursin("$scope are the same as on the default branch", record(workflow_differs = "false").text)
+  @test occursin("The CI workflow, its rules, the check scripts or the test selection files differ from the default branch", record(workflow_differs = "true").text)
+  @test occursin("Whether $(lowercasefirst(scope)) differ from the default branch is unknown", record(workflow_differs = "unknown").text)
   @test occursin("is unknown", record(workflow_differs = "unknown").text)
   @test occursin("is unknown", record(workflow_differs = "").text)
   @test occursin("is unknown", record(workflow_differs = "maybe").text)
@@ -183,7 +185,8 @@ end
     @test run_main(merge(env(GATE = "failure"), Dict("GITHUB_STEP_SUMMARY" => summary))) == 0
     @test startswith(read(out, String), "# Release validation: FAILED\n")
     @test startswith(read(summary, String), text) && count("# Release validation:", read(summary, String)) == 2
-    # a FAILED record is written like a PASSED one, with exit 0, for each failing result, a wrong commit and an unreadable listing
+    # a FAILED record is written like a PASSED one, with exit 0, for each failing result, a wrong or malformed expected SHA and an unreadable listing
+    # (an invalid validation input is not an invalid operational variable, which is status 2 below)
     for kw in (Dict("PLAN" => "failure"), Dict("TESTS" => "cancelled"), Dict("VERDICT" => "failure"), Dict("GATE" => "skipped"),
                Dict("EXPECTED_SHA" => OTHER), Dict("EXPECTED_SHA" => ""), Dict("EXPECTED_SHA" => SHA[1:7]), Dict("GITHUB_EVENT_NAME" => "schedule"))
       rm(out; force = true)

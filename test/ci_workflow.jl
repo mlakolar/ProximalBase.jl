@@ -5,7 +5,10 @@ module CIWorkflowTest
 # request or manual run can start one, that no event field reaches a script line, which check names
 # each kind of run uses, the test job's inventory step and its Codecov upload, and the release
 # record's artifact. The decisions of the scripts are tested in their own files; this file pins
-# the wiring between them, which no other test sees.
+# the wiring between them, which no other test sees. Every setting is checked on the text without
+# its full-line comments (`active`), so a commented-out setting does not count; the predicates for
+# the Codecov policy, the inventory step and the release-record artifact are functions of the text,
+# and a test below shows that each fails when its line is commented out.
 
 using Test
 
@@ -69,11 +72,57 @@ end
 
 nocomment(text) = join([l for l in split(text, '\n') if !startswith(strip(l), "#")], '\n')
 
-const JOBS = split_jobs(WORKFLOW)
+# The workflow without its full-line comments: the text that GitHub acts on, apart from `#` after a value.
+active(text) = nocomment(replace(text, "\r\n" => "\n"))
+const ACTIVE = active(WORKFLOW)
+const JOBS = split_jobs(ACTIVE)
 job(name) = only(t for (n, t) in JOBS if n == name)
 hasjob(name) = any(n == name for (n, _) in JOBS)
 field(text, key) = (m = match(Regex("^    $key: (.*)\$", "m"), text); m === nothing ? nothing : String(m.captures[1]))
 const REPORTING = ("alert", "triage", "stale")
+
+jobtext(text, name) = only(t for (n, t) in split_jobs(active(text)) if n == name)
+stepname(s) = (m = match(r"^      - name: (.*)$"m, s); m === nothing ? nothing : String(m.captures[1]))
+
+# The Codecov step of the test job fails the job in the nightly and in a release run: one step, one
+# active `fail_ci_if_error` line with the expression, and no other mention.
+function codecov_ok(text)
+  steps = split_steps(jobtext(text, "test"))
+  c = [s for s in steps if occursin("uses: codecov/codecov-action@", s)]
+  return length(c) == 1 && count("fail_ci_if_error", active(text)) == 1 &&
+         occursin(r"^          fail_ci_if_error: \$\{\{ github\.event_name == 'schedule' \|\| needs\.plan\.outputs\.release == 'true' \}\}$"m, only(c))
+end
+
+# The inventory step of the test job: its active condition and its command.
+function inventory_ok(text)
+  steps = split_steps(jobtext(text, "test"))
+  found = [s for s in steps if stepname(s) == "Check the test inventory"]
+  length(found) == 1 || return false
+  s = only(found)
+  return occursin(r"^        if: \$\{\{ !cancelled\(\) && needs\.plan\.outputs\.inventory == 'true' && steps\.tests\.outcome != 'skipped' \}\}$"m, s) &&
+         run_blocks(s) == ["julia --startup-file=no scripts/ci_result.jl check-inventory \"\$RUNNER_TEMP/test-output.log\" \"--tier=\$TIER\" \${FOCUS:+\"--extra=\$FOCUS\"}"]
+end
+
+# The upload of the release record: its active settings.
+function artifact_ok(text)
+  steps = split_steps(jobtext(text, "release-record"))
+  ups = [s for s in steps if occursin("uses: actions/upload-artifact@v7", s)]
+  length(ups) == 1 || return false
+  u = only(ups)
+  return occursin(r"^          name: release-record$"m, u) && occursin(r"^          path: \$\{\{ runner\.temp \}\}/release-record$"m, u) &&
+         occursin(r"^          retention-days: 90$"m, u) && occursin(r"^          if-no-files-found: error$"m, u)
+end
+
+# The pathspecs of the release record's comparison with the default branch, and whether each is quoted.
+function record_pathspecs(text)
+  step = only(s for s in split_steps(jobtext(text, "release-record")) if stepname(s) == "Compare the workflow files with the default branch")
+  m = match(r"git diff --quiet FETCH_HEAD -- (.*?) \|\| status=", step)
+  m === nothing && return Tuple{String, Bool}[]
+  return [(String(strip(t, '\'')), startswith(t, "'") && endswith(t, "'")) for t in split(m.captures[1])]
+end
+
+# A git pathspec glob (`*` stays within a directory) against a path.
+globmatch(pattern, path) = occursin(Regex("^" * replace(replace(pattern, r"([.+()\[\]{}^\$|\\])" => s"\\\1"), "*" => "[^/]*") * "\$"), path)
 
 @testset "the helpers cut the workflow" begin
   @test [n for (n, _) in JOBS][1:2] == ["plan", "test"]
@@ -126,8 +175,11 @@ end
   # a failed verdict of a push to master
   @test a == "always() && needs.verdict.result == 'failure' && github.event_name == 'push' && github.ref == 'refs/heads/master'"
   @test field(job("alert"), "needs") == "verdict"
-  # the nightly run, unless it was cancelled; it must run when the verdict passed (to resolve) and when the plan failed
-  @test t == "always() && github.event_name == 'schedule' && needs.verdict.result != 'cancelled'"
+  # the nightly run, unless it was cancelled; it must run when the verdict passed (to resolve) and when the plan or
+  # the verdict failed. `!cancelled()` does that and also stops a running job when the whole run is cancelled, which
+  # `always()` does not (the verdict's result alone would not change): so `always()` is not used here.
+  @test t == "\${{ !cancelled() && github.event_name == 'schedule' && needs.verdict.result != 'cancelled' }}"
+  @test !occursin("always()", t) && occursin("!cancelled()", t) && occursin("needs.verdict.result != 'cancelled'", t)
   @test field(job("triage"), "needs") == "[plan, verdict]"
   @test !occursin("needs.verdict.result == 'failure'", t) && !occursin("needs.plan.result", t)
   # every push to master, whatever the rest of the run did
@@ -188,7 +240,7 @@ end
   end
 end
 
-@testset "separate concurrency groups that never cancel a report" begin
+@testset "separate concurrency groups: a running report job is not cancelled by a newer run (a pending one can be replaced)" begin
   groups = String[]
   for (name, group) in (("alert", "ci-alert"), ("triage", "ci-triage"), ("stale", "ci-stale"))
     text = job(name)
@@ -197,8 +249,8 @@ end
   end
   @test length(unique(groups)) == 3
   # the workflow's own group does not use these names, and only a pull request run cancels
-  @test !any(occursin(g, WORKFLOW[first(findfirst("\nconcurrency:\n", WORKFLOW)):first(findfirst("\njobs:\n", WORKFLOW))]) for g in groups)
-  @test occursin("  cancel-in-progress: \${{ github.event_name == 'pull_request' }}\n", WORKFLOW)
+  @test !any(occursin(g, ACTIVE[first(findfirst("\nconcurrency:\n", ACTIVE)):first(findfirst("\njobs:\n", ACTIVE))]) for g in groups)
+  @test occursin("\n  cancel-in-progress: \${{ github.event_name == 'pull_request' }}\n", ACTIVE)
 end
 
 @testset "check names: the PR names belong to pull requests only" begin
@@ -239,7 +291,6 @@ end
 
 @testset "the test job checks the inventory after the tests" begin
   steps = split_steps(job("test"))
-  stepname(s) = (m = match(r"^      - name: (.*)$"m, s); m === nothing ? nothing : String(m.captures[1]))
   stepnames = stepname.(steps)
   i = findfirst(==(CITriage.TEST_STEP), stepnames)
   @test i !== nothing && CITriage.TEST_STEP == "Run package tests"
@@ -249,9 +300,8 @@ end
   @test j !== nothing && i < j
   @test stepnames[i + 1] == "Timing summary" && j == i + 2
   s = steps[j]
-  @test occursin("        if: \${{ !cancelled() && needs.plan.outputs.inventory == 'true' && steps.tests.outcome != 'skipped' }}\n", s)
+  @test inventory_ok(WORKFLOW)
   @test occursin("        shell: bash\n", s)
-  @test run_blocks(s) == ["julia --startup-file=no scripts/ci_result.jl check-inventory \"\$RUNNER_TEMP/test-output.log\" \"--tier=\$TIER\" \${FOCUS:+\"--extra=\$FOCUS\"}"]
   @test occursin("          TIER: \${{ needs.plan.outputs.tier }}\n", s) && occursin("          FOCUS: \${{ needs.plan.outputs.focus }}\n", s)
   @test !occursin("continue-on-error", s)
   # the log the step reads is the one the test step writes
@@ -262,15 +312,33 @@ end
 end
 
 @testset "Codecov fails the nightly and a release run" begin
-  steps = split_steps(job("test"))
-  codecov = [s for s in steps if occursin("uses: codecov/codecov-action@", s)]
-  @test length(codecov) == 1
-  c = only(codecov)
-  @test occursin("          fail_ci_if_error: \${{ github.event_name == 'schedule' || needs.plan.outputs.release == 'true' }}\n", c)
-  @test !occursin("fail_ci_if_error: false", WORKFLOW)
-  @test occursin("if: matrix.coverage && needs.plan.outputs.coverage == 'true'", c)
+  @test codecov_ok(WORKFLOW)
+  c = only(s for s in split_steps(job("test")) if occursin("uses: codecov/codecov-action@", s))
+  @test !occursin("fail_ci_if_error: false", ACTIVE)
   # the step runs only when coverage is collected
-  @test count("fail_ci_if_error", WORKFLOW) == 1
+  @test occursin("if: matrix.coverage && needs.plan.outputs.coverage == 'true'", c)
+end
+
+@testset "a setting that is only commented out does not count" begin
+  # the same line with `# ` in front of it (at the start of the line, or after its indentation)
+  commented(text, line) = (@assert count("\n" * line * "\n", text) == 1; replace(text, "\n" * line * "\n" => "\n# " * line * "\n"))
+  indented(text, line) = (@assert count("\n" * line * "\n", text) == 1; replace(text, "\n" * line * "\n" => "\n" * match(r"^ *", line).match * "# " * lstrip(line) * "\n"))
+  codecov_line = "          fail_ci_if_error: \${{ github.event_name == 'schedule' || needs.plan.outputs.release == 'true' }}"
+  inventory_line = "        if: \${{ !cancelled() && needs.plan.outputs.inventory == 'true' && steps.tests.outcome != 'skipped' }}"
+  retention_line = "          retention-days: 90"
+  for (check, line) in ((codecov_ok, codecov_line), (inventory_ok, inventory_line), (artifact_ok, retention_line))
+    @test check(WORKFLOW)
+    @test !check(commented(WORKFLOW, line))
+    @test !check(indented(WORKFLOW, line))
+    # a CRLF copy of the file is the same file
+    @test check(replace(WORKFLOW, "\n" => "\r\n"))
+  end
+  # other mutations of the same lines fail too
+  @test !codecov_ok(replace(WORKFLOW, codecov_line => "          fail_ci_if_error: false"))
+  @test !inventory_ok(replace(WORKFLOW, "needs.plan.outputs.inventory == 'true' && steps.tests" => "needs.plan.outputs.inventory != 'false' && steps.tests"))
+  @test !artifact_ok(replace(WORKFLOW, retention_line => "          retention-days: 30"))
+  # the extractors do not see a comment: a mention of the setting in a comment of the file does not change a count
+  @test count("fail_ci_if_error", ACTIVE) == 1 && count("fail_ci_if_error", active(commented(WORKFLOW, codecov_line))) == 0
 end
 
 @testset "the release record" begin
@@ -282,7 +350,26 @@ end
   @test startswith(steps[1], "      - uses: actions/checkout@v7") && occursin("fetch-depth: 1", steps[1])
   fetch = [s for s in steps if occursin("git fetch --no-tags --depth=1 origin master", s)]
   @test length(fetch) == 1
-  @test occursin("git diff --quiet FETCH_HEAD -- .github/workflows/CI.yml .github/tier-rules.toml scripts/ci_plan.jl scripts/ci_verdict.jl scripts/ci_result.jl scripts/release_record.jl", only(fetch))
+  specs = record_pathspecs(WORKFLOW)
+  @test first.(specs) == [".github/workflows/CI.yml", ".github/tier-rules.toml", "scripts/ci_*.jl", "scripts/release_record.jl",
+                          "scripts/test.jl", "scripts/conformance_map.jl", "scripts/conformance_run.jl", "test/runtests.jl",
+                          "test/tiers.jl", "test/tiers.toml"]
+  # a glob is quoted, so that git expands it (the shell would match the checkout only, and drop a file that is new)
+  @test all(quoted for (spec, quoted) in specs if occursin('*', spec))
+  covered(path) = any(globmatch(spec, path) for (spec, _) in specs)
+  # every check script of the repository is in the comparison, whatever its name, and so are the gate, the runner
+  # and the test selection
+  checks = ["scripts/$f" for f in readdir(joinpath(ROOT, "scripts")) if startswith(f, "ci_") && endswith(f, ".jl")]
+  @test "scripts/ci_gate.jl" in checks && "scripts/ci_plan.jl" in checks && "scripts/ci_verdict.jl" in checks &&
+        "scripts/ci_result.jl" in checks && "scripts/ci_triage.jl" in checks
+  @test all(covered, checks)
+  for path in ("scripts/ci_gate.jl", "scripts/test.jl", "test/tiers.jl", "test/tiers.toml", "test/runtests.jl", "scripts/release_record.jl",
+               ".github/workflows/CI.yml", ".github/tier-rules.toml")
+    @test isfile(joinpath(ROOT, path)) && covered(path)
+  end
+  @test !covered("README.md") && !covered("test/ci_workflow.jl")
+  # the check itself works on the glob helper
+  @test globmatch("scripts/ci_*.jl", "scripts/ci_gate.jl") && !globmatch("scripts/ci_*.jl", "scripts/ci/x.jl") && !globmatch("scripts/ci_*.jl", "scripts/ciXgate.jl")
   @test occursin("differs=unknown", only(fetch)) && occursin("differs=false", only(fetch)) && occursin("differs=true", only(fetch))
   record = [s for s in steps if occursin("scripts/release_record.jl \"\$RUNNER_TEMP/release-record/release-record.md\"", s)]
   @test length(record) == 1
@@ -300,18 +387,19 @@ end
   u = only(uploads)
   @test occursin("          name: release-record\n", u)
   @test occursin("          path: \${{ runner.temp }}/release-record\n", u)
+  @test artifact_ok(WORKFLOW)
   @test occursin("          retention-days: 90\n", u) && occursin("          if-no-files-found: error\n", u)
   @test !occursin("continue-on-error", text) && !occursin("if: ", u)
   # the record is the last step and no step is allowed to fail silently
   @test occursin("uses: actions/upload-artifact@v7", steps[end])
   @test !occursin("continue-on-error", text)
   # the only other uploads are the test job's reports and the benchmark failures, not named release-record
-  @test count("name: release-record", WORKFLOW) == 1
+  @test count("name: release-record", ACTIVE) == 1
 end
 
 @testset "pull requests are untouched by the new jobs" begin
   # the test job's inventory step needs the plan's flag, which a pull request run never sets
-  @test occursin("needs.plan.outputs.inventory == 'true'", WORKFLOW)
+  @test occursin("needs.plan.outputs.inventory == 'true'", ACTIVE)
   # the verdict and the gate keep their jobs and needs
   @test field(job("verdict"), "needs") == "[plan, test, benchmark-check, analysis]" && field(job("verdict"), "if") == "always()"
   @test field(job("gate"), "needs") === nothing

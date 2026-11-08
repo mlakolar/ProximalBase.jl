@@ -487,13 +487,14 @@ jobs:
   triage:
     # The nightly run, green or red (scripts/ci_triage.jl triage): one issue per system and test
     # file for the failures, and the resolution of the issues whose file passed. It must run when
-    # the verdict passed (to resolve issues) and when the plan failed, so only a cancelled run
-    # skips it. Only the schedule triggers it: it has write access to issues, and what it runs is
+    # the verdict passed (to resolve issues) and when the plan or the verdict failed, so only a
+    # cancelled run skips it: `!cancelled()` runs after a failed need like `always()` does, but it
+    # also stops a running triage job when the run is cancelled, which `always()` would not. Only the schedule triggers it: it has write access to issues, and what it runs is
     # the code of the default branch; no pull request or manual-branch code runs here, and no
     # event field is part of a script line.
     name: Triage the nightly run
     needs: [plan, verdict]
-    if: always() && github.event_name == 'schedule' && needs.verdict.result != 'cancelled'
+    if: ${{ !cancelled() && github.event_name == 'schedule' && needs.verdict.result != 'cancelled' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
@@ -569,12 +570,12 @@ jobs:
         id: differs
         shell: bash
         run: |
-          # true: the workflow, the rules or a script of the checks differs from the default branch;
+          # true: the CI workflow, its rules, the check scripts or the test selection files differ from the default branch;
           # unknown: the default branch could not be fetched.
           differs=unknown
           if git fetch --no-tags --depth=1 origin master; then
             status=0
-            git diff --quiet FETCH_HEAD -- .github/workflows/CI.yml .github/tier-rules.toml scripts/ci_plan.jl scripts/ci_verdict.jl scripts/ci_result.jl scripts/release_record.jl || status=$?
+            git diff --quiet FETCH_HEAD -- .github/workflows/CI.yml .github/tier-rules.toml 'scripts/ci_*.jl' scripts/release_record.jl scripts/test.jl scripts/conformance_map.jl scripts/conformance_run.jl test/runtests.jl test/tiers.jl test/tiers.toml || status=$?
             case $status in
               0) differs=false ;;
               1) differs=true ;;

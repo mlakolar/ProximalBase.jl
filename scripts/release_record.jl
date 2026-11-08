@@ -17,8 +17,9 @@
 # Anything else gives `Release validation: FAILED` and the reasons, never a PASSED: a listing that
 # cannot be read gives a record that says so. Julia pre is advisory: the record lists its
 # conclusion and a failure of it does not change the heading. The record also holds the ref, the
-# run URL and attempt, the commit of the workflow file and whether the workflow, the rules and the
-# scripts differ from the default branch (WORKFLOW_DIFFERS: true, false or unknown), the version in
+# run URL and attempt, the commit of the workflow file and whether the CI workflow, its rules, the
+# check scripts and the test selection files differ from the default branch (WORKFLOW_DIFFERS:
+# true, false or unknown; the files are listed in the step that sets it), the version in
 # Project.toml of the checkout, a table of the latest attempt of every job, the names of the run's
 # artifacts, and, last, the line that known exceptions are decided by a maintainer, followed by the
 # section "Maintainer decisions", which is empty.
@@ -28,12 +29,18 @@
 # record to OUTPUT and appends it to the file named by GITHUB_STEP_SUMMARY when that is set. Exit
 # status: 0 when the record was written (a FAILED record is written like a PASSED one: the
 # conclusion of the run is the verdict's, and the record is its evidence), 1 when it could not be
-# written or appended, 2 for a usage error or a missing or malformed variable.
+# written or appended, 2 for a usage error or an operational variable that is missing or malformed
+# (GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_SHA, GITHUB_RUN_ATTEMPT, GITHUB_SERVER_URL, and the
+# four results). A validation input that is invalid, such as an EXPECTED_SHA that is not a full
+# lowercase SHA, is not a usage error: it gives a FAILED record and exit status 0. The job only
+# runs when the plan's `release` output is true, so a dispatch that the planner rejected has no
+# release-record job and no record.
 #
 # The environment: GITHUB_SHA, GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT,
 # GITHUB_EVENT_NAME, GITHUB_REF, GITHUB_SERVER_URL, GITHUB_STEP_SUMMARY, GH_TOKEN, PLAN, TESTS,
 # VERDICT, GATE, EXPECTED_SHA, WORKFLOW_DIFFERS and WORKFLOW_SHA. Text that comes from an input of
-# the run is reduced to plain characters before it is written. No packages are needed.
+# the run is reduced to a safe set of characters before it is written (see `clean`). No packages
+# are needed.
 
 module ReleaseRecord
 
@@ -54,7 +61,11 @@ const RECORD_JOB = "Release record"
 # The results GitHub gives a job in `needs.<job>.result`.
 const RESULTS = ("success", "failure", "cancelled", "skipped")
 
-"Plain characters only (letters, digits and a few marks), at most `n` of them: nothing that Markdown or GitHub would act on."
+"""
+`s` reduced to letters, digits and the marks `._:/ ,()+-` (every other character becomes `?`), at
+most `n` characters. This prevents markup, mention (`@`) and reference (`#`) injection and breaking
+out of a code span or a table cell; a plain URL is kept, and GitHub may still link it.
+"""
 clean(s; n = 80) = first(replace(String(s), r"[^0-9A-Za-z._:/ ,()+-]" => "?"), n)
 
 "The result of a job as the record shows it: one of GitHub's results, or `unknown`."
@@ -67,9 +78,9 @@ required_names() = CIVerdict.mode_jobs("cross", "full")
 advisory_name() = CIVerdict.jobname(CIVerdict.ADVISORY_JOB..., "full")
 
 function differs_text(value)
-  value == "false" && return "The workflow, the rules and the scripts are the same as on the default branch."
-  value == "true" && return "The workflow, the rules or the scripts differ from the default branch: this run used the files of its own ref."
-  return "Whether the workflow, the rules and the scripts differ from the default branch is unknown (the comparison did not run)."
+  value == "false" && return "The CI workflow, its rules, the check scripts and the test selection files are the same as on the default branch."
+  value == "true" && return "The CI workflow, its rules, the check scripts or the test selection files differ from the default branch: this run used the files of its own ref."
+  return "Whether the CI workflow, its rules, the check scripts and the test selection files differ from the default branch is unknown (the comparison did not run)."
 end
 
 # A table cell: no pipes, no line breaks.
@@ -180,8 +191,8 @@ end
     main(args, env; fetch_jobs, fetch_artifacts, project, sleep, log, err) -> exit status
 
 Writes the record to the file named by `args[1]` and appends it to GITHUB_STEP_SUMMARY when that
-is set. 0 when it was written, whatever it says; 1 when it could not be written; 2 for a usage
-error or a missing or malformed variable.
+is set. 0 when it was written, whatever it says (an invalid `EXPECTED_SHA` gives a FAILED record);
+1 when it could not be written; 2 for a usage error or a missing or malformed operational variable.
 """
 function main(args = ARGS, env = ENV;
               fetch_jobs = () -> CIVerdict.github_jobs(env["GITHUB_REPOSITORY"], env["GITHUB_RUN_ID"]),

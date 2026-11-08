@@ -567,14 +567,16 @@ both failed `three_factor_product`) and an in-memory GitHub, never the network o
   a safe set of characters (no markup, mention or reference injection; plain URLs are kept). `main`
   is run with a fake `gh` and an environment dictionary: it writes the file and the job summary,
   exits 0 for a FAILED record as for a PASSED one (the verdict decides the run's conclusion; the
-  record is its evidence; a malformed `expected_sha` is a FAILED record), 1 when it cannot write
-  and 2 for a missing or malformed operational variable. A dispatch that the planner rejected has no
+  record is its evidence; a malformed `expected_sha`, a non-empty but malformed `GITHUB_SHA` and an
+  unrecognized result such as `PLAN=bogus` are FAILED records), 1 when it cannot write and 2 for a
+  missing or empty `GITHUB_SHA` or result variable or a malformed repository, run id, attempt or
+  server URL. A dispatch that the planner rejected has no
   release-record job and so no record.
 - **`ci_workflow`** reads `.github/workflows/CI.yml` as text, cutting out each job by its key (no YAML
   library), and pins the wiring that no other test sees: the old `report` job is gone, only
   `alert`, `triage` and `stale` have `issues: write` (and no job of the test code does), the `if` of
   each reporting job and of the release record (none runs for a pull request, and the reporters not
-  for a manual run; the triage job uses `!cancelled()`, so a cancelled run stops it), separate concurrency groups that do not cancel, no `${{ ... }}` expression in
+  for a manual run; the triage job uses `!cancelled()`, so a cancelled run stops it), separate concurrency groups (a running job of these groups is not cancelled by a newer run; a pending one can be replaced), no `${{ ... }}` expression in
   any `run:` of these jobs (so no event field or input reaches a script line), the check names
   (the PR names appear only in expressions guarded by `pull_request`, and the nightly's names are
   not the required ones), the step "Run package tests" with `id: tests` equal to the reporter's

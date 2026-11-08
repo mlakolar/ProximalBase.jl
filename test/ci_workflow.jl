@@ -72,7 +72,10 @@ end
 
 nocomment(text) = join([l for l in split(text, '\n') if !startswith(strip(l), "#")], '\n')
 
-# The workflow without its full-line comments: the text that GitHub acts on, apart from `#` after a value.
+# The workflow without its full-line comments: the text of its YAML settings, apart from `#` after a
+# value. It is used for the anchored checks of settings only. A line that starts with `#` inside a
+# `run:` block scalar is shell text, in which GitHub still expands `${{ }}`, so the checks of script
+# lines use the raw text (`rawjob`, `rawjobtext`) and never this one.
 active(text) = nocomment(replace(text, "\r\n" => "\n"))
 const ACTIVE = active(WORKFLOW)
 const JOBS = split_jobs(ACTIVE)
@@ -82,6 +85,15 @@ field(text, key) = (m = match(Regex("^    $key: (.*)\$", "m"), text); m === noth
 const REPORTING = ("alert", "triage", "stale")
 
 jobtext(text, name) = only(t for (n, t) in split_jobs(active(text)) if n == name)
+rawjobtext(text, name) = only(t for (n, t) in split_jobs(replace(text, "\r\n" => "\n")) if n == name)
+rawjob(name) = rawjobtext(WORKFLOW, name)
+
+# No `${{ }}` expression in a script line (`run:`) of the job, read from the raw text, comment lines
+# of a block scalar included; the job must have a script line.
+function interpolation_ok(text, name)
+  blocks = run_blocks(rawjobtext(text, name))
+  return !isempty(blocks) && all(b -> !occursin("\${{", b), blocks)
+end
 stepname(s) = (m = match(r"^      - name: (.*)$"m, s); m === nothing ? nothing : String(m.captures[1]))
 
 # The Codecov step of the test job fails the job in the nightly and in a release run: one step, one
@@ -121,8 +133,15 @@ function record_pathspecs(text)
   return [(String(strip(t, '\'')), startswith(t, "'") && endswith(t, "'")) for t in split(m.captures[1])]
 end
 
-# A git pathspec glob (`*` stays within a directory) against a path.
-globmatch(pattern, path) = occursin(Regex("^" * replace(replace(pattern, r"([.+()\[\]{}^\$|\\])" => s"\\\1"), "*" => "[^/]*") * "\$"), path)
+# The pathspecs of this workflow's comparison against a path. Only `*` is implemented, as Git treats
+# it in a pathspec without `:(glob)`: any run of characters, `/` and dots included (so `scripts/ci_*.jl`
+# covers `scripts/ci_nested/helper.jl` and `scripts/ci_probe.extra.jl`). Any other glob metacharacter
+# (`?`, `[`, `\`) fails loudly instead of being matched in some other way.
+function pathspec_match(pattern, path)
+  occursin(r"[?\[\\]", pattern) && error("pathspec_match implements only `*`; unsupported glob syntax in `$pattern`")
+  literal = join(replace.(split(pattern, '*'), r"([.+(){}^\$|])" => s"\\\1"), ".*")
+  return occursin(Regex("^" * literal * "\$"), path)
+end
 
 @testset "the helpers cut the workflow" begin
   @test [n for (n, _) in JOBS][1:2] == ["plan", "test"]
@@ -201,6 +220,7 @@ end
 @testset "the reporting jobs run default-branch code with the least access" begin
   for name in REPORTING
     text = job(name)
+    raw = rawjob(name)
     @test field(text, "runs-on") == "ubuntu-latest" && field(text, "timeout-minutes") == "15"
     steps = split_steps(text)
     @test startswith(steps[1], "      - uses: actions/checkout@v7")
@@ -213,11 +233,13 @@ end
     @test !occursin("github.event.", code) && !occursin("inputs.", code) && !occursin("head_ref", code) && !occursin("pull_request", code)
     @test !occursin("github.head", code) && !occursin("workflow_run", code)
     # no expression of any kind in a script line
-    for block in run_blocks(text)
+    # (read from the raw text: a comment line inside a block scalar is still script text)
+    @test interpolation_ok(WORKFLOW, name)
+    for block in run_blocks(raw)
       @test !occursin("\${{", block)
       @test !occursin("\${{ github.event", block) && !occursin("\${{ inputs.", block)
     end
-    @test run_blocks(text) == ["julia --startup-file=no scripts/ci_triage.jl $name"]
+    @test run_blocks(raw) == ["julia --startup-file=no scripts/ci_triage.jl $name"]
   end
   env_keys(name) = sort([String(m.captures[1]) for m in eachmatch(r"^          ([A-Z_]+): "m, job(name))])
   @test env_keys("alert") == ["FAILED", "GH_TOKEN", "LINUX_FAILED"]
@@ -319,6 +341,25 @@ end
   @test occursin("if: matrix.coverage && needs.plan.outputs.coverage == 'true'", c)
 end
 
+@testset "an expression in a comment line of a script is still an expression" begin
+  # GitHub expands `\${{ }}` in a `run:` block scalar even on a line that starts with `#`
+  expr = "# \${{ github.event.inputs.expected_sha }}"
+  for name in ("alert", "triage", "stale")
+    @test interpolation_ok(WORKFLOW, name)
+    line = "        run: julia --startup-file=no scripts/ci_triage.jl $name"
+    @test count("\n" * line * "\n", rawjob(name) * "\n") == 1
+    mutated = replace(WORKFLOW, "\n" * line * "\n" => "\n        run: |\n          $expr\n          julia --startup-file=no scripts/ci_triage.jl $name\n")
+    @test mutated != WORKFLOW && !interpolation_ok(mutated, name)
+    # the comment-stripped text would not have seen it
+    @test occursin("expected_sha }}", rawjobtext(mutated, name)) && !occursin("expected_sha }}", jobtext(mutated, name))
+  end
+  anchor = "          differs=unknown\n"
+  @test count(anchor, WORKFLOW) == 1
+  mutated = replace(WORKFLOW, anchor => "          $expr\n" * anchor)
+  @test interpolation_ok(WORKFLOW, "release-record") && !interpolation_ok(mutated, "release-record")
+  @test !occursin("expected_sha }}", jobtext(mutated, "release-record"))
+end
+
 @testset "a setting that is only commented out does not count" begin
   # the same line with `# ` in front of it (at the start of the line, or after its indentation)
   commented(text, line) = (@assert count("\n" * line * "\n", text) == 1; replace(text, "\n" * line * "\n" => "\n# " * line * "\n"))
@@ -356,7 +397,7 @@ end
                           "test/tiers.jl", "test/tiers.toml"]
   # a glob is quoted, so that git expands it (the shell would match the checkout only, and drop a file that is new)
   @test all(quoted for (spec, quoted) in specs if occursin('*', spec))
-  covered(path) = any(globmatch(spec, path) for (spec, _) in specs)
+  covered(path) = any(pathspec_match(spec, path) for (spec, _) in specs)
   # every check script of the repository is in the comparison, whatever its name, and so are the gate, the runner
   # and the test selection
   checks = ["scripts/$f" for f in readdir(joinpath(ROOT, "scripts")) if startswith(f, "ci_") && endswith(f, ".jl")]
@@ -369,7 +410,16 @@ end
   end
   @test !covered("README.md") && !covered("test/ci_workflow.jl")
   # the check itself works on the glob helper
-  @test globmatch("scripts/ci_*.jl", "scripts/ci_gate.jl") && !globmatch("scripts/ci_*.jl", "scripts/ci/x.jl") && !globmatch("scripts/ci_*.jl", "scripts/ciXgate.jl")
+  # the matcher follows Git: `*` crosses `/` and dots, and nothing else is a wildcard
+  @test pathspec_match("scripts/ci_*.jl", "scripts/ci_gate.jl")
+  @test pathspec_match("scripts/ci_*.jl", "scripts/ci_probe.extra.jl")
+  @test pathspec_match("scripts/ci_*.jl", "scripts/ci_nested/helper.jl")
+  @test !pathspec_match("scripts/ci_*.jl", "scripts/other.jl") && !pathspec_match("scripts/ci_*.jl", "scripts/ciXgate.jl")
+  @test !pathspec_match("scripts/ci_*.jl", "scripts/ci_gate.jl.bak") && !pathspec_match("scripts/ci_*.jl", "xscripts/ci_gate.jl")
+  @test pathspec_match("test/tiers.toml", "test/tiers.toml") && !pathspec_match("test/tiers.toml", "test/tiersXtoml")
+  for bad in ("scripts/ci_?.jl", "scripts/[a]*.jl", "scripts/ci_\\*.jl")
+    @test_throws ErrorException pathspec_match(bad, "scripts/ci_a.jl")
+  end
   @test occursin("differs=unknown", only(fetch)) && occursin("differs=false", only(fetch)) && occursin("differs=true", only(fetch))
   record = [s for s in steps if occursin("scripts/release_record.jl \"\$RUNNER_TEMP/release-record/release-record.md\"", s)]
   @test length(record) == 1
@@ -380,7 +430,8 @@ end
                        "GH_TOKEN" => "github.token")
     @test occursin("          $key: \${{ $value }}\n", r)
   end
-  @test all(!occursin("\${{", b) for b in run_blocks(text))
+  @test interpolation_ok(WORKFLOW, "release-record")
+  @test all(!occursin("\${{", b) for b in run_blocks(rawjob("release-record")))
   # the artifact of the record: the directory the script writes to, 90 days, an error without the file
   uploads = [s for s in steps if occursin("uses: actions/upload-artifact@v7", s)]
   @test length(uploads) == 1

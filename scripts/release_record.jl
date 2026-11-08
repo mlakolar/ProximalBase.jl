@@ -29,10 +29,13 @@
 # record to OUTPUT and appends it to the file named by GITHUB_STEP_SUMMARY when that is set. Exit
 # status: 0 when the record was written (a FAILED record is written like a PASSED one: the
 # conclusion of the run is the verdict's, and the record is its evidence), 1 when it could not be
-# written or appended, 2 for a usage error or an operational variable that is missing or malformed
-# (GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_SHA, GITHUB_RUN_ATTEMPT, GITHUB_SERVER_URL, and the
-# four results). A validation input that is invalid, such as an EXPECTED_SHA that is not a full
-# lowercase SHA, is not a usage error: it gives a FAILED record and exit status 0. The job only
+# written or appended, 2 for a usage error or an operational variable that fails the checks before
+# anything is written: GITHUB_SHA, PLAN, TESTS, VERDICT and GATE must be non-empty (their format is
+# not checked here), GITHUB_REPOSITORY must be owner/name, GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT
+# (empty means 1) numbers, and GITHUB_SERVER_URL (empty means https://github.com) an http(s) URL.
+# Everything else gives a record: an EXPECTED_SHA that is not a full lowercase SHA, a GITHUB_SHA
+# that is not one, and a result that is not success, failure, cancelled or skipped (shown as
+# unknown) give a FAILED record and exit status 0. The job only
 # runs when the plan's `release` output is true, so a dispatch that the planner rejected has no
 # release-record job and no record.
 #
@@ -191,8 +194,11 @@ end
     main(args, env; fetch_jobs, fetch_artifacts, project, sleep, log, err) -> exit status
 
 Writes the record to the file named by `args[1]` and appends it to GITHUB_STEP_SUMMARY when that
-is set. 0 when it was written, whatever it says (an invalid `EXPECTED_SHA` gives a FAILED record);
-1 when it could not be written; 2 for a usage error or a missing or malformed operational variable.
+is set. 0 when it was written, whatever it says (an invalid `EXPECTED_SHA`, a non-empty but
+malformed `GITHUB_SHA` and an unrecognized result such as `PLAN=bogus` give a FAILED record);
+1 when it could not be written; 2 for a usage error, a missing or empty `GITHUB_SHA`, `PLAN`,
+`TESTS`, `VERDICT` or `GATE`, or a malformed `GITHUB_REPOSITORY`, `GITHUB_RUN_ID`,
+`GITHUB_RUN_ATTEMPT` or `GITHUB_SERVER_URL`.
 """
 function main(args = ARGS, env = ENV;
               fetch_jobs = () -> CIVerdict.github_jobs(env["GITHUB_REPOSITORY"], env["GITHUB_RUN_ID"]),

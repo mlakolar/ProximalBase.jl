@@ -481,7 +481,7 @@ stops the reporter before its first write, with exit status 1.
 When a write fails, the reporter reports it and exits with status 1; the other writes
 still run. A state change (reopening, closing, a severity label, closing the stale issue
 after recovery) is attempted only after its comment was written or is already present, and
-a comment is not repeated for the same run. The next run, a re-run or the next night,
+a comment is not repeated for the same run id (the stale recovery note once per UTC date). The next run, a re-run or the next night,
 repairs from the actual state of the issues. The mandatory reads happen before the first
 write; the one read after a write attempt is the re-read of the labels after a label could
 not be created (its failure is reported and the issue writes continue). For the alert, a

@@ -33,8 +33,8 @@
 # marker is there, so none is planned); if the comment fails, the change is skipped and logged, and
 # the other issues are still written. Every plan is made from the actual state of GitHub, so the
 # next run (a rerun of failed jobs, or the next night) repairs what is missing, and a comment is
-# not written twice for the same run id (the hidden marker `run:`, `resolved:`, `passed:` or
-# `recovered:` in the issue text). Exit status 2 is a usage, environment or policy error.
+# not written twice for the same run id (the hidden marker `run:`, `resolved:` or `passed:` in the
+# issue text; the stale recovery note once per UTC date, marker `recovered:`). Exit status 2 is a usage, environment or policy error.
 #
 # --dry-run prints the actions and writes nothing. --rehearsal uses the label `rehearsal_label`
 # instead of `label`, prefixes every title with "[rehearsal] " and matches only issues that carry

@@ -187,6 +187,18 @@ end
     @test startswith(read(summary, String), text) && count("# Release validation:", read(summary, String)) == 2
     # a FAILED record is written like a PASSED one, with exit 0, for each failing result, a wrong or malformed expected SHA and an unreadable listing
     # (an invalid validation input is not an invalid operational variable, which is status 2 below)
+    # a non-empty but unrecognized result or GITHUB_SHA is a FAILED record (exit 0); an empty one is status 2 (below)
+    for kw in (Dict("PLAN" => "bogus"), Dict("GATE" => "Success"), Dict("GITHUB_SHA" => "bad", "EXPECTED_SHA" => "bad"), Dict("GITHUB_SHA" => "bad"))
+      rm(out; force = true)
+      @test run_main(merge(env(), kw)) == 0
+      @test startswith(read(out, String), "# Release validation: FAILED\n")
+    end
+    @test occursin("- Test plan: unknown", (run_main(merge(env(), Dict("PLAN" => "bogus"))); read(out, String)))
+    for key in ("PLAN", "GITHUB_SHA")
+      rm(out; force = true)
+      @test run_main(merge(env(), Dict(key => ""))) == 2 && !isfile(out)
+      @test run_main(merge(env(), Dict(key => "  "))) == 2 && !isfile(out)
+    end
     for kw in (Dict("PLAN" => "failure"), Dict("TESTS" => "cancelled"), Dict("VERDICT" => "failure"), Dict("GATE" => "skipped"),
                Dict("EXPECTED_SHA" => OTHER), Dict("EXPECTED_SHA" => ""), Dict("EXPECTED_SHA" => SHA[1:7]), Dict("GITHUB_EVENT_NAME" => "schedule"))
       rm(out; force = true)

@@ -197,11 +197,6 @@ end
 # coefficient at an infinite entry); NaN arguments propagate
 @inline _weighted_value(p, φ) = ifelse(isnan(p) & !isnan(φ), zero(p), p)
 
-# The power of a scaled product: an Int for every type but BigFloat, whose power may be a retained exponent beyond
-# Int64 (an Int128 sum, see `_exponent_sum`, which the final shift of `ldexp` saturates).
-@inline _product_power(::Type, k::Integer) = Int(k)
-@inline _product_power(::Type{BigFloat}, k::Integer) = k
-
 # Keep the power outside the floating-point range until the final rounding.
 @inline function _scaled_product(w::T, v::T, k::Integer) where {T<:AbstractFloat}
   (iszero(w) || iszero(v)) && return w * v

@@ -433,7 +433,7 @@ a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
     end
   end
 
-  @testset "dense, sparse and symmetric arguments" begin
+  @testset "dense and sparse arguments" begin
     c = Constrained(Conjugate(ElasticNet(0.25, 0.7, [1.0, 2.0, 0.0, 0.5, 3.0])), IndBox(-1.0, 1.0))
     xs = SparseIterate(sparse([0.0, 3.0, 0.0, -2.0, 0.0]))
     for γ in (0.7, [0.7, 0.5, 1.0, 0.7, 0.9])
@@ -457,23 +457,6 @@ a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
       @test value_and_prox!(out, c, xs, 0.7) == vd
       @test Vector(out) == yd
       @test isapprox(vd, Float64(elastic_conjugate_reference(0.25, f.λ2, nothing, yd)); rtol = 1e-13)
-    end
-    # the symmetric matrix: every entry, off-diagonals included
-    M = [2.0 0.5 -3.0; 0.5 -1.0 4.0; -3.0 4.0 0.1]
-    W = [1.0 2.0 0.0; 2.0 0.5 1.0; 0.0 1.0 3.0]
-    for w in (nothing, W), (λ1, λ2) in ((0.25, 0.7), (0.25, 0.0)), γ in (0.7, fill(0.7, 3, 3))
-      c = Constrained(Conjugate(ElasticNet(λ1, λ2, w)), IndBox(-1.0, 1.0))
-      Yd = zeros(3, 3)
-      vd = value_and_prox!(Yd, c, M, γ)
-      S = SymmetricSparseIterate(3)
-      v = value_and_prox!(S, c, M, γ)
-      @test v == vd && Matrix(S) == Yd
-      @test !Base.has_offset_axes(S) && PB._elastic_value_route(c, S, M, γ)
-      @test Yd == Yd'
-      @test isapprox(v, Float64(elastic_conjugate_reference(λ1, λ2, w, Yd)); rtol = 1e-13)
-      alias = SymmetricSparseIterate(M)
-      @test value_and_prox!(alias, c, alias, γ) == vd
-      @test Matrix(alias) == Yd
     end
   end
 
@@ -597,6 +580,7 @@ catch e
 end
 snap(a) = collect(a)
 snap(a::AtomIterate) = copy(a.storage)
+snap(a::SymmetricSparseIterate) = Matrix(a)
 snap(t::Tuple) = map(snap, t)
 
 # The eight role cases of a representation `arr(val)` that gives a 2×2 array holding `val`: it is the output, the input, the
@@ -683,10 +667,8 @@ end
     Yt = T(Y1)
     isfinite(Yt) || continue          # a box cannot store an infinite entry
     f1 = ElasticNet(λ, λ0, [w1])
-    f2 = ElasticNet(λ, λ0, fill(w1, 1, 1))
     for (kind, mkdest, Y, f, x) in (("dense", () -> zeros(T, 1), T[Yt], f1, T[0]),
-                                    ("SparseIterate", () -> SparseIterate(T, 1), T[Yt], f1, T[0]),
-                                    ("SymmetricSparseIterate", () -> SymmetricSparseIterate(T, 1), fill(Yt, 1, 1), f2, zeros(T, 1, 1)))
+                                    ("SparseIterate", () -> SparseIterate(T, 1), T[Yt], f1, T[0]))
       c = Constrained(Conjugate(f), IndBox(Y, Y))
       @testset "$name, $T, $kind, y = $Y1" begin
         y = mkdest()
@@ -696,7 +678,7 @@ end
         ref = elastic_conjugate_reference(λ, λ0, collect(f.w), ys)
         @test v === ind(ref, T)
         # in place
-        z = kind == "dense" ? zeros(T, 1) : kind == "SparseIterate" ? SparseIterate(T, 1) : SymmetricSparseIterate(T, 1)
+        z = kind == "dense" ? zeros(T, 1) : SparseIterate(T, 1)
         @test value_and_prox!(z, c, z, 1.0) === v
         # a later block, the earlier block keeping its value
         s = SeparableSum(SqrNormL2(2.0), c)
@@ -750,8 +732,8 @@ end
   end
 end
 
-# The representations that take the fused value are Arrays, SparseIterates and SymmetricSparseIterates; views, reshapes
-# and every other representation are refused (see `representations that keep the refusal`).
+# The representations that take the fused value are Arrays and SparseIterates; views, reshapes, the owner of a symmetric
+# matrix and every other representation are refused (see `representations that keep the refusal`).
 @testset "representations that take the fused value" begin
   for T in (Float32, Float64)
     vx = T[5, -5, 0.5, 1.2]
@@ -765,9 +747,6 @@ end
       ("reshape of a Vector (an Array)", () -> reshape(zeros(T, 4), 2, 2), mx, dense(() -> reshape(zeros(T, 4), 2, 2), mx), false),
       ("SparseIterate, Vector x", () -> SparseIterate(T, 4), vx, () -> SparseIterate(sparse(vx)), false),
       ("SparseIterate, SparseIterate x", () -> SparseIterate(T, 4), SparseIterate(sparse(vx)), () -> SparseIterate(sparse(vx)), false),
-      ("SymmetricSparseIterate, symmetric x", () -> SymmetricSparseIterate(T, 3), S3, () -> SymmetricSparseIterate(S3), true),
-      ("SymmetricSparseIterate, general x", () -> SymmetricSparseIterate(T, 3), N3, nothing, true),
-      ("SymmetricSparseIterate, SymmetricSparseIterate x", () -> SymmetricSparseIterate(T, 3), SymmetricSparseIterate(S3), () -> SymmetricSparseIterate(S3), true),
       ("vector, Int x", () -> zeros(T, 4), [5, -5, 1, 2], nothing, false))
     # weights of the shape of the output, in each admitted element type and wrapper; symmetric for a symmetric output
     weight(kind, n, sym) = begin
@@ -1064,7 +1043,7 @@ end
     @test refused_value(value_and_prox!, d, SeparableSum(SqrNormL2(1.0), c), ([3.0], fill(5.0, 2, 2)), 0.5)
     @test d[1] == [9.0] && parent(v) == fill(-77.0, 3, 3)
     # only the Array of a machine-number type, and the two iterates, are representations of the route
-    @test PB._elastic_array(zeros(3)) && PB._elastic_array(zeros(2, 2)) && PB._elastic_array(SparseIterate(3)) && PB._elastic_array(SymmetricSparseIterate(3))
+    @test PB._elastic_array(zeros(3)) && PB._elastic_array(zeros(2, 2)) && PB._elastic_array(SparseIterate(3)) && !PB._elastic_array(SymmetricSparseIterate(3))
     for (_, arr) in forms
       V = arr(0.0)
       V isa Array || @test !PB._elastic_array(V)
@@ -1173,6 +1152,54 @@ end
     dest = ([7.0], fill(-7.0, 3))
     @test refused_value(value_and_prox!, dest, s, ([3.0], x), 0.5)
     @test dest == ([7.0], fill(-7.0, 3))
+  end
+end
+
+# The owner of a symmetric matrix is not an array: as an output or an input of the fused value it is refused, before
+# anything is written, by the generic check of the box.
+@testset "the owner of a symmetric matrix is refused before writing" begin
+  function owner_refusal(c, mkdest, x, γ; mkalias = nothing)
+    y = mkdest()
+    before, xb = snap(y), snap(x)
+    @test refused_value(value_and_prox!, y, c, x, γ)
+    @test isequal(snap(y), before) && isequal(snap(x), xb)
+    # a later block of a sum, the earlier block and the destination unchanged
+    s = SeparableSum(SqrNormL2(2.0), c)
+    dest = ([7.0], mkdest())
+    db = snap(dest[2])
+    @test refused_value(value_and_prox!, dest, s, ([3.0], x), γ)
+    @test dest[1] == [7.0] && isequal(snap(dest[2]), db)
+    if mkalias !== nothing
+      z = mkalias()
+      zb = snap(z)
+      @test refused_value(value_and_prox!, z, c, z, γ)
+      @test isequal(snap(z), zb)
+    end
+  end
+  for T in (Float32, Float64), λ2 in (T(0.7), T(0))
+    M = T[5 1 0; 1 -5 0; 0 0 0.5]
+    N = T[5 2 0; 0 -5 0; 0 1 0.5]
+    W = T[1 2 0; 2 1 1; 0 1 3]
+    box = IndBox(T(-2), T(2))
+    c = Constrained(Conjugate(ElasticNet(T(0.25), λ2)), box)
+    @testset "$T, λ2 = $λ2" begin
+      mk = () -> SymmetricSparseIterate(T, 3)
+      owner_refusal(c, mk, M, 0.5; mkalias = () -> SymmetricSparseIterate(M))                          # output, symmetric input
+      owner_refusal(c, mk, N, 0.5)                                                                      # output, general input
+      owner_refusal(c, mk, SymmetricSparseIterate(M), 0.5; mkalias = () -> SymmetricSparseIterate(M))   # output and input
+      owner_refusal(c, () -> zeros(T, 3, 3), SymmetricSparseIterate(M), 0.5)                            # input only
+      # parameter arrays of an owner output
+      owner_refusal(Constrained(Conjugate(ElasticNet(T(0.25), λ2, W)), box), mk, M, 0.5)
+      owner_refusal(Constrained(Conjugate(ElasticNet(T(0.25), λ2)), IndBox(fill(T(-2), 3, 3), fill(T(2), 3, 3))), mk, M, 0.5)
+    end
+  end
+  # the products that wrapped or rounded in the type of the parameters, on an owner destination
+  h = Float16(0.1)
+  for (λ, λ0, w1, Y1) in ((Int8(100), Int8(0), Int8(2), -77.0), (Float32(1e38), 0f0, Float32(4), 3e38), (h, Float16(0), h, Float64(h)^2)),
+      T in (Float32, Float64)
+    Yt = T(Y1)
+    c = Constrained(Conjugate(ElasticNet(λ, λ0, fill(w1, 1, 1))), IndBox(fill(Yt, 1, 1), fill(Yt, 1, 1)))
+    owner_refusal(c, () -> SymmetricSparseIterate(T, 1), zeros(T, 1, 1), 1.0; mkalias = () -> SymmetricSparseIterate(T, 1))
   end
 end
 

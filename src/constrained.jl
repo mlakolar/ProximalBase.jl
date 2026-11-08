@@ -321,9 +321,9 @@ end
 # to offer). The route reads and writes with linear indices and recovers an overflowing or underflowing value
 # through `Conjugate(SqrNormL2)`, which scales through arrays that know their size only, so an array is accepted
 # only as itself, never through a view, a reshape or a wrapper, whose storage it would have to inspect:
-#   * the output: an Array of Float32 or Float64, a SparseIterate or a SymmetricSparseIterate (all one-based);
-#   * the input: an Array, a SparseIterate or a SymmetricSparseIterate of a machine-number element type (Bool, an
-#     integer or an IEEE float), or the symmetric part that a SymmetricSparseIterate output reads of a matrix;
+#   * the output: an Array of Float32 or Float64, or a SparseIterate (both one-based);
+#   * the input: an Array or a SparseIterate of a machine-number element type (Bool, an integer or an IEEE float);
+#     the owner of a symmetric matrix (SymmetricSparseIterate) is not an array and is refused, as an output and as an input;
 #   * the function: an ElasticNet declared with a machine-number type for its levels and with Nothing or a concrete
 #     Array type for its weights, so that no abstract or union type reaches the working type; finite levels of
 #     that type; weights absent, or an Array of a machine-number type, finite, nonnegative and not sharing memory
@@ -331,10 +331,9 @@ end
 #   * bounds and steps: machine-number scalars, or Arrays of a machine-number type;
 #   * the working type float(promote(output, level, weights, ridge)): Float32 or Float64.
 _elastic_number(::Type{T}) where {T} = isconcretetype(T) && T <: Union{Base.IEEEFloat, Base.BitInteger, Bool}
-_elastic_array(a) = a isa Array || a isa SparseIterate || a isa SymmetricSparseIterate
+_elastic_array(a) = a isa Array || a isa SparseIterate
 _elastic_output(y) = _elastic_array(y) && (eltype(y) === Float32 || eltype(y) === Float64)
 _elastic_operand(a) = _elastic_array(a) && _elastic_number(eltype(a))
-_elastic_operand(a::_SymmetricPart) = _elastic_operand(a.A)
 _elastic_parameter(x::Real) = _elastic_number(typeof(x))
 _elastic_parameter(a::Array) = _elastic_number(eltype(a))
 _elastic_parameter(::Any) = false

@@ -1,8 +1,8 @@
 module L0SymmetricFullEntryTest
 
 # IndBallL0 on a symmetric matrix counts full entries (#798): a nonzero diagonal entry counts one, a nonzero
-# off-diagonal pair counts two, and the projection is the Frobenius projection onto that set (the ranking inside a class exactly, the number of
-# pairs up to the rounding of the sums of squares). The oracle
+# off-diagonal pair counts two, and the projection is the Frobenius projection onto that set (the ranking inside a class is exact for Float32
+# and Float64 inputs, the number of pairs is chosen up to the rounding of the sums of squares). The oracle
 # below enumerates every support within the budget (p ≤ 4) with exact rational arithmetic and does not call
 # any selection code of the package.
 
@@ -309,12 +309,13 @@ end
 @testset "a large dynamic range, $T" for T in (Float32, Float64)
   Random.seed!(7982)
   fm, fn, ε = floatmax(T), floatmin(T), nextfloat(zero(T))
-  # powers of two, so that the squares overflow; the sums of squares round, so the tolerance is that of the energy
+  # powers of two, so that the squares overflow or underflow; the scaled sums are exactly representable (Xbig
+  # diagonal scores 1/4, 1/64, 1/256 and pair 1/16; Xsmall 9/16, 1/16, 1/4 and pair 1/4), so the result is optimal
   b2 = ldexp(one(T), exponent(fm))
   Xbig = T[b2 b2/2 0; b2/2 b2/4 0; 0 0 b2/8]
   Xsmall = ε * T[3 2 0; 2 1 0; 0 0 2]                          # subnormal, a square underflows
   Xnear = T[fm fn 0; fn ε 0; 0 0 fm]
-  for (X, mode) in ((Xbig, :range), (Xsmall, :range), (Xnear, :range)), diagonal in (true, false), s in 0:10
+  for (X, mode) in ((Xbig, :exact), (Xsmall, :exact), (Xnear, :range)), diagonal in (true, false), s in 0:10
     run_case(X, s, diagonal, mode)
   end
   # random entries of mixed magnitude: the support is optimal up to the rounding of the comparison

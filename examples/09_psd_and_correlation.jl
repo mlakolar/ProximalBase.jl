@@ -8,8 +8,8 @@
 # - eigenvalue shrinkage: `TracePSD(μ)`, the trace on the PSD cone, whose
 #   proximal operator subtracts μ from the eigenvalues and clips at zero;
 # - hard thresholding of a covariance: `IndBallL0(s; diagonal = false)` keeps the
-#   fld(s, 2) largest off-diagonal pairs of a symmetric matrix, and its diagonal
-#   (s counts entries, a pair twice).
+#   at most fld(s, 2) of the largest nonzero off-diagonal pairs of a symmetric matrix,
+#   and its diagonal (s counts entries, a pair twice; a larger budget changes nothing).
 #
 # The spectral functions call LAPACK through workspaces that they own.
 

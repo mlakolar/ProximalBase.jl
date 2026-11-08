@@ -357,10 +357,10 @@ arbitrary closed convex sets, and small angles can make convergence slow.
 ## Sparsity
 
 The projection onto ``\{x : \#\{i : x_i \ne 0\} \le s\}`` keeps the ``s``
-entries of largest magnitude, a nonconvex set with an exact projection.
+entries of largest magnitude, a nonconvex set with an exact projection (ordinary arrays; see below for symmetric matrices).
 [`IndBallL0`](@ref) selects them with Floyd and Rivest's algorithm in ``O(n)``
 expected time, in place, and in ``O(\mathrm{nnz})`` on a `SparseIterate`. It
-keeps exactly ``s`` entries when there are ties. Projected gradient descent with
+keeps exactly ``s`` of the nonzero entries when there are more, ties included. Projected gradient descent with
 this set is iterative hard thresholding. On a symmetric matrix, ``s`` counts the
 entries of the matrix itself: a nonzero diagonal entry costs one unit and a
 nonzero off-diagonal pair ``x_{ij} = x_{ji}`` costs two, so the set is
@@ -373,11 +373,12 @@ largest diagonal entries and the ``e`` largest pairs, for the ``e`` with
 ``d = \min(D, s - 2e)`` at which the saving ``\sum x_{ii}^2 + 2\sum x_{ij}^2`` is
 largest, found from the sorted magnitudes in ``O(p^2)`` for the selection plus a
 sort of the candidates. The ranking inside the diagonal entries and inside the
-pairs is exact; the choice of the number of pairs is a maximizer of the saved
-squared error up to the rounding of the sums of squares in the comparison, so a
+pairs is exact for `Float32` and `Float64` entries; other element types are ranked after conversion to the
+working float type (`Float64` for integers and rationals). The choice of the number of pairs is a maximizer of
+the saved squared error up to the rounding of the sums of squares in the comparison, so a
 difference below that rounding can be decided either way. With `diagonal = false` the diagonal does not count and is
-kept, the set is ``2e \le s`` and the ``\lfloor s/2\rfloor`` largest pairs are
-kept, as for the off-diagonal sparsity of a precision matrix. A budget ``s = 1``
+kept, the set is ``2e \le s`` and the ``\min(E, \lfloor s/2\rfloor)`` largest nonzero pairs are
+kept (``E`` is the number of nonzero pairs; a larger budget leaves the matrix unchanged), as for the off-diagonal sparsity of a precision matrix. A budget ``s = 1``
 with `diagonal = false` therefore keeps no pair. A `SymmetricSparseIterate`
 has the same budget as the dense matrix it represents.
 

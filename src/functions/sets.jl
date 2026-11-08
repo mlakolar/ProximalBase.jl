@@ -16,9 +16,9 @@
     IndBallL0(s; diagonal = true)
 
 The indicator of the arrays with at most `s` nonzero entries, nonconvex. Its
-proximal operator keeps the `s` entries of largest magnitude (exactly `s` when
-there are ties) and sets the others to zero: a selection in O(n) expected time
-(Floyd and Rivest's algorithm), without allocating, and in O(nnz) on a
+proximal operator keeps the `s` entries of largest magnitude (exactly `s` of the
+nonzero ones when there are more, ties included) and sets the others to zero: a selection in O(n) expected time
+(Floyd and Rivest's algorithm), reusing a scratch buffer, and in O(nnz) on a
 [`SparseIterate`](@ref). The projection does not depend on the step `γ`, which
 may be any scalar in `[0, Inf]`; a negative or NaN step throws an `ArgumentError`
 before anything is written.
@@ -41,24 +41,32 @@ The result is the projection in the Frobenius norm. Keeping a nonzero diagonal e
 and saves `xᵢᵢ²` of the squared error, and keeping a nonzero pair costs two units and saves `2xᵢⱼ²`. The
 projection keeps the `d` diagonal entries of largest magnitude and the `e` pairs of largest magnitude, for
 the `e` with `d = min(D, s - 2e)` at which the saving is largest (`D` is the number of nonzero counted
-diagonal entries); with `diagonal = false` it keeps the `fld(s, 2)` pairs of largest magnitude. Within
+diagonal entries); with `diagonal = false` it keeps the `min(E, fld(s, 2))` nonzero pairs of largest magnitude
+(`E` is the number of nonzero pairs; a larger budget leaves the matrix unchanged). Within
 diagonal entries, and within pairs, a tie in magnitude is broken for the entry earlier in the lower
 triangle read by columns, and between two choices of `e` with equal saving the one with the smaller `e` is
-taken. The ranking inside the diagonal entries, and inside the pairs, is exact (by the magnitudes themselves). The
+taken. The ranking inside the diagonal entries, and inside the pairs, is exact for `Float32` and `Float64`
+entries, whose magnitudes the working type represents exactly; other element types are ranked after
+conversion to the working float type (`Float64` for integers and rationals, the type itself for other floats). The
 number of pairs kept is chosen by comparing the savings in floating point, with the squares formed from
 magnitudes scaled by a power of two so that the largest finite one is at most 1 (they cannot overflow;
 `Float32` sums in `Float64`): the choice is a maximizer of the saved squared error up to the rounding of the
-sums of squares in that comparison, so that a difference below that rounding can be decided either way. An infinite entry is a limit of finite magnitudes: it
+sums of squares in that comparison (of the converted magnitudes for the other element types), so that a
+difference below that rounding can be decided either way. An infinite entry is a limit of finite magnitudes: it
 is kept in preference to any finite one, the choices compared first by the weight of the infinite entries
 they keep (one for a diagonal entry, two for a pair) and then by the finite saving. The cost is O(p²) for
-the selection plus a sort of the kept candidates, without allocating after the first call.
+the selection plus a sort of the kept candidates; for `Float32` or `Float64` entries of a fixed size the call
+does not allocate after a warm-up call (the scratch buffer is reused), while larger problems and other element
+types such as `BigFloat` can allocate.
 
 A NaN entry is undefined (E2 in the numerical contract). Let `m` be the largest number of entries that
 count: `p²` for a symmetric `p × p` matrix (`p(p - 1)` with `diagonal = false`, where the diagonal does not
-count), and the length of any other array. For `0 < s < m` a NaN in a counted entry makes every counted
+count); for any other array, the number of its entries that count (its length, less the diagonal of a matrix
+with `diagonal = false`). For `0 < s < m` a NaN in a counted entry makes every counted
 output NaN, and so is the value `value_and_prox!` returns for it; a free diagonal is copied. For `s ≥ m`
 the projection is the identity, NaN included, and its value is `0` (`s` is compared with `m` without
-overflow for any `p`). For `s = 0` the projection is zero whatever the argument and its fused value is `0`.
+overflow for any `p`). For `s = 0` the counted block of the projection is zero (a free diagonal is kept, NaN included) and its fused
+value is `0`.
 The value of the function at an argument with a NaN in a counted entry is NaN for every `s < m`, since the
 argument may or may not be in the set. When the NaN block is written into an output of integer element type,
 the `InexactError` is thrown before anything is written.
@@ -479,7 +487,7 @@ function _direct_prox!(y::AbstractMatrix, f::IndBallL0, x::Symmetric)
 end
 
 # the magnitude of v in the type A of the sums: the ranking inside a class uses it unscaled, so that no
-# entry is lost to underflow; only the squares of the sums are formed from magnitudes scaled by 2^-sh
+# entry is lost to underflow; only the squares in the sums are formed from magnitudes scaled by 2^-sh
 @inline _l0_mag(::Type{A}, v) where {A} = abs(A(v))
 @inline _l0_square(a, sh::Int) = isinf(a) ? zero(a) : (b = ldexp(a, -sh); b * b)
 

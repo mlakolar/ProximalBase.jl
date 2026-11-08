@@ -198,25 +198,33 @@ thorough = [
 # them, and a change to the GPU files, the GPU extension or the label test:gpu runs them in a
 # pull request. The CPU catalogs that load JLArrays as a second array type stay in the tiers
 # above, and the ambiguity guard for the GPU extension is in quick (gpu_extension_ambiguities).
+# The <name>_grids files hold the redundant Float32 passes and type grids of five quick files
+# (atom_iterate, conjugate_basics, lmo_atoms, nested_scaled, sparse_iterate_basics): every case
+# there repeats one that stays in the quick file for Float64 or for a representative type.
 full = [
   "allocations",
+  "atom_iterate_grids",
   "blockchecks_steps",
   "blockchecks_values",
   "blockchecks_workspace",
   "blockchecks_wrappers",
   "conformance/gpu_arrays",
+  "conjugate_basics_grids",
   "conjugate_projections",
   "distl2",
   "gpu",
   "gpu_smoke",
   "hyperslab",
   "image",
+  "lmo_atoms_grids",
+  "nested_scaled_grids",
   "precision_mixed",
   "precompose_array",
   "real_functions",
   "real_iterates",
   "real_wrappers",
   "separable_blocks",
+  "sparse_iterate_basics_grids",
   "stepchecks",
   "symmetric_mutator_errors",
   "symmetric_mutators",

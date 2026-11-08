@@ -688,14 +688,15 @@ end
 end
 
 # The grids files of the five quick hotspots (test/TESTING.md) are in the full tier. A pull request
-# runs them for a change to the source of their own family, listed here, and for no other source path.
+# adds them as focus files for a change to the source of their own family (the map below); the tests
+# check the focus of the listed and the named unrelated paths, not the selection for every source path.
 const GRIDS = Dict(  # grids file => its quick file
   "atom_iterate_grids" => "atom_iterate",
   "conjugate_basics_grids" => "conjugate_basics",
   "lmo_atoms_grids" => "lmo_atoms",
   "nested_scaled_grids" => "nested_scaled",
   "sparse_iterate_basics_grids" => "sparse_iterate_basics")
-const GRIDS_OF = Dict(  # source path => the grids files a change to it runs
+const GRIDS_OF = Dict(  # source path => its grids focus files: the direct-family paths and representatives of the shared rule
   "src/atom_iterate.jl" => ["atom_iterate_grids"],
   "src/functions/norms.jl" => ["atom_iterate_grids"],
   "src/functions/sparsegroup.jl" => ["atom_iterate_grids"],
@@ -724,29 +725,31 @@ const GRIDS_OF = Dict(  # source path => the grids files a change to it runs
   end
   # master pushes (thorough) run none of them, the nightly run (full) all
   @test isdisjoint(allgrids, thorough) && issubset(allgrids, full)
-  # the source paths of each family run its grids files beside the tier, and the tier is the one the path had
+  # the listed source paths get their grids files as focus (the shared rule lists other paths too,
+  # such as src/interface.jl, with the same three), and the tier the path had before
   for (path, names) in GRIDS_OF
     tier, focus = classify(path)
     @test sort(filter(in(allgrids), focus)) == names
     @test tier == (path in ("src/calculus.jl", "src/metric.jl", "src/utils.jl", "src/functions/spectral.jl") ? "thorough" : "standard")
   end
-  # the narrow label still gives quick, with the iterate's own grids file
+  # the narrow label on a change to one iterate source still gives quick, with the iterate's own grids file
   @test pr("src/atom_iterate.jl"; labels = NARROW) == ("quick", ATOM)
   @test "atom_iterate_grids" in pr("src/atom_iterate.jl"; labels = NARROW)[2]
   @test "sparse_iterate_basics_grids" in pr("src/sparse_iterate.jl"; labels = NARROW)[2]
   @test pr("src/sparse_iterate.jl"; labels = NARROW)[1] == "quick"
-  # the policy: a change to another source path runs none of them in a pull request
+  # the policy, as representative checks: these unrelated source paths get no grids file as focus
   for path in ("src/functions/entropy.jl", "src/deprecated.jl", "src/functions/sets.jl", "src/composition.jl",
                "src/symmetric_parameters.jl", "src/constrained.jl", "src/functions/cones.jl", "src/functions/smooth.jl")
     @test isdisjoint(classify(path)[2], allgrids)
   end
-  # a changed grids test file runs itself; test:full runs the full tier
+  # a changed grids test file selects itself; test:full gives the full tier
   for grids in allgrids
     @test classify("test/$grids.jl") == ("quick", [grids])
     @test pr("test/$grids.jl") == ("quick", [grids])
   end
   @test pr("src/functions/entropy.jl"; labels = ["test:full"]) == ("full", String[])
-  # the planner: a master push runs the thorough tier, the nightly run the full tier, without focus files
+  # the planner: a master push of package code runs the thorough tier and the nightly run the full tier,
+  # both without focus files
   # (the planner reads the manifest with its own copy of test/tiers.jl)
   pm, policy = CIPlan.default_manifest(), CIPlan.load_policy()
   planned(event; kw...) = CIPlan.decide(event; manifest = pm, policy, kw...)[1]

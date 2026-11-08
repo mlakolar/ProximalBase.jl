@@ -188,7 +188,8 @@ run 41341879373 (Julia 1: 639818 against 639702; broken counts equal): the 117 o
 Five Quick files have a Full-tier companion with the cases that repeat one that stays in Quick for
 another element type or wrapper. Each companion is a self-contained module with the fixtures it needs
 copied, and its name starts with the name of the Quick file, so `julia scripts/test.jl atom_iterate`
-runs both. The cases are moved verbatim; only the loop guards and the copied fixtures differ. Quick
+runs both. The cases are moved with their assertions; the loop guards and the copied fixtures were
+adjusted. Quick
 keeps the Float64 pass of each operation family, a Float32 representative of each, and an atomicity,
 aliasing or NaN case of each kind for a representative function (listed per file below). The Float64
 cases that moved are the ones the table names for `atom_iterate`.
@@ -204,7 +205,7 @@ cases that moved are the ones the table names for `atom_iterate`.
 Quick does not run these cases. They run in these places:
 
 - In a pull request, for a change to the source of their own family, beside the tier (`focus` lists
-  in `.github/tier-rules.toml`; the tier of each path is unchanged):
+  in `.github/tier-rules.toml`; the rules add focus files and do not change a tier):
   - `atom_iterate_grids`: `src/atom_iterate.jl`, `src/functions/norms.jl`,
     `src/functions/sparsegroup.jl`, `src/functions/nonconvex.jl`;
   - `sparse_iterate_basics_grids`: `src/sparse_iterate.jl`;
@@ -212,15 +213,23 @@ Quick does not run these cases. They run in these places:
     `src/utils.jl`, `src/interface.jl`, ...), `src/functions/singular.jl`;
   - `conjugate_basics_grids`: `src/calculus.jl`, the shared sources, `src/functions/losses.jl`;
   - `lmo_atoms_grids`: `src/lmo.jl`, `src/lmo_atoms.jl`, the shared sources, `src/functions/singular.jl`.
-  With the label `test:iterate-narrow`, an iterate change gives quick and the iterate's own grids file.
-- In the full tier: the nightly run, a pull request with `test:full`, release runs.
+  With the label `test:iterate-narrow`, a pull request that changes a single `AtomIterate` or
+  `SparseIterate` implementation source (`src/atom_iterate.jl` or `src/sparse_iterate.jl`) and no path
+  that needs a higher tier gives quick and that iterate's own grids file. `src/symmetric_parameters.jl`
+  gives quick with no grids file, two iterate implementations give standard, and a simultaneous change
+  to shared code such as `src/utils.jl` gives thorough.
+- In the full tier: the nightly run, tag runs, and a pull request whose tier is full (the label
+  `test:full`, or a path whose rule needs full, such as `src/lapack.jl`).
 - When requested: `julia scripts/test.jl <name>_grids`, or a change to the grids file itself.
 
-A change to another source path does not run the grids files in a pull request; the nightly run and
-`test:full` do. A master push runs the thorough tier, which has none of them.
+Other source paths do not add the grids files as automatic focus files in a pull request. A master
+push that changes package tests or code runs the thorough tier, which has none of them
+(a documentation-only push runs no package tests).
 `test/tier_selection.jl` checks that each companion is in Full and in no lower tier, that its Quick
-file is in Quick, the map above with `classify`, that unrelated source paths select none of them, and
-what a master push, the nightly run and `test:full` run.
+file is in Quick, the map above with `classify` (the direct-family paths, with some of the shared
+sources as representatives: `src/interface.jl`, for example, also gets the three shared grids files),
+that the named unrelated paths (`entropy.jl`, `deprecated.jl`, `sets.jl`, ...) get no grids file as
+focus, and what a master push, the nightly run and `test:full` select.
 
 ## JLArrays and CUDA
 

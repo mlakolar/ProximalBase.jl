@@ -227,8 +227,8 @@ paths = ["examples/**"]
 
 # The grids files. atom_iterate_grids, conjugate_basics_grids, lmo_atoms_grids,
 # nested_scaled_grids and sparse_iterate_basics_grids are in the full tier. They hold cases that
-# repeat cases that quick keeps for Float64 or for a representative type (test/TESTING.md lists
-# them). A pull request runs them, beside its tier, for a change to the source of their own family:
+# repeat cases that quick keeps for Float64, a Float32 representative or a representative function
+# (test/TESTING.md lists them). A pull request runs them, beside its tier, for a change to the source of their own family:
 #   atom_iterate_grids:          src/atom_iterate.jl, src/functions/norms.jl,
 #                                src/functions/sparsegroup.jl, src/functions/nonconvex.jl
 #   sparse_iterate_basics_grids: src/sparse_iterate.jl
@@ -237,9 +237,11 @@ paths = ["examples/**"]
 #   conjugate_basics_grids:      src/calculus.jl, the shared sources, src/functions/losses.jl
 #   lmo_atoms_grids:             src/lmo.jl, src/lmo_atoms.jl, the shared sources,
 #                                src/functions/singular.jl
-# A change to another source path does not run them in a pull request. They also run in the full
-# tier (the nightly run, test:full, release runs) and when requested by name
-# (julia scripts/test.jl <name>_grids) or by changing the file.
+# Other source paths do not add them as automatic focus files. They still run when the tier of the
+# pull request is full (for example a change to src/lapack.jl or another infrastructure path, or
+# the label test:full; also the nightly run and tag runs), when the grids file itself changes, when
+# another changed path's rule lists them, and when requested by name
+# (julia scripts/test.jl <name>_grids).
 #
 # The iterates. A change to one implementation runs standard and its focus files: the
 # iterate's own tests and those of its main interactions, beside the iterate files of quick

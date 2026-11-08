@@ -272,7 +272,10 @@ type grids: `atom_iterate_grids`, `conjugate_basics_grids`, `lmo_atoms_grids`,
 in the full tier. A pull request runs a grids file for a change to the source of its
 own family (`.github/tier-rules.toml` lists the paths, `test/TESTING.md` the map), the
 nightly run and `test:full` run all of them, and `julia scripts/test.jl <name>_grids`
-runs one by name. A change to another source path does not run them in a pull request.
+runs one by name. Other source paths do not add them as automatic focus files; they
+still run when the pull request's tier is full (for example `src/lapack.jl`, other
+infrastructure paths, the label `test:full`), when the grids file itself changes, or
+when another changed path's rule lists them.
 The iterate rows:
 
 | Change | Before merge |

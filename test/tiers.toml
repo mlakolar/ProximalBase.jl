@@ -203,11 +203,11 @@ thorough = [
 # pull request. The CPU catalogs that load JLArrays as a second array type stay in the tiers
 # above, and the ambiguity guard for the GPU extension is in quick (gpu_extension_ambiguities).
 # The <name>_grids files hold the redundant Float32 passes and type grids of five quick files
-# (atom_iterate, conjugate_basics, lmo_atoms, nested_scaled, sparse_iterate_basics): each case
-# there repeats one that stays in the quick file for Float64, a Float32 representative or a
-# representative function (test/TESTING.md lists them). A pull request runs a grids file for a
-# change to the source of its own family (.github/tier-rules.toml); the full tier, test:full and
-# a run by name also run them.
+# (atom_iterate, conjugate_basics, lmo_atoms, nested_scaled, sparse_iterate_basics): the cases
+# there repeat cases that stay in the quick file for Float64, a Float32 representative or a
+# representative function (test/TESTING.md lists them). A pull request adds a grids file as a focus
+# file for a change to the source of its own family (.github/tier-rules.toml); a run of the full
+# tier (including a pull request whose tier is full) or by name also runs them.
 full = [
   "allocations",
   "atom_iterate_grids",

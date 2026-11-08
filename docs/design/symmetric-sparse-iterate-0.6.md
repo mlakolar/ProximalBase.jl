@@ -1,7 +1,7 @@
 # SymmetricSparseIterate in ProximalBase 0.6: the contract
 
 > **Draft for maintainer review — proposed 0.6 behavior, not a description of an
-> installed release.** Nothing here is implemented. This file is the only
+> installed release.** Nothing here is implemented, except the three-factor product `A * X * B` of FD-16 (#419) for homogeneous `Float32` and `Float64`; the remaining owner changes are future work. This file is the only
 > normative document of the pair; the companion
 > [migration and acceptance guide](symmetric-sparse-iterate-0.6-acceptance.md)
 > links back to it and restates none of its rules.
@@ -29,9 +29,13 @@
 >   - oracle destinations follow
 >     [FD-4](iterate-family-0.6.md#fd-4-oracle-destinations), consistent with
 >     ORC-3 and ORC-6;
->   - the owner keeps 0.5.x's
->     `*(A::Symmetric, X::SymmetricSparseIterate, B::Symmetric)`; its class is
->     the open decision [FD-16](iterate-family-0.6.md#fd-16-three-factor-products) (#419);
+>   - the owner's
+>     `*(A::Symmetric, X::SymmetricSparseIterate, B::Symmetric)` follows
+>     [FD-16](iterate-family-0.6.md#fd-16-three-factor-products) (#419, decided
+>     2026-11-06: the direct sum over the nonzero entries of `X`, an off-diagonal
+>     coefficient counting for both of its entries) for `Float32` and `Float64`,
+>     implemented against the stored fields `nzval`, `nzval2ind`, `nnz` and `p`
+>     and rechecked when #737 changes the storage; other element types keep 0.5.x's method;
 >   - CPY-3's state copy converts only the source's active values, and one
 >     that throws leaves `X` unchanged (#416,
 >     [FW-4](iterate-family-0.6.md#23-the-working-set-fw)). This strengthens,

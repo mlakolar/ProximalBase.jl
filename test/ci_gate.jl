@@ -6,7 +6,7 @@ using Test
 # (scripts/ci_upload_result.jl).
 include(joinpath(dirname(@__DIR__), "scripts", "ci_gate.jl"))
 include(joinpath(dirname(@__DIR__), "scripts", "ci_upload_result.jl"))
-using .CIGate: Job, decide, watch, settled, parse_jobs, identity_problems
+using .CIGate: Job, decide, watch, settled, parse_jobs, identity_problems, labels_problem, check_labels, LABELS_CHANGED
 using .CIUploadResult: upload_result
 
 const V = "PR required jobs"
@@ -107,6 +107,47 @@ end
   args = ["--repo=o/n", "--run-id=1", "--attempt=1", "--sha=abc", "--event=pull_request", "--gate=$G", "--verdict=$V"]
   @test CIGate.options(args)["verdict"] == V
   @test_throws ErrorException CIGate.options(args[1:end-1]) # the verdict's name is required
+end
+
+@testset "a pull request run is valid only for the labels it was planned with" begin
+  @test LABELS_CHANGED == "labels changed since this run; the newer run decides"
+  # the same test: labels, in any order, and other labels do not matter
+  @test labels_problem(String[], String[]) === nothing
+  @test labels_problem(["test:full", "test:benchmark"], ["test:benchmark", "test:full"]) === nothing
+  @test labels_problem(["bug", "test:full"], ["test:full", "documentation"]) === nothing
+  @test labels_problem(["bug"], String[]) === nothing
+  # a test: label added, removed or replaced
+  added = labels_problem(["test:thorough"], String[])
+  @test startswith(added, LABELS_CHANGED) && occursin("now: test:thorough", added) && occursin("this run: none", added)
+  removed = labels_problem(String[], ["test:full"])
+  @test startswith(removed, LABELS_CHANGED) && occursin("now: none", removed)
+  @test startswith(labels_problem(["test:full"], ["test:thorough"]), LABELS_CHANGED)
+  @test startswith(labels_problem(["test:full", "test:benchmark"], ["test:full"]), LABELS_CHANGED)
+  @test startswith(labels_problem(["test:iterate-narrow"], String[]), LABELS_CHANGED)
+  # reading the labels: a fake fetch; an error is retried and never a pass
+  quiet(args...) = nothing
+  waits = Float64[]
+  check(fetch, expected; kw...) = check_labels(fetch, expected; sleep = s -> push!(waits, s), log = quiet, kw...)
+  @test check(() -> ["bug", "test:full"], ["test:full"])[1] == :pass
+  @test check(() -> String[], String[])[1] == :pass
+  action, message = check(() -> ["test:full"], String[])
+  @test action == :fail && startswith(message, LABELS_CHANGED)
+  @test check(() -> String[], ["test:standard"])[1] == :fail
+  calls = Ref(0)
+  flaky() = (calls[] += 1; calls[] < 3 ? error("HTTP 502") : ["test:full"])
+  @test check(flaky, ["test:full"])[1] == :pass && calls[] == 3 && waits == [15, 15]
+  # an API that keeps failing fails the gate, whatever the labels would have been
+  empty!(waits)
+  action, message = check(() -> error("HTTP 500"), String[])
+  @test action == :fail && occursin("could not read the labels", message) && occursin("HTTP 500", message) && length(waits) == 3
+  calls[] = -100
+  @test check(flaky, ["test:full"]; attempts = 2)[1] == :fail
+  # the options: --pr and --labels are optional, the others stay required
+  args = ["--repo=o/n", "--run-id=1", "--attempt=1", "--sha=abc", "--event=pull_request", "--gate=$G", "--verdict=$V"]
+  opts = CIGate.options([args..., "--pr=12", "--labels=test:full,bug"])
+  @test opts["pr"] == "12" && opts["labels"] == "test:full,bug"
+  @test !haskey(CIGate.options(args), "pr")
+  @test CIGate.options([args..., "--pr=", "--labels="])["labels"] == ""
 end
 
 @testset "job list from the API" begin

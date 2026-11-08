@@ -31,10 +31,10 @@ end
 @noinline function _exceptional_product(a::T, b::T, c::T, p::T) where {T<:AbstractFloat}
   (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
   (isfinite(a) && isfinite(b) && isfinite(c)) || return p
-  ma, ea = frexp(a)
-  mb, eb = frexp(b)
-  mc, ec = frexp(c)
-  ldexp((ma * mb) * mc, ea + eb + ec)
+  ma, ea = _frexp(a)
+  mb, eb = _frexp(b)
+  mc, ec = _frexp(c)
+  ldexp((ma * mb) * mc, _exponent_sum(T, ea, eb, ec))
 end
 @inline _positive_product(a::Real, b::Real, c::Real) = _positive_product(promote(float(a), float(b), float(c))...)
 
@@ -204,7 +204,7 @@ end
   k = Int(k)
   mw, ew = _frexp(w)
   mv, ev = _frexp(abs(v))
-  copysign(ldexp(_positive_product(mw, mv, one(T)), ew + ev + k), v)
+  copysign(ldexp(_positive_product(mw, mv, one(T)), _exponent_sum(T, ew, ev, k)), v)
 end
 
 # A converted parameter must retain normal precision on the ordinary path.
@@ -231,6 +231,29 @@ end
   ma, ea = _frexp(a)
   mb, eb = _frexp(b)
   mc, ec = _frexp(c)
+  ldexp((ma * mb) * mc, _exponent_sum(typeof(a), ea, eb, ec, k))
+end
+
+# _scaled_product with the exponents summed in Int, for a power k that is the retained exponent of a
+# _ProjectionScale (issue #767). That exponent is an Int that may already have wrapped; the Int sum is
+# taken modulo 2^64 too, so it returns the right exponent whenever the final one fits in Int. Widening
+# the wrapped k as if it were true would lose that.
+@inline function _scaled_product_retained(w::T, v::T, k::Integer) where {T<:AbstractFloat}
+  (iszero(w) || iszero(v)) && return w * v
+  (isfinite(w) && isfinite(v)) || return w * v
+  k = Int(k)
+  mw, ew = _frexp(w)
+  mv, ev = _frexp(abs(v))
+  copysign(ldexp(_positive_product(mw, mv, one(T)), ew + ev + k), v)
+end
+@inline function _scaled_product_retained(a::Real, b::Real, c::Real, k::Integer)
+  a, b, c = promote(float(a), float(b), float(c))
+  (iszero(a) || iszero(b) || iszero(c)) && return zero(a)
+  (isfinite(a) && isfinite(b) && isfinite(c)) || return (a * b) * c
+  k = Int(k)
+  ma, ea = _frexp(a)
+  mb, eb = _frexp(b)
+  mc, ec = _frexp(c)
   ldexp((ma * mb) * mc, ea + eb + ec + k)
 end
 
@@ -239,6 +262,30 @@ end
   e += abs(s) >= abs(v) ? (s - t) + v : (v - t) + s
   t, e
 end
+
+# A count, a block size or a multiplicity is an exact integer. The generic methods are the operation as
+# written, in the order written, for every type. For a BigFloat the integer must not be rounded to the
+# working precision first: where a C long is 32 bits (Windows), x * k, k * x and x / k with an Int64 k
+# convert k with BigFloat(k) at the working precision, so that 5 becomes 4 at two bits, while the product
+# or quotient with a Clong (mpfr_mul_si, mpfr_div_si) or a BigInt (mpfr_mul_z, mpfr_div_z) is exact and
+# rounded once. The integer is a Clong when it fits and a BigInt otherwise, never truncated or clamped.
+@inline _int_mul(a, b) = a * b
+@inline _int_div(x, k) = x / k
+@inline _int_mul(x::BigFloat, k::Integer) =
+  typemin(Clong) <= k <= typemax(Clong) ? x * Clong(k) : x * BigInt(k)
+@inline _int_mul(k::Integer, x::BigFloat) =
+  typemin(Clong) <= k <= typemax(Clong) ? Clong(k) * x : BigInt(k) * x
+@inline _int_div(x::BigFloat, k::Integer) =
+  typemin(Clong) <= k <= typemax(Clong) ? x / Clong(k) : x / BigInt(k)
+
+# R(n) * u for a count n and a value u of the working type R: the conversion of n to R is the old
+# expression for every type; for a BigFloat the count is exact
+@inline _count_mul(::Type{R}, n, u) where {R} = R(n) * u
+@inline _count_mul(::Type{BigFloat}, n::Integer, u::BigFloat) = _int_mul(n, u)
+
+# (R(i) * R(m)) * gap for the counts i and m; for a BigFloat the product i m is an exact integer
+@inline _count_pair_mul(::Type{R}, i, m, gap) where {R} = (R(i) * R(m)) * gap
+@inline _count_pair_mul(::Type{BigFloat}, i::Integer, m::Integer, gap::BigFloat) = _int_mul(widemul(i, m), gap)
 
 ####################################
 #
@@ -441,6 +488,10 @@ end
   m, e = frexp(x)
   (m, Int(e))
 end
+# MPFR exponents reach ±(2^62 - 1), so a sum of three of them leaves Int64. A BigFloat's exponent terms are widened to
+# Int128 before the first addition; other types keep their Int sums.
+@inline _exponent_sum(::Type{BigFloat}, es::Integer...) = foldl(+, map(Int128, es))
+@inline _exponent_sum(::Type, es::Integer...) = +(es...)
 
 # The stored values suffice for maxima; symmetric multiplicities do not matter.
 _stored_values(x::AbstractArray) = x
@@ -556,8 +607,8 @@ _tiny_limit(::Type{R}) where {R} = ldexp(floatmin(R), precision(R) + 1)
     small, es = _compensated_add(acc.small, acc.es, p)
     return _SplitAcc{R}(acc.big, acc.eb, small, es, acc.tiny, acc.et, acc.t)
   end
-  ma, ea = frexp(ar)
-  mx, ex = frexp(xr)
+  ma, ea = _frexp(ar)
+  mx, ex = _frexp(xr)
   tiny, et = _compensated_add(acc.tiny, acc.et, ldexp(ma * mx, ea + ex + _tiny_unit(R)))
   _SplitAcc{R}(acc.big, acc.eb, acc.small, acc.es, tiny, et, acc.t)
 end
@@ -583,6 +634,29 @@ _all_finite(x) = all(isfinite, _stored_values(x))
 _all_finite(x::_WrappedSparse) = _all_finite(parent(x))
 _all_finite(::Nothing) = true
 
+# m₁2^e₁ + m₂2^e₂ as a significand in [1/2, 1) (or 0) and its exponent, aligned to
+# the larger term: two terms that cancel do so exactly before renormalizing. A
+# scalar function for device kernels as well (no tuples of varying length).
+@inline function _pow2_add2(m1::T, e1::Int, m2::T, e2::Int) where {T<:AbstractFloat}
+  if iszero(m1) || (!iszero(m2) && e1 < e2)
+    m1, e1, m2, e2 = m2, e2, m1, e1
+  end
+  s = m1 + ldexp(m2, e2 - e1)
+  iszero(s) && return s, 0
+  ms, es = _frexp(s)
+  ms, es + e1
+end
+
+# The products of `_scaled_product`, w v 2^k and a b c 2^k, kept as a significand and
+# an exponent: ldexp of the pair rounds once to the same value. Finite factors.
+@inline _pow2_pair(w::T, v::T, k::Int) where {T<:AbstractFloat} =
+  (iszero(w) || iszero(v)) ? (zero(T), 0) : (fw = _frexp(w); fv = _frexp(v); (fw[1] * fv[1], fw[2] + fv[2] + k))
+@inline function _pow2_pair(a::T, b::T, c::T, k::Int) where {T<:AbstractFloat}
+  (iszero(a) || iszero(b) || iszero(c)) && return zero(T), 0
+  fa, fb, fc = _frexp(a), _frexp(b), _frexp(c)
+  (fa[1] * fb[1]) * fc[1], fa[2] + fb[2] + fc[2] + k
+end
+
 # w Σ mᵢ 2^eᵢ over finite mᵢ, for the terms of a value recomputed in different
 # power-of-two units (R1). The terms are added from the largest exponent down
 # to an accumulator kept as a significand in [1/2, 1) and its own exponent,
@@ -605,14 +679,14 @@ function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {
     end
     j == 0 && break
     used = Base.setindex(used, true, j)
-    mj, fj = frexp(ms[j])
+    mj, fj = _frexp(ms[j])
     D = fj + es[j]
     if iszero(s)
       s, E = mj, D
     else              # the larger of the two sets the units (a remainder of a cancellation may be the smaller)
       s = D <= E ? s + ldexp(mj, D - E) : ldexp(s, E - D) + mj
       E = max(E, D)
-      iszero(s) || ((s, f) = frexp(s); E += f)
+      iszero(s) || ((s, f) = _frexp(s); E += f)
     end
   end
   iszero(s) && return convert(R, w) * zero(R)
@@ -734,7 +808,7 @@ end
 # the product of two values given as parts, normalized
 @inline function _parts_product(a::Tuple, b::Tuple)
   P = promote_type(typeof(a[1]), typeof(b[1]))
-  _parts(convert(P, a[1]) * convert(P, b[1]), a[2] + b[2])
+  _parts(convert(P, a[1]) * convert(P, b[1]), Int(a[2]) + Int(b[2]))
 end
 
 ####################################
@@ -773,14 +847,14 @@ end
 # the term a b 2^k, with the product of the significands rounded once per factor
 @inline function _expsum_product(acc::_ExpSum{R}, a, b, k::Int = 0) where {R}
   (iszero(a) || iszero(b)) && return acc
-  ma, ea = frexp(convert(R, a))
-  mb, eb = frexp(convert(R, b))
+  ma, ea = _frexp(convert(R, a))
+  mb, eb = _frexp(convert(R, b))
   _expsum_add(acc, ma * mb, ea + eb + k)
 end
 @inline function _expsum_term(acc::_ExpSum{R}, a, xi, mj::R, ej::Integer, k::Int) where {R}
   (iszero(a) || iszero(xi)) && return acc
-  ma, ea = frexp(convert(R, a))
-  mi, ei = frexp(convert(R, xi))
+  ma, ea = _frexp(convert(R, a))
+  mi, ei = _frexp(convert(R, xi))
   _expsum_add(acc, (ma * mi) * mj, ea + ei + ej + k)
 end
 
@@ -790,7 +864,7 @@ function _expsum_quadratic(acc::_ExpSum{R}, A::AbstractMatrix, x::AbstractVector
   @inbounds for j in 1:size(A, 2)
     xj = x[j]
     iszero(xj) && continue
-    mj, ej = frexp(convert(R, xj))
+    mj, ej = _frexp(convert(R, xj))
     for i in 1:size(A, 1)
       acc = _expsum_term(acc, A[i, j], x[i], mj, ej, k)
     end
@@ -802,7 +876,7 @@ function _expsum_quadratic(acc::_ExpSum{R}, A::SparseArrays.SparseMatrixCSC, x::
   @inbounds for j in 1:size(A, 2)
     xj = x[j]
     iszero(xj) && continue
-    mj, ej = frexp(convert(R, xj))
+    mj, ej = _frexp(convert(R, xj))
     for p in nzrange(A, j)
       acc = _expsum_term(acc, nz[p], x[rv[p]], mj, ej, k)
     end
@@ -814,7 +888,7 @@ function _expsum_quadratic(acc::_ExpSum{R}, A::Diagonal, x::AbstractVector, k::I
   @inbounds for i in eachindex(d)
     xi = x[i]
     iszero(xi) && continue
-    mi, ei = frexp(convert(R, xi))
+    mi, ei = _frexp(convert(R, xi))
     acc = _expsum_term(acc, d[i], xi, mi, ei, k)
   end
   acc
@@ -1419,7 +1493,7 @@ end
   k == typemax(Int) && return nothing
   k == typemin(Int) && return (zero(R), 0)
   s = _square_scaled_sum(x, y, k, R)
-  _parts_product(frexp(convert(R, λ)), _parts(s, 2k - 1))
+  _parts_product(_frexp(convert(R, λ)), _parts(s, 2k - 1))
 end
 
 ####################################

@@ -203,12 +203,14 @@ end
   messages = [
     "conformance/common" => ("`conformance/common`: a helper that test files include, not a test",
                              "`conformance/common`: a helper that test files include, not a test"),
+    "gpu_ambiguities" => ("`gpu_ambiguities`: a helper that test files include, not a test; it runs through gpu_extension_ambiguities, gpu_smoke",
+                          "`gpu_ambiguities`: a helper that test files include, not a test; it runs through gpu_extension_ambiguities, gpu_smoke (outside tier quick)"),
     "gpu_prelude" => ("`gpu_prelude`: a helper that test files include, not a test; it runs through gpu, gpu_smoke",
-                      "`gpu_prelude`: a helper that test files include, not a test; it runs through gpu (outside tier quick), gpu_smoke"),
+                      "`gpu_prelude`: a helper that test files include, not a test; it runs through gpu (outside tier quick), gpu_smoke (outside tier quick)"),
     "gpu_suite" => ("`gpu_suite`: a helper that test files include, not a test; it runs through gpu",
                     "`gpu_suite`: a helper that test files include, not a test; it runs through gpu (outside tier quick)"),
     "gpu_suite_basics" => ("`gpu_suite_basics`: a helper that test files include, not a test; it runs through gpu_smoke",
-                           "`gpu_suite_basics`: a helper that test files include, not a test; it runs through gpu_smoke"),
+                           "`gpu_suite_basics`: a helper that test files include, not a test; it runs through gpu_smoke (outside tier quick)"),
     "testutils" => ("`testutils`: a helper that test files include, not a test",
                     "`testutils`: a helper that test files include, not a test"),
     "tiers" => ("`tiers`: a helper that test files include, not a test; it runs through tier_selection",
@@ -228,17 +230,20 @@ end
   @test only(errors) == "`second_order`: it matches only tests outside --core (second_order); run without --core"
   # a typo and a name that the tier drops
   @test startswith(only(check("second_order", "second_ordr")[1]), "`second_ordr`: no test file starts")
-  errors, _ = check("second_order", "gpu_smoke"; available = quick)
+  errors, _ = check("second_order", "lapack"; available = quick)
   @test startswith(only(errors), "`second_order`: it matches only tests outside tier quick (second_order)")
+  # the device-array suites are outside tier quick, and the message says so
+  errors, _ = check("gpu_smoke", "lapack"; available = quick)
+  @test startswith(only(errors), "`gpu_smoke`: it matches only tests outside tier quick (gpu_smoke)")
   @test check("!gpu_smoek") == (String[], ["`!gpu_smoek`: no test file starts with it"])
   @test check("!gpu_smok") == (String[], String[]) # a prefix of gpu_smoke: it excludes that file
   # prefixes keep selecting: a directory, a short name, an exact name, with an exclusion
   @test check("conformance/", "second", "gpu_smoke", "!gpu_smoke") == (String[], String[])
   @test check("conformance/", "!conformance/second_order") == (String[], String[])
   # an exclusion that removes nothing the included names selected
-  @test check("gpu_smoke", "!lapack") ==
-        (String[], ["`!lapack`: it matches lapack, which the included names (gpu_smoke) do not select; it removes nothing"])
-  @test check("gpu_smoke", "!lapack"; available = quick) == check("gpu_smoke", "!lapack")
+  @test check("allocations_basics", "!lapack") ==
+        (String[], ["`!lapack`: it matches lapack, which the included names (allocations_basics) do not select; it removes nothing"])
+  @test check("allocations_basics", "!lapack"; available = quick) == check("allocations_basics", "!lapack")
   @test only(check("conformance/", "!lapack")[2]) ==
         "`!lapack`: it matches lapack, which the included names (conformance/) do not select; it removes nothing"
   @test check("conformance/", "!conformance/second_order") == check("", "!lapack") == check("!lapack") == (String[], String[])
@@ -247,9 +252,9 @@ end
   errors, warnings = check("zz", "!lapack", "!zy")
   @test only(errors) == "`zz`: no test file starts with it" && only(warnings) == "`!zy`: no test file starts with it"
   # an --extra test is dropped unless an included name selects it
-  errors, warnings = check("gpu_smoke", "!second_order"; available = [quick; "second_order"])
+  errors, warnings = check("allocations_basics", "!second_order"; available = [quick; "second_order"])
   @test isempty(errors) && only(warnings) ==
-        "`!second_order`: it matches second_order, which the included names (gpu_smoke) do not select; it removes nothing"
+        "`!second_order`: it matches second_order, which the included names (allocations_basics) do not select; it removes nothing"
   # the check agrees with filter_tests! on which names match: an include is flagged exactly when the
   # real function keeps nothing for it, an exclusion when it removes nothing that the includes
   # (every name without `!`, the erroring ones too) keep; if every include is an error, when it
@@ -343,19 +348,21 @@ end
     return success(p), String(take!(out)), String(take!(err))
   end
   # a name that matches next to one that does not: an error, and no run starts
-  ok, out, err = run_selection("--tier=quick", "gpu_smoke", "gpu_suite_basics", "second_ordr")
+  ok, out, err = run_selection("--tier=quick", "allocations_basics", "gpu_suite_basics", "second_ordr")
   @test !ok && !occursin("ProximalBase tests:", out)
-  @test occursin("`gpu_suite_basics`: a helper that test files include, not a test; it runs through gpu_smoke", err)
+  @test occursin("`gpu_suite_basics`: a helper that test files include, not a test; it runs through gpu_smoke (outside tier quick)", err)
   @test occursin("`second_ordr`: no test file starts with it", err) && occursin("scripts/test.jl --list", err)
   # an exclusion that removes nothing warns; the typo still stops the run
-  ok, out, err = run_selection("--tier=quick", "gpu_smoke", "!lapack", "second_ordr")
+  ok, out, err = run_selection("--tier=quick", "allocations_basics", "!lapack", "second_ordr")
   @test !ok && !occursin("ProximalBase tests:", out)
   @test occursin("test exclusions that remove no test file:", err)
-  @test occursin("`!lapack`: it matches lapack, which the included names (gpu_smoke, second_ordr) do not select; it removes nothing", err)
+  @test occursin("`!lapack`: it matches lapack, which the included names (allocations_basics, second_ordr) do not select; it removes nothing", err)
   @test occursin("`second_ordr`: no test file starts with it", err)
   # a name that the tier drops
-  ok, _, err = run_selection("--tier=quick", "gpu_smoke", "second_order")
+  ok, _, err = run_selection("--tier=quick", "allocations_basics", "second_order")
   @test !ok && occursin("`second_order`: it matches only tests outside tier quick", err)
+  ok, _, err = run_selection("--tier=quick", "gpu_smoke")
+  @test !ok && occursin("`gpu_smoke`: it matches only tests outside tier quick (gpu_smoke)", err)
   # --core has its own advice
   ok, _, err = run_selection("--core", "precision_mixed")
   @test !ok && occursin("outside --core (precision_mixed); run without --core", err)
@@ -400,8 +407,9 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
   @test classify("src/calculus.jl", "test/calculus.jl") == ("thorough", ["calculus", "stepchecks"])
   @test classify("src/interface.jl", "docs/src/interface.md")[1] == "thorough"
   # the conformance suite and its coverage map
-  @test classify("test/conformance/kernels.jl") == ("thorough", ["conformance/kernels"])
-  @test classify("docs/design/numerical-contract/coverage.md") == ("thorough", String[])
+  # (its gpu_arrays reports are written beside the tier, so the check has the complete inventory)
+  @test classify("test/conformance/kernels.jl") == ("thorough", ["conformance/gpu_arrays", "conformance/kernels"])
+  @test classify("docs/design/numerical-contract/coverage.md") == ("thorough", ["conformance/gpu_arrays"])
   # infrastructure, platform code and paths no rule knows
   @test classify("src/lapack.jl")[1] == "full"
   @test classify("ext/ProximalBaseGPUArraysCoreExt.jl", "test/gpu.jl")[1] == "full"
@@ -409,6 +417,7 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
   @test classify(".github/tier-rules.toml")[1] == "full"
   @test classify("test/tiers.jl")[1] == "full"
   @test classify("scripts/ci_gate.jl")[1] == "full"
+  @test classify("scripts/ci_verdict.jl")[1] == "full"
   # the tier lists decide what every tier runs, so any change to them gets full, also the line
   # of a new test file
   @test classify("test/tiers.toml")[1] == "full"
@@ -501,6 +510,93 @@ instandard(names) = filter(n -> !(n in TestTiers.select(MANIFEST, "standard")), 
   end
 end
 
+const GPU = ["conformance/gpu_arrays", "gpu", "gpu_smoke"]
+
+@testset "the device-array suites run in the full tier and beside changes to the GPU files" begin
+  # outside the default tiers, inside full, each listed once (the manifest checks reject a duplicate)
+  for tier in ("quick", "standard", "thorough")
+    @test isdisjoint(TestTiers.select(MANIFEST, tier), GPU)
+  end
+  @test issubset(GPU, TestTiers.select(MANIFEST, "full")) && all(n -> MANIFEST.tier[n] == "full", GPU)
+  # the ambiguity guard for the GPU extension is a quick test file, run by every GPU run through its helper
+  @test MANIFEST.tier["gpu_extension_ambiguities"] == "quick" && "gpu_ambiguities" in MANIFEST.helpers
+  @test MANIFEST.run_through["gpu_ambiguities"] == ["gpu_extension_ambiguities", "gpu_smoke"]
+  include_helper = "include(joinpath(@__DIR__, \"gpu_ambiguities.jl\"))"
+  guard = read(joinpath(DIR, "gpu_extension_ambiguities" * ".jl"), String)
+  @test occursin("Base.get_extension(ProximalBase, :ProximalBaseGPUArraysCoreExt) !== nothing", guard)
+  @test occursin(include_helper, guard)
+  @test occursin(include_helper, read(joinpath(DIR, "gpu_suite_basics" * ".jl"), String))
+  # a change to a GPU test file, a GPU helper, the GPU extension, the coverage map or the conformance
+  # scripts runs the GPU files that it can affect
+  @test pr("test/gpu_smoke.jl") == ("quick", ["gpu_smoke"])
+  @test pr("test/gpu.jl") == ("quick", ["gpu"])
+  @test pr("test/conformance/gpu_arrays.jl") == ("thorough", ["conformance/gpu_arrays"])
+  for helper in ("gpu_ambiguities", "gpu_prelude", "gpu_suite", "gpu_suite_basics")
+    @test pr("test/$helper.jl") == ("quick", ["gpu", "gpu_smoke"])
+  end
+  @test pr("test/gpu_extension_ambiguities.jl") == ("quick", String[]) # a quick file itself
+  @test pr("ext/ProximalBaseGPUArraysCoreExt.jl") == ("full", String[]) # full runs every file
+  for path in ("docs/design/numerical-contract/coverage.md", "scripts/conformance_map.jl", "scripts/conformance_run.jl",
+               "test/conformance/kernels.jl")
+    @test pr(path) == ("thorough", ["conformance/gpu_arrays"])
+  end
+  # unrelated changes leave them to the nightly run
+  for path in ("src/functions/norms.jl", "src/utils.jl", "src/composition.jl", "test/norms.jl", "README.md")
+    @test isdisjoint(pr(path)[2], GPU)
+  end
+  @test pr("src/functions/norms.jl") == ("standard", String[])
+  # the label test:gpu adds the three files to any change; labels never lower the tier
+  @test pr("src/functions/norms.jl"; labels = ["test:gpu"]) == ("standard", GPU)
+  @test pr("src/utils.jl"; labels = ["test:gpu"]) == ("thorough", GPU)
+  @test pr("src/utils.jl"; labels = ["test:gpu", "test:standard"]) == ("thorough", GPU)
+  @test pr("src/functions/norms.jl"; labels = ["test:gpu", "test:thorough"]) == ("thorough", GPU)
+  @test pr("src/functions/norms.jl"; labels = ["test:full", "test:gpu"]) == ("full", String[])
+  @test pr("src/functions/norms.jl"; labels = ["test:gpu", NARROW...]) == ("standard", GPU)
+  # a change that needs no package tests runs quick with the files (a plan with tier none runs nothing)
+  _, _, _, notes = TestTiers.pr_tier(MANIFEST, ["docs/src/index.md"], ["test:gpu"])
+  @test pr("docs/src/index.md"; labels = ["test:gpu"]) == ("quick", GPU)
+  @test any(occursin("test:gpu", n) && occursin("gpu_smoke", n) for n in notes)
+  @test pr("docs/src/index.md") == ("none", String[])
+  @test pr("docs/src/index.md", "test/gpu_smoke.jl"; labels = ["test:gpu"]) == ("quick", GPU)
+  @test pr(; labels = ["test:gpu"]) == ("quick", GPU) # no changed files: quick
+  # the label names are labels: SubStrings, as split gives them, work, and an unknown label next to
+  # test:gpu is still an error that lists test:gpu
+  @test pr("src/utils.jl"; labels = split("test:gpu,bug", ',')) == ("thorough", GPU)
+  err = try pr("src/utils.jl"; labels = ["test:gpu", "test:gpuu"]); nothing catch e; e end
+  @test err isa ArgumentError && occursin("`test:gpuu` names no tier", err.msg) && occursin("test:gpu", err.msg)
+  # the label table is part of the manifest: names, their focus files in tiers
+  @test MANIFEST.label_focus == Dict("test:gpu" => ["gpu_smoke", "gpu", "conformance/gpu_arrays"])
+  @test all(n -> haskey(MANIFEST.tier, n), reduce(vcat, values(MANIFEST.label_focus)))
+end
+
+@testset "label_focus in the manifest" begin
+  manifest_with(text) = SMALL * text
+  m = TestTiers.parse_manifest(manifest_with("[label_focus]\n\"test:x\" = [\"d/e\", \"a\"]\n"))
+  @test m.label_focus == Dict("test:x" => ["d/e", "a"])
+  @test isempty(TestTiers.parse_manifest(SMALL).label_focus)
+  # the label adds its files, the tier and the other labels are as before
+  @test TestTiers.pr_tier(m, ["src/x.jl"], ["test:x"])[1:2] == ("full", String[]) # no rule: full runs every file
+  @test TestTiers.pr_tier(m, String[], ["test:x"])[1:2] == ("quick", ["d/e"])    # quick runs a
+  problems_of(text) = problems(() -> TestTiers.parse_manifest(manifest_with(text)))
+  @test only(problems_of("[label_focus]\n\"test:x\" = [\"zz\"]\n")) ==
+        "label_focus: `test:x` has focus `zz`, which is in no tier"
+  # a label of a tier, the narrow or the benchmark label, or without the prefix has its own meaning or none
+  for label in ("test:quick", "test:standard", "test:thorough", "test:full", "test:iterate-narrow", "test:benchmark")
+    @test occursin("label of a tier, of test:iterate-narrow or of test:benchmark", only(problems_of("[label_focus]\n\"$label\" = [\"a\"]\n")))
+  end
+  for label in ("gpu", "test:")
+    @test occursin("is not a label of the form test:<name>", only(problems_of("[label_focus]\n\"$label\" = [\"a\"]\n")))
+  end
+  for value in ("[]", "\"a\"", "[\"a\", 1]")
+    @test only(problems_of("[label_focus]\n\"test:x\" = $value\n")) == "label_focus: `test:x` needs a non-empty list of test names"
+  end
+  @test only(problems_of("[label_focus]\n\"test:x\" = [\"a\", \"a\"]\n")) == "label_focus: `test:x` lists `a` more than once"
+  @test only(problems(() -> TestTiers.parse_manifest("label_focus = [\"a\"]\n" * SMALL))) ==
+        "label_focus must be a table of label = [test names]"
+  # a helper is no test file, so it is no focus file
+  @test only(problems_of("[label_focus]\n\"test:x\" = [\"h\"]\n")) == "label_focus: `test:x` has focus `h`, which is in no tier"
+end
+
 @testset "additive changes to the tier lists" begin
   # the edits below work on LF text; a Windows checkout has CRLF line endings
   old = replace(read(joinpath(DIR, "tiers.toml"), String), "\r\n" => "\n")
@@ -553,101 +649,57 @@ end
 end
 
 
-# The planner itself (scripts/ci_plan.jl), on the nightly path, with a fake GitHub CLI: the
-# nightly run skips the full tier only after a successful non-PR full run on the same commit in
-# the last 24 hours, and an API failure or malformed answer runs the full tier.
+# The planner's benchmark decision (CIPlan.benchmark_check, [events.*] benchmark and
+# [benchmark_check] in .github/tier-rules.toml): a harness path, a label, or the event decides;
+# never documentation only. test/ci_plan.jl tests the whole plan.
 module CIPlan
 include(joinpath(dirname(@__DIR__), "scripts", "ci_plan.jl"))
 end
 
-const SHA = "a" ^ 40
-const NOW = 1_800_000_000.0 # Unix time
-const FULLJOBS = ["Test plan", "Julia lts - ubuntu-latest - x64 - full", "Julia 1 - windows-latest - x64 - full", "CI result"]
-const QUICKJOBS = ["Test plan", "Julia lts - ubuntu-latest - x64 - quick", "Julia 1 - ubuntu-latest - x64 - quick", "CI result"]
-# A line of `gh run list` as recent_full_run asks for it: id, event, created (Unix time), conclusion, commit.
-runline(id, event; hours = 2, conclusion = "success", sha = SHA) = join([id, event, string(NOW - hours * 3600), conclusion, sha], '\t')
-
-# A fake `gh`: the run list, the job names of each run; `fail` makes every call throw, as the
-# real CLI does on an API error. `calls` records the arguments.
-function fakegh(runs, jobs = Dict{String, Vector{String}}(); fail = false, calls = Vector{String}[])
-  return function (args)
-    push!(calls, String.(args))
-    fail && error("gh: HTTP 502")
-    args[1:2] == ["run", "list"] && return runs
-    args[1:2] == ["run", "view"] && return get(() -> error("gh: run $(args[3]) not found"), jobs, args[3])
-    error("unexpected gh call: $args")
-  end
-end
-
-nightly(gh) = CIPlan.plan(Dict("event" => "schedule", "sha" => SHA, "repo" => "owner/name"); gh, at = NOW)
-nightly_tier(gh) = nightly(gh)[1].tier
-
-@testset "nightly plan" begin
-  # no earlier run: full
-  @test nightly_tier(fakegh(String[])) == "full"
-  # a successful full run on this commit, from the nightly, a push or a manual run: skip
-  for event in ("schedule", "push", "workflow_dispatch")
-    result, lines = nightly(fakegh([runline("11", event)], Dict("11" => FULLJOBS)))
-    @test result.tier == "none" && !result.run_tests
-    @test any(occursin("Run 11 already passed the full tier", l) for l in lines)
-  end
-  # the first qualifying run decides; others before it are passed over
-  runs = [runline("12", "pull_request"), runline("13", "schedule"; conclusion = "failure"), runline("14", "push")]
-  @test nightly_tier(fakegh(runs, Dict("14" => FULLJOBS))) == "none"
-  # only quick or standard runs on this commit: full
-  @test nightly_tier(fakegh([runline("21", "workflow_dispatch")], Dict("21" => QUICKJOBS))) == "full"
-  # a full run on another commit (the CLI is asked for this commit, but the answer is checked)
-  @test nightly_tier(fakegh([runline("31", "push"; sha = "b" ^ 40)], Dict("31" => FULLJOBS))) == "full"
-  # older than 24 hours, or created after the plan's time: full; just inside the window: skip
-  @test nightly_tier(fakegh([runline("41", "schedule"; hours = 25)], Dict("41" => FULLJOBS))) == "full"
-  @test nightly_tier(fakegh([runline("42", "schedule"; hours = -1)], Dict("42" => FULLJOBS))) == "full"
-  @test nightly_tier(fakegh([runline("43", "schedule"; hours = 23.9)], Dict("43" => FULLJOBS))) == "none"
-  # a failed, cancelled or unfinished full run: full
-  for conclusion in ("failure", "cancelled", "timed_out", "")
-    @test nightly_tier(fakegh([runline("51", "schedule"; conclusion)], Dict("51" => FULLJOBS))) == "full"
-  end
-  # a full run for a pull request on the same commit does not count
-  @test nightly_tier(fakegh([runline("61", "pull_request")], Dict("61" => FULLJOBS))) == "full"
-  # the API fails or answers something else: full, and the plan says why
-  result, lines = nightly(fakegh(String[]; fail = true))
-  @test result.tier == "full" && any(occursin("Could not check for an earlier full run", l) for l in lines)
-  for bad in (["11\tschedule\tsuccess"], ["11\tschedule\tyesterday\tsuccess\t$SHA"], ["garbage"])
-    @test nightly_tier(fakegh(bad, Dict("11" => FULLJOBS))) == "full"
-  end
-  @test nightly_tier(fakegh([runline("71", "schedule")])) == "full" # its jobs cannot be listed
-  # the CLI is asked for this workflow's successful runs on this commit
-  calls = Vector{String}[]
-  nightly(fakegh([runline("81", "schedule")], Dict("81" => FULLJOBS); calls))
-  list = first(calls)
-  @test list[1:2] == ["run", "list"] && all(in(list), ["--repo", "owner/name", "--workflow", "CI.yml", "--commit", SHA, "--status", "success"])
-  @test calls[2][1:3] == ["run", "view", "81"]
-  # without the commit and repository the nightly plan runs full and asks nothing
-  calls = Vector{String}[]
-  @test CIPlan.plan(Dict("event" => "schedule"); gh = fakegh(String[]; calls))[1].tier == "full" && isempty(calls)
-end
-
-# Whether the benchmark reference checks run (CIPlan.benchmark_check, [benchmark_check] in
-# .github/tier-rules.toml): with the package tests, or for a change to the benchmark harness or
-# its environment alone; never for documentation only.
 @testset "benchmark check plan" begin
-  bc(paths; run_tests = false) = CIPlan.benchmark_check(paths, run_tests)
-  @test bc(["src/sparse_iterate.jl"]; run_tests = true)
-  @test bc(nothing; run_tests = true) && !bc(nothing)
+  bc(paths; event = "pull_request", labels = String[], inputs = Dict{String, String}(), tier = nothing) =
+    CIPlan.benchmark_check(event, paths, labels, inputs; tier)
+  # a pull request: the harness or its environment, or the workflow file that defines the jobs
   for path in ("benchmark/run.jl", "benchmark/cases.jl", "benchmark/check_only.jl", "benchmark/setup.jl",
-               "benchmark/check_only_test.jl", "benchmark/Project.toml")
+               "benchmark/check_only_test.jl", "benchmark/Project.toml", ".github/workflows/CI.yml")
     @test bc([path]) && bc(["docs/src/index.md", path])
   end
-  for path in ("benchmark/README.md", "benchmark/baselines/iterate-family-0.5.csv", "benchmark/compare.py",
+  # package tests alone do not start them, and documentation never does
+  for path in ("src/sparse_iterate.jl", "benchmark/README.md", "benchmark/baselines/iterate-family-0.5.csv", "benchmark/compare.py",
                "benchmark/gpu_solver/analysis.py", "docs/src/index.md", "README_extra.md")
     @test !bc([path])
   end
-  @test !bc(String[])
+  @test !bc(String[]) && !bc(nothing)
+  # the labels test:benchmark and test:full ask for them; others do not
+  @test bc(["src/utils.jl"]; labels = ["test:benchmark"]) && bc(nothing; labels = ["test:benchmark"])
+  @test bc(["src/utils.jl"]; labels = ["test:full"]) && !bc(["src/utils.jl"]; labels = ["test:thorough", "bug"])
+  # a push to master: the harness paths only; a tag and the nightly run: always
+  @test bc(["benchmark/run.jl"]; event = "push") && !bc(["src/utils.jl"]; event = "push") && !bc(nothing; event = "push")
+  @test bc(nothing; event = "tag") && bc(["docs/src/index.md"]; event = "tag") && bc(nothing; event = "schedule")
+  # a manual run: its input, or the full tier
+  @test !bc(nothing; event = "workflow_dispatch", tier = "quick") && bc(nothing; event = "workflow_dispatch", tier = "full")
+  @test bc(nothing; event = "workflow_dispatch", tier = "quick", inputs = Dict("benchmark" => "true"))
+  @test !bc(nothing; event = "workflow_dispatch", tier = "quick", inputs = Dict("benchmark" => "false"))
   # the rules file the workflow reads has the section, and the tiers agree: these paths need no package tests
   @test first(classify("benchmark/cases.jl")) == "none" && first(classify("benchmark/Project.toml")) == "none"
-  # the plan's outputs carry it: a nightly full run checks, a skipped nightly does not
-  @test nightly(fakegh(String[]))[1].benchmark
-  @test !nightly(fakegh([runline("91", "schedule")], Dict("91" => FULLJOBS)))[1].benchmark
-  @test CIPlan.plan(Dict("event" => "workflow_dispatch", "tier" => "quick"))[1].benchmark
+  @test ".github/workflows/CI.yml" in CIPlan.benchmark_paths()
+end
+
+# Labels that are not tiers (test:benchmark, test:iterate-narrow) leave the tier of a PR alone.
+@testset "labels that are not tiers" begin
+  for paths in (["src/utils.jl"], ["docs/src/index.md"], ["test/norms.jl"], ["src/functions/sets.jl"], ["Project.toml"])
+    base = pr(paths...)
+    @test pr(paths...; labels = ["test:benchmark"]) == base
+    @test pr(paths...; labels = ["bug", "test:benchmark", "documentation"]) == base
+  end
+  @test pr("docs/src/index.md"; labels = ["test:benchmark"]) == ("none", String[])
+  @test pr("test/norms.jl"; labels = ["test:benchmark", "test:thorough"])[1] == "thorough"
+  _, _, _, notes = TestTiers.pr_tier(MANIFEST, ["src/utils.jl"], ["test:benchmark"])
+  @test !any(occursin("test:benchmark", n) for n in notes)
+  # a label that names no tier is still an error, and says which labels exist
+  @test_throws ArgumentError pr("src/utils.jl"; labels = ["test:fast"])
+  e = try pr("src/utils.jl"; labels = ["test:fast"]) catch err; err end
+  @test occursin("test:benchmark", e.msg) && occursin("test:iterate-narrow", e.msg)
 end
 
 end

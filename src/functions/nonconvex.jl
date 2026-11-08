@@ -1057,7 +1057,7 @@ end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CappedL1, v, i) where {R}
   u = convert(R, v)
   isnan(u) && return _nonfinite_entry_term(acc, f, i)
-  _weighted_term_add(acc, _entry(f.w, i), frexp(min(abs(u), convert(R, f.a))))
+  _weighted_term_add(acc, _entry(f.w, i), _frexp(min(abs(u), convert(R, f.a))))
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::LogPenalty, v, i) where {R}
   # a zero weight or an infinite ε leaves the entry free, NaN included, as in value_entry
@@ -1067,20 +1067,20 @@ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::LogPenalty, v
   iszero(t) && return acc
   q = t / ε
   φ = if isinf(q)
-    frexp(log(t) - log(ε))
+    _frexp(log(t) - log(ε))
   elseif q < floatmin(R)
-    mt, et = frexp(t)
-    mε, eε = frexp(ε)
+    mt, et = _frexp(t)
+    mε, eε = _frexp(ε)
     _parts(mt / mε, et - eε)
   else
-    frexp(log1p(q))
+    _frexp(log1p(q))
   end
   _weighted_term_add(acc, _entry(f.w, i), φ)
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::NormLq, v, i) where {R}
   t = abs(convert(R, v))
   isfinite(t) || return _nonfinite_entry_term(acc, f, i)
-  _weighted_term_add(acc, _entry(f.w, i), frexp(t^convert(R, f.q)))
+  _weighted_term_add(acc, _entry(f.w, i), _frexp(t^convert(R, f.q)))
 end
 
 # The group penalties: Σₖ pₖ(‖x[Gₖ]‖₂) with the norm of a group and the level λwₖ as parts, and the

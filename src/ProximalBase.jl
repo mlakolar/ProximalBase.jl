@@ -20,6 +20,16 @@ and mutating functions take their output first, as `mul!` does:
 """
 module ProximalBase
 
+# ProximalBase defines its own ldexp. Base's ldexp(::BigFloat, n) is exact (mpfr_mul_2si, mpfr_mul_2ui) for a Clong or a
+# Culong n, and forwards narrower integers to them; any other integer type reaches the fallback x * exp2(BigFloat(n)),
+# which overflows when 2^n alone leaves the range although x·2^n is representable, and rounds n at a low precision. A C
+# long is 32 bits on Windows, where an Int64 shift takes that fallback.
+# This function shadows Base.ldexp for every unqualified call in the module (it does not extend Base's), so it must stay
+# above every use of the name; write Base.ldexp where a query of Base's method table is meant. MPFR's exponent range
+# lies within a Clong, so a shift saturated at the Clong limits still overflows or underflows exactly as it should.
+@inline ldexp(x, n) = Base.ldexp(x, n)
+@inline ldexp(x::BigFloat, n::Integer) = Base.ldexp(x, Clong(clamp(n, typemin(Clong), typemax(Clong))))
+
 using LinearAlgebra
 using SparseArrays
 using LinearAlgebra: LAPACKException, checksquare
@@ -37,7 +47,7 @@ export
   SeparableFunction, value_entry, iszeropreserving,
   gradient_mapping, gradient_mapping!, lipschitz, opnorm2,
   reset_cache!,
-  haslmo, lmo!, lmo,
+  haslmo, lmo!, lmo, lmo_atom, VertexAtom, LowRankAtom,
   hashessian, hessian_vec!, hessian_vec, quadratic_model, quadratic_model!,
   coordinate_lipschitz, coordinate_lipschitz!,
   lla_weight, lla_weights!, lla_weights,
@@ -128,6 +138,7 @@ include("lla.jl")
 include("calculus.jl")
 include("constrained.jl")
 include("spectralfunction.jl")
+include("lmo_atoms.jl")
 include("ballconstrained.jl")
 include("affineconstrained.jl")
 include("constrained_nonconvex.jl")

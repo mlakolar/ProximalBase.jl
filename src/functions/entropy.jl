@@ -292,9 +292,9 @@ end
 @inline function _bernoulli_ratio(w::T, b::T, p::T) where {T<:AbstractFloat}
   r = inv(p)
   isfinite(r) && return _positive_product(w, b, r)
-  mw, ew = frexp(w)
-  mb, eb = frexp(b)
-  mp, ep = frexp(p)
+  mw, ew = _frexp(w)
+  mb, eb = _frexp(b)
+  mp, ep = _frexp(p)
   ldexp((mw * mb) / mp, ew + eb - ep)
 end
 
@@ -357,8 +357,8 @@ function _bernoulli_prox(v::T, b::T, γ::T, w::T) where {T<:AbstractFloat}
   end
 
   # Scale by a power of two at least as large as μ = γw, without forming μ.
-  mg0, eg = frexp(γ)
-  mw, ew = frexp(w)
+  mg0, eg = _frexp(γ)
+  mw, ew = _frexp(w)
   power = eg + ew
   shift = max(0, power)
   unit = ldexp(one(T), -shift)
@@ -594,18 +594,18 @@ end
   t = convert(R, v)
   (isfinite(t) && t >= 0) || return nothing
   iszero(t) && return acc
-  mt, et = frexp(t)
+  mt, et = _frexp(t)
   _term_add(acc, mt * log(t), et)
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::KLDivergence, v, i) where {R}
   t, q = convert(R, v), convert(R, _entry(f.q, i))
   (isfinite(t) && isfinite(q)) || return nothing
   t < 0 && return nothing
-  acc = _term_add(acc, frexp(q))
+  acc = _term_add(acc, _frexp(q))
   (acc === nothing || iszero(t)) && return acc
   ratio = t / q
   logratio = isfinite(ratio) && !iszero(ratio) ? log(ratio) : log(t) - log(q)
-  mt, et = frexp(t)
+  mt, et = _frexp(t)
   acc = _term_add(acc, mt * logratio, et)
   acc === nothing && return nothing
   _term_add(acc, -mt, et)
@@ -625,10 +625,10 @@ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::Berhu, v, i) 
   (iszero(w)) && return acc
   isfinite(w) || return nothing
   c = _parts_product(_rparts(R, f.λ), _rparts(R, w))
-  t <= M && return _term_add(acc, _parts_product(c, frexp(t)))
+  t <= M && return _term_add(acc, _parts_product(c, _frexp(t)))
   # c (t² + M²)/(2M) = c t²/(2M) + c M/2
-  mt, et = frexp(t)
-  mM, eM = frexp(M)
+  mt, et = _frexp(t)
+  mM, eM = _frexp(M)
   acc = _term_add(acc, _parts_product(c, _parts(mt * mt / mM, 2et - eM - 1)))
   acc === nothing && return nothing
   _term_add(acc, _parts_product(c, (mM, eM - 1)))

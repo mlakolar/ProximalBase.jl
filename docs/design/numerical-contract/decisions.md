@@ -71,7 +71,7 @@ Decisions 1–47 were approved by the maintainer on 2026-11-01 ("go with recomme
 | 15 | sums and reproducibility | Sums may be reordered. |
 | 16 | membership tolerance | `√eps(T)·max(1, \|bound\|, s)`, with `s` the error scale of the tested quantity. |
 | 17 | rank and zero-mask threshold | `√eps(T)·σ₁`, the package's convention for membership-type decisions. |
-| 18 | decisions in searches | Certify the stored output. |
+| 18 | decisions in searches | Certify the stored output. Amended 2026-11-08: the multiplier of a `Float32` linear set is checked, with a `Float64` recovery, not certified. |
 | 19 | LAPACK results near a boundary | In-band results are returned as computed, which takes precedence over 18. |
 | 20 | NaN in the argument | NaN propagates to every result that depends on it, and never becomes zeros or `+Inf` through a failed comparison. |
 | 21 | infinite entries | The formula or limit where determined: a norm or an indicator gives `+Inf`. |
@@ -84,7 +84,7 @@ Decisions 1–47 were approved by the maintainer on 2026-11-01 ("go with recomme
 | 28 | the point of a joint value | `value_and_gradient!` agrees with its standalone oracles, even across precisions (V11). |
 | 29 | approximate projections | Return `0`, documented as not a feasibility certificate. |
 | 30 | wrappers that round between stages | Keep the staging. |
-| 31 | outputs after a failure | By kind. |
+| 31 | outputs after a failure | By kind. Amended 2026-11-08: the failure of the check of a `Float32` linear-set multiplier is kind 3 (decision 18). |
 | 32 | aliasing | Keep the current rule; only `y === x` is guaranteed (#318); #367 audits. |
 | 33 | sparse and symmetric storage | Keep (#142). |
 | 34 | GPU arrays | The same meaning as on the CPU under A2's rules. |
@@ -95,7 +95,7 @@ Decisions 1–47 were approved by the maintainer on 2026-11-01 ("go with recomme
 | 39 | `LogDetLoss` | The value is that of the stored output, so a singular stored output gives `Inf`; the verification strategy is chosen by measurement. |
 | 40 | zero level against domain constraints | Zero scaling keeps domain constraints and infinite weights, and is rejected when no domain-preserving proximal representation exists (`NegLog`). |
 | 41 | exception for sizes | `DimensionMismatch`. |
-| 42 | infeasibility found during a search; stopgaps | Infeasibility found during a search raises `ArgumentError` before writing. |
+| 42 | infeasibility found during a search; stopgaps | Infeasibility found during a search raises `ArgumentError` before writing. Amended 2026-11-08: only where the infeasibility is established independently of the search. |
 | 43 | scope of the contract | Every oracle. |
 | 44 | gradients outside the domain | NaN, for the derivative oracles that are supported. |
 | 45 | values of wrappers | A private scaled-result capability; homogeneity recovers overflowing transformed arguments of norms (W1 = `M/2`); other combinations are listed as not covered. |
@@ -710,7 +710,7 @@ price of more documentation.
 
 ### 14. Thresholds and ties in closed forms (A2)
 
-**Decided** (maintainer, 2026-11-01). A2's table. Entrywise decisions on the model's operands are exact and the same on every path and backend. Decisions on computed reductions are exact comparisons that may differ between paths or backends only within the reductions' error. Search decisions are certified (18). In-band spectral decisions follow 19.
+**Decided** (maintainer, 2026-11-01). A2's table. Entrywise decisions on the model's operands are exact and the same on every path and backend. Decisions on computed reductions are exact comparisons that may differ between paths or backends only within the reductions' error. Search decisions are certified (18; the multiplier of a `Float32` linear set is checked under the amendment of 18). In-band spectral decisions follow 19.
 
 *The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
@@ -742,14 +742,14 @@ Certification (decision 18) applies only to iterative searches, where the stoppi
 
 - an entrywise decision on the model's operands is exact, the same on every path and backend;
 - a closed-form decision on a computed reduction is the same exact comparison, and two paths or backends may differ only within the reductions' error bound;
-- a search decision is certified (decision 18);
+- a search decision is certified (decision 18, amended for the multiplier of a `Float32` linear set, which is checked);
 - a spectral decision inside its band follows decision 19.
 
 A6 and G1 are aligned with this. Draft 5's A6 had sent decisions on reductions to A3, and its G1 had promised identical branches across devices, which reductions cannot guarantee.
 
 ### 15. Sums and reproducibility (A6)
 
-**Decided** (maintainer, 2026-11-01). Sums may be reordered. Decisions on sums follow A2: exact comparisons in closed forms, certification in searches.
+**Decided** (maintainer, 2026-11-01). Sums may be reordered. Decisions on sums follow A2: exact comparisons in closed forms, certification in searches (the check of decision 18's amendment for the multiplier of a `Float32` linear set).
 
 *The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
@@ -860,6 +860,15 @@ The recommendation is unchanged.
 ### 18. Decisions in multiplier searches (A3; #366 D1 and D8)
 
 **Decided** (maintainer, 2026-11-01). Certify the stored output. Inside the band, refine, widening the arithmetic on the original call's effective operands without changing the model, or raise the dedicated exception before writing. The mechanism is chosen by measurement.
+
+**Amended** (maintainer, 2026-11-08, [PR #348](https://github.com/mlakolar/ProximalBase.jl/pull/348#issuecomment-6716666563)). For the multiplier search of `Constrained` on `IndHyperplane`, `IndHalfspace` and `IndHyperslab` (the simplex routes included) in the `Float32` model only, "certify the stored output" is replaced by a documented *check* with a selective `Float64` recovery. The mechanism chosen by measurement is the native `Float32` search, the check, and the recovery.
+
+- The check estimates the distance of the output from the exact point from the residual, the slope of the search's last step and an assumed noise floor of the evaluation, and accepts the result at `16 eps(Float32)` times a size of the problem. It is not a certificate, a conservative error bound or a guaranteed forward error. A last secant can cross a kink, the noise floor is a constant that is not proved for every term, and an accepted result can in principle be inaccurate.
+- A result that fails the check is searched again from zero in `Float32`, and then in `Float64` on the `Float32` problem: the entry maps are evaluated in `Float64` with their parameters rounded to `Float32` exactly as the kernel rounds them (decision 3 holds). The functions that have this recovery are `NormL1`, `NormL1Nonneg`, `ElasticNet`, `IndBox`, `IndNonnegative`, `SqrNormL2`, a box on one of them and a `Scaled` of one of them by a `Float32`, `Float16` or integer factor. For any other function the recovery is refused rather than computing a different problem.
+- When the check fails and the recovery is refused or finds no multiplier it accepts, the call raises the dedicated exception before writing (decision 31, kind 3). `ArgumentError` is raised only when infeasibility is established independently of the search (decision 42).
+- `16 eps(Float32)` is a regression-test target for specified fixtures, not a universal guarantee. Option (a) and option (c) of the analysis below are kept, and option (b) is excluded as before, except as the stated limit of the check.
+- `Float64` searches keep their earlier acceptance. Their certification under this decision is an open obligation of G5 ([#488](https://github.com/mlakolar/ProximalBase.jl/issues/488)).
+- Decision 18 stands unchanged for every other search. The amendment is not permission to relax decisions 3, 31 or 35, or A1, T8, C1 to C4 or O2, anywhere else.
 
 *The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
@@ -1300,6 +1309,8 @@ the error is in the scale of the shifted quantity the user built.
 
 **Decided** (maintainer, 2026-11-01). By kind. Validation raises `DimensionMismatch` for sizes, otherwise `ArgumentError`, before writing. Infeasibility found during a search raises `ArgumentError` before writing. Certification failures and unrepresentable results raise the dedicated exception before writing. A failure inside an external library is documented per family.
 
+**Amended** (maintainer, 2026-11-08, PR #348). Under the amendment of decision 18, the failure of the check of a `Float32` linear-set multiplier that the `Float64` recovery cannot resolve is a failure of kind 3: the dedicated exception, before writing, with the function and its warm start unchanged. The amendment does not change the other kinds.
+
 *The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Keep the settled rule that a call raising an `ArgumentError`
@@ -1685,6 +1696,8 @@ promise that outputs stay unchanged is the same for both.
 
 **Decided** (maintainer, 2026-11-01). Infeasibility found during a search raises `ArgumentError` before writing. An arithmetic stopgap raises the dedicated exception before writing.
 
+**Amended** (maintainer, 2026-11-08, PR #348). A search that finds no bracket does not prove infeasibility, including a `Float64` retry. In the `Float32` model of `Constrained` on a hyperplane, halfspace or hyperslab the `ArgumentError` is raised only when the range of the constraint establishes it: the range of `⟨a, z⟩` over the ranges of the entries of `f`, with a margin that covers the rounding of its sums, lies strictly on the wrong side of the offset, or lies entirely outside the slab. Otherwise the call raises the dedicated exception (decision 18, amended).
+
 *The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** O6 had no category for two kinds of failure:
@@ -1829,6 +1842,8 @@ Recommendation: supported. `Translate` and `Precompose` of a positively homogene
 ### 46. The normals and offsets of sets (T2)
 
 **Decided** (maintainer, 2026-11-01). (b): matrices, the vectors in their equations, and the normals and offsets of linear sets are data. Levels, coordinate weights, centers, bounds and steps are parameters.
+
+**Clarified** (maintainer, PR #348). The model precision of `Constrained` on a hyperplane, halfspace, hyperslab or simplex is the widest of the destination, the argument and the data, the data being those of `f` and the normal and offsets of the set. One exception: a normal that is a fixed-width integer scalar, such as the `1` of `IndHyperplane(1, b)` or of `IndSimplex`, does not raise it when the precision given by the destination, the argument, the data of `f` and the offsets of the set holds it exactly. The offsets are never exempt, so `IndHyperplane(1, 0)` is a `Float64` model. An integer that this precision cannot hold, an array of integers and a `BigInt` follow the general rule.
 
 *The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 

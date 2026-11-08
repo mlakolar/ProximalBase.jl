@@ -291,11 +291,14 @@ not yet implemented. In short:
   switches its inner SVD workspace between precisions with a `Float32`
   argument and a `Float64` output.
 
-A result that cannot be certified or represented in the working precision
+A result that cannot be certified, checked or represented in the working precision
 raises [`PrecisionError`](@ref) under O6. This exception is distinct from
-`ArgumentError`, which signals invalid input. Only `quadratic_model` and
-`quadratic_model!` of a [`GLMLoss`](@ref) raise it in this release, when an
-effective coefficient of the model is not representable.
+`ArgumentError`, which signals invalid input. In this release `quadratic_model` and
+`quadratic_model!` of a [`GLMLoss`](@ref) raise it when an effective coefficient of
+the model is not representable, and [`Constrained`](@ref) on a hyperplane, halfspace
+or hyperslab raises it in `Float32` when the check of the multiplier fails and the
+`Float64` recovery cannot accept one (the exception to A3 in the
+[Numerical contract](@ref numerics)).
 
 ### Overflow and underflow of values
 

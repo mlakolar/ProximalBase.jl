@@ -1210,7 +1210,12 @@ function oracle_atom_dropzeros(active::Vector{Int}, zerogroup)
     active
 end
 
-atom_drop_allocs(x) = (dropzeros!(x); @allocated dropzeros!(x))
+atom_drop_allocs(x) = @allocated dropzeros!(x)
+function atom_drop_fixture(::Type{T}, gs, vals) where {T}
+    x = AtomIterate(T, 6, gs)
+    for k = 1:3; activate!(x, k); x.storage[gs[k]] .= vals[k]; end
+    x
+end
 
 function atom_row(x::AtomIterate{T}, active, vals::Dict) where {T}
     for k in active
@@ -1237,7 +1242,7 @@ end
 @testset "dropzeros all-zero preflight" begin
     for T in (Float32, Float64)
         @testset "AtomIterate $T" begin
-            # the example: group 2 (0, -0), group 1 (0, 0), group 3 (0, 1)
+            # the example: group 1 (0, 0), group 2 (0, -0), group 3 (0, 1)
             gs = [1:2, [3, 6], 4:5]
             x = AtomIterate(T, 6, gs)
             atom_row(x, [1, 2, 3], Dict(1 => [T(0), T(0)], 2 => [T(0), -T(0)], 3 => [T(0), T(1)]))
@@ -1287,12 +1292,13 @@ end
             @test dropzeros!(x) === x && x.nactive == 0
             activate!(x, 2); x[3] = T(1)
             @test x.active[1:x.nactive] == [2] && consistent(x)
-            # allocation
-            x = AtomIterate(T, 6, gs)
-            for k in 1:3; activate!(x, k); end
-            @test atom_drop_allocs(x) == 0
-            for k in 1:3; activate!(x, k); x[k] = T(1); end
-            @test atom_drop_allocs(x) == 0
+            # allocation: warm up on separate fixtures, then the first call on a nonempty working set
+            z0 = T[0, 0]
+            atom_drop_allocs(atom_drop_fixture(T, gs, (z0, z0, z0)))
+            atom_drop_allocs(atom_drop_fixture(T, gs, (z0, T[1, 0], z0)))
+            @test atom_drop_allocs(atom_drop_fixture(T, gs, (z0, z0, z0))) == 0
+            @test atom_drop_allocs(atom_drop_fixture(T, gs, (z0, T[1, 0], z0))) == 0
+            @test atom_drop_allocs(atom_drop_fixture(T, gs, (T[1, 1], T[1, 0], T[2, 2]))) == 0
         end
     end
 end

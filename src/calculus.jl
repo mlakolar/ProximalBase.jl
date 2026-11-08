@@ -1329,26 +1329,29 @@ projections; translations return the linear value ⟨b,y⟩. Array steps retain
 their existing behaviour for these nonseparable families. Other storage and
 axes, including device ℓ∞ conjugates, retain Moreau's identity.
 
-For [`SqrNormL2`](@ref)`(λ, y)` with a finite positive level `λ`, the proximal point at a
-scalar step `γ` is `(λ/(λ + γ))(x - γy)`. When `γ` is also finite and positive and the
-promoted type of the model, `λ` and `γ` is `Float32` or `Float64`, it is formed from
-significands and exponents, without dividing by `γ`. The model is the promotion of the
-element types of the output and the input. Where the output holds the point, it is within
-two ulps in the output type at the levels, steps and entries tested, which include
-`x = 1e300`, `γ = 1e-10`, where Moreau's identity overflows, and `λ = 1`, `γ = 1e10`,
-where it cancels. On this route, a point that the output type cannot hold at a finite
-input raises the `ArgumentError` of the identity, before the output is written, although
-the model may represent it: `prox!(Float32[7], Conjugate(SqrNormL2()), [1e100], 1.0)` has
-a `Float64` model and the point `5e99`, and raises it with the output unchanged
-(`value_and_prox!` as well). A non-finite entry of `x` gives `NaN`. Every other case uses
-Moreau's identity as before: a zero or infinite level, a step that is not finite and
-positive, an array step (a `MethodError` for `SqrNormL2`), a model of another
+For [`SqrNormL2`](@ref)`(λ, y)` with a finite positive level `λ` and a finite positive
+scalar step `γ`, the proximal point is `(λ/(λ + γ))(x - γy)`. When the promotion of the
+floating-point types of the output and the input is `Float32` or `Float64`, and so is its
+promotion with those of `λ` and `γ`, it is formed from significands and exponents,
+without dividing by `γ`. Where the output
+holds the point, it is within two ulps in the output type at the levels, steps and
+entries tested, which include `x = 1e300`, `γ = 1e-10`, where Moreau's identity
+overflows, and `λ = 1`, `γ = 1e10`, where it cancels. On this route, a point that the
+output type cannot hold at a finite input raises the `ArgumentError` of the identity,
+before the output is written, although it may be representable in the precision of the
+computation: `prox!(Float32[7], Conjugate(SqrNormL2()), [1e100], 1.0)` computes in
+`Float64` and the point is `5e99`, which a `Float32` output cannot hold, and it raises
+the error with the output unchanged (`value_and_prox!` as well). A non-finite entry of
+`x` gives `NaN`. Every other case uses Moreau's identity as before: a zero or infinite
+level, a step that is not finite and positive, an array step (a `MethodError` for
+`SqrNormL2`), an output and input whose promoted floating-point type is another
 precision, a `BigFloat` level or step, and the conjugates of `Scaled(SqrNormL2(…), α)`,
 `Translate(SqrNormL2(…), b)` and of a [`SeparableSum`](@ref) of quadratics.
-[`prox_entry`](@ref) takes the model from the types of the entry and the step, takes
-the same route under the same conditions on `λ`, `γ` and the promoted type, and uses
-Moreau's identity elsewhere. It has no output and does not apply the array finite-result
-refusal: `prox_entry(Conjugate(SqrNormL2()), 1e100, 1, 1.0)` is `5.0e99`.
+[`prox_entry`](@ref) takes the route under the same conditions on `λ` and `γ`, with the
+promotion of the floating-point types of the entry and the step in place of that of the
+output and the input, and uses Moreau's identity elsewhere. It has no output and does
+not apply the array finite-result refusal: `prox_entry(Conjugate(SqrNormL2()), 1e100, 1,
+1.0)` is `5.0e99`.
 
 Other families use Moreau's identity, including `NuclearNorm`, singular-value
 and spectral wrappers, `SLOPE`, TV and fused penalties, and cones other than

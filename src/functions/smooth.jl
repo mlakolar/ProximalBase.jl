@@ -237,15 +237,15 @@ computation runs first, and the recovery is chosen once per call from the
 parameters, except for a `Float64` center entry outside the range of a `Float32`
 model, which is handled for that entry.
 
-For a finite positive level `λ`, the proximal operator of `Conjugate(SqrNormL2(λ, y))`
-at a scalar step `γ` is `(λ/(λ + γ))(x - γy)`. For a finite positive level and step
-and a `Float32` or `Float64` model, where the promoted type of the model, `λ` and `γ`
-is `Float32` or `Float64`, it is computed from the significands and exponents of its
-factors, without dividing `x` by the step: `prox!` of `Conjugate(SqrNormL2())` at
-`[1e300]` with step `1e-10`, where `x / γ` overflows, gives about `1e300`. A zero or
-infinite level, a `BigFloat` level or step and any step that is not finite and
-positive use Moreau's identity instead. The conditions, and the case of an output
-narrower than the model, are in [`Conjugate`](@ref).
+For a finite positive level `λ` and a finite positive scalar step `γ`, the proximal
+operator of `Conjugate(SqrNormL2(λ, y))` is `(λ/(λ + γ))(x - γy)`. When the promotion of
+the floating-point types of the output and the input is `Float32` or `Float64`, and so is
+its promotion with those of `λ` and `γ`, it is computed from the significands and
+exponents of its factors, without dividing `x` by the step: `prox!` of `Conjugate(SqrNormL2())` at `[1e300]` with step `1e-10`, where
+`x / γ` overflows, gives about `1e300`. A zero or infinite level, a `BigFloat` level or
+step and any step that is not finite and positive use Moreau's identity instead. The
+conditions, and the case of an output that cannot hold the point, are in
+[`Conjugate`](@ref).
 """
 struct SqrNormL2{T<:Real, Y<:Union{Nothing, AbstractArray}} <: AbstractFunction
   λ::T

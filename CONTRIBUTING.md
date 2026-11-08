@@ -275,11 +275,16 @@ that thorough adds. The focus files are in `.github/tier-rules.toml`, beside the
 iterate files that quick always runs (`active_handle`, `atom_iterate`,
 `iterate_invariants`, `iterate_queries`, `matrixview`, `sparse_iterate_basics`,
 `symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
-`allocations_basics`). The cases that six quick files leave out (Float32 repeats and
-type grids: `atom_iterate_grids`, `conjugate_basics_grids`, `constrained_basics_grids`,
-`lmo_atoms_grids`, `nested_scaled_grids`, `sparse_iterate_basics_grids`, listed in
-`test/TESTING.md`) are in the full tier. `constrained_basics_grids` is run for a change
-to `src/constrained.jl`. A pull request runs a grids file for a change to the source of its
+`allocations_basics`). The cases that six quick files and three thorough files leave out
+(Float32 repeats, indicator-wrapper variants and type grids: `atom_iterate_grids`,
+`conjugate_basics_grids`, `constrained_basics_grids`, `lmo_atoms_grids`,
+`nested_scaled_grids`, `scaled_infinite_level_underflow_grids`,
+`sparse_iterate_basics_grids`, `symmetric_groups_grids`,
+`zero_level_infinite_step_grids`, listed in `test/TESTING.md`) are in the full tier.
+`constrained_basics_grids` is run for a change to `src/constrained.jl`. `scaled_infinite_level_underflow_grids`,
+`symmetric_groups_grids` and `zero_level_infinite_step_grids` are companions of thorough-tier files; the rule for `src/calculus.jl`
+and the rule for the shared sources list them, and no standard-tier rule does, so the rules for a standard-tier path alone do not select them (`test:full` selects all three; a
+changed companion selects itself). A pull request runs a grids file for a change to the source of its
 own family (`.github/tier-rules.toml` lists the paths, `test/TESTING.md` the map), the
 nightly run and `test:full` run all of them, and `julia scripts/test.jl <name>_grids`
 runs one by name. Other source paths do not add them as automatic focus files; they

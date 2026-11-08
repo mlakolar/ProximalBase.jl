@@ -1088,7 +1088,7 @@ end
   @testset "the example at two bits" begin
     setprecision(BigFloat, 2) do
       x = BigFloat[4, -2, 0.5, 3, 3]
-      # the one segment has five entries: the quotient is 5/5 (and not 5/4) of the sum
+      # the one segment has five entries: the divisor is 5 (and not 4, its value rounded to two bits)
       @test prox(TotalVariation1D(BigFloat(4)), x, 1) == fill(BigFloat(1.5), 5)
       @test prox(FusedLasso(BigFloat(0.25), BigFloat(4)), x, 1) == fill(BigFloat(1.0), 5)
       rec = Tuple{Symbol, Int}[]

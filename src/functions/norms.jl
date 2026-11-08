@@ -1395,8 +1395,9 @@ end
 # Whether the pooled sequence w is not nondecreasing, that is, has an entry smaller than its predecessor.
 # Only BigFloat is scanned: at a precision of a few bits the rounded block means of the pooling need not
 # be monotone, while the pooled means of Float16, Float32 and Float64 are left as they are (the
-# method for every other type is the constant false, which the compiler folds). A NaN compares false,
-# so a sequence with a NaN is not reported.
+# method for every other type is the constant false, which the compiler folds). A comparison with a NaN
+# is false, so an adjacent pair that holds a NaN is not counted as an inversion; a pair elsewhere in the
+# sequence still is.
 @inline _fused_pooled_inversion(::Type, w) = false
 function _fused_pooled_inversion(::Type{BigFloat}, w)
   @inbounds for k in 1:length(w)-1
@@ -1499,8 +1500,8 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
   V || return zero(T)
   # Soft thresholding keeps a nondecreasing sequence nondecreasing, so when the pooled sequence is
   # nondecreasing the stored values, in the order of the sorted entries, are nondecreasing, f(y) sums
-  # them in the order accumulated above, and v1 and v2 are its sums. Otherwise the order of the sorted
-  # entries of y differs from that of the pooled sequence, and the value at the stored output is f(y).
+  # them in the order accumulated above, and v1 and v2 are its sums. Otherwise the pooled order does not
+  # guarantee that order (thresholding may still have removed the inversion), and f(y) is recomputed.
   # The buffers of f are free here (y is written, and y === x is no longer read).
   _fused_pooled_inversion(T, wn) && return f(y)
   _fused_vector_value(f, y, v1, v2, T)

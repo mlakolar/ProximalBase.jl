@@ -139,6 +139,7 @@ thorough = [
   "graph",
   "hinge_step_oracle",
   "hinge_array_exceptions",
+  "check_array_exceptions",
   "logpenalty_slope_oracle",
   "infinite_group_weights",
   "infinite_level_nan",

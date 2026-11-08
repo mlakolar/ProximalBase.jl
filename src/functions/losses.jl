@@ -289,6 +289,84 @@ end
   y
 end
 
+# CheckLoss array loop: the design of HingeLoss's (a flag in the fused out-of-place loop, blocks in place or for
+# an integer output or possibly shared parameters), with its own functions so that the HingeLoss loops stay as
+# measured. The thresholds γτwᵢ and γ(1-τ)wᵢ are products of a loop-invariant step-and-level part, formed in the
+# promotion R of the model precision and every factor, and the weight; they are the ordinary coefficients of
+# _weight_coefficient exactly where the step-and-level parts are normal numbers in R (the weight, whatever it is,
+# then needs no recovery), so the range test involves γ and τ only.
+_aliases_parameters(y, f::CheckLoss, γ) = _shares_memory(y, f.w) || _shares_memory(y, γ)
+@inline function _check_range_ok(::Type{S}, f::CheckLoss, w, γ) where {S<:AbstractFloat}
+  R = _working_type(S, γ, w, f.τ)
+  g = convert(R, γ)
+  _normal_range(g * convert(R, f.τ)) & _normal_range(g * _one_minus(R, f.τ))
+end
+Base.@propagate_inbounds function _check_ordinary(f::CheckLoss, v::T, i::Integer, γ) where {T<:Real}
+  S = float(T)
+  w = _entry(f.w, i)
+  u = S(v)
+  R = _working_type(S, γ, w, f.τ)
+  g, wr = convert(R, γ), convert(R, w)
+  a, b = g * convert(R, f.τ), g * _one_minus(R, f.τ)
+  hi, lo = convert(S, a * wr), convert(S, b * wr)
+  r = ifelse(u > hi, u - hi, ifelse(u < -lo, u + lo, zero(S)))
+  # the NaN rule of prox_entry
+  ifelse((u != u) & (γ == γ) & ((γ == Inf) ? (w == 0) : (w < Inf)), u, r), _normal_range(a) & _normal_range(b)
+end
+function _prox_sep_dense!(y::AbstractArray, f::CheckLoss, x::AbstractArray, γ)
+  _checkwrite(prox!, f, y, x)
+  _checkparam(γ, x)
+  S = float(eltype(x))
+  _aliases_parameters(y, f, γ) && return _prox_sep_recover!(y, f, x, γ)   # entry by entry: each parameter is read before it is written
+  (_concrete_eltype(x) & _concrete_eltype(f.w) & _concrete_eltype(γ)) || return _prox_sep_recover!(y, f, x, γ)
+  y === x && return _check_blocks!(y, nothing, f, γ, S)   # nothing: in place, the loop names the one array once
+  eltype(y) <: AbstractFloat || return _check_blocks!(y, x, f, γ, S)
+  T = eltype(y)
+  ok = true
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    r, oki = _check_ordinary(f, x[i], i, _entry(γ, i))
+    y[i] = convert(T, r)
+    ok &= oki
+  end
+  ok && return y
+  _check_repair!(y, f, x, γ)
+end
+@noinline function _check_repair!(y, f, x, γ)
+  T = eltype(y)
+  S = float(eltype(x))
+  for blk in Iterators.partition(eachindex(IndexLinear(), y, x), 128)
+    ok = true
+    @inbounds for i in blk
+      ok &= _check_range_ok(S, f, _entry(f.w, i), _entry(γ, i))
+    end
+    ok && continue
+    @inbounds for i in blk
+      _check_range_ok(S, f, _entry(f.w, i), _entry(γ, i)) || (y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i))))
+    end
+  end
+  y
+end
+function _check_blocks!(y, x, f, γ, ::Type{S}) where {S}
+  T = eltype(y)
+  src = _hinge_source(y, x)
+  for blk in Iterators.partition(eachindex(IndexLinear(), y, src), 128)
+    ok = true
+    @inbounds for i in blk
+      ok &= _check_range_ok(S, f, _entry(f.w, i), _entry(γ, i))
+    end
+    if ok
+      @inbounds for i in blk
+        y[i] = convert(T, _check_ordinary(f, src[i], i, _entry(γ, i))[1])
+      end
+    else
+      @inbounds for i in blk
+        y[i] = convert(T, prox_entry(f, src[i], i, _entry(γ, i)))
+      end
+    end
+  end
+  y
+end
+
 # f is differentiable at zero, with derivative -wᵢyᵢ
 kkt_violation(f::HingeLoss, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] - _kkt_product(eltype(g), _entry(f.w, i), _entry(f.y, i))))

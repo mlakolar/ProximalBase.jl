@@ -513,7 +513,7 @@ end
 function _exp_product(a::T, b::T) where {T}
   iszero(a) && return a
   log(floatmin(T)) <= b < log(floatmax(T)) && return a * exp(b)
-  m, k = frexp(a)
+  m, k = _frexp(a)
   logtwo = log(T(2))
   b > (exponent(floatmax(T)) - k + 2) * logtwo && return copysign(T(Inf), a)
   b < (exponent(nextfloat(zero(T))) - k - 2) * logtwo && return copysign(zero(T), a)

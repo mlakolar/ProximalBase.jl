@@ -165,6 +165,18 @@ function measure!(c::PerfCase, metrics, raw, allocations, profiles, allocation_p
     end
 end
 
+# The cases of the selection (the regular expression `PB_CASES`; empty: all). The expression is compiled first, so
+# an invalid one fails before any fixture exists. The builders skip what the selector cannot match, and the exact
+# filter that follows decides which cases remain. The inputs of a selected case do not depend on the selection:
+# each scenario draws from its own keyed stream.
+function selected_cases(rep,suite,groups,selection::AbstractString)
+    selector=isempty(selection) ? nothing : Regex(selection)
+    cases=build_cases(rep;suite,groups,selector)
+    selector===nothing || filter!(c -> occursin(selector,c.meta.id),cases)
+    isempty(cases) && error("PB_CASES selects no case")
+    cases
+end
+
 function main()
     package_root=realpath(dirname(dirname(pathof(ProximalBase))))
     expected_root=get(ENV,"PB_EXPECTED_PACKAGE_ROOT","")
@@ -187,11 +199,7 @@ function main()
     Threads.nthreads()==1 || error("Run with JULIA_NUM_THREADS=1")
     started=time()
     Random.seed!(rep)
-    cases=build_cases(rep;suite,groups)
-    # Cases are built first, so their inputs do not depend on the selection.
-    selection=get(ENV,"PB_CASES","")
-    isempty(selection) || filter!(c -> occursin(Regex(selection),c.meta.id),cases)
-    isempty(cases) && error("PB_CASES selects no case")
+    cases=selected_cases(rep,suite,groups,get(ENV,"PB_CASES",""))
     if get(ENV,"PB_LIST","false")=="true"
         foreach(c -> println(c.meta.id),cases)
         return

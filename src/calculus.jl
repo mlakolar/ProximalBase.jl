@@ -16,7 +16,7 @@ Base.iszero(a::_ProjectionScale) = iszero(a.m)
 Base.isone(a::_ProjectionScale) = a.m == 0.5 && a.e == 1
 _projection_real(a::Real) = a
 _projection_real(a::_ProjectionScale) = ldexp(a.m, a.e)
-_projection_scale_parts(a::Real) = frexp(float(a))
+_projection_scale_parts(a::Real) = _frexp(float(a))
 _projection_scale_parts(a::_ProjectionScale) = (a.m, a.e)
 function _projection_accumulate(a::Real, b::Real)
   isone(a) && return b
@@ -24,19 +24,20 @@ function _projection_accumulate(a::Real, b::Real)
   p = float(a) * float(b)
   (!isfinite(a) || !isfinite(b) || iszero(a) || iszero(b)) && return p
   floatmin(typeof(float(p))) <= abs(p) <= floatmax(typeof(float(p))) && return p
-  ma, ea = frexp(float(a))
-  mb, eb = frexp(float(b))
-  m, e = frexp(ma * mb)
+  ma, ea = _frexp(float(a))
+  mb, eb = _frexp(float(b))
+  m, e = _frexp(ma * mb)
   _ProjectionScale(m, Int(ea + eb + e))
 end
 function _projection_accumulate(a::_ProjectionScale, b::Real)
   (!isfinite(b) || iszero(b)) && return b
-  mb, eb = frexp(float(b))
-  m, e = frexp(a.m * mb)
+  mb, eb = _frexp(float(b))
+  m, e = _frexp(a.m * mb)
   _ProjectionScale(m, Int(a.e + eb + e))
 end
 _projection_product(a, b, w) = _positive_product(a, b, w)
-_projection_product(a::_ProjectionScale, b, w) = _scaled_product(a.m, b, w, a.e)
+# the stored exponent may have wrapped: Int sums (#767)
+_projection_product(a::_ProjectionScale, b, w) = _scaled_product_retained(a.m, b, w, a.e)
 # f scaled by an accumulated factor, as nested wrappers when the factor is not a normal number:
 # pieces of at most half the exponent range, so that each is stored exactly
 _projection_scaled(f, α::Real) = Scaled(f, α)
@@ -308,7 +309,7 @@ end
   (iszero(w) || !isfinite(w)) && return a.m * w
   # the significand of v, so that neither a subnormal v nor the product of significands loses bits
   R = promote_type(typeof(a.m), typeof(w))
-  mv, ev = frexp(convert(R, w))
+  mv, ev = _frexp(convert(R, w))
   ldexp(a.m * mv, a.e + ev)
 end
 # a < 1 and a > 1 of the product (the significand is in [1/2, 1))
@@ -319,7 +320,7 @@ end
 # the reciprocal of a factor, as a factor
 _scale_inverse(a::Real) = inv(a)
 function _scale_inverse(a::_ProjectionScale)
-  m, e = frexp(inv(a.m))
+  m, e = _frexp(inv(a.m))
   _ProjectionScale(m, Int(e - a.e))
 end
 
@@ -499,7 +500,7 @@ end
       u = u1
     end
   end
-  m, k = frexp(u)
+  m, k = _frexp(u)
   convert(typeof(r), _apply_parts(_ProjectionScale(oftype(a.m, 0.5), a.e - s + 1), m, k))
 end
 
@@ -625,7 +626,8 @@ _value_parts_scaled(f, x, v, α) = _value_parts(f, x, v)
 function _apply_parts(α, m, e::Integer)
   ma, ea = _projection_scale_parts(α)
   P = promote_type(typeof(float(ma)), typeof(m))
-  _scaled_product(convert(P, ma), convert(P, m), Int(ea) + e)
+  # ea is a retained exponent that may have wrapped: Int sums (#767)
+  _scaled_product_retained(convert(P, ma), convert(P, m), Int(ea) + e)
 end
 @inline _scaled_value(s, x, v, recover_inner_small = true) = _scaled_value_by(s.f, s.α, x, v, recover_inner_small)
 (s::Scaled)(x) =
@@ -703,7 +705,7 @@ function _nested_step(s::Scaled, γ::Real)
   step = _apply_scale(a, γ)
   T = typeof(step)
   (T <: AbstractFloat && isfinite(γ) && γ > 0 && !(floatmin(T) <= step <= floatmax(T))) || return (f, step, a)
-  mγ, eγ = frexp(float(γ))
+  mγ, eγ = _frexp(float(γ))
   # A function with a stored infinite level, all of whose blocks are fixed by it, does not depend on the
   # factor and the step (`_hard_function`): nothing finite is folded. Otherwise the earlier route.
   if _has_infinite_level(f) && _hard_scale(a)
@@ -799,18 +801,18 @@ function _value_parts_scaled(s::Scaled, x, v, α)
   isfinite(a.m) && !iszero(a.m) || return nothing
   vf = _value_unchecked(f, x)
   vf isa AbstractFloat || return nothing
-  p = isfinite(vf) && abs(vf) >= floatmin(vf) ? frexp(vf) :
+  p = isfinite(vf) && abs(vf) >= floatmin(vf) ? _frexp(vf) :
     _scaled_parts(f, _scale_times(α, a), x, vf, nothing)
   p === nothing && return nothing
   P = promote_type(typeof(a.m), typeof(p[1]))
-  m, e = frexp(convert(P, a.m) * convert(P, p[1]))
+  m, e = _frexp(convert(P, a.m) * convert(P, p[1]))
   (m, e + a.e + p[2])
 end
 # the product of a factor and a chain's product, as a factor
 function _scale_times(α, a::_ProjectionScale)
   ma, ea = _projection_scale_parts(α)
   P = promote_type(typeof(float(ma)), typeof(a.m))
-  m, e = frexp(convert(P, ma) * convert(P, a.m))
+  m, e = _frexp(convert(P, ma) * convert(P, a.m))
   _ProjectionScale(m, Int(ea) + a.e + e)
 end
 # A zero value of s is a zero value of s.f, times the factor (|α f| < 2^(E + e)), or the product of

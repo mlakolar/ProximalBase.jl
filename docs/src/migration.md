@@ -168,6 +168,18 @@ the earlier behavior applies.
     `prox(SparseGroupNormL2(Inf, 0.0, [1:2], [0.0]), [3.0, 4.0, 9.0], 0.0)` is
     `[0, 0, 9]`, where it was `[NaN, NaN, 9]`, and a NaN or infinite grouped
     entry gives `0` at a positive step, where it gave NaN.
+- **GLM losses** ([#358](https://github.com/mlakolar/ProximalBase.jl/issues/358)).
+  - An observation with weight zero takes no part. A NaN or infinite response,
+    offset or row of `X` in it no longer turns the value or the gradient of the
+    active observations into `Inf` or NaN.
+  - `SmoothCheck` computes its pieces as `τ(u - hτ/2)`, `(1 - τ)(-u - h(1 - τ)/2)`
+    and `(u/h)u/2`, and chooses the piece by `u/h` against `τ` and `-(1 - τ)`.
+    Where `τ²`, `u²`, `2h` or `hτ` left the range, the value and derivative are
+    now accurate: `SmoothCheck(1e-200, 1e300)` at `u = 2e100` gives `1.5e-100`,
+    where it gave `2e-100`, and an exact fit with a subnormal `h` has derivative
+    `0`, where it had `-τ`. Elsewhere the value can differ in the last bit, and a
+    residual within a rounding of a branch point can take the other piece (the
+    loss is continuously differentiable there).
 - **Infinite entries.** A bounded projection at an argument with one infinite
   entry returns its limit, where it returned NaN or a partly NaN block
   ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).
@@ -227,9 +239,20 @@ helpers with `mul!` on `view(A, :, G)` or its transpose.
 For `A_mul_X_mul_B`, use `A * X * B`, with `X` represented as a
 `SparseIterate` matrix rather than a vector of its entries. A single entry is
 `dot(view(A, :, r), X, view(B, :, c))` for symmetric real `A` and `B`.
-That `dot` skips the zero coefficients of `X` (M1 of the
-[Numerical contract](@ref numerics-storage)) and `A * X * B` is not one of M1's
-products, so the two can differ when `A` or `B` has a non-finite entry.
+In 0.6, `A * X * B` for a matrix `SparseIterate` `X` skips the zero coefficients
+of `X`, stored or not, as that `dot` does (M1, item 6, of the
+[Numerical contract](@ref numerics-storage)). This is a breaking change from
+0.5.x, where the result depended on the density of `X` and a zero coefficient
+could meet a `NaN` or `Inf` of `A` or `B`; the new result need not equal
+`A * Matrix(X) * B` when `A` or `B` has a non-finite entry. The guarantee is for
+`Float32` and `Float64` with `Symmetric` strided `A` and `B` and `X` of the same
+element type. A call with mixed element types, or with another element type,
+is outside it and takes the previous methods (mixed types are tracked in #751).
+The deprecated `A_mul_X_mul_B` forwards to the same method for `Float32` and
+`Float64` matrix iterates and for owners. The three-factor product of a
+`SymmetricSparseIterate` of `Float32` or `Float64` follows the same rule, with an
+off-diagonal stored coefficient counting for both of its entries, `(r, c)` and
+`(c, r)`; an owner of another element type keeps the previous method.
 For `A_mul_UUt_mul_B`, use `(A * U) * transpose(B * U)`; its entry helper
 becomes `dot(U' * view(A, :, r), U' * view(B, :, c))` in the same real setting.
 

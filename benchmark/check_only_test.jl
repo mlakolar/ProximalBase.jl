@@ -296,3 +296,4 @@ end
 end
 
 include("cases_test.jl")
+include("case_selection_test.jl")

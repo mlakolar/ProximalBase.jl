@@ -430,8 +430,8 @@ function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, L) where {U, T
   q = ru / root
   scale = q / top
   direct = isfinite(scale) && scale >= floatmin(U)
-  aq, eq = frexp(q)
-  at, et = frexp(top)
+  aq, eq = _frexp(q)
+  at, et = _frexp(top)
   @inbounds for k in inds
     xi = x[k]
     m = _l1_margin(x, f, γ, U, k)
@@ -440,8 +440,8 @@ function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, L) where {U, T
     elseif direct
       m * scale
     else
-      am, em = frexp(m)
-      _ldexp_once((am / at) * aq, em + eq - et)
+      am, em = _frexp(m)
+      _ldexp_once((am / at) * aq, _exponent_sum(U, em, eq, -et))
     end
     _layout_put!(L, y, k, copysign(convert(T, z), xi))
   end

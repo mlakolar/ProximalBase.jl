@@ -439,9 +439,9 @@ function _kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray
   k = _group(f, i)
   k == 0 && return abs(g[i])
   G = f.groups[k]
-  _allzero(x, G) ? _dual_norm(f, g, G) - _weight_coefficient(f.λ0, f.w[k]) : abs(g[i]) - f.λ1
+  _allzero(x, G) ? _dual_norm(f, g, G) - _kkt_coefficient(eltype(g), f.λ0, f.w[k]) : abs(g[i]) - f.λ1
 end
 _kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AtomIterate, k::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _weight_coefficient(f.λ0, f.w[k]))
+  (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _kkt_coefficient(eltype(g), f.λ0, f.w[k]))
 _kkt_violation(f::SparseGroupNormL2, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate")))

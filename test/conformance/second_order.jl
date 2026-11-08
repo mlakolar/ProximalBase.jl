@@ -5,7 +5,6 @@ using ProximalBase
 using ..Conformance
 
 const baselines = Dict{String,Any}(
-  "second_order.lla.Float64" => 0.0,
   "second_order.model_precision.weight" => 2.7182817f0,
   "second_order.model_precision.response" => 0.0f0,
 )

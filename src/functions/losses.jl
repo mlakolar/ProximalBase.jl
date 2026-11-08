@@ -10,8 +10,8 @@
 
 The check loss of quantile regression, `f(x) = Σᵢ wᵢ ρ_τ(xᵢ)` with
 `ρ_τ(u) = max(τu, (τ - 1)u)` for `τ ∈ (0, 1)`, and all `wᵢ = 1` when `w` is
-omitted. Its proximal operator moves an entry above `γwᵢτ` down by `γwᵢτ`, one
-below `-γwᵢ(1 - τ)` up by `γwᵢ(1 - τ)`, and sets those in between to zero.
+omitted. Its proximal operator moves an entry above `γτwᵢ` down by `γτwᵢ`, one
+below `-γ(1 - τ)wᵢ` up by `γ(1 - τ)wᵢ`, and sets those in between to zero.
 
 It is a function of residuals. Since `ρ_τ(-u) = ρ_{1-τ}(u)`, the loss
 `Σᵢ ρ_τ(yᵢ - zᵢ)` of predictions `z` of responses `y` is
@@ -54,25 +54,37 @@ _has_ordinary_value(::Type{<:CheckLoss}) = true
 Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
-  s, τ, u = convert(S, _weight_coefficient(γ, w)), convert(S, f.τ), S(v)
-  # The ordinary value is the base expression (a NaN u compares false twice and gives 0). A NaN u
-  # is repaired in one select: it stays NaN (E2) unless the map is constant, that is for the step
-  # γ == Inf with a positive weight, or a hard weight w == Inf (a zero weight is free: E4 first).
-  # This is read from the parameters and not from the derived coefficient s, which also overflows
-  # to Inf for finite parameters, and whose threshold s(1 - τ) is NaN for a hard weight when τ
-  # rounds to 1 (such a finite u still gives 0). A NaN step (unchecked) keeps the old zero.
-  # Weights are nonnegative, so w < Inf is also false for a NaN weight.
-  a, b = s * τ, s * (1 - τ)
-  r = ifelse(u > a, u - a, ifelse(u < -b, u + b, zero(S)))
+  u = S(v)
+  # the thresholds γwτ and γw(1-τ), each formed in the promotion of S and the factors, rounded once
+  # the thresholds γτwᵢ and γ(1-τ)wᵢ as for the other weighted penalties: the step and the level first
+  # (invariant in a loop over entries), then the weight; formed in the promotion of S and the factors
+  # and rounded once, with the range recovery and the zero and infinite weights of _weight_coefficient
+  hi = _weight_coefficient(S, γ, f.τ, w)
+  lo = _weight_coefficient(S, γ, _one_minus(_working_type(S, γ, w, f.τ), f.τ), w)
+  # a NaN u is repaired in one select: it stays NaN (E2) unless the map is constant, that is for the step
+  # γ == Inf with a positive weight, or a hard weight w == Inf (a zero weight is free: E4 first). This is read
+  # from the parameters and not from the derived thresholds, which also overflow to Inf for finite
+  # parameters. A NaN step (unchecked) keeps the old zero. Weights are nonnegative, so w < Inf is also false
+  # for a NaN weight.
+  r = ifelse(u > hi, u - hi, ifelse(u < -lo, u + lo, zero(S)))
   ifelse((u != u) & (γ == γ) & ((γ == Inf) ? (w == 0) : (w < Inf)), u, r)
 end
+
+# wτ and w(1-τ) of the KKT test in the gradient's element type T, each rounded once; the complement is
+# formed in the promotion of T and the factors. An integer gradient keeps the untyped values.
+@inline function _check_kkt_levels(::Type{T}, w, τ) where {T<:AbstractFloat}
+  R = _working_type(T, w, τ)
+  _typed_product(T, w, τ), _typed_product(T, w, _one_minus(R, τ))
+end
+@inline _check_kkt_levels(::Type, w, τ) = w * τ, w * (1 - τ)
 
 # from zero, the objective decreases upward at rate -gᵢ - wᵢτ and downward at
 # rate gᵢ - wᵢ(1 - τ)
 function kkt_violation(f::CheckLoss, g::AbstractArray, i::Integer)
   eltype(g) <: Real || _real_error(:kkt_violation)
   w = _entry(f.w, i)
-  max(-g[i] - w * f.τ, g[i] - w * (1 - f.τ))
+  hi, lo = _check_kkt_levels(eltype(g), w, f.τ)
+  max(-g[i] - hi, g[i] - lo)
 end
 restrict(f::CheckLoss, S::AbstractVector{<:Integer}) = CheckLoss(f.τ, _restrict_entries(f.w, S))
 
@@ -115,20 +127,249 @@ end
 Base.@propagate_inbounds _value_entry_ordinary(f::HingeLoss, v::T, i::Integer) where {T<:Real} =
   _entry(f.w, i) * max(1 - _entry(f.y, i) * v, zero(float(T)))
 _has_ordinary_value(::Type{<:HingeLoss}) = true
+# The step γw|y|² formed in the promotion R of S and the factors, rounded once to S. The ordinary
+# arithmetic, without a call, is (γw·|y|)·|y| in R, and it is the step while γw is a normal number
+# (the test is returned with it). Otherwise the recovery of _hinge_step_exceptional decides, zero and
+# infinite weights included, on a separate call. For a scalar step and unweighted entries γw is
+# invariant, so the test is unswitched out of a loop; an array loop (below) keeps the arithmetic
+# vectorized by testing all entries together.
+@inline _normal_range(ab::R) where {R<:AbstractFloat} = (floatmin(R) <= ab) & (ab <= floatmax(R))
+# The same test for the IEEE types as one unsigned comparison: the bit patterns of the positive normal
+# numbers are exactly [bits(floatmin), bits(floatmax)]; zero, subnormals, negatives (sign bit), Inf and
+# NaN fall outside, the subtraction wrapping around (checked against the test above for every Float16 and
+# Float32 pattern and for random Float64 ones).
+_bits(::Type{Float16}) = UInt16
+_bits(::Type{Float32}) = UInt32
+_bits(::Type{Float64}) = UInt64
+@inline function _normal_range(ab::R) where {R<:Union{Float16, Float32, Float64}}
+  U = _bits(R)
+  lo = reinterpret(U, floatmin(R))
+  reinterpret(U, ab) - lo <= reinterpret(U, floatmax(R)) - lo
+end
+# The label enters with its sign: (ab·y)·y is (ab·|y|)·|y| bit for bit, and saves the abs.
+@inline function _hinge_step_ordinary(::Type{S}, γ, y::S, w) where {S<:AbstractFloat}
+  R = _working_type(S, γ, w)
+  ab = convert(R, γ) * convert(R, w)
+  convert(S, (ab * convert(R, y)) * convert(R, y)), _normal_range(ab)
+end
+@inline function _hinge_step(::Type{S}, γ, y::S, w) where {S<:AbstractFloat}
+  s, ok = _hinge_step_ordinary(S, γ, y, w)
+  ok ? s : _hinge_step_exceptional(S, γ, abs(y), w)
+end
+@noinline function _hinge_step_exceptional(::Type{S}, γ, ay, w) where {S<:AbstractFloat}
+  R = _working_type(S, γ, w)
+  g, v, y = convert(R, γ), convert(R, w), convert(R, ay)
+  if !_recoverable_factors(g, v, y)
+    isfinite(y) & !iszero(y) || return _weight_coefficient(S, γ, ay, w * ay)   # not a label
+    # zero, infinite and NaN parameters: an infinite weight gives Inf and a zero weight 0 at every
+    # step, otherwise a zero step gives 0 and an infinite step Inf
+    (isnan(g) | isnan(v)) && return S(NaN)
+    isinf(v) && return S(Inf)
+    iszero(v) && return zero(S)
+    return iszero(g) ? zero(S) : S(Inf)
+  end
+  # significands in [1/2, 1) have no range problem; the combined exponent goes into the exact scaled
+  # product, which rounds once (_ldexp_round), so that no factor is rounded early where it is
+  # subnormal. The significand products add a rounding of 2⁻ᵖ before it.
+  mg, eg = frexp(g)
+  mv, ev = frexp(v)
+  my, ey = frexp(y)
+  convert(S, _ldexp_round((mg * mv) * (my * my), eg + ev + 2ey))
+end
+
 # the proximal operator of γwᵢ max(0, 1 - u) at the margin u = yᵢv, mapped back
+# a NaN margin fails u < 1 and stays NaN (E2)
+@inline _hinge_apply(v::S, y::S, s::S) where {S<:AbstractFloat} = (u = y * v; ifelse(u < 1, ifelse(u < 1 - s, u + s, one(S)), u) / y)
 Base.@propagate_inbounds function prox_entry(f::HingeLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   y = convert(S, _entry(f.y, i))
+  _hinge_apply(S(v), y, _hinge_step(S, γ, y, _entry(f.w, i)))
+end
+
+# The array loop. The ordinary arithmetic of every entry is a branch-free expression, so that the loop
+# vectorizes, and the entries that need range recovery are found by a flag (C2: recovery only on a
+# reliable trigger). Without aliasing the flag is gathered while y is written; if it is set, only the
+# flagged entries are recomputed by prox_entry from the untouched x. With y === x the coefficients are
+# classified first, read-only, without computing a step; if one is not ordinary the entries are
+# visited by prox_entry in turn (each is read before it is written).
+Base.@propagate_inbounds function _hinge_ordinary(f::HingeLoss, v::T, i::Integer, γ) where {T<:Real}
+  S = float(T)
+  y = convert(S, _entry(f.y, i))
+  s, ok = _hinge_step_ordinary(S, γ, y, _entry(f.w, i))
+  _hinge_apply(S(v), y, s), ok
+end
+# the destination may share memory with a parameter (the step array of a wrapper, a view of the weights)
+_shares_memory(y, ::Union{Nothing, Real}) = false
+# a lazy wrapper of an array (a scaled or reciprocal step array) may not report the memory it reads, so
+# any parameter that is not strided memory counts as possibly shared: its entries are then read one by one
+_shares_memory(y, p::AbstractArray) = y === p || Base.mightalias(y, p) || !(p isa StridedArray || p isa AbstractRange)
+_aliases_parameters(y, f::HingeLoss, γ) = _shares_memory(y, f.y) || _shares_memory(y, f.w) || _shares_memory(y, γ)
+@inline function _hinge_range_ok(::Type{S}, γ, w) where {S<:AbstractFloat}
+  R = _working_type(S, γ, w)
+  _normal_range(convert(R, γ) * convert(R, w))
+end
+# element types of the data and the parameters; an abstract one (Vector{Real}) has no single working type
+# for the block test, so each entry is promoted by prox_entry
+_concrete_eltype(::Nothing) = true
+_concrete_eltype(::Real) = true
+_concrete_eltype(a::AbstractArray) = isconcretetype(eltype(a))
+function _prox_sep_dense!(y::AbstractArray, f::HingeLoss, x::AbstractArray, γ)
+  _checkwrite(prox!, f, y, x)
+  _checkparam(γ, x)
+  S = float(eltype(x))
+  _aliases_parameters(y, f, γ) && return _prox_sep_recover!(y, f, x, γ)   # entry by entry: each parameter is read before it is written
+  (_concrete_eltype(x) & _concrete_eltype(f.y) & _concrete_eltype(f.w) & _concrete_eltype(γ)) || return _prox_sep_recover!(y, f, x, γ)
+  y === x && return _hinge_blocks!(y, nothing, f, γ, S)   # nothing: in place, the loop names the one array once
+  eltype(y) <: AbstractFloat || return _hinge_blocks!(y, x, f, γ, S)   # an ordinary value is converted only where it is the result
+  # The ordinary arithmetic of every entry is a branch-free expression, so that the loop vectorizes, and the
+  # entries that need range recovery are found by a flag (C2: recovery only on a reliable trigger); the
+  # parameters are not y here, so the recovery can read them again.
+  T = eltype(y)
+  ok = true
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    r, oki = _hinge_ordinary(f, x[i], i, _entry(γ, i))
+    y[i] = convert(T, r)
+    ok &= oki
+  end
+  ok && return y
+  _hinge_repair!(y, f, x, γ)
+end
+@noinline function _hinge_repair!(y, f, x, γ)
+  T = eltype(y)
+  S = float(eltype(x))
+  # blocks: the test of a block is a branch-free reduction (vectorized), the entries of a block that fails it
+  # are visited one by one, so that one exceptional entry costs one block and not the array
+  for blk in Iterators.partition(eachindex(IndexLinear(), y, x), 128)
+    ok = true
+    @inbounds for i in blk
+      ok &= _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i))
+    end
+    ok && continue
+    @inbounds for i in blk
+      _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i)) || (y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i))))
+    end
+  end
+  y
+end
+# Blocks of 128 entries. The test of a block is a read-only, branch-free reduction over its coefficients
+# (vectorized); a block whose coefficients all have a normal product γw is written by the ordinary
+# loop (vectorized), any other block entry by entry through prox_entry (the recovery). Every entry reads
+# its value and all its parameters before its own slot of y is written, and no other slot, so a
+# destination that shares memory with a parameter array (a wrapper's step array, a view) stays exact.
+# The ordinary value is converted only where it is the result. With y === x the loop reads the
+# destination: under two names the compiler's overlap test between the stores to y and the loads from
+# x sent this loop to its scalar version (measured 3x slower).
+_hinge_source(y, ::Nothing) = y
+_hinge_source(y, x) = x
+function _hinge_blocks!(y, x, f, γ, ::Type{S}) where {S}
+  T = eltype(y)
+  src = _hinge_source(y, x)
+  for blk in Iterators.partition(eachindex(IndexLinear(), y, src), 128)
+    ok = true
+    @inbounds for i in blk
+      ok &= _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i))
+    end
+    if ok
+      @inbounds for i in blk
+        y[i] = convert(T, _hinge_ordinary(f, src[i], i, _entry(γ, i))[1])
+      end
+    else
+      @inbounds for i in blk
+        y[i] = convert(T, prox_entry(f, src[i], i, _entry(γ, i)))
+      end
+    end
+  end
+  y
+end
+@noinline function _prox_sep_recover!(y, f, x, γ)
+  T = eltype(y)
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i)))
+  end
+  y
+end
+
+# CheckLoss array loop: the design of HingeLoss's (a flag in the fused out-of-place loop, blocks in place or for
+# an integer output or possibly shared parameters), with its own functions so that the HingeLoss loops stay as
+# measured. The thresholds γτwᵢ and γ(1-τ)wᵢ are products of a loop-invariant step-and-level part, formed in the
+# promotion R of the model precision and every factor, and the weight; they are the ordinary coefficients of
+# _weight_coefficient exactly where the step-and-level parts are normal numbers in R (the weight, whatever it is,
+# then needs no recovery), so the range test involves γ and τ only.
+_aliases_parameters(y, f::CheckLoss, γ) = _shares_memory(y, f.w) || _shares_memory(y, γ)
+@inline function _check_range_ok(::Type{S}, f::CheckLoss, w, γ) where {S<:AbstractFloat}
+  R = _working_type(S, γ, w, f.τ)
+  g = convert(R, γ)
+  _normal_range(g * convert(R, f.τ)) & _normal_range(g * _one_minus(R, f.τ))
+end
+Base.@propagate_inbounds function _check_ordinary(f::CheckLoss, v::T, i::Integer, γ) where {T<:Real}
+  S = float(T)
   w = _entry(f.w, i)
-  s = convert(S, _weight_coefficient(γ, w)) * y^2
-  u = y * S(v)
-  # a NaN margin fails u < 1 and stays NaN: the test of u >= 1 is its complement
-  (u < 1 ? (u < 1 - s ? u + s : one(S)) : u) / y
+  u = S(v)
+  R = _working_type(S, γ, w, f.τ)
+  g, wr = convert(R, γ), convert(R, w)
+  a, b = g * convert(R, f.τ), g * _one_minus(R, f.τ)
+  hi, lo = convert(S, a * wr), convert(S, b * wr)
+  r = ifelse(u > hi, u - hi, ifelse(u < -lo, u + lo, zero(S)))
+  # the NaN rule of prox_entry
+  ifelse((u != u) & (γ == γ) & ((γ == Inf) ? (w == 0) : (w < Inf)), u, r), _normal_range(a) & _normal_range(b)
+end
+function _prox_sep_dense!(y::AbstractArray, f::CheckLoss, x::AbstractArray, γ)
+  _checkwrite(prox!, f, y, x)
+  _checkparam(γ, x)
+  S = float(eltype(x))
+  _aliases_parameters(y, f, γ) && return _prox_sep_recover!(y, f, x, γ)   # entry by entry: each parameter is read before it is written
+  (_concrete_eltype(x) & _concrete_eltype(f.w) & _concrete_eltype(γ)) || return _prox_sep_recover!(y, f, x, γ)
+  y === x && return _check_blocks!(y, nothing, f, γ, S)   # nothing: in place, the loop names the one array once
+  eltype(y) <: AbstractFloat || return _check_blocks!(y, x, f, γ, S)
+  T = eltype(y)
+  ok = true
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    r, oki = _check_ordinary(f, x[i], i, _entry(γ, i))
+    y[i] = convert(T, r)
+    ok &= oki
+  end
+  ok && return y
+  _check_repair!(y, f, x, γ)
+end
+@noinline function _check_repair!(y, f, x, γ)
+  T = eltype(y)
+  S = float(eltype(x))
+  for blk in Iterators.partition(eachindex(IndexLinear(), y, x), 128)
+    ok = true
+    @inbounds for i in blk
+      ok &= _check_range_ok(S, f, _entry(f.w, i), _entry(γ, i))
+    end
+    ok && continue
+    @inbounds for i in blk
+      _check_range_ok(S, f, _entry(f.w, i), _entry(γ, i)) || (y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i))))
+    end
+  end
+  y
+end
+function _check_blocks!(y, x, f, γ, ::Type{S}) where {S}
+  T = eltype(y)
+  src = _hinge_source(y, x)
+  for blk in Iterators.partition(eachindex(IndexLinear(), y, src), 128)
+    ok = true
+    @inbounds for i in blk
+      ok &= _check_range_ok(S, f, _entry(f.w, i), _entry(γ, i))
+    end
+    if ok
+      @inbounds for i in blk
+        y[i] = convert(T, _check_ordinary(f, src[i], i, _entry(γ, i))[1])
+      end
+    else
+      @inbounds for i in blk
+        y[i] = convert(T, prox_entry(f, src[i], i, _entry(γ, i)))
+      end
+    end
+  end
+  y
 end
 
 # f is differentiable at zero, with derivative -wᵢyᵢ
 kkt_violation(f::HingeLoss, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] - _entry(f.w, i) * _entry(f.y, i)))
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] - _kkt_product(eltype(g), _entry(f.w, i), _entry(f.y, i))))
 restrict(f::HingeLoss, S::AbstractVector{<:Integer}) = HingeLoss(_restrict_entries(f.y, S), _restrict_entries(f.w, S))
 
 """
@@ -189,18 +430,20 @@ end
   e == 0 && return _positive_product(w, r, r)
   mw, ew = _frexp(w)
   mr, er = _frexp(r)
-  ldexp(mw * mr * mr, ew + 2 * (er + e))
+  ldexp(mw * mr * mr, _exponent_sum(T, ew, er, er, e, e))
 end
 
-# The factor 2 must also survive when w|y|r is below the subnormal range.
-@inline function _sqrhinge_slope(y::T, w::T, r::T, e::Integer) where {T}
+# The factor 2 must also survive when w|y|r is below the subnormal range. S selects the exponent sum: the margin
+# exponent of a GLM predictor can already be a wrapped Int, whose Int sum is right modulo 2^64 (see _weighted_deriv).
+@inline _sqrhinge_slope(y::T, w::T, r::T, e::Integer) where {T} = _sqrhinge_slope(T, y, w, r, e)
+@inline function _sqrhinge_slope(::Type{S}, y::T, w::T, r::T, e::Integer) where {S, T}
   (iszero(w) || iszero(r)) && return zero(T)
   p = _positive_product(w, abs(y), r)
   e == 0 && floatmin(T) <= p <= floatmax(T) && return 2p
   mw, ew = _frexp(w)
   my, ey = _frexp(abs(y))
   mr, er = _frexp(r)
-  ldexp(2 * mw * my * mr, ew + ey + er + e)
+  ldexp(2 * mw * my * mr, _exponent_sum(S, ew, ey, er, e))
 end
 
 Base.@propagate_inbounds function value_entry(f::SqrHingeLoss, v::Real, i::Integer)
@@ -217,10 +460,10 @@ end
   my, ey = _frexp(y)
   mw, ew = _frexp(w)
   mg, eg = _frexp(γ)
-  et = eg + ew + 2ey
+  et = _exponent_sum(T, eg, ew, ey, ey)
   ed = max(0, et)
   d = ldexp(one(T), -ed) + ldexp(2 * mg * mw * my^2, et - ed)
-  en = eg + ew + ey
+  en = _exponent_sum(T, eg, ew, ey)
   ep = max(ev, en)
   n = ldexp(mv, ev - ep) + ldexp(2 * mg * mw * my, en - ep)
   ldexp(n / d, ep - ed)
@@ -365,7 +608,7 @@ _has_ordinary_value(::Type{<:EpsInsensitiveLoss}) = true
 Base.@propagate_inbounds function prox_entry(f::EpsInsensitiveLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
-  s, ε, u = convert(S, _weight_coefficient(γ, w)), convert(S, f.ε), S(v)
+  s, ε, u = _weight_coefficient(S, γ, w), convert(S, f.ε), S(v)
   a = abs(u)
   a <= ε ? u : (a <= ε + s ? copysign(ε, u) : u - copysign(s, u))
 end
@@ -412,9 +655,11 @@ function _conjugate_value(f::SqrHingeLoss, s::AbstractArray)
       ms, es = _frexp(u)
       my, ey = _frexp(y)
       mw, ew = _frexp(w)
-      q, eq = ms / my, es - ey
-      e = max(eq, 2eq - ew)
-      z = ldexp(q, eq - e) + ldexp(q^2 / (4mw), 2eq - ew - e)
+      U = typeof(u)
+      q, eq = ms / my, _exponent_sum(U, es, -ey)
+      eq2 = _exponent_sum(U, eq, eq, -ew)
+      e = max(eq, eq2)
+      z = ldexp(q, eq - e) + ldexp(q^2 / (4mw), eq2 - e)
       v += convert(T, ldexp(z, e))
     end
   end
@@ -475,8 +720,11 @@ function _weighted_pair(::SquaredHinge, w::T, ηs::T, k::Int, y::T) where {T}
   r, e = _sqrhinge_margin(y, ηs, k)
   _pow2_pair(w, r, r, 2e)
 end
+# The margin exponent e of _sqrhinge_margin is an Int that can already have wrapped. Its Int total with the three
+# exponents of the slope equals the true total modulo 2^64, so it is the true total when that fits Int64. A wide sum
+# would take the wrapped e as the true one, so this caller keeps the Int sum.
 _weighted_deriv(::SquaredHinge, w::T, ηs::T, k::Int, y::T) where {T} =
-  -copysign(_sqrhinge_slope(y, w, _sqrhinge_margin(y, ηs, k)...), y)
+  -copysign(_sqrhinge_slope(Int, y, w, _sqrhinge_margin(y, ηs, k)...), y)
 
 """
     ProximalBase.SmoothCheck(τ, h)

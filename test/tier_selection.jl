@@ -384,6 +384,56 @@ end
 
 classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
 
+# The grids files (test/TESTING.md) are in the full tier. A pull request adds one as a focus file
+# for a change to the source of its own family (the table below); the tests check the focus of the
+# listed and the named unrelated paths, not the selection for every source path. A later pull
+# request adds a row to the table; the expectations below are derived from it.
+#   grids:     the grids file (full tier);
+#   base:      the file whose cases it repeats, and base_tier, the tier that file is in;
+#   shared:    whether the rule for the code shared by every function (src/utils.jl, ...) lists it;
+#   paths:     the source paths of its own family, each with the tier the rules give a change to it.
+# The rows with base_tier "thorough" are listed by the two thorough rules, the rule for src/calculus.jl
+# and the shared rule, and by no standard-tier rule: a pull request on a standard-tier path alone,
+# without a label that raises the tier, did not run their base files, so the grids file would run the Float32 repeats without the Float64 baseline that the base file keeps.
+const GRIDS = [
+  (grids = "atom_iterate_grids", base = "atom_iterate", base_tier = "quick", shared = false,
+   paths = ["src/atom_iterate.jl" => "standard", "src/functions/norms.jl" => "standard",
+            "src/functions/sparsegroup.jl" => "standard", "src/functions/nonconvex.jl" => "standard"]),
+  (grids = "conjugate_basics_grids", base = "conjugate_basics", base_tier = "quick", shared = true,
+   paths = ["src/calculus.jl" => "thorough", "src/functions/losses.jl" => "standard"]),
+  (grids = "constrained_basics_grids", base = "constrained_basics", base_tier = "quick", shared = false,
+   paths = ["src/constrained.jl" => "standard"]),
+  (grids = "lmo_atoms_grids", base = "lmo_atoms", base_tier = "quick", shared = true,
+   paths = ["src/lmo.jl" => "standard", "src/lmo_atoms.jl" => "standard", "src/functions/singular.jl" => "standard"]),
+  (grids = "nested_scaled_grids", base = "nested_scaled", base_tier = "quick", shared = true,
+   paths = ["src/calculus.jl" => "thorough", "src/functions/singular.jl" => "standard"]),
+  (grids = "scaled_infinite_level_underflow_grids", base = "scaled_infinite_level_underflow", base_tier = "thorough",
+   shared = true, paths = ["src/calculus.jl" => "thorough"]),
+  (grids = "sparse_iterate_basics_grids", base = "sparse_iterate_basics", base_tier = "quick", shared = false,
+   paths = ["src/sparse_iterate.jl" => "standard"]),
+  (grids = "symmetric_groups_grids", base = "symmetric_groups", base_tier = "thorough",
+   shared = true, paths = ["src/calculus.jl" => "thorough"]),
+  (grids = "zero_level_infinite_step_grids", base = "zero_level_infinite_step", base_tier = "thorough",
+   shared = true, paths = ["src/calculus.jl" => "thorough"])]
+# the grids files that the rule for the code shared by every function lists, and representatives of
+# the paths of that rule: each gets SHARED_GRIDS
+const SHARED_GRIDS = sort!([row.grids for row in GRIDS if row.shared])
+const SHARED_GRIDS_PATHS = ["src/metric.jl", "src/utils.jl", "src/functions/spectral.jl"]
+const ALL_GRIDS = sort!([row.grids for row in GRIDS])
+# source path => (its tier, its grids focus files): the direct-family paths of the rows, and the
+# representatives of the shared rule
+const GRIDS_OF = let d = Dict{String,Tuple{String,Vector{String}}}()
+  for row in GRIDS, (path, tier) in row.paths
+    old = get(d, path, (tier, String[]))
+    d[path] = (tier, sort!([old[2]; row.grids]))
+    @assert old[1] == tier
+  end
+  for path in SHARED_GRIDS_PATHS
+    d[path] = ("thorough", SHARED_GRIDS)
+  end
+  d
+end
+
 @testset "risk policy" begin
   # documentation needs no package tests
   @test classify("docs/src/index.md", "CONTRIBUTING.md") == ("none", String[])
@@ -404,7 +454,8 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
   @test classify("src/composition.jl") == ("standard", ["composition", "precompose_array"])
   # shared code
   @test classify("src/utils.jl")[1] == "thorough"
-  @test classify("src/calculus.jl", "test/calculus.jl") == ("thorough", ["calculus", "conjugate_basics_grids", "nested_scaled_grids", "stepchecks"])
+  @test classify("src/calculus.jl", "test/calculus.jl") ==
+        ("thorough", sort!(["calculus", "stepchecks", GRIDS_OF["src/calculus.jl"][2]...]))
   @test classify("src/interface.jl", "docs/src/interface.md")[1] == "thorough"
   # the conformance suite and its coverage map
   # (its gpu_arrays reports are written beside the tier, so the check has the complete inventory)
@@ -511,8 +562,6 @@ instandard(names) = filter(n -> !(n in TestTiers.select(MANIFEST, "standard")), 
 end
 
 const GPU = ["conformance/gpu_arrays", "gpu", "gpu_smoke"]
-# the grids files that the rule for the code shared by every function (src/utils.jl, ...) runs
-const SHARED_GRIDS = ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"]
 
 @testset "the device-array suites run in the full tier and beside changes to the GPU files" begin
   # outside the default tiers, inside full, each listed once (the manifest checks reject a duplicate)
@@ -687,51 +736,29 @@ end
   @test ".github/workflows/CI.yml" in CIPlan.benchmark_paths()
 end
 
-# The grids files of the five quick hotspots (test/TESTING.md) are in the full tier. A pull request
-# adds them as focus files for a change to the source of their own family (the map below); the tests
-# check the focus of the listed and the named unrelated paths, not the selection for every source path.
-const GRIDS = Dict(  # grids file => its quick file
-  "atom_iterate_grids" => "atom_iterate",
-  "conjugate_basics_grids" => "conjugate_basics",
-  "lmo_atoms_grids" => "lmo_atoms",
-  "nested_scaled_grids" => "nested_scaled",
-  "sparse_iterate_basics_grids" => "sparse_iterate_basics")
-const GRIDS_OF = Dict(  # source path => its grids focus files: the direct-family paths and representatives of the shared rule
-  "src/atom_iterate.jl" => ["atom_iterate_grids"],
-  "src/functions/norms.jl" => ["atom_iterate_grids"],
-  "src/functions/sparsegroup.jl" => ["atom_iterate_grids"],
-  "src/functions/nonconvex.jl" => ["atom_iterate_grids"],
-  "src/sparse_iterate.jl" => ["sparse_iterate_basics_grids"],
-  "src/calculus.jl" => ["conjugate_basics_grids", "nested_scaled_grids"],
-  "src/metric.jl" => ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"],
-  "src/utils.jl" => ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"],
-  "src/functions/spectral.jl" => ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"],
-  "src/lmo.jl" => ["lmo_atoms_grids"],
-  "src/lmo_atoms.jl" => ["lmo_atoms_grids"],
-  "src/functions/losses.jl" => ["conjugate_basics_grids"],
-  "src/functions/singular.jl" => ["lmo_atoms_grids", "nested_scaled_grids"])
-
-@testset "the grids files of the quick hotspots" begin
-  allgrids = sort!(collect(keys(GRIDS)))
-  quick = TestTiers.select(MANIFEST, "quick")
+@testset "the grids files" begin
+  allgrids = ALL_GRIDS
+  @test allunique(allgrids)
   thorough = TestTiers.select(MANIFEST, "thorough")
   full = TestTiers.select(MANIFEST, "full")
-  for (grids, base) in GRIDS
+  for row in GRIDS
     # in the full tier and in no lower one
-    @test MANIFEST.tier[grids] == "full"
-    @test !(grids in thorough)
-    # its quick file stays in quick, and its name starts with the quick file's name
-    @test base in quick && startswith(grids, base)
+    @test MANIFEST.tier[row.grids] == "full"
+    @test !(row.grids in thorough)
+    # its base file is in the tier base_tier, and its name starts with the base file's name
+    @test MANIFEST.tier[row.base] == row.base_tier
+    @test row.base in TestTiers.select(MANIFEST, row.base_tier) && startswith(row.grids, row.base)
   end
   # master pushes (thorough) run none of them, the nightly run (full) all
   @test isdisjoint(allgrids, thorough) && issubset(allgrids, full)
   # the listed source paths get their grids files as focus (the shared rule lists other paths too,
-  # such as src/interface.jl, with the same three), and the tier the path had before
-  for (path, names) in GRIDS_OF
+  # such as src/interface.jl, with the same six shared grids files), and the tier the path had before
+  for (path, (want_tier, names)) in GRIDS_OF
     tier, focus = classify(path)
     @test sort(filter(in(allgrids), focus)) == names
-    @test tier == (path in ("src/calculus.jl", "src/metric.jl", "src/utils.jl", "src/functions/spectral.jl") ? "thorough" : "standard")
+    @test tier == want_tier
   end
+  @test pr("src/constrained.jl") == ("standard", ["constrained_basics_grids"])
   # the narrow label on a change to one iterate source still gives quick, with the iterate's own grids file
   @test pr("src/atom_iterate.jl"; labels = NARROW) == ("quick", ATOM)
   @test "atom_iterate_grids" in pr("src/atom_iterate.jl"; labels = NARROW)[2]
@@ -739,8 +766,25 @@ const GRIDS_OF = Dict(  # source path => its grids focus files: the direct-famil
   @test pr("src/sparse_iterate.jl"; labels = NARROW)[1] == "quick"
   # the policy, as representative checks: these unrelated source paths get no grids file as focus
   for path in ("src/functions/entropy.jl", "src/deprecated.jl", "src/functions/sets.jl", "src/composition.jl",
-               "src/symmetric_parameters.jl", "src/constrained.jl", "src/functions/cones.jl", "src/functions/smooth.jl")
+               "src/symmetric_parameters.jl", "src/functions/cones.jl", "src/functions/smooth.jl")
     @test isdisjoint(classify(path)[2], allgrids)
+  end
+  # the grids files of a thorough-tier base file: the rules that list them are thorough-tier rules,
+  # the rule for src/calculus.jl and the shared rule, and the standard paths of the other rows get none
+  thorough_grids = [row.grids for row in GRIDS if row.base_tier == "thorough"]
+  @test length(thorough_grids) == 3
+  for rule in MANIFEST.rules, grids in thorough_grids
+    grids in rule.focus && @test rule.tier == "thorough"
+  end
+  for path in ("src/atom_iterate.jl", "src/functions/norms.jl", "src/functions/sparsegroup.jl", "src/functions/nonconvex.jl",
+               "src/sparse_iterate.jl", "src/constrained.jl", "src/lmo.jl", "src/lmo_atoms.jl", "src/functions/singular.jl",
+               "src/functions/losses.jl")
+    @test isdisjoint(classify(path)[2], thorough_grids)
+  end
+  @test pr("src/functions/norms.jl") == ("standard", ["atom_iterate_grids"])
+  # a pull request that changes src/calculus.jl or a shared source runs all three, beside thorough
+  for path in ("src/calculus.jl", "src/utils.jl", "src/interface.jl", "src/ProximalBase.jl")
+    @test issubset(thorough_grids, pr(path)[2])
   end
   # a changed grids test file selects itself; test:full gives the full tier
   for grids in allgrids

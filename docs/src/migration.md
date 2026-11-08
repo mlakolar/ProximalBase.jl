@@ -480,6 +480,15 @@ matrix `SparseIterate` are checked too. Before 0.6, a complex one with zero
 imaginary parts, such as `(1 + 0im) * I`, was accepted, and one with a nonzero
 imaginary part wrote `x` before it failed.
 
+A broadcast into either type checks its result as well as its leaves. A result
+known to be complex from the types, such as `x .= complex.(a, b)`, throws an
+`ArgumentError`, and so does a result of another non-real type (a `Union` with a
+complex member, `Any`, `Number`) with a complex element, after it has been
+evaluated and before anything is written. Before, such a broadcast accepted a
+complex result with zero imaginary parts, or threw an `InexactError` after the
+earlier entries had been written. `copyto!(x, y)` from an array of abstract
+element type is not a broadcast and still converts entry by entry.
+
 `copyto!(x, Q)` from an orthogonal factor into a matrix `SparseIterate` now
 materializes `Q`, a lazy factorization and not a dense matrix, into a dense
 temporary of the element type of `x` and writes it as an ordinary value write:

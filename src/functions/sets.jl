@@ -1546,8 +1546,11 @@ end
 # steps γ and an array normal, D is formed here in S, from the exponent w of the largest term
 # γᵢαᵢ² (αᵢ widened to S before it is squared) and the sum of the terms with 2^-w applied to the
 # significands, so that D is in [1, 8n) whatever d overflowed or lost to the narrower type of its
-# own terms. For a scalar normal with d = Inf, D is q times the sum of γᵢ 2^-w with 2^w the
-# exponent of the largest step, and D ≥ 1/2 as d ≥ floatmax. So D ≥ 1/2, and t″ = G / D is finite
+# own terms. (w starts at typemin(Int): if every term of a BigFloat sum has a smaller exponent, w stays
+# there, D is the sum of the scaled terms, none below the smallest positive BigFloat, and need not lie in
+# [1, 8n); D 2^w is still the sum. The bounds on D in this paragraph are those of a w that is the exponent
+# of the largest term.) For a scalar normal with d = Inf, D is q times the sum of γᵢ 2^-w with 2^w the
+# exponent of the largest step, and D ≥ 1/2 as d ≥ floatmax. So D ≥ 1/2 in these cases, and t″ = G / D is finite
 # with |G| as above. Then t = t″ 2^J with J = k - w, and the correction cᵢ = t″ γᵢ αᵢ 2^J is
 # formed from the significands of the three factors with the power of two last, so that no factor
 # or partial product over- or underflows; xᵢ itself is never scaled and an αᵢ = 0 leaves it
@@ -1565,7 +1568,7 @@ end
     return true
   end
   D, w = _extreme_denominator(f, a, d, γ, S)
-  _extreme_output!(y, _ExtremeOutput(G / D, k - w), x, a, γ)
+  _extreme_output!(y, _ExtremeOutput(G / D, _exponent_sum(S, k) - w), x, a, γ)
   true
 end
 
@@ -1584,10 +1587,10 @@ function _extreme_denominator(f, a::Real, d, γ::AbstractArray, ::Type{S}) where
 end
 # ... and for steps with an array normal, from the largest term of the sum.
 function _extreme_denominator(f, a::AbstractArray, d, γ::AbstractArray, ::Type{S}) where {S}
-  w = typemin(Int)
+  w = _exponent_sum(S, typemin(Int))
   @inbounds for i in eachindex(IndexLinear(), γ)
     α, g = convert(S, float(a[i])), convert(S, γ[i])
-    iszero(α) || (w = max(w, exponent(g) + 2exponent(α)))
+    iszero(α) || (w = max(w, _exponent_sum(S, exponent(g), exponent(α), exponent(α))))
   end
   D = zero(S)
   @inbounds for i in eachindex(IndexLinear(), γ)
@@ -1597,9 +1600,9 @@ function _extreme_denominator(f, a::AbstractArray, d, γ::AbstractArray, ::Type{
   D, w
 end
 
-struct _ExtremeOutput{S<:AbstractFloat}
+struct _ExtremeOutput{S<:AbstractFloat, E<:Integer}
   t::S
-  J::Int
+  J::E
 end
 @inline function _scaled_correction(o::_ExtremeOutput{S}, xi, γi, ai) where {S}
   xs, γs, α = convert(S, xi), convert(S, γi), convert(S, float(ai))
@@ -1627,13 +1630,14 @@ function _spectrum_linear(f, v::AbstractVector{T}, k, b, lower) where {T}
   S = promote_type(T, typeof(f.q))
   e = exponent(f.s[1]) + exponent(f.s[2])
   j = _comparison_exponent(_magnitude_exponent(S(_spectrum_scale(v))),
-    _magnitude_exponent(abs(b)) + e - k)
+    _exponent_sum(S, _magnitude_exponent(abs(b)), e, -k))
   factors = _power_factors(S, -j)
-  offset = ldexp(S(b), e - k - j)
+  shift = _exponent_sum(S, e, -k, -j)
+  offset = ldexp(S(b), shift)
   g = _scaled_dot(_normalized_normal(f.a, f.s), v, factors) - offset
   q = f.a isa Real ? sqrt(S(f.q)) * sqrt(S(length(v))) : sqrt(S(f.q))
   tol = _isscaled(f) ? max(_tol(T), _tol(typeof(f.q))) : _tol(T)
-  slack = tol * max(ldexp(one(S), e - k - j), abs(offset), q * sqrt(_scaled_sumabs2(v, factors)))
+  slack = tol * max(ldexp(one(S), shift), abs(offset), q * sqrt(_scaled_sumabs2(v, factors)))
   _ind(f isa IndHyperplane ? abs(g) <= slack : (lower ? -g <= slack : g <= slack), T)
 end
 

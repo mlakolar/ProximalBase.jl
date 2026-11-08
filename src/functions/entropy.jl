@@ -509,7 +509,7 @@ Base.@propagate_inbounds function prox_entry(f::Berhu, v::T, i::Integer, γ::Rea
 end
 
 kkt_violation(f::Berhu, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i)))
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _kkt_coefficient(eltype(g), f.λ, _entry(f.w, i)))
 restrict(f::Berhu, S::AbstractVector{<:Integer}) = Berhu(f.λ, f.M, _restrict_entries(f.w, S))
 
 ####################################

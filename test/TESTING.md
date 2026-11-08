@@ -69,14 +69,22 @@ parallel batch.
   and `sparse_iterate_basics`, keep the Float64 pass of each operation family and a Float32
   representative of it; the cases that repeat those (Float32 and Float16 passes, one mixed-type
   product, the atomicity cases of `GroupNormLinf` and `GroupSCAD`) are in the Full-tier `_grids`
-  files (below).
+  files (below). A sixth, `constrained_basics`, keeps the Float64 passes, the Float32 pass of the
+  vector, and for the refusal of views and representations three of the eighteen forms; its
+  Float32 passes of the other representations, five destination element types and fifteen of the
+  eighteen forms are in `constrained_basics_grids`.
 - **Standard** adds the files of most function families, wrappers, constraints, smooth losses
   and the examples: what an ordinary implementation change can break.
 - **Thorough** adds what shared or numerical changes can break: precision and overflow
   recovery, non-finite values, spectral domains and tolerances, the conformance suite,
   symmetric writes, products and parameters, block steps, metrics, the wrapper calculus,
   the remaining iterate and constraint grids, and the specialized families (cones, graphs,
-  fibers, polyhedra).
+  fibers, polyhedra). Three Thorough files, `scaled_infinite_level_underflow`,
+  `zero_level_infinite_step` and `symmetric_groups`, keep the Float64 cases (all except the
+  wrapper variants of 16 indicators in `scaled_infinite_level_underflow`) and Float32
+  representatives; the Float32 passes and indicator-wrapper variants that repeat those are in
+  `scaled_infinite_level_underflow_grids`, `zero_level_infinite_step_grids` and
+  `symmetric_groups_grids`, which are in Full (below).
 - **Full** adds the exhaustive catalogs whose cases repeat paths the tiers above already reach:
   the device-array suites on JLArrays (`gpu`, `gpu_smoke`, `conformance/gpu_arrays`), `conjugate_projections` and
   `allocations`; `precision_mixed`; the block
@@ -184,26 +192,35 @@ covers 14160 of 14618 lines (96.86%), the same 14160 lines as master at the base
 run 41341879373 (Julia 1: 639818 against 639702; broken counts equal): the 117 of
 `tier_selection` less the one random-draw-dependent check in `constrained`.
 
-### The `_grids` files of five quick files
+### The `_grids` files
 
-Five Quick files have a Full-tier companion with the cases that repeat one that stays in Quick for
-another element type or wrapper. Each companion is a self-contained module with the fixtures it needs
-copied, and its name starts with the name of the Quick file, so `julia scripts/test.jl atom_iterate`
+Six Quick files and three Thorough files have a Full-tier companion with the cases that repeat one
+that stays in the base file for another element type, wrapper or view form. Each companion is a self-contained module with the fixtures it needs
+copied, and its name starts with the name of the base file, so `julia scripts/test.jl atom_iterate`
 runs both. The cases are moved with their assertions; the loop guards and the copied fixtures were
 adjusted. Quick
 keeps the Float64 pass of each operation family, a Float32 representative of each, and an atomicity,
 aliasing or NaN case of each kind for a representative function (listed per file below). The Float64
-cases that moved are the ones the table names for `atom_iterate`.
+cases that moved are listed per file in the table below.
 
-| Quick file + companion (Full) | What the companion holds | Assertions: before = quick + grids |
+| Base file + companion (Full) | What the companion holds | Assertions: before = base file + grids |
 |---|---|---|
 | `nested_scaled` + `nested_scaled_grids` | the Float32 conjugates of the nested scales (#333), five `check` calls of the steps outside the range (#566) and the explicit infinite factor under the fold (#566); the Float32 allocation check of `Conjugate(Scaled(...))` stays in Quick | 1192 = 1057 + 135 |
 | `atom_iterate` + `atom_iterate_grids` | the Float32 x Float64 -> Float64 product and the Float32 strided views of the five-argument products (the Float64 x Float32 -> Float64 triple stays in Quick); the failed-step atomicity cases of the group wrappers for `GroupNormLinf` and `GroupSCAD`, in Float64 (`GroupNormL2`, `GroupMCP` and `SparseGroupNormL2` stay in Quick); the Float32 pass of the group view norms and dots | 3998 = 3752 + 246 |
 | `lmo_atoms` + `lmo_atoms_grids` | the Float32 passes of the density matrices, the Krylov method, the `Symmetric` and `Hermitian` wrappers and the NaN and Inf support values | 3673 = 3029 + 644 |
 | `conjugate_basics` + `conjugate_basics_grids` | the Float32 `CheckLoss`, `IndNonnegative` and `Translate` families of the direct conjugate projections | 5858 = 5675 + 183 |
 | `sparse_iterate_basics` + `sparse_iterate_basics_grids` | the Float16 pass and the Float32 `lmul!`, `ldiv!` cases of the scaling by a number (FN-9); the Float32 sparse triple products | 2840 = 1604 + 1236 |
+| `constrained_basics` + `constrained_basics_grids` | the Float32 passes of five of the six representations of the fused value (the Float32 vector stays in Quick) and of the parameter types on a vector (levels, weights, bounds and steps); the destinations of element type `Rational`, `Real`, `AbstractFloat`, `BigFloat` and `Bool`; the refusal in each constructible role of fifteen of the eighteen forms of views, reshapes and other representations (a range view, a `UnitRange{Union}` view and a `Union`-element `Array` stay in Quick) | 10857 = 7756 + 3101 |
+| `scaled_infinite_level_underflow` (Thorough) + `scaled_infinite_level_underflow_grids` | in "the listed indicators are accepted": the Float32 pass of seventeen of the twenty indicators (alone, under `Scaled` and under `Translate(Scaled)`) and the `Scaled` and `Translate(Scaled)` variants of sixteen indicators in Float64; the base file keeps all twenty indicators alone in Float64, the wrapper variants of `IndBox`, `IndSimplex`, `IndSOC` and `IndPattern` in Float64, and `IndBox`, `IndSimplex` and `IndPattern` with their wrappers in Float32 | 115533 = 115184 + 349 |
+| `zero_level_infinite_step` (Thorough) + `zero_level_infinite_step_grids` | the Float32 pass of `Regularize` with a zero level for six of the eleven functions of the function loop, three of the six of the array steps and three of the four of the per-group steps and the coordinate step; Float64 stays whole in the base file | 14528 = 11277 + 3251 |
+| `symmetric_groups` (Thorough) + `symmetric_groups_grids` | the Float32 pass of the symmetric group writes for `GroupNormLinf` (its levels, weights and zero-level variants and its `rejects_group_steps` cases) and for the radial `GroupSCAD`; Float64 stays whole in the base file, and Float32 keeps `NormL2`, `GroupNormL2`, `SparseGroupNormL2` and `GroupMCP` | 12327 = 10491 + 1836 |
 
-Quick does not run these cases. They run in these places:
+The counts of the last four rows are the passes of each file, measured with the profile driver on Julia 1.13.3;
+the first number of a row is the base file before the move (10857 for `constrained_basics`). Six companions repeat cases of a Quick file and three repeat cases of a Thorough
+file; a companion is selected in the same way for either, and the table in `test/tier_selection.jl` has the
+tier of the base file of each companion.
+
+The base file does not run these cases (Quick for six companions, Thorough for the three others). They run in these places:
 
 - In a pull request, for a change to the source of their own family, beside the tier (`focus` lists
   in `.github/tier-rules.toml`; the rules add focus files and do not change a tier):
@@ -213,7 +230,19 @@ Quick does not run these cases. They run in these places:
   - `nested_scaled_grids`: `src/calculus.jl`, the sources shared by every function (`src/metric.jl`,
     `src/utils.jl`, `src/interface.jl`, ...), `src/functions/singular.jl`;
   - `conjugate_basics_grids`: `src/calculus.jl`, the shared sources, `src/functions/losses.jl`;
-  - `lmo_atoms_grids`: `src/lmo.jl`, `src/lmo_atoms.jl`, the shared sources, `src/functions/singular.jl`.
+  - `lmo_atoms_grids`: `src/lmo.jl`, `src/lmo_atoms.jl`, the shared sources, `src/functions/singular.jl`;
+  - `constrained_basics_grids`: `src/constrained.jl` (before this rule, a change to that file matched the
+    rule for `src/**`, tier standard, which includes the cases that moved);
+  - `scaled_infinite_level_underflow_grids`, `zero_level_infinite_step_grids`, `symmetric_groups_grids`:
+    `src/calculus.jl` and the shared sources. Their base files are Thorough-tier files. The two thorough
+    rules, the rule for `src/calculus.jl` and the rule for the shared sources, list these three companions, so a
+    pull request on one of those paths runs them beside thorough, and the base files run the Float64 cases
+    and the Float32 representatives that stay. No standard-tier rule lists them: the rule of such a path alone does not run the base files, and a
+    companion would run the Float32 repeats without the Float64 baseline that the base file keeps. A pull request that is
+    thorough for another reason (the label `test:thorough`, or a path whose rule does not list them) runs the
+    base files without these companions when no changed file or other rule adds one (a changed companion
+    selects itself, and a change to `src/utils.jl` or `src/calculus.jl` adds all three), and the cases that
+    moved run in the nightly full tier.
   With the label `test:iterate-narrow`, a pull request that changes a single `AtomIterate` or
   `SparseIterate` implementation source (`src/atom_iterate.jl` or `src/sparse_iterate.jl`) and no path
   that needs a higher tier gives quick and that iterate's own grids file. `src/symmetric_parameters.jl`
@@ -224,12 +253,13 @@ Quick does not run these cases. They run in these places:
 - When requested: `julia scripts/test.jl <name>_grids`, or a change to the grids file itself.
 
 Other source paths do not add the grids files as automatic focus files in a pull request. A master
-push that changes package tests or code runs the thorough tier, which has none of them
-(a documentation-only push runs no package tests).
-`test/tier_selection.jl` checks that each companion is in Full and in no lower tier, that its Quick
-file is in Quick, the map above with `classify` (the direct-family paths, with some of the shared
-sources as representatives: `src/interface.jl`, for example, also gets the three shared grids files),
-that the named unrelated paths (`entropy.jl`, `deprecated.jl`, `sets.jl`, ...) get no grids file as
+push that changes package tests or code runs the thorough tier, which has the Thorough base files
+and none of the companions (a documentation-only push runs no package tests).
+`test/tier_selection.jl` keeps one table of the companions (the companion, its base file, the tier of the
+base file and the source paths of its family with their tiers), and from it checks that each companion is in
+Full and in no lower tier, that its base file is in the tier of the table, the map above with `classify`
+(the direct-family paths, with some of the shared sources as representatives: `src/interface.jl`, for
+example, also gets the six shared grids files), that the named unrelated paths (`entropy.jl`, `deprecated.jl`, `sets.jl`, ...) get no grids file as
 focus, and what a master push, the nightly run and `test:full` select.
 
 ## JLArrays and CUDA

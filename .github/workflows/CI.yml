@@ -13,7 +13,11 @@ name: CI
 # - the nightly run: the full tier on the cross platforms, with coverage and the benchmark
 #   reference checks, also when an earlier run passed;
 # - manual runs: the tier, platforms (auto: the cross platforms for full, otherwise Julia 1 and
-#   lts on Linux), benchmark and coverage inputs (`gh workflow run CI.yml --ref <branch>`).
+#   lts on Linux), benchmark and coverage inputs (`gh workflow run CI.yml --ref <branch>`);
+# - release validation, a manual run with release=true and the full SHA of the commit as
+#   expected_sha: the full tier on the cross platforms, with coverage and the benchmark reference
+#   checks; the plan rejects a tier or platforms input that disagrees and a commit that is not
+#   expected_sha, and the verdict needs the four cross jobs.
 # Branch protection requires two checks of pull_request runs. "PR merge gate" starts with the
 # run, so a new run (a push or a label) at once replaces the commit's earlier gate with a pending
 # one, and it passes when this run's "PR required jobs" passed and the PR's test labels are still
@@ -50,11 +54,19 @@ on:
         description: 'Collect coverage (Julia 1 on Linux) and upload it to Codecov'
         type: boolean
         default: false
+      release:
+        description: 'Release validation of the exact commit: full tier on every platform; needs expected_sha'
+        type: boolean
+        default: false
+      expected_sha:
+        description: 'The full 40-character SHA of the commit being validated (required with release)'
+        type: string
+        default: ''
 concurrency:
   # A new commit or label on a PR cancels its older run. Every push to master runs to the end
   # (its own group: a later push must not replace it while it waits). Nightly and manual runs
   # (per inputs) queue, and a newer pending one replaces an older pending one.
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ inputs.tier }}-${{ inputs.platforms }}-${{ inputs.benchmark }}-${{ inputs.coverage }}-${{ github.event_name == 'push' && github.sha || '' }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ inputs.tier }}-${{ inputs.platforms }}-${{ inputs.benchmark }}-${{ inputs.coverage }}-${{ inputs.release }}-${{ inputs.expected_sha }}-${{ github.event_name == 'push' && github.sha || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   plan:
@@ -75,6 +87,9 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       required: ${{ steps.plan.outputs.required }}
       advisory: ${{ steps.plan.outputs.advisory }}
+      release: ${{ steps.plan.outputs.release }}
+      inventory: ${{ steps.plan.outputs.inventory }}
+      sha: ${{ steps.plan.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -98,6 +113,10 @@ jobs:
           DISPATCH_PLATFORMS: ${{ inputs.platforms }}
           DISPATCH_BENCHMARK: ${{ inputs.benchmark }}
           DISPATCH_COVERAGE: ${{ inputs.coverage }}
+          DISPATCH_RELEASE: ${{ inputs.release }}
+          DISPATCH_EXPECTED_SHA: ${{ inputs.expected_sha }}
+          # Only a manual run is planned with its commit, and only to compare it with expected_sha.
+          SHA: ${{ github.sha }}
           BEFORE: ${{ github.event.before }}
         run: |
           case "$EVENT" in
@@ -107,7 +126,8 @@ jobs:
               if [ "$REF_TYPE" = branch ]; then args+=("--base=$BEFORE" --head=HEAD); fi ;;
             workflow_dispatch)
               args=("--tier=${DISPATCH_TIER:-full}" "--platforms=${DISPATCH_PLATFORMS:-auto}"
-                    "--benchmark=${DISPATCH_BENCHMARK:-false}" "--coverage=${DISPATCH_COVERAGE:-false}") ;;
+                    "--benchmark=${DISPATCH_BENCHMARK:-false}" "--coverage=${DISPATCH_COVERAGE:-false}"
+                    "--release=${DISPATCH_RELEASE:-false}" "--expected-sha=$DISPATCH_EXPECTED_SHA" "--sha=$SHA") ;;
             schedule) args=() ;;
           esac
           # Once in about 20 runs on GitHub the planner (2 s locally) hung until the job's timeout;
@@ -323,7 +343,9 @@ jobs:
     # list holds the floor of the event and the jobs of the plan's platforms mode (a recognized
     # mode is required when tests run), the advisory list holds at most Julia pre, and no other
     # Julia job ran; with no tests each listed Julia job must have been skipped. Julia pre is
-    # advisory. A job list it cannot read fails it.
+    # advisory. A job list it cannot read fails it. The nightly run, a tag push and a release run
+    # also need each required job's own conformance reports artifact, and a release run the full
+    # tier, the cross floor and the exact commit; the artifact list it cannot read fails them.
     # Branch protection requires it beside the gate below, which waits for it: re-running a
     # single test job re-runs this job too, but not the gate.
     name: ${{ github.event_name == 'pull_request' && 'PR required jobs' || 'CI required jobs' }}
@@ -362,6 +384,8 @@ jobs:
           PLATFORMS: ${{ needs.plan.outputs.platforms }}
           REQUIRED: ${{ needs.plan.outputs.required }}
           ADVISORY: ${{ needs.plan.outputs.advisory }}
+          RELEASE: ${{ needs.plan.outputs.release }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           # The script exits 0 (passed) or 1 (failed). Another status (a crash, or the time limit,

@@ -2,16 +2,18 @@
 # test/tier_selection.jl, test/ci_plan.jl and test/ci_verdict.jl; the test files of each tier
 # are in test/tiers.toml. CONTRIBUTING.md explains the workflow.
 #
-# The plan decides five things independently: the tier (how many test files), the platforms
-# (which Julia versions and systems run them), coverage, the benchmark reference checks, and,
-# from the tier, the conformance reports. [events.*] says how each kind of run decides them,
+# The plan decides six things independently: the tier (how many test files), the platforms
+# (which Julia versions and systems run them), coverage, the benchmark reference checks, whether
+# each test job must have run the whole catalog of its tier (inventory), and, from the tier, the
+# conformance reports. [events.*] says how each kind of run decides them,
 # [platforms.*] defines the job lists, [timeouts] and [policy] are per tier, and the risk
 # rules below map changed paths to the minimum tier of a pull request. scripts/ci_plan.jl
 # validates the [events.*] and [platforms.*] tables and their values (an unknown key, mode or tier
 # there is an error). Each of the other tables is validated by its own reader, as that reader
 # defines: test/tiers.jl reads [timeouts], [policy] and [[risk]], scripts/ci_plan.jl reads
 # [benchmark_check]. scripts/ci_verdict.jl keeps its own copy of the job lists of the modes,
-# which test/ci_verdict.jl compares with the tables below.
+# which test/ci_verdict.jl compares with the tables below; scripts/ci_result.jl checks the
+# inventory of a test log against the tier lists.
 
 [timeouts]
 # Minutes per CI test job, well above each tier's target to allow for cold caches. A job of a
@@ -21,7 +23,9 @@ standard = 30
 thorough = 45
 full = 90
 
-# One table per kind of run. A push is told apart from a tag push by its ref type.
+# One table per kind of run. A push is told apart from a tag push by its ref type. `release` is
+# not a GitHub event: it is the manual run with the input release=true (a release validation of
+# the exact commit), planned from its own table.
 #   tier:      "risk" (the risk rules and labels below), a tier, or "input" (the manual run's tier).
 #   skip_without_tests: a run whose changed paths need no package tests (documentation) has tier
 #              none; without it (tag, nightly) the tier is fixed.
@@ -32,6 +36,9 @@ full = 90
 #   benchmark: the benchmark reference checks (benchmark/check_only.jl on the quick suite):
 #              "paths" (a changed path of [benchmark_check] below, or a label of benchmark_labels),
 #              "always", "never" or "input" (the manual run's input, or a tier of benchmark_tiers).
+#   inventory: true when every required test job must also show that it ran the whole catalog of
+#              the tier and, with the verdict, that it uploaded its own conformance reports; false
+#              (the default, so the key may be left out) otherwise.
 # A label raises a pull request's tier or leaves it alone, with one exception: test:iterate-narrow
 # lowers the tier of its iterate rule (see the risk rules). test:benchmark does not affect the tier.
 
@@ -60,6 +67,7 @@ tier = "full"
 platforms = "cross"
 coverage = false
 benchmark = "always"
+inventory = true
 
 [events.schedule]
 # The nightly run: the full tier on the cross platforms, with coverage, every night.
@@ -67,6 +75,17 @@ tier = "full"
 platforms = "cross"
 coverage = true
 benchmark = "always"
+inventory = true
+
+[events.release]
+# A manual run with release=true and the full SHA of the commit: the full tier on the cross
+# platforms, with coverage, whatever the manual inputs say (the planner rejects a tier or platforms
+# input that disagrees).
+tier = "full"
+platforms = "cross"
+coverage = true
+benchmark = "always"
+inventory = true
 
 [events.workflow_dispatch]
 tier = "input"
@@ -187,6 +206,7 @@ paths = [
   "ext/**",
   "scripts/ci_gate.jl",
   "scripts/ci_plan.jl",
+  "scripts/ci_result.jl",
   "scripts/ci_verdict.jl",
   "scripts/test.jl",
   "scripts/test_report.jl",

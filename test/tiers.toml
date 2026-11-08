@@ -13,6 +13,7 @@ quick = [
   "aqua",
   "ci_gate",
   "ci_plan",
+  "ci_result",
   "ci_verdict",
   "compat",
   "docstrings",

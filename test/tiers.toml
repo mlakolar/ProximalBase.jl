@@ -20,6 +20,7 @@ quick = [
   "int32_exponents",
   "interface",
   "ldexp_bigfloat",
+  "platform_focus",
   "readme",
   "tier_selection",
   "utils",

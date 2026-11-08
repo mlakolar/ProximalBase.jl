@@ -459,6 +459,25 @@ known package ambiguities are unchanged; the assertion now prints the offending 
 fails, on every Julia version. When the tiers were introduced, this was the only assertion whose
 input changed.
 
+## Focused platform runs (#772)
+
+`platform_focus` (quick) tests `scripts/platform_focus.jl` and the text of
+`.github/workflows/platform-focused.yml`, the workflow that runs one test file on native Windows and
+macOS (CONTRIBUTING.md, "Focused runs on Windows and macOS"). `scripts/test.jl <name>` runs every
+test whose name starts with `<name>`; some declared names are a prefix of another, so the
+workflow passes the name and `!<other>` for each longer name. The test feeds that selector for each
+declared name to the runner's own `parse_args` and `filter_tests!` on the real catalog and requires
+exactly that file, and `check_selectors` returns no error and no warning for it (the runner calls it
+first, and its warnings reach the log). It also checks that each refusal of the plan job says why
+(unknown name, prefix, directory, helper, environment, a form that is not a name, an over-long name, a
+listed name without a file, a Julia version below the bound of `Project.toml`, an `os`, a SHA), that
+all problems are reported at once, that a hostile input cannot start a workflow command, that
+`check-log` accepts the header of one file and rejects two files, another file, none and no header,
+and that the workflow has dispatch as its only trigger, reads inputs only through `env:`, uses the
+action versions of `CI.yml`, and reads exactly the outputs the script writes. The workflow text is
+read with CRLF endings turned into LF, since the quick tier also runs on Windows in the nightly run.
+The native runs themselves are not part of the test: they are the evidence recorded on the PR.
+
 ## Per-file times
 
 From the full run 41364805347 (Julia lts on an AMD EPYC 9V74, Windows on an EPYC 9V45). A file's

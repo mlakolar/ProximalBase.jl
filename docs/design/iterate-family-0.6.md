@@ -301,8 +301,10 @@ Shared by both forms of `prox_coordinate!` and by the four-argument
 four-argument `kkt_violation` checks the real element types, then that `k` is one of
 `1:ncoordinates(x)` (`BoundsError`; for the owner, before `tril_cartesian`), then that `g`
 has `length(x)` entries for a `SparseIterate` or `p^2` for the owner (`DimensionMismatch`),
-as a matrix or flat, before it computes. For an `AtomIterate` it checks the group layout
-and the group id as before. For other arrays `x` it checks neither `k` nor `g`.
+as a matrix or flat, before it computes. The `AtomIterate` dispatch is unchanged by these
+checks, and a group penalty has its group layout validated where that applies. For other arrays
+`x` there is no additional coordinate or extent check; the checks of the real element types and
+those made by `f` and by indexing still apply.
 
 | ID | requirement | status | types |
 |:--|:--|:--|:--|

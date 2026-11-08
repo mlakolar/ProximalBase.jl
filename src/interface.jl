@@ -591,8 +591,10 @@ where `g = ∇h(x)` is the gradient of the smooth part. For a
 the real element types, then that `k` is one of `1:ncoordinates(x)` (a `BoundsError`
 otherwise), then that `g` has `length(x)` entries, or `p^2` for the symmetric iterate (a
 `DimensionMismatch` otherwise); a matrix-shaped or flat `g` of that length is accepted. For an
-[`AtomIterate`](@ref), `k` is a group, and the group layout and the group `k` are checked as
-before. For other arrays `x` the second form does not check `k` or `g` against `x`. On a
+[`AtomIterate`](@ref), `k` is a group, and the method is unchanged by these checks, and a group
+penalty has its group layout validated where that applies. For other arrays `x` the second form
+adds no check of `k` or `g` against `x`; the checks of the real element types and those made by
+`f` and by indexing still apply. On a
 [`SymmetricSparseIterate`](@ref), use the symmetric part of `g`; an opposing
 pair of infinite entries has no symmetric part and throws `ArgumentError`.
 A positive value means

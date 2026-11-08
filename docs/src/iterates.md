@@ -924,7 +924,7 @@ On a `SparseIterate`, ``k`` is an entry. After the check of the real
 element types, the call checks that ``k`` is one of `1:ncoordinates(x)` (a
 `BoundsError` otherwise) and then that `g` has the length of `x` (a
 `DimensionMismatch` otherwise); a matrix-shaped or flat `g` of that length is
-accepted, and `g` is not scanned. For a separable `f` the call
+accepted; these two checks do not scan `g`. For a separable `f` the call
 then returns `kkt_violation(f, g, k)`. A group penalty screens
 each entry with its group. When every entry of the group is zero in `x`, the
 call returns the screen of the group in the table. Otherwise it returns the

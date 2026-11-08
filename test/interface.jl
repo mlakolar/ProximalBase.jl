@@ -219,7 +219,7 @@ ProximalBase.kkt_violation(f::KktCustom, g::AbstractArray, i::Integer) = abs(g[i
       @test [kkt_violation(wf, g, x, k) for k in 1:4] == [abs(g[k]) - k for k in 1:4]
       for k in (5, big_ids..., big(5), UInt(5), Int8(5), Int32(0))
         @test_throws BoundsError kkt_violation(f, g, x, k)
-        @test_throws BoundsError kkt_violation(f, vcat(g, T(2)), x, k)   # the id is tested first
+        @test_throws BoundsError kkt_violation(f, vcat(g, T(2)), x, k)   # the id check comes before the extent check
       end
       for gbad in (T[], g[1:1], g[1:3], vcat(g, T(2)), zeros(T, 3, 2), zeros(T, 2, 3), zeros(T, 4, 2), zeros(T, 2, 2, 2))
         length(gbad) == 4 && continue
@@ -246,7 +246,7 @@ ProximalBase.kkt_violation(f::KktCustom, g::AbstractArray, i::Integer) = abs(g[i
     xn = SparseIterate(T[0, 2, 0, 0]); xn[3] = 1
     @test kkt_violation(f, g, xn, 3) == T(6)
     @test_throws BoundsError kkt_violation(f, g, xn, 5)
-    # a function that is not built in takes the same checks
+    # a user-defined separable function passes through the same checks
     @test_throws BoundsError kkt_violation(KktCustom(T(1)), g, SparseIterate(T, 4), 5)
     @test_throws DimensionMismatch kkt_violation(KktCustom(T(1)), g[1:3], SparseIterate(T, 4), 1)
     @test kkt_violation(KktCustom(T(1)), g, SparseIterate(T, 4), 2) == T(0.5) - 1
@@ -256,7 +256,7 @@ ProximalBase.kkt_violation(f::KktCustom, g::AbstractArray, i::Integer) = abs(g[i
       for k in (0, 1, -1, big(10)^30)
         @test_throws BoundsError kkt_violation(f, T[], e, k)
       end
-      @test_throws BoundsError kkt_violation(f, T[1], e, 1)    # no valid id, whatever the gradient
+      @test_throws BoundsError kkt_violation(f, T[1], e, 1)    # the id check comes first
     end
 
     # the owner: coordinates are the p(p+1)/2 entries of the lower triangle
@@ -275,7 +275,7 @@ ProximalBase.kkt_violation(f::KktCustom, g::AbstractArray, i::Integer) = abs(g[i
     Gc = copy(G)
     for k in (0, 4, 10^6, big_ids..., big(4), UInt(4), Int8(4))
       @test_throws BoundsError kkt_violation(f, G, S, k)
-      @test_throws BoundsError kkt_violation(f, zeros(T, 3), S, k)    # the id is tested first
+      @test_throws BoundsError kkt_violation(f, zeros(T, 3), S, k)    # the id check comes before the extent check
     end
     for gbad in (T[], zeros(T, 3), zeros(T, 5), zeros(T, 3, 3), zeros(T, 2, 3), zeros(T, 2, 2, 2)[:, :, 1:0])
       @test_throws DimensionMismatch kkt_violation(f, gbad, S, 1)
@@ -306,7 +306,7 @@ ProximalBase.kkt_violation(f::KktCustom, g::AbstractArray, i::Integer) = abs(g[i
     @test_throws BoundsError kkt_violation(f, GP, SP, 11)
     @test_throws DimensionMismatch kkt_violation(f, GP[:, 1:3], SP, 1)
 
-    # AtomIterate: unchanged, a group is a coordinate and the layout is checked
+    # AtomIterate: the group id and the group layout, as the method behaved before
     A = AtomIterate(T, 4, [1:2, 3:4])
     gf = GroupNormL2(T(1), [1:2, 3:4])
     @test kkt_violation(gf, g, A, 1) ≈ grp(g, 1:2, sqrt(T(2)))
@@ -333,7 +333,7 @@ ProximalBase.kkt_violation(f::KktCustom, g::AbstractArray, i::Integer) = abs(g[i
     @test [kkt_violation(NormL1(T(1), T[1 2; 2 3]), G, S, k) for k in 1:3] == T[0, 1, 0]
   end
 
-  # the valid path allocates nothing
+  # the valid calls below allocate nothing after warmup
   kkt_alloc(f, g, x, k) = @allocated kkt_violation(f, g, x, k)
   let g = [3.0, -0.5, 7.0, 1.5], x = SparseIterate(4), xm = SparseIterate(2, 2), S = SymmetricSparseIterate(2),
       G = [1.0 2; 4 3], A = AtomIterate(4, [1:2, 3:4]), f = NormL1(1.0), gf = GroupNormL2(1.0, [1:2, 3:4])

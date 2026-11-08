@@ -1263,6 +1263,7 @@ end
     @test T.severity(p, "linux", "1", "a_test_nobody_listed") == :core
     @test T.is_deferred(p, "gpu") && T.is_deferred(p, "conformance/gpu_arrays") && !T.is_deferred(p, "calculus")
     @test T.deferred_group(p, "extreme_normals").why == "extreme precision and exponent ranges"
+    @test T.deferred_group(p, "extreme_normals_grids").why == "extreme precision and exponent ranges"
     # globs follow test/tiers.jl
     glob = T.parse_policy(let d = deepcopy(data); d["triage"]["deferred"][1]["files"] = ["gpu*", "conformance/*"]; d end)
     @test T.is_deferred(glob, "gpu_smoke") && T.is_deferred(glob, "conformance/kernels") && !T.is_deferred(glob, "conformance/a/b")

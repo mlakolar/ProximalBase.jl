@@ -372,7 +372,7 @@ Base.@propagate_inbounds function _l1_prox_threshold(v, γ, λ, w, ::Type{S}) wh
 end
 
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ0, _entry(f.w, i)))
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _kkt_coefficient(eltype(g), f.λ0, _entry(f.w, i)))
 restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entries(f.w, S))
 
 # without weights, Base's vectorized sum (a sum with init takes a slow sequential path)
@@ -445,7 +445,7 @@ Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real)
 
 # moving up from zero decreases the objective when -gᵢ exceeds λ0 wᵢ
 kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); -g[i] - _weight_coefficient(f.λ0, _entry(f.w, i)))
+  (eltype(g) <: Real || _real_error(:kkt_violation); -g[i] - _kkt_coefficient(eltype(g), f.λ0, _entry(f.w, i)))
 restrict(f::NormL1Nonneg, S::AbstractVector{<:Integer}) = NormL1Nonneg(f.λ0, _restrict_entries(f.w, S))
 
 @inline _l1_value(::NormL1, v, a) = a * abs(v)
@@ -620,7 +620,7 @@ end
 end
 
 kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ1, _entry(f.w, i)))
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _kkt_coefficient(eltype(g), f.λ1, _entry(f.w, i)))
 restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2, _restrict_entries(f.w, S))
 
 ####################################

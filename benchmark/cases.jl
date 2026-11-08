@@ -256,7 +256,7 @@ end
 # that the function object holds; `reference` passes a reference already computed for the same call.
 # Reference construction and checks are deliberately outside all measurements. The reference is returned.
 function addprox!(cases, family, name, f, x; γ=eltype(x)(0.7), layout="dense",
-                  prepare=noop, profile=false, alias=false, value=true, reference_function=f,
+                  prepare=noop, profile=false, alias=false, value=true, plain=true, reference_function=f,
                   inputs=(;), reference=nothing)
     T = eltype(x)
     y = similar(x)
@@ -271,8 +271,8 @@ function addprox!(cases, family, name, f, x; γ=eltype(x)(0.7), layout="dense",
         finite_entries(y) || error("nonfinite proximal output")
         nothing
     end
-    addcase!(cases, family, name * "/prox!", () -> prox!(y, f, x, γ), check!;
-             inputs=declared, T, shape=join(size(x), "x"), layout, prepare, profile, work=ambient_work(x))
+    plain && addcase!(cases, family, name * "/prox!", () -> prox!(y, f, x, γ), check!;
+                      inputs=declared, T, shape=join(size(x), "x"), layout, prepare, profile, work=ambient_work(x))
     if value
         function checkvalue!()
             check!()
@@ -3627,6 +3627,71 @@ function atom_cases!(cases, rep; quick=false, selector=nothing)
     nothing
 end
 
+# The calls of #519 part A: the coefficients of the losses (steps and levels, labels), the KKT
+# diagnostics and the LLA weights. References are formulas from the harness's own data.
+function kkt_sum!(out, f, g)
+    s = zero(float(eltype(g)))
+    @inbounds for i in eachindex(g)
+        s += kkt_violation(f, g, i)
+    end
+    out[1] = s
+    nothing
+end
+
+function loss_coefficient_cases!(cases, rep; quick=false)
+    quick && return
+    for T in (Float32, Float64), n in (256, 100_000)
+        rng = scenario_rng(rep, "loss_coefficients/$T/$n")
+        x, w = randn(rng, T, n), rand(rng, T, n) .+ T(0.2)
+        labels = T.(rand(rng, (-1, 1), n))
+        g = randn(rng, T, n)
+        for (name, f) in (("HingeLoss_labels", HingeLoss(labels, nothing)), ("HingeLoss_labels_weighted", HingeLoss(labels, w)),
+                          ("CheckLoss_weighted", CheckLoss(T(0.3), w)), ("EpsInsensitiveLoss_weighted", EpsInsensitiveLoss(T(0.2), w)))
+            addprox!(cases, "loss_coefficients", name, f, x)
+        end
+        # HingeLoss, #519 part A review: in place (y === x), nonunit finite labels, and weights with one
+        # or many subnormal entries (γw is not a normal number there: the range-recovering path)
+        nonunit = labels .* (T(0.5) .+ T(1.5) .* rand(rng, T, n))
+        w_one = copy(w); w_one[(n + 1) ÷ 2] = 3 * nextfloat(zero(T))
+        w_many = copy(w); w_many[1:10:n] .= 3 * nextfloat(zero(T))
+        for (name, f) in (("HingeLoss_nolabels_weighted", HingeLoss(nothing, w)),
+                          ("HingeLoss_labels_nonunit", HingeLoss(nonunit, nothing)),
+                          ("HingeLoss_labels_weighted_nonunit", HingeLoss(nonunit, w)),
+                          ("HingeLoss_labels_weighted_exc1", HingeLoss(labels, w_one)),
+                          ("HingeLoss_labels_weighted_excmany", HingeLoss(labels, w_many)))
+            addprox!(cases, "loss_coefficients", name, f, x; value=false, alias=true)
+        end
+        for (name, f) in (("HingeLoss_labels", HingeLoss(labels, nothing)), ("HingeLoss_labels_weighted", HingeLoss(labels, w)))
+            addprox!(cases, "loss_coefficients", name, f, x; value=false, plain=false, alias=true)
+        end
+        out = zeros(T, 1)
+        for (name, f, ref) in (("NormL1_weighted", NormL1(T(0.3), w), i -> abs(g[i]) - T(0.3) * w[i]),
+                               ("ElasticNet_weighted", ElasticNet(T(0.3), T(0.4), w), i -> abs(g[i]) - T(0.3) * w[i]),
+                               ("CheckLoss_weighted", CheckLoss(T(0.3), w), i -> max(-g[i] - w[i] * T(0.3), g[i] - w[i] * (1 - T(0.3)))),
+                               ("HingeLoss_labels_weighted", HingeLoss(labels, w), i -> abs(g[i] - w[i] * labels[i])),
+                               ("LogPenalty_weighted", LogPenalty(T(0.3), T(0.5), w), i -> abs(g[i]) - T(0.3) * w[i] / T(0.5)))
+            function checkkkt!()
+                kkt_sum!(out, f, g)
+                r = sum(Float64(ref(i)) for i in eachindex(g))
+                isapprox(Float64(out[1]), r; rtol=1e-3, atol=1e-3 * sqrt(n)) || error("kkt sum differs from formula: $(out[1]) versus $r")
+            end
+            addcase!(cases, "loss_coefficients", name * "/kkt_violation", () -> kkt_sum!(out, f, g), checkkkt!;
+                     inputs=(; g, w, labels), T, shape=string(n), work=n)
+        end
+        lw = similar(x)
+        for (name, f, ref) in (("NormL1_weighted", NormL1(T(0.3), w), i -> T(0.3) * w[i]),
+                               ("LogPenalty_weighted", LogPenalty(T(0.3), T(0.5), w), i -> T(0.3) * w[i] / (T(0.5) + abs(x[i]))),
+                               ("MCP", MCP(T(0.3)), i -> max(T(0.3) - abs(x[i]) / 3, zero(T))))
+            function checklla!()
+                lla_weights!(lw, f, x)
+                all(i -> isapprox(Float64(lw[i]), Float64(ref(i)); rtol=1e-3, atol=1e-6), eachindex(x)) || error("lla weights differ from formula")
+            end
+            addcase!(cases, "loss_coefficients", name * "/lla_weights!", () -> lla_weights!(lw, f, x), checklla!;
+                     inputs=(; x, w), T, shape=string(n), work=n)
+        end
+    end
+end
+
 const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks", "owner", "sparse", "atom", "ridge")
 
 # `selector` (a Regex or `nothing`) lets the builders that take it, `sparse_cases!` and `atom_cases!`, skip scenarios and
@@ -3644,6 +3709,7 @@ function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS), selector::
     for (group,builder) in zip(CASE_GROUPS,builders)
         group in groups || continue
         builder in (sparse_cases!, atom_cases!) ? builder(cases,rep;quick=suite=="quick",selector) : builder(cases,rep;quick=suite=="quick")
+        group == "vectors" && loss_coefficient_cases!(cases,rep;quick=suite=="quick")
     end
     suite == "extended" && "vectors" in groups && group_layout_cases!(cases, rep)
     ids=[c.meta.id for c in cases]

@@ -906,12 +906,12 @@ function _kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AbstractAr
   k = _group(f, i)
   k == 0 && return abs(g[i])
   G = f.groups[k]
-  _allzero(x, G) ? _dual_norm(f, g, G) - _weight_coefficient(f.λ0, f.w[k]) : abs(g[i])
+  _allzero(x, G) ? _dual_norm(f, g, G) - _kkt_coefficient(eltype(g), f.λ0, f.w[k]) : abs(g[i])
 end
 
 # on an AtomIterate, k is a group
 _kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AtomIterate, k::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _weight_coefficient(f.λ0, f.w[k]))
+  (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _kkt_coefficient(eltype(g), f.λ0, f.w[k]))
 
 # the coordinates of x are the groups of f
 _checksamegroups(f::AbstractGroupPenalty, x::AtomIterate) = _samelayout(f, x) ||

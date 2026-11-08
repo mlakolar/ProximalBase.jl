@@ -62,7 +62,11 @@ The weights include the level `λ` and the entry or group weights of `f`; to
 keep the level apart, divide them by `λ` and use `NormL1(λ, w)`. `x` may be a
 [`SparseIterate`](@ref), a [`SymmetricSparseIterate`](@ref) (for the separable penalties, with a dense `p × p`
 matrix `w`; the allocating form returns a `Matrix`) or an [`AtomIterate`](@ref). `lla_weights!` allocates nothing;
-`lla_weights(f, x)` allocates `w`.
+`lla_weights(f, x)` allocates `w`. The weights are computed in the wider of the
+types of `w` and `x` and rounded once to `eltype(w)` (numerics T3, T4): a
+`Float32` point `x` gives `Float64` weights of the `Float64` slopes at the
+`Float32` entries, so a decision at a breakpoint, such as `|xᵢ| < a` of
+[`CappedL1`](@ref), is made in `Float64`, as a call that writes `Float64` does.
 
 Each LLA stage is convex, so its minimizer, λmax, the strong rule and safe
 screening are those of a weighted lasso. Alternating stages and weights is a
@@ -111,7 +115,7 @@ Base.@propagate_inbounds function lla_weight(f::LogPenalty, v::T, i::Integer) wh
   w = _entry(f.w, i)                       # the raw weight: a finite weight that overflows S is not infinite
   # The denominator can overflow while the entry remains fixed.
   isinf(w) && return isnan(v) ? S(v) : S(Inf)
-  return _weight_coefficient(S, f.λ, w) / (S(f.ε) + abs(S(v)))
+  return _logpenalty_slope(S, f.λ, w, f.ε, abs(S(v)))
 end
 
 function lla_weight(f::MCP, v::T, ::Integer) where {T<:Real}
@@ -129,15 +133,52 @@ end
 lla_weight(f::NormLq, ::Real, ::Integer) = _no_lla(f)
 lla_weights!(w::AbstractArray, f::NormLq, x::AbstractArray) = (eltype(w) <: Real && eltype(x) <: Real || _real_error(:lla_weights!); _no_lla(f))
 
-# entry by entry over the dense array; a sparse iterate reads its entries in O(1)
-function lla_weights!(w::AbstractArray, f::SeparableFunction, x::AbstractArray)
+function _lla_weights_checked(w::AbstractArray, f::SeparableFunction, x::AbstractArray)
   eltype(w) <: Real && eltype(x) <: Real || _real_error(:lla_weights!)
   _checksize(w, x)
   _checkparams(f, x)
   check_symmetric_parameters(f, x)
+  # the model precision (T3): the scalar methods work in float(typeof(v))
+  return promote_type(float(eltype(w)), float(eltype(x)))
+end
+
+# entry by entry over the dense array; a sparse iterate reads its entries in O(1)
+function lla_weights!(w::AbstractArray, f::SeparableFunction, x::AbstractArray)
+  W = _lla_weights_checked(w, f, x)
   T = eltype(w)
   @inbounds for i in eachindex(IndexLinear(), w, x)
-    w[i] = convert(T, lla_weight(f, x[i], i))
+    w[i] = convert(T, lla_weight(f, convert(W, x[i]), i))
+  end
+  return w
+end
+
+# LogPenalty: the ordinary slope of every entry is stored together with a flag that records whether
+# it is in range, which keeps the loop vectorized; only if some entry is not (a quotient that
+# under- or overflows, an infinite or NaN entry) a second pass recomputes just those entries by the
+# scalar method, from the unchanged argument. An argument that is the destination is read entry by
+# entry as before.
+function lla_weights!(w::AbstractArray, f::LogPenalty, x::AbstractArray)
+  W = _lla_weights_checked(w, f, x)
+  T = eltype(w)
+  # an abstract weight element type (Real[...]) has no single working type: each entry is promoted by the scalar method
+  if w === x || w === f.w || !(f.w === nothing || isconcretetype(eltype(f.w)))   # or the repair would read an overwritten argument or weight
+    @inbounds for i in eachindex(IndexLinear(), w, x)
+      w[i] = convert(T, lla_weight(f, convert(W, x[i]), i))
+    end
+    return w
+  end
+  R = _working_type(W, f.λ, f.w === nothing ? true : zero(eltype(f.w)), f.ε)
+  a, e = convert(R, f.λ), convert(R, f.ε)
+  ok = true
+  @inbounds for i in eachindex(IndexLinear(), w, x)
+    r, k = _logpenalty_ordinary(W, a, convert(R, _entry(f.w, i)), e, abs(convert(W, x[i])))
+    w[i] = convert(T, r)
+    ok &= k
+  end
+  ok && return w
+  @inbounds for i in eachindex(IndexLinear(), w, x)
+    _, k = _logpenalty_ordinary(W, a, convert(R, _entry(f.w, i)), e, abs(convert(W, x[i])))
+    k || (w[i] = convert(T, lla_weight(f, convert(W, x[i]), i)))
   end
   return w
 end
@@ -169,9 +210,9 @@ lla_weights(f::_OwnerLLA, x::SymmetricSparseIterate) = lla_weights!(_gradient_bu
 #  group penalties
 ####################################
 
-lla_weight(f::GroupNormL2, v::T, k::Integer) where {T<:Real} = float(T)(_weight_coefficient(f.λ0, f.w[k]))
+lla_weight(f::GroupNormL2, v::T, k::Integer) where {T<:Real} = _weight_coefficient(float(T), f.λ0, f.w[k])
 lla_weight(f::_RadialGroupPenalty, v::T, k::Integer) where {T<:Real} =
-  isinf(_weight_coefficient(f.λ0, f.w[k])) ? float(T)(Inf) : lla_weight(_group_scalar(f, float(T), k), v, 1)
+  isinf(_entry(f.w, k)) ? float(T)(Inf) : lla_weight(_group_scalar(f, float(T), k), v, 1)
 
 function lla_weights!(w::AbstractArray, f::Union{GroupNormL2, _RadialGroupPenalty}, x::AbstractArray)
   eltype(w) <: Real && eltype(x) <: Real || _real_error(:lla_weights!)
@@ -179,8 +220,9 @@ function lla_weights!(w::AbstractArray, f::Union{GroupNormL2, _RadialGroupPenalt
     throw(DimensionMismatch("the weights have length $(length(w)) and there are $(length(f.groups)) groups"))
   _checkgroups(f, x)
   T = eltype(w)
+  W = promote_type(float(T), float(eltype(x)))
   for k in eachindex(f.groups)
-    w[k] = convert(T, lla_weight(f, _group_norm(f, x, f.groups[k]), k))
+    w[k] = convert(T, lla_weight(f, convert(W, _group_norm(f, x, f.groups[k])), k))
   end
   return w
 end

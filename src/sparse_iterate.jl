@@ -1914,9 +1914,10 @@ _checkreal_broadcast(x, a::Union{AbstractArray, Ref, Number}) =
   !(eltype(a) <: Complex) || _real_error(nameof(typeof(x)))
 
 # The result of a broadcast into an iterate is real as well. Its element type R is read from
-# the types. _staged_result is false, a compile-time constant for a concrete R, when R is
-# Union{} or a subtype of Real (which includes Bool, Integer, Rational and BigFloat results):
-# the broadcast then writes directly. Any other R is staged. A complex R is rejected before
+# the types. _staged_result is false when R is Union{} or a subtype of Real (which includes
+# Bool, Integer, Rational and BigFloat results): the broadcast then writes directly. The test
+# of R is resolved by inference when the function and the argument types are known to the
+# compiler, the usual case. Any other R is staged. A complex R is rejected before
 # anything is evaluated, and a Union with a complex member, Any or Number is evaluated into a
 # temporary first, so that nothing is written when an element is complex or f throws.
 @inline function _staged_result(bc::Broadcast.Broadcasted)
@@ -1928,7 +1929,8 @@ end
   axes(x) == axes(bc) ||
     throw(DimensionMismatch("destination axes $(axes(x)) do not match the broadcast axes $(axes(bc))"))
   R <: Complex && _real_error(nameof(typeof(x)))
-  staged = Broadcast.materialize(Broadcast.broadcasted(bc.f, bc.args...))
+  # the broadcast that bc represents, with the axes it carries (singleton expansion, an empty destination)
+  staged = copy(Broadcast.Broadcasted{Broadcast.DefaultArrayStyle{ndims(x)}}(bc.f, bc.args, bc.axes))
   any(v -> v isa Complex, staged) && _real_error(nameof(typeof(x)))
   @inbounds for I in eachindex(staged)
     x[I] = staged[I]

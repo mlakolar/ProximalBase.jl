@@ -304,7 +304,6 @@ end
                    x -> (x .= Complex.(z1, 0.0)), x -> (x .= (v -> v + 0im).(z1)),
                    x -> (x .= sqrt.(Complex.(z1))), x -> (x .= complex.(x, 0.0)),
                    x -> (x .= (v -> opaque[](v)).(z1)), x -> (x .= ((u, v) -> opaque[](u, v)).(z1, z2)),
-                   x -> (x .= opaque[].(z1)),
                    x -> (x .= (v -> v > 0.5 ? 1im : 1.0).(z1)),
                    x -> (x .= (v -> v > 0.5 ? 1.0 : 1im).(shaped([0.0, 0, 0, 1.0]))),
                    x -> (x .= shaped(Any[1.0, 2im, 0, 0])),
@@ -316,7 +315,9 @@ end
                    x -> (x .= z1 .+ 0im), x -> (x .= fill(0im, dims)), x -> (x .= 1.0 + 0im),
                    x -> (x .= Ref(1.0) .+ 0im), x -> (x .= sqrt.(complex.(1.0))),
                    x -> (x .= exp.(im .* x)), x -> (x .+= 1im),
-                   x -> (x .= real.(z1 .+ (1 + 2im))))
+                   x -> (x .= real.(z1 .+ (1 + 2im))),
+                   # opaque[] is read before the broadcast, so this is the known-complex path
+                   x -> (x .= opaque[].(z1)))
       x = make()
       rejects(() -> write!(x), name, x)
     end
@@ -349,6 +350,42 @@ end
     @test vals((x .= gf.(x))) == expected
     x = make(); w = shaped([1.0, 2, 3, 4])
     @test vals((x .= gf.(x .+ w))) == gf.(w .+ shaped([0.0, 0, 0, 7]))
+    # the staged path writes what the direct path writes: values, working set, nactive
+    same(x, y) = vals(x) == vals(y) && nactive(x) == nactive(y) &&
+                 collect(activecoordinates(x)) == collect(activecoordinates(y))
+    gid = Ref{Any}(identity)
+    opq(v) = gid[](v)
+    for (staged, direct) in (
+        (x -> (x .= shaped(Number[1.0, 2, 3, 4])), x -> (x .= shaped([1.0, 2, 3, 4]))),
+        (x -> (x .= (v -> opq(v)).(shaped([1.0, 2, 3, 4]))), x -> (x .= shaped([1.0, 2, 3, 4]))),
+        (x -> (x .= (v -> v > 5 ? 1im : v).(z2)), x -> (x .= z2)),
+        (x -> (x .= (v -> v > 0.5 ? 1.0 : v).(shaped([0.0, 0, 0, 1.0]))), x -> (x .= shaped([0.0, 0, 0, 1.0]))))
+      x = make(); x2 = make()
+      staged(x); direct(x2)
+      @test same(x, x2)
+    end
+    # singleton expansion and an empty destination keep the axes of the broadcast
+    if dims == (4,)
+      for staged in (x -> (x .= Number[2.0]), x -> (x .= (v -> v).(Number[2.0])),
+                     x -> (x .= (v -> opq(v)).([2.0])), x -> (x .= (v -> opq(v)).(Ref(2.0))),
+                     x -> (x .= (v -> opq(v)).((2.0,))), x -> (x .= (v -> opq(v)).(Any[2.0])))
+        x = make(); x2 = make()
+        staged(x); x2 .= [2.0]
+        @test vals(x) == fill(2.0, 4) && same(x, x2)
+      end
+    else
+      x = make(); x2 = make()
+      x .= Number[1.0, 2.0]; x2 .= [1.0, 2.0]
+      @test vals(x) == [1.0 1.0; 2.0 2.0] && same(x, x2)
+      x = make(); x2 = make()
+      x .= (v -> opq(v)).(reshape(Number[1.0, 2.0], 1, 2)); x2 .= reshape([1.0, 2.0], 1, 2)
+      @test vals(x) == [1.0 2.0; 1.0 2.0] && same(x, x2)
+    end
+    # the staged function reads the destination while the result is evaluated: it sees the old x
+    x = make(); idx = ndims(x) == 2 ? (1, 1) : (1,); x[idx...] = 10.0
+    old = vals(x); h = Ref{Any}(+)
+    x .= (v -> h[](v, x[idx...])).(shaped([1.0, 2, 3, 4]))
+    @test vals(x) == old[idx...] .+ shaped([1.0, 2, 3, 4])
     # accepted as before
     x = make(); @test vals((x .= real.(complex.(z1, z2)))) == z1
     x = make(); @test vals((x .= abs.(complex.(z1, z2)))) == z1 .+ z2
@@ -357,6 +394,14 @@ end
     x = make(); @test vals((x .+= 1)) == shaped([1.0, 1, 1, 8])
     x = make(); @test vals((x .= 2 .* x)) == shaped([0.0, 0, 0, 14])
   end
+  # an empty destination: a broadcast that is valid for it writes nothing
+  for x in (SparseIterate(0), SparseIterate(0, 2), AtomIterate(Float64, 0, Vector{Int}[]))
+    @test (x .= Number[]) === x
+    @test (x .= Number[2.0]) === x
+    @test nactive(x) == 0 && isempty(x)
+  end
+  y = SparseIterate(0, 2); y .= Number[]
+  @test size(Matrix(y)) == (0, 2)
   # the 0-dimensional methods reject a complex value through fill!
   for (make, name, dims) in makers
     for write! in (x -> (x .= 1im), x -> (x .= Ref(1im)), x -> (x .= complex.(1.0)))

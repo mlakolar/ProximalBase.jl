@@ -643,4 +643,47 @@ end
   @test LinearFunction([2.0^600, 2.0^600], 3.0)([2.0^500, 2.0^500]) == Inf
 end
 
+# ---- the GLM derivative of SquaredHinge keeps its Int arithmetic ----
+
+# _weighted_deriv(SquaredHinge(), w, ηs, k, y) takes the margin exponent of _sqrhinge_margin, an Int that can already
+# have wrapped. Its Int total is right modulo 2^64, so a wide sum there would turn a case that is right into a wrong one.
+# The table holds the values of the unchanged Int sum, as (class, significand of frexp, exponent), for the margin
+# (sign of y, exponent of |y|, sign of ηs, exponent of |ηs|, k) at the weights 2^W, W in GLM_PIN_WEIGHTS. The exponents
+# are those of the 64-bit Unix range, so the table is checked only there.
+const GLM_PIN_WEIGHTS = (-4611686018427387904, -2, -1, 0, 1, 4611686018427387902)
+const GLM_PIN = [
+  ((1, 0, -1, 0, 5), [(:fin, -0.515625, -4611686018427387897), (:fin, -0.515625, 5), (:fin, -0.515625, 6), (:fin, -0.515625, 7), (:fin, -0.515625, 8), (:ninf, 1.0, 0)]),
+  ((1, 0, -1, 0, 9223372036854775805), [(:fin, -0.5, 4611686018427387903), (:ninf, 1.0, 0), (:ninf, 1.0, 0), (:nzero, 0.0, 0), (:nzero, 0.0, 0), (:nzero, 0.0, 0)]),
+  ((1, 0, -1, 0, 9223372036854775806), [(:ninf, 1.0, 0), (:ninf, 1.0, 0), (:nzero, 0.0, 0), (:nzero, 0.0, 0), (:nzero, 0.0, 0), (:nzero, 0.0, 0)]),
+  ((1, 0, -1, 0, 9223372036854775807), [(:ninf, 1.0, 0), (:ninf, 1.0, 0), (:ninf, 1.0, 0), (:ninf, 1.0, 0), (:ninf, 1.0, 0), (:ninf, 1.0, 0)]),
+  ((-1, 0, 1, 0, 9223372036854775806), [(:inf, 1.0, 0), (:inf, 1.0, 0), (:zero, 0.0, 0), (:zero, 0.0, 0), (:zero, 0.0, 0), (:zero, 0.0, 0)]),
+  ((1, 0, -1, 1048576, 9223372036854775807), [(:ninf, 1.0, 0), (:ninf, 1.0, 0), (:ninf, 1.0, 0), (:ninf, 1.0, 0), (:ninf, 1.0, 0), (:ninf, 1.0, 0)]),
+  ((1, 0, -1, 4611686018427387902, 9223372036854775807), [(:ninf, 1.0, 0), (:ninf, 1.0, 0), (:ninf, 1.0, 0), (:ninf, 1.0, 0), (:ninf, 1.0, 0), (:ninf, 1.0, 0)]),
+  ((1, -4611686018427387904, -1, -4611686018427387904, -2), [(:fin, -0.5, 0), (:fin, -0.5, 4611686018427387902), (:fin, -0.5, 4611686018427387903), (:ninf, 1.0, 0), (:ninf, 1.0, 0), (:ninf, 1.0, 0)]),
+  ((1, -4611686018427387904, -1, -4611686018427387904, -3), [(:fin, -0.5, -1), (:fin, -0.5, 4611686018427387901), (:fin, -0.5, 4611686018427387902), (:fin, -0.5, 4611686018427387903), (:ninf, 1.0, 0), (:ninf, 1.0, 0)]),
+  ((-1, -4611686018427387904, 1, -4611686018427387904, -3), [(:fin, 0.5, -1), (:fin, 0.5, 4611686018427387901), (:fin, 0.5, 4611686018427387902), (:fin, 0.5, 4611686018427387903), (:inf, 1.0, 0), (:inf, 1.0, 0)]),
+]
+
+function glm_pin_class(v::BigFloat)
+  isnan(v) && return (:nan, 0.0, 0)
+  isinf(v) && return (v > 0 ? :inf : :ninf, 1.0, 0)
+  iszero(v) && return (signbit(v) ? :nzero : :zero, 0.0, 0)
+  m, e = Base.frexp(v)
+  (:fin, Float64(m), Int(e))
+end
+
+if EMAX == Int128(2)^62 - 1
+  @testset "GLM SquaredHinge derivative keeps the Int sum of its margin exponent, precision 53" begin
+    setprecision(BigFloat, 53) do
+      for ((sy, py, sη, pη, k), expected) in GLM_PIN
+        y, ηs = pw(py, sy), pw(pη, sη)
+        for (W, want) in zip(GLM_PIN_WEIGHTS, expected)
+          v = PB._weighted_deriv(PB.SquaredHinge(), pw(W), ηs, k, y)
+          @test glm_pin_class(v) == want
+        end
+      end
+    end
+  end
+end
+
 end

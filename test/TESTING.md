@@ -101,7 +101,8 @@ outputs, JLArrays and the wrappers, about 60,000 assertions, beside its siblings
 fold into a normal level, a grid over the levelled families and the wrappers that fold them in both
 directions and in Float32 and Float64, and the fused values at the stored output, next to
 `nested_scaled`: a few seconds, with no grid that would need the thorough tier. `bigfloat_integer_operands` (standard) holds the exact integer operands of BigFloat
-arithmetic in `NormL1Fused` and the pooling of `IndIsotonic` and `SLOPE`, at precisions of two to five bits where the
+arithmetic in `NormL1Fused` and the pooling of `IndIsotonic` and `SLOPE`, the segment lengths of the total-variation kernel of
+`TotalVariation1D` and `FusedLasso`, and the value at the stored output of `NormL1Fused`, at precisions of two to five bits where the
 platform decides whether an integer such as 5 is rounded: a few seconds, with no large grid.
 
 ## Measured times on GitHub

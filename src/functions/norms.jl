@@ -1416,6 +1416,19 @@ function _value_parts(f::NormL1Fused, x::AbstractVector, v)
   _fused_scaled_parts(_fused_vector_terms(f, x, T)...)
 end
 
+# Whether the pooled sequence w has an inversion, an adjacent pair with w[k + 1] < w[k].
+# Only BigFloat is scanned: at a precision of a few bits the rounded block means of the pooling need not
+# be monotone, while the pooled means of Float16, Float32 and Float64 are left as they are (the
+# method for every other type is the constant false, which the compiler folds). A comparison with a
+# NaN is false.
+@inline _fused_pooled_inversion(::Type, w) = false
+function _fused_pooled_inversion(::Type{BigFloat}, w)
+  @inbounds for k in 1:length(w)-1
+    w[k + 1] < w[k] && return true
+  end
+  false
+end
+
 @inline function _fused_vector_value(f, x, v1, v2, ::Type{T}) where {T}
   w1 = iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1
   w2 = iszero(f.λ2) ? zero(T) : convert(T, f.λ2) * v2
@@ -1507,7 +1520,16 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     v1 += abs(wk)
     v2 += _int_mul(2k - n - 1, wk)
   end
-  V ? _fused_vector_value(f, y, v1, v2, T) : zero(T)
+  V || return zero(T)
+  # For finite pooled entries and a finite threshold, soft thresholding keeps a nondecreasing sequence
+  # nondecreasing. Then, when the pooled sequence is nondecreasing, the stored values in the order of the
+  # sorted entries are nondecreasing, f(y) sums them in the order accumulated above, and v1 and v2 are its
+  # sums. When the BigFloat guard finds an inversion the pooled order does not guarantee that order
+  # (thresholding may still have removed the inversion), and f(y) is returned instead. All writes of y
+  # are done and the entries of x are no longer needed; the scratch buffers of f are reused by f(y) only
+  # after the scan of the guard has read the pooled sequence.
+  _fused_pooled_inversion(T, wn) && return f(y)
+  _fused_vector_value(f, y, v1, v2, T)
 end
 
 # the common output z of an infinite fusion level, z = shrink(mean(x), γλ1), and the value at it. The

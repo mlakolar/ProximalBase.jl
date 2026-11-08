@@ -164,6 +164,15 @@ end
       check_oracle(f, kind, [(1, 1, inside)]; expected = 0.0)
       check_oracle(f, kind, [(1, 1, outside)]; expected = Inf)
     end
+
+    # The value of the ℓ0 ball at an owner reads the stored coefficients only: a diagonal entry counts one
+    # and a pair two, as the entries of the dense matrix.
+    data = [(1, 1, 1.0), (2, 1, 0.5), (3, 3, 0.0)]
+    for s in 0:4, diagonal in (true, false)
+      check_oracle(IndBallL0(s; diagonal), :sym, data; expected = s >= (diagonal ? 3 : 2) ? 0.0 : Inf)
+    end
+    check_oracle(IndBallL0(2), :sym, [(1, 1, 1.0), (2, 1, NaN)]; expected = NaN)
+    check_oracle(IndBallL0(2; diagonal = false), :sym, [(1, 1, NaN), (2, 1, 1.0)]; expected = 0.0)
   end
 
   @testset "Known dense paths" begin
@@ -177,7 +186,7 @@ end
     @test_broken n == 0
     x = make_iterate(C, :sym, [(1, 1, 1.0), (2, 1, 0.5)])
     n, _ = zeros_made(() -> IndBallL0(3)(x))
-    @test_broken n == 0
+    @test n == 0
     x = make_iterate(C, :mat, [(1, 1, 1.0), (2, 1, 0.5)])
     f = LinearFunction(ones(size(x)))
     n, _ = zeros_made(() -> f(x))

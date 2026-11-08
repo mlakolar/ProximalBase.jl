@@ -23,6 +23,25 @@ function simplex_proj(y, a)
 end
 l1ball_proj(y, r) = norm(y, 1) <= r ? y : sign.(y) .* simplex_proj(abs.(y), r)
 
+# the number of entries of a symmetric matrix that the set counts: a nonzero diagonal entry one, a pair two
+full_count(Z) = count(!iszero, Matrix(Z))
+
+# the largest squared error that a support within the budget saves: a nonzero diagonal entry costs one unit
+# and saves x_ii², a nonzero pair costs two and saves 2x_ij² (a knapsack, solved by dynamic programming);
+# with diagonal = false the diagonal is kept and does not count
+function sym_best_saving(X, s, diagonal)
+  p = size(X, 1)
+  items = Tuple{Int, Float64}[]
+  for c in 1:p, r in c:p
+    r == c ? diagonal && push!(items, (1, X[r, c]^2)) : push!(items, (2, 2 * X[r, c]^2))
+  end
+  best = zeros(s + 1)                 # best[b + 1]: the largest saving within the budget b
+  for (w, g) in items, b in s:-1:w
+    best[b + 1] = max(best[b + 1], best[b - w + 1] + g)
+  end
+  best[s + 1] + (diagonal ? 0.0 : sum(abs2, diag(X)))
+end
+
 @testset "IndBallL0" begin
   x = [0.5, -2., 0.1, 1.2, -0.3]
   f = IndBallL0(2)
@@ -56,46 +75,29 @@ l1ball_proj(y, r) = norm(y, 1) <= r ? y : sign.(y) .* simplex_proj(abs.(y), r)
     @test Vector(ws) == Vector(zs)
   end
   @test IndBallL0(3)(xs) == (count(!iszero, Vector(xs)) <= 3 ? 0 : Inf)
-  # a SymmetricSparseIterate: s counts the coordinates, the entries of the lower triangle
+  # a SymmetricSparseIterate: s counts the entries of the matrix, a diagonal entry one and a pair two
   p = 6
   D = randn(p, p); D = D + D'
   S = SymmetricSparseIterate(D)
   Z = prox(IndBallL0(5), S)
-  @test nactive(dropzeros!(copy(Z))) == 5
+  @test full_count(Z) <= 5
   @test Matrix(Z) == Matrix(Z)'                          # an entry and its transpose together
-  # the five entries of largest magnitude, an off-diagonal entry counting √2 times
-  wa(X, r, c) = (r == c ? 1 : sqrt(2)) * abs(X[r, c])
-  kept = sort([wa(Z, r, c) for c in 1:p for r in c:p if Z[r, c] != 0])
-  @test kept == sort(sort([wa(D, r, c) for c in 1:p for r in c:p]; rev = true)[1:5])
-  @test IndBallL0(5)(Z) == 0 && IndBallL0(4)(Z) == Inf
+  @test sum(abs2, D - Matrix(Z)) ≈ sum(abs2, D) - sym_best_saving(D, 5, true)
+  @test IndBallL0(5)(Z) == 0
   @test_throws ArgumentError IndBallL0(-1)
-end
-
-# the s largest entries of the lower triangle, kept with their transposes, an
-# off-diagonal entry counting √2 times when the diagonal counts (the Frobenius
-# projection); with diagonal = false the diagonal is kept and does not count
-function sym_hard_threshold(X, s, diagonal)
-  p = size(X, 1)
-  cand = [((diagonal && r != c ? sqrt(2) : 1) * abs(X[r, c]), r, c) for c in 1:p for r in (diagonal ? c : c + 1):p]
-  sort!(cand; rev = true, by = first)
-  Z = zeros(p, p)
-  for (_, r, c) in cand[1:min(s, length(cand))]
-    Z[r, c] = Z[c, r] = X[r, c]
-  end
-  diagonal || for i in 1:p
-    Z[i, i] = X[i, i]
-  end
-  Z
 end
 
 @testset "IndBallL0 on symmetric matrices" begin
   p = 7
   D = randn(p, p); D = (D + D') / 2
-  for diagonal in (true, false), s in (0, 1, 4, 10, 40)
+  for diagonal in (true, false), s in (0, 1, 2, 3, 4, 10, 40, 49)
     f = IndBallL0(s; diagonal)
-    ref = sym_hard_threshold(D, s, diagonal)
+    ref = prox!(zeros(p, p), f, Symmetric(D), 1.)
+    saved = sym_best_saving(D, s, diagonal)
     # a dense symmetric input, a dense or a sparse symmetric output
-    @test prox!(zeros(p, p), f, Symmetric(D), 1.) == ref
+    @test ref == ref'
+    @test sum(abs2, D - ref) ≈ sum(abs2, D) - saved atol = 1e-12
+    @test (diagonal ? full_count(ref) : full_count(ref - Diagonal(diag(ref)))) <= s
     @test prox(f, Symmetric(D)) == ref
     @test Matrix(prox!(SymmetricSparseIterate(p), f, Symmetric(D, :L), 1.)) == ref
     # a SymmetricSparseIterate, also in place
@@ -112,27 +114,27 @@ end
   @test diag(Z) == diag(M)
   @test count(!iszero, Z - Diagonal(diag(Z))) == 2
   @test IndBallL0(2; diagonal = false)(Z) == 0 && IndBallL0(2)(Z) == Inf
-  # the projection in the Frobenius norm: an off-diagonal pair costs twice its
-  # square, so it can beat a larger diagonal entry
+  # the projection in the Frobenius norm: keeping a pair costs two units and saves twice its square,
+  # keeping a diagonal entry costs one
   X2 = [1.0 0.8; 0.8 0.1]
-  @test prox(IndBallL0(1), Symmetric(X2)) == [0.0 0.8; 0.8 0.0]
-  # against all supports of at most s entries of one triangle, for small p
+  @test prox(IndBallL0(1), Symmetric(X2)) == [1.0 0.0; 0.0 0.0]       # one unit: a single diagonal entry
+  @test prox(IndBallL0(2), Symmetric(X2)) == [0.0 0.8; 0.8 0.0]       # the pair saves 1.28, both diagonals 1.01
+  @test prox(IndBallL0(3), Symmetric(X2)) == [1.0 0.8; 0.8 0.0]       # a pair and a diagonal entry
+  @test prox(IndBallL0(1; diagonal = false), Symmetric(X2)) == [1.0 0.0; 0.0 0.1]   # no pair fits
+  @test prox(IndBallL0(2; diagonal = false), Symmetric(X2)) == X2
+  X4 = [0.0 4.0; 4.0 0.0]
+  @test IndBallL0(1)(Symmetric(X4)) == Inf && prox(IndBallL0(1), Symmetric(X4)) == zeros(2, 2)
+  @test IndBallL0(2)(Symmetric(X4)) == 0 && prox(IndBallL0(2), Symmetric(X4)) == X4
+  # against all supports within the budget, for small p
   p4 = 4
-  for diagonal in (true, false), s in 0:4, _ in 1:20
+  for diagonal in (true, false), s in 0:16, _ in 1:5
     X = randn(p4, p4); X = X + X'
-    pos = [(r, c) for c in 1:p4 for r in (diagonal ? c : c + 1):p4]
-    best = Inf
-    for mask in 0:(2^length(pos) - 1)
-      count_ones(mask) <= s || continue
-      d = sum(((r == c ? 1 : 2) * X[r, c]^2 for (j, (r, c)) in enumerate(pos) if (mask >> (j - 1)) & 1 == 0); init = 0.0)
-      best = min(best, d)
-    end
     Z = prox(IndBallL0(s; diagonal), Symmetric(X))
-    @test sum(abs2, X - Z) ≈ best atol = 1e-12
+    @test sum(abs2, X - Z) ≈ sum(abs2, X) - sym_best_saving(X, s, diagonal) atol = 1e-12
   end
   # the use in iterative hard thresholding: no allocation
   a(S, f, X) = @allocated prox!(S, f, X, 1.)
-  S, f, X = SymmetricSparseIterate(p), IndBallL0(5; diagonal = false), Symmetric(D, :L)
+  S, f, X = SymmetricSparseIterate(p), IndBallL0(10; diagonal = false), Symmetric(D, :L)
   a(S, f, X)
   @test a(S, f, X) == 0
 end

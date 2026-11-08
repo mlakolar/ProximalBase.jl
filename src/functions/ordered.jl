@@ -123,7 +123,7 @@ function _tv_denoise!(z::AbstractVector, x::AbstractVector, λ::T) where {T}
         umax = -λ
         umin = convert(T, x[k]) - λ - vmin
       else                                          # the last segment
-        v = vmin + umin / (k - k0 + 1)
+        v = vmin + _int_div(umin, k - k0 + 1)
         for i in k0:N
           z[i] = v
         end
@@ -158,12 +158,12 @@ function _tv_denoise!(z::AbstractVector, x::AbstractVector, λ::T) where {T}
       umin += xk - vmin
       umax += xk - vmax
       if umin >= λ
-        vmin += (umin - λ) / (k - k0 + 1)
+        vmin += _int_div(umin - λ, k - k0 + 1)
         umin = λ
         kmin = k
       end
       if umax <= -λ
-        vmax += (umax + λ) / (k - k0 + 1)
+        vmax += _int_div(umax + λ, k - k0 + 1)
         umax = -λ
         kplus = k
       end
@@ -857,8 +857,8 @@ SumLargest(k::Integer, λ::Real = 1) = SumLargest{typeof(λ)}(k, λ)
 
 isproximable(::Type{<:SumLargest}) = true
 isconvex(::Type{<:SumLargest}) = true
-_checkparams(f::SumLargest, x) = f.k <= length(x) ||
-  throw(DimensionMismatch("k = $(f.k) exceeds the argument's length $(length(x))"))
+_checkparams(f::SumLargest, x) = f.k <= _nentries(x) ||
+  throw(DimensionMismatch("k = $(f.k) exceeds the argument's length $(_nentries(x))"))
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SumLargest, y::AbstractArray, x::AbstractArray) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkparams(f, x); Base.require_one_based_indexing(y, x); true)
 
@@ -1130,6 +1130,9 @@ end
 prox!(y::AbstractArray, f::SumLargest, x::AbstractArray, γ::Real) =
   _sumlargest_prox!(y, f, _symmetric_argument(y, x), γ, Val(false))
 value_and_prox!(y::AbstractArray, f::SumLargest, x::AbstractArray, γ::Real) = f(prox!(y, f, x, γ))
+# an owner output, formed in a staged matrix and written to the owner last
+prox!(y::SymmetricSparseIterate, f::SumLargest, x::_ArrayOrOwner, γ::Real) = _staged_owner!(prox!, y, f, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, f::SumLargest, x::_ArrayOrOwner, γ::Real) = _staged_owner!(value_and_prox!, y, f, x, γ)
 
 function _checkstep(op::O, f::SumLargest, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
   T = float(eltype(y))

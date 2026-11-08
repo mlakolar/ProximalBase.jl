@@ -31,9 +31,9 @@ isconvex(::Type{<:NormL2}) = true
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NormL2, y::AbstractArray, x::AbstractArray) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); true)
 
-(f::NormL2)(x::AbstractArray) = (_checkreal(f, x); _weighted_norm2(f.λ, x))
+(f::NormL2)(x::_ArrayOrOwner) = (_checkreal(f, x); _weighted_norm2(f.λ, x))
 
-function _weighted_norm2(λ::Real, x::AbstractArray)
+function _weighted_norm2(λ::Real, x::_ArrayOrOwner)
   T = _valtype(x)
   iszero(λ) && return zero(T)
   _level_fits(T, λ) || return _converted_norm2(λ, x)
@@ -47,7 +47,11 @@ end
 # without leaving the range is never infinite (R3). A finite level recovers an overflow.
 @noinline _nonfinite_norm2(v, λ, c, n, x) = isinf(λ) ? _weighted_value(v, n) : _norm2_value(v, c, x)
 
+# the recoveries read the entries of the matrix that an owner represents
+@noinline _nonfinite_norm2(v, λ, c, n, x::SymmetricSparseIterate) = _nonfinite_norm2(v, λ, c, n, matrixview(x))
+
 # Scale in the parameter's precision, without narrowing its level first.
+@noinline _converted_norm2(λ, x::SymmetricSparseIterate) = _converted_norm2(λ, matrixview(x))
 @noinline function _converted_norm2(λ, x)
   T = _valtype(x)
   R = promote_type(T, float(typeof(λ)))
@@ -110,6 +114,11 @@ value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _norm2_prox!(y, f, x, γ, Val(true)))
 prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (x = _symmetric_argument(y, x); _norm2_prox!(y, f, x, γ, Val(false)); y)
 
+value_and_prox!(y::SymmetricSparseIterate, f::NormL2, x::_ArrayOrOwner, γ::Real) = _owner_value_and_prox!(y, f, x, γ)
+value_and_prox!(y::AbstractArray, f::NormL2, x::SymmetricSparseIterate, γ::Real) = value_and_prox!(y, f, matrixview(x), γ)
+prox!(y::AbstractArray, f::NormL2, x::SymmetricSparseIterate, γ::Real) = prox!(y, f, matrixview(x), γ)
+prox!(y::SymmetricSparseIterate, f::NormL2, x::_ArrayOrOwner, γ::Real) = _owner_prox!(y, f, x, γ)
+
 @inline _norm2_shrink!(f::NormL2, y::AbstractArray, x::AbstractArray, c) =
   _shrink_group!(f, y, x, eachindex(IndexLinear(), x), c)
 
@@ -123,10 +132,15 @@ end
 @inline _writes(W, G) = W
 _group_writes(y::AbstractArray, G) = nothing
 _group_writes(y::SymmetricSparseIterate, G) = Iterators.filter(_LowerGroupPosition(size(y, 1)), G)
+_group_writes(y::_OwnerMatrix, G) = Iterators.filter(_LowerGroupPosition(size(y, 1)), G)
 
-@inline function _norm2_shrink!(f::NormL2, y::SymmetricSparseIterate, x::AbstractArray, c)
+@inline function _norm2_shrink!(f::NormL2, y::_OwnerMatrix, x::AbstractArray, c)
   G = eachindex(IndexLinear(), x)
   _shrink_group!(f, y, x, G, c, _group_writes(y, G))
+end
+@inline function _norm2_shrink!(f::NormL2, y::SymmetricSparseIterate, x::_ArrayOrOwner, c)
+  w = _OwnerMatrix(y)
+  _norm2_shrink!(f, w, _owner_point(w, x), c)
 end
 
 # A finite input scaled by its maximum cannot need another rescaling. Keeping
@@ -151,6 +165,12 @@ function _rescaled_group_prox!(::NormL2, y, x, G, c::S, scale, W = nothing)::S w
     y[i] *= scale
   end
   n * scale
+end
+
+# the rescaled branch, called with the owner itself
+function _rescaled_group_prox!(f::NormL2, y::SymmetricSparseIterate, x, G, c::S, scale, W = nothing)::S where {S}
+  w = _OwnerMatrix(y)
+  _rescaled_group_prox!(f, w, _owner_point(w, x), G, c, scale, W)
 end
 
 ####################################
@@ -184,7 +204,7 @@ isproximable(::Type{<:CubeNormL2}) = true
 isconvex(::Type{<:CubeNormL2}) = true
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)},
-            f::CubeNormL2, y::AbstractArray, x::AbstractArray) =
+            f::CubeNormL2, y::_ArrayOrOwner, x::_ArrayOrOwner) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x))
 
 # A finite array can have an unrepresentable norm. Only the norm calculation
@@ -320,6 +340,9 @@ end
 
 value_and_prox!(y::AbstractArray, f::CubeNormL2, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); prox!(y, f, x, γ); f(y))
+# an owner output, formed in a staged matrix and written to the owner last
+prox!(y::SymmetricSparseIterate, f::CubeNormL2, x::_ArrayOrOwner, γ::Real) = _staged_owner!(prox!, y, f, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, f::CubeNormL2, x::_ArrayOrOwner, γ::Real) = _staged_owner!(value_and_prox!, y, f, x, γ)
 
 lipschitz(f::CubeNormL2) = _ind(iszero(f.λ), float(typeof(f.λ)))
 
@@ -780,6 +803,7 @@ _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::AbstractGroupPen
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkgroups(f, x); _check_symmetric_groups(f, y))
 
 _check_symmetric_groups(f, y::AbstractArray) = true
+_check_symmetric_groups(f, y::_OwnerMatrix) = _check_symmetric_groups(f, y.x)
 
 function _check_symmetric_groups(f, y::SymmetricSparseIterate)
   p = size(y, 1)
@@ -1392,6 +1416,19 @@ function _value_parts(f::NormL1Fused, x::AbstractVector, v)
   _fused_scaled_parts(_fused_vector_terms(f, x, T)...)
 end
 
+# Whether the pooled sequence w has an inversion, an adjacent pair with w[k + 1] < w[k].
+# Only BigFloat is scanned: at a precision of a few bits the rounded block means of the pooling need not
+# be monotone, while the pooled means of Float16, Float32 and Float64 are left as they are (the
+# method for every other type is the constant false, which the compiler folds). A comparison with a
+# NaN is false.
+@inline _fused_pooled_inversion(::Type, w) = false
+function _fused_pooled_inversion(::Type{BigFloat}, w)
+  @inbounds for k in 1:length(w)-1
+    w[k + 1] < w[k] && return true
+  end
+  false
+end
+
 @inline function _fused_vector_value(f, x, v1, v2, ::Type{T}) where {T}
   w1 = iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1
   w2 = iszero(f.λ2) ? zero(T) : convert(T, f.λ2) * v2
@@ -1483,7 +1520,16 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     v1 += abs(wk)
     v2 += _int_mul(2k - n - 1, wk)
   end
-  V ? _fused_vector_value(f, y, v1, v2, T) : zero(T)
+  V || return zero(T)
+  # For finite pooled entries and a finite threshold, soft thresholding keeps a nondecreasing sequence
+  # nondecreasing. Then, when the pooled sequence is nondecreasing, the stored values in the order of the
+  # sorted entries are nondecreasing, f(y) sums them in the order accumulated above, and v1 and v2 are its
+  # sums. When the BigFloat guard finds an inversion the pooled order does not guarantee that order
+  # (thresholding may still have removed the inversion), and f(y) is returned instead. All writes of y
+  # are done and the entries of x are no longer needed; the scratch buffers of f are reused by f(y) only
+  # after the scan of the guard has read the pooled sequence.
+  _fused_pooled_inversion(T, wn) && return f(y)
+  _fused_vector_value(f, y, v1, v2, T)
 end
 
 # the common output z of an infinite fusion level, z = shrink(mean(x), γλ1), and the value at it. The

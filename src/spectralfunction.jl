@@ -618,3 +618,12 @@ end
   _scaled_spectral_input!(ws.A, _is_device_array(X) ? ws.A : X)
   _spectrum_overflow_value(s.f, _eigvals!(ws), k, v)
 end
+
+# The owner of a symmetric matrix: its value is that of the matrix it represents, and the proximal
+# operator writes the lower triangle of its result into it (see NuclearNorm).
+(s::Spectral)(X::SymmetricSparseIterate) = s(matrixview(X))
+value_and_prox!(Y::SymmetricSparseIterate, s::Spectral, X::_MatrixOrOwner, γ::Real) = _owner_value_and_prox!(Y, s, X, γ)
+prox!(Y::SymmetricSparseIterate, s::Spectral, X::_MatrixOrOwner, γ::Real) = _owner_prox!(Y, s, X, γ)
+value_and_prox!(Y::AbstractMatrix, s::Spectral, X::SymmetricSparseIterate, γ::Real) = value_and_prox!(Y, s, matrixview(X), γ)
+prox!(Y::AbstractMatrix, s::Spectral, X::SymmetricSparseIterate, γ::Real) = prox!(Y, s, matrixview(X), γ)
+prox(s::Spectral, X::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(X, float(eltype(X))), s, X, γ)

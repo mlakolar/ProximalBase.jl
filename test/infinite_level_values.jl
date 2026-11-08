@@ -51,6 +51,7 @@ nan_arguments(T) = (T[0, NaN], T[1, NaN], T[NaN 0; 0 0])
   for T in (Float32, Float64), F in (NormL2, NormLinf), λ in (T(Inf), Inf)
     f = F(λ)
     for x in zero_arguments(T)
+      x isa SymmetricSparseIterate && F === NormLinf && continue      # the value of NormLinf at an owner is not defined
       @test same(f(x), zero(T))
     end
     for x in nonzero_arguments(T)
@@ -91,8 +92,9 @@ end
     # a symmetric output
     A = T[1 2 0; 2 NaN 0; 0 0 3]
     y = SymmetricSparseIterate(T, 3)
-    fill!(y, -7)
-    @test same(value_and_prox!(y, NormLinf(T(Inf)), A, one(T)), zero(T))
+    fill!(coordinates(y), -7)
+    @test_throws MethodError value_and_prox!(y, NormLinf(T(Inf)), A, one(T))     # NormLinf has no owner method
+    @test same(value_and_prox!(y, NormL2(T(Inf)), A, one(T)), zero(T))
     @test Matrix(y) == zeros(T, 3, 3)
     # device arrays
     for x in (T[1, NaN], T[NaN, NaN])

@@ -101,7 +101,8 @@ outputs, JLArrays and the wrappers, about 60,000 assertions, beside its siblings
 fold into a normal level, a grid over the levelled families and the wrappers that fold them in both
 directions and in Float32 and Float64, and the fused values at the stored output, next to
 `nested_scaled`: a few seconds, with no grid that would need the thorough tier. `bigfloat_integer_operands` (standard) holds the exact integer operands of BigFloat
-arithmetic in `NormL1Fused` and the pooling of `IndIsotonic` and `SLOPE`, at precisions of two to five bits where the
+arithmetic in `NormL1Fused` and the pooling of `IndIsotonic` and `SLOPE`, the segment lengths of the total-variation kernel of
+`TotalVariation1D` and `FusedLasso`, and the value at the stored output of `NormL1Fused`, at precisions of two to five bits where the
 platform decides whether an integer such as 5 is rounded: a few seconds, with no large grid.
 
 ## Measured times on GitHub
@@ -414,7 +415,7 @@ run 41364805347), beside the iterate files of quick (`active_handle`, `atom_iter
 | Rule | Focus files | Why | Worker s |
 |---|---|---|---:|
 | `src/atom_iterate.jl` | `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` | constructors and products; block steps over groups (activation order, staging, pre-write errors, aliased trial points); the group norms and sparse group on atoms; active-group visits with infinite weights | 165 |
-| `src/sparse_iterate.jl` (both stored iterates and their shared code) | `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_writes`, `symmetric_mul`, `symmetric_argument`, `symmetric_mutators`, `symmetric_mutator_errors` | the complete iterate tests; products and dispatch; block steps; no dense pass in value oracles; storage after failures; every symmetric write entry point, `mul!`, the symmetric part read by `prox!`/`gradient!`, the array-interface mutators and their errors | 532 |
+| `src/sparse_iterate.jl` (both stored iterates and their shared code) | `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` | the complete iterate tests; products and dispatch; block steps; no dense pass in value oracles; storage after failures; the products of the symmetric owner, the symmetric part read by `prox!`/`gradient!` | 532 |
 | `src/symmetric_parameters.jl` | `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` | the check paths, the trait, writes, merged and extension parameters; the catalogs (`_centers`, `_inventory`, `_inventory_walk`) stay in full | 133 |
 
 Left out on purpose and still in thorough or full: `symmetric_groups` (group-norm writes into a
@@ -456,7 +457,7 @@ Before this change I1–I4 ran thorough: 23.3 min for I5 in the same conditions,
 in the first round. The
 scenarios ran up to six at a time beside a full run, on AMD EPYC 7763 runners (I6 on an Intel
 Xeon 8573C). The slowest files of I2 and I4 on Julia lts were `sparse_iterate` (172–174 s),
-`symmetric_writes` (129–136 s), `symmetric_argument` (117–122 s) and `block_step` (106–111 s);
+`symmetric_argument` (117–122 s) and `block_step` (106–111 s);
 if the narrow groups grow past the target, `sparse_iterate.jl`'s two testsets (sparse,
 symmetric) can be split into separate files without losing a test.
 
@@ -604,7 +605,6 @@ that the value `value_and_prox!` returns for the counting functions of `Singular
 | `metric` | thorough | 114 | 105 |
 | `blockchecks` | thorough | 104 | 71 |
 | `constrained` | thorough | 100 | 107 |
-| `symmetric_writes` | thorough | 100 | 82 |
 | `symmetric_argument` | thorough | 79 | 44 |
 | `block_step` | thorough | 64 | 73 |
 | `spectral_nonfinite_values` | thorough | 61 | 60 |
@@ -671,10 +671,8 @@ that the value `value_and_prox!` returns for the counting functions of `Singular
 | `real_functions` | full | 39 | 32 |
 | `precompose_array` | full | 37 | 44 |
 | `real_iterates` | full | 35 | 27 |
-| `symmetric_mutators` | full | 33 | 38 |
 | `separable_blocks` | full | 29 | 33 |
 | `symmetric_parameters_inventory` | full | 28 | 27 |
-| `symmetric_mutator_errors` | full | 24 | 36 |
 | `blockchecks_workspace` | full | 20 | 26 |
 | `symmetric_parameters_inventory_walk` | full | 1 | 1 |
 

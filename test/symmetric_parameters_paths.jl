@@ -4,6 +4,8 @@ using Test, ProximalBase, LinearAlgebra
 using ..TestUtils: allocs
 
 const PB = ProximalBase
+# an owner with every coordinate stored at v, as the array fill! did
+filled(x, v) = (fill!(coordinates(x), v); x)
 state(x) = map(n -> deepcopy(getfield(x,n)), fieldnames(typeof(x)))
 function unchanged(op, x; message = "must be symmetric")
   before = state(x)
@@ -40,7 +42,7 @@ Base.getindex(A::CountingMatrix,i::Int) = (A.reads[] += 1; A.data[i])
   unchanged(y -> value_and_prox!(y,fv,x,1.),copy(x))
   unchanged(y -> prox_coordinate!(y,fv,k,1.),copy(x))
   unchanged(y -> kkt_violation(fv,ones(2,2),y,k),copy(x))
-  unchanged(y -> prox!(y,NormL1(.1),x,vec(W)),copy(x);message="the steps γ must be symmetric")
+  unchanged(y -> prox!(y,NormL1(.1),x,vec(W)),copy(x);message="is not supported with a SymmetricSparseIterate as the output")
   @test PB._checkparams(f,x) # the coordinate shape check never scans arrays
   for B in (Matrix(Symmetric(W,:L)),Symmetric(W,:L),vec(Matrix(Symmetric(W,:L))))
     h=NormL1(.1,B)
@@ -62,7 +64,7 @@ Base.getindex(A::CountingMatrix,i::Int) = (A.reads[] += 1; A.data[i])
     @test t(z) === .1sum(abs,D.-B)
   end
   A=[1. 1.;nextfloat(1.) 1.]
-  err=try NormL1(1.,A)(fill!(similar(x),1)); nothing catch e; e end
+  err=try NormL1(1.,A)(filled(similar(x),1)); nothing catch e; e end
   @test occursin("(relative asymmetry 2.2e-16, the size of rounding error); if w is symmetric in exact arithmetic, pass Symmetric(w, :L), or (w + w')/2",err.msg)
 end
 
@@ -106,7 +108,7 @@ end
   err=try Translate(NormL1(),A)(x); nothing catch e; e end
   @test err isa DimensionMismatch
   @test err.msg == "x has size (2, 2) and b (3, 3)"
-  x=fill!(SymmetricSparseIterate(3),.5)
+  x=filled(SymmetricSparseIterate(3),.5)
   r=Regularize(NormL1(.1),1.,ones(9))
   for h in (r,Scaled(r,2.),Sum(r,NormL1()),Translate(r,zeros(3,3)),
             Precompose(r,2.),PointwiseMinimum(r,NormL1()))
@@ -150,7 +152,7 @@ end
     # Tilt reads unstored zeros too.
     unchanged(z -> prox!(z,Tilt(f,zeros(p,p)),x,1.),y)
   end
-  p=3; W=CountingMatrix(ones(p,p)); x=fill!(SymmetricSparseIterate(p),.5)
+  p=3; W=CountingMatrix(ones(p,p)); x=filled(SymmetricSparseIterate(p),.5)
   f=Scaled(Tilt(NormL1(.1,W),zeros(p,p)),2.)
   y=similar(x); prox!(y,f,x,1.); W.reads[]=0
   prox!(y,f,x,1.)
@@ -166,9 +168,9 @@ end
   value_and_gradient!(y,h,x)
   @test 21 <= C.reads[] <= 22 # dot may read its first entry to choose the accumulator
   steps=CountingMatrix(ones(p,p)); f=Scaled(NormL1(.1),0.)
-  prox!(y,f,x,steps); steps.reads[]=0
-  prox!(y,f,x,steps)
-  @test steps.reads[] == 6 # check the original steps even when scaling avoids reading them
+  steps.reads[]=0
+  @test_throws ArgumentError prox!(y,f,x,steps)
+  @test steps.reads[] == 0 # an array step is refused without being read
   S=CountingMatrix(ones(p,p)); S.reads[]=0
   @test PB._check_entry_array(f,:w,Symmetric(S,:L),x,PB._AllPairs())
   @test S.reads[] == 0
@@ -177,7 +179,7 @@ end
 @testset "Tiled and stored pair traversal" begin
   for p in (33, 65)
     W = CountingMatrix(ones(p, p)); f = NormL1(.1, W)
-    x = fill!(SymmetricSparseIterate(p), .5)
+    x = filled(SymmetricSparseIterate(p), .5)
     for domain in (PB._AllPairs(), PB._StoredPairs(x, x))
       W.reads[] = 0
       @test PB._check_entry_arrays(f, x, domain)
@@ -197,7 +199,7 @@ end
 
 @testset "Wrapper preflights and block atomicity" begin
   A=ones(3,3); A[2,1]=nextfloat(1.); inner=NormL1(.1,A)
-  x=fill!(SymmetricSparseIterate(3),2.)
+  x=filled(SymmetricSparseIterate(3),2.)
   wrappers=(Scaled(inner,2.),Precompose(inner,2.),Precompose(inner,ones(3,3)),
             Regularize(inner,1.),Translate(inner,zeros(3,3)),Tilt(inner,zeros(3,3)),
             Constrained(inner,IndBox(-1.,1.)),Constrained(inner,IndHyperplane(ones(3,3),1.)),
@@ -268,7 +270,7 @@ end
 
 @testset "Original array steps and second-order preflights" begin
   A=ones(3,3); A[2,1]=nextfloat(1.)
-  x=fill!(SymmetricSparseIterate(3),.5)
+  x=filled(SymmetricSparseIterate(3),.5)
   functions=(ZeroFunction(),NormL1(),
              Scaled(NormL1(),0.),Tilt(NormL1(),zeros(3,3)),Translate(NormL1(),zeros(3,3)),
              Regularize(NormL1(),1.),Precompose(NormL1(),2.),Precompose(NormL1(),ones(3,3)),
@@ -276,19 +278,13 @@ end
              IndHyperplane(ones(3,3),1.),IndHalfspace(ones(3,3),1.),
              IndHyperslab(ones(3,3),-1.,1.),IndSimplex(1.),IndBallL1(1.))
   for f in functions, op in (prox!,value_and_prox!)
-    unchanged(y -> op(y,f,x,A),copy(x);message="the steps γ must be symmetric")
-    # Symmetric -> dense remains the ordinary array-step operation.
-    @test op(zeros(3,3),f,x,A) == op(zeros(3,3),f,Matrix(x),A)
+    # an array step is not supported with an owner as the output, symmetric or not
+    unchanged(y -> op(y,f,x,A),copy(x);message="is not supported with a SymmetricSparseIterate as the output")
+    unchanged(y -> op(y,f,x,Matrix(Symmetric(A,:L))),copy(x);message="is not supported with a SymmetricSparseIterate as the output")
   end
   groups=[[1],[2,4],[3,7],[5],[6,8],[9]]
   steps=fill(.2,length(groups)); f=Scaled(GroupNormL2(.1,groups),2.)
-  Y=fill(.5,3,3)
-  for G in groups
-    # Keep the existing group path's norm over stored symmetric coordinates.
-    lower=filter(i -> mod1(i,3) >= (i-1)÷3+1,G)
-    Y[G] .*= max(1-.04/sqrt(sum(abs2,Y[lower])),0)
-  end
-  @test Matrix(prox!(similar(x),f,x,steps)) ≈ Y
+  unchanged(y -> prox!(y,f,x,steps),copy(x);message="is not supported with a SymmetricSparseIterate as the output")
   for f in (LinearFunction(A),SqrNormL2(1.,A),Tilt(SqrNormL2(),A),
             Translate(SqrNormL2(),A),Regularize(SqrNormL2(),1.,A),
             Precompose(SqrNormL2(),A),Scaled(SqrNormL2(1.,A),2.))
@@ -299,7 +295,7 @@ end
 end
 
 @testset "Checked paths allocate nothing after warm-up" begin
-  x=fill!(SymmetricSparseIterate(3),.5); y=copy(x); A=ones(3,3)
+  x=filled(SymmetricSparseIterate(3),.5); y=copy(x); A=ones(3,3)
   for f in (NormL1(.1,A),LinearFunction(A),SqrNormL2(1.,A),Scaled(NormL1(.1,A),2.))
     f(x)
     @test allocs(f,x) == 0
@@ -316,12 +312,6 @@ end
       @test allocs(gradient!,y,f,x) == 0
       value_and_gradient!(y,f,x)
       @test allocs(value_and_gradient!,y,f,x) == 0
-    end
-    if applicable(prox!,y,f,x,A)
-      prox!(y,f,x,A)
-      @test allocs(prox!,y,f,x,A) == 0
-      value_and_prox!(y,f,x,A)
-      @test allocs(value_and_prox!,y,f,x,A) == 0
     end
     if hashessian(f)
       hessian_vec!(y,f,x,A)

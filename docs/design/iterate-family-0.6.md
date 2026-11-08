@@ -1,7 +1,7 @@
 # The iterate family in ProximalBase 0.6: the contract
 
 > **The 0.6 design as signed off by the maintainer on 2026-11-01 (FD-16 decided on 2026-11-06: the direct product), not a
-> description of an installed release.** Nothing here is implemented, except the three-factor product `A * X * B` of a matrix `SparseIterate` and of a `SymmetricSparseIterate` for `Float32` and `Float64` (FD-16, #419). This file is the only
+> description of an installed release.** Part of it is implemented on the development branch: Phase 1 of the symmetric owner (see [its contract](symmetric-sparse-iterate-0.6.md): the non-array owner, its oracles and wrappers, its products and reductions), the three-factor product `A * X * B` of a matrix `SparseIterate` and of a `SymmetricSparseIterate` for `Float32` and `Float64` (FD-16, #419), and the behavior that `docs/src/migration.md` lists under 0.6. The other phases of #391, the migration of the solvers (#527) and the release remain. This file is the only
 > normative document of the pair; the companion
 > [compatibility and acceptance plan](iterate-family-0.6-acceptance.md) links
 > back to it and restates none of its rules.

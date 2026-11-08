@@ -13,6 +13,14 @@ function rejects(op, y, name, F)
   @test occursin("entry (2, 1)", sprint(showerror, err))
   @test isequal(state(y), before)
 end
+# an array step is not supported with an owner as the output, and the owner is left as it was
+function array_step_refused(op, y)
+  before = state(y)
+  err = try op(y); nothing catch e; e end
+  @test err isa ArgumentError
+  @test occursin("is not supported with a SymmetricSparseIterate as the output", sprint(showerror, err))
+  @test isequal(state(y), before)
+end
 
 # A scalar objective independent of the package's entry oracles. A grid
 # selects an interval; golden section refines that interval.
@@ -60,10 +68,14 @@ const cases = (
     @testset "$F.$name" begin
       @test name in first.(PB._entry_arrays(f))
       rejects(_ -> f(x), copy(x), name, F)
-      for op in (prox!, value_and_prox!), step in (.2, fill(.2,3,3))
-        applicable(op,x,f,x,step) || continue
-        rejects(y -> op(y, f, x, step), copy(x), name, F)
-        rejects(y -> op(y, f, X, step), copy(x), name, F)
+      for op in (prox!, value_and_prox!)
+        applicable(op,x,f,x,.2) || continue
+        rejects(y -> op(y, f, x, .2), copy(x), name, F)
+        rejects(y -> op(y, f, X, .2), copy(x), name, F)
+      end
+      for op in (prox!, value_and_prox!), step in (fill(.2,3,3), fill(.2,3), [.2])
+        array_step_refused(y -> op(y, f, x, step), copy(x))
+        array_step_refused(y -> op(y, f, X, step), copy(x))
       end
       if isseparable(f)
         rejects(y -> prox_coordinate!(y, f, k, .2), copy(x), name, F)
@@ -97,10 +109,6 @@ const cases = (
         y = copy(x)
         @test Matrix(prox!(y, h, x, .2)) ≈ Y atol=2e-7
         @test value_and_prox!(y, h, x, .2) ≈ sum(φ(Y[i], B[i]) for i in eachindex(Y)) atol=2e-6
-        if applicable(prox!,y,h,x,fill(.2,3,3))
-          @test Matrix(prox!(y,h,x,fill(.2,3,3))) ≈ Y atol=2e-7
-          @test value_and_prox!(y,h,x,fill(.2,3,3)) ≈ sum(φ(Y[i],B[i]) for i in eachindex(Y)) atol=2e-6
-        end
         if isseparable(h)
           z=copy(x)
           @test prox_coordinate!(z,h,k,.2) ≈ Y[2,1] atol=2e-7
@@ -129,8 +137,10 @@ const cases = (
           @test quadratic_model(h,x)(x) ≈ sum(φ(X[i],B[i]) for i in eachindex(X))
         end
       end
-      # The dense output keeps ordinary per-entry semantics.
-      @test prox!(zeros(3,3), f, x, .2) == prox!(zeros(3,3), f, X, .2)
+      # The dense output keeps ordinary per-entry semantics at a dense point; an owner point reads the
+      # parameters at every entry of its matrix, so they must be exactly symmetric.
+      @test prox!(zeros(3,3), f, X, .2) isa Matrix
+      rejects(_ -> prox!(zeros(3,3), f, x, .2), copy(x), name, F)
     end
   end
 end
@@ -150,8 +160,8 @@ end
     @test h(x) == Inf
     @test Matrix(prox!(similar(x),h,x,1.)) == Y
     @test value_and_prox!(similar(x),h,x,1.) == 0
-    @test Matrix(prox!(similar(x),h,x,ones(3,3))) ≈ Y
-    @test value_and_prox!(similar(x),h,x,ones(3,3)) == 0
+    array_step_refused(y -> prox!(y,h,x,ones(3,3)),copy(x))
+    array_step_refused(y -> value_and_prox!(y,h,x,ones(3,3)),copy(x))
     z=copy(x)
     @test prox_coordinate!(z,h,tril_index(3,2,1),1.) == Y[2,1]
     @test kkt_violation(h,fill(.4,3,3),x,tril_index(3,2,1)) == (B[2,1] ? .4 : -Inf)
@@ -161,7 +171,7 @@ end
     rejects(_ -> f(x),copy(x),:a,nameof(typeof(f)))
     for op in (prox!,value_and_prox!)
       rejects(y -> op(y,f,x,1.),copy(x),:a,nameof(typeof(f)))
-      rejects(y -> op(y,f,x,ones(3,3)),copy(x),:a,nameof(typeof(f)))
+      array_step_refused(y -> op(y,f,x,ones(3,3)),copy(x))
     end
     for B in (Matrix(Symmetric(A,:L)),Symmetric(A,:L))
       h=make(B)
@@ -169,8 +179,8 @@ end
       @test h(x) == Inf
       @test Matrix(prox!(similar(x),h,x,1.)) ≈ Y
       @test value_and_prox!(similar(x),h,x,1.) == 0
-    @test Matrix(prox!(similar(x),h,x,ones(3,3))) ≈ Y
-    @test value_and_prox!(similar(x),h,x,ones(3,3)) == 0
+      array_step_refused(y -> prox!(y,h,x,ones(3,3)),copy(x))
+      array_step_refused(y -> value_and_prox!(y,h,x,ones(3,3)),copy(x))
     end
   end
   f=KronQuadratic(Matrix{Float64}(I,3,3),Matrix{Float64}(I,3,3),A)

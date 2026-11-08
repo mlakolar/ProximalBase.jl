@@ -98,7 +98,7 @@ Julia: 1.10.12; platform: x86_64-linux-gnu-Linux; bounds: 1
 | element_types | value_and_prox | argument=Float32 destination=Float64 step=Float32 data=Float32 | cpu | joint scalar return type follows destination | T1 | none | passes |
 | element_types | value_and_prox | argument=Float64 destination=Float32 parameter=Float32 step=Float32 | cpu | joint scalar return type follows destination | T1 | none | passes |
 | element_types | value_and_prox | argument=Float64 destination=Float32 step=Float32 data=Float32 | cpu | joint scalar return type follows destination | T1 | none | passes |
-| failures_storage | product | Float64 | cpu | FT12, the owner (#391 Phase 1c): the matrixview products and inner products skip zero coefficients., FT12: a non-finite coefficient of the iterate meets a zero of a dense operand, an IEEE zero, and propagates., FT12: a zero coefficient of the iterate, stored or not, contributes nothing against NaN or Inf; reference: the sum over the nonzero coefficients. | M1, M1 E3 | none | passes; broken (G2) |
+| failures_storage | product | Float64 | cpu | FT12, the owner: the products and inner products skip zero coefficients., FT12: a non-finite coefficient of the iterate meets a zero of a dense operand, an IEEE zero, and propagates., FT12: a zero coefficient of the iterate, stored or not, contributes nothing against NaN or Inf; reference: the sum over the nonzero coefficients. | M1, M1 E3 | none | passes |
 | failures_storage | prox | Float32 | cpu | Centered ridge moves unstored zero to a nonzero result., Each off-diagonal stored coordinate is shrunk once. | M1, M2 O7 | none | passes |
 | failures_storage | prox | Float32 output; Float64 data | cpu | Cache history independent scalar quadratic solution (2+1)/(1+2); A1 component budget 16eps(D). | M3 T8 A1 | none | passes |
 | failures_storage | prox | Float64 | cpu | Aliased and separate outputs checked against the same independent exact reference., Centered ridge moves unstored zero to a nonzero result., Each off-diagonal stored coordinate is shrunk once. | M1, M2 O7, O7 R2 R3 | none | passes |
@@ -177,16 +177,16 @@ Julia: 1.10.12; platform: x86_64-linux-gnu-Linux; bounds: 1
 | second_order | gradient | Float64 | cpu | support {1}, complement zero: r(z)=z^2, r'(z)=2z at z=2; A1/C1 pending budget 8 ULPs | S2 O5 A1 | none | passes |
 | second_order | hessian_vec! | Float32 argument/Float32 destination/Float32 direction/Float32 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
 | second_order | hessian_vec! | Float32 argument/Float32 destination/Float32 direction/Float64 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
-| second_order | hessian_vec! | Float32 argument/Float32 destination/Float64 direction/Float32 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | broken (G8) |
-| second_order | hessian_vec! | Float32 argument/Float32 destination/Float64 direction/Float64 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | broken (G8) |
+| second_order | hessian_vec! | Float32 argument/Float32 destination/Float64 direction/Float32 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
+| second_order | hessian_vec! | Float32 argument/Float32 destination/Float64 direction/Float64 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
 | second_order | hessian_vec! | Float32 argument/Float64 destination/Float32 direction/Float32 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
 | second_order | hessian_vec! | Float32 argument/Float64 destination/Float32 direction/Float64 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
 | second_order | hessian_vec! | Float32 argument/Float64 destination/Float64 direction/Float32 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
 | second_order | hessian_vec! | Float32 argument/Float64 destination/Float64 direction/Float64 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
 | second_order | hessian_vec! | Float64 argument/Float32 destination/Float32 direction/Float32 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
 | second_order | hessian_vec! | Float64 argument/Float32 destination/Float32 direction/Float64 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
-| second_order | hessian_vec! | Float64 argument/Float32 destination/Float64 direction/Float32 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | broken (G8) |
-| second_order | hessian_vec! | Float64 argument/Float32 destination/Float64 direction/Float64 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | broken (G8) |
+| second_order | hessian_vec! | Float64 argument/Float32 destination/Float64 direction/Float32 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
+| second_order | hessian_vec! | Float64 argument/Float32 destination/Float64 direction/Float64 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
 | second_order | hessian_vec! | Float64 argument/Float64 destination/Float32 direction/Float32 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
 | second_order | hessian_vec! | Float64 argument/Float64 destination/Float32 direction/Float64 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
 | second_order | hessian_vec! | Float64 argument/Float64 destination/Float64 direction/Float32 level | cpu | ridge Hessian product 2^-100 * 2^k, exact power of two; direction is not narrowed before multiplication | T3 R2 A1 | none | passes |
@@ -320,13 +320,13 @@ Julia: 1.10.12; platform: x86_64-linux-gnu-Linux; bounds: 1
 | Group | Executed broken rows |
 |:---|---:|
 | G1 | 11 |
-| G2 | 41 |
+| G2 | 35 |
 | G3 | 30 |
 | G4 | 51 |
 | G5 | 27 |
 | G6 | 21 |
 | G7 | 3 |
-| G8 | 8 |
+| G8 | 4 |
 | G9 | 25 |
 | G10 | 0 |
 | G11 | 7 |

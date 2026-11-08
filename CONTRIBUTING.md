@@ -247,7 +247,9 @@ gh run download <id>
     smaller, and uses `Clong`-typed powers of two as exact operands.
   - `test/bigfloat_integer_operands.jl` compares results with integer operands
     (of several integer types, `Int32` among them) at two to five bits and at 256
-    bits with a model, written in the file, that forms the integer exactly; it
+    bits with a model, written in the file, that forms the integer exactly (it
+    covers the segment lengths of the total-variation kernel of `TotalVariation1D`
+    and `FusedLasso`, and the value at the stored output of `NormL1Fused`); it
     does not change the exponent range.
 
   A reproduction on Linux can show a cause and give the fix a test; the native
@@ -271,7 +273,7 @@ iterate files that quick always runs (`active_handle`, `atom_iterate`,
 | Change | Before merge |
 |---|---|
 | `src/atom_iterate.jl`, narrow | quick + `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` |
-| `src/sparse_iterate.jl`, narrow | quick + `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_writes`, `symmetric_mul`, `symmetric_argument`, `symmetric_mutators`, `symmetric_mutator_errors` |
+| `src/sparse_iterate.jl`, narrow | quick + `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` |
 | `src/symmetric_parameters.jl`, narrow | quick + `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` |
 | one of them, not declared narrow | standard + the same focus files |
 | two of them | standard + both groups (the label does not apply) |

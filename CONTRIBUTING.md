@@ -28,7 +28,7 @@ listed in [`test/tiers.toml`](test/tiers.toml):
 | `quick` | representative cases of the whole package; every PR | 3–5 min |
 | `standard` | quick, plus most function families, wrappers and constraints | 8–10 min |
 | `thorough` | standard, plus numerics, conformance, symmetric and iterate catalogs | 15–20 min |
-| `full` | every test file, including the exhaustive catalogs | about 30 min or more |
+| `full` | every test file, including the exhaustive catalogs and the device-array suites on GPUArrays' reference backend (`gpu`, `gpu_smoke`, `conformance/gpu_arrays`) | about 30 min or more |
 
 While working on a change, run the files that test it, then a tier:
 
@@ -41,7 +41,7 @@ julia scripts/test.jl                               # every file (the full tier)
 ```
 
 `--tier=quick --list` lists a tier's files, `--extra=gpu,metric` adds files to a
-tier, and names after a tier filter it (`--tier=thorough symmetric`). `--jobs=N`
+tier (`--extra=gpu,gpu_smoke,conformance/gpu_arrays` runs the device-array suites beside a lower tier), and names after a tier filter it (`--tier=thorough symmetric`). `--jobs=N`
 or `PTR_NUM_JOBS` sets the number of workers. The same arguments work through
 `Pkg.test(; test_args=...)`. Set `JULIA_TEST_COVERAGE=true` to collect coverage, or
 `JULIA_TEST_DEPWARN=error` to treat deprecation warnings as errors. `--verbose`
@@ -106,6 +106,10 @@ other table is validated by its own reader (`test/tiers.jl` or
   - other package code (`src/`): standard; code shared by every function
     (`interface.jl`, `utils.jl`, `calculus.jl`, `metric.jl`, `partial.jl`,
     spectral helpers) or the conformance suite and its coverage map: thorough;
+  - the GPU test files and helpers (`test/gpu*.jl`): quick and `gpu`, `gpu_smoke`
+    (the helpers) or the changed file; the conformance suite, its scripts and the
+    coverage map also run `conformance/gpu_arrays`, so that the coverage check has
+    its reports; the GPU extension (`ext/`) is full;
   - package code without any test change: at least standard;
   - `Project.toml`, `ext/`, `src/lapack.jl`, the test runner, the CI rules,
     scripts and workflow, and `test/tiers.toml`: full, on Julia 1 and lts on
@@ -121,7 +125,13 @@ other table is validated by its own reader (`test/tiers.jl` or
   and Julia pre besides Linux) and the benchmark reference checks; a path rule
   that needs the full tier runs it on `linux` only. `test:benchmark` adds the
   benchmark reference checks and does not change the tier or the platforms; it
-  names no tier. `test:iterate-narrow` declares a narrow change to one iterate
+  names no tier. `test:gpu` adds the device-array suites (`gpu_smoke`, `gpu`,
+  `conformance/gpu_arrays`) to the run, whatever the paths; on a change that needs no
+  package tests it runs quick with them. Add it to a change that can affect device
+  arrays without touching the GPU files: those suites are otherwise in the full tier,
+  which runs nightly and on tags and stays outside quick, standard and thorough (the CPU files that
+  load JLArrays as a second array type, and the ambiguity guard for the GPU extension,
+  `gpu_extension_ambiguities`, stay in the tiers below full). `test:iterate-narrow` declares a narrow change to one iterate
   implementation; it lowers that implementation's rule and no other path.
   Adding or removing a label starts a new run. Add `test:thorough` when a change touches
   element-type promotion, precision, overflow-safe scaling or non-finite
@@ -264,11 +274,16 @@ before the test runner started (Julia, test environment, precompilation), the
 runner's wall time, the worker time of every file with its compilation share,
 and the slowest files. Thorough and full runs also write the conformance reports
 (each of those jobs checks that they exist), check the committed coverage map and upload
-the reports. The map check and the required upload run on Julia lts on Linux when
+the reports. Thorough runs no `conformance/gpu_arrays` unless the change or the label
+`test:gpu` adds it, so its check (`scripts/conformance_map.jl --check --tier thorough
+--extra <focus files>`) compares a partial inventory: every other report file must be
+there, and the rows of the other families, the case ids and the required rows must match
+the committed map; a report file missing for another reason fails. Below full the
+artifacts are named `conformance-reports-partial-...`. The map check and the required upload run on Julia lts on Linux when
 the run has it, otherwise (a manual run on the `stable` platforms) on Julia 1 on
 Linux. An upload counts only when GitHub returns an artifact id for it; otherwise
-it is retried once. The artifact of that job, from which the coverage map is
-regenerated, is required: without a confirmed upload that job fails. On the other
+it is retried once. The artifact of that job is required: without a confirmed upload that job fails.
+Only the artifact of a full run (not the `partial` one) serves to regenerate the coverage map. On the other
 jobs a missing upload is a warning in the job and its summary, and the job keeps
 the result of its tests.
 

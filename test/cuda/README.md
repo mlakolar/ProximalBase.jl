@@ -2,7 +2,9 @@
 
 This optional environment runs the shared GPU tests on a physical NVIDIA GPU.
 CUDA is not a runtime dependency, and ordinary CI continues to run `test/gpu.jl`
-with JLArrays on the CPU. Julia 1.10 or later and a CUDA 5 compatible device and
+and `test/gpu_smoke.jl` with JLArrays on the CPU in the full tier (master, nightly and
+manual runs, and pull requests that change the GPU files or carry the label `test:gpu`).
+Julia 1.10 or later and a CUDA 5 compatible device and
 driver are required. No device is an error, rather than a skipped test run.
 
 From the repository root:

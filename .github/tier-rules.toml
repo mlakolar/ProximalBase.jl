@@ -121,6 +121,13 @@ source_without_tests = "standard"
 # always runs.
 paths = ["benchmark/*.jl", "benchmark/Project.toml", ".github/workflows/CI.yml"]
 
+[label_focus]
+# Pull request labels that add test files to the run (their tier stays what the paths and the
+# tier labels give; with no tests otherwise planned they raise it to quick). The device-array
+# suites are in the full tier (nightly runs); a change to the GPU files runs them through the
+# rules below, and this label runs them for a change that the rules do not tie to them.
+"test:gpu" = ["gpu_smoke", "gpu", "conformance/gpu_arrays"]
+
 # The minimum tier of a PR. Each changed path takes the first rule below that matches it
 # (`*` within a directory, `**` across directories); the PR gets the highest of these tiers
 # and of its test:standard, test:thorough or test:full labels. A path no rule matches gets
@@ -135,8 +142,9 @@ focus = ["readme"]
 paths = ["README.md"]
 
 [[risk]]
-why = "the conformance coverage map, which thorough and full runs check"
+why = "the conformance coverage map, which thorough and full runs check, with the complete inventory: the gpu_arrays reports (a full-tier file) are written beside the tier"
 tier = "thorough"
+focus = ["conformance/gpu_arrays"]
 paths = ["docs/design/numerical-contract/coverage.md"]
 
 [[risk]]
@@ -189,15 +197,16 @@ tier = "full"
 paths = ["test/tiers.toml"]
 
 [[risk]]
-why = "the conformance suite and its report scripts: thorough and full runs write the reports and check the map"
+why = "the conformance suite and its report scripts: thorough runs the conformance files and checks the map, with the complete inventory: the gpu_arrays reports (a full-tier file) are written beside the tier"
 tier = "thorough"
+focus = ["conformance/gpu_arrays"]
 paths = ["test/conformance/**", "scripts/conformance_map.jl", "scripts/conformance_run.jl"]
 
 [[risk]]
-why = "the shared GPU cases"
+why = "the shared GPU cases, which the full tier runs"
 tier = "quick"
 focus = ["gpu", "gpu_smoke"]
-paths = ["test/gpu_prelude.jl", "test/gpu_suite.jl", "test/gpu_suite_basics.jl"]
+paths = ["test/gpu_ambiguities.jl", "test/gpu_prelude.jl", "test/gpu_suite.jl", "test/gpu_suite_basics.jl"]
 
 [[risk]]
 why = "a test file: it runs beside the tier"

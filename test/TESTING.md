@@ -471,7 +471,7 @@ exactly that file, and `check_selectors` returns no error and no warning for it 
 first, and its warnings reach the log). It also checks that each refusal of the plan job says why
 (unknown name, undeclared prefix, directory, helper, environment, a form that is not a name, an over-long name, a
 listed name without a file, a Julia version below the bound of `Project.toml`, an `os`, a SHA), that
-all problems are reported at once, that a hostile input cannot add a workflow command of its own, that
+the plan reports the detected dispatch-input validation failures together rather than stopping at the first bad field, that a hostile input cannot add a workflow command of its own, that
 `check-log` accepts the header of one file and rejects two files, another file, none and no header,
 and that the workflow has dispatch as its only trigger, reads inputs in its shell `run:` steps only
 through `env:` (`run-name` and `concurrency` read them directly), uses the action versions of `CI.yml`, and reads exactly the outputs the script writes. The workflow text is

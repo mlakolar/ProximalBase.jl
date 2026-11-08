@@ -153,9 +153,10 @@ other table is validated by its own reader (`test/tiers.jl` or
 
 #### Focused runs on Windows and macOS
 
-The workflow `platform-focused.yml` runs one test file of any branch on native
-Windows and macOS (Linux as a comparator on request), so that a platform bug can
-be reproduced and its fix checked without a full cross-platform run. It is
+The workflow `platform-focused.yml` runs one declared test file on a branch that
+contains this workflow and its companion scripts, on native Windows and macOS
+(Linux as a comparator on request), so that a platform bug can be reproduced and
+its fix checked without a full cross-platform run. It is
 advisory: nothing in `CI.yml`, its verdict or gate, or branch protection refers
 to it, so a red run does not change a PR's required checks.
 
@@ -191,8 +192,8 @@ gh run download <id>
   whose file is missing, an `os` that is not in the table, a `julia_version`
   that is not in the table or is below the bound, an `expected_sha` that is not
   hex or is not the start of the dispatched commit, and a checkout that is not
-  the dispatched commit. It lists every problem at once as `::error::` lines in
-  which a rejected input is quoted and percent-encoded, so that an input cannot
+  the dispatched commit. It reports the detected dispatch-input validation failures together rather
+  than stopping at the first bad field, as `::error::` lines in which a rejected input is quoted and percent-encoded, so that an input cannot
   add a workflow command of its own. The jobs for the other systems need the
   plan job, so none is started when it fails. In the `run:` steps the inputs are
   read only from environment variables.

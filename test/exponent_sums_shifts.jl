@@ -2,9 +2,11 @@ module ExponentSumsShiftsTest
 
 # MPFR exponents reach ±(2^62 - 1) on 64-bit Unix, so the sum of three or more exponents can leave Int64. The functions
 # below form the exponent of a final shift, or a frame that one function builds from exact inputs, and that total must
-# reach ldexp without wrapping. The cases are built from exponents relative to the platform's own MPFR range, so the
-# same body runs where the range is 2^30 - 1 (Windows). There the sums of these cases stay within Int64: a run there
-# exercises none of the wide paths and is evidence of no regression, not of the repair. The expected values come from
+# reach ldexp without wrapping. The public reproducers are built from exponents relative to the platform's own MPFR
+# range, so the same body runs where the range is 2^30 - 1 (Windows). There their exponent totals stay within Int64: those
+# cases are evidence of no regression, not of the repair. The cases built from explicit wide integers (the powers of
+# _scaled_product beyond Int64, the scale exponents of the _image_product cases taken from typemin(Int64), the exponents
+# of the _pow2_sum cases taken from typemax(Int64)) cross Int64 on that range as well. The expected values come from
 # exponent totals formed in Int128, not from a package function.
 
 using Test
@@ -80,10 +82,21 @@ end
           check_result(PB._scaled_product(w, v, k), s, a + b + k)
         end
       end
-      # a wide power that brings a product of two huge factors back into the range
+      # a wide power k = -2^63 - 10 with two huge factors: the total is -14 (2TOP + k) or 10 (2BOT - k), a finite value,
+      # when the range is that of 64-bit Unix, and lies outside the range, so that the value saturates, where it is smaller
       k = -Int128(2)^63 - 10
       check_result(PB._scaled_product(pw(TOP), pw(TOP, s), k), s, 2TOP + k)
       check_result(PB._scaled_product(pw(BOT), pw(BOT, s), -k), s, 2BOT - k)
+      if EMAX == Int128(2)^62 - 1
+        # a finite result m from the powers k = m - 2TOP (-2^63 for m = -4, the last that fits Int64, then -2^63 - 1) and
+        # k = m - 2BOT (typemax(Int64) for m = -1, then typemax(Int64) + 1)
+        for m in (-4, -5, -6, BOT, TOP)
+          check_result(PB._scaled_product(pw(TOP), pw(TOP, s), m - 2TOP), s, m)
+        end
+        for m in (-1, 0, 1, TOP)
+          check_result(PB._scaled_product(pw(BOT), pw(BOT, s), m - 2BOT), s, m)
+        end
+      end
       # a b c 2^k
       for k in (beyond, -beyond, Int128(2)^100, -Int128(2)^100)
         for (a, b, c) in ((0, 0, 0), (TOP, TOP, TOP), (BOT, BOT, BOT), (TOP, BOT, TOP))
@@ -351,12 +364,17 @@ function conjugate_exponent(S, Y, W, gap = 400)
   n2 > n1 ? (1, n2) : (-1, n1)
 end
 
-# (S, Y, W) of the cases: the total 2 eq - ew - e of the second shift first leaves Int64 at eq = EMAX + 2 for W = BOT (the
-# first two cases), the total 2 eq - ew first leaves it below at eq = typemin(Int64) / 2 for W = 0 (the next two)
+# (S, Y, W) of the cases, with eq = S - Y and ew = W + 1. For W = BOT and eq above ew the frame is e = eq2 = 2 eq - ew,
+# so the second shift eq2 - e is 0 and the first shift is eq - e = ew - eq. In the default range the frame eq2 is the last
+# that fits Int64 at eq = 2^61 and first leaves it at eq = 2^61 + 1, and the first shift is typemin(Int64) at
+# eq = EMAX + 2 (the last that fits) and typemin(Int64) - 1 at eq = EMAX + 3. The positive cases are those eq and
+# neighbours of them. The next group has eq = typemin(Int64) / 2, where eq2 = 2 eq - ew fits for ew = 0 (W = -1) and
+# is below Int64 for ew >= 1 (W = 0, 1, 5).
 function conjugate_cases()
   out = Tuple{Int128, Int128, Int128}[]
-  a_wrap = Int128(2)^63 + BOT + 1
-  for a in (a_wrap - 1, a_wrap, a_wrap + 1000, EMAX + 5)
+  a_shift = BOT + 1 - Int128(typemin(Int64))        # the last eq whose first shift ew - eq fits Int64
+  a_frame = fld(Int128(typemax(Int64)) + BOT + 1, 2) + 1    # the first eq whose frame 2 eq - ew exceeds typemax(Int64)
+  for a in (a_frame - 1, a_frame, a_shift - 1, a_shift, a_shift + 1, a_shift + 1000, EMAX + 5)
     abs(a) <= TOP - BOT && push!(out, (TOP, TOP - a, BOT))
   end
   a = Int128(typemin(Int64)) ÷ 2
@@ -380,8 +398,10 @@ end
   end
 end
 
-# the working type is the promoted type of the argument and the parameters, not that of the argument: a Float64 s
-# with BigFloat y and w has eq = 1000 - EMIN + ..., and 2 eq leaves Int64
+# the working type is the promoted type of the argument and the parameters, not that of the argument. With a Float64 s and
+# BigFloat y and w, the cases with Y at or next to EMIN have eq = 1000 - Y of about 2^62, so the frame 2 eq - ew leaves
+# Int64 in the default range; (TOP, BOT) has eq = 1000 - TOP, whose double fits Int64, and is a control that must give the
+# same value. Where the range is 2^30 - 1 the frames of the listed cases fit Int64.
 @testset "SqrHingeLoss conjugate value, Float64 argument with BigFloat parameters, precision $p" for p in (5, 53)
   setprecision(BigFloat, p) do
     S = 1000

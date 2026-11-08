@@ -151,7 +151,7 @@ a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
     @test kkt_violation(f, g, xz, 2) ≈ abs(g[2]) - λ1
     fw = SparseGroupNormL2(λ1, λ2, [1:3])
     @test kkt_violation(fw, g, zeros(p), 5) == abs(g[5])
-    @test_throws ArgumentError kkt_violation(f, g, SymmetricSparseIterate(5), 1)
+    @test_throws ArgumentError kkt_violation(f, randn(25), SymmetricSparseIterate(5), 1)
     # restriction to S: the value on the vectors supported on S
     S = [2, 3, 7, 8, 9, 16]
     xs = zeros(p); xs[S] .= randn(length(S))

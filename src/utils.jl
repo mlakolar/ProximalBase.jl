@@ -1464,7 +1464,7 @@ end
   k == typemax(Int) && return _value_at(ordinary, x)
   k == typemin(Int) && return _value_at(convert(R, λ) * zero(R), x)
   s = _square_scaled_sum(x, y, k, R)
-  _value_at(_scaled_product(convert(R, λ), s, 2k - 1), x)
+  _value_at(_scaled_product(convert(R, λ), s, _exponent_sum(R, k, k, -1)), x)
 end
 
 # Σ (xᵢ - yᵢ)² λ/2 as a significand and an exponent (the scaled-value mechanism), from the

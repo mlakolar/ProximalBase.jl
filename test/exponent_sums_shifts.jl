@@ -401,4 +401,31 @@ end
   end
 end
 
+# ---- _scaled_square_value: 2k - 1 ----
+
+# SqrNormL2(2^L)([2^q]) is 2^(L + 2q - 1). The residual exponent is k = q, and the Int total 2k - 1 first wraps at
+# q = BOT, whose true total is -2^63 - 1 in the default range
+@testset "SqrNormL2 value, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    if EMAX == 2^62 - 1
+      @test 2BOT - 1 < typemin(Int64)
+      @test 2 * (BOT + 1) - 1 >= typemin(Int64)
+    end
+    for (L, q) in ((0, BOT + 1), (0, BOT), (0, BOT + 2), (0, BOT + 5), (TOP, BOT), (BOT, TOP), (0, TOP), (TOP, TOP), (BOT, BOT))
+      f = SqrNormL2(pw(L))
+      check_result(f(BigFloat[pw(q)]), 1, L + 2q - 1)
+      check_result(f(BigFloat[pw(q), pw(q)]), 1, L + 2q)      # two entries: the sum 2 2^(2q), halved
+    end
+    check_result(SqrNormL2(1)(BigFloat[pw(BOT)]), 1, 2BOT - 1)
+  end
+end
+
+@testset "SqrNormL2 value of Float64 data keeps its sums" begin
+  check_result(SqrNormL2(1.0)([5.0e-324]), 1, -2149)
+  check_result(SqrNormL2(1.0)([2.0^600]), 1, 1199)
+  check_result(SqrNormL2(2.0^-1000)([2.0^-600]), 1, -2201)
+  check_result(SqrNormL2(2.0^900)([2.0^-600]), 1, -301)       # s = 2^-1200 underflows: the scaled sum is used
+  check_result(SqrNormL2(2.0^900)([2.0^-600, 2.0^-600]), 1, -300)
+end
+
 end

@@ -128,9 +128,12 @@ end
       huge = T === Float64 ? T(1e300) : T(1e30)
       tiny = T === Float64 ? T(1e-300) : T(1e-30)
       x = T[huge, -huge / 3, 2, 0, tiny]
-      families = (NormL1(), CheckLoss(T(0.3)), IndNonnegative(), NormL2(),
+      # the Float32 pass keeps four families; the others are in conjugate_basics_grids.jl
+      families = T === Float64 ?
+                 (NormL1(), CheckLoss(T(0.3)), IndNonnegative(), NormL2(),
                   GroupNormL2(T(1), [[1, 2], [4]], T[1, 0]), Scaled(NormL2(huge), tiny),
-                  Translate(NormL1(), T[0, 0, 1, 0, 0]))
+                  Translate(NormL1(), T[0, 0, 1, 0, 0])) :
+                 (NormL1(), NormL2(), GroupNormL2(T(1), [[1, 2], [4]], T[1, 0]), Scaled(NormL2(huge), tiny))
       for f in families, γ in (T === Float64 ? 1e-310 : 1e-40, 1.0, T === Float64 ? 1e300 : 1e30)
         c = Conjugate(f)
         ref = reference(f, x, γ)

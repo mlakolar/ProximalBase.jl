@@ -459,5 +459,129 @@ end
     end
 end
 
+@testset "copyto! from an orthogonal factor into a matrix SparseIterate" begin
+    # the full logical matrix of a factorization object (Matrix(Q) can be thin, e.g. for a tall QR factor)
+    dense(Q) = lmul!(Q, Matrix{eltype(Q)}(I, size(Q)))
+    state(x) = (Matrix(x), collect(activecoordinates(x)), collect(activevalues(x)), nactive(x))
+    # nontrivial values, an explicit active zero at (1, 2) and a non-canonical activation order
+    function populated(T, m, n)
+        x = SparseIterate(T, m, n)
+        x[m, n] = 3
+        x[1, 1] = 5
+        x[2, 1] = -2
+        activate!(x, LinearIndices((m, n))[1, 2])
+        x[2, 2] = 7
+        j = LinearIndices((m, n))[1, 2]
+        @test x.ind2nzval[j] != 0 && x[1, 2] == 0
+        @test j in activecoordinates(x)
+        return x
+    end
+    # every family accepts its adjoint on Julia 1.10 and 1.13 (probed on both), so every row has one
+    function factors(A::AbstractMatrix)
+        fs = Any[("qr", qr(A).Q), ("qr pivoted", qr(A, ColumnNorm()).Q), ("lq", lq(A).Q)]
+        size(A, 1) == size(A, 2) && push!(fs, ("hessenberg", hessenberg(A).Q))
+        return vcat(fs, Any[("adjoint of " * name, adjoint(Q)) for (name, Q) in fs])
+    end
+    for T in (Float32, Float64), (m, n) in ((4, 4), (5, 5), (4, 3), (3, 5)),
+        (name, Q) in factors(randn(MersenneTwister(m + n), T, m, n))
+        k = size(Q, 1)
+        @test size(Q) == (k, k)
+        tol = 10 * eps(T)
+        @testset "$name, $T, from a $m x $n matrix" begin
+            x = populated(T, k, k)
+            ref = populated(T, k, k)
+            copyto!(ref, dense(Q))
+            @test copyto!(x, Q) === x
+            @test Matrix(x) ≈ dense(Q) atol = tol
+            @test state(x) == state(ref)
+            # a coordinate that was active stays active, even with a zero value
+            @test issubset(activecoordinates(populated(T, k, k)), activecoordinates(x))
+            # the write does not depend on what x held before
+            y = SparseIterate(T, k, k)
+            copyto!(y, Q)
+            @test Matrix(y) == Matrix(x)
+            # the method is the package's own
+            @test parentmodule(which(copyto!, typeof.((x, Q)))) == ProximalBase
+
+            # failures leave x unchanged, and a later write works
+            before = state(x)
+            z = populated(T, k, k)
+            zbefore = state(z)
+            @test_throws DimensionMismatch copyto!(z, qr(randn(MersenneTwister(1), T, k + 1, k + 1)).Q)
+            @test state(z) == zbefore
+            @test copyto!(z, Q) === z
+            @test state(z) == before
+        end
+    end
+
+    @testset "a thin QR factor writes its full logical size" begin
+        A = randn(MersenneTwister(2), 4, 3)
+        Q = qr(A).Q
+        @test size(Q) == (4, 4) && size(Matrix(Q)) == (4, 3)
+        x = populated(Float64, 4, 4)
+        copyto!(x, Q)
+        @test Matrix(x) ≈ dense(Q)
+        @test_throws DimensionMismatch copyto!(populated(Float64, 4, 3), Q)
+    end
+
+    @testset "a source of another element type is converted to that of x" begin
+        Q = qr(randn(MersenneTwister(4), Float64, 4, 4)).Q
+        x = populated(Float32, 4, 4)
+        copyto!(x, Q)
+        @test eltype(x) == Float32 && Matrix(x) == Float32.(dense(Q))
+    end
+
+    @testset "explicit zeros" begin
+        T = Float64
+        Q = hessenberg(randn(MersenneTwister(3), T, 4, 4)).Q
+        @test dense(Q)[1, 2] == 0
+        x = SparseIterate(T, 4, 4)
+        x[1, 2] = 5
+        copyto!(x, Q)
+        j = LinearIndices((4, 4))[1, 2]
+        @test j in activecoordinates(x) && x[1, 2] == 0
+        # a zero in an absent coordinate does not activate it
+        y = SparseIterate(T, 4, 4)
+        copyto!(y, Q)
+        @test nactive(y) == count(!iszero, dense(Q))
+        @test !(j in activecoordinates(y))
+    end
+
+    @testset "failures write nothing" begin
+        for T in (Float32, Float64)
+            A = randn(MersenneTwister(5), T, 3, 3)
+            C = randn(MersenneTwister(6), Complex{T}, 3, 3)
+            W = randn(MersenneTwister(7), T, 4, 4)
+            for Q in (qr(A).Q, lq(A).Q, hessenberg(A).Q, qr(A, ColumnNorm()).Q)
+                x = populated(T, 3, 3)
+                before = state(x)
+                @test_throws ArgumentError copyto!(x, qr(C).Q)
+                @test state(x) == before
+                @test_throws DimensionMismatch copyto!(x, qr(W).Q)
+                @test_throws DimensionMismatch copyto!(x, qr(W, ColumnNorm()).Q)
+                @test_throws DimensionMismatch copyto!(x, lq(W).Q)
+                @test_throws DimensionMismatch copyto!(x, hessenberg(W).Q)
+                @test state(x) == before
+                @test copyto!(x, Q) === x
+                @test Matrix(x) ≈ dense(Q)
+            end
+        end
+        # a destination that cannot hold the values
+        A = randn(MersenneTwister(8), 3, 3)
+        for Q in (qr(A).Q, lq(A).Q, hessenberg(A).Q, qr(A, ColumnNorm()).Q)
+            xi = SparseIterate(Int, 3, 3)
+            xi[3, 3] = 4
+            activate!(xi, LinearIndices((3, 3))[1, 2])
+            xi[2, 1] = 6
+            j = LinearIndices((3, 3))[1, 2]
+            @test j in activecoordinates(xi) && xi[1, 2] == 0
+            before = state(xi)
+            @test_throws InexactError copyto!(xi, Q)
+            @test state(xi) == before
+            @test copyto!(xi, Matrix{Int}(I, 3, 3)) === xi
+        end
+    end
+end
+
 
 end

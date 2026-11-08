@@ -65,6 +65,11 @@ parallel batch.
   (`gpu_extension_ambiguities`). The device-array suites on JLArrays are in Full (below).
   The five most expensive files contributed representative cases, moved into new files
   (below), so that Quick keeps their main identities and regressions without their grids.
+  Five of the Quick files, `atom_iterate`, `conjugate_basics`, `lmo_atoms`, `nested_scaled`
+  and `sparse_iterate_basics`, keep the Float64 pass of each operation family and a Float32
+  representative of it; the cases that repeat those (Float32 and Float16 passes, one mixed-type
+  product, the atomicity cases of `GroupNormLinf` and `GroupSCAD`) are in the Full-tier `_grids`
+  files (below).
 - **Standard** adds the files of most function families, wrappers, constraints, smooth losses
   and the examples: what an ordinary implementation change can break.
 - **Thorough** adds what shared or numerical changes can break: precision and overflow
@@ -100,7 +105,8 @@ outputs, JLArrays and the wrappers, about 60,000 assertions, beside its siblings
 `nested_scaled_values` (standard) holds the values of nested `Scaled` chains whose product does not
 fold into a normal level, a grid over the levelled families and the wrappers that fold them in both
 directions and in Float32 and Float64, and the fused values at the stored output, next to
-`nested_scaled`: a few seconds, with no grid that would need the thorough tier. `bigfloat_integer_operands` (standard) holds the exact integer operands of BigFloat
+`nested_scaled`, which takes a minute of compilation in a fresh process (its Float32 repeats are in
+`nested_scaled_grids`, below); the values add no grid that would need the thorough tier. `bigfloat_integer_operands` (standard) holds the exact integer operands of BigFloat
 arithmetic in `NormL1Fused` and the pooling of `IndIsotonic` and `SLOPE`, the segment lengths of the total-variation kernel of
 `TotalVariation1D` and `FusedLasso`, and the value at the stored output of `NormL1Fused`, at precisions of two to five bits where the
 platform decides whether an integer such as 5 is rounded: a few seconds, with no large grid.
@@ -149,10 +155,10 @@ nothing was deleted. Assertion counts (from the runner) confirm it.
 
 | New file (quick) | From (later tier) | What moved | Assertions: before = after + new |
 |---|---|---|---|
-| `sparse_iterate_basics` | `sparse_iterate` (thorough) | 17 whole testsets: construction, `dropzeros!`/nnz, `activate!`, active coordinates, converting writes, `fill!`/norm, copies and the conversion-failure regression (#416), stored zeros in `mul!` (Float64), the symmetric matrix (coordinates, mirrored writes, exact symmetry, `copyto!`), triple products (Float32, Float64), aliasing of views | 2897 = 2577 + 320 |
+| `sparse_iterate_basics` | `sparse_iterate` (thorough) | 17 whole testsets: construction, `dropzeros!`/nnz, `activate!`, active coordinates, converting writes, `fill!`/norm, copies and the conversion-failure regression (#416), stored zeros in `mul!` (Float64), the symmetric matrix (coordinates, mirrored writes, exact symmetry, `copyto!`), triple products (Float64 in quick, Float32 in `sparse_iterate_basics_grids`, below), aliasing of views | 2897 = 2577 + 320 |
 | `allocations_basics` | `allocations` (full) | Loop entries: block steps on a `SparseIterate` and with `NormL1`/`GroupNormL2`; `GroupNormL2` with distinct group layouts; `NormL1` on vectors, sparse, atom and symmetric iterates; `GroupNormL2` prox; `LeastSquaresLoss` gradients | 2910 = 2766 + 144 |
 | `constrained_basics` | `constrained` (thorough) | `NormL1` and centered `SqrNormL2` on four boxes with the brute-force optimality check; coordinate steps on a box; `Scaled(NormL1)` wrappers; simplices, closed forms, the zero-sum lasso KKT check, errors, general normals with a box, Float32 cases; Float64 open-domain boxes | 4108 = 3526 + 581 (+1, see below) |
-| `conjugate_basics` | `conjugate_projections` (full) | Seven direct conjugate families (clipping, check loss, orthant, l2 ball, group l2 ball, huge·tiny scale, shift) in Float64 and Float32; the Float64 Moreau identity with infinite weights; nested mixed sums and failure atomicity; output aliasing of parameters; biconjugates; Float64 l1-ball radius accuracy and group l1 balls | 265693 = 259835 + 5858 |
+| `conjugate_basics` | `conjugate_projections` (full) | Seven direct conjugate families (clipping, check loss, orthant, l2 ball, group l2 ball, huge·tiny scale, shift) in Float64, and in Float32 (four of the seven families stay in quick; the other three are in `conjugate_basics_grids`, below); the Float64 Moreau identity with infinite weights; nested mixed sums and failure atomicity; output aliasing of parameters; biconjugates; Float64 l1-ball radius accuracy and group l1 balls | 265693 = 259835 + 5858 |
 | `gpu_smoke` (with `gpu_prelude`, `gpu_suite_basics`; full tier since #771) | `gpu` (full) | `NormL1` (plain and weighted) and the user bits type; `NormL2`, `IndSimplex`; `GroupNormL2` on host and device layouts; weighted norms at device overflow; least-squares and logistic losses with a design matrix; infinite weights; Moreau array steps | 21767 = 21469 + 298 |
 
 The ambiguity guard for the GPU extension moved from `gpu` to `gpu_smoke` (through `gpu_suite_basics`;
@@ -177,6 +183,54 @@ covers 14160 of 14618 lines (96.86%), the same 14160 lines as master at the base
 **Assertions.** At the same base, every full job passes exactly 116 more assertions than master's
 run 41341879373 (Julia 1: 639818 against 639702; broken counts equal): the 117 of
 `tier_selection` less the one random-draw-dependent check in `constrained`.
+
+### The `_grids` files of five quick files
+
+Five Quick files have a Full-tier companion with the cases that repeat one that stays in Quick for
+another element type or wrapper. Each companion is a self-contained module with the fixtures it needs
+copied, and its name starts with the name of the Quick file, so `julia scripts/test.jl atom_iterate`
+runs both. The cases are moved with their assertions; the loop guards and the copied fixtures were
+adjusted. Quick
+keeps the Float64 pass of each operation family, a Float32 representative of each, and an atomicity,
+aliasing or NaN case of each kind for a representative function (listed per file below). The Float64
+cases that moved are the ones the table names for `atom_iterate`.
+
+| Quick file + companion (Full) | What the companion holds | Assertions: before = quick + grids |
+|---|---|---|
+| `nested_scaled` + `nested_scaled_grids` | the Float32 conjugates of the nested scales (#333), five `check` calls of the steps outside the range (#566) and the explicit infinite factor under the fold (#566); the Float32 allocation check of `Conjugate(Scaled(...))` stays in Quick | 1192 = 1057 + 135 |
+| `atom_iterate` + `atom_iterate_grids` | the Float32 x Float64 -> Float64 product and the Float32 strided views of the five-argument products (the Float64 x Float32 -> Float64 triple stays in Quick); the failed-step atomicity cases of the group wrappers for `GroupNormLinf` and `GroupSCAD`, in Float64 (`GroupNormL2`, `GroupMCP` and `SparseGroupNormL2` stay in Quick); the Float32 pass of the group view norms and dots | 3998 = 3752 + 246 |
+| `lmo_atoms` + `lmo_atoms_grids` | the Float32 passes of the density matrices, the Krylov method, the `Symmetric` and `Hermitian` wrappers and the NaN and Inf support values | 3673 = 3029 + 644 |
+| `conjugate_basics` + `conjugate_basics_grids` | the Float32 `CheckLoss`, `IndNonnegative` and `Translate` families of the direct conjugate projections | 5858 = 5675 + 183 |
+| `sparse_iterate_basics` + `sparse_iterate_basics_grids` | the Float16 pass and the Float32 `lmul!`, `ldiv!` cases of the scaling by a number (FN-9); the Float32 sparse triple products | 2840 = 1604 + 1236 |
+
+Quick does not run these cases. They run in these places:
+
+- In a pull request, for a change to the source of their own family, beside the tier (`focus` lists
+  in `.github/tier-rules.toml`; the rules add focus files and do not change a tier):
+  - `atom_iterate_grids`: `src/atom_iterate.jl`, `src/functions/norms.jl`,
+    `src/functions/sparsegroup.jl`, `src/functions/nonconvex.jl`;
+  - `sparse_iterate_basics_grids`: `src/sparse_iterate.jl`;
+  - `nested_scaled_grids`: `src/calculus.jl`, the sources shared by every function (`src/metric.jl`,
+    `src/utils.jl`, `src/interface.jl`, ...), `src/functions/singular.jl`;
+  - `conjugate_basics_grids`: `src/calculus.jl`, the shared sources, `src/functions/losses.jl`;
+  - `lmo_atoms_grids`: `src/lmo.jl`, `src/lmo_atoms.jl`, the shared sources, `src/functions/singular.jl`.
+  With the label `test:iterate-narrow`, a pull request that changes a single `AtomIterate` or
+  `SparseIterate` implementation source (`src/atom_iterate.jl` or `src/sparse_iterate.jl`) and no path
+  that needs a higher tier gives quick and that iterate's own grids file. `src/symmetric_parameters.jl`
+  gives quick with no grids file, two iterate implementations give standard, and a simultaneous change
+  to shared code such as `src/utils.jl` gives thorough.
+- In the full tier: the nightly run, tag runs, and a pull request whose tier is full (the label
+  `test:full`, or a path whose rule needs full, such as `src/lapack.jl`).
+- When requested: `julia scripts/test.jl <name>_grids`, or a change to the grids file itself.
+
+Other source paths do not add the grids files as automatic focus files in a pull request. A master
+push that changes package tests or code runs the thorough tier, which has none of them
+(a documentation-only push runs no package tests).
+`test/tier_selection.jl` checks that each companion is in Full and in no lower tier, that its Quick
+file is in Quick, the map above with `classify` (the direct-family paths, with some of the shared
+sources as representatives: `src/interface.jl`, for example, also gets the three shared grids files),
+that the named unrelated paths (`entropy.jl`, `deprecated.jl`, `sets.jl`, ...) get no grids file as
+focus, and what a master push, the nightly run and `test:full` select.
 
 ## JLArrays and CUDA
 
@@ -410,12 +464,13 @@ change is narrow, shared or architectural is the author's declaration, checked i
 run 41364805347), beside the iterate files of quick (`active_handle`, `atom_iterate`,
 `iterate_invariants`, `iterate_queries`, `iterate_writes`, `matrixview`,
 `sparse_iterate_basics`, `symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
-`allocations_basics`, `block_step_failures`):
+`allocations_basics`, `block_step_failures`). The grids file of each of the first two rules
+(`atom_iterate_grids`, `sparse_iterate_basics_grids`, above) is a focus file of it:
 
 | Rule | Focus files | Why | Worker s |
 |---|---|---|---:|
-| `src/atom_iterate.jl` | `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` | constructors and products; block steps over groups (activation order, staging, pre-write errors, aliased trial points); the group norms and sparse group on atoms; active-group visits with infinite weights | 165 |
-| `src/sparse_iterate.jl` (both stored iterates and their shared code) | `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` | the complete iterate tests; products and dispatch; block steps; no dense pass in value oracles; storage after failures; the products of the symmetric owner, the symmetric part read by `prox!`/`gradient!` | 532 |
+| `src/atom_iterate.jl` | `atom_iterate_grids`, `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` | constructors and products; block steps over groups (activation order, staging, pre-write errors, aliased trial points); the group norms and sparse group on atoms; active-group visits with infinite weights | 165 |
+| `src/sparse_iterate.jl` (both stored iterates and their shared code) | `sparse_iterate`, `sparse_iterate_basics_grids`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` | the complete iterate tests; products and dispatch; block steps; no dense pass in value oracles; storage after failures; the products of the symmetric owner, the symmetric part read by `prox!`/`gradient!` | 532 |
 | `src/symmetric_parameters.jl` | `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` | the check paths, the trait, writes, merged and extension parameters; the catalogs (`_centers`, `_inventory`, `_inventory_walk`) stay in full | 133 |
 
 Left out on purpose and still in thorough or full: `symmetric_groups` (group-norm writes into a
@@ -521,6 +576,85 @@ and that the workflow has dispatch as its only trigger, reads inputs in its shel
 through `env:` (`run-name` and `concurrency` read them directly), uses the action versions of `CI.yml`, and reads exactly the outputs the script writes. The workflow text is
 read with CRLF endings turned into LF, since the quick tier also runs on Windows in the nightly run.
 The native runs themselves are not part of the test; the PR carries that evidence.
+
+## Nightly triage and release validation (#773)
+
+The nightly run, tags and release validation now check more than the verdict of each test
+job, and four quick-tier test files cover the scripts and the workflow wiring behind that.
+The nightly and release runs themselves can only be observed on GitHub, after the merge for the
+scheduled run; these tests use logs cut from a real failed run (a macOS and a Windows job that
+both failed `three_factor_product`) and an in-memory GitHub, never the network or a real issue.
+
+- **`ci_result`** tests `scripts/ci_result.jl`, the reader of a test job's log. It extracts the
+  files the runner announced, what became of each (passed, failed, crashed, started and never
+  finished) and every failure with its file, test set, kind and a signature that stays the same from
+  night to night (digits and addresses replaced or removed, and absolute POSIX paths without
+  whitespace and with at least two components and Windows drive paths without whitespace removed; a
+  path with a space keeps the part after the space and a single-component path such as `/artifact`
+  stays, so a different checkout path can change the signature in those cases), from the real macOS and Windows logs in each
+  shape the log comes in (raw, colored, the API's timestamps, `gh run view --log`, Windows paths
+  and carriage returns). It also covers an exception, a test that threw, a crash, a bounded
+  excerpt and a log that is not a test log (never silence: it is reported as unrecognized). The
+  inventory check compares the header's files with the tier's files and the header's count, and
+  the command line step the workflow runs ("Check the test inventory") is run on logs that pass
+  and fail it: a job that ran fewer or other files must not count as a pass.
+- **`ci_triage`** tests `scripts/ci_triage.jl`, the reporter behind the `alert`, `triage` and
+  `stale` jobs, against an in-memory GitHub that records every call. The cases are those the
+  issue asks for: a new failure on Windows next to a Linux failure of the same night (separate
+  issues, with different severity), a repeat (one comment per run, a changed signature said so),
+  recovery (resolved when every Julia alias recorded for the issue has a job that succeeded or whose
+  recognized log lists the file as passed, so a later failed step does not block it; a missing,
+  cancelled or unreadable job blocks it for its alias), closed issues (reopened, except one closed as
+  not planned; flaky never closed), jobs that failed without a test failure (infrastructure), API
+  outages (a failed mandatory read stops the run before any write; for the alert only the lines per
+  failed file are dropped) and failed writes (reported with exit status 1, a state change only after
+  its comment exists, repaired by the next run), the alert of a failed push to
+  master, a stale nightly, a story of several nights, the dry run and the rehearsal labels, text
+  safety (mentions, fences, size cap), the adapter against a fake `gh` and the `[triage]` table
+  (every deferred pattern must match a test file of `test/tiers.toml`, so a rename cannot leave a
+  stale entry).
+- **`release_record`** tests `scripts/release_record.jl`. The record is a pure function of its
+  data, and the test pins what makes it say PASSED: the plan, the tests, the verdict and the gate
+  all succeeded, the run is a manual run of the exact commit (the full lowercase SHA that equals the
+  run's, not a short, uppercase, empty or different one), the four required test jobs each
+  succeeded and the jobs and artifacts could be listed. Each other case is FAILED, with the reason;
+  an unreadable job or artifact listing is a FAILED record, never a PASSED one. Julia pre is listed as
+  advisory and a failure of it does not change the heading. The text from the inputs is reduced to
+  a safe set of characters (no markup, mention or reference injection; plain URLs are kept). `main`
+  is run with a fake `gh` and an environment dictionary: it writes the file and the job summary,
+  exits 0 for a FAILED record as for a PASSED one (the verdict decides the run's conclusion; the
+  record is its evidence; a malformed `expected_sha`, a non-empty but malformed `GITHUB_SHA` and an
+  unrecognized result such as `PLAN=bogus` are FAILED records), 1 when it cannot write and 2 for a
+  missing or empty `GITHUB_SHA` or result variable or a malformed repository, run id, attempt or
+  server URL. A dispatch that the planner rejected has no
+  release-record job and so no record.
+- **`ci_workflow`** reads `.github/workflows/CI.yml` as text, cutting out each job by its key (no YAML
+  library), and pins the wiring that no other test sees: the old `report` job is gone, only
+  `alert`, `triage` and `stale` have `issues: write` (and no job of the test code does), the `if` of
+  each reporting job and of the release record (none runs for a pull request, and the reporters not
+  for a manual run; the triage job uses `!cancelled()`, so a cancelled run stops it), separate concurrency groups (a running job of these groups is not cancelled by a newer run; a pending one can be replaced), no `${{ ... }}` expression in
+  any `run:` of these jobs (so no event field or input reaches a script line), the check names
+  (the PR names appear only in expressions guarded by `pull_request`, and the nightly's names are
+  not the required ones), the step "Run package tests" with `id: tests` equal to the reporter's
+  `TEST_STEP` and the inventory step after it with its condition, the Codecov step that fails the
+  nightly and a release run, the `release-record` artifact kept 90 days, and the files that the
+  release record compares with the default branch (every `scripts/ci_*.jl`, the gate, the test
+  runner and the test selection files). The checks read the file without its full-line comments, and
+  a test shows that the Codecov line, the inventory condition and the retention each fail when
+  only commented out.
+
+New CI behavior that these tests pin: the nightly, tag and release test jobs fail unless their log
+announced exactly the files of the tier (the step "Check the test inventory"); the verdict of those
+runs also needs the `conformance-reports-...` artifact of each required job (`test/ci_verdict.jl`); a
+lost Codecov upload fails the nightly and a release run (the nightly's reporter files it as an
+infrastructure failure; a release run has no reporter, so it is a red run and a red record); and a
+release run writes the record.
+
+What the tests do not show: a pull request run has the inventory check off, uploads no coverage,
+runs no reporter and writes no release record, so the PR's own run exercises none of this. The
+tests use fixtures and read the workflow text. The live evidence is separate and outstanding until
+it has run: a release run of the exact SHA (and one with a wrong SHA, which fails in the plan) and
+the first scheduled triage after the merge.
 
 ## Per-file times
 

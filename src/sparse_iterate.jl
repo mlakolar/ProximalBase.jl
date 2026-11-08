@@ -16,12 +16,17 @@ Its entries are real. The constructors, two-argument `copyto!` from an array
 (for a matrix also from a `UniformScaling` or an orthogonal factor), `copy!`,
 broadcasting into `x` and `fill!` throw an `ArgumentError` for a source or value
 of complex type, even with a zero imaginary part, before anything is written.
+A broadcast into `x` checks its leaves and its result: a result known to be
+complex from the types is rejected, and a result of another non-real type (a
+`Union` with a complex member, `Any`, `Number`) is evaluated before writing and
+rejected if an element is complex, with `x` unchanged.
 For a vector `x`, `vec(x)` and `reshape(x, length(x))` are `x` itself and are
 checked too. `copy!` from a source of another size throws Base's error first,
 unless the source is a `SparseIterate` or an [`AtomIterate`](@ref): one of the
 same length is copied by value in linear order, and one of another length throws
-a `DimensionMismatch`. The check reads types: a tuple, a generator or an array of abstract element type
-such as `Vector{Any}` passes it, and its values are converted one by one. Other
+a `DimensionMismatch`. The two-argument `copyto!` and `copy!` read types: a tuple, a generator or an
+array of abstract element type such as `Vector{Any}` passes the check, and its
+values are converted one by one. Other
 writes also convert values one by one, as writes into a plain `Array` of the
 element type of `x` do: writes through a view, through `coordinates(x)`, through
 `vec` of a matrix or a
@@ -29,6 +34,23 @@ element type of `x` do: writes through a view, through `coordinates(x)`, through
 `copyto!` with offsets or index ranges, and `map!`. A complex value converted
 one by one throws an `InexactError`, possibly after part of `x` has been
 written.
+
+For a matrix, `copyto!(x, Q)` from an orthogonal or unitary factor `Q`, such as
+`qr(A).Q`, `qr(A, ColumnNorm()).Q`, `lq(A).Q`, `hessenberg(A).Q` (types
+`QRCompactWYQ`, `QRPackedQ`, `LQPackedQ`, `HessenbergQ`) or the adjoint of one,
+takes `Q` to be a lazy factorization object, not a dense matrix. It materializes
+`Q` into a dense temporary of the element type of `x` and then writes that matrix
+as an ordinary array value write. A complex factor, a size other than `size(x)`,
+a failure to materialize `Q` and a failing conversion (an `InexactError` for a
+fractional value written into an integer `x`) throw before anything is written, so
+`x` is unchanged. The write is
+a value write, not a copy of a working-set state: an active coordinate whose new
+value is zero stays active. The dense temporary
+and its allocation are deliberate; a caller who needs speed can pass a
+precomputed dense matrix of the full size `size(Q)`, such as
+`lmul!(Q, Matrix{T}(I, size(Q)))` with `T = eltype(Q)`. `Matrix(Q)` can be thin,
+for example for a tall QR factor (`qr(randn(4, 3)).Q` has size 4x4 while `Matrix(Q)`
+is 4x3), whereas the write uses the full `size(Q)` matrix.
 """
 mutable struct SparseIterate{T, N} <: AbstractArray{T, N}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
@@ -683,14 +705,23 @@ function Base.copyto!(x::SparseIterate{<:Any, 2}, y::UniformScaling)
   invoke(copyto!, Tuple{AbstractMatrix, UniformScaling}, x, y)
 end
 @static if isdefined(@__MODULE__, :_AbstractQ)
-  function Base.copyto!(x::SparseIterate{<:Any, 2}, y::_AbstractQ)
+  # Q is a lazy factorization, so it is materialized into a dense matrix of the element
+  # type of x first; the validation, the materialization and the conversion all run
+  # before x is touched, and the result is written as an ordinary array value write.
+  function Base.copyto!(x::SparseIterate{T, 2}, y::_AbstractQ) where {T}
     !(eltype(y) <: Complex) || _real_error(:SparseIterate)
-    invoke(copyto!, Tuple{AbstractMatrix, _AbstractQ}, x, y)
+    size(y) == size(x) || throw(DimensionMismatch(
+      "destination has size $(size(x)), orthogonal factor has size $(size(y))"))
+    # Matrix(y) can be thin (a tall QR factor), so the full size(y) matrix is built from the identity.
+    staged = convert(Matrix{T}, lmul!(y, Matrix{eltype(y)}(I, size(y))))
+    invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, staged)
+    return x
   end
 end
 
 function Base.copyto!(x::SparseIterate, bc::Broadcast.Broadcasted{Nothing})
   _checkreal_broadcast(x, bc)
+  _staged_result(bc) && return _staged_broadcast!(x, bc)
   _broadcast_loop!(x, bc)
 end
 
@@ -1881,6 +1912,31 @@ _checkreal_args(x, ::Tuple{}) = true
 _checkreal_broadcast(x, a) = true
 _checkreal_broadcast(x, a::Union{AbstractArray, Ref, Number}) =
   !(eltype(a) <: Complex) || _real_error(nameof(typeof(x)))
+
+# The result of a broadcast into an iterate is real as well. Its element type R is read from
+# the types. _staged_result is false when R is Union{} or a subtype of Real (which includes
+# Bool, Integer, Rational and BigFloat results): the broadcast then writes directly. The test
+# of R is resolved by inference when the function and the argument types are known to the
+# compiler, the usual case. Any other R is staged. A complex R is rejected before
+# anything is evaluated, and a Union with a complex member, Any or Number is evaluated into a
+# temporary first, so that nothing is written when an element is complex or f throws.
+@inline function _staged_result(bc::Broadcast.Broadcasted)
+  R = Broadcast.combine_eltypes(bc.f, bc.args)
+  !(R === Union{} || R <: Real)
+end
+@noinline function _staged_broadcast!(x::AbstractArray, bc::Broadcast.Broadcasted{Nothing})
+  R = Broadcast.combine_eltypes(bc.f, bc.args)
+  axes(x) == axes(bc) ||
+    throw(DimensionMismatch("destination axes $(axes(x)) do not match the broadcast axes $(axes(bc))"))
+  R <: Complex && _real_error(nameof(typeof(x)))
+  # the broadcast that bc represents, with the axes it carries (singleton expansion, an empty destination)
+  staged = copy(Broadcast.Broadcasted{Broadcast.DefaultArrayStyle{ndims(x)}}(bc.f, bc.args, bc.axes))
+  any(v -> v isa Complex, staged) && _real_error(nameof(typeof(x)))
+  @inbounds for I in eachindex(staged)
+    x[I] = staged[I]
+  end
+  x
+end
 
 # The stored entries as a SparseMatrixCSC, in O(nactive): each nonzero (r, c) of the
 # lower triangle gives the entries (r, c) and (c, r) for which keep holds. The generic

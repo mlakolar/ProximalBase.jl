@@ -14,7 +14,11 @@ The entries of an iterate are real. A complex element type, or a complex operand
 of an iterate product, raises an `ArgumentError`; see [Precision](@ref). Writing
 a complex source or value into a `SparseIterate` or an `AtomIterate` with the
 constructor, `copyto!`, `copy!`, a broadcast or `fill!` raises it too, before
-anything is written, even when the imaginary part is zero. A write into either
+anything is written, even when the imaginary part is zero. A broadcast is
+checked for its leaves and for its result: a result known to be complex from the
+types is rejected, and a result of another non-real type (a `Union` with a
+complex member, `Any`, `Number`) is evaluated before writing and rejected if an
+element is complex. A write into either
 of them through a view, through `vec` of a matrix or a `reshape` to another
 shape, or through [`atom`](@ref) converts each value as a plain array would, so
 a complex value raises an `InexactError`, possibly after part of the iterate has
@@ -53,6 +57,27 @@ removes the zeros between sweeps. `nnz(x)` counts stored zeros too;
 `activecoordinates(x)` in storage order; the view is invalidated when the
 stored set changes. `findnz(x)` returns copies of the stored indices and
 values in sorted order, including stored zeros.
+
+### Writing from an orthogonal factor
+
+For a matrix `x`, `copyto!(x, Q)` accepts an orthogonal or unitary factor `Q` such
+as `qr(A).Q`, `qr(A, ColumnNorm()).Q`, `lq(A).Q` or `hessenberg(A).Q` (the types
+`QRCompactWYQ`, `QRPackedQ`, `LQPackedQ` and `HessenbergQ`), or the adjoint of one.
+Such a `Q` is a lazy factorization object, not a dense matrix. `copyto!` materializes
+it into a dense temporary of the element type of `x` and writes that matrix, so
+a complex factor, a size other than `size(x)`, a failure to materialize `Q` and a
+failing conversion (an `InexactError` for a fractional value written into an integer
+`x`) throw before anything is written and leave `x` unchanged.
+
+The write is an ordinary value write of the full logical matrix of `Q`, which
+has size `size(Q)`, not a copy of
+a working-set state: an active coordinate whose new value is zero stays active, and
+a nonzero value activates its coordinate. The dense temporary and its allocation are
+deliberate. A caller who cares about performance can form the full dense matrix once, as
+`lmul!(Q, Matrix{T}(I, size(Q)))` with `T = eltype(Q)`, and pass it to `copyto!`.
+`Matrix(Q)` can be thin, for example for a tall QR factor (`qr(randn(4, 3)).Q` has
+size ``4\times 4`` while `Matrix(Q)` is ``4\times 3``), whereas the write uses the
+full `size(Q)` matrix, which can be larger.
 
 ### Matrix coefficients
 
@@ -536,7 +561,10 @@ chosen coordinate. It keeps equal entries exactly; otherwise it computes
 `g[r, c] / 2 + g[c, r] / 2`. Dividing first avoids overflow to `Inf` when
 adding two large finite entries. `+Inf` at one position and `-Inf` at its
 mirror have no symmetric part and cause an `ArgumentError` at the chosen
-coordinate. The call does not search the rest of `g` for such pairs.
+coordinate. The call does not search the rest of `g` for such pairs. After the check of the real
+element types, it checks that `k` is one of `1:ncoordinates(x)` (a `BoundsError`
+otherwise) and then that `g` has `p^2` entries, as a matrix or flat (a `DimensionMismatch`
+otherwise).
 
 To validate every declared parameter pair before a solver starts, call
 `ProximalBase.check_symmetric_parameters(f, x)`. It returns `true` on success.
@@ -896,9 +924,12 @@ v = kkt_violation(GroupNormLinf(1.0, [1:2]), g, x2, 1)
 v
 ```
 
-On a `SparseIterate`, ``k`` is an entry. For a separable `f` the call returns
-`kkt_violation(f, g, k)`. It checks neither ``k`` nor the length of `g` against
-`x`. A group penalty screens
+On a `SparseIterate`, ``k`` is an entry. After the check of the real
+element types, the call checks that ``k`` is one of `1:ncoordinates(x)` (a
+`BoundsError` otherwise) and then that `g` has the length of `x` (a
+`DimensionMismatch` otherwise); a matrix-shaped or flat `g` of that length is
+accepted; these two checks do not scan `g`. For a separable `f` the call
+then returns `kkt_violation(f, g, k)`. A group penalty screens
 each entry with its group. When every entry of the group is zero in `x`, the
 call returns the screen of the group in the table. Otherwise it returns the
 screen of an entry at zero inside a nonzero group, `abs(g[k])`, or

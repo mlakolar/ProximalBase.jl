@@ -27,6 +27,18 @@ const LTS = "Julia lts - ubuntu-latest - x64"
 const MAC = "Julia 1 - macos-latest - aarch64"
 const WIN = "Julia 1 - windows-latest - x64"
 const PRE = "Julia pre - ubuntu-latest - x64"
+const SHA40 = "0123456789abcdef0123456789abcdef01234567"
+
+# The message of the error a call raises, "" when it raises none.
+function message(f)
+  try
+    f()
+    return ""
+  catch err
+    err isa ErrorException || rethrow()
+    return err.msg
+  end
+end
 
 # The same text, with LF endings (a Windows checkout may have CRLF).
 lf(path) = replace(read(path, String), "\r\n" => "\n")
@@ -40,6 +52,7 @@ lf(path) = replace(read(path, String), "\r\n" => "\n")
     @test r.tier == tier && r.run_tests && r.timeout == minutes
     @test r.platforms == "stable" && jobnames(r.required) == ["$L1 - $tier"] && isempty(r.advisory)
     @test !r.coverage && !r.benchmark && !r.conformance
+    @test !r.inventory && !r.release && r.sha == ""
   end
   # thorough, full: Julia 1 and lts on Linux, and the conformance reports
   for (paths, tier) in ((["src/utils.jl"], "thorough"), (["test/conformance/kernels.jl"], "thorough"),
@@ -121,6 +134,7 @@ end
   r = push(paths = ["src/utils.jl"])
   @test r.tier == "thorough" && r.run_tests && r.timeout == 45 && r.platforms == "linux"
   @test !r.coverage && !r.benchmark && r.conformance
+  @test !r.inventory && !r.release && r.sha == ""
   @test sort(jobnames(r.required)) == sort(["$LTS - thorough", "$L1 - thorough"]) && isempty(r.advisory)
   # whatever the paths need, a push runs thorough (labels and inputs mean nothing)
   @test push(paths = ["test/norms.jl"]).tier == "thorough"
@@ -149,6 +163,8 @@ end
     r = planned("push"; ref_type = "tag", paths)
     @test r.tier == "full" && r.run_tests && r.timeout == 90 && r.platforms == "cross"
     @test r.benchmark && !r.coverage && r.conformance
+    # every job of a tag run must have run the whole catalog
+    @test r.inventory && !r.release && r.sha == ""
     @test sort(jobnames(r.required)) == sort(["$LTS - full", "$L1 - full", "$MAC - full", "$WIN - full"])
     @test jobnames(r.advisory) == ["$PRE - full"]
   end
@@ -157,6 +173,7 @@ end
 @testset "nightly" begin
   r = planned("schedule")
   @test r.tier == "full" && r.run_tests && r.platforms == "cross" && r.coverage && r.benchmark && r.conformance
+  @test r.inventory && !r.release && r.sha == ""
   @test sort(jobnames(r.required)) == sort(["$LTS - full", "$L1 - full", "$MAC - full", "$WIN - full"])
   @test jobnames(r.advisory) == ["$PRE - full"]
   # always: not skipped for a documentation-only commit, and nothing earlier can skip it
@@ -164,9 +181,9 @@ end
   @test planned("schedule"; paths = ["docs/src/index.md"]).run_tests
   @test !isdefined(CIPlan, :recent_full_run)
   @test_throws MethodError CIPlan.decide("schedule"; gh = identity, manifest = MANIFEST, policy = POLICY)
-  # the options of the planner no longer include the commit and the repository
-  @test_throws ErrorException CIPlan.options(["--event=schedule", "--sha=abc"])
+  # the planner takes no repository, and a nightly takes no commit: only a manual run is planned with its SHA
   @test_throws ErrorException CIPlan.options(["--event=schedule", "--repo=o/n"])
+  @test occursin("only a manual run takes one", message(() -> decide("schedule"; sha = SHA40)))
   # every entry of the tier lists is selected by the nightly tier
   @test Set(TT.select(MANIFEST, r.tier)) == Set(keys(MANIFEST.tier))
   @test r.timeout == MANIFEST.timeouts["full"]
@@ -202,11 +219,79 @@ end
   end
   # a manual run ignores paths and labels
   @test planned("workflow_dispatch"; paths = ["docs/src/index.md"], labels = ["test:standard"]).tier == "full"
+  # a plain manual run is no release run and checks no inventory
+  r = dispatch()
+  @test !r.release && !r.inventory && r.sha == ""
+  # release=false or empty changes nothing; the commit is only passed on
+  @test dispatch(release = "false") == r && dispatch(release = "") == r
+  @test planned("workflow_dispatch"; sha = SHA40, inputs = Dict("release" => "false")) == merge(r, (; sha = SHA40))
+end
+
+@testset "release run" begin
+  inputs(; kw...) = Dict{String, String}("release" => "true", "expected_sha" => SHA40,
+                                         (String(k) => string(v) for (k, v) in kw)...)
+  release(; sha = SHA40, kw...) = decide("workflow_dispatch"; inputs = inputs(; kw...), sha)
+  r, lines = release()
+  # the full tier on every platform, with coverage and the benchmark checks, and every job's inventory
+  @test r.tier == "full" && r.run_tests && r.platforms == "cross" && r.coverage && r.benchmark && r.conformance
+  @test r.release && r.inventory && r.sha == SHA40
+  @test sort(jobnames(r.required)) == sort(["$LTS - full", "$L1 - full", "$MAC - full", "$WIN - full"])
+  @test jobnames(r.advisory) == ["$PRE - full"] && r.timeout == MANIFEST.timeouts["full"]
+  @test r.matrix == CIPlan.matrix_json(CIPlan.matrix_entries(POLICY.platforms["cross"]))
+  # the table names the commit and says that the coverage and benchmark inputs mean nothing
+  @test any(occursin(SHA40, l) for l in lines) && any(occursin("inputs are ignored", l) for l in lines)
+  # the plan is the policy's [events.release]
+  ev = POLICY.events["release"]
+  @test (ev["tier"], ev["platforms"], ev["coverage"], ev["benchmark"], ev["inventory"]) == ("full", "cross", true, "always", true)
+  # the coverage and benchmark inputs are ignored, the tier and platforms inputs may be spelled out
+  @test release(coverage = "false", benchmark = "false")[1] == r
+  @test release(tier = "full", platforms = "cross")[1] == r && release(tier = "", platforms = "auto")[1] == r
+  # paths and labels mean nothing, as for any manual run
+  @test decide("workflow_dispatch"; inputs = inputs(), sha = SHA40, paths = ["docs/src/index.md"], labels = ["test:standard"])[1] == r
+  # a release run is the full tier on every platform: anything else is an error, not an override
+  for tier in ("quick", "standard", "thorough")
+    @test occursin("full tier", message(() -> release(tier = tier)))
+  end
+  for platforms in ("stable", "linux")
+    @test occursin("every platform", message(() -> release(platforms = platforms)))
+  end
+  @test occursin("tier input", message(() -> release(tier = "none"))) || occursin("unknown tier", message(() -> release(tier = "none")))
+  @test !isempty(message(() -> release(platforms = "all")))
+  # the expected SHA: the full lowercase 40 digits of the commit that is planned
+  for bad in ("", SHA40[1:7], SHA40[1:39], SHA40 * "0", uppercase(SHA40), SHA40 * "\n", "g" * SHA40[2:end], " " * SHA40)
+    @test occursin("expected_sha", message(() -> release(expected_sha = bad)))
+  end
+  other = "f" ^ 40
+  @test occursin("not the expected commit $SHA40", message(() -> release(sha = other)))
+  @test occursin("not known", message(() -> release(sha = "")))
+  @test occursin("full lowercase SHA", message(() -> release(sha = uppercase(SHA40))))
+  @test !isempty(message(() -> release(release = "yes")))
+  # release and expected_sha belong to manual runs
+  @test occursin("only for a release run", message(() -> decide("workflow_dispatch"; inputs = Dict("expected_sha" => SHA40), sha = SHA40)))
+  @test !isempty(message(() -> decide("workflow_dispatch"; inputs = Dict("expected_sha" => SHA40, "release" => "false"), sha = SHA40)))
+  for (event, kw) in (("schedule", (;)), ("push", (; ref_type = "branch", paths = ["src/utils.jl"])), ("push", (; ref_type = "tag")),
+                      ("pull_request", (; paths = ["src/utils.jl"])))
+    @test occursin("manual runs", message(() -> decide(event; inputs = Dict("release" => "true"), kw...)))
+    @test occursin("manual runs", message(() -> decide(event; inputs = Dict("expected_sha" => SHA40), kw...)))
+    @test occursin("manual runs", message(() -> decide(event; inputs = inputs(), kw...)))
+    # release=false is nothing
+    @test decide(event; inputs = Dict("release" => "false"), kw...)[1] == decide(event; kw...)[1]
+    # a pull request or push is never planned with a runner-chosen commit
+    @test occursin("only a manual run takes one", message(() -> decide(event; sha = SHA40, kw...)))
+  end
+  # a plan of the pseudo-event is an error: it is a manual run with an input
+  @test occursin("not an event", message(() -> decide("release")))
+  @test !isempty(message(() -> decide("release"; inputs = inputs(), sha = SHA40)))
+  # the commit given to a plan must itself be a full SHA (it is written to the step output)
+  for bad in (SHA40[1:7], SHA40 * "\nevil=1", "abc")
+    @test occursin("full lowercase SHA", message(() -> decide("workflow_dispatch"; sha = bad)))
+  end
 end
 
 @testset "unknown events" begin
   @test_throws ErrorException decide("release")
   @test_throws ErrorException decide("")
+  @test_throws ErrorException decide("issues")
 end
 
 @testset "matrix" begin
@@ -282,12 +367,28 @@ end
   end
   # the workflow reads the plan's outputs under the names the planner writes
   for key in ("tier", "focus", "run_tests", "timeout", "benchmark", "coverage", "conformance", "platforms",
-              "matrix", "required", "advisory")
+              "matrix", "required", "advisory", "release", "inventory", "sha")
     @test occursin("steps.plan.outputs.$key", workflow)
     @test haskey(planned("schedule"), Symbol(key))
   end
   @test occursin("fromJSON(needs.plan.outputs.matrix)", workflow) && !occursin("FULL_TESTS", workflow)
+  # the planner is given no runner-chosen commit on a pull request: the SHA goes to it for a manual
+  # run only, as the value of an environment variable, and nothing from the event is in the script
   @test occursin("--ref-type=", workflow) && !occursin("--sha=\$GITHUB_SHA", workflow)
+  step = let from = findfirst("      - name: Plan the run\n", workflow), to = findfirst("\n  test:\n", workflow)
+    workflow[first(from):first(to)]
+  end
+  @test count("--sha=", step) == 1 && occursin("          SHA: \${{ github.sha }}\n", step)
+  branch = match(r"\n +workflow_dispatch\)\n(.*?);;"s, step)
+  @test branch !== nothing && occursin("\"--sha=\$SHA\"", branch.captures[1])
+  @test occursin("\"--release=\${DISPATCH_RELEASE:-false}\"", branch.captures[1]) && occursin("\"--expected-sha=\$DISPATCH_EXPECTED_SHA\"", branch.captures[1])
+  @test occursin("          DISPATCH_RELEASE: \${{ inputs.release }}\n", step) && occursin("          DISPATCH_EXPECTED_SHA: \${{ inputs.expected_sha }}\n", step)
+  @test !occursin("\${{", step[last(findfirst("        run: |\n", step)):end])
+  # the manual inputs, and a concurrency group that keeps a release run apart from a manual full run
+  @test occursin(r"\n      release:\n        description: '[^\n]*'\n        type: boolean\n        default: false\n", workflow)
+  @test occursin(r"\n      expected_sha:\n        description: '[^\n]*'\n        type: string\n        default: ''\n", workflow)
+  group = match(r"\n  group: (.*)\n", workflow).captures[1]
+  @test occursin("inputs.release", group) && occursin("inputs.expected_sha", group)
   @test !occursin("actions: read # nightly", workflow)
   # the matrix flags are the ones the workflow reads
   for flag in ("matrix.advisory", "matrix.map", "matrix.coverage")
@@ -325,8 +426,19 @@ end
   @test any(occursin("unknown key `cores`", s) for s in p)
   p = loads(swap("timeout = 120", "timeout = 0"))
   @test any(occursin("timeout must be a positive", s) for s in p)
-  p = loads(swap("benchmark = \"always\"\n\n[events.schedule]", "benchmark = \"sometimes\"\n\n[events.schedule]"))
+  p = loads(swap("benchmark = \"always\"\ninventory = true\n\n[events.schedule]", "benchmark = \"sometimes\"\ninventory = true\n\n[events.schedule]"))
   @test any(occursin("unknown benchmark `sometimes`", s) for s in p)
+  # inventory is a boolean, and the release table must exist
+  p = loads(swap("[events.tag]\ntier = \"full\"\nplatforms = \"cross\"\ncoverage = false\nbenchmark = \"always\"\ninventory = true",
+                 "[events.tag]\ntier = \"full\"\nplatforms = \"cross\"\ncoverage = false\nbenchmark = \"always\"\ninventory = \"yes\""))
+  @test any(occursin("events.tag: inventory must be true or false", s) for s in p)
+  p = loads(swap("[events.release]", "[events.releases]"))
+  @test any(occursin("[events.release] is missing", s) for s in p) && any(occursin("unknown event `releases`", s) for s in p)
+  inrelease(a, b) = t -> (@assert occursin("[events.release]", t); replace(t, Regex("(\\[events\\.release\\]\\n(?:#[^\\n]*\\n)*[^\\[]*?)" * a) => SubstitutionString("\\1" * b)))
+  p = loads(inrelease("tier = \"full\"", "tier = \"input\""))
+  @test any(occursin("events.release: tier \"input\" is for manual runs only", s) for s in p)
+  p = loads(inrelease("coverage = true", "coverage = \"input\""))
+  @test any(occursin("events.release: coverage \"input\" is for manual runs only", s) for s in p)
   p = loads(swap("platforms_by_tier = { none = \"stable\", quick = \"stable\"", "platforms_by_tier = { none = \"stable\", quick = \"remote\""))
   @test any(occursin("needs a mode for tier `quick`", s) for s in p)
   p = loads(swap("label_platforms = { \"test:full\" = \"cross\" }", "label_platforms = { \"full\" = \"cross\" }"))
@@ -351,8 +463,10 @@ end
 
 @testset "options" begin
   o = CIPlan.options(["--event=push", "--ref-type=tag", "--base=abc", "--head=HEAD", "--labels=a,b", "--tier=full",
-                      "--platforms=cross", "--benchmark=true", "--coverage=false"])
+                      "--platforms=cross", "--benchmark=true", "--coverage=false", "--release=true",
+                      "--expected-sha=$SHA40", "--sha=$SHA40"])
   @test o["ref-type"] == "tag" && o["platforms"] == "cross" && o["coverage"] == "false"
+  @test o["release"] == "true" && o["expected-sha"] == SHA40 && o["sha"] == SHA40
   @test_throws ErrorException CIPlan.options(["--event"])
   @test_throws ErrorException CIPlan.options(["--bogus=1"])
   # the wrapper without git: events that need no changed files, and a push without a previous commit
@@ -366,6 +480,13 @@ end
   end
   r, _ = CIPlan.plan(Dict("event" => "workflow_dispatch", "tier" => "quick", "platforms" => "stable", "benchmark" => "true"))
   @test r.tier == "quick" && r.platforms == "stable" && r.benchmark
+  # the options of a release run reach the plan
+  r, _ = CIPlan.plan(Dict("event" => "workflow_dispatch", "tier" => "full", "platforms" => "auto", "release" => "true",
+                          "expected-sha" => SHA40, "sha" => SHA40))
+  @test r.release && r.inventory && r.sha == SHA40 && r.platforms == "cross"
+  @test_throws ErrorException CIPlan.plan(Dict("event" => "workflow_dispatch", "release" => "true", "expected-sha" => SHA40,
+                                               "sha" => "e" ^ 40))
+  @test_throws ErrorException CIPlan.plan(Dict("event" => "schedule", "release" => "true", "expected-sha" => SHA40, "sha" => SHA40))
   @test_throws ErrorException CIPlan.plan(Dict("event" => "push", "ref-type" => "branch2"))
   # a previous commit that cannot be fetched: still thorough
   if Sys.which("git") !== nothing
@@ -386,9 +507,24 @@ end
       written[k] = v
     end
     @test sort(collect(keys(written))) == sort(["tier", "focus", "run_tests", "timeout", "benchmark", "coverage",
-                                                "conformance", "platforms", "matrix", "required", "advisory"])
+                                                "conformance", "platforms", "matrix", "required", "advisory",
+                                                "release", "inventory", "sha"])
     @test written["tier"] == "full" && written["run_tests"] == "true" && written["coverage"] == "true"
+    @test written["release"] == "false" && written["inventory"] == "true" && written["sha"] == ""
     @test written["matrix"] == CIPlan.matrix_json(CIPlan.matrix_entries(POLICY.platforms["cross"]))
+  end
+  # a release run writes release=true, inventory=true and its commit
+  mktemp() do path, io
+    close(io)
+    withenv("GITHUB_OUTPUT" => path, "GITHUB_STEP_SUMMARY" => nothing) do
+      redirect_stdout(devnull) do
+        CIPlan.main(["--event=workflow_dispatch", "--tier=full", "--platforms=auto", "--benchmark=false", "--coverage=false",
+                     "--release=true", "--expected-sha=$SHA40", "--sha=$SHA40"])
+      end
+    end
+    written = Dict(split(l, '='; limit = 2)[1] => split(l, '='; limit = 2)[2] for l in eachline(path))
+    @test written["release"] == "true" && written["inventory"] == "true" && written["sha"] == SHA40
+    @test written["coverage"] == "true" && written["benchmark"] == "true" && written["platforms"] == "cross"
   end
 end
 

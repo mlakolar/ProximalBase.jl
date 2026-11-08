@@ -315,8 +315,10 @@ end
                       (scale_left!, broadcast_scale_left!, multipliers),
                       (divide_right!, broadcast_divide_right!, divisors),
                       (divide_left!, broadcast_divide_left!, divisors))
-        for T in (Float16, Float32, Float64)
-            for fixture in scaling_fixtures(T), (method!, reference!, scalars) in operations
+        # Float16, and the left operations at Float32, are in sparse_iterate_basics_grids.jl
+        for T in (Float32, Float64)
+            right_operations = (operations[1], operations[3])
+            for fixture in scaling_fixtures(T), (method!, reference!, scalars) in (T === Float64 ? operations : right_operations)
                 for s in scalars
                     check_scaling(method!, reference!, fixture, s)
                 end
@@ -625,7 +627,7 @@ end
 
 @testset "sparse triple products agree with dense products" begin
     rng = Xoshiro(20261025)
-    for T in (Float32, Float64)
+    for T in (Float64,)   # Float32 is in sparse_iterate_basics_grids.jl
         m, n = 8, 10
         A = Symmetric(randn(rng, T, m, m))
         B = Symmetric(randn(rng, T, n, n))

@@ -460,7 +460,7 @@ end
 end
 
 @testset "copyto! from an orthogonal factor into a matrix SparseIterate" begin
-    # the full logical matrix of a factorization object (Matrix(Q) is the thin factor for a rectangular one)
+    # the full logical matrix of a factorization object (Matrix(Q) can be thin, e.g. for a tall QR factor)
     dense(Q) = lmul!(Q, Matrix{eltype(Q)}(I, size(Q)))
     state(x) = (Matrix(x), collect(activecoordinates(x)), collect(activevalues(x)), nactive(x))
     # nontrivial values, an explicit active zero at (1, 2) and a non-canonical activation order

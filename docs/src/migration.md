@@ -487,10 +487,11 @@ active zero slots may remain active. For `QRCompactWYQ`, `LQPackedQ` and
 `HessenbergQ` factors (`qr(A).Q`, `lq(A).Q`, `hessenberg(A).Q`) it used to
 overwrite `x` with the identity and then throw a `MethodError`; `QRPackedQ`
 (`qr(A, ColumnNorm()).Q`) worked. Now a complex factor, a size mismatch, a
-failed materialization and a failed conversion throw before `x` is written. The
-temporary is deliberate. The write uses the full `size(Q)` matrix, which for a
-rectangular factorization is larger than the thin `Matrix(Q)`; for speed, pass the
-full dense matrix `lmul!(Q, Matrix{T}(I, size(Q)))`, not `Matrix(Q)`.
+failed materialization or a failed conversion throws before `x` is written. The
+temporary is deliberate. The write uses the full `size(Q)` matrix, which can be larger than
+`Matrix(Q)`: for a tall QR factor, `qr(randn(4, 3)).Q` has size 4x4 while `Matrix(Q)`
+is 4x3. For speed, pass the full dense matrix `lmul!(Q, Matrix{T}(I, size(Q)))` with
+`T = eltype(Q)`.
 
 Writes through a view, through `vec` of a matrix or a `reshape` to another
 shape, and through `atom(x, k)` keep Base's conversion: a complex value throws

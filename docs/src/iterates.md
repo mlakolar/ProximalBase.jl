@@ -62,17 +62,18 @@ as `qr(A).Q`, `qr(A, ColumnNorm()).Q`, `lq(A).Q` or `hessenberg(A).Q` (the types
 Such a `Q` is a lazy factorization object, not a dense matrix. `copyto!` materializes
 it into a dense temporary of the element type of `x` and writes that matrix, so
 a complex factor, a size other than `size(x)`, a failure to materialize `Q` and a
-failing conversion (an `InexactError` when `x` has integer entries) all throw
-before anything is written and leave `x` unchanged.
+failing conversion (an `InexactError` for a fractional value written into an integer
+`x`) throw before anything is written and leave `x` unchanged.
 
 The write is an ordinary value write of the full logical matrix of `Q`, which
-has size `size(Q)` (for `qr(randn(4, 3)).Q` that is ``4\times 4``, while
-`Matrix(Q)` is the thin ``4\times 3`` factor), not a copy of
+has size `size(Q)`, not a copy of
 a working-set state: an active coordinate whose new value is zero stays active, and
 a nonzero value activates its coordinate. The dense temporary and its allocation are
 deliberate. A caller who cares about performance can form the full dense matrix once, as
-`lmul!(Q, Matrix{T}(I, size(Q)))` for the element type `T` of `Q` (not `Matrix(Q)`,
-which is thin for a rectangular factorization), and pass it to `copyto!`.
+`lmul!(Q, Matrix{T}(I, size(Q)))` with `T = eltype(Q)`, and pass it to `copyto!`.
+`Matrix(Q)` can be thin, for example for a tall QR factor (`qr(randn(4, 3)).Q` has
+size ``4\times 4`` while `Matrix(Q)` is ``4\times 3``), whereas the write uses the
+full `size(Q)` matrix, which can be larger.
 
 ### Matrix coefficients
 

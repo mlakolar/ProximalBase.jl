@@ -227,7 +227,7 @@ end
 function _cube_value_parts(λ::T, m::T, e::Integer) where {T}
   (iszero(m) || !isfinite(m)) && return λ * m
   a, k = _frexp(λ)
-  ldexp(((a * m) * m) * (m / 3), k + 3e)
+  ldexp(((a * m) * m) * (m / 3), _exponent_sum(T, k, e, e, e))
 end
 
 function (f::CubeNormL2)(x::AbstractArray)
@@ -287,7 +287,7 @@ function gradient!(g::AbstractArray, f::CubeNormL2, x::AbstractArray)
   m, e = _cube_norm_parts(x, n, T)
   (iszero(m) || !isfinite(m)) && return g .= (λ * m) .* x
   b, k = _frexp(λ)
-  g .= _cube_scale.(x, b * m, k + e)
+  g .= _cube_scale.(x, b * m, _exponent_sum(T, k, e))
 end
 
 function value_and_gradient!(g::AbstractArray, f::CubeNormL2, x::AbstractArray)
@@ -306,7 +306,7 @@ function _cube_prox_parts(γ::T, λ::T, m::T, e::Integer) where {T}
   a, k = _frexp(γ)
   b, j = _frexp(λ)
   c, i = _frexp((a * b) * m)
-  h = k + j + e + i
+  h = _exponent_sum(T, k, j, e, i)
   if h <= 0
     return (2 / (1 + sqrt(1 + 4 * ldexp(c, h))), 0)
   end

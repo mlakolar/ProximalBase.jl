@@ -903,4 +903,189 @@ end
   end
 end
 
+# ---- CubeNormL2: the exponent totals of the value, the gradient and the prox ----
+
+# the value c 2^n, with c a significand and the total n formed in Int128: Base.ldexp on the total clamped to a C long
+# saturates like the true value
+function check_scaled(r::BigFloat, c::BigFloat, n::Integer)
+  want = Base.ldexp(c, Clong(clamp(n, typemin(Clong), typemax(Clong))))
+  @test isinf(r) == isinf(want)
+  @test iszero(r) == iszero(want)
+  @test signbit(r) == signbit(want)
+  @test r == want
+end
+
+# CubeNormL2(2^q)([2^p]) is 2^(q + 3p) / 3. Its norm has the frexp exponent e = p + 1 and λ has k = q + 1, so the Int total
+# k + 3e is q + 3p + 4: it is typemax(Int64) at (P1, -3) and the first total beyond Int64 is at (P1, -2); it is typemin(Int64)
+# at (-P1, -6) and the first below Int64 is at (-P1, -7), where 3 P1 = 2^63 - 2. A total beyond Int64 means a true value
+# above 2^(2^63 - 6) or below 2^(-2^63 + 4): infinite or zero in the range of any MPFR build.
+function cube_value_cases()
+  P1 = Int128(typemax(Int64) - 1) ÷ 3
+  cases = Tuple{Int128, Int128}[(TOP, 0), (TOP, BOT), (BOT, TOP), (BOT, BOT), (TOP ÷ 3, 0), (-(TOP ÷ 3), 0), (100, 100), (0, 0)]
+  for q in (-3, -2, -1, BOT, TOP)
+    push!(cases, (P1, q))
+  end
+  for q in (-6, -7, -8, BOT, TOP)
+    push!(cases, (-P1, q))
+  end
+  filter(c -> BOT <= c[1] <= TOP && BOT <= c[2] <= TOP, cases)
+end
+
+@testset "CubeNormL2 value, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    cases = cube_value_cases()
+    if EMAX == 2^62 - 1
+      P1 = Int128(typemax(Int64) - 1) ÷ 3
+      @test 3P1 + 4 - 3 == typemax(Int64) && 3P1 + 4 - 2 == Int128(typemax(Int64)) + 1
+      @test -3P1 + 4 - 6 == typemin(Int64) && -3P1 + 4 - 7 == Int128(typemin(Int64)) - 1
+      @test (P1, -2) in cases && (-P1, -7) in cases
+    end
+    for (a, q) in cases
+      f = CubeNormL2(pw(q))
+      x = BigFloat[pw(a)]
+      check_scaled(f(x), big(1) / 3, q + 3a)
+      v = value_and_gradient!(zeros(BigFloat, 1), f, x)
+      check_scaled(v, big(1) / 3, q + 3a)
+    end
+  end
+end
+
+# gradient!(g, CubeNormL2(2^q), [2^a, 2^r]) with 2^r at least 2^400 below 2^a, so that the norm rounds to 2^a at the
+# precisions used here: the entries are 2^(q + 2a) and
+# 2^(q + a + r). The exponents of the entry i are k_x = a + 1 or r + 1, k = q + 1 of λ and e = a + 1 of the norm, whose
+# total k_x + k + e is q + 2a + 3 and q + a + r + 3. The cases are the q with such a total next to typemax(Int64) and to
+# typemin(Int64), and q = BOT, 0 and TOP.
+function cube_gradient_cases()
+  hi, lo = Int128(typemax(Int64)), Int128(typemin(Int64))
+  cases = Tuple{Int128, Int128, Int128}[]
+  for (a, r) in ((TOP, BOT), (BOT + 400, BOT), (Int128(0), BOT), (TOP, TOP - 400))
+    c1, c2 = 2a + 3, a + r + 3
+    for q in (hi - c1, hi - c1 + 1, lo - c1, lo - c1 - 1, hi - c2, hi - c2 + 1, lo - c2, lo - c2 - 1, BOT, 0, TOP)
+      BOT <= q <= TOP && push!(cases, (a, r, q))
+    end
+  end
+  unique(cases)
+end
+
+@testset "CubeNormL2 gradient, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    cases = cube_gradient_cases()
+    if EMAX == 2^62 - 1
+      @test (TOP, BOT, 0) in cases && (TOP, BOT, 1) in cases
+      @test (BOT + 400, BOT, -803) in cases && (BOT + 400, BOT, -804) in cases       # the total of the first entry is typemin(Int64) at q = -803
+    end
+    for (a, r, q) in cases
+      f = CubeNormL2(pw(q))
+      x = BigFloat[pw(a), pw(r)]
+      g = zeros(BigFloat, 2)
+      gradient!(g, f, x)
+      check_result(g[1], 1, q + 2a)
+      check_result(g[2], 1, q + a + r)
+      g2 = zeros(BigFloat, 2)
+      v = value_and_gradient!(g2, f, x)
+      @test g2 == g
+      check_scaled(v, big(1) / 3, q + 3a)
+    end
+  end
+end
+
+# prox!(y, CubeNormL2(2^b), [2^b], 2^b): z = γ λ n = 2^(3b), and y = 2^b 2 / (1 + √(1 + 4z)) is 2^b for b <= -100 and 2^(-b/2)
+# for an even b >= 200, at the precisions used here. The Int total of h = k + j + e + i is 3b + 1 (k = j = e = b + 1,
+# i = -2): typemax(Int64) at b = P1 and above Int64 from b = P1 + 2 (b is even), typemin(Int64) at b = -P1 and below Int64
+# from b = -P1 - 2.
+cube_prox_exponent(b) = b >= 200 ? -(b ÷ 2) : b
+cube_prox(γ, λ, x) = (y = similar(x, float(eltype(x))); prox!(y, CubeNormL2(λ), x, γ); y)
+
+function cube_prox_exponents()
+  P1 = Int128(typemax(Int64) - 1) ÷ 3
+  bs = Int128[TOP, BOT, 200, -100, 2000, -2000, P1, P1 + 2, P1 + 4, P1 - 2, -P1, -P1 - 2, -P1 - 4, -P1 + 2]
+  filter(b -> BOT <= b <= TOP, bs)
+end
+
+@testset "CubeNormL2 prox, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    bs = cube_prox_exponents()
+    if EMAX == 2^62 - 1
+      P1 = Int128(typemax(Int64) - 1) ÷ 3
+      @test iseven(P1) && 3P1 + 1 == typemax(Int64) && 3 * (P1 + 2) + 1 > typemax(Int64)
+      @test -3P1 + 1 > typemin(Int64) && 3 * (-P1 - 2) + 1 < typemin(Int64)
+      @test P1 in bs && (P1 + 2) in bs && -P1 in bs && (-P1 - 2) in bs
+    end
+    for b in bs
+      @test iseven(b)
+      y = cube_prox(pw(b), pw(b), BigFloat[pw(b)])
+      check_result(y[1], 1, cube_prox_exponent(b))
+      y = zeros(BigFloat, 1)
+      v = value_and_prox!(y, CubeNormL2(pw(b)), BigFloat[pw(b)], pw(b))
+      check_result(y[1], 1, cube_prox_exponent(b))
+      check_scaled(v, big(1) / 3, b + 3 * cube_prox_exponent(b))
+    end
+  end
+end
+
+# The factor of the prox is 2^-q with q = fld(h, 2). The second coordinate 2^r has the frexp exponent r + 1, and is scaled by
+# the total (r + 1) - q, which is below typemin(Int64) for r = BOT from q = 2^62 + 2 on; the second coordinate of the
+# projection is 2^(r - q), zero in these cases. For the b below the first coordinate is 2^(-b/2) and the second 2^(r - 3b/2).
+@testset "CubeNormL2 prox of a tiny entry beside a huge one, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    P1 = Int128(typemax(Int64) - 1) ÷ 3
+    cases = filter(c -> BOT <= c[1] <= TOP && BOT <= c[2] <= TOP, Tuple{Int128, Int128}[(TOP, BOT), (TOP, BOT + 1000), (P1 + 2, BOT), (P1, BOT), (200, BOT)])
+    @test (TOP, BOT) in cases
+    for (b, r) in cases
+      y = cube_prox(pw(b), pw(b), BigFloat[pw(b), pw(r)])
+      check_result(y[1], 1, -(b ÷ 2))
+      check_result(y[2], 1, r - 3 * (b ÷ 2))
+    end
+  end
+end
+
+# a Float64 point x = 2^a with BigFloat parameters γ = 2^g and λ = 2^l: the frexp exponents of γ, λ and of the norm are
+# g + 1, l + 1 and a + 1, and that of (1/2)(1/2)(1/2) is -2, so the Int total of h is g + l + a + 1. The prox is x times
+# 2 / (1 + √(1 + 4z)) with z = 2^(g + l + a): below the Float64 range for g + l > 4000 at a = 1000, and x for a = -1000 and a
+# negligible z. The cases are the l with h = typemax(Int64) (the last that fits) and h = typemax(Int64) + 1, and with
+# h = typemin(Int64) and typemin(Int64) - 1.
+@testset "CubeNormL2 prox, Float64 point with BigFloat parameters, precision $p" for p in (5, 53)
+  setprecision(BigFloat, p) do
+    hi, lo = Int128(typemax(Int64)), Int128(typemin(Int64))
+    cases = Tuple{Int128, Int128, Int, Float64}[]    # g, l, a, the expected y
+    for (g, l, a, want) in ((TOP, TOP, 1000, 0.0), (TOP, hi - TOP - 1002, 1000, 0.0), (TOP, hi - TOP - 1001, 1000, 0.0),
+                            (TOP, hi - TOP - 1000, 1000, 0.0),
+                            (BOT, BOT, -1000, 2.0^-1000), (BOT, lo - BOT + 999, -1000, 2.0^-1000),
+                            (BOT, lo - BOT + 998, -1000, 2.0^-1000), (BOT, lo - BOT + 997, -1000, 2.0^-1000))
+      BOT <= g <= TOP && BOT <= l <= TOP && push!(cases, (g, l, a, want))
+    end
+    @test length(cases) >= 2
+    if EMAX == 2^62 - 1
+      @test length(cases) == 8
+      @test TOP + (hi - TOP - 1001) + 1000 + 1 == hi && BOT + (lo - BOT + 999) - 1000 + 1 == lo
+    end
+    for (g, l, a, want) in cases
+      y = zeros(1)
+      prox!(y, CubeNormL2(pw(l)), [Base.ldexp(1.0, a)], pw(g))
+      @test y[1] == want
+      @test !signbit(y[1])
+    end
+  end
+end
+
+@testset "CubeNormL2 with Float64 data keeps its sums" begin
+  @test CubeNormL2(2.0^500)([2.0^500]) === Inf
+  @test CubeNormL2(2.0^-500)([2.0^-500]) === 0.0
+  @test CubeNormL2(1.0)([2.0^300]) === Base.ldexp(1.0 / 3, 900)
+  @test value_and_gradient!(zeros(1), CubeNormL2(1.0), [2.0^300]) === Base.ldexp(1.0 / 3, 900)
+  g = zeros(2)
+  gradient!(g, CubeNormL2(2.0^-300), [2.0^600, 2.0^-600])        # the norm 2^600 is beyond sqrt(floatmax)
+  @test g == [2.0^900, 2.0^-300]
+  gradient!(g, CubeNormL2(2.0^500), [2.0^600, 2.0^-600])
+  @test g == [Inf, 2.0^500]
+  @test cube_prox(2.0^600, 2.0^600, [2.0^600]) == [2.0^-300]
+  @test cube_prox(2.0^-600, 2.0^-600, [2.0^-600]) == [2.0^-600]
+  @test cube_prox(2.0^300, 2.0^300, [2.0^300]) == [2.0^-150]
+  @test cube_prox(2.0^600, 2.0^600, [2.0^600, 2.0^-600]) == [2.0^-300, 0.0]
+  for T in (Float64, Float32)
+    @test @inferred(PB._cube_value_parts(T(2), T(0.75), 3)) isa T
+    @test PB._cube_prox_parts(T(2), T(3), T(0.75), 3)[1] isa T
+  end
+end
+
 end

@@ -187,6 +187,151 @@ end
   end
 end
 
+# a user-defined separable function, which is not built in
+struct KktCustom{T} <: AbstractFunction
+  λ::T
+end
+ProximalBase.kkt_violation(f::KktCustom, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ
+
+# valid calls with the arguments of the checks below, as `kkt_violation` returned them before the
+# checks were added (value and type); the expected values are the scalar formulas
+@testset "kkt_violation validates the coordinate and the gradient extent" begin
+  # independent formulas
+  l1(g, w, i) = abs(g[i]) - w[i]
+  grp(g, G, λ) = sqrt(sum(abs2, g[G])) - λ
+  big_ids = (0, -1, typemin(Int), typemax(Int), big(10)^30, -big(10)^30, typemax(UInt), UInt(0), typemax(Int128), typemin(Int128))
+  for T in (Float64, Float32)
+    f = NormL1(T(1))
+    g = T[3, -0.5, 7, 1.5]
+    gc = copy(g)
+
+    # SparseIterate, vector and matrix: the coordinates are 1:length(x)
+    for x in (SparseIterate(T, 4), SparseIterate(T, 2, 2))
+      xc = copy(Array(x))
+      for k in 1:4
+        v = kkt_violation(f, g, x, k)
+        @test v isa T
+        @test v == l1(g, ones(T, 4), k)
+      end
+      # the flat gradient and the matrix-shaped gradient of the same length are accepted
+      @test [kkt_violation(f, reshape(g, 2, 2), x, k) for k in 1:4] == [l1(g, ones(T, 4), k) for k in 1:4]
+      wf = NormL1(T(1), T[1, 2, 3, 4])
+      @test [kkt_violation(wf, g, x, k) for k in 1:4] == [abs(g[k]) - k for k in 1:4]
+      for k in (5, big_ids..., big(5), UInt(5), Int8(5), Int32(0))
+        @test_throws BoundsError kkt_violation(f, g, x, k)
+        @test_throws BoundsError kkt_violation(f, vcat(g, T(2)), x, k)   # the id is tested first
+      end
+      for gbad in (T[], g[1:1], g[1:3], vcat(g, T(2)), zeros(T, 3, 2), zeros(T, 2, 3), zeros(T, 4, 2), zeros(T, 2, 2, 2))
+        length(gbad) == 4 && continue
+        @test_throws DimensionMismatch kkt_violation(f, gbad, x, 1)
+        @test_throws DimensionMismatch kkt_violation(wf, gbad, x, 4)
+      end
+      @test_throws DimensionMismatch kkt_violation(f, zeros(T, 3), x, 3)
+      @test g == gc
+      @test Array(x) == xc
+      @test nactive(x) == 0
+    end
+    # the issue example: g of length 3 and k = 3 on a SparseIterate(2)
+    @test_throws BoundsError kkt_violation(NormL1(T(1)), T[1, 2, 7], SparseIterate(T, 2), 3)
+    @test_throws DimensionMismatch kkt_violation(NormL1(T(1)), T[1], SparseIterate(T, 2), 1)
+    @test kkt_violation(NormL1(T(1)), T[1, 2], SparseIterate(T, 2), 2) == T(1)
+    # a nonzero iterate is checked in the same way
+    xn = SparseIterate(T[0, 2, 0, 0]); xn[3] = 1
+    @test kkt_violation(f, g, xn, 3) == T(6)
+    @test_throws BoundsError kkt_violation(f, g, xn, 5)
+    # a function that is not built in takes the same checks
+    @test_throws BoundsError kkt_violation(KktCustom(T(1)), g, SparseIterate(T, 4), 5)
+    @test_throws DimensionMismatch kkt_violation(KktCustom(T(1)), g[1:3], SparseIterate(T, 4), 1)
+    @test kkt_violation(KktCustom(T(1)), g, SparseIterate(T, 4), 2) == T(0.5) - 1
+
+    # an iterate without coordinates has no valid id
+    for e in (SparseIterate(T, 0), SparseIterate(T, 0, 3))
+      for k in (0, 1, -1, big(10)^30)
+        @test_throws BoundsError kkt_violation(f, T[], e, k)
+      end
+      @test_throws BoundsError kkt_violation(f, T[1], e, 1)    # no valid id, whatever the gradient
+    end
+
+    # the owner: coordinates are the p(p+1)/2 entries of the lower triangle
+    S = SymmetricSparseIterate(T, 2)
+    G = T[1 2; 4 3]                       # not symmetric: entry (2, 1) is the mean of 4 and 2
+    sym = (G + G') / 2
+    for gg in (G, vec(G))
+      @test [kkt_violation(f, gg, S, k) for k in 1:3] == [abs(sym[1, 1]) - 1, abs(sym[2, 1]) - 1, abs(sym[2, 2]) - 1]
+      @test all(kkt_violation(f, gg, S, k) isa T for k in 1:3)
+    end
+    Gc = copy(G)
+    for k in (0, 4, 10^6, big_ids..., big(4), UInt(4), Int8(4))
+      @test_throws BoundsError kkt_violation(f, G, S, k)
+      @test_throws BoundsError kkt_violation(f, zeros(T, 3), S, k)    # the id is tested first
+    end
+    for gbad in (T[], zeros(T, 3), zeros(T, 5), zeros(T, 3, 3), zeros(T, 2, 3), zeros(T, 2, 2, 2)[:, :, 1:0])
+      @test_throws DimensionMismatch kkt_violation(f, gbad, S, 1)
+    end
+    @test kkt_violation(f, zeros(T, 1, 4), S, 1) == -1       # a matrix-shaped gradient of length p^2 needs not be square
+    Gi = T[1 Inf; -Inf 3]
+    err = try kkt_violation(f, Gi, S, 2); nothing catch e; e end
+    @test err isa ArgumentError
+    @test_throws ArgumentError kkt_violation(f, Gi, S, 2)
+    @test_throws BoundsError kkt_violation(f, Gi, S, 4)
+    @test G == Gc
+    @test nactive(S) == 0
+    # p = 1 and p = 0
+    @test kkt_violation(f, T[-2;;], SymmetricSparseIterate(T, 1), 1) == T(1)
+    @test_throws BoundsError kkt_violation(f, T[-2;;], SymmetricSparseIterate(T, 1), 2)
+    @test_throws DimensionMismatch kkt_violation(f, T[-2, 1], SymmetricSparseIterate(T, 1), 1)
+    for k in (0, 1, big(10)^30)
+      @test_throws BoundsError kkt_violation(f, zeros(T, 0, 0), SymmetricSparseIterate(T, 0), k)
+    end
+    # a larger owner reads each coordinate at its position
+    P = 4
+    GP = T[10i + j for i in 1:P, j in 1:P]
+    SP = SymmetricSparseIterate(T, P)
+    for c in 1:P, r in c:P
+      k = P * (c - 1) - div(c * (c - 1), 2) + r
+      @test kkt_violation(f, GP, SP, k) == (GP[r, c] + GP[c, r]) / 2 - 1
+    end
+    @test_throws BoundsError kkt_violation(f, GP, SP, 11)
+    @test_throws DimensionMismatch kkt_violation(f, GP[:, 1:3], SP, 1)
+
+    # AtomIterate: unchanged, a group is a coordinate and the layout is checked
+    A = AtomIterate(T, 4, [1:2, 3:4])
+    gf = GroupNormL2(T(1), [1:2, 3:4])
+    @test kkt_violation(gf, g, A, 1) ≈ grp(g, 1:2, sqrt(T(2)))
+    @test kkt_violation(gf, g, A, 2) ≈ grp(g, 3:4, sqrt(T(2)))
+    @test kkt_violation(gf, g, A, 1) isa T
+    @test kkt_violation(f, g, A, 1) == maximum(i -> abs(g[i]) - 1, 1:2)
+    @test kkt_violation(f, g, A, 2) == maximum(i -> abs(g[i]) - 1, 3:4)
+    for k in (0, 3, -1)
+      @test_throws BoundsError kkt_violation(gf, g, A, k)
+      @test_throws BoundsError kkt_violation(f, g, A, k)
+    end
+    @test_throws DimensionMismatch kkt_violation(GroupNormL2(T(1), [1:3, 4:4]), g, A, 1)
+    @test_throws DimensionMismatch kkt_violation(GroupNormL2(T(1), [3:4, 1:2]), g, A, 1)
+    @test g == gc
+
+    # valid calls as the base returned them (the Float64 values are printed in full)
+    sg = SparseGroupNormL2(T(1), T(0.5), [1:2, 3:4])
+    sgv = [kkt_violation(sg, g, A, k) for k in 1:2]
+    @test sgv isa Vector{T}
+    @test sgv ≈ T[1.2928932188134525, 5.3136905082096]
+    @test [kkt_violation(gf, g, A, k) for k in 1:2] ≈ T[1.6271677027760145, 5.744696969265082]
+    @test [kkt_violation(f, g, A, k) for k in 1:2] == T[2, 6]
+    @test [kkt_violation(NormL1(T(1), T[1, 2, 3, 4]), g, A, k) for k in 1:2] == T[2, 4]
+    @test [kkt_violation(NormL1(T(1), T[1 2; 2 3]), G, S, k) for k in 1:3] == T[0, 1, 0]
+  end
+
+  # the valid path allocates nothing
+  kkt_alloc(f, g, x, k) = @allocated kkt_violation(f, g, x, k)
+  let g = [3.0, -0.5, 7.0, 1.5], x = SparseIterate(4), xm = SparseIterate(2, 2), S = SymmetricSparseIterate(2),
+      G = [1.0 2; 4 3], A = AtomIterate(4, [1:2, 3:4]), f = NormL1(1.0), gf = GroupNormL2(1.0, [1:2, 3:4])
+    for (ff, gg, xx, k) in ((f, g, x, 3), (f, g, xm, 3), (f, G, S, 2), (gf, g, A, 1), (f, g, A, 1))
+      kkt_violation(ff, gg, xx, k)
+      @test kkt_alloc(ff, gg, xx, k) == 0
+    end
+  end
+end
+
 @testset "restrict" begin
   x = randn(10)
   S = [7, 2, 9]

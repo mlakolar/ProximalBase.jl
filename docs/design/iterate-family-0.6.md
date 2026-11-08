@@ -297,7 +297,12 @@ state copy (Part 4).
 ## 2.7 Coordinate oracles (FA)
 
 Shared by both forms of `prox_coordinate!` and by the four-argument
-`kkt_violation`.
+`kkt_violation`. The four-argument `kkt_violation` validates the coordinate and the
+extent of the gradient before it computes: `k` must be one of `1:ncoordinates(x)`
+(`BoundsError`; for the owner, tested before `tril_cartesian`), and `g` must have
+`length(x)` entries for a `SparseIterate` or `p^2` for the owner (`DimensionMismatch`),
+as a matrix or flat; an `AtomIterate` checks its layout and the group `k` as before.
+Nothing is written, so there is no state to restore.
 
 | ID | requirement | status | types |
 |:--|:--|:--|:--|

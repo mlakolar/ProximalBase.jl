@@ -525,9 +525,9 @@ end
 
 # At a precision of two or three bits the rounded block means of the pooling need not be nondecreasing
 # in the order of the sorted entries (a pooled sequence [1, 0.75, ...]). The stored output is that
-# sequence soft-thresholded, placed at the entries; f(y) sorts y, which is another sequence, so a value
-# accumulated in the order of the pooled sequence is not the value at y. value_and_prox! returns the
-# value at the stored output, f(y), and the stored output is the one that prox! stores.
+# sequence soft-thresholded, placed at the entries; f(y) sorts y, which can be another sequence, so a
+# value accumulated in the order of the pooled sequence can differ from the value at y. value_and_prox!
+# returns the value at the stored output, f(y), and the stored output is the one that prox! stores.
 
 # the number of positions of the sequence at which it decreases
 inversions(w) = count(k -> w[k + 1] < w[k], 1:length(w) - 1)
@@ -923,8 +923,8 @@ end
 # (:last), and the lower and the upper bound of the tube when the running sum leaves it (:lower and
 # :upper). The length is an exact integer, so that at two bits 5 is 5 and not 4: each quotient is the
 # exact quotient rounded once, as div_int. The model below is the recurrence written here, with the
-# division at each site a parameter dv(x, k, site), and it records the site and the length of every
-# division in rec.
+# division at each site a parameter dv(x, k, site); when a vector rec is given, it records the site and
+# the length of each division.
 m_div(dv, rec, site::Symbol, x, k::Int) = (rec === nothing || push!(rec, (site, k)); dv(x, k, site))
 
 function m_tv(x::Vector{T}, λ::T, dv, rec = nothing) where {T<:AbstractFloat}
@@ -1050,7 +1050,8 @@ function tv_inputs(p::Integer)
   cases
 end
 
-# the package against the model, every call form, with ==
+# the package against the model, with ==: prox, prox! into a separate output and in place, and
+# value_and_prox! into a separate output, for TotalVariation1D and FusedLasso
 function check_tv(x::Vector{BigFloat}, λ::BigFloat, γ, z::Vector{BigFloat})
   x0 = copy(x)
   f = TotalVariation1D(λ)

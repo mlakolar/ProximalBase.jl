@@ -1497,11 +1497,13 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     v2 += _int_mul(2k - n - 1, wk)
   end
   V || return zero(T)
-  # Soft thresholding keeps a nondecreasing sequence nondecreasing, so when the pooled sequence is
-  # nondecreasing the stored values, in the order of the sorted entries, are nondecreasing, f(y) sums
-  # them in the order accumulated above, and v1 and v2 are its sums. Otherwise the pooled order does not
-  # guarantee that order (thresholding may still have removed the inversion), and f(y) is recomputed.
-  # The buffers of f are free here (y is written, and y === x is no longer read).
+  # For finite pooled entries and a finite threshold, soft thresholding keeps a nondecreasing sequence
+  # nondecreasing. Then, when the pooled sequence is nondecreasing, the stored values in the order of the
+  # sorted entries are nondecreasing, f(y) sums them in the order accumulated above, and v1 and v2 are its
+  # sums. When the BigFloat guard finds an inversion the pooled order does not guarantee that order
+  # (thresholding may still have removed the inversion), and f(y) is returned instead. All writes of y
+  # are done and the entries of x are no longer needed; the scratch buffers of f are reused by f(y) only
+  # after the scan of the guard has read the pooled sequence.
   _fused_pooled_inversion(T, wn) && return f(y)
   _fused_vector_value(f, y, v1, v2, T)
 end

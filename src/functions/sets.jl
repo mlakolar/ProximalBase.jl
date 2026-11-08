@@ -1546,7 +1546,8 @@ end
 # steps γ and an array normal, D is formed here in S, from the exponent w of the largest term
 # γᵢαᵢ² (αᵢ widened to S before it is squared) and the sum of the terms with 2^-w applied to the
 # significands, so that D is in [1, 8n) whatever d overflowed or lost to the narrower type of its
-# own terms. For a scalar normal with d = Inf, D is q times the sum of γᵢ 2^-w with 2^w the
+# own terms (w starts at typemin(Int): for BigFloat, where every term has a smaller exponent,
+# w stays there and D is below 1, with D 2^w still the sum). For a scalar normal with d = Inf, D is q times the sum of γᵢ 2^-w with 2^w the
 # exponent of the largest step, and D ≥ 1/2 as d ≥ floatmax. So D ≥ 1/2, and t″ = G / D is finite
 # with |G| as above. Then t = t″ 2^J with J = k - w, and the correction cᵢ = t″ γᵢ αᵢ 2^J is
 # formed from the significands of the three factors with the power of two last, so that no factor

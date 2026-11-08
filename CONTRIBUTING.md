@@ -269,15 +269,16 @@ iterate files that quick always runs (`active_handle`, `atom_iterate`,
 `allocations_basics`). The cases that five quick files leave out (Float32 repeats and
 type grids: `atom_iterate_grids`, `conjugate_basics_grids`, `lmo_atoms_grids`,
 `nested_scaled_grids`, `sparse_iterate_basics_grids`, listed in `test/TESTING.md`) are
-in the full tier. They run in the nightly run, and as focus files for a change to
-package code at the standard or thorough tier, so the rows below list them as "the
-grids files"; a change to `src/symmetric_parameters.jl` does not run them. The quick,
-standard and thorough tiers do not include them:
+in the full tier. A pull request runs a grids file for a change to the source of its
+own family (`.github/tier-rules.toml` lists the paths, `test/TESTING.md` the map), the
+nightly run and `test:full` run all of them, and `julia scripts/test.jl <name>_grids`
+runs one by name. A change to another source path does not run them in a pull request.
+The iterate rows:
 
 | Change | Before merge |
 |---|---|
-| `src/atom_iterate.jl`, narrow | quick + the grids files, `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` |
-| `src/sparse_iterate.jl`, narrow | quick + the grids files, `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` |
+| `src/atom_iterate.jl`, narrow | quick + `atom_iterate_grids`, `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` |
+| `src/sparse_iterate.jl`, narrow | quick + `sparse_iterate`, `sparse_iterate_basics_grids`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` |
 | `src/symmetric_parameters.jl`, narrow | quick + `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` |
 | one of them, not declared narrow | standard + the same focus files |
 | two of them | standard + both groups (the label does not apply) |

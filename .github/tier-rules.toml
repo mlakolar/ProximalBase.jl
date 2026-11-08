@@ -225,22 +225,27 @@ tier = "quick"
 focus = ["examples"]
 paths = ["examples/**"]
 
-# The grids files (atom_iterate_grids, conjugate_basics_grids, lmo_atoms_grids,
-# nested_scaled_grids, sparse_iterate_basics_grids) hold the Float32 repeats and type grids
-# that five quick files leave out; they are in the full tier. A package change at the standard
-# or thorough tier ran those cases through quick, so each rule below that matches src/** at
-# one of those tiers lists the five files as focus files, except src/symmetric_parameters.jl,
-# whose own code no grids file uses (its tuple methods, which nested_scaled_grids may reach,
-# were not traced). A quick rule for a self-contained family lists the grids files whose moved
-# cases use a type that its source defines (losses.jl: CheckLoss; singular.jl:
-# SingularValue).
+# The grids files. atom_iterate_grids, conjugate_basics_grids, lmo_atoms_grids,
+# nested_scaled_grids and sparse_iterate_basics_grids are in the full tier. They hold cases that
+# repeat cases that quick keeps for Float64 or for a representative type (test/TESTING.md lists
+# them). A pull request runs them, beside its tier, for a change to the source of their own family:
+#   atom_iterate_grids:          src/atom_iterate.jl, src/functions/norms.jl,
+#                                src/functions/sparsegroup.jl, src/functions/nonconvex.jl
+#   sparse_iterate_basics_grids: src/sparse_iterate.jl
+#   nested_scaled_grids:         src/calculus.jl, the shared sources (src/metric.jl, ...),
+#                                src/functions/singular.jl
+#   conjugate_basics_grids:      src/calculus.jl, the shared sources, src/functions/losses.jl
+#   lmo_atoms_grids:             src/lmo.jl, src/lmo_atoms.jl, the shared sources,
+#                                src/functions/singular.jl
+# A change to another source path does not run them in a pull request. They also run in the full
+# tier (the nightly run, test:full, release runs) and when requested by name
+# (julia scripts/test.jl <name>_grids) or by changing the file.
 #
 # The iterates. A change to one implementation runs standard and its focus files: the
 # iterate's own tests and those of its main interactions, beside the iterate files of quick
 # (active_handle, atom_iterate, iterate_invariants, iterate_queries, matrixview,
 # sparse_iterate_basics, symmetric_parameters, symmetric_products, wrapper_buffers,
-# allocations_basics). The five grids files are focus files of these rules beside the quick
-# files. With the
+# allocations_basics). With the
 # label test:iterate-narrow, which the author sets for a narrow change (CONTRIBUTING.md), it
 # runs quick and the same focus files. A change to two implementations runs standard and both
 # groups; a shared-semantics or architectural change needs test:thorough, set by hand.
@@ -248,18 +253,7 @@ paths = ["examples/**"]
 why = "AtomIterate: groups, activation, copies, products, block steps over groups"
 tier = "standard"
 narrow = "quick"
-focus = [
-  "atom_iterate_grids",
-  "conjugate_basics_grids",
-  "lmo_atoms_grids",
-  "nested_scaled_grids",
-  "sparse_iterate_basics_grids",
-  "real_iterates",
-  "block_step",
-  "norms",
-  "sparsegroup",
-  "infinite_group_weights",
-]
+focus = ["atom_iterate_grids", "real_iterates", "block_step", "norms", "sparsegroup", "infinite_group_weights"]
 paths = ["src/atom_iterate.jl"]
 
 [[risk]]
@@ -268,10 +262,6 @@ tier = "standard"
 narrow = "quick"
 focus = [
   "sparse_iterate",
-  "atom_iterate_grids",
-  "conjugate_basics_grids",
-  "lmo_atoms_grids",
-  "nested_scaled_grids",
   "sparse_iterate_basics_grids",
   "real_iterates",
   "block_step",
@@ -298,13 +288,7 @@ paths = ["src/symmetric_parameters.jl"]
 [[risk]]
 why = "shared by every function: interface, traits, numerical helpers, wrappers, steps"
 tier = "thorough"
-focus = [
-  "atom_iterate_grids",
-  "conjugate_basics_grids",
-  "lmo_atoms_grids",
-  "nested_scaled_grids",
-  "sparse_iterate_basics_grids",
-]
+focus = ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"]
 paths = [
   "src/ProximalBase.jl",
   "src/compat.jl",
@@ -321,14 +305,7 @@ paths = [
 [[risk]]
 why = "the wrappers, whose rejected-step catalog (stepchecks) is in the full tier"
 tier = "thorough"
-focus = [
-  "stepchecks",
-  "atom_iterate_grids",
-  "conjugate_basics_grids",
-  "lmo_atoms_grids",
-  "nested_scaled_grids",
-  "sparse_iterate_basics_grids",
-]
+focus = ["stepchecks", "nested_scaled_grids", "conjugate_basics_grids"]
 paths = ["src/calculus.jl"]
 
 # Families used only by their own tests: quick and those tests, if the PR changes a test.
@@ -449,38 +426,28 @@ paths = ["src/deprecated.jl"]
 [[risk]]
 why = "Precompose, whose array-scale tests are in the full tier"
 tier = "standard"
-focus = [
-  "composition",
-  "precompose_array",
-  "atom_iterate_grids",
-  "conjugate_basics_grids",
-  "lmo_atoms_grids",
-  "nested_scaled_grids",
-  "sparse_iterate_basics_grids",
-]
+focus = ["composition", "precompose_array"]
 paths = ["src/composition.jl"]
 
 [[risk]]
 why = "sets, including the hyperslab, whose tests are in the full tier"
 tier = "standard"
-focus = [
-  "hyperslab",
-  "atom_iterate_grids",
-  "conjugate_basics_grids",
-  "lmo_atoms_grids",
-  "nested_scaled_grids",
-  "sparse_iterate_basics_grids",
-]
+focus = ["hyperslab"]
 paths = ["src/functions/sets.jl"]
+
+[[risk]]
+why = "the matrix oracles and atoms, whose Float32 passes are in lmo_atoms_grids"
+tier = "standard"
+focus = ["lmo_atoms_grids"]
+paths = ["src/lmo.jl", "src/lmo_atoms.jl"]
+
+[[risk]]
+why = "the group penalties, whose atomicity cases for GroupNormLinf and GroupSCAD are in atom_iterate_grids"
+tier = "standard"
+focus = ["atom_iterate_grids"]
+paths = ["src/functions/norms.jl", "src/functions/sparsegroup.jl", "src/functions/nonconvex.jl"]
 
 [[risk]]
 why = "package code: functions, wrappers and constraints"
 tier = "standard"
-focus = [
-  "atom_iterate_grids",
-  "conjugate_basics_grids",
-  "lmo_atoms_grids",
-  "nested_scaled_grids",
-  "sparse_iterate_basics_grids",
-]
 paths = ["src/**"]

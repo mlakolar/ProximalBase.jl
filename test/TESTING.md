@@ -201,22 +201,26 @@ cases that moved are the ones the table names for `atom_iterate`.
 | `conjugate_basics` + `conjugate_basics_grids` | the Float32 `CheckLoss`, `IndNonnegative` and `Translate` families of the direct conjugate projections | 5858 = 5675 + 183 |
 | `sparse_iterate_basics` + `sparse_iterate_basics_grids` | the Float16 pass and the Float32 `lmul!`, `ldiv!` cases of the scaling by a number (FN-9); the Float32 sparse triple products | 2840 = 1604 + 1236 |
 
-Quick does not run these cases. In a pull request, a package change at the standard or thorough tier
-used to run them through Quick; the rules in `.github/tier-rules.toml` now run the five grids files as
-`focus` files beside the tier for every change at those tiers except one to `src/symmetric_parameters.jl`
-(the default rule for `src/**`, the iterate rules for `src/atom_iterate.jl` and `src/sparse_iterate.jl`,
-and the rules for `src/calculus.jl`, `src/composition.jl`, `src/functions/sets.jl` and the code shared by
-every function). That rule's code is for `SymmetricSparseIterate`, which no grids file uses; its tuple
-methods, which `nested_scaled_grids` may reach, were not traced. A self-contained family at the quick
-tier runs the grids files whose moved cases use a type that its source defines: `src/functions/losses.jl`
-runs `conjugate_basics_grids` (`CheckLoss`), and `src/functions/singular.jl` runs `lmo_atoms_grids` and
-`nested_scaled_grids` (`SingularValue`). These rules keep the tier each path had, and the
-`test:iterate-narrow` label still lowers an iterate change to quick, which then runs the grids files
-beside it. The rules do not cover a function or method that a moved case reaches from another quick
-family's source; the nightly run, which is the full tier, covers those.
+Quick does not run these cases. They run in these places:
+
+- In a pull request, for a change to the source of their own family, beside the tier (`focus` lists
+  in `.github/tier-rules.toml`; the tier of each path is unchanged):
+  - `atom_iterate_grids`: `src/atom_iterate.jl`, `src/functions/norms.jl`,
+    `src/functions/sparsegroup.jl`, `src/functions/nonconvex.jl`;
+  - `sparse_iterate_basics_grids`: `src/sparse_iterate.jl`;
+  - `nested_scaled_grids`: `src/calculus.jl`, the sources shared by every function (`src/metric.jl`,
+    `src/utils.jl`, `src/interface.jl`, ...), `src/functions/singular.jl`;
+  - `conjugate_basics_grids`: `src/calculus.jl`, the shared sources, `src/functions/losses.jl`;
+  - `lmo_atoms_grids`: `src/lmo.jl`, `src/lmo_atoms.jl`, the shared sources, `src/functions/singular.jl`.
+  With the label `test:iterate-narrow`, an iterate change gives quick and the iterate's own grids file.
+- In the full tier: the nightly run, a pull request with `test:full`, release runs.
+- When requested: `julia scripts/test.jl <name>_grids`, or a change to the grids file itself.
+
+A change to another source path does not run the grids files in a pull request; the nightly run and
+`test:full` do. A master push runs the thorough tier, which has none of them.
 `test/tier_selection.jl` checks that each companion is in Full and in no lower tier, that its Quick
-file is in Quick, that every rule for `src/**` paths at standard or thorough (except
-`src/symmetric_parameters.jl`) lists the five files, and the two quick rules above.
+file is in Quick, the map above with `classify`, that unrelated source paths select none of them, and
+what a master push, the nightly run and `test:full` run.
 
 ## JLArrays and CUDA
 
@@ -450,13 +454,13 @@ change is narrow, shared or architectural is the author's declaration, checked i
 run 41364805347), beside the iterate files of quick (`active_handle`, `atom_iterate`,
 `iterate_invariants`, `iterate_queries`, `iterate_writes`, `matrixview`,
 `sparse_iterate_basics`, `symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
-`allocations_basics`, `block_step_failures`). The five grids files (above)
-are focus files of the first two rules, beside the Quick files:
+`allocations_basics`, `block_step_failures`). The grids file of each of the first two rules
+(`atom_iterate_grids`, `sparse_iterate_basics_grids`, above) is a focus file of it:
 
 | Rule | Focus files | Why | Worker s |
 |---|---|---|---:|
-| `src/atom_iterate.jl` | the five grids files, `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` | constructors and products; block steps over groups (activation order, staging, pre-write errors, aliased trial points); the group norms and sparse group on atoms; active-group visits with infinite weights | 165 |
-| `src/sparse_iterate.jl` (both stored iterates and their shared code) | the five grids files, `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` | the complete iterate tests; products and dispatch; block steps; no dense pass in value oracles; storage after failures; the products of the symmetric owner, the symmetric part read by `prox!`/`gradient!` | 532 |
+| `src/atom_iterate.jl` | `atom_iterate_grids`, `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` | constructors and products; block steps over groups (activation order, staging, pre-write errors, aliased trial points); the group norms and sparse group on atoms; active-group visits with infinite weights | 165 |
+| `src/sparse_iterate.jl` (both stored iterates and their shared code) | `sparse_iterate`, `sparse_iterate_basics_grids`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` | the complete iterate tests; products and dispatch; block steps; no dense pass in value oracles; storage after failures; the products of the symmetric owner, the symmetric part read by `prox!`/`gradient!` | 532 |
 | `src/symmetric_parameters.jl` | `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` | the check paths, the trait, writes, merged and extension parameters; the catalogs (`_centers`, `_inventory`, `_inventory_walk`) stay in full | 133 |
 
 Left out on purpose and still in thorough or full: `symmetric_groups` (group-norm writes into a

@@ -2,16 +2,20 @@
 # test/tier_selection.jl, test/ci_plan.jl and test/ci_verdict.jl; the test files of each tier
 # are in test/tiers.toml. CONTRIBUTING.md explains the workflow.
 #
-# The plan decides five things independently: the tier (how many test files), the platforms
-# (which Julia versions and systems run them), coverage, the benchmark reference checks, and,
-# from the tier, the conformance reports. [events.*] says how each kind of run decides them,
+# The plan decides six things independently: the tier (how many test files), the platforms
+# (which Julia versions and systems run them), coverage, the benchmark reference checks, whether
+# each test job must have run the whole catalog of its tier (inventory), and, from the tier, the
+# conformance reports. [events.*] says how each kind of run decides them,
 # [platforms.*] defines the job lists, [timeouts] and [policy] are per tier, and the risk
 # rules below map changed paths to the minimum tier of a pull request. scripts/ci_plan.jl
 # validates the [events.*] and [platforms.*] tables and their values (an unknown key, mode or tier
 # there is an error). Each of the other tables is validated by its own reader, as that reader
 # defines: test/tiers.jl reads [timeouts], [policy] and [[risk]], scripts/ci_plan.jl reads
-# [benchmark_check]. scripts/ci_verdict.jl keeps its own copy of the job lists of the modes,
-# which test/ci_verdict.jl compares with the tables below.
+# [benchmark_check], and scripts/ci_triage.jl reads and validates [triage] (the issue labels, the
+# deferred test files and the stale limit of the nightly triage). scripts/ci_verdict.jl keeps its
+# own copy of the job lists of the modes, which test/ci_verdict.jl compares with the tables below;
+# scripts/ci_result.jl checks the inventory of a test log against the tier lists, and
+# scripts/release_record.jl writes the record of a release run (the manual run with release=true).
 
 [timeouts]
 # Minutes per CI test job, well above each tier's target to allow for cold caches. A job of a
@@ -21,7 +25,9 @@ standard = 30
 thorough = 45
 full = 90
 
-# One table per kind of run. A push is told apart from a tag push by its ref type.
+# One table per kind of run. A push is told apart from a tag push by its ref type. `release` is
+# not a GitHub event: it is the manual run with the input release=true (a release validation of
+# the exact commit), planned from its own table.
 #   tier:      "risk" (the risk rules and labels below), a tier, or "input" (the manual run's tier).
 #   skip_without_tests: a run whose changed paths need no package tests (documentation) has tier
 #              none; without it (tag, nightly) the tier is fixed.
@@ -32,6 +38,9 @@ full = 90
 #   benchmark: the benchmark reference checks (benchmark/check_only.jl on the quick suite):
 #              "paths" (a changed path of [benchmark_check] below, or a label of benchmark_labels),
 #              "always", "never" or "input" (the manual run's input, or a tier of benchmark_tiers).
+#   inventory: true when every required test job must also show that it ran the whole catalog of
+#              the tier and, with the verdict, that it uploaded its own conformance reports; false
+#              (the default, so the key may be left out) otherwise.
 # A label raises a pull request's tier or leaves it alone, with one exception: test:iterate-narrow
 # lowers the tier of its iterate rule (see the risk rules). test:benchmark does not affect the tier.
 
@@ -60,6 +69,7 @@ tier = "full"
 platforms = "cross"
 coverage = false
 benchmark = "always"
+inventory = true
 
 [events.schedule]
 # The nightly run: the full tier on the cross platforms, with coverage, every night.
@@ -67,6 +77,17 @@ tier = "full"
 platforms = "cross"
 coverage = true
 benchmark = "always"
+inventory = true
+
+[events.release]
+# A manual run with release=true and the full SHA of the commit: the full tier on the cross
+# platforms, with coverage, whatever the manual inputs say (the planner rejects a tier or platforms
+# input that disagrees).
+tier = "full"
+platforms = "cross"
+coverage = true
+benchmark = "always"
+inventory = true
 
 [events.workflow_dispatch]
 tier = "input"
@@ -120,6 +141,49 @@ source_without_tests = "standard"
 # them because it defines these jobs. The benchmark analysis scripts have their own job, which
 # always runs.
 paths = ["benchmark/*.jl", "benchmark/Project.toml", ".github/workflows/CI.yml"]
+
+[triage]
+# The nightly defect triage, read and validated by scripts/ci_triage.jl (an unknown key, a missing
+# key and a value of the wrong type are all errors, listed together; test/ci_triage.jl checks that
+# every glob below matches a test of test/tiers.toml, so a rename cannot leave the list stale).
+# A failure is core (urgent) when it is a Linux job on Julia lts or 1 and a test file that is not
+# deferred; every other failure is deferred and is triaged by impact. A master push runs Linux
+# jobs only, so its failures are core and have their own alert.
+#   deferred:        groups of test files whose failures are normally deferred wherever they
+#                    happen: `why` and `files`, globs over test names as in test/tiers.toml.
+#   stale_hours:     the nightly is stale when no completed scheduled run was created within this many
+#                    hours (manual, release and tag runs do not count).
+#   title_alert, title_stale: the titles of the two standing issues.
+#   label, rehearsal_label: the label of the triage issues, and the one a rehearsal uses instead.
+#   severity_labels, kind_labels: the labels the reporter sets; a maintainer sets triage:bug,
+#                    triage:flaky (never closed automatically) and triage:portability.
+#   label_style:     the color and description the reporter creates each label with.
+stale_hours = 48
+title_alert = "CI failing on master"
+title_stale = "Nightly CI is stale"
+label = "nightly-triage"
+rehearsal_label = "nightly-triage-rehearsal"
+severity_labels = { core = "triage:core", deferred = "triage:deferred" }
+kind_labels = ["triage:unclassified", "triage:bug", "triage:flaky", "triage:portability", "triage:infrastructure"]
+
+[[triage.deferred]]
+why = "device-array suites run on the CPU reference backend, not on the hardware"
+files = ["gpu", "gpu_smoke", "gpu_extension_ambiguities", "conformance/gpu_arrays"]
+
+[[triage.deferred]]
+why = "extreme precision and exponent ranges"
+files = ["precision_mixed", "extreme_normals", "int32_exponents", "ldexp_bigfloat", "bigfloat_integer_operands"]
+
+[triage.label_style]
+"nightly-triage" = { color = "5319e7", description = "A failure of the nightly run, tracked by the triage reporter" }
+"nightly-triage-rehearsal" = { color = "cccccc", description = "A rehearsal of the triage reporter; not a real failure" }
+"triage:core" = { color = "b60205", description = "Core CPU correctness failure: fix promptly" }
+"triage:deferred" = { color = "fbca04", description = "Normally deferred: triage by impact" }
+"triage:unclassified" = { color = "ededed", description = "Cause not yet known" }
+"triage:bug" = { color = "d93f0b", description = "A genuine bug" }
+"triage:flaky" = { color = "c5def5", description = "Flaky or timing dependent; never closed automatically" }
+"triage:portability" = { color = "bfdadc", description = "A test or code that does not port to this system" }
+"triage:infrastructure" = { color = "e4e669", description = "The runner, the network or the CI setup, not the package" }
 
 [label_focus]
 # Pull request labels that add test files to the run (their tier stays what the paths and the
@@ -187,7 +251,10 @@ paths = [
   "ext/**",
   "scripts/ci_gate.jl",
   "scripts/ci_plan.jl",
+  "scripts/ci_result.jl",
+  "scripts/ci_triage.jl",
   "scripts/ci_verdict.jl",
+  "scripts/release_record.jl",
   "scripts/test.jl",
   "scripts/test_report.jl",
   "src/lapack.jl",
@@ -225,6 +292,24 @@ tier = "quick"
 focus = ["examples"]
 paths = ["examples/**"]
 
+# The grids files. atom_iterate_grids, conjugate_basics_grids, lmo_atoms_grids,
+# nested_scaled_grids and sparse_iterate_basics_grids are in the full tier. They hold cases that
+# repeat cases that quick keeps for Float64, a Float32 representative or a representative function
+# (test/TESTING.md lists them). A pull request runs them, beside its tier, for a change to the source of their own family:
+#   atom_iterate_grids:          src/atom_iterate.jl, src/functions/norms.jl,
+#                                src/functions/sparsegroup.jl, src/functions/nonconvex.jl
+#   sparse_iterate_basics_grids: src/sparse_iterate.jl
+#   nested_scaled_grids:         src/calculus.jl, the shared sources (src/metric.jl, ...),
+#                                src/functions/singular.jl
+#   conjugate_basics_grids:      src/calculus.jl, the shared sources, src/functions/losses.jl
+#   lmo_atoms_grids:             src/lmo.jl, src/lmo_atoms.jl, the shared sources,
+#                                src/functions/singular.jl
+# Other source paths do not add them as automatic focus files. They still run when the tier of the
+# pull request is full (for example a change to src/lapack.jl or another infrastructure path, or
+# the label test:full; also the nightly run and tag runs), when the grids file itself changes, when
+# another changed path's rule lists them, and when requested by name
+# (julia scripts/test.jl <name>_grids).
+#
 # The iterates. A change to one implementation runs standard and its focus files: the
 # iterate's own tests and those of its main interactions, beside the iterate files of quick
 # (active_handle, atom_iterate, iterate_invariants, iterate_queries, matrixview,
@@ -237,7 +322,7 @@ paths = ["examples/**"]
 why = "AtomIterate: groups, activation, copies, products, block steps over groups"
 tier = "standard"
 narrow = "quick"
-focus = ["real_iterates", "block_step", "norms", "sparsegroup", "infinite_group_weights"]
+focus = ["atom_iterate_grids", "real_iterates", "block_step", "norms", "sparsegroup", "infinite_group_weights"]
 paths = ["src/atom_iterate.jl"]
 
 [[risk]]
@@ -246,6 +331,7 @@ tier = "standard"
 narrow = "quick"
 focus = [
   "sparse_iterate",
+  "sparse_iterate_basics_grids",
   "real_iterates",
   "block_step",
   "sparse_value_cost",
@@ -271,6 +357,7 @@ paths = ["src/symmetric_parameters.jl"]
 [[risk]]
 why = "shared by every function: interface, traits, numerical helpers, wrappers, steps"
 tier = "thorough"
+focus = ["conjugate_basics_grids", "lmo_atoms_grids", "nested_scaled_grids"]
 paths = [
   "src/ProximalBase.jl",
   "src/compat.jl",
@@ -287,7 +374,7 @@ paths = [
 [[risk]]
 why = "the wrappers, whose rejected-step catalog (stepchecks) is in the full tier"
 tier = "thorough"
-focus = ["stepchecks"]
+focus = ["stepchecks", "nested_scaled_grids", "conjugate_basics_grids"]
 paths = ["src/calculus.jl"]
 
 # Families used only by their own tests: quick and those tests, if the PR changes a test.
@@ -300,7 +387,7 @@ paths = ["src/functions/entropy.jl"]
 [[risk]]
 why = "a self-contained family"
 tier = "quick"
-focus = ["losses", "sqrhinge"]
+focus = ["losses", "sqrhinge", "conjugate_basics_grids"]
 paths = ["src/functions/losses.jl"]
 
 [[risk]]
@@ -354,7 +441,7 @@ paths = ["src/functions/graph.jl"]
 [[risk]]
 why = "a self-contained family"
 tier = "quick"
-focus = ["singular"]
+focus = ["singular", "lmo_atoms_grids", "nested_scaled_grids"]
 paths = ["src/functions/singular.jl"]
 
 [[risk]]
@@ -416,6 +503,18 @@ why = "sets, including the hyperslab, whose tests are in the full tier"
 tier = "standard"
 focus = ["hyperslab"]
 paths = ["src/functions/sets.jl"]
+
+[[risk]]
+why = "the matrix oracles and atoms, whose Float32 passes are in lmo_atoms_grids"
+tier = "standard"
+focus = ["lmo_atoms_grids"]
+paths = ["src/lmo.jl", "src/lmo_atoms.jl"]
+
+[[risk]]
+why = "the group penalties, whose atomicity cases for GroupNormLinf and GroupSCAD are in atom_iterate_grids"
+tier = "standard"
+focus = ["atom_iterate_grids"]
+paths = ["src/functions/norms.jl", "src/functions/sparsegroup.jl", "src/functions/nonconvex.jl"]
 
 [[risk]]
 why = "package code: functions, wrappers and constraints"

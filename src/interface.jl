@@ -586,7 +586,15 @@ end
     kkt_violation(f, g, x, k)
 
 How much a coordinate at zero violates the optimality conditions of `h + f`,
-where `g = ∇h(x)` is the gradient of the smooth part. On a
+where `g = ∇h(x)` is the gradient of the smooth part. For a
+[`SparseIterate`](@ref) or a [`SymmetricSparseIterate`](@ref) `x`, the second form checks
+the real element types, then that `k` is one of `1:ncoordinates(x)` (a `BoundsError`
+otherwise), then that `g` has `length(x)` entries, or `p^2` for the symmetric iterate (a
+`DimensionMismatch` otherwise); a matrix-shaped or flat `g` of that length is accepted. For an
+[`AtomIterate`](@ref), `k` is a group, and the method is unchanged by these checks, and a group
+penalty has its group layout validated where that applies. For other arrays `x` the second form
+adds no check of `k` or `g` against `x`; the checks of the real element types and those made by
+`f` and by indexing still apply. On a
 [`SymmetricSparseIterate`](@ref), use the symmetric part of `g`; an opposing
 pair of infinite entries has no symmetric part and throws `ArgumentError`.
 A positive value means
@@ -607,15 +615,30 @@ function kkt_violation end
 # depend on the rest of x
 kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation);
+   _check_kkt_coordinate(g, x, i);
    _isbuiltin(f) ? _kkt_violation(f, g, x, i) : kkt_violation(f, g, i))
 function kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
   eltype(g) <: Real || _real_error(:kkt_violation)
+  _check_kkt_coordinate(g, x, k)
   r, c = tril_cartesian(x.p, k)
   view = _SymmetricGradient(g, x.p)
   view[(c - 1) * x.p + r]  # reject an undefined symmetric part before dispatch
   _check_entry_arrays(f, x, _CoordinatePair(Int(k)))
   _kkt_violation(f, view, x, k)
 end
+# k must be a coordinate of x, tested before any conversion of k, and g must have the extent of the
+# problem: length(x) for a SparseIterate, p^2 for a SymmetricSparseIterate; O(1), no scan of g
+@inline function _check_kkt_coordinate(g::AbstractArray, x::Union{SparseIterate, SymmetricSparseIterate}, k::Integer)
+  n = ncoordinates(x)
+  (1 <= k) & (k <= n) || throw(BoundsError(Base.OneTo(n), k))
+  length(g) == _gradient_extent(x) || _throw_kkt_extent(g, x)
+  nothing
+end
+_check_kkt_coordinate(::AbstractArray, ::AbstractArray, ::Integer) = nothing
+_gradient_extent(x::SparseIterate) = length(x.ind2nzval)
+_gradient_extent(x::SymmetricSparseIterate) = x.p^2
+@noinline _throw_kkt_extent(g, x) = throw(DimensionMismatch(
+  "the gradient has length $(length(g)), but the $(nameof(typeof(x))) needs one of length $(_gradient_extent(x))"))
 # a group at zero violates optimality as much as its worst index
 kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation);

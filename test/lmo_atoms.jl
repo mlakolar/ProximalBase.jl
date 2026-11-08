@@ -165,7 +165,7 @@ end
 end
 
 @testset "spectral sets: density matrices" begin
-  for T in (Float32, Float64), n in (1, 2, 11), r in (0.5, 3.0)
+  for T in (Float64,), n in (1, 2, 11), r in (0.5, 3.0)   # Float32 is in lmo_atoms_grids.jl
     D = Spectral(IndSimplex(r))
     @test haslmo(D)
     A = with_eigenvalues(T, n == 1 ? [0.3] : randn(n))
@@ -398,7 +398,7 @@ end
 @testset "the Krylov method: residual-checked, with a full fallback" begin
   r = 2.0
   C = SingularValue(IndBallL1(r))
-  for T in (Float32, Float64), (m, n) in ((60, 40), (40, 60))
+  for T in (Float64,), (m, n) in ((60, 40), (40, 60))   # Float32 is in lmo_atoms_grids.jl
     G = with_singular_values(T, m, n, [3.0; 2.0; 1.0 ./ (1:25)])
     full, kry = lmo_atom(C, G), lmo_atom(C, G; method = :krylov)
     @test abs(dot(G, kry) + r * 3) <= 20 * sqrt(eps(T)) * r * 3
@@ -527,7 +527,7 @@ end
   @test isnan(parent(G)[2, 1])                                   # the input is not modified
 
   n = 7
-  for T in (Float64, Float32), wrapper in (Symmetric, Hermitian), uplo in (:U, :L)
+  for T in (Float64,), wrapper in (Symmetric, Hermitian), uplo in (:U, :L)   # Float32 is in lmo_atoms_grids.jl
     tol = T == Float64 ? 1e-9 : 2e-3
     S = let B = randn(T, n, n); (B + B') / 2 end              # the logical matrix
     Sref = Matrix(wrapper(S, uplo))
@@ -648,7 +648,7 @@ end
   # a NaN entry of the logical matrix gives NaN, which takes precedence over an infinite entry elsewhere; an infinite
   # entry alone gives Inf; an entry of the unused triangle of a Symmetric or Hermitian wrapper has no influence
   n = 4
-  for T in (Float32, Float64)
+  for T in (Float64,)   # Float32 is in lmo_atoms_grids.jl
     tol = T == Float32 ? 1e-4 : 1e-10
     A = randn(Xoshiro(11), T, n, n); S = (A + A') / 2
     λ = eigvals(Symmetric(S))

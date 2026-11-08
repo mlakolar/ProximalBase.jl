@@ -1395,9 +1395,8 @@ end
 # Whether the pooled sequence w is not nondecreasing, that is, has an entry smaller than its predecessor.
 # Only BigFloat is scanned: at a precision of a few bits the rounded block means of the pooling need not
 # be monotone, while the pooled means of Float16, Float32 and Float64 are left as they are (the
-# method for every other type is the constant false, which the compiler folds). A comparison with a NaN
-# is false, so an adjacent pair that holds a NaN is not counted as an inversion; a pair elsewhere in the
-# sequence still is.
+# method for every other type is the constant false, which the compiler folds). An inversion is an
+# adjacent pair with w[k + 1] < w[k]; a comparison with a NaN is false.
 @inline _fused_pooled_inversion(::Type, w) = false
 function _fused_pooled_inversion(::Type{BigFloat}, w)
   @inbounds for k in 1:length(w)-1

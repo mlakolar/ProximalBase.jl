@@ -159,6 +159,8 @@ end
       for groups in ([1:4], [[2, 3], [1], [4]])
         for f in (GroupNormL2(T(1)/4, groups), GroupNormLinf(T(1)/4, groups),
                   SparseGroupNormL2(T(1)/16, T(1)/4, groups))
+          # Float32 runs GroupNormLinf in symmetric_groups_grids.jl
+          T === Float32 && f isa GroupNormLinf && continue
           check_case(f, A, one(T))
           check_symmetric_steps(f, A, T.(1:length(groups)) ./ T(4))
           check_case(f, A, T(100))
@@ -171,6 +173,7 @@ end
                   SparseGroupNormL2(T(1)/8, T(1)/4, groups, zeros(T, length(groups))),
                   GroupNormL2(T(1)/4, groups, zeros(T, length(groups))),
                   GroupNormLinf(T(1)/4, groups, zeros(T, length(groups))))
+          T === Float32 && f isa GroupNormLinf && continue
           check_case(f, A, one(T))
         end
       end
@@ -179,12 +182,14 @@ end
       for B in (T[1 2 3; 2 4 5; 3 5 6], fill(M/2, 3, 3))
         for f in (GroupNormL2(T(1)/16, groups), GroupNormLinf(T(1)/16, groups),
                   SparseGroupNormL2(T(1)/32, T(1)/16, groups))
+          T === Float32 && f isa GroupNormLinf && continue
           check_case(f, B, one(T))
         end
       end
       for groups in ([[2], [1, 3, 4]], [[2]], [[3]])
         for f in (GroupNormL2(T(1)/4, groups), GroupNormLinf(T(1)/4, groups),
                   SparseGroupNormL2(T(1)/8, T(1)/4, groups))
+          T === Float32 && f isa GroupNormLinf && continue
           rejects_group_steps(f, A, one(T))
         end
       end
@@ -195,6 +200,8 @@ end
     M = floatmax(T)
     for groups in ([1:4], [[2, 3], [1], [4]])
       for f in (GroupMCP(one(T), groups), GroupSCAD(one(T), groups))
+        # Float32 runs GroupSCAD in symmetric_groups_grids.jl
+        T === Float32 && f isa GroupSCAD && continue
         for B in (A, fill(M/4, 2, 2))
           check_symmetric_steps(f, B, one(T))
           check_symmetric_steps(f, B, T.(1:length(groups)) ./ T(4))
@@ -202,12 +209,14 @@ end
       end
     end
     for f in (GroupMCP(one(T), [1:4]), GroupSCAD(one(T), [1:4]))
+      T === Float32 && f isa GroupSCAD && continue
       # an unrepresentable norm retains the dense kernel's nonfinite result
       check_symmetric_steps(f, fill(M, 2, 2), one(T); finite = false)
       check_symmetric_steps(f, fill(M, 2, 2), T[1]; finite = false)
     end
     for f in (GroupMCP(one(T), [[2], [1, 3, 4]]),
               GroupSCAD(one(T), [[2], [1, 3, 4]]))
+      T === Float32 && f isa GroupSCAD && continue
       rejects_group_steps(f, A, one(T))
     end
   end

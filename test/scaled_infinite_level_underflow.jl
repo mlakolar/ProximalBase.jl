@@ -1244,9 +1244,14 @@ end
                (IndExpPrimal(), T[3, -4, 0.5]), (IndExpDual(), T[3, -4, 0.5]), (IndIsotonic(), T[3, -4, 0.5]), (IndBallGroupL0(1, [1:3]), T[3, -4, 0.5]),
                (IndPattern(BitArray([1 0; 0 1])), T[1 2; 3 4]), (IndBanded(0, 0, 2, 2), T[1 2; 3 4]), (IndToeplitz(), T[1 2; 3 4])]
   for (ind, x2) in listed
+    # Float32 keeps three indicators and Float64 keeps the wrapper variants of four; the rest of both
+    # passes is in scaled_infinite_level_underflow_grids.jl
+    T === Float32 && !(ind isa Union{IndBox, IndSimplex, IndPattern}) && continue
     @test PB._hard_function(ind) === ind
     shift = x2 isa AbstractMatrix ? zeros(T, 2, 2) : zeros(T, 3)
-    for blk in (ind, Scaled(ind, T(2)), Translate(Scaled(ind, T(3)), shift))
+    variants = T === Float64 && !(ind isa Union{IndBox, IndSimplex, IndSOC, IndPattern}) ? (ind,) :
+               (ind, Scaled(ind, T(2)), Translate(Scaled(ind, T(3)), shift))
+    for blk in variants
       inner = SeparableSum(NormL1(T(Inf)), blk)
       arg = (T[1, 2], x2)
       ref = try prox(inner, arg, one(T)) catch e; e end

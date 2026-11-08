@@ -237,13 +237,16 @@ full = [
   "real_functions",
   "real_iterates",
   "real_wrappers",
+  "scaled_infinite_level_underflow_grids",
   "separable_blocks",
   "sparse_iterate_basics_grids",
   "stepchecks",
+  "symmetric_groups_grids",
   "symmetric_parameters_centers",
   "symmetric_parameters_inventory",
   "symmetric_parameters_inventory_walk",
   "weight_steps",
+  "zero_level_infinite_step_grids",
 ]
 
 [not_tests]

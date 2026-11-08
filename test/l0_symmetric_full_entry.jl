@@ -60,7 +60,7 @@ prod_error(X, Y) = sum((fx(X[r, c]) - fx(Y[r, c]))^2 for r in 1:size(X, 1), c in
 value_at(X, s, diagonal) = fullcount(X, diagonal) <= s ? 0 : Inf
 
 # The output is feasible, symmetric, made of kept and zeroed entries, a projection of the least error: exactly
-# (mode :exact, inputs whose sums of squares are exact, here small integers), within a relative tolerance of the optimal error
+# (mode :exact, inputs whose scaled candidate sums are exact: small integers and the listed large and subnormal fixtures), within a relative tolerance of the optimal error
 # (:relative), or within that tolerance of the total energy (:range, entries of very different magnitude,
 # where the comparison of the savings rounds before the small terms that fix the optimal error are seen).
 function verify(f, X::Matrix{T}, Y, mode) where {T}

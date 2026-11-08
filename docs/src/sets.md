@@ -374,7 +374,7 @@ largest diagonal entries and the ``e`` largest pairs, for the ``e`` with
 largest, found from the sorted magnitudes in ``O(p^2)`` for the selection plus a
 sort of the candidates. The ranking inside the diagonal entries and inside the
 pairs is exact for `Float32` and `Float64` entries; other element types are ranked after conversion to the
-working float type (`Float64` for integers and rationals). The choice of the number of pairs is a maximizer of
+working float type (`Float64` for fixed-width integers and the rationals based on them, `BigFloat` for `BigInt`-based types). The choice of the number of pairs is a maximizer of
 the saved squared error up to the rounding of the sums of squares in the comparison, so a
 difference below that rounding can be decided either way. With `diagonal = false` the diagonal does not count and is
 kept, the set is ``2e \le s`` and the ``\min(E, \lfloor s/2\rfloor)`` largest nonzero pairs are

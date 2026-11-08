@@ -619,7 +619,7 @@ and `e` nonzero pairs, and with `diagonal = false` it is `2e ≤ s`. The project
 Frobenius projection onto the new set: a diagonal entry competes by saving
 `xᵢᵢ²` for one unit and a pair by saving `2xᵢⱼ²` for two. The ranking inside the diagonal
 entries and inside the pairs is exact for `Float32` and `Float64` entries (other element types are ranked
-after conversion to the working float type: `Float64` for integers and rationals); the number of pairs kept
+after conversion to the working float type: `Float64` for fixed-width integers and the rationals based on them, `BigFloat` for `BigInt`-based types); the number of pairs kept
 maximizes the saved squared error up to the rounding of the sums of squares in the comparison, so a
 difference below that rounding can be decided either way. The value at the same point
 changes too: `Symmetric([0 4; 4 0])` is in the set of `IndBallL0(2)` and no longer in that

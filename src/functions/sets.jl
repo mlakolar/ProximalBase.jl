@@ -47,7 +47,7 @@ diagonal entries, and within pairs, a tie in magnitude is broken for the entry e
 triangle read by columns, and between two choices of `e` with equal saving the one with the smaller `e` is
 taken. The ranking inside the diagonal entries, and inside the pairs, is exact for `Float32` and `Float64`
 entries, whose magnitudes the working type represents exactly; other element types are ranked after
-conversion to the working float type (`Float64` for integers and rationals, the type itself for other floats). The
+conversion to the working float type (`Float64` for fixed-width integers and the rationals based on them, `BigFloat` for `BigInt`-based types, the type itself for other floats). The
 number of pairs kept is chosen by comparing the savings in floating point, with the squares formed from
 magnitudes scaled by a power of two so that the largest finite one is at most 1 (they cannot overflow;
 `Float32` sums in `Float64`): the choice is a maximizer of the saved squared error up to the rounding of the
@@ -55,9 +55,9 @@ sums of squares in that comparison (of the converted magnitudes for the other el
 difference below that rounding can be decided either way. An infinite entry is a limit of finite magnitudes: it
 is kept in preference to any finite one, the choices compared first by the weight of the infinite entries
 they keep (one for a diagonal entry, two for a pair) and then by the finite saving. The cost is O(p²) for
-the selection plus a sort of the kept candidates; for `Float32` or `Float64` entries of a fixed size the call
-does not allocate after a warm-up call (the scratch buffer is reused), while larger problems and other element
-types such as `BigFloat` can allocate.
+the selection plus a sort of the kept candidates; for `Float32` or `Float64` entries, a repeated call whose
+scratch buffer (cached in the function, and grown only when a call needs more room) is large enough does not
+allocate, while a call that needs a larger buffer and other element types such as `BigFloat` can allocate.
 
 A NaN entry is undefined (E2 in the numerical contract). Let `m` be the largest number of entries that
 count: `p²` for a symmetric `p × p` matrix (`p(p - 1)` with `diagonal = false`, where the diagonal does not

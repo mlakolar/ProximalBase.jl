@@ -2,7 +2,7 @@ module ElasticNetZeroLevelsTest
 
 using Test, ProximalBase, LinearAlgebra, SparseArrays
 using JLArrays: JLArray
-using GPUArraysCore: allowscalar
+using GPUArraysCore: allowscalar, @allowscalar
 using Adapt: adapt
 
 const PB = ProximalBase
@@ -302,6 +302,91 @@ end
       v = value_and_prox!(y, fd, JLArray(x), γd)
       vh = f(Array(y))                              # the host value; a device sum may round otherwise
       @test same(Array(y), want) && (same(v, vh) || (isfinite(vh) && v ≈ vh))
+    end
+  end
+end
+
+# The fused value of the conjugate of ElasticNet on a box is taken for host arrays only; a device array keeps the
+# refusal of a value that is not available, before anything is written.
+@testset "the conjugate of an elastic net on a box refuses device arrays before writing" begin
+  allowscalar(false)
+  for T in (Float32, Float64), (λ1, λ2) in ((T(1), T(0.5)), (T(1), T(0)))
+    c = Constrained(Conjugate(ElasticNet(λ1, λ2)), IndBox(T(-2), T(2)))
+    x = JLArray(T[5, -5, 0.5])
+    y = JLArray(fill(T(-7), 3))
+    @test_throws "is not implemented" value_and_prox!(y, c, x, T(0.5))
+    @test Array(y) == fill(T(-7), 3) && Array(x) == T[5, -5, 0.5]
+    z = JLArray(T[5, -5, 0.5])
+    @test_throws "is not implemented" value_and_prox!(z, c, z, T(0.5))
+    @test Array(z) == T[5, -5, 0.5]
+  end
+end
+
+# A view whose index vector is a device array has host storage for its data and device storage for its selector:
+# in any role, the fused value refuses it before anything is indexed or written, with scalar indexing disabled.
+@testset "views with device selectors are refused before any index is read" begin
+  for T in (Float32, Float64)
+    sel(v) = @allowscalar view(v, JLArray([1, 2, 3]))
+    plain = (y = fill(T(-7), 3), x = T[5, -5, 0.5], γ = T(0.5))
+    function attempt(role, c, y, x, γ)
+      allowscalar(false)
+      before = @allowscalar collect(y)
+      @test_throws "is not implemented" value_and_prox!(y, c, x, γ)
+      @test (@allowscalar collect(y)) == before
+    end
+    ones6 = ones(T, 4)
+    box = IndBox(T(-2), T(2))
+    f = ElasticNet(T(1), T(0.5))
+    c0 = Constrained(Conjugate(f), box)
+    attempt(:output, c0, sel(fill(T(-7), 4)), plain.x, plain.γ)
+    attempt(:input, c0, copy(plain.y), sel(T[5, -5, 0.5, 1]), plain.γ)
+    attempt(:step, c0, copy(plain.y), plain.x, sel(fill(T(0.5), 4)))
+    attempt(:lower, Constrained(Conjugate(f), @allowscalar IndBox(sel(fill(T(-2), 4)), T(2))), copy(plain.y), plain.x, plain.γ)
+    attempt(:upper, Constrained(Conjugate(f), @allowscalar IndBox(T(-2), sel(fill(T(2), 4)))), copy(plain.y), plain.x, plain.γ)
+    for λ2 in (T(0.5), T(0))
+      attempt(:weights, Constrained(Conjugate(@allowscalar ElasticNet(T(1), λ2, sel(copy(ones6)))), box), copy(plain.y), plain.x, plain.γ)
+    end
+  end
+end
+
+# A user-defined unit range may keep its elements on a device: it is not one of the Base selectors that `view`
+# produces for a host array, and the fused value refuses it in every role before it is read.
+struct DeviceUnitRange{A<:AbstractVector{Int}} <: AbstractUnitRange{Int}
+  data::A
+end
+Base.first(::DeviceUnitRange) = 1
+Base.last(::DeviceUnitRange) = 2
+Base.length(::DeviceUnitRange) = 2
+Base.size(::DeviceUnitRange) = (2,)
+Base.getindex(r::DeviceUnitRange, i::Int) = r.data[i]
+
+@testset "views with device-backed unit ranges are refused before they are read" begin
+  r = DeviceUnitRange(JLArray([1, 2]))
+  for T in (Float32, Float64)
+    sel(val) = @allowscalar view(fill(T(val), 3, 3), r, 1:2)
+    x2 = fill(T(5), 2, 2)
+    f = ElasticNet(T(1), T(0.5))
+    box = IndBox(T(-2), T(2))
+    c0 = Constrained(Conjugate(f), box)
+    cases = (("output", c0, () -> sel(-77), x2, T(0.5)),
+             ("input", c0, () -> fill(T(-77), 2, 2), sel(5), T(0.5)),
+             ("lower", Constrained(Conjugate(f), @allowscalar IndBox(sel(-2), T(2))), () -> fill(T(-77), 2, 2), x2, T(0.5)),
+             ("upper", Constrained(Conjugate(f), @allowscalar IndBox(T(-2), sel(2))), () -> fill(T(-77), 2, 2), x2, T(0.5)),
+             ("step", c0, () -> fill(T(-77), 2, 2), x2, sel(0.5)),
+             ("weights", Constrained(Conjugate(@allowscalar ElasticNet(T(1), T(0.5), sel(1))), box), () -> fill(T(-77), 2, 2), x2, T(0.5)),
+             ("weights, λ2 = 0", Constrained(Conjugate(@allowscalar ElasticNet(T(1), T(0), sel(1))), box), () -> fill(T(-77), 2, 2), x2, T(0.5)))
+    for (role, c, mkdest, x, γ) in cases
+      allowscalar(false)
+      y = mkdest()
+      before = copy(parent(y))
+      @test_throws "is not implemented" value_and_prox!(y, c, x, γ)
+      @test parent(y) == before
+      if γ isa Real
+        s = SeparableSum(SqrNormL2(2.0), c)
+        dest = ([7.0], mkdest())
+        @test_throws "is not implemented" value_and_prox!(dest, s, ([3.0], x), γ)
+        @test dest[1] == [7.0] && parent(dest[2]) == before
+      end
     end
   end
 end

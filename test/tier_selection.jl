@@ -393,8 +393,8 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
 #   shared:    whether the rule for the code shared by every function (src/utils.jl, ...) lists it;
 #   paths:     the source paths of its own family, each with the tier the rules give a change to it.
 # The rows with base_tier "thorough" are listed by the two thorough rules, the rule for src/calculus.jl
-# and the shared rule, and by no standard-tier rule: a pull request that changes only a standard-tier
-# path did not run their base files, so the grids file would run the Float32 repeats without the Float64 cases they repeat.
+# and the shared rule, and by no standard-tier rule: a pull request on a standard-tier path alone,
+# without a label that raises the tier, did not run their base files, so the grids file would run the Float32 repeats without the Float64 cases they repeat.
 const GRIDS = [
   (grids = "atom_iterate_grids", base = "atom_iterate", base_tier = "quick", shared = false,
    paths = ["src/atom_iterate.jl" => "standard", "src/functions/norms.jl" => "standard",

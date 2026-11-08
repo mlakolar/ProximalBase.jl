@@ -317,7 +317,7 @@ paths = ["examples/**"]
 # files, which a pull request ran when its tier was thorough, and the two thorough rules (the rule
 # for src/calculus.jl and the rule for the shared sources) list the three grids files, so those
 # pull requests run the cases that moved. A standard-tier rule does not list them: a pull request
-# that changes only such a path did not run those base files, and a grids file would run the Float32 repeats
+# on such a path alone, without a label that raises the tier, did not run those base files, and a grids file would run the Float32 repeats
 # without the Float64 cases they repeat.
 # Other source paths do not add them as automatic focus files. They still run when the tier of the
 # pull request is full (for example a change to src/lapack.jl or another infrastructure path, or

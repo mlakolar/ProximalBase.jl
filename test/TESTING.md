@@ -237,7 +237,7 @@ The base file does not run these cases (Quick for six companions, Thorough for t
     `src/calculus.jl` and the shared sources. Their base files are Thorough-tier files. The two thorough
     rules, the rule for `src/calculus.jl` and the rule for the shared sources, list these three companions, so a
     pull request on one of those paths runs them beside thorough, and the base files run the Float64 cases
-    and the Float32 representatives that stay. No standard-tier rule lists them: a pull request that changes only such a path does not run the base files, and a
+    and the Float32 representatives that stay. No standard-tier rule lists them: the rule of such a path alone does not run the base files, and a
     companion would run the Float32 repeats without the Float64 cases they repeat. A pull request that is
     thorough for another reason (the label `test:thorough`, or a path whose rule does not list them) runs the
     base files without these companions when no changed file or other rule adds one (a changed companion

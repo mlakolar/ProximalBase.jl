@@ -34,7 +34,7 @@ end
 function agrees(r, N::Integer, s::Integer = 1)
   e = oracle(N, s)
   isinf(e) && return isinf(r) && signbit(r) == signbit(e)
-  iszero(e) && return iszero(r)
+  iszero(e) && return iszero(r) && signbit(r) == signbit(e)
   r == e
 end
 
@@ -346,9 +346,21 @@ const XL = frac(650)
     @test prox(z, [pw(T + 1), big(3.0), pw(T + 5)], big(1.0)) == [pw(T), 3, 0]
     @test prox_entry(z, big(3.0), 2, big(1.0)) == 3
     @test iszero(prox_entry(z, pw(T + 5), 3, big(1.0)))
-    # a weight spread too wide to fold with the level and the scale (the product 2^(3 PW - LW + 0.3 EMAX) is beyond the
-    # range): no fold, which is the behaviour without the weight fold; the call must not throw, and gives numbers
-    wide = chain(NormL1(pw(-LW), [pw(-LW), pw(frac(300))]), [PW, PW, PW])
+  end
+
+  with_precisions("weights spread over most of the range, and a spread that cannot fold") do
+    # the scale 2^(-2 EMAX) and the level 2^(0.95 EMAX) have a product outside the range, so the level takes nothing; the
+    # weights 2^(0.1 EMAX) and 2^(0.99 EMAX) have thresholds 2^(-0.95 EMAX) and 2^(-0.06 EMAX) that are normal numbers,
+    # and the centred shift folds them
+    F = [-frac(400), -frac(400), -frac(400), -frac(400), -frac(400)]
+    sp = chain(NormL1(pw(frac(950)), [pw(frac(100)), pw(frac(990))]), F)
+    N1, N2 = exponent_sum(F) + frac(950) + frac(100), exponent_sum(F) + frac(950) + frac(990)
+    @test EMIN + 3 < N1 && N2 < 0     # both thresholds are normal numbers
+    @test prox(sp, [pw(N1 + 1), pw(N2 + 1)], big(1.0)) == [pw(N1), pw(N2)]
+    @test prox(sp, [pw(N2 + 1), pw(N2 + 1)], big(1.0)) == [pw(N2 + 1) - pw(N1), pw(N2)]
+    # the weights 2^(EMAX - 1) and 2^(EMIN - 1) are spread over twice the range: no shift keeps both of them normal.
+    # This is the limit of the fold (not folded, as without the weight fold): the call must not throw and gives numbers
+    wide = chain(NormL1(pw(-LW), [pw(EMAX - 1), pw(EMIN - 1)]), [PW, PW, PW])
     y = prox(wide, [pw(T + 1), pw(T + 1)], big(1.0))
     @test length(y) == 2 && !any(isnan, y)
   end
@@ -364,6 +376,96 @@ const XL = frac(650)
     # the radius 2^(3 PW - LW) is beyond the range: the point is inside
     N = chain(NormLinf(pw(-LW)), [PW, PW, PW])
     @test prox(Conjugate(N), [pw(R + 1), big(0.0)], big(1.0)) == [pw(R + 1), 0]
+  end
+end
+
+# One weight takes all of the exponent that the level cannot take: the coefficient is a normal number, but the weight
+# that a fold keeping the significand of the level would form is not. The scale is three factors 2^(±PB) with the level
+# 2^(∓QB), and the weight has the exponent that gives the coefficient 2^N. The coefficients at both ends of the range
+# are asserted, with the oracle classifying by the exact exponent first.
+const PB3 = frac(672)
+const QB3 = frac(650)
+function one_weight_chain(sign, N, W = x -> [x]; nonneg = false)
+  F = sign > 0 ? [PB3, PB3, PB3] : [-PB3, -PB3, -PB3]
+  l = -sign * QB3
+  w = N - exponent_sum(F) - l
+  @assert EMIN - 1 <= w <= EMAX - 1
+  leaf = nonneg ? NormL1Nonneg(pw(l), W(pw(w))) : NormL1(pw(l), W(pw(w)))
+  chain(leaf, F)
+end
+
+@testset "a weight that takes all of the exponent" begin
+  cases = vcat([(1, N) for N in (EMAX - 1, EMAX, EMAX + 1, frac(900), frac(400))],
+               [(-1, N) for N in (EMIN - 1, EMIN - 2, EMIN - 3, EMIN - 4, -frac(900), -frac(400))])
+  for nonneg in (false, true)
+    with_precisions("coefficients across the range, $(nonneg ? "NormL1Nonneg" : "NormL1")") do
+      for (sign, N) in cases
+        s = one_weight_chain(sign, N; nonneg)
+        # the point and the threshold: above a threshold in range, and anywhere under an infinite threshold
+        x, expected = if N >= EMAX
+          floatmax(BigFloat), big(0.0)
+        elseif N == EMAX - 1
+          floatmax(BigFloat), floatmax(BigFloat) - pw(EMAX - 1)
+        elseif N == EMIN - 1
+          pw(N + 1), pw(N)
+        elseif N <= EMIN - 2
+          big(1.0), big(1.0)           # the threshold is zero or too small to move 1
+        else
+          pw(N + 1), pw(N)
+        end
+        @testset "sign $sign, coefficient 2^$N" begin
+          @test prox(s, [x], big(1.0)) == [expected]
+          @test prox_entry(s, x, 1, big(1.0)) == expected
+          y = zeros(BigFloat, 1)
+          prox!(y, s, [x], big(1.0))
+          @test y == [expected]
+          nonneg || @test prox(s, [-x], big(1.0)) == [-expected]
+          N == EMIN - 2 || expect(s([big(1.0)]), N; what = ("value", sign, N, nonneg))
+        end
+      end
+    end
+  end
+
+  # the example of the review, at the default range: the weight 2^(E - 1 - 3P + Q) would overflow after the fold
+  # that keeps the level's significand, while the coefficient is 2^(E - 1)
+  with_precisions("the review example") do
+    if EMAX == 2^62 - 1
+      P, Q, E = Int128(3_100_000_000_000_000_000), Int128(3_000_000_000_000_000_000), EMAX
+      f = NormL1(pw(-Q), [pw(E - 1 - 3P + Q)])
+      s = foldl((g, _) -> Scaled(g, pw(P)), 1:3; init = f)
+      x = [floatmax(BigFloat)]
+      @test prox(s, x, big(1.0)) == x .- pw(E - 1)
+      @test prox_entry(s, x[1], 1, big(1.0)) == x[1] - pw(E - 1)
+      @test s([pw(1 - E)]) == 1
+    end
+  end
+
+  with_precisions("weights that are matrices") do
+    # a 1 x 2 weight paired with the entries of a vector by the linear index
+    T = 3 * PW - 2 * LW
+    for nonneg in (false, true)
+      F = [PW, PW, PW]
+      W = reshape([pw(-LW), pw(-LW)], 1, 2)
+      s = chain(nonneg ? NormL1Nonneg(pw(-LW), W) : NormL1(pw(-LW), W), F)
+      x = [pw(T + 1), pw(T - 2)]
+      @test prox(s, x, big(1.0)) == [pw(T), 0]
+      @test prox_entry(s, x[1], 1, big(1.0)) == pw(T)
+      @test iszero(prox_entry(s, x[2], 2, big(1.0)))
+      y = zeros(BigFloat, 2)
+      v = value_and_prox!(y, s, x, big(1.0))
+      @test y == [pw(T), 0]
+      expect(v, 2 * T; what = "value_and_prox! of a matrix weight")
+      expect(s([pw(-T), big(0.0)]), 0; what = "value of a matrix weight")
+    end
+    # a 2 x 2 weight whose entries have different exponents, so that the thresholds differ per entry
+    d = frac(20)
+    W = [pw(-LW) pw(-LW + 2d); pw(-LW + d) pw(-LW + 3d)]
+    s = chain(NormL1(pw(-LW), W), [PW, PW, PW])
+    X = [pw(T + 1) pw(T + 2d + 1); pw(T + d + 1) pw(T + 3d + 1)]
+    @test prox(s, X, big(1.0)) == [pw(T) pw(T + 2d); pw(T + d) pw(T + 3d)]
+    @test prox_entry(s, X[2], 2, big(1.0)) == pw(T + d)   # the linear index runs down the columns
+    # the largest term 2^(T + 3d); the three others are far below one unit in the last place
+    @test s(fill(big(1.0), 2, 2)) == pw(T + 3d)
   end
 end
 

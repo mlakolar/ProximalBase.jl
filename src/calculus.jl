@@ -11,8 +11,9 @@
 # exponent beyond Int64; it is an Int128 there, which is the width of `_exponent_sum(BigFloat, …)`.
 # One composition adds at most about 2^63 to the magnitude of the exponent, so an Int128 is exact
 # for chains of up to 2^64 factors, and a chain of that length does not fit in memory. A retained
-# exponent is never narrowed or saturated before its last use; only the final shift of `ldexp`
-# saturates.
+# exponent is exact on the host through its last cancellation, and the final shift of `ldexp` saturates. Two
+# bounded handoffs are clamped on purpose: the exponent of a ball bound that goes to the spectral ball test
+# (`_ball_exponent`), and a scale converted for a device (`_device_exponent`, device types only).
 _scale_exponent_type(::Type) = Int
 _scale_exponent_type(::Type{BigFloat}) = Int128
 struct _ProjectionScale{T, E<:Integer}
@@ -367,29 +368,53 @@ for (F, level) in ((:NormL1, :λ0), (:NormL1Nonneg, :λ0), (:NormL2, :λ), (:Nor
   end
 end
 # A scale with a BigFloat significand that no level takes (its product with the level is outside the range) is
-# absorbed into the weights instead, which bring the products of scale, level and weight back into range: the
-# level becomes the significand mλ of λ = mλ 2^eλ, and the weights are mα w 2^(E + eλ) for the scale mα 2^E, the
-# exponents summed exactly (only the final shift saturates). A zero weight stays zero and an infinite weight
-# stays infinite. The fold is refused (`nothing`, as without it) when there are no weights, the level or the
-# scale is zero or not finite, or a nonzero finite weight leaves the range of normal numbers. Only BigFloat
-# scales take it; every other type folds as before. The array-step route (`_shifted_fold`) has no fold of its own.
+# absorbed into the weights instead, which bring the products of scale, level and weight back into range. For the
+# scale mα 2^E, the level λ = mλ 2^eλ and a nonzero finite weight w = mw 2^ew, the coefficient is
+# c = mα mλ mw 2^t with t = E + eλ + ew (Int128, exact), and it lies in [2^(t-3), 2^t). One power of two 2^s becomes
+# the level and each weight becomes c 2^-s, rounded once (the product of the three significands is exact at three
+# times the precision). The shift s is the centre of the interval in which the level 2^s and every weight c 2^-s are
+# normal numbers with a margin of three binades (room for the significand of the step and for the product);
+# the fold is refused (`nothing`, as without it) when no such s exists, that is, when the weights are spread wider
+# than the range allows. A zero or infinite weight stays as it is, and with no nonzero finite weight, no weights, a
+# zero or non-finite level or a zero or non-finite scale there is no fold. The weights are any array, read by their
+# linear index as the leaf reads them. Only BigFloat scales take this fold; every other type folds as before.
+# The array-step route (`_shifted_fold`) has no fold of its own.
 function _fold_weights(f::Union{NormL1, NormL1Nonneg}, α::_ProjectionScale{BigFloat})
   w, λ = f.w, f.λ0
-  (w isa AbstractVector && isfinite(λ) && !iszero(λ) && isfinite(α.m) && !iszero(α.m)) || return nothing
+  (w isa AbstractArray && isfinite(λ) && !iszero(λ) && isfinite(α.m) && !iszero(α.m)) || return nothing
   mλ, eλ = _frexp(float(λ))
-  a = _ProjectionScale(α.m, α.e + eλ)
-  out = Vector{BigFloat}(undef, length(w))
-  for i in eachindex(w)
-    wi = w[i]
-    if iszero(wi) || isinf(wi)
-      out[i] = wi
-    else
-      r = _apply_scale(a, wi)
-      (isfinite(r) && !iszero(r) && _level_fits(BigFloat, r)) || return nothing
-      out[i] = r
-    end
+  base = α.e + eλ
+  tmin, tmax = typemax(Int128), typemin(Int128)
+  for wi in w
+    (iszero(wi) || !isfinite(wi)) && continue
+    t = base + _frexp(convert(BigFloat, wi))[2]
+    tmin, tmax = min(tmin, t), max(tmax, t)
   end
-  f isa NormL1 ? NormL1(mλ, out) : NormL1Nonneg(mλ, out)
+  tmax < tmin && return nothing
+  emx, emn = Int128(Base.MPFR.get_emax()), Int128(Base.MPFR.get_emin())
+  lo, hi = max(emn + 3, tmax - (emx - 3)), min(emx - 3, tmin - (emn + 3))
+  lo > hi && return nothing
+  s = fld(lo + hi, 2)
+  out = Array{BigFloat}(undef, size(w))
+  for (k, i) in enumerate(eachindex(w))
+    wi = w[i]
+    out[k] = iszero(wi) || !isfinite(wi) ? convert(BigFloat, wi) : _scaled_weight(α.m, mλ, convert(BigFloat, wi), base - s)
+  end
+  level = ldexp(one(BigFloat), s)
+  f isa NormL1 ? NormL1(level, out) : NormL1Nonneg(level, out)
+end
+# ma ml w 2^k rounded once, for the significands ma and ml and a nonzero finite weight w
+function _scaled_weight(ma::BigFloat, ml, w::BigFloat, k::Integer)
+  mw, ew = _frexp(w)
+  p = precision(BigFloat)
+  q = 3 * max(p, precision(ma), precision(mw))
+  c = setprecision(BigFloat, q) do
+    (ma * convert(BigFloat, ml)) * mw
+  end
+  r = setprecision(BigFloat, p) do
+    c * one(BigFloat)
+  end
+  ldexp(r, k + ew)
 end
 for F in (:NormL1, :NormL1Nonneg)
   @eval function _fold_level(f::$F, α::_NormalScale{<:_ProjectionScale{BigFloat}})

@@ -329,7 +329,9 @@ levels, with the step reduced to its significand, for the functions of the
 scaled-value mechanism. Conjugates and their projections accumulate the factors the same way. The
 exponent that the chain retains is exact for `BigFloat`, whose exponents reach `±(2^62 - 1)`, so that a
 chain of three extreme factors has an exponent beyond `Int64` (it is held in an `Int128`, exact for chains
-of up to `2^64` factors); only the final shift into the result saturates. A
+of up to `2^64` factors). On the host it is exact through its last cancellation, and the final shift into the
+result saturates; two bounded handoffs are clamped on purpose: the exponent of a ball bound passed to the
+spectral ball test, and a scale converted for a device (device types only). A
 function that folds no level (a `SqrNormL2`, a loss, a `Tilt`) recovers its *value* through the
 scaled-value mechanism when it implements it (the built-in functions that the `Scaled` docstring
 lists, on host arrays): `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` at `[1e10]` has the value

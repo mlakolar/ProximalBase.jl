@@ -221,6 +221,13 @@ end
   @test normalize_signature("Error at C:\\Users\\x\\foo.jl:12 and /home/u/a/b.jl:3 ptr @0x00007f12") == "Error at and ptr"
   # division and fractions are not paths
   @test normalize_signature("a/b == x / y == (1)/2") == "a/b == x / y == (#)/#"
+  # what is removed: paths without whitespace with two or more components, and Windows drive paths
+  # without whitespace. Other forms stay in the signature (the patterns are not meant to cover them).
+  @test normalize_signature("at /home/runner/x.jl:3 failed") == "at failed"
+  @test normalize_signature("at C:\\Users\\runner\\x.jl:12 failed") == "at failed"
+  @test normalize_signature("at /home/Runner One/work/x.jl:3 failed") == "at One/work/x.jl:# failed"
+  @test normalize_signature("at C:\\Users\\Runner One\\work\\x.jl:12 failed") == "at One\\work\\x.jl:# failed"
+  @test normalize_signature("at /artifact failed") == "at /artifact failed"
   # numbers and addresses vary from night to night; the rest does not
   @test normalize_signature("Evaluated: 9184 <= 8944 at 0xdeadbeef") == normalize_signature("Evaluated: 100 <= 99 at 0x1f")
 end
@@ -258,6 +265,14 @@ header(names; kw...) = rawlog(headerlines(names; kw...))
   # no header, two headers, or a header without names
   p = check_inventory(parse_log("Run package tests\nnothing here"), "full"; manifest = MANIFEST)
   @test length(p) == 1 && occursin("no line `ProximalBase tests:", only(p))
+  # a count too large for an Int is not an absent count: it is a problem, with the right names too
+  huge = "ProximalBase tests: tier full: " * "9" ^ 30 * " files; Julia 1\n  " * join(full, " ")
+  log = parse_log(huge)
+  @test log.header && log.count === nothing && log.count_text == "9" ^ 30 && log.files == full
+  p = check_inventory(log, "full"; manifest = MANIFEST)
+  @test length(p) == 1 && occursin("not a usable number: $("9" ^ 30)", only(p))
+  @test isempty(check_inventory(parse_log(header(full)), "full"; manifest = MANIFEST)) # an ordinary count is fine
+  @test parse_log("no header").count_text == "" && parse_log("no header").count === nothing
   p = check_inventory(parse_log(header(full) * "\n" * header(full)), "full"; manifest = MANIFEST)
   @test length(p) == 1 && occursin("has 2 lines", only(p))
   p = check_inventory(parse_log("ProximalBase tests: tier full: $(length(full)) files; Julia 1.10.12 on x\n"), "full"; manifest = MANIFEST)
@@ -290,7 +305,8 @@ end
     logfile(name, text) = (path = joinpath(dir, name); write(path, text); path)
     good = logfile("good.log", ghshape(WIN_JOB, plain(headerlines(quick; tier = "quick"))))
     status, out = run_main(["check-inventory", good, "--tier=quick"])
-    @test status == 0 && !occursin("::error::", out) && occursin("every test file of tier quick", out)
+    @test status == 0 && !occursin("::error::", out) && occursin("announced exactly the test files of tier quick", out) &&
+          !occursin("ran every", out)
     # a missing file, an extra file and a count: one error line each, percent-encoded commands
     bad = logfile("bad.log", header([quick[2:end]; "no_such_file"]; count = length(quick)))
     status, out = run_main(["check-inventory", bad, "--tier=quick"])
@@ -306,6 +322,10 @@ end
     nohdr = logfile("none.log", "Run package tests\nno header at all\n")
     status, out = run_main(["check-inventory", nohdr, "--tier=quick"])
     @test status == 1 && startswith(out, "::error::the test log has no line `ProximalBase tests:") && count(==('\n'), out) == 1
+    # a header count too large for an Int is a problem, not a skipped check
+    hugelog = logfile("huge.log", "ProximalBase tests: tier quick: " * "9" ^ 30 * " files; Julia 1\n  " * join(quick, " "))
+    status, out = run_main(["check-inventory", hugelog, "--tier=quick"])
+    @test status == 1 && startswith(out, "::error::") && occursin("not a usable number", out) && count(==('\n'), out) == 1
     # usage errors and unreadable input are status 2, not a problem of the log
     @test first(run_main(String[])) == 2
     @test first(run_main(["check-log", good])) == 2
@@ -319,6 +339,7 @@ end
     exitcode(args) = run(pipeline(ignorestatus(`$(Base.julia_cmd()) --startup-file=no $SCRIPT $args`); stdout = devnull, stderr = devnull)).exitcode
     @test exitcode(["check-inventory", good, "--tier=quick"]) == 0
     @test exitcode(["check-inventory", bad, "--tier=quick"]) == 1
+    @test exitcode(["check-inventory", hugelog, "--tier=quick"]) == 1
     @test exitcode(["check-inventory"]) == 2
   end
   @test error_line("a%b\r\nc") == "::error::a%25b%0D%0Ac"

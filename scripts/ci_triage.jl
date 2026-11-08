@@ -16,19 +16,25 @@
 # stale   no completed scheduled run (the nightly) created in the last `stale_hours`: the issue
 #         "Nightly CI is stale". Manual, release and tag runs do not count.
 #
-# The script reads everything first (the run's jobs, the logs of the jobs that did not succeed, the
-# labelled issues and their comments), builds the list of actions from that data alone (the
-# `plan_*` functions are pure), and only then writes through `apply!`. An API error while reading
-# stops the run with exit status 1 and writes nothing, and a resolution is never reported on data
-# that could not be read; the one exception is `alert`, where a failed read of the jobs or of a
-# log only drops the lines per failed file and the alert is still sent (its reads of the issues
-# and of their comments, like those of every other mode, are mandatory). A write that fails is
-# reported and the rest still run, and the exit status is then 1. A run can be repeated (a rerun
-# of failed jobs, or this script again after a failed write) because the plan is made again from
-# the current state of GitHub: a comment is written once per run (the hidden marker `run:`,
-# `resolved:` or `passed:` with the run id in the issue text), while a reopen, a close and a
-# severity label are planned whenever the issue still needs them, whether or not their comment is
-# already there. Exit status 2 is a usage, environment or policy error.
+# The script first makes its preflight reads (the run's jobs, the logs of the jobs that did not
+# succeed, the labelled issues, their comments, the scheduled runs and, when an issue is to be
+# created or labelled, the labels), builds the list of actions from that data alone (the `plan_*`
+# functions are pure), and only then writes through `apply!`. An error in a preflight read stops the
+# run with exit status 1 before the first write, and a resolution is never planned on data that
+# could not be read. The exception is `alert`: its reads of the jobs and of the logs only enrich the
+# text with the lines per failed file, so a failure there is a warning and the alert is still sent
+# (its reads of the issues and of their comments are mandatory, as in every mode). The only read
+# after a write has started is that of the labels after a failed label creation (see `apply!`); if
+# it fails, that is reported and the issue writes continue.
+#
+# A write that fails is reported with `::error::` and the exit status is 1. An issue's comment is
+# written before the reopen, the close or the severity label that goes with it, and such a change
+# is attempted only after the comment was written, or when the comment is already in the issue (its
+# marker is there, so none is planned); if the comment fails, the change is skipped and logged, and
+# the other issues are still written. Every plan is made from the actual state of GitHub, so the
+# next run (a rerun of failed jobs, or the next night) repairs what is missing, and a comment is
+# not written twice for the same run id (the hidden marker `run:`, `resolved:`, `passed:` or
+# `recovered:` in the issue text). Exit status 2 is a usage, environment or policy error.
 #
 # --dry-run prints the actions and writes nothing. --rehearsal uses the label `rehearsal_label`
 # instead of `label`, prefixes every title with "[rehearsal] " and matches only issues that carry
@@ -722,10 +728,12 @@ triage label (state, text and labels), `comments` maps an issue number to the te
 comments. Only the issues of the mode are considered ([`in_scope`](@ref)), so a rehearsal and a
 real run cannot see each other's issues.
 
-The plan reconciles the state on every call: a comment is planned unless its run marker is
-already in the issue (`run:`, `resolved:` or `passed:` with the run id), while a reopen, a close and
-a severity label are planned whenever the issue still needs them. Planning again after a partial
-failure therefore completes the work without repeating a comment.
+The plan is made from the actual state of the issues. A comment is planned unless its marker for
+this run id is already in the issue (`run:`, `resolved:` or `passed:`), so it is not repeated for the
+same run id. A reopen, a close or a severity label is planned whenever the issue still needs it, after
+its comment; `apply!` attempts it only once that comment was written, or when no comment is planned
+because it is already there. A failed write is reported and the exit status is 1, and the next run
+(a rerun, or the next night) repairs what is missing from the actual state.
 """
 function plan_triage(policy::Policy, run::Run, obs::Observation, issues, comments; rehearsal = false)
   label = active_label(policy, rehearsal)
@@ -754,13 +762,9 @@ function plan_triage(policy::Policy, run::Run, obs::Observation, issues, comment
       continue
     end
     escalate = sev == :core && !(sev_label in issue.labels)
-    if issue.state == "closed"
-      push!(actions, Action(:reopen, issue.number, key; title = issue.title))
-      intro = "The failure recurred after this issue was closed."
-    else
-      intro = "The failure occurred again."
-    end
+    intro = issue.state == "closed" ? "The failure recurred after this issue was closed." : "The failure occurred again."
     written || push!(actions, Action(:comment, issue.number, key; title = issue.title, body = comment_body(run, records; intro, changed, escalated = escalate)))
+    issue.state == "closed" && push!(actions, Action(:reopen, issue.number, key; title = issue.title))
     escalate && push!(actions, Action(:label, issue.number, key; title = issue.title, labels = [sev_label]))
   end
   for key in sort!(collect(keys(index)))
@@ -1122,14 +1126,18 @@ end
 """
     apply!(actions, gh; repo, policy, labels = String[], log = println) -> number of failed writes
 
-Execute the actions in order. `labels` are the names of the repository's labels, read before any
-write; the labels the actions add that are not among them are created first, once each. `gh` does
-not say why a creation was refused (a 422 carries no reason on its standard error), so after a
-failed creation the labels are read again: the label being there now means that another run made
-it, and anything else is reported. A write that fails is reported with `::error::` and the rest
-still run. Running the plan again after a failure completes it: the plan is made from the current
-state, so a comment (once per run, by its marker) is not repeated, while a reopen, a close and a
-label that did not happen are planned again.
+Execute the actions in order. `labels` are the names of the repository's labels, read in the
+preflight; the labels the actions add that are not among them are created first, once each. `gh`
+does not say why a creation was refused (a 422 carries no reason on its standard error), so after a
+failed creation the labels are read again (this read follows the creation attempt): the label being
+there now means that another run made it, and anything else, including a failed re-read, is reported
+and the writes continue. A write that fails is reported with `::error::` and counts as a failure.
+The plan puts an issue's comment before its dependent changes (`:reopen`, `:close`, `:label`): when
+that comment fails, the issue's changes are skipped and logged (they are not counted again), and the
+other actions still run; a change with no comment before it (the comment is already in the issue) is
+attempted as usual. A `:create` is independent. Nothing is recorded between runs: the next plan,
+made from the actual state of the issues, repairs what is missing without repeating a comment of the
+same run id.
 """
 function apply!(actions::Vector{Action}, gh; repo, policy::Policy, labels = String[], log = println)
   failures = 0
@@ -1152,13 +1160,19 @@ function apply!(actions::Vector{Action}, gh; repo, policy::Policy, labels = Stri
         log(error_line("could not create the label `$name`: " * first(sprint(showerror, err), 300)))
       end
     end
+    unwritten = Set{Int}() # issues whose planned comment failed
     for (i, a) in enumerate(actions)
+      if a.kind in (:reopen, :close, :label) && a.number in unwritten
+        log("skipped: ", action_line(a), " (the comment planned for this issue was not written)")
+        continue
+      end
       try
         result = write_action(gh, repo, dir, i, a)
         log("done: ", action_line(a), isempty(result) ? "" : " ($result)")
       catch err
         err isa InterruptException && rethrow()
         failures += 1
+        a.kind == :comment && push!(unwritten, a.number)
         log(error_line("could not write [$(action_line(a))]: " * first(sprint(showerror, err), 300)))
       end
     end

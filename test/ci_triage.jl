@@ -187,8 +187,10 @@ mutable struct Hub
   calls::Vector{Vector{String}}
   failing::Function
   workflow::String
+  events::Vector{Tuple{Symbol, Int}} # the writes that took effect, in order
 end
-Hub() = Hub(Dict{String, Any}[], JobRow[], Dict{String, Any}(), Tuple{String, String, String}[], String[], Vector{String}[], args -> nothing, "777")
+Hub() = Hub(Dict{String, Any}[], JobRow[], Dict{String, Any}(), Tuple{String, String, String}[], String[], Vector{String}[], args -> nothing, "777",
+            Tuple{Symbol, Int}[])
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
@@ -286,19 +288,23 @@ function (h::Hub)(args::Vector{String}; input = nothing)
     n = length(h.issues) + 1
     push!(h.issues, Dict{String, Any}("number" => n, "state" => "open", "reason" => "", "title" => field("title"), "body" => field("body"),
                                       "labels" => copy(get(fields, "labels[]", String[])), "comments" => String[]))
+    push!(h.events, (:create, n))
     return "$SERVER/$REPO/issues/$n\n"
   elseif method == "POST" && (m2 = match(r"^issues/(\d+)/comments$", path)) !== nothing
     x = only(x for x in h.issues if x["number"] == parse(Int, m2.captures[1]))
     push!(x["comments"], field("body"))
+    push!(h.events, (:comment, x["number"]))
     return "$SERVER/$REPO/issues/$(x["number"])#comment\n"
   elseif method == "POST" && (m2 = match(r"^issues/(\d+)/labels$", path)) !== nothing
     x = only(x for x in h.issues if x["number"] == parse(Int, m2.captures[1]))
     append!(x["labels"], fields["labels[]"])
+    push!(h.events, (:label, x["number"]))
     return ""
   elseif method == "PATCH" && (m2 = match(r"^issues/(\d+)$", path)) !== nothing
     x = only(x for x in h.issues if x["number"] == parse(Int, m2.captures[1]))
     x["state"] = field("state")
     x["reason"] = something(field("state_reason"), x["state"] == "open" ? "reopened" : "")
+    push!(h.events, (x["state"] == "open" ? :reopen : :close, x["number"]))
     return ""
   end
   error("the hub does not know $method $endpoint")
@@ -498,8 +504,8 @@ end
     night = [spec(LINUX_LTS), spec(LINUX_1), spec(MAC), failed_spec(WIN, WIN_LOG), spec(LINUX_PRE)]
     # closed as completed: reopened with a comment about the recurrence
     r = plan(night; run = run_of(1005), issues = [issue_from(win, 4; state = "closed", reason = "completed")])
-    @test [(a.kind, a.number) for a in r] == [(:reopen, 4), (:comment, 4)]
-    @test occursin("recurred", r[2].body) && occursin(T.marker("run", "1005"), r[2].body)
+    @test [(a.kind, a.number) for a in r] == [(:comment, 4), (:reopen, 4)]
+    @test occursin("recurred", r[1].body) && occursin(T.marker("run", "1005"), r[1].body)
     # closed as not planned: a comment, the issue stays closed
     r = plan(night; run = run_of(1005), issues = [issue_from(win, 4; state = "closed", reason = "not_planned")])
     @test [(a.kind, a.number) for a in r] == [(:comment, 4)]
@@ -984,7 +990,7 @@ end
     made = by_key(plan(NIGHT1))
     closed = issue_from(made["windows/three_factor_product"], 4; state = "closed", reason = "completed")
     first_try = plan(win_fails; run = run_of(1005), issues = [closed])
-    @test pairs(first_try) == [(:reopen, 4), (:comment, 4)]
+    @test pairs(first_try) == [(:comment, 4), (:reopen, 4)]
     @test pairs(plan(win_fails; run = run_of(1005, attempt = "2"), issues = [closed], comments = commented(first_try))) == [(:reopen, 4)]
     reopened = issue_from(made["windows/three_factor_product"], 4)
     @test isempty(plan(win_fails; run = run_of(1005, attempt = "2"), issues = [reopened], comments = commented(first_try)))
@@ -1011,61 +1017,154 @@ end
     failed_attempt = plan(NIGHT1; run = run_of(1008), issues = open_issues)
     @test pairs(plan(green_night(); run = run_of(1008, attempt = "2"), issues = open_issues, comments = commented(failed_attempt))) ==
           pairs(resolving)
+  end
 
-    # the same through the hub: a write fails after the comment, then the plan is made again
-    ok(args) = nothing
-    function resolved_hub()
+  # Every subset of failing writes of the first attempt of a run, then the same run again, and the
+  # next night. Each scenario is a state of the hub (`setup`) and a run that changes it (`exercise`).
+  @testset "fault injection: every subset of failing writes, then a replan" begin
+    all_labels = ["nightly-triage", "triage:core", "triage:deferred", "triage:unclassified", "triage:infrastructure"]
+    win_fails = [spec(LINUX_LTS), spec(LINUX_1), spec(MAC), failed_spec(WIN, WIN_LOG), spec(LINUX_PRE)]
+    both_fail = [spec(LINUX_LTS), spec(LINUX_1), failed_spec(MAC, MAC_LOG), failed_spec(WIN, WIN_LOG), spec(LINUX_PRE)]
+    mac_only = [spec(LINUX_LTS), spec(LINUX_1), failed_spec(MAC, MAC_LOG), spec(WIN), spec(LINUX_PRE)]
+    pre_fails = [spec(LINUX_LTS), spec(LINUX_1), spec(MAC), spec(WIN), failed_spec(LINUX_PRE, LIN1_LOG)]
+    core_fails = [spec(LINUX_LTS), failed_spec(LINUX_1, LIN1_LOG), spec(MAC), spec(WIN), spec(LINUX_PRE)]
+    mixed = [spec(LINUX_LTS), failed_spec(LINUX_1, LIN1_LOG), spec(MAC), failed_spec(WIN, WIN_LOG), spec(LINUX_PRE)]
+    nightly(specs) = (h, id, attempt, shift) -> nightly!(h, id, specs; attempt)
+    stale(h, id, attempt, shift) = begin
+      h.runs = [("2026-11-08T02:00:00Z", "completed", "success")]
+      go(h, "stale"; event = "push", run_id = id, attempt, now = NOW + shift)
+    end
+
+    function fresh(setup)
       h = Hub()
-      nightly!(h, 1001, NIGHT1)
-      nightly!(h, 1003, green_night())
+      h.labels = copy(all_labels)
+      setup(h)
+      empty!(h.calls)
+      empty!(h.events)
       return h
     end
-    # the reopen fails after the recurrence comment
-    h = resolved_hub()
+
+    # which write a call is: "comment:7", "reopen:7", "close:7", "label:7" or "create:<title>"
+    function write_id(args)
+      i = findfirst(==("-X"), args)
+      (i === nothing || !(args[i + 1] in ("POST", "PATCH"))) && return nothing
+      endpoint = only(a for a in args if startswith(a, "repos/"))
+      n = (m = match(r"/issues/(\d+)", endpoint)) === nothing ? 0 : parse(Int, m.captures[1])
+      endswith(endpoint, "/comments") && return "comment:$n"
+      occursin(r"/issues/\d+/labels$", endpoint) && return "label:$n"
+      endswith(endpoint, "/labels") && return "newlabel"
+      args[i + 1] == "PATCH" && return "state=open" in args ? "reopen:$n" : "close:$n"
+      return "create:" * only(a[7:end] for a in args if startswith(a, "title="))
+    end
+    faults(bad, fired) = args -> begin
+      id = write_id(args)
+      if id !== nothing && id in bad
+        fired[] += 1
+        T.GhError("gh api failed: HTTP 500", 500)
+      end
+    end
+    no_faults(args) = nothing
+
+    attempt_less(c) = replace(c, r"\(attempt \d+\)" => "(attempt #)")
+    snapshot(h) = sort([(x["title"], x["state"], sort(x["labels"]), sort(attempt_less.(x["comments"]))) for x in h.issues]; by = first)
+    states(h) = sort([(x["title"], x["state"], sort(x["labels"])) for x in h.issues]; by = first)
+    # how often each comment marker of a run occurs in an issue (a comment is written once per run id)
+    function marker_counts(h)
+      out = Dict{Tuple{String, String, String}, Int}()
+      for x in h.issues, t in [x["body"]; x["comments"]], m in eachmatch(r"<!-- (run|resolved|passed|recovered|stale):(\S+) -->", t)
+        key = (x["title"], String(m.captures[1]), String(m.captures[2]))
+        out[key] = get(out, key, 0) + 1
+      end
+      return out
+    end
+    # a state change is never in effect without the comment that goes with it (when the plan has one)
+    function comment_first(events, ids)
+      for (p, (kind, n)) in enumerate(events)
+        kind in (:reopen, :close, :label) && "comment:$n" in ids || continue
+        (:comment, n) in events[1:p - 1] || return false
+      end
+      return true
+    end
+    effect(e) = (e[1], e[1] == :create ? 0 : e[2])
+
+    function explore(name, setup, exercise; writes_expected)
+      ref = fresh(setup)
+      @test exercise(ref, 5001, "1", 0).code == 0
+      ids = String[write_id(c) for c in writes(ref)]
+      @test length(ids) == writes_expected && !("newlabel" in ids)
+      ref_snapshot, ref_states = snapshot(ref), states(ref)
+      for mask in 0:(2^length(ids) - 1)
+        bad = Set(ids[i] for i in eachindex(ids) if (mask >> (i - 1)) & 1 == 1)
+        # the first attempt: what happens is what the dependency rule says, and nothing else
+        h = fresh(setup)
+        fired = Ref(0)
+        h.failing = faults(bad, fired)
+        first_try = exercise(h, 5001, "1", 0)
+        blocked, expected, fired_expected, skipped = Set{Int}(), Tuple{Symbol, Int}[], 0, 0
+        for id in ids
+          kind, rest = split(id, ':'; limit = 2)
+          n = kind == "create" ? 0 : parse(Int, rest)
+          if kind in ("reopen", "close", "label") && n in blocked
+            skipped += 1
+          elseif id in bad
+            fired_expected += 1
+            kind == "comment" && push!(blocked, n)
+          else
+            push!(expected, (Symbol(kind), n))
+          end
+        end
+        @test (name, mask, effect.(h.events)) == (name, mask, expected)
+        @test (name, mask, fired[], first_try.code, count("::error::could not write", first_try.out), count("skipped:", first_try.out)) ==
+              (name, mask, fired_expected, fired_expected > 0 ? 1 : 0, fired_expected, skipped)
+        @test (name, mask, comment_first(h.events, ids)) == (name, mask, true)
+        # the same run again, with no failure: the end state is the failure-free one, each comment once
+        h.failing = no_faults
+        @test (name, mask, exercise(h, 5001, "2", 0).code) == (name, mask, 0)
+        @test (name, mask, snapshot(h)) == (name, mask, ref_snapshot)
+        @test (name, mask, comment_first(h.events, ids), all(==(1), values(marker_counts(h)))) == (name, mask, true, true)
+        empty!(h.calls)
+        @test exercise(h, 5001, "3", 0).code == 0 && isempty(writes(h)) # nothing is left to do
+        # the next night instead: a new run id repairs the state, and every change has its own comment
+        next = fresh(setup)
+        next.failing = faults(bad, Ref(0))
+        exercise(next, 5001, "1", 0)
+        next.failing = no_faults
+        @test (name, mask, exercise(next, 5002, "1", 86400).code) == (name, mask, 0)
+        @test (name, mask, states(next)) == (name, mask, ref_states)
+        @test (name, mask, comment_first(next.events, ids), all(==(1), values(marker_counts(next)))) == (name, mask, true, true)
+        for x in next.issues
+          text = join(x["comments"], "\n")
+          x["state"] == "closed" && x["reason"] == "completed" &&
+            @test (name, mask, occursin(r"<!-- (resolved|recovered):", text)) == (name, mask, true)
+          x["reason"] == "reopened" && @test (name, mask, occursin("recurred", text)) == (name, mask, true)
+        end
+      end
+    end
+
+    explore("recurrence", h -> (nightly!(h, 1001, win_fails); nightly!(h, 1002, green_night())), nightly(win_fails); writes_expected = 2)
+    explore("resolution of two issues", h -> nightly!(h, 1001, both_fail), nightly(green_night()); writes_expected = 4)
+    explore("severity escalation", h -> nightly!(h, 1001, pre_fails), nightly(core_fails); writes_expected = 2)
+    explore("flaky note", h -> (nightly!(h, 1001, win_fails); push!(h.issues[1]["labels"], "triage:flaky")), nightly(green_night()); writes_expected = 1)
+    explore("closed as not planned", h -> (nightly!(h, 1001, win_fails); h.issues[1]["state"] = "closed"; h.issues[1]["reason"] = "not_planned"),
+            nightly(win_fails); writes_expected = 1)
+    explore("new issues", h -> nothing, nightly(both_fail); writes_expected = 2)
+    explore("recurrence, resolution and a new issue in one plan",
+            h -> (nightly!(h, 1001, both_fail); nightly!(h, 1002, mac_only)), nightly(mixed); writes_expected = 5)
+    explore("stale nightly recovered", h -> begin
+              h.runs = [("2026-11-04T03:00:00Z", "completed", "success")]
+              go(h, "stale"; event = "push", run_id = 3001)
+            end, stale; writes_expected = 2)
+
+    # an issue whose comment fails does not hold up the others
+    h = fresh(h -> (nightly!(h, 1001, both_fail); nightly!(h, 1002, mac_only)))
     win = titled(h, "Nightly failure on Windows: three_factor_product")
-    n = length(win["comments"])
-    h.failing = args -> "state=open" in args ? T.GhError("gh api failed: HTTP 500", 500) : nothing
-    r = nightly!(h, 1004, win_fails)
-    @test r.code == 1 && win["state"] == "closed" && length(win["comments"]) == n + 1
-    h.failing = ok
-    empty!(h.calls)
-    r = nightly!(h, 1004, win_fails; attempt = "2")
-    @test r.code == 0 && win["state"] == "open" && length(win["comments"]) == n + 1
-    @test length(writes(h)) == 1
-    empty!(h.calls)
-    @test nightly!(h, 1004, win_fails; attempt = "3").code == 0 && isempty(writes(h))
-    # the close fails after the resolution comment
-    h = Hub()
-    nightly!(h, 1001, NIGHT1)
-    h.failing = args -> "state=closed" in args ? T.GhError("gh api failed: HTTP 500", 500) : nothing
-    r = nightly!(h, 1002, green_night())
-    @test r.code == 1 && all(x -> x["state"] == "open" && length(x["comments"]) == 1, h.issues)
-    h.failing = ok
-    r = nightly!(h, 1002, green_night(); attempt = "2")
-    @test r.code == 0 && all(x -> x["state"] == "closed" && length(x["comments"]) == 1, h.issues)
-    @test count(c -> occursin("resolved:1002", c), vcat([x["comments"] for x in h.issues]...)) == 4
-    # the label write fails after the escalation comment
-    h = Hub()
-    nightly!(h, 1001, [spec(LINUX_LTS), spec(LINUX_1), spec(MAC), spec(WIN), failed_spec(LINUX_PRE, LIN1_LOG)])
-    x = only(h.issues)
-    @test !("triage:core" in x["labels"])
-    h.failing = args -> any(a -> endswith(a, "/issues/1/labels"), args) ? T.GhError("gh api failed: HTTP 500", 500) : nothing
-    r = nightly!(h, 1002, core_night)
-    @test r.code == 1 && length(x["comments"]) == 1 && !("triage:core" in x["labels"])
-    h.failing = ok
-    r = nightly!(h, 1002, core_night; attempt = "2")
-    @test r.code == 0 && length(x["comments"]) == 1 && "triage:core" in x["labels"]
-    # the closing comment of the stale issue is written once as well
-    h = Hub()
-    h.runs = [("2026-11-05T03:00:00Z", "completed", "success")]
-    @test go(h, "stale"; event = "push", run_id = 3101).code == 0
-    h.runs = [("2026-11-08T02:00:00Z", "completed", "success")]
-    h.failing = args -> "state=closed" in args ? T.GhError("gh api failed: HTTP 500", 500) : nothing
-    @test go(h, "stale"; event = "push", run_id = 3102).code == 1
-    @test h.issues[1]["state"] == "open" && length(h.issues[1]["comments"]) == 1
-    h.failing = ok
-    @test go(h, "stale"; event = "push", run_id = 3102).code == 0
-    @test h.issues[1]["state"] == "closed" && length(h.issues[1]["comments"]) == 1
+    mac = titled(h, "Nightly failure on macOS: three_factor_product")
+    h.failing = args -> any(a -> endswith(a, "/issues/$(win["number"])/comments"), args) ? T.GhError("gh api failed: HTTP 500", 500) : nothing
+    r = nightly!(h, 5001, mixed)
+    @test r.code == 1 && win["state"] == "closed" && length(win["comments"]) == 1
+    @test mac["state"] == "closed" && length(mac["comments"]) == 2
+    @test any(x -> x["title"] == "Nightly failure on Linux: calculus", h.issues)
+    @test occursin("skipped: reopen issue #$(win["number"])", r.out) && count("::error::could not write", r.out) == 1
   end
 
   @testset "rehearsal and normal runs own disjoint issues" begin

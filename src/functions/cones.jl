@@ -516,9 +516,9 @@ function _exp_product(a::T, b::T) where {T}
   m, k = _frexp(a)
   logtwo = log(T(2))
   b > (exponent(floatmax(T)) - k + 2) * logtwo && return copysign(T(Inf), a)
-  b < (exponent(nextfloat(zero(T))) - k - 2) * logtwo && return copysign(zero(T), a)
-  j = round(Int, b / logtwo)
-  ldexp(m * exp(muladd(-T(j), logtwo, b)), k + j)
+  b < T(_exponent_sum(T, exponent(nextfloat(zero(T))), -k, -2)) * logtwo && return copysign(zero(T), a)
+  j = round(typeof(_exponent_sum(T, 0)), b / logtwo)
+  ldexp(m * exp(muladd(-T(j), logtwo, b)), _exponent_sum(T, k, j))
 end
 
 function _exp_sum(a::T, b::T, c::T) where {T}
@@ -688,7 +688,7 @@ function _exp_project(r::T, s::T, t::T) where {T}
   end
   # Outside this window, the missing components underflow even after
   # rescaling a largest finite coordinate. Keep the heuristic pair.
-  limit = T(exponent(floatmax(T)) - exponent(nextfloat(zero(T))) + 32) * log(T(2))
+  limit = T(_exponent_sum(T, exponent(floatmax(T)), -exponent(nextfloat(zero(T))), 32)) * log(T(2))
   (r > 0 && one(T) - s / r > limit || s > 0 && r / s < -limit) && return p, q
   j = exponent(max(abs(r), abs(s)))
   u, v = ldexp(r, -j), ldexp(s, -j)

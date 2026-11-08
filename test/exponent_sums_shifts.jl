@@ -1088,4 +1088,156 @@ end
   end
 end
 
+# ---- the exponential cone: the window of _exp_project and the exponential product ----
+
+# Moreau residuals of a candidate projection p of x onto the exponential cone K = cl{(r, s, t): s > 0, s exp(r/s) <= t}, in
+# units of the largest entry of x and from 4 precision + 400 bits: the violation of p in K, that of q = x - p in the polar cone
+# {(r, s, t): r > 0, t < 0, s <= r (1 + log(-t/r))} (with its closure at r = 0), and |<p, q>| / |x|^2. The entries are first
+# multiplied by a power of two, which is exact while the entries stay in range, so that their products stay in range.
+function exp_cone_residuals(x::Vector{BigFloat}, y::Vector{BigFloat})
+  prec = precision(BigFloat)
+  setprecision(BigFloat, 4prec + 400) do
+    e0 = Int(exponent(maximum(abs, x)))
+    X = [Base.ldexp(v, Clong(-e0)) for v in x]
+    P = [Base.ldexp(v, Clong(-e0)) for v in y]
+    Q = X .- P
+    sc = maximum(abs, X)
+    function in_cone(v)
+      r, s, t = v
+      s < 0 && return -s / sc + 1
+      iszero(s) && return (max(zero(r), r) + max(zero(t), -t)) / sc
+      t <= 0 && return one(r)
+      max(zero(r), r - s * log(t / s)) / sc
+    end
+    function in_polar(v)
+      r, s, t = v
+      r < 0 && return -r / sc + 1
+      iszero(r) && return (max(zero(s), s) + max(zero(t), t)) / sc
+      t >= 0 && return one(r)
+      max(zero(s), s - r * (1 + log(-t / r))) / sc
+    end
+    Float64(in_cone(P)), Float64(in_polar(Q)), Float64(abs(sum(P .* Q)) / sc^2)
+  end
+end
+
+const EXP_CONE_DIRECTIONS = ((1, 1, 1), (1, 2, 3), (1, 0.5, 0.1), (3, 1, 0.5), (1, -1, 2), (2, 3, -1))
+# the projection of 2^E (1, 1, 1) is 2^E times that of (1, 1, 1), the values of the Float64 projection
+const EXP_CONE_ONES = [0.42630617230379403, 0.7516727774312039, 1.3253666051274098]
+
+# The cases at 53 bits are those with |E| <= 2^20: the accuracy at 53 bits for a larger |E| is not asserted (the logarithm
+# of an entry near 2^E is rounded to 53 bits, which is an absolute error of up to about E 2^-53).
+@testset "exponential cone projection, Moreau residuals, precision $p" for (p, tol, Es) in (
+    (53, 2.0^-40, (0, 10, 1000, 2^20, -2^20, -1000)),
+    (256, 2.0^-220, (0, 10, 1000, 2^20, -2^20, 2^40, -2^40, 2^61, -2^61, -1000)))
+  setprecision(BigFloat, p) do
+    ran = 0
+    for E in Es, d in EXP_CONE_DIRECTIONS
+      BOT + 10 <= E <= TOP - 10 || continue
+      ran += 1
+      x = BigFloat[d[1] * pw(E), d[2] * pw(E), d[3] * pw(E)]
+      y = zeros(BigFloat, 3)
+      prox!(y, IndExpPrimal(), x, 1)
+      @test all(isfinite, y)
+      vp, vq, orth = exp_cone_residuals(x, y)
+      @test vp <= tol
+      @test vq <= tol
+      @test orth <= tol
+    end
+    @test ran >= 6 * 6
+  end
+end
+
+@testset "exponential cone projection of (1, 1, 1) and its dual, precision $p" for (p, Es) in (
+    (53, (0, 20, -20)), (256, (0, 2^20, 2^40, 2^61, -2^61)))
+  setprecision(BigFloat, p) do
+    # the dual projection of -(1, 1, 1)
+    dual = zeros(3)
+    prox!(dual, IndExpDual(), [-1.0, -1.0, -1.0], 1)
+    for E in Es
+      BOT + 10 <= E <= TOP - 10 || continue
+      for (f, want) in ((IndExpPrimal(), EXP_CONE_ONES), (IndExpDual(), dual))
+        x = BigFloat[pw(E, f isa IndExpDual ? -1 : 1) for _ in 1:3]
+        y = zeros(BigFloat, 3)
+        prox!(y, f, x, 1)
+        @test all(isfinite, y)
+        @test Float64.([Base.ldexp(v, Clong(-E)) for v in y]) ≈ want rtol = 1e-12
+      end
+    end
+  end
+end
+
+# x = [r, tiny, 1] with r / tiny = X1 = (TOP - (frexp exponent of tiny) + 2) log 2, which is (2^63 - 1) log 2 on the 64-bit
+# Unix range. In _exp_product(tiny, X1) the quotient b / log 2 is 2^63 at 53 bits and about 2^63 - 1 at 256 bits. The
+# projection is finite and its first two coordinates are below the square root of the smallest positive number
+@testset "exponential cone projection with the quotient at 2^63, precision $p" for p in (53, 256)
+  setprecision(BigFloat, p) do
+    tiny = nextfloat(zero(BigFloat))
+    X1 = (exponent(floatmax(BigFloat)) - Int(Base.frexp(tiny)[2]) + 2) * log(BigFloat(2))
+    r = Base.ldexp(X1, Clong(Base.MPFR.get_emin() - 1))              # r / tiny = X1
+    x = BigFloat[r, tiny, one(BigFloat)]
+    y = zeros(BigFloat, 3)
+    prox!(y, IndExpPrimal(), x, 1)
+    @test all(isfinite, y)
+    @test y[3] == 1
+    @test 0 <= y[1] <= pw(BOT ÷ 2)
+    @test 0 <= y[2] <= pw(BOT ÷ 2)
+    @test PB._exp_product(tiny, X1) isa BigFloat
+  end
+end
+
+# a exp(b) = m exp(b - j log 2) 2^(k + j) for a = m 2^k and j = round(b / log 2): the value from 4 precision + 400 bits
+function exp_product_oracle(a::BigFloat, b::BigFloat)
+  prec = precision(BigFloat)
+  m, k = Base.frexp(a)
+  x, j = setprecision(BigFloat, 4prec + 400) do
+    L = log(BigFloat(2))
+    j = Int128(round(BigInt, b / L))
+    BigFloat(m * exp(b - j * L); precision = prec), j
+  end
+  Base.ldexp(x, Clong(clamp(Int128(k) + j, typemin(Clong), typemax(Clong))))
+end
+
+# a = floatmax(BigFloat) has the frexp exponent k = TOP + 1, so the zero guard is b < g0 log 2 with g0 = BOT - k - 2, which is
+# -2^63 - 1 on the 64-bit Unix range. The cases b = (g0 + d) log 2 have the value m exp(r) 2^(BOT + d - 2): about the
+# smallest positive number at d = 2 and above it for larger d, while d <= 0 is at the guard or below it, with the value 0.
+# The reduction b - j log 2 with j near 2^63 has an absolute error of up to about |j| 2^-p, which is a relative error of
+# the value: about 2^-193 at 256 bits and, at 53 bits, a factor of up to about 2^(1.5 2^10) in the significand; so at
+# 53 bits the exponent of the value is asserted to within 2^(64 - p).
+@testset "exponential product beyond its zero guard at the largest k, precision $p" for p in (53, 256)
+  setprecision(BigFloat, p) do
+    a = floatmax(BigFloat)
+    g0 = BOT - (TOP + 1) - 2
+    EMAX == 2^62 - 1 && @test g0 == -Int128(2)^63 - 1
+    for d in (p == 256 ? (-1, 0, 2, 3, 10, 1000, 10^6, 2^40, 2^61, 2^62) : (1000, 10^6, 2^40, 2^61, 2^62))
+      b = BigFloat(g0 + d) * log(BigFloat(2))
+      got = PB._exp_product(a, b)
+      want = exp_product_oracle(a, b)
+      @test !isnan(got)
+      @test isinf(got) == isinf(want)
+      @test iszero(got) == iszero(want)
+      if isfinite(want) && !iszero(want) && isfinite(got) && !iszero(got)
+        if p == 256
+          @test setprecision(() -> abs(got - want) <= 2.0^-180 * want, BigFloat, 4p + 400)
+        else
+          @test abs(log2(got) - log2(want)) <= 2.0^(64 - p)
+        end
+      end
+    end
+  end
+end
+
+@testset "exponential cone with Float64 data keeps its sums" begin
+  y = zeros(3)
+  prox!(y, IndExpPrimal(), [1.0, 1.0, 1.0], 1)
+  @test y ≈ EXP_CONE_ONES rtol = 1e-13
+  for (a, b) in ((2.0^1000, -1000.0), (-2.0^1000, -1000.0), (2.0^-1000, 1000.0), (1.5, -900.0), (1.0, 800.0), (-1.0, 800.0))
+    ref = setprecision(() -> Float64(big(a) * exp(big(b))), BigFloat, 400)
+    got = @inferred PB._exp_product(a, b)
+    @test isinf(got) == isinf(ref)
+    @test iszero(got) == iszero(ref)
+    @test signbit(got) == signbit(ref)
+    isfinite(ref) && !iszero(ref) && @test got ≈ ref rtol = 1e-11
+  end
+end
+
 end

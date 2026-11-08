@@ -239,7 +239,7 @@ end
 const SENTINEL = -123.25
 const GATE_CONTROL = 16     # the maintainer's regression gate, in eps of the output type: ‖y − z*‖/‖z*‖ on the ordinary controls
 const GATE_FIXTURE = 16     # the same on the recoverable fixtures and the small decision cases
-# The Float64 search keeps its residual acceptance (only the Float32 model is certified), and its per-entry
+# The Float64 search keeps its residual acceptance (only the Float32 model is checked), and its per-entry
 # ElasticNet controls are 8.1 to 18 eps(Float64) wrong on the base at n = 4096 to 100 000. They are kept as a
 # recorded regression bound of that unchanged search, not as a promise: 64 eps(Float64). The other Float64
 # controls keep the pre-registered 8.
@@ -572,7 +572,7 @@ end
   @test exact(z, BigFloat[1 - ldexp(1.0, -23), 1 - ldexp(1.0, -23), 0])
 end
 
-# the fixture of issue 151 at sizes that fit this tier: without certification the Float32 search is 15 to
+# the fixture of issue 151 at sizes that fit this tier: without the check the Float32 search is 15 to
 # 475 eps(Float32) wrong on these seeds (n = 1000 with seeds 151 and 152, n = 4000 with seed 153), the
 # error depending on the reduction order of the host
 @testset "signed box on a hyperplane at n = 1000 and 4000" begin
@@ -662,7 +662,9 @@ end
 # ---------------------------------------------------------------------------------------------------
 @testset "near-face cases: box [0, 1], b = 2 - 2^-j, x = (1, 1, -1)" begin
   # j = p - 2 is the existing case of the conformance suite (linear_sets.certify): the two free entries are
-  # 1 - 2^-(j+1) exactly, one step of eps below the representable neighbour of 1, and the third is fixed at 0
+  # 1 - 2^-(j+1) exactly, one step of eps below the representable neighbour of 1, and the third is fixed at 0.
+  # The result is held to the normwise regression gate of 16 eps; what the problem decides on its own is checked
+  # exactly: the box, the side of the constraint, the entry at its bound, and that the free entries are not clamped.
   for T in (Float32, Float64), kind in (:plane, :half, :slab), steps in (:scalar, :entry), j in precision(T) .- (2, 3, 4, 5)
     b = T(2) - ldexp(one(T), -j)
     set = kind === :plane ? IndHyperplane(T(1), b) : kind === :half ? IndHalfspace(T(1), b) : IndHyperslab(T(1), T(0), b)
@@ -676,11 +678,16 @@ end
       @test r.err === nothing
       if r.err === nothing
         @test exact(r.z, BigFloat[z1, z1, 0])                 # the oracle's point
-        # within one ulp of it, componentwise, in Float32, which the search certifies; the Float64 search keeps its
-        # residual acceptance (G5), so a Float64 point is only required to be within 16 ulps
-        @test maxulps(r.y, r.z, T) <= (T === Float32 ? 1 : 16)
-        @test r.y[3] == 0
-        T === Float32 && @test r.y[1] != 1 && r.y[2] != 1
+        @test r.e2 <= GATE_FIXTURE                            # the normwise regression gate (Float64: the search keeps its residual rule)
+        @test maxulps(r.y, r.z, T) <= 16
+        @test all(yi -> 0 <= yi <= 1, r.y)                    # the box
+        @test r.y[3] == 0                                     # the entry whose argument is below the box
+        Σy = sum(Float64, r.y)
+        tol = 32 * Float64(eps(T)) * Float64(b)
+        kind === :plane && @test abs(Σy - Float64(b)) <= tol  # the side of the constraint, to the stated tolerance
+        kind === :half && @test Σy <= Float64(b) + tol
+        kind === :slab && @test 0 <= Σy <= Float64(b) + tol
+        T === Float32 && @test r.y[1] != 1 && r.y[2] != 1     # the free entries are not clamped at the upper bound
       end
     end
   end
@@ -1026,6 +1033,22 @@ Unresolved(f, limit = 3.0) = Unresolved(f, Ref(Float64(limit)))
 ProximalBase.prox_entry(g::Unresolved, v, i, γ) = abs(v) > g.limit[] ? oftype(float(v), NaN) : prox_entry(g.f, v, i, γ)
 ProximalBase.value_entry(g::Unresolved, v, i) = value_entry(g.f, v, i)
 ProximalBase.isconvex(::Type{<:Unresolved}) = true
+ProximalBase._has_wide(::Type{<:Unresolved{F}}) where {F} = ProximalBase._has_wide(F)
+ProximalBase._prox_entry_wide(g::Unresolved, v::Float64, i::Integer, γ::Float32) =
+  abs(v) > g.limit[] ? NaN : ProximalBase._prox_entry_wide(g.f, v, i, γ)
+
+# a function without the hook of the recovery: the recovery is refused, and a failed check raises PrecisionError before any write
+struct NoHook{F} <: ProximalBase.SeparableFunction
+  f::F
+end
+ProximalBase.prox_entry(g::NoHook, v, i, γ) = prox_entry(g.f, v, i, γ)
+ProximalBase.value_entry(g::NoHook, v, i) = value_entry(g.f, v, i)
+ProximalBase.isconvex(::Type{<:NoHook}) = true
+ProximalBase._has_prox_slope(::Type{<:NoHook{F}}) where {F} = ProximalBase._has_prox_slope(F)
+ProximalBase._prox_entry_slope(g::NoHook, v, i, γ) = ProximalBase._prox_entry_slope(g.f, v, i, γ)
+ProximalBase._has_prox_range(::Type{<:NoHook{F}}) where {F} = ProximalBase._has_prox_range(F)
+ProximalBase._prox_range(g::NoHook, i::Integer, ::Type{S}) where {S} = ProximalBase._prox_range(g.f, i, S)
+ProximalBase._has_uniform_range(::Type{<:NoHook{F}}) where {F} = ProximalBase._has_uniform_range(F)
 
 @testset "a proven infeasible constraint: ArgumentError naming the domain, nothing written, the object usable" begin
   for T in (Float32, Float64), steps in (:scalar, :entry)
@@ -1125,10 +1148,10 @@ end
 end
 
 # ---------------------------------------------------------------------------------------------------
-# a call that follows another is first tried at the last multiplier, with no search: the outputs of a sequence of
-# nearby points are within the gates, and the trial certifies calls of the sequence
+# a call that follows another starts from the last multiplier: the outputs of a sequence of nearby points are within
+# the gates
 # ---------------------------------------------------------------------------------------------------
-@testset "a call that follows another: the trial at the last multiplier" begin
+@testset "a call that follows another: the points of a sequence" begin
   T = Float32
   for kind in (:capped, :lasso, :enet_strict), steps in (:scalar, :entry)
     case = control(kind, T, 512, steps)
@@ -1174,6 +1197,270 @@ end
     g.limit[] = Inf
     case = Case("after the failures $steps", T, () -> c, d.x, γ, x -> [model(T, x, d.a32, γ, d.b32, d.b32; lo = 0, hi = 1)])
     expect(case.name, measure(case, c), GATE_FIXTURE; weighted = steps === :entry)
+  end
+end
+
+# ---------------------------------------------------------------------------------------------------
+# a failure to bracket the root is not a proof of infeasibility. Plateau problems: every entry clamped at a
+# bound of its box, and the offset at an extreme of the range of ⟨a, z⟩, at scales down to the subnormal range, from
+# every starting multiplier. At the extreme itself the constraint is feasible and the answer is the plateau point;
+# beyond it by more than the rounding of the sums it is infeasible (ArgumentError); in between the call answers or
+# raises PrecisionError, never ArgumentError.
+# ---------------------------------------------------------------------------------------------------
+@testset "plateau problems at tiny scales: ArgumentError only for a proven infeasibility, from any starting multiplier" begin
+  T = Float32
+  stale = (NaN, 1e3, -1e3, 1e6, -1e6)
+  for e in (-100, -120, -132), n in (8, 64), steps in (:scalar, :entry)
+    s = ldexp(one(T), e)
+    rng = Xoshiro(2000 + n - e)
+    a = T.(rand(rng, (-2, -1, 1, 2), n))
+    γ = steps === :scalar ? T(0.7) : T(0.2) .+ rand(rng, T, n)
+    x = s .* randn(rng, T, n)
+    sup = s * T(sum(abs, a))                       # the supremum of ⟨a, z⟩ over the box [-s, s]^n: exact in Float32
+    top = s .* sign.(a)                            # the point of the supremum, and below it that of the infimum
+    beyond = T(sup * (1 + 2.0^-10))
+    inside = T(sup * (1 - 2.0^-20))
+    sets = (("hyperplane at the supremum", IndHyperplane(a, sup), top),
+            ("hyperplane at the infimum", IndHyperplane(a, -sup), -top),
+            ("halfspace at the infimum", IndHalfspace(a, -sup), -top),
+            ("halfspace above the range", IndHalfspace(a, beyond), clamp.(x, -s, s)),
+            ("slab touching the supremum", IndHyperslab(a, sup, beyond), top),
+            ("slab touching the infimum", IndHyperslab(a, -beyond, -sup), -top))
+    infeasible = (("hyperplane beyond the supremum", IndHyperplane(a, beyond)),
+                  ("hyperplane beyond the infimum", IndHyperplane(a, -beyond)),
+                  ("halfspace beyond the infimum", IndHalfspace(a, -beyond)),
+                  ("slab beyond the supremum", IndHyperslab(a, beyond, T(2) * beyond)),
+                  ("slab beyond the infimum", IndHyperslab(a, T(-2) * beyond, -beyond)))
+    @testset "scale 2^$e n=$n $steps" begin
+      for (label, set, expected) in sets, last in stale
+        c = Constrained(IndBox(-s, s), set)
+        c.last[] = last
+        y = fill(T(SENTINEL), n)
+        err = raised(() -> prox!(y, c, x, γ))
+        @test !(err isa ArgumentError)
+        if err === nothing
+          @test y == expected
+        else
+          @test err isa ProximalBase.PrecisionError
+          @test unchanged(y, T)
+          @test isequal(c.last[], last)
+        end
+      end
+      for (label, set) in infeasible, last in (NaN, 1e3, -1e6)
+        c = Constrained(IndBox(-s, s), set)
+        c.last[] = last
+        for rep in 1:2
+          y = fill(T(SENTINEL), n)
+          err = raised(() -> prox!(y, c, x, γ))
+          @test err isa ArgumentError && occursin("misses the domain", sprint(showerror, err))
+          @test unchanged(y, T)
+          @test isequal(c.last[], last)
+        end
+      end
+      # a function without the recovery hook: no false infeasibility either; a start that does not hold is retried from zero by
+      # the Float32 search itself, and where its check then fails the call raises PrecisionError
+      for last in (1e3, -1e3, 1e6, -1e6)
+        c = Constrained(NoHook(IndBox(-s, s)), IndHyperplane(a, sup))
+        c.last[] = last
+        y = fill(T(SENTINEL), n)
+        err = raised(() -> prox!(y, c, x, γ))
+        @test !(err isa ArgumentError)
+        if err === nothing
+          @test y == top
+        else
+          @test err isa ProximalBase.PrecisionError && unchanged(y, T)
+        end
+      end
+      # in between: below the supremum by 2^-20 of it, a feasible constraint whose root lies next to the plateau
+      for last in stale
+        c = Constrained(IndBox(-s, s), IndHyperplane(a, inside))
+        c.last[] = last
+        y = fill(T(SENTINEL), n)
+        err = raised(() -> prox!(y, c, x, γ))
+        @test !(err isa ArgumentError)
+        if err === nothing
+          @test all(yi -> -s <= yi <= s, y)
+          @test abs(sum(Float64, a .* y) - Float64(inside)) <= 1e-4 * Float64(sup)
+        else
+          @test unchanged(y, T)
+        end
+      end
+    end
+  end
+  # the overflow case of the same kind: products of steps and normals near the range of Float32 and a stale multiplier
+  n = 64
+  rng = Xoshiro(31 * 4 + n)
+  e = rand(rng, 28:36)
+  γ = T.(10.0 .^ (e .+ rand(rng, n)))
+  a = T.(randn(rng, n) .* 10.0 .^ (-e + 14 .+ rand(rng, n)))
+  x = T.(randn(rng, n) .* 1e19)
+  m0 = model(T, x, a, γ, 0, 0; lo = -1e19, hi = 1e19)
+  b = T(Float64(sigma(m0, 0.3e5 / (sum(Float64.(γ) .* abs.(Float64.(a))) / n))))
+  for last in (1e3, -1e3, NaN), plane in (true, false)
+    c = Constrained(IndBox(T(-1e19), T(1e19)), plane ? IndHyperplane(a, b) : IndHalfspace(a, b))
+    c.last[] = last
+    y = fill(T(SENTINEL), n)
+    err = raised(() -> prox!(y, c, x, γ))
+    @test !(err isa ArgumentError)
+    if err === nothing
+      mb = model(T, x, a, γ, plane ? b : -Inf, b; lo = -1e19, hi = 1e19)
+      z, ν, face = oracle(mb)
+      @test errs(y, z, T, mb.γ)[2] <= GATE_FIXTURE
+    else
+      @test unchanged(y, T)
+    end
+  end
+end
+
+# ---------------------------------------------------------------------------------------------------
+# the Float64 recovery solves the Float32-effective problem (T3): the entry maps are evaluated in Float64 on the exactly
+# widened argument, with the steps, the combined thresholds, the ridge weights and the bounds rounded to Float32 as the
+# Float32 kernel rounds them. The recovery is forced here (the search of the native check is run, its candidate refined
+# and the output formed from the refinement, whatever the check said) and compared with the BigFloat oracle of the
+# Float32 model, which rounds those parameters once and then computes exactly.
+# ---------------------------------------------------------------------------------------------------
+function forced_recovery(c, x, γ)
+  T = Float32
+  s = γ isa Real ? convert(T, γ) : γ
+  p = c.set isa IndHyperslab ? ProximalBase._hyperslab_proposal(c, x, s, T, true) : ProximalBase._proposal(c, x, s, T, true)
+  r = ProximalBase._refined(c, x, s, p)
+  ν = r isa Tuple ? r[1] : r
+  y = similar(x)
+  ProximalBase._linear_constrained_output!(y, c.f, ProximalBase._scaled_normal(c.set), x, s, ν)
+  y
+end
+
+# the oracle model with the combined threshold of the working type: θ = fl32(γ' λ w) for a level λ of any width (the product
+# is formed in the promotion of Float32 and the level, and rounded once), the ridge weight t = fl32(γ' μ); γ' = γ, or
+# fl32(α γ) for a function scaled by α, whose entry maps take that step. exact = true leaves the products unrounded.
+function wide_model(x, a, γ, lb, ub; λ1 = 0, λ2 = 0, w = nothing, lo = -Inf, hi = Inf, α = 1f0, exact = false)
+  n = length(x)
+  γ32 = γ isa Real ? fill(Float32(γ), n) : Float32.(γ)
+  γe = Float32.(α .* γ32)
+  # the products γλ and (γλ)w in the promotion R of Float32 and the level (and the weight), the product with the weight
+  # rounded again in R, and the result rounded once to Float32 (the convention of the kernels for a level of any width)
+  Rλ = promote_type(Float32, typeof(λ1))
+  Rw = w === nothing ? Rλ : promote_type(Rλ, eltype(w))
+  θf(i) = exact ? Float64(γe[i]) * Float64(λ1) * (w === nothing ? 1.0 : Float64(w[i])) :
+                  Float64(Float32((Rw(γe[i]) * Rw(λ1)) * (w === nothing ? one(Rw) : Rw(w[i]))))
+  Rμ = promote_type(Float32, typeof(λ2))
+  tf(i) = exact ? Float64(γe[i]) * Float64(λ2) : Float64(Float32(Rμ(γe[i]) * Rμ(λ2)))
+  Model(Float32, Float64.(x), a isa Real ? fill(Float64(a), n) : Float64.(a), Float64.(γ32), [θf(i) for i in 1:n], [tf(i) for i in 1:n],
+        Float64(λ1), Float64(λ2), Float64(Float32(lo)), Float64(Float32(hi)), Float64(lb), Float64(ub))
+end
+
+@testset "the Float64 recovery computes the Float32 problem: families, wider stored parameters, scalar and per-entry steps" begin
+  T = Float32
+  n = 48
+  for steps in (:scalar, :entry, :entry64), kind in (:plane, :half, :slab)
+    rng = Xoshiro(900 + 7n + (steps === :scalar ? 0 : steps === :entry ? 1 : 2))
+    x = randn(rng, T, n)
+    a = randn(rng, T, n); a[1:5:end] .= 0
+    γ = steps === :scalar ? 0.7f0 : steps === :entry ? T(0.2) .+ rand(rng, T, n) : 0.2 .+ rand(rng, n)   # entry64: Float64-stored steps
+    w = T(0.5) .+ rand(rng, T, n)
+    cases = (("NormL1 Float32 level", NormL1(0.3f0), (; λ1 = 0.3f0)),
+             ("NormL1 Float64 level", NormL1(0.3), (; λ1 = 0.3)),
+             ("NormL1 weighted", NormL1(0.3f0, w), (; λ1 = 0.3f0, w)),
+             ("NormL1Nonneg", NormL1Nonneg(0.2), (; λ1 = 0.2, lo = 0)),
+             ("ElasticNet", ElasticNet(0.3, 0.4f0), (; λ1 = 0.3, λ2 = 0.4f0)),
+             ("ElasticNet on the nonnegatives", Constrained(ElasticNet(0.3f0, 0.4f0), IndNonnegative()), (; λ1 = 0.3f0, λ2 = 0.4f0, lo = 0)),
+             ("L1 on a box", Constrained(NormL1(0.3), IndBox(-0.5, 0.5)), (; λ1 = 0.3, lo = -0.5, hi = 0.5)),
+             ("box with Float64 bounds", IndBox(-0.3, 0.7 + 3 * 2.0^-26), (; lo = -0.3, hi = 0.7 + 3 * 2.0^-26)),
+             ("nonnegative", IndNonnegative(), (; lo = 0)),
+             ("ridge", SqrNormL2(0.4), (; λ2 = 0.4)),
+             ("L1 scaled by a Float32", Scaled(NormL1(0.3), 2f0), (; λ1 = 0.3, α = 2f0)))
+    for (label, f, lev) in cases
+      lb, ub = kind === :plane ? (0.1f0, 0.1f0) : kind === :half ? (-Inf32, 0.1f0) : (-0.1f0, 0.1f0)
+      set = kind === :plane ? IndHyperplane(a, lb) : kind === :half ? IndHalfspace(a, ub) : IndHyperslab(a, lb, ub)
+      c = Constrained(f, set)
+      m = wide_model(x, a, γ, lb, ub; lev...)
+      z, ν, face = oracle(m)
+      @testset "$label $kind $steps" begin
+        y = forced_recovery(c, x, γ)
+        e2, ew = errs(y, z, T, γ isa Real ? nothing : m.γ)
+        @test (steps === :scalar ? e2 : ew) <= 2
+      end
+    end
+  end
+end
+
+@testset "the Float64 recovery: ties, a level below 1 by 2^-30, a small solution next to a large threshold, rounded bounds" begin
+  T = Float32
+  # a level of 1 - 2^-30 with the step 1: the Float32 threshold is 1, the entries ±1 are ties and are zero
+  λ = 1 - 2.0^-30
+  x = T[1, -1, 0.5, -0.5]
+  for steps in (:scalar, :entry), set in (IndHalfspace(1, 5f0), IndHyperplane(1f0, 0f0), IndHyperslab(1f0, -5f0, 5f0))
+    γ = steps === :scalar ? 1f0 : ones(T, 4)
+    @test all(iszero, forced_recovery(Constrained(NormL1(λ), set), x, γ))
+    # a Float64 step 1 - 2^-30 is rounded to 1 as well
+    γ64 = steps === :scalar ? 1 - 2.0^-30 : fill(1 - 2.0^-30, 4)
+    @test all(iszero, forced_recovery(Constrained(NormL1(1f0), set), x, γ64))
+  end
+  # a step whose product with the level 0.1 rounds up: the entries ±fl32(γ 0.1) are on the threshold
+  g = first(γ for γ in Float32.(0.5:0.01:2) if BigFloat(Float32(Float64(γ) * 0.1)) > setprecision(() -> BigFloat(γ) * BigFloat(0.1), BigFloat, 256))
+  t32 = Float32(Float64(g) * 0.1)
+  xt = T[t32, -t32, t32 / 2, 0]
+  for steps in (:scalar, :entry), set in (IndHalfspace(1, 5f0), IndHyperslab(1f0, -5f0, 5f0))
+    γ = steps === :scalar ? g : fill(g, 4)
+    @test all(iszero, forced_recovery(Constrained(NormL1(0.1), set), xt, γ))
+  end
+  # a small solution next to a large threshold: the argument 2^-8 above the threshold, so that the rounding of the threshold
+  # (the exact product of two Float32 numbers is not a Float32) is more than 8 eps of the solution. With an inactive
+  # constraint the solution is soft(x, θ) and the threshold decides it; on a hyperplane the multiplier absorbs a common
+  # shift of the threshold, so there the solution is only held to the oracle.
+  rng = Xoshiro(77)
+  n = 32
+  for steps in (:scalar, :entry), lvl in (0.3f0, 0.3)
+    # the step for which the rounding of the threshold is the largest
+    gap(γ) = abs(Float64(Float32(Float64(γ) * Float64(lvl))) - Float64(γ) * Float64(lvl))
+    γ = argmax(gap, Float32.(0.5:0.001:2))
+    θ32 = Float32(Float64(γ) * Float64(lvl))
+    xs = T.(θ32 .* (1 .+ 2.0^-8 .* rand(rng, n)))
+    γs = steps === :scalar ? γ : fill(γ, n)
+    for (label, set, lb, ub) in (("halfspace, inactive", IndHalfspace(1f0, sum(xs)), -Inf, Float64(sum(xs))),
+                                 ("hyperplane", IndHyperplane(1f0, 0.5f0 * sum(xs .- θ32)), Float64(0.5f0 * sum(xs .- θ32)), Float64(0.5f0 * sum(xs .- θ32))))
+      c = Constrained(NormL1(lvl), set)
+      m = wide_model(xs, 1f0, γs, lb, ub; λ1 = lvl)
+      z, ν, face = oracle(m)
+      y = forced_recovery(c, xs, γs)
+      @test errs(y, z, T)[1] <= 2
+      if label == "halfspace, inactive"
+        # the same problem with the products unrounded is a different one: its solution is more than 8 eps away
+        zu, _, _ = oracle(wide_model(xs, 1f0, γs, lb, ub; λ1 = lvl, exact = true))
+        @test errs(T.(zu), z, T)[1] > 8
+      end
+    end
+  end
+  # the bounds of a box stored in Float64 are rounded to Float32: the upper bound (1 - 2^-24) - 2^-30 is 1 - 2^-24, and the offset
+  # 4 (1 - 2^-24) is the supremum of the sum of four entries of the Float32 box (and beyond that of the unrounded one)
+  for steps in (:scalar, :entry)
+    γ = steps === :scalar ? 0.7f0 : fill(0.7f0, 4)
+    u32 = 1f0 - 2f0^-24
+    f = IndBox(-0.3, Float64(u32) - 2.0^-30)
+    xb = T[2, 3, 1.5, 2.5]
+    c = Constrained(f, IndHyperplane(1f0, 4f0 * u32))
+    @test forced_recovery(c, xb, γ) == fill(u32, 4)
+  end
+end
+
+@testset "a function without the recovery hook: the flat fixture raises PrecisionError before writing" begin
+  d = flat_data(2000)
+  T = Float32
+  # the functions with entry maps in Float64 are a fixed set; the others are refused, a Scaled by a wider factor too
+  has(f) = ProximalBase._has_wide(typeof(f))
+  @test has(NormL1(0.3)) && has(ElasticNet(0.3, 0.4)) && has(IndBox(0, 1)) && has(Scaled(NormL1(0.3), 2f0)) && has(Constrained(NormL1(0.3), IndBox(0, 1)))
+  @test !has(NoHook(IndBox(0, 1))) && !has(Scaled(NormL1(0.3), 2.0)) && !has(Tilt(NormL1(0.3f0), zeros(Float32, 3))) &&
+        !has(Translate(NormL1(0.3f0), zeros(Float32, 3))) && !has(LinearFunction(zeros(Float32, 3))) && !has(ZeroFunction())
+  for steps in (:scalar, :entry)
+    γ = steps === :scalar ? 0.7f0 : d.γ32
+    c = Constrained(NoHook(IndBox(0, 1)), IndHyperplane(d.a32, d.b32))
+    y = fill(T(SENTINEL), d.n)
+    @test raised(() -> prox!(y, c, d.x, γ)) isa ProximalBase.PrecisionError
+    @test unchanged(y, T)
+    @test isnan(c.last[])
+    # an ordinary problem of the same function is solved by the native search alone
+    case = control(:capped, T, 512, steps; box = (l, u) -> NoHook(IndBox(l, u)))
+    expect(case.name * " (no hook)", measure(case, case.mk()), control_gate(T, :capped, steps); weighted = steps === :entry)
   end
 end
 

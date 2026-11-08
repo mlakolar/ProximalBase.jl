@@ -226,4 +226,63 @@ end
   @test value_and_prox!(zeros(3), h, x, mu) == 4
 end
 
+# ---- SqrHingeLoss value and slope: ew + 2 (er + e) and ew + ey + er + e ----
+
+# SqrHingeLoss([2], [2^W]) at x = [-2^TOP]: the margin 1 + 2^(TOP+1) overflows and is kept as r 2^e with e = TOP + 3
+# and r = 1/4 + 2^-e. The value w r^2 2^(2e) is 2^(W + 2 EMAX); the slope 2 w |y| r 2^e is 2^(W + TOP + 3).
+# In the default range the Int total of the value is W + 1 + 2 (TOP + 2) = 2^63 + W + 1, that of the slope is W + TOP + 5.
+sqrhinge_value_n(W) = W + 2EMAX
+sqrhinge_slope_n(W) = W + TOP + 3
+
+@testset "SqrHingeLoss value, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    if EMAX == 2^62 - 1
+      @test (-2 + 1) + 2 * (TOP + 2) == typemax(Int64)
+      @test (-1 + 1) + 2 * (TOP + 2) == Int128(typemax(Int64)) + 1
+    end
+    for (ysign, W) in ((1, BOT), (1, BOT + 1), (1, -1000), (1, -2), (1, -1), (1, 0), (1, 1), (1, TOP), (-1, -2), (-1, -1), (-1, TOP))
+      f = SqrHingeLoss(BigFloat[2ysign], BigFloat[pw(W)])
+      check_result(f(BigFloat[pw(TOP, -ysign)]), 1, sqrhinge_value_n(W))
+      g = zeros(BigFloat, 1)
+      check_result(value_and_gradient!(g, f, BigFloat[pw(TOP, -ysign)]), 1, sqrhinge_value_n(W))
+      check_result(g[1], -ysign, sqrhinge_slope_n(W))
+    end
+  end
+end
+
+@testset "SqrHingeLoss gradient, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    if EMAX == 2^62 - 1
+      @test (TOP - 2 + TOP + 5) == typemax(Int64)
+      @test (TOP - 1 + TOP + 5) == Int128(typemax(Int64)) + 1
+    end
+    for (ysign, W) in ((1, BOT), (1, -1000), (1, 0), (1, TOP - 3), (1, TOP - 2), (1, TOP - 1), (1, TOP), (-1, TOP - 2), (-1, TOP - 1), (-1, TOP))
+      f = SqrHingeLoss(BigFloat[2ysign], BigFloat[pw(W)])
+      g = zeros(BigFloat, 1)
+      gradient!(g, f, BigFloat[pw(TOP, -ysign)])
+      check_result(g[1], -ysign, sqrhinge_slope_n(W))
+    end
+  end
+end
+
+@testset "SqrHingeLoss with Float64 data keeps its sums" begin
+  # x = -2^1023: the margin 1 + 2^1024 overflows, the value is 2^(W + 2048), the slope 2^(W + 1026)
+  for W in (-1074, -1000, 0, 1023)
+    f = SqrHingeLoss([2.0], [Base.ldexp(1.0, W)])
+    g = zeros(1)
+    check_result(f([-2.0^1023]), 1, W + 2048)
+    check_result(value_and_gradient!(g, f, [-2.0^1023]), 1, W + 2048)
+    check_result(g[1], -1, W + 1026)
+    f = SqrHingeLoss([-2.0], [Base.ldexp(1.0, W)])
+    gradient!(g, f, [2.0^1023])
+    check_result(g[1], 1, W + 1026)
+  end
+  for T in (Float64, Float32)
+    f = SqrHingeLoss(T[2], T[3])
+    @test f(T[-5]) isa T
+    @test @inferred(PB._sqrhinge_slope(T(2), T(3), T(11), 0)) isa T
+    @test @inferred(PB._sqrhinge_value(T(3), T(0.25), 7)) isa T
+  end
+end
+
 end

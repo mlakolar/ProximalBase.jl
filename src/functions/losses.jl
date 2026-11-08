@@ -189,18 +189,20 @@ end
   e == 0 && return _positive_product(w, r, r)
   mw, ew = _frexp(w)
   mr, er = _frexp(r)
-  ldexp(mw * mr * mr, ew + 2 * (er + e))
+  ldexp(mw * mr * mr, _exponent_sum(T, ew, er, er, e, e))
 end
 
-# The factor 2 must also survive when w|y|r is below the subnormal range.
-@inline function _sqrhinge_slope(y::T, w::T, r::T, e::Integer) where {T}
+# The factor 2 must also survive when w|y|r is below the subnormal range. S selects the exponent sum: the margin
+# exponent of a GLM predictor can already be a wrapped Int, whose Int sum is right modulo 2^64 (see _weighted_deriv).
+@inline _sqrhinge_slope(y::T, w::T, r::T, e::Integer) where {T} = _sqrhinge_slope(T, y, w, r, e)
+@inline function _sqrhinge_slope(::Type{S}, y::T, w::T, r::T, e::Integer) where {S, T}
   (iszero(w) || iszero(r)) && return zero(T)
   p = _positive_product(w, abs(y), r)
   e == 0 && floatmin(T) <= p <= floatmax(T) && return 2p
   mw, ew = _frexp(w)
   my, ey = _frexp(abs(y))
   mr, er = _frexp(r)
-  ldexp(2 * mw * my * mr, ew + ey + er + e)
+  ldexp(2 * mw * my * mr, _exponent_sum(S, ew, ey, er, e))
 end
 
 Base.@propagate_inbounds function value_entry(f::SqrHingeLoss, v::Real, i::Integer)
@@ -475,8 +477,11 @@ function _weighted_pair(::SquaredHinge, w::T, ηs::T, k::Int, y::T) where {T}
   r, e = _sqrhinge_margin(y, ηs, k)
   _pow2_pair(w, r, r, 2e)
 end
+# The margin exponent e of _sqrhinge_margin is an Int that can already have wrapped. Its Int total with the three
+# exponents of the slope equals the true total modulo 2^64, so it is the true total when that fits Int64. A wide sum
+# would take the wrapped e as the true one, so this caller keeps the Int sum.
 _weighted_deriv(::SquaredHinge, w::T, ηs::T, k::Int, y::T) where {T} =
-  -copysign(_sqrhinge_slope(y, w, _sqrhinge_margin(y, ηs, k)...), y)
+  -copysign(_sqrhinge_slope(Int, y, w, _sqrhinge_margin(y, ηs, k)...), y)
 
 """
     ProximalBase.SmoothCheck(τ, h)

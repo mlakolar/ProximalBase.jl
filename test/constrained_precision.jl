@@ -1462,6 +1462,13 @@ end
     case = control(:capped, T, 512, steps; box = (l, u) -> NoHook(IndBox(l, u)))
     expect(case.name * " (no hook)", measure(case, case.mk()), control_gate(T, :capped, steps); weighted = steps === :entry)
   end
+  # ordinary hyperslab problems whose search ends on an end of its bracket (the scale of that point is evaluated for the check),
+  # at a function without the hook
+  for (x, γ) in ((fill(2f0, 5), 1.1f0), (fill(-2f0, 5), 0.7f0), (fill(-3f0, 5), Float32[0.7, 1.2, 1.4, 0.4, 2]))
+    case = Case("no hook, hyperslab x=$(x[1])", T, () -> Constrained(NoHook(NormL1(0.2f0)), IndHyperslab(1f0, -0.5f0, 0.5f0)), x, γ,
+                x -> [model(T, x, 1, γ, -0.5, 0.5; λ1 = 0.2f0)])
+    expect(case.name, measure(case, case.mk()), GATE_FIXTURE; weighted = γ isa AbstractVector)
+  end
 end
 
 # ---------------------------------------------------------------------------------------------------

@@ -223,6 +223,7 @@ full = [
   "conformance/gpu_arrays",
   "conjugate_basics_grids",
   "conjugate_projections",
+  "constrained_basics_grids",
   "distl2",
   "gpu",
   "gpu_smoke",

@@ -753,7 +753,8 @@ end
       base = sym ? [1 2 0; 2 1 1; 0 1 3] : [1, 0, 2, 1, 3, 1, 0, 1, 2][1:n]
       kind === :f64 ? Float64.(base) : kind === :f32 ? Float32.(base) : Int.(base)
     end
-    for (name, mkdest, x, mkalias, sym) in reps
+    # Float32 keeps the vector; the other representations are in constrained_basics_grids.jl
+    for (name, mkdest, x, mkalias, sym) in (T === Float64 ? reps : reps[1:1])
       n = length(mkdest())
       sz = size(mkdest())
       @testset "$name, $T" begin
@@ -767,21 +768,24 @@ end
       end
     end
 
-    @testset "parameter types on a vector, $T" begin
-      xs = T[5, -5, 0.5, 1.2]
-      mk = () -> zeros(T, 4)
-      al = () -> copy(xs)
-      wdense = [1.0, 0, 2, 0.5]
-      levels = ((T(0.25), T(0.7)), (0.25, 0.7), (0.25f0, 0.7f0), (1, 1), (0.25, 0.0), (1, 0), (0.25f0, 0f0))
-      weights = (nothing, wdense, Float32.(wdense), [1, 0, 2, 1], Matrix(reshape(wdense, 2, 2)), Matrix(reshape(wdense, 4, 1)))
-      for (λ1, λ2) in levels, w in weights
-        check_fused(Constrained(Conjugate(ElasticNet(λ1, λ2, w)), IndBox(T(-2), T(2))), mk, xs, T(0.5); alias = al)
-      end
-      steps = (0.5, 0.5f0, 1, T(0.5), [0.5, 0.25, 1, 2], Float32[0.5, 0.25, 1, 2], [1, 1, 2, 2])
-      bounds = (IndBox(-2.0, 2.0), IndBox(-2, 2), IndBox(T(-2), T(2)), IndBox([-2.0, -1, -3, -2], [2.0, 1, 3, 2]),
-                IndBox([-2, -1, -3, -2], [2, 1, 3, 2]), IndBox(Float32[-2, -1, -3, -2], Float32[2, 1, 3, 2]), IndNonnegative())
-      for γ in steps, box in bounds, (λ1, λ2) in ((T(0.25), T(0.7)), (T(0.25), T(0)))
-        check_fused(Constrained(Conjugate(ElasticNet(λ1, λ2)), box), mk, xs, γ; alias = al)
+    # the Float32 pass is in constrained_basics_grids.jl
+    if T === Float64
+      @testset "parameter types on a vector, $T" begin
+        xs = T[5, -5, 0.5, 1.2]
+        mk = () -> zeros(T, 4)
+        al = () -> copy(xs)
+        wdense = [1.0, 0, 2, 0.5]
+        levels = ((T(0.25), T(0.7)), (0.25, 0.7), (0.25f0, 0.7f0), (1, 1), (0.25, 0.0), (1, 0), (0.25f0, 0f0))
+        weights = (nothing, wdense, Float32.(wdense), [1, 0, 2, 1], Matrix(reshape(wdense, 2, 2)), Matrix(reshape(wdense, 4, 1)))
+        for (λ1, λ2) in levels, w in weights
+          check_fused(Constrained(Conjugate(ElasticNet(λ1, λ2, w)), IndBox(T(-2), T(2))), mk, xs, T(0.5); alias = al)
+        end
+        steps = (0.5, 0.5f0, 1, T(0.5), [0.5, 0.25, 1, 2], Float32[0.5, 0.25, 1, 2], [1, 1, 2, 2])
+        bounds = (IndBox(-2.0, 2.0), IndBox(-2, 2), IndBox(T(-2), T(2)), IndBox([-2.0, -1, -3, -2], [2.0, 1, 3, 2]),
+                  IndBox([-2, -1, -3, -2], [2, 1, 3, 2]), IndBox(Float32[-2, -1, -3, -2], Float32[2, 1, 3, 2]), IndNonnegative())
+        for γ in steps, box in bounds, (λ1, λ2) in ((T(0.25), T(0.7)), (T(0.25), T(0)))
+          check_fused(Constrained(Conjugate(ElasticNet(λ1, λ2)), box), mk, xs, γ; alias = al)
+        end
       end
     end
 
@@ -825,13 +829,9 @@ end
       @test isequal(snap(z), zb)
     end
   end
+  # Rational, Real, AbstractFloat, BigFloat and Bool destinations are in constrained_basics_grids.jl
   for (name, mk, xdata, mkalias) in (("Int", () -> fill(-7, 3), x, () -> [5, -5, 1]),
-                                     ("Rational", () -> fill(-7 // 1, 3), x, () -> [5 // 1, -5 // 1, 1 // 2]),
-                                     ("Real", () -> Real[-7, -7, -7], x, () -> Real[5, -5, 1]),
-                                     ("AbstractFloat", () -> AbstractFloat[-7f0, -7.0, -7f0], x, () -> AbstractFloat[5f0, -5.0, 1f0]),
                                      ("Union", () -> Union{Float32, Float64}[-7f0, -7.0, -7f0], x, () -> Union{Float32, Float64}[5f0, -5.0, 1f0]),
-                                     ("BigFloat", () -> fill(big(-7.0), 3), x, () -> big.([5.0, -5.0, 0.5])),
-                                     ("Bool", () -> fill(true, 3), x, () -> fill(true, 3)),
                                      ("Float16", () -> fill(Float16(-7), 3), x, () -> Float16[5, -5, 1]),
                                      ("offset", () -> OffsetVec(fill(-7.0, 3), -1), OffsetVec(copy(x), -1), () -> OffsetVec(copy(x), -1)))
     @testset "destination $name" begin
@@ -1017,7 +1017,9 @@ end
              ("Union-element Array", v -> Array{Union{Float64, Int}}(fill(v, 2, 2))),
              ("view of a Union-element Array", v -> view(Array{Union{Float64, Int}}(fill(v, 3, 3)), 1:2, 1:2)))
     unbuilt = String[]
+    # the other forms are in constrained_basics_grids.jl
     for (name, arr) in forms
+      name in ("range view", "UnitRange{Union} view", "Union-element Array") || continue
       built = try
         arr(0.0) isa AbstractArray
       catch

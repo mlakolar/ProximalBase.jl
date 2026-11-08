@@ -374,6 +374,9 @@ _owner_role_supported(op, f) = true
 _owner_role_supported(op, ::Union{PointwiseMinimum, IndIntersection, LinearConstrained}) = false
 # the wrappers that forward their owner role to the inner function, and end in its MethodError
 _owner_role_supported(op, f::Union{Scaled, Translate, Tilt}) = _owner_role_supported(op, f.f)
+# Whether the proximal operator of f has a scalar-step method: false for the built-in functions that this package
+# gives none, whose default scalar-step check (in interface.jl) ends in the MethodError of the direct call.
+_prox_supported(::Type{<:Union{GLMLoss, KronQuadratic, Sum}}) = false
 # the preflight of a block: the error of the direct call, with the arguments of the tuple call
 _owner_role_preflight(op, f, y, x, γ) =
   ((y isa SymmetricSparseIterate || x isa SymmetricSparseIterate) && !_owner_role_supported(op, f) &&

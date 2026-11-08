@@ -331,6 +331,59 @@ end
   end
 end
 
+# A conjugate quadratic at a step where x/γ overflows but the point is representable
+@testset "Conjugate(SqrNormL2) in a block at an extreme step" begin
+  setprecision(BigFloat, 400) do
+    ref(λ, x, γ) = big(λ) * big(x) / (big(λ) + big(γ))
+    near(::Type{T}, got, r) where {T} = abs(big(got) - r) <= 2 * (abs(T(r)) < floatmin(T) ? big(nextfloat(zero(T))) : big(eps(T(r))))
+    for (T, x2, γ, λ1) in ((Float64, 1e300, 1e-10, 2.0), (Float32, 3f38, 0.1f0, 2f0))
+      c = Conjugate(SqrNormL2(T(1)))
+      s = SeparableSum(SqrNormL2(λ1), c, NormL1(T(0.25)))
+      x = (T[3], T[x2], T[2, -0.1])
+      r1 = (big(T(3))) / (1 + big(γ) * big(λ1))
+      r2 = ref(T(1), T(x2), γ)
+      r3 = (big(T(2)) - big(γ) / 4, -(big(T(0.1)) - big(γ) / 4))
+      for op in proximal, alias in (false, true)
+        input = deepcopy(x)
+        y = alias ? input : (T[7], T[7], T[7, 7])
+        v = op(y, s, input, γ)
+        @test near(T, y[1][1], r1) && near(T, y[2][1], r2) && near(T, y[3][1], r3[1]) && near(T, y[3][2], r3[2])
+        alias || @test isequal(input, x)
+        op === value_and_prox! && @test v isa T
+      end
+      # the standalone conjugate agrees
+      @test near(T, prox(c, T[x2], γ)[1], r2)
+      @test prox_entry(c, T(x2), 1, γ) == prox(c, T[x2], γ)[1]
+      # the value of the point is not representable: Inf, as for the standalone call
+      if T === Float64
+        y = (T[7], T[7], T[7, 7])
+        @test value_and_prox!(y, s, x, γ) == Inf
+        @test value_and_prox!(T[7], c, T[x2], γ) == Inf
+      end
+    end
+  end
+end
+
+@testset "Conjugate(SqrNormL2) in a block at a step that is not finite and positive" begin
+  # The conjugate raises its error before it writes: the standalone call leaves its output as it was and
+  # the block call raises the same error, with the block of the conjugate and the input of that block
+  # unchanged. A block before it is written, as it was before the closed form.
+  s = SeparableSum(SqrNormL2(2.0), Conjugate(SqrNormL2()))
+  for γ in (0.0, NaN, Inf, -1.0), op in proximal, alias in (false, true)
+    alone = [7.0]
+    ref = thrown(op, alone, Conjugate(SqrNormL2()), [1e300], γ)
+    @test ref isa ArgumentError
+    @test alone == [7.0]
+    x = ([3.0], [1e300])
+    input = deepcopy(x)
+    y = alias ? input : ([7.0], [7.0])
+    e = thrown(op, y, s, input, γ)
+    @test same_exception(e, ref)
+    @test isequal(y[2], alias ? x[2] : [7.0])
+    @test isequal(input[2], x[2])
+  end
+end
+
 @testset "Exact empty and bounded box-linear failures" begin
   for set in (IndHyperplane(1.0, 1.0), IndHalfspace(1.0, -1.0))
     block_failure(Constrained(NormL1(), set), Float64[], 1.0)
@@ -464,6 +517,253 @@ _allocation_prox!(y, f, x, γ) = prox!(y, f, x, γ)
       @test PB.Testing.allocations(op, dest, h, z, 1.0) == 0
       @test PB.Testing.allocations(_allocation_check, op, dest, h, z, 1.0) == 0
     end
+  end
+end
+
+####################################
+#  A block without a proximal operator fails before any block is written
+####################################
+
+placeholder_free(a) = !(a isa Union{PB._StepInput, PB._StepBuffer}) && (!(a isa Tuple) || all(placeholder_free, a))
+
+# The call raises the MethodError of the proximal operator of the leaf, and writes nothing.
+function nonproximable_unchanged(op, h, point, γ, Leaf; output = point, ref = nothing, exact = false)
+  @nospecialize
+  for alias in (false, true)
+    alias && typeof(output) !== typeof(point) && continue
+    z = deepcopy(point)
+    y = alias ? z : deepcopy(output)
+    before, input = deepcopy(y), deepcopy(z)
+    e = thrown(op, y, deepcopy(h), z, γ)
+    @test e isa MethodError
+    if e isa MethodError
+      @test e.f === prox!
+      @test any(a -> a isa Leaf, e.args)
+      @test all(placeholder_free, e.args)
+      ref === nothing || @test same_exception(e, ref; exact)
+    end
+    @test isequal(y, before)
+    @test isequal(z, input)
+  end
+end
+
+# The routes to a leaf without a proximal operator: separable sums (nested and scaled), slice sums over a
+# tuple and over an abstract-element vector, and fiber sums.
+function nonproximable_routes(f, x, γ; output = x)
+  @nospecialize
+  T = real(eltype(x))
+  Leaf = typeof(f)
+  two = SqrNormL2(T(2))
+  for op in proximal
+    ref = thrown(op, deepcopy(output), deepcopy(f), deepcopy(x), γ)
+    @test ref isa MethodError
+    ref isa MethodError || continue
+    point, dest = (T[3], x), (T[7], output)
+    nonproximable_unchanged(op, SeparableSum(two, f), point, γ, Leaf; output = dest, ref, exact = true)
+    nonproximable_unchanged(op, Scaled(SeparableSum(two, f), T(2)), point, γ / 2, Leaf; output = dest, ref, exact = true)
+    nonproximable_unchanged(op, SeparableSum(two, SeparableSum(f)), (T[3], (x,)), γ, Leaf;
+                            output = (T[7], (output,)), ref, exact = true)
+    nonproximable_unchanged(op, SeparableSum(two, Scaled(SeparableSum(f), T(2))), (T[3], (x,)), γ / 2, Leaf;
+                            output = (T[7], (output,)), ref, exact = true)
+    nonproximable_unchanged(op, SeparableSum(SeparableSum(two, SeparableSum(two, f))),
+                            ((T[3], (T[3], x)),), γ, Leaf; output = ((T[7], (T[7], output)),), ref)
+    slices = cat(x, x; dims = ndims(x) + 1)
+    sliced = cat(output, output; dims = ndims(output) + 1)
+    nonproximable_unchanged(op, SliceSum(two, f), slices, γ, Leaf; output = sliced)
+    nonproximable_unchanged(op, SliceSum(AbstractFunction[two, f]), slices, γ, Leaf; output = sliced)
+    nonproximable_unchanged(op, SliceSum(AbstractFunction[two, two, f]), cat(slices, x; dims = ndims(x) + 1), γ, Leaf;
+                            output = cat(sliced, output; dims = ndims(x) + 1))
+    x isa Vector || continue
+    fibers = reshape(repeat(x, 4), 2, 2, length(x))
+    out = reshape(repeat(output, 4), 2, 2, length(output))
+    nonproximable_unchanged(op, FiberSum(f; diagonal = two), fibers, γ, Leaf; output = out)
+    nonproximable_unchanged(op, FiberSum(two; diagonal = f), fibers, γ, Leaf; output = out)
+    nonproximable_unchanged(op, FiberSum(two; diagonal = f, symmetric = true), fibers, γ, Leaf; output = out)
+  end
+end
+
+@testset "A block without a proximal operator fails before any block is written" begin
+  for T in (Float32, Float64)
+    L = LogisticLoss(ones(T, 2), ones(T, 2, 4))
+    nonproximable_routes(L, ones(T, 4), T(0.5))
+    nonproximable_routes(Sum(L, NormL1(T(1))), ones(T, 4), T(0.5))
+    nonproximable_routes(Sum(NormL1(T(1)), L), ones(T, 4), T(0.5))
+    nonproximable_routes(KronQuadratic(ones(T, 2, 2), ones(T, 2, 2)), ones(T, 2, 2), T(0.5))
+  end
+end
+
+####################################
+#  Calls that succeed keep their results
+####################################
+
+# A user function with a proximal operator typed on Vector, and one that defines prox_entry and no prox!.
+struct UserShrink <: AbstractFunction
+  c::Float64
+end
+(f::UserShrink)(x) = f.c * sum(abs2, x) / 2
+ProximalBase.prox!(y::Vector{Float64}, f::UserShrink, x::Vector{Float64}, γ::Real) = (y .= x ./ (1 + γ * f.c); y)
+struct EntryShrink <: SeparableFunction
+  c::Float64
+end
+ProximalBase.value_entry(f::EntryShrink, v, i) = f.c * v^2 / 2
+ProximalBase.prox_entry(f::EntryShrink, v, i, γ) = v / (1 + γ * f.c)
+ProximalBase.check_parameters(f::EntryShrink, x) = nothing
+
+element_type(a::Tuple) = element_type(first(a))
+element_type(a::AbstractArray) = real(eltype(a))
+fresh(a::Tuple) = map(fresh, a)
+fresh(a::AbstractArray) = similar(a)
+# The block of f in a sum against f alone, in a separate and in an aliased output.
+function same_values(f, x, γ)
+  @nospecialize
+  T = element_type(x)
+  for op in proximal
+    expected = fresh(x)
+    ref = op(expected, deepcopy(f), deepcopy(x), γ)
+    first_block = T[3] ./ (1 + 2γ)
+    s = SeparableSum(SqrNormL2(T(2)), f)
+    dest = (T[7], fresh(x))
+    out = op(dest, s, (T[3], deepcopy(x)), γ)
+    @test isequal(dest[2], expected)
+    @test isequal(dest[1], first_block)
+    op === value_and_prox! && @test out ≈ ref + SqrNormL2(T(2))(dest[1]) rtol = 100eps(T)
+    alias = (T[3], deepcopy(x))
+    op(alias, s, alias, γ)
+    @test isequal(alias[2], expected)
+    @test isequal(alias[1], first_block)
+  end
+end
+
+@testset "Blocks with a proximal operator are unchanged" begin
+  for T in (Float32, Float64)
+    x = T[0.3, -1.5, 2.0, 0.1]
+    γ = T(0.5)
+    for f in (NormL1(T(1)), SqrNormL2(T(2)), SumLargest(2), Conjugate(SumLargest(2)),
+              Scaled(NormL1(T(1)), T(2)), Translate(SqrNormL2(T(1)), ones(T, 4)), Conjugate(SqrNormL2(T(2))),
+              Tilt(SqrNormL2(T(1)), ones(T, 4)), Regularize(NormL1(T(1)), T(0.5), zeros(T, 4)),
+              Precompose(NormL1(T(1)), T(2)), EntryShrink(1.0))
+      same_values(f, x, γ)
+    end
+    u, w = reverse(x), 2 .* x
+    same_values(SeparableSum(NormL1(T(1)), SqrNormL2(T(2))), (x, u), γ)
+    same_values(SeparableSum(NormL1(T(1)), SeparableSum(SqrNormL2(T(2)), SumLargest(2))), (x, (u, w)), γ)
+    same_values(Scaled(SeparableSum(NormL1(T(1)), SqrNormL2(T(2))), T(2)), (x, u), γ)
+  end
+  x, γ = [0.3, -1.5, 2.0, 0.1], 0.5
+  same_values(UserShrink(2.0), x, γ)
+  same_values(SeparableSum(UserShrink(2.0), NormL1(1.0)), (x, reverse(x)), γ)
+  # slice and fiber sums of functions that have a proximal operator
+  for T in (Float32, Float64), op in proximal
+    X = T[0.3 -1.5; 2.0 0.1; 1.0 -0.4]
+    for fs in ((NormL1(T(1)), SqrNormL2(T(2))), AbstractFunction[NormL1(T(1)), SqrNormL2(T(2))])
+      Y = similar(X)
+      op(Y, SliceSum(fs), X, T(0.5))
+      @test isequal(Y[:, 1], prox!(similar(X[:, 1]), NormL1(T(1)), X[:, 1], T(0.5)))
+      @test isequal(Y[:, 2], prox!(similar(X[:, 2]), SqrNormL2(T(2)), X[:, 2], T(0.5)))
+      Z = copy(X)
+      op(Z, SliceSum(fs), Z, T(0.5))
+      @test isequal(Z, Y)
+    end
+    F = reshape(T.(1:12) ./ 5, 2, 2, 3)
+    G = similar(F)
+    op(G, FiberSum(NormL1(T(1)); diagonal = SqrNormL2(T(2))), F, T(0.5))
+    @test isequal(G[1, 2, :], prox!(similar(F[1, 2, :]), NormL1(T(1)), F[1, 2, :], T(0.5)))
+    @test isequal(G[2, 2, :], prox!(similar(F[2, 2, :]), SqrNormL2(T(2)), F[2, 2, :], T(0.5)))
+    # the paired branch of a fused fiber sum has no oracle for its fibers
+    F2 = F[:, :, 1:2]
+    P = similar(F2)
+    op(P, FiberSum(NormL1Fused(T(1), T(1))), F2, T(0.5))
+    @test all(isfinite, P)
+    @test P != F2
+  end
+end
+
+# a function defined after a block call has run is judged by its own type
+let y = ([0.0], [0.0, 0.0])
+  prox!(y, SeparableSum(SqrNormL2(2.0), NormL1(1.0)), ([3.0], [1.0, 2.0]), 0.5)
+end
+struct LateShrink <: AbstractFunction
+  c::Float64
+end
+(f::LateShrink)(x) = f.c * sum(abs2, x) / 2
+ProximalBase.prox!(y::Vector{Float64}, f::LateShrink, x::Vector{Float64}, γ::Real) = (y .= x ./ (1 + γ * f.c); y)
+
+@testset "A function defined after a first block call" begin
+  y = ([7.0], [7.0, 7.0])
+  prox!(y, SeparableSum(SqrNormL2(2.0), LateShrink(2.0)), ([3.0], [1.0, 2.0]), 0.5)
+  @test y[2] == [1.0, 2.0] ./ 2
+  same_values(LateShrink(2.0), [1.0, 2.0], 0.5)
+end
+
+####################################
+#  The functions without a proximal operator are the three that the check lists
+####################################
+
+# the concrete function types that the package defines, found through the names of its module
+function concrete_functions()
+  types = Any[getfield(PB, n) for n in names(PB; all = true) if isdefined(PB, n)]
+  types = filter(T -> T isa Type && Base.unwrap_unionall(T) isa DataType && !isabstracttype(T) &&
+                      T <: AbstractFunction && Base.unwrap_unionall(T).name.module === PB, types)
+  # an alias such as LogisticLoss names the type of GLMLoss that it stands for
+  unique!(map(T -> Base.unwrap_unionall(T).name.wrapper, types))
+end
+# a built-in function type has a scalar-step proximal operator when a method of prox! with four arguments
+# takes it as the function and is not the owner fallback on AbstractFunction
+function has_scalar_prox(T)
+  any(methods(prox!)) do m
+    sig = Base.unwrap_unionall(m.sig)
+    length(sig.parameters) == 5 || return false
+    ft = sig.parameters[3]
+    Base.unwrap_unionall(ft) === AbstractFunction && return false
+    typeintersect(T, ft) !== Union{} && Base.unwrap_unionall(sig.parameters[2]) !== SymmetricSparseIterate
+  end
+end
+
+@testset "The functions that the check rejects are the built-in functions without a scalar proximal operator" begin
+  builtin = concrete_functions()
+  @test length(builtin) > 50
+  without = filter(!has_scalar_prox, builtin)
+  @test Set(without) == Set([PB.GLMLoss, PB.KronQuadratic, PB.Sum])
+  @test Set(filter(T -> !PB._prox_supported(T), builtin)) == Set(without)
+  L = LogisticLoss(ones(2), ones(2, 4))
+  for f in (L, KronQuadratic(ones(2, 2), ones(2, 2)), Sum(L, NormL1(1.0)), LogisticLoss(ones(2), ones(2, 4)))
+    @test !applicable(prox!, [1.0], f, [1.0], 1.0)
+    @test !PB._prox_supported(f)
+  end
+  @test PB._prox_supported(UserShrink(1.0))
+  @test PB._prox_supported(EntryShrink(1.0))
+  @test PB._prox_supported(NormL1Fused(1.0, 1.0))
+end
+
+####################################
+#  The check allocates what it did
+####################################
+
+_scalar_prox!(y, f, x, γ) = prox!(y, f, x, γ)
+_scalar_value_and_prox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
+_scalar_check(op::O, y, f, x, γ) where {O} = PB._checkstep(op, f, y, x, γ)
+
+@testset "Scalar-step block calls allocate what they did without the check" begin
+  allocations = Dict{Any, Int}()
+  for T in (Float32, Float64)
+    s = SeparableSum(NormL1(T(1)), NormL1(T(1)))
+    x = (T[1, -2], T[3, -4])
+    y = deepcopy(x)
+    X = T[1 -2 3; 4 5 6]
+    slices = SliceSum(AbstractFunction[NormL1(T(1)), NormL1(T(2)), NormL1(T(3))])
+    Y = similar(X)
+    for (op, name) in ((_scalar_prox!, "prox!"), (_scalar_value_and_prox!, "value_and_prox!"), (_scalar_check, "check"))
+      args = op === _scalar_check ? (value_and_prox!,) : ()
+      op(args..., y, s, x, T(0.5))
+      allocations[(T, name, "SeparableSum")] = PB.Testing.allocations(op, args..., y, s, x, T(0.5))
+      op(args..., Y, slices, X, T(0.5))
+      allocations[(T, name, "SliceSum")] = PB.Testing.allocations(op, args..., Y, slices, X, T(0.5))
+    end
+  end
+  # the bytes of the call with the abstract-element vector, before the check had a trait
+  base = Dict("prox!" => 1040, "value_and_prox!" => 608, "check" => 336)
+  for ((T, name, kind), bytes) in allocations
+    @test bytes <= (kind == "SeparableSum" ? 0 : base[name])
   end
 end
 

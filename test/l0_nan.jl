@@ -251,6 +251,45 @@ function ref_l0(X::AbstractMatrix{T}, coords, s) where {T}
   Y, standalone, T(0)
 end
 
+# The reference of a symmetric matrix by coordinates, counting full entries: a diagonal coordinate costs one
+# unit and saves x², a pair two and saves 2x², so the saving is cost × x². Every support within the budget is
+# enumerated, and the one of largest exact saving is taken, then the one with the fewest pairs, then the one
+# with the earliest positions (the rule of the projection).
+function ref_l0_sym(X::AbstractMatrix{T}, coords, s) where {T}
+  counted = filter(c -> c.counted, coords)
+  cost(c) = length(c.pos)
+  m = sum(cost, counted; init = 0)
+  val(c) = X[first(c.pos)]
+  nan = any(c -> isnan(val(c)), counted)
+  nzcost = sum(c -> iszero(val(c)) ? 0 : cost(c), counted; init = 0)
+  standalone = nan && s < m ? T(NaN) : nzcost <= s ? T(0) : T(Inf)
+  Y = copy(X)
+  if nan && 0 < s < m
+    for c in counted, p in c.pos
+      Y[p] = T(NaN)
+    end
+    return Y, standalone, T(NaN)
+  elseif nzcost <= s
+    return Y, standalone, T(0)
+  end
+  nz = s == 0 ? empty(counted) : filter(c -> !iszero(val(c)), counted)
+  best, bestkey = Int[], nothing
+  for mask in 0:(2^length(nz) - 1)
+    chosen = [j for j in eachindex(nz) if (mask >> (j - 1)) & 1 == 1]
+    sum(j -> cost(nz[j]), chosen; init = 0) <= s || continue
+    saving = sum(j -> cost(nz[j]) * Rational{BigInt}(val(nz[j]))^2, chosen; init = 0 // 1)
+    key = (-saving, count(j -> cost(nz[j]) == 2, chosen), chosen)
+    if bestkey === nothing || isless(key, bestkey)
+      best, bestkey = chosen, key
+    end
+  end
+  keep = Set(nz[j] for j in best)
+  for c in counted, p in c.pos
+    c in keep || (Y[p] = zero(T))
+  end
+  Y, standalone, T(0)
+end
+
 # the coordinates of a p × q matrix whose entries count one by one, and of a symmetric matrix (lower triangle)
 function plain_coords(p, q, diagonal)
   [Coord([CartesianIndex(r, c)], 1.0, diagonal || r != c) for c in 1:q for r in 1:p]
@@ -275,8 +314,8 @@ function nan_variants(X, coords)
   out
 end
 
-function check_l0(f, X, coords, make_x, make_y, T; alias = true)
-  Y, standalone, fused = ref_l0(X, coords, f.s)
+function check_l0(f, X, coords, make_x, make_y, T; alias = true, ref = ref_l0)
+  Y, standalone, fused = ref(X, coords, f.s)
   x = make_x(X)
   @test same(T(f(x)), standalone)
   y = make_y(fill(T(7), size(X)))                     # a sentinel: every counted output is overwritten
@@ -327,18 +366,19 @@ end
       check_l0(f, Z, coords, A -> SparseIterate(copy(A)), A -> SparseIterate(T, p, p), T)
     end
   end
-  # symmetric matrices: a mirrored pair is one coordinate, as input Symmetric or SymmetricSparseIterate and as output
+  # symmetric matrices: a mirrored pair is one coordinate of cost two, as input Symmetric or SymmetricSparseIterate
+  # and as output
   p = 4
-  for diagonal in (true, false), s in 0:(p * (p + 1) ÷ 2 + 1)
+  for diagonal in (true, false), s in 0:(p * p + 1)
     D = T[(i + 2j) % 5 + 0.5 * (i * j % 3) for i in 1:p, j in 1:p]
     D = (D + D') / 2 .+ T(0.01) .* T[(i * j) % 7 for i in 1:p, j in 1:p]
     coords = symmetric_coords(p, diagonal)
     for Z in nan_variants(D, coords)
       f = IndBallL0(s; diagonal)
-      check_l0(f, Z, coords, A -> Symmetric(copy(A), :L), identity, T)
-      check_l0(f, Z, coords, A -> Symmetric(copy(A), :L), A -> SymmetricSparseIterate(T, p), T)
-      check_l0(f, Z, coords, A -> SymmetricSparseIterate(copy(A)), identity, T)
-      check_l0(f, Z, coords, A -> SymmetricSparseIterate(copy(A)), A -> SymmetricSparseIterate(T, p), T)
+      check_l0(f, Z, coords, A -> Symmetric(copy(A), :L), identity, T; ref = ref_l0_sym)
+      check_l0(f, Z, coords, A -> Symmetric(copy(A), :L), A -> SymmetricSparseIterate(T, p), T; ref = ref_l0_sym)
+      check_l0(f, Z, coords, A -> SymmetricSparseIterate(copy(A)), identity, T; ref = ref_l0_sym)
+      check_l0(f, Z, coords, A -> SymmetricSparseIterate(copy(A)), A -> SymmetricSparseIterate(T, p), T; ref = ref_l0_sym)
     end
   end
 end
@@ -365,9 +405,10 @@ end
   @test isnan(IndBallL0(1; diagonal = false)([5.0 NaN; NaN 2.0]))
   @test IndBallL0(1; diagonal = false)([NaN 1.0; 0.0 2.0]) == 0
   @test value_and_prox!(zeros(2, 2), IndBallL0(1; diagonal = false), [NaN 1.0; 1.0 2.0], 1.0) == 0
-  # a mirrored pair is one coordinate: with one counted pair, s = 1 is the identity
+  # a mirrored pair costs two: with one counted pair, s = 2 is the identity
   S = Symmetric([5.0 NaN; NaN 2.0], :L)
-  @test same(prox(IndBallL0(1; diagonal = false), S), [5.0 NaN; NaN 2.0]) && IndBallL0(1; diagonal = false)(S) == 0
+  @test same(prox(IndBallL0(2; diagonal = false), S), [5.0 NaN; NaN 2.0]) && IndBallL0(2; diagonal = false)(S) == 0
+  @test isnan(IndBallL0(1; diagonal = false)(S))
   # the step is validated before anything is written, NaN in the argument or not
   y = [5.0, 6.0]
   @test_throws ArgumentError prox!(y, IndBallL0(1), [NaN, 1.0], -1.0)

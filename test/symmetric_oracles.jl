@@ -170,7 +170,7 @@ end
 
 @testset "IndBallL0 at every kind of point, $T" for T in (Float32, Float64)
   A = T[0 3; 3 0]
-  for f in (IndBallL0(1), IndBallL0(1; diagonal = false))
+  for f in (IndBallL0(2), IndBallL0(2; diagonal = false))      # a pair costs two units
     for kind in (:owner, :inplace, :view, :dense, :symmetric)
       y = SymmetricSparseIterate(A)
       x = kind == :owner ? SymmetricSparseIterate(A) : kind == :inplace ? y : kind == :view ? matrixview(y) :
@@ -183,7 +183,7 @@ end
       @test Matrix(y) == A
     end
   end
-  # a ranking in which the off-diagonal counts √2, over a point that is not symmetric
+  # a ranking of the diagonal entries and the pairs, over a point that is not symmetric
   B = T[1 2 0; 2 3 0.5; 0 0.5 1.2]
   ref = Matrix(prox!(SymmetricSparseIterate(T, 3), IndBallL0(2), SymmetricSparseIterate(B), one(T)))
   y = SymmetricSparseIterate(T, 3)

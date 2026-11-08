@@ -806,6 +806,8 @@ function _refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, 
     end
     abs(hi - lo) <= 2eps(T) * max(abs(lo), abs(hi)) && break
   end
+  # a best point that is an end of the bracket has no scale yet: the check of a Float32 multiplier needs it
+  T === Float32 && isnan(mbest) && ((_, mbest, L) = _gap!(c, x, best, γ, b, L, Val(false)))
   _Proposal(best, slope, abs(φbest), mbest)
 end
 
@@ -918,8 +920,17 @@ end
 Base.@propagate_inbounds _prox_entry_wide(f::IndBox, v::Float64, i::Integer, ::Float32) =
   clamp(v, Float64(convert(Float32, _entry(f.l, i))), Float64(convert(Float32, _entry(f.u, i))))
 @inline _prox_entry_wide(::IndNonnegative, v::Float64, ::Integer, ::Float32) = max(v, 0.0)
-# the ridge weight t = γλ rounded to Float32, where it is in the band of the ordinary coefficient of the Float32 kernel
+# the ridge weight of the Float32 kernel: t = γλ rounded to Float32 in the band of the ordinary coefficient, and outside
+# the band (the scaled coefficient) the product of the significands rounded to Float32, times the power of two of the
+# exponents; NaN where that leaves the range of a Float64 or the factors are not finite and positive
 @inline function _wide_ridge_weight(γ::Float32, λ)
+  if _ridge_needs_scaling(Float32, γ, λ)
+    P = promote_type(Float32, float(typeof(λ)))
+    mγ, eγ = _frexp(P(γ))
+    mλ, eλ = _frexp(P(λ))
+    t = ldexp(Float64(convert(Float32, mγ * mλ)), eγ + eλ)
+    return (2.0^-1000 < t < 2.0^1000) ? t : NaN
+  end
   t = _typed_product(Float32, γ, λ)
   ok = iszero(λ) | ((_ridge_band_low(Float32) <= t) & (t <= _ridge_band_high(Float32)))
   ok ? Float64(t) : NaN

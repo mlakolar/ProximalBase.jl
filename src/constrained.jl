@@ -806,8 +806,9 @@ function _refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, 
     end
     abs(hi - lo) <= 2eps(T) * max(abs(lo), abs(hi)) && break
   end
-  # a best point that is an end of the bracket has no scale yet: the check of a Float32 multiplier needs it
-  T === Float32 && isnan(mbest) && ((_, mbest, L) = _gap!(c, x, best, γ, b, L, Val(false)))
+  # a best point that is an end of a bracket that closed on it has no scale yet: the check of a Float32 multiplier needs it
+  T === Float32 && isnan(mbest) && isfinite(lo) && isfinite(hi) && abs(hi - lo) <= 2eps(T) * max(abs(lo), abs(hi)) &&
+    ((_, mbest, L) = _gap!(c, x, best, γ, b, L, Val(false)))
   _Proposal(best, slope, abs(φbest), mbest)
 end
 

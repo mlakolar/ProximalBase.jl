@@ -428,4 +428,101 @@ end
   check_result(SqrNormL2(2.0^900)([2.0^-600, 2.0^-600]), 1, -300)
 end
 
+# ---- DistL2: k + e of the value and e + j + k of the blend ----
+
+# the box {p} with p = -2^TOP in n coordinates; the projection of x = 2^TOP ones is p, at the distance sqrt(n) 2^(TOP+1)
+distl2_box(n) = IndBox([pw(TOP, -1) for _ in 1:n], [pw(TOP, -1) for _ in 1:n])
+
+# DistL2(box, 2^le)(2^TOP ones(n)) is 2^(le + TOP + dexp) with the distance 2^(TOP + dexp) (n = 1: dexp = 1, n = 4: dexp = 2).
+# The Int total k + e is (le + 1) + (TOP + dexp + 1). The distance of four coordinates is a chain of hypot, whose rounding
+# is not asserted to give exactly 2^(TOP + 2), so the four-coordinate cases are those whose value is infinite.
+@testset "DistL2 value, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    total(le, dexp) = le + TOP + dexp + 2
+    if EMAX == 2^62 - 1
+      @test total(TOP - 1, 2) == typemax(Int64)
+      @test total(TOP, 2) == Int128(typemax(Int64)) + 1
+      @test total(TOP, 1) == typemax(Int64)
+    end
+    for (n, dexp, les) in ((1, 1, (BOT, 0, TOP - 3, TOP - 1, TOP)), (4, 2, (0, TOP - 3, TOP - 1, TOP)))
+      for le in les
+        f = DistL2(distl2_box(n), pw(le))
+        check_result(f([pw(TOP) for _ in 1:n]), 1, le + TOP + dexp)
+      end
+    end
+    # value_and_prox! with a step that leaves the point where it is: the value is that of the same distance
+    for le in (TOP, TOP - 1)
+      x, y = [pw(TOP) for _ in 1:4], [pw(TOP) for _ in 1:4]
+      v = value_and_prox!(y, DistL2(distl2_box(4), pw(le)), x, pw(BOT))
+      check_result(v, 1, le + TOP + 2)
+      @test y == x
+    end
+  end
+end
+
+# The point [A, 2^-q] and the box {[-A, 0]} (A = 2^TOP): the distance is 2^(TOP+1) (frexp exponent de = TOP + 2). With
+# γ = 2^(ge-1) and λ = 2^(le-1) the step γλ/dist has the exponent te - de = ge + le - 1 - de = tau. For tau below -2^62
+# the step does not move the point, and the blend adds ldexp(m r, e + j + k) to each coordinate, where e = 1 + tau, and
+# j = 1 - q, k = 0 for the last coordinate (j = TOP + 1, k = 1 for the first). The Int total of the last coordinate is
+# tau + 2 - q, which first wraps at tau - q = -2^63 - 3; te - de itself wraps below tau = -2^63
+function distl2_prox_case(tau, q)
+  de = TOP + 2
+  gesum = tau + de + 1
+  ge = fld(gesum, 2)
+  le = gesum - ge
+  (EMIN <= ge <= EMAX && EMIN <= le <= EMAX) || return false
+  point() = [pw(TOP), pw(-q)]
+  lower() = [pw(TOP, -1), zero(BigFloat)]
+  f = DistL2(IndBox(lower(), lower()), pw(le - 1))
+  x, y = point(), point()
+  prox!(y, f, x, pw(ge - 1))
+  @test all(isfinite, y)
+  @test y == x
+  true
+end
+
+@testset "DistL2 prox, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    tau_min = 2EMIN - 1 - (TOP + 2)        # ge = le = EMIN
+    taus = Int128[-Int128(2)^63 + 7, -Int128(2)^63, -Int128(2)^63 - 1, -Int128(2)^63 - 1000, -Int128(2)^62, tau_min, tau_min + 5]
+    ran = 0
+    for tau in taus, q in (2, 3, 6, 12, 20)
+      distl2_prox_case(tau, q) && (ran += 1)
+    end
+    @test ran >= 10
+  end
+end
+
+# a Float64 point with BigFloat parameters: de = 1002, so te - de = 2 EMIN - 1 - 1002 leaves Int64 on the 64-bit range
+@testset "DistL2 with a Float64 point and BigFloat parameters, precision $p" for p in (5, 53)
+  setprecision(BigFloat, p) do
+    x = [2.0^1000, 2.0^-3]
+    lower() = [-2.0^1000, 0.0]
+    f = DistL2(IndBox(lower(), lower()), pw(BOT))
+    y = copy(x)
+    prox!(y, f, x, pw(BOT))
+    @test all(isfinite, y)
+    @test y == x
+    # the value k + e = (le + 1) + 1002 does not leave Int64; it is rounded to Float64
+    for (le, n) in ((TOP, TOP + 1001), (-2000, -999), (BOT, BOT + 1001))
+      v = DistL2(IndBox(lower(), lower()), pw(le))([2.0^1000, 0.0])
+      check_value(v, 1, n)
+    end
+  end
+end
+
+@testset "DistL2 with Float64 data keeps its sums" begin
+  # one coordinate whose difference to the box, 2^1024, overflows Float64
+  for (le, n) in ((1023, 2047), (-1000, 24), (-1074, -50))
+    check_result(DistL2(IndBox([-2.0^1023], [-2.0^1023]), Base.ldexp(1.0, le))([2.0^1023]), 1, n)
+  end
+  lower() = [-2.0^1023, 0.0]
+  for g in (-1000, -1074)
+    x = [2.0^1023, 2.0^-3]
+    y = copy(x)
+    prox!(y, DistL2(IndBox(lower(), lower()), Base.ldexp(1.0, g)), x, Base.ldexp(1.0, g))
+    @test y == x
+  end
+end
+
 end

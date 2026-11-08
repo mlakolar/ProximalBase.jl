@@ -314,7 +314,8 @@ end
 # Delay narrowing λ until its exponent has been combined with the distance.
 @inline function _distl2_value(::Type{T}, λ::Real, m::Real, e::Integer) where {T}
   a, k = _frexp(float(λ))
-  T(ldexp(a * m, k + e))
+  q = a * m
+  T(ldexp(q, _exponent_sum(typeof(q), k, e)))
 end
 
 (f::DistL2)(x::_ArrayOrOwner) =
@@ -384,7 +385,7 @@ _value_parts(f::SqrDistL2, x::AbstractArray, v) = _distance_value_parts(f, x, tr
     k = 1
   end
   r, j = _frexp(d)
-  x + ldexp(m * r, e + j + k)
+  x + ldexp(m * r, _exponent_sum(T, e, j, k))
 end
 
 # Near the threshold, subtract squared distances with their rounding errors
@@ -459,10 +460,11 @@ function _distl2_prox_at!(y, yy, x, x0, p::AbstractArray, γ::Real, λ::Real)
     yy .= x .+ (tm / dm) .* (p .- x)
     return y
   end
-  m, e = _frexp(tm / S(dm))
-  e += te - de
+  m, e0 = _frexp(tm / S(dm))
+  shift = _exponent_sum(S, te, -de)
+  e = _exponent_sum(S, e0, shift)
   b = refined ? one(S) - a : ldexp(m, e)
-  refined || (a = (S(dm) - ldexp(tm, te - de)) / S(dm))
+  refined || (a = (S(dm) - ldexp(tm, shift)) / S(dm))
   yy .= _distl2_blend.(x, p, a, b, m, e)
   y
 end

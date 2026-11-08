@@ -6,8 +6,9 @@ module ExponentSumsShiftsTest
 # range, so the same body runs where the range is 2^30 - 1 (Windows). There their exponent totals stay within Int64: those
 # cases are evidence of no regression, not of the repair. The cases built from explicit wide integers (the powers of
 # _scaled_product beyond Int64, the scale exponents of the _image_product cases taken from typemin(Int64), the exponents
-# of the _pow2_sum cases taken from typemax(Int64)) cross Int64 on that range as well. The expected values come from
-# exponent totals formed in Int128, not from a package function.
+# of the _pow2_sum cases taken from typemax(Int64), the Int128 powers of _power_factors, _comparison_exponent and
+# _ExtremeOutput) cross Int64 on that range as well. The expected values come from exponent totals formed in Int128, not
+# from a package function.
 
 using Test
 using ProximalBase
@@ -1237,6 +1238,174 @@ end
     @test iszero(got) == iszero(ref)
     @test signbit(got) == signbit(ref)
     isfinite(ref) && !iszero(ref) && @test got ≈ ref rtol = 1e-11
+  end
+end
+
+# ---- hyperplane, halfspace and hyperslab: the spectrum test and the metric projection ----
+
+# Spectral(IndHyperplane(A, b))(X) with A = 2^TOP and X = F ones(2, 2): the eigenvalues 0 and 1.98 F overflow in the type of
+# X, and the test runs on the spectrum scaled by 2^-k with k = exponent(F) (1023 for Float64, 127 for Float32). The normal
+# is held as α 2^e with e = -TOP. The test takes j as the larger of 0, the exponent of the scaled spectrum and
+# T0 = exponent(b) + e - k, which for b = 2^mb is mb - TOP - k: below typemin(Int64) for mb < typemin(Int64) + TOP + k, where
+# the Int sum wraps. The point is infeasible, since ⟨a 1, spectrum⟩ = 2^TOP 1.98 F exceeds |b|: the value is +Inf for the
+# hyperplane, the halfspace and the hyperslab [-b, b]. The halfspace with the normal -A and the traceless X = [F F; F -F]
+# are feasible, with the value 0. The indicators accept a relative error of sqrt(eps), which is 0.7 at 2 bits and
+# holds the infeasible point within it, so the precisions are 5, 53 and 256.
+@testset "Spectral linear sets with BigFloat parameters at the Int64 boundary, precision $p" for p in (5, 53, 256)
+  setprecision(BigFloat, p) do
+    A = pw(TOP)
+    for (F, k) in ((0.99 * floatmax(Float64), 1023), (0.99f0 * floatmax(Float32), 127))
+      X, Xtraceless = fill(F, 2, 2), [F F; F -F]
+      @test exponent(F) == k
+      ran = 0
+      for delta in (-1000, -3, -2, -1, 0, 1, 1000)
+        mb = Int128(typemin(Int64)) + TOP + k + delta           # T0 = typemin(Int64) + delta
+        BOT <= mb <= TOP || continue
+        ran += 1
+        b = pw(mb)
+        for r in (Spectral(IndHyperplane(A, b))(X), Spectral(IndHalfspace(A, b))(X), Spectral(IndHyperslab(A, -b, b))(X))
+          @test isinf(r) && r > 0
+          @test r isa typeof(F)
+        end
+        for r in (Spectral(IndHalfspace(-A, b))(X), Spectral(IndHyperplane(A, b))(Xtraceless),
+                  Spectral(IndHalfspace(A, b))(Xtraceless), Spectral(IndHyperslab(A, -b, b))(Xtraceless))
+          @test iszero(r)
+        end
+      end
+      @test ran >= (EMAX == 2^62 - 1 ? 6 : 0)
+      # moderate and extreme exponents of b in the range
+      for mb in (BOT, 0, TOP)
+        @test isinf(Spectral(IndHyperplane(A, pw(mb)))(X))
+        @test isinf(Spectral(IndHalfspace(A, pw(mb)))(X))
+      end
+    end
+  end
+end
+
+@testset "Spectral linear sets with Float64 parameters keep their sums" begin
+  X = fill(0.99 * floatmax(Float64), 2, 2)
+  for b in (2.0^-1000, 2.0^1000)
+    for r in (Spectral(IndHyperplane(2.0^1000, b))(X), Spectral(IndHalfspace(2.0^1000, b))(X), Spectral(IndHyperslab(2.0^1000, -b, b))(X))
+      @test r === Inf
+    end
+    @test iszero(Spectral(IndHalfspace(-2.0^1000, b))(X))
+  end
+  @test @inferred(PB._comparison_exponent(3, -5)) === 3
+  @test PB._comparison_exponent(-1, -2) === 0
+  @test PB._comparison_exponent() === 0
+  @test PB._comparison_exponent(Int32(3), Int32(-5)) === 3
+  @test PB._comparison_exponent(Int32(-3), 7, Int8(2)) === 7
+  @test @inferred(PB._power_factors(Float64, 5)) === (32.0, 1.0)
+  @test PB._power_factors(Float64, Int32(5)) === (32.0, 1.0)
+  @test PB._power_factors(Float64, Int128(5)) === (32.0, 1.0)
+  @test PB._power_factors(Float64, -2000) === (Base.ldexp(1.0, -1074), Base.ldexp(1.0, -926))
+  @test PB._power_factors(Float32, 200) === (Base.ldexp(1.0f0, 127), Base.ldexp(1.0f0, 73))
+  @test_throws InexactError PB._power_factors(Float64, Int128(2)^70)
+end
+
+@testset "comparison exponent and power factors beyond Int64, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    @test PB._comparison_exponent(Int128(2)^70, 5) === Int128(2)^70
+    @test PB._comparison_exponent(3, Int128(2)^70, -7) === Int128(2)^70
+    @test PB._comparison_exponent(-Int128(2)^70, 5) === Int128(5)
+    @test PB._comparison_exponent(-Int128(2)^70) === Int128(0)
+    wide = Int128(typemax(Int64)) + 5
+    # 2^k as the product of two factors: the first is the last finite power when k is beyond the range, the second
+    # saturates to +Inf or 0, as 2^k does
+    f = PB._power_factors(BigFloat, Int128(TOP) + 5)
+    @test f[1] == pw(TOP) && f[2] == 32
+    f = PB._power_factors(BigFloat, wide)
+    @test f[1] == pw(TOP) && isinf(f[2]) && f[2] > 0
+    f = PB._power_factors(BigFloat, -wide)
+    @test f[1] == pw(BOT) && iszero(f[2])
+    f = PB._power_factors(BigFloat, Int128(2)^70)
+    @test f[1] == pw(TOP) && isinf(f[2])
+    f = PB._power_factors(BigFloat, -Int128(2)^70)
+    @test f[1] == pw(BOT) && iszero(f[2])
+    @test PB._power_factors(BigFloat, 7) == (128, 1)
+    @test PB._power_factors(BigFloat, Int128(7)) == (128, 1)
+  end
+end
+
+# prox!(y, IndHyperplane(a, 0), x, γ) with the normal a = [1, 2^n2], x = [2^TOP, 0] and γ = [2^-10, 2^-10] (the metric of a
+# diagonal step): the residual is g = 2^TOP and d = Σ γᵢ aᵢ² = 2^-10 (1 + 2^(2 n2)), where for these n2 the term 2^(2 n2) does
+# not change d. Then t = g / d = 2^(TOP + 10) overflows and the projection is formed from powers of two
+# (_extreme_projection!), with w the largest exponent(γᵢ) + 2 exponent(αᵢ): for the second entry that is -10 + 2 n2, below
+# typemin(Int64) for n2 < BOT + 5. The projection is y = x - t (γ ⊙ a): y₁ = 2^TOP - 2^TOP = 0 and
+# y₂ = -2^(TOP + 10 - 10 + n2) = -2^(TOP + n2).
+@testset "hyperplane metric prox, tiny normal entry, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    ran = 0
+    for n2 in (BOT, BOT + 1, BOT + 3, BOT + 4, BOT + 5, BOT + 6, BOT + 100, Int128(-1000))
+      BOT <= n2 <= TOP || continue
+      ran += 1
+      y = [pw(TOP), zero(BigFloat)]
+      prox!(y, IndHyperplane([one(BigFloat), pw(n2)], zero(BigFloat)), [pw(TOP), zero(BigFloat)], [pw(-10), pw(-10)])
+      @test iszero(y[1])
+      check_result(y[2], -1, TOP + n2)
+    end
+    @test ran == 8
+    if EMAX == 2^62 - 1
+      @test -10 + 2 * (BOT + 5) == typemin(Int64) && -10 + 2 * (BOT + 4) == Int128(typemin(Int64)) - 2
+    end
+  end
+end
+
+@testset "hyperplane metric prox with Float64 data keeps its sums" begin
+  y = [2.0^1023, 0.0]
+  prox!(y, IndHyperplane([1.0, 2.0^-1070], 0.0), [2.0^1023, 0.0], [2.0^-10, 2.0^-10])
+  @test y == [0.0, -2.0^-47]
+end
+
+# the frame of the denominator d = D 2^w of an array normal: D = Σ γᵢ αᵢ² 2^-w, with w the larger of typemin(Int64) and the
+# largest exponent(γᵢ) + 2 exponent(αᵢ). For α = 2^BOT and γ = 2^-10 that exponent is 2 BOT - 10, which is below
+# typemin(Int64) on the 64-bit Unix range. For two equal entries d = 2^(g + 2n + 1), and the pair keeps
+# exponent(D) + w = g + 2n + 1, as the test asserts
+@testset "denominator of an array normal, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    for (n, g) in ((BOT, -10), (BOT + 7, 3), (0, 0), (TOP, BOT), (BOT, TOP))
+      a, γ = [pw(n), pw(n)], [pw(g), pw(g)]
+      D, w = PB._extreme_denominator(nothing, a, zero(BigFloat), γ, BigFloat)
+      @test w isa Int128
+      @test isfinite(D) && D > 0
+      @test Int128(exponent(D)) + w == 2n + g + 1
+    end
+  end
+  D, w = PB._extreme_denominator(nothing, [1.0, 2.0], 0.0, [0.5, 0.25], Float64)
+  @test w === 0 && D === 1.5
+end
+
+# the correction of the projection xᵢ - t γᵢ αᵢ 2^J with an Int128 power J beyond Int64: the value is x - 2^n with the exponent
+# n = exponent(t) + exponent(γ) + exponent(α) + J of the correction, or its saturation; for t = 2^TOP and γ = α = 2^BOT,
+# n = TOP + 2 BOT + J
+@testset "extreme output with a power beyond Int64, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    hi, lo = Int128(typemax(Int64)), Int128(typemin(Int64))
+    for J in (hi - 1, hi, hi + 1, hi + 2, 3 * Int128(2)^62, lo + 1, lo, lo - 1, -3 * Int128(2)^62, Int128(2)^70, -Int128(2)^70)
+      for (t, g, a) in ((pw(TOP), pw(BOT), pw(BOT)), (pw(TOP), pw(TOP), pw(TOP)), (pw(BOT), pw(BOT), pw(BOT)))
+        o = PB._ExtremeOutput(t, J)
+        @test o isa PB._ExtremeOutput{BigFloat, Int128}
+        n = Int128(exponent(t)) + exponent(g) + exponent(a) + J
+        want = pw(0) - Base.ldexp(one(BigFloat), Clong(clamp(n, typemin(Clong), typemax(Clong))))
+        @test o(pw(0), a, g) == want
+      end
+    end
+    @test PB._ExtremeOutput(1.5, 3) isa PB._ExtremeOutput{Float64, Int}
+  end
+end
+
+# a = 2^-TOP and b = 2^(TOP - 1) with x = [1, 1] and γ = 2^-(TOP - 8) for both entries: g = 2 2^-TOP - b is -2^(TOP - 1) to the
+# precision, d = a² (γ₁ + γ₂) = 2^(9 - 3 TOP), so t = g / d = -2^(4 TOP - 10) and the correction t γᵢ a = -2^(2 TOP - 2) is
+# beyond the range (TOP = 2^62 - 2 gives the exponent 2^63 - 6): y = [+Inf, +Inf]. The power J = k - w of the output has
+# k = 2 TOP - 1 and w near 9 - TOP, about 1.5 2^63 on the 64-bit Unix range
+@testset "hyperplane metric prox with a power beyond Int64, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    @test 2TOP - 2 >= EMAX
+    for sx in (1, -1)
+      y = [pw(0, sx), pw(0, sx)]
+      prox!(y, IndHyperplane(pw(-TOP), pw(TOP - 1)), [pw(0, sx), pw(0, sx)], [pw(-(TOP - 8)), pw(-(TOP - 8))])
+      @test all(isinf, y) && all(>(0), y)
+    end
   end
 end
 

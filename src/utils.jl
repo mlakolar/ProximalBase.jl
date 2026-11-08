@@ -456,13 +456,13 @@ _tol(::Type) = sqrt(eps(Float64))
 # Powers of two keep the units of a comparison without rounding the scale.
 # Split a power that is outside the range of a single floating-point factor.
 @inline function _power_factors(::Type{T}, k::Integer) where {T<:AbstractFloat}
-  k = Int(k)
+  k = _product_power(T, k)
   k1 = clamp(k, exponent(nextfloat(zero(T))), exponent(floatmax(T)))
   (ldexp(one(T), k1), ldexp(one(T), k - k1))
 end
 @inline _scale_value(v, s) = (float(v) * s[1]) * s[2]
 @inline _magnitude_exponent(v) = iszero(v) ? 0 : Int(exponent(v))
-@inline _comparison_exponent(es::Integer...) = max(0, map(Int, es)...)
+@inline _comparison_exponent(es::Integer...) = max(0, es...)
 # frexp with an Int exponent: frexp(::BigFloat) returns an Int32 exponent where a C long is 32 bits (Windows)
 @inline function _frexp(x)
   m, e = frexp(x)

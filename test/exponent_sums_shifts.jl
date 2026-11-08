@@ -992,8 +992,9 @@ end
 
 # prox!(y, CubeNormL2(2^b), [2^b], 2^b): z = γ λ n = 2^(3b), and y = 2^b 2 / (1 + √(1 + 4z)) is 2^b for b <= -100 and 2^(-b/2)
 # for an even b >= 200, at the precisions used here. The Int total of h = k + j + e + i is 3b + 1 (k = j = e = b + 1,
-# i = -2): typemax(Int64) at b = P1 and above Int64 from b = P1 + 2 (b is even), typemin(Int64) at b = -P1 and below Int64
-# from b = -P1 - 2.
+# i = -2): typemax(Int64) at b = P1 and above Int64 from b = P1 + 2 (b is even); on the negative side 3 P1 = 2^63 - 2, so it is
+# typemin(Int64) + 3 at b = -P1 (the last even b that fits) and typemin(Int64) - 3 at b = -P1 - 2 (the first that does not). The
+# mixed-parameter cases below reach typemin(Int64) and typemin(Int64) - 1 exactly.
 cube_prox_exponent(b) = b >= 200 ? -(b ÷ 2) : b
 cube_prox(γ, λ, x) = (y = similar(x, float(eltype(x))); prox!(y, CubeNormL2(λ), x, γ); y)
 
@@ -1025,7 +1026,8 @@ end
 end
 
 # The factor of the prox is 2^-q with q = fld(h, 2). The second coordinate 2^r has the frexp exponent r + 1, and is scaled by
-# the total (r + 1) - q, which is below typemin(Int64) for r = BOT from q = 2^62 + 2 on; the second coordinate of the
+# the total (r + 1) - q, which is below typemin(Int64) for r = BOT from q = BOT + 2 - typemin(Int64) on (2^62 + 2 where the
+# range is the 64-bit Unix one, BOT = -2^62; on a smaller range that q is larger); the second coordinate of the
 # projection is 2^(r - q), zero in these cases. For the b below the first coordinate is 2^(-b/2) and the second 2^(r - 3b/2).
 @testset "CubeNormL2 prox of a tiny entry beside a huge one, precision $p" for p in PRECISIONS
   setprecision(BigFloat, p) do
@@ -1094,7 +1096,8 @@ end
 # Moreau residuals of a candidate projection p of x onto the exponential cone K = cl{(r, s, t): s > 0, s exp(r/s) <= t}, in
 # units of the largest entry of x and from 4 precision + 400 bits: the violation of p in K, that of q = x - p in the polar cone
 # {(r, s, t): r > 0, t < 0, s <= r (1 + log(-t/r))} (with its closure at r = 0), and |<p, q>| / |x|^2. The entries are first
-# multiplied by a power of two, which is exact while the entries stay in range, so that their products stay in range.
+# multiplied by a power of two, which is exact while the entries stay in range; this keeps the products of the largest entries
+# from overflowing, and the entries of the data below are of bounded ratio, so that their products stay in range too.
 function exp_cone_residuals(x::Vector{BigFloat}, y::Vector{BigFloat})
   prec = precision(BigFloat)
   setprecision(BigFloat, 4prec + 400) do
@@ -1151,9 +1154,8 @@ end
 @testset "exponential cone projection of (1, 1, 1) and its dual, precision $p" for (p, Es) in (
     (53, (0, 20, -20)), (256, (0, 2^20, 2^40, 2^61, -2^61)))
   setprecision(BigFloat, p) do
-    # the dual projection of -(1, 1, 1)
-    dual = zeros(3)
-    prox!(dual, IndExpDual(), [-1.0, -1.0, -1.0], 1)
+    # the dual projection of -(1, 1, 1), by Moreau: P_K*(-ones) = -P_K°(ones) = -(ones - P_K(ones)) = P_K(ones) - ones
+    dual = EXP_CONE_ONES .- 1
     for E in Es
       BOT + 10 <= E <= TOP - 10 || continue
       for (f, want) in ((IndExpPrimal(), EXP_CONE_ONES), (IndExpDual(), dual))
@@ -1243,14 +1245,14 @@ end
 
 # ---- hyperplane, halfspace and hyperslab: the spectrum test and the metric projection ----
 
-# Spectral(IndHyperplane(A, b))(X) with A = 2^TOP and X = F ones(2, 2): the eigenvalues 0 and 1.98 F overflow in the type of
+# Spectral(IndHyperplane(A, b))(X) with A = 2^TOP and X = F ones(2, 2): the eigenvalues 0 and 2F (about 1.98 floatmax) overflow in the type of
 # X, and the test runs on the spectrum scaled by 2^-k with k = exponent(F) (1023 for Float64, 127 for Float32). The normal
 # is held as α 2^e with e = -TOP. The test takes j as the larger of 0, the exponent of the scaled spectrum and
 # T0 = exponent(b) + e - k, which for b = 2^mb is mb - TOP - k: below typemin(Int64) for mb < typemin(Int64) + TOP + k, where
-# the Int sum wraps. The point is infeasible, since ⟨a 1, spectrum⟩ = 2^TOP 1.98 F exceeds |b|: the value is +Inf for the
+# the Int sum wraps. The point is infeasible, since ⟨a 1, spectrum⟩ = 2^TOP 2F exceeds |b|: the value is +Inf for the
 # hyperplane, the halfspace and the hyperslab [-b, b]. The halfspace with the normal -A and the traceless X = [F F; F -F]
-# are feasible, with the value 0. The indicators accept a relative error of sqrt(eps), which is 0.7 at 2 bits and
-# holds the infeasible point within it, so the precisions are 5, 53 and 256.
+# are feasible, with the value 0. The indicators accept a relative error of sqrt(eps), which rounds to 0.75 at 2 bits
+# (the real sqrt(1/2) is 0.707...) and holds the infeasible point within it, so the precisions are 5, 53 and 256.
 @testset "Spectral linear sets with BigFloat parameters at the Int64 boundary, precision $p" for p in (5, 53, 256)
   setprecision(BigFloat, p) do
     A = pw(TOP)
@@ -1310,8 +1312,8 @@ end
     @test PB._comparison_exponent(-Int128(2)^70, 5) === Int128(5)
     @test PB._comparison_exponent(-Int128(2)^70) === Int128(0)
     wide = Int128(typemax(Int64)) + 5
-    # 2^k as the product of two factors: the first is the last finite power when k is beyond the range, the second
-    # saturates to +Inf or 0, as 2^k does
+    # 2^k as the product of two factors: for k = TOP + 5 the first is the last finite power and the second is the finite
+    # remainder 2^5; for the larger k below, the remainder is itself beyond the range and the second factor is +Inf
     f = PB._power_factors(BigFloat, Int128(TOP) + 5)
     @test f[1] == pw(TOP) && f[2] == 32
     f = PB._power_factors(BigFloat, wide)
@@ -1331,7 +1333,8 @@ end
 # diagonal step): the residual is g = 2^TOP and d = Σ γᵢ aᵢ² = 2^-10 (1 + 2^(2 n2)), where for these n2 the term 2^(2 n2) does
 # not change d. Then t = g / d = 2^(TOP + 10) overflows and the projection is formed from powers of two
 # (_extreme_projection!), with w the largest exponent(γᵢ) + 2 exponent(αᵢ): for the second entry that is -10 + 2 n2, below
-# typemin(Int64) for n2 < BOT + 5. The projection is y = x - t (γ ⊙ a): y₁ = 2^TOP - 2^TOP = 0 and
+# typemin(Int64) for n2 < BOT + 5 where the range is the 64-bit Unix one (2 BOT = typemin(Int64)); in general, when
+# -10 + 2 n2 < typemin(Int64). The projection is y = x - t (γ ⊙ a): y₁ = 2^TOP - 2^TOP = 0 and
 # y₂ = -2^(TOP + 10 - 10 + n2) = -2^(TOP + n2).
 @testset "hyperplane metric prox, tiny normal entry, precision $p" for p in PRECISIONS
   setprecision(BigFloat, p) do

@@ -405,9 +405,10 @@ end
   @test isnan(IndBallL0(1; diagonal = false)([5.0 NaN; NaN 2.0]))
   @test IndBallL0(1; diagonal = false)([NaN 1.0; 0.0 2.0]) == 0
   @test value_and_prox!(zeros(2, 2), IndBallL0(1; diagonal = false), [NaN 1.0; 1.0 2.0], 1.0) == 0
-  # a mirrored pair is one coordinate: with one counted pair, s = 1 is the identity
+  # a mirrored pair costs two: with one counted pair, s = 2 is the identity
   S = Symmetric([5.0 NaN; NaN 2.0], :L)
-  @test same(prox(IndBallL0(1; diagonal = false), S), [5.0 NaN; NaN 2.0]) && IndBallL0(1; diagonal = false)(S) == 0
+  @test same(prox(IndBallL0(2; diagonal = false), S), [5.0 NaN; NaN 2.0]) && IndBallL0(2; diagonal = false)(S) == 0
+  @test isnan(IndBallL0(1; diagonal = false)(S))
   # the step is validated before anything is written, NaN in the argument or not
   y = [5.0, 6.0]
   @test_throws ArgumentError prox!(y, IndBallL0(1), [NaN, 1.0], -1.0)

@@ -323,7 +323,7 @@ end
     for diagonal in (true, false), s in budgets(p, diagonal)
       run_case(X, s, diagonal, :range)
     end
-    B = randn(T, p, p) * (fm / 4)
+    B = randn(T, p, p) * (fm / 16)
     XB = tril(B) + tril(B, -1)'
     @test all(isfinite, XB)
     for diagonal in (true, false), s in budgets(p, diagonal)

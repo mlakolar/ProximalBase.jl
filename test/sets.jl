@@ -24,7 +24,7 @@ end
 l1ball_proj(y, r) = norm(y, 1) <= r ? y : sign.(y) .* simplex_proj(abs.(y), r)
 
 # the number of entries of a symmetric matrix that the set counts: a nonzero diagonal entry one, a pair two
-full_count(Z) = count(!iszero, Z)
+full_count(Z) = count(!iszero, Matrix(Z))
 
 # the largest squared error that a support within the budget saves: a nonzero diagonal entry costs one unit
 # and saves x_ii², a nonzero pair costs two and saves 2x_ij² (a knapsack, solved by dynamic programming);

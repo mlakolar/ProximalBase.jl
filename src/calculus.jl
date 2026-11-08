@@ -1329,25 +1329,26 @@ projections; translations return the linear value ⟨b,y⟩. Array steps retain
 their existing behaviour for these nonseparable families. Other storage and
 axes, including device ℓ∞ conjugates, retain Moreau's identity.
 
-For [`SqrNormL2`](@ref)`(λ, y)` the proximal point at a scalar step `γ` is
-`(λ/(λ + γ))(x - γy)`, formed without dividing by `γ`, when `λ` and `γ` are finite and
-positive and the promoted type of the model, `λ` and `γ` is `Float32` or `Float64`. The
-model is the wider of the types of the input and the output. Where the point is
-representable in the output, it is returned within about two ulps of the model
-precision (before the final rounding to the output), at steps where Moreau's
-identity can overflow (`x = 1e300`, `γ = 1e-10`) or cancel. A point that the output type
-cannot hold at a finite input raises the `ArgumentError` of the identity, before the
-output is written, although the model may represent it:
-`prox!(Float32[7], Conjugate(SqrNormL2()), [1e100], 1.0)` has a `Float64` model and the
-point `5e99`, and raises it with the output unchanged (`value_and_prox!` as well). On this
-route a non-finite entry of `x` gives `NaN`. A zero or infinite level, a step that is not
-finite and positive, an array step (a `MethodError` for `SqrNormL2`), a model of
-another precision, a `BigFloat` level or step, and the conjugates of
-`Scaled(SqrNormL2(…), α)`, `Translate(SqrNormL2(…), b)` and of a
-[`SeparableSum`](@ref) of quadratics use Moreau's identity as before; the identity
-can overflow at the steps above. [`prox_entry`](@ref) takes the model from the entry
-and the step, has no output to hold the point, and returns the infinity of an overflow
-without raising.
+For [`SqrNormL2`](@ref)`(λ, y)` with a finite positive level `λ`, the proximal point at a
+scalar step `γ` is `(λ/(λ + γ))(x - γy)`. When `γ` is also finite and positive and the
+promoted type of the model, `λ` and `γ` is `Float32` or `Float64`, it is formed from
+significands and exponents, without dividing by `γ`. The model is the promotion of the
+element types of the output and the input. Where the output holds the point, it is within
+two ulps in the output type at the levels, steps and entries tested, which include
+`x = 1e300`, `γ = 1e-10`, where Moreau's identity overflows, and `λ = 1`, `γ = 1e10`,
+where it cancels. On this route, a point that the output type cannot hold at a finite
+input raises the `ArgumentError` of the identity, before the output is written, although
+the model may represent it: `prox!(Float32[7], Conjugate(SqrNormL2()), [1e100], 1.0)` has
+a `Float64` model and the point `5e99`, and raises it with the output unchanged
+(`value_and_prox!` as well). A non-finite entry of `x` gives `NaN`. Every other case uses
+Moreau's identity as before: a zero or infinite level, a step that is not finite and
+positive, an array step (a `MethodError` for `SqrNormL2`), a model of another
+precision, a `BigFloat` level or step, and the conjugates of `Scaled(SqrNormL2(…), α)`,
+`Translate(SqrNormL2(…), b)` and of a [`SeparableSum`](@ref) of quadratics.
+[`prox_entry`](@ref) takes the model from the types of the entry and the step, takes
+the same route under the same conditions on `λ`, `γ` and the promoted type, and uses
+Moreau's identity elsewhere. It has no output and does not apply the array finite-result
+refusal: `prox_entry(Conjugate(SqrNormL2()), 1e100, 1, 1.0)` is `5.0e99`.
 
 Other families use Moreau's identity, including `NuclearNorm`, singular-value
 and spectral wrappers, `SLOPE`, TV and fused penalties, and cones other than
@@ -2722,9 +2723,9 @@ function _conjugate_ridge_factors(::Type{W}, λ::P, γ::P) where {W, P}
                      fast & isfinite(gw) & (abs(gw) >= floatmin(W)))
 end
 
-# A center of a type that W already holds (W itself or a narrower type) is accepted as it is. A center
-# of a wider type is rounded once to W, and is accepted where that rounding leaves it zero or a normal
-# number. The plain route also needs fastc; a center that is not accepted goes the significand route.
+# A center of a type that W holds (W itself or a narrower type) is accepted as it is. A center of a wider
+# type is accepted when it is zero or its conversion to W is finite and normal. The plain route also
+# needs fastc; a center that is not accepted goes the significand route.
 @inline _conjugate_ridge_center_fits(::Type{W}, y) where {W} =
   promote_type(W, float(typeof(y))) === W || (yw = convert(W, y); iszero(y) | (isfinite(yw) & (abs(yw) >= floatmin(W))))
 

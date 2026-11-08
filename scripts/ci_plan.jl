@@ -9,15 +9,23 @@
 #   julia scripts/ci_plan.jl --event=push --ref-type=branch --base=BEFORE --head=HEAD
 #   julia scripts/ci_plan.jl --event=push --ref-type=tag
 #   julia scripts/ci_plan.jl --event=schedule
+#   julia scripts/ci_plan.jl --event=workflow_dispatch --release=true --expected-sha=SHA --sha=SHA
 #
 # The policy of each event and the platform modes are in .github/tier-rules.toml, the tier
 # lists in test/tiers.toml; test/tiers.jl applies the risk rules. Writes `tier`, `focus`,
 # `run_tests`, `timeout`, `benchmark` (whether the benchmark reference checks run), `coverage`,
 # `conformance`, `platforms` (the mode), `matrix` (the JSON of the test job matrix), `required`
 # and `advisory` (the ';'-separated names of the test jobs that must pass and of those that are
-# only reported) to $GITHUB_OUTPUT and a decision table to $GITHUB_STEP_SUMMARY when those are
+# only reported), `release` (a release validation run), `inventory` (whether each test job must
+# have run the whole catalog of its tier) and `sha` (the commit of a manual run, empty
+# otherwise) to $GITHUB_OUTPUT and a decision table to $GITHUB_STEP_SUMMARY when those are
 # set, and prints both. `decide` makes the decision from data alone; `plan` adds the git
 # calls. No packages are needed.
+#
+# A release run is a manual run with release=true. It has no GitHub event of its own: the plan
+# reads `[events.release]` and rejects a tier or platforms input that disagrees, and an
+# expected_sha that is not the full SHA of the commit being planned (`--sha`, which the workflow
+# takes from github.sha; no other event takes one).
 
 include(joinpath(dirname(@__DIR__), "test", "tiers.jl"))
 using .TestTiers
@@ -27,10 +35,12 @@ const ROOT = dirname(@__DIR__)
 const RULES = joinpath(ROOT, ".github", "tier-rules.toml")
 
 # The kinds of run the rules file describes, and the platform modes it defines.
-const EVENTS = ("pull_request", "push", "tag", "schedule", "workflow_dispatch")
+const EVENTS = ("pull_request", "push", "tag", "schedule", "release", "workflow_dispatch")
 const MODES = ("stable", "linux", "cross")
 const EVENT_KEYS = ("tier", "skip_without_tests", "platforms", "platforms_by_tier", "label_platforms",
-                    "auto_platforms", "coverage", "benchmark", "benchmark_labels", "benchmark_tiers")
+                    "auto_platforms", "coverage", "benchmark", "benchmark_labels", "benchmark_tiers", "inventory")
+# The full lowercase SHA of a commit; `\z`, not `$`, which also matches before a final newline.
+const COMMIT_PATTERN = r"^[0-9a-f]{40}\z"
 const JOB_KEYS = ("version", "os", "arch", "ptr_jobs", "timeout", "advisory")
 
 "One job of a platform mode: a Julia version on a system."
@@ -189,6 +199,8 @@ function load_policy(rules = RULES)
         end
       end
     end
+    inventory = get(ev, "inventory", false)
+    inventory isa Bool || push!(problems, "$where: inventory must be true or false")
     cov = get(ev, "coverage", false)
     cov isa Bool || cov == "input" || push!(problems, "$where: coverage must be true, false or \"input\"")
     cov == "input" && name != "workflow_dispatch" && push!(problems, "$where: coverage \"input\" is for manual runs only")
@@ -340,9 +352,24 @@ function default_manifest()
   return manifest
 end
 
+# A release run is the full tier on every platform of the policy: an input that asks for less is
+# refused, not overridden, and the commit must be the one that was named.
+function check_release(inputs, expected, sha)
+  tier = input(inputs, "tier", "full")
+  tier == "full" || error("a release run is the full tier; the tier input is `$tier`")
+  platforms = input(inputs, "platforms", "auto")
+  platforms in ("auto", "cross") ||
+    error("a release run is on every platform; the platforms input is `$platforms` (use auto or cross)")
+  match(COMMIT_PATTERN, expected) === nothing &&
+    error("a release run needs expected_sha, the full 40-character lowercase SHA of the commit; got `$(first(expected, 60))`")
+  isempty(sha) && error("the commit of the release run is not known (no --sha)")
+  sha == expected || error("the run is of commit $sha, not the expected commit $expected")
+  return nothing
+end
+
 """
     decide(event; paths = nothing, labels = String[], inputs = Dict(), ref_type = "",
-           additions = nothing, problems = String[], manifest, policy) -> (result, lines)
+           additions = nothing, problems = String[], sha = "", manifest, policy) -> (result, lines)
 
 The plan of a run, from data alone (no git, no network). `event` is the GitHub event name; a
 `push` needs `ref_type` `branch` (master) or `tag`. `paths` are the changed files (`nothing`
@@ -351,9 +378,15 @@ when unknown: required for a pull request; a push with unknown paths still runs 
 `coverage`, as strings; empty means the default). `additions` and `problems` are the result of
 comparing `test/tiers.toml` with the base (see [`tiers_additions`](@ref)). `result` is a
 NamedTuple of the outputs listed at the top of the file and `lines` the decision table.
+
+A manual run with the input `release` true is planned from `[events.release]`. Its `tier`
+input must be full (or empty), its `platforms` input auto or cross, and its `expected_sha` the
+full lowercase SHA that `sha` (the commit being planned) is; anything else is an error, and the
+`coverage` and `benchmark` inputs are ignored. `release` and `expected_sha` are errors on every
+other kind of run, and `sha` is only for manual runs.
 """
 function decide(event::AbstractString; paths = nothing, labels = String[], inputs = Dict{String, String}(),
-                ref_type = "", additions = nothing, problems = String[],
+                ref_type = "", additions = nothing, problems = String[], sha = "",
                 manifest = default_manifest(), policy = load_policy())
   labels = String[labels...]
   key = event
@@ -361,8 +394,26 @@ function decide(event::AbstractString; paths = nothing, labels = String[], input
     ref_type in ("branch", "tag") ||
       error("a push of ref type `$ref_type` is not planned; use --ref-type=branch or --ref-type=tag")
     key = ref_type == "tag" ? "tag" : "push"
+  elseif event == "release"
+    error("`release` is not an event; plan a manual run with release=true")
   elseif !(event in EVENTS)
     error("unknown event `$event`")
+  end
+  sha = String(sha)
+  isempty(sha) || match(COMMIT_PATTERN, sha) !== nothing ||
+    error("the commit to plan must be a full lowercase SHA, not `$(first(sha, 60))`")
+  isempty(sha) || event == "workflow_dispatch" ||
+    error("a $event run is planned without a commit SHA; only a manual run takes one")
+  release = boolean(inputs, "release", false)
+  expected = String(get(inputs, "expected_sha", ""))
+  if event != "workflow_dispatch"
+    (release || !isempty(expected)) &&
+      error("release and expected_sha are inputs of manual runs; a $event run takes neither")
+  elseif release
+    check_release(inputs, expected, sha)
+    key = "release"
+  elseif !isempty(expected)
+    error("expected_sha is only for a release run (release=true)")
   end
   ev = policy.events[key]
   lines = String[]
@@ -385,7 +436,8 @@ function decide(event::AbstractString; paths = nothing, labels = String[], input
     push!(lines, "Manual run of tier $tier.")
   else
     tier = spec
-    what = key == "push" ? "A push to master" : key == "tag" ? "A tag push" : "A scheduled run"
+    what = key == "push" ? "A push to master" : key == "tag" ? "A tag push" :
+           key == "release" ? "A release run of commit `$sha`" : "A scheduled run"
     if get(ev, "skip_without_tests", false) && paths !== nothing && !isempty(paths) &&
        first(TestTiers.classify(manifest, paths)) == "none"
       tier = "none"
@@ -413,6 +465,8 @@ function decide(event::AbstractString; paths = nothing, labels = String[], input
   advisory = run_tests ? [jobname(j, tier) for j in jobs if j.advisory] : String[]
   summary = run_tests ? "Tests: tier **$tier**" * (isempty(focus) ? "" : " and the focus files $(join(focus, ", "))") :
             "Tests: **none needed**"
+  key == "release" && push!(lines, "Release validation: the tier, the platforms, coverage and the benchmark checks are " *
+                                   "fixed by the policy, so the coverage and benchmark inputs are ignored.")
   pushfirst!(lines, summary,
              "Platforms: **$mode**" * (run_tests ? " ($(length(required)) required jobs" *
                                        (isempty(advisory) ? "" : ", $(length(advisory)) advisory") * ")" : ""),
@@ -420,7 +474,8 @@ function decide(event::AbstractString; paths = nothing, labels = String[], input
              "Benchmark reference checks: **$(benchmark ? "yes" : "no")**", "")
   result = (; tier, focus = join(focus, ","), run_tests, timeout, benchmark, coverage, conformance,
             platforms = mode, matrix = matrix_json(entries), required = join(required, ";"),
-            advisory = join(advisory, ";"))
+            advisory = join(advisory, ";"), release = key == "release",
+            inventory = run_tests && get(ev, "inventory", false) === true, sha)
   return result, lines
 end
 
@@ -431,7 +486,8 @@ function options(args)
     m === nothing && error("unknown argument `$arg`; expected --name=value")
     opts[m.captures[1]] = m.captures[2]
   end
-  known = ("event", "base", "head", "labels", "tier", "platforms", "benchmark", "coverage", "ref-type")
+  known = ("event", "base", "head", "labels", "tier", "platforms", "benchmark", "coverage", "ref-type",
+           "release", "expected-sha", "sha")
   for k in keys(opts)
     k in known || error("unknown option --$k; the options are $(join(known, ", "))")
   end
@@ -476,7 +532,8 @@ function plan(opts)
   event = get(opts, "event", "pull_request")
   ref_type = get(opts, "ref-type", "")
   labels = filter(!isempty, split(get(opts, "labels", ""), ','))
-  inputs = Dict{String, String}(k => get(opts, k, "") for k in ("tier", "platforms", "benchmark", "coverage"))
+  inputs = Dict{String, String}(k => get(opts, k, "") for k in ("tier", "platforms", "benchmark", "coverage", "release"))
+  inputs["expected_sha"] = get(opts, "expected-sha", "")
   manifest = default_manifest()
   paths = nothing
   additions, problems = nothing, String[]
@@ -495,7 +552,7 @@ function plan(opts)
       end
     end
   end
-  return decide(event; paths, labels, inputs, ref_type, additions, problems, manifest)
+  return decide(event; paths, labels, inputs, ref_type, additions, problems, sha = get(opts, "sha", ""), manifest)
 end
 
 function main(args)

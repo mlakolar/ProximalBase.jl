@@ -218,7 +218,7 @@ end
     gs = [1:2, 3:4, 5:6]
     other = [[1, 3], [2, 5], [4, 6]]
     v = [3., -4., 0., 0., 0., 0.]
-    for F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2, GroupMCP, GroupSCAD)
+    for F in (GroupNormL2, SparseGroupNormL2, GroupMCP)   # GroupNormLinf and GroupSCAD are in atom_iterate_grids.jl
       f = F === SparseGroupNormL2 ? F(0.2, 0.4, gs) : F(0.4, gs)
       bad = F === SparseGroupNormL2 ? F(0.2, 0.4, other) : F(0.4, other)
       for wrap in (h -> 2.0 * h, h -> Regularize(h, 0.3, ones(6)))
@@ -428,7 +428,7 @@ end
   end
 
   @testset "group view norms and dots read storage" begin
-    for T in (Float32, Float64), m in (4, 64), gs in ([1:m, (m+1):2m], [collect(1:2:2m), collect(2:2:2m)])
+    for T in (Float64,), m in (4, 64), gs in ([1:m, (m+1):2m], [collect(1:2:2m), collect(2:2:2m)])   # Float32 is in atom_iterate_grids.jl
       x = AtomIterate(randn(T, 2m), gs)
       v, w = atom(x, 1), atom(x, 2)
       rawv, raww = view(x.storage, gs[1]), view(x.storage, gs[2])
@@ -574,9 +574,9 @@ end
   @testset "five-argument products" begin
     n, p = 7, 9
     types = ((Float32, Float32, Float32), (Float64, Float64, Float64),
-             (Float64, Float32, Float64), (Float32, Float64, Float64))
+             (Float64, Float32, Float64))   # the other mixed triple and the Float32 views are in atom_iterate_grids.jl
     for (Ta, Tx, To) in types, support in (:empty, :partial, :full), strided in (false, true)
-      strided && !(Ta == Tx == To && Ta <: Real) && continue
+      strided && !(Ta == Tx == To == Float64) && continue
       @testset "$Ta × $Tx → $To, $support, views=$strided" begin
         A = strided ? view(randn(Ta, 2n, 2p), 1:2:2n, 1:2:2p) : randn(Ta, n, p)
         dense = randn(Tx, p)

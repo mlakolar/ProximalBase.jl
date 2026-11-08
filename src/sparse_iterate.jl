@@ -29,6 +29,23 @@ element type of `x` do: writes through a view, through `coordinates(x)`, through
 `copyto!` with offsets or index ranges, and `map!`. A complex value converted
 one by one throws an `InexactError`, possibly after part of `x` has been
 written.
+
+For a matrix, `copyto!(x, Q)` from an orthogonal or unitary factor `Q`, such as
+`qr(A).Q`, `qr(A, ColumnNorm()).Q`, `lq(A).Q`, `hessenberg(A).Q` (types
+`QRCompactWYQ`, `QRPackedQ`, `LQPackedQ`, `HessenbergQ`) or the adjoint of one,
+takes `Q` to be a lazy factorization object, not a dense matrix. It materializes
+`Q` into a dense temporary of the element type of `x` and then writes that matrix
+as an ordinary array value write. A complex factor, a size other than `size(x)`,
+a failure to materialize `Q` and a failing conversion (an `InexactError` for a
+fractional value written into an integer `x`) throw before anything is written, so
+`x` is unchanged. The write is
+a value write, not a copy of a working-set state: an active coordinate whose new
+value is zero stays active. The dense temporary
+and its allocation are deliberate; a caller who needs speed can pass a
+precomputed dense matrix of the full size `size(Q)`, such as
+`lmul!(Q, Matrix{T}(I, size(Q)))` with `T = eltype(Q)`. `Matrix(Q)` can be thin,
+for example for a tall QR factor (`qr(randn(4, 3)).Q` has size 4x4 while `Matrix(Q)`
+is 4x3), whereas the write uses the full `size(Q)` matrix.
 """
 mutable struct SparseIterate{T, N} <: AbstractArray{T, N}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
@@ -683,9 +700,17 @@ function Base.copyto!(x::SparseIterate{<:Any, 2}, y::UniformScaling)
   invoke(copyto!, Tuple{AbstractMatrix, UniformScaling}, x, y)
 end
 @static if isdefined(@__MODULE__, :_AbstractQ)
-  function Base.copyto!(x::SparseIterate{<:Any, 2}, y::_AbstractQ)
+  # Q is a lazy factorization, so it is materialized into a dense matrix of the element
+  # type of x first; the validation, the materialization and the conversion all run
+  # before x is touched, and the result is written as an ordinary array value write.
+  function Base.copyto!(x::SparseIterate{T, 2}, y::_AbstractQ) where {T}
     !(eltype(y) <: Complex) || _real_error(:SparseIterate)
-    invoke(copyto!, Tuple{AbstractMatrix, _AbstractQ}, x, y)
+    size(y) == size(x) || throw(DimensionMismatch(
+      "destination has size $(size(x)), orthogonal factor has size $(size(y))"))
+    # Matrix(y) can be thin (a tall QR factor), so the full size(y) matrix is built from the identity.
+    staged = convert(Matrix{T}, lmul!(y, Matrix{eltype(y)}(I, size(y))))
+    invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, staged)
+    return x
   end
 end
 

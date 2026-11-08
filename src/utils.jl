@@ -691,7 +691,7 @@ _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_wei
 # w >= the smallest subnormal, and for x below its negative, rounds to zero for every
 # w <= floatmax
 @inline _exp_bound(::Type{T}) where {T<:AbstractFloat} =
-  T((exponent(floatmax(T)) + 2 + precision(T) - exponent(floatmin(T))) * 0.6931471805599453)
+  T(_exponent_sum(T, exponent(floatmax(T)), 2, precision(T), -exponent(floatmin(T))) * 0.6931471805599453)
 @inline function _exp_split(x::T) where {T<:Union{Float32, Float64}}
   isnan(x) && return x, 0
   x > _exp_bound(T) && return T(Inf), 0

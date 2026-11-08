@@ -777,4 +777,130 @@ end
   end
 end
 
+# ---- _exp_bound: the type constant of the exponent bound in the GLM losses ----
+
+# The bound is (emax + 2 + precision - emin) log 2 for the exponents of floatmax and floatmin. Its integer factor is
+# 2^63 + precision for BigFloat on the 64-bit Unix range, a sum that leaves Int64. _logistic_tail and _poisson_exp compare
+# the predictor with it. They run in the recovery of a derivative, which starts when the ordinary derivative of a weight
+# above one is below the normal range (for BigFloat, zero): Logistic has it at η = 0, y = 1/2 and Poisson at η = 0, y = 1,
+# and both at a response that equals the computed σ(η) or exp(η).
+@testset "exp bound of BigFloat, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    total = TOP + 2 + p - BOT
+    b = PB._exp_bound(BigFloat)
+    @test b > 0
+    @test b == BigFloat(Float64(total) * 0.6931471805599453)
+    @test isapprox(b, big(total) * log(big(2)); rtol = 2.0^(1 - p) + 1e-15)
+    if EMAX == 2^62 - 1
+      @test total == Int128(2)^63 + p
+    end
+  end
+end
+
+@testset "exp bound of Float64 and Float32" begin
+  @test PB._exp_bound(Float64) === 2100 * 0.6931471805599453
+  @test PB._exp_bound(Float32) === Float32(279 * 0.6931471805599453)
+  @test @inferred(PB._exp_bound(Float64)) isa Float64
+end
+
+glm_one(loss, y, x, w) = GLMLoss(loss, BigFloat[y], reshape(BigFloat[x], 1, 1); weights = BigFloat[w])
+glm_gradient(f, β) = (g = zeros(BigFloat, 1); gradient!(g, f, BigFloat[β]); g[1])
+glm_value_and_gradient(f, β) = (g = zeros(BigFloat, 1); v = value_and_gradient!(g, f, BigFloat[β]); (v, g[1]))
+
+# w ℓ'(η, y) and w ℓ(η, y) for the stored data, from 4 precision + 200 bits, with the scale of the rounding of a
+# computation in the precision of the data: 4 2^-p w (e^η + |y| + |y η|) for Poisson and 4 2^-p w (1 + |y| + |y η|) for Logistic
+function glm_reference(loss::Symbol, w, η, y, value::Bool)
+  p = precision(BigFloat)
+  setprecision(BigFloat, 4p + 200) do
+    W, H, Y = big(w), big(η), big(y)
+    ex = exp(H)
+    ref = if loss === :poisson
+      value ? W * (ex - Y * H) : W * (ex - Y)
+    else
+      value ? W * (log1p(exp(-abs(H))) + max(H, 0) - Y * H) : W * (1 / (1 + exp(-H)) - Y)
+    end
+    scale = loss === :poisson ? ex + abs(Y) + abs(Y * H) : 1 + abs(Y) + abs(Y * H)
+    ref, 4 * 2.0^-p * W * scale
+  end
+end
+
+function check_glm(r::BigFloat, loss, w, η, y, value::Bool)
+  ref, tol = glm_reference(loss, w, η, y, value)
+  @test isfinite(r)
+  isfinite(r) && @test setprecision(() -> abs(r - ref) <= tol, BigFloat, 4 * precision(BigFloat) + 200)
+end
+
+@testset "GLM at an exactly zero derivative, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    for w in (2, 3, 1024)
+      f = glm_one(PB.Logistic(), 0.5, 1, w)
+      @test iszero(glm_gradient(f, 0))
+      v, g = glm_value_and_gradient(f, 0)
+      @test iszero(g)
+      @test isfinite(v) && v > 0
+      f = glm_one(PB.Poisson(), 1, 1, w)
+      @test iszero(glm_gradient(f, 0))
+      v, g = glm_value_and_gradient(f, 0)
+      @test iszero(g)
+      @test v == w
+    end
+  end
+end
+
+# the response is the prediction as computed in the precision of the data: the exact derivative is a rounding error, and
+# the derivative returned is within the scale of that error, not a term of the size w y
+@testset "GLM Poisson at a response equal to exp(η), precision $p" for p in (5, 53, 256)
+  setprecision(BigFloat, p) do
+    ηs = EMAX == 2^62 - 1 ? Any[-1, 1, 20, -20, 2^20, -2^20, 2^40, -2^40, 2^61, -2^61] : Any[-1, 1, 20, -20, 2^20, -2^20]
+    for η in ηs, w in (2, 5)
+      y = exp(BigFloat(η))
+      f = glm_one(PB.Poisson(), y, 1, w)
+      check_glm(glm_gradient(f, η), :poisson, w, η, y, false)
+      v, g = glm_value_and_gradient(f, η)
+      check_glm(g, :poisson, w, η, y, false)
+      abs(η) == 1 && check_glm(glm_value_and_gradient(f, η)[1], :poisson, w, η, y, true)
+    end
+  end
+end
+
+@testset "GLM Logistic at a response equal to the sigmoid, precision $p" for p in (5, 53, 256)
+  setprecision(BigFloat, p) do
+    for η in (-1, -3, -20), w in (2, 5)
+      e = exp(BigFloat(η))
+      y = e / (1 + e)
+      f = glm_one(PB.Logistic(), y, 1, w)
+      check_glm(glm_gradient(f, η), :logistic, w, η, y, false)
+      check_glm(glm_value_and_gradient(f, η)[2], :logistic, w, η, y, false)
+    end
+    # η > 0 uses (1 - y) - σ: the response with (1 - y) equal to σ as computed, which exists for some η
+    found = 0
+    for η in (1, 2, 3)
+      e = exp(-BigFloat(η))
+      s = e / (1 + e)
+      y = nothing
+      for cand in (1 - s, nextfloat(1 - s), prevfloat(1 - s))
+        ((1 - cand) - s) == 0 && (y = cand; break)
+      end
+      y === nothing && continue
+      found += 1
+      f = glm_one(PB.Logistic(), y, 1, 2)
+      check_glm(glm_gradient(f, η), :logistic, 2, η, y, false)
+    end
+    p == 53 && @test found >= 1
+  end
+end
+
+@testset "GLM with Float64 data keeps its bound" begin
+  g = zeros(1)
+  gradient!(g, GLMLoss(PB.Logistic(), [0.5], reshape([1.0], 1, 1); weights = [2.0]), [0.0])
+  @test g[1] === 0.0
+  gradient!(g, GLMLoss(PB.Poisson(), [1.0], reshape([1.0], 1, 1); weights = [2.0]), [0.0])
+  @test g[1] === 0.0
+  for η in (-1.0, 1.0, 20.0, -20.0)
+    y = exp(η)
+    gradient!(g, GLMLoss(PB.Poisson(), [y], reshape([1.0], 1, 1); weights = [2.0]), [η])
+    @test isfinite(g[1]) && abs(g[1]) <= 8 * 2.0^-52 * 2 * 2 * y
+  end
+end
+
 end

@@ -82,8 +82,9 @@ end
           check_result(PB._scaled_product(w, v, k), s, a + b + k)
         end
       end
-      # a wide power k = -2^63 - 10 with two huge factors: the total is -14 (2TOP + k) or 10 (2BOT - k), a finite value,
-      # when the range is that of 64-bit Unix, and lies outside the range, so that the value saturates, where it is smaller
+      # a wide power k = -2^63 - 10 with two huge factors: the total is -14 (2TOP + k) or 10 (2BOT - k) on the 64-bit Unix
+      # range, a finite value. On the Windows range EMAX = 2^30 - 1 it lies outside the range and the value saturates; a
+      # range between the two can give a finite total as well, and check_result takes the class from the range
       k = -Int128(2)^63 - 10
       check_result(PB._scaled_product(pw(TOP), pw(TOP, s), k), s, 2TOP + k)
       check_result(PB._scaled_product(pw(BOT), pw(BOT, s), -k), s, 2BOT - k)

@@ -459,5 +459,112 @@ end
     end
 end
 
+@testset "copyto! from an orthogonal factor into a matrix SparseIterate" begin
+    state(x) = (Matrix(x), collect(activecoordinates(x)), collect(activevalues(x)), nactive(x))
+    # nontrivial values, an explicit active zero at (1, 2) and a non-canonical activation order
+    function populated(T, m, n)
+        x = SparseIterate(T, m, n)
+        x[m, n] = 3
+        x[1, 1] = 5
+        x[2, 1] = -2
+        x[1, 2] = 0
+        x[2, 2] = 7
+        return x
+    end
+    # the factors of a matrix, with the shapes each accepts
+    function factors(A::AbstractMatrix, square::Bool)
+        fs = Any[("qr", qr(A).Q), ("qr pivoted", qr(A, ColumnNorm()).Q), ("lq", lq(A).Q)]
+        square && push!(fs, ("hessenberg", hessenberg(A).Q))
+        for (name, Q) in collect(fs)
+            try
+                Matrix(adjoint(Q))
+                push!(fs, ("adjoint of " * name, adjoint(Q)))
+            catch
+            end
+        end
+        return fs
+    end
+    for T in (Float32, Float64), (m, n) in ((4, 4), (5, 5), (4, 3)), (name, Q) in factors(randn(MersenneTwister(m + n), T, m, n), m == n)
+        size(Q, 1) == size(Q, 2) || continue
+        k = size(Q, 1)
+        tol = 10 * eps(T)
+        @testset "$name, $T, $k x $k" begin
+            x = populated(T, k, k)
+            ref = populated(T, k, k)
+            copyto!(ref, Matrix(Q))
+            @test copyto!(x, Q) === x
+            @test Matrix(x) ≈ Matrix(Q) atol = tol
+            @test state(x) == state(ref)
+            # a coordinate that was active stays active, even with a zero value
+            @test issubset(activecoordinates(populated(T, k, k)), activecoordinates(x))
+            # the write does not depend on what x held before
+            y = SparseIterate(T, k, k)
+            copyto!(y, Q)
+            @test Matrix(y) == Matrix(x)
+            # the method is the package's own
+            @test parentmodule(which(copyto!, typeof.((x, Q)))) == ProximalBase
+
+            # failures leave x unchanged, and a later write works
+            before = state(x)
+            z = populated(T, k, k)
+            zbefore = state(z)
+            @test_throws DimensionMismatch copyto!(z, qr(randn(T, k + 1, k + 1)).Q)
+            @test state(z) == zbefore
+            @test copyto!(z, Q) === z
+            @test state(z) == before
+        end
+    end
+
+    @testset "explicit zeros" begin
+        T = Float64
+        Q = hessenberg(randn(MersenneTwister(3), T, 4, 4)).Q
+        @test Matrix(Q)[1, 2] == 0
+        x = SparseIterate(T, 4, 4)
+        x[1, 2] = 5
+        copyto!(x, Q)
+        @test (1, 2) in Tuple.(CartesianIndices(x)[collect(activecoordinates(x))]) && x[1, 2] == 0
+        # a zero in an absent coordinate does not activate it
+        y = SparseIterate(T, 4, 4)
+        copyto!(y, Q)
+        @test nactive(y) == count(!iszero, Matrix(Q))
+    end
+
+    @testset "failures write nothing" begin
+        for T in (Float32, Float64)
+            A = randn(MersenneTwister(5), T, 3, 3)
+            x = populated(T, 3, 3)
+            before = state(x)
+            for Q in (qr(A).Q, lq(A).Q, hessenberg(A).Q, qr(A, ColumnNorm()).Q)
+                # complex factor
+                C = randn(MersenneTwister(6), Complex{T}, 3, 3)
+                @test_throws ArgumentError copyto!(x, qr(C).Q)
+                @test state(x) == before
+                # wrong size
+                W = randn(MersenneTwister(7), T, 4, 4)
+                @test_throws DimensionMismatch copyto!(x, qr(W).Q)
+                @test_throws DimensionMismatch copyto!(x, qr(W, ColumnNorm()).Q)
+                @test_throws DimensionMismatch copyto!(x, lq(W).Q)
+                @test_throws DimensionMismatch copyto!(x, hessenberg(W).Q)
+                @test state(x) == before
+                @test copyto!(x, Q) === x
+                @test Matrix(x) ≈ Matrix(Q)
+                x = populated(T, 3, 3)
+            end
+        end
+        # a destination that cannot hold the values
+        A = randn(MersenneTwister(8), 3, 3)
+        for Q in (qr(A).Q, lq(A).Q, hessenberg(A).Q, qr(A, ColumnNorm()).Q)
+            xi = SparseIterate(Int, 3, 3)
+            xi[3, 3] = 4
+            xi[1, 2] = 0
+            xi[2, 1] = 6
+            before = state(xi)
+            @test_throws InexactError copyto!(xi, Q)
+            @test state(xi) == before
+            @test copyto!(xi, Matrix{Int}(I, 3, 3)) === xi
+        end
+    end
+end
+
 
 end

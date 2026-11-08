@@ -54,6 +54,23 @@ removes the zeros between sweeps. `nnz(x)` counts stored zeros too;
 stored set changes. `findnz(x)` returns copies of the stored indices and
 values in sorted order, including stored zeros.
 
+### Writing from an orthogonal factor
+
+For a matrix `x`, `copyto!(x, Q)` accepts an orthogonal or unitary factor `Q` such
+as `qr(A).Q`, `qr(A, ColumnNorm()).Q`, `lq(A).Q` or `hessenberg(A).Q` (the types
+`QRCompactWYQ`, `QRPackedQ`, `LQPackedQ` and `HessenbergQ`), or the adjoint of one.
+Such a `Q` is a lazy factorization object, not a dense matrix. `copyto!` materializes
+it into a dense temporary of the element type of `x` and writes that matrix, so
+a complex factor, a size other than `size(x)`, a failure to materialize `Q` and a
+failing conversion (an `InexactError` when `x` has integer entries) all throw
+before anything is written and leave `x` unchanged.
+
+The write is an ordinary value write, like `copyto!(x, Matrix(Q))`, not a copy of
+a working-set state: an active coordinate whose new value is zero stays active, and
+a nonzero value activates its coordinate. The dense temporary and its allocation are
+deliberate. A caller who cares about performance can form the dense matrix once and
+pass it to `copyto!`.
+
 ### Matrix coefficients
 
 `mul!(out, A, x, α, β)` with a matrix `x` walks the stored entries of `x` when

@@ -747,7 +747,7 @@ function dropzeros_row(x::SparseIterate{T}, order, vals; tail=nothing) where {T}
     x
 end
 
-@testset "dropzeros all-zero preflight" begin
+@testset "dropzeros all-zero and trailing zeros" begin
     for T in (Float32, Float64)
         @testset "SparseIterate $T" begin
             dropzeros_row(SparseIterate(T, 5), Int[], T[])
@@ -784,6 +784,12 @@ end
             dropzeros_row(SparseIterate(T, 6), 1:5, T[0, 1, 2, 3, 4])
             dropzeros_row(SparseIterate(T, 6), 1:5, T[1, 2, 0, 3, 4])
             dropzeros_row(SparseIterate(T, 6), 1:5, T[1, 2, 3, 4, 0])
+            # runs of zeros at the end: the last nonzero takes the first removed place
+            dropzeros_row(SparseIterate(T, 8), 1:7, T[1, 0, 0, 0, 0, 0, 0])
+            dropzeros_row(SparseIterate(T, 8), 1:7, T[0, 0, 0, 0, 0, 0, 1])
+            dropzeros_row(SparseIterate(T, 8), 1:7, T[0, 1, 0, 0, 2, 0, 0])
+            dropzeros_row(SparseIterate(T, 8), 1:7, T[1, 0, 2, 0, 0, 3, 0])
+            dropzeros_row(SparseIterate(T, 8), [7, 3, 5, 1, 2], T[0, 4, 0, 0, 0])
             # about 10, 50 and 90% zeros (each slot is zero with that probability)
             for frac in (0.1, 0.5, 0.9)
                 n = 40
@@ -803,9 +809,8 @@ end
             fill!(x, 0)
             @test dropzeros!(x) === x
             @test nnz(x) == 0 && all(iszero, Vector(x))
-            # the stale tail rows are behavioral controls: the compaction also empties the first
-# working set, so equal output does not prove the scan stays within 1:nnz (the bound
-# is verified by reading the source)
+            # stale values past nnz are never read: a stale zero or nonzero tail leaves the result of
+            # the working set alone
             x = SparseIterate(T, 6)
             dropzeros_row(x, [2, 5], T[0, 0]; tail=T(9))
             @test nnz(x) == 0

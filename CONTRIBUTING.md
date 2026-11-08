@@ -129,7 +129,7 @@ other table is validated by its own reader (`test/tiers.jl` or
   `conformance/gpu_arrays`) to the run, whatever the paths; on a change that needs no
   package tests it runs quick with them. Add it to a change that can affect device
   arrays without touching the GPU files: those suites are otherwise in the full tier,
-  which runs nightly and on tags, not in the pull request tiers (the CPU files that
+  which runs nightly and on tags and stays outside quick, standard and thorough (the CPU files that
   load JLArrays as a second array type, and the ambiguity guard for the GPU extension,
   `gpu_extension_ambiguities`, stay in the tiers below full). `test:iterate-narrow` declares a narrow change to one iterate
   implementation; it lowers that implementation's rule and no other path.
@@ -282,8 +282,8 @@ the committed map; a report file missing for another reason fails. Below full th
 artifacts are named `conformance-reports-partial-...`. The map check and the required upload run on Julia lts on Linux when
 the run has it, otherwise (a manual run on the `stable` platforms) on Julia 1 on
 Linux. An upload counts only when GitHub returns an artifact id for it; otherwise
-it is retried once. The artifact of that job (of a full run, the one from which the coverage map is
-regenerated) is required: without a confirmed upload that job fails. On the other
+it is retried once. The artifact of that job is required: without a confirmed upload that job fails.
+Only the artifact of a full run (not the `partial` one) serves to regenerate the coverage map. On the other
 jobs a missing upload is a warning in the job and its summary, and the job keeps
 the result of its tests.
 

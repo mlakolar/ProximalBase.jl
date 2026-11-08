@@ -1286,7 +1286,7 @@ function _scale_exponent!(X::AbstractArray, ::Type{T}, k::Int) where {T}
       a = abs(v)
       (iszero(a) || a >= mn) || (mn = a)
     end
-    lossless = mn == typemax(T) || exponent(mn) + k >= exponent(floatmin(T))
+    lossless = mn == typemax(T) || _exponent_sum(T, exponent(mn), k) >= exponent(floatmin(T))
   end
   s = _power_factors(T, k)
   X .= X .* s[1] .* s[2]

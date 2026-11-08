@@ -236,7 +236,8 @@ end
 A variable ``(r, c)`` with ``r \ne c`` stands for two entries of the matrix.
 Everything that is a function of the matrix counts both: `norm(x)` is the Frobenius norm
 of `Matrix(x)`, `dot(A, x)` and `dot(a, x, b)` are the inner products of the matrix, a
-penalty such as `NormL1` takes the sum over both triangles, the gradient and the curvature
+penalty such as `NormL1` takes the sum over both triangles, `IndBallL0` counts the entries of the
+matrix, so a nonzero off-diagonal pair counts two, the gradient and the curvature
 along a coordinate are those of the direction ``E_{rc} + E_{cr}``, and a proximal step is
 the Frobenius one. The values of the variables themselves, `x[r, c]`, are not rescaled.
 `kkt_violation` screens a coordinate at zero: a positive value says the coordinate should

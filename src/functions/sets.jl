@@ -23,28 +23,44 @@ there are ties) and sets the others to zero: a selection in O(n) expected time
 may be any scalar in `[0, Inf]`; a negative or NaN step throws an `ArgumentError`
 before anything is written.
 
-For a symmetric matrix, a `Symmetric` or a [`SymmetricSparseIterate`](@ref),
-`s` counts the entries of one triangle, so that an entry and its transpose are
-kept or dropped together, and the result is symmetric; the output may be a
-dense matrix or a `SymmetricSparseIterate`. The result is the projection in the
-Frobenius norm: an off-diagonal entry stands for a pair, whose removal costs
-twice its square, so it competes with the diagonal by `√2|xᵢⱼ|`. With
-`diagonal = false`, the diagonal of a matrix does not count and is kept, as for
-the off-diagonal sparsity of a precision matrix:
+For a symmetric matrix, a `Symmetric` or a [`SymmetricSparseIterate`](@ref), `s` counts the entries of
+the matrix itself: with `d` nonzero diagonal entries and `e` nonzero off-diagonal pairs (an entry and its
+transpose, `xᵢⱼ = xⱼᵢ`), the set is `d + 2e ≤ s`. A counted diagonal entry costs one unit of `s` and a pair
+two. With `diagonal = false` the diagonal does not count and is kept, and the set is `2e ≤ s`, as for the
+off-diagonal sparsity of a precision matrix:
 
 ```julia
 prox!(S, IndBallL0(s; diagonal = false), Symmetric(Θ, :L))   # S::SymmetricSparseIterate
 ```
 
-A NaN entry is undefined (E2 in the numerical contract). Let `m` be the number of entries that
-count (a mirrored pair counts once, and the diagonal of a matrix does not count with
-`diagonal = false`). For `0 < s < m` a NaN in a counted entry makes every counted output NaN, and
-so is the value `value_and_prox!` returns for it; a free diagonal is copied. For `s ≥ m` the
-projection is the identity, NaN included, and its value is `0`. For `s = 0` the projection is zero
-whatever the argument and its fused value is `0`. The value of the function at an argument with a
-NaN in a counted entry is NaN for every `s < m`, since the argument may or may not be in the set.
-When the NaN block is written into an output of integer element type, the `InexactError` is thrown
-before anything is written.
+Explicit and implicit zeros, of either sign, are zero, so the count is that of a dense matrix and of a
+`SymmetricSparseIterate` alike; the value at an owner reads its stored coefficients only. The output is
+symmetric and may be a dense matrix or a `SymmetricSparseIterate`.
+
+The result is the projection in the Frobenius norm. Keeping a nonzero diagonal entry costs one unit of `s`
+and saves `xᵢᵢ²` of the squared error, and keeping a nonzero pair costs two units and saves `2xᵢⱼ²`. The
+projection keeps the `d` diagonal entries of largest magnitude and the `e` pairs of largest magnitude, for
+the `e` with `d = min(D, s - 2e)` at which the saving is largest (`D` is the number of nonzero counted
+diagonal entries); with `diagonal = false` it keeps the `fld(s, 2)` pairs of largest magnitude. Within
+diagonal entries, and within pairs, a tie in magnitude is broken for the entry earlier in the lower
+triangle read by columns, and between two choices of `e` with equal saving the one with the smaller `e` is
+taken. The savings are compared in floating point, after the magnitudes are scaled by a power of two so
+that the largest finite one is at most 1 (the squares cannot overflow); the support kept is a maximizer of
+the saved squared error up to the rounding of that comparison, and exactly so when the scaled squares are
+exactly representable (`Float32` sums in `Float64`). An infinite entry is a limit of finite magnitudes: it
+is kept in preference to any finite one, the choices compared first by the weight of the infinite entries
+they keep (one for a diagonal entry, two for a pair) and then by the finite saving. The cost is O(p²) for
+the selection plus a sort of the kept candidates, without allocating after the first call.
+
+A NaN entry is undefined (E2 in the numerical contract). Let `m` be the largest number of entries that
+count: `p²` for a symmetric `p × p` matrix (`p(p - 1)` with `diagonal = false`, where the diagonal does not
+count), and the length of any other array. For `0 < s < m` a NaN in a counted entry makes every counted
+output NaN, and so is the value `value_and_prox!` returns for it; a free diagonal is copied. For `s ≥ m`
+the projection is the identity, NaN included, and its value is `0` (`s` is compared with `m` without
+overflow for any `p`). For `s = 0` the projection is zero whatever the argument and its fused value is `0`.
+The value of the function at an argument with a NaN in a counted entry is NaN for every `s < m`, since the
+argument may or may not be in the set. When the NaN block is written into an output of integer element type,
+the `InexactError` is thrown before anything is written.
 """
 struct IndBallL0 <: AbstractFunction
   s::Int
@@ -145,7 +161,10 @@ end
 
 # the number of entries that count: one per coordinate, a free diagonal excluded
 _ncounted(f::IndBallL0, x::AbstractArray) = _allcount(f, x) ? length(x) : length(x) - min(size(x, 1), size(x, 2))
-_ncounted_symmetric(f::IndBallL0, p::Integer) = f.diagonal ? div(p * (p + 1), 2) : div(p * (p - 1), 2)
+
+# The largest full count of a symmetric p × p matrix: every diagonal entry counts one and every off-diagonal
+# pair two, so p² with a counted diagonal and p(p - 1) without. In Int128, so that p² cannot overflow Int.
+_ncounted_symmetric(f::IndBallL0, p::Integer) = (q = Int128(p); f.diagonal ? q * q : q * (q - 1))
 
 # E2: with 0 < s < m counted entries, a NaN in one decides whether the point is in the set and which
 # entries are kept, so every counted output and the value depend on it; s ≥ m is the identity and
@@ -160,8 +179,8 @@ function (f::IndBallL0)(x::AbstractArray)
   nan ? convert(T, NaN) : _ind(nz <= f.s, T)
 end
 
-# the entries of the lower triangle of a symmetric matrix, the diagonal unless
-# it does not count
+# A symmetric matrix counts its full logical entries: a nonzero diagonal entry counts one (unless the
+# diagonal is free) and a nonzero off-diagonal pair counts two. The entries are read from the lower triangle.
 (f::IndBallL0)(x::Symmetric) = _symmetric_l0_value(f, x)
 (f::IndBallL0)(x::SymmetricSparseIterate) = _symmetric_l0_value(f, x)
 function _symmetric_l0_value(f::IndBallL0, x)
@@ -170,9 +189,35 @@ function _symmetric_l0_value(f::IndBallL0, x)
   T = _valtype(x)
   f.s >= _ncounted_symmetric(f, p) && return zero(T)     # the whole space
   k, nan = 0, false
-  @inbounds for c in 1:p, r in (f.diagonal ? c : c + 1):p
-    v = x[r, c]
-    k += !iszero(v)
+  @inbounds for c in 1:p
+    if f.diagonal
+      v = x[c, c]
+      k += !iszero(v)
+      nan |= isnan(v)
+    end
+    for r in c + 1:p
+      v = x[r, c]
+      k += 2 * !iszero(v)
+      nan |= isnan(v)
+    end
+  end
+  nan ? convert(T, NaN) : _ind(k <= f.s, T)
+end
+# the stored coefficients hold every nonzero entry: no implicit zero is read
+function _symmetric_l0_value(f::IndBallL0, x::SymmetricSparseIterate)
+  _checkreal(f, x)
+  T = _valtype(x)
+  f.s >= _ncounted_symmetric(f, x.p) && return zero(T)   # the whole space
+  k, nan = 0, false
+  @inbounds for j in 1:x.nnz
+    v = x.nzval[j]
+    r, c = tril_cartesian(x.p, x.nzval2ind[j])
+    if r == c
+      f.diagonal || continue
+      k += !iszero(v)
+    else
+      k += 2 * !iszero(v)
+    end
     nan |= isnan(v)
   end
   nan ? convert(T, NaN) : _ind(k <= f.s, T)
@@ -321,8 +366,11 @@ function _direct_prox!(y::SparseIterate{<:Any, 1}, f::IndBallL0, x::SparseIterat
   false
 end
 
-# a symmetric matrix: the entries of the lower triangle, each counted once and
-# written to both triangles of a dense output
+# A symmetric matrix, written to both triangles of a dense output and to the lower triangle of an owner.
+# The set counts full entries: a nonzero diagonal entry costs 1 of the budget s and a nonzero off-diagonal
+# pair 2. Keeping a diagonal entry saves x_ii² of the squared error and keeping a pair saves 2x_ij², so the
+# projection chooses the d diagonal entries and e pairs with d + 2e ≤ s that save the most: the d largest
+# diagonal entries and the e largest pairs by magnitude, for the e at which the total is largest.
 function prox!(y::AbstractMatrix, f::IndBallL0, x::Symmetric, γ::Real)
   _checkstep_nonneg(γ)
   _checkwrite(prox!, f, y, x)
@@ -332,52 +380,174 @@ end
 function _direct_prox!(y::AbstractMatrix, f::IndBallL0, x::Symmetric)
   p = checksquare(x)
   T = float(eltype(x))
-  first_row(c) = f.diagonal ? c : c + 1
-  w = sqrt(T(2))
-  buf = _buffer!(f.scratch, T, div(p * (p + 1), 2))
-  k = 0
-  nz = 0
-  nan = false
-  @inbounds for c in 1:p, r in first_row(c):p
-    a = _pairweight(f, r, c, w) * abs(x[r, c])
-    k += 1
-    buf[k] = a
-    nz += !iszero(a)
-    nan |= isnan(a)
+  A = T === Float32 ? Float64 : T           # the type of the sums of squares
+  s = f.s
+  m = _ncounted_symmetric(f, p)
+  if s >= m                                 # the whole space: the identity, NaN included
+    _l0_write_identity!(y, x, p)
+    return false
   end
-  if _nan_block_applies(f, nan, k)        # E2: every coordinate that counts is NaN; a free diagonal is kept
+  # the counts of the nonzero diagonal entries and pairs, a NaN in a counted entry, and the largest finite magnitude
+  D, E, nan, M = 0, 0, false, zero(A)
+  @inbounds for c in 1:p
+    if f.diagonal
+      v = x[c, c]
+      D += !iszero(v)
+      nan |= isnan(v)
+      a = abs(A(v))
+      (isfinite(a) & (a > M)) && (M = a)
+    end
+    for r in c + 1:p
+      v = x[r, c]
+      E += !iszero(v)
+      nan |= isnan(v)
+      a = abs(A(v))
+      (isfinite(a) & (a > M)) && (M = a)
+    end
+  end
+  if nan && 0 < s < m                       # E2: every coordinate that counts is NaN; a free diagonal is kept
     nanv = convert(eltype(y), NaN)
     @inbounds for c in 1:p, r in c:p
       _set_symmetric!(y, !f.diagonal && r == c ? x[r, c] : nanv, r, c)
     end
     return true
   end
-  τ = nz <= f.s ? -one(T) : f.s == 0 ? T(Inf) : _kth_largest!(view(buf, 1:k), f.s)
-  ties = f.s
-  if nz > f.s
-    @inbounds for c in 1:p, r in first_row(c):p
-      ties -= _pairweight(f, r, c, w) * abs(x[r, c]) > τ
+  if D + 2E <= s                            # in the set
+    _l0_write_identity!(y, x, p)
+    return false
+  end
+  if !f.diagonal                            # the diagonal is kept; the fld(s, 2) pairs of largest magnitude
+    kp = s ÷ 2
+    τ, ties = zero(A), 0
+    if kp > 0
+      buf = _buffer!(f.scratch, A, E)
+      _l0_gather_pairs!(buf, x, p, A, 0)
+      τ = _kth_largest!(view(buf, 1:E), kp)
+      ties = kp - _l0_count_above(buf, E, τ)
+    end
+    _l0_write_selected!(y, f, x, p, A, 0, 0, τ, 0, kp, τ, ties)
+    return false
+  end
+  Kd, Kp = min(D, s), min(E, s ÷ 2)
+  sh = M > 0 ? exponent(M) + 1 : 0          # the squares are of magnitudes at most 1, so they cannot overflow
+  buf = _buffer!(f.scratch, A, D + E + Kd + 1)
+  bd, bp, pre = view(buf, 1:D), view(buf, D + 1:D + E), view(buf, D + E + 1:D + E + Kd + 1)
+  if Kd > 0
+    _l0_gather_diagonal!(bd, x, p, A, sh)
+    Kd < D && _kth_largest!(bd, Kd)
+    sort!(view(bd, 1:Kd); rev = true, alg = QuickSort)
+  end
+  if Kp > 0
+    _l0_gather_pairs!(bp, x, p, A, sh)
+    Kp < E && _kth_largest!(bp, Kp)
+    sort!(view(bp, 1:Kp); rev = true, alg = QuickSort)
+  end
+  # prefix sums of the squares of the diagonal entries, an infinite one standing for a weight and no square
+  pre[1] = zero(A)
+  Id = 0
+  @inbounds for i in 1:Kd
+    a = bd[i]
+    Id += isinf(a)
+    pre[i + 1] = pre[i] + _l0_square(a)
+  end
+  Ie = 0
+  @inbounds for i in 1:Kp
+    Ie += isinf(bp[i])
+  end
+  # the candidates e = 0, ..., Kp pairs with d = min(D, s - 2e) diagonal entries, compared by the weight of the
+  # infinite entries kept and then by the saving; the smaller e wins a tie
+  beste, bestw, bestsav = 0, -1, zero(A)
+  Q = zero(A)
+  @inbounds for e in 0:Kp
+    e > 0 && (Q += _l0_square(bp[e]))
+    d = min(D, s - 2e)
+    w = min(d, Id) + 2 * min(e, Ie)
+    sav = pre[d + 1] + 2 * Q
+    if w > bestw || (w == bestw && sav > bestsav)
+      beste, bestw, bestsav = e, w, sav
     end
   end
-  @inbounds for c in 1:p, r in c:p
-    v = x[r, c]
-    if !f.diagonal && r == c
-      keep = true
-    else
-      a = _pairweight(f, r, c, w) * abs(v)
-      keep = nz <= f.s || a > τ || (a == τ && ties > 0)        # nz ≤ s: the identity, NaN included
-      keep && a == τ && (ties -= 1)
-    end
-    _set_symmetric!(y, keep ? v : zero(v), r, c)
-  end
+  e = beste
+  d = min(D, s - 2e)
+  τd = d > 0 ? bd[d] : zero(A)
+  τp = e > 0 ? bp[e] : zero(A)
+  td = d - _l0_count_above(bd, d, τd)
+  tp = e - _l0_count_above(bp, e, τp)
+  _l0_write_selected!(y, f, x, p, A, sh, d, τd, td, e, τp, tp)
   false
 end
 
-# the weight of entry (r, c) in the selection: when the diagonal counts, an
-# off-diagonal entry stands for the pair (r, c), (c, r), whose removal costs
-# twice its square in the Frobenius norm; with a free diagonal every counted
-# entry is off the diagonal, and the weight is 1
-@inline _pairweight(f::IndBallL0, r, c, w) = f.diagonal && r != c ? w : one(w)
+# the magnitude of v scaled by 2^-sh, in the type A of the sums
+@inline _l0_mag(::Type{A}, v, sh::Int) where {A} = ldexp(abs(A(v)), -sh)
+@inline _l0_square(a) = isinf(a) ? zero(a) : a * a
+
+# the scaled magnitudes of the nonzero diagonal entries, and of the nonzero pairs, in the order of the
+# lower triangle by columns
+function _l0_gather_diagonal!(buf, x, p::Int, ::Type{A}, sh::Int) where {A}
+  k = 0
+  @inbounds for c in 1:p
+    v = x[c, c]
+    iszero(v) || (buf[k += 1] = _l0_mag(A, v, sh))
+  end
+  k
+end
+function _l0_gather_pairs!(buf, x, p::Int, ::Type{A}, sh::Int) where {A}
+  k = 0
+  @inbounds for c in 1:p, r in c + 1:p
+    v = x[r, c]
+    iszero(v) || (buf[k += 1] = _l0_mag(A, v, sh))
+  end
+  k
+end
+
+# the number of the first n entries of buf that are larger than τ
+function _l0_count_above(buf, n::Int, τ)
+  k = 0
+  @inbounds for i in 1:n
+    k += buf[i] > τ
+  end
+  k
+end
+
+# Write the selection: of the nonzero diagonal entries the d of largest magnitude, and of the nonzero pairs the
+# e of largest magnitude, the entries above the threshold and the first `ties` of those at it, in the order of
+# the lower triangle by columns. A diagonal entry that does not count is kept.
+function _l0_write_selected!(y, f::IndBallL0, x, p::Int, ::Type{A}, sh::Int, d::Int, τd, td::Int, e::Int, τp, tp::Int) where {A}
+  @inbounds for c in 1:p, r in c:p
+    v = x[r, c]
+    keep = iszero(v)
+    if r == c
+      if !f.diagonal
+        keep = true
+      elseif !keep && d > 0
+        a = _l0_mag(A, v, sh)
+        if a > τd
+          keep = true
+        elseif a == τd && td > 0
+          keep = true
+          td -= 1
+        end
+      end
+    elseif !keep && e > 0
+      a = _l0_mag(A, v, sh)
+      if a > τp
+        keep = true
+      elseif a == τp && tp > 0
+        keep = true
+        tp -= 1
+      end
+    end
+    _set_symmetric!(y, keep ? v : zero(v), r, c)
+  end
+  y
+end
+
+function _l0_write_identity!(y, x, p::Int)
+  @inbounds for c in 1:p, r in c:p
+    _set_symmetric!(y, x[r, c], r, c)
+  end
+  y
+end
 
 @inline _set_symmetric!(y::_OwnerMatrix, v, r, c) = _setstored!(y.x, v, tril_index(y.x.p, r, c))
 @inline function _set_symmetric!(y::AbstractMatrix, v, r, c)
@@ -1468,7 +1638,8 @@ _checkstep(op::O, ::Union{IndBallL0, IndBallL1, IndBallL2, IndSphereL2, IndSimpl
 # The direct projections, the ℓ0 ball and the hyperplanes, halfspaces and hyperslabs, with the owner of a
 # symmetric matrix as the destination or as the point. The matrix of the owner is the argument or the output:
 # a mirrored pair is one coordinate counted twice in the norm and in ⟨a, X⟩. The ℓ0 ball counts the
-# coordinates of the lower triangle, so an owner or a Symmetric argument reaches it as a Symmetric one.
+# entries of the matrix (a pair twice), read from the lower triangle, so an owner or a Symmetric argument
+# reaches it as a Symmetric one.
 # The value of the four direct projections at an owner is not defined; the value of the ℓ0 ball, and of
 # a hyperplane, halfspace or hyperslab, is.
 const _OwnerSets = Union{IndBallL0, IndBallL1, IndBallL2, IndSphereL2, IndSimplex, IndHyperplane, IndHalfspace, IndHyperslab}

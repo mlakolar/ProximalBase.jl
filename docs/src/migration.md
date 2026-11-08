@@ -608,3 +608,22 @@ follow IEEE arithmetic and are unchanged. The products of a
 `dot(a, X, b)`, and `dot` with a strided matrix skip a zero coefficient, stored or not;
 a matrix product through `matrixview(x)` is the dense product of `Matrix(x)`, and a
 product with a vector through the view follows the rule.
+
+## `IndBallL0` on a symmetric matrix counts entries (0.6)
+
+`IndBallL0(s)` on a `Symmetric` matrix or a `SymmetricSparseIterate` used to count the
+entries of one triangle, so that a nonzero off-diagonal pair cost one unit of `s`. It now
+counts the entries of the matrix: a nonzero diagonal entry costs one unit and a nonzero
+off-diagonal pair costs two, so the set is `d + 2e ≤ s` for `d` nonzero diagonal entries
+and `e` nonzero pairs, and with `diagonal = false` it is `2e ≤ s`. The projection is the
+exact Frobenius projection onto the new set: a diagonal entry competes by saving
+`xᵢᵢ²` for one unit and a pair by saving `2xᵢⱼ²` for two. The value at the same point
+changes too: `Symmetric([0 4; 4 0])` is in the set of `IndBallL0(2)` and no longer in that
+of `IndBallL0(1)`, whose projection is zero.
+
+With `diagonal = false` the translation is exact: a budget of `s_pairs` pairs of the old
+count is `s_entry = 2 * s_pairs`. With a counted diagonal there is no fixed rescaling, since
+the diagonal entries cost one unit each and the pairs two; retune `s`. The storage does not
+change the budget: a `SymmetricSparseIterate`, its `matrixview` and a dense `Symmetric` of
+the same matrix have the same set, and explicit zeros count as zero. Arrays that are not
+symmetric matrices, vectors and general matrices, are unchanged.

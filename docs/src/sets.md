@@ -27,7 +27,7 @@ feasibility certificate.
 | [`IndSphereL2`](@ref)`(r)` | ``\lVert x\rVert_2 = r``, nonconvex | ``r\,v/\lVert v\rVert_2`` |
 | [`IndBallL1`](@ref)`(r)` | ``\lVert x\rVert_1 \le r`` | ``\operatorname{sign}(v)\odot P_{\Delta_r}(\lvert v\rvert)``, by Condat's algorithm |
 | [`IndSimplex`](@ref)`(r)` | ``x \ge 0,\ \sum_i x_i = r`` | ``\max(v - \tau, 0)`` |
-| [`IndBallL0`](@ref)`(s)` | at most ``s`` nonzero entries | keep the ``s`` largest in magnitude |
+| [`IndBallL0`](@ref)`(s)` | at most ``s`` nonzero entries (a symmetric matrix: ``d + 2e \le s``, see [Sparsity](@ref)) | keep the ``s`` largest in magnitude |
 | [`IndBallGroupL0`](@ref)`(s, groups)` | at most ``s`` nonzero groups | keep the ``s`` groups of largest norm |
 | [`IndHyperplane`](@ref)`(a, b)` | ``\langle a, x\rangle = b`` | ``v - \frac{\langle a, v\rangle - b}{\lVert a\rVert^2}\,a`` |
 | [`IndHalfspace`](@ref)`(a, b)` | ``\langle a, x\rangle \le b`` | the same when ``\langle a, v\rangle > b`` |
@@ -362,12 +362,21 @@ entries of largest magnitude, a nonconvex set with an exact projection.
 expected time, in place, and in ``O(\mathrm{nnz})`` on a `SparseIterate`. It
 keeps exactly ``s`` entries when there are ties. Projected gradient descent with
 this set is iterative hard thresholding. On a symmetric matrix, ``s`` counts the
-entries of one triangle, so that an entry and its transpose are kept or dropped
-together. Dropping an off-diagonal pair costs ``2x_{ij}^2`` in the Frobenius
-norm and a diagonal entry ``x_{ii}^2``, so the projection compares
-``\sqrt{2}\,|x_{ij}|`` with ``|x_{ii}|``. With `diagonal = false` the diagonal
-does not count and is kept, as for the off-diagonal sparsity of a precision
-matrix.
+entries of the matrix itself: a nonzero diagonal entry costs one unit and a
+nonzero off-diagonal pair ``x_{ij} = x_{ji}`` costs two, so the set is
+``d + 2e \le s`` for ``d`` nonzero diagonal entries and ``e`` nonzero pairs, and
+an entry and its transpose are kept or dropped together. Dropping a pair costs
+``2x_{ij}^2`` in the Frobenius norm and a diagonal entry ``x_{ii}^2``, so keeping
+a diagonal entry saves ``x_{ii}^2`` for one unit and keeping a pair saves
+``2x_{ij}^2`` for two. The projection is the exact one: it keeps the ``d``
+largest diagonal entries and the ``e`` largest pairs, for the ``e`` with
+``d = \min(D, s - 2e)`` at which the saving ``\sum x_{ii}^2 + 2\sum x_{ij}^2`` is
+largest, found from the sorted magnitudes in ``O(p^2)`` for the selection plus a
+sort of the candidates. With `diagonal = false` the diagonal does not count and is
+kept, the set is ``2e \le s`` and the ``\lfloor s/2\rfloor`` largest pairs are
+kept, as for the off-diagonal sparsity of a precision matrix. A budget ``s = 1``
+with `diagonal = false` therefore keeps no pair. A `SymmetricSparseIterate`
+has the same budget as the dense matrix it represents.
 
 [`IndBallGroupL0`](@ref) is the same for groups: it keeps the ``s`` groups of
 largest Euclidean norm, and projected gradient descent with it is iterative hard

@@ -15,12 +15,12 @@ const baselines = Dict{String,Any}(
 components(v, r, n) = eltype(v) == eltype(r) && all(within_ulps(v[i], r[i], n) for i in eachindex(r))
 
 
-# A3: certify the stored point as well as the face decisions. For unit normals,
-# products and cached normals are exact, and fixed zero entries add no error.
-# gamma_4 bounds the sum and offset subtraction; u*sum(abs, zstar) accounts
-# for final Float32 storage. C1: this is the stated test budget, not a general
-# termination bound for every search.
-function certified_decision(v, expected, b)
+# The independent test of the stored point and of the face decisions, against a budget stated here. For unit
+# normals, products and cached normals are exact, and fixed zero entries add no error. gamma_4 bounds the sum
+# and offset subtraction; u*sum(abs, zstar) accounts for final Float32 storage. C1: this is the test budget of
+# the fixture, not a bound that the search provides: the Float32 search is checked, not certified (the exception
+# to A3), and an accepted result can in principle be inaccurate. PrecisionError is the other allowed outcome.
+function decision_within_budget(v, expected, b)
   v === :precision_error && return true
   v isa Tuple{AbstractVector{Float32}, NTuple{3, Bool}} || return false
   z, decisions = v
@@ -31,7 +31,7 @@ function certified_decision(v, expected, b)
   Z = BigFloat.(z)
   bound = BigFloat(gamma4) * (sum(abs, Z) + abs(BigFloat(b))) +
     BigFloat(u) * sum(abs, BigFloat.(expected[1]))
-  # BigFloat evaluates the certificate on stored entries without Float32 loss.
+  # BigFloat evaluates the residual of the stored entries without Float32 loss.
   abs(sum(Z) - BigFloat(b)) <= bound
 end
 
@@ -61,7 +61,6 @@ end
       expected = ref
       observed = prox!(zeros(Float32, 3), f, x, step)
       compare = (v, r) -> components(v, r, 16)
-      broken = name == "constrained" ? (group = :G5, baseline = Returned(v -> same(v, x))) : nothing
     end
   end
   # T4: recompute the coefficient in D, rather than widening a Float32 coefficient.
@@ -103,8 +102,8 @@ end
     compare = (v, r) -> all(typed_bound(v[i], r[i], 8BigFloat(eps(Float64)) * BigFloat(typemax(Int))) for i in eachindex(r))
     broken = (group = :G5, baseline = Returned(v -> same(v, fill(Float64(typemax(Int)), 2))))
   end
-  # A3: near a box face, refine the decision or raise PrecisionError.
-  # The exact solution has two free coordinates 1-2^-23 and one fixed zero.
+  # Near a box face the Float32 search is checked (the exception to A3): the result is accepted, refined in
+  # Float64, or PrecisionError is raised. The exact solution has two free coordinates 1-2^-23 and one fixed zero.
   for F in (IndHyperplane, IndHalfspace, IndHyperslab), diagonal in (false, true)
     b = 2f0 - pow2(Float32, -22)
     set = F === IndHyperslab ? F(1f0, 0f0, b) : F(1f0, b)
@@ -112,7 +111,7 @@ end
     @row begin
       id = "linear_sets.certify.$F.$diagonal"; case = ""; family = :linear_sets; oracle = :decision
       types = "Float32"; backend = :cpu; rules = "A3 O6"
-      problem = "sum bound 2-2^-22 at (1,1,-1): finite Float32 point in [0,1], two free entries, one fixed; A3/C1 certificate |sum(z)-b| <= gamma4*(sum|z|+|b|)+u*sum|zstar|, u=2^-24, gamma4=4u/(1-4u); refine or raise PrecisionError"
+      problem = "sum bound 2-2^-22 at (1,1,-1): finite Float32 point in [0,1], two free entries, one fixed; C1 test budget |sum(z)-b| <= gamma4*(sum|z|+|b|)+u*sum|zstar|, u=2^-24, gamma4=4u/(1-4u); the Float32 search is checked and recovered in Float64 (exception to A3), or raises PrecisionError"
       expected = (Float32[1 - pow2(Float32, -23), 1 - pow2(Float32, -23), 0], (false, false, true))
       observed = try
         z = prox(c, Float32[1, 1, -1], diagonal ? ones(Float32, 3) : 1f0)
@@ -121,17 +120,17 @@ end
         nameof(typeof(e)) == :PrecisionError || rethrow()
         :precision_error
       end
-      compare = (v, r) -> certified_decision(v, r, b)
-      broken = (group = :G5, baseline = Returned(v -> same(v, (Float32[1, 1, 0], (true, true, true)))))
+      compare = (v, r) -> decision_within_budget(v, r, b)
     end
   end
-  # A3: a well-separated active bound admits the independently derived solution.
+  # A well-separated active bound admits the independently derived solution (the Float32 check accepts it).
   for T in (Float32, Float64), F in (IndHyperplane, IndHalfspace, IndHyperslab), diagonal in (false, true)
     set = F === IndHyperslab ? F(one(T), -one(T), zero(T)) : F(one(T), zero(T))
     @row begin
       id = "linear_sets.certified_far.$T.$F.$diagonal"; case = ""; family = :linear_sets; oracle = :prox
       types = "$T"; backend = :cpu; rules = "A3 A1 A6"
-      problem = "ridge level 1 at (3,1), sum bound 0, unit metric gives (1/2,-1/2); A1/C1 pending budget 16 output ULPs"
+      problem = "ridge level 1 at (3,1), sum bound 0, unit metric gives (1/2,-1/2); A1/C1 pending budget 16 output ULPs" *
+        (T === Float32 ? "; the search is checked under the exception to A3" : "")
       expected = T[0.5, -0.5]
       observed = prox(Constrained(SqrNormL2(one(T)), set), T[3, 1], diagonal ? ones(T, 2) : one(T))
       compare = (v, r) -> components(v, r, 16)

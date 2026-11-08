@@ -1912,18 +1912,17 @@ _checkreal_broadcast(x, a) = true
 _checkreal_broadcast(x, a::Union{AbstractArray, Ref, Number}) =
   !(eltype(a) <: Complex) || _real_error(nameof(typeof(x)))
 
-# The result of a broadcast into an iterate is real as well. Its element type is read from
-# the types: a real one (or none) writes directly, a complex one is rejected, and any other
-# (a Union with a complex member, Any, Number) is evaluated into a temporary first, so that
+# The result of a broadcast into an iterate is real as well. Its element type R is read from
+# the types, and method dispatch on R chooses among three cases. No result type (Union{}) or
+# a subtype of Real (which includes Bool, Integer, Rational and BigFloat results) writes
+# directly. Any other R is staged: a complex R is rejected before anything is evaluated, and
+# a Union with a complex member, Any or Number is evaluated into a temporary first, so that
 # nothing is written when an element is complex or f throws.
-@inline function _real_broadcast!(x::AbstractArray, bc::Broadcast.Broadcasted{Nothing})
-  R = Broadcast.combine_eltypes(bc.f, bc.args)
-  if R === Union{} || R <: Real
-    _broadcast_loop!(x, bc)
-  else
-    _staged_broadcast!(x, bc, R)
-  end
-end
+_real_broadcast!(x::AbstractArray, bc::Broadcast.Broadcasted{Nothing}) =
+  _write_by_result(x, bc, Broadcast.combine_eltypes(bc.f, bc.args))
+_write_by_result(x, bc, ::Type{Union{}}) = _broadcast_loop!(x, bc)
+_write_by_result(x, bc, ::Type{<:Real}) = _broadcast_loop!(x, bc)
+_write_by_result(x, bc, ::Type{R}) where {R} = _staged_broadcast!(x, bc, R)
 @noinline function _staged_broadcast!(x::AbstractArray, bc::Broadcast.Broadcasted{Nothing}, ::Type{R}) where {R}
   axes(x) == axes(bc) ||
     throw(DimensionMismatch("destination axes $(axes(x)) do not match the broadcast axes $(axes(bc))"))

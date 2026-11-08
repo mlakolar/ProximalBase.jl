@@ -629,18 +629,22 @@ end
       # a symmetric matrix: the off-diagonal entries count twice in ⟨a, X⟩, which is 1.8 floatmax
       X = T[1 0.4 0; 0.4 0 0; 0 0 0] .* M
       steps = T[1 2 3; 2 1 2; 3 2 1]
-      for a in (ones(T, 3, 3), T(1), up .* ones(T, 3, 3)), γ in (T(1), steps)
+      for a in (ones(T, 3, 3), T(1), up .* ones(T, 3, 3)), γ in (T(1),)
         H = F(a, 0)
         y = SymmetricSparseIterate(T, 3)
         @test prox!(y, H, SymmetricSparseIterate(X), γ) === y
-        γv = γ isa AbstractArray ? vec(γ) : γ
-        check_against_reference(H, vec(X), vec(Array(y)), γv)
+        check_against_reference(H, vec(X), vec(Array(y)), γ)
         y = SymmetricSparseIterate(T, 3)
         @test value_and_prox!(y, H, SymmetricSparseIterate(X), γ) === zero(T)
-        check_against_reference(H, vec(X), vec(Array(y)), γv)
+        check_against_reference(H, vec(X), vec(Array(y)), γ)
         z = SymmetricSparseIterate(X)
         @test prox!(z, H, z, γ) === z
-        check_against_reference(H, vec(X), vec(Array(z)), γv)
+        check_against_reference(H, vec(X), vec(Array(z)), γ)
+        # an owner output takes a scalar step: an array of steps is refused before anything is written
+        y = SymmetricSparseIterate(T, 3)
+        @test_throws ArgumentError prox!(y, H, SymmetricSparseIterate(X), steps)
+        @test_throws ArgumentError value_and_prox!(y, H, SymmetricSparseIterate(X), steps)
+        @test nactive(y) == 0 && Matrix(y) == zeros(T, 3, 3)
       end
     end
   end

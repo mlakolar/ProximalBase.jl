@@ -394,11 +394,13 @@ end
         @test isequal(Array(x), Array(expected))
         @test collect(activecoordinates(x)) == collect(activecoordinates(expected))
 
-        # The owner's result depends on storage until #391 changes it; pin it deliberately.
+        # the owner has no scaling by a number: the vector of its coordinates follows IEEE arithmetic, and
+        # the NaN written into a zero activates it
         X = SymmetricSparseIterate(3); X[2, 1] = 1.0; activate!(X, 1)
-        rmul!(X, Inf)
-        @test isequal(collect(coordinates(X)), [NaN, Inf, 0.0, 0.0, 0.0, 0.0])
-        @test collect(activecoordinates(X)) == [2, 1]
+        @test_throws MethodError rmul!(X, Inf)
+        rmul!(coordinates(X), Inf)
+        @test isequal(collect(coordinates(X)), [NaN, Inf, NaN, NaN, NaN, NaN])
+        @test collect(activecoordinates(X)) == [2, 1, 3, 4, 5, 6]
     end
 
 end
@@ -413,44 +415,42 @@ end
         s[2, 2] = 5.
         M = [0. 1. 2.; 1. 5. 0.; 2. 0. 0.]
         @test Matrix(s) == M
-        # linear indices, length and iteration follow the dense matrix
-        @test length(s) == 9 && size(s) == (3, 3)
-        @test [s[i] for i in 1:9] == vec(M)
-        @test collect(s) == M
-        @test vec(s) == vec(M)
-        @test sum(s) == sum(M)
-        @test s == M
+        # linear indices, length and iteration follow the dense matrix of its view
+        A = matrixview(s)
+        @test size(s) == (3, 3) && length(A) == 9
+        @test [A[i] for i in 1:9] == vec(M)
+        @test collect(A) == M
+        @test vec(A) == vec(M)
+        @test sum(A) == sum(M)
+        @test A == M && Matrix(s) == M
         # an index outside the matrix does not alias an entry of the lower triangle
         @test_throws BoundsError s[4, 1]
         @test_throws BoundsError s[1, 4]
         @test_throws BoundsError (s[4, 1] = -1.)
-        @test_throws BoundsError s[10]
-        @test s[2, 2] == 5. && nnz(s) == 3
+        @test_throws BoundsError A[10]
+        @test s[2, 2] == 5. && nactive(s) == 3
     end
 
     @testset "writes update each entry once" begin
         p = 5
         A = sprandn(p, p, 0.4)
         S = SymmetricSparseIterate(sparse(A + A') + 2p * I)
-        # a linear index is an entry of the dense matrix, and writing it writes
+        # a pair of indices names an entry of the dense matrix, and writing it writes
         # its mirror image
-        S[7] = -1.                       # (2, 2)
+        S[2, 2] = -1.
         @test S[2, 2] == -1.
-        S[2] = 3.                        # (2, 1), so (1, 2) too
+        S[2, 1] = 3.                     # (2, 1), so (1, 2) too
         @test S[1, 2] == S[2, 1] == 3.
-        @test_throws BoundsError S[0]
-        @test_throws BoundsError S[p^2 + 1]
-        @test_throws BoundsError (S[p^2 + 1] = 1.)
-        # scaling and axpy update an off-diagonal entry once, not twice
+        @test_throws BoundsError S[0, 1]
+        @test_throws BoundsError S[1, p + 1]
+        @test_throws BoundsError (S[p + 1, 1] = 1.)
+        # scaling updates an off-diagonal entry once, not twice
         M = Matrix(S)
-        @test Matrix(rmul!(copy(S), 2.)) == 2M && Matrix(lmul!(2., copy(S))) == 2M
-        @test Matrix(rdiv!(copy(S), 2.)) == M / 2 && Matrix(ldiv!(2., copy(S))) == M / 2
-        @test Matrix(axpy!(2., M, copy(S))) ≈ 3M && Matrix(axpby!(2., M, 3., copy(S))) ≈ 5M
-        @test Matrix(axpy!(2., S, copy(S))) ≈ 3M
-        @test_throws DimensionMismatch axpy!(2., vec(M), copy(S))
-        @test Matrix(axpy!(0., fill(NaN, p, p), copy(S))) == M
-        @test_throws DimensionMismatch axpy!(1., ones(3, 3), copy(S))
-        @test_throws DimensionMismatch axpby!(1., ones(3, 3), 1., copy(S))
+        for (op!, expected) in ((c -> rmul!(c, 2.), 2M), (c -> lmul!(2., c), 2M),
+                                (c -> rdiv!(c, 2.), M / 2), (c -> ldiv!(2., c), M / 2))
+            Y = copy(S); op!(coordinates(Y))
+            @test Matrix(Y) == expected
+        end
         # a stored zero stays stored, and a SparseIterate is scaled in O(nnz)
         x = SparseIterate(sparse([1., 0., 2.]))
         @test rmul!(x, 3.) === x && Vector(x) == [3., 0., 6.] && nnz(x) == 2
@@ -470,7 +470,7 @@ end
         @test c isa AbstractVector && length(c) == ncoordinates(s)
         @test c[tril_index(p, 3, 2)] == 1.5 && c[tril_index(p, 4, 1)] == 0.
         c[tril_index(p, 4, 1)] = 7.             # writes the entries (4, 1) and (1, 4)
-        @test s[1, 4] == 7. && nnz(s) == 3
+        @test s[1, 4] == 7. && nactive(s) == 3
         @test_throws BoundsError c[ncoordinates(s) + 1]
         @test activate!(s, tril_index(p, 2, 2)) === s
         @test nactive(s) == 4 && s[2, 2] == 0.
@@ -480,15 +480,15 @@ end
         end
     end
 
-    @testset "dropzeros and nnz" begin
+    @testset "dropzeros and nactive" begin
         x = SymmetricSparseIterate(2)
         x[2, 2] = 2.
         x[1, 1] = 1.
-        @test nnz(x) == 2
+        @test nactive(x) == 2
         x[1, 1] = 0.
-        @test nnz(x) == 2
+        @test nactive(x) == 2
         dropzeros!(x)
-        @test nnz(x) == 1
+        @test nactive(x) == 1
         @test Matrix(x) == [0.  0.; 0. 2.]
     end
 
@@ -507,7 +507,7 @@ end
       @test_throws ArgumentError SymmetricSparseIterate(sparse(D))
       y = SymmetricSparseIterate(Symmetric(D, :L))
       @test Matrix(y) == Matrix(Symmetric(D, :L))
-      @test nnz(y) == 10
+      @test nactive(y) == 10
       @test size(SymmetricSparseIterate(0)) == (0, 0)
       for p in (-1, -2)
         @test_throws ArgumentError SymmetricSparseIterate(p)
@@ -515,15 +515,16 @@ end
       end
     end
 
-    @testset "broadcasting and copyto!" begin
+    @testset "coordinate broadcasting and copyto!" begin
       D = randn(5, 5); D = D + D'
       s = SymmetricSparseIterate(D)
-      s .= 2 .* s                      # each entry of the lower triangle once
+      θ = coordinates(s)
+      θ .= 2 .* θ                      # each variable once
       @test Matrix(s) ≈ 2D
-      s .= abs.(s) .- 1
+      θ .= abs.(θ) .- 1
       @test Matrix(s) ≈ abs.(2D) .- 1
       t = similar(s)
-      t .= s .+ D
+      copyto!(t, Matrix(s) .+ D)
       @test Matrix(t) ≈ abs.(2D) .- 1 .+ D
       # copyto! and broadcasting take a symmetric matrix, and one triangle of
       # a matrix that is not symmetric only through Symmetric
@@ -551,13 +552,13 @@ end
         @test Matrix(mixed) == Float32.(F)
       end
       @test_throws DimensionMismatch copyto!(t, view(F, 1:4, 1:4))
-      @test_throws ArgumentError t .= E
-      t .= Symmetric(E, :L)
+      copyto!(t, Symmetric(E, :L))
       @test Matrix(t) == Matrix(Symmetric(E, :L))
-      fill!(t, 0)
-      @test nnz(t) == 0
-      fill!(t, 1.)
-      @test Matrix(t) == ones(5, 5) && nnz(t) == 15
+      fill!(coordinates(t), 0)
+      dropzeros!(t)
+      @test nactive(t) == 0
+      fill!(coordinates(t), 1.)
+      @test Matrix(t) == ones(5, 5) && nactive(t) == 15
     end
 
     @testset "copyto! from sparse wrappers" begin
@@ -568,7 +569,8 @@ end
         push!(wraps, M -> view(M, :, 1:2))
       end
       for wrap in wraps
-        dest = fill!(SymmetricSparseIterate(Float64, 2), 9)
+        dest = SymmetricSparseIterate(Float64, 2)
+        fill!(coordinates(dest), 9)
         @test_throws ArgumentError copyto!(dest, wrap(A))
         @test Matrix(dest) == fill(9, 2, 2)
         source = wrap(B)
@@ -599,12 +601,12 @@ end
       y = similar(x)
       @test y isa SymmetricSparseIterate{Float64}
       @test size(y) == size(x)
-      @test nnz(y) == 0
+      @test nactive(y) == 0
       @test similar(x, Float32) isa SymmetricSparseIterate{Float32}
 
       copyto!(y, x)
       @test Matrix(y) == Matrix(x)
-      @test nnz(y) == nnz(x)
+      @test nactive(y) == nactive(x)
       @test_throws DimensionMismatch copyto!(SymmetricSparseIterate(3), x)
       z = copy(x)
       @test z isa SymmetricSparseIterate && Matrix(z) == Matrix(x)
@@ -614,10 +616,10 @@ end
       y = SymmetricSparseIterate(20); y[5, 5] = -1.; y[9, 2] = 4.
       copyto!(x, y)
       @test Matrix(x) == Matrix(y)
-      @test nnz(x) == 2
+      @test nactive(x) == 2
       x[1, 3] = 6.
       @test x[3, 1] == 6.
-      @test nnz(x) == 3
+      @test nactive(x) == 3
       @test Matrix(y)[3, 1] == 0.
     end
 end

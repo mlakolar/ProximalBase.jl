@@ -1,10 +1,12 @@
 flowchart BT
   SI["SparseIterate"] --> AA["AbstractArray"]
-  SS["SymmetricSparseIterate"] --> AM["AbstractMatrix"]
   AT["AtomIterate"] --> AV["AbstractVector"]
-  AM --> AA
   AV --> AA
-  SI --o|values and index maps| ST["Stored entries"]
-  SS --o|lower triangle| ST
+  AM["AbstractMatrix"] --> AA
+  SS["SymmetricSparseIterate (not an array)"] --o|lower triangle| ST["Stored entries"]
+  SI --o|values and index maps| ST
   AT --o|dense data and active groups| GROUP["Group storage"]
-  V["SymmetricCoordinates view"] --o|contains| SS
+  V["coordinates(x): SymmetricCoordinates"] --> AV
+  W["matrixview(x): SymmetricMatrixView"] --> AM
+  V --o|contains| SS
+  W --o|contains| SS

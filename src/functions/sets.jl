@@ -162,7 +162,9 @@ end
 
 # the entries of the lower triangle of a symmetric matrix, the diagonal unless
 # it does not count
-function (f::IndBallL0)(x::Union{Symmetric, SymmetricSparseIterate})
+(f::IndBallL0)(x::Symmetric) = _symmetric_l0_value(f, x)
+(f::IndBallL0)(x::SymmetricSparseIterate) = _symmetric_l0_value(f, x)
+function _symmetric_l0_value(f::IndBallL0, x)
   _checkreal(f, x)
   p = checksquare(x)
   T = _valtype(x)
@@ -321,13 +323,13 @@ end
 
 # a symmetric matrix: the entries of the lower triangle, each counted once and
 # written to both triangles of a dense output
-function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSparseIterate}, γ::Real)
+function prox!(y::AbstractMatrix, f::IndBallL0, x::Symmetric, γ::Real)
   _checkstep_nonneg(γ)
   _checkwrite(prox!, f, y, x)
   _direct_prox!(y, f, x)
   y
 end
-function _direct_prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSparseIterate})
+function _direct_prox!(y::AbstractMatrix, f::IndBallL0, x::Symmetric)
   p = checksquare(x)
   T = float(eltype(x))
   first_row(c) = f.diagonal ? c : c + 1
@@ -377,7 +379,7 @@ end
 # entry is off the diagonal, and the weight is 1
 @inline _pairweight(f::IndBallL0, r, c, w) = f.diagonal && r != c ? w : one(w)
 
-@inline _set_symmetric!(y::SymmetricSparseIterate, v, r, c) = _setstored!(y, v, tril_index(y.p, r, c))
+@inline _set_symmetric!(y::_OwnerMatrix, v, r, c) = _setstored!(y.x, v, tril_index(y.x.p, r, c))
 @inline function _set_symmetric!(y::AbstractMatrix, v, r, c)
   @inbounds y[r, c] = v
   @inbounds y[c, r] = v
@@ -849,7 +851,7 @@ function _classify(y::AbstractArray, x::AbstractArray, target)
   i = pos + neg == 0 ? nothing : findfirst(target, x)
   _Classes(nan, pos, neg, length(x), i === nothing ? 0 : LinearIndices(x)[i], 0)
 end
-function _classify(y::SymmetricSparseIterate, x::AbstractArray, target)
+function _classify(y::_OwnerMatrix, x::AbstractArray, target)
   p = size(x, 1)
   nan = pos = neg = at = col = 0
   for c in 1:p, r in c:p
@@ -875,7 +877,7 @@ function _vertex!(y::AbstractArray, f, c::_Classes, v)
   y .= ifelse.(LinearIndices(y) .== c.at, vv, zero(vv))
   false
 end
-function _vertex!(y::SymmetricSparseIterate, f, c::_Classes, v)
+function _vertex!(y::_OwnerMatrix, f, c::_Classes, v)
   fill!(y, zero(eltype(y)))
   _set_symmetric!(y, convert(eltype(y), c.at == c.col ? v : v * _pairweight(f)), c.at, c.col)
   false
@@ -1112,16 +1114,19 @@ for F in (:IndHyperplane, :IndHalfspace, :IndHyperslab)
 end
 _checkparams(f::Union{IndHyperplane, IndHalfspace}, x) = (_checkparam(f.a, x); true)
 
+# the axes of an array, or of the matrix that an owner represents
+_matrix_axes(x) = axes(x)
+_matrix_axes(x::SymmetricSparseIterate) = _owner_axes(x)
 function _checkparams(f::IndHyperslab, x)
   _checkparam(f.a, x)
-  f.a isa AbstractArray && Base.Broadcast.check_broadcast_axes(axes(x), f.a)
+  f.a isa AbstractArray && Base.Broadcast.check_broadcast_axes(_matrix_axes(x), f.a)
   true
 end
 
 # ⟨a, x⟩ and ‖a‖², for an array a or a scalar one
 _dot_normal(a::Real, x::AbstractArray) = a * sum(x)
 _dot_normal(a::AbstractArray, x::AbstractArray) = dot(a, x)
-_normal_sqnorm(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::AbstractArray) = f.a isa Real ? f.q * length(x) : f.q
+_normal_sqnorm(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::_ArrayOrOwner) = f.a isa Real ? f.q * _nentries(x) : f.q
 function _dot_normal(a::_ScaledNormal, x::AbstractArray)
   _checkparam(a, x)
   T = float(promote_type(eltype(a), eltype(x)))
@@ -1150,8 +1155,8 @@ end
 
 (f::IndHyperplane)(x::AbstractArray) =
   (_check_value_arrays(f, x); _value_checked(f, x))
-_value_unchecked(f::IndHyperplane, x::AbstractArray) = _normal_value(f, x, Val(false))
-function _normal_value(f::IndHyperplane, x::AbstractArray, checked)
+_value_unchecked(f::IndHyperplane, x::_ArrayOrOwner) = _normal_value(f, x, Val(false))
+function _normal_value(f::IndHyperplane, x::_ArrayOrOwner, checked)
   T = float(eltype(x))
   eltype(x) <: Integer && return _linear_scaled_value(f, x, T, f.b, false, checked)
   _isscaled(f) && return _scaled_normal_value(f, x, T, f.b, false, checked)
@@ -1163,8 +1168,8 @@ function _normal_value(f::IndHyperplane, x::AbstractArray, checked)
 end
 (f::IndHalfspace)(x::AbstractArray) =
   (_check_value_arrays(f, x); _value_checked(f, x))
-_value_unchecked(f::IndHalfspace, x::AbstractArray) = _normal_value(f, x, Val(false))
-function _normal_value(f::IndHalfspace, x::AbstractArray, checked)
+_value_unchecked(f::IndHalfspace, x::_ArrayOrOwner) = _normal_value(f, x, Val(false))
+function _normal_value(f::IndHalfspace, x::_ArrayOrOwner, checked)
   _halfspace_value(f, x, f.b, false, checked)
 end
 
@@ -1181,8 +1186,8 @@ end
 
 (f::IndHyperslab)(x::AbstractArray) =
   (_check_value_arrays(f, x); _value_checked(f, x))
-_value_unchecked(f::IndHyperslab, x::AbstractArray) = _normal_value(f, x, Val(false))
-function _normal_value(f::IndHyperslab, x::AbstractArray, checked)
+_value_unchecked(f::IndHyperslab, x::_ArrayOrOwner) = _normal_value(f, x, Val(false))
+function _normal_value(f::IndHyperslab, x::_ArrayOrOwner, checked)
   _checkparams(f, x)
   T = float(eltype(x))
   isfinite(f.l) && !iszero(_halfspace_value(f, x, f.l, true, checked)) && return T(Inf)
@@ -1216,7 +1221,7 @@ end
   a = _normalized_normal(f.a, f.s)
   g = _value_scaled_dot(a, x, s, checked) - b
   nx = sqrt(_scaled_sumabs2(x, s))
-  q = f.a isa Real ? sqrt(S(f.q)) * sqrt(S(length(x))) : sqrt(S(f.q))
+  q = f.a isa Real ? sqrt(S(f.q)) * sqrt(S(_nentries(x))) : sqrt(S(f.q))
   tol = _isscaled(f) ? max(_tol(T), _tol(typeof(f.q))) : _tol(T)
   slack = tol * max(ldexp(one(S), e - k), abs(b), q * nx)
   _ind(f isa IndHyperplane ? abs(g) <= slack : (lower ? -g <= slack : g <= slack), T)
@@ -1455,3 +1460,30 @@ end
 # a step that the indicator projections reject, found before any block of a sum is written
 _checkstep(op::O, ::Union{IndBallL0, IndBallL1, IndBallL2, IndSphereL2, IndSimplex}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
   _checkstep_nonneg(γ)
+
+####################################
+#  a SymmetricSparseIterate
+####################################
+
+# The direct projections, the ℓ0 ball and the hyperplanes, halfspaces and hyperslabs, with the owner of a
+# symmetric matrix as the destination or as the point. The matrix of the owner is the argument or the output:
+# a mirrored pair is one coordinate counted twice in the norm and in ⟨a, X⟩. The ℓ0 ball counts the
+# coordinates of the lower triangle, so an owner or a Symmetric argument reaches it as a Symmetric one.
+# The value of the four direct projections at an owner is not defined; the value of the ℓ0 ball, and of
+# a hyperplane, halfspace or hyperslab, is.
+const _OwnerSets = Union{IndBallL0, IndBallL1, IndBallL2, IndSphereL2, IndSimplex, IndHyperplane, IndHalfspace, IndHyperslab}
+_dense_set_point(f, x::SymmetricSparseIterate) = matrixview(x)
+_dense_set_point(f::IndBallL0, x::SymmetricSparseIterate) = Symmetric(matrixview(x), :L)
+
+prox!(y::SymmetricSparseIterate, f::_OwnerSets, x::_ArrayOrOwner, γ::Real) = _owner_prox!(y, f, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, f::_OwnerSets, x::_ArrayOrOwner, γ::Real) = _owner_value_and_prox!(y, f, x, γ)
+# a dense output reads the parameters at every entry of the matrix of the owner: they are checked first
+prox!(y::AbstractArray, f::_OwnerSets, x::SymmetricSparseIterate, γ::Real) =
+  (_check_entry_arrays(f, x); prox!(y, f, _dense_set_point(f, x), γ))
+value_and_prox!(y::AbstractArray, f::_OwnerSets, x::SymmetricSparseIterate, γ::Real) =
+  (_check_entry_arrays(f, x); value_and_prox!(y, f, _dense_set_point(f, x), γ))
+prox(f::_OwnerSets, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
+
+(f::IndHyperplane)(x::SymmetricSparseIterate) = (_check_value_arrays(f, x); _value_checked(f, x))
+(f::IndHalfspace)(x::SymmetricSparseIterate) = (_check_value_arrays(f, x); _value_checked(f, x))
+(f::IndHyperslab)(x::SymmetricSparseIterate) = (_check_value_arrays(f, x); _value_checked(f, x))

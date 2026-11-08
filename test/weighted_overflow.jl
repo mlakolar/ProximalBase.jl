@@ -84,7 +84,7 @@ end
       a = AtomIterate(x, f isa PB.AbstractGroupPenalty ? f : GroupNormL2(1, [1:1]))
       check_rounded(f(a), ref)
       check_rounded(value_and_prox!(copy(a), f, a, 1e-80), ref)
-      if !(f isa PB.AbstractGroupPenalty)
+      if !(f isa Union{PB.AbstractGroupPenalty, NormLinf})      # NormLinf has no owner method
         z = SymmetricSparseIterate(reshape(x, 1, 1))
         check_rounded(f(z), ref)
         check_rounded(value_and_prox!(copy(z), f, z, 1e-80), ref)

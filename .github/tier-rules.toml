@@ -253,11 +253,8 @@ focus = [
   "block_step",
   "sparse_value_cost",
   "conformance/failures_storage",
-  "symmetric_writes",
   "symmetric_mul",
   "symmetric_argument",
-  "symmetric_mutators",
-  "symmetric_mutator_errors",
 ]
 paths = ["src/sparse_iterate.jl"]
 

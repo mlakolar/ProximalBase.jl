@@ -857,8 +857,8 @@ SumLargest(k::Integer, λ::Real = 1) = SumLargest{typeof(λ)}(k, λ)
 
 isproximable(::Type{<:SumLargest}) = true
 isconvex(::Type{<:SumLargest}) = true
-_checkparams(f::SumLargest, x) = f.k <= length(x) ||
-  throw(DimensionMismatch("k = $(f.k) exceeds the argument's length $(length(x))"))
+_checkparams(f::SumLargest, x) = f.k <= _nentries(x) ||
+  throw(DimensionMismatch("k = $(f.k) exceeds the argument's length $(_nentries(x))"))
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SumLargest, y::AbstractArray, x::AbstractArray) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkparams(f, x); Base.require_one_based_indexing(y, x); true)
 
@@ -1130,6 +1130,9 @@ end
 prox!(y::AbstractArray, f::SumLargest, x::AbstractArray, γ::Real) =
   _sumlargest_prox!(y, f, _symmetric_argument(y, x), γ, Val(false))
 value_and_prox!(y::AbstractArray, f::SumLargest, x::AbstractArray, γ::Real) = f(prox!(y, f, x, γ))
+# an owner output, formed in a staged matrix and written to the owner last
+prox!(y::SymmetricSparseIterate, f::SumLargest, x::_ArrayOrOwner, γ::Real) = _staged_owner!(prox!, y, f, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, f::SumLargest, x::_ArrayOrOwner, γ::Real) = _staged_owner!(value_and_prox!, y, f, x, γ)
 
 function _checkstep(op::O, f::SumLargest, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
   T = float(eltype(y))

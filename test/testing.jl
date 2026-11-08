@@ -294,8 +294,9 @@ PB.value_and_gradient!(g, r::Recorder, x) = (r.gradients[] += 1; value_and_gradi
               SparseIterate(2, 2), SparseIterate([1. 0; 0 2]),
               SymmetricSparseIterate(2), SymmetricSparseIterate([1. 2; 2 0]),
               large_atom, large_sparse)
-      x[1] = 1
-      x[1] = 0
+      c = x isa SymmetricSparseIterate ? coordinates(x) : x
+      c[1] = 1
+      c[1] = 0
       before = state(x)
       @test passes(() -> @test PT.test_iterate(x) === x)
       @test isequal(state(x), before)

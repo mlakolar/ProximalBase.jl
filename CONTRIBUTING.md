@@ -281,10 +281,10 @@ iterate files that quick always runs (`active_handle`, `atom_iterate`,
 `nested_scaled_grids`, `scaled_infinite_level_underflow_grids`,
 `sparse_iterate_basics_grids`, `symmetric_groups_grids`,
 `zero_level_infinite_step_grids`, listed in `test/TESTING.md`) are in the full tier.
-`constrained_basics_grids` is run for a change to `src/constrained.jl`. The last three
-files named above are companions of thorough-tier files; the rule for `src/calculus.jl`
+`constrained_basics_grids` is run for a change to `src/constrained.jl`. `scaled_infinite_level_underflow_grids`,
+`symmetric_groups_grids` and `zero_level_infinite_step_grids` are companions of thorough-tier files; the rule for `src/calculus.jl`
 and the rule for the shared sources list them, and no standard-tier rule does, so a pull
-request on a standard-tier path does not run them. A pull request runs a grids file for a change to the source of its
+request that changes only a standard-tier path does not run them. A pull request runs a grids file for a change to the source of its
 own family (`.github/tier-rules.toml` lists the paths, `test/TESTING.md` the map), the
 nightly run and `test:full` run all of them, and `julia scripts/test.jl <name>_grids`
 runs one by name. Other source paths do not add them as automatic focus files; they

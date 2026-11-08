@@ -200,7 +200,8 @@ runs both. The cases are moved with their assertions; the loop guards and the co
 adjusted. Quick
 keeps the Float64 pass of each operation family, a Float32 representative of each, and an atomicity,
 aliasing or NaN case of each kind for a representative function (listed per file below). The Float64
-cases that moved are the ones the table names for `atom_iterate`.
+cases that moved are the ones the table names for `atom_iterate` and for
+`scaled_infinite_level_underflow` (the wrapper variants of 16 indicators).
 
 | Base file + companion (Full) | What the companion holds | Assertions: before = base file + grids |
 |---|---|---|
@@ -236,10 +237,12 @@ The base file does not run these cases (Quick for six companions, Thorough for t
     `src/calculus.jl` and the shared sources. Their base files are Thorough-tier files. The two thorough
     rules, the rule for `src/calculus.jl` and the rule for the shared sources, list these three companions, so a
     pull request on one of those paths runs them beside thorough, and the base files run the Float64 cases
-    and the Float32 representatives that stay. No standard-tier rule lists them: a pull request on such a path does not run the base files, and a
+    and the Float32 representatives that stay. No standard-tier rule lists them: a pull request that changes only such a path does not run the base files, and a
     companion would run the Float32 repeats without the Float64 cases they repeat. A pull request that is
     thorough for another reason (the label `test:thorough`, or a path whose rule does not list them) runs the
-    base files without these companions, and the cases that moved run in the nightly full tier.
+    base files without these companions when no changed file or other rule adds one (a changed companion
+    selects itself, and a change to `src/utils.jl` or `src/calculus.jl` adds all three), and the cases that
+    moved run in the nightly full tier.
   With the label `test:iterate-narrow`, a pull request that changes a single `AtomIterate` or
   `SparseIterate` implementation source (`src/atom_iterate.jl` or `src/sparse_iterate.jl`) and no path
   that needs a higher tier gives quick and that iterate's own grids file. `src/symmetric_parameters.jl`

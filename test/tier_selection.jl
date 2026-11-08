@@ -393,8 +393,8 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
 #   shared:    whether the rule for the code shared by every function (src/utils.jl, ...) lists it;
 #   paths:     the source paths of its own family, each with the tier the rules give a change to it.
 # The rows with base_tier "thorough" are listed by the two thorough rules, the rule for src/calculus.jl
-# and the shared rule, and by no standard-tier rule: a pull request on a standard-tier path did not run
-# their base files, so the grids file would run the Float32 repeats without the Float64 cases they repeat.
+# and the shared rule, and by no standard-tier rule: a pull request that changes only a standard-tier
+# path did not run their base files, so the grids file would run the Float32 repeats without the Float64 cases they repeat.
 const GRIDS = [
   (grids = "atom_iterate_grids", base = "atom_iterate", base_tier = "quick", shared = false,
    paths = ["src/atom_iterate.jl" => "standard", "src/functions/norms.jl" => "standard",
@@ -752,7 +752,7 @@ end
   # master pushes (thorough) run none of them, the nightly run (full) all
   @test isdisjoint(allgrids, thorough) && issubset(allgrids, full)
   # the listed source paths get their grids files as focus (the shared rule lists other paths too,
-  # such as src/interface.jl, with the same three), and the tier the path had before
+  # such as src/interface.jl, with the same six shared grids files), and the tier the path had before
   for (path, (want_tier, names)) in GRIDS_OF
     tier, focus = classify(path)
     @test sort(filter(in(allgrids), focus)) == names

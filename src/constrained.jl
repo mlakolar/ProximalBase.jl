@@ -888,9 +888,10 @@ _accepted(c::LinearConstrained, x::AbstractArray, γ, p::_Proposal{Float32}) =
 # noise of Float64. The output is formed in Float64 at that multiplier and rounded once to the destination.
 
 # the entry maps of f in Float64 with the parameters of the Float32 problem, as a function of the search
-struct _Wide{F} <: SeparableFunction
+struct _Wide{F} <: AbstractFunction
   f::F
 end
+isseparable(::Type{<:_Wide}) = true
 isconvex(::Type{<:_Wide}) = true
 Base.@propagate_inbounds prox_entry(g::_Wide, v::Real, i::Integer, γ::Real) = _prox_entry_wide(g.f, Float64(v), i, Float32(γ))
 

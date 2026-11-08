@@ -413,7 +413,8 @@ Base.copy!(x::AtomIterate, y::SparseIterate) = copyto!(x, y)
 
 function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{Nothing})
   _checkreal_broadcast(x, bc)
-  _real_broadcast!(x, bc)
+  _staged_result(bc) && return _staged_broadcast!(x, bc)
+  _broadcast_loop!(x, bc)
 end
 
 function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{S}) where {S<:Broadcast.DefaultArrayStyle{0}}

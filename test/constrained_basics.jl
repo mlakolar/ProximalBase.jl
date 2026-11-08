@@ -583,7 +583,7 @@ snap(a::AtomIterate) = copy(a.storage)
 snap(a::SymmetricSparseIterate) = Matrix(a)
 snap(t::Tuple) = map(snap, t)
 
-# The eight role cases of a representation `arr(val)` that gives a 2×2 array holding `val`: it is the output, the input, the
+# The seven role cases of a representation `arr(val)` that gives a 2×2 array holding `val`: it is the output, the input, the
 # lower or the upper bound, the array step and the weights (for both ridge levels) of the fused value. A case is
 # `nothing` when Base refuses to build the function with that representation.
 function role_cases(arr)

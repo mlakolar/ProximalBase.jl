@@ -44,10 +44,11 @@ the `e` with `d = min(D, s - 2e)` at which the saving is largest (`D` is the num
 diagonal entries); with `diagonal = false` it keeps the `fld(s, 2)` pairs of largest magnitude. Within
 diagonal entries, and within pairs, a tie in magnitude is broken for the entry earlier in the lower
 triangle read by columns, and between two choices of `e` with equal saving the one with the smaller `e` is
-taken. The savings are compared in floating point, after the magnitudes are scaled by a power of two so
-that the largest finite one is at most 1 (the squares cannot overflow); the support kept is a maximizer of
-the saved squared error up to the rounding of that comparison, and exactly so when the scaled squares are
-exactly representable (`Float32` sums in `Float64`). An infinite entry is a limit of finite magnitudes: it
+taken. The ranking inside the diagonal entries, and inside the pairs, is exact (by the magnitudes themselves). The
+number of pairs kept is chosen by comparing the savings in floating point, with the squares formed from
+magnitudes scaled by a power of two so that the largest finite one is at most 1 (they cannot overflow;
+`Float32` sums in `Float64`): the choice is a maximizer of the saved squared error up to the rounding of the
+sums of squares in that comparison, so that a difference below that rounding can be decided either way. An infinite entry is a limit of finite magnitudes: it
 is kept in preference to any finite one, the choices compared first by the weight of the infinite entries
 they keep (one for a diagonal entry, two for a pair) and then by the finite saving. The cost is O(p²) for
 the selection plus a sort of the kept candidates, without allocating after the first call.
@@ -421,24 +422,24 @@ function _direct_prox!(y::AbstractMatrix, f::IndBallL0, x::Symmetric)
     τ, ties = zero(A), 0
     if kp > 0
       buf = _buffer!(f.scratch, A, E)
-      _l0_gather_pairs!(buf, x, p, A, 0)
+      _l0_gather_pairs!(buf, x, p, A)
       τ = _kth_largest!(view(buf, 1:E), kp)
       ties = kp - _l0_count_above(buf, E, τ)
     end
-    _l0_write_selected!(y, f, x, p, A, 0, 0, τ, 0, kp, τ, ties)
+    _l0_write_selected!(y, f, x, p, A, 0, τ, 0, kp, τ, ties)
     return false
   end
   Kd, Kp = min(D, s), min(E, s ÷ 2)
-  sh = M > 0 ? exponent(M) + 1 : 0          # the squares are of magnitudes at most 1, so they cannot overflow
+  sh = M > 0 ? exponent(M) + 1 : 0          # the squares are formed from magnitudes at most 1, so they cannot overflow
   buf = _buffer!(f.scratch, A, D + E + Kd + 1)
   bd, bp, pre = view(buf, 1:D), view(buf, D + 1:D + E), view(buf, D + E + 1:D + E + Kd + 1)
   if Kd > 0
-    _l0_gather_diagonal!(bd, x, p, A, sh)
+    _l0_gather_diagonal!(bd, x, p, A)
     Kd < D && _kth_largest!(bd, Kd)
     sort!(view(bd, 1:Kd); rev = true, alg = QuickSort)
   end
   if Kp > 0
-    _l0_gather_pairs!(bp, x, p, A, sh)
+    _l0_gather_pairs!(bp, x, p, A)
     Kp < E && _kth_largest!(bp, Kp)
     sort!(view(bp, 1:Kp); rev = true, alg = QuickSort)
   end
@@ -448,7 +449,7 @@ function _direct_prox!(y::AbstractMatrix, f::IndBallL0, x::Symmetric)
   @inbounds for i in 1:Kd
     a = bd[i]
     Id += isinf(a)
-    pre[i + 1] = pre[i] + _l0_square(a)
+    pre[i + 1] = pre[i] + _l0_square(a, sh)
   end
   Ie = 0
   @inbounds for i in 1:Kp
@@ -459,7 +460,7 @@ function _direct_prox!(y::AbstractMatrix, f::IndBallL0, x::Symmetric)
   beste, bestw, bestsav = 0, -1, zero(A)
   Q = zero(A)
   @inbounds for e in 0:Kp
-    e > 0 && (Q += _l0_square(bp[e]))
+    e > 0 && (Q += _l0_square(bp[e], sh))
     d = min(D, s - 2e)
     w = min(d, Id) + 2 * min(e, Ie)
     sav = pre[d + 1] + 2 * Q
@@ -473,29 +474,30 @@ function _direct_prox!(y::AbstractMatrix, f::IndBallL0, x::Symmetric)
   τp = e > 0 ? bp[e] : zero(A)
   td = d - _l0_count_above(bd, d, τd)
   tp = e - _l0_count_above(bp, e, τp)
-  _l0_write_selected!(y, f, x, p, A, sh, d, τd, td, e, τp, tp)
+  _l0_write_selected!(y, f, x, p, A, d, τd, td, e, τp, tp)
   false
 end
 
-# the magnitude of v scaled by 2^-sh, in the type A of the sums
-@inline _l0_mag(::Type{A}, v, sh::Int) where {A} = ldexp(abs(A(v)), -sh)
-@inline _l0_square(a) = isinf(a) ? zero(a) : a * a
+# the magnitude of v in the type A of the sums: the ranking inside a class uses it unscaled, so that no
+# entry is lost to underflow; only the squares of the sums are formed from magnitudes scaled by 2^-sh
+@inline _l0_mag(::Type{A}, v) where {A} = abs(A(v))
+@inline _l0_square(a, sh::Int) = isinf(a) ? zero(a) : (b = ldexp(a, -sh); b * b)
 
 # the scaled magnitudes of the nonzero diagonal entries, and of the nonzero pairs, in the order of the
 # lower triangle by columns
-function _l0_gather_diagonal!(buf, x, p::Int, ::Type{A}, sh::Int) where {A}
+function _l0_gather_diagonal!(buf, x, p::Int, ::Type{A}) where {A}
   k = 0
   @inbounds for c in 1:p
     v = x[c, c]
-    iszero(v) || (buf[k += 1] = _l0_mag(A, v, sh))
+    iszero(v) || (buf[k += 1] = _l0_mag(A, v))
   end
   k
 end
-function _l0_gather_pairs!(buf, x, p::Int, ::Type{A}, sh::Int) where {A}
+function _l0_gather_pairs!(buf, x, p::Int, ::Type{A}) where {A}
   k = 0
   @inbounds for c in 1:p, r in c + 1:p
     v = x[r, c]
-    iszero(v) || (buf[k += 1] = _l0_mag(A, v, sh))
+    iszero(v) || (buf[k += 1] = _l0_mag(A, v))
   end
   k
 end
@@ -512,7 +514,7 @@ end
 # Write the selection: of the nonzero diagonal entries the d of largest magnitude, and of the nonzero pairs the
 # e of largest magnitude, the entries above the threshold and the first `ties` of those at it, in the order of
 # the lower triangle by columns. A diagonal entry that does not count is kept.
-function _l0_write_selected!(y, f::IndBallL0, x, p::Int, ::Type{A}, sh::Int, d::Int, τd, td::Int, e::Int, τp, tp::Int) where {A}
+function _l0_write_selected!(y, f::IndBallL0, x, p::Int, ::Type{A}, d::Int, τd, td::Int, e::Int, τp, tp::Int) where {A}
   @inbounds for c in 1:p, r in c:p
     v = x[r, c]
     keep = iszero(v)
@@ -520,7 +522,7 @@ function _l0_write_selected!(y, f::IndBallL0, x, p::Int, ::Type{A}, sh::Int, d::
       if !f.diagonal
         keep = true
       elseif !keep && d > 0
-        a = _l0_mag(A, v, sh)
+        a = _l0_mag(A, v)
         if a > τd
           keep = true
         elseif a == τd && td > 0
@@ -529,7 +531,7 @@ function _l0_write_selected!(y, f::IndBallL0, x, p::Int, ::Type{A}, sh::Int, d::
         end
       end
     elseif !keep && e > 0
-      a = _l0_mag(A, v, sh)
+      a = _l0_mag(A, v)
       if a > τp
         keep = true
       elseif a == τp && tp > 0

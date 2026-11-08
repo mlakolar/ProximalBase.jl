@@ -1,7 +1,8 @@
 module L0SymmetricFullEntryTest
 
 # IndBallL0 on a symmetric matrix counts full entries (#798): a nonzero diagonal entry counts one, a nonzero
-# off-diagonal pair counts two, and the projection is the exact Frobenius projection onto that set. The oracle
+# off-diagonal pair counts two, and the projection is the Frobenius projection onto that set (the ranking inside a class exactly, the number of
+# pairs up to the rounding of the sums of squares). The oracle
 # below enumerates every support within the budget (p ≤ 4) with exact rational arithmetic and does not call
 # any selection code of the package.
 
@@ -59,7 +60,7 @@ prod_error(X, Y) = sum((fx(X[r, c]) - fx(Y[r, c]))^2 for r in 1:size(X, 1), c in
 value_at(X, s, diagonal) = fullcount(X, diagonal) <= s ? 0 : Inf
 
 # The output is feasible, symmetric, made of kept and zeroed entries, a projection of the least error: exactly
-# (mode :exact, inputs whose scaled squares are exact), within a relative tolerance of the optimal error
+# (mode :exact, inputs whose sums of squares are exact, here small integers), within a relative tolerance of the optimal error
 # (:relative), or within that tolerance of the total energy (:range, entries of very different magnitude,
 # where the comparison of the savings rounds before the small terms that fix the optimal error are seen).
 function verify(f, X::Matrix{T}, Y, mode) where {T}
@@ -308,12 +309,12 @@ end
 @testset "a large dynamic range, $T" for T in (Float32, Float64)
   Random.seed!(7982)
   fm, fn, ε = floatmax(T), floatmin(T), nextfloat(zero(T))
-  # powers of two, so that the scaled squares are exact although the squares overflow
+  # powers of two, so that the squares overflow; the sums of squares round, so the tolerance is that of the energy
   b2 = ldexp(one(T), exponent(fm))
   Xbig = T[b2 b2/2 0; b2/2 b2/4 0; 0 0 b2/8]
   Xsmall = ε * T[3 2 0; 2 1 0; 0 0 2]                          # subnormal, a square underflows
   Xnear = T[fm fn 0; fn ε 0; 0 0 fm]
-  for (X, mode) in ((Xbig, :exact), (Xsmall, :exact), (Xnear, :range)), diagonal in (true, false), s in 0:10
+  for (X, mode) in ((Xbig, :range), (Xsmall, :range), (Xnear, :range)), diagonal in (true, false), s in 0:10
     run_case(X, s, diagonal, mode)
   end
   # random entries of mixed magnitude: the support is optimal up to the rounding of the comparison
@@ -329,6 +330,37 @@ end
     for diagonal in (true, false), s in budgets(p, diagonal)
       run_case(XB, s, diagonal, :relative)
     end
+  end
+end
+
+@testset "the ranking inside a class does not depend on the other class" begin
+  a, h = ldexp(1.0, -1000), ldexp(1.0, 1000)
+  X = [a h; h 2a]
+  for uplo in (:L, :U)
+    @test prox(IndBallL0(1), Symmetric(X, uplo)) == [0.0 0.0; 0.0 2a]      # the pair cannot fit at s = 1
+  end
+  Y = copy(X); prox!(Y, IndBallL0(1), Symmetric(Y, :L), 1)
+  @test Y == [0.0 0.0; 0.0 2a]
+  O = SymmetricSparseIterate(X); prox!(O, IndBallL0(1), O, 1)
+  @test Matrix(O) == [0.0 0.0; 0.0 2a]
+  # a huge ineligible class and unequal tiny entries in the other
+  X3 = [a h 0; h 2a 0; 0 0 3a]
+  for uplo in (:L, :U)
+    @test prox(IndBallL0(2), Symmetric(X3, uplo)) == [0.0 h 0; h 0 0; 0 0 0]   # the pair saves 2h², two diagonal entries ~0
+    @test prox(IndBallL0(1), Symmetric(X3, uplo)) == [0.0 0 0; 0 0 0; 0 0 3a]
+  end
+  O3 = SymmetricSparseIterate(X3); prox!(O3, IndBallL0(1), O3, 1)
+  @test Matrix(O3) == [0.0 0 0; 0 0 0; 0 0 3a]
+end
+
+# A near tie decided by the rounding of the sums of squares: the scaled squares are exact but 1/4 + 2^-58 rounds
+# to 1/4, so either choice of the number of pairs may be returned. The optimal savings differ by 2^-55 against
+# 2^-53, so only feasibility and an error within 1e-12 of the energy (relative 1e-12 of the total) are required.
+@testset "a near tie in the number of pairs" begin
+  t, b = 2.0^-28, 2.0^-27
+  X = [1.0 b 0.0; b t 0.0; 0.0 0.0 t]
+  for diagonal in (true, false), s in 0:10
+    run_case(X, s, diagonal, :range)
   end
 end
 

@@ -27,7 +27,7 @@ feasibility certificate.
 | [`IndSphereL2`](@ref)`(r)` | ``\lVert x\rVert_2 = r``, nonconvex | ``r\,v/\lVert v\rVert_2`` |
 | [`IndBallL1`](@ref)`(r)` | ``\lVert x\rVert_1 \le r`` | ``\operatorname{sign}(v)\odot P_{\Delta_r}(\lvert v\rvert)``, by Condat's algorithm |
 | [`IndSimplex`](@ref)`(r)` | ``x \ge 0,\ \sum_i x_i = r`` | ``\max(v - \tau, 0)`` |
-| [`IndBallL0`](@ref)`(s)` | at most ``s`` nonzero entries (a symmetric matrix: ``d + 2e \le s``, see [Sparsity](@ref)) | keep the ``s`` largest in magnitude |
+| [`IndBallL0`](@ref)`(s)` | at most ``s`` nonzero entries (a symmetric matrix: ``d + 2e \le s``, see [Sparsity](@ref)) | ordinary arrays: keep the ``s`` largest in magnitude; symmetric matrices: the weighted selection of [Sparsity](@ref) |
 | [`IndBallGroupL0`](@ref)`(s, groups)` | at most ``s`` nonzero groups | keep the ``s`` groups of largest norm |
 | [`IndHyperplane`](@ref)`(a, b)` | ``\langle a, x\rangle = b`` | ``v - \frac{\langle a, v\rangle - b}{\lVert a\rVert^2}\,a`` |
 | [`IndHalfspace`](@ref)`(a, b)` | ``\langle a, x\rangle \le b`` | the same when ``\langle a, v\rangle > b`` |
@@ -368,11 +368,14 @@ nonzero off-diagonal pair ``x_{ij} = x_{ji}`` costs two, so the set is
 an entry and its transpose are kept or dropped together. Dropping a pair costs
 ``2x_{ij}^2`` in the Frobenius norm and a diagonal entry ``x_{ii}^2``, so keeping
 a diagonal entry saves ``x_{ii}^2`` for one unit and keeping a pair saves
-``2x_{ij}^2`` for two. The projection is the exact one: it keeps the ``d``
+``2x_{ij}^2`` for two. The projection is the Frobenius one: it keeps the ``d``
 largest diagonal entries and the ``e`` largest pairs, for the ``e`` with
 ``d = \min(D, s - 2e)`` at which the saving ``\sum x_{ii}^2 + 2\sum x_{ij}^2`` is
 largest, found from the sorted magnitudes in ``O(p^2)`` for the selection plus a
-sort of the candidates. With `diagonal = false` the diagonal does not count and is
+sort of the candidates. The ranking inside the diagonal entries and inside the
+pairs is exact; the choice of the number of pairs is a maximizer of the saved
+squared error up to the rounding of the sums of squares in the comparison, so a
+difference below that rounding can be decided either way. With `diagonal = false` the diagonal does not count and is
 kept, the set is ``2e \le s`` and the ``\lfloor s/2\rfloor`` largest pairs are
 kept, as for the off-diagonal sparsity of a precision matrix. A budget ``s = 1``
 with `diagonal = false` therefore keeps no pair. A `SymmetricSparseIterate`

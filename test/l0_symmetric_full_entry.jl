@@ -13,7 +13,15 @@ using Random
 
 const PB = ProximalBase
 
-rat(x) = Rational{BigInt}(x)
+# Exact arithmetic on the Float inputs: x is the integer x·2^SC, which every Float32 and Float64 is (the
+# smallest subnormal is 2^-1074), so that a square is the integer fx(x)^2 = x²·2^(2SC)
+const SC = 1100
+function fx(x::Real)
+  iszero(x) && return BigInt(0)
+  fr, ex = frexp(Float64(x))
+  BigInt(Int64(ldexp(fr, 53))) << (ex - 53 + SC)
+end
+const UNIT = BigInt(1) << (2SC)                # the integer of 1
 
 # the full count of a symmetric matrix as the set sees it, the diagonal not counted when it is free
 function fullcount(X, diagonal)
@@ -29,12 +37,12 @@ end
 # entry costs one unit and saves x², a nonzero pair costs two and saves 2x², a free diagonal is kept
 function oracle_error(X, s, diagonal)
   p = size(X, 1)
-  items = [(r == c ? 1 : 2, rat(X[r, c])^2) for c in 1:p for r in c:p if !iszero(X[r, c]) && (diagonal || r != c)]
+  items = [(r == c ? 1 : 2, fx(X[r, c])^2) for c in 1:p for r in c:p if !iszero(X[r, c]) && (diagonal || r != c)]
   n = length(items)
-  total = sum(w * g for (w, g) in items; init = 0 // 1)
-  best = 0 // 1
+  total = sum(w * g for (w, g) in items; init = BigInt(0))
+  best = BigInt(0)
   for mask in 0:(2^n - 1)
-    cost, saving = 0, 0 // 1
+    cost, saving = 0, BigInt(0)
     for j in 1:n
       if (mask >> (j - 1)) & 1 == 1
         cost += items[j][1]
@@ -46,7 +54,7 @@ function oracle_error(X, s, diagonal)
   total - best
 end
 
-prod_error(X, Y) = sum((rat(X[r, c]) - rat(Y[r, c]))^2 for r in 1:size(X, 1), c in 1:size(X, 1); init = 0 // 1)
+prod_error(X, Y) = sum((fx(X[r, c]) - fx(Y[r, c]))^2 for r in 1:size(X, 1), c in 1:size(X, 1); init = BigInt(0))
 
 value_at(X, s, diagonal) = fullcount(X, diagonal) <= s ? 0 : Inf
 
@@ -62,14 +70,14 @@ function verify(f, X::Matrix{T}, Y, mode) where {T}
   @test fullcount(Y, diagonal) <= s
   @test f(Symmetric(Y)) == 0
   e, b = prod_error(X, Y), oracle_error(X, s, diagonal)
-  tol = rat(T == Float32 ? 1e-5 : 1e-12)
-  total = sum(rat(X[r, c])^2 * (r == c ? 1 : 2) for c in 1:size(X, 1) for r in c:size(X, 1); init = 0 // 1)
+  inv_tol = T == Float32 ? 10^5 : 10^12          # the relative tolerance 1e-5 (Float32), 1e-12 (Float64)
+  total = sum(fx(X[r, c])^2 * (r == c ? 1 : 2) for c in 1:size(X, 1) for r in c:size(X, 1); init = BigInt(0))
   if mode == :exact
     @test e == b
   elseif mode == :relative
-    @test abs(e - b) <= tol * b
+    @test abs(e - b) * inv_tol <= b
   else
-    @test abs(e - b) <= tol * total
+    @test abs(e - b) * inv_tol <= total
   end
 end
 
@@ -165,9 +173,9 @@ end
 
 @testset "the oracle at the worked examples" begin
   X = [0.0 4.0; 4.0 0.0]
-  @test oracle_error(X, 1, true) == 32 && oracle_error(X, 2, true) == 0
+  @test oracle_error(X, 1, true) == 32 * UNIT && oracle_error(X, 2, true) == 0
   X = [1.0 0.8; 0.8 0.1]
-  @test oracle_error(X, 2, true) == rat(1.0)^2 + 2 * rat(0.8)^2 + rat(0.1)^2 - 2 * rat(0.8)^2
+  @test oracle_error(X, 2, true) == UNIT + fx(0.1)^2          # the pair is kept, both diagonal entries dropped
 end
 
 @testset "worked examples" begin

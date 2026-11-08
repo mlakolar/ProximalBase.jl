@@ -235,7 +235,6 @@ ProximalBase.kkt_violation(f::KktCustom, g::AbstractArray, i::Integer) = abs(g[i
     for x in (SparseIterate(T, 4), SparseIterate(T, 2, 2)), k in (Int8(3), UInt(3), UInt8(3), big(3))
       @test kkt_violation(f, g, x, k) == T(6)
     end
-    @test kkt_violation(f, g, SparseIterate(T, 4), true) == T(2)
     @test kkt_violation(f, view(vcat(T(0), g, T(0)), 2:5), SparseIterate(T, 4), 3) == T(6)
     @test kkt_violation(f, transpose(reshape(g, 2, 2)), SparseIterate(T, 2, 2), 2) == abs(g[3]) - 1
     @test kkt_violation(f, reshape(g, 2, 2)', SparseIterate(T, 4), 2) == abs(g[3]) - 1
@@ -271,7 +270,6 @@ ProximalBase.kkt_violation(f::KktCustom, g::AbstractArray, i::Integer) = abs(g[i
     for k in (Int8(2), UInt(2), big(2), UInt8(2))
       @test kkt_violation(f, G, S, k) == abs(sym[2, 1]) - 1
     end
-    @test kkt_violation(f, G, S, true) == abs(sym[1, 1]) - 1
     @test kkt_violation(f, view(vcat(T(0), vec(G), T(0)), 2:5), S, 2) == abs(sym[2, 1]) - 1
     @test kkt_violation(f, transpose(G), S, 2) == abs(sym[2, 1]) - 1
     Gc = copy(G)

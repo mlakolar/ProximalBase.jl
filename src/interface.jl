@@ -292,7 +292,22 @@ function _checkwrite(op, f, y, x)
   true
 end
 # Scalar-step checks inspect types and shapes; transformed inputs have no values.
-_checkstep(op, f, y, x, γ) = true
+# A built-in function for which `_prox_supported` is false is rejected with the MethodError of the direct call;
+# a block of a sum then raises it before any block is written. The trait is a function of the type, which is
+# a constant where the type is known.
+_prox_supported(f) = _prox_supported(typeof(f))
+_prox_supported(::Type) = true
+_checkstep(op, f, y, x, γ) = _prox_supported(f) || _prox_unsupported(y, f, x, γ)
+# The arguments of the direct call: a placeholder of the step pass is replaced by the array that it stands for.
+# A MethodError records the world age of its call, which the message of Julia 1.12 and later shows.
+@static if isdefined(Base, :tls_world_age)
+  _call_world() = Base.tls_world_age()
+else
+  _call_world() = typemax(UInt)
+end
+@noinline _prox_unsupported(y, f, x, γ) = throw(MethodError(prox!, (_unplaced(y), f, _unplaced(x), γ), _call_world()))
+_unplaced(a) = a
+_unplaced(a::Tuple) = map(_unplaced, a)
 # The steps of an indicator projection, and of the penalized ball and sphere kernels, are
 # the scalars in [0, Inf]; the comparison is written so that it rejects NaN.
 @inline _checkstep_nonneg(γ::Real) = γ >= 0 || _throw_step(γ)
@@ -302,6 +317,7 @@ struct _StepInput{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
 end
 Base.size(x::_StepInput) = size(x.array)
 Base.axes(x::_StepInput) = axes(x.array)
+_unplaced(a::_StepInput) = _unplaced(a.array)
 _step_values(x::AbstractArray) = true
 # A placeholder shows the storage of the array it stands for, never its values.
 _projection_host(x::_StepInput) = _projection_host(x.array)

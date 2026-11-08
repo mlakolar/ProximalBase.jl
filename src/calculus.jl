@@ -2105,7 +2105,12 @@ failure found only while computing can leave earlier blocks written: a step that
 a function rejects according to the values it sees, `Conjugate`'s check that a
 finite input gave a finite result, a search that finds a constraint empty, a
 failure inside an external library, and the oracles of user-defined functions
-beyond `check_parameters`. Block sums take scalar steps only.
+beyond `check_parameters`. A block that is a built-in function without a scalar-step
+proximal operator (a `LogisticLoss` or another GLM loss, a `Sum`, a `KronQuadratic`),
+also inside the wrappers that forward their check, raises the `MethodError` of the
+proximal operator before any block is written; a user-defined function without a
+`prox!` method and a destination that is a [`SymmetricSparseIterate`](@ref) are not covered.
+Block sums take scalar steps only.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -2458,6 +2463,7 @@ struct _StepBuffer{T, N} <: AbstractArray{T, N}
 end
 Base.size(x::_StepBuffer) = x.dims
 _step_values(::_StepBuffer) = false
+_unplaced(a::_StepBuffer{T, N}) where {T, N} = Array{T, N}(undef, a.dims)
 _step_buffer(x::AbstractArray{T, N}) where {T, N} = _StepBuffer{float(T), N}(size(x))
 @generated _step_buffer(x::Tuple) = _blocktuple(k -> :(_step_buffer(x[$k])), fieldcount(x))
 function _checkstep(op::O, c::Conjugate, y::Tuple, x::Tuple, γ::Real) where {O}

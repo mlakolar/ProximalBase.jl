@@ -357,7 +357,8 @@ end
   @test count(anchor, WORKFLOW) == 1
   mutated = replace(WORKFLOW, anchor => "          $expr\n" * anchor)
   @test interpolation_ok(WORKFLOW, "release-record") && !interpolation_ok(mutated, "release-record")
-  @test !occursin("expected_sha }}", jobtext(mutated, "release-record"))
+  # the job's env legitimately holds the expression, so compare: the comment line leaves the stripped text unchanged
+  @test jobtext(mutated, "release-record") == jobtext(WORKFLOW, "release-record")
 end
 
 @testset "a setting that is only commented out does not count" begin

@@ -80,28 +80,71 @@ composition and the empty-domain behaviour described below.
 The caller must ensure that the set meets the domain of `f`. For a convex
 function on a box, the method clamps the unconstrained proximal point even
 when the intersection is empty. Neither that point nor the returned value
-certifies feasibility; `value_and_prox!` returns zero for an indicator even in
-this improper case. The exception is a [`NormL1`](@ref) with a stored infinite level
+shows that the intersection is nonempty; `value_and_prox!` returns zero for an indicator
+even in this improper case. The exception is a [`NormL1`](@ref) with a stored infinite level
 `λ0 = Inf`: at a positive step it fixes every entry with a positive weight at zero, so a
 box that excludes zero at such an entry raises an `ArgumentError` ("the IndBox misses the
 domain of NormL1") before anything is written. A zero weight leaves its entry free, a
 zero or non-positive step is not decided here, and other functions and wrappers are not
 checked. The standalone value of an infeasible function at an argument stays `Inf`.
-On a hyperplane, halfspace or hyperslab, a search in `Float64` throws
-an `ArgumentError` if it cannot bracket a multiplier. This is not a general test
-for an empty intersection: rounding may put a point on the closure of an open
-domain, and a finite multiplier may not exist when the set meets only the
-boundary of a closed domain. A call in `Float32` whose search finds no bracket,
-or whose multiplier fails the accuracy check of the search, is repeated in `Float64`
-on the `Float32` problem where the function has such a recovery (`NormL1`,
-`NormL1Nonneg`, `ElasticNet`, `IndBox`, `IndNonnegative`, a ridge, a box on one of them,
-and a `Scaled` of them by a `Float32` factor); a failed search is no proof of an
-empty intersection there, which is decided by the range of `⟨a, z⟩` over the ranges of the
-entries of `f`, and otherwise the call raises a `PrecisionError` before writing. Empty arguments that fail the search's own
-acceptance test are rejected before writing. Block oracles also reject clearly
-infeasible scalar boxes with scalar linear normals at finite positive scalar
-steps, when finite inputs and conservative rounding bounds certify that the
-search throws. Overflowing ranges and transformed inputs remain unchecked.
+
+**Precision of the multiplier search.** On a hyperplane, halfspace, hyperslab or simplex, a
+call has a *model precision* `W`: the widest of the destination, the argument and the data, the
+data being those of `f` and the normal and offsets of the set. Levels, weights, steps and the bounds of a box are
+parameters, rounded once to `W`, after being combined (numerics T2 and T3). A normal that
+is a fixed-width integer scalar, such as the `1` of `IndHyperplane(1, b)` or of
+`IndSimplex`, does not raise `W` when the precision given by the destination, the
+argument, the data of `f` and the offsets of the set holds it exactly; the offsets are
+never exempt, so `IndHyperplane(1, 0)` is a `Float64` model. An integer that this
+precision cannot hold, an array of integers and a `BigInt` follow the general rule.
+
+In `Float64` the search stops where the residual `⟨a, z⟩ - b` is at most
+`2 eps(Float64)(Σᵢ|aᵢzᵢ| + |b|)`, as in earlier releases, and accepts that point. It
+raises an `ArgumentError` if it cannot bracket a multiplier. Certifying `Float64` searches
+is not provided.
+
+In `Float32` the same stop can leave the multiplier, and so the output, far from the
+projection where the constraint function is flat (about 500 `eps(Float32)` in issue 151).
+The search therefore *checks* its result before writing. From the residual, the slope of
+its last step and an assumed noise floor of the evaluation, `2 eps(Float32)(Σᵢ|aᵢzᵢ| +
+|b|)`, the check estimates the distance of the output from the exact point, in the norm of
+`Diagonal(1 ./ γ)`, and accepts the result when that is at most `16 eps(Float32)` times a
+size of the problem. A result that fails is searched again from zero if it started from the
+previous multiplier, and then in `Float64` on the `Float32` problem: the entry maps are
+evaluated in `Float64` on the exactly widened argument with their parameters rounded to
+`Float32` as the `Float32` kernel rounds them, so the problem is the same one, and the
+output is formed in `Float64` and rounded once. That recovery exists for [`NormL1`](@ref),
+[`NormL1Nonneg`](@ref), [`ElasticNet`](@ref), [`IndBox`](@ref), [`IndNonnegative`](@ref),
+[`SqrNormL2`](@ref), a box on one of them, and a [`Scaled`](@ref) of one of them by a
+`Float32`, `Float16` or integer factor. For any other function (a [`Tilt`](@ref), a [`Translate`](@ref), a
+[`LinearFunction`](@ref), a [`Conjugate`](@ref), a `Scaled` by a wider factor, or a function
+of your own) it is refused, and a result that fails the check raises a
+[`PrecisionError`](@ref) before anything is written.
+
+This is a check. It is not a certificate, a conservative error bound or a guaranteed
+forward error. The slope is that of the last secant, which can cross a kink of the
+constraint function, and the noise floor is a constant chosen from measurements, not a
+proved bound for every term of the sum, so an accepted result can in principle be
+inaccurate. `16 eps(Float32)`, in the 2-norm against a `BigFloat` reference of the `Float32`
+problem, is the target of the package's regression tests for specified fixtures, not a
+guarantee for every call. The policy is the exception to A3 in the numerical contract
+(`docs/src/numerics.md`).
+
+**Failures.** A call that raises writes nothing and leaves the function, its multiplier
+included, as it was. A `PrecisionError` means that the result could not be accepted in the model
+precision, as above. An `ArgumentError` that the set "misses the domain" of `f` means
+that no multiplier exists. A `Float64` search raises it when it cannot bracket one. A
+`Float32` call raises it only when that is established independently of the search: the
+range of `⟨a, z⟩` over the ranges of the entries of `f`, with a margin that covers the
+rounding of its sums, lies strictly on the wrong side of the offset, or lies entirely outside
+the hyperslab. A failure to bracket in `Float32`, or in its recovery, does not prove it.
+The error is not a general test for an empty intersection either: rounding may put a
+point on the closure of an open domain, and a finite multiplier may not exist when the
+set meets only the boundary of a closed domain. Empty arguments that fail the search's own
+acceptance test are rejected before writing. Block oracles also reject clearly infeasible
+scalar boxes with scalar linear normals at finite positive scalar steps, when finite
+inputs and conservative rounding bounds show that the search would find no multiplier.
+Overflowing ranges and transformed inputs remain unchecked.
 """
 function Constrained end
 

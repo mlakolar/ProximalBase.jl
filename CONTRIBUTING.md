@@ -247,7 +247,9 @@ gh run download <id>
     smaller, and uses `Clong`-typed powers of two as exact operands.
   - `test/bigfloat_integer_operands.jl` compares results with integer operands
     (of several integer types, `Int32` among them) at two to five bits and at 256
-    bits with a model, written in the file, that forms the integer exactly; it
+    bits with a model, written in the file, that forms the integer exactly (it
+    covers the segment lengths of the total-variation kernel of `TotalVariation1D`
+    and `FusedLasso`, and the value at the stored output of `NormL1Fused`); it
     does not change the exponent range.
 
   A reproduction on Linux can show a cause and give the fix a test; the native

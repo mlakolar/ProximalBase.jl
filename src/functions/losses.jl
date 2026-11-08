@@ -219,10 +219,10 @@ end
   my, ey = _frexp(y)
   mw, ew = _frexp(w)
   mg, eg = _frexp(γ)
-  et = eg + ew + 2ey
+  et = _exponent_sum(T, eg, ew, ey, ey)
   ed = max(0, et)
   d = ldexp(one(T), -ed) + ldexp(2 * mg * mw * my^2, et - ed)
-  en = eg + ew + ey
+  en = _exponent_sum(T, eg, ew, ey)
   ep = max(ev, en)
   n = ldexp(mv, ev - ep) + ldexp(2 * mg * mw * my, en - ep)
   ldexp(n / d, ep - ed)
@@ -414,9 +414,11 @@ function _conjugate_value(f::SqrHingeLoss, s::AbstractArray)
       ms, es = _frexp(u)
       my, ey = _frexp(y)
       mw, ew = _frexp(w)
-      q, eq = ms / my, es - ey
-      e = max(eq, 2eq - ew)
-      z = ldexp(q, eq - e) + ldexp(q^2 / (4mw), 2eq - ew - e)
+      U = typeof(u)
+      q, eq = ms / my, _exponent_sum(U, es, -ey)
+      eq2 = _exponent_sum(U, eq, eq, -ew)
+      e = max(eq, eq2)
+      z = ldexp(q, eq - e) + ldexp(q^2 / (4mw), eq2 - e)
       v += convert(T, ldexp(z, e))
     end
   end

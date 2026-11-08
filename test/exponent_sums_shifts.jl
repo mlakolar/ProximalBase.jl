@@ -285,4 +285,120 @@ end
   end
 end
 
+# ---- SqrHingeLoss prox and conjugate value: frames of one function ----
+
+# a zero result: the sign of a zero that is added to another term (the conjugate value is a sum that starts at +0) or
+# computed from a zero significand (the prox at v = 0) is not asserted
+function check_value(r, s, n)
+  if r isa BigFloat ? n <= EMIN - 3 : n <= -1076
+    @test iszero(r)
+  else
+    check_result(r, s, n)
+  end
+end
+
+# prox of SqrHingeLoss([sy 2^Y], [2^W]) at v = 0 with the step 2^G is 2 γ w y / (1 + 2 γ w y^2), that is sy 2^N / (1 + 2^D)
+# with N = 1 + G + W + Y and D = 1 + G + W + 2Y; for |D| far from zero the result is sy 2^(N - max(D, 0))
+function sqrhinge_prox_exponent(G, W, Y)
+  N, D = 1 + G + W + Y, 1 + G + W + 2Y
+  @assert abs(D) > 400
+  N - max(D, 0)
+end
+
+# the cases reach _sqrhinge_prox: h = γ w |y| or h |y| leaves the normal range
+const PROX_CASES = Tuple{Int128, Int128, Int128}[
+  (0, 0, TOP - 7), (0, 0, TOP - 1), (0, 0, TOP), (TOP, TOP, 0), (TOP, TOP, TOP), (BOT, BOT, -TOP), (TOP, 0, TOP ÷ 2),
+  (BOT, TOP, TOP)]
+
+@testset "SqrHingeLoss prox, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    if EMAX == 2^62 - 1      # et = (G + 1) + (W + 1) + 2 (Y + 1) of (0, 0, Y)
+      @test 2 * (TOP - 1) + 4 == typemax(Int64) - 1
+      @test 2 * TOP + 4 == Int128(typemax(Int64)) + 1
+    end
+    for (G, W, Y) in PROX_CASES, ysign in (1, -1)
+      out = zeros(BigFloat, 1)
+      prox!(out, SqrHingeLoss(BigFloat[pw(Y, ysign)], BigFloat[pw(W)]), BigFloat[0], pw(G))
+      check_value(out[1], ysign, sqrhinge_prox_exponent(G, W, Y))
+    end
+  end
+end
+
+@testset "SqrHingeLoss prox, Float64 argument with BigFloat parameters, precision $p" for p in (5, 53)
+  setprecision(BigFloat, p) do
+    for (G, W, Y) in PROX_CASES, ysign in (1, -1)
+      out = zeros(1)
+      prox!(out, SqrHingeLoss(BigFloat[pw(Y, ysign)], BigFloat[pw(W)]), [0.0], pw(G))
+      check_value(out[1], ysign, sqrhinge_prox_exponent(G, W, Y))
+    end
+  end
+end
+
+@testset "SqrHingeLoss prox with Float64 data keeps its sums" begin
+  for (G, W, Y) in ((0, 0, 1000), (600, 600, 0), (0, 0, 600), (-600, -600, -600), (300, 0, 500)), ysign in (1, -1)
+    out = zeros(1)
+    prox!(out, SqrHingeLoss([ysign * Base.ldexp(1.0, Y)], [Base.ldexp(1.0, W)]), [0.0], Base.ldexp(1.0, G))
+    check_value(out[1], ysign, sqrhinge_prox_exponent(G, W, Y))
+  end
+end
+
+# Conjugate(SqrHingeLoss([2^Y], [2^W]))([-2^S]) is r + r^2 / (4 w) with r = -2^(S - Y): the terms -2^n1 and 2^n2,
+# n1 = S - Y and n2 = 2 n1 - 2 - W. Far apart (gap), the larger one is the value.
+function conjugate_exponent(S, Y, W, gap = 400)
+  n1 = S - Y
+  n2 = 2n1 - 2 - W
+  @assert abs(n1 - n2) > gap
+  n2 > n1 ? (1, n2) : (-1, n1)
+end
+
+# (S, Y, W) of the cases: the total 2 eq - ew - e of the second shift first leaves Int64 at eq = EMAX + 2 for W = BOT (the
+# first two cases), the total 2 eq - ew first leaves it below at eq = typemin(Int64) / 2 for W = 0 (the next two)
+function conjugate_cases()
+  out = Tuple{Int128, Int128, Int128}[]
+  a_wrap = Int128(2)^63 + BOT + 1
+  for a in (a_wrap - 1, a_wrap, a_wrap + 1000, EMAX + 5)
+    abs(a) <= TOP - BOT && push!(out, (TOP, TOP - a, BOT))
+  end
+  a = Int128(typemin(Int64)) ÷ 2
+  for W in (-1, 0, 1, 5)
+    abs(a) <= TOP - BOT && push!(out, (BOT, BOT - a, W))
+  end
+  # a tiny quotient s / y, whose square 2^(2 n1) wraps as well
+  push!(out, (BOT + 2, (EMAX + 1) ÷ 2, BOT), (BOT + 2, (EMAX + 1) ÷ 2, TOP), (BOT, TOP, BOT))
+  # a huge weight and an underflowing quotient
+  push!(out, (BOT + 3, 0, TOP), (TOP, TOP - 2000, BOT + 3))
+  out
+end
+
+@testset "SqrHingeLoss conjugate value, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    for (S, Y, W) in conjugate_cases()
+      sgn, n = conjugate_exponent(S, Y, W)
+      f = Conjugate(SqrHingeLoss(BigFloat[pw(Y)], BigFloat[pw(W)]))
+      check_value(f(BigFloat[pw(S, -1)]), sgn, n)
+    end
+  end
+end
+
+# the working type is the promoted type of the argument and the parameters, not that of the argument: a Float64 s
+# with BigFloat y and w has eq = 1000 - EMIN + ..., and 2 eq leaves Int64
+@testset "SqrHingeLoss conjugate value, Float64 argument with BigFloat parameters, precision $p" for p in (5, 53)
+  setprecision(BigFloat, p) do
+    S = 1000
+    for (Y, W) in ((EMIN, BOT), (EMIN, BOT + 3), (EMIN, -5), (EMIN + 1, BOT), (TOP, BOT), (EMIN - 1, BOT))
+      sgn, n = conjugate_exponent(S, Y, W)
+      f = Conjugate(SqrHingeLoss(BigFloat[pw(Y)], BigFloat[pw(W)]))
+      check_value(f([-2.0^S]), sgn, n)
+    end
+  end
+end
+
+@testset "SqrHingeLoss conjugate value with Float64 data keeps its sums" begin
+  for (S, Y, W) in ((1000, -500, -3), (10, 0, 100), (-1000, 1000, 10), (1000, 1000, 100), (-500, 500, 1000))
+    sgn, n = conjugate_exponent(S, Y, W, 60)
+    f = Conjugate(SqrHingeLoss([Base.ldexp(1.0, Y)], [Base.ldexp(1.0, W)]))
+    check_value(f([-Base.ldexp(1.0, S)]), sgn, n)
+  end
+end
+
 end

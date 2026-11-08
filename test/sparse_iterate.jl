@@ -460,6 +460,7 @@ end
 end
 
 @testset "copyto! from an orthogonal factor into a matrix SparseIterate" begin
+    dense(Q) = lmul!(Q, Matrix{eltype(Q)}(I, size(Q)))
     state(x) = (Matrix(x), collect(activecoordinates(x)), collect(activevalues(x)), nactive(x))
     # nontrivial values, an explicit active zero at (1, 2) and a non-canonical activation order
     function populated(T, m, n)
@@ -477,7 +478,7 @@ end
         square && push!(fs, ("hessenberg", hessenberg(A).Q))
         for (name, Q) in collect(fs)
             try
-                Matrix(adjoint(Q))
+                dense(adjoint(Q))
                 push!(fs, ("adjoint of " * name, adjoint(Q)))
             catch
             end
@@ -491,9 +492,9 @@ end
         @testset "$name, $T, $k x $k" begin
             x = populated(T, k, k)
             ref = populated(T, k, k)
-            copyto!(ref, Matrix(Q))
+            copyto!(ref, dense(Q))
             @test copyto!(x, Q) === x
-            @test Matrix(x) ≈ Matrix(Q) atol = tol
+            @test Matrix(x) ≈ dense(Q) atol = tol
             @test state(x) == state(ref)
             # a coordinate that was active stays active, even with a zero value
             @test issubset(activecoordinates(populated(T, k, k)), activecoordinates(x))
@@ -518,7 +519,7 @@ end
     @testset "explicit zeros" begin
         T = Float64
         Q = hessenberg(randn(MersenneTwister(3), T, 4, 4)).Q
-        @test Matrix(Q)[1, 2] == 0
+        @test dense(Q)[1, 2] == 0
         x = SparseIterate(T, 4, 4)
         x[1, 2] = 5
         copyto!(x, Q)
@@ -526,7 +527,7 @@ end
         # a zero in an absent coordinate does not activate it
         y = SparseIterate(T, 4, 4)
         copyto!(y, Q)
-        @test nactive(y) == count(!iszero, Matrix(Q))
+        @test nactive(y) == count(!iszero, dense(Q))
     end
 
     @testset "failures write nothing" begin
@@ -547,7 +548,7 @@ end
                 @test_throws DimensionMismatch copyto!(x, hessenberg(W).Q)
                 @test state(x) == before
                 @test copyto!(x, Q) === x
-                @test Matrix(x) ≈ Matrix(Q)
+                @test Matrix(x) ≈ dense(Q)
                 x = populated(T, 3, 3)
             end
         end

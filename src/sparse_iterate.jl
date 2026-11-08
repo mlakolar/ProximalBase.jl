@@ -703,7 +703,8 @@ end
     !(eltype(y) <: Complex) || _real_error(:SparseIterate)
     size(y) == size(x) || throw(DimensionMismatch(
       "destination has size $(size(x)), orthogonal factor has size $(size(y))"))
-    staged = convert(Matrix{T}, Matrix(y))
+    # Matrix(y) can be the thin factor, so the full logical matrix is built from the identity.
+    staged = convert(Matrix{T}, lmul!(y, Matrix{eltype(y)}(I, size(y))))
     invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, staged)
     return x
   end

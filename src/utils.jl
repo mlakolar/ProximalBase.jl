@@ -651,25 +651,27 @@ function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {
   ms = map(t -> convert(R, t[1]), terms)
   es = map(t -> t[2], terms)
   all(isfinite, ms) || return convert(R, w) * sum(ms; init = zero(R))
-  s, E = zero(R), 0
+  # The frame exponents are Int128 for BigFloat, where the sum of an MPFR exponent and an Int exponent can leave Int64,
+  # and Int for the other types.
+  s, E = zero(R), _exponent_sum(R, 0)
   used = ntuple(_ -> false, Val(N))
   for _ in 1:N
-    j, ej = 0, typemin(Int)
+    j, ej = 0, _exponent_sum(R, typemin(Int))
     for i in 1:N                                # the largest term not yet added
       (used[i] || iszero(ms[i])) && continue
-      ei = exponent(ms[i]) + es[i]
+      ei = _exponent_sum(R, exponent(ms[i]), es[i])
       ei > ej && ((j, ej) = (i, ei))
     end
     j == 0 && break
     used = Base.setindex(used, true, j)
     mj, fj = _frexp(ms[j])
-    D = fj + es[j]
+    D = _exponent_sum(R, fj, es[j])
     if iszero(s)
       s, E = mj, D
     else              # the larger of the two sets the units (a remainder of a cancellation may be the smaller)
       s = D <= E ? s + ldexp(mj, D - E) : ldexp(s, E - D) + mj
       E = max(E, D)
-      iszero(s) || ((s, f) = _frexp(s); E += f)
+      iszero(s) || ((s, f) = _frexp(s); E = _exponent_sum(R, E, f))
     end
   end
   iszero(s) && return convert(R, w) * zero(R)

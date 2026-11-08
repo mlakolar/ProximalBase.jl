@@ -576,4 +576,71 @@ end
   end
 end
 
+# ---- _pow2_weighted: the frame of the sum of terms m 2^e ----
+
+# the terms (1/2, e1) and (1/2, e2) with e2 = e1 - 2^63 and e2 - 1, where e1 = EMAX - 7: the difference D - E of the
+# frame is -2^63 (the last that fits Int64) and -2^63 - 1 (the first that does not). The sum is 2^(e1 - 1) + 2^(e2 - 1),
+# which rounds to 2^(e1 - 1)
+@testset "pow2 sum, difference of the frame at the Int64 boundary, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    e1 = Int(EMAX) - 7
+    for e2 in (e1 - typemax(Int) - 1, e1 - typemax(Int) - 2, e1 - typemax(Int) - 1000)
+      check_result(PB._pow2_sum(BigFloat, (big(0.5), e1), (big(0.5), e2)), 1, e1 - 1)
+      check_result(PB._pow2_sum(BigFloat, (big(0.5), e2), (big(0.5), e1)), 1, e1 - 1)
+      check_result(PB._pow2_sum(BigFloat, (big(-0.5), e1), (big(0.5), e2)), -1, e1 - 1)
+    end
+    # two equal terms: the sum 1 2^D has the frame D + 1, which is 2^63 for D = typemax(Int)
+    for D in (typemax(Int) - 2, typemax(Int) - 1, typemax(Int))
+      check_result(PB._pow2_sum(BigFloat, (big(0.5), D), (big(0.5), D)), 1, Int128(D))
+      check_result(PB._pow2_sum(BigFloat, (big(-0.5), D), (big(-0.5), D)), -1, Int128(D))
+    end
+    for D in (typemin(Int), typemin(Int) + 1)
+      check_result(PB._pow2_sum(BigFloat, (big(0.5), D), (big(0.5), D)), 1, Int128(D))
+    end
+    # the weight is applied through _scaled_product: a wide frame saturates and does not throw
+    @test PB._pow2_weighted(BigFloat, big(3), (big(0.5), typemax(Int)), (big(0.5), typemax(Int))) == Inf
+    @test PB._pow2_sum(BigFloat, (big(0.5), 3), (big(0.25), 5)) == 12
+  end
+end
+
+# LinearFunction(c, d)(x) with c = sg 2^a ones(n) and x = 2^b ones(n) overflows: the recovery sums the scaled dot
+# p 2^k and d. The frame D = t + 1 for the true exponent t = a + b + log2(n) of the dot first leaves Int64 at
+# t = 2^63 - 1 (n = 8 at a = b = TOP) and the sum is +-Inf (the dot is at least 2^(2 TOP), above EMAX).
+@testset "LinearFunction value, frame at the Int64 boundary, precision $p" for p in PRECISIONS
+  setprecision(BigFloat, p) do
+    if EMAX == 2^62 - 1
+      @test 2TOP + 2 == typemax(Int64) - 1       # t of n = 4
+      @test 2TOP + 3 == Int128(typemax(Int64))   # t of n = 8
+    end
+    for n in (1, 2, 4, 8), (a, b) in ((TOP, TOP), (TOP, TOP - 1), (TOP - 1, TOP - 1)), sg in (1, -1)
+      t = a + b + trailing_zeros(n)
+      for d in (big(0), big(1), big(-1), pw(TOP, sg), pw(BOT))
+        check_result(LinearFunction([pw(a, sg) for _ in 1:n], d)([pw(b) for _ in 1:n]), sg, t)
+      end
+    end
+    fm = floatmax(BigFloat)
+    check_result(LinearFunction(fill(fm, 4), big(0))(fill(fm, 4)), 1, 2TOP + 4)
+    check_result(LinearFunction(fill(fm, 5), big(1))(fill(fm, 5)), 1, 2TOP + 4)
+    check_result(LinearFunction(fill(-fm, 4), big(0))(fill(fm, 4)), -1, 2TOP + 4)
+    # products of both signs that overflow and cancel: the value is d
+    c = [pw(TOP), pw(TOP), pw(TOP, -1), pw(TOP, -1)]
+    @test LinearFunction(c, big(3))([pw(TOP), pw(TOP, -1), pw(TOP), pw(TOP, -1)]) == 3
+    @test LinearFunction([pw(TOP), pw(TOP)], big(3))([pw(TOP), pw(TOP, -1)]) == 3
+  end
+end
+
+@testset "pow2 sum and LinearFunction with Float64 data keep their sums" begin
+  @test @inferred(PB._pow2_sum(Float64, (0.5, 3), (0.25, 5))) === 12.0
+  @test @inferred(PB._pow2_sum(Float32, (0.5f0, 3), (0.25f0, 5))) === 12.0f0
+  @test PB._pow2_sum(Float64, (0.5, 1000), (0.5, 1000)) == 2.0^1000
+  @test PB._pow2_sum(Float64, (0.5, 1000), (0.5, -1000)) == 2.0^999
+  @test PB._pow2_sum(Float64, (0.5, 1100), (0.5, 1100)) == Inf
+  @test PB._pow2_sum(Float64, (-0.5, 1100), (-0.5, 1100)) == -Inf
+  fm = floatmax(Float64)
+  @test LinearFunction(fill(fm, 4), 0.0)(fill(fm, 4)) == Inf
+  @test LinearFunction(fill(-fm, 5), 1.0)(fill(fm, 5)) == -Inf
+  @test LinearFunction([2.0^600, 2.0^600], 3.0)([2.0^500, -2.0^500]) == 3.0
+  @test LinearFunction([2.0^600, 2.0^600], 3.0)([2.0^500, 2.0^500]) == Inf
+end
+
 end

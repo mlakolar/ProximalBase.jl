@@ -17,6 +17,7 @@ quick = [
   "compat",
   "docstrings",
   "exponent_sums",
+  "exponent_sums_shifts",
   "int32_exponents",
   "interface",
   "ldexp_bigfloat",

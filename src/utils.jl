@@ -181,7 +181,7 @@ end
 @inline function _scaled_product(w::T, v::T, k::Integer) where {T<:AbstractFloat}
   (iszero(w) || iszero(v)) && return w * v
   (isfinite(w) && isfinite(v)) || return w * v
-  k = Int(k)
+  k = _product_power(T, k)
   mw, ew = _frexp(w)
   mv, ev = _frexp(abs(v))
   copysign(ldexp(_positive_product(mw, mv, one(T)), _exponent_sum(T, ew, ev, k)), v)
@@ -207,7 +207,7 @@ end
   a, b, c = promote(float(a), float(b), float(c))
   (iszero(a) || iszero(b) || iszero(c)) && return zero(a)
   (isfinite(a) && isfinite(b) && isfinite(c)) || return (a * b) * c
-  k = Int(k)
+  k = _product_power(typeof(a), k)
   ma, ea = _frexp(a)
   mb, eb = _frexp(b)
   mc, ec = _frexp(c)
@@ -472,6 +472,9 @@ end
 # Int128 before the first addition; other types keep their Int sums.
 @inline _exponent_sum(::Type{BigFloat}, es::Integer...) = foldl(+, map(Int128, es))
 @inline _exponent_sum(::Type, es::Integer...) = +(es...)
+# The power of a scaled product is narrowed to an Int, except for BigFloat, whose power may be an Int128 sum.
+@inline _product_power(::Type, k::Integer) = Int(k)
+@inline _product_power(::Type{BigFloat}, k::Integer) = k
 
 # The stored values suffice for maxima; symmetric multiplicities do not matter.
 _stored_values(x::AbstractArray) = x

@@ -13,19 +13,28 @@
 #         that recurs is reopened (a comment only when it was closed as not planned); an open
 #         issue is closed with a comment once every Julia version recorded for it has run the
 #         file and passed it.
-# stale   no completed nightly run in the last `stale_hours`: the issue "Nightly CI is stale".
+# stale   no completed scheduled run (the nightly) created in the last `stale_hours`: the issue
+#         "Nightly CI is stale". Manual, release and tag runs do not count.
 #
 # The script reads everything first (the run's jobs, the logs of the jobs that did not succeed, the
 # labelled issues and their comments), builds the list of actions from that data alone (the
 # `plan_*` functions are pure), and only then writes through `apply!`. An API error while reading
 # stops the run with exit status 1 and writes nothing, and a resolution is never reported on data
-# that could not be read. A write that fails is reported and the rest still run (every action is
-# idempotent through the hidden markers in the issue text); the exit status is then 1. Exit
-# status 2 is a usage, environment or policy error.
+# that could not be read; the one exception is `alert`, where a failed read of the jobs or of a
+# log only drops the lines per failed file and the alert is still sent (its reads of the issues
+# and of their comments, like those of every other mode, are mandatory). A write that fails is
+# reported and the rest still run, and the exit status is then 1. A run can be repeated (a rerun
+# of failed jobs, or this script again after a failed write) because the plan is made again from
+# the current state of GitHub: a comment is written once per run (the hidden marker `run:`,
+# `resolved:` or `passed:` with the run id in the issue text), while a reopen, a close and a
+# severity label are planned whenever the issue still needs them, whether or not their comment is
+# already there. Exit status 2 is a usage, environment or policy error.
 #
 # --dry-run prints the actions and writes nothing. --rehearsal uses the label `rehearsal_label`
 # instead of `label`, prefixes every title with "[rehearsal] " and matches only issues that carry
-# the rehearsal label, so it can never touch a real triage issue.
+# the rehearsal label and not `label` and whose title has the prefix (a normal run matches only
+# issues with `label` and not `rehearsal_label`), so it can never touch a real triage issue; an
+# issue with both labels is skipped in both modes, with a warning.
 #
 # The policy (which files are deferred, the labels and their colors, the titles, `stale_hours`) is
 # the [triage] table of .github/tier-rules.toml, validated here. The environment holds the only
@@ -59,6 +68,7 @@ const EVENTS = Dict("alert" => "push", "triage" => "schedule", "stale" => "push"
 const USAGE = "usage: julia scripts/ci_triage.jl <alert|triage|stale> [--dry-run] [--rehearsal]"
 
 const ZWSP = "\u200b"
+const REHEARSAL_PREFIX = "[rehearsal] "
 const MAX_TITLE = 200
 const MAX_BODY = 60000
 const MAX_FIELD = 300      # characters of a name or signature in an issue text
@@ -354,7 +364,7 @@ end
 
 "A title: one line of at most $MAX_TITLE characters, prefixed in a rehearsal."
 function make_title(text::AbstractString; rehearsal = false)
-  t = neutralize(oneline((rehearsal ? "[rehearsal] " : "") * text))
+  t = neutralize(oneline((rehearsal ? REHEARSAL_PREFIX : "") * text))
   return shorten(t, MAX_TITLE)
 end
 
@@ -649,11 +659,26 @@ function pick(issues)
   return i !== nothing ? sorted[i] : isempty(sorted) ? nothing : last(sorted)
 end
 
+"""
+    in_scope(policy, issue, rehearsal) -> Bool
+
+Does the run of this mode own `issue`? A normal run owns the issues with the label and without the
+rehearsal label; a rehearsal owns those with the rehearsal label, without the label and with a
+title that starts with "[rehearsal] ". An issue with both labels belongs to neither.
+"""
+function in_scope(policy::Policy, i::Issue, rehearsal)
+  normal, rehearsed = policy.label in i.labels, policy.rehearsal_label in i.labels
+  normal && rehearsed && return false
+  return rehearsal ? rehearsed && startswith(i.title, REHEARSAL_PREFIX) : normal
+end
+
+"The numbers of the issues that carry both labels, which no mode touches."
+conflicting(policy::Policy, issues) = sort!([i.number for i in issues if policy.label in i.labels && policy.rehearsal_label in i.labels])
+
 function key_index(policy, issues, rehearsal)
-  label = active_label(policy, rehearsal)
   index = Dict{String, Vector{Issue}}()
   for i in issues
-    label in i.labels || continue
+    in_scope(policy, i, rehearsal) || continue
     k = issue_key(i)
     k === nothing && continue
     push!(get!(index, k, Issue[]), i)
@@ -664,12 +689,12 @@ end
 """
     issues_to_read(policy, issues, failing; rehearsal = false) -> Vector{Issue}
 
-The issues whose comments the plan needs: every open issue with a key (resolution needs its
-recorded Julia versions) and a closed one whose key fails tonight (`failing`, a set of keys).
+The issues whose comments the plan needs: every open issue of the mode ([`in_scope`](@ref)) with a
+key (resolution needs its recorded Julia versions) and a closed one whose key fails tonight
+(`failing`, a set of keys).
 """
 function issues_to_read(policy::Policy, issues, failing; rehearsal = false)
-  label = active_label(policy, rehearsal)
-  return [i for i in issues if label in i.labels && (k = issue_key(i)) !== nothing && (i.state == "open" || k in failing)]
+  return [i for i in issues if in_scope(policy, i, rehearsal) && (k = issue_key(i)) !== nothing && (i.state == "open" || k in failing)]
 end
 
 function group_records(records)
@@ -694,8 +719,13 @@ end
 
 The actions of a nightly run. `obs` is the [`observe`](@ref) result, `issues` the issues with the
 triage label (state, text and labels), `comments` maps an issue number to the texts of its
-comments. Issues without the active label are ignored, so a rehearsal and a real run cannot see
-each other's issues.
+comments. Only the issues of the mode are considered ([`in_scope`](@ref)), so a rehearsal and a
+real run cannot see each other's issues.
+
+The plan reconciles the state on every call: a comment is planned unless its run marker is
+already in the issue (`run:`, `resolved:` or `passed:` with the run id), while a reopen, a close and
+a severity label are planned whenever the issue still needs them. Planning again after a partial
+failure therefore completes the work without repeating a comment.
 """
 function plan_triage(policy::Policy, run::Run, obs::Observation, issues, comments; rehearsal = false)
   label = active_label(policy, rehearsal)
@@ -715,12 +745,12 @@ function plan_triage(policy::Policy, run::Run, obs::Observation, issues, comment
       continue
     end
     tx = texts(issue, comments)
-    has_marker(tx, "run", run.id) && continue
+    written = has_marker(tx, "run", run.id) # an earlier attempt of this run commented already
     known = markers_in(tx, "sig")
     changed = !isempty(known) && any(h -> !(h in known), (sig_hash(r.signature) for r in records))
     if issue.state == "closed" && issue.reason == "not_planned"
-      push!(actions, Action(:comment, issue.number, key; title = issue.title,
-                            body = comment_body(run, records; intro = "The failure occurred again, but this issue was closed as not planned, so it stays closed.", changed)))
+      written || push!(actions, Action(:comment, issue.number, key; title = issue.title,
+                                       body = comment_body(run, records; intro = "The failure occurred again, but this issue was closed as not planned, so it stays closed.", changed)))
       continue
     end
     escalate = sev == :core && !(sev_label in issue.labels)
@@ -730,7 +760,7 @@ function plan_triage(policy::Policy, run::Run, obs::Observation, issues, comment
     else
       intro = "The failure occurred again."
     end
-    push!(actions, Action(:comment, issue.number, key; title = issue.title, body = comment_body(run, records; intro, changed, escalated = escalate)))
+    written || push!(actions, Action(:comment, issue.number, key; title = issue.title, body = comment_body(run, records; intro, changed, escalated = escalate)))
     escalate && push!(actions, Action(:label, issue.number, key; title = issue.title, labels = [sev_label]))
   end
   for key in sort!(collect(keys(index)))
@@ -753,8 +783,9 @@ function plan_triage(policy::Policy, run::Run, obs::Observation, issues, comment
         push!(actions, Action(:comment, issue.number, key; title = issue.title,
                               body = "$(marker("passed", run.id))\n\nPassed tonight: $what passed with Julia $list. This issue is labelled flaky, so it stays open. Run: $(run_url(run)), commit $(run.sha)."))
       else
-        push!(actions, Action(:comment, issue.number, key; title = issue.title,
-                              body = "$(marker("resolved", run.id))\n\nResolved at $(run.sha), run $(run_url(run)): $what passed with Julia $list, every version recorded for this issue."))
+        has_marker(tx, "resolved", run.id) ||
+          push!(actions, Action(:comment, issue.number, key; title = issue.title,
+                                body = "$(marker("resolved", run.id))\n\nResolved at $(run.sha), run $(run_url(run)): $what passed with Julia $list, every version recorded for this issue."))
         push!(actions, Action(:close, issue.number, key; title = issue.title))
       end
     end
@@ -853,8 +884,8 @@ end
 format_date(t) = format_time(t)[1:10]
 
 function parse_time(s::AbstractString)
-  m = match(r"^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)", s)
-  m === nothing && error("unexpected time: $(repr(s))")
+  m = match(r"^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.\d+)?Z$", s)
+  m === nothing && error("unexpected time (UTC, ending in Z, is expected): $(repr(s))")
   return epoch(parse.(Int, m.captures)...)
 end
 
@@ -868,9 +899,10 @@ end
 """
     plan_stale(policy, run, runs, issues, comments, now; rehearsal = false)
 
-No completed nightly run created within `stale_hours` of `now` opens the issue "Nightly CI is
-stale" or comments on the open one (once per UTC date); a recent one closes an open stale issue with
-a comment. `runs` are the scheduled runs, `issues` the open issues.
+No completed scheduled run (the nightly) created within `stale_hours` of `now` opens the issue
+"Nightly CI is stale" or comments on the open one (once per UTC date); a recent one closes an open
+stale issue, with a comment written once per date. Manual, release and tag runs are not among
+`runs`. `issues` are the open issues.
 """
 function plan_stale(policy::Policy, run::Run, runs, issues, comments, now::Integer; rehearsal = false)
   title = make_title(policy.title_stale; rehearsal)
@@ -878,18 +910,21 @@ function plan_stale(policy::Policy, run::Run, runs, issues, comments, now::Integ
   date = format_date(now)
   recent = [r for r in runs if r.status == "completed" && now - r.created <= 3600 * policy.stale_hours]
   if isempty(recent)
-    newest = isempty(runs) ? "There is no completed nightly run." :
-             "The newest completed nightly run was created at $(format_time(maximum(r.created for r in runs))) UTC."
-    body = "$(marker("stale", date))\n\nNo nightly run completed in the last $(policy.stale_hours) hours (checked on $date, by the run $(run_url(run)) at commit $(run.sha)). $newest\n\nThe nightly run is the only one that runs the whole test catalog on every system. Check the schedule of the workflow and whether scheduled runs are disabled."
+    newest = isempty(runs) ? "There is no completed scheduled run." :
+             "The newest completed scheduled run was created at $(format_time(maximum(r.created for r in runs))) UTC."
+    body = "$(marker("stale", date))\n\nNo completed scheduled run was created within the last $(policy.stale_hours) hours (checked on $date, by the run $(run_url(run)) at commit $(run.sha)). $newest\n\nThe scheduled run (the nightly) is the recurring full-platform run; manual, release and tag runs do not count here. Check the schedule of the workflow and whether scheduled runs are disabled."
     issue === nothing && return [Action(:create, nothing, "stale"; title, body)]
     has_marker(texts(issue, comments), "stale", date) && return Action[]
     return [Action(:comment, issue.number, "stale"; title, body)]
   end
   issue === nothing && return Action[]
   newest = maximum(r.created for r in recent)
-  return [Action(:comment, issue.number, "stale"; title,
-                 body = "A nightly run completed again (created $(format_time(newest)) UTC), so this issue is closed. Seen by the run $(run_url(run)) at commit $(run.sha)."),
-          Action(:close, issue.number, "stale"; title)]
+  actions = Action[]
+  has_marker(texts(issue, comments), "recovered", date) ||
+    push!(actions, Action(:comment, issue.number, "stale"; title,
+                          body = "$(marker("recovered", date))\n\nA completed scheduled run was created again within the last $(policy.stale_hours) hours (at $(format_time(newest)) UTC), so this issue is closed. Seen by the run $(run_url(run)) at commit $(run.sha)."))
+  push!(actions, Action(:close, issue.number, "stale"; title))
+  return actions
 end
 
 # ---------------------------------------------------------------------------------------------
@@ -939,9 +974,14 @@ const B64 = Dict(c => UInt32(i - 1) for (i, c) in enumerate("ABCDEFGHIJKLMNOPQRS
 # The text of a base64 string (the Base64 standard library is not among the test dependencies);
 # bytes that are not valid UTF-8 become U+FFFD.
 function decode64(s::AbstractString)
+  text = String(strip(s))
+  data = rstrip(text, '=')
+  pad = length(text) - length(data)
+  # padding is at most two `=` at the end, and then completes the last group of four
+  ('=' in data || pad > 2 || (pad > 0 && (length(data) + pad) % 4 != 0)) &&
+    throw(ArgumentError("not base64: misplaced padding in $(repr(first(s, 20)))"))
   digits = UInt32[]
-  for c in strip(s)
-    c == '=' && continue
+  for c in data
     haskey(B64, c) || throw(ArgumentError("not base64: $(repr(first(s, 20)))"))
     push!(digits, B64[c])
   end
@@ -1037,16 +1077,16 @@ end
 # ---------------------------------------------------------------------------------------------
 # Writing
 
-function ensure_label(gh, repo, policy::Policy, name)
+"The names of the repository's labels, every page of them."
+read_labels(gh, repo) = String[strip(l) for l in lines_of(gh(["api", "repos/$repo/labels?per_page=100", "--paginate", "--jq", ".[].name"]))]
+
+function create_label(gh, repo, policy::Policy, name)
   color, description = get(policy.styles, name, ("ededed", ""))
-  try
-    gh(["api", "-X", "POST", "repos/$repo/labels", "-f", "name=$name", "-f", "color=$color", "-f", "description=$description", "--silent"])
-  catch err
-    # the label is there already: that is what is wanted
-    err isa GhError && err.status == 422 && occursin(r"already.?exists"i, err.message) && return
-    rethrow()
-  end
+  gh(["api", "-X", "POST", "repos/$repo/labels", "-f", "name=$name", "-f", "color=$color", "-f", "description=$description", "--silent"])
 end
+
+# The labels the actions add, in order of first use.
+labels_needed(actions) = unique(reduce(vcat, [a.labels for a in actions if a.kind in (:create, :label)]; init = String[]))
 
 function bodyfile(dir, i, text)
   path = joinpath(dir, "text-$i.md")
@@ -1080,22 +1120,34 @@ function action_line(a::Action)
 end
 
 """
-    apply!(actions, gh; repo, policy, log = println) -> number of failed writes
+    apply!(actions, gh; repo, policy, labels = String[], log = println) -> number of failed writes
 
-Execute the actions in order. The labels of the issues to create are made first (a label that
-exists is fine). A write that fails is reported with `::error::` and the rest still run: each
-action is idempotent through the markers in the issue text.
+Execute the actions in order. `labels` are the names of the repository's labels, read before any
+write; the labels the actions add that are not among them are created first, once each. `gh` does
+not say why a creation was refused (a 422 carries no reason on its standard error), so after a
+failed creation the labels are read again: the label being there now means that another run made
+it, and anything else is reported. A write that fails is reported with `::error::` and the rest
+still run. Running the plan again after a failure completes it: the plan is made from the current
+state, so a comment (once per run, by its marker) is not repeated, while a reopen, a close and a
+label that did not happen are planned again.
 """
-function apply!(actions::Vector{Action}, gh; repo, policy::Policy, log = println)
+function apply!(actions::Vector{Action}, gh; repo, policy::Policy, labels = String[], log = println)
   failures = 0
   isempty(actions) && return failures
   dir = mktempdir()
   try
-    for name in unique(reduce(vcat, [a.labels for a in actions if a.kind == :create]; init = String[]))
+    for name in labels_needed(actions)
+      name in labels && continue
       try
-        ensure_label(gh, repo, policy, name)
+        create_label(gh, repo, policy, name)
       catch err
         err isa InterruptException && rethrow()
+        there = try
+          name in read_labels(gh, repo)
+        catch
+          false
+        end
+        there && continue
         failures += 1
         log(error_line("could not create the label `$name`: " * first(sprint(showerror, err), 300)))
       end
@@ -1167,6 +1219,9 @@ function plan_for(mode, gh, policy, run, env, now, rehearsal, io)
     end
     obs = observe(policy, jobs, expected, logs)
     issues = read_issues(gh, run.repo; label = active_label(policy, rehearsal))
+    for n in conflicting(policy, issues)
+      println(io, "::warning::Issue #$n has both the label `$(policy.label)` and the label `$(policy.rehearsal_label)`; it is skipped.")
+    end
     failing = Set(r.key for r in obs.records)
     comments = Dict{Int, Vector{String}}()
     for i in issues_to_read(policy, issues, failing; rehearsal)
@@ -1207,9 +1262,11 @@ end
 """
     main(args, env; gh, now, rules, io, err) -> exit status
 
-0 when the actions were written (or printed with `--dry-run`), 1 when something could not be read
-(nothing is written) or a write failed, 2 for a usage, environment or policy error, or an event
-that the mode does not run for.
+0 when the actions were written (or printed with `--dry-run`); 1 when a write failed, or when
+something mandatory could not be read, in which case nothing is written (the jobs, their logs, the
+issues, their comments, the scheduled runs and the labels; for `alert` a failed read of the jobs
+or of a log only drops the lines per failed file, and the alert is still sent); 2 for a usage,
+environment or policy error, or an event that the mode does not run for.
 """
 function main(args = ARGS, env = ENV; gh = CITriage.gh, now = () -> floor(Int, time()), rules = RULES,
               io::IO = stdout, err::IO = stderr)
@@ -1254,7 +1311,18 @@ function main(args = ARGS, env = ENV; gh = CITriage.gh, now = () -> floor(Int, t
     return 0
   end
   print_actions(io, actions)
-  failures = apply!(actions, gh; repo = run.repo, policy, log = (xs...) -> println(io, xs...))
+  # the labels are read before the first write; a label that is missing is created by `apply!`
+  labels = String[]
+  if !isempty(labels_needed(actions))
+    try
+      labels = read_labels(gh, run.repo)
+    catch e
+      e isa InterruptException && rethrow()
+      println(io, error_line("scripts/ci_triage.jl: could not read the labels, so nothing was changed: " * first(sprint(showerror, e), 300)))
+      return 1
+    end
+  end
+  failures = apply!(actions, gh; repo = run.repo, policy, labels, log = (xs...) -> println(io, xs...))
   failures == 0 || println(io, error_line("$failures of the writes failed"))
   return failures == 0 ? 0 : 1
 end

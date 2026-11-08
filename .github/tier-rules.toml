@@ -151,7 +151,8 @@ paths = ["benchmark/*.jl", "benchmark/Project.toml", ".github/workflows/CI.yml"]
 # jobs only, so its failures are core and have their own alert.
 #   deferred:        groups of test files whose failures are normally deferred wherever they
 #                    happen: `why` and `files`, globs over test names as in test/tiers.toml.
-#   stale_hours:     the nightly run is stale when none completed within this many hours.
+#   stale_hours:     the nightly is stale when no completed scheduled run was created within this many
+#                    hours (manual, release and tag runs do not count).
 #   title_alert, title_stale: the titles of the two standing issues.
 #   label, rehearsal_label: the label of the triage issues, and the one a rehearsal uses instead.
 #   severity_labels, kind_labels: the labels the reporter sets; a maintainer sets triage:bug,

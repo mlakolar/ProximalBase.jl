@@ -274,9 +274,12 @@ function (h::Hub)(args::Vector{String}; input = nothing)
     return h.workflow * "\n"
   elseif method == "GET" && occursin(r"^actions/workflows/\d+/runs$", path)
     return join([join(r, "\t") for r in h.runs], "\n")
+  elseif method == "GET" && path == "labels"
+    return join(h.labels, "\n")
   elseif method == "POST" && path == "labels"
     name = field("name")
-    name in h.labels && throw(T.GhError("gh api failed: gh: Validation Failed (HTTP 422) {\"errors\":[{\"resource\":\"Label\",\"code\":\"already_exists\"}]}", 422))
+    # real gh: nothing on the standard output, and only this line on the standard error
+    name in h.labels && throw(T.GhError("gh api failed: gh: Validation Failed (HTTP 422)", 422))
     push!(h.labels, name)
     return ""
   elseif method == "POST" && path == "issues"
@@ -360,6 +363,9 @@ end
     @test T.format_time(0) == "1970-01-01 00:00" && T.format_time(951868800) == "2000-03-01 00:00"
     @test T.parse_time("2026-11-08T03:20:00Z") == 1794108000 && T.parse_time("2024-02-29T23:59:59.123Z") == 1709251199
     @test_throws ErrorException T.parse_time("yesterday")
+    for bad in ("2026-11-08T03:20:00", "2026-11-08T03:20:00+01:00", "2026-11-08T03:20:00-05:00", "2026-11-08T03:20:00Zjunk", "2026-11-08 03:20:00Z")
+      @test_throws ErrorException T.parse_time(bad)
+    end
     for (plain, coded) in (("", ""), ("f", "Zg=="), ("fo", "Zm8="), ("foo", "Zm9v"), ("foob", "Zm9vYg=="), ("fooba", "Zm9vYmE="),
                            ("foobar", "Zm9vYmFy"))
       @test base64encode(plain) == coded
@@ -368,6 +374,10 @@ end
     @test T.decode64("Zm9v\n") == "foo" && T.decode64("Zm9vYg") == "foob"
     @test_throws ArgumentError T.decode64("Zm9v!")
     @test_throws ArgumentError T.decode64("Z")
+    for bad in ("Z=g=", "====", "Zg=", "Zg===", "Zm9v=", "=Zg=", "Z=g")
+      @test_throws ArgumentError T.decode64(bad)
+    end
+    @test T.decode64("Zg==") == "f" && T.decode64("Zm8=") == "fo"
     @test T.decode64(base64encode("é ✓ 日本")) == "é ✓ 日本"
   end
 
@@ -582,6 +592,11 @@ end
     h.failing = args -> any(a -> a == "name=triage:core", args) ? T.GhError("gh api failed: HTTP 500", 500) : nothing
     r = nightly!(h, 1001, NIGHT1)
     @test r.code == 1 && occursin("could not create the label `triage:core`", r.out) && length(h.issues) == 4
+    # an unreadable list of labels stops the run before the first write
+    h = Hub()
+    h.failing = failing_on("repos/$REPO/labels?per_page=100")
+    r = nightly!(h, 1001, NIGHT1)
+    @test r.code == 1 && occursin("could not read the labels, so nothing was changed", r.out) && isempty(writes(h)) && isempty(h.issues)
     # unreadable data never resolves an issue
     h = Hub()
     nightly!(h, 1001, NIGHT1)
@@ -663,7 +678,9 @@ end
     @test r.code == 0 && length(h.issues) == 1
     x = h.issues[1]
     @test x["title"] == "Nightly CI is stale" && isempty(x["labels"])
-    @test occursin("<!-- stale:2026-11-08 -->", x["body"]) && occursin("last 48 hours", x["body"]) && occursin("2026-11-05 03:00 UTC", x["body"])
+    @test occursin("<!-- stale:2026-11-08 -->", x["body"]) && occursin("No completed scheduled run was created within the last 48 hours", x["body"]) &&
+          occursin("The newest completed scheduled run was created at 2026-11-05 03:00 UTC", x["body"])
+    @test occursin("recurring full-platform run", x["body"]) && !occursin("only one", x["body"]) && !occursin("No nightly run completed", x["body"])
     # a second push the same day: no second comment
     @test go(h, "stale"; event = "push", run_id = 3002).code == 0
     @test isempty(x["comments"]) && length(h.issues) == 1
@@ -681,7 +698,7 @@ end
     # no scheduled run at all, and the edge of the limit
     h = Hub()
     @test go(h, "stale"; event = "push", run_id = 3007).code == 0
-    @test occursin("There is no completed nightly run.", h.issues[1]["body"])
+    @test occursin("There is no completed scheduled run.", h.issues[1]["body"])
     h = Hub()
     h.runs = [("2026-11-06T03:20:00Z", "completed", "success")]
     @test go(h, "stale"; event = "push", run_id = 3008).code == 0 && isempty(h.issues)
@@ -754,9 +771,46 @@ end
     empty!(h.calls)
     @test nightly!(h, 1002, NIGHT1).code == 0
     @test isempty([c for c in h.calls if "repos/$REPO/labels" in c]) && length(h.labels) == n_labels
+    label_posts(h) = [i for (i, c) in enumerate(h.calls) if "repos/$REPO/labels" in c]
+    first_issue_write(h) = findfirst(c -> "repos/$REPO/issues" in c && "POST" in c, h.calls)
+    label_reads(h) = count(c -> "repos/$REPO/labels?per_page=100" in c, h.calls)
+    # all the labels exist: they are read (paginated) and none is created
+    all_labels = ["nightly-triage", "triage:core", "triage:deferred", "triage:unclassified"]
+    h2 = Hub()
+    h2.labels = copy(all_labels)
+    @test nightly!(h2, 1001, NIGHT1).code == 0 && length(h2.issues) == 4
+    @test isempty(label_posts(h2)) && label_reads(h2) == 1 && any(c -> "--paginate" in c && "repos/$REPO/labels?per_page=100" in c, h2.calls)
+    # some are missing: only these are created, once each, before the first issue is written
     h2 = Hub()
     h2.labels = ["nightly-triage", "triage:core"]
     @test nightly!(h2, 1001, NIGHT1).code == 0 && length(h2.issues) == 4
+    @test length(label_posts(h2)) == 2 && maximum(label_posts(h2)) < first_issue_write(h2)
+    @test sort([c[findfirst(==("-f"), c) + 1] for c in h2.calls if "repos/$REPO/labels" in c && "POST" in c]) == ["name=triage:deferred", "name=triage:unclassified"]
+    @test sort(h2.labels) == all_labels && label_reads(h2) == 1
+    # a creation that fails because another run made the label meanwhile: the new list shows it
+    h2 = Hub()
+    h2.failing = args -> if "name=triage:core" in args
+      push!(h2.labels, "triage:core")
+      T.GhError("gh api failed: gh: Validation Failed (HTTP 422)", 422)
+    end
+    r = nightly!(h2, 1001, NIGHT1)
+    @test r.code == 0 && length(h2.issues) == 4 && !occursin("::error::", r.out)
+    @test label_reads(h2) == 2 && maximum(label_posts(h2)) < first_issue_write(h2)
+    # a creation that fails and leaves the label missing is reported; the issues are still written
+    h2 = Hub()
+    h2.failing = args -> "name=triage:core" in args ? T.GhError("gh api failed: gh: Validation Failed (HTTP 422)", 422) : nothing
+    r = nightly!(h2, 1001, NIGHT1)
+    @test r.code == 1 && occursin("::error::could not create the label `triage:core`", r.out) && length(h2.issues) == 4
+    @test label_reads(h2) == 2 && !("triage:core" in h2.labels)
+    # a second failure to read the list of labels is not taken for success
+    h2 = Hub()
+    h2.failing = args -> if "name=triage:core" in args
+      T.GhError("gh api failed: HTTP 500", 500)
+    elseif "repos/$REPO/labels?per_page=100" in args && label_reads(h2) >= 2
+      T.GhError("gh api failed: HTTP 503", 503)
+    end
+    r = nightly!(h2, 1001, NIGHT1)
+    @test r.code == 1 && occursin("could not create the label `triage:core`", r.out) && length(h2.issues) == 4
     # --rehearsal: its own label and titles, and it never sees a real issue
     h = Hub()
     @test nightly!(h, 1001, NIGHT1).code == 0
@@ -778,7 +832,8 @@ end
     @test all(x -> !startswith(x["title"], "[rehearsal]") && "nightly-triage" in x["labels"], h.issues[5:8])
     # the same in the pure planning, with both kinds of issue in the list
     made = plan(NIGHT1)
-    mixed = [issue_from(a, i; labels = replace(a.labels, "nightly-triage" => "nightly-triage-rehearsal")) for (i, a) in enumerate(made)]
+    mixed = [T.Issue(i, "open", "", "[rehearsal] " * a.title, a.body, replace(a.labels, "nightly-triage" => "nightly-triage-rehearsal"))
+             for (i, a) in enumerate(made)]
     @test kinds(plan(NIGHT1; run = run_of(1002), issues = mixed)) == kinds(made)
     @test all(a -> a.kind == :create, plan(NIGHT1; run = run_of(1002), issues = mixed))
     @test all(a -> a.kind == :comment, plan(NIGHT1; run = run_of(1002), issues = mixed, rehearsal = true))
@@ -920,6 +975,143 @@ end
     @test length(lines) == 5 && startswith(lines[1], "done: create new issue [k] A")
     @test T.apply!(T.Action[], hub; repo = REPO, policy = POLICY) == 0
     @test_throws ErrorException T.write_action(hub, REPO, mktempdir(), 1, T.Action(:nonsense, 1, "k"))
+  end
+
+  @testset "retries: the state is reconciled, a comment is written once" begin
+    pairs(actions) = [(a.kind, a.number) for a in actions]
+    win_fails = [spec(LINUX_LTS), spec(LINUX_1), spec(MAC), failed_spec(WIN, WIN_LOG), spec(LINUX_PRE)]
+    # in the planning: an earlier attempt of this run wrote its comment, the rest of the work is still planned
+    made = by_key(plan(NIGHT1))
+    closed = issue_from(made["windows/three_factor_product"], 4; state = "closed", reason = "completed")
+    first_try = plan(win_fails; run = run_of(1005), issues = [closed])
+    @test pairs(first_try) == [(:reopen, 4), (:comment, 4)]
+    @test pairs(plan(win_fails; run = run_of(1005, attempt = "2"), issues = [closed], comments = commented(first_try))) == [(:reopen, 4)]
+    reopened = issue_from(made["windows/three_factor_product"], 4)
+    @test isempty(plan(win_fails; run = run_of(1005, attempt = "2"), issues = [reopened], comments = commented(first_try)))
+    # closed as not planned: the comment is not repeated, and nothing else is planned
+    not_planned = issue_from(made["windows/three_factor_product"], 4; state = "closed", reason = "not_planned")
+    np = plan(win_fails; run = run_of(1005), issues = [not_planned])
+    @test pairs(np) == [(:comment, 4)] && isempty(plan(win_fails; run = run_of(1005), issues = [not_planned], comments = commented(np)))
+    # the severity label is planned whenever it is missing, with or without its comment
+    pre = plan([spec(LINUX_LTS), spec(LINUX_1), spec(MAC), spec(WIN), failed_spec(LINUX_PRE, LIN1_LOG)])
+    deferred_issue = issues_of(pre)
+    core_night = [spec(LINUX_LTS), failed_spec(LINUX_1, LIN1_LOG), spec(MAC), spec(WIN), spec(LINUX_PRE)]
+    esc = plan(core_night; run = run_of(1006), issues = deferred_issue)
+    @test pairs(esc) == [(:comment, 1), (:label, 1)]
+    @test pairs(plan(core_night; run = run_of(1006, attempt = "2"), issues = deferred_issue, comments = commented(esc))) == [(:label, 1)]
+    done = [T.Issue(1, "open", "", deferred_issue[1].title, deferred_issue[1].body, [deferred_issue[1].labels; "triage:core"])]
+    @test isempty(plan(core_night; run = run_of(1006, attempt = "2"), issues = done, comments = commented(esc)))
+    # a resolution: the close is planned while the issue is open, the comment once
+    open_issues = issues_of(plan(NIGHT1))
+    resolving = plan(green_night(); run = run_of(1007), issues = open_issues)
+    @test pairs(resolving) == [(:comment, 1), (:close, 1), (:comment, 2), (:close, 2), (:comment, 3), (:close, 3), (:comment, 4), (:close, 4)]
+    again = plan(green_night(); run = run_of(1007, attempt = "2"), issues = open_issues, comments = commented(resolving))
+    @test pairs(again) == [(:close, 1), (:close, 2), (:close, 3), (:close, 4)]
+    # the flaky note has a marker of its own, and a failed attempt's comment does not hide a later resolution
+    failed_attempt = plan(NIGHT1; run = run_of(1008), issues = open_issues)
+    @test pairs(plan(green_night(); run = run_of(1008, attempt = "2"), issues = open_issues, comments = commented(failed_attempt))) ==
+          pairs(resolving)
+
+    # the same through the hub: a write fails after the comment, then the plan is made again
+    ok(args) = nothing
+    function resolved_hub()
+      h = Hub()
+      nightly!(h, 1001, NIGHT1)
+      nightly!(h, 1003, green_night())
+      return h
+    end
+    # the reopen fails after the recurrence comment
+    h = resolved_hub()
+    win = titled(h, "Nightly failure on Windows: three_factor_product")
+    n = length(win["comments"])
+    h.failing = args -> "state=open" in args ? T.GhError("gh api failed: HTTP 500", 500) : nothing
+    r = nightly!(h, 1004, win_fails)
+    @test r.code == 1 && win["state"] == "closed" && length(win["comments"]) == n + 1
+    h.failing = ok
+    empty!(h.calls)
+    r = nightly!(h, 1004, win_fails; attempt = "2")
+    @test r.code == 0 && win["state"] == "open" && length(win["comments"]) == n + 1
+    @test length(writes(h)) == 1
+    empty!(h.calls)
+    @test nightly!(h, 1004, win_fails; attempt = "3").code == 0 && isempty(writes(h))
+    # the close fails after the resolution comment
+    h = Hub()
+    nightly!(h, 1001, NIGHT1)
+    h.failing = args -> "state=closed" in args ? T.GhError("gh api failed: HTTP 500", 500) : nothing
+    r = nightly!(h, 1002, green_night())
+    @test r.code == 1 && all(x -> x["state"] == "open" && length(x["comments"]) == 1, h.issues)
+    h.failing = ok
+    r = nightly!(h, 1002, green_night(); attempt = "2")
+    @test r.code == 0 && all(x -> x["state"] == "closed" && length(x["comments"]) == 1, h.issues)
+    @test count(c -> occursin("resolved:1002", c), vcat([x["comments"] for x in h.issues]...)) == 4
+    # the label write fails after the escalation comment
+    h = Hub()
+    nightly!(h, 1001, [spec(LINUX_LTS), spec(LINUX_1), spec(MAC), spec(WIN), failed_spec(LINUX_PRE, LIN1_LOG)])
+    x = only(h.issues)
+    @test !("triage:core" in x["labels"])
+    h.failing = args -> any(a -> endswith(a, "/issues/1/labels"), args) ? T.GhError("gh api failed: HTTP 500", 500) : nothing
+    r = nightly!(h, 1002, core_night)
+    @test r.code == 1 && length(x["comments"]) == 1 && !("triage:core" in x["labels"])
+    h.failing = ok
+    r = nightly!(h, 1002, core_night; attempt = "2")
+    @test r.code == 0 && length(x["comments"]) == 1 && "triage:core" in x["labels"]
+    # the closing comment of the stale issue is written once as well
+    h = Hub()
+    h.runs = [("2026-11-05T03:00:00Z", "completed", "success")]
+    @test go(h, "stale"; event = "push", run_id = 3101).code == 0
+    h.runs = [("2026-11-08T02:00:00Z", "completed", "success")]
+    h.failing = args -> "state=closed" in args ? T.GhError("gh api failed: HTTP 500", 500) : nothing
+    @test go(h, "stale"; event = "push", run_id = 3102).code == 1
+    @test h.issues[1]["state"] == "open" && length(h.issues[1]["comments"]) == 1
+    h.failing = ok
+    @test go(h, "stale"; event = "push", run_id = 3102).code == 0
+    @test h.issues[1]["state"] == "closed" && length(h.issues[1]["comments"]) == 1
+  end
+
+  @testset "rehearsal and normal runs own disjoint issues" begin
+    for (labels, title, normal, rehearsal) in (
+        (["nightly-triage"], "t", true, false),
+        (["nightly-triage"], "[rehearsal] t", true, false),
+        (["nightly-triage-rehearsal"], "[rehearsal] t", false, true),
+        (["nightly-triage-rehearsal"], "t", false, false),
+        (["nightly-triage", "nightly-triage-rehearsal"], "[rehearsal] t", false, false),
+        (["nightly-triage", "nightly-triage-rehearsal"], "t", false, false),
+        (String[], "[rehearsal] t", false, false))
+      i = T.Issue(1, "open", "", title, "", labels)
+      @test T.in_scope(POLICY, i, false) == normal
+      @test T.in_scope(POLICY, i, true) == rehearsal
+    end
+    @test T.conflicting(POLICY, [T.Issue(9, "open", "", "a", "", ["nightly-triage", "nightly-triage-rehearsal"]),
+                                 T.Issue(3, "closed", "", "a", "", ["nightly-triage-rehearsal", "nightly-triage"]),
+                                 T.Issue(5, "open", "", "a", "", ["nightly-triage"])]) == [3, 9]
+    win_fails = [spec(LINUX_LTS), spec(LINUX_1), spec(MAC), failed_spec(WIN, WIN_LOG), spec(LINUX_PRE)]
+    made = by_key(plan(win_fails))["windows/three_factor_product"]
+    # an issue with both labels is untouched in both modes: no comment when it fails, no close when it passes
+    both = [T.Issue(1, "open", "", "[rehearsal] " * made.title, made.body, ["nightly-triage", "nightly-triage-rehearsal"])]
+    for rehearsal in (false, true)
+      @test kinds(plan(win_fails; run = run_of(1002), issues = both, rehearsal)) == [(:create, nothing, "windows/three_factor_product")]
+      @test isempty(plan(green_night(); run = run_of(1002), issues = both, rehearsal))
+      @test isempty(T.issues_to_read(POLICY, both, Set(["windows/three_factor_product"]); rehearsal))
+    end
+    # a rehearsal issue whose title lacks the prefix is untouched in a rehearsal
+    bare = [T.Issue(1, "open", "", made.title, made.body, ["nightly-triage-rehearsal"])]
+    @test kinds(plan(win_fails; run = run_of(1002), issues = bare, rehearsal = true)) == [(:create, nothing, "windows/three_factor_product")]
+    @test isempty(plan(green_night(); run = run_of(1002), issues = bare, rehearsal = true))
+    @test isempty(T.issues_to_read(POLICY, bare, Set(["windows/three_factor_product"]); rehearsal = true))
+    # through the hub: untouched, and one warning per such issue
+    for flags in (String[], ["--rehearsal"])
+      h = Hub()
+      push!(h.issues, Dict{String, Any}("number" => 1, "state" => "open", "reason" => "", "title" => "[rehearsal] " * made.title,
+                                        "body" => made.body, "labels" => ["nightly-triage", "nightly-triage-rehearsal"], "comments" => String[]))
+      load!(h, 1002, green_night())
+      r = go(h, "triage"; run_id = 1002, flags)
+      @test r.code == 0 && h.issues[1]["state"] == "open" && isempty(h.issues[1]["comments"]) && isempty(writes(h))
+      @test count("::warning::", r.out) == 1 && occursin("::warning::Issue #1 has both the label `nightly-triage` and the label `nightly-triage-rehearsal`", r.out)
+      load!(h, 1003, win_fails)
+      r = go(h, "triage"; run_id = 1003, flags)
+      @test r.code == 0 && length(h.issues) == 2 && isempty(h.issues[1]["comments"]) && h.issues[1]["state"] == "open"
+      @test count("::warning::", r.out) == 1
+    end
   end
 
   @testset "the command line" begin

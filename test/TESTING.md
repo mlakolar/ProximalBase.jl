@@ -61,7 +61,8 @@ parallel batch.
   read-only handles); values, gradients and proximal operators of representative separable
   and nonseparable functions; conjugates as projections; constraints; spectral functions;
   precision, overflow and non-finite boundary cases; validation before writes; zero
-  allocations on hot paths; and device arrays (JLArrays) with scalar indexing disallowed.
+  allocations on hot paths; and the guard against ambiguities with the GPU extension
+  (`gpu_extension_ambiguities`). The device-array suites on JLArrays are in Full (below).
   The five most expensive files contributed representative cases, moved into new files
   (below), so that Quick keeps their main identities and regressions without their grids.
 - **Standard** adds the files of most function families, wrappers, constraints, smooth losses
@@ -72,7 +73,8 @@ parallel batch.
   the remaining iterate and constraint grids, and the specialized families (cones, graphs,
   fibers, polyhedra).
 - **Full** adds the exhaustive catalogs whose cases repeat paths the tiers above already reach:
-  the rest of `gpu`, `conjugate_projections` and `allocations`; `precision_mixed`; the block
+  the device-array suites on JLArrays (`gpu`, `gpu_smoke`, `conformance/gpu_arrays`), `conjugate_projections` and
+  `allocations`; `precision_mixed`; the block
   checks on steps, values, wrappers and workspaces; the frozen weight-step formulas; the
   complex-input rejection catalogs (`real_*`); the symmetric mutator and parameter inventories;
   separable block traversal; the wrapper rejected-step catalog (`stepchecks`); and the family
@@ -150,9 +152,10 @@ nothing was deleted. Assertion counts (from the runner) confirm it.
 | `allocations_basics` | `allocations` (full) | Loop entries: block steps on a `SparseIterate` and with `NormL1`/`GroupNormL2`; `GroupNormL2` with distinct group layouts; `NormL1` on vectors, sparse, atom and symmetric iterates; `GroupNormL2` prox; `LeastSquaresLoss` gradients | 2910 = 2766 + 144 |
 | `constrained_basics` | `constrained` (thorough) | `NormL1` and centered `SqrNormL2` on four boxes with the brute-force optimality check; coordinate steps on a box; `Scaled(NormL1)` wrappers; simplices, closed forms, the zero-sum lasso KKT check, errors, general normals with a box, Float32 cases; Float64 open-domain boxes | 4108 = 3526 + 581 (+1, see below) |
 | `conjugate_basics` | `conjugate_projections` (full) | Seven direct conjugate families (clipping, check loss, orthant, l2 ball, group l2 ball, huge·tiny scale, shift) in Float64 and Float32; the Float64 Moreau identity with infinite weights; nested mixed sums and failure atomicity; output aliasing of parameters; biconjugates; Float64 l1-ball radius accuracy and group l1 balls | 265693 = 259835 + 5858 |
-| `gpu_smoke` (with `gpu_prelude`, `gpu_suite_basics`) | `gpu` (full) | `NormL1` (plain and weighted) and the user bits type; `NormL2`, `IndSimplex`; `GroupNormL2` on host and device layouts; weighted norms at device overflow; least-squares and logistic losses with a design matrix; infinite weights; Moreau array steps | 21767 = 21469 + 298 |
+| `gpu_smoke` (with `gpu_prelude`, `gpu_suite_basics`; full tier since #771) | `gpu` (full) | `NormL1` (plain and weighted) and the user bits type; `NormL2`, `IndSimplex`; `GroupNormL2` on host and device layouts; weighted norms at device overflow; least-squares and logistic losses with a design matrix; infinite weights; Moreau array steps | 21767 = 21469 + 298 |
 
-The ambiguity guard for the GPU extension moved from `gpu` to `gpu_smoke` (through `gpu_suite_basics`),
+The ambiguity guard for the GPU extension moved from `gpu` to `gpu_smoke` (through `gpu_suite_basics`;
+since #771 it is in the helper `gpu_ambiguities`, which the quick file `gpu_extension_ambiguities` runs too),
 and `gpu_suite_basics` gained the `_maximum_abs` tests for a `Diagonal` of a device vector. The
 runner's counts for `gpu` and `gpu_smoke`: 21469 and 319 at the base (21788 together, the guard
 failing there), 21468 and 412 at the head (21880 together): the guard's assertion moved, and 92 are new.
@@ -176,11 +179,50 @@ run 41341879373 (Julia 1: 639818 against 639702; broken counts equal): the 117 o
 
 ## JLArrays and CUDA
 
-`gpu_smoke` (quick) and `gpu` (full) run on JLArrays, GPUArrays' reference backend on the CPU,
-with scalar indexing disallowed: they catch code that indexes device arrays element by element
-or does not adapt its parameters. They do not test a physical device. `test/cuda` runs the same
-shared cases on an NVIDIA GPU by hand (see its README); no tier and no CI job runs it, and
-`test/oracles` (JuMP and conic solvers) is likewise run by hand.
+`gpu_smoke`, `gpu` and `conformance/gpu_arrays` (all full tier) run on JLArrays, GPUArrays' reference
+backend on the CPU, with scalar indexing disallowed: they catch code that indexes device arrays element
+by element or does not adapt its parameters. They do not test a physical device. `test/cuda` runs the
+same shared cases (`gpu_prelude`, `gpu_suite_basics`, `gpu_suite`) on an NVIDIA GPU by hand (see its
+README); no tier and no CI job runs it, and `test/oracles` (JuMP and conic solvers) is likewise run by
+hand.
+
+### The device-array suites leave the default tiers (#771, part 1)
+
+Policy of #769: the pull-request tiers keep what a change to the package can break in minutes; a
+suite whose cases repeat paths that the CPU files already reach runs nightly. The device-array suites
+are such a suite: they exercise the same functions through `JLArray`, and a regression found only there
+comes from the GPU extension, the GPU test files or code that dispatches on device arrays.
+
+| File | Before | After | Worker time, Julia 1.13.3 on one cluster node, one sample each |
+|---|---|---|---:|
+| `gpu_smoke` | quick | full | 90.4 s in the full quick tier at the base (16 workers), 83.8 s in standard (82% compilation); 58.4 s alone |
+| `conformance/gpu_arrays` | thorough | full | 67.1 s in the thorough tier at the base (16 workers); 42.2 s alone (3 workers on 4 cores) |
+| `gpu` | full | full | not on the pull-request path |
+| `gpu_extension_ambiguities` | (new) | quick | 11.0 s alone (same run as the two above) |
+
+The ambiguity guard stays in quick: it moved into the helper `gpu_ambiguities`, which
+`gpu_suite_basics` includes (so full `gpu_smoke` and the physical CUDA run still execute it) and which
+the new quick file `gpu_extension_ambiguities` includes, after asserting that the extension is loaded so
+that it cannot pass without it. A quick run therefore saves the time of `gpu_smoke` less that of the
+new file (about 80 s of worker time in these samples) and a thorough run the time of
+`conformance/gpu_arrays`. The samples were taken under different loads, on one machine, and are not an
+end-to-end CI time; the CI before and after is taken from three
+comparable runs.
+
+A pull request still runs the device-array files when it changes the GPU test files or helpers
+(`.github/tier-rules.toml`), the conformance suite, its scripts or the coverage map (which add
+`conformance/gpu_arrays`, so that the map check has the complete inventory), the GPU extension (`ext/`
+is full), or when it carries the label `test:gpu`. A change that affects device arrays without any of
+these is first seen by the nightly run. 31 test files load JLArrays as a second array type for CPU
+catalogs; they stay in their tiers, so device arrays remain exercised by `src/` changes.
+
+In CI, a focus run of `conformance/gpu_arrays` below thorough executes its assertions and writes no
+report (the harness writes reports as rows are emitted when `CONFORMANCE_REPORT` and
+`CONFORMANCE_RUN_ID` are both nonempty; CI sets the run id for every tier and gives `CONFORMANCE_REPORT`
+a value only for thorough and full runs). Thorough without it writes 13 of the 14 report files, and
+`scripts/conformance_map.jl --check --tier thorough --extra <focus files>` then compares a partial
+inventory (CONTRIBUTING.md, `docs/design/numerical-contract/README.md`); the full check, with all
+14 files, is unchanged.
 
 ## CI scenarios
 
@@ -447,8 +489,9 @@ the test. The times come from the CLI's jq as Unix time, so the planner no longe
 
 ## A test made independent of its worker
 
-The ambiguity check for the GPU extension is the last testset of `gpu_suite_basics.jl`, so
-`gpu_smoke` and the physical CUDA run execute it (it was in `gpu_suite.jl`). It calls
+The ambiguity check for the GPU extension is in `gpu_ambiguities.jl`, which `gpu_suite_basics.jl`
+includes at its end, so `gpu_smoke` and the physical CUDA run execute it (it was in
+`gpu_suite.jl`), and which `gpu_extension_ambiguities.jl` runs in the quick tier. It calls
 `Test.detect_ambiguities(ProximalBase)`, which also sees
 methods that other test files add to ProximalBase functions in the same worker process. With
 `symmetric_parameters_trait` (its `MyL1` adds an `lla_weight` method) earlier on the worker, the
@@ -459,11 +502,32 @@ known package ambiguities are unchanged; the assertion now prints the offending 
 fails, on every Julia version. When the tiers were introduced, this was the only assertion whose
 input changed.
 
+## Focused platform runs (#772)
+
+`platform_focus` (quick) tests `scripts/platform_focus.jl` and the text of
+`.github/workflows/platform-focused.yml`, the workflow that runs one test file on native Windows and
+macOS (CONTRIBUTING.md, "Focused runs on Windows and macOS"). `scripts/test.jl <name>` runs every
+test whose name starts with `<name>`; some declared names are a prefix of another, so the
+workflow passes the name and `!<other>` for each longer name. The test feeds that selector for each
+declared name to the runner's own `parse_args` and `filter_tests!` on the real catalog and requires
+exactly that file, and `check_selectors` returns no error and no warning for it (the runner calls it
+first, and its warnings reach the log). It also checks that each refusal of the plan job says why
+(unknown name, undeclared prefix, directory, helper, environment, a form that is not a name, an over-long name, a
+listed name without a file, a Julia version below the bound of `Project.toml`, an `os`, a SHA), that
+the plan reports the detected dispatch-input validation failures together rather than stopping at the first bad field, that a hostile input cannot add a workflow command of its own, that
+`check-log` accepts the header of one file and rejects two files, another file, none and no header,
+and that the workflow has dispatch as its only trigger, reads inputs in its shell `run:` steps only
+through `env:` (`run-name` and `concurrency` read them directly), uses the action versions of `CI.yml`, and reads exactly the outputs the script writes. The workflow text is
+read with CRLF endings turned into LF, since the quick tier also runs on Windows in the nightly run.
+The native runs themselves are not part of the test; the PR carries that evidence.
+
 ## Per-file times
 
 From the full run 41364805347 (Julia lts on an AMD EPYC 9V74, Windows on an EPYC 9V45). A file's
 time includes compiling what earlier files on its worker had not compiled, so it depends on
-the order: `gpu_smoke` takes 9 s on Windows because `gpu` had already run on that worker.
+the order: `gpu_smoke` takes 9 s on Windows because `gpu` had already run on that worker. The
+tiers shown are those of that run; `gpu_smoke` and `conformance/gpu_arrays` have been in the full tier
+since #771.
 Files added after that run have no time in the table: `spectral_fused_values` (thorough) checks
 that the value `value_and_prox!` returns for the counting functions of `SingularValue` and
 `Spectral`, and for `IndBallRank`, is the standalone value at the matrix it stored.
@@ -472,7 +536,7 @@ that the value `value_and_prox!` returns for the counting functions of `Singular
 
 | File | Tier | Julia lts, Ubuntu (s) | Julia 1, Windows (s) |
 |---|---|---:|---:|
-| `gpu_smoke` | quick | 51 | 9 |
+| `gpu_smoke` | quick (full since #771) | 51 | 9 |
 | `conjugate_basics` | quick | 28 | 26 |
 | `losses` | quick | 23 | 27 |
 | `wrapper_buffers` | quick | 20 | 14 |
@@ -570,7 +634,7 @@ that the value `value_and_prox!` returns for the counting functions of `Singular
 | `conformance/element_types` | thorough | 21 | 14 |
 | `spectral_domain` | thorough | 19 | 12 |
 | `conformance/harness` | thorough | 18 | 18 |
-| `conformance/gpu_arrays` | thorough | 17 | 44 |
+| `conformance/gpu_arrays` | thorough (full since #771) | 17 | 44 |
 | `nonfinite_inputs` | thorough | 17 | 14 |
 | `spectral_tolerance` | thorough | 16 | 20 |
 | `symmetric_parameters_merge` | thorough | 15 | 13 |

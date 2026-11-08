@@ -28,7 +28,7 @@ listed in [`test/tiers.toml`](test/tiers.toml):
 | `quick` | representative cases of the whole package; every PR | 3–5 min |
 | `standard` | quick, plus most function families, wrappers and constraints | 8–10 min |
 | `thorough` | standard, plus numerics, conformance, symmetric and iterate catalogs | 15–20 min |
-| `full` | every test file, including the exhaustive catalogs | about 30 min or more |
+| `full` | every test file, including the exhaustive catalogs and the device-array suites on GPUArrays' reference backend (`gpu`, `gpu_smoke`, `conformance/gpu_arrays`) | about 30 min or more |
 
 While working on a change, run the files that test it, then a tier:
 
@@ -41,7 +41,7 @@ julia scripts/test.jl                               # every file (the full tier)
 ```
 
 `--tier=quick --list` lists a tier's files, `--extra=gpu,metric` adds files to a
-tier, and names after a tier filter it (`--tier=thorough symmetric`). `--jobs=N`
+tier (`--extra=gpu,gpu_smoke,conformance/gpu_arrays` runs the device-array suites beside a lower tier), and names after a tier filter it (`--tier=thorough symmetric`). `--jobs=N`
 or `PTR_NUM_JOBS` sets the number of workers. The same arguments work through
 `Pkg.test(; test_args=...)`. Set `JULIA_TEST_COVERAGE=true` to collect coverage, or
 `JULIA_TEST_DEPWARN=error` to treat deprecation warnings as errors. `--verbose`
@@ -106,6 +106,10 @@ other table is validated by its own reader (`test/tiers.jl` or
   - other package code (`src/`): standard; code shared by every function
     (`interface.jl`, `utils.jl`, `calculus.jl`, `metric.jl`, `partial.jl`,
     spectral helpers) or the conformance suite and its coverage map: thorough;
+  - the GPU test files and helpers (`test/gpu*.jl`): quick and `gpu`, `gpu_smoke`
+    (the helpers) or the changed file; the conformance suite, its scripts and the
+    coverage map also run `conformance/gpu_arrays`, so that the coverage check has
+    its reports; the GPU extension (`ext/`) is full;
   - package code without any test change: at least standard;
   - `Project.toml`, `ext/`, `src/lapack.jl`, the test runner, the CI rules,
     scripts and workflow, and `test/tiers.toml`: full, on Julia 1 and lts on
@@ -121,7 +125,13 @@ other table is validated by its own reader (`test/tiers.jl` or
   and Julia pre besides Linux) and the benchmark reference checks; a path rule
   that needs the full tier runs it on `linux` only. `test:benchmark` adds the
   benchmark reference checks and does not change the tier or the platforms; it
-  names no tier. `test:iterate-narrow` declares a narrow change to one iterate
+  names no tier. `test:gpu` adds the device-array suites (`gpu_smoke`, `gpu`,
+  `conformance/gpu_arrays`) to the run, whatever the paths; on a change that needs no
+  package tests it runs quick with them. Add it to a change that can affect device
+  arrays without touching the GPU files: those suites are otherwise in the full tier,
+  which runs nightly and on tags and stays outside quick, standard and thorough (the CPU files that
+  load JLArrays as a second array type, and the ambiguity guard for the GPU extension,
+  `gpu_extension_ambiguities`, stay in the tiers below full). `test:iterate-narrow` declares a narrow change to one iterate
   implementation; it lowers that implementation's rule and no other path.
   Adding or removing a label starts a new run. Add `test:thorough` when a change touches
   element-type promotion, precision, overflow-safe scaling or non-finite
@@ -148,6 +158,104 @@ other table is validated by its own reader (`test/tiers.jl` or
   Codecov; the nightly run does so too). `tier=full -f platforms=cross -f
   coverage=true` runs what the nightly run runs. On a PR branch the result
   appears on the head commit beside the PR's own checks.
+  One test file on Windows and macOS only: see "Focused runs on Windows and
+  macOS" below.
+
+#### Focused runs on Windows and macOS
+
+The workflow `platform-focused.yml` runs one declared test file on a branch that
+contains this workflow and its companion scripts, on native Windows and macOS
+(Linux as a comparator on request), so that a platform bug can be reproduced and
+its fix checked without a full cross-platform run. It is
+advisory: nothing in `CI.yml`, its verdict or gate, or branch protection refers
+to it, so a red run does not change a PR's required checks.
+
+```sh
+gh workflow run platform-focused.yml --ref <branch> -f os=both -f test_file=three_factor_product
+gh run list --workflow platform-focused.yml --branch <branch>   # the run id
+gh run watch <id>
+gh run view <id> --log-failed
+gh run download <id>
+```
+
+| Input | Meaning |
+|---|---|
+| `os` | `windows` (windows-latest, x64), `macos` (macos-latest, aarch64), `linux` (ubuntu-latest, x64), `both` (Windows and macOS, the default) or `all` (all three) |
+| `test_file` | one declared test name, exactly as in `test/tiers.toml` (`three_factor_product`, `conformance/tolerances`); required |
+| `julia_version` | `1` (the default), `lts`, `pre`, `1.N` or `1.N.P`; a `1.N` or `1.N.P` below the `julia` bound of `Project.toml` is refused. An old version may have no macOS aarch64 build |
+| `expected_sha` | optional, 7 to 40 hex digits; the plan job fails unless they are the start of the dispatched commit |
+
+- **One file.** `scripts/test.jl <name>` runs every test whose name starts with
+  `<name>` (`blockchecks` selects five files). The workflow passes the name
+  followed by `!<other>` for every other declared test that starts with it, and
+  no `--tier` or `--extra`, so the runner's name filter keeps that file and no
+  other declared test. A declared name that is also the start of other names
+  (such as `blockchecks`) is accepted and runs only that file. When the check
+  step runs (it does not after a cancellation), `scripts/platform_focus.jl
+  check-log` reads the header that `test/runtests.jl` prints before any worker
+  starts and fails the job unless it says `1 files` and lists exactly the file;
+  it runs also when the tests failed.
+- **Checks before any other system starts.** The plan job (Linux) refuses an
+  unknown name, an undeclared prefix of test names (`three_factor`), a
+  directory, a helper, an environment, a name that is not letters, digits, `_`
+  and `/` (shell metacharacters, `..`, a leading `!` or `-`, a newline), a name
+  whose file is missing, an `os` that is not in the table, a `julia_version`
+  that is not in the table or is below the bound, an `expected_sha` that is not
+  hex or is not the start of the dispatched commit, and a checkout that is not
+  the dispatched commit. It reports the detected dispatch-input validation failures together rather
+  than stopping at the first bad field, as `::error::` lines in which a rejected input is quoted and percent-encoded, so that an input cannot
+  add a workflow command of its own. The jobs for the other systems need the
+  plan job, so none is started when it fails. In the `run:` steps the inputs are
+  read only from environment variables.
+- **Results.** A job that reaches the test step writes the timing table, the
+  failing lines and the last lines of the log, and the run metadata (commit,
+  ref, run, system image, Julia `versioninfo`, selector, seconds) to its
+  summary, and uploads the artifact
+  `focus-<test name with / as ->-<system>-<julia version>-<attempt>` (14 days)
+  with `test-output.log`, `metadata.txt` and a copy of the test file. This is
+  best effort: the timing summary is `continue-on-error`, the copy of the test
+  file ignores failure, a cancellation suppresses the upload, and an
+  infrastructure failure can leave any of it missing. The plan job has a
+  different summary (the inputs, or the refused inputs). A later dispatch for the
+  same branch, file, `os` and Julia version cancels an earlier one that is still
+  running. No cache is used; a first cold run for a single file took about 2 to
+  3 minutes per system on GitHub-hosted runners.
+- **The loop.** Push the branch, dispatch with `-f test_file=<file>` (add
+  `-f expected_sha=<commit>` to be sure of the commit), wait with `gh run
+  watch`, read `gh run view <id> --log-failed` and the summary, download the
+  artifact if the stack trace is needed, reproduce on Linux (below), push the
+  fix and dispatch again. A platform bug counts as fixed only with a green
+  native run of the file at the fixing commit.
+- **Reproducing on Linux.** Where a C `long` has 32 bits (Windows), some
+  `BigFloat` and exponent code takes another path. The existing tests probe it
+  from Linux in two ways. An explicit `Int32` argument exercises the methods that
+  dispatch on an `Int32` exponent; `Clong` is `Int64` on Linux x64, so a
+  `Clong`-typed value does not do that, and the tests use `Clong`-typed shifts as
+  exact references. A constrained MPFR exponent range (`Base.MPFR.set_emax!` and
+  `set_emin!`, with the previous range restored) reaches the overflow and
+  underflow cases of the smaller range of Windows.
+  - `test/int32_exponents.jl` passes `Int32` exponents to the helpers that take
+    one, compares with the same call with an `Int` exponent, and runs the
+    `BigFloat` paths that produce them.
+  - `test/ldexp_bigfloat.jl` compares the package's `ldexp` and what depends on
+    it with references built from `Clong`-typed shifts. Its cases that need the
+    exponent range of Windows (`2^30 - 1`) run under it with `windows_range`
+    (some of them also in the default range); its other cases run in the default
+    range.
+  - `test/exponent_sums.jl` builds its exponents relative to the platform's own
+    range (`get_emax`, `get_emin`), so the same body runs where the range is
+    smaller, and uses `Clong`-typed powers of two as exact operands.
+  - `test/bigfloat_integer_operands.jl` compares results with integer operands
+    (of several integer types, `Int32` among them) at two to five bits and at 256
+    bits with a model, written in the file, that forms the integer exactly; it
+    does not change the exponent range.
+
+  A reproduction on Linux can show a cause and give the fix a test; the native
+  run above is what shows the fix on the platform.
+- **A new workflow file** cannot be dispatched until one run of that path has
+  registered it (for example a run from a temporary `push` trigger on the
+  branch); a dispatch of a file that exists only on a branch is refused with HTTP
+  404 before that. Once the file is on master it is registered.
 
 ### Iterate changes
 
@@ -264,11 +372,16 @@ before the test runner started (Julia, test environment, precompilation), the
 runner's wall time, the worker time of every file with its compilation share,
 and the slowest files. Thorough and full runs also write the conformance reports
 (each of those jobs checks that they exist), check the committed coverage map and upload
-the reports. The map check and the required upload run on Julia lts on Linux when
+the reports. Thorough runs no `conformance/gpu_arrays` unless the change or the label
+`test:gpu` adds it, so its check (`scripts/conformance_map.jl --check --tier thorough
+--extra <focus files>`) compares a partial inventory: every other report file must be
+there, and the rows of the other families, the case ids and the required rows must match
+the committed map; a report file missing for another reason fails. Below full the
+artifacts are named `conformance-reports-partial-...`. The map check and the required upload run on Julia lts on Linux when
 the run has it, otherwise (a manual run on the `stable` platforms) on Julia 1 on
 Linux. An upload counts only when GitHub returns an artifact id for it; otherwise
-it is retried once. The artifact of that job, from which the coverage map is
-regenerated, is required: without a confirmed upload that job fails. On the other
+it is retried once. The artifact of that job is required: without a confirmed upload that job fails.
+Only the artifact of a full run (not the `partial` one) serves to regenerate the coverage map. On the other
 jobs a missing upload is a warning in the job and its summary, and the job keeps
 the result of its tests.
 

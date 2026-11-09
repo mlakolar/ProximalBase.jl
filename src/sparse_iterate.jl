@@ -372,11 +372,40 @@ end
 
 Remove stored zero coordinates from `x` and return `x`. On a
 [`SymmetricSparseIterate`](@ref), these are coordinates of the lower triangle.
-The last stored coordinate moves into the place of each removed one, so the
-order of [`activecoordinates`](@ref) can change. The entries of `x` do not
-change.
+When every stored value is zero, the working set is emptied. Otherwise the last
+stored coordinate moves into the place of each removed one, so the order of
+[`activecoordinates`](@ref) can change. The entries of `x` do not change.
 """
-function SparseArrays.dropzeros!(x::_StoredIterate)
+SparseArrays.dropzeros!(x::_StoredIterate) = _dropzeros_compact!(x)
+
+function SparseArrays.dropzeros!(x::SparseIterate)
+  nz, idx, pos = x.nzval, x.nzval2ind, x.ind2nzval
+  n = x.nnz
+  i = 1
+  @inbounds while i <= n
+    if iszero(nz[i])
+      pos[idx[i]] = 0
+      # stored zeros at the end leave without a move; the last nonzero takes the place
+      while n > i && iszero(nz[n])
+        pos[idx[n]] = 0
+        n -= 1
+      end
+      if n > i
+        nz[i] = nz[n]
+        idx[i] = idx[n]
+        pos[idx[i]] = i
+        i += 1
+      end
+      n -= 1
+    else
+      i += 1
+    end
+  end
+  x.nnz = n
+  x
+end
+
+function _dropzeros_compact!(x::_StoredIterate)
   i = 1
   while i <= x.nnz
     if iszero(x.nzval[i])

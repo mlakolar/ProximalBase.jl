@@ -1196,4 +1196,111 @@ end
   @test (@allocated alloc_unaliased(v, a)) > 0
 end
 
+# the pre-change AtomIterate compaction on a plain copy of the active list
+function oracle_atom_dropzeros(active::Vector{Int}, zerogroup)
+    active = copy(active)
+    i = 1
+    while i <= length(active)
+        if zerogroup(active[i])
+            active[i] = active[end]; pop!(active)
+        else
+            i += 1
+        end
+    end
+    active
+end
+
+atom_drop_allocs(x) = @allocated dropzeros!(x)
+function atom_drop_fixture(::Type{T}, gs, vals) where {T}
+    x = AtomIterate(T, 6, gs)
+    for k = 1:3; activate!(x, k); x.storage[gs[k]] .= vals[k]; end
+    x
+end
+
+function atom_row(x::AtomIterate{T}, active, vals::Dict) where {T}
+    for k in active
+        activate!(x, k)
+        x.storage[x.groups[k]] .= vals[k]
+    end
+    before = copy(x.storage)
+    zg(k) = all(iszero, x.storage[x.groups[k]])
+    expect = oracle_atom_dropzeros(collect(active), zg)
+    @test dropzeros!(x) === x
+    @test reinterpret(T === Float32 ? UInt32 : UInt64, x.storage) == reinterpret(T === Float32 ? UInt32 : UInt64, before)
+    @test x.active[1:x.nactive] == expect
+    @test x.nactive == length(expect)
+    for k = 1:length(x.groups)
+        @test isactive(x, k) == (k in expect)
+        @test x.position[k] == (k in expect ? findfirst(==(k), expect) : 0)
+    end
+    @test consistent(x)
+    @test dropzeros!(x) === x
+    @test x.active[1:x.nactive] == expect
+    x
+end
+
+@testset "dropzeros all-zero preflight" begin
+    for T in (Float32, Float64)
+        @testset "AtomIterate $T" begin
+            # the example: group 1 (0, 0), group 2 (0, -0), group 3 (0, 1)
+            gs = [1:2, [3, 6], 4:5]
+            x = AtomIterate(T, 6, gs)
+            atom_row(x, [1, 2, 3], Dict(1 => [T(0), T(0)], 2 => [T(0), -T(0)], 3 => [T(0), T(1)]))
+            @test x.active[1:x.nactive] == [3]
+            x = AtomIterate(T, 6, gs)
+            for k in 1:3; activate!(x, k); end
+            x.storage[3] = -T(0)
+            @test dropzeros!(x) === x
+            @test x.nactive == 0 && signbit(x.storage[3]) && !any(k -> isactive(x, k), 1:3)
+            @test iszero(x.position)
+            # empty working set
+            atom_row(AtomIterate(T, 6, gs), Int[], Dict{Int, Vector{T}}())
+            # no zeros group, NaN/Inf/subnormal stay
+            atom_row(AtomIterate(T, 6, gs), [2, 1, 3], Dict(1 => [T(1), T(0)], 2 => [T(NaN), T(0)], 3 => [floatmin(T) / 4, T(0)]))
+            atom_row(AtomIterate(T, 6, gs), [2, 1, 3], Dict(1 => [T(0), T(0)], 2 => [T(Inf), T(0)], 3 => [T(0), -T(Inf)]))
+            # the only nonzero is the last scanned entry
+            atom_row(AtomIterate(T, 6, gs), [1, 2, 3], Dict(1 => [T(0), T(0)], 2 => [T(0), T(0)], 3 => [T(0), T(5)]))
+            atom_row(AtomIterate(T, 6, gs), [3, 1, 2], Dict(1 => [T(0), T(0)], 2 => [T(0), T(0)], 3 => [T(1), T(0)]))
+            # inactive groups with zero storage, group 1 inactive
+            atom_row(AtomIterate(T, 6, gs), [3, 2], Dict(2 => [T(0), T(0)], 3 => [T(0), T(0)]))
+            # layouts and sizes
+            for sz in (1, 8, 64)
+                K = 5; p = K * sz
+                layouts = Dict(
+                    :contiguous => [(k - 1) * sz + 1:k * sz for k = 1:K],
+                    :strided => [k:K:p for k = 1:K],
+                    :vector => [collect(reverse((k - 1) * sz + 1:k * sz)) for k = 1:K])
+                for (name, groups) in layouts
+                    for fracs in ((1, 1, 1, 1, 1), (0, 0, 0, 0, 0), (1, 0, 1, 0, 1), (1, 1, 1, 1, 0), (0, 1, 1, 1, 1))
+                        x = AtomIterate(T, p, groups)
+                        vals = Dict(k => (fracs[k] == 1 ? zeros(T, length(groups[k])) : T.(randn(length(groups[k])) .+ 3)) for k = 1:K)
+                        fracs[2] == 1 && sz > 1 && (vals[2][end] = -T(0))
+                        atom_row(x, [4, 2, 5, 1, 3], vals)
+                    end
+                    # a partially zero group stays active, its only nonzero is the last entry
+                    x = AtomIterate(T, p, groups)
+                    v = Dict(k => zeros(T, length(groups[k])) for k = 1:K)
+                    v[3][end] = T(1)
+                    atom_row(x, [1, 2, 3, 4, 5], v)
+                    @test 3 in x.active[1:x.nactive] && x.nactive == 1
+                end
+            end
+            # repeated clear, then a fresh activation, and fill!(x, 0) after a nonzero solve
+            x = AtomIterate(T, 6, gs)
+            x[1] = T(2); x[3] = T(1)
+            fill!(x, 0)
+            @test dropzeros!(x) === x && x.nactive == 0
+            activate!(x, 2); x[3] = T(1)
+            @test x.active[1:x.nactive] == [2] && consistent(x)
+            # allocation: warm up on separate fixtures, then the first call on a nonempty working set
+            z0 = T[0, 0]
+            atom_drop_allocs(atom_drop_fixture(T, gs, (z0, z0, z0)))
+            atom_drop_allocs(atom_drop_fixture(T, gs, (z0, T[1, 0], z0)))
+            @test atom_drop_allocs(atom_drop_fixture(T, gs, (z0, z0, z0))) == 0
+            @test atom_drop_allocs(atom_drop_fixture(T, gs, (z0, T[1, 0], z0))) == 0
+            @test atom_drop_allocs(atom_drop_fixture(T, gs, (T[1, 1], T[1, 0], T[2, 2]))) == 0
+        end
+    end
+end
+
 end

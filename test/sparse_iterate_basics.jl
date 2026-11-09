@@ -703,4 +703,149 @@ end
   @test (@allocated alloc_aliased(x)) > 0
 end
 
+# the pre-change compaction on plain copies: the slot values and coordinates, last slot moves in
+function oracle_dropzeros(vals::Vector, coords::Vector{Int})
+    vals = copy(vals); coords = copy(coords)
+    i = 1
+    while i <= length(vals)
+        if iszero(vals[i])
+            vals[i] = vals[end]; coords[i] = coords[end]
+            pop!(vals); pop!(coords)
+        else
+            i += 1
+        end
+    end
+    vals, coords
+end
+
+drop_allocs(x) = @allocated dropzeros!(x)
+function drop_fixture(::Type{T}, vals) where {T}
+    x = SparseIterate(T, 20)
+    for (i, v) in enumerate(vals); activate!(x, i); x.nzval[x.ind2nzval[i]] = v; end
+    x
+end
+
+function dropzeros_row(x::SparseIterate{T}, order, vals; tail=nothing) where {T}
+    for (i, v) in zip(order, vals)
+        activate!(x, i)
+        x.nzval[x.ind2nzval[i]] = v
+    end
+    tail === nothing || (x.nzval[x.nnz+1:end] .= tail)
+    nz = x.nnz
+    ev, ec = oracle_dropzeros(x.nzval[1:nz], x.nzval2ind[1:nz])
+    @test dropzeros!(x) === x
+    @test nnz(x) == length(ev)
+    @test activecoordinates(x) == ec
+    @test isequal(x.nzval[1:nnz(x)], ev)
+    @test all(isactive(x, i) == (i in ec) for i = 1:length(x.ind2nzval))
+    # nonzero entries are unchanged
+    for (i, v) in zip(order, vals)
+        iszero(v) || @test isequal(x[i], v)
+    end
+    @test dropzeros!(x) === x                         # repeated
+    @test activecoordinates(x) == ec
+    x
+end
+
+@testset "dropzeros all-zero and trailing zeros" begin
+    for T in (Float32, Float64)
+        @testset "SparseIterate $T" begin
+            dropzeros_row(SparseIterate(T, 5), Int[], T[])
+            # all zero, including -0: emptied, entries unchanged
+            x = SparseIterate(T, 5)
+            dropzeros_row(x, [3, 1, 4], T[0, -0.0, 0])
+            @test nnz(x) == 0
+            @test dropzeros!(x) === x
+            y = SparseIterate(T, 5)
+            for (i, v) in zip([3, 1, 4], T[0, -0.0, 0]); activate!(y, i); y.nzval[y.ind2nzval[i]] = v; end
+            slot = y.ind2nzval[1]
+            dropzeros!(y)
+            @test nnz(y) == 0 && signbit(y.nzval[slot]) && y.nzval[slot] == 0
+            @test iszero(y.ind2nzval)
+            # a fresh activation after the clear
+            activate!(y, 2); y[2] = T(7)
+            @test activecoordinates(y) == [2] && y[2] == 7
+            # no zeros
+            dropzeros_row(SparseIterate(T, 5), [3, 1, 4], T[1, 2, 3])
+            # swap-last example: values (0, 2, 0) at [3, 1, 4] give [1]
+            x = SparseIterate(T, 5)
+            dropzeros_row(x, [3, 1, 4], T[0, 2, 0])
+            @test activecoordinates(x) == [1]
+            # NaN, Inf, subnormal and finite nonzeros stay
+            x = SparseIterate(T, 8)
+            dropzeros_row(x, 1:7, T[NaN, 0, Inf, -Inf, floatmin(T) / 4, -3, 0])
+            @test sort(activecoordinates(x)) == [1, 3, 4, 5, 6]
+            x = SparseIterate(T, 5)
+            dropzeros_row(x, [3, 1, 4], T[NaN, 0, 0])
+            @test 3 in activecoordinates(x) && nnz(x) == 1
+            # the only nonzero is the last scanned value
+            dropzeros_row(SparseIterate(T, 5), [3, 1, 4], T[0, 0, 5])
+            # a zero in the first slot, in the middle, and in the last slot (the last row has no surviving last slot)
+            dropzeros_row(SparseIterate(T, 6), 1:5, T[0, 1, 2, 3, 4])
+            dropzeros_row(SparseIterate(T, 6), 1:5, T[1, 2, 0, 3, 4])
+            dropzeros_row(SparseIterate(T, 6), 1:5, T[1, 2, 3, 4, 0])
+            # runs of zeros at the end (the first row drops all of them without a move, the second has a
+            # last-slot-only survivor); when a nonzero remains, it takes the first removed place
+            dropzeros_row(SparseIterate(T, 8), 1:7, T[1, 0, 0, 0, 0, 0, 0])
+            dropzeros_row(SparseIterate(T, 8), 1:7, T[0, 0, 0, 0, 0, 0, 1])
+            dropzeros_row(SparseIterate(T, 8), 1:7, T[0, 1, 0, 0, 2, 0, 0])
+            dropzeros_row(SparseIterate(T, 8), 1:7, T[1, 0, 2, 0, 0, 3, 0])
+            dropzeros_row(SparseIterate(T, 8), [7, 3, 5, 1, 2], T[0, 4, 0, 0, 0])
+            # about 10, 50 and 90% zeros (each slot is zero with that probability)
+            for frac in (0.1, 0.5, 0.9)
+                n = 40
+                v = T[rand() < frac ? 0 : randn() for _ = 1:n]
+                v[end] == 0 && (v[end] = 1)
+                dropzeros_row(SparseIterate(T, n), randperm(n), v)
+            end
+            # a matrix
+            m = SparseIterate(T, 3, 4)
+            dropzeros_row(m, [5, 2, 9, 12], T[0, 1, 0, -0.0])
+            m = SparseIterate(T, 3, 4)
+            dropzeros_row(m, [5, 2, 9], T[0, -0.0, 0])
+            @test nnz(m) == 0
+            # dropzeros!(fill!(x, 0)) after an earlier nonzero solve
+            x = SparseIterate(T, 6)
+            for i in (4, 2, 6); x[i] = T(i); end
+            fill!(x, 0)
+            @test dropzeros!(x) === x
+            @test nnz(x) == 0 && all(iszero, Vector(x))
+            # stale values past nnz are never read: a stale zero or nonzero tail leaves the result of
+            # the working set alone
+            x = SparseIterate(T, 6)
+            dropzeros_row(x, [2, 5], T[0, 0]; tail=T(9))
+            @test nnz(x) == 0
+            x = SparseIterate(T, 6)
+            dropzeros_row(x, [2, 5], T[0, 4]; tail=T(0))
+            @test activecoordinates(x) == [5]
+            # a single stored zero
+            for z in (T(0), -T(0))
+                x = SparseIterate(T, 4)
+                activate!(x, 3); x.nzval[1] = z
+                @test dropzeros!(x) === x
+                @test nnz(x) == 0 && isempty(activecoordinates(x))
+            end
+            # allocation: warm up on separate fixtures, then the first call on a nonempty working set
+            drop_allocs(drop_fixture(T, zeros(T, 5)))
+            drop_allocs(drop_fixture(T, T[0, 1, 0, 2, 0]))
+            @test drop_allocs(drop_fixture(T, zeros(T, 20))) == 0
+            @test drop_allocs(drop_fixture(T, T[0, 1, 0, 2, 0, 3, 4, 0])) == 0
+            @test drop_allocs(drop_fixture(T, T[1, 2, 3])) == 0
+            # the owner keeps the compaction, with the same order as the oracle
+            s = SymmetricSparseIterate(T, 4)
+            for (i, j) in ((2, 1), (3, 2), (4, 4)); s[i, j] = T(1); end
+            for k = 1:s.nnz; k == 2 || (s.nzval[k] = 0); end
+            ev, ec = oracle_dropzeros(s.nzval[1:s.nnz], s.nzval2ind[1:s.nnz])
+            @test dropzeros!(s) === s
+            @test activecoordinates(s) == ec
+            s = SymmetricSparseIterate(T, 4)
+            for (i, j) in ((2, 1), (3, 2), (4, 4)); s[i, j] = T(1); end
+            fill!(coordinates(s), 0)
+            ev, ec = oracle_dropzeros(s.nzval[1:s.nnz], s.nzval2ind[1:s.nnz])
+            dropzeros!(s)
+            @test s.nnz == 0 && isempty(ec)
+        end
+    end
+end
+
 end

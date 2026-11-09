@@ -26,6 +26,10 @@ function lmo!(s::AbstractArray, f::_LMOSet, g::AbstractArray)
   s
 end
 
+# the owner of a symmetric matrix is not an output of lmo!
+lmo!(s::SymmetricSparseIterate, f::_LMOSet, g::AbstractArray) = throw(ArgumentError(
+  "the output of lmo! must be an Array, or a view of one, of floating-point numbers; got $(typeof(s))"))
+
 # parameters, before any write
 _lmo_fits(::Type{T}, v::Real) where {T} = isfinite(convert(T, v))
 _lmo_fits(::Type{T}, v::AbstractArray) where {T} =

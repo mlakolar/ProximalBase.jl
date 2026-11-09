@@ -184,7 +184,8 @@ end
   fs = (ZeroFunction(), NormL1(T(1)), NormL1(T(0.5), T[0, 1, Inf, 2, 1, 1, 0.5, 4]), NormL2(T(1)), box,
         IndNonnegative(), Constrained(NormL1(T(1)), IndBallL2(T(1))), CappedL1(T(0), T(1)),
         CappedL1(T(1), T(1), T[0, 1, Inf, 2, 1, 1, 0.5, 4]), SqrNormL2(T(0)), SqrNormL2(T(1)))
-  @testset "$(nameof(typeof(f)))" for f in fs
+  # Float32 keeps five of the eleven functions; the other six are in zero_level_infinite_step_grids.jl
+  @testset "$(nameof(typeof(f)))" for f in (T === Float32 ? Any[fs[i] for i in (1, 2, 4, 5, 11)] : fs)
     # a NaN or infinite entry is the argument of f itself, the weights (1, 0) leave it unchanged
     check_regularize(f, x, Inf_)
     check_regularize(f, xn, Inf_)
@@ -217,8 +218,10 @@ end
     @test same(prox(r, x2, one(T)), prox(f, x2, one(T)))
   end
   @testset "array steps" begin
-    for f in (ZeroFunction(), NormL1(T(1)), NormL1(T(0.5), T[0, 1, Inf, 2, 1, 1, 0.5, 4]), box, IndNonnegative(),
-              CappedL1(T(1), T(1), T[0, 1, Inf, 2, 1, 1, 0.5, 4]))
+    # Float32 keeps the first, second and fourth function; the others are in zero_level_infinite_step_grids.jl
+    for (i, f) in enumerate((ZeroFunction(), NormL1(T(1)), NormL1(T(0.5), T[0, 1, Inf, 2, 1, 1, 0.5, 4]), box, IndNonnegative(),
+                             CappedL1(T(1), T(1), T[0, 1, Inf, 2, 1, 1, 0.5, 4])))
+      T === Float32 && !(i in (1, 2, 4)) && continue
       for γ in (T[Inf, 1, 0.5, Inf, 1, Inf, 2, 0.25], fill(Inf_, 8), T[Inf, 1, 0.5, 0, 1, 0, 2, 0.25])
         check_regularize(f, x, γ)
         check_regularize(f, xc, γ; c = c)
@@ -231,8 +234,10 @@ end
   end
   @testset "per-group steps and the coordinate step" begin
     groups = [1:2, 3:5, 6:8]
-    for f in (GroupNormL2(T(0.5), groups), GroupNormL2(T(0.5), groups, T[0, 1, Inf]),
-              GroupNormLinf(T(0.5), groups), SparseGroupNormL2(T(0.2), T(0.4), groups))
+    # Float32 keeps the first function; the others are in zero_level_infinite_step_grids.jl
+    for (i, f) in enumerate((GroupNormL2(T(0.5), groups), GroupNormL2(T(0.5), groups, T[0, 1, Inf]),
+                             GroupNormLinf(T(0.5), groups), SparseGroupNormL2(T(0.2), T(0.4), groups)))
+      T === Float32 && i > 1 && continue
       for γ in (T[Inf, 1, 0.5], T[Inf, Inf, Inf], T[1, Inf, 2], T[0.5, 1, 2])
         check_regularize(f, x, γ)
         check_regularize(f, xc, γ; c = c)

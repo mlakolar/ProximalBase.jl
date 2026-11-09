@@ -307,7 +307,7 @@ end
   right - left
 end
 
-function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::BernoulliLoss, g::AbstractArray, x::AbstractArray)
+function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::BernoulliLoss, g::_ArrayOrOwner, x::_ArrayOrOwner)
   _checkreal(f, x)
   _checkreal(f, g)
   _checkgradient_output(g, x)
@@ -315,8 +315,22 @@ function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f:
   _checkparams(f, x)
 end
 
-value_and_gradient!(g::AbstractArray, f::BernoulliLoss, x::AbstractArray) =
+value_and_gradient!(g::_ArrayOrOwner, f::BernoulliLoss, x::_ArrayOrOwner) =
   (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
+_value_and_gradient_unchecked!(g::AbstractArray, f::BernoulliLoss, x::SymmetricSparseIterate) =
+  _value_and_gradient_unchecked!(g, f, matrixview(x))
+# an owner output: the symmetric part of the entrywise gradient, all NaN when an entry is NaN
+function _value_and_gradient_unchecked!(g::SymmetricSparseIterate, f::BernoulliLoss, x::_ArrayOrOwner)
+  _checkwrite(value_and_gradient!, f, g, x)
+  v = _value_unchecked(f, x)
+  _symmetric_coordinates!(g, (u, j) -> _bernoulli_gradient_entry(f, u, j), x)
+  any(isnan, view(g.nzval, 1:g.nnz)) && fill!(coordinates(g), eltype(g)(NaN))
+  v
+end
+Base.@propagate_inbounds function _bernoulli_gradient_entry(f::BernoulliLoss, v, i)
+  p, b, w = promote(float(v), float(_entry(f.b, i)), float(_entry(f.w, i)))
+  _bernoulli_gradient(p, b, w)
+end
 function _value_and_gradient_unchecked!(g::AbstractArray, f::BernoulliLoss, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
   T = float(eltype(x))
@@ -495,7 +509,7 @@ Base.@propagate_inbounds function prox_entry(f::Berhu, v::T, i::Integer, γ::Rea
 end
 
 kkt_violation(f::Berhu, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i)))
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _kkt_coefficient(eltype(g), f.λ, _entry(f.w, i)))
 restrict(f::Berhu, S::AbstractVector{<:Integer}) = Berhu(f.λ, f.M, _restrict_entries(f.w, S))
 
 ####################################

@@ -25,10 +25,17 @@ function consistent(x::AtomIterate)
     all(a -> x.position[act[a]] == a, eachindex(act)) &&
     all(k -> isactive(x, k) || all(iszero, x.storage[x.groups[k]]), eachindex(x.groups))
 end
-consistent(x) = all(j -> x.ind2nzval[x.nzval2ind[j]] == j, 1:nnz(x))
+consistent(x) = all(j -> x.ind2nzval[x.nzval2ind[j]] == j, 1:x.nnz)
 state(x::AtomIterate) = (copy(x.storage), nactive(x), collect(activecoordinates(x)), copy(x.position))
-state(x) = (Array(x), nnz(x), collect(activecoordinates(x)), copy(x.ind2nzval))
+state(x) = (Array(x), nactive(x), collect(activecoordinates(x)), copy(x.ind2nzval))
 nested_scaled(f, α) = (s = Scaled(f, α); Scaled{typeof(s), typeof(α)}(s, α))
+
+# The Float32 combinations of "references" that run in this file, keyed by the iterate kind and the positions of the
+# function and of the iterate (or the check_block arguments) in the loops of that testset; the other Float32
+# combinations run in block_step_grids.jl. The Float64 combinations are not restricted.
+const FLOAT32_REFERENCES = ((:sparse, 5, 1), (:sparse, 6, 2), (:symmetric, 7, 1), (:symmetric, 3, 2),
+                            (:group, 1, 4), (:group, 2, 7), (:wrapped, 3, 2, 4))
+runs_here(T, key) = T === Float64 || key in FLOAT32_REFERENCES
 
 function check_block(x::AtomIterate, f, k, u, γ)
   x[x.groups[2][1]] = 2
@@ -52,7 +59,7 @@ function check_block(x::AtomIterate, f, k, u, γ)
 end
 
 function check_block(x, f, k, u, γ)
-  x[4] = 2
+  x isa SymmetricSparseIterate ? (x[2, 2] = 2) : (x[4] = 2)
   before = Array(x)
   written = copy(x)
   if x isa SymmetricSparseIterate
@@ -83,24 +90,24 @@ end
             Translate(NormL1(T(0.3)), T[1, 2, 2, 4]))
       scalarfs = (fs..., Scaled(fs[1], T(2)), nested_scaled(fs[1], T(2)),
                   Regularize(fs[1], T(0.2)), Regularize(fs[1], T(0.2), T[1, 2, 2, 4]))
-      for f in scalarfs
-        for x in (SparseIterate(zeros(T, 4)), SparseIterate(zeros(T, 2, 2)))
-          check_block(x, f, 2, T(3), T(0.7))
+      for (i, f) in enumerate(scalarfs)
+        for (j, x) in enumerate((SparseIterate(zeros(T, 4)), SparseIterate(zeros(T, 2, 2))))
+          runs_here(T, (:sparse, i, j)) && check_block(x, f, 2, T(3), T(0.7))
         end
         for k in (1, 2)
-          check_block(SymmetricSparseIterate(zeros(T, 2, 2)), f, k, T(3), T(0.7))
+          runs_here(T, (:symmetric, i, k)) && check_block(SymmetricSparseIterate(zeros(T, 2, 2)), f, k, T(3), T(0.7))
         end
       end
-      for gs in ([1:2, 3:4], [[1, 3], [2, 4]], [[4, 2], [3, 1]])
+      for (g, gs) in enumerate(([1:2, 3:4], [[1, 3], [2, 4]], [[4, 2], [3, 1]]))
         groupfs = (GroupNormL2(T(0.3), gs), GroupNormLinf(T(0.3), gs),
                    SparseGroupNormL2(T(0.1), T(0.3), gs), GroupMCP(T(0.3), gs), GroupSCAD(T(0.3), gs))
-        for f in (fs..., groupfs...)
-          check_block(AtomIterate(zeros(T, 4), gs), f, 1, T[3, -4], T(0.7))
+        for (m, f) in enumerate((fs..., groupfs...))
+          runs_here(T, (:group, g, m)) && check_block(AtomIterate(zeros(T, 4), gs), f, 1, T[3, -4], T(0.7))
         end
-        for f in (fs[1], groupfs[1])
-          for h in (Scaled(f, T(2)), nested_scaled(f, T(2)),
-                    Regularize(f, T(0.2)), Regularize(f, T(0.2), T[1, 2, 3, 4]))
-            check_block(AtomIterate(zeros(T, 4), gs), h, 1, T[3, -4], T(0.7))
+        for (n, f) in enumerate((fs[1], groupfs[1]))
+          for (q, h) in enumerate((Scaled(f, T(2)), nested_scaled(f, T(2)),
+                                   Regularize(f, T(0.2)), Regularize(f, T(0.2), T[1, 2, 3, 4])))
+            runs_here(T, (:wrapped, g, n, q)) && check_block(AtomIterate(zeros(T, 4), gs), h, 1, T[3, -4], T(0.7))
           end
         end
       end
@@ -128,13 +135,13 @@ end
     for x in (SparseIterate(zeros(4)), SparseIterate(zeros(2, 2)), SymmetricSparseIterate(2))
       for k in (1, 2)
         order = collect(activecoordinates(x))
-        n = nnz(x)
+        n = nactive(x)
         prox_coordinate!(x, NormL1(1.), k, 0.1, 1.)
-        @test nnz(x) == n && activecoordinates(x) == order && consistent(x)
+        @test nactive(x) == n && activecoordinates(x) == order && consistent(x)
         prox_coordinate!(x, NormL1(1.), k, 3., 1.)
-        @test nnz(x) == n + 1 && consistent(x)
+        @test nactive(x) == n + 1 && consistent(x)
         prox_coordinate!(x, NormL1(1.), k, 0., 1.)
-        @test nnz(x) == n + 1 && consistent(x)
+        @test nactive(x) == n + 1 && consistent(x)
       end
     end
   end

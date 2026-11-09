@@ -214,9 +214,11 @@ end
     x = SparseIterate(sparsevec(T[1, NaN, 0]))
     @test isequal(value_and_prox!(x, f, x, T(1)), zero(T)) && isequal(Vector(x), zeros(T, 3))
     @test isequal(Vector(prox(f, SparseIterate(sparsevec(T[1, NaN, 0])), T(1))), zeros(T, 3))
-    @test isequal(Matrix(prox(f, SymmetricSparseIterate(T[1 NaN; NaN 2]), T(1))), zeros(T, 2, 2))
+    # the ℓ∞ norm has no owner method: its proximal operator reads and writes a dense matrix
     s = SymmetricSparseIterate(T[1 NaN; NaN 2])
-    @test isequal(value_and_prox!(s, f, s, T(1)), zero(T)) && isequal(Matrix(s), zeros(T, 2, 2))
+    @test_throws MethodError prox(f, s, T(1))
+    @test_throws MethodError value_and_prox!(s, f, s, T(1))
+    @test isequal(Matrix(s), T[1 NaN; NaN 2])
     # fibers: the off-diagonal fibers are zero, the diagonal ones are the identity here
     fb = FiberSum(f; diagonal = nothing)
     X = ones(T, 2, 2, 3)

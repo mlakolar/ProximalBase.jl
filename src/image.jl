@@ -198,7 +198,7 @@ end
 @inline function _image_product(a, b, scale::Tuple{T, Integer}) where {T}
   ma, ea = _frexp(convert(T, a))
   mb, eb = _frexp(convert(T, b))
-  ldexp((ma * mb) * scale[1], ea + eb + scale[2])
+  ldexp((ma * mb) * scale[1], _exponent_sum(T, ea, eb, scale[2]))
 end
 
 function _image_scaled_dot(a, b, scale::Tuple{T, Integer}) where {T}

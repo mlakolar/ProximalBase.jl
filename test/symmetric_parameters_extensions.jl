@@ -32,6 +32,16 @@ PB.prox_entry(::PublicSeparableSquare,v,i,γ)=v/(1+γ)
 @testset "Unchecked forwarding preserves public extensions" begin
   X=[.5 .2;.2 .8]
   for f in (PublicSquare(),PublicSeparableSquare()), x in (copy(X),SymmetricSparseIterate(X))
+    # The array methods of a user function do not reach an owner, which is not an array: the author adds
+    # methods for it. A separable one is taken at an owner through its entry oracles (below).
+    if x isa SymmetricSparseIterate
+      if f isa PublicSeparableSquare
+        fill!(calls,0)
+        @test kkt_violation(Scaled(f,2.),fill(.4,2,2),x,2) == .4
+        @test calls[10] == 1
+      end
+      continue
+    end
     h=Scaled(f,2.); y=copy(x)
     fill!(calls,0)
     @test h(x) ≈ sum(abs2,X)
@@ -129,15 +139,20 @@ end
   X = [.5 .2; .2 .8]
   f = PublicSeparableSquare()
   for x in (copy(X), SparseIterate(X), SymmetricSparseIterate(X))
+    owner = x isa SymmetricSparseIterate
     for (h, scale) in ((f, 1.), (Scaled(f, 2.), 2.),
                        (Tilt(f, zeros(2, 2)), 1.), (Precompose(f, 2.), 4.))
       y = similar(x)
       fill!(calls, 0)
       @test Matrix(prox!(y, h, x, .25)) ≈ X / (1 + .25scale)
-      @test calls[2] == 1
+      owner || @test calls[2] == 1
       fill!(calls, 0)
       @test value_and_prox!(y, h, x, .25) ≈ scale * sum(abs2, X / (1 + .25scale)) / 2
-      @test calls[3] == 1
+      owner || @test calls[3] == 1
+      if owner
+        # the gradient of a user function is its own array method, which an owner does not reach
+        continue
+      end
       fill!(calls, 0)
       @test Matrix(gradient!(y, h, x)) ≈ scale * X
       @test calls[4] == 1
@@ -148,11 +163,13 @@ end
     h = Sum(f, f); y = similar(x)
     fill!(calls, 0)
     @test h(x) ≈ sum(abs2, X)
-    @test calls[1] == 2
-    fill!(calls, 0)
-    @test value_and_gradient!(y, h, x) ≈ sum(abs2, X)
-    @test Matrix(y) ≈ 2X
-    @test calls[5] == 2
+    owner || @test calls[1] == 2
+    if !owner
+      fill!(calls, 0)
+      @test value_and_gradient!(y, h, x) ≈ sum(abs2, X)
+      @test Matrix(y) ≈ 2X
+      @test calls[5] == 2
+    end
     fill!(calls, 0)
     @test kkt_violation(f, fill(.4, 2, 2), x, 2) == .4
     @test calls[10] == 1
@@ -200,6 +217,13 @@ PB.value_and_prox!(y::AbstractArray, ::ArrayStepSquare, x::AbstractArray, γ::Ab
       h in (Scaled(ArrayStepSquare(), 2.), Translate(ArrayStepSquare(), zeros(2, 2)),
             Tilt(ArrayStepSquare(), zeros(2, 2)))
     fill!(calls, 0); y = similar(x)
+    if x isa SymmetricSparseIterate
+      # an array step is not supported with an owner as the output
+      err = try value_and_prox!(y, h, x, γ); nothing catch e; e end
+      @test err isa ArgumentError && occursin("is not supported with a SymmetricSparseIterate as the output", err.msg)
+      @test calls[3] == 0 && nactive(y) == 0
+      continue
+    end
     divisor = h isa Scaled ? 3 : 2
     scale = h isa Scaled ? 2 : 1
     @test value_and_prox!(y, h, x, γ) ≈ scale * sum(abs2, X / divisor) / 2

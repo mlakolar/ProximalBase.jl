@@ -511,6 +511,10 @@ end
 # gradient already written, which the parts must not read in place of a parameter. A NaN product at
 # a value that is not NaN, which the fold does not recover, is Inf⋅0 at an infinite factor: 0 where
 # f is certainly 0 (`_scaled_nan_value`), and otherwise what the parts give.
+# The recoveries read the entries of the argument: an owner is read as the matrix that it represents, which
+# counts an off-diagonal coordinate at both of its positions
+@noinline _scaled_value_recover(f, α, x::SymmetricSparseIterate, v, r, out = nothing) =
+  _scaled_value_recover(f, α, matrixview(x), v, r, out)
 @noinline function _scaled_value_recover(f, α, x, v, r, out = nothing)
   g = _fold_level(f, _value_fold_scale(α))
   g === nothing || return convert(typeof(r), _value_unchecked(g, x))
@@ -594,7 +598,7 @@ end
 # only for a value that is infinite, zero or subnormal. An exactly zero value whose true value,
 # times α, cannot be a normal number (`_zero_value_exponent`) is not recomputed.
 @inline _parts_argument(x) = false
-@inline _parts_argument(::Union{Array, _HostArray, SparseIterate, SymmetricSparseIterate, AtomIterate,
+@inline _parts_argument(::Union{Array, _HostArray, SparseIterate, SymmetricSparseIterate, SymmetricMatrixView, AtomIterate,
                                 SparseArrays.AbstractSparseArray, AbstractRange}) = true
 @inline function _parts_wanted(f, α, x, v, out)
   _has_value_parts(typeof(f)) || return false
@@ -641,6 +645,10 @@ end
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::AbstractArray, α::_ProjectionScale) = (g .= _apply_scale.(α, g))
+# an owner gradient: every coordinate that is stored, which are the coordinates of the symmetric gradient
+# that are not zero
+_scale!(g::SymmetricSparseIterate, α) = (v = activevalues(g); v .*= α; g)
+_scale!(g::SymmetricSparseIterate, α::_ProjectionScale) = (v = activevalues(g); v .= _apply_scale.(α, v); g)
 @generated _scale!(g::Tuple, α) = _blockwise(k -> :(_scale!(g[$k], α)), fieldcount(g), :g)
 value_and_gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
@@ -857,6 +865,8 @@ _check_iterate_block(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate
   "Tilt and Translate on tuples do not support a $(nameof(typeof(x))) as a block"))
 _check_tuple_parameter(c::AbstractArray, x::AbstractArray) =
   (_check_iterate_block(x); size(c) == size(x) || _parameter_size_error(size(c), size(x)))
+# an owner is refused as a block, whatever the parameter
+_check_tuple_parameter(c, x::SymmetricSparseIterate) = _check_iterate_block(x)
 function _check_tuple_parameter(c::Tuple, x::Tuple)
   length(c) == length(x) || _parameter_arity_error(length(c), length(x))
   _check_tuple_parameter_blocks(c, x)
@@ -945,6 +955,7 @@ gradient!(g, t::Tilt, x) =
   (_check_oracle_arrays(gradient!, t, g, x); _gradient_unchecked!(g, t, x))
 _gradient_unchecked!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); _gradient_unchecked!(g, t.f, x); _add_tilt!(g, t.c))
 @inline _add_tilt!(g, c) = (g .+= _checked_parameter(g, c))
+_add_tilt!(g::SymmetricSparseIterate, c::AbstractMatrix) = _accumulate!(g, c)
 _add_tilt!(g::Tuple, c::Tuple) = _accumulate!(g, c)
 
 function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
@@ -954,40 +965,42 @@ function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), ty
   _check_tilt_axes(g, x, t.c)
   _checkwrite(op, t.f, g, x)
 end
-@inline _check_tilt_axes(g, x, c) = (Base.Broadcast.check_broadcast_axes(axes(g), c); _check_parameter_axes(g, c))
+@inline _check_tilt_axes(g, x, c) = (Base.Broadcast.check_broadcast_axes(_baxes(g), c); _check_parameter_axes(g, c))
 # exact sizes, so that no block of c broadcasts into a block of g
 _check_tilt_axes(g::Tuple, x::Tuple, c::Tuple) = (_check_block_output(g); _checksize(g, x))
 
-function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+function _checkwrite(op::O, t::Tilt, y::_ArrayOrOwner, x::_ArrayOrOwner) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checkreal(t, y); _checkreal(t, x)
   _check_wrapper_output(y)
   _checksize(y, x)
   _checkparams(t, x)
-  Base.Broadcast.check_broadcast_axes(axes(y), x, t.c)
+  Base.Broadcast.check_broadcast_axes(_baxes(y), _vw(x), t.c)
   _check_parameter_axes(y, t.c)
   _checkwrite(op, t.f, y, y)
 end
 
 # x - γc in a buffer owned by t, so that y is unchanged when f throws
-prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real) =
+prox!(y::_ArrayOrOwner, t::Tilt, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
-function _prox_unchecked!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
+function _prox_unchecked!(y::_ArrayOrOwner, t::Tilt, x::_ArrayOrOwner, γ::Real)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.scratch, y)
-  z .= x .- convert(float(eltype(y)), γ) .* _checked_parameter(z, t.c)
+  zz = _ow(z)
+  zz .= _pt(zz, x) .- convert(float(eltype(y)), γ) .* _checked_parameter(z, t.c)
   w = _wrapper_output(y, z)
   _prox_unchecked!(w, t.f, z, γ)
   _wrapper_commit!(y, w)
 end
-value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real) =
+value_and_prox!(y::_ArrayOrOwner, t::Tilt, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
-function _value_and_prox_unchecked!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
+function _value_and_prox_unchecked!(y::_ArrayOrOwner, t::Tilt, x::_ArrayOrOwner, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.scratch, y)
-  z .= x .- convert(float(eltype(y)), γ) .* _checked_parameter(z, t.c)
+  zz = _ow(z)
+  zz .= _pt(zz, x) .- convert(float(eltype(y)), γ) .* _checked_parameter(z, t.c)
   w = _wrapper_output(y, z)
   v = _value_and_prox_unchecked!(w, t.f, z, γ)
-  v = _value_at(v + dot(t.c, w) + t.d, w)
+  v = _value_at(v + _tuple_dot(t.c, w) + t.d, w)
   _wrapper_commit!(y, w)
   v
 end
@@ -1076,16 +1089,16 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Translate{F}}) where {F} = $trait(F)
 end
 
-function _shifted_buffer(t::Translate, x::AbstractArray)
+function _shifted_buffer(t::Translate, x::_ArrayOrOwner)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
   _checkparams(t, x)
   _array_buffer!(t.scratch, float(eltype(x)), size(x))
 end
 
 # x - b in a buffer owned by t
-function _shifted(t::Translate, x::AbstractArray)
+function _shifted(t::Translate, x::_ArrayOrOwner)
   z = _shifted_buffer(t, x)
-  z .= x .- _checked_parameter(z, t.b)
+  z .= _vw(x) .- _checked_parameter(z, t.b)
 end
 
 # the shifted argument of a tuple, in a buffer of the argument's precision
@@ -1095,22 +1108,22 @@ function _shifted_buffer(t::Translate, x::Tuple)
 end
 _shifted(t::Translate, x::Tuple) = _shift_translate!(_shifted_buffer(t, x), x, t.b)
 
-(t::Translate)(x::Union{AbstractArray, Tuple}) =
+(t::Translate)(x::Union{_ArrayOrOwner, Tuple}) =
   (_check_value_arrays(t, x); _value_checked(t, x))
-_value_unchecked(t::Translate, x::Union{AbstractArray, Tuple}) = _value_at(_value_unchecked(t.f, _shifted(t, x)), x)
-value_and_gradient!(g, t::Translate, x::Union{AbstractArray, Tuple}) =
+_value_unchecked(t::Translate, x::Union{_ArrayOrOwner, Tuple}) = _value_at(_value_unchecked(t.f, _shifted(t, x)), x)
+value_and_gradient!(g, t::Translate, x::Union{_ArrayOrOwner, Tuple}) =
   (_check_oracle_arrays(value_and_gradient!, t, g, x); _value_and_gradient_unchecked!(g, t, x))
-_value_and_gradient_unchecked!(g, t::Translate, x::Union{AbstractArray, Tuple}) =
+_value_and_gradient_unchecked!(g, t::Translate, x::Union{_ArrayOrOwner, Tuple}) =
   (_checkwrite(value_and_gradient!, t, g, x); _value_at(_value_and_gradient_unchecked!(g, t.f, _shifted(t, x)), x))
-gradient!(g, t::Translate, x::Union{AbstractArray, Tuple}) =
+gradient!(g, t::Translate, x::Union{_ArrayOrOwner, Tuple}) =
   (_check_oracle_arrays(gradient!, t, g, x); _gradient_unchecked!(g, t, x))
-_gradient_unchecked!(g, t::Translate, x::Union{AbstractArray, Tuple}) =
+_gradient_unchecked!(g, t::Translate, x::Union{_ArrayOrOwner, Tuple}) =
   (_checkwrite(gradient!, t, g, x); _gradient_unchecked!(g, t.f, _shifted(t, x)))
 
-_checkwrite(op::O, t::Translate, g, x::AbstractArray) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
+_checkwrite(op::O, t::Translate, g, x::_ArrayOrOwner) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
   (_checkgradient_output(g, x); _check_parameter_axes(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
 
-function _checkshifted(t::Translate, x::AbstractArray)
+function _checkshifted(t::Translate, x::_ArrayOrOwner)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
   _checkparams(t, x)
   _checkbuffer(t.scratch, float(eltype(x)), size(x))
@@ -1122,7 +1135,7 @@ end
 _checkwrite(op::O, t::Translate, g::Tuple, x::Tuple) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
   (_checkreal(t, g); _checkreal(t, x); _checkgradient_output(g, x); _check_block_output(g); _checksize(g, x); _checkwrite(op, t.f, g, _checkshifted(t, x)))
 _checkvalue(t::Translate, x::Tuple) = (_checkreal(t, x); _checkvalue(t.f, _checkshifted(t, x)))
-_checkvalue(t::Translate, x::AbstractArray) = (_checkreal(t, x); _checkvalue(t.f, _checkshifted(t, x)))
+_checkvalue(t::Translate, x::_ArrayOrOwner) = (_checkreal(t, x); _checkvalue(t.f, _checkshifted(t, x)))
 # The value of f at x - b as a significand and an exponent, while x - b is in range: an argument
 # that overflowed on translation is not recovered (#357).
 _has_value_parts(::Type{<:Translate{F}}) where {F} = _has_value_parts(F)
@@ -1139,7 +1152,7 @@ _zero_value_exponent(t::Translate, x) = _zero_value_exponent(t.f, x)
 _infinite_value_exact(t::Translate, x) = _infinite_value_exact(t.f, x)
 _parameter_alias(t::Translate, out) = _mightalias_parameter(out, t.b) || _parameter_alias(t.f, out)
 
-function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+function _checkwrite(op::O, t::Translate, y::_ArrayOrOwner, x::_ArrayOrOwner) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checkreal(t, y); _checkreal(t, x)
   _check_wrapper_output(y)
   _checksize(y, x)
@@ -1151,26 +1164,30 @@ function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) wh
 end
 
 # x - b in a buffer owned by t, so that y is unchanged when f throws
-prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real) =
+prox!(y::_ArrayOrOwner, t::Translate, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
-function _prox_unchecked!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
+function _prox_unchecked!(y::_ArrayOrOwner, t::Translate, x::_ArrayOrOwner, γ::Real)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
-  z .= x .- _checked_parameter(z, t.b)
+  zz = _ow(z)
+  zz .= _pt(zz, x) .- _checked_parameter(z, t.b)
   w = _wrapper_output(y, z)
   _prox_unchecked!(w, t.f, z, γ)
-  w .+= _checked_parameter(w, t.b)
+  ww = _ow(w)
+  ww .+= _checked_parameter(w, t.b)
   _wrapper_commit!(y, w)
 end
-value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real) =
+value_and_prox!(y::_ArrayOrOwner, t::Translate, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
-function _value_and_prox_unchecked!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
+function _value_and_prox_unchecked!(y::_ArrayOrOwner, t::Translate, x::_ArrayOrOwner, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
-  z .= x .- _checked_parameter(z, t.b)
+  zz = _ow(z)
+  zz .= _pt(zz, x) .- _checked_parameter(z, t.b)
   w = _wrapper_output(y, z)
   v = _value_and_prox_unchecked!(w, t.f, z, γ)
-  w .+= _checked_parameter(w, t.b)
+  ww = _ow(w)
+  ww .+= _checked_parameter(w, t.b)
   _wrapper_commit!(y, w)
   _value_at(v, y)
 end
@@ -1311,6 +1328,30 @@ and infinite radii return the input unchanged. Feasibility allows
 projections; translations return the linear value ⟨b,y⟩. Array steps retain
 their existing behaviour for these nonseparable families. Other storage and
 axes, including device ℓ∞ conjugates, retain Moreau's identity.
+
+For [`SqrNormL2`](@ref)`(λ, y)` with a finite positive level `λ` and a finite positive
+scalar step `γ`, the proximal point is `(λ/(λ + γ))(x - γy)`. When the promotion of the
+floating-point types of the output and the input is `Float32` or `Float64`, and so is its
+promotion with those of `λ` and `γ`, it is formed from significands and exponents,
+without dividing by `γ`. Where the output
+holds the point, it is within two ulps in the output type at the levels, steps and
+entries tested, which include `x = 1e300`, `γ = 1e-10`, where Moreau's identity
+overflows, and `λ = 1`, `γ = 1e10`, where it cancels. On this route, a point that the
+output type cannot hold at a finite input raises the `ArgumentError` of the identity,
+before the output is written, although it may be representable in the precision of the
+computation: `prox!(Float32[7], Conjugate(SqrNormL2()), [1e100], 1.0)` computes in
+`Float64` and the point is `5e99`, which a `Float32` output cannot hold, and it raises
+the error with the output unchanged (`value_and_prox!` as well). A non-finite entry of
+`x` gives `NaN`. Every other case uses Moreau's identity as before: a zero or infinite
+level, a step that is not finite and positive, an array step (a `MethodError` for
+`SqrNormL2`), an output and input whose promoted floating-point type is another
+precision, a `BigFloat` level or step, and the conjugates of `Scaled(SqrNormL2(…), α)`,
+`Translate(SqrNormL2(…), b)` and of a [`SeparableSum`](@ref) of quadratics.
+[`prox_entry`](@ref) takes the route under the same conditions on `λ` and `γ`, with the
+promotion of the floating-point types of the entry and the step in place of that of the
+output and the input, and uses Moreau's identity elsewhere. It has no output and does
+not apply the array finite-result refusal: `prox_entry(Conjugate(SqrNormL2()), 1e100, 1,
+1.0)` is `5.0e99`.
 
 Other families use Moreau's identity, including `NuclearNorm`, singular-value
 and spectral wrappers, `SLOPE`, TV and fused penalties, and cones other than
@@ -1561,6 +1602,12 @@ Base.@propagate_inbounds function _conjugate_entry(f, v, i, γ)
     v - γ * prox_entry(f, v / γ, i, _moreau_reciprocal(promote_type(float(typeof(v)), _data_of(f)), γ))
   end
 end
+# the ridge with a finite positive level at a finite positive step: the route of its array method
+Base.@propagate_inbounds function _conjugate_entry(f::SqrNormL2, v, i, γ)
+  c = γ isa Real ? _conjugate_ridge(float(promote_type(typeof(v), typeof(γ))), f.λ, γ) : nothing
+  c === nothing && return invoke(_conjugate_entry, Tuple{Any, Any, Any, Any}, f, v, i, γ)
+  f.y === nothing ? c(v) : c(v, f.y[i])
+end
 Base.@propagate_inbounds function _conjugate_entry(f::IndBox, v, i, γ)
   S = float(promote_type(typeof(v), typeof(γ)))
   w, g = convert(S, v), convert(S, γ)
@@ -1598,6 +1645,73 @@ _conjugate_checkbuffer(s::Scratch, y::AbstractArray, x::AbstractArray) = _checkb
 (c::Conjugate)(y::Union{AbstractArray, Tuple}) =
   (_check_value_arrays(c, y); _value_checked(c, y))
 _value_unchecked(c::Conjugate, y::Union{AbstractArray, Tuple}) = (_checkparams(c, y); _value_at(_conjugate_value(c.f, y), y))
+# the value at the matrix that an owner represents
+(c::Conjugate)(y::SymmetricSparseIterate) = (_check_value_arrays(c, y); _value_checked(c, y))
+_value_unchecked(c::Conjugate, y::SymmetricSparseIterate) =
+  (_checkparams(c, y); _value_at(_conjugate_value(c.f, matrixview(y)), y))
+
+# The proximal point of the conjugate with an owner as the output: it is formed in a staged matrix by the
+# kernel for matrices, which reads the owner point as its matrix, and written to the owner last, one
+# coordinate at a time, after the commit check of a staged result (symmetric, in the axes of the owner, and
+# converted without failure). A rejected call leaves the owner as it was. The staged matrix is a frame, not
+# the scratch of c, which the kernel uses. An owner point with a dense output reads the matrix of the
+# owner, whose parameters are checked first.
+prox!(y::SymmetricSparseIterate, c::Conjugate, x::_ArrayOrOwner, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+function _prox_unchecked!(y::SymmetricSparseIterate, c::Conjugate, x::_ArrayOrOwner, γ::Real)
+  frame = _acquire_frame!(_STAGE_FRAMES)
+  try
+    z = _stage!(frame, y, x)
+    _prox_unchecked!(z, c, _vw(x), γ)
+    _stage_commit!(y, z, c.f)
+  finally
+    _release_frame!(_STAGE_FRAMES)
+  end
+  y
+end
+value_and_prox!(y::SymmetricSparseIterate, c::Conjugate, x::_ArrayOrOwner, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::Conjugate, x::_ArrayOrOwner, γ::Real)
+  frame = _acquire_frame!(_STAGE_FRAMES)
+  try
+    z = _stage!(frame, y, x)
+    v = _value_and_prox_unchecked!(z, c, _vw(x), γ)
+    _stage_commit!(y, z, c.f)
+    return _value_at(v, y)
+  finally
+    _release_frame!(_STAGE_FRAMES)
+  end
+end
+_stage!(s::Scratch, y::SymmetricSparseIterate, x) = _frame_array!(s, float(eltype(y)), _vw(x))
+# op(y, f, x, γ) for an owner y by the kernel for matrices on a staged matrix, written to the owner last after
+# the commit check of a staged result: a rejected call leaves the owner as it was
+function _staged_owner!(op::O, y::SymmetricSparseIterate, f, x0, γ) where {O}
+  x = _symmetric_argument(y, x0)
+  frame = _acquire_frame!(_STAGE_FRAMES)
+  try
+    z = _stage!(frame, y, x)
+    r = op(z, f, _vw(x), γ)
+    _stage_commit!(y, z)
+    return op === prox! ? y : _value_at(r, y)
+  finally
+    _release_frame!(_STAGE_FRAMES)
+  end
+end
+_stage_commit!(y::SymmetricSparseIterate, z, f = nothing) =
+  (_projection_check_commit(y, z, _rounding_symmetric_prox(f)); _store_lower!(y, z); y)
+# f** = f: the oracles of f, in the domain of f (stored coordinates, for the entry kernels of an owner)
+prox!(y::SymmetricSparseIterate, c::Conjugate{<:Conjugate}, x::_ArrayOrOwner, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+_prox_unchecked!(y::SymmetricSparseIterate, c::Conjugate{<:Conjugate}, x::_ArrayOrOwner, γ::Real) =
+  _prox_unchecked!(y, c.f.f, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, c::Conjugate{<:Conjugate}, x::_ArrayOrOwner, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+_value_and_prox_unchecked!(y::SymmetricSparseIterate, c::Conjugate{<:Conjugate}, x::_ArrayOrOwner, γ::Real) =
+  _value_and_prox_unchecked!(y, c.f.f, x, γ)
+prox!(y::AbstractArray, c::Conjugate, x::SymmetricSparseIterate, γ::Real) =
+  (_check_entry_arrays(c, x); prox!(y, c, matrixview(x), γ))
+value_and_prox!(y::AbstractArray, c::Conjugate, x::SymmetricSparseIterate, γ::Real) =
+  (_check_entry_arrays(c, x); value_and_prox!(y, c, matrixview(x), γ))
 
 _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, c::Conjugate{<:SumLargest}, y::AbstractArray, x::AbstractArray) =
   _checkwrite(op, c.f, y, x)
@@ -1607,9 +1721,12 @@ _prox_unchecked!(y::AbstractArray, c::Conjugate{<:SumLargest}, x::AbstractArray,
   _sumlargest_prox!(y, c.f, x, 1, Val(true))
 
 _tuple_buffer_type(::Type{<:AbstractArray{T, N}}) where {T, N} = Array{float(T), N}
+# the staged block of an owner is a dense matrix, which the commit check turns into the lower triangle
+_tuple_buffer_type(::Type{<:SymmetricSparseIterate{T}}) where {T} = Matrix{float(T)}
 @generated _tuple_buffer_type(::Type{X}) where {X<:Tuple} =
   _inline(Expr(:curly, :Tuple, (:(_tuple_buffer_type(fieldtype(X, $k))) for k in 1:fieldcount(X))...))
 _same_buffer_sizes(b::AbstractArray, x::AbstractArray) = size(b) == size(x)
+_same_buffer_sizes(b::AbstractArray, x::SymmetricSparseIterate) = size(b) == size(x)
 @generated _same_buffer_sizes(b::Tuple, x::Tuple) =
   _blockall(k -> :(_same_buffer_sizes(b[$k], x[$k])), fieldcount(b))
 
@@ -1642,6 +1759,8 @@ _moreau_output!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ) =
 @generated _moreau_output!(y::Tuple, x::Tuple, p::Tuple, γ) =
   _blockwise(k -> :(_moreau_output!(y[$k], x[$k], p[$k], γ)), min(fieldcount(y), fieldcount(x), fieldcount(p)), :y)
 _tuple_dot(x::AbstractArray, y::AbstractArray) = dot(x, y)
+# a parameter and an owner: the off-diagonal coordinates count at both of their positions
+_tuple_dot(c::AbstractArray, x::SymmetricSparseIterate) = _owner_dot(c, x)
 @generated _tuple_dot(x::Tuple, y::Tuple) = _blocksum(k -> :(_tuple_dot(x[$k], y[$k])), min(fieldcount(x), fieldcount(y)))
 
 # as for arrays, with every block checked before any block is written
@@ -2016,7 +2135,12 @@ failure found only while computing can leave earlier blocks written: a step that
 a function rejects according to the values it sees, `Conjugate`'s check that a
 finite input gave a finite result, a search that finds a constraint empty, a
 failure inside an external library, and the oracles of user-defined functions
-beyond `check_parameters`. Block sums take scalar steps only.
+beyond `check_parameters`. A block that is a built-in function without a scalar-step
+proximal operator (a `LogisticLoss` or another GLM loss, a `Sum`, a `KronQuadratic`),
+also inside the wrappers that forward their check, raises the `MethodError` of the
+proximal operator before any block is written; a user-defined function without a
+`prox!` method and a destination that is a [`SymmetricSparseIterate`](@ref) are not covered.
+Block sums take scalar steps only.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -2080,11 +2204,11 @@ _value_unchecked(s::SeparableSum, x::Tuple) = (_checkparams(s, x); _value_at(_su
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
 _prox_unchecked!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(prox!, s, y, x, γ); _checkstep(prox!, s, y, x, γ); _prox_blocks!(s.fs, y, x, γ); y)
+  (_checkwrite(prox!, s, y, x, γ); _checkstep(prox!, s, y, x, γ); _owner_role_preflight(prox!, s, y, x, γ); _prox_blocks!(s.fs, y, x, γ); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(value_and_prox!, s, y, x, γ); _checkstep(value_and_prox!, s, y, x, γ); _value_at(_value_and_prox_blocks!(s.fs, y, x, γ), y))
+  (_checkwrite(value_and_prox!, s, y, x, γ); _checkstep(value_and_prox!, s, y, x, γ); _owner_role_preflight(value_and_prox!, s, y, x, γ); _value_at(_value_and_prox_blocks!(s.fs, y, x, γ), y))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
 _value_and_gradient_unchecked!(g::Tuple, s::SeparableSum, x::Tuple) =
@@ -2247,9 +2371,9 @@ _checkvalue(s::Sum, x) = (map(f -> _checkvalue(f, x), s.fs); true)
 # products are added into the output: an array of the output's type and size, or
 # the tuple of such arrays, kept while the shapes and types agree. The check
 # versions leave the cache alone.
-_sum_buffer!(s::Scratch, g::AbstractArray, x) = _array_buffer!(s, eltype(g), size(g))
+_sum_buffer!(s::Scratch, g::_ArrayOrOwner, x) = _array_buffer!(s, eltype(g), size(g))
 _sum_buffer!(s::Scratch, g::Tuple, x::Tuple) = _tuple_buffer!(s, g, x)
-_sum_checkbuffer(s::Scratch, g::AbstractArray, x) = _checkbuffer(s, eltype(g), size(g))
+_sum_checkbuffer(s::Scratch, g::_ArrayOrOwner, x) = _checkbuffer(s, eltype(g), size(g))
 _sum_checkbuffer(s::Scratch, g::Tuple, x::Tuple) = _conjugate_checkbuffer(s, g, x)
 
 # Adding the functions' results writes every entry of the output, which Symmetric and
@@ -2264,7 +2388,7 @@ _accumulate!(g, b) = (g .+= b)
 @generated _accumulate!(g::Tuple, b::Tuple) =
   _blockwise(k -> :(_accumulate!(g[$k], b[$k])), min(fieldcount(g), fieldcount(b)), :g)
 
-function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::Union{AbstractArray, Tuple}, x::Union{AbstractArray, Tuple})
+function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::Union{_ArrayOrOwner, Tuple}, x::Union{_ArrayOrOwner, Tuple})
   _checkreal(s, g); _checkreal(s, x)
   _checkgradient_output(g, x)
   _checksize(g, x)
@@ -2286,9 +2410,9 @@ function _add_gradients!(g, b, x, v, fs::Tuple)
   _add_gradients!(g, b, x, v + w, Base.tail(fs))
 end
 
-value_and_gradient!(g::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple}) =
+value_and_gradient!(g::Union{_ArrayOrOwner, Tuple}, s::Sum, x::Union{_ArrayOrOwner, Tuple}) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
-function _value_and_gradient_unchecked!(g::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple})
+function _value_and_gradient_unchecked!(g::Union{_ArrayOrOwner, Tuple}, s::Sum, x::Union{_ArrayOrOwner, Tuple})
   _checkwrite(value_and_gradient!, s, g, x)
   v = _value_and_gradient_unchecked!(g, first(s.fs), x)
   length(s.fs) == 1 && return _value_at(v, x)
@@ -2369,6 +2493,7 @@ struct _StepBuffer{T, N} <: AbstractArray{T, N}
 end
 Base.size(x::_StepBuffer) = x.dims
 _step_values(::_StepBuffer) = false
+_unplaced(a::_StepBuffer{T, N}) where {T, N} = Array{T, N}(undef, a.dims)
 _step_buffer(x::AbstractArray{T, N}) where {T, N} = _StepBuffer{float(T), N}(size(x))
 @generated _step_buffer(x::Tuple) = _blocktuple(k -> :(_step_buffer(x[$k])), fieldcount(x))
 function _checkstep(op::O, c::Conjugate, y::Tuple, x::Tuple, γ::Real) where {O}
@@ -2524,7 +2649,8 @@ function _conjugate_moreau_by!(z, f, x, γ, α::_ProjectionScale)
   end
   z
 end
-function _conjugate_moreau!(z::AbstractArray, f, x::AbstractArray, γ)
+_conjugate_moreau!(z::AbstractArray, f, x::AbstractArray, γ) = _conjugate_moreau_identity!(z, f, x, γ)
+function _conjugate_moreau_identity!(z::AbstractArray, f, x::AbstractArray, γ)
   T = float(eltype(z))
   step = convert(T, γ)
   if _moreau_free(typeof(f))
@@ -2537,6 +2663,115 @@ function _conjugate_moreau!(z::AbstractArray, f, x::AbstractArray, γ)
     _checkmoreau(z, x, z, step, γ, true)
     z .= x .- step .* z
   end
+  z
+end
+
+# The proximal point of the conjugate of f(x) = (λ/2)‖x - y‖² (y = 0 when omitted) at a scalar step γ,
+#   prox_{γf*}(x) = a (x - γy),   a = λ/(λ + γ),
+# for a finite γ > 0 and a finite λ > 0, in the model precision W = Float32 or Float64. It divides
+# neither x nor y by γ and forms neither λy nor γ/λ: a = (ah + al)·2^ae is kept as a pair of
+# significands and an exponent, γ = gm·2^ge as a significand and an exponent, and x - γy is one fused
+# multiply-add, so that a result that W represents is not lost to an intermediate that it does not.
+# The factors λ and γ are rounded once to W: a is formed from the unrounded factors in their
+# promotion P with W, and gm is the significand of the unrounded step.
+struct _ConjugateRidge{W<:Union{Float32, Float64}}
+  ah::W
+  al::W
+  ae::Int
+  gm::W
+  ge::Int
+  aw::W         # ldexp(ah, ae), ldexp(al, ae) and ldexp(gm, ge), read where the flags below hold
+  alw::W
+  gw::W
+  fast::Bool    # the exponent of a is at least _conjugate_ridge_amin(W): a·x is a plain product
+  fastc::Bool   # and γ is a normal number of W as well: x - γy is a plain fused multiply-add
+end
+
+# Exponents ae at or above this keep ldexp(ah, ae), and ldexp(al, ae) for an al of half an ulp of ah, in the
+# normal range of W; below it the significand route is taken.
+@inline _conjugate_ridge_amin(::Type{Float64}) = -900
+@inline _conjugate_ridge_amin(::Type{Float32}) = -90
+
+# nothing for a model other than Float32 and Float64, a step or a level that is not finite and
+# positive, and a type of factor that P does not hold in Float32 or Float64
+@inline function _conjugate_ridge(::Type{W}, λ::Real, γ::Real) where {W}
+  W <: Union{Float32, Float64} || return nothing
+  P = promote_type(W, float(typeof(λ)), float(typeof(γ)))
+  P <: Union{Float32, Float64} || return nothing
+  l, g = convert(P, λ), convert(P, γ)
+  (isfinite(l) & isfinite(g) & (l > 0) & (g > 0)) || return nothing
+  _conjugate_ridge_factors(W, l, g)
+end
+function _conjugate_ridge_factors(::Type{W}, λ::P, γ::P) where {W, P}
+  ml, el = _frexp(λ)
+  mg, eg = _frexp(γ)
+  e0 = max(el, eg)
+  # λ + γ = s·2^e0 with s the sum of the aligned significands; err is its rounding error. The aligned
+  # smaller significand may be rounded to a subnormal number or to zero, which a sum of at least 1/2
+  # does not show.
+  Λ, Γ = ldexp(ml, el - e0), ldexp(mg, eg - e0)
+  s = Λ + Γ
+  bb = s - Λ
+  err = (Λ - (s - bb)) + (Γ - bb)
+  # a = (ml/s)·2^(el - e0), as aH + aL with aL the correction of the quotient
+  aH = ml / s
+  aL = (fma(-aH, s, ml) - aH * err) / s
+  ah = convert(W, aH)
+  al = convert(W, (aH - convert(P, ah)) + aL)
+  ae = el - e0
+  gm = convert(W, mg)
+  gw = ldexp(gm, eg)
+  fast = ae >= _conjugate_ridge_amin(W)
+  _ConjugateRidge{W}(ah, al, ae, gm, eg, ldexp(ah, ae), ldexp(al, ae), gw, fast,
+                     fast & isfinite(gw) & (abs(gw) >= floatmin(W)))
+end
+
+# A center of a type that W holds (W itself or a narrower type) is accepted as it is. A center of a wider
+# type is accepted when it is zero or its conversion to W is finite and normal. The plain route also
+# needs fastc; a center that is not accepted goes the significand route.
+@inline _conjugate_ridge_center_fits(::Type{W}, y) where {W} =
+  promote_type(W, float(typeof(y))) === W || (yw = convert(W, y); iszero(y) | (isfinite(yw) & (abs(yw) >= floatmin(W))))
+
+@inline function (c::_ConjugateRidge{W})(x) where {W}
+  xw = convert(W, x)
+  isfinite(xw) || return W(NaN)
+  c.fast ? fma(c.aw, xw, c.alw * xw) : _conjugate_ridge_scaled(c, xw, nothing)
+end
+@inline function (c::_ConjugateRidge{W})(x, y) where {W}
+  xw = convert(W, x)
+  if c.fastc && _conjugate_ridge_center_fits(W, y)
+    u = fma(-c.gw, convert(W, y), xw)
+    isfinite(u) && return fma(c.aw, u, c.alw * u)
+  end
+  _conjugate_ridge_scaled(c, xw, y)
+end
+
+# a (x - γy) from the significands and exponents of x, y, γ and a. The exponent of the larger of x and
+# γy is taken out of both, so that the fused multiply-add sees terms below 1 in size and a zero
+# operand does not set the scale. A non-finite x gives NaN, as Moreau's identity does.
+@noinline function _conjugate_ridge_scaled(c::_ConjugateRidge{W}, x::W, y) where {W}
+  isfinite(x) || return W(NaN)
+  mx, ex = _frexp(x)
+  y === nothing && return ldexp(fma(c.ah, mx, c.al * mx), c.ae + ex)
+  my, ey = _frexp(float(y))
+  none = -(1 << 40)
+  ex1 = iszero(mx) ? none : ex
+  ey1 = iszero(my) ? none : c.ge + ey
+  e = max(ex1, ey1)
+  e == none && return zero(W)
+  u = fma(-c.gm, ldexp(convert(W, my), c.ge + ey - e), ldexp(mx, ex - e))
+  ldexp(fma(c.ah, u, c.al * u), c.ae + e)
+end
+
+# the route above where it applies, Moreau's identity elsewhere (the other steps and levels, and the
+# other models). A result that is not finite at a finite input is refused before y is written, as for
+# the identity.
+function _conjugate_moreau!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ)
+  c = γ isa Real ? _conjugate_ridge(_moreau_model(f, z, x), f.λ, γ) : nothing
+  c === nothing && return _conjugate_moreau_identity!(z, f, x, γ)
+  f.y === nothing ? (z .= c.(x)) : (z .= c.(x, f.y))
+  bad = Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_nonfinite, x, z))
+  mapreduce(identity, |, bad; init = false) && _moreau_error(γ)
   z
 end
 _conjugate_moreau!(z::Tuple, f, x::Tuple, γ) = _conjugate_moreau_block!(z, f, x, γ)
@@ -2696,9 +2931,37 @@ function _projection_check_conversion(y::AbstractArray{T}, z::AbstractArray{S}) 
   end
   true
 end
+# an owner: the entries of the staged matrix are converted to its type
+function _projection_check_conversion(y::SymmetricSparseIterate{T}, z::AbstractArray{S}) where {T, S}
+  if T !== S && _projection_host(z)
+    @inbounds for v in z
+      convert(T, v)
+    end
+  end
+  true
+end
 _projection_check_commit(y::AbstractArray, z::AbstractArray) = _projection_check_conversion(y, z)
-_projection_check_commit(y::SymmetricSparseIterate, z::AbstractArray) =
-  (_check_axes(y, z) && _check_symmetric(z); _projection_check_conversion(y, z))
+# An owner stores the lower triangle of a staged matrix, so the matrix must be exactly symmetric (every pair
+# (i, j), i > j, `_symequal`: equal NaNs, infinities and signed zeros included): a pair that differs is refused
+# before anything is written. `rounded` is the one exemption, for the wrappers named at `_rounding_symmetric_prox`.
+_projection_check_commit(y::SymmetricSparseIterate, z::AbstractArray, rounded::Bool = false) =
+  (_check_axes(y, z) && (rounded || _check_staged_symmetric(z)); _projection_check_conversion(y, z))
+_check_staged_symmetric(z::AbstractMatrix) =
+  _check_symmetric(z, "the staged result written into a SymmetricSparseIterate", "z")
+
+# The functions whose proximal point at a symmetric point is symmetric by mathematics but is computed, in a
+# dense matrix, with the two triangles differing by rounding: the nuclear norm is convex, so its proximal point
+# is unique, and it is invariant under transposition. `Conjugate(f)`, `MoreauEnvelope(f)` and the scalar
+# `Precompose(f, μ)` of such an f store the lower triangle of the dense result at an owner without the pair
+# test. No other function has it, and nothing is derived through other wrappers: `Scaled(NuclearNorm)` or
+# `Conjugate(NuclearNorm)` as the inner function, `IndBallRank`, `IndPSD` and the rest take the exact check.
+_rounding_symmetric_prox(f) = false
+_rounding_symmetric_prox(::NuclearNorm) = true
+
+# a dense result of the inner function f of a wrapper, checked before it is blended into an owner
+_check_staged_result(y, z, f = nothing) = true
+_check_staged_result(y::Union{SymmetricSparseIterate, _OwnerMatrix}, z::AbstractArray, f = nothing) =
+  _rounding_symmetric_prox(f) || _check_staged_symmetric(z)
 @generated _projection_check_commit(y::Tuple, z::Tuple) =
   _blockwise(k -> :(_projection_check_commit(y[$k], z[$k])), min(fieldcount(y), fieldcount(z)), true)
 _projection_copy!(y::AbstractArray, z::AbstractArray) = copyto!(y, z)

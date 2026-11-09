@@ -70,7 +70,9 @@ end
             Regularize(SqrNormL2(), 1.0), Regularize(SqrNormL2(), 1.0, C))
     @testset "matrix $(typeof(f))" begin
       check_alias(f, copy(X), copy(V))
-      check_alias(f, SymmetricSparseIterate(X), SymmetricSparseIterate(V))
+      # ZeroFunction and LeastSquaresLoss have no products at an owner
+      f isa Union{ZeroFunction, LeastSquaresLoss} ||
+        check_alias(f, SymmetricSparseIterate(X), SymmetricSparseIterate(V))
     end
   end
 
@@ -268,6 +270,47 @@ a_hv!(Hv, f, x, v) = hessian_vec!(Hv, f, x, v)
   hessian_vec!(HV, f, X, V)
   @test allocs(a_hv!, HV, f, X, V) == 0
   @test (@inferred hessian_vec!(HV, f, X, V)) === HV
+end
+
+
+# the matrix-shaped sources of the storage of an owner (the aliases of test/symmetric_iterate_copies.jl): its matrix
+# view, and views, transposes and Symmetric and Hermitian wrappers of it, in both triangles
+function view_aliases(A)
+  out = Any["plain" => A, "view" => view(A, :, :), "nested view" => view(view(A, :, :), :, :), "transpose" => transpose(A),
+            "adjoint" => A', "view of 1:3" => view(A, 1:3, 1:3)]
+  for tri in (:L, :U), F in (Symmetric, Hermitian)
+    C = F(A, tri)
+    push!(out, "$(nameof(F)) $tri" => C, "view of $(nameof(F)) $tri" => view(C, :, :))
+  end
+  out
+end
+state(y) = (Matrix(y), nactive(y), copy(activecoordinates(y)), copy(y.nzval), copy(y.nzval2ind), copy(y.ind2nzval))
+
+@testset "an owner output aliased through its matrix view is refused" begin
+  C = [1.0 0.5 -1.0; 0.5 2.0 0.25; -1.0 0.25 1.5]
+  X = [0.5 0.0 0.3; 0.0 0.6 -1.1; 0.3 -1.1 0.0]
+  V = [0.3 -0.2 0.1; -0.2 0.5 0.4; 0.1 0.4 -0.6]
+  fs = ("SqrNormL2" => SqrNormL2(1.5), "Sum" => Sum(SqrNormL2(1.5), LinearFunction(C)), "Scaled" => Scaled(SqrNormL2(1.5), 2.0),
+        "Regularize" => Regularize(SqrNormL2(1.5), 1.0), "Tilt" => Tilt(SqrNormL2(1.5), C, 0.2),
+        "KronQuadratic" => KronQuadratic(Matrix(1.0I, 3, 3), Matrix(1.0I, 3, 3), C))
+  for (fname, f) in fs, (name, _) in view_aliases(matrixview(SymmetricSparseIterate(X)))
+    # the point, or the direction, is a view of the output
+    y = SymmetricSparseIterate(X)
+    a = Dict(view_aliases(matrixview(y)))[name]
+    before = state(y)
+    @test_throws x_alias_error hessian_vec!(y, f, a, V)
+    @test isequal(state(y), before)
+    @test_throws v_alias_error hessian_vec!(y, f, V, a)
+    @test isequal(state(y), before)
+    # an owner as the point or the direction, which is the output itself
+    @test_throws ArgumentError hessian_vec!(y, f, y, V)
+    @test_throws ArgumentError hessian_vec!(y, f, V, y)
+    @test isequal(state(y), before)
+    # a view of another owner with the same values is not an alias
+    z = SymmetricSparseIterate(X)
+    other = Dict(view_aliases(matrixview(z)))[name]
+    @test hessian_vec!(y, f, other, V) === y
+  end
 end
 
 end

@@ -593,6 +593,62 @@ end
   @test prox!(zeros(3), Conjugate(Conjugate(NormL1(0.5))), x, 3f0) == prox!(zeros(3), NormL1(0.5), x, 3f0)
 end
 
+@testset "the closed form of the conjugate of the quadratic" begin
+  # prox_{γf*}(x) = λ(x - γy)/(λ + γ) for f = SqrNormL2(λ, y), from the stored parameters
+  ref(λ, x, γ, y = 0) = big(λ) * (big(x) - big(γ) * big(y)) / (big(λ) + big(γ))
+  ulp_error(T, got, r) = Float64(abs(big(got) - r) / (abs(T(r)) < floatmin(T) ? big(nextfloat(zero(T))) : big(eps(T(r)))))
+  setprecision(BigFloat, 400) do
+    # Moreau's identity cancels where γ is much larger than λ; the closed form does not
+    for (λ, γ) in ((1e-12, 1.0), (1.0, 1e10), (1e-300, 1.0), (1.0, 1e-12), (3.0, 3.0))
+      x = [1.0, -2.0, 0.3, 1e10]
+      y = zeros(4)
+      prox!(y, Conjugate(SqrNormL2(λ)), x, γ)
+      @test all(i -> ulp_error(Float64, y[i], ref(λ, x[i], γ)) <= 2, 1:4)
+      c = [0.5, -1.0, 0.25, 3.0]
+      prox!(y, Conjugate(SqrNormL2(λ, c)), x, γ)
+      @test all(i -> ulp_error(Float64, y[i], ref(λ, x[i], γ, c[i])) <= 2, 1:4)
+    end
+    # a Float32 step and a Float64 level are parameters rounded once to the model
+    for γ in (0.1f0, 3f0, 1f-40, 1f30)
+      x = [2.0, 3.0]
+      y = zeros(2)
+      prox!(y, Conjugate(SqrNormL2(0.7)), x, γ)
+      @test all(i -> ulp_error(Float64, y[i], ref(0.7, x[i], γ)) <= 2, 1:2)
+      @test y == prox!(zeros(2), Conjugate(SqrNormL2(0.7)), x, Float64(γ))
+      x32 = Float32[2, 3]
+      y32 = zeros(Float32, 2)
+      prox!(y32, Conjugate(SqrNormL2(0.7f0)), x32, γ)
+      @test all(i -> ulp_error(Float32, y32[i], ref(0.7f0, x32[i], γ)) <= 2, 1:2)
+      @test eltype(y32) === Float32
+    end
+    # the model precision is the wider of the argument's and the destination's
+    for (Ty, Tx) in ((Float64, Float32), (Float32, Float64))
+      x = Tx[2, -3, 1e-3]
+      y = zeros(Ty, 3)
+      prox!(y, Conjugate(SqrNormL2(0.7)), x, 0.1)
+      @test all(i -> ulp_error(Ty, y[i], ref(0.7, x[i], 0.1)) <= 2, 1:3)
+    end
+    # a Float64 center outside the range of a Float32 model: γy = 3 although y is not a Float32
+    c = Conjugate(SqrNormL2(1f0, [3 * 2.0^993]))
+    y = zeros(Float32, 1)
+    prox!(y, c, Float32[1], 2.0^-993)
+    @test y == Float32[-2]
+    # a level and a step whose ratio is outside the range of the model
+    for (λ, γ, x) in ((1e-300, 1e300, 1e300), (1e300, 1e-300, 3.0), (2.0^-1000, 2.0^500, 2.0^900))
+      y = zeros(1)
+      prox!(y, Conjugate(SqrNormL2(λ)), [x], γ)
+      @test ulp_error(Float64, y[1], ref(λ, x, γ)) <= 2
+    end
+    # prox_entry is the same map
+    for γ in (1e-10, 1.0, 1e10, 1e300), v in (1e300, -3.0, 1e-300)
+      f = SqrNormL2(2.0, [0.25])
+      e = prox_entry(Conjugate(f), v, 1, γ)
+      @test ulp_error(Float64, e, ref(2.0, v, γ, 0.25)) <= 2
+      @test e == prox!(zeros(1), Conjugate(f), [v], γ)[1]
+    end
+  end
+end
+
 @testset "allocations" begin
   en = ElasticNet(0.5, 2.0)
   for (Ty, Tx, γ) in ((Float64, Float64, 3f0), (Float64, Float32, 3f0), (Float32, Float32, 3f0), (Float32, Float32, 3.0), (Float64, Float64, 0.1f0))

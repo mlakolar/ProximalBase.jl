@@ -95,7 +95,8 @@ end
   block_failure(NormL1Fused(1.0, 1.0), (1.0, 2.0), errors(proximal, MethodError))
   block_failure(NormL1Fused(1.0, 1.0), (ones(2), ones(3)), errors(proximal, DimensionMismatch))
   block_failure(IndToeplitz(symmetric = true), ones(2, 3), errors(proximal, DimensionMismatch))
-  block_failure(IndToeplitz(), M, errors(proximal, ArgumentError);
+  # a point that is not symmetric, with a set that is not, has a projection that an owner cannot hold
+  block_failure(IndToeplitz(), [2.0 1.0; 5.0 3.0], errors(proximal, ArgumentError);
                 output = SymmetricSparseIterate(M), modes = (false,))
 
   cases = Any[
@@ -203,6 +204,8 @@ function dot_case(c, x)
   @nospecialize c x
   f = LinearFunction(c)
   expected = outcome(dot, c, x)
+  # an owner has dot with some representations of c only, which the reductions of the owner define
+  x isa SymmetricSparseIterate && expected[1] === MethodError && return
   @test isequal(outcome(f, x), expected)
   g = fill(7.0, size(x))
   @test isequal(outcome(value_and_gradient!, g, f, x), expected)
@@ -293,9 +296,10 @@ end
   # SqrDistL2 projects into its own dense buffer, so the set sees no
   # SymmetricSparseIterate output.
   d, M = SqrDistL2(IndToeplitz()), [2.0 1; 1 3]
-  for op in oracles
+  # (the gradient of SqrDistL2 is not defined at an owner: its owner oracles are the value and the proximal operator)
+  for op in proximal
     @test isequal(oracle!(op, SymmetricSparseIterate(2), d, M), oracle!(op, zeros(2, 2), d, M)) ||
-          op in (prox!, gradient!)
+          op === prox!
     @test oracle!(op, SymmetricSparseIterate(2), d, M) !== nothing
   end
   # A zero weight skips the projection but not the structural checks.
@@ -389,6 +393,194 @@ _allocation_value_and_prox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
       for op in (_allocation_prox!, _allocation_value_and_prox!)
         @test PB.Testing.allocations(op, y, s, x, 1.0) == 0
       end
+    end
+  end
+end
+
+####################################
+#  A wrapped function without a proximal operator fails before any block is written
+####################################
+
+hasplaceholder(a) = a isa Union{PB._StepInput, PB._StepBuffer} || (a isa Tuple && any(hasplaceholder, a))
+
+function caught(op, y, f, x, γ)
+  @nospecialize
+  try
+    op(y, f, x, γ)
+  catch e
+    return e
+  end
+  nothing
+end
+
+# The call raises the MethodError of the proximal operator of the leaf, with the arguments of the leaf and
+# without a placeholder, and writes nothing.
+function leaf_unchanged(op, h, point, γ, Leaf; output = point)
+  @nospecialize
+  for alias in (false, true)
+    alias && typeof(output) !== typeof(point) && continue
+    x = deepcopy(point)
+    y = alias ? x : deepcopy(output)
+    input, before = deepcopy(x), deepcopy(y)
+    e = caught(op, y, deepcopy(h), x, γ)
+    @test e isa MethodError
+    if e isa MethodError
+      @test e.f === prox!
+      @test any(a -> a isa Leaf, e.args)
+      @test !any(hasplaceholder, e.args)
+    end
+    @test isequal(x, input)
+    @test isequal(y, before)
+  end
+end
+
+function wrapped_leaf_routes(h, x, γ, Leaf; output = x)
+  @nospecialize
+  T = real(eltype(x))
+  two = SqrNormL2(T(2))
+  for op in proximal
+    alone = caught(op, deepcopy(output), deepcopy(h), deepcopy(x), γ)
+    @test alone isa MethodError
+    alone isa MethodError && @test any(a -> a isa Leaf, alone.args)
+    leaf_unchanged(op, SeparableSum(two, h), (T[3], x), γ, Leaf; output = (T[7], output))
+    leaf_unchanged(op, SeparableSum(two, SeparableSum(h)), (T[3], (x,)), γ, Leaf; output = (T[7], (output,)))
+    slices = cat(x, x; dims = ndims(x) + 1)
+    sliced = cat(output, output; dims = ndims(output) + 1)
+    leaf_unchanged(op, SliceSum(two, h), slices, γ, Leaf; output = sliced)
+    leaf_unchanged(op, SliceSum(AbstractFunction[two, h]), slices, γ, Leaf; output = sliced)
+    fibers = reshape(repeat(x, 4), 2, 2, length(x))
+    out = reshape(repeat(output, 4), 2, 2, length(output))
+    leaf_unchanged(op, FiberSum(h; diagonal = two), fibers, γ, Leaf; output = out)
+    leaf_unchanged(op, FiberSum(two; diagonal = h, symmetric = true), fibers, γ, Leaf; output = out)
+  end
+end
+
+@testset "Wrappers of a function without a proximal operator" begin
+  for T in (Float32, Float64)
+    L = LogisticLoss(ones(T, 2), ones(T, 2, 4))
+    x = ones(T, 4)
+    v = ones(T, 4)
+    for h in (Scaled(L, T(2)), Scaled(Scaled(L, T(2)), T(3)), Translate(L, v), Tilt(L, v),
+              Regularize(L, T(1), zeros(T, 4)), Regularize(L, T(1)), Conjugate(L),
+              Conjugate(Conjugate(L)), Precompose(L, T(2)),
+              Precompose(L, Matrix{T}(I, 4, 4), T(1)), Scaled(Translate(Tilt(L, v), v), T(2)),
+              Translate(Scaled(L, T(2)), v))
+      wrapped_leaf_routes(h, x, T(0.5), typeof(L))
+    end
+    S = Sum(L, NormL1(T(1)))
+    for h in (Scaled(S, T(2)), Translate(S, v), Tilt(S, v), Regularize(S, T(1), zeros(T, 4)),
+              Conjugate(S), Precompose(S, T(2)))
+      wrapped_leaf_routes(h, x, T(0.5), typeof(S))
+    end
+    K = KronQuadratic(ones(T, 2, 2), ones(T, 2, 2))
+    for h in (Scaled(K, T(2)), Translate(K, ones(T, 2, 2)), Tilt(K, ones(T, 2, 2)), Regularize(K, T(1)))
+      for op in proximal
+        leaf_unchanged(op, SeparableSum(SqrNormL2(T(2)), h), (T[3], ones(T, 2, 2)), T(0.5), typeof(K);
+                       output = (T[7], ones(T, 2, 2)))
+      end
+    end
+  end
+end
+
+@testset "The conjugate of an elastic net on a box checks before writes" begin
+  x = [5.0, -5.0, 0.5]
+  box = IndBox(-2.0, 2.0)
+  f = Conjugate(ElasticNet(1.0, 0.5))
+  # An unsupported value is refused before anything is written, and the proximal operator still works.
+  unsupported = (Tilt(Conjugate(NormL1Nonneg(1.0)), zeros(3)),             # a fused-only inner function
+                 Scaled(f, 2.0), Translate(f, zeros(3)), Tilt(f, zeros(3)),
+                 Constrained(f, IndBox(0.0, 1.0)),                         # a box under the box
+                 Conjugate(ElasticNet(Inf, 0.5)), Conjugate(ElasticNet(1.0, Inf)),
+                 Conjugate(ElasticNet(Inf, Inf)), Conjugate(ElasticNet(1.0, 0.5, [1.0, Inf, 1.0])),
+                 Conjugate(ElasticNet(Inf, 0.5, [1.0, 0.0, 1.0])))
+  for inner in unsupported
+    @testset "$(nameof(typeof(inner))) in a box" begin
+      h = Constrained(inner, box)
+      block_failure(h, x, (value_and_prox! => ArgumentError,))
+      y = fill(-77.0, 3)
+      @test prox!(y, h, x, 1.0) === y
+      @test all(!=(-77.0), y)
+    end
+  end
+  # Shapes and steps are checked before writing, for the supported route as well.
+  bad = (Constrained(Conjugate(ElasticNet(1.0, 0.5, ones(2))), box),
+         Constrained(Conjugate(ElasticNet(1.0, 0.0, ones(4))), box),
+         Constrained(f, IndBox(-ones(2), ones(2))),
+         Constrained(f, IndBox(-ones(4), ones(4))))
+  for h in bad
+    block_failure(h, x, errors(proximal, DimensionMismatch))
+  end
+  for γ in ([0.5, 0.5], [0.5, 0.5, 0.5, 0.5]), alias in (false, true)
+    h = Constrained(f, box)
+    point = copy(x)
+    y = alias ? point : fill(-77.0, 3)
+    for op in proximal
+      @test_throws DimensionMismatch op(y, h, point, γ)
+      @test point == x
+      @test y == (alias ? x : fill(-77.0, 3))
+    end
+    s = SeparableSum(SqrNormL2(2.0), h)
+    dest = alias ? ([3.0], point) : ([7.0], y)
+    @test_throws DimensionMismatch PB._checkwrite(value_and_prox!, s, dest, ([3.0], point), γ)
+    @test dest[1] == (alias ? [3.0] : [7.0])
+    @test dest[2] == (alias ? x : fill(-77.0, 3))
+  end
+  # the supported route writes the proximal point in a block and leaves the other blocks to their own oracles
+  s = SeparableSum(SqrNormL2(2.0), Constrained(f, box))
+  dest = ([7.0], fill(-77.0, 3))
+  value = value_and_prox!(dest, s, ([3.0], x), 0.5)
+  @test dest[2] == [2.0, -2.0, 0.5]
+  @test value == value_and_prox!(zeros(1), SqrNormL2(2.0), [3.0], 0.5) + 2.0
+end
+
+# The wrappers reach the fused oracle of the box. Every reference below is built from the definition
+# of the wrapper and the explicit formulas for g = f* + δ_box, f = ElasticNet(λ1, λ2): f*(y) = Σ max(|yᵢ| - λ1, 0)² / (2λ2),
+# prox_{γg}(v) = clamp(v - γ prox_{f/γ}(v/γ)) with prox_{f/γ}(w) = soft(w, λ1/γ) / (1 + λ2/γ), and
+# g*(s) = Σ s yᵢ - f*(yᵢ) at yᵢ = clamp(sign(s)(λ1 + λ2|s|)).
+@testset "Wrappers of the conjugate of an elastic net on a box" begin
+  λ1, λ2 = 0.5, 0.7
+  l, u = [-1.0, -2.0, -0.5, -3.0], [1.0, 2.0, 0.5, 3.0]
+  soft(w, t) = sign(w) * max(abs(w) - t, 0)
+  fstar(y) = sum(max.(abs.(y) .- λ1, 0) .^ 2) / (2λ2)
+  gprox(v, γ) = clamp.(v .- γ .* soft.(v ./ γ, λ1 / γ) ./ (1 + λ2 / γ), l, u)
+  function gconj(s)
+    yc = clamp.(sign.(s) .* (λ1 .+ λ2 .* abs.(s)), l, u)
+    sum(s .* yc .- max.(abs.(yc) .- λ1, 0) .^ 2 ./ (2λ2))
+  end
+  g = Constrained(Conjugate(ElasticNet(λ1, λ2)), IndBox(l, u))
+  c, b, ρ, α, a, μ = [0.3, -0.2, 0.4, 0.1], [0.5, 0.25, -1.5, 2.0], 0.8, 2.5, 2.0, 0.4
+  # the inputs clamp some coordinates and leave others inside the box
+  for x in ([3.0, -0.3, 2.0, -5.0], [0.2, 4.0, -0.1, 1.0], [-6.0, 0.7, 0.3, 5.5]), γ in (0.6, 1.7)
+    cases = (
+      ("Scaled", Scaled(g, α), gprox(x, γ * α), y -> α * fstar(y)),
+      ("Translate", Translate(g, b), b .+ gprox(x .- b, γ), y -> fstar(y .- b)),
+      ("Tilt", Tilt(g, c, 0.25), gprox(x .- γ .* c, γ), y -> fstar(y) + sum(c .* y) + 0.25),
+      ("Regularize", Regularize(g, ρ, c), gprox((x .+ γ * ρ .* c) ./ (1 + γ * ρ), γ / (1 + γ * ρ)),
+       y -> fstar(y) + ρ / 2 * sum((y .- c) .^ 2)),
+      ("Precompose", Precompose(g, a), gprox(a .* x, γ * a^2) ./ a, y -> fstar(a .* y)),
+      ("MoreauEnvelope", MoreauEnvelope(g, μ), x .+ γ / (μ + γ) .* (gprox(x, μ + γ) .- x),
+       y -> (p = gprox(y, μ); fstar(p) + sum((y .- p) .^ 2) / (2μ))),
+      ("Conjugate", Conjugate(g), x .- γ .* gprox(x ./ γ, 1 / γ), gconj))
+    for (name, h, point, value) in cases, alias in (false, true)
+      @testset "$name, alias = $alias" begin
+        y = alias ? copy(x) : fill(-77.0, 4)
+        v = value_and_prox!(y, h, alias ? y : x, γ)
+        @test y ≈ point rtol = 1e-12 atol = 1e-12
+        @test v ≈ value(point) rtol = 1e-11 atol = 1e-12
+        @test v ≈ value(y) rtol = 1e-11 atol = 1e-12
+      end
+    end
+  end
+end
+
+@testset "Wrappers around a box with abstract weights refuse before writes" begin
+  x = [5.0, -5.0, 0.5]
+  g = Constrained(Conjugate(ElasticNet(0.5, 0.7, AbstractFloat[1f0, 3.0, 1.0])), IndBox(-2.0, 2.0))
+  c, b = [0.3, -0.2, 0.4], [0.5, 0.25, -1.5]
+  for h in (Scaled(g, 2.5), Translate(g, b), Tilt(g, c, 0.25), Regularize(g, 0.8, c), Precompose(g, 2.0),
+            MoreauEnvelope(g, 0.4), Conjugate(g))
+    @testset "$(nameof(typeof(h)))" begin
+      block_failure(h, x, (value_and_prox! => ArgumentError,))
     end
   end
 end

@@ -13,8 +13,9 @@ function coefficient(s, w)
 end
 coefficient(γ, λ, w) = coefficient(γ * λ, w)
 # Numerics T3 (#503): the product of the factors is formed in the promotion of the destination
-# type S and the factors' types, and rounded once to S. ElasticNet, Berhu and CappedL1 follow it;
-# the entries of the other families below keep the frozen formulas of 546dc86.
+# type S and the factors' types, and rounded once to S. ElasticNet, Berhu and CappedL1 follow it,
+# and since #519 (part A) so do CheckLoss (γτwᵢ, γ(1-τ)wᵢ), EpsInsensitiveLoss (γwᵢ) and HingeLoss
+# (γwᵢyᵢ²); the other entries below keep the frozen formulas of 546dc86.
 promotion(::Type{S}, xs...) where {S} = promote_type(S, map(x -> x isa Bool ? Float16 : typeof(x), xs)...)
 # While γλ is a normal number in R the coefficient is the frozen formula. Otherwise, for finite nonzero
 # factors, the product is exact (BigFloat) and rounded once to S, which recovers a γλ that leaves the
@@ -28,6 +29,31 @@ function tcoefficient(::Type{S}, γ, λ, w) where {S}
     end
   end
   convert(S, coefficient(a, b, c))
+end
+# the weight coefficient γw of two factors (a zero or infinite weight keeps its meaning)
+function tcoefficient2(::Type{S}, γ, w) where {S}
+  R = promotion(S, γ, w)
+  convert(S, coefficient(convert(R, γ), convert(R, w)))
+end
+# the Hinge step γw|y|² in the promotion R of S and the factors: γw|y|·|y| in R, rounded once, while
+# γw is a normal number; otherwise the exact product of the finite nonzero factors rounded once, and
+# for the others the weight rules (NaN; Inf for an infinite weight, 0 for a zero weight; then 0 for a
+# zero step and Inf for an infinite one). The package's recovery forms the product of significands in
+# R and is within 2 ulp of it, so the Hinge comparisons below allow that (see `closeenough`).
+function hingestep(::Type{S}, γ, ay, w) where {S}
+  R = promotion(S, γ, w)
+  a, b, y = convert(R, γ), convert(R, w), convert(R, ay)
+  ab = a * b
+  floatmin(R) <= ab <= floatmax(R) && return convert(S, (ab * y) * y)
+  if all(isfinite, (a, b, y)) && !iszero(a) && !iszero(b) && !iszero(y)
+    return setprecision(BigFloat, 512) do
+      convert(S, BigFloat(a) * BigFloat(b) * BigFloat(y)^2)
+    end
+  end
+  (isnan(a) || isnan(b)) && return S(NaN)
+  isinf(b) && return S(Inf)
+  iszero(b) && return zero(S)
+  iszero(a) ? zero(S) : S(Inf)
 end
 tproduct(::Type{S}, a, b) where {S} = (R = promotion(S, a, b); convert(S, convert(R, a) * convert(R, b)))
 
@@ -49,17 +75,20 @@ end
 function reference_entry(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = entry(f.w, i)
-  s, τ, u = convert(S, coefficient(γ, w)), convert(S, f.τ), S(v)
+  R = promotion(S, γ, f.τ, w)
+  hi = tcoefficient(S, γ, f.τ, w)
+  lo = tcoefficient(S, γ, one(R) - convert(R, f.τ), w)
+  u = S(v)
   # a NaN u stays NaN (E2), unless the map is constant: the step γ = Inf or an infinite weight
-  # (not a finite γw that overflows to Inf); a NaN coefficient keeps the old zero (#561)
-  u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) :
-    (isnan(u) && !isnan(s) && !(γ == Inf || isinf(w)) ? u : zero(S)))
+  # (not a finite γw that overflows to Inf); a NaN threshold keeps the old zero (#561)
+  u > hi ? u - hi : (u < -lo ? u + lo :
+    (isnan(u) && !isnan(hi) && !isnan(lo) && !(γ == Inf || isinf(w)) ? u : zero(S)))
 end
 
 function reference_entry(f::EpsInsensitiveLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = entry(f.w, i)
-  s, ε, u = convert(S, coefficient(γ, w)), convert(S, f.ε), S(v)
+  s, ε, u = tcoefficient2(S, γ, w), convert(S, f.ε), S(v)
   a = abs(u)
   a <= ε ? u : (a <= ε + s ? copysign(ε, u) : u - copysign(s, u))
 end
@@ -68,7 +97,7 @@ function reference_entry(f::HingeLoss, v::T, i::Integer, γ::Real) where {T<:Rea
   S = float(T)
   y = convert(S, entry(f.y, i))
   w = entry(f.w, i)
-  s = convert(S, coefficient(γ, w)) * y^2
+  s = hingestep(S, γ, abs(y), w)
   u = y * S(v)
   (u >= 1 ? u : (u < 1 - s ? u + s : (isnan(u) ? u : one(S)))) / y      # a NaN margin stays NaN (E2, #561)
 end
@@ -92,15 +121,24 @@ function families(T, w; λ=T(0.3))
 end
 samebits(a::T, b::T) where {T} = (isnan(a) && isnan(b)) ||
   reinterpret(T === Float32 ? UInt32 : UInt64, a) == reinterpret(T === Float32 ? UInt32 : UInt64, b)
+# bitwise, except for HingeLoss, whose recovered step (outside the ordinary range) is within 2 ulp:
+# then the entries agree within 8 ulp of the larger of the outputs and the input (the cancellation u + s)
+closeenough(f, x, a, b) = all(samebits.(a, b))
+function closeenough(f::HingeLoss, x, a, b)
+  all(eachindex(a)) do i
+    samebits(a[i], b[i]) || (isfinite(a[i]) && isfinite(b[i]) && isfinite(x[i]) &&
+      abs(a[i] - b[i]) <= 8 * eps(eltype(a)) * (abs(a[i]) + abs(b[i]) + abs(x[i])) + 8 * nextfloat(zero(eltype(a))))
+  end
+end
 reference(f, x, γ) = [reference_entry(f, x[i], i, γ[i]) for i in eachindex(x)]
 function check_case(f, x, γ)
   expected = reshape(eltype(x).(reference(f, x, γ)), size(x))
   y = similar(x)
   @test prox!(y, f, x, γ) === y
-  @test all(samebits.(y, expected))
+  @test closeenough(f, x, y, expected)
   z = copy(x)
   @test prox!(z, f, z, γ) === z
-  @test all(samebits.(z, expected))
+  @test closeenough(f, x, z, expected)
 end
 
 # A reference separable function forces the original entrywise and wrapper paths.

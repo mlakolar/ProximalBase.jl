@@ -40,14 +40,15 @@ end
     prox!(z, f, z, γ)
     @test z == p                                               # in place
     isconvex(f) && check_metric_optimality(f, x, γ, p)
-    # the iterates: a SparseIterate, and a SymmetricSparseIterate with symmetric steps
+    # the iterates: a SparseIterate, and a SymmetricSparseIterate, which takes a scalar step only
     xs = SparseIterate(sprandn(n, 0.4))
     @test Vector(prox(f, xs, γ)) ≈ prox(f, Vector(xs), γ)
     if !(hasproperty(f, :w) && f.w isa AbstractArray)        # weights for a vector of length n
       D = randn(4, 4); D = D + D'
       G = rand(4, 4) .+ 0.1; G = G + G'
       S = SymmetricSparseIterate(D)
-      @test Matrix(prox(f, S, G)) ≈ prox(f, D, G)
+      @test Matrix(prox(f, S, 0.3)) ≈ prox(f, D, 0.3)
+      @test_throws ArgumentError prox(f, S, G)
     end
     @test_throws DimensionMismatch prox(f, x, rand(n - 1))
   end
@@ -57,11 +58,16 @@ end
   G = rand(5, 5) .+ 0.1; G = G + G'
   for f in (NormL1(0.3), MCP(0.3), IndBox(0.1, 1.))
     out = SymmetricSparseIterate(randn(5, 5) |> A -> A + A')
-    prox!(out, f, SymmetricSparseIterate(D), G)
-    @test Matrix(out) ≈ prox(f, D, G)
+    prox!(out, f, SymmetricSparseIterate(D), 0.4)
+    @test Matrix(out) ≈ prox(f, D, 0.4)
     out = SymmetricSparseIterate(randn(5, 5) |> A -> A + A')
-    prox!(out, f, D, G)
-    @test Matrix(out) ≈ prox(f, D, G)
+    prox!(out, f, D, 0.4)
+    @test Matrix(out) ≈ prox(f, D, 0.4)
+    # an array step is refused before anything is written
+    before = copy(out)
+    @test_throws ArgumentError prox!(out, f, D, G)
+    @test_throws ArgumentError value_and_prox!(out, f, SymmetricSparseIterate(D), G)
+    @test isequal(out, before) && collect(activecoordinates(out)) == collect(activecoordinates(before))
   end
 end
 
@@ -469,15 +475,16 @@ end
   r = Regularize(ZeroFunction(), 1.0)
   for op in (prox!, value_and_prox!)
     Y = SymmetricSparseIterate([0.0 4.0; 4.0 0.0])
-    result = op(Y, r, Y, ones(2, 2))
+    result = op(Y, r, Y, 1.0)
     @test Matrix(Y) ≈ [0.0 2.0; 2.0 0.0]
     op === value_and_prox! && @test result ≈ 4.0
+    # an array step is not supported with an owner as the output, and leaves it as it was
     Z = SymmetricSparseIterate([0.0 4.0; 4.0 0.0])
-    op(Z, r, Z, 1.0)
-    @test Matrix(Y) ≈ Matrix(Z)
+    @test_throws ArgumentError op(Z, r, Z, ones(2, 2))
+    @test Matrix(Z) == [0.0 4.0; 4.0 0.0]
   end
 
-  # Asymmetric centres and steps are rejected before changing the output.
+  # Asymmetric centres, and array steps, are rejected before changing the output.
   rc = Regularize(ZeroFunction(), 1.0, [0.0 10.0; 2.0 0.0])
   for op in (prox!, value_and_prox!)
     for steps in (1.0, ones(2, 2))
@@ -511,7 +518,8 @@ end
                (G, w) -> SparseGroupNormL2(0.3, 0.5, G, w),
                (G, w) -> GroupMCP(0.5, G, w; a = 2.5),
                (G, w) -> GroupSCAD(0.5, G, w; a = 3.5))
-  for make in penalties, dims in ((6,), (2, 3)), centered in (false, true)
+  # GroupNormLinf and GroupSCAD run in this loop in metric_grids.jl
+  for make in (penalties[1], penalties[3], penalties[4]), dims in ((6,), (2, 3)), centered in (false, true)
     x = reshape([3.0, -4.0, 2.0, -1.0, 0.5, 2.5], dims)
     c = centered ? reshape([0.5, 1.0, -2.0, 3.0, 1.5, -0.5], dims) : nothing
     r = Regularize(make(groups, weights), 0.7, c)
@@ -589,13 +597,17 @@ end
       @test y == before
     end
     r = Regularize(GroupNormL2(0.5, [1:4]), 0.7)
-    for y in (AtomIterate(fill(17.0, 4), [1:4]), SymmetricSparseIterate(fill(17.0, 2, 2)))
-      before = deepcopy(y)
-      name = y isa AtomIterate ? "AtomIterate" : "SymmetricSparseIterate"
-      @test_throws ArgumentError("per-group steps for Regularize do not support $name outputs") op(y, r, reshape(x, size(y)), [0.2])
-      @test isequal(y, before)
-      @test all(isequal(getfield(y, field), getfield(before, field)) for field in fieldnames(typeof(y)))
-    end
+    y = AtomIterate(fill(17.0, 4), [1:4])
+    before = deepcopy(y)
+    @test_throws ArgumentError("per-group steps for Regularize do not support AtomIterate outputs") op(y, r, reshape(x, size(y)), [0.2])
+    @test isequal(y, before)
+    @test all(isequal(getfield(y, field), getfield(before, field)) for field in fieldnames(typeof(y)))
+    # an owner takes no array step at all
+    y = SymmetricSparseIterate(fill(17.0, 2, 2))
+    before = deepcopy(y)
+    err = try op(y, r, reshape(x, size(y)), [0.2]); nothing catch e; e end
+    @test err isa ArgumentError && occursin("is not supported with a SymmetricSparseIterate as the output", err.msg)
+    @test all(isequal(getfield(y, field), getfield(before, field)) for field in fieldnames(typeof(y)))
     # Integer shrinkage succeeds, then the inner shrink cannot store its result.
     y = fill(17, 4)
     before = copy(y)

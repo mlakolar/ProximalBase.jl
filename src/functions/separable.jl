@@ -33,13 +33,14 @@ ProximalBase.iszeropreserving(::WeightedSquare) = true
 ProximalBase.isconvex(::Type{WeightedSquare}) = true
 ProximalBase.entry_parameters(f::WeightedSquare) = (:w => f.w,)
 function ProximalBase.check_parameters(f::WeightedSquare, x)
-  length(f.w) == length(x) || throw(DimensionMismatch("a parameter array has length \$(length(f.w)) and the argument has length \$(length(x))"))
+  length(f.w) == prod(size(x)) || throw(DimensionMismatch("a parameter array has length \$(length(f.w)) and the argument has \$(prod(size(x))) entries"))
   nothing
 end
 ```
 
 The generic kernels call `check_parameters` before writing any output or
-updating a coordinate. On a `SymmetricSparseIterate`, also declare
+updating a coordinate; a [`SymmetricSparseIterate`](@ref) has a `size` and no
+`length`. On a `SymmetricSparseIterate`, also declare
 [`ProximalBase.entry_parameters`](@ref); public oracle overrides should call
 [`ProximalBase.check_symmetric_parameters`](@ref) before writing.
 
@@ -65,16 +66,16 @@ term of entry `i` at the scalar `v`. `i` is a linear index of the array, as in
 """
 function value_entry end
 
-(f::SeparableFunction)(x::AbstractArray) =
+(f::SeparableFunction)(x::_ArrayOrOwner) =
   (_check_value_arrays(f, x); _value_sep(f, x))
-_value_unchecked(f::SeparableFunction, x::AbstractArray) = _isbuiltin(f) ? _value_sep(f, x) : f(x)
-prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
+_value_unchecked(f::SeparableFunction, x::_ArrayOrOwner) = _isbuiltin(f) ? _value_sep(f, x) : f(x)
+prox!(y::_ArrayOrOwner, f::SeparableFunction, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_sep!(y, f, x, γ))
-_prox_unchecked!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
+_prox_unchecked!(y::_ArrayOrOwner, f::SeparableFunction, x::_ArrayOrOwner, γ::Real) =
   _isbuiltin(f) ? _prox_sep!(y, f, x, γ) : prox!(y, f, x, γ)
-value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
+value_and_prox!(y::_ArrayOrOwner, f::SeparableFunction, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_sep!(y, f, x, γ))
-_value_and_prox_unchecked!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
+_value_and_prox_unchecked!(y::_ArrayOrOwner, f::SeparableFunction, x::_ArrayOrOwner, γ::Real) =
   _isbuiltin(f) ? _value_and_prox_sep!(y, f, x, γ) : value_and_prox!(y, f, x, γ)
 
 # The value, entry by entry over the dense array. A weighted family sums its
@@ -114,7 +115,7 @@ end
 # an off-diagonal coordinate is the entries (r, c) and (c, r)
 function _value_sep(f, x::SymmetricSparseIterate)
   _checkparams(f, x)
-  iszeropreserving(f) || return _value_dense(f, x)
+  iszeropreserving(f) || return _value_dense(f, matrixview(x))
   T = _valtype(x)
   p = x.p
   s = zero(T)
@@ -166,7 +167,7 @@ function _sep_terms(acc, f, x::SparseIterate)
   acc
 end
 function _sep_terms(acc, f, x::SymmetricSparseIterate)
-  iszeropreserving(f) || return invoke(_sep_terms, Tuple{Any, Any, AbstractArray}, acc, f, x)
+  iszeropreserving(f) || return _sep_terms(acc, f, matrixview(x))
   p = x.p
   @inbounds for k in 1:x.nnz
     r, c = tril_cartesian(p, x.nzval2ind[k])
@@ -216,7 +217,7 @@ _parts_eltype(::Nothing) = Union{}
 # the proximal operator, entry by entry; y may be x
 _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Union{Real, AbstractArray}) = _prox_sep_dense!(y, f, x, γ)
 
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SeparableFunction, y::AbstractArray, x::AbstractArray) =
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SeparableFunction, y::_ArrayOrOwner, x::_ArrayOrOwner) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkparams(f, x); true)
 
 function _prox_sep_dense!(y::AbstractArray, f, x::AbstractArray, γ)
@@ -248,9 +249,12 @@ function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Union{Real, Abstr
   y
 end
 
+# an owner point and a dense destination: the entries of the matrix that it represents
+_prox_sep!(y::AbstractArray, f, x::SymmetricSparseIterate, γ::Real) = _prox_sep!(y, f, matrixview(x), γ)
+
 # each coordinate (an entry of the lower triangle) once, and from a
 # SymmetricSparseIterate only its stored coordinates when f preserves zeros
-function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::Union{Real, AbstractArray})
+function _prox_sep!(y::SymmetricSparseIterate, f, x::Union{AbstractMatrix, SymmetricSparseIterate}, γ::Real)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   T = eltype(y)
@@ -276,10 +280,17 @@ function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::Union{R
   y
 end
 
+# The matrix of an owner as the destination: the coordinate kernel above, which reads and writes each
+# coordinate of a mirrored pair once. A traversal of both positions of a pair would read the second one after
+# the first has been written when the argument is the destination.
+_prox_sep!(y::_OwnerMatrix, f, x::AbstractArray, γ::Real) = (_prox_sep!(y.x, f, _coordinate_source(x), γ); y)
+_coordinate_source(x::AbstractArray) = x
+_coordinate_source(x::Union{_OwnerMatrix, SymmetricMatrixView}) = x.x
+
 # the proximal operator, then the value at the result: two vectorized passes are
 # several times faster than one that stores and sums, which does not vectorize;
 # an indicator function is 0 at its projection
-_value_and_prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Union{Real, AbstractArray}) =
+_value_and_prox_sep!(y::_ArrayOrOwner, f, x::_ArrayOrOwner, γ::Union{Real, AbstractArray}) =
   _isindicator(f) ? (_prox_sep!(y, f, x, γ); zero(_valtype(y))) : _value_sep(f, _prox_sep!(y, f, x, γ))
 
 _restrict_entries(w::Union{Nothing, Real}, ::AbstractVector{<:Integer}) = w
@@ -361,7 +372,7 @@ Base.@propagate_inbounds function _l1_prox_threshold(v, γ, λ, w, ::Type{S}) wh
 end
 
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ0, _entry(f.w, i)))
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _kkt_coefficient(eltype(g), f.λ0, _entry(f.w, i)))
 restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entries(f.w, S))
 
 # without weights, Base's vectorized sum (a sum with init takes a slow sequential path)
@@ -434,7 +445,7 @@ Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real)
 
 # moving up from zero decreases the objective when -gᵢ exceeds λ0 wᵢ
 kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); -g[i] - _weight_coefficient(f.λ0, _entry(f.w, i)))
+  (eltype(g) <: Real || _real_error(:kkt_violation); -g[i] - _kkt_coefficient(eltype(g), f.λ0, _entry(f.w, i)))
 restrict(f::NormL1Nonneg, S::AbstractVector{<:Integer}) = NormL1Nonneg(f.λ0, _restrict_entries(f.w, S))
 
 @inline _l1_value(::NormL1, v, a) = a * abs(v)
@@ -609,7 +620,7 @@ end
 end
 
 kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ1, _entry(f.w, i)))
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _kkt_coefficient(eltype(g), f.λ1, _entry(f.w, i)))
 restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2, _restrict_entries(f.w, S))
 
 ####################################

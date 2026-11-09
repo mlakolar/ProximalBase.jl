@@ -45,7 +45,11 @@ failure found only while computing can leave earlier slices written: a step that
 a function rejects according to the values it sees, `Conjugate`'s check that a
 finite input gave a finite result, a search that finds a constraint empty, a
 failure inside an external library, and the oracles of user-defined functions
-beyond `check_parameters`. Block sums take scalar steps only.
+beyond `check_parameters`. A slice that is a built-in function without a scalar-step
+proximal operator (a `LogisticLoss` or another GLM loss, a `Sum`, a `KronQuadratic`),
+also inside the wrappers that forward their check, raises the `MethodError` of the
+proximal operator before any slice is written; a user-defined function without a
+`prox!` method is not covered. Block sums take scalar steps only.
 
 With `fₖ = LogDetLoss(Sₖ, nₖ/n)` it is the smooth part of the joint graphical
 lasso of K classes, whose penalty on the entries across the classes is a

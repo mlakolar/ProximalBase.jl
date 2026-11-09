@@ -20,10 +20,10 @@ vector(T) = T[1, 2, -0.5]
 matrix(T) = T[2 0.25 0; 0.25 1 0.1; 0 0.1 3]
 stack(T) = cat(matrix(T), 2matrix(T); dims = 3)
 other(T) = T === Float32 ? Float64 : Float32
-buffer(x::AbstractArray) = similar(x)
+buffer(x::Union{AbstractArray, SymmetricSparseIterate}) = similar(x)
 buffer(x::Tuple) = map(buffer, x)
 # The value type of the precision rule: real(float(eltype)), promoted over blocks.
-rule_type(x::AbstractArray) = real(float(eltype(x)))
+rule_type(x::Union{AbstractArray, SymmetricSparseIterate}) = real(float(eltype(x)))
 rule_type(x::Tuple) = promote_type(map(rule_type, x)...)
 
 case(name, f, input = vector; output = input, metric = :none) =
@@ -173,7 +173,8 @@ function rule_cases(P)
     name = nameof(typeof(f))
     metric = f isa SeparableFunction ? :entry : :none
     push!(cases, case("SparseIterate $name", f, T -> SparseIterate(T[1, 0, -0.5]); metric))
-    push!(cases, case("SymmetricSparseIterate $name", f, T -> SymmetricSparseIterate(T[1 0.5; 0.5 0]); metric))
+    # an owner takes a scalar step only
+    push!(cases, case("SymmetricSparseIterate $name", f, T -> SymmetricSparseIterate(T[1 0.5; 0.5 0])))
   end
   for f in (GroupNormL2(P(1), groups), GroupNormLinf(P(1), groups), SparseGroupNormL2(P(1), P(0.5), groups), GroupMCP(P(1), groups), GroupSCAD(P(1), groups))
     same(T) = AtomIterate(vector(T), groups)

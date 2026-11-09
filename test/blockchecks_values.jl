@@ -55,8 +55,17 @@ end
 
 @testset "Conjugate standalone values before writes" begin
   x = [0.5, -0.5]
-  for set in (IndBox(-1.0, 1.0), IndHyperplane([1.0, 1.0], 0.0))
-    f = Constrained(Conjugate(ElasticNet(1.0, 1.0)), set)
+  # on a box the value is that of the conjugate at the stored output: Σ max(|yᵢ| - 1, 0)² / 2
+  for (box, point, expected) in ((IndBox(-1.0, 1.0), x, 0.0), (IndBox(-3.0, 3.0), [5.0, -0.5], 2.0))
+    f = Constrained(Conjugate(ElasticNet(1.0, 1.0)), box)
+    y = zeros(2)
+    @test value_and_prox!(y, f, point, 1.0) === expected
+    @test y == (point == x ? x : [3.0, -0.5])
+    z = copy(point)
+    @test value_and_prox!(z, f, z, 1.0) === expected
+    @test z == y
+  end
+  let f = Constrained(Conjugate(ElasticNet(1.0, 1.0)), IndHyperplane([1.0, 1.0], 0.0))
     block_failure(value_and_prox!, f, x, ArgumentError)
     y = copy(x)
     @test prox!(y, f, x, 1.0) === y
@@ -139,9 +148,14 @@ end
   square, rectangle = representations((4, 4)), representations((2, 8))
   grid = vcat(square, rectangle)
   for c in grid, x in grid
+    # an owner is a point, not a parameter array of a function
+    c isa SymmetricSparseIterate && continue
     @testset "$(typeof(c)) $(size(c)) vs $(typeof(x)) $(size(x))" begin
       expected = outcome(dot, c, x)[1]
-      @test outcome(PB._checkvalue, LinearFunction(c), x)[1] === expected
+      # an owner has dot with some representations of c only, which the reductions of the owner define
+      if !(x isa SymmetricSparseIterate && expected === MethodError)
+        @test outcome(PB._checkvalue, LinearFunction(c), x)[1] === expected
+      end
     end
   end
   # Mixed sparse wrappers also specialize dot for column-subset parents.

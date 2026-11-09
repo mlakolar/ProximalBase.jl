@@ -84,6 +84,26 @@ end
   R = _working_type(U, a, b, c)
   convert(U, _positive_product(convert(R, a), convert(R, b), convert(R, c)))
 end
+# 1 - τ formed in the working type R of the whole coefficient (the promotion of the model precision
+# and every factor that takes part in it), so that the complement is rounded once, with the others
+@inline _one_minus(::Type{R}, τ) where {R<:AbstractFloat} = one(R) - convert(R, τ)
+# The coefficient and product of a KKT diagnostic in the gradient's element type T, rounded once. A
+# gradient that is not floating point (integers) keeps the untyped value and type of the baseline.
+@inline _kkt_coefficient(::Type{T}, λ, w) where {T<:AbstractFloat} = _weight_coefficient(T, λ, w)
+@inline _kkt_coefficient(::Type, λ, w) = _weight_coefficient(λ, w)
+@inline _kkt_float(::Type{T}) where {T} = float(T)   # LogPenalty divides, so an integer gradient gives a float
+@inline _kkt_product(::Type{T}, a, b) where {T<:AbstractFloat} = _typed_product(T, a, b)
+@inline _kkt_product(::Type, a, b) = a * b
+# m⋅2^E rounded once to R, for a significand 2⁻⁴ ≤ m < 2 and an exponent E of any size: Inf or zero
+# beyond the range of R, else the exact scaled product, so that no factor is rounded early where it
+# is subnormal. E is split over two factors, each of them inside the range of R.
+@inline function _ldexp_round(m::R, E::Integer) where {R<:AbstractFloat}
+  E > exponent(floatmax(R)) + 4 && return R(Inf)
+  E < exponent(nextfloat(zero(R))) - 1 && return zero(R)
+  E1 = E ÷ 2
+  A, B = ldexp(m, E1), ldexp(one(R), E - E1)
+  _scaled_coefficient(A, B, one(R), A * B)
+end
 # the plain product ab (no range recovery) formed in the promotion of U and the factors' types,
 # rounded once to U
 @inline function _typed_product(::Type{U}, a, b) where {U<:AbstractFloat}
@@ -181,7 +201,7 @@ end
 @inline function _scaled_product(w::T, v::T, k::Integer) where {T<:AbstractFloat}
   (iszero(w) || iszero(v)) && return w * v
   (isfinite(w) && isfinite(v)) || return w * v
-  k = Int(k)
+  k = _product_power(T, k)
   mw, ew = _frexp(w)
   mv, ev = _frexp(abs(v))
   copysign(ldexp(_positive_product(mw, mv, one(T)), _exponent_sum(T, ew, ev, k)), v)
@@ -207,7 +227,7 @@ end
   a, b, c = promote(float(a), float(b), float(c))
   (iszero(a) || iszero(b) || iszero(c)) && return zero(a)
   (isfinite(a) && isfinite(b) && isfinite(c)) || return (a * b) * c
-  k = Int(k)
+  k = _product_power(typeof(a), k)
   ma, ea = _frexp(a)
   mb, eb = _frexp(b)
   mc, ec = _frexp(c)
@@ -456,13 +476,13 @@ _tol(::Type) = sqrt(eps(Float64))
 # Powers of two keep the units of a comparison without rounding the scale.
 # Split a power that is outside the range of a single floating-point factor.
 @inline function _power_factors(::Type{T}, k::Integer) where {T<:AbstractFloat}
-  k = Int(k)
+  k = _product_power(T, k)
   k1 = clamp(k, exponent(nextfloat(zero(T))), exponent(floatmax(T)))
   (ldexp(one(T), k1), ldexp(one(T), k - k1))
 end
 @inline _scale_value(v, s) = (float(v) * s[1]) * s[2]
 @inline _magnitude_exponent(v) = iszero(v) ? 0 : Int(exponent(v))
-@inline _comparison_exponent(es::Integer...) = max(0, map(Int, es)...)
+@inline _comparison_exponent(es::Integer...) = max(0, es...)
 # frexp with an Int exponent: frexp(::BigFloat) returns an Int32 exponent where a C long is 32 bits (Windows)
 @inline function _frexp(x)
   m, e = frexp(x)
@@ -472,6 +492,9 @@ end
 # Int128 before the first addition; other types keep their Int sums.
 @inline _exponent_sum(::Type{BigFloat}, es::Integer...) = foldl(+, map(Int128, es))
 @inline _exponent_sum(::Type, es::Integer...) = +(es...)
+# The power of a scaled product is narrowed to an Int, except for BigFloat, whose power may be an Int128 sum.
+@inline _product_power(::Type, k::Integer) = Int(k)
+@inline _product_power(::Type{BigFloat}, k::Integer) = k
 
 # The stored values suffice for maxima; symmetric multiplicities do not matter.
 _stored_values(x::AbstractArray) = x
@@ -648,25 +671,27 @@ function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {
   ms = map(t -> convert(R, t[1]), terms)
   es = map(t -> t[2], terms)
   all(isfinite, ms) || return convert(R, w) * sum(ms; init = zero(R))
-  s, E = zero(R), 0
+  # The frame exponents are Int128 for BigFloat, where the sum of an MPFR exponent and an Int exponent can leave Int64,
+  # and Int for the other types.
+  s, E = zero(R), _exponent_sum(R, 0)
   used = ntuple(_ -> false, Val(N))
   for _ in 1:N
-    j, ej = 0, typemin(Int)
+    j, ej = 0, _exponent_sum(R, typemin(Int))
     for i in 1:N                                # the largest term not yet added
       (used[i] || iszero(ms[i])) && continue
-      ei = exponent(ms[i]) + es[i]
+      ei = _exponent_sum(R, exponent(ms[i]), es[i])
       ei > ej && ((j, ej) = (i, ei))
     end
     j == 0 && break
     used = Base.setindex(used, true, j)
     mj, fj = _frexp(ms[j])
-    D = fj + es[j]
+    D = _exponent_sum(R, fj, es[j])
     if iszero(s)
       s, E = mj, D
     else              # the larger of the two sets the units (a remainder of a cancellation may be the smaller)
       s = D <= E ? s + ldexp(mj, D - E) : ldexp(s, E - D) + mj
       E = max(E, D)
-      iszero(s) || ((s, f) = _frexp(s); E += f)
+      iszero(s) || ((s, f) = _frexp(s); E = _exponent_sum(R, E, f))
     end
   end
   iszero(s) && return convert(R, w) * zero(R)
@@ -686,7 +711,7 @@ _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_wei
 # w >= the smallest subnormal, and for x below its negative, rounds to zero for every
 # w <= floatmax
 @inline _exp_bound(::Type{T}) where {T<:AbstractFloat} =
-  T((exponent(floatmax(T)) + 2 + precision(T) - exponent(floatmin(T))) * 0.6931471805599453)
+  T(_exponent_sum(T, exponent(floatmax(T)), 2, precision(T), -exponent(floatmin(T))) * 0.6931471805599453)
 @inline function _exp_split(x::T) where {T<:Union{Float32, Float64}}
   isnan(x) && return x, 0
   x > _exp_bound(T) && return T(Inf), 0
@@ -1461,7 +1486,7 @@ end
   k == typemax(Int) && return _value_at(ordinary, x)
   k == typemin(Int) && return _value_at(convert(R, λ) * zero(R), x)
   s = _square_scaled_sum(x, y, k, R)
-  _value_at(_scaled_product(convert(R, λ), s, 2k - 1), x)
+  _value_at(_scaled_product(convert(R, λ), s, _exponent_sum(R, k, k, -1)), x)
 end
 
 # Σ (xᵢ - yᵢ)² λ/2 as a significand and an exponent (the scaled-value mechanism), from the

@@ -107,19 +107,9 @@ end
       rejects(() -> mul!(C, x, B, α, β), name, C, x)
     end
   end
-  rejects(() -> x * ComplexF64[1, 2], name, x)
-  for (L, R) in ((Z, A), (A, Z), (UpperTriangular(Z), A), (A, UpperTriangular(Z)), (im * I, A), (A, im * I))
-    rejects(() -> mul!(x, L, R), name, x)
-    rejects(() -> mul!(x, L, R, 0, 2), name, x)
-  end
-  for (α, β) in ((1 + 0im, 0), (0, 1 + 0im))
-    rejects(() -> mul!(x, A, A, α, β), name, x)
-  end
   for (a, b) in ((ComplexF64[1, 2], [1., 2.]), ([1., 2.], ComplexF64[1, 2]))
     rejects(() -> dot(a, x, b), name, x)
   end
-  rejects(() -> mul!(x, x, Z), name, x)
-  rejects(() -> mul!(x, x, Z, 0, 2), name, x)
   rejects(() -> dot(Z, x), name, x)
   rejects(() -> dot(x, Z), name, x)
   rejects(() -> *(Symmetric(Z), x, Symmetric(A)), name, x)
@@ -127,26 +117,20 @@ end
   for source in (Z, sparse(Z), transpose(sparse(Z)), Symmetric(Z), Hermitian(Z))
     rejects(() -> copyto!(x, source), name, x)
   end
-  for scale! in (s -> rmul!(x, s), s -> lmul!(s, x), s -> rdiv!(x, s), s -> ldiv!(s, x))
-    rejects(() -> scale!(1 + 0im), name, x)
-  end
-  rejects(() -> (x .= real.(Z)), name, x)
-  rejects(() -> map!(real, x, Z), name, x)
-  rejects(() -> map!(+, x, A, Z), name, x)
-  rejects(() -> map!((a, b, c, d) -> a + b + c + real(d), x, A, A, A, Z), name, x)
-  rejects(() -> axpy!(0, Z, x), name, x)
-  rejects(() -> axpby!(0, A, 1 + 0im, x), name, x)
+  # the vector of coordinates is an ordinary vector: it converts one value at a time
+  @test_throws InexactError (coordinates(x)[2] = 2im)
+  @test_throws InexactError fill!(coordinates(x), 1 + 1im)
   for B in ([1., 2.], A, UpperTriangular(A))
     out = zeros(size(B))
-    @test mul!(out, x, B, 2., 0.) ≈ 2Matrix(x) * B
+    @test mul!(out, matrixview(x), B, 2., 0.) ≈ 2Matrix(x) * B
   end
   out = zeros(Float32, 2, 2)
-  @test mul!(out, x, Float32.(A)) ≈ Matrix(x) * A
+  @test mul!(out, matrixview(x), Float32.(A)) ≈ Matrix(x) * A
 end
 
 @testset "broadcast data and control arguments" begin
   A = [1.2 2.8; 2.8 3.1]
-  for x in (SparseIterate(A), SymmetricSparseIterate(A), AtomIterate(vec(A), 2))
+  for x in (SparseIterate(A), AtomIterate(vec(A), 2))
     data = reshape(A, size(x))
     @test (x .= round.(x, RoundDown)) == floor.(data)
     @test (x .= ((v, f) -> f(v)).(data, identity)) == data
@@ -163,14 +147,6 @@ end
       rejects(() -> (x .= real.(data .+ value)), nameof(typeof(x)), x)
     end
   end
-  x = SymmetricSparseIterate(2)
-  modes = fill(RoundDown, 2, 2)
-  labels = fill(:keep, 2, 2)
-  @test map!((v, mode) -> round(v, mode), x, A, modes) == floor.(A)
-  @test map!(mode -> round(1.2, mode), x, modes) == ones(2, 2)
-  @test map!((a, b, mode) -> round(a + b, mode), x, A, A, modes) == floor.(2A)
-  @test map!((a, b, mode, label) -> label === :keep ? round(a + b, mode) : 0,
-             x, A, A, modes, labels) == floor.(2A)
 end
 
 @testset "real scalar and structured operands" begin
@@ -185,17 +161,17 @@ end
   end
   x = SymmetricSparseIterate(A)
   for B in (Diagonal([1., 2.]), transpose(A), adjoint(A))
-    @test mul!(zeros(2, 2), x, B) == A * B
+    @test mul!(zeros(2, 2), matrixview(x), B) == A * B
   end
   for scale in (true, 2, 1//2)
-    @test Matrix(rmul!(copy(x), scale)) == A .* scale
-    @test Matrix(lmul!(scale, copy(x))) == scale .* A
-    @test Matrix(rdiv!(copy(x), scale)) == A ./ scale
-    @test Matrix(ldiv!(scale, copy(x))) == A ./ scale
-    for (L, R) in ((A, scale * I), (scale * I, A))
-      y = copy(x)
-      @test mul!(y, L, R, true, false) == A .* scale
-    end
+    y = copy(x); rmul!(coordinates(y), scale)
+    @test Matrix(y) == A .* scale
+    y = copy(x); lmul!(scale, coordinates(y))
+    @test Matrix(y) == scale .* A
+    y = copy(x); rdiv!(coordinates(y), scale)
+    @test Matrix(y) == A ./ scale
+    y = copy(x); ldiv!(scale, coordinates(y))
+    @test Matrix(y) == A ./ scale
   end
 end
 
@@ -311,6 +287,127 @@ end
     @test Vector(fill!(make(), 2)) == fill(2, 4)
     x = fill!(make(), 0)                       # a value write keeps the working set
     @test Vector(x) == zeros(4) && nactive(x) == 1 && nactive(dropzeros!(x)) == 0
+  end
+end
+
+@testset "broadcast results" begin
+  makers = ((() -> (x = SparseIterate(4); x[4] = 7.0; x), :SparseIterate, (4,)),
+            (() -> (x = AtomIterate(4, 2); x[4] = 7.0; x), :AtomIterate, (4,)),
+            (() -> (x = SparseIterate(2, 2); x[2, 2] = 7.0; x), :SparseIterate, (2, 2)))
+  for (make, name, dims) in makers
+    shaped(v) = reshape(v, dims)
+    vals(x) = ndims(x) == 2 ? Matrix(x) : Vector(x)
+    z1 = shaped([1.0, 0, 0, 0]); z2 = shaped([0.0, 1, 0, 0])
+    opaque = Ref{Any}(complex)
+    # a complex result is rejected before any write, even with a zero imaginary part
+    for write! in (x -> (x .= complex.(z1, z2)), x -> (x .= complex.(z1)),
+                   x -> (x .= Complex.(z1, 0.0)), x -> (x .= (v -> v + 0im).(z1)),
+                   x -> (x .= sqrt.(Complex.(z1))), x -> (x .= complex.(x, 0.0)),
+                   x -> (x .= (v -> opaque[](v)).(z1)), x -> (x .= ((u, v) -> opaque[](u, v)).(z1, z2)),
+                   x -> (x .= (v -> v > 0.5 ? 1im : 1.0).(z1)),
+                   x -> (x .= (v -> v > 0.5 ? 1.0 : 1im).(shaped([0.0, 0, 0, 1.0]))),
+                   x -> (x .= shaped(Any[1.0, 2im, 0, 0])),
+                   x -> (x .= (v -> v).(shaped(Any[1.0, 2im, 0, 0]))),
+                   x -> (x .= (v -> v).(shaped(Any[1.0, 0, 0, 0im]))),
+                   x -> (x .= (v -> v).(shaped(Number[1.0, 2, 3, 4im]))),
+                   x -> (x .= (v -> v > 5 ? 1im : 2v).(x)),
+                   # complex leaves and scalars, rejected as before
+                   x -> (x .= z1 .+ 0im), x -> (x .= fill(0im, dims)), x -> (x .= 1.0 + 0im),
+                   x -> (x .= Ref(1.0) .+ 0im), x -> (x .= sqrt.(complex.(1.0))),
+                   x -> (x .= exp.(im .* x)), x -> (x .+= 1im),
+                   x -> (x .= real.(z1 .+ (1 + 2im))),
+                   # opaque[] is read before the broadcast, so this is the known-complex path
+                   x -> (x .= opaque[].(z1)))
+      x = make()
+      rejects(() -> write!(x), name, x)
+    end
+    # the complex element of a Union result at the last position leaves no partial write
+    x = make(); saved = vals(x)
+    rejects(() -> (x .= (v -> v > 0.5 ? 1im : v).(shaped([0.0, 0.25, 0.0, 1.0]))), name, x)
+    @test vals(x) == saved
+    # an exception of f while the result is evaluated happens before any write
+    late = Ref{Any}(v -> v == 4 ? error("late") : v)
+    late_f(v) = late[](v)
+    x = make(); saved = vals(x); nsaved = nactive(x); w = shaped([1.0, 2, 3, 4])
+    @test_throws ErrorException (x .= late_f.(w))
+    @test vals(x) == saved && nactive(x) == nsaved
+    x = make(); saved = vals(x); nsaved = nactive(x)
+    @test_throws DomainError (x .= sqrt.(-z1 .- 1))
+    @test vals(x) == saved && nactive(x) == nsaved
+    # real values of a Union, Any or Number result are written
+    x = make()
+    @test vals((x .= (v -> v > 5 ? 1im : 1.0).(z1))) == fill(1.0, dims)
+    x = make()
+    @test vals((x .= shaped(Number[1.0, 2, 3, 4]))) == shaped([1.0, 2, 3, 4])
+    x = make()
+    @test vals((x .= (v -> v).(shaped(Number[1.0, 2, 3, 4])))) == shaped([1.0, 2, 3, 4])
+    x = make()
+    @test vals((x .= shaped(Any[1.0, 2, 0, 0]))) == shaped([1.0, 2, 0, 0])
+    # a staged result is computed from the unmodified x, then written
+    g = Ref{Any}(v -> v > 5 ? 10.0 : 2v)
+    gf(v) = g[](v)
+    x = make(); expected = gf.(vals(x))
+    @test vals((x .= gf.(x))) == expected
+    x = make(); w = shaped([1.0, 2, 3, 4])
+    @test vals((x .= gf.(x .+ w))) == gf.(w .+ shaped([0.0, 0, 0, 7]))
+    # the staged path writes what the direct path writes: values, working set, nactive
+    same(x, y) = vals(x) == vals(y) && nactive(x) == nactive(y) &&
+                 collect(activecoordinates(x)) == collect(activecoordinates(y))
+    gid = Ref{Any}(identity)
+    opq(v) = gid[](v)
+    for (staged, direct) in (
+        (x -> (x .= shaped(Number[1.0, 2, 3, 4])), x -> (x .= shaped([1.0, 2, 3, 4]))),
+        (x -> (x .= (v -> opq(v)).(shaped([1.0, 2, 3, 4]))), x -> (x .= shaped([1.0, 2, 3, 4]))),
+        (x -> (x .= (v -> v > 5 ? 1im : v).(z2)), x -> (x .= z2)),
+        (x -> (x .= (v -> v > 0.5 ? 1.0 : v).(shaped([0.0, 0, 0, 1.0]))), x -> (x .= shaped([0.0, 0, 0, 1.0]))))
+      x = make(); x2 = make()
+      staged(x); direct(x2)
+      @test same(x, x2)
+    end
+    # singleton expansion and an empty destination keep the axes of the broadcast
+    if dims == (4,)
+      for staged in (x -> (x .= Number[2.0]), x -> (x .= (v -> v).(Number[2.0])),
+                     x -> (x .= (v -> opq(v)).([2.0])), x -> (x .= (v -> opq(v)).(Ref(2.0))),
+                     x -> (x .= (v -> opq(v)).((2.0,))), x -> (x .= (v -> opq(v)).(Any[2.0])))
+        x = make(); x2 = make()
+        staged(x); x2 .= [2.0]
+        @test vals(x) == fill(2.0, 4) && same(x, x2)
+      end
+    else
+      x = make(); x2 = make()
+      x .= Number[1.0, 2.0]; x2 .= [1.0, 2.0]
+      @test vals(x) == [1.0 1.0; 2.0 2.0] && same(x, x2)
+      x = make(); x2 = make()
+      x .= (v -> opq(v)).(reshape(Number[1.0, 2.0], 1, 2)); x2 .= reshape([1.0, 2.0], 1, 2)
+      @test vals(x) == [1.0 2.0; 1.0 2.0] && same(x, x2)
+    end
+    # the staged function reads the destination while the result is evaluated: it sees the old x
+    x = make(); idx = ndims(x) == 2 ? (1, 1) : (1,); x[idx...] = 10.0
+    old = vals(x); h = Ref{Any}(+)
+    x .= (v -> h[](v, x[idx...])).(shaped([1.0, 2, 3, 4]))
+    @test vals(x) == old[idx...] .+ shaped([1.0, 2, 3, 4])
+    # accepted as before
+    x = make(); @test vals((x .= real.(complex.(z1, z2)))) == z1
+    x = make(); @test vals((x .= abs.(complex.(z1, z2)))) == z1 .+ z2
+    x = make(); @test vals((x .= Float32.(shaped([1, 2, 3, 4])))) == shaped([1.0, 2, 3, 4])
+    x = make(); @test vals((x .= (v -> BigFloat(v)).(z1))) == z1
+    x = make(); @test vals((x .+= 1)) == shaped([1.0, 1, 1, 8])
+    x = make(); @test vals((x .= 2 .* x)) == shaped([0.0, 0, 0, 14])
+  end
+  # an empty destination: a broadcast that is valid for it writes nothing
+  for x in (SparseIterate(0), SparseIterate(0, 2), AtomIterate(Float64, 0, Vector{Int}[]))
+    @test (x .= Number[]) === x
+    @test (x .= Number[2.0]) === x
+    @test nactive(x) == 0 && isempty(x)
+  end
+  y = SparseIterate(0, 2); y .= Number[]
+  @test size(Matrix(y)) == (0, 2)
+  # the 0-dimensional methods reject a complex value through fill!
+  for (make, name, dims) in makers
+    for write! in (x -> (x .= 1im), x -> (x .= Ref(1im)), x -> (x .= complex.(1.0)))
+      x = make()
+      rejects(() -> write!(x), name, x)
+    end
   end
 end
 

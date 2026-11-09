@@ -136,6 +136,10 @@ _prox_unchecked!(y::AbstractArray, c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}
   (_checkwrite(prox!, c, y, x, γ); _box_prox_sep!(y, c, x, γ))
 _prox_unchecked!(y::AbstractArray, c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x::AbstractArray, γ::AbstractArray) =
   (_checkwrite(prox!, c, y, x, γ); _box_prox_sep!(y, c, x, γ))
+# an owner: the coordinate kernel, with the entry oracle of the box
+_box_prox_sep!(y::SymmetricSparseIterate, c::BoxConstrained, x::_ArrayOrOwner, γ::Real) = _prox_sep!(y, c, x, γ)
+@noinline _box_nan_value(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x::SymmetricSparseIterate, ::Type{T}) where {T} =
+  _box_nan_value(c, matrixview(x), T)
 function _box_prox_sep!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ)
   y isa Array && x isa Array && c.box.l isa Real && c.box.u isa Real && !_box_fixes(c, x) || return _prox_sep!(y, c, x, γ)
   _checkparam(γ, x)

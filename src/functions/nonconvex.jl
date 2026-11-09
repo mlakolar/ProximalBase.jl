@@ -82,7 +82,7 @@ Base.@propagate_inbounds function prox_entry(f::CappedL1, v::T, i::Integer, γ::
 end
 
 kkt_violation(f::CappedL1, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i)))
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _kkt_coefficient(eltype(g), f.λ, _entry(f.w, i)))
 restrict(f::CappedL1, S::AbstractVector{<:Integer}) = CappedL1(f.λ, f.a, _restrict_entries(f.w, S))
 
 ####################################
@@ -175,8 +175,41 @@ Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ
   c * log1p(z / ε) + (z - t)^2 / 2 < t^2 / 2 ? sign(S(v)) * z : zero(S)
 end
 
+# The slope λw/(ε + t) of the logarithmic penalty at |v| = t ≥ 0, in the precision U, formed in the
+# promotion R of U and the factors and rounded once: (λ/(ε + t))·w. The ordinary arithmetic is exact
+# in its range while the quotient λ/(ε + t) is a normal number (this also excludes a denominator that
+# overflows, and a quotient that underflows before a weight could restore it); then the weight only
+# scales it. Otherwise, for finite nonzero factors, the slope is formed from significands and one
+# exponent, with the denominator in scaled units where ε + t overflows (R3). Zero, infinite and NaN
+# weights and levels keep the meaning of _weight_coefficient.
+@inline function _logpenalty_ordinary(::Type{U}, a::R, b::R, e::R, t) where {U<:AbstractFloat, R<:AbstractFloat}
+  q = a / (e + convert(R, t))
+  convert(U, q * b), (floatmin(R) <= q) & (q <= floatmax(R)) & isfinite(b)
+end
+@inline function _logpenalty_slope(::Type{U}, λ, w, ε, t) where {U<:AbstractFloat}
+  R = _working_type(U, λ, w, ε)
+  a, b, e, τ = convert(R, λ), convert(R, w), convert(R, ε), convert(R, t)
+  r, ok = _logpenalty_ordinary(U, a, b, e, τ)
+  ok ? r : _logpenalty_slope_exceptional(U, a, b, e, τ)
+end
+@noinline function _logpenalty_slope_exceptional(::Type{U}, a::R, b::R, e::R, t::R) where {U<:AbstractFloat, R<:AbstractFloat}
+  d = e + t
+  scaled = isinf(d) & isfinite(e) & isfinite(t)               # a finite denominator beyond the range of R
+  if !scaled
+    isinf(d) & isfinite(a) & isfinite(b) && return zero(U)    # finite λw over an infinite |v|: zero, not ∞/∞
+    _recoverable_factors(a, b, d) || return convert(U, _weight_coefficient(a, b) / d)
+    md, ed = frexp(d)
+  else
+    _recoverable_factors(a, b, t) || return convert(U, _weight_coefficient(a, b) / floatmax(R))
+    md, ed = frexp(e / 2 + t / 2)                             # both are normal where their sum overflows
+    ed += 1
+  end
+  ma, ea = frexp(a)
+  mb, eb = frexp(b)
+  convert(U, _ldexp_round((ma * mb) / md, ea + eb - ed))
+end
 kkt_violation(f::LogPenalty, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i)) / f.ε)
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _logpenalty_slope(_kkt_float(eltype(g)), f.λ, _entry(f.w, i), f.ε, 0))
 restrict(f::LogPenalty, S::AbstractVector{<:Integer}) = LogPenalty(f.λ, f.ε, _restrict_entries(f.w, S))
 
 ####################################
@@ -795,6 +828,12 @@ function prox!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray, ::Real)
   y
 end
 
+# an owner output, formed in a staged matrix and written to the owner last: groups that are not closed under
+# transposition give a result that is not symmetric, which the commit refuses
+prox!(y::SymmetricSparseIterate, f::IndBallGroupL0, x::_ArrayOrOwner, γ::Real) = _staged_owner!(prox!, y, f, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, f::IndBallGroupL0, x::_ArrayOrOwner, γ::Real) =
+  _staged_owner!(value_and_prox!, y, f, x, γ)
+
 function prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
   _checkwrite(prox!, f, y, x)
   _samelayout(f, y) && _samelayout(f, x) ||
@@ -1101,3 +1140,15 @@ function _group_norm_parts(::Type{R}, x::AbstractArray, G) where {R}
   end
   _parts(sqrt(s), e)
 end
+
+####################################
+#  a SymmetricSparseIterate
+####################################
+
+# The proximal operators of the group penalties into the owner of a symmetric matrix, with a scalar
+# step: the groups must be closed under transposition, which is checked before anything is written,
+# and each stored coordinate is written once. The group coordinates and the group values at an owner
+# are not defined.
+const _OwnerGroups = Union{GroupNormL2, GroupNormLinf, SparseGroupNormL2, GroupMCP, GroupSCAD}
+value_and_prox!(y::SymmetricSparseIterate, f::_OwnerGroups, x::_ArrayOrOwner, γ::Real) = _owner_value_and_prox!(y, f, x, γ)
+prox!(y::SymmetricSparseIterate, f::_OwnerGroups, x::_ArrayOrOwner, γ::Real) = _owner_prox!(y, f, x, γ)

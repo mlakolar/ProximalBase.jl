@@ -41,6 +41,19 @@ See [Symmetric parameters](@ref) for which arrays must be symmetric and which ca
 """
 abstract type AbstractFunction end
 
+# Where the oracles of the families that support it take either an array or the owner of a
+# symmetric matrix. The owner is not an array: a method that is not written with this type, or with
+# the owner, does not accept it.
+const _ArrayOrOwner = Union{AbstractArray, SymmetricSparseIterate}
+
+# A matrix, or the owner of one: the destination or the point of the oracles of the families that
+# are defined on matrices and write whole results (a spectral function, a set of matrices)
+const _MatrixOrOwner = Union{AbstractMatrix, SymmetricSparseIterate}
+
+# the number of entries of the array, or of the matrix that the owner represents
+_nentries(x::AbstractArray) = length(x)
+_nentries(x::SymmetricSparseIterate) = x.p^2
+
 function value_and_prox! end
 function gradient! end
 function hessian_vec! end
@@ -123,7 +136,9 @@ Store the proximal operator
 in `y` and return `y`. For a nonconvex `f` the result is one of the minimizers.
 
 The output may be the argument itself: `prox!(x, f, x, γ)` works for every
-function. Any other sharing of memory between `y` and `x` is not supported and
+function. A [`SymmetricSparseIterate`](@ref) output takes a scalar step `γ`, the Frobenius
+proximal operator of the symmetric matrix; an array or per-group step is an `ArgumentError`
+before anything is written (use `Matrix(x)` or `matrixview(x)` with a dense output). Any other sharing of memory between `y` and `x` is not supported and
 is not detected, even when the two cover the same entries: a call such as
 `prox!(view(x, :), f, x, γ)`, or with a shifted or reversed view of `x`, can
 return wrong values without an error. Copy the argument first, as in
@@ -136,7 +151,8 @@ prox!(y, f::AbstractFunction, x) = prox!(y, f, x, 1)
 """
     prox(f, x, γ = 1)
 
-Allocating version of [`prox!`](@ref).
+Allocating version of [`prox!`](@ref). For a [`SymmetricSparseIterate`](@ref) `x` the result is an
+independent `SymmetricSparseIterate` of the float element type, and `γ` is a scalar.
 """
 prox(f::AbstractFunction, x::AbstractArray, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
 # a Symmetric or Hermitian wrapper does not accept off-diagonal writes: a dense result
@@ -193,7 +209,7 @@ For a [`SeparableFunction`](@ref) `WeightedSquare` with a weight vector `w`:
 
 ```julia
 function ProximalBase.check_parameters(f::WeightedSquare, x)
-  length(f.w) == length(x) || throw(DimensionMismatch("a parameter array has length \$(length(f.w)) and the argument has length \$(length(x))"))
+  length(f.w) == prod(size(x)) || throw(DimensionMismatch("a parameter array has length \$(length(f.w)) and the argument has \$(prod(size(x))) entries"))
   nothing
 end
 ```
@@ -250,6 +266,14 @@ _checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
 _argument_type(::Type{<:AbstractFunction}) = Any
 _checkargument(f, x) = x isa _argument_type(typeof(f)) || throw(MethodError(f, (x,)))
 _checkgradient_output(g, x) = (g === x && throw(ArgumentError("the gradient must not overwrite x")); nothing)
+# An owner output is also aliased by a matrix that shares its storage, such as its matrix view and the wrappers of
+# that view, which a gradient written coordinate by coordinate would change before the point is read again
+_checkgradient_output(g::SymmetricSparseIterate, x) =
+  (_owner_shares(g, x) && throw(ArgumentError("the gradient must not overwrite x")); nothing)
+_owner_shares(g::SymmetricSparseIterate, x) = g === x
+_owner_shares(g::SymmetricSparseIterate, x::AbstractArray) = Base.mightalias(g, x)
+_owner_shares(g::SymmetricSparseIterate, x::SymmetricSparseIterate) =
+  g === x || (g.p > 0 && x.p > 0 && any(id -> id in Base.dataids(g), Base.dataids(x)))
 # blocks pair up to the shorter tuple; the size checks report a length mismatch
 @generated _checkgradient_output(g::Tuple, x::Tuple) =
   _blockwise(k -> :(_checkgradient_output(g[$k], x[$k])), min(fieldcount(g), fieldcount(x)), nothing)
@@ -268,7 +292,22 @@ function _checkwrite(op, f, y, x)
   true
 end
 # Scalar-step checks inspect types and shapes; transformed inputs have no values.
-_checkstep(op, f, y, x, γ) = true
+# A built-in function for which `_prox_supported` is false is rejected with the MethodError of the direct call;
+# a block of a sum then raises it before any block is written. The trait is a function of the type, which is
+# a constant where the type is known.
+_prox_supported(f) = _prox_supported(typeof(f))
+_prox_supported(::Type) = true
+_checkstep(op, f, y, x, γ) = _prox_supported(f) || _prox_unsupported(y, f, x, γ)
+# The arguments of the direct call: a placeholder of the step pass is replaced by the array that it stands for.
+# A MethodError records the world age of its call, which the message of Julia 1.12 and later shows.
+@static if isdefined(Base, :tls_world_age)
+  _call_world() = Base.tls_world_age()
+else
+  _call_world() = typemax(UInt)
+end
+@noinline _prox_unsupported(y, f, x, γ) = throw(MethodError(prox!, (_unplaced(y), f, _unplaced(x), γ), _call_world()))
+_unplaced(a) = a
+_unplaced(a::Tuple) = map(_unplaced, a)
 # The steps of an indicator projection, and of the penalized ball and sphere kernels, are
 # the scalars in [0, Inf]; the comparison is written so that it rejects NaN.
 @inline _checkstep_nonneg(γ::Real) = γ >= 0 || _throw_step(γ)
@@ -278,6 +317,7 @@ struct _StepInput{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
 end
 Base.size(x::_StepInput) = size(x.array)
 Base.axes(x::_StepInput) = axes(x.array)
+_unplaced(a::_StepInput) = _unplaced(a.array)
 _step_values(x::AbstractArray) = true
 # A placeholder shows the storage of the array it stands for, never its values.
 _projection_host(x::_StepInput) = _projection_host(x.array)
@@ -296,7 +336,8 @@ _checkconjugate(f, y) = (_checkreal(f, y); true)
 
 Store the gradient of `f` at `x` in `g` and return `g`.
 `g` must not be `x` unless the function documents otherwise; built-in functions
-throw an `ArgumentError`.
+throw an `ArgumentError`. A [`SymmetricSparseIterate`](@ref) `g` receives the symmetric part
+of the gradient, the derivative over symmetric matrices.
 """
 gradient!(g, f::AbstractFunction, x) =
   (_check_oracle_arrays(gradient!, f, g, x); _gradient_body!(g, f, x))
@@ -318,8 +359,9 @@ throw an `ArgumentError`.
 """
 function value_and_gradient! end
 
-# a dense array for the gradient at x, also when x is a sparse iterate
+# a dense array for the gradient at x, also when x is a sparse iterate or the owner of a symmetric matrix
 _gradient_buffer(x::AbstractArray) = similar(Array{float(eltype(x))}, axes(x))
+_gradient_buffer(x::SymmetricSparseIterate) = Matrix{float(eltype(x))}(undef, size(x))
 @generated _gradient_buffer(x::Tuple) = _blocktuple(k -> :(_gradient_buffer(x[$k])), fieldcount(x))
 
 _prox_buffer(x::AbstractArray) = similar(x, float(eltype(x)))
@@ -338,7 +380,8 @@ prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = prox!(_prox_buffer(x), f, x,
 """
     gradient(f, x)
 
-Allocating version of [`gradient!`](@ref).
+Allocating version of [`gradient!`](@ref). At a [`SymmetricSparseIterate`](@ref) the gradient
+is a new dense, exactly symmetric `Matrix`, not an iterate.
 """
 gradient(f::AbstractFunction, x::AbstractArray) = gradient!(_gradient_buffer(x), f, x)
 gradient(f::AbstractFunction, x::Tuple) = gradient!(_gradient_buffer(x), f, x)
@@ -559,7 +602,15 @@ end
     kkt_violation(f, g, x, k)
 
 How much a coordinate at zero violates the optimality conditions of `h + f`,
-where `g = ∇h(x)` is the gradient of the smooth part. On a
+where `g = ∇h(x)` is the gradient of the smooth part. For a
+[`SparseIterate`](@ref) or a [`SymmetricSparseIterate`](@ref) `x`, the second form checks
+the real element types, then that `k` is one of `1:ncoordinates(x)` (a `BoundsError`
+otherwise), then that `g` has `length(x)` entries, or `p^2` for the symmetric iterate (a
+`DimensionMismatch` otherwise); a matrix-shaped or flat `g` of that length is accepted. For an
+[`AtomIterate`](@ref), `k` is a group, and the method is unchanged by these checks, and a group
+penalty has its group layout validated where that applies. For other arrays `x` the second form
+adds no check of `k` or `g` against `x`; the checks of the real element types and those made by
+`f` and by indexing still apply. On a
 [`SymmetricSparseIterate`](@ref), use the symmetric part of `g`; an opposing
 pair of infinite entries has no symmetric part and throws `ArgumentError`.
 A positive value means
@@ -580,15 +631,30 @@ function kkt_violation end
 # depend on the rest of x
 kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation);
+   _check_kkt_coordinate(g, x, i);
    _isbuiltin(f) ? _kkt_violation(f, g, x, i) : kkt_violation(f, g, i))
 function kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
   eltype(g) <: Real || _real_error(:kkt_violation)
+  _check_kkt_coordinate(g, x, k)
   r, c = tril_cartesian(x.p, k)
   view = _SymmetricGradient(g, x.p)
   view[(c - 1) * x.p + r]  # reject an undefined symmetric part before dispatch
   _check_entry_arrays(f, x, _CoordinatePair(Int(k)))
   _kkt_violation(f, view, x, k)
 end
+# k must be a coordinate of x, tested before any conversion of k, and g must have the extent of the
+# problem: length(x) for a SparseIterate, p^2 for a SymmetricSparseIterate; O(1), no scan of g
+@inline function _check_kkt_coordinate(g::AbstractArray, x::Union{SparseIterate, SymmetricSparseIterate}, k::Integer)
+  n = ncoordinates(x)
+  (1 <= k) & (k <= n) || throw(BoundsError(Base.OneTo(n), k))
+  length(g) == _gradient_extent(x) || _throw_kkt_extent(g, x)
+  nothing
+end
+_check_kkt_coordinate(::AbstractArray, ::AbstractArray, ::Integer) = nothing
+_gradient_extent(x::SparseIterate) = length(x.ind2nzval)
+_gradient_extent(x::SymmetricSparseIterate) = x.p^2
+@noinline _throw_kkt_extent(g, x) = throw(DimensionMismatch(
+  "the gradient has length $(length(g)), but the $(nameof(typeof(x))) needs one of length $(_gradient_extent(x))"))
 # a group at zero violates optimality as much as its worst index
 kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation);

@@ -449,6 +449,56 @@ end
   end
 end
 
+lower_positions(p) = [(r, c) for c in 1:p for r in c:p]
+
+@testset "the coordinates of an owner are an ordinary vector (CRD-4)" begin
+  @testset "$T, p = $p" for T in (Float32, Float64), p in (0, 1, 3)
+    q = p * (p + 1) ÷ 2
+    vals = T.(1:q)
+    function reference(c)
+      D = zeros(T, p, p)
+      for (k, (r, s)) in enumerate(lower_positions(p))
+        D[r, s] = D[s, r] = c[k]
+      end
+      D
+    end
+    x = SymmetricSparseIterate(T, p)
+    cx = coordinates(x)
+    @test (cx .= vals) === cx
+    @test collect(cx) == vals && nactive(x) == q
+    cx .*= 2
+    @test collect(cx) == 2 .* vals && cx ≈ 2 .* vals
+    @test sum(abs, cx) == sum(2 .* vals)
+    # the doubled coordinates are the doubled matrix, both triangles
+    @test Matrix(x) == reference(2 .* vals) && matrixview(x) == reference(2 .* vals)
+    if q >= 2
+      view(cx, 1:2) .= zero(T)                       # a zero written to an active coordinate keeps it active
+      @test cx[1] == 0 && cx[2] == 0 && nactive(x) == q
+      reshape(cx, q, 1)[1, 1] = T(9)                 # a reshape of the coordinates writes through
+      @test cx[1] == 9 && Matrix(x) == reference(collect(cx))
+    end
+    @test (cx .= vals .- vals) === cx && all(iszero, Matrix(x)) && nactive(x) == q
+    dropzeros!(x)
+    @test nactive(x) == 0 && all(iszero, Matrix(x))
+  end
+end
+
+@testset "a matrix SparseIterate has the array writers that a SymmetricSparseIterate does not" begin
+  Aa = [1.0 3; 2 4]
+  Mx = SparseIterate(zeros(2, 2))
+  @test (view(Mx, :, :) .= Aa) == Aa
+  @test setindex!(Mx, [5.0, 6.0], 1, :) === Mx
+  @test Array(Mx) == [5 6; 2 4]
+  @test (vec(Mx) .= [1.0, 2.0, 3.0, 4.0]) == vec(Aa)
+  @test Array(Mx) == Aa
+  @test transpose!(Mx, Aa) === Mx
+  @test Array(Mx) == transpose(Aa)
+  @test copyto!(Mx, (1.0, 2.0, 3.0, 4.0)) === Mx
+  @test Array(Mx) == Aa
+  @test mul!(Mx, [1.0, 2.0, 3.0, 4.0], 2.0) === Mx
+  @test Array(Mx) == 2Aa
+end
+
 zero_fill!(x) = (fill!(x, 0); nothing)
 assign!(x, y) = (x .= y; nothing)
 

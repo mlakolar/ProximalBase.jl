@@ -12,6 +12,8 @@ using Random
 
 using ..TestUtils
 
+const PB = ProximalBase
+
 Random.seed!(1)
 
 # the projection onto the capped simplex {0 ≤ x ≤ u, Σᵢ xᵢ = k}, by bisection on
@@ -243,6 +245,998 @@ end
     @test out ≈ expected
     @test all(>(zero(T)), out)
   end
+end
+
+# The value of the conjugate of ElasticNet(λ1, λ2, w) at y, from the explicit formula in BigFloat: for
+# λ2 > 0, Σᵢ max(|yᵢ| - λ1 wᵢ, 0)² / (2λ2); for λ2 = 0, the indicator of |yᵢ| ≤ λ1 wᵢ, within the
+# relative tolerance sqrt(eps) that the package gives to the values of indicators.
+function elastic_conjugate_reference(λ1, λ2, w, y)
+  S = BigFloat
+  level(i) = S(λ1) * (w === nothing ? one(S) : S(w[i]))
+  if λ2 > 0
+    sum((max(abs(S(y[i])) - level(i), 0)^2 for i in eachindex(y)); init = zero(S)) / (2 * S(λ2))
+  else
+    tol = sqrt(S(eps(float(eltype(y)))))
+    all(i -> abs(S(y[i])) - level(i) <= tol * max(1, level(i)), eachindex(y)) ? zero(S) : S(Inf)
+  end
+end
+
+function check_elastic_value(v, T, ref)
+  r = T(ref)
+  @test v isa T
+  if isinf(r)
+    @test v == r
+  elseif iszero(r)
+    @test v == 0
+  else
+    @test isapprox(v, r; rtol = 1000 * eps(T))
+  end
+end
+
+# A vector with indices o+1:o+n, as OffsetArrays provides, defined here to add no dependency.
+struct OffsetVec{T} <: AbstractVector{T}
+  data::Vector{T}
+  offset::Int
+end
+Base.size(a::OffsetVec) = size(a.data)
+Base.axes(a::OffsetVec) = (Base.IdentityUnitRange((1:length(a.data)) .+ a.offset),)
+Base.IndexStyle(::Type{<:OffsetVec}) = IndexLinear()
+Base.getindex(a::OffsetVec, i::Int) = a.data[i - a.offset]
+Base.setindex!(a::OffsetVec, v, i::Int) = (a.data[i - a.offset] = v)
+Base.similar(a::OffsetVec, ::Type{T}, dims::Dims) where {T} = OffsetVec(similar(a.data, T, dims), a.offset)
+# Broadcasting over an OffsetVec (as IndBox does with array bounds) allocates through a style that the fixture owns.
+Base.BroadcastStyle(::Type{<:OffsetVec}) = Broadcast.ArrayStyle{OffsetVec}()
+function Base.similar(bc::Broadcast.Broadcasted{Broadcast.ArrayStyle{OffsetVec}}, ::Type{T}) where {T}
+  ax = axes(bc)[1]
+  OffsetVec(Vector{T}(undef, length(ax)), first(ax) - 1)
+end
+
+# A unit range of a type that is not Base's, which counts the reads of its elements (the storage a selector like it
+# could forward to is unknown).
+struct CountingRange <: AbstractUnitRange{Int}
+  data::Vector{Int}
+  reads::Base.RefValue{Int}
+end
+Base.first(::CountingRange) = 1
+Base.last(::CountingRange) = 2
+Base.length(::CountingRange) = 2
+Base.size(::CountingRange) = (2,)
+Base.getindex(r::CountingRange, i::Int) = (r.reads[] += 1; r.data[i])
+
+# A Real that has comparisons (so that an IndBox can be built from it) and no arithmetic; every comparison is counted.
+const BAD_OPS = Ref(0)
+struct BadReal <: Real
+  v::Float64
+end
+Base.:(<=)(a::BadReal, b::BadReal) = (BAD_OPS[] += 1; a.v <= b.v)
+Base.:(<=)(a::BadReal, b::Real) = (BAD_OPS[] += 1; a.v <= b)
+Base.:(<=)(a::Real, b::BadReal) = (BAD_OPS[] += 1; a <= b.v)
+Base.:(>=)(a::BadReal, b::Real) = (BAD_OPS[] += 1; a.v >= b)
+Base.:(>=)(a::Real, b::BadReal) = (BAD_OPS[] += 1; a >= b.v)
+Base.:(==)(a::BadReal, b::Real) = (BAD_OPS[] += 1; a.v == b)
+Base.:(==)(a::Real, b::BadReal) = (BAD_OPS[] += 1; a == b.v)
+Base.isless(a::BadReal, b::Real) = (BAD_OPS[] += 1; a.v < b)
+Base.isless(a::Real, b::BadReal) = (BAD_OPS[] += 1; a < b.v)
+Base.isless(a::BadReal, b::BadReal) = (BAD_OPS[] += 1; a.v < b.v)
+
+a_value_and_prox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
+a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
+
+@testset "value_and_prox! of the conjugate of an elastic net on a box" begin
+  f = Conjugate(ElasticNet(1.0, 0.5))
+  x = [5.0, -5.0, 0.5]
+
+  @testset "the value is taken at the stored output" begin
+    # clamped at ±2: the value at [2, -2, 0.5] is (1² + 1² + 0) / (2 0.5) = 2, while the
+    # unclamped proximal point [3, -3, 0.5] has the value 8
+    c = Constrained(f, IndBox(-2.0, 2.0))
+    y = zeros(3)
+    @test value_and_prox!(y, c, x, 0.5) === 2.0
+    @test y == [2.0, -2.0, 0.5]
+    @test y == prox(c, x, 0.5)
+    @test value_and_prox!(zeros(3), Constrained(f, IndBox(-10.0, 10.0)), x, 0.5) === 8.0
+    # the original box: the stored output is inside the domain, where the value is zero
+    y = zeros(3)
+    @test value_and_prox!(y, Constrained(f, IndBox(-1.0, 1.0)), [1.0, 2.0, -0.5], 0.5) === 0.0
+    @test y == [1.0, 1.0, -0.5]
+    z = copy(x)
+    @test value_and_prox!(z, c, z, 0.5) === 2.0
+    @test z == [2.0, -2.0, 0.5]
+    @test value_and_prox!(zeros(3), c, x, [0.5, 0.5, 0.5]) === 2.0
+    @test value_and_prox!(zeros(3), Constrained(f, IndNonnegative()), x, 0.5) === 4.0
+    @test value_and_prox!(Float64[], c, Float64[], 0.5) === 0.0
+    empty = Constrained(Conjugate(ElasticNet(1.0, 0.5, Float64[])), IndBox(-2.0, 2.0))
+    @test value_and_prox!(Float64[], empty, Float64[], 0.5) === 0.0
+  end
+
+  @testset "standalone values stay unavailable" begin
+    c = Constrained(f, IndBox(-2.0, 2.0))
+    @test_throws ArgumentError f([1.0, 1.0, 0.0])
+    @test_throws ArgumentError c([1.0, 1.0, 0.0])
+    @test !PB._has_value(c)
+    @test !PB._has_value(f)
+    @test !PB._has_conjugate_value(ElasticNet(1.0, 0.5))
+  end
+
+  @testset "against the explicit formula" begin
+    onbound = Set{Int}()
+    for T in (Float32, Float64)
+      xin = T[5, -5, 0.5, 1.2, -0.05, 0, 3]
+      n = length(xin)
+      weights = (nothing, T[1, 0, 2, 0.5, 3, 1, 0])
+      lo, hi = -T[2, 1, 0.5, 3, 0.1, 1, 2], T[2, 1, 0.5, 3, 0.2, 1, 2]
+      boxes = ((IndBox(T(-10), T(10)), fill(T(-10), n), fill(T(10), n)),
+               (IndBox(T(-1), T(1)), fill(T(-1), n), fill(T(1), n)),
+               (IndBox(lo, hi), lo, hi),
+               (IndNonnegative(), zeros(T, n), fill(T(Inf), n)),
+               (IndBox(T(0.25), T(0.25)), fill(T(0.25), n), fill(T(0.25), n)))
+      steps = (T(0.5), T[0.5, 0.25, 1, 2, 0.75, 0.5, 1])
+      # λ1 and the weights give exact levels, so that the reference does not depend on a rounded level
+      for w in weights, (λ1, λ2) in ((T(0.25), T(0.7)), (T(0), T(0.7)), (T(0.25), T(0)), (T(0), T(0)), (T(0.25), T(1e-6))),
+          (box, l, u) in boxes, γ in steps, alias in (false, true)
+        c = Constrained(Conjugate(ElasticNet(λ1, λ2, w)), box)
+        expected = prox!(similar(xin), c, xin, γ)
+        y = alias ? copy(xin) : similar(xin)
+        v = a_value_and_prox!(y, c, alias ? y : xin, γ)
+        @test y == expected
+        alias || @test xin == T[5, -5, 0.5, 1.2, -0.05, 0, 3]
+        check_elastic_value(v, T, elastic_conjugate_reference(λ1, λ2, w, y))
+        λ2 > 0 && push!(onbound, count(i -> y[i] == l[i] || y[i] == u[i], 1:n))
+      end
+    end
+    # no entry, some entries and every entry sit on a bound
+    @test 0 in onbound && 7 in onbound && any(k -> 0 < k < 7, onbound)
+  end
+
+  @testset "levels, bounds and the domain of the indicator" begin
+    for T in (Float32, Float64)
+      w = T[1, 2, 4]
+      level = T(0.5) .* w                                       # 0.5, 1, 2 exactly
+      big = fill(T(1e3), 3)
+      # the stored output is the bound: exactly at the level and one float on each side
+      for (y0, λ2) in ((level, T(0.5)),
+                       (T[level[1], nextfloat(level[2]), prevfloat(level[3])], T(0.5)),
+                       (T[prevfloat(level[1]), level[2], nextfloat(level[3])], T(1)),
+                       (-T[level[1], nextfloat(level[2]), prevfloat(level[3])], T(2)))
+        c = Constrained(Conjugate(ElasticNet(T(0.5), λ2, w)), IndBox(y0, y0))
+        y = zeros(T, 3)
+        v = value_and_prox!(y, c, big, T(1))
+        @test y == y0
+        check_elastic_value(v, T, elastic_conjugate_reference(T(0.5), λ2, w, y))
+      end
+      # λ2 = 0: the indicator of |yᵢ| ≤ λ1 wᵢ, with the tolerance of the NormL1 conjugate
+      indicator = Conjugate(NormL1(T(0.5), w))
+      for (y0, expected) in ((level, T(0)),
+                             (T[level[1], nextfloat(level[2]), prevfloat(level[3])], T(0)),
+                             (-nextfloat.(level), T(0)),
+                             (level .* T(1 + 1e-3), T(Inf)),
+                             (T[level[1], level[2], 3], T(Inf)),
+                             (T[0, 0, 0], T(0)))
+        c = Constrained(Conjugate(ElasticNet(T(0.5), T(0), w)), IndBox(y0, y0))
+        y = zeros(T, 3)
+        v = value_and_prox!(y, c, big, T(1))
+        @test y == y0
+        @test v === expected
+        @test v === indicator(y)
+      end
+      # the box misses the domain of the indicator: the output is clamped there, and its value is +Inf;
+      # with λ2 > 0 the value at the clamped output is finite
+      c = Constrained(Conjugate(ElasticNet(T(0.5), T(0), w)), IndBox(T(5), T(6)))
+      y = zeros(T, 3)
+      @test value_and_prox!(y, c, T[0, 1, -1], T(1)) === T(Inf)
+      @test y == fill(T(5), 3)
+      @test y == prox(c, T[0, 1, -1], T(1))
+      c = Constrained(Conjugate(ElasticNet(T(0.5), T(0.5), w)), IndBox(T(5), T(6)))
+      v = value_and_prox!(y, c, T[0, 1, -1], T(1))
+      @test y == fill(T(5), 3)
+      @test v ≈ 45.25
+    end
+  end
+
+  @testset "dense and sparse arguments" begin
+    c = Constrained(Conjugate(ElasticNet(0.25, 0.7, [1.0, 2.0, 0.0, 0.5, 3.0])), IndBox(-1.0, 1.0))
+    xs = SparseIterate(sparse([0.0, 3.0, 0.0, -2.0, 0.0]))
+    for γ in (0.7, [0.7, 0.5, 1.0, 0.7, 0.9])
+      yd = zeros(5)
+      vd = value_and_prox!(yd, c, Vector(xs), γ)
+      out = SparseIterate(5)
+      v = value_and_prox!(out, c, xs, γ)
+      @test v == vd && Vector(out) == yd
+      @test !Base.has_offset_axes(out) && PB._elastic_value_route(c, out, xs, γ)
+      @test isapprox(v, Float64(elastic_conjugate_reference(0.25, 0.7, [1.0, 2.0, 0.0, 0.5, 3.0], yd)); rtol = 1e-13)
+      alias = copy(xs)
+      @test value_and_prox!(alias, c, alias, γ) == vd
+      @test Vector(alias) == yd
+    end
+    # a zero stays inside the box, and a box that excludes it moves every entry
+    for box in (IndNonnegative(), IndBox(0.2, 1.0)), f in (ElasticNet(0.25, 0.7), ElasticNet(0.25, 0.0))
+      c = Constrained(Conjugate(f), box)
+      yd = zeros(5)
+      vd = value_and_prox!(yd, c, Vector(xs), 0.7)
+      out = SparseIterate(5)
+      @test value_and_prox!(out, c, xs, 0.7) == vd
+      @test Vector(out) == yd
+      @test isapprox(vd, Float64(elastic_conjugate_reference(0.25, f.λ2, nothing, yd)); rtol = 1e-13)
+    end
+  end
+
+  @testset "destinations and weights that do not start at one are refused before writing" begin
+    refused(f, args...) = try
+      f(args...)
+      false
+    catch e
+      e isa ArgumentError && occursin("is not implemented", e.msg)
+    end
+    for off in (-1, 4), λ2 in (0.5, 0.0)
+      c = Constrained(Conjugate(ElasticNet(1.0, λ2)), IndBox(-2.0, 2.0))
+      xo = OffsetVec([5.0, -5.0], off)
+      @test !Base.has_offset_axes([1.0]) && Base.has_offset_axes(xo)
+      # the proximal operator still works, as without the value
+      @test prox!(OffsetVec(zeros(2), off), c, xo, 0.5).data == (λ2 > 0 ? [2.0, -2.0] : [1.0, -1.0])
+      y = OffsetVec([-77.0, -77.0], off)
+      @test refused(value_and_prox!, y, c, xo, 0.5)
+      @test y.data == [-77.0, -77.0]
+      @test_throws ArgumentError value_and_prox!(y, c, [5.0, -5.0], 0.5)
+      @test y.data == [-77.0, -77.0]
+      # in place
+      z = OffsetVec([5.0, -5.0], off)
+      @test refused(value_and_prox!, z, c, z, 0.5)
+      @test z.data == [5.0, -5.0]
+      # weights with one-based or with offset indices
+      for w in ([1.0, 3.0], OffsetVec([1.0, 3.0], off))
+        cw = Constrained(Conjugate(ElasticNet(1.0, λ2, w)), IndBox(-2.0, 2.0))
+        y = OffsetVec([-77.0, -77.0], off)
+        @test refused(value_and_prox!, y, cw, xo, 0.5)
+        @test y.data == [-77.0, -77.0]
+        w isa OffsetVec && @test refused(value_and_prox!, fill(-77.0, 2), cw, [5.0, -5.0], 0.5)
+      end
+      # a block after an earlier block
+      s = SeparableSum(SqrNormL2(2.0), c)
+      dest, point = ([7.0], y), ([3.0], xo)
+      before = (copy(dest[1]), copy(y.data))
+      @test refused(value_and_prox!, dest, s, point, 0.5)
+      @test dest[1] == before[1] && y.data == before[2]
+      @test point[1] == [3.0] && xo.data == [5.0, -5.0]
+    end
+    # an overflowing value: finite on a one-based destination, refused before writing on an offset one
+    for T in (Float64, Float32)
+      b = floatmax(T)
+      m = T(0.8) * b
+      box = IndBox(m, m)
+      c = Constrained(Conjugate(ElasticNet(T(0), b)), box)
+      y = zeros(T, 2)
+      v = value_and_prox!(y, c, zeros(T, 2), T(1))
+      @test y == [m, m]
+      @test v isa T && isapprox(v, T(BigFloat(m)^2 / BigFloat(b)); rtol = 1000 * eps(T))
+      for off in (-1, 4)
+        yo = OffsetVec(fill(T(-7), 2), off)
+        @test refused(value_and_prox!, yo, c, OffsetVec(zeros(T, 2), off), T(1))
+        @test yo.data == fill(T(-7), 2)
+      end
+    end
+  end
+
+  @testset "blocks of a separable sum" begin
+    c = Constrained(f, IndBox(-2.0, 2.0))
+    s = SeparableSum(SqrNormL2(2.0), c)
+    point = ([3.0], x)
+    dest = ([7.0], zeros(3))
+    ref1, ref2 = zeros(1), zeros(3)
+    expected = value_and_prox!(ref1, SqrNormL2(2.0), [3.0], 0.5) + value_and_prox!(ref2, c, x, 0.5)
+    @test value_and_prox!(dest, s, point, 0.5) == expected
+    @test dest == (ref1, ref2)
+    @test point == ([3.0], [5.0, -5.0, 0.5])
+  end
+
+  @testset "allocations" begin
+    x64 = [5.0, -5.0, 0.5]
+    steps = (0.5, [0.5, 0.25, 1.0])
+    for T in (Float32, Float64), γ in steps
+      xt = T.(x64)
+      step = γ isa Real ? T(γ) : T.(γ)
+      for g in (ElasticNet(T(1), T(0.5)), ElasticNet(T(1), T(0.5), T[1, 0, 2]),
+                ElasticNet(T(1), T(0)), ElasticNet(T(1), T(0), T[1, 0, 2]), ElasticNet(T(0), T(0.5)),
+                ElasticNet(Int8(2), Int8(0), Int8[1, 0, 2]), ElasticNet(Float16(0.5), Float16(0), Float16[1, 0, 2]),
+                ElasticNet(0.5f0, 0f0, Float32[1, 0, 2]), ElasticNet(true, false, Bool[1, 0, 1]))
+        for box in (IndBox(T(-2), T(2)), IndBox(fill(T(-2), 3), fill(T(2), 3)), IndNonnegative())
+          c = Constrained(Conjugate(g), box)
+          y = zeros(T, 3)
+          @test allocs(value_and_prox!, y, c, xt, step) == 0
+          z = copy(xt)
+          @test allocs(value_and_prox!, z, c, z, step) == 0
+          @test allocs(prox!, y, c, xt, step) == 0
+        end
+      end
+    end
+  end
+
+  @testset "controls: values that were available" begin
+    xc = [5.0, -5.0, 0.5, 1.2]
+    for g in (NormL1(0.3), NormL1(0.3, [1.0, 0.0, 2.0, 0.5]), NormL1Nonneg(0.3), ElasticNet(0.3, 0.4),
+              ElasticNet(0.3, 0.4, [1.0, 0.0, 2.0, 0.5]), SqrNormL2(0.7), SqrNormL2(0.7, [1.0, 0.0, 2.0, 0.5]),
+              IndBox(-1.5, 1.5), Conjugate(NormL1(0.3)), Conjugate(SqrNormL2(0.7)), Conjugate(IndBox(-1.0, 1.0))),
+        box in (IndBox(-1.0, 1.0), IndNonnegative()), γ in (0.6, [0.6, 0.3, 1.0, 0.8])
+      c = Constrained(g, box)
+      y = zeros(4)
+      v = value_and_prox!(y, c, xc, γ)
+      @test y == prox(c, xc, γ)
+      @test v ≈ c(y)
+      @test PB._has_value(c)
+      @test allocs(value_and_prox!, y, c, xc, γ) == 0
+    end
+  end
+end
+
+# ----------------------------------------------------------------------------------------------------
+# The allowlist of the fused value: the representations that take it, and those that keep the refusal.
+# ----------------------------------------------------------------------------------------------------
+
+# true when the call throws the refusal of a value that is not available
+refused_value(f, args...) = try
+  f(args...)
+  false
+catch e
+  e isa ArgumentError && occursin("is not implemented", e.msg)
+end
+snap(a) = collect(a)
+snap(a::AtomIterate) = copy(a.storage)
+snap(a::SymmetricSparseIterate) = Matrix(a)
+snap(t::Tuple) = map(snap, t)
+
+# The seven role cases of a representation `arr(val)` that gives a 2×2 array holding `val`: it is the output, the input, the
+# lower or the upper bound, the array step and the weights (for both ridge levels) of the fused value. A case is
+# `nothing` when Base refuses to build the function with that representation.
+function role_cases(arr)
+  box = IndBox(-2.0, 2.0)
+  x2 = fill(5.0, 2, 2)
+  dest() = fill(-77.0, 2, 2)
+  base = Constrained(Conjugate(ElasticNet(1.0, 0.5)), box)
+  attempt(f) = try
+    f()
+  catch
+    nothing
+  end
+  specs = (("output", () -> (base, arr(-77.0), x2, 0.5)),
+           ("input", () -> (base, dest(), arr(5.0), 0.5)),
+           ("lower", () -> (Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(arr(-2.0), 2.0)), dest(), x2, 0.5)),
+           ("upper", () -> (Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, arr(2.0))), dest(), x2, 0.5)),
+           ("step", () -> (base, dest(), x2, arr(0.5))),
+           ("weights", () -> (Constrained(Conjugate(ElasticNet(1.0, 0.5, arr(1.0))), box), dest(), x2, 0.5)),
+           ("weights, λ2 = 0", () -> (Constrained(Conjugate(ElasticNet(1.0, 0.0, arr(1.0))), box), dest(), x2, 0.5)))
+  [(role, attempt(spec)) for (role, spec) in specs]
+end
+dest_snapshot(y) = y isa SubArray ? copy(parent(y)) : copy(y)
+# the predicate says no without throwing, and the call refuses before writing: directly, in place and as a later block
+function check_refused_case(role, case)
+  c, y, x, γ = case
+  before = dest_snapshot(y)
+  @test PB._elastic_value_route(c, y, x, γ) === false
+  @test refused_value(value_and_prox!, y, c, x, γ)
+  @test isequal(dest_snapshot(y), before)
+  if γ isa Real
+    s = SeparableSum(SqrNormL2(2.0), c)
+    dest = ([7.0], deepcopy(y))
+    before2 = dest_snapshot(dest[2])
+    @test refused_value(value_and_prox!, dest, s, ([3.0], x), γ)
+    @test dest[1] == [7.0] && isequal(dest_snapshot(dest[2]), before2)
+  end
+  if role == "output"
+    z = deepcopy(y)
+    filled = try
+      copyto!(z, x)
+      true
+    catch
+      false          # Base cannot store into this representation: there is no in-place fixture
+    end
+    if filled
+      zb = dest_snapshot(z)
+      @test refused_value(value_and_prox!, z, c, z, γ)
+      @test isequal(dest_snapshot(z), zb)
+    end
+  end
+end
+
+function check_fused(c, mkdest, x, γ; alias = nothing)
+  f = c.f.f
+  T = eltype(mkdest())
+  expected = prox!(mkdest(), c, x, γ)
+  y = mkdest()
+  v = value_and_prox!(y, c, x, γ)
+  @test snap(y) == snap(expected)
+  w = f.w === nothing ? nothing : collect(f.w)
+  check_elastic_value(v, T, elastic_conjugate_reference(f.λ1, f.λ2, w, snap(y)))
+  if alias !== nothing
+    z = alias()
+    v = value_and_prox!(z, c, z, γ)
+    @test snap(z) == snap(expected)
+    check_elastic_value(v, T, elastic_conjugate_reference(f.λ1, f.λ2, w, snap(z)))
+  end
+end
+
+# For a zero ridge the value is the indicator of |yᵢ| ≤ λ1 wᵢ (with the relative tolerance of the output type); the threshold
+# is formed after both factors are converted to the working type, so that no product wraps or rounds in the type of the
+# parameters. The references are the exact BigFloat products at the stored output.
+@testset "the zero-ridge indicator in the working type" begin
+  ind(v, T) = isinf(v) ? T(Inf) : zero(T)
+  # the three products that wrapped or rounded in the type of the parameters, at a stored output, on every destination class
+  h = Float16(0.1)
+  cases = (("Int8 product wraps", Int8(100), Int8(0), Int8(2), [-77.0, 77.0, 199.0, 201.0]),
+           ("Float32 product overflows", Float32(1e38), 0f0, Float32(4), [1e100, 3e38, 4e38, 5e38]),
+           ("Float16 product rounds", h, Float16(0), h, [Float64(h)^2, 0.0, 0.0101, 0.02]))
+  for (name, λ, λ0, w1, Ys) in cases, T in (Float32, Float64), Y1 in Ys
+    Yt = T(Y1)
+    isfinite(Yt) || continue          # a box cannot store an infinite entry
+    f1 = ElasticNet(λ, λ0, [w1])
+    for (kind, mkdest, Y, f, x) in (("dense", () -> zeros(T, 1), T[Yt], f1, T[0]),
+                                    ("SparseIterate", () -> SparseIterate(T, 1), T[Yt], f1, T[0]))
+      c = Constrained(Conjugate(f), IndBox(Y, Y))
+      @testset "$name, $T, $kind, y = $Y1" begin
+        y = mkdest()
+        v = value_and_prox!(y, c, x, 1.0)
+        ys = collect(y)
+        @test ys == Y
+        ref = elastic_conjugate_reference(λ, λ0, collect(f.w), ys)
+        @test v === ind(ref, T)
+        # in place
+        z = kind == "dense" ? zeros(T, 1) : SparseIterate(T, 1)
+        @test value_and_prox!(z, c, z, 1.0) === v
+        # a later block, the earlier block keeping its value
+        s = SeparableSum(SqrNormL2(2.0), c)
+        v1 = value_and_prox!(zeros(1), SqrNormL2(2.0), [3.0], 1.0)
+        d2 = mkdest()
+        total = Float64(value_and_prox!(([7.0], d2), s, ([3.0], x), 1.0))
+        isinf(v) ? (@test total == Inf) : @test isapprox(total, Float64(v1); rtol = 1e-6)
+        @test collect(d2) == Y
+      end
+    end
+  end
+  # every pair of parameter types, with thresholds that overflow, underflow or sit on the tolerance boundary: the private loop
+  # at stored outputs that a box cannot store (an infinite entry) as well as ordinary ones
+  levels = ((Bool, (true, false)), (Int8, (Int8(0), Int8(1), Int8(100), Int8(127))), (Int64, (0, 3, 10^18, typemax(Int64))),
+            (UInt8, (UInt8(0), UInt8(1), UInt8(200), UInt8(255))), (Float16, (Float16(0), Float16(0.1), floatmax(Float16), Float16(6e-8))),
+            (Float32, (0f0, 1f0, 1f38, floatmax(Float32), 1f-40)), (Float64, (0.0, 1.0, 1e300, floatmax(Float64), 1e-300, 5e-324)))
+  checked = 0
+  mismatches = []
+  for T in (Float32, Float64), (_, ls) in levels, λ in ls, (_, ws) in levels, w in ws
+    f = ElasticNet(λ, zero(λ), [w])
+    thr = BigFloat(λ) * BigFloat(w)
+    Tthr = T(thr)
+    tolb = thr + sqrt(BigFloat(eps(T))) * max(1, thr)
+    pts = T[0, T(1), T(1e-9), T(1e-5), T(1e-2), floatmax(T), T(Inf), T(NaN), Tthr, T(tolb * (1 - big"1e-3")), T(tolb * (1 + big"1e-3"))]
+    isfinite(Tthr) && append!(pts, [prevfloat(Tthr), nextfloat(Tthr)])
+    for p in pts, sign in (1, -1)
+      yv = [sign * p]
+      v = PB._elastic_indicator_value(f, yv)
+      ref = elastic_conjugate_reference(λ, zero(λ), [w], yv)
+      v === ind(ref, T) || push!(mismatches, (T, λ, w, yv[1], v))
+      checked += 1
+    end
+  end
+  @test isempty(mismatches)
+  @test checked > 10_000
+  # a stored NaN keeps the convention of the NormL1 conjugate: the value is +Inf
+  for T in (Float32, Float64)
+    c = Constrained(Conjugate(ElasticNet(Int8(2), Int8(0), Int8[1])), IndBox(-2.0, 2.0))
+    y = zeros(T, 1)
+    @test value_and_prox!(y, c, T[NaN], 1.0) === T(Inf)
+    @test isnan(y[1])
+    # scalar and array bounds and steps, empty arrays
+    for box in (IndBox(-2.0, 2.0), IndBox(T[-2], T[2])), γ in (T(0.5), T[0.5])
+      c = Constrained(Conjugate(ElasticNet(Float16(1), Float16(0), Float16[1])), box)
+      y = zeros(T, 1)
+      v = value_and_prox!(y, c, T[5], γ)
+      @test v === ind(elastic_conjugate_reference(Float16(1), Float16(0), Float16[1], y), T)
+    end
+    c = Constrained(Conjugate(ElasticNet(Int8(2), Int8(0), Int8[])), IndBox(-2.0, 2.0))
+    @test value_and_prox!(T[], c, T[], 1.0) === zero(T)
+  end
+end
+
+# The representations that take the fused value are Arrays and SparseIterates; views, reshapes, the owner of a symmetric
+# matrix and every other representation are refused (see `representations that keep the refusal`).
+@testset "representations that take the fused value" begin
+  for T in (Float32, Float64)
+    vx = T[5, -5, 0.5, 1.2]
+    mx = T[5 -5; 0.5 1.2]
+    S3 = T[5 1 0; 1 -5 0; 0 0 0.5]
+    N3 = T[5 2 0; 0 -5 0; 0 1 0.5]
+    dense(mk, data) = () -> (y = mk(); copyto!(y, data); y)
+    reps = (
+      ("vector", () -> zeros(T, 4), vx, dense(() -> zeros(T, 4), vx), false),
+      ("matrix", () -> zeros(T, 2, 2), mx, dense(() -> zeros(T, 2, 2), mx), false),
+      ("reshape of a Vector (an Array)", () -> reshape(zeros(T, 4), 2, 2), mx, dense(() -> reshape(zeros(T, 4), 2, 2), mx), false),
+      ("SparseIterate, Vector x", () -> SparseIterate(T, 4), vx, () -> SparseIterate(sparse(vx)), false),
+      ("SparseIterate, SparseIterate x", () -> SparseIterate(T, 4), SparseIterate(sparse(vx)), () -> SparseIterate(sparse(vx)), false),
+      ("vector, Int x", () -> zeros(T, 4), [5, -5, 1, 2], nothing, false))
+    # weights of the shape of the output, in each admitted element type and wrapper; symmetric for a symmetric output
+    weight(kind, n, sym) = begin
+      base = sym ? [1 2 0; 2 1 1; 0 1 3] : [1, 0, 2, 1, 3, 1, 0, 1, 2][1:n]
+      kind === :f64 ? Float64.(base) : kind === :f32 ? Float32.(base) : Int.(base)
+    end
+    # Float32 keeps the vector; the other representations are in constrained_basics_grids.jl
+    for (name, mkdest, x, mkalias, sym) in (T === Float64 ? reps : reps[1:1])
+      n = length(mkdest())
+      sz = size(mkdest())
+      @testset "$name, $T" begin
+        for (λ1, λ2) in ((T(0.25), T(0.7)), (T(0.25), T(0))), kind in (:none, :f64, :f32, :int),
+            box in (IndBox(T(-2), T(2)), IndBox(fill(T(-2), sz), fill(T(2), sz)), IndBox(fill(-2.0, sz), fill(2.0, sz)), IndNonnegative()),
+            γ in (T(0.5), fill(T(0.5), sz))
+          w = kind === :none ? nothing : weight(kind, n, sym)
+          c = Constrained(Conjugate(ElasticNet(λ1, λ2, w)), box)
+          check_fused(c, mkdest, x, γ; alias = mkalias)
+        end
+      end
+    end
+
+    # the Float32 pass is in constrained_basics_grids.jl
+    if T === Float64
+      @testset "parameter types on a vector, $T" begin
+        xs = T[5, -5, 0.5, 1.2]
+        mk = () -> zeros(T, 4)
+        al = () -> copy(xs)
+        wdense = [1.0, 0, 2, 0.5]
+        levels = ((T(0.25), T(0.7)), (0.25, 0.7), (0.25f0, 0.7f0), (1, 1), (0.25, 0.0), (1, 0), (0.25f0, 0f0))
+        weights = (nothing, wdense, Float32.(wdense), [1, 0, 2, 1], Matrix(reshape(wdense, 2, 2)), Matrix(reshape(wdense, 4, 1)))
+        for (λ1, λ2) in levels, w in weights
+          check_fused(Constrained(Conjugate(ElasticNet(λ1, λ2, w)), IndBox(T(-2), T(2))), mk, xs, T(0.5); alias = al)
+        end
+        steps = (0.5, 0.5f0, 1, T(0.5), [0.5, 0.25, 1, 2], Float32[0.5, 0.25, 1, 2], [1, 1, 2, 2])
+        bounds = (IndBox(-2.0, 2.0), IndBox(-2, 2), IndBox(T(-2), T(2)), IndBox([-2.0, -1, -3, -2], [2.0, 1, 3, 2]),
+                  IndBox([-2, -1, -3, -2], [2, 1, 3, 2]), IndBox(Float32[-2, -1, -3, -2], Float32[2, 1, 3, 2]), IndNonnegative())
+        for γ in steps, box in bounds, (λ1, λ2) in ((T(0.25), T(0.7)), (T(0.25), T(0)))
+          check_fused(Constrained(Conjugate(ElasticNet(λ1, λ2)), box), mk, xs, γ; alias = al)
+        end
+      end
+    end
+
+    @testset "ordinary, overflowing and underflowing values on every representation, $T" begin
+      huge, tiny, λbig, λzero = T === Float32 ? (T(1e30), T(1e-10), T(1e30), T(1e30)) : (T(1e160), T(1e-100), T(1e100), T(1e200))
+      for (name, mkdest, x, _, sym) in reps
+        sz = size(mkdest())
+        n = prod(sz)
+        for (vals, λ1, λ2) in ((fill(huge, n), T(0), λbig), (fill(huge, n), T(0.5) * huge, λbig), (fill(huge, n), T(0), T(1)),
+                               (fill(tiny, n), T(0), tiny), (fill(tiny, n), T(0), λzero), (sym ? T[min(i, j) for i in 1:sz[1], j in 1:sz[2]] : T.(1:n), T(0.5), T(0.25)))
+          Y = collect(reshape(vals, sz))
+          c = Constrained(Conjugate(ElasticNet(λ1, λ2)), IndBox(Y, Y))
+          check_fused(c, mkdest, x, T(1))
+        end
+      end
+    end
+  end
+end
+
+@testset "representations that keep the refusal" begin
+  c0 = Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, 2.0))
+  x = [5.0, -5.0, 0.5]
+  M3 = [5.0 1 0; 1 -5 0; 0 0 0.5]
+  # destinations
+  function refusal(c, mkdest, xdata, γ; mkalias = nothing)
+    y = mkdest()
+    before, xb = snap(y), snap(xdata)
+    @test refused_value(value_and_prox!, y, c, xdata, γ)
+    @test isequal(snap(y), before) && isequal(snap(xdata), xb)
+    if γ isa Real
+      s = SeparableSum(SqrNormL2(2.0), c)
+      dest, point = ([7.0], mkdest()), ([3.0], xdata)
+      db = snap(dest)
+      @test refused_value(value_and_prox!, dest, s, point, γ)
+      @test isequal(snap(dest), db) && isequal(snap(point), ([3.0], xb))
+    end
+    if mkalias !== nothing
+      z = mkalias()
+      zb = snap(z)
+      @test refused_value(value_and_prox!, z, c, z, γ)
+      @test isequal(snap(z), zb)
+    end
+  end
+  # Rational, Real, AbstractFloat, BigFloat and Bool destinations are in constrained_basics_grids.jl
+  for (name, mk, xdata, mkalias) in (("Int", () -> fill(-7, 3), x, () -> [5, -5, 1]),
+                                     ("Union", () -> Union{Float32, Float64}[-7f0, -7.0, -7f0], x, () -> Union{Float32, Float64}[5f0, -5.0, 1f0]),
+                                     ("Float16", () -> fill(Float16(-7), 3), x, () -> Float16[5, -5, 1]),
+                                     ("offset", () -> OffsetVec(fill(-7.0, 3), -1), OffsetVec(copy(x), -1), () -> OffsetVec(copy(x), -1)))
+    @testset "destination $name" begin
+      refusal(c0, mk, xdata, 0.5; mkalias)
+    end
+  end
+  # the proximal operator on an offset destination is as at the base
+  @test prox!(OffsetVec(zeros(3), -1), c0, OffsetVec(copy(x), -1), 0.5).data == [2.0, -2.0, 0.5]
+  @testset "destinations of other shapes" begin
+    refusal(c0, () -> Symmetric(fill(-7.0, 3, 3)), M3, 0.5)
+    refusal(c0, () -> transpose(fill(-7.0, 3, 3)), M3, 0.5)
+    refusal(c0, () -> 1:3, x, 0.5)
+    # a reshape of a view is no host array of the list (a reshape of an Array, and a view of either, are)
+    refusal(c0, () -> reshape(view(fill(-7.0, 6), 2:5), 2, 2), [5.0 -5; 0.5 1], 0.5)
+    refusal(Constrained(Conjugate(ElasticNet(1.0, 0.5, reshape(view([9.0, 1, 3, 1, 9], 2:4), 3, 1))), IndBox(-2.0, 2.0)),
+            () -> fill(-7.0, 3), x, 0.5)
+    refusal(c0, () -> AtomIterate(3, [1:3]), AtomIterate(copy(x), [1:3]), 0.5)
+    refusal(c0, () -> sparsevec(fill(-7.0, 3)), sparsevec(x), 0.5)
+    refusal(c0, () -> sparse(fill(-7.0, 2, 2)), sparse([5.0 -5; 0.5 1]), 0.5)
+  end
+  @testset "inputs" begin
+    refusal(c0, () -> fill(-7.0, 3), OffsetVec(copy(x), -1), 0.5)
+    refusal(c0, () -> fill(-7.0, 3), Real[5, -5.0, 1], 0.5)
+    refusal(c0, () -> fill(-7.0, 3), Union{Float32, Float64}[5f0, -5.0, 1f0], 0.5)
+    refusal(c0, () -> fill(-7.0, 3), 1:3, 0.5)
+    refusal(c0, () -> SymmetricSparseIterate(3), Symmetric(M3), 0.5)
+  end
+  @testset "levels, weights and bounds" begin
+    box = IndBox(-2.0, 2.0)
+    for f in (ElasticNet(big(1.0), big(0.5)), ElasticNet(1 // 1, 1 // 2))
+      refusal(Constrained(Conjugate(f), box), () -> fill(-7.0, 3), x, 0.5)
+    end
+    for w in (AbstractFloat[1f0, 3.0, 1.0], Real[1, 3.0, 1], Union{Float32, Float64}[1f0, 3.0, 1.0], OffsetVec([1.0, 3.0, 1.0], -1),
+              [big(1.0), big(3.0), big(1.0)], [1 // 1, 3 // 1, 1 // 1])
+      for λ2 in (0.5, 0.0)
+        refusal(Constrained(Conjugate(ElasticNet(1.0, λ2, w)), box), () -> fill(-7.0, 3), x, 0.5;
+                mkalias = () -> copy(x))
+      end
+    end
+    # weights that share memory with the output, for both ridge levels
+    for λ2 in (0.5, 0.0)
+      yw = fill(0.75, 3)
+      c = Constrained(Conjugate(ElasticNet(1.0, λ2, yw)), box)
+      before = copy(yw)
+      @test refused_value(value_and_prox!, yw, c, x, 0.5)
+      @test yw == before
+      vw = view(yw, 1:3)
+      @test refused_value(value_and_prox!, vw, c, x, 0.5)
+      @test yw == before
+    end
+    for (l, u) in ((OffsetVec([-2.0, -2.0, -2.0], -1), OffsetVec([2.0, 2.0, 2.0], -1)), (Real[-2, -2.0, -2], Real[2, 2.0, 2]))
+      refusal(Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(l, u)), () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    end
+  end
+  @testset "levels of an ElasticNet of an abstract type parameter" begin
+    box = IndBox(-2.0, 2.0)
+    # a stored level that is no machine number, in either position: refused, though the type parameter is Real
+    for (l1, l2) in ((1.0, 1 // 2), (1.0, π), (1.0, big"0.5"), (1.0, big(0.5)), (1 // 1, 0.5), (π, 0.5), (big"1.0", 0.5))
+      f = ElasticNet{Real, Nothing}(l1, l2, nothing)
+      c = Constrained(Conjugate(f), box)
+      refusal(c, () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+      # the proximal operator is not touched by the route: it runs for every one of these functions, as before
+      y = zeros(3)
+      @test prox!(y, c, x, 0.5) === y
+      @test y == [2.0, -2.0, 0.5]
+    end
+    # machine-number levels are admitted, with the value checked at the stored output
+    for T in (Float32, Float64), (l1, l2) in ((T(1), T(0.5)), (T(1), T(0)), (1.0, 0.5f0), (1f0, 0.5))
+      check_fused(Constrained(Conjugate(ElasticNet(l1, l2)), IndBox(T(-2), T(2))), () -> zeros(T, 3), T.(x), T(0.5); alias = () -> T.(x))
+    end
+  end
+  @testset "views whose selectors are not proven host ranges" begin
+    # three entries chosen from a longer vector by each selector; every one of them is refused in every role
+    selectors = (("index vector", v -> view(v, [4, 1, 2])),
+                 ("repeated index", v -> view(v, [1, 1, 2])),
+                 ("view of a view", v -> (vv = SubArray(view(v, 2:5), (1:3,)); @assert parent(vv) isa SubArray; vv)),
+                 ("zero-step range", v -> view(v, StepRangeLen(2, 0, 3))))
+    box = IndBox(-2.0, 2.0)
+    c0 = Constrained(Conjugate(ElasticNet(1.0, 0.5)), box)
+    ones6() = fill(1.0, 6)
+    for (name, sel) in selectors
+      @testset "$name" begin
+        # as the output, the input, the bounds, the steps and the weights
+        refusal(c0, () -> sel(fill(-7.0, 6)), x, 0.5; mkalias = () -> (y = sel(fill(-7.0, 6)); copyto!(y, x); y))
+        refusal(c0, () -> fill(-7.0, 3), sel([5.0, -5.0, 0.5, 1.0, 2.0, 3.0]), 0.5)
+        refusal(Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(sel(-2 .* ones6()), sel(2 .* ones6()))), () -> fill(-7.0, 3), x, 0.5;
+                mkalias = () -> copy(x))
+        refusal(Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, sel(2 .* ones6()))), () -> fill(-7.0, 3), x, 0.5)
+        refusal(c0, () -> fill(-7.0, 3), x, sel(0.5 .* ones6()); mkalias = () -> copy(x))
+        refusal(Constrained(Conjugate(ElasticNet(1.0, 0.5, sel(ones6()))), box), () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+        refusal(Constrained(Conjugate(ElasticNet(1.0, 0.0, sel(ones6()))), box), () -> fill(-7.0, 3), x, 0.5)
+      end
+    end
+    # a selector whose storage is the output: the review's reproducer, in each role (all run with bounds checking)
+    bits(y) = copy(reinterpret(Int64, y))
+    function aliased()
+      y = collect(reinterpret(Float64, Int64[1, 2]))
+      idx = view(reinterpret(Int64, y), 2:-1:1)
+      y, idx
+    end
+    let (y, idx) = aliased()
+      c = Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, view([2.0, 2.0], idx)))
+      before = bits(y)
+      @test refused_value(value_and_prox!, y, c, [5.0, -5.0], 0.5)
+      @test bits(y) == before
+    end
+    let (y, idx) = aliased()
+      c = Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(view([-2.0, -2.0], idx), view([2.0, 2.0], idx)))
+      before = bits(y)
+      @test refused_value(value_and_prox!, y, c, [5.0, -5.0], 0.5)
+      @test bits(y) == before
+    end
+    let (y, idx) = aliased()
+      c = Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, 2.0))
+      before = bits(y)
+      @test refused_value(value_and_prox!, y, c, view([5.0, -5.0], idx), 0.5)
+      @test bits(y) == before
+    end
+    let (y, idx) = aliased()
+      c = Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, 2.0))
+      before = bits(y)
+      @test refused_value(value_and_prox!, y, c, [5.0, -5.0], view([0.5, 0.5], idx))
+      @test bits(y) == before
+    end
+    let (y, idx) = aliased()
+      c = Constrained(Conjugate(ElasticNet(1.0, 0.5, view([1.0, 1.0], idx))), IndBox(-2.0, 2.0))
+      before = bits(y)
+      @test refused_value(value_and_prox!, y, c, [5.0, -5.0], 0.5)
+      @test bits(y) == before
+    end
+  end
+  @testset "weight fields declared as unions" begin
+    box = IndBox(-2.0, 2.0)
+    for W in (Union{Nothing, Vector{Float64}}, Union{Nothing, AbstractVector}), wv in (nothing, [1.0, 3.0, 1.0])
+      f = ElasticNet{Float64, W}(1.0, 0.5, wv)
+      @test !PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5)
+      refusal(Constrained(Conjugate(f), box), () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    end
+    # declarations with a machine-number level type and Nothing or a concrete Array type for the weights take the route
+    for (W, wv) in ((Nothing, nothing), (Vector{Float64}, [1.0, 3.0, 1.0]), (Matrix{Float64}, [1.0 3.0 1.0])),
+        (S, l) in ((Float64, (1.0, 0.5)), (Float32, (1f0, 0.5f0)), (Int, (1, 1)))
+      f = ElasticNet{S, W}(l..., wv)
+      @test PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5)
+      check_fused(Constrained(Conjugate(f), box), () -> zeros(3), x, 0.5; alias = () -> copy(x))
+    end
+    # every other declaration is refused: a Real level type (even with machine-number levels stored), and weight types that are
+    # abstract (AbstractVector, a Vector without its element type) or unions
+    for (S, l) in ((Real, (1.0, 0.5)), (AbstractFloat, (1.0, 0.5))), (W, wv) in ((Nothing, nothing), (Vector{Float64}, [1.0, 3.0, 1.0]))
+      f = ElasticNet{S, W}(l..., wv)
+      @test PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5) === false
+      refusal(Constrained(Conjugate(f), box), () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    end
+    for W in (AbstractVector, AbstractArray, Vector, Matrix, Union{Vector{Float64}, Matrix{Float64}}), (S, l) in ((Float64, (1.0, 0.5)), (Float32, (1f0, 0.5f0)))
+      wv = W <: Matrix ? [1.0 3.0 1.0] : [1.0, 3.0, 1.0]
+      f = try
+        ElasticNet{S, W}(l..., wv)
+      catch
+        nothing
+      end
+      f === nothing && continue
+      @test PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5) === false
+      refusal(Constrained(Conjugate(f), box), () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    end
+  end
+  @testset "views, reshapes and other representations are refused in every role" begin
+    U = Union{Int8, Int16}
+    forms = (("range view", v -> view(fill(v, 3, 3), 1:2, 1:2)),
+             ("strided view", v -> view(fill(v, 4, 4), 1:2:3, 1:2:3)),
+             ("colon view", v -> view(fill(v, 2, 3), :, 1:2)),
+             ("scalar-index view", v -> view(fill(v, 2, 2, 2), 1, :, :)),
+             ("view of a reshape", v -> view(reshape(fill(v, 8), 2, 4), 1:2, 2:3)),
+             ("UInt8-range view", v -> view(fill(v, 3, 3), UInt8(1):UInt8(2), 1:2)),
+             ("Int8 step-range view", v -> view(fill(v, 4, 4), Int8(1):Int8(2):Int8(3), 1:2)),
+             ("OneTo view", v -> view(fill(v, 3, 3), Base.OneTo(2), 1:2)),
+             ("reshape of a view", v -> reshape(view(fill(v, 6), 2:5), 2, 2)),
+             ("index-vector view", v -> view(fill(v, 3, 3), [1, 2], 1:2)),
+             ("repeated-index view", v -> view(fill(v, 3, 3), [1, 1], 1:2)),
+             ("view of a view", v -> SubArray(view(fill(v, 3, 3), 1:2, 1:3), (1:2, 1:2))),
+             ("zero-step range", v -> view(fill(v, 3, 3), StepRangeLen(1, 0, 2), 1:2)),
+             ("UnitRange{Union} view", v -> view(fill(v, 3, 3), UnitRange{U}(Int8(1), Int16(2)), 1:2)),
+             ("StepRange{Union} view", v -> view(fill(v, 3, 3), StepRange{U, Int8}(Int8(1), Int8(1), Int16(2)), 1:2)),
+             ("adjoint", v -> fill(v, 2, 2)'),
+             ("Union-element Array", v -> Array{Union{Float64, Int}}(fill(v, 2, 2))),
+             ("view of a Union-element Array", v -> view(Array{Union{Float64, Int}}(fill(v, 3, 3)), 1:2, 1:2)))
+    unbuilt = String[]
+    # the other forms are in constrained_basics_grids.jl
+    for (name, arr) in forms
+      name in ("range view", "UnitRange{Union} view", "Union-element Array") || continue
+      built = try
+        arr(0.0) isa AbstractArray
+      catch
+        false
+      end
+      built || (push!(unbuilt, name); continue)
+      for (role, case) in role_cases(arr)
+        if case === nothing
+          push!(unbuilt, name * ": " * role)
+        else
+          @testset "$name, $role" check_refused_case(role, case)
+        end
+      end
+    end
+    # the output, input and step roles of the reproducing selector are built (Base refuses it as a bound or a weight)
+    @test !any(in(("UnitRange{Union} view: output", "UnitRange{Union} view: input", "UnitRange{Union} view: step")), unbuilt)
+    println("forms that Base cannot build: ", join(unbuilt, "; "))
+    # the review's reproducer: the earlier block of the sum keeps its value, and so does the destination
+    r = UnitRange{Union{Int8, Int16}}(Int8(1), Int16(2))
+    v = view(fill(-77.0, 3, 3), r, 1:2)
+    c = Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, 2.0))
+    d = ([9.0], v)
+    @test refused_value(value_and_prox!, d, SeparableSum(SqrNormL2(1.0), c), ([3.0], fill(5.0, 2, 2)), 0.5)
+    @test d[1] == [9.0] && parent(v) == fill(-77.0, 3, 3)
+    # only the Array of a machine-number type, and the two iterates, are representations of the route
+    @test PB._elastic_array(zeros(3)) && PB._elastic_array(zeros(2, 2)) && PB._elastic_array(SparseIterate(3)) && !PB._elastic_array(SymmetricSparseIterate(3))
+    for (_, arr) in forms
+      V = arr(0.0)
+      V isa Array || @test !PB._elastic_array(V)
+    end
+  end
+  @testset "custom unit ranges are never read" begin
+    reads = Ref(0)
+    r = CountingRange([1, 2], reads)
+    sel(val) = view(fill(val, 3, 3), r, 1:2)
+    box = IndBox(-2.0, 2.0)
+    base = Constrained(Conjugate(ElasticNet(1.0, 0.5)), box)
+    x2 = fill(5.0, 2, 2)
+    cases = (("output", base, () -> sel(-77.0), x2, 0.5),
+             ("input", base, () -> fill(-77.0, 2, 2), sel(5.0), 0.5),
+             ("lower", Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(sel(-2.0), 2.0)), () -> fill(-77.0, 2, 2), x2, 0.5),
+             ("upper", Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(-2.0, sel(2.0))), () -> fill(-77.0, 2, 2), x2, 0.5),
+             ("both bounds", Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(sel(-2.0), sel(2.0))), () -> fill(-77.0, 2, 2), x2, 0.5),
+             ("step", base, () -> fill(-77.0, 2, 2), x2, sel(0.5)),
+             ("weights", Constrained(Conjugate(ElasticNet(1.0, 0.5, sel(1.0))), box), () -> fill(-77.0, 2, 2), x2, 0.5),
+             ("weights, λ2 = 0", Constrained(Conjugate(ElasticNet(1.0, 0.0, sel(1.0))), box), () -> fill(-77.0, 2, 2), x2, 0.5))
+    for (role, c, mkdest, x, γ) in cases
+      @testset "$role" begin
+        y = mkdest()
+        before = copy(parent(y))
+        reads[] = 0
+        @test refused_value(value_and_prox!, y, c, x, γ)
+        @test reads[] == 0 && parent(y) == before
+        if γ isa Real
+          s = SeparableSum(SqrNormL2(2.0), c)
+          dest = ([7.0], mkdest())
+          reads[] = 0
+          @test refused_value(value_and_prox!, dest, s, ([3.0], x), γ)
+          @test reads[] == 0 && dest[1] == [7.0] && parent(dest[2]) == before
+        end
+        if role == "output"
+          z = sel(-77.0); copyto!(z, x); zb = copy(parent(z)); reads[] = 0
+          @test refused_value(value_and_prox!, z, c, z, γ)
+          @test reads[] == 0 && parent(z) == zb
+        end
+      end
+    end
+  end
+  @testset "level and weight declarations that the value path cannot take" begin
+    box = IndBox(-2.0, 2.0)
+    Us = (Union{Float64, Rational{Int64}}, Union{Float64, Irrational{:π}}, Union{Float64, BigFloat}, Union{Int, Float64},
+          AbstractFloat, Union{Float32, Float64})
+    Ws = (Nothing, Vector{Float64}, Union{Vector{Float64}, Matrix{Float64}}, AbstractVector, Union{Nothing, Vector{Float64}})
+    for S in Us, W in Ws, wv in (nothing, [1.0, 3.0, 1.0])
+      f = try
+        ElasticNet{S, W}(1.0, 0.5, wv)
+      catch
+        nothing
+      end
+      f === nothing && continue
+      c = Constrained(Conjugate(f), box)
+      @test PB._elastic_value_route(c, zeros(3), x, 0.5) === false
+      refusal(c, () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    end
+    # stored levels that are not machine numbers, where the constructor takes them
+    for (S, l) in ((Union{Float64, Rational{Int64}}, (1 // 2, 1 // 3)), (Union{Float64, Irrational{:π}}, (π, 0.5)), (Union{Float64, BigFloat}, (big"1.0", big"0.5")))
+      c = Constrained(Conjugate(ElasticNet{S, Nothing}(l..., nothing)), box)
+      @test PB._elastic_value_route(c, zeros(3), x, 0.5) === false
+      refusal(c, () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    end
+    # a union of two array types that both hold machine numbers is refused as well
+    f = ElasticNet{Float64, Union{Vector{Float64}, Matrix{Float64}}}(1.0, 0.5, [1.0, 3.0, 1.0])
+    @test PB._elastic_value_route(Constrained(Conjugate(f), box), zeros(3), x, 0.5) === false
+    refusal(Constrained(Conjugate(f), box), () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+  end
+  @testset "scalar bounds and steps that are not machine numbers" begin
+    fn = ElasticNet(1.0, 0.5)
+    boxes = (IndBox(big(-2.0), big(2.0)), IndBox(-2 // 1, 2 // 1), IndBox(-2.0, big(2.0)), IndBox(-π, π))
+    for box in boxes
+      c = Constrained(Conjugate(fn), box)
+      @test PB._elastic_value_route(c, zeros(3), x, 0.5) === false
+      refusal(c, () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    end
+    c = Constrained(Conjugate(fn), IndBox(-2.0, 2.0))
+    for γ in (big(0.5), 1 // 2, π, BadReal(0.5))
+      @test PB._elastic_value_route(c, zeros(3), x, γ) === false
+      refusal(c, () -> fill(-7.0, 3), x, γ; mkalias = () -> copy(x))
+    end
+    # a Real that cannot do arithmetic: as a bound or a step it is refused, and nothing is computed with it
+    BAD_OPS[] = 0
+    cb = Constrained(Conjugate(fn), IndBox(BadReal(-2.0), BadReal(2.0)))
+    BAD_OPS[] = 0
+    @test PB._elastic_value_route(cb, zeros(3), x, 0.5) === false
+    refusal(cb, () -> fill(-7.0, 3), x, 0.5; mkalias = () -> copy(x))
+    @test BAD_OPS[] == 0
+  end
+  @testset "array steps" begin
+    for γ in (OffsetVec([0.5, 0.5, 0.5], -1), Real[0.5, 0.25, 1])
+      refusal(c0, () -> fill(-7.0, 3), x, γ; mkalias = () -> copy(x))
+      xs = SparseIterate(sparse(x))
+      refusal(c0, () -> SparseIterate(3), xs, γ)
+    end
+    # the refusal comes from the step alone, with a good output and input: the generic refusal, not a shape error
+    y = fill(-7.0, 3)
+    @test_throws "is not implemented" value_and_prox!(y, c0, x, OffsetVec([0.5, 0.5, 0.5], -1))
+    @test y == fill(-7.0, 3)
+    @test_throws "is not implemented" PB._checkwrite(value_and_prox!, c0, y, x, OffsetVec([0.5, 0.5, 0.5], -1))
+  end
+  @testset "offset bounds in a later block" begin
+    c = Constrained(Conjugate(ElasticNet(1.0, 0.5)), IndBox(OffsetVec([-2.0, -2.0, -2.0], -1), OffsetVec([2.0, 2.0, 2.0], -1)))
+    s = SeparableSum(SqrNormL2(2.0), c)
+    dest = ([7.0], fill(-7.0, 3))
+    @test refused_value(value_and_prox!, dest, s, ([3.0], x), 0.5)
+    @test dest == ([7.0], fill(-7.0, 3))
+  end
+end
+
+# The owner of a symmetric matrix is not an array: as an output or an input of the fused value it is refused, before
+# anything is written, by the generic check of the box.
+@testset "the owner of a symmetric matrix is refused before writing" begin
+  function owner_refusal(c, mkdest, x, γ; mkalias = nothing)
+    y = mkdest()
+    before, xb = snap(y), snap(x)
+    @test refused_value(value_and_prox!, y, c, x, γ)
+    @test isequal(snap(y), before) && isequal(snap(x), xb)
+    # a later block of a sum, the earlier block and the destination unchanged
+    s = SeparableSum(SqrNormL2(2.0), c)
+    dest = ([7.0], mkdest())
+    db = snap(dest[2])
+    @test refused_value(value_and_prox!, dest, s, ([3.0], x), γ)
+    @test dest[1] == [7.0] && isequal(snap(dest[2]), db)
+    if mkalias !== nothing
+      z = mkalias()
+      zb = snap(z)
+      @test refused_value(value_and_prox!, z, c, z, γ)
+      @test isequal(snap(z), zb)
+    end
+  end
+  for T in (Float32, Float64), λ2 in (T(0.7), T(0))
+    M = T[5 1 0; 1 -5 0; 0 0 0.5]
+    N = T[5 2 0; 0 -5 0; 0 1 0.5]
+    W = T[1 2 0; 2 1 1; 0 1 3]
+    box = IndBox(T(-2), T(2))
+    c = Constrained(Conjugate(ElasticNet(T(0.25), λ2)), box)
+    @testset "$T, λ2 = $λ2" begin
+      mk = () -> SymmetricSparseIterate(T, 3)
+      owner_refusal(c, mk, M, 0.5; mkalias = () -> SymmetricSparseIterate(M))                          # output, symmetric input
+      owner_refusal(c, mk, N, 0.5)                                                                      # output, general input
+      owner_refusal(c, mk, SymmetricSparseIterate(M), 0.5; mkalias = () -> SymmetricSparseIterate(M))   # output and input
+      owner_refusal(c, () -> zeros(T, 3, 3), SymmetricSparseIterate(M), 0.5)                            # input only
+      # parameter arrays of an owner output
+      owner_refusal(Constrained(Conjugate(ElasticNet(T(0.25), λ2, W)), box), mk, M, 0.5)
+      owner_refusal(Constrained(Conjugate(ElasticNet(T(0.25), λ2)), IndBox(fill(T(-2), 3, 3), fill(T(2), 3, 3))), mk, M, 0.5)
+    end
+  end
+  # the products that wrapped or rounded in the type of the parameters, on an owner destination
+  h = Float16(0.1)
+  for (λ, λ0, w1, Y1) in ((Int8(100), Int8(0), Int8(2), -77.0), (Float32(1e38), 0f0, Float32(4), 3e38), (h, Float16(0), h, Float64(h)^2)),
+      T in (Float32, Float64)
+    Yt = T(Y1)
+    c = Constrained(Conjugate(ElasticNet(λ, λ0, fill(w1, 1, 1))), IndBox(fill(Yt, 1, 1), fill(Yt, 1, 1)))
+    owner_refusal(c, () -> SymmetricSparseIterate(T, 1), zeros(T, 1, 1), 1.0; mkalias = () -> SymmetricSparseIterate(T, 1))
+  end
+end
+
+# The fixtures above extend no behaviour of Base for other array types: allocation requests with offset axes are
+# answered as in a fresh session, which is run here for comparison.
+@testset "the OffsetVec fixture leaves Base.similar as it is" begin
+  probe = """
+    for T in (Vector{Float64}, Vector{Int}, BitVector, Array{Float32, 1}, typeof(view(zeros(3), 1:2)), Vector{Bool})
+      r = try
+        string(typeof(similar(T, (Base.IdentityUnitRange(1:3),))))
+      catch e
+        string(typeof(e))
+      end
+      println(T, " => ", r)
+    end
+    """
+  fresh = readchomp(`$(Base.julia_cmd()) --startup-file=no -e $probe`)
+  here = join((string(T, " => ", try
+                        string(typeof(similar(T, (Base.IdentityUnitRange(1:3),))))
+                      catch e
+                        string(typeof(e))
+                      end)
+               for T in (Vector{Float64}, Vector{Int}, BitVector, Array{Float32, 1}, typeof(view(zeros(3), 1:2)), Vector{Bool})), "\n")
+  @test here == fresh
+  @test !occursin("OffsetVec", here)
+  # the fixture's own allocation still works: for broadcasts over it and for similar of an instance
+  a, b = OffsetVec([1.0, 2.0], -1), OffsetVec([2.0, 1.0], -1)
+  m = a .<= b
+  @test m isa OffsetVec{Bool} && axes(m) == axes(a) && m.data == [true, false]
+  @test similar(a, Float32, (3,)) isa OffsetVec{Float32}
+  @test all(a .<= OffsetVec([5.0, 5.0], -1))
+  # every method of similar that this file defines has the fixture in its signature
+  mine = filter(m -> m.module === @__MODULE__, collect(methods(similar)))
+  @test length(mine) == 2
+  @test all(m -> occursin("OffsetVec", string(m.sig)), mine)
 end
 
 end

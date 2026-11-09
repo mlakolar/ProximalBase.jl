@@ -22,10 +22,12 @@ isseparable(::Type{ZeroFunction}) = true
 isconvex(::Type{ZeroFunction}) = true
 iszeropreserving(::ZeroFunction) = true
 _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)},
-            f::ZeroFunction, y::AbstractArray, x::AbstractArray) =
+            f::ZeroFunction, y::_ArrayOrOwner, x::_ArrayOrOwner) =
   (_checkreal(f, x); _checkreal(f, y); (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checksize(y, x); true)
 
 (f::ZeroFunction)(x::AbstractArray) = (_checkreal(f, x); zero(_valtype(x)))
+# the value at an owner, which a wrapper of ZeroFunction needs (its other oracles at an owner are the proximal operator)
+(f::ZeroFunction)(x::SymmetricSparseIterate) = (_checkreal(f, x); zero(_valtype(x)))
 
 function prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, ::Real)
   x = _symmetric_argument(y, x)
@@ -35,6 +37,15 @@ function prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, ::Real)
 end
 value_and_prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _prox_unchecked!(y, f, x, γ); zero(_valtype(y)))
+# an owner output takes the symmetric part of the argument, one coordinate at a time: a coordinate that is
+# active stays active (the gradient of ZeroFunction is defined for arrays only)
+function prox!(y::SymmetricSparseIterate, f::ZeroFunction, x::_ArrayOrOwner, ::Real)
+  x = _symmetric_argument(y, x)
+  _checkwrite(prox!, f, y, x)
+  _assign!(y, x)
+end
+value_and_prox!(y::SymmetricSparseIterate, f::ZeroFunction, x::_ArrayOrOwner, γ::Real) =
+  (prox!(y, f, x, γ); zero(_valtype(y)))
 
 function value_and_gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
@@ -74,9 +85,12 @@ isproximable(::Type{<:LinearFunction}) = true
 isseparable(::Type{<:LinearFunction}) = true
 isconvex(::Type{<:LinearFunction}) = true
 
-(f::LinearFunction)(x::AbstractArray) =
+(f::LinearFunction)(x::_ArrayOrOwner) =
   (_check_value_arrays(f, x); _value_checked(f, x))
 _value_unchecked(f::LinearFunction, x::AbstractArray) = (_checkvalue(f, x); _value_at(_linear_value(f, x, dot(f.c, x) + f.d), x))
+# the matrix that the owner represents, whose off-diagonal entries count at both positions
+_value_unchecked(f::LinearFunction, x::SymmetricSparseIterate) =
+  (_checkvalue(f, x); _value_at(_linear_value(f, x, _owner_dot(f.c, x) + f.d), x))
 
 # A dot that overflows, alone or with d, at a representable value is summed
 # again with x in units of 2^k, chosen so that no partial sum can overflow; d
@@ -86,7 +100,7 @@ _value_unchecked(f::LinearFunction, x::AbstractArray) = (_checkvalue(f, x); _val
   (_all_finite(x) && _all_finite(c) && isfinite(d)) || return v
   R = typeof(v)
   E = _max_exponent(R)
-  k = max(0, _bound_exponent(_stored_maxabs(c)) + _bound_exponent(_stored_maxabs(x)) + _log2_ceil(length(x)) + 2 - E)
+  k = max(0, _bound_exponent(_stored_maxabs(c)) + _bound_exponent(_stored_maxabs(x)) + _log2_ceil(_nentries(x)) + 2 - E)
   p = convert(R, _linear_scaled_dot(c, x, _power_factors(R, -k)))
   _pow2_sum(R, (p, k), (convert(R, d), 0))
 end
@@ -115,7 +129,6 @@ _dot_checks_size(::Type{C}, ::Type{X}) where {C, X} =
   (C <: Diagonal && X <: AbstractMatrix) ||
   (C <: AbstractMatrix && X <: Diagonal) ||
   (C <: StridedMatrix && X <: SymmetricSparseIterate) ||
-  (C <: SymmetricSparseIterate && X <: StridedMatrix) ||
   (C <: _SparseDotCSC && X <: Union{_SparseDotCSC, _SparseDotMatrix}) ||
   (C <: _SparseDotMatrix && X <: _SparseDotCSC) ||
   (_SparseWrappedColumnDotChecksSize &&
@@ -130,7 +143,7 @@ _dot_checks_size(::Type{<:Transpose{<:Any, C}}, ::Type{<:Adjoint{<:Any, X}}) whe
 _checkdot(c::C, x::X) where {C, X} = (_dot_checks_size(C, X) ? _checksize(c, x) : _checkparam(c, x))
 _checkvalue(f::LinearFunction, x) = (_checkreal(f, x); _checkdot(f.c, x))
 
-function _checkwrite(op::O, f::LinearFunction, y::AbstractArray, x::AbstractArray) where {O}
+function _checkwrite(op::O, f::LinearFunction, y::_ArrayOrOwner, x::_ArrayOrOwner) where {O}
   _checkreal(f, x)
   _checkreal(f, y)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
@@ -143,7 +156,7 @@ function _checkwrite(op::O, f::LinearFunction, y::AbstractArray, x::AbstractArra
   true
 end
 
-prox!(y::AbstractArray, f::LinearFunction, x::AbstractArray, γ::Real) =
+prox!(y::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
 function _prox_unchecked!(y::AbstractArray, f::LinearFunction, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, y, x)
@@ -158,18 +171,31 @@ function _prox_unchecked!(y::AbstractArray, f::LinearFunction, x::AbstractArray,
   end
   y
 end
+# an owner point and a dense output: the entries of the matrix that the owner represents
+_prox_unchecked!(y::AbstractArray, f::LinearFunction, x::SymmetricSparseIterate, γ::Real) =
+  _prox_unchecked!(y, f, matrixview(x), γ)
+# an owner output: each coordinate once, from the lower entry of the symmetric argument
+function _prox_unchecked!(y::SymmetricSparseIterate, f::LinearFunction, x::_ArrayOrOwner, γ::Real)
+  _checkwrite(prox!, f, y, x)
+  γ = convert(float(eltype(y)), γ)
+  p = y.p
+  @inbounds for c in 1:p, r in c:p
+    _setstored!(y, x[r, c] - γ * f.c[(c - 1) * p + r], tril_index(p, r, c))
+  end
+  y
+end
 
-value_and_gradient!(g::AbstractArray, f::LinearFunction, x::AbstractArray) =
+value_and_gradient!(g::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner) =
   (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
-function _value_and_gradient_unchecked!(g::AbstractArray, f::LinearFunction, x::AbstractArray)
+function _value_and_gradient_unchecked!(g::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner)
   _checkwrite(value_and_gradient!, f, g, x)
   v = _value_unchecked(f, x)
   _copy_parameter!(g, f.c)
   v
 end
-gradient!(g::AbstractArray, f::LinearFunction, x::AbstractArray) =
+gradient!(g::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner) =
   (_check_oracle_arrays(gradient!, f, g, x); _gradient_unchecked!(g, f, x))
-_gradient_unchecked!(g::AbstractArray, f::LinearFunction, x::AbstractArray) =
+_gradient_unchecked!(g::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner) =
   (_checkwrite(gradient!, f, g, x); _copy_parameter!(g, f.c))
 
 Base.@propagate_inbounds prox_entry(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
@@ -210,6 +236,16 @@ gives `2^-700` in `Float64`, where `1/(1 + γλ)` is not a number. The ordinary
 computation runs first, and the recovery is chosen once per call from the
 parameters, except for a `Float64` center entry outside the range of a `Float32`
 model, which is handled for that entry.
+
+For a finite positive level `λ` and a finite positive scalar step `γ`, the proximal
+operator of `Conjugate(SqrNormL2(λ, y))` is `(λ/(λ + γ))(x - γy)`. When the promotion of
+the floating-point types of the output and the input is `Float32` or `Float64`, and so is
+its promotion with those of `λ` and `γ`, it is computed from the significands and
+exponents of its factors, without dividing `x` by the step: `prox!` of `Conjugate(SqrNormL2())` at `[1e300]` with step `1e-10`, where
+`x / γ` overflows, gives about `1e300`. A zero or infinite level, a `BigFloat` level or
+step and any step that is not finite and positive use Moreau's identity instead. The
+conditions, and the case of an output that cannot hold the point, are in
+[`Conjugate`](@ref).
 """
 struct SqrNormL2{T<:Real, Y<:Union{Nothing, AbstractArray}} <: AbstractFunction
   λ::T
@@ -257,7 +293,7 @@ end
 
 # Keep the vectorized sum-of-squares path for ordinary magnitudes; use a
 # scaled norm when squaring overflows or loses the subnormal entries.
-function _norm2(x::AbstractArray)
+function _norm2(x::_ArrayOrOwner)
   eltype(x) <: AbstractFloat || return _norm2_scaled(x)
   s = _sumabs2(x)
   isfinite(s) && s >= floatmin(typeof(s)) && return sqrt(s)
@@ -277,9 +313,11 @@ function _norm2_scaled(x::SymmetricSparseIterate{T}) where {T}
   n
 end
 
-(f::SqrNormL2)(x::AbstractArray) =
+(f::SqrNormL2)(x::_ArrayOrOwner) =
   (_check_value_arrays(f, x); _value_checked(f, x))
-function _value_unchecked(f::SqrNormL2, x::AbstractArray)
+function _value_unchecked(f::SqrNormL2, x::_ArrayOrOwner)
+  # a center is read at every entry of the matrix that the owner represents
+  x isa SymmetricSparseIterate && f.y !== nothing && return _value_unchecked(f, matrixview(x))
   _checkvalue(f, x)
   T = _valtype(x)
   iszero(f.λ) && return zero(T)
@@ -386,21 +424,38 @@ function _ridge_value_wide_center(λ, x, y)
   _exceptional_square_value(λ, x, map(_ridge_round_center32, y), sT, v)
 end
 
-value_and_gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray) =
+value_and_gradient!(g::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner) =
   (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
-function _value_and_gradient_unchecked!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
+function _value_and_gradient_unchecked!(g::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner)
   _checkwrite(value_and_gradient!, f, g, x)
   v = _value_unchecked(f, x)      # before the gradient, which may be written over the center
   _ridge_gradient!(g, f.λ, f.y, x)
   v
 end
-gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray) =
+gradient!(g::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner) =
   (_check_oracle_arrays(gradient!, f, g, x); _gradient_unchecked!(g, f, x))
-function _gradient_unchecked!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
+function _gradient_unchecked!(g::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner)
   _checkwrite(gradient!, f, g, x)
   _ridge_gradient!(g, f.λ, f.y, x)
 end
 
+# an owner point with a dense output: the entries of the matrix that the owner represents
+_ridge_gradient!(g::AbstractArray, λ, c, x::SymmetricSparseIterate) = _ridge_gradient!(g, λ, c, matrixview(x))
+# an owner output: the symmetric part of the entrywise gradient, once per coordinate
+function _ridge_gradient!(g::SymmetricSparseIterate, λ, c, x)
+  W = _model_precision(eltype(g), eltype(x))
+  if _level_fits(W, λ)
+    _ridge_gradient_coordinates!(g, convert(W, λ), c, x)
+  else
+    _ridge_gradient_wide_coordinates!(g, W, convert(promote_type(W, float(typeof(λ))), λ), c, x)
+  end
+  g
+end
+_ridge_gradient_coordinates!(g, l, ::Nothing, x) = _symmetric_coordinates!(g, (v, j) -> l * v, x)
+_ridge_gradient_coordinates!(g, l, c, x) =
+  _symmetric_coordinates!(g, (v, j) -> _ridge_gradient_entry(l, v, @inbounds c[j]), x)
+_ridge_gradient_wide_coordinates!(g, ::Type{W}, l, c, x) where {W} =
+  _symmetric_coordinates!(g, (v, j) -> _ridge_gradient_wide(W, l, v, c === nothing ? zero(W) : @inbounds c[j]), x)
 # gᵢ = λ(xᵢ - cᵢ) in the model precision W of the gradient: the wider of the
 # destination and the argument. λ and c are rounded to W (T3), except where the
 # rounding leaves W's range (R3); an overflowing xᵢ - cᵢ does not hide a finite
@@ -460,9 +515,11 @@ function _ridge_gradient_wide(::Type{W}, l, x, c) where {W}
   isfinite(r) ? r : _ridge_gradient_overflow(R(l), R(x), cw, r)
 end
 
-prox!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real) =
+prox!(z::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(z, x); _check_oracle_arrays(prox!, f, z, x, γ); _prox_unchecked!(z, f, x, γ))
-function _prox_unchecked!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real)
+_prox_unchecked!(z::AbstractArray, f::SqrNormL2, x::SymmetricSparseIterate, γ::Real) =
+  _prox_unchecked!(z, f, matrixview(x), γ)
+function _prox_unchecked!(z::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner, γ::Real)
   _checkwrite(prox!, f, z, x)
   W = _model_precision(eltype(z), eltype(x))
   c = f.y === nothing ? nothing : _checked_parameter(z, f.y)
@@ -473,7 +530,7 @@ function _prox_unchecked!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::
   end
 end
 
-function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::SqrNormL2, y::AbstractArray, x::AbstractArray)
+function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::SqrNormL2, y::_ArrayOrOwner, x::_ArrayOrOwner)
   _checkreal(f, x)
   _checkreal(f, y)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
@@ -628,6 +685,18 @@ end
   W(_ridge_scaled_blend(R(x), R(c), _ridge_scaled(R, promote_type(R, typeof(s.γ))(s.γ), promote_type(R, typeof(s.λ))(s.λ))))
 end
 
+# an owner output: each coordinate once, from the lower entry of the symmetric argument
+_ridge_prox!(z::SymmetricSparseIterate, o::_RidgeOrdinary, x, ::Nothing) =
+  _lower_coordinates!(z, (v, j) -> _ridge_apply(o, v), x)
+_ridge_prox!(z::SymmetricSparseIterate, s::_RidgeScaled, x, ::Nothing) =
+  _lower_coordinates!(z, (v, j) -> _ridge_apply(s, v), x)
+function _ridge_prox!(z::SymmetricSparseIterate, co::Union{_RidgeOrdinary{W}, _RidgeScaled{W}}, x, c) where {W}
+  if _ridge_center_wider(W, eltype(c)) && !_ridge_all_fit(W, c)
+    _lower_coordinates!(z, (v, j) -> _ridge_apply(co, v, @inbounds c[j]), x)
+  else
+    _lower_coordinates!(z, (v, j) -> _ridge_apply_fit(co, v, @inbounds c[j]), x)
+  end
+end
 _ridge_prox!(z, o::_RidgeOrdinary, x, ::Nothing) = (z .= o.a .* x)
 _ridge_prox!(z, s::_RidgeScaled, x, ::Nothing) = (z .= (xi -> _ridge_apply(s, xi)).(x))
 function _ridge_prox!(z, co::Union{_RidgeOrdinary{W}, _RidgeScaled{W}}, x, c) where {W}
@@ -990,7 +1059,7 @@ Base.size(f::KronQuadratic) = size(f.D)
 # Θ is vec(Θ) or a p × q matrix
 _checkshape(f::KronQuadratic, Θ::AbstractVector) = length(Θ) == length(f.D) ||
   throw(DimensionMismatch("Θ has length $(length(Θ)) and f takes $(size(f.D, 1)) × $(size(f.D, 2)) matrices"))
-_checkshape(f::KronQuadratic, Θ::AbstractArray) = size(Θ) == size(f.D) ||
+_checkshape(f::KronQuadratic, Θ::_ArrayOrOwner) = size(Θ) == size(f.D) ||
   throw(DimensionMismatch("Θ has size $(size(Θ)) and f takes $(size(f.D, 1)) × $(size(f.D, 2)) matrices"))
 
 # Θ as a dense matrix in f.D
@@ -1009,7 +1078,7 @@ end
 function _densify!(f::KronQuadratic, Θ::SymmetricSparseIterate)
   _checkshape(f, Θ)
   D = fill!(f.D, 0)
-  @inbounds for k = 1:nnz(Θ)
+  @inbounds for k = 1:Θ.nnz
     r, c = tril_cartesian(Θ.p, Θ.nzval2ind[k])
     D[r, c] = D[c, r] = Θ.nzval[k]
   end
@@ -1018,9 +1087,9 @@ end
 
 _checkvalue(f::KronQuadratic, Θ) = (_checkreal(f, Θ); _checkshape(f, Θ))
 
-(f::KronQuadratic)(Θ::AbstractArray) =
+(f::KronQuadratic)(Θ::_ArrayOrOwner) =
   (_check_value_arrays(f, Θ); _value_checked(f, Θ))
-function _value_unchecked(f::KronQuadratic, Θ::AbstractArray)
+function _value_unchecked(f::KronQuadratic, Θ::_ArrayOrOwner)
   _checkreal(f, Θ)
   D = _densify!(f, Θ)
   mul!(f.AD, f.A, D)
@@ -1030,9 +1099,9 @@ function _value_unchecked(f::KronQuadratic, Θ::AbstractArray)
   _value_at(_kron_checked(f, v, Θ), Θ)
 end
 
-value_and_gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
+value_and_gradient!(G::_ArrayOrOwner, f::KronQuadratic, Θ::_ArrayOrOwner) =
   (_check_oracle_arrays(value_and_gradient!, f, G, Θ); _value_and_gradient_unchecked!(G, f, Θ))
-function _value_and_gradient_unchecked!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray)
+function _value_and_gradient_unchecked!(G::_ArrayOrOwner, f::KronQuadratic, Θ::_ArrayOrOwner)
   _checkwrite(value_and_gradient!, f, G, Θ)
   D = _densify!(f, Θ)
   W = f.W
@@ -1045,7 +1114,7 @@ function _value_and_gradient_unchecked!(G::AbstractArray, f::KronQuadratic, Θ::
   end
   # the part of the gradient that acts on symmetric matrices: also when only the output is symmetric
   (Θ isa SymmetricSparseIterate || G isa SymmetricSparseIterate) && _symmetrize!(W)
-  copyto!(G, W)
+  _store_lower!(G, W)
   _value_at(_kron_checked(f, v, Θ), Θ)
 end
 
@@ -1227,18 +1296,18 @@ function _scale_exponent!(X::AbstractArray, ::Type{T}, k::Int) where {T}
       a = abs(v)
       (iszero(a) || a >= mn) || (mn = a)
     end
-    lossless = mn == typemax(T) || exponent(mn) + k >= exponent(floatmin(T))
+    lossless = mn == typemax(T) || _exponent_sum(T, exponent(mn), k) >= exponent(floatmin(T))
   end
   s = _power_factors(T, k)
   X .= X .* s[1] .* s[2]
   lossless
 end
-gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
+gradient!(G::_ArrayOrOwner, f::KronQuadratic, Θ::_ArrayOrOwner) =
   (_check_oracle_arrays(gradient!, f, G, Θ); _gradient_unchecked!(G, f, Θ))
-_gradient_unchecked!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
+_gradient_unchecked!(G::_ArrayOrOwner, f::KronQuadratic, Θ::_ArrayOrOwner) =
   (_checkwrite(gradient!, f, G, Θ); _value_and_gradient_unchecked!(G, f, Θ); G)
 
-_checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::KronQuadratic, G::AbstractArray, Θ::AbstractArray) =
+_checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::KronQuadratic, G::_ArrayOrOwner, Θ::_ArrayOrOwner) =
   (_checkreal(f, Θ); _checkreal(f, G); _checkgradient_output(G, Θ); _checkshape(f, G); _checkshape(f, Θ))
 
 # (W + W')/2 in place

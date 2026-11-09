@@ -295,39 +295,93 @@ two sections below are the same.
 | `LogDetLoss(S)` with `S` not symmetric | `Symmetric(S, :U)` keeps the old upper-triangle values; `Symmetric(S, :L)` takes the lower |
 | `KronQuadratic(inv(S), …)`, or `A` or `B` symmetric only up to rounding | `inv(Symmetric(S))` or `inv(cholesky(S))`, which are exactly symmetric, or `Symmetric(inv(S), :L)`; `(M + M')/2` for the symmetric part |
 
-## Writes into a `SymmetricSparseIterate` (0.6)
+## The `SymmetricSparseIterate` is not an array (0.6)
 
-A [`SymmetricSparseIterate`](@ref) now accepts only symmetric values. Before
-0.6, the constructor, `copyto!`, broadcasting into it, `axpy!` and `axpby!` kept
-the lower triangle of a matrix that was not symmetric, and `axpy!` and `axpby!`
-reshaped a vector of `p²` entries. `map!`, and `copyto!` from a vector, wrote
-entry by entry, so the upper position won and a shorter source filled a prefix. They now throw an `ArgumentError` for a value whose entries `(r, c)`
-and `(c, r)` differ, and a `DimensionMismatch` for a source without the axes of
-the destination, before writing anything. `copyto!` with offsets or index
-ranges and the indexed `axpy!` throw an `ArgumentError`. `LinearFunction` and
-`Tilt` check their parameter, and `SqrNormL2`, `Translate` and `Precompose`
-with an array their center, shift or scale, the same way when they write into a
-`SymmetricSparseIterate`.
+In 0.5 a [`SymmetricSparseIterate`](@ref) was an `AbstractMatrix`. Julia and
+LinearAlgebra could therefore write it position by position, which does not respect
+the single variable that the positions ``(r, c)`` and ``(c, r)`` share, and the
+package carried a long list of methods that refused or emulated those writes. In 0.6 it
+is not an array, and [Sparse iterates](@ref) names what it has. An operation that is not
+named there has no method for it: the call raises a `MethodError` (a few generic
+functions ask for `axes(x)` first, which throws an `ArgumentError`), and there is no
+list of refused operations to keep. Read the owner through `matrixview(x)` or
+`coordinates(x)`, copy it with `Matrix(x)`, and write it through `x[i, j]`,
+`coordinates(x)`, `copyto!` or the oracles.
 
-Indexed array assignment, broadcasts and `fill!` into part of `x`, and the
-position-wise mutators listed in the [`SymmetricSparseIterate`](@ref)
-docstring, now throw an `ArgumentError` before writing. Whole, in-order
-indexed assignments, view and reshape broadcasts, transposition and
-permutation use the symmetry checks too. Before 0.6, these calls could store
-the upper position, update an off-diagonal entry twice, or write outside a
-view. Use scalar writes over the lower triangle, or compute into a dense
-matrix and `copyto!` a symmetric result.
+The values that remain writable are checked. The constructor and `copyto!(x, A)` accept
+only a real matrix of the shape of `x` whose entries `(r, c)` and `(c, r)` are equal,
+that does not share memory with `x`, and throw an `ArgumentError` or a
+`DimensionMismatch` before writing anything. Before 0.6, the constructor, `copyto!`,
+broadcasting, `axpy!` and `axpby!` kept the lower triangle of a matrix that was not
+symmetric, and `map!` and `copyto!` from a vector wrote entry by entry, so that the upper
+position won. `LinearFunction` and `Tilt` check their parameter, and `SqrNormL2`,
+`Translate` and `Precompose` with an array their center, shift or scale, the same way when
+they write into a `SymmetricSparseIterate`.
 
-| Before 0.6 | Now |
+The operations of 0.5 and what replaces them follow. `matrixview(x)` is an ordinary
+read-only matrix and `coordinates(x)` an ordinary vector; `Matrix(x)` is writable dense
+storage.
+
+| 0.5 | 0.6 |
 |:---|:---|
-| `SymmetricSparseIterate(A)`, `copyto!(x, A)` or `x .= A` with `A` not symmetric | `Symmetric(A, :L)` in place of `A` keeps the old lower-triangle values |
+| `x[k]`, to read a variable | `coordinates(x)[k]`; `x[k]` is an `ArgumentError`, because it could mean a variable or a matrix linear index |
+| reading or iterating the matrix: `x[:, j]`, `sum(x)`, `map(f, x)`, `x .+ 1`, `eachindex(x)`, `view(x, I, J)`, `vec(x)`, `reshape(x, ...)`, `iterate(x)` | the same call on `matrixview(x)` (an allocating result is an ordinary dense array) |
+| `length(x)` | `size(x, 1)` for ``p``; `length(coordinates(x))` or `ncoordinates(x)` for the ``p(p+1)/2`` variables |
+| `nnz(x)` | `nactive(x)` when the size of the working set is meant; otherwise count the nonzeros of `Matrix(x)` |
+| `fill!(x, 0)` | `fill!(coordinates(x), 0); dropzeros!(x)` (the first call keeps the active variables, the second removes them) |
+| `fill!(x, v)` or `x .= v` for a number `v` | `fill!(coordinates(x), v)` |
+| `x.nzval`, the stored values | `activevalues(x)`, paired with `activecoordinates(x)` |
+| `Matrix(x)`, writable dense storage | unchanged |
+| `sparse(x)`, `triu(x, k)`, `tril(x, k)` | `sparse(matrixview(x))`, `triu(matrixview(x), k)`, `tril(matrixview(x), k)`: sparse matrices of the active variables, in ``O(\mathrm{nactive}(x))`` |
+| `rmul!(x, s)`, `lmul!(s, x)`, `rdiv!(x, s)`, `ldiv!(s, x)` by a number `s` | `rmul!(coordinates(x), s)`, `lmul!(s, coordinates(x))`, `rdiv!(coordinates(x), s)`, `ldiv!(s, coordinates(x))`: ordinary operations on the vector of the ``p(p+1)/2`` variables, which follow IEEE arithmetic. A scale that maps an absent coordinate to a nonzero value (`Inf`, `NaN`, a zero divisor) stores that value and so activates the coordinate: `x = SymmetricSparseIterate(2); rmul!(coordinates(x), Inf)` changes `nactive(x)` from 0 to 3 and stores three `NaN`s. A finite multiplier or a finite nonzero divisor leaves the active set as it is. A handle taken before the call (`activecoordinates(x)`, `activevalues(x)`) does not follow the change: call them again |
+| `mul!(x, A, B)`, `mul!(x, A, s)`, `mul!(x, tA, tB, A, B, α, β)`, `lmul!(D, x)`, `rmul!(x, D)`, `ldiv!(F, x)` | compute into a dense matrix and `copyto!(x, C)` when a symmetric import is meant: `C = A * B; copyto!(x, C)` |
+| `x .= A`, `x[:, :] = A`, `view(x, :, :) .= A`, `transpose!(x, A)`, `copy!(x, A)`, assignment of the matrix `A` | `copyto!(x, A)` with a symmetric `A`; `Symmetric(A, :L)` in place of `A` keeps the lower-triangle values that the 0.5 methods kept |
+| `map!(f, x, A)`, `axpy!(α, A, x)`, `axpby!(α, A, β, x)`: these compute a result from `A` and, for the last two, from the previous value of `x` | compute the result in a dense matrix and import it, with a symmetric `A`: `C = map(f, A); copyto!(x, C)`, `C = α .* A .+ Matrix(x); copyto!(x, C)`, `C = α .* A .+ β .* Matrix(x); copyto!(x, C)`. `copyto!(x, A)` alone would store `A` and lose `f`, `α` and the old `x` |
 | a matrix symmetric only up to rounding, such as `X' * (w .* X)` or `inv(S)` | symmetrize it, or compute it exactly symmetric: `inv(cholesky(S))`, `inv(Symmetric(S))` |
-| `copyto!(x, v)`, `map!(f, x, v)` or `axpy!(α, v, x)` with a vector `v` of `p²` entries | `reshape(v, p, p)`, which must be symmetric |
-| `x[:, :] = A`, `view(x, :, :) .= A` or `transpose!(x, A)` with `A` not symmetric | `Symmetric(A, :L)` in place of `A` |
-| `x[i, :] = v`, `x[I, J] = A` or `view(x, I, J) .= …` writing part of `x` | scalar writes over the lower triangle, or a whole symmetric matrix |
-| `cumsum(x; dims)`, `reverse(x)`, `triu!(x)`, `lu!(x)`, `sum!(x, A)`, `lmul!(D, x)` and the other rejected operations listed in the docstring | apply them to `Matrix(x)`, or compute into a dense matrix and `copyto!` a symmetric result |
-| `mul!(x, v, s)` with a vector `v` of `p²` entries | `reshape(v, p, p)`, which must be symmetric |
-| `copyto!(x, itr)` from a tuple or a generator | `copyto!(x, reshape(collect(itr), p, p))`, which must be symmetric |
+| `copyto!(x, v)` with a vector `v` of `p²` entries | `copyto!(x, reshape(v, p, p))`, which must be symmetric |
+| `map!(f, x, v)` or `axpy!(α, v, x)` with a vector `v` of `p²` entries | the dense computation, then the import: `copyto!(x, reshape(map(f, v), p, p))`, `copyto!(x, reshape(α .* v, p, p) .+ Matrix(x))`; the result must be symmetric |
+| `x[i, :] = v`, `x[I, J] = A`, `copyto!` with offsets or ranges, `copyto!(x, itr)` from a tuple or a generator | scalar pair writes over the lower triangle, or one whole symmetric matrix |
+| `replace(x, ...)`, `replace!`, `cumsum(x; dims)`, `reverse(x)`, `triu!(x)`, `lu!(x)`, `sum!(x, A)`, `sort(x)`, `lu(x)` | apply them to `Matrix(x)`, or compute into a dense matrix and `copyto!` a symmetric result |
+| `x == y`, `isequal(x, y)`, `hash(x)` of two owners | unchanged in meaning: they compare the matrices. `x == Matrix(x)`, which was `true`, is now `false`, and there is no `isapprox(x, y)`: compare `Matrix(x)` or `matrixview(x)` |
+| `copy(x)`, `copyto!(y, x)`, `similar(x)` | unchanged: a state copy, a state replacement and an empty owner; `copy!(y, x)` is a `MethodError`, write `copyto!(y, x)` |
+| `axes(x)` | an `ArgumentError`; use `size(x)`, `coordinates(x)` or `axes(matrixview(x))` |
+
+For example, to reset an owner to the empty working set and to copy its sparse pattern:
+
+```@example owner_migration
+using ProximalBase, SparseArrays, LinearAlgebra
+
+x = SymmetricSparseIterate(4)
+x[3, 1] = 2.0
+x[4, 4] = 5.0
+p, q = size(x, 1), ncoordinates(x)
+@assert (p, q) == (4, 10) && length(coordinates(x)) == q
+@assert coordinates(x)[tril_index(p, 3, 1)] == x[3, 1] == x[1, 3] == 2.0
+
+S = sparse(matrixview(x))                       # was sparse(x)
+@assert nnz(S) == 3 && S == sparse(Matrix(x))
+
+C = Matrix(x) * Matrix(x)                       # was mul!(x, ...): a dense product, then a checked import
+@assert C == transpose(C)                       # exactly symmetric here; otherwise the import refuses it
+copyto!(x, C)
+@assert x[1, 1] == 4.0 && x[4, 4] == 25.0
+
+fill!(coordinates(x), 0)                        # was fill!(x, 0)
+dropzeros!(x)
+@assert nactive(x) == 0 && all(iszero, Matrix(x))
+
+A = [1.0 2.0; 2.0 3.0]
+y = SymmetricSparseIterate(ones(2, 2))
+copyto!(y, map(v -> 2v, A))                     # was map!(v -> 2v, y, A): the result, then the import
+@assert Matrix(y) == [2.0 4.0; 4.0 6.0]
+y = SymmetricSparseIterate(ones(2, 2))
+copyto!(y, 2 .* A .+ Matrix(y))                 # was axpy!(2, A, y)
+@assert Matrix(y) == [3.0 5.0; 5.0 7.0]
+
+z = SymmetricSparseIterate(2)
+rmul!(coordinates(z), Inf)                      # was rmul!(z, Inf): the NaNs of 0 * Inf are nonzero, so they activate
+@assert nactive(z) == 3 && all(isnan, coordinates(z))
+```
 
 ## Per-entry parameters on a `SymmetricSparseIterate` (0.6)
 
@@ -348,8 +402,8 @@ The linked operation table explains which symmetric arguments trigger checks.
 | Spectral `prox!` read the upper triangle of a dense argument that is not symmetric | It decomposes the symmetric part, for dense outputs too |
 | `gradient!` and `hessian_vec!` of `KronQuadratic` into a symmetric output threw at a dense point that is not symmetric | They write the symmetric part of the result |
 | Values did not check parameter symmetry | Symmetric inputs trigger checks of stored pairs or all pairs, depending on the computation |
-| Gradients and gradient mappings did not check parameter symmetry | Symmetric outputs trigger checks; gradient mappings check both functions |
-| Hessian products and quadratic models did not check parameter symmetry | A symmetric point triggers full parameter validation, even with a dense Hessian-product output |
+| Gradients did not check parameter symmetry | A symmetric output or point triggers checks, also for the allocating `gradient` and `value_and_gradient` of an owner point; `gradient_mapping` has no method for an owner: pass `Matrix(x)` |
+| Hessian products and quadratic models did not check parameter symmetry | A symmetric point triggers full parameter validation, even with a dense Hessian-product output, and a symmetric Hessian-product output triggers it even at a dense point |
 | Coordinate curvature calls did not check parameter symmetry | Symmetric `L` in `coordinate_lipschitz!` triggers full validation |
 | Symmetric coordinate steps read the lower-triangle parameter without comparing its mirror | `prox_coordinate!` checks the pair at the chosen coordinate |
 | Four-argument `kkt_violation` read the lower entry of `g` | It uses the symmetric part at the chosen pair and checks that parameter pair; `+Inf` and `-Inf` at that pair throw `ArgumentError` |
@@ -367,7 +421,7 @@ overflow. For extension declarations and public oracle overrides, see
 mutation; reconstruct functions when their parameter documentation requires it.
 
 These parameter checks complement the checks on values written into an
-iterate. See [Writes into a `SymmetricSparseIterate` (0.6)](@ref).
+iterate. See [The `SymmetricSparseIterate` is not an array (0.6)](@ref).
 
 ## Coordinate operations of a nonseparable `MoreauEnvelope` (0.6)
 
@@ -419,8 +473,7 @@ For example, take `x = SparseIterate(4); x[1] = 1; activate!(x, 2)`.
 It now gives `[Inf, NaN, NaN, NaN]` with active coordinates `[1, 2, 3, 4]`.
 
 Finite multipliers and finite nonzero divisors still cost `O(nnz)` and give
-the same results as before. `SymmetricSparseIterate` keeps the earlier
-behavior for now.
+the same results as before.
 
 ## Complex values written into a `SparseIterate` or an `AtomIterate` (0.6)
 
@@ -436,6 +489,28 @@ nonzero imaginary part and accepted `fill!(x, 1 + 0im)` and `fill!(x, 0im)`.
 matrix `SparseIterate` are checked too. Before 0.6, a complex one with zero
 imaginary parts, such as `(1 + 0im) * I`, was accepted, and one with a nonzero
 imaginary part wrote `x` before it failed.
+
+A broadcast into either type checks its result as well as its leaves. A result
+known to be complex from the types, such as `x .= complex.(a, b)`, throws an
+`ArgumentError`, and so does a result of another non-real type (a `Union` with a
+complex member, `Any`, `Number`) with a complex element, after it has been
+evaluated and before anything is written. Before, such a broadcast accepted a
+complex result with zero imaginary parts, or threw an `InexactError` after the
+earlier entries had been written. `copyto!(x, y)` from an array of abstract
+element type is not a broadcast and still converts entry by entry.
+
+`copyto!(x, Q)` from an orthogonal factor into a matrix `SparseIterate` now
+materializes `Q`, a lazy factorization and not a dense matrix, into a dense
+temporary of the element type of `x` and writes it as an ordinary value write:
+active zero slots may remain active. For `QRCompactWYQ`, `LQPackedQ` and
+`HessenbergQ` factors (`qr(A).Q`, `lq(A).Q`, `hessenberg(A).Q`) it used to
+overwrite `x` with the identity and then throw a `MethodError`; `QRPackedQ`
+(`qr(A, ColumnNorm()).Q`) worked. Now a complex factor, a size mismatch, a
+failed materialization or a failed conversion throws before `x` is written. The
+temporary is deliberate. The write uses the full `size(Q)` matrix, which can be larger than
+`Matrix(Q)`: for a tall QR factor, `qr(randn(4, 3)).Q` has size 4x4 while `Matrix(Q)`
+is 4x3. For speed, pass the full dense matrix `lmul!(Q, Matrix{T}(I, size(Q)))` with
+`T = eltype(Q)`.
 
 Writes through a view, through `vec` of a matrix or a `reshape` to another
 shape, and through `atom(x, k)` keep Base's conversion: a complex value throws
@@ -561,4 +636,30 @@ multiply the dense array: `A * Vector(x)`. Products that ProximalBase does not
 define, such as `sparse(A) * x`, products of objects built from an iterate,
 such as `view(x, :)`, `coordinates(x)` and `atom(x, k)`, and scaling by a number
 follow IEEE arithmetic and are unchanged. The products of a
-`SymmetricSparseIterate` keep the earlier behavior for now.
+`SymmetricSparseIterate` follow the same rule: `mul!` and `*` with a vector or a matrix,
+`dot(a, X, b)`, and `dot` with a strided matrix skip a zero coefficient, stored or not;
+a matrix product through `matrixview(x)` is the dense product of `Matrix(x)`, and a
+product with a vector through the view follows the rule.
+
+## `IndBallL0` on a symmetric matrix counts entries (0.6)
+
+`IndBallL0(s)` on a `Symmetric` matrix or a `SymmetricSparseIterate` used to count the
+entries of one triangle, so that a nonzero off-diagonal pair cost one unit of `s`. It now
+counts the entries of the matrix: a nonzero diagonal entry costs one unit and a nonzero
+off-diagonal pair costs two, so the set is `d + 2e ≤ s` for `d` nonzero diagonal entries
+and `e` nonzero pairs, and with `diagonal = false` it is `2e ≤ s`. The projection is the
+Frobenius projection onto the new set: a diagonal entry competes by saving
+`xᵢᵢ²` for one unit and a pair by saving `2xᵢⱼ²` for two. The ranking inside the diagonal
+entries and inside the pairs is exact for `Float32` and `Float64` entries (other element types are ranked
+after conversion to the working float type: `Float64` for fixed-width integers and the rationals based on them, `BigFloat` for `BigInt`-based types); the number of pairs kept
+maximizes the saved squared error up to the rounding of the sums of squares in the comparison, so a
+difference below that rounding can be decided either way. The value at the same point
+changes too: `Symmetric([0 4; 4 0])` is in the set of `IndBallL0(2)` and no longer in that
+of `IndBallL0(1)`, whose projection is zero.
+
+With `diagonal = false` the translation is exact: a budget of `s_pairs` pairs of the old
+count is `s_entry = 2 * s_pairs`. With a counted diagonal there is no fixed rescaling, since
+the diagonal entries cost one unit each and the pairs two; retune `s`. The storage does not
+change the budget: a `SymmetricSparseIterate`, its `matrixview` and a dense `Symmetric` of
+the same matrix have the same set, and explicit zeros count as zero. Arrays that are not
+symmetric matrices, vectors and general matrices, are unchanged.

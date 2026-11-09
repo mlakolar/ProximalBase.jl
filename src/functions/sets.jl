@@ -16,35 +16,60 @@
     IndBallL0(s; diagonal = true)
 
 The indicator of the arrays with at most `s` nonzero entries, nonconvex. Its
-proximal operator keeps the `s` entries of largest magnitude (exactly `s` when
-there are ties) and sets the others to zero: a selection in O(n) expected time
-(Floyd and Rivest's algorithm), without allocating, and in O(nnz) on a
+proximal operator keeps the `s` entries of largest magnitude (exactly `s` of the
+nonzero ones when there are more, ties included) and sets the others to zero: a selection in O(n) expected time
+(Floyd and Rivest's algorithm), reusing a scratch buffer, and in O(nnz) on a
 [`SparseIterate`](@ref). The projection does not depend on the step `γ`, which
 may be any scalar in `[0, Inf]`; a negative or NaN step throws an `ArgumentError`
 before anything is written.
 
-For a symmetric matrix, a `Symmetric` or a [`SymmetricSparseIterate`](@ref),
-`s` counts the entries of one triangle, so that an entry and its transpose are
-kept or dropped together, and the result is symmetric; the output may be a
-dense matrix or a `SymmetricSparseIterate`. The result is the projection in the
-Frobenius norm: an off-diagonal entry stands for a pair, whose removal costs
-twice its square, so it competes with the diagonal by `√2|xᵢⱼ|`. With
-`diagonal = false`, the diagonal of a matrix does not count and is kept, as for
-the off-diagonal sparsity of a precision matrix:
+For a symmetric matrix, a `Symmetric` or a [`SymmetricSparseIterate`](@ref), `s` counts the entries of
+the matrix itself: with `d` nonzero diagonal entries and `e` nonzero off-diagonal pairs (an entry and its
+transpose, `xᵢⱼ = xⱼᵢ`), the set is `d + 2e ≤ s`. A counted diagonal entry costs one unit of `s` and a pair
+two. With `diagonal = false` the diagonal does not count and is kept, and the set is `2e ≤ s`, as for the
+off-diagonal sparsity of a precision matrix:
 
 ```julia
 prox!(S, IndBallL0(s; diagonal = false), Symmetric(Θ, :L))   # S::SymmetricSparseIterate
 ```
 
-A NaN entry is undefined (E2 in the numerical contract). Let `m` be the number of entries that
-count (a mirrored pair counts once, and the diagonal of a matrix does not count with
-`diagonal = false`). For `0 < s < m` a NaN in a counted entry makes every counted output NaN, and
-so is the value `value_and_prox!` returns for it; a free diagonal is copied. For `s ≥ m` the
-projection is the identity, NaN included, and its value is `0`. For `s = 0` the projection is zero
-whatever the argument and its fused value is `0`. The value of the function at an argument with a
-NaN in a counted entry is NaN for every `s < m`, since the argument may or may not be in the set.
-When the NaN block is written into an output of integer element type, the `InexactError` is thrown
-before anything is written.
+Explicit and implicit zeros, of either sign, are zero, so the count is that of a dense matrix and of a
+`SymmetricSparseIterate` alike; the value at an owner reads its stored coefficients only. The output is
+symmetric and may be a dense matrix or a `SymmetricSparseIterate`.
+
+The result is the projection in the Frobenius norm. Keeping a nonzero diagonal entry costs one unit of `s`
+and saves `xᵢᵢ²` of the squared error, and keeping a nonzero pair costs two units and saves `2xᵢⱼ²`. The
+projection keeps the `d` diagonal entries of largest magnitude and the `e` pairs of largest magnitude, for
+the `e` with `d = min(D, s - 2e)` at which the saving is largest (`D` is the number of nonzero counted
+diagonal entries); with `diagonal = false` it keeps the `min(E, fld(s, 2))` nonzero pairs of largest magnitude
+(`E` is the number of nonzero pairs; a larger budget leaves the matrix unchanged). Within
+diagonal entries, and within pairs, a tie in magnitude is broken for the entry earlier in the lower
+triangle read by columns, and between two choices of `e` with equal saving the one with the smaller `e` is
+taken. The ranking inside the diagonal entries, and inside the pairs, is exact for `Float32` and `Float64`
+entries, whose magnitudes the working type represents exactly; other element types are ranked after
+conversion to the working float type (`Float64` for fixed-width integers and the rationals based on them, `BigFloat` for `BigInt`-based types, the type itself for other floats). The
+number of pairs kept is chosen by comparing the savings in floating point, with the squares formed from
+magnitudes scaled by a power of two so that the largest finite one is at most 1 (they cannot overflow;
+`Float32` sums in `Float64`): the choice is a maximizer of the saved squared error up to the rounding of the
+sums of squares in that comparison (of the converted magnitudes for the other element types), so that a
+difference below that rounding can be decided either way. An infinite entry is a limit of finite magnitudes: it
+is kept in preference to any finite one, the choices compared first by the weight of the infinite entries
+they keep (one for a diagonal entry, two for a pair) and then by the finite saving. The cost is O(p²) for
+the selection plus a sort of the kept candidates; for `Float32` or `Float64` entries, a repeated call whose
+scratch buffer (cached in the function, and grown only when a call needs more room) is large enough does not
+allocate, while a call that needs a larger buffer and other element types such as `BigFloat` can allocate.
+
+A NaN entry is undefined (E2 in the numerical contract). Let `m` be the largest number of entries that
+count: `p²` for a symmetric `p × p` matrix (`p(p - 1)` with `diagonal = false`, where the diagonal does not
+count); for any other array, the number of its entries that count (its length, less the diagonal of a matrix
+with `diagonal = false`). For `0 < s < m` a NaN in a counted entry makes every counted
+output NaN, and so is the value `value_and_prox!` returns for it; a free diagonal is copied. For `s ≥ m`
+the projection is the identity, NaN included, and its value is `0` (`s` is compared with `m` without
+overflow for any `p`). For `s = 0` the counted block of the projection is zero (a free diagonal is kept, NaN included) and its fused
+value is `0`.
+The value of the function at an argument with a NaN in a counted entry is NaN for every `s < m`, since the
+argument may or may not be in the set. When the NaN block is written into an output of integer element type,
+the `InexactError` is thrown before anything is written.
 """
 struct IndBallL0 <: AbstractFunction
   s::Int
@@ -145,7 +170,10 @@ end
 
 # the number of entries that count: one per coordinate, a free diagonal excluded
 _ncounted(f::IndBallL0, x::AbstractArray) = _allcount(f, x) ? length(x) : length(x) - min(size(x, 1), size(x, 2))
-_ncounted_symmetric(f::IndBallL0, p::Integer) = f.diagonal ? div(p * (p + 1), 2) : div(p * (p - 1), 2)
+
+# The largest full count of a symmetric p × p matrix: every diagonal entry counts one and every off-diagonal
+# pair two, so p² with a counted diagonal and p(p - 1) without. In Int128, so that p² cannot overflow Int.
+_ncounted_symmetric(f::IndBallL0, p::Integer) = (q = Int128(p); f.diagonal ? q * q : q * (q - 1))
 
 # E2: with 0 < s < m counted entries, a NaN in one decides whether the point is in the set and which
 # entries are kept, so every counted output and the value depend on it; s ≥ m is the identity and
@@ -160,17 +188,45 @@ function (f::IndBallL0)(x::AbstractArray)
   nan ? convert(T, NaN) : _ind(nz <= f.s, T)
 end
 
-# the entries of the lower triangle of a symmetric matrix, the diagonal unless
-# it does not count
-function (f::IndBallL0)(x::Union{Symmetric, SymmetricSparseIterate})
+# A symmetric matrix counts its full logical entries: a nonzero diagonal entry counts one (unless the
+# diagonal is free) and a nonzero off-diagonal pair counts two. The entries are read from the lower triangle.
+(f::IndBallL0)(x::Symmetric) = _symmetric_l0_value(f, x)
+(f::IndBallL0)(x::SymmetricSparseIterate) = _symmetric_l0_value(f, x)
+function _symmetric_l0_value(f::IndBallL0, x)
   _checkreal(f, x)
   p = checksquare(x)
   T = _valtype(x)
   f.s >= _ncounted_symmetric(f, p) && return zero(T)     # the whole space
   k, nan = 0, false
-  @inbounds for c in 1:p, r in (f.diagonal ? c : c + 1):p
-    v = x[r, c]
-    k += !iszero(v)
+  @inbounds for c in 1:p
+    if f.diagonal
+      v = x[c, c]
+      k += !iszero(v)
+      nan |= isnan(v)
+    end
+    for r in c + 1:p
+      v = x[r, c]
+      k += 2 * !iszero(v)
+      nan |= isnan(v)
+    end
+  end
+  nan ? convert(T, NaN) : _ind(k <= f.s, T)
+end
+# the stored coefficients hold every nonzero entry: no implicit zero is read
+function _symmetric_l0_value(f::IndBallL0, x::SymmetricSparseIterate)
+  _checkreal(f, x)
+  T = _valtype(x)
+  f.s >= _ncounted_symmetric(f, x.p) && return zero(T)   # the whole space
+  k, nan = 0, false
+  @inbounds for j in 1:x.nnz
+    v = x.nzval[j]
+    r, c = tril_cartesian(x.p, x.nzval2ind[j])
+    if r == c
+      f.diagonal || continue
+      k += !iszero(v)
+    else
+      k += 2 * !iszero(v)
+    end
     nan |= isnan(v)
   end
   nan ? convert(T, NaN) : _ind(k <= f.s, T)
@@ -319,65 +375,191 @@ function _direct_prox!(y::SparseIterate{<:Any, 1}, f::IndBallL0, x::SparseIterat
   false
 end
 
-# a symmetric matrix: the entries of the lower triangle, each counted once and
-# written to both triangles of a dense output
-function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSparseIterate}, γ::Real)
+# A symmetric matrix, written to both triangles of a dense output and to the lower triangle of an owner.
+# The set counts full entries: a nonzero diagonal entry costs 1 of the budget s and a nonzero off-diagonal
+# pair 2. Keeping a diagonal entry saves x_ii² of the squared error and keeping a pair saves 2x_ij², so the
+# projection chooses the d diagonal entries and e pairs with d + 2e ≤ s that save the most: the d largest
+# diagonal entries and the e largest pairs by magnitude, for the e at which the total is largest.
+function prox!(y::AbstractMatrix, f::IndBallL0, x::Symmetric, γ::Real)
   _checkstep_nonneg(γ)
   _checkwrite(prox!, f, y, x)
   _direct_prox!(y, f, x)
   y
 end
-function _direct_prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSparseIterate})
+function _direct_prox!(y::AbstractMatrix, f::IndBallL0, x::Symmetric)
   p = checksquare(x)
   T = float(eltype(x))
-  first_row(c) = f.diagonal ? c : c + 1
-  w = sqrt(T(2))
-  buf = _buffer!(f.scratch, T, div(p * (p + 1), 2))
-  k = 0
-  nz = 0
-  nan = false
-  @inbounds for c in 1:p, r in first_row(c):p
-    a = _pairweight(f, r, c, w) * abs(x[r, c])
-    k += 1
-    buf[k] = a
-    nz += !iszero(a)
-    nan |= isnan(a)
+  A = T === Float32 ? Float64 : T           # the type of the sums of squares
+  s = f.s
+  m = _ncounted_symmetric(f, p)
+  if s >= m                                 # the whole space: the identity, NaN included
+    _l0_write_identity!(y, x, p)
+    return false
   end
-  if _nan_block_applies(f, nan, k)        # E2: every coordinate that counts is NaN; a free diagonal is kept
+  # the counts of the nonzero diagonal entries and pairs, a NaN in a counted entry, and the largest finite magnitude
+  D, E, nan, M = 0, 0, false, zero(A)
+  @inbounds for c in 1:p
+    if f.diagonal
+      v = x[c, c]
+      D += !iszero(v)
+      nan |= isnan(v)
+      a = abs(A(v))
+      (isfinite(a) & (a > M)) && (M = a)
+    end
+    for r in c + 1:p
+      v = x[r, c]
+      E += !iszero(v)
+      nan |= isnan(v)
+      a = abs(A(v))
+      (isfinite(a) & (a > M)) && (M = a)
+    end
+  end
+  if nan && 0 < s < m                       # E2: every coordinate that counts is NaN; a free diagonal is kept
     nanv = convert(eltype(y), NaN)
     @inbounds for c in 1:p, r in c:p
       _set_symmetric!(y, !f.diagonal && r == c ? x[r, c] : nanv, r, c)
     end
     return true
   end
-  τ = nz <= f.s ? -one(T) : f.s == 0 ? T(Inf) : _kth_largest!(view(buf, 1:k), f.s)
-  ties = f.s
-  if nz > f.s
-    @inbounds for c in 1:p, r in first_row(c):p
-      ties -= _pairweight(f, r, c, w) * abs(x[r, c]) > τ
+  if D + 2E <= s                            # in the set
+    _l0_write_identity!(y, x, p)
+    return false
+  end
+  if !f.diagonal                            # the diagonal is kept; the fld(s, 2) pairs of largest magnitude
+    kp = s ÷ 2
+    τ, ties = zero(A), 0
+    if kp > 0
+      buf = _buffer!(f.scratch, A, E)
+      _l0_gather_pairs!(buf, x, p, A)
+      τ = _kth_largest!(view(buf, 1:E), kp)
+      ties = kp - _l0_count_above(buf, E, τ)
+    end
+    _l0_write_selected!(y, f, x, p, A, 0, τ, 0, kp, τ, ties)
+    return false
+  end
+  Kd, Kp = min(D, s), min(E, s ÷ 2)
+  sh = M > 0 ? exponent(M) + 1 : 0          # the squares are formed from magnitudes at most 1, so they cannot overflow
+  buf = _buffer!(f.scratch, A, D + E + Kd + 1)
+  bd, bp, pre = view(buf, 1:D), view(buf, D + 1:D + E), view(buf, D + E + 1:D + E + Kd + 1)
+  if Kd > 0
+    _l0_gather_diagonal!(bd, x, p, A)
+    Kd < D && _kth_largest!(bd, Kd)
+    sort!(view(bd, 1:Kd); rev = true, alg = QuickSort)
+  end
+  if Kp > 0
+    _l0_gather_pairs!(bp, x, p, A)
+    Kp < E && _kth_largest!(bp, Kp)
+    sort!(view(bp, 1:Kp); rev = true, alg = QuickSort)
+  end
+  # prefix sums of the squares of the diagonal entries, an infinite one standing for a weight and no square
+  pre[1] = zero(A)
+  Id = 0
+  @inbounds for i in 1:Kd
+    a = bd[i]
+    Id += isinf(a)
+    pre[i + 1] = pre[i] + _l0_square(a, sh)
+  end
+  Ie = 0
+  @inbounds for i in 1:Kp
+    Ie += isinf(bp[i])
+  end
+  # the candidates e = 0, ..., Kp pairs with d = min(D, s - 2e) diagonal entries, compared by the weight of the
+  # infinite entries kept and then by the saving; the smaller e wins a tie
+  beste, bestw, bestsav = 0, -1, zero(A)
+  Q = zero(A)
+  @inbounds for e in 0:Kp
+    e > 0 && (Q += _l0_square(bp[e], sh))
+    d = min(D, s - 2e)
+    w = min(d, Id) + 2 * min(e, Ie)
+    sav = pre[d + 1] + 2 * Q
+    if w > bestw || (w == bestw && sav > bestsav)
+      beste, bestw, bestsav = e, w, sav
     end
   end
-  @inbounds for c in 1:p, r in c:p
-    v = x[r, c]
-    if !f.diagonal && r == c
-      keep = true
-    else
-      a = _pairweight(f, r, c, w) * abs(v)
-      keep = nz <= f.s || a > τ || (a == τ && ties > 0)        # nz ≤ s: the identity, NaN included
-      keep && a == τ && (ties -= 1)
-    end
-    _set_symmetric!(y, keep ? v : zero(v), r, c)
-  end
+  e = beste
+  d = min(D, s - 2e)
+  τd = d > 0 ? bd[d] : zero(A)
+  τp = e > 0 ? bp[e] : zero(A)
+  td = d - _l0_count_above(bd, d, τd)
+  tp = e - _l0_count_above(bp, e, τp)
+  _l0_write_selected!(y, f, x, p, A, d, τd, td, e, τp, tp)
   false
 end
 
-# the weight of entry (r, c) in the selection: when the diagonal counts, an
-# off-diagonal entry stands for the pair (r, c), (c, r), whose removal costs
-# twice its square in the Frobenius norm; with a free diagonal every counted
-# entry is off the diagonal, and the weight is 1
-@inline _pairweight(f::IndBallL0, r, c, w) = f.diagonal && r != c ? w : one(w)
+# the magnitude of v in the type A of the sums: the ranking inside a class uses it unscaled, so that no
+# entry is lost to underflow; only the squares in the sums are formed from magnitudes scaled by 2^-sh
+@inline _l0_mag(::Type{A}, v) where {A} = abs(A(v))
+@inline _l0_square(a, sh::Int) = isinf(a) ? zero(a) : (b = ldexp(a, -sh); b * b)
 
-@inline _set_symmetric!(y::SymmetricSparseIterate, v, r, c) = _setstored!(y, v, tril_index(y.p, r, c))
+# the magnitudes of the nonzero diagonal entries, and of the nonzero pairs, in the order of the
+# lower triangle by columns
+function _l0_gather_diagonal!(buf, x, p::Int, ::Type{A}) where {A}
+  k = 0
+  @inbounds for c in 1:p
+    v = x[c, c]
+    iszero(v) || (buf[k += 1] = _l0_mag(A, v))
+  end
+  k
+end
+function _l0_gather_pairs!(buf, x, p::Int, ::Type{A}) where {A}
+  k = 0
+  @inbounds for c in 1:p, r in c + 1:p
+    v = x[r, c]
+    iszero(v) || (buf[k += 1] = _l0_mag(A, v))
+  end
+  k
+end
+
+# the number of the first n entries of buf that are larger than τ
+function _l0_count_above(buf, n::Int, τ)
+  k = 0
+  @inbounds for i in 1:n
+    k += buf[i] > τ
+  end
+  k
+end
+
+# Write the selection: of the nonzero diagonal entries the d of largest magnitude, and of the nonzero pairs the
+# e of largest magnitude, the entries above the threshold and the first `ties` of those at it, in the order of
+# the lower triangle by columns. A diagonal entry that does not count is kept.
+function _l0_write_selected!(y, f::IndBallL0, x, p::Int, ::Type{A}, d::Int, τd, td::Int, e::Int, τp, tp::Int) where {A}
+  @inbounds for c in 1:p, r in c:p
+    v = x[r, c]
+    keep = iszero(v)
+    if r == c
+      if !f.diagonal
+        keep = true
+      elseif !keep && d > 0
+        a = _l0_mag(A, v)
+        if a > τd
+          keep = true
+        elseif a == τd && td > 0
+          keep = true
+          td -= 1
+        end
+      end
+    elseif !keep && e > 0
+      a = _l0_mag(A, v)
+      if a > τp
+        keep = true
+      elseif a == τp && tp > 0
+        keep = true
+        tp -= 1
+      end
+    end
+    _set_symmetric!(y, keep ? v : zero(v), r, c)
+  end
+  y
+end
+
+function _l0_write_identity!(y, x, p::Int)
+  @inbounds for c in 1:p, r in c:p
+    _set_symmetric!(y, x[r, c], r, c)
+  end
+  y
+end
+
+@inline _set_symmetric!(y::_OwnerMatrix, v, r, c) = _setstored!(y.x, v, tril_index(y.x.p, r, c))
 @inline function _set_symmetric!(y::AbstractMatrix, v, r, c)
   @inbounds y[r, c] = v
   @inbounds y[c, r] = v
@@ -849,7 +1031,7 @@ function _classify(y::AbstractArray, x::AbstractArray, target)
   i = pos + neg == 0 ? nothing : findfirst(target, x)
   _Classes(nan, pos, neg, length(x), i === nothing ? 0 : LinearIndices(x)[i], 0)
 end
-function _classify(y::SymmetricSparseIterate, x::AbstractArray, target)
+function _classify(y::_OwnerMatrix, x::AbstractArray, target)
   p = size(x, 1)
   nan = pos = neg = at = col = 0
   for c in 1:p, r in c:p
@@ -875,7 +1057,7 @@ function _vertex!(y::AbstractArray, f, c::_Classes, v)
   y .= ifelse.(LinearIndices(y) .== c.at, vv, zero(vv))
   false
 end
-function _vertex!(y::SymmetricSparseIterate, f, c::_Classes, v)
+function _vertex!(y::_OwnerMatrix, f, c::_Classes, v)
   fill!(y, zero(eltype(y)))
   _set_symmetric!(y, convert(eltype(y), c.at == c.col ? v : v * _pairweight(f)), c.at, c.col)
   false
@@ -1112,16 +1294,19 @@ for F in (:IndHyperplane, :IndHalfspace, :IndHyperslab)
 end
 _checkparams(f::Union{IndHyperplane, IndHalfspace}, x) = (_checkparam(f.a, x); true)
 
+# the axes of an array, or of the matrix that an owner represents
+_matrix_axes(x) = axes(x)
+_matrix_axes(x::SymmetricSparseIterate) = _owner_axes(x)
 function _checkparams(f::IndHyperslab, x)
   _checkparam(f.a, x)
-  f.a isa AbstractArray && Base.Broadcast.check_broadcast_axes(axes(x), f.a)
+  f.a isa AbstractArray && Base.Broadcast.check_broadcast_axes(_matrix_axes(x), f.a)
   true
 end
 
 # ⟨a, x⟩ and ‖a‖², for an array a or a scalar one
 _dot_normal(a::Real, x::AbstractArray) = a * sum(x)
 _dot_normal(a::AbstractArray, x::AbstractArray) = dot(a, x)
-_normal_sqnorm(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::AbstractArray) = f.a isa Real ? f.q * length(x) : f.q
+_normal_sqnorm(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::_ArrayOrOwner) = f.a isa Real ? f.q * _nentries(x) : f.q
 function _dot_normal(a::_ScaledNormal, x::AbstractArray)
   _checkparam(a, x)
   T = float(promote_type(eltype(a), eltype(x)))
@@ -1150,8 +1335,8 @@ end
 
 (f::IndHyperplane)(x::AbstractArray) =
   (_check_value_arrays(f, x); _value_checked(f, x))
-_value_unchecked(f::IndHyperplane, x::AbstractArray) = _normal_value(f, x, Val(false))
-function _normal_value(f::IndHyperplane, x::AbstractArray, checked)
+_value_unchecked(f::IndHyperplane, x::_ArrayOrOwner) = _normal_value(f, x, Val(false))
+function _normal_value(f::IndHyperplane, x::_ArrayOrOwner, checked)
   T = float(eltype(x))
   eltype(x) <: Integer && return _linear_scaled_value(f, x, T, f.b, false, checked)
   _isscaled(f) && return _scaled_normal_value(f, x, T, f.b, false, checked)
@@ -1163,8 +1348,8 @@ function _normal_value(f::IndHyperplane, x::AbstractArray, checked)
 end
 (f::IndHalfspace)(x::AbstractArray) =
   (_check_value_arrays(f, x); _value_checked(f, x))
-_value_unchecked(f::IndHalfspace, x::AbstractArray) = _normal_value(f, x, Val(false))
-function _normal_value(f::IndHalfspace, x::AbstractArray, checked)
+_value_unchecked(f::IndHalfspace, x::_ArrayOrOwner) = _normal_value(f, x, Val(false))
+function _normal_value(f::IndHalfspace, x::_ArrayOrOwner, checked)
   _halfspace_value(f, x, f.b, false, checked)
 end
 
@@ -1181,8 +1366,8 @@ end
 
 (f::IndHyperslab)(x::AbstractArray) =
   (_check_value_arrays(f, x); _value_checked(f, x))
-_value_unchecked(f::IndHyperslab, x::AbstractArray) = _normal_value(f, x, Val(false))
-function _normal_value(f::IndHyperslab, x::AbstractArray, checked)
+_value_unchecked(f::IndHyperslab, x::_ArrayOrOwner) = _normal_value(f, x, Val(false))
+function _normal_value(f::IndHyperslab, x::_ArrayOrOwner, checked)
   _checkparams(f, x)
   T = float(eltype(x))
   isfinite(f.l) && !iszero(_halfspace_value(f, x, f.l, true, checked)) && return T(Inf)
@@ -1216,7 +1401,7 @@ end
   a = _normalized_normal(f.a, f.s)
   g = _value_scaled_dot(a, x, s, checked) - b
   nx = sqrt(_scaled_sumabs2(x, s))
-  q = f.a isa Real ? sqrt(S(f.q)) * sqrt(S(length(x))) : sqrt(S(f.q))
+  q = f.a isa Real ? sqrt(S(f.q)) * sqrt(S(_nentries(x))) : sqrt(S(f.q))
   tol = _isscaled(f) ? max(_tol(T), _tol(typeof(f.q))) : _tol(T)
   slack = tol * max(ldexp(one(S), e - k), abs(b), q * nx)
   _ind(f isa IndHyperplane ? abs(g) <= slack : (lower ? -g <= slack : g <= slack), T)
@@ -1361,8 +1546,11 @@ end
 # steps γ and an array normal, D is formed here in S, from the exponent w of the largest term
 # γᵢαᵢ² (αᵢ widened to S before it is squared) and the sum of the terms with 2^-w applied to the
 # significands, so that D is in [1, 8n) whatever d overflowed or lost to the narrower type of its
-# own terms. For a scalar normal with d = Inf, D is q times the sum of γᵢ 2^-w with 2^w the
-# exponent of the largest step, and D ≥ 1/2 as d ≥ floatmax. So D ≥ 1/2, and t″ = G / D is finite
+# own terms. (w starts at typemin(Int): if every term of a BigFloat sum has a smaller exponent, w stays
+# there, D is the sum of the scaled terms, none below the smallest positive BigFloat, and need not lie in
+# [1, 8n); D 2^w is still the sum. The bounds on D in this paragraph are those of a w that is the exponent
+# of the largest term.) For a scalar normal with d = Inf, D is q times the sum of γᵢ 2^-w with 2^w the
+# exponent of the largest step, and D ≥ 1/2 as d ≥ floatmax. So D ≥ 1/2 in these cases, and t″ = G / D is finite
 # with |G| as above. Then t = t″ 2^J with J = k - w, and the correction cᵢ = t″ γᵢ αᵢ 2^J is
 # formed from the significands of the three factors with the power of two last, so that no factor
 # or partial product over- or underflows; xᵢ itself is never scaled and an αᵢ = 0 leaves it
@@ -1380,7 +1568,7 @@ end
     return true
   end
   D, w = _extreme_denominator(f, a, d, γ, S)
-  _extreme_output!(y, _ExtremeOutput(G / D, k - w), x, a, γ)
+  _extreme_output!(y, _ExtremeOutput(G / D, _exponent_sum(S, k) - w), x, a, γ)
   true
 end
 
@@ -1399,10 +1587,10 @@ function _extreme_denominator(f, a::Real, d, γ::AbstractArray, ::Type{S}) where
 end
 # ... and for steps with an array normal, from the largest term of the sum.
 function _extreme_denominator(f, a::AbstractArray, d, γ::AbstractArray, ::Type{S}) where {S}
-  w = typemin(Int)
+  w = _exponent_sum(S, typemin(Int))
   @inbounds for i in eachindex(IndexLinear(), γ)
     α, g = convert(S, float(a[i])), convert(S, γ[i])
-    iszero(α) || (w = max(w, exponent(g) + 2exponent(α)))
+    iszero(α) || (w = max(w, _exponent_sum(S, exponent(g), exponent(α), exponent(α))))
   end
   D = zero(S)
   @inbounds for i in eachindex(IndexLinear(), γ)
@@ -1412,9 +1600,9 @@ function _extreme_denominator(f, a::AbstractArray, d, γ::AbstractArray, ::Type{
   D, w
 end
 
-struct _ExtremeOutput{S<:AbstractFloat}
+struct _ExtremeOutput{S<:AbstractFloat, E<:Integer}
   t::S
-  J::Int
+  J::E
 end
 @inline function _scaled_correction(o::_ExtremeOutput{S}, xi, γi, ai) where {S}
   xs, γs, α = convert(S, xi), convert(S, γi), convert(S, float(ai))
@@ -1442,16 +1630,45 @@ function _spectrum_linear(f, v::AbstractVector{T}, k, b, lower) where {T}
   S = promote_type(T, typeof(f.q))
   e = exponent(f.s[1]) + exponent(f.s[2])
   j = _comparison_exponent(_magnitude_exponent(S(_spectrum_scale(v))),
-    _magnitude_exponent(abs(b)) + e - k)
+    _exponent_sum(S, _magnitude_exponent(abs(b)), e, -k))
   factors = _power_factors(S, -j)
-  offset = ldexp(S(b), e - k - j)
+  shift = _exponent_sum(S, e, -k, -j)
+  offset = ldexp(S(b), shift)
   g = _scaled_dot(_normalized_normal(f.a, f.s), v, factors) - offset
   q = f.a isa Real ? sqrt(S(f.q)) * sqrt(S(length(v))) : sqrt(S(f.q))
   tol = _isscaled(f) ? max(_tol(T), _tol(typeof(f.q))) : _tol(T)
-  slack = tol * max(ldexp(one(S), e - k - j), abs(offset), q * sqrt(_scaled_sumabs2(v, factors)))
+  slack = tol * max(ldexp(one(S), shift), abs(offset), q * sqrt(_scaled_sumabs2(v, factors)))
   _ind(f isa IndHyperplane ? abs(g) <= slack : (lower ? -g <= slack : g <= slack), T)
 end
 
 # a step that the indicator projections reject, found before any block of a sum is written
 _checkstep(op::O, ::Union{IndBallL0, IndBallL1, IndBallL2, IndSphereL2, IndSimplex}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
   _checkstep_nonneg(γ)
+
+####################################
+#  a SymmetricSparseIterate
+####################################
+
+# The direct projections, the ℓ0 ball and the hyperplanes, halfspaces and hyperslabs, with the owner of a
+# symmetric matrix as the destination or as the point. The matrix of the owner is the argument or the output:
+# a mirrored pair is one coordinate counted twice in the norm and in ⟨a, X⟩. The ℓ0 ball counts the
+# entries of the matrix (a pair twice), read from the lower triangle, so an owner or a Symmetric argument
+# reaches it as a Symmetric one.
+# The value of the four direct projections at an owner is not defined; the value of the ℓ0 ball, and of
+# a hyperplane, halfspace or hyperslab, is.
+const _OwnerSets = Union{IndBallL0, IndBallL1, IndBallL2, IndSphereL2, IndSimplex, IndHyperplane, IndHalfspace, IndHyperslab}
+_dense_set_point(f, x::SymmetricSparseIterate) = matrixview(x)
+_dense_set_point(f::IndBallL0, x::SymmetricSparseIterate) = Symmetric(matrixview(x), :L)
+
+prox!(y::SymmetricSparseIterate, f::_OwnerSets, x::_ArrayOrOwner, γ::Real) = _owner_prox!(y, f, x, γ)
+value_and_prox!(y::SymmetricSparseIterate, f::_OwnerSets, x::_ArrayOrOwner, γ::Real) = _owner_value_and_prox!(y, f, x, γ)
+# a dense output reads the parameters at every entry of the matrix of the owner: they are checked first
+prox!(y::AbstractArray, f::_OwnerSets, x::SymmetricSparseIterate, γ::Real) =
+  (_check_entry_arrays(f, x); prox!(y, f, _dense_set_point(f, x), γ))
+value_and_prox!(y::AbstractArray, f::_OwnerSets, x::SymmetricSparseIterate, γ::Real) =
+  (_check_entry_arrays(f, x); value_and_prox!(y, f, _dense_set_point(f, x), γ))
+prox(f::_OwnerSets, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
+
+(f::IndHyperplane)(x::SymmetricSparseIterate) = (_check_value_arrays(f, x); _value_checked(f, x))
+(f::IndHalfspace)(x::SymmetricSparseIterate) = (_check_value_arrays(f, x); _value_checked(f, x))
+(f::IndHyperslab)(x::SymmetricSparseIterate) = (_check_value_arrays(f, x); _value_checked(f, x))

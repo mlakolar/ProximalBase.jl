@@ -36,7 +36,7 @@ function check_case(f, A, γ; output_type = eltype(A), finite = true)
       x = source(copy(A))
       before = Matrix(x)
       y = SymmetricSparseIterate(output_type, size(A, 1))
-      fill!(y, -1)
+      fill!(coordinates(y), -1)
       v = op(y, f, x, γ)
       entries_match(Matrix(y), reference; rtol = tol)
       @test isequal(Matrix(x), before)
@@ -64,6 +64,19 @@ function check_symmetric_steps(f, A, γ; finite = true)
     for inplace in (false, true)
       x = SymmetricSparseIterate(A)
       y = inplace ? x : SymmetricSparseIterate(eltype(A), size(A, 1))
+      if γ isa AbstractArray
+        # a step per group is not defined for an owner: refused before anything is written
+        before = (Matrix(y), nactive(y), copy(activecoordinates(y)), copy(y.nzval))
+        err = try
+          op(y, f, x, γ)
+        catch e
+          e
+        end
+        @test err isa ArgumentError
+        @test occursin("is not supported with a SymmetricSparseIterate as the output", sprint(showerror, err))
+        @test isequal((Matrix(y), nactive(y), copy(activecoordinates(y)), copy(y.nzval)), before)
+        continue
+      end
       v = op(y, f, x, γ)
       entries_match(Matrix(y), reference; rtol = tol)
       inplace || @test isequal(Matrix(x), A)
@@ -78,7 +91,7 @@ function rejects_group_steps(f, A, γ)
     T = eltype(A)
     y = inplace ? x : SymmetricSparseIterate(T[7 0; 0 0])
     activate!(y, tril_index(2, 2, 1))
-    before = (Matrix(y), nnz(y), copy(activecoordinates(y)), copy(y.nzval))
+    before = (Matrix(y), nactive(y), copy(activecoordinates(y)), copy(y.nzval))
     err = try
       op(y, f, x, γ)
     catch e
@@ -89,7 +102,7 @@ function rejects_group_steps(f, A, γ)
     @test occursin("the groups of $(typeof(f)) must be symmetric for a SymmetricSparseIterate output", msg)
     @test occursin("position (2, 1)", msg) && occursin("position (1, 2)", msg)
     @test occursin(length(f.groups) == 2 ? "in group 2" : "in no group", msg)
-    @test isequal((Matrix(y), nnz(y), copy(activecoordinates(y)), copy(y.nzval)), before)
+    @test isequal((Matrix(y), nactive(y), copy(activecoordinates(y)), copy(y.nzval)), before)
   end
 end
 
@@ -121,21 +134,21 @@ end
         y = inplace ? SymmetricSparseIterate(small) : SymmetricSparseIterate(T, 2)
         inplace && (x = y)
         @test iszero(ProximalBase._norm2_shrink!(f, y, x, M))
-        @test all(iszero, y)
+        @test all(iszero, Matrix(y))
         x = source(small)
         y = inplace ? SymmetricSparseIterate(small) : SymmetricSparseIterate(T, 2)
         inplace && (x = y)
         G = 1:4
         W = ProximalBase._group_writes(y, G)
         @test iszero(ProximalBase._rescaled_group_prox!(f, y, x, G, M, M/4, W))
-        @test all(iszero, y)
+        @test all(iszero, Matrix(y))
       end
       for B in (T[0 Inf; Inf 0], T[0 NaN; NaN 0], T[Inf NaN; NaN 0])
         check_case(f, B, one(T); finite = false)
         x = SymmetricSparseIterate(B)
         v = value_and_prox!(x, f, x, one(T))
         if any(isnan, B)
-          @test all(isnan, x)     # E2: a NaN entry gives a NaN block (#559)
+          @test all(isnan, Matrix(x))     # E2: a NaN entry gives a NaN block (#559)
           @test isnan(v)
         else
           @test isinf(x[1, 2]) && isinf(x[2, 1]) && isinf(v)
@@ -146,6 +159,8 @@ end
       for groups in ([1:4], [[2, 3], [1], [4]])
         for f in (GroupNormL2(T(1)/4, groups), GroupNormLinf(T(1)/4, groups),
                   SparseGroupNormL2(T(1)/16, T(1)/4, groups))
+          # Float32 runs GroupNormLinf in symmetric_groups_grids.jl
+          T === Float32 && f isa GroupNormLinf && continue
           check_case(f, A, one(T))
           check_symmetric_steps(f, A, T.(1:length(groups)) ./ T(4))
           check_case(f, A, T(100))
@@ -158,6 +173,7 @@ end
                   SparseGroupNormL2(T(1)/8, T(1)/4, groups, zeros(T, length(groups))),
                   GroupNormL2(T(1)/4, groups, zeros(T, length(groups))),
                   GroupNormLinf(T(1)/4, groups, zeros(T, length(groups))))
+          T === Float32 && f isa GroupNormLinf && continue
           check_case(f, A, one(T))
         end
       end
@@ -166,14 +182,15 @@ end
       for B in (T[1 2 3; 2 4 5; 3 5 6], fill(M/2, 3, 3))
         for f in (GroupNormL2(T(1)/16, groups), GroupNormLinf(T(1)/16, groups),
                   SparseGroupNormL2(T(1)/32, T(1)/16, groups))
+          T === Float32 && f isa GroupNormLinf && continue
           check_case(f, B, one(T))
         end
       end
       for groups in ([[2], [1, 3, 4]], [[2]], [[3]])
         for f in (GroupNormL2(T(1)/4, groups), GroupNormLinf(T(1)/4, groups),
                   SparseGroupNormL2(T(1)/8, T(1)/4, groups))
+          T === Float32 && f isa GroupNormLinf && continue
           rejects_group_steps(f, A, one(T))
-          rejects_group_steps(f, A, fill(one(T), length(groups)))
         end
       end
     end
@@ -183,6 +200,8 @@ end
     M = floatmax(T)
     for groups in ([1:4], [[2, 3], [1], [4]])
       for f in (GroupMCP(one(T), groups), GroupSCAD(one(T), groups))
+        # Float32 runs GroupSCAD in symmetric_groups_grids.jl
+        T === Float32 && f isa GroupSCAD && continue
         for B in (A, fill(M/4, 2, 2))
           check_symmetric_steps(f, B, one(T))
           check_symmetric_steps(f, B, T.(1:length(groups)) ./ T(4))
@@ -190,14 +209,15 @@ end
       end
     end
     for f in (GroupMCP(one(T), [1:4]), GroupSCAD(one(T), [1:4]))
+      T === Float32 && f isa GroupSCAD && continue
       # an unrepresentable norm retains the dense kernel's nonfinite result
       check_symmetric_steps(f, fill(M, 2, 2), one(T); finite = false)
       check_symmetric_steps(f, fill(M, 2, 2), T[1]; finite = false)
     end
     for f in (GroupMCP(one(T), [[2], [1, 3, 4]]),
               GroupSCAD(one(T), [[2], [1, 3, 4]]))
+      T === Float32 && f isa GroupSCAD && continue
       rejects_group_steps(f, A, one(T))
-      rejects_group_steps(f, A, T[1, 0.5])
     end
   end
   @testset "unambiguous write checks" begin

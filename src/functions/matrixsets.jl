@@ -235,7 +235,15 @@ isconvex(::Type{IndToeplitz}) = true
 @inline _diagonal_rows(m::Int, n::Int, d::Int) = max(1, 1 - d):min(m, n - d)
 
 # whether the projection is symmetric: a symmetric input averages d and -d alike
-_symmetric_toeplitz(f::IndToeplitz, x::AbstractMatrix) = f.symmetric || x isa Union{Symmetric, SymmetricSparseIterate}
+_symmetric_toeplitz(f::IndToeplitz, x::AbstractMatrix) =
+  f.symmetric || x isa Union{Symmetric, SymmetricMatrixView, _OwnerMatrix}
+# The same for a call into y, with the argument that `_symmetric_argument` has returned. Into the matrix of an
+# owner that argument is symmetric: a matrix that is symmetric as given (by type, or exactly by its entries),
+# or the symmetric part of one that is not, which the wrapper `_SymmetricPart` marks. The projection is
+# symmetric for the first, and not for the second, whose projection onto the Toeplitz matrices is not.
+_symmetric_toeplitz(f::IndToeplitz, y, x) =
+  f.symmetric || x isa Union{Symmetric, SymmetricMatrixView, _OwnerMatrix, SymmetricSparseIterate} ||
+  (y isa Union{_OwnerMatrix, SymmetricSparseIterate} && !(x isa _SymmetricPart))
 
 function (f::IndToeplitz)(x::AbstractMatrix)
   _checkreal(f, x)
@@ -333,7 +341,7 @@ function prox!(y::AbstractMatrix, f::IndToeplitz, x::AbstractMatrix, ::Real)
   x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   m, n = size(x)
-  if _symmetric_toeplitz(f, x)
+  if _symmetric_toeplitz(f, y, x)
     @inbounds for d in 0:n-1
       μ = _symmetric_diagonal_mean(x, n, d)
       for r in 1:n-d
@@ -352,16 +360,27 @@ function prox!(y::AbstractMatrix, f::IndToeplitz, x::AbstractMatrix, ::Real)
   y
 end
 
-function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndToeplitz, y::AbstractMatrix, x::AbstractMatrix)
-  _checkreal(f, x)
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndToeplitz, y::_MatrixOrOwner, x0::_MatrixOrOwner)
+  _checkreal(f, x0)
   _checkreal(f, y)
-  _checksize(y, x)
+  _checksize(y, x0)
+  x = _symmetric_argument(y, x0)       # an owner takes the symmetric part of the argument
   m, n = size(x)
-  if _symmetric_toeplitz(f, x)
+  if _symmetric_toeplitz(f, y, x)
     m == n || throw(DimensionMismatch("a symmetric Toeplitz matrix is square, and the argument is $m × $n"))
   else
-    y isa SymmetricSparseIterate &&
+    y isa Union{_OwnerMatrix, SymmetricSparseIterate} &&
       throw(ArgumentError("the projection of a matrix that is not symmetric onto the Toeplitz matrices is not symmetric; use a dense output"))
   end
   true
 end
+
+####################################
+#  a SymmetricSparseIterate
+####################################
+
+# The projection onto the Toeplitz matrices into the owner of a symmetric matrix, or from it: the result
+# must be symmetric, which an owner point and the symmetric set give.
+prox!(y::SymmetricSparseIterate, f::IndToeplitz, x::_MatrixOrOwner, γ::Real) = _owner_prox!(y, f, x, γ)
+prox!(y::AbstractMatrix, f::IndToeplitz, x::SymmetricSparseIterate, γ::Real) = prox!(y, f, matrixview(x), γ)
+prox(f::IndToeplitz, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)

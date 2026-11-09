@@ -251,7 +251,7 @@ end
   for src in (S, view(S, :, :), view(S, :, 1:2), S', transpose(S))
     y = SparseIterate(2, 2); y[2, 1] = 5.0
     @test copyto!(y, src) === y
-    @test Matrix(y) == [1 0; 0 2] && nnz(y) == 3
+    @test Matrix(y) == [1 0; 0 2] && nactive(y) == 3
   end
   v = sparsevec([1.0, 0, 0, 2])
   for src in (v', transpose(v), view(v, :)')

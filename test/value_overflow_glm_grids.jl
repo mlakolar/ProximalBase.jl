@@ -4,9 +4,9 @@ module ValueOverflowGLMGridsTest
 # leaves to its Float64 pass and to the dense Float32 cases: for Logistic, Huber(1.0), SmoothCheck(0.3, 0.5) and the
 # two Conv losses (epanechnikov and uniform), the cases with a sparse X, a SparseIterate β, an AtomIterate β and a
 # SparseIterate β with zero entries on a sparse X, each with the weights 1.5 and 2^-149 of the predictor table; and
-# for Poisson the first three of those four. value_overflow_glm.jl keeps the Float64 pass, the dense Float32 cases
-# of these losses, the SparseIterate β with zero entries of Poisson, and all the Float32 cases of Squared and
-# SquaredHinge. The loss references, the helpers, `GCase`, `reference`, the status functions, `test_case` and the
+# for Poisson the first three of those four (the cases named "sparse X, cancelling row", "SparseIterate β" and "AtomIterate β").
+# value_overflow_glm.jl keeps the Float64 pass, the dense Float32 cases of these losses, the SparseIterate β with
+# zero entries of Poisson, and all the Float32 cases of Squared and SquaredHinge. The loss references, the helpers, `GCase`, `reference`, the status functions, `test_case` and the
 # lines that build these cases are copied from it; the case table keeps only the predictor loop of those cases.
 # The fixtures are the same as in value_overflow_glm.jl. No case here draws random numbers, and the generators of
 # value_overflow_glm.jl are created inside the testsets that use them, so the draws of the cases that stay there

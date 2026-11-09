@@ -131,8 +131,9 @@ end
 
 # The cases of "Block checks before writes" that also run the Scaled and nested SeparableSum variants and the FiberSum
 # variants with the function as the diagonal or with no diagonal. The other cases run those variants in
-# blockchecks_grids.jl; all cases run the flat SeparableSum, the SliceSum and the FiberSum variant with the
-# function as the off-diagonal part here.
+# blockchecks_grids.jl; all cases run the flat SeparableSum and the SliceSum here, and the FiberSum variant with the
+# function as the off-diagonal part when the point is a vector and the function is proximable (for the proximal
+# operations only).
 const WRAPPER_VARIANT_CASES = ("SqrNormL2 center", "Tilt coefficient", "GroupNormL2", "IndHyperplane shape",
                                "LeastSquaresLoss columns", "LogisticLoss", "LogDetLoss data", "check_parameters",
                                "IndPSD partial=false")

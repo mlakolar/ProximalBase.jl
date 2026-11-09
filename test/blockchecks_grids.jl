@@ -3,8 +3,9 @@ module BlockChecksGridsTest
 # The Scaled and nested SeparableSum variants, and the FiberSum variants with the function as the diagonal or with no
 # diagonal, of the cases of "Block checks before writes" that are not in WRAPPER_VARIANT_CASES of blockchecks.jl.
 # For the cases in that list blockchecks.jl runs these variants, and for all cases it runs the `@test E <: ...` check,
-# the flat SeparableSum, the SliceSum and the FiberSum variant with the function as the off-diagonal part, and the
-# other testsets. `oracle!`, `failure_type`, `unchanged` and the cases of `bad_cases` are copied from it, except the
+# the flat SeparableSum and the SliceSum, the FiberSum variant with the function as the off-diagonal part when the
+# point is a vector and the function is proximable (for the proximal operations only), and the other testsets.
+# `oracle!`, `failure_type`, `unchanged` and the cases of `bad_cases` are copied from it, except the
 # "check_parameters" case (and its type), which is in that list. The fixtures are the same as in blockchecks.jl. No
 # case here draws random numbers.
 

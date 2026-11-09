@@ -778,7 +778,8 @@ end
     @test tier == want_tier
   end
   @test pr("src/constrained.jl") == ("standard", ["constrained_basics_grids"])
-  # the narrow label on a change to one iterate source still gives quick, with the iterate's own grids file
+  # the narrow label on a change to one iterate source still gives quick, with the focus files of its rule: the iterate's
+  # own grids file, block_step_grids and the other files of ATOM or SPARSE
   @test pr("src/atom_iterate.jl"; labels = NARROW) == ("quick", ATOM)
   @test "atom_iterate_grids" in pr("src/atom_iterate.jl"; labels = NARROW)[2]
   @test "sparse_iterate_basics_grids" in pr("src/sparse_iterate.jl"; labels = NARROW)[2]

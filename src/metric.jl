@@ -321,9 +321,9 @@ function _value_and_prox_chain!(y, s, x, γ::AbstractArray)
   end
   f, a = _scaled_chain(s)
   g, steps, kind = _array_fold(f, a, γ)
-  kind === :folded && return _value_at(_value_and_prox_unchecked!(y, g, x, steps), y)
-  if kind === :shifted
-    # the value of the chain at the point, not that of the shifted function
+  kind === :folded && !_weights_folded(f, g, a) && return _value_at(_value_and_prox_unchecked!(y, g, x, steps), y)
+  if kind === :shifted || kind === :folded
+    # the value of the chain at the point, not that of the shifted function or of the function with folded weights
     _prox_unchecked!(y, g, x, steps)
     return _value_at(_scaled_value_by(f, a, y, _value_unchecked(f, y)), y)
   end

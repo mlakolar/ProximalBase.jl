@@ -465,7 +465,8 @@ end
   m, e = frexp(x)
   (m, Int(e))
 end
-# MPFR exponents reach ±(2^62 - 1), so a sum of three of them leaves Int64. A BigFloat's exponent terms are widened to
+# MPFR exponents reach ±(2^62 - 1) by default on 64-bit Unix (±(2^30 - 1) on Windows), so there a sum of three of them
+# leaves Int64. A BigFloat's exponent terms are widened to
 # Int128 before the first addition; other types keep their Int sums.
 @inline _exponent_sum(::Type{BigFloat}, es::Integer...) = foldl(+, map(Int128, es))
 @inline _exponent_sum(::Type, es::Integer...) = +(es...)

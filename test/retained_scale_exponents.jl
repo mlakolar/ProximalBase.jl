@@ -1,8 +1,8 @@
 module RetainedScaleExponentsTest
 
 # The factors of nested `Scaled` wrappers whose product is not a normal number are retained as a significand and an
-# exponent. MPFR exponents reach ±(2^62 - 1) on 64-bit Unix, so a chain of three extreme BigFloat factors has an exponent
-# beyond Int64, and the retained exponent must be exact: read on its own (a comparison with one, a shift) and after it
+# exponent. MPFR exponents reach ±(2^62 - 1) by default on 64-bit Unix (±(2^30 - 1) on Windows), so there a chain of three
+# extreme BigFloat factors has an exponent beyond Int64, and the retained exponent must be exact: read on its own (a comparison with one, a shift) and after it
 # returns into range through a level, a weight or a step. The oracle is independent of the retained representation: the
 # factors are exact powers of two, the true exponent is summed in Int128, and the outcome is classified (finite, ±Inf,
 # ±0, sign) with the MPFR bounds before any value is compared. Every case is built from exponents relative to the
@@ -61,8 +61,8 @@ exponent_sum(exps) = sum(Int128, exps)
 retained(s) = PB._scaled_chain(s)[2]
 
 frac(n) = (EMAX * n) ÷ 1000
-const A = EMAX - 2                   # an extreme factor: A + A + A leaves Int64 where the range is the default one
-const P = frac(680)                  # three factors 2^P leave Int64 and are cancelled by a level and a weight 2^-Q
+const A = EMAX - 2                   # an extreme factor: A + A + A leaves Int64 at the default range of 64-bit Unix only
+const P = frac(680)                  # three factors 2^P leave Int64 at the default range of 64-bit Unix; a level and a weight 2^-Q cancel them
 const Q = frac(650)
 const Y = frac(760)
 
@@ -72,7 +72,7 @@ const BEYOND = EMAX > 2^61           # 3 P > typemax(Int64) only for the default
 const POSITIVE = [[A, A, A], [P, P, P], [P, P, P, P], fill(frac(500), 5), fill(frac(450), 6), fill(frac(400), 7)]
 const NEGATIVE = [-1 .* F for F in POSITIVE]
 const CHAINS = vcat(POSITIVE, NEGATIVE)
-# chains whose exponent is just beyond Int64 (at the default range), so that a level and a step, or a level and a weight,
+# chains whose exponent is just beyond Int64 (at the default range of 64-bit Unix), so that a level and a step, or a level and a weight,
 # at the ends of their ranges bring the product back into range
 const LONG = [[P, P, P], fill(frac(668), 3), fill(frac(401), 5), fill(frac(334), 6), fill(frac(287), 7)]
 const LONG_CHAINS = vcat(LONG, [-1 .* F for F in LONG])
@@ -148,7 +148,7 @@ end
     @test prox(t3, [big(2.0), big(-0.5)], big(1.0)) == [2.0, -0.5]
   end
 
-  # the retained exponent 3P leaves Int64 and returns into range through the level and the weight 2^-Q: exceeds, then cancels
+  # the retained exponent 3P leaves Int64 (at the default range of 64-bit Unix) and returns into range through the level and the weight 2^-Q: exceeds, then cancels
   with_precisions("exceeds, then cancels") do
     a = pw(P)
     s = Scaled(Scaled(Scaled(CheckLoss(pw(-Q), [pw(-Q)]), a), a), a)
@@ -160,7 +160,7 @@ end
     @test prox(Conjugate(s), [-pw(Y)], one(BigFloat)) == [-pw(Y)]
   end
 
-  # the exponent -3P is below Int64 and does not return into range: exceeds and stays, the box is zero
+  # the exponent -3P is below Int64 (at the default range of 64-bit Unix) and does not return into range: exceeds and stays, the box is zero
   with_precisions("exceeds and stays") do
     a = pw(-P)
     s = Scaled(Scaled(Scaled(CheckLoss(big(0.5), [pw(Q)]), a), a), a)
@@ -225,7 +225,7 @@ end
   end
 end
 
-# The retained exponent leaves Int64 and returns into range through the level and the step (the scale folds into the
+# The retained exponent leaves Int64 (at the default range of 64-bit Unix) and returns into range through the level and the step (the scale folds into the
 # levels, and the step is part of the fold), through the level and the weight in the projections (they form the
 # product of the scale, the level and the weight), or through the weights of an L1 norm, which absorb the scale when
 # the level cannot (the testset "the weights absorb the exponent that the level cannot take"). The cases below that
@@ -273,7 +273,7 @@ end
   end
 end
 
-const PW = frac(672)                 # the issue's P and L, as fractions of EMAX: 3 PW leaves Int64, 3 PW - 2 LW is in range
+const PW = frac(672)                 # P and L as fractions of EMAX: 3 PW leaves Int64 at the default range of 64-bit Unix, 3 PW - 2 LW is in range
 const LW = frac(650)
 const XW = frac(737)                 # an entry above the threshold 2^(3 PW - 2 LW), and one below it
 const XL = frac(650)
@@ -358,14 +358,16 @@ const XL = frac(650)
     @test EMIN + 3 < N1 && N2 < 0     # both thresholds are normal numbers
     @test prox(sp, [pw(N1 + 1), pw(N2 + 1)], big(1.0)) == [pw(N1), pw(N2)]
     @test prox(sp, [pw(N2 + 1), pw(N2 + 1)], big(1.0)) == [pw(N2 + 1) - pw(N1), pw(N2)]
-    # The weights 2^(EMAX - 1) and 2^(EMIN - 1) are the largest and the smallest normal weights. Under the scale (its
-    # exponent α.e is about 3 PW) and the level 2^-LW their coefficients have the exponents tmax = α.e + 1 - LW + EMAX and
-    # tmin = α.e + 1 - LW + EMIN. Here tmax is about 2.37 EMAX, beyond 2 EMAX - 6: no product of a normal level and a normal
-    # weight reaches it (for the larger weight the level alone leaves the range, and the scale does not help, the product
-    # being beyond the range itself); tmin is about 0.37 EMAX, a normal number, so its condition holds (the product of the
-    # smaller weight with the level alone, of exponent EMIN - LW, would underflow; the scale brings it back). The two
-    # differ by EMAX - EMIN, more than the room EMAX - EMIN - 6. The fold is refused for the first and the third
-    # condition and the weights are left as they are, as without the weight fold; the call must not throw and gives numbers.
+    # The weights 2^(EMAX - 1) and 2^(EMIN - 1) are the largest and the smallest normal powers of two. The product of the
+    # level 2^-LW with the larger weight is itself a normal number (exponent EMAX + 1 - LW), but with the scale, whose
+    # exponent α.e is about 3 PW, the level does not take the scale (its product with the level leaves the range), so the
+    # weights would have to. A fold needs one power of two as the level and every coefficient divided by it to be a normal
+    # weight, so that the exponents tmax = α.e + 1 - LW + EMAX and tmin = α.e + 1 - LW + EMIN of the coefficients must
+    # satisfy the three conditions of `_fold_weights`. Here tmax is about 2.37 EMAX, beyond 2 EMAX - 6, and tmin is about
+    # 0.37 EMAX, which satisfies its condition (the product of the smaller weight with the level alone, of exponent
+    # EMIN - LW, would underflow; the scale brings it back); the two differ by EMAX - EMIN, more than the room
+    # EMAX - EMIN - 6. The fold is refused for the first and the third condition and the weights are left as they are, as
+    # without the weight fold; the call must not throw and gives numbers.
     wide = chain(NormL1(pw(-LW), [pw(EMAX - 1), pw(EMIN - 1)]), [PW, PW, PW])
     α = retained(wide)
     tmin, tmax = α.e + 1 - LW + EMIN, α.e + 1 - LW + EMAX
@@ -874,14 +876,17 @@ end
 end
 
 
-# The fold of a scale into the weights of an L1 norm, against an oracle written here. The oracle reads every operand as
-# an exact dyadic number n 2^z (n a BigInt, z an Int128) from the value as stored, without the helpers of the package and
-# without frexp at the precision of the call: a BigFloat by the exact integer and exponent that MPFR stores
-# (`Base.decompose`), any other number by its exact rational value. A level or weight that is not a BigFloat is rounded to
-# the precision p of the call, as the leaf does when it promotes it; a BigFloat is used as stored. The product of the three
-# operands is exact in integers and is rounded to p bits by the routine below, to nearest (ties to even) or in a directed
-# way. The positions are Int128 sums of the exponents. The scale, the level and the weights are positive and finite (a
-# negative level or weight cannot be constructed); zero and infinite weights are not read.
+# The fold of a scale into the weights of an L1 norm, against an oracle written here. The leaf forms the coefficient of an
+# entry as (γ λ) w in BigFloat arithmetic: every operand as stored (a level or weight that is not a BigFloat is first rounded
+# to the precision p of the call, in the current rounding mode), and each product rounded to p in the current mode. The fold
+# stands in for the scale and must give the weights for which the leaf forms the same coefficient, so the oracle is
+# round_p(round_p(mα mλ) mw) 2^t. It reads every operand as an exact dyadic number n 2^z (n a BigInt, z an Int128) from the
+# value as stored, without the helpers of the package and without frexp at the precision of the call: a BigFloat by the
+# exact integer and exponent that MPFR stores (`Base.decompose`), any other number by its exact rational value. The
+# rounding to p bits is done here in integers, to nearest (ties to even), up or down; the five rounding modes of MPFR are
+# these three directions for positive numbers (RoundToZero is down and RoundFromZero is up). The scale, the level and the
+# weights are positive and finite (the constructors reject negative levels and weights); a zero or infinite weight is
+# copied and takes no part in the coefficients.
 
 # the odd integer and the exponent of the positive dyadic number n 2^z
 function canon(n::BigInt, z::Integer)
@@ -904,28 +909,34 @@ function exact(x)
   end
 end
 
-# the number n 2^z rounded to p bits: to nearest with ties to even (:nearest), or up or down (:up, :down)
-function round_dyadic(n::BigInt, z::Integer, p::Integer, mode::Symbol = :nearest)
+# the number n 2^z rounded to p bits in the direction dir: :nearest (ties to even), :up or :down
+function round_dyadic(n::BigInt, z::Integer, p::Integer, dir::Symbol = :nearest)
   L = bitlength(n)
   if L > p
     sh = L - p
     q = n >> sh
     rest = n - (q << sh)
     half = BigInt(1) << (sh - 1)
-    up = mode === :up ? rest > 0 : mode === :down ? false : (rest > half || (rest == half && isodd(q)))
+    up = dir === :up ? rest > 0 : dir === :down ? false : (rest > half || (rest == half && isodd(q)))
     n, z = q + up, z + sh
   end
   canon(n, z)
 end
 
+const MODES = ((RoundNearest, :nearest), (RoundUp, :up), (RoundDown, :down), (RoundToZero, :down), (RoundFromZero, :up))
+
 # the position (the exponent e of x in [2^(e-1), 2^e)) of the canonical dyadic number
 pos((n, z)) = z + bitlength(n)
-
-# the dyadic number that the leaf uses at the precision p for a level or a weight x
-model(x, p) = x isa BigFloat ? exact(x) : round_dyadic(exact(x)..., p)
-# a BigFloat that p bits do not hold exactly (equal to or less precise than p, or a value of at most p bits, holds)
-loses(x, p) = x isa BigFloat && isfinite(x) && !iszero(x) && bitlength(exact(x)[1]) > p && precision(x) > p
 usable(x) = !(iszero(x) || !isfinite(x))
+
+# the dyadic number that the leaf uses for a level or a weight x: a BigFloat as stored, anything else rounded to p
+model(x, p, dir) = x isa BigFloat ? exact(x) : round_dyadic(exact(x)..., p, dir)
+
+# round_p(round_p(a l) w) for canonical dyadic numbers, the exponent shift e included
+function coefficient(a, l, w, e, p, dir)
+  n1, z1 = round_dyadic(a[1] * l[1], a[2] + l[2], p, dir)
+  round_dyadic(n1 * w[1], z1 + w[2] + e, p, dir)
+end
 
 bfq(n, q) = setprecision(BigFloat, q) do
   BigFloat(n) / 7
@@ -935,27 +946,26 @@ bfh(n, q) = setprecision(BigFloat, q) do
 end
 # a value stored at a given precision (0.75 or 3 are held by two bits)
 bfw(x, q) = BigFloat(x; precision = q)
+# the exponent shift of a BigFloat that keeps its stored precision (Base.ldexp rounds to the precision of the call)
+shift(x::BigFloat, n::Integer) = setprecision(BigFloat, precision(x)) do
+  Base.ldexp(x, Clong(n))
+end
 
 const FOLDED = Ref(0)
 const REFUSED = Ref(0)
-const REFUSED_BY_PRECISION = Ref(0)
 
-# the failures of the fold of the scale mα 2^αe into f, as strings; empty when the fold agrees with the oracle
-function fold_failures(f, αm::BigFloat, αe::Integer, mode::Symbol = :nearest)
+# the failures of the fold of the scale mα 2^αe into f, as strings; empty when the fold agrees with the oracle. The rounding
+# mode that is in force in the call is the one that the direction dir stands for.
+function fold_failures(f, αm::BigFloat, αe::Integer, dir::Symbol = :nearest)
   λ, w = f.λ0, f.w
   p = precision(BigFloat)
   out = String[]
-  fail(msg) = push!(out, "$msg: p = $p, level = $λ, weights = $w, scale = $αm 2^$αe")
+  fail(msg) = push!(out, "$msg: p = $p, mode = $(rounding(BigFloat)), level = $λ, weights = $w, scale = $αm 2^$αe")
   got = PB._fold_weights(f, PB._ProjectionScale(αm, αe))
   got === nothing ? (REFUSED[] += 1) : (FOLDED[] += 1)
-  if loses(λ, p) || loses(αm, p) || any(wi -> usable(wi) && loses(wi, p), w)
-    REFUSED_BY_PRECISION[] += 1
-    got === nothing || fail("a fold of an operand that p bits do not hold")
-    return out
-  end
-  lm = model(λ, p)
+  lm = model(λ, p, dir)
   am = exact(αm)
-  ts = Int128[Int128(αe) + pos(lm) + pos(model(wi, p)) for wi in w if usable(wi)]
+  ts = Int128[Int128(αe) + pos(lm) + pos(model(wi, p, dir)) for wi in w if usable(wi)]
   if isempty(ts)
     got === nothing || fail("a fold without weights to fold")
     return out
@@ -979,177 +989,120 @@ function fold_failures(f, αm::BigFloat, αe::Integer, mode::Symbol = :nearest)
       isequal(nw, convert(BigFloat, wi)) || fail("a zero or infinite weight changed")
       continue
     end
-    wm = model(wi, p)
+    wm = model(wi, p, dir)
     t = Int128(αe) + pos(lm) + pos(wm)
     (isfinite(nw) && !iszero(nw) && precision(nw) == p) || fail("a weight is not a normal number of the precision")
     (EMIN + 3 <= t - s <= EMAX - 3) || fail("a weight is outside the margin: t - s = $(t - s)")
-    cn, cz = round_dyadic(am[1] * lm[1] * wm[1], am[2] + lm[2] + wm[2] + αe, p, mode)
+    cn, cz = coefficient(am, lm, wm, αe, p, dir)
     on, oz = exact(nw)
-    (on == cn && oz + s == cz) || fail("the weight $i is not the coefficient rounded once: got $nw, expected $cn 2^($cz - $s)")
+    (on == cn && oz + s == cz) || fail("the weight $i is not the coefficient in the leaf's order: got $nw, expected $cn 2^($cz - $s)")
   end
   out
 end
 
 const SWEEP_PRECISIONS = vcat(2:32, [34, 37, 40, 44, 48, 53, 56, 64, 72, 80, 90, 100, 113, 120, 128, 150, 160, 192, 200, 224, 240, 255, 256])
+const MODE_PRECISIONS = vcat(2:8, [12, 24, 53, 64, 113, 128, 255, 256])
 
-# levels, weights and scale significands of the kinds Int, BigInt, Float32, Float64 and BigFloat at a precision below,
-# equal to and above p (above: one value that p bits do not hold, one that they hold)
-sweep_levels(p) = Any[5, 7, 0.75, 1 / 3, 0.75f0, 1 / 3f0, big(125), bfq(11, max(p - 1, 2)), bfq(11, p), bfq(11, p + 11),
-                      bfw(0.75, p + 11), bfq(11, 200)]
+# levels, weights and scale significands of the kinds Int, BigInt, Float64 (Float32 among the weights) and BigFloat at a precision below,
+# equal to and above p (above: a value that p bits do not hold, and one that they hold)
+sweep_levels(p) = Any[5, 1 / 3, big(125), bfq(11, max(p - 1, 2)), bfq(11, p), bfq(11, p + 11), bfw(0.75, p + 11)]
 function sweep_weights(p)
   lower, upper = max(p - 1, 2), p + 11
   Any[Real[5, 7, 0.75, 1 / 3, 0.75f0, bfq(5, lower), bfq(5, p), bfw(0.75, upper), bfw(3, upper), big(125), 0, big(0.0), Inf,
            big(Inf), bfw(Inf, upper)],
-      [5, 7], [0.75, 1 / 3], Float32[0.75, 1 / 3], BigFloat[bfq(5, lower), bfq(5, p), bfw(0.75, upper)], [big(125), big(7)],
-      BigFloat[bfq(5, upper)], Real[5, bfq(3, upper), 0.75]]
+      BigFloat[bfq(5, lower), bfq(5, p), bfq(3, upper), bfw(0.75, upper)], [big(125), big(7)], BigFloat[bfq(5, upper)]]
 end
-sweep_scales(p) = BigFloat[bfh(11, 2), bfh(11, p), bfh(11, p + 9), bfw(0.75, p + 9), prevfloat(one(BigFloat))]
+sweep_scales(p) = BigFloat[bfh(11, 2), prevfloat(one(BigFloat)), bfh(11, p + 9), bfw(0.75, p + 9)]
 
-@testset "weight fold sweep" begin
+# the fold against the oracle for the precisions ps and the rounding modes, at the positions of the coefficients that are
+# at, and one binade outside, each margin of the interval, and at the centre
+function fold_sweep(ps, modes, edges)
   failures = String[]
   checked = 0
-  for p in SWEEP_PRECISIONS
+  for p in ps
     setprecision(BigFloat, p) do
-      for λ in sweep_levels(p), W in sweep_weights(p), αm in sweep_scales(p)
-        lossy = loses(λ, p) || loses(αm, p) || any(wi -> usable(wi) && loses(wi, p), W)
-        lm = model(λ, p)
-        ews = Int128[pos(model(wi, p)) for wi in W if usable(wi)]
-        lo, hi = extrema(ews)
-        eλ = pos(lm)
-        # the centre, then the positions of the largest and of the smallest coefficient at and one binade outside the margin
-        shifts = Int128[-(eλ + (lo + hi) ÷ 2)]
-        lossy || append!(shifts, (2 * EMAX - 6 - (eλ + hi) + d for d in (0, 1)))
-        lossy || append!(shifts, (2 * EMIN + 6 - (eλ + lo) + d for d in (0, -1)))
-        for αe in shifts
-          checked += 1
-          append!(failures, fold_failures(checked % 2 == 0 ? NormL1(λ, W) : NormL1Nonneg(λ, W), αm, αe))
-        end
-      end
-      # weights spread over the room, at the centre of the range of positions: one binade inside, at, and one outside
+      Ls, Ws, As = sweep_levels(p), sweep_weights(p), sweep_scales(p)
       D0 = EMAX - EMIN - 6
-      for λ in sweep_levels(p), αm in sweep_scales(p), D in (D0 - 1, D0, D0 + 1)
-        a = -(D ÷ 2)
-        W = [pw(a), pw(a + D)]
-        αe = -(pos(model(λ, p)) + (a + 1)) - D ÷ 2
-        checked += 1
-        append!(failures, fold_failures(checked % 2 == 0 ? NormL1(λ, W) : NormL1Nonneg(λ, W), αm, αe))
+      for (mode, dir) in modes
+        setrounding(BigFloat, mode) do
+          for λ in Ls, W in Ws, αm in As
+            lm = model(λ, p, dir)
+            ews = Int128[pos(model(wi, p, dir)) for wi in W if usable(wi)]
+            lo, hi = extrema(ews)
+            eλ = pos(lm)
+            shifts = Int128[-(eλ + (lo + hi) ÷ 2)]
+            append!(shifts, (2 * EMAX - 6 - (eλ + hi) + d for d in edges))
+            append!(shifts, (2 * EMIN + 6 - (eλ + lo) - d for d in edges))
+            for αe in shifts
+              checked += 1
+              append!(failures, fold_failures(checked % 2 == 0 ? NormL1(λ, W) : NormL1Nonneg(λ, W), αm, αe, dir))
+            end
+          end
+          # weights spread over the room, at the centre of the range of positions: one binade inside, at, and one outside
+          for λ in Ls, αm in As, D in (D0 - 1, D0, D0 + 1)
+            a = -(D ÷ 2)
+            W = [pw(a), pw(a + D)]
+            αe = -(pos(model(λ, p, dir)) + (a + 1)) - D ÷ 2
+            checked += 1
+            append!(failures, fold_failures(checked % 2 == 0 ? NormL1(λ, W) : NormL1Nonneg(λ, W), αm, αe, dir))
+          end
+        end
       end
     end
   end
+  failures, checked
+end
+
+@testset "weight fold sweep" begin
+  failures, checked = fold_sweep(SWEEP_PRECISIONS, ((RoundNearest, :nearest),), (0, 1))
   isempty(failures) || foreach(m -> @info("fold mismatch", m), first(failures, 5))
   @test isempty(failures)
   @test checked > 20_000
-  # both outcomes are exercised, near each boundary, and so are the refusals of a wider operand and its converse
-  @test FOLDED[] > 5_000 && REFUSED[] > 5_000 && REFUSED_BY_PRECISION[] > 5_000
+  # both outcomes are exercised, near each boundary
+  @test FOLDED[] > 5_000 && REFUSED[] > 1_000
+
+  # all five rounding modes over the kinds of operand
+  failures, checked = fold_sweep(MODE_PRECISIONS, MODES, (0,))
+  isempty(failures) || foreach(m -> @info("fold mismatch in a mode", m), first(failures, 5))
+  @test isempty(failures)
+  @test checked > 10_000
+  @test rounding(BigFloat) == RoundNearest
 end
 
-# A chain of two factors whose product with the level of the weighted norm is not in range, at the precision 2 of the
-# counterexamples: the weight w = u 2^(2 - E) with u = 6/7 formed at 53 bits is not an operand of two bits.
-function counterexample_chain(L, level, w)
-  E = EMAX
-  e = E ÷ 2
-  a = Base.ldexp(one(BigFloat), Clong(e))
-  b = Base.ldexp(one(BigFloat), Clong(E + 5 - e))
-  Scaled(Scaled(L(level, [w]), a), b)
-end
-
-@testset "operands that are wider than the precision" begin
-  # the operands of the counterexamples, formed at 53 bits
-  u = setprecision(BigFloat, 53) do
-    BigFloat(6) / 7
-  end
-  w53 = setprecision(BigFloat, 53) do
-    Base.ldexp(u, Clong(2 - EMAX))
-  end
-  w34 = setprecision(BigFloat, 53) do
-    Base.ldexp(BigFloat(3) / 4, Clong(2 - EMAX))      # 0.75 stored at 53 bits: two bits hold it
-  end
-  five_ninths = setprecision(BigFloat, 53) do
-    BigFloat(5) / 9
-  end
-
-  with_precisions("the counterexamples refuse the fold, and the converse folds"; precisions = (2,)) do
-    @assert precision(w53) == 53 && precision(w34) == 53
-    for L in (NormL1, NormL1Nonneg)
-      # a 53-bit weight, with a two-bit level
-      s = counterexample_chain(L, big(0.75), w53)
-      @test PB._fold_weights(L(big(0.75), [w53]), retained(s)) === nothing
-      @test length(prox(s, [big(8192)], one(BigFloat))) == 1
-      # a 53-bit level, with a two-bit weight
-      wt = Base.ldexp(big(0.75), Clong(2 - EMAX))
-      @test PB._fold_weights(L(u, [wt]), retained(counterexample_chain(L, u, wt))) === nothing
-      # a 53-bit weight 5/9 and a 53-bit level, at a scale that the fold would otherwise take
-      α = PB._ProjectionScale(big(0.75), 5)
-      @test PB._fold_weights(L(big(0.75), [five_ninths]), α) === nothing
-      @test PB._fold_weights(L(five_ninths, [big(0.75)]), α) === nothing
-      # a wide scale significand
-      @test PB._fold_weights(L(big(0.75), [big(0.75)]), PB._ProjectionScale(five_ninths, 5)) === nothing
-      # one weight that p bits do not hold among others that they do (zero and infinite weights are not read)
-      @test PB._fold_weights(L(big(0.75), [big(0.75), five_ninths, big(0.0)]), α) === nothing
-      @test PB._fold_weights(L(big(0.75), [big(0.75), bfw(Inf, 53), big(0.0)]), α) isa L
-      # the converse: the same values stored at 53 bits are held by two bits, so the fold applies and the result is that of
-      # the operands stored at two bits
-      s34 = counterexample_chain(L, big(0.75), w34)
-      w2 = Base.ldexp(big(0.75), Clong(2 - EMAX))
-      f34, f2 = PB._fold_weights(L(big(0.75), [w34]), retained(s34)), PB._fold_weights(L(big(0.75), [w2]), retained(s34))
-      @test f34 isa L && f2 isa L
-      @test f34.λ0 == f2.λ0 && f34.w == f2.w
-      @test prox(s34, [big(8192)], one(BigFloat)) == prox(counterexample_chain(L, big(0.75), w2), [big(8192)], one(BigFloat))
-      level34 = bfw(0.75, 53)
-      g34, g2 = PB._fold_weights(L(level34, [w2]), retained(s34)), PB._fold_weights(L(big(0.75), [w2]), retained(s34))
-      @test g34 isa L && g34.λ0 == g2.λ0 && g34.w == g2.w
-      m34 = PB._ProjectionScale(bfw(0.75, 53), 5)
-      h34, h2 = PB._fold_weights(L(big(0.75), [big(0.75)]), m34), PB._fold_weights(L(big(0.75), [big(0.75)]), PB._ProjectionScale(big(0.75), 5))
-      @test h34 isa L && h34.λ0 == h2.λ0 && h34.w == h2.w
-    end
-  end
-
-  # the boundary of each kind of operand, as a level, as a weight and as a scale significand, at several precisions: the
-  # fold is refused exactly for a BigFloat that is wider than p and holds more than p bits, and nowhere else
-  for p in (2, 3, 5, 24, 53, 64)
-    setprecision(BigFloat, p) do
-      @testset "kinds of operand at precision $p" begin
-        base_level, base_weight = big(0.75), big(0.75)
-        α0 = PB._ProjectionScale(big(0.75), 5)
-        # (operand, refused): Int, BigInt, Float64 and Float32 operands, and BigFloat operands below, at and above p
-        # (a BigFloat of q bits whose last bit is set: p bits hold it only for q <= p)
-        needs(q) = nextfloat(bfw(1, q))
-        kinds = Any[(5, false), ((big(1) << 70) + 1, false), (1 / 3, false), (1 / 3f0, false), (0.75, false), (0.75f0, false),
-                    (needs(max(p - 1, 2)), false), (needs(p), false), (needs(p + 1), true), (needs(p + 11), true),
-                    (bfw(0.75, p + 1), false), (bfw(0.75, p + 11), false), (bfw(3, p + 11), false)]
-        for (x, refused) in kinds
-          @testset "$(typeof(x)) $x" begin
-            for L in (NormL1, NormL1Nonneg)
-              as_level = PB._fold_weights(L(x, [base_weight]), α0)
-              as_weight = PB._fold_weights(L(base_level, [x]), α0)
-              @test (as_level === nothing) == refused
-              @test (as_weight === nothing) == refused
-              x isa BigFloat && @test (PB._fold_weights(L(base_level, [base_weight]), PB._ProjectionScale(x, 5)) === nothing) == refused
-              refused || @test as_level isa L && as_weight isa L
+@testset "_scaled_weight in the leaf's order" begin
+  bad = String[]
+  for (ps, modes) in ((SWEEP_PRECISIONS, ((RoundNearest, :nearest),)), (MODE_PRECISIONS, MODES[2:end]))
+    for p in ps
+      setprecision(BigFloat, p) do
+        for pa in (2, p, p + 9), pl in (2, p + 3, 130), pww in (2, p, 140), (na, nl, nw) in ((11, 5, 3), (13, 11, 5))
+          ma, ml, w = bfh(na - 2, pa), bfq(nl, pl), bfq(nw, pww)
+          for (mode, dir) in modes
+            setrounding(BigFloat, mode) do
+              for k in (-7, 0, 5)
+                (an, az), (ln, lz), (wn, wz) = exact(ma), exact(ml), exact(w)
+                cn, cz = coefficient((an, az), (ln, lz), (wn, wz), k, p, dir)
+                r = PB._scaled_weight(ma, ml, w, k)
+                rn, rz = exact(r)
+                (precision(r) == p && rn == cn && rz == cz) || push!(bad, "p = $p, mode $mode, precisions $pa $pl $pww, k = $k: got $r")
+              end
             end
           end
         end
-        # a zero and an infinite weight at any precision are not read
-        @test PB._fold_weights(NormL1(base_level, [base_weight, bfw(Inf, p + 11), bfw(0.0, p + 11)]), α0) isa NormL1
       end
     end
   end
-end
+  isempty(bad) || foreach(m -> @info("_scaled_weight mismatch", m), first(bad, 5))
+  @test isempty(bad)
 
-# The rounding of the helper follows the current mode: three factors 0.75 at two bits, 27/64 = 0.421875, lie between
-# 0.375 and 0.5, nearer to 0.375
-@testset "the helper honours the rounding mode" begin
-  with_precisions("directed rounding"; precisions = (2,)) do
+  with_precisions("rounding of three factors 0.75"; precisions = (2,)) do
+    # 0.75 0.75 = 0.5625 between 0.5 and 0.75, nearer to 0.5; then 0.5 0.75 = 0.375 is held by two bits
     f = big(0.75)
-    n, z = exact(f)
-    @test round_dyadic(n * n * n, 3 * z, 2) == exact(big(0.375))
-    @test round_dyadic(n * n * n, 3 * z, 2, :up) == exact(big(0.5))
-    @test round_dyadic(n * n * n, 3 * z, 2, :down) == exact(big(0.375))
     @test PB._scaled_weight(f, f, f, 0) == 0.375
+    @test PB._scaled_weight(f, f, f, 3) == 3
+    # up: 0.5625 -> 0.75, then 0.75 0.75 -> 0.75; down: 0.5, then 0.375
     setrounding(BigFloat, RoundUp) do
-      @test PB._scaled_weight(f, f, f, 0) == 0.5
-      @test PB._scaled_weight(f, f, f, 3) == 4
-      # the fold forms the same coefficient, and the failures are the oracle's, in the directed mode
+      @test PB._scaled_weight(f, f, f, 0) == 0.75
+      @test PB._scaled_weight(f, f, f, 3) == 6
       for L in (NormL1, NormL1Nonneg)
         @test isempty(fold_failures(L(f, [f]), f, 5, :up))
         @test PB._fold_weights(L(f, [f]), PB._ProjectionScale(f, 5)) isa L
@@ -1159,29 +1112,210 @@ end
       @test PB._scaled_weight(f, f, f, 0) == 0.375
       @test isempty(fold_failures(NormL1(f, [f]), f, 5, :down))
     end
+    # a level that is not a BigFloat is rounded in the mode in force: 5 is 6 at two bits under RoundUp, 4 to nearest
+    setrounding(BigFloat, RoundUp) do
+      @test isempty(fold_failures(NormL1(5, [f]), f, 5, :up))
+      @test PB._fold_weights(NormL1(5, [f]), PB._ProjectionScale(f, 5)).w == PB._fold_weights(NormL1(big(6), [f]), PB._ProjectionScale(f, 5)).w
+    end
+    @test PB._fold_weights(NormL1(5, [f]), PB._ProjectionScale(f, 5)).w == PB._fold_weights(NormL1(big(4), [f]), PB._ProjectionScale(f, 5)).w
     @test PB._scaled_weight(f, f, f, 0) == 0.375
     @test rounding(BigFloat) == RoundNearest
   end
 end
 
-@testset "_scaled_weight against the exact product" begin
-  bad = String[]
-  for p in SWEEP_PRECISIONS
+# A chain whose scale is mα 2^X and whose weights are mw 2^(d - X) is the ordinary leaf with the weights mw 2^d at the step mα,
+# every number being a power of two times a stored significand, so that nothing in a result depends on where the exponent is
+# put: the folded chain and the unfolded leaf must agree exactly in `prox`, `prox!`, `value_and_prox!` (the output) and the
+# array-step forms of these, in `prox_entry` and in `prox_coordinate!`; the value that `value_and_prox!` returns is the value of
+# the chain at the stored output. `shift` keeps the stored precision of a significand. The step is a power of two, so that its
+# product with the scale does not round.
+function differential(F, λ, mws, ds, ma, factors, γ, level_shift, wshift, name; values = true, entries = true)
+  fails = String[]
+  p = precision(BigFloat)
+  n = length(mws)
+  # The chain: the level and the weights carry the exponents that the scale and the step take out. The wrappers are built to
+  # nearest and evaluated in the mode in force: under RoundDown and RoundToZero a product of factors that overflows is the
+  # largest number and not infinity, which the constructor then merges, whatever the fold does.
+  s, leaf = setrounding(BigFloat, RoundNearest) do
+    chain_leaf = F(level_shift === nothing ? λ : shift(λ, -level_shift), BigFloat[shift(mws[i], ds[i] - wshift) for i in 1:n])
+    foldl((h, a) -> Scaled(h, a), factors; init = chain_leaf), F(λ, BigFloat[shift(mws[i], ds[i]) for i in 1:n])
+  end
+  λb = convert(BigFloat, λ)
+  ts = [(ma * λb) * leaf.w[i] for i in 1:n]
+  cands = Function[t -> t, t -> prevfloat(t), t -> nextfloat(t), t -> 2t, t -> t / 2, t -> pw(Base.exponent(t) + 4), t -> nextfloat(2t)]
+  fail(msg, x) = push!(fails, "$name: $msg at x = $x: p = $p, mode = $(rounding(BigFloat))")
+  same(a, b) = a == b
+  for c in cands, sg in (1, -1)
+    x = BigFloat[sg * c(t) for t in ts]
+    y1, y2 = prox(s, x, γ), prox(leaf, x, ma)
+    same(y1, y2) || fail("prox", x)
+    y3 = zeros(BigFloat, n); prox!(y3, s, x, γ)
+    same(y3, y2) || fail("prox!", x)
+    y4 = prox(s, x, fill(γ, n))
+    same(y4, y2) || fail("array-step prox", x)
+    for (label, step) in (("value_and_prox!", γ), ("array-step value_and_prox!", fill(γ, n)))
+      y5 = zeros(BigFloat, n); v5 = value_and_prox!(y5, s, x, step)
+      same(y5, y2) || fail(label * " output", x)
+      # the value is that of the chain at the stored output
+      values || continue
+      isequal(v5, s(y5)) || fail(label * " value against the chain at y: $v5 vs $(s(y5))", x)
+    end
+    for i in (entries ? (1:n) : (1:0))
+      e1, e2 = prox_entry(s, x[i], i, γ), prox_entry(leaf, x[i], i, ma)
+      isequal(e1, e2) || fail("prox_entry $i", x)
+      xi = SparseIterate(BigFloat, n); xi[i] = x[i]
+      xj = SparseIterate(BigFloat, n); xj[i] = x[i]
+      c1, c2 = prox_coordinate!(xi, s, i, γ), prox_coordinate!(xj, leaf, i, ma)
+      isequal(c1, c2) || fail("prox_coordinate! $i", x)
+    end
+  end
+  fails
+end
+
+@testset "the folded chain is the unfolded leaf" begin
+  fails = String[]
+  E = EMAX
+  e1 = E ÷ 2
+  Xs = E + 5                         # the scale mα 2^Xs of two factors; the weights have the exponents d - Xs
+  ds = [8, 6]
+  P3, Q3 = frac(680), frac(650)      # three factors and the exponents taken by a level, weights and the step
+  # (under RoundDown and RoundToZero an overflow is the largest number and not infinity, so that the step of a chain whose
+  # product with its factors leaves the range is taken for a normal number before any fold is tried: those modes are left out
+  # of the public comparison, and the fold itself is checked against its oracle in all five)
+  for p in (2, 3, 53), (mode, dir) in MODES
+    mode in (RoundDown, RoundToZero) && continue
     setprecision(BigFloat, p) do
-      for pa in (2, p, p + 9), pl in (2, p + 3, 130), pww in (2, p, 140), (na, nl, nw) in ((11, 5, 3), (13, 11, 5))
-        ma, ml, w = bfh(na - 2, pa), bfq(nl, pl), bfq(nw, pww)
-        for k in (-7, 0, 5)
-          (an, az), (ln, lz), (wn, wz) = exact(ma), exact(ml), exact(w)
-          cn, cz = round_dyadic(an * ln * wn, az + lz + wz + k, p)
-          r = PB._scaled_weight(ma, ml, w, k)
-          rn, rz = exact(r)
-          (precision(r) == p && rn == cn && rz == cz) || push!(bad, "p = $p, precisions $pa $pl $pww, k = $k: got $r")
+      mws = BigFloat[bfh(11, max(p - 1, 2)), bfh(10, p), bfw(0.75, p + 11), bfh(9, p + 11)]
+      mas = BigFloat[bfh(11, p), bfh(9, max(p - 1, 2))]
+      λs = Any[5, 1 / 3, big(125), bfh(11, max(p - 1, 2)), bfh(10, p), bfh(9, p + 11), bfw(0.75, p + 11)]
+      setrounding(BigFloat, mode) do
+        for F in (NormL1, NormL1Nonneg)
+          # the kinds of level (the level is not shifted: the scale folds into the weights); two factors
+          for λ in λs, ma in mas
+            fs = Any[pw(e1), shift(ma, Xs - e1)]
+            append!(fails, differential(F, λ, mws[1:2], ds, ma, fs, one(BigFloat), nothing, Xs, "$(nameof(F)) level $(typeof(λ)) two factors"; entries = λ isa BigFloat))
+          end
+          # the kinds of weight, with the level a BigFloat; two factors
+          for i in eachindex(mws), ma in mas
+            λ = bfh(11, p)
+            fs = Any[pw(e1), shift(ma, Xs - e1)]
+            append!(fails, differential(F, λ, mws[[i, mod1(i + 1, 4)]], ds, ma, fs, one(BigFloat), nothing, Xs, "$(nameof(F)) weights $i two factors"))
+          end
+          # three factors beyond Int64 at the default range, the level, the weights and the step bring the product back: the
+          # level has the exponent -Q3, the weights -Q3 and the step -g with 3 P3 = 2 Q3 + g
+          g = 3 * P3 - 2 * Q3
+          # (the level takes the scale here and no weight is folded; the level has p bits, as the level fold reads the
+          # significand of a level through `frexp`, which rounds it to the precision of the call)
+          for λ in BigFloat[bfh(10, p), bfw(0.75, p + 11)], ma in mas
+            fs = Any[pw(P3), pw(P3), shift(ma, P3)]
+            # (the value of the chain: a leaf value of the factors' levels and weights alone that underflows is the least number
+            # under a directed rounding and not zero, so that the recovery of the value is not triggered; the outputs are
+            # compared in every mode, the values to nearest)
+            append!(fails, differential(F, λ, mws[1:2], ds, ma, fs, pw(-g), Q3, Q3, "$(nameof(F)) three factors, level $λ, scale $ma, weights $(mws[1:2])";
+                                        values = mode === RoundNearest))
+          end
         end
       end
     end
   end
-  isempty(bad) || foreach(m -> @info("_scaled_weight mismatch", m), first(bad, 5))
-  @test isempty(bad)
+  isempty(fails) || foreach(m -> @info("differential mismatch", m), first(fails, 6))
+  @test isempty(fails)
+  @test rounding(BigFloat) == RoundNearest
+end
+
+# The weights are paired with their entries by increasing linear index, whatever order `eachindex` and iteration visit them in.
+struct ReverseVisit{T} <: AbstractVector{T}
+  v::Vector{T}
+end
+Base.size(r::ReverseVisit) = size(r.v)
+Base.getindex(r::ReverseVisit, i::Int) = r.v[i]
+Base.eachindex(r::ReverseVisit) = reverse(eachindex(r.v))
+Base.iterate(r::ReverseVisit, st = length(r.v)) = st < 1 ? nothing : (r.v[st], st - 1)
+
+@testset "named cases of the fold" begin
+  E = EMAX
+  e1 = E ÷ 2
+  # the scale mα 2^(E + 5) of two factors with a given significand
+  two(F, λ, w, ma) = Scaled(Scaled(F(λ, w), pw(e1)), shift(ma, E + 5 - e1))
+  for F in (NormL1, NormL1Nonneg)
+    nm = string(nameof(F))
+    with_precisions("a wider weight under three factors returns the argument"; precisions = (2, 53, 256)) do
+      w = setprecision(BigFloat, 70) do
+        Base.ldexp(BigFloat(6) / 7, Clong(-LW))
+      end
+      s = Scaled(Scaled(Scaled(F(pw(-LW), [w]), pw(PW)), pw(PW)), pw(PW))
+      x = [pw(XW)]
+      @test prox(s, x, one(BigFloat)) == x
+      @test prox(s, x, [one(BigFloat)]) == x
+    end
+
+    # precision 3: the scale 3/4, the level 7/8 and the weight 7/8 2^(2 - E) have the coefficient 64 in the leaf's order
+    # ((3/4)(7/8) = 21/32 is 5/8, and (5/8)(7/8) = 35/64 is 1/2, times 2^7), and not 80 (21/32 7/8 = 147/256 is 5/8)
+    with_precisions("the leaf's rounding at precision 3"; precisions = (3,)) do
+      s = two(F, BigFloat(7) / 8, [shift(BigFloat(7) / 8, 2 - E)], BigFloat(3) / 4)
+      leaf = F(BigFloat(7) / 8, [BigFloat(7) / 8 * 128])
+      @test prox(s, [big(128)], one(BigFloat)) == [64]
+      @test prox(leaf, [big(128)], BigFloat(3) / 4) == [64]
+      @test prox(s, [big(64)], one(BigFloat)) == [0]
+      @test prox(s, [big(80)], one(BigFloat)) == [16]
+      @test prox(s, [big(128)], [one(BigFloat)]) == [64]
+      # the value is that of the chain at the stored output, for a scalar and for an array step
+      for x in (big(48), big(80), big(128), big(512))
+        y1 = zeros(BigFloat, 1)
+        v1 = value_and_prox!(y1, s, [x], one(BigFloat))
+        @test isequal(v1, s(y1))
+        y2 = zeros(BigFloat, 1)
+        v2 = value_and_prox!(y2, s, [x], [one(BigFloat)])
+        @test isequal(v2, s(y2)) && y2 == y1
+      end
+    end
+
+    # precision 4: the scale 9/16, the level 3/4 and the weight 9/16 2^(2 - E): (9/16)(3/4) = 27/64 is 7/16 (a tie, to even),
+    # (7/16)(9/16) = 63/256 is 1/4, so the coefficient is 32 and the point 32 gives zero (one rounding gives 30)
+    with_precisions("the leaf's rounding at precision 4"; precisions = (4,)) do
+      s = two(F, BigFloat(3) / 4, [shift(BigFloat(9) / 16, 2 - E)], BigFloat(9) / 16)
+      @test prox(s, [big(32)], one(BigFloat)) == [0]
+      @test prox(s, [big(32)], [one(BigFloat)]) == [0]
+      @test prox(F(BigFloat(3) / 4, [BigFloat(9) / 16 * 128]), [big(32)], BigFloat(9) / 16) == [0]
+      @test prox(s, [big(48)], one(BigFloat)) == prox(F(BigFloat(3) / 4, [BigFloat(9) / 16 * 128]), [big(48)], BigFloat(9) / 16)
+    end
+
+    # the counterexample of two bits: a weight of 53 bits under a scale of two bits, and the unfolded leaf
+    with_precisions("a weight of 53 bits at precision 2"; precisions = (2,)) do
+      u = setprecision(BigFloat, 53) do
+        BigFloat(6) / 7
+      end
+      w = shift(u, 2 - E)
+      s = Scaled(Scaled(F(big(0.75), [w]), pw(e1)), pw(E + 5 - e1))
+      # the scale 2^(E + 5) times 3/4 is 3/4 2^(E + 5), times 6/7 2^(2 - E) is 3/4 2^7 (the product 9/14 is 3/4): 96
+      @test prox(s, [big(128)], one(BigFloat)) == [32]
+      @test prox(F(big(0.75), [shift(u, 7)]), [big(128)], one(BigFloat)) == [32]
+      @test prox(s, [big(8192)], one(BigFloat)) == prox(F(big(0.75), [shift(u, 7)]), [big(8192)], one(BigFloat))
+      # a weight that two bits hold, stored at 53 bits, gives the same
+      w2 = shift(bfw(0.75, 53), 2 - E)
+      s2 = Scaled(Scaled(F(big(0.75), [w2]), pw(e1)), pw(E + 5 - e1))
+      @test prox(s2, [big(8192)], one(BigFloat)) == prox(Scaled(Scaled(F(big(0.75), [shift(big(0.75), 2 - E)]), pw(e1)), pw(E + 5 - e1)),
+                                                         [big(8192)], one(BigFloat))
+    end
+
+    # the weights of a vector that is visited in reverse keep their entries: the scale 2^(E + 5), level 1, thresholds 256 and 64
+    with_precisions("weights visited in reverse"; precisions = (2, 53)) do
+      ws = [pw(3 - E), pw(1 - E)]
+      for W in (ws, ReverseVisit(ws))
+        s = Scaled(Scaled(F(one(BigFloat), W), pw(e1)), pw(E + 5 - e1))
+        @test prox(s, [big(128), big(32)], one(BigFloat)) == [0, 0]
+        @test prox(s, [big(512), big(128)], one(BigFloat)) == [256, 64]
+        @test prox(s, [big(512), big(128)], fill(one(BigFloat), 2)) == [256, 64]
+        y = zeros(BigFloat, 2)
+        v = value_and_prox!(y, s, [big(512), big(128)], one(BigFloat))
+        @test y == [256, 64] && isequal(v, s(y))
+        @test prox_entry(s, big(512), 1, one(BigFloat)) == 256 && prox_entry(s, big(128), 2, one(BigFloat)) == 64
+      end
+      f = PB._fold_weights(F(one(BigFloat), ReverseVisit(ws)), PB._ProjectionScale(big(0.5), E + 6))
+      g = PB._fold_weights(F(one(BigFloat), ws), PB._ProjectionScale(big(0.5), E + 6))
+      @test f isa F && g isa F && f.w == g.w && f.λ0 == g.λ0
+    end
+  end
 end
 
 @testset "the earlier counterexamples" begin
@@ -1202,15 +1336,6 @@ end
     end
   end
 
-  with_precisions("a product of three significands is rounded once"; precisions = (2,)) do
-    # 0.75 (5/9, as 53 bits) 0.75 = 0.3125000000000000 and a bit: above the midpoint of the two-bit numbers 0.25 and 0.375
-    ml = setprecision(BigFloat, 53) do
-      BigFloat(5 / 9)
-    end
-    @test PB._scaled_weight(big(0.75), ml, big(0.75), 0) == 0.375
-    @test PB._scaled_weight(big(0.75), ml, big(0.75), 3) == 3
-  end
-
   with_precisions("the refusals"; precisions = (2, 53)) do
     # one weight, no spread: the absolute position of the coefficient is beyond what a level times a weight can express
     @test PB._fold_weights(NormL1(big(1), [big(1)]), PB._ProjectionScale(big(0.5), 3 * (EMAX - 2) + 1)) === nothing
@@ -1225,6 +1350,13 @@ end
     @test PB._fold_weights(NormL1(big(1), [big(0.0), big(Inf)]), PB._ProjectionScale(big(0.5), 3 * (EMAX - 2))) === nothing
     @test PB._fold_weights(NormL1(big(0), [big(1)]), PB._ProjectionScale(big(0.5), 3 * (EMAX - 2))) === nothing
     @test PB._fold_weights(NormL1(big(1), [big(1)]), PB._ProjectionScale(big(Inf), 0)) === nothing
+    # a stored precision wider than the call's is no reason to refuse: the fold applies and its weights are the leaf's
+    wide53 = setprecision(BigFloat, 53) do
+      BigFloat(5) / 9
+    end
+    @test PB._fold_weights(NormL1(big(0.75), [wide53]), PB._ProjectionScale(big(0.75), 5)) isa NormL1
+    @test PB._fold_weights(NormL1(wide53, [big(0.75)]), PB._ProjectionScale(big(0.75), 5)) isa NormL1
+    @test PB._fold_weights(NormL1(big(0.75), [big(0.75)]), PB._ProjectionScale(wide53, 5)) isa NormL1
   end
 
   @testset "the Float64 and Float32 paths have no weight fold" begin

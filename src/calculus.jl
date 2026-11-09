@@ -7,8 +7,9 @@
 # Retain exceptional wrapper products until the leaf coefficient is formed.
 #
 # The exponent is exact. Its type follows the significand: Int for every type but BigFloat, whose
-# MPFR exponents reach ±(2^62 - 1), so that a product of three or more extreme factors has an
-# exponent beyond Int64; it is an Int128 there, which is the width of `_exponent_sum(BigFloat, …)`.
+# MPFR exponents reach ±(2^62 - 1) by default on 64-bit Unix (±(2^30 - 1) on Windows), so that there a
+# product of three or more extreme factors has an exponent beyond Int64; it is an Int128 for BigFloat, which is
+# the width of `_exponent_sum(BigFloat, …)`.
 # One composition adds at most about 2^63 to the magnitude of the exponent, so an Int128 is exact
 # for chains of up to 2^64 factors, and a chain of that length does not fit in memory. A retained
 # exponent is exact on the host through its last cancellation, and the final shift of `ldexp` saturates. Two
@@ -370,39 +371,40 @@ end
 # A scale with a BigFloat significand that no level takes (its product with the level is outside the range) is
 # absorbed into the weights instead, which bring the products of scale, level and weight back into range.
 #
-# The fold models a level, weights and a scale significand that are numbers of the precision p of the call, as the leaf
-# reads them: a level or weight that is not a BigFloat is rounded to p by `convert(BigFloat, ·)` (the conversion by which
-# the leaf promotes it), and a BigFloat is used as stored. So that the folded weights are the products that the leaf forms,
-# the fold applies only when no BigFloat among the level, the nonzero finite weights and the scale significand loses
-# a bit at p: each has a stored precision of at most p, or a value that p bits represent (`BigFloat(x; precision = p) == x`,
-# which does not depend on the rounding mode). This is decided before any exponent is read, and the fold is refused
-# (`nothing`, as without it) when one of them is wider and not representable. A zero or infinite weight is not read.
+# The leaf forms the coefficient of an entry as (γ λ) w in BigFloat arithmetic: every operand is used as stored (a
+# level or weight that is not a BigFloat is first rounded to the precision p of the call by `convert(BigFloat, ·)`),
+# and each product is rounded to p in the current rounding mode. The fold stands in for the scale, which enters as the
+# step does, and forms the coefficient of a weight in the same order: ((mα mλ) mw), with the significands mλ and mw of
+# the level and of the weight read at the precision at which they are stored (`_exact_frexp`), and the significand mα
+# of the scale as stored; each product is rounded to p. A BigFloat that is stored wider than p is not rounded before it
+# enters, as in the leaf. For positive finite operands the significands lie in [1/2, 1) (the constructors reject
+# negative levels and weights). With λ = mλ 2^eλ, a nonzero finite weight w = mw 2^ew and the scale mα 2^E, the
+# coefficient is c = ((mα mλ) mw) 2^t with t = E + eλ + ew (Int128, exact). One power of two 2^s becomes the level and
+# each weight becomes c 2^-s: the products are rounded as in the leaf and the final shift by a power of two is exact
+# for a result that stays a normal number, which the margin below ensures; for a result that would leave the normal
+# range nothing is claimed. Let emx and emn be the limits of the MPFR exponent and tmin, tmax the extreme values of t
+# over the nonzero finite weights. The shift s is the centre of the interval [lo, hi] of the s for which s and every
+# t - s lie in [emn + 3, emx - 3]: lo is the larger of emn + 3 and tmax - (emx - 3), hi the smaller of emx - 3 and
+# tmin - (emn + 3). Comparing each lower end with each upper end, the interval is non-empty exactly when
+# tmin >= 2 emn + 6, tmax <= 2 emx - 6 and tmax - tmin <= emx - emn - 6 (emn + 3 <= emx - 3 always holds). The fold is
+# refused (`nothing`, as without it) when the interval is empty: when the absolute position of the coefficients is
+# outside what a normal level times a normal weight can express (the first two conditions: even one weight, with no
+# spread, can fail them), or when their spread exceeds the room (the third), in both cases with a margin of three
+# binades. A zero or infinite weight is copied (converted to a BigFloat), not folded and not used for the interval. With
+# no nonzero finite weight, no weights, a zero or non-finite level or a zero or non-finite scale there is no fold. The
+# weights are any array; they are paired with the folded weights by increasing linear index, whatever order
+# `eachindex` or iteration visits them in. Only BigFloat scales take this fold; every other type folds as before. The
+# array-step route (`_shifted_fold`) has no fold of its own.
 #
-# With that, λ = mλ 2^eλ and a nonzero finite weight w = mw 2^ew, with significands in [1/2, 1), enter with the scale
-# mα 2^E: the coefficient is c = mα mλ mw 2^t with t = E + eλ + ew (Int128, exact). One power of two 2^s becomes the
-# level and each weight becomes c 2^-s, rounded once to p (see `_scaled_weight`). Let emx and emn be the limits of the
-# MPFR exponent and tmin, tmax the extreme values of t over the nonzero finite weights. The shift s is the centre of the
-# interval [lo, hi] of the s for which s and every t - s lie in [emn + 3, emx - 3]: lo is the larger of emn + 3 and
-# tmax - (emx - 3), hi the smaller of emx - 3 and tmin - (emn + 3). Comparing each lower end with each upper end, the
-# interval is non-empty exactly when tmin >= 2 emn + 6, tmax <= 2 emx - 6 and tmax - tmin <= emx - emn - 6
-# (emn + 3 <= emx - 3 always holds). The fold is also refused when the interval is empty: when the absolute position of
-# the coefficients is outside what a normal level times a normal weight can express (the first two conditions: even one
-# weight, with no spread, can fail them), or when their spread exceeds the room (the third), in both cases with a margin
-# of three binades. With no nonzero finite weight, no weights, a zero or non-finite level or a zero or non-finite scale
-# there is no fold. The weights are any array, read by their linear index as the leaf reads them. Only BigFloat scales
-# take this fold; every other type folds as before. The array-step route (`_shifted_fold`) has no fold of its own.
 # the significand in [1/2, 1) and the exponent of a finite nonzero BigFloat, the significand at the precision of x (`frexp`
 # rounds it to the precision of the call, which loses bits of a wider x)
 function _exact_frexp(x::BigFloat)
   e = Int(exponent(x)) + 1
   (setprecision(() -> ldexp(x, -e), BigFloat, precision(x)), e)
 end
-@inline _fits_precision(x, p) = !(x isa BigFloat) || precision(x) <= p || BigFloat(x; precision = p) == x
 function _fold_weights(f::Union{NormL1, NormL1Nonneg}, α::_ProjectionScale{BigFloat})
   w, λ = f.w, f.λ0
   (w isa AbstractArray && isfinite(λ) && !iszero(λ) && isfinite(α.m) && !iszero(α.m)) || return nothing
-  p = precision(BigFloat)
-  (_fits_precision(λ, p) && _fits_precision(α.m, p)) || return nothing
   λb = convert(BigFloat, λ)
   (isfinite(λb) && !iszero(λb)) || return nothing
   mλ, eλ = _exact_frexp(λb)
@@ -410,7 +412,6 @@ function _fold_weights(f::Union{NormL1, NormL1Nonneg}, α::_ProjectionScale{BigF
   tmin, tmax = typemax(Int128), typemin(Int128)
   for wi in w
     (iszero(wi) || !isfinite(wi)) && continue
-    _fits_precision(wi, p) || return nothing
     t = base + _exact_frexp(convert(BigFloat, wi))[2]
     tmin, tmax = min(tmin, t), max(tmax, t)
   end
@@ -420,24 +421,24 @@ function _fold_weights(f::Union{NormL1, NormL1Nonneg}, α::_ProjectionScale{BigF
   lo > hi && return nothing
   s = fld(lo + hi, 2)
   out = Array{BigFloat}(undef, size(w))
-  for (k, i) in enumerate(eachindex(w))
+  for (k, i) in zip(eachindex(out), LinearIndices(w))
     wi = w[i]
     out[k] = iszero(wi) || !isfinite(wi) ? convert(BigFloat, wi) : _scaled_weight(α.m, mλ, convert(BigFloat, wi), base - s)
   end
   level = ldexp(one(BigFloat), s)
   f isa NormL1 ? NormL1(level, out) : NormL1Nonneg(level, out)
 end
-# ma ml w 2^k for the BigFloat significands ma and ml and a nonzero finite weight w, rounded once to the precision of
-# the call: the product of the three significands (w being taken as its significand mw and the exponent ew) is formed at
-# precision(ma) + precision(ml) + precision(mw), where it is exact, and rounded once to the precision of the call in the
-# current rounding mode (round to nearest, ties to even, by default); then the power of two 2^(k + ew) is applied.
+# (ma ml) mw 2^(k + ew) for the BigFloat significands ma and ml and a nonzero finite weight w = mw 2^ew: the products
+# are formed in the leaf's order, each rounded to the precision of the call in the current rounding mode (to nearest, ties
+# to even, by default), with mw read at the precision of w; then the power of two 2^(k + ew) is applied, which is exact
+# when the result is a normal number.
 function _scaled_weight(ma::BigFloat, ml::BigFloat, w::BigFloat, k::Integer)
   mw, ew = _exact_frexp(w)
-  c = setprecision(BigFloat, precision(ma) + precision(ml) + precision(mw)) do
-    (ma * ml) * mw
-  end
-  ldexp(c * one(BigFloat), k + ew)
+  ldexp((ma * ml) * mw, k + ew)
 end
+# whether g is f with the weights that `_fold_weights` rebuilt: its value is not the value of the chain
+_weights_folded(f, g, a) = false
+_weights_folded(f::Union{NormL1, NormL1Nonneg}, g::Union{NormL1, NormL1Nonneg}, ::_ProjectionScale{BigFloat}) = g.w !== f.w
 for F in (:NormL1, :NormL1Nonneg)
   @eval function _fold_level(f::$F, α::_NormalScale{<:_ProjectionScale{BigFloat}})
     c = _folded_level(f.λ0, α)

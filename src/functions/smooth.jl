@@ -1070,7 +1070,7 @@ end
 function _densify!(f::KronQuadratic, Θ::SparseIterate)
   _checkshape(f, Θ)
   D = fill!(f.D, 0)
-  @inbounds for k = 1:nnz(Θ)
+  @inbounds for k = 1:nactive(Θ)
     D[Θ.nzval2ind[k]] = Θ.nzval[k]
   end
   D

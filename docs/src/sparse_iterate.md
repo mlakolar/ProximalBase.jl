@@ -135,10 +135,10 @@ The data structure's essential invariants and performance targets are:
 5. **No hidden full traversal:** use active handles for sparse sweeps; only traverse all `n` entries for genuinely dense-array operations.
 6. **Allocation behavior:** indexing, activation, membership and obtaining handles should be allocation-free after warm-up on ordinary Float32/Float64 CPU use. Copies, construction, explicitly sorted snapshots of active entries, and dense snapshots allocate intentionally.
 
-This page is about the representation, not which mathematical **functions** accept it. The latter compatibility belongs to the function-oracle inventory and its tests, not to the `SparseIterate` contract.
+This page is about the representation, not which mathematical **functions** accept it. The latter compatibility belongs to the function-oracle inventory and its tests, not to the `SparseIterate` contract. For `SparseCoordinates`, `SymmetricCoordinates` and the private aliasing hooks in detail, see [Developer documentation](developer/index.md).
 
 
-For the definition-by-definition inventory, including internal aliasing hooks, wrapper methods, conditional `copyto!` overloads, kernels and out-of-file specializations, see [the 0.6 source-level SparseIterate audit](../audit/sparse-iterate-06-method-inventory.md). This documents the source at the time of the audit; it does not imply that Julia method-table probes or tests have run.
+For the definition-by-definition inventory, including internal aliasing hooks, wrapper methods, conditional `copyto!` overloads, kernels and out-of-file specializations, see [the 0.6 source-level SparseIterate audit](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/audit/sparse-iterate-06-method-inventory.md). This documents the source at the time of the audit; it does not imply that Julia method-table probes or tests have run.
 
 ## Storage invariants and update implementation
 

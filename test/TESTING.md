@@ -89,7 +89,13 @@ parallel batch.
   below: `constrained` moves six Float64 vector-box cells of *a separable function on a box*, and
   `metric` moves the Float64 main-loop cases of two of its five penalties. The Float32 passes and
   type grids that repeat those are in `extreme_normals_grids`, `constrained_grids` and
-  `metric_grids`, also in Full (below).
+  `metric_grids`, also in Full (below). Four more, `value_overflow_glm`, `symmetric_wrappers` and `block_step`
+  keep the Float64 passes, and `blockchecks` runs the flat sum and the `SliceSum` of each of its
+  40 cases, the `FiberSum` with the function as the off-diagonal part for the cases of a vector and
+  a proximable function, and the wrapper variants of nine of the 40; the cases are listed per file
+  below. The Float32 storage cases, Float32 passes and wrapper variants that repeat those are in
+  `value_overflow_glm_grids`, `symmetric_wrappers_grids`, `blockchecks_grids` and
+  `block_step_grids`, also in Full (below).
   `test/calculus.jl` stays whole in Thorough and has no companion. Its profiled hotspots
   (failure atomicity before writes of the tuple wrappers, zero preservation, and buffers and
   allocations) run mostly on distinct Float64 wrapper types. The one measured candidate for a
@@ -205,7 +211,7 @@ run 41341879373 (Julia 1: 639818 against 639702; broken counts equal): the 117 o
 
 ### The `_grids` files
 
-Six Quick files and six Thorough files have a Full-tier companion with the cases that repeat one
+Six Quick files and ten Thorough files have a Full-tier companion with the cases that repeat one
 that stays in the base file for another element type, wrapper or view form. Each companion is a self-contained module with the fixtures it needs
 copied, and its name starts with the name of the base file, so `julia scripts/test.jl atom_iterate`
 runs both. The cases are moved with their assertions; the loop guards and the copied fixtures were
@@ -228,13 +234,17 @@ cases that moved are listed per file in the table below.
 | `extreme_normals` (Thorough) + `extreme_normals_grids` | in the overflow catalog, the Float32 pass of *scalar normals*, *rescaled normals*, *tiny entries keep their bits*, *the halfspace is judged by the residual*, *iterates* and *the neighbourhood of the thresholds*, and the destinations of Float32 data into a Float64 output; the base file keeps the Float64 pass, the Float32 *array normals* and *steps whose weighted squared norm or product overflows*, and the destinations of a Float64 model into a Float32 output | 24834 = 15658 + 9176 |
 | `constrained` (Thorough) + `constrained_grids` | in *a separable function on a box*, the `IndBox(l, u)` cells of six of the eight functions, and the Float32 pass of *variable fixing with extreme normals*; the base file keeps `NormL1` and `ElasticNet` on that box (the other three boxes build types that the scalar box already builds) and the Float64 pass | 4935 = 4366 + 569 |
 | `metric` (Thorough) + `metric_grids` | the `GroupNormLinf` and `GroupSCAD` cases of the main loop of *per-group steps for regularization*; the base file keeps `GroupNormL2`, `SparseGroupNormL2` and `GroupMCP` there and all five penalties in the reordered-groups loop, and the kernels of the two moved penalties stay checked in *a step per group for group norms* and *for MCP and SCAD* | 1814 = 1566 + 248 |
+| `value_overflow_glm` (Thorough) + `value_overflow_glm_grids` | in *GLMLoss values and gradients that leave the range*, the Float32 cases with a sparse `X`, a `SparseIterate` coefficient (also with zero entries) and an `AtomIterate` coefficient of Logistic, Huber, SmoothCheck and the two Conv losses, and, for Poisson, the cases named *sparse X, cancelling row*, *SparseIterate β* and *AtomIterate β* (not *SparseIterate β with zero entries, sparse X*); the base file keeps the Float64 pass, the dense Float32 cases of these losses, the `SparseIterate` coefficient with zero entries of Poisson, and all the Float32 cases of Squared and SquaredHinge | 28847 = 28521 + 326 |
+| `symmetric_wrappers` (Thorough) + `symmetric_wrappers_grids` | the Float32 pass of *a separable sum with a rejection-only owner block writes no block* except its *supported blocks* testsets, and the Float32 entries of three composed `NuclearNorm` combinations of *the exact check applies to every other combination* (`Conjugate(Translate)`, `Conjugate(Regularize)` and `MoreauEnvelope(Conjugate)`); the base file keeps the Float64 pass of both testsets, the Float32 supported blocks and the Float32 entries of the other combinations | 4815 = 4233 + 582 |
+| `blockchecks` (Thorough) + `blockchecks_grids` | in *Block checks before writes*, the `Scaled`, nested `SeparableSum` and `FiberSum` variants (the function as the diagonal or with no diagonal, for a vector and a proximable function) of 31 of the 40 cases; the base file keeps those variants of nine cases and, for each of the 40, the `@test E <: ...` check, the flat `SeparableSum`, the `SliceSum` and, for a vector and a proximable function, the `FiberSum` variant with the function as the off-diagonal part, and its other testsets | 5077 = 3277 + 1800 |
+| `block_step` (Thorough) + `block_step_grids` | the Float32 pass of *block steps / references* except seven of its 83 (function, iterate) combinations; the base file keeps the Float64 pass, those seven Float32 combinations and the other testsets of *block steps* | 1378 = 958 + 420 |
 
-The counts of the last seven rows are the passes of each file, measured with the profile driver on Julia 1.13.3;
-the first number of a row is the base file before the move (10857 for `constrained_basics`). Six companions repeat cases of a Quick file and six repeat cases of a Thorough
+The counts of the last eleven rows are the passes of each file, measured with the profile driver on Julia 1.13.3;
+the first number of a row is the base file before the move (10857 for `constrained_basics`). Six companions repeat cases of a Quick file and ten repeat cases of a Thorough
 file; a companion is selected in the same way for either, and the table in `test/tier_selection.jl` has the
 tier of the base file of each companion.
 
-The base file does not run these cases (Quick for six companions, Thorough for the six others). They run in these places:
+The base file does not run these cases (Quick for six companions, Thorough for the ten others). They run in these places:
 
 - In a pull request, for a change to the source of their own family, beside the tier (`focus` lists
   in `.github/tier-rules.toml`; the rules add focus files and do not change a tier):
@@ -247,20 +257,30 @@ The base file does not run these cases (Quick for six companions, Thorough for t
   - `lmo_atoms_grids`: `src/lmo.jl`, `src/lmo_atoms.jl`, the shared sources, `src/functions/singular.jl`;
   - `constrained_basics_grids`: `src/constrained.jl` (before this rule, a change to that file matched the
     rule for `src/**`, tier standard, which includes the cases that moved);
+  - `block_step_grids`: `src/calculus.jl`, the shared sources, `src/atom_iterate.jl` and
+    `src/sparse_iterate.jl` (`block_step` is a focus file of the rules for those two paths, and each of
+    them lists `block_step_grids` beside it, so a pull request on one of them runs the Float32
+    combinations that moved out of `block_step`);
   - `scaled_infinite_level_underflow_grids`, `zero_level_infinite_step_grids`, `symmetric_groups_grids`,
-    `extreme_normals_grids`, `constrained_grids`, `metric_grids`:
-    `src/calculus.jl` and the shared sources. Their base files are Thorough-tier files. The two thorough
-    rules, the rule for `src/calculus.jl` and the rule for the shared sources, list these six companions, so a
+    `extreme_normals_grids`, `constrained_grids`, `metric_grids`, `value_overflow_glm_grids`,
+    `symmetric_wrappers_grids`, `blockchecks_grids`:
+    `src/calculus.jl` and the shared sources. Their base files are Thorough-tier files, as is that of
+    `block_step_grids`. The two thorough
+    rules, the rule for `src/calculus.jl` and the rule for the shared sources, list these ten companions
+    (these nine and `block_step_grids`), so a
     pull request on one of those paths runs them beside thorough, and the base files run the Float64 cases
-    and the Float32 representatives that stay. No standard-tier rule lists them: the rule of such a path alone does not run the base files, and a
+    and the Float32 representatives that stay. No standard-tier rule lists these nine, and the two
+    iterate rules above list `block_step_grids` and none of the other nine: the rule of another standard-tier path alone does not run the base files, and a
     companion would run the Float32 repeats without the Float64 baseline that the base file keeps. A pull request that is
     thorough for another reason (the label `test:thorough`, which selects none of them, or a path whose rule does not list them) runs the
     base files without these companions when no changed file or other rule adds one (`test:full` selects all of them, a changed companion
-    selects itself, and the shared rule and the rule for `src/calculus.jl` list all six), and the cases that
+    selects itself, and the shared rule and the rule for `src/calculus.jl` list all ten), and the cases that
     moved run in the nightly full tier.
   With the label `test:iterate-narrow`, a pull request that changes a single `AtomIterate` or
   `SparseIterate` implementation source (`src/atom_iterate.jl` or `src/sparse_iterate.jl`) and no path
-  that needs a higher tier gives quick and that iterate's own grids file. `src/symmetric_parameters.jl`
+  that needs a higher tier gives quick and the focus files of its rule (table below): that iterate's own
+  grids file (`atom_iterate_grids` or `sparse_iterate_basics_grids`), `block_step_grids` and the other
+  focus files. `src/symmetric_parameters.jl`
   gives quick with no grids file, two iterate implementations give standard, and a simultaneous change
   to shared code such as `src/utils.jl` gives thorough.
 - In the full tier: the nightly run, tag runs, and a pull request whose tier is full (the label
@@ -274,14 +294,16 @@ and none of the companions (a documentation-only push runs no package tests).
 base file and the source paths of its family with their tiers), and from it checks that each companion is in
 Full and in no lower tier, that its base file is in the tier of the table, the map above with `classify`
 (the direct-family paths, with some of the shared sources as representatives: `src/interface.jl`, for
-example, also gets the nine grids files of the shared rule), that the named unrelated paths (`entropy.jl`, `deprecated.jl`, `sets.jl`, ...) get no grids file as
+example, also gets the thirteen grids files of the shared rule), that the named unrelated paths (`entropy.jl`, `deprecated.jl`, `sets.jl`, ...) get no grids file as
 focus, and what a master push, the nightly run and `test:full` select.
 
 In the nightly triage (`[[triage.deferred]]` in `.github/tier-rules.toml`), a failure of
 `extreme_normals_grids` is deferred in the group "extreme precision and exponent ranges", beside
 `extreme_normals` (the globs of that table are anchored, so the entry of `extreme_normals` does not
-match the companion, and `test/ci_triage.jl` checks the group of both). `constrained_grids` and
-`metric_grids` are in no deferred group.
+match the companion, and `test/ci_triage.jl` checks the group of both). The other nine companions of
+Thorough files (`scaled_infinite_level_underflow_grids`, `zero_level_infinite_step_grids`,
+`symmetric_groups_grids`, `constrained_grids`, `metric_grids`, `value_overflow_glm_grids`,
+`symmetric_wrappers_grids`, `blockchecks_grids` and `block_step_grids`) are in no deferred group.
 
 ## JLArrays and CUDA
 
@@ -516,12 +538,14 @@ run 41364805347), beside the iterate files of quick (`active_handle`, `atom_iter
 `iterate_invariants`, `iterate_queries`, `iterate_writes`, `matrixview`,
 `sparse_iterate_basics`, `symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
 `allocations_basics`, `block_step_failures`). The grids file of each of the first two rules
-(`atom_iterate_grids`, `sparse_iterate_basics_grids`, above) is a focus file of it:
+(`atom_iterate_grids`, `sparse_iterate_basics_grids`, above) is a focus file of it, and
+`block_step_grids` (above) is a focus file of both, beside `block_step` (the worker seconds below
+are from the run named above and do not include it):
 
 | Rule | Focus files | Why | Worker s |
 |---|---|---|---:|
-| `src/atom_iterate.jl` | `atom_iterate_grids`, `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` | constructors and products; block steps over groups (activation order, staging, pre-write errors, aliased trial points); the group norms and sparse group on atoms; active-group visits with infinite weights | 165 |
-| `src/sparse_iterate.jl` (both stored iterates and their shared code) | `sparse_iterate`, `sparse_iterate_basics_grids`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` | the complete iterate tests; products and dispatch; block steps; no dense pass in value oracles; storage after failures; the products of the symmetric owner, the symmetric part read by `prox!`/`gradient!` | 532 |
+| `src/atom_iterate.jl` | `atom_iterate_grids`, `real_iterates`, `block_step`, `block_step_grids`, `norms`, `sparsegroup`, `infinite_group_weights` | constructors and products; block steps over groups (activation order, staging, pre-write errors, aliased trial points); the group norms and sparse group on atoms; active-group visits with infinite weights | 165 |
+| `src/sparse_iterate.jl` (both stored iterates and their shared code) | `sparse_iterate`, `sparse_iterate_basics_grids`, `real_iterates`, `block_step`, `block_step_grids`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` | the complete iterate tests; products and dispatch; block steps; no dense pass in value oracles; storage after failures; the products of the symmetric owner, the symmetric part read by `prox!`/`gradient!` | 532 |
 | `src/symmetric_parameters.jl` | `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` | the check paths, the trait, writes, merged and extension parameters; the catalogs (`_centers`, `_inventory`, `_inventory_walk`) stay in full | 133 |
 
 Left out on purpose and still in thorough or full: `symmetric_groups` (group-norm writes into a

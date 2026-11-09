@@ -199,7 +199,7 @@ end
       end
     end
   end
-  @test nnz(prox(IndBinary(-1, 1), SparseIterate(6))) == 6
+  @test nactive(prox(IndBinary(-1, 1), SparseIterate(6))) == 6
   a = AtomIterate(6, 3)
   prox!(a, IndBinary(-1, 1), a, 1.)
   @test Vector(a) == fill(-1., 6) && nactive(a) == 3

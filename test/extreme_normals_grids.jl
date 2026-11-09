@@ -119,7 +119,8 @@ end
           check_overflow_steps(F(c .* T[1, -0.5, 0.25], 0), T[M / 2, M / 4, M / 2], steps(3))
           check_overflow_steps(F(c, 0), T[M, M], steps(2))
         end
-        # The dot product and the rescaled offset b·2^300 both overflow (Inf - Inf), or only the offset does.
+        # The dot product and the rescaled offset b/down = b·2^(e4 + 45) (2^76 for Float32) both overflow
+        # (Inf - Inf), or only the offset does.
         for F in (IndHyperplane, IndHalfspace)
           a = T(1.5) * down .* T[1, 1]
           check_overflow_steps(F(a, T(2.5) * (M * down)), T[M, M], steps(2))

@@ -2,8 +2,9 @@ module ConstrainedGridsTest
 
 # The cells of "a separable function on a box" with the box IndBox(l, u) for the six functions after
 # NormL1(0.3, w) and ElasticNet(0.2, 0.5), and the Float32 pass of "variable fixing with extreme normals".
-# constrained.jl runs the other cells and the Float64 pass. The fixtures are copied from constrained.jl, with
-# the same seed, so that the random draws of a cell are those of the same cell there.
+# constrained.jl runs the other cells and the Float64 pass. The initial fixtures (x, the weights, the bounds
+# and the LinearFunction) are copied from constrained.jl, with the same seed. The random perturbations of the
+# optimality checks differ from those of constrained.jl, which skips the cells that run here.
 
 using Test
 using ProximalBase
@@ -37,7 +38,7 @@ Random.seed!(1)
 end
 
 # and one that counts the passes of the search over x, and the entries whose
-# slopes it computes (the Float64 lines of the loop below use it)
+# slopes it computes (copied with the loop of constrained.jl; the Float32 loop below does not reach it)
 const CALLS = Ref(0)
 const SLOPES = Ref(0)
 struct Counted{F} <: SeparableFunction

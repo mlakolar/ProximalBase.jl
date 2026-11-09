@@ -85,15 +85,17 @@ parallel batch.
   representatives; the Float32 passes and indicator-wrapper variants that repeat those are in
   `scaled_infinite_level_underflow_grids`, `zero_level_infinite_step_grids` and
   `symmetric_groups_grids`, which are in Full (below). Three more, `extreme_normals`,
-  `constrained` and `metric`, keep the Float64 passes and the cases listed per file below; the
-  Float32 passes and type grids that repeat those are in `extreme_normals_grids`,
-  `constrained_grids` and `metric_grids`, also in Full (below).
-  `test/calculus.jl` stays whole in Thorough and has no companion. Its cases are failure
-  atomicity before writes of the tuple wrappers, zero preservation, and buffers and
-  allocations, each on a different Float64 wrapper type, so little of it repeats a case that
-  another file keeps. The one block that repeats one, *Tilt and Translate on tuples refuse
-  restricted outputs before writing* (eleven structured array wrappers that dispatch on one
-  union at `src/calculus.jl:885-890`), would save about 3 s and was not moved.
+  `constrained` and `metric`, keep Float64 representatives, with two exceptions listed per file
+  below: `constrained` moves six Float64 vector-box cells of *a separable function on a box*, and
+  `metric` moves the Float64 main-loop cases of two of its five penalties. The Float32 passes and
+  type grids that repeat those are in `extreme_normals_grids`, `constrained_grids` and
+  `metric_grids`, also in Full (below).
+  `test/calculus.jl` stays whole in Thorough and has no companion. Its profiled hotspots
+  (failure atomicity before writes of the tuple wrappers, zero preservation, and buffers and
+  allocations) run mostly on distinct Float64 wrapper types. The one measured candidate for a
+  split is *Tilt and Translate on tuples refuse restricted outputs before writing* (eleven
+  restricted wrapper builders at `test/calculus.jl:1295-1306`, one shared union dispatch at
+  `src/calculus.jl:885-890`, about 3 s in isolation), which was not moved.
 - **Full** adds the exhaustive catalogs whose cases repeat paths the tiers above already reach:
   the device-array suites on JLArrays (`gpu`, `gpu_smoke`, `conformance/gpu_arrays`), `conjugate_projections` and
   `allocations`; `precision_mixed`; the block

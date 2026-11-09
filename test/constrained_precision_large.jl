@@ -486,6 +486,154 @@ function l1_box(d, fam::Symbol, steps::Symbol)
   end
 end
 
+# the oracle model with the combined threshold of the working type: θ = fl32(γ' λ w) for a level λ of any width (the product
+# is formed in the promotion of Float32 and the level, and rounded once), the ridge weight t = fl32(γ' μ); γ' = γ, or
+# fl32(α γ) for a function scaled by α, whose entry maps take that step. exact = true leaves the products unrounded.
+function wide_model(x, a, γ, lb, ub; λ1 = 0, λ2 = 0, w = nothing, lo = -Inf, hi = Inf, α = 1f0, exact = false)
+  n = length(x)
+  γ32 = γ isa Real ? fill(Float32(γ), n) : Float32.(γ)
+  γe = Float32.(α .* γ32)
+  # the products γλ and (γλ)w in the promotion R of Float32 and the level (and the weight), the product with the weight
+  # rounded again in R, and the result rounded once to Float32 (the convention of the kernels for a level of any width)
+  Rλ = promote_type(Float32, typeof(λ1))
+  Rw = w === nothing ? Rλ : promote_type(Rλ, eltype(w))
+  θf(i) = exact ? Float64(γe[i]) * Float64(λ1) * (w === nothing ? 1.0 : Float64(w[i])) :
+                  Float64(Float32((Rw(γe[i]) * Rw(λ1)) * (w === nothing ? one(Rw) : Rw(w[i]))))
+  Rμ = promote_type(Float32, typeof(λ2))
+  tf(i) = exact ? Float64(γe[i]) * Float64(λ2) : Float64(Float32(Rμ(γe[i]) * Rμ(λ2)))
+  Model(Float32, Float64.(x), a isa Real ? fill(Float64(a), n) : Float64.(a), Float64.(γ32), [θf(i) for i in 1:n], [tf(i) for i in 1:n],
+        Float64(λ1), Float64(λ2), Float64(Float32(lo)), Float64(Float32(hi)), Float64(lb), Float64(ub))
+end
+
+# ---------------------------------------------------------------------------------------------------
+# the evaluation of the multiplier in Float32 (issue 151): the problems on which the check of the search accepts a
+# multiplier whose output is far from the exact point unless the evaluation is accurate and the tolerance is capped.
+#   range ends: x = randn(Float32), a hyperplane or halfspace whose offset is the Float32 number k ulps inside the range of
+#       ⟨a, z⟩ over the box [lo, hi]ⁿ, so that at the root every entry but one sits at an end of the box. φ is flat on the
+#       far side of the root, within the noise floor of its evaluation, and a search that starts far from the root stops
+#       on that piece: the output is then a few hundred eps(Float32) from the exact point.
+#   box-constrained ℓ1, scaled or not, with steps spread over e^±4.5 (and the scalar step of the same problems), and the
+#       offsets of a hyperplane, of the lower bound of a slab and of a simplex, placed at a multiplier drawn around the size
+#       at which the entries move. With array steps the pass of the search does not vectorize and each block of 1024 terms
+#       is a sequential sum: its rounding is 20 to 40 eps(Float32)·m, ten times the noise floor of the check.
+# ---------------------------------------------------------------------------------------------------
+
+# σ(ν) of a model in Float64, to place the offsets of a fixture
+function sigma64(m::Model, ν)
+  s = 0.0
+  for i in eachindex(m.x)
+    a = m.a[i]
+    iszero(a) && continue
+    s += a * clamp(soft(m.x[i] - m.γ[i] * a * ν, m.θ[i]) / (1 + m.t[i]), m.lo, m.hi)
+  end
+  s
+end
+
+const RANGE_BOX = (-0.5f0, 1f0)
+
+# which = :sup (k < 0) or :inf (k > 0); fam = :box (IndBox) or :l1box (ℓ1 on the box); normal = :unit (the integer 1) or :vec
+# (entries -1, 1 and 2); set = :plane or :half (the halfspace only at the lower end, where it is active)
+function range_end(n::Integer, fam::Symbol, normal::Symbol, set::Symbol, which::Symbol, k::Integer, seed::Integer)
+  rng = Xoshiro(4000 + seed)
+  lo, hi = RANGE_BOX
+  x = randn(rng, Float32, n)
+  a = normal === :unit ? 1 : Float32.(rand(rng, (-1, 1, 2), n))
+  av = a isa Real ? fill(Float64(a), n) : Float64.(a)
+  b = nextfloat(Float32(which === :sup ? sum(max.(av .* lo, av .* hi)) : sum(min.(av .* lo, av .* hi))), k)
+  f = fam === :box ? IndBox(lo, hi) : Constrained(NormL1(0.2f0), IndBox(lo, hi))
+  λ1 = fam === :box ? 0 : 0.2f0
+  lb, ub = set === :plane ? (b, b) : (-Inf, b)
+  mk = () -> Constrained(f, set === :plane ? IndHyperplane(a, b) : IndHalfspace(a, b))
+  case = Case("range end n=$n $fam $normal $set $which k=$k seed=$seed", Float32, mk, x, 1f0,
+              x -> [model(Float32, x, a, 1f0, lb, ub; λ1, lo, hi)])
+  (; case, face = which === :sup ? :lower : :upper)
+end
+
+# a random box-constrained ℓ1 problem: x = σ randn, steps exp(1.5 randn) or one scalar exp(0.7 randn), λ, the box and the
+# scale of the function from σ, weights on a part of the unscaled ones, a normal that is 1 or has 5 % zeros, and the
+# offsets at a multiplier ν drawn around the size at which the entries move. set = :hp, :slab_lo (the lower bound of
+# the slab is active) or :simplex_eq; steps = :entry or :scalar.
+function boxl1(n::Integer, set::Symbol, seed::Integer; scaled::Bool, steps::Symbol = :entry)
+  fi, si, ti = scaled ? 15 : 12, (set === :hp ? 1 : set === :slab_lo ? 5 : 8), (steps === :scalar ? 1 : 2)
+  rng = Xoshiro((((n * 32 + fi) * 16 + si) * 4 + ti) * 64 + seed)
+  σ = exp(randn(rng))
+  x = Float32.(σ .* randn(rng, n))
+  γ = ti == 1 ? Float32(exp(0.7randn(rng))) : Float32.(exp.(1.5 .* randn(rng, n)))
+  λ = Float32(σ * (0.05 + 0.8rand(rng)))
+  lofun() = -Float32(σ * (0.1 + 2rand(rng)))
+  hifun() = Float32(σ * (0.1 + 2rand(rng)))
+  w = nothing
+  if scaled
+    lo, hi = lofun(), hifun()
+    α = Float32(0.5 + 2rand(rng))
+  else
+    if !rand(rng, Bool)
+      w = Float32.(2rand(rng, n))
+      w[rand(rng, n) .< 0.1] .= 0
+    end
+    lo, hi = lofun(), hifun()
+    α = 1f0
+  end
+  simplex = set === :simplex_eq
+  a = simplex || rand(rng, Bool) ? 1 : (v = randn(rng, Float32, n); v[rand(rng, n) .< 0.05] .= 0; v[1] == 0 && (v[1] = 1); v)
+  med(v) = (s = sort(v); s[(length(s) + 1) ÷ 2])
+  ga = (γ isa Real ? fill(γ, n) : γ) .* (a isa Real ? fill(Float32(a), n) : abs.(a))
+  νt = med(abs.(x) .+ σ / 10) / max(med(ga), 1f-30)
+  νr() = νt * 10^(3rand(rng) - 2)
+  m0 = wide_model(x, a, γ, 0, 0; λ1 = λ, w, lo = simplex ? 0 : lo, hi, α)
+  val(ν) = sigma64(m0, ν)
+  face, lb, ub = :inactive, 0f0, 0f0
+  if set === :hp
+    ν = rand(rng, Bool) ? νr() : -νr()
+    lb = ub = Float32(val(ν))
+    face = ν > 0 ? :upper : :lower
+  elseif set === :slab_lo
+    ν = -νr()
+    lb, ub = Float32(val(ν)), Float32(val(2ν))
+    face = :lower
+  else
+    ν = rand(rng, Bool) ? νr() : -νr()
+    lb = ub = Float32(max(val(ν), 0.0))
+    face = ν > 0 ? :upper : :lower
+  end
+  inner = Constrained(w === nothing ? NormL1(λ) : NormL1(λ, w), IndBox(lo, hi))
+  f = scaled ? Scaled(inner, α) : inner
+  S = set === :hp ? IndHyperplane(a, lb) : set === :slab_lo ? IndHyperslab(a, lb, ub) : IndSimplex(lb)
+  case = Case("$(scaled ? "scaled " : "")box ℓ1 $set n=$n $steps seed=$seed", Float32, () -> Constrained(f, S), x, γ,
+              x -> [wide_model(x, a, γ, lb, ub; λ1 = λ, w, lo = simplex ? 0 : lo, hi, α)])
+  (; case, face)
+end
+
+# the stored output is in the box and on the constraint, to 32 eps(Float32) of Σ|aᵢyᵢ| + |offset|
+function on_constraint(r)
+  m = r.m
+  all(yi -> m.lo <= yi <= m.hi, r.y) || return false
+  s = Float64(dota(m, r.y))
+  scale = sum(abs, m.a .* Float64.(r.y)) + max(isfinite(m.lb) ? abs(m.lb) : 0.0, isfinite(m.ub) ? abs(m.ub) : 0.0)
+  tol = 32 * Float64(eps(Float32)) * scale
+  m.lb - tol <= s <= m.ub + tol
+end
+
+# one call from each start: a fresh object (cold) and objects whose last multiplier is stale; the output is held to the
+# normwise gate (and, with array steps, to the same gate in the norm of Diagonal(1 ./ γ)), to the face of the problem and to the
+# constraint
+function from_starts(prob, gate; starts = (NaN, 1000.0, -1000.0))
+  case = prob.case
+  ref = refs(case, case.x)
+  for s in starts
+    c = case.mk()
+    isnan(s) || (c.last[] = s)
+    r = measure(case, c; ref)
+    expect("$(case.name) start $(isnan(s) ? "cold" : s)", r, gate; weighted = case.γ isa AbstractVector)
+    if r.err === nothing
+      @testset "$(case.name) start $(isnan(s) ? "cold" : s): face and constraint" begin
+        @test r.face === prob.face
+        @test on_constraint(r)
+      end
+    end
+  end
+end
+
 # END SHARED
 
 # the Float64 search keeps today's acceptance (its error is not what issue 151 asks to bound), so family (c)
@@ -525,6 +673,21 @@ end
                   x -> [model(Float32, x, d.a32, γ, lb, ub; lo = 0, hi = 1)])
       sequence(case, GATE_FIXTURE; full = false)
     end
+  end
+end
+
+# The evaluation of the multiplier in Float32 (the fixtures of the shared block): without the sums of the evaluation in Float64
+# lanes where the steps are an array and the cap of the tolerance by ‖x‖, the check accepted these results 80 to 620
+# eps(Float32) from the exact point.
+@testset "range ends, n = 20 000 and 100 000" begin
+  for (n, fam, which, k) in ((20_000, :box, :sup, -1), (20_000, :l1box, :sup, -3), (100_000, :box, :sup, -3), (100_000, :l1box, :inf, 3))
+    from_starts(range_end(n, fam, :unit, :plane, which, k, 1), GATE_FIXTURE)
+  end
+end
+
+@testset "box-constrained ℓ1 with array steps, n = 100 000" begin
+  for (set, seed, scaled) in ((:hp, 2, false), (:simplex_eq, 1, false), (:slab_lo, 1, true))
+    from_starts(boxl1(100_000, set, seed; scaled), GATE_FIXTURE; starts = (NaN, 1000.0, -1000.0))
   end
 end
 

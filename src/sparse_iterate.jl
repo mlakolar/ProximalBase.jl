@@ -208,6 +208,16 @@ _all_finite(x::Union{SparseIterate, SymmetricSparseIterate}) = all(isfinite, vie
 const _StoredIterate{T} = Union{SparseIterate{T}, SymmetricSparseIterate{T}}
 
 """
+    nnz(A)
+
+Re-export of `SparseArrays.nnz` for standard sparse arrays. ProximalBase
+does not define an `nnz` method for its iterates. Use [`nactive`](@ref) to
+count active coordinates, including explicitly stored zeros; use
+`count(!iszero, activevalues(x))` to count nonzero entries of a `SparseIterate`.
+"""
+nnz
+
+"""
     ncoordinates(x)
 
 The number of coordinates of the iterate `x` that [`prox_coordinate!`](@ref)

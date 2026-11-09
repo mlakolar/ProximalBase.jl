@@ -30,12 +30,11 @@ The costs below describe the `SparseIterate` operation itself, after constructio
 | Scalar assignment | `x[k] = v`, `x[i,j] = v` | `O(1)` | Converts to `T`; a nonzero value activates; a zero does not deactivate |
 | Membership | `isactive(x,k)` | `O(1)` | Tests stored membership, including explicitly active zero |
 | Explicit insertion | `activate!(x,k)` | `O(1)` | If absent, inserts an active zero; otherwise no change |
-| Counts | `nactive(x)`, `nnz(x)` | `O(1)` | Both count **stored** entries, even those equal to zero |
+| Counts | `nactive(x)` | `O(1)` | Both count **stored** entries, even those equal to zero |
 | Active IDs | `activecoordinates(x)` | `O(1)` to obtain; `O(s)` to traverse | Read-only handle in active-slot order, **not sorted** |
-| Active values | `activevalues(x)`, `nonzeros(x)` | `O(1)` to obtain; `O(s)` to traverse | Writable handles; pair with active IDs at the **same slot** |
+| Active values | `activevalues(x)` | `O(1)` to obtain; `O(s)` to traverse | Writable handles; pair with active IDs at the **same slot** |
 | All coordinates | `coordinates(x)` | `O(1)` to obtain; `O(n)` to traverse | Live writable `AbstractVector`, even when `x` is a matrix |
 | Remove active zeros | `dropzeros!(x)` | `O(s)` | May reorder active slots; does not change mathematical values |
-| Export stored entries | `findnz(x)` | `O(s \log s)` | Allocates sorted index/value copies; includes stored zeros |
 | Dense snapshot | `Vector(x)`, `Matrix(x)` | `O(n)` | Allocates independent dense output |
 | Allocate/copy iterate | `similar(x)`, `copy(x)` | `O(n)` storage | `similar` is empty; `copy` preserves active state |
 | State replacement | `copyto!(x,y)` for same-size `SparseIterate` objects | `O(n)` worst case | Preserves source active IDs, slot order and explicit zeros |
@@ -49,7 +48,7 @@ Here `s = nactive(x)`. The lookup and insertion fast paths use an already alloca
 
 ```julia
 using ProximalBase
-using SparseArrays: nnz, dropzeros!
+using SparseArrays: dropzeros!
 
 x = SparseIterate(5)
 x[2] = 3.0
@@ -57,7 +56,7 @@ activate!(x, 4)             # active, although its value is zero
 
 ncoordinates(x)             # 5
 nactive(x)                  # 2
-nnz(x)                      # 2, not 1
+nactive(x)                  # 2, even though only one value is nonzero
 activecoordinates(x)        # [2, 4]
 activevalues(x)             # [3.0, 0.0]
 
@@ -142,6 +141,20 @@ This page is about the representation, not which mathematical **functions** acce
 
 For the definition-by-definition inventory, including internal aliasing hooks, wrapper methods, conditional `copyto!` overloads, kernels and out-of-file specializations, see [the 0.6 source-level SparseIterate audit](../audit/sparse-iterate-06-method-inventory.md). This documents the source at the time of the audit; it does not imply that Julia method-table probes or tests have run.
 
+## Why the four SparseArrays aliases are removed
+
+`SparseIterate` is an optimization iterate with **O(n) reserved memory** and independent active-state metadata, not a CSC-compressed sparse array. The 0.6 interface deliberately does not implement `SparseArrays.nnz(x)`, `nonzeros(x)`, `findnz(x)`, or `issparse(x)` for this type. No intrinsic algorithmic requirement for these aliases was identified. Their removal avoids suggesting a broader `AbstractSparseArray` contract.
+
+| Former specialized call | Replacement |
+|:--|:--|
+| `nnz(x)` | `nactive(x)`, including explicitly active zero slots |
+| `nonzeros(x)` | `activevalues(x)`, a writable active-slot view |
+| `findnz(x)` | `collect(zip(activecoordinates(x), activevalues(x)))` for unsorted stored entries; sort explicitly when sorted output is needed |
+| `issparse(x)` | Check for a specific iterate type or use ordinary `AbstractArray` dispatch; do not branch on this trait |
+| `dropzeros!(x)` | **Unchanged**: required for active-set compaction |
+
+These are removed **only for `SparseIterate`**. Ordinary `SparseVector` / `SparseMatrixCSC` APIs remain unchanged. This is a breaking 0.6 API change, including the removal of behavior that the earlier signed-off FC-11 contract had required.
+
 ## Inventory: implemented versus inherited methods
 
 This table is an index of the **data-structure API**, not a declaration that every method is separately specialized or sparse-optimized. "Explicit" refers to methods in `src/sparse_iterate.jl` (including shared stored-iterate helpers); "Julia generic" means ordinary `AbstractArray` behavior. Costs for generic array methods may be `O(length(x))`.
@@ -155,7 +168,7 @@ This table is an index of the **data-structure API**, not a declaration that eve
 | General array operations | Iteration, ranged/indexed access, `view`, `reshape`, `vec`, `map`, `map!`, array reductions | Julia generic | **Not** generally `O(nactive)` |
 | Coordinates | `ncoordinates`, `coordinates` and the view's `size`, `getindex`, `setindex!`, `fill!` | Explicit | No-copy `O(1)` view creation, `O(1)` entry access |
 | Active-set management | `nactive`, `activecoordinates`, `activevalues`, `isactive`, `activate!`, `dropzeros!` | Explicit | `O(1)` lookup/activation, `O(nactive)` traversal/compaction |
-| SparseArrays interface | `issparse`, `nnz`, `nonzeros`, `findnz` | Explicit | `findnz` allocates sorted copies |
+| SparseArrays compatibility | `dropzeros!` only; no `SparseIterate` specializations for `issparse`, `nnz`, `nonzeros`, `findnz` | Deliberate 0.6 policy | `nactive`, `activevalues`, `activecoordinates` are canonical |
 | State copy | `copy`, `similar`, `similar(x,T)`, same-kind `copyto!`, `copy!` | Julia generic plus explicit state-copy kernels | Active coordinates and explicit zeros preserved for compatible same-kind sources |
 | Value writes | `copyto!` from `AbstractArray`, `fill!`, broadcasting and broadcast assignment | Explicit dispatch and Julia indexing | Old active entries remain until `dropzeros!` |
 | Special array sources | Matrix `copyto!` from `UniformScaling`, supported sparse wrappers and `AbstractQ` orthogonal factors | Explicit | Compatibility paths, not core solver fast paths |

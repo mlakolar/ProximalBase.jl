@@ -30,7 +30,7 @@ The costs below describe the `SparseIterate` operation itself, after constructio
 | Scalar assignment | `x[k] = v`, `x[i,j] = v` | `O(1)` | Converts to `T`; a nonzero value activates; a zero does not deactivate |
 | Membership | `isactive(x,k)` | `O(1)` | Tests stored membership, including explicitly active zero |
 | Explicit insertion | `activate!(x,k)` | `O(1)` | If absent, inserts an active zero; otherwise no change |
-| Counts | `nactive(x)` | `O(1)` | Both count **stored** entries, even those equal to zero |
+| Counts | `nactive(x)` | `O(1)` | Counts **active stored** entries, even those equal to zero |
 | Active IDs | `activecoordinates(x)` | `O(1)` to obtain; `O(s)` to traverse | Read-only handle in active-slot order, **not sorted** |
 | Active values | `activevalues(x)` | `O(1)` to obtain; `O(s)` to traverse | Writable handles; pair with active IDs at the **same slot** |
 | All coordinates | `coordinates(x)` | `O(1)` to obtain; `O(n)` to traverse | Live writable `AbstractVector`, even when `x` is a matrix |
@@ -55,7 +55,6 @@ x[2] = 3.0
 activate!(x, 4)             # active, although its value is zero
 
 ncoordinates(x)             # 5
-nactive(x)                  # 2
 nactive(x)                  # 2, even though only one value is nonzero
 activecoordinates(x)        # [2, 4]
 activevalues(x)             # [3.0, 0.0]
@@ -134,12 +133,75 @@ The data structure's essential invariants and performance targets are:
 3. **Dense-sized reserved storage:** `O(n)` construction and memory are the price of predictable `O(1)` operations. Do not replace this with a hash-table or compressed sparse layout without a motivating, measured workload.
 4. **No accidental deactivation:** value writes preserve active status; `dropzeros!` removes zeros, and same-kind state copies explicitly replace state.
 5. **No hidden full traversal:** use active handles for sparse sweeps; only traverse all `n` entries for genuinely dense-array operations.
-6. **Allocation behavior:** indexing, activation, membership and obtaining handles should be allocation-free after warm-up on ordinary Float32/Float64 CPU use. Copies, construction, sorted exports and dense snapshots allocate intentionally.
+6. **Allocation behavior:** indexing, activation, membership and obtaining handles should be allocation-free after warm-up on ordinary Float32/Float64 CPU use. Copies, construction, explicitly sorted snapshots of active entries, and dense snapshots allocate intentionally.
 
 This page is about the representation, not which mathematical **functions** accept it. The latter compatibility belongs to the function-oracle inventory and its tests, not to the `SparseIterate` contract.
 
 
 For the definition-by-definition inventory, including internal aliasing hooks, wrapper methods, conditional `copyto!` overloads, kernels and out-of-file specializations, see [the 0.6 source-level SparseIterate audit](../audit/sparse-iterate-06-method-inventory.md). This documents the source at the time of the audit; it does not imply that Julia method-table probes or tests have run.
+
+## Storage invariants and update implementation
+
+The representation is a dense-sized direct-address table plus a compact active list:
+
+```julia
+# Conceptual internal fields, NOT a public access API:
+nzval::Vector{T}          # active values occupy slots 1:s
+nzval2ind::Vector{Int}    # slot a -> coordinate ID k
+ind2nzval::Array{Int,N}   # coordinate ID k -> slot a; 0 when inactive
+nnz::Int                  # internal active-slot count, s
+```
+
+The internal field name `nnz` **is not** the removed public `SparseArrays.nnz(x)` method. It may remain private without exposing a SparseArrays API.
+
+The critical invariant, for every active slot `a`, is `ind2nzval[nzval2ind[a]] == a`. Every inactive coordinate has a zero reverse-map entry and reads as `zero(T)`. The packed ID list and packed values must always have the same active length. The allocated tails beyond `s` are not logical values and must not affect correctness.
+
+A scalar read is one direct-address lookup plus either `zero(T)` or the stored value. A scalar write converts to `T` before deciding activation, then either changes an existing slot, appends a newly nonzero coordinate, or leaves an inactive zero absent. `activate!(x,k)` deliberately appends a **zero-valued** active slot if absent. These paths require no search or resize.
+
+`dropzeros!(x)` scans active slots only. When a slot contains zero, it can move the last surviving slot to the vacancy and repair the reverse map. Consequently the active list is not sorted or insertion-order stable after compaction. For zero-valued full clearing, the optimized all-zero path avoids unnecessary slot movement. Do not retain slot-number-indexed momentum history across compaction or same-kind state replacement without remapping it.
+
+### Value semantics versus working-set semantics
+
+An inactive zero and an explicitly active zero have the same numerical value but different working-set meaning. Updating an active coefficient to zero does not remove it. A working-set-aware algorithm therefore has to choose when to compact, instead of equating `iszero(x[k])` with `!isactive(x,k)`.
+
+The following code is a safe active-set sweep **only when it does not activate or compact during traversal**:
+
+```julia
+ids = activecoordinates(x)
+for a in eachindex(ids)
+    k = ids[a]
+    x[k] = update_coefficient(x[k], k)  # updates existing active slots
+end
+dropzeros!(x)  # after the sweep, if compaction is desired
+```
+
+A read-only `activecoordinates(x)` view prevents accidental edits to internal ID metadata. `activevalues(x)` is writable because changing a stored value preserves the group of active coordinates. Use both views in matching slot order; reacquire them after membership-changing operations.
+
+## Conversion, array compatibility and aliasing
+
+A `SparseIterate` is intentionally an `AbstractVector` or `AbstractMatrix`. Shape, range indexing, views, iteration, broadcasting and reductions follow Julia's array conventions. These **generic** methods often traverse all `n` logical entries. For example, `sum(x)` is not promised to be `O(s)` just because `x` has few active coordinates.
+
+The explicit `SparseCoordinates` view differs from the iterate even for a vector: `coordinates(x)` is always an `AbstractVector` of length `ncoordinates(x)`, with ordinary dense-vector arithmetic dispatch. Its O(1) linear access directly invokes the same stored-index primitives as `x[k]`. This provides shared coordinate-descent code with `SymmetricSparseIterate`, whose `x[k]` intentionally has no scalar-coordinate meaning. **The view is not a packed active-values array.**
+
+The implementation also supplies three internal aliasing hooks that a code review must not overlook:
+
+```julia
+Base.dataids(x::SparseIterate)
+Base.dataids(c::SparseCoordinates)
+Base.unaliascopy(c::SparseCoordinates)
+```
+
+The first identifies all three storage arrays as potentially aliased with public views. The second forwards the wrapper's alias identity. The third creates `coordinates(copy(c.x))`, which is independent of the original iterate but preserves wrapper semantics when Julia copies an overlapping broadcast or indexed source. The read-only `_ActiveIDs` wrapper has its own `size`, `IndexStyle`, `getindex`, rejecting `setindex!`, `dataids` and `unaliascopy` methods. These are **private Julia integration details**, not additional user-facing storage APIs.
+
+The iterate's own bulk writes reject complex-typed sources before mutation where the contract promises preflight. Writes through ordinary Julia views instead use Base's scalar conversion rules; converting a complex number with **nonzero imaginary part** to a real element type raises `InexactError`, and an earlier element may already have been changed. A zero imaginary part can convert successfully.
+
+### Copying and clearing: important dispatch distinctions
+
+For equal-sized `SparseIterate` objects, `copyto!(dest,src)` performs a state copy: source active IDs, explicit zeros and active-slot order replace the destination's. Conversion checks are staged when needed so that a failing conversion leaves the destination unchanged. When shapes differ but lengths agree, this is a linear-order value write; unequal lengths are rejected.
+
+`copyto!(dest,A::AbstractArray)` from an ordinary array and `dest .= rhs` perform value writes, including when `rhs` is an iterate. They retain any previously active zero slots, and new nonzero values activate their coordinates. The explicit broadcast implementation prevents Base's identity shortcut from turning `dest .= rhs` into a state-copy operation.
+
+For a fresh working set equal to the converted nonzero pattern of an ordinary array `A`, the cheap spelling is `copyto!(dropzeros!(fill!(x, 0)), A)` **only when** the source does not alias `x` and conversion/read cannot fail. Otherwise construct a temporary `t = similar(x)`, populate it from `A` before touching `x`, then use `copyto!(x,t)`. These choices are intentionally distinct from elementwise copying.
 
 ## Why the four SparseArrays aliases are removed
 

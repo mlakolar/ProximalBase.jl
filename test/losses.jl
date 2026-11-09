@@ -163,9 +163,9 @@ end
   xs = SparseIterate(sprandn(40, 0.3))
   y = SparseIterate(40)
   prox!(y, CheckLoss(0.3), xs, 0.6)
-  @test 0 < nnz(y) <= nnz(xs) && all(k -> isactive(xs, k), activecoordinates(y))
+  @test 0 < nactive(y) <= nactive(xs) && all(k -> isactive(xs, k), activecoordinates(y))
   prox!(y, HingeLoss(), xs, 0.6)
-  @test nnz(y) == 40                        # the hinge moves zeros
+  @test nactive(y) == 40                        # the hinge moves zeros
   # on a SymmetricSparseIterate: the dense symmetric matrix
   p = 5
   D = randn(p, p); D = D + D'

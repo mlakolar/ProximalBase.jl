@@ -140,6 +140,8 @@ The data structure's essential invariants and performance targets are:
 This page is about the representation, not which mathematical **functions** accept it. The latter compatibility belongs to the function-oracle inventory and its tests, not to the `SparseIterate` contract.
 
 
+For the definition-by-definition inventory, including internal aliasing hooks, wrapper methods, conditional `copyto!` overloads, kernels and out-of-file specializations, see [the 0.6 source-level SparseIterate audit](../audit/sparse-iterate-06-method-inventory.md). This documents the source at the time of the audit; it does not imply that Julia method-table probes or tests have run.
+
 ## Inventory: implemented versus inherited methods
 
 This table is an index of the **data-structure API**, not a declaration that every method is separately specialized or sparse-optimized. "Explicit" refers to methods in `src/sparse_iterate.jl` (including shared stored-iterate helpers); "Julia generic" means ordinary `AbstractArray` behavior. Costs for generic array methods may be `O(length(x))`.

@@ -105,11 +105,15 @@ is not provided.
 
 In `Float32` the same stop can leave the multiplier, and so the output, far from the
 projection where the constraint function is flat (about 500 `eps(Float32)` in issue 151).
-The search therefore *checks* its result before writing. From the residual, the slope of
-its last step and an assumed noise floor of the evaluation, `2 eps(Float32)(Σᵢ|aᵢzᵢ| +
-|b|)`, the check estimates the distance of the output from the exact point, in the norm of
-`Diagonal(1 ./ γ)`, and accepts the result when that is at most `16 eps(Float32)` times a
-size of the problem. A result that fails is searched again from zero if it started from the
+The search therefore *checks* its result before writing. From the residual `φ̂` at its
+last point, the slope `s` of its last step and an assumed noise floor of the evaluation,
+`2 eps(Float32)·m` with `m = Σᵢ|aᵢzᵢ| + |b|`, the check estimates the distance of the output
+from the exact point, in the norm of `Diagonal(1 ./ γ)`, as `max(|φ̂|, noise)/√s`. It accepts
+the result when that is at most `16 eps(Float32)·(m/(2√Σᵢγᵢaᵢ²) + min(|ν̂|√s, ‖x‖))`, where
+`ν̂` is the multiplier found and `‖x‖` the norm of the argument in the same norm. The sums
+of the evaluation are accumulated in `Float64` where the steps are an array (the ordinary
+[`SqrNormL2`](@ref) route, whose evaluation vectorizes, excepted). A result that fails is
+searched again from zero if it started from the
 previous multiplier, and then in `Float64` on the `Float32` problem: the entry maps are
 evaluated in `Float64` on the exactly widened argument with their parameters rounded to
 `Float32` as the `Float32` kernel rounds them, so the problem is the same one, and the
@@ -122,9 +126,10 @@ of your own) it is refused, and a result that fails the check raises a
 [`PrecisionError`](@ref) before anything is written.
 
 This is a check. It is not a certificate, a conservative error bound or a guaranteed
-forward error. The slope is that of the last secant, which can cross a kink of the
-constraint function, and the noise floor is a constant chosen from measurements, not a
-proved bound for every term of the sum, so an accepted result can in principle be
+forward error. The noise floor is a constant chosen from measurements and the slope is
+that of the last secant, which can cross a kink of the constraint function, so an accepted
+result can exceed `16 eps(Float32)`; on the random problems up to `n = 100 000` measured
+for this change, by a factor of about 1.2 at most. An accepted result can in principle be
 inaccurate. `16 eps(Float32)`, in the 2-norm against a `BigFloat` reference of the `Float32`
 problem, is the target of the package's regression tests for specified fixtures, not a
 guarantee for every call. The policy is the exception to A3 in the numerical contract
@@ -580,21 +585,30 @@ end
 _constraint_gap(c, x::AbstractArray, ν::T, γ, v::Val = Val(false)) where {T} =
   _constraint_gap(c.f, c.set.a, c.set.b, x, ν, γ, v)
 
-# The pass is summed in blocks of _GAP_BLOCK entries for a Float32 model: the sums of a block are formed in Float32, in the
-# lanes of the loop, and the sums of the blocks in Float64, so that the rounding of the sum is that of a block and not of
-# n additions. The other precisions form one sum over the entries, as before. φ and its scale are rounded once to T.
+# The pass is summed in blocks of _GAP_BLOCK entries for a Float32 model: the terms of a block are formed in Float32 and
+# summed in the lanes of the loop, and the sums of the blocks in Float64, so that the rounding of the sum is that of a block
+# and not of n additions. The other precisions form one sum over the entries, as before. φ and its scale are rounded once
+# to T.
+# The lanes sum in Float32 where the loop vectorizes: the steps are one scalar, or the ordinary ridge, whose entry map is
+# a multiplication and a clamp. Where the steps are an array and the entry map is any other, the loop does not
+# vectorize, a block is then one sequential sum of 1024 terms, and its rounding grows to 20 to 40 eps m: the terms are
+# still formed in Float32, as the kernel forms them, and accumulated in Float64.
 const _GAP_BLOCK = 1024
 
-function _gap_sums(f, a, x::AbstractArray, ν::T, γ, r, ::Val{S}) where {T, S}
-  s, m, d = zero(T), zero(T), zero(T)
+_sum_lanes(f, γ) = Float32
+_sum_lanes(f, γ::AbstractArray) = Float64
+_sum_lanes(f::_OrdinaryRidge, γ::AbstractArray) = Float32
+
+function _gap_sums(f, a, x::AbstractArray, ν::T, γ, r, ::Val{S}, ::Type{A}) where {T, S, A}
+  s, m, d = zero(A), zero(A), zero(T)
   @inbounds @simd for i in r
     aᵢ = convert(T, _entry(a, i))
     γᵢ = convert(T, _entry(γ, i))
     v = x[i] - γᵢ * ν * aᵢ
     z, dz = S ? _prox_entry_slope(f, v, i, γᵢ) : (prox_entry(f, v, i, γᵢ), zero(T))
     t = aᵢ * convert(T, z)
-    s += t
-    m += abs(t)
+    s += convert(A, t)
+    m += convert(A, abs(t))
     S && (d += γᵢ * aᵢ * aᵢ * convert(T, dz))
   end
   s, m, d
@@ -602,16 +616,18 @@ end
 
 function _gap_sums(f, a, x::AbstractArray, ν::Float32, γ, ::Val{S}) where {S}
   idx = eachindex(IndexLinear(), x)
+  A = _sum_lanes(f, γ)
   s, m, d = 0.0, 0.0, 0.0f0
   @inbounds for lo in first(idx):_GAP_BLOCK:last(idx)
-    sb, mb, db = _gap_sums(f, a, x, ν, γ, lo:min(lo + (_GAP_BLOCK - 1), last(idx)), Val(S))
+    sb, mb, db = _gap_sums(f, a, x, ν, γ, lo:min(lo + (_GAP_BLOCK - 1), last(idx)), Val(S), A)
     s += sb
     m += mb
     d += db
   end
   s, m, d
 end
-_gap_sums(f, a, x::AbstractArray, ν::T, γ, v::Val) where {T} = _gap_sums(f, a, x, ν, γ, eachindex(IndexLinear(), x), v)
+_gap_sums(f, a, x::AbstractArray, ν::T, γ, v::Val) where {T} =
+  _gap_sums(f, a, x, ν, γ, eachindex(IndexLinear(), x), v, T)
 
 function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, ::Val{S}) where {T, S}
   s, m, d = _gap_sums(f, a, x, ν, γ, Val(S))
@@ -867,14 +883,23 @@ end
 # 0.02 to 0.12 eps m at the median and 3.8 eps m at the largest, the largest being a single block; the constant leaves
 # out the rare largest values, for refining the call whenever they could occur costs a tenth of the ordinary calls), and
 # the output is accepted when
-#     max(|φ̂|, _NOISE_C eps m) / √s ≤ _ACCEPT_K eps S,    S = m / (2 √Σᵢγᵢaᵢ²) + |ν̂| √s   (norms of Diagonal(1 ./ γ)),
-# with s the slope of the search at its last step. The first term of S is a lower bound of ‖ẑ‖ that costs no pass
-# (Σᵢ|aᵢẑᵢ| ≥ |b| and the Cauchy-Schwarz inequality), the second is the size of what the output pass rounds: the entries
-# of the argument x - γνa that are not clamped carry the rounding of |ν| ‖γa‖ over the live entries, which is |ν| √s.
+#     max(|φ̂|, noise) / √s ≤ _ACCEPT_K eps(Float32) (m / (2 √Σᵢγᵢaᵢ²) + min(|ν̂| √s, ‖x‖)),   noise = _NOISE_C eps m
+# (norms of Diagonal(1 ./ γ)), with s the slope of the search at its last step. The first term of the size is a lower
+# bound of ‖ẑ‖ that costs no pass (Σᵢ|aᵢẑᵢ| ≥ |b| and the Cauchy-Schwarz inequality). The second is the size of what the
+# output pass rounds: the entries of the argument x - γνa that are not clamped carry the rounding of |ν| ‖γa‖ over the
+# live entries, which is |ν| √s; it is capped by ‖x‖, the norm of the argument, because where the search ends on a flat
+# piece of φ beyond the root (no entry free there, the slope of the last secant from the bracket) |ν̂| √s is many times
+# the size of the answer and would accept any point of the piece. ‖x‖ is formed only where the first term alone does not
+# accept, and only for the Float32 search: the check of the recovery, in Float64, keeps |ν̂| √s.
+# The terms of the evaluation are summed in Float32 lanes, and in blocks (_GAP_BLOCK); where the steps are an array and
+# the entry map is not the ordinary ridge the lanes are Float64 (_sum_lanes), which takes the summation error of a block
+# out of the noise: the noise floor is that of the entries.
 # A constraint that is inactive with a margin of the noise needs no slope.
 # This is a check and not a bound: the slope is that of the last secant, which can cross a kink of φ and overstate the
-# slope next to the root; the noise floor is a constant that is not proved for every term; the rounding of the argument
-# is counted only through S. An accepted result can in principle be inaccurate.
+# slope next to the root; the noise floor is a constant chosen from measurements, not proved for every term (a vectorised
+# sum of a scalar step can be 3 to 4 eps m off); the rounding of the argument is counted only through the size. An
+# accepted result can exceed 16 eps(Float32), by a factor of about 1.2 at most on the random problems up to n = 100 000
+# that it was measured on, and can in principle be inaccurate.
 # An evaluation that may have overflowed (γ|ν| or γ|ν||a| near the range of Float32, bounded through Σᵢγᵢ and Σᵢγᵢaᵢ²)
 # is not accepted: the computed argument of an entry is then infinite where the exact one is moderate, and the entry
 # looks like an exact clamp.
@@ -896,6 +921,22 @@ function _step_sums(set, x::AbstractArray, γ::AbstractArray)
   A2, G
 end
 
+# ‖x‖ in the norm of Diagonal(1 ./ γ), for the steps rounded to Float32 as _step_sums rounds them
+function _argument_norm(x::AbstractArray, γ::Real)
+  t = 0.0
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
+    t += abs2(Float64(x[i]))
+  end
+  sqrt(t / Float64(convert(Float32, γ)))
+end
+function _argument_norm(x::AbstractArray, γ::AbstractArray)
+  t = 0.0
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
+    t += abs2(Float64(x[i])) / Float64(convert(Float32, γ[i]))
+  end
+  sqrt(t)
+end
+
 function _criterion(c::LinearConstrained, x::AbstractArray, γ, p::_Proposal, ::Type{E}, slope_free::Bool) where {E}
   ν, r, m = Float64(p.ν), p.res, p.m
   (isfinite(ν) && isfinite(r) && isfinite(m)) || return false
@@ -908,7 +949,15 @@ function _criterion(c::LinearConstrained, x::AbstractArray, γ, p::_Proposal, ::
   A2, G = _step_sums(c.set, x, _steps(γ))
   (isfinite(A2) && A2 > 0 && isfinite(G)) || return false
   abs(ν) * max(G, sqrt(G * A2)) <= Float64(floatmax(E)) / 8 || return false
-  max(r, noise) / sqrt(s) <= _ACCEPT_K * Float64(eps(Float32)) * (m / (2 * sqrt(A2)) + abs(ν) * sqrt(s))
+  lhs, tol = max(r, noise) / sqrt(s), _ACCEPT_K * Float64(eps(Float32))
+  t = m / (2 * sqrt(A2))
+  lhs <= tol * t && return true
+  u = abs(ν) * sqrt(s)
+  if E === Float32
+    X = _argument_norm(x, _steps(γ))
+    X < u && (u = X)
+  end
+  lhs <= tol * (t + u)
 end
 
 _accepted(c::LinearConstrained, x::AbstractArray, γ, p::_Proposal{Float32}) =

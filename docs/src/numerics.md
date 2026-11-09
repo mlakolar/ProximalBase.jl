@@ -503,14 +503,21 @@ forward error.
   assumed for the evaluation of `φ`: the firm nonexpansiveness of the proximal map
   bounds the distance by that quotient when `s` is the slope between the point
   and the root. The result is accepted when the estimate is at most
-  `16 eps(Float32)·(m/(2√Σᵢγᵢaᵢ²) + |ν̂|√s)`, a size of the problem that costs no
-  further pass. A constraint inactive by more than the noise needs no slope. A
-  point whose argument `γ|ν|` or `γ|ν||a|` may have overflowed is not accepted.
-- *What it does not establish.* The slope is that of the last secant, and a
-  secant can cross a kink of `φ` and overstate the slope next to the root. The
-  noise floor is a constant chosen from measurements against exact arithmetic, not
-  a proved bound on every term of the sum. An accepted result can therefore, in
-  principle, be inaccurate.
+  `16 eps(Float32)·(m/(2√Σᵢγᵢaᵢ²) + min(|ν̂|√s, ‖x‖))`, a size of the problem.
+  `ν̂` is the multiplier found and `‖x‖` the norm of the argument in the norm of
+  `Diagonal(1 ./ γ)`; the first term costs no pass, and `‖x‖` is formed only where
+  the first term alone does not accept. The sums of the evaluation of `φ` are
+  accumulated in `Float64` where the steps are an array; the ordinary ridge route,
+  whose evaluation vectorizes, keeps `Float32` lanes. A constraint inactive by
+  more than the noise needs no slope. A point whose argument `γ|ν|` or `γ|ν||a|`
+  may have overflowed is not accepted.
+- *What it does not establish.* This is a check, not a bound. The slope is that of
+  the last secant, and a secant can cross a kink of `φ` and overstate the slope
+  next to the root. The noise floor is a constant chosen from measurements
+  against exact arithmetic, not a proved bound on every term of the sum. An
+  accepted result can therefore exceed `16 eps(Float32)`: on the random problems
+  up to `n = 100 000` measured for this change, by a factor of about 1.2 at most.
+  It can also, in principle, be inaccurate.
 - *What is refined.* A result that fails the check is searched again from zero in
   `Float32` if it started from the last multiplier, and then in `Float64` (the
   recovery). The recovery solves the `Float32` problem: T3 holds, and the entry

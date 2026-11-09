@@ -138,3 +138,44 @@ The data structure's essential invariants and performance targets are:
 6. **Allocation behavior:** indexing, activation, membership and obtaining handles should be allocation-free after warm-up on ordinary Float32/Float64 CPU use. Copies, construction, sorted exports and dense snapshots allocate intentionally.
 
 This page is about the representation, not which mathematical **functions** accept it. The latter compatibility belongs to the function-oracle inventory and its tests, not to the `SparseIterate` contract.
+
+
+## Inventory: implemented versus inherited methods
+
+This table is an index of the **data-structure API**, not a declaration that every method is separately specialized or sparse-optimized. "Explicit" refers to methods in `src/sparse_iterate.jl` (including shared stored-iterate helpers); "Julia generic" means ordinary `AbstractArray` behavior. Costs for generic array methods may be `O(length(x))`.
+
+| Category | Methods | Implementation | Sparse-specific guarantee |
+|:--|:--|:--|:--|
+| Construction | `SparseIterate(n)`, `SparseIterate(T,n)`, `SparseIterate(n,m)`, `SparseIterate(T,n,m)` | Explicit | Reserves `O(length(x))` storage |
+| Construction from data | `SparseIterate(::Array)`, `SparseIterate(::SparseVector)`, `SparseIterate(::SparseMatrixCSC)` | Explicit | Creates state from stored/nonzero values |
+| Shape and indexing | `size`, `length`, `IndexStyle`, scalar `getindex`, scalar `setindex!` | Explicit | `O(1)` scalar access and insertion |
+| Other array metadata | `eltype`, `ndims`, `axes`, `eachindex`, `firstindex`, `lastindex` | Julia generic | Ordinary array conventions |
+| General array operations | Iteration, ranged/indexed access, `view`, `reshape`, `vec`, `map`, `map!`, array reductions | Julia generic | **Not** generally `O(nactive)` |
+| Coordinates | `ncoordinates`, `coordinates` and the view's `size`, `getindex`, `setindex!`, `fill!` | Explicit | No-copy `O(1)` view creation, `O(1)` entry access |
+| Active-set management | `nactive`, `activecoordinates`, `activevalues`, `isactive`, `activate!`, `dropzeros!` | Explicit | `O(1)` lookup/activation, `O(nactive)` traversal/compaction |
+| SparseArrays interface | `issparse`, `nnz`, `nonzeros`, `findnz` | Explicit | `findnz` allocates sorted copies |
+| State copy | `copy`, `similar`, `similar(x,T)`, same-kind `copyto!`, `copy!` | Julia generic plus explicit state-copy kernels | Active coordinates and explicit zeros preserved for compatible same-kind sources |
+| Value writes | `copyto!` from `AbstractArray`, `fill!`, broadcasting and broadcast assignment | Explicit dispatch and Julia indexing | Old active entries remain until `dropzeros!` |
+| Special array sources | Matrix `copyto!` from `UniformScaling`, supported sparse wrappers and `AbstractQ` orthogonal factors | Explicit | Compatibility paths, not core solver fast paths |
+| Dense snapshots | `Vector(x)`, `Matrix(x)`, `Array(x)` | Explicit | `O(length(x))` |
+| Comparison and display | `==`, `isequal`, `hash`; `show` | Julia generic for comparisons; explicit `show` | Comparisons depend on values, not active state |
+| Norms/differences | `norm`; `norm_diff` | Explicit sparse norm; generic difference utility | Do not claim all differences cost `O(nactive)` |
+| Sparse vector products | `dot(v,x)`, `dot(x,v)`, `dot(x,y)`, `A*x`, `mul!(out,A,x)`, five-argument `mul!` | Explicit for documented operand domains | Sparse-aware active-entry work |
+| Sparse matrix products | `dot(a,X,b)`, selected `A*X`, `mul!(out,A,X)`, selected `A*X*B` | Explicit for documented operand domains | Not every general matrix product is specialized |
+| Scalar scaling | `rmul!`, `lmul!`, `rdiv!`, `ldiv!` | Explicit | Active-only fast path where scalar maps zero to zero |
+| Aliasing infrastructure | `Base.dataids(x)`, coordinate-view `dataids`/`unaliascopy` | Explicit | Prevents aliased array copies from reading overwritten data |
+
+**Not a separate iterate interface:** `restrict`, `kkt_violation`, `prox_coordinate!`, `prox!`, `value_and_prox!`, `gradient!` and `hessian_vec!`. Their APIs belong to function oracles; individual methods may accept `SparseIterate` as an input or destination.
+
+**Not required for 0.6:** shape resizing (`resize!`, `push!`), a new generic iterate hierarchy, an `O(nactive)` implementation of every Julia array reduction, full specialization of all matrix operators, dynamic sparse-capacity allocation, or new mixed-precision/GPU fast paths.
+
+### Remaining SparseIterate-specific follow-ups
+
+- [#694](https://github.com/mlakolar/ProximalBase.jl/issues/694): test the `SparseCoordinates` view against ordinary-vector indexing, `sortperm`, and display conventions on supported Julia versions. This is a **conformance test gap**; it does not establish a missing method.
+- [#697](https://github.com/mlakolar/ProximalBase.jl/issues/697): correct documentation for complex values converted through wrappers and same-shape state copies.
+- [#797](https://github.com/mlakolar/ProximalBase.jl/issues/797): optional optimization of the already implemented, correctness-first orthogonal-factor copy path.
+- [#341](https://github.com/mlakolar/ProximalBase.jl/issues/341): outstanding sparse *function-value* implementations, tracked separately from the iterate's data-structure API.
+- [#456](https://github.com/mlakolar/ProximalBase.jl/issues/456): the shared SparseIterate/AtomIterate release umbrella; open status alone does not imply a missing SparseIterate method.
+
+The former all-zero clear optimization [#644](https://github.com/mlakolar/ProximalBase.jl/issues/644) is **closed**; the specialized `dropzeros!(::SparseIterate)` implementation is on the current branch.
+

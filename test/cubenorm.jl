@@ -164,7 +164,7 @@ end
       x = SparseIterate(Array(dense))
       x[2] = one(T)
       x[2] = zero(T)                         # both stored and unstored zeros
-      @test nnz(x) == 3
+      @test nactive(x) == 3
       for λ in (zero(T), T(0.7))
         f = CubeNormL2(λ)
         @test f(x) ≈ f(dense)

@@ -292,9 +292,10 @@ tier = "quick"
 focus = ["examples"]
 paths = ["examples/**"]
 
-# The grids files. atom_iterate_grids, conjugate_basics_grids, constrained_basics_grids,
-# constrained_grids, extreme_normals_grids, lmo_atoms_grids, metric_grids, nested_scaled_grids,
-# scaled_infinite_level_underflow_grids, sparse_iterate_basics_grids, symmetric_groups_grids and
+# The grids files. atom_iterate_grids, block_step_grids, blockchecks_grids, conjugate_basics_grids,
+# constrained_basics_grids, constrained_grids, extreme_normals_grids, lmo_atoms_grids, metric_grids,
+# nested_scaled_grids, scaled_infinite_level_underflow_grids, sparse_iterate_basics_grids,
+# symmetric_groups_grids, symmetric_wrappers_grids, value_overflow_glm_grids and
 # zero_level_infinite_step_grids are in the full tier. Each holds cases that repeat cases of a base
 # file that a lower tier keeps for Float64, a Float32 representative or a representative function
 # (test/TESTING.md lists them; the base file of constrained_basics_grids is the quick file
@@ -310,20 +311,27 @@ paths = ["examples/**"]
 #   lmo_atoms_grids:             src/lmo.jl, src/lmo_atoms.jl, the shared sources,
 #                                src/functions/singular.jl
 #   constrained_basics_grids:    src/constrained.jl
+#   block_step_grids:            src/calculus.jl, the shared sources, src/atom_iterate.jl,
+#                                src/sparse_iterate.jl
 #   scaled_infinite_level_underflow_grids, zero_level_infinite_step_grids, symmetric_groups_grids,
-#   extreme_normals_grids, constrained_grids, metric_grids:
+#   extreme_normals_grids, constrained_grids, metric_grids, value_overflow_glm_grids,
+#   symmetric_wrappers_grids, blockchecks_grids:
 #                                src/calculus.jl and the shared sources
-# The last six hold the Float32 passes, indicator-wrapper variants and type grids of six
-# thorough-tier files (scaled_infinite_level_underflow, zero_level_infinite_step, symmetric_groups,
-# extreme_normals, constrained, metric) that repeat Float64 cases or Float32 representatives those
-# files keep. Their base files are thorough-tier files, which a pull request runs when its tier is
-# thorough, and the two thorough rules (the rule for src/calculus.jl and the rule for the shared
-# sources) list the six grids files, so a pull request on one of those paths runs the cases that
-# moved. A standard-tier rule does not list them: the rule of such a path alone does not run
-# those base files, and a grids file would run the Float32 repeats without the Float64 baseline
-# that the base file keeps. The nightly triage defers a failure of extreme_normals_grids with
-# extreme_normals (the group "extreme precision and exponent ranges" in [[triage.deferred]]);
-# constrained_grids and metric_grids are in no deferred group.
+# The ten files of the block_step_grids entry and the entry after it hold the Float32 passes,
+# indicator-wrapper variants, wrapper variants and type grids of ten thorough-tier files
+# (scaled_infinite_level_underflow, zero_level_infinite_step, symmetric_groups, extreme_normals,
+# constrained, metric, value_overflow_glm, symmetric_wrappers, blockchecks, block_step) that repeat
+# Float64 cases or Float32 representatives those files keep. Their base files are thorough-tier
+# files, which a pull request runs when its tier is thorough, and the two thorough rules (the rule
+# for src/calculus.jl and the rule for the shared sources) list the ten grids files, so a pull
+# request on one of those paths runs the cases that moved. A standard-tier rule does not list nine
+# of them: the rule of such a path alone does not run those base files, and a grids file would run
+# the Float32 repeats without the Float64 baseline that the base file keeps. The exception is
+# block_step_grids: block_step is a focus file of the rules for src/atom_iterate.jl and
+# src/sparse_iterate.jl, so those two rules list block_step_grids beside it, and a pull request on
+# one of those paths runs the Float32 combinations that moved out of block_step. The nightly triage
+# defers a failure of extreme_normals_grids with extreme_normals (the group "extreme precision and
+# exponent ranges" in [[triage.deferred]]); the other nine are in no deferred group.
 # Other source paths do not add them as automatic focus files. They still run when the tier of the
 # pull request is full (for example a change to src/lapack.jl or another infrastructure path, or
 # the label test:full; also the nightly run and tag runs), when the grids file itself changes, when
@@ -342,7 +350,7 @@ paths = ["examples/**"]
 why = "AtomIterate: groups, activation, copies, products, block steps over groups"
 tier = "standard"
 narrow = "quick"
-focus = ["atom_iterate_grids", "real_iterates", "block_step", "norms", "sparsegroup", "infinite_group_weights"]
+focus = ["atom_iterate_grids", "real_iterates", "block_step", "block_step_grids", "norms", "sparsegroup", "infinite_group_weights"]
 paths = ["src/atom_iterate.jl"]
 
 [[risk]]
@@ -354,6 +362,7 @@ focus = [
   "sparse_iterate_basics_grids",
   "real_iterates",
   "block_step",
+  "block_step_grids",
   "sparse_value_cost",
   "conformance/failures_storage",
   "symmetric_mul",
@@ -378,6 +387,8 @@ paths = ["src/symmetric_parameters.jl"]
 why = "shared by every function: interface, traits, numerical helpers, wrappers, steps"
 tier = "thorough"
 focus = [
+  "block_step_grids",
+  "blockchecks_grids",
   "conjugate_basics_grids",
   "constrained_grids",
   "extreme_normals_grids",
@@ -386,6 +397,8 @@ focus = [
   "nested_scaled_grids",
   "scaled_infinite_level_underflow_grids",
   "symmetric_groups_grids",
+  "symmetric_wrappers_grids",
+  "value_overflow_glm_grids",
   "zero_level_infinite_step_grids",
 ]
 paths = [
@@ -408,11 +421,15 @@ focus = [
   "stepchecks",
   "nested_scaled_grids",
   "conjugate_basics_grids",
+  "block_step_grids",
+  "blockchecks_grids",
   "constrained_grids",
   "extreme_normals_grids",
   "metric_grids",
   "scaled_infinite_level_underflow_grids",
   "symmetric_groups_grids",
+  "symmetric_wrappers_grids",
+  "value_overflow_glm_grids",
   "zero_level_infinite_step_grids",
 ]
 paths = ["src/calculus.jl"]

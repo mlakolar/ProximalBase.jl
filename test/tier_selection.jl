@@ -393,13 +393,21 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
 #   shared:    whether the rule for the code shared by every function (src/utils.jl, ...) lists it;
 #   paths:     the source paths of its own family, each with the tier the rules give a change to it.
 # The rows with base_tier "thorough" are listed by the two thorough rules, the rule for src/calculus.jl
-# and the shared rule, and by no standard-tier rule: a pull request on a standard-tier path alone,
-# without a label that raises the tier, did not run their base files, so the grids file would run
-# the Float32 repeats without the Float64 baseline that the base file keeps.
+# and the shared rule, and by no standard-tier rule except where the row names that path with the
+# tier "standard": a pull request on a standard-tier path alone, without a label that raises the
+# tier, did not run their base files, so the grids file would run the Float32 repeats without the
+# Float64 baseline that the base file keeps. The exception is block_step_grids: block_step is a
+# focus file of the rules for src/atom_iterate.jl and src/sparse_iterate.jl, so those two rules list
+# block_step_grids too, and its row has both paths.
 const GRIDS = [
   (grids = "atom_iterate_grids", base = "atom_iterate", base_tier = "quick", shared = false,
    paths = ["src/atom_iterate.jl" => "standard", "src/functions/norms.jl" => "standard",
             "src/functions/sparsegroup.jl" => "standard", "src/functions/nonconvex.jl" => "standard"]),
+  (grids = "block_step_grids", base = "block_step", base_tier = "thorough", shared = true,
+   paths = ["src/atom_iterate.jl" => "standard", "src/calculus.jl" => "thorough",
+            "src/sparse_iterate.jl" => "standard"]),
+  (grids = "blockchecks_grids", base = "blockchecks", base_tier = "thorough",
+   shared = true, paths = ["src/calculus.jl" => "thorough"]),
   (grids = "conjugate_basics_grids", base = "conjugate_basics", base_tier = "quick", shared = true,
    paths = ["src/calculus.jl" => "thorough", "src/functions/losses.jl" => "standard"]),
   (grids = "constrained_basics_grids", base = "constrained_basics", base_tier = "quick", shared = false,
@@ -419,6 +427,10 @@ const GRIDS = [
   (grids = "sparse_iterate_basics_grids", base = "sparse_iterate_basics", base_tier = "quick", shared = false,
    paths = ["src/sparse_iterate.jl" => "standard"]),
   (grids = "symmetric_groups_grids", base = "symmetric_groups", base_tier = "thorough",
+   shared = true, paths = ["src/calculus.jl" => "thorough"]),
+  (grids = "symmetric_wrappers_grids", base = "symmetric_wrappers", base_tier = "thorough",
+   shared = true, paths = ["src/calculus.jl" => "thorough"]),
+  (grids = "value_overflow_glm_grids", base = "value_overflow_glm", base_tier = "thorough",
    shared = true, paths = ["src/calculus.jl" => "thorough"]),
   (grids = "zero_level_infinite_step_grids", base = "zero_level_infinite_step", base_tier = "thorough",
    shared = true, paths = ["src/calculus.jl" => "thorough"])]
@@ -502,8 +514,8 @@ end
 # The tier and focus files a PR gets, as the plan job reports them.
 pr(paths...; labels = String[]) = TestTiers.pr_tier(MANIFEST, collect(paths), labels)[1:2]
 const NARROW = [TestTiers.NARROW_LABEL]
-const ATOM = ["atom_iterate_grids", "block_step", "infinite_group_weights", "norms", "real_iterates", "sparsegroup"]
-const SPARSE = ["block_step", "conformance/failures_storage", "real_iterates", "sparse_iterate", "sparse_iterate_basics_grids",
+const ATOM = ["atom_iterate_grids", "block_step", "block_step_grids", "infinite_group_weights", "norms", "real_iterates", "sparsegroup"]
+const SPARSE = ["block_step", "block_step_grids", "conformance/failures_storage", "real_iterates", "sparse_iterate", "sparse_iterate_basics_grids",
                 "sparse_value_cost", "symmetric_argument", "symmetric_mul"]
 const SYMPARAMS = ["symmetric_parameters_extensions", "symmetric_parameters_merge", "symmetric_parameters_paths",
                    "symmetric_parameters_trait", "symmetric_parameters_writes"]
@@ -777,16 +789,23 @@ end
     @test isdisjoint(classify(path)[2], allgrids)
   end
   # the grids files of a thorough-tier base file: the rules that list them are thorough-tier rules,
-  # the rule for src/calculus.jl and the shared rule, and the standard paths of the other rows get none
+  # the rule for src/calculus.jl and the shared rule, and the rules of the standard paths that a row
+  # names with the tier "standard" (block_step_grids: the rules for src/atom_iterate.jl and
+  # src/sparse_iterate.jl); the standard paths of the other rows get none of them
   thorough_grids = [row.grids for row in GRIDS if row.base_tier == "thorough"]
   @test !isempty(thorough_grids) && issubset(thorough_grids, SHARED_GRIDS)
+  standard_paths(grids) = [path for row in GRIDS if row.grids == grids for (path, tier) in row.paths if tier == "standard"]
   for rule in MANIFEST.rules, grids in thorough_grids
-    grids in rule.focus && @test rule.tier == "thorough"
+    grids in rule.focus || continue
+    @test rule.tier == "thorough" || (rule.tier == "standard" && !isempty(rule.patterns) &&
+                                       issubset(rule.patterns, standard_paths(grids)))
   end
+  @test standard_paths("block_step_grids") == ["src/atom_iterate.jl", "src/sparse_iterate.jl"]
   for path in ("src/atom_iterate.jl", "src/functions/norms.jl", "src/functions/sparsegroup.jl", "src/functions/nonconvex.jl",
                "src/sparse_iterate.jl", "src/constrained.jl", "src/lmo.jl", "src/lmo_atoms.jl", "src/functions/singular.jl",
                "src/functions/losses.jl")
-    @test isdisjoint(classify(path)[2], thorough_grids)
+    @test filter(in(thorough_grids), classify(path)[2]) == sort!([row.grids for row in GRIDS
+                                                                   if row.base_tier == "thorough" && path in standard_paths(row.grids)])
   end
   @test pr("src/functions/norms.jl") == ("standard", ["atom_iterate_grids"])
   # a pull request that changes src/calculus.jl or a shared source runs these grids files, beside thorough

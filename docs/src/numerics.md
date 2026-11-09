@@ -507,8 +507,10 @@ forward error.
   `ν̂` is the multiplier found and `‖x‖` the norm of the argument in the norm of
   `Diagonal(1 ./ γ)`; the first term costs no pass, and `‖x‖` is formed only where
   the first term alone does not accept. The sums of the evaluation of `φ` are
-  accumulated in `Float64` where the steps are an array; the ordinary ridge route,
-  whose evaluation vectorizes, keeps `Float32` lanes. A constraint inactive by
+  accumulated in `Float64` where the steps are an array, except for `IndBox`,
+  `IndNonnegative`, a `Scaled` of one of them and the ordinary route of `SqrNormL2`,
+  whose passes vectorize and sum accurately in `Float32`; any other function, a
+  function of your own included, sums in `Float64`. A constraint inactive by
   more than the noise needs no slope. A point whose argument `γ|ν|` or `γ|ν||a|`
   may have overflowed is not accepted.
 - *What it does not establish.* This is a check, not a bound. The slope is that of

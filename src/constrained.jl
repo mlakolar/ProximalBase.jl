@@ -111,8 +111,10 @@ last point, the slope `s` of its last step and an assumed noise floor of the eva
 from the exact point, in the norm of `Diagonal(1 ./ γ)`, as `max(|φ̂|, noise)/√s`. It accepts
 the result when that is at most `16 eps(Float32)·(m/(2√Σᵢγᵢaᵢ²) + min(|ν̂|√s, ‖x‖))`, where
 `ν̂` is the multiplier found and `‖x‖` the norm of the argument in the same norm. The sums
-of the evaluation are accumulated in `Float64` where the steps are an array (the ordinary
-[`SqrNormL2`](@ref) route, whose evaluation vectorizes, excepted). A result that fails is
+of the evaluation are accumulated in `Float64` where the steps are an array, except for
+[`IndBox`](@ref), [`IndNonnegative`](@ref), a [`Scaled`](@ref) of one of them and the ordinary
+route of [`SqrNormL2`](@ref), whose passes vectorize and sum accurately in `Float32`; any other
+function, a function of your own included, sums in `Float64`. A result that fails is
 searched again from zero if it started from the
 previous multiplier, and then in `Float64` on the `Float32` problem: the entry maps are
 evaluated in `Float64` on the exactly widened argument with their parameters rounded to
@@ -589,15 +591,23 @@ _constraint_gap(c, x::AbstractArray, ν::T, γ, v::Val = Val(false)) where {T} =
 # summed in the lanes of the loop, and the sums of the blocks in Float64, so that the rounding of the sum is that of a block
 # and not of n additions. The other precisions form one sum over the entries, as before. φ and its scale are rounded once
 # to T.
-# The lanes sum in Float32 where the loop vectorizes: the steps are one scalar, or the ordinary ridge, whose entry map is
-# a multiplication and a clamp. Where the steps are an array and the entry map is any other, the loop does not
-# vectorize, a block is then one sequential sum of 1024 terms, and its rounding grows to 20 to 40 eps m: the terms are
-# still formed in Float32, as the kernel forms them, and accumulated in Float64.
+# Where the steps are an array, the type of the lanes is that of _array_lanes(typeof(f)): Float32 for the entry maps whose
+# loop vectorizes and whose Float32 block sums stay inside the noise floor of the check (a clamp, or a multiplication and
+# a clamp; the lane sums of the measured problems are off by at most 1.6 eps m), and Float64 for every other function,
+# a user function included. The loop of any other entry map does not vectorize with array steps; a block is then one
+# sequential sum of 1024 terms, its rounding grows to 20 to 40 eps m for a box on an ℓ1 map, and the terms, still formed
+# in Float32 as the kernel forms them, are accumulated in Float64, which costs 1.1 times a pass of those maps. A scalar
+# step takes Float32 lanes for every function: its loop vectorizes.
 const _GAP_BLOCK = 1024
 
+_array_lanes(::Type) = Float64
+_array_lanes(::Type{<:IndBox}) = Float32
+_array_lanes(::Type{<:IndNonnegative}) = Float32
+_array_lanes(::Type{<:_OrdinaryRidge}) = Float32
+_array_lanes(::Type{<:Scaled{F}}) where {F} = _array_lanes(F)
+
 _sum_lanes(f, γ) = Float32
-_sum_lanes(f, γ::AbstractArray) = Float64
-_sum_lanes(f::_OrdinaryRidge, γ::AbstractArray) = Float32
+_sum_lanes(f, γ::AbstractArray) = _array_lanes(typeof(f))
 
 function _gap_sums(f, a, x::AbstractArray, ν::T, γ, r, ::Val{S}, ::Type{A}) where {T, S, A}
   s, m, d = zero(A), zero(A), zero(T)
@@ -891,9 +901,10 @@ end
 # piece of φ beyond the root (no entry free there, the slope of the last secant from the bracket) |ν̂| √s is many times
 # the size of the answer and would accept any point of the piece. ‖x‖ is formed only where the first term alone does not
 # accept, and only for the Float32 search: the check of the recovery, in Float64, keeps |ν̂| √s.
-# The terms of the evaluation are summed in Float32 lanes, and in blocks (_GAP_BLOCK); where the steps are an array and
-# the entry map is not the ordinary ridge the lanes are Float64 (_sum_lanes), which takes the summation error of a block
-# out of the noise: the noise floor is that of the entries.
+# The terms of the evaluation are summed in blocks (_GAP_BLOCK), in Float32 lanes where the pass vectorizes (a scalar step;
+# IndBox, IndNonnegative, a Scaled of one of them and the ordinary ridge with array steps) and in Float64 lanes for every
+# other entry map with array steps (_array_lanes), which takes the summation error of a block out of the noise: the noise
+# floor is then that of the entries.
 # A constraint that is inactive with a margin of the noise needs no slope.
 # This is a check and not a bound: the slope is that of the last secant, which can cross a kink of φ and overstate the
 # slope next to the root; the noise floor is a constant chosen from measurements, not proved for every term (a vectorised

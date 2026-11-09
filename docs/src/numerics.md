@@ -358,16 +358,22 @@ a factor inside the band, an entry of the step that is itself within `E` of a li
 rounded together with the factor. When no normal level holds the whole product, the value of a
 function with levels is computed at levels that are normal numbers, with the power of two that this
 takes out of the product applied last. A weighted `NormL1` or `NormL1Nonneg` whose `BigFloat` scale
-no level takes folds the scale into its weights instead: the level becomes a power of two, and each weight
-becomes the coefficient that the leaf forms for the scale as the step, the level and the weight, in the leaf's
-order, from the operands as they are stored (a level or weight that is not a `BigFloat` first rounded to the
-precision of the call), each product rounded to that precision in the current rounding mode. Levels,
-weights and scale significands of any stored precision and any array of weights are folded, with each
-weight paired with its entry by linear index; a zero or infinite weight stays as it is. The fold is refused
-(and the function is left as without it) only for range reasons: when the coefficients do not fit, with a margin
-of three binades, in the exponents of a normal level and normal weights, as to their positions (below `2 emin + 6`
-or above `2 emax - 6`, `emin` and `emax` the exponent limits of `BigFloat`) or as to their spread (more
-than `emax - emin - 6`). Not recovered: levels whose exponents are too far apart for
+no level takes folds the scale and the step into its weights instead: the level becomes a power of two, the
+function gets the step 1, and each weight becomes the coefficient that the leaf forms for the step (the scale times the
+step, as the chain forms it), the level and the weight, in the leaf's order, from the operands as they are stored (a
+level or weight that is not a `BigFloat` first rounded to the precision of the call), each product rounded to that
+precision in the current rounding mode. Levels, weights and scale significands of any stored precision are folded. A
+call with an array of steps gives each entry of the weights its own step, by index; the steps must have the axes of the
+weights, and a negative, `NaN` or infinite step is not folded (a zero step gives a zero weight, as the leaf treats it).
+The weights are an array with the standard axes, which the folded weights have too, or a vector with other axes, whose
+axes and indices the folded weights keep; another array is not folded. A weight that is zero or infinite, or that
+becomes so when it is converted to a `BigFloat`, stays as it is. The fold reproduces the unfolded leaf bit for bit when its
+intermediate products and the final shift stay normal numbers. It is refused, and the function is left as without it, when
+there is no weight to fold, the level or the scale is zero or not finite, or the coefficients do not fit, with a margin of
+three binades, in the exponents of a normal level and normal weights, as to their positions (below `2 emin + 6` or above
+`2 emax - 6`, `emin` and `emax` the exponent limits of `BigFloat`) or as to their spread (more than `emax - emin - 6`). The
+value that such a call returns is the value of the chain at the stored output, never that of the function with the
+rebuilt weights. Not recovered: levels whose exponents are too far apart for
 one normal fold, weights or entries for which no normal level gives a leaf value that is a finite
 normal number, and subnormal results; array-step entries whose exponents spread too
 far for the levels to hold them, which are rounded with the factors; and the steps of a function

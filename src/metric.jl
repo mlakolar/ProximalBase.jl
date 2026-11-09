@@ -268,7 +268,10 @@ end
 # they relate to the chain:
 # - `:folded`: the whole factor goes into the levels of the function and the steps are the caller's
 #   array. The function forms the coefficient of an entry from the level, the weight and the step
-#   without a product that leaves the range, and its value is the value of the chain.
+#   without a product that leaves the range. For a BigFloat scale the factor and each entry's step go
+#   into the weights of an L1 norm (`_fold_weights`), the steps given to the function are 1, and the value
+#   of the function is not the value of the chain: that is the value of the original function at the
+#   stored output, scaled by the factor (as for `:shifted`).
 # - `:shifted`: the levels do not hold the whole factor (its product with them is not a normal
 #   number), so a power of two 2^k is moved from the steps into the levels, with k centring the
 #   exponents of the entries of γ. This reads γ once, and only here, never on an ordinary call.
@@ -277,6 +280,16 @@ end
 #   function with no level to fold takes each step multiplied by the factors with the exponent
 #   applied last, rounded into the step's type.
 function _array_fold(f, a, γ)
+  _array_fold_levels(f, a, γ)
+end
+# For a BigFloat scale the folds that take the steps into their weights come first: the steps given to the function are 1.
+# Any other fold, and a call that these decline (a function that has none, steps that are not finite and not negative, or
+# steps whose axes differ from those of the weights), takes the route that it had.
+function _array_fold(f, a::_ProjectionScale{BigFloat}, γ)
+  g = _fold_level(f, _StepScale(a, γ))
+  g === nothing ? _array_fold_levels(f, a, γ) : (g, one(typeof(a.m)), :folded)
+end
+function _array_fold_levels(f, a, γ)
   # a function that a stored infinite level fixes does not depend on the factors and the steps, when all
   # are positive finite numbers (`_hard_function`): its steps are the caller's array, and nothing is folded
   if _has_infinite_level(f) && _hard_scale(a) && _steps_hard(γ)
@@ -305,6 +318,9 @@ function _shifted_fold(f, a::_ProjectionScale, γ::AbstractArray)
   end
   nothing
 end
+# whether the value of a `:folded` function may differ from the value of the chain (a BigFloat scale folds into the weights)
+@inline _folded_value_differs(a) = false
+@inline _folded_value_differs(::_ProjectionScale{BigFloat}) = true
 # a single infinite factor: the steps multiplied by it, as for a factor inside the band
 @inline _infinite_alone(s) = s isa Scaled && !_chained(s) && isinf(s.α)
 function _prox_chain!(y, s, x, γ::AbstractArray)
@@ -321,9 +337,9 @@ function _value_and_prox_chain!(y, s, x, γ::AbstractArray)
   end
   f, a = _scaled_chain(s)
   g, steps, kind = _array_fold(f, a, γ)
-  kind === :folded && !_weights_folded(f, g, a) && return _value_at(_value_and_prox_unchecked!(y, g, x, steps), y)
+  kind === :folded && !_folded_value_differs(a) && return _value_at(_value_and_prox_unchecked!(y, g, x, steps), y)
   if kind === :shifted || kind === :folded
-    # the value of the chain at the point, not that of the shifted function or of the function with folded weights
+    # the value of the chain at the point, not that of the shifted function or of a function whose weights were rebuilt
     _prox_unchecked!(y, g, x, steps)
     return _value_at(_scaled_value_by(f, a, y, _value_unchecked(f, y)), y)
   end

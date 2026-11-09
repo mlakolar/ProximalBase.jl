@@ -359,15 +359,16 @@ const XL = frac(650)
     @test prox(sp, [pw(N1 + 1), pw(N2 + 1)], big(1.0)) == [pw(N1), pw(N2)]
     @test prox(sp, [pw(N2 + 1), pw(N2 + 1)], big(1.0)) == [pw(N2 + 1) - pw(N1), pw(N2)]
     # The weights 2^(EMAX - 1) and 2^(EMIN - 1) are the largest and the smallest normal powers of two. The product of the
-    # level 2^-LW with the larger weight is itself a normal number (exponent EMAX + 1 - LW), but with the scale, whose
-    # exponent α.e is about 3 PW, the level does not take the scale (its product with the level leaves the range), so the
-    # weights would have to. A fold needs one power of two as the level and every coefficient divided by it to be a normal
-    # weight, so that the exponents tmax = α.e + 1 - LW + EMAX and tmin = α.e + 1 - LW + EMIN of the coefficients must
-    # satisfy the three conditions of `_fold_weights`. Here tmax is about 2.37 EMAX, beyond 2 EMAX - 6, and tmin is about
-    # 0.37 EMAX, which satisfies its condition (the product of the smaller weight with the level alone, of exponent
-    # EMIN - LW, would underflow; the scale brings it back); the two differ by EMAX - EMIN, more than the room
-    # EMAX - EMIN - 6. The fold is refused for the first and the third condition and the weights are left as they are, as
-    # without the weight fold; the call must not throw and gives numbers.
+    # level 2^-LW with the larger weight is itself a normal number (its exponent as `Base.exponent` reads it is
+    # EMAX - 1 - LW), but with the scale, whose exponent α.e is about 3 PW, the level does not take the scale (its product with
+    # the level leaves the range), so the weights would have to. A fold needs one power of two as the level and every
+    # coefficient divided by it to be a normal weight, so that the exponents tmax = α.e + 1 - LW + EMAX and
+    # tmin = α.e + 1 - LW + EMIN of the coefficients must satisfy the three conditions of `_fold_weights`. Here tmax is about
+    # 2.37 EMAX, beyond 2 EMAX - 6 (the second condition), and tmin is about 0.37 EMAX, which satisfies the first (the product
+    # of the smaller weight with the level alone, of exponent EMIN - LW, would underflow; the scale brings it back); the two
+    # differ by EMAX - EMIN, more than the room EMAX - EMIN - 6 (the third condition). The fold is refused for the second and
+    # the third condition and the weights are left as they are, as without the weight fold; the call must not throw and gives
+    # numbers.
     wide = chain(NormL1(pw(-LW), [pw(EMAX - 1), pw(EMIN - 1)]), [PW, PW, PW])
     α = retained(wide)
     tmin, tmax = α.e + 1 - LW + EMIN, α.e + 1 - LW + EMAX
@@ -1123,106 +1124,6 @@ end
   end
 end
 
-# A chain whose scale is mα 2^X and whose weights are mw 2^(d - X) is the ordinary leaf with the weights mw 2^d at the step mα,
-# every number being a power of two times a stored significand, so that nothing in a result depends on where the exponent is
-# put: the folded chain and the unfolded leaf must agree exactly in `prox`, `prox!`, `value_and_prox!` (the output) and the
-# array-step forms of these, in `prox_entry` and in `prox_coordinate!`; the value that `value_and_prox!` returns is the value of
-# the chain at the stored output. `shift` keeps the stored precision of a significand. The step is a power of two, so that its
-# product with the scale does not round.
-function differential(F, λ, mws, ds, ma, factors, γ, level_shift, wshift, name; values = true, entries = true)
-  fails = String[]
-  p = precision(BigFloat)
-  n = length(mws)
-  # The chain: the level and the weights carry the exponents that the scale and the step take out. The wrappers are built to
-  # nearest and evaluated in the mode in force: under RoundDown and RoundToZero a product of factors that overflows is the
-  # largest number and not infinity, which the constructor then merges, whatever the fold does.
-  s, leaf = setrounding(BigFloat, RoundNearest) do
-    chain_leaf = F(level_shift === nothing ? λ : shift(λ, -level_shift), BigFloat[shift(mws[i], ds[i] - wshift) for i in 1:n])
-    foldl((h, a) -> Scaled(h, a), factors; init = chain_leaf), F(λ, BigFloat[shift(mws[i], ds[i]) for i in 1:n])
-  end
-  λb = convert(BigFloat, λ)
-  ts = [(ma * λb) * leaf.w[i] for i in 1:n]
-  cands = Function[t -> t, t -> prevfloat(t), t -> nextfloat(t), t -> 2t, t -> t / 2, t -> pw(Base.exponent(t) + 4), t -> nextfloat(2t)]
-  fail(msg, x) = push!(fails, "$name: $msg at x = $x: p = $p, mode = $(rounding(BigFloat))")
-  same(a, b) = a == b
-  for c in cands, sg in (1, -1)
-    x = BigFloat[sg * c(t) for t in ts]
-    y1, y2 = prox(s, x, γ), prox(leaf, x, ma)
-    same(y1, y2) || fail("prox", x)
-    y3 = zeros(BigFloat, n); prox!(y3, s, x, γ)
-    same(y3, y2) || fail("prox!", x)
-    y4 = prox(s, x, fill(γ, n))
-    same(y4, y2) || fail("array-step prox", x)
-    for (label, step) in (("value_and_prox!", γ), ("array-step value_and_prox!", fill(γ, n)))
-      y5 = zeros(BigFloat, n); v5 = value_and_prox!(y5, s, x, step)
-      same(y5, y2) || fail(label * " output", x)
-      # the value is that of the chain at the stored output
-      values || continue
-      isequal(v5, s(y5)) || fail(label * " value against the chain at y: $v5 vs $(s(y5))", x)
-    end
-    for i in (entries ? (1:n) : (1:0))
-      e1, e2 = prox_entry(s, x[i], i, γ), prox_entry(leaf, x[i], i, ma)
-      isequal(e1, e2) || fail("prox_entry $i", x)
-      xi = SparseIterate(BigFloat, n); xi[i] = x[i]
-      xj = SparseIterate(BigFloat, n); xj[i] = x[i]
-      c1, c2 = prox_coordinate!(xi, s, i, γ), prox_coordinate!(xj, leaf, i, ma)
-      isequal(c1, c2) || fail("prox_coordinate! $i", x)
-    end
-  end
-  fails
-end
-
-@testset "the folded chain is the unfolded leaf" begin
-  fails = String[]
-  E = EMAX
-  e1 = E ÷ 2
-  Xs = E + 5                         # the scale mα 2^Xs of two factors; the weights have the exponents d - Xs
-  ds = [8, 6]
-  P3, Q3 = frac(680), frac(650)      # three factors and the exponents taken by a level, weights and the step
-  # (under RoundDown and RoundToZero an overflow is the largest number and not infinity, so that the step of a chain whose
-  # product with its factors leaves the range is taken for a normal number before any fold is tried: those modes are left out
-  # of the public comparison, and the fold itself is checked against its oracle in all five)
-  for p in (2, 3, 53), (mode, dir) in MODES
-    mode in (RoundDown, RoundToZero) && continue
-    setprecision(BigFloat, p) do
-      mws = BigFloat[bfh(11, max(p - 1, 2)), bfh(10, p), bfw(0.75, p + 11), bfh(9, p + 11)]
-      mas = BigFloat[bfh(11, p), bfh(9, max(p - 1, 2))]
-      λs = Any[5, 1 / 3, big(125), bfh(11, max(p - 1, 2)), bfh(10, p), bfh(9, p + 11), bfw(0.75, p + 11)]
-      setrounding(BigFloat, mode) do
-        for F in (NormL1, NormL1Nonneg)
-          # the kinds of level (the level is not shifted: the scale folds into the weights); two factors
-          for λ in λs, ma in mas
-            fs = Any[pw(e1), shift(ma, Xs - e1)]
-            append!(fails, differential(F, λ, mws[1:2], ds, ma, fs, one(BigFloat), nothing, Xs, "$(nameof(F)) level $(typeof(λ)) two factors"; entries = λ isa BigFloat))
-          end
-          # the kinds of weight, with the level a BigFloat; two factors
-          for i in eachindex(mws), ma in mas
-            λ = bfh(11, p)
-            fs = Any[pw(e1), shift(ma, Xs - e1)]
-            append!(fails, differential(F, λ, mws[[i, mod1(i + 1, 4)]], ds, ma, fs, one(BigFloat), nothing, Xs, "$(nameof(F)) weights $i two factors"))
-          end
-          # three factors beyond Int64 at the default range, the level, the weights and the step bring the product back: the
-          # level has the exponent -Q3, the weights -Q3 and the step -g with 3 P3 = 2 Q3 + g
-          g = 3 * P3 - 2 * Q3
-          # (the level takes the scale here and no weight is folded; the level has p bits, as the level fold reads the
-          # significand of a level through `frexp`, which rounds it to the precision of the call)
-          for λ in BigFloat[bfh(10, p), bfw(0.75, p + 11)], ma in mas
-            fs = Any[pw(P3), pw(P3), shift(ma, P3)]
-            # (the value of the chain: a leaf value of the factors' levels and weights alone that underflows is the least number
-            # under a directed rounding and not zero, so that the recovery of the value is not triggered; the outputs are
-            # compared in every mode, the values to nearest)
-            append!(fails, differential(F, λ, mws[1:2], ds, ma, fs, pw(-g), Q3, Q3, "$(nameof(F)) three factors, level $λ, scale $ma, weights $(mws[1:2])";
-                                        values = mode === RoundNearest))
-          end
-        end
-      end
-    end
-  end
-  isempty(fails) || foreach(m -> @info("differential mismatch", m), first(fails, 6))
-  @test isempty(fails)
-  @test rounding(BigFloat) == RoundNearest
-end
-
 # The weights are paired with their entries by increasing linear index, whatever order `eachindex` and iteration visit them in.
 struct ReverseVisit{T} <: AbstractVector{T}
   v::Vector{T}
@@ -1318,6 +1219,257 @@ Base.iterate(r::ReverseVisit, st = length(r.v)) = st < 1 ? nothing : (r.v[st], s
   end
 end
 
+# A vector with zero-based indices: valid for the entry functions, whose index is the index of the array
+struct OffsetWeights <: AbstractVector{BigFloat}
+  d::Vector{BigFloat}
+end
+Base.axes(v::OffsetWeights) = (Base.IdentityUnitRange(0:length(v.d) - 1),)
+Base.size(v::OffsetWeights) = size(v.d)
+Base.IndexStyle(::Type{OffsetWeights}) = IndexLinear()
+Base.getindex(v::OffsetWeights, i::Int) = v.d[i + 1]
+
+# The threshold that the unfolded leaf forms for the step ma gm, the level λ and the stored weight w, in the leaf's order and
+# in the rounding mode in force: round(round(round(ma gm) λ) w), on exact dyadic numbers, as a BigFloat of the precision of
+# the call. A zero step or weight gives a zero threshold.
+direction(mode) = mode in (RoundUp, RoundFromZero) ? :up : mode in (RoundDown, RoundToZero) ? :down : :nearest
+dyad_big(d, p) = Base.ldexp(BigFloat(d[1]; precision = p), Clong(d[2]))
+function leaf_threshold(ma, gm, λ, w, p, dir)
+  (iszero(gm) || iszero(w)) && return zero(BigFloat)
+  am, gx = exact(ma), exact(gm)
+  step = round_dyadic(am[1] * gx[1], am[2] + gx[2], p, dir)
+  dyad_big(coefficient(step, model(λ, p, dir), exact(w), 0, p, dir), p)
+end
+
+# the argument that a point of the case puts at the entry with threshold T (k = 0: at it, 1: at twice it, 2: one place above
+# it) and the result of the proximal operator at it, which is exact; a zero threshold leaves the entry alone
+function entry_point(F, T, xb, k, negative)
+  x, y = iszero(T) ? (xb, xb) : k == 0 ? (T, zero(T)) : k == 1 ? (2T, T) : (nextfloat(T), nextfloat(T) - T)
+  negative ? (-x, F === NormL1 ? -y : zero(y)) : (x, y)
+end
+
+# One case of the step-aware fold. The chain has the scale ma 2^X (two factors: X = EMAX + 5; three factors: 3 P3), the level
+# λ (shifted by -Q3 under three factors), the weights mws[i] 2^(d_i - ...), and the step gm 2^gs, so that the threshold of
+# the unfolded leaf for the step ma gm is the threshold of the chain, with the exponents moved: scale, level, weight and
+# step add up to d_i. The wrappers are built to nearest and evaluated in the mode in force: under RoundDown and RoundToZero a
+# product of factors that overflows is the largest number and not infinity, which the constructor then merges.
+function step_case!(fails, F, λ, mws, ds, ma, gm, gmv, layout, name; wkind = :plain, values = true, entries = true)
+  p = precision(BigFloat)
+  mode = rounding(BigFloat)
+  dir = direction(mode)
+  n = length(mws)
+  h = EMAX ÷ 2
+  X, Elev, gs = layout === :two ? (EMAX + 5, 0, 1) : (3 * frac(680), -frac(650), -(3 * frac(680) - 2 * frac(650)))
+  s, st, ss, leaf, chain_w = setrounding(BigFloat, RoundNearest) do
+    chain_w = BigFloat[iszero(mws[i]) ? mws[i] : shift(mws[i], ds[i] - X - gs - Elev) for i in 1:n]
+    leaf_w = BigFloat[iszero(mws[i]) ? mws[i] : shift(mws[i], ds[i]) for i in 1:n]
+    wrapw(v) = wkind === :reversed ? ReverseVisit(v) : wkind === :offset ? OffsetWeights(v) : v
+    lamc = Elev == 0 ? λ : shift(λ, Elev)
+    factors = layout === :two ? Any[pw(h), shift(ma, X - h)] : Any[pw(frac(680)), pw(frac(680)), shift(ma, frac(680))]
+    chain(f) = foldl((g, a) -> Scaled(g, a), factors; init = f)
+    inner = F(lamc, wrapw(chain_w))
+    (chain(inner), chain(Translate(F(lamc, wrapw(chain_w)), zeros(BigFloat, n))),
+     chain(SeparableSum(F(lamc, wrapw(chain_w)), F(lamc, wrapw(copy(chain_w))))), F(λ, wrapw(leaf_w)), chain_w)
+  end
+  saved = copy(chain_w)
+  γ = shift(gm, gs)
+  γv = BigFloat[iszero(g) ? g : shift(g, gs) for g in gmv]
+  leafw = BigFloat[iszero(mws[i]) ? mws[i] : shift(mws[i], ds[i]) for i in 1:n]
+  Ts = BigFloat[leaf_threshold(ma, gm, λ, leafw[i], p, dir) for i in 1:n]
+  Tv = BigFloat[leaf_threshold(ma, gmv[i], λ, leafw[i], p, dir) for i in 1:n]
+  xb = any(!iszero, Ts) ? maximum(Ts) : one(BigFloat)
+  fail(msg) = push!(fails, "$name: $msg: p = $p, mode = $mode, wkind = $wkind, layout = $layout")
+  chk(label, got, want) = (got isa Exception || !equal_vec(got, want)) && fail("$label: got $got, expected $want")
+  same_vec(a, b) = length(a) == length(b) && all(x == y for (x, y) in zip(a, b))
+  equal_vec(a, b) = a isa Tuple ? all(equal_vec(x, y) for (x, y) in zip(a, b)) : a isa AbstractArray ? same_vec(a, b) : a == b
+  tryit(f) = try f() catch err; err end
+  for k in 0:2, negative in (false, true)
+    negative && k != 1 && continue
+    pts = [entry_point(F, Ts[i], xb, k, negative) for i in 1:n]
+    ptv = [entry_point(F, Tv[i], xb, k, negative) for i in 1:n]
+    x, y = BigFloat[q[1] for q in pts], BigFloat[q[2] for q in pts]
+    xv, yv = BigFloat[q[1] for q in ptv], BigFloat[q[2] for q in ptv]
+    if wkind === :offset
+      for i in 1:n
+        chk("prox_entry $(i - 1)", tryit(() -> prox_entry(s, x[i], i - 1, γ)), y[i])
+        chk("array-step prox_entry $(i - 1)", tryit(() -> prox_entry(s, xv[i], i - 1, γv[i])), yv[i])
+      end
+      continue
+    end
+    chk("prox", tryit(() -> prox(s, x, γ)), y)
+    chk("prox!", tryit(() -> (z = similar(x); prox!(z, s, x, γ); z)), y)
+    chk("alias prox!", tryit(() -> (z = copy(x); prox!(z, s, z, γ); z)), y)
+    chk("array-step prox, one step", tryit(() -> prox(s, x, fill(γ, n))), y)
+    chk("array-step prox", tryit(() -> prox(s, xv, γv)), yv)
+    chk("array-step alias prox!", tryit(() -> (z = copy(xv); prox!(z, s, z, γv); z)), yv)
+    for (label, step, xx, yy) in (("value_and_prox!", γ, x, y), ("array-step value_and_prox!", γv, xv, yv),
+                                  ("array-step value_and_prox!, one step", fill(γ, n), x, y))
+      r = tryit(() -> (z = similar(xx); v = value_and_prox!(z, s, xx, step); (z, v, s(z))))
+      r isa Exception && (fail("$label: $r"); continue)
+      chk(label * " output", r[1], yy)
+      values && r[2] != r[3] && fail("$label value at the stored output: got $(r[2]), the chain gives $(r[3])")
+    end
+    if entries
+      for i in 1:n
+        chk("prox_entry $i", tryit(() -> prox_entry(s, x[i], i, γ)), y[i])
+        chk("array-step prox_entry $i", tryit(() -> prox_entry(s, xv[i], i, γv[i])), yv[i])
+        chk("prox_coordinate! (SparseIterate) $i", tryit(() -> (z = SparseIterate(BigFloat, n); z[i] = x[i]; prox_coordinate!(z, s, i, γ))), y[i])
+        chk("prox_coordinate! (AtomIterate) $i", tryit(() -> (z = AtomIterate(BigFloat, n, n); only(collect(prox_coordinate!(z, s, i, [x[i]], γ))))), y[i])
+      end
+    end
+    if wkind === :plain
+      chk("Translate prox", tryit(() -> prox(st, x, γ)), y)
+      chk("Translate array-step prox", tryit(() -> prox(st, xv, γv)), yv)
+      for (label, step, xx, yy) in (("Translate value_and_prox!", γ, x, y), ("Translate array-step value_and_prox!", γv, xv, yv))
+        r = tryit(() -> (z = similar(xx); v = value_and_prox!(z, st, xx, step); (z, v, st(z))))
+        r isa Exception && (fail("$label: $r"); continue)
+        chk(label * " output", r[1], yy)
+        values && r[2] != r[3] && fail("$label value at the stored output: got $(r[2]), the chain gives $(r[3])")
+      end
+      r = tryit(() -> prox(ss, (x, copy(x)), γ))
+      chk("SeparableSum prox", r isa Exception ? r : (r[1], r[2]), (y, y))
+      r = tryit(() -> (z = (similar(x), similar(x)); v = value_and_prox!(z, ss, (x, copy(x)), γ); (z, v, ss(z))))
+      if r isa Exception
+        fail("SeparableSum value_and_prox!: $r")
+      else
+        chk("SeparableSum value_and_prox! output", (r[1][1], r[1][2]), (y, y))
+        values && r[2] != r[3] && fail("SeparableSum value at the stored output: got $(r[2]), the chain gives $(r[3])")
+      end
+      # the unfolded leaf, with the step formed as the chain forms it, and the chain in range
+      chk("unfolded leaf", tryit(() -> prox(leaf, x, ma * gm)), y)
+      chk("in-range chain", tryit(() -> prox(Scaled(leaf, ma), x, gm)), y)
+    end
+  end
+  chk("the weights are not modified", chain_w, saved)
+  fails
+end
+
+@testset "the step-aware fold against the thresholds of the leaf" begin
+  fails = String[]
+  # (under RoundDown and RoundToZero an overflow is the largest number and not infinity, so that a step that leaves the range
+  # is taken for a normal number before any fold is tried: those modes are left out of the public tests, and the fold itself
+  # is checked against its oracle in all five)
+  public_modes = ((RoundNearest, :nearest), (RoundUp, :up), (RoundFromZero, :up))
+  ds = [8, 6, 7]
+  for p in (2, 3, 53), (mode, dir) in public_modes
+    mode === RoundFromZero && p != 2 && continue      # (the direction is that of RoundUp)
+    setprecision(BigFloat, p) do
+      mwsA = BigFloat[bfh(11, max(p - 1, 2)), bfh(10, p), bfh(11, max(p - 1, 2))]
+      mwsB = BigFloat[bfw(0.75, p + 11), bfh(9, p + 11), zero(BigFloat)]
+      mas = BigFloat[bfh(11, p), bfh(9, p + 11)]                      # the scale significand: p bits, and stored wider
+      gm = bfh(9, p)                                                   # not a power of two
+      gmv = BigFloat[bfh(11, p), zero(BigFloat), bfh(10, max(p - 1, 2))]
+      λs = Any[5, 1 / 3, big(125), bfh(11, max(p - 1, 2)), bfh(10, p), bfh(9, p + 11), bfw(0.75, p + 11)]
+      setrounding(BigFloat, mode) do
+        for F in (NormL1, NormL1Nonneg)
+          for (j, λ) in enumerate(λs)
+            ma = mas[mod1(j, 2)]
+            wkinds = λ isa BigFloat && j == 5 ? (:plain, :reversed, :offset) : (:plain,)
+            for wkind in wkinds
+              step_case!(fails, F, λ, mwsA, ds, ma, gm, gmv, :two, "$(nameof(F)) level $(typeof(λ)) $j"; wkind, entries = j >= 4)
+            end
+          end
+          step_case!(fails, F, bfh(10, p), mwsB, ds, mas[2], gm, gmv, :two, "$(nameof(F)) wider weights")
+          # three factors beyond Int64 at the default range, the level, the weights and the step bring the product back
+          for ma in mas
+            step_case!(fails, F, bfh(10, p), mwsA, ds, ma, gm, gmv, :three, "$(nameof(F)) three factors"; values = mode === RoundNearest, entries = false)
+          end
+        end
+      end
+    end
+  end
+  isempty(fails) || foreach(m -> @info("step case mismatch", m), first(fails, 8))
+  @test isempty(fails)
+  @test rounding(BigFloat) == RoundNearest
+end
+
+@testset "named cases of the step-aware fold" begin
+  E = EMAX
+  sh(x, k) = Base.ldexp(x, Clong(k))
+  e = E ÷ 2
+  for F in (NormL1, NormL1Nonneg)
+    nm = string(nameof(F))
+    # a step that is not a power of two: the leaf forms round(round(0.375 0.625) 80) = 20, so the point 20 gives 0
+    with_precisions("a step that is not a power of two"; precisions = (3,)) do
+      a = sh(one(BigFloat), e); b = sh(big(0.5), E + 5 - e); w = sh(big(0.625), 2 - E)
+      s = Scaled(Scaled(F(big(0.625), [w]), a), b)
+      leaf = F(big(0.625), BigFloat[80])
+      @test prox(leaf, BigFloat[20], big(0.375)) == [0]
+      @test prox(s, BigFloat[20], big(0.75)) == [0]
+      @test prox(s, BigFloat[20], BigFloat[0.75]) == [0]
+      @test prox_entry(s, big(20), 1, big(0.75)) == 0
+      @test prox_coordinate!(let z = SparseIterate(BigFloat, 1); z[1] = big(20); z end, s, 1, big(0.75)) == 0
+      @test only(collect(prox_coordinate!(AtomIterate(BigFloat, 1, 1), s, 1, BigFloat[20], big(0.75)))) == 0
+      # one place above the threshold, and well above it
+      @test prox(s, BigFloat[24], big(0.75)) == prox(leaf, BigFloat[24], big(0.375))
+      @test prox(s, BigFloat[80], big(0.75)) == prox(leaf, BigFloat[80], big(0.375))
+    end
+
+    # a translation of zero around the norm: the value at the stored output is the chain's
+    with_precisions("a translation"; precisions = (3,)) do
+      a = sh(one(BigFloat), e); b = sh(big(0.625), E + 5 - e); w = sh(big(0.75), 2 - E)
+      s = Scaled(Scaled(Translate(F(big(0.625), [w]), BigFloat[0]), a), b)
+      y = zeros(BigFloat, 1)
+      v = value_and_prox!(y, s, BigFloat[128], BigFloat[1])
+      @test y == [96]
+      @test isequal(v, s(y)) && s(y) == 4096
+      y1 = zeros(BigFloat, 1)
+      v1 = value_and_prox!(y1, s, BigFloat[128], big(1))
+      @test y1 == [96] && isequal(v1, s(y1))
+    end
+
+    # a weight vector with zero-based indices keeps its indices
+    with_precisions("a zero-based weight vector"; precisions = (53,)) do
+      w = OffsetWeights(BigFloat[sh(one(BigFloat), 3 - E), sh(one(BigFloat), 1 - E)])
+      s = Scaled(Scaled(F(big(1), w), sh(one(BigFloat), e)), sh(one(BigFloat), E + 5 - e))
+      leaf = F(big(1), OffsetWeights(BigFloat[256, 64]))
+      for (i, x) in ((0, big(128)), (0, big(512)), (1, big(32)), (1, big(128)))
+        @test prox_entry(s, x, i, one(BigFloat)) == prox_entry(leaf, x, i, one(BigFloat))
+      end
+      @test prox_entry(s, big(128), 0, one(BigFloat)) == 0
+      f = PB._fold_weights(F(big(1), w), PB._ProjectionScale(big(0.5), E + 6))
+      @test f isa F && axes(f.w) == axes(w)
+    end
+
+    # a finite weight that converts to infinity, or to zero, in a smaller range of exponents
+    R = 127
+    oe, on = Base.MPFR.get_emax(), Base.MPFR.get_emin()
+    try
+      Base.MPFR.set_emax!(R); Base.MPFR.set_emin!(-R)
+      setprecision(BigFloat, 53) do
+        f1 = Base.ldexp(one(BigFloat), Clong(-fld(3R, 4)))
+        for w in (BigInt(1) << 130, 2.0^200)   # converts to Inf
+          s = Scaled(Scaled(F(big(1), [w]), f1), f1)
+          @test prox(s, BigFloat[1], one(BigFloat)) == [0]
+          @test prox(F(big(1), [w]), BigFloat[1], one(BigFloat)) == [0]
+        end
+        for w in (2.0^-200,)                    # converts to zero
+          s = Scaled(Scaled(F(big(1), [w]), f1), f1)
+          @test prox(s, BigFloat[1], one(BigFloat)) == prox(F(big(1), [w]), BigFloat[1], one(BigFloat))
+        end
+      end
+    finally
+      Base.MPFR.set_emax!(oe); Base.MPFR.set_emin!(on)
+    end
+    @test Base.MPFR.get_emax() == oe && Base.MPFR.get_emin() == on
+  end
+
+  # a step stored wider than the call forms the same product in a chain that the fold takes and in one that is in range
+  for F in (NormL1, NormL1Nonneg), p in (2, 3, 5, 53)
+    setprecision(BigFloat, p) do
+      ma, gm = bfh(11, p), bfh(9, p + 11)
+      mw = BigFloat[bfh(10, p), bfh(11, p)]
+      leaf = F(bfh(9, p), BigFloat[shift(mw[1], 8), shift(mw[2], 6)])
+      s = Scaled(Scaled(F(bfh(9, p), BigFloat[shift(mw[1], 8 - EMAX - 6), shift(mw[2], 6 - EMAX - 6)]), pw(EMAX ÷ 2)), shift(ma, EMAX + 5 - EMAX ÷ 2))
+      step = shift(gm, 1)
+      T = ((ma * gm) * bfh(9, p)) * leaf.w
+      for x in (T, 2T, nextfloat.(T))
+        @test prox(s, x, step) == prox(Scaled(leaf, ma), x, gm)
+        @test prox(s, x, fill(step, 2)) == prox(Scaled(leaf, ma), x, gm)
+      end
+    end
+  end
+end
+
 @testset "the earlier counterexamples" begin
   with_precisions("a level that rounds at the precision of the call"; precisions = (2,)) do
     # the level 5 is the model's 4 at two bits, and the same fold results for the level 4
@@ -1362,7 +1514,7 @@ end
   @testset "the Float64 and Float32 paths have no weight fold" begin
     folds = methods(PB._fold_weights)
     @test !isempty(folds)
-    @test all(m -> m.sig <: Tuple{Any, Union{NormL1, NormL1Nonneg}, PB._ProjectionScale{BigFloat}}, folds)
+    @test all(m -> m.sig <: Tuple{Any, Union{NormL1, NormL1Nonneg}, Union{PB._ProjectionScale{BigFloat}, PB._StepScale}}, folds)
     for T in (Float32, Float64)
       @test !hasmethod(PB._fold_weights, Tuple{NormL1{T, Vector{T}}, PB._ProjectionScale{T, Int}})
       α = PB._NormalScale(PB._ProjectionScale(T(0.75), T === Float64 ? 5000 : 500))

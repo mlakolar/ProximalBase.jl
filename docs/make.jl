@@ -47,6 +47,12 @@ for file in ITERATE_CONTRACTS
     write(joinpath(CONTRACT_TARGET, file), source)
 end
 
+# Publish the source-level inventory beside the contracts. It is an audit,
+# not a normative contract, and keeps its authoritative source in docs/audit/.
+const AUDIT_SOURCE = joinpath(@__DIR__, "audit", "sparse-iterate-06-method-inventory.md")
+const AUDIT_TARGET = joinpath(@__DIR__, "src", "developer", "sparse-iterate-method-inventory.md")
+write(AUDIT_TARGET, read(AUDIT_SOURCE, String))
+
 makedocs(
     sitename = "ProximalBase.jl",
     authors = "Mladen Kolar",
@@ -78,6 +84,7 @@ makedocs(
         "Developer documentation" => [
             "Overview and contract index" => "developer/index.md",
             "Coordinate views and aliasing" => "developer/coordinate_views.md",
+            "SparseIterate method inventory" => "developer/sparse-iterate-method-inventory.md",
             "Iterate-family 0.6 contract" => "developer/contracts/iterate-family-0.6.md",
             "Iterate-family acceptance" => "developer/contracts/iterate-family-0.6-acceptance.md",
             "Symmetric owner 0.6 contract" => "developer/contracts/symmetric-sparse-iterate-0.6.md",

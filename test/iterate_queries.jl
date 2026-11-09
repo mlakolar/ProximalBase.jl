@@ -45,6 +45,8 @@ end
       x[2] = -3
       activate!(x, 4)
       reference = sparsevec([6, 2, 4], T[4, -3, 0], 7)
+      @test !issparse(x)
+      @test all(f -> !applicable(f, x), (nnz, nonzeros, findnz))
       @test _sorted_stored(x) == findnz(reference)
       @test length(last(_sorted_stored(x))) == nactive(x) == 3
       @test eltype(last(_sorted_stored(x))) === T
@@ -65,6 +67,8 @@ end
       x[2, 1] = -3
       activate!(x, 7)
       reference = sparse([3, 2, 1], [4, 1, 3], T[4, -3, 0], 3, 4)
+      @test !issparse(x)
+      @test all(f -> !applicable(f, x), (nnz, nonzeros, findnz))
       @test _sorted_stored(x) == findnz(reference)
       @test length(last(_sorted_stored(x))) == nactive(x) == 3
       @test eltype(last(_sorted_stored(x))) === T

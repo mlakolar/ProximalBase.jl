@@ -206,8 +206,8 @@ end
       coef_matrix_sparse = SparseIterate(Tx, p, 4)
       coef_matrix_sparse[p, 4] = one(Tx)
       coef_matrix = SparseIterate(Tx.(sprandn(p, 4, 0.3)))
-      @test 32 * nnz(coef_matrix_sparse) <= length(coef_matrix_sparse)
-      @test 32 * nnz(coef_matrix) > length(coef_matrix)
+      @test 32 * nactive(coef_matrix_sparse) <= length(coef_matrix_sparse)
+      @test 32 * nactive(coef_matrix) > length(coef_matrix)
       coef_matrices = (coef_matrix_sparse, coef_matrix)
       atom_coefs = (AtomIterate(Tx.(Array(xs)), groups),
                     AtomIterate(Tx.(Array(xs)), [collect(k:4:p) for k in 1:4]))

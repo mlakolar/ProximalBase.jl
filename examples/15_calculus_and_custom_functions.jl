@@ -96,7 +96,7 @@ xs = SparseIterate(5)
 xs[2] = 1.5
 @assert prox_coordinate!(xs, hp, 2, γ) ≈ prox_entry(hp, 1.5, 2, γ)
 prox_coordinate!(xs, hp, 4, γ)                        # a zero stays zero, and unstored
-@assert nnz(xs) == 1
+@assert nactive(xs) == 1
 
 # and in a proximal gradient method: least squares with the Huber penalty, a
 # smooth problem whose solution has ∇f(β) + λ h_δ'(β) = 0

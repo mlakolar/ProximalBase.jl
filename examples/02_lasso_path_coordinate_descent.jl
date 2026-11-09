@@ -60,7 +60,7 @@ for λ in λs
     solve!(β, r, X, a, NormL1(λ))
     push!(path, Vector(β))
     println("λ = ", rpad(round(λ, digits = 2), 8), " nonzeros ", rpad(count(!iszero, β), 4),
-            " stored ", nnz(β))
+            " stored ", nactive(β))
 end
 
 # the optimality conditions at every λ of the path
@@ -72,4 +72,4 @@ for (λ, βλ) in zip(λs, path)
 end
 @assert iszero(path[1])                                 # λmax gives β = 0
 @assert Set(findall(!iszero, path[12])) == Set([5, 50, 120, 200, 260])
-@assert nnz(β) < p                                      # most coordinates were never stored
+@assert nactive(β) < p                                      # most coordinates were never stored

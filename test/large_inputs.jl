@@ -188,7 +188,7 @@ Base.getindex(a::CountedArray, i::Int) = (a.reads += 1; a.data[i])
             xs = SparseIterate(x)
             xs[2] = one(T)
             xs[2] = zero(T)
-            @test nnz(xs) == 3
+            @test nactive(xs) == 3
             xa = AtomIterate(x, [1:2, 3:4])
             X = reshape(x, 2, 2)
             Xm = SparseIterate(Matrix(X))

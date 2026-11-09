@@ -1,6 +1,6 @@
 # SparseIterate: storage, access, and working-set interface
 
-This page describes **only the `SparseIterate` data structure**: what a solver can do with it, the meaning of active coordinates, and the cost of each operation. It does not define a function's value, gradient, proximal operator, restriction, or KKT screen. Those belong to [the function interface](@ref) and [coordinate descent](@ref).
+This page describes **only the `SparseIterate` data structure**: what a solver can do with it, the meaning of active coordinates, and the cost of each operation. It does not define a function's value, gradient, proximal operator, restriction, or KKT screen. Those belong to [the function interface](interface.md) and [coordinate descent](coordinate_descent.md).
 
 ## Purpose and representation
 
@@ -122,7 +122,7 @@ Value writes through `coordinates(x)`, views, `vec` and `reshape` follow ordinar
 
 ProximalBase implements selected sparse-aware methods for `SparseIterate`, including `dot`, `mul!`, `A*x`, and matrix bilinear/three-factor products in their documented dispatch domains. Those methods walk active entries and skip mathematically zero coefficients. For a vector `x` with `s` active entries, supported `dot(v,x)` is `O(s)`, and `mul!(out,A,x)` is approximately `O(size(A,1) * s)`.
 
-A matrix `SparseIterate` has selected kernels with stored-entry or column-wise traversal; a three-factor `A * X * B` fast path has a more restrictive supported type/domain contract. **Do not assume every generic Julia product is sparse-aware.** For instance, a product through `coordinates(x)` is a product of an ordinary vector view and can traverse all `n` entries. See [the interface](@ref) and [the numerical contract](@ref) for the supported operation-specific rules.
+A matrix `SparseIterate` has selected kernels with stored-entry or column-wise traversal; a three-factor `A * X * B` fast path has a more restrictive supported type/domain contract. **Do not assume every generic Julia product is sparse-aware.** For instance, a product through `coordinates(x)` is a product of an ordinary vector view and can traverse all `n` entries. See [the interface](interface.md) and [the numerical contract](@ref numerics) for the supported operation-specific rules.
 
 ## Implementation and efficiency checklist
 

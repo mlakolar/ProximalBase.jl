@@ -123,6 +123,27 @@ end
   end
 end
 
+@testset "iterate data retain sparse quadratic factorizations" begin
+  for T in (Float32, Float64)
+    Q = T[3 1 0; 1 4 0; 0 0 2]
+    L = T[1 0 0; 0 0 1]
+    y, γ = T[0.4, -0.2], T(0.5)
+    dense = LinearImage(QuadraticFunction(Q), L)
+    expected, expected_value = prox(dense, y, γ), dense(y)
+    for (q, l) in ((SparseIterate(Q), L), (Q, SparseIterate(L)),
+                   (SparseIterate(Q), SparseIterate(L)),
+                   (Symmetric(SparseIterate(Q)), L),
+                   (Hermitian(SparseIterate(Q)), L))
+      g = LinearImage(QuadraticFunction(q), l)
+      @test issparse(g.cache.gram)
+      @test prox(g, y, γ) ≈ expected
+      @test issparse(g.cache.gram)
+      @test g(y) ≈ expected_value
+      @test value_and_prox!(similar(y), g, y, γ) ≈ dense(expected)
+    end
+  end
+end
+
 @testset "numerical positive definiteness" begin
   for T in (Float32, Float64), map in (T[1 0], sparse(T[1 0]))
     # These strictly positive pivots pass the old one-rounding-level cutoff.

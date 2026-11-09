@@ -56,7 +56,7 @@ end
       alias = copy(xs)
       @test value_and_prox!(alias, c, alias, step) ≈ c(expected)
       @test Vector(alias) ≈ expected
-      @test nnz(alias) == nnz(xs)
+      @test nactive(alias) == nactive(xs)
     end
   end
 end

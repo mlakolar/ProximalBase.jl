@@ -1125,7 +1125,9 @@ requirement: (i) amend; all 2026-11-01.
 
 ### FD-10. Counts
 
-*Status: signed off by the maintainer, 2026-11-01.*
+*Status: signed off by the maintainer, 2026-11-01; the SparseArrays-alias
+requirement was superseded by the FC-11 amendment on 2026-11-09. The
+following records the original decision and evidence.*
 
 *Background.* `nnz(x)` counts stored coordinates, explicit zeros included
 (`src/sparse_iterate.jl:223`); `nonzeros` (`:448`) and `findnz` (`:457–471`)

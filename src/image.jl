@@ -120,6 +120,7 @@ end
 
 _image_sparse(A::AbstractMatrix) = issparse(A) ||
   A isa Union{Diagonal, Bidiagonal, Tridiagonal, SymTridiagonal}
+_image_sparse(::SparseIterate{<:Any, 2}) = true
 _image_sparse(A::Union{Symmetric, Hermitian}) = _image_sparse(parent(A))
 
 function _check_image_quadratic(f::QuadraticFunction, L)

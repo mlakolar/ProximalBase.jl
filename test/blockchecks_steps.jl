@@ -699,9 +699,10 @@ end
 #  The functions without a proximal operator are the three that the check lists
 ####################################
 
-# the concrete function types that the package defines, found through the names of its module
+# the concrete function types that the package defines, found through the names of its module; a type whose name
+# starts with an underscore is an internal wrapper (the Float64 recovery of the multiplier of a linear set), not a built-in function
 function concrete_functions()
-  types = Any[getfield(PB, n) for n in names(PB; all = true) if isdefined(PB, n)]
+  types = Any[getfield(PB, n) for n in names(PB; all = true) if isdefined(PB, n) && !startswith(String(n), "_")]
   types = filter(T -> T isa Type && Base.unwrap_unionall(T) isa DataType && !isabstracttype(T) &&
                       T <: AbstractFunction && Base.unwrap_unionall(T).name.module === PB, types)
   # an alias such as LogisticLoss names the type of GLMLoss that it stands for

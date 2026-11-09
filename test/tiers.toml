@@ -226,6 +226,8 @@ thorough = [
 full = [
   "allocations",
   "atom_iterate_grids",
+  "block_step_grids",
+  "blockchecks_grids",
   "blockchecks_steps",
   "blockchecks_values",
   "blockchecks_workspace",

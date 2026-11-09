@@ -44,6 +44,11 @@ lower triangle, for a `SymmetricSparseIterate`, and a group for an `AtomIterate`
 
 ## SparseIterate
 
+For the **data-structure interface only** (array behavior, O(1) coordinate access,
+active-entry traversal, copying and costs), see [SparseIterate: storage and working-set interface](sparse_iterate.md).
+The discussion below adds implementation details and connects the iterate to
+other parts of the package.
+
 A [`SparseIterate`](@ref) is a vector or matrix that stores its nonzero
 entries in a list. Three arrays hold them: the values, their indices, and for
 every index the position of its value in the list (zero when it is not stored).

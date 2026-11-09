@@ -85,7 +85,7 @@ Internal implementations serving this group: `_getstored` (325), `_setstored!` (
 
 **Inherited, not explicitly defined here:** `copy(x)` (Base uses `similar` and `copyto!`); generic indexing through views/ranges/Cartesian indices, `eachindex`, `axes`, `iterate`, `vec`, `reshape`, `map!`, and reductions. Their existence should not be misreported as dedicated SparseIterate specializations. In particular, `Base.unaliascopy(x::SparseIterate)` is **not** explicitly defined, whereas `Base.unaliascopy(c::SparseCoordinates)` **is**.
 
-## D. SparseArrays names: REMOVE ONLY AFTER CONTRACT AND CALL-SITE MIGRATION
+## D. SparseArrays names: removal decision and migration
 
 | Exact method | Where | Assessment |
 |:--|:--|:--|
@@ -96,7 +96,7 @@ Internal implementations serving this group: `_getstored` (325), `_setstored!` (
 | `SparseArrays.findnz(x::SparseIterate{2})` | 552–560 | Sorted row/column/value export |
 | `SparseArrays.dropzeros!(x::SparseIterate)` | 381 | **KEEP**: core active-set compaction, despite namespace |
 
-The signed-off contract `docs/design/iterate-family-0.6.md` **FC-11 explicitly requires** `nnz`, `nonzeros`, `findnz`. Their removal needs an approved contract revision; `issparse` is implemented but not named in FC-11. The other methods' presence or absence should not be inferred from `issparse` alone.
+**Amended policy (2026-11-09):** FC-11 now excludes these four methods from `SparseIterate`; `dropzeros!` remains essential. The table above records historical definitions found on `master` before the removal, rather than prescribing future methods. The other methods' presence or absence should not be inferred from `issparse` alone.
 
 Source-site evidence: `src/sparse_iterate.jl` uses `nnz` in dense exports and matrix kernels; `src/functions/smooth.jl` uses it in a `KronQuadratic` densification path; `src/deprecated.jl` uses it in deprecated products. `nonzeros` on standard `SparseMatrixCSC` appears in several files and **must not be removed** when migrating SparseIterate-only uses.
 
@@ -160,7 +160,7 @@ This list should be checked against every Julia source file when doing a behavio
 4. **#644 closed:** the all-zero `dropzeros!` fast path is implemented; do not label it outstanding.
 5. **#797 open, deferred:** orthogonal-factor copy performance investigation; correctness path exists.
 6. **#341 open:** separate function-oracle sparse-value optimization, not a missing iterate API.
-7. **Four SparseArrays methods:** search downstream and third-party uses plus tests, amend FC-11, migrate production `nnz` sites, remove four methods in a separate PR, ensure `dropzeros!` stays.
+7. **Four SparseArrays methods:** the maintainer approved removal and FC-11 was amended. Migrate production/test/doc call sites; preserve standard sparse-matrix methods and `dropzeros!`. Validate downstream.
 8. **Wrapper policy:** retain `coordinates(x)` for common symmetric/non-symmetric coordinate-descent code; benchmark `x[k]` against `coordinates(x)[k]`. Do not infer a performance regression from wrapper existence.
 9. **Run before merge:** Julia-version method-table probes (`methodswith(SparseIterate)`, `methodswith(SparseCoordinates)`, `@which` for inherited/ambiguous dispatch), conformance tests, Linux test:thorough, downstream ProximalSolvers smoke and representative Float32/Float64 benchmark cases.
 

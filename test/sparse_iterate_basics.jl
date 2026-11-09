@@ -82,11 +82,7 @@ end
 
 @testset "sparseIterate" begin
 
-    @testset "issparse" begin
-
-    end
-
-    @testset "dropzeros and nnz" begin
+    @testset "dropzeros and active counts" begin
         x = SparseIterate(3)
         x[3] = 2.
         x[1] = 1.

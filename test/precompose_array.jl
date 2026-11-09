@@ -171,7 +171,7 @@ end
   xs, ys = SparseIterate(x), SparseIterate(zeros(6))
   prox!(ys, h, xs, 0.2)
   @test h.image.buf === nothing             # no dense image on the sparse proximal path
-  @test nnz(ys) == nnz(xs)
+  @test nactive(ys) == nactive(xs)
   @test allocs(prox!, ys, h, xs, 0.2) == 0
   @test allocs(prox_coordinate!, xs, h, 2, 0.2) == 0
 

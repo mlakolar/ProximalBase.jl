@@ -76,7 +76,7 @@ end
 function _vec_to_matrix(X::SparseIterate{T, 1}, m::Integer, n::Integer) where {T}
   length(X) == m * n || throw(DimensionMismatch())
   M = SparseIterate(T, m, n)
-  for k in 1:nnz(X)
+  for k in 1:nactive(X)
     M[X.nzval2ind[k]] = X.nzval[k]
   end
   M
@@ -89,7 +89,7 @@ function A_mul_X_mul_B_rc(A::Symmetric, X::SparseIterate{T, 1}, B::Symmetric, r:
   Base.depwarn("`A_mul_X_mul_B_rc` is deprecated: use `dot(view(A, :, r), X, view(B, :, c))` with `X` a SparseIterate matrix.", :A_mul_X_mul_B_rc)
   m = size(A, 2)
   v = zero(promote_type(eltype(A), T, eltype(B)))
-  for k in 1:nnz(X)
+  for k in 1:nactive(X)
     i = X.nzval2ind[k]
     v += A[mod1(i, m), r] * B[cld(i, m), c] * X.nzval[k]
   end

@@ -76,27 +76,21 @@ function check_product_state(x, before)
     @nospecialize x before
     @test Array(x) == Array(before)
     @test activecoordinates(x) == activecoordinates(before)
-    @test x.nzval[1:nnz(x)] == before.nzval[1:nnz(before)]
+    @test x.nzval[1:nactive(x)] == before.nzval[1:nactive(before)]
     @test x.ind2nzval == before.ind2nzval
 end
 
 @testset "sparseIterate" begin
 
-    @testset "issparse" begin
-        @test issparse(SparseIterate(sparse(fill(1,5,5))))
-        @test issparse(SparseIterate(fill(1,5,5)))
-        @test issparse(SparseIterate(fill(1,5)))
-    end
-
-    @testset "dropzeros and nnz" begin
+    @testset "dropzeros and active counts" begin
         x = SparseIterate(3)
         x[3] = 2.
         x[1] = 1.
-        @test nnz(x) == 2
+        @test nactive(x) == 2
         x[1] = 0.
-        @test nnz(x) == 2
+        @test nactive(x) == 2
         dropzeros!(x)
-        @test nnz(x) == 1
+        @test nactive(x) == 1
         @test Vector(x) == [0., 0., 2.]
 
         x = SparseIterate(3)
@@ -104,9 +98,9 @@ end
         x[1] = 1.
         x[3] = 0.
         x[1] = 0.
-        @test nnz(x) == 2
+        @test nactive(x) == 2
         dropzeros!(x)
-        @test nnz(x) == 0
+        @test nactive(x) == 0
         @test Vector(x) == [0., 0., 0.]
     end
 
@@ -114,33 +108,33 @@ end
         x = SparseIterate(5)
         x[2] = 1.
         x[4] = 0.                       # assigning a zero does not store the entry
-        @test nnz(x) == 1
+        @test nactive(x) == 1
         @test activate!(x, 4) === x
-        @test nnz(x) == 2
+        @test nactive(x) == 2
         @test x[4] == 0.
-        @test x.nzval2ind[1:nnz(x)] == [2, 4]
-        @test x.nzval[1:nnz(x)] == [1., 0.]
+        @test x.nzval2ind[1:nactive(x)] == [2, 4]
+        @test x.nzval[1:nactive(x)] == [1., 0.]
 
         # activating a stored entry changes nothing
         activate!(x, 2)
         activate!(x, 4)
-        @test nnz(x) == 2
+        @test nactive(x) == 2
         @test Vector(x) == [0., 1., 0., 0., 0.]
 
         # the activated entry is written in place, and dropzeros! removes it while zero
         x[4] = 3.
-        @test nnz(x) == 2
+        @test nactive(x) == 2
         @test Vector(x) == [0., 1., 0., 3., 0.]
         x[4] = 0.
         dropzeros!(x)
-        @test nnz(x) == 1
-        @test x.nzval2ind[1:nnz(x)] == [2]
+        @test nactive(x) == 1
+        @test x.nzval2ind[1:nactive(x)] == [2]
 
         @test_throws BoundsError activate!(x, 6)
 
         y = SparseIterate(Float32, 2, 3)
         activate!(y, 5)
-        @test nnz(y) == 1
+        @test nactive(y) == 1
         @test y[1, 3] === 0f0
     end
 
@@ -171,7 +165,7 @@ end
         @test Vector(x) == [1., 2., 0.]
         x[1] = 0                        # a stored entry stays stored
         x[3] = 0                        # a zero is not stored
-        @test nnz(x) == 2
+        @test nactive(x) == 2
         @test_throws InexactError (SparseIterate(Int, 2)[1] = 0.5)
         @test_throws BoundsError (x[4] = 1.)
 
@@ -186,12 +180,11 @@ end
         @test norm(x, 1) == 7. && norm(x, Inf) == 4. && norm(x, 0) == 2.
         @test norm(x, -Inf) == 0.                     # the entries that are not stored count
         @test fill!(x, 0) === x
-        @test nnz(x) == 2 && activecoordinates(x) == [2, 4] && Vector(x) == zeros(4)   # a value write
-        @test nnz(dropzeros!(x)) == 0
+        @test nactive(x) == 2 && activecoordinates(x) == [2, 4] && Vector(x) == zeros(4)   # a value write
+        @test nactive(dropzeros!(x)) == 0
         fill!(x, 2.)
         @test Vector(x) == fill(2., 4)
     end
-
 
     @testset "copy" begin
         v = sprand(20, 0.4)
@@ -214,14 +207,14 @@ end
             x, y = SparseIterate(v), SparseIterate(w)
             @test copyto!(x, y) === x
             @test Vector(x) == Vector(w)
-            @test nnz(x) == nnz(y)
+            @test nactive(x) == nactive(y)
             @test Vector(copyto!(x, x)) == Vector(w)
 
             # entries set afterwards are stored correctly
             i = findfirst(iszero, Vector(w))
             x[i] = 7.
             @test x[i] == 7.
-            @test nnz(x) == nnz(y) + 1
+            @test nactive(x) == nactive(y) + 1
             @test Vector(y) == Vector(w)
         end
         @test_throws DimensionMismatch copyto!(SparseIterate(3), SparseIterate(4))
@@ -285,8 +278,8 @@ end
         X_sparse = SparseIterate(3, 32)
         X_sparse[2, 1], X_sparse[3, 2] = 2., -1.
         activate!(X_sparse, 1)
-        @test 32 * nnz(X_sparse) == length(X_sparse)
-        @test 32 * nnz(X) > length(X)
+        @test 32 * nactive(X_sparse) == length(X_sparse)
+        @test 32 * nactive(X) > length(X)
         for (M, coef) in ((A, x), (A, X_sparse), (A, X), (transpose(B), x), (adjoint(B), x))
             before = copy(coef)
             dims = ndims(coef) == 1 ? (2,) : (2, size(coef, 2))
@@ -453,7 +446,7 @@ end
         end
         # a stored zero stays stored, and a SparseIterate is scaled in O(nnz)
         x = SparseIterate(sparse([1., 0., 2.]))
-        @test rmul!(x, 3.) === x && Vector(x) == [3., 0., 6.] && nnz(x) == 2
+        @test rmul!(x, 3.) === x && Vector(x) == [3., 0., 6.] && nactive(x) == 2
         @test Vector(ldiv!(3., x)) == [1., 0., 2.]
     end
 
@@ -624,7 +617,6 @@ end
     end
 end
 
-
 @testset "sparse triple products agree with dense products" begin
     rng = Xoshiro(20261025)
     for T in (Float64,)   # Float32 is in sparse_iterate_basics_grids.jl
@@ -734,9 +726,9 @@ function dropzeros_row(x::SparseIterate{T}, order, vals; tail=nothing) where {T}
     nz = x.nnz
     ev, ec = oracle_dropzeros(x.nzval[1:nz], x.nzval2ind[1:nz])
     @test dropzeros!(x) === x
-    @test nnz(x) == length(ev)
+    @test nactive(x) == length(ev)
     @test activecoordinates(x) == ec
-    @test isequal(x.nzval[1:nnz(x)], ev)
+    @test isequal(x.nzval[1:nactive(x)], ev)
     @test all(isactive(x, i) == (i in ec) for i = 1:length(x.ind2nzval))
     # nonzero entries are unchanged
     for (i, v) in zip(order, vals)
@@ -754,13 +746,13 @@ end
             # all zero, including -0: emptied, entries unchanged
             x = SparseIterate(T, 5)
             dropzeros_row(x, [3, 1, 4], T[0, -0.0, 0])
-            @test nnz(x) == 0
+            @test nactive(x) == 0
             @test dropzeros!(x) === x
             y = SparseIterate(T, 5)
             for (i, v) in zip([3, 1, 4], T[0, -0.0, 0]); activate!(y, i); y.nzval[y.ind2nzval[i]] = v; end
             slot = y.ind2nzval[1]
             dropzeros!(y)
-            @test nnz(y) == 0 && signbit(y.nzval[slot]) && y.nzval[slot] == 0
+            @test nactive(y) == 0 && signbit(y.nzval[slot]) && y.nzval[slot] == 0
             @test iszero(y.ind2nzval)
             # a fresh activation after the clear
             activate!(y, 2); y[2] = T(7)
@@ -777,7 +769,7 @@ end
             @test sort(activecoordinates(x)) == [1, 3, 4, 5, 6]
             x = SparseIterate(T, 5)
             dropzeros_row(x, [3, 1, 4], T[NaN, 0, 0])
-            @test 3 in activecoordinates(x) && nnz(x) == 1
+            @test 3 in activecoordinates(x) && nactive(x) == 1
             # the only nonzero is the last scanned value
             dropzeros_row(SparseIterate(T, 5), [3, 1, 4], T[0, 0, 5])
             # a zero in the first slot, in the middle, and in the last slot (the last row has no surviving last slot)
@@ -803,18 +795,18 @@ end
             dropzeros_row(m, [5, 2, 9, 12], T[0, 1, 0, -0.0])
             m = SparseIterate(T, 3, 4)
             dropzeros_row(m, [5, 2, 9], T[0, -0.0, 0])
-            @test nnz(m) == 0
+            @test nactive(m) == 0
             # dropzeros!(fill!(x, 0)) after an earlier nonzero solve
             x = SparseIterate(T, 6)
             for i in (4, 2, 6); x[i] = T(i); end
             fill!(x, 0)
             @test dropzeros!(x) === x
-            @test nnz(x) == 0 && all(iszero, Vector(x))
+            @test nactive(x) == 0 && all(iszero, Vector(x))
             # stale values past nnz are never read: a stale zero or nonzero tail leaves the result of
             # the working set alone
             x = SparseIterate(T, 6)
             dropzeros_row(x, [2, 5], T[0, 0]; tail=T(9))
-            @test nnz(x) == 0
+            @test nactive(x) == 0
             x = SparseIterate(T, 6)
             dropzeros_row(x, [2, 5], T[0, 4]; tail=T(0))
             @test activecoordinates(x) == [5]
@@ -823,7 +815,7 @@ end
                 x = SparseIterate(T, 4)
                 activate!(x, 3); x.nzval[1] = z
                 @test dropzeros!(x) === x
-                @test nnz(x) == 0 && isempty(activecoordinates(x))
+                @test nactive(x) == 0 && isempty(activecoordinates(x))
             end
             # allocation: warm up on separate fixtures, then the first call on a nonempty working set
             drop_allocs(drop_fixture(T, zeros(T, 5)))

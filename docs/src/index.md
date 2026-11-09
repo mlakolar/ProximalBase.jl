@@ -45,7 +45,9 @@ Next, choose the material that matches your procedure:
 |:-----|:-----|
 | Understand the type hierarchy, traits and who calls whom | [Package structure](@ref architecture) |
 | Derive entry or block updates, or construct an active-set procedure | [Coordinate descent](@ref) |
-| Understand coordinate indexing and sparse storage | [Sparse iterates](@ref) |
+| Understand ordinary sparse-iterate storage | [SparseIterate: storage and working sets](sparse_iterate.md) |
+| Understand independent symmetric coordinates | [SymmetricSparseIterate: coordinate owner](symmetric_sparse_iterate.md) |
+| Review implementation details and the 0.6 contracts | [Developer documentation](developer/index.md) |
 | Derive a proximal step or choose a stopping rule | [The interface](@ref) |
 | Choose a loss, penalty or constraint | [Smooth functions](@ref), [Penalties](@ref), [Sets](@ref) |
 | Combine functions or add one of your own | [Functions built from functions](@ref), [Writing your own function](@ref) |

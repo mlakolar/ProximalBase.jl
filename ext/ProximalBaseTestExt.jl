@@ -352,7 +352,7 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
   end
   @test _dense(xs) ≈ _dense(pz)
   @test _dense(y) ≈ _dense(pz)
-  @test nnz(y) == count(!iszero, y.nzval[1:nnz(y)])
+  @test nactive(y) == count(!iszero, activevalues(y))
   test_iterate(y)
 
   # the stored entries only, when zero is preserved

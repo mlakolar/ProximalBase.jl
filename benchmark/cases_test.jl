@@ -132,9 +132,9 @@ end
             @test S == S2 && order == collect(activecoordinates(x2))
             @test S isa SparseMatrixCSC{T,Int} && size(S) == (1024, 4)
             @test nnz(S) == EXPECTED_NNZ[(4096, d)] && all(!iszero, nonzeros(S))
-            @test Array(x) == Array(S) && nnz(x) == nnz(S)
+            @test Array(x) == Array(S) && nactive(x) == nnz(S)
             # the five-argument product takes the stored-entry path exactly below density 1/32
-            @test (32 * nnz(x) <= length(x)) == (d < 1 / 32)
+            @test (32 * nactive(x) <= length(x)) == (d < 1 / 32)
             @test !issorted(order)                   # stored in random order
             push!(orders, order)
         end

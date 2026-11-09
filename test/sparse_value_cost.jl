@@ -32,7 +32,7 @@ Base.:*(x::C, y::C) = C(x.v * y.v)
 zeros_made(f) = (ZEROS[] = 0; v = f(); (ZEROS[], v))
 
 # the number of stored coordinates, and the matrix an owner represents for the generic controls
-nstored(x) = x isa SymmetricSparseIterate ? nactive(x) : nnz(x)
+nstored(x) = nactive(x)
 as_generic(x) = x isa SymmetricSparseIterate ? matrixview(x) : x
 
 # Values at an owner that are not defined for it (use f(matrixview(X)) or f(Matrix(X))).

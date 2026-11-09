@@ -135,7 +135,7 @@ end
       alias = copy(xs)
       @test value_and_prox!(alias, c, alias, step) ≈ c(expected)
       @test Vector(alias) ≈ expected
-      @test nnz(alias) == nnz(xs)
+      @test nactive(alias) == nactive(xs)
     end
   end
   @test !iszeropreserving(Constrained(Scaled(NormL1(1.), Inf), IndBox(-1., 1.)))

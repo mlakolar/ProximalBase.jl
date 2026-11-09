@@ -1092,7 +1092,7 @@ function product_cases!(cases,rep; quick=false)
             check!()=(mul!(y,A,x);close_enough(y,ref))
             addcase!(cases,"products","symmetric_$triangle",()->mul!(y,A,x),check!;
                      inputs=(; A, x),T,shape=string(p),layout="$(layout)_$density",evals=10,
-                     profile=T==Float64 && p==1024 && density==0.01 && triangle==:U,work=nnz(xs))
+                     profile=T==Float64 && p==1024 && density==0.01 && triangle==:U,work=nactive(xs))
         end
     end
     n = 512
@@ -2448,7 +2448,7 @@ function sparse_matrix_cases!(cases, rep, T, dims, density, label, rows, acache;
         vals50 = vals50_()
         # the matrix mul! walks the stored entries when 32 nnz <= length and the columns otherwise
         function check_walk(Z)
-            (32 * nnz(Z) <= length(Z)) == (density < 0.1) || error("the density $density changed the walk of mul!")
+            (32 * nactive(Z) <= length(Z)) == (density < 0.1) || error("the density $density changed the walk of mul!")
         end
         for mrows in rows
             A = get!(() -> randn(scenario_rng(rep, "sparse/A/$T/$(m)x$(ncol)/$mrows"), T, mrows, m), acache,

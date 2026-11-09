@@ -138,7 +138,7 @@ end
       @test value_and_prox!(zs, f, xs, fill(0.4, 6)) ≈ f(prox(f, x, 0.4))
     end
   end
-  @test nnz(prox(SqrHingeLoss(), SparseIterate(x), 0.4)) == length(x)
+  @test nactive(prox(SqrHingeLoss(), SparseIterate(x), 0.4)) == length(x)
   X = [0. -0.5; -0.5 1.5]
   y, w = [1. -2.; -2. 0.5], [0.7 1.; 1. 2.]
   for f in (SqrHingeLoss(), SqrHingeLoss(y, w))

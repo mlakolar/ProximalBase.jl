@@ -116,7 +116,7 @@ end
 
 # the reference formulas read a matrix: the matrix that an owner represents
 dense(X) = X isa SymmetricSparseIterate ? Matrix(X) : X
-nstored(Z) = Z isa SymmetricSparseIterate ? nactive(Z) : nnz(Z)
+nstored(Z) = Z isa Union{SparseIterate, SymmetricSparseIterate} ? nactive(Z) : nnz(Z)
 
 function logical_inputs(X::Matrix{T}) where {T}
   padded = fill(T(NaN), size(X, 1) + 2, size(X, 2) + 2)

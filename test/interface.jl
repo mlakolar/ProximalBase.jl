@@ -128,9 +128,9 @@ end
   # a coordinate that stays zero is not stored, one that becomes nonzero is
   xs = SparseIterate(5)
   prox_coordinate!(xs, NormL1(1.), 2, 1.)
-  @test nnz(xs) == 0
+  @test nactive(xs) == 0
   prox_coordinate!(xs, IndBox(1, 2), 2, 1.)
-  @test nnz(xs) == 1 && xs[2] == 1.
+  @test nactive(xs) == 1 && xs[2] == 1.
   xa = AtomIterate(4, [1:2, 3:4])
   prox_coordinate!(xa, NormL1(1.), 1, 1.)
   @test nactive(xa) == 0

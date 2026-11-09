@@ -105,7 +105,7 @@ inside another one, can also leave them written.
 ```@example extending
 xs = SparseIterate(3)                          # a coordinate step on a sparse iterate
 xs[2] = 1.0
-prox_coordinate!(xs, f, 2, 0.5), nnz(xs)
+prox_coordinate!(xs, f, 2, 0.5), nactive(xs)
 ```
 
 On a `SymmetricSparseIterate`, the index ``i`` of entry ``(r, c)`` is

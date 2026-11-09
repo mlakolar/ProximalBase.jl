@@ -7,20 +7,34 @@ using LinearAlgebra
 
 const PT = ProximalBase.Testing
 
+# Explicit sorted export used only by these conformance tests. This is deliberately
+# not a public SparseIterate method: solver sweeps use the unsorted active handles.
+function _sorted_stored(x::SparseIterate{T,1}) where T
+    p = sortperm(activecoordinates(x))
+    (collect(activecoordinates(x))[p], collect(activevalues(x))[p])
+end
+function _sorted_stored(x::SparseIterate{T,2}) where T
+    p = sortperm(activecoordinates(x))
+    ids = collect(activecoordinates(x))[p]
+    m = size(x, 1)
+    ([(k - 1) % m + 1 for k in ids], [(k - 1) ÷ m + 1 for k in ids], collect(activevalues(x))[p])
+end
+
+
 function check_query_copies(x)
-  result = findnz(x)
+  result = _sorted_stored(x)
   saved = deepcopy(result)
   x[first(activecoordinates(x))] = 9
   @test result == saved
   entries = Array(x)
   coordinates = copy(activecoordinates(x))
-  values = copy(nonzeros(x))
+  values = copy(activevalues(x))
   for a in result
     fill!(a, zero(eltype(a)))
   end
   @test Array(x) == entries
   @test activecoordinates(x) == coordinates
-  @test nonzeros(x) == values
+  @test activevalues(x) == values
 end
 
 @testset "SparseIterate queries" begin
@@ -31,11 +45,13 @@ end
       x[2] = -3
       activate!(x, 4)
       reference = sparsevec([6, 2, 4], T[4, -3, 0], 7)
-      @test findnz(x) == findnz(reference)
-      @test length(last(findnz(x))) == nnz(x) == 3
-      @test eltype(last(findnz(x))) === T
-      @test collect(zip(activecoordinates(x), nonzeros(x))) == [(6, T(4)), (2, T(-3)), (4, T(0))]
-      values = nonzeros(x)
+      @test !issparse(x)
+      @test all(f -> !applicable(f, x), (nnz, nonzeros, findnz))
+      @test _sorted_stored(x) == findnz(reference)
+      @test length(last(_sorted_stored(x))) == nactive(x) == 3
+      @test eltype(last(_sorted_stored(x))) === T
+      @test collect(zip(activecoordinates(x), activevalues(x))) == [(6, T(4)), (2, T(-3)), (4, T(0))]
+      values = activevalues(x)
       values[2] = 5
       @test x[2] == T(5)
       x[6] = 8
@@ -51,11 +67,13 @@ end
       x[2, 1] = -3
       activate!(x, 7)
       reference = sparse([3, 2, 1], [4, 1, 3], T[4, -3, 0], 3, 4)
-      @test findnz(x) == findnz(reference)
-      @test length(last(findnz(x))) == nnz(x) == 3
-      @test eltype(last(findnz(x))) === T
-      @test collect(zip(activecoordinates(x), nonzeros(x))) == [(12, T(4)), (2, T(-3)), (7, T(0))]
-      values = nonzeros(x)
+      @test !issparse(x)
+      @test all(f -> !applicable(f, x), (nnz, nonzeros, findnz))
+      @test _sorted_stored(x) == findnz(reference)
+      @test length(last(_sorted_stored(x))) == nactive(x) == 3
+      @test eltype(last(_sorted_stored(x))) === T
+      @test collect(zip(activecoordinates(x), activevalues(x))) == [(12, T(4)), (2, T(-3)), (7, T(0))]
+      values = activevalues(x)
       values[2] = 5
       @test x[2, 1] == T(5)
       x[3, 4] = 8
@@ -65,13 +83,13 @@ end
 
     @testset "empty, $dims" for dims in ((0,), (5,), (0, 3), (3, 0), (3, 4))
       x = SparseIterate(T, dims...)
-      result = findnz(x)
+      result = _sorted_stored(x)
       @test length(result) == length(dims) + 1
       @test all(isempty, result)
       @test all(a -> eltype(a) === Int, result[1:end-1])
       @test eltype(last(result)) === T
-      @test isempty(nonzeros(x))
-      @test eltype(nonzeros(x)) === T
+      @test isempty(activevalues(x))
+      @test eltype(activevalues(x)) === T
     end
 
     @testset "after dropzeros!" begin
@@ -80,8 +98,8 @@ end
       activate!(x, 2)
       x[4] = -3
       dropzeros!(x)
-      @test collect(zip(activecoordinates(x), nonzeros(x))) == [(6, T(4)), (4, T(-3))]
-      @test findnz(x) == findnz(sparsevec([6, 4], T[4, -3], 7))
+      @test collect(zip(activecoordinates(x), activevalues(x))) == [(6, T(4)), (4, T(-3))]
+      @test _sorted_stored(x) == findnz(sparsevec([6, 4], T[4, -3], 7))
     end
   end
 end

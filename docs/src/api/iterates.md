@@ -8,13 +8,10 @@ CurrentModule = ProximalBase
 Modules = [ProximalBase]
 Pages = ["sparse_iterate.jl", "atom_iterate.jl", "utils.jl", "lapack.jl", "deprecated.jl"]
 Private = false
-Filter = t -> !(t isa Function && nameof(t) in (:nnz, :nonzeros, :findnz, :dropzeros!, :samegroups))
+Filter = t -> !(t isa Function && nameof(t) in (:dropzeros!, :samegroups))
 ```
 
 ```@docs
-nnz(::SparseIterate)
-nonzeros(::SparseIterate)
-findnz(::SparseIterate{<:Any, 1})
 dropzeros!(::Union{SparseIterate, SymmetricSparseIterate})
 dropzeros!(::AtomIterate)
 ```

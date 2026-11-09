@@ -419,12 +419,12 @@ end
       Ap, Bp = copy(Am), copy(Bm)
       Ap[ignored(Ap)] .= T(NaN); Bp[ignored(Bp)] .= T(Inf)
       A, B = Symmetric(Ap, uplo), Symmetric(Bp, uplo)
-      before = (copy(Ap), copy(Bp), Matrix(X), X.nzval[1:nnz(X)], nnz(X), copy(activecoordinates(X)))
+      before = (copy(Ap), copy(Bp), Matrix(X), X.nzval[1:nactive(X)], nactive(X), copy(activecoordinates(X)))
       C = A * X * B
       @test isequal(C, Cok)
       @test all(isfinite, C)
       @test isequal(before[1], Ap) && isequal(before[2], Bp) && isequal(before[3], Matrix(X)) &&
-            before[4] == X.nzval[1:nnz(X)] && before[5] == nnz(X) && before[6] == activecoordinates(X)
+            before[4] == X.nzval[1:nactive(X)] && before[5] == nactive(X) && before[6] == activecoordinates(X)
       @test C isa Matrix{T}
     end
   end
@@ -492,7 +492,7 @@ end
         A * X * B                         # compiled before measuring
       end
       a1, a2, a0 = measure(A, X1, B), measure(A, X2, B), measure(A, Xe, B)
-      @test nnz(X2) > 10 * nnz(X1)
+      @test nactive(X2) > 10 * nactive(X1)
       @test a1 == a2 == a0
       # the output, two buffers of length m and one of length n, and the array headers
       @test a1 <= sizeof(T) * (m * n + 2m + n) + 1024
@@ -590,7 +590,7 @@ end
       Am, Bm = Matrix(A), Matrix(B)
       m, n = size(X)
       C = zeros(eltype(X), m, n)
-      for k in 1:nnz(X)
+      for k in 1:nactive(X)
         x = X.nzval[k]; iszero(x) && continue
         r, c = mod1(X.nzval2ind[k], m), cld(X.nzval2ind[k], m)
         for j in 1:n, i in 1:m

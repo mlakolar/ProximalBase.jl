@@ -44,6 +44,11 @@ lower triangle, for a `SymmetricSparseIterate`, and a group for an `AtomIterate`
 
 ## SparseIterate
 
+For the **data-structure interface only** (array behavior, O(1) coordinate access,
+active-entry traversal, copying and costs), see [SparseIterate: storage and working-set interface](sparse_iterate.md).
+The discussion below adds implementation details and connects the iterate to
+other parts of the package.
+
 A [`SparseIterate`](@ref) is a vector or matrix that stores its nonzero
 entries in a list. Three arrays hold them: the values, their indices, and for
 every index the position of its value in the list (zero when it is not stored).
@@ -51,12 +56,11 @@ Reading or writing any entry is therefore ``O(1)``, and a product ``Xx`` costs
 ``O(n\cdot\mathrm{nnz})``. The stored entries are the active coordinates
 ([`activecoordinates`](@ref), [`nactive`](@ref)). Setting an entry to zero keeps
 it stored, so that an active set does not change during a sweep. `dropzeros!`
-removes the zeros between sweeps. `nnz(x)` counts stored zeros too;
+removes the zeros between sweeps. `nactive(x)` counts stored zeros too;
 [Counting coordinates](@ref) lists the other counts.
-`nonzeros(x)` gives a view of the stored values, paired with
-`activecoordinates(x)` in storage order; the view is invalidated when the
-stored set changes. `findnz(x)` returns copies of the stored indices and
-values in sorted order, including stored zeros.
+`activevalues(x)` gives a writable view of the stored values, paired with
+`activecoordinates(x)` in storage order; reacquire both handles after the active set
+changes. No `nnz`, `nonzeros`, `findnz` or `issparse` method is specialized for `SparseIterate` in 0.6.
 
 ### Writing from an orthogonal factor
 
@@ -100,6 +104,11 @@ scale, equal weight) it costs 2.5–5% of the time of the faster walk, 11–32% 
 `A` was added (the margin was fixed after the first data, not before).
 
 ## SymmetricSparseIterate
+
+For a standalone reference to the **symmetric-owner data structure**, including
+its coordinate IDs, `SymmetricCoordinates`, `matrixview`, copying and costs,
+see [SymmetricSparseIterate: coordinate owner](symmetric_sparse_iterate.md).
+This chapter also discusses the mathematical oracles that use the owner.
 
 A [`SymmetricSparseIterate`](@ref), the *owner* below, holds the
 ``q = p(p+1)/2`` variables of a real symmetric ``p \times p`` matrix: the
@@ -1012,14 +1021,11 @@ Four counts describe an iterate, and each has its own spelling.
 | Count | `SparseIterate` | `AtomIterate` |
 |:------|:----------------|:--------------|
 | Coordinates | `ncoordinates(x) == length(x)` | `ncoordinates(x)`, the number of groups |
-| Active coordinates, stored zeros included | `nactive(x) == nnz(x)` | `nactive(x)`, the active groups |
+| Active coordinates, stored zeros included | `nactive(x)` | `nactive(x)`, the active groups |
 | Nonzeros | `count(!iszero, activevalues(x))` | entries: `sum(k -> count(!iszero, atom(x, k)), activecoordinates(x); init = 0)`; groups: `count(k -> any(!iszero, atom(x, k)), activecoordinates(x))` |
 | Capacity | a slot for each of the `length(x)` entries | `length(x)` values and a slot for each group |
 
-On a `SparseIterate`, `nnz`, `nonzeros` and `findnz` keep their SparseArrays
-meaning and include stored zeros: `nnz(x) == nactive(x)`, `nonzeros(x)` is the
-view `activevalues(x)`, in the order of `activecoordinates(x)`, and `findnz(x)`
-returns copies sorted by index. The size of a model is the number of nonzeros,
+In 0.6, `SparseIterate` intentionally does **not** specialize `nnz`, `nonzeros`, `findnz` or `issparse`. Use `nactive(x)` to count stored entries (including explicit zeros), and pair `activecoordinates(x)` with `activevalues(x)` to traverse them in active-slot order. Sort a copied list of IDs if sorted output is needed. The size of a model is the number of nonzeros,
 `count(!iszero, activevalues(x))`, or `nactive(x)` after `dropzeros!`.
 
 An `AtomIterate` has no `nnz`, `nonzeros`, `findnz` or `activevalues`; calling
@@ -1043,12 +1049,12 @@ using ProximalBase, SparseArrays
 y = SparseIterate(5)
 y[4] = 1.0
 activate!(y, 2)                                     # an explicit zero
-@assert nnz(y) == nactive(y) == length(nonzeros(y)) == 2
-@assert collect(activecoordinates(y)) == [4, 2] && nonzeros(y) == [1.0, 0.0]
-@assert findnz(y) == ([2, 4], [0.0, 1.0])           # sorted by index
+@assert nactive(y) == length(activevalues(y)) == 2
+@assert collect(activecoordinates(y)) == [4, 2] && activevalues(y) == [1.0, 0.0]
+@assert sort(collect(zip(activecoordinates(y), activevalues(y))); by = first) == [(2, 0.0), (4, 1.0)]
 @assert count(!iszero, activevalues(y)) == 1        # the model size
 dropzeros!(y)
-@assert nactive(y) == nnz(y) == 1
+@assert nactive(y) == 1
 
 a = AtomIterate(6, [1:2, 3:4, 5:6])
 a[1] = 1.0

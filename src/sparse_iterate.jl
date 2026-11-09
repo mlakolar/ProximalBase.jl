@@ -4,7 +4,8 @@
     SparseIterate(x::Union{SparseVector, SparseMatrixCSC, Array})
 
 A vector or matrix that stores its nonzero entries in a compact list, so that
-reading or writing any entry is O(1) and multiplying by it costs O(nnz).
+reading or writing any entry is O(1), with supported sparse-aware products
+scaling with the number of active coordinates, `nactive(x)`.
 Intended for coordinate-descent and active-set iterates that stay sparse. Its
 coordinates (see [`ncoordinates`](@ref)) are its entries, in linear order.
 
@@ -207,14 +208,14 @@ _all_finite(x::Union{SparseIterate, SymmetricSparseIterate}) = all(isfinite, vie
 const _StoredIterate{T} = Union{SparseIterate{T}, SymmetricSparseIterate{T}}
 
 """
-    nnz(x::SparseIterate)
+    nnz(A)
 
-The number of stored coordinates of `x`, including stored zeros. Use
-[`dropzeros!`](@ref) to remove stored zeros. A [`SymmetricSparseIterate`](@ref)
-has no `nnz`: [`nactive`](@ref)`(x)` counts its stored coordinates, including
-stored zeros.
+Re-export of `SparseArrays.nnz` for standard sparse arrays. ProximalBase
+does not define an `nnz` method for its iterates. Use [`nactive`](@ref) to
+count active coordinates, including explicitly stored zeros; use
+`count(!iszero, activevalues(x))` to count nonzero entries of a `SparseIterate`.
 """
-SparseArrays.nnz(x::SparseIterate) = x.nnz
+nnz
 
 """
     ncoordinates(x)
@@ -526,40 +527,6 @@ SparseIterate(::Type{T}, n::Int) where {T} = SparseIterate{T, 1}(zeros(T, n), ze
 SparseIterate(n::Int, m::Int) = SparseIterate(Float64, n, m)
 SparseIterate(::Type{T}, n::Int, m::Int) where {T} = SparseIterate{T, 2}(zeros(T, n*m), zeros(Int, n*m), zeros(Int, n, m), 0)
 
-SparseArrays.issparse(x::SparseIterate) = true
-
-"""
-    nonzeros(x::SparseIterate)
-
-The stored values of `x`, including stored zeros, in storage order. Entry `k`
-pairs with `activecoordinates(x)[k]`. The returned view aliases `x`: writing
-through it changes `x`. The view is invalidated when the stored set changes.
-"""
-SparseArrays.nonzeros(x::SparseIterate) = view(x.nzval, 1:x.nnz)
-
-"""
-    findnz(x::SparseIterate)
-
-The stored indices and values of `x`, including stored zeros, as copies.
-Return `(I, V)` sorted by index for a vector, or `(I, J, V)` in column-major
-order for a matrix. Changing the returned arrays does not change `x`.
-"""
-function SparseArrays.findnz(x::SparseIterate{<:Any, 1})
-  order = sortperm(activecoordinates(x))
-  x.nzval2ind[order], x.nzval[order]
-end
-
-function SparseArrays.findnz(x::SparseIterate{T, 2}) where {T}
-  order = sortperm(activecoordinates(x))
-  I, J, V = Vector{Int}(undef, x.nnz), Vector{Int}(undef, x.nnz), Vector{T}(undef, x.nnz)
-  n = size(x, 1)
-  @inbounds for (k, p) in enumerate(order)
-    j, i = divrem(x.nzval2ind[p] - 1, n)
-    I[k], J[k], V[k] = i + 1, j + 1, x.nzval[p]
-  end
-  I, J, V
-end
-
 Base.length(x::SparseIterate) = length(x.ind2nzval)
 Base.size(x::SparseIterate) = size(x.ind2nzval)
 Base.IndexStyle(::Type{<:SparseIterate}) = IndexLinear()
@@ -643,7 +610,7 @@ end
 
 function Base.Vector(x::SparseIterate{Tv, 1}) where Tv
     r = zeros(Tv, length(x))
-    for k in 1:nnz(x)
+    for k in 1:nactive(x)
         i = x.nzval2ind[k]
         v = x.nzval[k]
         r[i] = v
@@ -654,7 +621,7 @@ end
 function Base.Matrix(x::SparseIterate{Tv, 2}) where Tv
   n, m = size(x)
   A = zeros(Tv, n, m)
-  for k=1:nnz(x)
+  for k=1:nactive(x)
     i = x.nzval2ind[k]
     v = x.nzval[k]
     A[i] = v
@@ -801,7 +768,7 @@ LinearAlgebra.norm(x::SparseIterate, p::Real = 2) =
 Base.show(io::IO, x::SparseIterate) = show(convert(IOContext, io), x)
 
 function Base.show(io::IO, ::MIME"text/plain", x::SparseIterate{T, 1}) where T
-    xnnz = nnz(x)
+    xnnz = nactive(x)
     print(io, length(x), "-element ", typeof(x), " with ", xnnz,
            " stored ", xnnz == 1 ? "entry" : "entries")
     if xnnz != 0
@@ -812,7 +779,7 @@ end
 
 function Base.show(io::IOContext, x::SparseIterate{T, 1}) where T
     n = length(x)
-    xnnz = nnz(x)
+    xnnz = nactive(x)
     if xnnz == 0
         return show(io, MIME("text/plain"), x)
     end
@@ -840,7 +807,7 @@ end
 
 
 function Base.show(io::IO, ::MIME"text/plain", S::SparseIterate{T,2}) where T
-    xnnz = nnz(S)
+    xnnz = nactive(S)
     print(io, size(S, 1), "×", size(S, 2), " ", typeof(S), " with ", xnnz, " stored ",
               xnnz == 1 ? "entry" : "entries")
     if xnnz != 0
@@ -850,10 +817,10 @@ function Base.show(io::IO, ::MIME"text/plain", S::SparseIterate{T,2}) where T
 end
 
 function Base.show(io::IOContext, S::SparseIterate{T, 2}) where T
-  if nnz(S) == 0
+  if nactive(S) == 0
     return show(io, MIME("text/plain"), S)
   end
-  _show_entries(io, nnz(S), (pos -> Tuple(CartesianIndices(size(S))[S.nzval2ind[pos]])),
+  _show_entries(io, nactive(S), (pos -> Tuple(CartesianIndices(size(S))[S.nzval2ind[pos]])),
                 pos -> S.nzval[pos], maximum(size(S)))
 end
 
@@ -906,7 +873,7 @@ function LinearAlgebra.mul!(out::StridedVector, A::StridedMatrix, coef::SparseIt
   _scale_product_output!(out, β)
   iszero(α) && return out
   scale = _product_scale(A, coef, α)
-  @inbounds for inz = 1:nnz(coef)
+  @inbounds for inz = 1:nactive(coef)
     v = coef.nzval[inz]
     iszero(v) && continue
     indColumn = coef.nzval2ind[inz]
@@ -939,9 +906,9 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIt
   # A cutoff in bytes, min(1/8, 256/(m*sizeof(T))), cost 0.6-1.5%; that rule was
   # not adopted because its gain over the best constant was under 2 points.
   # See "Matrix coefficients" in docs/src/iterates.md.
-  if 32 * nnz(coef) <= length(coef)
+  if 32 * nactive(coef) <= length(coef)
     p = size(coef, 1)
-    @inbounds for inz = 1:nnz(coef)
+    @inbounds for inz = 1:nactive(coef)
       v = coef.nzval[inz]
       iszero(v) && continue
       j, k = mod1(coef.nzval2ind[inz], p), cld(coef.nzval2ind[inz], p)
@@ -1052,11 +1019,11 @@ function LinearAlgebra.mul!(out::StridedVector, trans_a::TransposedStridedMatrix
     iszero(α) && return _scale_product_output!(out, β)
     # No nonzero coefficient: the sum is empty, and out becomes β·out as on the strided
     # path, also for an α of Inf or NaN. The test stops at the first nonzero coefficient.
-    any(!iszero, view(coef.nzval, 1:nnz(coef))) || return _scale_product_output!(out, β)
+    any(!iszero, view(coef.nzval, 1:nactive(coef))) || return _scale_product_output!(out, β)
     scale = _product_scale(A, coef, α)
     @inbounds for j = 1:size(A, 2)
         s = zero(eltype(out))
-        @simd for inz = 1:nnz(coef)
+        @simd for inz = 1:nactive(coef)
             v = coef.nzval[inz]
             t = A[coef.nzval2ind[inz], j] * v
             s += ifelse(iszero(v), zero(t), t)    # a select, not a branch, keeps the loop vectorized
@@ -1067,13 +1034,13 @@ function LinearAlgebra.mul!(out::StridedVector, trans_a::TransposedStridedMatrix
 end
 
 # dot(v, x) over the stored entries of x, for any strided v, such as a row or a
-# column of a matrix: dot(view(A, i, :), x) is (A * x)[i] in O(nnz(x)). Other
+# column of a matrix: dot(view(A, i, :), x) is (A * x)[i] in O(nactive(x)). Other
 # vectors take the generic method, as SparseArrays has its own for sparse vectors.
 function LinearAlgebra.dot(v::StridedVector, coef::SparseIterate{<:Any, 1})
   _checkreal(coef, v)
     length(v) == length(coef) || throw(DimensionMismatch())
     s = zero(promote_type(eltype(v), eltype(coef)))
-    @inbounds @simd for icoef = 1:nnz(coef)
+    @inbounds @simd for icoef = 1:nactive(coef)
         c = coef.nzval[icoef]
         t = dot(v[coef.nzval2ind[icoef]], c)
         s += ifelse(iszero(c), zero(t), t)    # a select, not a branch, keeps the loop vectorized
@@ -1085,9 +1052,9 @@ LinearAlgebra.dot(coef::SparseIterate{<:Any, 1}, v::StridedVector) = dot(v, coef
 # Both operands are iterates, so a zero of either contributes nothing.
 function LinearAlgebra.dot(x::SparseIterate{<:Any, 1}, y::SparseIterate{<:Any, 1})
     length(x) == length(y) || throw(DimensionMismatch())
-    nnz(x) > nnz(y) && return dot(y, x)
+    nactive(x) > nactive(y) && return dot(y, x)
     s = zero(promote_type(eltype(x), eltype(y)))
-    @inbounds for k = 1:nnz(x)
+    @inbounds for k = 1:nactive(x)
         a, b = x.nzval[k], y[x.nzval2ind[k]]
         t = dot(a, b)
         s += ifelse(iszero(a) | iszero(b), zero(t), t)    # a select: a branch on the data mispredicts
@@ -1095,13 +1062,13 @@ function LinearAlgebra.dot(x::SparseIterate{<:Any, 1}, y::SparseIterate{<:Any, 1
     s
 end
 
-# a' X b and the entries of A X B for a sparse matrix X, in O(nnz(X))
+# a' X b and the entries of A X B for a sparse matrix X, in O(nactive(X))
 function LinearAlgebra.dot(a::StridedVector, X::SparseIterate{<:Any, 2}, b::StridedVector)
   _checkreal(X, a); _checkreal(X, b)
   (length(a), length(b)) == size(X) || throw(DimensionMismatch())
   m = size(X, 1)
   s = zero(promote_type(eltype(a), eltype(X), eltype(b)))
-  @inbounds for k = 1:nnz(X)
+  @inbounds for k = 1:nactive(X)
     v = X.nzval[k]
     iszero(v) && continue
     i = X.nzval2ind[k]
@@ -1185,7 +1152,7 @@ end
 # The stored coefficients of an iterate and the logical coordinates (r, c) of each: the second pair
 # is (0, 0) when there is none (an off-diagonal coefficient of a SymmetricSparseIterate stands for
 # (r, c) and (c, r)).
-@inline _nstored(X::SparseIterate) = nnz(X)
+@inline _nstored(X::SparseIterate) = nactive(X)
 @inline _nstored(X::SymmetricSparseIterate) = X.nnz
 @inline function _logical_coordinates(X::SparseIterate{<:Any, 2}, k::Int)
   m = size(X, 1)
@@ -1247,7 +1214,7 @@ end
 
 The product `C = A * X * B` for a sparse iterate `X`, with `C[i, j]` the sum of
 `A[i, k] * X[k, l] * B[l, j]` over the coordinates `(k, l)` where `X` is
-mathematically nonzero, in `O(nnz(X) * m * n)` operations and `O(m * n)` memory for
+mathematically nonzero, in `O(nactive(X) * m * n)` operations and `O(m * n)` memory for
 `X` of size `m × n`. A stored zero and an unstored entry are the same: no term is formed,
 and an `X` without nonzeros gives the zero matrix without reading `A` or `B`. A nonzero
 coefficient of `X`, including `NaN` and `±Inf`, always contributes; the zeros of `A` and
@@ -1281,7 +1248,7 @@ function *(A::Symmetric{T, <:StridedMatrix{T}}, X::SparseIterate{T, 2},
   size(A, 2) == m && size(B, 1) == n || throw(DimensionMismatch())
   C = zeros(T, m, n)
   a, ax, b = Vector{T}(undef, m), Vector{T}(undef, m), Vector{T}(undef, n)
-  for k = 1:nnz(X)
+  for k = 1:nactive(X)
     x = X.nzval[k]
     iszero(x) && continue
     ind = X.nzval2ind[k]
@@ -1305,7 +1272,7 @@ function *(A::Symmetric{T}, X::SparseIterate{T, 2}, B::Symmetric{T}) where {T}
   size(A, 2) == m && size(B, 1) == n || throw(DimensionMismatch())
   posI, posJ = zeros(Int, m), zeros(Int, n)
   nI = nJ = 0
-  for k = 1:nnz(X)
+  for k = 1:nactive(X)
     iszero(X.nzval[k]) && continue
     i, j = mod1(X.nzval2ind[k], m), cld(X.nzval2ind[k], m)
     posI[i] == 0 && (posI[i] = 1; nI += 1)
@@ -1317,7 +1284,7 @@ function *(A::Symmetric{T}, X::SparseIterate{T, 2}, B::Symmetric{T}) where {T}
   posI[I] = 1:nI
   posJ[J] = 1:nJ
   XIJ = zeros(T, nI, nJ)
-  for k = 1:nnz(X)
+  for k = 1:nactive(X)
     iszero(X.nzval[k]) && continue
     i, j = mod1(X.nzval2ind[k], m), cld(X.nzval2ind[k], m)
     XIJ[posI[i], posJ[j]] = X.nzval[k]

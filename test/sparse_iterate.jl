@@ -26,7 +26,7 @@ function check_product_state(x, before)
     @nospecialize x before
     @test Array(x) == Array(before)
     @test activecoordinates(x) == activecoordinates(before)
-    @test x.nzval[1:nnz(x)] == before.nzval[1:nnz(before)]
+    @test x.nzval[1:nactive(x)] == before.nzval[1:nactive(before)]
     @test x.ind2nzval == before.ind2nzval
 end
 
@@ -95,7 +95,7 @@ end
         x = SparseIterate(3)
         x[3] = 2.
         @test ncoordinates(x) == 3
-        @test nnz(x) == 1
+        @test nactive(x) == 1
         @test convert(Vector, x) == [0., 0., 2.]
         @test convert(Array, x) == [0., 0., 2.]
         @test Vector(x) == [0., 0., 2.]
@@ -142,7 +142,7 @@ end
         z = similar(x, Float32)
         @test z isa SparseIterate{Float32, 1}
         @test size(z) == size(x)
-        @test nnz(z) == 0
+        @test nactive(z) == 0
 
         # M' takes the same sparse path as transpose(M) for real M
         @test which(*, typeof.((M', y))).module == ProximalBase
@@ -208,8 +208,8 @@ end
                     end
                     x = SparseIterate(dense)
                     if length(dims) == 2 && support in (:sparse, :partial)
-                        @test nnz(x) >= 1
-                        @test (32 * nnz(x) <= length(x)) == (support == :sparse)
+                        @test nactive(x) >= 1
+                        @test (32 * nactive(x) <= length(x)) == (support == :sparse)
                     end
                     before = copy(x)
                     if length(dims) == 1
@@ -299,7 +299,7 @@ end
             # explicit zeros at (1, 1) and (1, 2)
             X = SparseIterate(T, p, 2); X[2, 1] = 2; X[3, 2] = -1; activate!(X, 1); activate!(X, p + 1)
             stored || dropzeros!(X)
-            @test (32 * nnz(X) <= length(X)) == (p == 64)           # the stored-entry walk for p = 64
+            @test (32 * nactive(X) <= length(X)) == (p == 64)           # the stored-entry walk for p = 64
             before = copy(X)
             Xd = Matrix(X)
             A = T.(reshape(0:2p-1, 2, p) .% 5 .- 2); A[:, k] .= bad

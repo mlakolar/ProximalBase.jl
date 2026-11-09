@@ -557,6 +557,20 @@ end
 copyto!(x, t)
 ```
 
+## The SparseIterate SparseArrays aliases are removed (0.6)
+
+`SparseIterate` is an `AbstractArray` with O(1) entry access and a packed active working set, not an `AbstractSparseArray`. The 0.6 interface removes the **specialized** `nnz(x)`, `nonzeros(x)`, `findnz(x)`, and `issparse(x)` implementations for `SparseIterate`. `dropzeros!(x)` remains a required compaction method.
+
+| Old code on `SparseIterate` | New code |
+|:--|:--|
+| `nnz(x)` | `nactive(x)` (counts explicit active zeros) |
+| `nonzeros(x)` | `activevalues(x)` (writable values in active-slot order) |
+| `findnz(x)` | `activecoordinates(x)` and `activevalues(x)`, copied/sorted explicitly if ordered output is required |
+| `issparse(x)` | Prefer concrete type dispatch, such as `x isa SparseIterate`; do not infer a compressed sparse format |
+| `dropzeros!(x)` | **No change** |
+
+Standard `SparseVector` and `SparseMatrixCSC` calls still use Julia's `SparseArrays` API. Do not blanket-replace `nnz(A)` or `nonzeros(A)` where `A` is a CSC matrix or sparse vector.
+
 ## `coordinates(x)` of a `SparseIterate` is a vector view (0.6)
 
 [`coordinates`](@ref)`(x)` of a [`SparseIterate`](@ref) is now a vector view of

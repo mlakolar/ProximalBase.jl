@@ -148,7 +148,7 @@ end
     zs = copy(xs)
     prox!(zs, f, zs, 0.6)
     @test Vector(zs) ≈ prox(f, x, 0.6)
-    @test nnz(zs) == nnz(xs)
+    @test nactive(zs) == nactive(xs)
     @test value_and_prox!(similar(xs), f, xs, 0.6) ≈ f(prox(f, x, 0.6))
     # into another iterate, its stored entries are kept, as for a dense array
     out = SparseIterate(50)
@@ -544,7 +544,7 @@ end
   xs[3] = 2.
   @test prox_coordinate!(xs, f, 3, 0.5) ≈ 2 / (1 + 0.5 * w[3])
   prox_coordinate!(xs, f, 5, 0.5)
-  @test nnz(xs) == 1                      # a zero stays zero, and unstored
+  @test nactive(xs) == 1                      # a zero stays zero, and unstored
   S = SymmetricSparseIterate(p)
   S[3, 2] = 1.
   k = tril_index(p, 3, 2)
@@ -553,9 +553,9 @@ end
   xs = SparseIterate(sprandn(p * p, 0.3))
   y = SparseIterate(p * p)
   prox!(y, f, xs, 0.7)
-  @test nnz(y) == nnz(xs)
+  @test nactive(y) == nactive(xs)
   prox!(y, ShiftedAbs(), xs, 0.7)
-  @test nnz(y) > nnz(xs)                  # the prox of |x - 1| moves zeros
+  @test nactive(y) > nactive(xs)                  # the prox of |x - 1| moves zeros
 end
 
 end

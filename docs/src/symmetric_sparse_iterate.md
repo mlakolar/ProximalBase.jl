@@ -2,7 +2,7 @@
 
 A `SymmetricSparseIterate{T}` represents a real, symmetric `p × p` matrix using **one stored value per independent lower-triangular coordinate**, with O(1) entry lookup and active-coordinate operations. Its main purpose is to let algorithms update a symmetric variable exactly once while retaining a sparse *working set*.
 
-**It is deliberately not an `AbstractArray`.** This distinguishes it from [`SparseIterate`](sparse_iterate.md), which remains a Julia vector or matrix with ordinary linear indexing. The full normative specification is the [symmetric owner 0.6 contract](developer/contracts/symmetric-sparse-iterate-0.6.md); the companion [acceptance plan](developer/contracts/symmetric-sparse-iterate-0.6-acceptance.md) specifies its tests.
+**It is deliberately not an `AbstractArray`.** This distinguishes it from [`SparseIterate`](sparse_iterate.md), which remains a Julia vector or matrix with ordinary linear indexing. The full normative specification is the [symmetric owner 0.6 contract](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/symmetric-sparse-iterate-0.6.md); the companion [acceptance plan](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/symmetric-sparse-iterate-0.6-acceptance.md) specifies its tests.
 
 ## Three different index spaces
 
@@ -117,7 +117,7 @@ A[1,2] = 9.0       # rejected: view is read-only
 
 A full-matrix inner product or Frobenius norm counts off-diagonal entries **twice**; an ordinary vector norm on `coordinates(X)` counts every independent coordinate once. For mathematical kernels, use the appropriate matrix/owner operation rather than treating coordinate-space arithmetic as Frobenius arithmetic.
 
-For the wrapper types' exact Julia method definitions and the private `Base.dataids`/`Base.unaliascopy` hooks, see [Coordinate views and aliasing](developer/coordinate_views.md).
+For the wrapper types' exact Julia method definitions and the private `Base.dataids`/`Base.unaliascopy` hooks, see [Coordinate views and aliasing](developer/index.md).
 
 ## Copying, imports, and exceptional cases
 

@@ -42,7 +42,8 @@ makedocs(
         "Package structure" => "architecture.md",
         "Algorithms and interface" => [
             "Coordinate descent" => "coordinate_descent.md",
-            "Sparse iterates" => "iterates.md",
+            "SparseIterate: storage and working sets" => "sparse_iterate.md",
+            "Sparse iterates and coordinate oracles" => "iterates.md",
             "Proximal operators and interface" => "interface.md",
             "Numerical contract" => "numerics.md",
         ],

@@ -394,7 +394,8 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
 #   paths:     the source paths of its own family, each with the tier the rules give a change to it.
 # The rows with base_tier "thorough" are listed by the two thorough rules, the rule for src/calculus.jl
 # and the shared rule, and by no standard-tier rule: a pull request on a standard-tier path alone,
-# without a label that raises the tier, did not run their base files, so the grids file would run the Float32 repeats without the Float64 baseline that the base file keeps.
+# without a label that raises the tier, did not run their base files, so the grids file would run
+# the Float32 repeats without the Float64 baseline that the base file keeps.
 const GRIDS = [
   (grids = "atom_iterate_grids", base = "atom_iterate", base_tier = "quick", shared = false,
    paths = ["src/atom_iterate.jl" => "standard", "src/functions/norms.jl" => "standard",
@@ -403,8 +404,14 @@ const GRIDS = [
    paths = ["src/calculus.jl" => "thorough", "src/functions/losses.jl" => "standard"]),
   (grids = "constrained_basics_grids", base = "constrained_basics", base_tier = "quick", shared = false,
    paths = ["src/constrained.jl" => "standard"]),
+  (grids = "constrained_grids", base = "constrained", base_tier = "thorough",
+   shared = true, paths = ["src/calculus.jl" => "thorough"]),
+  (grids = "extreme_normals_grids", base = "extreme_normals", base_tier = "thorough",
+   shared = true, paths = ["src/calculus.jl" => "thorough"]),
   (grids = "lmo_atoms_grids", base = "lmo_atoms", base_tier = "quick", shared = true,
    paths = ["src/lmo.jl" => "standard", "src/lmo_atoms.jl" => "standard", "src/functions/singular.jl" => "standard"]),
+  (grids = "metric_grids", base = "metric", base_tier = "thorough",
+   shared = true, paths = ["src/calculus.jl" => "thorough"]),
   (grids = "nested_scaled_grids", base = "nested_scaled", base_tier = "quick", shared = true,
    paths = ["src/calculus.jl" => "thorough", "src/functions/singular.jl" => "standard"]),
   (grids = "scaled_infinite_level_underflow_grids", base = "scaled_infinite_level_underflow", base_tier = "thorough",
@@ -752,7 +759,7 @@ end
   # master pushes (thorough) run none of them, the nightly run (full) all
   @test isdisjoint(allgrids, thorough) && issubset(allgrids, full)
   # the listed source paths get their grids files as focus (the shared rule lists other paths too,
-  # such as src/interface.jl, with the same six shared grids files), and the tier the path had before
+  # such as src/interface.jl, with the same shared grids files), and the tier the path had before
   for (path, (want_tier, names)) in GRIDS_OF
     tier, focus = classify(path)
     @test sort(filter(in(allgrids), focus)) == names
@@ -772,7 +779,7 @@ end
   # the grids files of a thorough-tier base file: the rules that list them are thorough-tier rules,
   # the rule for src/calculus.jl and the shared rule, and the standard paths of the other rows get none
   thorough_grids = [row.grids for row in GRIDS if row.base_tier == "thorough"]
-  @test length(thorough_grids) == 3
+  @test !isempty(thorough_grids) && issubset(thorough_grids, SHARED_GRIDS)
   for rule in MANIFEST.rules, grids in thorough_grids
     grids in rule.focus && @test rule.tier == "thorough"
   end
@@ -782,7 +789,7 @@ end
     @test isdisjoint(classify(path)[2], thorough_grids)
   end
   @test pr("src/functions/norms.jl") == ("standard", ["atom_iterate_grids"])
-  # a pull request that changes src/calculus.jl or a shared source runs all three, beside thorough
+  # a pull request that changes src/calculus.jl or a shared source runs these grids files, beside thorough
   for path in ("src/calculus.jl", "src/utils.jl", "src/interface.jl", "src/ProximalBase.jl")
     @test issubset(thorough_grids, pr(path)[2])
   end

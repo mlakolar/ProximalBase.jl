@@ -112,9 +112,9 @@ from the exact point, in the norm of `Diagonal(1 ./ γ)`, as `max(|φ̂|, noise)
 the result when that is at most `16 eps(Float32)·(m/(2√Σᵢγᵢaᵢ²) + min(|ν̂|√s, ‖x‖))`, where
 `ν̂` is the multiplier found and `‖x‖` the norm of the argument in the same norm. The sums
 of the evaluation are accumulated in `Float64` where the steps are an array, except for
-[`IndBox`](@ref), [`IndNonnegative`](@ref), a [`Scaled`](@ref) of one of them and the ordinary
-route of [`SqrNormL2`](@ref), whose passes vectorize and sum accurately in `Float32`; any other
-function, a function of your own included, sums in `Float64`. A result that fails is
+[`IndBox`](@ref), [`IndNonnegative`](@ref), a [`Scaled`](@ref) or a box on one of them (the simplex
+routes) and the ordinary route of [`SqrNormL2`](@ref), whose passes vectorize and sum accurately in
+`Float32`; any other function, a function of your own included, sums in `Float64`. A result that fails is
 searched again from zero if it started from the
 previous multiplier, and then in `Float64` on the `Float32` problem: the entry maps are
 evaluated in `Float64` on the exactly widened argument with their parameters rounded to
@@ -725,34 +725,48 @@ _constraint_gap(c, x::AbstractArray, ν::T, γ, v::Val = Val(false)) where {T} =
 # summed in the lanes of the loop, and the sums of the blocks in Float64, so that the rounding of the sum is that of a block
 # and not of n additions. The other precisions form one sum over the entries, as before. φ and its scale are rounded once
 # to T.
-# Where the steps are an array, the type of the lanes is that of _array_lanes(typeof(f)): Float32 for the entry maps whose
-# loop vectorizes and whose Float32 block sums stay inside the noise floor of the check (a clamp, or a multiplication and
-# a clamp; the lane sums of the measured problems are off by at most 1.6 eps m), and Float64 for every other function,
-# a user function included. The loop of any other entry map does not vectorize with array steps; a block is then one
-# sequential sum of 1024 terms, its rounding grows to 20 to 40 eps m for a box on an ℓ1 map, and the terms, still formed
-# in Float32 as the kernel forms them, are accumulated in Float64, which costs 1.1 times a pass of those maps. A scalar
-# step takes Float32 lanes for every function: its loop vectorizes.
+# Where the steps are an array, the lanes sum in Float64 unless the entry map is one whose loop vectorizes and whose Float32 block
+# sums stay inside the noise floor of the check (_vector_lanes: a clamp, a clamp on a clamp, or a multiplication and a clamp; the
+# lane sums of the measured problems are off by at most 1.6 eps m). The loop of any other entry map does not vectorize with array steps; a
+# block is then one sequential sum of 1024 terms, its rounding grows to 20 to 40 eps m for a box on an ℓ1 map, and the terms,
+# still formed in Float32 as the kernel forms them, are accumulated in Float64 (_gap_sums_wide), which costs 1.1 times a pass
+# of those maps. A scalar step takes Float32 lanes for every function: its loop vectorizes. An unknown function, a user
+# function included, sums in Float64.
 const _GAP_BLOCK = 1024
 
-_array_lanes(::Type) = Float64
-_array_lanes(::Type{<:IndBox}) = Float32
-_array_lanes(::Type{<:IndNonnegative}) = Float32
-_array_lanes(::Type{<:_OrdinaryRidge}) = Float32
-_array_lanes(::Type{<:Scaled{F}}) where {F} = _array_lanes(F)
+_vector_lanes(f) = false
+_vector_lanes(::Union{IndBox, IndNonnegative, _OrdinaryRidge}) = true
+_vector_lanes(f::Scaled) = _vector_lanes(f.f)
+_vector_lanes(f::BoxConstrained) = _vector_lanes(f.f)
+_wide_lanes(f, γ) = false
+_wide_lanes(f, γ::AbstractArray) = !_vector_lanes(f)
 
-_sum_lanes(f, γ) = Float32
-_sum_lanes(f, γ::AbstractArray) = _array_lanes(typeof(f))
-
-function _gap_sums(f, a, x::AbstractArray, ν::T, γ, r, ::Val{S}, ::Type{A}) where {T, S, A}
-  s, m, d = zero(A), zero(A), zero(T)
+function _gap_sums(f, a, x::AbstractArray, ν::T, γ, r, ::Val{S}) where {T, S}
+  s, m, d = zero(T), zero(T), zero(T)
   @inbounds @simd for i in r
     aᵢ = convert(T, _entry(a, i))
     γᵢ = convert(T, _entry(γ, i))
     v = x[i] - γᵢ * ν * aᵢ
     z, dz = S ? _prox_entry_slope(f, v, i, γᵢ) : (prox_entry(f, v, i, γᵢ), zero(T))
     t = aᵢ * convert(T, z)
-    s += convert(A, t)
-    m += convert(A, abs(t))
+    s += t
+    m += abs(t)
+    S && (d += γᵢ * aᵢ * aᵢ * convert(T, dz))
+  end
+  s, m, d
+end
+
+# the same terms, summed in Float64 lanes
+function _gap_sums_wide(f, a, x::AbstractArray, ν::T, γ, r, ::Val{S}) where {T, S}
+  s, m, d = 0.0, 0.0, zero(T)
+  @inbounds @simd for i in r
+    aᵢ = convert(T, _entry(a, i))
+    γᵢ = convert(T, _entry(γ, i))
+    v = x[i] - γᵢ * ν * aᵢ
+    z, dz = S ? _prox_entry_slope(f, v, i, γᵢ) : (prox_entry(f, v, i, γᵢ), zero(T))
+    t = aᵢ * convert(T, z)
+    s += Float64(t)
+    m += Float64(abs(t))
     S && (d += γᵢ * aᵢ * aᵢ * convert(T, dz))
   end
   s, m, d
@@ -760,18 +774,18 @@ end
 
 function _gap_sums(f, a, x::AbstractArray, ν::Float32, γ, ::Val{S}) where {S}
   idx = eachindex(IndexLinear(), x)
-  A = _sum_lanes(f, γ)
+  wide = _wide_lanes(f, γ)
   s, m, d = 0.0, 0.0, 0.0f0
   @inbounds for lo in first(idx):_GAP_BLOCK:last(idx)
-    sb, mb, db = _gap_sums(f, a, x, ν, γ, lo:min(lo + (_GAP_BLOCK - 1), last(idx)), Val(S), A)
+    r = lo:min(lo + (_GAP_BLOCK - 1), last(idx))
+    sb, mb, db = wide ? _gap_sums_wide(f, a, x, ν, γ, r, Val(S)) : _gap_sums(f, a, x, ν, γ, r, Val(S))
     s += sb
     m += mb
     d += db
   end
   s, m, d
 end
-_gap_sums(f, a, x::AbstractArray, ν::T, γ, v::Val) where {T} =
-  _gap_sums(f, a, x, ν, γ, eachindex(IndexLinear(), x), v, T)
+_gap_sums(f, a, x::AbstractArray, ν::T, γ, v::Val) where {T} = _gap_sums(f, a, x, ν, γ, eachindex(IndexLinear(), x), v)
 
 function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, ::Val{S}) where {T, S}
   s, m, d = _gap_sums(f, a, x, ν, γ, Val(S))
@@ -1033,11 +1047,12 @@ end
 # output pass rounds: the entries of the argument x - γνa that are not clamped carry the rounding of |ν| ‖γa‖ over the
 # live entries, which is |ν| √s; it is capped by ‖x‖, the norm of the argument, because where the search ends on a flat
 # piece of φ beyond the root (no entry free there, the slope of the last secant from the bracket) |ν̂| √s is many times
-# the size of the answer and would accept any point of the piece. ‖x‖ is formed only where the first term alone does not
-# accept, and only for the Float32 search: the check of the recovery, in Float64, keeps |ν̂| √s.
+# the size of the answer and would accept any point of the piece. ‖x‖ is compared with what the check still needs of the
+# second term, summing the entries in blocks until that is reached (_norm_below), and only where the first term alone does
+# not accept and the uncapped check does; and only for the Float32 search: the check of the recovery, in Float64, keeps |ν̂| √s.
 # The terms of the evaluation are summed in blocks (_GAP_BLOCK), in Float32 lanes where the pass vectorizes (a scalar step;
-# IndBox, IndNonnegative, a Scaled of one of them and the ordinary ridge with array steps) and in Float64 lanes for every
-# other entry map with array steps (_array_lanes), which takes the summation error of a block out of the noise: the noise
+# IndBox, IndNonnegative, a Scaled or a BoxConstrained of one of them and the ordinary ridge with array steps) and in Float64 lanes for every
+# other entry map with array steps (_wide_lanes), which takes the summation error of a block out of the noise: the noise
 # floor is then that of the entries.
 # A constraint that is inactive with a margin of the noise needs no slope.
 # This is a check and not a bound: the slope is that of the last secant, which can cross a kink of φ and overstate the
@@ -1066,20 +1081,38 @@ function _step_sums(set, x::AbstractArray, γ::AbstractArray)
   A2, G
 end
 
-# ‖x‖ in the norm of Diagonal(1 ./ γ), for the steps rounded to Float32 as _step_sums rounds them
-function _argument_norm(x::AbstractArray, γ::Real)
-  t = 0.0
-  @inbounds @simd for i in eachindex(IndexLinear(), x)
-    t += abs2(Float64(x[i]))
+# Whether ‖x‖ in the norm of Diagonal(1 ./ γ), for the steps rounded to Float32 as _step_sums rounds them, is below `need`
+# (false where it is not a number or need is not positive); the sum stops as soon as the entries seen so far reach need², in blocks of _NORM_BLOCK.
+const _NORM_BLOCK = 256
+function _norm_below(x::AbstractArray, γ::Real, need)
+  need > 0 || return false
+  need2 = need * need * Float64(convert(Float32, γ))
+  acc = 0.0
+  idx = eachindex(IndexLinear(), x)
+  @inbounds for lo in first(idx):_NORM_BLOCK:last(idx)
+    b = 0.0
+    @simd for i in lo:min(lo + (_NORM_BLOCK - 1), last(idx))
+      b += abs2(Float64(x[i]))
+    end
+    acc += b
+    acc >= need2 && return false
   end
-  sqrt(t / Float64(convert(Float32, γ)))
+  acc < need2
 end
-function _argument_norm(x::AbstractArray, γ::AbstractArray)
-  t = 0.0
-  @inbounds @simd for i in eachindex(IndexLinear(), x)
-    t += abs2(Float64(x[i])) / Float64(convert(Float32, γ[i]))
+function _norm_below(x::AbstractArray, γ::AbstractArray, need)
+  need > 0 || return false
+  need2 = need * need
+  acc = 0.0
+  idx = eachindex(IndexLinear(), x)
+  @inbounds for lo in first(idx):_NORM_BLOCK:last(idx)
+    b = 0.0
+    @simd for i in lo:min(lo + (_NORM_BLOCK - 1), last(idx))
+      b += abs2(Float64(x[i])) / Float64(convert(Float32, γ[i]))
+    end
+    acc += b
+    acc >= need2 && return false
   end
-  sqrt(t)
+  acc < need2
 end
 
 function _criterion(c::LinearConstrained, x::AbstractArray, γ, p::_Proposal, ::Type{E}, slope_free::Bool) where {E}
@@ -1097,12 +1130,9 @@ function _criterion(c::LinearConstrained, x::AbstractArray, γ, p::_Proposal, ::
   lhs, tol = max(r, noise) / sqrt(s), _ACCEPT_K * Float64(eps(Float32))
   t = m / (2 * sqrt(A2))
   lhs <= tol * t && return true
-  u = abs(ν) * sqrt(s)
-  if E === Float32
-    X = _argument_norm(x, _steps(γ))
-    X < u && (u = X)
-  end
-  lhs <= tol * (t + u)
+  lhs <= tol * (t + abs(ν) * sqrt(s)) || return false
+  E === Float32 && _norm_below(x, _steps(γ), lhs / tol - t) && return false      # min(|ν̂|√s, ‖x‖) is too small
+  true
 end
 
 _accepted(c::LinearConstrained, x::AbstractArray, γ, p::_Proposal{Float32}) =
@@ -1372,6 +1402,7 @@ struct _Reindexed{F, V}
   f::F
   I::V
 end
+_vector_lanes(f::_Reindexed) = _vector_lanes(f.f)
 Base.@propagate_inbounds prox_entry(g::_Reindexed, v::Real, j::Integer, γ::Real) = prox_entry(g.f, v, g.I[j], γ)
 
 # fixes the entries at the bottom (low) or the top of their ranges at ν when a
@@ -1427,6 +1458,7 @@ struct _AtEnd{F, A}
   a::A          # the normal, by index
   low::Bool
 end
+_vector_lanes(f::_AtEnd) = _vector_lanes(f.f)
 Base.@propagate_inbounds function prox_entry(g::_AtEnd, v::Real, i::Integer, γ::Real)
   z = prox_entry(g.f, v, i, γ)
   ifelse(_at_end(g.f, z, _entry(g.a, i), i, g.low), z, zero(z))

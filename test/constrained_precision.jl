@@ -760,6 +760,26 @@ end
   end
 end
 
+# The lanes of the pass of the multiplier search: Float32 where the entry map vectorizes and its Float32 block sums stay inside the
+# noise floor of the check, Float64 for every other entry map with array steps, Float32 for a scalar step.
+@testset "the lanes of the pass of the search" begin
+  wide(f, γ) = ProximalBase._wide_lanes(f, γ)
+  steps = ones(Float32, 8)
+  box, simplex = IndBox(0f0, 1f0), IndSimplex(1f0)
+  for f in (box, IndNonnegative(), Scaled(box, 2f0), Scaled(IndNonnegative(), 2f0),
+            Constrained(IndNonnegative(), simplex).f, Constrained(box, simplex).f,           # a box on a vectorizing map: the simplex routes
+            ProximalBase._OrdinaryRidge(SqrNormL2(0.7f0)))
+    @test !wide(f, steps)
+    @test !wide(f, 0.5f0)
+  end
+  for f in (NormL1(0.3f0), NormL1Nonneg(0.3f0), ElasticNet(0.3f0, 0.4f0), SqrNormL2(0.7f0), Scaled(NormL1(0.3f0), 2f0),
+            Constrained(NormL1(0.3f0), box), Constrained(ElasticNet(0.3f0, 0.4f0), simplex).f, Scaled(Constrained(NormL1(0.3f0), box), 2f0),
+            Tilt(box, zeros(Float32, 8)), Translate(box, zeros(Float32, 8)))
+    @test wide(f, steps)
+    @test !wide(f, 0.5f0)
+  end
+end
+
 @testset "controls" begin
   # n = 4095 has no variable fixing; from 4096 a cold call may fix entries; 4097 is odd
   for n in (256, 4095, 4096, 4097), T in (Float32, Float64), steps in (:scalar, :entry)

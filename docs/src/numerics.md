@@ -508,8 +508,8 @@ forward error.
   `Diagonal(1 ./ γ)`; the first term costs no pass, and `‖x‖` is formed only where
   the first term alone does not accept. The sums of the evaluation of `φ` are
   accumulated in `Float64` where the steps are an array, except for `IndBox`,
-  `IndNonnegative`, a `Scaled` of one of them and the ordinary route of `SqrNormL2`,
-  whose passes vectorize and sum accurately in `Float32`; any other function, a
+  `IndNonnegative`, a `Scaled` or a box on one of them (the simplex routes) and the
+  ordinary route of `SqrNormL2`, whose passes vectorize and sum accurately in `Float32`; any other function, a
   function of your own included, sums in `Float64`. A constraint inactive by
   more than the noise needs no slope. A point whose argument `γ|ν|` or `γ|ν||a|`
   may have overflowed is not accepted.

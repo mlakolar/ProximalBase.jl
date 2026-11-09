@@ -4,7 +4,8 @@
     SparseIterate(x::Union{SparseVector, SparseMatrixCSC, Array})
 
 A vector or matrix that stores its nonzero entries in a compact list, so that
-reading or writing any entry is O(1) and multiplying by it costs O(nnz).
+reading or writing any entry is O(1), with supported sparse-aware products
+scaling with the number of active coordinates, `nactive(x)`.
 Intended for coordinate-descent and active-set iterates that stay sparse. Its
 coordinates (see [`ncoordinates`](@ref)) are its entries, in linear order.
 

@@ -784,7 +784,8 @@ end
             dropzeros_row(SparseIterate(T, 6), 1:5, T[0, 1, 2, 3, 4])
             dropzeros_row(SparseIterate(T, 6), 1:5, T[1, 2, 0, 3, 4])
             dropzeros_row(SparseIterate(T, 6), 1:5, T[1, 2, 3, 4, 0])
-            # runs of zeros at the end: the last nonzero takes the first removed place
+            # runs of zeros at the end (the first row drops all of them without a move, the second has a
+            # last-slot-only survivor); when a nonzero remains, it takes the first removed place
             dropzeros_row(SparseIterate(T, 8), 1:7, T[1, 0, 0, 0, 0, 0, 0])
             dropzeros_row(SparseIterate(T, 8), 1:7, T[0, 0, 0, 0, 0, 0, 1])
             dropzeros_row(SparseIterate(T, 8), 1:7, T[0, 1, 0, 0, 2, 0, 0])

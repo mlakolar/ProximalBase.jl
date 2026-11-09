@@ -163,7 +163,8 @@ the data are never rounded below it.
   exception to A3): it evaluates the entry maps in `Float64` on the exactly
   widened argument, with the steps, combined thresholds, ridge weights, bounds
   and levels rounded to `Float32` exactly as the `Float32` kernel rounds them,
-  so it solves the `Float32` problem and not the `Float64` one. A new call
+  so, for the functions that have it, it solves the `Float32` problem and not the
+  `Float64` one. A new call
   with a wider destination is a different call, with its own model precision.
 
 For [`Constrained`](@ref) on a hyperplane, halfspace, hyperslab or simplex, the
@@ -223,10 +224,12 @@ LAPACK reject `BigFloat`.
 
 **T8. Bookkeeping that is always `Float64`.** The warm-start multiplier and
 slope of a constrained search, and `IndBox`'s cached `bmax`, are seeds or
-bookkeeping. A result meets its guarantee whatever their values, including a
-warm start shared between calls in different precisions; for a `Float32` linear
-set the guarantee is the check of the exception to A3, which a stale seed can
-only make fail over to a restart or the recovery, never change the problem.
+bookkeeping. A result has the same guarantee for any value of them, a warm
+start shared between calls in different precisions included; for a `Float32`
+linear set the guarantee is the check of the exception to A3. The check uses the slope
+computed at the point found, and the stored slope only sets the size of a first
+step; a stale seed can make the check fail, and the call then restarts or goes
+to the recovery, which solve the same problem.
 
 ## [Overflow and underflow](@id numerics-range)
 
@@ -494,54 +497,79 @@ a certificate, and it is not a conservative bound on the error or a guaranteed
 forward error.
 
 - *What is checked.* The `Float32` search stops where the residual
-  `φ̂ = ⟨a, ẑ⟩ - b` at its last point is at most `2 eps(Float32)·m`, with
+  `φ̂ = ⟨a, ẑ⟩ - b` at the point found is at most `2 eps(Float32)·m`, with
   `m = Σᵢ|aᵢẑᵢ| + |b|`. Where `φ` is flat, such a point can be far from the root
   and the output far from the projection (about 500 `eps(Float32)` in #151). The
   check estimates the distance of the output from the exact point, in the norm of
   `Diagonal(1 ./ γ)`, as `max(|φ̂|, 2 eps(Float32)·m)/√s`. Here `s` is the slope of
-  `φ` at the last step of the search, and `2 eps(Float32)·m` is the noise floor
-  assumed for the evaluation of `φ`: the firm nonexpansiveness of the proximal map
-  bounds the distance by that quotient when `s` is the slope between the point
+  `φ` at the point found: the derivative of `φ` there, where the pass computed it,
+  or the slope of the secant through the last two points of the search. A search
+  that ends at its first point without a derivative there has no slope, and the
+  check does not accept it. `2 eps(Float32)·m` is the noise floor assumed for the
+  evaluation of `φ`: in exact arithmetic the firm nonexpansiveness of the proximal
+  map bounds the distance by that quotient when `s` is the slope between the point
   and the root. The result is accepted when the estimate is at most
-  `16 eps(Float32)·(m/(2√Σᵢγᵢaᵢ²) + min(|ν̂|√s, ‖x‖))`, a size of the problem.
-  `ν̂` is the multiplier found and `‖x‖` the norm of the argument in the norm of
-  `Diagonal(1 ./ γ)`; the first term costs no pass, and `‖x‖` is formed only where
-  the first term alone does not accept. The sums of the evaluation of `φ` are
-  accumulated in `Float64` where the steps are an array, except for `IndBox`,
-  `IndNonnegative`, a `Scaled` or a box on one of them (the simplex routes) and the
-  ordinary route of `SqrNormL2`, whose passes vectorize and sum accurately in `Float32`; any other function, a
-  function of your own included, sums in `Float64`. A constraint inactive by
-  more than the noise needs no slope. A point whose argument `γ|ν|` or `γ|ν||a|`
-  may have overflowed is not accepted.
+  `16 eps(Float32)·(m/(2√Σᵢγᵢaᵢ²) + min(|ν̂|√s, ‖x‖))`. The bracket is a scale
+  estimate of the size of the answer, not a bound on the norm of the computed
+  point: its first term bounds from below the norm of a point that satisfies the
+  constraint, which the point found does only up to the residual. `ν̂` is the
+  multiplier found and `‖x‖` the norm of the argument in the norm of
+  `Diagonal(1 ./ γ)`. The estimate reads the steps: for an array of steps, two
+  passes over the steps, the second also over an array normal, for a scalar step
+  none. `‖x‖` is a further read, in blocks and only as far as the comparison
+  needs, where the first term alone does not accept and the uncapped check does.
+  The sums of the evaluation of `φ` are accumulated in blocks of 1024 terms: in
+  `Float32` lanes for a scalar step, whatever the function; with an array of
+  steps in `Float64` lanes, except for `IndBox`, `IndNonnegative`, a `Scaled` or a
+  box on one of them (the simplex routes) and the ordinary route of `SqrNormL2`.
+  The `Float32` lanes of those were measured for this change, with steps stored as
+  `Float32` arrays, to stay within `1.6 eps(Float32)·m` of the exact sum on the
+  problems measured, where the other kernels measured were off by up to
+  `77 eps(Float32)·m`. The rule selects by
+  the kind of function and the form of the steps, and a function of your own sums in
+  `Float64` lanes with array steps. A constraint inactive by more than the noise
+  needs no slope. A point whose argument `γ|ν|` or `γ|ν||a|` may have overflowed is
+  not accepted.
 - *What it does not establish.* This is a check, not a bound. The slope is that of
-  the last secant, and a secant can cross a kink of `φ` and overstate the slope
-  next to the root. The noise floor is a constant chosen from measurements
-  against exact arithmetic, not a proved bound on every term of the sum. An
-  accepted result can therefore exceed `16 eps(Float32)`: on the random problems
-  up to `n = 100 000` measured for this change, by a factor of about 1.2 at most.
-  It can also, in principle, be inaccurate.
+  a secant or a derivative at the point, and a secant can cross a kink of `φ` and
+  overstate the slope next to the root. The noise floor is a constant chosen from
+  measurements against exact arithmetic, and is not proved. An accepted result can therefore exceed `16 eps(Float32)`: on the random
+  problems up to `n = 100 000` measured for this change, by a factor of about 1.2
+  at most. It can also, in principle, be inaccurate.
 - *What is refined.* A result that fails the check is searched again from zero in
-  `Float32` if it started from the last multiplier, and then in `Float64` (the
-  recovery). The recovery solves the `Float32` problem: T3 holds, and the entry
-  maps are evaluated in `Float64` with their parameters rounded to `Float32` as the
-  kernel rounds them. It is defined for `NormL1`, `NormL1Nonneg`, `ElasticNet`,
-  `IndBox`, `IndNonnegative`, `SqrNormL2`, a box on one of them and a `Scaled` of
-  one of them by a `Float32`, `Float16` or integer factor. The output is formed in
-  `Float64` and rounded once to the destination. A function without that recovery (`Tilt`, `Translate`,
-  `LinearFunction`, `ZeroFunction`, `Conjugate`, a `Scaled` by a wider factor and
-  a user-defined function) is refused: it is never solved as a different problem.
+  `Float32` if the search started from the last multiplier, and then in `Float64`
+  (the recovery). For the functions it supports the recovery solves the `Float32`
+  problem: T3 holds, and the entry maps are evaluated in `Float64` with their
+  parameters, the center of a ridge included, rounded to `Float32` as the kernel
+  rounds them. It is defined for `NormL1`, `NormL1Nonneg`, `ElasticNet`, `IndBox`,
+  `IndNonnegative`, `SqrNormL2` (with no center, or a center of `Float16`, `Float32`
+  or `Float64` entries that keep their range on rounding to `Float32`), a box on one
+  of them and a `Scaled` of one of them by a `Float32`, `Float16` or fixed-width
+  integer factor. The output is formed in `Float64` and rounded once to the
+  destination. A function without that recovery (`Tilt`, `Translate`,
+  `LinearFunction`, `ZeroFunction`, `Conjugate`, a `Scaled` by a wider factor or a
+  `BigInt`, a ridge with another center, and a user-defined function) is refused:
+  it is not solved as a different problem.
 - *How it fails.* When the check fails and the recovery is refused or finds no
-  multiplier it accepts, the call raises [`PrecisionError`](@ref) before writing
-  and leaves the function and its warm start as they were (O6). An
-  `ArgumentError` that the constraint misses the domain is raised only when
-  that is established independently of the search: the range of `⟨a, z⟩` over the
-  ranges of the entries of `f`, taken with a margin that covers the rounding of
-  its sums, lies strictly on the wrong side of the offset, or lies entirely
-  outside the hyperslab. A search that finds no bracket, in `Float32` or in the
-  recovery, does not establish it.
-- *`Float64`.* A `Float64` search keeps the acceptance of earlier releases, a
-  residual of at most `2 eps(Float64)·m`, and raises `ArgumentError` when it
-  finds no bracket. Certifying `Float64` linear-set searches under A3 is not
+  multiplier it accepts, the call raises [`PrecisionError`](@ref) before writing to
+  its destination and leaves the function's multiplier and slope as they were (O6).
+  That is a promise about the single call: in a sum over blocks (`SeparableSum`),
+  the blocks before the failing one may have been written, as O6 states for
+  failures found by computing; the general case is open
+  ([#323](https://github.com/mlakolar/ProximalBase.jl/issues/323)). An
+  `ArgumentError` that the constraint misses the domain is raised by the `Float32`
+  search only where that is established independently of the search: the range of `⟨a, z⟩` over
+  the ranges of the entries of `f` lies strictly on the wrong side of the offset, or
+  entirely outside the hyperslab, by more than a margin that covers the rounding of
+  its sums. Each finite end of the range has the margin of its own terms, so an
+  infinite opposite end does not disable the proof. A search that finds no bracket,
+  in `Float32` or in the recovery, does not establish it.
+- *`Float64`.* A `Float64` search keeps the acceptance of earlier releases: it stops
+  where the residual is at most `2 eps(Float64)·m` and accepts that point, which is
+  one of its exits (where the bracket collapses or the iteration limit is reached it
+  returns its best point without that condition). It raises `ArgumentError` when it
+  finds no bracket, which can be a failure of the bracketing and not a proof of
+  infeasibility. Certifying `Float64` linear-set searches under A3 is not
   provided; it is an open obligation of the group G5 ([#488](https://github.com/mlakolar/ProximalBase.jl/issues/488)).
 - *The test target.* `16 eps(Float32)`, normwise against a `BigFloat` reference
   of the `Float32` problem, is the target of the regression tests for their

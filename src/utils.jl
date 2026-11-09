@@ -1633,7 +1633,7 @@ case 3). Such a failure is distinct from invalid input and is not an
 [`quadratic_model!`](@ref) of a [`GLMLoss`](@ref) raise it, and so does a
 [`Constrained`](@ref) function on a hyperplane, halfspace or hyperslab in
 `Float32` whose multiplier fails the accuracy check and cannot be recovered in
-`Float64`; nothing is written to the destination in either case.
+`Float64`; the call that raises does not write its destination in either case.
 """
 struct PrecisionError <: Exception
   msg::String

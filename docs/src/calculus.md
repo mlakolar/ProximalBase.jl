@@ -514,8 +514,8 @@ of the search is one pass over the entries.
   three to five from the last multiplier on slowly changing points.
 - **Accuracy in `Float32`.** The search stops on a small residual, which leaves
   the point far from the root where ``\varphi`` is flat. In `Float32` the search
-  therefore checks its result from the residual, the slope of its last step and
-  the noise of the evaluation, and repeats it in `Float64` on the `Float32`
+  therefore checks its result from the residual, the slope of ``\varphi`` at the
+  point found and the noise of the evaluation, and repeats it in `Float64` on the `Float32`
   problem where the check fails. The check is not a certificate; the policy and
   its limits are the exception to A3 in the [Numerical contract](@ref numerics).
 - **Breakpoint searches.** For the continuous quadratic knapsack problem they
@@ -529,9 +529,10 @@ A box enters through the scalar proximal operators, so ``f`` may itself be
 intersection; for an indicator, `value_and_prox!` returns zero even when the
 intersection is empty. The multiplier search on a hyperplane, halfspace or
 hyperslab throws an `ArgumentError` if a `Float64` search cannot bracket a
-multiplier; in `Float32` a failure to bracket does not prove the intersection empty,
-and the error is raised only when the range of the constraint shows it, the call
-otherwise raising a `PrecisionError` before writing. It is not a general feasibility
+multiplier; in `Float32` a failure to bracket does not prove the intersection empty:
+the search is repeated in `Float64` where the function has such a recovery, the error
+is raised where the range of the constraint shows it, and the call otherwise raises a
+`PrecisionError` before writing. It is not a general feasibility
 test: rounding can reach the closure of an open domain, and a finite multiplier need
 not exist at the boundary of a closed domain.
 

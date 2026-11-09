@@ -235,7 +235,7 @@ const SENTINEL = -123.25
 const GATE_CONTROL = 16     # the maintainer's regression gate, in eps of the output type: ‖y − z*‖/‖z*‖ on the ordinary controls
 const GATE_FIXTURE = 16     # the same on the recoverable fixtures and the small decision cases
 # The Float64 search keeps its residual acceptance (only the Float32 model is checked), and its per-entry
-# ElasticNet controls are 8.1 to 18 eps(Float64) wrong on the base at n = 4096 to 100 000. They are kept as a
+# ElasticNet controls were measured 8.1 to 18 eps(Float64) from the oracle at n = 4096 to 100 000. They are kept as a
 # recorded regression bound of that unchanged search, not as a promise: 64 eps(Float64). The other Float64
 # controls keep the pre-registered 8.
 const GATE_CONTROL_F64 = 8
@@ -332,9 +332,9 @@ function sequence(case::Case, gate; full::Bool = true)
     expect("$(case.name) changed x", measure(case, c; x = x2), gate; weighted = w)
   end
   # stale multipliers, left by a very different problem or by a call in another precision. A Float64 model keeps
-  # the search and the acceptance of the base (numerics T8 asks for a result whatever the seed; the Float64 search
-  # does not give it for some problems, a defect that is not the Float32 defect of issue 151), so only the Float32
-  # models are tested with a stale multiplier; NaN is a cold start in every precision.
+  # the search and the acceptance of the base (numerics T8 gives a result the same guarantee for any seed; the Float64
+  # search does not give it for some problems, a defect that is not the Float32 defect of issue 151), so only the Float32
+  # models are tested with a stale multiplier; NaN is a cold start in the models of all precisions.
   f64 = all(r -> r[1].W === Float64, ref)
   for last in (f64 ? (NaN,) : full ? (1e6, -1e6, NaN) : (1e6,))
     c.last[] = last
@@ -509,8 +509,8 @@ end
 # the evaluation of the multiplier in Float32 (issue 151): the problems on which the check of the search accepts a
 # multiplier whose output is far from the exact point unless the evaluation is accurate and the tolerance is capped.
 #   range ends: x = randn(Float32), a hyperplane or halfspace whose offset is the Float32 number k ulps inside the range of
-#       ⟨a, z⟩ over the box [lo, hi]ⁿ, so that at the root every entry but one sits at an end of the box. φ is flat on the
-#       far side of the root, within the noise floor of its evaluation, and a search that starts far from the root stops
+#       ⟨a, z⟩ over the box [lo, hi]ⁿ, so that at the root all but a few entries sit at an end of the box. φ is flat on the
+#       far side of the root, within the noise floor of its evaluation, and a search that starts far from the root can stop
 #       on that piece: the output is then a few hundred eps(Float32) from the exact point.
 #   box-constrained ℓ1, scaled or not, with steps spread over e^±4.5 (and the scalar step of the same problems), and the
 #       offsets of a hyperplane, of the lower bound of a slab and of a simplex, placed at a multiplier drawn around the size

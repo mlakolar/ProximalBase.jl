@@ -129,6 +129,15 @@ function bad_cases()
   cases
 end
 
+# The cases of "Block checks before writes" that also run the Scaled and nested SeparableSum variants and the FiberSum
+# variants with the function as the diagonal or with no diagonal. The other cases run those variants in
+# blockchecks_grids.jl; all cases run the flat SeparableSum and the SliceSum here, and the FiberSum variant with the
+# function as the off-diagonal part when the point is a vector and the function is proximable (for the proximal
+# operations only).
+const WRAPPER_VARIANT_CASES = ("SqrNormL2 center", "Tilt coefficient", "GroupNormL2", "IndHyperplane shape",
+                               "LeastSquaresLoss columns", "LogisticLoss", "LogDetLoss data", "check_parameters",
+                               "IndPSD partial=false")
+
 @testset "Block checks before writes" begin
   for (name, f, x, ops) in bad_cases()
     @testset "$name" begin
@@ -138,9 +147,11 @@ end
         fs = SeparableSum(SqrNormL2(2.0), SqrNormL2(3.0), f)
         point = ([3.0], [4.0], x)
         unchanged(op, fs, point, E)
-        unchanged(op, Scaled(fs, 2.0), point, E)
-        nested = SeparableSum(SqrNormL2(2.0), SeparableSum(SqrNormL2(3.0), f))
-        unchanged(op, nested, ([3.0], ([4.0], x)), E)
+        if name in WRAPPER_VARIANT_CASES
+          unchanged(op, Scaled(fs, 2.0), point, E)
+          nested = SeparableSum(SqrNormL2(2.0), SeparableSum(SqrNormL2(3.0), f))
+          unchanged(op, nested, ([3.0], ([4.0], x)), E)
+        end
       end
 
       slices = cat(x, x, x; dims = ndims(x) + 1)
@@ -161,8 +172,10 @@ end
           E = failure_type(op, f, xv)
           for symmetric in (false, true)
             unchanged(op, FiberSum(f; diagonal = SqrNormL2(2.0), symmetric), fibers, E)
-            unchanged(op, FiberSum(SqrNormL2(2.0); diagonal = f, symmetric), fibers, E)
-            unchanged(op, FiberSum(f; diagonal = nothing, symmetric), fibers, E)
+            if name in WRAPPER_VARIANT_CASES
+              unchanged(op, FiberSum(SqrNormL2(2.0); diagonal = f, symmetric), fibers, E)
+              unchanged(op, FiberSum(f; diagonal = nothing, symmetric), fibers, E)
+            end
           end
         end
       end

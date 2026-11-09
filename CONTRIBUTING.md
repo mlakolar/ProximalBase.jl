@@ -275,16 +275,23 @@ that thorough adds. The focus files are in `.github/tier-rules.toml`, beside the
 iterate files that quick always runs (`active_handle`, `atom_iterate`,
 `iterate_invariants`, `iterate_queries`, `matrixview`, `sparse_iterate_basics`,
 `symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
-`allocations_basics`). The cases that six quick files and three thorough files leave out
-(Float32 repeats, indicator-wrapper variants and type grids: `atom_iterate_grids`,
-`conjugate_basics_grids`, `constrained_basics_grids`, `lmo_atoms_grids`,
-`nested_scaled_grids`, `scaled_infinite_level_underflow_grids`,
-`sparse_iterate_basics_grids`, `symmetric_groups_grids`,
-`zero_level_infinite_step_grids`, listed in `test/TESTING.md`) are in the full tier.
-`constrained_basics_grids` is run for a change to `src/constrained.jl`. `scaled_infinite_level_underflow_grids`,
-`symmetric_groups_grids` and `zero_level_infinite_step_grids` are companions of thorough-tier files; the rule for `src/calculus.jl`
-and the rule for the shared sources list them, and no standard-tier rule does, so the rules for a standard-tier path alone do not select them (`test:full` selects all three; a
-changed companion selects itself). A pull request runs a grids file for a change to the source of its
+`allocations_basics`). The cases that six quick files and ten thorough files leave out
+(Float32 repeats, indicator-wrapper variants, wrapper variants and type grids:
+`atom_iterate_grids`, `block_step_grids`, `blockchecks_grids`, `conjugate_basics_grids`,
+`constrained_basics_grids`, `constrained_grids`, `extreme_normals_grids`, `lmo_atoms_grids`,
+`metric_grids`, `nested_scaled_grids`, `scaled_infinite_level_underflow_grids`,
+`sparse_iterate_basics_grids`, `symmetric_groups_grids`, `symmetric_wrappers_grids`,
+`value_overflow_glm_grids`, `zero_level_infinite_step_grids`, listed in `test/TESTING.md`) are in
+the full tier. `constrained_basics_grids` is run for a change to `src/constrained.jl`. The ten
+companions of thorough-tier files (`block_step_grids`, `blockchecks_grids`, `constrained_grids`,
+`extreme_normals_grids`, `metric_grids`, `scaled_infinite_level_underflow_grids`,
+`symmetric_groups_grids`, `symmetric_wrappers_grids`, `value_overflow_glm_grids`,
+`zero_level_infinite_step_grids`) are listed by the rule for `src/calculus.jl` and the rule for
+the shared sources. No standard-tier rule lists nine of them; the rules for `src/atom_iterate.jl`
+and `src/sparse_iterate.jl` list `block_step_grids`, because `block_step` is a focus file of
+both. So the rule of a standard-tier path alone does not select those nine (`test:full` selects
+all ten, `test:thorough` none; a changed companion selects itself). A pull request runs a grids
+file for a change to the source of its
 own family (`.github/tier-rules.toml` lists the paths, `test/TESTING.md` the map), the
 nightly run and `test:full` run all of them, and `julia scripts/test.jl <name>_grids`
 runs one by name. Other source paths do not add them as automatic focus files; they
@@ -295,8 +302,8 @@ The iterate rows:
 
 | Change | Before merge |
 |---|---|
-| `src/atom_iterate.jl`, narrow | quick + `atom_iterate_grids`, `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` |
-| `src/sparse_iterate.jl`, narrow | quick + `sparse_iterate`, `sparse_iterate_basics_grids`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` |
+| `src/atom_iterate.jl`, narrow | quick + `atom_iterate_grids`, `real_iterates`, `block_step`, `block_step_grids`, `norms`, `sparsegroup`, `infinite_group_weights` |
+| `src/sparse_iterate.jl`, narrow | quick + `sparse_iterate`, `sparse_iterate_basics_grids`, `real_iterates`, `block_step`, `block_step_grids`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` |
 | `src/symmetric_parameters.jl`, narrow | quick + `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` |
 | one of them, not declared narrow | standard + the same focus files |
 | two of them | standard + both groups (the label does not apply) |

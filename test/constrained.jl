@@ -20,7 +20,9 @@ Random.seed!(1)
   fs = (NormL1(0.3, w), ElasticNet(0.2, 0.5), NormL1Nonneg(0.2), SqrNormL2(2.),
         ZeroFunction(), LinearFunction(randn(n)), Scaled(NormL1(1.), 0.4),
         IndBox(-0.3, 0.6))
-  for f in fs, C in (IndBox(-0.5, 1.), IndBox(l, u), IndNonnegative(), IndBallLinf(0.7))
+  # the box IndBox(l, u) runs with the six functions after the first two in constrained_grids.jl
+  for (i, f) in enumerate(fs), (j, C) in enumerate((IndBox(-0.5, 1.), IndBox(l, u), IndNonnegative(), IndBallLinf(0.7)))
+    j == 2 && i > 2 && continue
     @testset "$(nameof(typeof(f))) on $(nameof(typeof(C)))" begin
       c = Constrained(f, C)
       check_traits(c; proximable = true, separable = true, convex = true)
@@ -477,6 +479,8 @@ end
     a[1:7:end] .= zero(T)
     positive = abs.(a) .+ T(0.5)
     γv = T(0.2) .+ rand(rng, T, n)
+    # Float32 draws its data here, so that the Float64 data is unchanged; its checks are in constrained_grids.jl
+    T === Float32 && continue
     cases = ((IndNonnegative(), one(T), one(T)),
              (IndBox(zero(T), one(T)), one(T), T(10)),
              (Constrained(NormL1(T(0.3)), IndBox(-one(T), one(T))), -one(T), -T(n - 5)),

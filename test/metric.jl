@@ -518,7 +518,8 @@ end
                (G, w) -> SparseGroupNormL2(0.3, 0.5, G, w),
                (G, w) -> GroupMCP(0.5, G, w; a = 2.5),
                (G, w) -> GroupSCAD(0.5, G, w; a = 3.5))
-  for make in penalties, dims in ((6,), (2, 3)), centered in (false, true)
+  # GroupNormLinf and GroupSCAD run in this loop in metric_grids.jl
+  for make in (penalties[1], penalties[3], penalties[4]), dims in ((6,), (2, 3)), centered in (false, true)
     x = reshape([3.0, -4.0, 2.0, -1.0, 0.5, 2.5], dims)
     c = centered ? reshape([0.5, 1.0, -2.0, 3.0, 1.5, -0.5], dims) : nothing
     r = Regularize(make(groups, weights), 0.7, c)

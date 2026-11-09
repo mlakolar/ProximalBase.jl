@@ -549,6 +549,18 @@ function test_case(c::GCase)
   @test gradient_status(c, g2, ref) === :correct
 end
 
+# The Float32 storage cases of Logistic, Huber, SmoothCheck and the two Conv losses (sparse X, SparseIterate β and
+# AtomIterate β, with the two weights of each), and the three of those cases of Poisson that are not the SparseIterate
+# β with zero entries, run in value_overflow_glm_grids.jl. The Float64 pass, the dense Float32 cases of these losses and
+# all the Float32 cases of Squared and SquaredHinge stay here.
+function in_grids_file(c::GCase)
+  c.T === Float32 || return false
+  storage = startswith(c.name, "sparse X, cancelling row") || startswith(c.name, "SparseIterate β") ||
+            startswith(c.name, "AtomIterate β")
+  storage && (c.group in ("Logistic", "Huber", "SmoothCheck", "Conv-epanechnikov", "Conv-uniform") ||
+              (c.group == "Poisson" && !startswith(c.name, "SparseIterate β with zero entries")))
+end
+
 if !BASELINE
 @testset "GLMLoss values and gradients that leave the range" begin
   # the references agree with the package on ordinary inputs (a check of the table itself)
@@ -569,6 +581,7 @@ if !BASELINE
     @testset "$T" begin
       for c in cases(T)
         c.status === :info && continue
+        in_grids_file(c) && continue
         @testset "$(c.group): $(c.name)" begin
           test_case(c)
         end

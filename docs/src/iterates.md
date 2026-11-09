@@ -105,6 +105,11 @@ scale, equal weight) it costs 2.5–5% of the time of the faster walk, 11–32% 
 
 ## SymmetricSparseIterate
 
+For a standalone reference to the **symmetric-owner data structure**, including
+its coordinate IDs, `SymmetricCoordinates`, `matrixview`, copying and costs,
+see [SymmetricSparseIterate: coordinate owner](symmetric_sparse_iterate.md).
+This chapter also discusses the mathematical oracles that use the owner.
+
 A [`SymmetricSparseIterate`](@ref), the *owner* below, holds the
 ``q = p(p+1)/2`` variables of a real symmetric ``p \times p`` matrix: the
 entries of its lower triangle, in the compact list of a `SparseIterate`. **The

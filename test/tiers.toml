@@ -257,6 +257,8 @@ full = [
   "symmetric_parameters_centers",
   "symmetric_parameters_inventory",
   "symmetric_parameters_inventory_walk",
+  "symmetric_wrappers_grids",
+  "value_overflow_glm_grids",
   "weight_steps",
   "zero_level_infinite_step_grids",
 ]

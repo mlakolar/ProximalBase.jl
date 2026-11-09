@@ -133,7 +133,15 @@ end
     for (q, l) in ((SparseIterate(Q), L), (Q, SparseIterate(L)),
                    (SparseIterate(Q), SparseIterate(L)),
                    (Symmetric(SparseIterate(Q)), L),
-                   (Hermitian(SparseIterate(Q)), L))
+                   (Hermitian(SparseIterate(Q)), L),
+                   (transpose(SparseIterate(Q)), L),
+                   (adjoint(SparseIterate(Q)), L),
+                   (view(SparseIterate(Q), :, :), L),
+                   (Q, transpose(SparseIterate(Matrix(transpose(L))))),
+                   (Q, adjoint(SparseIterate(Matrix(adjoint(L))))),
+                   (Q, view(SparseIterate(L), :, :)),
+                   (Q, reshape(SparseIterate(vec(L)), size(L))),
+                   (Q, view(transpose(SparseIterate(Matrix(transpose(L)))), :, :)))
       g = LinearImage(QuadraticFunction(q), l)
       @test issparse(g.cache.gram)
       @test prox(g, y, γ) ≈ expected

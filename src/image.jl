@@ -118,8 +118,14 @@ function LinearImage(f::AbstractFunction, L, μ::Real; check::Bool = true)
   LinearImage(f, L, cache)
 end
 
+function _image_iterate_storage(A::AbstractArray)
+  p = parent(A)
+  p !== A && _image_iterate_storage(p)
+end
+_image_iterate_storage(::SparseIterate) = true
+
 _image_sparse(A::AbstractMatrix) = issparse(A) ||
-  A isa Union{Diagonal, Bidiagonal, Tridiagonal, SymTridiagonal}
+  A isa Union{Diagonal, Bidiagonal, Tridiagonal, SymTridiagonal} || _image_iterate_storage(A)
 _image_sparse(::SparseIterate{<:Any, 2}) = true
 _image_sparse(A::Union{Symmetric, Hermitian}) = _image_sparse(parent(A))
 

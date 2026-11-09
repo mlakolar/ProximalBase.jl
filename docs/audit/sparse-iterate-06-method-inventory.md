@@ -1,6 +1,6 @@
 # SparseIterate 0.6: source-level method inventory and disposition
 
-Status: static audit of `master` on 2026-11-08. This is an inventory of explicit definitions and required inherited functionality; it is **not** a runtime dump of Julia's effective method table, a performance measurement, or a passed test run. All line references point to `src/sparse_iterate.jl` unless noted. The code for symmetric-owner methods shares this file; it is intentionally excluded except where a common helper serves `SparseIterate`.
+Status: static inventory of the pre-removal `master` source on 2026-11-08, archived as evidence of the methods **deleted or migrated in PR #835**. The 0.6 public contract is the amended `iterate-family-0.6.md` and the current `sparse_iterate.md` guide. This is an inventory of explicit definitions and required inherited functionality; it is **not** a runtime dump of Julia's effective method table, a performance measurement, or a passed test run. All line references point to `src/sparse_iterate.jl` unless noted. The code for symmetric-owner methods shares this file; it is intentionally excluded except where a common helper serves `SparseIterate`.
 
 ## Definition of "all"
 

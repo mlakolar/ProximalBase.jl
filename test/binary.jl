@@ -180,7 +180,7 @@ end
   @test Set(l.reads) == Set(u.reads) == stored
   @test Vector(y) == Vector(x)
   @test Set(activecoordinates(y)) == Set([2, 6])
-  @test nnz(x) == 2 && x[4] == 0
+  @test nactive(x) == 2 && x[4] == 0
   z = copy(x)
   prox!(z, f, z, 0.7)
   @test Set(activecoordinates(z)) == stored && Vector(z) == Vector(x)

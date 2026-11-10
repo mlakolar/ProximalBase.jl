@@ -1,5 +1,7 @@
 module EnvelopeTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -21,7 +23,7 @@ struct Quad <: SeparableFunction
   a::Float64
 end
 PB.value_entry(f::Quad, v, i) = f.a * v^2 / 2
-PB.prox_entry(f::Quad, v, i, γ) = v / (1 + γ * f.a)
+PB.prox_block(f::Quad, v, i, γ) = v / (1 + γ * f.a)
 PB.isconvex(::Type{Quad}) = true
 
 @testset "MoreauEnvelope" begin
@@ -64,10 +66,10 @@ PB.isconvex(::Type{Quad}) = true
     f = NormL1(0.4, rand(8))
     e = MoreauEnvelope(f, γ)
     p = prox(e, x, 0.6)
-    @test [prox_entry(e, x[i], i, 0.6) for i in 1:8] ≈ p
+    @test [prox_block(e, x[i], i, 0.6) for i in 1:8] ≈ p
     xs = SparseIterate(sparse(x))
     for k in 1:8
-      prox_coordinate!(xs, e, k, 0.6)
+      take_block_step!(xs, e, k, 0.6)
     end
     @test Vector(xs) ≈ p
     # the envelope of a norm has a zero derivative at zero
@@ -81,12 +83,12 @@ PB.isconvex(::Type{Quad}) = true
   @testset "restrict requires a separable function" begin
     restrict_msg = "restrict of MoreauEnvelope requires a separable function"
     kkt_msg = "kkt_violation of MoreauEnvelope requires a separable function"
-    prox_msg = "prox_entry of MoreauEnvelope requires a separable function"
+    prox_msg = "prox_block of MoreauEnvelope requires a separable function"
     e = MoreauEnvelope(QuadraticFunction([2.0 1.0; 1.0 2.0], zeros(2)), 0.5)
     @test_throws ArgumentError(restrict_msg) restrict(e, [1])
     @test_throws ArgumentError(kkt_msg) kkt_violation(e, zeros(2), 1)
     @test_throws ArgumentError(kkt_msg) kkt_violation(e, zeros(2), zeros(2), 1)
-    @test_throws ArgumentError(prox_msg) prox_entry(e, 0.5, 1, 1.0)
+    @test_throws ArgumentError(prox_msg) prox_block(e, 0.5, 1, 1.0)
     @test_throws ArgumentError(restrict_msg) restrict(Scaled(e, 2.0), [1])
     @test_throws ArgumentError(restrict_msg) restrict(Tilt(e, [1.0, 1.0], 0.0), [1])
     @test_throws ArgumentError(restrict_msg) restrict(Translate(e, [0.3, 0.0]), [1])
@@ -96,7 +98,7 @@ PB.isconvex(::Type{Quad}) = true
     eg = MoreauEnvelope(GroupNormL2(1.0, [[1, 2], [3, 4]]), 0.7)
     @test_throws ArgumentError(restrict_msg) restrict(eg, [1, 3, 4])
     @test_throws ArgumentError(kkt_msg) kkt_violation(eg, zeros(4), 1)
-    @test_throws ArgumentError(prox_msg) prox_entry(eg, 0.5, 1, 1.0)
+    @test_throws ArgumentError(prox_msg) prox_block(eg, 0.5, 1, 1.0)
 
     for f in (NormL1(0.8, [0.5, 1.0, 2.0, 1.5]),
               IndBox([-1.0, 0.5, -2.0, 1.0], [1.0, 2.0, 0.0, 3.0]))
@@ -200,13 +202,13 @@ end
       @test_throws ArgumentError operation(alias, e, alias, floatmax(T))
       @test alias == x
     end
-    @test_throws ArgumentError prox_entry(e, one(T), 1, floatmax(T))
+    @test_throws ArgumentError prox_block(e, one(T), 1, floatmax(T))
     # The difference between finite opposite endpoints can overflow even when
     # their equal-weight interpolation is exactly zero.
     m = floatmax(T)
     centered = MoreauEnvelope(IndBox(m, m), one(T))
     @test prox(centered, T[-m], one(T)) == T[0]
-    @test prox_entry(centered, -m, 1, one(T)) == zero(T)
+    @test prox_block(centered, -m, 1, one(T)) == zero(T)
   end
 end
 

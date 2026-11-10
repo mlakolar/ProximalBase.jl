@@ -58,13 +58,13 @@ A separable function ``f(x) = \sum_i f_i(x_i)`` subtypes
 [`SeparableFunction`](@ref) and implements two scalar functions:
 
 - [`value_entry`](@ref)`(f, v, i)`, the value ``f_i(v)``;
-- [`prox_entry`](@ref)`(f, v, i, γ)`, the proximal operator of ``\gamma f_i`` at
+- [`prox_block`](@ref)`(f, v, i, γ)`, the proximal operator of ``\gamma f_i`` at
   ``v``.
 
 Here ``i`` is the linear index of the entry, which lets parameters such as
 weights depend on it. The value, [`prox!`](@ref) and
-[`value_and_prox!`](@ref) then work on any array and on the three iterates, and
-[`prox_coordinate!`](@ref) works on the iterates. Declare
+[`value_and_prox!`](@ref) then work on any array and on the three iterates.
+Solvers call the scalar `prox_block` and write their iterate separately. Declare
 [`iszeropreserving`](@ref) when ``f_i(0) = 0`` and the proximal operator maps
 ``0`` to ``0``. Then the value and the proximal operator on a sparse iterate
 touch only its stored entries.
@@ -75,7 +75,7 @@ struct WeightedSquare <: SeparableFunction
     w::Vector{Float64}
 end
 ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
-ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
+ProximalBase.prox_block(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 ProximalBase.iszeropreserving(::WeightedSquare) = true
 ProximalBase.isconvex(::Type{WeightedSquare}) = true
 ProximalBase.entry_parameters(f::WeightedSquare) = (:w => f.w,)
@@ -105,7 +105,8 @@ inside another one, can also leave them written.
 ```@example extending
 xs = SparseIterate(3)                          # a coordinate step on a sparse iterate
 xs[2] = 1.0
-prox_coordinate!(xs, f, 2, 0.5), nactive(xs)
+xs[2] = prox_block(f, xs[2], 2, 0.5)
+nactive(xs)
 ```
 
 On a `SymmetricSparseIterate`, the index ``i`` of entry ``(r, c)`` is
@@ -180,7 +181,7 @@ checks are defined once the Test standard library is loaded, and they run
   smaller proximal objective);
 - [`test_gradient`](@ref ProximalBase.Testing.test_gradient): the gradient
   against central finite differences;
-- [`test_separable`](@ref ProximalBase.Testing.test_separable): `prox_entry`
+- [`test_separable`](@ref ProximalBase.Testing.test_separable): `prox_block`
   against `prox!`, `value_entry` against the value, coordinate steps on the
   three iterates, and the O(nnz) paths when the function preserves zero. A
   zero-preserving function of any type that has a value must also have

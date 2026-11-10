@@ -19,7 +19,7 @@ support a refit keeps. The pattern is stored as a `BitArray`; a `BitArray`
 argument is used as it is, not copied.
 
 Its proximal operator zeroes the entries outside the pattern. It is separable
-and preserves zeros, so [`prox_coordinate!`](@ref) updates any coordinate, and
+and preserves zeros, so [`prox_block`](@ref) computes any scalar entry, and
 on a sparse iterate the value and the proximal operator touch only the stored
 entries. With [`LogDetLoss`](@ref) in ADMM it gives the Gaussian maximum
 likelihood estimate on a known graph. On a `SymmetricSparseIterate` the pattern
@@ -92,7 +92,7 @@ end
 
 Base.@propagate_inbounds value_entry(f::IndPattern, v::T, i::Integer) where {T<:Real} =
   (f.P[i] | (abs(v) <= _tol(float(T)))) ? zero(float(T)) : float(T)(Inf)
-Base.@propagate_inbounds prox_entry(f::IndPattern, v::T, i::Integer, ::Real) where {T<:Real} =
+Base.@propagate_inbounds prox_block(f::IndPattern, v::T, i::Integer, ::Real) where {T<:Real} =
   ifelse(f.P[i], float(v), zero(float(T)))
 
 # an entry on the pattern is free, and one off it is fixed at zero
@@ -157,7 +157,7 @@ end
 
 Base.@propagate_inbounds value_entry(f::IndBanded, v::T, i::Integer) where {T<:Real} =
   (_inband(f, i) | (abs(v) <= _tol(float(T)))) ? zero(float(T)) : float(T)(Inf)
-Base.@propagate_inbounds prox_entry(f::IndBanded, v::T, i::Integer, ::Real) where {T<:Real} =
+Base.@propagate_inbounds prox_block(f::IndBanded, v::T, i::Integer, ::Real) where {T<:Real} =
   ifelse(_inband(f, i), float(v), zero(float(T)))
 
 kkt_violation(f::IndBanded, g::AbstractArray, i::Integer) =

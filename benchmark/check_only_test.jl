@@ -219,7 +219,7 @@ end
                "sparse/first_activation/Float64/n10000_s100/absent_distinct_batch/first_activation",
                "owner/write_X[i,j]_active/Float64/p500_s100/active/warm",
                # the second sweeps the iterate that the first leaves changed
-               "owner/sweep_prox_coordinate!/Float64/p500_s100/NormL1/warm",
+               "owner/sweep_block_prox_write/Float64/p500_s100/NormL1/warm",
                "owner/sweep_activecoordinates/Float64/p500_s100/trivial_update/warm")
         @test message(() -> check!(byid(id))) == ""
     end

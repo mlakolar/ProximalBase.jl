@@ -7,7 +7,7 @@ module ConjugatePrecisionTest
 
 using Test
 using ProximalBase
-using ProximalBase: prox_entry
+using ProximalBase: prox_block
 using LinearAlgebra
 using JLArrays
 using ..TestUtils
@@ -225,16 +225,16 @@ end
       xa = copy(x)
       value_and_prox!(xa, c, xa, γ)
       @test xa == y
-      # prox_entry is the same map, entry by entry
-      @test all(i -> relerr(prox_entry(c, x[i], i, γ), refs[i]) <= 8 * eps(Float64), 1:2)
-      @test all(i -> prox_entry(c, x[i], i, γ) == prox_entry(c, x[i], i, Float64(γ)), 1:2)
+      # prox_block is the same map, entry by entry
+      @test all(i -> relerr(prox_block(c, x[i], i, γ), refs[i]) <= 8 * eps(Float64), 1:2)
+      @test all(i -> prox_block(c, x[i], i, γ) == prox_block(c, x[i], i, Float64(γ)), 1:2)
     end
     # the entry of the plain quadratic
-    @test relerr(prox_entry(Conjugate(SqrNormL2()), 1.0, 1, γ), ref_sqr(1.0, γ)) <= 8 * eps(Float64)
+    @test relerr(prox_block(Conjugate(SqrNormL2()), 1.0, 1, γ), ref_sqr(1.0, γ)) <= 8 * eps(Float64)
   end
   # Float32 entries stay Float32
-  @test prox_entry(Conjugate(ElasticNet(0.5, 2.0)), 2f0, 1, 3f0) isa Float32
-  @test relerr(prox_entry(Conjugate(ElasticNet(0.5, 2.0)), 2f0, 1, 3f0), ref_en(2f0, 3f0)) <= 4 * eps(Float32)
+  @test prox_block(Conjugate(ElasticNet(0.5, 2.0)), 2f0, 1, 3f0) isa Float32
+  @test relerr(prox_block(Conjugate(ElasticNet(0.5, 2.0)), 2f0, 1, 3f0), ref_en(2f0, 3f0)) <= 4 * eps(Float32)
 end
 
 @testset "step arrays of a union or abstract element type" begin
@@ -639,10 +639,10 @@ end
       prox!(y, Conjugate(SqrNormL2(λ)), [x], γ)
       @test ulp_error(Float64, y[1], ref(λ, x, γ)) <= 2
     end
-    # prox_entry is the same map
+    # prox_block is the same map
     for γ in (1e-10, 1.0, 1e10, 1e300), v in (1e300, -3.0, 1e-300)
       f = SqrNormL2(2.0, [0.25])
-      e = prox_entry(Conjugate(f), v, 1, γ)
+      e = prox_block(Conjugate(f), v, 1, γ)
       @test ulp_error(Float64, e, ref(2.0, v, γ, 0.25)) <= 2
       @test e == prox!(zeros(1), Conjugate(f), [v], γ)[1]
     end
@@ -668,10 +668,10 @@ end
       @test allocs(value_and_prox!, by, c, bx, γ) == 0
     end
   end
-  # prox_entry in a loop
+  # prox_block in a loop
   function entries!(out, c, v, γ)
     @inbounds for i in eachindex(out, v)
-      out[i] = prox_entry(c, v[i], i, γ)
+      out[i] = prox_block(c, v[i], i, γ)
     end
     out
   end

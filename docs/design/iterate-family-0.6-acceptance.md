@@ -1,5 +1,13 @@
 # The iterate family in 0.6: compatibility and acceptance
 
+> **#844 amendment:** The storage-aware `prox_coordinate!` requirements and
+> `prox_entry` spelling below are superseded by
+> [the pure block proximal contract](block-prox-0.6.md). Solvers compute
+> `prox_block`/`prox_block!`, convert function indices explicitly, validate
+> symmetric parameters and layouts, then write through public storage APIs.
+> Iterate representation, write activation and KKT requirements stay in force.
+
+
 > **The target 0.6 design and acceptance plan, signed off on 2026-11-01 (FD-16
 > decided on 2026-11-06: the direct product), not documentation of a registered release.** This plan explains how
 > callers move to the [contract](iterate-family-0.6.md) and how an implementer

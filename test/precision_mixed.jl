@@ -478,7 +478,7 @@ if occursin(selection, "regressions")
     translated = Translate(NormL1(1.0), [1e8])
     x, y = [0.5], zeros(Float32, 1)
     @test prox!(y, translated, x, 1.0) == Float32[0]
-    @test prox_entry(translated, x[1], 1, 1.0) === 1.5
+    @test prox_block(translated, x[1], 1, 1.0) === 1.5
   end
 end
 

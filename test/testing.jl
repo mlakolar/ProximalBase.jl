@@ -44,7 +44,7 @@ struct IdentityProx <: SeparableFunction               # λ|x| with the identity
   λ::Float64
 end
 PB.value_entry(f::IdentityProx, v, i) = f.λ * abs(v)
-PB.prox_entry(::IdentityProx, v, i, γ) = float(v)
+PB.prox_block(::IdentityProx, v, i, γ) = float(v)
 PB.isconvex(::Type{IdentityProx}) = true
 
 struct WrongValue <: AbstractFunction                  # value_and_prox! reports twice the value
@@ -84,7 +84,7 @@ end
 struct FalseZero <: SeparableFunction                  # declares that it preserves zero, but shifts it
 end
 PB.value_entry(::FalseZero, v, i) = abs2(v - 0.1) / 2
-PB.prox_entry(::FalseZero, v, i, γ) = (v + 0.1γ) / (1 + γ)
+PB.prox_block(::FalseZero, v, i, γ) = (v + 0.1γ) / (1 + γ)
 PB.iszeropreserving(::FalseZero) = true
 
 struct FalseZeroWrapper{F<:AbstractFunction} <: AbstractFunction
@@ -92,7 +92,7 @@ struct FalseZeroWrapper{F<:AbstractFunction} <: AbstractFunction
 end
 PB.isseparable(::Type{<:FalseZeroWrapper}) = true
 PB.iszeropreserving(::FalseZeroWrapper) = true
-PB.prox_entry(f::FalseZeroWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB.prox_block(f::FalseZeroWrapper, v::Real, i::Integer, γ::Real) = prox_block(f.f, v, i, γ)
 PB.prox!(y::AbstractArray, f::FalseZeroWrapper, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
 
 # a separable wrapper with correct delegated prox, whose value is shifted by 1 (so f(0) = 1)
@@ -101,7 +101,7 @@ struct OffsetWrapper{F<:AbstractFunction} <: AbstractFunction
 end
 PB.isseparable(::Type{<:OffsetWrapper}) = true
 PB.iszeropreserving(::OffsetWrapper) = true
-PB.prox_entry(f::OffsetWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB.prox_block(f::OffsetWrapper, v::Real, i::Integer, γ::Real) = prox_block(f.f, v, i, γ)
 PB.prox!(y::AbstractArray, f::OffsetWrapper, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
 (f::OffsetWrapper)(x::AbstractArray) = f.f(x) + 1
 
@@ -112,7 +112,7 @@ end
 ValueWrapper(f::F; value::Bool = true) where {F<:AbstractFunction} = ValueWrapper{F, value}(f)
 PB.isseparable(::Type{<:ValueWrapper}) = true
 PB.iszeropreserving(::ValueWrapper) = true
-PB.prox_entry(f::ValueWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB.prox_block(f::ValueWrapper, v::Real, i::Integer, γ::Real) = prox_block(f.f, v, i, γ)
 PB.prox!(y::AbstractArray, f::ValueWrapper, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
 (f::ValueWrapper{<:Any, true})(x::AbstractArray) = f.f(x)
 
@@ -134,7 +134,7 @@ for W in (:VectorValue, :WrongSparseValue, :WrongFusedValue, :WrongFusedOutput)
   @eval begin
     PB.isseparable(::Type{<:$W}) = true
     PB.iszeropreserving(::$W) = true
-    PB.prox_entry(f::$W, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+    PB.prox_block(f::$W, v::Real, i::Integer, γ::Real) = prox_block(f.f, v, i, γ)
     PB.prox!(y::AbstractArray, f::$W, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
   end
 end
@@ -160,31 +160,31 @@ for W in (:OffsetVectorValue, :TwoArgCall)
   @eval begin
     PB.isseparable(::Type{<:$W}) = true
     PB.iszeropreserving(::$W) = true
-    PB.prox_entry(f::$W, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+    PB.prox_block(f::$W, v::Real, i::Integer, γ::Real) = prox_block(f.f, v, i, γ)
     PB.prox!(y::AbstractArray, f::$W, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
   end
 end
 (f::OffsetVectorValue)(x::Vector) = f.f(x) + 1
 (f::TwoArgCall)(x::AbstractArray, y::AbstractArray) = f.f(x) + f.f(y)
 
-struct WrongEntries <: SeparableFunction               # prox! overridden, disagreeing with prox_entry
+struct WrongEntries <: SeparableFunction               # prox! overridden, disagreeing with prox_block
   λ::Float64
 end
 PB.value_entry(f::WrongEntries, v, i) = f.λ * abs(v)
-PB.prox_entry(f::WrongEntries, v, i, γ) = shrink(v, γ * f.λ)
+PB.prox_block(f::WrongEntries, v, i, γ) = shrink(v, γ * f.λ)
 PB.prox!(y::AbstractArray, ::WrongEntries, x::AbstractArray, γ::Real) = (y .= x)
 
 struct WrongKKT <: SeparableFunction                   # NormL1 with twice the threshold in kkt_violation
   λ::Float64
 end
 PB.value_entry(f::WrongKKT, v, i) = f.λ * abs(v)
-PB.prox_entry(f::WrongKKT, v, i, γ) = shrink(v, γ * f.λ)
+PB.prox_block(f::WrongKKT, v, i, γ) = shrink(v, γ * f.λ)
 PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
 
 struct UserSquare{D} <: SeparableFunction end
 PB.entry_parameters(::UserSquare{true}) = ()
 PB.value_entry(::UserSquare, v, i) = abs2(v) / 2
-PB.prox_entry(::UserSquare, v, i, γ) = v / (1 + γ)
+PB.prox_block(::UserSquare, v, i, γ) = v / (1 + γ)
 PB.iszeropreserving(::UserSquare) = true
 
 # tuple-valued arguments: functions that fail the gradient check, and one that records its points

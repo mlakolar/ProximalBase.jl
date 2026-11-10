@@ -1,5 +1,7 @@
 module StepChecksTest
 
+using ..TestUtils: take_block_step!
+
 # Translate, Tilt and Regularize pass a transformed input to the inner function
 # in a buffer of their own: when the inner function rejects a step, the output
 # and an input that it aliases are unchanged.
@@ -330,7 +332,7 @@ end
   for penalty in (f, r)
     x = AtomIterate(Float32[1, 2, 3, 4], groups)
     before = copy(x)
-    @test_throws ArgumentError prox_coordinate!(x, penalty, 1, 0.75f0)
+    @test_throws ArgumentError take_block_step!(x, penalty, 1, 0.75f0)
     @test x.storage == before.storage
     @test x.active == before.active
     @test x.position == before.position
@@ -355,16 +357,16 @@ end
   @test value_and_prox!(copy(x), f, x, 0.75f0) === 0.0f0
   for f in (GroupNormL2(1.0, groups), GroupSCAD(1.0, groups)), k in (0, 3)
     x = AtomIterate(ones(4), groups)
-    @test_throws BoundsError prox_coordinate!(x, Regularize(f, 0.5), k, 0.75)
+    @test_throws BoundsError take_block_step!(x, Regularize(f, 0.5), k, 0.75)
     @test x == ones(4)
   end
   x = AtomIterate(Float32[1, 2, 3, 4], groups)
   f = GroupSCAD(1.0, groups)
   r = Regularize(f, 0.5)
   expected = prox(r, Vector(x), 0.75f0)
-  prox_coordinate!(x, r, 1, 0.75f0)
+  take_block_step!(x, r, 1, 0.75f0)
   @test x.storage[1:2] == expected[1:2]
-  @test allocs(prox_coordinate!, x, r, 1, 0.75f0) == 0
+  @test allocs(prox_block!, zeros(Float32,2), r, collect(atom(x,1)), 1, 0.75f0) == 0
   @test allocs(value_and_prox!, copy(x), f, x, 0.75f0) == 0
   @test allocs(value_and_prox!, Vector(x), f, Vector(x), 0.75f0) == 0
 end

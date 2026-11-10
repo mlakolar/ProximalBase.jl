@@ -12,7 +12,7 @@ struct ScaledSquare{T} <: SeparableFunction
   c::T
 end
 ProximalBase.value_entry(f::ScaledSquare, v, i) = f.c * v^2 / 2
-ProximalBase.prox_entry(f::ScaledSquare, v, i, γ) = v / (1 + γ * f.c)
+ProximalBase.prox_block(f::ScaledSquare, v, i, γ) = v / (1 + γ * f.c)
 ProximalBase.iszeropreserving(::ScaledSquare) = true
 
 # the values agree, including Inf for a point outside a set

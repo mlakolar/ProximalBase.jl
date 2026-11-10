@@ -136,7 +136,7 @@ end
       uu = y * v                                  # the margin as the implementation forms it
       want = (uu >= 1 ? uu : (uu < 1 - s ? uu + s : one(S))) / y
       f = HingeLoss([y], [w])
-      @test prox_entry(f, v, 1, γ) === want
+      @test prox_block(f, v, 1, γ) === want
       checked += 1
     end
   end

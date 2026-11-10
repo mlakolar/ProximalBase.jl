@@ -1,5 +1,7 @@
 module ConstrainedTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -29,7 +31,7 @@ Random.seed!(1)
       for γ in (0.4, 1.7)
         p = check_prox(c, x, γ)
         @test p ≈ clamp.(prox(f, x, γ), c.box.l, c.box.u)
-        @test all(i -> prox_entry(c, x[i], i, γ) ≈ p[i], 1:n)
+        @test all(i -> prox_block(c, x[i], i, γ) ≈ p[i], 1:n)
       end
     end
   end
@@ -74,7 +76,7 @@ end
         c = Constrained(f, H(a, b))
         z = check_prox(c, 2 .* x, 0.9)
         H === IndHyperplane ? (@test dot(a, z) ≈ b) : (@test dot(a, z) <= b + 1e-12)
-        @test z[3] ≈ prox_entry(f, 2x[3], 3, 0.9)           # aᵢ = 0: independent of ν
+        @test z[3] ≈ prox_block(f, 2x[3], 3, 0.9)           # aᵢ = 0: independent of ν
       end
     end
   end
@@ -95,7 +97,7 @@ struct NoSlope{F} <: SeparableFunction
   f::F
 end
 ProximalBase.entry_parameters(f::NoSlope) = ProximalBase.entry_parameters(f.f)
-ProximalBase.prox_entry(g::NoSlope, v, i, γ) = prox_entry(g.f, v, i, γ)
+ProximalBase.prox_block(g::NoSlope, v, i, γ) = prox_block(g.f, v, i, γ)
 ProximalBase.value_entry(g::NoSlope, v, i) = value_entry(g.f, v, i)
 ProximalBase.isconvex(::Type{<:NoSlope}) = true
 
@@ -107,12 +109,12 @@ struct Counted{F} <: SeparableFunction
   f::F
 end
 ProximalBase.entry_parameters(f::Counted) = ProximalBase.entry_parameters(f.f)
-ProximalBase.prox_entry(g::Counted, v, i, γ) = (CALLS[] += 1; prox_entry(g.f, v, i, γ))
+ProximalBase.prox_block(g::Counted, v, i, γ) = (CALLS[] += 1; prox_block(g.f, v, i, γ))
 ProximalBase.value_entry(g::Counted, v, i) = value_entry(g.f, v, i)
 ProximalBase.isconvex(::Type{<:Counted}) = true
 ProximalBase._has_prox_slope(::Type{<:Counted{F}}) where {F} = ProximalBase._has_prox_slope(F)
-ProximalBase._prox_entry_slope(g::Counted, v, i, γ) =
-  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_entry_slope(g.f, v, i, γ))
+ProximalBase._prox_block_slope(g::Counted, v, i, γ) =
+  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_block_slope(g.f, v, i, γ))
 
 @testset "the search starts from the last multiplier" begin
   n = 2000
@@ -171,12 +173,12 @@ struct Ranged{F} <: SeparableFunction
   f::F
 end
 ProximalBase.entry_parameters(f::Ranged) = ProximalBase.entry_parameters(f.f)
-ProximalBase.prox_entry(g::Ranged, v, i, γ) = (CALLS[] += 1; prox_entry(g.f, v, i, γ))
+ProximalBase.prox_block(g::Ranged, v, i, γ) = (CALLS[] += 1; prox_block(g.f, v, i, γ))
 ProximalBase.value_entry(g::Ranged, v, i) = value_entry(g.f, v, i)
 ProximalBase.isconvex(::Type{<:Ranged}) = true
 ProximalBase._has_prox_slope(::Type{<:Ranged{F}}) where {F} = ProximalBase._has_prox_slope(F)
-ProximalBase._prox_entry_slope(g::Ranged, v, i, γ) =
-  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_entry_slope(g.f, v, i, γ))
+ProximalBase._prox_block_slope(g::Ranged, v, i, γ) =
+  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_block_slope(g.f, v, i, γ))
 ProximalBase._has_prox_range(::Type{<:Ranged{F}}) where {F} = ProximalBase._has_prox_range(F)
 ProximalBase._prox_range(g::Ranged, i::Integer, ::Type{S}) where {S} = ProximalBase._prox_range(g.f, i, S)
 ProximalBase._has_uniform_range(::Type{<:Ranged{F}}) where {F} = ProximalBase._has_uniform_range(F)
@@ -242,15 +244,15 @@ ProximalBase._has_uniform_range(::Type{<:Ranged{F}}) where {F} = ProximalBase._h
     @inferred prox!(y, c, x, 0.7)
   end
 
-  # the ranges of the scalar proximal operators, reached by prox_entry
+  # the ranges of the scalar proximal operators, reached by prox_block
   for f in (IndNonnegative(), NormL1Nonneg(0.2), NormL1Nonneg(0.2, w), IndBox(-0.5, 1), IndBox(l, u), Scaled(IndBox(0, 1), 2.),
             Tilt(IndNonnegative(), b), Translate(IndBox(0, 1), b), Constrained(NormL1(0.3), IndBox(-1, 1)),
             Constrained(NormL1Nonneg(0.3), IndBox(-1, 1)), Constrained(ElasticNet(0.1, 1.), IndNonnegative()))
     @test ProximalBase._has_prox_range(typeof(f))
     for i in (1, 2, 3)
       lo, hi = ProximalBase._prox_range(f, i, Float64)
-      @test isfinite(lo) ? lo == prox_entry(f, -1e300, i, 0.7) : lo == -Inf
-      @test isfinite(hi) ? hi == prox_entry(f, 1e300, i, 0.7) : hi == Inf
+      @test isfinite(lo) ? lo == prox_block(f, -1e300, i, 0.7) : lo == -Inf
+      @test isfinite(hi) ? hi == prox_block(f, 1e300, i, 0.7) : hi == Inf
     end
   end
   @test ProximalBase._prox_range(NormL1(0.3), 1, Float32) === (-Inf32, Inf32)
@@ -315,10 +317,10 @@ end
             Constrained(NormL1(0.2), IndBox(-1, 1)))
     @test ProximalBase._has_prox_slope(typeof(f))
     for i in 1:n, v in (-2.3, -0.45, 0.05, 0.7, 1.9)          # away from the kinks
-      z, dz = ProximalBase._prox_entry_slope(f, v, i, 0.8)
-      @test z == prox_entry(f, v, i, 0.8)
+      z, dz = ProximalBase._prox_block_slope(f, v, i, 0.8)
+      @test z == prox_block(f, v, i, 0.8)
       h = 1e-7
-      @test dz ≈ (prox_entry(f, v + h, i, 0.8) - prox_entry(f, v - h, i, 0.8)) / 2h atol = 1e-6
+      @test dz ≈ (prox_block(f, v + h, i, 0.8) - prox_block(f, v - h, i, 0.8)) / 2h atol = 1e-6
     end
   end
   @test !ProximalBase._has_prox_slope(typeof(MCP(1.)))
@@ -326,14 +328,14 @@ end
 end
 
 @testset "the slope of the ridge where γλ leaves the range of the model type" begin
-  # The slope is the weight prox_entry applies to the argument. It is compared with
+  # The slope is the weight prox_block applies to the argument. It is compared with
   # 1/(1 + γλ) in BigFloat to a few steps of the model type (a subnormal slope has few
-  # bits), and, for an entry without a center, bit for bit with prox_entry at v = 1.
+  # bits), and, for an entry without a center, bit for bit with prox_block at v = 1.
   tol(W, exact) = 4 * max(big(eps(W)) * exact, big(nextfloat(zero(W))))
   slope_ok(W, f, v, i, γ) = begin
-    z, dz = ProximalBase._prox_entry_slope(f, v, i, γ)
+    z, dz = ProximalBase._prox_block_slope(f, v, i, γ)
     exact = inv(1 + big(γ) * big(f.λ))
-    dz isa W && isequal(z, prox_entry(f, v, i, γ)) && abs(big(dz) - exact) <= tol(W, exact)
+    dz isa W && isequal(z, prox_block(f, v, i, γ)) && abs(big(dz) - exact) <= tol(W, exact)
   end
   # a factor m·2^k of the type T, or nothing where it is not a normal number of T
   factor(T, m, k) = (x = ldexp(T(m), k); isfinite(x) && !iszero(x) && !issubnormal(x) ? x : nothing)
@@ -356,7 +358,7 @@ end
   for (W, Λ, γ, λ, k) in cases
     f = SqrNormL2(λ)
     @test slope_ok(W, f, one(W), 1, γ)
-    @test ProximalBase._prox_entry_slope(f, one(W), 1, γ)[2] == prox_entry(f, one(W), 1, γ)
+    @test ProximalBase._prox_block_slope(f, one(W), 1, γ)[2] == prox_block(f, one(W), 1, γ)
     # a single factor at an exponent of the sweep keeps it
     γ == 1 && @test exponent(λ) == k
   end
@@ -367,14 +369,14 @@ end
   end
 
   # the examples of the issue, and a Float64 λ on Float32 data
-  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1f0, 30)), 1f0, 1, ldexp(1f0, 100)) == (7.34684f-40, 7.34684f-40)
-  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 40)), 1.0, 1, ldexp(1.0, 1000))[2] == 8.487983164e-314
-  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 40)), 1f0, 1, ldexp(1f0, 100))[2] > 0
+  @test ProximalBase._prox_block_slope(SqrNormL2(ldexp(1f0, 30)), 1f0, 1, ldexp(1f0, 100)) == (7.34684f-40, 7.34684f-40)
+  @test ProximalBase._prox_block_slope(SqrNormL2(ldexp(1.0, 40)), 1.0, 1, ldexp(1.0, 1000))[2] == 8.487983164e-314
+  @test ProximalBase._prox_block_slope(SqrNormL2(ldexp(1.0, 40)), 1f0, 1, ldexp(1f0, 100))[2] > 0
   # a true slope that underflows is 0, for both outputs
-  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1f0, 100)), 1f0, 1, ldexp(1f0, 100)) == (0f0, 0f0)
-  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 1000)), 1.0, 1, ldexp(1.0, 100)) == (0.0, 0.0)
+  @test ProximalBase._prox_block_slope(SqrNormL2(ldexp(1f0, 100)), 1f0, 1, ldexp(1f0, 100)) == (0f0, 0f0)
+  @test ProximalBase._prox_block_slope(SqrNormL2(ldexp(1.0, 1000)), 1.0, 1, ldexp(1.0, 100)) == (0.0, 0.0)
 
-  # With a center: the value is that of prox_entry, bit for bit; the slope does not depend
+  # With a center: the value is that of prox_block, bit for bit; the slope does not depend
   # on the sign of the argument or the center, and is the W-rounded weight. A center that
   # leaves W's range is applied in a wider type, where the weights are derived again, so
   # the value may differ from a W-rounded blend and the slope is still the W-rounded
@@ -387,8 +389,8 @@ end
         f, fc = SqrNormL2(λ), SqrNormL2(λ, W[c, -c])
         for i in 1:2
           @test slope_ok(W, fc, v, i, γ)
-          z, dz = ProximalBase._prox_entry_slope(fc, v, i, γ)
-          @test dz == ProximalBase._prox_entry_slope(f, v, i, γ)[2]
+          z, dz = ProximalBase._prox_block_slope(fc, v, i, γ)
+          @test dz == ProximalBase._prox_block_slope(f, v, i, γ)[2]
           ci = i == 1 ? c : -c
           ref = (big(v) + big(γ) * big(λ) * big(ci)) / (1 + big(γ) * big(λ))
           @test abs(big(z) - ref) <= 4 * big(eps(W)) * (abs(big(v)) + abs(big(ci))) + big(nextfloat(zero(W)))
@@ -400,20 +402,20 @@ end
   for (γ, λ, y) in ((1f0, ldexp(1.0, -100), 1e40), (1f0, ldexp(1.0, -900), 1e300), (ldexp(1f0, 100), ldexp(1.0, 30), 1e300))
     for (v, c) in ((1.5f0, y), (-1.5f0, y), (1.5f0, -y), (-1.5f0, -y))
       fc = SqrNormL2(λ, [c])
-      z, dz = ProximalBase._prox_entry_slope(fc, v, 1, γ)
-      @test dz isa Float32 && isequal(z, prox_entry(fc, v, 1, γ))
+      z, dz = ProximalBase._prox_block_slope(fc, v, 1, γ)
+      @test dz isa Float32 && isequal(z, prox_block(fc, v, 1, γ))
       exact = inv(1 + big(γ) * big(λ))
       @test abs(big(dz) - exact) <= tol(Float32, exact)
-      @test dz == ProximalBase._prox_entry_slope(SqrNormL2(λ), v, 1, γ)[2]
+      @test dz == ProximalBase._prox_block_slope(SqrNormL2(λ), v, 1, γ)[2]
     end
   end
   # the ordinary route agrees where its preconditions hold
   for W in (Float32, Float64)
     fc = SqrNormL2(W(0.7), W[3, -2])
     for γ in (W(0.4), W(3)), i in 1:2, v in (W(1.5), W(-1.5))
-      @test ProximalBase._prox_entry_slope(ProximalBase._OrdinaryRidge(fc), v, i, γ) == ProximalBase._prox_entry_slope(fc, v, i, γ)
-      @test ProximalBase._prox_entry_slope(ProximalBase._OrdinaryRidge(SqrNormL2(W(0.7))), v, i, γ) ==
-            ProximalBase._prox_entry_slope(SqrNormL2(W(0.7)), v, i, γ)
+      @test ProximalBase._prox_block_slope(ProximalBase._OrdinaryRidge(fc), v, i, γ) == ProximalBase._prox_block_slope(fc, v, i, γ)
+      @test ProximalBase._prox_block_slope(ProximalBase._OrdinaryRidge(SqrNormL2(W(0.7))), v, i, γ) ==
+            ProximalBase._prox_block_slope(SqrNormL2(W(0.7)), v, i, γ)
     end
   end
 end
@@ -459,13 +461,13 @@ end
     for f in (IndBox(zero(b), b), Conjugate(NormL1(b)))
       c = Constrained(f, IndBox(b, b))
       @test prox(c, T[0]) == T[b]
-      @test prox_entry(c, zero(T), 1, one(T)) == T(b)
+      @test prox_block(c, zero(T), 1, one(T)) == T(b)
       x = SparseIterate(T[0])
-      prox_coordinate!(x, c, 1, one(T))
+      take_block_step!(x, c, 1, one(T))
       @test Vector(x) == T[b]
     end
     c = Constrained(IndBox(zero(b), b), IndBox(b, b))
-    @test ProximalBase._prox_entry_slope(c, zero(T), 1, one(T)) == (T(b), zero(T))
+    @test ProximalBase._prox_block_slope(c, zero(T), 1, one(T)) == (T(b), zero(T))
   end
 end
 

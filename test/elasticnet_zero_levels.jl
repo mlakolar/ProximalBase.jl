@@ -45,7 +45,7 @@ function ref_prox(v::T, λ1, λ2, w, γ) where {T<:AbstractFloat}
   end
   z / d
 end
-# its slope at v (either side at a kink, as _prox_entry_slope); finite levels
+# its slope at v (either side at a kink, as _prox_block_slope); finite levels
 function ref_slope(v::T, λ1, λ2, w, γ) where {T<:AbstractFloat}
   isinf(w) && return zero(T)
   l1 = λ1 > 0 && w > 0
@@ -69,7 +69,7 @@ function check_routes(f, x::AbstractVector{T}, γ, want) where {T}
   @test prox!(y, f, x, γ) === y && same(y, want)
   z = copy(x)
   @test prox!(z, f, z, γ) === z && same(z, want)
-  @test same([prox_entry(f, x[i], i, γ isa AbstractArray ? γ[i] : γ) for i in eachindex(x)], want)
+  @test same([prox_block(f, x[i], i, γ isa AbstractArray ? γ[i] : γ) for i in eachindex(x)], want)
   y = fill(T(7), length(x))
   v = value_and_prox!(y, f, x, γ)                  # the value at the stored output (O2)
   @test same(y, want) && same(v, f(y))
@@ -94,7 +94,7 @@ end
       want = [ref_prox(x[i], λ1, λ2, weightof(w, i), γ) for i in eachindex(x)]
       check_routes(f, x, T(γ), want)
       for (i, v) in enumerate(x)
-        z, dz = PB._prox_entry_slope(f, v, i, T(γ))
+        z, dz = PB._prox_block_slope(f, v, i, T(γ))
         @test same(z, want[i])
         γ > 0 && @test dz === ref_slope(v, λ1, λ2, weightof(w, i), γ)
       end
@@ -125,7 +125,7 @@ end
   @test same(prox(ElasticNet(T(0), T(0)), T[2, -1], Inf_), T[2, -1])
   @test same(prox(ElasticNet(T(0), T(0)), T[2, -1, NaN], Inf_), T[2, -1, NaN])
   @test same(prox(ElasticNet(T(0), T(0)), T[Inf, -Inf], Inf_), T[Inf, -Inf])
-  @test same(prox_entry(ElasticNet(T(0), T(0)), T(2), 1, Inf_), T(2))
+  @test same(prox_block(ElasticNet(T(0), T(0)), T(2), 1, Inf_), T(2))
   @test same(prox(ElasticNet(T(1), T(0)), T[2, -1], Inf_), T[0, 0])
   @test same(prox(ElasticNet(T(0), T(1)), T[2, -1], Inf_), T[0, -0.0])
   @test same(prox(ElasticNet(T(1), T(0), T[0, 1]), T[2, 3], Inf_), T[2, 0])
@@ -240,7 +240,7 @@ end
       want = first.(r)
       check_routes(f, x, γ, want)
       for i in eachindex(x)
-        @test same(PB._prox_entry_slope(f, x[i], i, γi(i)), r[i])
+        @test same(PB._prox_block_slope(f, x[i], i, γi(i)), r[i])
       end
       γd = γ isa AbstractArray ? JLArray(γ) : γ
       @test same(Array(prox(fd, JLArray(x), γd)), want)
@@ -267,7 +267,7 @@ end
 @testset "argument and step types" begin
   @test same(prox(ElasticNet(0, 0), [2, -1], Inf), [2.0, -1.0])
   @test same(prox(ElasticNet(1, 0), [2, -1], Inf), [0.0, 0.0])
-  @test same(prox_entry(ElasticNet(0, 0), 2, 1, Inf), 2.0)
+  @test same(prox_block(ElasticNet(0, 0), 2, 1, Inf), 2.0)
   @test same(prox(ElasticNet(0.0, 0.0), big.([2.0, -1.0]), Inf), big.([2.0, -1.0]))
   @test same(prox(ElasticNet(big(0.0), big(1.0)), [2.0, NaN], Inf), [0.0, NaN])
   @test same(prox(ElasticNet(0.0, 1.0), [2.0, NaN], Float16(Inf)), [0.0, NaN])

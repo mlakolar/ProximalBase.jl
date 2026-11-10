@@ -13,7 +13,7 @@ using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, Sq
                     NormLinf, IndBallL1, IndSimplex,
                     GroupNormL2, GroupNormLinf, SparseGroupNormL2, IndBallGroupL0, AbstractFunction,
                     LeastSquaresLoss, GLMLoss, Regularize, BoxConstrained,
-                    prox_entry, value_entry, shrink, _checksize, _checkparams, _checkgroups, _tol, _ind,
+                    prox_block, value_entry, shrink, _checksize, _checkparams, _checkgroups, _tol, _ind,
                     _kth_largest!, _level_fits, _level_product, _scaled_product, _positive_product,
                     _weight_coefficient, _weight_product, _weighted_value, _value_at, _valtype, _checkreal,
                     _reshapeparam
@@ -67,7 +67,7 @@ function ProximalBase._prox_sep!(y::AnyGPUArray, f, x::AnyGPUArray, γ::Real)
   _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= prox_entry.(Ref(f), x, LinearIndices(x), γ)
+  y .= prox_block.(Ref(f), x, LinearIndices(x), γ)
   y
 end
 
@@ -82,11 +82,11 @@ function ProximalBase._prox_sep!(y::AnyGPUArray, f, x::AnyGPUArray, γ::Abstract
   _checkreal(f, γ)
   ProximalBase._checkwrite(prox!, f, y, x)
   ProximalBase._checkparam(γ, x)
-  y .= prox_entry.(Ref(f), x, LinearIndices(x), _steps(γ, x))
+  y .= prox_block.(Ref(f), x, LinearIndices(x), _steps(γ, x))
   y
 end
 # Parameter arrays cannot be captured in the kernel's function object.
-# At γ = Inf the parts are decided as in prox_entry, from host decisions on the levels (G5).
+# At γ = Inf the parts are decided as in prox_block, from host decisions on the levels (G5).
 _enet_prox(v::T, γ, λ1, λ2, w, p1::Bool, p2::Bool) where {T} =
   γ == Inf ? ProximalBase._elastic_infinite_step(v, p1, p2, w) :
              shrink(v, convert(float(T), _weight_coefficient(γ, λ1, w))) / (1 + convert(float(T), γ * λ2))
@@ -126,11 +126,11 @@ function ProximalBase._prox_sep!(y::AnyGPUArray, f::NormL1, x::AnyGPUArray, γ::
   _checkparams(f, x)
   w = _reshapeparam(_param(f.w), x)
   t = _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...)
-  # the rule of prox_entry, decided on the host from the level and the step as given
+  # the rule of prox_block, decided on the host from the level and the step as given
   ProximalBase._l1_fixing(γ, f.λ0) || return (y .= shrink.(x, t.(w)))
   y .= _l1_fixed_prox.(x, t.(w), w)
 end
-# prox_entry of a NormL1 whose infinite level fixes the penalized entries at zero
+# prox_block of a NormL1 whose infinite level fixes the penalized entries at zero
 _l1_fixed_prox(v, t, w) = (r = shrink(v, t); ifelse(w > 0, zero(r), r))
 
 # Keep the ordinary reduction; recover exceptional sums in power-of-two units.
@@ -607,7 +607,7 @@ function _group_levels(::Type{T}, γ, λ) where {T}
 end
 
 # the threshold and value of an entry of a weighted ℓ1 norm, with infinite and
-# zero weights as in prox_entry and value_entry
+# zero weights as in prox_block and value_entry
 struct _WeightLevel{T}
   step::T
   λ::T

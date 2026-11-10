@@ -1,5 +1,7 @@
 module PrecomposeArrayTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -18,7 +20,7 @@ mutable struct ArraySquare <: SeparableFunction
 end
 ProximalBase.entry_parameters(f::ArraySquare) = (:w => f.w,)
 PB.value_entry(f::ArraySquare, v::Real, i::Integer) = f.w[i] * v^2 / 2
-PB.prox_entry(f::ArraySquare, v::Real, i::Integer, γ::Real) = v / (1 + γ * f.w[i])
+PB.prox_block(f::ArraySquare, v::Real, i::Integer, γ::Real) = v / (1 + γ * f.w[i])
 PB.isconvex(::Type{ArraySquare}) = true
 PB.iszeropreserving(::ArraySquare) = true
 PB.check_parameters(f::ArraySquare, x) = (PB._checkparam(f.w, x); nothing)
@@ -33,7 +35,7 @@ PB.reset_cache!(f::ArraySquare) = (f.resets += 1; f)
     @test !(h isa Precompose)
     @test h(x) ≈ scalar(x) rtol = 1e-14
     @test prox(h, x, 0.2) ≈ prox(scalar, x, 0.2) rtol = 1e-14
-    @test [prox_entry(h, x[i], i, 0.2) for i in eachindex(x)] ≈ prox(scalar, x, 0.2) rtol = 1e-14
+    @test [prox_block(h, x[i], i, 0.2) for i in eachindex(x)] ≈ prox(scalar, x, 0.2) rtol = 1e-14
     PT.test_traits(h; smooth = issmooth(f), proximable = true, separable = true, convex = isconvex(f))
     @test !hashessian(h)
     @test iszeropreserving(h) == iszeropreserving(f)
@@ -60,7 +62,7 @@ end
     f = MCP(s[i] * λ, b / s[i]^2)
     @test value_entry(h, x[i], i) ≈ value_entry(f, x[i], 1) rtol = 1e-12
     for γ in (0.1, 2.0)
-      @test prox_entry(h, x[i], i, γ) ≈ prox_entry(f, x[i], 1, γ) rtol = 1e-12
+      @test prox_block(h, x[i], i, γ) ≈ prox_block(f, x[i], 1, γ) rtol = 1e-12
     end
   end
   a, x = [0.5, -1.0, 2.0, -0.75], [-2.0, -0.35, 0.4, 1.7]
@@ -79,7 +81,7 @@ end
   x, γ = sqrt(47.0) / 2, 2.5
   φ = t -> value_entry(h, t, 1)
   _, objective = brute_force_prox(φ, x, γ; lo = -5.0, hi = 5.0, n = 20_001)
-  p = prox_entry(h, x, 1, γ)
+  p = prox_block(h, x, 1, γ)
   @test φ(p) + (p - x)^2 / (2γ) ≈ objective atol = 1e-8
 
   a, x, γ = [0.5, -1.0, 2.0, -0.75], [-2.0, -0.35, 0.4, 1.7], 0.4
@@ -115,7 +117,7 @@ end
             MoreauEnvelope(Regularize(NormL1(0.4), 0.3), 0.8))
     h = Precompose(f, a)
     steps = [0.1, 0.4, 0.7, 0.2]
-    p = [prox_entry(h, x[i], i, steps[i]) for i in eachindex(x)]
+    p = [prox_block(h, x[i], i, steps[i]) for i in eachindex(x)]
     @test prox(h, x, steps) ≈ p
     y = similar(x)
     @test value_and_prox!(y, h, x, steps) ≈ h(p)
@@ -173,7 +175,7 @@ end
   @test h.image.buf === nothing             # no dense image on the sparse proximal path
   @test nactive(ys) == nactive(xs)
   @test allocs(prox!, ys, h, xs, 0.2) == 0
-  @test allocs(prox_coordinate!, xs, h, 2, 0.2) == 0
+  @test allocs(take_block_step!, xs, h, 2, 0.2) == 0
 
   X = [0.0 1.2 0.0; 1.2 -0.5 0.0; 0.0 0.0 2.0]
   A = [0.5 -1.0 2.0; -1.0 0.75 -0.5; 2.0 -0.5 1.5]
@@ -218,7 +220,7 @@ end
     end
     @test kkt_violation(h, g, zeros(10), 3) ≈ abs(g[3])
     @test_throws ArgumentError restrict(h, [1, 2])
-    @test_throws ArgumentError prox_entry(h, 1.0, 1, γ)
+    @test_throws ArgumentError prox_block(h, 1.0, 1, γ)
     @test_throws ArgumentError kkt_violation(h, g, 1)
     @test_throws ArgumentError prox!(y, h, x, fill(γ, 10))
     @test_throws ArgumentError Precompose(f, [1.0; a[2:end]])
@@ -231,7 +233,7 @@ end
   h = Precompose(f, [-2.0, -2.0, 0.5, 0.5])
   x = AtomIterate([1.0, -2.0, 0.0, 0.0], f)
   before = Vector(x)
-  @test_throws ArgumentError prox_coordinate!(x, h, 1, 0.4)
+  @test_throws ArgumentError take_block_step!(x, h, 1, 0.4)
   @test Vector(x) == before
   @test kkt_violation(h, ones(4), x, 1) ≈ 2 * kkt_violation(f, ones(4) ./ h.a, x, 1)
   PT.test_kkt(h, x, 0.2)
@@ -276,7 +278,7 @@ end
   end
   xs = SparseIterate(x)
   bad = Precompose(NormL1(), ones(4))
-  @test_throws DimensionMismatch prox_coordinate!(xs, bad, 1, 0.4)
+  @test_throws DimensionMismatch take_block_step!(xs, bad, 1, 0.4)
   @test Matrix(xs) == x
 end
 
@@ -287,7 +289,7 @@ end
     h = Precompose(f, a)
     p = prox(h, x, 0.3f0)
     @test eltype(p) == Float32
-    @test p ≈ [prox_entry(h, x[i], i, 0.3f0) for i in eachindex(x)] rtol = 5e-7
+    @test p ≈ [prox_block(h, x[i], i, 0.3f0) for i in eachindex(x)] rtol = 5e-7
     @test value_and_prox!(similar(x), h, x, 0.3f0) ≈ h(p) rtol = 5e-7
     @test Vector(prox(h, SparseIterate(x), 0.3f0)) ≈ p rtol = 5e-7
     @test allocs(prox!, similar(x), h, x, 0.3f0) == 0
@@ -338,7 +340,7 @@ end
                     (1e-150, 1.0, 0.0), (1e150, 1.0, 0.0))
     h = Precompose(NormL1(), [a])
     reference = Float64(sign(BigFloat(x)) * max(abs(BigFloat(x)) - BigFloat(γ) * abs(BigFloat(a)), BigFloat(0)))
-    @test prox_entry(h, x, 1, γ) ≈ reference rtol = 1e-14 atol = 0
+    @test prox_block(h, x, 1, γ) ≈ reference rtol = 1e-14 atol = 0
     @test prox(h, [x], γ)[1] ≈ reference rtol = 1e-14 atol = 0
     @test prox(h, [x], [γ])[1] ≈ reference rtol = 1e-14 atol = 0
   end
@@ -413,10 +415,10 @@ end
     @test allocs(value_and_prox!, y, h, x, 0.3) == 0
     @test allocs(prox!, y, h, x, steps) == 0
     @test allocs(value_and_prox!, y, h, x, steps) == 0
-    @test allocs(prox_entry, h, x[1], 1, 0.3) == 0
+    @test allocs(prox_block, h, x[1], 1, 0.3) == 0
     @test allocs(kkt_violation, h, x, 1) == 0
-    @test allocs(prox_coordinate!, SparseIterate(x), h, 1, 0.3) == 0
-    @inferred prox_entry(h, x[1], 1, 0.3)
+    @test allocs(take_block_step!, SparseIterate(x), h, 1, 0.3) == 0
+    @inferred prox_block(h, x[1], 1, 0.3)
     @inferred value_and_prox!(y, h, x, 0.3)
     if issmooth(f)
       @test allocs(gradient!, y, h, x) == 0

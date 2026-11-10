@@ -208,7 +208,7 @@ end
     value = value_and_prox!(y, fg, DeviceArray(x), T(4))
     @test host(y) ≃ T[3, 3]
     @test value ≃ one(T)*3
-    @test ProximalBase._prox_entry_slope(f, x[1], 1, T(4))[1] == prox_entry(f, x[1], 1, T(4))
+    @test ProximalBase._prox_block_slope(f, x[1], 1, T(4))[1] == prox_block(f, x[1], 1, T(4))
     small = T === Float32 ? T(1e-30) : T(1e-200)
     f = F(small, T[small])
     x = T[inv(small)]
@@ -1601,7 +1601,7 @@ end
     c = Conjugate(Adapt.adapt(DeviceArray, f))
     x, dx = T[-3, 2, -4], DeviceArray(T[-3, 2, -4])
     expected = prox(Conjugate(f), x, 1.0)
-    @test expected == T[prox_entry(Conjugate(f), x[i], i, 1.0) for i in eachindex(x)]
+    @test expected == T[prox_block(Conjugate(f), x[i], i, 1.0) for i in eachindex(x)]
     for γ in (1.0, DeviceArray(ones(T, 3)))
       y = DeviceArray(zeros(T, 3))
       v = op(y, c, dx, γ)

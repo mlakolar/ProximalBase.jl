@@ -1,5 +1,7 @@
 module AtomIterateGridsTest
 
+using ..TestUtils: take_block_step!
+
 # Cases of atom_iterate.jl that repeat one that stays there for another element type or group
 # function: the mixed Float32 x Float64 triple and the Float32 strided views of the five-argument
 # products, the group wrappers of GroupNormLinf and GroupSCAD, and the Float32 pass of the group view
@@ -81,17 +83,17 @@ end
       for wrap in (h -> 2.0 * h, h -> Regularize(h, 0.3, ones(6)))
         x = AtomIterate(v, gs)
         activate!(x, 3)
-        prox_coordinate!(x, wrap(f), 1, 0.7)
+        take_block_step!(x, wrap(f), 1, 0.7)
         reference = prox(wrap(f), v, 0.7)
         @test Vector(x)[gs[1]] ≈ reference[gs[1]]
         @test Vector(x)[3:6] == v[3:6]
         before = copy(x)
-        @test_throws DimensionMismatch prox_coordinate!(x, wrap(bad), 1, 0.7)
+        @test_throws DimensionMismatch take_block_step!(x, wrap(bad), 1, 0.7)
         @test_throws DimensionMismatch kkt_violation(wrap(bad), ones(6), x, 1)
         @test x.storage == before.storage
         @test activecoordinates(x) == activecoordinates(before)
         @test x.position == before.position && x.layout_cache === f.groups
-        prox_coordinate!(x, wrap(f), 1, 0.7)
+        take_block_step!(x, wrap(f), 1, 0.7)
         @test Vector(x)[gs[1]] ≈ prox(wrap(f), Vector(before), 0.7)[gs[1]]
       end
     end

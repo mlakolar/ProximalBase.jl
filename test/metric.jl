@@ -1,5 +1,7 @@
 module MetricTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -33,7 +35,7 @@ end
   for f in (NormL1(0.3), NormL1(0.3, w), NormL1Nonneg(0.2), ElasticNet(0.3, 0.4, w), IndBox(-0.5, 0.5),
             NormL0(0.05), MCP(0.3), SCAD(0.3))
     p = prox(f, x, γ)
-    @test p == [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+    @test p == [prox_block(f, x[i], i, γ[i]) for i in 1:n]
     @test value_and_prox!(similar(x), f, x, γ) ≈ f(p)
     @test prox(f, x, fill(0.7, n)) == prox(f, x, 0.7)        # equal steps give the scalar step
     z = copy(x)
@@ -175,7 +177,7 @@ end
     # A regularized group penalty still updates one atom through the shared API.
     regularized = Regularize(fa, T(0.3))
     alias = copy(xa)
-    prox_coordinate!(alias, regularized, 1, T(0.2))
+    take_block_step!(alias, regularized, 1, T(0.2))
     @test Vector(alias)[1:2] ≈ prox(regularized, Vector(xa), T(0.2))[1:2]
   end
 end
@@ -212,7 +214,7 @@ end
   for f in (Scaled(NormL1(0.3, rand(n)), 2.), Tilt(NormL1(0.3), c), Translate(NormL1(0.3), b),
             Conjugate(NormL1(0.3)), Conjugate(IndBox(-1., 1.)), 0.5 * Translate(ElasticNet(0.2, 0.3), b))
     p = prox(f, x, γ)
-    @test p ≈ [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+    @test p ≈ [prox_block(f, x[i], i, γ[i]) for i in 1:n]
     @test prox(f, x, fill(0.4, n)) ≈ prox(f, x, 0.4)
     f isa Conjugate || @test value_and_prox!(similar(x), f, x, γ) ≈ f(p)
   end
@@ -416,7 +418,7 @@ end
             Regularize(NormL1(0.3), 0.7), Regularize(NormL1(0.3), 0.7, cvec),
             Regularize(c, 0.3))
     p = prox(f, x, γ)
-    @test p ≈ [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+    @test p ≈ [prox_block(f, x[i], i, γ[i]) for i in 1:n]
     @test prox(f, x, fill(0.4, n)) ≈ prox(f, x, 0.4)
     @test value_and_prox!(similar(x), f, x, fill(0.4, n)) ≈
           value_and_prox!(similar(x), f, x, 0.4)

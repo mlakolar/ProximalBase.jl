@@ -1,5 +1,7 @@
 module SymmetricParametersPathsTest
 
+using ..TestUtils: take_block_step!
+
 using Test, ProximalBase, LinearAlgebra
 using ..TestUtils: allocs
 
@@ -29,7 +31,7 @@ Base.getindex(A::CountingMatrix,i::Int) = (A.reads[] += 1; A.data[i])
   x=SymmetricSparseIterate([0. .5;.5 0.]); k=tril_index(2,2,1)
   message="the array w of NormL1 must be symmetric on a SymmetricSparseIterate, but entry (2, 1) is 3.0 and entry (1, 2) is 1.0 (relative asymmetry 0.67); pass Symmetric(w, :L) to keep the lower triangle of w, or (w + w')/2 for its symmetric part"
   for op in (y -> f(y), y -> prox!(y,f,x,1.), y -> value_and_prox!(y,f,x,1.),
-             y -> prox_coordinate!(y,f,k,1.), y -> kkt_violation(f,fill(.25,2,2),y,k))
+             y -> take_block_step!(y,f,k,1.), y -> kkt_violation(f,fill(.25,2,2),y,k))
     before=copy(x)
     err=try op(before); nothing catch e; e end
     @test err isa ArgumentError
@@ -40,7 +42,7 @@ Base.getindex(A::CountingMatrix,i::Int) = (A.reads[] += 1; A.data[i])
   @test_throws ArgumentError fv(x)
   unchanged(y -> prox!(y,fv,x,1.),copy(x))
   unchanged(y -> value_and_prox!(y,fv,x,1.),copy(x))
-  unchanged(y -> prox_coordinate!(y,fv,k,1.),copy(x))
+  unchanged(y -> take_block_step!(y,fv,k,1.),copy(x))
   unchanged(y -> kkt_violation(fv,ones(2,2),y,k),copy(x))
   unchanged(y -> prox!(y,NormL1(.1),x,vec(W)),copy(x);message="is not supported with a SymmetricSparseIterate as the output")
   @test PB._checkparams(f,x) # the coordinate shape check never scans arrays
@@ -50,7 +52,7 @@ Base.getindex(A::CountingMatrix,i::Int) = (A.reads[] += 1; A.data[i])
     @test h(x) ≈ sum(.1B[(c-1)*2+r]*abs(x[r,c]) for r in 1:2,c in 1:2)
     @test Matrix(prox!(similar(x),h,x,1.)) ≈ Y
     @test value_and_prox!(similar(x),h,x,1.) ≈ sum(.1B[(c-1)*2+r]*abs(Y[r,c]) for r in 1:2,c in 1:2)
-    z=copy(x); @test prox_coordinate!(z,h,k,1.) ≈ Y[2,1]
+    z=copy(x); @test take_block_step!(z,h,k,1.) ≈ Y[2,1]
     @test kkt_violation(h,fill(.25,2,2),x,k) ≈ .25-.1B[2]
   end
   for (a,b) in ((0.,-0.),(NaN,NaN),(missing,missing),(1,1.))
@@ -88,7 +90,7 @@ end
   W=CountingMatrix(ones(400,400),Ref(0)); W.data[3,2]=2.
   f=NormL1(1.,W); x=SymmetricSparseIterate(400); k=tril_index(400,3,2)
   W.reads[]=0
-  err=try prox_coordinate!(x,f,k,1.); nothing catch e; e end
+  err=try take_block_step!(x,f,k,1.); nothing catch e; e end
   @test err isa ArgumentError
   @test W.reads[] < 20
 end
@@ -124,12 +126,12 @@ end
     f=NormL1(.1,W); x=SymmetricSparseIterate(p); x[2,1]=.5
     k=tril_index(p,2,1); j=tril_index(p,3,2)
     W.reads[]=0
-    @test prox_coordinate!(x,f,k,1.) ≈ .4
+    @test take_block_step!(x,f,k,1.) ≈ .4
     @test W.reads[] == 3
     W.reads[]=0
     @test kkt_violation(f,zeros(p,p),x,k) == -.1
     @test W.reads[] == 3
-    unchanged(y -> prox_coordinate!(y,f,j,1.),copy(x))
+    unchanged(y -> take_block_step!(y,f,j,1.),copy(x))
     W.reads[]=0
     @test PB._checkparams(f,x)
     @test W.reads[] == 0
@@ -303,8 +305,8 @@ end
     @test allocs(prox!,y,f,x,1.) == 0
     value_and_prox!(y,f,x,1.)
     @test allocs(value_and_prox!,y,f,x,1.) == 0
-    prox_coordinate!(y,f,2,1.)
-    @test allocs(prox_coordinate!,y,f,2,1.) == 0
+    take_block_step!(y,f,2,1.)
+    @test allocs(take_block_step!,y,f,2,1.) == 0
     kkt_violation(f,A,x,2)
     @test allocs(kkt_violation,f,A,x,2) == 0
     if issmooth(f)

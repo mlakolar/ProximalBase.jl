@@ -1,5 +1,7 @@
 module NormsTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -164,26 +166,26 @@ end
       prox!(out2, fp, other, γ)
       @test out2 ≈ prox(fp, x, γ)
 
-      # prox_coordinate! shrinks one group in place, as prox! shrinks all of them
+      # take_block_step! shrinks one group in place, as prox! shrinks all of them
       z = prox(fp, x, γ)
       ya = copy(xa)
       for k in 1:5
-        @test prox_coordinate!(ya, fp, k, γ) ≈ z[fp.groups[k]]
+        @test take_block_step!(ya, fp, k, γ) ≈ z[fp.groups[k]]
       end
       @test ya ≈ z
       # a trial point activates a group only if its step ends nonzero
       yb = AtomIterate(9, fp)
-      prox_coordinate!(yb, fp, 1, [3., 4., 0.], γ)
+      take_block_step!(yb, fp, 1, [3., 4., 0.], γ)
       @test isactive(yb, 1)
-      prox_coordinate!(yb, fp, 2, zeros(length(fp.groups[2])), γ)
+      take_block_step!(yb, fp, 2, zeros(length(fp.groups[2])), γ)
       @test !isactive(yb, 2)
-      @test_throws DimensionMismatch prox_coordinate!(yb, F(λ0, [1:9]), 1, γ)
+      @test_throws DimensionMismatch take_block_step!(yb, F(λ0, [1:9]), 1, γ)
       # as many groups, but other ones
       fo = F(1.0, [1:2, 3:4])
       ao = AtomIterate([1., 2., 3., 4.], [[1, 3], [2, 4]])
-      @test_throws DimensionMismatch prox_coordinate!(ao, fo, 1, 0.1)
+      @test_throws DimensionMismatch take_block_step!(ao, fo, 1, 0.1)
       @test_throws DimensionMismatch kkt_violation(fo, randn(4), ao, 1)
-      @test prox_coordinate!(AtomIterate([1., 2., 3., 4.], [1:2, 3:4]), fo, 1, 0.1) isa AbstractVector   # equal, not shared
+      @test take_block_step!(AtomIterate([1., 2., 3., 4.], [1:2, 3:4]), fo, 1, 0.1) isa AbstractVector   # equal, not shared
 
       # kkt_violation takes a group: at zero, a group violates optimality exactly when a
       # proximal gradient step moves it away from zero
@@ -201,7 +203,7 @@ end
     end
     g32 = GroupNormL2(0.4f0, [groups; [[9]]], Float32[sqrt.(length.(groups)); 0])
     x32 = AtomIterate(Float32.(x), g32)
-    @test eltype(prox_coordinate!(x32, g32, 1, 0.7f0)) == Float32
+    @test eltype(take_block_step!(x32, g32, 1, 0.7f0)) == Float32
     @test g32(x32) isa Float32
   end
 
@@ -240,7 +242,7 @@ end
           expected = copy(v)
           for k in eachindex(gs)
             γk = step isa Real ? step : step[k]
-            @test prox_coordinate!(xc, f, k, γk) ≈ reference[gs[k]]
+            @test take_block_step!(xc, f, k, γk) ≈ reference[gs[k]]
             expected[gs[k]] = reference[gs[k]]
             @test Vector(xc) ≈ expected
           end
@@ -250,7 +252,7 @@ end
         @test Vector(ya) ≈ prox(bad, v, 0.7)
         @test value_and_prox!(ya, bad, xa, 0.7) ≈ bad(prox(bad, v, 0.7))
         @test Vector(ya) ≈ prox(bad, v, 0.7)
-        @test_throws DimensionMismatch prox_coordinate!(xa, bad, 1, 0.7)
+        @test_throws DimensionMismatch take_block_step!(xa, bad, 1, 0.7)
         @test_throws DimensionMismatch kkt_violation(bad, grad, xa, 1)
         @test Vector(xa) == v && Set(activecoordinates(xa)) == Set([1, 3, 4])
         @test f(xa) ≈ f(v)
@@ -348,7 +350,7 @@ end
       g = GroupNormL2(scale/2, [1:2], T[1])
       @test prox(g, x) ≈ T[0, scale/2] rtol=8eps(T)
       a = AtomIterate(x, g)
-      prox_coordinate!(a, g, 1, one(T))
+      take_block_step!(a, g, 1, one(T))
       @test Vector(a) ≈ T[0, scale/2] rtol=8eps(T)
     end
   end
@@ -392,7 +394,7 @@ end
       @test f(a) == zero(T)
       @test value_and_prox!(a,f,a,one(T)) == zero(T)
       @test Vector(a) == x
-      prox_coordinate!(a,f,1,one(T))
+      take_block_step!(a,f,1,one(T))
       @test Vector(a) == x
     end
     # Zero group weights remove only the group term, preserving entry shrinkage.
@@ -402,7 +404,7 @@ end
     @test value_and_prox!(y,f,v,one(T)) == T(5)
     @test y == expected
     a = AtomIterate(v,f)
-    prox_coordinate!(a,f,1,one(T))
+    take_block_step!(a,f,1,one(T))
     @test Vector(a) == T[-1.5,1.5,-4,4]
   end
 end
@@ -417,12 +419,12 @@ end
       atom(a,1)[1] = one(T)
       @test isactive(a,1)
       a = AtomIterate(zeros(T,4),f)
-      prox_coordinate!(a,f,1,T[1,0],one(T))
+      take_block_step!(a,f,1,T[1,0],one(T))
       @test isactive(a,1)
       @test nactive(a) == 1
       @test Vector(a) == T[1,0,0,0]
       a = AtomIterate(zeros(T,4),f)
-      prox_coordinate!(a,f,1,T[0,0],one(T))
+      take_block_step!(a,f,1,T[0,0],one(T))
       @test !isactive(a,1)
     end
   end
@@ -472,7 +474,7 @@ end
       @test value_and_prox!(a, f, a, fill(step, 2)) ≈ value rtol=32eps(T)
       @test Vector(a) ≈ expected rtol=32eps(T)
       a = AtomIterate(x, f)
-      prox_coordinate!(a, f, 1, step)
+      take_block_step!(a, f, 1, step)
       @test a[1] ≈ expected[1] rtol=32eps(T)
       @test a[2] == x[2]
     end

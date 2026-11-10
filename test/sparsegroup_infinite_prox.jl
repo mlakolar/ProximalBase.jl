@@ -1,5 +1,7 @@
 module SparseGroupInfiniteProxTest
 
+using ..TestUtils: take_block_step!
+
 # The proximal map of SparseGroupNormL2 with an infinite ℓ1 level (#620). The stored level fixes
 # every grouped entry at zero at every step, γ = 0 and γ = Inf included, whatever the entry holds
 # and whatever the group level and weight are (zero included); indices in no group are copied, a
@@ -128,7 +130,7 @@ end
       for k in 1:3, γ in (zero(T), one(T), inf, -one(T), nan)
         xa = AtomIterate(copy(x), f)
         before = active_set(xa)
-        r = prox_coordinate!(xa, f, k, γ)
+        r = take_block_step!(xa, f, k, γ)
         wanty = copy(x)
         wanty[groups[k]] .= 0
         @test agree(collect(xa), wanty)
@@ -141,7 +143,7 @@ end
         for staged in (u, view([u; u], collect(1:length(u))))
           xa = AtomIterate(copy(x), f)
           before = active_set(xa)
-          prox_coordinate!(xa, f, k, staged, γ)
+          take_block_step!(xa, f, k, staged, γ)
           wanty = copy(x)
           wanty[groups[k]] .= 0
           @test agree(collect(xa), wanty)
@@ -253,7 +255,7 @@ end
     for x in (T[nan, 4, 9], T[0, 0, 9]), γ in (zero(T), one(T))
       xa = AtomIterate(copy(x), g)
       before = active_set(xa)
-      prox_coordinate!(xa, r, 1, γ)
+      take_block_step!(xa, r, 1, γ)
       @test agree(collect(xa), T[0, 0, 9])
       @test active_set(xa) == before
     end
@@ -324,7 +326,11 @@ end
 end
 
 alloc_vprox(y, f, x, γ) = (value_and_prox!(y, f, x, γ); @allocated value_and_prox!(y, f, x, γ))
-alloc_coordinate(x, f, k, γ) = (prox_coordinate!(x, f, k, γ); @allocated prox_coordinate!(x, f, k, γ))
+function alloc_coordinate(x, f, k, γ)
+  u = collect(atom(x,k)); out = similar(u)
+  prox_block!(out, f, u, k, γ)
+  @allocated prox_block!(out, f, u, k, γ)
+end
 
 @testset "inference and allocations, $T" for T in (Float32, Float64)
   x = T[3, 4, 9, 1, 2]

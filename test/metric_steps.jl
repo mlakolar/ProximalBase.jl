@@ -86,7 +86,7 @@ end
   end
   γ = [0., Inf, 0., Inf]
   for f in (NormL1(1), Constrained(NormL1(1), IndBox(-2, 2)))
-    @test prox(f, x, γ) == [prox_entry(f, x[i], i, γ[i]) for i in eachindex(x)]
+    @test prox(f, x, γ) == [prox_block(f, x[i], i, γ[i]) for i in eachindex(x)]
   end
   f = GroupNormL2(1, [1:2, 3:4])
   @test prox(f, x, [0., Inf]) == [2., -1., 0., 0.]

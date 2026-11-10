@@ -1,5 +1,7 @@
 module AtomIterateTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using Random
@@ -155,7 +157,7 @@ end
       @test Vector(y) ≈ prox(f, Vector(x), 0.7)
       @test value_and_prox!(y, f, x, 0.7) ≈ f(Vector(y))
       @test kkt_violation(f, ones(6), x, 2) ≈ sqrt(2) - 0.4
-      prox_coordinate!(x, f, 1, 0.1)
+      take_block_step!(x, f, 1, 0.1)
       @test x.layout_cache === y.layout_cache === f.groups
     end
     @test gs.comparisons == ygs.comparisons == 1
@@ -191,7 +193,7 @@ end
     before = copy(x)
     @test !ProximalBase._samelayout(bad, x)
     @test bad(x) ≈ bad(Vector(x))
-    @test_throws DimensionMismatch prox_coordinate!(x, bad, 1, 0.7)
+    @test_throws DimensionMismatch take_block_step!(x, bad, 1, 0.7)
     @test_throws DimensionMismatch kkt_violation(bad, ones(6), x, 1)
     @test x == Vector(before) && activecoordinates(x) == activecoordinates(before)
     @test x.layout_cache === f.groups
@@ -224,17 +226,17 @@ end
       for wrap in (h -> 2.0 * h, h -> Regularize(h, 0.3, ones(6)))
         x = AtomIterate(v, gs)
         activate!(x, 3)
-        prox_coordinate!(x, wrap(f), 1, 0.7)
+        take_block_step!(x, wrap(f), 1, 0.7)
         reference = prox(wrap(f), v, 0.7)
         @test Vector(x)[gs[1]] ≈ reference[gs[1]]
         @test Vector(x)[3:6] == v[3:6]
         before = copy(x)
-        @test_throws DimensionMismatch prox_coordinate!(x, wrap(bad), 1, 0.7)
+        @test_throws DimensionMismatch take_block_step!(x, wrap(bad), 1, 0.7)
         @test_throws DimensionMismatch kkt_violation(wrap(bad), ones(6), x, 1)
         @test x.storage == before.storage
         @test activecoordinates(x) == activecoordinates(before)
         @test x.position == before.position && x.layout_cache === f.groups
-        prox_coordinate!(x, wrap(f), 1, 0.7)
+        take_block_step!(x, wrap(f), 1, 0.7)
         @test Vector(x)[gs[1]] ≈ prox(wrap(f), Vector(before), 0.7)[gs[1]]
       end
     end
@@ -1148,7 +1150,7 @@ end
       ym = AtomIterate(4, [1:2, 3:4])
       @test prox!(ym, fm, am, 1) === ym
       @test Vector(ym) == prox(fm, Vector(am), 1)
-      @test_throws DimensionMismatch prox_coordinate!(am, fm, 1, 0.5)
+      @test_throws DimensionMismatch take_block_step!(am, fm, 1, 0.5)
     end
   end
 

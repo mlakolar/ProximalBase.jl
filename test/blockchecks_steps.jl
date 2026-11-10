@@ -353,7 +353,7 @@ end
       end
       # the standalone conjugate agrees
       @test near(T, prox(c, T[x2], γ)[1], r2)
-      @test prox_entry(c, T(x2), 1, γ) == prox(c, T[x2], γ)[1]
+      @test prox_block(c, T(x2), 1, γ) == prox(c, T[x2], γ)[1]
       # the value of the point is not representable: Inf, as for the standalone call
       if T === Float64
         y = (T[7], T[7], T[7, 7])
@@ -596,7 +596,7 @@ end
 #  Calls that succeed keep their results
 ####################################
 
-# A user function with a proximal operator typed on Vector, and one that defines prox_entry and no prox!.
+# A user function with a proximal operator typed on Vector, and one that defines prox_block and no prox!.
 struct UserShrink <: AbstractFunction
   c::Float64
 end
@@ -606,7 +606,7 @@ struct EntryShrink <: SeparableFunction
   c::Float64
 end
 ProximalBase.value_entry(f::EntryShrink, v, i) = f.c * v^2 / 2
-ProximalBase.prox_entry(f::EntryShrink, v, i, γ) = v / (1 + γ * f.c)
+ProximalBase.prox_block(f::EntryShrink, v, i, γ) = v / (1 + γ * f.c)
 ProximalBase.check_parameters(f::EntryShrink, x) = nothing
 
 element_type(a::Tuple) = element_type(first(a))

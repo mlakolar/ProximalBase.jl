@@ -1,5 +1,7 @@
 module ScaledInfiniteLevelUnderflowTest
 
+using ..TestUtils: take_block_step!
+
 # A wrapper step that is not a normal number keeps the hard domain of an infinite level (decision 49,
 # R3). `Scaled(f, α)` at a positive finite step γ whose product αγ underflows to zero, is subnormal or
 # overflows reads f at the product αγ. An infinite level (a stored Inf, not a finite level that
@@ -8,8 +10,8 @@ module ScaledInfiniteLevelUnderflowTest
 # product rounded to zero gave. The call takes this route only when the function holds a stored infinite
 # level, every block of it is a function with an infinite level whose other levels the infinite level makes
 # irrelevant (or an indicator), and every factor and step is a positive finite number; no finite level or
-# factor is folded, multiplied or combined. Scalar steps, array steps, chains of Scaled, prox_entry and
-# prox_coordinate! take the same route.
+# factor is folded, multiplied or combined. Scalar steps, array steps, chains of Scaled, prox_block and
+# take_block_step! take the same route.
 # Supported (exact, tested against the constant map and BigFloat): the issue's rows, the groups, `ElasticNet`,
 # `SparseGroupNormL2`, chains, nested blocks. Declined (the earlier result, pinned as the leaf at the rounded
 # product or as a literal of the earlier result, with a follow-up): a finite level that is relevant on a free
@@ -208,7 +210,7 @@ end
 end
 
 ####################################
-#  array steps, prox_entry and the coordinate updates
+#  array steps, prox_block and the coordinate updates
 ####################################
 
 @testset "array steps, $T" for T in (Float32, Float64)
@@ -231,13 +233,13 @@ end
   # entry by entry
   s = Scaled(NormL1(inf), tiny)
   for v in T[2, -3, 0, NaN, Inf, -Inf], i in 1:3
-    @test isequal(prox_entry(s, v, i, T(tiny)), zero(T))
+    @test isequal(prox_block(s, v, i, T(tiny)), zero(T))
   end
   sw = Scaled(NormL1(inf, T[1, 0, 1]), tiny)
-  @test isequal(prox_entry(sw, T(2), 1, T(tiny)), zero(T))
-  @test isequal(prox_entry(sw, T(2), 2, T(tiny)), T(2))
-  @test isequal(prox_entry(Scaled(Scaled(NormL1(inf), tiny), tiny), T(5), 1, T(1)), zero(T))
-  @test isequal(prox_entry(s, T(5), 1, T(0)), T(5))
+  @test isequal(prox_block(sw, T(2), 1, T(tiny)), zero(T))
+  @test isequal(prox_block(sw, T(2), 2, T(tiny)), T(2))
+  @test isequal(prox_block(Scaled(Scaled(NormL1(inf), tiny), tiny), T(5), 1, T(1)), zero(T))
+  @test isequal(prox_block(s, T(5), 1, T(0)), T(5))
 end
 
 @testset "coordinate updates of an AtomIterate, $T" for T in (Float32, Float64)
@@ -246,13 +248,13 @@ end
     for (k, expected) in ((1, T[0, 0, 3]), (2, T[1, 2, 0]))
       for s in (Scaled(leaf, tiny), Scaled(Scaled(leaf, tiny), tiny))
         a = AtomIterate(T[1, 2, 3], leaf)
-        prox_coordinate!(a, s, k, T(tiny))
+        take_block_step!(a, s, k, T(tiny))
         @test isequal(collect(a), expected)
         # the exact zero step is that of the function itself
         b = AtomIterate(T[1, 2, 3], leaf)
-        prox_coordinate!(b, s, k, zero(T))
+        take_block_step!(b, s, k, zero(T))
         c = AtomIterate(T[1, 2, 3], leaf)
-        prox_coordinate!(c, leaf, k, zero(T))
+        take_block_step!(c, leaf, k, zero(T))
         @test isequal(collect(b), collect(c))
       end
     end
@@ -460,9 +462,9 @@ end
     s = Scaled(f, tiny)
     for k in 1:2
       a = AtomIterate(T[1, 2], f)
-      prox_coordinate!(a, s, k, tiny)
+      take_block_step!(a, s, k, tiny)
       c = AtomIterate(T[1, 2], f)
-      prox_coordinate!(c, f, k, tiny * tiny)
+      take_block_step!(c, f, k, tiny * tiny)
       @test isequal(collect(a), collect(c))
     end
   end
@@ -670,16 +672,16 @@ end
   f = SparseGroupNormL2(inf, T(1), groups, T[0, 1, 0])
   for k in 1:3
     a = AtomIterate(copy(x), f)
-    prox_coordinate!(a, Scaled(f, α), k, γ)
+    take_block_step!(a, Scaled(f, α), k, γ)
     @test all(iszero, collect(a)[groups[k]])
   end
   # and the unsupported class: the result of the leaf at the rounded product
   f = SparseGroupNormL2(T(1), inf, groups, T[0, 1, 0])
   for k in 1:3
     a = AtomIterate(copy(x), f)
-    prox_coordinate!(a, Scaled(f, α), k, γ)
+    take_block_step!(a, Scaled(f, α), k, γ)
     c = AtomIterate(copy(x), f)
-    prox_coordinate!(c, f, k, α * γ)
+    take_block_step!(c, f, k, α * γ)
     @test isequal(collect(a), collect(c))
   end
 end
@@ -999,7 +1001,7 @@ end
   value_and_prox!(al, f, al, γ)
   @test al == y
   at = AtomIterate([2tt, 2.0], f.f)
-  prox_coordinate!(at, f, 1, γ)
+  take_block_step!(at, f, 1, γ)
   @test collect(at)[1] == 4.408103881914371e-9
   for (a2, γ2) in ((ldexp(1.5f0, -40), ldexp(1f0, -88)), (ldexp(1.5f0, -80), ldexp(1f0, -48)))
     t2 = Float64(a2) * Float64(γ2) * Float64(λ)

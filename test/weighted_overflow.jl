@@ -1,4 +1,6 @@
 module WeightedOverflowTest
+
+using ..TestUtils: take_block_step!
 using Test, ProximalBase, LinearAlgebra, Random
 using ..TestUtils
 const PB = ProximalBase
@@ -66,7 +68,7 @@ end
         check_rounded(value_and_prox!(copy(z), f, z, floatmin(T)), big(M)/2)
       end
       a = AtomIterate(x, f)
-      prox_coordinate!(a, f, 1, floatmin(T))
+      take_block_step!(a, f, 1, floatmin(T))
       check_rounded(f(a), big(M)/2)
     end
   end
@@ -91,7 +93,7 @@ end
       end
       if f isa PB.SeparableFunction
         check_rounded(Float32(value_entry(f, x[1], 1)), ref)
-        prox_coordinate!(a, f, 1, 1e-80)
+        take_block_step!(a, f, 1, 1e-80)
         check_rounded(f(a), ref)
       end
     end
@@ -131,7 +133,7 @@ end
     @test prox(f, x, 2e10) == Float32[0]
     a = AtomIterate(x, f)
     @test value_and_prox!(copy(a), f, a, 2e10) == 0f0
-    prox_coordinate!(a, f, 1, 2e10)
+    take_block_step!(a, f, 1, 2e10)
     @test a[1] == 0f0
     y = similar(x)
     PB._value_and_prox_groups!(y, f, x, [2e10])

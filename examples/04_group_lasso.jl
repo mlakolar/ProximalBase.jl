@@ -5,7 +5,7 @@
 # `GroupNormL2(λ, groups)` is the penalty, with weights √|Gₖ| by default; its
 # proximal operator shrinks each group toward zero as a block. On an ordinary
 # vector it serves FISTA. On an `AtomIterate` that shares its groups, the
-# coordinates are the groups: `prox_coordinate!` takes a trial point for one
+# coordinates are the groups: `prox_block!` computes the result for one
 # group and activates the group only when its proximal step ends nonzero.
 
 using ProximalBase, LinearAlgebra, Random
@@ -49,7 +49,8 @@ function block_cd(X, y, g; sweeps = 2000)
         G = β.groups[k]
         old = Vector(atom(β, k))
         u = old .+ view(X, :, G)' * r ./ Lk[k]
-        prox_coordinate!(β, g, k, u, 1 / Lk[k])
+        prox_block!(u, g, u, k, 1 / Lk[k])
+        copyto!(atom(β, k), u)
         mul!(r, view(X, :, G), old .- atom(β, k), 1, 1)
     end
     dropzeros!(β)                                      # forget groups that ended at zero

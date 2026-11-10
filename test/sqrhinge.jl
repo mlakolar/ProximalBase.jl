@@ -1,5 +1,7 @@
 module SqrHingeTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -76,7 +78,7 @@ end
     term(t) = big(w) * max(zero(t), 1 - big(y) * t)^2
     lo, hi = min(v, 1 / y) - 1, max(v, 1 / y) + 1
     p, _ = PT.brute_force_prox(term, big(v), big(γ); lo = big(lo), hi = big(hi), n = 129)
-    @test prox_entry(f, v, 1, γ) ≈ Float64(p) atol = 1e-8 rtol = 0
+    @test prox_block(f, v, 1, γ) ≈ Float64(p) atol = 1e-8 rtol = 0
   end
 end
 
@@ -102,7 +104,7 @@ end
   x = [-0.3, 0., 1.5, -1.4, 0.2, 2.]
   f = SqrHingeLoss([2., -0.5, 1., -3., -2., 0.25], [0.7, 0., 1.2, 2., 0.3, 1.])
   γ = [1e-6, 0.2, 0.5, 1., 3., 1e6]
-  p = [prox_entry(f, x[i], i, γ[i]) for i in eachindex(x)]
+  p = [prox_block(f, x[i], i, γ[i]) for i in eachindex(x)]
   z = similar(x)
   @test prox!(z, f, x, γ) === z
   @test z ≈ p rtol = 1e-12
@@ -162,14 +164,14 @@ end
              (nextfloat(zero(T)), one(T), zero(T), one(T)))
     for (y, w, v, γ) in cases
       f = SqrHingeLoss([y], [w])
-      p = prox_entry(f, v, 1, γ)
+      p = prox_block(f, v, 1, γ)
       by, bw, bv, bg = big(y), big(w), big(v), big(γ)
       ref = by * bv >= 1 ? bv : (bv + 2bg * bw * by) / (1 + 2bg * bw * by^2)
       @test p isa T
       @test isfinite(p)
       @test p ≈ T(ref) rtol = 8eps(T) atol = 0
     end
-    @test prox_entry(SqrHingeLoss([high]), high, 1, one(T)) == high
+    @test prox_block(SqrHingeLoss([high]), high, 1, one(T)) == high
     f = SqrHingeLoss([one(T)], [low])
     x = T[-high]
     ref = big(low) * (1 + big(high))^2
@@ -191,10 +193,10 @@ end
     @test value_and_gradient!(g, f, T[-h]) == 0
     @test g == T[0]
     @test coordinate_lipschitz(f, 1) == lipschitz(f) == 0
-    @test prox_entry(f, -h, 1, h) == -h
+    @test prox_block(f, -h, 1, h) == -h
     # The error relation remains measurable before the point rounds to 1/y.
     y, w, v, γ = T(2), T(0.7), T(-0.4), T(100)
-    p = prox_entry(SqrHingeLoss([y], [w]), v, 1, γ)
+    p = prox_block(SqrHingeLoss([y], [w]), v, 1, γ)
     err = abs(big(v) - inv(big(y))) / (1 + 2big(γ) * big(w) * big(y)^2)
     @test abs(big(p) - inv(big(y))) ≈ err rtol = 4eps(T) / T(err)
   end
@@ -227,7 +229,7 @@ end
     end
   end
   f = SqrHingeLoss(Float32[1, -1], Float32[0.7, 1])
-  @test @inferred(prox_entry(f, 0.2f0, 1, 0.3f0)) isa Float32
+  @test @inferred(prox_block(f, 0.2f0, 1, 0.3f0)) isa Float32
   @test @inferred(f(Float32[0.2, 0.3])) isa Float32
 end
 
@@ -266,7 +268,7 @@ end
     @test_throws DimensionMismatch op(g, SqrHingeLoss(), x)
     @test g == fill(99., 3, 1)
   end
-  @test_throws BoundsError prox_entry(SqrHingeLoss([1.]), 0., 2, 0.4)
+  @test_throws BoundsError prox_block(SqrHingeLoss([1.]), 0., 2, 0.4)
   @test_throws BoundsError coordinate_lipschitz(SqrHingeLoss([1.]), 2)
   @test_throws BoundsError coordinate_lipschitz(SqrHingeLoss(nothing, [1.]), 2)
 end
@@ -282,7 +284,7 @@ end
       @test allocs(gradient!, g, f, z) == 0
       @test allocs(value_and_gradient!, g, f, z) == 0
     end
-    @test allocs(prox_coordinate!, SparseIterate(x), f, 2, 0.4) == 0
+    @test allocs(take_block_step!, SparseIterate(x), f, 2, 0.4) == 0
   end
 end
 

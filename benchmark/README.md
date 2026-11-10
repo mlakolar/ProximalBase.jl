@@ -36,7 +36,7 @@ The blocks group covers flat and nested tuple oracles, wrappers and long block s
 on Float32/Float64 inputs, with the same cases in both suites.
 The `ridge` group measures `SqrNormL2`, centered and uncentered, in homogeneous `Float32` and
 `Float64` and in `Float32` storage with `Float64` parameters (`prox!`, `value_and_prox!`, a
-`prox_entry` loop, `gradient!`, `value_and_gradient!`, the value), and, as separate
+`prox_block` loop, `gradient!`, `value_and_gradient!`, the value), and, as separate
 `layout=recovery` cases, calls whose parameters or centers leave the model's range. The
 extended suite adds `Constrained(SqrNormL2, IndHyperplane)` with per-entry steps (repeated
 and cold calls) and a scalar-step control (`layout=constrained`).
@@ -208,7 +208,7 @@ operands; for `atom`, `p = 8·10⁴` with 10% of the groups active, `g = 1` and 
   `rmul!` method: the generic loop visits all `p` entries (repeat count 1), and `rmul!(x, Inf)`
   is checked on the whole vector. For a `SparseIterate` with `Inf`, only the active entries are
   checked.
-- FD-12, `prox_coordinate!_5arg`: a call takes 1536 distinct coordinates of a `SparseIterate`
+- FD-12, `block_prox_write`: a call takes 1536 distinct coordinates of a `SparseIterate`
   (at most 768 of them active), or 256 groups of an `AtomIterate` (64 for `g = 64`), so that a
   call takes about 2 µs or more on 0.5.x.
 - `broadcast_assign` equals `copyto!_state` on 0.5.x: `x .= y` from an iterate of the same type
@@ -247,17 +247,10 @@ operands; for `atom`, `p = 8·10⁴` with 10% of the groups active, `g = 1` and 
   `absent_distinct_batch` and `absent_distinct_batch_x16` are diagnostic and never gate: each of
   the two missed the 20% cross-check with an independent loop on one of the two machines tried
   (see the baseline).
-- Zero-allocation readings are checked on Julia 1.13. Julia 1.10 reads a few bytes for closures
-  that return a value, in the older `owner` group too. The five-argument `prox_coordinate!` with
-  a strided `u` allocates for some group penalties on both sources, so FT23's zero-byte promise
-  does not hold today: `GroupNormL2` and `SparseGroupNormL2` allocate for contiguous and strided
-  groups (16,384 B per call of 256 steps), `GroupNormLinf` only for strided groups, and `NormL1`
-  never. Its rows keep `zero_alloc`, so that the baseline lists them.
-- BenchmarkTools protects the timed closure from the optimizer only where `Base.blackbox` exists,
-  and neither Julia 1.10 nor 1.13.3 has it. On Julia 1.13.3 the timed operations were checked by
-  perturbing an input between evaluations: the time did not change, so nothing is hoisted. Another
-  Julia version needs that check again, and a baseline and its comparison must use the same Julia
-  version.
+- Archived zero-allocation readings were checked on Julia 1.13. Some retired
+  storage-aware group calls allocated with a strided trial. The #844 cases now
+  use preallocated compact numerical buffers followed by public writes; their
+  current allocation results are recorded separately from those historical rows.
 
 **Baseline and comparisons.** The metadata records `check_bounds` (`default`, `yes` or `no`,
 from `--check-bounds`) and `os` (`Sys.KERNEL` and `Sys.MACHINE`). `compare.py` rejects two sides
@@ -494,3 +487,22 @@ performance comparison must use the same updated harness (this change alters the
 operation that exists on one revision only is not a comparable case. The archived 0.5.x baseline under
 `baselines/` is historical evidence and is not changed. The two-representation support is temporary: a
 later cleanup removes it after the 0.6 release and its comparisons.
+
+## #844 block-prox migration
+
+Live cases named `block_prox_write` and `block_prox_staged_write` measure
+pure `prox_block` / `prox_block!` math plus public iterate writes. The staged
+control first writes the trial through `atom`; it uses no private storage.
+Archived 0.5/0.6 baselines retain their original operation names. Case catalog
+digests were deliberately updated for the new names, and reusable numerical
+scratch is initialized so filtered and complete case builds hold identical state.
+
+`block_prox_differential.jl` prints a deterministic reference table under the
+pre-844 and migrated environments. Compare the two outputs byte for byte.
+It deliberately names the retired APIs only to execute the immutable baseline.
+`block_prox.jl` requires BenchmarkTools and the companion ProximalSolvers
+checkout in a separate environment. It measures scalar kernels, compact group
+kernels, public writes, zero-group results, and complete scalar, grouped,
+quadratic, CSC-design and multiresponse CD solves at Float32 and Float64.
+Use one Julia/BLAS thread and matched dependencies/source pins for both runs.
+See the #844 validation record for exact source pins, commands and local results.

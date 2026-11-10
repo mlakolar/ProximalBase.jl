@@ -1,5 +1,7 @@
 module ZeroLevelInfiniteStepTest
 
+using ..TestUtils: take_block_step!
+
 using Test, ProximalBase, LinearAlgebra, SparseArrays
 using JLArrays: JLArray
 using GPUArraysCore: allowscalar
@@ -42,7 +44,7 @@ weightsof(::Type{T}, n) where {T} = Dict(
 const WEIGHTS = (:none, :ones, :normal, :zero, :infinite, :mixed)
 
 # every route on the host of f at the step γ against f at the step ref: the proximal point, prox!
-# (also with y === x), prox_entry and the fused value, which is the value at the stored point
+# (also with y === x), prox_block and the fused value, which is the value at the stored point
 function check_routes(f, x::AbstractVector{T}, γ, ref) where {T}
   want = prox(f, x, ref)
   @test same(prox(f, x, γ), want)
@@ -51,8 +53,8 @@ function check_routes(f, x::AbstractVector{T}, γ, ref) where {T}
   z = copy(x)
   @test prox!(z, f, z, γ) === z && same(z, want)
   entry(s, i) = s isa AbstractArray ? s[i] : s
-  @test same([prox_entry(f, x[i], i, entry(γ, i)) for i in eachindex(x)],
-             [prox_entry(f, x[i], i, entry(ref, i)) for i in eachindex(x)])
+  @test same([prox_block(f, x[i], i, entry(γ, i)) for i in eachindex(x)],
+             [prox_block(f, x[i], i, entry(ref, i)) for i in eachindex(x)])
   y = fill(T(7), length(x))
   v = value_and_prox!(y, f, x, γ)
   yr = fill(T(7), length(x))
@@ -97,9 +99,9 @@ end
     @test same(prox(f, y, T[Inf, Inf, Inf, Inf]), prox(f, y, one(T)))
     @test same(prox(f, y, T[Inf, 1, Inf, 1]), prox(f, y, one(T)))
     # an Int argument gives a float, at the step Inf as at the step 1
-    @test prox_entry(CappedL1(0, 1), 2, 1, Inf) === 2.0
-    @test prox_entry(CappedL1(0, 1, [Inf]), 2, 1, Inf) === 0.0
-    @test prox_entry(CappedL1(0, 1), 2, 1, 1) === prox_entry(CappedL1(0, 1), 2, 1, Inf)
+    @test prox_block(CappedL1(0, 1), 2, 1, Inf) === 2.0
+    @test prox_block(CappedL1(0, 1, [Inf]), 2, 1, Inf) === 0.0
+    @test prox_block(CappedL1(0, 1), 2, 1, 1) === prox_block(CappedL1(0, 1), 2, 1, Inf)
   end
 end
 
@@ -125,8 +127,8 @@ end
   @test same(prox(SqrNormL2(T(0)), T[2, -1, 0.5], Inf_), T[2, -1, 0.5])
   @test same(prox(SqrNormL2(T(0), T[1, 1, 1]), T[2, -1, 0.5], Inf_), T[2, -1, 0.5])
   @test same(prox(Constrained(SqrNormL2(T(0)), IndBox(T(0), T(1))), T[2, -1, 0.5], Inf_), T[1, 0, 0.5])
-  @test prox_entry(SqrNormL2(0), 2, 1, Inf) === 2.0
-  @test prox_entry(SqrNormL2(0, [1.0]), 2, 1, Inf) === 2.0
+  @test prox_block(SqrNormL2(0), 2, 1, Inf) === 2.0
+  @test prox_block(SqrNormL2(0, [1.0]), 2, 1, Inf) === 2.0
   # the weights of the ridge, which the slope of the box route and the entries share
   @test PB._ridge_ordinary(T, Inf_, T(0)) === PB._ridge_ordinary(T, one(T), T(0))
   @test PB._ridge_ordinary(T, Inf, 0) === PB._ridge_ordinary(T, 1, 0)
@@ -142,7 +144,7 @@ end
 ####################################
 
 # Regularize(f, 0[, c]) at the step γ against f at γ: the proximal point, prox!, prox!(y, r, y), the
-# fused value, and prox_entry for a separable f. A center c enters as the point (v + 0⋅c)/(1 + 0), which
+# fused value, and prox_block for a separable f. A center c enters as the point (v + 0⋅c)/(1 + 0), which
 # is v for a finite entry other than -0 (the blend gives +0 there, at every step), so the arguments of a
 # centered case are finite and have no -0. The fused value is checked where the stored point is finite:
 # r(y) adds the ridge 0⋅y², which is NaN at an infinite entry at every step.
@@ -168,8 +170,8 @@ function check_regularize(f, x::AbstractVector{T}, γ; c = nothing, ρs = (0, T(
     @test same(z, yf)
     all(isfinite, z) && @test same(v, vf)
     if PB.isseparable(f)
-      @test same([prox_entry(r, x[i], i, entry(γ, i)) for i in eachindex(x)],
-                 [prox_entry(f, x[i], i, entry(γ, i)) for i in eachindex(x)])
+      @test same([prox_block(r, x[i], i, entry(γ, i)) for i in eachindex(x)],
+                 [prox_block(f, x[i], i, entry(γ, i)) for i in eachindex(x)])
     end
   end
 end
@@ -248,8 +250,8 @@ end
           for γ in (Inf_, one(T))
             xf = AtomIterate(copy(start), groups)
             xr = AtomIterate(copy(start), groups)
-            prox_coordinate!(xf, f, k, γ)
-            prox_coordinate!(xr, Regularize(f, 0, rc), k, γ)
+            take_block_step!(xf, f, k, γ)
+            take_block_step!(xr, Regularize(f, 0, rc), k, γ)
             @test same(Vector(xr), Vector(xf))
             @test activecoordinates(xr) == activecoordinates(xf)
             @test same(xr.storage, xf.storage)
@@ -286,9 +288,9 @@ end
       @test same(prox(Regularize(NormL1(1.0), ρ), Float32[3, -2], Float32(Inf)), Float32[0, 0])
     end
     # an Int argument gives a float
-    @test prox_entry(Regularize(NormL1(1), 0), 2, 1, Inf) === 0.0
-    @test prox_entry(Regularize(ZeroFunction(), 0), 2, 1, Inf) === 2.0
-    @test prox_entry(Regularize(NormL1(1), 0), 2, 1, 1) === 1.0
+    @test prox_block(Regularize(NormL1(1), 0), 2, 1, Inf) === 0.0
+    @test prox_block(Regularize(ZeroFunction(), 0), 2, 1, Inf) === 2.0
+    @test prox_block(Regularize(NormL1(1), 0), 2, 1, 1) === 1.0
     # an integer output that cannot hold the point of the second group stops before it writes
     y = fill(17, 4)
     r = Regularize(GroupNormL2(0.5, [1:2, 3:4]), 0.0)
@@ -322,7 +324,7 @@ end
 # Inf, on the arguments FX (and the centers FC, the weights FW). At the step Inf they are the results of the
 # step 1 (for Regularize: the shrunk point of the step 1, then f at Inf), with the signs of zeros. Every
 # other step keeps the arithmetic of the base, a NaN step included: it is neither rejected nor read as a
-# step. Each route must give them: prox, prox!, the fused point, prox_entry, array steps, per-group steps
+# step. Each route must give them: prox, prox!, the fused point, prox_block, array steps, per-group steps
 # and the coordinate step.
 const FX = (0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf)          # the arguments
 const FC = (0.25, -3.0, 2.0, 0.0, 1.0, -1.0, 5.0, 0.5, 0.0)           # the centers
@@ -353,7 +355,7 @@ function frozen_routes(f, x::Vector{T}, γ, array) where {T}
   r = Pair{Symbol, Any}[:prox => outcome(() -> prox(f, x, γ)),
                         :inplace => outcome(() -> (z = copy(x); prox!(z, f, z, γ); z)),
                         :fused => outcome(() -> (z = similar(x); value_and_prox!(z, f, x, γ); z)),
-                        :entry => outcome(() -> [prox_entry(f, x[i], i, γ) for i in 1:n])]
+                        :entry => outcome(() -> [prox_block(f, x[i], i, γ) for i in 1:n])]
   array && push!(r, :array => outcome(() -> prox(f, x, fill(γ, n))),
                     :arrayfused => outcome(() -> (z = similar(x); value_and_prox!(z, f, x, fill(γ, n)); z)))
   r
@@ -368,7 +370,7 @@ function frozen_group_routes(::Type{T}, centered, level, γ) where {T}
   res = Pair{Symbol, Any}[:prox => outcome(() -> prox(r, x, γ)),
                           :steps => outcome(() -> prox(r, x, fill(γ, 2)))]
   for k in 1:2
-    push!(res, Symbol(:coord, k) => outcome(() -> (xi = AtomIterate(copy(x), FGROUPS); prox_coordinate!(xi, r, k, γ); Vector(xi))))
+    push!(res, Symbol(:coord, k) => outcome(() -> (xi = AtomIterate(copy(x), FGROUPS); take_block_step!(xi, r, k, γ); Vector(xi))))
   end
   res
 end
@@ -627,18 +629,18 @@ end
   @test same(prox(SqrNormL2(nz, T[0]), T[-0.0], one(T)), T[-0.0])
   r = Regularize(ZeroFunction(), nz, T[0])
   @test same(prox(r, T[-0.0], one(T)), T[-0.0])
-  @test same(prox_entry(r, T(-0.0), 1, one(T)), T(-0.0))
+  @test same(prox_block(r, T(-0.0), 1, one(T)), T(-0.0))
   @test same(prox(r, T[-0.0], T[1]), T[-0.0])
   # a level of positive zero at the step -0
   @test same(prox(SqrNormL2(z, T[0]), T[-0.0], nz), T[-0.0])
   r = Regularize(ZeroFunction(), z, T[0])
   @test same(prox(r, T[-0.0], nz), T[-0.0])
-  @test same(prox_entry(r, T(-0.0), 1, nz), T(-0.0))
+  @test same(prox_block(r, T(-0.0), 1, nz), T(-0.0))
   @test same(prox(r, T[-0.0], T[-0.0]), T[-0.0])
   # and the same at the endpoint, where the sign is that of the level
   @test same(prox(SqrNormL2(nz, T[0]), T[-0.0], Inf_), T[-0.0])
   @test same(prox(Regularize(ZeroFunction(), nz, T[0]), T[-0.0], Inf_), T[-0.0])
-  @test same(prox_entry(Regularize(ZeroFunction(), nz, T[0]), T(-0.0), 1, Inf_), T(-0.0))
+  @test same(prox_block(Regularize(ZeroFunction(), nz, T[0]), T(-0.0), 1, Inf_), T(-0.0))
   # a finite step beyond the range of the data type is no endpoint, whatever the zero sign of the level
   for ρ in (z, nz)
     r = Regularize(ZeroFunction(), ρ)
@@ -646,10 +648,10 @@ end
     want = T === Float32 ? T[NaN] : T[0.5]
     @test same(prox(r, T[0.5], big), want)
     @test same(prox(r, T[0.5], [big]), want)
-    @test same([prox_entry(r, T(0.5), 1, big)], want)
+    @test same([prox_block(r, T(0.5), 1, big)], want)
     @test same(prox(Regularize(GroupNormL2(T(0.5), [1:1], T[0]), ρ), T[0.5], [big]), want)
     xi = AtomIterate(T[0.5], [1:1])
-    prox_coordinate!(xi, Regularize(GroupNormL2(T(0.5), [1:1], T[0]), ρ), 1, big)
+    take_block_step!(xi, Regularize(GroupNormL2(T(0.5), [1:1], T[0]), ρ), 1, big)
     @test same(Vector(xi), want)
     @test same(prox(r, T[0.5], Inf), T[0.5])          # next to a true Inf
   end
@@ -659,7 +661,7 @@ end
     y = T[7]
     @test !(outcome(() -> prox!(y, f, T[0.5], N)) isa Exception)
     @test same(y, want)
-    @test same([prox_entry(f, T(0.5), 1, N)], want)
+    @test same([prox_block(f, T(0.5), 1, N)], want)
   end
 end
 
@@ -708,7 +710,7 @@ end
   x = T[0.5, -2, 2, -0.25, 1, 0, NaN, Inf]
   w = T[0, 1, Inf, 0.5, 1, Inf, 1, 0]
   Inf_ = T(Inf)
-  # CappedL1: the coefficient is decided in prox_entry, on the device as on the host
+  # CappedL1: the coefficient is decided in prox_block, on the device as on the host
   for f in (CappedL1(T(0), T(1)), CappedL1(T(0), T(1), w))
     fd = adapt(JLArray, f)
     want = prox(f, x, one(T))

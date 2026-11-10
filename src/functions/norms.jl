@@ -463,7 +463,7 @@ gives the multi-task group lasso with a matrix response in
 [`LeastSquaresLoss`](@ref).
 
 On an [`AtomIterate`](@ref), whose coordinates are groups,
-[`prox_coordinate!`](@ref) updates a group and [`kkt_violation`](@ref) measures
+[`prox_block!`](@ref) computes a compact group result and [`kkt_violation`](@ref) measures
 one. `AtomIterate(x, f)` builds an iterate that shares the groups of `f`, which
 must then partition `1:length(x)`; include otherwise unpenalized entries in
 additional groups with weight 0. With equal groups, the value and the proximal
@@ -985,45 +985,6 @@ function _homogeneous_group_prox!(y::AtomIterate, f::HomogeneousGroupNorm, x::At
     v += _group_value(f, f.λ0, f.w[k], nrm, y.storage, f.groups[k], T, ordinary)
   end
   isnan(v) ? _nan_steps!(f, y.storage, y.storage, view(y.active, 1:y.nactive), γ, ordinary, T, v, y) : v
-end
-
-# Validate the layout and group before a wrapper changes any entries.
-@inline function _check_group_coordinate(f::AbstractGroupPenalty, x::AtomIterate, k::Integer)
-  _checksamegroups(f, x)
-  checkbounds(x.groups, k)
-  nothing
-end
-
-@inline _unchecked_coordinate!(x::AtomIterate, f::AbstractGroupPenalty, k, γ, ctx) = prox_coordinate!(x, f, k, γ)
-
-@inline _check_coordinate(x::AtomIterate, f::HomogeneousGroupNorm, k) = _check_group_coordinate(f, x, k)
-@inline _block_step!(x::AtomIterate, f::HomogeneousGroupNorm, k, u, γ, ctx) = _stage_and_step!(x, f, k, u, γ, ctx)
-
-# group k of x shrunk in place; the group becomes active if it ends nonzero
-function prox_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k::Integer, γ::Real)
-  ctx = _check_coordinate(x, f, k)
-  _unchecked_coordinate!(x, f, k, γ, ctx)
-end
-
-@inline function _unchecked_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k, γ, ctx)
-  T = float(eltype(x))
-  if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
-    _allzero(x.storage, x.groups[k]) || activate!(x, k)
-    return atom(x, k)
-  end
-  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])))
-  # a NaN group the kernel left (threshold 0, Inf or NaN): the parameters decide as in _nan_steps!; the
-  # group is already the identity at the step γ = 0
-  if f isa GroupNormL2 && isnan(nrm)
-    if _hard_fixed(f, γ, k)
-      _fill_group!(x.storage, x.storage, x.groups[k], nothing, 0)
-      nrm = zero(nrm)
-    elseif !iszero(γ)
-      _fill_group!(x.storage, x.storage, x.groups[k], nothing, 2)
-    end
-  end
-  iszero(nrm) || activate!(x, k)
-  atom(x, k)
 end
 
 ####################################

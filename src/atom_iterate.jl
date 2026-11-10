@@ -159,7 +159,7 @@ Whether `a` and `b` have equal groups: the same number of groups, and the same i
 same order in every group (`1:2` and `[1, 2]` are equal, `[2, 1]` is not). `a` and `b` are two
 [`AtomIterate`](@ref)s, or an `AtomIterate` and a group penalty (any [`ProximalBase.AbstractGroupPenalty`](@ref),
 such as [`GroupNormL2`](@ref) or [`GroupMCP`](@ref)) or an [`IndBallGroupL0`](@ref), in either order. It is the
-check that [`prox_coordinate!`](@ref) makes before it writes and that the four-argument
+layout check a solver makes before writing a group, and that the four-argument
 [`kkt_violation`](@ref)`(f, g, x, k)` makes before it computes (each throws a `DimensionMismatch` when it
 fails), that `value` and `prox!` of a group function make to take the active-group paths, and that `copyto!`
 between two iterates makes to copy only the active groups.
@@ -212,7 +212,8 @@ A view of the entries of group `k`. It is a view of `x` itself, so it aliases
 `x`. Writing through it follows the rule of `x[i] = v`: a nonzero entry
 activates the group and a zero never deactivates it (see [`dropzeros!`](@ref)).
 To take a proximal step at a trial point without activating the group first,
-use [`prox_coordinate!`](@ref)`(x, f, k, u, γ)`.
+compute [`prox_block!`](@ref)`(out, f, u, k, γ)` in a numerical buffer, then
+write the result with `copyto!(atom(x, k), out)`.
 `norm` and `dot` of the view read the storage directly (BLAS for contiguous
 groups), while other BLAS routines take generic paths for it.
 """

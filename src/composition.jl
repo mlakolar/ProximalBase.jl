@@ -37,7 +37,7 @@ a linear map. Every entry of `a` must be finite and nonzero, and `size(a)`
 must equal `size(x)`. The scale is stored without copying; construct a new
 function after changing it. For a separable `f`,
 
-    prox_{γh}(x)ᵢ = prox_entry(f, aᵢxᵢ, i, γaᵢ²) / aᵢ.
+    prox_{γh}(x)ᵢ = prox_block(f, aᵢxᵢ, i, γaᵢ²) / aᵢ.
 
 Array steps are supported, with `γᵢaᵢ²` in each entry. Coordinate curvatures
 are scaled by `aᵢ²`, and the gradient is `a ⊙ ∇f(a ⊙ x)`. Entrywise values
@@ -221,8 +221,8 @@ function _precompose_prox_value(h::Precompose, y)
   _isindicator(h.f) ? zero(v) : v
 end
 
-Base.@propagate_inbounds prox_entry(h::_ScalarPrecompose, v::Real, i::Integer, γ::Real) =
-  prox_entry(h.f, h.A * v, i, h.μ * γ) / h.A
+Base.@propagate_inbounds prox_block(h::_ScalarPrecompose, v::Real, i::Integer, γ::Real) =
+  prox_block(h.f, h.A * v, i, h.μ * γ) / h.A
 _checkparams(h::_ScalarPrecompose, x) = _checkparams(h.f, x)
 function _checkparams(h::Precompose{<:AbstractFunction, <:AbstractMatrix}, x::AbstractArray)
   size(h.A, 2) == length(x) ||
@@ -402,12 +402,12 @@ function _value_and_prox_unchecked!(y::_ArrayOrOwner, h::_ArrayPrecompose, x::_A
   _value_at(_value_and_prox_array!(y, h, x, γ, true), y)
 end
 
-Base.@propagate_inbounds function prox_entry(h::_ArrayPrecompose, v::Real, i::Integer, γ::Real)
+Base.@propagate_inbounds function prox_block(h::_ArrayPrecompose, v::Real, i::Integer, γ::Real)
   isseparable(h) || _array_group_operations()
   T = float(promote_type(typeof(v), eltype(h.a)))
   a = convert(T, h.a[i])
   z = a * convert(T, v)
-  p = convert(T, prox_entry(h.f, z, i, _precompose_step(γ, a, T)))
+  p = convert(T, prox_block(h.f, z, i, _precompose_step(γ, a, T)))
   p == z ? convert(T, v) : p / a
 end
 Base.@propagate_inbounds function value_entry(h::_ArrayPrecompose{<:SeparableFunction}, v::Real, i::Integer)
@@ -475,8 +475,6 @@ function _kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::Abstract
 end
 
 @noinline _array_group_operations() = throw(ArgumentError("an array-scaled group penalty supports values, full-array proximal operators and four-argument kkt_violation on arrays; coordinate updates and restrict are not supported"))
-prox_coordinate!(::AtomIterate, ::_ArrayPrecompose{<:AbstractGroupPenalty}, ::Integer, ::Real) =
-  _array_group_operations()
 function restrict(h::_ArrayPrecompose, S::AbstractVector{<:Integer})
   isseparable(h) || _array_group_operations()
   Precompose(restrict(h.f, S), h.a[S])
@@ -693,61 +691,14 @@ function _value_and_prox_unchecked!(y::_ArrayOrOwner, r::Regularize, x::_ArrayOr
   v
 end
 
-Base.@propagate_inbounds function prox_entry(r::Regularize, v::Real, i::Integer, γ::Real)
+Base.@propagate_inbounds function prox_block(r::Regularize, v::Real, i::Integer, γ::Real)
   T = float(typeof(v))
   step, ρ, endpoint = convert(T, γ), convert(T, r.ρ), _regularize_endpoint(r, γ)
   a, b = _regularize_weights(step, ρ, endpoint)
   w = r.c === nothing ? a * v : _ridge_blend(v, r.c[i], a, b)
-  prox_entry(r.f, w, i, _regularize_step(step, ρ, endpoint))
+  prox_block(r.f, w, i, _regularize_step(step, ρ, endpoint))
 end
 _checkparams(r::Regularize, x) = (_checkparam(r.c, x); _checkparams(r.f, x))
-
-@inline _check_coordinate(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k) = (_checkparams(r, x); _check_coordinate(x, r.f, k))
-@inline _block_step!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k, u, γ, ctx) = _stage_and_step!(x, r, k, u, γ, ctx)
-@inline _check_coordinate(::AtomIterate, ::_ArrayPrecompose{<:AbstractGroupPenalty}, ::Integer) = _array_group_operations()
-
-# a regularized group penalty on an AtomIterate: shrink the group towards c,
-# then take the step of the group penalty
-function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k::Integer, γ::Real)
-  _checkparams(r, x)
-  ctx = _check_group_coordinate(r.f, x, k)
-  _unchecked_coordinate!(x, r, k, γ, ctx)
-end
-
-@inline function _unchecked_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k, γ, ctx)
-  T = eltype(x)
-  S = float(T)
-  a, b, step = _regularize_parameters(convert(S, γ), convert(S, r.ρ), _regularize_endpoint(r, γ))
-  if T <: AbstractFloat
-    # activate before reads or the inner step can fail
-    was = isactive(x, k)
-    was || activate!(x, k)
-    @inbounds for i in x.groups[k]
-      x.storage[i] = r.c === nothing ? a * x.storage[i] : _ridge_blend(x.storage[i], r.c[i], a, b)
-    end
-    _unchecked_coordinate!(x, r.f, k, step, ctx)
-    if !was && isactive(x, k) && !_anynonzero(x.storage, x.groups[k])
-      _deactivate!(x, k)
-    end
-    return atom(x, k)
-  end
-  # other conversions may fail; activate each stored nonzero before continuing
-  was = isactive(x, k)
-  active = was
-  @inbounds for i in x.groups[k]
-    x.storage[i] = r.c === nothing ? a * x.storage[i] : _ridge_blend(x.storage[i], r.c[i], a, b)
-    if !active && !iszero(x.storage[i])
-      activate!(x, k)
-      active = true
-    end
-  end
-  _unchecked_coordinate!(x, r.f, k, step, ctx)
-  # the group was appended last and no other group changed; restore the list
-  if !was && isactive(x, k) && !_anynonzero(x.storage, x.groups[k])
-    _deactivate!(x, k)
-  end
-  atom(x, k)
-end
 
 # the ridge term adds ρ(xᵢ - cᵢ) to the gradient, -ρcᵢ at a coordinate at zero
 _ridge_shifted(g::AbstractArray, r::Regularize) =

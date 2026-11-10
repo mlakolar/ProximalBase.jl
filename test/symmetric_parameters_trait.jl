@@ -1,5 +1,7 @@
 module SymmetricParametersTraitTest
 
+using ..TestUtils: take_block_step!
+
 using Test, ProximalBase, LinearAlgebra
 using ..TestUtils: allocs
 
@@ -12,7 +14,7 @@ MyL1{D}(w = nothing) where {D} = MyL1{D, typeof(w)}(w)
 weight(f, i) = f.w === nothing ? 1.0 : f.w[i]
 PB.entry_parameters(f::MyL1{true}) = (:w => f.w,)
 PB.value_entry(f::MyL1, v, i) = weight(f, i) * abs(v)
-PB.prox_entry(f::MyL1, v, i, γ) = shrink(v, γ * weight(f, i))
+PB.prox_block(f::MyL1, v, i, γ) = shrink(v, γ * weight(f, i))
 PB.kkt_violation(f::MyL1, g::AbstractArray, i::Integer) = abs(g[i]) - weight(f, i)
 PB.lla_weight(f::MyL1, v, i) = weight(f, i)
 PB.iszeropreserving(::MyL1) = true
@@ -21,7 +23,7 @@ PB.isconvex(::Type{<:MyL1}) = true
 struct FreeL1 <: SeparableFunction end
 PB.entry_parameters(::FreeL1) = ()
 PB.value_entry(::FreeL1, v, i) = abs(v)
-PB.prox_entry(::FreeL1, v, i, γ) = shrink(v, γ)
+PB.prox_block(::FreeL1, v, i, γ) = shrink(v, γ)
 PB.iszeropreserving(::FreeL1) = true
 PB.isconvex(::Type{FreeL1}) = true
 
@@ -89,7 +91,7 @@ wrappers(f) = (f, Scaled(f, 2.), Tilt(f, zeros(2, 2)),
         @test err isa ArgumentError && occursin("is not supported with a SymmetricSparseIterate as the output", err.msg)
         @test isequal(state(y), before)
       end
-      rejects(y -> prox_coordinate!(y, h, 2, .1), copy(x), message)
+      rejects(y -> take_block_step!(y, h, 2, .1), copy(x), message)
       rejects(y -> kkt_violation(h, ones(2, 2), y, 2), copy(x), message)
       rejects(y -> PB.check_symmetric_parameters(h, y), copy(x), message)
       for fs in ((h, NormL1()), (NormL1(), h))
@@ -128,7 +130,7 @@ end
       @test Matrix(prox!(y, h, x, .1)) ≈ Matrix(prox(b, x, .1))
       @test value_and_prox!(y, h, x, .1) ≈ b(prox(b, x, .1))
       y = copy(x); z = copy(x)
-      @test prox_coordinate!(y, h, 2, .1) ≈ prox_coordinate!(z, b, 2, .1)
+      @test take_block_step!(y, h, 2, .1) ≈ take_block_step!(z, b, 2, .1)
     end
   end
 end
@@ -137,7 +139,7 @@ end
   W = ones(3, 3); W[3, 2] = 3.
   x = SymmetricSparseIterate(3)
   f = MyL1{true}(W)
-  @test prox_coordinate!(x, f, 2, .1) == 0
+  @test take_block_step!(x, f, 2, .1) == 0
   @test_throws ArgumentError PB.check_symmetric_parameters(f, x)
   @test_throws ArgumentError Scaled(f, 2.)(x)
   @test_throws ArgumentError prox!(copy(x), Scaled(f, 2.), x, .1)
@@ -169,7 +171,7 @@ end
   f = MyL1{true}(a); x = SymmetricSparseIterate(p)
   for h in (f, Scaled(f, 2.), Tilt(f, zeros(p, p)), Precompose(f, 2.))
     a.reads[] = 0
-    prox_coordinate!(x, h, 2, .1)
+    take_block_step!(x, h, 2, .1)
     @test 2 <= a.reads[] <= 4
     a.reads[] = 0
     kkt_violation(h, zeros(p, p), x, 2)

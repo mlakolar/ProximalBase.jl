@@ -112,7 +112,7 @@ from setting the derivative of ``\gamma p(z) + \tfrac12(z - v)^2`` to zero on
 the corresponding interval.
 
 For larger steps the scalar problems of MCP and SCAD are not convex.
-[`prox_entry`](@ref) still returns an exact minimizer: it compares the candidate
+[`prox_block`](@ref) still returns an exact minimizer: it compares the candidate
 minimizers of the pieces. So these penalties work in coordinate descent and
 proximal gradient methods with any step. At zero their subdifferential is that
 of ``\lambda|\cdot|``, so `kkt_violation` is ``|g_i| - \lambda``.

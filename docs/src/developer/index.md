@@ -37,7 +37,7 @@ The storage interfaces are defined by what an algorithm can do with its **iterat
 
 See the [SparseIterate guide](../sparse_iterate.md), [symmetric owner guide](../symmetric_sparse_iterate.md), and the coordinate-view implementation notes below.
 
-The following APIs belong to **functions or algorithms**, not to the storage type's minimum contract: `restrict`, `prox_entry`, `prox_coordinate!`, `kkt_violation`, `gradient!`, `prox!`, `quadratic_model` and `value_and_prox!`. They may accept an iterate, but a new iterate does not need to define those oracles itself. Consult [the function interface](../interface.md) and [coordinate descent](../coordinate_descent.md).
+The following APIs belong to **functions or algorithms**, not to the storage type's minimum contract: `restrict`, `prox_block`, `prox_block!`, `kkt_violation`, `gradient!`, `prox!`, `quadratic_model` and `value_and_prox!`. They may accept an iterate, but a new iterate does not need to define those oracles itself. Consult [the function interface](../interface.md) and [coordinate descent](../coordinate_descent.md).
 
 ## How to read the 0.6 contracts
 

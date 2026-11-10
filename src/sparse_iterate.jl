@@ -115,7 +115,7 @@ order. There is no comparison with an array and no `isapprox`: use `Matrix(x)` o
 `matrixview(x)`.
 
 Its coordinates are numbered column by column ([`tril_index`](@ref)):
-[`prox_coordinate!`](@ref) updates them, [`activecoordinates`](@ref) lists the
+Public indexed assignment updates them, [`activecoordinates`](@ref) lists the
 active ones and [`coordinates`](@ref) is a vector view of them.
 
 See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
@@ -220,7 +220,7 @@ nnz
 """
     ncoordinates(x)
 
-The number of coordinates of the iterate `x` that [`prox_coordinate!`](@ref)
+The number of independent coordinates of the iterate `x` that a solver
 updates: the entries of a [`SparseIterate`](@ref), the entries of the lower
 triangle of a [`SymmetricSparseIterate`](@ref), the groups of an
 [`AtomIterate`](@ref).
@@ -1701,7 +1701,7 @@ _max_half(A::SparseMatrixCSC) = _max_half(nonzeros(A))
                                          _rounding_type(eltype(A)))))
 end
 
-# A check of one pair, such as the coordinate of prox_coordinate!, reads only that
+# A check of one pair, such as a coordinate update, reads only that
 # pair: its relative asymmetry is relative to the larger of the two entries.
 @noinline function _throw_asymmetric_pair(subject, name, where, r, c, x, y)
   relative = if x isa Number && y isa Number

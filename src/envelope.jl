@@ -16,7 +16,7 @@ from [`value_and_prox!`](@ref)).
 
 It is also proximable, by
 `prox_{te}(x) = x + t/(γ + t) ⋅ (prox_{(γ + t)f}(x) - x)`, and separable when
-`f` is, so coordinate descent applies to it. `prox_entry`, `kkt_violation` and
+`f` is, so coordinate descent applies to it. `prox_block`, `kkt_violation` and
 `restrict` require a separable `f`. The envelope of `δ|⋅|` is the
 Huber function, that of the indicator function of a set `C` the squared
 distance to `C` divided by `2γ`; [`SqrDistL2`](@ref) also supports nonconvex
@@ -173,12 +173,12 @@ function _value_and_prox_unchecked!(y::_ArrayOrOwner, e::MoreauEnvelope, x::_Arr
   _value_at(v + _envelope_energy(_vw(y), P, γ), y)
 end
 
-Base.@propagate_inbounds function prox_entry(e::MoreauEnvelope, v::Real, i::Integer, t::Real)
-  isseparable(e) || throw(ArgumentError("prox_entry of MoreauEnvelope requires a separable function"))
+Base.@propagate_inbounds function prox_block(e::MoreauEnvelope, v::Real, i::Integer, t::Real)
+  isseparable(e) || throw(ArgumentError("prox_block of MoreauEnvelope requires a separable function"))
   T = typeof(float(v))
   γ, step = convert(T, e.γ), convert(T, t)
   combined = _envelope_step(γ, step)
-  p = prox_entry(e.f, v, i, combined)
+  p = prox_block(e.f, v, i, combined)
   _ridge_blend(v, p, γ / combined, step / combined)
 end
 _checkparams(e::MoreauEnvelope, x) = _checkparams(e.f, x)
@@ -189,7 +189,7 @@ function kkt_violation(e::MoreauEnvelope, g::AbstractArray, i::Integer)
   eltype(g) <: Real || _real_error(:kkt_violation)
   isseparable(e) || throw(ArgumentError("kkt_violation of MoreauEnvelope requires a separable function"))
   γ = e.γ
-  abs(g[i] - prox_entry(e.f, zero(float(eltype(g))), i, γ) / γ)
+  abs(g[i] - prox_block(e.f, zero(float(eltype(g))), i, γ) / γ)
 end
 # the dropped terms are minᵧ fᵢ(y) + y²/(2γ), finite for a proper fᵢ
 function restrict(e::MoreauEnvelope, S::AbstractVector{<:Integer})
@@ -235,7 +235,7 @@ Smoothed(φ::SeparableFunction, γ::Real) = Smoothed{typeof(φ), typeof(γ)}(φ,
 @inline function value_and_deriv(ℓ::Smoothed, η::Real, y::Real)
   r = float(η - y)
   γ = convert(typeof(r), ℓ.γ)
-  p = prox_entry(ℓ.φ, r, 1, γ)
+  p = prox_block(ℓ.φ, r, 1, γ)
   (convert(typeof(r), value_entry(ℓ.φ, p, 1)) + _envelope_energy(r, p, γ),
    _envelope_derivative(r, p, γ))
 end
@@ -252,12 +252,12 @@ curvature(ℓ::Smoothed) = inv(float(ℓ.γ))
 # difference otherwise
 _prox_slope(φ::NormL1, r::T, γ::T) where {T} = abs(r) > _weight_coefficient(T, γ, φ.λ0, _entry(φ.w, 1)) ? one(T) : zero(T)
 _prox_slope(φ::NormL1Nonneg, r::T, γ::T) where {T} = r > _weight_coefficient(T, γ, φ.λ0, _entry(φ.w, 1)) ? one(T) : zero(T)
-_prox_slope(φ::ElasticNet, r::T, γ::T) where {T} = last(_prox_entry_slope(φ, r, 1, γ))
+_prox_slope(φ::ElasticNet, r::T, γ::T) where {T} = last(_prox_block_slope(φ, r, 1, γ))
 _prox_slope(φ::IndBox, r::T, ::T) where {T} = _entry(φ.l, 1) < r < _entry(φ.u, 1) ? one(T) : zero(T)
 _prox_slope(::IndNonnegative, r::T, ::T) where {T} = r > 0 ? one(T) : zero(T)
 function _prox_slope(φ::SeparableFunction, r::T, γ::T) where {T}
   h = sqrt(eps(T)) * max(one(T), abs(r))
-  s = (prox_entry(φ, r + h, 1, γ) - prox_entry(φ, r - h, 1, γ)) / (2h)
+  s = (prox_block(φ, r + h, 1, γ) - prox_block(φ, r - h, 1, γ)) / (2h)
   clamp(convert(T, s), zero(T), one(T))
 end
 

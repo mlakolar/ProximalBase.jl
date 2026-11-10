@@ -5,7 +5,7 @@
 # Most coefficients are zero at the solution, so the solver works on a small set
 # S of coordinates: it solves the problem restricted to S, then checks the
 # optimality of every coordinate outside S and adds the worst violators.
-# `restrict(f, S)` and `restrict(g, S)` are the loss and the penalty of β[S] (for
+# `restrict(f, S)` and `restrict(g, S)` are the loss and the penalty of `β[S]` (for
 # the loss, the columns S of X), and `kkt_violation(g, ∇f(β), j)` measures how
 # much a coordinate at zero violates optimality: positive when moving it away
 # from zero would decrease the objective.

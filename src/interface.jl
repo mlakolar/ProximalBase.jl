@@ -15,7 +15,7 @@ outside its domain. Its traits say which oracles it provides:
 |:------|:--------|
 | [`issmooth`](@ref) | [`gradient!`](@ref), [`value_and_gradient!`](@ref) |
 | [`isproximable`](@ref) | [`prox!`](@ref), [`value_and_prox!`](@ref) |
-| [`isseparable`](@ref) | [`prox_entry`](@ref), and [`prox_coordinate!`](@ref) on every iterate |
+| [`isseparable`](@ref) | [`prox_block`](@ref) for scalar entries |
 | [`hashessian`](@ref) | [`hessian_vec!`](@ref), [`quadratic_model`](@ref) |
 
 For built-in functions, caller-supplied per-entry arrays must be exactly
@@ -85,8 +85,7 @@ isproximable(f::AbstractFunction) = isproximable(typeof(f))
     isseparable(f)
 
 Whether `f(x) = Σᵢ fᵢ(xᵢ)` is a sum over the entries of `x`. A separable `f` has
-the scalar proximal operators [`prox_entry`](@ref), with which
-[`prox_coordinate!`](@ref) updates a coordinate of any iterate, and
+the scalar proximal operators [`prox_block`](@ref), and
 [`kkt_violation`](@ref) needs only the gradient.
 """
 isseparable(::Type{<:AbstractFunction}) = false
@@ -96,7 +95,7 @@ isseparable(f::AbstractFunction) = isseparable(typeof(f))
     iszeropreserving(f)
 
 Whether the separable function `f` has `fᵢ(0) = 0` and
-`prox_entry(f, 0, i, γ) = 0` for every entry `i` and every positive finite step
+`prox_block(f, 0, i, γ) = 0` for every entry `i` and every positive finite step
 `γ`. Then sparse-iterate kernels may skip unstored zeros. This promises no
 standalone value oracle. It is `false` for non-separable functions and unless
 a function declares it. Wrappers forward it only where it holds for every
@@ -402,196 +401,38 @@ end
 ####################################
 
 """
-    prox_entry(f, v, i, γ)
+    prox_block(f, u, k, γ)
+    prox_block!(out, f, u, k, γ)
 
-For a separable `f(x) = Σᵢ fᵢ(xᵢ)` (see [`isseparable`](@ref)), the proximal
-operator of `γfᵢ` at the scalar `v`: the value that a coordinate-descent step
-gives entry `i` when the gradient step lands at `v`. `i` is a linear index of
-the array, so that weights and bounds may depend on the entry; for a
-[`SymmetricSparseIterate`](@ref), entry `(r, c)` has index `(c - 1)p + r`.
-It touches no iterate and does not check parameter symmetry; a caller using a
-symmetric iterate must check its parameters first. [`prox_coordinate!`](@ref)
-updates a coordinate of one in place.
+Compute `prox_{γ fₖ}(u)` for one block of the penalty `f`, at the already
+computed trial point `u`. For a separable function, `u` and the return value
+are scalars and `k` is the underlying array's linear entry index. For a group
+penalty, `k` is its group index, `u` is a compact vector in `f.groups[k]` order,
+and the allocating form returns a vector. Coupled penalties without such a
+decomposition do not support this operation.
 
-See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
+`prox_block!` writes a compact group vector and returns `out`. It shares the
+full-array proximal kernels and their step, weight, precision, NaN/Inf and tie
+policies. Exact aliasing `out === u` is supported; other overlapping buffers
+are rejected. Both buffers must be real vectors with one-based indexing and
+exactly the group's length. Output buffers must not be iterates or views of
+iterates. Group, shape, representation and parameter checks precede writes;
+a failing element read, conversion or user kernel may leave a partial output,
+as with ordinary array writes. No iterate, active set or model cache is updated.
+
+**Index spaces:** a symmetric iterate coordinate is not a scalar penalty
+entry. Translate `(r,c) = tril_cartesian(p,k)` to `i = (c-1)p+r` before calling
+`prox_block(f, u, i, γ)`, and call [`ProximalBase.check_symmetric_parameters`](@ref) before
+updating a symmetric iterate. The oracle itself has no owner and cannot check
+pair symmetry. Group layouts of a penalty and an iterate must also be matched
+by the caller. See [Symmetric parameters](@ref).
+
+Custom [`SeparableFunction`](@ref) subtypes implement the scalar `prox_block`
+method, alongside [`value_entry`](@ref). Full `prox!` uses that same method.
 """
-function prox_entry end
-
-"""
-    prox_coordinate!(x, f, k, γ)
-    prox_coordinate!(x, f, k, u, γ)
-
-Apply the proximal operator of `γf` to coordinate `k` of the iterate `x` in
-place, as in one step of coordinate descent, and return the new value of the
-coordinate. The coordinates of a [`SparseIterate`](@ref) are its entries, those
-of a [`SymmetricSparseIterate`](@ref) the entries of its lower triangle, and
-those of an [`AtomIterate`](@ref) its groups, for which `prox_coordinate!`
-returns [`atom`](@ref)`(x, k)` (see [`ncoordinates`](@ref)).
-
-A separable `f` updates any coordinate through [`prox_entry`](@ref); a group
-penalty such as [`GroupNormL2`](@ref) updates a group of an `AtomIterate` that
-shares its groups. A coordinate that stays zero does not become stored or
-active; one that becomes nonzero does.
-
-The second form makes coordinate `k` the proximal step at `u`, a number or,
-for an `AtomIterate`, a vector of the group's length. It acts as if `u` were
-written into the coordinate, converted to the element type of `x`, before the
-first form. A solver passes the gradient step `u` without writing it into `x`,
-so a coordinate whose step ends at zero does not become stored or active.
-This form supports separable functions, the group penalties of this package,
-and their [`Scaled`](@ref) and [`Regularize`](@ref) versions. Other functions
-raise an error before writing.
-
-See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
-"""
-function prox_coordinate! end
-
-@noinline _not_separable(f) =
-  throw(ArgumentError("$(typeof(f)) is not separable: prox_coordinate! needs a separable function or a group penalty on matching groups"))
-
-function prox_coordinate!(x::SparseIterate, f::AbstractFunction, k::Integer, γ::Real)
-  isseparable(f) || _not_separable(f)
-  _checkparams(f, x)
-  v = prox_entry(f, x[k], k, γ)
-  x[k] = v
-  v
-end
-
-function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Integer, γ::Real)
-  isseparable(f) || _not_separable(f)
-  _checkparams(f, x)
-  checkbounds(coordinates(x), k)
-  r, c = tril_cartesian(x.p, k)
-  _check_entry_arrays(f, x, _CoordinatePair(Int(k)))
-  v = prox_entry(f, _getstored(x, k), (c - 1) * x.p + r, γ)
-  _setstored!(x, v, k)
-  v
-end
-
-@inline function prox_coordinate!(x::SparseIterate, f::AbstractFunction, k::Integer, u::Number, γ::Real)
-  isseparable(f) || _not_separable(f)
-  _checkparams(f, x)
-  checkbounds(x, k)
-  _checkreal(f, u)
-  T = eltype(x)
-  v = prox_entry(f, convert(T, u), k, γ)
-  x[k] = v
-  v
-end
-
-@inline function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Integer, u::Number, γ::Real)
-  isseparable(f) || _not_separable(f)
-  _checkparams(f, x)
-  checkbounds(x.ind2nzval, k)
-  r, c = tril_cartesian(x.p, k)
-  _check_entry_arrays(f, x, _CoordinatePair(Int(k)))
-  _checkreal(f, u)
-  T = eltype(x)
-  v = prox_entry(f, convert(T, u), (c - 1) * x.p + r, γ)
-  @inbounds _setstored!(x, v, k)
-  v
-end
-
-@inline function _check_coordinate(x::AtomIterate, f::AbstractFunction, k)
-  isseparable(f) || _not_separable(f)
-  _checkparams(f, x)
-  checkbounds(x.groups, k)
-  nothing
-end
-
-# activate before writing; remove a newly active group only after a zero result
-@inline function _separable_group_step!(x::AtomIterate{T}, f, k, ::Nothing, γ) where {T}
-  G = x.groups[k]
-  was = isactive(x, k)
-  was || activate!(x, k)
-  nonzero = false
-  @inbounds for i in G
-    s = convert(T, prox_entry(f, x.storage[i], i, γ))
-    x.storage[i] = s
-    nonzero |= !iszero(s)
-  end
-  !was && !nonzero && _deactivate!(x, k)
-  atom(x, k)
-end
-
-@inline function _separable_group_step!(x::AtomIterate{T}, f, k, src::AbstractVector, γ) where {T}
-  G = x.groups[k]
-  was = isactive(x, k)
-  was || activate!(x, k)
-  nonzero = false
-  @inbounds for a in 1:length(G)
-    input = convert(T, src[firstindex(src) + a - 1])
-    s = convert(T, prox_entry(f, input, G[a], γ))
-    x.storage[G[a]] = s
-    nonzero |= !iszero(s)
-  end
-  !was && !nonzero && _deactivate!(x, k)
-  atom(x, k)
-end
-
-function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, γ::Real)
-  ctx = _check_coordinate(x, f, k)
-  _unchecked_coordinate!(x, f, k, γ, ctx)
-end
-
-function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, u::AbstractVector, γ::Real)
-  ctx = _check_coordinate(x, f, k)
-  _checkreal(f, u)
-  length(u) == length(x.groups[k]) ||
-    throw(DimensionMismatch("u has length $(length(u)), group $k has size $(length(x.groups[k]))"))
-  # Rebinding u to collect(u) would give it the type Union{Vector, typeof(u)}, which
-  # heap-allocates a strided view u; pass the copy on instead.
-  Base.mightalias(x, u) && return _block_step!(x, f, k, collect(u), γ, ctx)
-  _block_step!(x, f, k, u, γ, ctx)
-end
-
-@inline _unchecked_coordinate!(x::AtomIterate, f, k, γ, ctx) = _separable_group_step!(x, f, k, nothing, γ)
-@inline _block_step!(x::AtomIterate, f, k, u, γ, ctx) = _separable_group_step!(x, f, k, u, γ)
-
-@inline function _stage_and_step!(x::AtomIterate{T}, f, k, u, γ, ctx) where {T}
-  if T <: AbstractFloat && eltype(u) <: Union{AbstractFloat, Integer} && isbitstype(eltype(u)) && u isa StridedVector
-    # in-bounds strided reads of bits entries and their conversion cannot fail
-    was = isactive(x, k)
-    G = x.groups[k]
-    finite = true
-    @inbounds for a in eachindex(G)
-      v = convert(T, u[firstindex(u) + a - 1])
-      x.storage[G[a]] = v
-      finite &= isfinite(v)
-    end
-    result = _unchecked_coordinate!(x, f, k, γ, ctx)
-    # with finite inputs, a kernel that stays inactive stores only zeros
-    if !was
-      if isactive(x, k)
-        _allzero(x.storage, G) && _deactivate!(x, k)
-      elseif !finite && _anynonzero(x.storage, G)
-        activate!(x, k)
-      end
-    end
-    return result
-  end
-  # other reads or conversions may fail; activate each stored nonzero before continuing
-  was = isactive(x, k)
-  active = was
-  G = x.groups[k]
-  @inbounds for a in 1:length(G)
-    x.storage[G[a]] = u[firstindex(u) + a - 1]
-    if !active && !iszero(x.storage[G[a]])
-      activate!(x, k)
-      active = true
-    end
-  end
-  result = _unchecked_coordinate!(x, f, k, γ, ctx)
-  # the group was appended last and no other group changed; restore the list
-  if !was
-    if _anynonzero(x.storage, G)
-      activate!(x, k)
-    else
-      _deactivate!(x, k)
-    end
-  end
-  result
-end
+function prox_block end
+function prox_block! end
+@doc (@doc prox_block) prox_block!
 
 ####################################
 #  Optimality and active sets

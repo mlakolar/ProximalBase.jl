@@ -65,7 +65,7 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
           y = zeros(T, 1)
           @test value_and_prox!(y, c, T[2r], one(T)) === zero(T)
           @test y ≈ T[r] rtol = 8eps(T)
-          @test prox_entry(c, T(2r), 1, one(T)) ≈ r rtol = 8eps(T)
+          @test prox_block(c, T(2r), 1, one(T)) ≈ r rtol = 8eps(T)
         end
         # a Moreau route (a leaf without a direct projection) and a block sum
         q = Scaled(Scaled(SqrNormL2(tens(T, -l)), tens(T, a)), tens(T, a))
@@ -212,7 +212,7 @@ steps566(::Type{Float32}) = (a = 25, l = 30, g = 10, l2 = 10, g2 = 20)
           end
           γ isa AbstractArray || @test close(prox(f, x, γ), r)
           γ isa AbstractArray || !array || for k in 1:n
-            @test near(prox_entry(f, x[k], k, γ), r[k]) || (iszero(r[k]) && iszero(prox_entry(f, x[k], k, γ)))
+            @test near(prox_block(f, x[k], k, γ), r[k]) || (iszero(r[k]) && iszero(prox_block(f, x[k], k, γ)))
           end
         end
       end

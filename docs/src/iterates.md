@@ -28,19 +28,18 @@ raises an `InexactError`.
 
 ## Entries and coordinates
 
-[`prox_entry`](@ref)`(g, v, i, γ)` computes the scalar proximal operator of
-entry ``i`` without writing the iterate. In contrast,
-[`prox_coordinate!`](@ref)`(x, g, k, γ)` reads coordinate ``k`` of the iterate,
-applies its proximal operator and writes the result. The calling procedure
-must supply the gradient step before applying this proximal operation.
+[`prox_block`](@ref)`(g, u, k, γ)` computes one mathematical penalty block
+without writing an iterate. A separable function takes a scalar `u` and a linear
+entry index; a group penalty takes a compact vector and a penalty group index.
+A solver writes the result through indexed assignment, `coordinates(x)`, or
+`copyto!(atom(x,k), out)`, then updates its residual cache.
 
-The two calls index different spaces:
-- `prox_entry` takes an entry ``i`` of the array, the index of the weights and
-  bounds.
-- `prox_coordinate!` takes a coordinate ``k`` of the iterate.
-
-The two coincide for a `SparseIterate`. A coordinate is a variable, an entry of the
-lower triangle, for a `SymmetricSparseIterate`, and a group for an `AtomIterate`.
+An iterate coordinate identifies an independent storage update unit: one entry
+for `SparseIterate`, a lower-triangle variable for `SymmetricSparseIterate`, or
+one group for `AtomIterate`. A symmetric coordinate ID must be converted to
+`i = (c-1)p+r` for the scalar penalty. Validate symmetric parameters explicitly.
+Penalty groups and iterate groups must have matching indices and order before
+a solver uses the same group ID in both APIs.
 
 ## SparseIterate
 
@@ -343,7 +342,7 @@ coordinate,
 t^+ = S_{2\lambda/a}\Big(t_0 - \frac{2G_{rc}}{a}\Big).
 ```
 
-That is `prox_entry(NormL1(λ), t₀ - (2/a) G[r, c], i, 2/a)`. On the diagonal
+That is `prox_block(NormL1(λ), t₀ - (2/a) G[r, c], i, 2/a)`. On the diagonal
 the factors of 2 disappear and the step is ``1/a``. So, as the
 [`KronQuadratic`](@ref) example of the D-trace loss shows, off-diagonal
 coordinates take the step ``2/a`` where the diagonal takes ``1/a``.
@@ -540,7 +539,6 @@ argument must be a `SymmetricSparseIterate` for these checks to apply.
 | `f(x)` | Input `x` | Every pair, or only stored pairs as with weighted `NormL1` |
 | [`prox!`](@ref), [`value_and_prox!`](@ref) | Output, or the point `x` with a dense output | Every pair, or pairs stored in either input or output as with weighted `NormL1` |
 | [`gradient!`](@ref), [`value_and_gradient!`](@ref) | Output, or the point `x` with a dense output | Every pair |
-| Both forms of [`prox_coordinate!`](@ref) | Iterate `x` | The pair at the chosen coordinate |
 | Four-argument [`kkt_violation`](@ref) | Iterate `x` | The pair at the chosen coordinate |
 | [`hessian_vec!`](@ref) | Point `x`, even with dense output; the output, even at a dense point | Every pair |
 | [`quadratic_model`](@ref), [`quadratic_model!`](@ref) | Point `x` | Every pair |
@@ -626,7 +624,7 @@ triangle to read; the package never picks one for a parameter.
 
 #### When no check happens
 
-- Raw entry calls (`value_entry`, `prox_entry`, `lla_weight`, scalar
+- Raw entry calls (`value_entry`, `prox_block`, `lla_weight`, scalar
   `coordinate_lipschitz` and three-argument `kkt_violation`) and `restrict`
   have no symmetric iterate from which to determine mirrored positions.
   Validate the original function before using them in a symmetric solver.
@@ -676,9 +674,9 @@ activates the group, and a zero never deactivates it.
 Block coordinate descent for the group lasso computes the trial point
 ``u = x_{G_k} - \nabla_{G_k} f(x)/L_k`` for group ``k``, with
 ``L_k = \|X_{G_k}\|_2^2`` for least squares. It then takes the block step
-`prox_coordinate!(x, g, k, u, 1/L_k)`, which is block soft thresholding and
-activates the group only when it ends nonzero. [Block trials](@ref) gives the
-rules of this form. `AtomIterate(p, g)` builds an
+`prox_block!(out, g, u, k, 1/L_k)`, then writes
+`copyto!(atom(x,k), out)`. Only the stored nonzero result activates a group.
+[Block trials](@ref) gives an example. `AtomIterate(p, g)` builds an
 iterate that shares the groups of a group penalty `g`.
 
 ### The groups of an iterate
@@ -715,9 +713,8 @@ the stored groups.)
 indices in the same order in every group, and `false` otherwise. `a` and `b` are two iterates,
 or an iterate and a group penalty or [`IndBallGroupL0`](@ref), in either order. Ranges and vectors
 with the same indices are equal, whatever their index types, and reordering the groups or the
-indices inside a group gives `false`. For a group penalty, it is the check that [`prox_coordinate!`](@ref) makes
-before it writes and that the four-argument [`kkt_violation`](@ref)`(f, g, x, k)` makes before it
-computes; each throws a `DimensionMismatch` when it is `false`. The whole-array oracles do not
+indices inside a group gives `false`. A solver checks this before writing a group result. The four-argument [`kkt_violation`](@ref)`(f, g, x, k)` makes before it
+computes and throws a `DimensionMismatch` when it is `false`. The whole-array oracles do not
 require it: they compute the function of the vector for any layout, and use `samegroups` only to
 choose the faster active-group paths.
 
@@ -746,130 +743,55 @@ constructors.
 
 ## Coordinate oracles
 
-[`prox_coordinate!`](@ref) and the four-argument [`kkt_violation`](@ref) act on
-one coordinate ``k`` of an iterate: an entry of a `SparseIterate`, or a group of
-an `AtomIterate` (see [Entries and coordinates](@ref)). This section states what
-they do on these two iterates. For a `SymmetricSparseIterate`, see also
-[What each call checks](@ref).
+A solver owns trial construction, penalty index conversion, storage writes,
+cache updates and active-set policy. [`prox_block`](@ref) and
+[`prox_block!`](@ref) supply the mathematical result; the four-argument
+[`kkt_violation`](@ref) screens an iterate coordinate at zero.
 
 ### Steps on one coordinate
 
-`prox_coordinate!(x, f, k, γ)` applies the proximal operator of ``\gamma f`` to
-the current value of coordinate ``k``. `prox_coordinate!(x, f, k, u, γ)` applies
-it to a trial value `u` instead, without writing `u` into `x` first. The trial
-is a number for a `SparseIterate`, and a vector of the group's length for an
-`AtomIterate`. Both forms write the result into coordinate ``k`` and return
-it: the new value of the entry for a `SparseIterate`, and `atom(x, k)` for an
-`AtomIterate`.
-
-Only coordinate ``k`` can join the working set:
-
-- A coordinate that is absent and whose result is zero stays absent.
-- A coordinate whose result is nonzero becomes active.
-- An active coordinate stays active, even when the step sets it to zero. No
-  coordinate is removed, and no other coordinate changes.
-
-Both forms support separable functions on both iterates. On an `AtomIterate`
-they also support the group penalties of the package (`GroupNormL2`,
-`GroupNormLinf`, `SparseGroupNormL2`, `GroupMCP` and `GroupSCAD`) whose groups
-are those of `x`, and their `Scaled` and `Regularize` versions. The arguments
-are checked before anything is written, and after each of these errors `x` is
-unchanged:
-
-| Error | Cause |
-|:------|:------|
-| `BoundsError` | `k` is not a coordinate of `x` |
-| `DimensionMismatch` | the groups of a group penalty differ from those of `x` (see [The groups of an iterate](@ref)) |
-| `ArgumentError` | any other function, such as a group penalty on a `SparseIterate`, `IndBallGroupL0`, or `Precompose` of a group penalty with an array |
-| `DimensionMismatch` | a parameter array, such as the weights of `NormL1` or the center of `Regularize`, whose length is not `length(x)` |
-| `ArgumentError` | a trial `u` whose element type is not real |
-| `DimensionMismatch` | for an `AtomIterate`, a trial `u` whose length is not the size of group ``k`` |
-
-On an `AtomIterate`, an error outside this list, such as an entry of `u` whose
-reading throws or a value `1.5` for an iterate of integers, can leave entries of
-the group written. A group with a nonzero entry is then active.
-
-```@example coordinate_steps
+```@example coordinate_step
 using ProximalBase
-
 x = SparseIterate(4)
 x[1] = 0.5
-v = prox_coordinate!(x, NormL1(1.0), 1, 1.0)        # soft thresholding of 0.5 at 1
-@assert v == 0 && isactive(x, 1)                    # an active entry stays active at zero
-v = prox_coordinate!(x, NormL1(1.0), 2, 3.0, 1.0)   # the trial value 3.0 is not written first
-@assert v == 2.0 == x[2] && isactive(x, 2)
-prox_coordinate!(x, NormL1(1.0), 3, 0.5, 1.0)       # a zero result
-@assert !isactive(x, 3)                             # leaves an absent entry absent
-try
-    prox_coordinate!(x, NormL1(1.0, ones(3)), 4, 1.0)   # three weights for four entries
-    error("expected a DimensionMismatch")
-catch e
-    @assert e isa DimensionMismatch
-end
-@assert Vector(x) == [0.0, 2.0, 0.0, 0.0]
-Vector(x)
+x[1] = prox_block(NormL1(1.0), x[1], 1, 1.0)
+@assert iszero(x[1]) && isactive(x, 1)
+x[2] = prox_block(NormL1(1.0), 3.0, 2, 1.0)
+@assert x[2] == 2.0 && isactive(x, 2)
 ```
 
-A trial `u` that shares memory with `x`, such as `atom(x, j)` or a view of `x`
-with its entries permuted, is copied before anything is written, so the result
-does not depend on the order of the writes. Here the trial is group 1 itself in
-reverse order. Writing its entries one at a time without the copy would give
-the trial ``(4, 4)`` and the result ``(3, 3)``.
-
-```@example coordinate_steps
-f = GroupNormL2(1.0, [1:2, 3:4])                    # weights √2
-a = AtomIterate([3.0, 4.0, 0.0, 0.0], f)
-r = prox_coordinate!(a, f, 1, view(a, [2, 1]), 1.0) # the trial (4, 3)
-@assert collect(r) ≈ (1 - sqrt(2) / 5) .* [4.0, 3.0]
-@assert r == atom(a, 1)
-```
+Writing zero preserves an existing active coordinate and leaves an absent
+coordinate absent. A solver that needs a different working-set policy applies
+it explicitly through `activate!` or `dropzeros!`.
 
 ### Block trials
 
-Block coordinate descent computes a trial point ``u`` for group ``k`` (see
-[AtomIterate](@ref)). The supported way to take the group step at ``u`` is
-`prox_coordinate!(x, f, k, u, γ)`. It gives the values that writing `u` into
-group ``k`` and then calling `prox_coordinate!(x, f, k, γ)` gives. The working
-sets differ: writing a nonzero `u` activates the group, while the five-argument
-form activates it only when the result is nonzero. A group whose step ends at
-zero therefore leaves no trace in the working set. After an error of the list
-in [Steps on one coordinate](@ref), `x` is unchanged.
+Compute in compact numerical buffers before writing the iterate. This avoids
+activating a group whose nonzero trial thresholds to zero. `out === u` is
+supported; other overlapping buffers are rejected. The compact buffers have
+the penalty group's length and order. Their shape, group ID and real element
+types are checked before writes; a failing element read or conversion may
+leave a partial numerical result, but the iterate has not been written.
 
 ```@example block_trials
 using ProximalBase
-
 f = GroupNormL2(1.0, [1:2, 3:4])
 x = AtomIterate(4, f)
-r = prox_coordinate!(x, f, 1, [3.0, 4.0], 1.0)
-@assert collect(r) ≈ (1 - sqrt(2) / 5) .* [3.0, 4.0]
+@assert ProximalBase.samegroups(x, f)
+u, out = [3.0, 4.0], zeros(2)
+prox_block!(out, f, u, 1, 1.0)
+@assert nactive(x) == 0
+copyto!(atom(x, 1), out)
+@assert collect(atom(x, 1)) ≈ (1 - sqrt(2) / 5) .* u
 @assert collect(activecoordinates(x)) == [1]
-prox_coordinate!(x, f, 2, [0.5, 0.5], 1.0)          # the norm of u is below √2
-@assert iszero(atom(x, 2)) && !isactive(x, 2)
-
-z = AtomIterate(4, f)                               # writing the trial first
-z[3] = 0.5
-z[4] = 0.5
-prox_coordinate!(z, f, 2, 1.0)
-@assert iszero(atom(z, 2)) && isactive(z, 2)        # same values, but the write activated group 2
-
-before = (Vector(x), collect(activecoordinates(x)))
-try
-    prox_coordinate!(x, GroupNormL2(1.0, [[1, 3], [2, 4]]), 1, [9.0, 9.0], 1.0)
-    error("expected a DimensionMismatch")
-catch e
-    @assert e isa DimensionMismatch
-end
-@assert (Vector(x), collect(activecoordinates(x))) == before
+prox_block!(out, f, [0.5, 0.5], 2, 1.0)
+copyto!(atom(x, 2), out)
+@assert all(iszero, atom(x, 2)) && !isactive(x, 2)
 ```
 
-Writing the trial into the internal storage of `x` (its fields) and then
-calling the four-argument form is not supported. While such a write is
-pending, the iterate disagrees with its working set if group ``k`` was
-inactive before the write: the group is missing from it, and `nactive(x)` does
-not count it, although `Vector(x)` is not zero in that group. In that case,
-functions that visit only the active groups ignore the written entries. If the
-next call fails one of the checks listed in [Steps on one coordinate](@ref),
-nothing is written and the iterate stays in that state.
+For a separable penalty acting on a solver's group, call the scalar oracle
+with each entry's global index. A separable penalty does not own that group
+partition, so its scalar entry index cannot be replaced by an iterate group ID.
 
 ### Screening a zero coordinate
 
@@ -983,11 +905,11 @@ must accompany these storage operations.
 ### What an oracle leaves in an iterate
 
 After [`prox!`](@ref), [`value_and_prox!`](@ref), [`gradient!`](@ref), `mul!` or
-[`prox_coordinate!`](@ref) writes a `SparseIterate` or an `AtomIterate`, the
+indexed assignment writes a `SparseIterate` or an `AtomIterate`, the
 values of the iterate are the result, and every coordinate with a nonzero
 result is active. Which zero coordinates stay active is unspecified: it can
 depend on the function and on the type of the argument. Call `dropzeros!` to
-make the working set the support. `prox_coordinate!` follows the stricter rules
+make the working set the support. Indexed writes follow the rules
 of [Steps on one coordinate](@ref).
 
 In this example, group 1 of the destination is inactive and becomes nonzero,

@@ -42,7 +42,7 @@ struct CheckedSquare <: SeparableFunction
 end
 PB.check_parameters(f::CheckedSquare, x) = length(x) == f.n ? nothing : throw(DimensionMismatch("wrong number of entries"))
 PB.value_entry(::CheckedSquare, v, i) = abs2(v) / 2
-PB.prox_entry(::CheckedSquare, v, i, γ) = v / (1 + γ)
+PB.prox_block(::CheckedSquare, v, i, γ) = v / (1 + γ)
 
 struct Q <: AbstractFunction end
 (::Q)(x) = sum(abs2, x) / 2

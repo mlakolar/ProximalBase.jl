@@ -1,5 +1,7 @@
 module InfiniteGroupWeightsTest
 
+using ..TestUtils: take_block_step!
+
 using Test, ProximalBase, LinearAlgebra, SparseArrays
 const PB = ProximalBase
 
@@ -59,7 +61,7 @@ families(T, λ, groups, w) = (GroupNormL2(T(λ), groups, w),
         end
       end
       a = AtomIterate(x, f)
-      PB.prox_coordinate!(a, f, fixed, zero(T))
+      take_block_step!(a, f, fixed, zero(T))
       @test all(iszero, Vector(a)[groups[fixed]])
       # A different atom partition uses the generic group path.
       a = AtomIterate(x, [[1], [2], [3]])
@@ -179,7 +181,7 @@ end
     for γ in (0f0, 1f0)
       xi = AtomIterate(x, f)
       for k in eachindex(groups)
-        PB.prox_coordinate!(xi, f, k, γ)
+        take_block_step!(xi, f, k, γ)
         @test all(iszero, Vector(xi)[groups[k]])
       end
       @test Vector(xi) == expected
@@ -200,16 +202,16 @@ end
       @test Vector(y) == Float32[9, 9]
     end
     xi = AtomIterate(Float32[1, 2], f)
-    PB.prox_coordinate!(xi, f, 1, 0f0)
+    take_block_step!(xi, f, 1, 0f0)
     @test Vector(xi) == Float32[0, 2]
-    @test_throws ArgumentError PB.prox_coordinate!(xi, f, 2, 0f0)
+    @test_throws ArgumentError take_block_step!(xi, f, 2, 0f0)
     @test Vector(xi) == Float32[0, 2]
     for k in (0, 3)
-      @test_throws BoundsError PB.prox_coordinate!(xi, f, k, 0f0)
+      @test_throws BoundsError take_block_step!(xi, f, k, 0f0)
       @test Vector(xi) == Float32[0, 2]
     end
     other = AtomIterate(Float32[1, 2], [[1, 2]])
-    @test_throws DimensionMismatch PB.prox_coordinate!(other, f, 1, 0f0)
+    @test_throws DimensionMismatch take_block_step!(other, f, 1, 0f0)
     @test Vector(other) == Float32[1, 2]
   end
 end
@@ -255,7 +257,7 @@ end
       end
     end
     xi = AtomIterate(x, f)
-    PB.prox_coordinate!(xi, f, 1, one(T))
+    take_block_step!(xi, f, 1, one(T))
     @test Vector(xi) == x0
   end
   for F in (GroupMCP, GroupSCAD), T in (Float32, Float64)

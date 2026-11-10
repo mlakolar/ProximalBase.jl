@@ -1,5 +1,7 @@
 module ConstrainedBasicsTest
 
+using ..TestUtils: take_block_step!
+
 # Constrained on small inputs: a separable function on a box and on a hyperplane or a
 # halfspace, against closed forms and the optimality conditions, coordinate steps and errors.
 # The function x constraint grids, the multiplier searches and the stress cases are in constrained.jl.
@@ -40,7 +42,7 @@ end
       for γ in (0.4, 1.7)
         p = check_prox(c, x, γ)
         @test p ≈ clamp.(prox(f, x, γ), c.box.l, c.box.u)
-        @test all(i -> prox_entry(c, x[i], i, γ) ≈ p[i], 1:n)
+        @test all(i -> prox_block(c, x[i], i, γ) ≈ p[i], 1:n)
       end
     end
   end
@@ -70,15 +72,15 @@ end
   v = [1.5, -0.2, 0., 0.4, 0., 2.]
   xs = SparseIterate(sparse(v))
   for k in 1:6
-    @test prox_coordinate!(xs, c, k, 0.5) == clamp(shrink(v[k], 0.15), 0, 1)
+    @test take_block_step!(xs, c, k, 0.5) == clamp(shrink(v[k], 0.15), 0, 1)
     @test xs[k] == clamp(shrink(v[k], 0.15), 0, 1)
   end
   S = SymmetricSparseIterate(4)
   S[2, 1] = 0.7
-  @test prox_coordinate!(S, c, tril_index(4, 2, 1), 1.) ≈ 0.4
+  @test take_block_step!(S, c, tril_index(4, 2, 1), 1.) ≈ 0.4
   @test S[1, 2] ≈ 0.4
   xa = AtomIterate([1.5, -0.2, 0.3, 2.], [1:2, 3:4])
-  @test prox_coordinate!(xa, c, 2, 1.) ≈ [0., 1.]
+  @test take_block_step!(xa, c, 2, 1.) ≈ [0., 1.]
   @test isactive(xa, 2)
 
   @test iszeropreserving(Constrained(NormL1(1.), IndBox(-1, 1)))
@@ -195,7 +197,7 @@ end
         c = Constrained(f, H(a, b))
         z = check_prox(c, 2 .* x, 0.9)
         H === IndHyperplane ? (@test dot(a, z) ≈ b) : (@test dot(a, z) <= b + 1e-12)
-        @test z[3] ≈ prox_entry(f, 2x[3], 3, 0.9)           # aᵢ = 0: independent of ν
+        @test z[3] ≈ prox_block(f, 2x[3], 3, 0.9)           # aᵢ = 0: independent of ν
       end
     end
     # a scalar normal is an array of it

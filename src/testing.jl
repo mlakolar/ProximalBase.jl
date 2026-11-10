@@ -112,9 +112,9 @@ function test_gradient end
 
 Test a separable `f` at the vector or matrix `x` with step `γ`:
 
-- [`prox_entry`](@ref) agrees with `prox!` entry by entry, and for a
+- [`prox_block`](@ref) agrees with `prox!` entry by entry, and for a
   [`SeparableFunction`](@ref) the terms [`value_entry`](@ref) sum to `f(x)`;
-- [`prox_coordinate!`](@ref) on every coordinate of a [`SparseIterate`](@ref)
+- [`prox_block`](@ref) followed by indexed writes to a [`SparseIterate`](@ref)
   (a copy of `x` with some entries set to zero) gives the proximal point;
 - when [`iszeropreserving`](@ref)`(f)`, zero is fixed by every scalar proximal
   operator, and `prox!` on a `SparseIterate` agrees with the dense result;
@@ -137,15 +137,14 @@ Test a separable `f` at the vector or matrix `x` with step `γ`:
   names the skipped checks and the rejected array type; a function without a
   value method is skipped silently. A value method that
   exists is called without a `try`, so an error in it is reported as an error;
-- with `groups`, `prox_coordinate!` on each group of an [`AtomIterate`](@ref)
+- with `groups`, scalar `prox_block` calls on the entries of each group of an [`AtomIterate`](@ref)
   gives the proximal point;
-- with `symmetric = true` and a square `x`, `prox_coordinate!` on each
+- with `symmetric = true` and a square `x`, `prox_block` at the linear entry index of each
   coordinate of a [`SymmetricSparseIterate`](@ref) gives the proximal point of
   the symmetric part of `x`, which needs parameters that are equal at `(r, c)`
   and `(c, r)`.
 
-For each iterate, also test the block form `prox_coordinate!(y, f, k, u, γ)`
-from an iterate with nothing stored or active, at the same input coordinates.
+For each iterate, also write the pure scalar results into an iterate with nothing stored or active, at the same input coordinates.
 It gives the same dense proximal point, stores or activates no zero results,
 and passes [`test_iterate`](@ref).
 """

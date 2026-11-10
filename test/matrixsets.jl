@@ -1,5 +1,7 @@
 module MatrixSetsTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -27,7 +29,7 @@ end
 a_value(f, x) = f(x)
 a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
-a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+a_cd!(x, f, k, γ) = take_block_step!(x, f, k, γ)
 a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
 
 function zero_alloc(f, x, y = similar(x); γ = 0.7)
@@ -80,11 +82,11 @@ end
   # coordinate steps
   k = findfirst(!, q)
   xc = SparseIterate(copy(x))
-  @test prox_coordinate!(xc, fv, k, 0.5) == 0 && xc[k] == 0
+  @test take_block_step!(xc, fv, k, 0.5) == 0 && xc[k] == 0
   j = findfirst(q)
-  @test prox_coordinate!(xc, fv, j, 0.5) == x[j]
+  @test take_block_step!(xc, fv, j, 0.5) == x[j]
   xa = AtomIterate(copy(x), [1:10, 11:20, 21:30, 31:40])
-  prox_coordinate!(xa, fv, 2, 0.5)
+  take_block_step!(xa, fv, 2, 0.5)
   @test Vector(xa)[11:20] == x[11:20] .* q[11:20]
   # optimality at zero and restriction
   g = randn(n)
@@ -104,7 +106,7 @@ end
   Sc = copy(Sd)
   for kc in 1:ncoordinates(Sc)
     r, c = tril_cartesian(p, kc)
-    @test prox_coordinate!(Sc, fs, kc, 1.) == (Ps[r, c] ? D[r, c] : 0)
+    @test take_block_step!(Sc, fs, kc, 1.) == (Ps[r, c] ? D[r, c] : 0)
   end
   @test Matrix(Sc) == D .* Ps
   @test IndPattern(SymmetricSparseIterate(D .* Ps)).P == (D .* Ps .!= 0)
@@ -156,7 +158,7 @@ end
   Sc = copy(Sd)
   for kc in 1:ncoordinates(Sc)
     r, c = tril_cartesian(p, kc)
-    @test prox_coordinate!(Sc, f, kc, 1.) == (r - c <= 2 ? D[r, c] : 0)
+    @test take_block_step!(Sc, f, kc, 1.) == (r - c <= 2 ? D[r, c] : 0)
   end
   @test Matrix(Sc) == band_ref(D, 2, 2)
   @test_throws ArgumentError prox(IndBanded((1, 2), (p, p)), Sd)
@@ -167,7 +169,7 @@ end
     r, c = Tuple(CartesianIndices(g)[i])
     inband = -1 <= c - r <= 2
     @test kkt_violation(fb, g, i) == (inband ? abs(g[i]) : -Inf)
-    @test prox_entry(fb, 1.5, i, 1.) == (inband ? 1.5 : 0)
+    @test prox_block(fb, 1.5, i, 1.) == (inband ? 1.5 : 0)
   end
   S = [1, 7, 12, 30, 40]
   @test restrict(fb, S) isa IndPattern

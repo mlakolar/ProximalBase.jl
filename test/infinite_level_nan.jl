@@ -1,5 +1,7 @@
 module InfiniteLevelNaNTest
 
+using ..TestUtils: take_block_step!
+
 # An admitted infinite level that makes a proximal map, or an entry of it, constant on finite
 # arguments (decision 49, E2 after E4): a NaN or infinite entry of the argument does not reach the
 # constant output. NormL1 with an infinite level at a positive step (γ = Inf included, since the
@@ -54,7 +56,7 @@ allocs_vprox(y, f, x, γ) = (a_vprox!(y, f, x, γ); @allocated a_vprox!(y, f, x,
       check(f, x, γ, zeros(T, length(x)); value = zero(T))
     end
     for v in T[NaN, Inf, -Inf, 1, -0.0], γ in (T(1), floatmin(T), T(Inf))
-      @test PB.prox_entry(f, v, 1, γ) === zero(T)
+      @test PB.prox_block(f, v, 1, γ) === zero(T)
     end
     # array steps, entry by entry; a zero step entry is the identity, NaN included
     check(f, T[NaN, 1, Inf], T[1, 2, 0.5], zeros(T, 3); value = zero(T))
@@ -135,7 +137,7 @@ end
     @test isequal(value_and_prox!(x, f, x, T(1)), zero(T)) && isequal(Vector(x), zeros(T, 3))
     @test isequal(Matrix(prox(f, SymmetricSparseIterate(T[1 NaN; NaN 2]), T(1))), zeros(T, 2, 2))
     x = SparseIterate(sparsevec(T[1, NaN]))
-    v = PB.prox_coordinate!(x, f, 2, T(1))
+    v = take_block_step!(x, f, 2, T(1))
     @test isequal(v, zero(T)) && isequal(Vector(x), T[1, 0])
     check(Constrained(f, IndBox(T(-1), T(1))), T[1, NaN], T(1), T[0, 0])
     check(Constrained(f, IndBox(T(-1), T(1))), T[1, NaN], T[1, 2], T[0, 0])

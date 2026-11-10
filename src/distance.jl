@@ -193,12 +193,12 @@ function _value_and_prox_unchecked!(y::_ArrayOrOwner, f::SqrDistL2, x::_ArrayOrO
   _distance_energy(_vw(y), p, λ)
 end
 
-Base.@propagate_inbounds function prox_entry(f::SqrDistL2, v::Real, i::Integer, γ::Real)
-  isseparable(f) || throw(ArgumentError("prox_entry of SqrDistL2 requires a separable set"))
+Base.@propagate_inbounds function prox_block(f::SqrDistL2, v::Real, i::Integer, γ::Real)
+  isseparable(f) || throw(ArgumentError("prox_block of SqrDistL2 requires a separable set"))
   T = typeof(float(v))
   λ, step = convert(T, f.λ), convert(T, γ)
   (iszero(λ) || iszero(step)) && return T(v)
-  p = prox_entry(f.f, v, i, one(T))
+  p = prox_block(f.f, v, i, one(T))
   _distance_blend(v, p, step, λ)
 end
 
@@ -207,7 +207,7 @@ function kkt_violation(f::SqrDistL2, g::AbstractArray, i::Integer)
   isseparable(f) || throw(ArgumentError("kkt_violation of SqrDistL2 requires a separable set"))
   iszero(f.λ) && return abs(g[i])
   T = float(eltype(g))
-  abs(g[i] - f.λ * prox_entry(f.f, zero(T), i, one(T)))
+  abs(g[i] - f.λ * prox_block(f.f, zero(T), i, one(T)))
 end
 
 function restrict(f::SqrDistL2, S::AbstractVector{<:Integer})

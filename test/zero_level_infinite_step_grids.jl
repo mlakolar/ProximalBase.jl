@@ -1,5 +1,7 @@
 module ZeroLevelInfiniteStepGridsTest
 
+using ..TestUtils: take_block_step!
+
 # The Float32 pass of Regularize with a zero level, for the functions whose Float64 pass stays in
 # zero_level_infinite_step.jl: in the loop over functions NormL1 with weights, IndNonnegative,
 # Constrained, the two CappedL1 and SqrNormL2(0); in array steps NormL1 with weights, IndNonnegative and
@@ -38,8 +40,8 @@ function check_regularize(f, x::AbstractVector{T}, γ; c = nothing, ρs = (0, T(
     @test same(z, yf)
     all(isfinite, z) && @test same(v, vf)
     if PB.isseparable(f)
-      @test same([prox_entry(r, x[i], i, entry(γ, i)) for i in eachindex(x)],
-                 [prox_entry(f, x[i], i, entry(γ, i)) for i in eachindex(x)])
+      @test same([prox_block(r, x[i], i, entry(γ, i)) for i in eachindex(x)],
+                 [prox_block(f, x[i], i, entry(γ, i)) for i in eachindex(x)])
     end
   end
 end
@@ -83,8 +85,8 @@ end
           for γ in (Inf_, one(T))
             xf = AtomIterate(copy(start), groups)
             xr = AtomIterate(copy(start), groups)
-            prox_coordinate!(xf, f, k, γ)
-            prox_coordinate!(xr, Regularize(f, 0, rc), k, γ)
+            take_block_step!(xf, f, k, γ)
+            take_block_step!(xr, Regularize(f, 0, rc), k, γ)
             @test same(Vector(xr), Vector(xf))
             @test activecoordinates(xr) == activecoordinates(xf)
             @test same(xr.storage, xf.storage)

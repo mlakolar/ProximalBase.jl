@@ -24,7 +24,7 @@ for either a single coordinate or the whole array.
 | Part | Main operations | Use |
 |:-----|:----------------|:----|
 | Losses, penalties and constraints | `f(x)`, `gradient!`, `prox!` | Evaluate an objective and construct its updates |
-| Coordinate operations | `prox_entry`, `prox_coordinate!`, `coordinate_lipschitz`, `kkt_violation`, `restrict` | Update entries or groups and manage a working set |
+| Coordinate operations | `prox_block`, `prox_block!`, `coordinate_lipschitz`, `kkt_violation`, `restrict` | Update entries or groups and manage a working set |
 | Sparse iterates | `SparseIterate`, `SymmetricSparseIterate`, `AtomIterate` | Store and update active entries or groups |
 
 We leave the optimization loop, stopping rule and choice of working set to the

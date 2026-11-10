@@ -1,5 +1,7 @@
 module SparseGroupTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -30,7 +32,7 @@ value_ref(λ1, λ2, groups, w, x) = λ1 * sum(abs, x[reduce(vcat, collect.(group
 a_value(f, x) = f(x)
 a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
-a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+a_cd!(x, f, k, γ) = take_block_step!(x, f, k, γ)
 a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
 
 @testset "SparseGroupNormL2" begin
@@ -130,7 +132,7 @@ a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
     @test value_and_prox!(ya, f, xa, γ) ≈ f(prox(f, x, γ))
     # a block step on group 2 is the proximal operator on that group
     xc = AtomIterate(copy(x), f)
-    prox_coordinate!(xc, f, 2, γ)
+    take_block_step!(xc, f, 2, γ)
     @test Vector(xc)[6:10] ≈ prox(f, x, γ)[6:10]
     @test Vector(xc)[[1:5; 11:20]] == x[[1:5; 11:20]]
     # a group at zero: the coordinate step from zero keeps it at zero exactly when
@@ -141,7 +143,7 @@ a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
       viol = kkt_violation(f, g, z0, 3)
       @test viol ≈ norm(shrink.(g[11:15], λ1)) - λ2 * w[3]
       step = AtomIterate(-g, f)                       # the gradient step from zero, γ = 1
-      prox_coordinate!(step, f, 3, 1.)
+      take_block_step!(step, f, 3, 1.)
       @test all(iszero, Vector(step)[11:15]) == (viol <= 0)
     end
     # on an array: an index of a zero group, of a nonzero group, and in no group
@@ -194,7 +196,7 @@ a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
           expected = copy(v)
           for k in eachindex(gs)
             γk = step isa Real ? step : step[k]
-            @test prox_coordinate!(xc, f, k, γk) ≈ reference[gs[k]]
+            @test take_block_step!(xc, f, k, γk) ≈ reference[gs[k]]
             expected[gs[k]] = reference[gs[k]]
             @test Vector(xc) ≈ expected
           end
@@ -204,7 +206,7 @@ a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
         @test Vector(ya) ≈ prox(bad, v, 0.7)
         @test value_and_prox!(ya, bad, xa, 0.7) ≈ bad(prox(bad, v, 0.7))
         @test Vector(ya) ≈ prox(bad, v, 0.7)
-        @test_throws DimensionMismatch prox_coordinate!(xa, bad, 1, 0.7)
+        @test_throws DimensionMismatch take_block_step!(xa, bad, 1, 0.7)
         @test_throws DimensionMismatch kkt_violation(bad, grad, xa, 1)
         @test Vector(xa) == v && Set(activecoordinates(xa)) == Set([1, 3, 4])
         @test f(xa) ≈ f(v)
@@ -231,7 +233,7 @@ a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
     xa = AtomIterate(x, f)
     @test allocs(a_value, f, xa) == 0
     @test allocs(a_vprox!, copy(xa), f, xa, 0.7) == 0
-    @test allocs(a_cd!, copy(xa), f, 2, 0.7) == 0
+    @test allocs(prox_block!, zeros(length(atom(xa,2))), f, collect(atom(xa,2)), 2, 0.7) == 0
     @test allocs(a_kkt, f, x, xa, 3) == 0
     @test allocs(a_kkt, f, x, x, 3) == 0
   end
@@ -246,7 +248,7 @@ end
       @test prox(f, x) ≈ T[0, scale/2] rtol=16eps(T)
       @test f(x) ≈ scale*(scale/2) rtol=16eps(T)
       a = AtomIterate(x, f)
-      prox_coordinate!(a, f, 1, one(T))
+      take_block_step!(a, f, 1, one(T))
       @test Vector(a) ≈ T[0, scale/2] rtol=16eps(T)
     end
   end
@@ -272,7 +274,7 @@ end
       @test value_and_prox!(a, f, a, fill(step, 2)) ≈ value rtol=32eps(T)
       @test Vector(a) ≈ expected rtol=32eps(T)
       a = AtomIterate(x, f)
-      prox_coordinate!(a, f, 1, step)
+      take_block_step!(a, f, 1, step)
       @test a[1] ≈ expected[1] rtol=32eps(T)
       @test a[2] == x[2]
     end

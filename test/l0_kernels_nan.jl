@@ -45,7 +45,7 @@ boxes(T) = (IndBox(T(-2), T(2)), IndBox(T(1), T(2)), IndBox(T(1), T(1)), IndBox(
   for (name, mk) in penalties(T), λ in (0, 1, Inf), B in boxes(T), γ in T.((0, 0.5, 1, 5, Inf))
     c = Constrained(mk(λ), B)
     expected = ref_box_nan(name, λ, B.l, B.u, γ, T)
-    @test same(prox_entry(c, T(NaN), 1, γ), expected)
+    @test same(prox_block(c, T(NaN), 1, γ), expected)
     # NaN first, in the middle and last, and two NaNs; the finite entries are those of the
     # proximal map at the same vector with the NaN replaced (the map is separable)
     for x in (T[NaN, 1.5, -0.5], T[1.5, NaN, -0.5], T[1.5, -0.5, NaN], T[NaN, 1.5, NaN])

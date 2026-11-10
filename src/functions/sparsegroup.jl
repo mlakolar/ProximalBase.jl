@@ -32,7 +32,7 @@ penalty `λ1 Σᵢⱼₖ |xᵢⱼₖ| + λ2 Σᵢⱼ ‖x[i, j, :]‖₂` of the
 K precision matrices (Danaher, Wang and Witten, 2014).
 
 As for `GroupNormL2`, on an [`AtomIterate`](@ref) that shares its groups
-([`AtomIterate`](@ref)`(x, f)`), [`prox_coordinate!`](@ref) takes the block step
+([`AtomIterate`](@ref)`(x, f)`), [`prox_block!`](@ref) computes the block result
 on a group and [`kkt_violation`](@ref) measures a group at zero, which is
 optimal when `‖soft(g[Gₖ], λ1)‖₂ ≤ λ2wₖ`. Inside a nonzero group, an entry at
 zero is optimal when `|gᵢ| ≤ λ1`.
@@ -390,43 +390,6 @@ function _sparse_group_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterat
   end
   v = v2 + _sparse_l1_value(f, y, v1, T)
   isnan(v) ? _nan_steps_sparse!(f, y.storage, y.storage, view(y.active, 1:y.nactive), γ, ordinary, T, v, y) : v
-end
-
-# the block step on group k, in place; the group becomes active if it is nonzero
-function prox_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k::Integer, γ::Real)
-  ctx = _check_coordinate(x, f, k)
-  _unchecked_coordinate!(x, f, k, γ, ctx)
-end
-
-@inline function _unchecked_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k, γ, ctx)
-  T = float(eltype(x))
-  # an infinite ℓ1 level fixes the group at zero at every step, as _infinite_l1_prox!; its activity is kept
-  if isinf(f.λ1)
-    _fixed_sparse_group!(x.storage, x.groups[k], nothing, T)
-    return atom(x, k)
-  end
-  if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
-    _soft_group_only!(x.storage, x.storage, x.groups[k], _l1_threshold(T, γ, f.λ1))
-    _allzero(x.storage, x.groups[k]) || activate!(x, k)
-    return atom(x, k)
-  end
-  n2, _ = _sparse_shrink_group!(x.storage, x.storage, x.groups[k], _l1_threshold(T, γ, f.λ1), (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])))
-  # a NaN group the kernel left (a threshold 0, Inf or NaN): the parameters decide as in
-  # _nan_steps_sparse!; the group is already the identity at the step γ = 0 (c1 = 0 then)
-  if isnan(n2)
-    if _hard_fixed_sparse(f, γ, k)
-      @inbounds for i in x.groups[k]
-        x.storage[i] = zero(T)
-      end
-      n2 = zero(n2)
-    elseif !iszero(γ)
-      @inbounds for i in x.groups[k]
-        x.storage[i] = T(NaN)
-      end
-    end
-  end
-  iszero(n2) || activate!(x, k)
-  atom(x, k)
 end
 
 # an index of a group at zero violates optimality as much as its group; an

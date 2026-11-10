@@ -1,5 +1,13 @@
 # SymmetricSparseIterate in ProximalBase 0.6: the contract
 
+> **#844 amendment:** The storage-aware `prox_coordinate!` requirements and
+> `prox_entry` spelling below are superseded by
+> [the pure block proximal contract](block-prox-0.6.md). Solvers compute
+> `prox_block`/`prox_block!`, convert function indices explicitly, validate
+> symmetric parameters and layouts, then write through public storage APIs.
+> Iterate representation, write activation and KKT requirements stay in force.
+
+
 > **Draft for maintainer review — proposed 0.6 behavior, not a description of an
 > installed release.** Phase 1 of the owner is implemented on the development branch: the owner is not an array, with `coordinates`, `matrixview`, the active-coordinate handles, pair indexing, state copies and checked imports, owner-to-owner equality and `hash`, the one throwing `axes`, the proximal, gradient and Hessian oracles and the wrappers that the owner supports, and the products and reductions with strong zeros, including the three-factor product `A * X * B` of FD-16 (#419) for homogeneous `Float32` and `Float64`. The other phases of #391, the migration of the solvers that use the owner (#527) and the release remain. This file is the only
 > normative document of the pair; the companion

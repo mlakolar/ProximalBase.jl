@@ -133,7 +133,7 @@ end
         if isseparable(f)
           accurate(prox(c, x, fill(γ, length(x))), ref, 4)
           for i in eachindex(x)
-            accurate(T[prox_entry(c, x[i], i, γ)], [ref[i]], 4)
+            accurate(T[prox_block(c, x[i], i, γ)], [ref[i]], 4)
           end
         end
       end

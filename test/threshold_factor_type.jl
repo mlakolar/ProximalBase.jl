@@ -40,13 +40,13 @@ end
   # γλ = 1 although γ = 1e-9 underflows and λ = 1e9 overflows Float16
   h = Float16(3)
   for (f, g) in ((Berhu(1e9, 1.0), Berhu(1e9, 1.0)), (NormLq(1e9, 0.5), NormLq(1e9, 0.5)), (LogPenalty(1e9, 1.0), LogPenalty(1e9, 1.0)))
-    y = prox_entry(f, h, 1, 1e-9)
+    y = prox_block(f, h, 1, 1e-9)
     @test y isa Float16
-    @test isapprox(Float64(y), prox_entry(g, 3.0, 1, 1e-9); rtol = 2e-3)
+    @test isapprox(Float64(y), prox_block(g, 3.0, 1, 1e-9); rtol = 2e-3)
   end
   # a finite weight that overflows the destination is not an infinite weight
-  @test isapprox(Float64(prox_entry(NormLq(1.0, 0.5, [1e9]), h, 1, 1e-9)), prox_entry(NormLq(1.0, 0.5, [1e9]), 3.0, 1, 1e-9); rtol = 2e-3)
-  @test prox_entry(NormLq(1.0, 0.5, [Inf]), h, 1, 1.0) == 0
+  @test isapprox(Float64(prox_block(NormLq(1.0, 0.5, [1e9]), h, 1, 1e-9)), prox_block(NormLq(1.0, 0.5, [1e9]), 3.0, 1, 1e-9); rtol = 2e-3)
+  @test prox_block(NormLq(1.0, 0.5, [Inf]), h, 1, 1.0) == 0
 end
 
 # Range recovery (R2/R3), with expected values worked out from the formulas, not from another implementation:
@@ -56,14 +56,14 @@ end
   f = ElasticNet(0.0, 2.0^80); x32 = Float32[2.0^100, -2.0^100, 0, 2.0^100 * 3]
   want = Float32[2.0^-60, -2.0^-60, 0, 3 * 2.0^-60]
   @test prox(f, x32, 2.0^80) == want
-  @test prox_entry(f, x32[1], 1, 2.0^80) === want[1]
+  @test prox_block(f, x32[1], 1, 2.0^80) === want[1]
   y = similar(x32); @test prox!(y, f, x32, fill(2.0^80, 4)) === y; @test y == want
   y = similar(x32); @test prox!(y, f, x32, 2.0^80) === y; @test y == want
   yv = similar(x32); val = value_and_prox!(yv, f, x32, 2.0^80); @test yv == want
   @test isapprox(val, sum(abs2, Float64.(want)) * 2.0^79; rtol = 1e-6)            # (λ2/2)‖y‖²
   # the slopes: 1/(1 + γλ2) = 2^-140 (a subnormal Float32) where |v| exceeds the threshold
   g = ElasticNet(0.0, 2.0^70)
-  @test ProximalBase._prox_entry_slope(g, 2f0^100, 1, 2.0^70) == (2f0^-40, 2f0^-140)
+  @test ProximalBase._prox_block_slope(g, 2f0^100, 1, 2.0^70) == (2f0^-40, 2f0^-140)
   @test ProximalBase._prox_slope(ElasticNet(0f0, 2f0^70), 2f0^100, 2f0^70) == 2f0^-140
   @test ProximalBase._prox_slope(ElasticNet(2f0^10, 2f0^70), 2f0^5, 2f0^70) == 0f0       # below the threshold
   # γλ2 = 2^1200 in Float64: 2^1000/(1 + 2^1200) = 2^-200
@@ -71,9 +71,9 @@ end
   # γλ1 overflows, the weight restores it: threshold 2^800·2^800·2^-1000 = 2^600
   e = ElasticNet(2.0^800, 0.0, [2.0^-1000])
   @test prox(e, [2.0^601], 2.0^800) == [2.0^600]
-  @test prox_entry(e, 2.0^601, 1, 2.0^800) == 2.0^600
+  @test prox_block(e, 2.0^601, 1, 2.0^800) == 2.0^600
   y = zeros(1); prox!(y, e, [2.0^601], [2.0^800]); @test y == [2.0^600]
-  @test ProximalBase._prox_entry_slope(e, 2.0^601, 1, 2.0^800) == (2.0^600, 1.0)
+  @test ProximalBase._prox_block_slope(e, 2.0^601, 1, 2.0^800) == (2.0^600, 1.0)
   # γλ1 underflows, the weight restores it: 2^-800·2^-800·2^1000 = 2^-600; x = 2^-599 gives 2^-600
   u = ElasticNet(2.0^-800, 0.0, [2.0^1000])
   @test prox(u, [2.0^-599], 2.0^-800) == [2.0^-600]
@@ -125,7 +125,7 @@ end
   f = NormL0(2.0^100)
   @test prox(f, Float32[2.0^110], 2.0^100) == Float32[2.0^110]                        # 2^220 > 2^201
   @test prox(f, Float32[2.0^100], 2.0^100) == Float32[0]                              # 2^200 < 2^201
-  @test prox_entry(f, 2f0^110, 1, 2.0^100) === 2f0^110
+  @test prox_block(f, 2f0^110, 1, 2.0^100) === 2f0^110
   y = similar(Float32[1, 2]); prox!(y, f, Float32[2.0^110, 2.0^100], 2.0^100); @test y == Float32[2.0^110, 0]
   # Float32 factors and argument: 2γλ = 2^201 and |v|² = 2^220 overflow Float32 itself
   @test prox(NormL0(2f0^100), Float32[2f0^110, 2f0^100], 2f0^100) == Float32[2f0^110, 0]
@@ -158,7 +158,7 @@ end
     @test exact_keep(x, γ, λ)
     @test prox(NormL0(λ), [x], γ) == [x]
     @test prox(NormL0(λ), [-x], γ) == [-x]
-    @test prox_entry(NormL0(λ), x, 1, γ) === x
+    @test prox_block(NormL0(λ), x, 1, γ) === x
   end
   # exact ties (γ = x, λ = x/2 gives 2γλ = x² exactly), the value just above and just below
   for (T, es) in ((Float64, (600, 900, -600, -1000)), (Float32, (70, 100, -70, -100)))
@@ -173,7 +173,7 @@ end
       @test prox(f, y, fill(γ, 4)) == [0, nextfloat(x), 0, -nextfloat(x)]                # prox!, vector steps
       z = copy(y); prox!(z, f, z, γ); @test z == [0, nextfloat(x), 0, -nextfloat(x)]    # in place
       w = similar(y); @test prox!(w, f, y, γ) === w; @test w == z
-      @test prox_entry(f, nextfloat(x), 1, γ) === nextfloat(x) && prox_entry(f, x, 1, γ) === T(0)
+      @test prox_block(f, nextfloat(x), 1, γ) === nextfloat(x) && prox_block(f, x, 1, γ) === T(0)
     end
   end
   # a sweep of near ties at overflow and underflow scales, against the exact reference
@@ -192,7 +192,7 @@ end
       want = exact_keep(x, γ, λ) ? sgn : zero(T)
       want == 0 ? (dropped += 1) : (kept += 1)
       f = NormL0(λ)
-      @test prox_entry(f, sgn, 1, γ) === want
+      @test prox_block(f, sgn, 1, γ) === want
       @test prox(f, [sgn], γ) == [want]
       z = [sgn]; prox!(z, f, z, γ); @test z == [want]
     end
@@ -235,8 +235,8 @@ end
 @testset "same-type Float32 stays Float32 and does not allocate" begin
   e, v = ElasticNet(0.5f0, 0.25f0), Float32[1, 2, 3]
   @test prox(e, v, 0.5f0) isa Vector{Float32}
-  @test @inferred(prox_entry(e, 1f0, 1, 0.5f0)) isa Float32
-  prox_entry(e, 1f0, 1, 0.5f0); @test (@allocated prox_entry(e, 1f0, 1, 0.5f0)) == 0
+  @test @inferred(prox_block(e, 1f0, 1, 0.5f0)) isa Float32
+  prox_block(e, 1f0, 1, 0.5f0); @test (@allocated prox_block(e, 1f0, 1, 0.5f0)) == 0
   # the unweighted weight `true` does not widen the working type
   @test ProximalBase._working_type(Float32, 0.5f0, 0.5f0, true) === Float32
 end

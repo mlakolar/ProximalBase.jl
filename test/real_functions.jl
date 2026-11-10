@@ -24,7 +24,7 @@ const WRAPPER_TYPES = [
 
 struct RealCatalogSeparable <: SeparableFunction end
 ProximalBase.value_entry(::RealCatalogSeparable, v::Real, ::Integer) = abs2(v)
-ProximalBase.prox_entry(::RealCatalogSeparable, v::Real, ::Integer, γ::Real) = v / (1 + 2γ)
+ProximalBase.prox_block(::RealCatalogSeparable, v::Real, ::Integer, γ::Real) = v / (1 + 2γ)
 
 _real_complex(x::AbstractArray, imag = 1) = complex.(x, imag)
 _real_complex(x::Tuple, imag = 1) = map(xk -> _real_complex(xk, imag), x)

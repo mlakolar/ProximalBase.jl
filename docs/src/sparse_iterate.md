@@ -242,7 +242,7 @@ This table is an index of the **data-structure API**, not a declaration that eve
 | Scalar scaling | `rmul!`, `lmul!`, `rdiv!`, `ldiv!` | Explicit | Active-only fast path where scalar maps zero to zero |
 | Aliasing infrastructure | `Base.dataids(x)`, coordinate-view `dataids`/`unaliascopy` | Explicit | Prevents aliased array copies from reading overwritten data |
 
-**Not a separate iterate interface:** `restrict`, `kkt_violation`, `prox_coordinate!`, `prox!`, `value_and_prox!`, `gradient!` and `hessian_vec!`. Their APIs belong to function oracles; individual methods may accept `SparseIterate` as an input or destination.
+**Not a separate iterate interface:** `restrict`, `kkt_violation`, `prox_block`, `prox!`, `value_and_prox!`, `gradient!` and `hessian_vec!`. Their APIs belong to function oracles; individual methods may accept `SparseIterate` as an input or destination.
 
 **Not required for 0.6:** shape resizing (`resize!`, `push!`), a new generic iterate hierarchy, an `O(nactive)` implementation of every Julia array reduction, full specialization of all matrix operators, dynamic sparse-capacity allocation, or new mixed-precision/GPU fast paths.
 

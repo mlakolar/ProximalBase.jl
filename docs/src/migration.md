@@ -13,7 +13,7 @@ for removal in 0.6. Run existing code with `--depwarn=yes` to find uses.
 | `prox!(f, y, x, γ)` | `prox!(y, f, x, γ)` |
 | `gradient!(f, g, x)` | `gradient!(g, f, x)` |
 | `value_and_gradient!(f, g, x)` | `value_and_gradient!(g, f, x)` |
-| `cdprox!(f, x, k, γ)` | `prox_coordinate!(x, f, k, γ)` |
+| `cdprox!(f, x, k, γ)` | Removed in 0.6; compute `prox_block` and write the result |
 | `DifferentiableFunction`, `ProximableFunction` | `AbstractFunction`, with explicit capability traits |
 | `ProxZero`, `ProxL1`, `ProxL2`, `ProxGroupL2` | `ZeroFunction`, `NormL1`, `NormL2`, `GroupNormL2` |
 | `ProxNuclear`, `ProxL1Fused`, `ProxGaussLikelihood` | `NuclearNorm`, `NormL1Fused`, `LogDetLoss` |
@@ -395,7 +395,7 @@ The linked operation table explains which symmetric arguments trigger checks.
 | Gradients did not check parameter symmetry | A symmetric output or point triggers checks, also for the allocating `gradient` and `value_and_gradient` of an owner point; `gradient_mapping` has no method for an owner: pass `Matrix(x)` |
 | Hessian products and quadratic models did not check parameter symmetry | A symmetric point triggers full parameter validation, even with a dense Hessian-product output, and a symmetric Hessian-product output triggers it even at a dense point |
 | Coordinate curvature calls did not check parameter symmetry | Symmetric `L` in `coordinate_lipschitz!` triggers full validation |
-| Symmetric coordinate steps read the lower-triangle parameter without comparing its mirror | `prox_coordinate!` checks the pair at the chosen coordinate |
+| Symmetric coordinate steps read the lower-triangle parameter without comparing its mirror | Call `check_symmetric_parameters(f,x)` before scalar block calls |
 | Four-argument `kkt_violation` read the lower entry of `g` | It uses the symmetric part at the chosen pair and checks that parameter pair; `+Inf` and `-Inf` at that pair throw `ArgumentError` |
 | Symmetric proximal calls read lower-triangle steps without comparing their mirrors | Proximal calls with symmetric outputs check the relevant step pairs too |
 | Separable `lla_weights!` did not check parameter symmetry | A symmetric input triggers full validation, including with a dense output or allocating `lla_weights` |
@@ -419,7 +419,7 @@ iterate. See [The `SymmetricSparseIterate` is not an array (0.6)](@ref).
 through any wrapper that forwards it (`Scaled`, `Tilt`, `Translate`, `Regularize`,
 `Precompose`), now throws an `ArgumentError`.
 Previously it returned a function whose values and gradients were generally
-wrong, except for group penalties. `prox_entry` and `kkt_violation` now throw
+wrong, except for group penalties. `prox_block` and `kkt_violation` now throw
 an `ArgumentError` instead of a `MethodError`. Restricting a group-penalty
 envelope, including as the smooth term of an active-set solver, is no longer
 supported. These coordinate operations require a separable underlying function.
@@ -437,14 +437,9 @@ compare layouts with `ProximalBase.samegroups(a, b)` instead of comparing `a.gro
 Writes through [`atom`](@ref)`(x, k)` now activate the group, as `x[i] = v`
 does. Before 0.6, they left it inactive, and values, `copyto!` and products
 ignored the entries. The type of `atom(x, k)` changes to a view whose parent
-is the iterate. [`prox_coordinate!`](@ref) on an [`AtomIterate`](@ref) returns
-this view.
-
-Code that wrote a trial point into a group before
-`prox_coordinate!(x, f, k, γ)` should call `prox_coordinate!(x, f, k, u, γ)`
-instead. Writing the trial point through `atom` now activates the group even
-when the step ends at zero. The block form activates it only when the step
-ends nonzero.
+is the iterate. Compute `prox_block!(out, f, u, k, γ)` in a numerical buffer,
+then write `copyto!(atom(x,k), out)`. Writing the trial through `atom` activates
+the group even when its eventual proximal result is zero.
 
 The `storage` field is internal. Writing into it can leave the iterate
 inconsistent. Activation follows the stored value: a value that rounds to
@@ -667,3 +662,28 @@ the diagonal entries cost one unit each and the pairs two; retune `s`. The stora
 change the budget: a `SymmetricSparseIterate`, its `matrixview` and a dense `Symmetric` of
 the same matrix have the same set, and explicit zeros count as zero. Arrays that are not
 symmetric matrices, vectors and general matrices, are unchanged.
+
+## Pure block proximal operators (0.6, #844)
+
+`prox_entry` is replaced by `prox_block(g,u,k,γ)`. Custom `SeparableFunction`
+subtypes must rename their scalar author hook; `value_entry` stays unchanged.
+The scalar result, arithmetic precision and parameter entry index are unchanged.
+Both iterate-mutating forms of `prox_coordinate!`, and the older `cdprox!`,
+are removed without aliases.
+
+For group penalties use `prox_block!(out,g,u,k,γ)` or the allocating
+`prox_block(g,u,k,γ)`. `k` indexes the penalty's groups, and `u`/`out` are compact
+one-based real vectors in that group's order. The mutating method returns `out`,
+supports `out === u`, and rejects other overlap and iterate-backed outputs.
+Validation errors precede writes; element access/conversion or a custom kernel
+can leave a partial output. Solvers separately validate layout compatibility,
+write through public storage operations and update caches.
+
+For symmetric scalar updates map the independent coordinate ID to the linear
+matrix entry index `(c-1)p+r`, and validate pair symmetry with
+`ProximalBase.check_symmetric_parameters(g,x)` before the sweep. A pure oracle
+has no owner from which to infer the coordinate layout or parameter symmetry.
+
+The full-array proximal, gradient and second-order interfaces are unchanged.
+No new zero-curvature, infinite-step or heterogeneous group-metric semantics
+are introduced. See [Coordinate oracles](@ref) for executable storage examples.

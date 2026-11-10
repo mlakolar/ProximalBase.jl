@@ -11,18 +11,20 @@
 
 # ---- the pinned unfiltered catalog ---------------------------------------------------------------------------
 #
-# The quick `atom` group, unfiltered, at the revision before selection existed (118 cases; the same for
+# #844 intentionally renames the retired coordinate-prox cases to block_prox_write
+# and block_prox_staged_write. These digests pin that migrated catalog.
+# The quick `atom` group, unfiltered (118 cases; the same for
 # repetitions 1, 2 and 10). `catalog` is the SHA-1 of the sorted IDs joined by newlines; `order` the SHA-1 of the
 # rows in build order: the metadata keys and values, the evaluation count and the profile flag of every case.
 # A change that alters this catalog on purpose updates these values and says why.
 const ATOM_QUICK_CASES = 118
-const ATOM_QUICK_CATALOG_SHA1 = "3d34cb6c7097496992359bfdda543fb2c77c9cf8"
-const ATOM_QUICK_ORDER_SHA1 = "76f5ab38e0617715ca06dd85ea621a8ac8524820"
+const ATOM_QUICK_CATALOG_SHA1 = "dccde385c399cc6dc52912ab9f17ae8b5661c37c"
+const ATOM_QUICK_ORDER_SHA1 = "591aaa03c77e96abdf5b5b427620c63fcdafab8e"
 
 # The quick `sparse` group likewise (117 cases; the same for repetitions 1, 2 and 10).
 const SPARSE_QUICK_CASES = 117
-const SPARSE_QUICK_CATALOG_SHA1 = "d0a29c2a31041ec99b75ae531eef7d469d1c2365"
-const SPARSE_QUICK_ORDER_SHA1 = "ed770d220b57af5f6b76c95b6a5c62f8ebc5c86e"
+const SPARSE_QUICK_CATALOG_SHA1 = "1a2530cf8db96e564f86171dcf749dc222f3abe9"
+const SPARSE_QUICK_ORDER_SHA1 = "6d65d157e790d2e1f8cef55f6c86783d68a7c753"
 
 sel_catalog_sha1(cases) = bytes2hex(sha1(join(sort!([c.meta.id for c in cases]), '\n')))
 function sel_order_sha1(cases)
@@ -979,7 +981,7 @@ const SEL_SCENARIOS = [(T=Float64, p=8 * 10^4, g=8, strided=false, label="10", f
 const SEL_SCENARIO_REGEXES = (raw"/isactive/", raw"write_x\[i\]_active", raw"/read_x\[i\]/", raw"mul!.*z50", raw"mul!/.*rows256_z0",
                               raw"/dot_vx/.*z50", raw"dot_xy/.*atom_sparse_z50", raw"dot_xy/.*atom_atom_z0", raw"/_restartdot/.*private_fields",
                               raw"/_setvalues!/.*accessors", raw"/_nvalues/", raw"copyto!_convert/.*to_Int", raw"copyto!_convert/",
-                              raw"/dropzeros!/.*zeros50", raw"/prox_coordinate!_staged/.*GroupNormLinf", raw"prox_coordinate!_5arg/.*NormL1/",
+                              raw"/dropzeros!/.*zeros50", raw"/block_prox_staged_write/.*GroupNormLinf", raw"block_prox_write/.*NormL1/",
                               raw"absent_distinct_batch_x\d+/", raw"/activate_distinct_batch/", raw"rmul!_inf", raw"rmul!_finite/.*/x\d+/",
                               raw"/replace_staged/", raw"/replace_cheap/|/copyto!_dense/", raw"/broadcast_assign/|/copyto!_state/",
                               raw"/copy/|/copyto!_same_kind/", raw"/copyto!_unrelated/|/broadcast_self/", raw"/fill!_zero",
@@ -987,7 +989,7 @@ const SEL_SCENARIO_REGEXES = (raw"/isactive/", raw"write_x\[i\]_active", raw"/re
 # one expression of each kind for the scenarios other than the first (the full list) and the one without `full`
 const SEL_SCENARIO_REDUCED = (raw"/isactive/", raw"write_x\[i\]_active", raw"mul!.*z50", raw"/dot_vx/.*z50", raw"dot_xy/.*atom_sparse_z50",
                               raw"/_restartdot/.*private_fields", raw"copyto!_convert/.*to_Int", raw"/dropzeros!/.*zeros50",
-                              raw"prox_coordinate!_5arg/.*NormL1/", raw"absent_distinct_batch_x\d+/", raw"rmul!_inf", raw"/replace_staged/",
+                              raw"block_prox_write/.*NormL1/", raw"absent_distinct_batch_x\d+/", raw"rmul!_inf", raw"/replace_staged/",
                               raw"/copy/|/copyto!_same_kind/", raw"/atomindices_view/|/atom_dot/")
 sel_scenario_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
     atom_scenario_cases!(cases, rep, s.T, s.p, s.g, s.strided, atom_label_density(s.label), s.label,
@@ -1114,7 +1116,7 @@ const SEL_SPARSE_VECTORS = [(T=Float32, n=10^4, s=10^2, rows=(256, 1024)),
 const SEL_SPARSE_VECTOR_REGEXES = (raw"/isactive/", raw"write_x\[i\]_active", raw"/read_x\[i\]/", raw"/first_activation/.*_x16",
                                    raw"/activate_distinct_batch/", raw"/sweep_activevalues/|/dot_x/", raw"/sweep_full/",
                                    raw"/dot_vx/.*z50", raw"/dot_xy/.*z0", raw"mul!/.*strided_z0", raw"_m1024/.*transposed_z50",
-                                   raw"/rmul!_inf", raw"/rmul!_finite", raw"/fill!_coordinates_zero", raw"/prox_coordinate!_5arg",
+                                   raw"/rmul!_inf", raw"/rmul!_finite", raw"/fill!_coordinates_zero", raw"/block_prox_write",
                                    raw"/_restartdot/.*private_fields", raw"/_setvalues!/.*accessors", raw"/_values!/",
                                    raw"/copyto!_convert/", raw"copyto!_convert/.*to_Int", raw"/replace_staged/",
                                    raw"/copy/|/copyto!_same_kind/", raw"/copyto!_unrelated/|/broadcast_self/|/copyto!_activevalues/",
@@ -1122,7 +1124,7 @@ const SEL_SPARSE_VECTOR_REGEXES = (raw"/isactive/", raw"write_x\[i\]_active", ra
                                    raw"/dropzeros!/.*zeros50", raw"/replace_cheap/")
 const SEL_SPARSE_F32_REGEXES = (raw"/isactive/", raw"write_x\[i\]_active", raw"/first_activation/.*_x16", raw"/sweep_activevalues/|/dot_x/",
                                 raw"/dot_vx/.*z50", raw"/dot_xy/.*z0", raw"mul!/.*strided_z0", raw"_m1024/.*transposed_z50", raw"/rmul!_inf",
-                                raw"/prox_coordinate!_5arg", raw"/_restartdot/.*private_fields", raw"/_values!/",
+                                raw"/block_prox_write", raw"/_restartdot/.*private_fields", raw"/_values!/",
                                 raw"/copyto!_unrelated/|/broadcast_self/|/copyto!_activevalues/", raw"/replace_staged/",
                                 raw"/dropzeros!/.*zeros50")
 const SEL_SPARSE_LARGE_REGEXES = (raw"/isactive/", raw"/dot_vx/.*z50", raw"/sweep_activevalues/|/dot_x/", raw"/dropzeros!/.*zeros10",

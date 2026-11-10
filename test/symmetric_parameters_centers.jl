@@ -1,5 +1,7 @@
 module SymmetricParametersCentersTest
 
+using ..TestUtils: take_block_step!
+
 using Test, ProximalBase, LinearAlgebra
 using ..TestUtils: allocs
 
@@ -78,7 +80,7 @@ const cases = (
         array_step_refused(y -> op(y, f, X, step), copy(x))
       end
       if isseparable(f)
-        rejects(y -> prox_coordinate!(y, f, k, .2), copy(x), name, F)
+        rejects(y -> take_block_step!(y, f, k, .2), copy(x), name, F)
       end
       if applicable(kkt_violation, f, zeros(3,3), 1)
         rejects(_ -> kkt_violation(f, zeros(3,3), x, k), copy(x), name, F)
@@ -111,7 +113,7 @@ const cases = (
         @test value_and_prox!(y, h, x, .2) ≈ sum(φ(Y[i], B[i]) for i in eachindex(Y)) atol=2e-6
         if isseparable(h)
           z=copy(x)
-          @test prox_coordinate!(z,h,k,.2) ≈ Y[2,1] atol=2e-7
+          @test take_block_step!(z,h,k,.2) ≈ Y[2,1] atol=2e-7
         end
         if applicable(kkt_violation,h,X,1)
           δ=1e-7
@@ -153,7 +155,7 @@ end
   rejects(_ -> f(x), copy(x), :P, :IndPattern)
   rejects(y -> prox!(y,f,x,1.),copy(x),:P,:IndPattern)
   rejects(y -> value_and_prox!(y,f,x,1.),copy(x),:P,:IndPattern)
-  rejects(y -> prox_coordinate!(y,f,tril_index(3,2,1),1.),copy(x),:P,:IndPattern)
+  rejects(y -> take_block_step!(y,f,tril_index(3,2,1),1.),copy(x),:P,:IndPattern)
   rejects(_ -> kkt_violation(f,X,x,tril_index(3,2,1)),copy(x),:P,:IndPattern)
   for B in (Matrix(Symmetric(P,:L)),Symmetric(P,:L))
     h=IndPattern(B); Y=X .* B
@@ -163,7 +165,7 @@ end
     array_step_refused(y -> prox!(y,h,x,ones(3,3)),copy(x))
     array_step_refused(y -> value_and_prox!(y,h,x,ones(3,3)),copy(x))
     z=copy(x)
-    @test prox_coordinate!(z,h,tril_index(3,2,1),1.) == Y[2,1]
+    @test take_block_step!(z,h,tril_index(3,2,1),1.) == Y[2,1]
     @test kkt_violation(h,fill(.4,3,3),x,tril_index(3,2,1)) == (B[2,1] ? .4 : -Inf)
   end
   for make in (a -> IndHyperplane(a,1.), a -> IndHalfspace(a,1.), a -> IndHyperslab(a,-1.,1.))

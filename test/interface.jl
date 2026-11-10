@@ -1,5 +1,7 @@
 module InterfaceTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -97,7 +99,7 @@ end
   @test ProximalBase.check_parameters(Box2(), x) === nothing
 end
 
-@testset "prox_entry and prox_coordinate!" begin
+@testset "prox_block and take_block_step!" begin
   γ = 0.7
   separable = [ZeroFunction(), LinearFunction(randn(10)), SqrNormL2(2.), SqrNormL2(1., randn(10)),
                NormL1(0.3), NormL1(0.3, rand(10)), NormL1Nonneg(0.4, rand(10)), ElasticNet(0.3, 0.5),
@@ -109,17 +111,17 @@ end
       x = randn(10)
       z = prox(f, x, γ)
       # the scalar operators are the entries of the proximal operator
-      @test [prox_entry(f, x[i], i, γ) for i in 1:10] ≈ z
+      @test [prox_block(f, x[i], i, γ) for i in 1:10] ≈ z
       # on a SparseIterate, coordinate k is entry k
       xs = SparseIterate(x)
       for k in 1:10
-        @test prox_coordinate!(xs, f, k, γ) ≈ z[k]
+        @test take_block_step!(xs, f, k, γ) ≈ z[k]
       end
       @test Vector(xs) ≈ z
       # on an AtomIterate, coordinate k is group k, entry by entry
       xa = AtomIterate(x, [1:3, 4:4, [5, 9], [6, 7, 8, 10]])
       for k in 1:4
-        @test prox_coordinate!(xa, f, k, γ) ≈ z[xa.groups[k]]
+        @test take_block_step!(xa, f, k, γ) ≈ z[xa.groups[k]]
       end
       @test Vector(xa) ≈ z
     end
@@ -127,14 +129,14 @@ end
 
   # a coordinate that stays zero is not stored, one that becomes nonzero is
   xs = SparseIterate(5)
-  prox_coordinate!(xs, NormL1(1.), 2, 1.)
+  take_block_step!(xs, NormL1(1.), 2, 1.)
   @test nactive(xs) == 0
-  prox_coordinate!(xs, IndBox(1, 2), 2, 1.)
+  take_block_step!(xs, IndBox(1, 2), 2, 1.)
   @test nactive(xs) == 1 && xs[2] == 1.
   xa = AtomIterate(4, [1:2, 3:4])
-  prox_coordinate!(xa, NormL1(1.), 1, 1.)
+  take_block_step!(xa, NormL1(1.), 1, 1.)
   @test nactive(xa) == 0
-  prox_coordinate!(xa, IndBox(1, 2), 2, 1.)
+  take_block_step!(xa, IndBox(1, 2), 2, 1.)
   @test activecoordinates(xa) == [2] && Vector(xa) == [0., 0., 1., 1.]
 
   # on a SymmetricSparseIterate, coordinate k is entry (r, c) of the lower triangle, and
@@ -146,17 +148,17 @@ end
   x = SymmetricSparseIterate(D)
   for k in 1:ncoordinates(x)
     r, c = tril_cartesian(p, k)
-    @test prox_coordinate!(x, f, k, γ) ≈ shrink(D[r, c], γ * 0.3 * W[r, c])
+    @test take_block_step!(x, f, k, γ) ≈ shrink(D[r, c], γ * 0.3 * W[r, c])
   end
   @test Matrix(x) ≈ prox(f, D, γ)
   # a coordinate is checked against ncoordinates(x), not length(x) = p²
-  @test_throws BoundsError prox_coordinate!(x, f, ncoordinates(x) + 1, γ)
-  @test_throws BoundsError prox_coordinate!(x, f, 0, γ)
+  @test_throws BoundsError take_block_step!(x, f, ncoordinates(x) + 1, γ)
+  @test_throws BoundsError take_block_step!(x, f, 0, γ)
 
   # functions that are not separable
-  @test_throws ArgumentError prox_coordinate!(SparseIterate(3), NormL2(1.), 1, 1.)
-  @test_throws ArgumentError prox_coordinate!(SymmetricSparseIterate(3), NuclearNorm(1.), 1, 1.)
-  @test_throws ArgumentError prox_coordinate!(AtomIterate(4, 2), IndBallL1(1.), 1, 1.)
+  @test_throws ArgumentError take_block_step!(SparseIterate(3), NormL2(1.), 1, 1.)
+  @test_throws ArgumentError take_block_step!(SymmetricSparseIterate(3), NuclearNorm(1.), 1, 1.)
+  @test_throws ArgumentError take_block_step!(AtomIterate(4, 2), IndBallL1(1.), 1, 1.)
 end
 
 @testset "kkt_violation" begin

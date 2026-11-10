@@ -15,7 +15,7 @@ rnd(::Type{T}, x::BigFloat) where {T} = T(x)
   f = EpsInsensitiveLoss(0.0, Float32[big32])
   @test px(f, [2.0^161], big32) == [2.0^160]
   @test px(f, [-2.0^161], big32) == [-2.0^160]
-  @test prox_entry(f, 2.0^161, 1, big32) == 2.0^160
+  @test prox_block(f, 2.0^161, 1, big32) == 2.0^160
   y = zeros(1); v = value_and_prox!(y, f, [2.0^161], big32)
   @test y == [2.0^160] && v == 2.0^240                      # the value is that of the stored output (O2)
   # the unweighted loss and a flat part
@@ -46,7 +46,7 @@ end
     hi = Float32(big(γ) * big(w) * big(τ))
     lo = Float32(big(γ) * big(w) * (1 - big(τ)))
     want = u > hi ? u - hi : (u < -lo ? u + lo : 0f0)
-    @test prox_entry(h, u, 1, γ) === want
+    @test prox_block(h, u, 1, γ) === want
   end
   # zero and infinite weights
   @test px(CheckLoss(0.5, Float32[0, Inf]), [3.0, 3.0], big32) == [3.0, 0.0]
@@ -81,17 +81,17 @@ end
   # with s = γw|y|², the exact product rounded once (BigFloat), within one ulp of s here
   for (y, w, γ) in ((-0.6069132140372439, 2.327553e-318, 144380.9785781732), (0.3, 5e-324 * 7, 2.0^40), (-0.9, 1e-320, 3.5e9))
     s = Float64(big(γ) * big(w) * big(y)^2)
-    got = prox_entry(HingeLoss([y], [w]), 0.0, 1, γ)
+    got = prox_block(HingeLoss([y], [w]), 0.0, 1, γ)
     @test abs(got * y - s) <= 2eps(s)
   end
   y32, w32, γ32 = -0.6f0, 3f-44, 3f4
   s32 = Float32(big(γ32) * big(w32) * big(y32)^2)
-  @test abs(prox_entry(HingeLoss(Float32[y32], Float32[w32]), 0f0, 1, γ32) * y32 - s32) <= 2eps(s32)
+  @test abs(prox_block(HingeLoss(Float32[y32], Float32[w32]), 0f0, 1, γ32) * y32 - s32) <= 2eps(s32)
 end
 
 @testset "HingeLoss array loop: entries that need recovery among ordinary ones" begin
   # one entry whose γw overflows Float32 but whose step γwy² = 1 is finite, one with a zero weight, one
-  # infinite weight; the others are ordinary. prox! must equal the entrywise prox_entry, aliased or not.
+  # infinite weight; the others are ordinary. prox! must equal the entrywise prox_block, aliased or not.
   n = 40
   rng = Random.MersenneTwister(555)
   for T in (Float32, Float64)
@@ -103,13 +103,13 @@ end
     w[11] = zero(T); w[12] = T(Inf)
     γ = fill(T(0.7), n); γ[7] = b
     f = HingeLoss(lab, w)
-    expected = [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+    expected = [prox_block(f, x[i], i, γ[i]) for i in 1:n]
     y = similar(x); @test prox!(y, f, x, γ) === y; @test y == expected
     z = copy(x); @test prox!(z, f, z, γ) === z; @test z == expected
     @test value_and_prox!(similar(x), f, x, γ) isa Real
-    # ordinary entries only: the vectorized path gives the same bits as prox_entry
+    # ordinary entries only: the vectorized path gives the same bits as prox_block
     g = HingeLoss(lab, rand(rng, T, n) .+ T(0.5))
-    e2 = [prox_entry(g, x[i], i, T(0.7)) for i in 1:n]
+    e2 = [prox_block(g, x[i], i, T(0.7)) for i in 1:n]
     y2 = similar(x); prox!(y2, g, x, T(0.7)); @test y2 == e2
     z2 = copy(x); prox!(z2, g, z2, T(0.7)); @test z2 == e2
   end
@@ -117,15 +117,15 @@ end
 
 @testset "CheckLoss: Float16, and the thresholds γτwᵢ and γ(1-τ)wᵢ rounded once" begin
   f = CheckLoss(Float16(0.75))
-  @test prox_entry(f, Float16(4), 1, 2.0) === Float16(2.5)
-  @test prox_entry(f, Float16(-4), 1, 2.0) === Float16(-3.5)
-  @test prox_entry(CheckLoss(Float16(1 - 2.0^-10)), Float16(-2), 1, 2.0^10) === Float16(-1)
+  @test prox_block(f, Float16(4), 1, 2.0) === Float16(2.5)
+  @test prox_block(f, Float16(-4), 1, 2.0) === Float16(-3.5)
+  @test prox_block(CheckLoss(Float16(1 - 2.0^-10)), Float16(-2), 1, 2.0^10) === Float16(-1)
   # the exact product (BigFloat) rounded once to the destination; the Float64 factors' promotion makes the
   # intermediate rounding of γτ harmless for these inputs
   τ, γ, w = 0.7, 0.1, 3.0
   for u in (1.0000002f0, 2f0, -2f0)
     hi = Float32(big(γ) * big(w) * big(τ))
-    @test prox_entry(CheckLoss(τ, [w]), u, 1, γ) === (u > hi ? u - hi : (u < -Float32(big(γ) * big(w) * (1 - big(τ))) ? u + Float32(big(γ) * big(w) * (1 - big(τ))) : 0f0))
+    @test prox_block(CheckLoss(τ, [w]), u, 1, γ) === (u > hi ? u - hi : (u < -Float32(big(γ) * big(w) * (1 - big(τ))) ? u + Float32(big(γ) * big(w) * (1 - big(τ))) : 0f0))
   end
 end
 
@@ -139,14 +139,14 @@ end
   @test lo != Float32(big(γ) * Float64(1f0 - τ))                       # rounding 1-τ to Float32 first gives another threshold
   for u in (-4f0, -3f0, -2.7f0, -2.6f0, 2f0, 0.5f0)
     want = u > hi ? u - hi : (u < -lo ? u + lo : 0f0)
-    @test prox_entry(f, u, 1, γ) === want
+    @test prox_block(f, u, 1, γ) === want
   end
   y = zeros(Float32, 3); prox!(y, f, Float32[-4, 0, 4], γ); @test y == Float32[-4 + lo, 0, 4 - hi]
   # weighted, Float64 weight and step, Float32 τ
   g = CheckLoss(τ, [2.0])
   lo2, hi2 = Float32(big(γ) * (1 - big(τ)) * 2), Float32(big(γ) * big(τ) * 2)
-  @test prox_entry(g, -8f0, 1, γ) === -8f0 + lo2
-  @test prox_entry(g, 8f0, 1, γ) === 8f0 - hi2
+  @test prox_block(g, -8f0, 1, γ) === -8f0 + lo2
+  @test prox_block(g, 8f0, 1, γ) === 8f0 - hi2
   # the KKT test, with a Float32 gradient and Float64 weight and Float32 τ: w(1-τ) formed in Float64
   kkt = ProximalBase.kkt_violation
   w = 3.0
@@ -197,10 +197,10 @@ end
   @test lla_weight(LogPenalty(p800, p800, [p800]), Inf, 1) == 0.0
 end
 
-@testset "_prox_slope agrees with prox_entry at the threshold" begin
+@testset "_prox_slope agrees with prox_block at the threshold" begin
   f = NormL1(0.1)
   r, γ = 0.3f0, 3f0
-  @test prox_entry(f, r, 1, γ) == 0f0
+  @test prox_block(f, r, 1, γ) == 0f0
   @test ProximalBase._prox_slope(f, r, γ) == 0f0
   @test ProximalBase._prox_slope(NormL1Nonneg(0.1), r, γ) == 0f0
   @test ProximalBase._prox_slope(NormL1(big32), 2f0^100, 1f0) == 1f0     # the threshold 2^80 stays below r

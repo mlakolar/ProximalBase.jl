@@ -1,5 +1,7 @@
 module L2NaNBlocksTest
 
+using ..TestUtils: take_block_step!
+
 # E2 for the Euclidean block norms (#559, LIM-047): a NaN entry makes every output of its block
 # NaN, since each output depends on every entry of the block, and the value at the stored output
 # NaN. E4 comes first: a zero level or weight copies, and an infinite level, weight or step
@@ -207,10 +209,10 @@ end
       @test isnan(value_and_prox!(y, f, a, T(2)))
       @test all(isnan, y.storage)
       a = AtomIterate(x, f)
-      prox_coordinate!(a, f, 1, T(2))
+      take_block_step!(a, f, 1, T(2))
       @test all(isnan, a.storage)
       a = AtomIterate(x, f)
-      prox_coordinate!(a, f, 1, T(Inf))                               # the constant zero map
+      take_block_step!(a, f, 1, T(Inf))                               # the constant zero map
       @test all(iszero, a.storage)
     end
     # device arrays
@@ -332,12 +334,12 @@ end
       @test all(isfinite, y.storage[3:4])
       @test y.nactive == 2
       x = AtomIterate(T[NaN, 1, 2, 3], g)
-      prox_coordinate!(x, g, 1, T(1))
+      take_block_step!(x, g, 1, T(1))
       @test isnan(x.storage[1]) && isnan(x.storage[2])
       @test x.storage[3:4] == T[2, 3]
       @test x.nactive == 2                                # the group is nonzero, so it is active
       x = AtomIterate(T[NaN, 1, 2, 3], g)
-      prox_coordinate!(x, g, 1, T(0))
+      take_block_step!(x, g, 1, T(0))
       @test isnan(x.storage[1]) && x.storage[2] == 1
       for γ in (T[0, 1], T[1, 0])                         # a zero step in a vector: the identity for its group
         x = AtomIterate(T[NaN, 1, 2, 3], g)
@@ -360,7 +362,7 @@ end
       @test isnan(value_and_prox!(y, gt, x, tiny))        # underflowed, not zero: the NaN block
       @test isnan(y.storage[1]) && isnan(y.storage[2])
       x = AtomIterate(T[NaN, 1, 2, 3], gt)
-      prox_coordinate!(x, gt, 1, tiny)
+      take_block_step!(x, gt, 1, tiny)
       @test isnan(x.storage[1]) && isnan(x.storage[2])
       s = SparseGroupNormL2(T(0.1), T(1), [1:2, 3:4])
       for γ in (T[0, 1], T[1, 0])
@@ -378,7 +380,7 @@ end
       @test isnan(value_and_prox!(y, s, x, T(1)))
       @test isnan(y.storage[1]) && isnan(y.storage[2]) && all(isfinite, y.storage[3:4])
       x = AtomIterate(T[NaN, 1, 2, 3], s)
-      prox_coordinate!(x, s, 1, T(1))
+      take_block_step!(x, s, 1, T(1))
       @test isnan(x.storage[1]) && isnan(x.storage[2])
       @test x.nactive == 2
     end

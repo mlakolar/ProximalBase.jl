@@ -1,5 +1,7 @@
 module BernoulliTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -40,7 +42,7 @@ end
 
 function check_reference(v::T, b, γ, w; rtol = T == Float64 ? 1e-12 : 16eps(T)) where {T}
   f = BernoulliLoss(b, w)
-  z = prox_entry(f, v, 1, γ)
+  z = prox_block(f, v, 1, γ)
   p, q = reference_prox(v, b, γ, w)
   rounded = T(p)
   0 < b < 1 && (rounded = clamp(rounded, nextfloat(zero(T)), prevfloat(one(T))))
@@ -75,8 +77,8 @@ end
   @test BernoulliLoss(0.5)([-Inf, 0.3]) == Inf
   @test BernoulliLoss(0.5)([Inf]) == Inf
   @test isnan(BernoulliLoss(0.5)([NaN]))
-  @test isnan(prox_entry(BernoulliLoss(0.5), NaN, 1, 1.))
-  @test isnan(prox_entry(BernoulliLoss(0.5), 0.3, 1, NaN))
+  @test isnan(prox_block(BernoulliLoss(0.5), NaN, 1, 1.))
+  @test isnan(prox_block(BernoulliLoss(0.5), 0.3, 1, NaN))
   masked = BernoulliLoss([0., 0.5, 1., 0.2], 0.)
   v = [-Inf, -3., 4., Inf]
   @test masked(v) == 0
@@ -113,15 +115,15 @@ end
   for v in (-3., 0.3, 1.5), γ in (1e-3, 1., 1e3), b in (0., 0.2, 0.5, 0.9, 1.)
     f = BernoulliLoss(b)
     z, = brute_force_prox(t -> value_entry(f, t, 1), v, γ; lo = 0., hi = 1., n = 2001)
-    @test prox_entry(f, v, 1, γ) ≈ z rtol = 0 atol = 1e-7
+    @test prox_block(f, v, 1, γ) ≈ z rtol = 0 atol = 1e-7
   end
 end
 
 @testset "endpoint branches and extreme factors" begin
   for T in (Float32, Float64)
     for v in T[-1e6, -3, 0, 0.3, 1, 4, 1e6], γ in T[1e-8, 1, 1e8]
-      @test prox_entry(BernoulliLoss(one(T), T(2)), v, 1, γ) ==
-        min(one(T), prox_entry(NegLog(T(2)), v, 1, γ))
+      @test prox_block(BernoulliLoss(one(T), T(2)), v, 1, γ) ==
+        min(one(T), prox_block(NegLog(T(2)), v, 1, γ))
     end
     for μ in T[1e-6, 0.25, 1, 4], center in (μ, 1 - μ),
         v in (prevfloat(center), center, nextfloat(center)), b in (zero(T), one(T))
@@ -137,8 +139,8 @@ end
       end
       center = 1 - γ * w
       for v in (prevfloat(center), center, nextfloat(center))
-        @test prox_entry(BernoulliLoss(one(T), w), v, 1, γ) ==
-          min(one(T), prox_entry(NegLog(w), v, 1, γ))
+        @test prox_block(BernoulliLoss(one(T), w), v, 1, γ) ==
+          min(one(T), prox_block(NegLog(w), v, 1, γ))
       end
     end
     for (γ, w) in ((large, large), (small, small), (large, small), (small, large)),
@@ -146,8 +148,8 @@ end
       check_reference(v, b, γ, w)
     end
     # The input precision, rather than a wider parameter type, sets the policy.
-    @test prox_entry(BernoulliLoss(0.2, small), -large, 1, small) == nextfloat(zero(T))
-    @test prox_entry(BernoulliLoss(0.2, small), large, 1, small) == prevfloat(one(T))
+    @test prox_block(BernoulliLoss(0.2, small), -large, 1, small) == nextfloat(zero(T))
+    @test prox_block(BernoulliLoss(0.2, small), large, 1, small) == prevfloat(one(T))
     # At v = μ with a tiny response, retaining μb is essential.
     b = T == Float32 ? T(1e-12) : T(1e-24)
     check_reference(one(T), b, one(T), one(T))
@@ -185,7 +187,7 @@ end
   x = [-4., -0.2, 0.3, 0.6, 1.2, 4.]
   b, w, γ = [0., 0.2, 0.5, 0.8, 1., 0.3], [1., 2., 0., 0.5, 3., 1.], [0.1, 2., 0.3, 0.7, 4., 1.]
   f = BernoulliLoss(b, w)
-  expected = [prox_entry(f, x[i], i, γ[i]) for i in eachindex(x)]
+  expected = [prox_block(f, x[i], i, γ[i]) for i in eachindex(x)]
   @test prox(f, x, γ) == expected
   y = similar(x)
   @test value_and_prox!(y, f, x, γ) ≈ f(expected)
@@ -208,7 +210,7 @@ end
       @test y == fill(17., 6)
     end
     xs = SparseIterate(x)
-    @test_throws DimensionMismatch prox_coordinate!(xs, bad, 1, 0.7)
+    @test_throws DimensionMismatch take_block_step!(xs, bad, 1, 0.7)
     @test Vector(xs) == x
   end
   for op in (prox!, value_and_prox!)
@@ -237,7 +239,7 @@ end
       @test prox(f, x, 0.7) isa Vector{T}
       @test gradient(f, x) isa Vector{T}
       @test prox(f, x, step) ≈ T.(prox(f, Float64.(x), Float64(step))) rtol = 16eps(T)
-      @inferred prox_entry(f, x[2], 2, step)
+      @inferred prox_block(f, x[2], 2, step)
       @inferred value_and_gradient!(g, f, x)
       PT.test_gradient(f, x; rng)
       @test allocs(f, x) == 0
@@ -245,10 +247,10 @@ end
       @test allocs(value_and_prox!, y, f, x, step) == 0
       @test allocs(gradient!, g, f, x) == 0
       @test allocs(value_and_gradient!, g, f, x) == 0
-      @test allocs(prox_entry, f, x[2], 2, step) == 0
+      @test allocs(prox_block, f, x[2], 2, step) == 0
       @test allocs(prox!, y, f, x, fill(step, 4)) == 0
       xs = SparseIterate(x)
-      @test allocs(prox_coordinate!, xs, f, 2, step) == 0
+      @test allocs(take_block_step!, xs, f, 2, step) == 0
     end
     small = T == Float32 ? T(1e-30) : T(1e-200)
     f = BernoulliLoss(small, small)

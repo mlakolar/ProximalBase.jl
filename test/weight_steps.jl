@@ -145,7 +145,7 @@ end
 struct Frozen{F} <: PB.SeparableFunction
   f::F
 end
-PB.prox_entry(f::Frozen, v, i, γ) = reference_entry(f.f, v, i, γ)
+PB.prox_block(f::Frozen, v, i, γ) = reference_entry(f.f, v, i, γ)
 PB.isconvex(::Type{<:Frozen}) = true
 PB.iszeropreserving(f::Frozen) = PB.iszeropreserving(f.f)
 PB._checkparams(f::Frozen, x) = PB._checkparams(f.f, x)

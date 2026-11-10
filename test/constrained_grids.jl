@@ -31,7 +31,7 @@ Random.seed!(1)
       for γ in (0.4, 1.7)
         p = check_prox(c, x, γ)
         @test p ≈ clamp.(prox(f, x, γ), c.box.l, c.box.u)
-        @test all(i -> prox_entry(c, x[i], i, γ) ≈ p[i], 1:n)
+        @test all(i -> prox_block(c, x[i], i, γ) ≈ p[i], 1:n)
       end
     end
   end
@@ -45,12 +45,12 @@ struct Counted{F} <: SeparableFunction
   f::F
 end
 ProximalBase.entry_parameters(f::Counted) = ProximalBase.entry_parameters(f.f)
-ProximalBase.prox_entry(g::Counted, v, i, γ) = (CALLS[] += 1; prox_entry(g.f, v, i, γ))
+ProximalBase.prox_block(g::Counted, v, i, γ) = (CALLS[] += 1; prox_block(g.f, v, i, γ))
 ProximalBase.value_entry(g::Counted, v, i) = value_entry(g.f, v, i)
 ProximalBase.isconvex(::Type{<:Counted}) = true
 ProximalBase._has_prox_slope(::Type{<:Counted{F}}) where {F} = ProximalBase._has_prox_slope(F)
-ProximalBase._prox_entry_slope(g::Counted, v, i, γ) =
-  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_entry_slope(g.f, v, i, γ))
+ProximalBase._prox_block_slope(g::Counted, v, i, γ) =
+  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_block_slope(g.f, v, i, γ))
 
 # and one that also keeps the ranges of its scalar proximal operators, so that
 # the search fixes entries; Counted hides them, and searches as before
@@ -58,12 +58,12 @@ struct Ranged{F} <: SeparableFunction
   f::F
 end
 ProximalBase.entry_parameters(f::Ranged) = ProximalBase.entry_parameters(f.f)
-ProximalBase.prox_entry(g::Ranged, v, i, γ) = (CALLS[] += 1; prox_entry(g.f, v, i, γ))
+ProximalBase.prox_block(g::Ranged, v, i, γ) = (CALLS[] += 1; prox_block(g.f, v, i, γ))
 ProximalBase.value_entry(g::Ranged, v, i) = value_entry(g.f, v, i)
 ProximalBase.isconvex(::Type{<:Ranged}) = true
 ProximalBase._has_prox_slope(::Type{<:Ranged{F}}) where {F} = ProximalBase._has_prox_slope(F)
-ProximalBase._prox_entry_slope(g::Ranged, v, i, γ) =
-  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_entry_slope(g.f, v, i, γ))
+ProximalBase._prox_block_slope(g::Ranged, v, i, γ) =
+  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_block_slope(g.f, v, i, γ))
 ProximalBase._has_prox_range(::Type{<:Ranged{F}}) where {F} = ProximalBase._has_prox_range(F)
 ProximalBase._prox_range(g::Ranged, i::Integer, ::Type{S}) where {S} = ProximalBase._prox_range(g.f, i, S)
 ProximalBase._has_uniform_range(::Type{<:Ranged{F}}) where {F} = ProximalBase._has_uniform_range(F)

@@ -5,8 +5,8 @@
 # gradients; `SeparableSum` acts on a tuple of blocks. A new function is any
 # subtype of `AbstractFunction` that declares its traits and implements the
 # oracles they promise. A separable one subtypes `SeparableFunction` and
-# implements two scalar functions, `value_entry` and `prox_entry`; the value,
-# `prox!`, `value_and_prox!` and `prox_coordinate!` then come with the type.
+# implements two scalar functions, `value_entry` and `prox_block`; the value,
+# `prox!` and `value_and_prox!` then come with the type.
 
 using ProximalBase, LinearAlgebra, Random
 
@@ -76,7 +76,7 @@ end
 huber(t, δ) = abs(t) <= δ ? t^2 / (2δ) : abs(t) - δ / 2
 
 ProximalBase.value_entry(f::HuberPenalty, v, i) = f.λ * huber(v, f.δ)
-function ProximalBase.prox_entry(f::HuberPenalty, v, i, γ)
+function ProximalBase.prox_block(f::HuberPenalty, v, i, γ)
     τ = γ * f.λ
     abs(v) <= f.δ + τ ? v / (1 + τ / f.δ) : v - τ * sign(v)
 end
@@ -88,14 +88,15 @@ hp = HuberPenalty(1.0, 0.5)
 for v in (-2.0, -0.8, 0.3, 1.1, 3.0)
     grid = range(v - 3, v + 3, length = 600_001)
     zbest = grid[argmin([hp([z]) + (z - v)^2 / (2γ) for z in grid])]
-    @assert abs(prox_entry(hp, v, 1, γ) - zbest) < 1e-4
+    @assert abs(prox_block(hp, v, 1, γ) - zbest) < 1e-4
 end
-# the value and prox! come from value_entry and prox_entry, also on sparse iterates
-@assert hp(x) ≈ sum(t -> huber(t, hp.δ), x) && prox(hp, x, γ) ≈ [prox_entry(hp, v, 1, γ) for v in x]
+# the value and prox! come from value_entry and prox_block, also on sparse iterates
+@assert hp(x) ≈ sum(t -> huber(t, hp.δ), x) && prox(hp, x, γ) ≈ [prox_block(hp, v, 1, γ) for v in x]
 xs = SparseIterate(5)
 xs[2] = 1.5
-@assert prox_coordinate!(xs, hp, 2, γ) ≈ prox_entry(hp, 1.5, 2, γ)
-prox_coordinate!(xs, hp, 4, γ)                        # a zero stays zero, and unstored
+xs[2] = prox_block(hp, xs[2], 2, γ)
+@assert xs[2] ≈ prox_block(hp, 1.5, 2, γ)
+xs[4] = prox_block(hp, xs[4], 4, γ)                        # a zero stays zero, and unstored
 @assert nactive(xs) == 1
 
 # and in a proximal gradient method: least squares with the Huber penalty, a
@@ -110,4 +111,4 @@ for _ in 1:5000
 end
 dhuber(t, δ) = abs(t) <= δ ? t / δ : sign(t)
 @assert norm(gradient(f, β) .+ hp.λ .* dhuber.(β, hp.δ)) < 1e-8
-println("HuberPenalty: prox_entry, prox! and prox_coordinate! work like the built-in functions")
+println("HuberPenalty: prox_block and prox! work like the built-in functions")

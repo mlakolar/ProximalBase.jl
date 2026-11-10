@@ -39,7 +39,7 @@ explain the implementation and are not additional public extension points.
 [Mermaid source](assets/architecture/01-types.mmd).
 
 `SeparableFunction` supplies entrywise operations such as `value_entry` and
-`prox_entry`. Group penalties instead update blocks; the internal
+`prox_block`. Group penalties instead update blocks; the internal
 `HomogeneousGroupNorm` subtype identifies the positively homogeneous group
 norms used by shared kernels. `GroupMCP` and `GroupSCAD` use a different
 mathematical rule and are not homogeneous group norms.
@@ -74,9 +74,9 @@ which lets a caller reuse work. The default `gradient!` delegates to
 
 | Example call | Principal computational path |
 |:---|:---|
-| `prox!(y, NormL1(λ), x, γ)` | Separable array method → `prox_entry` → soft thresholding |
+| `prox!(y, NormL1(λ), x, γ)` | Separable array method → `prox_block` → soft thresholding |
 | `value_and_prox!` for a group norm | Group method → group norm and shrinkage kernels → value at the output |
-| `prox_coordinate!` on an `AtomIterate` | Stored-coordinate lookup → scalar or group update, depending on the penalty |
+| `prox_block!(out, g, u, k, γ)` | Penalty group lookup → shared numerical group kernel → compact output buffer |
 | `gradient!` for a `GLMLoss` | Linear predictor → scalar loss derivatives → transpose-design multiplication |
 | `hessian_vec!` for a `GLMLoss` | Scalar second derivatives → weighted design products |
 | `quadratic_model` for a `GLMLoss` | Working response and curvature weights → weighted least-squares model |
@@ -117,7 +117,7 @@ not create a general standalone conjugate-value solver. Where the inner point
 functions and cones, the ℓ2 ball and the box, their translations and positive
 rescalings, and the double conjugate), the input is never divided by the step,
 and the result has the accuracy of a unit step, about eps times the largest
-input entry; with array steps and in `prox_entry` this covers only the
+input entry; with array steps and in `prox_block` this covers only the
 indicator conjugates of separable functions, the box and the double conjugate.
 The other conjugates check that a finite input gives a finite result before
 writing.

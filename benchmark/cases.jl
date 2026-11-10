@@ -1,3 +1,31 @@
+# Solver-style writes measured by the benchmark harness. All group scratch is
+# supplied by the case; math is delegated to the public block oracles.
+function write_scalar_block!(x, f, k, u, γ)
+    i = k
+    cx = x
+    if x isa SymmetricSparseIterate
+        r, c = tril_cartesian(size(x, 1), k)
+        i = (c - 1) * size(x, 1) + r
+        cx = coordinates(x)
+    end
+    cx[k] = prox_block(f, convert(eltype(x), u), i, γ)
+end
+function write_group_block!(x, f, k, u, γ, out)
+    if isseparable(f)
+        for (j, i) in enumerate(atomindices(x, k))
+            out[j] = prox_block(f, convert(eltype(x), u[j]), i, γ)
+        end
+    else
+        prox_block!(out, f, u, k, γ)
+    end
+    copyto!(atom(x, k), out)
+    nothing
+end
+function group_step_operation(x, f, k, γ)
+    out = zeros(eltype(x), length(atom(x, k)))
+    () -> write_group_block!(x, f, k, atom(x, k), γ, out)
+end
+
 # Case definitions are independent of the scheduler and of measurement settings.
 # Random data use stable scenario keys, so adding a scenario does not change others.
 struct PerfCase{F,S,V,M,I<:NamedTuple}
@@ -536,7 +564,7 @@ end
 entrywise_value(f, z) = (f0 = deepcopy(f); z0 = copy(z); sum(value_entry(f0, z0[i], i) for i in eachindex(z0)))
 function entrywise_steps(f, x, γ)
     f0, x0, γ0 = deepcopy(f), copy(x), copy(γ)
-    r = [prox_entry(f0, x0[i], i, γ0[i]) for i in eachindex(x0)]
+    r = [prox_block(f0, x0[i], i, γ0[i]) for i in eachindex(x0)]
     r isa Vector{eltype(x)} || error("the entrywise reference has element type $(eltype(r))")
     r
 end
@@ -665,9 +693,10 @@ function separable_cases!(cases, rep; quick=false)
             z = copy(atomx)
             step = T(0.7)
             group_index = length(groups)
+            step! = group_step_operation(z, f, group_index, step)
             prep!() = copyto!(z,atomx)
-            check!() = (prep!(); prox_coordinate!(z,f,group_index,step); all(isfinite,z) || error("nonfinite group update"))
-            addcase!(cases, "coordinates", string(nameof(typeof(f))), () -> prox_coordinate!(z,f,group_index,step), check!;
+            check!() = (prep!(); step!(); all(isfinite,z) || error("nonfinite group update"))
+            addcase!(cases, "coordinates", string(nameof(typeof(f))), () -> step!(), check!;
                      inputs=(; atomx), T, shape=string(n), layout="atom", prepare=prep!, work=length(last(groups)))
         end
     end
@@ -715,10 +744,11 @@ function group_layout_cases!(cases, rep)
         y = AtomIterate(T, p, source)
         z = AtomIterate(v, source)
         f(x); f(y); f(z)
+        step! = group_step_operation(z, f, k, step)
         prepare!() = copyto!(z, x)
         function checkcoordinate!()
           prepare!()
-          prox_coordinate!(z, f, k, step)
+          step!()
           close_enough(z, coordinate_reference)
         end
         checkkkt!() = isapprox(kkt_violation(f, grad, x, k), reference_kkt;
@@ -732,7 +762,7 @@ function group_layout_cases!(cases, rep)
           isapprox(value, reference_prox_value; atol=tolerance(T), rtol=tolerance(T)) ||
             error("proximal value differs from dense reference")
         end
-        addcase!(cases, "group_layouts", name * "/coordinate", () -> prox_coordinate!(z, f, k, step), checkcoordinate!;
+        addcase!(cases, "group_layouts", name * "/coordinate", () -> step!(), checkcoordinate!;
                  inputs=(; x), T, shape=string(K), layout, prepare=prepare!, work=8)
         addcase!(cases, "group_layouts", name * "/kkt", () -> kkt_violation(f, grad, x, k), checkkkt!;
                  inputs=(; x, grad), T, shape=string(K), layout, work=8)
@@ -915,7 +945,7 @@ function smooth_cases!(cases, rep; quick=false)
         function cdtrace!()
             for sweep in 1:5, j in 1:p
                 old=β[j]; col=view(X,:,j)
-                new=prox_entry(penalty,old+dot(col,r)/a[j],j,inv(a[j]))
+                new=prox_block(penalty,old+dot(col,r)/a[j],j,inv(a[j]))
                 β[j]=new; axpy!(old-new,col,r)
             end
             β
@@ -1151,7 +1181,7 @@ end
 
 # SymmetricSparseIterate owner cases (issue #391, Phase 0; acceptance guide section 4).
 # They use only calls that exist both in 0.5.x and in 0.6 (X[i, j], activecoordinates,
-# prox_coordinate! with a lower-triangle coordinate ID, mul! and Matrix on the matrix
+# block_prox_write with a lower-triangle coordinate ID, mul! and Matrix on the matrix
 # view when there is one), so one harness run on each revision gives the before/after
 # comparison. No case here depends on the owner being an AbstractMatrix.
 function owner_fixture(rng, T, p, s)
@@ -1253,7 +1283,7 @@ function owner_cases!(cases, rep; quick=false)
                  inputs=(; Xs), T, shape, layout="trivial_update", work=s)
         f = NormL1(T(0.1))
         step = T(0.5)
-        prox_sweep() = (for k in activecoordinates(Xs); prox_coordinate!(Xs, f, k, step); end; nothing)
+        prox_sweep() = (for k in activecoordinates(Xs); write_scalar_block!(Xs, f, k, coordinates(Xs)[k], step); end; nothing)
         vstate = copy(fx.vals)
         prep_sweep!() = (for (k, v) in zip(fx.ids, fx.vals); r, c = ProximalBase.tril_cartesian(p, k); Xs[r, c] = v; end; nothing)
         function check_sweep!()
@@ -1265,7 +1295,7 @@ function owner_cases!(cases, rep; quick=false)
             ok || error("coordinate sweep gave the wrong soft threshold")
             prep_sweep!()
         end
-        addcase!(cases, "owner", "sweep_prox_coordinate!", prox_sweep, check_sweep!; inputs=(; fx_ids=fx.ids, fx_vals=fx.vals),
+        addcase!(cases, "owner", "sweep_block_prox_write", prox_sweep, check_sweep!; inputs=(; fx_ids=fx.ids, fx_vals=fx.vals),
                  T, shape, layout="NormL1",
                  prepare=prep_sweep!, evals=1, work=s)
         # matrix product with a dense vector
@@ -1503,12 +1533,12 @@ function ridge_cases!(cases, rep; quick=false)
                  () -> (prox!(z, f, x, γ); close_ref(z, refprox)); inputs=(; x, c), T, shape, work=n)
         # independent entries, as a vectorizable sweep, and a dependent chain, as in
         # coordinate descent (each update feeds the next argument)
-        addcase!(cases, "ridge", name * "/prox_entry_loop",
-                 () -> begin @inbounds for i in eachindex(x) z[i] = prox_entry(f, x[i], i, γ) end end,
-                 () -> (for i in eachindex(x); z[i] = prox_entry(f, x[i], i, γ); end; close_ref(z, refprox));
+        addcase!(cases, "ridge", name * "/prox_block_loop",
+                 () -> begin @inbounds for i in eachindex(x) z[i] = prox_block(f, x[i], i, γ) end end,
+                 () -> (for i in eachindex(x); z[i] = prox_block(f, x[i], i, γ); end; close_ref(z, refprox));
                  inputs=(; x, c), T, shape, layout="coordinate", work=n)
-        chain() = (v = zero(T); @inbounds for i in eachindex(x) v = prox_entry(f, x[i] + T(0.5) * v, i, γ) end; v)
-        addcase!(cases, "ridge", name * "/prox_entry_chain", chain,
+        chain() = (v = zero(T); @inbounds for i in eachindex(x) v = prox_block(f, x[i] + T(0.5) * v, i, γ) end; v)
+        addcase!(cases, "ridge", name * "/prox_block_chain", chain,
                  () -> isfinite(chain()) || error("nonfinite chain"); inputs=(; x, c), T, shape, layout="coordinate", work=n)
         addcase!(cases, "ridge", name * "/value_and_prox!", () -> value_and_prox!(z, f, x, γ),
                  () -> (v = value_and_prox!(z, f, x, γ); close_ref(z, refprox);
@@ -1805,7 +1835,7 @@ function rmul_repeat!(x, a, r)
 end
 function prox_batch!(x, f, ids, us, γ)
     @inbounds for j in eachindex(ids)
-        prox_coordinate!(x, f, ids[j], us[j], γ)
+        write_scalar_block!(x, f, ids[j], us[j], γ)
     end
     nothing
 end
@@ -1925,7 +1955,7 @@ function sparse_vector_ids(T, n, s; rows=())
     r = sparse_rmul_repeats(T, s)
     add("rmul!_finite", "x$r"); add("rmul!_inf", "x$r")
     add("fill!_coordinates_zero", "vector")
-    add("prox_coordinate!_5arg", "NormL1_scalar_u")
+    add("block_prox_write", "NormL1_scalar_u")
     for layout in SPARSE_MOMENTUM_LAYOUTS, name in ("_values!", "_setvalues!", "_restartdot")
         add(name, layout)
     end
@@ -2246,7 +2276,7 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=(), selector=not
                  guarded(() -> (fill!(coordinates(x), 0); iszero(Array(x)) || error("an entry is not zero after the fill")));
                  inputs=(; snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=true, work=s)
 
-        # FD-12: the five-argument prox_coordinate! with a scalar u. One step takes about 1.5 ns on the pinned
+        # FD-12: scalar block math followed by an indexed write. The retired operation took about 1.5 ns on the pinned
         # source, so a call takes 1536 distinct coordinates: the active ones (at most 768), moved by a step
         # that keeps them nonzero, and absent ones that mostly end at zero and stay inactive, as in a solver.
         f, γ = NormL1(T(0.1)), T(0.5)
@@ -2266,10 +2296,10 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=(), selector=not
             end
             close_enough(Array(x), expected)
         end
-        addcase!(cases, "sparse", "prox_coordinate!_5arg", () -> prox_batch!(x, f, kb, ub, γ), guarded(check_prox);
+        addcase!(cases, "sparse", "block_prox_write", () -> prox_batch!(x, f, kb, ub, γ), guarded(check_prox);
                  inputs=(; kb, ub, snap), T, shape, layout="NormL1_scalar_u", prepare=restore_state!, zero_alloc=false, work=length(kb))
     end
-    want("fill!_coordinates_zero", "prox_coordinate!_5arg") && Base.invokelatest(fill_prox_group)
+    want("fill!_coordinates_zero", "block_prox_write") && Base.invokelatest(fill_prox_group)
 
     momentum_group = function ()
         d = d_()
@@ -2644,43 +2674,26 @@ function sum_atom_dots(x, ks, w, ::Type{T}) where {T}
     end
     acc
 end
-function prox_group_batch!(x, f, ks, us, γ)
+function prox_group_batch!(x, f, ks, us, γ, out)
     @inbounds for j in eachindex(ks)
-        prox_coordinate!(x, f, ks[j], us[j], γ)
+        write_group_block!(x, f, ks[j], us[j], γ, out)
     end
     nothing
 end
-function staged_group_batch!(stage!::F, x, f, ks, us, γ) where {F}
+function staged_group_batch!(x, f, ks, us, γ, out)
     @inbounds for j in eachindex(ks)
         k = ks[j]
-        stage!(x, k, us[j])
-        prox_coordinate!(x, f, k, γ)
+        copyto!(atom(x, k), us[j])
+        write_group_block!(x, f, k, atom(x, k), γ, out)
     end
     nothing
 end
-# The staging control of FD-12 writes u into the entries of the group and takes the four-argument step.
-# The private spelling writes the storage (no activation); the fallback writes through atom(x, k), which
-# activates the group by the rule of x[i] = v. The two are different paths per penalty: NormL1 takes the
-# separable step, a group penalty its block step.
-struct StageStorage{I}
-    indices::I
-end
-function (s::StageStorage)(x, k, u)
-    st = x.storage
-    G = s.indices(x, k)
-    @inbounds for a in 1:length(G)
-        st[G[a]] = u[a]
-    end
-    nothing
-end
-struct StageAtom end
-(::StageAtom)(x, k, u) = (atom(x, k) .= u; nothing)
-staging_by(x, indices) = hasfield(typeof(x), :storage) ? StageStorage(indices) : StageAtom()
-# the function barrier of FD-12: the closures are built where the penalty, the iterate and the staging have concrete types
-atom_prox_ops(stage, x, snap, f, ks, us, γ) =
-    (() -> prox_group_batch!(x, f, ks, us, γ),
-     () -> staged_group_batch!(stage, x, f, ks, us, γ),
+function atom_prox_ops(x, snap, f, ks, us, γ)
+    out = zeros(eltype(x), length(first(us)))
+    (() -> prox_group_batch!(x, f, ks, us, γ, out),
+     () -> staged_group_batch!(x, f, ks, us, γ, out),
      () -> (copyto!(x, snap); nothing))
+end
 
 # the momentum value loops of the audited solver over an AtomIterate (acceptance guide §3.4), through the
 # accessors of 0.6 (activecoordinates and atomindices) or through the private fields that the downstream
@@ -2867,7 +2880,7 @@ atom_rmul_repeats(T, p) = min(exponent(floatmax(T)) - 4, repeats_for(p, 16384))
 atom_penalties(full) = full ? ("GroupNormL2", "GroupNormLinf", "SparseGroupNormL2", "NormL1") : ("GroupNormL2", "NormL1")
 atom_prox_layout(pname) = "$(pname)_strided_u"
 atom_mul_layout(m, zlabel) = "rows$(m)_$zlabel"
-const ATOM_PROX_NAMES = ("prox_coordinate!_5arg", "prox_coordinate!_staged")
+const ATOM_PROX_NAMES = ("block_prox_write", "block_prox_staged_write")
 const ATOM_ZLABELS = ("z0", "z50")
 const ATOM_MOMENTUM_LAYOUTS = ("accessors", "private_fields")
 const ATOM_MOMENTUM_NAMES = ("_nvalues", "_values!", "_setvalues!", "_restartdot")
@@ -2953,7 +2966,7 @@ operations_wanted(selector::Regex, pairs) = Set{String}(name for (name, id) in p
 want_any(::Nothing, names) = true
 want_any(wanted::Set{String}, names) = any(in(wanted), names)
 
-# FD-12: the five-argument block trial against staging u and the four-argument step, with a strided u (a
+# FD-12: pure block math followed by public writes, against writing the trial first, with a strided u (a
 # view with stride 2 of a longer vector), for the four penalties; the batch has distinct groups, half of
 # them active (moved to nonzero values) and half inactive (small trial points, which mostly stay at zero)
 function atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, snap, d, aids, pool, fcache, penalties; selector=nothing)
@@ -2985,7 +2998,7 @@ function atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, s
             z = AtomIterate(d, f)
             z, copy(z)
         end
-        op5, opstaged, restore! = atom_prox_ops(staging_by(xf, indices), xf, snapf, f, ks, us, γ)
+        op5, opstaged, restore! = atom_prox_ops(xf, snapf, f, ks, us, γ)
         # the reference on the entries of the batch, computed when the case is built (the trial points are
         # read by the operations); the other entries keep the scenario's dense vector
         ents = group_entries(groups, ks)
@@ -3288,7 +3301,7 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
     want("rmul!_finite", "rmul!_inf") && Base.invokelatest(rmul_group)
 
     prox_group = function ()
-        # FD-12: the block trial, the five-argument call against staging
+        # FD-12: compute the block first, against writing its trial before computing
         atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, snap, d_(), aids, pool, fcache, atom_penalties(full); selector)
     end
     want(ATOM_PROX_NAMES...) && Base.invokelatest(prox_group)

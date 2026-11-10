@@ -1,8 +1,10 @@
 module AllocationsTest
 
+using ..TestUtils: take_block_step!
+
 # The hot calls allocate nothing once a function object exists and has seen its
 # input once (to size its workspaces): f(x), prox!, value_and_prox!,
-# value_and_gradient!, gradient! and prox_coordinate!.
+# value_and_gradient!, gradient! and take_block_step!.
 # The quick-tier subset of these checks (representative entries) is in allocations_basics.jl.
 
 using Test
@@ -20,7 +22,7 @@ a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
 a_vgrad!(g, f, x) = value_and_gradient!(g, f, x)
 a_grad!(g, f, x) = gradient!(g, f, x)
-a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+a_cd!(x, f, k, γ) = prox_block(f, x isa SymmetricSparseIterate ? coordinates(x)[k] : x[k], k, γ)
 a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
 a_gmap!(G, f, g, x, γ) = gradient_mapping!(G, f, g, x, γ)
 a_mul!(out, A, x, α, β) = mul!(out, A, x, α, β)
@@ -54,86 +56,13 @@ end
   end
 end
 
-a_block!(x, f, k, u, γ) = prox_coordinate!(x, f, k, u, γ)
-block_alloc_once(x::X, f::F, k::K, u::U, γ::R) where {X, F, K, U, R} = @allocated a_block!(x, f, k, u, γ)
-
-@testset "block steps allocate nothing" begin
-  for x in (SymmetricSparseIterate(2),)
-    @test allocs(a_block!, x, NormL1(0.3), 1, 3., 0.7) == 0
-  end
-  for gs in ([1:2, 3:4], [[1, 3], [2, 4]])
-    x = AtomIterate(4, gs)
-    u = [3., -4.]
-    for f in (GroupNormLinf(0.4, gs),
-              SparseGroupNormL2(0.2, 0.4, gs), GroupMCP(0.4, gs), GroupSCAD(0.4, gs))
-      @test allocs(a_block!, x, f, 1, u, 0.7) == 0
-    end
-  end
-end
-
-@testset "block steps with a view u allocate nothing" begin
-  # A strided u must not be heap-allocated (it once was, through a Union-typed rebinding),
-  # for range and index-vector groups, active and inactive groups, zero and nonzero results.
-  p, g, k = 16, 4, 3
-  layouts = ([1:4, 5:8, 9:12, 13:16], [collect(j:4:16) for j in 1:4])
-  for T in (Float32, Float64), gs in layouts
-    G = gs[k]
-    fs = (GroupNormL2(T(0.1), gs), SparseGroupNormL2(T(0.1), T(0.1), gs), GroupNormLinf(T(0.1), gs))
-    for f in fs, large in (false, true), was in (false, true)
-      vals = large ? T[2, -3, 4, -5] : fill(T(0.001), 4)
-      contiguous = T[77, 77, 77, 77, 77, 77]; copyto!(contiguous, 2, vals, 1, 4)
-      strided = fill(T(77), 8); strided[1:2:7] .= vals
-      inputs = (copy(vals), view(contiguous, 2:5), view(strided, 1:2:7))
-      @test strides.(inputs[2:3]) == ((1,), (2,))
-      @test all(u -> eltype(u) === T && length(u) == g, inputs)
-      for u in inputs
-        x0 = zeros(T, p)
-        x0[gs[1]] .= T[1, -2, 3, -4]
-        x0[gs[4]] .= T[-1, 2, -3, 4]
-        was && (x0[G] .= T[0.5, -1, 1.5, -2])
-        # one call on a fresh iterate, after warming the method on others: the call that
-        # activates an inactive group is the one measured
-        for _ in 1:2
-          block_alloc_once(AtomIterate(x0, f), f, k, u, T(0.5))
-        end
-        x = AtomIterate(x0, f)
-        @test isactive(x, k) == was
-        before = Vector(x)
-        usnap = copy(u)
-        @test block_alloc_once(x, f, k, u, T(0.5)) == 0
-        trial = copy(before); trial[G] .= usnap
-        ref = prox(f, trial, T(0.5))
-        after = Vector(x)
-        @test u == usnap
-        @test isapprox(after[G], ref[G]; rtol = 10eps(T), atol = 10eps(T))
-        @test any(!iszero, after[G]) == large
-        other = setdiff(1:p, G)
-        @test after[other] == before[other]
-        expected_active = was || large
-        @test isactive(x, k) == expected_active
-        @test all(j -> isactive(x, j) == (j == k ? expected_active : j in (1, 4)), 1:4)
-        @test nactive(x) == 2 + expected_active
-      end
-    end
-  end
-end
-
-@testset "block steps with a view u aliasing the iterate" begin
-  # the copy of an aliasing u is kept; it may allocate. Results equal those of an independent u.
-  p = 16
-  for (gs, rng) in (([1:4, 5:8, 9:12, 13:16], 11:-2:5), ([collect(j:4:16) for j in 1:4], 15:-4:3))
-    for f in (GroupNormL2(0.1, gs), SparseGroupNormL2(0.1, 0.1, gs), GroupNormLinf(0.1, gs))
-      x0 = collect(1.0:p)
-      x = AtomIterate(x0, f)
-      u = view(x.storage, rng)
-      @test Base.mightalias(x, u)
-      indep = copy(u)
-      y = AtomIterate(x0, f)
-      prox_coordinate!(x, f, 3, u, 0.5)
-      prox_coordinate!(y, f, 3, indep, 0.5)
-      @test Vector(x) == Vector(y)
-      @test nactive(x) == nactive(y) && all(j -> isactive(x, j) == isactive(y, j), 1:4)
-    end
+@testset "pure block steps allocate nothing" begin
+  @test allocs(prox_block, NormL1(0.3), 3., 1, 0.7) == 0
+  gs = [[1, 3], [2, 4]]
+  u, out = [3., -4.], zeros(2)
+  for f in (GroupNormL2(0.4, gs), GroupNormLinf(0.4, gs),
+            SparseGroupNormL2(0.2, 0.4, gs), GroupMCP(0.4, gs), GroupSCAD(0.4, gs))
+    @test allocs(prox_block!, out, f, u, 1, 0.7) == 0
   end
 end
 
@@ -161,7 +90,7 @@ end
           alias = copy(xa)
           @test allocs(a_vprox!, alias, f, alias, step) == 0
         end
-        @test allocs(a_cd!, copy(xa), f, 1, 0.7) == 0
+        @test allocs(prox_block!, zeros(length(atom(xa, 1))), f, collect(atom(xa, 1)), 1, 0.7) == 0
         @test allocs(a_kkt, f, v, xa, 2) == 0
       end
     end
@@ -287,7 +216,7 @@ end
     for f in (GroupNormL2(0.4, groups), GroupNormLinf(0.4, groups))
       xg = AtomIterate(randn(p), f)
       zero_alloc_prox(f, xg)
-      @test allocs(a_cd!, copy(xg), f, 2, 0.7) == 0
+      @test allocs(prox_block!, zeros(length(atom(xg, 2))), f, collect(atom(xg, 2)), 2, 0.7) == 0
       @test allocs(a_kkt, f, x, xg, 3) == 0
     end
     fl = NormL1Fused(0.3, 0.4)
@@ -451,7 +380,7 @@ end
     f = Constrained(NormL1(0.3), IndBox(-1, 1))
     zero_alloc_prox(f, xs)
     @test allocs(a_cd!, copy(xs), f, 3, 0.7) == 0
-    @test allocs(a_cd!, copy(xa), f, 2, 0.7) == 0
+    @test allocs(prox_block, f, xa[2], 2, 0.7) == 0
     @test allocs(a_kkt, f, x, x, 4) == 0
   end
 end

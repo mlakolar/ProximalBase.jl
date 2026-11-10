@@ -1,4 +1,6 @@
 module ThresholdPrecisionTest
+
+using ..TestUtils: take_block_step!
 using Test, ProximalBase
 using ..TestUtils
 
@@ -163,14 +165,14 @@ end
       @test active_set(z) == Set([1, 2])
       # coordinate steps: an active group, then a group below the threshold, then an inactive one
       z = AtomIterate(v, groups)
-      prox_coordinate!(z, f, 1, γ)
+      take_block_step!(z, f, 1, γ)
       @test close(Vector(z), [e, 0.0, -2.0^161]) && active_set(z) == Set([1, 2])
-      prox_coordinate!(z, f, 2, γ)
+      take_block_step!(z, f, 2, γ)
       @test close(Vector(z), [e, 0.0, -e])
       small = AtomIterate([1.0, 0.0, 0.0], groups)
-      prox_coordinate!(small, f, 1, γ)
+      take_block_step!(small, f, 1, γ)
       @test Vector(small) == zeros(3) && 2 ∉ active_set(small)
-      prox_coordinate!(small, f, 2, γ)                 # an inactive group stays inactive
+      take_block_step!(small, f, 2, γ)                 # an inactive group stays inactive
       @test Vector(small) == zeros(3) && 2 ∉ active_set(small)
     end
   end

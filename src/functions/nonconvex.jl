@@ -63,7 +63,7 @@ Base.@propagate_inbounds function _value_entry_ordinary(f::CappedL1, v::T, i::In
 end
 _has_ordinary_value(::Type{<:CappedL1}) = true
 
-Base.@propagate_inbounds function prox_entry(f::CappedL1, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(f::CappedL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   # A level that is zero as given and the step Inf make γλ the product Inf⋅0. The coefficient is
   # then that of the step 1, which is also that of every positive finite step (0 with the sign of the
@@ -151,7 +151,7 @@ _has_ordinary_value(::Type{<:LogPenalty}) = true
   isnan(t) && !(γ == Inf) ? v : zero(S)
 end
 
-Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(f::LogPenalty, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
   c = _weight_coefficient(S, γ, f.λ, w)
@@ -278,7 +278,7 @@ Base.@propagate_inbounds function _value_entry_ordinary(f::NormLq, v::T, i::Inte
 end
 _has_ordinary_value(::Type{<:NormLq}) = true
 
-Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(f::NormLq, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w0 = _entry(f.w, i)
   q, t = S(f.q), abs(S(v))
@@ -375,7 +375,7 @@ Its proximal operator is radial: the scalar proximal operator of `pₖ` at
 `‖v[Gₖ]‖` rescales `v[Gₖ]`, which gives the global minimizer for every step.
 At zero its subdifferential is that of the group lasso, so
 [`kkt_violation`](@ref) is `‖g[Gₖ]‖₂ - λwₖ`. On an [`AtomIterate`](@ref) with
-its groups, [`prox_coordinate!`](@ref) updates a group, the block step of
+its groups, [`prox_block!`](@ref) computes a compact group result, the block step of
 coordinate descent.
 """
 struct GroupMCP{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractGroupPenalty
@@ -466,13 +466,6 @@ _group_scalar(f::GroupMCP, ::Type{S}, k::Integer, ::Val{true}) where {S} = MCP{S
 _group_scalar(f::GroupSCAD, ::Type{S}, k::Integer, ::Val{true}) where {S} = SCAD{S}(_typed_product(S, f.λ0, f.w[k]), convert(S, f.a))
 _group_scalar(f::_RadialGroupPenalty, ::Type{S}, k::Integer, ::Val{false}) where {S} = _group_scalar(f, S, k)
 
-@inline function _check_group_coordinate(f::_RadialGroupPenalty, x::AtomIterate, k::Integer)
-  _checksamegroups(f, x)
-  checkbounds(x.groups, k)
-  _infinite_radial_coefficient(f, float(eltype(x)), k) && return nothing
-  _group_scalar(f, float(eltype(x)), k)
-end
-
 # Construct every scalar penalty that the kernel will use before it writes.
 _check_group_scalars(f::_RadialGroupPenalty, ::Type{T}, groups, n::Int = length(groups)) where {T} =
   _ordinary_radial_groups(f, T) ? _check_group_scalars(f, T, groups, n, Val(true)) :
@@ -535,7 +528,7 @@ _dual_norm(::_RadialGroupPenalty, g, G) = _group_norm2(g, G)
 # scalar proximal operator of p at the norm, along x[G]; returns the new norm
 @inline function _radial_shrink!(p, y::AbstractArray{T}, x::AbstractArray, G, γ, W = nothing) where {T}
   nx = convert(typeof(p.λ), _group_norm2(x, G))   # the scalar proximal operator works in the type of p
-  r = iszero(nx) ? nx : prox_entry(p, nx, 1, γ)
+  r = iszero(nx) ? nx : prox_block(p, nx, 1, γ)
   t = iszero(nx) ? nx : r / nx
   @inbounds for i in _writes(W, G)
     y[i] = t * x[i]
@@ -673,32 +666,6 @@ function _radial_group_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIter
     v += convert(T, value_entry(p, _radial_shrink!(p, y.storage, y.storage, f.groups[k], convert(T, _entry(γ, k))), 1))
   end
   v
-end
-
-@inline _check_coordinate(x::AtomIterate, f::_RadialGroupPenalty, k) = _check_group_coordinate(f, x, k)
-@inline _block_step!(x::AtomIterate, f::_RadialGroupPenalty, k, u, γ, ctx) = _stage_and_step!(x, f, k, u, γ, ctx)
-
-# group k of x through the proximal operator in place; the group becomes active
-# if it ends nonzero
-function prox_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k::Integer, γ::Real)
-  ctx = _check_coordinate(x, f, k)
-  _unchecked_coordinate!(x, f, k, γ, ctx)
-end
-
-@inline function _unchecked_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k, γ, p)
-  T = float(eltype(x))
-  if _infinite_radial_coefficient(f, T, k)
-    n = _shrink_group!(NormL2(one(T)), x.storage, x.storage, x.groups[k], _weight_product(T, γ, f.λ0, f.w[k]))
-    iszero(n) || activate!(x, k)
-    return atom(x, k)
-  end
-  if iszero(p.λ)
-    _allzero(x.storage, x.groups[k]) || activate!(x, k)
-    return atom(x, k)
-  end
-  r = _radial_shrink!(p, x.storage, x.storage, x.groups[k], convert(T, γ))
-  iszero(r) || activate!(x, k)
-  atom(x, k)
 end
 
 ####################################

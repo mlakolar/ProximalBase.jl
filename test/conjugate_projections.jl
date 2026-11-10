@@ -147,7 +147,7 @@ end
         if isseparable(f)
           accurate(prox(c, x, fill(γ, length(x))), ref, 4)
           for i in eachindex(x)
-            accurate(T[prox_entry(c, x[i], i, γ)], [ref[i]], 4)
+            accurate(T[prox_block(c, x[i], i, γ)], [ref[i]], 4)
           end
         end
       end
@@ -217,7 +217,7 @@ end
           op === value_and_prox! && @test v == 0
         end
         if isseparable(f)
-          @test T[prox_entry(c, input[i], i, γ isa Real ? γ : γ[i]) for i in eachindex(input)] ≈ expected
+          @test T[prox_block(c, input[i], i, γ isa Real ? γ : γ[i]) for i in eachindex(input)] ≈ expected
         end
       end
     end
@@ -252,10 +252,10 @@ end
     end
     f = Scaled(Translate(Scaled(NormL1(1e300), 1e-200), [0.0]), 1e-200)
     r = BigFloat(1e300) * BigFloat(1e-200)^2
-    @test prox_entry(Conjugate(f), 1.0, 1, 1.0) ≈ Float64(r) rtol = 4eps(Float64)
+    @test prox_block(Conjugate(f), 1.0, 1, 1.0) ≈ Float64(r) rtol = 4eps(Float64)
     f = Scaled(Translate(Scaled(NormL1(1e-300), 1e200), [0.0]), 1e200)
     r = BigFloat(1e-300) * BigFloat(1e200)^2
-    @test prox_entry(Conjugate(f), 1e200, 1, 1.0) ≈ Float64(r) rtol = 4eps(Float64)
+    @test prox_block(Conjugate(f), 1e200, 1, 1.0) ≈ Float64(r) rtol = 4eps(Float64)
     for op in (prox!, value_and_prox!), base in (NormL1(), NormL1Nonneg(), NormL2(), GroupNormL2(1.0, [1:1], [1.0]))
       y = zeros(Float32, 1)
       v = op(y, Conjugate(Translate(base, [0.0])), [1e39], 1.0)
@@ -749,11 +749,11 @@ end
       c = Conjugate(Scaled(SqrNormL2(T(2)), α))
       for v in (T(-3), zero(T), T(6))
         expected = BigFloat(v) * (2BigFloat(α)) / (2BigFloat(α) + BigFloat(γ))
-        accurate(T[prox_entry(c, v, 1, γ)], [expected], 8)
+        accurate(T[prox_block(c, v, 1, γ)], [expected], 8)
       end
       for f in (ZeroFunction(), IndNonnegative()), v in (T(-3), zero(T), T(6))
         c = Conjugate(Scaled(f, α))
-        @test prox_entry(c, v, 1, γ) == (f isa ZeroFunction ? zero(T) : min(v, zero(T)))
+        @test prox_block(c, v, 1, γ) == (f isa ZeroFunction ? zero(T) : min(v, zero(T)))
       end
       for tuple_block in (false, true)
         f = tuple_block ? Conjugate(SeparableSum(SqrNormL2(T(2)))) : SqrNormL2(T(2), T[1, -2])

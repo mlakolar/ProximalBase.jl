@@ -96,12 +96,23 @@ end
       @test copyto!(dest,values) === dest
       same_state(x,ref)
     end
-    for ids in (Int[],[1,3],[1,4,8],collect(gs[1]),1:2:9)
+    for ids in (Int[],[1,3],[1,4,8],[1,4,1,8],collect(gs[1]),1:2:9),
+        zero_prefix in (false,true)
       x = initial(T,gs,1,false);ref=copy(x)
-      values = T.(1:length(ids))
+      values = T[zero_prefix && i <= 2 ? -zero(T) : i for i in 1:length(ids)]
       for (i,v) in zip(ids,values);ref[i]=v;end
       dest = view(x,ids)
       @test copyto!(dest,values) === dest
+      same_state(x,ref)
+    end
+    # The zero prefix overwrites a location that a later source read needs.
+    # The source is snapshotted before the optimized arbitrary-view tail runs.
+    for ids in ([3,4,1,8],[3,4,1,1])
+      x=BlockIterate(T[0,-0.0,0,7,0,0,0,0,9],gs);ref=copy(x)
+      source=view(x.storage,2:5);values=collect(source)
+      for (i,v) in zip(ids,values);ref[i]=v;end
+      dest=view(x,ids)
+      @test copyto!(dest,source) === dest
       same_state(x,ref)
     end
     x=initial(T,gs,1,false);ref=copy(x)

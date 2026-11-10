@@ -57,20 +57,21 @@ state copying does not overwrite the destination's cache.
 ## Complete-block value copies
 
 The specialized `copyto!(blockview(x,k), values)` retains the existing
-`SubArray` representation. Its dispatch requires a matching owned-index type;
-it then derives a candidate group from the first entry and requires index
-identity with that owned group. Identity is constant time for vectors and
-built-in integer ranges. There is no group-layout scan or equality-cache use.
-An arbitrary view that is not the whole owned block uses Base's normal copy.
+`SubArray` representation. Dispatch requires built-in owned-index kinds and
+same-type ordinary Float32/Float64 vectors or Array-backed strided views;
+a custom `DenseArray` reader is not assumed infallible. A one-entry copy reads
+its entire source value into a scalar before performing one public value write.
 
-The fast source is a same-type `Float32`/`Float64` vector or an Array-backed
-view with built-in strided indices. A custom `DenseArray` reader is not enough
-to establish infallibility. `Base.unalias` completes any required source
-snapshot before a write or activation. An active block then writes through
-the existing private `_block_storage` view without entry activation calls.
-An inactive block first observes whether the infallible source has a nonzero;
-only then does it activate once, before the raw copy. All-zero inputs preserve
-inactivity and signed zeros. The raw loop needs no second alias preflight.
+Longer copies finish `Base.unalias` before mutation, then use the existing
+private storage-view helper. Zero-prefix writes cannot change activity and
+preserve signed zeros, so they need no group lookup or second data pass.
+Before a nonzero write the method derives a group from the first entry and
+requires index identity with that owned group. Identity is constant time for
+vectors and built-in integer ranges; no layout or cache scan is involved.
+An owned group needs at most one activity check and one activation, before its
+first nonzero write, followed by an unchecked storage tail. An unrecognized
+view uses scalar value writes for that tail, with the already snapshotted
+source. There is no repeated alias preflight or prefix copy.
 
 Fallible readers, conversions, partial sources and unrecognized views retain
 the generic scalar path. This preserves prefix-copy semantics and the existing

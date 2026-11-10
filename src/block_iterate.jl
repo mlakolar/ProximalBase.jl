@@ -295,18 +295,38 @@ const _BlockCopySource{T} = Union{Vector{T},
   # Base permits a shorter prefix source; retain that behavior in the fallback.
   length(src) == length(dest) && !isempty(dest) ||
     return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
-  x, ids = parent(dest), only(parentindices(dest))
-  k = @inbounds x.group_of[first(ids)]
-  ids === @inbounds(x.groups[k]) ||
-    return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
-  values = Base.unalias(dest, src)    # finish a potentially throwing snapshot before writing
-  if @inbounds x.position[k] == 0
-    # Same-type ordinary reads cannot fail. Activate only for an observed
-    # nonzero, before writing; signed zeros alone keep the block inactive.
-    any(!iszero, values) && activate!(x, k)
+  n = length(src)
+  if n == 1
+    # A scalar is the complete alias snapshot; one write needs no bulk lookup.
+    value = @inbounds src[1]
+    @inbounds dest[1] = value
+    return dest
   end
-  storage = _block_storage(x, k)
-  @inbounds for j in eachindex(storage, values)
+  values = Base.unalias(dest, src)    # finish a potentially throwing snapshot before writing
+  x, ids = parent(dest), only(parentindices(dest))
+  storage = _block_view_storage(dest)
+  first_write = 1
+  # Zero writes cannot change activity, even for an arbitrary view. Copy them
+  # once without group lookups, and preserve their signs.
+  @inbounds while first_write <= n
+    iszero(values[first_write]) || break
+    storage[first_write] = values[first_write]
+    first_write += 1
+  end
+  first_write > n && return dest
+  k = @inbounds x.group_of[first(ids)]
+  if ids !== @inbounds(x.groups[k])
+    # The source is already unaliased and the prefix already copied. Keep
+    # scalar activation for an arbitrary view without repeating either work.
+    @inbounds for j in first_write:n
+      dest[j] = values[j]
+    end
+    return dest
+  end
+  # No nonzero has been stored yet. Once active, the raw tail needs no further
+  # activation tests; fallible/custom sources never enter this method.
+  @inbounds(x.position[k]) == 0 && activate!(x, k)
+  @inbounds for j in first_write:n
     storage[j] = values[j]
   end
   dest

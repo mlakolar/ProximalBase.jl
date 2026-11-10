@@ -74,13 +74,14 @@ paths and PS #238 / PB #527 integration remain separately scoped.
 
 The writer retains `SubArray`. Its method requires a compatible owned group
 index type and built-in same-type floating buffers, then verifies exact owned
-group identity using one reverse-map lookup. Unrecognized views use Base's
-copy. The source restriction is expressed in dispatch, so a custom dense
+group identity using one reverse-map lookup before a nonzero. Unrecognized views retain scalar
+value writes. The source restriction is expressed in dispatch, so a custom dense
 source's own copy method remains applicable. It resolves overlap once before
-any mutation, reads activity once, and copies through `_block_storage` using
-an in-bounds loop with no entry activation calls or second alias preflight.
-For an inactive block it first observes an infallible nonzero and activates
-once before copying. Fallible sources/conversions keep scalar failure state.
+any mutation and copies a zero prefix without activity queries. Before the
+first nonzero it reads activity at most once and copies through the existing
+storage-view helper with no entry activation calls or second alias preflight.
+For an inactive block it copies the zero prefix once, activates before
+the first nonzero write, and copies the remaining tail. Fallible sources/conversions keep scalar failure state.
 
 The mathematical candidate specializes only `GroupNormL2`'s validated public
 boundary for the measured small loop, with exactly the same buffer checks,
@@ -95,3 +96,9 @@ noinline restored those bits, but ten paired repetitions then exposed allocation
 and large slowdowns in nested wrappers. Neither variant is accepted. The
 narrow candidate leaves those existing routes intact instead. See
 [the discovery record](measurements/block-updates-787/wrapper-boundary.json).
+
+The first whole-block writer used a separate nonzero scan followed by a copy.
+Ten paired Julia 1.13.3 repetitions found repeatable inactive-zero slowdowns
+(up to about 1.54× for size-256 views). That two-pass variant is rejected.
+The revised writer copies the zero prefix once and activates before the first
+nonzero; zero-only inputs therefore need one traversal while preserving signs.

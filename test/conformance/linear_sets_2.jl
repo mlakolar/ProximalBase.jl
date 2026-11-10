@@ -8,10 +8,11 @@ const baselines = Dict{String,Any}(
   "linear_sets.conjugate.hyperplane.-1040" => (group = :G5, baseline = Threw(:ArgumentError, r"proximal point of the conjugate is not finite at a finite input")),
   "linear_sets.conjugate.halfspace.-1040" => (group = :G5, baseline = Threw(:ArgumentError, r"proximal point of the conjugate is not finite at a finite input")),
   "linear_sets.conjugate.hyperslab.-1040" => (group = :G5, baseline = Threw(:ArgumentError, r"proximal point of the conjugate is not finite at a finite input")),
-  "linear_sets.subnormal.Float32.false.false" => (group = :G5, baseline = Returned(v -> same(v, Float32[0.25, -1.0, 1.0]))),
-  "linear_sets.subnormal.Float32.false.true" => (group = :G5, baseline = Returned(v -> same(v, Float32[0.25, -1.0, 1.0]))),
-  "linear_sets.subnormal.Float32.true.false" => (group = :G5, baseline = Returned(v -> same(v, Float32[0.25, -1.0, 1.0]))),
-  "linear_sets.subnormal.Float32.true.true" => (group = :G5, baseline = Returned(v -> same(v, Float32[0.25, -1.0, 1.0]))),
+  # Conjugate(NormL1) has no Float64 recovery of the Float32 problem (the exception to A3), so a Float32 call whose
+  # multiplier fails the check raises PrecisionError before writing, instead of the unchecked point of earlier
+  # releases. The recovery is refused, not made to pass; the boxed Float32 rows are solved and are not listed.
+  "linear_sets.subnormal.Float32.false.false" => (group = :G5, baseline = Threw(:PrecisionError, r"no Float64 recovery of the Float32 problem")),
+  "linear_sets.subnormal.Float32.true.false" => (group = :G5, baseline = Threw(:PrecisionError, r"no Float64 recovery of the Float32 problem")),
   "linear_sets.subnormal.Float64.false.false" => (group = :G5, baseline = Returned(v -> same(v, [0.25, -1.0, 1.0]))),
   "linear_sets.subnormal.Float64.false.true" => (group = :G5, baseline = Returned(v -> same(v, [0.25, -1.0, 1.0]))),
   "linear_sets.subnormal.Float64.true.false" => (group = :G5, baseline = Returned(v -> same(v, [0.25, -1.0, 1.0]))),
@@ -53,7 +54,8 @@ const baselines = Dict{String,Any}(
     @row begin
       id = id; case = ""; family = :linear_sets; oracle = :prox
       types = "$T"; backend = :cpu; rules = "P3 R2 R3 A3"
-      problem = "box [-1,1] intersect sum=1 at (1/4,-5/4,2); metric has equal subnormal steps; exact projection (3/4,-3/4,1), C1 pending budget 16 output ULPs"
+      problem = "box [-1,1] intersect sum=1 at (1/4,-5/4,2); metric has equal subnormal steps; exact projection (3/4,-3/4,1), C1 pending budget 16 output ULPs" *
+        (T === Float32 ? "; checked under the exception to A3 and recovered in Float64, or PrecisionError where the function has no recovery (Conjugate(NormL1))" : "")
       expected = T[0.75, -0.75, 1]
       observed = prox(c, x, diagonal ? fill(gamma, 3) : gamma)
       compare = (v, r) -> eltype(v) == eltype(r) && all(within_ulps(v[i], r[i], 16) for i in eachindex(r))

@@ -512,6 +512,12 @@ of the search is one pass over the entries.
 - **The cost.** On simplices, capped simplices and the zero-sum lasso with
   ``10^3`` to ``10^5`` entries, the search took 7 to 16 passes from zero, and
   three to five from the last multiplier on slowly changing points.
+- **Accuracy in `Float32`.** The search stops on a small residual, which leaves
+  the point far from the root where ``\varphi`` is flat. In `Float32` the search
+  therefore checks its result from the residual, the slope of ``\varphi`` at the
+  point found and the noise of the evaluation, and repeats it in `Float64` on the `Float32`
+  problem where the check fails. The check is not a certificate; the policy and
+  its limits are the exception to A3 in the [Numerical contract](@ref numerics).
 - **Breakpoint searches.** For the continuous quadratic knapsack problem they
   are exact in ``O(n)`` time (Brucker, 1984; Kiwiel, 2008), but a single
   selection of the median of the breakpoints costs more than the whole search.
@@ -522,9 +528,13 @@ A box enters through the scalar proximal operators, so ``f`` may itself be
 ``f``. A box clamps the unconstrained proximal point without checking this
 intersection; for an indicator, `value_and_prox!` returns zero even when the
 intersection is empty. The multiplier search on a hyperplane, halfspace or
-hyperslab throws an `ArgumentError` if it cannot bracket a multiplier. It is not a
-general feasibility test: rounding can reach the closure of an open domain,
-and a finite multiplier need not exist at the boundary of a closed domain.
+hyperslab throws an `ArgumentError` if a `Float64` search cannot bracket a
+multiplier; in `Float32` a failure to bracket does not prove the intersection empty:
+the search is repeated in `Float64` where the function has such a recovery, the error
+is raised where the range of the constraint shows it, and the call otherwise raises a
+`PrecisionError` before writing. It is not a general feasibility
+test: rounding can reach the closure of an open domain, and a finite multiplier need
+not exist at the boundary of a closed domain.
 
 | Call | Function |
 |:-----|:---------|

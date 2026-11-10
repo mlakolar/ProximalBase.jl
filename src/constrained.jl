@@ -80,22 +80,94 @@ composition and the empty-domain behaviour described below.
 The caller must ensure that the set meets the domain of `f`. For a convex
 function on a box, the method clamps the unconstrained proximal point even
 when the intersection is empty. Neither that point nor the returned value
-certifies feasibility; `value_and_prox!` returns zero for an indicator even in
-this improper case. The exception is a [`NormL1`](@ref) with a stored infinite level
+shows that the intersection is nonempty; `value_and_prox!` returns zero for an indicator
+even in this improper case. The exception is a [`NormL1`](@ref) with a stored infinite level
 `λ0 = Inf`: at a positive step it fixes every entry with a positive weight at zero, so a
 box that excludes zero at such an entry raises an `ArgumentError` ("the IndBox misses the
 domain of NormL1") before anything is written. A zero weight leaves its entry free, a
 zero or non-positive step is not decided here, and other functions and wrappers are not
 checked. The standalone value of an infeasible function at an argument stays `Inf`.
-On a hyperplane, halfspace or hyperslab, the search throws
-an `ArgumentError` if it cannot bracket a multiplier. This is not a general test
-for an empty intersection: rounding may put a point on the closure of an open
-domain, and a finite multiplier may not exist when the set meets only the
-boundary of a closed domain. Empty arguments that fail the search's own
-acceptance test are rejected before writing. Block oracles also reject clearly
-infeasible scalar boxes with scalar linear normals at finite positive scalar
-steps, when finite inputs and conservative rounding bounds certify that the
-search throws. Overflowing ranges and transformed inputs remain unchecked.
+
+**Precision of the multiplier search.** On a hyperplane, halfspace, hyperslab or simplex, a
+call has a *model precision* `W`: the widest of the destination, the argument and the data, the
+data being those of `f` and the normal and offsets of the set. Levels, weights, steps and the bounds of a box are
+parameters, rounded once to `W`, after being combined (numerics T2 and T3). A normal that
+is a fixed-width integer scalar, such as the `1` of `IndHyperplane(1, b)` or of
+`IndSimplex`, does not raise `W` when the precision given by the destination, the
+argument, the data of `f` and the offsets of the set holds it exactly; the offsets are
+never exempt, so `IndHyperplane(1, 0)` is a `Float64` model. An integer that this
+precision cannot hold, an array of integers and a `BigInt` follow the general rule.
+
+In `Float64` the search stops where the residual `⟨a, z⟩ - b` is at most
+`2 eps(Float64)(Σᵢ|aᵢzᵢ| + |b|)`, as in earlier releases, and accepts that point. That is one of its exits: where
+the bracket collapses or the iteration limit is reached it returns its best point without that condition. It raises an
+`ArgumentError` if it cannot bracket a multiplier, which can be a failure of the bracketing and not a proof that the
+constraint is infeasible. Certifying `Float64` searches is not provided.
+
+In `Float32` the same stop can leave the multiplier, and so the output, far from the
+projection where the constraint function is flat (about 500 `eps(Float32)` in issue 151).
+The search therefore *checks* its result before writing. From the residual `φ̂` at the point
+found, the slope `s` of `φ` there and an assumed noise floor of the evaluation,
+`2 eps(Float32)·m` with `m = Σᵢ|aᵢzᵢ| + |b|`, the check estimates the distance of the output
+from the exact point, in the norm of `Diagonal(1 ./ γ)`, as `max(|φ̂|, noise)/√s`. The slope is the
+derivative of `φ` at the point, where the pass computed it, or the slope of the secant through the last two points
+of the search; a search that ends at its first point without a derivative there has no slope, and the check does
+not accept it. The check accepts the result when the estimate is at most
+`16 eps(Float32)·(m/(2√Σᵢγᵢaᵢ²) + min(|ν̂|√s, ‖x‖))`, where `ν̂` is the multiplier found and `‖x‖` the norm of the
+argument in the same norm. The bracket is a scale estimate of the size of the answer, not a bound on the norm of the
+computed point: `m/(2√Σᵢγᵢaᵢ²)` bounds from below the norm of a point that satisfies the constraint, and the point found
+satisfies it only up to the residual. The estimate needs the sums `Σᵢγᵢ` and `Σᵢγᵢaᵢ²` of the steps rounded to
+`Float32`: for a scalar step no pass, for an array of steps two passes over the steps, the second also over an array
+normal. The cap `‖x‖` is a further read of the argument, in blocks and only as far as the comparison needs, where the
+first term alone does not accept and the uncapped check does.
+
+The sums of the evaluation of `φ` are accumulated in blocks of 1024 terms. For a scalar step the terms of a block
+are summed in `Float32` lanes, whatever the function. For an array of steps they are summed in `Float64` lanes,
+except for [`IndBox`](@ref), [`IndNonnegative`](@ref), a [`Scaled`](@ref) or a box on one of them (the simplex
+routes) and the ordinary route of [`SqrNormL2`](@ref). The `Float32` lanes of those were measured for this change, with
+steps stored as `Float32` arrays, to stay within `1.6 eps(Float32)·m` of the exact sum, and the other kernels measured were
+off by up to `77 eps(Float32)·m` in `Float32` lanes. The rule selects by the kind of function and the form of the steps;
+it does not look at the code that a function compiles to, and a function of your own sums in `Float64` lanes with array steps.
+
+A result that fails the check is searched again from zero if the search started from the previous multiplier, and then
+in `Float64` on the `Float32` problem: the entry maps are evaluated in `Float64` on the exactly widened argument with
+their parameters rounded to `Float32` as the `Float32` kernel rounds them, and the output is formed in `Float64` and
+rounded once, so for these functions the problem is the same one. That recovery exists for
+[`NormL1`](@ref), [`NormL1Nonneg`](@ref), [`ElasticNet`](@ref), [`IndBox`](@ref), [`IndNonnegative`](@ref),
+[`SqrNormL2`](@ref) (with no center, or a center of `Float16`, `Float32` or `Float64` entries that keep their range on
+rounding to `Float32`, which the kernel rounds to `Float32`), a box on one of them, and a [`Scaled`](@ref) of one of
+them by a `Float32`, `Float16` or fixed-width integer factor. For any other function (a [`Tilt`](@ref), a
+[`Translate`](@ref), a [`LinearFunction`](@ref), a [`Conjugate`](@ref), a `Scaled` by a wider factor or a `BigInt`, a
+ridge with another center, or a function of your own) it is refused, and a result that fails the check raises a
+[`PrecisionError`](@ref) before the destination is written.
+
+This is a check. It is not a certificate, a conservative error bound or a guaranteed
+forward error. The noise floor is a constant chosen from measurements and the slope is
+that of a secant or a derivative at the point, which can cross a kink of the constraint function, so an accepted
+result can exceed `16 eps(Float32)`; on the random problems up to `n = 100 000` measured
+for this change, by a factor of about 1.2 at most. An accepted result can in principle be
+inaccurate. `16 eps(Float32)`, in the 2-norm against a `BigFloat` reference of the `Float32`
+problem, is the target of the package's regression tests for specified fixtures, not a
+guarantee for every call. The policy is the exception to A3 in the numerical contract
+(`docs/src/numerics.md`).
+
+**Failures.** A call that raises from the search for the multiplier (a `PrecisionError`, or an `ArgumentError` that the set
+misses the domain) writes nothing to its destination and leaves the function's multiplier and slope as they were. That is a promise about the single call: in a sum over blocks (`SeparableSum`) the blocks before the one
+that raises may have been written, as for any failure found by computing (numerics O6; the general case is open,
+[#323](https://github.com/mlakolar/ProximalBase.jl/issues/323)). A `PrecisionError` means that the result could not be
+accepted in the model precision, as above. The `Float32` search raises an `ArgumentError` that the set "misses the domain" of `f`
+only where that is established independently of the search: the range of `⟨a, z⟩` over the ranges of the
+entries of `f`, with a margin that covers the rounding of its sums, lies strictly on the wrong side of the offset, or
+lies entirely outside the hyperslab, each finite end of the range being bounded with the scale of its own terms. A
+failure to bracket in `Float32`, or in its recovery, does not prove it. A `Float64` search raises it when it cannot
+bracket a multiplier, which is not a proof that none exists.
+The error is not a general test for an empty intersection either: rounding may put a
+point on the closure of an open domain, and a finite multiplier may not exist when the
+set meets only the boundary of a closed domain. Empty arguments that fail the search's own
+acceptance test are rejected before writing. Block oracles also reject clearly infeasible
+scalar boxes with scalar linear normals at finite positive scalar steps, when finite
+inputs and conservative rounding bounds show that the search would find no multiplier.
+Overflowing ranges and transformed inputs remain unchecked.
 """
 function Constrained end
 
@@ -115,12 +187,15 @@ struct LinearConstrained{F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspa
   f::F
   set::H
   last::Base.RefValue{Float64}      # the multiplier for the normalized constraint
-  slope::Base.RefValue{Float64}     # its residual's slope, from the last secant
+  slope::Base.RefValue{Float64}     # the slope of φ at that multiplier, where it had one: a seed for the next search
   scratch::Scratch                  # for the value of the conjugate
   live::NTuple{6, Scratch}          # the entries the search still evaluates: x, a, γ, index; bits; state
 
   LinearConstrained{F, H}(f::F, set::H) where {F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspace, IndHyperslab}} =
     (_check_constrainable(f); new{F, H}(f, set, Ref(NaN), Ref(NaN), Scratch(), ntuple(_ -> Scratch(), 6)))
+  # the same set and state under another function, for the recovery: no new state, no allocation
+  LinearConstrained{F, H}(f::F, c::LinearConstrained) where {F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspace, IndHyperslab}} =
+    new{F, H}(f, c.set, c.last, c.slope, c.scratch, c.live)
 end
 LinearConstrained(f::AbstractFunction, set::Union{IndHyperplane, IndHalfspace, IndHyperslab}) =
   LinearConstrained{typeof(f), typeof(set)}(f, set)
@@ -508,7 +583,7 @@ end
 prox!(y::_ArrayOrOwner, c::LinearConstrained, x::_ArrayOrOwner, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 _prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
-  _linear_constrained_prox!(y, c, x, convert(float(eltype(y)), γ))
+  _linear_constrained_prox!(y, c, x, γ)
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 _prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
@@ -518,27 +593,52 @@ _prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::A
 function _prox_unchecked!(y::AbstractArray, c::LinearConstrained{<:SqrNormL2}, x::AbstractArray, γ::AbstractArray)
   _checkparam(γ, x)
   _checkwrite(prox!, c, y, x)
-  T = float(eltype(y))
-  valid, ordinary = _ridge_checked_steps(c.f, γ, x, T)
+  W = _linear_model_type(c, x, y)
+  valid, ordinary = _ridge_checked_steps(c.f, γ, x, W)
   valid || _check_metric_steps(c, γ)           # raises its error
-  ordinary ? _linear_constrained_prox!(y, c, x, _RidgeSteps(γ), T) : _linear_constrained_prox!(y, c, x, γ, T)
+  ordinary ? _linear_constrained_prox!(y, c, x, _RidgeSteps(γ), W) : _linear_constrained_prox!(y, c, x, γ, W)
 end
 
+# The search, its check and the output run in the model precision W of the call. A scalar step is a
+# parameter, rounded once to W; the steps of an array are converted per access.
 function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ)
   _checkwrite(prox!, c, y, x)
-  T = float(eltype(y))
-  _ridge_ordinary_route(c.f, γ, x, T) ? _linear_constrained_prox!(y, c, x, _RidgeSteps(γ), T) :
-                                        _linear_constrained_prox!(y, c, x, γ, T)
+  W = _linear_model_type(c, x, y)
+  s = γ isa Real ? convert(W, γ) : γ
+  _ridge_ordinary_route(c.f, s, x, W) ? _linear_constrained_prox!(y, c, x, _RidgeSteps(s), W) :
+                                        _linear_constrained_prox!(y, c, x, s, W)
 end
-function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) where {T}
-  ν = _multiplier(c, x, γ, T)
+# The destination is not written before the multiplier is accepted: by the check of the search for W = Float32, by the search otherwise.
+function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ, ::Type{W}) where {W}
+  ν = _multiplier(c, x, γ, W)
   set = c.set
-  set isa IndHyperslab && iszero(ν) && return _prox_sep!(y, c.f, x, _steps(γ))
+  # a hyperslab that holds the proximal point of f needs no correction, and none is formed: at an infinite step the
+  # product γ ν a is Inf⋅0
+  set isa IndHyperslab && ν isa Number && iszero(ν) && return _prox_sep!(y, c.f, x, _steps(γ))
   if _isscaled(set)
     return _linear_constrained_output!(y, c.f, _normalized_normal(set.a, set.s), x, γ, ν)
   end
   _linear_constrained_output!(y, c.f, set.a, x, γ, ν)
 end
+
+# The model precision W of a call of a LinearConstrained function (numerics T2, T3): the widest of the
+# destination, the argument and the data, where the normal and the offsets or bounds of the set are data
+# and the levels, bounds of boxes and steps are parameters. The one exception: a normal that is a
+# fixed-width integer scalar does not raise W when it is exactly representable in the precision W0 that the
+# destination, the argument, the data of the function and the offsets of the set give, as for `IndHyperplane(1, 100f0)`
+# or the normal of an `IndSimplex` with a Float32 radius. The offsets are never exempt: `IndHyperplane(1, 0)`
+# has a Float64 offset and is a Float64 model. An integer scalar that W0 cannot hold (2^24 + 1 in Float32), an
+# array of integers and a BigInt follow the general rule. The check runs at every call, as W0 depends on the
+# destination and the argument of the call.
+function _linear_model_type(c::LinearConstrained, x::AbstractArray, y::AbstractArray)
+  W = float(promote_type(eltype(y), eltype(x), _data_type(typeof(c))))
+  a = c.set.a
+  a isa Base.BitInteger || return W
+  W0 = float(promote_type(eltype(y), eltype(x), _data_type(typeof(c.f)), _offset_type(c.set)))
+  convert(W0, a) == a ? W0 : W
+end
+_offset_type(set::Union{IndHyperplane, IndHalfspace}) = typeof(set.b)
+_offset_type(set::IndHyperslab) = typeof(set.l)
 
 function _linear_constrained_output!(y, f, a, x, γ, ν::T) where {T}
   @inbounds for i in eachindex(IndexLinear(), y, x)
@@ -640,9 +740,31 @@ end
 _constraint_gap(c, x::AbstractArray, ν::T, γ, v::Val = Val(false)) where {T} =
   _constraint_gap(c.f, c.set.a, c.set.b, x, ν, γ, v)
 
-function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, ::Val{S}) where {T, S}
+# The pass is summed in blocks of _GAP_BLOCK entries for a Float32 model: the terms of a block are formed in Float32 and
+# summed in the lanes of the loop, and the sums of the blocks in Float64, so that the rounding of the sum is that of a block
+# and not of n additions. The other precisions form one sum over the entries. φ and its scale are rounded once
+# to T.
+# The lanes of a block sum in Float32 for a scalar step, whatever the function. With an array of steps they sum in Float64
+# unless the entry map is one of those that were measured to vectorize with Float32 lanes whose block sums stayed inside the
+# noise floor of the check (_vector_lanes: IndBox, IndNonnegative and the ordinary ridge, and a Scaled or a BoxConstrained of one
+# of them; off by at most 1.6 eps m on the measured problems, with steps stored as Float32 arrays). The other measured kernels
+# did not vectorize with array steps: a block was one sequential sum of 1024 terms, off by up to 77 eps m (20 to 40 eps m for a
+# box on an ℓ1 map); their terms, still formed in Float32 as the kernel forms them, are accumulated in Float64 (_gap_sums_wide),
+# which took about 1.1 times the time of a pass of those maps in the timing of this change. The rule selects by the kind of
+# function and the form of the steps; it does not examine the code that an entry map compiles to, so a function of your own,
+# which is not in the list, sums in Float64 with array steps.
+const _GAP_BLOCK = 1024
+
+_vector_lanes(f) = false
+_vector_lanes(::Union{IndBox, IndNonnegative, _OrdinaryRidge}) = true
+_vector_lanes(f::Scaled) = _vector_lanes(f.f)
+_vector_lanes(f::BoxConstrained) = _vector_lanes(f.f)
+_wide_lanes(f, γ) = false
+_wide_lanes(f, γ::AbstractArray) = !_vector_lanes(f)
+
+function _gap_sums(f, a, x::AbstractArray, ν::T, γ, r, ::Val{S}) where {T, S}
   s, m, d = zero(T), zero(T), zero(T)
-  @inbounds @simd for i in eachindex(IndexLinear(), x)
+  @inbounds @simd for i in r
     aᵢ = convert(T, _entry(a, i))
     γᵢ = convert(T, _entry(γ, i))
     v = x[i] - γᵢ * ν * aᵢ
@@ -652,8 +774,46 @@ function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, ::Val{S}) where {
     m += abs(t)
     S && (d += γᵢ * aᵢ * aᵢ * convert(T, dz))
   end
-  b = convert(T, b)
-  S ? (s - b, m + abs(b), -d) : (s - b, m + abs(b))
+  s, m, d
+end
+
+# the same terms, summed in Float64 lanes
+function _gap_sums_wide(f, a, x::AbstractArray, ν::T, γ, r, ::Val{S}) where {T, S}
+  s, m, d = 0.0, 0.0, zero(T)
+  @inbounds @simd for i in r
+    aᵢ = convert(T, _entry(a, i))
+    γᵢ = convert(T, _entry(γ, i))
+    v = x[i] - γᵢ * ν * aᵢ
+    z, dz = S ? _prox_entry_slope(f, v, i, γᵢ) : (prox_entry(f, v, i, γᵢ), zero(T))
+    t = aᵢ * convert(T, z)
+    s += Float64(t)
+    m += Float64(abs(t))
+    S && (d += γᵢ * aᵢ * aᵢ * convert(T, dz))
+  end
+  s, m, d
+end
+
+function _gap_sums(f, a, x::AbstractArray, ν::Float32, γ, ::Val{S}) where {S}
+  idx = eachindex(IndexLinear(), x)
+  wide = _wide_lanes(f, γ)
+  s, m, d = 0.0, 0.0, 0.0f0
+  @inbounds for lo in first(idx):_GAP_BLOCK:last(idx)
+    r = lo:min(lo + (_GAP_BLOCK - 1), last(idx))
+    sb, mb, db = wide ? _gap_sums_wide(f, a, x, ν, γ, r, Val(S)) : _gap_sums(f, a, x, ν, γ, r, Val(S))
+    s += sb
+    m += mb
+    d += db
+  end
+  s, m, d
+end
+_gap_sums(f, a, x::AbstractArray, ν::T, γ, v::Val) where {T} = _gap_sums(f, a, x, ν, γ, eachindex(IndexLinear(), x), v)
+
+function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, ::Val{S}) where {T, S}
+  s, m, d = _gap_sums(f, a, x, ν, γ, Val(S))
+  A = T === Float32 ? Float64 : T
+  b = convert(A, b)
+  φ, M = convert(T, s - b), convert(T, m + abs(b))
+  S ? (φ, M, -d) : (φ, M)
 end
 
 # Σᵢ γᵢaᵢ², the steepest slope of φ
@@ -695,49 +855,94 @@ _gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, ::Val{true}
 _gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, ::Val{false}) where {T} =
   ((φ, m) = _constraint_gap(c, x, ν, γ, b); (φ, m, T(NaN)))
 
+# What the search proposes: a multiplier ν, the slope of φ at it (a derivative there or a secant, NaN where it has none),
+# the residual there and, where no bracket was found, the direction that was tried. The search sets neither the
+# multiplier nor the slope of the function and writes nothing to the output (its scratch buffers are used before the
+# proposal is accepted); the multiplier and the slope are committed by _multiplier, after the check for W = Float32 and
+# right after the search otherwise.
+struct _Proposal{T}
+  ν::T                # NaN where the residual was NaN
+  slope::Float64      # of φ at ν: a derivative or the last secant; NaN where there is none (Float32), or the seed (the other precisions)
+  res::Float64        # |φ| at ν, NaN where unknown
+  dir::Int8           # ±1: no bracket in that direction, and ν is the last point tried; 0 otherwise
+  warm::Bool          # whether the search started from the multiplier of the last call
+  m::Float64          # Σᵢ |aᵢzᵢ| + |b| at ν, the scale of the rounding of φ there, NaN where unknown
+end
+_Proposal(ν::T, slope, res, m = NaN) where {T} =
+  _Proposal{T}(ν, convert(Float64, slope), convert(Float64, res), Int8(0), false, convert(Float64, m))
+_nan_proposal(::Type{T}, slope) where {T} = _Proposal{T}(T(NaN), convert(Float64, slope), NaN, Int8(0), false, NaN)
+_warmed(p::_Proposal{T}, warm::Bool) where {T} = _Proposal{T}(p.ν, p.slope, p.res, p.dir, warm, p.m)
+
 # The multiplier of the constraint, a root of φ, which is nonincreasing because
 # each prox_entry is nondecreasing in its argument; for a halfspace, 0 when the
 # proximal point of f satisfies the constraint. The search starts from the
 # multiplier of the last call, and from 0 at the first call or when that was
-# an inactive halfspace.
+# an inactive halfspace. For W = Float32 the search proposes a multiplier, which is accepted when
+# the check of the noise of its own evaluation leaves the output within the tolerance (_accepted), and otherwise,
+# after a retry from zero where it started from the last multiplier, refined in Float64 (_refined); the function
+# keeps the multiplier and the slope of the accepted one only. The refined multiplier is a Float64 of the Float32 problem and its output is formed in Float64,
+# rounded once. Another precision has no refinement: a search that finds no bracket raises the ArgumentError there, which is
+# a failure to bracket and not a proof that the constraint is infeasible.
 function _multiplier(c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) where {T}
-  c.set isa IndHyperslab && return _hyperslab_multiplier(c, x, γ, T)
-  ν0 = convert(T, c.last[])
-  warm = isfinite(ν0) && !(c.set isa IndHalfspace && !(ν0 > 0))
-  slope = c.slope[]
-  ν = _search(c, x, γ, warm ? ν0 : zero(T), warm, _scaled_offset(c.set), c.set isa IndHalfspace ? 1 : 0)
-  isnan(ν) ? (c.slope[] = slope) : (c.last[] = ν)
-  ν
+  p = c.set isa IndHyperslab ? _hyperslab_proposal(c, x, γ, T, false) : _proposal(c, x, γ, T, false)
+  if T === Float32
+    # a NaN of the search on a finite argument is an overflow of the evaluation, not a NaN result
+    if isnan(p.ν) ? all(isfinite, x) : !_accepted(c, x, γ, p)
+      # a start from the last multiplier that does not hold is retried from zero before the recovery
+      if p.warm
+        p0 = c.set isa IndHyperslab ? _hyperslab_proposal(c, x, γ, T, true) : _proposal(c, x, γ, T, true)
+        if !isnan(p0.ν) && _accepted(c, x, γ, p0)
+          c.last[] = p0.ν
+          c.slope[] = p0.slope
+          return p0.ν
+        end
+      end
+      ν, slope = _refined(c, x, γ, p)
+      c.last[] = ν.ν
+      c.slope[] = slope
+      return ν
+    end
+  else
+    p.dir != 0 && _infeasible(c)
+  end
+  isnan(p.ν) && return p.ν
+  c.last[] = p.ν
+  c.slope[] = p.slope
+  p.ν
+end
+
+function _proposal(c::LinearConstrained, x::AbstractArray, γ, ::Type{T}, cold::Bool, seed = c.last[], slope = c.slope[]) where {T}
+  ν0 = convert(T, seed)
+  warm = !cold && isfinite(ν0) && !(c.set isa IndHalfspace && !(ν0 > 0))
+  _search(c, x, γ, warm ? ν0 : zero(T), warm, _scaled_offset(c.set), c.set isa IndHalfspace ? 1 : 0, cold ? NaN : slope)
 end
 
 # Keep the selected finite bound through every pass, including variable fixing.
-function _hyperslab_multiplier(c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) where {T}
+function _hyperslab_proposal(c::LinearConstrained, x::AbstractArray, γ, ::Type{T}, cold::Bool, seed = c.last[], slope = c.slope[]) where {T}
   set = c.set
+  res, mm = Inf, 0.0                        # the distance of ⟨a, z(0)⟩ from the nearest bound, as computed, and its scale
   if isfinite(set.l)
     b = _scaled_offset(set, set.l)
-    φ, _ = _constraint_gap(c, x, zero(T), γ, b)
-    isnan(φ) && return T(NaN)
-    φ < 0 && return _slab_multiplier(c, x, γ, T, b, -1)
+    φ, m = _constraint_gap(c, x, zero(T), γ, b)
+    isnan(φ) && return _nan_proposal(T, NaN)
+    φ < 0 && return _slab_proposal(c, x, γ, T, b, -1, cold, seed, slope)
+    res, mm = min(res, abs(φ)), max(mm, m)
   end
   if isfinite(set.u)
     b = _scaled_offset(set, set.u)
-    φ, _ = _constraint_gap(c, x, zero(T), γ, b)
-    isnan(φ) && return T(NaN)
-    φ > 0 && return _slab_multiplier(c, x, γ, T, b, 1)
+    φ, m = _constraint_gap(c, x, zero(T), γ, b)
+    isnan(φ) && return _nan_proposal(T, NaN)
+    φ > 0 && return _slab_proposal(c, x, γ, T, b, 1, cold, seed, slope)
+    res, mm = min(res, abs(φ)), max(mm, m)
   end
-  c.last[] = 0
-  c.slope[] = NaN
-  zero(T)
+  isfinite(set.l) || isfinite(set.u) || return _Proposal(zero(T), NaN, 0.0, 0.0)       # the whole space: z(0) is the answer
+  _Proposal(zero(T), NaN, res, mm)
 end
 
-function _slab_multiplier(c, x, γ, ::Type{T}, b, side) where {T}
-  ν0 = convert(T, c.last[])
-  warm = isfinite(ν0) && side * ν0 > 0
-  slope = c.slope[]
-  warm || (c.slope[] = NaN)
-  ν = _search(c, x, γ, warm ? ν0 : zero(T), warm, b, side)
-  isnan(ν) ? (c.slope[] = slope) : (c.last[] = ν)
-  ν
+function _slab_proposal(c, x, γ, ::Type{T}, b, side, cold::Bool, seed, slope) where {T}
+  ν0 = convert(T, seed)
+  warm = !cold && isfinite(ν0) && side * ν0 > 0
+  _search(c, x, γ, warm ? ν0 : zero(T), warm, b, side, warm ? slope : NaN)
 end
 
 # The search from start. The first step is at least |φ(start)|/Σᵢ γᵢaᵢ², a lower
@@ -752,67 +957,94 @@ end
 # points, which passes the root when that secant predicts it well, or twice the
 # last step where φ is flat. Regula falsi with the Illinois rule then shrinks
 # the bracket; it is exact once both ends lie on one linear piece of φ.
-_search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, b, side) where {T} =
-  warm || length(x) < _FIX_NMIN ? _search(c, x, γ, start, warm, b, side, nothing) : _search(c, x, γ, start, false, b, side, _live(c, x, T))
+_search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, b, side, slope0) where {T} =
+  warm || length(x) < _FIX_NMIN ? _search(c, x, γ, start, warm, b, side, nothing, slope0) :
+                                  _search(c, x, γ, start, false, b, side, _live(c, x, T), slope0)
 
-function _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, b, side, L) where {T}
+_search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, b, side, L, slope0) where {T} =
+  _warmed(_search_from(c, x, γ, start, warm, b, side, L, slope0), warm)
+
+# The slope that a proposal carries to the acceptance check of a Float32 call is one computed at this evaluation: the derivative
+# of φ at the point, where the pass computed it, or the secant through the last two points. A search that ends at its first point
+# without a derivative there has none (NaN), and the check does not accept it; for a Float32 call the seed slope0 sets the size
+# of a step and nothing else. The other precisions keep the seed.
+_current_slope(::Type{Float32}, dφ, slope0) = dφ < 0 ? dφ : NaN
+_current_slope(::Type, dφ, slope0) = slope0
+_no_slope(::Type{Float32}, slope0) = NaN
+_no_slope(::Type, slope0) = slope0
+
+function _search_from(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, b, side, L, slope0) where {T}
   φs, ms, dφ = warm ? _gap_and_slope(c, x, start, γ, b) : (_constraint_gap(c, x, start, γ, b)..., T(NaN))
-  isnan(φs) && return T(NaN)
-  abs(φs) <= 2eps(T) * ms && return start
+  isnan(φs) && return _nan_proposal(T, slope0)
+  abs(φs) <= 2eps(T) * ms && return _Proposal(start, _current_slope(T, dφ, slope0), abs(φs), ms)
   if side != 0 && side * φs < 0
-    iszero(start) && return zero(T)                           # the constraint is inactive
+    iszero(start) && return _Proposal(zero(T), _no_slope(T, slope0), abs(φs), ms)     # the constraint is inactive
     # Check zero when the root lies between it and the previous multiplier.
     φ0, m0 = _constraint_gap(c, x, zero(T), γ, b)
-    isnan(φ0) && return T(NaN)
-    (side * φ0 <= 0 || abs(φ0) <= 2eps(T) * m0) && return zero(T)
-    return _refine(c, x, γ, b, zero(T), φ0, start, φs, nothing)
+    isnan(φ0) && return _nan_proposal(T, slope0)
+    (side * φ0 <= 0 || abs(φ0) <= 2eps(T) * m0) && return _Proposal(zero(T), _no_slope(T, slope0), abs(φ0), m0)
+    return _refine(c, x, γ, b, zero(T), φ0, start, φs, nothing, slope0)
   end
   a2 = convert(T, _metric_sqnorm(c.set, x, γ))
   step = abs(φs) / a2
   L = _seen(L, start, φs, a2)
-  σ = dφ < 0 ? dφ : (warm ? convert(T, c.slope[]) : T(NaN))
+  σ = dφ < 0 ? dφ : (warm ? convert(T, slope0) : T(NaN))
   σ < 0 && (step = max(step, abs(φs) / -σ))
-  _bracket_and_refine(c, x, γ, b, start, φs, step, L)
+  _bracket_and_refine(c, x, γ, b, start, φs, step, L, slope0)
 end
 
-function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, b, ν0::T, φ0::T, step::T, L) where {T}
+function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, b, ν0::T, φ0::T, step::T, L, slope0) where {T}
   dir = φ0 > 0 ? one(T) : -one(T)
   lo, φlo = ν0, φ0                          # φlo has the sign of φ(ν₀), φhi the other
   hi, φhi = lo, φlo
   for k in 1:_MAX_BRACKET_STEPS
     hi = lo + dir * step
     φhi, mhi, L = _gap!(c, x, hi, γ, b, L)
-    isnan(φhi) && return T(NaN)
+    isnan(φhi) && return _nan_proposal(T, slope0)
     if abs(φhi) <= 2eps(T) * mhi
-      c.slope[] = (φhi - φlo) / (hi - lo)
-      return hi
+      return _Proposal(hi, (φhi - φlo) / (hi - lo), abs(φhi), mhi)
     end
     signbit(φhi) == signbit(φ0) || break
-    k == _MAX_BRACKET_STEPS && _infeasible(c)
+    k == _MAX_BRACKET_STEPS && return _unbracketed(c, T, hi, dir, slope0)
     s = step * φhi / (φlo - φhi)
     step = isfinite(s) && s > 0 ? min(2s, 64step) : 2step
     lo, φlo = hi, φhi
   end
   # regula falsi passes over the live entries once some are fixed, and searches
   # as before otherwise
-  L isa Base.RefValue && L[].compact && return _refine(c, x, γ, b, lo, φlo, hi, φhi, L)
-  _refine(c, x, γ, b, lo, φlo, hi, φhi, nothing)
+  L isa Base.RefValue && L[].compact && return _refine(c, x, γ, b, lo, φlo, hi, φhi, L, slope0)
+  _refine(c, x, γ, b, lo, φlo, hi, φhi, nothing, slope0)
 end
 
+# the bracketing and the refinement without a slope seed, for a caller that holds none: the multiplier alone
+_bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, b, ν0::T, φ0::T, step::T, L) where {T} =
+  _bracketed(c, _bracket_and_refine(c, x, γ, b, ν0, φ0, step, L, NaN))
+_refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, hi::T, φhi::T, L) where {T} =
+  _bracketed(c, _refine(c, x, γ, b, lo, φlo, hi, φhi, L, NaN))
+_bracketed(c::LinearConstrained, p::_Proposal) = (p.dir != 0 && _infeasible(c); p.ν)
+
+# 64 steps found no multiplier on the other side of the root: the proposal carries the direction and the last point
+# tried. That is not a proof of infeasibility (a stale multiplier far from a root whose scale is small is out of
+# reach of 64 doublings); _multiplier raises it for the precisions that have no refinement, and the refinement of
+# a Float32 call decides it by the range of the constraint (_proven_infeasible).
+_unbracketed(c, ::Type{T}, hi, dir, slope0) where {T} = _Proposal{T}(hi, slope0, NaN, Int8(dir), false, NaN)
+
 # regula falsi with the Illinois rule on the bracket [lo, hi], where φlo and φhi
-# have opposite signs; keeps the slope of the last secant for the next call
-function _refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, hi::T, φhi::T, L) where {T}
+# have opposite signs; returns the slope of the last secant for the next call
+function _refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, hi::T, φhi::T, L, slope0) where {T}
   best, φbest = abs(φlo) < abs(φhi) ? (lo, φlo) : (hi, φhi)
+  mbest = T(NaN)                            # the scale of φ at the best point, once evaluated
   νp, φp = hi, φhi                          # the last point evaluated, for the slope
   side = 0                                  # which end the last step kept
+  slope = _no_slope(T, convert(Float64, slope0))     # the slope of the last secant, once there is one
   for _ in 1:_MAX_SECANTS
     ν = (lo * φhi - hi * φlo) / (φhi - φlo)
     φν, mν, L = _gap!(c, x, ν, γ, b, L, Val(false))
-    isnan(φν) && return T(NaN)
-    ν != νp && (c.slope[] = (φν - φp) / (ν - νp))
+    isnan(φν) && return _nan_proposal(T, slope0)
+    ν != νp && (slope = convert(Float64, (φν - φp) / (ν - νp)))
     νp, φp = ν, φν
-    abs(φν) < abs(φbest) && ((best, φbest) = (ν, φν))
-    abs(φν) <= 2eps(T) * mν && return ν
+    abs(φν) < abs(φbest) && ((best, φbest, mbest) = (ν, φν, mν))
+    abs(φν) <= 2eps(T) * mν && return _Proposal(ν, slope, abs(φν), mν)
     if signbit(φν) == signbit(φhi)
       hi, φhi = ν, φν
       side == 1 && (φlo /= 2)
@@ -824,7 +1056,297 @@ function _refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, 
     end
     abs(hi - lo) <= 2eps(T) * max(abs(lo), abs(hi)) && break
   end
-  best
+  # a best point that is an end of a bracket that closed on it has no scale yet: the check of a Float32 multiplier needs it
+  T === Float32 && isnan(mbest) && isfinite(lo) && isfinite(hi) && abs(hi - lo) <= 2eps(T) * max(abs(lo), abs(hi)) &&
+    ((_, mbest, L) = _gap!(c, x, best, γ, b, L, Val(false)))
+  _Proposal(best, slope, abs(φbest), mbest)
+end
+
+####################################
+#  the acceptance of a Float32 multiplier, and its refinement in Float64
+####################################
+
+# The Float32 search stops where |φ| is at most 2 eps m, m = Σᵢ |aᵢzᵢ| + |b|. Where φ is flat that leaves the
+# multiplier, and so the output, far off: in exact arithmetic, by the firm nonexpansiveness of the proximal map in the metric
+# of Diagonal(1 ./ γ), ‖z(ν̂) - z(ν*)‖² ≤ |ν̂ - ν*| |φ(ν̂)| ≤ φ(ν̂)² / s, s the slope of φ between them. The check estimates
+# that distance from what the search has: the evaluation of φ has a noise floor, taken as _NOISE_C eps m (the rounding
+# of the entries and of the sums of a block; sampled against exact arithmetic over problems of n = 64 to 100 000 to be
+# 0.02 to 0.12 eps m at the median and 3.8 eps m at the largest, the largest being a single block; the constant leaves
+# out the rare largest values, as refining the call each time they could occur would cost a tenth of the ordinary calls), and
+# the output is accepted when
+#     max(|φ̂|, noise) / √s ≤ _ACCEPT_K eps(Float32) (m / (2 √Σᵢγᵢaᵢ²) + min(|ν̂| √s, ‖x‖)),   noise = _NOISE_C eps m
+# (norms of Diagonal(1 ./ γ)). The slope s is the derivative of φ at ν̂ where the pass computed it, or that of the secant
+# through the last two points of the search (a Proposal carries no other: _current_slope, _no_slope). The bracket is a
+# scale estimate of the size of the answer, not a bound on the norm of the computed point. Its first term is a lower bound of
+# the norm of a point that satisfies the constraint (Σᵢ|aᵢzᵢ| ≥ |b| there, and the Cauchy-Schwarz inequality); at ν̂ the
+# constraint holds only up to the residual, and m is a rounded sum. Its second term is the size of what the output pass
+# rounds: the entries of the argument x - γνa that are not clamped carry the rounding of |ν| ‖γa‖ over the live entries,
+# which is |ν| √s; it is capped by ‖x‖, the norm of the argument, because where the search ends on a flat piece of φ beyond
+# the root (no entry free there, the slope from the secant of the bracket) |ν̂| √s is many times the size of the answer and
+# would accept any point of the piece.
+# The check reads the steps (and the normal) and the argument, besides the pass: _step_sums forms Σᵢγᵢaᵢ² and Σᵢγᵢ of the
+# steps rounded to Float32, which is no pass for a scalar step and two passes over the steps for an array of steps (the second
+# also over an array normal). ‖x‖ is a separate, conditional read: it is compared with what the check still needs of the
+# second term, summing the entries in blocks until that is reached (_norm_below), and only where the first term alone does
+# not accept and the uncapped check does; and only for the Float32 search: the check of the recovery, in Float64, keeps |ν̂| √s.
+# The terms of the evaluation are summed in blocks (_GAP_BLOCK), in Float32 lanes for a scalar step and, with array steps, for
+# IndBox, IndNonnegative, a Scaled or a BoxConstrained of one of them and the ordinary ridge; in Float64 lanes for the other
+# entry maps with array steps (_wide_lanes), which takes the summation error of a block out of the noise: the noise floor is
+# then that of the entries.
+# A constraint that is inactive with a margin of the noise needs no slope.
+# This is a check and not a bound: the slope is that of a secant or of a derivative at the point, and a secant can cross a
+# kink of φ and overstate the slope next to the root; the noise floor is a constant chosen from measurements and not proved
+# (the Float32 lane sums of a scalar step were found 3 to 4 eps m off in two calls); the rounding of the argument is
+# counted through the size alone. An accepted result can exceed 16 eps(Float32), by a factor of about 1.2 at most on the random
+# problems up to n = 100 000 that it was measured on, and can in principle be inaccurate.
+# An evaluation that may have overflowed (γ|ν| or γ|ν||a| near the range of Float32, bounded through Σᵢγᵢ and Σᵢγᵢaᵢ²)
+# is not accepted: the computed argument of an entry is then infinite where the exact one is moderate, and the entry
+# looks like an exact clamp.
+const _ACCEPT_K = 16
+const _NOISE_C = 2.0
+
+# Σᵢ γᵢaᵢ² and Σᵢ γᵢ (a scalar step is not summed), for the steps rounded to Float32 as the passes round them
+_step_sums(set, x::AbstractArray, γ::Real) = (g = convert(Float32, γ); (Float64(_metric_sqnorm(set, x, g)), Float64(g)))
+function _step_sums(set, x::AbstractArray, γ::AbstractArray)
+  G = 0.0
+  @inbounds @simd for i in eachindex(IndexLinear(), γ)
+    G += Float64(convert(Float32, γ[i]))
+  end
+  set.a isa AbstractArray || return Float64(_metric_sqnorm(set, x, γ)), G
+  a, A2 = _scaled_normal(set), 0.0
+  @inbounds @simd for i in eachindex(IndexLinear(), γ)
+    A2 += Float64(convert(Float32, γ[i])) * abs2(Float64(a[i]))
+  end
+  A2, G
+end
+
+# Whether ‖x‖ in the norm of Diagonal(1 ./ γ), for the steps rounded to Float32 as _step_sums rounds them, is below `need`
+# (false where it is not a number or need is not positive); the sum stops as soon as the entries seen so far reach need², in blocks of _NORM_BLOCK.
+const _NORM_BLOCK = 256
+function _norm_below(x::AbstractArray, γ::Real, need)
+  need > 0 || return false
+  need2 = need * need * Float64(convert(Float32, γ))
+  acc = 0.0
+  idx = eachindex(IndexLinear(), x)
+  @inbounds for lo in first(idx):_NORM_BLOCK:last(idx)
+    b = 0.0
+    @simd for i in lo:min(lo + (_NORM_BLOCK - 1), last(idx))
+      b += abs2(Float64(x[i]))
+    end
+    acc += b
+    acc >= need2 && return false
+  end
+  acc < need2
+end
+function _norm_below(x::AbstractArray, γ::AbstractArray, need)
+  need > 0 || return false
+  need2 = need * need
+  acc = 0.0
+  idx = eachindex(IndexLinear(), x)
+  @inbounds for lo in first(idx):_NORM_BLOCK:last(idx)
+    b = 0.0
+    @simd for i in lo:min(lo + (_NORM_BLOCK - 1), last(idx))
+      b += abs2(Float64(x[i])) / Float64(convert(Float32, γ[i]))
+    end
+    acc += b
+    acc >= need2 && return false
+  end
+  acc < need2
+end
+
+function _criterion(c::LinearConstrained, x::AbstractArray, γ, p::_Proposal, ::Type{E}, slope_free::Bool) where {E}
+  ν, r, m = Float64(p.ν), p.res, p.m
+  (isfinite(ν) && isfinite(r) && isfinite(m)) || return false
+  εn = Float64(eps(E))
+  noise = _NOISE_C * εn * m
+  noise == 0 && r == 0 && return true                      # m is zero: the terms aᵢzᵢ that contribute and the offset are zero
+  iszero(ν) && r > noise && return true                    # inactive with a margin of the noise
+  s = p.slope < 0 && isfinite(p.slope) ? -p.slope : NaN
+  isfinite(s) || return slope_free && r <= 2 * εn * m
+  A2, G = _step_sums(c.set, x, _steps(γ))
+  (isfinite(A2) && A2 > 0 && isfinite(G)) || return false
+  abs(ν) * max(G, sqrt(G * A2)) <= Float64(floatmax(E)) / 8 || return false
+  lhs, tol = max(r, noise) / sqrt(s), _ACCEPT_K * Float64(eps(Float32))
+  t = m / (2 * sqrt(A2))
+  lhs <= tol * t && return true
+  lhs <= tol * (t + abs(ν) * sqrt(s)) || return false
+  E === Float32 && _norm_below(x, _steps(γ), lhs / tol - t) && return false      # min(|ν̂|√s, ‖x‖) is too small
+  true
+end
+
+_accepted(c::LinearConstrained, x::AbstractArray, γ, p::_Proposal{Float32}) =
+  p.dir == 0 && isfinite(p.ν) && _criterion(c, x, γ, p, Float32, false)
+
+####################################
+#  the recovery in Float64
+####################################
+
+# Where the check of the Float32 multiplier fails, the multiplier is found again in Float64, on the problem the Float32
+# kernel solves: x, the normal and the offsets are data of the Float32 model and widen exactly; a step is rounded to
+# Float32 once and widened; each of these entry maps takes its parameters (combined thresholds γλw, ridge weights γλ, the center of
+# a ridge, bounds of a box, the step of a Scaled) rounded to Float32 as the kernel rounds them and does the rest in Float64
+# (_prox_entry_wide). That is a fixed set of functions (_has_wide, _wide_ok): NormL1, NormL1Nonneg, ElasticNet, IndBox,
+# IndNonnegative, a ridge with its weight in the ordinary band or the scaled one, with no center or one of Float16,
+# Float32 or Float64 entries that keep their range on rounding to Float32, a box on one of them, and Scaled by a Float32,
+# Float16 or fixed-width integer factor. For any other function (and for a Scaled with a wider factor or a BigInt, whose
+# steps are combined in the wider type, and a ridge with another center), the recovery is refused: the entry map in
+# Float64 would form those parameters unrounded, which is another problem, and the failed check raises PrecisionError
+# before the destination is written. The search is the one of the Float32 call (from the candidate, then from zero) over the
+# wide entry maps with no slopes of their own; its result is accepted by the same check at the noise of Float64. The
+# output is formed in Float64 at that multiplier and rounded once to the destination.
+
+# the entry maps of f in Float64 with the parameters of the Float32 problem, as a function of the search
+struct _Wide{F} <: AbstractFunction
+  f::F
+end
+isseparable(::Type{<:_Wide}) = true
+isconvex(::Type{<:_Wide}) = true
+Base.@propagate_inbounds prox_entry(g::_Wide, v::Real, i::Integer, γ::Real) = _prox_entry_wide(g.f, Float64(v), i, Float32(γ))
+
+# the multiplier of the recovery, which the output pass forms with the wide entry maps
+struct _WideMultiplier
+  ν::Float64
+end
+
+# which functions the recovery has entry maps for: by type here, and by the values of the parameters in _wide_ok. A ridge has
+# its center rounded to Float32 as the entry of the Float32 kernel rounds it, which the wide entry does for centers of the
+# hardware floats that keep their range on rounding; any other center is refused. A Scaled has its step combined as the
+# kernel combines it, in Float32, for a Float32, Float16 or fixed-width integer factor.
+_has_wide(::Type{<:AbstractFunction}) = false
+for F in (:NormL1, :NormL1Nonneg, :ElasticNet, :IndBox, :IndNonnegative)
+  @eval _has_wide(::Type{<:$F}) = true
+end
+_has_wide(::Type{<:SqrNormL2{<:Real, Nothing}}) = true
+_has_wide(::Type{<:SqrNormL2{<:Real, Y}}) where {Y<:AbstractArray} = eltype(Y) <: Union{Float16, Float32, Float64}
+_has_wide(::Type{<:BoxConstrained{F}}) where {F} = _has_wide(F)
+_has_wide(::Type{<:Scaled{F, T}}) where {F, T} = _has_wide(F) && T <: Union{Float32, Float16, Base.BitInteger}
+_wide_ok(f) = true
+_wide_ok(f::SqrNormL2) = f.y === nothing || _ridge_all_fit(Float32, f.y)
+_wide_ok(f::BoxConstrained) = _wide_ok(f.f)
+_wide_ok(f::Scaled) = _wide_ok(f.f)
+
+# _prox_entry_wide(f, v, i, γ) is the entry map at the Float64 argument v with the Float32 step γ; NaN where the
+# parameters leave the range that the map is written for (the recovery then finds no root)
+Base.@propagate_inbounds _prox_entry_wide(f::NormL1, v::Float64, i::Integer, γ::Float32) =
+  first(_l1_prox_threshold(v, γ, f.λ0, _entry(f.w, i), Float32))
+Base.@propagate_inbounds _prox_entry_wide(f::NormL1Nonneg, v::Float64, i::Integer, γ::Float32) =
+  max(v - Float64(_weight_product(Float32, γ, f.λ0, _entry(f.w, i))), 0.0)
+Base.@propagate_inbounds function _prox_entry_wide(f::ElasticNet, v::Float64, i::Integer, γ::Float32)
+  t = _typed_product(Float32, γ, f.λ2)
+  isfinite(t) || return NaN
+  shrink(v, _weight_coefficient(Float32, γ, f.λ1, _entry(f.w, i))) / (1.0 + Float64(t))
+end
+Base.@propagate_inbounds _prox_entry_wide(f::IndBox, v::Float64, i::Integer, ::Float32) =
+  clamp(v, Float64(convert(Float32, _entry(f.l, i))), Float64(convert(Float32, _entry(f.u, i))))
+@inline _prox_entry_wide(::IndNonnegative, v::Float64, ::Integer, ::Float32) = max(v, 0.0)
+# the ridge weight of the Float32 kernel: t = γλ rounded to Float32 in the band of the ordinary coefficient, and outside
+# the band (the scaled coefficient) the product of the significands rounded to Float32, times the power of two of the
+# exponents; NaN where that leaves the range of a Float64 or the factors are not finite and positive
+@inline function _wide_ridge_weight(γ::Float32, λ)
+  if _ridge_needs_scaling(Float32, γ, λ)
+    P = promote_type(Float32, float(typeof(λ)))
+    mγ, eγ = _frexp(P(γ))
+    mλ, eλ = _frexp(P(λ))
+    t = ldexp(Float64(convert(Float32, mγ * mλ)), eγ + eλ)
+    return (2.0^-1000 < t < 2.0^1000) ? t : NaN
+  end
+  t = _typed_product(Float32, γ, λ)
+  ok = iszero(λ) | ((_ridge_band_low(Float32) <= t) & (t <= _ridge_band_high(Float32)))
+  ok ? Float64(t) : NaN
+end
+@inline _prox_entry_wide(f::SqrNormL2{<:Real, Nothing}, v::Float64, ::Integer, γ::Float32) = v / (1.0 + _wide_ridge_weight(γ, f.λ))
+# the center as the Float32 entry reads it: rounded to Float32 (the centers that reach this entry keep their range on rounding)
+@inline _wide_center(c::Float64) = Float64(Float32(c))
+@inline _wide_center(c::Union{Float32, Float16}) = Float64(c)
+Base.@propagate_inbounds function _prox_entry_wide(f::SqrNormL2, v::Float64, i::Integer, γ::Float32)
+  t = _wide_ridge_weight(γ, f.λ)
+  (v + t * _wide_center(f.y[i])) / (1.0 + t)
+end
+Base.@propagate_inbounds function _prox_entry_wide(s::Scaled, v::Float64, i::Integer, γ::Float32)
+  _nested_route(s, γ) && return NaN
+  _prox_entry_wide(s.f, v, i, s.α * γ)
+end
+Base.@propagate_inbounds function _prox_entry_wide(c::BoxConstrained, v::Float64, i::Integer, γ::Float32)
+  clamp(_prox_entry_wide(c.f, v, i, γ), Float64(convert(Float32, _entry(c.box.l, i))), Float64(convert(Float32, _entry(c.box.u, i))))
+end
+
+# the steps as the Float32 kernel reads them; steps stored wider are read through a view that rounds each entry, not copied
+struct _RoundedSteps{N, G<:AbstractArray{<:Real, N}} <: AbstractArray{Float32, N}
+  γ::G
+end
+Base.size(r::_RoundedSteps) = size(r.γ)
+Base.axes(r::_RoundedSteps) = axes(r.γ)
+Base.IndexStyle(::Type{<:_RoundedSteps}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(r::_RoundedSteps, i::Int) = convert(Float32, r.γ[i])
+_round_steps(γ::Real) = convert(Float32, γ)
+_round_steps(γ::AbstractArray{Float32}) = γ
+_round_steps(γ::AbstractArray) = _RoundedSteps(γ)
+
+# the output pass at the multiplier of the recovery
+_linear_constrained_output!(y, f, a, x, γ, ν::_WideMultiplier) = _wide_output!(y, f, a, x, γ, ν.ν)
+_linear_constrained_output!(y, f::SqrNormL2, a, x, s::_RidgeSteps, ν::_WideMultiplier) = _wide_output!(y, f, a, x, s, ν.ν)
+function _wide_output!(y, f, a, x, γ, ν::Float64)
+  w, s = _Wide(f), _steps(γ)
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    γᵢ = Float64(convert(Float32, _entry(s, i)))
+    y[i] = convert(eltype(y), prox_entry(w, Float64(x[i]) - γᵢ * ν * Float64(_entry(a, i)), i, γᵢ))
+  end
+  y
+end
+
+# Whether the constraint is infeasible: the range of ⟨a, z⟩ over the ranges of the entry maps (the bounds of the Float32
+# kernel) lies strictly on the wrong side of an offset, by more than the rounding of the Float64 sums. A search that
+# finds no bracket does not decide it: its steps are bounded (64 steps), and a start far from a root of small scale can be out of
+# reach of them.
+function _proven_infeasible(c::LinearConstrained, x::AbstractArray)
+  set, f = c.set, c.f
+  a = _scaled_normal(set)
+  lo = hi = Mlo = Mhi = 0.0              # the ends of the range, and the sums of the magnitudes of their terms
+  @inbounds for i in eachindex(IndexLinear(), x)
+    aᵢ = Float64(_entry(a, i))
+    iszero(aᵢ) && continue
+    l, u = _prox_range(f, i, Float32)
+    l, u = Float64(l), Float64(u)
+    p, q = aᵢ > 0 ? (aᵢ * l, aᵢ * u) : (aᵢ * u, aᵢ * l)
+    lo += p
+    hi += q
+    Mlo += abs(p)
+    Mhi += abs(q)
+  end
+  # an end that is infinite proves nothing, and does not take the proof at the other end with it
+  below(b) = b < lo - 4 * length(x) * eps(Float64) * (Mlo + abs(b))         # b is under the range
+  above(b) = b > hi + 4 * length(x) * eps(Float64) * (Mhi + abs(b))         # b is over the range
+  if set isa IndHyperplane
+    b = Float64(_scaled_offset(set))
+    below(b) || above(b)
+  elseif set isa IndHalfspace
+    below(Float64(_scaled_offset(set)))
+  else
+    l = isfinite(set.l) ? Float64(_scaled_offset(set, set.l)) : -Inf
+    u = isfinite(set.u) ? Float64(_scaled_offset(set, set.u)) : Inf
+    (isfinite(u) && below(u)) || (isfinite(l) && above(l))
+  end
+end
+
+# The recovery: the multiplier of the wide search and its slope, or an error before the destination is written: ArgumentError
+# where the constraint is proven infeasible, PrecisionError where the recovery is refused or finds no multiplier that the
+# check accepts.
+function _refined(c::LinearConstrained, x::AbstractArray, γ, p::_Proposal{Float32})
+  wide = _has_wide(typeof(c.f)) && _wide_ok(c.f)
+  if wide
+    w = LinearConstrained{_Wide{typeof(c.f)}, typeof(c.set)}(_Wide(c.f), c)
+    s = _round_steps(_steps(γ))
+    seed = isfinite(p.ν) ? Float64(p.ν) : 0.0
+    for cold in (iszero(seed) ? (true,) : (false, true))
+      q = c.set isa IndHyperslab ? _hyperslab_proposal(w, x, s, Float64, cold, seed, p.slope) :
+                                   _proposal(w, x, s, Float64, cold, seed, p.slope)
+      _criterion(c, x, s, q, Float64, true) && return _WideMultiplier(Float64(q.ν)), q.slope
+    end
+  end
+  _proven_infeasible(c, x) && _infeasible(c)
+  throw(PrecisionError("the multiplier of the $(nameof(typeof(c.set))) on a $(nameof(typeof(c.f))) is not resolved by the " *
+                       "Float32 check and " * (wide ? "the Float64 recovery does not find one it accepts" :
+                       "the function has no Float64 recovery of the Float32 problem") * "; no result is written"))
 end
 
 ####################################
@@ -944,6 +1466,7 @@ struct _Reindexed{F, V}
   f::F
   I::V
 end
+_vector_lanes(f::_Reindexed) = _vector_lanes(f.f)
 Base.@propagate_inbounds prox_entry(g::_Reindexed, v::Real, j::Integer, γ::Real) = prox_entry(g.f, v, g.I[j], γ)
 
 # fixes the entries at the bottom (low) or the top of their ranges at ν when a
@@ -999,6 +1522,7 @@ struct _AtEnd{F, A}
   a::A          # the normal, by index
   low::Bool
 end
+_vector_lanes(f::_AtEnd) = _vector_lanes(f.f)
 Base.@propagate_inbounds function prox_entry(g::_AtEnd, v::Real, i::Integer, γ::Real)
   z = prox_entry(g.f, v, i, γ)
   ifelse(_at_end(g.f, z, _entry(g.a, i), i, g.low), z, zero(z))
@@ -1344,11 +1868,15 @@ Base.@propagate_inbounds function _prox_entry_slope(c::BoxConstrained, v::T, i::
   clamp(convert(S, z), l, u), _slope((z > l) & (z < u), convert(S, dz))
 end
 
+# the range of the ordinary ridge, which has no end
+_prox_range(::_OrdinaryRidge, ::Integer, ::Type{S}) where {S} = (S(-Inf), S(Inf))
+
 function _checkstep(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
   f, set = c.f, c.set
+  W = _linear_model_type(c, x, y)
   if isempty(x)
     if !(set isa IndHyperslab)
-      T = float(eltype(y))
+      T = W
       φ = -convert(T, _scaled_offset(set))
       if set isa IndHyperplane || φ > 0
         abs(φ) <= 2eps(T) * abs(φ) || _infeasible(c)
@@ -1357,7 +1885,7 @@ function _checkstep(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractAr
     return true
   end
   f isa IndBox && f.l isa Real && f.u isa Real && set.a isa Real || return true
-  T = float(eltype(y))
+  T = W
   T <: Union{Float32, Float64} && eltype(x) <: Union{Float32, Float64} || return true
   step = convert(T, γ)
   isfinite(step) && step > 0 || return true

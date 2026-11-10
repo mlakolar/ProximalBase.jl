@@ -67,6 +67,11 @@ ProximalBase._prox_entry_slope(g::Ranged, v, i, γ) =
 ProximalBase._has_prox_range(::Type{<:Ranged{F}}) where {F} = ProximalBase._has_prox_range(F)
 ProximalBase._prox_range(g::Ranged, i::Integer, ::Type{S}) where {S} = ProximalBase._prox_range(g.f, i, S)
 ProximalBase._has_uniform_range(::Type{<:Ranged{F}}) where {F} = ProximalBase._has_uniform_range(F)
+# the recovery of a Float32 call whose multiplier the Float32 check does not accept is refused for a function without the
+# hook of its entry maps (a call of the fixing tests below needs it)
+ProximalBase._has_wide(::Type{<:Ranged{F}}) where {F} = ProximalBase._has_wide(F)
+ProximalBase._prox_entry_wide(g::Ranged, v::Float64, i::Integer, γ::Float32) =
+  (CALLS[] += 1; ProximalBase._prox_entry_wide(g.f, v, i, γ))
 
 @testset "variable fixing with extreme normals" begin
   rng = Xoshiro(140)

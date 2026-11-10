@@ -218,6 +218,17 @@ the earlier behavior applies.
     quadratic model whose coefficients cannot be represented, raise a
     dedicated precision exception, where some raised an `ArgumentError` or
     returned `Inf` and NaN.
+  - `Constrained` on a hyperplane, halfspace or hyperslab in `Float32` checks
+    its multiplier (the exception to A3). A result that fails the check is
+    recovered in `Float64` on the `Float32` problem, where the function has such
+    a recovery, and otherwise raises the dedicated precision exception before
+    writing. Results that were up to a few hundred `eps(Float32)` from the
+    projection on flat constraints (#151) are now checked, and refined where the
+    check fails, and a search that finds
+    no bracket in `Float32` raises an `ArgumentError` only when the range of the
+    constraint shows the intersection empty, where it raised one on every failure to
+    bracket. The check is not a certificate and an accepted result can in principle
+    be inaccurate; `Float64` searches keep their acceptance.
   - Size mismatches raise `DimensionMismatch`.
   - Non-finite coefficients of `LinearFunction` and `Tilt` are rejected at
     construction.

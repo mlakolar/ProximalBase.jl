@@ -72,7 +72,7 @@ prints the same decision for your working tree against `origin/master`. The plan
 makes five independent decisions: the **tier** (how many test files run), the
 **platforms** (which Julia versions and systems run them), whether to collect
 **coverage**, whether to run the **benchmark reference checks**
-(`benchmark/check_only.jl` on the quick suite, Julia lts and 1), and, from the
+(`benchmark/check_only.jl` on the quick suite, Julia 1), and, from the
 tier, whether the test jobs write the **conformance reports** (thorough and full).
 For the nightly run, tags and release validation the plan also asks each test job
 to show that it ran the whole catalog of its tier (the **inventory**, below).
@@ -87,8 +87,8 @@ to show that it ran the whole catalog of its tier (the **inventory**, below).
 | manual | the input `tier` (full) | the input `platforms` (auto) | the input `coverage` (off) | the input `benchmark`, and also with tier full |
 | release validation (manual, `release=true`) | full | `cross` | yes (a lost upload fails the run) | yes |
 
-The platform modes are `stable` (Julia 1 on Linux), `linux` (Julia 1 and lts on
-Linux) and `cross` (`linux`, Julia 1 on macOS and Windows, and Julia pre on Linux,
+The platform modes are `stable` and `linux` (both Julia 1 on Linux), and
+`cross` (Julia 1 on Linux, macOS and Windows, plus Julia pre on Linux,
 which is advisory: reported, not counted). They are defined in
 `.github/tier-rules.toml`; the planner validates its `[events.*]` and
 `[platforms.*]` tables (an unknown key, mode or tier there is an error), and each
@@ -115,13 +115,13 @@ other table is validated by its own reader (`test/tiers.jl` or
     its reports; the GPU extension (`ext/`) is full;
   - the Testing extension (`ext/ProximalBaseTestExt.jl`): standard plus `testing`,
     which checks correct and faulty helper implementations alongside standard's consumers.
-    Extension-only PRs use Julia 1; master pushes run thorough on Julia 1 and lts.
+    Extension-only PRs use Julia 1; master pushes run thorough on Julia 1.
     Add `test:thorough` for version-sensitive allocation specialization or materially broader
     helper changes, or `test:full` for platform-sensitive changes. Changes to the declarations
     in `src/testing.jl` already select thorough;
   - package code without any test change: at least standard;
   - `Project.toml`, other `ext/` paths, `src/lapack.jl`, the test runner, the CI rules,
-    scripts and workflow, and `test/tiers.toml`: full, on Julia 1 and lts on
+    scripts and workflow, and `test/tiers.toml`: full, on Julia 1 on
     Linux (the other systems need the label `test:full`). The tier lists decide
     what every tier runs, so a change to them gets full, unless it only adds the
     lines of test files that the PR adds: the plan compares the parsed lists with
@@ -150,7 +150,7 @@ other table is validated by its own reader (`test/tiers.jl` or
   same commit, and its gate replaces the earlier gate as a pending check as soon
   as GitHub creates the run (a few seconds after the label), so the earlier green
   gate no longer stands.
-- **Pushes to master** run thorough on Julia 1 and lts on Linux, with the
+- **Pushes to master** run thorough on Julia 1 on Linux, with the
   conformance reports (none for a documentation-only push), and no coverage.
   **Tags** run the full tier on the `cross` platforms, with the benchmark
   reference checks. The **nightly** run is the scheduled run, and it collects
@@ -315,7 +315,7 @@ The iterate rows:
 | two of them | standard + both groups (the label does not apply) |
 | shared semantics across iterate types, or an architectural or breaking milestone | thorough: add `test:thorough` |
 | release candidate | full: add `test:full` |
-| merge to master | thorough on Julia 1 and lts, automatically; the nightly run is full |
+| merge to master | thorough on Julia 1, automatically; the nightly run is full |
 
 `src/sparse_iterate.jl` holds `SparseIterate`, `SymmetricSparseIterate` and the
 stored-iterate code they share, so a change to it runs the tests of both; the
@@ -341,7 +341,7 @@ and the reviewer checks it.
   guarantees across interfaces; `SymmetricSparseIterate` as a coordinate-first
   owner (no longer `<: AbstractMatrix`); removing much of the old symmetric
   array interface; changes visible to downstream packages.
-- **After merging**, the push to master runs thorough on Julia 1 and lts. If it
+- **After merging**, the push to master runs thorough on Julia 1. If it
   fails, fix or revert the change before stacking dependent PRs on master, and
   when the failure is a bug the focus files should have caught, add a regression
   test to them (or to quick).
@@ -365,10 +365,9 @@ validates are the tier, `run_tests`, the benchmark flag, the lists of required
 and advisory jobs, and, when tests run, the platforms mode; it does not validate the
 others. It compares the plan's list of required jobs with a minimum that it
 writes out itself from the kind of run and the plan's platforms mode: the floor
-of the run (Julia 1 on Linux for a pull request, with lts from the thorough tier,
-and for a manual run; Julia 1 and lts on Linux for a push to master; Julia 1 and
-lts on Linux, Julia 1 on macOS and Julia 1 on Windows for a tag and the nightly
-run) together with the jobs of the mode (`stable`, `linux` or `cross`). The
+of the run (Julia 1 on Linux for a pull request, a manual run, and a push to
+master; Julia 1 on Linux, macOS and Windows for a tag and the nightly run)
+together with the jobs of the mode (`stable`, `linux` or `cross`). The
 advisory list may hold Julia pre on Linux and nothing else, and tier none is
 accepted for a pull request and a push to master only. When tests run, a plan
 that omits a job of the minimum from the required list, names a platforms mode
@@ -432,9 +431,8 @@ the reports. Thorough runs no `conformance/gpu_arrays` unless the change or the 
 --extra <focus files>`) compares a partial inventory: every other report file must be
 there, and the rows of the other families, the case ids and the required rows must match
 the committed map; a report file missing for another reason fails. Below full the
-artifacts are named `conformance-reports-partial-...`. The map check and the required upload run on Julia lts on Linux when
-the run has it, otherwise (a manual run on the `stable` platforms) on Julia 1 on
-Linux. An upload counts only when GitHub returns an artifact id for it; otherwise
+artifacts are named `conformance-reports-partial-...`. The map check and the
+required upload run on Julia 1 on Linux. An upload counts only when GitHub returns an artifact id for it; otherwise
 it is retried once. The artifact of that job is required: without a confirmed upload that job fails.
 Only the artifact of a full run (not the `partial` one) serves to regenerate the coverage map. On the other
 jobs a missing upload is a warning in the job and its summary, and the job keeps
@@ -470,7 +468,7 @@ Each nightly issue has a **severity** and a **kind** label:
 
 | Label | Meaning |
 |---|---|
-| `triage:core` | a Linux job on Julia lts or 1, and a test file that is not deferred: core CPU correctness; fix promptly (revert the change that caused it when that is the quickest fix) |
+| `triage:core` | a Linux job on Julia 1, and a test file that is not deferred: core CPU correctness; fix promptly (revert the change that caused it when that is the quickest fix) |
 | `triage:deferred` | Windows, macOS, Julia pre, or a deferred file on any system (the device-array suites and the extreme-precision and exponent-range files): normally deferred, ordered by impact (how many users and which functions the failure touches) |
 | `triage:unclassified` | the kind is not known yet; a new issue for a test file starts here |
 | `triage:bug`, `triage:flaky`, `triage:portability` | set by a maintainer once the cause is known: a genuine bug, a flaky or timing-dependent test (the reporter never closes such an issue), a test or code that does not port to that system |
@@ -546,7 +544,7 @@ The plan job fails before any test job starts unless the dispatched commit is
 `expected_sha`, the full 40-character lowercase SHA, and unless `tier` and `platforms`
 are `full` and `auto` or `cross` (the defaults). A release run needs:
 
-- the full tier on Julia lts and 1 on Linux, on macOS and on Windows, each job running
+- the full tier on Julia 1 on Linux, macOS and Windows, each job running
   the whole catalog of the tier (the inventory step);
 - coverage with a successful upload to Codecov, and the benchmark reference checks;
 - the conformance reports of every one of those jobs, as uploaded by the attempt the

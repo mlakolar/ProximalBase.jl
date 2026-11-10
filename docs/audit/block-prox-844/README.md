@@ -25,9 +25,12 @@ and a successful documentation build with executable examples on Julia 1.10.10.
 The full Julia 1.13.3 run passed all **220 files: 1,960,015 assertions passed,
 368 marked broken**, no failures or errors. The targeted Julia 1.10.10 storage,
 block-oracle and failure suites passed **6,933 assertions**. The stale generated
-coverage cell is corrected to `wrappers / prox_block`. Fresh conformance
-reports at committed source `31235317473f3c1be34691e43db1d54544f19f14` passed
-1,310 assertions (220 marked broken); snapshot checks pass on both runtimes. See [the public inventory](PB-storage-public-api.txt),
+coverage cell is corrected to `wrappers / prox_block`. The final source
+`19ae85bcdebc33dd1246ddd6bb1597ad3cb323c3` only renames the private group-view
+helper since the full-suite-tested source. Its storage/conformance run passed
+7,369 assertions (220 marked broken) on Julia 1.13.3, and its storage suites
+passed another 6,059 assertions on Julia 1.10.10. Fresh conformance reports at
+that final source pass snapshot checks on both runtimes. See [the public inventory](PB-storage-public-api.txt),
 [validation summary](PB-storage-validation.json) and
 [PB-only performance data](PB-storage-performance.json).
 

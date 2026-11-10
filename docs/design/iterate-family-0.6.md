@@ -1,12 +1,12 @@
 # The iterate family in ProximalBase 0.6: the contract
 
-> **#844 amendment:** The storage-aware `prox_coordinate!` requirements and
-> `prox_entry` spelling below are superseded by
-> [the pure block proximal contract](block-prox-0.6.md). Solvers compute
-> `prox_block`/`prox_block!`, convert function indices explicitly, validate
-> symmetric parameters and layouts, then write through public storage APIs.
-> Iterate representation, write activation and KKT requirements stay in force.
-
+> **Current #844 amendment (2026-11-10):** The live requirements, examples
+> and acceptance cases below use the [pure block proximal contract](block-prox-0.6.md).
+> Solvers compute `prox_block`/`prox_block!`, convert penalty indices explicitly,
+> validate symmetric parameters and group layouts, then write through public
+> storage APIs. Historical audits and decision evidence are explicitly marked;
+> their retired spellings are not current requirements. Storage representation,
+> activation, KKT, curvature and step-policy requirements remain unchanged.
 
 > **The 0.6 design as signed off by the maintainer on 2026-11-01 (FD-16 decided on 2026-11-06: the direct product), not a
 > description of an installed release.** Part of it is implemented on the development branch: Phase 1 of the symmetric owner (see [its contract](symmetric-sparse-iterate-0.6.md): the non-array owner, its oracles and wrappers, its products and reductions), the three-factor product `A * X * B` of a matrix `SparseIterate` and of a `SymmetricSparseIterate` for `Float32` and `Float64` (FD-16, #419), and the behavior that `docs/src/migration.md` lists under 0.6. The other phases of #391, the migration of the solvers (#527) and the release remain. This file is the only
@@ -159,17 +159,20 @@ FD-15a).
 ```julia
 f = GroupNormL2(1.0, [1:2, 3:4])     # default weights √|G| = √2
 x = AtomIterate(4, f)
-prox_coordinate!(x, f, 1, [3.0, 4.0], 1.0)   # the trial point is not written first
-# [2.151471862576143, 2.868629150101524] = (1 − √2/5) .* [3, 4]; group 1 is active
+ProximalBase.samegroups(x, f) || throw(DimensionMismatch("group layout"))
+u, out = [3.0, 4.0], zeros(2)
+prox_block!(out, f, u, 1, 1.0)       # only the numerical output is written
+@assert nactive(x) == 0
+copyto!(atom(x, 1), out)             # public storage write activates group 1
+# out ≈ (1 − √2/5) .* [3, 4]
 ```
 
-If the call throws a validation error (FA-4), `x` is unchanged; if reading `u`
-itself throws, a partial write is possible (FA-7, FT16). Writing the trial point into private
-storage and then calling `prox_coordinate!(x, f, 1, 1.0)` gives the same
-numbers when nothing throws; when the call throws it leaves an *inactive*
-group holding `[3.0, 4.0]`, which the penalty value and a same-layout
-`copyto!` then ignore (`copy` keeps it) (FA-7,
-[FD-12](#fd-12-one-contract-for-coordinate-oracles)).
+A numerical validation error leaves `out` and `x` unchanged (FA-4). A failing
+read or conversion can leave `out` partially written, while `x` is unchanged
+because the solver has not written it (FA-7, FT16). A later public iterate write
+has the storage writer's conversion and partial-write semantics, preserving
+FW-1. The solver updates its residual/cache only after that write. Private
+trial staging is unsupported. See FA-1–FA-7 and the companion §3.3.
 
 ## What changes for you
 
@@ -184,7 +187,8 @@ group holding `[3.0, 4.0]`, which the penalty value and a same-layout
 - Products with an iterate ignore its zero coefficients, also against NaN and
   `Inf`. Views of an iterate are ordinary vectors, and scaling by a number
   follows IEEE arithmetic.
-- Stage a group trial with `prox_coordinate!(x, f, k, u, γ)`.
+- Compute a group trial in compact numerical buffers with `prox_block!`, then
+  write `copyto!(atom(x,k), out)` and update the solver cache.
 
 ---
 
@@ -213,7 +217,7 @@ A *same-kind* iterate is defined in FX-1.
 
 | ID | requirement | status | types |
 |:--|:--|:--|:--|
-| FC-1 | An integer passed to a coordinate API (`isactive`, `activate!`, `atom`, `atomindices`, `prox_coordinate!`, the four-argument `kkt_violation`) *must* be read as a coordinate ID, and one passed to `getindex` or `setindex!` as an entry index (S, A) or a matrix position (O). A slot is never read as an ID (IDX-4, for the family). | 0.5.x | S, A, O |
+| FC-1 | An integer passed to a coordinate API (`isactive`, `activate!`, `atom`, `atomindices`, the four-argument `kkt_violation`) *must* be read as a coordinate ID, and one passed to `getindex` or `setindex!` as an entry index (S, A) or a matrix position (O). A slot is never read as an ID (IDX-4, for the family). | 0.5.x | S, A, O |
 | FC-2 | The coordinate ID of a `SparseIterate` *must* be its linear entry index: `k = (c − 1)m + r` for an m × n matrix. | 0.5.x | S |
 | FC-3 | `coordinates(x::SparseIterate)` *must* return a coordinate-vector view of `x`, an `AbstractVector{T}` wrapper like the owner's `SymmetricCoordinates`, for N = 1 and N = 2 alike; it is never `x` itself. It has length `ncoordinates(x)`, is indexed by coordinate ID, is live and writable, is `O(1)` to build and copies nothing; its `Base.dataids` are those of `x`, and `Base.unaliascopy` of the view returns a view of a copy of `x` (as `SymmetricCoordinates` does, `src/sparse_iterate.jl:943`), so that an aliased import works (FX-5). Writes through it are value writes (FW-2), and its products are ordinary-vector products (FN-3). It has no check of its own for complex input: it behaves as a plain vector of element type `T` holding the same entries (FN-8), as the owner's `SymmetricCoordinates` does today, so a complex value throws `InexactError`, possibly after a partial write. | 0.6 target (breaking: `coordinates(x) === x` no longer holds for a vector, and for a vector `coordinates(x) .= complex` no longer throws `ArgumentError` before writing, as it does today because the view is `x`) | S (O: CRD-1) |
 | FC-4 | `coordinates` *must not* be defined for an `AtomIterate`, whose coordinate is a group. | 0.5.x | A |
@@ -245,7 +249,7 @@ The four counts of FC-10:
 | FW-5 | **Compaction.** `dropzeros!(x)` *must* be the only operation that removes coordinates. It removes exactly the active coordinates whose value is zero (the active groups whose entries are all zero), keeps every value and ID, may reorder slots, runs in `O(s)` (S) or `O(active entries)` (A), and does not allocate. A whole-state replacement (FX-1's state copy, the owner's CPY-4 import) is not compaction: it replaces the working set and its slot order by the source's, and also ends FC-7's handles. | 0.5.x | S, A (O: ACT-7) |
 | FW-6 | **Spellings.** *Array iterates.* Clearing the working set *is* `dropzeros!(fill!(x, 0))`, at `O(n + s)` (S) or `O(p + active entries)` (A). *Checks first.* Both replaces below begin with the same two checks, before anything is cleared or staged: `length(A) == length(x) || throw(DimensionMismatch(…))` and `eltype(A) <: Real || throw(ArgumentError(…))`. A complex-typed source is rejected even when every imaginary part is zero; today the cheap and the staged loops both accept `ComplexF64[1, 2, 3, 4]` (values `[1.0, 2.0, 3.0, 4.0]`). *The cheap replace.* For a source `A` that takes the value-write dispatch of `copyto!` (it is not a same-kind iterate, which FX-1 state-copies), shares no memory with `x`, has `x`'s length, and whose reads and conversions cannot fail (for example a real floating-point array into a floating-point `x`), replacing the working set by the support of `A` *is* the two checks followed by `copyto!(dropzeros!(fill!(x, 0)), A)`, at the same cost. Outside those conditions the shorthand is wrong. With the same-kind source `y = SparseIterate(4); y[4] = 2.; activate!(y, 1)` it state-copies `y` and gives `[4, 1]`, not the support `[4]`. With an overlapping source it clears `x` before it reads `A`: for `x = SparseIterate([1., 2.])`, `copyto!(dropzeros!(fill!(x, 0)), view(x, 2:-1:1))` gives `[0.0, 0.0]`. With a fallible conversion it throws after the clear: `xi = SparseIterate(Int, 2); xi[2] = 5` and the source `[1.0, 1.5]` leave `[1, 0]` with working set `[1]`, so the old state is lost and a partial write remains. *The general replace* runs the two checks, stages the source by value in a fresh temporary with separate indices for source and destination, and state-copies the completed temporary: `t = similar(x); for (i, j) in zip(eachindex(t), eachindex(A)); t[i] = A[j]; end; copyto!(x, t)`. Separate indices are needed because `eachindex(t, A)` asks for common indices and, on the `IndexCartesian` path, equal axes: for `x = SparseIterate(4)` and `A = view(reshape(1:4, 2, 2), [2, 1], :)`, a real source of four entries in linear order `[2, 1, 4, 3]`, `eachindex(similar(x), A)` throws `DimensionMismatch`, while separate traversal gives `[2.0, 1.0, 4.0, 3.0]` with working set `[1, 2, 3, 4]` (ran). `eachindex(A)` of an `IndexCartesian` source is column-major, which is linear order; the explicit length check stays, because `zip` truncates. The loop is a value write today and in 0.6. If a check or the staging throws (a failed read or conversion), `x` is unchanged. An overlap is harmless, because `A` is read completely before `x` is written. The working set is the converted support of `A` in linear order (see *Order*), and the explicit zeros of a source iterate are not imported. The cost is one `similar(x)`: `O(n)` memory and time (S), `O(p)` (A). Ran (with the joint loop, which agrees on these vector sources): from the `y` above it gives `[0, 0, 0, 2]` with working set `[4]`; into `xj = SparseIterate(Int, 2); xj[2] = 5` from `[1.0, 1.5]` it throws and leaves `[0, 5]` with working set `[2]`; from `view(x, 2:-1:1)` it gives `[2.0, 1.0]`. *The owner.* The replace *is* `copyto!(X, M)`, CPY-4's checked import; the clear *is* `fill!(coordinates(X), 0); dropzeros!(X)`. *The difference.* `copyto!` from a plain array is therefore a checked replace for the owner (CPY-4, FD-3) and a value write for the array iterates (FW-2). The reason is the one that separates the owner from the arrays: generic Base code reaches the array iterates' `copyto!` (§2.3's table) and never the owner's. *Order.* A replace (either spelling) leaves the slot order of 0.5.x's clear-then-import, and CPY-4's for the owner: increasing ID for `SparseIterate` and the owner. For an `AtomIterate`, a value write in linear order after a clear activates the groups in the order in which it first meets a nonzero entry of each (increasing group ID when every entry of group k precedes every entry of group k + 1, as for contiguous groups in order). The constructor instead activates in group-ID order (`src/atom_iterate.jl:76–78`), so for non-contiguous groups a replace and a fresh construction differ: with groups `[[1, 3], [2, 4]]` and nonzeros at entries 2 and 3 a replace gives `[2, 1]`, and for the strided multi-response layout the constructor gives `[1, 2]` where a replace gives `[2, 1]`. Slot order is observable: a cyclic active pass visits slots in order (ProximalSolvers `src/cd/solver.jl:329–331`), and the momentum history is keyed by slot. The shorter `dropzeros!(copyto!(x, A))` gives the same set in another order. | 0.6 target | S, A, O |
 | FW-7 | `activate!(x, k)` *must* make coordinate `k` active, at value zero for S and keeping the (zero) entries of group `k` for A, if it is absent; it changes nothing otherwise and throws `BoundsError` out of range. A sweep over `activecoordinates(x)` that writes values only of active coordinates *must* leave `activecoordinates(x)` unchanged. | 0.5.x | S, A (O: ACT-5, ACT-6) |
-| FW-8 | **Oracle destinations.** After a ProximalBase oracle (`prox!`, `value_and_prox!`, `gradient!`, `mul!`, `prox_coordinate!`) writes an iterate, its values *must* be the result and its working set *must* contain every coordinate with a nonzero result (FW-1). Which zero coordinates stay active is unspecified; `dropzeros!` gives the support. | 0.5.x (stated) | S, A (O: ORC-3, ORC-6) |
+| FW-8 | **Oracle destinations.** After a ProximalBase oracle (`prox!`, `value_and_prox!`, `gradient!`, `mul!`) writes an iterate, its values *must* be the result and its working set *must* contain every coordinate with a nonzero result (FW-1). Which zero coordinates stay active is unspecified; `dropzeros!` gives the support. | 0.5.x (stated) | S, A (O: ORC-3, ORC-6) |
 
 **Where Base sends a bulk write.** For an `AbstractVector` destination that
 defines `fill!` and `copyto!(dest, ::AbstractArray)`, identical on Julia
@@ -285,7 +289,7 @@ state copy (Part 4).
 | FL-1 | Construction *must* validate the layout: groups nonempty, of positive indices, disjoint, partitioning `1:p`, each failure an `ArgumentError` before anything is built. `AtomIterate(p, K)` needs `K` to divide `p`. | 0.5.x | A |
 | FL-2 | **Ownership.** The constructor *must* own the layout: a vector of ranges is kept, any other collection becomes `Vector{Int}` copies, so later changes to the caller's arrays do not reach the iterate. No ProximalBase accessor may expose the layout mutably (FC-6). Mutating group arrays obtained any other way (a field, `parentindices`) is unsupported, as `docs/src/iterates.md:440–442` says today. | 0.6 target (ownership is 0.5.x; `parentindices(atom(x, k))` exposes a vector group today) | A |
 | FL-3 | *Recommended:* store vector groups read-only, so that `parentindices(atom(x, k))` cannot mutate them either. Measure `atom`, `norm` and `dot` of atom views, and the products, before adopting it. | recommendation | A |
-| FL-4 | **Compatibility for coordinate oracles** (`prox_coordinate!`, the four-argument `kkt_violation`): an iterate and a group penalty *must* have equal ordered index lists (the same number of groups, `groups[k] == f.groups[k]` for every `k`), checked before writing; otherwise `DimensionMismatch("f and x must have the same groups.")`. | 0.5.x | A |
+| FL-4 | **Group compatibility.** Before using one group ID for a penalty and an iterate, a solver *must* check equal ordered index lists through `ProximalBase.samegroups(x,f)`; a mismatch is rejected before an iterate write. The four-argument `kkt_violation` performs its own layout check and throws `DimensionMismatch` when it fails. Pure block oracles have no iterate argument and do not perform this check. | amended #844 | A |
 | FL-5 | **Whole-array oracles** (`f(x)`, `prox!`, `value_and_prox!`, gradients) *must* accept any layout and compute the function of the vector; they do not reject a different layout. | 0.5.x | A |
 | FL-6 | **Cost of FL-4.** `O(1)` when the iterate and the penalty share the layout object. Otherwise one `O(total group size)` comparison when a different object is first seen, then `O(1)` while the iterate remembers it. It remembers one object: alternating two equal but distinct layouts compares each time. | 0.5.x | A |
 | FL-7 | `ProximalBase.samegroups(a, b)` (**new**; public, not exported) *must* answer FL-4's question for an iterate and a group penalty, or for two iterates, at FL-6's cost. | 0.6 target (0.5.x-safe addition) | A |
@@ -307,25 +311,24 @@ state copy (Part 4).
 
 ## 2.7 Coordinate oracles (FA)
 
-Shared by both forms of `prox_coordinate!` and by the four-argument
-`kkt_violation`. For a `SparseIterate` and the owner, the
-four-argument `kkt_violation` checks the real element types, then that `k` is one of
-`1:ncoordinates(x)` (`BoundsError`; for the owner, before `tril_cartesian`), then that `g`
-has `length(x)` entries for a `SparseIterate` or `p^2` for the owner (`DimensionMismatch`),
-as a matrix or flat, before it computes. The `AtomIterate` dispatch is unchanged by these
-checks, and a group penalty has its group layout validated where that applies. For other arrays
-`x` there is no additional coordinate or extent check; the checks of the real element types and
-those made by `f` and by indexing still apply.
+The pure proximal oracles operate on penalty blocks; the four-argument
+`kkt_violation` continues to operate on iterate coordinates. For a
+`SparseIterate` and the owner, the four-argument screen checks real element
+types, then `k ∈ 1:ncoordinates(x)` (`BoundsError`, before owner conversion),
+then the gradient extent (`length(x)` or `p²`, `DimensionMismatch`). The
+`AtomIterate` screen also checks a group penalty's layout. Other array screens
+retain their existing function/index checks. These checks do not transfer to
+the pure proximal API.
 
 | ID | requirement | status | types |
 |:--|:--|:--|:--|
-| FA-1 | `k` *must* be a coordinate ID (FC-1). | 0.5.x | S, A, O |
-| FA-2 | **Return.** `prox_coordinate!` *must* return the new scalar for S and O, and `atom(x, k)` for A. | 0.5.x | S, A, O |
-| FA-3 | **Activation.** A coordinate that was absent and whose result is zero *must* stay absent; no coordinate is removed. | 0.5.x | S, A, O |
-| FA-4 | **Validation before writing:** the bounds of `k` (`BoundsError`), the layout (FL-4), a separable function or a group penalty (`ArgumentError`), the parameters, a real `u` (`ArgumentError`) and the length of `u` (`DimensionMismatch`). After any of these errors `x` *must* be unchanged. | 0.5.x | S, A, O |
-| FA-5 | **Aliasing.** The trial `u` may share memory with `x`, for example `atom(x, j)`; it is copied first. | 0.5.x | A |
-| FA-6 | **Screening.** `kkt_violation(f, g, x, k)` *must* be a screen at zero. For a group penalty at an inactive group `k` of an `AtomIterate` it is the penalty's own: the dual norm of that penalty's group norm at `g[G_k]`, minus `λ₀ w_k` with that penalty's weights (table below). For a separable `f` on a group, it is the largest entry screen over the group. It is not a stationarity residual (#388 §2.8). | 0.5.x | S, A, O (ORC-9) |
-| FA-7 | **Block trials.** `prox_coordinate!(x, f, k, u, γ)` *is* the supported way to take a group step at a trial point. It *must* give the result of staging `u` into group `k` and calling the four-argument form when nothing throws, and leave `x` unchanged after any of FA-4's validated errors. If reading `u` throws (a non-strided `u` whose `getindex` fails), FW-1 holds but entries of the group may already be written. The alternative, copying a non-strided `u` first, would make that atomic too, at the cost of an allocation. Staging a trial by writing private storage is unsupported: it breaks FW-1 for the duration of the call, and for good if the call throws. | 0.5.x (stated) | A |
+| FA-1 | **Index spaces.** A scalar `prox_block(f,u,i,γ)` uses the function's global linear entry index `i`; a compact group call uses the penalty group ID `k`. Neither is an active slot or an implicit iterate coordinate. A symmetric solver converts `(r,c) = tril_cartesian(p,k)` to `i = (c-1)p+r`. `kkt_violation(f,g,x,k)` keeps the iterate coordinate ID. | amended #844 | S, A, O |
+| FA-2 | **Return and mutation.** Scalar `prox_block` returns the scalar result. Group `prox_block` allocates an independent plain floating `Vector`; `prox_block!` returns the identical caller-owned numerical `out`. No form writes an iterate, activates a coordinate or updates a solver cache. | amended #844 | S, A, O |
+| FA-3 | **Separate storage write.** A solver writes the computed result through `x[i]`, `coordinates(X)[k]`, or `copyto!(atom(x,k),out)`. A converted zero on an absent coordinate *must* leave it absent; a nonzero activates it; an existing active zero stays active. Only explicit compaction removes it. | amended #844 | S, A, O |
+| FA-4 | **Validation before numerical writes.** Group bounds, one-based real vector buffers, selected-group lengths, supported function decomposition, wrapper parameters and forbidden output/overlap are checked before `out` is written. Bounds errors throw `BoundsError`, length mismatches `DimensionMismatch`, and unsupported buffers/decompositions `ArgumentError`. A solver separately checks layout (FL-4), parameter extent and symmetric parameters before its public storage write. The caller supplies the buffer entries in the penalty group's order; this order cannot be inferred from bare numerical vectors. The pure scalar kernel cannot validate an absent iterate's shape or symmetry. | amended #844 | S, A, O |
+| FA-5 | **Aliasing.** Exact numerical aliasing `out === u` is supported; other overlapping group buffers are rejected before writes. Direct iterate-backed outputs, coordinate views and group views are rejected. The allocating form never returns its input. A solver stages an owner-backed trial into an independent buffer when necessary. | amended #844 | A |
+| FA-6 | **Screening.** `kkt_violation(f,g,x,k)` remains a screen at zero, not a stationarity residual. For a group penalty on an `AtomIterate`, use that penalty's dual norm and weights (table below); for a separable function on a group, use the largest entry screen. The entry normalization of the symmetric owner remains ORC-9. | unchanged | S, A, O |
+| FA-7 | **Block trials and failures.** Construct the trial numerically, compute the proximal point, perform the public storage write, then update the solver cache. A validation failure leaves `out` unchanged; a failing element read, conversion or custom numerical implementation may partially write `out`. Neither failure writes the iterate. A subsequent failing public writer has its own documented partial-write semantics and *must* preserve the working-set invariant. Staging a trial in private iterate storage is unsupported. Existing zero-curvature solver branches are retained; `γ = Inf` is not a new affine minimizer. | amended #844 | S, A, O |
 
 The screens of the built-in group penalties (each checked at the audited
 commit; the separable case is the generic method, `src/interface.jl:672–673`):
@@ -356,7 +359,7 @@ gives `−0.5303300858899107`).
 | FP-3 | **Capacity is dense-sized.** Construction reserves room for every coordinate, so activation never grows storage, and construction costs `O(n)`, `O(p + K)` or `O(q)`. Retained memory of an empty iterate: S, three arrays of length `n`, 24 bytes per entry for `Float64` (20 for `Float32`); A, the dense values and the entry-to-group map (16 bytes per entry for `Float64`), two `O(K)` maps of the active groups (16 bytes per group) and the layout (16 bytes per range group, or 8 bytes per index plus a vector header per vector group); O, `O(q)`, 24 bytes per coordinate (PERF-2). "Sparse" promises sparse *work*, not sparse *memory*. | 0.5.x (stated) | S, A, O |
 | FP-4 | *Recommended:* add another storage backend (hash maps, growing storage) only for a motivating workload, with a benchmark that shows the gain. | recommendation | S, A, O |
 | FP-5 | `mul!(out, A, x)` *must* cost `O(m s)` for a `SparseIterate` vector and `A` with m rows (for a matrix `x`, the stored-entry walk or the column walk, switched at density 1/32 as today), `O(m · active entries)` for an `AtomIterate`, and `dot(v, x)` `O(s)` or `O(active entries)`. FN-1 adds no pass. | 0.5.x | S, A |
-| FP-6 | Each 0.6 change on a hot path is measured against the 0.5.x baseline: sweeps through the read-only handle; indexing and products through the `coordinates` view; the strong-zero branch of `dot` and `mul!`; the five-argument block trial against staged writes; the momentum loop through `atomindices`; `atomindices` iteration; `unalias` copies; scaling by a number; and the direct three-factor product of FD-16 (`A * X * B` against the 0.5.x kernel for `Float32` and `Float64`, matrix iterate and owner). A repeatable slowdown above 5% on a representative case *must* be investigated and reported on the implementing pull request, and merging it needs the maintainer's recorded approval (numerics C3). The companion's protocol measures each case. | 0.6 target | S, A, O |
+| FP-6 | Each 0.6 change on a hot path is measured against the 0.5.x baseline: sweeps through the read-only handle; indexing and products through the `coordinates` view; the strong-zero branch of `dot` and `mul!`; pure block math plus the public writer against the pre-#844 storage-aware step; the momentum loop through `atomindices`; `atomindices` iteration; `unalias` copies; scaling by a number; and the direct three-factor product of FD-16 (`A * X * B` against the 0.5.x kernel for `Float32` and `Float64`, matrix iterate and owner). A repeatable slowdown above 5% on a representative case *must* be investigated and reported on the implementing pull request, and merging it needs the maintainer's recorded approval (numerics C3). The companion's protocol measures each case. | 0.6 target | S, A, O |
 
 ## 2.9 Fields (FF)
 
@@ -1226,48 +1229,18 @@ the penalties would have to adopt.
 
 ### FD-12. One contract for coordinate oracles
 
-*Status: signed off by the maintainer, 2026-11-01.*
+**Amended by #844 (2026-11-10).** The current decision is FA-1–FA-7 above:
+pure scalar/group proximal math followed by solver-owned public storage writes.
+There is no storage-aware proximal method or compatibility alias. FL-4 is now
+a solver preflight check for these writes; KKT screens retain their own checks.
+The buffer contract separates numerical failure from storage and cache updates.
 
-*Background.* The scalar forms are `src/interface.jl:384–425`, the group
-forms `:464–478`, the block-trial staging `_stage_and_step!` `:483–526`, and
-`kkt_violation` `:552–570`. The return type differs by iterate (ran:
-`Float64` and a `SubArray`). ProximalSolvers stages group trials by writing
-`x.storage` and then calls the four-argument form
-(ProximalSolvers `src/cd/groups.jl:32–38`, `:64–70`).
-
-*What goes wrong today* (ran). After a private write of `[3, 4]` into an
-inactive group and a call that throws (a different layout), the group is
-inactive and holds `[3.0, 4.0]`: `GroupNormL2(1.0, [1:2, 3:4])` of the iterate
-is `0.0` while that of `Vector(x)` is `7.0710678118654755`, and a state copy
-gives `[0, 0, 0, 0]`. The five-argument form with the same arguments throws
-the same `DimensionMismatch` and leaves `x` unchanged. When nothing throws,
-the two give the same `[2.151471862576143, 2.868629150101524]`.
-
-*Options.*
-
-- **(a) One contract, FA-1 to FA-7, with the five-argument form as the
-  block-trial API** (recommended).
-  - *Correctness:* FW-1 holds through a failing step.
-  - *Downstream:* two functions in ProximalSolvers `src/cd/groups.jl` change
-    (companion §3.3).
-  - *Numerics:* identical results when nothing throws (ran).
-  - *Performance:* for a strided floating-point `u`, the staging loop of
-    `_stage_and_step!` (`src/interface.jl:484–493`) is the same work as the
-    private write; `u` is copied only when it aliases `x`. A benchmark case.
-- **(b) Bless private staging** by documenting `x.storage`. FW-1 then fails
-  for good whenever the following call throws.
-- **(c) Per-method documentation only.** The contract stays implicit.
-
-*Recommendation and reason.* (a): the API already exists, and it is the
-only route that keeps FW-1 when a step fails.
-
-*Kind:* 0.5.x behavior, now stated; a downstream migration.
-
-*Migration.* Companion §3.3.
-
-*Relation to #388/#391:* consistent extension of ORC-5, ORC-6 and ORC-9.
-
-*Sign-off:* ☑ maintainer, 2026-11-01.
+The [2026-11-01 sign-off and experiments](https://github.com/mlakolar/ProximalBase.jl/blob/46d318df1608a6b5e8d9ea6976f6ff1384bcc65d/docs/design/iterate-family-0.6.md#fd-12-one-contract-for-coordinate-oracles)
+are an archived historical decision, including its five-argument staging API,
+return types and alias-copy behavior. They are superseded for proximal calls
+and do not impose current requirements. The no-private-staging invariant and
+KKT semantics remain. The current migration is companion §3.3; benchmarks and
+the pending maintainer performance ruling are recorded with #848.
 
 ### FD-13. Wrappers and real-only checks
 
@@ -1359,8 +1332,9 @@ second is `false` for an `AtomIterate`. So after `x[2] = 1; x[1] = 2`,
   - *Downstream:* none audited.
   - *Numerics:* consistent with numerics O7.
   - *Performance:* free unless a source shares memory; then one copy of the
-    source (an allocation). `prox_coordinate!`'s alias check
-    (`src/interface.jl:474–476`) sees more true aliases, only real ones.
+    source (an allocation). This remains the storage-import rule FX-5;
+    pure block buffers instead follow amended FA-5 (exact in-place supported,
+    other overlap rejected). The old proximal alias-copy path is retired.
 - **(b) Reject an aliasing source**, as CPY-6 does. Base's generic methods
   unalias rather than throw, so rejection needs an override on every entry
   point.
@@ -1548,6 +1522,12 @@ its class.
 ---
 
 # Part 4. Evidence (informative)
+
+**Historical pre-#844 audit.** The source locations, retired method names and
+observed results in this part record the pinned 0.5.x audit. They are not
+current acceptance criteria; use amended FA-1–FA-7 and companion FT15/FT16/FT28
+for pure-block behavior. In particular, historical iterate-mutating return and
+partial-write observations do not apply to the new numerical oracles.
 
 "Ran" means a script ran against the audited source with Julia 1.13.3; the
 Base routing was also run on Julia 1.10.12. "Read" gives the line.

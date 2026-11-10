@@ -71,6 +71,23 @@ For mathematical derivations and step-size geometry, read
 
 ## Coordinate descent, restrictions, and optimality
 
+### [Update vocabulary](@id update-vocabulary)
+
+| Term | Meaning |
+|:--|:--|
+| Entry | One scalar of the full vector or matrix; its linear index addresses a separable function's weights and bounds. |
+| Iterate coordinate | One independent storage update: an entry of `SparseIterate`, a lower-triangle variable of `SymmetricSparseIterate`, or a group of `AtomIterate`. |
+| Penalty block | One independent mathematical term of a penalty: a scalar entry for a separable penalty, or a compact vector in a group penalty's own order. This is the index space of `prox_block[!]`. |
+| Group | An ordered collection of global entry indices. A solver must check that its iterate and penalty use matching ordered groups before sharing a group ID. |
+| Active slot | A temporary position in packed working-set handles; its order can change during compaction. It is never a penalty block or coordinate ID. |
+| Atom | A compact linear-minimization result, such as `VertexAtom` or `LowRankAtom`, returned by supported `lmo_atom` calls. It does not mean a group of coefficients. |
+
+The existing storage names `AtomIterate`, `atom(x,k)` and `atomindices(x,k)`
+refer to grouped storage and group views. They do not imply linear-minimization
+atom semantics. Their proposed rename is a separate maintainer decision;
+the #844 migration retains these names. `value_entry`, `coordinate_lipschitz`
+and iterate-aware `kkt_violation` retain their existing scopes.
+
 | Operation | Use |
 |:--|:--|
 | [`prox_block(g, u, k, γ)`](@ref prox_block) | Mathematical result for scalar entry or penalty group `k` at trial `u` |

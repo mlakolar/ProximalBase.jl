@@ -4,7 +4,7 @@ The implementation is published for review in
 [draft PR #848](https://github.com/mlakolar/ProximalBase.jl/pull/848) and remains
 unmerged. The mathematical API is committed at
 PB `8fb174454a5b0c431376decf5a3c87830353a562` (tree
-`58fdb820ad84d9c30d317ccab58190dcd5ba0e04`). The companion PS commit is
+`58fdb820ad84d9c30d317ccab58190dcd5ba0e04`). The numerical PS companion was validated at
 `75894887d7272df71c2c263feb4ea0b6d211fd48`, based on
 `f9b7a26663b499b6f881bcc26c56d1acced06749`.
 
@@ -31,6 +31,54 @@ package images disabled. This includes migrating the new `WrongAtomKKT`
 fixture from master to the `prox_block` author hook.
 The reorganized documentation also built successfully on Julia 1.10.10,
 including executable examples and generated contracts, with deployment disabled.
+
+## Review follow-up (#848)
+
+The [review at `46d318df`](https://github.com/mlakolar/ProximalBase.jl/pull/848#pullrequestreview-5847928791)
+identified contradictory live requirements in the four design/acceptance
+documents. They now specify pure block math followed by a separate public
+storage write: FA-1–FA-7, FL-4, symmetric IDX-3 and ORC-5–ORC-7, the migration
+recipe, FT15/FT16/FT23/FT28, T04/T05 and performance protocols. Rule IDs are
+preserved. The old FD-12 sign-off is linked as an archived decision; retired
+call spellings survive only in explicitly historical audit/evidence sections.
+
+A vocabulary table distinguishes entry, iterate coordinate, penalty block,
+group, active slot and LMO atom. The storage-name change remains a separate
+maintainer decision; this migration retains `AtomIterate` and its accessors.
+The developer guide explains the intentional `_block_owner` preflight safety
+dependency and the need to update its guard/tests for new representations.
+
+The companion is now published as
+[ProximalSolvers #237](https://github.com/mlakolar/ProximalSolvers.jl/pull/237),
+still pinned to PB `8fb17445`. Its required CI must pass on the exact final
+pair before merge. The previously matched **269 failures and 83 errors** are
+regression evidence, not green integration; PS #230 and PB #527 remain open.
+Its initial [Linux CI run](https://github.com/mlakolar/ProximalSolvers.jl/actions/runs/42885546237/job/130073189488)
+reported **120,044 passes, 269 failed assertions and 83 errors**. Equal failure
+counts alone do not assert that every failing case was independently compared
+again in CI.
+
+The published PS head `8e98442bf6a16bf765182c3fdfcdc8472cc3511d` adds a docs-only
+follow-up: replace the example's removed `nnz` alias with `nactive`, render the
+pinned block docstrings locally, and resolve their existing PB references
+without requiring publication of the new API first. The documentation built
+locally on Julia 1.10.10 with deployment disabled. PS source, tests and dependency
+pins are unchanged from the numerical validation commit. The refreshed
+two-commit patch applied with `git am` to baseline `f9b7a266`; its resulting
+tree exactly matches the published companion tree
+`5bf1dd810c142a6c0e0910e7fd12edb4730f67d0`.
+
+**Performance gate: pending.** On 2026-11-10 the maintainer explicitly chose
+to keep this gate pending. The +21 ns small-block case and up to 1.056×
+whole-solve cost have not been approved. No new timing claim or bulk-writer
+redesign is made in this documentation follow-up; #787 remains separate.
+
+Local review validation on Julia 1.10.10: **3,325 assertions passed** across
+`block_step`, `block_step_failures` and `symmetric_oracles`; the documentation
+build, including executable examples and all rendered contracts, passed with
+deployment disabled. A separate content audit found no retired oracle in live
+requirements/examples/acceptance cases and verified that normative rule IDs
+are preserved. Production source and extensions are unchanged by this follow-up.
 
 ## Contract and inventory
 

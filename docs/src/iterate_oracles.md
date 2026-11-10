@@ -4,6 +4,8 @@ A solver owns trial construction, penalty index conversion, storage writes,
 cache updates and active-set policy. [`prox_block`](@ref) and
 [`prox_block!`](@ref) supply the mathematical result; the four-argument
 [`kkt_violation`](@ref) screens an iterate coordinate at zero.
+See [Update vocabulary](@ref update-vocabulary) for entry, coordinate, penalty
+block, group and atom terminology.
 
 ## Steps on one coordinate
 

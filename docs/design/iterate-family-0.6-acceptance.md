@@ -1,12 +1,12 @@
 # The iterate family in 0.6: compatibility and acceptance
 
-> **#844 amendment:** The storage-aware `prox_coordinate!` requirements and
-> `prox_entry` spelling below are superseded by
-> [the pure block proximal contract](block-prox-0.6.md). Solvers compute
-> `prox_block`/`prox_block!`, convert function indices explicitly, validate
-> symmetric parameters and layouts, then write through public storage APIs.
-> Iterate representation, write activation and KKT requirements stay in force.
-
+> **Current #844 amendment (2026-11-10):** The live requirements, examples
+> and acceptance cases below use the [pure block proximal contract](block-prox-0.6.md).
+> Solvers compute `prox_block`/`prox_block!`, convert penalty indices explicitly,
+> validate symmetric parameters and group layouts, then write through public
+> storage APIs. Historical audits and decision evidence are explicitly marked;
+> their retired spellings are not current requirements. Storage representation,
+> activation, KKT, curvature and step-policy requirements remain unchanged.
 
 > **The target 0.6 design and acceptance plan, signed off on 2026-11-01 (FD-16
 > decided on 2026-11-06: the direct product), not documentation of a registered release.** This plan explains how
@@ -28,6 +28,10 @@ this amendment; the earlier audit and sign-off record describe the prior API.
 Ordinary `SparseVector` and `SparseMatrixCSC` methods are unchanged.
 
 # 1. What was audited
+
+**Archived source audit, before #844.** Retired oracle names in this section
+describe the pinned code only. They are not supported calls or live acceptance
+requirements. The current migration recipe is §3.3 and the updated tests are §5.
 
 **Commits.** ProximalBase `def81ec9d021c39ed1727cfeb9598357291dd60d` (master,
 `Project.toml` 0.5.4). ProximalSolvers `3893fb95da9ab7326530c46b24fed801dbac1e74`
@@ -165,12 +169,12 @@ FD-16 was decided in #419 on 2026-11-06: the direct sum over the nonzero entries
 | issue | fixed on master | decided here | remains for that issue |
 |:--|:--|:--|:--|
 | #137 API additions and 0.6 decisions | `findnz` and `nonzeros` for `SparseIterate` (`src/sparse_iterate.jl:448`, `:457–471`) | the iterate-contract item for S and A: FD-6, FD-10, FD-13; the owner by #388 | the non-iterate items (`iszeropreserving`, tuple calculus, `public` declarations, the validation hook, `Testing` defaults, non-public stdlib names, deprecations) |
-| #189 writes through `atom` (closed) | `atom(x, k)` is `view(x, G)` and activates (`src/atom_iterate.jl:163–166`); regression tests `test/atom_iterate.jl:244–269`; the block-trial form exists (`src/interface.jl:469–478`) | kept (FC-5); the five-argument form is the supported trial (FA-7) | nothing; ProximalSolvers' private staging, which #189's decision found, migrates (§3.3) |
+| #189 writes through `atom` (closed) | `atom(x, k)` is `view(x, G)` and activates (`src/atom_iterate.jl:163–166`); regression tests `test/atom_iterate.jl:244–269`; the block-trial form exists (`src/interface.jl:469–478`) | storage view kept (FC-5); numerical block trial then public write (amended FA-7) | nothing; ProximalSolvers' private staging, which #189's decision found, migrates (§3.3) |
 | #192 what `nnz` counts | — | FD-10: SparseArrays' meaning on `SparseIterate`, no `nnz` on `AtomIterate`, four named counts (FC-10, FC-11) | the owner part (ACT-2, #391); other packages' `1:nnz` loops over fields move to `activevalues` |
 | #341 value oracles reading every entry | — | FN covers products, not these values. Numerics decision 47 rejects non-finite `LinearFunction` coefficients, so FN-1 does not change `LinearFunction`'s value | all four oracles, under #366 G2 |
 | #364 views bypass the real check | — | FD-13: the iterate's own bulk writes check first (FX-4); wrappers follow Base (FN-8), with no overrides, and FD-13 proposes O6 and S4 text that says so. The check needs `copyto!(x::SparseIterate, y::AbstractArray)` and the methods that resolve its ambiguities with SparseArrays. The complex `copyto!` partial write and the `vec(xm)` broadcast are recorded on #364 | the `copyto!` check (a 0.5.x bug fix), its ambiguity-resolving methods, and the docstrings |
 | #366 numerical contract | the Phase 0 conformance suite (#387, merged as `aea50cd9`, after the audited commit), with M1 storage rows in `test/conformance/failures_storage.jl` | FD-9's amendment of M1, E2, E3, C1 and S4, and FD-13's O6 and S4 text, word for word; FD-16's M1 paragraph (item 6 of M1, the direct sum); FX-4 and FX-5 follow O6.1 and O7 | sign-off of the amendments, FD-16's separately; the M1-amendment rows join the conformance suite as rows marked `broken = (group = :G2, baseline = …)`, the suite's mechanism for known failures, until FD-9 lands; G2 implements FN-1 and FN-9; G12 covers FX-4 and FX-5 |
-| #367 aliasing audit | — | FX-5: imports from a handle follow Base's `unalias`; FA-5 holds today | the oracle-by-oracle audit |
+| #367 aliasing audit | — | FX-5: storage imports follow Base's `unalias`; amended FA-5 supports exact in-place numerical buffers and rejects other overlap | the oracle-by-oracle audit |
 | #368 owner views unchecked | — | nothing new; for S and A, writes through wrappers follow FN-8 | expected to close with #391 (MAT-2) |
 | #391 owner implementation | Phase 0: `matrixview`, `activevalues`, owner `dataids` (#392); the `owner` benchmark group (#401) | FD-3 keeps CPY-4 as written; FD-9 amends decision 13, PERF-6's default and T13, and PERF-6's requirement (option (i)); FD-7 shares ACT-3's handle and adds the whole-state replacement to the lifetime of ACT-3 and ACT-4 (a consistent extension); FD-16 decides the class of the owner's three-factor product (decided and implemented: the direct sum, for the matrix iterate and the owner); FD-4 and FD-5 are consistent with ORC-3, ORC-6, CRD-1 | Phase 1 implements CPY-4 and the owner parts of FD-7 and FD-9 (and FD-16 once decided); Phase 2 the downstream recipes |
 | #342 groups on an owner | — | out of scope: FL applies to `AtomIterate` | as is |
@@ -217,41 +221,30 @@ _activeentries(x::AtomIterate) = Iterators.flatten(atomindices(x, k) for k in ac
 
 ## 3.3 Group trials in `src/cd/groups.jl`
 
-The trial point goes into the model's buffer and through the five-argument
-form (FA-7); `x` is written only by `prox_coordinate!`.
+The solver checks its penalty/iterate layout once before the step, constructs
+the trial in its numerical model buffer, calls the pure oracle, writes through
+`atom(x,k)`, then updates its residual from the retained old coefficients.
+For positive curvature, the mathematical/write core is:
 
 ```julia
-# 0.6 (future); the QuadModel method changes the same way, with old - buf[i] / L
-function _groupstep!(m::LSModel{T}, g::AbstractFunction, x::AtomIterate{T}, k::Int, scaled::Bool) where {T}
-  G = atomindices(x, k)
-  n = length(G)
-  buf = _groupbuffer!(m, 2n)
-  for (i, j) in enumerate(G)
-    a, b = _column_dot(m, j)
-    m.a[j] = a
-    buf[i] = b
-  end
-  L = _groupcurvature!(m, x, k)
-  for (i, j) in enumerate(G)
-    old = x[j]
-    buf[n + i] = old
-    buf[i] = iszero(L) ? old : old + m.s * buf[i] / L      # the trial point, not written into x
-  end
-  prox_coordinate!(x, g, k, view(buf, 1:n), iszero(L) ? floatmax(T) : inv(L))
-  maxh = zero(T)
-  for (i, j) in enumerate(G)
-    h = x[j] - buf[n + i]
-    iszero(h) && continue
-    _residual_axpy!(m, j, h)
-    maxh = max(maxh, _scaledchange(m, x, j, h, scaled))
-  end
-  maxh
-end
+G = atomindices(x, k)
+ProximalBase.samegroups(x, g) || throw(DimensionMismatch("group layout"))
+# The solver has constructed u in G's order, retaining the old x[G] separately.
+prox_block!(out, g, u, k, γ)
+copyto!(atom(x, k), out)
+# Update the residual/cache from each stored x[j] minus its retained old value.
 ```
 
-`view(buf, 1:n)` is a strided `Float32`/`Float64` vector, so the group-norm
-kernels take the staging loop of `src/interface.jl:484–493`; `buf` is the
-model's (`src/cd/leastsquares.jl:636`) and does not alias `x`.
+For a separable penalty there is no penalty group partition. Validate its
+parameter extent, call `prox_block(g,u[i],j,γ)` for each `(i,j)` in
+`enumerate(G)`, then perform the same public write. Do not replace each global
+entry index `j` by the iterate group ID `k`. Exact in-place numerical buffers
+are supported; strided model views need not allocate. Never write private
+iterate fields or a tentative trial into the iterate before the oracle call.
+
+The actual LS and quadratic implementations, including their existing
+zero-curvature branches, are in [the exact-pin PS companion #237](https://github.com/mlakolar/ProximalSolvers.jl/pull/237).
+This recipe does not introduce a new zero-curvature minimization policy.
 
 ## 3.4 The momentum history in `src/cd/solver.jl:553–600`
 
@@ -442,8 +435,8 @@ coordinate ID; "today" marks a cell where the audited code differs.
 | `nnz`, `nonzeros`, `findnz`, `issparse` | no specialized methods (amended FC-11); `issparse(x) == false` by Julia fallback | same | no specialized methods | ACT-2 |
 | `dot`, `mul!`, `*` | strong zeros (FN-1, FN-2; today storage- and order-dependent); fallbacks and other objects built from `x` IEEE (FN-3) | both walks of `mul!` and `dot(a, X, b)`: strong zeros; `*(A::Symmetric, X, B::Symmetric)`: the direct sum, for `Float32` and `Float64`, matrix iterate and owner (FN-10, FD-16) | `mul!` skips zeros (today too); `dot`: strong zeros (today not); `transpose(A) * x` and `dot` of an `atom` view: IEEE (FN-3) | PERF-6's default and requirement as amended by FD-9 (requirement: option (i)); ORC-10; `A * X * B`: the direct sum (FD-16), measured against the 0.5.x kernel |
 | scaling `rmul!`, `lmul!`, `rdiv!`, `ldiv!` by a number | IEEE VW equal to `x .*= s` (FN-9; today `[Inf, NaN, 0, 0]` for `rmul!(x, Inf)` with an explicit zero) | same | IEEE VW (today too, through LinearAlgebra's generic method) | `rmul!(coordinates(X), s)`, an ordinary-vector operation (CRD-4) |
-| `prox_coordinate!(x, f, k, γ)` | ID; returns the scalar; FA-3, FA-4 | ID | group ID; returns `atom(x, k)`; layout checked (FL-4) | ORC-5 |
-| `prox_coordinate!(x, f, k, u, γ)` | scalar `u` | scalar `u` | `u` of the group's length, may alias `x` (FA-5); unchanged after a validation error (FA-4); a partial write is possible if reading `u` throws (FA-7, FT16) | ORC-6 |
+| `prox_block(f,u,i,γ)` (scalar) | Function entry index, returns scalar; no storage mutation (FA-1/FA-2) | Global matrix entry index | Apply separately to the global entry indices of a solver group | ORC-5, ORC-7; convert ID to entry index first |
+| `prox_block!(out,f,u,k,γ)` / group `prox_block` | No group decomposition supplied by an iterate | same | Penalty group ID and compact real buffers; exact in-place supported; numerical output only, followed by public storage writes (FA-2–FA-5, FA-7) | No implicit symmetric group decomposition |
 | `kkt_violation(f, g, x, k)` | the scalar screen | same | the group screen (FA-6) | ORC-9 |
 | `prox!(y, f, x, γ)` into the iterate | FW-8: values, every nonzero active, zeros unspecified | same | same; a different layout takes the generic path (FL-5) | ORC-3 |
 
@@ -468,9 +461,11 @@ the same):
   handle taken after the call and compare sets, not order (FC-7).
 - **Aliased inputs.** `copyto!(x, activevalues(x))` copies the source first
   (FX-5); `copyto!(x, view(x, 4:-1:1))` reverses correctly (ran, both types);
-  `x .= 2 .* x` doubles; `prox_coordinate!(a, f, 1, atom(a, 2), γ)` copies `u`
-  (ran: `[2.5, 3.5]` for `NormL1(0.5)` and `atom(a, 2) == [3, 4]`); `prox!(x, f,
-  x, γ)` follows numerics O7.
+  `x .= 2 .* x` doubles. Group block buffers allow `out === u` but reject
+  other overlap and iterate-backed outputs before writes. An allocating group
+  call returns an independent `Vector`. A separable penalty on an iterate group
+  uses scalar entry indices; it does not acquire a group decomposition.
+  `prox!(x, f, x, γ)` follows numerics O7.
 - **Malformed groups** (`ArgumentError`, ran):
   - `AtomIterate(4, [1:2, 2:4])`: "Groups must be disjoint, but index 2 is in
     groups 1 and 2."
@@ -482,7 +477,7 @@ the same):
 - **`Float32` and `Float64` mixed.** Writing `1e-100` into a `Float32` iterate
   activates nothing through every write path: `x[i] =`, `fill!`, `x .= c`,
   `x .= v`, `x .= 1 .* v`, `copyto!`, `x[:] =`, offset `copyto!`, `view .=`,
-  `vec .=`, `atom .=`, and a `prox_coordinate!` whose result rounds to zero
+  `vec .=`, `atom .=`, and a public write of a `prox_block` result that rounds to zero
   (ran; today `fill!` and `x .= c` of an `AtomIterate` activate both groups at
   `0f0`). A `Float64 → Float32` state copy keeps `1e-50` as an active `0f0`
   (ran, FX-1); a value write of `1e-50` from a dense `Float64` array activates
@@ -516,20 +511,20 @@ test. "Fails today" marks a test that fails at the audited commit.
 | **FT12 strong zeros with one iterate operand** | FN-1, FN-2, FN-4 | `s = [1, 0, 0]` stored at 1; `t` with NaN at 2; `A = [NaN 1 0; NaN 1 0]`; `u` with `u[2] = 1` and an explicit zero at 1; `Z = SparseIterate(2, 2)` with `Z[2, 2] = 1` and an explicit zero at `(1, 1)`; `S3 = Symmetric([NaN 0 0; 0 1 0; 0 0 1])`; matrix coefficients `64 × 2` (stored-entry walk) and `3 × 2` (column walk) with an explicit zero against a NaN column; `a = AtomIterate(4, [1:2, 3:4])` with `a[3] = 1` and group 1 active; `v = [NaN, 0, 1, 0]`; an owner with `X[2, 2] = 1` and an explicit zero at `(3, 1)`; `M` with NaN at `(3, 1)` and `(1, 3)` | Reference: an explicit loop over the coordinates where the iterate's coefficient is nonzero. `dot(s, t) == dot(t, s) == 0.0`; `A * u == [1.0, 1.0]` before and after `dropzeros!(u)`, also through `mul!(out, A, u, 2, 0)` (`[2, 2]`), `transpose(permutedims(A)) * u` and `dot(A[1, :], u) == 1.0`; `S3 * u == [0, 1, 0]`; `dot([NaN, 1], Z, [1, 1]) == 1.0` before and after `dropzeros!`; both matrix walks give the loop's result. A non-finite value *in* the iterate meeting a dense zero propagates: with `w[1] = Inf`, `dot([0, 1, 0], w)` is NaN. `dot(v, a) == dot(a, v) == 1.0` before and after `dropzeros!`; `[NaN 0 1 0] * a == [1.0]`; `mul!(y, matrixview(X), [Inf, 1, 0])` and `matrixview(X) * [Inf, 1, 0]` give `[0, 1, 0]` before and after `dropzeros!`; `dot(M, X) == M[2, 2]`; `dot(a3, X, b3)` with a NaN at a zero coordinate equals the loop. The test asserts the classification for zeros and non-finite entries only; the finite values of these cases are small integers, so every order sums them exactly. It records as allowed to differ (FN-4, A1) the finite-overflow pair `M = floatmax(Float64)`, `x = SparseIterate([M, M, -M])`, `y` with ones activated in the order 1, 3, 2: `dot(x, y) == Inf` and `dot(y, x) == M` today. *Fails today* for every stored-zero and order case (NaN, `[0, 1, NaN]`) | the #387 conformance suite, `test/conformance/failures_storage.jl` (M1 rows, each marked `broken = (group = :G2, baseline = …)` until FD-9 lands); `test/sparse_iterate.jl`, `test/atom_iterate.jl`, `test/symmetric_mul.jl` |
 | **FT13 the fallback boundary and objects built from an iterate** | FN-3 | `s` with `s[2] = 1`; `A = [NaN 1; NaN 1]`; the `AtomIterate` `a` of FT12; `a2 = AtomIterate(4, [1:2, 3:4])` with `a2[2] = 1`; `s0 = SparseIterate([0., 1.])`; `b0 = AtomIterate([0., 1.], [1:1, 2:2])`; `m = SparseIterate(2, 2)` with `m[2, 2] = 1` | `sparse(A) * s`, `Diagonal([NaN, 1]) * s`, `dot(sparsevec([1, 2], [NaN, 1]), s)`, `dot(view([NaN, 1, 0], [1, 2]), s)`, `sum(s .* [NaN, 1])` equal (`isequal`) the same calls on `Vector(s)`: `[NaN, NaN]`, `[NaN, 1.0]`, NaN, NaN, NaN; likewise `sparse([NaN 0 1 0]) * a`, `dot(sparsevec([1, 3], [NaN, 1], 4), a)` and `transpose(permutedims([NaN 0 1 0])) * a` (`[NaN]`). By the returned object: `vec(s0) === s0` and `vec(b0) === b0`, so `dot([NaN, 1], vec(s0)) == dot([NaN, 1], s0) == 1.0` and `dot([NaN, 1], vec(b0)) == 1.0` (the iterate's own rule); `dot([NaN, 1], view(s0, :))` is NaN; for the matrix, `dot([NaN, 0, 0, 1], vec(m))` is NaN (a wrapper). Views are ordinary vectors: `dot(atom(a2, 1), [NaN, 1])` is NaN (it equals `dot([0, 1], [NaN, 1])`), and so is a product through `coordinates` (FT01). For an owner with an explicit zero at `(3, 1)`, the matrix–matrix `mul!(C, matrixview(X), [Inf; 1; 0;;])` and `dot(M, matrixview(X))` with a NaN of `M` there equal the same calls on `Matrix(X)` (`isequal`) | `test/nonfinite_inputs.jl` |
 | **FT14 a data-loss value** | FN-5 | `f = LeastSquaresLoss([1, 1], [NaN 1; NaN 1])`; `s` with `s[2] = 1` and an explicit zero at 1; `fa = LeastSquaresLoss([1], [NaN 0 1 0])` at the `AtomIterate` of FT12 | `f(s) == 0.0` before and after `dropzeros!`; `isnan(f([0, 1]))`; `fa(a) == 0.0`. Reference: the residual `y − Σ_{k: s_k ≠ 0} X[:, k] s_k`, a loop in the test. *Fails today* (`f(s)` is NaN with the stored zero) | the #387 conformance suite, `test/conformance/failures_storage.jl` (M1 rows, each marked `broken = (group = :G2, baseline = …)` until FD-9 lands) |
-| **FT15 coordinate oracles** | FA-1–FA-6, FL-4, FC-1 | `x = AtomIterate([1, 2, 0, 0], [1:2, 3:4])`; `fbad = GroupNormL2(1, [[1, 3], [2, 4]])`; `g = [3, 4, 0, 0]`; `x2 = AtomIterate(2, [1:2])` and `g2 = [5/8, 5/8]`; a `SparseIterate` with `x[1] = 0.5` | Return types: a `Float64` for `SparseIterate`, `atom(x, k)` for `AtomIterate`. `prox_coordinate!(x, fbad, 1, 1)`, `prox_coordinate!(x, fbad, 1, [9, 9], 1)` and `kkt_violation(fbad, g, x, 1)` throw `DimensionMismatch`; `k = 3` throws `BoundsError`; `u = [1]` throws `DimensionMismatch`; a complex `u` and a non-separable non-group `f` throw `ArgumentError`; after each, `Vector(x)` and the working set are unchanged. A group step to zero on an absent group leaves it absent; a scalar step to zero on an active coordinate keeps it active. `prox_coordinate!(y, NormL1(0.5), 1, atom(y, 2), 1)` with `atom(y, 2) == [3, 4]` gives `[2.5, 3.5]` (soft threshold by hand). Screens, each by hand from the penalty's own dual norm and default weight (contract, FA-6's table): `GroupNormL2(1, [1:2, 3:4])` at `g`, `≈ 5 − √2` (ℓ₂ norm 5, weight `√2`); **`GroupNormLinf(1, [1:2])` at `g2`, `== 0.25`** (ℓ₁ norm `5/4`, weight 1: the group must enter), where the ℓ₂ formula would give `−0.11611652351681556`, a screen-out; `GroupNormLinf(1, [1:2, 3:4])` at `g`, `== 6.0` (`7 − 1`); `SparseGroupNormL2(1, 1, [1:2, 3:4])` at `g`, `≈ √13 − √2` (the soft threshold of `[3, 4]` at 1 is `[2, 3]`); `GroupMCP` and `GroupSCAD` at `g`, `≈ 5 − √2`; `Scaled(GroupNormLinf(1, [1:2]), 2)` at `g2`, `== −0.75`; `Regularize(GroupNormL2(1, [1:2]), 1, [1, 1])` at `[3, 4]`, `≈ √13 − √2`; `kkt_violation(NormL1(1), g, x, 1) == 3.0` (largest of `|3|, |4|` minus 1); for a `SparseIterate`, `kkt_violation(NormL1(1), [3, −0.5], x, k)` is `2.0` and `−0.5`. *Fails today:* none (the code already computes each penalty's screen) | `test/block_step.jl`, `test/interface.jl` |
-| **FT16 block trials** | FA-7, FW-1 | `f = GroupNormL2(1, [1:2, 3:4])`, `x = AtomIterate(4, f)`; `fl = GroupNormLinf(2, [1:2, 3:4])`, `xl = AtomIterate(4, fl)`; also `SparseGroupNormL2`, `GroupMCP` and `NormL1`, groups of sizes 1, 8, 64, contiguous and not; a non-strided `u` whose `getindex(2)` throws | `prox_coordinate!(x, f, 1, [3, 4], 1) ≈ (1 − √2/5)·[3, 4]` (by hand, `rtol = 4eps`); `prox_coordinate!(xl, fl, 1, [1, 4], 1) == [1, 2]` (by hand: the prox of `2‖·‖∞` clips at τ = 2, where `max(4 − τ, 0) + max(1 − τ, 0) = 2`); for each penalty the five-argument result `==` the result of staging `u` and calling the four-argument form (this package's own test may stage through the private field); with `fbad` the five-argument call throws and `x` is unchanged and consistent; with the throwing `u`, FW-1 holds after the exception (the test does not require `x` unchanged) | `test/block_step.jl`, `test/block_step_failures.jl` |
+| **FT15 block math, public writes and screens** | FA-1–FA-6, FL-4, FC-1 | Sparse vector, symmetric owner and grouped iterate; matching and mismatched penalty layouts; independent numerical buffers | Scalar result has the scalar type, allocating group result is an independent `Vector`, mutating group result is `out` itself. No mathematical call changes values or active IDs of an iterate. A solver detects `samegroups == false` before a public write; KKT detects the mismatch itself. Test scalar global-entry mapping, including a symmetric ID distinct from its matrix entry index. Public writes preserve active zeros and activate only converted nonzeros. Screens, each by hand from the penalty's own dual norm and default weight (contract, FA-6's table): `GroupNormL2(1, [1:2, 3:4])` at `g`, `≈ 5 − √2` (ℓ₂ norm 5, weight `√2`); **`GroupNormLinf(1, [1:2])` at `g2`, `== 0.25`** (ℓ₁ norm `5/4`, weight 1: the group must enter), where the ℓ₂ formula would give `−0.11611652351681556`, a screen-out; `GroupNormLinf(1, [1:2, 3:4])` at `g`, `== 6.0` (`7 − 1`); `SparseGroupNormL2(1, 1, [1:2, 3:4])` at `g`, `≈ √13 − √2` (the soft threshold of `[3, 4]` at 1 is `[2, 3]`); `GroupMCP` and `GroupSCAD` at `g`, `≈ 5 − √2`; `Scaled(GroupNormLinf(1, [1:2]), 2)` at `g2`, `== −0.75`; `Regularize(GroupNormL2(1, [1:2]), 1, [1, 1])` at `[3, 4]`, `≈ √13 − √2`; `kkt_violation(NormL1(1), g, x, 1) == 3.0` (largest of `|3|, |4|` minus 1); for a `SparseIterate`, `kkt_violation(NormL1(1), [3, −0.5], x, k)` is `2.0` and `−0.5`. *Fails today:* none (the code already computes each penalty's screen) | `test/block_step.jl`, `test/interface.jl`, `test/symmetric_oracles.jl` |
+| **FT16 block trials and buffer failures** | FA-2–FA-5, FA-7, FW-1 | `GroupNormL2(1,[1:2,3:4])`, `GroupNormLinf(2,[1:2,3:4])`, SparseGroupNormL2, GroupMCP/SCAD and wrappers; sizes 1, 8, 64, contiguous and noncontiguous groups; non-strided throwing input | `prox_block(f,[3,4],1,1) ≈ (1 − √2/5)·[3,4]`; the Linf result at `[1,4]` is `[1,2]` by clipping at 2. Compare full `prox!` and an independent mathematical reference. Check exact in-place equality and independent allocating output. Bad group ID, lengths, real element types, supported decomposition, parameters, overlap or iterate-backed output throw before numerical writes. A failing input read or conversion may partially change the numerical buffer; the iterate and its active set remain unchanged until a separate public write. Exercise that write and its activation/failure invariant separately. No retired private staging is a reference. | `test/block_step.jl`, `test/block_step_failures.jl`, `test/block_step_grids.jl` |
 | **FT17 layout** | FL-2, FL-4, FL-5, FL-6, FL-7, FX-6 | `gv = [[1, 2], [3, 4]]`, `a = AtomIterate(4, gv)`; `fm = GroupNormL2(1, [[1, 3], [2, 4]])`, `am = AtomIterate([1, 2, 3, 4], [1:2, 3:4])`; the counting index type of `test/atom_iterate.jl:26–31` | After `gv[1][1] = 3`, `atomindices(a, 1) == [1, 2]`. `samegroups(a, GroupNormL2(1, [[1, 2], [3, 4]]))` is `true`; with `[[2, 1], [3, 4]]` `false` (ordered lists); `samegroups(a, copy(a))` `true`; `samegroups(a, AtomIterate(4, [[1, 3], [2, 4]]))` `false`. `fm(am) == fm(Vector(am))` and `prox!(ym, fm, am, 1) == prox(fm, Vector(am), 1)` (the dense calls are the reference). With counted indices: one full comparison when a distinct equal layout is first seen, none on the next call with the same object, one per call when two distinct equal layouts alternate. If FL-3 is adopted, `parentindices(atom(a, 1))[1][1] = 3` throws. *Fails today* (no `samegroups`, no `atomindices`) | `test/atom_iterate.jl` |
 | **FT18 counts and capacity** | FC-9, FC-10, FC-11, FP-3 | `y = SparseIterate(5); y[1] = 1; activate!(y, 3)`; `m = SparseIterate(2, 2)` with `m[2, 1] = 3` and an explicit zero at 4; an `AtomIterate` with one nonzero group, one all-zero active group and one inactive group | `nactive(y) == length(activevalues(y)) == 2`; `count(!iszero, activevalues(y)) == 1`; `collect(zip(activecoordinates(y), activevalues(y))) == [(1, 1.0), (3, 0.0)]`; `activevalues(y)[2] = 4` gives `y[3] == 4`; sorted pairs from `m` agree with its active values; `activevalues(a)` throws `MethodError`; FC-10's entry and group counts equal `count(!iszero, Vector(a))` and the group count by hand. `Base.summarysize(SparseIterate(Float64, n))` within 1 KiB of `24n`; `AtomIterate(Float64, p, K)` with range groups within 1 KiB of `16p + 32K` | `test/iterate_queries.jl` |
 | **FT19 aliasing** | FX-5 | `x = SparseIterate(2); x[2] = 1; x[1] = 2`; `a` an `AtomIterate` with one active group; `w = SparseIterate([1, 2, 0, 4])` | `copyto!(x, activevalues(x))` gives `[1, 2]` (the handle reads `[1, 2]` in slot order, by hand); `Base.mightalias` of `activevalues(x)` and `activecoordinates(x)` with `x` is `true`, and of `activecoordinates(a)` with `a`; `copyto!(w, view(w, 4:-1:1))` gives `[4, 0, 2, 1]`; `w .= 2 .* w` doubles. *Fails today* (`[1, 1]`; #406) | `test/iterate_writes.jl` |
 | **FT20 real-only writes and ambiguities** | FX-4, FN-8, FS-3 | both types with one active entry; `c = ComplexF64[1, 2im, 0, 0]`; `xm = SparseIterate(2, 2)`; `s0 = SparseIterate([0., 1.])` and `b0 = AtomIterate([0., 1.], [1:1, 2:2])` | `copyto!(x, c)`, `copy!(x, c)`, `x .= c`, `x .= 2im`, `fill!(x, 2im)` throw `ArgumentError` and leave `x` unchanged; `SparseIterate(ComplexF64, 2)` and `AtomIterate(ComplexF64, 4, 2)` throw `ArgumentError`. By the returned object: `vec(s0) .= ComplexF64[1, 2im]` and `vec(b0) .= ComplexF64[1, 2im]` are writes into the iterates themselves and throw `ArgumentError` with `s0`, `b0` unchanged (as today); `view(x, 1:2) .= ComplexF64[1, 2im]`, `vec(xm) .= c` (today `1.0` written, then `InexactError`) and, through the coordinate view, `coordinates(x) .= c` throw (any exception; the test does not require `x` unchanged, FN-8). For a vector `x` the last one is a change: today it throws `ArgumentError` before writing, because `coordinates(x)` is `x`. The checked `copyto!` takes every sparse source without ambiguity: `copyto!(xm, sparse([1.0 0; 0 2]))`, a view, an adjoint and a transpose of it all give `Matrix(xm) == [1 0; 0 2]`, and the ambiguity check of `test/aqua.jl` (`Aqua.test_all`, which includes `test_ambiguities`) passes. *Fails today* for `copyto!`, `copy!` (`InexactError` after a write) and `fill!` (`InexactError`) | `test/real_iterates.jl`, `test/aqua.jl` |
 | **FT21 empty and malformed** | FL-1, FS-3 | the edge-case list of §4 | the outcomes listed there, with the exact messages | `test/atom_iterate.jl`, `test/iterate_queries.jl` |
 | **FT22 equality and shape** | FS-1, FS-2, FS-5 | `a`, `b` `AtomIterate`s with entries `[1, 0, 0, 0]`, `b` with group 2 also active; `s`, `t` `SparseIterate`s likewise | `a == b`, `isequal(a, b)`, `hash(a) == hash(b)`, `a == [1, 0, 0, 0]`; the same for `s`, `t`; `s isa AbstractArray`, `a isa AbstractVector`; `matrixview(s)` throws `MethodError` | `test/iterate_queries.jl` |
-| **FT23 allocation** | FP-1, FP-2, FP-5, FP-7, FW-5 | warmed-up `Float32` and `Float64` fixtures of §6 | `@allocated` is 0 for `x[i]`, `x[i] = v`, a first activation, `isactive`, `activate!`, `activecoordinates(x)`, `activevalues(x)`, `coordinates(x)`, `atom(x, k)`, `atomindices(x, k)`, `dropzeros!`, `fill!(coordinates(x), 0)` on both coordinate views (FP-7, whose `O(s)` cost §6 measures), `mul!(out, A, x)`, `dot(v, x)`, the five-argument `prox_coordinate!` with a strided `u`, and the loops of §3.4. Growth with `n`, `s` and `p` is checked in §6 | `test/allocations.jl` |
+| **FT23 allocation** | FP-1, FP-2, FP-5, FP-7, FW-5 | warmed-up `Float32` and `Float64` fixtures of §6 | `@allocated` is 0 for `x[i]`, `x[i] = v`, a first activation, `isactive`, `activate!`, `activecoordinates(x)`, `activevalues(x)`, `coordinates(x)`, `atom(x, k)`, `atomindices(x, k)`, `dropzeros!`, `fill!(coordinates(x), 0)` on both coordinate views (FP-7, whose `O(s)` cost §6 measures), `mul!(out, A, x)`, `dot(v, x)`, scalar `prox_block`, group `prox_block!` with strided numerical buffers, the separate `copyto!(atom(x,k),out)` writer, and the loops of §3.4. Growth with `n`, `s` and `p` is checked in §6 | `test/allocations.jl` |
 | **FT24 performance gates** | FP-6, FP-7 | §6 | each FD case against the 0.5.x baseline (the three-factor cases included, since FD-16 changes the algorithm of the matrix iterate's `A * X * B`): a repeatable slowdown above 5% on a representative case is investigated and reported on the implementing pull request, and merging it needs the maintainer's recorded approval (numerics C3) | `benchmark/` |
 | **FT25 no private fields downstream** | FF-1, FF-2 | ProximalSolvers `src/` | a scan for `.nzval`, `.nzval2ind`, `.ind2nzval`, `.storage`, `.active`, `.nactive`, `.position`, `.group_of`, `.layout_cache` and `.groups` on iterate receivers finds none (an allowlist names the penalty-field reads) | ProximalSolvers `test/` (outside this repository) |
 | **FT26 continuation and workspace start** | FW-2, FW-6 | `solve!` with `continuation > 0` from an `x` holding a nonzero and an explicit zero, S and A; a CD workspace with a dense start solved twice | the result equals that from a fresh zero iterate (`1e-10`, cyclic order); the working set is empty right after the start (through a test hook on the start helper); the second workspace solve starts with the dense start's support in the slot order of 0.5.x's fill-and-scatter (the §3.5 recipe; for strided groups this differs from a fresh construction, FW-6). Fails after FD-2 without the §3.5 change | ProximalSolvers `test/` |
 | **FT27 momentum through accessors** | FC-6, FC-8, FC-9, FF-2 | CD with momentum on a lasso (S) and group lassos (A, contiguous and strided groups), cyclic order | the objective after every pass equals, to relative `1e-12`, a run recorded at the audited commits; FT25 finds no field use | ProximalSolvers `test/` |
-| **FT28 block trials without private writes** | FA-7, FF-2 | `_groupstep!` for `GroupNormLinf`, `SparseGroupNormL2` and `NormL1` on `LSModel` and `QuadModel` | iterates equal, to relative `1e-12`, a run recorded at the audited commits; a step whose `prox_coordinate!` throws leaves no inactive group with a nonzero entry | ProximalSolvers `test/` |
+| **FT28 block trials without private writes** | FA-1–FA-5, FA-7, FF-2 | Generic LS/quadratic GroupNormLinf, SparseGroupNormL2 and separable NormL1, plus specialized LS/quadratic/multiresponse GroupNormL2 paths | Compare trajectories/objectives with the pinned pre-#844 source using the same cyclic order and precision. A failing numerical block call leaves iterate values, active IDs and residual/cache unchanged. Successful steps write only through public storage methods and update caches from the actual stored difference. Check layout preflight, global scalar indices, the existing KKT zero-group skip, lazy curvature and zero-curvature branches; no duplicate shrink kernel or private trial staging remains. Require the exact-pin PS PR and its green required CI; matching baseline failures alone do not pass this gate. | ProximalSolvers `test/`, companion #237 |
 | **FT29 scaling by a number** | FN-9 | `x = SparseIterate(4)` with `x[1] = 1` and an explicit zero at 2; `b = AtomIterate(4, [1:2, 3:4])` with `b[1] = 1` | Reference: `x .*= s` (respectively `x ./= s`) on a copy, values and working set. `rmul!(x, Inf)`, `lmul!(Inf, x)`, `rdiv!(x, 0.0)`, `ldiv!(0.0, x)` give `[Inf, NaN, NaN, NaN]` with working set `[1, 2, 3, 4]` (today `[Inf, NaN, 0, 0]` with `[1, 2]`); `rmul!(b, Inf)` gives `[Inf, NaN, NaN, NaN]` with groups `[1, 2]` (today too); `rmul!(x, 2.0)` gives `[2, 0, 0, 0]`, keeps `[1, 2]` and allocates nothing. *Fails today* for `SparseIterate` | `test/sparse_iterate.jl`, `test/atom_iterate.jl` |
 
 **Requirement coverage.** FS-1 FT01, FT22; FS-2 FT22; FS-3 FT20, FT21; FS-4
@@ -617,9 +612,11 @@ active. Dense operands with 256 and 1024 rows.
 - **FP-7:** `fill!(coordinates(x), 0)` on both coordinate views, and the
   owner's clear `fill!(coordinates(X), 0); dropzeros!(X)`, as `s` grows at
   fixed `q` (the case of ProximalSolvers' `src/cd/quic.jl:91`);
-- **FD-12:** the five-argument block trial against staging plus the
-  four-argument call, for `GroupNormL2`, `GroupNormLinf`, `SparseGroupNormL2`
-  and `NormL1`, group sizes 1, 8, 64;
+- **Amended FD-12 / #844:** pure block math plus the separate public writer
+  against the pinned pre-#844 storage-aware step, for `GroupNormL2`,
+  `GroupNormLinf`, `SparseGroupNormL2` and entrywise `NormL1`, group sizes
+  1, 8, 64. Report math, writer and combined timings separately, with paired
+  whole-solve measurements and an A/A control if reconfirming the decision;
 - **FD-8:** the momentum value loops of §3.4 against the private-field
   versions;
 - **FD-14:** `copyto!(x, v)` from an unrelated `v` (the alias check only),
@@ -687,7 +684,7 @@ tracks FD-16 (decided on 2026-11-06), and the follow-on issues below were filed 
 | 4. FD-13 real check in `copyto!` and `copy!` | 0.5.x bug fix | — | #364; #366 G12 (O6.1) | on #364 |
 | 5. FN-6 `AtomIterate` `fill!` converts first | 0.5.x bug fix | — | #366 G1 (conversions) | #421 |
 | 6. FD-6 `atomindices` and `ProximalBase.samegroups` | 0.5.x-safe addition | 1 | ProximalSolvers migration | #422 |
-| 7. FD-4, FD-10, FD-12: state the rules 0.5.x already meets | 0.5.x-safe addition (documentation) | — | `docs/src/iterates.md` | #423 |
+| 7. FD-4, FD-10 and historical FD-12 | Original 0.5.x documentation work; proximal part of FD-12 superseded by #844 | — | Current FA-1–FA-7 and PS companion #237 | #423; #844 |
 | 8. ProximalSolvers: §3.1–§3.4 and §3.8 | downstream, runs on 0.5.x | 6 | #391 Phase 2 | mlakolar/ProximalSolvers.jl#165 |
 | 9. ProximalSolvers: §3.5 | downstream, runs on 0.5.x | — | was to land before 10; released in ProximalSolvers v0.3.2 | mlakolar/ProximalSolvers.jl#164 |
 | 10. FD-2 one working-set rule | breaking 0.6 | 1, 9 | #391 Phase 1 | #424 |

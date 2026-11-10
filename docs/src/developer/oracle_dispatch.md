@@ -51,6 +51,15 @@ The block oracle supplies only the mathematical result. Its allocating form
 returns a plain `Vector`; its mutating form supports exact in-place buffers
 and rejects other overlap and iterate-backed outputs.
 
+The private `_block_owner` preflight recognizes built-in iterate owners and
+their coordinate/group views so that a numerical output cannot accidentally
+activate storage. This representation dependency is intentional safety
+validation; the mathematical kernels do not read or write iterate state.
+Adding or renaming an iterate or storage-backed wrapper requires updating
+that guard and its rejection tests. Arbitrary arrays exposing private storage
+remain unsupported, as specified by the block buffer contract.
+See [Update vocabulary](@ref update-vocabulary) for the public terminology.
+
 ## Validation and symmetric geometry
 
 A symmetric owner does not participate in generic `AbstractArray` methods.

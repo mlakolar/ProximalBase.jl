@@ -1,12 +1,12 @@
 # SymmetricSparseIterate in ProximalBase 0.6: the contract
 
-> **#844 amendment:** The storage-aware `prox_coordinate!` requirements and
-> `prox_entry` spelling below are superseded by
-> [the pure block proximal contract](block-prox-0.6.md). Solvers compute
-> `prox_block`/`prox_block!`, convert function indices explicitly, validate
-> symmetric parameters and layouts, then write through public storage APIs.
-> Iterate representation, write activation and KKT requirements stay in force.
-
+> **Current #844 amendment (2026-11-10):** The live requirements, examples
+> and acceptance cases below use the [pure block proximal contract](block-prox-0.6.md).
+> Solvers compute `prox_block`/`prox_block!`, convert penalty indices explicitly,
+> validate symmetric parameters and group layouts, then write through public
+> storage APIs. Historical audits and decision evidence are explicitly marked;
+> their retired spellings are not current requirements. Storage representation,
+> activation, KKT, curvature and step-policy requirements remain unchanged.
 
 > **Draft for maintainer review — proposed 0.6 behavior, not a description of an
 > installed release.** Phase 1 of the owner is implemented on the development branch: the owner is not an array, with `coordinates`, `matrixview`, the active-coordinate handles, pair indexing, state copies and checked imports, owner-to-owner equality and `hash`, the one throwing `axes`, the proximal, gradient and Hessian oracles and the wrappers that the owner supports, and the products and reductions with strong zeros, including the three-factor product `A * X * B` of FD-16 (#419) for homogeneous `Float32` and `Float64`. The other phases of #391, the migration of the solvers that use the owner (#527) and the release remain. This file is the only
@@ -16,9 +16,8 @@
 
 > **Amendment and extensions from the iterate-family contract (#400), signed
 > off on 2026-11-01.** The [iterate-family contract](iterate-family-0.6.md) changes one
-> rule of this file and extends several others without changing them. The text
-> of this file is left as #388 signed it off; where it differs from the
-> amendment below, the amendment applies.
+> rule of this file and extends several others without changing them. The original rule IDs are retained, with the amendments below and the
+> current #844 proximal requirements applied explicitly.
 >
 > - [FD-9](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products):
 >   a zero coefficient of the owner contributes nothing to a product with one
@@ -202,8 +201,8 @@ owner cannot prevent that and does not claim to. What it removes is the
 |:--|:--|
 | IDX-1 | The coordinate ID of the lower-triangle position `(r, c)`, `r ≥ c`, *must* be `tril_index(p, r, c)`; IDs *must* follow column-major order of the lower triangle, as today. `tril_cartesian(p, k)` *must* invert it. |
 | IDX-2 | `X[i, j]` with `i < j` *must* denote the variable of `(j, i)`. |
-| IDX-3 | `prox_entry(f, v, i, γ)` takes a *matrix* linear index `i = (c − 1)p + r` (it indexes weights and bounds, which are matrices). This is the one place an oracle takes a matrix linear index; every coordinate operation takes an ID `k`. Docstrings *must* say which. |
-| IDX-4 | An integer passed to a coordinate API (`coordinates(X)[k]`, `isactive`, `activate!`, `prox_coordinate!`, `kkt_violation`) is **always** interpreted as an ID. A caller holding a slot `a` writes `activecoordinates(X)[a]`. When a slot and a valid ID are the same `Int` the implementation cannot tell the intent, and no new index type is introduced to do so. |
+| IDX-3 | Scalar `prox_block(f,u,i,γ)` takes a full-matrix linear entry index `i = (c-1)p+r` into the function's weights/bounds. A solver holding independent coordinate ID `k` *must* compute `(r,c) = tril_cartesian(p,k)` and then `i`; `k` must not be passed implicitly as `i`. Validate parameter symmetry separately before scalar calls. |
+| IDX-4 | An integer passed to a coordinate API (`coordinates(X)[k]`, `isactive`, `activate!`, `kkt_violation`) is **always** interpreted as an ID. A caller holding a slot `a` writes `activecoordinates(X)[a]`. When a slot and a valid ID are the same `Int` the implementation cannot tell the intent, and no new index type is introduced to do so. |
 
 ## 2.3 The coordinate view
 
@@ -267,7 +266,7 @@ Three counts must not be confused:
 | ACT-2 | **`nnz(X)` is not retained.** It *must* be undefined for the owner. `nactive(X)` replaces it. A matrix-view `nnz` is *not* added: no audited caller needs one. `SparseArrays.sparse(A)` is the way to ask a matrix question (*recommended:* `O(p + s)`). |
 | ACT-3 | `activecoordinates(X)` *must* return a read-only `AbstractVector{Int}` of the IDs of the active coordinates in slot order, of length `s` at the call. It is a **handle, not a snapshot**: its entries are valid IDs, in unchanged slots, for as long as the active set is unchanged. It *must* be reacquired after any activation or compaction. Use of a stale handle after `dropzeros!` is not specified (the slots may have moved) but *must not* be memory-unsafe. *(Consistent extensions: FD-7, [iterate-family contract](iterate-family-0.6.md#fd-7-read-only-active-coordinate-handles): one handle type for the family, and a whole-state replacement also ends the handle.)* |
 | ACT-4 | `activevalues(X)` (**new name**) *must* return a writable `AbstractVector{T}` of length `s` whose entry `a` is the value of coordinate `activecoordinates(X)[a]`. Writing zero through it keeps the coordinate active. Same lifetime as ACT-3. It is the supported replacement for reading and writing the first `nnz` stored values by slot. *(Consistent extension: FD-7, [iterate-family contract](iterate-family-0.6.md#fd-7-read-only-active-coordinate-handles).)* |
-| ACT-5 | Writing a value (CRD-3, `X[i,j] = v`, `activevalues`, `prox_coordinate!`) *must never remove* an active coordinate. Only `dropzeros!` removes a single coordinate, and only one whose value is zero. The one exception is **whole-state replacement**: `copyto!(X, Y)` and `copyto!(X, M)` (CPY-3, CPY-4) discard the previous working set by design, and `copy` and state copies *preserve* active zeros. A sweep over `activecoordinates(X)` that only updates already active coordinates *must* leave `activecoordinates(X)` unchanged, whatever values it writes. |
+| ACT-5 | Writing a value (CRD-3, `X[i,j] = v`, `activevalues`, a public write of a `prox_block` result) *must never remove* an active coordinate. Only `dropzeros!` removes a single coordinate, and only one whose value is zero. The one exception is **whole-state replacement**: `copyto!(X, Y)` and `copyto!(X, M)` (CPY-3, CPY-4) discard the previous working set by design, and `copy` and state copies *preserve* active zeros. A sweep over `activecoordinates(X)` that only updates already active coordinates *must* leave `activecoordinates(X)` unchanged, whatever values it writes. |
 | ACT-6 | `activate!(X, k)` is the explicit-zero operation: it makes `k` active at value zero if it is absent and changes nothing otherwise. After `X[3,1] = 0.0` (absent) `nactive` is unchanged; after `activate!(X, tril_index(3,3,1))` it is one larger. |
 | ACT-7 | `dropzeros!(X)` *must* keep every value, every owner/view relation and every ID unchanged. It *may* reorder slots (today: the last active coordinate moves into each freed slot). It *must* run in `O(s)` and not allocate. |
 | ACT-8 | What survives compaction: `X`, `θ` and `A` keep denoting the same variables and values; coordinate IDs do not change; slot order and any handle from ACT-3/ACT-4 do not. |
@@ -317,10 +316,11 @@ two positions. A solver *must not* multiply either of them by 2 again.
 **Proximal example, with the check you can do by hand.** Minimize
 `½‖Z − B‖²_F + λ Σᵢⱼ |Zᵢⱼ|` with symmetric `B`, `B[r,c] = 3`, `λ = 0.5`. On the
 coordinate the objective is `(t − 3)² + 2λ|t|`; the doubled quadratic and the
-doubled penalty cancel and the minimizer is `3 − λ = 2.5`, not `2.0`. At the
-audited commit, `prox!` into an owner, `prox_entry(NormL1(0.5), 3.0, 2, 1.0)`,
-`prox_coordinate!(X, NormL1(0.5), k, 3.0, 1.0)` and a joint-direction coordinate
-step all give `2.5`.
+doubled penalty cancel and the minimizer is `3 − λ = 2.5`, not `2.0`. With the
+current interface, `prox!` into an owner and
+`prox_block(NormL1(0.5),3.0,i,1.0)` give `2.5`, where
+`(r,c) = tril_cartesian(p,k)` and `i = (c-1)p+r`. The solver then writes
+`coordinates(X)[k] = result`; the mathematical call itself does not write `X`.
 
 The step that the entrywise prox sees depends on how the curvature is
 normalized. Let `a` be the curvature along `Eₖ` and `a_u = a / mₖ` the curvature
@@ -331,9 +331,8 @@ along the *unit-Frobenius* direction `Eₖ/√mₖ`. The scalar problem
 θ⁺ = prox_{(mₖ/a) gᵢ}( θ − d/a ),     entrywise step  mₖ/a = 1/a_u.
 ```
 
-So **the step handed to `prox_entry`, and the `γ` of the four-argument
-`prox_coordinate!`, is the reciprocal of the curvature measured along a
-unit-Frobenius direction.** For the example `a = 2`, `mₖ = 2`: step `1`, giving
+So **the scalar step handed to `prox_block` is the reciprocal of the
+curvature measured along a unit-Frobenius direction.** For the example `a = 2`, `mₖ = 2`: step `1`, giving
 `2.5`. Using step `1/a = 0.5` (curvature normalized but the penalty not
 doubled) gives `2.75`; using step `2` (penalty doubled, curvature entry-normalized
 as `1`) gives `2.0`. Both are wrong, silently.
@@ -382,9 +381,9 @@ operator: only the rows below, for the families they name, are promised.
 | ORC-2 | `f(θ)`, `f(A)` | ordinary function of a vector, of a matrix | none | value at the input |
 | ORC-3 | `prox!(Y, f, V, γ)`, `Y` an owner, `V` an owner or matrix | the minimizer over symmetric `Z` of `f(Z) + ‖Z − V‖²_F / (2γ)` | `Y` is the destination. `V === Y` is supported for **every** function that supports the proximal operation, as numerics O7 promises (recovery paths read no entry they have already overwritten); the unsupported case is a *partial overlap* of `V` and `Y` (a shifted view, #318), not a family of functions. A `V` sharing memory with `Y` through `matrixview(Y)` is the same alias as `Y`. | `Y` |
 | ORC-4 | `value_and_prox!(Y, f, V, γ)` | as ORC-3 | as ORC-3 | `f(Y)`, the value *at the result* |
-| ORC-5 | `prox_coordinate!(X, f, k, γ)` | one coordinate; the scalar `prox_entry(f, θₖ, i(r,c), γ)` with the other coordinates fixed. The multiplicity cancels: `mₖ` multiplies both `f` and the quadratic. | writes `θₖ` in place (CRD-3 for zeros) | the new `θₖ` |
-| ORC-6 | `prox_coordinate!(X, f, k, u, γ)` | as ORC-5 for the trial value `u`, which is *not* written first | writes `θₖ`; a coordinate that stays zero stays absent | the new `θₖ` |
-| ORC-7 | `prox_entry(f, v, i, γ)` | raw scalar prox of the entry term at matrix linear index `i` (IDX-3) | none; checks no parameters | the scalar result |
+| ORC-5 | `v = prox_block(f,u,i,γ)` after IDX-3 conversion | One scalar entry term at trial `u`; the solver determines trial and step from its symmetric geometry. Multiplicity cancels from the matching penalty and quadratic scaling. | No iterate destination or mutation; symmetry validation is explicit (VAL-4). | Scalar proximal point `v` |
+| ORC-6 | `coordinates(X)[k] = v` after ORC-5 | Separate public storage write by independent coordinate ID | Writes only that variable (CRD-3): converted zero leaves an absent coordinate absent and keeps an active one active. Solver updates caches from the stored result. | The assignment's stored value; no proximal oracle is involved |
+| ORC-7 | Scalar `prox_block(f,u,i,γ)` author hook | Function entry index `i`, never an implicit independent-coordinate ID | No owner argument; cannot check mirrored parameter symmetry or owner extent. Extension authors implement this hook with `value_entry`. | Scalar result |
 | ORC-8 | `gradient!(G, f, X)`, `value_and_gradient!` | the gradient restricted to symmetric matrices, i.e. `Gs` with `⟨Gs, H⟩ = df(X)[H]` for symmetric `H` | `G` a dense matrix or an owner, `G !== X`; the oracle writes a symmetric result | `value_and_gradient!`: `f(X)` at the input |
 | ORC-9 | `kkt_violation(f, g, X, k)` | a **screen at zero** (§2.8): whether coordinate `k`, taken at zero, should move; entry normalization; `g` an ambient or symmetric matrix | none | the screening violation for coordinate `k`. It is **not** a stationarity residual of a returned solution |
 | ORC-11 | `prox(f, X, γ)`, `gradient(f, X)`, `value_and_gradient(f, X)` | the allocating forms of ORC-3 and ORC-8. Their present `AbstractArray` dispatch no longer applies to an owner, so each *must* be defined explicitly for the supported families | `prox` returns an **independent owner** (never a view of `X`); `gradient` returns a **dense, exactly symmetric `Matrix`** | as the in-place forms |
@@ -429,20 +428,25 @@ guess.
 |:--|:--|
 | VAL-1 | Exact symmetry means `_symequal(a, b) = isequal(a, b) \|\| (a == b) === true` ([src/sparse_iterate.jl:932](https://github.com/mlakolar/ProximalBase.jl/blob/abaceda25442bf6cc61601c8c1d3b2a16e1a3492/src/sparse_iterate.jl#L932)): NaN matches NaN, `0.0` matches `−0.0`, `1` matches `1.0`. It is *structural equality* and says nothing about whether a value is *admissible*: a weight `−1` is symmetric and still rejected by the penalty's own domain check. The two checks stay separate. |
 | VAL-2 | The comparison of a mirrored pair *must* be made on the **source** values, before conversion to `T`. A pair unequal in `Float64` that rounds equal in `Float32` *must* be rejected. |
-| VAL-3 | A coordinate oracle (`prox_coordinate!`, `kkt_violation` for `k`) *may* inspect only the pair it uses. A stored-only operation *may* inspect only the pairs it touches. Neither certifies the model. |
+| VAL-3 | The coordinate screen `kkt_violation(f,g,X,k)` *may* inspect only its chosen pair. Stored-only full oracles *may* inspect only the pairs they touch; neither certifies the whole model. Scalar `prox_block` has no owner and performs no mirrored-pair check: a solver validates the original parameters explicitly under VAL-4 before its block-update loop. |
 | VAL-4 | The **full validation entry point** is `ProximalBase.check_symmetric_parameters(f, X)`, with `ProximalBase.entry_parameters(f)` as the declaration for extensions. Both *must* keep their roles. A solver calls it once at creation, on the **original caller-supplied penalty** and before any transformation of its parameters. A solver *must not* silently repair an asymmetric parameter (average, or take one triangle), because the library must not choose the caller's interpretation: a half-filled weight matrix may mean "use this triangle", not "average it with zeros". (Averaging does preserve the objective of a *weighted L1* penalty on symmetric matrices; that is not the reason for the rule.) Validating the result of such a transformation is too late. The audited ProximalSolvers does the opposite: `_symmetric_penalty(g, x::SymmetricSparseIterate)` defaults to `average = true` (`src/cd/models.jl:540`, `_symmetric_average` `:561`), and both workspace constructors call it (`src/workspaces.jl:76,99`). That behavior conflicts with the amended #142 rule and must change in ProximalSolvers; this contract does not change it. |
 | VAL-5 | **Scope: this redesign promises scalar Frobenius steps `γ` only** for the oracles of §2.9 on an owner. Per-entry step arrays and diagonal metrics on an owner are **out of scope**, and an array `γ` *should* throw an `ArgumentError` there. This is a scope choice, not a claim that a symmetric diagonal metric destroys coordinate independence. **What would be lost:** the audited code accepts an exactly symmetric `γ` matrix in `prox!` into an owner (run: `prox!(Y, NormL1(0.5), [0 3; 3 0], [1 2; 2 1])` gives `2.0`, and an asymmetric `γ` throws), and `Tilt`'s path checks symmetric steps (`src/metric.jl:69,77`); ProximalSolvers already rejects diagonal preconditioning on an owner (`src/solvers/diagonal_metric.jl:23`). Scalar steps are validated by the step contract (numerics P1–P3). |
 | VAL-6 | **What invalidates a validation.** The check is a statement about the arrays at the time of the call. Mutating any array reported by `entry_parameters` afterward, in either triangle, invalidates it (arrays symmetric by type, such as `Symmetric(W, :L)` over a parent the caller mutates, stay symmetric). A caller who mutates parameters re-validates. |
 | VAL-7 | A custom entry function whose result depends on the index `(i, j)` without a parameter array (so `entry_parameters` cannot see it) *must* itself be symmetric. That responsibility is the extension author's. |
 | VAL-8 | No public unchecked API and no validation cache is introduced by this contract. The per-call cost of dense-parameter scans (#374) is left to its own issue. |
 
-**Checked writes.** Before the first mutation of `X`, including its active set,
+**Checked writes.** For the checked bulk imports and owner-aware whole
+oracles, before the first mutation of `X`, including its active set,
 the following *must* be detected: a shape or axes mismatch; an index out of
 bounds; a mirrored pair that is unequal under VAL-1/VAL-2; a destination that is
 not supported (complex element type; the read-only view). The following are
 *not* promised: that a conversion which throws (`InexactError` into an integer
 `T`) or an arbitrary user callback leaves `X` untouched; that a write that
 fails in the middle of a *non*-listed way rolls back.
+
+For a pure scalar block step, the solver performs VAL-4 before computation
+and the separate ORC-6 assignment. The scalar oracle and the numerical-value
+assignment cannot validate mirrored penalty parameters without that model.
 
 | bulk operation | aliasing |
 |:--|:--|
@@ -473,7 +477,7 @@ Fixed-width CPU scalar types (`Float32`, `Float64`).
 | PERF-2 | The capacity prerequisite is stated openly: construction reserves room for all `q` coordinates, so activation never grows storage. Construction time and memory are `O(q)`. "Sparse" does not promise `O(s)` total storage. |
 | PERF-3 | Traversal of the active set (`activecoordinates`, `activevalues`) *must* cost `O(s)` of traversal work. The derivative, cache update and full KKT screening a solver attaches have their own costs and are not covered. |
 | PERF-4 | Constructing `θ`, `A`, `activecoordinates(X)` and `activevalues(X)` *must not* copy `X`'s data. |
-| PERF-5 | After warm-up, these *must not* heap-allocate for `Float32`/`Float64` inputs: `X[i,j]`, `X[i,j] = v`, `θ[k]`, `θ[k] = v`, `isactive`, `activate!` (capacity reserved), `prox_coordinate!` for a built-in separable `f` with scalar or `Symmetric`-typed parameters, and a sweep over `activecoordinates(X)` that calls it. |
+| PERF-5 | After warm-up, these *must not* heap-allocate for `Float32`/`Float64` inputs: `X[i,j]`, `X[i,j] = v`, `θ[k]`, `θ[k] = v`, `isactive`, `activate!` (capacity reserved), scalar `prox_block` for a built-in separable `f` with scalar or `Symmetric`-typed parameters, and a sweep over `activecoordinates(X)` that converts IDs, calls the scalar oracle and writes `coordinates(X)[k]`. |
 | PERF-6 | `mul!(y, A, v)` for a dense vector `v` *must* cost `O(p + s)` for finite input, **including initialization of `y`**. A no-copy wrapper that falls to the dense `O(p²)` scan does not meet it. For a non-finite `v` the result *must* be the same, or the same documented error, **before and after `dropzeros!`**: a mathematical product must not depend on whether a zero has a storage slot. (Audited code does not satisfy this: with `v = [Inf, 1, 0]` and one stored explicit zero at `(3,1)` the product has a `NaN` at row 3, and after `dropzeros!` the same entry is `0.0`.) *Recommended default:* one `O(p)` scan of `v` and an `ArgumentError` for any non-finite entry, so the finite case stays `O(p + s)`. Numerics M1 cites *finite* linear coefficients and does not settle `0·Inf`; the rule must be reconciled with the non-finite policy in `docs/src/numerics.md`. *(Amended by FD-9, [iterate-family contract](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products).)* |
 | PERF-7 | `dropzeros!` *must* be `O(s)`. `Matrix(X)` is `O(p² + s)`; `copy(X)` and `similar(X)` are `O(q)`. |
 | PERF-8 | No other generic matrix operation on `A` is promised to be sparse-fast. *Recommended* sparse-aware methods: `norm`, `dot`, `sparse(A)`, `sum`. A reader of the specification must not infer more. |
@@ -519,7 +523,7 @@ Each gives a recommended default, one reason and one consequence.
    is exact there. *Consequence:* #261 must land for ORC-3 to be true. An
    array step is not accepted on an owner at all (decision 11, VAL-5), so no
    projection of the argument under an array step arises.
-8. **`prox_entry` keeps a matrix linear index** (IDX-3). *Recommend: keep.*
+8. **Scalar `prox_block` keeps a matrix linear index** (IDX-3). *Recommend: keep.*
    Weights are matrices. *Consequence:* the two index spaces still meet in this
    one function; the docstring must say so.
 9. **Public KKT normalization is the entry normalization** (§2.8). *Recommend:

@@ -1,20 +1,20 @@
 # SymmetricSparseIterate in 0.6: migration and acceptance
 
-> **#844 amendment:** The storage-aware `prox_coordinate!` requirements and
-> `prox_entry` spelling below are superseded by
-> [the pure block proximal contract](block-prox-0.6.md). Solvers compute
-> `prox_block`/`prox_block!`, convert function indices explicitly, validate
-> symmetric parameters and layouts, then write through public storage APIs.
-> Iterate representation, write activation and KKT requirements stay in force.
-
+> **Current #844 amendment (2026-11-10):** The live requirements, examples
+> and acceptance cases below use the [pure block proximal contract](block-prox-0.6.md).
+> Solvers compute `prox_block`/`prox_block!`, convert penalty indices explicitly,
+> validate symmetric parameters and group layouts, then write through public
+> storage APIs. Historical audits and decision evidence are explicitly marked;
+> their retired spellings are not current requirements. Storage representation,
+> activation, KKT, curvature and step-policy requirements remain unchanged.
 
 > **Draft for maintainer review — proposed 0.6 behavior, not a description of an
 > installed release.** This guide explains how real callers move to the
 > [contract](symmetric-sparse-iterate-0.6.md) and how a future implementer
 > proves conformance. It links to the contract's requirement IDs and restates
-> none of the rules. Nothing in it is implemented, except the three-factor product `A * X * B` of FD-16 (#419) for homogeneous `Float32` and `Float64`; the remaining owner changes are future work. Every `julia` block that uses
-> `matrixview`, `activevalues` or an owner that is not an `AbstractMatrix` is a
-> *future* example; none is a doctest.
+> none of the rules. The contract records implementation status; this plan
+> lists acceptance obligations rather than claiming each has been run. Plain
+> `julia` blocks are illustrative migration examples, not doctests.
 
 > **Amendment and extensions from the iterate-family contract (#400), signed
 > off on 2026-11-01.** The [iterate-family contract](iterate-family-0.6.md) changes one
@@ -44,6 +44,10 @@
 >   [FW-4](iterate-family-0.6.md#23-the-working-set-fw)).
 
 # 1. What was audited
+
+**Archived source audit, before #844.** The cited old implementations are
+historical evidence. The current scalar contract is ORC-5/ORC-7 followed by
+the separate public write ORC-6; current migration/tests below use that split.
 
 **Commits.** ProximalBase `abaceda25442bf6cc61601c8c1d3b2a16e1a3492` (master).
 ProximalSolvers `3893fb9` (master, equal to `origin/master` after a fetch).
@@ -220,7 +224,7 @@ What must survive, with where it lives:
 | joint-direction derivative and curvature | `_symderivative`, `_symcurvature` (`kron.jl:97–101`) | unchanged: `(M[r,c] + M[c,r]) + (C[r,c] + C[c,r])` and `A[r,r]B[c,c] + A[c,c]B[r,r] + 2A[r,c]B[r,c]` |
 | one-row against two-row (rank) updates | `kron.jl` `_rank1!` (diagonal), `_rank2!` (off-diagonal); `kronu.jl` `_rowaxpy!` once or twice via `_move!` | unchanged: a diagonal coordinate moves one position, an off-diagonal two |
 | the dimension | `x.p` at 28 sites in `drivers.jl`, `gap.jl`, `generic_newton.jl`, `kron.jl` (`:72,106,134,139`), `kronu.jl` (`:51,70,86,91,100,120`), `models.jl`, `path.jl`, `quic.jl` | **changes:** use the promised `size(x, 1)` (OWN-4); `.p` is a field, and the contract does not make it public |
-| the entry index passed to the penalty | `models.jl:419` `_entry(p, r, c) = (c-1)p + r` into `prox_entry` | unchanged (IDX-3) |
+| the entry index passed to the penalty | `models.jl:419` `_entry(p, r, c) = (c-1)p + r` into the historical scalar hook | keep the same index conversion for scalar `prox_block` (IDX-3) |
 
 The mathematics of either model does not change; the dimension reads do (above).
 What can break them is elsewhere: the `x` they are given must be an owner that supports
@@ -291,8 +295,8 @@ The requirement IDs are the contract's.
 | **T01 index spaces and edges** | OWN-2, OWN-4, IDX-1, IDX-2, MAT-6 | `p = 0, 1, 3` | `p = 0`: `size(X) == (0,0)`, `coordinates(X)` empty, `Matrix(X)` is `0×0`, `X[1,1]` throws `BoundsError`. `p = 1`: `X[1,1] = 2.0` gives `θ == [2.0]`, `A == [2.0;;]`; `X[2,1]`, `θ[2]` throw. `p = 3`: `X[2,2] = 7` gives `θ[4] == 7`, `A[4] == 0`, `A[5] == 7`; `θ[7]`, `A[10]`, `X[0,1]` throw `BoundsError`; `tril_cartesian(3, 4) == (2,2)`; `X[1,3]` is `X[3,1]`. Expected values by hand from the column-major order `(1,1),(2,1),(3,1),(2,2),(3,2),(3,3)` | `test/symmetric_iterate_indexing.jl` |
 | **T02 one variable, two entries, live and copy** | CRD-1, MAT-1–MAT-5, CPY-5 | `p = 3`; `θ = coordinates(X)`, `A = matrixview(X)`; `X[2,1] = 3.0`; `B = Matrix(X)`; `θ[tril_index(3,2,1)] = 5.0` | `A[1,2] == A[2,1] == 3` before, `5` after; `B[1,2] == 3`; `nactive(X) == 1`; `θ == [0,5,0,0,0,0]`. A write `A[1,2] = 1.0`, and the same write through `view(A, 1:2, 1:2)`, `Symmetric(A)` and `reshape(A, 9)`, is rejected (any exception; the test does not name the type); afterwards `X[2,1] == 5` and `nactive(X) == 1`. `similar(A) isa Matrix`; `(A .+ 1)[1,2] == 6` is a writable `Matrix`; `Base.mightalias(A, θ)` is `true` | same |
 | **T03 active zeros, compaction, handles** | CRD-3, ACT-3–ACT-8 | `p = 3`; `X[3,1] = 0.0`; `activate!(X, 3)`; `X[2,1] = 4.0`; `X[2,1] = 0.0`; `act = activecoordinates(X)`; sweep `θ[k] = θ[k] + 1` over `act`; then activate coordinate 6 with value `1`; then set `θ[3] = 0` and call `dropzeros!` | `X[3,1] = 0.0` on an absent coordinate leaves `nactive == 0`; after `activate!` it is `1` with value `0`; after `X[2,1] = 4.0` it is `2`, and after `X[2,1] = 0.0` still `2` (value `0`, active). The sweep leaves `act` unchanged. Writing `−0.0` to an absent coordinate does not activate it; writing `NaN` does. Build the order `k = 2 (0), 3 (5), 6 (7)`, then `dropzeros!`: `Set(activecoordinates(X)) == Set([3, 6])`, `Matrix(X)` before and after are equal, `isactive(X, 2) == false`; the *order* is not asserted and the test does not reuse a handle taken before the call | same |
-| **T04 weights: local, full, explicit** | VAL-1, VAL-3–VAL-7, ORC-5, ORC-6 | `W = [0.0 1.0; 3.0 0.0]`, `λ = 0.1`, `γ = 1`, off-diagonal trial value `u = 0.5`, `p = 2`, `k = tril_index(2,2,1)` | `prox_coordinate!(X, NormL1(0.1, W), k, 0.5, 1.0)` and `check_symmetric_parameters(NormL1(0.1, W), X)` throw `ArgumentError` naming entries `(2,1) = 3` and `(1,2) = 1`. With `Symmetric(W, :L)` (weight 3): result `≈ 0.2` (`0.5 − 0.1·3·1`). With the explicit mean `[0 2; 2 0]`: `≈ 0.3`. Compare with `isapprox`, `rtol = 4eps`. **Untouched pair:** `p = 3`, `W3 = ones(3,3)` with `W3[2,1] = 3.0`: `prox_coordinate!` at `(3,3)`, `u = 0.5` returns `≈ 0.4` and does not throw; at `(2,1)` it throws; `check_symmetric_parameters` throws regardless. A symmetric `W` holding `−1` passes the symmetry check and is rejected by the penalty's domain check (VAL-1 independence) | `test/symmetric_parameters*.jl` (extend) |
-| **T05 derivatives, projection, screening** | ORC-5, ORC-8, ORC-9, CRD-4, §2.8 | `p = 4`; seeded SPD `A, B`, symmetric `C`; `f(Z) = ½tr(ZAZB) + ⟨C, Z⟩` with `KronQuadratic(A, B, C)`; a symmetric `Z`; one diagonal and one off-diagonal coordinate; an ambient `g = Gs + N`, `N` antisymmetric | Reference: central finite difference of the dense formula along `Eₖ`, `h = 1e-6‖Z‖`. Expected: `(f(Z+hEₖ) − f(Z−hEₖ))/2h ≈ mₖ Gs[r,c]` (`m = 1` diagonal, `2` off) with `Gs` from `gradient!`. For a coordinate **at zero**, `kkt_violation(NormL1(λ, W), g, X, k)` equals `\|Gs[r,c]\| − λW[r,c]` for the ambient `g` and for `Gs`; for opposing infinite entries it throws. Separable scalar-step agreement: random symmetric `V`; whole `prox!` into an owner equals per-coordinate `prox_coordinate!(Z, f, k, V[r,c], γ)`; both equal the soft-threshold formula `sign(v)max(\|v\| − γλw, 0)` written in the test. Screening is **not** asserted to certify a solution here; that is T16 | `test/symmetric_oracles.jl` |
+| **T04 weights: pure scalar, explicit full check** | VAL-1, VAL-3–VAL-7, ORC-5–ORC-7 | `W = [0.0 1.0; 3.0 0.0]`, `λ = 0.1`, `u = 0.5`, `p = 2`, `k = tril_index(2,2,1)`; an unchanged snapshot of `X` | `check_symmetric_parameters(NormL1(0.1,W),X)` throws `ArgumentError` before the solver writes `X`; its values and working set remain unchanged. The raw scalar call at converted `i` has no owner and does not check the mirror: it uses `W[2,1] == 3`. With explicit `Symmetric(W,:L)`, validate then compute `prox_block(...,u,i,1.0) ≈ 0.2`; with the explicitly averaged matrix `[0 2; 2 0]`, get `≈ 0.3` (`rtol = 4eps`). For `p = 3` and asymmetric `W3`, a scalar call at an untouched diagonal does not certify symmetry: the full solver preflight still throws. A symmetric negative weight passes the structural symmetry check and is rejected separately by the penalty domain check. | `test/symmetric_parameters*.jl`, `test/block_step.jl` |
+| **T05 derivatives, projection, screening** | ORC-5, ORC-8, ORC-9, CRD-4, §2.8 | `p = 4`; seeded SPD `A, B`, symmetric `C`; `f(Z) = ½tr(ZAZB) + ⟨C, Z⟩` with `KronQuadratic(A, B, C)`; a symmetric `Z`; symmetric nonnegative weights `W` and `λ = 0.5`; one diagonal and one off-diagonal coordinate; an ambient gradient `Gs + N`, `N` antisymmetric | Reference: central finite difference of the dense formula along `Eₖ`, `h = 1e-6‖Z‖`. Expected: `(f(Z+hEₖ) − f(Z−hEₖ))/2h ≈ mₖ Gs[r,c]` (`m = 1` diagonal, `2` off) with `Gs` from `gradient!`. For a coordinate **at zero**, `kkt_violation(NormL1(λ, W), g, X, k)` equals `\|Gs[r,c]\| − λW[r,c]` for the ambient `g` and for `Gs`; for opposing infinite entries it throws. Separable scalar-step agreement: random symmetric `V` and penalty `g = NormL1(λ,W)`; `prox!(Y,g,V,γ)` into an owner equals per-coordinate scalar `prox_block(g,V[r,c],i,γ)`, explicitly mapping `k` to `(r,c)` to `i`, followed by `coordinates(Z)[k] = result`; both equal the soft-threshold formula `sign(v)max(\|v\| − γλw, 0)` written in the test. Screening is **not** asserted to certify a solution here; that is T16 | `test/symmetric_oracles.jl` |
 | **T06 narrowing and structural equality** | VAL-1, VAL-2, WRT | a `Float64` matrix `M` with `M[2,1] = 1.0`, `M[1,2] = 1.0 + 1e-12` (equal after `Float32`); a pre-populated `Float32` owner `X32` with an explicit zero and a nonzero; a snapshot `X0 = copy(X32)` | `copyto!(X32, M)` throws `ArgumentError`; afterwards `activecoordinates(X32) == activecoordinates(X0)`, `activevalues(X32) == activevalues(X0)` and every `X32[i,j]` is unchanged. Pairs equal in `Float64` import; `NaN`/`NaN` and `0.0`/`−0.0` pairs import; `1`/`1.0` pairs import. A symmetric matrix that violates a *function's* domain imports fine (the owner checks structure only). **Narrowing and activation (CRD-3, CPY-4):** on a `Float32` owner, `X32[2,1] = 1e-100` leaves the coordinate absent (`nactive` unchanged, value `0f0`); the same write to an *active* coordinate stores `0f0` and keeps it active; importing a `Float64` matrix whose symmetric off-diagonal pair is `1e-100` gives a working set without that coordinate, while a pair of `1e-30` (representable) is active | `test/symmetric_writes.jl` |
 | **T07 CD sweep and proximal-gradient solve** | ORC-3–ORC-6, ORC-8–ORC-10, §2.8, §2.4 | **(1)** `p = 4`, symmetric `B`, `λ = 0.3`, loss `½‖Θ−B‖²_F` (a `KronQuadratic` with identity `A`, `B`); **(2)** the coupled problem `KronQuadratic(S, S, C)` with `NormL1(λ)`: `S = [2 1; 1 2]`, `C = [-0.5 3.5; 3.5 3.0]`, `λ = 0.5`, started **from zero** (with the default `C = 0` a zero start is already optimal and nothing would be exercised). Known solution `Xstar = [1 -1; -1 0]`: the matrix gradient there is `S·Xstar·S + C = [-0.5 0.5; 0.5 0.0]`, which cancels the L1 subgradient at the positive diagonal and the negative off-diagonal entries and lies strictly inside `[-λ, λ]` at the zero diagonal; `S` is positive definite, so `Xstar` is the unique solution. Both solvers and the references *must reach `Xstar`* and must perform nonzero cache updates on the way | (1) Reference: closed form `soft(B[r,c], λ)` entrywise. A cyclic CD sweep visits `k = 1..q`; after visit `k` that coordinate equals the closed form (the problem is separable), so the trajectory is asserted coordinate by coordinate. PGD converges to the same matrix to `1e-10`. (2) Reference: an **independent** `q`-vector ISTA/FISTA written in the test in orthonormal coordinates `u[k] = √m[k] θ[k]`. **The reference penalty there is `λ Σₖ √m[k] \|u[k]\|`** (since `λ Σᵢⱼ\|Θᵢⱼ\| = λ Σₖ m[k]\|θ[k]\|`), so the vector prox is a soft threshold with the per-coordinate level `γλ√m[k]`; an ordinary unweighted vector threshold would solve a different objective. Run to `1e-12`. Also a dense cyclic CD written in the test with explicit formulas, compared trajectory-for-trajectory for the fixed cyclic order. Checks: objective (relative `1e-9`); **stationarity**, not screening: the entry-normalized residual `r[k] = max(\|G[k]\| − λw[k], 0)` at a zero coordinate and `\|G[k] + λw[k] sign(x[k])\|` at a nonzero one, computed in the test from the dense gradient, with `maximum(r) ≤ 1e-8` (the test states that it checks the *maximum entry residual*; `G[r,c]` is read from the dense gradient at the matrix position of coordinate `k`; `kkt_violation` is not used for this); the cached `M = AΘB` equals `A * Matrix(X) * B` to `1e-10` after every sweep; and the PGD stopping norm: a single off-diagonal change of `0.1` reports `0.1√2`, not `0.1` | ProximalSolvers `test/` (outside this repository) |
 | **T08 scaling** | PERF-1–PERF-7 | §4 | §4 | `benchmark/` plus `test/allocations.jl` |
@@ -334,7 +338,8 @@ No timing was run for this document. The protocol:
   otherwise repeated samples measure the already-active path. Restore the state
   (`dropzeros!` of a stored zero, or a fresh owner) *outside* the timed region.
 - **A real coordinate sweep.** Include a warmed-up active sweep that calls
-  `prox_coordinate!` with a built-in separable `f`, not only a trivial
+  scalar `prox_block` with a built-in separable `f` after explicit entry-index
+  conversion, followed by `coordinates(X)[k] = result`, not only a trivial
   assignment, and a `KronModel` sweep for the cached case.
 - **Pre-refactor baseline.** Report the **0.5.x `SymmetricSparseIterate`**
   (`abaceda25`) beside the new owner for every case above that both support,

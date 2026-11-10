@@ -50,6 +50,9 @@ Group buffers are one-based real vectors with the selected group's length,
 in precisely that group's entry order. Exact aliasing `out === u` is supported.
 Other overlap is rejected before writes. Direct iterate outputs and their
 coordinate/group views are rejected: use an independent numerical buffer.
+Recognizing those built-in representations in the private `_block_owner`
+preflight is an intentional safety dependency, separate from the numerical
+kernels. A new or renamed iterate/view must update that guard and its tests.
 As with any numerical buffer, callers must not supply private iterate storage
 or a storage-backed array disguised as an ordinary vector.
 
@@ -102,3 +105,7 @@ This is a breaking 0.6 change. Review the public API inventory, local numerical
 and whole-solver results, companion patch and dependency pin together. Local
 runs do not substitute for green PB/PS CI or complete the separate symmetric
 owner migration. Do not close #844 or merge before those coordinated gates.
+The companion is [PS #237](https://github.com/mlakolar/ProximalSolvers.jl/pull/237).
+Matching its baseline failures is regression evidence and does not meet the
+green required-CI gate. The writer-performance gate remains pending by the
+maintainer's 2026-11-10 instruction; the measured regression is not approved.

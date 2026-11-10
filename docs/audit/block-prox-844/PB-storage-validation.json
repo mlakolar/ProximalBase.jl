@@ -12,7 +12,9 @@
     "exit_code": 0,
     "check_bounds": "yes",
     "package_images": false,
-    "seconds": 1330.6
+    "seconds": 1330.6,
+    "working_tree_head_before_commit": "0043a0f218f201dd62e1b2f8cefb6e80b033b9db",
+    "source_inventory_sha256": "001fccf46c13bb2f9e2ce530601e7bf253fe426e5c5c3971b86b919fc821d2ce"
   },
   "targeted_compatibility": {
     "julia": "1.10.10",
@@ -59,15 +61,34 @@
     "deployment": false
   },
   "conformance_reports": {
-    "run_id": "pb848-block-rename",
+    "run_id": "pb848-31235317",
     "files": 14,
     "julia": "1.13.3",
-    "working_tree_head_before_commit": "0043a0f218f201dd62e1b2f8cefb6e80b033b9db"
+    "committed_source_sha": "31235317473f3c1be34691e43db1d54544f19f14",
+    "passed": 1310,
+    "broken": 220,
+    "failed": 0,
+    "errors": 0,
+    "exit_code": 0,
+    "check_bounds": "yes"
   },
   "ps_scope": {
     "source_and_pin_unchanged": true,
     "head": "8e98442bf6a16bf765182c3fdfcdc8472cc3511d",
     "followup_issue": "https://github.com/mlakolar/ProximalSolvers.jl/issues/238"
   },
-  "performance_gate": "pending; not approved"
+  "performance_gate": "pending; not approved",
+  "committed_source_sha": "31235317473f3c1be34691e43db1d54544f19f14",
+  "conformance_snapshot_checks": [
+    {
+      "julia": "1.13.3",
+      "exit_code": 0,
+      "run_id": "pb848-31235317"
+    },
+    {
+      "julia": "1.10.10",
+      "exit_code": 0,
+      "run_id": "pb848-31235317"
+    }
+  ]
 }

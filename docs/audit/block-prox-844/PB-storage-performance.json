@@ -805,5 +805,6 @@
     "public_write/Float64/SparseGroupNormL2/n8/stridedfalse": 1.0,
     "public_write/Float64/SparseGroupNormL2/n8/stridedtrue": 1.0
   },
-  "interpretation": "Five isolated writer cases exceeded 5% with evals=200; each was within 2.4% of baseline with evals=1. The combined math+write maximum paired ratio was 1.0464, with an A/A combined range 0.9288\u20131.0866. These exploratory microtimings are evaluation-batch-sensitive, not confidence bounds or a performance approval. The original PS whole-solve gate remains pending."
+  "interpretation": "Five isolated writer cases exceeded 5% with evals=200; each was within 2.4% of baseline with evals=1. The combined math+write maximum paired ratio was 1.0464, with an A/A combined range 0.9288\u20131.0866. These exploratory microtimings are evaluation-batch-sensitive, not confidence bounds or a performance approval. The original PS whole-solve gate remains pending.",
+  "current_source_commit": "31235317473f3c1be34691e43db1d54544f19f14"
 }

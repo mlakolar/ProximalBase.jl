@@ -55,9 +55,29 @@ makedocs(
         mathengine = Documenter.KaTeX(),
         size_threshold = 400_000,
     ),
+
     pages = [
         "Home" => "index.md",
         "Getting started" => "getting_started.md",
+        "Working with functions" => [
+            "Function objects and capabilities" => "function_objects.md",
+            "Operations on functions" => "operations.md",
+            "Proximal operators and gradients" => "interface.md",
+            "Array, precision, and device conventions" => "numerical_usage.md",
+            "Writing your own function" => "extending.md",
+        ],
+        "Function library" => [
+            "Browse available functions" => "function_library.md",
+            "Smooth functions and losses" => "smooth.md",
+            "Penalties" => "penalties.md",
+            "Constraints and indicator functions" => "sets.md",
+            "Functions built from functions" => "calculus.md",
+        ],
+        "Building optimization algorithms" => [
+            "Overview" => "optimization_algorithms.md",
+            "Proximal gradient methods" => "proximal_gradient.md",
+            "Coordinate descent and active sets" => "coordinate_descent.md",
+        ],
         "Iterates" => [
             "Overview and working sets" => "iterates.md",
             "SparseIterate" => "sparse_iterate.md",
@@ -66,17 +86,6 @@ makedocs(
             "Coordinate oracles" => "iterate_oracles.md",
             "Symmetric parameters" => "symmetric_parameters.md",
         ],
-        "Algorithms and interface" => [
-            "Coordinate descent" => "coordinate_descent.md",
-            "Proximal operators and interface" => "interface.md",
-        ],
-        "Functions" => [
-            "Smooth functions" => "smooth.md",
-            "Penalties" => "penalties.md",
-            "Sets" => "sets.md",
-            "Functions built from functions" => "calculus.md",
-        ],
-        "Writing your own function" => "extending.md",
         "Compatibility and migration" => "migration.md",
         "Examples" => example_pages,
         "Developer Documentation" => [

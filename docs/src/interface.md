@@ -1,9 +1,42 @@
+
 # The interface
 
-We describe the function interface and the mathematics of full proximal
-steps. For updates of individual entries or groups, see
-[Coordinate descent](@ref). All mutating operations take their output first,
-as in `gradient!(grad, f, x)` and `prox!(out, g, x, γ)`.
+This chapter explains the mathematics of gradient and proximal operations,
+including per-entry and diagonal-metric steps. It is a **conceptual
+explanation** of how these computations are used, not a list of every
+exported function. For a searchable overview of the public calls,
+start with [Operations on functions](operations.md); for capability
+traits, start with [Function objects and capabilities](function_objects.md).
+
+The mathematical function objects represent losses, penalties, constraints
+and their compositions. All mutating function operations take their
+**output first**, for example `gradient!(grad, f, x)` or
+`prox!(out, g, x, γ)`, with the documented exceptions and aliasing rules
+in [Array and numerical conventions](numerical_usage.md).
+For a full optimization loop, read
+[Proximal gradient methods](proximal_gradient.md) or
+[Coordinate descent](coordinate_descent.md).
+
+## Gradients and function values
+
+A smooth function's value is obtained by `f(x)`. Its gradient can be
+computed into a caller-allocated array by [`gradient!`](@ref), or
+allocated with [`gradient`](@ref). When both the value and gradient
+are needed, [`value_and_gradient!`](@ref) writes the gradient and
+**returns the value at the input**. A smooth function need not have a
+finite globally valid Lipschitz constant; check [`lipschitz`](@ref)
+before selecting a fixed step.
+
+```@example interface_gradients
+using ProximalBase
+
+f = SqrNormL2(1.0)
+x = [2.0, -1.0]
+out = similar(x)
+v = value_and_gradient!(out, f, x)
+@assert v ≈ f(x) && out ≈ gradient(f, x)
+(value = v, gradient = out)
+```
 
 ## Proximal operators
 
@@ -77,52 +110,6 @@ f = NormL1(1.0)
 prox(f, x, γ) + γ * prox(Conjugate(f), x / γ, 1 / γ) ≈ x
 ```
 
-## Proximal gradient descent and the gradient mapping
-
-For ``F = f + g`` with ``f`` smooth, the proximal gradient step is
-
-```math
-x^+ = \operatorname{prox}_{\gamma g}\big(x - \gamma \nabla f(x)\big),
-```
-
-and the *gradient mapping* is ``G_\gamma(x) = (x - x^+)/\gamma``, so that
-``x^+ = x - \gamma G_\gamma(x)``. When ``g = 0`` it is the gradient. For convex
-``f`` and ``g``, the optimality condition ``0 \in \nabla f(x) + \partial g(x)``
-is equivalent, for any ``\gamma > 0``, to
-
-```math
-x = \operatorname{prox}_{\gamma g}\big(x - \gamma\nabla f(x)\big)
-\iff G_\gamma(x) = 0 .
-```
-
-Therefore, ``\|G_\gamma(x)\|`` is a stopping rule that needs neither the optimal value nor
-the form of ``g``. [`gradient_mapping`](@ref) computes it, and
-[`gradient_mapping!`](@ref) does so without allocating.
-
-**Step sizes.** Suppose that ``f`` is convex with an ``L``-Lipschitz gradient,
-``g`` is proper, closed and convex, and ``F`` has a minimizer ``x^\star``.
-For an initial point with finite objective and a fixed ``0<\gamma\le 1/L``,
-the descent lemma and proximal optimality give
-
-```math
-F(x^+) \le F(x) - \frac{\gamma}{2}\|G_\gamma(x)\|^2 ,
-```
-
-so the objective does not increase. In particular, after ``k\ge1`` proximal
-gradient steps,
-
-```math
-F(x^k)-F(x^\star)\le\frac{\|x^0-x^\star\|^2}{2\gamma k}.
-```
-
-Under the same convexity and smoothness conditions, the accelerated procedure
-FISTA has objective error ``O(1/k^2)``. These global objective guarantees do
-not extend to arbitrary nonconvex penalties. [`lipschitz`](@ref) returns
-``L`` for the smooth functions. For
-functions whose gradient is not globally Lipschitz, such as the Gaussian
-log-likelihood and the Poisson loss, it returns ``\infty``, and a solver needs
-a line search.
-
 ## Steps per entry and diagonal metrics
 
 A scalar step is set by the worst-scaled coordinate. In a diagonal metric
@@ -171,346 +158,10 @@ but the diagonal of a Hessian does not majorize it, so the steps
 ``t = 1/\lambda_{\max}(D^{-1/2}\nabla^2 f\, D^{-1/2})``, which standardizing the
 columns of ``X`` amounts to.
 
-## Traits and oracles
+## Numerical conventions and devices
 
-A function is a subtype of [`AbstractFunction`](@ref). It is callable, `f(x)`
-being its value, which is `Inf` outside its domain. Its traits, defined on
-types, say which oracles it provides:
-
-| Trait | Oracles | Meaning |
-|:------|:--------|:--------|
-| [`issmooth`](@ref) | [`gradient!`](@ref), [`value_and_gradient!`](@ref), [`lipschitz`](@ref) | differentiable, with a gradient |
-| [`isproximable`](@ref) | [`prox!`](@ref), [`value_and_prox!`](@ref) | a proximal operator that is cheap to compute |
-| [`isseparable`](@ref) | [`prox_entry`](@ref), [`prox_coordinate!`](@ref), [`kkt_violation`](@ref) | ``f(x) = \sum_i f_i(x_i)`` |
-| [`isconvex`](@ref) | | convex |
-| [`hashessian`](@ref) | [`hessian_vec!`](@ref), [`quadratic_model`](@ref) | second derivatives, for Newton steps |
-| [`haslmo`](@ref) | [`lmo!`](@ref), [`lmo`](@ref), [`lmo_atom`](@ref) | a linear minimization oracle of a compact set, for Frank–Wolfe steps, with a compact atom for the sets whose minimizer is sparse or low rank; a property of the instance |
-
-The allocating versions [`prox`](@ref), [`gradient`](@ref),
-[`value_and_gradient`](@ref) and [`hessian_vec`](@ref) return new arrays.
-
-## Conventions
-
-Data arrays retained by a function may be shared with the caller. After changing
-entries of `X` or `Y` in a `LeastSquaresLoss`, or `A` in a `QuadraticFunction`,
-call [`reset_cache!`](@ref) on the outermost function before using its proximal
-operator again. Sizes must stay unchanged. Reconstruct `IndAffine` after changing
-its data; its factorization type can change with the rank of `A`.
-
-- **Output first.** Mutating functions take their output first, as `mul!` does:
-  `prox!(y, f, x, γ)` and `gradient!(g, f, x)`. The output of a proximal
-  operator may be its input: `prox!(x, f, x, γ)` and
-  `value_and_prox!(x, f, x, γ)` work for every function. That means the input
-  object itself. An output that shares memory with the input in any other way,
-  such as a shifted view of the same array, or a view or reshape that covers
-  the same entries, is not supported and is not detected (O7 in
-  [Agreement between oracles](@ref numerics-oracles)). For `gradient!`,
-  `value_and_gradient!` and `hessian_vec!`, pass an output separate from the
-  input unless a method's documentation says otherwise. Built-in gradient
-  oracles throw an `ArgumentError` when the gradient output is the input (or a
-  tuple block is its input block), except where the function documents that
-  the output may be the input, as for [`CubeNormL2`](@ref). Built-in Hessian
-  products, the wrappers included, throw an `ArgumentError` before writing
-  when the output is `x` or `v`, or a tuple block is the corresponding block of
-  either. The point and the direction may be the same array.
-- **The value at the result.** [`value_and_prox!`](@ref) stores the proximal
-  point and returns the function's value there. Many functions get that value
-  from the computation itself: the nuclear norm from the singular values it
-  thresholds, an indicator function as zero when the projection is exact. That
-  zero is not a feasibility certificate for an inexact projection such as
-  [`IndIntersection`](@ref). The value describes the stored output; the rule
-  and its named exceptions are O2 and O3 of the
-  [numerical contract](@ref numerics-oracles).
-- **Allocations.** Many built-in operations reuse their buffers for inputs of
-  a fixed size and element type. The allocation tests check `f(x)`, `prox!`,
-  `value_and_prox!`, `gradient!`, `value_and_gradient!`, `prox_entry` and
-  `prox_coordinate!` on Float32 and Float64 CPU arrays after warm-up. They do
-  not establish zero allocations for every array type or execution path;
-  measure the method and inputs your solver uses with
-  [`allocations`](@ref ProximalBase.Testing.allocations).
-  Creating a function, rebuilding a cache and the allocating versions such as
-  `prox` do allocate. BigFloat arithmetic and functions you write yourself
-  can also allocate on every call. Calls
-  on GPU arrays run kernels and reductions that may allocate on the host and
-  the device. The spectral functions
-  and [`LogDetLoss`](@ref) own LAPACK workspaces sized for their input, and
-  [`Translate`](@ref), [`Tilt`](@ref) and [`Regularize`](@ref) own a buffer
-  for the input of their proximal operator; one object used at alternating
-  sizes or element types reallocates it. A
-  function that owns a workspace must not be shared between threads; give each
-  thread a `deepcopy`.
-
-## Precision
-
-Arguments, outputs, parameters and iterates are real. Complex input is not
-implemented: a complex argument, output, direction, step or parameter array
-raises `ArgumentError("<Name> requires real entries")` before anything is
-written, where `<Name>` is the function called, the iterate type or the
-utility.
-
-The precision rules are part of the [Numerical contract](@ref numerics), which
-states them in full, with their reasons. The 0.6 contract changes some earlier
-results, listed in [Compatibility and migration](@ref); issue
-[#366](https://github.com/mlakolar/ProximalBase.jl/issues/366) tracks the parts
-not yet implemented. In short:
-
-- **Types.** `f(x)` and `value_and_gradient!(g, f, x)` return
-  `T = float(eltype(x))`, and `value_and_prox!(y, f, x, γ)` returns `T` of the
-  output `y`. For tuple arguments and outputs, `T` is the promotion over the
-  blocks, and an integer argument gives `Float64`. Operations that write an
-  output keep its element type, and the allocating forms `prox`, `gradient`,
-  `value_and_gradient` and `hessian_vec` make arrays of `float(eltype(x))`.
-- **Mixed precision.** Each result is computed in its *model precision*: the
-  widest of the precision it is delivered in, its argument's precision and its
-  data's precision. Parameters (levels, weights, centers, bounds, steps) are
-  rounded once to it, after being combined, and define the problem that is
-  solved. Data (the matrices of data losses and quadratic functions, the
-  vectors in their equations, and the normals and offsets of linear sets) are
-  used as stored. A `Float64` literal such as the `0.1` in `NormL1(0.1)` costs
-  nothing extra on `Float32` data. To compute in `Float32` throughout, give
-  the argument, the data and the output in `Float32`.
-- **Element types.** `Float16` is rejected as an argument, output, direction or
-  data, and accepted as a parameter or step. The functions that use LAPACK
-  (`Spectral`, `SingularValue`, `NuclearNorm`, `IndPSD`, `IndBallRank`,
-  `TracePSD`, `IndStiefel`, `LogDetLoss`) accept `Float32` and `Float64` only.
-- **Special values.** NaN propagates to the results that depend on it, and an
-  infinite entry follows the function's formula or limit. Outside its domain,
-  a function's value is `+Inf` and its gradient NaN.
-- **Steps** follow [Steps per entry and diagonal metrics](@ref): negative and
-  NaN steps are rejected, and zero and infinite steps only where a function
-  names the limit.
-- **Combined calls.** The value from `value_and_prox!` describes the stored
-  output, and may be computed from the proximal intermediates, so it can differ
-  from `f(y)` in its last bits. The value from `value_and_gradient!` is
-  `f(x)`. In mixed precision, the array proximal operators of wrappers such as
-  `Translate` and `Tilt` round to the output's element type between stages,
-  so `prox!` and entrywise `prox_entry` can differ within a bound in each
-  stage's scale.
-- **Caches** follow the model precision and are rebuilt when it changes. A
-  mixed call can therefore allocate: `Precompose(NuclearNorm(0.5f0), 2f0)`
-  switches its inner SVD workspace between precisions with a `Float32`
-  argument and a `Float64` output.
-
-A result that cannot be certified or represented in the working precision
-raises [`PrecisionError`](@ref) under O6. This exception is distinct from
-`ArgumentError`, which signals invalid input. Only `quadratic_model` and
-`quadratic_model!` of a [`GLMLoss`](@ref) raise it in this release, when an
-effective coefficient of the model is not representable.
-
-### Overflow and underflow of values
-
-A value that is a normal number is returned with the accuracy of the ordinary
-computation, even when an intermediate leaves the range of its type. Gradients
-and proximal outputs computed in closed form follow the same rule entry by
-entry, and a parameter whose rounding would lose range is recovered. For
-example, the ordinary expression overflows in the sum of squares:
-
-```julia
-julia> SqrNormL2(1e-300)([1e200])
-5.0e99
-
-julia> (1e-300 / 2) * sum(abs2, [1e200])
-Inf
-```
-
-The rule, its cost (a few nanoseconds per call), the rejected alternative and
-its scope are in [Overflow and underflow](@ref numerics-range).
-
-### Functions of a spectrum
-
-`SingularValue(f)` and `Spectral(f)` apply `f` to a computed spectrum. Only
-functions that count nonzeros, such as `NormL0` and `IndBallL0`, mask entries
-with magnitude at most `√ε·max|σ|`, where `ε = eps(T)` for the spectrum's
-floating-point type. Other functions see the computed spectrum. `IndBallRank`
-and the rank bound of `IndPSD(rank = r)` use the same relative threshold;
-numerical rank is invariant under scaling.
-
-Membership and domain tests use `√ε·max(1, |bound|, ‖λ‖∞)` in the original
-units. Sum constraints keep their own scaled tolerance, which accounts for
-cancellation and the normal's magnitude. On the spectrum `v` of `X/2^k`,
-bounds are scaled before narrowing and the tolerance is
-`√ε·max(2^-k, 2^-k|bound|, ‖v‖∞)`. The scale lookup costs O(1): the spectrum
-is sorted, so `‖v‖∞ = max(abs(v[1]), abs(v[end]))`, or zero when empty.
-
-Computed spectra carry errors of order `ε‖λ‖∞` in every entry. Such rounding
-moves a continuous `f` only by rounding, while a zero mask moves it by `√ε`.
-Masking every `f`, as `SingularValue` previously did, discards resolved small
-entries of continuous penalties. An absolute floor `√ε·max(1, σ₁)` on the
-rank threshold instead counts every sufficiently small matrix as rank zero.
-The relative threshold avoids this dependence on scale. When the spectrum
-overflows, or the mask threshold is not normal, the mask is computed in
-units scaled by a power of two.
-
-For a function that counts nonzeros, `value_and_prox!` returns the value at the
-stored matrix, with the same zero mask: the entries of the proximal spectrum at
-most `√ε·max|σ|` count as zero. For example, `SingularValue(NormL0(1))` at
-`Diagonal([2.0^60, 2, 0])` with step 1 stores a matrix whose second singular
-value is below the threshold and returns `1`, as does re-evaluating at it. When
-an entry of the proximal spectrum lies within the rounding of the threshold, the
-threshold is not a normal number, the spectrum or the stored matrix is not
-finite, or the proximal output was computed in scaled units at an overflowing
-spectrum (`IndBallL0`), the value is computed from the stored matrix itself.
-`IndBallRank` does the same when the rank threshold is not normal, where
-rounding to the destination's elements can change the numerical rank, at an
-overflowing spectrum, where the rescaled output can have an entry beyond the
-range of the type, and when the conversion to the destination's type overflows. Other functions return `f` at the proximal
-spectrum, and re-evaluation at the stored matrix differs from it by rounding.
-
-When the spectrum of a finite matrix overflows, the standalone values of
-`SingularValue(f)`, `Spectral(f)` and `Conjugate(SingularValue(f))` are taken
-from the spectrum `v` of `X/2^k`, the one the decisions above use. For an `f`
-that is positively homogeneous of degree `d`, `f(2^k v) = 2^(dk) f(v)`: the value
-is that of `Scaled(f, 2^(dk))` at `v`, formed by the same private recovery as
-other scaled values, so a level that leaves the range at that scale is folded
-and the exponent is applied last. A scale around `f`, chained or not, joins the
-same power of two. This covers `NormL1`, `NormL2`, `NormLinf`, `SumLargest`
-(signed spectra included), `SLOPE`, `NormL1Nonneg`, `ElasticNet` (its two
-levels separately), uncentered `SqrNormL2`, `CubeNormL2`, the support functions
-of the balls, boxes and simplices, the conjugate of uncentered `SqrNormL2`, and
-`Constrained` forms of these, whose constraints are decided on `v` first. A
-weighted `NormL1`, `NormL1Nonneg` or `ElasticNet` is a sum of products of a
-level, a weight and an entry of `v`, which can lose its value to underflow
-although each factor is normal: when its value at `v` is zero or subnormal, it
-is recovered only by folding the scale into a normal level, and only when the
-value so computed is not below the normal range or every term is an exact zero;
-otherwise it keeps the ordinary result. The conjugates of scaled `NormL1`,
-`NormL2` and `NormLinf` are decided on `v` against their radius in the same
-units, which is never formed in the original units. So
-`SingularValue(NormL1(1/4))` at `fill(floatmax(Float64), 2, 2)`, whose
-singular values are `2floatmax` and `0`, is `floatmax(Float64)/2` to within an
-ulp (the computed singular value is rounded), where it was `Inf`.
-
-Not covered: the support functions of a box with a linear constraint, such as
-the Ky Fan norm, whose kernel keeps its ordinary result, which may be `Inf` or
-`NaN`, or an `InexactError` (#648); the support functions of boxes and simplices
-at a level outside the normal range of the matrix's precision, which have no
-level that a scale folds into; `NormLq`, whose degree is not an integer;
-centered and translated functions, `Precompose` and other transformations;
-penalties that are not homogeneous, such as `LogPenalty`; functions that
-`SingularValue` admits outside its documented domain (order-dependent
-penalties and cones); and functions of the user. These keep the ordinary
-result, which may be infinite. The values that `value_and_prox!` returns at an
-overflowing spectrum are not changed for the functions this paragraph adds.
-
-A matrix with a `NaN` entry gives the value `NaN` for every function of a
-spectrum computed by LAPACK (`SingularValue`, `Spectral`, `NuclearNorm`,
-`TracePSD`, `IndPSD`, `IndBallRank`, `IndStiefel` and `LogDetLoss`), in
-standalone calls and from `value_and_prox!`, and a matrix with an infinite
-entry and no `NaN` gives `Inf`. The same holds for the standalone value of
-`Conjugate(SingularValue(f))` only: its call of `value_and_prox!` is not
-changed, and at a non-finite input it throws an `ArgumentError`, except where
-the conjugate is an indicator, such as that of a norm, whose value there is
-`Inf`. The test runs before the decomposition, which never sees the entry.
-The functions that count nonzeros (`IndBallRank`, and `SingularValue` of
-`NormL0` or `IndBallL0`) are the exception in `value_and_prox!`, which returns
-their value at the stored output (O2): the value of the copy for `IndBallRank(r)`
-with `r ≥ minimum(size(X))`; otherwise the output is all `NaN`, where the value
-is `NaN`, or `0` for a function that is constant (below).
-
-A function whose value does not depend on the entries is the exception
-(E2, E4):
-
-- `NuclearNorm(0)`, and `SingularValue` of a zero-level unweighted `NormL1`,
-  `NormL2`, `NormLinf`, `SumLargest` (with `k ≤ minimum(size(X))`),
-  `CubeNormL2`, uncentered `SqrNormL2`, `ElasticNet(0, 0)`, `NormL0(0)` or
-  `ZeroFunction()`, are the zero function: `0` at every input, also at an
-  infinite entry.
-- `IndBallRank(r)` and `SingularValue(IndBallL0(r))` with
-  `r ≥ minimum(size(X))`, and `SingularValue` of a constant counting function
-  on a box that holds every singular value, are the indicator of a set of real
-  matrices that holds every finite matrix: `0` when the non-finite entries are
-  all `NaN`, and `Inf` at an infinite entry.
-- The standalone value of `Spectral` of such a function, the indicator of the
-  symmetric matrices, is `NaN` only at an off-diagonal `NaN` of a matrix that
-  is not symmetric by type (also with an infinite entry: E2 gives the `NaN`
-  precedence), `Inf` at an infinite entry otherwise, and otherwise `0` or `Inf`
-  as the finite remainder is symmetric or not. Its `value_and_prox!` keeps the
-  general rule, which is not yet settled for this case.
-
-Weighted functions, functions with domain constraints and infinite levels keep
-the general rule, and the proximal outputs are unchanged.
-
-## GPU arrays
-
-The separable functions work on GPU arrays: CUDA.jl's `CuArray`, and the other
-arrays built on GPUArrays (AMDGPU.jl, Metal.jl, oneAPI.jl). Loading such a
-package loads an extension in which `f(x)`, [`prox!`](@ref) and
-[`value_and_prox!`](@ref) are broadcasts and reductions that run as kernels,
-instead of the loops over entries of the dense path. This covers
-[`NormL1`](@ref), [`NormL1Nonneg`](@ref), [`ElasticNet`](@ref),
-[`IndBox`](@ref) and [`IndBallLinf`](@ref), [`IndNonnegative`](@ref),
-[`NormL0`](@ref), [`MCP`](@ref), [`SCAD`](@ref) and [`SqrNormL2`](@ref). It also
-covers [`NormL2`](@ref), [`IndBallL2`](@ref), [`NormLinf`](@ref),
-[`IndBallL1`](@ref) and [`IndSimplex`](@ref). The last three find the level of
-their thresholding by Michelot's algorithm, which needs only reductions,
-instead of a selection: a few passes over the array.
-
-The group functions [`GroupNormL2`](@ref), [`GroupNormLinf`](@ref),
-[`SparseGroupNormL2`](@ref) and [`IndBallGroupL0`](@ref) run there too, by
-segmented reductions. The groups of sizes in one class (1, 2, 3–4, 5–8, …) are
-the columns of an index matrix, padded to the largest of them; one gather and
-one reduction along the columns give the norms of all the groups of the class,
-and a vector of group ids carries each group's factor or level back to its
-entries. The number of passes grows with the number of size classes, not with
-the number of groups. `Adapt.adapt(CuArray, f)` builds this layout on the
-device once; a group function left on the host builds it at every call.
-`IndBallGroupL0` selects its `s` groups on the host, among the norms of the
-groups; with a bound `k` on the entries of a group, its projection runs on the
-CPU only.
-
-The losses with a design matrix, [`LeastSquaresLoss`](@ref) and
-[`GLMLoss`](@ref) (with [`LogisticLoss`](@ref), [`PoissonLoss`](@ref) and
-[`HuberLoss`](@ref)), keep their buffers next to the response.
-`Adapt.adapt(CuArray, f)` moves `X`, the response, the weights and the offset
-to the device, where `f(β)`, [`gradient!`](@ref) and
-[`value_and_gradient!`](@ref) are products by `X` and `X'` and a broadcast over
-the observations. The proximal operator of `LeastSquaresLoss` uses the SVD of
-`X` and runs on the CPU only.
-
-- **Parameter arrays on the device.** Weights, bounds and centers must live on
-  the device with the argument: `Adapt.adapt(CuArray, NormL1(λ, w))` copies
-  them there and checks them, as the constructor does.
-- **Your own separable functions.** A [`SeparableFunction`](@ref) whose fields
-  are numbers works as it is: its [`prox_entry`](@ref) and
-  [`value_entry`](@ref) run inside the kernels. One that holds arrays needs an
-  `Adapt.adapt_structure` method that rebuilds it with the arrays converted
-  and without checks, since inside a kernel its arrays are device arrays.
-- **Host decompositions.** `NuclearNorm`, `IndBallRank`, `IndStiefel`,
-  `TracePSD`, `IndPSD` (including a rank constraint), `Spectral`,
-  `SingularValue` and `LogDetLoss` accept dense device matrices for values and
-  proximal operators, including partial decompositions. `LogDetLoss` also
-  supports `gradient!` and `value_and_gradient!`. They copy the input to cached
-  host storage, compute on the CPU, and copy the output back once. Host buffers
-  are allocated on the first call or when sizes or types change. There is no
-  device-native decomposition; include the transfer cost when choosing a backend.
-  Overflow recovery and partial fallback may copy the input again.
-  Wrapped device storage (`Symmetric`, `Hermitian`, views and transposes) is
-  outside this support; allocating `prox` on `Symmetric` returns a CPU `Matrix`.
-- **Not yet.** `LogDetLoss` Hessian products and quadratic models,
-  `QuadraticFunction` eigendecompositions, the SVD proximal path of
-  `LeastSquaresLoss`, and `Conjugate` of the host-decomposed functions above
-  remain CPU-only. The second-order methods of `GLMLoss` and the sparse iterates
-  also run on the CPU only. The GPU extension supports scalar steps; diagonal-step
-  proximal methods currently use CPU loops.
-
-Normal CI checks these operations through JLArrays, a reference backend that
-executes on the CPU. Optional physical NVIDIA GPU validation uses the separate
-[`test/cuda` environment](https://github.com/mlakolar/ProximalBase.jl/tree/master/test/cuda).
-It shares the reference-backend cases, disables scalar indexing, synchronizes
-device work before numerical comparisons and reports host and device allocations
-separately. CUDA remains optional and is not required for ordinary tests.
-
-### Choosing CPU or GPU execution
-
-Benchmark representative solves on the target hardware at the same verified
-accuracy. Include the application's actual input upload, coefficient download
-and data reuse. GPU architecture, CPU and BLAS configuration, matrix shape,
-precision and stopping checks all affect the result. There is no portable
-problem-size threshold for choosing a backend.
-
-The [V100 study](https://github.com/mlakolar/ProximalBase.jl/blob/3ec6f5513d3d8c91beec010f156c533f09cbf739/benchmark/gpu_solver/results/discovery-2026-10-26/README.md)
-favored CPU execution for small problems and GPU execution for the largest dense
-problems, especially with data already resident on the device. Transfers erased
-some smaller GPU advantages. Keep GPU execution an explicit choice based on the
-intended workload. These measurements do not justify automatic backend selection
-or a production optimization solely to remove the observed scalar allocations.
+Input/output aliasing, caching, numeric precision, non-finite data,
+spectral calculations and GPU support are documented separately in
+[Array, precision, and device conventions](numerical_usage.md).
+The [numerical contract](@ref numerics) is the authoritative policy
+when precise exceptional behavior matters.

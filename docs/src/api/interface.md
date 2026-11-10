@@ -1,5 +1,11 @@
 # Interface reference
 
+For an organized user-facing inventory of these operations, see
+[Operations on functions](../operations.md), and for their meaning and
+capability traits see [Function objects and capabilities](../function_objects.md).
+The generated material below is the method-level API reference.
+
+
 ```@docs
 ProximalBase
 ```

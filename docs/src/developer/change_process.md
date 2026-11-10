@@ -2,6 +2,14 @@
 
 ## One source of truth per requirement
 
+For any public function API change, also update
+[Operations on functions](../operations.md) and the relevant
+[Function library](../function_library.md) entry. Treat the public
+operation inventory as a review checklist against the exports in
+`src/ProximalBase.jl`, while retaining the existing docstrings as the
+detailed method reference.
+
+
 The current 0.6 contracts live in `docs/design/iterate-family-0.6.md`
 and `docs/design/symmetric-sparse-iterate-0.6.md`, with matching
 acceptance plans; the canonical numerical specification is

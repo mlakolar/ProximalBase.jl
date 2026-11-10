@@ -6,6 +6,11 @@ sparse iterates and optimality checks supplied by ProximalBase to construct
 these procedures. In this section, we derive the updates and explain how they enter
 an active-set procedure.
 
+The methods used here are cataloged in [Operations on functions](operations.md).
+For the larger division of responsibility between the function, iterate, and
+solver, see [Building optimization algorithms](optimization_algorithms.md).
+
+
 ## A scalar coordinate update
 
 We consider

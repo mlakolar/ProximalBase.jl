@@ -302,32 +302,27 @@ const _BlockCopySource{T} = Union{Vector{T},
     @inbounds dest[1] = value
     return dest
   end
-  values = Base.unalias(dest, src)    # finish a potentially throwing snapshot before writing
   x, ids = parent(dest), only(parentindices(dest))
-  storage = _block_view_storage(dest)
-  first_write = 1
-  # Zero writes cannot change activity, even for an arbitrary view. Copy them
-  # once without group lookups, and preserve their signs.
-  @inbounds while first_write <= n
-    iszero(values[first_write]) || break
-    storage[first_write] = values[first_write]
-    first_write += 1
-  end
-  first_write > n && return dest
   k = @inbounds x.group_of[first(ids)]
-  if ids !== @inbounds(x.groups[k])
-    # The source is already unaliased and the prefix already copied. Keep
-    # scalar activation for an arbitrary view without repeating either work.
-    @inbounds for j in first_write:n
-      dest[j] = values[j]
+  ids === @inbounds(x.groups[k]) ||
+    return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
+  values = Base.unalias(dest, src)    # all fallible work finishes before writes
+  storage = _block_storage(x, k)
+  if @inbounds x.position[k] != 0
+    # Base's index-style copy preserves vectorized/strided large-buffer paths.
+    Base.copyto_unaliased!(IndexStyle(storage), storage, IndexStyle(values), values)
+  else
+    nonzero = false
+    # Owned groups have distinct validated indices; the ordinary source is
+    # already unaliased. Reads, same-type stores and comparisons cannot throw.
+    @inbounds @simd ivdep for j in 1:n
+      value = values[j]
+      nonzero |= !iszero(value)
+      storage[j] = value
     end
-    return dest
-  end
-  # No nonzero has been stored yet. Once active, the raw tail needs no further
-  # activation tests; fallible/custom sources never enter this method.
-  @inbounds(x.position[k]) == 0 && activate!(x, k)
-  @inbounds for j in first_write:n
-    storage[j] = values[j]
+    # No supported throw point occurs between the infallible loop and this
+    # activation: k/capacity are valid for this owned, previously inactive group.
+    nonzero && activate!(x, k)
   end
   dest
 end

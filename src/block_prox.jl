@@ -41,6 +41,10 @@ end
 # The measured size-5 group-lasso loop benefits from exposing this validated
 # boundary. Keep other families and wrapper entry points on their original route.
 @inline function prox_block!(out::AbstractVector, f::GroupNormL2, u::AbstractVector, k::Integer, γ::Real)
+  # Keep Julia 1.10's established code generation for larger compact buffers.
+  checkbounds(f.groups, k)
+  length(out) > 32 && return invoke(prox_block!,
+    Tuple{AbstractVector, AbstractFunction, AbstractVector, Integer, Real}, out, f, u, k, γ)
   @inline _check_block_buffers(out, f, u, k)
   _prox_block!(out, f, u, k, γ)
   out

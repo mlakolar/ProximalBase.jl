@@ -504,5 +504,10 @@ It deliberately names the retired APIs only to execute the immutable baseline.
 checkout in a separate environment. It measures scalar kernels, compact group
 kernels, public writes, zero-group results, and complete scalar, grouped,
 quadratic, CSC-design and multiresponse CD solves at Float32 and Float64.
+The whole-solve cases fix `order=:cyclic` and record convergence pass counts.
 Use one Julia/BLAS thread and matched dependencies/source pins for both runs.
+Run with `--compiled-modules=no --check-bounds=no` to avoid comparing cached
+code lowered under different bounds-check settings. Set `PB_BLOCK_BENCH_REPEATS=4`
+and `PB_BLOCK_BENCH_OUTPUT=<prefix>` to save four rounds; the first warms the
+complete case set. Numerical validation runs separately with bounds checks on.
 See the #844 validation record for exact source pins, commands and local results.

@@ -5,6 +5,7 @@ const PB = ProximalBase
 const modern = isdefined(PB, :prox_block!)
 const scalar_prox = getfield(PB, modern ? :prox_block : :prox_entry)
 const retired_step! = modern ? nothing : getfield(PB, :prox_coordinate!)
+Base.JLOptions().check_bounds == 2 || error("run with --check-bounds=no for matched benchmark code generation")
 BLAS.set_num_threads(1)
 
 function measure(label, op; work=1, samples=300, seconds=.2)
@@ -59,10 +60,11 @@ function whole_solves(::Type{T}) where T
                            ("group_ls_csc",(one(T)/T(n))*LeastSquaresLoss(y,sparse(X)),GroupNormL2(T(.1),gs),AtomIterate(T,p,gs)),
                            ("generic_linf",f,GroupNormLinf(T(.1),gs),AtomIterate(T,p,gs)),
                            ("generic_sparsegroup",f,SparseGroupNormL2(T(.03),T(.1),gs),AtomIterate(T,p,gs)))
-        solver = CDSolver(;tol=T===Float32 ? 1e-5 : 1e-10)
+        solver = CDSolver(;order=:cyclic,tol=T===Float32 ? 1e-5 : 1e-10)
         op = () -> (fill!(x,zero(T)); dropzeros!(x); solve!(x,loss,g,solver))
         result=op()
         result.converged || error("nonconverged $name $T")
+        println(stderr,"solve/$T/$name\t",result.passes,"\t",repr(result.minimum))
         measure("solve/$T/$name",op;samples=30,seconds=.4)
     end
     qresponses=4
@@ -72,16 +74,38 @@ function whole_solves(::Type{T}) where T
     loss=(one(T)/T(n))*LeastSquaresLoss(Y,X)
     g=GroupNormL2(T(.1),rows,ones(T,p))
     x=AtomIterate(T,p*qresponses,rows)
-    solver=CDSolver(;tol=T===Float32 ? 1e-5 : 1e-10)
+    solver=CDSolver(;order=:cyclic,tol=T===Float32 ? 1e-5 : 1e-10)
     op=()->(fill!(x,zero(T));dropzeros!(x);solve!(x,loss,g,solver))
-    op().converged || error("nonconverged multiresponse $T")
+    result=op()
+    result.converged || error("nonconverged multiresponse $T")
+    println(stderr,"solve/$T/multiresponse\t",result.passes,"\t",repr(result.minimum))
     measure("solve/$T/multiresponse",op;samples=30,seconds=.4)
 end
-println("case\tmedian_ns\tbytes\tallocations")
-for T in (Float32,Float64)
-    scalar_case(T)
-    for n in (8,32,256), zero_trial in (false,true)
-        group_case(T,n,zero_trial)
+function benchmark_round()
+    println("case\tmedian_ns\tbytes\tallocations")
+    for T in (Float32,Float64)
+        scalar_case(T)
+        for n in (8,32,256), zero_trial in (false,true)
+            group_case(T,n,zero_trial)
+        end
+        whole_solves(T)
     end
-    whole_solves(T)
+end
+
+repeats = parse(Int, get(ENV, "PB_BLOCK_BENCH_REPEATS", "1"))
+repeats > 0 || error("PB_BLOCK_BENCH_REPEATS must be positive")
+prefix = get(ENV, "PB_BLOCK_BENCH_OUTPUT", "")
+for rep in 1:repeats
+    if isempty(prefix)
+        benchmark_round()
+    else
+        open("$(prefix)-$(rep).tsv", "w") do out
+            open("$(prefix)-$(rep).stderr", "w") do metadata
+                redirect_stdio(; stdout=out, stderr=metadata) do
+                    benchmark_round()
+                end
+            end
+        end
+        println("Completed benchmark repetition ", rep)
+    end
 end

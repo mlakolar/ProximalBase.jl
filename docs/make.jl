@@ -50,6 +50,7 @@ makedocs(
     modules = [ProximalBase],
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", "false") == "true",
+        collapselevel = 1,  # Start with top-level sections collapsed; click to expand.
         canonical = "https://mlakolar.github.io/ProximalBase.jl/stable/",
         mathengine = Documenter.KaTeX(),
         size_threshold = 400_000,

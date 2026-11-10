@@ -18,28 +18,28 @@ Pkg.add("ProximalBase")
 ## First look at function objects
 
 Consider a simple composite optimization problem in two variables,
-\(x = (x_1,x_2) \in \mathbb{R}^2\):
+``x = (x_1,x_2) \in \mathbb{R}^2``:
 
 ```math
-\min_{x \in \mathbb{R}^2} F(x) = f(x) + g(x),
-\qquad
-f(x) = \frac{1}{2}\|x\|_2^2
-     = \frac{1}{2}(x_1^2+x_2^2),
-\qquad
-g(x) = \frac{1}{2}\|x\|_1
-     = \frac{1}{2}(|x_1|+|x_2|).
+\begin{aligned}
+\min_{x \in \mathbb{R}^2}\quad F(x) &= f(x) + g(x),\\
+f(x) &= \tfrac{1}{2}\|x\|_2^2
+      = \tfrac{1}{2}(x_1^2+x_2^2),\\
+g(x) &= \tfrac{1}{2}\|x\|_1
+      = \tfrac{1}{2}(|x_1|+|x_2|).
+\end{aligned}
 ```
 
-The two functions play different roles. The smooth term \(f\) penalizes
+The two functions play different roles. The smooth term ``f`` penalizes
 large coordinates quadratically, and its gradient is
 
 ```math
 \nabla f(x) = x.
 ```
 
-The \(\ell_1\) term \(g\) encourages sparsity and is not differentiable
+The ``\ell_1`` term ``g`` encourages sparsity and is not differentiable
 at a zero coordinate. Instead of a gradient, an optimization method can
-use its **proximal operator**, defined for a step \(\gamma>0\) by
+use its **proximal operator**, defined for a step ``\gamma>0`` by
 
 ```math
 \operatorname{prox}_{\gamma g}(v)
@@ -47,15 +47,18 @@ use its **proximal operator**, defined for a step \(\gamma>0\) by
 \left\{g(z) + \frac{\|z-v\|_2^2}{2\gamma}\right\}.
 ```
 
-For this particular \(g\), the minimization separates by coordinate:
-\(\operatorname{prox}_{\gamma g}(v)_i =
-\operatorname{sign}(v_i)\max(|v_i|-\gamma/2,0)\).
-At \(v=(2,-1)\) and \(\gamma=1\), it gives
-\((1.5,-0.5)\).
+For this particular ``g``, the minimization separates by coordinate:
+
+```math
+\operatorname{prox}_{\gamma g}(v)_i =
+\operatorname{sign}(v_i)\max(|v_i|-\gamma/2,0).
+```
+At ``v=(2,-1)`` and ``\gamma=1``, it gives
+``(1.5,-0.5)``.
 
 In ProximalBase, **function objects** represent these mathematical
-functions. `SqrNormL2(1.0)` represents \(f\), and `NormL1(0.5)`
-represents \(g\). We can evaluate a function, calculate an available
+functions. `SqrNormL2(1.0)` represents ``f``, and `NormL1(0.5)`
+represents ``g``. We can evaluate a function, calculate an available
 gradient, or request a proximal point without writing those formulas
 ourselves:
 

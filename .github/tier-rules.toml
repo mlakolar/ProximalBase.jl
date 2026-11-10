@@ -242,6 +242,12 @@ focus = ["platform_focus"]
 paths = [".github/workflows/platform-focused.yml", "scripts/platform_focus.jl"]
 
 [[risk]]
+why = "Testing helpers: direct positive/negative checks and representative standard-tier consumers"
+tier = "standard"
+focus = ["testing"]
+paths = ["ext/ProximalBaseTestExt.jl"]
+
+[[risk]]
 why = "test runner, CI, dependencies or extensions: the whole catalog must still pass"
 tier = "full"
 paths = [

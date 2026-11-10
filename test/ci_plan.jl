@@ -528,4 +528,107 @@ end
   end
 end
 
+const TESTING_CONSUMERS = ["allocations_basics", "ballconstrained", "binary", "composition", "distance",
+                           "iterate_writes", "losses", "nonconvex", "norms", "separable", "smooth",
+                           "soc", "sqrhinge", "sumlargest"]
+
+@testset "Testing extension plan and consumer inventory" begin
+  ext = "ext/ProximalBaseTestExt.jl"
+  selected(r) = sort!(union(TT.select(MANIFEST, r.tier), filter(!isempty, split(r.focus, ','))))
+  standard = TT.select(MANIFEST, "standard")
+  # Keep the documented consumer mapping and its selection guard in agreement.
+  section = match(r"(?s)## Testing extension selection\n(.*?)(?:\n## |\z)", lf(joinpath(ROOT, "test", "TESTING.md"))).captures[1]
+  rows = filter(line -> startswith(line, "| `"), split(section, '\n'))
+  documented = sort!(unique([m.captures[1] for row in rows for m in eachmatch(r"`([^`]+)`", split(row, '|')[4])]))
+  @test documented == TESTING_CONSUMERS
+  for paths in ([ext], [ext, "test/testing.jl"], [ext, "src/functions/norms.jl", "test/norms.jl"],
+                [ext, "test/precompose_array.jl"])
+    r = pr(paths...)
+    expected = ["testing"]
+    "src/functions/norms.jl" in paths && push!(expected, "atom_iterate_grids")
+    "test/precompose_array.jl" in paths && push!(expected, "precompose_array")
+    @test r.tier == "standard" && r.focus == join(sort(expected), ",")
+    @test selected(r) == sort!(union(standard, expected))
+    @test r.platforms == "stable" && jobnames(r.required) == ["$L1 - standard"]
+    @test isempty(r.advisory) && !r.benchmark && !r.conformance && !r.coverage && !r.inventory
+    @test issubset(TESTING_CONSUMERS, selected(r))
+  end
+  # Complete changed-path set of the SparseIterate migration (#835).
+  paths835 = [
+    "benchmark/cases.jl",
+    "benchmark/cases_test.jl",
+    "docs/audit/sparse-iterate-06-method-inventory.md",
+    "docs/design/iterate-family-0.6-acceptance.md",
+    "docs/design/iterate-family-0.6.md",
+    "docs/make.jl",
+    "docs/src/api/iterates.md",
+    "docs/src/developer/index.md",
+    "docs/src/extending.md",
+    "docs/src/index.md",
+    "docs/src/iterates.md",
+    "docs/src/migration.md",
+    "docs/src/sparse_iterate.md",
+    "docs/src/symmetric_sparse_iterate.md",
+    "examples/02_lasso_path_coordinate_descent.jl",
+    "examples/15_calculus_and_custom_functions.jl",
+    "ext/ProximalBaseTestExt.jl",
+    "src/deprecated.jl",
+    "src/functions/smooth.jl",
+    "src/image.jl",
+    "src/sparse_iterate.jl",
+    "test/allocations.jl",
+    "test/binary.jl",
+    "test/constrained.jl",
+    "test/constrained_basics.jl",
+    "test/cubenorm.jl",
+    "test/image.jl",
+    "test/interface.jl",
+    "test/iterate_queries.jl",
+    "test/large_inputs.jl",
+    "test/losses.jl",
+    "test/precompose_array.jl",
+    "test/real_iterates.jl",
+    "test/separable.jl",
+    "test/sparse_iterate.jl",
+    "test/sparse_iterate_basics.jl",
+    "test/sparse_value_cost.jl",
+    "test/spectral_overflow.jl",
+    "test/sqrhinge.jl",
+    "test/three_factor_product.jl",
+  ]
+  r = pr(paths835...)
+  # If tier placement or family-focus rules change this case, update its expected selection.
+  expected = ["allocations", "block_step", "block_step_grids", "conformance/failures_storage",
+              "constrained", "image", "large_inputs", "precompose_array", "real_iterates",
+              "sparse_iterate", "sparse_iterate_basics_grids", "spectral_overflow", "symmetric_argument",
+              "symmetric_mul", "testing", "three_factor_product"]
+  @test r.tier == "standard"
+  @test selected(r) == sort!(union(standard, expected))
+  @test split(r.focus, ',') == sort(setdiff(expected, standard))
+  @test r.platforms == "stable" && jobnames(r.required) == ["$L1 - standard"]
+  @test isempty(r.advisory) && r.benchmark && !r.conformance && !r.coverage && !r.inventory
+  for paths in ([ext, "src/testing.jl"], [ext, "src/utils.jl", "test/utils.jl"])
+    r = pr(paths...)
+    @test r.tier == "thorough" && r.platforms == "linux" && r.conformance
+    @test sort(jobnames(r.required)) == sort(["$L1 - thorough", "$LTS - thorough"])
+    @test "testing" in selected(r) && !("testing" in split(r.focus, ','))
+  end
+  for label in ("test:thorough", "test:full")
+    r = pr(ext; labels = [label])
+    tier = label[6:end]
+    @test r.tier == tier && isempty(r.focus) && selected(r) == TT.select(MANIFEST, tier)
+    @test r.platforms == (tier == "full" ? "cross" : "linux")
+    @test sort(jobnames(r.required)) == sort(tier == "full" ?
+      ["$L1 - full", "$LTS - full", "$MAC - full", "$WIN - full"] : ["$L1 - thorough", "$LTS - thorough"])
+    @test jobnames(r.advisory) == (tier == "full" ? ["$PRE - full"] : String[])
+    @test r.benchmark == (tier == "full") && r.conformance
+  end
+  for path in ("ext/OtherExt.jl", "ext/ProximalBaseGPUArraysCoreExt.jl", "unknown/path", ".github/tier-rules.toml")
+    r = pr(ext, path)
+    @test r.tier == "full" && selected(r) == TT.select(MANIFEST, "full")
+    @test r.platforms == "linux" && sort(jobnames(r.required)) == sort(["$L1 - full", "$LTS - full"])
+    @test isempty(r.advisory) && r.conformance && !r.benchmark
+  end
+end
+
 end

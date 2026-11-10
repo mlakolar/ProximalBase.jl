@@ -148,7 +148,7 @@ end
   r = go(event = "schedule", tier = "full", required = cross("full"), advisory = adv, drop = adv)
   @test isempty(r.errors) && any(occursin("missing", n) for n in r.notes)
   # a name in both lists fails
-  r = go(tier = "thorough", required = ["$L1 - thorough"], advisory = ["$LTS - thorough"])
+  r = go(tier = "thorough", required = ["$L1 - thorough"], advisory = ["$L1 - thorough"])
   @test any(occursin("both required and advisory", e) for e in r.errors)
   # an advisory job is not a platform the plan forgot: it is listed in the plan
   @test passes(tier = "quick", advisory = ["$PRE - quick"], conclusions = Dict("$PRE - quick" => "failure"))

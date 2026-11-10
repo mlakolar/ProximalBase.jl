@@ -23,7 +23,7 @@ const WIN = "Julia 1 - windows-latest - x64"
 const PRE = "Julia pre - ubuntu-latest - x64"
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 
-cross(tier) = ["$LTS - $tier", "$L1 - $tier", "$MAC - $tier", "$WIN - $tier"]
+cross(tier) = ["$L1 - $tier", "$MAC - $tier", "$WIN - $tier"]
 
 # The default platform mode of a fixture: by event and tier (stable for a manual run). It does
 # not model the planner's choices for a PR with the label test:full or for the manual defaults.
@@ -62,8 +62,8 @@ passes(; kw...) = isempty(go(; kw...).errors)
 @testset "a run that passes" begin
   @test passes()
   @test passes(tier = "standard")
-  @test passes(tier = "thorough", required = ["$LTS - thorough", "$L1 - thorough"])
-  @test passes(event = "push", ref_type = "branch", tier = "thorough", required = ["$LTS - thorough", "$L1 - thorough"])
+  @test passes(tier = "thorough", required = ["$L1 - thorough"])
+  @test passes(event = "push", ref_type = "branch", tier = "thorough", required = ["$L1 - thorough"])
   @test passes(event = "push", ref_type = "tag", tier = "full", required = cross("full"), advisory = ["$PRE - full"],
                benchmark = "success", run_benchmark = "true")
   @test passes(event = "schedule", tier = "full", required = cross("full"), advisory = ["$PRE - full"])
@@ -111,16 +111,15 @@ end
 end
 
 @testset "a required job that is missing or did not succeed" begin
-  req = ["$LTS - thorough", "$L1 - thorough"]
+  req = ["$L1 - thorough"]
   for conclusion in ("failure", "cancelled", "skipped", "timed_out", "neutral", "action_required", "stale", "")
     r = go(tier = "thorough", required = req, conclusions = Dict(req[1] => conclusion))
     @test !isempty(r.errors) && r.failed == [req[1]] && r.linux_failed
-    @test !passes(tier = "thorough", required = req, conclusions = Dict(req[2] => conclusion))
   end
-  r = go(tier = "thorough", required = req, drop = [req[2]])
-  @test r.failed == [req[2]] && any(occursin("missing", e) for e in r.errors)
+  r = go(tier = "thorough", required = req, drop = [req[1]])
+  @test r.failed == [req[1]] && any(occursin("missing", e) for e in r.errors)
   # the listing of another tier's name does not stand in for it
-  @test !passes(tier = "thorough", required = req, drop = [req[2]], extra = ["$L1 - quick" => "success"])
+  @test !passes(tier = "thorough", required = req, drop = [req[1]], extra = ["$L1 - quick" => "success"])
   # a name listed twice (two jobs of one name) is not one job that succeeded
   @test !passes(tier = "thorough", required = req, extra = [req[1] => "success"])
   # the test jobs that were cancelled or skipped as a whole
@@ -149,7 +148,7 @@ end
   r = go(event = "schedule", tier = "full", required = cross("full"), advisory = adv, drop = adv)
   @test isempty(r.errors) && any(occursin("missing", n) for n in r.notes)
   # a name in both lists fails
-  r = go(tier = "thorough", required = ["$LTS - thorough", "$L1 - thorough"], advisory = ["$LTS - thorough"])
+  r = go(tier = "thorough", required = ["$L1 - thorough"], advisory = ["$LTS - thorough"])
   @test any(occursin("both required and advisory", e) for e in r.errors)
   # an advisory job is not a platform the plan forgot: it is listed in the plan
   @test passes(tier = "quick", advisory = ["$PRE - quick"], conclusions = Dict("$PRE - quick" => "failure"))
@@ -193,7 +192,7 @@ end
   @test !passes(run_benchmark = "")
   @test !passes(run_benchmark = "yes")
   # the plan lists a job whose name has another tier
-  @test !passes(tier = "thorough", required = ["$LTS - quick", "$L1 - quick"])
+  @test !passes(tier = "thorough", required = ["$L1 - quick"])
   # a plan that failed: nothing else is believed, and outputs are empty
   r = verdict(; event = "pull_request", plan = "failure", tests = "skipped", analysis = "success", benchmark = "skipped",
               run_benchmark = "", run_tests = "", tier = "", platforms = "", required = "", advisory = "", jobs = nothing)
@@ -202,56 +201,44 @@ end
 end
 
 @testset "the minimum of each kind of run, checked against the plan's lists" begin
-  # a planner that drops a platform from the matrix and the list together
-  @test !passes(tier = "thorough", event = "push", ref_type = "branch", required = ["$L1 - thorough"])
-  @test !passes(tier = "thorough", event = "push", ref_type = "branch", required = ["$LTS - thorough"])
-  @test !passes(tier = "full", event = "push", ref_type = "tag", required = ["$LTS - full", "$L1 - full"])
-  @test !passes(tier = "full", event = "schedule", required = ["$LTS - full", "$L1 - full", "$MAC - full"])
-  @test !passes(tier = "full", event = "schedule", required = ["$L1 - full", "$MAC - full", "$WIN - full"])
+  # LTS is no longer required, even on pushes, tags or release validation.
+  @test passes(event = "push", ref_type = "branch", tier = "thorough", required = ["$L1 - thorough"])
+  @test !passes(event = "push", ref_type = "branch", tier = "thorough", required = ["$LTS - thorough"])
+  @test !passes(event = "push", ref_type = "tag", tier = "full", required = ["$L1 - full"])
+  @test !passes(event = "schedule", tier = "full", required = ["$L1 - full", "$MAC - full"])
   @test !passes(tier = "quick", required = ["$LTS - quick"])
-  @test !passes(tier = "quick", event = "workflow_dispatch", required = ["$LTS - quick"])
-  # macOS or Windows as advisory does not meet the minimum of the nightly run
-  @test !passes(tier = "full", event = "schedule", required = ["$LTS - full", "$L1 - full"], advisory = ["$MAC - full", "$WIN - full"])
-  # a push needs a ref type; so does nothing else
-  @test !passes(event = "push")
-  @test !passes(event = "push", ref_type = "commit")
+  @test !passes(event = "schedule", tier = "full", required = ["$L1 - full"], advisory = ["$MAC - full", "$WIN - full"])
+  @test !passes(event = "push") && !passes(event = "push", ref_type = "commit")
   @test !passes(event = "release")
-  @test floor_jobs("pull_request", "", "quick") == ["$L1 - quick"]
-  @test floor_jobs("pull_request", "", "standard") == ["$L1 - standard"]
-  @test sort(floor_jobs("pull_request", "", "thorough")) == sort(["$LTS - thorough", "$L1 - thorough"])
-  @test sort(floor_jobs("pull_request", "", "full")) == sort(["$LTS - full", "$L1 - full"])
+  for tier in ("quick", "standard", "thorough", "full")
+    @test floor_jobs("pull_request", "", tier) == ["$L1 - $tier"]
+    @test floor_jobs("push", "branch", tier) == ["$L1 - $tier"]
+    @test minimum_jobs("pull_request", "", tier, "linux") == ["$L1 - $tier"]
+    @test minimum_jobs("push", "branch", tier, "stable") == ["$L1 - $tier"]
+    @test sort(minimum_jobs("pull_request", "", tier, "cross")) == sort(cross(tier))
+  end
   @test floor_jobs("workflow_dispatch", "", "full") == ["$L1 - full"]
-  @test sort(floor_jobs("push", "branch", "thorough")) == sort(["$LTS - thorough", "$L1 - thorough"])
   @test sort(floor_jobs("push", "tag", "full")) == sort(cross("full"))
   @test sort(floor_jobs("schedule", "", "full")) == sort(cross("full"))
   @test sort(floor_jobs("workflow_dispatch", "", "full"; release = true)) == sort(cross("full"))
+  @test sort(minimum_jobs("workflow_dispatch", "", "full", "stable"; release = true)) == sort(cross("full"))
   @test_throws ErrorException floor_jobs("push", "", "full")
   @test_throws ErrorException floor_jobs("issues", "", "full")
-  # the minimum adds the jobs of the platform mode to the floor
-  @test minimum_jobs("pull_request", "", "quick", "stable") == ["$L1 - quick"]
-  @test sort(minimum_jobs("pull_request", "", "quick", "linux")) == sort(["$LTS - quick", "$L1 - quick"])
-  @test sort(minimum_jobs("pull_request", "", "full", "cross")) == sort(cross("full"))
-  @test sort(minimum_jobs("workflow_dispatch", "", "thorough", "cross")) == sort(cross("thorough"))
-  @test sort(minimum_jobs("push", "branch", "thorough", "stable")) == sort(["$LTS - thorough", "$L1 - thorough"])
-  @test sort(minimum_jobs("workflow_dispatch", "", "full", "stable"; release = true)) == sort(cross("full"))
   @test_throws ErrorException minimum_jobs("pull_request", "", "quick", "")
   @test_throws ErrorException minimum_jobs("pull_request", "", "quick", "all")
 end
 
 @testset "the minimum does not depend on the plan's own lists" begin
-  thorough = ["$LTS - thorough", "$L1 - thorough"]
   for tier in ("thorough", "full")
-    both = ["$LTS - $tier", "$L1 - $tier"]
-    @test passes(tier = tier, required = both, platforms = "linux")
-    # lts moved into the advisory list: the list is wrong and the minimum is missing
-    r = go(tier = tier, required = ["$L1 - $tier"], advisory = ["$LTS - $tier"])
-    @test any(occursin("only `$PRE - $tier` may be", e) for e in r.errors) && any(occursin("do not include `$LTS - $tier`", e) for e in r.errors)
-    # lts dropped from the required list, and from the matrix and the list together
-    @test !passes(tier = tier, required = ["$L1 - $tier"], platforms = "linux")
-    @test !passes(tier = tier, required = ["$L1 - $tier"], platforms = "stable")
-    @test !passes(tier = tier, required = ["$L1 - $tier"], drop = ["$LTS - $tier"])
+    linux = ["$L1 - $tier"]
+    @test passes(tier = tier, required = linux, platforms = "linux")
+    @test passes(tier = tier, required = linux, platforms = "stable")
+    @test !passes(tier = tier, required = String[], platforms = "linux")
+    @test !passes(tier = tier, required = linux, drop = [linux[1]], platforms = "linux")
+    r = go(tier = tier, required = linux, advisory = linux, platforms = "linux")
+    @test any(occursin("both required and advisory", e) for e in r.errors)
   end
-  # a stricter mode than the floor: test:full asks for the cross jobs, and they must stay
+  # Native macOS and Windows remain mandatory on a cross run, not advisory.
   for dropped in (["$MAC - full"], ["$WIN - full"], ["$MAC - full", "$WIN - full"])
     kept = setdiff(cross("full"), dropped)
     @test !passes(tier = "full", required = kept, advisory = ["$PRE - full"], platforms = "cross")
@@ -259,45 +246,34 @@ end
     @test passes(tier = "full", required = kept, advisory = ["$PRE - full"], platforms = "linux")
   end
   @test passes(tier = "full", required = cross("full"), advisory = ["$PRE - full"], platforms = "cross")
-  @test !passes(tier = "thorough", required = thorough, platforms = "cross")
-  @test !passes(tier = "quick", required = ["$L1 - quick"], platforms = "linux")
-  # the advisory list may hold Julia pre on Ubuntu at the plan's tier, and nothing else
+  @test !passes(tier = "thorough", required = ["$L1 - thorough"], platforms = "cross")
+  @test passes(tier = "quick", required = ["$L1 - quick"], platforms = "linux")
   @test passes(advisory = ["$PRE - quick"])
-  for name in ("$LTS - quick", "$L1 - quick", "$MAC - quick", "$WIN - quick", "$PRE - full", "Julia nightly - ubuntu-latest - x64 - quick",
-               "Julia pre - macos-latest - aarch64 - quick", "something else")
-    r = go(advisory = [name])
-    @test any(occursin("is listed as advisory", e) for e in r.errors)
+  for name in ("$LTS - quick", "$L1 - quick", "$MAC - quick", "$WIN - quick", "$PRE - full",
+               "Julia nightly - ubuntu-latest - x64 - quick", "Julia pre - macos-latest - aarch64 - quick", "something else")
+    @test any(occursin("is listed as advisory", e) for e in go(advisory = [name]).errors)
   end
   @test !passes(advisory = ["$PRE - quick", "$MAC - quick"])
-  # the platforms are an output of the plan that must be one of the three modes
   for value in ("", "Linux", "all", "stable;linux", "auto")
-    r = go(platforms = value)
-    @test any(occursin("unknown platforms", e) for e in r.errors)
+    @test any(occursin("unknown platforms", e) for e in go(platforms = value).errors)
   end
-  # tier none needs no platforms, and no jobs
   @test passes(tier = "none", platforms = "")
   @test !passes(tier = "none", advisory = ["$PRE - none"], jobs = Tuple{String, String}[])
-  # tier none is planned for a pull request and a push to master only
   @test passes(tier = "none")
   @test passes(tier = "none", event = "push", ref_type = "branch")
   for (event, ref_type) in (("schedule", ""), ("push", "tag"), ("workflow_dispatch", ""))
-    r = go(tier = "none", event = event, ref_type = ref_type, platforms = "linux")
+    r = go(; tier = "none", event, ref_type, platforms = "linux")
     @test any(occursin("Tier none is planned for a pull request or a push to master only", e) for e in r.errors)
   end
-  # every kind of run and mode with the jobs the plan lists passes
   for (event, ref_type, tier, platforms, required, advisory) in (
       ("pull_request", "", "quick", "stable", ["$L1 - quick"], String[]),
-      ("pull_request", "", "standard", "stable", ["$L1 - standard"], String[]),
-      ("pull_request", "", "thorough", "linux", thorough, String[]),
-      ("pull_request", "", "full", "linux", ["$LTS - full", "$L1 - full"], String[]),
+      ("pull_request", "", "thorough", "linux", ["$L1 - thorough"], String[]),
       ("pull_request", "", "full", "cross", cross("full"), ["$PRE - full"]),
-      ("push", "branch", "thorough", "linux", thorough, String[]),
+      ("push", "branch", "thorough", "linux", ["$L1 - thorough"], String[]),
       ("push", "tag", "full", "cross", cross("full"), ["$PRE - full"]),
       ("schedule", "", "full", "cross", cross("full"), ["$PRE - full"]),
       ("workflow_dispatch", "", "quick", "stable", ["$L1 - quick"], String[]),
-      ("workflow_dispatch", "", "thorough", "linux", thorough, String[]),
-      ("workflow_dispatch", "", "full", "cross", cross("full"), ["$PRE - full"]),
-      ("workflow_dispatch", "", "full", "stable", ["$L1 - full"], String[]))
+      ("workflow_dispatch", "", "full", "cross", cross("full"), ["$PRE - full"]))
     @test passes(; event, ref_type, tier, platforms, required, advisory)
   end
 end
@@ -367,17 +343,17 @@ end
                     advisory = ["$PRE - full"], kw...)
   @test passes(event = "workflow_dispatch", tier = "full", release = true, required = cross("full"), advisory = ["$PRE - full"])
   @test isempty(rel().errors) && isempty(rel().failed)
-  # the floor is the four cross jobs: a plan that lists the Linux jobs only fails, as does a missing job
-  r = rel(required = ["$LTS - full", "$L1 - full"], advisory = String[], platforms = "linux")
+  # the floor is the three cross jobs: a plan that lists the Linux jobs only fails, as does a missing job
+  r = rel(required = ["$L1 - full"], advisory = String[], platforms = "linux")
   @test any(occursin("do not include `$MAC - full`", e) for e in r.errors) && any(occursin("do not include `$WIN - full`", e) for e in r.errors)
-  @test !passes(event = "workflow_dispatch", tier = "full", release = true, required = ["$LTS - full", "$L1 - full"], platforms = "linux")
-  @test !passes(event = "workflow_dispatch", tier = "full", release = true, required = ["$LTS - full", "$L1 - full"], platforms = "cross")
-  for dropped in ("$LTS - full", "$L1 - full", "$MAC - full", "$WIN - full")
+  @test !passes(event = "workflow_dispatch", tier = "full", release = true, required = ["$L1 - full"], platforms = "linux")
+  @test !passes(event = "workflow_dispatch", tier = "full", release = true, required = ["$L1 - full"], platforms = "cross")
+  for dropped in ("$L1 - full", "$MAC - full", "$WIN - full")
     @test !passes(event = "workflow_dispatch", tier = "full", release = true, required = setdiff(cross("full"), [dropped]), advisory = ["$PRE - full"])
     @test !isempty(rel(drop = [dropped]).errors) && rel(drop = [dropped]).failed == [dropped]
   end
   # the same lists of a manual run that is not a release pass: the floor is the release's
-  @test passes(event = "workflow_dispatch", tier = "full", required = ["$LTS - full", "$L1 - full"], platforms = "linux")
+  @test passes(event = "workflow_dispatch", tier = "full", required = ["$L1 - full"], platforms = "linux")
   @test passes(event = "workflow_dispatch", tier = "full", required = ["$L1 - full"], platforms = "stable")
   # a release is a manual run of the full tier, nothing else
   for tier in ("quick", "thorough")
@@ -418,7 +394,7 @@ end
   rel(; kw...) = go(; event = "workflow_dispatch", tier = "full", release = true, required = req, advisory = ["$PRE - full"], kw...)
   artifacts(attempt = "1"; skip = String[]) = String[report_artifact(n, attempt) for n in req if !(n in skip)]
   # the names the workflow's upload step gives
-  @test report_artifact("$LTS - full", "1") == "conformance-reports-lts-ubuntu-latest-x64-1"
+  @test report_artifact("1") == "conformance-reports-lts-ubuntu-latest-x64-1"
   @test report_artifact("$L1 - full", "3") == "conformance-reports-1-ubuntu-latest-x64-3"
   @test report_artifact("$MAC - full", "1") == "conformance-reports-1-macos-latest-aarch64-1"
   @test report_artifact("$WIN - full", "2") == "conformance-reports-1-windows-latest-x64-2"
@@ -442,14 +418,14 @@ end
     # nothing, or nothing readable: every required job is named
     for lost in (String[], nothing)
       r = run(artifacts = lost)
-      @test length(r.errors) == 4 && sort(r.failed) == sort(req) && r.linux_failed
+      @test length(r.errors) == 3 && sort(r.failed) == sort(req) && r.linux_failed
     end
     @test !isempty(run(artifacts = nothing).errors) && any(occursin("could not be listed", e) for e in run(artifacts = nothing).errors)
   end
   # partial and diagnostic reports do not count, and the message says what is there instead
-  for (job, name) in ((req[1], "conformance-reports-partial-lts-ubuntu-latest-x64-1"),
-                      (req[1], "diagnostic-conformance-reports-lts-ubuntu-latest-x64-1"),
-                      (req[3], "diagnostic-conformance-reports-partial-1-macos-latest-aarch64-1"))
+  for (job, name) in ((req[1], "conformance-reports-partial-1-ubuntu-latest-x64-1"),
+                      (req[1], "diagnostic-conformance-reports-1-ubuntu-latest-x64-1"),
+                      (req[2], "diagnostic-conformance-reports-partial-1-macos-latest-aarch64-1"))
     r = nightly(artifacts = [artifacts(; skip = [job]); name])
     @test r.failed == [job] && occursin("`$name` instead", only(r.errors))
     @test !isempty(tag(artifacts = [artifacts(; skip = [job]); name]).errors) && !isempty(rel(artifacts = [artifacts(; skip = [job]); name]).errors)
@@ -464,7 +440,7 @@ end
     @test occursin("`conformance-reports-1-windows-latest-x64-2` were not uploaded", only(r.errors))
     # the other way round: the reports of a later attempt do not stand in for a job that ran earlier
     r = run(artifacts = artifacts("2"))
-    @test length(r.errors) == 4
+    @test length(r.errors) == 3
     @test !isempty(run(attempts = Dict(n => "3" for n in req), artifacts = artifacts("2")).errors)
     @test isempty(run(attempts = Dict(n => "3" for n in req), artifacts = artifacts("3")).errors)
   end
@@ -483,14 +459,14 @@ end
   @test isempty(nightly(artifacts = artifacts(), attempts = Dict(pre[1] => "2")).errors)
   # the job list without attempts (pairs) cannot be matched to a report
   r = nightly(jobs = [(n, "success") for n in [req; pre]], artifacts = artifacts())
-  @test length(r.errors) == 4 && all(occursin("attempt it ran in is not known", e) for e in r.errors)
+  @test length(r.errors) == 3 && all(occursin("attempt it ran in is not known", e) for e in r.errors)
   # pull requests, pushes to master and plain manual runs never run this check
   for listing in (nothing, String[], ["conformance-reports-partial-1-ubuntu-latest-x64-9"])
     @test passes(artifacts = listing)
-    @test passes(tier = "thorough", required = ["$LTS - thorough", "$L1 - thorough"], artifacts = listing)
+    @test passes(tier = "thorough", required = ["$L1 - thorough"], artifacts = listing)
     @test passes(tier = "full", required = cross("full"), advisory = ["$PRE - full"], artifacts = listing)
     @test passes(tier = "none", artifacts = listing)
-    @test passes(event = "push", ref_type = "branch", tier = "thorough", required = ["$LTS - thorough", "$L1 - thorough"], artifacts = listing)
+    @test passes(event = "push", ref_type = "branch", tier = "thorough", required = ["$L1 - thorough"], artifacts = listing)
     @test passes(event = "workflow_dispatch", tier = "quick", artifacts = listing)
     @test passes(event = "workflow_dispatch", tier = "full", required = cross("full"), advisory = ["$PRE - full"], platforms = "cross", artifacts = listing)
     @test passes(event = "workflow_dispatch", tier = "full", required = ["$L1 - full"], platforms = "stable", artifacts = listing)
@@ -506,7 +482,7 @@ end
   @test !r.linux_failed && length(r.errors) == 2
   # a Linux job, the plan, the controls or a missing minimum: unknown or Linux
   @test nightly(conclusions = Dict("$L1 - full" => "failure")).linux_failed
-  @test nightly(conclusions = Dict("$WIN - full" => "failure", "$LTS - full" => "failure")).linux_failed
+  @test nightly(conclusions = Dict("$WIN - full" => "failure", "$L1 - full" => "failure")).linux_failed
   @test nightly(analysis = "failure").linux_failed
   @test nightly(analysis = "failure").failed == ["Benchmark analysis controls"]
   @test nightly(tests = "cancelled").linux_failed
@@ -609,7 +585,7 @@ end
       before = listed_names[]
       @test run_with(e) == 0 && listed_names[] == before + 1
       # one report missing: the job is named; the artifacts could not be listed: every job is named
-      @test run_with(e; artifacts = () -> reports()[1:3]) == 1
+      @test run_with(e; artifacts = () -> reports()[1:2]) == 1
       @test run_with(e; artifacts = () -> error("HTTP 502")) == 1
       @test run_with(e; artifacts = () -> String[]) == 1
     end

@@ -32,6 +32,7 @@ quick = [
   # iterates: active sets, value writes versus state copies, symmetric coordinates, aliasing
   "active_handle",
   "block_iterate",
+  "block_copy",
   "iterate_invariants",
   "iterate_queries",
   "iterate_writes",

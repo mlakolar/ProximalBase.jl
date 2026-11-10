@@ -284,6 +284,33 @@ function _block_storage(x::BlockIterate, k::Integer)
   @inbounds view(x.storage, G)
 end
 
+# Recognize a whole owned block by identity (also O(1) for immutable ranges).
+# Other views and fallible sources keep Base's scalar value-write path. These
+# built-in indices and buffers cannot throw during the subsequent raw copy.
+const _BlockCopyIndices = Union{Vector{Int}, UnitRange{<:Base.BitInteger}, StepRange{<:Base.BitInteger, <:Base.BitInteger}}
+_block_copy_source(::AbstractVector) = false
+_block_copy_source(::Vector) = true
+_block_copy_source(::SubArray{T, 1, <:Array, I}) where {T, I} =
+  I <: Tuple{Vararg{Union{Int, UnitRange{Int}, StepRange{Int, Int}, Base.OneTo{Int}, Base.Slice{Base.OneTo{Int}}}}}
+
+@inline function Base.copyto!(dest::SubArray{T, 1, <:BlockIterate{T}, Tuple{G}}, src::StridedVector{T}) where {T<:Union{Float32, Float64}, G<:_BlockCopyIndices}
+  # Base permits a shorter prefix source; retain that behavior in the fallback.
+  length(src) == length(dest) && !isempty(dest) && _block_copy_source(src) ||
+    return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
+  x, ids = parent(dest), only(parentindices(dest))
+  k = @inbounds x.group_of[first(ids)]
+  ids === @inbounds(x.groups[k]) ||
+    return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
+  values = Base.unalias(dest, src)    # finish a potentially throwing snapshot before writing
+  if @inbounds x.position[k] == 0
+    # Same-type ordinary reads cannot fail. Activate only for an observed
+    # nonzero, before writing; signed zeros alone keep the block inactive.
+    any(!iszero, values) && activate!(x, k)
+  end
+  copyto!(_block_storage(x, k), values)
+  dest
+end
+
 function activate!(x::BlockIterate, k::Integer)
   checkbounds(x.position, k)
   if x.position[k] == 0

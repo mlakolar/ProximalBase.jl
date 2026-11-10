@@ -59,7 +59,7 @@ projection algorithms and numerical caveats. Some projections are computed
 iteratively; a returned result or value of zero does not necessarily
 certify exact feasibility.
 
-## Functions built from functions
+## Transformations and compositions
 
 | Construction | Purpose |
 |:--|:--|

@@ -205,6 +205,16 @@ end
 metadata = map(warm!,probes)
 metadata_path = get(ENV,"PB_BLOCK_METADATA","")
 isempty(metadata_path) || write(metadata_path,join(metadata,'\n')*"\n")
+values_path = get(ENV,"PB_BLOCK_VALUES","")
+if !isempty(values_path)
+    open(values_path,"w") do io
+        for p in probes
+            p.prepare();p.operation()
+            values = collect(p.result())
+            println(io,p.id,'\t',eltype(values),'\t',bytes2hex(reinterpret(UInt8,values)))
+        end
+    end
+end
 if "--server" in ARGS
     println("READY ",length(probes));flush(stdout)
     for path in eachline(stdin)

@@ -54,6 +54,31 @@ does not change the mathematical groups and must not be used as a reason
 to mutate an otherwise shared layout. Copies retain their layout records;
 state copying does not overwrite the destination's cache.
 
+## Complete-block value copies
+
+The specialized `copyto!(blockview(x,k), values)` retains the existing
+`SubArray` representation. Its dispatch requires a matching owned-index type;
+it then derives a candidate group from the first entry and requires index
+identity with that owned group. Identity is constant time for vectors and
+built-in integer ranges. There is no group-layout scan or equality-cache use.
+An arbitrary view that is not the whole owned block uses Base's normal copy.
+
+The fast source is a same-type `Float32`/`Float64` vector or an Array-backed
+view with built-in strided indices. A custom `DenseArray` reader is not enough
+to establish infallibility. `Base.unalias` completes any required source
+snapshot before a write or activation. An active block then writes through
+the existing private `_block_storage` view without entry activation calls.
+An inactive block first observes whether the infallible source has a nonzero;
+only then does it activate once, before the raw copy. All-zero inputs preserve
+inactivity and signed zeros. The raw loop needs no second alias preflight.
+
+Fallible readers, conversions, partial sources and unrecognized views retain
+the generic scalar path. This preserves prefix-copy semantics and the existing
+partial-failure state: a successfully stored nonzero is active before another
+source element can throw. A value copy never has the stronger atomic failure
+promise of an iterate state copy. Owned layout indices remain immutable and
+`blockindices` remains read-only.
+
 ## Oracle boundaries and failure behavior
 
 The mathematical trial-point interface is `prox_block!(out,f,u,k,γ)` with
@@ -73,6 +98,7 @@ maintain consistency even when they write only a subset of groups.
 ## Testing and performance
 
 Relevant tests include `test/block_iterate.jl`,
+`test/block_copy.jl` (bulk activity/order, aliases, failures and allocations),
 `test/iterate_queries.jl`, `test/iterate_writes.jl`,
 `test/active_handle.jl`, `test/symmetric_groups.jl`, and the
 family acceptance matrix. Benchmark Float32 and Float64 vector hot paths,

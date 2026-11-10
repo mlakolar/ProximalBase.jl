@@ -93,9 +93,9 @@ end
 function _prox_block!(out, s::Scaled, u, k, γ)
   if _nested_route(s, γ)
     f, step, _ = _nested_step(s, γ)
-    return prox_block!(out, f, u, k, step)
+    return @noinline prox_block!(out, f, u, k, step)
   end
-  prox_block!(out, s.f, u, k, s.α * γ)
+  @noinline prox_block!(out, s.f, u, k, s.α * γ)
 end
 function _prox_block!(out, r::Regularize, u, k, γ)
   T = float(eltype(out))
@@ -104,5 +104,7 @@ function _prox_block!(out, r::Regularize, u, k, γ)
   @inbounds for j in eachindex(out, u)
     out[j] = r.c === nothing ? a * u[j] : _ridge_blend(u[j], r.c[G[j]], a, b)
   end
-  prox_block!(out, r.f, out, k, step)
+  # Keep wrapper numerical loops at their established boundaries: forcing the
+  # leaf inline here changes SIMD rounding in sparse/radial group kernels.
+  @noinline prox_block!(out, r.f, out, k, step)
 end

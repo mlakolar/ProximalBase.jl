@@ -115,6 +115,13 @@ The owner types themselves also implement `Base.dataids(x)`, returning identitie
 
 Ordinary indexed reads/writes of a coordinate view do **not** call `unaliascopy` in their hot path. The extra copy is part of the aliasing fallback, not the cost of constructing a coordinate handle.
 
+Whole-block copies through `blockview` use the same overlap rule: finish a
+source snapshot before writing, then update the recognized block's values.
+The fast path retains the original `SubArray`, `parent`, index access and alias
+reporting. Norm/dot forwarding to contiguous storage and BLAS is unchanged.
+Unknown or fallible views keep Base's scalar copy path and partial-failure
+semantics. See [Complete-block value copies](block_storage.md#Complete-block-value-copies).
+
 **These are internal Julia Base hooks.** They are implementation details that should be tested against each supported Julia version; we do not promise their names as ProximalBase public API.
 
 ## Handle lifetimes

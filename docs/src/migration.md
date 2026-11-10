@@ -46,6 +46,11 @@ and a working set of block IDs. `ncoordinates` and `activecoordinates` keep
 their meanings; no `nblocks` or `activeblocks` synonyms are added. Group-penalty
 names and genuine `lmo_atom`, `VertexAtom` and `LowRankAtom` APIs are unchanged.
 Use independent output for `prox_block!`, then `copyto!(blockview(x,k),out)`.
+Complete-block copies of ordinary same-type floating buffers avoid repeated
+activation checks for active blocks. No additional bulk-write API or private
+field access is needed. Inactive all-zero results remain inactive; active
+blocks remain active even after a zero result. Read/conversion failures retain
+ordinary partial value-write semantics with consistent activity metadata.
 
 This is a PB-only change. The ProximalSolvers rename is separate work under
 [PS #238](https://github.com/mlakolar/ProximalSolvers.jl/issues/238); its existing

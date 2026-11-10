@@ -13,6 +13,36 @@ Block coordinate descent for the group lasso computes the trial point
 [Block trials](@ref) gives an example. `BlockIterate(p, g)` builds an
 iterate that shares the groups of a group penalty `g`.
 
+## Copying a complete block
+
+Use `copyto!(blockview(x,k), values)` to write a computed block. An already
+active block keeps its membership and position, including when every new
+value is zero. An inactive block stays inactive when all converted values
+are zero, and joins the end of the active list once when a converted value
+is nonzero. NaN and infinities count as nonzero; signed zeros do not.
+Unrelated blocks and their order are unchanged.
+
+For matching `Float32` or `Float64` ordinary vectors and supported Array-backed
+strided views, a complete-block copy checks activity once and writes backing
+values directly. An independent source does not allocate. Contiguous,
+noncontiguous and reordered owned groups have the same semantics. Other
+sources, partial copies and arbitrary views keep ordinary scalar value-write
+behavior. A shorter source copies a prefix as in Base; an overlong source fails
+before writing. Overlapping sources are snapshotted as needed and may allocate.
+A failing source read or conversion can leave a partially written block;
+every stored nonzero is nevertheless represented in the active set.
+
+```@example block_bulk_guide
+using ProximalBase
+x = BlockIterate(Float32, 6, [[5,1,3], [6,2,4]])
+copyto!(blockview(x,1), zeros(Float32,3))
+@assert nactive(x) == 0
+copyto!(blockview(x,1), Float32[2,0,4])
+@assert collect(activecoordinates(x)) == [1]
+copyto!(blockview(x,1), zeros(Float32,3))
+@assert collect(activecoordinates(x)) == [1]
+```
+
 ## The groups of an iterate
 
 [`blockindices`](@ref)`(x, k)` returns the indices of the entries of group `k`, in the order in
@@ -36,6 +66,7 @@ indexed by a `Vector{Int}`, and its norms and dot products take the generic path
 `blockindices` is the supported way to inspect a group layout. Its result is
 read-only; group membership must not be changed after constructing the iterate.
 Create a new iterate when you need a different partition.
+Bulk value copies do not change a `blockindices` handle or its lifetime.
 
 `samegroups(a, b)` is `true` when `a` and `b` have the same number of groups and the same
 indices in the same order in every group, and `false` otherwise. `a` and `b` are two iterates,

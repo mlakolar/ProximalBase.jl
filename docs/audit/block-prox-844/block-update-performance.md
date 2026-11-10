@@ -69,3 +69,29 @@ single-evaluation 48→69 ns comparison.
 The original performance gate remains pending until the matched measurements
 and final independent review establish the outcome. PB #380's other numerical
 paths and PS #238 / PB #527 integration remain separately scoped.
+
+## Candidate call paths and numerical boundaries
+
+The writer retains `SubArray`. Its method requires a compatible owned group
+index type and built-in same-type floating buffers, then verifies exact owned
+group identity using one reverse-map lookup. Unrecognized views use Base's
+copy. The source restriction is expressed in dispatch, so a custom dense
+source's own copy method remains applicable. It resolves overlap once before
+any mutation, reads activity once, and copies through `_block_storage` using
+an in-bounds loop with no entry activation calls or second alias preflight.
+For an inactive block it first observes an infallible nonzero and activates
+once before copying. Fallible sources/conversions keep scalar failure state.
+
+The mathematical change keeps the public boundary and buffer checks inline,
+which lets the compiler specialize exact in-place views and small loops.
+It removes no validation or parameter check and introduces no unchecked API.
+Scaled/regularized leaves still call the public oracle, retaining custom
+group extension dispatch and their established numerical loop boundaries.
+
+An initial candidate forced the leaf calls inline too. The numerical gate
+found 224 differing fixtures among 3,770 (regularized SparseGroupNormL2,
+GroupMCP and GroupSCAD; 1–3 ULPs); A/A fixtures matched exactly. That campaign
+stopped before accepting paired timings. Keeping wrapper callsites noinline
+restored all 224 affected fixtures byte for byte. This avoids changing the
+established rounding while retaining specialization of the unwrapped
+size-5 group-lasso call. See [the discovery record](measurements/block-updates-787/wrapper-boundary.json).

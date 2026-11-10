@@ -77,6 +77,19 @@ their existing exact movement/NaN decisions before updating residuals.
 Performance of these public writes is measured with the companion migration;
 this does not redesign the generalized storage API of #787.
 
+The PB #787 follow-up specializes complete owned-block view copies for
+ordinary matching floating buffers. It checks the block once, snapshots an
+overlapping source before writing, and updates active storage without per-entry
+activation. An inactive block activates once only for a converted nonzero;
+checked/fallible sources retain scalar value-write failure behavior. This
+optimization belongs to storage, not to the mathematical oracle.
+Inlining the public mathematical boundary exposes its existing checks to
+specialization and loop optimization. No check, wrapper dispatch or public
+extension method is removed; nested wrappers retain public validation.
+The separate size-5, 24-group diagnostic uses individual entry writes, so its
+result cannot be attributed to the bulk writer. PB-only timings do not replace
+the separately scoped PS whole-solver integration/performance gate.
+
 ## Removal and downstream migration
 
 `prox_entry`, both public `prox_coordinate!` signatures, and the older

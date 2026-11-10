@@ -261,6 +261,19 @@ The four counts of FC-10:
 | FW-7 | `activate!(x, k)` *must* make coordinate `k` active, at value zero for S and keeping the (zero) entries of group `k` for A, if it is absent; it changes nothing otherwise and throws `BoundsError` out of range. A sweep over `activecoordinates(x)` that writes values only of active coordinates *must* leave `activecoordinates(x)` unchanged. | 0.5.x | S, A (O: ACT-5, ACT-6) |
 | FW-8 | **Oracle destinations.** After a ProximalBase oracle (`prox!`, `value_and_prox!`, `gradient!`, `mul!`) writes an iterate, its values *must* be the result and its working set *must* contain every coordinate with a nonzero result (FW-1). Which zero coordinates stay active is unspecified; `dropzeros!` gives the support. | 0.5.x (stated) | S, A (O: ORC-3, ORC-6) |
 
+**Complete-block value copies (#787 amendment).** The preferred public spelling
+is `copyto!(blockview(x,k), values)`. Under FW-1, FW-2 and FW-7, an active block
+keeps its active position, even when all results are zero. An inactive block
+stays inactive for converted zeros and appends once for a converted nonzero.
+Unrelated blocks and active ordering are preserved for arbitrary group layouts.
+An implementation may establish whole-block identity and source infallibility
+once, then write backing values without per-entry activation tests. It must
+finish any alias snapshot before writing and must not leave an inactive stored
+nonzero after a failure. Fallible readers/conversions retain scalar partial-write
+semantics; this is not the atomic state copy of FW-4. Independent ordinary
+same-type Float32/Float64 complete-block copies must not allocate. Prefix and
+arbitrary-view copies retain Base semantics; read-only group handles are unchanged.
+
 **Where Base sends a bulk write.** For an `AbstractVector` destination that
 defines `fill!` and `copyto!(dest, ::AbstractArray)`, identical on Julia
 1.10.12 and 1.13.3 (ran):

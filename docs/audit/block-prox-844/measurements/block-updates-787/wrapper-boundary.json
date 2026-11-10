@@ -1,0 +1,1138 @@
+{
+  "baseline_commit": "a9f53e6ef3febffd58496c4a1c4fcb7609d0ca1c",
+  "initial_candidate_commit": "b78d71f85f9ae1d6643bddd616a204b26320467d",
+  "julia": "1.13.3",
+  "fixtures_checked": 3770,
+  "initial_changed_fixtures": 224,
+  "initial_max_ulp": 3,
+  "affected_families": [
+    "SparseGroupNormL2",
+    "GroupMCP",
+    "GroupSCAD"
+  ],
+  "change": "retain wrapper numerical call boundaries with callsite @noinline; all public checks/dispatches remain",
+  "affected_fixtures_restored_byte_identically": 224,
+  "initial_timing_campaign": "aborted at numerical checksum gate; no paired timing results accepted",
+  "detailed_differences": [
+    {
+      "case": "math/public/Float32/GroupMCP/n5/nested_mixed/vector",
+      "max_ulp": 3,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n5/nested_mixed/vector",
+      "max_ulp": 3,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n5/nested_mixed/inplace",
+      "max_ulp": 3,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n5/nested_mixed/inplace",
+      "max_ulp": 3,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n5/nested_mixed/view",
+      "max_ulp": 3,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n5/nested_mixed/view",
+      "max_ulp": 3,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n5/nested_mixed/view_inplace",
+      "max_ulp": 3,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n5/nested_mixed/view_inplace",
+      "max_ulp": 3,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n5/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n5/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n5/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n5/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n5/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n5/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n5/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n5/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n5/nested_mixed/vector",
+      "max_ulp": 3,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n5/nested_mixed/vector",
+      "max_ulp": 3,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n5/nested_mixed/inplace",
+      "max_ulp": 3,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n5/nested_mixed/inplace",
+      "max_ulp": 3,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n5/nested_mixed/view",
+      "max_ulp": 3,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n5/nested_mixed/view",
+      "max_ulp": 3,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n5/nested_mixed/view_inplace",
+      "max_ulp": 3,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n5/nested_mixed/view_inplace",
+      "max_ulp": 3,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/public/Float32/SparseGroupNormL2/n32/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 3
+    },
+    {
+      "case": "math/kernel/Float32/SparseGroupNormL2/n32/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 3
+    },
+    {
+      "case": "math/public/Float32/SparseGroupNormL2/n32/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 3
+    },
+    {
+      "case": "math/kernel/Float32/SparseGroupNormL2/n32/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 3
+    },
+    {
+      "case": "math/public/Float32/SparseGroupNormL2/n32/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 3
+    },
+    {
+      "case": "math/kernel/Float32/SparseGroupNormL2/n32/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 3
+    },
+    {
+      "case": "math/public/Float32/SparseGroupNormL2/n32/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 3
+    },
+    {
+      "case": "math/kernel/Float32/SparseGroupNormL2/n32/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 3
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n32/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n32/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n32/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n32/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n32/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n32/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n32/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n32/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n32/nested_mixed/vector",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n32/nested_mixed/vector",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n32/nested_mixed/inplace",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n32/nested_mixed/inplace",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n32/nested_mixed/view",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n32/nested_mixed/view",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n32/nested_mixed/view_inplace",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n32/nested_mixed/view_inplace",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n32/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n32/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n32/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n32/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n32/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n32/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n32/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n32/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n32/nested_mixed/vector",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n32/nested_mixed/vector",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n32/nested_mixed/inplace",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n32/nested_mixed/inplace",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n32/nested_mixed/view",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n32/nested_mixed/view",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n32/nested_mixed/view_inplace",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n32/nested_mixed/view_inplace",
+      "max_ulp": 2,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float32/SparseGroupNormL2/n256/regularize/vector",
+      "max_ulp": 2,
+      "elements_changed": 12
+    },
+    {
+      "case": "math/kernel/Float32/SparseGroupNormL2/n256/regularize/vector",
+      "max_ulp": 2,
+      "elements_changed": 12
+    },
+    {
+      "case": "math/public/Float32/SparseGroupNormL2/n256/regularize/inplace",
+      "max_ulp": 2,
+      "elements_changed": 12
+    },
+    {
+      "case": "math/kernel/Float32/SparseGroupNormL2/n256/regularize/inplace",
+      "max_ulp": 2,
+      "elements_changed": 12
+    },
+    {
+      "case": "math/public/Float32/SparseGroupNormL2/n256/regularize/view",
+      "max_ulp": 2,
+      "elements_changed": 12
+    },
+    {
+      "case": "math/kernel/Float32/SparseGroupNormL2/n256/regularize/view",
+      "max_ulp": 2,
+      "elements_changed": 12
+    },
+    {
+      "case": "math/public/Float32/SparseGroupNormL2/n256/regularize/view_inplace",
+      "max_ulp": 2,
+      "elements_changed": 12
+    },
+    {
+      "case": "math/kernel/Float32/SparseGroupNormL2/n256/regularize/view_inplace",
+      "max_ulp": 2,
+      "elements_changed": 12
+    },
+    {
+      "case": "math/public/Float32/SparseGroupNormL2/n256/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/SparseGroupNormL2/n256/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/SparseGroupNormL2/n256/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/SparseGroupNormL2/n256/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/SparseGroupNormL2/n256/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/SparseGroupNormL2/n256/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/SparseGroupNormL2/n256/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float32/SparseGroupNormL2/n256/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n256/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n256/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n256/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n256/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n256/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n256/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n256/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n256/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n256/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n256/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n256/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n256/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n256/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n256/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/public/Float32/GroupMCP/n256/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/kernel/Float32/GroupMCP/n256/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n256/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n256/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n256/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n256/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n256/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n256/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n256/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n256/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 17
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n256/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n256/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n256/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n256/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n256/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n256/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/public/Float32/GroupSCAD/n256/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/kernel/Float32/GroupSCAD/n256/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 35
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n1/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n1/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n1/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n1/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n1/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n1/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n1/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n1/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n5/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n5/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n5/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n5/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n5/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n5/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n5/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n5/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n8/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n8/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n8/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n8/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n8/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n8/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n8/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n8/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n32/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n32/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n32/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n32/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n32/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n32/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n32/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n32/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n32/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n32/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n32/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n32/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n32/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n32/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n32/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n32/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float64/GroupMCP/n32/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float64/GroupMCP/n32/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float64/GroupMCP/n32/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float64/GroupMCP/n32/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float64/GroupMCP/n32/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float64/GroupMCP/n32/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float64/GroupMCP/n32/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/kernel/Float64/GroupMCP/n32/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 2
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n32/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n32/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n32/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n32/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n32/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n32/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n32/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n32/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n32/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n32/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n32/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n32/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n32/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n32/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n32/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n32/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 1
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n256/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n256/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n256/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n256/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n256/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n256/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n256/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n256/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 4
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n256/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n256/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n256/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n256/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n256/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n256/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/public/Float64/SparseGroupNormL2/n256/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/kernel/Float64/SparseGroupNormL2/n256/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 5
+    },
+    {
+      "case": "math/public/Float64/GroupMCP/n256/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/kernel/Float64/GroupMCP/n256/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/public/Float64/GroupMCP/n256/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/kernel/Float64/GroupMCP/n256/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/public/Float64/GroupMCP/n256/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/kernel/Float64/GroupMCP/n256/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/public/Float64/GroupMCP/n256/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/kernel/Float64/GroupMCP/n256/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/public/Float64/GroupMCP/n256/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/kernel/Float64/GroupMCP/n256/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/public/Float64/GroupMCP/n256/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/kernel/Float64/GroupMCP/n256/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/public/Float64/GroupMCP/n256/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/kernel/Float64/GroupMCP/n256/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/public/Float64/GroupMCP/n256/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/kernel/Float64/GroupMCP/n256/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n256/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n256/regularize/vector",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n256/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n256/regularize/inplace",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n256/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n256/regularize/view",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n256/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n256/regularize/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 21
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n256/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n256/nested_mixed/vector",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n256/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n256/nested_mixed/inplace",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n256/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n256/nested_mixed/view",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/public/Float64/GroupSCAD/n256/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 45
+    },
+    {
+      "case": "math/kernel/Float64/GroupSCAD/n256/nested_mixed/view_inplace",
+      "max_ulp": 1,
+      "elements_changed": 45
+    }
+  ]
+}

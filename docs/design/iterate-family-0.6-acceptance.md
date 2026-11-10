@@ -527,6 +527,7 @@ test. "Fails today" marks a test that fails at the audited commit.
 | **FT27 momentum through accessors** | FC-6, FC-8, FC-9, FF-2 | CD with momentum on a lasso (S) and group lassos (A, contiguous and strided groups), cyclic order | the objective after every pass equals, to relative `1e-12`, a run recorded at the audited commits; FT25 finds no field use | ProximalSolvers `test/` |
 | **FT28 block trials without private writes** | FA-1–FA-5, FA-7, FF-2 | Generic LS/quadratic GroupNormLinf, SparseGroupNormL2 and separable NormL1, plus specialized LS/quadratic/multiresponse GroupNormL2 paths | Compare trajectories/objectives with the pinned pre-#844 source using the same cyclic order and precision. A failing numerical block call leaves iterate values, active IDs and residual/cache unchanged. Successful steps write only through public storage methods and update caches from the actual stored difference. Check layout preflight, global scalar indices, the existing KKT zero-group skip, lazy curvature and zero-curvature branches; no duplicate shrink kernel or private trial staging remains. Require the exact-pin PS PR and its green required CI; matching baseline failures alone do not pass this gate. | ProximalSolvers `test/`, companion #237 |
 | **FT29 scaling by a number** | FN-9 | `x = SparseIterate(4)` with `x[1] = 1` and an explicit zero at 2; `b = BlockIterate(4, [1:2, 3:4])` with `b[1] = 1` | Reference: `x .*= s` (respectively `x ./= s`) on a copy, values and working set. `rmul!(x, Inf)`, `lmul!(Inf, x)`, `rdiv!(x, 0.0)`, `ldiv!(0.0, x)` give `[Inf, NaN, NaN, NaN]` with working set `[1, 2, 3, 4]` (today `[Inf, NaN, 0, 0]` with `[1, 2]`); `rmul!(b, Inf)` gives `[Inf, NaN, NaN, NaN]` with groups `[1, 2]` (today too); `rmul!(x, 2.0)` gives `[2, 0, 0, 0]`, keeps `[1, 2]` and allocates nothing. *Fails today* for `SparseIterate` | `test/sparse_iterate.jl`, `test/block_iterate.jl` |
+| **FT30 whole-block value copies (#787)** | FW-1, FW-2, FW-7, FX-5, FP-1, FP-2, FP-6 | Float32/Float64; active/inactive blocks; contiguous, noncontiguous, reversed, unequal, singleton and final-entry groups; ordinary vectors/views, checked conversions, NaN/Inf/signed zero and underflow | Match an unaliased explicit scalar-write reference in values, active IDs and order. Active zeros remain active; inactive converted zeros stay inactive; nonzeros activate once. Test exact/partial overlap, arbitrary and prefix views, overlong input, invalid block IDs, throwing reads and conversions. Every failure preserves inactive-implies-zero; read-only indices, norm/dot forwarding, alias reporting and zero-allocation ordinary active copies remain covered. | `test/block_copy.jl`; `benchmark/block_updates.jl` |
 
 **Requirement coverage.** FS-1 FT01, FT22; FS-2 FT22; FS-3 FT20, FT21; FS-4
 FT02; FS-5 FT22. FC-1 FT01, FT15; FC-2 FT01; FC-3 FT01; FC-4 FT02; FC-5 FT02;
@@ -586,6 +587,21 @@ from zero; matrices `1000 × 64` and `256 × 1000` at densities 0.5%, 3% and 20%
 extended), group sizes 1, 8 and 64, contiguous (ranges) and non-contiguous
 (strided, collected, as in the multi-response model), 1% and 10% of groups
 active. Dense operands with 256 and 1024 rows.
+
+**PB #787 block-update measurements.** Use exact source revisions and matching
+compiler settings on Julia 1.10.13 and 1.13.3, both floating types, fixed thread
+counts and coordinate order. Measure public math, internal numerical kernels,
+public writes and combined calls separately; distinguish active and initially
+inactive blocks, ranges and noncontiguous groups, ordinary buffers and checked
+conversions. Include size-5 compact in-place views, all five group families,
+scaling, regularization and nested wrappers, and protect small public view norms.
+Require at least ten alternating paired repetitions for promising/problematic
+paths, a separate A/A control and between-repetition variability. Exclude warm-up
+and reset inactive/in-place fixtures outside timing; one evaluation per sample
+preserves those preconditions. A repeated ordinary-hot-path regression above 5%
+needs investigation and explicit maintainer approval. A faster bulk writer alone
+does not resolve the separate grouped-quadratic whole-solver figure. PB-only
+solver-like probes are diagnostics; PS #238 / PB #527 integration remains separate.
 
 **Cases.** Each FD on a hot path has one, marked in bold:
 

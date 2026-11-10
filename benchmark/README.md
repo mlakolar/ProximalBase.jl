@@ -4,6 +4,37 @@ This suite tracks the runtime and Julia heap allocations of ProximalBase
 operations. Keep reusable cases and measurement tools here. Save generated
 results with the pull request or release that uses them.
 
+## PB-only block-update diagnostics
+
+`block_updates.jl` isolates public `prox_block!`, preflight and internal kernels,
+block-view copies, combined calls, scalar writes, and view norm/dot controls.
+It includes Float32/Float64, sizes 1/5/8/32/256, all group penalties, nested
+wrappers and compact views. Every sample has one evaluation; in-place input
+and inactive-block resets are outside timing. Concrete closure factories avoid
+boxing vector/view unions. Numerical metadata is checked before and after runs.
+
+Prepare two benchmark projects with identical dependencies and immutable PB
+source paths, then run each required Julia version separately:
+
+```sh
+python3 benchmark/block_updates_run.py --julia /path/to/julia \
+  --before /path/to/baseline-project --after /path/to/candidate-project \
+  --depot /path/to/depot --output /path/to/fresh-results --cohorts 2 --pairs 5
+```
+
+The controller warms three isolated workers (baseline, candidate and an
+independent baseline A/A control), excludes their first timing rounds, and
+alternates measurement order. Only one worker measures at a time; it restarts
+all workers for the second cohort. Save raw per-case medians, quartiles,
+allocations, metadata, source hashes and paired variability. Use `--filter`
+for confirmation of a problematic subset. Ten paired repetitions are a minimum;
+an isolated noisy median does not establish a regression or approve a tradeoff.
+Do not use an exclusive-node requirement or unrelated background work.
+
+The [#787 audit](../docs/audit/block-prox-844/block-update-performance.md)
+records provenance and the explicitly historical combined-step adapter. It
+uses PB only; formal PS whole-solver results remain separate from these probes.
+
 ## Setup and selections
 
 From the package root, with Julia 1.10 or later and Python 3.11 or later:

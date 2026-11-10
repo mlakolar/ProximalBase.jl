@@ -17,6 +17,11 @@ end
 Base.size(v::FallibleDense) = size(v.values)
 Base.IndexStyle(::Type{<:FallibleDense}) = IndexLinear()
 Base.getindex(v::FallibleDense, i::Int) = i == v.fail ? error("dense source read") : v.values[i]
+const dense_copies = Ref(0)
+function Base.copyto!(dest::AbstractArray, src::FallibleDense)
+  dense_copies[] += 1
+  invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
+end
 
 function invariants(x)
   ids = collect(activecoordinates(x))
@@ -128,7 +133,9 @@ end
       x=initial(T,gs,1,active);ref=copy(x)
       expected=caught(()->scalar_copy!(ref,1,source))
       @test expected !== nothing
+      previous_copies=dense_copies[]
       @test caught(()->copyto!(blockview(x,1),source)) == expected
+      source isa FallibleDense && @test dense_copies[] == previous_copies+1
       same_state(x,ref)
     end
   end

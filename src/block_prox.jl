@@ -3,9 +3,7 @@ _block_groups(f::AbstractFunction) = throw(ArgumentError("$(typeof(f)) has no gr
 _block_groups(f::AbstractGroupPenalty) = f.groups
 _block_groups(f::Union{Scaled, Regularize}) = _block_groups(f.f)
 
-# Keep the validated boundary visible to callers: in-place views and repeated
-# small-block loops can eliminate/hoist checks without changing their contract.
-@inline function _check_block_buffers(out, f, u, k)
+function _check_block_buffers(out, f, u, k)
   groups = _block_groups(f)
   checkbounds(groups, k)
   Base.require_one_based_indexing(out, u)
@@ -34,8 +32,16 @@ function prox_block(f::AbstractFunction, u::AbstractVector, k::Integer, γ::Real
   out = Vector{float(eltype(u))}(undef, length(u))
   prox_block!(out, f, u, k, γ)
 end
-@inline function prox_block!(out::AbstractVector, f::AbstractFunction, u::AbstractVector, k::Integer, γ::Real)
+function prox_block!(out::AbstractVector, f::AbstractFunction, u::AbstractVector, k::Integer, γ::Real)
   _check_block_buffers(out, f, u, k)
+  _prox_block!(out, f, u, k, γ)
+  out
+end
+
+# The measured size-5 group-lasso loop benefits from exposing this validated
+# boundary. Keep other families and wrapper entry points on their original route.
+@inline function prox_block!(out::AbstractVector, f::GroupNormL2, u::AbstractVector, k::Integer, γ::Real)
+  @inline _check_block_buffers(out, f, u, k)
   _prox_block!(out, f, u, k, γ)
   out
 end
@@ -93,9 +99,9 @@ end
 function _prox_block!(out, s::Scaled, u, k, γ)
   if _nested_route(s, γ)
     f, step, _ = _nested_step(s, γ)
-    return @noinline prox_block!(out, f, u, k, step)
+    return prox_block!(out, f, u, k, step)
   end
-  @noinline prox_block!(out, s.f, u, k, s.α * γ)
+  prox_block!(out, s.f, u, k, s.α * γ)
 end
 function _prox_block!(out, r::Regularize, u, k, γ)
   T = float(eltype(out))
@@ -104,7 +110,5 @@ function _prox_block!(out, r::Regularize, u, k, γ)
   @inbounds for j in eachindex(out, u)
     out[j] = r.c === nothing ? a * u[j] : _ridge_blend(u[j], r.c[G[j]], a, b)
   end
-  # Keep wrapper numerical loops at their established boundaries: forcing the
-  # leaf inline here changes SIMD rounding in sparse/radial group kernels.
-  @noinline prox_block!(out, r.f, out, k, step)
+  prox_block!(out, r.f, out, k, step)
 end

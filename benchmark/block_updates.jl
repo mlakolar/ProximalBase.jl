@@ -3,7 +3,7 @@
 # --server warms once, then accepts one output filename per line on stdin.
 # Every sample has one evaluation: setup is outside timing, including restoration
 # of in-place inputs and initially inactive blocks. Warm-up never enters results.
-using ProximalBase, BenchmarkTools, LinearAlgebra, Statistics, SHA
+using ProximalBase, BenchmarkTools, LinearAlgebra, Statistics, SHA, Random
 const PB = ProximalBase
 Base.JLOptions().check_bounds == 2 || error("run with --check-bounds=no")
 BLAS.set_num_threads(1)
@@ -123,6 +123,48 @@ function sweep!(x,f,scratch,gradient,kernel::F) where F
     end
     nothing
 end
+
+# Self-contained fixed-pass quadratic CD diagnostic. Only PB kernels/public
+# scalar writes are used; this is not a PS implementation or a convergence test.
+function quadratic_sweeps!(x,A,g,curvature,scratch,gradient,kernel::F) where F
+    for _ in 1:10, k in 1:24
+        G=blockindices(x,k)
+        L=curvature[k]
+        @inbounds for (i,j) in enumerate(G)
+            scratch[i]=x[j]-gradient[j]/L
+        end
+        kernel(scratch,g,scratch,k,inv(L))
+        @inbounds for (i,j) in enumerate(G)
+            step=scratch[i]-x[j]
+            iszero(step) && continue
+            x[j]=scratch[i]
+            @simd for row in eachindex(gradient)
+                gradient[row] += step*A[row,j]
+            end
+        end
+    end
+    nothing
+end
+function quadratic_probes(::Type{T}) where T
+    rng=Xoshiro(844);n,p=160,120
+    X=randn(rng,T,n,p);beta=zeros(T,p);beta[1:10].=T(2)
+    response=X*beta+T(.1)*randn(rng,T,n)
+    A=X'X/T(n);b=-X'response/T(n)
+    groups=[i:i+4 for i in 1:5:p]
+    curvature=T[opnorm(A[G,G]) for G in groups]
+    for (label,kernel) in (("public",prox_block!),("kernel",PB._prox_block!))
+        x=BlockIterate(T,p,groups);g=GroupNormL2(T(.1),groups)
+        scratch=view(zeros(T,p),1:5);gradient=copy(b)
+        setup=()->(fill!(x,zero(T));copyto!(gradient,b);nothing)
+        op=()->quadratic_sweeps!(x,A,g,curvature,scratch,gradient,kernel)
+        check=()->begin
+            values=Vector(x)
+            isapprox(gradient,A*values+b;atol=100eps(T),rtol=sqrt(eps(T))) || error("quadratic gradient cache differs")
+            vcat(values,gradient,T[dot(values,A*values)/2+dot(b,values)+g(values)])
+        end
+        addprobe("quadratic_fixed10/$label/$T/n5/groups24",op,setup,check)
+    end
+end
 function control_probes(::Type{T}) where T
     for n in (1,4,5,8,32,256), strided in (false,true)
         gs = strided ? [collect(1:2:2n),collect(2:2:2n)] : [1:n,n+1:2n]
@@ -163,6 +205,7 @@ for T in (Float32,Float64), n in (1,5,8,32,256)
 end
 for T in (Float32,Float64)
     control_probes(T)
+    quadratic_probes(T)
 end
 case_filter = get(ENV,"PB_BLOCK_FILTER","")
 isempty(case_filter) || filter!(p->occursin(Regex(case_filter),p.id),probes)

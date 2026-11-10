@@ -1134,5 +1134,8 @@
       "max_ulp": 1,
       "elements_changed": 45
     }
-  ]
+  ],
+  "preserved_boundary_candidate_commit": "efd463e4205a649eb4a1b7d812716557a7fa8c4e",
+  "preserved_boundary_candidate_rejected": "Numerical metadata matched all 3770 fixtures, but ten paired Julia 1.13.3 repetitions showed allocations and large nested-wrapper slowdowns. No approval; candidate discarded.",
+  "next_candidate": "Restore original generic public/check/wrapper methods and specialize only GroupNormL2 with the same validated body."
 }

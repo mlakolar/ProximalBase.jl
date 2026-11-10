@@ -82,16 +82,16 @@ an in-bounds loop with no entry activation calls or second alias preflight.
 For an inactive block it first observes an infallible nonzero and activates
 once before copying. Fallible sources/conversions keep scalar failure state.
 
-The mathematical change keeps the public boundary and buffer checks inline,
-which lets the compiler specialize exact in-place views and small loops.
-It removes no validation or parameter check and introduces no unchecked API.
-Scaled/regularized leaves still call the public oracle, retaining custom
-group extension dispatch and their established numerical loop boundaries.
+The mathematical candidate specializes only `GroupNormL2`'s validated public
+boundary for the measured small loop, with exactly the same buffer checks,
+shared numerical kernel and return value. The generic public method, checker
+and Scaled/Regularize forwarding retain their baseline bodies. No unchecked
+API or competing formula is introduced.
 
-An initial candidate forced the leaf calls inline too. The numerical gate
-found 224 differing fixtures among 3,770 (regularized SparseGroupNormL2,
-GroupMCP and GroupSCAD; 1–3 ULPs); A/A fixtures matched exactly. That campaign
-stopped before accepting paired timings. Keeping wrapper callsites noinline
-restored all 224 affected fixtures byte for byte. This avoids changing the
-established rounding while retaining specialization of the unwrapped
-size-5 group-lasso call. See [the discovery record](measurements/block-updates-787/wrapper-boundary.json).
+Two broad annotation variants were rejected during measurement. Forcing every
+public leaf inline changed 224 of 3,770 numerical fixtures by 1–3 ULPs in
+regularized SparseGroupNormL2/MCP/SCAD calls. Keeping wrapper calls explicitly
+noinline restored those bits, but ten paired repetitions then exposed allocations
+and large slowdowns in nested wrappers. Neither variant is accepted. The
+narrow candidate leaves those existing routes intact instead. See
+[the discovery record](measurements/block-updates-787/wrapper-boundary.json).

@@ -17,9 +17,47 @@ Pkg.add("ProximalBase")
 
 ## First look at function objects
 
-A function object is callable, and provides whichever mathematical
-operations its capabilities support. For instance, the squared Euclidean
-norm is smooth and the ℓ1 penalty is proximable.
+Consider a simple composite optimization problem in two variables,
+\(x = (x_1,x_2) \in \mathbb{R}^2\):
+
+```math
+\min_{x \in \mathbb{R}^2} F(x) = f(x) + g(x),
+\qquad
+f(x) = \frac{1}{2}\|x\|_2^2
+     = \frac{1}{2}(x_1^2+x_2^2),
+\qquad
+g(x) = \frac{1}{2}\|x\|_1
+     = \frac{1}{2}(|x_1|+|x_2|).
+```
+
+The two functions play different roles. The smooth term \(f\) penalizes
+large coordinates quadratically, and its gradient is
+
+```math
+\nabla f(x) = x.
+```
+
+The \(\ell_1\) term \(g\) encourages sparsity and is not differentiable
+at a zero coordinate. Instead of a gradient, an optimization method can
+use its **proximal operator**, defined for a step \(\gamma>0\) by
+
+```math
+\operatorname{prox}_{\gamma g}(v)
+= \operatorname*{argmin}_{z \in \mathbb{R}^2}
+\left\{g(z) + \frac{\|z-v\|_2^2}{2\gamma}\right\}.
+```
+
+For this particular \(g\), the minimization separates by coordinate:
+\(\operatorname{prox}_{\gamma g}(v)_i =
+\operatorname{sign}(v_i)\max(|v_i|-\gamma/2,0)\).
+At \(v=(2,-1)\) and \(\gamma=1\), it gives
+\((1.5,-0.5)\).
+
+In ProximalBase, **function objects** represent these mathematical
+functions. `SqrNormL2(1.0)` represents \(f\), and `NormL1(0.5)`
+represents \(g\). We can evaluate a function, calculate an available
+gradient, or request a proximal point without writing those formulas
+ourselves:
 
 ```@example getting_started_oracles
 using ProximalBase
@@ -27,10 +65,21 @@ using ProximalBase
 f0 = SqrNormL2(1.0)
 g0 = NormL1(0.5)
 x0 = [2.0, -1.0]
+
 @assert issmooth(f0) && isproximable(g0)
-@assert gradient(f0, x0) ≈ x0
+@assert f0(x0) ≈ 2.5
+@assert gradient(f0, x0) ≈ [2.0, -1.0]
+@assert prox(g0, x0, 1.0) ≈ [1.5, -0.5]
+
 (value = f0(x0), gradient = gradient(f0, x0), prox = prox(g0, x0, 1.0))
 ```
+
+Here `issmooth` and `isproximable` describe capabilities, while
+`gradient` and `prox` perform the computations. These calls are
+**building blocks**, not a complete optimization algorithm: a solver
+still chooses where to evaluate them, how large a step to take, and when
+to stop. The example uses `f0` and `g0` to distinguish these toy
+functions from the lasso loss and penalty introduced next.
 
 See [Function objects and capabilities](function_objects.md) for
 the common abstraction and [Operations on functions](operations.md)

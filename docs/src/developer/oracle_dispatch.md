@@ -6,6 +6,11 @@ The user-visible calls are in [The interface](../interface.md) and
 [Coordinate oracles](../iterate_oracles.md). The
 [numerical contract](@ref numerics) governs supported result semantics.
 
+A conceptual, user-facing catalog of function operations is maintained
+in [Operations on functions](../operations.md); this page explains why
+and how their Julia methods dispatch on the underlying types.
+
+
 ## Traits describe capabilities; types select methods
 
 Every built-in function is an `AbstractFunction` subtype. Traits such as

@@ -1,5 +1,10 @@
 # Function reference
 
+For a guided overview of the available mathematical function families,
+see [Function library](../function_library.md).
+The entries below collect the detailed function docstrings.
+
+
 ```@autodocs
 Modules = [ProximalBase]
 Pages = ["functions/smooth.jl", "functions/leastsquares.jl", "functions/glm.jl", "functions/logdet.jl",

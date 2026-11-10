@@ -4,6 +4,12 @@ ProximalBase provides three iterate types for coordinate descent and active-set
 procedures. We separate the choice of storage from the update formulas,
 which are derived in [Coordinate descent](@ref).
 
+These are storage and coordinate-space choices for algorithms assembled from
+[function operations](operations.md). Read
+[Building optimization algorithms](optimization_algorithms.md) first if you
+are new to the separation between functions, iterates and solvers.
+
+
 | Iterate | Array represented | One coordinate |
 |:--------|:------------------|:---------------|
 | [`SparseIterate`](@ref) | A sparse vector or matrix | One entry |

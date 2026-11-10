@@ -1,9 +1,12 @@
+
 # Getting started
 
-In this guide, we solve the same lasso problem by coordinate descent and
-proximal gradient, using a common loss and penalty for both procedures.
+Start by calling operations on a mathematical function. Then solve a lasso
+problem in two different ways using the **same loss and penalty**:
+coordinate descent and proximal gradient. The different algorithms
+reuse the same ProximalBase function objects.
 
-## Installation and problem setup
+## Installation
 
 Install ProximalBase on Julia 1.10 or later:
 
@@ -11,6 +14,29 @@ Install ProximalBase on Julia 1.10 or later:
 using Pkg
 Pkg.add("ProximalBase")
 ```
+
+## First look at function objects
+
+A function object is callable, and provides whichever mathematical
+operations its capabilities support. For instance, the squared Euclidean
+norm is smooth and the ℓ1 penalty is proximable.
+
+```@example getting_started_oracles
+using ProximalBase
+
+f0 = SqrNormL2(1.0)
+g0 = NormL1(0.5)
+x0 = [2.0, -1.0]
+@assert issmooth(f0) && isproximable(g0)
+@assert gradient(f0, x0) ≈ x0
+(value = f0(x0), gradient = gradient(f0, x0), prox = prox(g0, x0, 1.0))
+```
+
+See [Function objects and capabilities](function_objects.md) for
+the common abstraction and [Operations on functions](operations.md)
+for the available methods.
+
+## Lasso problem setup
 
 We consider the objective
 

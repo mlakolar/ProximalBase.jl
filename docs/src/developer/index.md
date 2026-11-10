@@ -6,6 +6,14 @@ and numerical contracts, performance constraints, and conformance evidence.
 For API usage and examples start with [Iterates](../iterates.md),
 [The interface](../interface.md), and [Writing your own function](../extending.md).
 
+The main user path now begins with
+[Function objects and capabilities](../function_objects.md),
+[Operations on functions](../operations.md), and the
+[Function library](../function_library.md). Keep this developer section
+for invariants, internal dispatch, normative contracts and conformance,
+not general API discovery.
+
+
 ## Architecture and implementation
 
 | Area | Read | Scope |

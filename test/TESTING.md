@@ -12,6 +12,9 @@ runs for a change.
 thorough and checks correct implementations and faulty fixtures; standard already supplies
 these representative consumers, so they need no additional focus entries:
 
+[`TESTING_CONSUMERS` in `ci_plan.jl`](ci_plan.jl) lists the consumer set. The planner regression
+checks this table against that list and verifies that the selection includes those files.
+
 | Helper | Direct negative or reference check in `testing` | Consumer in quick or standard |
 |---|---|---|
 | `test_prox` | identity prox, wrong fused value | `separable`, `norms` |
@@ -21,7 +24,7 @@ these representative consumers, so they need no additional focus entries:
 | `test_kkt` | wrong element and atom violations | `distance`, `sqrhinge` |
 | `test_traits` | incorrect smooth declaration | `separable`, `losses` |
 | `test_iterate` | corrupt atom/sparse/symmetric bookkeeping | `iterate_writes`, `ballconstrained` |
-| `allocations` | allocating functions at six arities and a zero-allocation prox | `allocations_basics` |
+| `allocations` | positive and zero allocation cases at six arities | `allocations_basics` |
 | `brute_force_prox` | scalar minimizer and objective against soft thresholding | `separable`, `nonconvex` |
 
 This default covers representative consumers and direct helper faults; it does not run the

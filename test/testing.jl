@@ -181,12 +181,19 @@ PB.value_entry(f::WrongKKT, v, i) = f.λ * abs(v)
 PB.prox_entry(f::WrongKKT, v, i, γ) = shrink(v, γ * f.λ)
 PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
 
+struct WrongAtomKKT <: SeparableFunction               # NormL1 with an atom violation that always reports optimality
+  λ::Float64
+end
+PB.value_entry(f::WrongAtomKKT, v, i) = f.λ * abs(v)
+PB.prox_entry(f::WrongAtomKKT, v, i, γ) = shrink(v, γ * f.λ)
+PB.kkt_violation(f::WrongAtomKKT, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ
+PB.kkt_violation(::WrongAtomKKT, g::AbstractArray, x::AtomIterate, k::Integer) = -1.0
+
 # Correct conjugate prox, but an incorrect value: Moreau alone cannot reject it.
 struct WrongConjugateValue <: AbstractFunction end
 (f::WrongConjugateValue)(x) = IndBallLinf(0.5)(x) + 1
 PB.prox!(y::AbstractArray, ::WrongConjugateValue, x::AbstractArray, γ::Real) =
   prox!(y, IndBallLinf(0.5), x, γ)
-PB.kkt_violation(::WrongKKT, g::AbstractArray, x::AtomIterate, k::Integer) = -1.0
 
 struct UserSquare{D} <: SeparableFunction end
 PB.entry_parameters(::UserSquare{true}) = ()
@@ -543,11 +550,12 @@ PB.value_and_gradient!(g, r::Recorder, x) = (r.gradients[] += 1; value_and_gradi
       () -> PT.test_separable(FalseZero(), v, γ; rng = Xoshiro(841)),
       () -> PT.test_conjugate(NormL1(0.5), v, γ; conjugate = WrongConjugateValue()),
       () -> PT.test_kkt(WrongKKT(0.5), v, γ; trials = 20, rng = Xoshiro(841)),
-      () -> PT.test_kkt(WrongKKT(0.5), AtomIterate(6, [1:2, 3:4, 5:6]), γ;
+      () -> PT.test_kkt(WrongAtomKKT(0.5), AtomIterate(6, [1:2, 3:4, 5:6]), γ;
                         trials = 20, rng = Xoshiro(841)),
     )
     # The incorrect value leaves the proximal point unchanged.
     @test prox(WrongConjugateValue(), v, γ) == prox(IndBallLinf(0.5), v, γ)
+    @test outcomes(() -> PT.test_kkt(WrongAtomKKT(0.5), v, γ; trials = 20, rng = Xoshiro(841))) == (0, 0)
     for (i, check) in enumerate(checks)
       @testset "helper $i" begin
         failed, errored = outcomes(check)
@@ -776,8 +784,11 @@ PB.value_and_gradient!(g, r::Recorder, x) = (r.gradients[] += 1; value_and_gradi
 
   @testset "allocations and the scalar reference" begin
     a_sum(x, rest...) = sum(copy(x))
+    # Specialize the control's arity to avoid boxing its scalar return on Julia 1.13.
+    noalloc(x, rest::Vararg{Any,N}) where {N} = @inbounds x[1]
     for n in 1:6
       @test PT.allocations(a_sum, ntuple(_ -> x, n)...) > 0
+      @test PT.allocations(noalloc, ntuple(_ -> x, n)...) == 0
     end
     @test PT.allocations(prox!, similar(x), NormL1(0.5), x, γ) == 0
     for v in (-2.0, -0.2, 0.1, 1.5)

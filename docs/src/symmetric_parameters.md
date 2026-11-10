@@ -224,7 +224,7 @@ triangle to read; the package never picks one for a parameter.
 - Arrays symmetric by construction, such as `Symmetric(W)`, skip comparison
   of their entries. The wrapper defines equal mirrored values by reading one
   triangle; it does not verify agreement between the triangles of `W`.
-- Dense arrays, `SparseIterate` and `AtomIterate` do not trigger this
+- Dense arrays, `SparseIterate` and `BlockIterate` do not trigger this
   symmetric-parameter check. For example, `gradient!` into a dense matrix at a
   dense point does not check. A call checks as soon as one of its iterate arguments
   is a `SymmetricSparseIterate`, as the point (`gradient!` into a dense matrix at

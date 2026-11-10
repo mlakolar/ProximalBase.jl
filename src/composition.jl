@@ -465,7 +465,7 @@ _kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, x:
   _array_group_kkt(h, g, x, i)
 _kkt_violation(::_ArrayPrecompose{<:AbstractGroupPenalty}, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   _array_group_operations()
-function _kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, x::AtomIterate, k::Integer)
+function _kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, x::BlockIterate, k::Integer)
   _checkparams(h, g)
   _checkparams(h, x)
   _checksamegroups(h.f, x)
@@ -506,12 +506,12 @@ a shrunk point,
 
 and the value at the result comes from that of `f`. Array steps are per entry
 for separable `f`, or per group for group penalties whose groups cover every
-entry. Per-group steps do not support `AtomIterate` or `SymmetricSparseIterate`
+entry. Per-group steps do not support `BlockIterate` or `SymmetricSparseIterate`
 outputs. Smooth when `f` is, with
 gradient `∇f + ρ(x - c)` and Lipschitz constant `L_f + ρ`; separable when `f`
 is, so coordinate descent applies. Hessian products and quadratic models are
 available when `f` provides them, and coordinate curvatures increase by `ρ`.
-On an [`AtomIterate`](@ref) a regularized
+On a [`BlockIterate`](@ref) a regularized
 group norm updates a group. `Regularize(NormL1(λ), ρ)` is `ElasticNet(λ, ρ)`,
 `Regularize(GroupNormL2(λ, groups), ρ)` the group elastic net,
 `Regularize(NuclearNorm(λ), ρ)` the matrix elastic net, and with a center `c`
@@ -705,7 +705,7 @@ _ridge_shifted(g::AbstractArray, r::Regularize) =
   r.c === nothing ? g : _ShiftedArray(g, _ScaledArray(r.c, -r.ρ))
 kkt_violation(r::Regularize, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); kkt_violation(r.f, _ridge_shifted(g, r), i))
-for X in (:AbstractArray, :AtomIterate)
+for X in (:AbstractArray, :BlockIterate)
   @eval _kkt_violation(r::Regularize, g::AbstractArray, x::$X, k::Integer) = _kkt_violation(r.f, _ridge_shifted(g, r), x, k)
 end
 restrict(r::Regularize, S::AbstractVector{<:Integer}) = Regularize(restrict(r.f, S), r.ρ, r.c === nothing ? nothing : r.c[S])

@@ -248,8 +248,8 @@ end
         rc = centered ? c : nothing
         for start in (centered ? xc : x, T[0, 0, 0, 0, 0, 1, -1, 0.25])
           for γ in (Inf_, one(T))
-            xf = AtomIterate(copy(start), groups)
-            xr = AtomIterate(copy(start), groups)
+            xf = BlockIterate(copy(start), groups)
+            xr = BlockIterate(copy(start), groups)
             take_block_step!(xf, f, k, γ)
             take_block_step!(xr, Regularize(f, 0, rc), k, γ)
             @test same(Vector(xr), Vector(xf))
@@ -362,7 +362,7 @@ function frozen_routes(f, x::Vector{T}, γ, array) where {T}
 end
 
 # the group routes of Regularize(GroupNormL2, level[, c]): the point of prox, per-group steps, and the
-# coordinate step of each group on an AtomIterate (the other groups stay as they are)
+# coordinate step of each group on a BlockIterate (the other groups stay as they are)
 function frozen_group_routes(::Type{T}, centered, level, γ) where {T}
   f = GroupNormL2(T(2.5), FGROUPS, T[1, 0])
   r = Regularize(f, T(level), centered ? T[FGC...] : nothing)
@@ -370,7 +370,7 @@ function frozen_group_routes(::Type{T}, centered, level, γ) where {T}
   res = Pair{Symbol, Any}[:prox => outcome(() -> prox(r, x, γ)),
                           :steps => outcome(() -> prox(r, x, fill(γ, 2)))]
   for k in 1:2
-    push!(res, Symbol(:coord, k) => outcome(() -> (xi = AtomIterate(copy(x), FGROUPS); take_block_step!(xi, r, k, γ); Vector(xi))))
+    push!(res, Symbol(:coord, k) => outcome(() -> (xi = BlockIterate(copy(x), FGROUPS); take_block_step!(xi, r, k, γ); Vector(xi))))
   end
   res
 end
@@ -650,7 +650,7 @@ end
     @test same(prox(r, T[0.5], [big]), want)
     @test same([prox_block(r, T(0.5), 1, big)], want)
     @test same(prox(Regularize(GroupNormL2(T(0.5), [1:1], T[0]), ρ), T[0.5], [big]), want)
-    xi = AtomIterate(T[0.5], [1:1])
+    xi = BlockIterate(T[0.5], [1:1])
     take_block_step!(xi, Regularize(GroupNormL2(T(0.5), [1:1], T[0]), ρ), 1, big)
     @test same(Vector(xi), want)
     @test same(prox(r, T[0.5], Inf), T[0.5])          # next to a true Inf

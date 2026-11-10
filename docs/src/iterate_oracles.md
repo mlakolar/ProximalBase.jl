@@ -32,20 +32,26 @@ the penalty group's length and order. Their shape, group ID and real element
 types are checked before writes; a failing element read or conversion may
 leave a partial numerical result, but the iterate has not been written.
 
+The caller must supply output independent of iterate storage and caches.
+Public `activevalues`, coordinate views and `blockview` results alias their
+owner and do not satisfy that precondition. The numerical oracle does not
+infer ownership from array types; use an independent vector or its allocating
+form, then write the result explicitly.
+
 ```@example block_trials
 using ProximalBase
 f = GroupNormL2(1.0, [1:2, 3:4])
-x = AtomIterate(4, f)
+x = BlockIterate(4, f)
 @assert ProximalBase.samegroups(x, f)
 u, out = [3.0, 4.0], zeros(2)
 prox_block!(out, f, u, 1, 1.0)
 @assert nactive(x) == 0
-copyto!(atom(x, 1), out)
-@assert collect(atom(x, 1)) ≈ (1 - sqrt(2) / 5) .* u
+copyto!(blockview(x, 1), out)
+@assert collect(blockview(x, 1)) ≈ (1 - sqrt(2) / 5) .* u
 @assert collect(activecoordinates(x)) == [1]
 prox_block!(out, f, [0.5, 0.5], 2, 1.0)
-copyto!(atom(x, 2), out)
-@assert all(iszero, atom(x, 2)) && !isactive(x, 2)
+copyto!(blockview(x, 2), out)
+@assert all(iszero, blockview(x, 2)) && !isactive(x, 2)
 ```
 
 For a separable penalty acting on a solver's group, call the scalar oracle
@@ -60,7 +66,7 @@ if it is zero, should enter the working set, and a value ``\le 0`` that zero
 satisfies its optimality condition. It is not a stationarity residual of a
 nonzero coordinate.
 
-On an `AtomIterate`, ``k`` is a group. For a group penalty, the screen uses the
+On a `BlockIterate`, ``k`` is a group. For a group penalty, the screen uses the
 penalty's own dual norm and weights, and it does not read the values of `x` in
 group ``k``:
 
@@ -79,7 +85,7 @@ docstring: the square root of the group size, and 1 for `GroupNormLinf`.
 `Scaled(f, 0)` is the function that [`Scaled`](@ref) builds at zero scale. For
 a group penalty with finite levels, a finite shape parameter (`a` of `GroupMCP`
 and `GroupSCAD`) and finite weights this is the zero function, whose screen on
-an `AtomIterate` is `maximum(abs, view(g, atomindices(x, k)))`; a level or shape
+a `BlockIterate` is `maximum(abs, view(g, blockindices(x, k)))`; a level or shape
 parameter that is not finite makes `Scaled(f, 0)` throw an `ArgumentError`
 when it is built. Otherwise, as
 with an infinite weight or an indicator, the screen is that of the function
@@ -88,9 +94,9 @@ with an infinite weight or an indicator, the screen is that of the function
 The table is not exhaustive. `IndBallGroupL0` has no screen and throws a
 `MethodError`, and so do some functions without a screen of their own, such as
 `NormL2`. Other functions behave differently: the array `Precompose` of a group
-penalty has a screen on an `AtomIterate` (see [Entrywise scaling](@ref)), and
+penalty has a screen on a `BlockIterate` (see [Entrywise scaling](@ref)), and
 `MoreauEnvelope` of a function that is not separable throws an
-`ArgumentError`. On an `AtomIterate`, the call throws a
+`ArgumentError`. On a `BlockIterate`, the call throws a
 `DimensionMismatch` when the groups of a group penalty differ from those of
 `x`, and a `BoundsError` when ``k`` is not a group.
 
@@ -102,7 +108,7 @@ the group out.
 ```@example screening
 using ProximalBase
 
-x2 = AtomIterate(2, [1:2])
+x2 = BlockIterate(2, [1:2])
 g = [5 / 8, 5 / 8]
 v = kkt_violation(GroupNormLinf(1.0, [1:2]), g, x2, 1)
 @assert v == 0.25                                   # ‖g‖₁ − 1 > 0: the group must enter

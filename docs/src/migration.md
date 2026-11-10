@@ -30,6 +30,27 @@ The legacy abstract-type bindings alias `AbstractFunction`; they do not
 identify smooth or proximable subsets. Query [`issmooth`](@ref) and
 [`isproximable`](@ref) instead.
 
+## Grouped storage names in 0.6
+
+**Migration from pre-rename snapshots (historical spellings):**
+
+| Removed name | Required replacement |
+|:--|:--|
+| `AtomIterate` | `BlockIterate` |
+| `atom(x,k)` | `blockview(x,k)` |
+| `atomindices(x,k)` | `blockindices(x,k)` |
+
+There are no compatibility bindings for these removed names. The iterate is
+still an `AbstractVector` with scalar entry indexing, arbitrary ordered blocks
+and a working set of block IDs. `ncoordinates` and `activecoordinates` keep
+their meanings; no `nblocks` or `activeblocks` synonyms are added. Group-penalty
+names and genuine `lmo_atom`, `VertexAtom` and `LowRankAtom` APIs are unchanged.
+Use independent output for `prox_block!`, then `copyto!(blockview(x,k),out)`.
+
+This is a PB-only change. The ProximalSolvers rename is separate work under
+[PS #238](https://github.com/mlakolar/ProximalSolvers.jl/issues/238); its existing
+source and dependency pin are not updated by this PB migration.
+
 ## Values in mixed precision
 
 Every scalar value now has the argument's precision, as stated in
@@ -155,7 +176,7 @@ the earlier behavior applies.
     the check on the entries of positive weight (a zero weight leaves its entry free), and
     nothing is written before the error. A box that contains zero keeps the hard zero of an
     infinite level. Finite levels, a zero step, other penalties in the box and the standalone
-    value (`Inf` away from the domain) keep their earlier behaviour. Coordinate updates of a `SparseIterate` or an `AtomIterate`
+    value (`Inf` away from the domain) keep their earlier behaviour. Coordinate updates of a `SparseIterate` or a `BlockIterate`
     do not run the check yet.
   - `value_and_prox!` of `FiberSum(NormL1Fused(...))` on two slices, into a separate output, at a zero level,
     a zero step or a free diagonal (`diagonal = nothing`) beside a fused pair near `floatmax`, stores
@@ -380,7 +401,7 @@ must be exactly symmetric. Checked operations now throw an `ArgumentError`
 when they find different values at mirrored positions. Some calls check only
 the pairs they use; see [Symmetric parameters](@ref) for examples, the
 operation table and complete validation before a solver starts.
-Dense arrays, `SparseIterate` and `AtomIterate` are unchanged.
+Dense arrays, `SparseIterate` and `BlockIterate` are unchanged.
 
 The rows below list the earlier behavior and how to adapt.
 The linked operation table explains which symmetric arguments trigger checks.
@@ -424,21 +445,21 @@ an `ArgumentError` instead of a `MethodError`. Restricting a group-penalty
 envelope, including as the smooth term of an active-set solver, is no longer
 supported. These coordinate operations require a separable underlying function.
 
-## The groups of an `AtomIterate` (0.6)
+## The groups of a `BlockIterate` (0.6)
 
-The fields of an [`AtomIterate`](@ref), including `groups`, are private. Read the indices of
-group `k` with [`atomindices`](@ref)`(x, k)`, a read-only vector, instead of `x.groups[k]`, and
+The fields of a [`BlockIterate`](@ref), including `groups`, are private. Read the indices of
+group `k` with [`blockindices`](@ref)`(x, k)`, a read-only vector, instead of `x.groups[k]`, and
 compare layouts with `ProximalBase.samegroups(a, b)` instead of comparing `a.groups` and
 `b.groups`. `similar(x)` makes an iterate with the same groups. Changing the array that
-`parentindices(atom(x, k))` returns is not supported. See [AtomIterate](@ref).
+`parentindices(blockview(x, k))` returns is not supported. See [BlockIterate](@ref).
 
-## Writes through `atom(x, k)` (0.6)
+## Writes through `blockview(x, k)` (0.6)
 
-Writes through [`atom`](@ref)`(x, k)` now activate the group, as `x[i] = v`
+Writes through [`blockview`](@ref)`(x, k)` now activate the group, as `x[i] = v`
 does. Before 0.6, they left it inactive, and values, `copyto!` and products
-ignored the entries. The type of `atom(x, k)` changes to a view whose parent
+ignored the entries. The type of `blockview(x, k)` changes to a view whose parent
 is the iterate. Compute `prox_block!(out, f, u, k, γ)` in a numerical buffer,
-then write `copyto!(atom(x,k), out)`. Writing the trial through `atom` activates
+then write `copyto!(blockview(x,k), out)`. Writing the trial through `blockview` activates
 the group even when its eventual proximal result is zero.
 
 The `storage` field is internal. Writing into it can leave the iterate
@@ -460,10 +481,10 @@ It now gives `[Inf, NaN, NaN, NaN]` with active coordinates `[1, 2, 3, 4]`.
 Finite multipliers and finite nonzero divisors still cost `O(nnz)` and give
 the same results as before.
 
-## Complex values written into a `SparseIterate` or an `AtomIterate` (0.6)
+## Complex values written into a `SparseIterate` or a `BlockIterate` (0.6)
 
 Two-argument `copyto!`, `copy!` and `fill!` into a [`SparseIterate`](@ref) or
-an [`AtomIterate`](@ref) now check the element type of the source or value, as
+a [`BlockIterate`](@ref) now check the element type of the source or value, as
 the constructors and broadcasts already did. A complex source or value throws
 an `ArgumentError` before anything is written. Before 0.6, `copyto!` and
 `copy!` from a complex array converted entry by entry: a nonzero imaginary
@@ -498,7 +519,7 @@ is 4x3. For speed, pass the full dense matrix `lmul!(Q, Matrix{T}(I, size(Q)))` 
 `T = eltype(Q)`.
 
 Writes through a view, through `vec` of a matrix or a `reshape` to another
-shape, and through `atom(x, k)` keep Base's conversion: a complex value throws
+shape, and through `blockview(x, k)` keep Base's conversion: a complex value throws
 an `InexactError`, possibly after a partial write.
 
 | Before 0.6 | Now |
@@ -507,7 +528,7 @@ an `InexactError`, possibly after a partial write.
 | `fill!(x, 1 + 0im)` or `fill!(x, 0im)` | `fill!(x, real(v))` |
 | `copyto!(x, (1 + 0im) * I)`, or a complex orthogonal factor with zero imaginary parts | `copyto!(x, real(λ) * I)`, or a real factor |
 
-## Writes into a `SparseIterate` or `AtomIterate` keep the working set (0.6)
+## Writes into a `SparseIterate` or `BlockIterate` keep the working set (0.6)
 
 Every write through the array interface is now a value write: it activates the
 coordinates (groups) it makes nonzero and removes none. Only `dropzeros!`
@@ -518,7 +539,7 @@ removes coordinates. Three spellings change.
   mutators that start with a `fill!`, such as `sum!(x, A)`, keep the working
   set too. To clear, write `dropzeros!(fill!(x, 0))`.
 - `x .= y` with `y` an iterate of the same kind (a `SparseIterate` of the same
-  size, or an `AtomIterate` with equal groups) is a value write, like every
+  size, or a `BlockIterate` with equal groups) is a value write, like every
   other broadcast: `x` keeps its working set and gains the nonzeros of `y`.
   Before 0.6 it copied the working set of `y`. For that copy, write
   `copyto!(x, y)`, which costs `O(nnz)` where the broadcast costs `O(length(x))`.
@@ -527,7 +548,7 @@ removes coordinates. Three spellings change.
   threw a `DimensionMismatch` and `copy!` an `ArgumentError`. Between two
   array iterates of different lengths, both now throw a `DimensionMismatch`
   before writing. Before 0.6, `copyto!` between a `SparseIterate` and an
-  `AtomIterate` copied a shorter source into the first entries and threw a
+  `BlockIterate` copied a shorter source into the first entries and threw a
   `BoundsError` for a longer one, and `copy!` threw a `MethodError` (an
   `ArgumentError` between a matrix and a vector).
 
@@ -604,14 +625,14 @@ the entries of `x`, for a vector and for a matrix alike, as it already was for a
 ## Products of an iterate: zero coefficients are strong (0.6)
 
 In the products and inner products that ProximalBase defines for a
-[`SparseIterate`](@ref) or an [`AtomIterate`](@ref), a zero coefficient of the
+[`SparseIterate`](@ref) or a [`BlockIterate`](@ref), a zero coefficient of the
 iterate, stored or not, now contributes nothing, even against `±Inf` or NaN in
 the other operand. These are `dot` with a strided vector or another iterate,
 `dot(a, X, b)` for a matrix `X`, and `mul!` and `*` with a strided, transposed,
 adjoint or `Symmetric` matrix; M1 of the
 [Numerical contract](@ref numerics-storage) lists them. Before 0.6, the
 `SparseIterate` products skipped unstored zeros and multiplied stored ones, so
-`0 · NaN` gave NaN, and the `AtomIterate` `dot` multiplied the zeros of its
+`0 · NaN` gave NaN, and the `BlockIterate` `dot` multiplied the zeros of its
 active groups: a result could change with `dropzeros!` and with the order of
 the arguments.
 
@@ -633,7 +654,7 @@ zero of a dense operand is still an IEEE zero: with `w[1] = Inf`,
 `dot([0, 1, 0], w)` is NaN. For IEEE propagation through a zero coefficient,
 multiply the dense array: `A * Vector(x)`. Products that ProximalBase does not
 define, such as `sparse(A) * x`, products of objects built from an iterate,
-such as `view(x, :)`, `coordinates(x)` and `atom(x, k)`, and scaling by a number
+such as `view(x, :)`, `coordinates(x)` and `blockview(x, k)`, and scaling by a number
 follow IEEE arithmetic and are unchanged. The products of a
 `SymmetricSparseIterate` follow the same rule: `mul!` and `*` with a vector or a matrix,
 `dot(a, X, b)`, and `dot` with a strided matrix skip a zero coefficient, stored or not;
@@ -674,7 +695,10 @@ are removed without aliases.
 For group penalties use `prox_block!(out,g,u,k,γ)` or the allocating
 `prox_block(g,u,k,γ)`. `k` indexes the penalty's groups, and `u`/`out` are compact
 one-based real vectors in that group's order. The mutating method returns `out`,
-supports `out === u`, and rejects other overlap and iterate-backed outputs.
+supports `out === u` and rejects other overlap. The caller must supply output
+independent of iterate storage and caches; ownership is not checked from array
+types. This includes avoiding `activevalues`, coordinate views and block views
+as outputs. Use an independent vector or the allocating form.
 Validation errors precede writes; element access/conversion or a custom kernel
 can leave a partial output. Solvers separately validate layout compatibility,
 write through public storage operations and update caches.

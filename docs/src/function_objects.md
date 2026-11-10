@@ -91,7 +91,7 @@ x = [2.0, -1.0]
 2. **Iterates** describe how an algorithm stores and changes optimization
    coordinates: entries in a [`SparseIterate`](@ref), independent symmetric
    variables in a [`SymmetricSparseIterate`](@ref), or groups in an
-   [`AtomIterate`](@ref).
+   [`BlockIterate`](@ref).
 3. **Solvers** choose an update schedule, steps, momentum, line searches,
    active-set management, and convergence tests. ProximalBase supplies
    primitives for these choices, not a general solver interface.

@@ -51,7 +51,7 @@ allocated_pow2(::Type{T}, E, a, b, c) where {T} = (pow2_three(T, E, a, b, c); @a
       # a residual of 2 under products that overflow
       X3 = reshape(T[M, -M, 1], 1, 3)
       f3 = LeastSquaresLoss(T[1], X3)
-      for β in (T[2, 2, 3], SparseIterate(T[2, 2, 3]), AtomIterate(T[2, 2, 3], [1:3]))
+      for β in (T[2, 2, 3], SparseIterate(T[2, 2, 3]), BlockIterate(T[2, 2, 3], [1:3]))
         @test within(f3(β), 2)
       end
       @test within(value_and_gradient!(zeros(T, 3), f3, T[2, 2, 3]), 2)
@@ -198,7 +198,7 @@ allocated_pow2(::Type{T}, E, a, b, c) where {T} = (pow2_three(T, E, a, b, c); @a
         @test LinearFunction(T[P, P], d)(T[P, -P]) === d
       end
       # argument and coefficient types
-      @test LinearFunction(T[2, 0], -M)(AtomIterate(T[M, 0], [1:2])) === M
+      @test LinearFunction(T[2, 0], -M)(BlockIterate(T[M, 0], [1:2])) === M
       @test LinearFunction(T[2, 0], -M)(SparseIterate(T[M, 0])) === M
       @test LinearFunction(T[2 0; 0 0], -M)(SymmetricSparseIterate(T[M 0; 0 0])) === M
       @test LinearFunction(T[0 2; 2 0])(SymmetricSparseIterate(T[0 M; M 0])) === T(Inf)   # 4M overflows

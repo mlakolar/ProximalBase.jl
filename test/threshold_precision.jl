@@ -9,7 +9,7 @@ using ..TestUtils
 # must act on a Float64 argument exactly as the same penalty with Float64 factors does, also where
 # the product overflows or underflows Float32.
 
-active_set(x::AtomIterate) = Set(x.active[1:x.nactive])   # as in atom_iterate.jl
+active_set(x::BlockIterate) = Set(x.active[1:x.nactive])   # as in block_iterate.jl
 
 big32 = 2f0^80
 tiny32 = 2f0^-80
@@ -146,30 +146,30 @@ const GROUP_CASES = (
   end
 end
 
-@testset "AtomIterate with Float32 factors" begin
+@testset "BlockIterate with Float32 factors" begin
   groups = [1:2, 3:3]
   v = [2.0^161, 0.0, -2.0^161]
   for (label, make, W, γ, e) in GROUP_CASES
     @testset "$label" begin
       f = make(Float32, W)
-      x = AtomIterate(v, groups)
+      x = BlockIterate(v, groups)
       @test active_set(x) == Set([1, 2])
-      y = AtomIterate(Float64, 3, groups)
+      y = BlockIterate(Float64, 3, groups)
       val = value_and_prox!(y, f, x, γ)
       @test close(Vector(y), [e, 0.0, -e])
       @test active_set(y) == Set([1, 2])
       @test val == f(y)
-      z = AtomIterate(v, groups)                       # in place
+      z = BlockIterate(v, groups)                       # in place
       @test prox!(z, f, z, γ) === z
       @test close(Vector(z), [e, 0.0, -e])
       @test active_set(z) == Set([1, 2])
       # coordinate steps: an active group, then a group below the threshold, then an inactive one
-      z = AtomIterate(v, groups)
+      z = BlockIterate(v, groups)
       take_block_step!(z, f, 1, γ)
       @test close(Vector(z), [e, 0.0, -2.0^161]) && active_set(z) == Set([1, 2])
       take_block_step!(z, f, 2, γ)
       @test close(Vector(z), [e, 0.0, -e])
-      small = AtomIterate([1.0, 0.0, 0.0], groups)
+      small = BlockIterate([1.0, 0.0, 0.0], groups)
       take_block_step!(small, f, 1, γ)
       @test Vector(small) == zeros(3) && 2 ∉ active_set(small)
       take_block_step!(small, f, 2, γ)                 # an inactive group stays inactive

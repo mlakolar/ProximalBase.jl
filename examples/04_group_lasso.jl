@@ -4,7 +4,7 @@
 #
 # `GroupNormL2(λ, groups)` is the penalty, with weights √|Gₖ| by default; its
 # proximal operator shrinks each group toward zero as a block. On an ordinary
-# vector it serves FISTA. On an `AtomIterate` that shares its groups, the
+# vector it serves FISTA. On a `BlockIterate` that shares its groups, the
 # coordinates are the groups: `prox_block!` computes the result for one
 # group and activates the group only when its proximal step ends nonzero.
 
@@ -39,19 +39,19 @@ function fista(f, g, L, p; iters = 3000)
 end
 β_pg = fista(f, g, opnorm(X)^2, p)
 
-# block coordinate descent on an AtomIterate: compute a trial point with
+# block coordinate descent on a BlockIterate: compute a trial point with
 # step 1/Lₖ, Lₖ = ‖X[:, Gₖ]‖², then take the group's block proximal step
 function block_cd(X, y, g; sweeps = 2000)
-    β = AtomIterate(size(X, 2), g)                     # shares the groups of g
+    β = BlockIterate(size(X, 2), g)                     # shares the groups of g
     r = copy(y)                                        # r = y - Xβ
     Lk = [opnorm(X[:, G])^2 for G in β.groups]
     for _ in 1:sweeps, k in 1:ncoordinates(β)
         G = β.groups[k]
-        old = Vector(atom(β, k))
+        old = Vector(blockview(β, k))
         u = old .+ view(X, :, G)' * r ./ Lk[k]
         prox_block!(u, g, u, k, 1 / Lk[k])
-        copyto!(atom(β, k), u)
-        mul!(r, view(X, :, G), old .- atom(β, k), 1, 1)
+        copyto!(blockview(β, k), u)
+        mul!(r, view(X, :, G), old .- blockview(β, k), 1, 1)
     end
     dropzeros!(β)                                      # forget groups that ended at zero
 end

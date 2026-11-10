@@ -47,7 +47,7 @@ reference(λ, x, y = nothing) = big(λ) * sum(abs2, y === nothing ? big.(Array(x
              (nextfloat(zero(T)), T[floatmax(T)], T[-floatmax(T)]))
     for (λ, x, y) in cases
       r = reference(λ, x, y)
-      for z in (x, view(x, :), SparseIterate(x), AtomIterate(x, [1:length(x)]), JLArray(x))
+      for z in (x, view(x, :), SparseIterate(x), BlockIterate(x, [1:length(x)]), JLArray(x))
         center = z isa JLArray && y !== nothing ? JLArray(y) : y
         f = SqrNormL2(λ, center)
         check_rounded(f(z), r)
@@ -73,7 +73,7 @@ reference(λ, x, y = nothing) = big(λ) * sum(abs2, y === nothing ? big.(Array(x
         s = ProximalBase._sumabs2_diff(x, y)
         @test SqrNormL2(λ, y)(x) === T(λ * s / 2)
         @test Regularize(ZeroFunction(), λ)(x) === λ * sum(abs2, x) / 2
-        for z in (view(x, :), SparseIterate(x), AtomIterate(x, [1:n]), JLArray(x))
+        for z in (view(x, :), SparseIterate(x), BlockIterate(x, [1:n]), JLArray(x))
           ordinary = ordinary_square(λ, z)
           @test SqrNormL2(λ)(z) === ordinary
           @test Regularize(ZeroFunction(), λ)(z) === ordinary

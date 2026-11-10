@@ -114,7 +114,7 @@ function's own parameters, before they write anything: a coefficient with the
 entries of a matrix block but another shape is rejected with a `DimensionMismatch`
 like one of another length, and nothing broadcasts. Scalar leaves, named tuples and
 nonreal arrays are rejected by the constructors. A `SparseIterate`,
-`SymmetricSparseIterate` or `AtomIterate` is refused with an `ArgumentError` as a
+`SymmetricSparseIterate` or `BlockIterate` is refused with an `ArgumentError` as a
 block of the variable, because the staged buffers do not carry their stored entries
 or their per-entry parameter checks; supporting them would need its own design.
 No other array type is refused for being sparse or a view, but only dense arrays and
@@ -185,7 +185,7 @@ For a group penalty, `a` must be constant on each group. Full-array values
 and proximal operators then use the step ``\gamma c_k^2`` for group ``k``,
 where ``c_k`` is its scale. Indices outside the groups remain unchanged.
 The four-argument `kkt_violation` works on arrays and on matching groups of an
-`AtomIterate`; group coordinate updates and `restrict` are not supported.
+`BlockIterate`; group coordinate updates and `restrict` are not supported.
 Other nonseparable functions are rejected, and the array wrapper supplies no
 Hessian products.
 

@@ -85,7 +85,7 @@ end
   @test take_block_step!(xc, fv, k, 0.5) == 0 && xc[k] == 0
   j = findfirst(q)
   @test take_block_step!(xc, fv, j, 0.5) == x[j]
-  xa = AtomIterate(copy(x), [1:10, 11:20, 21:30, 31:40])
+  xa = BlockIterate(copy(x), [1:10, 11:20, 21:30, 31:40])
   take_block_step!(xa, fv, 2, 0.5)
   @test Vector(xa)[11:20] == x[11:20] .* q[11:20]
   # optimality at zero and restriction

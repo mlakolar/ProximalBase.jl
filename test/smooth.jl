@@ -177,7 +177,7 @@ end
     βs = SparseIterate(sprandn(p, 0.3))
     @test f(βs) ≈ f(Vector(βs))
     @test gradient(f, βs) ≈ gradient(f, Vector(βs))
-    βa = AtomIterate(randn(p), p ÷ 2)
+    βa = BlockIterate(randn(p), p ÷ 2)
     @test f(βa) ≈ f(Vector(βa))
   end
   # a matrix response: multi-task regression
@@ -216,7 +216,7 @@ end
         @test Array(prox!(sparseout, f, v, γ)) ≈ ref rtol = tol
         @test allocs(prox!, sparseout, f, v, γ) == 0
         if m == 1
-          atomout = AtomIterate(zeros(T, p), [1:p])
+          atomout = BlockIterate(zeros(T, p), [1:p])
           @test Vector(prox!(atomout, f, v, γ)) ≈ ref rtol = tol
           @test allocs(prox!, atomout, f, v, γ) == 0
         end

@@ -50,7 +50,7 @@ catch e
   e isa ArgumentError && occursin("is not implemented", e.msg)
 end
 snap(a) = collect(a)
-snap(a::AtomIterate) = copy(a.storage)
+snap(a::BlockIterate) = copy(a.storage)
 snap(a::SymmetricSparseIterate) = Matrix(a)
 snap(t::Tuple) = map(snap, t)
 

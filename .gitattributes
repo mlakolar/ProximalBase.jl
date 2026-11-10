@@ -1,0 +1,2 @@
+# Generated provenance uses Markdown hard line breaks (two trailing spaces).
+docs/design/numerical-contract/coverage.md whitespace=-blank-at-eol

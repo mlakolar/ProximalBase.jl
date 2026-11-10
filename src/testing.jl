@@ -137,7 +137,7 @@ Test a separable `f` at the vector or matrix `x` with step `γ`:
   names the skipped checks and the rejected array type; a function without a
   value method is skipped silently. A value method that
   exists is called without a `try`, so an error in it is reported as an error;
-- with `groups`, scalar `prox_block` calls on the entries of each group of an [`AtomIterate`](@ref)
+- with `groups`, scalar `prox_block` calls on the entries of each group of a [`BlockIterate`](@ref)
   gives the proximal point;
 - with `symmetric = true` and a square `x`, `prox_block` at the linear entry index of each
   coordinate of a [`SymmetricSparseIterate`](@ref) gives the proximal point of
@@ -170,7 +170,7 @@ function test_conjugate end
 Test [`kkt_violation`](@ref) against the proximal operator: from zero, a
 proximal gradient step with a random gradient `g` keeps a coordinate at zero
 exactly when its violation is `≤ 0`. The coordinates are the entries of `x`
-for a separable `f`, and the groups for an [`AtomIterate`](@ref) `x` and a
+for a separable `f`, and the groups for a [`BlockIterate`](@ref) `x` and a
 group penalty. For a nonconvex `f`, take `γ` below its convexity limit, where
 the scalar proximal operator at zero is the local one.
 """
@@ -179,10 +179,10 @@ function test_kkt end
 """
     test_iterate(x)
 
-Test the bookkeeping of an [`AtomIterate`](@ref), [`SparseIterate`](@ref) or
+Test the bookkeeping of a [`BlockIterate`](@ref), [`SparseIterate`](@ref) or
 [`SymmetricSparseIterate`](@ref) against its entries. Check the structural
 lengths, the active or stored count, and the maps in both directions. For an
-`AtomIterate`, also check the group indices and that inactive groups hold only
+`BlockIterate`, also check the group indices and that inactive groups hold only
 zeros.
 
 Active groups and stored coordinates holding zeros are valid;

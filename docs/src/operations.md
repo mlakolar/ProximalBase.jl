@@ -76,16 +76,16 @@ For mathematical derivations and step-size geometry, read
 | Term | Meaning |
 |:--|:--|
 | Entry | One scalar of the full vector or matrix; its linear index addresses a separable function's weights and bounds. |
-| Iterate coordinate | One independent storage update: an entry of `SparseIterate`, a lower-triangle variable of `SymmetricSparseIterate`, or a group of `AtomIterate`. |
+| Iterate coordinate | One independent storage update: an entry of `SparseIterate`, a lower-triangle variable of `SymmetricSparseIterate`, or a group of `BlockIterate`. |
 | Penalty block | One independent mathematical term of a penalty: a scalar entry for a separable penalty, or a compact vector in a group penalty's own order. This is the index space of `prox_block[!]`. |
 | Group | An ordered collection of global entry indices. A solver must check that its iterate and penalty use matching ordered groups before sharing a group ID. |
 | Active slot | A temporary position in packed working-set handles; its order can change during compaction. It is never a penalty block or coordinate ID. |
 | Atom | A compact linear-minimization result, such as `VertexAtom` or `LowRankAtom`, returned by supported `lmo_atom` calls. It does not mean a group of coefficients. |
 
-The existing storage names `AtomIterate`, `atom(x,k)` and `atomindices(x,k)`
-refer to grouped storage and group views. They do not imply linear-minimization
-atom semantics. Their proposed rename is a separate maintainer decision;
-the #844 migration retains these names. `value_entry`, `coordinate_lipschitz`
+`BlockIterate`, `blockview(x,k)` and `blockindices(x,k)` name grouped storage
+and its public views. They are the mandatory PB 0.6 names under the 2026-11-10
+maintainer ruling. The later ProximalSolvers rename is tracked separately in
+[PS #238](https://github.com/mlakolar/ProximalSolvers.jl/issues/238). `value_entry`, `coordinate_lipschitz`
 and iterate-aware `kkt_violation` retain their existing scopes.
 
 | Operation | Use |
@@ -168,10 +168,10 @@ type.
 ## Where the remaining public API belongs
 
 Other exports do **not** represent mathematical-function oracles.
-`SparseIterate`, `SymmetricSparseIterate` and `AtomIterate`, together with
+`SparseIterate`, `SymmetricSparseIterate` and `BlockIterate`, together with
 `ncoordinates`, `coordinates`, `nactive`, `activecoordinates`,
-`activevalues`, `matrixview`, `isactive`, `activate!`, `atom`,
-`atomindices` and `dropzeros!`, belong to the
+`activevalues`, `matrixview`, `isactive`, `activate!`, `blockview`,
+`blockindices` and `dropzeros!`, belong to the
 [Iterates](iterates.md) and [iterate API reference](api/iterates.md).
 `nnz` is re-exported for ordinary sparse arrays; it does **not**
 define the number of active coordinates of an iterate.

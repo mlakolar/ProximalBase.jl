@@ -13,7 +13,7 @@ MACROS = r'(?:(?:[\w.]+\.)?@\w+\s+)*'
 FUNCTION = re.compile(r'^\s*' + MACROS + r'(?:function\s+)([\w.!]+)\s*\(|^\s*' + MACROS + r'([\w.!]+)\([^\n]*\)\s*(?:where\s+[^=]+)?=(?!=)')
 FIELD = re.compile(r'^\s*(\w+)\s*::')
 # Constructor functions that do not name a type of their own.
-FACTORIES = {'IndBallLinf','Constrained','_AtomIterate'}
+FACTORIES = {'IndBallLinf','Constrained','_BlockIterate'}
 TYPE = re.compile(r'^\s*(?:mutable\s+)?(?:struct|abstract\s+type|primitive\s+type)\s+(\w+)')
 
 def check(root):

@@ -239,11 +239,11 @@ end
     z = zeros(12)
     @test kkt_violation(f, g, z, 2) ≈ kkt_violation(gl, g, z, 2)
     fa = F(λ, [groups; [[7]]], [w; 0.]; a)
-    xa2 = AtomIterate(12, fa)
+    xa2 = BlockIterate(12, fa)
     @test kkt_violation(fa, g, xa2, 3) ≈ norm(g[groups[3]]) - λ * w[3]
-    # on an AtomIterate with its groups: the block step and the active groups
+    # on a BlockIterate with its groups: the block step and the active groups
     xv = 2 .* randn(12)
-    xa = AtomIterate(xv, fa)
+    xa = BlockIterate(xv, fa)
     @test fa(xa) ≈ fa(xv)
     ya = similar(xa)
     @test value_and_prox!(ya, fa, xa, 0.7) ≈ fa(prox(fa, xv, 0.7))
@@ -251,7 +251,7 @@ end
     xc = copy(xa)
     take_block_step!(xc, fa, 2, 0.7)
     @test Vector(xc)[groups[2]] ≈ prox(fa, xv, 0.7)[groups[2]]
-    xz = AtomIterate(12, fa)
+    xz = BlockIterate(12, fa)
     xz.storage[4:5] .= [3., 4.]
     take_block_step!(xz, fa, 2, 0.1)
     @test isactive(xz, 2)
@@ -276,11 +276,11 @@ end
     f = F(0.4, gs, [1., 1.5, 0., 0.8])
     bad = F(0.4, [[1, 3], [2, 4, 6], [5], [7, 8, 9]], f.w)
     for xgroups in (f, layouts...), ygroups in (f, layouts...)
-      xa = AtomIterate(v, xgroups)
+      xa = BlockIterate(v, xgroups)
       activate!(xa, 3)
-      ya = AtomIterate(ones(9), ygroups)
+      ya = BlockIterate(ones(9), ygroups)
       @test f(xa) ≈ f(Vector(xa))
-      x0 = AtomIterate(9, xgroups)
+      x0 = BlockIterate(9, xgroups)
       for k in eachindex(gs)
         @test kkt_violation(f, grad, x0, k) ≈ kkt_violation(f, grad, zeros(9), first(gs[k]))
       end
@@ -298,7 +298,7 @@ end
           @test Vector(alias) ≈ reference
           operation! === value_and_prox! && @test value ≈ f(reference)
         end
-        xc = AtomIterate(v, xgroups)
+        xc = BlockIterate(v, xgroups)
         expected = copy(v)
         for k in eachindex(gs)
           γk = step isa Real ? step : step[k]
@@ -318,10 +318,10 @@ end
       @test f(xa) ≈ f(v)
       @test value_and_prox!(ya, f, xa, 0.7) ≈ f(prox(f, v, 0.7))
       @test Vector(ya) ≈ prox(f, v, 0.7)
-      other = AtomIterate(ones(9), bad)
+      other = BlockIterate(ones(9), bad)
       @test value_and_prox!(other, f, xa, 0.7) ≈ f(prox(f, v, 0.7))
       @test Vector(other) ≈ prox(f, v, 0.7)
-      @test value_and_prox!(ya, f, AtomIterate(v, bad), 0.7) ≈ f(prox(f, v, 0.7))
+      @test value_and_prox!(ya, f, BlockIterate(v, bad), 0.7) ≈ f(prox(f, v, 0.7))
       @test Vector(ya) ≈ prox(f, v, 0.7)
     end
   end
@@ -355,13 +355,13 @@ end
   @test prox(IndBallGroupL0(2, groups), xt, 1.) == [1., 0., 0., 1., 0., 0., 0., 0., 0.]
   @test prox(IndBallGroupL0(0, groups), x, 1.) == [zeros(8); 9.]
   @test prox(IndBallGroupL0(4, groups), x, 1.) == x
-  # in place, and on an AtomIterate with its groups: the dropped groups are deactivated
+  # in place, and on a BlockIterate with its groups: the dropped groups are deactivated
   z = copy(x)
   prox!(z, f, z, 1.)
   @test z == y
   ga = [groups; [[9]]]
   fa = IndBallGroupL0(3, ga)
-  xa = AtomIterate(x, ga)
+  xa = BlockIterate(x, ga)
   ya = similar(xa)
   prox!(ya, fa, xa, 1.)
   @test Vector(ya) == prox(fa, x, 1.)
@@ -377,7 +377,7 @@ end
   for gs in layouts, bound in (nothing, 1), s in (0, 1, 4)
     f = IndBallGroupL0(s, gs; k = bound)
     bad = IndBallGroupL0(s, [[1, 3], [2, 4, 6], [5], [7, 8, 9]]; k = bound)
-    shared = ProximalBase._AtomIterate(copy(v), f.groups, f.group_of)
+    shared = ProximalBase._BlockIterate(copy(v), f.groups, f.group_of)
     activate!(shared, 3)
     output = similar(shared)
     reference = prox(f, v, 0.7)
@@ -389,9 +389,9 @@ end
     @test Vector(alias) == reference
     @test shared.layout_cache === output.layout_cache === nothing
     for xgroups in layouts, ygroups in layouts
-      xa = AtomIterate(v, xgroups)
+      xa = BlockIterate(v, xgroups)
       activate!(xa, 3)
-      ya = AtomIterate(ones(9), ygroups)
+      ya = BlockIterate(ones(9), ygroups)
       @test f(xa) == f(Vector(xa))
       @test prox!(ya, f, xa, 0.7) === ya
       @test Vector(ya) == reference
@@ -408,10 +408,10 @@ end
       @test f(xa) == f(v)
       @test prox!(ya, f, xa, 0.7) === ya
       @test Vector(ya) == reference && Vector(xa) == v
-      other = AtomIterate(ones(9), bad.groups)
+      other = BlockIterate(ones(9), bad.groups)
       @test prox!(other, f, xa, 0.7) === other
       @test Vector(other) == reference
-      @test prox!(ya, f, AtomIterate(v, bad.groups), 0.7) === ya
+      @test prox!(ya, f, BlockIterate(v, bad.groups), 0.7) === ya
       @test Vector(ya) == reference
     end
   end
@@ -448,11 +448,11 @@ subsets(n, k) = k >= n ? [collect(1:n)] : [findall(b -> b == '1', reverse(string
   @test f([1., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 5.]) == 0
   @test f([1., 1., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 5.]) == Inf     # three entries in a group
   @test IndBallGroupL0(2, groups; k = 3)([1., 1., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 5.]) == 0
-  # on an AtomIterate with its groups
+  # on a BlockIterate with its groups
   x = randn(13)
   ga = [groups; [[13]]]
   fa = IndBallGroupL0(3, ga; k = 2)
-  xa = AtomIterate(x, ga)
+  xa = BlockIterate(x, ga)
   ya = similar(xa)
   prox!(ya, fa, xa, 1.)
   @test Vector(ya) == prox(fa, x, 1.)
@@ -470,7 +470,7 @@ end
   x = randn(20)
   xs = SparseIterate(sprandn(20, 0.3))
   groups = [1:5, 6:10, 11:15, 16:20]
-  xa = AtomIterate(randn(20), groups)
+  xa = BlockIterate(randn(20), groups)
   for f in (CappedL1(0.3, 1.), CappedL1(0.3, 1., rand(20)), LogPenalty(0.3, 0.5), NormLq(0.3, 0.5),
             NormLq(0.3, 2/3), NormLq(0.3, 0.4))
     for v in (x, Float32.(x), xs)
@@ -491,7 +491,7 @@ end
     @test allocs(a_prox!, ya, f, xa, 0.7) == 0
     f isa IndBallGroupL0 && continue
     xc = copy(xa)
-    @test allocs(prox_block!, zeros(length(atom(xc,2))), f, collect(atom(xc,2)), 2, 0.7) == 0
+    @test allocs(prox_block!, zeros(length(blockview(xc,2))), f, collect(blockview(xc,2)), 2, 0.7) == 0
   end
 end
 

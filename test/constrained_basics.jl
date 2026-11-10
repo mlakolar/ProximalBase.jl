@@ -79,7 +79,7 @@ end
   S[2, 1] = 0.7
   @test take_block_step!(S, c, tril_index(4, 2, 1), 1.) ≈ 0.4
   @test S[1, 2] ≈ 0.4
-  xa = AtomIterate([1.5, -0.2, 0.3, 2.], [1:2, 3:4])
+  xa = BlockIterate([1.5, -0.2, 0.3, 2.], [1:2, 3:4])
   @test take_block_step!(xa, c, 2, 1.) ≈ [0., 1.]
   @test isactive(xa, 2)
 
@@ -581,7 +581,7 @@ catch e
   e isa ArgumentError && occursin("is not implemented", e.msg)
 end
 snap(a) = collect(a)
-snap(a::AtomIterate) = copy(a.storage)
+snap(a::BlockIterate) = copy(a.storage)
 snap(a::SymmetricSparseIterate) = Matrix(a)
 snap(t::Tuple) = map(snap, t)
 
@@ -850,7 +850,7 @@ end
     refusal(c0, () -> reshape(view(fill(-7.0, 6), 2:5), 2, 2), [5.0 -5; 0.5 1], 0.5)
     refusal(Constrained(Conjugate(ElasticNet(1.0, 0.5, reshape(view([9.0, 1, 3, 1, 9], 2:4), 3, 1))), IndBox(-2.0, 2.0)),
             () -> fill(-7.0, 3), x, 0.5)
-    refusal(c0, () -> AtomIterate(3, [1:3]), AtomIterate(copy(x), [1:3]), 0.5)
+    refusal(c0, () -> BlockIterate(3, [1:3]), BlockIterate(copy(x), [1:3]), 0.5)
     refusal(c0, () -> sparsevec(fill(-7.0, 3)), sparsevec(x), 0.5)
     refusal(c0, () -> sparse(fill(-7.0, 2, 2)), sparse([5.0 -5; 0.5 1]), 0.5)
   end

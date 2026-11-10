@@ -15,9 +15,10 @@ const EXPECTED_NNZ = Dict((256, 0.01) => 3, (256, 0.2) => 51, (1024, 0.01) => 10
                           (4096, 0.01) => 41, (4096, 0.2) => 819, (512, 0.01) => 5, (512, 0.2) => 102,
                           (4096, 0.02) => 82, (4096, 0.05) => 205, (4096, 0.1) => 410)
 # SHA-1 of the sorted case IDs of the products group (joined with newlines), computed at the
-# revision before the operands had a fixed number of nonzeros: 108 extended IDs, 10 quick IDs.
-const EXTENDED_IDS_SHA1 = "003a127a6bc2a42121fb61225f92c49c3e91c3ab"
-const QUICK_IDS_SHA1 = "a2039314832122dd2b8fa16f3cf2750f883d010e"
+# PB-only storage rename (strided_block replaces the old storage label):
+# still 108 extended IDs and 10 quick IDs, with identical operation coverage.
+const EXTENDED_IDS_SHA1 = "4e12ee82880bc8d6cc81443cb92cb1e7e31f4572"
+const QUICK_IDS_SHA1 = "b9832c414e3ed5e4414695682f85f730d7145ec6"
 
 case_type(meta) = meta.dtype == "Float32" ? Float32 : Float64
 case_density(meta) = parse(Float64, split(meta.layout, '_')[2])
@@ -29,7 +30,7 @@ function expected_work(meta)
     d, dims, kind = case_density(meta), case_dims(meta), case_kind(meta)
     k(N) = EXPECTED_NNZ[(N, d)]
     kind in ("symmetric_U", "symmetric_L") && return k(dims[1])
-    kind in ("strided_vector", "strided_atom") && return dims[1] * k(dims[2])
+    kind in ("strided_vector", "strided_block") && return dims[1] * k(dims[2])
     kind == "strided_matrix" && return dims[1] * k(dims[2] * dims[3])
     kind == "transposed_vector" && return dims[2] * k(dims[1])
     kind == "switch_matrix" && return dims[1] * k(dims[2] * dims[3])

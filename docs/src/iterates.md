@@ -14,7 +14,7 @@ are new to the separation between functions, iterates and solvers.
 |:--------|:------------------|:---------------|
 | [`SparseIterate`](@ref) | A sparse vector or matrix | One entry |
 | [`SymmetricSparseIterate`](@ref) | A sparse symmetric matrix | One lower-triangular entry and its symmetric counterpart |
-| [`AtomIterate`](@ref) | A vector partitioned into groups | One group of entries |
+| [`BlockIterate`](@ref) | A vector partitioned into groups | One group of entries |
 
 ## Choosing an iterate
 
@@ -25,7 +25,7 @@ by whether the mathematical solution happens to contain zeros.
 |:--|:--|:--|
 | Entrywise coordinate descent on vectors or general matrices | [`SparseIterate`](sparse_iterate.md) | One coordinate per entry; `x[k]` and `coordinates(x)[k]` address the same value; ordinary array behavior |
 | Optimization over real symmetric matrices | [`SymmetricSparseIterate`](symmetric_sparse_iterate.md) | One coordinate per independent lower-triangular variable; `X[i,j]` is symmetric, `X[k]` is intentionally unsupported |
-| Group or block coordinate descent on a partitioned vector | [`AtomIterate`](atom_iterate.md) | One coordinate per group; `x[j]` still indexes an entry; `atom(x,k)` accesses the group |
+| Group or block coordinate descent on a partitioned vector | [`BlockIterate`](block_iterate.md) | One coordinate per group; `x[j]` still indexes an entry; `blockview(x,k)` accesses the group |
 
 All three keep a **working set** distinct from the mathematical nonzero support.
 Construction reserves storage proportional to the number of logical entries or
@@ -47,17 +47,17 @@ X = SymmetricSparseIterate(3)
 coordinates(X)[2] = 3.0
 @assert X[2, 1] == X[1, 2] == 3.0 && ncoordinates(X) == 6
 
-g = AtomIterate(6, [1:2, 3:4, 5:6])
+g = BlockIterate(6, [1:2, 3:4, 5:6])
 g[2] = 1.0
 @assert ncoordinates(g) == 3 && nactive(g) == 1
-@assert collect(atom(g, 1)) == [0.0, 1.0]
+@assert collect(blockview(g, 1)) == [0.0, 1.0]
 ```
 
 ## Where to go next
 
 | Goal | Guide |
 |:--|:--|
-| Pick an iterate representation | [SparseIterate](sparse_iterate.md), [SymmetricSparseIterate](symmetric_sparse_iterate.md), or [AtomIterate](atom_iterate.md) |
+| Pick an iterate representation | [SparseIterate](sparse_iterate.md), [SymmetricSparseIterate](symmetric_sparse_iterate.md), or [BlockIterate](block_iterate.md) |
 | Understand active coordinates, stored zeros, and counts | [Tracking an active set](@ref) below |
 | Apply one-coordinate proximal steps and KKT screens | [Coordinate oracles](iterate_oracles.md) |
 | Work with symmetric matrix parameter arrays | [Symmetric parameters](symmetric_parameters.md) |
@@ -72,7 +72,7 @@ type-specific guides before writing a solver.
 
 The entries of an iterate are real. A complex element type, or a complex operand
 of an iterate product, raises an `ArgumentError`; see [Precision](@ref). Writing
-a complex source or value into a `SparseIterate` or an `AtomIterate` with the
+a complex source or value into a `SparseIterate` or a `BlockIterate` with the
 constructor, `copyto!`, `copy!`, a broadcast or `fill!` raises it too, before
 anything is written, even when the imaginary part is zero. A broadcast is
 checked for its leaves and for its result: a result known to be complex from the
@@ -80,7 +80,7 @@ types is rejected, and a result of another non-real type (a `Union` with a
 complex member, `Any`, `Number`) is evaluated before writing and rejected if an
 element is complex. A write into either
 of them through a view, through `vec` of a matrix or a `reshape` to another
-shape, or through [`atom`](@ref) converts each value as a plain array would, so
+shape, or through [`blockview`](@ref) converts each value as a plain array would, so
 a complex value raises an `InexactError`, possibly after part of the iterate has
 been written. A [`SymmetricSparseIterate`](@ref) refuses a complex source or element
 type with an `ArgumentError`, and a complex value written to one of its entries
@@ -92,11 +92,11 @@ raises an `InexactError`.
 without writing an iterate. A separable function takes a scalar `u` and a linear
 entry index; a group penalty takes a compact vector and a penalty group index.
 A solver writes the result through indexed assignment, `coordinates(x)`, or
-`copyto!(atom(x,k), out)`, then updates its residual cache.
+`copyto!(blockview(x,k), out)`, then updates its residual cache.
 
 An iterate coordinate identifies an independent storage update unit: one entry
 for `SparseIterate`, a lower-triangle variable for `SymmetricSparseIterate`, or
-one group for `AtomIterate`. A symmetric coordinate ID must be converted to
+one group for `BlockIterate`. A symmetric coordinate ID must be converted to
 `i = (c-1)p+r` for the scalar penalty. Validate symmetric parameters explicitly.
 Penalty groups and iterate groups must have matching indices and order before
 a solver uses the same group ID in both APIs.
@@ -130,7 +130,7 @@ must accompany these storage operations.
 ### What an oracle leaves in an iterate
 
 After [`prox!`](@ref), [`value_and_prox!`](@ref), [`gradient!`](@ref), `mul!` or
-indexed assignment writes a `SparseIterate` or an `AtomIterate`, the
+indexed assignment writes a `SparseIterate` or a `BlockIterate`, the
 values of the iterate are the result, and every coordinate with a nonzero
 result is active. Which zero coordinates stay active is unspecified: it can
 depend on the function and on the type of the argument. Call `dropzeros!` to
@@ -151,7 +151,7 @@ oracles = [
     (y -> mul!(y, Matrix(2.0I, 4, 4), v), [6.0, 0.0, 0.0, 0.0]),
 ]
 for (oracle!, result) in oracles
-    a = AtomIterate(4, [1:2, 3:4])
+    a = BlockIterate(4, [1:2, 3:4])
     a[3] = 1.0                                      # group 2 active, group 1 inactive
     oracle!(a)
     @assert Vector(a) == result
@@ -165,19 +165,19 @@ end
 
 Four counts describe an iterate, and each has its own spelling.
 
-| Count | `SparseIterate` | `AtomIterate` |
+| Count | `SparseIterate` | `BlockIterate` |
 |:------|:----------------|:--------------|
 | Coordinates | `ncoordinates(x) == length(x)` | `ncoordinates(x)`, the number of groups |
 | Active coordinates, stored zeros included | `nactive(x)` | `nactive(x)`, the active groups |
-| Nonzeros | `count(!iszero, activevalues(x))` | entries: `sum(k -> count(!iszero, atom(x, k)), activecoordinates(x); init = 0)`; groups: `count(k -> any(!iszero, atom(x, k)), activecoordinates(x))` |
+| Nonzeros | `count(!iszero, activevalues(x))` | entries: `sum(k -> count(!iszero, blockview(x, k)), activecoordinates(x); init = 0)`; groups: `count(k -> any(!iszero, blockview(x, k)), activecoordinates(x))` |
 | Capacity | a slot for each of the `length(x)` entries | `length(x)` values and a slot for each group |
 
 In 0.6, `SparseIterate` intentionally does **not** specialize `nnz`, `nonzeros`, `findnz` or `issparse`. Use `nactive(x)` to count stored entries (including explicit zeros), and pair `activecoordinates(x)` with `activevalues(x)` to traverse them in active-slot order. Sort a copied list of IDs if sorted output is needed. The size of a model is the number of nonzeros,
 `count(!iszero, activevalues(x))`, or `nactive(x)` after `dropzeros!`.
 
-An `AtomIterate` has no `nnz`, `nonzeros`, `findnz` or `activevalues`; calling
+A `BlockIterate` has no `nnz`, `nonzeros`, `findnz` or `activevalues`; calling
 them throws a `MethodError`. Loop over its active entries with
-`for k in activecoordinates(x), j in atomindices(x, k)`, reading or writing
+`for k in activecoordinates(x), j in blockindices(x, k)`, reading or writing
 `x[j]`.
 
 The slots of both iterates are reserved at construction, so activating a
@@ -203,14 +203,14 @@ activate!(y, 2)                                     # an explicit zero
 dropzeros!(y)
 @assert nactive(y) == 1
 
-a = AtomIterate(6, [1:2, 3:4, 5:6])
+a = BlockIterate(6, [1:2, 3:4, 5:6])
 a[1] = 1.0
 a[4] = -2.0
 activate!(a, 3)                                     # an active group of zeros
-entries = sum(k -> count(!iszero, atom(a, k)), activecoordinates(a); init = 0)
-groups = count(k -> any(!iszero, atom(a, k)), activecoordinates(a))
+entries = sum(k -> count(!iszero, blockview(a, k)), activecoordinates(a); init = 0)
+groups = count(k -> any(!iszero, blockview(a, k)), activecoordinates(a))
 @assert (ncoordinates(a), nactive(a), groups, entries) == (3, 3, 2, 2)
-@assert sum(a[j]^2 for k in activecoordinates(a) for j in atomindices(a, k)) == 5.0
+@assert sum(a[j]^2 for k in activecoordinates(a) for j in blockindices(a, k)) == 5.0
 try
     nnz(a)
     error("expected a MethodError")

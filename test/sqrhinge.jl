@@ -126,10 +126,10 @@ end
   @test z == x
 end
 
-@testset "sparse and atom iterates" begin
+@testset "sparse and block iterates" begin
   x = [0., -0.5, 0., 1.5, 0., 0.2]
   for f in (SqrHingeLoss(), SqrHingeLoss([1., -2., 0.5, 1., -1., 3.], [0., 1., 2., 0.5, 1., 3.]))
-    for xs in (SparseIterate(x), AtomIterate(x, 2))
+    for xs in (SparseIterate(x), BlockIterate(x, 2))
       @test f(xs) ≈ f(x)
       @test f(xs) ≈ sum(value_entry(f, x[i], i) for i in 1:6)
       @test gradient(f, xs) ≈ gradient(f, x)

@@ -1321,9 +1321,9 @@ function _stored_dot_normal(a, x)
   T = float(promote_type(eltype(a), eltype(x)))
   _scaled_dot(a, x, (one(T), one(T)))
 end
-_dot_normal(a::Real, x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) = _stored_dot_normal(a, x)
-_dot_normal(a::AbstractArray, x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) = _stored_dot_normal(a, x)
-_dot_normal(a::_ScaledNormal, x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) =
+_dot_normal(a::Real, x::Union{SparseIterate, SymmetricSparseIterate, BlockIterate}) = _stored_dot_normal(a, x)
+_dot_normal(a::AbstractArray, x::Union{SparseIterate, SymmetricSparseIterate, BlockIterate}) = _stored_dot_normal(a, x)
+_dot_normal(a::_ScaledNormal, x::Union{SparseIterate, SymmetricSparseIterate, BlockIterate}) =
   _stored_dot_normal(a, x)
 
 # Keep the absolute floor in the original units, without forming the scale.

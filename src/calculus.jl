@@ -598,7 +598,7 @@ end
 # only for a value that is infinite, zero or subnormal. An exactly zero value whose true value,
 # times α, cannot be a normal number (`_zero_value_exponent`) is not recomputed.
 @inline _parts_argument(x) = false
-@inline _parts_argument(::Union{Array, _HostArray, SparseIterate, SymmetricSparseIterate, SymmetricMatrixView, AtomIterate,
+@inline _parts_argument(::Union{Array, _HostArray, SparseIterate, SymmetricSparseIterate, SymmetricMatrixView, BlockIterate,
                                 SparseArrays.AbstractSparseArray, AbstractRange}) = true
 @inline function _parts_wanted(f, α, x, v, out)
   _has_value_parts(typeof(f)) || return false
@@ -767,7 +767,7 @@ _scale_invariant(f::Scaled) = _scale_invariant(f.f)
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _nested_kkt((f, h) -> kkt_violation(f, h, i), s, g) :
    iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
-for X in (:AbstractArray, :AtomIterate)
+for X in (:AbstractArray, :BlockIterate)
   @eval _kkt_violation(s::Scaled, g::AbstractArray, x::$X, k::Integer) =
     _chained(s) ? _nested_kkt((f, h) -> _kkt_violation(f, h, x, k), s, g) :
     iszero(s.α) ? _kkt_violation(ZeroFunction(), g, x, k) : s.α * _kkt_violation(s.f, _ScaledArray(g, inv(s.α)), x, k)
@@ -841,11 +841,11 @@ _check_parameter_leaves(name, c) = _throw_parameter_leaf(name, c)
 @noinline _throw_parameter_leaf(name, c) = throw(ArgumentError(
   "the blocks of a tuple parameter of $name must be arrays or tuples of arrays, got $(typeof(c))"))
 
-# SparseIterate, SymmetricSparseIterate and AtomIterate keep their stored entries and, for the
+# SparseIterate, SymmetricSparseIterate and BlockIterate keep their stored entries and, for the
 # symmetric one, the per-entry parameter checks, which the staged tuple buffers do not carry over:
 # they are not accepted as blocks of a tuple variable. Other array types are not restricted.
 _check_iterate_block(x) = true
-_check_iterate_block(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) = throw(ArgumentError(
+_check_iterate_block(x::Union{SparseIterate, SymmetricSparseIterate, BlockIterate}) = throw(ArgumentError(
   "Tilt and Translate on tuples do not support a $(nameof(typeof(x))) as a block"))
 _check_tuple_parameter(c::AbstractArray, x::AbstractArray) =
   (_check_iterate_block(x); size(c) == size(x) || _parameter_size_error(size(c), size(x)))
@@ -899,7 +899,7 @@ For a variable that is a tuple of arrays, possibly nested, as for a
 [`SeparableSum`](@ref), `c` is a tuple of the same structure whose leaves are
 real arrays of the sizes of the blocks of `x`; `⟨c, x⟩` is the sum over the blocks and
 every block is shifted on its own. A [`SparseIterate`](@ref), [`SymmetricSparseIterate`](@ref)
-or [`AtomIterate`](@ref) is refused as a block of a tuple, and so is an output block that is
+or [`BlockIterate`](@ref) is refused as a block of a tuple, and so is an output block that is
 `Symmetric`, `Hermitian`, `Diagonal`, triangular or banded, which cannot take every entry.
 The oracles check the structure, every size and these types
 before writing, and the proximal operator stages the result in the buffer and writes
@@ -1044,7 +1044,7 @@ stored entries and their order.
 For a variable that is a tuple of arrays, possibly nested, as for a
 [`SeparableSum`](@ref), `b` is a tuple of the same structure whose leaves are real
 arrays of the sizes of the blocks of `x`, and every block is shifted on its own.
-A [`SparseIterate`](@ref), [`SymmetricSparseIterate`](@ref) or [`AtomIterate`](@ref) is refused
+A [`SparseIterate`](@ref), [`SymmetricSparseIterate`](@ref) or [`BlockIterate`](@ref) is refused
 as a block of a tuple, and so is an output block that is `Symmetric`, `Hermitian`, `Diagonal`,
 triangular or banded, which cannot take every entry.
 The oracles check the structure, every size and these types before writing, and the proximal
@@ -2589,7 +2589,7 @@ _direct_conjugate(::Type{<:Union{Scaled{F}, Translate{F}}}) where {F} = _direct_
 # Unknown storage and unsupported axes retain Moreau, including on devices.
 _projection_host(::Array) = true
 _projection_host(x::Union{BitArray, UnitRange, StepRange, StepRangeLen, LinRange, Base.OneTo,
-                          SparseVector, SparseMatrixCSC, SparseIterate, SymmetricSparseIterate, AtomIterate}) =
+                          SparseVector, SparseMatrixCSC, SparseIterate, SymmetricSparseIterate, BlockIterate}) =
   !Base.has_offset_axes(x)
 @static if isdefined(Base, :Memory)
   _projection_host(::Base.Memory) = true

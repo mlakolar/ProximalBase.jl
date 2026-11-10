@@ -83,8 +83,8 @@ end
         rc = centered ? c : nothing
         for start in (centered ? xc : x, T[0, 0, 0, 0, 0, 1, -1, 0.25])
           for γ in (Inf_, one(T))
-            xf = AtomIterate(copy(start), groups)
-            xr = AtomIterate(copy(start), groups)
+            xf = BlockIterate(copy(start), groups)
+            xr = BlockIterate(copy(start), groups)
             take_block_step!(xf, f, k, γ)
             take_block_step!(xr, Regularize(f, 0, rc), k, γ)
             @test same(Vector(xr), Vector(xf))

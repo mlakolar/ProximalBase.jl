@@ -19,19 +19,39 @@ Base.getindex(::Flaky, i::Int) = i == 1 ? 3. : error("boom")
   buf = [1.,2.,3.]
   @test_throws ArgumentError prox_block!(view(buf,1:2), f, view(buf,2:3), 1, 1.)
   @test buf == [1.,2.,3.]
-  for owner in (AtomIterate(2, [1:2]), SparseIterate(2))
-    @test_throws ArgumentError prox_block!(owner, f, ones(2), 1, 1.)
-    @test_throws ArgumentError prox_block!(view(owner, 1:2), f, ones(2), 1, 1.)
-    @test nactive(owner) == 0
-  end
   @test_throws MethodError prox_block(SLOPE([1.,.5]), 2., 1, 1.)
   @test_throws ArgumentError prox_block!(zeros(2), NormL1(), ones(2), 1, 1.)
+end
+
+@testset "independent outputs with public storage inputs" begin
+  for T in (Float32, Float64)
+    s = SparseIterate(T, 2); s[1] = 3; s[2] = 4
+    X = SymmetricSparseIterate(T, 2); coordinates(X)[1] = 3; coordinates(X)[2] = 4
+    b = BlockIterate(T, 4, [[1,3], [2,4]]); b[1] = 3; b[3] = 4
+    f = GroupNormL2(one(T), [1:2])
+    for (owner, u) in ((s, activevalues(s)), (s, coordinates(s)),
+                       (X, activevalues(X)), (X, view(coordinates(X), 1:2)),
+                       (b, blockview(b, 1)))
+      before = owner isa SymmetricSparseIterate ? Matrix(owner) : Vector(owner)
+      ids = collect(activecoordinates(owner))
+      # Storage-backed inputs can be read. The caller supplies independent output;
+      # public activevalues views are not tagged with their iterate's identity.
+      out = fill(T(-7), 2)
+      @test prox_block!(out, f, u, 1, one(T)) === out
+      @test out ≈ (1 - sqrt(T(2))/5) .* T[3,4]
+      allocated = prox_block(f, u, 1, one(T))
+      @test allocated isa Vector{T} && !Base.mightalias(allocated, u)
+      @test allocated == out
+      @test (owner isa SymmetricSparseIterate ? Matrix(owner) : Vector(owner)) == before
+      @test collect(activecoordinates(owner)) == ids
+    end
+  end
 end
 
 @testset "element failures affect only the numerical buffer" begin
   f = Regularize(GroupNormL2(1., [1:2]), 1., Flaky())
   out = zeros(2)
-  owner = AtomIterate(2, [1:2])
+  owner = BlockIterate(2, [1:2])
   @test_throws ErrorException("boom") prox_block!(out, f, zeros(2), 1, 1.)
   @test out == [1.5,0.]
   @test nactive(owner) == 0 && all(iszero, owner)

@@ -3,7 +3,7 @@ module AllocationsBasicsTest
 using ..TestUtils: take_block_step!
 
 # Quick-tier zero-allocation checks of the hot calls a solver makes: block and coordinate steps on
-# sparse, symmetric and atom iterates, prox!/value_and_prox! of NormL1 and GroupNormL2 (also on atom
+# sparse, symmetric and block iterates, prox!/value_and_prox! of NormL1 and GroupNormL2 (also on block
 # iterates with distinct group layouts), and value_and_gradient! of a least-squares loss. The
 # exhaustive catalog of functions and inputs is in allocations.jl.
 
@@ -58,9 +58,9 @@ end
   for gs in layouts
     for f in (GroupNormL2(0.4, gs),)
       for xgroups in layouts, ygroups in layouts
-        xa = AtomIterate(v, xgroups)
+        xa = BlockIterate(v, xgroups)
         activate!(xa, 3)
-        ya = AtomIterate(ones(9), ygroups)
+        ya = BlockIterate(ones(9), ygroups)
         @test xa.groups !== f.groups && ya.groups !== xa.groups && ya.groups !== f.groups
         @test allocs(a_value, f, xa) == 0
         @test allocs(a_prox!, ya, f, xa, 0.7) == 0
@@ -74,7 +74,7 @@ end
           alias = copy(xa)
           @test allocs(a_vprox!, alias, f, alias, step) == 0
         end
-        @test allocs(prox_block!, zeros(length(atom(xa, 1))), f, collect(atom(xa, 1)), 1, 0.7) == 0
+        @test allocs(prox_block!, zeros(length(blockview(xa, 1))), f, collect(blockview(xa, 1)), 1, 0.7) == 0
         @test allocs(a_kkt, f, v, xa, 2) == 0
       end
     end
@@ -90,7 +90,7 @@ end
   xs = SparseIterate(sprandn(p, 0.3))
   w = rand(p)
   groups = [1:5, 6:10, 11:15, 16:20]
-  xa = AtomIterate(randn(p), groups)
+  xa = BlockIterate(randn(p), groups)
 
   @testset "separable penalties" begin
     for f in (NormL1(0.3),)

@@ -276,7 +276,7 @@ end
     @test v === ref_value(f, Vector(y))
     z = copy(si)
     @test value_and_prox!(z, f, z, one(T)) === v
-    a = AtomIterate(T, 2, [1:1, 2:2]); a[1] = NaN; a[2] = 1
+    a = BlockIterate(T, 2, [1:1, 2:2]); a[1] = NaN; a[2] = 1
     @test f(a) === expected
     # a positive weight at the NaN entry keeps NaN
     si[1], si[2] = 1, NaN

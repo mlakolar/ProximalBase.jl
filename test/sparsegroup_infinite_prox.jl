@@ -26,7 +26,7 @@ function want(f::SparseGroupNormL2, x, ::Type{T} = float(eltype(x))) where {T}
   y
 end
 
-active_set(x::AtomIterate) = Set(k for k in 1:length(x.groups) if isactive(x, k))
+active_set(x::BlockIterate) = Set(k for k in 1:length(x.groups) if isactive(x, k))
 
 # prox!, value_and_prox! into a separate output (filled with a sentinel), in place, and prox
 function check(f, x, γ, wanty)
@@ -97,38 +97,38 @@ end
   end
 end
 
-@testset "AtomIterate, $T" for T in (Float32, Float64)
+@testset "BlockIterate, $T" for T in (Float32, Float64)
   nan = T(NaN)
   inf = T(Inf)
-  groups = [1:2, 3:3, 4:5]              # a partition of 1:5, as AtomIterate(x, f) requires
+  groups = [1:2, 3:3, 4:5]              # a partition of 1:5, as BlockIterate(x, f) requires
   xs = (T[3, 4, 9, 1, 2], T[nan, 4, 0, inf, 2], T[0, 0, nan, 0, 0], T[inf, -inf, 0, 0, 0], zeros(T, 5))
   for λ2 in (zero(T), one(T), inf), w in (T[0, 1, inf], T[1, 1, 1], T[0, 0, 0], T[inf, 0, 1])
     f = SparseGroupNormL2(inf, λ2, groups, w)
     for x in xs
       # the oracles: every entry zero, the activity of the argument, value 0
       for γ in (zero(T), one(T), inf, -one(T), T[0, 1, inf])
-        xa = AtomIterate(copy(x), f)
-        ya = AtomIterate(fill(T(-7), 5), f)
+        xa = BlockIterate(copy(x), f)
+        ya = BlockIterate(fill(T(-7), 5), f)
         v = value_and_prox!(ya, f, xa, γ)
         @test agree(collect(ya), zeros(T, 5))
         @test v === zero(T)
         @test agree(v, f(ya))
         @test active_set(ya) == active_set(xa)
-        za = AtomIterate(copy(x), f)
+        za = BlockIterate(copy(x), f)
         before = active_set(za)
         u = value_and_prox!(za, f, za, γ)
         @test agree(collect(za), zeros(T, 5))
         @test u === zero(T)
         @test active_set(za) == before
-        # an AtomIterate with other groups takes the array path
-        xb = AtomIterate(copy(x), [1:5])
-        yb = AtomIterate(fill(T(-7), 5), [1:5])
+        # a BlockIterate with other groups takes the array path
+        xb = BlockIterate(copy(x), [1:5])
+        yb = BlockIterate(fill(T(-7), 5), [1:5])
         @test value_and_prox!(yb, f, xb, γ) === zero(T)
         @test agree(collect(yb), zeros(T, 5))
       end
       # the coordinate step on each group: that group zero, the others and their activity unchanged
       for k in 1:3, γ in (zero(T), one(T), inf, -one(T), nan)
-        xa = AtomIterate(copy(x), f)
+        xa = BlockIterate(copy(x), f)
         before = active_set(xa)
         r = take_block_step!(xa, f, k, γ)
         wanty = copy(x)
@@ -141,7 +141,7 @@ end
       for k in (1, 3), γ in (zero(T), one(T), inf)
         u = T[nan, inf, -inf][1:length(groups[k])]
         for staged in (u, view([u; u], collect(1:length(u))))
-          xa = AtomIterate(copy(x), f)
+          xa = BlockIterate(copy(x), f)
           before = active_set(xa)
           take_block_step!(xa, f, k, staged, γ)
           wanty = copy(x)
@@ -253,7 +253,7 @@ end
       @test v === zero(T)
     end
     for x in (T[nan, 4, 9], T[0, 0, 9]), γ in (zero(T), one(T))
-      xa = AtomIterate(copy(x), g)
+      xa = BlockIterate(copy(x), g)
       before = active_set(xa)
       take_block_step!(xa, r, 1, γ)
       @test agree(collect(xa), T[0, 0, 9])
@@ -327,7 +327,7 @@ end
 
 alloc_vprox(y, f, x, γ) = (value_and_prox!(y, f, x, γ); @allocated value_and_prox!(y, f, x, γ))
 function alloc_coordinate(x, f, k, γ)
-  u = collect(atom(x,k)); out = similar(u)
+  u = collect(blockview(x,k)); out = similar(u)
   prox_block!(out, f, u, k, γ)
   @allocated prox_block!(out, f, u, k, γ)
 end
@@ -342,8 +342,8 @@ end
       @test alloc_vprox(y, f, x, γ) == 0
     end
     g = SparseGroupNormL2(f.λ1, f.λ0, [1:2, 3:3, 4:5], [f.w[1], one(T), f.w[2]])
-    ya = AtomIterate(zeros(T, 5), g)
-    xa = AtomIterate(T[3, 4, 9, 1, 2], g)
+    ya = BlockIterate(zeros(T, 5), g)
+    xa = BlockIterate(T[3, 4, 9, 1, 2], g)
     @test (@inferred value_and_prox!(ya, g, xa, one(T))) isa T
     @test alloc_vprox(ya, g, xa, one(T)) == 0
     @test alloc_coordinate(xa, g, 1, one(T)) == 0

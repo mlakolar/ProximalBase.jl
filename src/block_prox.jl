@@ -3,20 +3,12 @@ _block_groups(f::AbstractFunction) = throw(ArgumentError("$(typeof(f)) has no gr
 _block_groups(f::AbstractGroupPenalty) = f.groups
 _block_groups(f::Union{Scaled, Regularize}) = _block_groups(f.f)
 
-# Reject owner-backed destinations: writing a numerical buffer must not activate storage.
-_block_owner(::AbstractVector) = false
-_block_owner(::Union{SparseIterate, AtomIterate, SparseCoordinates, SymmetricCoordinates}) = true
-_block_owner(x::SubArray) = _block_owner(parent(x))
-_block_owner(x::Base.ReshapedArray) = _block_owner(parent(x))
-_block_owner(::AbstractArray) = false
-
 function _check_block_buffers(out, f, u, k)
   groups = _block_groups(f)
   checkbounds(groups, k)
   Base.require_one_based_indexing(out, u)
   _checkreal(f, out)
   _checkreal(f, u)
-  _block_owner(out) && throw(ArgumentError("prox_block! requires a numerical output buffer, not iterate storage"))
   n = length(groups[k])
   length(out) == n && length(u) == n || throw(DimensionMismatch("block $k needs input and output vectors of length $n"))
   out !== u && Base.mightalias(out, u) && throw(ArgumentError("prox_block! supports exact aliasing only"))

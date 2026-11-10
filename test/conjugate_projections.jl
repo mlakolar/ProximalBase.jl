@@ -185,9 +185,9 @@ end
       for f in functions, γ in (T(0.5), one(T))
         expected = x .- γ .* prox(f, x ./ γ, inv(γ))
         c = Conjugate(f)
-        for op in (prox!, value_and_prox!), atom in (false, true), alias in (false, true)
-          # The atom partition also represents holes and trailing coordinates.
-          source = atom ? AtomIterate(x, [[1, 2], [3, 4], [5, 6, 7]]) : copy(x)
+        for op in (prox!, value_and_prox!), block in (false, true), alias in (false, true)
+          # The block partition also represents holes and trailing coordinates.
+          source = block ? BlockIterate(x, [[1, 2], [3, 4], [5, 6, 7]]) : copy(x)
           y = alias ? source : copy(source)
           v = op(y, c, source, γ)
           @test Vector(y) ≈ expected rtol = 8eps(T) atol = 8eps(T)
@@ -208,9 +208,9 @@ end
         input = T[3, -4, 2]
         expected = input .- γ .* prox(f, input ./ γ, inv.(γ))
         c = Conjugate(f)
-        atoms = base isa GroupNormL2 ? (false, true) : (false,)
-        for op in (prox!, value_and_prox!), atom in atoms, alias in (false, true)
-          source = atom ? AtomIterate(input, groups) : copy(input)
+        blocks = base isa GroupNormL2 ? (false, true) : (false,)
+        for op in (prox!, value_and_prox!), block in blocks, alias in (false, true)
+          source = block ? BlockIterate(input, groups) : copy(input)
           y = alias ? source : copy(source)
           v = op(y, c, source, γ)
           @test Vector(y) ≈ expected rtol = 8eps(T) atol = 8eps(T)
@@ -922,7 +922,7 @@ end
       y = similar(x)
       @test warmed_projection_allocation(op, y, c, x, one(T)) == 0
       expected = copy(y)
-      for source in (SparseIterate(x), AtomIterate(x, [1:2, 3:3])), alias in (false, true)
+      for source in (SparseIterate(x), BlockIterate(x, [1:2, 3:3])), alias in (false, true)
         y = alias ? source : copy(source)
         op(y, c, source, one(T))
         @test Vector(y) == expected
@@ -1480,7 +1480,7 @@ end
       sparsevec([1, 3], [4.0, 2.0], 3),
       sparse([4.0 0.0; 0.0 2.0]), SparseIterate([4.0, 0.0, 2.0]),
       SymmetricSparseIterate([4.0 0.0; 0.0 2.0]),
-      AtomIterate([4.0, 0.0, 2.0], [1:2, 3:3]),
+      BlockIterate([4.0, 0.0, 2.0], [1:2, 3:3]),
       Bidiagonal([4.0, 2.0], [0.0], :U), SymTridiagonal([4.0, 2.0], [0.0]),
       Tridiagonal([0.0], [4.0, 2.0], [0.0]))
     for x in inputs, op in (prox!, value_and_prox!)

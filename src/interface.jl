@@ -415,10 +415,15 @@ decomposition do not support this operation.
 full-array proximal kernels and their step, weight, precision, NaN/Inf and tie
 policies. Exact aliasing `out === u` is supported; other overlapping buffers
 are rejected. Both buffers must be real vectors with one-based indexing and
-exactly the group's length. Output buffers must not be iterates or views of
-iterates. Group, shape, representation and parameter checks precede writes;
+exactly the group's length. **Caller precondition:** `out` must be independent
+of iterate storage and solver caches. This includes public views such as
+`activevalues(x)`, `coordinates(x)` and `blockview(x,k)`: they alias their owner
+even when their parent is a plain vector. Ownership is not inferred or checked
+from array types. Use the allocating form or an independent numerical buffer.
+Group, shape, element-type, overlap and parameter checks precede writes;
 a failing element read, conversion or user kernel may leave a partial output,
-as with ordinary array writes. No iterate, active set or model cache is updated.
+as with ordinary array writes. With this precondition, only the numerical
+output is changed; the solver subsequently writes its iterate and updates caches.
 
 **Index spaces:** a symmetric iterate coordinate is not a scalar penalty
 entry. Translate `(r,c) = tril_cartesian(p,k)` to `i = (c-1)p+r` before calling
@@ -448,7 +453,7 @@ where `g = ∇h(x)` is the gradient of the smooth part. For a
 the real element types, then that `k` is one of `1:ncoordinates(x)` (a `BoundsError`
 otherwise), then that `g` has `length(x)` entries, or `p^2` for the symmetric iterate (a
 `DimensionMismatch` otherwise); a matrix-shaped or flat `g` of that length is accepted. For an
-[`AtomIterate`](@ref), `k` is a group, and the method is unchanged by these checks, and a group
+[`BlockIterate`](@ref), `k` is a group, and the method is unchanged by these checks, and a group
 penalty has its group layout validated where that applies. For other arrays `x` the second form
 adds no check of `k` or `g` against `x`; the checks of the real element types and those made by
 `f` and by indexing still apply. On a
@@ -461,7 +466,7 @@ that moving the coordinate away from zero decreases the objective, and a value
 For a separable `f` the condition involves only `gᵢ`, and the first form
 suffices. The second form takes a coordinate `k` of the point `x`: for a
 [`GroupNormL2`](@ref), the condition of an index involves the rest of its group,
-and on an [`AtomIterate`](@ref) `k` is a group, whose violation is
+and on a [`BlockIterate`](@ref) `k` is a group, whose violation is
 `‖g[Gₖ]‖₂ - λ0 wₖ` (for a separable `f`, the largest over the group).
 
 See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
@@ -497,7 +502,7 @@ _gradient_extent(x::SymmetricSparseIterate) = x.p^2
 @noinline _throw_kkt_extent(g, x) = throw(DimensionMismatch(
   "the gradient has length $(length(g)), but the $(nameof(typeof(x))) needs one of length $(_gradient_extent(x))"))
 # a group at zero violates optimality as much as its worst index
-kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer) =
+kkt_violation(f::AbstractFunction, g::AbstractArray, x::BlockIterate, k::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation);
    _isbuiltin(f) ? _kkt_violation(f, g, x, k) : maximum(i -> kkt_violation(f, g, i), x.groups[k]))
 
@@ -601,7 +606,7 @@ end
 
 _kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
   _isbuiltin(f) ? kkt_violation(f, g, i) : kkt_violation(f, g, x, i)
-_kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer) =
+_kkt_violation(f::AbstractFunction, g::AbstractArray, x::BlockIterate, k::Integer) =
   _isbuiltin(f) ? maximum(i -> kkt_violation(f, g, i), x.groups[k]) : kkt_violation(f, g, x, k)
 
 ####################################

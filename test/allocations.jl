@@ -74,9 +74,9 @@ end
     for f in (GroupNormLinf(0.4, gs), SparseGroupNormL2(0.2, 0.4, gs),
               GroupMCP(0.4, gs), GroupSCAD(0.4, gs), IndBallGroupL0(1, gs; k = 1))
       for xgroups in layouts, ygroups in layouts
-        xa = AtomIterate(v, xgroups)
+        xa = BlockIterate(v, xgroups)
         activate!(xa, 3)
-        ya = AtomIterate(ones(9), ygroups)
+        ya = BlockIterate(ones(9), ygroups)
         @test xa.groups !== f.groups && ya.groups !== xa.groups && ya.groups !== f.groups
         @test allocs(a_value, f, xa) == 0
         @test allocs(a_prox!, ya, f, xa, 0.7) == 0
@@ -90,7 +90,7 @@ end
           alias = copy(xa)
           @test allocs(a_vprox!, alias, f, alias, step) == 0
         end
-        @test allocs(prox_block!, zeros(length(atom(xa, 1))), f, collect(atom(xa, 1)), 1, 0.7) == 0
+        @test allocs(prox_block!, zeros(length(blockview(xa, 1))), f, collect(blockview(xa, 1)), 1, 0.7) == 0
         @test allocs(a_kkt, f, v, xa, 2) == 0
       end
     end
@@ -121,7 +121,7 @@ end
   xs = SparseIterate(sprandn(p, 0.3))
   w = rand(p)
   groups = [1:5, 6:10, 11:15, 16:20]
-  xa = AtomIterate(randn(p), groups)
+  xa = BlockIterate(randn(p), groups)
 
   @testset "five-argument iterate products" begin
     types = ((Float32, Float32, Float32), (Float64, Float64, Float64),
@@ -138,8 +138,8 @@ end
       @test 32 * nactive(coef_matrix_sparse) <= length(coef_matrix_sparse)
       @test 32 * nactive(coef_matrix) > length(coef_matrix)
       coef_matrices = (coef_matrix_sparse, coef_matrix)
-      atom_coefs = (AtomIterate(Tx.(Array(xs)), groups),
-                    AtomIterate(Tx.(Array(xs)), [collect(k:4:p) for k in 1:4]))
+      atom_coefs = (BlockIterate(Tx.(Array(xs)), groups),
+                    BlockIterate(Tx.(Array(xs)), [collect(k:4:p) for k in 1:4]))
       S = real(Ta)
       for α in S.((0, 1, 1.5)), β in S.((0, 1, -0.5))
         @test allocs(a_mul!, out, A, coef, α, β) == 0
@@ -214,9 +214,9 @@ end
       end
     end
     for f in (GroupNormL2(0.4, groups), GroupNormLinf(0.4, groups))
-      xg = AtomIterate(randn(p), f)
+      xg = BlockIterate(randn(p), f)
       zero_alloc_prox(f, xg)
-      @test allocs(prox_block!, zeros(length(atom(xg, 2))), f, collect(atom(xg, 2)), 2, 0.7) == 0
+      @test allocs(prox_block!, zeros(length(blockview(xg, 2))), f, collect(blockview(xg, 2)), 2, 0.7) == 0
       @test allocs(a_kkt, f, x, xg, 3) == 0
     end
     fl = NormL1Fused(0.3, 0.4)
@@ -463,7 +463,7 @@ end
       xs, ys = SparseIterate(original), SparseIterate(T, 3)
       a_prox!(ys, f, xs, γ)
       @test allocs(a_prox!, ys, f, xs, γ) == 0
-      xa, ya = AtomIterate(original, [1:1, 2:3]), AtomIterate(T, 3, [1:1, 2:3])
+      xa, ya = BlockIterate(original, [1:1, 2:3]), BlockIterate(T, 3, [1:1, 2:3])
       a_prox!(ya, f, xa, γ)
       @test allocs(a_prox!, ya, f, xa, γ) == 0
     end
@@ -496,7 +496,7 @@ end
         for (x, expected) in ((T[large, -large], zero(T)), (T[large, large], T(Inf)))
           zero_alloc_large_value(f, x, expected)
           zero_alloc_large_value(f, SparseIterate(x), expected)
-          zero_alloc_large_value(f, AtomIterate(x, [1:1, 2:2]), expected)
+          zero_alloc_large_value(f, BlockIterate(x, [1:1, 2:2]), expected)
         end
       end
       for a in (c, fill(c, 2, 2))

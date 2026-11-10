@@ -86,9 +86,9 @@ export
   SliceSum, FiberSum,
 
   # iterates
-  SparseIterate, SymmetricSparseIterate, AtomIterate,
+  SparseIterate, SymmetricSparseIterate, BlockIterate,
   ncoordinates, coordinates, nactive, activecoordinates, activevalues, matrixview, isactive,
-  activate!, atom, atomindices,
+  activate!, blockview, blockindices,
   nnz, dropzeros!,
 
   # utilities
@@ -107,7 +107,7 @@ include("lapack.jl")
 include("partial.jl")
 
 include("sparse_iterate.jl")
-include("atom_iterate.jl")
+include("block_iterate.jl")
 
 include("interface.jl")
 

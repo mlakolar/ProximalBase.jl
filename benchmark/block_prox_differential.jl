@@ -1,10 +1,8 @@
-# Compare stdout from this script under the pinned pre-844 and candidate environments.
-# This intentionally names retired APIs only to exercise the immutable baseline.
+# Compare with stdout from the immutable pre-rename script in the baseline checkout.
+# This current PB-only program uses the final public oracle names.
 using ProximalBase
 const PB = ProximalBase
-const modern = isdefined(PB, :prox_block!)
-const scalar_prox = getfield(PB, modern ? :prox_block : :prox_entry)
-const retired_step! = modern ? nothing : getfield(PB, :prox_coordinate!)
+const scalar_prox = PB.prox_block
 
 function record(io, label, x)
     println(io, label, '\t', join((isnan(v) ? "NaN" : repr(v) for v in x), ','))
@@ -25,12 +23,7 @@ function differential(io)
                       GroupMCP(λ,gs,T[w,1]), GroupSCAD(λ,gs,T[w,1]))
                 for h in (f,Scaled(f,T(2)),Regularize(f,T(.2)),Regularize(f,T(.2),T[1,2,3,4]))
                     for u in (T[0,0],T[3,-4],T[NaN,2],T[Inf,0],T[floatmax(T)/2,0]), γ in (T(0),T(.7),T(Inf))
-                        x = AtomIterate(T,4,gs)
-                        out = if modern
-                            PB.prox_block(h,u,1,γ)
-                        else
-                            collect(retired_step!(x,h,1,u,γ))
-                        end
+                        out = PB.prox_block(h,u,1,γ)
                         record(io, "$T/$(typeof(h))/$λ/$w/$u/$γ", out)
                     end
                 end

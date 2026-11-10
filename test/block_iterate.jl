@@ -1,4 +1,4 @@
-module AtomIterateTest
+module BlockIterateTest
 
 using ..TestUtils: take_block_step!
 
@@ -8,13 +8,24 @@ using Random
 using LinearAlgebra
 using SparseArrays
 
+@testset "0.6 block storage public names" begin
+  for name in (:BlockIterate, :blockview, :blockindices)
+    @test name in names(ProximalBase)
+  end
+  # Historical API spellings are deliberately absent, with no compatibility aliases.
+  for name in (:AtomIterate, :atom, :atomindices)
+    @test !isdefined(ProximalBase, name)
+  end
+  @test all(name -> name in names(ProximalBase), (:lmo_atom, :VertexAtom, :LowRankAtom))
+end
+
 Random.seed!(1)
 
 # the active groups of x, as a set
-active_set(x::AtomIterate) = Set(x.active[1:x.nactive])
+active_set(x::BlockIterate) = Set(x.active[1:x.nactive])
 
 # the bookkeeping of the active groups is consistent, and inactive groups are zero
-function consistent(x::AtomIterate)
+function consistent(x::BlockIterate)
   K = length(x.groups)
   0 <= x.nactive <= K || return false
   all(a -> x.position[x.active[a]] == a, 1:x.nactive) || return false
@@ -83,18 +94,18 @@ function check_five(M, x, ref)
   @test isequal(mul!(copy(o), M, x, 2, 1), 2 .* ref .+ o)
 end
 
-@testset "AtomIterate" begin
+@testset "BlockIterate" begin
 
   @testset "scaling by Inf writes inactive groups (FN-9)" begin
-    b = AtomIterate(4, [1:2, 3:4]); b[1] = 1
+    b = BlockIterate(4, [1:2, 3:4]); b[1] = 1
     @test rmul!(b, Inf) === b
     @test isequal(Vector(b), [Inf, NaN, NaN, NaN])
     @test collect(activecoordinates(b)) == [1, 2]
   end
 
   @testset "constructors" begin
-    x = AtomIterate(9, groups)
-    @test x isa AtomIterate{Float64, Vector{Vector{Int}}}     # mixed groups become vectors
+    x = BlockIterate(9, groups)
+    @test x isa BlockIterate{Float64, Vector{Vector{Int}}}     # mixed groups become vectors
     @test length(x) == 9 && size(x) == (9,)
     @test IndexStyle(typeof(x)) == IndexLinear()
     @test x == zeros(9)
@@ -102,35 +113,35 @@ end
     @test x.layout_cache === nothing
     @test ncoordinates(x) == 5
     @test x.group_of == [1, 1, 1, 2, 3, 4, 2, 4, 5]
-    @test eltype(AtomIterate(Float32, 9, groups)) == Float32
+    @test eltype(BlockIterate(Float32, 9, groups)) == Float32
 
     # ranges stay ranges; the groups are copied
     rs = [1:4, 5:10]
-    y = AtomIterate(10, rs)
+    y = BlockIterate(10, rs)
     @test y.groups isa Vector{UnitRange{Int}}
     rs[1] = 1:2
     @test y.groups == [1:4, 5:10]
 
     # from a vector: the groups with a nonzero entry are active
     v = [0., 0., 0., 0., 0., 2., 0., -1., 0.]
-    x = AtomIterate(v, groups)
+    x = BlockIterate(v, groups)
     @test x == v
     @test active_set(x) == Set([4])
     v[1] = 5.
     @test x[1] == 0.                       # not aliased
-    @test eltype(AtomIterate(Float32[1, 0, 0, 0, 0, 0, 0, 0, 0], groups)) == Float32
+    @test eltype(BlockIterate(Float32[1, 0, 0, 0, 0, 0, 0, 0, 0], groups)) == Float32
 
     # equal contiguous groups
-    @test AtomIterate(12, 3).groups == [1:4, 5:8, 9:12]
-    @test eltype(AtomIterate(Float32, 12, 3)) == Float32
-    @test_throws ArgumentError AtomIterate(10, 3)
+    @test BlockIterate(12, 3).groups == [1:4, 5:8, 9:12]
+    @test eltype(BlockIterate(Float32, 12, 3)) == Float32
+    @test_throws ArgumentError BlockIterate(10, 3)
 
     # the groups must partition 1:p
-    @test_throws ArgumentError AtomIterate(10, groups)         # misses index 10
-    @test_throws ArgumentError AtomIterate(8, groups)          # index 9 is out of range
-    @test_throws ArgumentError AtomIterate(4, [1:3, 3:4])      # overlapping
-    @test_throws ArgumentError AtomIterate(3, [1:3, Int[]])    # empty
-    @test_throws ArgumentError AtomIterate(3, [0:2])
+    @test_throws ArgumentError BlockIterate(10, groups)         # misses index 10
+    @test_throws ArgumentError BlockIterate(8, groups)          # index 9 is out of range
+    @test_throws ArgumentError BlockIterate(4, [1:3, 3:4])      # overlapping
+    @test_throws ArgumentError BlockIterate(3, [1:3, Int[]])    # empty
+    @test_throws ArgumentError BlockIterate(3, [0:2])
   end
 
   @testset "layout cache" begin
@@ -138,8 +149,8 @@ end
     fgs = CountedGroups(copy(gs.groups), 0)
     ygs = CountedGroups(copy(gs.groups), 0)
     f = GroupNormL2{Float64, CountedGroups}(0.4, fgs, ones(3))
-    x = ProximalBase._AtomIterate([3., -4., 0., 0., 0., 0.], gs, [1, 1, 2, 2, 3, 3])
-    y = ProximalBase._AtomIterate(ones(6), ygs, copy(x.group_of))
+    x = ProximalBase._BlockIterate([3., -4., 0., 0., 0., 0.], gs, [1, 1, 2, 2, 3, 3])
+    y = ProximalBase._BlockIterate(ones(6), ygs, copy(x.group_of))
     activate!(x, 3)
     @test x.layout_cache === y.layout_cache === nothing
     @test f(x) ≈ f(Vector(x))
@@ -162,7 +173,7 @@ end
     end
     @test gs.comparisons == ygs.comparisons == 1
 
-    shared = AtomIterate(6, f)
+    shared = BlockIterate(6, f)
     @test ProximalBase._samelayout(shared, x)
     @test ProximalBase._samelayout(x, shared)
     @test shared.layout_cache === nothing
@@ -199,7 +210,7 @@ end
     @test x.layout_cache === f.groups
     @test f(x) ≈ f(Vector(x))
 
-    other = AtomIterate(ones(6), bad)
+    other = BlockIterate(ones(6), bad)
     @test other.layout_cache === nothing
     @test !ProximalBase._samelayout(shared, other)
     @test shared.layout_cache === other.layout_cache === nothing
@@ -210,7 +221,7 @@ end
 
     S = [1, 2, 5, 6]
     r = restrict(f, S)
-    restricted = AtomIterate(Vector(x)[S], r)
+    restricted = BlockIterate(Vector(x)[S], r)
     @test restricted.layout_cache === nothing
     @test restricted.groups === r.groups && restricted.groups !== x.groups
     @test r(restricted) ≈ r(Vector(restricted))
@@ -220,11 +231,11 @@ end
     gs = [1:2, 3:4, 5:6]
     other = [[1, 3], [2, 5], [4, 6]]
     v = [3., -4., 0., 0., 0., 0.]
-    for F in (GroupNormL2, SparseGroupNormL2, GroupMCP)   # GroupNormLinf and GroupSCAD are in atom_iterate_grids.jl
+    for F in (GroupNormL2, SparseGroupNormL2, GroupMCP)   # GroupNormLinf and GroupSCAD are in block_iterate_grids.jl
       f = F === SparseGroupNormL2 ? F(0.2, 0.4, gs) : F(0.4, gs)
       bad = F === SparseGroupNormL2 ? F(0.2, 0.4, other) : F(0.4, other)
       for wrap in (h -> 2.0 * h, h -> Regularize(h, 0.3, ones(6)))
-        x = AtomIterate(v, gs)
+        x = BlockIterate(v, gs)
         activate!(x, 3)
         take_block_step!(x, wrap(f), 1, 0.7)
         reference = prox(wrap(f), v, 0.7)
@@ -243,7 +254,7 @@ end
   end
 
   @testset "entries and active groups" begin
-    x = AtomIterate(9, groups)
+    x = BlockIterate(9, groups)
     x[7] = 2.
     @test x[7] == 2. && x[4] == 0.
     @test active_set(x) == Set([2])
@@ -269,15 +280,15 @@ end
     @test_throws BoundsError x[10]
     @test_throws BoundsError (x[0] = 1.)
 
-    @test atom(x, 2) isa SubArray
+    @test blockview(x, 2) isa SubArray
     x[4], x[7] = 1., 3.
-    @test atom(x, 2) == [1., 3.]
+    @test blockview(x, 2) == [1., 3.]
   end
 
   @testset "fill! decides activation after conversion (#421)" begin
     c = 1e-100                                   # nonzero as a Float64, zero as a Float32
     @test !iszero(c) && iszero(Float32(c))
-    fresh() = AtomIterate(Float32, 4, 2)
+    fresh() = BlockIterate(Float32, 4, 2)
     function check_none_active(x)
       @test Vector(x) == zeros(Float32, 4)
       @test nactive(x) == 0 && isempty(activecoordinates(x))
@@ -304,7 +315,7 @@ end
       u = fill(c, 4)
       for write! in (x -> (x .= u), x -> (x .= 1 .* u), x -> copyto!(x, u), x -> (x[:] = u),
                      x -> copyto!(x, 2, u, 1, 2), x -> (view(x, 1:4) .= c),
-                     x -> (atom(x, 1) .= c), x -> fill!(view(x, 1:2), c), x -> fill!(atom(x, 1), c))
+                     x -> (blockview(x, 1) .= c), x -> fill!(view(x, 1:2), c), x -> fill!(blockview(x, 1), c))
         x = fresh()
         write!(x)
         check_none_active(x)
@@ -362,7 +373,7 @@ end
     end
 
     @testset "a failed conversion leaves the iterate unchanged" begin
-      x = AtomIterate(Int, 6, [1:2, 3:4, 5:6])
+      x = BlockIterate(Int, 6, [1:2, 3:4, 5:6])
       x[5], x[1] = 7, 4
       before = (copy(x.storage), copy(activecoordinates(x)), copy(x.position), x.nactive)
       for v in (1.5, 1e-100, NaN, Inf)
@@ -376,7 +387,7 @@ end
 
     @testset "input is converted exactly once" begin
       count = Ref(0)
-      x = AtomIterate(Int, 4, 2)
+      x = BlockIterate(Int, 4, 2)
 
       @test fill!(x, OnceReal(count)) === x
       @test count[] == 1
@@ -386,53 +397,53 @@ end
     end
   end
 
-  @testset "atom views activate writes" begin
+  @testset "block views activate writes" begin
     gs = [1:2, 3:4, 5:6]
-    a = AtomIterate(6, gs)
-    atom(a, 2) .= 1.0
+    a = BlockIterate(6, gs)
+    blockview(a, 2) .= 1.0
     @test nactive(a) == 1
     @test GroupNormL2(1.0, gs)(a) ≈ 2
     b = similar(a)
     copyto!(b, a)
     @test b[3:4] == [1, 1] && a == b
-    @test parent(atom(a, 2)) === a
-    @test Base.mightalias(atom(a, 1), a.storage)
-    @test !Base.mightalias(atom(a, 1), b.storage)
-    atom(a, 2)[1] = 0
-    fill!(atom(a, 2), 0)
+    @test parent(blockview(a, 2)) === a
+    @test Base.mightalias(blockview(a, 1), a.storage)
+    @test !Base.mightalias(blockview(a, 1), b.storage)
+    blockview(a, 2)[1] = 0
+    fill!(blockview(a, 2), 0)
     @test isactive(a, 2)
-    atom(a, 1)[1] = 0
+    blockview(a, 1)[1] = 0
     @test !isactive(a, 1)
     @test consistent(a)
-    a = AtomIterate([1., 2., 3., 4., 5., 6.], gs)
-    atom(a, 1) .= atom(a, 2)
+    a = BlockIterate([1., 2., 3., 4., 5., 6.], gs)
+    blockview(a, 1) .= blockview(a, 2)
     @test Vector(a) == [3, 4, 3, 4, 5, 6]
     expected = copy(a.storage)
     expected[3:4] .= copy(view(a, 2:3))
-    atom(a, 2) .= view(a, 2:3)
+    blockview(a, 2) .= view(a, 2:3)
     @test Vector(a) == expected && consistent(a)
   end
 
   @testset "group views respect bounds-check mode" begin
     G = CountedIndices([1, 3, 2, 4], 0)
-    x = ProximalBase._AtomIterate(zeros(4), [G], ones(Int, 4))
+    x = ProximalBase._BlockIterate(zeros(4), [G], ones(Int, 4))
     # forced bounds checking overrides @inbounds
     scans = Base.JLOptions().check_bounds == 1 ? length(G) : 0
     G.reads = 0
-    v = atom(x, 1)
+    v = blockview(x, 1)
     @test G.reads == scans
     @test parent(v) === x
-    raw = ProximalBase._atom_storage(x, 1)
+    raw = ProximalBase._block_storage(x, 1)
     @test G.reads == 2scans
     @test parent(raw) === x.storage
-    @test_throws BoundsError atom(x, 0)
-    @test_throws BoundsError ProximalBase._atom_storage(x, 2)
+    @test_throws BoundsError blockview(x, 0)
+    @test_throws BoundsError ProximalBase._block_storage(x, 2)
   end
 
   @testset "group view norms and dots read storage" begin
-    for T in (Float64,), m in (4, 64), gs in ([1:m, (m+1):2m], [collect(1:2:2m), collect(2:2:2m)])   # Float32 is in atom_iterate_grids.jl
-      x = AtomIterate(randn(T, 2m), gs)
-      v, w = atom(x, 1), atom(x, 2)
+    for T in (Float64,), m in (4, 64), gs in ([1:m, (m+1):2m], [collect(1:2:2m), collect(2:2:2m)])   # Float32 is in block_iterate_grids.jl
+      x = BlockIterate(randn(T, 2m), gs)
+      v, w = blockview(x, 1), blockview(x, 2)
       rawv, raww = view(x.storage, gs[1]), view(x.storage, gs[2])
       z = randn(T, m)
       for p in (1, 2, Inf)
@@ -447,7 +458,7 @@ end
 
   @testset "random operations" begin
     # every step agrees with a plain vector and a set of active groups
-    x, v, act = AtomIterate(9, groups), zeros(9), Set{Int}()
+    x, v, act = BlockIterate(9, groups), zeros(9), Set{Int}()
     ok = true
     for step in 1:2000
       op = rand()
@@ -476,7 +487,7 @@ end
   end
 
   @testset "copies" begin
-    x = AtomIterate([1., 0., 0., 0., 2., 0., 0., 0., 0.], groups)
+    x = BlockIterate([1., 0., 0., 0., 2., 0., 0., 0., 0.], groups)
     activate!(x, 5)                        # an active group of zeros
 
     y = copy(x)
@@ -497,30 +508,30 @@ end
     @test copyto!(z, z) == x               # copying onto itself changes nothing
 
     # equal groups from another construction take the same path; other groups copy the entries
-    w = AtomIterate(9, groups)
+    w = BlockIterate(9, groups)
     copyto!(w, x)
     @test w == x && active_set(w) == active_set(x)
     @test w.layout_cache === x.layout_cache === nothing
-    u = AtomIterate(9, 3)
+    u = BlockIterate(9, 3)
     copyto!(u, x)
     @test u == x && active_set(u) == Set([1, 2]) && consistent(u)
 
     # a conversion that throws leaves the destination unchanged
-    xi = AtomIterate(9, groups); xi[1] = 1.0; xi[7] = 1.5     # groups 1 and 2 active, 1.5 does not convert
-    di = AtomIterate(Int, 9, groups); di[5] = 7; di[9] = 3
+    xi = BlockIterate(9, groups); xi[1] = 1.0; xi[7] = 1.5     # groups 1 and 2 active, 1.5 does not convert
+    di = BlockIterate(Int, 9, groups); di[5] = 7; di[9] = 3
     before = (Vector(di), copy(di.active[1:di.nactive]), copy(di.position), di.nactive)
     @test_throws InexactError copyto!(di, xi)
     @test (Vector(di), di.active[1:di.nactive], di.position, di.nactive) == before && consistent(di)
-    de = AtomIterate(Int, 9, groups)                           # an empty destination gains no active group
+    de = BlockIterate(Int, 9, groups)                           # an empty destination gains no active group
     @test_throws InexactError copyto!(de, xi)
     @test de.nactive == 0 && Vector(de) == zeros(Int, 9) && consistent(de)
     # a pair with no conversion, built-in types only
-    du = AtomIterate(Union{Float32, Float64}[0f0, 0.0], 2)
-    @test_throws MethodError copyto!(du, AtomIterate([1, 0], 2))
+    du = BlockIterate(Union{Float32, Float64}[0f0, 0.0], 2)
+    @test_throws MethodError copyto!(du, BlockIterate([1, 0], 2))
     @test du.nactive == 0 && consistent(du)
     c = Ref(0)                                                  # one conversion per value
-    ro = AtomIterate(Real, 9, groups); ro[1] = OnceReal(c)
-    @test copyto!(AtomIterate(Int, 9, groups), ro)[1] == 1 && c[] == 1
+    ro = BlockIterate(Real, 9, groups); ro[1] = OnceReal(c)
+    @test copyto!(BlockIterate(Int, 9, groups), ro)[1] == 1 && c[] == 1
     xi[7] = 2.0
     @test copyto!(di, xi) === di && Vector(di) == Vector(xi) && consistent(di)
 
@@ -535,7 +546,7 @@ end
   @testset "products" begin
     n, p = 7, 9
     X = randn(n, p)
-    x = AtomIterate(9, groups)
+    x = BlockIterate(9, groups)
     x[7], x[1], x[3] = 2., -1., 0.5
     activate!(x, 3)                        # an active group of zeros
     xd = Vector(x)
@@ -544,24 +555,24 @@ end
     @test mul!(out, X, x) === out
     @test out ≈ X * xd
     @test X * x ≈ X * xd
-    @test mul!(fill(NaN, n), X, AtomIterate(9, groups)) == zeros(n)
+    @test mul!(fill(NaN, n), X, BlockIterate(9, groups)) == zeros(n)
     @test_throws DimensionMismatch mul!(zeros(n), X[:, 1:8], x)
     @test_throws DimensionMismatch mul!(zeros(n + 1), X, x)
 
     v = randn(p)
     @test dot(v, x) ≈ dot(v, xd)
     @test dot(x, v) ≈ dot(xd, v)
-    y = AtomIterate(randn(p), [1:4, 5:9])
+    y = BlockIterate(randn(p), [1:4, 5:9])
     @test dot(x, y) ≈ dot(xd, Vector(y))
     @test dot(SparseIterate(v), x) ≈ dot(v, xd)
     @test all(row -> dot(view(X, row, :), x) ≈ (X * xd)[row], 1:n)
 
-    x32 = AtomIterate(Float32.(xd), groups)
+    x32 = BlockIterate(Float32.(xd), groups)
     @test mul!(zeros(Float32, n), Float32.(X), x32) ≈ Float32.(X * xd)
 
     # groups of one coordinate give the products of a SparseIterate
     xs = SparseIterate(xd)
-    xa = AtomIterate(xd, [[i] for i in 1:p])
+    xa = BlockIterate(xd, [[i] for i in 1:p])
     @test X * xa ≈ X * xs
     @test dot(v, xa) ≈ dot(v, xs)
     @test activecoordinates(xa) == activecoordinates(xs)
@@ -576,7 +587,7 @@ end
   @testset "five-argument products" begin
     n, p = 7, 9
     types = ((Float32, Float32, Float32), (Float64, Float64, Float64),
-             (Float64, Float32, Float64))   # the other mixed triple and the Float32 views are in atom_iterate_grids.jl
+             (Float64, Float32, Float64))   # the other mixed triple and the Float32 views are in block_iterate_grids.jl
     for (Ta, Tx, To) in types, support in (:empty, :partial, :full), strided in (false, true)
       strided && !(Ta == Tx == To == Float64) && continue
       @testset "$Ta × $Tx → $To, $support, views=$strided" begin
@@ -585,7 +596,7 @@ end
         support == :empty && fill!(dense, 0)
         support == :partial && (dense[1:2:end] .= 0)
         for G in (groups,)
-          x = AtomIterate(dense, G)
+          x = BlockIterate(dense, G)
           support == :partial && activate!(x, length(G))
           before = copy(x)
           out = strided ? view(randn(To, 2n), 1:2:2n) : randn(To, n)
@@ -607,7 +618,7 @@ end
       end
     end
     A = randn(n, p)
-    x = AtomIterate(randn(p), groups)
+    x = BlockIterate(randn(p), groups)
     before = copy(x)
     out = view(zeros(2n), collect(1:2:2n))
     @test !(out isa StridedVector)
@@ -616,7 +627,7 @@ end
       check_scaled_product(out, A, x, α, β)
     end
     check_product_state(x, before)
-    x = AtomIterate(randn(p), [1:3, 4:6, 7:9])
+    x = BlockIterate(randn(p), [1:3, 4:6, 7:9])
     before = copy(x)
     for α in (0.0, 1.0, 2.5), β in (0.0, 1.0, -0.5)
       out = fill(iszero(β) ? NaN : 3., n)
@@ -628,7 +639,7 @@ end
   @testset "five-argument zero coefficients" begin
     A = [Inf 1. 3. 4.; 2. 5. Inf 7.]
     for G in ([1:2, 3:4], [[2, 1], [4, 3]])
-      x = AtomIterate([0., 2., 0., 0.], G)
+      x = BlockIterate([0., 2., 0., 0.], G)
       activate!(x, 2)
       before = copy(x)
       reference = mul!(fill(NaN, 2), A, x)
@@ -652,17 +663,17 @@ end
     for T in (Float32, Float64), bad in T.((NaN, Inf, -Inf)), k in 1:6, stored in (true, false),
         layout in ([1:2, 3:4, 5:6], [[2, 1], [4, 3], [6, 5]])
       # group 1 active with zeros, group 2 holding [2, 0], group 3 inactive
-      a = AtomIterate(T, 6, layout); a[3] = 2; activate!(a, 1)
+      a = BlockIterate(T, 6, layout); a[3] = 2; activate!(a, 1)
       stored || dropzeros!(a)
       before = copy(a)
       v = T[1, 2, 3, 4, 5, 6]; v[k] = bad
       @test isequal(dot(v, a), strong(v, a)) && isequal(dot(a, v), strong(v, a))
       # pairs of iterates, in both orders: the non-finite entry in the SparseIterate against the
-      # zeros of a, in another AtomIterate against the zeros of a, and in b against the zeros
+      # zeros of a, in another BlockIterate against the zeros of a, and in b against the zeros
       # of a SparseIterate
       s = SparseIterate(T, 6); s[k] = bad; k == 3 || (s[3] = 3); activate!(s, 4)
       @test isequal(dot(s, a), strong2(s, a)) && isequal(dot(a, s), strong2(s, a))
-      b = AtomIterate(T, 6, layout); b[k] = bad; k == 3 || (b[3] = 3)
+      b = BlockIterate(T, 6, layout); b[k] = bad; k == 3 || (b[3] = 3)
       @test isequal(dot(a, b), strong2(a, b)) && isequal(dot(b, a), strong2(a, b))
       s0 = SparseIterate(T, 6); s0[3] = 3; activate!(s0, 1); activate!(s0, 5)  # explicit zeros at 1 and 5
       stored || dropzeros!(s0)
@@ -685,7 +696,7 @@ end
 
   @testset "five-argument product dimensions" begin
     A = zeros(3, 9)
-    x = AtomIterate(9, groups)
+    x = BlockIterate(9, groups)
     for α in (0.0, 2.5), β in (0.0, -0.5)
       out = fill(3., 3)
       @test_throws DimensionMismatch("A has second dimension 8, length of x is 9") mul!(out, A[:, 1:8], x, α, β)
@@ -695,7 +706,7 @@ end
   end
 
   @testset "show" begin
-    x = AtomIterate(9, groups)
+    x = BlockIterate(9, groups)
     @test sprint(show, MIME"text/plain"(), x) == "9-element $(typeof(x)) with 0 of 5 groups active"
     x[7], x[1] = 2., 1.
     str = sprint(show, MIME"text/plain"(), x)
@@ -705,7 +716,7 @@ end
   end
 
   @testset "allocations" begin
-    x = AtomIterate(9, groups)
+    x = BlockIterate(9, groups)
     v = randn(9)
     function write_all!(x, v)
       @inbounds for i in eachindex(v)
@@ -727,34 +738,34 @@ end
     @test drop_allocs(x) == 0
   end
 
-  @testset "atomindices (FT02)" begin
+  @testset "blockindices (FT02)" begin
     B = [1 2; 3 4; 5 6]
-    x = AtomIterate(vec(B), [collect(r:3:6) for r in 1:3])
+    x = BlockIterate(vec(B), [collect(r:3:6) for r in 1:3])
     expected = ([1, 4], [2, 5], [3, 6])        # by hand
     for r in 1:3
-      @test atomindices(x, r) == expected[r]
-      @test atomindices(x, r) isa AbstractVector{<:Integer}
-      @test eltype(atomindices(x, r)) == Int
-      @test collect(atomindices(x, r)) == expected[r]
-      @test length(atomindices(x, r)) == 2 && axes(atomindices(x, r)) == (Base.OneTo(2),)
+      @test blockindices(x, r) == expected[r]
+      @test blockindices(x, r) isa AbstractVector{<:Integer}
+      @test eltype(blockindices(x, r)) == Int
+      @test collect(blockindices(x, r)) == expected[r]
+      @test length(blockindices(x, r)) == 2 && axes(blockindices(x, r)) == (Base.OneTo(2),)
     end
-    y = AtomIterate(6, 3)
-    @test atomindices(y, 2) == 3:4
-    @test atomindices(y, 2) isa UnitRange{Int}
-    @test atomindices(y, 2) === y.groups[2]          # the stored range itself
+    y = BlockIterate(6, 3)
+    @test blockindices(y, 2) == 3:4
+    @test blockindices(y, 2) isa UnitRange{Int}
+    @test blockindices(y, 2) === y.groups[2]          # the stored range itself
 
     @testset "invalid k" begin
       for z in (x, y), k in (0, 4, -1, typemin(Int), typemax(Int), typemax(UInt), false, true)
-        @test_throws BoundsError atomindices(z, k)
+        @test_throws BoundsError blockindices(z, k)
       end
-      @test atomindices(x, Int8(2)) == [2, 5] && atomindices(y, UInt16(3)) == 5:6
+      @test blockindices(x, Int8(2)) == [2, 5] && blockindices(y, UInt16(3)) == 5:6
     end
 
     @testset "read-only" begin
       layout = deepcopy(x.groups)
       group_of = copy(x.group_of)
       cache = x.layout_cache
-      h = atomindices(x, 2)
+      h = blockindices(x, 2)
       function attempts(h)
         n = length(h)
         src = fill(9, n)
@@ -766,14 +777,14 @@ end
       for attempt in attempts(h)
         @test_throws Exception attempt()
         @test x.groups == layout && x.group_of == group_of && x.layout_cache === cache
-        @test atomindices(x, 2) == [2, 5]
+        @test blockindices(x, 2) == [2, 5]
       end
       @test_throws ArgumentError h[1] = 9
       @test_throws MethodError push!(h, 9)
       @test_throws MethodError resize!(h, 5)
       # a group of length 1 has nothing to write: the layout is unchanged
-      z = AtomIterate(9, groups)
-      single = atomindices(z, 5)
+      z = BlockIterate(9, groups)
+      single = blockindices(z, 5)
       @test single == [9]
       for op in (sort!, reverse!)
         try op(single) catch end
@@ -784,29 +795,29 @@ end
       c = copy(h)
       @test c isa Vector{Int} && c == [2, 5]
       c[1] = 7
-      @test sortperm(h) == [1, 2] && sortperm(atomindices(x, 3)) == [1, 2]
+      @test sortperm(h) == [1, 2] && sortperm(blockindices(x, 3)) == [1, 2]
       @test collect(h) == [2, 5] && Vector(h) == [2, 5] && h == [2, 5] && [2, 5] == h
       @test h[2:2] == [5] && h[:] == [2, 5]
       @test_throws BoundsError h[0]
       @test_throws BoundsError h[3]
-      # the exceptions of atomindices and of its wrapper name the valid range or the wrapper, not a stored
-      # group (field access, `h.ids`, is internal and unsupported; atom(x, k) is unchanged)
+      # the exceptions of blockindices and of its wrapper name the valid range or the wrapper, not a stored
+      # group (field access, `h.ids`, is internal and unsupported; blockview(x, k) is unchanged)
       for i in (0, 3, 5, Int32(5), typemax(Int))
         err = try h[i]; nothing catch e e end
         @test err isa BoundsError && err.a === h && !(err.a isa Array)
       end
       for k in (0, 4, false, true, -1, typemax(UInt))
-        err = try atomindices(x, k); nothing catch e e end
+        err = try blockindices(x, k); nothing catch e e end
         @test err isa BoundsError && !(err.a isa Array) && err.a !== x.groups
       end
       @test x.groups == layout
-      @test x.groups == layout && atomindices(x, 2) == [2, 5]
+      @test x.groups == layout && blockindices(x, 2) == [2, 5]
       @test Base.IndexStyle(typeof(h)) == IndexLinear()
 
       # aliasing: the handle reports the group's memory, a copy does not
       @test Base.mightalias(h, h)
-      @test Base.mightalias(h, atomindices(x, 2))
-      @test !Base.mightalias(h, atomindices(x, 1))
+      @test Base.mightalias(h, blockindices(x, 2))
+      @test !Base.mightalias(h, blockindices(x, 1))
       @test !Base.mightalias(h, copy(h))
       @test !Base.mightalias(h, x)
       @test Base.dataids(h) == Base.dataids(x.groups[2])
@@ -814,11 +825,11 @@ end
       @test u == h && !Base.mightalias(u, h) && x.groups == layout
     end
 
-    @testset "views indexed by atomindices" begin
-      z = AtomIterate(9, groups)
+    @testset "views indexed by blockindices" begin
+      z = BlockIterate(9, groups)
       dense = collect(10.0:18.0)
       for k in 1:length(groups)
-        h = atomindices(z, k)
+        h = blockindices(z, k)
         @test dense[h] == dense[groups[k]]
         w = view(dense, h)
         @test w == dense[groups[k]] && sum(w) == sum(dense[groups[k]])
@@ -827,36 +838,36 @@ end
       end
       layout = deepcopy(z.groups)
       group_of = copy(z.group_of)
-      @test dense[atomindices(z, 2)] == [13.0, 16.0]
+      @test dense[blockindices(z, 2)] == [13.0, 16.0]
       z[4] = 3.0
-      @test view(z, atomindices(z, 2)) == [3.0, 0.0]
+      @test view(z, blockindices(z, 2)) == [3.0, 0.0]
       z .= 2
       fill!(z, 0)
-      z[atomindices(z, 2)] .= 5.0            # a write to the entries, not to the indices
+      z[blockindices(z, 2)] .= 5.0            # a write to the entries, not to the indices
       @test z[[4, 7]] == [5.0, 5.0] && isactive(z, 2)
       for i in (1, 4)
         z[i] = 1.0
       end
       @test z.groups == layout && z.group_of == group_of
-      @test all(k -> atomindices(z, k) == groups[k], 1:length(groups))
+      @test all(k -> blockindices(z, k) == groups[k], 1:length(groups))
       # the vector that built the iterate is not the layout
       vals = collect(1.0:9.0)
-      zz = AtomIterate(vals, groups)
+      zz = BlockIterate(vals, groups)
       vals .= 0
-      @test zz[3] == 3.0 && atomindices(zz, 1) == 1:3
+      @test zz[3] == 3.0 && blockindices(zz, 1) == 1:3
     end
 
     @testset "retained handles stay valid" begin
-      z = AtomIterate(9, groups)
+      z = BlockIterate(9, groups)
       snapshot = deepcopy(z.groups)
-      handles = [atomindices(z, k) for k in 1:length(groups)]
+      handles = [blockindices(z, k) for k in 1:length(groups)]
       activate!(z, 2)
       z[1] = 4.0
       z[8] = 1.0
       @test nactive(z) == 3
       z[1] = 0.0
       dropzeros!(z)
-      other = AtomIterate(9, groups)         # an equal, separately built layout
+      other = BlockIterate(9, groups)         # an equal, separately built layout
       other[5] = 2.0
       copyto!(z, other)                      # state replacement
       c, s = copy(z), similar(z)
@@ -864,47 +875,47 @@ end
       dropzeros!(z)
       @test nactive(z) == 0
       for k in 1:length(groups)
-        fresh = atomindices(z, k)
+        fresh = blockindices(z, k)
         @test handles[k] == snapshot[k] && fresh == snapshot[k]
         @test length(handles[k]) == length(groups[k])
         @test typeof(handles[k]) == typeof(fresh)
-        @test atomindices(c, k) == snapshot[k] && atomindices(s, k) == snapshot[k]
+        @test blockindices(c, k) == snapshot[k] && blockindices(s, k) == snapshot[k]
       end
     end
 
     @testset "index types (FC-6)" begin
-      ai = AtomIterate(4, [Int32(1):Int32(2), Int32(3):Int32(4)])
-      @test atomindices(ai, 1) == 1:2
-      @test atomindices(ai, 1) isa UnitRange{Int32}
-      @test atomindices(ai, 1) === ai.groups[1]
+      ai = BlockIterate(4, [Int32(1):Int32(2), Int32(3):Int32(4)])
+      @test blockindices(ai, 1) == 1:2
+      @test blockindices(ai, 1) isa UnitRange{Int32}
+      @test blockindices(ai, 1) === ai.groups[1]
       f32 = GroupNormL2(1.0, [Int32(1):Int32(2), Int32(3):Int32(4)])
-      @test atomindices(AtomIterate(4, f32), 2) isa UnitRange{Int32}
-      @test atomindices(AtomIterate(4, f32), 2) == 3:4
-      av = AtomIterate(4, [Int32[1, 3], Int32[2, 4]])
+      @test blockindices(BlockIterate(4, f32), 2) isa UnitRange{Int32}
+      @test blockindices(BlockIterate(4, f32), 2) == 3:4
+      av = BlockIterate(4, [Int32[1, 3], Int32[2, 4]])
       @test av.groups isa Vector{Vector{Int}}
-      @test eltype(atomindices(av, 1)) == Int
-      @test atomindices(av, 1) == [1, 3] && atomindices(av, 2) == [2, 4]
-      @test eltype(atomindices(AtomIterate(4, [Int8[1, 2], Int8[3, 4]]), 1)) == Int
-      mixed = AtomIterate(4, [1:2, [3, 4]])      # mixed groups are stored as vectors
-      @test eltype(atomindices(mixed, 1)) == Int && atomindices(mixed, 1) == [1, 2]
-      @test atomindices(AtomIterate(4, [1:2:3, 2:2:4]), 1) isa StepRange{Int, Int}
+      @test eltype(blockindices(av, 1)) == Int
+      @test blockindices(av, 1) == [1, 3] && blockindices(av, 2) == [2, 4]
+      @test eltype(blockindices(BlockIterate(4, [Int8[1, 2], Int8[3, 4]]), 1)) == Int
+      mixed = BlockIterate(4, [1:2, [3, 4]])      # mixed groups are stored as vectors
+      @test eltype(blockindices(mixed, 1)) == Int && blockindices(mixed, 1) == [1, 2]
+      @test blockindices(BlockIterate(4, [1:2:3, 2:2:4]), 1) isa StepRange{Int, Int}
     end
 
     @testset "ownership of the caller's arrays" begin
       gv = [[1, 2], [3, 4]]
-      a = AtomIterate(4, gv)
+      a = BlockIterate(4, gv)
       gv[1][1] = 3
-      @test atomindices(a, 1) == [1, 2]
+      @test blockindices(a, 1) == [1, 2]
     end
 
-    @testset "atom views" begin
-      x = AtomIterate(vec(B), [collect(r:3:6) for r in 1:3])
+    @testset "block views" begin
+      x = BlockIterate(vec(B), [collect(r:3:6) for r in 1:3])
       for r in 1:3, c in 1:2
         @test x[(c - 1) * 3 + r] == B[r, c]
       end
-      @test all(r -> atom(x, r) == B[r, :], 1:3)
+      @test all(r -> blockview(x, r) == B[r, :], 1:3)
       @test_throws MethodError coordinates(x)
-      w = atom(x, 2)
+      w = blockview(x, 2)
       activate!(x, 1)
       dropzeros!(x)
       @test w == B[2, :]
@@ -914,19 +925,19 @@ end
 
     @testset "allocations (FT23)" begin
       # measured inside functions: at global scope the result is boxed
-      index_allocs(x, k) = @allocated atomindices(x, k)
+      index_allocs(x, k) = @allocated blockindices(x, k)
       function index_sum(x)
         s = 0
-        for k in 1:ncoordinates(x), j in atomindices(x, k)
+        for k in 1:ncoordinates(x), j in blockindices(x, k)
           s += j
         end
         s
       end
       loop_allocs(x) = @allocated index_sum(x)
       for T in (Float32, Float64)
-        xr = AtomIterate(T, 6, 3)                           # ranges
-        xv = AtomIterate(T, 6, [[1, 4], [2, 5], [3, 6]])    # vectors
-        x32 = AtomIterate(T, 4, [Int32(1):Int32(2), Int32(3):Int32(4)])
+        xr = BlockIterate(T, 6, 3)                           # ranges
+        xv = BlockIterate(T, 6, [[1, 4], [2, 5], [3, 6]])    # vectors
+        x32 = BlockIterate(T, 4, [Int32(1):Int32(2), Int32(3):Int32(4)])
         for z in (xr, xv, x32)
           index_allocs(z, 2); loop_allocs(z)
           @test index_allocs(z, 2) == 0
@@ -944,9 +955,9 @@ end
   @testset "samegroups (FT17)" begin
     samegroups = ProximalBase.samegroups
     @test !Base.isexported(ProximalBase, :samegroups)
-    @test Base.isexported(ProximalBase, :atomindices)
+    @test Base.isexported(ProximalBase, :blockindices)
     gv = [[1, 2], [3, 4]]
-    a = AtomIterate(4, gv)
+    a = BlockIterate(4, gv)
 
     @testset "penalties" begin
       same = GroupNormL2(1, [[1, 2], [3, 4]])
@@ -985,41 +996,41 @@ end
       @test samegroups(a, copy(a)) === true
       @test samegroups(a, similar(a)) === true
       @test samegroups(a, a) === true
-      @test samegroups(a, AtomIterate(4, [[1, 2], [3, 4]])) === true
-      @test samegroups(a, AtomIterate(4, [[2, 1], [3, 4]])) === false
-      @test samegroups(a, AtomIterate(4, [[1, 3], [2, 4]])) === false
-      @test samegroups(a, AtomIterate(4, [1:4])) === false
-      @test samegroups(a, AtomIterate(4, 4)) === false
-      @test samegroups(a, AtomIterate(8, [1:2, 3:4, 5:6, 7:8])) === false
-      @test samegroups(AtomIterate(4, [[3, 4], [1, 2]]), a) === false
+      @test samegroups(a, BlockIterate(4, [[1, 2], [3, 4]])) === true
+      @test samegroups(a, BlockIterate(4, [[2, 1], [3, 4]])) === false
+      @test samegroups(a, BlockIterate(4, [[1, 3], [2, 4]])) === false
+      @test samegroups(a, BlockIterate(4, [1:4])) === false
+      @test samegroups(a, BlockIterate(4, 4)) === false
+      @test samegroups(a, BlockIterate(8, [1:2, 3:4, 5:6, 7:8])) === false
+      @test samegroups(BlockIterate(4, [[3, 4], [1, 2]]), a) === false
       # the same ordered lists in other representations
-      r = AtomIterate(4, [1:2, 3:4])
-      r32 = AtomIterate(4, [Int32(1):Int32(2), Int32(3):Int32(4)])
-      v32 = AtomIterate(4, [Int32[1, 2], Int32[3, 4]])
+      r = BlockIterate(4, [1:2, 3:4])
+      r32 = BlockIterate(4, [Int32(1):Int32(2), Int32(3):Int32(4)])
+      v32 = BlockIterate(4, [Int32[1, 2], Int32[3, 4]])
       for (u, v) in ((a, r), (r, a), (a, r32), (r32, a), (r, r32), (r32, r), (v32, r32), (r32, v32), (v32, a))
         @test samegroups(u, v) === true
       end
-      @test samegroups(AtomIterate(4, [1:2, [3, 4]]), a) === true
+      @test samegroups(BlockIterate(4, [1:2, [3, 4]]), a) === true
       # equality is of ordered lists, not of sets
-      @test samegroups(AtomIterate(4, [[2, 1], [3, 4]]), AtomIterate(4, [[1, 2], [3, 4]])) === false
-      @test samegroups(AtomIterate(4, [[1, 2], [4, 3]]), a) === false
+      @test samegroups(BlockIterate(4, [[2, 1], [3, 4]]), BlockIterate(4, [[1, 2], [3, 4]])) === false
+      @test samegroups(BlockIterate(4, [[1, 2], [4, 3]]), a) === false
       # an unequal comparison writes nothing
-      b = AtomIterate(4, [[1, 2], [3, 4]])
+      b = BlockIterate(4, [[1, 2], [3, 4]])
       @test samegroups(a, b) && a.layout_cache === b.groups
-      bad = AtomIterate(4, [[1, 3], [2, 4]])
+      bad = BlockIterate(4, [[1, 3], [2, 4]])
       before = a.layout_cache
       @test !samegroups(a, bad) && a.layout_cache === before && bad.layout_cache === nothing
       @test !samegroups(bad, a) && a.layout_cache === before && bad.layout_cache === nothing
     end
 
     counted() = CountedGroups([1:2, 3:4, 5:6], 0)
-    mkiterate() = ProximalBase._AtomIterate(zeros(6), counted(), [1, 1, 2, 2, 3, 3])
+    mkiterate() = ProximalBase._BlockIterate(zeros(6), counted(), [1, 1, 2, 2, 3, 3])
     mkpenalty() = GroupNormL2{Float64, CountedGroups}(0.4, counted(), ones(3))
 
     @testset "counted comparisons, iterate and penalty" begin
       x = mkiterate()
       f1, f2 = mkpenalty(), mkpenalty()
-      shared = ProximalBase._AtomIterate(zeros(6), f1.groups, [1, 1, 2, 2, 3, 3])
+      shared = ProximalBase._BlockIterate(zeros(6), f1.groups, [1, 1, 2, 2, 3, 3])
       # a shared layout object: identity, no comparison, nothing remembered
       @test samegroups(shared, f1) && samegroups(f1, shared)
       @test f1.groups.comparisons == 0 && shared.layout_cache === nothing
@@ -1075,7 +1086,7 @@ end
         @test a.layout_cache === (isodd(i) ? c : b).groups
       end
       # a failed comparison keeps the remembered layout
-      bad = ProximalBase._AtomIterate(zeros(5), [1:2, 3:4, 5:5], [1, 1, 2, 2, 3])
+      bad = ProximalBase._BlockIterate(zeros(5), [1:2, 3:4, 5:5], [1, 1, 2, 2, 3])
       remembered = a.layout_cache
       @test samegroups(a, bad) === false && samegroups(bad, a) === false
       @test a.layout_cache === remembered && bad.layout_cache === nothing
@@ -1108,13 +1119,13 @@ end
         strided() = [collect(r:3:12) for r in 1:3]
         r32() = [Int32(1):Int32(4), Int32(5):Int32(8), Int32(9):Int32(12)]
         for (name, mk) in (("ranges", ranges), ("vectors", vectors), ("strided", strided), ("Int32 ranges", r32))
-          a, b, c = AtomIterate(T, 12, mk()), AtomIterate(T, 12, mk()), AtomIterate(T, 12, mk())
+          a, b, c = BlockIterate(T, 12, mk()), BlockIterate(T, 12, mk()), BlockIterate(T, 12, mk())
           f1, f2 = GroupNormL2(1.0, mk()), GroupNormL2(1.0, mk())
-          bad = AtomIterate(T, 12, [[1, 2, 3, 5], [4, 6, 7, 8], [9, 10, 11, 12]])
+          bad = BlockIterate(T, 12, [[1, 2, 3, 5], [4, 6, 7, 8], [9, 10, 11, 12]])
           # the groups of ranges() in another representation: equal for ranges, vectors and Int32 ranges
-          d = AtomIterate(T, 12, name == "ranges" ? vectors() : ranges())
+          d = BlockIterate(T, 12, name == "ranges" ? vectors() : ranges())
           for (u, v) in ((a, b), (b, a), (a, f1), (f1, a), (a, a), (a, copy(a)))
-            hit_allocs(u, v); fresh_allocs(u isa AtomIterate ? u : v, u isa AtomIterate ? v : u)
+            hit_allocs(u, v); fresh_allocs(u isa BlockIterate ? u : v, u isa BlockIterate ? v : u)
           end
           hit_allocs(a, bad); hit_allocs(a, d); alternate_allocs(a, f1, f2)
           @test hit_allocs(a, a) == 0
@@ -1130,24 +1141,24 @@ end
     end
 
     @testset "copyto! does not remember" begin
-      u = AtomIterate(4, [[1, 2], [3, 4]])
-      v = AtomIterate(4, [[1, 2], [3, 4]])
+      u = BlockIterate(4, [[1, 2], [3, 4]])
+      v = BlockIterate(4, [[1, 2], [3, 4]])
       v[1] = 1.0
       f = GroupNormL2(1.0, [[1, 2], [3, 4]])
       @test samegroups(u, f) && u.layout_cache === f.groups
       copyto!(u, v)
       @test u == v && u.layout_cache === f.groups && v.layout_cache === nothing
-      w = AtomIterate(4, [[1, 2], [3, 4]])
+      w = BlockIterate(4, [[1, 2], [3, 4]])
       copyto!(w, v)
       @test w == v && w.layout_cache === nothing && v.layout_cache === nothing
     end
 
     @testset "whole-array oracles accept any layout (FL-5)" begin
       fm = GroupNormL2(1, [[1, 3], [2, 4]])
-      am = AtomIterate([1, 2, 3, 4], [1:2, 3:4])
+      am = BlockIterate([1, 2, 3, 4], [1:2, 3:4])
       @test !samegroups(am, fm)
       @test fm(am) == fm(Vector(am))
-      ym = AtomIterate(4, [1:2, 3:4])
+      ym = BlockIterate(4, [1:2, 3:4])
       @test prox!(ym, fm, am, 1) === ym
       @test Vector(ym) == prox(fm, Vector(am), 1)
       @test_throws DimensionMismatch take_block_step!(am, fm, 1, 0.5)
@@ -1156,7 +1167,7 @@ end
 
 end
 
-@testset "aliasing of the views of an AtomIterate" begin
+@testset "aliasing of the views of a BlockIterate" begin
   function alloc_unaliased(y, x)
     y .= x .+ 1
     copyto!(y, x)
@@ -1166,7 +1177,7 @@ end
     copyto!(x, x.storage)
     return nothing
   end
-  a = AtomIterate(6, 3)
+  a = BlockIterate(6, 3)
   for k in (1, 3)
     activate!(a, k)
     a[a.groups[k]] .= k
@@ -1175,15 +1186,15 @@ end
   @test Base.mightalias(activecoordinates(a), a)
   @test Base.mightalias(a, view(a, 1:2))
   @test Base.mightalias(a, reshape(a, :))
-  @test all(k -> Base.mightalias(a, atom(a, k)), 1:3)
+  @test all(k -> Base.mightalias(a, blockview(a, k)), 1:3)
   @test all(id -> id in Base.dataids(a), Base.dataids(activecoordinates(a)))
 
   b = copy(a)    # shares the groups
   @test !Base.mightalias(a, b)
-  @test !Base.mightalias(a, AtomIterate(6, 3))
+  @test !Base.mightalias(a, BlockIterate(6, 3))
   @test !Base.mightalias(a, zeros(6))
   @test !Base.mightalias(activecoordinates(a), b)
-  @test !Base.mightalias(atom(a, 1), b)
+  @test !Base.mightalias(blockview(a, 1), b)
 
   source = copy(a)
   copyto!(a, a)
@@ -1198,7 +1209,7 @@ end
   @test (@allocated alloc_unaliased(v, a)) > 0
 end
 
-# the pre-change AtomIterate compaction on a plain copy of the active list
+# the pre-change BlockIterate compaction on a plain copy of the active list
 function oracle_atom_dropzeros(active::Vector{Int}, zerogroup)
     active = copy(active)
     i = 1
@@ -1214,12 +1225,12 @@ end
 
 atom_drop_allocs(x) = @allocated dropzeros!(x)
 function atom_drop_fixture(::Type{T}, gs, vals) where {T}
-    x = AtomIterate(T, 6, gs)
+    x = BlockIterate(T, 6, gs)
     for k = 1:3; activate!(x, k); x.storage[gs[k]] .= vals[k]; end
     x
 end
 
-function atom_row(x::AtomIterate{T}, active, vals::Dict) where {T}
+function atom_row(x::BlockIterate{T}, active, vals::Dict) where {T}
     for k in active
         activate!(x, k)
         x.storage[x.groups[k]] .= vals[k]
@@ -1243,28 +1254,28 @@ end
 
 @testset "dropzeros all-zero preflight" begin
     for T in (Float32, Float64)
-        @testset "AtomIterate $T" begin
+        @testset "BlockIterate $T" begin
             # the example: group 1 (0, 0), group 2 (0, -0), group 3 (0, 1)
             gs = [1:2, [3, 6], 4:5]
-            x = AtomIterate(T, 6, gs)
+            x = BlockIterate(T, 6, gs)
             atom_row(x, [1, 2, 3], Dict(1 => [T(0), T(0)], 2 => [T(0), -T(0)], 3 => [T(0), T(1)]))
             @test x.active[1:x.nactive] == [3]
-            x = AtomIterate(T, 6, gs)
+            x = BlockIterate(T, 6, gs)
             for k in 1:3; activate!(x, k); end
             x.storage[3] = -T(0)
             @test dropzeros!(x) === x
             @test x.nactive == 0 && signbit(x.storage[3]) && !any(k -> isactive(x, k), 1:3)
             @test iszero(x.position)
             # empty working set
-            atom_row(AtomIterate(T, 6, gs), Int[], Dict{Int, Vector{T}}())
+            atom_row(BlockIterate(T, 6, gs), Int[], Dict{Int, Vector{T}}())
             # no zeros group, NaN/Inf/subnormal stay
-            atom_row(AtomIterate(T, 6, gs), [2, 1, 3], Dict(1 => [T(1), T(0)], 2 => [T(NaN), T(0)], 3 => [floatmin(T) / 4, T(0)]))
-            atom_row(AtomIterate(T, 6, gs), [2, 1, 3], Dict(1 => [T(0), T(0)], 2 => [T(Inf), T(0)], 3 => [T(0), -T(Inf)]))
+            atom_row(BlockIterate(T, 6, gs), [2, 1, 3], Dict(1 => [T(1), T(0)], 2 => [T(NaN), T(0)], 3 => [floatmin(T) / 4, T(0)]))
+            atom_row(BlockIterate(T, 6, gs), [2, 1, 3], Dict(1 => [T(0), T(0)], 2 => [T(Inf), T(0)], 3 => [T(0), -T(Inf)]))
             # the only nonzero is the last scanned entry
-            atom_row(AtomIterate(T, 6, gs), [1, 2, 3], Dict(1 => [T(0), T(0)], 2 => [T(0), T(0)], 3 => [T(0), T(5)]))
-            atom_row(AtomIterate(T, 6, gs), [3, 1, 2], Dict(1 => [T(0), T(0)], 2 => [T(0), T(0)], 3 => [T(1), T(0)]))
+            atom_row(BlockIterate(T, 6, gs), [1, 2, 3], Dict(1 => [T(0), T(0)], 2 => [T(0), T(0)], 3 => [T(0), T(5)]))
+            atom_row(BlockIterate(T, 6, gs), [3, 1, 2], Dict(1 => [T(0), T(0)], 2 => [T(0), T(0)], 3 => [T(1), T(0)]))
             # inactive groups with zero storage, group 1 inactive
-            atom_row(AtomIterate(T, 6, gs), [3, 2], Dict(2 => [T(0), T(0)], 3 => [T(0), T(0)]))
+            atom_row(BlockIterate(T, 6, gs), [3, 2], Dict(2 => [T(0), T(0)], 3 => [T(0), T(0)]))
             # layouts and sizes
             for sz in (1, 8, 64)
                 K = 5; p = K * sz
@@ -1274,13 +1285,13 @@ end
                     :vector => [collect(reverse((k - 1) * sz + 1:k * sz)) for k = 1:K])
                 for (name, groups) in layouts
                     for fracs in ((1, 1, 1, 1, 1), (0, 0, 0, 0, 0), (1, 0, 1, 0, 1), (1, 1, 1, 1, 0), (0, 1, 1, 1, 1))
-                        x = AtomIterate(T, p, groups)
+                        x = BlockIterate(T, p, groups)
                         vals = Dict(k => (fracs[k] == 1 ? zeros(T, length(groups[k])) : T.(randn(length(groups[k])) .+ 3)) for k = 1:K)
                         fracs[2] == 1 && sz > 1 && (vals[2][end] = -T(0))
                         atom_row(x, [4, 2, 5, 1, 3], vals)
                     end
                     # a partially zero group stays active, its only nonzero is the last entry
-                    x = AtomIterate(T, p, groups)
+                    x = BlockIterate(T, p, groups)
                     v = Dict(k => zeros(T, length(groups[k])) for k = 1:K)
                     v[3][end] = T(1)
                     atom_row(x, [1, 2, 3, 4, 5], v)
@@ -1288,7 +1299,7 @@ end
                 end
             end
             # repeated clear, then a fresh activation, and fill!(x, 0) after a nonzero solve
-            x = AtomIterate(T, 6, gs)
+            x = BlockIterate(T, 6, gs)
             x[1] = T(2); x[3] = T(1)
             fill!(x, 0)
             @test dropzeros!(x) === x && x.nactive == 0

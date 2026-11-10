@@ -68,9 +68,9 @@ end
 @testset "math and public storage writes" begin
   gs = [[1, 3], [2, 4]]
   f = GroupNormL2(1., gs, ones(2))
-  x = AtomIterate(4, gs)
+  x = BlockIterate(4, gs)
   activate!(x, 2)
-  compact_owner = AtomIterate([3.,4.], [1:2])
+  compact_owner = BlockIterate([3.,4.], [1:2])
   allocated = prox_block(f,compact_owner,1,1.)
   @test allocated isa Vector{Float64}
   @test Vector(compact_owner) == [3.,4.]
@@ -79,7 +79,7 @@ end
     old = (Vector(x), collect(activecoordinates(x)))
     prox_block!(out, f, u, 1, 1.)
     @test (Vector(x), collect(activecoordinates(x))) == old
-    copyto!(atom(x, 1), out)
+    copyto!(blockview(x, 1), out)
     @test isactive(x, 1) == active
     ProximalBase.Testing.test_iterate(x)
   end

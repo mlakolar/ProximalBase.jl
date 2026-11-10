@@ -189,7 +189,7 @@ Base.getindex(a::CountedArray, i::Int) = (a.reads += 1; a.data[i])
             xs[2] = one(T)
             xs[2] = zero(T)
             @test nactive(xs) == 3
-            xa = AtomIterate(x, [1:2, 3:4])
+            xa = BlockIterate(x, [1:2, 3:4])
             X = reshape(x, 2, 2)
             Xm = SparseIterate(Matrix(X))
             Xm[2] = one(T)
@@ -236,7 +236,7 @@ Base.getindex(a::CountedArray, i::Int) = (a.reads += 1; a.data[i])
             for f in (IndSimplex(M), IndSimplex(M; equality = false), IndBallL1(M), IndBallL2(M))
               @test f(x) == expected
               @test f(SparseIterate(x)) == f(x)
-              @test f(AtomIterate(x, [1:1, 2:2])) == f(x)
+              @test f(BlockIterate(x, [1:1, 2:2])) == f(x)
               X = T[x[1] 0; 0 x[2]]
               @test f(SparseIterate(X)) == f(X)
               # the value of these sets at an owner is not defined: use the matrix view
@@ -249,7 +249,7 @@ Base.getindex(a::CountedArray, i::Int) = (a.reads += 1; a.data[i])
             x = T[M, off ? -M : M]
             @test f(x) == (off ? T(Inf) : zero(T))
             @test f(SparseIterate(x)) == f(x)
-            @test f(AtomIterate(x, [1:1, 2:2])) == f(x)
+            @test f(BlockIterate(x, [1:1, 2:2])) == f(x)
           end
           for symmetric in (false, true), off in (false, true)
             f = IndToeplitz(; symmetric)
@@ -288,7 +288,7 @@ Base.getindex(a::CountedArray, i::Int) = (a.reads += 1; a.data[i])
                 f = F(a, zero(T))
                 @test f(x) == Inf
                 @test f(SparseIterate(x)) == Inf
-                @test f(AtomIterate(x, [1:1, 2:2])) == Inf
+                @test f(BlockIterate(x, [1:1, 2:2])) == Inf
               end
             end
             for F in (IndBallL1, IndBallL2)

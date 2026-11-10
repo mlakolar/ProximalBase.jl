@@ -2,9 +2,9 @@ module ValueOverflowGLMGridsTest
 
 # The Float32 storage cases of "GLMLoss values and gradients that leave the range" that value_overflow_glm.jl
 # leaves to its Float64 pass and to the dense Float32 cases: for Logistic, Huber(1.0), SmoothCheck(0.3, 0.5) and the
-# two Conv losses (epanechnikov and uniform), the cases with a sparse X, a SparseIterate β, an AtomIterate β and a
+# two Conv losses (epanechnikov and uniform), the cases with a sparse X, a SparseIterate β, a BlockIterate β and a
 # SparseIterate β with zero entries on a sparse X, each with the weights 1.5 and 2^-149 of the predictor table; and
-# for Poisson the first three of those four (the cases named "sparse X, cancelling row", "SparseIterate β" and "AtomIterate β").
+# for Poisson the first three of those four (the cases named "sparse X, cancelling row", "SparseIterate β" and "BlockIterate β").
 # value_overflow_glm.jl keeps the Float64 pass, the dense Float32 cases of these losses, the SparseIterate β with
 # zero entries of Poisson, and all the Float32 cases of Squared and SquaredHinge. The loss references, the helpers, `GCase`, `reference`, the status functions, `test_case` and the
 # lines that build these cases are copied from it; the case table keeps only the predictor loop of those cases.
@@ -82,7 +82,7 @@ CONV(kernel, τ, h) = LossSpec("Conv-$kernel($τ,$h)", T -> PB.ConvolutionCheck(
 
 
 # T: element type of y, X, weights, offset; B: element type of β (the result is float(B));
-# wrap: how β is passed (dense, SparseIterate, AtomIterate); status: :assert, or :info for the
+# wrap: how β is passed (dense, SparseIterate, BlockIterate); status: :assert, or :info for the
 # decisions that the contract leaves open (reported, not asserted).
 struct GCase
   group::String
@@ -174,7 +174,7 @@ function cases(T)
     Xs = sparse(T[M -M 0; 0 0 1])
     add!(gname, "sparse X, cancelling row$tag", T, spec, [y0, y0], Xs, T[2, 2, 5]; w = [w, 2])
     add!(gname, "SparseIterate β$tag", T, spec, [y0], reshape(T[M, -M, 1], 1, 3), T[2, 2, 3]; w = [w], wrap = SparseIterate)
-    add!(gname, "AtomIterate β$tag", T, spec, [y0], reshape(T[M, -M, 1], 1, 3), T[2, 2, 3]; w = [w], wrap = b -> AtomIterate(b, [1:3]))
+    add!(gname, "BlockIterate β$tag", T, spec, [y0], reshape(T[M, -M, 1], 1, 3), T[2, 2, 3]; w = [w], wrap = b -> BlockIterate(b, [1:3]))
     # the SparseIterate β with zero entries of Poisson stays in value_overflow_glm.jl
     gname == "Poisson" || add!(gname, "SparseIterate β with zero entries, sparse X$tag", T, spec, [y0, y0], Xs, T[2, 2, 0]; w = [w, 2], wrap = SparseIterate)
   end

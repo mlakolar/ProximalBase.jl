@@ -305,7 +305,7 @@ unpenalized. Its proximal operator applies block soft thresholding with
 threshold ``\gamma\lambda_0 w_k`` to each group. A group at zero is optimal when
 ``\|g_{G_k}\|_2 \le \lambda_0 w_k``. [`GroupNormLinf`](@ref) uses the ℓ∞ norm of
 each group, with the ℓ1-ball projection, and its optimality test is
-``\|g_{G_k}\|_1 \le \lambda_0 w_k``. On an `AtomIterate` that shares their
+``\|g_{G_k}\|_1 \le \lambda_0 w_k``. On a `BlockIterate` that shares their
 groups, these penalties update one group at a time.
 
 **Sparse groups.** [`SparseGroupNormL2`](@ref)`(λ1, λ2, groups, w)` adds an ℓ1

@@ -487,10 +487,10 @@ si_free(f) = (si = SparseIterate(2); si[1] = NaN; si[2] = 1.5; si)
     end
     free ? @test(isfinite(f(si_free(f)))) : @test(isnan(f(si_free(f))))
   end
-  # AtomIterate, stored entries only
+  # BlockIterate, stored entries only
   for f in (CheckLoss(0.5), LogPenalty(1, 1), MCP(1, 3), SCAD(1, 3.7), HingeLoss(), MCP(0, 3), LogPenalty(0, 1))
-    a = AtomIterate(2, [1:1, 2:2]); a[1] = NaN; a[2] = 1.5
-    y = AtomIterate(2, [1:1, 2:2])
+    a = BlockIterate(2, [1:1, 2:2]); a[1] = NaN; a[2] = 1.5
+    y = BlockIterate(2, [1:1, 2:2])
     prox!(y, f, a, 1.0)
     @test isnan(y[1]) && isequal(y[2], PB.prox_block(f, 1.5, 2, 1.0))
     @test isnan(f(a)) == !(f isa Union{MCP, LogPenalty} && f.λ == 0)

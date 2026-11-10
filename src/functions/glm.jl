@@ -436,7 +436,7 @@ otherwise. Smooth, with gradient `X' (wᵢ ℓ'(ηᵢ, yᵢ))ᵢ`. [`LogisticLos
 `f` keeps `X` (field `X`) and a buffer for `η` (field `η`), so
 [`value_and_gradient!`](@ref) costs one product with `X`, one pass over the
 observations and one product with `X'`, and allocates nothing. `β` may be a
-dense vector, a [`SparseIterate`](@ref) or an [`AtomIterate`](@ref), whose
+dense vector, a [`SparseIterate`](@ref) or a [`BlockIterate`](@ref), whose
 products with `X` cost O(n ⋅ nnz). [`restrict`](@ref) keeps the columns `S` of
 `X`.
 """

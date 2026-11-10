@@ -175,8 +175,8 @@ end
     prox!(s, f, s, 0.5)                                    # in place
     @test Matrix(s) ≈ prox(f, D, 0.5)
   end
-  # on an AtomIterate: the active groups for a function that preserves zeros
-  xa = AtomIterate([0., 0., 1., -2., 0., 0.], [1:2, 3:4, 5:6])
+  # on a BlockIterate: the active groups for a function that preserves zeros
+  xa = BlockIterate([0., 0., 1., -2., 0., 0.], [1:2, 3:4, 5:6])
   @test NormL1(0.5)(xa) ≈ 1.5
   @test MCP(1.)(xa) ≈ MCP(1.)(Vector(xa))
 end
@@ -189,7 +189,7 @@ end
     x = ones(6)
     @test_throws DimensionMismatch prox(f, x, 0.1)
     @test_throws DimensionMismatch take_block_step!(SparseIterate(x), f, 3, 0.1)
-    @test_throws DimensionMismatch take_block_step!(AtomIterate(x, 3), f, 2, 0.1)
+    @test_throws DimensionMismatch take_block_step!(BlockIterate(x, 3), f, 2, 0.1)
     f isa Union{LinearFunction, SqrNormL2, Tilt, Translate} || @test_throws DimensionMismatch f(x)
   end
   # a direct call of the scalar operator checks the index
@@ -212,7 +212,7 @@ end
   @test prox(ShiftedAbs(), zeros(4), 0.5) == fill(0.5, 4)
   points = (ones(4), SparseIterate([1., 0., -2., 0.]),
             SymmetricSparseIterate([1. 0.; 0. -2.]),
-            AtomIterate([1., 0., -2., 0.], [1:2, 3:4]))
+            BlockIterate([1., 0., -2., 0.], [1:2, 3:4]))
   for x in points
     fs = (f, Scaled(f, 2.), Tilt(f, ones(size(x))), Translate(f, ones(size(x))),
           Regularize(f, 1.), Regularize(f, 1., ones(size(x))),
@@ -225,13 +225,13 @@ end
         input = copy(x)
         output = alias ? input : copy(x)
         before = Array(output)
-        stored = output isa Union{SparseIterate, SymmetricSparseIterate, AtomIterate} ? copy(activecoordinates(output)) : nothing
+        stored = output isa Union{SparseIterate, SymmetricSparseIterate, BlockIterate} ? copy(activecoordinates(output)) : nothing
         @test_throws DimensionMismatch op(output, h, input, step)
         @test Array(output) == before
         @test Array(input) == Array(x)
         stored === nothing || @test activecoordinates(output) == stored
       end
-      if x isa Union{SparseIterate, SymmetricSparseIterate, AtomIterate}
+      if x isa Union{SparseIterate, SymmetricSparseIterate, BlockIterate}
         for k in (1, ncoordinates(x))
           input = copy(x)
           before = Array(input)
@@ -246,7 +246,7 @@ end
   # Parameters are checked even when the argument is outside the box.
   @test_throws DimensionMismatch Constrained(f, IndBox(-1., 1.))(fill(2., 4))
   # An empty stored set must not skip the hook.
-  for x in (SparseIterate(4), SymmetricSparseIterate(2), AtomIterate(4, [1:2, 3:4]))
+  for x in (SparseIterate(4), SymmetricSparseIterate(2), BlockIterate(4, [1:2, 3:4]))
     @test_throws DimensionMismatch f(x)
     @test_throws DimensionMismatch prox!(x, f, x, 0.5)
     @test all(iszero, x isa SymmetricSparseIterate ? matrixview(x) : x)
@@ -538,7 +538,7 @@ end
     S = SymmetricSparseIterate(D)
     @test g(S) ≈ g(Matrix(S))
     @test Matrix(prox!(SymmetricSparseIterate(p), g, S, 0.7)) ≈ prox(g, Matrix(S), 0.7)
-    xa = AtomIterate(randn(p * p), p)
+    xa = BlockIterate(randn(p * p), p)
     @test g(xa) ≈ g(Vector(xa))
   end
   # coordinate steps

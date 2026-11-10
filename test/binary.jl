@@ -164,7 +164,7 @@ end
   @test !iszeropreserving(IndBinary(l, u))
 end
 
-@testset "sparse and atom iterates" begin
+@testset "sparse and block iterates" begin
   l = ReadBounds(zeros(6), Int[])
   u = ReadBounds(ones(6), Int[])
   f = IndBinary(l, u)
@@ -189,7 +189,7 @@ end
   for f in (IndBinary(0, 1), IndBinary([0., -1., 0., -1., 0., -1.], [1., 0., 1., 0., 1., 0.]),
             IndBinary(-1, 1), IndBinary(nextfloat(0.), 1.))
     for input in (SparseIterate(6), x, SparseIterate([0., -0.6, 0., 0.8, 0., 0.]),
-                  AtomIterate([0., -0.6, 0., 0.8, 0., 0.], [1:2, 3:4, 5:6]))
+                  BlockIterate([0., -0.6, 0., 0.8, 0., 0.], [1:2, 3:4, 5:6]))
       dense = Vector(input)
       expected = prox(f, dense)
       @test f(input) == f(dense)
@@ -202,7 +202,7 @@ end
     end
   end
   @test nactive(prox(IndBinary(-1, 1), SparseIterate(6))) == 6
-  a = AtomIterate(6, 3)
+  a = BlockIterate(6, 3)
   prox!(a, IndBinary(-1, 1), a, 1.)
   @test Vector(a) == fill(-1., 6) && nactive(a) == 3
   for f in (IndBinary(0, 1), IndBinary(Float64[], Float64[]))
@@ -257,7 +257,7 @@ end
   @test_throws DimensionMismatch IndBinary(zeros(2), ones(3))
   @test_throws BoundsError prox_block(IndBinary(zeros(2), ones(2)), 0., 3, 1.)
   points = (ones(4), SparseIterate([1., 0., -2., 0.]),
-            SymmetricSparseIterate([1. 0.; 0. -2.]), AtomIterate([1., 0., -2., 0.], 2))
+            SymmetricSparseIterate([1. 0.; 0. -2.]), BlockIterate([1., 0., -2., 0.], 2))
   for x in points
     for f in (IndBinary(zeros(2), 1), IndBinary(0, ones(2))),
         step in (0.7, fill(0.7, size(x))), op in (prox!, value_and_prox!), alias in (false, true)

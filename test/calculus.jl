@@ -83,13 +83,13 @@ end
   gn = GroupNormL2(1.0, [1:2, 3:4])
   sg = 0.5 * gn
   grad = [0.3, -1.2, 0.8, 0.1]
-  a0 = AtomIterate(4, gn)
+  a0 = BlockIterate(4, gn)
   for k in 1:2
     @test kkt_violation(sg, grad, a0, k) ≈ 0.5 * kkt_violation(gn, 2 .* grad, a0, k)
     @test kkt_violation(sg, grad, a0, k) ≈ norm(grad[gn.groups[k]]) - 0.5 * gn.w[k]
   end
   @test kkt_violation(sg, grad, zeros(4), 1) ≈ norm(grad[1:2]) - 0.5 * sqrt(2)
-  a1, a2 = AtomIterate([1., 2., 3., 4.], gn), AtomIterate([1., 2., 3., 4.], gn)
+  a1, a2 = BlockIterate([1., 2., 3., 4.], gn), BlockIterate([1., 2., 3., 4.], gn)
   @test take_block_step!(a1, sg, 2, 0.4) ≈ take_block_step!(a2, gn, 2, 0.2)
   @test kkt_violation(0 * gn, grad, a0, 1) == maximum(abs, grad[1:2])
 end

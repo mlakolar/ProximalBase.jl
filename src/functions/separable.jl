@@ -128,7 +128,7 @@ function _value_sep(f, x::SymmetricSparseIterate)
   s
 end
 
-function _value_sep(f, x::AtomIterate)
+function _value_sep(f, x::BlockIterate)
   _checkparams(f, x)
   iszeropreserving(f) || return _value_dense(f, x)
   T = _valtype(x)
@@ -181,7 +181,7 @@ function _sep_terms(acc, f, x::SymmetricSparseIterate)
   end
   acc
 end
-function _sep_terms(acc, f, x::AtomIterate)
+function _sep_terms(acc, f, x::BlockIterate)
   iszeropreserving(f) || return invoke(_sep_terms, Tuple{Any, Any, AbstractArray}, acc, f, x)
   @inbounds for a in 1:x.nactive, i in x.groups[x.active[a]]
     acc = _entry_terms(acc, f, x.storage[i], i)
@@ -926,7 +926,7 @@ end
 # the iterates that have their own routes (stored entries only)
 _value_sep(f::NormL0, x::SparseIterate) = invoke(_value_sep, Tuple{Any, SparseIterate}, f, x)
 _value_sep(f::NormL0, x::SymmetricSparseIterate) = invoke(_value_sep, Tuple{Any, SymmetricSparseIterate}, f, x)
-_value_sep(f::NormL0, x::AtomIterate) = invoke(_value_sep, Tuple{Any, AtomIterate}, f, x)
+_value_sep(f::NormL0, x::BlockIterate) = invoke(_value_sep, Tuple{Any, BlockIterate}, f, x)
 
 # The scaled-value mechanism: λ times the number of nonzero entries, in parts. A count of the entries
 # of a host IEEE array as above; the iterates and other arrays sum their terms.

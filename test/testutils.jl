@@ -21,7 +21,7 @@ prox_objective(f, z, x, γ) = f(z) + norm_diff(z, x)^2 / (2γ)
 # Solver-style integration helper for tests: math first, public storage writes second.
 # Kept outside ProximalBase so the mathematical API never owns activation policy.
 function take_block_step!(x, f, k, γ::Real)
-  u = x isa AtomIterate ? collect(atom(x, k)) :
+  u = x isa BlockIterate ? collect(blockview(x, k)) :
       x isa SymmetricSparseIterate ? coordinates(x)[k] : x[k]
   take_block_step!(x, f, k, u, γ)
 end
@@ -43,7 +43,7 @@ function take_block_step!(x::Union{SparseIterate, SymmetricSparseIterate}, f, k,
 end
 _test_group_penalty(f::Union{Scaled, Regularize}) = _test_group_penalty(f.f)
 _test_group_penalty(f) = f
-function take_block_step!(x::AtomIterate, f, k, u::AbstractVector, γ::Real)
+function take_block_step!(x::BlockIterate, f, k, u::AbstractVector, γ::Real)
   ProximalBase._checkparams(f, x)
   if !isseparable(f)
     penalty = _test_group_penalty(f)
@@ -52,7 +52,7 @@ function take_block_step!(x::AtomIterate, f, k, u::AbstractVector, γ::Real)
   end
   checkbounds(Base.OneTo(ncoordinates(x)), k)
   ProximalBase._checkreal(f, u)
-  G = atomindices(x, k)
+  G = blockindices(x, k)
   length(G) == length(u) || throw(DimensionMismatch("trial block length"))
   buf = eltype(x).(u)
   if isseparable(f)
@@ -62,8 +62,8 @@ function take_block_step!(x::AtomIterate, f, k, u::AbstractVector, γ::Real)
   else
     prox_block!(buf, f, buf, k, γ)
   end
-  copyto!(atom(x, k), buf)
-  atom(x, k)
+  copyto!(blockview(x, k), buf)
+  blockview(x, k)
 end
 
 end

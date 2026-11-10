@@ -78,7 +78,7 @@ The `SymmetricCoordinates` and `SymmetricMatrixView` wrappers answer different q
 
 ## _ActiveIDs: protect working-set metadata
 
-`activecoordinates(x)` for `SparseIterate`, `SymmetricSparseIterate` and `AtomIterate` returns the same private handle type:
+`activecoordinates(x)` for `SparseIterate`, `SymmetricSparseIterate` and `BlockIterate` returns the same private handle type:
 
 ```julia
 struct _ActiveIDs <: AbstractVector{Int}

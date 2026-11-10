@@ -452,8 +452,8 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
               @test kkt_violation(s, g, zeros(T, 3), i) === kkt_violation(ind, g, zeros(T, 3), i)
             end
             @test kkt_violation(s, g, 1) == 1
-            # an atom iterate takes the worst index of a group
-            x = AtomIterate(T, 3, 1)
+            # an block iterate takes the worst index of a group
+            x = BlockIterate(T, 3, 1)
             @test kkt_violation(s, g, x, 1) === kkt_violation(ind, g, x, 1)
             # a symmetric parameter takes the entry of the lower triangle
             G = T[-1 2; 2 -3]
@@ -466,7 +466,7 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
         # a penalty that needs its scale keeps it, by the folded level and by the reciprocal alike
         let g = T[2 * λs, -λs / 2], x = zeros(T, 2)
           @test near(kkt_violation(small, g, x, 1), λs)
-          @test near(kkt_violation(small, g, AtomIterate(T, 2, 1), 1), λs)
+          @test near(kkt_violation(small, g, BlockIterate(T, 2, 1), 1), λs)
         end
         let s = Scaled(Scaled(NormL1(T(0.2)), T(3)), T(5))
           @test kkt_violation(s, T[2, -0.1], 1) ≈ 2 - T(3) rtol = 8eps(T)      # |g| - 15 ⋅ 0.2

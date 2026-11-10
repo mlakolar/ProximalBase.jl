@@ -1,7 +1,9 @@
 # Pure block proximal interface (0.6, #844)
 
 The implementation instruction for #844 approves `prox_block` / `prox_block!`.
-The separate `AtomIterate` naming proposal is not part of this change.
+The maintainer's 2026-11-10 ruling also requires the PB-only `BlockIterate`,
+`blockview` and `blockindices` storage rename. ProximalSolvers migration is
+separate work under PS #238; do not edit its code, pin or PR here.
 This record supersedes the storage-aware proximal requirements of the iterate
 family and symmetric-owner contracts; their storage and KKT contracts remain.
 
@@ -48,26 +50,27 @@ ProximalSolvers; `γ = Inf` is not redefined as an affine minimizer.
 
 Group buffers are one-based real vectors with the selected group's length,
 in precisely that group's entry order. Exact aliasing `out === u` is supported.
-Other overlap is rejected before writes. Direct iterate outputs and their
-coordinate/group views are rejected: use an independent numerical buffer.
-Recognizing those built-in representations in the private `_block_owner`
-preflight is an intentional safety dependency, separate from the numerical
-kernels. A new or renamed iterate/view must update that guard and its tests.
-As with any numerical buffer, callers must not supply private iterate storage
-or a storage-backed array disguised as an ordinary vector.
-
+Other overlap is rejected before writes. **Caller precondition:** the output
+must be independent of iterate storage and model caches. The mathematical
+oracle does not infer ownership from the buffer's representation. In
+particular, `activevalues(x)` can be a view of a plain vector while still
+aliasing an iterate; `coordinates(x)` and `blockview(x,k)` are also storage
+views. None is a valid independent output. Use an ordinary scratch vector or
+the allocating form, which returns independent storage. Passing aliased owner
+storage violates this precondition and can mutate iterate values or caches;
+there is no representation-specific ownership guard.
 Group bounds, lengths, representation, real element types, wrapper-center
 extent and radial scalar parameter validity are checked before writes. A
 failed element access, conversion or custom numerical implementation can leave
-a partial output, as with array writes. There is no activation or model-cache
-mutation to repair after such a failure. The allocating form never returns
+a partial output, as with array writes. With independent output, no iterate or model cache has been
+mutated by such a failure. The allocating form never returns
 its input. The mixed-input/output model precision follows full-array prox;
 solvers that need their previous storage precision convert the trial buffer
 to the iterate's element type before invoking the oracle.
 
 The solver checks group-layout equality through `samegroups`, computes the
 proximal point, then writes `x[i]`, `coordinates(x)[k]`, or
-`copyto!(atom(x,k),out)`. These public writers perform O(1) activation lookup
+`copyto!(blockview(x,k),out)`. These public writers perform O(1) activation lookup
 per scalar write and do not scan other groups. A stored zero stays active;
 a zero result on an absent coordinate does not activate it. Solvers retain
 their existing exact movement/NaN decisions before updating residuals.

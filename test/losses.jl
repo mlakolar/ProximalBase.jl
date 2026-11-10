@@ -157,7 +157,7 @@ end
     # a coordinate step: the scalar proximal operator of the coordinate
     zs = copy(xs)
     @test take_block_step!(zs, f, 7, 0.6) ≈ prox_block(f, x[7], 7, 0.6)
-    xa = AtomIterate(randn(40), 8)
+    xa = BlockIterate(randn(40), 8)
     @test f(xa) ≈ f(Vector(xa))
   end
   # the zero-preserving losses touch only the stored entries (an entry set to zero

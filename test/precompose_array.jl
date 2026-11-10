@@ -231,7 +231,7 @@ end
   end
   f = GroupNormL2(0.5, [1:2, 3:4])
   h = Precompose(f, [-2.0, -2.0, 0.5, 0.5])
-  x = AtomIterate([1.0, -2.0, 0.0, 0.0], f)
+  x = BlockIterate([1.0, -2.0, 0.0, 0.0], f)
   before = Vector(x)
   @test_throws ArgumentError take_block_step!(x, h, 1, 0.4)
   @test Vector(x) == before

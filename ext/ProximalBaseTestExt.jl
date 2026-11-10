@@ -73,7 +73,7 @@ end
 #  iterate bookkeeping
 ####################################
 
-function test_iterate(x::AtomIterate)
+function test_iterate(x::BlockIterate)
   ok = length(x.group_of) == length(x.storage)
   @test length(x.group_of) == length(x.storage)
   ok || return x
@@ -389,17 +389,17 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
 
   if groups !== nothing
     x isa AbstractVector || throw(ArgumentError("groups need a vector x"))
-    a = AtomIterate(xz, groups)
-    y = AtomIterate(float(eltype(x)), length(x), groups)
+    a = BlockIterate(xz, groups)
+    y = BlockIterate(float(eltype(x)), length(x), groups)
     for k in 1:ncoordinates(a)
-      for i in atomindices(a, k)
+      for i in blockindices(a, k)
         a[i] = prox_block(f, a[i], i, γ)
         y[i] = prox_block(f, xz[i], i, γ)
       end
     end
     @test _dense(a) ≈ _dense(pz)
     @test _dense(y) ≈ _dense(pz)
-    @test nactive(y) == count(k -> any(!iszero, atom(y, k)), activecoordinates(y))
+    @test nactive(y) == count(k -> any(!iszero, blockview(y, k)), activecoordinates(y))
     test_iterate(y)
   end
 
@@ -466,7 +466,7 @@ function test_kkt(f, x::AbstractArray, γ::Real; trials = 5, rng = nothing, tol 
     # gradients of various sizes, so that some coordinates stay at zero
     g = _randn(rng, size(x)...) .* exp.(_randn(rng, size(x)...))
     z = _dense(prox(f, -γ .* g, γ))                 # a proximal gradient step from zero
-    if x isa AtomIterate
+    if x isa BlockIterate
       x0 = similar(x)
       fill!(x0, 0)
       for k in 1:ncoordinates(x)

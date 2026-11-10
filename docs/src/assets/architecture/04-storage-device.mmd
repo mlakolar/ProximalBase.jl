@@ -1,6 +1,6 @@
 flowchart BT
   SI["SparseIterate"] --> AA["AbstractArray"]
-  AT["AtomIterate"] --> AV["AbstractVector"]
+  AT["BlockIterate"] --> AV["AbstractVector"]
   AV --> AA
   AM["AbstractMatrix"] --> AA
   SS["SymmetricSparseIterate (not an array)"] --o|lower triangle| ST["Stored entries"]

@@ -282,10 +282,10 @@ function _sumabs2(x::SymmetricSparseIterate{T}) where {T}
   end
   s
 end
-_sumabs2(x::AtomIterate) = _sumabs2(x.storage)
+_sumabs2(x::BlockIterate) = _sumabs2(x.storage)
 
 _square_term_count(x::Union{SparseIterate, SymmetricSparseIterate}) = x.nnz
-_square_term_count(x::AtomIterate) = _square_term_count(x.storage)
+_square_term_count(x::BlockIterate) = _square_term_count(x.storage)
 function _square_multiplicity(x::SymmetricSparseIterate, i)
   r, c = tril_cartesian(x.p, x.nzval2ind[i])
   r == c ? 1 : 2
@@ -301,7 +301,7 @@ function _norm2(x::_ArrayOrOwner)
   _norm2_scaled(x)
 end
 _norm2_scaled(x::AbstractArray) = norm(x)
-_norm2_scaled(x::AtomIterate) = norm(x.storage)
+_norm2_scaled(x::BlockIterate) = norm(x.storage)
 function _norm2_scaled(x::SymmetricSparseIterate{T}) where {T}
   n = zero(float(T))
   @inbounds for k in 1:x.nnz

@@ -575,9 +575,9 @@ m1_Z(stored) = (Z = SparseIterate(2, 2); Z[2, 2] = 1.0; activate!(Z, 1); m1_drop
 # p = 64: the stored-entry walk; p = 3: the column walk. An explicit zero at (1, 1).
 m1_X(p, stored) = (X = SparseIterate(p, 2); X[2, 1] = 1.0; X[3, 2] = 1.0; activate!(X, 1); m1_drop(X, stored))
 m1_AX(p) = (A = ones(2, p); A[:, 1] .= NaN; A)
-m1_a(stored) = (a = AtomIterate(4, [1:2, 3:4]); a[3] = 1.0; activate!(a, 1); m1_drop(a, stored))  # group 1: zeros
-m1_anan() = (a = AtomIterate(4, [1:2, 3:4]); a[3] = NaN; a)                            # group 2 active
-m1_a1() = (a = AtomIterate(4, [1:2, 3:4]); a[1] = 1.0; a)                              # group 1 active
+m1_a(stored) = (a = BlockIterate(4, [1:2, 3:4]); a[3] = 1.0; activate!(a, 1); m1_drop(a, stored))  # group 1: zeros
+m1_anan() = (a = BlockIterate(4, [1:2, 3:4]); a[3] = NaN; a)                            # group 2 active
+m1_a1() = (a = BlockIterate(4, [1:2, 3:4]); a[1] = 1.0; a)                              # group 1 active
 m1_s1() = (s = SparseIterate(4); s[1] = 1.0; s)
 m1_snan() = (s = SparseIterate(4); s[3] = NaN; s)
 m1_owner(stored) = (X = SymmetricSparseIterate(3); X[2, 2] = 1.0; activate!(X, tril_index(3, 3, 1)); m1_drop(X, stored))
@@ -621,9 +621,9 @@ end
 end
 
 # A stored NaN of one iterate against an unstored zero of the other, in both orders.
-for (name, x, y) in (("sparse-atom.nan-in-atom", m1_s1, m1_anan), ("atom-sparse.nan-in-atom", m1_anan, m1_s1),
-                     ("sparse-atom.nan-in-sparse", m1_snan, m1_a1), ("atom-sparse.nan-in-sparse", m1_a1, m1_snan),
-                     ("atom-atom.walk-a1", m1_anan, m1_a1), ("atom-atom.walk-nan", m1_a1, m1_anan))
+for (name, x, y) in (("sparse-block.nan-in-block", m1_s1, m1_anan), ("block-sparse.nan-in-block", m1_anan, m1_s1),
+                     ("sparse-block.nan-in-sparse", m1_snan, m1_a1), ("block-sparse.nan-in-sparse", m1_a1, m1_snan),
+                     ("block-block.walk-a1", m1_anan, m1_a1), ("block-block.walk-nan", m1_a1, m1_anan))
   @row begin
     id = "failures_storage.strong-zero.dot." * name; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
@@ -695,17 +695,17 @@ for (tag, stored) in (("stored", true), ("dropped", false))
     expected = 1.0; observed = dot([NaN, 1.0], m1_Z(stored), [1.0, 1.0])
   end
   @row begin
-    id = "failures_storage.strong-zero.atom.dot-v-a.$tag"; case = ""; family = :failures_storage; oracle = :product
+    id = "failures_storage.strong-zero.block.dot-v-a.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = 1.0; observed = dot([NaN, 0.0, 1.0, 0.0], m1_a(stored))
   end
   @row begin
-    id = "failures_storage.strong-zero.atom.dot-a-v.$tag"; case = ""; family = :failures_storage; oracle = :product
+    id = "failures_storage.strong-zero.block.dot-a-v.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = 1.0; observed = dot(m1_a(stored), [NaN, 0.0, 1.0, 0.0])
   end
   @row begin
-    id = "failures_storage.strong-zero.atom.mul.$tag"; case = ""; family = :failures_storage; oracle = :product
+    id = "failures_storage.strong-zero.block.mul.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = [1.0]; observed = [NaN 0.0 1.0 0.0] * m1_a(stored)
   end
@@ -746,7 +746,7 @@ for (tag, stored) in (("stored", true), ("dropped", false))
     expected = 0.0; observed = m1_f()(m1_fs(stored))
   end
   @row begin
-    id = "failures_storage.strong-zero.value.least-squares-atom.$tag"; case = ""; family = :failures_storage; oracle = :value
+    id = "failures_storage.strong-zero.value.least-squares-block.$tag"; case = ""; family = :failures_storage; oracle = :value
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_VALUE
     expected = 0.0; observed = LeastSquaresLoss([1], [NaN 0 1 0])(m1_a(stored))
   end

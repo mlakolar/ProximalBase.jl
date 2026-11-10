@@ -242,18 +242,18 @@ end
   @test isequal(prox_block(s, T(5), 1, T(0)), T(5))
 end
 
-@testset "coordinate updates of an AtomIterate, $T" for T in (Float32, Float64)
+@testset "coordinate updates of a BlockIterate, $T" for T in (Float32, Float64)
   tiny = T === Float64 ? 1e-300 : 1f-30
   for leaf in (GroupNormL2(T(Inf), [1:2, 3:3]), GroupNormLinf(T(Inf), [1:2, 3:3]), SparseGroupNormL2(T(Inf), T(1), [1:2, 3:3]))
     for (k, expected) in ((1, T[0, 0, 3]), (2, T[1, 2, 0]))
       for s in (Scaled(leaf, tiny), Scaled(Scaled(leaf, tiny), tiny))
-        a = AtomIterate(T[1, 2, 3], leaf)
+        a = BlockIterate(T[1, 2, 3], leaf)
         take_block_step!(a, s, k, T(tiny))
         @test isequal(collect(a), expected)
         # the exact zero step is that of the function itself
-        b = AtomIterate(T[1, 2, 3], leaf)
+        b = BlockIterate(T[1, 2, 3], leaf)
         take_block_step!(b, s, k, zero(T))
-        c = AtomIterate(T[1, 2, 3], leaf)
+        c = BlockIterate(T[1, 2, 3], leaf)
         take_block_step!(c, leaf, k, zero(T))
         @test isequal(collect(b), collect(c))
       end
@@ -456,14 +456,14 @@ end
       @test isequal(sentinel, y) && isequal(prox(s2, x, γs), y)
     end
   end
-  # the same call for the group function on an AtomIterate, a coordinate at a time: the unsupported class,
+  # the same call for the group function on a BlockIterate, a coordinate at a time: the unsupported class,
   # the result of the leaf at the rounded product
   let f = SparseGroupNormL2(T(1), inf, [1:1, 2:2], T[0, 1]), tiny = T === Float64 ? T(1e-300) : T(1f-30)
     s = Scaled(f, tiny)
     for k in 1:2
-      a = AtomIterate(T[1, 2], f)
+      a = BlockIterate(T[1, 2], f)
       take_block_step!(a, s, k, tiny)
-      c = AtomIterate(T[1, 2], f)
+      c = BlockIterate(T[1, 2], f)
       take_block_step!(c, f, k, tiny * tiny)
       @test isequal(collect(a), collect(c))
     end
@@ -668,19 +668,19 @@ end
       check_ref(Scaled(f, α), x, γ, ref, val)
     end
   end
-  # a coordinate at a time on an AtomIterate: a group function whose infinite ℓ1 level fixes every group
+  # a coordinate at a time on a BlockIterate: a group function whose infinite ℓ1 level fixes every group
   f = SparseGroupNormL2(inf, T(1), groups, T[0, 1, 0])
   for k in 1:3
-    a = AtomIterate(copy(x), f)
+    a = BlockIterate(copy(x), f)
     take_block_step!(a, Scaled(f, α), k, γ)
     @test all(iszero, collect(a)[groups[k]])
   end
   # and the unsupported class: the result of the leaf at the rounded product
   f = SparseGroupNormL2(T(1), inf, groups, T[0, 1, 0])
   for k in 1:3
-    a = AtomIterate(copy(x), f)
+    a = BlockIterate(copy(x), f)
     take_block_step!(a, Scaled(f, α), k, γ)
-    c = AtomIterate(copy(x), f)
+    c = BlockIterate(copy(x), f)
     take_block_step!(c, f, k, α * γ)
     @test isequal(collect(a), collect(c))
   end
@@ -1000,7 +1000,7 @@ end
   al = [2tt, 2.0]
   value_and_prox!(al, f, al, γ)
   @test al == y
-  at = AtomIterate([2tt, 2.0], f.f)
+  at = BlockIterate([2tt, 2.0], f.f)
   take_block_step!(at, f, 1, γ)
   @test collect(at)[1] == 4.408103881914371e-9
   for (a2, γ2) in ((ldexp(1.5f0, -40), ldexp(1f0, -88)), (ldexp(1.5f0, -80), ldexp(1f0, -48)))

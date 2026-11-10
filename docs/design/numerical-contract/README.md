@@ -2,7 +2,10 @@
 
 The numerical contract is published in `docs/src/numerics.md`. This folder
 keeps the record of how it was decided. It is outside `docs/src`, so
-Documenter does not build it.
+Documenter does not build it. Historical decision and audit records retain
+the storage names used at their pinned commits. The current public names are
+`BlockIterate`, `blockview` and `blockindices`; those records do not define
+compatibility aliases. The generated coverage map reflects the current tests.
 
 | file | content |
 |:---|:---|

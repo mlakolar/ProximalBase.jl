@@ -362,7 +362,7 @@ end
   @test value_and_prox!(DeviceArray(similar(x)), fl0, DeviceArray(x), 1.0) == 0
 end
 
-@testset "adapted group penalties on host AtomIterates" begin
+@testset "adapted group penalties on host BlockIterates" begin
   allowscalar(false)
   ranges = [1:2, 3:5, 6:6, 7:9]
   layouts = (ranges, collect.(ranges))
@@ -373,9 +373,9 @@ end
       fg = Adapt.adapt(DeviceArray, f)
       reference = prox(f, v, T(0.7))
       for xgroups in layouts, ygroups in layouts
-        xa = AtomIterate(v, xgroups)
+        xa = BlockIterate(v, xgroups)
         activate!(xa, 3)
-        ya = AtomIterate(ones(T, 9), ygroups)
+        ya = BlockIterate(ones(T, 9), ygroups)
         @test same(fg(xa), f(Vector(xa)))
         @test prox!(ya, fg, xa, T(0.7)) === ya
         @test Vector(ya) ≃ reference

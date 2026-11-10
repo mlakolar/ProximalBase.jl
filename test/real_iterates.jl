@@ -11,7 +11,7 @@ function rejects(f, name, outputs...)
       @test out.nnz == saved.nnz
       @test out.ind2nzval == saved.ind2nzval
       @test out.nzval2ind == saved.nzval2ind
-    elseif out isa AtomIterate
+    elseif out isa BlockIterate
       @test out.nactive == saved.nactive
       @test out.active == saved.active
       @test out.position == saved.position
@@ -41,25 +41,25 @@ end
       rejects(make, :SymmetricSparseIterate)
     end
     G = [1:1, 2:2]
-    for make in (() -> AtomIterate(T, 2, G), () -> AtomIterate(T, 2, 2),
-                 () -> AtomIterate(zeros(T, 2), G), () -> AtomIterate(zeros(T, 2), 2),
-                 () -> AtomIterate{T, typeof(G)}(zeros(T, 2), G, [1, 2], nothing, zeros(Int, 2), zeros(Int, 2), 0),
-                 () -> similar(AtomIterate(2, G), T),
-                 () -> convert(AtomIterate{T, typeof(G)}, AtomIterate(2, G)),
-                 () -> convert(AtomIterate{T}, AtomIterate(2, G)))
-      rejects(make, :AtomIterate)
+    for make in (() -> BlockIterate(T, 2, G), () -> BlockIterate(T, 2, 2),
+                 () -> BlockIterate(zeros(T, 2), G), () -> BlockIterate(zeros(T, 2), 2),
+                 () -> BlockIterate{T, typeof(G)}(zeros(T, 2), G, [1, 2], nothing, zeros(Int, 2), zeros(Int, 2), 0),
+                 () -> similar(BlockIterate(2, G), T),
+                 () -> convert(BlockIterate{T, typeof(G)}, BlockIterate(2, G)),
+                 () -> convert(BlockIterate{T}, BlockIterate(2, G)))
+      rejects(make, :BlockIterate)
     end
   end
   for T in (Int, Bool, Float32, Float64)
     @test eltype(SparseIterate(T, 2)) == T
     @test eltype(SymmetricSparseIterate(T, 2)) == T
-    @test eltype(AtomIterate(T, 2, 2)) == T
+    @test eltype(BlockIterate(T, 2, 2)) == T
   end
 end
 
-@testset "real sparse and atom products" begin
-  for x in (SparseIterate([1., 0.]), SparseIterate([1. 0.; 0. 2.]), AtomIterate([1., 0.], 2),
-            SparseIterate(2), AtomIterate(2, 2))
+@testset "real sparse and block products" begin
+  for x in (SparseIterate([1., 0.]), SparseIterate([1. 0.; 0. 2.]), BlockIterate([1., 0.], 2),
+            SparseIterate(2), BlockIterate(2, 2))
     name = nameof(typeof(x))
     out = fill(7., size(x))
     for A in (ones(2, 2), Symmetric(ones(2, 2)), transpose(ones(2, 2)))
@@ -130,7 +130,7 @@ end
 
 @testset "broadcast data and control arguments" begin
   A = [1.2 2.8; 2.8 3.1]
-  for x in (SparseIterate(A), AtomIterate(vec(A), 2))
+  for x in (SparseIterate(A), BlockIterate(vec(A), 2))
     data = reshape(A, size(x))
     @test (x .= round.(x, RoundDown)) == floor.(data)
     @test (x .= ((v, f) -> f(v)).(data, identity)) == data
@@ -151,7 +151,7 @@ end
 
 @testset "real scalar and structured operands" begin
   A = [1. 2.; 2. 3.]
-  for x in (SparseIterate([1., 2.]), AtomIterate([1., 2.], 2))
+  for x in (SparseIterate([1., 2.]), BlockIterate([1., 2.], 2))
     for B in (A, Diagonal([1., 2.]), transpose(A), adjoint(A))
       for (α, β) in ((true, false), (2, 1), (1//2, 1//3))
         out = fill(3., 2)
@@ -175,12 +175,12 @@ end
   end
 end
 
-@testset "real-only bulk writes of SparseIterate and AtomIterate" begin
+@testset "real-only bulk writes of SparseIterate and BlockIterate" begin
   c = ComplexF64[1, 2im, 0, 0]
   C = reshape(c, 2, 2)
   hasdense = isdefined(SparseArrays, :CHOLMOD) && isdefined(SparseArrays.CHOLMOD, :Dense)
   vector_iterates = ((() -> (x = SparseIterate(4); x[4] = 9.0; x), :SparseIterate),
-                     (() -> (x = AtomIterate(4, 2); x[4] = 9.0; x), :AtomIterate))
+                     (() -> (x = BlockIterate(4, 2); x[4] = 9.0; x), :BlockIterate))
   for (make, name) in vector_iterates
     for write! in (x -> copyto!(x, c), x -> copy!(x, c), x -> (x .= c), x -> (x .= 2im),
                    x -> fill!(x, 2im), x -> fill!(x, 1 + 0im), x -> fill!(x, 0im),
@@ -202,7 +202,7 @@ end
     @test_throws InexactError (make()[:] = c)
     @test_throws InexactError copyto!(make(), Number[1.0, 2im, 0, 0])
   end
-  @test_throws InexactError (atom(AtomIterate(4, 2), 1) .= ComplexF64[1, 2im])
+  @test_throws InexactError (blockview(BlockIterate(4, 2), 1) .= ComplexF64[1, 2im])
   @test_throws Exception (coordinates(SparseIterate(4)) .= c)
   # the coordinate view has no check of its own: it writes as a plain vector of the element type
   let fixture() = (x = SparseIterate(4); x[3] = 1.0; x)
@@ -239,12 +239,12 @@ end
 
   # vec and the full-length reshape of a vector are the iterate itself
   s0 = SparseIterate([0., 1.])
-  b0 = AtomIterate([0., 1.], [1:1, 2:2])
+  b0 = BlockIterate([0., 1.], [1:1, 2:2])
   rejects(() -> (vec(s0) .= ComplexF64[1, 2im]), :SparseIterate, s0)
   rejects(() -> (reshape(s0, 2) .= ComplexF64[1, 2im]), :SparseIterate, s0)
-  rejects(() -> (vec(b0) .= ComplexF64[1, 2im]), :AtomIterate, b0)
+  rejects(() -> (vec(b0) .= ComplexF64[1, 2im]), :BlockIterate, b0)
   rejects(() -> SparseIterate(ComplexF64, 2), :SparseIterate)
-  rejects(() -> AtomIterate(ComplexF64, 4, 2), :AtomIterate)
+  rejects(() -> BlockIterate(ComplexF64, 4, 2), :BlockIterate)
 
   # real sources keep their results
   S = sparse([1.0 0; 0 2])
@@ -260,15 +260,15 @@ end
     @test Matrix(y) == [1 0 0 2]
   end
   @test Vector(copyto!(SparseIterate(4), S)) == [1, 0, 0, 2]
-  @test Vector(copyto!(AtomIterate(4, 2), S)) == [1, 0, 0, 2]
+  @test Vector(copyto!(BlockIterate(4, 2), S)) == [1, 0, 0, 2]
   if hasdense
     D = SparseArrays.CHOLMOD.Dense
     v = reshape([1.0, 0, 0, 2], 4, 1)
     @test Vector(copyto!(SparseIterate(4), D(v))) == [1, 0, 0, 2]
     @test Matrix(copyto!(SparseIterate(2, 2), D([1.0 0; 0 2]))) == [1 0; 0 2]
     @test Matrix(copyto!(SparseIterate(Float32, 2, 2), D([1.0 0; 0 2]))) == Float32[1 0; 0 2]
-    @test Vector(copyto!(AtomIterate(4, 2), D(v))) == [1, 0, 0, 2]
-    @test Vector(copyto!(AtomIterate(Float32, 4, 2), D(v))) == Float32[1, 0, 0, 2]
+    @test Vector(copyto!(BlockIterate(4, 2), D(v))) == [1, 0, 0, 2]
+    @test Vector(copyto!(BlockIterate(Float32, 4, 2), D(v))) == Float32[1, 0, 0, 2]
   end
   @test Matrix(copyto!(makem(), 2I)) == [2 0; 0 2]
   Q = qr([2.0 1; 1 3], ColumnNorm()).Q
@@ -292,7 +292,7 @@ end
 
 @testset "broadcast results" begin
   makers = ((() -> (x = SparseIterate(4); x[4] = 7.0; x), :SparseIterate, (4,)),
-            (() -> (x = AtomIterate(4, 2); x[4] = 7.0; x), :AtomIterate, (4,)),
+            (() -> (x = BlockIterate(4, 2); x[4] = 7.0; x), :BlockIterate, (4,)),
             (() -> (x = SparseIterate(2, 2); x[2, 2] = 7.0; x), :SparseIterate, (2, 2)))
   for (make, name, dims) in makers
     shaped(v) = reshape(v, dims)
@@ -395,7 +395,7 @@ end
     x = make(); @test vals((x .= 2 .* x)) == shaped([0.0, 0, 0, 14])
   end
   # an empty destination: a broadcast that is valid for it writes nothing
-  for x in (SparseIterate(0), SparseIterate(0, 2), AtomIterate(Float64, 0, Vector{Int}[]))
+  for x in (SparseIterate(0), SparseIterate(0, 2), BlockIterate(Float64, 0, Vector{Int}[]))
     @test (x .= Number[]) === x
     @test (x .= Number[2.0]) === x
     @test nactive(x) == 0 && isempty(x)
@@ -414,7 +414,7 @@ end
 @testset "iterate dispatch" begin
   ambiguities = Test.detect_ambiguities(ProximalBase, LinearAlgebra; recursive = true)
   owned = filter(ambiguities) do pair
-    any(m -> basename(string(m.file)) in ("sparse_iterate.jl", "atom_iterate.jl"), pair)
+    any(m -> basename(string(m.file)) in ("sparse_iterate.jl", "block_iterate.jl"), pair)
   end
   @test isempty(owned)
 end

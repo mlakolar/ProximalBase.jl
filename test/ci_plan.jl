@@ -125,7 +125,7 @@ end
   @test pr("src/utils.jl"; labels = ["test:benchmark"]).tier == base.tier
   @test_throws ArgumentError pr("src/utils.jl"; labels = ["test:fast"])
   # the narrow label still lowers an iterate rule: quick on Julia 1
-  r = pr("src/atom_iterate.jl"; labels = ["test:iterate-narrow"])
+  r = pr("src/block_iterate.jl"; labels = ["test:iterate-narrow"])
   @test r.tier == "quick" && r.platforms == "stable"
 end
 
@@ -543,7 +543,7 @@ const TESTING_CONSUMERS = ["allocations_basics", "ballconstrained", "binary", "c
                 [ext, "test/precompose_array.jl"])
     r = pr(paths...)
     expected = ["testing"]
-    "src/functions/norms.jl" in paths && push!(expected, "atom_iterate_grids")
+    "src/functions/norms.jl" in paths && push!(expected, "block_iterate_grids")
     "test/precompose_array.jl" in paths && push!(expected, "precompose_array")
     @test r.tier == "standard" && r.focus == join(sort(expected), ",")
     @test selected(r) == sort!(union(standard, expected))

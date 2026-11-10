@@ -115,21 +115,21 @@ end
     gn = GroupNormL2(0.6, groups)
     r = Regularize(gn, 0.5)
     p = check_prox(r, x, 0.7)
-    # on an AtomIterate, group by group
-    a = AtomIterate(x, gn)
+    # on a BlockIterate, group by group
+    a = BlockIterate(x, gn)
     for k in 1:3
       take_block_step!(a, r, k, 0.7)
     end
     @test Vector(a) ≈ p
     rc = Regularize(gn, 0.5, randn(n))
     pc = check_prox(rc, x, 0.7)
-    ac = AtomIterate(x, gn)
+    ac = BlockIterate(x, gn)
     for k in 1:3
       take_block_step!(ac, rc, k, 0.7)
     end
     @test Vector(ac) ≈ pc
     grad = randn(n)
-    @test kkt_violation(r, grad, AtomIterate(n, gn), 2) ≈ kkt_violation(gn, grad, AtomIterate(n, gn), 2)
+    @test kkt_violation(r, grad, BlockIterate(n, gn), 2) ≈ kkt_violation(gn, grad, BlockIterate(n, gn), 2)
   end
   @testset "the matrix elastic net" begin
     M = randn(6, 4)
@@ -249,12 +249,12 @@ end
   f = GroupNormL2(0.5, [1:2, 3:4])
   for r in (Regularize(f, 1.0, [1.0]),
             Regularize(GroupNormL2(0.5, [1:1, 2:4]), 1.0))
-    x = AtomIterate([1.0, 2.0, 3.0, 4.0], f)
+    x = BlockIterate([1.0, 2.0, 3.0, 4.0], f)
     before = Vector(x)
     @test_throws DimensionMismatch take_block_step!(x, r, 1, 0.5)
     @test Vector(x) == before
   end
-  x = AtomIterate([1.0, 2.0, 3.0, 4.0], f)
+  x = BlockIterate([1.0, 2.0, 3.0, 4.0], f)
   before = Vector(x)
   @test_throws BoundsError take_block_step!(x, Regularize(f, 1.0), 0, 0.5)
   @test_throws BoundsError take_block_step!(x, NormL1(), 3, 0.5)
@@ -271,7 +271,7 @@ end
     @test prox!(y, r, y, T(2)) == ones(T, 2)
     f = GroupNormL2(one(T), [1:2], T[1])
     rg = Regularize(f, floatmax(T), ones(T, 2))
-    a = AtomIterate(x, f)
+    a = BlockIterate(x, f)
     @test take_block_step!(a, rg, 1, T(2)) == ones(T, 2)
     @test ProximalBase._regularize_step(T(2), floatmax(T)) > zero(T)
     # Same-sign endpoints at floatmax stay finite even when weights round up.

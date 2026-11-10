@@ -397,14 +397,14 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
 # tier "standard": a pull request on a standard-tier path alone, without a label that raises the
 # tier, did not run their base files, so the grids file would run the Float32 repeats without the
 # Float64 baseline that the base file keeps. The exception is block_step_grids: block_step is a
-# focus file of the rules for src/atom_iterate.jl and src/sparse_iterate.jl, so those two rules list
+# focus file of the rules for src/block_iterate.jl and src/sparse_iterate.jl, so those two rules list
 # block_step_grids too, and its row has both paths.
 const GRIDS = [
-  (grids = "atom_iterate_grids", base = "atom_iterate", base_tier = "quick", shared = false,
-   paths = ["src/atom_iterate.jl" => "standard", "src/functions/norms.jl" => "standard",
+  (grids = "block_iterate_grids", base = "block_iterate", base_tier = "quick", shared = false,
+   paths = ["src/block_iterate.jl" => "standard", "src/functions/norms.jl" => "standard",
             "src/functions/sparsegroup.jl" => "standard", "src/functions/nonconvex.jl" => "standard"]),
   (grids = "block_step_grids", base = "block_step", base_tier = "thorough", shared = true,
-   paths = ["src/atom_iterate.jl" => "standard", "src/calculus.jl" => "thorough",
+   paths = ["src/block_iterate.jl" => "standard", "src/calculus.jl" => "thorough",
             "src/sparse_iterate.jl" => "standard"]),
   (grids = "blockchecks_grids", base = "blockchecks", base_tier = "thorough",
    shared = true, paths = ["src/calculus.jl" => "thorough"]),
@@ -467,7 +467,7 @@ end
   @test classify("src/functions/cones.jl", "test/soc.jl") == ("quick", ["expcone", "rotatedsoc", "soc"])
   # package code without any test change: at least standard
   @test classify("src/functions/entropy.jl") == ("standard", ["entropy"])
-  @test classify("src/functions/norms.jl", "test/norms.jl") == ("standard", ["atom_iterate_grids", "norms"])
+  @test classify("src/functions/norms.jl", "test/norms.jl") == ("standard", ["block_iterate_grids", "norms"])
   # a family whose own tests are in the full tier runs them beside standard
   @test classify("src/functions/sets.jl", "test/sets.jl") == ("standard", ["hyperslab", "sets"])
   @test classify("src/composition.jl") == ("standard", ["composition", "precompose_array"])
@@ -514,7 +514,7 @@ end
 # The tier and focus files a PR gets, as the plan job reports them.
 pr(paths...; labels = String[]) = TestTiers.pr_tier(MANIFEST, collect(paths), labels)[1:2]
 const NARROW = [TestTiers.NARROW_LABEL]
-const ATOM = ["atom_iterate_grids", "block_step", "block_step_grids", "infinite_group_weights", "norms", "real_iterates", "sparsegroup"]
+const ATOM = ["block_iterate_grids", "block_step", "block_step_grids", "infinite_group_weights", "norms", "real_iterates", "sparsegroup"]
 const SPARSE = ["block_step", "block_step_grids", "conformance/failures_storage", "real_iterates", "sparse_iterate", "sparse_iterate_basics_grids",
                 "sparse_value_cost", "symmetric_argument", "symmetric_mul"]
 const SYMPARAMS = ["symmetric_parameters_extensions", "symmetric_parameters_merge", "symmetric_parameters_paths",
@@ -524,53 +524,53 @@ instandard(names) = filter(n -> !(n in TestTiers.select(MANIFEST, "standard")), 
 @testset "iterate policy" begin
   # a narrow change to one implementation, declared by the label: quick and its focus files,
   # also without a test change
-  @test pr("src/atom_iterate.jl"; labels = NARROW) == ("quick", ATOM)
-  @test pr("src/atom_iterate.jl", "test/atom_iterate.jl"; labels = NARROW) == ("quick", ATOM)
+  @test pr("src/block_iterate.jl"; labels = NARROW) == ("quick", ATOM)
+  @test pr("src/block_iterate.jl", "test/block_iterate.jl"; labels = NARROW) == ("quick", ATOM)
   @test pr("src/sparse_iterate.jl"; labels = NARROW) == ("quick", SPARSE)
   @test pr("src/symmetric_parameters.jl"; labels = NARROW) == ("quick", SYMPARAMS)
   # without the label: standard and the same focus files (those standard lacks)
-  @test pr("src/atom_iterate.jl") == ("standard", instandard(ATOM))
+  @test pr("src/block_iterate.jl") == ("standard", instandard(ATOM))
   @test pr("src/sparse_iterate.jl", "test/sparse_iterate.jl") == ("standard", instandard(SPARSE))
   @test pr("src/symmetric_parameters.jl") == ("standard", SYMPARAMS)
   # two implementations: the label does not apply; standard and both groups
-  @test pr("src/sparse_iterate.jl", "src/atom_iterate.jl"; labels = NARROW) ==
+  @test pr("src/sparse_iterate.jl", "src/block_iterate.jl"; labels = NARROW) ==
         ("standard", instandard(sort!(union(SPARSE, ATOM))))
   @test pr("src/sparse_iterate.jl", "src/symmetric_parameters.jl"; labels = NARROW)[1] == "standard"
   # a shared or architectural change gets test:thorough by hand; test:full always wins
   @test pr("src/sparse_iterate.jl"; labels = ["test:thorough"])[1] == "thorough"
   @test pr("src/sparse_iterate.jl"; labels = [NARROW; "test:thorough"])[1] == "thorough"
-  @test pr("src/atom_iterate.jl"; labels = [NARROW; "test:full"]) == ("full", String[])
-  @test pr("src/atom_iterate.jl"; labels = [NARROW; "test:standard"]) == ("standard", instandard(ATOM))
+  @test pr("src/block_iterate.jl"; labels = [NARROW; "test:full"]) == ("full", String[])
+  @test pr("src/block_iterate.jl"; labels = [NARROW; "test:standard"]) == ("standard", instandard(ATOM))
   # the label never lowers another path: shared code, infrastructure, unknown paths
   @test pr("src/sparse_iterate.jl", "src/utils.jl"; labels = NARROW)[1] == "thorough"
-  @test pr("src/atom_iterate.jl", "src/interface.jl"; labels = NARROW)[1] == "thorough"
-  @test pr("src/atom_iterate.jl", "Project.toml"; labels = NARROW)[1] == "full"
-  @test pr("src/atom_iterate.jl", ".github/workflows/CI.yml"; labels = NARROW)[1] == "full"
-  @test pr("src/atom_iterate.jl", "a/new/file.txt"; labels = NARROW)[1] == "full"
+  @test pr("src/block_iterate.jl", "src/interface.jl"; labels = NARROW)[1] == "thorough"
+  @test pr("src/block_iterate.jl", "Project.toml"; labels = NARROW)[1] == "full"
+  @test pr("src/block_iterate.jl", ".github/workflows/CI.yml"; labels = NARROW)[1] == "full"
+  @test pr("src/block_iterate.jl", "a/new/file.txt"; labels = NARROW)[1] == "full"
   # nor package code without tests: other source still needs standard, with or without a test
   # change elsewhere
-  @test pr("src/atom_iterate.jl", "src/functions/entropy.jl"; labels = NARROW)[1] == "standard"
-  @test pr("src/atom_iterate.jl", "src/functions/norms.jl", "test/norms.jl"; labels = NARROW)[1] == "standard"
+  @test pr("src/block_iterate.jl", "src/functions/entropy.jl"; labels = NARROW)[1] == "standard"
+  @test pr("src/block_iterate.jl", "src/functions/norms.jl", "test/norms.jl"; labels = NARROW)[1] == "standard"
   @test pr("src/functions/entropy.jl", "test/entropy.jl"; labels = NARROW) == ("quick", String[])
-  @test pr("src/functions/norms.jl"; labels = NARROW) == pr("src/functions/norms.jl") == ("standard", ["atom_iterate_grids"])
+  @test pr("src/functions/norms.jl"; labels = NARROW) == pr("src/functions/norms.jl") == ("standard", ["block_iterate_grids"])
   # the label only adds information: the same paths without it never get a lower tier, and the
   # focus files are the same
-  for paths in (["src/atom_iterate.jl"], ["src/sparse_iterate.jl", "src/utils.jl"], ["src/functions/sets.jl"],
-                ["docs/src/index.md"], ["src/atom_iterate.jl", "test/norms.jl"])
+  for paths in (["src/block_iterate.jl"], ["src/sparse_iterate.jl", "src/utils.jl"], ["src/functions/sets.jl"],
+                ["docs/src/index.md"], ["src/block_iterate.jl", "test/norms.jl"])
     t1, f1, _ = TestTiers.classify(MANIFEST, paths; narrow = true)
     t2, f2, _ = TestTiers.classify(MANIFEST, paths)
     @test TestTiers.rank(t1) <= TestTiers.rank(t2) && f1 == f2
   end
   # documentation keeps no tests with the label; an unknown test label is an error
   @test pr("docs/src/index.md"; labels = NARROW) == ("none", String[])
-  @test_throws ArgumentError pr("src/atom_iterate.jl"; labels = ["test:iterate"])
+  @test_throws ArgumentError pr("src/block_iterate.jl"; labels = ["test:iterate"])
   # the decision table says when and why the label applies
-  _, _, d = TestTiers.classify(MANIFEST, ["src/atom_iterate.jl"]; narrow = true)
+  _, _, d = TestTiers.classify(MANIFEST, ["src/block_iterate.jl"]; narrow = true)
   @test occursin("narrow change", d[1][3])
-  _, _, d = TestTiers.classify(MANIFEST, ["src/atom_iterate.jl", "src/sparse_iterate.jl"]; narrow = true)
+  _, _, d = TestTiers.classify(MANIFEST, ["src/block_iterate.jl", "src/sparse_iterate.jl"]; narrow = true)
   @test d[1][1] == "(label test:iterate-narrow)" && occursin("more than one iterate implementation", d[1][3])
   # the result does not depend on the order of the paths
-  paths = ["src/sparse_iterate.jl", "test/norms.jl", "src/atom_iterate.jl", "README.md"]
+  paths = ["src/sparse_iterate.jl", "test/norms.jl", "src/block_iterate.jl", "README.md"]
   @test TestTiers.classify(MANIFEST, paths)[1:2] == TestTiers.classify(MANIFEST, reverse(paths))[1:2]
   # every focus file runs in full, and the iterate rules are the only ones the label can lower
   full = TestTiers.select(MANIFEST, "full")
@@ -614,14 +614,14 @@ const GPU = ["conformance/gpu_arrays", "gpu", "gpu_smoke"]
   for path in ("src/functions/norms.jl", "src/utils.jl", "src/composition.jl", "test/norms.jl", "README.md")
     @test isdisjoint(pr(path)[2], GPU)
   end
-  @test pr("src/functions/norms.jl") == ("standard", ["atom_iterate_grids"])
+  @test pr("src/functions/norms.jl") == ("standard", ["block_iterate_grids"])
   # the label test:gpu adds the three files to any change; labels never lower the tier
-  @test pr("src/functions/norms.jl"; labels = ["test:gpu"]) == ("standard", ["atom_iterate_grids"; GPU])
+  @test pr("src/functions/norms.jl"; labels = ["test:gpu"]) == ("standard", ["block_iterate_grids"; GPU])
   @test pr("src/utils.jl"; labels = ["test:gpu"]) == ("thorough", sort!([GPU; SHARED_GRIDS]))
   @test pr("src/utils.jl"; labels = ["test:gpu", "test:standard"]) == ("thorough", sort!([GPU; SHARED_GRIDS]))
-  @test pr("src/functions/norms.jl"; labels = ["test:gpu", "test:thorough"]) == ("thorough", ["atom_iterate_grids"; GPU])
+  @test pr("src/functions/norms.jl"; labels = ["test:gpu", "test:thorough"]) == ("thorough", ["block_iterate_grids"; GPU])
   @test pr("src/functions/norms.jl"; labels = ["test:full", "test:gpu"]) == ("full", String[])
-  @test pr("src/functions/norms.jl"; labels = ["test:gpu", NARROW...]) == ("standard", ["atom_iterate_grids"; GPU])
+  @test pr("src/functions/norms.jl"; labels = ["test:gpu", NARROW...]) == ("standard", ["block_iterate_grids"; GPU])
   # a change that needs no package tests runs quick with the files (a plan with tier none runs nothing)
   _, _, _, notes = TestTiers.pr_tier(MANIFEST, ["docs/src/index.md"], ["test:gpu"])
   @test pr("docs/src/index.md"; labels = ["test:gpu"]) == ("quick", GPU)
@@ -710,7 +710,7 @@ end
     paths = ["test/iterate_new.jl", "test/tiers.toml"]
     @test TestTiers.pr_tier(m, paths, String[]; manifest_additions = ["iterate_new"])[1:2] == ("quick", ["iterate_new"])
     @test TestTiers.pr_tier(m, paths, String[])[1:2] == ("full", String[])
-    @test TestTiers.pr_tier(m, [paths; "src/atom_iterate.jl"], NARROW; manifest_additions = ["iterate_new"])[1:2] ==
+    @test TestTiers.pr_tier(m, [paths; "src/block_iterate.jl"], NARROW; manifest_additions = ["iterate_new"])[1:2] ==
           ("quick", sort!([ATOM; "iterate_new"]))
     @test TestTiers.pr_tier(m, [paths; "src/utils.jl"], String[]; manifest_additions = ["iterate_new"])[1] == "thorough"
     # an unlisted test file still stops the plan
@@ -780,8 +780,8 @@ end
   @test pr("src/constrained.jl") == ("standard", ["constrained_basics_grids"])
   # the narrow label on a change to one iterate source still gives quick, with the focus files of its rule: the iterate's
   # own grids file, block_step_grids and the other files of ATOM or SPARSE
-  @test pr("src/atom_iterate.jl"; labels = NARROW) == ("quick", ATOM)
-  @test "atom_iterate_grids" in pr("src/atom_iterate.jl"; labels = NARROW)[2]
+  @test pr("src/block_iterate.jl"; labels = NARROW) == ("quick", ATOM)
+  @test "block_iterate_grids" in pr("src/block_iterate.jl"; labels = NARROW)[2]
   @test "sparse_iterate_basics_grids" in pr("src/sparse_iterate.jl"; labels = NARROW)[2]
   @test pr("src/sparse_iterate.jl"; labels = NARROW)[1] == "quick"
   # the policy, as representative checks: these unrelated source paths get no grids file as focus
@@ -791,7 +791,7 @@ end
   end
   # the grids files of a thorough-tier base file: the rules that list them are thorough-tier rules,
   # the rule for src/calculus.jl and the shared rule, and the rules of the standard paths that a row
-  # names with the tier "standard" (block_step_grids: the rules for src/atom_iterate.jl and
+  # names with the tier "standard" (block_step_grids: the rules for src/block_iterate.jl and
   # src/sparse_iterate.jl); the standard paths of the other rows get none of them
   thorough_grids = [row.grids for row in GRIDS if row.base_tier == "thorough"]
   @test !isempty(thorough_grids) && issubset(thorough_grids, SHARED_GRIDS)
@@ -801,14 +801,14 @@ end
     @test rule.tier == "thorough" || (rule.tier == "standard" && !isempty(rule.patterns) &&
                                        issubset(rule.patterns, standard_paths(grids)))
   end
-  @test standard_paths("block_step_grids") == ["src/atom_iterate.jl", "src/sparse_iterate.jl"]
-  for path in ("src/atom_iterate.jl", "src/functions/norms.jl", "src/functions/sparsegroup.jl", "src/functions/nonconvex.jl",
+  @test standard_paths("block_step_grids") == ["src/block_iterate.jl", "src/sparse_iterate.jl"]
+  for path in ("src/block_iterate.jl", "src/functions/norms.jl", "src/functions/sparsegroup.jl", "src/functions/nonconvex.jl",
                "src/sparse_iterate.jl", "src/constrained.jl", "src/lmo.jl", "src/lmo_atoms.jl", "src/functions/singular.jl",
                "src/functions/losses.jl")
     @test filter(in(thorough_grids), classify(path)[2]) == sort!([row.grids for row in GRIDS
                                                                    if row.base_tier == "thorough" && path in standard_paths(row.grids)])
   end
-  @test pr("src/functions/norms.jl") == ("standard", ["atom_iterate_grids"])
+  @test pr("src/functions/norms.jl") == ("standard", ["block_iterate_grids"])
   # a pull request that changes src/calculus.jl or a shared source runs these grids files, beside thorough
   for path in ("src/calculus.jl", "src/utils.jl", "src/interface.jl", "src/ProximalBase.jl")
     @test issubset(thorough_grids, pr(path)[2])
@@ -824,14 +824,14 @@ end
   # (the planner reads the manifest with its own copy of test/tiers.jl)
   pm, policy = CIPlan.default_manifest(), CIPlan.load_policy()
   planned(event; kw...) = CIPlan.decide(event; manifest = pm, policy, kw...)[1]
-  r = planned("push"; ref_type = "branch", paths = ["src/atom_iterate.jl"])
+  r = planned("push"; ref_type = "branch", paths = ["src/block_iterate.jl"])
   @test r.tier == "thorough" && isempty(r.focus) && isdisjoint(allgrids, CIPlan.TestTiers.select(pm, r.tier))
   r = planned("schedule")
   @test r.tier == "full" && issubset(allgrids, CIPlan.TestTiers.select(pm, r.tier))
-  r = planned("pull_request"; paths = ["src/atom_iterate.jl"], labels = ["test:full"])
+  r = planned("pull_request"; paths = ["src/block_iterate.jl"], labels = ["test:full"])
   @test r.tier == "full" && issubset(allgrids, CIPlan.TestTiers.select(pm, r.tier))
-  r = planned("pull_request"; paths = ["src/atom_iterate.jl"])
-  @test r.tier == "standard" && "atom_iterate_grids" in split(r.focus, ',')
+  r = planned("pull_request"; paths = ["src/block_iterate.jl"])
+  @test r.tier == "standard" && "block_iterate_grids" in split(r.focus, ',')
 end
 
 # Labels that are not tiers (test:benchmark, test:iterate-narrow) leave the tier of a PR alone.

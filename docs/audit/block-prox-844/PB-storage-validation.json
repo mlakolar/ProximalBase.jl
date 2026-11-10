@@ -1,0 +1,73 @@
+{
+  "scope": "PB-only mandatory storage rename and independent-output precondition; PS untouched",
+  "baseline_commit": "0043a0f218f201dd62e1b2f8cefb6e80b033b9db",
+  "source_inventory_sha256": "001fccf46c13bb2f9e2ce530601e7bf253fe426e5c5c3971b86b919fc821d2ce",
+  "full_suite": {
+    "julia": "1.13.3",
+    "files": 220,
+    "passed": 1960015,
+    "broken": 368,
+    "failed": 0,
+    "errors": 0,
+    "exit_code": 0,
+    "check_bounds": "yes",
+    "package_images": false,
+    "seconds": 1330.6
+  },
+  "targeted_compatibility": {
+    "julia": "1.10.10",
+    "files": [
+      "block_iterate",
+      "block_step",
+      "block_step_failures"
+    ],
+    "passed": 6933,
+    "failed": 0,
+    "errors": 0,
+    "exit_code": 0,
+    "check_bounds": "yes"
+  },
+  "public_api": {
+    "before_exports": 190,
+    "after_exports": 190,
+    "removed": [
+      "AtomIterate",
+      "atom",
+      "atomindices"
+    ],
+    "added": [
+      "BlockIterate",
+      "blockview",
+      "blockindices"
+    ],
+    "other_exports_unchanged": true,
+    "compatibility_aliases": false
+  },
+  "differential": {
+    "rows": 5616,
+    "byte_identical": true,
+    "sha256": "38f602910b92cc26ab477a228deaea605c5bafe6128414be0a1197600f8be0fc"
+  },
+  "benchmark_harness": {
+    "julia": "1.13.3",
+    "passed": 7344,
+    "exit_code": 0
+  },
+  "documentation": {
+    "julia": "1.10.10",
+    "exit_code": 0,
+    "deployment": false
+  },
+  "conformance_reports": {
+    "run_id": "pb848-block-rename",
+    "files": 14,
+    "julia": "1.13.3",
+    "working_tree_head_before_commit": "0043a0f218f201dd62e1b2f8cefb6e80b033b9db"
+  },
+  "ps_scope": {
+    "source_and_pin_unchanged": true,
+    "head": "8e98442bf6a16bf765182c3fdfcdc8472cc3511d",
+    "followup_issue": "https://github.com/mlakolar/ProximalSolvers.jl/issues/238"
+  },
+  "performance_gate": "pending; not approved"
+}

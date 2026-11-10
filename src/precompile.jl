@@ -60,7 +60,7 @@ using PrecompileTools: @setup_workload, @compile_workload
     prox_block(NormL1(0.1), x[2], 2, 1.0)
     S = SymmetricSparseIterate(P)
     fg = GroupNormL2(0.1, groups)
-    xa = AtomIterate(x, fg)
+    xa = BlockIterate(x, fg)
     trial = x[groups[1]]
     prox_block!(similar(trial), fg, trial, 1, 1.0)
     kkt_violation(fg, g, xa, 1)

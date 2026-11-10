@@ -12,14 +12,16 @@
 # ---- the pinned unfiltered catalog ---------------------------------------------------------------------------
 #
 # #844 intentionally renames the retired coordinate-prox cases to block_prox_write
-# and block_prox_staged_write. These digests pin that migrated catalog.
-# The quick `atom` group, unfiltered (118 cases; the same for
+# and block_prox_staged_write. The PB-only storage rename changes the family
+# to block/ and its view/index case names, retaining all 118 quick cases.
+# These digests pin that migrated catalog.
+# The quick `block` group, unfiltered (118 cases; the same for
 # repetitions 1, 2 and 10). `catalog` is the SHA-1 of the sorted IDs joined by newlines; `order` the SHA-1 of the
 # rows in build order: the metadata keys and values, the evaluation count and the profile flag of every case.
 # A change that alters this catalog on purpose updates these values and says why.
-const ATOM_QUICK_CASES = 118
-const ATOM_QUICK_CATALOG_SHA1 = "dccde385c399cc6dc52912ab9f17ae8b5661c37c"
-const ATOM_QUICK_ORDER_SHA1 = "591aaa03c77e96abdf5b5b427620c63fcdafab8e"
+const BLOCK_QUICK_CASES = 118
+const BLOCK_QUICK_CATALOG_SHA1 = "0e3b5693a88061569e3a60c5656032c61ce88ed5"
+const BLOCK_QUICK_ORDER_SHA1 = "d916bf345b4315db34599a8574750593ca8d96cd"
 
 # The quick `sparse` group likewise (117 cases; the same for repetitions 1, 2 and 10).
 const SPARSE_QUICK_CASES = 117
@@ -51,7 +53,7 @@ end
 # objects field by field. Every mutable object is numbered at its first visit, with the numbering shared by the
 # cases of one call, so that aliasing between cases is part of the result; a cycle ends at the number. For an
 # iterate the sharing graph also has an edge to every initialized child array of an array-of-arrays field (the
-# groups of an `AtomIterate`): the identity of the child, never its contents. Raw addresses and the names of
+# groups of a `BlockIterate`): the identity of the child, never its contents. Raw addresses and the names of
 # anonymous closure types never enter it. Only the layout caches and the scratch workspaces of the penalties are
 # skipped (`SEL_SKIPPED_FIELDS`): the calls that the cases measure fill them, and a workspace starts as
 # uninitialized memory, so neither is part of what a case holds.
@@ -175,7 +177,7 @@ function sel_kind(@nospecialize(x))
     x isa Module && return :module
     x isa Core.Box && return :box
     x isa Base.RefValue && return :ref
-    x isa Union{AtomIterate,SparseIterate,SymmetricSparseIterate} && return :iterate
+    x isa Union{BlockIterate,SparseIterate,SymmetricSparseIterate} && return :iterate
     x isa AbstractRange && return :range
     x isa AbstractDict && return :dict
     x isa AbstractSet && return :set
@@ -260,7 +262,7 @@ function sel_body!(w, @nospecialize(x), path, ::Val{:iterate}, T)
     # that exist on 0.5.x and 0.6 (the live part only: a stale tail of a backing array can be uninitialized)
     ids = collect(activecoordinates(x))
     sel_mix!(w, sel_p(w, path, " active order"), sel_digest(ids))
-    if x isa AtomIterate
+    if x isa BlockIterate
         indices = group_indices_by()
         sel_mix!(w, sel_p(w, path, " active values"), sel_digest([x[i] for k in ids for i in indices(x, k)]))
     else
@@ -465,19 +467,19 @@ function sel_compare(unfiltered, build_selected, selection::AbstractString; targ
 end
 
 @testset "case IDs and the selection rule" begin
-    @test case_id("atom", "isactive", Float64, "p8_g2", "half_active", "warm") == "atom/isactive/Float64/p8_g2/half_active/warm"
+    @test case_id("block", "isactive", Float64, "p8_g2", "half_active", "warm") == "block/isactive/Float64/p8_g2/half_active/warm"
     @test case_id("a", "b", Float32, "", "dense", "construct") == "a/b/Float32//dense/construct"
     c = addcase!(PerfCase[], "f", "n", noop, noop; inputs=(;), T=Float32, shape="s", layout="l", phase="p")
     @test c[1].meta.id == case_id("f", "n", Float32, "s", "l", "p")
     @test wants(nothing, "anything") && wants(r"^any", "anything") && !wants(r"^thing", "anything")
     @test wants(r"thing$", "anything") && !wants(r"x", "anything")
     # the spelling of an enumerated ID is the registered one, for every kind of enumerator
-    @test only(atom_construct_ids(Float64, 80, 8, true)) ==
-          ("construct", "atom/construct/Float64/p80_g8_strided/empty/construct")
-    @test [id for (_, id) in atom_layout_ids(80, 8, false)] ==
-          ["atom/samegroups/Float64/p80_g8_contiguous/$l/warm" for l in ("shared", "distinct_first_seen", "alternating")]
-    @test [id for (_, id) in atom_symmetric_ids(Float32, 64)] ==
-          ["atom/mul!/Float32/p1024_g64_contiguous_act10/symmetric_$z/warm" for z in ("z0", "z50")]
+    @test only(block_construct_ids(Float64, 80, 8, true)) ==
+          ("construct", "block/construct/Float64/p80_g8_strided/empty/construct")
+    @test [id for (_, id) in block_layout_ids(80, 8, false)] ==
+          ["block/samegroups/Float64/p80_g8_contiguous/$l/warm" for l in ("shared", "distinct_first_seen", "alternating")]
+    @test [id for (_, id) in block_symmetric_ids(Float32, 64)] ==
+          ["block/mul!/Float32/p1024_g64_contiguous_act10/symmetric_$z/warm" for z in ("z0", "z50")]
     @test only(sparse_construct_ids(Float32, 1000)) == ("construct", "sparse/construct/Float32/n1000/empty/construct")
     @test [id for (_, id) in sparse_symmetric_ids(Float64, 256, 0.03)] ==
           ["sparse/mul!/Float64/p256_s8/symmetric_$z/warm" for z in ("z0", "z50")]
@@ -544,11 +546,11 @@ end
     @test sel_fingerprint(n1) isa UInt64
     # the order of the active coordinates, which the harness digest sorts away
     g = [1:2, 3:4]
-    ax = build_atom(Float64, 4, g, [1, 2], [1.0, 2.0, 3.0, 4.0])
-    ay = build_atom(Float64, 4, g, [2, 1], [3.0, 4.0, 1.0, 2.0])
+    ax = build_block(Float64, 4, g, [1, 2], [1.0, 2.0, 3.0, 4.0])
+    ay = build_block(Float64, 4, g, [2, 1], [3.0, 4.0, 1.0, 2.0])
     @test digest(ax) == digest(ay) && Vector(ax) == Vector(ay)
     @test sel_fingerprint(ax) != sel_fingerprint(ay)
-    @test sel_fingerprint(ax) == sel_fingerprint(build_atom(Float64, 4, g, [1, 2], [1.0, 2.0, 3.0, 4.0]))
+    @test sel_fingerprint(ax) == sel_fingerprint(build_block(Float64, 4, g, [1, 2], [1.0, 2.0, 3.0, 4.0]))
     sx, sy = SparseIterate(Float64, 4), SparseIterate(Float64, 4)
     sx[1] = 1.0; sx[2] = 2.0; sy[2] = 2.0; sy[1] = 1.0
     @test digest(sx) == digest(sy) && Array(sx) == Array(sy)
@@ -593,7 +595,7 @@ end
 # the oracle reports a difference that it should see, and none between independently rebuilt identical builds
 @testset "the oracle sees order and sharing" begin
     g = [1:2, 3:4]
-    atom_pair(order) = (x = build_atom(Float64, 4, g, order, order == [1, 2] ? [1.0, 2.0, 3.0, 4.0] : [3.0, 4.0, 1.0, 2.0]);
+    block_pair(order) = (x = build_block(Float64, 4, g, order, order == [1, 2] ? [1.0, 2.0, 3.0, 4.0] : [3.0, 4.0, 1.0, 2.0]);
                         c = PerfCase[];
                         addcase!(c, "t", "order", () -> first(activecoordinates(x)),
                                  () -> first(activecoordinates(x)) == 1 || error("the first active group is not 1");
@@ -610,14 +612,14 @@ end
                                     () -> arrs[1] === arrs[2] || error("two arrays");
                                     inputs=(;));
                            c)
-    storage_pair(shared) = (x = build_atom(Float64, 4, g, [1, 2], [1.0, 2.0, 3.0, 4.0]); st = shared ? x.storage : copy(x.storage);
+    storage_pair(shared) = (x = build_block(Float64, 4, g, [1, 2], [1.0, 2.0, 3.0, 4.0]); st = shared ? x.storage : copy(x.storage);
                             c = PerfCase[];
                             addcase!(c, "t", "same", () -> st === x.storage,
                                      () -> st === x.storage || error("not the storage");
                                      inputs=(; x));
                             c)
     differences(a, b) = sel_differences(() -> a(), selector -> b(), "^t/")
-    for (a, b) in ((() -> atom_pair([1, 2]), () -> atom_pair([2, 1])),
+    for (a, b) in ((() -> block_pair([1, 2]), () -> block_pair([2, 1])),
                    (() -> sparse_pair([1, 2]), () -> sparse_pair([2, 1])),
                    (() -> arrays_pair(true), () -> arrays_pair(false)),
                    (() -> storage_pair(true), () -> storage_pair(false)))
@@ -654,7 +656,7 @@ end
         @test isempty(sel_differences(() -> [probe(b(), f)], sel -> [probe(b(), f)], "probe"))
     end
     @testset "nested layout sharing" begin
-        p(shared) = (x = build_atom(Float64, 8, atom_groups(8, 2, true), [1, 2], [1., 2., 3., 4.]);
+        p(shared) = (x = build_block(Float64, 8, block_groups(8, 2, true), [1, 2], [1., 2., 3., 4.]);
                      (x, shared ? x.groups[1] : copy(x.groups[1])))
         check_pair(() -> p(true), () -> p(false), z -> z[2] === z[1].groups[1])
     end
@@ -758,7 +760,7 @@ end
         @test occursin("at operation.inner.v", sel_message(() -> case_fingerprint(d)))
     end
     # an iterate whose element type has no digest word is not walked into its backing arrays
-    @test occursin("unsupported captured value", sel_message(() -> sel_fingerprint(AtomIterate(Float16, 4, [1:2, 3:4]))))
+    @test occursin("unsupported captured value", sel_message(() -> sel_fingerprint(BlockIterate(Float16, 4, [1:2, 3:4]))))
 end
 
 # Base.hash samples a large array: a difference at one position of a long array, in the order of the active
@@ -777,9 +779,9 @@ end
         addcase!(c, "t", "order", () -> collect(activecoordinates(z))[3], noop; inputs=(; z))
         c
     end
-    function atom_state(aids, vals)
+    function block_state(aids, vals)
         m = length(aids)
-        z = build_atom(Float64, 2m, [(2i - 1):(2i) for i in 1:m], aids, vals)
+        z = build_block(Float64, 2m, [(2i - 1):(2i) for i in 1:m], aids, vals)
         c = PerfCase[]
         addcase!(c, "t", "order", () -> collect(activecoordinates(z))[3], noop; inputs=(; z))
         c
@@ -810,7 +812,7 @@ end
     ids, ids_swapped = collect(1:n), swapped(collect(1:n))
     ones_n, distinct = ones(n), Float64.(1:n)
     pairs = [("sparse order", () -> sparse_state(ids, ones_n), () -> sparse_state(ids_swapped, ones_n)),
-             ("atom order", () -> atom_state(ids, ones(2n)), () -> atom_state(ids_swapped, ones(2n))),
+             ("atom order", () -> block_state(ids, ones(2n)), () -> block_state(ids_swapped, ones(2n))),
              ("sparse order and values", () -> sparse_state(ids, distinct), () -> sparse_state(ids_swapped, swapped(distinct))),
              ("shared elements", () -> arrays_state(true), () -> arrays_state(false))]
     # the values of an iterate, and a flat Float16 array, in vectors long enough that `hash` of the current Julia skips
@@ -821,8 +823,8 @@ end
     pv, pa = unsampled(values_long, x -> x + 0.5), unsampled(values_atom, x -> x + 0.5)
     pv === nothing || push!(pairs, ("sparse values at unsampled position $pv", () -> sparse_state(ids_long, values_long),
                                     () -> sparse_state(ids_long, bump(values_long, pv))))
-    pa === nothing || push!(pairs, ("atom values at unsampled position $pa", () -> atom_state(ids_long, values_atom),
-                                    () -> atom_state(ids_long, bump(values_atom, pa))))
+    pa === nothing || push!(pairs, ("atom values at unsampled position $pa", () -> block_state(ids_long, values_atom),
+                                    () -> block_state(ids_long, bump(values_atom, pa))))
     ones_half() = fill(Float16(1), n)
     long_half() = Float16.(mod.(1:long, 251))
     for pos in (2, 3, 5, 4999, 5001, 7777)
@@ -845,13 +847,13 @@ end
 end
 
 # ---- the regex matrix on the quick atom group ----------------------------------------------------------------
-const SEL_PRIMARY = (raw"^atom/isactive/",
-                     raw"^atom/isactive/Float64/p80000_g8_contiguous_act10/half_active/warm$",
-                     raw"atom/write_x\[i\]_active",
-                     raw"^atom/(read_x\[i\]|write_x\[i\]_active)/",
-                     raw"^atom/mul!/",
-                     raw"^atom/first_activation/",
-                     raw"^atom/samegroups/")
+const SEL_PRIMARY = (raw"^block/isactive/",
+                     raw"^block/isactive/Float64/p80000_g8_contiguous_act10/half_active/warm$",
+                     raw"block/write_x\[i\]_active",
+                     raw"^block/(read_x\[i\]|write_x\[i\]_active)/",
+                     raw"^block/mul!/",
+                     raw"^block/first_activation/",
+                     raw"^block/samegroups/")
 # the expressions whose cases draw from keyed streams (the picks, the batches): the only ones repeated at repetitions 2 and 10
 const SEL_KEYED = (SEL_PRIMARY[1], SEL_PRIMARY[3], SEL_PRIMARY[6])
 const SEL_BROAD = (raw"/warm$", "act10")
@@ -864,32 +866,32 @@ sel_note!(cases) = (union!(SEL_SEEN, sel_census(cases)); cases)
 @testset "the unfiltered catalog is unchanged" begin
     for rep in (1, 2, 10)
         Random.seed!(rep)
-        cases = build_cases(rep; suite="quick", groups=["atom"])
-        @test length(cases) == ATOM_QUICK_CASES
-        @test sel_catalog_sha1(cases) == ATOM_QUICK_CATALOG_SHA1
-        @test sel_order_sha1(cases) == ATOM_QUICK_ORDER_SHA1
+        cases = build_cases(rep; suite="quick", groups=["block"])
+        @test length(cases) == BLOCK_QUICK_CASES
+        @test sel_catalog_sha1(cases) == BLOCK_QUICK_CATALOG_SHA1
+        @test sel_order_sha1(cases) == BLOCK_QUICK_ORDER_SHA1
     end
     # an empty selection is the whole catalog, in order
-    all_cases = build_cases(1; suite="quick", groups=["atom"])
-    @test [c.meta.id for c in selected_cases(1, "quick", ["atom"], "")] == [c.meta.id for c in all_cases]
+    all_cases = build_cases(1; suite="quick", groups=["block"])
+    @test [c.meta.id for c in selected_cases(1, "quick", ["block"], "")] == [c.meta.id for c in all_cases]
 end
 
 @testset "selection of the quick atom group" begin
     for rep in (1, 2, 10)
-        unfiltered() = build_cases(rep; suite="quick", groups=["atom"])
-        selected(selector) = build_cases(rep; suite="quick", groups=["atom"], selector)
+        unfiltered() = build_cases(rep; suite="quick", groups=["block"])
+        selected(selector) = build_cases(rep; suite="quick", groups=["block"], selector)
         @testset "primary rep $rep: $selection" for selection in (rep == 1 ? SEL_PRIMARY : SEL_KEYED)
             sel_compare(unfiltered, selected, selection)
         end
         if rep == 1
-            @testset "the symmetric mul! alone and the constructions" for selection in (raw"atom/mul!/.*symmetric", raw"^atom/construct/")
+            @testset "the symmetric mul! alone and the constructions" for selection in (raw"block/mul!/.*symmetric", raw"^block/construct/")
                 sel_compare(unfiltered, selected, selection)
             end
             # nearly every case is selected: compared before anything runs, on one build that is never run
             pristine = unfiltered()
             @testset "selected_cases: $selection" for selection in (SEL_PRIMARY[1], SEL_PRIMARY[4], SEL_BROAD[1])
                 selector = Regex(selection)
-                @test [c.meta.id for c in selected_cases(rep, "quick", ["atom"], selection)] ==
+                @test [c.meta.id for c in selected_cases(rep, "quick", ["block"], selection)] ==
                       [c.meta.id for c in pristine if occursin(selector, c.meta.id)]
             end
             @testset "broad: $selection" for selection in SEL_BROAD
@@ -900,16 +902,16 @@ end
         GC.gc()
     end
     # an alternation across families, with another group
-    groups = ["atom", "vectors"]
+    groups = ["block", "vectors"]
     # (the destination of a `separable/.../prox!` case is uninitialized memory, so those cases are not compared)
     unfiltered_two() = sel_note!(build_cases(1; suite="quick", groups))
-    sel_compare(unfiltered_two, selector -> build_cases(1; suite="quick", groups, selector), raw"^atom/isactive/|^separable/NormL1/value/")
+    sel_compare(unfiltered_two, selector -> build_cases(1; suite="quick", groups, selector), raw"^block/isactive/|^separable/NormL1/value/")
     GC.gc()
 end
 
 @testset "empty, unmatched and invalid selections" begin
-    @test [c.meta.id for c in selected_cases(1, "quick", ["atom"], "")] == [c.meta.id for c in build_cases(1; suite="quick", groups=["atom"])]
-    @test sel_message(() -> selected_cases(1, "quick", ["atom"], "no such case anywhere")) == "PB_CASES selects no case"
+    @test [c.meta.id for c in selected_cases(1, "quick", ["block"], "")] == [c.meta.id for c in build_cases(1; suite="quick", groups=["block"])]
+    @test sel_message(() -> selected_cases(1, "quick", ["block"], "no such case anywhere")) == "PB_CASES selects no case"
     # an invalid expression fails at once, with the exception of Regex, before the groups are even checked
     bad = sel_error(() -> Regex("("))
     @test bad !== nothing
@@ -919,12 +921,12 @@ end
 end
 
 @testset "the draws of the picks stream and the global generator" begin
-    all_cases = sel_all(1, "quick", ["atom"])
+    all_cases = sel_all(1, "quick", ["block"])
     full(id) = only(filter(c -> c.meta.id == id, all_cases))
     ids = [c.meta.id for c in all_cases if c.meta.name == "write_x[i]_active"]
     @test length(ids) == 3
-    write_only = build_cases(1; suite="quick", groups=["atom"], selector=r"atom/write_x\[i\]_active")
-    combined = build_cases(1; suite="quick", groups=["atom"], selector=r"^atom/(read_x\[i\]|write_x\[i\]_active)/")
+    write_only = build_cases(1; suite="quick", groups=["block"], selector=r"block/write_x\[i\]_active")
+    combined = build_cases(1; suite="quick", groups=["block"], selector=r"^block/(read_x\[i\]|write_x\[i\]_active)/")
     for built in (write_only, combined), id in ids
         a, e = only(filter(c -> c.meta.id == id, built)), full(id)
         @test a.inputs.wids == e.inputs.wids && a.inputs.wvals == e.inputs.wvals
@@ -932,9 +934,9 @@ end
     @test length(write_only) < length(combined) < length(all_cases)
     # no builder draws from the global generator
     Random.seed!(1); control = rand(UInt64, 4)
-    for selector in (nothing, r"^atom/isactive/", r"atom/write_x\[i\]_active")
+    for selector in (nothing, r"^block/isactive/", r"block/write_x\[i\]_active")
         Random.seed!(1)
-        build_cases(1; suite="quick", groups=["atom"], selector)
+        build_cases(1; suite="quick", groups=["block"], selector)
         @test rand(UInt64, 4) == control
     end
     # nor do the sparse builders: every draw of a scenario has its own keyed stream
@@ -947,27 +949,27 @@ end
 end
 
 @testset "the enumerated IDs are complete: quick grid" begin
-    all_cases = sel_note!(sel_all(1, "quick", ["atom"]))
-    scenarios = atom_scenarios(true)
+    all_cases = sel_note!(sel_all(1, "quick", ["block"]))
+    scenarios = block_scenarios(true)
     @test length(scenarios) == 3
     registered = Set(c.meta.id for c in all_cases)
     enumerated = Set{String}()
     for s in scenarios
-        ids = Set(id for (_, id) in atom_scenario_ids(s.T, s.p, s.g, s.strided, s.label; s.full, s.rows))
-        shape = atom_shape(s.p, s.g, s.strided, s.label)
+        ids = Set(id for (_, id) in block_scenario_ids(s.T, s.p, s.g, s.strided, s.label; s.full, s.rows))
+        shape = block_shape(s.p, s.g, s.strided, s.label)
         mine = Set(c.meta.id for c in all_cases if c.meta.shape == shape)
         @test mine == ids
         union!(enumerated, ids)
     end
-    grid = atom_grid(true)
+    grid = block_grid(true)
     for T in grid.types, p in grid.sizes, (g, strided) in grid.layouts
-        union!(enumerated, id for (_, id) in atom_construct_ids(T, p, g, strided))
+        union!(enumerated, id for (_, id) in block_construct_ids(T, p, g, strided))
     end
     for p in grid.sizes, (g, strided) in grid.layouts
-        union!(enumerated, id for (_, id) in atom_layout_ids(p, g, strided))
+        union!(enumerated, id for (_, id) in block_layout_ids(p, g, strided))
     end
     for T in grid.types, g in grid.symmetric_groups
-        union!(enumerated, id for (_, id) in atom_symmetric_ids(T, g))
+        union!(enumerated, id for (_, id) in block_symmetric_ids(T, g))
     end
     @test enumerated == registered
     @test isempty(sel_boxed(all_cases))
@@ -979,27 +981,27 @@ const SEL_SCENARIOS = [(T=Float64, p=8 * 10^4, g=8, strided=false, label="10", f
                        (T=Float64, p=8 * 10^4, g=1, strided=true, label="10", full=true, rows=()),
                        (T=Float64, p=8 * 10^4, g=1, strided=false, label="1", full=false, rows=(256,))]
 const SEL_SCENARIO_REGEXES = (raw"/isactive/", raw"write_x\[i\]_active", raw"/read_x\[i\]/", raw"mul!.*z50", raw"mul!/.*rows256_z0",
-                              raw"/dot_vx/.*z50", raw"dot_xy/.*atom_sparse_z50", raw"dot_xy/.*atom_atom_z0", raw"/_restartdot/.*private_fields",
+                              raw"/dot_vx/.*z50", raw"dot_xy/.*block_sparse_z50", raw"dot_xy/.*block_block_z0", raw"/_restartdot/.*private_fields",
                               raw"/_setvalues!/.*accessors", raw"/_nvalues/", raw"copyto!_convert/.*to_Int", raw"copyto!_convert/",
                               raw"/dropzeros!/.*zeros50", raw"/block_prox_staged_write/.*GroupNormLinf", raw"block_prox_write/.*NormL1/",
                               raw"absent_distinct_batch_x\d+/", raw"/activate_distinct_batch/", raw"rmul!_inf", raw"rmul!_finite/.*/x\d+/",
                               raw"/replace_staged/", raw"/replace_cheap/|/copyto!_dense/", raw"/broadcast_assign/|/copyto!_state/",
                               raw"/copy/|/copyto!_same_kind/", raw"/copyto!_unrelated/|/broadcast_self/", raw"/fill!_zero",
-                              raw"/atomindices_view/|/atom_dot/", raw"/sweep_active")
+                              raw"/blockindices_view/|/block_dot/", raw"/sweep_active")
 # one expression of each kind for the scenarios other than the first (the full list) and the one without `full`
-const SEL_SCENARIO_REDUCED = (raw"/isactive/", raw"write_x\[i\]_active", raw"mul!.*z50", raw"/dot_vx/.*z50", raw"dot_xy/.*atom_sparse_z50",
+const SEL_SCENARIO_REDUCED = (raw"/isactive/", raw"write_x\[i\]_active", raw"mul!.*z50", raw"/dot_vx/.*z50", raw"dot_xy/.*block_sparse_z50",
                               raw"/_restartdot/.*private_fields", raw"copyto!_convert/.*to_Int", raw"/dropzeros!/.*zeros50",
                               raw"block_prox_write/.*NormL1/", raw"absent_distinct_batch_x\d+/", raw"rmul!_inf", raw"/replace_staged/",
-                              raw"/copy/|/copyto!_same_kind/", raw"/atomindices_view/|/atom_dot/")
+                              raw"/copy/|/copyto!_same_kind/", raw"/blockindices_view/|/block_dot/")
 sel_scenario_build(s; selector=nothing, rep=1) = (cases = PerfCase[];
-    atom_scenario_cases!(cases, rep, s.T, s.p, s.g, s.strided, atom_label_density(s.label), s.label,
-                         atom_groups(s.p, s.g, s.strided), (Dict{Any,Any}(), Dict{Any,Any}(), Dict{Any,Any}());
+    block_scenario_cases!(cases, rep, s.T, s.p, s.g, s.strided, block_label_density(s.label), s.label,
+                         block_groups(s.p, s.g, s.strided), (Dict{Any,Any}(), Dict{Any,Any}(), Dict{Any,Any}());
                          s.full, s.rows, selector);
     cases)
 
 @testset "extended scenarios: $(s.T) g=$(s.g) strided=$(s.strided) act$(s.label) full=$(s.full) rows=$(s.rows)" for s in SEL_SCENARIOS
     pristine = sel_note!(sel_scenario_build(s))
-    ids = Set(id for (_, id) in atom_scenario_ids(s.T, s.p, s.g, s.strided, s.label; s.full, s.rows))
+    ids = Set(id for (_, id) in block_scenario_ids(s.T, s.p, s.g, s.strided, s.label; s.full, s.rows))
     @test Set(c.meta.id for c in pristine) == ids              # no ID is missing, and none is spurious
     regexes = s === SEL_SCENARIOS[1] || !s.full ? SEL_SCENARIO_REGEXES : SEL_SCENARIO_REDUCED
     applicable = [r for r in regexes if any(c -> occursin(Regex(r), c.meta.id), pristine)]
@@ -1064,9 +1066,9 @@ end
         GC.gc()
     end
     # an alternation across families, with another group
-    groups = ["sparse", "atom"]
+    groups = ["sparse", "block"]
     unfiltered_two() = build_cases(1; suite="quick", groups)
-    sel_compare(unfiltered_two, selector -> build_cases(1; suite="quick", groups, selector), raw"^sparse/isactive/|^atom/isactive/")
+    sel_compare(unfiltered_two, selector -> build_cases(1; suite="quick", groups, selector), raw"^sparse/isactive/|^block/isactive/")
     GC.gc()
 end
 
@@ -1205,7 +1207,7 @@ end
 end
 
 # ---- the census ----------------------------------------------------------------------------------------------
-# The kinds of captured value that the walker meets, over the catalogs that this file compares (the quick `atom`,
+# The kinds of captured value that the walker meets, over the catalogs that this file compares (the quick `blockview`,
 # `sparse` and `vectors` groups and the extended scenarios), must all be supported, and the supported list holds nothing
 # else but the kinds that a self-test needs and the kinds that only groups the oracle never compares reach. The census of
 # the whole quick catalog (`sel_census(build_cases(1))`, 839 cases) is not part of this test: it needs the builds of all
@@ -1222,7 +1224,7 @@ const SEL_NOT_COMPARED = [:ref => "constraints, matrices, owner"]
     @test setdiff(SEL_SUPPORTED_KINDS, kinds) == Set(SEL_SELF_TEST_KINDS) ∪ Set(first.(SEL_NOT_COMPARED))
     @test isdisjoint(kinds, Set(SEL_SELF_TEST_KINDS) ∪ Set(first.(SEL_NOT_COMPARED)))
     # every kind of the list is assigned by `sel_kind`, for a value of that kind
-    samples = (nothing, missing, 1, :a, "a", 'a', Int, Base, Core.Box(1), Ref(1), AtomIterate(2, [1:1, 2:2]), [1.0], Any[1], 1:2,
+    samples = (nothing, missing, 1, :a, "a", 'a', Int, Base, Core.Box(1), Ref(1), BlockIterate(2, [1:1, 2:2]), [1.0], Any[1], 1:2,
                view([1.0, 2.0], 1:1), (1,), (a = 1,), Dict(1 => 1), Set([1]), () -> 1, SelNode(nothing))
     @test Set(map(sel_kind, samples)) == SEL_SUPPORTED_KINDS
     @test sel_kind(Ptr{Nothing}(0)) === :unsupported && sel_kind(Channel{Int}(1)) === :unsupported

@@ -1,7 +1,7 @@
 module IterateInvariantsTest
 
 # Invariants that every iterate keeps, checked the same way on SparseIterate (vector and
-# matrix), SymmetricSparseIterate and AtomIterate after each operation of one sequence: the
+# matrix), SymmetricSparseIterate and BlockIterate after each operation of one sequence: the
 # active list, the reverse map and the values agree, and inactive coordinates are zero; a zero
 # write neither activates nor deactivates; activate! stores an explicit zero and dropzeros!
 # removes it without changing an entry; a copy is independent; copyto! replaces the whole state
@@ -12,7 +12,7 @@ using Test
 using ProximalBase
 using SparseArrays: dropzeros!
 
-# How to read and write coordinate k of each kind (for an AtomIterate, the first entry of
+# How to read and write coordinate k of each kind (for a BlockIterate, the first entry of
 # group k).
 const KINDS = (
   (name = "SparseIterate vector", make = T -> SparseIterate(T, 7),
@@ -21,11 +21,11 @@ const KINDS = (
    get = (x, k) -> x[k], set! = (x, k, v) -> (x[k] = v)),
   (name = "SymmetricSparseIterate", make = T -> SymmetricSparseIterate(T, 3),
    get = (x, k) -> coordinates(x)[k], set! = (x, k, v) -> (coordinates(x)[k] = v)),
-  (name = "AtomIterate", make = T -> AtomIterate(T, 7, [1:2, [3, 6], 4:5, [7]]),
-   get = (x, k) -> atom(x, k)[1], set! = (x, k, v) -> (atom(x, k)[1] = v)),
+  (name = "BlockIterate", make = T -> BlockIterate(T, 7, [1:2, [3, 6], 4:5, [7]]),
+   get = (x, k) -> blockview(x, k)[1], set! = (x, k, v) -> (blockview(x, k)[1] = v)),
 )
 
-iszerocoordinate(x::AtomIterate, k) = all(iszero, atom(x, k))
+iszerocoordinate(x::BlockIterate, k) = all(iszero, blockview(x, k))
 iszerocoordinate(x, k) = iszero(coordinates(x)[k])
 
 # The active list, the reverse map and the values agree, and inactive coordinates are zero.
@@ -35,7 +35,7 @@ function consistent(x)
   length(ids) == nactive(x) && allunique(ids) && all(k -> 1 <= k <= n, ids) || return false
   count(k -> isactive(x, k), 1:n) == nactive(x) && all(k -> isactive(x, k), ids) || return false
   all(k -> isactive(x, k) || iszerocoordinate(x, k), 1:n) || return false
-  x isa AtomIterate && return true
+  x isa BlockIterate && return true
   return activevalues(x) == [coordinates(x)[k] for k in ids]
 end
 

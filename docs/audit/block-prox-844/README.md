@@ -1,5 +1,52 @@
 # #844 implementation and validation
 
+## Current PB-only follow-up (2026-11-10)
+
+The [maintainer ruling](https://github.com/mlakolar/ProximalBase.jl/pull/848#issuecomment-6779277418)
+requires `BlockIterate`, `blockview` and `blockindices` in PB 0.6, with no
+compatibility aliases. Counts, active IDs, layout semantics, storage operations,
+group penalty names and real LMO atoms are retained. This change does not edit
+ProximalSolvers, PR #237, its pin, tests, docs or CI. PS #238 owns the later rename.
+
+The [re-review](https://github.com/mlakolar/ProximalBase.jl/pull/848#pullrequestreview-5849239904)
+correctly identified an ownership gap: public `activevalues` views can alias
+iterate storage through a plain vector parent. The partial `_block_owner`
+guard is removed. Output independent of iterate storage and model caches is
+now an explicit caller precondition, not a universal type-based guarantee.
+Public storage views can be read into independent numerical outputs; their
+owners remain unchanged. Existing shape/type/group/overlap and parameter checks
+remain. Mathematical kernels have no iterate representation dispatch.
+
+Current checks include an exact 190-export comparison (only the three approved
+replacements), comparison of normalized executable text across 54 source and
+extension files (only the rename and guard removal), 5,616 byte-identical
+numerical differential results, 7,344 passing benchmark-harness assertions,
+and a successful documentation build with executable examples on Julia 1.10.10.
+The full Julia 1.13.3 run passed all **220 files: 1,960,015 assertions passed,
+368 marked broken**, no failures or errors. The targeted Julia 1.10.10 storage,
+block-oracle and failure suites passed **6,933 assertions**. The stale generated
+coverage cell is corrected to `wrappers / prox_block`; checks pass on both
+runtimes. See [the public inventory](PB-storage-public-api.txt),
+[validation summary](PB-storage-validation.json) and
+[PB-only performance data](PB-storage-performance.json).
+
+All 108 measured PB-only math/writer cases allocate zero bytes and preserve
+identical numerical/activation metadata. Paired measurements include a separate
+A/A control. Five isolated writer cases above 5% in batched measurements were
+within 2.4% with single evaluations; combined math+write cases were within
+4.7% in this run. The raw data retain every case, including the larger component
+deltas; these are exploratory timings, not confidence bounds. The previous
++21 ns / 1.056× whole-solve performance gate **remains pending**, as instructed.
+No PS solve is rerun or reinterpreted in this PB-only scope.
+
+The pre-rename PB/PS benchmark program is preserved verbatim in
+`measurements/block_prox_pre_rename.jl`. Existing historical audit/baseline
+artifacts and exact dependency pins are retained. The records below describe
+their stated pre-rename commits; their earlier naming and ownership decisions
+are historical and superseded by this follow-up.
+
+## Pre-rename implementation and validation history
+
 The implementation is published for review in
 [draft PR #848](https://github.com/mlakolar/ProximalBase.jl/pull/848) and remains
 unmerged. The mathematical API is committed at

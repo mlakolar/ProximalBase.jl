@@ -199,7 +199,7 @@ end
 @testset "Built-in group KKT dispatch keeps its domain" begin
   groups = [[1, 2], [3, 4]]
   f = GroupNormL2(.1, groups); g = [.3, .4, .6, .8]
-  for x in (zeros(4), SparseIterate(4), AtomIterate(4, groups))
+  for x in (zeros(4), SparseIterate(4), BlockIterate(4, groups))
     @test kkt_violation(f, g, x, 1) ≈ .5 - .1sqrt(2)
     @test kkt_violation(Scaled(f, 2.), g, x, 1) ≈ .5 - .2sqrt(2)
     @test kkt_violation(Regularize(f, .2), g, x, 1) ≈ .5 - .1sqrt(2)

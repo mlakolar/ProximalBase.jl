@@ -110,9 +110,9 @@ x_{G_k}^+=\left(1-\frac{\lambda w_k}{L_k\|v\|_2}\right)_+v,
 
 with value zero when ``v=0``. We use [`GroupNormL2`](@ref) to represent this
 penalty, whose default weights are ``w_k=\sqrt{|G_k|}``.
-An [`AtomIterate`](@ref) has one coordinate
+A [`BlockIterate`](@ref) has one coordinate
 per group. Compute `prox_block!(out, g, u, k, 1 / Lk)`, then write
-`copyto!(atom(x,k), out)` and update the residual cache. The oracle receives
+`copyto!(blockview(x,k), out)` and update the residual cache. The oracle receives
 the compact trial `u` and changes only `out`.
 
 Note that this quadratic bound generally differs from the exact block
@@ -158,7 +158,7 @@ A positive value indicates that the coordinate should enter the working set.
 A nonpositive value checks only the condition at zero, rather than the
 stationarity of a nonzero coordinate. For entry indices, we use the
 three-argument form `kkt_violation(g, grad, j)`. For group coordinates, we call
-`kkt_violation(g, grad, x, k)` with an `AtomIterate` sharing the penalty's groups.
+`kkt_violation(g, grad, x, k)` with a `BlockIterate` sharing the penalty's groups.
 
 A simple working-set procedure has the following steps:
 

@@ -374,7 +374,7 @@ The weights default to `wₖ = √|Gₖ|`, and indices in no group are not penal
 Its proximal operator is radial: the scalar proximal operator of `pₖ` at
 `‖v[Gₖ]‖` rescales `v[Gₖ]`, which gives the global minimizer for every step.
 At zero its subdifferential is that of the group lasso, so
-[`kkt_violation`](@ref) is `‖g[Gₖ]‖₂ - λwₖ`. On an [`AtomIterate`](@ref) with
+[`kkt_violation`](@ref) is `‖g[Gₖ]‖₂ - λwₖ`. On a [`BlockIterate`](@ref) with
 its groups, [`prox_block!`](@ref) computes a compact group result, the block step of
 coordinate descent.
 """
@@ -450,7 +450,7 @@ _group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(_weight_c
 # The ordinary kernels retain the scalar product and loops used for finite weights.
 _ordinary_radial_groups(f, ::Type{T}) where {T} = isfinite(f.λ0) &&
   !mapreduce(w -> isinf(w) | isinf(_typed_product(T, f.λ0, w)), |, f.w; init = false)
-# Matching atom layouts classify only coefficients the kernels will visit.
+# Matching block layouts classify only coefficients the kernels will visit.
 function _ordinary_radial_groups(f, ::Type{T}, groups, n::Int) where {T}
   isfinite(f.λ0) || return false
   ordinary = true
@@ -496,7 +496,7 @@ function _check_group_scalars(f::_RadialGroupPenalty, ::Type{T}, groups, n::Int,
 end
 _check_prox_group_scalars(f::_RadialGroupPenalty, ::Type{T}, y, x) where {T} =
   _check_group_scalars(f, T, eachindex(f.groups))
-function _check_prox_group_scalars(f::_RadialGroupPenalty, ::Type{T}, y::AtomIterate, x::AtomIterate) where {T}
+function _check_prox_group_scalars(f::_RadialGroupPenalty, ::Type{T}, y::BlockIterate, x::BlockIterate) where {T}
   if _samelayout(f, x) && _samelayout(f, y)
     return _ordinary_radial_groups(f, T, x.active, x.nactive) ?
       _check_group_scalars(f, T, x.active, x.nactive, Val(true)) :
@@ -516,7 +516,7 @@ end
 for Step in (Real, AbstractVector)
   @eval begin
     value_and_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::$Step) = (x = _symmetric_argument(y, x); _checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ))
-    value_and_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::$Step) = (_checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ))
+    value_and_prox!(y::BlockIterate, f::_RadialGroupPenalty, x::BlockIterate, γ::$Step) = (_checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ))
     prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::$Step) = (x = _symmetric_argument(y, x); _checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ); y)
   end
 end
@@ -577,14 +577,14 @@ function _radial_group_value(f::_RadialGroupPenalty, x::AbstractArray, ordinary:
 end
 
 # with the groups of f, only the active groups count
-function (f::_RadialGroupPenalty)(x::AtomIterate)
+function (f::_RadialGroupPenalty)(x::BlockIterate)
   _checkreal(f, x)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   _ordinary_radial_groups(f, float(eltype(x)), x.active, x.nactive) ?
     _radial_group_value(f, x, Val(true)) : _radial_group_value(f, x, Val(false))
 end
 
-function _radial_group_value(f::_RadialGroupPenalty, x::AtomIterate, ordinary::Val{O}) where {O}
+function _radial_group_value(f::_RadialGroupPenalty, x::BlockIterate, ordinary::Val{O}) where {O}
   _samelayout(f, x) || return invoke(_radial_group_value, Tuple{_RadialGroupPenalty, AbstractArray, Val{O}}, f, x, Val(O))
   T = float(eltype(x))
   v = zero(T)
@@ -637,14 +637,14 @@ function _radial_group_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::Abstra
   v
 end
 
-function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::Union{Real, AbstractVector})
+function _value_and_prox_groups!(y::BlockIterate, f::_RadialGroupPenalty, x::BlockIterate, γ::Union{Real, AbstractVector})
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, _RadialGroupPenalty, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
   _ordinary_radial_groups(f, float(eltype(y)), x.active, x.nactive) ?
     _radial_group_prox!(y, f, x, γ, Val(true)) : _radial_group_prox!(y, f, x, γ, Val(false))
 end
 
-function _radial_group_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
+function _radial_group_prox!(y::BlockIterate, f::_RadialGroupPenalty, x::BlockIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_radial_group_prox!, Tuple{AbstractArray, _RadialGroupPenalty, AbstractArray, Union{Real, AbstractVector}, Val{O}}, y, f, x, γ, Val(O))
   _checksize(y, x)
@@ -681,7 +681,7 @@ free. Its proximal operator keeps the `s` groups of largest Euclidean norm
 (exactly `s` when there are ties, the earlier groups first) and zeroes the
 others, by a selection in O(n) expected time, without allocating. Projected
 gradient descent with it is iterative hard thresholding of groups, as in the
-group IHT of MendelIHT (Chu et al., 2020). On an [`AtomIterate`](@ref) with its
+group IHT of MendelIHT (Chu et al., 2020). On a [`BlockIterate`](@ref) with its
 groups, only the active groups are visited, and the dropped ones are
 deactivated.
 
@@ -695,7 +695,7 @@ A NaN entry is undefined (E2 in the numerical contract). Let `K` be the number o
 groups. For `s = 0` or `k = 0` the projection is zero on every group whatever the
 argument, and its fused value is `0`. For `0 < s < K`, which groups are kept
 depends on every grouped entry, so a NaN in any group makes every grouped output
-NaN; on an [`AtomIterate`](@ref) all its groups are then active. For `s ≥ K`, a
+NaN; on a [`BlockIterate`](@ref) all its groups are then active. For `s ≥ K`, a
 NaN in a group with more than `k` entries makes that group NaN, and the other
 groups are copied. Indices in no group are copied. [`value_and_prox!`](@ref)
 returns NaN when a NaN output is made, and `0` otherwise. The value at an
@@ -728,10 +728,10 @@ _checkgroups(f::IndBallGroupL0, x::AbstractArray) =
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndBallGroupL0, y::AbstractArray, x::AbstractArray) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkgroups(f, x); true)
 
-# the functions whose groups an AtomIterate can be compared with
+# the functions whose groups a BlockIterate can be compared with
 const _GroupFunction = Union{AbstractGroupPenalty, IndBallGroupL0}
-samegroups(x::AtomIterate, f::_GroupFunction) = _samelayout(f, x)
-samegroups(f::_GroupFunction, x::AtomIterate) = _samelayout(f, x)
+samegroups(x::BlockIterate, f::_GroupFunction) = _samelayout(f, x)
+samegroups(f::_GroupFunction, x::BlockIterate) = _samelayout(f, x)
 
 # Whether the value depends on the entries of the group G (E2): every group does
 # when fewer than all groups may be nonzero (s = 0 included), and a group with
@@ -774,7 +774,7 @@ function (f::IndBallGroupL0)(x::AbstractArray)
   nan ? _valtype(x)(NaN) : _ind(ok && nz <= f.s, _valtype(x))
 end
 
-function (f::IndBallGroupL0)(x::AtomIterate)
+function (f::IndBallGroupL0)(x::BlockIterate)
   _checkreal(f, x)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   nz, ok, nan = 0, true, false
@@ -801,7 +801,7 @@ prox!(y::SymmetricSparseIterate, f::IndBallGroupL0, x::_ArrayOrOwner, γ::Real) 
 value_and_prox!(y::SymmetricSparseIterate, f::IndBallGroupL0, x::_ArrayOrOwner, γ::Real) =
   _staged_owner!(value_and_prox!, y, f, x, γ)
 
-function prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
+function prox!(y::BlockIterate, f::IndBallGroupL0, x::BlockIterate, γ::Real)
   _checkwrite(prox!, f, y, x)
   _samelayout(f, y) && _samelayout(f, x) ||
     return invoke(prox!, Tuple{AbstractArray, IndBallGroupL0, AbstractArray, Real}, y, f, x, γ)
@@ -817,7 +817,7 @@ function _value_and_prox_body!(y::AbstractArray, f::IndBallGroupL0, x::AbstractA
   T = _valtype(y)
   _group_l0_dense!(y, f, x) == 0 ? zero(T) : T(NaN)
 end
-function _value_and_prox_body!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
+function _value_and_prox_body!(y::BlockIterate, f::IndBallGroupL0, x::BlockIterate, γ::Real)
   _checkwrite(value_and_prox!, f, y, x)
   _samelayout(f, y) && _samelayout(f, x) ||
     return invoke(_value_and_prox_body!, Tuple{AbstractArray, IndBallGroupL0, AbstractArray, Real}, y, f, x, γ)
@@ -832,7 +832,7 @@ function _group_l0_dense!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray)
 end
 # On an iterate with the groups of f, only the active groups are visited. When
 # every grouped output is NaN, the inactive groups are too, so all are activated.
-function _group_l0_prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate)
+function _group_l0_prox!(y::BlockIterate, f::IndBallGroupL0, x::BlockIterate)
   copyto!(y, x)
   status = _keep_largest_groups!(y.storage, f, view(y.active, 1:y.nactive))
   status == 2 && fill!(y, NaN)

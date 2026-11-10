@@ -31,8 +31,8 @@ sparse group lasso of a single vector. As the fiber function of a
 penalty `λ1 Σᵢⱼₖ |xᵢⱼₖ| + λ2 Σᵢⱼ ‖x[i, j, :]‖₂` of the group graphical lasso of
 K precision matrices (Danaher, Wang and Witten, 2014).
 
-As for `GroupNormL2`, on an [`AtomIterate`](@ref) that shares its groups
-([`AtomIterate`](@ref)`(x, f)`), [`prox_block!`](@ref) computes the block result
+As for `GroupNormL2`, on a [`BlockIterate`](@ref) that shares its groups
+([`BlockIterate`](@ref)`(x, f)`), [`prox_block!`](@ref) computes the block result
 on a group and [`kkt_violation`](@ref) measures a group at zero, which is
 optimal when `‖soft(g[Gₖ], λ1)‖₂ ≤ λ2wₖ`. Inside a nonzero group, an entry at
 zero is optimal when `|gᵢ| ≤ λ1`.
@@ -321,7 +321,7 @@ function _sparse_group_prox!(y::AbstractArray, f::SparseGroupNormL2, x::Abstract
 end
 
 # with the groups of f, only the active groups count
-function (f::SparseGroupNormL2)(x::AtomIterate)
+function (f::SparseGroupNormL2)(x::BlockIterate)
   _checkreal(f, x)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   isfinite(f.λ0) && !iszero(f.λ0) && return _sparse_group_value(f, x, Val(true))
@@ -329,7 +329,7 @@ function (f::SparseGroupNormL2)(x::AtomIterate)
     _sparse_group_value(f, x, Val(true)) : _sparse_group_value(f, x, Val(false))
 end
 
-function _sparse_group_value(f::SparseGroupNormL2, x::AtomIterate, ordinary::Val{O}) where {O}
+function _sparse_group_value(f::SparseGroupNormL2, x::BlockIterate, ordinary::Val{O}) where {O}
   _samelayout(f, x) || return invoke(_sparse_group_value, Tuple{SparseGroupNormL2, AbstractArray, Val{O}}, f, x, ordinary)
   T = float(eltype(x))
   v2, v1 = zero(T), zero(T)
@@ -343,10 +343,10 @@ function _sparse_group_value(f::SparseGroupNormL2, x::AtomIterate, ordinary::Val
   _sparse_l1_value(f, x, v1, T)
 end
 
-value_and_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Real) =
+value_and_prox!(y::BlockIterate, f::SparseGroupNormL2, x::BlockIterate, γ::Real) =
   (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
-function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Union{Real, AbstractVector})
+function _value_and_prox_groups!(y::BlockIterate, f::SparseGroupNormL2, x::BlockIterate, γ::Union{Real, AbstractVector})
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, SparseGroupNormL2, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
   if isinf(f.λ1)
@@ -366,7 +366,7 @@ function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIt
   end
 end
 
-function _sparse_group_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
+function _sparse_group_prox!(y::BlockIterate, f::SparseGroupNormL2, x::BlockIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_sparse_group_prox!, Tuple{AbstractArray, SparseGroupNormL2, AbstractArray, Union{Real, AbstractVector}, Val{O}}, y, f, x, γ, ordinary)
   _checkgroupsteps(f, γ)
@@ -404,7 +404,7 @@ function _kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray
   G = f.groups[k]
   _allzero(x, G) ? _dual_norm(f, g, G) - _kkt_coefficient(eltype(g), f.λ0, f.w[k]) : abs(g[i]) - f.λ1
 end
-_kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AtomIterate, k::Integer) =
+_kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::BlockIterate, k::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _kkt_coefficient(eltype(g), f.λ0, f.w[k]))
 _kkt_violation(f::SparseGroupNormL2, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate")))

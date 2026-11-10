@@ -11,8 +11,8 @@ function make_iterates(T)
   x = SparseIterate(T, 6); x[2] = 1; x[5] = 3
   m = SparseIterate(T, 4, 4); m[2, 1] = 1; m[3, 3] = 2
   s = SymmetricSparseIterate(T, 4); s[2, 1] = 1; s[3, 2] = 2
-  a = AtomIterate(T, 6, [1:2, 3:4, 5:6]); a[1] = 1; a[5] = 2
-  (vector = x, matrix = m, symmetric = s, atom = a)
+  a = BlockIterate(T, 6, [1:2, 3:4, 5:6]); a[1] = 1; a[5] = 2
+  (vector = x, matrix = m, symmetric = s, block = a)
 end
 
 snapshot(x) = (copy(activecoordinates(x)), Array(x), nactive(x))
@@ -50,7 +50,7 @@ sum_ids(x) = (acc = 0; for k in activecoordinates(x); acc += k; end; acc)
     @test collect(view(coordinates(s), activecoordinates(s))) == [7.0]
     x = SparseIterate(4); x[2] = 1; x[4] = 3
     @test collect(view(x, activecoordinates(x))) == [1.0, 3.0]
-    a = AtomIterate(4, [1:2, 3:4]); a[1] = 1
+    a = BlockIterate(4, [1:2, 3:4]); a[1] = 1
     @test collect(view(a, activecoordinates(a))) == [1.0]
   end
 
@@ -60,7 +60,7 @@ sum_ids(x) = (acc = 0; for k in activecoordinates(x); acc += k; end; acc)
     x[4] = 2
     @test length(h) == 1
     @test activecoordinates(x) == [1, 4]
-    a = AtomIterate(4, [1:2, 3:4]); a[1] = 1
+    a = BlockIterate(4, [1:2, 3:4]); a[1] = 1
     h = activecoordinates(a); a[3] = 1
     @test length(h) == 1 && activecoordinates(a) == [1, 2]
   end
@@ -78,8 +78,8 @@ sum_ids(x) = (acc = 0; for k in activecoordinates(x); acc += k; end; acc)
     x = SparseIterate(5); x[1] = 1; x[4] = 2
     activevalues(x)[2] = 7
     @test x[4] == 7
-    a = AtomIterate(4, [1:2, 3:4]); a[1] = 1
-    atom(a, 1)[2] = 5
+    a = BlockIterate(4, [1:2, 3:4]); a[1] = 1
+    blockview(a, 1)[2] = 5
     @test a[2] == 5
   end
 

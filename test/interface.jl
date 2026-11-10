@@ -118,8 +118,8 @@ end
         @test take_block_step!(xs, f, k, γ) ≈ z[k]
       end
       @test Vector(xs) ≈ z
-      # on an AtomIterate, coordinate k is group k, entry by entry
-      xa = AtomIterate(x, [1:3, 4:4, [5, 9], [6, 7, 8, 10]])
+      # on a BlockIterate, coordinate k is group k, entry by entry
+      xa = BlockIterate(x, [1:3, 4:4, [5, 9], [6, 7, 8, 10]])
       for k in 1:4
         @test take_block_step!(xa, f, k, γ) ≈ z[xa.groups[k]]
       end
@@ -133,7 +133,7 @@ end
   @test nactive(xs) == 0
   take_block_step!(xs, IndBox(1, 2), 2, 1.)
   @test nactive(xs) == 1 && xs[2] == 1.
-  xa = AtomIterate(4, [1:2, 3:4])
+  xa = BlockIterate(4, [1:2, 3:4])
   take_block_step!(xa, NormL1(1.), 1, 1.)
   @test nactive(xa) == 0
   take_block_step!(xa, IndBox(1, 2), 2, 1.)
@@ -158,7 +158,7 @@ end
   # functions that are not separable
   @test_throws ArgumentError take_block_step!(SparseIterate(3), NormL2(1.), 1, 1.)
   @test_throws ArgumentError take_block_step!(SymmetricSparseIterate(3), NuclearNorm(1.), 1, 1.)
-  @test_throws ArgumentError take_block_step!(AtomIterate(4, 2), IndBallL1(1.), 1, 1.)
+  @test_throws ArgumentError take_block_step!(BlockIterate(4, 2), IndBallL1(1.), 1, 1.)
 end
 
 @testset "kkt_violation" begin
@@ -308,8 +308,8 @@ ProximalBase.kkt_violation(f::KktCustom, g::AbstractArray, i::Integer) = abs(g[i
     @test_throws BoundsError kkt_violation(f, GP, SP, 11)
     @test_throws DimensionMismatch kkt_violation(f, GP[:, 1:3], SP, 1)
 
-    # AtomIterate: the group id and the group layout, as the method behaved before
-    A = AtomIterate(T, 4, [1:2, 3:4])
+    # BlockIterate: the group id and the group layout, as the method behaved before
+    A = BlockIterate(T, 4, [1:2, 3:4])
     gf = GroupNormL2(T(1), [1:2, 3:4])
     @test kkt_violation(gf, g, A, 1) ≈ grp(g, 1:2, sqrt(T(2)))
     @test kkt_violation(gf, g, A, 2) ≈ grp(g, 3:4, sqrt(T(2)))
@@ -338,7 +338,7 @@ ProximalBase.kkt_violation(f::KktCustom, g::AbstractArray, i::Integer) = abs(g[i
   # the valid calls below allocate nothing after warmup
   kkt_alloc(f, g, x, k) = @allocated kkt_violation(f, g, x, k)
   let g = [3.0, -0.5, 7.0, 1.5], x = SparseIterate(4), xm = SparseIterate(2, 2), S = SymmetricSparseIterate(2),
-      G = [1.0 2; 4 3], A = AtomIterate(4, [1:2, 3:4]), f = NormL1(1.0), gf = GroupNormL2(1.0, [1:2, 3:4])
+      G = [1.0 2; 4 3], A = BlockIterate(4, [1:2, 3:4]), f = NormL1(1.0), gf = GroupNormL2(1.0, [1:2, 3:4])
     for (ff, gg, xx, k) in ((f, g, x, 3), (f, g, xm, 3), (f, G, S, 2), (gf, g, A, 1), (f, g, A, 1))
       kkt_violation(ff, gg, xx, k)
       @test kkt_alloc(ff, gg, xx, k) == 0

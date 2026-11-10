@@ -143,7 +143,7 @@ CONV(kernel, τ, h) = LossSpec("Conv-$kernel($τ,$h)", T -> PB.ConvolutionCheck(
 # ---------------------------------------------------------------------------------------------
 
 # T: element type of y, X, weights, offset; B: element type of β (the result is float(B));
-# wrap: how β is passed (dense, SparseIterate, AtomIterate); status: :assert, or :info for the
+# wrap: how β is passed (dense, SparseIterate, BlockIterate); status: :assert, or :info for the
 # decisions that the contract leaves open (reported, not asserted).
 struct GCase
   group::String
@@ -400,7 +400,7 @@ function cases(T)
     Xs = sparse(T[M -M 0; 0 0 1])
     add!(gname, "sparse X, cancelling row$tag", T, spec, [y0, y0], Xs, T[2, 2, 5]; w = [w, 2])
     add!(gname, "SparseIterate β$tag", T, spec, [y0], reshape(T[M, -M, 1], 1, 3), T[2, 2, 3]; w = [w], wrap = SparseIterate)
-    add!(gname, "AtomIterate β$tag", T, spec, [y0], reshape(T[M, -M, 1], 1, 3), T[2, 2, 3]; w = [w], wrap = b -> AtomIterate(b, [1:3]))
+    add!(gname, "BlockIterate β$tag", T, spec, [y0], reshape(T[M, -M, 1], 1, 3), T[2, 2, 3]; w = [w], wrap = b -> BlockIterate(b, [1:3]))
     add!(gname, "SparseIterate β with zero entries, sparse X$tag", T, spec, [y0, y0], Xs, T[2, 2, 0]; w = [w, 2], wrap = SparseIterate)
   end
   # the gradient entry itself overflows: X'd with d = 2 and X = M; also the weight 4 of the sparse case
@@ -550,13 +550,13 @@ function test_case(c::GCase)
 end
 
 # The Float32 storage cases of Logistic, Huber, SmoothCheck and the two Conv losses (sparse X, SparseIterate β and
-# AtomIterate β, with the two weights of each), and the three of those cases of Poisson that are not the SparseIterate
+# BlockIterate β, with the two weights of each), and the three of those cases of Poisson that are not the SparseIterate
 # β with zero entries, run in value_overflow_glm_grids.jl. The Float64 pass, the dense Float32 cases of these losses and
 # all the Float32 cases of Squared and SquaredHinge stay here.
 function in_grids_file(c::GCase)
   c.T === Float32 || return false
   storage = startswith(c.name, "sparse X, cancelling row") || startswith(c.name, "SparseIterate β") ||
-            startswith(c.name, "AtomIterate β")
+            startswith(c.name, "BlockIterate β")
   storage && (c.group in ("Logistic", "Huber", "SmoothCheck", "Conv-epanechnikov", "Conv-uniform") ||
               (c.group == "Poisson" && !startswith(c.name, "SparseIterate β with zero entries")))
 end

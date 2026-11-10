@@ -17,7 +17,7 @@ its internal implementation.
 | What mathematical function is represented? | `AbstractFunction` and its concrete subtypes | Losses, penalties, sets and wrappers |
 | Which operations does it support? | Capability traits and callable oracles | [Operations on functions](operations.md) |
 | Can an update act on one entry or group? | `SeparableFunction`, grouped penalties and coordinate methods | [Coordinate descent](@ref) |
-| How is the iterate stored? | `SparseIterate`, `SymmetricSparseIterate`, `AtomIterate` | [Sparse iterates](@ref) |
+| How is the iterate stored? | `SparseIterate`, `SymmetricSparseIterate`, `BlockIterate` | [Sparse iterates](@ref) |
 | Does an operation transform or delegate to another function? | Composition wrappers | [Functions built from functions](@ref) |
 | Who owns temporary state? | Function-owned buffers and decomposition workspaces | [State and device methods](@ref architecture-state) |
 | In which precision, and what about overflow and NaN? | Per-result model precision and range helpers | [Numerical policy](@ref architecture-numerics) |
@@ -135,7 +135,7 @@ Representative source: [basic wrappers](https://github.com/mlakolar/ProximalBase
 
 ## [Iterates and coordinate storage](@id architecture-storage)
 
-![SparseIterate and AtomIterate subtype Julia arrays and contain entry maps or active group data. SymmetricSparseIterate is not an array: it stores the lower triangle, and its coordinates and matrix views are the array handles.](assets/architecture/04-storage-device.svg)
+![SparseIterate and BlockIterate subtype Julia arrays and contain entry maps or active group data. SymmetricSparseIterate is not an array: it stores the lower triangle, and its coordinates and matrix views are the array handles.](assets/architecture/04-storage-device.svg)
 
 [Mermaid source](assets/architecture/04-storage-device.mmd).
 
@@ -143,7 +143,7 @@ Representative source: [basic wrappers](https://github.com/mlakolar/ProximalBase
 stores the lower triangle of a symmetric matrix; one stored off-diagonal
 coordinate represents two matrix entries. It is not an array: `coordinates(x)` is
 its vector of variables and `matrixview(x)` its read-only matrix, and the two index
-differently, so a matrix linear index is not a coordinate. `AtomIterate` stores dense
+differently, so a matrix linear index is not a coordinate. `BlockIterate` stores dense
 data together with the active groups used by block updates.
 
 Coordinate methods translate a storage coordinate into the appropriate entry
@@ -152,7 +152,7 @@ loops. See [Sparse iterates](@ref) before mixing storage coordinates with array
 indices.
 
 Representative source: [sparse and symmetric storage](https://github.com/mlakolar/ProximalBase.jl/blob/6004c42d90e51f2410eb8147b454f2ad16e25bdc/src/sparse_iterate.jl),
-[atom storage and updates](https://github.com/mlakolar/ProximalBase.jl/blob/6004c42d90e51f2410eb8147b454f2ad16e25bdc/src/atom_iterate.jl).
+[historical grouped-storage source](https://github.com/mlakolar/ProximalBase.jl/blob/6004c42d90e51f2410eb8147b454f2ad16e25bdc/src/atom_iterate.jl).
 
 ## [Matrix decompositions](@id architecture-spectral)
 

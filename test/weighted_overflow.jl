@@ -26,7 +26,7 @@ samebits(a::T, b::T) where {T} = reinterpret(T === Float32 ? UInt32 : UInt64, a)
     M = floatmax(T)
     x = T[M, M]
     f = ElasticNet(T(1/4), zero(T))
-    for z in (x, SparseIterate(x), AtomIterate(x, GroupNormL2(one(T), [1:2])))
+    for z in (x, SparseIterate(x), BlockIterate(x, GroupNormL2(one(T), [1:2])))
       check_rounded(f(z), big(M)/2)
     end
     X = Matrix(Diagonal(x))
@@ -63,11 +63,11 @@ end
     M = floatmax(T)
     x = T[M, M]
     for f in (GroupNormL2(T(1/4), [1:2]), SparseGroupNormL2(T(1/4), zero(T), [1:2]), SparseGroupNormL2(zero(T), T(1/4), [1:2]))
-      for z in (x, SparseIterate(x), AtomIterate(x, f))
+      for z in (x, SparseIterate(x), BlockIterate(x, f))
         check_rounded(f(z), big(M)/2)
         check_rounded(value_and_prox!(copy(z), f, z, floatmin(T)), big(M)/2)
       end
-      a = AtomIterate(x, f)
+      a = BlockIterate(x, f)
       take_block_step!(a, f, 1, floatmin(T))
       check_rounded(f(a), big(M)/2)
     end
@@ -83,7 +83,7 @@ end
         check_rounded(f(z), ref)
         check_rounded(value_and_prox!(copy(z), f, z, 1e-80), ref)
       end
-      a = AtomIterate(x, f isa PB.AbstractGroupPenalty ? f : GroupNormL2(1, [1:1]))
+      a = BlockIterate(x, f isa PB.AbstractGroupPenalty ? f : GroupNormL2(1, [1:1]))
       check_rounded(f(a), ref)
       check_rounded(value_and_prox!(copy(a), f, a, 1e-80), ref)
       if !(f isa Union{PB.AbstractGroupPenalty, NormLinf})      # NormLinf has no owner method
@@ -107,7 +107,7 @@ end
     x = Float32[w > 1 ? 1e-20 : 1e30]
     for f in (GroupNormL2(0.25, [1:1], [w]), GroupNormLinf(0.25, [1:1], [w]), SparseGroupNormL2(0, 0.25, [1:1], [w]))
       reference = big(0.25)*big(w)*big(x[1])
-      for z in (x, AtomIterate(x, f))
+      for z in (x, BlockIterate(x, f))
         check_rounded(f(z), reference)
         check_rounded(value_and_prox!(copy(z), f, z, 1e-80), reference)
       end
@@ -131,7 +131,7 @@ end
   for f in (GroupNormL2(1e40, [[1]], [1e-50]), GroupNormLinf(1e40, [[1]], [1e-50]), SparseGroupNormL2(0, 1e40, [[1]], [1e-50]))
     x = Float32[1]
     @test prox(f, x, 2e10) == Float32[0]
-    a = AtomIterate(x, f)
+    a = BlockIterate(x, f)
     @test value_and_prox!(copy(a), f, a, 2e10) == 0f0
     take_block_step!(a, f, 1, 2e10)
     @test a[1] == 0f0
@@ -165,7 +165,7 @@ end
     @test samebits(f(x), legacy)
     unweighted = ElasticNet(T(0.3), T(0.7))
     @test samebits(unweighted(x), PB._sum_entries(PB._value_entry_ordinary, unweighted, x, T))
-    for z in (x, SparseIterate(x), AtomIterate(x, GroupNormL2(one(T), [1:200])))
+    for z in (x, SparseIterate(x), BlockIterate(x, GroupNormL2(one(T), [1:200])))
       for i in eachindex(x)
         @test samebits(value_entry(f,z[i],i), f.λ1*w[i]*abs(z[i]) + f.λ2*abs2(z[i])/2)
       end
@@ -192,7 +192,7 @@ end
     f = ElasticNet(T(λ1), T(λ2))
     x = T[NaN]
     @test isnan(value_entry(f, x[1], 1))
-    for z in (x, SparseIterate(x), AtomIterate(x, GroupNormL2(one(T), [1:1])), SymmetricSparseIterate(reshape(x, 1, 1)))
+    for z in (x, SparseIterate(x), BlockIterate(x, GroupNormL2(one(T), [1:1])), SymmetricSparseIterate(reshape(x, 1, 1)))
       @test isnan(f(z))
       @test isnan(value_and_prox!(copy(z), f, z, T(0.7)))
     end

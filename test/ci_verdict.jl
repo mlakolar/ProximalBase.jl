@@ -394,7 +394,7 @@ end
   rel(; kw...) = go(; event = "workflow_dispatch", tier = "full", release = true, required = req, advisory = ["$PRE - full"], kw...)
   artifacts(attempt = "1"; skip = String[]) = String[report_artifact(n, attempt) for n in req if !(n in skip)]
   # the names the workflow's upload step gives
-  @test report_artifact("1") == "conformance-reports-lts-ubuntu-latest-x64-1"
+  @test report_artifact("$L1 - full", "1") == "conformance-reports-1-ubuntu-latest-x64-1"
   @test report_artifact("$L1 - full", "3") == "conformance-reports-1-ubuntu-latest-x64-3"
   @test report_artifact("$MAC - full", "1") == "conformance-reports-1-macos-latest-aarch64-1"
   @test report_artifact("$WIN - full", "2") == "conformance-reports-1-windows-latest-x64-2"

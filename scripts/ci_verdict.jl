@@ -11,9 +11,9 @@
 # - when tests run (a tier other than none), a recognized platforms mode (stable, linux or
 #   cross) is required, and `required` (the ';'-separated names of the test jobs the plan
 #   lists) is not empty and contains a minimum that the verdict writes out itself: the floor of
-#   the event (Julia 1 on Ubuntu for a pull request, with lts from the thorough tier, and for a
-#   manual run; Julia 1 and lts on Ubuntu for a push to master; the four cross jobs for a tag,
-#   the nightly run and a release run) together with the jobs of the plan's platforms mode.
+#   the event (Julia 1 on Ubuntu for a pull request, manual run or push to master;
+#   Julia 1 on Ubuntu, macOS and Windows for a tag, nightly or release run) together
+#   with the jobs of the plan's platforms mode.
 #   `advisory` holds
 #   at most Julia pre on Ubuntu, and shares no name with `required`. Each required job of this
 #   run is listed with the conclusion success (missing, failed, cancelled, skipped and timed out

@@ -524,14 +524,14 @@ end
 LinearAlgebra.dot(x::BlockIterate, v::Union{StridedVector, SparseIterate{<:Any, 1}}) = dot(v, x)
 
 
-_atom_view_storage(v::SubArray{<:Real, 1, <:BlockIterate}) =
+_block_view_storage(v::SubArray{<:Real, 1, <:BlockIterate}) =
   @inbounds view(parent(v).storage, parentindices(v)...)
-LinearAlgebra.norm(v::SubArray{<:Real, 1, <:BlockIterate}) = norm(_atom_view_storage(v))
-LinearAlgebra.norm(v::SubArray{<:Real, 1, <:BlockIterate}, p::Real) = norm(_atom_view_storage(v), p)
-LinearAlgebra.dot(v::SubArray{<:Real, 1, <:BlockIterate}, w::StridedVector) = dot(_atom_view_storage(v), w)
-LinearAlgebra.dot(v::StridedVector, w::SubArray{<:Real, 1, <:BlockIterate}) = dot(v, _atom_view_storage(w))
+LinearAlgebra.norm(v::SubArray{<:Real, 1, <:BlockIterate}) = norm(_block_view_storage(v))
+LinearAlgebra.norm(v::SubArray{<:Real, 1, <:BlockIterate}, p::Real) = norm(_block_view_storage(v), p)
+LinearAlgebra.dot(v::SubArray{<:Real, 1, <:BlockIterate}, w::StridedVector) = dot(_block_view_storage(v), w)
+LinearAlgebra.dot(v::StridedVector, w::SubArray{<:Real, 1, <:BlockIterate}) = dot(v, _block_view_storage(w))
 LinearAlgebra.dot(v::SubArray{<:Real, 1, <:BlockIterate}, w::SubArray{<:Real, 1, <:BlockIterate}) =
-  dot(_atom_view_storage(v), _atom_view_storage(w))
+  dot(_block_view_storage(v), _block_view_storage(w))
 
 
 function Base.show(io::IO, ::MIME"text/plain", x::BlockIterate)

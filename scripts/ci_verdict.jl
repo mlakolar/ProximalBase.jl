@@ -11,9 +11,9 @@
 # - when tests run (a tier other than none), a recognized platforms mode (stable, linux or
 #   cross) is required, and `required` (the ';'-separated names of the test jobs the plan
 #   lists) is not empty and contains a minimum that the verdict writes out itself: the floor of
-#   the event (Julia 1 on Ubuntu for a pull request, with lts from the thorough tier, and for a
-#   manual run; Julia 1 and lts on Ubuntu for a push to master; the four cross jobs for a tag,
-#   the nightly run and a release run) together with the jobs of the plan's platforms mode.
+#   the event (Julia 1 on Ubuntu for a pull request, manual run or push to master;
+#   Julia 1 on Ubuntu, macOS and Windows for a tag, nightly or release run) together
+#   with the jobs of the plan's platforms mode.
 #   `advisory` holds
 #   at most Julia pre on Ubuntu, and shares no name with `required`. Each required job of this
 #   run is listed with the conclusion success (missing, failed, cancelled, skipped and timed out
@@ -63,8 +63,8 @@ jobname(version, os, arch, tier) = "Julia $version - $os - $arch - $tier"
 # are the verdict's own copy of [platforms.*] in .github/tier-rules.toml.
 const MODE_JOBS = Dict(
   "stable" => [("1", "ubuntu-latest", "x64")],
-  "linux" => [("lts", "ubuntu-latest", "x64"), ("1", "ubuntu-latest", "x64")],
-  "cross" => [("lts", "ubuntu-latest", "x64"), ("1", "ubuntu-latest", "x64"),
+  "linux" => [("1", "ubuntu-latest", "x64")],
+  "cross" => [("1", "ubuntu-latest", "x64"),
               ("1", "macos-latest", "aarch64"), ("1", "windows-latest", "x64")],
 )
 const ADVISORY_JOB = ("pre", "ubuntu-latest", "x64")
@@ -84,9 +84,8 @@ end
     floor_jobs(event, ref_type, tier; release = false) -> Vector{String}
 
 The test jobs an event needs, independent of the plan's platform mode: Julia 1 on Ubuntu for a pull
-request (and Julia lts on Ubuntu from the thorough tier) and for a manual run, Julia 1 and lts
-on Ubuntu for a push to master, and those with Julia 1 on macOS and on Windows for a tag push, the
-nightly run and a release run (a manual run with `release`, which must be of the full tier).
+request and for a manual run, Julia 1 on Ubuntu for a push to master, and Julia 1 on macOS and
+Windows for a tag push, the nightly run and a release run (a manual run with `release`, which must be of the full tier).
 Throws for another event or ref type, and for a release that is not a manual run of the full tier.
 """
 function floor_jobs(event, ref_type, tier; release = false)
@@ -95,13 +94,12 @@ function floor_jobs(event, ref_type, tier; release = false)
     error("a release run is a manual run of the full tier, not a $event run of tier $tier")
   end
   linux1 = jobname("1", "ubuntu-latest", "x64", tier)
-  lts = jobname("lts", "ubuntu-latest", "x64", tier)
   cross = mode_jobs("cross", tier)
-  event == "pull_request" && return tier in ("thorough", "full") ? [lts, linux1] : [linux1]
+  event == "pull_request" && return [linux1]
   event == "workflow_dispatch" && return [linux1]
   event == "schedule" && return cross
   if event == "push"
-    ref_type == "branch" && return [lts, linux1]
+    ref_type == "branch" && return [linux1]
     ref_type == "tag" && return cross
     error("a push of ref type `$ref_type` has no minimum of jobs")
   end

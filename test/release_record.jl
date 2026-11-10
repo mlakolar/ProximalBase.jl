@@ -21,13 +21,13 @@ const PRE = V.jobname(V.ADVISORY_JOB..., "full")
 
 # The jobs of a release run, each with the attempt 1; `conclusions` replaces some, `drop` removes some.
 function jobs_of(; conclusions = Dict{String, String}(), drop = String[], extra = Tuple{String, String, String}[])
-  names = ["Test plan"; required(); PRE; "Benchmark reference checks - Julia lts"; "Benchmark analysis controls";
+  names = ["Test plan"; required(); PRE; "Benchmark reference checks - Julia 1"; "Benchmark analysis controls";
            "CI required jobs"; "CI result"]
   listed = [(n, get(conclusions, n, "success"), "1") for n in names if !(n in drop)]
   return [listed; extra]
 end
 
-artifacts_of() = ["conformance-reports-lts-ubuntu-latest-x64-1", "conformance-reports-1-macos-latest-aarch64-1"]
+artifacts_of() = ["conformance-reports-1-ubuntu-latest-x64-1", "conformance-reports-1-macos-latest-aarch64-1"]
 
 record(; kw...) = build_record(; plan = "success", tests = "success", verdict = "success", gate = "success",
                                expected_sha = SHA, sha = SHA, event = "workflow_dispatch", ref = "refs/heads/release-1",

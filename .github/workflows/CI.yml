@@ -2,22 +2,22 @@ name: CI
 # The plan job decides what a run does (scripts/ci_plan.jl, policy in .github/tier-rules.toml):
 # the test tier, the platforms (the job matrix), coverage, the benchmark reference checks and the
 # conformance reports are independent outputs, and the same plan lists the test jobs the verdict
-# job must find. The cross platforms are Julia 1 and lts on Linux, Julia 1 on macOS and Windows,
+# job must find. The cross platforms are Julia 1 on Linux, macOS and Windows,
 # and Julia pre on Linux (advisory):
 # - pull requests: the minimum tier for the changed files, raised by test:standard,
 #   test:thorough or test:full labels (quick at least, none for documentation only), on Julia 1
-#   and Linux, plus Julia lts from the thorough tier; test:full also runs macOS, Windows and
+#   and Linux; test:full also runs macOS, Windows and
 #   Julia pre (the cross platforms); test:benchmark adds the benchmark reference checks;
-# - pushes to master: the thorough tier on Julia 1 and lts on Linux (none for documentation only);
+# - pushes to master: the thorough tier on Julia 1 Linux (none for documentation only);
 # - tags: the full tier on the cross platforms, with the benchmark reference checks;
 # - the nightly run: the full tier on the cross platforms, with coverage and the benchmark
 #   reference checks, also when an earlier run passed; a lost coverage upload fails it;
-# - manual runs: the tier, platforms (auto: the cross platforms for full, otherwise Julia 1 and
-#   lts on Linux), benchmark and coverage inputs (`gh workflow run CI.yml --ref <branch>`);
+# - manual runs: the tier, platforms (auto: the cross platforms for full, otherwise Julia 1
+#   on Linux), benchmark and coverage inputs (`gh workflow run CI.yml --ref <branch>`);
 # - release validation, a manual run with release=true and the full SHA of the commit as
 #   expected_sha: the full tier on the cross platforms, with coverage and the benchmark reference
 #   checks; the plan rejects a tier or platforms input that disagrees and a commit that is not
-#   expected_sha, and the verdict needs the four cross jobs.
+#   expected_sha, and the verdict needs the three required cross jobs.
 # Branch protection requires two checks of pull_request runs. "PR merge gate" starts with the
 # run, so a new run (a push or a label) at once replaces the commit's earlier gate with a pending
 # one, and it passes when this run's "PR required jobs" passed and the PR's test labels are still
@@ -218,7 +218,7 @@ jobs:
           FOCUS: ${{ needs.plan.outputs.focus }}
       - name: Check the conformance coverage map
         # One job checks the committed map: the moving Julia release must not turn master red.
-        # It is Julia lts on Linux when the run has it, otherwise Julia 1 on Linux (matrix.map).
+        # It is Julia 1 on Linux (matrix.map).
         if: ${{ matrix.map && env.CONFORMANCE == 'true' }}
         shell: bash
         run: julia --startup-file=no scripts/conformance_map.jl "$RUNNER_TEMP/conformance" --check --run-id "$CONFORMANCE_RUN_ID" --tier "$TIER" --extra "$FOCUS"
@@ -237,7 +237,7 @@ jobs:
           [ ${#reports[@]} -gt 0 ] || { echo "::error::The test step wrote no conformance reports."; exit 1; }
       # Upload policy: an upload counts only when its step succeeded and returned an artifact id;
       # otherwise it is retried once after 30 s, on each job that writes the reports. The artifact of the matrix.map job
-      # (Julia lts, Linux, when the run has it) is the one the coverage map is regenerated from,
+      # (Julia 1 on Linux) is the one the coverage map is regenerated from,
       # so its upload stays required; on the other
       # jobs an unconfirmed upload after the retry is a warning in the job and its summary,
       # because the reports themselves were checked above and GitHub's artifact service failed.
@@ -311,7 +311,6 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - 'lts'
           - '1'
     steps:
       - uses: actions/checkout@v7

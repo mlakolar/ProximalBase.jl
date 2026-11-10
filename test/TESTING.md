@@ -2,6 +2,9 @@
 
 This file records why the test suite is split into tiers, where each file sits and why, which
 tests moved between files, and what the tiers cost on GitHub-hosted runners.
+
+**Current CI policy (2026-11-10):** automatic tests and benchmarks run on Julia `1`
+(current stable); older Julia LTS measurements and incident examples below are historical.
 [CONTRIBUTING.md](../CONTRIBUTING.md) is the user guide; [`tiers.toml`](tiers.toml) lists the
 files of each tier and [`.github/tier-rules.toml`](../.github/tier-rules.toml) says which tier CI
 runs for a change.
@@ -28,8 +31,7 @@ checks this table against that list and verifies that the selection includes tho
 | `brute_force_prox` | scalar minimizer and objective against soft thresholding | `separable`, `nonconvex` |
 
 This default covers representative consumers and direct helper faults; it does not run the
-exhaustive full-tier catalogs. Extension-only PRs use Julia 1, with LTS coverage on the
-thorough master push. Request `test:thorough` for materially broader helper changes or
+exhaustive full-tier catalogs. Extension-only PRs and thorough master pushes use Julia 1. Request `test:thorough` for materially broader helper changes or
 version-dependent behavior such as allocation specialization, and `test:full` for platform
 changes. Editing `src/testing.jl` also raises the tier to thorough. Other extension paths,
 unknown paths and edits to the risk policy retain full selection. The tier inventory and

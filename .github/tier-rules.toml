@@ -104,11 +104,9 @@ auto_platforms = { quick = "linux", standard = "linux", thorough = "linux", full
 # [timeouts] (the 3-core, 3.3 GiB macOS runners take 43-78 min on the full tier and one run was
 # cancelled at the 90 min limit, #736).
 #   stable: Julia 1 on Linux.
-#   linux:  Julia 1 and lts on Linux; the conformance map check and the required report upload
-#           run on lts.
+#   linux:  Julia 1 on Linux (same jobs as stable; retained as a policy mode).
 #   cross:  linux, Julia 1 on macOS and Windows, and Julia pre on Linux (advisory).
-# The conformance map check and the required upload run on Julia lts on Linux when the mode has
-# it, otherwise on Julia 1 on Linux; coverage runs on Julia 1 on Linux.
+# Conformance map checks, required reports and coverage use Julia 1 on Linux.
 
 [platforms.stable]
 jobs = [
@@ -117,13 +115,11 @@ jobs = [
 
 [platforms.linux]
 jobs = [
-  { version = "lts", os = "ubuntu-latest", arch = "x64" },
   { version = "1", os = "ubuntu-latest", arch = "x64" },
 ]
 
 [platforms.cross]
 jobs = [
-  { version = "lts", os = "ubuntu-latest", arch = "x64" },
   { version = "1", os = "ubuntu-latest", arch = "x64" },
   { version = "1", os = "macos-latest", arch = "aarch64", ptr_jobs = "2", timeout = 120 },
   { version = "1", os = "windows-latest", arch = "x64" },

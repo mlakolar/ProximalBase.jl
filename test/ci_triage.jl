@@ -358,8 +358,12 @@ end
     @test T.sig_hash("123456789") == "e3069283" && T.sig_hash("a# == a# == a#") != T.sig_hash("a# == a#")
     expected = T.expected_jobs(env())
     @test expected == NAMES
-    # a failed plan lists no jobs: the nightly's own list stands in
-    @test sort(T.expected_jobs(env(required = "", advisory = ""))) == sort(NAMES)
+    # A failed plan uses the current stable-only cross matrix (not the
+    # historical LTS-inclusive fixture used to exercise old triage reports).
+    current = [LINUX_1, MAC, WIN, LINUX_PRE]
+    @test T.expected_jobs(env(required = join(current[1:3], ";"), advisory = LINUX_PRE)) == current
+    @test sort(T.expected_jobs(env(required = "", advisory = ""))) == sort(current)
+    @test !(LINUX_LTS in T.expected_jobs(env(required = "", advisory = "")))
   end
 
   @testset "times and base64" begin

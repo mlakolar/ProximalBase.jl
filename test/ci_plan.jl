@@ -54,12 +54,12 @@ lf(path) = replace(read(path, String), "\r\n" => "\n")
     @test !r.coverage && !r.benchmark && !r.conformance
     @test !r.inventory && !r.release && r.sha == ""
   end
-  # thorough, full: Julia 1 and lts on Linux, and the conformance reports
+  # thorough, full: Julia 1 on Linux, and the conformance reports
   for (paths, tier) in ((["src/utils.jl"], "thorough"), (["test/conformance/kernels.jl"], "thorough"),
                         (["Project.toml"], "full"), (["scripts/ci_plan.jl"], "full"), (["a/new/file.txt"], "full"))
     r = pr(paths...)
     @test r.tier == tier && r.platforms == "linux" && r.conformance
-    @test sort(jobnames(r.required)) == sort(["$LTS - $tier", "$L1 - $tier"]) && isempty(r.advisory)
+    @test sort(jobnames(r.required)) == sort(["$L1 - $tier"]) && isempty(r.advisory)
     @test !r.coverage
   end
   # documentation only: no tests, but a valid matrix and no job names
@@ -115,7 +115,7 @@ end
   # test:full opts into every platform and the benchmark checks; the path rule that needs full alone does not
   r = pr("test/norms.jl"; labels = ["test:full"])
   @test r.tier == "full" && r.platforms == "cross" && r.benchmark && !r.coverage && r.conformance
-  @test sort(jobnames(r.required)) == sort(["$LTS - full", "$L1 - full", "$MAC - full", "$WIN - full"])
+  @test sort(jobnames(r.required)) == sort(["$L1 - full", "$MAC - full", "$WIN - full"])
   @test jobnames(r.advisory) == ["$PRE - full"]
   @test pr("Project.toml").platforms == "linux" && !pr("Project.toml").benchmark
   @test pr("docs/src/index.md"; labels = ["test:full"]).platforms == "cross"
@@ -135,7 +135,7 @@ end
   @test r.tier == "thorough" && r.run_tests && r.timeout == 45 && r.platforms == "linux"
   @test !r.coverage && !r.benchmark && r.conformance
   @test !r.inventory && !r.release && r.sha == ""
-  @test sort(jobnames(r.required)) == sort(["$LTS - thorough", "$L1 - thorough"]) && isempty(r.advisory)
+  @test sort(jobnames(r.required)) == sort(["$L1 - thorough"]) && isempty(r.advisory)
   # whatever the paths need, a push runs thorough (labels and inputs mean nothing)
   @test push(paths = ["test/norms.jl"]).tier == "thorough"
   @test push(paths = ["Project.toml"]).tier == "thorough"
@@ -165,7 +165,7 @@ end
     @test r.benchmark && !r.coverage && r.conformance
     # every job of a tag run must have run the whole catalog
     @test r.inventory && !r.release && r.sha == ""
-    @test sort(jobnames(r.required)) == sort(["$LTS - full", "$L1 - full", "$MAC - full", "$WIN - full"])
+    @test sort(jobnames(r.required)) == sort(["$L1 - full", "$MAC - full", "$WIN - full"])
     @test jobnames(r.advisory) == ["$PRE - full"]
   end
 end
@@ -174,7 +174,7 @@ end
   r = planned("schedule")
   @test r.tier == "full" && r.run_tests && r.platforms == "cross" && r.coverage && r.benchmark && r.conformance
   @test r.inventory && !r.release && r.sha == ""
-  @test sort(jobnames(r.required)) == sort(["$LTS - full", "$L1 - full", "$MAC - full", "$WIN - full"])
+  @test sort(jobnames(r.required)) == sort(["$L1 - full", "$MAC - full", "$WIN - full"])
   @test jobnames(r.advisory) == ["$PRE - full"]
   # always: not skipped for a documentation-only commit, and nothing earlier can skip it
   @test planned("schedule"; paths = ["README.md"]).tier == "full"
@@ -194,7 +194,7 @@ end
   r = dispatch()
   @test r.tier == "full" && r.platforms == "cross" && !r.coverage && r.benchmark && r.run_tests
   @test r == dispatch(tier = "", platforms = "", benchmark = "", coverage = "")
-  # each tier; auto means every platform for full and Julia 1 and lts on Linux otherwise
+  # each tier; auto means every platform for full and Julia 1 on Linux otherwise
   for tier in ("quick", "standard", "thorough", "full")
     r = dispatch(tier = tier)
     @test r.tier == tier && r.platforms == (tier == "full" ? "cross" : "linux")
@@ -203,7 +203,7 @@ end
     @test dispatch(tier = tier, platforms = "auto") == r
   end
   # each platforms value, whatever the tier
-  for tier in ("quick", "full"), (platforms, jobs) in (("stable", 1), ("linux", 2), ("cross", 5))
+  for tier in ("quick", "full"), (platforms, jobs) in (("stable", 1), ("linux", 1), ("cross", 4))
     r = dispatch(; tier, platforms)
     @test r.platforms == platforms && length(jobnames(r.required)) + length(jobnames(r.advisory)) == jobs
   end
@@ -235,7 +235,7 @@ end
   # the full tier on every platform, with coverage and the benchmark checks, and every job's inventory
   @test r.tier == "full" && r.run_tests && r.platforms == "cross" && r.coverage && r.benchmark && r.conformance
   @test r.release && r.inventory && r.sha == SHA40
-  @test sort(jobnames(r.required)) == sort(["$LTS - full", "$L1 - full", "$MAC - full", "$WIN - full"])
+  @test sort(jobnames(r.required)) == sort(["$L1 - full", "$MAC - full", "$WIN - full"])
   @test jobnames(r.advisory) == ["$PRE - full"] && r.timeout == MANIFEST.timeouts["full"]
   @test r.matrix == CIPlan.matrix_json(CIPlan.matrix_entries(POLICY.platforms["cross"]))
   # the table names the commit and says that the coverage and benchmark inputs mean nothing
@@ -302,20 +302,18 @@ end
   # exact text per mode: what the workflow reads
   @test jsonof("stable") == """{"include":[{"version":"1","os":"ubuntu-latest","arch":"x64","advisory":false,"map":true,"coverage":true}]}"""
   @test jsonof("linux") ==
-        """{"include":[{"version":"lts","os":"ubuntu-latest","arch":"x64","advisory":false,"map":true,"coverage":false},""" *
-        """{"version":"1","os":"ubuntu-latest","arch":"x64","advisory":false,"map":false,"coverage":true}]}"""
+        """{"include":[{"version":"1","os":"ubuntu-latest","arch":"x64","advisory":false,"map":true,"coverage":true}]}"""
   @test jsonof("cross") ==
-        """{"include":[{"version":"lts","os":"ubuntu-latest","arch":"x64","advisory":false,"map":true,"coverage":false},""" *
-        """{"version":"1","os":"ubuntu-latest","arch":"x64","advisory":false,"map":false,"coverage":true},""" *
+        """{"include":[{"version":"1","os":"ubuntu-latest","arch":"x64","advisory":false,"map":true,"coverage":true},""" *
         """{"version":"1","os":"macos-latest","arch":"aarch64","ptr_jobs":"2","timeout":120,"advisory":false,"map":false,"coverage":false},""" *
         """{"version":"1","os":"windows-latest","arch":"x64","advisory":false,"map":false,"coverage":false},""" *
         """{"version":"pre","os":"ubuntu-latest","arch":"x64","advisory":true,"map":false,"coverage":false}]}"""
-  # one map entry and one coverage entry in every mode; the map is Julia lts on Linux when the mode has it
+  # one map entry and one coverage entry in every mode, both on current Julia 1 Linux
   for name in ("stable", "linux", "cross")
     es = entries(name)
     @test count(e -> get_(e, "map"), es) == 1 && count(e -> get_(e, "coverage"), es) == 1
     m = only(filter(e -> get_(e, "map"), es))
-    @test get_(m, "os") == "ubuntu-latest" && get_(m, "version") == (name == "stable" ? "1" : "lts")
+    @test get_(m, "os") == "ubuntu-latest" && get_(m, "version") == "1"
     c = only(filter(e -> get_(e, "coverage"), es))
     @test get_(c, "os") == "ubuntu-latest" && get_(c, "version") == "1" && !get_(c, "advisory")
   end
@@ -326,10 +324,10 @@ end
   @test get_(mac, "ptr_jobs") == "2" && get_(mac, "timeout") == 120 && get_(mac, "arch") == "aarch64"
   @test all(e -> get_(e, "ptr_jobs") === nothing && get_(e, "timeout") === nothing,
             filter(e -> get_(e, "os") != "macos-latest", entries("cross")))
-  # the linux mode is the stable one plus Julia lts; the cross mode adds to linux
-  @test Set((j.version, j.os) for j in mode("stable")) < Set((j.version, j.os) for j in mode("linux")) <
-        Set((j.version, j.os) for j in mode("cross"))
-  # without Julia lts the map entry is Julia 1; without any Linux job there is none
+  # Stable and linux both test current stable Linux; cross adds macOS, Windows and Julia pre.
+  @test Set((j.version, j.os) for j in mode("stable")) == Set((j.version, j.os) for j in mode("linux"))
+  @test Set((j.version, j.os) for j in mode("linux")) < Set((j.version, j.os) for j in mode("cross"))
+  # Julia 1 on Linux provides the map baseline; without any Linux job there is none
   jobs = [CIPlan.PlatformJob("1", "ubuntu-latest", "x64", nothing, nothing, false)]
   @test get_(only(CIPlan.matrix_entries(jobs)), "map")
   jobs = [CIPlan.PlatformJob("1", "windows-latest", "x64", nothing, nothing, false)]
@@ -610,7 +608,7 @@ const TESTING_CONSUMERS = ["allocations_basics", "ballconstrained", "binary", "c
   for paths in ([ext, "src/testing.jl"], [ext, "src/utils.jl", "test/utils.jl"])
     r = pr(paths...)
     @test r.tier == "thorough" && r.platforms == "linux" && r.conformance
-    @test sort(jobnames(r.required)) == sort(["$L1 - thorough", "$LTS - thorough"])
+    @test sort(jobnames(r.required)) == sort(["$L1 - thorough"])
     @test "testing" in selected(r) && !("testing" in split(r.focus, ','))
   end
   for label in ("test:thorough", "test:full")
@@ -619,14 +617,14 @@ const TESTING_CONSUMERS = ["allocations_basics", "ballconstrained", "binary", "c
     @test r.tier == tier && isempty(r.focus) && selected(r) == TT.select(MANIFEST, tier)
     @test r.platforms == (tier == "full" ? "cross" : "linux")
     @test sort(jobnames(r.required)) == sort(tier == "full" ?
-      ["$L1 - full", "$LTS - full", "$MAC - full", "$WIN - full"] : ["$L1 - thorough", "$LTS - thorough"])
+      ["$L1 - full", "$MAC - full", "$WIN - full"] : ["$L1 - thorough"])
     @test jobnames(r.advisory) == (tier == "full" ? ["$PRE - full"] : String[])
     @test r.benchmark == (tier == "full") && r.conformance
   end
   for path in ("ext/OtherExt.jl", "ext/ProximalBaseGPUArraysCoreExt.jl", "unknown/path", ".github/tier-rules.toml")
     r = pr(ext, path)
     @test r.tier == "full" && selected(r) == TT.select(MANIFEST, "full")
-    @test r.platforms == "linux" && sort(jobnames(r.required)) == sort(["$L1 - full", "$LTS - full"])
+    @test r.platforms == "linux" && sort(jobnames(r.required)) == sort(["$L1 - full"])
     @test isempty(r.advisory) && r.conformance && !r.benchmark
   end
 end

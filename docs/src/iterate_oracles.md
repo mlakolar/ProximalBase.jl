@@ -6,7 +6,7 @@ an `AtomIterate` (see [Entries and coordinates](@ref)). This section states what
 they do on these two iterates. For a `SymmetricSparseIterate`, see also
 [What each call checks](@ref).
 
-### Steps on one coordinate
+## Steps on one coordinate
 
 `prox_coordinate!(x, f, k, γ)` applies the proximal operator of ``\gamma f`` to
 the current value of coordinate ``k``. `prox_coordinate!(x, f, k, u, γ)` applies
@@ -78,7 +78,7 @@ r = prox_coordinate!(a, f, 1, view(a, [2, 1]), 1.0) # the trial (4, 3)
 @assert r == atom(a, 1)
 ```
 
-### Block trials
+## Block trials
 
 Block coordinate descent computes a trial point ``u`` for group ``k`` (see
 [AtomIterate](@ref)). The supported way to take the group step at ``u`` is
@@ -118,7 +118,7 @@ end
 
 Do not bypass these methods by writing directly into the iterate's private storage. Use the five-argument `prox_coordinate!` form for block trial points; it keeps the working set consistent even when the trial is discarded.
 
-### Screening a zero coordinate
+## Screening a zero coordinate
 
 `kkt_violation(f, g, x, k)`, with `g` the gradient of the smooth part at `x`,
 screens coordinate ``k`` at zero. A positive value means that the coordinate,

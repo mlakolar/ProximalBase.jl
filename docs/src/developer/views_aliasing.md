@@ -3,9 +3,10 @@
 This is **implementation documentation**, not a requirement for users to call private Base hooks. See the [Iterates overview](../iterates.md) and the [0.6 design contracts](index.md) for the supported surface.
 
 
-The two coordinate-wrapper types and their internal aliasing hooks are explained here, rather than on separate developer pages. For the authoritative rules, see the iterate-family and symmetric-owner contracts above.
+The two coordinate-wrapper types and their internal aliasing hooks are explained here, rather than on separate developer pages. For normative requirements, see the [iterate-family contract](contracts/iterate-family-0.6.md)
+and [symmetric-owner contract](contracts/symmetric-sparse-iterate-0.6.md).
 
-### Coordinate IDs, storage slots and matrix positions
+## Coordinate IDs, storage slots and matrix positions
 
 There are **three different integers** that are easy to confuse:
 
@@ -19,7 +20,7 @@ For `SparseIterate`, coordinate ID `k` **equals** the array linear index. For `S
 
 The internal two-way mapping is `coordinate ID -> slot` and `slot -> coordinate ID`. The implementation reserves capacity for all coordinates at construction, so membership and first activation are O(1). These are private fields, not public accessors.
 
-### SparseCoordinates: vector view of an ordinary sparse iterate
+## SparseCoordinates: vector view of an ordinary sparse iterate
 
 Source: `src/sparse_iterate.jl`, definitions of `SparseCoordinates` and `coordinates(x::SparseIterate)`.
 
@@ -44,7 +45,7 @@ For both vector and matrix `SparseIterate`, `coordinates(x)` is one-dimensional.
 
 It is distinct from `activevalues(x)`: the former has `ncoordinates(x)` logical entries, including implicit zeros; the latter has `nactive(x)` packed values. A generic product or reduction on `SparseCoordinates` may visit **all** coordinates and has ordinary vector arithmetic; it does not inherit `SparseIterate`'s specialized strong-zero sparse products.
 
-### SymmetricCoordinates: independent variables of a non-array owner
+## SymmetricCoordinates: independent variables of a non-array owner
 
 Source: `src/sparse_iterate.jl`, `SymmetricCoordinates`.
 
@@ -69,13 +70,13 @@ A zero fill of the symmetric coordinate vector is specialized to visit the *acti
 
 **The wrapper is not a Frobenius view.** `norm(coordinates(X))` is the Euclidean norm of `q` independent values. The full matrix Frobenius norm has each off-diagonal contribution twice. The owner and its matrix view provide the appropriate matrix-oriented operations.
 
-### SymmetricMatrixView: a separate read-only full-matrix view
+## SymmetricMatrixView: a separate read-only full-matrix view
 
 The `SymmetricMatrixView <: AbstractMatrix` returned by `matrixview(X)` has shape `(p,p)`, normal matrix indexing and `p²` logical entries. Both triangles read the same independent storage. The view is live and read-only, whereas `Matrix(X)` allocates an independent dense snapshot.
 
 The `SymmetricCoordinates` and `SymmetricMatrixView` wrappers answer different questions. Do not replace one with `reshape` or `vec` of the other: they enumerate different numbers of values.
 
-### _ActiveIDs: protect working-set metadata
+## _ActiveIDs: protect working-set metadata
 
 `activecoordinates(x)` for `SparseIterate`, `SymmetricSparseIterate` and `AtomIterate` returns the same private handle type:
 
@@ -95,7 +96,7 @@ The actual error message names the supported ways to change values. `_ActiveIDs`
 
 This is a read-only **API guarantee**, not a security boundary. Julia permits introspection of private struct fields. Users must not mutate `h.ids` or other internal references.
 
-### The aliasing methods: why they exist
+## The aliasing methods: why they exist
 
 Two separate Base hooks are implemented for the coordinate wrappers:
 
@@ -116,7 +117,7 @@ Ordinary indexed reads/writes of a coordinate view do **not** call `unaliascopy`
 
 **These are internal Julia Base hooks.** They are implementation details that should be tested against each supported Julia version; we do not promise their names as ProximalBase public API.
 
-### Handle lifetimes
+## Handle lifetimes
 
 | Handle | What can change underneath it? | Reacquisition rule |
 |:--|:--|:--|
@@ -127,7 +128,7 @@ Ordinary indexed reads/writes of a coordinate view do **not** call `unaliascopy`
 
 A stale active handle is not a snapshot of the previous working set. Its old length cannot reflect new activations, and a compaction can move slot `a` to a different coordinate. Do not retain slot-indexed momentum history across these events without a corresponding remapping.
 
-### Performance and conformance checks
+## Performance and conformance checks
 
 The `SparseCoordinates` allocation tests in `test/allocations.jl` exercise wrapper creation, scalar reads/writes and zero fill on Float32/Float64 vector and matrix iterates. `test/iterate_queries.jl` exercises live views, size and aliasing behavior. [#694](https://github.com/mlakolar/ProximalBase.jl/issues/694) tracks remaining ordinary-vector conformance tests. The symmetric-owner acceptance plan has independent coverage of its two index spaces and read-only matrix view.
 

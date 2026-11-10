@@ -87,7 +87,7 @@ vector of length ``p^2``, it uses column-major order: `(c - 1)p + r` for
 Design matrices and image data have different indexing and are not covered
 by this rule. Neither are arrays indexed by groups, ranks or eigenvalues.
 
-#### What each call checks
+## What each call checks
 
 A stored entry is a lower-triangle coordinate retained by the iterate,
 including one whose value has returned to zero. Calls that check only these
@@ -171,7 +171,7 @@ It does not replace arrays, remember earlier checks, or check separately supplie
 steps. Ordinary calls still check; later mutation can invalidate validation. See
 [Separable functions](@ref extending-separable) for declarations and solver use.
 
-#### The argument of a proximal map
+## The argument of a proximal map
 
 The argument `x` of `prox!` and `value_and_prox!` is not a parameter, and it is
 not checked. For a symmetric ``Z`` and any ``V``,
@@ -214,7 +214,7 @@ Weights and groups that are not symmetric are parameters, not the argument, and 
 cause an `ArgumentError`. `Symmetric(x, :L)` is a choice of the caller, who selects the
 triangle to read; the package never picks one for a parameter.
 
-#### When no check happens
+## When no check happens
 
 - Raw entry calls (`value_entry`, `prox_entry`, `lla_weight`, scalar
   `coordinate_lipschitz` and three-argument `kkt_violation`) and `restrict`
@@ -234,7 +234,7 @@ triangle to read; the package never picks one for a parameter.
   call `ProximalBase.check_symmetric_parameters`; declaring parameters alone
   does not run the check.
 
-#### Cost and remaining limitations
+## Cost and remaining limitations
 
 Checking a dense parameter array adds work. An exploratory measurement of
 `prox!` with dense weights at ``p = 1000`` took 1.6868 ms against 1.3059 ms

@@ -33,15 +33,9 @@ and writes of values do not affect it. It indexes other arrays like any integer 
 instance `view(g, atomindices(x, k))`. A vector group is wrapped, so such a view is not
 indexed by a `Vector{Int}`, and its norms and dot products take the generic paths.
 
-`atomindices` is the supported route to the layout. `parentindices(atom(x, k))` returns the
-private group array itself, and changing that array is unsupported: the groups and the map from
-entries to groups would disagree. The same holds for the fields of the wrapper that
-`atomindices` returns (`h.ids`) and for the fields of the iterate: they are internal, reading or
-writing them is not covered by this contract, and ProximalBase does not block `getproperty`.
-What the contract does cover is every documented operation on the result, and the exceptions
-that `atomindices(x, k)` and its wrapper throw: they name the range of valid groups or the
-wrapper, and do not hold a stored group. (`atom(x, k)` is unchanged: its `BoundsError` still names
-the stored groups.)
+`atomindices` is the supported way to inspect a group layout. Its result is
+read-only; group membership must not be changed after constructing the iterate.
+Create a new iterate when you need a different partition.
 
 `samegroups(a, b)` is `true` when `a` and `b` have the same number of groups and the same
 indices in the same order in every group, and `false` otherwise. `a` and `b` are two iterates,

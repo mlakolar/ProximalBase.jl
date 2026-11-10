@@ -42,6 +42,31 @@ c[4] = 7.0             # diagonal at (2,2)
 matrixview(X)[4]        # 5.0: full-matrix linear index = (1,2), NOT coordinate 4
 ```
 
+## Index-space example
+
+```@example owner_index_spaces
+using ProximalBase
+
+p = 3
+x = SymmetricSparseIterate(p)
+x[2, 2] = 7.0                                        # the pair (2, 2) is variable 4
+x[3, 1] = 5.0                                        # the pairs (3, 1) and (1, 3) are variable 3
+@assert x[1, 3] == 5.0 && coordinates(x)[3] == 5.0
+@assert tril_index(p, 2, 2) == 4 && coordinates(x)[4] == 7.0
+@assert collect(activecoordinates(x)) == [4, 3]      # variable ids, in the order of activation
+@assert collect(activevalues(x)) == [7.0, 5.0]       # their values, slot by slot
+@assert matrixview(x)[4] == 0.0                      # linear index 4 is the position (1, 2), a different variable
+@assert matrixview(x)[5] == 7.0                      # and linear index 5 is (2, 2)
+try
+    x[3]
+    error("expected an ArgumentError")
+catch e
+    @assert e isa ArgumentError
+    showerror(stdout, e)
+    println()
+end
+```
+
 ## Public storage interface and costs
 
 Let `s = nactive(X)`, the number of active independent variables, **including stored zeros**. The iterate reserves capacity proportional to `q`, and it is optimized for sparse *work*, not memory compression.
@@ -127,6 +152,42 @@ Unlike ordinary elementwise array copying, `copyto!(X,M::AbstractMatrix)` is a *
 
 **There is no automatic symmetrization by ordinary matrix import.** To work with a specific triangle, use a deliberate `Symmetric(M,:L)` or another explicit model representation.
 
+## Checked import and state-copy example
+
+```@example owner_copies
+using ProximalBase, LinearAlgebra
+
+x = SymmetricSparseIterate(3)
+x[2, 1] = 1.0
+activate!(x, 6)                                      # an explicit zero at (3, 3)
+y = copy(x)
+@assert collect(activecoordinates(y)) == [2, 6] && isactive(y, 6)
+
+w = SymmetricSparseIterate(3)
+copyto!(w, Matrix(x))                                # an import: the explicit zero is not carried
+@assert collect(activecoordinates(w)) == [2]
+
+A = [1.0 2.0 0.0; 2.5 1.0 0.0; 0.0 0.0 1.0]          # not symmetric
+try
+    copyto!(w, A)
+    error("expected an ArgumentError")
+catch e
+    @assert e isa ArgumentError
+end
+@assert collect(activecoordinates(w)) == [2]         # nothing was written
+copyto!(w, Symmetric(A, :L))                         # the lower triangle, chosen by the caller
+@assert w[1, 2] == 2.5
+
+try
+    copyto!(w, matrixview(w))                        # the source shares memory with w
+    error("expected an ArgumentError")
+catch e
+    @assert e isa ArgumentError
+end
+prox!(w, NormL1(0.1), matrixview(w), 1.0)            # a proximal map from its own view is fine
+@assert w[2, 1] ≈ 2.4
+```
+
 ## Performance boundary
 
 Scalar access and activation take O(1) after O(q) construction. Active-set sweeps take O(s). The specialized `mul!` owner/matrix-view product with a dense vector can perform O(p+s) work in its supported domain. Generic operations on `matrixview(X)` may inspect O(p²) entries.
@@ -196,7 +257,7 @@ of steps, or one step per group, is not supported on an owner: it throws an `Arg
 before anything is written, and the dense and other iterate outputs are unchanged. Use a
 scalar step, or `Matrix(x)` as the output.
 
-### Array operations and the calls to use instead
+## Array operations and the calls to use instead
 
 An array function is not defined for the owner. Each of the following says what to
 call for the question that the array function would have answered.

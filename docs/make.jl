@@ -63,6 +63,7 @@ makedocs(
             "SymmetricSparseIterate" => "symmetric_sparse_iterate.md",
             "AtomIterate" => "atom_iterate.md",
             "Coordinate oracles" => "iterate_oracles.md",
+            "Symmetric parameters" => "symmetric_parameters.md",
         ],
         "Algorithms and interface" => [
             "Coordinate descent" => "coordinate_descent.md",
@@ -70,7 +71,6 @@ makedocs(
         ],
         "Functions" => [
             "Smooth functions" => "smooth.md",
-            "Symmetric parameters" => "symmetric_parameters.md",
             "Penalties" => "penalties.md",
             "Sets" => "sets.md",
             "Functions built from functions" => "calculus.md",

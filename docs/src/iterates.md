@@ -10,21 +10,42 @@ which are derived in [Coordinate descent](@ref).
 | [`SymmetricSparseIterate`](@ref) | A sparse symmetric matrix | One lower-triangular entry and its symmetric counterpart |
 | [`AtomIterate`](@ref) | A vector partitioned into groups | One group of entries |
 
-The entries of an iterate are real. A complex element type, or a complex operand
-of an iterate product, raises an `ArgumentError`; see [Precision](@ref). Writing
-a complex source or value into a `SparseIterate` or an `AtomIterate` with the
-constructor, `copyto!`, `copy!`, a broadcast or `fill!` raises it too, before
-anything is written, even when the imaginary part is zero. A broadcast is
-checked for its leaves and for its result: a result known to be complex from the
-types is rejected, and a result of another non-real type (a `Union` with a
-complex member, `Any`, `Number`) is evaluated before writing and rejected if an
-element is complex. A write into either
-of them through a view, through `vec` of a matrix or a `reshape` to another
-shape, or through [`atom`](@ref) converts each value as a plain array would, so
-a complex value raises an `InexactError`, possibly after part of the iterate has
-been written. A [`SymmetricSparseIterate`](@ref) refuses a complex source or element
-type with an `ArgumentError`, and a complex value written to one of its entries
-raises an `InexactError`.
+## Choosing an iterate
+
+Choose the representation by the **variable your algorithm updates** rather than
+by whether the mathematical solution happens to contain zeros.
+
+| Problem / update | Use | Index spaces and behavior |
+|:--|:--|:--|
+| Entrywise coordinate descent on vectors or general matrices | [`SparseIterate`](sparse_iterate.md) | One coordinate per entry; `x[k]` and `coordinates(x)[k]` address the same value; ordinary array behavior |
+| Optimization over real symmetric matrices | [`SymmetricSparseIterate`](symmetric_sparse_iterate.md) | One coordinate per independent lower-triangular variable; `X[i,j]` is symmetric, `X[k]` is intentionally unsupported |
+| Group or block coordinate descent on a partitioned vector | [`AtomIterate`](atom_iterate.md) | One coordinate per group; `x[j]` still indexes an entry; `atom(x,k)` accesses the group |
+
+All three keep a **working set** distinct from the mathematical nonzero support.
+Construction reserves storage proportional to the number of logical entries or
+groups; these types optimize inexpensive activation and active-set traversal,
+**not** compressed-sparse memory usage. Choose Julia's
+`SparseVector`/`SparseMatrixCSC` when compact storage is the priority.
+For matrix functions and Frobenius objectives, do not replace a symmetric
+owner with its independent-coordinate vector without accounting for the two
+matrix entries represented by an off-diagonal variable.
+
+```@example choose_iterate
+using ProximalBase
+
+v = SparseIterate(4)
+v[2] = 2.0
+@assert ncoordinates(v) == 4 && nactive(v) == 1
+
+X = SymmetricSparseIterate(3)
+coordinates(X)[2] = 3.0
+@assert X[2, 1] == X[1, 2] == 3.0 && ncoordinates(X) == 6
+
+g = AtomIterate(6, [1:2, 3:4, 5:6])
+g[2] = 1.0
+@assert ncoordinates(g) == 3 && nactive(g) == 1
+@assert collect(atom(g, 1)) == [0.0, 1.0]
+```
 
 ## Where to go next
 
@@ -40,6 +61,24 @@ The iterate determines the *optimization coordinate*, not the mathematical funct
 optimized. The same function may support multiple iterate representations, with different
 index spaces and active-set semantics. For quick examples and operation costs, use the
 type-specific guides before writing a solver.
+
+## Real-valued inputs and conversion
+
+The entries of an iterate are real. A complex element type, or a complex operand
+of an iterate product, raises an `ArgumentError`; see [Precision](@ref). Writing
+a complex source or value into a `SparseIterate` or an `AtomIterate` with the
+constructor, `copyto!`, `copy!`, a broadcast or `fill!` raises it too, before
+anything is written, even when the imaginary part is zero. A broadcast is
+checked for its leaves and for its result: a result known to be complex from the
+types is rejected, and a result of another non-real type (a `Union` with a
+complex member, `Any`, `Number`) is evaluated before writing and rejected if an
+element is complex. A write into either
+of them through a view, through `vec` of a matrix or a `reshape` to another
+shape, or through [`atom`](@ref) converts each value as a plain array would, so
+a complex value raises an `InexactError`, possibly after part of the iterate has
+been written. A [`SymmetricSparseIterate`](@ref) refuses a complex source or element
+type with an `ArgumentError`, and a complex value written to one of its entries
+raises an `InexactError`.
 
 ## Entries and coordinates
 

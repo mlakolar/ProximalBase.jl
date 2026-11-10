@@ -43,11 +43,14 @@ Next, choose the material that matches your procedure:
 
 | Goal | Read |
 |:-----|:-----|
-| Understand the type hierarchy, traits and who calls whom | [Package structure](@ref architecture) |
+| Understand the internal type hierarchy, traits and call paths | [Package structure](@ref architecture) in Developer Documentation |
 | Derive entry or block updates, or construct an active-set procedure | [Coordinate descent](@ref) |
-| Understand ordinary sparse-iterate storage | [SparseIterate: storage and working sets](sparse_iterate.md) |
-| Understand independent symmetric coordinates | [SymmetricSparseIterate: coordinate owner](symmetric_sparse_iterate.md) |
-| Review implementation details and the 0.6 contracts | [Developer documentation](developer/index.md) |
+| Choose an iterate and learn about working sets | [Iterates overview](iterates.md) | 
+| Understand ordinary sparse-iterate usage | [SparseIterate](sparse_iterate.md) |
+| Understand independent symmetric coordinates | [SymmetricSparseIterate](symmetric_sparse_iterate.md) | 
+| Work with group coordinates | [AtomIterate](atom_iterate.md) | 
+| Implement coordinate updates and KKT screens | [Coordinate oracles](iterate_oracles.md) |
+| Review internal designs, full 0.6 contracts and acceptance plans | [Developer Documentation](developer/index.md) |
 | Derive a proximal step or choose a stopping rule | [The interface](@ref) |
 | Choose a loss, penalty or constraint | [Smooth functions](@ref), [Penalties](@ref), [Sets](@ref) |
 | Combine functions or add one of your own | [Functions built from functions](@ref), [Writing your own function](@ref) |

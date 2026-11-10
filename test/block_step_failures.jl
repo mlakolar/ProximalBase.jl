@@ -23,6 +23,34 @@ Base.getindex(::Flaky, i::Int) = i == 1 ? 3. : error("boom")
   @test_throws ArgumentError prox_block!(zeros(2), NormL1(), ones(2), 1, 1.)
 end
 
+@testset "nested public preflight remains before writes" begin
+  for T in (Float32,Float64)
+    groups = [[1,3],[2,4]]
+    for f in (GroupNormL2(T(.3),groups),GroupNormLinf(T(.3),groups),
+              SparseGroupNormL2(T(.1),T(.3),groups),GroupMCP(T(.3),groups),GroupSCAD(T(.3),groups))
+      for h in (Scaled(f,T(2)),Regularize(f,T(.2),ones(T,4)),
+                Regularize(Scaled(Regularize(f,T(.1)),T(2)),T(.2)))
+        for (input,k,E) in ((ones(T,3),1,DimensionMismatch),(ones(T,2),0,BoundsError),
+                            (ones(T,2),3,BoundsError),(ones(Complex{T},2),1,ArgumentError))
+          output=fill(T(-7),2)
+          @test_throws E prox_block!(output,h,input,k,one(T))
+          @test output == fill(T(-7),2)
+        end
+        buf=T[1,2,3]
+        @test_throws ArgumentError prox_block!(view(buf,1:2),h,view(buf,2:3),1,one(T))
+        @test buf == T[1,2,3]
+      end
+    end
+  end
+  # A valid stored SCAD shape can round to invalid in the call's narrower model.
+  f=GroupSCAD(.3,[[1,3],[2,4]];a=2+2.0^-30)
+  for h in (f,Scaled(f,2.),Regularize(Scaled(f,2.),.2))
+    output=fill(-7f0,2)
+    @test_throws ArgumentError prox_block!(output,h,ones(Float32,2),1,1f0)
+    @test output == fill(-7f0,2)
+  end
+end
+
 @testset "independent outputs with public storage inputs" begin
   for T in (Float32, Float64)
     s = SparseIterate(T, 2); s[1] = 3; s[2] = 4

@@ -293,7 +293,7 @@ _block_copy_source(::Vector) = true
 _block_copy_source(::SubArray{T, 1, <:Array, I}) where {T, I} =
   I <: Tuple{Vararg{Union{Int, UnitRange{Int}, StepRange{Int, Int}, Base.OneTo{Int}, Base.Slice{Base.OneTo{Int}}}}}
 
-@inline function Base.copyto!(dest::SubArray{T, 1, <:BlockIterate{T}, Tuple{G}}, src::StridedVector{T}) where {T<:Union{Float32, Float64}, G<:_BlockCopyIndices}
+@inline function Base.copyto!(dest::SubArray{T, 1, <:BlockIterate{T, <:AbstractVector{G}}, Tuple{G}}, src::StridedVector{T}) where {T<:Union{Float32, Float64}, G<:_BlockCopyIndices}
   # Base permits a shorter prefix source; retain that behavior in the fallback.
   length(src) == length(dest) && !isempty(dest) && _block_copy_source(src) ||
     return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
@@ -307,7 +307,10 @@ _block_copy_source(::SubArray{T, 1, <:Array, I}) where {T, I} =
     # nonzero, before writing; signed zeros alone keep the block inactive.
     any(!iszero, values) && activate!(x, k)
   end
-  copyto!(_block_storage(x, k), values)
+  storage = _block_storage(x, k)
+  @inbounds for j in eachindex(storage, values)
+    storage[j] = values[j]
+  end
   dest
 end
 

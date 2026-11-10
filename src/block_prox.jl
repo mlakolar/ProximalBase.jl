@@ -3,7 +3,9 @@ _block_groups(f::AbstractFunction) = throw(ArgumentError("$(typeof(f)) has no gr
 _block_groups(f::AbstractGroupPenalty) = f.groups
 _block_groups(f::Union{Scaled, Regularize}) = _block_groups(f.f)
 
-function _check_block_buffers(out, f, u, k)
+# Keep the validated boundary visible to callers: in-place views and repeated
+# small-block loops can eliminate/hoist checks without changing their contract.
+@inline function _check_block_buffers(out, f, u, k)
   groups = _block_groups(f)
   checkbounds(groups, k)
   Base.require_one_based_indexing(out, u)
@@ -32,7 +34,7 @@ function prox_block(f::AbstractFunction, u::AbstractVector, k::Integer, γ::Real
   out = Vector{float(eltype(u))}(undef, length(u))
   prox_block!(out, f, u, k, γ)
 end
-function prox_block!(out::AbstractVector, f::AbstractFunction, u::AbstractVector, k::Integer, γ::Real)
+@inline function prox_block!(out::AbstractVector, f::AbstractFunction, u::AbstractVector, k::Integer, γ::Real)
   _check_block_buffers(out, f, u, k)
   _prox_block!(out, f, u, k, γ)
   out

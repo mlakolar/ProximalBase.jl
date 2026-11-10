@@ -18,6 +18,9 @@ end
   @test prox_block(Scaled(f,2.),u,1,.5) ≈ u/2
   @test prox_block(Regularize(f,1.),u,1,1.) ≈ u/3
   @test prox_block(Regularize(Scaled(f,2.),1.),u,1,1.) ≈ u/4
+  nested = Regularize(Scaled(Regularize(f,.2),1.3),.4)
+  # The extension is a unit quadratic, so all wrappers combine into one level.
+  @test prox_block(nested,u,1,.7) ≈ u/(1 + .7*(1.3*1.2 + .4))
 end
 
 @testset "pure block oracle" begin

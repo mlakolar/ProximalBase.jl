@@ -6,10 +6,16 @@ set. Inside the package, Julia's abstract types organize related functions,
 traits describe their capabilities, and multiple dispatch selects an operation
 for a function and an array type.
 
+The public, function-first story is documented in
+[Function objects and capabilities](function_objects.md) and
+[Operations on functions](operations.md); the diagrams below describe
+its internal implementation.
+
+
 | Question | Main abstraction | Where to look |
 |:---|:---|:---|
 | What mathematical function is represented? | `AbstractFunction` and its concrete subtypes | Losses, penalties, sets and wrappers |
-| Which operations does it support? | Capability traits such as `issmooth` and `isproximable` | [The interface](@ref) |
+| Which operations does it support? | Capability traits and callable oracles | [Operations on functions](operations.md) |
 | Can an update act on one entry or group? | `SeparableFunction`, grouped penalties and coordinate methods | [Coordinate descent](@ref) |
 | How is the iterate stored? | `SparseIterate`, `SymmetricSparseIterate`, `AtomIterate` | [Sparse iterates](@ref) |
 | Does an operation transform or delegate to another function? | Composition wrappers | [Functions built from functions](@ref) |

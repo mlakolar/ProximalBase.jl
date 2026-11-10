@@ -113,8 +113,14 @@ other table is validated by its own reader (`test/tiers.jl` or
     (the helpers) or the changed file; the conformance suite, its scripts and the
     coverage map also run `conformance/gpu_arrays`, so that the coverage check has
     its reports; the GPU extension (`ext/`) is full;
+  - the Testing extension (`ext/ProximalBaseTestExt.jl`): standard plus `testing`,
+    which checks correct and faulty helper implementations alongside standard's consumers.
+    Extension-only PRs use Julia 1; master pushes run thorough on Julia 1 and lts.
+    Add `test:thorough` for version-sensitive allocation specialization or materially broader
+    helper changes, or `test:full` for platform-sensitive changes. Changes to the declarations
+    in `src/testing.jl` already select thorough;
   - package code without any test change: at least standard;
-  - `Project.toml`, `ext/`, `src/lapack.jl`, the test runner, the CI rules,
+  - `Project.toml`, other `ext/` paths, `src/lapack.jl`, the test runner, the CI rules,
     scripts and workflow, and `test/tiers.toml`: full, on Julia 1 and lts on
     Linux (the other systems need the label `test:full`). The tier lists decide
     what every tier runs, so a change to them gets full, unless it only adds the

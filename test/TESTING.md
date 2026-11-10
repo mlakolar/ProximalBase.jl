@@ -6,6 +6,35 @@ tests moved between files, and what the tiers cost on GitHub-hosted runners.
 files of each tier and [`.github/tier-rules.toml`](../.github/tier-rules.toml) says which tier CI
 runs for a change.
 
+## Testing extension selection
+
+`ext/ProximalBaseTestExt.jl` selects standard plus focus `testing`. The latter lives in
+thorough and checks correct implementations and faulty fixtures; standard already supplies
+these representative consumers, so they need no additional focus entries:
+
+[`TESTING_CONSUMERS` in `ci_plan.jl`](ci_plan.jl) lists the consumer set. The planner regression
+checks this table against that list and verifies that the selection includes those files.
+
+| Helper | Direct negative or reference check in `testing` | Consumer in quick or standard |
+|---|---|---|
+| `test_prox` | identity prox, wrong fused value | `separable`, `norms` |
+| `test_gradient` | wrong and biased gradients, malformed tuple results | `smooth`, `composition` |
+| `test_separable` | false zero preservation, wrong sparse/fused outputs | `binary`, `sqrhinge` |
+| `test_conjugate` | wrong conjugate prox or value | `sumlargest`, `soc` |
+| `test_kkt` | wrong element and atom violations | `distance`, `sqrhinge` |
+| `test_traits` | incorrect smooth declaration | `separable`, `losses` |
+| `test_iterate` | corrupt atom/sparse/symmetric bookkeeping | `iterate_writes`, `ballconstrained` |
+| `allocations` | positive and zero allocation cases at six arities | `allocations_basics` |
+| `brute_force_prox` | scalar minimizer and objective against soft thresholding | `separable`, `nonconvex` |
+
+This default covers representative consumers and direct helper faults; it does not run the
+exhaustive full-tier catalogs. Extension-only PRs use Julia 1, with LTS coverage on the
+thorough master push. Request `test:thorough` for materially broader helper changes or
+version-dependent behavior such as allocation specialization, and `test:full` for platform
+changes. Editing `src/testing.jl` also raises the tier to thorough. Other extension paths,
+unknown paths and edits to the risk policy retain full selection. The tier inventory and
+nightly/release policy are unchanged.
+
 ## Baseline (before tiers)
 
 On 2026-11-01 every pull request ran the core tier (`--core`: every file except

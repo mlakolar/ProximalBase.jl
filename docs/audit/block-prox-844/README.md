@@ -1,6 +1,8 @@
 # #844 implementation and validation
 
-The implementation is local and unmerged. The mathematical API is committed at
+The implementation is published for review in
+[draft PR #848](https://github.com/mlakolar/ProximalBase.jl/pull/848) and remains
+unmerged. The mathematical API is committed at
 PB `8fb174454a5b0c431376decf5a3c87830353a562` (tree
 `58fdb820ad84d9c30d317ccab58190dcd5ba0e04`). The companion PS commit is
 `75894887d7272df71c2c263feb4ea0b6d211fd48`, based on
@@ -12,7 +14,23 @@ apply it to that PS baseline with `git am`. The tested checkout is also in
 all pin the PB implementation commit above. The PB commit must be available
 from the chosen Git remote before those remote pins can be instantiated;
 local integration uses `Pkg.develop` with the two exact checked-out sources.
-Nothing was pushed, merged, or posted to the issue trackers.
+The numerical and performance evidence below was recorded before publication.
+
+## PR branch integration
+
+The review branch incorporates master `8166613c039af17c7dcc4d7e8a61f4f7f3bb70b4`
+and preserves its function-first documentation structure. Moved guides use the
+pure block API, and the block-prox contract is rendered alongside the iterate
+contracts. Production files in `src/`, `ext/` and `Project.toml` are identical
+to the validated implementation commit, which remains reachable in the PR
+history and continues to be the companion's dependency pin.
+
+After integration, Julia 1.10.10 passed **2,524 assertions** across
+`test/testing.jl`, `test/ci_plan.jl` and `test/tier_selection.jl`, with native
+package images disabled. This includes migrating the new `WrongAtomKKT`
+fixture from master to the `prox_block` author hook.
+The reorganized documentation also built successfully on Julia 1.10.10,
+including executable examples and generated contracts, with deployment disabled.
 
 ## Contract and inventory
 

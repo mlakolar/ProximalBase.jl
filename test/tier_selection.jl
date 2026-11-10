@@ -851,4 +851,26 @@ end
   @test occursin("test:benchmark", e.msg) && occursin("test:iterate-narrow", e.msg)
 end
 
+@testset "Testing extension focus and manifest validation" begin
+  ext = "ext/ProximalBaseTestExt.jl"
+  @test pr(ext) == ("standard", ["testing"])
+  @test pr(ext, "test/testing.jl") == ("standard", ["testing"])
+  @test pr(ext, "test/precompose_array.jl") == ("standard", ["precompose_array", "testing"])
+  @test pr(ext, "src/testing.jl")[1] == "thorough"
+  @test pr(ext, "src/utils.jl")[1] == "thorough"
+  @test pr(ext; labels = ["test:thorough"]) == ("thorough", String[])
+  @test pr(ext; labels = ["test:full"]) == ("full", String[])
+  for path in ("ext/ProximalBaseGPUArraysCoreExt.jl", "ext/UnknownExt.jl", "unknown/path",
+               ".github/tier-rules.toml")
+    @test pr(ext, path) == ("full", String[])
+  end
+  # A stale focused name must stop loading the policy, not silently omit the check.
+  rules = read(joinpath(dirname(DIR), ".github", "tier-rules.toml"), String)
+  tiers = read(joinpath(DIR, "tiers.toml"), String)
+  @test_throws ManifestError TestTiers.parse_manifest(tiers * "\n" *
+    replace(rules, "focus = [\"testing\"]" => "focus = [\"testing_renamed\"]"))
+  found = filter(!=("testing"), TestTiers.discover(DIR))
+  @test_throws ManifestError TestTiers.check(MANIFEST, found)
+end
+
 end

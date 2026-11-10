@@ -4,6 +4,12 @@ A function is a subtype of [`AbstractFunction`](@ref) that declares its traits
 and implements the oracles they promise. Solvers written against the interface
 then accept it like the built-in functions.
 
+For an introduction to the common mathematical interface, see
+[Function objects and capabilities](function_objects.md). A complete
+user-facing inventory of the callable oracles is in
+[Operations on functions](operations.md).
+
+
 ## Any function
 
 | Trait | Implement | You get |

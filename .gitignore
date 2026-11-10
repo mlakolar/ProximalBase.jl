@@ -8,6 +8,7 @@
 .vscode/
 /docs/Manifest*.toml
 /docs/src/examples/
+/docs/src/developer/contracts/
 
 # Generated manifests for individual Julia versions
 /Manifest-v*.toml

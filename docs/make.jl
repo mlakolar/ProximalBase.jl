@@ -26,6 +26,24 @@ for file in sort(filter(endswith(".jl"), readdir(EXAMPLES)))
     push!(example_pages, title => joinpath("examples", replace(file, r"\.jl$" => ".md")))
 end
 
+# The full contracts are authored once in docs/design. Render copies under
+# docs/src so Documenter can include them in its navigation. Never edit those
+# generated copies (or commit them).
+const DESIGN = joinpath(@__DIR__, "design")
+const CONTRACT_PAGES = joinpath(@__DIR__, "src", "developer", "contracts")
+rm(CONTRACT_PAGES; force = true, recursive = true)
+mkpath(CONTRACT_PAGES)
+for file in (
+    "iterate-family-0.6.md",
+    "iterate-family-0.6-acceptance.md",
+    "symmetric-sparse-iterate-0.6.md",
+    "symmetric-sparse-iterate-0.6-acceptance.md",
+)
+    source = read(joinpath(DESIGN, file), String)
+    # Original relative link from docs/design to docs/src needs a new base.
+    source = replace(source, "(../src/numerics.md)" => "(../../numerics.md)")
+    write(joinpath(CONTRACT_PAGES, file), source)
+end
 makedocs(
     sitename = "ProximalBase.jl",
     authors = "Mladen Kolar",
@@ -39,25 +57,42 @@ makedocs(
     pages = [
         "Home" => "index.md",
         "Getting started" => "getting_started.md",
-        "Package structure" => "architecture.md",
+        "Iterates" => [
+            "Overview and working sets" => "iterates.md",
+            "SparseIterate" => "sparse_iterate.md",
+            "SymmetricSparseIterate" => "symmetric_sparse_iterate.md",
+            "AtomIterate" => "atom_iterate.md",
+            "Coordinate oracles" => "iterate_oracles.md",
+        ],
         "Algorithms and interface" => [
             "Coordinate descent" => "coordinate_descent.md",
-            "SparseIterate: storage and working sets" => "sparse_iterate.md",
-            "SymmetricSparseIterate: coordinate owner" => "symmetric_sparse_iterate.md",
-            "Sparse iterates and coordinate oracles" => "iterates.md",
             "Proximal operators and interface" => "interface.md",
-            "Numerical contract" => "numerics.md",
         ],
         "Functions" => [
             "Smooth functions" => "smooth.md",
+            "Symmetric parameters" => "symmetric_parameters.md",
             "Penalties" => "penalties.md",
             "Sets" => "sets.md",
             "Functions built from functions" => "calculus.md",
         ],
-        "Developer documentation" => "developer/index.md",
         "Writing your own function" => "extending.md",
         "Compatibility and migration" => "migration.md",
         "Examples" => example_pages,
+        "Developer Documentation" => [
+            "Overview and contract map" => "developer/index.md",
+            "System architecture" => "architecture.md",
+            "SparseIterate internals" => "developer/sparse_storage.md",
+            "Symmetric owner internals" => "developer/symmetric_storage.md",
+            "AtomIterate internals" => "developer/atom_storage.md",
+            "Coordinate views and aliasing" => "developer/views_aliasing.md",
+            "Function and oracle dispatch" => "developer/oracle_dispatch.md",
+            "Numerical contract" => "numerics.md",
+            "0.6 iterate-family contract" => "developer/contracts/iterate-family-0.6.md",
+            "Iterate-family acceptance" => "developer/contracts/iterate-family-0.6-acceptance.md",
+            "0.6 symmetric-owner contract" => "developer/contracts/symmetric-sparse-iterate-0.6.md",
+            "Symmetric-owner acceptance" => "developer/contracts/symmetric-sparse-iterate-0.6-acceptance.md",
+            "Conformance and change process" => "developer/change_process.md",
+        ],
         "API reference" => [
             "The interface" => "api/interface.md",
             "Functions" => "api/functions.md",

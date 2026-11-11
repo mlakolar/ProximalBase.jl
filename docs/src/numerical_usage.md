@@ -17,31 +17,47 @@ supported owner calls return new owners.
 
 ## Precision
 
-`Float32` and `Float64` CPU paths are the tested numerical targets. `f(x)` returns
-`float(eltype(x))` for retained array functions. Fused gradient returns the
-standalone input value; fused prox returns the standalone value at its stored
-output. Do not infer the returned value's type from a wider output buffer.
-`SqrNormL2` calculations use the wider argument/destination floating precision
-for gradients/prox; levels, centers and steps are parameters, not data that
-unconditionally widen that model. Least-squares and quadratic data determine
-private scratch/decomposition precision; output conversion is still observable.
+The supported CPU configurations use the **same floating-point type**
+throughout a problem: data, iterates, function parameters, steps and
+floating destinations are all `Float64` or all `Float32`. This is
+the guaranteed numerical contract, not a requirement that every other
+combination be rejected by dispatch.
+
+For those homogeneous calls, `f(x)` returns `float(eltype(x))` for
+the supported array functions. Allocating oracles return their documented
+representations in the working precision, and mutating oracles write into
+the provided destination. Fused gradient calls return the value at the
+input; fused proximal calls return the value at their stored output.
+
+Use explicit conversions when creating a `Float32` problem. Julia
+floating-point literals such as `0.5` are `Float64`; use
+`Float32(0.5)` or `T(0.5)` for a working type `T`:
 
 ```@example precision_usage
 using ProximalBase
-x = Float32[1,-2]
-f = SqrNormL2(0.5)
-g = zeros(Float64,2)
-v = value_and_gradient!(g,f,x)
-@assert v isa Float32 && g == [0.5,-1]
-z = prox(f,x,0.5)
-@assert eltype(z) == Float32
-(value_type=typeof(v), gradient_type=eltype(g), prox_type=eltype(z))
+for T in (Float32, Float64)
+    x = T[1, -2]
+    f = SqrNormL2(T(0.5))
+    grad = zeros(T, length(x))
+    value = value_and_gradient!(grad, f, x)
+    point = prox(f, x, T(0.5))
+    @assert value isa T
+    @assert grad == T[0.5, -1.0]
+    @assert eltype(grad) == T && eltype(point) == T
+end
+true
 ```
 
-Hardware-float behavior is not a universal claim about every Real type.
-Integer destinations may fail conversion; generic custom kernels choose their
-own precision. The [numerical contract](numerics.md) explains exceptional
-range and zero policies.
+Existing kernels can use promoted scratch or accept mixed floating-point
+arguments. These are implementation details, **not** a general
+mixed-precision guarantee for accuracy, returned types or performance.
+Independent high-precision reference calculations can still be used in
+tests; `BigFloat` is not a supported production target.
+
+The [numerical contract](numerics.md) describes selective
+overflow/underflow recovery, non-finite values and aliasing. Integer
+destinations may fail conversion, and custom functions define their own
+arithmetic and recovery unless they explicitly adopt these conventions.
 
 ## Ownership and aliases
 

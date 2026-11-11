@@ -1,121 +1,13 @@
-using Documenter, Literate, ProximalBase
-
-# The examples become pages, run when the documentation is built. Each gets a
-# title, and a section marker "# --- title ---" becomes a heading.
-const EXAMPLES = joinpath(@__DIR__, "..", "examples")
-const GENERATED = joinpath(@__DIR__, "src", "examples")
-const TITLES = Dict(
-    "01" => "The lasso three ways", "02" => "A lasso path by coordinate descent",
-    "03" => "Nonconvex penalties", "04" => "The group lasso", "05" => "Sparse logistic regression",
-    "06" => "Robust and count regression", "07" => "Constrained least squares",
-    "08" => "The graphical lasso", "09" => "Covariance and correlation matrices",
-    "10" => "Matrix completion", "11" => "Sparse plus low rank", "12" => "Multitask regression",
-    "13" => "A differential network", "14" => "A working-set solver",
-    "15" => "Building functions, and your own", "16" => "Constraints on separable penalties",
-    "17" => "Sparse principal components", "18" => "Total variation, isotonic regression and SLOPE",
-    "19" => "Weighted isotonic regression")
-const SECTION = r"^# -+ (.+?) -*$"m
-headings(s) = replace(s, SECTION => m -> "# ### " * uppercasefirst(match(SECTION, m)[1]) * "\n#")
-rm(GENERATED; force = true, recursive = true)
-mkpath(GENERATED)
-example_pages = Pair{String, String}[]
-for file in sort(filter(endswith(".jl"), readdir(EXAMPLES)))
-    title = TITLES[file[1:2]]
-    Literate.markdown(joinpath(EXAMPLES, file), GENERATED; documenter = true, credit = false,
-                      preprocess = s -> "# # $title\n#\n" * headings(s))
-    push!(example_pages, title => joinpath("examples", replace(file, r"\.jl$" => ".md")))
-end
-
-# The full contracts are authored once in docs/design. Render copies under
-# docs/src so Documenter can include them in its navigation. Never edit those
-# generated copies (or commit them).
-const DESIGN = joinpath(@__DIR__, "design")
-const CONTRACT_PAGES = joinpath(@__DIR__, "src", "developer", "contracts")
-rm(CONTRACT_PAGES; force = true, recursive = true)
-mkpath(CONTRACT_PAGES)
-for file in (
-    "block-prox-0.6.md",
-    "iterate-family-0.6.md",
-    "iterate-family-0.6-acceptance.md",
-    "symmetric-sparse-iterate-0.6.md",
-    "symmetric-sparse-iterate-0.6-acceptance.md",
+using ProximalBase, Documenter
+include(joinpath(@__DIR__,"..","examples","lasso.jl"))
+include(joinpath(@__DIR__,"..","examples","custom_function.jl"))
+makedocs(;
+    modules=[ProximalBase],
+    sitename="ProximalBase.jl",
+    authors="Mladen Kolar and contributors",
+    checkdocs=:exports,
+    doctest=true,
+    format=Documenter.HTML(prettyurls=get(ENV,"CI","false")=="true", edit_link="master"),
+    pages=["Overview"=>"index.md","Storage"=>"storage.md","Mathematical interface"=>"interface.md",
+           "Numerical contract"=>"numerics.md","Extending"=>"extending.md","API"=>"api.md"],
 )
-    source = read(joinpath(DESIGN, file), String)
-    # Original relative link from docs/design to docs/src needs a new base.
-    source = replace(source, "(../src/numerics.md)" => "(../../numerics.md)")
-    source = replace(source, "(../audit/block-prox-844-call-sites.tsv)" =>
-        "(https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/audit/block-prox-844-call-sites.tsv)")
-    write(joinpath(CONTRACT_PAGES, file), source)
-end
-makedocs(
-    sitename = "ProximalBase.jl",
-    authors = "Mladen Kolar",
-    modules = [ProximalBase],
-    format = Documenter.HTML(
-        prettyurls = get(ENV, "CI", "false") == "true",
-        collapselevel = 1,  # Start with top-level sections collapsed; click to expand.
-        canonical = "https://mlakolar.github.io/ProximalBase.jl/stable/",
-        mathengine = Documenter.KaTeX(),
-        size_threshold = 400_000,
-    ),
-
-    pages = [
-        "Home" => "index.md",
-        "Getting started" => "getting_started.md",
-        "Working with functions" => [
-            "Function objects and capabilities" => "function_objects.md",
-            "Operations on functions" => "operations.md",
-            "Proximal operators and gradients" => "interface.md",
-            "Array, precision, and device conventions" => "numerical_usage.md",
-            "Writing your own function" => "extending.md",
-        ],
-        "Function library" => [
-            "Browse available functions" => "function_library.md",
-            "Smooth functions and losses" => "smooth.md",
-            "Penalties" => "penalties.md",
-            "Constraints and indicator functions" => "sets.md",
-            "Functions built from functions" => "calculus.md",
-        ],
-        "Building optimization algorithms" => [
-            "Overview" => "optimization_algorithms.md",
-            "Proximal gradient methods" => "proximal_gradient.md",
-            "Coordinate descent and active sets" => "coordinate_descent.md",
-        ],
-        "Iterates" => [
-            "Overview and working sets" => "iterates.md",
-            "SparseIterate" => "sparse_iterate.md",
-            "SymmetricSparseIterate" => "symmetric_sparse_iterate.md",
-            "BlockIterate" => "block_iterate.md",
-            "Coordinate oracles" => "iterate_oracles.md",
-            "Symmetric parameters" => "symmetric_parameters.md",
-        ],
-        "Compatibility and migration" => "migration.md",
-        "Examples" => example_pages,
-        "Developer Documentation" => [
-            "Overview and contract map" => "developer/index.md",
-            "System architecture" => "architecture.md",
-            "SparseIterate internals" => "developer/sparse_storage.md",
-            "Symmetric owner internals" => "developer/symmetric_storage.md",
-            "BlockIterate internals" => "developer/block_storage.md",
-            "Coordinate views and aliasing" => "developer/views_aliasing.md",
-            "Function and oracle dispatch" => "developer/oracle_dispatch.md",
-            "Numerical contract" => "numerics.md",
-            "0.6 pure block proximal contract" => "developer/contracts/block-prox-0.6.md",
-            "0.6 iterate-family contract" => "developer/contracts/iterate-family-0.6.md",
-            "Iterate-family acceptance" => "developer/contracts/iterate-family-0.6-acceptance.md",
-            "0.6 symmetric-owner contract" => "developer/contracts/symmetric-sparse-iterate-0.6.md",
-            "Symmetric-owner acceptance" => "developer/contracts/symmetric-sparse-iterate-0.6-acceptance.md",
-            "Conformance and change process" => "developer/change_process.md",
-        ],
-        "API reference" => [
-            "The interface" => "api/interface.md",
-            "Functions" => "api/functions.md",
-            "Functions built from functions" => "api/calculus.md",
-            "Iterates and utilities" => "api/iterates.md",
-        ],
-    ],
-    checkdocs = :exports,
-    linkcheck = get(ENV, "DOCUMENTER_LINKCHECK", "false") == "true",
-)
-
-deploydocs(repo = "github.com/mlakolar/ProximalBase.jl.git", devbranch = "master", push_preview = false)

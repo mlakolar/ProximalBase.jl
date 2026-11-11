@@ -16,15 +16,15 @@ A vector of length `p` whose coordinates, for coordinate descent, are the groups
 `BlockIterate(p, num_groups)` and `BlockIterate(x, num_groups)` split `1:p` into
 `num_groups` equal contiguous groups.
 
-As the stored entries of a [`SparseIterate`](@ref) do, a set of active groups
+As the stored entries of a `SparseIterate` do, a set of active groups
 serves as the active set of a solver, and the entries of the other groups are
-zero. Writing a nonzero entry activates its group, [`activate!`](@ref) activates
+zero. Writing a nonzero entry activates its group, `activate!` activates
 a group, and `dropzeros!` deactivates the active groups whose entries are all
 zero; an iterate built from a vector `x` starts with the groups that hold a
 nonzero entry. Reading or writing an entry is O(1), and so is activating or
-deactivating a group. [`ncoordinates`](@ref) is the number of groups,
-[`nactive`](@ref), [`activecoordinates`](@ref) and [`isactive`](@ref) give the
-active groups, and [`blockview`](@ref) is a view of `x` at the entries of a group.
+deactivating a group. `ncoordinates` is the number of groups,
+`nactive`, `activecoordinates` and `isactive` give the
+active groups, and `blockview` is a view of `x` at the entries of a group.
 Writing through this view follows the same activation rule as writing to `x`.
 
 Its entries are real. The constructors, two-argument `copyto!` from an array,
@@ -35,7 +35,7 @@ to be complex from the types is rejected, and a result of another non-real type
 (a `Union` with a complex member, `Any`, `Number`) is evaluated before writing
 and rejected if an element is complex, with `x` unchanged. `vec(x)` and `reshape(x, length(x))` are `x` itself and are checked
 too. `copy!` from a source of another length throws Base's error first, unless
-the source is a `BlockIterate` or a [`SparseIterate`](@ref), which throws a
+the source is a `BlockIterate` or a `SparseIterate`, which throws a
 `DimensionMismatch`. The two-argument `copyto!` and `copy!` read types: a tuple, a generator or an
 array of abstract element type such as `Vector{Any}` passes the check, and its
 values are converted one by one. Other
@@ -153,30 +153,12 @@ end
 @inline _samelayout(y::BlockIterate, x::BlockIterate) = _layouthit(y, x) || y.groups == x.groups
 
 """
-    ProximalBase.samegroups(a, b)
+    ProximalBase.samegroups(a::BlockIterate, b::BlockIterate)
 
-Whether `a` and `b` have equal groups: the same number of groups, and the same indices in the
-same order in every group (`1:2` and `[1, 2]` are equal, `[2, 1]` is not). `a` and `b` are two
-[`BlockIterate`](@ref)s, or a `BlockIterate` and a group penalty (any [`ProximalBase.AbstractGroupPenalty`](@ref),
-such as [`GroupNormL2`](@ref) or [`GroupMCP`](@ref)) or an [`IndBallGroupL0`](@ref), in either order. It is the
-layout check a solver makes before writing a group, and that the four-argument
-[`kkt_violation`](@ref)`(f, g, x, k)` makes before it computes (each throws a `DimensionMismatch` when it
-fails), that `value` and `prox!` of a group function make to take the active-group paths, and that `copyto!`
-between two iterates makes to copy only the active groups.
-`samegroups` is public but not exported.
-
-An iterate remembers one group array that it has found equal to its own. The answer takes
-constant time when `a` and `b` share their group array, or both remember the same one, or one
-remembers the other's. Otherwise the two are compared in full, which takes time proportional to
-the total size of the groups. If they are equal, the iterate `x` (`a` when both are iterates)
-remembers the group array of the other, so that asking again takes constant time. The one slot is
-replaced each time, so alternating between two equal group arrays that are different objects
-compares at every call; a comparison that finds the groups unequal remembers nothing and leaves
-the remembered array in place. Neither the cache nor the comparison allocates. The groups of
-penalties and iterates must not be mutated (see [`BlockIterate`](@ref)). Because the answer is
-remembered in the iterate, calling `samegroups` on one iterate from several threads at once is a
-data race, as it is for the other operations on an iterate (the stored value is always an equal
-layout).
+Whether two block iterates have the same block layout. Group arrays must not
+be mutated after construction. A successful comparison may cache the layout
+identity in an iterate; concurrent comparisons on the same iterate require
+external synchronization. This function is public but not exported.
 """
 function samegroups end
 
@@ -210,9 +192,9 @@ isactive(x::BlockIterate, k::Integer) = x.position[k] != 0
 
 A view of the entries of group `k`. It is a view of `x` itself, so it aliases
 `x`. Writing through it follows the rule of `x[i] = v`: a nonzero entry
-activates the group and a zero never deactivates it (see [`dropzeros!`](@ref)).
+activates the group and a zero never deactivates it (see `dropzeros!`).
 To take a proximal step at a trial point without activating the group first,
-compute [`prox_block!`](@ref)`(out, f, u, k, γ)` in a numerical buffer, then
+compute `prox_block!``(out, f, u, k, γ)` in a numerical buffer, then
 write the result with `copyto!(blockview(x, k), out)`.
 `norm` and `dot` of the view read the storage directly (BLAS for contiguous
 groups), while other BLAS routines take generic paths for it.
@@ -320,7 +302,7 @@ end
 Deactivate the active groups of `x` whose entries are all zero and return `x`.
 When every entry of every active group is zero, all groups are deactivated.
 Otherwise the last active group moves into the place of each removed one, so the
-order of [`activecoordinates`](@ref) can change. The entries of `x` do not change.
+order of `activecoordinates` can change. The entries of `x` do not change.
 """
 function SparseArrays.dropzeros!(x::BlockIterate)
   allzero = true

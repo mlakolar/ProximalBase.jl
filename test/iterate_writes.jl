@@ -10,7 +10,8 @@ using ProximalBase
 using LinearAlgebra
 using SparseArrays
 
-const PT = ProximalBase.Testing
+using ..TestUtils
+const PT = TestUtils
 
 ws(x) = collect(activecoordinates(x))
 snapshot(x) = (Array(x), ws(x))

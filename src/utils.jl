@@ -64,10 +64,6 @@ end
 end
 @inline _weight_product(a::Real, b::Real, w::Real) = _weight_product(promote(float(a), float(b), float(w))...)
 
-# The model precision of a call on arrays (numerics T3): the wider of the destination's and the
-# argument's float types. The group kernels form their thresholds in it, rounded once.
-@inline _model_type(y, x) = promote_type(float(eltype(y)), float(eltype(x)))
-
 # The same products rounded once to the destination type U, formed in the promotion of U and
 # the factors' types (numerics T3), so that a product that overflows or underflows the factors'
 # type is still finite in U. For R == U the promotion and the conversion are no-ops.
@@ -84,32 +80,10 @@ end
   R = _working_type(U, a, b, c)
   convert(U, _positive_product(convert(R, a), convert(R, b), convert(R, c)))
 end
-# 1 - τ formed in the working type R of the whole coefficient (the promotion of the model precision
-# and every factor that takes part in it), so that the complement is rounded once, with the others
-@inline _one_minus(::Type{R}, τ) where {R<:AbstractFloat} = one(R) - convert(R, τ)
 # The coefficient and product of a KKT diagnostic in the gradient's element type T, rounded once. A
 # gradient that is not floating point (integers) keeps the untyped value and type of the baseline.
 @inline _kkt_coefficient(::Type{T}, λ, w) where {T<:AbstractFloat} = _weight_coefficient(T, λ, w)
 @inline _kkt_coefficient(::Type, λ, w) = _weight_coefficient(λ, w)
-@inline _kkt_float(::Type{T}) where {T} = float(T)   # LogPenalty divides, so an integer gradient gives a float
-@inline _kkt_product(::Type{T}, a, b) where {T<:AbstractFloat} = _typed_product(T, a, b)
-@inline _kkt_product(::Type, a, b) = a * b
-# m⋅2^E rounded once to R, for a significand 2⁻⁴ ≤ m < 2 and an exponent E of any size: Inf or zero
-# beyond the range of R, else the exact scaled product, so that no factor is rounded early where it
-# is subnormal. E is split over two factors, each of them inside the range of R.
-@inline function _ldexp_round(m::R, E::Integer) where {R<:AbstractFloat}
-  E > exponent(floatmax(R)) + 4 && return R(Inf)
-  E < exponent(nextfloat(zero(R))) - 1 && return zero(R)
-  E1 = E ÷ 2
-  A, B = ldexp(m, E1), ldexp(one(R), E - E1)
-  _scaled_coefficient(A, B, one(R), A * B)
-end
-# the plain product ab (no range recovery) formed in the promotion of U and the factors' types,
-# rounded once to U
-@inline function _typed_product(::Type{U}, a, b) where {U<:AbstractFloat}
-  R = _working_type(U, a, b)
-  convert(U, convert(R, a) * convert(R, b))
-end
 @inline function _weight_coefficient(::Type{U}, λ, w) where {U<:AbstractFloat}
   R = _working_type(U, λ, w)
   convert(U, _weight_coefficient(convert(R, λ), convert(R, w)))
@@ -157,41 +131,6 @@ end
 @inline _recoverable_factors(a, b, c) =
   isfinite(a) & isfinite(b) & isfinite(c) & !iszero(a) & !iszero(b) & !iszero(c)
 
-# |v|² > 2γλ, compared in the promotion R of the destination and the factors' types. While 2γλ is a
-# normal number in R the ordinary comparison is exact in its outcome for every v: an |v|² that
-# overflows is larger, one that underflows is smaller, and the tie rule is the strict inequality of
-# the rounded values, as before. The test involves the factors only, so a loop over entries decides
-# it once and keeps its vectorization. Otherwise, for finite nonzero v, γ and λ, the significands
-# and exponents are compared.
-@inline function _square_exceeds(::Type{U}, v, γ, λ) where {U<:AbstractFloat}
-  R = _working_type(U, γ, λ)
-  x, a, b = convert(R, v), convert(R, γ), convert(R, λ)
-  q = 2 * a * b
-  floatmin(R) <= q <= floatmax(R) && return abs2(x) > q
-  _square_exceeds_scaled(x, a, b, abs2(x), q)
-end
-# The exceptional comparison. For the IEEE types the significands are integers of at most 53 bits, so
-# their products are exact in 128 bits and the comparison is exact: neither product is rounded, and an
-# exact tie is not an exceedance. |x|² = Mx²·2^(2ex-2n), 2γλ = Ma·Mb·2^(ea+eb+1-2n), n the precision.
-@noinline function _square_exceeds_scaled(x::R, a::R, b::R, p::R, q::R) where {R<:Base.IEEEFloat}
-  (isfinite(a) & isfinite(b) & (a >= zero(R)) & (b >= zero(R))) || return p > q
-  isinf(x) && return true                    # an infinite argument exceeds every finite threshold
-  (isfinite(x) & !iszero(x)) || return false # NaN, and zero never exceeds
-  (iszero(a) | iszero(b)) && return true     # |x|² > 0 = 2γλ, although |x|² itself may underflow
-  mx, ex = frexp(abs(x))
-  ma, ea = frexp(a)
-  mb, eb = frexp(b)
-  k = 2ex - (ea + eb + 1)
-  k > 2 && return true                       # Mx² ≥ 2^(2n-2) and Ma·Mb < 2^(2n)
-  k < -2 && return false
-  n = precision(R)
-  Mx, Ma, Mb = (unsafe_trunc(UInt64, ldexp(m, n)) for m in (mx, ma, mb))
-  P, Q = widemul(Mx, Mx), widemul(Ma, Mb)
-  k >= 0 ? (P << k) > Q : P > (Q << -k)
-end
-# Other floating-point types (their range is not the issue here): the rounded comparison.
-@noinline _square_exceeds_scaled(x::R, a::R, b::R, p::R, q::R) where {R<:AbstractFloat} = p > q
-
 # the value p = c⋅φ of a term with the coefficient c and the unweighted value
 # φ ≥ 0: zero where c⋅φ is 0⋅Inf (an infinite weight at a zero entry, a zero
 # coefficient at an infinite entry); NaN arguments propagate
@@ -213,13 +152,6 @@ end
 @inline _level_fits(::Type{T}, λ::T) where {T<:Union{Float32, Float64}} = true
 @inline function _level_fits(::Type{T}, λ::Real)::Bool where {T<:AbstractFloat}
   iszero(λ) || !isfinite(λ) || floatmin(T) <= abs(convert(T, λ)) <= floatmax(T)
-end
-
-@inline _level_product(::Type{T}, γ, λ) where {T} = convert(T, γ) * convert(T, λ)
-@inline function _level_product(::Type{T}, γ, λ) where {T<:AbstractFloat}
-  _level_fits(T, γ) && _level_fits(T, λ) && return convert(T, γ) * convert(T, λ)
-  R = promote_type(T, float(typeof(γ)), float(typeof(λ)))
-  convert(T, convert(R, γ) * convert(R, λ))
 end
 
 # Three bounded significands, with the power applied after all factors.
@@ -263,30 +195,6 @@ end
   t, e
 end
 
-# A count, a block size or a multiplicity is an exact integer. The generic methods are the operation as
-# written, in the order written, for every type. For a BigFloat the integer must not be rounded to the
-# working precision first: where a C long is 32 bits (Windows), x * k, k * x and x / k with an Int64 k
-# convert k with BigFloat(k) at the working precision, so that 5 becomes 4 at two bits, while the product
-# or quotient with a Clong (mpfr_mul_si, mpfr_div_si) or a BigInt (mpfr_mul_z, mpfr_div_z) is exact and
-# rounded once. The integer is a Clong when it fits and a BigInt otherwise, never truncated or clamped.
-@inline _int_mul(a, b) = a * b
-@inline _int_div(x, k) = x / k
-@inline _int_mul(x::BigFloat, k::Integer) =
-  typemin(Clong) <= k <= typemax(Clong) ? x * Clong(k) : x * BigInt(k)
-@inline _int_mul(k::Integer, x::BigFloat) =
-  typemin(Clong) <= k <= typemax(Clong) ? Clong(k) * x : BigInt(k) * x
-@inline _int_div(x::BigFloat, k::Integer) =
-  typemin(Clong) <= k <= typemax(Clong) ? x / Clong(k) : x / BigInt(k)
-
-# R(n) * u for a count n and a value u of the working type R: the conversion of n to R is the old
-# expression for every type; for a BigFloat the count is exact
-@inline _count_mul(::Type{R}, n, u) where {R} = R(n) * u
-@inline _count_mul(::Type{BigFloat}, n::Integer, u::BigFloat) = _int_mul(n, u)
-
-# (R(i) * R(m)) * gap for the counts i and m; for a BigFloat the product i m is an exact integer
-@inline _count_pair_mul(::Type{R}, i, m, gap) where {R} = (R(i) * R(m)) * gap
-@inline _count_pair_mul(::Type{BigFloat}, i::Integer, m::Integer, gap::BigFloat) = _int_mul(widemul(i, m), gap)
-
 ####################################
 #
 #  Buffers
@@ -301,27 +209,6 @@ mutable struct Scratch
 end
 Scratch() = Scratch(nothing)
 
-struct _L1ProjectionScratch
-  native::Vector{Float32}
-  wide::Vector{Float64}
-end
-
-function _buffer!(s::Scratch, ::Type{T}, n::Integer) where {T}
-  b = s.buf
-  if b isa Vector{T}
-    length(b) < n && resize!(b, n)
-    return b
-  end
-  if b isa _L1ProjectionScratch && (T === Float32 || T === Float64)
-    v = T === Float32 ? b.native : b.wide
-    length(v) < n && resize!(v, n)
-    return v
-  end
-  b = Vector{T}(undef, n)
-  s.buf = b
-  b
-end
-
 # an array of eltype T and size dims, reused while they do not change
 function _array_buffer!(s::Scratch, ::Type{T}, dims::NTuple{N, Int}) where {T, N}
   b = s.buf
@@ -335,7 +222,6 @@ end
 
 # CPU prototypes keep the existing dense buffer and cache checks.
 _array_buffer!(s::Scratch, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(s, T, size(x))
-_checkbuffer(s::Scratch, ::Type{T}, x::AbstractArray) where {T} = _checkbuffer(s, T, size(x))
 
 # A buffer for the transformed input, reused while its type and size agree.
 # Adapted functions have no cache and allocate a device buffer on each call.
@@ -374,22 +260,9 @@ _output_buffer!(::Scratch, y::AbstractArray) = copy(y)
 # Most kernels read scratch and write y. Stored iterates must run in place to
 # preserve their stored zeros and summation order, then publish the full state.
 _wrapper_output(y, z) = y
-_wrapper_commit!(y, result) = y === result ? y : copyto!(y, result)
-
-_check_wrapper_output(y) = true
-_check_wrapper_output(::Union{Symmetric, Hermitian}) =
-  throw(ArgumentError("wrapper proximal operators need an output that accepts off-diagonal writes; use a dense matrix"))
-
-# Inspect the buffers an oracle will use without changing its cache history.
-function _checkbuffer(cache, ::Type{T}, dims::NTuple{N, Int}) where {T, N}
-  cache isa Array{T, N} && size(cache) == dims && return cache
-  Array{T, N}(undef, dims)
-end
-_checkbuffer(s::Scratch, ::Type{T}, dims::NTuple{N, Int}) where {T, N} = _checkbuffer(s.buf, T, dims)
 
 # Scratch is an implementation detail: copies of a function object share no buffer
 Base.copy(s::Scratch) = Scratch()
-Base.deepcopy_internal(::Scratch, ::IdDict) = Scratch()
 
 ####################################
 #
@@ -418,9 +291,6 @@ _checkparam(w::AbstractArray, x) = length(w) == length(x) || _parameter_length_m
 @noinline _parameter_length_mismatch(nw, nx) =
   throw(DimensionMismatch("a parameter array has length $nw and the argument has length $nx"))
 
-# the value of an indicator function
-_ind(ok::Bool, ::Type{T}) where {T} = ok ? zero(T) : T(Inf)
-
 # The type of a value at x: the real floating type of its entries, promoted
 # over the blocks of a tuple. A value computed in another type is rounded to it.
 _valtype(x) = float(eltype(x))
@@ -428,22 +298,8 @@ _valtype(x) = float(eltype(x))
 # is not inferred beyond 32 blocks, and Base's map stops unrolling there.
 _inline(ex) = Expr(:block, Expr(:meta, :inline), ex)
 _blockwise(ex, n, result) = Expr(:block, Expr(:meta, :inline), (ex(k) for k in 1:n)..., result)
-_blockall(ex, n) = _inline(foldl((a, k) -> :($a && $(ex(k))), 1:n; init = true))
 _blockany(ex, n) = _inline(foldl((a, k) -> :($a || $(ex(k))), 1:n; init = false))
 _blocktuple(ex, n) = _inline(Expr(:tuple, (ex(k) for k in 1:n)...))
-function _blockreduce(ex, n, reduce)
-  vars = [gensym(:blockvalue) for _ in 1:n]
-  body = Expr(:block, Expr(:meta, :inline))
-  for k in 1:n
-    push!(body.args, :($(vars[k]) = $(ex(k))))
-  end
-  push!(body.args, reduce(vars))
-  body
-end
-_blocksum(ex, n) = _blockreduce(ex, n, vs -> isempty(vs) ? :(sum(())) :
-  foldl((a, v) -> :(Base.add_sum($a, $v)), vs[2:end]; init = :(Base.reduce_first(Base.add_sum, $(vs[1])))))
-_blockany_eager(ex, n) = _blockreduce(ex, n, vs -> Expr(:call, :any, Expr(:tuple, vs...)))
-_blockall_eager(ex, n) = _blockreduce(ex, n, vs -> Expr(:call, :all, Expr(:tuple, vs...)))
 @generated function _valtype(x::Tuple)
   n = fieldcount(x)
   n == 0 && return _inline(:(Union{}))
@@ -462,17 +318,6 @@ _checkreal(f, x) = eltype(x) <: Real || _real_error(nameof(typeof(f)))
 # and a device array of the type of a GPU array a (see the GPU extension).
 _zeros_like(a, ::Type{T}, dims) where {T} = zeros(T, dims)
 
-# The relative tolerance with which an indicator function accepts a point
-# rounded onto the boundary of its set; points that a projection returns are
-# feasible within it.
-_tol(::Type{T}) where {T<:AbstractFloat} = sqrt(eps(T))
-_tol(::Type) = sqrt(eps(Float64))
-
-# Compare magnitudes directly, without a subtraction dependency on the value.
-@inline _finite_value(v::AbstractFloat) = abs(v) < oftype(v, Inf)
-# A nonnegative bound is finite exactly when it is below infinity.
-@inline _finite_bound(v) = v < oftype(v, Inf)
-
 # Powers of two keep the units of a comparison without rounding the scale.
 # Split a power that is outside the range of a single floating-point factor.
 @inline function _power_factors(::Type{T}, k::Integer) where {T<:AbstractFloat}
@@ -482,7 +327,6 @@ _tol(::Type) = sqrt(eps(Float64))
 end
 @inline _scale_value(v, s) = (float(v) * s[1]) * s[2]
 @inline _magnitude_exponent(v) = iszero(v) ? 0 : Int(exponent(v))
-@inline _comparison_exponent(es::Integer...) = max(0, es...)
 # frexp with an Int exponent: frexp(::BigFloat) returns an Int32 exponent where a C long is 32 bits (Windows)
 @inline function _frexp(x)
   m, e = frexp(x)
@@ -526,17 +370,6 @@ function _maximum_abs(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
 end
 _maximum_abs(x::Diagonal{T}) where {T<:Union{Float32, Float64}} = _maximum_abs(x.diag)
 
-# Recopy before scaling: LAPACK destroys the input of the first decomposition.
-function _scaled_spectral_input!(A::AbstractMatrix{T}, X::AbstractMatrix) where {T<:AbstractFloat}
-  copyto!(A, X)
-  k = _magnitude_exponent(_maximum_abs(A))
-  s = _power_factors(T, -k)
-  @inbounds for i in eachindex(A)
-    A[i] = _scale_value(A[i], s)
-  end
-  ldexp(one(T), -k)
-end
-
 # Scale each entry before summing, including before taking its square.
 function _scaled_sum(x::AbstractArray, s, f::F = identity) where {F}
   v = zero(s[1])
@@ -545,7 +378,6 @@ function _scaled_sum(x::AbstractArray, s, f::F = identity) where {F}
   end
   v
 end
-_scaled_sumabs2(x, s) = _scaled_sum(x, s, abs2)
 
 # Exceptional values need the small terms even after a large one was added.
 function _scaled_value_sum(x::AbstractArray, s, f::F = identity) where {F}
@@ -637,29 +469,6 @@ _all_finite(x) = all(isfinite, _stored_values(x))
 _all_finite(x::_WrappedSparse) = _all_finite(parent(x))
 _all_finite(::Nothing) = true
 
-# m₁2^e₁ + m₂2^e₂ as a significand in [1/2, 1) (or 0) and its exponent, aligned to
-# the larger term: two terms that cancel do so exactly before renormalizing. A
-# scalar function for device kernels as well (no tuples of varying length).
-@inline function _pow2_add2(m1::T, e1::Int, m2::T, e2::Int) where {T<:AbstractFloat}
-  if iszero(m1) || (!iszero(m2) && e1 < e2)
-    m1, e1, m2, e2 = m2, e2, m1, e1
-  end
-  s = m1 + ldexp(m2, e2 - e1)
-  iszero(s) && return s, 0
-  ms, es = _frexp(s)
-  ms, es + e1
-end
-
-# The products of `_scaled_product`, w v 2^k and a b c 2^k, kept as a significand and
-# an exponent: ldexp of the pair rounds once to the same value. Finite factors.
-@inline _pow2_pair(w::T, v::T, k::Int) where {T<:AbstractFloat} =
-  (iszero(w) || iszero(v)) ? (zero(T), 0) : (fw = _frexp(w); fv = _frexp(v); (fw[1] * fv[1], fw[2] + fv[2] + k))
-@inline function _pow2_pair(a::T, b::T, c::T, k::Int) where {T<:AbstractFloat}
-  (iszero(a) || iszero(b) || iszero(c)) && return zero(T), 0
-  fa, fb, fc = _frexp(a), _frexp(b), _frexp(c)
-  (fa[1] * fb[1]) * fc[1], fa[2] + fb[2] + fc[2] + k
-end
-
 # w Σ mᵢ 2^eᵢ over finite mᵢ, for the terms of a value recomputed in different
 # power-of-two units (R1). The terms are added from the largest exponent down
 # to an accumulator kept as a significand in [1/2, 1) and its own exponent,
@@ -699,30 +508,6 @@ function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {
 end
 _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_weighted(R, one(R), terms...)
 
-# exp(x) = m 2^j for a finite x: j = round(x/log 2) and x - j log 2 in two parts, the
-# high part with trailing zeros so that j·hi is exact (fdlibm). The error is that of exp on
-# [-log(2)/2, log(2)/2], about one ulp, where exp(x + log w) would carry the absolute error
-# of a large argument into the result. Beyond |x| > _exp_bound(T) the product with any
-# finite nonzero weight is out of the range (above) or rounds to zero (below), and j would
-# not be known to fit an Int: the result is (Inf, 0) or (0, 0) there, before any conversion.
-@inline _ln2_parts(::Type{Float64}) = (6.93147180369123816490e-01, 1.90821492927058770002e-10)
-@inline _ln2_parts(::Type{Float32}) = (6.9314575195f-01, 1.4286067653f-06)
-# 2^(emax + 2 + precision - emin): w exp(x) for x above it exceeds floatmax for every weight
-# w >= the smallest subnormal, and for x below its negative, rounds to zero for every
-# w <= floatmax
-@inline _exp_bound(::Type{T}) where {T<:AbstractFloat} =
-  T(_exponent_sum(T, exponent(floatmax(T)), 2, precision(T), -exponent(floatmin(T))) * 0.6931471805599453)
-@inline function _exp_split(x::T) where {T<:Union{Float32, Float64}}
-  isnan(x) && return x, 0
-  x > _exp_bound(T) && return T(Inf), 0
-  x < -_exp_bound(T) && return zero(T), 0
-  hi, lo = _ln2_parts(T)
-  j = round(x * T(1.4426950408889634))
-  exp((x - j * hi) - j * lo), unsafe_trunc(Int, j)
-end
-# other types: their own exp has no range limit to work around in practice
-@inline _exp_split(x::AbstractFloat) = _frexp(exp(x))
-
 ####################################
 #
 #  Values as a significand and an exponent (R1, "Wrappers")
@@ -749,39 +534,6 @@ _zero_value_exponent(f, x) = nothing
 # relative errors of the ordinary sums: n δ 2^amp / 2 < 2^E
 @inline _underflow_exponent(::Type{T}, n::Integer, amp::Integer = 0) where {T} =
   exponent(nextfloat(zero(T))) + _log2_ceil(n) + amp + 2
-# |log t| < 2^E for every positive t of type T (745 for Float64, 104 for Float32)
-@inline _log_exponent(::Type{T}) where {T} = exponent(-log(nextfloat(zero(T)))) + 1
-# (the exponent of the smallest nonzero |wᵢ|, e with every |wᵢ| < 2^e) of a weight array, read again
-# at every call (the weights may change between calls), or `nothing` for a weight array that is not of
-# Float32 or Float64, or not finite. One pass over 32-bit words, where the maximum and the minimum
-# vectorize on every x86 target: with the sign cleared, the bit patterns are ordered like the
-# magnitudes. A Float64 contributes its upper word (sign, exponent and the leading 20 bits of the
-# significand), which orders the magnitudes up to the lower word; rounding the lower word up for the
-# maximum and down for the minimum keeps both exponents conservative. A zero does not enter the
-# minimum; an Inf or a NaN has an upper word at least that of Inf.
-_weight_word(v::Float32) = reinterpret(Int32, v) & typemax(Int32)
-_weight_word(v::Float64) = ((reinterpret(UInt64, v) & 0x7fffffffffffffff) >> 32) % Int32
-_weight_nonzero(v::Float32) = !iszero(reinterpret(Int32, v) & typemax(Int32))
-_weight_nonzero(v::Float64) = !iszero(reinterpret(UInt64, v) & 0x7fffffffffffffff)
-_word_value(::Type{Float32}, h::Int32, up::Bool) = reinterpret(Float32, h)
-_word_value(::Type{Float64}, h::Int32, up::Bool) = reinterpret(Float64, (UInt64(h) << 32) | (up ? 0x00000000ffffffff : 0x0))
-function _weight_exponents(w::AbstractArray{T}) where {T<:Union{Float32, Float64}}
-  vals = _stored_values(w)
-  hi = zero(Int32)
-  lo = typemax(Int32)
-  @inbounds @simd for i in eachindex(vals)
-    v = vals[i]
-    h = _weight_word(v)
-    hi = max(hi, h)
-    lo = min(lo, ifelse(_weight_nonzero(v), h, typemax(Int32)))
-  end
-  hi >= _weight_word(T(Inf)) && return nothing
-  # no nonzero weight; a nonzero Float64 below 2^-1042 has a zero upper word
-  emin = lo == typemax(Int32) ? exponent(floatmax(T)) :
-         iszero(lo) ? exponent(nextfloat(zero(T))) : exponent(_word_value(T, lo, false))
-  (emin, _upper_exponent(_word_value(T, hi, true)))
-end
-_weight_exponents(w::AbstractArray) = nothing
 # Is a zero or subnormal value of f exact for every argument, by its type? Then a factor above one
 # has nothing to recover from it, and `Scaled` does not try (the test folds away at compile time).
 _zero_value_exact(f) = false
@@ -906,13 +658,6 @@ function _expsum_dot(acc::_ExpSum, a::AbstractArray, x::AbstractArray, k::Int)
   end
   acc
 end
-# the sum as one significand and exponent, for _pow2_sum, or rounded once into R
-function _expsum_pair(::Type{R}, acc::_ExpSum) where {R}
-  m = acc.s + acc.c
-  iszero(m) && return (zero(R), 0)
-  mm, ee = frexp(m)
-  (convert(R, mm), acc.ex + ee)
-end
 function _expsum_value(::Type{R}, acc::_ExpSum{A}) where {R, A}
   m = acc.s + acc.c
   iszero(m) && return zero(R)
@@ -961,345 +706,6 @@ end
 
 ####################################
 #
-#  Selection and projection onto the simplex
-#
-####################################
-
-# The k-th largest entry of v, 1 ≤ k ≤ length(v), by the selection algorithm
-# of Floyd and Rivest (Algorithm 489, Comm. ACM 18, 1975): reorders v so that
-# v[k] is the k-th largest, with larger entries before it and smaller after.
-# About n + min(k, n - k) comparisons, much fewer than a quickselect when k is
-# small; Base's partialsort! allocates a scratch buffer, this does not.
-function _kth_largest!(v::AbstractVector, k::Integer)
-  lo, hi = firstindex(v), lastindex(v)
-  kk = lo + k - 1
-  lo <= kk <= hi || throw(ArgumentError("k = $k is not in 1:$(length(v))"))
-  _select_desc!(v, lo, hi, kk)
-end
-
-function _select_desc!(v::AbstractVector, lo::Int, hi::Int, k::Int)
-  @inbounds while hi > lo
-    if hi - lo > 600
-      # recurse on a sample whose k-th largest entry brackets that of v[lo:hi]
-      n = hi - lo + 1
-      i = k - lo + 1
-      z = log(n)
-      s = exp(2z / 3) / 2
-      sd = sqrt(z * s * (n - s) / n) / 2 * sign(i - n / 2)
-      _select_desc!(v, max(lo, floor(Int, k - i * s / n + sd)), min(hi, floor(Int, k + (n - i) * s / n + sd)), k)
-    end
-    t = v[k]
-    i, j = lo, hi
-    v[lo], v[k] = v[k], v[lo]
-    if v[hi] < t
-      v[hi], v[lo] = v[lo], v[hi]
-    end
-    while i < j
-      v[i], v[j] = v[j], v[i]
-      i += 1
-      j -= 1
-      while v[i] > t
-        i += 1
-      end
-      while v[j] < t
-        j -= 1
-      end
-    end
-    if v[lo] == t
-      v[lo], v[j] = v[j], v[lo]
-    else
-      j += 1
-      v[j], v[hi] = v[hi], v[j]
-    end
-    j <= k && (lo = j + 1)
-    k <= j && (hi = j - 1)
-  end
-  v[k]
-end
-
-# The threshold τ of the projection max.(y .- τ, 0) of the vector
-# y = f.(x[idx]) onto the simplex {z ≥ 0 : Σ z = a}, a > 0, by Condat's
-# algorithm (Fast projection onto the simplex and the l1 ball, Math. Program.
-# 158, 2016), in O(n) expected time. buf is scratch of length at least
-# length(idx). idx is eachindex(IndexLinear(), x), or the indices of a group,
-# so that a group needs no view; f = abs gives the projection onto the l1 ball.
-# The index set is indexed by position, with the first entry peeled: a plain
-# loop over a range is three times faster than one through iterate.
-function _simplex_threshold!(buf::AbstractVector{T}, x::AbstractArray, idx::AbstractVector{<:Integer}, a::T,
-                             f::F = identity) where {T, F}
-  _simplex_pass!(buf, x, idx, a, f, Val(false))
-end
-
-# The same level, except that a NaN entry gives a NaN level. Condat's pass discards a NaN
-# (`NaN > ρ` is false) and the level stays finite; with the comparisons written as the
-# negations of their opposites (`!(y <= ρ)`, which is the same test on every other value) a NaN
-# is above every level, joins the candidates and its sum is NaN for good. The code is that of
-# the plain pass with other comparisons: no flag, no second pass. Only the equality simplex
-# uses it; the plain callers compile to the code they had (`Val(false)`).
-_simplex_threshold_strict!(buf::AbstractVector{T}, x::AbstractArray, idx::AbstractVector{<:Integer}, a::T,
-                           f::F = identity) where {T, F} = _simplex_pass!(buf, x, idx, a, f, Val(true))
-
-@inline _above(y, ρ, ::Val{false}) = y > ρ
-@inline _above(y, ρ, ::Val{true}) = !(y <= ρ)
-
-@inline function _simplex_pass!(buf::AbstractVector{T}, x::AbstractArray, idx::AbstractVector{<:Integer}, a::T,
-                                f::F, strict::Val) where {T, F}
-  n = length(idx)
-  n == 0 && return zero(T)
-  j0 = firstindex(idx)
-  @inbounds y1 = convert(T, f(x[idx[j0]]))
-  buf[1] = y1
-  # buf[1:nt] holds the discarded entries ṽ, buf[nt+1:nt+nv] the candidates v,
-  # of sum s and level ρ = (s - a)/nv. The level is recomputed from the sum when
-  # a candidate joins, rather than updated by a division in a chain of dependent
-  # steps, and Michelot's algorithm takes over when more than an eighth of the
-  # entries become candidates: then the level starts far below the entries and
-  # rises slowly, and Condat's pass costs most.
-  nt, nv = 0, 1
-  s = y1
-  ρ = y1 - a
-  cap = max(1024, n ÷ 8)
-  many = false
-  # Once the level has risen, most entries fall below it. One test for four
-  # entries keeps the loop from depending on where its code lands in memory,
-  # which changed its speed twofold on an AMD EPYC.
-  j, jend = j0 + 1, j0 + n - 1
-  @inbounds while j + 3 <= jend
-    y₁, y₂ = convert(T, f(x[idx[j]])), convert(T, f(x[idx[j + 1]]))
-    y₃, y₄ = convert(T, f(x[idx[j + 2]])), convert(T, f(x[idx[j + 3]]))
-    if _above(y₁, ρ, strict) | _above(y₂, ρ, strict) | _above(y₃, ρ, strict) | _above(y₄, ρ, strict)
-      nt, nv, s, ρ, many = _condat_step!(buf, y₁, nt, nv, s, ρ, a, cap, strict)
-      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₂, nt, nv, s, ρ, a, cap, strict))
-      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₃, nt, nv, s, ρ, a, cap, strict))
-      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₄, nt, nv, s, ρ, a, cap, strict))
-      many && break
-    end
-    j += 4
-  end
-  @inbounds while !many && j <= jend
-    nt, nv, s, ρ, many = _condat_step!(buf, convert(T, f(x[idx[j]])), nt, nv, s, ρ, a, cap, strict)
-    j += 1
-  end
-  many && return _simplex_threshold_michelot(x, idx, a, f, strict)
-  _simplex_finish!(buf, nt, nv, s, a)
-end
-
-# One entry y of Condat's pass: below the level ρ it is discarded; otherwise it
-# joins the candidates when their level with y, (s + y - a)/(nv + 1), exceeds
-# y - a, and starts them anew if not. The last value is true when more than cap
-# entries have become candidates.
-@inline function _condat_step!(buf::AbstractVector{T}, y::T, nt::Int, nv::Int, s::T, ρ::T, a::T, cap::Int,
-                               strict::Val) where {T}
-  _above(y, ρ, strict) || return nt, nv, s, ρ, false
-  if _above(s, (y - a) * nv, strict)
-    nv += 1
-    nv > cap && return nt, nv, s, ρ, true
-    s += y
-    @inbounds buf[nt + nv] = y
-    return nt, nv, s, (s - a) / nv, false
-  end
-  nt += nv
-  @inbounds buf[nt + 1] = y
-  nt, 1, y, y - a, false
-end
-
-# the end of Condat's algorithm, from the discarded entries buf[1:nt] and the
-# candidates buf[nt+1:nt+nv] of sum s, whose level is ρ = (s - a)/nv, recomputed
-# from the sum whenever the candidates change
-function _simplex_finish!(buf::AbstractVector{T}, nt::Int, nv::Int, s::T, a::T) where {T}
-  ρ = (s - a) / nv
-  # the discarded entries above ρ rejoin the candidates, collected at the front
-  w = 0
-  @inbounds for i in 1:nt
-    y = buf[i]
-    if y > ρ
-      w += 1
-      buf[w] = y
-      s += y
-      ρ = (s - a) / (w + nv)
-    end
-  end
-  @inbounds for i in 1:nv
-    buf[w + i] = buf[nt + i]
-  end
-  len = w + nv
-  # drop the candidates at or below ρ until none is left
-  changed = true
-  @inbounds while changed
-    changed = false
-    i = 1
-    while i <= len
-      y = buf[i]
-      if y <= ρ
-        len == 1 && return ρ            # only from rounding: the largest entry stays
-        buf[i] = buf[len]
-        len -= 1
-        s -= y
-        ρ = (s - a) / len
-        changed = true
-      else
-        i += 1
-      end
-    end
-  end
-  ρ
-end
-
-# The threshold by Michelot's algorithm (J. Optim. Theory Appl. 50, 1986): the
-# level of all entries, then of those above it, until that set stops changing.
-# It is Newton's method on the convex Σᵢ max(yᵢ - τ, 0) - a from below, each step
-# a vectorized pass. Condat's pass hands over to it when many entries become
-# candidates, as for a radius a that keeps a large share of them positive: its
-# level then starts far below the entries and rises slowly.
-function _simplex_threshold_michelot(x::AbstractArray, idx::AbstractVector{<:Integer}, a::T, f::F, strict::Val = Val(false)) where {T, F}
-  τ, cnt = T(-Inf), -1                    # the first pass takes the level of all the entries
-  for _ in 0:length(idx)
-    s, c = zero(T), 0
-    @inbounds @simd for j in idx
-      y = convert(T, f(x[j]))
-      above = _above(y, τ, strict)
-      s += ifelse(above, y, zero(T))
-      c += above
-    end
-    τ = (s - a) / c
-    c == cnt && break
-    cnt = c
-  end
-  τ
-end
-
-# The conjugate's native search keeps sum residuals; other callers retain the
-# original Condat arithmetic. a bounds the absolute residuals accumulated in e.
-@inline function _projection_l1_add(s, e, a, q, v)
-  t = s + v
-  z = abs(s) >= abs(v) ? (s - t) + v : (v - t) + s
-  t, e + z, a + abs(z), q + 1
-end
-@inline function _projection_l1_level(s, e, r, k)
-  t = s - r
-  z = s >= r ? (s - t) - r : (-r - t) + s
-  (t + (e + z)) / k
-end
-@inline function _projection_l1_step!(buf, y, nt, nv, s, e, a, q, θ, r, cap)
-  y > θ || return nt, nv, s, e, a, q, θ, false
-  if s + e > (y - r) * nv
-    nv += 1
-    nv > cap && return nt, nv, s, e, a, q, θ, true
-    s, e, a, q = _projection_l1_add(s, e, a, q, y)
-    @inbounds buf[nt + nv] = y
-    return nt, nv, s, e, a, q, _projection_l1_level(s, e, r, nv), false
-  end
-  nt += nv
-  @inbounds buf[nt + 1] = y
-  nt, 1, y, zero(e), a, q, y - r, false
-end
-function _projection_l1_threshold!(buf::AbstractVector{T}, x, G, r::T, m::T, total::T) where {T}
-  n = length(G)
-  j0 = firstindex(G)
-  @inbounds s = abs(x[G[j0]])
-  buf[1] = s
-  nt, nv, q = 0, 1, 0
-  e = a = zero(T)
-  θ = s - r
-  h = θ
-  cap = max(1024, n ÷ 8)
-  many = false
-  j, jend = j0 + 1, j0 + n - 1
-  @inbounds while j + 3 <= jend
-    y₁, y₂ = abs(x[G[j]]), abs(x[G[j + 1]])
-    y₃, y₄ = abs(x[G[j + 2]]), abs(x[G[j + 3]])
-    if (y₁ > θ) | (y₂ > θ) | (y₃ > θ) | (y₄ > θ)
-      nt, nv, s, e, a, q, θ, many = _projection_l1_step!(buf, y₁, nt, nv, s, e, a, q, θ, r, cap)
-      h = max(h, θ)
-      many || ((nt, nv, s, e, a, q, θ, many) = _projection_l1_step!(buf, y₂, nt, nv, s, e, a, q, θ, r, cap))
-      h = max(h, θ)
-      many || ((nt, nv, s, e, a, q, θ, many) = _projection_l1_step!(buf, y₃, nt, nv, s, e, a, q, θ, r, cap))
-      h = max(h, θ)
-      many || ((nt, nv, s, e, a, q, θ, many) = _projection_l1_step!(buf, y₄, nt, nv, s, e, a, q, θ, r, cap))
-      h = max(h, θ)
-      many && break
-    end
-    j += 4
-  end
-  @inbounds while !many && j <= jend
-    nt, nv, s, e, a, q, θ, many = _projection_l1_step!(buf, abs(x[G[j]]), nt, nv, s, e, a, q, θ, r, cap)
-    h = max(h, θ)
-    j += 1
-  end
-  many && return _projection_l1_michelot(x, G, r, m, total)
-  w = 0
-  @inbounds for i in 1:nt
-    v = buf[i]
-    if v > θ
-      w += 1
-      buf[w] = v
-      s, e, a, q = _projection_l1_add(s, e, a, q, v)
-      θ = _projection_l1_level(s, e, r, w + nv)
-      h = max(h, θ)
-    end
-  end
-  @inbounds for i in 1:nv
-    buf[w + i] = buf[nt + i]
-  end
-  k = w + nv
-  changed = true
-  @inbounds while changed
-    changed = false
-    i = 1
-    while i <= k
-      v = buf[i]
-      if v <= θ
-        k == 1 && break
-        buf[i] = buf[k]
-        k -= 1
-        s, e, a, q = _projection_l1_add(s, e, a, q, -v)
-        θ = _projection_l1_level(s, e, r, k)
-        h = max(h, θ)
-        changed = true
-      else
-        i += 1
-      end
-    end
-  end
-  u = eps(T) / 2
-  δ = (q + 8) * u
-  B = δ < T(0.125) ? 4eps(T) * m + δ * a / (1 - 2δ) : T(Inf)
-  B = nextfloat(B * (1 + 16eps(T)))
-  # Every skipped or removed value was <= a tested level, hence <=h.
-  # Resets keep their old candidates for reinsertion; each is either kept
-  # or tested again. h includes all levels before/after those tests, so
-  # monotonic subtraction makes this an enclosure of every discarded native
-  # residual at the final level, without assuming rounded levels increase.
-  θ, k, h - θ <= B ? B : T(Inf)
-end
-function _projection_l1_michelot(x, G, r::T, m, total) where {T}
-  θ, count = (total - r) / length(G), -1
-  s, k = zero(T), 0
-  converged = false
-  for _ in 0:length(G)
-    s, k = zero(T), 0
-    @inbounds @simd for i in G
-      v = abs(x[i])
-      above = v > θ
-      s += ifelse(above, v, zero(T))
-      k += above
-    end
-    θ = (s - r) / k
-    if k == count
-      converged = true
-      break
-    end
-    count = k
-  end
-  converged || return θ, k, T(Inf)
-  u = eps(T) / 2
-  δ = k * u
-  B = δ < T(0.125) ? δ * (s / k) / (1 - 2δ) + (eps(T) / (1 - 2eps(T))) * abs(θ) + u * m : T(Inf)
-  θ, k, nextfloat(B * (1 + 16eps(T)))
-end
-
-####################################
-#
 #  Lower-triangular indexing
 #
 ####################################
@@ -1309,8 +715,8 @@ end
 
 The linear index of entry `(r, c)`, `r ≥ c`, of the lower triangle of a `p × p`
 matrix, numbered column by column: the coordinate of a
-[`SymmetricSparseIterate`](@ref) that holds the entry. Inverse of
-[`tril_cartesian`](@ref).
+`SymmetricSparseIterate` that holds the entry. Inverse of
+`tril_cartesian`.
 """
 tril_index(p::Integer, r::Integer, c::Integer) = p * (c - 1) - div(c * (c - 1), 2) + r
 
@@ -1318,7 +724,7 @@ tril_index(p::Integer, r::Integer, c::Integer) = p * (c - 1) - div(c * (c - 1), 
     tril_cartesian(p, k)
 
 The entry `(r, c)`, `r ≥ c`, of the lower triangle of a `p × p` matrix with
-linear index `k`, numbered column by column. Inverse of [`tril_index`](@ref).
+linear index `k`, numbered column by column. Inverse of `tril_index`.
 """
 @inline function tril_cartesian(p::Integer, k::Integer)
   rv = div(p * (p + 1), 2) - k
@@ -1607,32 +1013,5 @@ function _model_precision(::Type{D}, types::Type...) where {D}
   promote_type(map(T -> real(float(T)), (D, types...))...)
 end
 
-"""
-    _check_float16_roles(; argument=nothing, destination=nothing, direction=nothing, data=nothing)
-
-Reject `Float16` entry types by role (T6). Each role is a type or `nothing`.
-Parameters and steps are accepted and are not checked here.
-"""
-function _check_float16_roles(; argument::Union{Type, Nothing} = nothing,
-                            destination::Union{Type, Nothing} = nothing,
-                            direction::Union{Type, Nothing} = nothing,
-                            data::Union{Type, Nothing} = nothing)
-  for (role, T) in pairs((; argument, destination, direction, data))
-    T !== nothing && eltype(T) === Float16 &&
-      throw(ArgumentError("Float16 is not supported as $role in ProximalBase 0.6; use Float32 or Float64"))
-  end
-  nothing
-end
-
-"""
-    PrecisionError(msg)
-
-A result cannot be certified or represented in the working precision (O6,
-case 3). Such a failure is distinct from invalid input and is not an
-`ArgumentError`. In this release only [`quadratic_model`](@ref) and
-[`quadratic_model!`](@ref) of a [`GLMLoss`](@ref) raise it.
-"""
-struct PrecisionError <: Exception
-  msg::String
-end
-Base.showerror(io::IO, e::PrecisionError) = print(io, "PrecisionError: ", e.msg)
+# CPU fallback retained from frozen lapack.jl.
+_is_device_array(::AbstractArray) = false

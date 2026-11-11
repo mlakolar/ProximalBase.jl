@@ -5,7 +5,8 @@ using ProximalBase
 using SparseArrays
 using LinearAlgebra
 
-const PT = ProximalBase.Testing
+using ..TestUtils
+const PT = TestUtils
 
 # Explicit sorted export used only by these conformance tests. This is deliberately
 # not a public SparseIterate method: solver sweeps use the unsorted active handles.

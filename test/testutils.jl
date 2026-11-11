@@ -1,69 +1,94 @@
 module TestUtils
+using Test, ProximalBase
+export allocs, allocations, test_iterate
+# Explicit arities preserve specialization for allocation regression checks.
+allocs(f::F, a::A) where {F,A} = (@allocated f(a); @allocated f(a))
+allocs(f::F, a::A, b::B) where {F,A,B} = (@allocated f(a,b); @allocated f(a,b))
+allocs(f::F, a::A, b::B, c::C) where {F,A,B,C} = (@allocated f(a,b,c); @allocated f(a,b,c))
+allocs(f::F, a::A, b::B, c::C, d::D) where {F,A,B,C,D} = (@allocated f(a,b,c,d); @allocated f(a,b,c,d))
+allocs(f::F, a::A, b::B, c::C, d::D, e::E) where {F,A,B,C,D,E} = (@allocated f(a,b,c,d,e); @allocated f(a,b,c,d,e))
+const allocations=allocs
 
-# The checks of the test suite are those of ProximalBase.Testing, which the
-# package extension on Test defines; these names keep the test files short.
-
-using Test
-using ProximalBase
-
-export check_prox, check_gradient, check_traits, allocs, prox_objective, brute_force_prox
-
-const PT = ProximalBase.Testing
-
-check_prox(f, x, γ; kwargs...) = PT.test_prox(f, x, γ; kwargs...)
-check_gradient(f, x; kwargs...) = PT.test_gradient(f, x; kwargs...)
-check_traits(f; kwargs...) = PT.test_traits(f; kwargs...)
-const allocs = PT.allocations
-const brute_force_prox = PT.brute_force_prox
-
-prox_objective(f, z, x, γ) = f(z) + norm_diff(z, x)^2 / (2γ)
-
-# Solver-style integration helper for tests: math first, public storage writes second.
-# Kept outside ProximalBase so the mathematical API never owns activation policy.
-function take_block_step!(x, f, k, γ::Real)
-  u = x isa BlockIterate ? collect(blockview(x, k)) :
-      x isa SymmetricSparseIterate ? coordinates(x)[k] : x[k]
-  take_block_step!(x, f, k, u, γ)
-end
-function take_block_step!(x::Union{SparseIterate, SymmetricSparseIterate}, f, k, u::Number, γ::Real)
-  isseparable(f) || throw(ArgumentError("a scalar step needs a separable penalty"))
-  ProximalBase._checkparams(f, x)
-  cx = x isa SymmetricSparseIterate ? coordinates(x) : x
-  checkbounds(cx, k)
-  ProximalBase._checkreal(f, u)
-  i = k
-  if x isa SymmetricSparseIterate
-    r, c = tril_cartesian(size(x, 1), k)
-    i = (c - 1) * size(x, 1) + r
-    ProximalBase._check_entry_arrays(f, x, ProximalBase._CoordinatePair(Int(k)))
+function test_iterate(x::BlockIterate)
+  ok = length(x.group_of) == length(x.storage)
+  @test length(x.group_of) == length(x.storage)
+  ok || return x
+  ok = length(x.position) == length(x.groups) == length(x.active)
+  @test length(x.position) == length(x.groups) == length(x.active)
+  ok || return x
+  ok = 0 <= x.nactive <= length(x.groups)
+  @test 0 <= x.nactive <= length(x.groups)
+  ok || return x
+  bad = [(k, i) for (k, G) in enumerate(x.groups) for i in G
+         if !(1 <= i <= length(x.storage))]
+  @test isempty(bad)
+  isempty(bad) || return x
+  memberships = zeros(Int, length(x.storage))
+  for G in x.groups, i in G
+    memberships[i] += 1
   end
-  v = prox_block(f, convert(eltype(x), u), i, γ)
-  cx[k] = v
-  v
-end
-_test_group_penalty(f::Union{Scaled, Regularize}) = _test_group_penalty(f.f)
-_test_group_penalty(f) = f
-function take_block_step!(x::BlockIterate, f, k, u::AbstractVector, γ::Real)
-  ProximalBase._checkparams(f, x)
-  if !isseparable(f)
-    penalty = _test_group_penalty(f)
-    penalty isa ProximalBase.AbstractGroupPenalty || throw(ArgumentError("a group step needs a separable or grouped penalty"))
-    ProximalBase.samegroups(x, penalty) || throw(DimensionMismatch("f and x must have the same groups."))
-  end
-  checkbounds(Base.OneTo(ncoordinates(x)), k)
-  ProximalBase._checkreal(f, u)
-  G = blockindices(x, k)
-  length(G) == length(u) || throw(DimensionMismatch("trial block length"))
-  buf = eltype(x).(u)
-  if isseparable(f)
-    for (j, i) in enumerate(G)
-      buf[j] = prox_block(f, buf[j], i, γ)
+  bad = (missing = findall(iszero, memberships), repeated = findall(>(1), memberships))
+  @test bad == (missing = Int[], repeated = Int[])
+  isempty(bad.missing) && isempty(bad.repeated) || return x
+  bad = [(k, i) for (k, G) in enumerate(x.groups) for i in G if x.group_of[i] != k]
+  @test isempty(bad)
+  active = falses(length(x.groups))
+  duplicates, out_of_range = Int[], Int[]
+  for a in 1:x.nactive
+    k = x.active[a]
+    if 1 <= k <= length(x.groups)
+      active[k] && push!(duplicates, a)
+      active[k] = true
+    else
+      push!(out_of_range, a)
     end
-  else
-    prox_block!(buf, f, buf, k, γ)
   end
-  copyto!(blockview(x, k), buf)
-  blockview(x, k)
+  @test isempty(duplicates)
+  @test isempty(out_of_range)
+  isempty(out_of_range) || return x
+  bad = [a for a in 1:x.nactive if x.position[x.active[a]] != a]
+  @test isempty(bad)
+  bad = [k for k in eachindex(x.groups) if !active[k] && x.position[k] != 0]
+  @test isempty(bad)
+  bad = [i for k in eachindex(x.groups) if !active[k] for i in x.groups[k]
+         if !iszero(x.storage[i])]
+  @test isempty(bad)
+  x
+end
+
+function test_iterate(x::Union{SparseIterate, SymmetricSparseIterate})
+  ok = length(x.nzval) == length(x.nzval2ind) == length(x.ind2nzval)
+  @test length(x.nzval) == length(x.nzval2ind) == length(x.ind2nzval)
+  ok || return x
+  if x isa SymmetricSparseIterate
+    ok = length(x.ind2nzval) == x.p * (x.p + 1) ÷ 2
+    @test length(x.ind2nzval) == x.p * (x.p + 1) ÷ 2
+    ok || return x
+  end
+  ok = 0 <= x.nnz <= length(x.ind2nzval)
+  @test 0 <= x.nnz <= length(x.ind2nzval)
+  ok || return x
+  stored = falses(length(x.ind2nzval))
+  duplicates, out_of_range = Int[], Int[]
+  for j in 1:x.nnz
+    i = x.nzval2ind[j]
+    if 1 <= i <= length(x.ind2nzval)
+      stored[i] && push!(duplicates, j)
+      stored[i] = true
+    else
+      push!(out_of_range, j)
+    end
+  end
+  @test isempty(duplicates)
+  @test isempty(out_of_range)
+  isempty(out_of_range) || return x
+  bad = [j for j in 1:x.nnz if x.ind2nzval[x.nzval2ind[j]] != j]
+  @test isempty(bad)
+  bad = [i for i in eachindex(x.ind2nzval) if !(0 <= x.ind2nzval[i] <= x.nnz)]
+  @test isempty(bad)
+  bad = [i for i in eachindex(x.ind2nzval) if !stored[i] && x.ind2nzval[i] != 0]
+  @test isempty(bad)
+  x
 end
 
 end

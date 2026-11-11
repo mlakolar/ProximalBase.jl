@@ -7,11 +7,11 @@ A vector or matrix that stores its nonzero entries in a compact list, so that
 reading or writing any entry is O(1), with supported sparse-aware products
 scaling with the number of active coordinates, `nactive(x)`.
 Intended for coordinate-descent and active-set iterates that stay sparse. Its
-coordinates (see [`ncoordinates`](@ref)) are its entries, in linear order.
+coordinates (see `ncoordinates`) are its entries, in linear order.
 
 Setting an entry to zero keeps it in the list; call `dropzeros!` to remove
 stored zeros. The stored entries are the active coordinates
-([`activecoordinates`](@ref)).
+(`activecoordinates`).
 
 Its entries are real. The constructors, two-argument `copyto!` from an array
 (for a matrix also from a `UniformScaling` or an orthogonal factor), `copy!`,
@@ -23,7 +23,7 @@ complex from the types is rejected, and a result of another non-real type (a
 rejected if an element is complex, with `x` unchanged.
 For a vector `x`, `vec(x)` and `reshape(x, length(x))` are `x` itself and are
 checked too. `copy!` from a source of another size throws Base's error first,
-unless the source is a `SparseIterate` or a [`BlockIterate`](@ref): one of the
+unless the source is a `SparseIterate` or a `BlockIterate`: one of the
 same length is copied by value in linear order, and one of another length throws
 a `DimensionMismatch`. The two-argument `copyto!` and `copy!` read types: a tuple, a generator or an
 array of abstract element type such as `Vector{Any}` passes the check, and its
@@ -72,14 +72,14 @@ SparseIterate(nzval::Vector{T}, nzval2ind::Vector{Int}, ind2nzval::Array{Int, N}
 
 The owner of the `q = p(p + 1) / 2` variables of a real symmetric `p × p` matrix:
 the entries of its lower triangle, stored in a compact list with O(1) access, as
-[`SparseIterate`](@ref). It is not an array. It has `size(x) == (p, p)`,
-`eltype(x)`, [`ncoordinates`](@ref)`(x) == q`, and the two-index access below; it
+`SparseIterate`. It is not an array. It has `size(x) == (p, p)`,
+`eltype(x)`, `ncoordinates``(x) == q`, and the two-index access below; it
 has no `length`, `axes`, iteration, broadcasting or one-index access. Read it
 through one of its views, or copy it:
 
   - `coordinates(x)`: a live, writable vector of the `q` variables, in the
-    column-major order of the lower triangle ([`tril_index`](@ref));
-  - `matrixview(x)`: a live, read-only `p × p` matrix ([`matrixview`](@ref));
+    column-major order of the lower triangle (`tril_index`);
+  - `matrixview(x)`: a live, read-only `p × p` matrix (`matrixview`);
   - `Matrix(x)`: an independent dense copy.
 
 `x[i, j]` reads and `x[i, j] = v` writes one variable, from either triangle: the
@@ -89,8 +89,8 @@ because `coordinates(x)[k]` and `matrixview(x)[k]` mean different things. A writ
 converts the value to `T` first, and stores a nonzero converted value (`NaN`
 included) as an active coordinate; a zero written to a coordinate that is not
 active does not activate it, and a zero written to an active coordinate keeps it
-active. Use [`activate!`](@ref) for an explicit active zero and `dropzeros!` to
-remove active zeros. [`nactive`](@ref) counts the active coordinates;
+active. Use `activate!` for an explicit active zero and `dropzeros!` to
+remove active zeros. `nactive` counts the active coordinates;
 `count(!iszero, activevalues(x))` counts those that are nonzero.
 
   - `copy(x)` is an independent state: values, active zeros and activation order.
@@ -114,11 +114,11 @@ but not `==`. Equal matrices have equal hashes whatever the active sets and thei
 order. There is no comparison with an array and no `isapprox`: use `Matrix(x)` or
 `matrixview(x)`.
 
-Its coordinates are numbered column by column ([`tril_index`](@ref)):
-Public indexed assignment updates them, [`activecoordinates`](@ref) lists the
-active ones and [`coordinates`](@ref) is a vector view of them.
+Its coordinates are numbered column by column (`tril_index`):
+Public indexed assignment updates them, `activecoordinates` lists the
+active ones and `coordinates` is a vector view of them.
 
-See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
+See Symmetric parameters for which arrays must be symmetric and which calls check them.
 """
 mutable struct SymmetricSparseIterate{T}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
@@ -211,7 +211,7 @@ const _StoredIterate{T} = Union{SparseIterate{T}, SymmetricSparseIterate{T}}
     nnz(A)
 
 Re-export of `SparseArrays.nnz` for standard sparse arrays. ProximalBase
-does not define an `nnz` method for its iterates. Use [`nactive`](@ref) to
+does not define an `nnz` method for its iterates. Use `nactive` to
 count active coordinates, including explicitly stored zeros; use
 `count(!iszero, activevalues(x))` to count nonzero entries of a `SparseIterate`.
 """
@@ -221,9 +221,9 @@ nnz
     ncoordinates(x)
 
 The number of independent coordinates of the iterate `x` that a solver
-updates: the entries of a [`SparseIterate`](@ref), the entries of the lower
-triangle of a [`SymmetricSparseIterate`](@ref), the groups of an
-[`BlockIterate`](@ref).
+updates: the entries of a `SparseIterate`, the entries of the lower
+triangle of a `SymmetricSparseIterate`, the groups of an
+`BlockIterate`.
 """
 function ncoordinates end
 
@@ -231,8 +231,8 @@ function ncoordinates end
     nactive(x)
 
 The number of active coordinates of `x`: the stored entries of a
-[`SparseIterate`](@ref) or [`SymmetricSparseIterate`](@ref), the active groups
-of a [`BlockIterate`](@ref). Active-set solvers use them as the active set.
+`SparseIterate` or `SymmetricSparseIterate`, the active groups
+of a `BlockIterate`. Active-set solvers use them as the active set.
 """
 function nactive end
 
@@ -253,7 +253,7 @@ Base.setindex!(::_ActiveIDs, v, i::Int) =
     activecoordinates(x)
 
 A read-only `AbstractVector{Int}` of the active coordinates of `x` (see
-[`nactive`](@ref)), in the order in which they became active, except that
+`nactive`), in the order in which they became active, except that
 `dropzeros!` moves the last ones into the places of those it removes. It is a
 handle on the internal list, not a snapshot: nothing is copied, and it does not
 grow when coordinates become active, so call `activecoordinates` again after
@@ -261,23 +261,23 @@ changing the active set: after an activation, after `dropzeros!`, and after a
 whole-state replacement such as `copyto!(x, y)`, which can reorder the list even
 when the active set and `nactive(x)` stay the same. Writing through it throws an `ArgumentError`, because
 the list and the iterate's reverse map must stay in agreement; write values
-through [`activevalues`](@ref) (or `blockview(x, k)` for a [`BlockIterate`](@ref)).
+through `activevalues` (or `blockview(x, k)` for a `BlockIterate`).
 """
 function activecoordinates end
 
 """
     isactive(x, k)
 
-Whether coordinate `k` of `x` is active (see [`nactive`](@ref)).
+Whether coordinate `k` of `x` is active (see `nactive`).
 """
 function isactive end
 
 """
     coordinates(x)
 
-A vector view of the coordinates of `x` (see [`ncoordinates`](@ref)): the
-entries of a [`SparseIterate`](@ref) in linear order, whatever its shape, and the
-entries of the lower triangle for a [`SymmetricSparseIterate`](@ref). The view is
+A vector view of the coordinates of `x` (see `ncoordinates`): the
+entries of a `SparseIterate` in linear order, whatever its shape, and the
+entries of the lower triangle for a `SymmetricSparseIterate`. The view is
 an `AbstractVector` of length `ncoordinates(x)` indexed by coordinate, live (a
 later write to `x` shows through it) and writable, and building it copies
 nothing. It is never `x` itself.
@@ -300,9 +300,9 @@ function coordinates end
     activevalues(x::Union{SparseIterate, SymmetricSparseIterate})
 
 A writable vector view of the values of the active coordinates of `x`, in the
-order of [`activecoordinates`](@ref): entry `a` is the value of coordinate
+order of `activecoordinates`: entry `a` is the value of coordinate
 `activecoordinates(x)[a]`. Writing zero through it keeps the coordinate active;
-use [`dropzeros!`](@ref) to remove it. The view has the length [`nactive`](@ref)
+use `dropzeros!` to remove it. The view has the length `nactive`
 had when it was taken and does not grow, so, like `activecoordinates`, take it
 again after a coordinate becomes active, after `dropzeros!` or after a
 whole-state replacement such as `copyto!(x, y)`, each of which can reorder the
@@ -359,7 +359,7 @@ end
 Make coordinate `i` of `x` active, storing it as an explicit zero if it is not
 stored already, and return `x`. Assigning a zero does not store an entry, so
 this is how a coordinate joins the active set of an active-set solver;
-`dropzeros!` removes it again while it is zero. For a [`BlockIterate`](@ref),
+`dropzeros!` removes it again while it is zero. For a `BlockIterate`,
 make group `k` active, keeping its entries.
 """
 function activate!(x::_StoredIterate{T}, i::Integer) where {T}
@@ -372,10 +372,10 @@ end
     dropzeros!(x::Union{SparseIterate, SymmetricSparseIterate})
 
 Remove stored zero coordinates from `x` and return `x`. On a
-[`SymmetricSparseIterate`](@ref), these are coordinates of the lower triangle.
+`SymmetricSparseIterate`, these are coordinates of the lower triangle.
 When every stored value is zero, the working set is emptied. Otherwise the last
 stored coordinate moves into the place of each removed one, so the order of
-[`activecoordinates`](@ref) can change. The entries of `x` do not change.
+`activecoordinates` can change. The entries of `x` do not change.
 """
 SparseArrays.dropzeros!(x::_StoredIterate) = _dropzeros_compact!(x)
 
@@ -1239,7 +1239,7 @@ IEEE value stands. A sum that is exactly zero is `+0.0`.
 
 The guarantee covers `Float32` and `Float64` with `Symmetric` wrappers of strided matrices
 of the same element type as `X`. Other element types, and mixed element types, are outside
-the guarantee and take other methods of `*`. See [Numerical contract](@ref numerics-storage).
+the guarantee and take other methods of `*`. See Numerical contract.
 """
 function *(A::Symmetric{T, <:StridedMatrix{T}}, X::SparseIterate{T, 2},
            B::Symmetric{T, <:StridedMatrix{T}}) where {T<:Union{Float32, Float64}}
@@ -1431,7 +1431,7 @@ view read all `p²` entries. Use `Matrix(x)` for an independent dense copy.
     summation. A NaN coefficient is not zero and gives NaN.
 
 Entries `(r, c)` and `(c, r)` are one variable of `x`; a coordinate of `x` is
-reached through [`coordinates`](@ref), not through this view, so
+reached through `coordinates`, not through this view, so
 `matrixview(x)[4]` is a matrix linear index.
 """
 matrixview(x::SymmetricSparseIterate) = SymmetricMatrixView(x)
@@ -2228,7 +2228,7 @@ infinite the ordinary IEEE value stands. A sum that is exactly zero is `+0.0`.
 The guarantee covers `Float32` and `Float64` with `Symmetric` wrappers of strided matrices of the
 same element type as `X`. Other element types, and mixed element types, are outside the guarantee
 and take other methods of `*`. The method reads the stored fields `nzval`, `nzval2ind`, `nnz` and
-`p`. See [Numerical contract](@ref numerics-storage).
+`p`. See Numerical contract.
 """
 function *(A::Symmetric{T, <:StridedMatrix{T}}, X::SymmetricSparseIterate{T},
            B::Symmetric{T, <:StridedMatrix{T}}) where {T<:Union{Float32, Float64}}

@@ -10,9 +10,8 @@
 The least-squares loss `f(β) = ‖Y - Xβ‖² / 2`, smooth with gradient
 `X'(Xβ - Y)`. `Y` may be a vector or an `n × k` matrix with one column per
 response; then `β` and the gradient are `p × k` matrices and `‖⋅‖` is the
-Frobenius norm, as in multi-response regression with [`NuclearNorm`](@ref) or
-the row groups of [`GroupNormL2`](@ref). `β` may be a dense array, a
-[`SparseIterate`](@ref) or a [`BlockIterate`](@ref), whose products cost
+Frobenius norm, as in multi-response regression. `β` may be a dense array, a
+`SparseIterate` or a `BlockIterate`, whose products cost
 O(n ⋅ nnz).
 
 It is also proximable: the first proximal operator computes the thin SVD
@@ -177,18 +176,6 @@ function _svd_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
     f.svd_ready = true
   end
   f
-end
-
-function _xty_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
-  dims = N == 1 ? (size(f.X, 2),) : (size(f.X, 2), size(f.Y, 2))
-  if any(iszero, dims)
-    # An empty result is also a ready cache; isempty cannot identify its
-    # uninitialized state on later calls.
-    size(f.XtY) == dims || (f.XtY = Array{T, N}(undef, dims))
-  elseif isempty(f.XtY)
-    f.XtY = Array{T, N}(transpose(f.X) * f.Y)
-  end
-  f.XtY
 end
 
 # In the V basis the solution is (s U'Y + ρ V'v)/(s² + ρ). When V is

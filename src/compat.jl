@@ -1,11 +1,3 @@
-# Keep dependencies on non-public stdlib bindings in this file.
-
-isdefined(LinearAlgebra, :BlasInt) || error("LinearAlgebra.BlasInt is required for the BLAS integer ABI")
-const _BlasInt = LinearAlgebra.BlasInt
-const _libblastrampoline = LinearAlgebra.libblastrampoline
-_blasfunc(name::Symbol)::Symbol = _BlasInt === Int64 ? Symbol(name, "64_") : name
-const _potrf! = LAPACK.potrf!
-const _potri! = LAPACK.potri!
 
 @static if isdefined(SparseArrays, :AbstractSparseMatrixCSC)
   const _AbstractSparseMatrixCSC = SparseArrays.AbstractSparseMatrixCSC

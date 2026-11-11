@@ -10,7 +10,7 @@ Go directly to:
 - [Available operations](operations.md#Available-operations-at-a-glance)
 - [Gradients](operations.md#Computing-a-gradient)
 - [Proximal operators](operations.md#Computing-a-proximal-point)
-- [Coordinate restrictions](operations.md#Restricting-a-function-to-selected-coordinates)
+- [Coordinate restrictions](restrict.md)
 - [Calling conventions and supported inputs](operations.md#Calling-conventions,-results-and-supported-inputs)
 - [API reference](api/interface.md) for signatures and docstrings
 

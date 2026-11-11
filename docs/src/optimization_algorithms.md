@@ -8,10 +8,10 @@ use ProximalBase's mathematical operations.
 
 | Method | ProximalBase operations | Caller responsibility |
 |:--|:--|:--|
-| Proximal gradient | gradient!, prox!, lipschitz | Step, iteration, optional acceleration and stationarity test |
-| Scalar coordinate descent | prox_block, kkt_violation, restrict | Coordinate curvature, trial, write and residual update |
-| Block coordinate method | Custom compact-vector prox_block!; BlockIterate views | Block decomposition/layout, curvature and cache updates |
-| Working sets | activate!, activecoordinates, dropzeros! | Screening policy and verification outside the working set |
+| Proximal gradient | `gradient!`, `prox!`, `lipschitz` | Step, iteration, optional acceleration and stationarity test |
+| Scalar coordinate descent | `prox_block`, `kkt_violation`, `restrict` | Coordinate curvature, trial, write and residual update |
+| Block coordinate method | Custom `prox_block!`; `BlockIterate` views | Block decomposition/layout, curvature and cache updates |
+| Working sets | `activate!`, `activecoordinates`, `dropzeros!` | Screening policy and verification outside the working set |
 
 For ``F=f+g``, smooth ``f`` and proper closed convex ``g``, proximal gradient
 uses a quadratic upper model of ``f`` and the exact prox of ``g``. Coordinate

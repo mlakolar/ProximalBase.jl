@@ -13,9 +13,10 @@ g = NormL1(0.5)
 (f(x), g(x))
 ```
 
-Every retained vector/array function is an [`AbstractFunction`](@ref).
-[`Squared`](@ref ProximalBase.Squared) belongs to a separate scalar
-observation-loss interface and is used as `ProximalBase.Squared()`.
+The built-in functions in this example are [`AbstractFunction`](@ref)
+objects, which means they can be evaluated through the common Julia interface
+explained below. Other specialized interfaces are introduced where they are
+used, rather than needed to understand this first example.
 
 The benefit of representing functions as objects is that an optimization
 algorithm can request the operations it needs, such as a **gradient** or a
@@ -46,7 +47,7 @@ g(x)=\lambda\|x\|_1,\quad \lambda\geq0.
 A function can be convex without being differentiable: ``|x|`` has a corner
 at zero. Thus **convex** and **smooth** describe different properties.
 
-For the retained functions, `isconvex(f)` reports the declared mathematical
+For the functions provided here, `isconvex(f)` reports the declared mathematical
 assumption; it is **not** a runtime proof about supplied data. For example,
 `QuadraticFunction` assumes its matrix is symmetric positive semidefinite;
 its constructor does not certify that assumption.
@@ -170,9 +171,9 @@ The quadratic form ``x^\mathsf{T}Ax/2`` is **not** generally separable because
 off-diagonal entries of `A` couple different coordinates. Even when a
 function is mathematically separable, its Julia implementation does not
 automatically inherit every scalar hook: `isseparable(f)` describes the
-mathematics, whereas subtyping [`SeparableFunction`](@ref) and defining
-`value_entry` and `prox_block` enables the *generic separable kernels*.
-See [Writing your own function](extending.md).
+mathematics, whereas implementing the appropriate Julia methods makes coordinate operations
+available. See [Writing your own function](extending.md) for the methods
+needed to define a new separable function.
 
 ## Zero preservation and sparse iterates
 
@@ -191,8 +192,8 @@ coordinate leaves it at zero. The first means that omitted zeros also
 contribute nothing to the function value.
 
 For the ``\ell_1`` penalty, soft thresholding maps zero to zero. Therefore,
-when a sparse iterate has many unstored coordinates, the generic
-zero-preserving kernels can skip those coordinates rather than scanning
+when a sparse iterate has many unstored coordinates, ProximalBase
+can skip those coordinates rather than scanning
 the entire dense array.
 
 ```@example properties
@@ -214,7 +215,7 @@ dense and stored-only paths. See the [Numerical contract](numerics.md) and
 
 ## Traits in Julia
 
-A **trait** is a query that tells an algorithm or generic kernel which
+A **trait** is a query that tells an algorithm which
 properties an object advertises. In ProximalBase, the main queries are:
 
 | Trait | Mathematical meaning | Why it is useful |
@@ -263,7 +264,8 @@ matrix validator.
 not manufacture Julia methods or guarantee support for every array layout,
 precision or storage representation. For example, `LeastSquaresLoss`
 accepts vector or matrix coefficients, whereas `QuadraticFunction`
-accepts vectors; symmetric owners require explicitly supported dispatch.
+accepts vectors; symmetric matrix storage has its own supported operations.
+See [SymmetricSparseIterate](symmetric_sparse_iterate.md) for details.
 
 ## Using these properties
 

@@ -265,24 +265,25 @@ precision or storage representation. For example, `LeastSquaresLoss`
 accepts vector or matrix coefficients, whereas `QuadraticFunction`
 accepts vectors; symmetric owners require explicitly supported dispatch.
 
-## Function objects, parameters and extension hooks
+## Using these properties
 
-Objects retain array parameters by reference unless a constructor
-explicitly copies them. Losses and quadratics may also own scratch buffers
-and lazy decomposition caches. Review [Array and precision conventions](numerical_usage.md)
-before modifying referenced data or sharing a function object across
-concurrent calls.
+These properties help an optimization algorithm choose the right operations
+for a problem. For example, when minimizing ``f(x)+g(x)``, we might use a
+**smooth** loss ``f`` and a **proximable** penalty ``g``. A proximal-gradient
+method combines a gradient step on ``f`` with a proximal step on ``g``:
 
-`NormL1` is a [`SeparableFunction`](@ref): its `value_entry` and
-scalar `prox_block` hooks feed generic array value/proximal kernels.
-`SqrNormL2`, `LinearFunction` and `ZeroFunction` are also
-mathematically separable and have scalar `prox_block` methods, but
-are not `SeparableFunction` subtypes and do not provide
-`value_entry` methods. A custom `SeparableFunction` automatically
-declares `isseparable=true` and `isproximable=true`, but its author
-must still implement the required scalar hooks. Smoothness is independent.
+```@example properties
+γ = 0.1
+x_new = prox(g, x - γ * gradient(f, x), γ)
+```
 
-For the concrete [function library](function_library.md), implemented
-[operations](operations.md), and [extension guide](extending.md), follow
-the respective guides. The [coverage matrix](api/coverage.md) lists every
-export and essential qualified extension hook.
+Here, `f` and `g` are the squared-norm loss and `l1` penalty
+introduced at the top of the page. ProximalBase supplies `gradient` and
+`prox`; an optimization algorithm chooses the step sizes, repeats the
+updates, and decides when to stop.
+
+To see which operations are available, continue to
+[Operations on functions](operations.md). If you want to implement your own
+mathematical function, see [Writing your own function](extending.md), which
+explains parameter storage and extension hooks such as `value_entry` and
+`prox_block`.

@@ -25,7 +25,7 @@ G_\gamma(x)=\frac{x-\operatorname{prox}_{\gamma g}(x-\gamma\nabla f(x))}{\gamma}
 For convex ``g``, ``G_\gamma(x)=0`` is equivalent to
 ``0\in\nabla f(x)+\partial g(x)``; with convex ``f`` it characterizes global
 optimality. A small coefficient change alone is not a complete convergence
-test. The retained package has no gradient-mapping helper; calculate this
+test. ProximalBase does not provide a gradient-mapping helper; calculate this
 expression in caller code.
 
 ```@example proximal_gradient_intro
@@ -50,7 +50,7 @@ explicit KKT conditions and the closed-form lasso solution for orthogonal
 columns. The [getting-started tutorial](getting_started.md) uses a general
 design and verifies one descent step.
 
-`lipschitz` returns a bound for retained smooth functions; with a zero bound,
+`lipschitz` returns a bound for supported smooth functions; with a zero bound,
 choose a positive step explicitly. Dense least squares uses the full squared
 spectral norm. Other matrix formats use a safe one/infinity bound, which can
 be conservative. `opnorm2` is a deterministic numerical estimate and can miss

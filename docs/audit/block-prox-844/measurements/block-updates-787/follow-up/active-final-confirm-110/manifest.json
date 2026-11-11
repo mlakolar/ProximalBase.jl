@@ -1,0 +1,203 @@
+{
+  "baseline_commit": "a9f53e6ef3febffd58496c4a1c4fcb7609d0ca1c",
+  "candidate_commit": "26b6ec6446d732771dabb8bede50e90cf49bf125",
+  "status": "Independent confirmation of ordinary-path regressions",
+  "files": {
+    "cohort1-aa-pair1.tsv": {
+      "uncompressed_sha256": "c3ff79f042eac86fbddaec5e8932a82abdbdce33e070f282faf3551ba2015919",
+      "bytes": 1178
+    },
+    "cohort1-aa-pair2.tsv": {
+      "uncompressed_sha256": "85e607b9c9db5699fb55836b7a26b983ef04d71a8b7b2449eb6dad038f87a1eb",
+      "bytes": 1178
+    },
+    "cohort1-aa-pair3.tsv": {
+      "uncompressed_sha256": "5711ca4816685e06a9dc71120985362777460c1038b65e823e3a8fef05affae9",
+      "bytes": 1176
+    },
+    "cohort1-aa-pair4.tsv": {
+      "uncompressed_sha256": "3e27e96175bb6effdc2e4a7fb30f6e9f4f049d5f01af139647401af0e462ff1e",
+      "bytes": 1179
+    },
+    "cohort1-aa-pair5.tsv": {
+      "uncompressed_sha256": "b4db2eebaed055f5f7cabdc0803d316dc64fe0d81dd3354bed681fff49c90768",
+      "bytes": 1177
+    },
+    "cohort1-aa-warmup.tsv": {
+      "uncompressed_sha256": "6725e3c8db25dc1178b339af1c17606361dc5166dff50f56f53ee933f92aead4",
+      "bytes": 1177
+    },
+    "cohort1-aa.metadata.tsv": {
+      "uncompressed_sha256": "8b4e3bd4125476a6b8555fdbfe68f9afe60836950b5a8b02d960064559b7be2d",
+      "bytes": 1612
+    },
+    "cohort1-aa.stderr": {
+      "uncompressed_sha256": "d137b427a94d43f1a39e3af2b84bedb3f1f4839963e07264b0e270b1960df47f",
+      "bytes": 93
+    },
+    "cohort1-after-pair1.tsv": {
+      "uncompressed_sha256": "509ab5720ecd2156aea17d1b4b9606f7f0e4856aab0675c20373eb161aba7cfc",
+      "bytes": 1178
+    },
+    "cohort1-after-pair2.tsv": {
+      "uncompressed_sha256": "4ba574e6e39e013a0603a7630561160cfe38ee6c758c55a954869882981862f4",
+      "bytes": 1176
+    },
+    "cohort1-after-pair3.tsv": {
+      "uncompressed_sha256": "c6e12466891b92f0da233cc6dbb552f99be3e6ba5663318dcaa219a79119f6fe",
+      "bytes": 1176
+    },
+    "cohort1-after-pair4.tsv": {
+      "uncompressed_sha256": "63603f868110987dba95779b90040e0923c0ccaafe2e11a162bb92c010d745a2",
+      "bytes": 1177
+    },
+    "cohort1-after-pair5.tsv": {
+      "uncompressed_sha256": "3c198fec82390928bc6ba892ef1dfcca2682b9414c5606ee65f6d3fa3c6d1378",
+      "bytes": 1176
+    },
+    "cohort1-after-warmup.tsv": {
+      "uncompressed_sha256": "b277e8fd7b950a3ecf42dde2acf54cf84e23b65625ffce6e81849f9f8ef0ab6b",
+      "bytes": 1176
+    },
+    "cohort1-after.metadata.tsv": {
+      "uncompressed_sha256": "8b4e3bd4125476a6b8555fdbfe68f9afe60836950b5a8b02d960064559b7be2d",
+      "bytes": 1612
+    },
+    "cohort1-after.stderr": {
+      "uncompressed_sha256": "c1ccc3757203f1102e42a135d8147e2fcbdf9d4177889094fe192b695d7c9840",
+      "bytes": 90
+    },
+    "cohort1-before-pair1.tsv": {
+      "uncompressed_sha256": "5a9ff79bc0d97f8d4477a63b7ca85c86d0ebfcac9093aebebd71dcad736e7b79",
+      "bytes": 1177
+    },
+    "cohort1-before-pair2.tsv": {
+      "uncompressed_sha256": "9c701688680365306ac12ced22a9edb7964b6606c23285c5cc2358f904028559",
+      "bytes": 1176
+    },
+    "cohort1-before-pair3.tsv": {
+      "uncompressed_sha256": "74df96d7252c9dd9314efd8c3df3a20fa130f11c91c84bed9fc69a1f8b7045a9",
+      "bytes": 1177
+    },
+    "cohort1-before-pair4.tsv": {
+      "uncompressed_sha256": "527c0d1111af17a1dde65a7d6e9c20a6c1baa5d139a80bc5d4e4a64b13dec1f4",
+      "bytes": 1176
+    },
+    "cohort1-before-pair5.tsv": {
+      "uncompressed_sha256": "dfd37e2ecf14bc352a37d8599deebe1056656b51945a40444575a0559c80cea0",
+      "bytes": 1176
+    },
+    "cohort1-before-warmup.tsv": {
+      "uncompressed_sha256": "1bf011cd33a1abaebc45e75609e75becf4a1071eaff04741dd4f0aa9e7a3d6bb",
+      "bytes": 1177
+    },
+    "cohort1-before.metadata.tsv": {
+      "uncompressed_sha256": "8b4e3bd4125476a6b8555fdbfe68f9afe60836950b5a8b02d960064559b7be2d",
+      "bytes": 1612
+    },
+    "cohort1-before.stderr": {
+      "uncompressed_sha256": "d137b427a94d43f1a39e3af2b84bedb3f1f4839963e07264b0e270b1960df47f",
+      "bytes": 93
+    },
+    "cohort2-aa-pair1.tsv": {
+      "uncompressed_sha256": "28df5abd57c0cbba757a8e8f0f52ed929b5b9d210ebb3b3fda2d6204ab832b4f",
+      "bytes": 1177
+    },
+    "cohort2-aa-pair2.tsv": {
+      "uncompressed_sha256": "aa57a96788a981667553a5b8aebb000993fe42730b28a4899fdab68fe3c68c14",
+      "bytes": 1176
+    },
+    "cohort2-aa-pair3.tsv": {
+      "uncompressed_sha256": "77f938b0a61a5952b527c95c25efc5880ae9131f12e84166aff811fe853b3ba1",
+      "bytes": 1176
+    },
+    "cohort2-aa-pair4.tsv": {
+      "uncompressed_sha256": "7b95581dee3277746d9442b30770da1ea86badf2d49a5991e760ad6c40b9c559",
+      "bytes": 1176
+    },
+    "cohort2-aa-pair5.tsv": {
+      "uncompressed_sha256": "49d4c2154b3435e3265e192b06b273971bddde68016ce0579ed420f56b1219f2",
+      "bytes": 1177
+    },
+    "cohort2-aa-warmup.tsv": {
+      "uncompressed_sha256": "172c118e70ca5b1b2b92930bf73d2ce11c3a0ad1bda7429d75f2c7a2047dcdd0",
+      "bytes": 1177
+    },
+    "cohort2-aa.metadata.tsv": {
+      "uncompressed_sha256": "8b4e3bd4125476a6b8555fdbfe68f9afe60836950b5a8b02d960064559b7be2d",
+      "bytes": 1612
+    },
+    "cohort2-aa.stderr": {
+      "uncompressed_sha256": "d137b427a94d43f1a39e3af2b84bedb3f1f4839963e07264b0e270b1960df47f",
+      "bytes": 93
+    },
+    "cohort2-after-pair1.tsv": {
+      "uncompressed_sha256": "100c8b616f6bf2621b239b446fe2f4b604b0f73559c4b6fb2249c1f894ef4ed8",
+      "bytes": 1176
+    },
+    "cohort2-after-pair2.tsv": {
+      "uncompressed_sha256": "705458672d2521d5b452df4a5ab0cb33ea72b0ba923c460c9da9afe4ec99aa99",
+      "bytes": 1176
+    },
+    "cohort2-after-pair3.tsv": {
+      "uncompressed_sha256": "0ab8699839903f9a2c8f34a6f94786e33610851bffbdc0e462c3bf9376323994",
+      "bytes": 1177
+    },
+    "cohort2-after-pair4.tsv": {
+      "uncompressed_sha256": "2c958c9a03e0f9ba7fa594f149a503b5761e610f71992e6a79e3aeb209fe2876",
+      "bytes": 1176
+    },
+    "cohort2-after-pair5.tsv": {
+      "uncompressed_sha256": "13c308c546db0cfbade673be5385cd7a7dc8c49c06efd3486607956d34c8af77",
+      "bytes": 1176
+    },
+    "cohort2-after-warmup.tsv": {
+      "uncompressed_sha256": "e8f34d4c4450bb05b168a2c503ff144815878fa465ded3dce9eff17e9a27af30",
+      "bytes": 1177
+    },
+    "cohort2-after.metadata.tsv": {
+      "uncompressed_sha256": "8b4e3bd4125476a6b8555fdbfe68f9afe60836950b5a8b02d960064559b7be2d",
+      "bytes": 1612
+    },
+    "cohort2-after.stderr": {
+      "uncompressed_sha256": "c1ccc3757203f1102e42a135d8147e2fcbdf9d4177889094fe192b695d7c9840",
+      "bytes": 90
+    },
+    "cohort2-before-pair1.tsv": {
+      "uncompressed_sha256": "1e59c5d5c1682c8379373409ec986de6fd02024f2aded0229e9c4827743502d6",
+      "bytes": 1177
+    },
+    "cohort2-before-pair2.tsv": {
+      "uncompressed_sha256": "d6c738301b187b2b6a616897b0a022cf2dd35bea7b3e78bc7b5888454c66dfef",
+      "bytes": 1176
+    },
+    "cohort2-before-pair3.tsv": {
+      "uncompressed_sha256": "2ffe05654e319db8b1efdb7868ae032222c7cbb31a4eaa289b049b57d6b2be06",
+      "bytes": 1177
+    },
+    "cohort2-before-pair4.tsv": {
+      "uncompressed_sha256": "9515f1f633307dd5f2cd150c61844ebd9cca74f0b8e1ae9b76d6211380b57d54",
+      "bytes": 1177
+    },
+    "cohort2-before-pair5.tsv": {
+      "uncompressed_sha256": "9e2ccbbb241ec5c9b01d3098ceddd3dd220bb88e6595b4623abc1165c180737b",
+      "bytes": 1176
+    },
+    "cohort2-before-warmup.tsv": {
+      "uncompressed_sha256": "c3cedfcfeee86166e66670e2f2c93aec9c745073aa97a6573dee0f0935de5701",
+      "bytes": 1178
+    },
+    "cohort2-before.metadata.tsv": {
+      "uncompressed_sha256": "8b4e3bd4125476a6b8555fdbfe68f9afe60836950b5a8b02d960064559b7be2d",
+      "bytes": 1612
+    },
+    "cohort2-before.stderr": {
+      "uncompressed_sha256": "d137b427a94d43f1a39e3af2b84bedb3f1f4839963e07264b0e270b1960df47f",
+      "bytes": 93
+    },
+    "run.json": {
+      "uncompressed_sha256": "3c464fc78e682ba70c4cda8204708aa0550f08b4a001168b0488760e544b2763",
+      "bytes": 4284
+    }
+  }
+}

@@ -1,0 +1,1 @@
+Julia=1.10.13 PB=/tmp/pb848-active-7def2e65/src/ProximalBase.jl threads=1 BLAS=1 cases=4080

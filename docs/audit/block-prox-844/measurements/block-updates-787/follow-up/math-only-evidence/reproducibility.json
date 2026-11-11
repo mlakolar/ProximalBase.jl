@@ -1,0 +1,24 @@
+{
+  "baseline": "a9f53e6ef3febffd58496c4a1c4fcb7609d0ca1c",
+  "candidate": "424c5e9ed4731ae871d68b855725ee287c2081e2",
+  "production_sha256": "bd14d270fe9543ec100bb1bb4ce36c4af959d9f6910f824108c0c4266d977f89",
+  "matrix_cases": 4080,
+  "paired_repetitions": 10,
+  "cohorts": 2,
+  "runtimes": [
+    "1.10.13",
+    "1.13.3"
+  ],
+  "independent_confirmations": {
+    "1.10.13": {
+      "cases": 9,
+      "flags": 0
+    },
+    "1.13.3": {
+      "cases": 12,
+      "flags": 0
+    }
+  },
+  "archive_sha256": "4cb5e7817ad98a50cc41350bcc478f6f4d8f655c6fdfc28b7b450f4d5cc44e0d",
+  "note": "Bulk writer deferred; original bulk/whole-solver gate remains pending. All initial flags and follow-up results retained."
+}

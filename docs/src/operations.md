@@ -485,11 +485,20 @@ L = lipschitz(f)
 @assert L == 1.0
 ```
 
-`opnorm2(X)` estimates the **squared spectral norm**
-``\|X\|_2^2``, related to a least-squares gradient Lipschitz
-constant. It is an **iterative estimate**, not a certified upper
-bound: do not rely on it alone to guarantee step-size safety.
-Use a verified bound or backtracking when necessary.
+For a real matrix ``X``, the squared spectral norm is
+``\|X\|_2^2=\lambda_{\max}(X^\mathsf{T}X)``.
+`opnorm2(X)` returns an **iterative estimate** of this quantity:
+
+```@example operations_norm
+using ProximalBase
+Xnorm = [3.0 0.0; 0.0 4.0]
+estimate = opnorm2(Xnorm)
+# The exact squared spectral norm is 4² = 16.
+(estimate = estimate, exact = 16.0)
+```
+
+An estimate is **not a certified upper bound**. Do not rely on it alone
+for step-size safety; use an independently valid bound or backtracking.
 
 ## Invalidating cached calculations
 
@@ -502,10 +511,23 @@ the same, `reset_cache!(f)` invalidates any such cached decomposition
 so a later computation can rebuild it. This is a **lifecycle operation**,
 not a new mathematical function.
 
-```julia
-# If X is referenced by a LeastSquaresLoss and its entries change:
-# X[1, 1] = new_value
-# reset_cache!(loss)
+For least squares, the proximal point at ``v`` solves
+``\min_z\{\|y-Xz\|_2^2/2+\|z-v\|_2^2/(2\gamma)\}``.
+If ``X`` changes, the cached matrix decomposition no longer describes
+the current problem.
+
+```@example operations_cache
+using ProximalBase
+Xcache = [1.0 0.0; 0.0 1.0]
+ycache = zeros(2)
+loss = LeastSquaresLoss(ycache, Xcache)
+v = ones(2)
+_ = prox(loss, v, 1.0)   # may build and cache a decomposition
+Xcache[1, 1] = 2.0       # same dimensions; different mathematical loss
+reset_cache!(loss)
+z = prox(loss, v, 1.0)
+@assert z ≈ [1 / 5, 1 / 2]
+z
 ```
 
 Changing data dimensions requires constructing a new function.

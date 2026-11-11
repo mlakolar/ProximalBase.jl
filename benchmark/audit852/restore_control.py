@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Generate diagnostic common-state restorations outside timing.
 
-Only fixture setup changes. Package source and timed callbacks are copied
-unchanged; generated harness files/digests are retained with the campaign.
+State restoration changes outside timing. The optional native-block-indexing
+control also changes residual block access to the representation's native
+indices, without a timed conversion. Package source is always unchanged;
+generated harness files/digests are retained with the campaign.
 """
 import argparse,hashlib,json,os,shutil,subprocess,sys
 from pathlib import Path
@@ -11,6 +13,8 @@ HERE=Path(__file__).resolve().parent
 p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True)
 p.add_argument('--julia',type=Path,required=True);p.add_argument('--sources',type=Path,required=True)
 p.add_argument('--cases-file',type=Path,required=True);p.add_argument('--rounds',type=int,default=21)
+p.add_argument('--start-round',type=int,default=101)
+p.add_argument('--check',action='store_true',help='bounds-checked references only, without measurements')
 p.add_argument('--harness-source',type=Path,default=HERE,help='use a generated supplemental harness when controlling its workloads')
 p.add_argument('--restore-mode',choices=('full','active'),default='full')
 p.add_argument('--native-block-indexing',action='store_true',help='use native 2-index access for original row-block matrix views')
@@ -70,8 +74,9 @@ worker.write_text(worker_text.replace('samples=80 seconds=.008','samples=80 seco
 (harness/'control.json').write_text(json.dumps({'original_cases_sha256':hashlib.sha256((a.harness_source/'cases.jl').read_bytes()).hexdigest(),
  'control_cases_sha256':hashlib.sha256(file.read_bytes()).hexdigest(),'restore_mode':a.restore_mode,'native_block_indexing':a.native_block_indexing,'change':'common untimed state restoration and 1-second sampling budget; optional native matrix indexing in residual block access; no timed shape conversion' },indent=2)+'\n')
 cmd=[sys.executable,str(harness/'run.py'),'--julia',str(a.julia),'--sources',str(a.sources),'--output',str(a.output),
- '--cases-file',str(a.cases_file.resolve()),'--rounds',str(a.rounds),'--start-round','101','--cpu',str(a.cpu),
+ '--cases-file',str(a.cases_file.resolve()),'--rounds',str(a.rounds),'--start-round',str(a.start_round),'--cpu',str(a.cpu),
  '--roles','original,post850,originalAA,post848,post850AA']
+if a.check:cmd.append('--check')
 result=subprocess.run(cmd)
 if a.output.exists():shutil.copyfile(a.cases_file,a.output/'selection.txt')
 raise SystemExit(result.returncode)

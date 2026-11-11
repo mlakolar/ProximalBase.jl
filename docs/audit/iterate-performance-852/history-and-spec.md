@@ -162,8 +162,9 @@ harness; the 942-case primary timing code remains frozen.
   not an implementation optimization in the audit.
 * A separately generated full-field restoration control copies values, IDs and
   reverse maps in the same order for every scalar source, entirely outside
-  timing. It distinguishes native restore cache conditioning from hot-kernel
-  implementation costs, including for large apparent improvements.
+  timing. It tests native restore cache conditioning with a common full-array
+  preparation context, including for large apparent improvements. The separate
+  active-prefix control below tests a common hot working set.
 * Original generic dot(a,x,b) traverses its matrix interface, but original source
   also provides the active-set helper A_mul_X_mul_B_rc(A,x,B,r,c). A supplemental
   bilinear_native case compares that helper to current dot(view(A,:,1),x,
@@ -229,3 +230,12 @@ common state restoration and a 1-s budget. Initial linear-index measurements
 remain separate and are never pooled with this corrected context. Because
 indexing and restoration both differ, cross-context changes are not attributed
 solely to indexing; source comparisons within each context remain explicit.
+
+Common-full restoration's exploratory seven rounds exposed additional
+symmetric matrix-product differences. Those context-specific >5% flags, and
+any flags from the seven active-prefix rounds, receive 21 further fresh-process
+rounds numbered 201–221. They use new seeds and are analyzed separately from
+the exploratory seven. Native-restore confirmation alone cannot resolve a
+change observed under common restoration. For the supplemental 28-round
+campaign, the first seven and subsequent 21 are also reported separately as
+exploration and confirmation; its combined interval is descriptive only.

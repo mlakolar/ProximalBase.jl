@@ -2,7 +2,8 @@
 using BenchmarkTools,LinearAlgebra,Statistics,SHA,TOML,Dates,InteractiveUtils
 BLAS.set_num_threads(1)
 include(joinpath(ARGS[1],"src","ProximalBase.jl"));const PB=Main.ProximalBase
-include("adapters.jl");include("cases.jl")
+harness=length(ARGS)>=3 ? ARGS[3] : @__DIR__
+include(joinpath(harness,"adapters.jl"));include(joinpath(harness,"cases.jl"))
 out=ARGS[2];mkpath(out)
 function dumpcode(name,f,types)
     open(joinpath(out,name*".warntype.txt"),"w") do io;code_warntype(io,f,types;debuginfo=:none);end
@@ -15,6 +16,14 @@ for (b,s) in ((1,819),(8,102),(64,12))
         for _ in 1:3;p.setup();p.op();end
         dumpcode("block_b$(b)_$(p.id)",p.op,Tuple{})
     end
+end
+if isdefined(Main,:residual_cd!)
+    cases,src=scalar_cases("sparse",Float64,1000000,1000,["residual_cd_fixed"],852)
+    p=only(cases);for _ in 1:3;p.setup();p.op();end
+    dumpcode("sparse_residual_cd_fixed",p.op,Tuple{})
+    cases,src=block_cases(Float64,8192,102,8,"contiguous",["residual_bcd"],852)
+    p=only(cases);for _ in 1:3;p.setup();p.op();end
+    dumpcode("block_residual_bcd",p.op,Tuple{})
 end
 dumpcode("sparse_constructor_f64",PB.SparseIterate,Tuple{Type{Float64},Int})
 dumpcode("sparse_constructor_f32",PB.SparseIterate,Tuple{Type{Float32},Int})

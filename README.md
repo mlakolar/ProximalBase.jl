@@ -4,11 +4,11 @@
 
 Many optimization problems can be written as
 
-\[
+$
 \min_{\beta\in\mathbb R^p}\bigl\{f(\beta)+g(\beta)\bigr\},
-\]
+$
 
-where ``f`` may be a smooth data-fitting function and ``g`` may
+where $f$ may be a smooth data-fitting function and $g$ may
 be a regularizer. ProximalBase implements function evaluation, gradients,
 proximal operators and specialized iterate storage. The choice of
 optimization algorithm, step sizes and stopping rules belongs to a solver
@@ -20,21 +20,21 @@ start with [Getting started](docs/src/getting_started.md), or browse the
 
 ## Example: least squares with an ℓ₁ regularizer
 
-For a design matrix ``X\in\mathbb R^{n\times p}``, response
-``y\in\mathbb R^n`` and regularization level ``\lambda\geq0``,
+For a design matrix $X\in\mathbb R^{n\times p}$, response
+$y\in\mathbb R^n$ and regularization level $\lambda\geq0$,
 consider
 
-\[
+$
 \min_\beta\left\{
 \underbrace{\frac{1}{2n}\|y-X\beta\|_2^2}_{f(\beta)}
 +\underbrace{\lambda\|\beta\|_1}_{g(\beta)}
 \right\}.
-\]
+$
 
 The mathematical components correspond directly to the following Julia
 objects:
 
-```julia
+`$julia
 using ProximalBase
 
 X = [1.0 2.0; 3.0 1.0; 0.0 2.0]
@@ -48,7 +48,7 @@ g = NormL1(λ)
 objective_value = f(β) + g(β)
 grad = gradient(f, β)
 proximal_point = prox(g, β, 0.1)
-```
+$`
 
 `LeastSquaresLoss(y,X)` is **half the sum** of squared residuals, so
 the multiplier `1/size(X,1)` produces the `1/(2n)` formula above.

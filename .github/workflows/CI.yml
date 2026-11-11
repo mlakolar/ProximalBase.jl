@@ -85,7 +85,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      issues: write
     concurrency:
       group: gh-pages-writes
       cancel-in-progress: false
@@ -120,23 +119,22 @@ jobs:
                 commit -m "docs: publish preview for PR ${PR_NUMBER}"
             git push origin HEAD:gh-pages
           fi
-      - name: Post or update the PR preview link
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const marker = '<!-- proximalbase-docs-preview -->';
-            const number = context.issue.number;
-            const url = `https://${context.repo.owner}.github.io/${context.repo.repo}/previews/PR${number}/`;
-            const body = `${marker}\n📖 **Documentation preview:** ${url}\n\nBuilt from a successful pull-request validation run. The published GitHub Pages site may take a short time to refresh.`;
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              ...context.repo, issue_number: number, per_page: 100
-            });
-            const previous = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
-            if (previous) {
-              await github.rest.issues.updateComment({...context.repo, comment_id: previous.id, body});
-            } else {
-              await github.rest.issues.createComment({...context.repo, issue_number: number, body});
-            }
+      - name: Show PR preview link in the workflow summary
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          preview_url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/previews/PR${PR_NUMBER}/"
+          {
+            echo "## Documentation preview"
+            echo ""
+            echo "Published validated documentation for PR #${PR_NUMBER}:"
+            echo ""
+            echo "${preview_url}"
+            echo ""
+            echo "If the new page is not immediately visible, GitHub Pages may still be updating."
+          } >> "${GITHUB_STEP_SUMMARY}"
   deploy-docs:
     name: Publish validated documentation
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'

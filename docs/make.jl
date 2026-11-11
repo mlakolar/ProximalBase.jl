@@ -69,6 +69,7 @@ makedocs(;
         "Working with functions" => [
             "Function objects and their properties" => "function_objects.md",
             "Operations on functions" => "operations.md",
+            "Restricting functions" => "restrict.md",
             "Writing your own function" => "extending.md",
         ],
         "Function library" => [

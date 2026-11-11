@@ -69,7 +69,6 @@ makedocs(;
         "Working with functions" => [
             "Function objects and capabilities" => "function_objects.md",
             "Operations on functions" => "operations.md",
-            "Proximal operators and gradients" => "interface.md",
             "Writing your own function" => "extending.md",
         ],
         "Function library" => [
@@ -116,6 +115,7 @@ makedocs(;
             "Iterates and utilities" => "api/iterates.md",
             "Coverage matrix" => "api/coverage.md",
         ],
+        hide("interface.md"),
         hide("storage.md"),
     ],
 )

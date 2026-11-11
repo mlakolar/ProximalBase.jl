@@ -20,9 +20,9 @@ x_j^+=\operatorname{prox}_{g_j/a_j}
 \left(x_j-\frac{\nabla_j f(x)}{a_j}\right).
 ```
 
-The retained scalar call is `prox_block(g,trial,j,1/a[j])`. It accepts a
+The scalar call is `prox_block(g,trial,j,1/a[j])`. It accepts a
 numerical trial and the global entry index, and does not mutate storage.
-The package has no retained coordinate-curvature helper; compute a valid
+ProximalBase does not provide a coordinate-curvature helper; compute a valid
 curvature from the model. Handle a zero curvature explicitly before inversion.
 
 ## Least squares and residual updates
@@ -121,6 +121,6 @@ column curvatures alone are not a block spectral bound.
 BlockIterate supplies an ordered partition and public block views. A separable
 penalty uses scalar `prox_block` at each global member index. A custom block
 penalty supplies the compact-vector extension hook; no built-in group-penalty
-family remains in the minimal core. See [coordinate oracles](iterate_oracles.md)
+family is available in this package. See [coordinate oracles](iterate_oracles.md)
 and the [block extension](examples/block_prox_extension.md). Matching layouts,
 constructing trials and updating caches are the caller's responsibilities.

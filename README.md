@@ -60,8 +60,9 @@ blocks; the code does not solve the full optimization problem.
 The [function library](docs/src/function_library.md) covers
 `LeastSquaresLoss`, `SqrNormL2`, `QuadraticFunction`,
 `ZeroFunction`, `LinearFunction`, `NormL1` and `Scaled`.
-The separate `ProximalBase.Squared` interface represents scalar
-prediction losses. The [iterate guide](docs/src/iterates.md) covers
+A separate [Scalar-loss interface](docs/src/scalar_losses.md) handles
+individual prediction/observation pairs, with
+[`ProximalBase.Squared()`](docs/src/scalar_squared.md) as a built-in example. The [iterate guide](docs/src/iterates.md) covers
 `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate`.
 
 See [Operations on functions](docs/src/operations.md) for formulas and

@@ -1,7 +1,6 @@
 # Penalties
 
-A penalty is the ``g`` in ``\min_x f(x)+g(x)``. The retained nonsmooth
-penalty is NormL1. For a differentiable ridge penalty use
+A penalty is the ``g`` in ``\min_x f(x)+g(x)``. The nonsmooth penalty provided here is `NormL1`. For a differentiable ridge penalty use
 [SqrNormL2](smooth.md#Squared-Euclidean-norm); nonnegative multiples are
 [Scaled](calculus.md) functions.
 
@@ -73,7 +72,7 @@ for a nonzero coefficient; use the full KKT conditions in
 ## Zero and infinite parameters
 
 A zero weight leaves its entry unpenalized at every level. An infinite weight
-thresholds a **finite trial** to zero, including a zero level/step in the retained
+thresholds a **finite trial** to zero, including a zero level/step under the implemented
 arithmetic; its value is infinite away from zero. At a NaN/Inf trial with a
 finite level it currently returns NaN (infinite threshold arithmetic), rather
 than enforcing a singleton projection. This contract question is tracked in

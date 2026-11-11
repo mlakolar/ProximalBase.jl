@@ -1,4 +1,4 @@
-# Smooth functions and losses
+# Smooth array functions
 
 Each function below has a mathematical definition and a Julia constructor.
 **Constructing** a function supplies its fixed coefficients or data;

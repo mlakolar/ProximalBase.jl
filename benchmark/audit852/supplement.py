@@ -114,6 +114,8 @@ s=s.replace(needle5,'''        elseif name=="residual_bcd"
             end
             work=4s*b
 '''+needle5)
+s=s.replace('@assert isapprox(a,b;rtol=eltype(a)==Float32 ? 8e-4 : 2e-10,atol=eltype(a)==Float32 ? 2e-5 : 1e-10)',
+'''@assert isapprox(a,b;rtol=eltype(a)==Float32 ? 8e-4 : 2e-10,atol=eltype(a)==Float32 ? 2e-5 : 1e-10) (type=eltype(a), count=length(a), difference_norm=norm(a-b), reference_norm=norm(b), actual_norm=norm(a))''')
 file.write_text(s)
 chosen=[]
 for x in scenarios():

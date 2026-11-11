@@ -20,12 +20,25 @@ jobs:
       - uses: julia-actions/cache@v3
       - name: Instantiate locked benchmark dependencies
         run: julia --startup-file=no --project=benchmark/audit852 -e 'using Pkg; Pkg.instantiate()'
+      - name: Generate supplemental harness
+        run: python3 benchmark/audit852/supplement.py --harness "$RUNNER_TEMP/pb852-supplement-harness" --sources "$RUNNER_TEMP/pb852-frozen"
+      - name: Check targeted residual block sequence
+        run: |
+          if ! python3 "$RUNNER_TEMP/pb852-supplement-harness/run.py" --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --output "$RUNNER_TEMP/pb852-targeted-check" --check --rounds 1 --roles original,historical05,post848,post850 --filter '^block/Float64/n8192/s819/b1/contiguous/residual_bcd$'; then
+            cat "$RUNNER_TEMP/pb852-targeted-check/failures.json" || true
+            find "$RUNNER_TEMP/pb852-targeted-check" -name '*.failure.txt' -exec cat {} \;
+            find "$RUNNER_TEMP/pb852-targeted-check" -name stderr.log -exec cat {} \;
+            exit 1
+          fi
       - name: Check all four source revisions against independent references
         run: python3 benchmark/audit852/run.py --julia "$(command -v julia)" --output "$RUNNER_TEMP/pb852-check" --sources "$RUNNER_TEMP/pb852-frozen" --check --rounds 1 --roles original,historical05,post848,post850
       - name: Check supplemental native layouts and residual workloads
         run: |
-          python3 benchmark/audit852/supplement.py --harness "$RUNNER_TEMP/pb852-supplement-harness" --sources "$RUNNER_TEMP/pb852-frozen"
-          python3 "$RUNNER_TEMP/pb852-supplement-harness/run.py" --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --output "$RUNNER_TEMP/pb852-supplement-check" --check --rounds 1 --roles original,historical05,post848,post850
+          if ! python3 "$RUNNER_TEMP/pb852-supplement-harness/run.py" --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --output "$RUNNER_TEMP/pb852-supplement-check" --check --rounds 1 --roles original,historical05,post848,post850; then
+            cat "$RUNNER_TEMP/pb852-supplement-check/failures.json" || true
+            find "$RUNNER_TEMP/pb852-supplement-check" -name '*.failure.txt' -exec cat {} \;
+            exit 1
+          fi
       - name: Check active-zero copies and complete reconstruction transitions
         run: |
           for source in original historical05 post848 post850; do

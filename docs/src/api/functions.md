@@ -1,7 +1,7 @@
 # Function reference
 
 The [function library](../function_library.md) gives dimensions, errors,
-numerical examples and capability limits for every retained concrete type.
+numerical examples and capability limits for the available concrete function types.
 
 ## Smooth array functions
 
@@ -13,7 +13,7 @@ ZeroFunction
 LinearFunction
 ```
 
-## Entry penalty
+## Entrywise ℓ₁ norm
 
 ```@docs
 NormL1

@@ -105,11 +105,13 @@ not check whether the discarded contribution is finite; a non-finite constant
 cannot be ignored when reasoning about the original extended-valued objective.
 `lipschitz(f)` is `float(λ)`. Array-step prox is not implemented.
 
-The value has the floating type of the argument. Gradient/prox calculations
-use the wider floating type of argument and destination; level, center and
-step are parameters that do not widen the model. Range recovery avoids losing
-a representable result to overflow/underflow in a coefficient or difference.
-The center is rounded in the model precision where it fits. See
+For supported homogeneous `Float32` or `Float64` calls, the value and
+numerical outputs use that working precision. The implementation may compute
+in a wider type for heterogeneous argument/destination calls, but this is
+not a supported mixed-precision contract. Range recovery avoids losing a
+representable result to overflow/underflow in a coefficient or difference.
+For the supported mode, supply the level, center, step and destination in
+the same floating-point type as the argument. See
 [numerics](numerics.md) for FP32/FP64 and zero/non-finite cases.
 Shape mismatch is `DimensionMismatch`; complex center, argument or output is
 `ArgumentError`. Exact gradient aliasing with the input is rejected. Use

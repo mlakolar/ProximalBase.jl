@@ -1,0 +1,39 @@
+path	bytes	baseline_blob	reason
+src/affineconstrained.jl	7158	12ad0de1c6ef25da88c62f80b8463f12aa81994a	Deferred family; retained shared helpers extracted per declaration inventory
+src/ballconstrained.jl	53962	06fda786369721114f5070f32faa1b79aaf70603	Deferred family; retained shared helpers extracted per declaration inventory
+src/caches.jl	3636	69dfa0608ecf1dac6cfd7893e5991bbb345366e8	Deferred family; retained shared helpers extracted per declaration inventory
+src/composition.jl	39236	979298b51b198e8dc2863a3f51496fcbd9c19161	Deferred family; retained shared helpers extracted per declaration inventory
+src/constrained.jl	70408	95dd351ec644baa1290eaf92cf169333bf297781	Deferred family; retained shared helpers extracted per declaration inventory
+src/constrained_nonconvex.jl	11681	5e1da3d100a1927834ef7ed25bdfbe3f499d4249	Deferred family; retained shared helpers extracted per declaration inventory
+src/deprecated.jl	5332	cc426cc3c92fa15f675cc927eeec6acb3e26c0d0	Deferred family; retained shared helpers extracted per declaration inventory
+src/distance.jl	20945	9e3a56718396e85b1ab18d80d57d90742bbf5280	Deferred family; retained shared helpers extracted per declaration inventory
+src/envelope.jl	11854	508bc3dd356c1f244b704b1778a68dd4d3afc1a8	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/affine.jl	8350	6b1a12c9da754e4dcf134faf3282b1547fdfdc6c	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/cones.jl	26838	fb20e1a5243ca58342421b7dd475f56b1969afcf	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/entropy.jl	28024	c53a0e6df31e52a4087cf80bc562a2ec53763aee	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/fibers.jl	24227	6957a289259a9e4b2cb94ca986f2e24ddd3ab0ea	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/graph.jl	14269	6df02f0c120f62ac104957744f86871a297a78fc	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/intersection.jl	7978	89fd47c7fe414a6a8d89db17c7181b5cf46fee2f	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/logdet.jl	14774	ec85f92aec000b7a84bd6ddd7a7df5ba26ed6c3e	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/losses.jl	48271	385f52d0bcb0b6fab536c744a2907a752ae8daf5	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/matrixsets.jl	13869	1d3f2167b2241886018e18e25fa22d7bb699aba7	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/nonconvex.jl	50508	cb4523a472ea67445031b50f702295402c040114	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/norms.jl	91240	3d339ebad990a4bf80ec025c5f075a01aa8101ea	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/ordered.jl	43080	4b54261421f759173d189416cebe2a36ef429af2	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/polyhedron.jl	26488	ca4ccbeaf16fc3bcafd686a42120e4e3e9bd5ad4	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/sets.jl	75760	2ee7e956fa889a2e89e0bfa58ae57ff4722ab06b	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/singular.jl	19303	0559fad1f79a9387b5a1369dd17674d3068be854	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/sparsegroup.jl	18109	156c3b9693860491028e46f7e8ad28e85828ede8	Deferred family; retained shared helpers extracted per declaration inventory
+src/functions/spectral.jl	38399	dff6e6a837d10b509ad00e916254a419a90302c1	Deferred family; retained shared helpers extracted per declaration inventory
+src/image.jl	19337	07bc03c3a45be9e8495d4ebd68b8f5697dab3d78	Deferred family; retained shared helpers extracted per declaration inventory
+src/lapack.jl	10551	0434fdbec2eed258418ff716b32168945bdaf119	Deferred family; retained shared helpers extracted per declaration inventory
+src/lla.jl	11006	aeabb32e8869cbc104e7d246adbc65914578871a	Deferred family; retained shared helpers extracted per declaration inventory
+src/lmo.jl	5701	8c55134f56afb7b3c4e7a8826e573ee86b614d0b	Deferred family; retained shared helpers extracted per declaration inventory
+src/lmo_atoms.jl	32270	62c8972c0c0dc794ec29a764d39c54b565fb280c	Deferred family; retained shared helpers extracted per declaration inventory
+src/minimum.jl	9661	6aac85238041bb3e4316777651bbc6f456431d67	Deferred family; retained shared helpers extracted per declaration inventory
+src/partial.jl	22673	7808e876fb60bc44a81a356f959b11fa9e1bfd5d	Deferred family; retained shared helpers extracted per declaration inventory
+src/second_order.jl	40167	7a2b393162f4ff1ef1c97147cc920b010f7f1327	Deferred family; retained shared helpers extracted per declaration inventory
+src/spectralfunction.jl	33015	fd92531cf0fa273cabcebad82aafb012606c4bed	Deferred family; retained shared helpers extracted per declaration inventory
+src/testing.jl	10575	121c1d8c98266a42525f2c0198bc159a5296add5	Deferred family; retained shared helpers extracted per declaration inventory
+ext/ProximalBaseGPUArraysCoreExt.jl	60544	c2c3c38441bde5f9e14c5289e91a77f38e13b236	Deferred GPU/Testing extension; registration removed
+ext/ProximalBaseTestExt.jl	17890	3a93a36ac7ffe784091e7b23a109c434a2bb90ed	Deferred GPU/Testing extension; registration removed

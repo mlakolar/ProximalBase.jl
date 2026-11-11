@@ -37,3 +37,12 @@ Independent broader validation and final-source review are separate gates.
 Deferred files remain on disk but are no longer included in Phase B. Phase C
 will remove them from the active tree, with the frozen content preserved at the
 baseline commit and archival refs. No ProximalSolvers changes are made.
+
+## Phase C: shrink active tree
+
+Removed the 36 inactive Julia source files and both deferred extensions;
+`removed-source.tsv` records every path, frozen blob and rationale. The module
+now contains 16 source files. All removed content remains in the frozen full
+commit, archive branches and annotated preservation tag. This commit changes
+no retained numerical code. Historical tests/docs/benchmark catalogs are
+migrated or removed separately so runnable resources match the reduced surface.

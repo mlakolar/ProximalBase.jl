@@ -1,9 +1,8 @@
-# Functions built from functions
+# Scaling a function
 
-A function can be multiplied by a nonnegative constant using [`Scaled`](@ref).
-For example, `0.5 * f` represents the function whose value is half of `f(x)`.
-When minimizing a loss plus a penalty, keep them as separate function objects
-and combine their operations in the optimization algorithm.
+The Julia type [`Scaled`](@ref) represents a nonnegative multiple of
+an existing mathematical function. This **changes the scale** of a function;
+it does not add two functions together or create a solver.
 
 ## Nonnegative scaling
 
@@ -14,31 +13,39 @@ h(x)=\alpha f(x),\qquad \nabla h(x)=\alpha\nabla f(x),\qquad
 \operatorname{prox}_{\gamma h}(x)=\operatorname{prox}_{(\gamma\alpha)f}(x).
 ```
 
-Construct `Scaled(f,α)`, `α*f` or `f*α`, with `f::AbstractFunction` and a real
-nonnegative scale. Negative or NaN scales throw `ArgumentError`; `Inf` is
-accepted according to the wrapped function's exceptional-value rules. The inner function is stored
-by reference, including its parameters, mutable scratch and caches.
+The symbols map to Julia as follows: start with a function object `f`,
+choose a nonnegative scale `α`, and construct `h = Scaled(f, α)`.
+The expressions `α * f` and `f * α` have the same meaning.
+Call `h(x)` to evaluate the scaled function. Thus **`f` is the function
+being scaled, `α` is the multiplier, and `x` is the evaluation point**.
+Negative or NaN scales throw `ArgumentError`; infinite scaling has
+function-specific exceptional arithmetic described in
+[Numerical usage](numerical_usage.md).
 
-Smoothness, convexity, proximability and separability traits forward from the
-inner type. Zero preservation requires a finite scale and a zero-preserving
-inner instance. Scaling only works with operations already supported by the original function.
+Smoothness, convexity, proximability and separability traits come from the
+original function. Zero preservation additionally requires a finite scale
+and an original function that preserves zero. Scaling only works with
+operations already supported by the original function.
 For example, scaling does not create a gradient for a function without one.
 Details about per-entry steps, special storage and extension hooks are in
-[The interface](interface.md) and [Writing your own function](extending.md).
+[Operations on functions](operations.md) and [Writing your own function](extending.md).
 
-Scalar `prox_block` forwards with the scaled step, and `restrict` wraps the
-restricted function. The zero-coordinate screen for positive ordinary scale is
-``\alpha\,v_f(\mathrm{grad}/\alpha)``. `lipschitz` scales the inner bound.
-There is no Scaled `value_entry` or Scaled compact-vector `prox_block!` fallback.
-`reset_cache!` also invalidates relevant caches of the wrapped function.
+For example, a proximal point for positive finite `α` and `γ` uses the
+original function's proximal map with step `α * γ`, as in the equation above.
+The `lipschitz` bound also scales by `α`. Other supported operations, such
+as scalar coordinate updates, coordinate restriction, and cache invalidation,
+are forwarded to the original function where methods exist.
+This wrapper does **not** automatically provide every possible extension,
+including `value_entry` or a compact-vector `prox_block!` implementation.
+See [Writing your own function](extending.md) for extension contracts.
 
 ```@example library_scaled
 using ProximalBase
 f = SqrNormL2(2.0)
 h = Scaled(f,0.25)
 x = [2.0,-1]
-@assert h(x) == 0.25f(x)
-@assert gradient(h,x) == 0.25gradient(f,x)
+@assert h(x) == 0.25 * f(x)
+@assert gradient(h,x) == 0.25 * gradient(f,x)
 @assert prox(h,x,0.4) ≈ prox(f,x,0.1)
 @assert lipschitz(h) == 0.5
 @assert reset_cache!(h) === h
@@ -47,12 +54,10 @@ prox(h,x,0.4)
 
 ## Allocation, aliases and validation
 
-The allocating APIs follow the wrapped function's supported input types.
-The mutating APIs take the output first; exact proximal input/output identity
-is supported. The combined calls return the value at their respective input
-or stored output. Shapes, types and parameters are checked according to the
-inner operation before predictable writes. Other overlapping input/output
-views remain unsupported. Use independent data/parameter/output arrays.
+The wrapper follows the original function's supported input shapes and
+allocation conventions. It retains the function object by reference, not as
+an independent copy. See [Operations on functions](operations.md) for mutating
+calls and [Numerical usage](numerical_usage.md) for aliasing and cache rules.
 
 Nested positive finite scales retain their exponents when multiplying them
 would overflow or underflow. Built-in recovery paths can fold the total scale

@@ -12,7 +12,7 @@ The [function library](function_library.md) is exhaustive. Group/nonconvex
 penalties, logistic/Poisson/robust-loss families, constraints and indicators,
 spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
 frameworks and GPU extensions were removed. They have no replacement capability
-implied by this manual. In particular, BlockIterate retains grouped **storage**,
+implied by this manual. In particular, `BlockIterate` retains grouped **storage**,
 not a built-in group-lasso penalty.
 
 Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
@@ -28,8 +28,8 @@ ProximalSolvers migration is separate; this documentation does not change it.
 | Scalar `prox_entry` | `prox_block(f,v,i,γ)` |
 | `prox_coordinate!`, `prox_entry!`, `cdprox!` storage updates | Compute a pure result, then write through public storage; no retained aliases |
 | Function-first mutating calls | Destination-first `prox!(out,f,x,γ)` and `gradient!(out,f,x)` |
-| Iterate `nnz`, `nonzeros`, `findnz` assumptions | `nactive`, `activecoordinates`, `activevalues` (latter absent on BlockIterate) |
-| Treat symmetric owner as AbstractMatrix | `coordinates(x)` for variables, read-only `matrixview(x)` for matrix operations |
+| Iterate `nnz`, `nonzeros`, `findnz` assumptions | `nactive`, `activecoordinates`, `activevalues` (latter absent on `BlockIterate`) |
+| Treat symmetric owner as `AbstractMatrix` | `coordinates(x)` for variables, read-only `matrixview(x)` for matrix operations |
 | Symmetric-owner `x[k]` | `coordinates(x)[k]` or `matrixview(x)[k]`, depending on index space |
 | Symmetric-owner broadcast/fill | Write coordinates, or compute a dense symmetric matrix then `copyto!` |
 | Symmetric array steps | Owner outputs accept scalar steps only; use dense output for entry-step calculations where supported |

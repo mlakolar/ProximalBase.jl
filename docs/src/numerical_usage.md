@@ -17,11 +17,11 @@ supported owner calls return new owners.
 
 ## Precision
 
-Float32 and Float64 CPU paths are the tested numerical targets. `f(x)` returns
+`Float32` and `Float64` CPU paths are the tested numerical targets. `f(x)` returns
 `float(eltype(x))` for retained array functions. Fused gradient returns the
 standalone input value; fused prox returns the standalone value at its stored
 output. Do not infer the returned value's type from a wider output buffer.
-SqrNormL2 calculations use the wider argument/destination floating precision
+`SqrNormL2` calculations use the wider argument/destination floating precision
 for gradients/prox; levels, centers and steps are parameters, not data that
 unconditionally widen that model. Least-squares and quadratic data determine
 private scratch/decomposition precision; output conversion is still observable.
@@ -48,10 +48,10 @@ range and zero policies.
 | Object or call | Ownership rule |
 |:--|:--|
 | Built-in function array parameters/data | Usually retained by reference; copy at construction if you need independence |
-| LeastSquaresLoss / QuadraticFunction | Own scratch and lazy decomposition caches; no concurrent reuse without synchronization |
-| Scaled | Retains the inner object, scratch and parameters |
-| Iterate `copy` | Independent mutable values and active state; BlockIterate layout shared, immutable in use |
-| Coordinate / block / matrix views | Live aliases; only matrixview is read-only |
+| `LeastSquaresLoss` / `QuadraticFunction` | Own scratch and lazy decomposition caches; no concurrent reuse without synchronization |
+| `Scaled` | Retains the inner object, scratch and parameters |
+| Iterate `copy` | Independent mutable values and active state; `BlockIterate` layout shared, immutable in use |
+| Coordinate / block / matrix views | Live aliases; only `matrixview` is read-only |
 | Active handles | Live old-extent slot handles; reacquire after structural change |
 
 `prox!(x,f,x,γ)` supports exact in-place operation. Other overlapping
@@ -64,7 +64,7 @@ as writable output unless the specific method explicitly permits it.
 After same-shape design/response/quadratic-matrix entry changes, invalidate
 proximal decomposition caches with `reset_cache!(outermost_function)`.
 Values/gradients read data directly. Reconstruct for dimension changes.
-No reset is needed for a weight-only NormL1 object, but it must retain valid
+No reset is needed for a weight-only `NormL1` object, but it must retain valid
 weights. Neither reset nor parameter validation copies caller data.
 
 ## Predictable failures and partial writes

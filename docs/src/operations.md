@@ -32,11 +32,14 @@ each operation is explained below, including its mathematics and Julia usage.
 exported named operation. There is no allocating `value_and_prox` method.
 The scalar utility `shrink(v,c)` returns
 ``\operatorname{sign}(v)\max(|v|-c,0)`` for nonnegative threshold ``c``;
-see [Penalties](penalties.md).
+see [The ℓ₁ norm](penalties.md).
 
-Scalar observation-loss operations (`ProximalBase.deriv`, `deriv2`,
-`curvature`, `value_and_deriv`) form a separate qualified API, documented
-in the [scalar squared-loss guide](smooth.md#Scalar-squared-loss).
+**Scalar observation losses have their own interface**: `ProximalBase.ScalarLoss`
+provides `ProximalBase.deriv`, `ProximalBase.deriv2`,
+`ProximalBase.curvature`, and `ProximalBase.value_and_deriv` for an individual
+prediction and observation. These are distinct from array gradients and
+proximal operations. See [Scalar losses: interface and operations](scalar_losses.md)
+and [the scalar-loss API reference](api/scalar_losses.md).
 Validation hooks used when defining new functions are described under
 [Writing your own function](extending.md). Storage operations on
 `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate` are cataloged

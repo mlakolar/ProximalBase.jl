@@ -1,0 +1,115 @@
+{
+  "head": "779132374c3b27c9a254a60645dc1b152d2d0b83",
+  "production_source": "424c5e9ed4731ae871d68b855725ee287c2081e2",
+  "julia": [
+    "1.10.13",
+    "1.13.3"
+  ],
+  "targeted_assertions_each": 48801,
+  "conformance": {
+    "passed": 1310,
+    "broken": 220
+  },
+  "conformance_snapshot_checks": [
+    "1.10.13",
+    "1.13.3"
+  ],
+  "benchmark_harness_assertions": 7347,
+  "quick_benchmark_cases": 836,
+  "numerical_rows": 5616,
+  "docs_deployment": false,
+  "note": "Fresh checks after disk recovery. Timings were not rerun concurrently with validation. Independent review and historical performance gate remain pending.",
+  "files": [
+    {
+      "path": "pb848-verify-targeted-110-local.log",
+      "bytes": 1705,
+      "sha256": "9ed46c6e077e7c23b1fd9d8797cfc61e82befdfb248f37ae48bde499dcbe7916"
+    },
+    {
+      "path": "pb848-verify-targeted-113-local.log",
+      "bytes": 3434,
+      "sha256": "7fcef60c61a8c18eb9fdaedc952f47e61c3905afb6545623e433ba5f0353d6df"
+    },
+    {
+      "path": "pb848-verify-conformance-local.log",
+      "bytes": 4295,
+      "sha256": "fa88b0c30d6c7b420dc3c7bf202b99a33c6dfbaacf56f7203e0c604654bb522b"
+    },
+    {
+      "path": "pb848-verify-docs.log",
+      "bytes": 9101,
+      "sha256": "b4e7b3e2898837c90be50e2003a405fd7dc94a758defbdf993eeb9f49839aff7"
+    },
+    {
+      "path": "pb848-verify-harness.log",
+      "bytes": 6482,
+      "sha256": "094f8f54de11fa895301307353591e510f1e0f6f1e4a988ec704ab6f9dc5a9d6"
+    },
+    {
+      "path": "pb848-verify-quick.log",
+      "bytes": 550,
+      "sha256": "4e50fe44b0fb1d36ea7db80334c02d27d5ecbb916a84b177bb9713733916cc54"
+    },
+    {
+      "path": "pb848-verify-coverage-110.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pb848-verify-coverage-113.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pb848-verify-differential.tsv",
+      "bytes": 688669,
+      "sha256": "38f602910b92cc26ab477a228deaea605c5bafe6128414be0a1197600f8be0fc"
+    },
+    {
+      "path": "pb848-docs-local.jl",
+      "bytes": 337,
+      "sha256": "d177b52fa7773600811b8fa335743d3688f045e4ecd5a8e41a3100c7d81a86da"
+    },
+    {
+      "path": "pb848-verify-110/Project.toml",
+      "bytes": 753,
+      "sha256": "409f426353448d53715d938e24adcb95496b91fc2fa8c94aef7e77c787d00840"
+    },
+    {
+      "path": "pb848-verify-110/Manifest.toml",
+      "bytes": 13220,
+      "sha256": "0d845807134a5e520d999754e802514629a2260538a548c934be4545280778df"
+    },
+    {
+      "path": "pb848-verify-113/Project.toml",
+      "bytes": 888,
+      "sha256": "e5359d569cbb383574ab2298321ccd62477c0c3f44ddf48ec7cfba4fa0fc6841"
+    },
+    {
+      "path": "pb848-verify-113/Manifest.toml",
+      "bytes": 15077,
+      "sha256": "fae409082c158f2934a69c430b919be24fb5d9e72abf508a03237f113fb2fe3f"
+    },
+    {
+      "path": "pb848-verify-docs/Project.toml",
+      "bytes": 543,
+      "sha256": "7f4ec01889610b9b80533032a15d0ca626e30e34cc96dec30d3626c4834348dc"
+    },
+    {
+      "path": "pb848-verify-docs/Manifest.toml",
+      "bytes": 12602,
+      "sha256": "883ef20b529fa486066befa72b7b1a1fb6a34114b3375e9f12d8ae7c8627aa98"
+    },
+    {
+      "path": "pb848-verify-benchmark/Project.toml",
+      "bytes": 716,
+      "sha256": "4f5c565b57bcc08568413d527549af496450f36567c548f03896f1f6446b09b7"
+    },
+    {
+      "path": "pb848-verify-benchmark/Manifest.toml",
+      "bytes": 5878,
+      "sha256": "4292bd5e1a62a7b1fd9ad460b56f2941b1080fd56b1ea9135fba7556b3448d6a"
+    }
+  ],
+  "archive_sha256": "3e85d14f7ba680672907e05b0ce9eee3beb33f86844c21c1ad695a5191df67ac"
+}

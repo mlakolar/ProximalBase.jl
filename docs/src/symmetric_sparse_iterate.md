@@ -51,7 +51,7 @@ one variable. An inactive coordinate reads zero. A converted nonzero write
 (including NaN/Inf) activates it; zero leaves an inactive coordinate absent
 and an active one active. `fill!(coordinates(x),0)` touches active values
 only and preserves membership; following it with `dropzeros!(x)` empties the
-working set in O(nactive).
+working set in O(s), where `s = nactive(x)`.
 
 `matrixview(x)` is a read-only live ``p\times p`` `AbstractMatrix`. Both triangles
 read the same variable. Writes through the view or derived views/wrappers
@@ -143,7 +143,7 @@ without doubling the reported entry screen.
 | Operation | Meaning |
 |:--|:--|
 | `x*v`, `x*B`, `mul!(out,x,v/B[,α,β])` | Real right operand; sparse stored traversal; independent output required |
-| `mul!(out,matrixview(x),v[,α,β])` | O(p+nactive) vector product |
+| `mul!(out,matrixview(x),v[,α,β])` | O(p+s) vector product, with `s = nactive(x)` |
 | `dot(a,x,b)` | Bilinear form; one-based real vectors; off-diagonal pair contributes twice |
 | `dot(A,x)` / `dot(x,A)` | Frobenius inner product for strided real matrix A |
 | `transpose(x)` / `adjoint(x)` | The same owner |

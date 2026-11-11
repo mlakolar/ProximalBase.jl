@@ -17,7 +17,7 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/interface.jl` | `AbstractFunction`, traits, generic allocating/mutating interfaces and coordinate KKT dispatch |
 | `src/functions/smooth.jl` | Zero/linear/ridge/quadratic functions and their specialized kernels |
 | `src/functions/leastsquares.jl` | Least-squares residual scratch and lazy thin SVD prox |
-| `src/functions/scalar_loss.jl` | Qualified `ScalarLoss`/Squared and scalar derivative hooks |
+| `src/functions/scalar_loss.jl` | Qualified `ScalarLoss`/`Squared` and scalar derivative hooks |
 | `src/functions/separable.jl` | Generic entry kernels and `NormL1` |
 | `src/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
 | `src/model_data.jl` | Private retained data-precision metadata |

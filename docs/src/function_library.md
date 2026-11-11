@@ -15,7 +15,7 @@ to see exactly how the symbols in a definition become Julia arguments.
 | [`ZeroFunction()`](@ref ZeroFunction) | ``f(x)=0`` | No parameters | [Zero function](smooth.md#Zero-function) |
 | [`LinearFunction(c, d)`](@ref LinearFunction) | ``f(x)=\langle c,x\rangle+d`` | ``c``: coefficient array; ``d``: constant (zero when omitted) | [Linear function](smooth.md#Linear-function) |
 | [`NormL1(λ0, w)`](@ref NormL1) | ``g(x)=\lambda_0\sum_iw_i|x_i|`` | ``\lambda_0\geq0``: overall level; ``w``: nonnegative weights (all one when omitted) | [The ℓ₁ norm](penalties.md) |
-| [`Scaled(f, α)`](@ref Scaled) | ``h(x)=\alpha f(x)`` | ``f``: existing function object; ``\alpha\geq0``: scale | [Scaling functions](calculus.md) |
+| [`Scaled(f, α)`](@ref Scaled) | ``h(x)=\alpha f(x)`` | ``f``: existing function object; ``\alpha\geq0``: scale | [Scaling a function](calculus.md) |
 
 The variable **being optimized** (such as ``x`` or ``B``) is
 passed when the function is *evaluated*, not when the function object is

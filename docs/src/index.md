@@ -56,7 +56,7 @@ The [coordinate guide](coordinate_descent.md) connects these conditions to
 | Goal | Read |
 |:--|:--|
 | Fit the mathematical pieces of a lasso objective together | [Getting started](getting_started.md) |
-| Find a retained function and its exact scaling | [Function library](function_library.md) |
+| Find a function and its mathematical definition | [Function library](function_library.md) |
 | Understand allocating and mutating calls | [Proximal operators and gradients](interface.md) |
 | Choose sparse, grouped or symmetric storage | [Iterates](iterates.md) |
 | Define your own scalar or block proximal operation | [Writing your own function](extending.md) |
@@ -64,6 +64,5 @@ The [coordinate guide](coordinate_descent.md) connects these conditions to
 | Extend the implementation safely | [Developer Documentation](developer/index.md) |
 | Look up signatures | [API reference](api/interface.md) |
 
-This manual describes the minimal core after PR #850. The
-[migration page](migration.md) identifies the historical full implementation and
-removed interfaces. CPU Float32 and Float64 are the numerical validation targets.
+The package is validated primarily with CPU `Float32` and `Float64` arithmetic.
+For changes from earlier versions, see [Compatibility and migration](migration.md).

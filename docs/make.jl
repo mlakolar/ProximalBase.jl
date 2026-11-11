@@ -73,9 +73,13 @@ makedocs(;
         ],
         "Function library" => [
             "Browse available functions" => "function_library.md",
-            "Smooth functions and losses" => "smooth.md",
+            "Smooth functions" => "smooth.md",
             "The ℓ₁ norm and soft thresholding" => "penalties.md",
             "Scaling a function" => "calculus.md",
+        ],
+        "Scalar losses" => [
+            "Interface and operations" => "scalar_losses.md",
+            "Squared loss" => "scalar_squared.md",
         ],
         "Building optimization algorithms" => [
             "Overview" => "optimization_algorithms.md",
@@ -111,6 +115,7 @@ makedocs(;
             "Overview" => "api.md",
             "The interface" => "api/interface.md",
             "Functions" => "api/functions.md",
+            "Scalar-loss interface" => "api/scalar_losses.md",
             "Functions built from functions" => "api/calculus.md",
             "Iterates and utilities" => "api/iterates.md",
             "Coverage matrix" => "api/coverage.md",

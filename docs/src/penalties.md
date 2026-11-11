@@ -37,7 +37,8 @@ g = NormL1(λ0, w)
 
 # The Julia result agrees with the mathematical definition.
 expected = λ0 * sum(w .* abs.(x))
-@assert g(x) ≈ expected == 1.25
+@assert g(x) ≈ expected
+@assert expected == 1.25
 g(x)
 ```
 
@@ -74,7 +75,8 @@ The threshold for entry ``i`` is ``\gamma\lambda_0w_i``. In Julia,
 v = x
 result = prox(g, v, γ)
 reference = sign.(v) .* max.(abs.(v) .- γ * λ0 .* w, 0.0)
-@assert result ≈ reference == [1.5, -3.0, 0.0]
+@assert result ≈ reference
+@assert result == [1.5, -3.0, 0.0]
 @assert prox_block(g, v[3], 3, γ) == result[3]
 result
 ```

@@ -57,6 +57,7 @@ The [coordinate guide](coordinate_descent.md) connects these conditions to
 |:--|:--|
 | Fit the mathematical pieces of a lasso objective together | [Getting started](getting_started.md) |
 | Find a function and its mathematical definition | [Function library](function_library.md) |
+| Evaluate prediction losses one observation at a time | [Scalar losses](scalar_losses.md) |
 | Understand mathematical operations and their Julia calling conventions | [Operations on functions](operations.md) |
 | Choose sparse, grouped or symmetric storage | [Iterates](iterates.md) |
 | Define your own scalar or block proximal operation | [Writing your own function](extending.md) |

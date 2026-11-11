@@ -111,8 +111,7 @@ before anything is written (use `Matrix(x)` or `matrixview(x)` with a dense outp
 is not detected, even when the two cover the same entries: a call such as
 `prox!(view(x, :), f, x, γ)`, or with a shifted or reversed view of `x`, can
 return wrong values without an error. Copy the argument first, as in
-`prox!(y, f, copy(x), γ)`. See O7 in
-Agreement between oracles.
+`prox!(y, f, copy(x), γ)`. Supported operand shapes depend on the concrete function.
 """
 function prox! end
 prox!(y, f::AbstractFunction, x) = prox!(y, f, x, 1)
@@ -120,7 +119,7 @@ prox!(y, f::AbstractFunction, x) = prox!(y, f, x, 1)
 """
     prox(f, x, γ = 1)
 
-Allocating version of `prox!`. For a `SymmetricSparseIterate` `x` the result is an
+Allocating version of `prox!`. For a supported `SymmetricSparseIterate` `x` the result is an
 independent `SymmetricSparseIterate` of the float element type, and `γ` is a scalar.
 """
 prox(f::AbstractFunction, x::AbstractArray, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
@@ -322,8 +321,10 @@ prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = prox!(_prox_buffer(x), f, x,
 """
     gradient(f, x)
 
-Allocating version of `gradient!`. At a `SymmetricSparseIterate` the gradient
-is a new dense, exactly symmetric `Matrix`, not an iterate.
+Allocating version of `gradient!`; array arguments get dense floating output.
+Supported owner gradients (SqrNormL2, LinearFunction and supported Scaled
+leaves) return a dense symmetric Matrix. ZeroFunction has owner value/prox
+but no owner gradient method. Traits do not supply missing operand methods.
 """
 gradient(f::AbstractFunction, x::AbstractArray) = gradient!(_gradient_buffer(x), f, x)
 gradient(f::AbstractFunction, x::Tuple) = gradient!(_gradient_buffer(x), f, x)
@@ -344,41 +345,44 @@ end
 ####################################
 
 """
-    prox_block(f, u, k, γ)
-    prox_block!(out, f, u, k, γ)
+prox_block(f, v::Real, i::Integer, γ::Real)
+    prox_block(f, u::AbstractVector, k::Integer, γ::Real)
 
-Compute `prox_{γ fₖ}(u)` for one block of the penalty `f`, at the already
-computed trial point `u`. For a separable function, `u` and the return value
-are scalars and `k` is the underlying array's linear entry index. For a group
-penalty, `k` is its group index, `u` is a compact vector in `f.groups[k]` order,
-and the allocating form returns a vector. Coupled penalties without such a
-decomposition do not support this operation.
+Compute a pure mathematical proximal point at an already constructed trial.
+Scalar methods use the underlying array's global linear entry index `i`;
+retained built-ins are NormL1, SqrNormL2, LinearFunction, ZeroFunction and
+supported Scaled leaves. Custom SeparableFunction subtypes implement this
+scalar method together with value_entry. No iterate or cache is updated.
 
-`prox_block!` writes a compact group vector and returns `out`. It shares the
-full-array proximal kernels and their step, weight, precision, NaN/Inf and tie
-policies. Exact aliasing `out === u` is supported; other overlapping buffers
-are rejected. Both buffers must be real vectors with one-based indexing and
-exactly the group's length. **Caller precondition:** `out` must be independent
-of iterate storage and solver caches. This includes public views such as
-`activevalues(x)`, `coordinates(x)` and `blockview(x,k)`: they alias their owner
-even when their parent is a plain vector. Ownership is not inferred or checked
-from array types. Use the allocating form or an independent numerical buffer.
-Group, shape, element-type, overlap and parameter checks precede writes;
-a failing element read, conversion or user kernel may leave a partial output,
-as with ordinary array writes. With this precondition, only the numerical
-output is changed; the solver subsequently writes its iterate and updates caches.
+The vector form allocates a plain floating Vector of length(u) and delegates
+to a custom prox_block! implementation. Its group index and compact vector
+order are defined by that extension; no built-in group penalty remains.
+The generic wrapper supplies no group, shape, parameter or overlap validation.
+Implementing a block hook does not add a full-array prox or capability trait.
 
-**Index spaces:** a symmetric iterate coordinate is not a scalar penalty
-entry. Translate `(r,c) = tril_cartesian(p,k)` to `i = (c-1)p+r` before calling
-`prox_block(f, u, i, γ)`, and call `ProximalBase.check_symmetric_parameters` before
-updating a symmetric iterate. The oracle itself has no owner and cannot check
-pair symmetry. Group layouts of a penalty and an iterate must also be matched
-by the caller. See Symmetric parameters.
-
-Custom `SeparableFunction` subtypes implement the scalar `prox_block`
-method, alongside `value_entry`. Full `prox!` uses that same method.
+For symmetric owner coordinate k, convert `(r,c)=tril_cartesian(p,k)` to
+full-entry `i=(c-1)p+r` for a scalar hook and validate the original function
+with ProximalBase.check_symmetric_parameters before using raw entry calls.
 """
 function prox_block end
+"""
+    prox_block!(out, f, u, k, γ)
+
+Pure compact-vector block proximal extension hook. A conforming custom method
+writes the proximal point of its selected block into out and returns out.
+Buffers follow that block's compact ordered indices. There is no retained
+built-in implementation; the allocating vector prox_block delegates here.
+
+The extension validates one-based real vectors, group bounds, exact lengths,
+parameters and supported step before predictable writes. Exact out===u is
+supported; other overlap must be rejected by the extension. Failed reads,
+conversions or user arithmetic may leave partial numerical output.
+
+Caller precondition: out is independent of iterate storage and solver/model
+caches, including activevalues, coordinates and blockview aliases. Ownership
+is not inferred from buffer types. Compute in independent scratch, then write
+public storage and update caller caches separately. No activation occurs here.
+"""
 function prox_block! end
 
 ####################################
@@ -386,32 +390,27 @@ function prox_block! end
 ####################################
 
 """
-    kkt_violation(f, g, i)
+kkt_violation(f, g, i)
     kkt_violation(f, g, x, k)
 
-How much a coordinate at zero violates the optimality conditions of `h + f`,
-where `g = ∇h(x)` is the gradient of the smooth part. For a
-`SparseIterate` or a `SymmetricSparseIterate` `x`, the second form checks
-the real element types, then that `k` is one of `1:ncoordinates(x)` (a `BoundsError`
-otherwise), then that `g` has `length(x)` entries, or `p^2` for the symmetric iterate (a
-`DimensionMismatch` otherwise); a matrix-shaped or flat `g` of that length is accepted. For an
-`BlockIterate`, `k` is a group, and the method is unchanged by these checks, and a group
-penalty has its group layout validated where that applies. For other arrays `x` the second form
-adds no check of `k` or `g` against `x`; the checks of the real element types and those made by
-`f` and by indexing still apply. On a
-`SymmetricSparseIterate`, use the symmetric part of `g`; an opposing
-pair of infinite entries has no symmetric part and throws `ArgumentError`.
-A positive value means
-that moving the coordinate away from zero decreases the objective, and a value
-`≤ 0` that zero is optimal. For `NormL1` it is `|gᵢ| - λ0 wᵢ`.
+Signed screen of a coordinate assumed zero in `h+f`, with full smooth-part
+gradient `g=∇h(x)`. A positive value means zero violates its condition;
+a nonpositive value checks zero only, not stationarity of a nonzero coordinate.
+NormL1 returns `abs(g[i])-λ0*w[i]`. Retained scalar screens also cover
+ZeroFunction, LinearFunction, SqrNormL2 and supported Scaled leaves.
 
-For a separable `f` the condition involves only `gᵢ`, and the first form
-suffices. The second form takes a coordinate `k` of the point `x`: for a
-a custom grouped function, the condition of an index can involve the rest of its group,
-and on a `BlockIterate` `k` is a group, whose violation is
-`‖g[Gₖ]‖₂ - λ0 wₖ` (for a separable `f`, the largest over the group).
+For SparseIterate and SymmetricSparseIterate, the four-argument form checks
+real types, coordinate bounds (BoundsError), then full gradient entry count
+(DimensionMismatch): length(x) or p², respectively. A flat or matrix-shaped
+gradient of that count is accepted. The owner uses the symmetric gradient pair
+and checks parameter symmetry at the chosen independent coordinate; opposing
+infinities in that gradient pair throw ArgumentError.
 
-See Symmetric parameters for which arrays must be symmetric and which calls check them.
+For BlockIterate, k is a group and retained scalar-screen functions return
+the maximum screen over its ordered global entry indices. That path does not
+add the same explicit full-gradient extent preflight. Other array points add
+no coordinate/gradient extent check beyond function/indexing checks. Raw
+three-argument calls have no owner on which to validate mirrored parameters.
 """
 function kkt_violation end
 
@@ -450,7 +449,12 @@ _gradient_extent(x::SymmetricSparseIterate) = x.p^2
 Restrict a retained function's entry parameters to the integer index vector S.
 NormL1 slices weights, centered SqrNormL2 slices its center, LinearFunction
 slices coefficients, QuadraticFunction selects its principal submatrix and
-linear term, and Scaled forwards the operation. Raw restriction has no iterate
+linear term, vector-response LeastSquaresLoss selects design columns, and
+Scaled forwards. For least squares and quadratics, omitted coordinates are fixed at zero.
+Centered SqrNormL2 drops the omitted-coordinate constant λ*sum(y[j]^2)/2;
+when finite, it changes values but not restricted minimizers/gradients/prox.
+Add it back for full-value comparisons. A nonzero fixed point needs separately
+derived residual/linear terms. Raw restriction has no iterate
 on which to validate symmetric per-entry parameters; validate the original
 function before using the result in a coordinate routine.
 """

@@ -1,0 +1,37 @@
+API coverage: 59 module/export/public bindings have explicit grouped references
+Isolated example: block_prox_extension.jl
+Isolated example: block_storage.jl
+Isolated example: coordinate_operations.jl
+Isolated example: custom_function.jl
+Isolated example: lasso.jl
+Isolated example: proximal_gradient.jl
+Isolated example: sparse_working_sets.jl
+Isolated example: symmetric_storage.jl
+[ Info: generating markdown page from `~/projects/juliaPkg/ProximalBase.jl/examples/lasso.jl`
+[ Info: writing result to `~/projects/juliaPkg/ProximalBase.jl/docs/src/examples/lasso.md`
+[ Info: generating markdown page from `~/projects/juliaPkg/ProximalBase.jl/examples/proximal_gradient.jl`
+[ Info: writing result to `~/projects/juliaPkg/ProximalBase.jl/docs/src/examples/proximal_gradient.md`
+[ Info: generating markdown page from `~/projects/juliaPkg/ProximalBase.jl/examples/coordinate_operations.jl`
+[ Info: writing result to `~/projects/juliaPkg/ProximalBase.jl/docs/src/examples/coordinate_operations.md`
+[ Info: generating markdown page from `~/projects/juliaPkg/ProximalBase.jl/examples/sparse_working_sets.jl`
+[ Info: writing result to `~/projects/juliaPkg/ProximalBase.jl/docs/src/examples/sparse_working_sets.md`
+[ Info: generating markdown page from `~/projects/juliaPkg/ProximalBase.jl/examples/block_storage.jl`
+[ Info: writing result to `~/projects/juliaPkg/ProximalBase.jl/docs/src/examples/block_storage.md`
+[ Info: generating markdown page from `~/projects/juliaPkg/ProximalBase.jl/examples/symmetric_storage.jl`
+[ Info: writing result to `~/projects/juliaPkg/ProximalBase.jl/docs/src/examples/symmetric_storage.md`
+[ Info: generating markdown page from `~/projects/juliaPkg/ProximalBase.jl/examples/custom_function.jl`
+[ Info: writing result to `~/projects/juliaPkg/ProximalBase.jl/docs/src/examples/custom_function.md`
+[ Info: generating markdown page from `~/projects/juliaPkg/ProximalBase.jl/examples/block_prox_extension.jl`
+[ Info: writing result to `~/projects/juliaPkg/ProximalBase.jl/docs/src/examples/block_prox_extension.md`
+[ Info: SetupBuildDirectory: setting up build directory.
+[ Info: Doctest: running doctests.
+[ Info: ExpandTemplates: expanding markdown templates.
+[ Info: CrossReferences: building cross-references.
+[ Info: CheckDocument: running document checks.
+[ Info: Populate: populating indices.
+[ Info: RenderDocument: rendering document.
+[ Info: HTMLWriter: rendering HTML pages.
+[ Info: Automatic `version="0.6.0-DEV"` for inventory from ../Project.toml
+real 25.30
+user 24.53
+sys 0.71

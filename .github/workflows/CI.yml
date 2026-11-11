@@ -22,7 +22,7 @@ jobs:
           version: '1'
       - uses: julia-actions/cache@v3
       - name: Test declared minimal inventory
-        run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(; julia_args=["--check-bounds=yes"])'
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(; julia_args=["--check-bounds=yes"])' 2>&1 | tee "${RUNNER_TEMP}/pb-package-tests.log"
       - name: Prepare benchmark environment
         run: julia scripts/instantiate.jl benchmark
       - name: Check frozen benchmark references
@@ -36,8 +36,23 @@ jobs:
           julia --project=benchmark benchmark/run.jl
       - name: Prepare documentation environment
         run: julia scripts/instantiate.jl docs
-      - name: Build documentation and extension example
-        run: julia --project=docs docs/make.jl
+      - name: Build strict documentation, doctests and isolated Literate examples
+        run: julia --project=docs docs/make.jl 2>&1 | tee "${RUNNER_TEMP}/pb-docs-build.log"
+      - name: Check rendered internal links and navigation
+        run: python3 docs/check_html.py 2>&1 | tee "${RUNNER_TEMP}/pb-docs-html.log"
+      - name: Preserve rendered documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-linux-current-julia
+          path: docs/build
+          if-no-files-found: error
+      - name: Preserve complete validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-validation-logs-linux-current-julia
+          path: ${{ runner.temp }}/pb-*.log
+          if-no-files-found: error
   required:
     name: PR required jobs
     if: always()
@@ -58,3 +73,30 @@ jobs:
         env:
           REQUIRED_RESULT: ${{ needs.required.result }}
         run: test "$REQUIRED_RESULT" = success
+  deploy-docs:
+    name: Publish validated documentation
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [gate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - name: Prepare documentation environment
+        run: julia scripts/instantiate.jl docs
+      - name: Retrieve the validated HTML artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: documentation-linux-current-julia
+          path: docs/build
+      - name: Publish development documentation
+        run: julia --project=docs docs/deploy.jl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}

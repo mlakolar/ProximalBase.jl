@@ -24,12 +24,21 @@ retained ridge precision tests cover Float32/64; a custom function verifies the
 extension hooks. This suite is not the historical full package suite, which is
 preserved on legacy/full.
 
-Build the docs and execute both mathematical examples:
+Build the strict docs, doctests and all eight isolated Literate examples:
 
 ```sh
 julia scripts/instantiate.jl docs
 julia --project=docs docs/make.jl
+python3 docs/check_html.py
+python3 -m http.server 8000 --directory docs/build
 ```
+
+Open `http://localhost:8000/` to inspect the generated site. The build restores
+the historical expandable navigation and checks every export/qualified public
+hook against grouped API entries and the coverage matrix. Edit `examples/*.jl`
+and `docs/design/*.md`; generated example/contract pages are ignored. See
+[the developer workflow](docs/src/developer/change_process.md) for validation
+and ownership contracts. CI retains HTML and full validation logs as artifacts.
 
 CI gates pull requests with current Julia 1.x on Linux. The required checks
 are named `PR required jobs` and `PR merge gate`; both require the test and docs

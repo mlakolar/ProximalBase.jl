@@ -1,6 +1,41 @@
 # ProximalBase minimal-core rebuild (#849)
 
-**Status (2026-11-10 PT):** post-#848 full implementation preserved, reduction branch created, source path inventory committed; **no source files removed yet**. The declaration/call dependency graph and minimal implementation remain to be done.
+**Status (2026-11-10 PT):** Phase A declaration/dependency audit accepted by the independent architecture critic; **no package source files modified or removed yet**. Extraction and the minimal implementation remain to be done.
+
+The separate fresh GPT-6.1-Sol/high critic approved Phase A: “APPROVE Phase A
+architecture/dependency audit and Phase B extraction based on latest 5,476
+declarations / 1,306 selected.” The critic independently checked private-symbol
+closure; four remaining references are the explicitly narrowed `_ArrayPrecompose`
+union arms. Final-source load, ambiguity, correctness, docs and performance review
+remain separate gates. Regeneration was byte-for-byte deterministic under Julia
+1.13.3, coverage includes all 52 paths and all 14 retained public types, and
+Phase A left the frozen source tree unchanged.
+
+Read [extraction-boundaries.md](extraction-boundaries.md) first. The reproducible
+Julia AST inventory covers all 52 frozen files: 5,476 declaration rows (including
+literal generated-method instances), 23,781 conservative lexical dependency
+edges, and 10,983 external symbol/path line-list records. The proposed disposition
+is 407 retained storage declarations, 899 extracted core/helper declarations,
+and 4,170 archived declarations. Counts describe the audit, not a runtime method
+table or a correctness result.
+
+Regenerate without loading package code or installing dependencies:
+
+```sh
+/path/to/julia --startup-file=no docs/audit/minimal-core-849/generate_inventory.jl
+```
+
+The generator reads frozen blobs using `git show`, never the active source tree.
+[inventory_policy.jl](inventory_policy.jl) gives the declaration selection rules;
+[declarations.tsv](declarations.tsv), [dependency-edges.tsv](dependency-edges.tsv)
+and [symbol-targets.tsv](symbol-targets.tsv) hold the graph.
+[declaration-summary.tsv](declaration-summary.tsv) covers every baseline path,
+[source-segments.tsv](source-segments.tsv) records exact top-level byte spans,
+[module-hooks.tsv](module-hooks.tsv) lists module/include/precompile hooks, and
+[external-references.tsv](external-references.tsv) locates tests/docs/extensions/
+benchmarks/scripts. Static lexical edges deliberately overapproximate runtime
+dispatch. The boundary document identifies union narrowing and body edits needed
+to remove deferred references; Phase B still requires load/test/ambiguity checks.
 
 ## Immutable *content* reference and recovery paths
 
@@ -8,7 +43,7 @@
 - Full tree: `c76123a0109c0a0f683cb75085371696dffe1c8c`.
 - Exact remote-verified branches: `archive/full-before-reset-2026-11-10`, `archive/pre-rebuild-2026-11-10`, `legacy/full`. The branch `refactor/minimal-core` began at the same SHA and is **the only implementation target**.
 - Every other open PR (#840, #801, #558, #535, #377, #348, #299, #155) has a separate `archive/inflight/pr-N-2026-11-10` branch at its exact original head. `diag/issue-747`, `research/843-oracle-interface-audit`, and `audit/pb848-block-updates-20261111` have additional archived refs.
-- The archive branches are currently **not protected**. The originally requested annotated non-version preservation tag was **not** created because the available GitHub connector does not have an annotated-tag creation action. Ask an administrator to create/protect that tag and protect the archive branches. Do not describe any branch as immutable meanwhile. A checkout of the full commit itself remains recoverable by its exact SHA as long as refs exist.
+- The annotated non-release tag `preservation/post-848-full-2026-11-10` has been created and remote-verified: tag object `5239e1043a370f999753710e958fb2742aa786ac`, peeled commit equal to the full parent above. The archive branches are currently **not protected**. Administrator action is still needed to protect archival refs; do not describe the branches as immutable. A checkout of the full commit itself remains recoverable by its exact SHA as long as refs exist.
 
 The complete path-level snapshot of **52 tracked Julia source files, 1,649,968 bytes**, with exact blob hashes and provisional disposition is in [source-inventory.tsv](source-inventory.tsv). This is **not yet** the declaration/call dependency audit; do not blindly delete by filename.
 
@@ -37,4 +72,4 @@ Defer full GLM families, group penalties/group-lasso math, constrained sets/orac
 
 Open one ordinary draft PR targeting protected `master`. Require a declaration/dependency audit before accepting code deletion, a meaningful correctness and performance comparison, final-SHA Linux/current-Julia CI green, independent final-source review, and a normal protected-branch merge. Keep source modifications restricted to `refactor/minimal-core`; no force pushes or history rewrite.
 
-**Not yet completed:** annotated archival tag and branch protection; declaration/call dependency audit; extraction/removal; minimal tests and CI; independent review; merge. See [umbrella #849](https://github.com/mlakolar/ProximalBase.jl/issues/849) for the authoritative feature scope.
+**Not yet completed:** archival-ref protection; extraction/removal; minimal tests and CI; final independent source review; merge. See [umbrella #849](https://github.com/mlakolar/ProximalBase.jl/issues/849) for the authoritative feature scope.

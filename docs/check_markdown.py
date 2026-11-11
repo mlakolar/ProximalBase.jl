@@ -27,16 +27,16 @@ API_NAMES = (
     "SymmetricSparseIterate", "BlockIterate",
     "Float32", "Float64", "AbstractArray", "AbstractVector", "AbstractMatrix",
     "value_and_gradient!", "value_and_gradient", "value_and_prox!",
-    "gradient!", "gradient", "prox_block!", "prox_block", "prox!",
-    "value_entry", "kkt_violation", "restrict", "lipschitz", "opnorm2",
-    "reset_cache!", "shrink", "dropzeros!", "activate!", "isactive",
+    "gradient!", "prox_block!", "prox_block", "prox!",
+    "value_entry", "kkt_violation", "lipschitz", "opnorm2",
+    "reset_cache!", "dropzeros!", "activate!", "isactive",
     "activecoordinates", "activevalues", "nactive", "ncoordinates",
-    "blockview", "blockindices", "coordinates", "matrixview",
+    "blockview", "blockindices", "matrixview",
     "tril_index", "tril_cartesian", "check_symmetric_parameters",
     "check_parameters", "entry_parameters", "issmooth", "isproximable",
     "isseparable", "isconvex", "iszeropreserving", "samegroups",
     "copyto!", "nnz",
-    "deriv2", "deriv", "curvature", "value_and_deriv",
+    "deriv2", "deriv", "value_and_deriv",
 )
 NAME_RE = re.compile(
     r"(?<![\w])(?:" +

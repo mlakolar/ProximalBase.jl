@@ -10,10 +10,10 @@ declare the appropriate type traits. Generic defaults are deliberately limited:
 
 | Capability you implement | Required hooks | Generic result |
 |:--|:--|:--|
-| Smooth function | `value_and_gradient!(out,f,x)` and `issmooth` | gradient! delegates to it; allocating gradient/value_and_gradient use it |
-| Proximable function | `prox!(out,f,x,γ)` and `isproximable` | allocating prox; default value_and_prox! computes prox then f(out) |
-| Entry-separable function | Subtype SeparableFunction, value_entry and scalar prox_block | Array/iterate values, prox!, value_and_prox!; separability/proximability traits true |
-| Compact block-only oracle | `prox_block!(out,f,u,k,γ)` | Allocating vector prox_block only |
+| Smooth function | `value_and_gradient!(out,f,x)` and `issmooth` | `gradient!` delegates to it; allocating gradient/`value_and_gradient` use it |
+| Proximable function | `prox!(out,f,x,γ)` and `isproximable` | allocating prox; default `value_and_prox!` computes prox then f(out) |
+| Entry-separable function | Subtype `SeparableFunction`, `value_entry` and scalar `prox_block` | Array/iterate values, `prox!`, `value_and_prox!`; separability/proximability traits true |
+| Compact block-only oracle | `prox_block!(out,f,u,k,γ)` | Allocating vector `prox_block` only |
 
 `isconvex` defaults false and must be declared when justified. There is no
 automatic gradient from a value, scalar prox from a full-array prox, KKT screen,
@@ -23,9 +23,9 @@ supports tuple inputs; it still needs methods for the requested argument types. 
 `value_and_gradient!`, so implement that hook if relying on the default.
 
 An overriding public oracle owns real-type, shape, parameter, alias and symmetric
-preflight. Destination comes first. Return the identical output for gradient!/
-prox!/prox_block!, a scalar input value for value_and_gradient!, and a scalar
-stored-output value for value_and_prox!. Proximal output may be exactly the
+preflight. Destination comes first. Return the identical output for `gradient!`/
+`prox!`/`prox_block!`, a scalar input value for `value_and_gradient!`, and a scalar
+stored-output value for `value_and_prox!`. Proximal output may be exactly the
 input; gradient output must be independent. Do not write parameters, input
 buffers or solver storage while constructing a pure numerical result.
 
@@ -41,13 +41,13 @@ A Julia subtype of `SeparableFunction` supplies two scalar operations:
 `value_entry(f, v, i)` evaluates ``f_i(v)``, while
 `prox_block(f, v, i, γ)` computes the scalar proximal point of
 ``\gamma f_i`` at ``v``. Here i is the **linear entry index** of the underlying
-argument, used to index parameters. Generic kernels visit arrays, SparseIterate,
-BlockIterate and symmetric owners. Declare `check_parameters(f,x)` to reject
+argument, used to index parameters. Generic kernels visit arrays, `SparseIterate`,
+`BlockIterate` and symmetric owners. Declare `check_parameters(f,x)` to reject
 wrong parameter extent before generic writes. Use `prod(size(x))` rather than
 `length(x)` when accepting symmetric owners.
 
 Declare every per-entry array in `entry_parameters(f)` as a tuple of
-`Symbol=>value` pairs; declare `()` if none. A custom SeparableFunction's
+`Symbol=>value` pairs; declare `()` if none. A custom `SeparableFunction`'s
 default is `nothing`, which rejects symmetric use. Full symmetric operations
 validate metadata, shape and exact mirrored pairs. Overriding a public oracle
 replaces that generic boundary: call `check_symmetric_parameters(f,x)` yourself
@@ -97,7 +97,7 @@ This example deliberately leaves `issmooth=false`; being a mathematical
 quadratic does not synthesize a gradient method. Its simple scalar arithmetic
 does not promise the built-in ridge kernel's extreme-range recovery.
 To make it smooth, implement/check a full fused gradient and define the trait;
-to support KKT/restrict/lipschitz, define and validate those independently.
+to support KKT/restrict/`lipschitz`, define and validate those independently.
 
 ## Compact-vector block extensions
 

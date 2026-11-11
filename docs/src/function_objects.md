@@ -1,23 +1,39 @@
-# Function objects and capabilities
+# Function objects and their properties
 
-A **function object** represents a mathematical function together with its
-parameters. For example, `SqrNormL2(1.0)` represents the function
-``f(x) = \|x\|_2^2/2``, while `NormL1(0.5)` represents
-``g(x) = 0.5\|x\|_1``. Both are callable:
+ProximalBase.jl represents mathematical functions as objects. An
+optimization algorithm can ask a function which properties it has before
+choosing operations such as a gradient or proximal step.
+
+## The five function traits
+
+A **trait** is a Julia function returning `true` or `false` to describe
+a capability or mathematical property. ProximalBase defines **five**
+function traits:
+
+| Trait | What it tells you | What an algorithm can do with it |
+|:--|:--|:--|
+| [`issmooth(f)`](@ref issmooth) | A gradient is available on the interior of the function's domain | Consider gradient-based updates |
+| [`isproximable(f)`](@ref isproximable) | A proximal operator is efficiently computable | Consider proximal updates |
+| [`isseparable(f)`](@ref isseparable) | The function is a sum of separate scalar-coordinate terms | Consider coordinate-wise computation |
+| [`isconvex(f)`](@ref isconvex) | The function satisfies the convexity property under its stated assumptions | Apply suitable convex-optimization guarantees |
+| [`iszeropreserving(f)`](@ref iszeropreserving) | Each scalar term is zero at zero and its proximal map sends zero to zero | Skip inactive zeros in supported sparse computations |
+
+These are **all five traits in the current function interface**, not an
+illustrative subset. They describe different properties: a function can
+be convex without being smooth, or separable without preserving zeros.
+
+Here are two functions with different properties:
 
 ```@example properties
 using ProximalBase
+f = SqrNormL2(1.0)       # f(x) = ||x||² / 2
+g = NormL1(0.5)          # g(x) = 0.5 * ||x||₁
 x = [2.0, -1.0]
-f = SqrNormL2(1.0)
-g = NormL1(0.5)
 (f(x), g(x))
 ```
 
-The benefit of representing functions as objects is that an optimization
-algorithm can request the operations it needs, such as a **gradient** or a
-**proximal map**, without knowing the precise formula of the function.
-The properties below explain when such operations are useful.
-
+The following sections explain each trait mathematically, show examples,
+and discuss what its value does *and does not* guarantee.
 ## Convexity
 
 A function ``f`` is **convex** if, for any points ``x`` and ``y`` in its
@@ -201,44 +217,17 @@ penalty such as ``(x_i-a_i)^2/2`` is separable but, for nonzero ``a_i``,
 its proximal operator generally moves zero away from zero. Such a function
 cannot safely skip inactive zeros just because it is separable.
 
-Unlike the four type-level properties below,
-`iszeropreserving(f)` depends on the **particular function instance and its
-parameters**. This contract is mathematical (exact-arithmetic); extreme
+Unlike the other four traits, `iszeropreserving(f)` depends on the
+**particular function instance and its parameters**. This contract is mathematical (exact-arithmetic); extreme
 floating-point inputs may still produce different exceptional behavior on
 dense and stored-only paths. See the [Numerical contract](numerics.md) and
 [Iterates](iterates.md).
 
-## Traits in Julia
+## Properties of the built-in functions
 
-A **trait** is a query that tells an algorithm which
-properties an object advertises. In ProximalBase, the main queries are:
-
-| Trait | Mathematical meaning | Why it is useful |
-|:--|:--|:--|
-| [`isconvex`](@ref) | Satisfies the convexity inequality | Supports global-optimality reasoning |
-| [`issmooth`](@ref) | Supplies gradients on the domain interior | Enables gradient-based operations |
-| [`isproximable`](@ref) | Has an efficiently computable proximal map | Enables proximal steps |
-| [`isseparable`](@ref) | Decomposes as a sum over scalar entries | Enables coordinate-wise operations |
-| [`iszeropreserving`](@ref) | Zero entry values and zero-preserving scalar prox | Enables skipping inactive zeros |
-
-The first four are usually declared on a Julia **type**; an instance query
-forwards to that type. Zero preservation is declared for an **instance**,
-because weights, centers, levels or scales may change it. The default for
-an `AbstractFunction` is `false` unless a specific implementation
-declares otherwise.
-
-```@example properties
-(issmooth(f), isproximable(f), isseparable(f), isconvex(f),
- iszeropreserving(f))
-```
-
-### Properties of functions provided by ProximalBase.jl
-
-ProximalBase.jl provides mathematical functions that serve as building blocks
-for optimization algorithms. The table summarizes their properties: whether
-they support gradient-based operations, proximal updates, or independent
-coordinate calculations. These properties help determine which operations
-an optimization algorithm can use with each function.
+The following table applies the five traits to the functions provided by
+ProximalBase. For a parameterized function, zero preservation can depend on
+the parameters of the particular object.
 
 
 | Function | Smooth | Proximable | Separable | Convex | Zero preserving |
@@ -262,24 +251,64 @@ accepts vector or matrix coefficients, whereas `QuadraticFunction`
 accepts vectors; symmetric matrix storage has its own supported operations.
 See [SymmetricSparseIterate](symmetric_sparse_iterate.md) for details.
 
-## Using these properties
+## How an algorithm uses traits
 
-These properties help an optimization algorithm choose the right operations
-for a problem. For example, when minimizing ``f(x)+g(x)``, we might use a
-**smooth** loss ``f`` and a **proximable** penalty ``g``. A proximal-gradient
-method combines a gradient step on ``f`` with a proximal step on ``g``:
+The point of querying a trait is to make a decision **before calling an
+operation**. For example, suppose an algorithm implements a
+proximal-gradient step for a smooth loss `f` and a proximable penalty `g`.
+Instead of assuming those capabilities, it can check them:
 
 ```@example properties
+f = SqrNormL2(1.0)          # smooth squared-norm loss
+g = NormL1(0.5)             # nonsmooth, proximable l1 penalty
+x = [2.0, -1.0]
 γ = 0.1
-x_new = prox(g, x - γ * gradient(f, x), γ)
+
+if issmooth(f) && isproximable(g)
+    x_next = prox(g, x - γ * gradient(f, x), γ)
+else
+    error("This step requires a smooth loss and a proximable penalty")
+end
+x_next
 ```
 
-Here, `f` and `g` are the squared-norm loss and ``\ell_1`` penalty
-introduced at the top of the page. ProximalBase supplies `gradient` and
-`prox`; an optimization algorithm chooses the step sizes, repeats the
-updates, and decides when to stop.
+The conditions matter: `issmooth(g)` is `false`, so the algorithm should
+not attempt to use `gradient(g, x)` as if this were a differentiable
+penalty. But `isproximable(g)` is `true`, so it can apply `prox(g, ..., γ)`.
+Conversely, `issmooth(f)` is `true`, so the algorithm can compute its gradient.
 
-To see which operations are available, continue to
-[Operations on functions](operations.md). If you want to implement your own
-mathematical function, see [Writing your own function](extending.md), which
-explains how to define a new function and supply its mathematical operations.
+Other traits guide other choices. A coordinate algorithm may check
+`isseparable(g)` before attempting independent scalar updates, while a
+sparse algorithm may also check `iszeropreserving(g)` to decide whether
+it can skip coordinates currently equal to zero. An algorithm relying on
+convexity may check `isconvex(f)` and `isconvex(g)` before invoking a
+convex-specific convergence argument.
+
+```@example properties
+(smooth_loss = issmooth(f),
+ proximable_penalty = isproximable(g),
+ separable_penalty = isseparable(g),
+ zero_preserving_penalty = iszeropreserving(g),
+ convex_objective_parts = isconvex(f) && isconvex(g))
+```
+
+These names make clear **which function** is being queried and **why**.
+More importantly, traits are not an automatic solver: they do not select
+a valid step size or prove that arbitrary inputs satisfy a function's
+assumptions. A `true` trait also does not create Julia methods for every
+array shape or iterate representation. Consult
+[Operations on functions](operations.md) and [The interface](interface.md)
+for the methods actually supported.
+
+## Declaring traits for a new function
+
+For most properties (`issmooth`, `isproximable`, `isseparable`, and
+`isconvex`), the trait is typically defined on the Julia **type**;
+calling it on an object forwards to that type. Zero preservation is
+queried on the **instance**, because its parameters (such as a center)
+can change whether zero remains zero.
+
+Undefined traits default to `false`. Declaring one says what the
+function supports; it does not implement the corresponding computation.
+See [Writing your own function](extending.md) for the methods a new
+function must provide.

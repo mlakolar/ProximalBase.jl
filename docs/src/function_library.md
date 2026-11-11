@@ -14,10 +14,9 @@ can serve as either a smooth objective or a regularization penalty.
 | [`LinearFunction`](@ref) | ``\langle c,x\rangle+d`` | yes | shift | [Smooth functions](smooth.md#Linear-function) |
 | [`NormL1`](@ref) | ``\lambda_0\sum_iw_i|x_i|`` | no | soft thresholding | [Penalties](penalties.md) |
 | [`Scaled`](@ref) | ``\alpha f(x)`` | if supported | if supported | [Functions built from functions](calculus.md) |
-| [`ProximalBase.Squared`](@ref) | ``(\eta-y)^2/2`` | scalar deriv | no array prox | [Scalar squared loss](smooth.md#Scalar-squared-loss) |
 
-¹ ZeroFunction gradients accept arrays; its owner value/prox methods do not
-include gradients on a SymmetricSparseIterate.
+¹ `ZeroFunction` provides gradients for arrays, but not for
+`SymmetricSparseIterate`. See [symmetric storage](symmetric_sparse_iterate.md).
 
 Use a function in more than one role when its mathematics permits it:
 SqrNormL2 is a smooth objective or a ridge penalty; LeastSquaresLoss has both
@@ -26,14 +25,22 @@ a gradient and an SVD-based prox. Trait categories overlap. See
 
 The functions operating on arrays use real element types. Ordinary dense
 arrays and the array iterates are accepted within each function's shape
-contract; symmetric owners have a narrower explicit method surface described
-in [the symmetric guide](symmetric_sparse_iterate.md). `ProximalBase.Squared` is a specialized **scalar loss**: it measures the
-squared discrepancy between a prediction and an observation. Unlike the
-other functions in the table, it is called with two scalar arguments,
-`loss(prediction, observation)`. It is described in detail in the
-[scalar squared-loss section](smooth.md#Scalar-squared-loss).
+contract. Symmetric matrix storage supports a more specific collection of
+operations, described in the [symmetric guide](symmetric_sparse_iterate.md).
 
-ProximalBase also supports multiplying a function by a nonnegative scalar. Construct a composite
-objective by keeping `f` and `g` separately and evaluating `f(x)+g(x)`; this
-expression adds two scalar values. It does not construct a function object
-with automatic gradient/prox dispatch.
+## Scalar observation loss
+
+For developers implementing statistical models, `ProximalBase.Squared()`
+provides the squared loss of a single prediction and observation,
+``\ell(\eta,y)=(\eta-y)^2/2``. It uses `loss(prediction, observation)`
+rather than the `f(x)` interface of the array functions above.
+See [Scalar squared loss](smooth.md#Scalar-squared-loss) for its derivative
+operations and use cases.
+
+## Combining functions
+
+ProximalBase supports multiplying a function by a nonnegative scalar.
+For a composite objective, keep `f` and `g` separately and evaluate
+`f(x) + g(x)` when you need the total objective value. This adds two
+numbers; it does not create a new function object. See
+[Functions built from functions](calculus.md) for scaling.

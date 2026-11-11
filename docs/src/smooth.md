@@ -267,34 +267,8 @@ prox(f,x,0.5)
 
 ## Scalar squared loss
 
-The scalar loss represents the discrepancy between a prediction ``\eta``
-and observation ``y``. It is constructed by
-`loss = ProximalBase.Squared()` and called as `loss(η, y)`.
-Its mathematical definition and derivatives with respect to the **prediction**
-``\eta`` are:
-
-```math
-\ell(\eta,y)=\tfrac12(\eta-y)^2,\quad
-\partial_\eta\ell=\eta-y,\quad\partial^2_\eta\ell=1.
-```
-
-Unlike the array functions above, this is a specialized
-`ProximalBase.ScalarLoss`, not an `AbstractFunction` and not an array
-regression model. Use `ℓ(η,y)`, `ProximalBase.deriv(ℓ,η,y)`,
-`ProximalBase.deriv2(ℓ,η,y)`, `ProximalBase.curvature(ℓ)` and
-`ProximalBase.value_and_deriv(ℓ,η,y)`. The last returns `(value, derivative)`; none mutates inputs.
-`deriv2` returns one in the floating type of `η`; `curvature` returns `1.0`.
-It has no array `gradient` or `prox` operation and does not automatically
-construct a regression objective. Scalar arithmetic uses ordinary
-promotion and can overflow, e.g. squaring a large residual; it does not inherit
-the array `LeastSquaresLoss` value recovery. Non-real arguments have no method.
-
-```@example library_squared
-using ProximalBase
-ℓ = ProximalBase.Squared()
-@assert ℓ(3.0,1.0) == 2
-@assert ProximalBase.value_and_deriv(ℓ,3.0,1.0) == (2.0,2.0)
-@assert ProximalBase.deriv2(ℓ,3f0,1f0) === 1f0
-@assert ProximalBase.curvature(ℓ) == 1
-ProximalBase.value_and_deriv(ℓ,3.0,1.0)
-```
+Scalar prediction losses use a different interface from these array
+functions. The former content of this section now lives in the dedicated
+[Scalar losses](scalar_losses.md) section, with mathematical definitions,
+the complete `ProximalBase.ScalarLoss` interface and a
+[worked `Squared()` example](scalar_squared.md).

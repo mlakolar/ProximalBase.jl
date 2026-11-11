@@ -1,21 +1,53 @@
 # Operations on functions
 
-ProximalBase functions are mathematical objects. An **operation** asks a
-function to compute something useful for an optimization algorithm: its value,
-gradient, proximal point, a coordinate-level update, or information about
-optimality and step sizes. This page explains what each operation means.
+ProximalBase provides **operations on mathematical functions**. They answer
+questions such as “What is the objective value?”, “What is its gradient?”,
+or “What is the proximal point?” An optimization algorithm combines
+these operations to update its variables and check optimality.
 
-Here is a common problem with a smooth loss and a possibly nonsmooth penalty:
+## Available operations at a glance
+
+This is the complete set of exported **function operations** in the current
+package, grouped by purpose. Most operations are supported by specific
+function families, not every function object. The table is a starting point;
+each operation is explained below, including its mathematics and Julia usage.
+
+| Purpose | Julia operations | What they compute |
+|:--|:--|:--|
+| Evaluate | `f(x)` | Value of the function at `x` |
+| Differentiate | `gradient`, `gradient!` | Gradient at `x` |
+| Value and derivative together | `value_and_gradient`, `value_and_gradient!` | Function value and gradient at `x` |
+| Proximal point | `prox`, `prox!` | Minimizer of the proximal subproblem |
+| Value and proximal point | `value_and_prox!` | Proximal point and its function value |
+| Individual entries | `value_entry` | Contribution of one scalar entry to a separable function |
+| Scalar or block proximal update | `prox_block`, `prox_block!` | Proximal point for one entry or an explicitly implemented block |
+| Check zero-coordinate optimality | `kkt_violation` | Violation of a zero-coordinate stationarity condition |
+| Make a reduced function | `restrict` | Function on selected coordinates, normally fixing others at zero |
+| Gradient bound | `lipschitz` | Bound on how rapidly the gradient can change |
+| Squared spectral norm estimate | `opnorm2` | Estimate of the squared matrix operator norm |
+| Update after data changes | `reset_cache!` | Invalidate cached decompositions |
+
+`f(x)` is ordinary callable-function syntax rather than a separately
+exported named operation. There is no allocating `value_and_prox` method.
+Scalar observation-loss derivatives (`ProximalBase.deriv`, `deriv2`,
+`curvature`, `value_and_deriv`) form a distinct qualified API described
+in the [scalar squared-loss guide](smooth.md#Scalar-squared-loss).
+Validation hooks used when defining new functions are described under
+[Writing your own function](extending.md). Storage operations on
+`SparseIterate`, `BlockIterate` and `SymmetricSparseIterate` are cataloged
+in the [Iterates guide](iterates.md).
+
+## Mathematical setting
+
+Many optimization problems combine a smooth loss and a penalty:
 
 ```math
-\min_x\; F(x)=f(x)+g(x).
+\min_x\;F(x)=f(x)+g(x).
 ```
 
-An algorithm may evaluate the objective to monitor progress, use a gradient
-of ``f`` to move downhill, and use a proximal map of ``g`` to encourage
-sparsity. ProximalBase computes these ingredients; it does not choose an
-algorithm or stopping rule.
-
+The algorithm can evaluate `f` and `g`, differentiate `f`, and apply a
+proximal operator to `g`. The available operations depend on the function's
+[traits and concrete methods](function_objects.md).
 ## Evaluating a function
 
 **Question:** What is the value of a function at the current point?
@@ -426,8 +458,8 @@ There is **no universal** `restrict` fallback for arbitrary
 lack a `restrict` method until its author defines one. Likewise,
 nonseparability is not a reason to reject restriction.
 
-For implementation details and supported argument types, see
-[The interface](interface.md) and the [API reference](api/interface.md).
+For supported argument types and method signatures, see the
+[API reference](api/interface.md).
 
 ## Gradient bounds and step sizes
 
@@ -475,20 +507,86 @@ Changing data dimensions requires constructing a new function.
 See [Array and precision conventions](numerical_usage.md) for
 ownership details.
 
-## Julia calling conventions and technical reference
+## Calling conventions, results and supported inputs
 
-The mathematics above is independent of whether a call is allocating
-or mutating. Here is a quick comparison:
+The mathematical definitions above are the same for allocating and mutating
+calls. In Julia, the `!` suffix indicates mutation, **not** a guarantee
+that the implementation performs no allocations.
 
-| Mathematical task | Allocating call | Reuse an existing output |
-|:--|:--|:--|
-| Gradient | `gradient(f,x)` | `gradient!(out,f,x)` |
-| Value and gradient | `value_and_gradient(f,x)` | `value_and_gradient!(out,f,x)` |
-| Proximal point | `prox(g,x,γ)` | `prox!(out,g,x,γ)` |
-| Value and proximal point | No allocating counterpart | `value_and_prox!(out,g,x,γ)` |
+| Mathematical operation | Allocating call | Mutating call | Mutating return |
+|:--|:--|:--|:--|
+| Gradient | `gradient(f,x)` | `gradient!(out,f,x)` | `out` |
+| Value and gradient | `value_and_gradient(f,x)` | `value_and_gradient!(out,f,x)` | Value at input `x` |
+| Proximal point | `prox(g,x,γ)` | `prox!(out,g,x,γ)` | `out` |
+| Value and proximal point | none | `value_and_prox!(out,g,x,γ)` | Value at the stored proximal point |
 
-All mutating oracles take the **destination first**. Julia's `!`
-indicates mutation, not zero allocation. Supported shapes, returned values,
-input/output overlap and per-coordinate steps are specified in
-[The interface](interface.md). For lower-level extension and numerical
-contracts, see [Developer Documentation](developer/index.md).
+Mutating calls put the **destination first**. For ordinary arrays,
+`gradient(f,x)` allocates a dense gradient and `prox(f,x,γ)` allocates
+a floating-point result compatible with the supported input type.
+Some specialized symmetric-storage calls have different result types;
+see the [symmetric iterate guide](symmetric_sparse_iterate.md).
+
+### In-place calls and overlapping memory
+
+Built-in gradient operations require a destination separate from their
+input: `gradient!(x,f,x)` is not supported. Proximal maps support the
+exact same object for input and output, as in `prox!(x,g,x,γ)`.
+Other partially overlapping views are not supported and may produce
+incorrect results without warning. Use an independent input copy when
+in doubt. Parameter and scratch ownership details are in
+[Numerical usage](numerical_usage.md).
+
+### Different steps for different entries
+
+For separable penalties, some proximal methods accept a vector or array
+of positive steps `γ`, one for each input entry. The mathematical
+problem then becomes
+
+```math
+\operatorname*{argmin}_z\left\{
+g(z)+\sum_i\frac{(z_i-x_i)^2}{2\gamma_i}
+\right\}.
+```
+
+```@example operations_steps
+using ProximalBase
+x_steps = [2.0, -1.0]
+steps = [0.5, 2.0]
+z_steps = prox(NormL1(0.5), x_steps, steps)
+@assert z_steps == [1.75, 0.0]
+z_steps
+```
+
+An array of steps is **not** universally supported. Generic
+`SeparableFunction` array proximal operations and `ZeroFunction`
+support it; `Scaled` forwards it only when the wrapped function does.
+Do not assume the same for `SqrNormL2`, `LinearFunction`,
+`LeastSquaresLoss`, or `QuadraticFunction`. A
+`SymmetricSparseIterate` output accepts scalar steps only.
+
+### Shapes, errors and precision
+
+Each concrete function defines which vector, matrix and storage inputs
+it supports; a `true` trait does not guarantee every argument shape.
+Built-in methods check predictable shape, type and parameter errors
+before output writes, but an error during computation may leave a
+partially changed destination. Positive finite steps are the
+standard mathematical setting. Exceptional `NaN`, infinite and zero
+steps are function-specific rather than universally validated.
+See [Numerical usage](numerical_usage.md),
+[Numerical contract](numerics.md), and the
+[API reference](api/interface.md) for precise limits.
+
+### Symmetric matrices and coordinate updates
+
+Proximal operators on symmetric iterates use the Frobenius geometry
+of the full represented matrix. Off-diagonal independent coordinates
+appear twice in the matrix norm. Supported functions have explicit
+methods for this storage type; not every gradient or proximal
+operation accepts it. See [SymmetricSparseIterate](symmetric_sparse_iterate.md)
+and [Symmetric parameters](symmetric_parameters.md).
+
+Scalar `prox_block` works on a supplied trial value, not an iterate:
+the caller must separately write the returned result to the appropriate
+entry or block and update its own solver state. For precise indexing and
+ownership rules, see [Coordinate oracles](iterate_oracles.md).

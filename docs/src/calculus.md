@@ -61,16 +61,16 @@ calls and [Numerical usage](numerical_usage.md) for aliasing and cache rules.
 
 Nested positive finite scales retain their exponents when multiplying them
 would overflow or underflow. Built-in recovery paths can fold the total scale
-into NormL1's level or recover a representable squared-norm value. This is not
+into `NormL1`'s level or recover a representable squared-norm value. This is not
 a promise that arbitrary user-defined functions acquire numerical range recovery.
 
 ## A zero scale can change the returned type
 
 `Scaled(f,0)` simplifies only when a domain-preserving representation is known.
 For finite-data built-in losses, quadratics, centered squared norms and affine
-functions it returns `ZeroFunction()`. A zero-scaled finite-level NormL1 with
-finite weights also returns ZeroFunction. Infinite weights are retained in
-`NormL1(0,w)` so their fixed-zero restrictions survive. Infinite NormL1 levels
+functions it returns `ZeroFunction()`. A zero-scaled finite-level `NormL1` with
+finite weights also returns `ZeroFunction`. Infinite weights are retained in
+`NormL1(0,w)` so their fixed-zero restrictions survive. Infinite `NormL1` levels
 and non-finite parameters of other function families can make construction
 throw `ArgumentError`. A custom function's zero scale has no generic supported
 representation and throws. Inspect the constructed object rather than assume

@@ -10,6 +10,12 @@ end
 cases,src=block_cases(Float64,8192,12,64,"contiguous",["block_cd"],852)
 p=only(cases);before=inspect_case(p)
 println("runtime-selection block adapter:");code_warntype(stdout,block,Tuple{typeof(src),Int};debuginfo=:none)
+println("runtime-selection block update:");code_warntype(stdout,block_update!,Tuple{typeof(src),Vector{Int},Int,Bool};debuginfo=:none)
+@static if !ORIGINAL && isdefined(PB,:blockview)
+    println("direct native blockview:");code_warntype(stdout,PB.blockview,Tuple{typeof(src),Int};debuginfo=:none)
+elseif !ORIGINAL && isdefined(PB,:atom)
+    println("direct native atom:");code_warntype(stdout,PB.atom,Tuple{typeof(src),Int};debuginfo=:none)
+end
 # Define only a Main harness adapter; never patch a package method.
 @static if ORIGINAL
     block(x,k)=x.atoms[k]
@@ -20,4 +26,5 @@ else
 end
 after=inspect_case(p)
 println("static-selection block adapter:");code_warntype(stdout,block,Tuple{typeof(src),Int};debuginfo=:none)
+println("static-selection block update:");code_warntype(stdout,block_update!,Tuple{typeof(src),Vector{Int},Int,Bool};debuginfo=:none)
 println("ADAPTER_ALLOCATION_BYTES runtime=",before," static=",after)

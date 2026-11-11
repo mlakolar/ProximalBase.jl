@@ -9,6 +9,7 @@ contexts=[('broad7','native-confirmation21',False),('common-full7','common-full-
  ('supplement-common-full-exploratory7','supplement-common-full-confirmation21',False),
  ('raw-block7','raw-block-confirmation21',False),
  ('supplement-native7','supplement-common-full-confirmation21',True)]
+if (a.results/'static-adapter7').exists():contexts.append(('static-adapter7','static-adapter-confirmation21',False))
 # Supplemental28 selection was registered from native7 flags plus all residual
 # and native-helper cases; newly exposed flags within that selection also have
 # the independently analyzed last21.

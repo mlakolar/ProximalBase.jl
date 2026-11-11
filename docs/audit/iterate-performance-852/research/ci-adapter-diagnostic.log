@@ -1,0 +1,139 @@
+# CI adapter diagnostic (allocation/inference only)
+
+Job: https://github.com/mlakolar/ProximalBase.jl/actions/runs/43081962376/job/130736522271
+Commit: 44c66e40e66982c272c5adb13788e171210dee25
+Julia: 1.13.3; -O2 --check-bounds=no, one thread; Linux GitHub-hosted runner.
+Source order: original, historical05, post848, post850.
+These are allocation/inference diagnostics, not cross-machine timing comparisons.
+
+runtime-selection block adapter:
+2026-11-11T18:54:35.8594492Z MethodInstance for block(::Main.ProximalBase.AtomIterate{Float64, 1, SubArray{Float64, 1, Vector{Float64}, Tuple{UnitRange{Int64}}, true}}, ::Int64)
+2026-11-11T18:54:35.8683251Z   from block(x, k) @ Main ~/work/ProximalBase.jl/ProximalBase.jl/benchmark/audit852/adapters.jl:16
+2026-11-11T18:54:35.8896640Z Arguments
+2026-11-11T18:54:35.9137319Z   #self#::Core.Const(Main.block)
+2026-11-11T18:54:36.1108703Z   x::Main.ProximalBase.AtomIterate{Float64, 1, SubArray{Float64, 1, Vector{Float64}, Tuple{UnitRange{Int64}}, true}}
+2026-11-11T18:54:36.1109742Z   k::Int64
+2026-11-11T18:54:36.1120833Z Body::SubArray{Float64, 1, Vector{Float64}, Tuple{UnitRange{Int64}}, true}
+2026-11-11T18:54:37.4136782Z 1 ─ %1 = Base.getproperty(x, :atoms)::Vector{SubArray{Float64, 1, Vector{Float64}, Tuple{UnitRange{Int64}}, true}}
+2026-11-11T18:54:37.4628382Z │   %2 = Base.getindex(%1, k)::SubArray{Float64, 1, Vector{Float64}, Tuple{UnitRange{Int64}}, true}
+2026-11-11T18:54:37.4838652Z └──      return %2
+2026-11-11T18:54:37.4838913Z 
+2026-11-11T18:54:37.6019213Z static-selection block adapter:
+2026-11-11T18:54:37.6044885Z MethodInstance for block(::Main.ProximalBase.AtomIterate{Float64, 1, SubArray{Float64, 1, Vector{Float64}, Tuple{UnitRange{Int64}}, true}}, ::Int64)
+2026-11-11T18:54:37.6046458Z   from block(x, k) @ Main ~/work/ProximalBase.jl/ProximalBase.jl/benchmark/audit852/adapter_diagnostic.jl:15
+2026-11-11T18:54:37.6047354Z Arguments
+2026-11-11T18:54:37.6049467Z   #self#::Core.Const(Main.block)
+2026-11-11T18:54:37.6061563Z   x::Main.ProximalBase.AtomIterate{Float64, 1, SubArray{Float64, 1, Vector{Float64}, Tuple{UnitRange{Int64}}, true}}
+2026-11-11T18:54:37.6062385Z   k::Int64
+2026-11-11T18:54:37.6072772Z Body::SubArray{Float64, 1, Vector{Float64}, Tuple{UnitRange{Int64}}, true}
+2026-11-11T18:54:37.6091173Z 1 ─ %1 = Base.getproperty(x, :atoms)::Vector{SubArray{Float64, 1, Vector{Float64}, Tuple{UnitRange{Int64}}, true}}
+2026-11-11T18:54:37.6103615Z │   %2 = Base.getindex(%1, k)::SubArray{Float64, 1, Vector{Float64}, Tuple{UnitRange{Int64}}, true}
+2026-11-11T18:54:37.6104256Z └──      return %2
+2026-11-11T18:54:37.6104406Z 
+2026-11-11T18:54:37.6416258Z ADAPTER_ALLOCATION_BYTES runtime=0 static=0
+2026-11-11T18:54:47.2706963Z runtime-selection block adapter:
+2026-11-11T18:54:48.3968977Z MethodInstance for block(::Main.ProximalBase.AtomIterate{Float64, Vector{UnitRange{Int64}}}, ::Int64)
+2026-11-11T18:54:48.4057734Z   from block(x, k) @ Main ~/work/ProximalBase.jl/ProximalBase.jl/benchmark/audit852/adapters.jl:28
+2026-11-11T18:54:48.4264589Z Arguments
+2026-11-11T18:54:48.4492739Z   #self#::Core.Const(Main.block)
+2026-11-11T18:54:48.6362411Z   x::Main.ProximalBase.AtomIterate{Float64, Vector{UnitRange{Int64}}}
+2026-11-11T18:54:48.6363143Z   k::Int64
+2026-11-11T18:54:48.6363468Z Body::ANY
+2026-11-11T18:54:48.8067205Z 1 ─ %1  = Main.isdefined::Core.Const(isdefined)
+2026-11-11T18:54:48.8168349Z │   %2  = Main.PB::Core.Const(Main.ProximalBase)
+2026-11-11T18:54:49.9744395Z │   %3  = (%1)(%2, :blockview)::Bool
+2026-11-11T18:54:49.9957513Z └──       goto #3 if not %3
+2026-11-11T18:54:49.9958140Z 2 ─ %5  = Main.PB::Core.Const(Main.ProximalBase)
+2026-11-11T18:54:50.0138624Z │   %6  = Base.getproperty(%5, :blockview)::ANY
+2026-11-11T18:54:50.0234314Z │   %7  = (%6)(x, k)::ANY
+2026-11-11T18:54:50.0290206Z └──       return %7
+2026-11-11T18:54:50.0291161Z 3 ─ %9  = Main.PB::Core.Const(Main.ProximalBase)
+2026-11-11T18:54:50.0302545Z │   %10 = Base.getproperty(%9, :atom)::Core.Const(Main.ProximalBase.atom)
+2026-11-11T18:54:50.2452981Z │   %11 = (%10)(x, k)::Core.PartialStruct(SubArray{Float64, 1, Main.ProximalBase.AtomIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, true}, Union{Nothing, Bool}[0, 0, 0, 0], Any[Main.ProximalBase.AtomIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, Int64, Core.Const(1)])
+2026-11-11T18:54:50.2454680Z └──       return %11
+2026-11-11T18:54:50.2454854Z 
+2026-11-11T18:54:50.4661413Z static-selection block adapter:
+2026-11-11T18:54:50.4682610Z MethodInstance for block(::Main.ProximalBase.AtomIterate{Float64, Vector{UnitRange{Int64}}}, ::Int64)
+2026-11-11T18:54:50.4684160Z   from block(x, k) @ Main ~/work/ProximalBase.jl/ProximalBase.jl/benchmark/audit852/adapter_diagnostic.jl:19
+2026-11-11T18:54:50.4684913Z Arguments
+2026-11-11T18:54:50.4685215Z   #self#::Core.Const(Main.block)
+2026-11-11T18:54:50.4694968Z   x::Main.ProximalBase.AtomIterate{Float64, Vector{UnitRange{Int64}}}
+2026-11-11T18:54:50.4695854Z   k::Int64
+2026-11-11T18:54:50.4781781Z Body::SubArray{Float64, 1, Main.ProximalBase.AtomIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, true}
+2026-11-11T18:54:50.4783614Z 1 ─ %1 = Main.PB::Core.Const(Main.ProximalBase)
+2026-11-11T18:54:50.4785284Z │   %2 = Base.getproperty(%1, :atom)::Core.Const(Main.ProximalBase.atom)
+2026-11-11T18:54:50.4820426Z │   %3 = (%2)(x, k)::Core.PartialStruct(SubArray{Float64, 1, Main.ProximalBase.AtomIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, true}, Union{Nothing, Bool}[0, 0, 0, 0], Any[Main.ProximalBase.AtomIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, Int64, Core.Const(1)])
+2026-11-11T18:54:50.4822745Z └──      return %3
+2026-11-11T18:54:50.4822947Z 
+2026-11-11T18:54:50.5127935Z ADAPTER_ALLOCATION_BYTES runtime=345600 static=0
+2026-11-11T18:55:00.2160227Z runtime-selection block adapter:
+2026-11-11T18:55:01.3440370Z MethodInstance for block(::Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, ::Int64)
+2026-11-11T18:55:01.3532375Z   from block(x, k) @ Main ~/work/ProximalBase.jl/ProximalBase.jl/benchmark/audit852/adapters.jl:28
+2026-11-11T18:55:01.3745327Z Arguments
+2026-11-11T18:55:01.4014979Z   #self#::Core.Const(Main.block)
+2026-11-11T18:55:01.5931722Z   x::Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}
+2026-11-11T18:55:01.5932507Z   k::Int64
+2026-11-11T18:55:01.6020572Z Body::SubArray{Float64, 1, Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, true}
+2026-11-11T18:55:01.7947555Z 1 ─ %1 = Main.isdefined::Core.Const(isdefined)
+2026-11-11T18:55:01.8051217Z │   %2 = Main.PB::Core.Const(Main.ProximalBase)
+2026-11-11T18:55:02.9439875Z │   %3 = (%1)(%2, :blockview)::Core.Const(true)
+2026-11-11T18:55:02.9877616Z └──      goto #3 if not %3
+2026-11-11T18:55:02.9878443Z 2 ─ %5 = Main.PB::Core.Const(Main.ProximalBase)
+2026-11-11T18:55:03.0065282Z │   %6 = Base.getproperty(%5, :blockview)::Core.Const(Main.ProximalBase.blockview)
+2026-11-11T18:55:03.2325832Z │   %7 = (%6)(x, k)::Core.PartialStruct(SubArray{Float64, 1, Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, true}, Union{Nothing, Bool}[0, 0, 0, 0], Any[Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, Int64, Core.Const(1)])
+2026-11-11T18:55:03.2383620Z └──      return %7
+2026-11-11T18:55:03.6867027Z 3 ─      Core.Const(:(Main.PB))
+2026-11-11T18:55:03.6915551Z │        Core.Const(:(Base.getproperty(%9, :atom)))
+2026-11-11T18:55:03.6916567Z │        Core.Const(:((%10)(x, k)))
+2026-11-11T18:55:03.6977038Z └──      Core.Const(:(return %11))
+2026-11-11T18:55:03.6977329Z 
+2026-11-11T18:55:03.8319987Z static-selection block adapter:
+2026-11-11T18:55:03.8346402Z MethodInstance for block(::Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, ::Int64)
+2026-11-11T18:55:03.8348819Z   from block(x, k) @ Main ~/work/ProximalBase.jl/ProximalBase.jl/benchmark/audit852/adapter_diagnostic.jl:17
+2026-11-11T18:55:03.8349709Z Arguments
+2026-11-11T18:55:03.8349935Z   #self#::Core.Const(Main.block)
+2026-11-11T18:55:03.8364263Z   x::Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}
+2026-11-11T18:55:03.8364933Z   k::Int64
+2026-11-11T18:55:03.8382578Z Body::SubArray{Float64, 1, Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, true}
+2026-11-11T18:55:03.8384479Z 1 ─ %1 = Main.PB::Core.Const(Main.ProximalBase)
+2026-11-11T18:55:03.8386598Z │   %2 = Base.getproperty(%1, :blockview)::Core.Const(Main.ProximalBase.blockview)
+2026-11-11T18:55:03.8421168Z │   %3 = (%2)(x, k)::Core.PartialStruct(SubArray{Float64, 1, Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, true}, Union{Nothing, Bool}[0, 0, 0, 0], Any[Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, Int64, Core.Const(1)])
+2026-11-11T18:55:03.8422706Z └──      return %3
+2026-11-11T18:55:03.8422870Z 
+2026-11-11T18:55:03.8727607Z ADAPTER_ALLOCATION_BYTES runtime=0 static=0
+2026-11-11T18:55:08.8208529Z runtime-selection block adapter:
+2026-11-11T18:55:09.9764102Z MethodInstance for block(::Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, ::Int64)
+2026-11-11T18:55:09.9854010Z   from block(x, k) @ Main ~/work/ProximalBase.jl/ProximalBase.jl/benchmark/audit852/adapters.jl:28
+2026-11-11T18:55:10.0065203Z Arguments
+2026-11-11T18:55:10.0310120Z   #self#::Core.Const(Main.block)
+2026-11-11T18:55:10.2205464Z   x::Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}
+2026-11-11T18:55:10.2206344Z   k::Int64
+2026-11-11T18:55:10.2293333Z Body::SubArray{Float64, 1, Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, true}
+2026-11-11T18:55:10.4067669Z 1 ─ %1 = Main.isdefined::Core.Const(isdefined)
+2026-11-11T18:55:10.4178694Z │   %2 = Main.PB::Core.Const(Main.ProximalBase)
+2026-11-11T18:55:11.5837572Z │   %3 = (%1)(%2, :blockview)::Core.Const(true)
+2026-11-11T18:55:11.6307941Z └──      goto #3 if not %3
+2026-11-11T18:55:11.6308885Z 2 ─ %5 = Main.PB::Core.Const(Main.ProximalBase)
+2026-11-11T18:55:11.6511244Z │   %6 = Base.getproperty(%5, :blockview)::Core.Const(Main.ProximalBase.blockview)
+2026-11-11T18:55:11.8747567Z │   %7 = (%6)(x, k)::Core.PartialStruct(SubArray{Float64, 1, Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, true}, Union{Nothing, Bool}[0, 0, 0, 0], Any[Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, Int64, Core.Const(1)])
+2026-11-11T18:55:11.8801327Z └──      return %7
+2026-11-11T18:55:12.2889158Z 3 ─      Core.Const(:(Main.PB))
+2026-11-11T18:55:12.2939997Z │        Core.Const(:(Base.getproperty(%9, :atom)))
+2026-11-11T18:55:12.2940901Z │        Core.Const(:((%10)(x, k)))
+2026-11-11T18:55:12.3001605Z └──      Core.Const(:(return %11))
+2026-11-11T18:55:12.3001960Z 
+2026-11-11T18:55:12.4386861Z static-selection block adapter:
+2026-11-11T18:55:12.4406497Z MethodInstance for block(::Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, ::Int64)
+2026-11-11T18:55:12.4407848Z   from block(x, k) @ Main ~/work/ProximalBase.jl/ProximalBase.jl/benchmark/audit852/adapter_diagnostic.jl:17
+2026-11-11T18:55:12.4408728Z Arguments
+2026-11-11T18:55:12.4409078Z   #self#::Core.Const(Main.block)
+2026-11-11T18:55:12.4418575Z   x::Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}
+2026-11-11T18:55:12.4419265Z   k::Int64
+2026-11-11T18:55:12.4432474Z Body::SubArray{Float64, 1, Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, true}
+2026-11-11T18:55:12.4442038Z 1 ─ %1 = Main.PB::Core.Const(Main.ProximalBase)
+2026-11-11T18:55:12.4452039Z │   %2 = Base.getproperty(%1, :blockview)::Core.Const(Main.ProximalBase.blockview)
+2026-11-11T18:55:12.4468842Z │   %3 = (%2)(x, k)::Core.PartialStruct(SubArray{Float64, 1, Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, true}, Union{Nothing, Bool}[0, 0, 0, 0], Any[Main.ProximalBase.BlockIterate{Float64, Vector{UnitRange{Int64}}}, Tuple{UnitRange{Int64}}, Int64, Core.Const(1)])
+2026-11-11T18:55:12.4470300Z └──      return %3
+2026-11-11T18:55:12.4470446Z 
+2026-11-11T18:55:12.4803311Z ADAPTER_ALLOCATION_BYTES runtime=0 static=0
+

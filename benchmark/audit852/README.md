@@ -111,3 +111,46 @@ controls bracket hot/cold conditioning; report them separately. Raw allocation
 isolation uses one constructor/import operation per fresh process, with A/A
 controls and a longer budget; no equivalence claim follows from A/B near one
 when same-source A/A varies strongly.
+
+To reproduce the full set of controls after finish_campaign.py, continue with:
+
+```sh
+python3 benchmark/audit852/supplement_controls.py --prefix /tmp/pb852-final --julia "$JULIA" --sources /tmp/pb852-frozen
+python3 benchmark/audit852/confirm_controls.py --prefix /tmp/pb852-final --julia "$JULIA" --sources /tmp/pb852-frozen
+python3 benchmark/audit852/raw_blocks.py --prefix /tmp/pb852-final --julia "$JULIA" --sources /tmp/pb852-frozen
+python3 benchmark/audit852/static_adapter_control.py --prefix /tmp/pb852-final --julia "$JULIA" --sources /tmp/pb852-frozen
+python3 benchmark/audit852/finalize_data.py --prefix /tmp/pb852-final --broad /tmp/pb852-broad --julia "$JULIA" --sources /tmp/pb852-frozen
+```
+
+The commands are sequential. --wait is available for the dependent drivers to
+wait for their predecessor's verified outputs, without overlapping Julia work.
+Use a fresh prefix and output tree for a new campaign. Each driver refuses to
+reuse existing measurement directories. Install the plotting requirements into
+the Python environment running the final driver, or use --skip-plots there and
+run plot_report.py separately afterward.
+
+The raw block variant addresses original convenience-constructor exclusions:
+its existing AtomIterate(storage, atoms) holds native vector SubArray views for
+both precisions and all three layouts. Storage/views are prepared outside
+timing. Construction is intentionally excluded, because a prebuilt raw field
+constructor would not be comparable to a full modern factory. Original group
+activation and compaction remain unsupported. Raw-native, convenience-vector
+and native-row-matrix contexts are labeled separately; never pool their times.
+
+finalize_data.py waits for all timing/confirmations, then runs tighter Float64
+references, nonuniform all-index layout fingerprints, generated-code and
+compilation diagnostics, independent p90/provenance checks, seven/21 supplemental
+partitions, the regression ledger and report exports/figures. It does not
+publish, merge, or modify src/. Heavy diagnostics/plotting/packing must occur
+after all measurement processes finish. Adapter_diagnostic.jl tests whether
+runtime versus static API selection affects historical inference, separately
+from source-kernel attribution.
+
+Run static_adapter_control.py after raw_blocks.py and before finalize_data.py,
+with the same --prefix/--julia/--sources arguments. It diagnoses all four adapter
+paths, and conditionally measures corrected historical05 block attribution if
+runtime API selection affected inference. --wait serializes it after raw block
+measurements. All original observations remain available; source_attribution
+in all-comparisons.csv and adapter-exclusions.csv identify any invalidated
+historical view-operation contrasts. This diagnostic is required before final
+export, and finalization also waits for its completion marker.

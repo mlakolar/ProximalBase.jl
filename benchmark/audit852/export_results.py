@@ -5,6 +5,8 @@ from pathlib import Path
 p=argparse.ArgumentParser();p.add_argument('--prefix',type=Path,required=True)
 p.add_argument('--broad',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
 a=p.parse_args();prefix=str(a.prefix.resolve());out=a.output;out.mkdir(parents=True,exist_ok=True)
+adapter=json.loads(Path(prefix+'-adapter-control-complete.json').read_text())
+assert adapter['status']=='pass'
 paths=[('broad7',a.broad,Path(prefix+'-broad-summary')),
  ('native-confirmation21',Path(prefix+'-followup'),Path(prefix+'-followup-summary')),
  ('supplement-native7',Path(prefix+'-supplement'),Path(prefix+'-supplement-summary')),
@@ -15,6 +17,10 @@ paths=[('broad7',a.broad,Path(prefix+'-broad-summary')),
  ('raw-block-confirmation21',Path(prefix+'-raw-block-confirmation'),Path(prefix+'-raw-block-confirmation-summary')),
  ('common-full-confirmation21',Path(prefix+'-restore-confirmation'),Path(prefix+'-restore-confirmation-summary')),
  ('common-active-confirmation21',Path(prefix+'-active-restore-confirmation'),Path(prefix+'-active-restore-confirmation-summary'))]
+if adapter['historical05_runtime_adapter_artifact']:
+    paths.append(('static-adapter7',Path(prefix+'-static-adapter'),Path(prefix+'-static-adapter-summary')))
+    if Path(prefix+'-static-adapter-summary/suspicious.txt').read_text().strip():
+        paths.append(('static-adapter-confirmation21',Path(prefix+'-static-adapter-confirmation'),Path(prefix+'-static-adapter-confirmation-summary')))
 for i in range(3):
  base=Path(prefix+'-allocation-isolation');paths.append((f'allocation-isolation-{i:02}',base/f'case-{i:02}',base/f'summary-{i:02}'))
 allrows=[];index=[]
@@ -33,7 +39,12 @@ for name,raw,summary in paths:
     for f in summary.iterdir():
         if f.is_file():shutil.copyfile(f,dest/f.name)
     rows=list(csv.DictReader((summary/'summary.csv').open()))
-    allrows.extend(dict(campaign=name,**r) for r in rows)
+    for r in rows:
+        affected=(adapter['historical05_runtime_adapter_artifact'] and not name.startswith('static-adapter')
+          and 'historical05' in (r['before'],r['after']) and r['case'].startswith('block/')
+          and r['case'].rsplit('/',1)[1] in ('write_active','block_read','block_sweep','block_cd','residual_bcd'))
+        status='excluded from source attribution: runtime API-selection inference artifact' if affected else 'comparable source observation in the stated context'
+        allrows.append(dict(campaign=name,source_attribution=status,**r))
     config=json.loads((raw/'campaign.json').read_text());counts={}
     for r in csv.DictReader((raw/'observations.csv').open()):counts[r['status']]=counts.get(r['status'],0)+1
     assert counts.get('failure',0)==0
@@ -46,6 +57,10 @@ for name,raw,summary in paths:
 for name,rows in [('campaigns.csv',index),('all-comparisons.csv',allrows)]:
     with (out/name).open('w') as f:
         writer=csv.DictWriter(f,fieldnames=list(rows[0]));writer.writeheader();writer.writerows(rows)
+excluded=[r for r in allrows if r['source_attribution'].startswith('excluded')]
+with (out/'adapter-exclusions.csv').open('w') as f:
+    writer=csv.DictWriter(f,fieldnames=list(allrows[0]));writer.writeheader();writer.writerows(excluded)
+shutil.copyfile(prefix+'-adapter-control-complete.json',out/'adapter-diagnostic.json')
 # Partitions are derived from the same supplemental28, not extra measurements.
 partitions=Path(prefix+'-supplement-partitions')
 for name in ('exploratory7','confirmation21'):
@@ -63,6 +78,10 @@ R is the median paired round ratio; marginal before/after times need not divide
 to R. A/A comparisons appear as their own rows, with confidence intervals.
 Allocation counts/bytes are trial estimates. Reachable memory is summarysize.
 Native, common-full, common-active and native-index contexts are separate.
+The source_attribution column marks any historical05 view-operation contrasts
+invalidated by the API-selection diagnostic. Original raw rows are retained;
+adapter-exclusions.csv lists affected contrasts and static-adapter7 replaces
+their source attribution when the diagnostic confirms an artifact.
 The supplemental exploratory7 and confirmation21 directories partition the
 same full28 campaign; they are not additional raw observations.
 

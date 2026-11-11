@@ -322,16 +322,22 @@ They are descriptive attribution points; only the stated revisions are timed.
 
 | Case (Float64, native setup) | Original µs | Historical05 µs | Post848 µs | Post850 µs |
 |---|---:|---:|---:|---:|
-| Block four diagonal sweeps, n8192/b64/12 active groups | 0.533 | 248.911 | 2.750 | 2.761 |
+| Block four diagonal sweeps, n8192/b64/12 active groups | 0.533 | excluded: adapter artifact | 2.750 | 2.761 |
 | Block copyto, n8192/b1/819 active groups | 1.134 | 11.380 | 12.864 | 12.858 |
 | Symmetric generic bilinear, p144/10000 active | 16.335 | 26.268 | 32.104 | 32.166 |
 | Sparse copyto, n1m/100 active | 1610.869 | 0.095 | 0.095 | 0.097 |
 
-Historical05's first block sequence allocates 345,600 bytes / 18,480 objects;
-post848/post850 and original allocate zero. Thus the current code is dramatically
-better than that historical05 public-view path while remaining slower than the
-original dense cached-view path. The original/current question would have a
-wrong answer if the agent-era baseline were silently called pre-agent.
+Historical05's first block sequence recorded 248.911 µs and 345,600 bytes /
+18,480 objects. **That observation is excluded from source attribution.** Its
+Main adapter selected atom versus blockview with a runtime isdefined check;
+the missing-symbol branch prevented inference in that revision. A static
+selection of the native API removes all 345,600 allocated bytes in the
+[independent CI diagnostic](research/ci-adapter-diagnostic.log). Original,
+post848 and post850 record zero bytes before and after the same adapter control.
+The primary original adapter directly accesses cached views; its comparison to
+current is separate and unaffected. Corrected static-adapter historical timing
+is pending; raw affected observations remain available with explicit exclusions.
+An agent-era baseline cannot silently be substituted for the pre-agent source.
 
 The active-group design appears in source history at
 7cee9dd439479ba8d94dff375810beaabd396461 (2026-10-22). That is source-history

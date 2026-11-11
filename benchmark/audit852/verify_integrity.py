@@ -44,7 +44,7 @@ for campaign in csv.DictReader((a.results/'campaigns.csv').open()):
             calibrations.append(dict(campaign=campaign['campaign'],round=prov.parent.parent.name,role=d['label'],
               endpoint=endpoint,median_ns=cal['median_ns'],min_ns=cal['min_ns'],source_load_seconds=d['source_load_seconds'],harness_digest=d['harness_digest']))
         processes+=1
-    counters={};gc_samples=0;total_samples=0
+    counters={};gc_samples=0;total_samples=0;zero_samples=0
     for file in raw.rglob('fixture-*.csv'):
         if file.name.endswith('.samples.csv'):continue
         for row in csv.DictReader(file.open()):
@@ -52,14 +52,16 @@ for campaign in csv.DictReader((a.results/'campaigns.csv').open()):
             values=list(csv.DictReader(Path(str(file)+'.'+row['case'].rsplit('/',1)[1]+'.samples.csv').open()))
             times=[float(v['time_ns']) for v in values];gcs=[float(v['gc_ns']) for v in values]
             assert len(times)==int(row['samples'])>0
-            assert all(math.isfinite(t) and t>0 for t in times)
+            assert all(math.isfinite(t) and t>=0 for t in times) and st.median(times)>0
             assert all(math.isfinite(g) and g>=0 for g in gcs)
             assert st.median(times)==float(row['median_ns']) and min(times)==float(row['min_ns'])
             assert math.isclose(p90(times),float(row['p90_ns']),rel_tol=1e-12,abs_tol=1e-7),(file,row['case'],'p90')
             assert float(row['bytes'])>=0 and float(row['allocs'])>=0
-            counters[len(times)]=counters.get(len(times),0)+1;gc_samples+=sum(g>0 for g in gcs);total_samples+=len(times)
+            counters[len(times)]=counters.get(len(times),0)+1;gc_samples+=sum(g>0 for g in gcs)
+            total_samples+=len(times);zero_samples+=sum(t==0 for t in times)
     sample_diagnostics.append(dict(campaign=campaign['campaign'],trials=sum(counters.values()),
-       sample_counts=dict(sorted(counters.items())),total_samples=total_samples,samples_with_gc=gc_samples))
+       sample_counts=dict(sorted(counters.items())),total_samples=total_samples,samples_with_gc=gc_samples,
+       zero_time_samples=zero_samples))
 with (a.results/'calibration.csv').open('w') as f:
     writer=csv.DictWriter(f,fieldnames=list(calibrations[0]));writer.writeheader();writer.writerows(calibrations)
 (a.results/'sample-diagnostics.json').write_text(json.dumps(sample_diagnostics,indent=2)+'\n')

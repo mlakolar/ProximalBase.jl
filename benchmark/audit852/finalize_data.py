@@ -17,6 +17,8 @@ research=REPO/'docs/audit/iterate-performance-852/research';results=research.par
 def ready():
     raw=Path(prefix+'-raw-block-complete.json')
     if not raw.exists() or json.loads(raw.read_text())['status']!='pass':return False
+    adapter=Path(prefix+'-adapter-control-complete.json')
+    if not adapter.exists() or json.loads(adapter.read_text())['status']!='pass':return False
     for name in ['supplement-restore','active-restore']:
         f=Path(prefix+'-'+name+'-summary/analysis.json')
         if not f.exists() or not json.loads(f.read_text())['raw_samples_verified']:return False

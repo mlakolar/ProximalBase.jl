@@ -13,6 +13,8 @@ HERE=Path(__file__).resolve().parent;REPO=HERE.parent.parent
 p=argparse.ArgumentParser();p.add_argument('--prefix',type=Path,required=True)
 p.add_argument('--julia',type=Path,required=True);p.add_argument('--sources',type=Path,required=True)
 p.add_argument('--cpu',type=int,default=min(os.sched_getaffinity(0)));p.add_argument('--wait',action='store_true')
+p.add_argument('--generate-only',action='store_true',help='create the raw-native harness for CI/reference checks, without measurements')
+p.add_argument('--harness-source',type=Path,help='existing generated common-full/native-index supplemental harness')
 a=p.parse_args();prefix=str(a.prefix.resolve())
 def ready():
     if not Path(prefix+'-active-restore-summary/analysis.json').exists():return False
@@ -23,12 +25,12 @@ def ready():
             f=Path(prefix+'-'+name+'-confirmation-summary/analysis.json')
             if not f.exists() or not json.loads(f.read_text())['raw_samples_verified']:return False
     return True
-if a.wait:
+if a.wait and not a.generate_only:
     while not ready():time.sleep(5)
-assert ready(),'finish prior timing/confirmations first'
+if not a.generate_only:assert ready(),'finish prior timing/confirmations first'
 archive_sources(a.sources)
 harness=Path(prefix+'-raw-block-harness');assert not harness.exists()
-shutil.copytree(Path(prefix+'-supplement-restore-harness'),harness,ignore=shutil.ignore_patterns('__pycache__'))
+shutil.copytree(a.harness_source or Path(prefix+'-supplement-restore-harness'),harness,ignore=shutil.ignore_patterns('__pycache__'))
 adapters=harness/'adapters.jl';s=adapters.read_text();line=next(l for l in s.splitlines() if l.startswith('newblock(T,n,b,groups)='))
 s=s.replace(line,'''function newblock(::Type{T},n,b,groups) where T
     if ORIGINAL
@@ -54,6 +56,8 @@ for x in scenarios():
  'original_api':'existing AtomIterate(storage, atoms) with native vector SubArray views',
  'source_patches':False,'restore':'common full fields outside timing','trial':'80 samples / 1 second',
  'roles':'original,post850,originalAA,post850AA','fixtures':len(chosen),'case_ids':sum(len(x['ops']) for x in chosen)},indent=2)+'\n')
+if a.generate_only:
+    print('Generated raw-native harness:',harness,flush=True);raise SystemExit(0)
 base=[sys.executable,str(harness/'run.py'),'--julia',str(a.julia),'--sources',str(a.sources),'--cpu',str(a.cpu)]
 steps=[]
 def run(name,cmd):

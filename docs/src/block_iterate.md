@@ -9,7 +9,7 @@ contain only zeros until `dropzeros!` removes it.
 
 Use `BlockIterate([T,]p,groups)` for empty storage or
 `BlockIterate(x::AbstractVector,groups)` to copy entry values. `T` defaults
-to Float64. A copied input starts with the groups containing a converted
+to `Float64`. A copied input starts with the groups containing a converted
 nonzero entry active, in group order. Real element types are required.
 
 Groups must be nonempty disjoint integer lists covering exactly `1:p`.
@@ -41,7 +41,7 @@ collect(blockindices(x,1))
 `x[j]` reads/writes entry `j`; `activate!(x,k)` and `isactive(x,k)` use a
 **group** ID. `nactive` counts groups; `activecoordinates` lists their IDs
 in activation order except for later compaction. `coordinates(x)` and
-`activevalues(x)` have no BlockIterate method. Use `blockview(x,k)` to access
+`activevalues(x)` have no `BlockIterate` method. Use `blockview(x,k)` to access
 a group's values.
 
 `blockindices(x,k)` returns a read-only vector/range of global entry indices.

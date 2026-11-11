@@ -1,0 +1,142 @@
+# Historical selection and benchmark specification (#852)
+
+This document was written before full timing began. The primary contrast is
+`post850 / original`, never a comparison against old-machine published timings.
+Exact Git metadata is in `research/versions.json`.
+
+## Historical boundary
+
+The last pre-agent mainline commit is **bd0740d0ebbebcc76fe208e4318fe6fc5451d34b**,
+authored/committed 2020-08-13 (package 0.3.0). The next mainline change is
+5ba264a5206f6afc28e2e51d97f470d945eb0eea, 2026-10-20 PT, PR #4.
+The [PR #4](https://github.com/mlakolar/ProximalBase.jl/pull/4) body explicitly
+says “Generated with [Claude Code]”; its API base SHA is bd0740d. The API
+snapshot is retained in research/pr-4.json. Git first-parent chronology and the
+six-year hiatus independently corroborate the boundary. Author identity alone
+would not establish agent involvement. We cannot prove no earlier unrecorded
+assistance existed; this is the last original implementation before the
+explicitly documented agent-driven development sequence.
+
+The other pinned sources are:
+
+| Label | Full SHA | Date (UTC) | Role |
+|---|---|---|---|
+| original | bd0740d0ebbebcc76fe208e4318fe6fc5451d34b | 2020-08-13T19:44:24Z | primary baseline |
+| historical05 | def81ec9d021c39ed1727cfeb9598357291dd60d | 2026-11-01T12:04:08Z | 0.5.x design baseline, already agent-era |
+| post848 | eff21b6d7d33c622313122f46c6ee71693c101ee | 2026-11-11T04:42:52Z | full implementation, renamed blocks and owner redesign |
+| post850 | 2b373c546e247781d9514a7000ef3e010343ca4c | 2026-11-11T06:57:16Z | minimal-core merge, fixed target |
+
+Original source uses src/sparseIterate.jl for all three types. Sparse and
+symmetric iterates have three full-capacity arrays: values, active IDs and
+coordinate-to-position map. The original symmetric array exposes independent
+lower-triangle linear indexing despite its matrix shape. Historical05 has
+extensive agent changes, active-group AtomIterate, ordinary matrix indexing
+for symmetric arrays, checked writers and additive coordinate API. Post848
+uses BlockIterate and a non-array symmetric owner with coordinates(x).
+Post850 extracts a smaller mathematical library; the iterate implementations
+are preserved (docstrings differ). Source archives and source digests are
+recorded by the runner; none is patched to make it load.
+
+## Prior infrastructure examined
+
+* Original: no benchmark directory; runtime depends only on Julia stdlibs.
+* historical05: benchmark/run.jl and cases.jl are broad mathematical-function
+  catalogs; no completed #420 baseline yet at this source.
+* post848: full cases.jl/compare.py, deterministic scenario_rng, fixed-count
+  sparse generators, independent references, prepare/evals=1, input mutation
+  guards, calibration, locked-environment setup and #463 reproducer.
+* post850: run.jl/probes.jl/differential.jl/summarize.py replace that catalog
+  with 102 minimal-core probes. The old cases.jl, compare.py and baselines/
+  remain in Git at post848, not in the active tree.
+
+[Issue #420](https://github.com/mlakolar/ProximalBase.jl/issues/420) specifies
+n=10^4/10^6 and s=100/1000/10000, block sizes 1/8/64 and 1%/10% activity.
+Its pinned source def81ec9 deliberately precedes 0.6 FD implementations,
+not all agent development. [Issue #463](https://github.com/mlakolar/ProximalBase.jl/issues/463)
+recovered the generator/verifier and evidence; its tools reproduce 3,719 rows
+byte-for-byte but original individual timing samples are unavailable. The
+45-member archive has SHA256 ae0235adad9f932ceb95ea3ad1709621d73fa0a506dd231b9c442fd005b1bf87.
+We reuse those tools unchanged for historical integrity verification only.
+The historical compare.py caps repetition counts at 10 and assumes its catalog
+and metadata, so it cannot directly analyze this 7 + >=20-round experiment.
+The deterministic fixture/reference patterns, BenchmarkTools setup and
+allocation recording are reused; a separate adapter/spec/driver is necessary
+for original APIs, solver sequences, independent processes and larger rounds.
+
+[Issue #849](https://github.com/mlakolar/ProximalBase.jl/issues/849),
+[PR #850](https://github.com/mlakolar/ProximalBase.jl/pull/850) and
+[performance.md](../minimal-core-849/performance.md) document the extraction
+comparison, including code-placement/fixture effects and A/A controls. We
+reuse BenchmarkTools 1.8.0 / PrecompileTools 1.4.0 (locked Manifest), the
+one-evaluation prepare pattern and independent-process control design.
+Removed penalty/prox/GLM/spectral catalog cases are obsolete after #850 and
+outside this storage-only audit. Existing 102 probes remain suitable for
+post848/post850 correctness; they cannot load original APIs unchanged.
+No historical baseline or existing harness file is edited.
+
+## Equivalent operations and adapters
+
+Shared specification uses deterministic full input vectors and explicit ID
+schedules. Sparse shapes are n=10,000/1,000,000, s=100/1,000/10,000 (s<=n),
+both Float32/64. Symmetric matrix sizes p=144/1414 give 10,440/1,000,405
+independent coordinates with the same active counts. IDs use independent
+column-major lower-triangle enumeration; no package mapping helper builds the
+reference. Public 2-index operations are compared directly; coordinate
+operations adapt original x[k], historical05/post848/post850 coordinates(x)[k]. This adapter difference is explicit and
+2-index workloads provide a syntax-independent cross-check.
+
+Blocks use p=8192/65536, sizes 1/8/64, contiguous, strided and deterministically
+permuted groups, and 1%/10% activity (at least one group). Original public
+constructors support only equal contiguous Float64 blocks (and matrix row/
+column blocks), without an active list. We do NOT fabricate historical active
+metadata or arbitrary-layout constructors. Original noncontiguous and Float32
+block cases are reported N/A. The newer three versions cover the full matrix.
+For original contiguous Float64 blocks, reads/writes, sweep, copy, clear and
+products compare values under an externally supplied group schedule. They
+perform different bookkeeping by design: only newer versions maintain an
+active set. Native activation/isactive/dropzeros and state-copy activity have
+no original counterpart and are labeled incompatible. No timed conversions.
+
+Sparse and symmetric cases cover empty/populated construction, first nonzero
+activation, active writes, repeated read-modify-write, active sweep, sequential
+and random reads, deliberate active zeros, copy/copyto, clear, dropzeros,
+dense import (sparse), dot and preallocated matrix products. Separate scalar
+reads/writes complement batched solver paths. Full clear retains active zeros
+before compaction. Original symmetric full clear is an explicit independent-
+coordinate loop because generic matrix fill has an inconsistent length
+contract; newer owners use fill!(coordinates(x),0). This is a semantic adapter,
+not an original native complexity claim. Copy operations must preserve state;
+unsupported generic original copies are surfaced as failures, never repaired.
+
+Complete workload sequences use a diagonal quadratic coordinate model with
+soft thresholding: fixed-set CD, expanding CD, pruning/compaction/rebuilding,
+contiguous/noncontiguous block CD, and repeated symmetric 2-index updates.
+The dense reference executes the same arithmetic and tracks activity as a
+separate set; tests verify values, active sets/counts, retained zeros, copy
+independence and live block views. Every case is checked before warmup/timing
+in every worker; Float32/64 bounds-checked runs precede measurement.
+
+## Measurement and analysis planned
+
+Linux / Julia 1.13.3 only; one Julia and BLAS thread, same startup/compiler/
+bounds flags, immutable archived source loaded in Main.ProximalBase in separate
+processes, common locked dependencies, same pinned CPU. Seven fresh-process
+paired rounds include all four sources plus original A/A (and current A/A
+for original-incompatible cases); alternate case/version order. Setup/restores,
+independent checks and compilation are outside warmed timing. All mutations
+use evals=1. Save individual sample times, GC times, allocation bytes/counts,
+trial estimates, object summarysize, compilation/warmup duration and complete
+machine/binary/source/harness provenance. Object memory is reachable Julia
+heap, not RSS/native allocations.
+
+Per case: median paired post850/original ratio and deterministic percentile
+bootstrap 95% interval across process rounds, absolute times, allocation
+bytes/counts, A/A ratio and dispersion. Attribution uses all four revisions.
+No multiplicity-adjusted significance claims. Any primary median above 1.05
+is followed up for at least 20 additional paired rounds, with varied fixture
+placement and process controls; nanosecond cases remain timer-limited unless
+batch/solver evidence supports a practical regression. Stable source costs
+are investigated without production modifications. Old-machine baseline
+numbers never enter these ratios. Full conclusions await actual measurements.
+
+Pre-timing compatibility checks found that historical05 fill!(x,0) deletes the active set in all three families, unlike original/current retained-zero writes. Native clear is therefore N/A for that attribution revision; explicit zero_active and prune_rebuild sequences remain comparable. Full-active fixtures have no first-activation/expansion operation and report N/A. Original detection uses absence of ncoordinates, since historical05 retains a deprecated numCoordinates alias. The initial failed adapter checks are retained as harness-development evidence; no measurements from them enter conclusions.

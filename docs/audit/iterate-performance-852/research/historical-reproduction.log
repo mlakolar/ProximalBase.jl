@@ -1,0 +1,11 @@
+python 3.11.5 (main, Sep 11 2023, 13:54:46) [GCC 11.2.0]
+archive SHA-256 ae0235adad9f932ceb95ea3ad1709621d73fa0a506dd231b9c442fd005b1bf87 (pinned value)
+extracted 45 members
+structure and identity: passed
+iterate-family-0.5.md: identical, SHA-256 9055d230ecb74a654d5bb3beb315d25b1298260ae6373615b90d7edf99a968f2
+iterate-family-0.5.csv: identical, SHA-256 cb8348bb8099e91fce8ac733454682a82f26d875db9f98ad92bc0a8479c71705
+verify_csv3: no mismatch; rows, timer-limited, gate and conclusive counts as pinned
+aa: 3719 cases; bit-equal paired_geometric_speedup 3714, ci95_low 3709, ci95_high 3712, before_mean_ns 3719, after_mean_ns 3719; largest distance 1 ulps (bound 4)
+counts: cases 3719, timer_limited_base 94, timer_limited_aa 94, timer_limited_aa_only 0, timer_limited 94, not_timer_limited 3625, gate5 1092, varying_work 104, diagnostic 16, diagnostic_flipped 2, aa_conclusive 104, other 2533
+A/A and counts: passed
+result: both files identical, all checks passed

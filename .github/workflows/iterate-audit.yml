@@ -1,0 +1,26 @@
+name: Historical iterate audit correctness
+on:
+  pull_request:
+    paths:
+      - 'benchmark/audit852/**'
+      - '.github/workflows/iterate-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  correctness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.13.3'
+      - uses: julia-actions/cache@v3
+      - name: Instantiate locked benchmark dependencies
+        run: julia --startup-file=no --project=benchmark/audit852 -e 'using Pkg; Pkg.instantiate()'
+      - name: Check all four source revisions against independent references
+        run: python3 benchmark/audit852/run.py --julia "$(command -v julia)" --output "$RUNNER_TEMP/pb852-check" --sources "$RUNNER_TEMP/pb852-frozen" --check --rounds 1 --roles original,historical05,post848,post850
+      - name: Check analysis invariants
+        run: python3 benchmark/audit852/check_analysis.py

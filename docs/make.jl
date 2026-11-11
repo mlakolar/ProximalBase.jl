@@ -67,7 +67,7 @@ makedocs(;
         "Home" => "index.md",
         "Getting started" => "getting_started.md",
         "Working with functions" => [
-            "Function objects and capabilities" => "function_objects.md",
+            "Function objects and their properties" => "function_objects.md",
             "Operations on functions" => "operations.md",
             "Writing your own function" => "extending.md",
         ],

@@ -18,8 +18,8 @@ declare the appropriate type traits. Generic defaults are deliberately limited:
 `isconvex` defaults false and must be declared when justified. There is no
 automatic gradient from a value, scalar prox from a full-array prox, KKT screen,
 restriction, Lipschitz bound or full-array lifting of a compact block oracle.
-General defaults accepting tuples do not make a leaf operate on tuples; the
-leaf still needs actual methods. The generic `gradient!` default depends on
+Generic methods accepting tuples do not imply that the underlying function
+supports tuple inputs; it still needs methods for the requested argument types. The generic `gradient!` default depends on
 `value_and_gradient!`, so implement that hook if relying on the default.
 
 An overriding public oracle owns real-type, shape, parameter, alias and symmetric
@@ -31,8 +31,16 @@ buffers or solver storage while constructing a pure numerical result.
 
 ## Separable functions
 
-For ``f(x)=\sum_if_i(x_i)``, define `value_entry(f,v,i)` and
-`prox_block(f,v,i,γ)`. Here i is the **linear entry index** of the underlying
+Suppose the function can be written as a sum of independent coordinate terms,
+
+```math
+f(x)=\sum_{i=1}^{p} f_i(x_i).
+```
+
+A Julia subtype of `SeparableFunction` supplies two scalar operations:
+`value_entry(f, v, i)` evaluates ``f_i(v)``, while
+`prox_block(f, v, i, γ)` computes the scalar proximal point of
+``\gamma f_i`` at ``v``. Here i is the **linear entry index** of the underlying
 argument, used to index parameters. Generic kernels visit arrays, SparseIterate,
 BlockIterate and symmetric owners. Declare `check_parameters(f,x)` to reject
 wrong parameter extent before generic writes. Use `prod(size(x))` rather than
@@ -53,9 +61,30 @@ values count off-diagonal entry terms twice, while coordinate vectors count
 one independent value. Raw scalar calls do not check owner symmetry; validate
 the original function before using them.
 
-The complete [WeightedSquare example](examples/custom_function.md) owns its
-weights, checks nonnegative finite values, defines both hooks and metadata,
-then verifies dense, sparse and symmetric use plus failure-before-write.
+For example, the [WeightedSquare implementation](examples/custom_function.md)
+represents
+
+```math
+f(x)=\frac12\sum_{i=1}^{p}w_i x_i^2,\qquad w_i\geq0.
+```
+
+Its scalar functions are
+
+```math
+\operatorname{value\_entry}(f,v,i)=\frac{w_i v^2}{2},\qquad
+\operatorname{prox}_{\gamma f_i}(v)=\frac{v}{1+\gamma w_i}.
+```
+
+The Julia methods correspond directly to these formulas:
+
+```julia
+ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
+ProximalBase.prox_block(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
+```
+
+The complete implementation owns its weights, checks finite nonnegative
+parameters, defines both methods and the required parameter metadata, and
+verifies dense, sparse and symmetric use and failure-before-write behavior.
 Its definition and checks are included below from that executable source.
 
 ```@eval
@@ -72,8 +101,21 @@ to support KKT/restrict/lipschitz, define and validate those independently.
 
 ## Compact-vector block extensions
 
-A block oracle computes ``prox_{γh_k}(u)`` from numerical trial u and custom
-group ID k. Buffers are in that group's **ordered compact index space**,
+A block function may act on a compact vector ``u`` representing one group.
+For the [BlockSquare example](examples/block_prox_extension.md), group ``k``
+has the mathematical form
+
+```math
+h_k(u)=\frac{a_k}{2}\|u\|_2^2,\qquad
+\operatorname{prox}_{\gamma h_k}(u)=\frac{u}{1+\gamma a_k}.
+```
+
+Its Julia implementation stores a parameter `a[k]` for each group and
+implements `prox_block!(out, f, u, k, γ)` by writing
+`u ./ (1 + γ * f.a[k])` to `out`.
+
+More generally, a custom block method computes ``\operatorname{prox}_{\gamma h_k}(u)``
+from a numerical trial `u` and group index `k`. Buffers are in that group's **ordered compact index space**,
 not the full vector. Validate one-based real vectors, group bounds, exact
 length, parameters and overlap before writes. Support `out===u`; reject other
 overlap. Return out. The allocating default creates a plain floating Vector
@@ -87,10 +129,9 @@ can leave an absent block inactive because the trial was never written there.
 Parameter symmetry and independent-coordinate geometry are not automatically
 defined for an arbitrary block decomposition on a symmetric owner.
 
-The [BlockSquare example](examples/block_prox_extension.md) uses
-``h_k(u)=a_k\|u\|^2/2`` and checks allocating, exact in-place and rejected
-overlap calls. It implements a block-only extension and makes no full-array
-trait claim.
+The complete BlockSquare example checks allocating, exact in-place and
+rejected-overlap calls. Implementing only this block method does not by
+itself define a full-array proximal operator or its associated traits.
 
 ```@eval
 using Markdown, ProximalBase

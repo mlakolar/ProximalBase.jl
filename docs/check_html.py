@@ -85,6 +85,25 @@ def main():
                 errors.append(f'{page.path.relative_to(BUILD)}: missing anchor {href}')
         assert page.footer, f'Missing previous/next footer: {page.path}'
         assert len(page.toggles) == 8, f'Expected eight shallow expandable categories: {page.path}'
+    # These pages are generated from docs/design/*.md. Their math and code
+    # must render as formatted elements, not plain prose in the HTML.
+    contracts = [
+        'developer/contracts/block-prox-0.6',
+        'developer/contracts/iterate-family-0.6',
+        'developer/contracts/symmetric-sparse-iterate-0.6',
+    ]
+    for base in contracts:
+        flat = (BUILD / (base + '.html')).resolve()
+        pretty = (BUILD / base / 'index.html').resolve()
+        target = flat if flat in pages else pretty
+        if target not in pages:
+            errors.append(f'Missing rendered contract: {base}')
+            continue
+        contract = pages[target]
+        if contract.code < 10:
+            errors.append(f'{base}: expected formatted Julia API names and code blocks')
+        if contract.math < 1:
+            errors.append(f'{base}: expected rendered mathematical expressions')
     # All authored/generated Markdown pages must render. Only the historical
     # storage landing page and old interface URL are hidden from navigation.
     hidden_pages = {'storage.md', 'interface.md'}

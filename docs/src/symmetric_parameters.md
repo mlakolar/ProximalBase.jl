@@ -9,11 +9,11 @@ it requires your parameter arrays to be **exactly symmetric**.
 
 | Function | Per-entry array |
 |:--|:--|
-| NormL1 | weights w |
-| SqrNormL2 | center y |
-| LinearFunction | coefficients c |
-| Scaled | recurses through its inner function |
-| Custom SeparableFunction | every declared per-entry array |
+| `NormL1` | weights w |
+| `SqrNormL2` | center y |
+| `LinearFunction` | coefficients c |
+| `Scaled` | recurses through its inner function |
+| Custom `SeparableFunction` | every declared per-entry array |
 
 Parameters refer to full matrix positions, usually a p×p array. An entrywise
 weight vector of length p² can be paired in column-major order where the wrapped function
@@ -38,12 +38,12 @@ domains; declaring a parameter does not make a negative/NaN weight valid.
 
 | Operation involving an owner | Pairs checked |
 |:--|:--|
-| `f(x)` | Usually all; built-in stored-value paths such as NormL1 compare stored pairs only |
+| `f(x)` | Usually all; built-in stored-value paths such as `NormL1` compare stored pairs only |
 | `prox!`, `value_and_prox!` with owner destination | All, except built-in zero-preserving stored paths with both arguments owners compare pairs stored in input or output |
 | Prox with dense destination and owner point | All declared pairs |
 | Gradient/fused gradient, owner point or output | All declared pairs, when that method exists |
 | Four-argument `kkt_violation` on an owner | Chosen coordinate pair only |
-| `check_symmetric_parameters(f,x)` | All declared pairs, recursively through Scaled |
+| `check_symmetric_parameters(f,x)` | All declared pairs, recursively through `Scaled` |
 | Raw `value_entry`, `prox_block`, three-argument KKT, `restrict` | No owner; no pair check |
 
 A successful stored-only call does not certify unvisited parameter pairs.

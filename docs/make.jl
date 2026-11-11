@@ -73,7 +73,7 @@ makedocs(;
         ],
         "Function library" => [
             "Browse available functions" => "function_library.md",
-            "Smooth functions" => "smooth.md",
+            "Smooth array functions" => "smooth.md",
             "The ℓ₁ norm and soft thresholding" => "penalties.md",
             "Scaling a function" => "calculus.md",
         ],

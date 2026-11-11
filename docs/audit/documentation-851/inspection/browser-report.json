@@ -50,7 +50,7 @@
       "footer": [
         {
           "label": "Getting started \u00bb",
-          "href": "http://127.0.0.1:42971/getting_started/"
+          "href": "http://127.0.0.1:37499/getting_started/"
         },
         {
           "label": "Documenter.jl",
@@ -108,11 +108,11 @@
       "footer": [
         {
           "label": "\u00ab Home",
-          "href": "http://127.0.0.1:42971/"
+          "href": "http://127.0.0.1:37499/"
         },
         {
           "label": "Function objects and capabilities \u00bb",
-          "href": "http://127.0.0.1:42971/function_objects/"
+          "href": "http://127.0.0.1:37499/function_objects/"
         },
         {
           "label": "Documenter.jl",
@@ -133,7 +133,7 @@
       "width": 1440,
       "bodyWidth": 1425,
       "math": 6,
-      "katex": 22,
+      "katex": 23,
       "katexErrors": 0,
       "codeBlocks": 12,
       "highlighted": 12,
@@ -170,11 +170,11 @@
       "footer": [
         {
           "label": "\u00ab Browse available functions",
-          "href": "http://127.0.0.1:42971/function_library/"
+          "href": "http://127.0.0.1:37499/function_library/"
         },
         {
           "label": "Penalties \u00bb",
-          "href": "http://127.0.0.1:42971/penalties/"
+          "href": "http://127.0.0.1:37499/penalties/"
         },
         {
           "label": "Documenter.jl",
@@ -232,11 +232,11 @@
       "footer": [
         {
           "label": "\u00ab SparseIterate",
-          "href": "http://127.0.0.1:42971/sparse_iterate/"
+          "href": "http://127.0.0.1:37499/sparse_iterate/"
         },
         {
           "label": "BlockIterate \u00bb",
-          "href": "http://127.0.0.1:42971/block_iterate/"
+          "href": "http://127.0.0.1:37499/block_iterate/"
         },
         {
           "label": "Documenter.jl",
@@ -294,11 +294,11 @@
       "footer": [
         {
           "label": "\u00ab Array and precision conventions",
-          "href": "http://127.0.0.1:42971/numerical_usage/"
+          "href": "http://127.0.0.1:37499/numerical_usage/"
         },
         {
           "label": "Browse available functions \u00bb",
-          "href": "http://127.0.0.1:42971/function_library/"
+          "href": "http://127.0.0.1:37499/function_library/"
         },
         {
           "label": "Documenter.jl",
@@ -356,11 +356,11 @@
       "footer": [
         {
           "label": "\u00ab A custom separable function",
-          "href": "http://127.0.0.1:42971/examples/custom_function/"
+          "href": "http://127.0.0.1:37499/examples/custom_function/"
         },
         {
           "label": "Overview and contract map \u00bb",
-          "href": "http://127.0.0.1:42971/developer/"
+          "href": "http://127.0.0.1:37499/developer/"
         },
         {
           "label": "Documenter.jl",
@@ -418,11 +418,11 @@
       "footer": [
         {
           "label": "\u00ab Overview",
-          "href": "http://127.0.0.1:42971/api/"
+          "href": "http://127.0.0.1:37499/api/"
         },
         {
           "label": "Functions \u00bb",
-          "href": "http://127.0.0.1:42971/api/functions/"
+          "href": "http://127.0.0.1:37499/api/functions/"
         },
         {
           "label": "Documenter.jl",
@@ -480,11 +480,11 @@
       "footer": [
         {
           "label": "\u00ab A compact-vector block extension",
-          "href": "http://127.0.0.1:42971/examples/block_prox_extension/"
+          "href": "http://127.0.0.1:37499/examples/block_prox_extension/"
         },
         {
           "label": "System architecture \u00bb",
-          "href": "http://127.0.0.1:42971/architecture/"
+          "href": "http://127.0.0.1:37499/architecture/"
         },
         {
           "label": "Documenter.jl",
@@ -542,11 +542,11 @@
       "footer": [
         {
           "label": "\u00ab Home",
-          "href": "http://127.0.0.1:42971/"
+          "href": "http://127.0.0.1:37499/"
         },
         {
           "label": "Function objects and capabilities \u00bb",
-          "href": "http://127.0.0.1:42971/function_objects/"
+          "href": "http://127.0.0.1:37499/function_objects/"
         },
         {
           "label": "Documenter.jl",
@@ -620,315 +620,315 @@
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.11",
-        "timestamp": 44669.746447,
+        "requestId": "146797.11",
+        "timestamp": 45016.40218,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/siteinfo.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.12",
-        "timestamp": 44669.746512,
+        "requestId": "146797.12",
+        "timestamp": 45016.402244,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/versions.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/versions.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.168",
-        "timestamp": 44670.118146,
+        "requestId": "146797.167",
+        "timestamp": 45016.619826,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/versions.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/siteinfo.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.167",
-        "timestamp": 44670.120051,
+        "requestId": "146797.168",
+        "timestamp": 45016.619998,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/versions.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.322",
-        "timestamp": 44670.288253,
+        "requestId": "146797.322",
+        "timestamp": 45016.784337,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/siteinfo.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.323",
-        "timestamp": 44670.289203,
+        "requestId": "146797.323",
+        "timestamp": 45016.784694,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/versions.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/versions.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.477",
-        "timestamp": 44670.448192,
+        "requestId": "146797.478",
+        "timestamp": 45016.940496,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/versions.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.478",
-        "timestamp": 44670.448266,
+        "requestId": "146797.477",
+        "timestamp": 45016.940789,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/versions.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/siteinfo.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.633",
-        "timestamp": 44670.611962,
+        "requestId": "146797.633",
+        "timestamp": 45017.124564,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/versions.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/versions.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.632",
-        "timestamp": 44670.612102,
+        "requestId": "146797.632",
+        "timestamp": 45017.1256,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/siteinfo.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.787",
-        "timestamp": 44670.77683,
+        "requestId": "146797.787",
+        "timestamp": 45017.272471,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/siteinfo.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.788",
-        "timestamp": 44670.776932,
+        "requestId": "146797.788",
+        "timestamp": 45017.272545,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/versions.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/versions.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.943",
-        "timestamp": 44670.94536,
+        "requestId": "146797.942",
+        "timestamp": 45017.467607,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/versions.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/siteinfo.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.942",
-        "timestamp": 44670.945432,
+        "requestId": "146797.943",
+        "timestamp": 45017.467669,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/versions.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.1097",
-        "timestamp": 44671.103265,
+        "requestId": "146797.1097",
+        "timestamp": 45017.622281,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/siteinfo.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.1098",
-        "timestamp": 44671.103342,
+        "requestId": "146797.1098",
+        "timestamp": 45017.622332,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/versions.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/versions.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.1252",
-        "timestamp": 44671.273274,
+        "requestId": "146797.1253",
+        "timestamp": 45017.793731,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/versions.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.1253",
-        "timestamp": 44671.27333,
+        "requestId": "146797.1252",
+        "timestamp": 45017.793824,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/versions.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/siteinfo.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.1407",
-        "timestamp": 44671.394377,
+        "requestId": "146797.1407",
+        "timestamp": 45017.914652,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/siteinfo.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.1408",
-        "timestamp": 44671.394451,
+        "requestId": "146797.1408",
+        "timestamp": 45017.915794,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/versions.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/versions.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.1563",
-        "timestamp": 44671.512623,
+        "requestId": "146797.1563",
+        "timestamp": 45018.032138,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/versions.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/versions.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.1562",
-        "timestamp": 44671.512751,
+        "requestId": "146797.1562",
+        "timestamp": 45018.032185,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/siteinfo.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.1717",
-        "timestamp": 44671.625563,
+        "requestId": "146797.1718",
+        "timestamp": 45018.143805,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/versions.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.1718",
-        "timestamp": 44671.626683,
+        "requestId": "146797.1717",
+        "timestamp": 45018.144938,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/versions.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/siteinfo.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.1873",
-        "timestamp": 44671.748816,
+        "requestId": "146797.1872",
+        "timestamp": 45018.267979,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/versions.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/siteinfo.js"
     },
     {
       "method": "Network.loadingFailed",
       "params": {
-        "requestId": "144519.1872",
-        "timestamp": 44671.748871,
+        "requestId": "146797.1873",
+        "timestamp": 45018.268025,
         "type": "Script",
         "errorText": "net::ERR_ABORTED",
         "canceled": true
       },
-      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
-      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+      "sessionId": "25BA2AB2E0B70A7FCBB5411C8BD60933",
+      "request_url": "http://127.0.0.1:37499/versions.js"
     }
   ],
-  "inspected_head": "6d9174b3ae280fff4a2fad8b78063054b21a08f8"
+  "inspected_head": "6c845c5c1d38666c0148593f4cde48446461827e"
 }

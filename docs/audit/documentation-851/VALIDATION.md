@@ -12,7 +12,7 @@ Baseline: post-#850 master `2b373c54`; historical reference
 | Strict Documenter / doctests / Literate | Pass; exports checked, doctest=true, warnonly=false; all eight scripts run alone and in page sandboxes | logs/documenter.log |
 | Retained package inventory | All 18 test files pass, including FP32/FP64 mathematical/storage suites | logs/package-tests.log |
 | Frozen-reference integrity | All 102 differential probes pass | logs/benchmark-check.log |
-| Rendered internal links / navigation | 48 source/HTML pages; no broken internal links or orphan pages; seven initially collapsed categories | logs/html-structure.log |
+| Rendered internal links / navigation | 48 source/HTML pages; 3,733 local link/asset and 106 repository-source targets; no broken links or orphan pages; seven initially collapsed categories | logs/html-structure.log |
 | Source scope | All 17 source files preserve executable text exactly after removing docstrings | logs/source-check.log; check_source.py |
 | Exceptional contract audit | Infinite-weight/non-finite-trial ambiguity reported separately as #853; documented current behavior | logs/api-methods.log |
 
@@ -47,8 +47,8 @@ Representative screenshots: [Home](inspection/home.png),
 [mathematical function guide](inspection/smooth.png),
 [extension code](inspection/extending.png), [mobile tutorial](inspection/getting-started-mobile.png)
 and [mobile sidebar](inspection/mobile-sidebar-open.png).
-The inspected content head is `6d9174b3ae280fff4a2fad8b78063054b21a08f8`;
-this receipt adds evidence without modifying rendered content. Structural validation is reproducible with
+The inspected content head is `6c845c5c`;
+the following receipt adds evidence without modifying rendered content. Structural validation is reproducible with
 `python3 docs/check_html.py`. Live browser checks complement that script.
 
 ## Independent review and corrections

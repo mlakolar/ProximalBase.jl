@@ -32,6 +32,6 @@ Isolated example: symmetric_storage.jl
 [ Info: RenderDocument: rendering document.
 [ Info: HTMLWriter: rendering HTML pages.
 [ Info: Automatic `version="0.6.0-DEV"` for inventory from ../Project.toml
-real 30.24
-user 32.85
-sys 0.91
+real 25.30
+user 24.53
+sys 0.71

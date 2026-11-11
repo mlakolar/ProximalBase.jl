@@ -70,7 +70,6 @@ makedocs(;
             "Function objects and capabilities" => "function_objects.md",
             "Operations on functions" => "operations.md",
             "Proximal operators and gradients" => "interface.md",
-            "Array and precision conventions" => "numerical_usage.md",
             "Writing your own function" => "extending.md",
         ],
         "Function library" => [
@@ -102,6 +101,7 @@ makedocs(;
             "BlockIterate internals" => "developer/block_storage.md",
             "Coordinate views and aliasing" => "developer/views_aliasing.md",
             "Function and oracle dispatch" => "developer/oracle_dispatch.md",
+            "Numerical usage: arrays, precision and ownership" => "numerical_usage.md",
             "Numerical contract" => "numerics.md",
             "Pure block proximal contract" => "developer/contracts/block-prox-0.6.md",
             "Iterate-family contract" => "developer/contracts/iterate-family-0.6.md",

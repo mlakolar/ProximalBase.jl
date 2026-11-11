@@ -34,6 +34,8 @@ jobs:
           mkdir -p "$PB_BASELINE"
           git archive eff21b6d7d33c622313122f46c6ee71693c101ee src | tar -x -C "$PB_BASELINE"
           julia --project=benchmark benchmark/run.jl
+      - name: Lint authored Markdown and generated contract sources
+        run: python3 docs/check_markdown.py
       - name: Prepare documentation environment
         run: julia scripts/instantiate.jl docs
       - name: Build strict documentation, doctests and isolated Literate examples

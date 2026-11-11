@@ -288,18 +288,18 @@ end
 # Other views and fallible sources keep Base's scalar value-write path. These
 # built-in indices and buffers cannot throw during the subsequent raw copy.
 const _BlockCopyIndices = Union{Vector{Int}, UnitRange{<:Base.BitInteger}, StepRange{<:Base.BitInteger, <:Base.BitInteger}}
-@inline function Base.copyto!(dest::SubArray{T, 1, <:BlockIterate{T, <:AbstractVector{G}}, Tuple{G}}, src::Vector{T}) where {T<:Union{Float32, Float64}, G<:_BlockCopyIndices}
+@inline function Base.copyto_unaliased!(deststyle::IndexStyle, dest::SubArray{T, 1, <:BlockIterate{T, <:AbstractVector{G}}, Tuple{G}}, srcstyle::IndexStyle, src::Vector{T}) where {T<:Union{Float32, Float64}, G<:_BlockCopyIndices}
   # Small/partial copies retain Base's value-write path before any group lookup.
   length(dest) >= 32 && length(src) == length(dest) && !iszero(@inbounds src[1]) ||
-    return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
+    return invoke(Base.copyto_unaliased!, Tuple{IndexStyle, AbstractArray, IndexStyle, AbstractArray}, deststyle, dest, srcstyle, src)
   x, ids = parent(dest), only(parentindices(dest))
   k = @inbounds x.group_of[first(ids)]
   if ids !== @inbounds(x.groups[k]) || @inbounds(x.position[k]) == 0
-    return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
+    return invoke(Base.copyto_unaliased!, Tuple{IndexStyle, AbstractArray, IndexStyle, AbstractArray}, deststyle, dest, srcstyle, src)
   end
-  values = Base.unalias(dest, src)
+  # Base.copyto! has already resolved source/destination aliasing.
   storage = _block_storage(x, k)
-  Base.copyto_unaliased!(IndexStyle(storage), storage, IndexStyle(values), values)
+  Base.copyto_unaliased!(IndexStyle(storage), storage, srcstyle, src)
   dest
 end
 
@@ -396,7 +396,7 @@ function Base.copyto!(dest::BlockIterate{T}, src::BlockIterate{S}) where {T, S}
   dest === src && return dest
   length(dest) == length(src) || throw(DimensionMismatch())
   _samelayout(dest, src) ||
-    return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
+    return invoke(Base.copyto_unaliased!, Tuple{IndexStyle, AbstractArray, IndexStyle, AbstractArray}, deststyle, dest, srcstyle, src)
   # a fallible conversion runs once, before dest is touched, and the copy reads its result
   bufs = _convert_may_throw(T, S) ?
     [T[convert(T, v) for v in _block_storage(src, src.active[a])] for a in 1:src.nactive] : nothing

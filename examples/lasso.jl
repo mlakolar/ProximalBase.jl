@@ -10,8 +10,8 @@ f = Scaled(LeastSquaresLoss(y, X), 1 / n)
 g = NormL1(0.2)
 β = [0.3, -0.4]
 r = X * β - y
-@assert f(β) ≈ sum(abs2, r) / (2n)
-@assert g(β) ≈ 0.2sum(abs, β)
+@assert f(β) ≈ sum(abs2, r) / (2 * n)
+@assert g(β) ≈ 0.2 * sum(abs, β)
 @assert gradient(f, β) ≈ X' * r / n
 @assert prox(g, β, 0.1) ≈ sign.(β) .* max.(abs.(β) .- 0.02, 0)
 # --- Fused and mutating calls ---

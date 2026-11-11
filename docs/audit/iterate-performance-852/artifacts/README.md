@@ -14,9 +14,11 @@ user credentials, or external mutable artifact links are required.
 | [sources-validation.tar.gz](sources-validation.tar.gz) | 7,085,399 | 5,243 | Four pristine source archives, strict correctness runs, code/assembly dumps, compilation diagnostics, logs, primary harness snapshot. |
 
 All observations and individual time/GC samples for the 17 final campaigns are
-in the first two archives. Each fresh process retains its provenance, stdout,
-stderr, fixture metadata, seed, pointer/placement information and source/binary/
-harness digests. The primary seven timing files match the committed
+in raw-primary.tar.gz and raw-controls.tar.gz. Each fresh process retains its
+provenance, stderr, fixture metadata, seed, pointer/placement information and
+source/binary/harness digests; campaign/worker logs retain run progress. Worker
+stdout READY/DONE protocol messages are consumed by the runner rather than
+archived as a separate stdout file. The primary seven timing files match the committed
 [runtime manifest](../research/runtime-hashes.json). Support files accumulated
 during investigation, so the primary full-directory hash changes over time;
 those hashes remain in provenance and are not misrepresented as one snapshot.

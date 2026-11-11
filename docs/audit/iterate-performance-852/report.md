@@ -785,8 +785,11 @@ found no unresolved substantive blocker in harness, numerical results,
 statistical analysis or report. It independently matched all 122 frozen source
 blobs to Git, recomputed five raw-sample/bootstrap examples exactly, verified
 all 560 ledger entries and all 1,449 superseded historical block contrasts,
-and checked the report figures. Its remaining publication checks were archive
-packaging, hashes and links. No production change is included and the PR is
+and checked the report figures. Its [publication follow-up](research/publication-review.json) independently
+verified all four hashes/inventories, 223,058 archive members, coverage of all
+17 campaigns and 10 generated harness roots, byte-identical archived harness
+code and all 44 local links. Two minor artifact README wording corrections
+were applied; no publication blocker remains. No production change is included and the PR is
 left for maintainer review, without merging.
 
 

@@ -84,7 +84,7 @@ def main():
             elif fragment and dest in pages and fragment not in pages[dest].ids:
                 errors.append(f'{page.path.relative_to(BUILD)}: missing anchor {href}')
         assert page.footer, f'Missing previous/next footer: {page.path}'
-        assert len(page.toggles) == 7, f'Expected seven shallow expandable categories: {page.path}'
+        assert len(page.toggles) == 8, f'Expected eight shallow expandable categories: {page.path}'
     # All authored/generated Markdown pages must render. Only the historical
     # storage landing page and old interface URL are hidden from navigation.
     hidden_pages = {'storage.md', 'interface.md'}

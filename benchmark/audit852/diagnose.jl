@@ -16,6 +16,7 @@ for (b,s) in ((1,819),(8,102),(64,12))
         for _ in 1:3;p.setup();p.op();end
         dumpcode("block_b$(b)_$(p.id)",p.op,Tuple{})
     end
+    b==64 && dumpcode("block_update_kernel",block_update!,Tuple{typeof(src),Vector{Int},Int,Bool})
 end
 if isdefined(Main,:residual_cd!)
     cases,src=scalar_cases("sparse",Float64,1000000,1000,["residual_cd_fixed"],852)
@@ -37,6 +38,7 @@ for p in cases
     for _ in 1:3;p.setup();p.op();end
     dumpcode("sparse_"*p.id,p.op,Tuple{})
 end
+dumpcode("sparse_dropzeros_kernel",SparseArrays.dropzeros!,Tuple{typeof(src)})
 dumpcode("sparse_constructor_f64",PB.SparseIterate,Tuple{Type{Float64},Int})
 dumpcode("sparse_constructor_f32",PB.SparseIterate,Tuple{Type{Float32},Int})
 open(joinpath(out,"dispatch.txt"),"w") do io

@@ -1,0 +1,16 @@
+block/Float32/n8192/s1/b64/strided/activate_batch
+block/Float32/n8192/s10/b8/strided/activate_batch
+block/Float32/n8192/s102/b8/arbitrary/block_sweep
+block/Float32/n8192/s102/b8/arbitrary/clear
+block/Float32/n8192/s102/b8/arbitrary/matvec
+block/Float32/n8192/s102/b8/arbitrary/write_active
+block/Float32/n8192/s12/b64/strided/copy
+block/Float32/n8192/s12/b64/strided/copyto_shared
+block/Float32/n8192/s81/b1/strided/activate_batch
+block/Float64/n65536/s81/b8/arbitrary/copyto_shared
+block/Float64/n8192/s10/b8/arbitrary/activate_batch
+block/Float64/n8192/s10/b8/contiguous/copyto
+block/Float64/n8192/s102/b8/arbitrary/copy
+block/Float64/n8192/s81/b1/strided/write_active
+block/Float64/n8192/s819/b1/contiguous/clear
+block/Float64/n8192/s819/b1/strided/dropzeros

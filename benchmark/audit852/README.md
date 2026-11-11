@@ -90,15 +90,16 @@ order, then nnz is set. The generated harness and hashes are retained alongside
 its campaign. Use its analyze.py for the control's raw-to-summary replay. This
 is a setup diagnostic, not a new package API measurement.
 
-The complete recorded campaign can be orchestrated after starting the broad run:
+For the end-to-end alternative, use the dependency setup, correctness and broad
+run commands above, then this driver instead of the manual analysis/follow-up
+commands. Continue with the full control sequence below exactly once:
 
 ```sh
 python3 benchmark/audit852/finish_campaign.py --broad /tmp/pb852-broad --prefix /tmp/pb852-final --julia "$JULIA" --sources /tmp/pb852-frozen
-python3 benchmark/audit852/supplement_controls.py --prefix /tmp/pb852-final --julia "$JULIA" --sources /tmp/pb852-frozen
 ```
 
-Run these sequentially. The second command runs 28 fresh-process native-index
-supplemental controls (seven plus 21 confirmation rounds), then seven hot scalar
+The supplement_controls.py command in the next block runs 28 fresh-process
+native-index supplemental controls (seven plus 21 confirmation rounds), then seven hot scalar
 controls. It applies direct v[1,j] access to original row-block matrix views,
 while vector views retain v[j]. Initial linear-index supplemental results are
 kept as a distinct API context. No timed shape conversion is added. Shared
@@ -162,3 +163,12 @@ BLAS products with current sparse-aware owner products, without conversion or
 new kernels. Current storage can also use BLAS; this available-strategy control
 is separate from default-owner-API results. It uses the same seven-plus-21
 protocol and must finish before finalize_data.py; --wait enforces serialization.
+
+
+Published data are in [the audit artifacts](../../docs/audit/iterate-performance-852/artifacts/README.md).
+That page gives checksum verification, extraction and raw-to-summary replay
+commands. The [report](../../docs/audit/iterate-performance-852/report.md)
+contains source selection, corrected adapter attribution, preparation contexts,
+results, figures and limitations. `runtime_manifest.py JULIA OUTPUT.json`
+hashes the entire installed Julia distribution (including the system image and
+shared libraries) for comparison with the published runtime manifest.

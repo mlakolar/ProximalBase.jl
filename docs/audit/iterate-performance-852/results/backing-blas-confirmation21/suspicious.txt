@@ -1,0 +1,10 @@
+block/Float32/n8192/s102/b8/arbitrary/dot_backing_native
+block/Float32/n8192/s102/b8/strided/dot_backing_native
+block/Float32/n8192/s819/b1/arbitrary/dot_backing_native
+block/Float32/n8192/s819/b1/contiguous/dot_backing_native
+block/Float32/n8192/s819/b1/strided/dot_backing_native
+block/Float64/n65536/s819/b8/arbitrary/dot_backing_native
+block/Float64/n8192/s102/b8/arbitrary/dot_backing_native
+block/Float64/n8192/s819/b1/arbitrary/dot_backing_native
+block/Float64/n8192/s819/b1/contiguous/dot_backing_native
+block/Float64/n8192/s819/b1/strided/dot_backing_native

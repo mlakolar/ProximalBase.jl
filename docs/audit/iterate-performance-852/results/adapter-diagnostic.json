@@ -1,0 +1,71 @@
+{
+  "status": "pass",
+  "historical05_runtime_adapter_artifact": true,
+  "static_control_measured": true,
+  "equal_retained_zero_copy_preparation": true,
+  "allocations": {
+    "original": {
+      "runtime_bytes": 0,
+      "static_bytes": 0
+    },
+    "historical05": {
+      "runtime_bytes": 345600,
+      "static_bytes": 0
+    },
+    "post848": {
+      "runtime_bytes": 0,
+      "static_bytes": 0
+    },
+    "post850": {
+      "runtime_bytes": 0,
+      "static_bytes": 0
+    }
+  },
+  "steps": [
+    {
+      "stage": "diagnostic-original",
+      "seconds": 2.358283519744873,
+      "log": "pb852-final-adapter-diagnostic-original.log"
+    },
+    {
+      "stage": "diagnostic-historical05",
+      "seconds": 4.953322172164917,
+      "log": "pb852-final-adapter-diagnostic-historical05.log"
+    },
+    {
+      "stage": "diagnostic-post848",
+      "seconds": 5.70551323890686,
+      "log": "pb852-final-adapter-diagnostic-post848.log"
+    },
+    {
+      "stage": "diagnostic-post850",
+      "seconds": 3.39785099029541,
+      "log": "pb852-final-adapter-diagnostic-post850.log"
+    },
+    {
+      "stage": "check",
+      "seconds": 67.49316930770874,
+      "log": "pb852-final-adapter-check.log"
+    },
+    {
+      "stage": "broad7",
+      "seconds": 1180.8312187194824,
+      "log": "pb852-final-adapter-broad7.log"
+    },
+    {
+      "stage": "analysis7",
+      "seconds": 18.735239505767822,
+      "log": "pb852-final-adapter-analysis7.log"
+    },
+    {
+      "stage": "confirmation21",
+      "seconds": 973.3038330078125,
+      "log": "pb852-final-adapter-confirmation21.log"
+    },
+    {
+      "stage": "analysis21",
+      "seconds": 1.1271567344665527,
+      "log": "pb852-final-adapter-analysis21.log"
+    }
+  ]
+}

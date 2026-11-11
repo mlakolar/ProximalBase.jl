@@ -10,7 +10,7 @@ entries and this matrix. A row records the supported interface, not a promise
 that every storage/type combination dispatches. Concrete guides document those
 limits. Source links track master; validation evidence records the PR commit.
 
-| Binding | Scope and signature | Reference / guide | Source | Retained test evidence |
+| Binding | Scope and signature | Reference / guide | Source | Test evidence |
 |:--|:--|:--|:--|:--|
 | `AbstractFunction` | abstract mathematical function | [Function abstraction](interface.md) / [guide](../function_objects.md) | [interface.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/interface.jl) | core_functions |
 | `SeparableFunction` | value_entry + scalar prox_block extension | [Function abstraction](interface.md) / [guide](../function_objects.md) | [interface.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/interface.jl) | core_functions |

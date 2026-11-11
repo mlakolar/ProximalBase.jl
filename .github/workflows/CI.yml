@@ -41,14 +41,14 @@ jobs:
       - name: Check rendered internal links and navigation
         run: python3 docs/check_html.py 2>&1 | tee "${RUNNER_TEMP}/pb-docs-html.log"
       - name: Preserve rendered documentation
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: documentation-linux-current-julia
           path: docs/build
           if-no-files-found: error
       - name: Preserve complete validation logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: documentation-validation-logs-linux-current-julia
           path: ${{ runner.temp }}/pb-*.log

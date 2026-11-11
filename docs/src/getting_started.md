@@ -109,7 +109,7 @@ vp = value_and_prox!(trial, g, trial, γ)
 
 `gradient!` and `prox!` return the output; `value_and_gradient!` and
 `value_and_prox!` return a scalar value. Allocating `value_and_gradient`
-returns `(value, gradient)`. See [the interface](interface.md) for array-step,
+returns `(value, gradient)`. See [Operations on functions](operations.md#Calling-conventions,-results-and-supported-inputs) for per-entry steps,
 shape, aliasing and return-type details.
 
 ## Optimality and storage

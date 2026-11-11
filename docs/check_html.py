@@ -85,8 +85,9 @@ def main():
                 errors.append(f'{page.path.relative_to(BUILD)}: missing anchor {href}')
         assert page.footer, f'Missing previous/next footer: {page.path}'
         assert len(page.toggles) == 7, f'Expected seven shallow expandable categories: {page.path}'
-    # Every authored/generated Markdown page must be rendered and reachable in
-    # navigation. The historical storage landing page is intentionally hidden.
+    # All authored/generated Markdown pages must render. Only the historical
+    # storage landing page and old interface URL are hidden from navigation.
+    hidden_pages = {'storage.md', 'interface.md'}
     home = pages[(BUILD / 'index.html').resolve()]
     nav_targets = {resolve(home, href)[0] for href in home.menu_links if resolve(home, href)}
     source_count = 0
@@ -100,7 +101,7 @@ def main():
         dest = flat if flat in pages else pretty
         if dest not in pages:
             errors.append(f'Unrendered source page: {rel}')
-        elif rel.as_posix() != 'storage.md' and dest not in nav_targets:
+        elif rel.as_posix() not in hidden_pages and dest not in nav_targets:
             errors.append(f'Orphan source page: {rel}')
         source_count += 1
     assert all('checked' not in toggle for toggle in home.toggles), 'Home categories must start collapsed'

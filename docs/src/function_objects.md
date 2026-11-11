@@ -2,8 +2,8 @@
 
 A **function object** represents a mathematical function together with its
 parameters. For example, `SqrNormL2(1.0)` represents the function
-`f(x) = \|x\|_2^2/2`, while `NormL1(0.5)` represents
-`g(x) = 0.5\|x\|_1`. Both are callable:
+``f(x) = \|x\|_2^2/2``, while `NormL1(0.5)` represents
+``g(x) = 0.5\|x\|_1``. Both are callable:
 
 ```@example properties
 using ProximalBase
@@ -24,8 +24,8 @@ The properties below explain when such operations are useful.
 
 ## Convexity
 
-A function `f` is **convex** if, for any points `x` and `y` in its
-domain and `0 ≤ t ≤ 1`,
+A function ``f`` is **convex** if, for any points ``x`` and ``y`` in its
+domain and ``0 \leq t \leq 1``,
 
 ```math
 f(tx+(1-t)y) \leq t f(x) + (1-t)f(y).
@@ -43,7 +43,7 @@ f(x)=\tfrac12\|x\|_2^2,\qquad
 g(x)=\lambda\|x\|_1,\quad \lambda\geq0.
 ```
 
-A function can be convex without being differentiable: `|x|` has a corner
+A function can be convex without being differentiable: ``|x|`` has a corner
 at zero. Thus **convex** and **smooth** describe different properties.
 
 For the retained functions, `isconvex(f)` reports the declared mathematical
@@ -73,8 +73,8 @@ It describes the first-order change in the function:
 f(x+h)\approx f(x)+\langle\nabla f(x),h\rangle.
 ```
 
-For the squared norm, `f(x)=\|x\|_2^2/2`, the gradient is simply
-`\nabla f(x)=x`. A gradient-descent step therefore has the form
+For the squared norm, ``f(x)=\|x\|_2^2/2``, the gradient is simply
+``\nabla f(x)=x``. A gradient-descent step therefore has the form
 
 ```math
 x^{+}=x-\gamma\nabla f(x).
@@ -85,7 +85,7 @@ gradient(f, x)                  # [2.0, -1.0]
 x - 0.1 * gradient(f, x)        # one gradient-descent step
 ```
 
-By contrast, the `l1` norm is not differentiable at coordinates equal
+By contrast, the ``\ell_1`` norm is not differentiable at coordinates equal
 to zero, so `NormL1` is not smooth. It is still convex and proximable.
 
 **What the trait promises:** `issmooth(f)` indicates that the function
@@ -97,7 +97,7 @@ and use an algorithm with an appropriate step-selection rule.
 ## Proximability and proximal operators
 
 A function is **proximable** when its *proximal operator* can be computed
-efficiently. For step `\gamma>0`, this operator is
+efficiently. For step ``\gamma>0``, this operator is
 
 ```math
 \operatorname{prox}_{\gamma g}(x)
@@ -107,11 +107,11 @@ g(z)+\frac{1}{2\gamma}\|z-x\|_2^2
 \right\}.
 ```
 
-The proximal operator balances two goals: reducing `g(z)` while staying
-near the input `x`. Unlike a gradient step, it can handle many
+The proximal operator balances two goals: reducing ``g(z)`` while staying
+near the input ``x``. Unlike a gradient step, it can handle many
 **nondifferentiable** penalties directly.
 
-For `g(x)=\lambda\|x\|_1`, the proximal operator is **soft
+For ``g(x)=\lambda\|x\|_1``, the proximal operator is **soft
 thresholding**, applied independently to each coordinate:
 
 ```math
@@ -126,7 +126,7 @@ issmooth(g)                    # false
 ```
 
 This illustrates why a nonsmooth penalty can still be convenient in a
-solver. For example, a proximal-gradient algorithm for `f+g` can use
+solver. For example, a proximal-gradient algorithm for ``f+g`` can use
 
 ```math
 x^{+}=\operatorname{prox}_{\gamma g}
@@ -158,7 +158,7 @@ For example,
 
 For a separable function, the proximal minimization splits into independent
 scalar problems. This means each coordinate can be processed without solving
-a coupled `p`-dimensional proximal problem. That is useful for coordinate
+a coupled ``p``-dimensional proximal problem. That is useful for coordinate
 descent, block-oriented extensions and sparse storage.
 
 ```@example properties
@@ -166,7 +166,7 @@ isseparable(g)                 # true
 prox_block(g, 2.0, 1, 1.0)    # 1.5, scalar proximal operation at entry 1
 ```
 
-The quadratic form `x' A x / 2` is **not** generally separable because
+The quadratic form ``x^\mathsf{T}Ax/2`` is **not** generally separable because
 off-diagonal entries of `A` couple different coordinates. Even when a
 function is mathematically separable, its Julia implementation does not
 automatically inherit every scalar hook: `isseparable(f)` describes the
@@ -177,8 +177,8 @@ See [Writing your own function](extending.md).
 ## Zero preservation and sparse iterates
 
 Zero preservation is a stronger property relevant to sparse computation.
-For a separable function `g(x)=\sum_i g_i(x_i)`, ProximalBase considers it
-**zero preserving** when, at every coordinate `i`,
+For a separable function ``g(x)=\sum_i g_i(x_i)``, ProximalBase considers it
+**zero preserving** when, at every coordinate ``i``,
 
 ```math
 g_i(0)=0,\qquad
@@ -190,7 +190,7 @@ The second condition means that applying a proximal update to a zero
 coordinate leaves it at zero. The first means that omitted zeros also
 contribute nothing to the function value.
 
-For the `l1` penalty, soft thresholding maps zero to zero. Therefore,
+For the ``\ell_1`` penalty, soft thresholding maps zero to zero. Therefore,
 when a sparse iterate has many unstored coordinates, the generic
 zero-preserving kernels can skip those coordinates rather than scanning
 the entire dense array.
@@ -201,7 +201,7 @@ prox_block(g, 0.0, 1, 1.0)    # 0.0
 ```
 
 Zero preservation is **not** the same as separability. A shifted squared
-penalty such as `(x_i-a_i)^2/2` is separable but, for nonzero `a_i`,
+penalty such as ``(x_i-a_i)^2/2`` is separable but, for nonzero ``a_i``,
 its proximal operator generally moves zero away from zero. Such a function
 cannot safely skip inactive zeros just because it is separable.
 

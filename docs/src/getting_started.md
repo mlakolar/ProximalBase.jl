@@ -1,12 +1,11 @@
 # Getting started
 
 Start with a loss and a penalty, evaluate their operations, then assemble one
-proximal-gradient step. Every operation below is part of the retained core.
+proximal-gradient step. The example uses functions available in this version.
 
 ## Installation
 
-The minimal core is on the development branch. To reproduce this manual from
-that branch in a Julia environment (Julia 1.10 or later):
+To install the development version shown in this manual in Julia 1.10 or later:
 
 ```julia
 using Pkg

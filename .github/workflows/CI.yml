@@ -73,11 +73,76 @@ jobs:
         env:
           REQUIRED_RESULT: ${{ needs.required.result }}
         run: test "$REQUIRED_RESULT" = success
+  publish-preview:
+    name: Publish PR documentation preview
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false
+    needs: [gate, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    concurrency:
+      group: gh-pages-writes
+      cancel-in-progress: false
+    steps:
+      # The untrusted PR code was run only in the read-only test job.
+      # This privileged job checks out gh-pages, never the PR branch, and
+      # publishes the already validated HTML artifact without executing it.
+      - name: Checkout published pages
+        uses: actions/checkout@v7
+        with:
+          ref: gh-pages
+          persist-credentials: true
+      - name: Download the validated documentation
+        uses: actions/download-artifact@v4
+        with:
+          name: documentation-linux-current-julia
+          path: ${{ runner.temp }}/docs-preview
+      - name: Publish isolated PR preview
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HTML_DIR: ${{ runner.temp }}/docs-preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          preview_dir="previews/PR${PR_NUMBER}"
+          mkdir -p "${preview_dir}"
+          rsync -a --delete "${HTML_DIR}/" "${preview_dir}/"
+          git add -A -- "${preview_dir}"
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                commit -m "docs: publish preview for PR ${PR_NUMBER}"
+            git push origin HEAD:gh-pages
+          fi
+      - name: Post or update the PR preview link
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const marker = '<!-- proximalbase-docs-preview -->';
+            const number = context.issue.number;
+            const url = `https://${context.repo.owner}.github.io/${context.repo.repo}/previews/PR${number}/`;
+            const body = `${marker}\n📖 **Documentation preview:** ${url}\n\nBuilt from a successful pull-request validation run. The published GitHub Pages site may take a short time to refresh.`;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...context.repo, issue_number: number, per_page: 100
+            });
+            const previous = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
+            if (previous) {
+              await github.rest.issues.updateComment({...context.repo, comment_id: previous.id, body});
+            } else {
+              await github.rest.issues.createComment({...context.repo, issue_number: number, body});
+            }
   deploy-docs:
     name: Publish validated documentation
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: [gate]
     runs-on: ubuntu-latest
+    concurrency:
+      group: gh-pages-writes
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:

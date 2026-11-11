@@ -34,6 +34,7 @@ x = [2.0, -1.0]
 
 The following sections explain each trait mathematically, show examples,
 and discuss what its value does *and does not* guarantee.
+
 ## Convexity
 
 A function ``f`` is **convex** if, for any points ``x`` and ``y`` in its

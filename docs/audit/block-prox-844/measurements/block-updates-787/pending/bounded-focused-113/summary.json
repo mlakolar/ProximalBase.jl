@@ -1,0 +1,3144 @@
+{
+  "method": "Summarize paired PB block diagnostics without treating warm-up as evidence.\n\nIntervals describe the collected log ratios conditional on the process cohorts;\nreport each cohort and A/A separately. They are not population guarantees over\nmachines/compiler layouts. Confirm flagged cases in a separate focused run.\n",
+  "source_run": "run.json",
+  "paired_repetitions": 10,
+  "case_count": 55,
+  "flagged_cases": 4,
+  "cases": [
+    {
+      "case": "writer/Float32/n5/strided/active_zero/vector",
+      "pairs": 10,
+      "before_median_ns": 25.0,
+      "after_median_ns": 23.0,
+      "median_paired_ratio": 0.92,
+      "geometric_paired_ratio": 0.9351458139246499,
+      "conditional_log_t_interval95": [
+        0.9211505761183287,
+        0.949353684373596
+      ],
+      "aa_geometric_ratio": 0.9959261213978506,
+      "aa_conditional_interval95": [
+        0.9867721328796873,
+        1.0051650287164122
+      ],
+      "candidate_vs_control_ratio": 0.938971068066885,
+      "candidate_vs_control_interval95": [
+        0.9246310336241055,
+        0.953533501045234
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.950540970979126,
+        "2": 0.92
+      },
+      "paired_ratio_range": [
+        0.92,
+        0.9583333333333334
+      ],
+      "paired_ratios": [
+        0.9583333333333334,
+        0.9583333333333334,
+        0.9583333333333334,
+        0.92,
+        0.9583333333333334,
+        0.92,
+        0.92,
+        0.92,
+        0.92,
+        0.92
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        0.96,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float32/n8/strided/inactive_zero/vector",
+      "pairs": 10,
+      "before_median_ns": 31.0,
+      "after_median_ns": 30.0,
+      "median_paired_ratio": 0.9375,
+      "geometric_paired_ratio": 0.949072950429686,
+      "conditional_log_t_interval95": [
+        0.9377454348299917,
+        0.9605372969910629
+      ],
+      "aa_geometric_ratio": 1.0095701129401624,
+      "aa_conditional_interval95": [
+        0.9985556462601962,
+        1.0207060735766231
+      ],
+      "candidate_vs_control_ratio": 0.9400763139329759,
+      "candidate_vs_control_interval95": [
+        0.9332221032453362,
+        0.9469808665531386
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.9547073325870796,
+        "2": 0.9434718206222136
+      },
+      "paired_ratio_range": [
+        0.9354838709677419,
+        0.967741935483871
+      ],
+      "paired_ratios": [
+        0.967741935483871,
+        0.967741935483871,
+        0.9354838709677419,
+        0.967741935483871,
+        0.9354838709677419,
+        0.9375,
+        0.9375,
+        0.9375,
+        0.967741935483871,
+        0.9375
+      ],
+      "aa_ratios": [
+        1.0,
+        1.032258064516129,
+        1.0,
+        1.032258064516129,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.032258064516129,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "pure_group/Float32/GroupNormL2/n32/stridedfalse",
+      "pairs": 10,
+      "before_median_ns": 33.0,
+      "after_median_ns": 32.0,
+      "median_paired_ratio": 0.9622475856014048,
+      "geometric_paired_ratio": 0.988758522099557,
+      "conditional_log_t_interval95": [
+        0.8572393497765353,
+        1.1404555977036654
+      ],
+      "aa_geometric_ratio": 1.0051823810709897,
+      "aa_conditional_interval95": [
+        0.9871923790560753,
+        1.0235002220961749
+      ],
+      "candidate_vs_control_ratio": 0.9836608169017709,
+      "candidate_vs_control_interval95": [
+        0.8578699679147143,
+        1.1278965797810196
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0269299608712015,
+        "2": 0.9520059325127792
+      },
+      "paired_ratio_range": [
+        0.8181818181818182,
+        1.3461538461538463
+      ],
+      "paired_ratios": [
+        1.0909090909090908,
+        1.3461538461538463,
+        1.0588235294117647,
+        0.8484848484848485,
+        0.8656716417910447,
+        0.8181818181818182,
+        0.8181818181818182,
+        0.8181818181818182,
+        1.3461538461538463,
+        1.0606060606060606
+      ],
+      "aa_ratios": [
+        1.0606060606060606,
+        1.0384615384615385,
+        0.9705882352941176,
+        1.0,
+        0.9850746268656716,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "public_write/Float32/GroupNormL2/n32/stridedfalse",
+      "pairs": 10,
+      "before_median_ns": 46.0,
+      "after_median_ns": 25.0,
+      "median_paired_ratio": 0.5543735224586288,
+      "geometric_paired_ratio": 0.5405878817524676,
+      "conditional_log_t_interval95": [
+        0.5122466886487972,
+        0.5704971147172806
+      ],
+      "aa_geometric_ratio": 0.9900182902307537,
+      "aa_conditional_interval95": [
+        0.905727169593506,
+        1.0821539287943787
+      ],
+      "candidate_vs_control_ratio": 0.5460382773599741,
+      "candidate_vs_control_interval95": [
+        0.515461166770794,
+        0.5784292194310487
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.5252631083312189,
+        "2": 0.5563597619221015
+      },
+      "paired_ratio_range": [
+        0.43859649122807015,
+        0.574468085106383
+      ],
+      "paired_ratios": [
+        0.5555555555555556,
+        0.5434782608695652,
+        0.5434782608695652,
+        0.43859649122807015,
+        0.5555555555555556,
+        0.574468085106383,
+        0.5555555555555556,
+        0.5434782608695652,
+        0.5555555555555556,
+        0.5531914893617021
+      ],
+      "aa_ratios": [
+        1.2222222222222223,
+        0.9565217391304348,
+        0.9782608695652174,
+        0.7719298245614035,
+        0.9777777777777777,
+        1.1702127659574468,
+        1.0,
+        0.9782608695652174,
+        0.9777777777777777,
+        0.9361702127659575
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "group_write/Float32/GroupNormL2/n32/stridedfalse",
+      "pairs": 10,
+      "before_median_ns": 53.5,
+      "after_median_ns": 35.0,
+      "median_paired_ratio": 0.6481481481481481,
+      "geometric_paired_ratio": 0.6492058783040973,
+      "conditional_log_t_interval95": [
+        0.6391486708407488,
+        0.65942133912316
+      ],
+      "aa_geometric_ratio": 1.0167275094758375,
+      "aa_conditional_interval95": [
+        0.9984133077594078,
+        1.0353776542149646
+      ],
+      "candidate_vs_control_ratio": 0.6385249462157152,
+      "candidate_vs_control_interval95": [
+        0.6219971557532626,
+        0.6554919153063079
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.6394022766701115,
+        "2": 0.6591597931423125
+      },
+      "paired_ratio_range": [
+        0.6296296296296297,
+        0.6730769230769231
+      ],
+      "paired_ratios": [
+        0.6481481481481481,
+        0.6415094339622641,
+        0.6415094339622641,
+        0.6363636363636364,
+        0.6296296296296297,
+        0.6730769230769231,
+        0.6730769230769231,
+        0.6481481481481481,
+        0.6481481481481481,
+        0.6538461538461539
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0377358490566038,
+        1.0566037735849056,
+        1.018181818181818,
+        1.037037037037037,
+        1.0192307692307692,
+        1.0192307692307692,
+        1.0,
+        0.9629629629629629,
+        1.0192307692307692
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/public/Float32/GroupNormL2/n256/plain/view_inplace",
+      "pairs": 10,
+      "before_median_ns": 88.0,
+      "after_median_ns": 90.0,
+      "median_paired_ratio": 1.0113636363636365,
+      "geometric_paired_ratio": 1.0192670962263521,
+      "conditional_log_t_interval95": [
+        1.011544175183198,
+        1.027048980101681
+      ],
+      "aa_geometric_ratio": 1.0124818039600147,
+      "aa_conditional_interval95": [
+        1.0078427976076476,
+        1.0171421632257411
+      ],
+      "candidate_vs_control_ratio": 1.0067016436639147,
+      "candidate_vs_control_interval95": [
+        0.9989868672590527,
+        1.0144759982043134
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0113125619062024,
+        "2": 1.0272841973716693
+      },
+      "paired_ratio_range": [
+        1.0112359550561798,
+        1.0344827586206897
+      ],
+      "paired_ratios": [
+        1.0112359550561798,
+        1.0113636363636365,
+        1.0112359550561798,
+        1.0113636363636365,
+        1.0113636363636365,
+        1.0340909090909092,
+        1.0344827586206897,
+        1.0227272727272727,
+        1.0112359550561798,
+        1.0340909090909092
+      ],
+      "aa_ratios": [
+        1.0112359550561798,
+        1.0113636363636365,
+        1.0112359550561798,
+        1.0113636363636365,
+        1.0227272727272727,
+        1.0113636363636365,
+        1.0229885057471264,
+        1.0113636363636365,
+        1.0,
+        1.0113636363636365
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/public/Float32/GroupNormL2/n256/scaled/view_inplace",
+      "pairs": 10,
+      "before_median_ns": 94.0,
+      "after_median_ns": 95.0,
+      "median_paired_ratio": 1.0106382978723405,
+      "geometric_paired_ratio": 1.0095922478665553,
+      "conditional_log_t_interval95": [
+        1.0039421870083016,
+        1.0152741065595
+      ],
+      "aa_geometric_ratio": 1.0063922453067877,
+      "aa_conditional_interval95": [
+        0.9999695105160252,
+        1.0128562328775186
+      ],
+      "candidate_vs_control_ratio": 1.003179677282581,
+      "candidate_vs_control_interval95": [
+        0.9969475726932082,
+        1.0094507399161643
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.010661174896559,
+        "2": 1.0085244513885343
+      },
+      "paired_ratio_range": [
+        1.0,
+        1.021505376344086
+      ],
+      "paired_ratios": [
+        1.0106382978723405,
+        1.021505376344086,
+        1.0106382978723405,
+        1.0106382978723405,
+        1.0,
+        1.0,
+        1.0106382978723405,
+        1.0106382978723405,
+        1.0,
+        1.021505376344086
+      ],
+      "aa_ratios": [
+        1.0,
+        1.010752688172043,
+        1.0,
+        1.0,
+        0.9894736842105263,
+        1.0106382978723405,
+        1.0106382978723405,
+        1.0106382978723405,
+        1.0106382978723405,
+        1.021505376344086
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/kernel/Float32/GroupNormL2/n256/scaled/view_inplace",
+      "pairs": 10,
+      "before_median_ns": 90.5,
+      "after_median_ns": 92.0,
+      "median_paired_ratio": 1.011050061050061,
+      "geometric_paired_ratio": 1.013250471664689,
+      "conditional_log_t_interval95": [
+        1.0042782471320433,
+        1.0223028540751877
+      ],
+      "aa_geometric_ratio": 1.0088425052553625,
+      "aa_conditional_interval95": [
+        1.0006926355495087,
+        1.0170587493641672
+      ],
+      "candidate_vs_control_ratio": 1.0043693305807042,
+      "candidate_vs_control_interval95": [
+        0.9989022725395211,
+        1.0098663101912415
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0176899880619732,
+        "2": 1.0088303219763959
+      },
+      "paired_ratio_range": [
+        0.9891304347826086,
+        1.0333333333333334
+      ],
+      "paired_ratios": [
+        1.0333333333333334,
+        1.0222222222222221,
+        1.010989010989011,
+        1.011111111111111,
+        1.010989010989011,
+        0.9891304347826086,
+        1.0222222222222221,
+        1.010989010989011,
+        1.0,
+        1.0222222222222221
+      ],
+      "aa_ratios": [
+        1.0222222222222221,
+        1.0222222222222221,
+        1.0,
+        1.0222222222222221,
+        1.0,
+        0.9891304347826086,
+        1.011111111111111,
+        1.010989010989011,
+        1.0,
+        1.011111111111111
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/public/Float32/GroupNormL2/n256/nested_scaled/view_inplace",
+      "pairs": 10,
+      "before_median_ns": 93.0,
+      "after_median_ns": 95.0,
+      "median_paired_ratio": 1.021505376344086,
+      "geometric_paired_ratio": 1.0192772317568566,
+      "conditional_log_t_interval95": [
+        1.0113321650824794,
+        1.0272847151985824
+      ],
+      "aa_geometric_ratio": 1.0139208926967787,
+      "aa_conditional_interval95": [
+        1.0076193267516247,
+        1.0202618681017424
+      ],
+      "candidate_vs_control_ratio": 1.0052827977987822,
+      "candidate_vs_control_interval95": [
+        0.9971215225421576,
+        1.0135108717477515
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0192544012983338,
+        "2": 1.0193000627267628
+      },
+      "paired_ratio_range": [
+        1.0,
+        1.032258064516129
+      ],
+      "paired_ratios": [
+        1.032258064516129,
+        1.021505376344086,
+        1.0212765957446808,
+        1.021505376344086,
+        1.0,
+        1.021505376344086,
+        1.021505376344086,
+        1.021505376344086,
+        1.0,
+        1.032258064516129
+      ],
+      "aa_ratios": [
+        1.010752688172043,
+        1.010752688172043,
+        1.0,
+        1.010752688172043,
+        1.0106382978723405,
+        1.010752688172043,
+        1.021505376344086,
+        1.021505376344086,
+        1.0106382978723405,
+        1.032258064516129
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/kernel/Float32/GroupNormL2/n256/nested_scaled/view_inplace",
+      "pairs": 10,
+      "before_median_ns": 91.0,
+      "after_median_ns": 92.0,
+      "median_paired_ratio": 1.010989010989011,
+      "geometric_paired_ratio": 1.0120947962965037,
+      "conditional_log_t_interval95": [
+        1.0096257259945216,
+        1.0145699047847159
+      ],
+      "aa_geometric_ratio": 1.0120947962965037,
+      "aa_conditional_interval95": [
+        1.0076129033703483,
+        1.0165966248190914
+      ],
+      "candidate_vs_control_ratio": 1.0,
+      "candidate_vs_control_interval95": [
+        0.9948297457524626,
+        1.0051971247036111
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0131773193743294,
+        "2": 1.0110134298338052
+      },
+      "paired_ratio_range": [
+        1.010989010989011,
+        1.021978021978022
+      ],
+      "paired_ratios": [
+        1.021978021978022,
+        1.010989010989011,
+        1.010989010989011,
+        1.010989010989011,
+        1.010989010989011,
+        1.010989010989011,
+        1.010989010989011,
+        1.010989010989011,
+        1.011111111111111,
+        1.010989010989011
+      ],
+      "aa_ratios": [
+        1.010989010989011,
+        1.010989010989011,
+        1.010989010989011,
+        1.010989010989011,
+        1.0,
+        1.010989010989011,
+        1.010989010989011,
+        1.010989010989011,
+        1.0222222222222221,
+        1.021978021978022
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float32/n256/range/active_zero/vector",
+      "pairs": 10,
+      "before_median_ns": 123.0,
+      "after_median_ns": 19.0,
+      "median_paired_ratio": 0.15447154471544716,
+      "geometric_paired_ratio": 0.15422158944960465,
+      "conditional_log_t_interval95": [
+        0.15384542154680939,
+        0.15459867712167008
+      ],
+      "aa_geometric_ratio": 1.0016207540509376,
+      "aa_conditional_interval95": [
+        0.9979583511434199,
+        1.0052965975945718
+      ],
+      "candidate_vs_control_ratio": 0.1539720386442409,
+      "candidate_vs_control_interval95": [
+        0.1535122005754484,
+        0.1544332541348195
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.15422158944960465,
+        "2": 0.15422158944960465
+      },
+      "paired_ratio_range": [
+        0.1532258064516129,
+        0.15447154471544716
+      ],
+      "paired_ratios": [
+        0.15447154471544716,
+        0.15447154471544716,
+        0.15447154471544716,
+        0.15447154471544716,
+        0.1532258064516129,
+        0.15447154471544716,
+        0.15447154471544716,
+        0.15447154471544716,
+        0.15447154471544716,
+        0.1532258064516129
+      ],
+      "aa_ratios": [
+        1.0,
+        1.008130081300813,
+        1.008130081300813,
+        1.0,
+        1.0,
+        1.008130081300813,
+        1.0,
+        1.0,
+        1.0,
+        0.9919354838709677
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float32/n256/range/inactive_zero/vector",
+      "pairs": 10,
+      "before_median_ns": 123.0,
+      "after_median_ns": 29.0,
+      "median_paired_ratio": 0.23577235772357724,
+      "geometric_paired_ratio": 0.2338904785801829,
+      "conditional_log_t_interval95": [
+        0.23163114849601285,
+        0.2361718461686453
+      ],
+      "aa_geometric_ratio": 0.994430940040341,
+      "aa_conditional_interval95": [
+        0.985172393215231,
+        1.0037764977174635
+      ],
+      "candidate_vs_control_ratio": 0.2352003232830775,
+      "candidate_vs_control_interval95": [
+        0.23454319988653285,
+        0.2358592877526462
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.23577235772357727,
+        "2": 0.23202362015060132
+      },
+      "paired_ratio_range": [
+        0.2265625,
+        0.23577235772357724
+      ],
+      "paired_ratios": [
+        0.23577235772357724,
+        0.23577235772357724,
+        0.23577235772357724,
+        0.23577235772357724,
+        0.23577235772357724,
+        0.23015873015873015,
+        0.23387096774193547,
+        0.23387096774193547,
+        0.23577235772357724,
+        0.2265625
+      ],
+      "aa_ratios": [
+        1.008130081300813,
+        1.0,
+        1.0,
+        1.008130081300813,
+        1.0,
+        0.9761904761904762,
+        0.9919354838709677,
+        0.9919354838709677,
+        1.0,
+        0.96875
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float32/n256/strided/active_zero/vector",
+      "pairs": 10,
+      "before_median_ns": 129.0,
+      "after_median_ns": 56.5,
+      "median_paired_ratio": 0.43968023255813954,
+      "geometric_paired_ratio": 0.4445052412250173,
+      "conditional_log_t_interval95": [
+        0.43442921708319304,
+        0.4548149657224214
+      ],
+      "aa_geometric_ratio": 0.9915110154736624,
+      "aa_conditional_interval95": [
+        0.9810948094503389,
+        1.0020378095327958
+      ],
+      "candidate_vs_control_ratio": 0.4483109459078165,
+      "candidate_vs_control_interval95": [
+        0.43502387800424885,
+        0.4620038448068779
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.4438538508758206,
+        "2": 0.445157587540657
+      },
+      "paired_ratio_range": [
+        0.4263565891472868,
+        0.4728682170542636
+      ],
+      "paired_ratios": [
+        0.43410852713178294,
+        0.4728682170542636,
+        0.43410852713178294,
+        0.4375,
+        0.4418604651162791,
+        0.4375,
+        0.45454545454545453,
+        0.4263565891472868,
+        0.4461538461538462,
+        0.4621212121212121
+      ],
+      "aa_ratios": [
+        0.9922480620155039,
+        0.9922480620155039,
+        1.0,
+        1.0,
+        1.0,
+        0.9921875,
+        0.9621212121212122,
+        1.0155038759689923,
+        0.9769230769230769,
+        0.9848484848484849
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float32/n256/strided/active_zero/view",
+      "pairs": 10,
+      "before_median_ns": 127.0,
+      "after_median_ns": 58.5,
+      "median_paired_ratio": 0.4642857142857143,
+      "geometric_paired_ratio": 0.47315708097070136,
+      "conditional_log_t_interval95": [
+        0.45730740102428974,
+        0.48955609021692537
+      ],
+      "aa_geometric_ratio": 1.00234960554334,
+      "aa_conditional_interval95": [
+        0.9928117888163526,
+        1.0119790508639266
+      ],
+      "candidate_vs_control_ratio": 0.47204795448013254,
+      "candidate_vs_control_interval95": [
+        0.4564060139817193,
+        0.488225975343529
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.4666532502391824,
+        "2": 0.4797515567671857
+      },
+      "paired_ratio_range": [
+        0.4496124031007752,
+        0.5118110236220472
+      ],
+      "paired_ratios": [
+        0.4496124031007752,
+        0.4603174603174603,
+        0.4566929133858268,
+        0.5,
+        0.46825396825396826,
+        0.4566929133858268,
+        0.5118110236220472,
+        0.47244094488188976,
+        0.4566929133858268,
+        0.5039370078740157
+      ],
+      "aa_ratios": [
+        0.9844961240310077,
+        1.007936507936508,
+        1.0078740157480315,
+        1.0238095238095237,
+        1.0238095238095237,
+        1.0,
+        0.9921259842519685,
+        0.9921259842519685,
+        0.9921259842519685,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float32/n256/strided/inactive_zero/vector",
+      "pairs": 10,
+      "before_median_ns": 129.0,
+      "after_median_ns": 80.0,
+      "median_paired_ratio": 0.6102465465990559,
+      "geometric_paired_ratio": 0.6140134055450125,
+      "conditional_log_t_interval95": [
+        0.5869562347212068,
+        0.642317842263074
+      ],
+      "aa_geometric_ratio": 0.9923773547559233,
+      "aa_conditional_interval95": [
+        0.9835671837930005,
+        1.0012664416421047
+      ],
+      "candidate_vs_control_ratio": 0.6187297630305459,
+      "candidate_vs_control_interval95": [
+        0.5892189480143091,
+        0.6497186163988378
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.5791828368443438,
+        "2": 0.6509385952165336
+      },
+      "paired_ratio_range": [
+        0.5736434108527132,
+        0.6640625
+      ],
+      "paired_ratios": [
+        0.5736434108527132,
+        0.5813953488372093,
+        0.578125,
+        0.5813953488372093,
+        0.5813953488372093,
+        0.6640625,
+        0.648854961832061,
+        0.6390977443609023,
+        0.6390977443609023,
+        0.6640625
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.9922480620155039,
+        1.0,
+        0.9923664122137404,
+        0.9699248120300752,
+        0.9699248120300752,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float32/n256/strided/inactive_zero/view",
+      "pairs": 10,
+      "before_median_ns": 127.0,
+      "after_median_ns": 144.0,
+      "median_paired_ratio": 1.1338582677165354,
+      "geometric_paired_ratio": 1.1336630947679487,
+      "conditional_log_t_interval95": [
+        1.1278343199622605,
+        1.1395219933383902
+      ],
+      "aa_geometric_ratio": 1.0070412836892175,
+      "aa_conditional_interval95": [
+        0.9989290591785239,
+        1.0152193869386534
+      ],
+      "candidate_vs_control_ratio": 1.1257364649588764,
+      "candidate_vs_control_interval95": [
+        1.117220799402561,
+        1.1343170385082277
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.1318861846278065,
+        "2": 1.1354427944196943
+      },
+      "paired_ratio_range": [
+        1.125,
+        1.1507936507936507
+      ],
+      "paired_ratios": [
+        1.125,
+        1.1328125,
+        1.125,
+        1.1338582677165354,
+        1.1428571428571428,
+        1.125,
+        1.1338582677165354,
+        1.1338582677165354,
+        1.1338582677165354,
+        1.1507936507936507
+      ],
+      "aa_ratios": [
+        1.015625,
+        1.015625,
+        1.0,
+        1.0,
+        1.0317460317460319,
+        0.9921875,
+        1.0,
+        1.0,
+        1.0078740157480315,
+        1.007936507936508
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": true
+    },
+    {
+      "case": "writer/Float32/n256/reversed/active_zero/view",
+      "pairs": 10,
+      "before_median_ns": 127.0,
+      "after_median_ns": 58.5,
+      "median_paired_ratio": 0.4642857142857143,
+      "geometric_paired_ratio": 0.4780861513250388,
+      "conditional_log_t_interval95": [
+        0.4609133650688171,
+        0.4958987640869593
+      ],
+      "aa_geometric_ratio": 1.2493197015476012,
+      "aa_conditional_interval95": [
+        1.0548915592357095,
+        1.4795830936459653
+      ],
+      "candidate_vs_control_ratio": 0.3826771888194888,
+      "candidate_vs_control_interval95": [
+        0.31368850019589734,
+        0.4668383786824647
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.46044140149329527,
+        "2": 0.4964070723169236
+      },
+      "paired_ratio_range": [
+        0.453125,
+        0.5118110236220472
+      ],
+      "paired_ratios": [
+        0.4603174603174603,
+        0.46825396825396826,
+        0.4603174603174603,
+        0.4603174603174603,
+        0.453125,
+        0.5078125,
+        0.5118110236220472,
+        0.5039370078740157,
+        0.5039370078740157,
+        0.4566929133858268
+      ],
+      "aa_ratios": [
+        1.5714285714285714,
+        1.5873015873015872,
+        1.5476190476190477,
+        1.5634920634920635,
+        1.546875,
+        0.984375,
+        1.0,
+        1.0078740157480315,
+        1.0,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float32/n256/reversed/inactive_zero/vector",
+      "pairs": 10,
+      "before_median_ns": 131.0,
+      "after_median_ns": 74.0,
+      "median_paired_ratio": 0.5687062937062937,
+      "geometric_paired_ratio": 0.5692841609965154,
+      "conditional_log_t_interval95": [
+        0.5622648237278206,
+        0.576391127961418
+      ],
+      "aa_geometric_ratio": 0.9832353677072848,
+      "aa_conditional_interval95": [
+        0.971920537762122,
+        0.994681921771564
+      ],
+      "candidate_vs_control_ratio": 0.5789907276463988,
+      "candidate_vs_control_interval95": [
+        0.574758618745997,
+        0.5832539987515258
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.573874931429218,
+        "2": 0.5647301148952159
+      },
+      "paired_ratio_range": [
+        0.556390977443609,
+        0.5905511811023622
+      ],
+      "paired_ratios": [
+        0.5905511811023622,
+        0.5648854961832062,
+        0.5725190839694656,
+        0.5725190839694656,
+        0.5692307692307692,
+        0.5681818181818182,
+        0.5606060606060606,
+        0.578125,
+        0.556390977443609,
+        0.5606060606060606
+      ],
+      "aa_ratios": [
+        1.015748031496063,
+        0.9847328244274809,
+        0.9847328244274809,
+        0.9770992366412213,
+        0.9923076923076923,
+        0.9696969696969697,
+        0.9848484848484849,
+        0.9921875,
+        0.9548872180451128,
+        0.9772727272727273
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float32/n256/reversed/inactive_zero/view",
+      "pairs": 10,
+      "before_median_ns": 127.5,
+      "after_median_ns": 144.0,
+      "median_paired_ratio": 1.1294291338582676,
+      "geometric_paired_ratio": 1.1275874381800064,
+      "conditional_log_t_interval95": [
+        1.1202827825440782,
+        1.1349397228563796
+      ],
+      "aa_geometric_ratio": 0.9929900494548723,
+      "aa_conditional_interval95": [
+        0.9854037352740456,
+        1.0006347682883203
+      ],
+      "candidate_vs_control_ratio": 1.1355475704907867,
+      "candidate_vs_control_interval95": [
+        1.1316100438121064,
+        1.1394987981050764
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.132095090016525,
+        "2": 1.1230977344162765
+      },
+      "paired_ratio_range": [
+        1.1076923076923078,
+        1.1428571428571428
+      ],
+      "paired_ratios": [
+        1.125,
+        1.1428571428571428,
+        1.1338582677165354,
+        1.1338582677165354,
+        1.125,
+        1.1338582677165354,
+        1.1338582677165354,
+        1.124031007751938,
+        1.1162790697674418,
+        1.1076923076923078
+      ],
+      "aa_ratios": [
+        0.9921875,
+        1.0158730158730158,
+        1.0,
+        1.0,
+        0.9921875,
+        0.9921259842519685,
+        0.9921259842519685,
+        0.9844961240310077,
+        0.9844961240310077,
+        0.9769230769230769
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": true
+    },
+    {
+      "case": "math/public/Float64/GroupNormL2/n5/plain/vector",
+      "pairs": 10,
+      "before_median_ns": 26.0,
+      "after_median_ns": 27.0,
+      "median_paired_ratio": 1.0096153846153846,
+      "geometric_paired_ratio": 1.0171462893157988,
+      "conditional_log_t_interval95": [
+        1.0035831053624016,
+        1.0308927764335984
+      ],
+      "aa_geometric_ratio": 1.0075766240521742,
+      "aa_conditional_interval95": [
+        0.9905195665903437,
+        1.0249274093908376
+      ],
+      "candidate_vs_control_ratio": 1.0094977047255604,
+      "candidate_vs_control_interval95": [
+        0.9979754807727163,
+        1.021152959646978
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0038169048926584,
+        "2": 1.030652670647672
+      },
+      "paired_ratio_range": [
+        1.0,
+        1.0384615384615385
+      ],
+      "paired_ratios": [
+        1.0192307692307692,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0384615384615385,
+        1.0384615384615385,
+        1.0384615384615385,
+        1.0384615384615385
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.9629629629629629,
+        1.0384615384615385,
+        1.0,
+        1.0384615384615385,
+        1.0384615384615385
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/kernel/Float64/GroupNormL2/n5/plain/vector",
+      "pairs": 10,
+      "before_median_ns": 26.0,
+      "after_median_ns": 26.0,
+      "median_paired_ratio": 1.0,
+      "geometric_paired_ratio": 1.0,
+      "conditional_log_t_interval95": [
+        1.0,
+        1.0
+      ],
+      "aa_geometric_ratio": 1.0,
+      "aa_conditional_interval95": [
+        1.0,
+        1.0
+      ],
+      "candidate_vs_control_ratio": 1.0,
+      "candidate_vs_control_interval95": [
+        1.0,
+        1.0
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0,
+        "2": 1.0
+      },
+      "paired_ratio_range": [
+        1.0,
+        1.0
+      ],
+      "paired_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/public/Float64/GroupNormL2/n5/plain/view_inplace",
+      "pairs": 10,
+      "before_median_ns": 30.0,
+      "after_median_ns": 28.5,
+      "median_paired_ratio": 0.95,
+      "geometric_paired_ratio": 0.9306828922585872,
+      "conditional_log_t_interval95": [
+        0.9015490724992141,
+        0.9607581798533372
+      ],
+      "aa_geometric_ratio": 0.9703808021701579,
+      "aa_conditional_interval95": [
+        0.9630655561650228,
+        0.9777516132650972
+      ],
+      "candidate_vs_control_ratio": 0.9590903799593004,
+      "candidate_vs_control_interval95": [
+        0.9280535676110462,
+        0.9911651536433644
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.8960385992511819,
+        "2": 0.9666666666666667
+      },
+      "paired_ratio_range": [
+        0.8709677419354839,
+        0.9666666666666667
+      ],
+      "paired_ratios": [
+        0.8709677419354839,
+        0.8709677419354839,
+        0.9032258064516129,
+        0.9333333333333333,
+        0.9032258064516129,
+        0.9666666666666667,
+        0.9666666666666667,
+        0.9666666666666667,
+        0.9666666666666667,
+        0.9666666666666667
+      ],
+      "aa_ratios": [
+        0.967741935483871,
+        0.967741935483871,
+        0.967741935483871,
+        1.0,
+        0.967741935483871,
+        0.9666666666666667,
+        0.9666666666666667,
+        0.9666666666666667,
+        0.9666666666666667,
+        0.9666666666666667
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/kernel/Float64/GroupNormL2/n5/plain/view_inplace",
+      "pairs": 10,
+      "before_median_ns": 29.0,
+      "after_median_ns": 28.5,
+      "median_paired_ratio": 0.9827586206896552,
+      "geometric_paired_ratio": 0.9718210605117084,
+      "conditional_log_t_interval95": [
+        0.944112264312261,
+        1.0003430835019143
+      ],
+      "aa_geometric_ratio": 0.968416788661297,
+      "aa_conditional_interval95": [
+        0.9469902383383585,
+        0.9903281349622246
+      ],
+      "candidate_vs_control_ratio": 1.003515296192993,
+      "candidate_vs_control_interval95": [
+        0.9571231760247687,
+        1.052156059866687
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.9378310765610591,
+        "2": 1.0070429496933102
+      },
+      "paired_ratio_range": [
+        0.9310344827586207,
+        1.0357142857142858
+      ],
+      "paired_ratios": [
+        0.9310344827586207,
+        0.9655172413793104,
+        0.9310344827586207,
+        0.9310344827586207,
+        0.9310344827586207,
+        1.0357142857142858,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        0.9655172413793104,
+        1.0,
+        1.0,
+        0.9642857142857143,
+        0.9310344827586207,
+        0.9655172413793104,
+        0.9310344827586207,
+        0.9310344827586207
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/kernel/Float64/GroupNormLinf/n5/scaled/vector",
+      "pairs": 10,
+      "before_median_ns": 32.0,
+      "after_median_ns": 33.0,
+      "median_paired_ratio": 1.03125,
+      "geometric_paired_ratio": 1.0154115108940156,
+      "conditional_log_t_interval95": [
+        0.9940327877630482,
+        1.0372500275130219
+      ],
+      "aa_geometric_ratio": 0.9969275637556889,
+      "aa_conditional_interval95": [
+        0.9900124946672885,
+        1.0038909334269153
+      ],
+      "candidate_vs_control_ratio": 1.0185409129111576,
+      "candidate_vs_control_interval95": [
+        0.9999301129824,
+        1.0374980989217937
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0374255912738943,
+        "2": 0.9938645673758532
+      },
+      "paired_ratio_range": [
+        0.9696969696969697,
+        1.0625
+      ],
+      "paired_ratios": [
+        1.03125,
+        1.03125,
+        1.0625,
+        1.03125,
+        1.03125,
+        1.0,
+        0.9696969696969697,
+        1.03125,
+        1.0,
+        0.9696969696969697
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.9696969696969697
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float64/n5/reversed/inactive_zero/vector",
+      "pairs": 10,
+      "before_median_ns": 20.0,
+      "after_median_ns": 22.0,
+      "median_paired_ratio": 1.15,
+      "geometric_paired_ratio": 1.142944929043562,
+      "conditional_log_t_interval95": [
+        1.118354842242572,
+        1.1680756960884608
+      ],
+      "aa_geometric_ratio": 1.0155069930393492,
+      "aa_conditional_interval95": [
+        0.9976675352746015,
+        1.033665441091029
+      ],
+      "candidate_vs_control_ratio": 1.1254919334654692,
+      "candidate_vs_control_interval95": [
+        1.1061489174694543,
+        1.1451731971078118
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.1328287804140218,
+        "2": 1.1531514147698145
+      },
+      "paired_ratio_range": [
+        1.1,
+        1.2105263157894737
+      ],
+      "paired_ratios": [
+        1.15,
+        1.1578947368421053,
+        1.1578947368421053,
+        1.1,
+        1.1,
+        1.2105263157894737,
+        1.1578947368421053,
+        1.15,
+        1.1,
+        1.15
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        1.0526315789473684,
+        1.0,
+        1.0,
+        1.0526315789473684,
+        1.0526315789473684,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": true
+    },
+    {
+      "case": "pure_group/Float64/GroupNormL2/n32/stridedfalse",
+      "pairs": 10,
+      "before_median_ns": 29.0,
+      "after_median_ns": 29.0,
+      "median_paired_ratio": 1.0,
+      "geometric_paired_ratio": 1.0102223604697558,
+      "conditional_log_t_interval95": [
+        0.9984577813704995,
+        1.022125558671357
+      ],
+      "aa_geometric_ratio": 1.003395908243034,
+      "aa_conditional_interval95": [
+        0.9896783583138414,
+        1.0173035918398763
+      ],
+      "candidate_vs_control_ratio": 1.006803348678863,
+      "candidate_vs_control_interval95": [
+        0.9965615274825472,
+        1.017150426699293
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0205492175930853,
+        "2": 1.0
+      },
+      "paired_ratio_range": [
+        1.0,
+        1.0344827586206897
+      ],
+      "paired_ratios": [
+        1.0,
+        1.0,
+        1.0344827586206897,
+        1.0344827586206897,
+        1.0344827586206897,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        1.0344827586206897,
+        1.0,
+        1.0344827586206897,
+        1.0,
+        1.0,
+        1.0,
+        0.9666666666666667,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "public_write/Float64/GroupNormL2/n32/stridedfalse",
+      "pairs": 10,
+      "before_median_ns": 42.0,
+      "after_median_ns": 26.0,
+      "median_paired_ratio": 0.6144018583042974,
+      "geometric_paired_ratio": 0.6155452372228771,
+      "conditional_log_t_interval95": [
+        0.6037237554388359,
+        0.6275981947941661
+      ],
+      "aa_geometric_ratio": 1.009459265166608,
+      "aa_conditional_interval95": [
+        0.9913540311630207,
+        1.0278951575303983
+      ],
+      "candidate_vs_control_ratio": 0.6097771930611615,
+      "candidate_vs_control_interval95": [
+        0.5950179269183952,
+        0.6249025589922169
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.6197926103542187,
+        "2": 0.6113269708898668
+      },
+      "paired_ratio_range": [
+        0.5952380952380952,
+        0.6428571428571429
+      ],
+      "paired_ratios": [
+        0.6097560975609756,
+        0.6428571428571429,
+        0.6428571428571429,
+        0.5952380952380952,
+        0.6097560975609756,
+        0.6190476190476191,
+        0.6046511627906976,
+        0.6190476190476191,
+        0.5952380952380952,
+        0.6190476190476191
+      ],
+      "aa_ratios": [
+        1.0731707317073171,
+        1.0238095238095237,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.9767441860465116,
+        1.0,
+        1.0,
+        1.0238095238095237
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/public/Float64/GroupNormL2/n256/plain/view_inplace",
+      "pairs": 10,
+      "before_median_ns": 102.0,
+      "after_median_ns": 104.5,
+      "median_paired_ratio": 1.056811145510836,
+      "geometric_paired_ratio": 1.0807322673715758,
+      "conditional_log_t_interval95": [
+        1.0006211612756275,
+        1.167257178779951
+      ],
+      "aa_geometric_ratio": 1.086445762023174,
+      "aa_conditional_interval95": [
+        0.9807063438057126,
+        1.2035859676787786
+      ],
+      "candidate_vs_control_ratio": 0.9947411137754741,
+      "candidate_vs_control_interval95": [
+        0.8970631504802417,
+        1.103054877357896
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.1691843488061866,
+        "2": 0.9989718344508232
+      },
+      "paired_ratio_range": [
+        0.9509803921568627,
+        1.2718446601941749
+      ],
+      "paired_ratios": [
+        1.125,
+        1.175257731958763,
+        1.0294117647058822,
+        1.2718446601941749,
+        1.2621359223300972,
+        0.9509803921568627,
+        1.0146341463414634,
+        1.0,
+        1.0842105263157895,
+        0.9509803921568627
+      ],
+      "aa_ratios": [
+        1.26,
+        1.2268041237113403,
+        1.411764705882353,
+        1.0097087378640777,
+        1.1553398058252426,
+        1.0,
+        0.9365853658536586,
+        0.941747572815534,
+        1.0842105263157895,
+        0.9411764705882353
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/public/Float64/GroupNormL2/n256/scaled/view_inplace",
+      "pairs": 10,
+      "before_median_ns": 99.0,
+      "after_median_ns": 102.5,
+      "median_paired_ratio": 1.0202020202020203,
+      "geometric_paired_ratio": 1.0458348928409869,
+      "conditional_log_t_interval95": [
+        0.9977346533634327,
+        1.0962540184372087
+      ],
+      "aa_geometric_ratio": 1.0470948396576585,
+      "aa_conditional_interval95": [
+        0.9834203632348485,
+        1.114892109444623
+      ],
+      "candidate_vs_control_ratio": 0.9987967213962363,
+      "candidate_vs_control_interval95": [
+        0.9158475256623593,
+        1.0892587059733445
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0765145206413138,
+        "2": 1.0160296049068849
+      },
+      "paired_ratio_range": [
+        0.9537037037037037,
+        1.1818181818181819
+      ],
+      "paired_ratios": [
+        1.1111111111111112,
+        1.1818181818181819,
+        1.101010101010101,
+        1.0,
+        1.0,
+        1.0303030303030303,
+        1.0,
+        1.0101010101010102,
+        0.9537037037037037,
+        1.0909090909090908
+      ],
+      "aa_ratios": [
+        1.02020202020202,
+        1.02020202020202,
+        1.0303030303030303,
+        1.01,
+        1.34,
+        1.0101010101010102,
+        1.0505050505050506,
+        1.0,
+        1.0185185185185186,
+        1.0101010101010102
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/kernel/Float64/GroupNormL2/n256/scaled/view_inplace",
+      "pairs": 10,
+      "before_median_ns": 98.25,
+      "after_median_ns": 98.5,
+      "median_paired_ratio": 1.00253807106599,
+      "geometric_paired_ratio": 1.0341561164792696,
+      "conditional_log_t_interval95": [
+        0.9847648167100187,
+        1.0860246579731447
+      ],
+      "aa_geometric_ratio": 1.113845808559719,
+      "aa_conditional_interval95": [
+        1.0072587249542526,
+        1.2317118278646846
+      ],
+      "candidate_vs_control_ratio": 0.9284553647658883,
+      "candidate_vs_control_interval95": [
+        0.8291386967096358,
+        1.039668474989102
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0685255049396822,
+        "2": 1.0008922279415842
+      },
+      "paired_ratio_range": [
+        0.9897959183673469,
+        1.175257731958763
+      ],
+      "paired_ratios": [
+        1.0204081632653061,
+        1.0,
+        0.9897959183673469,
+        1.175257731958763,
+        1.1734693877551021,
+        1.0303030303030303,
+        0.98989898989899,
+        1.0050761421319796,
+        0.98989898989899,
+        0.98989898989899
+      ],
+      "aa_ratios": [
+        1.3571428571428572,
+        1.346938775510204,
+        1.346938775510204,
+        1.0515463917525774,
+        1.153061224489796,
+        0.98989898989899,
+        1.02020202020202,
+        0.9949238578680203,
+        0.98989898989899,
+        0.98989898989899
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/public/Float64/GroupNormL2/n256/nested_scaled/view_inplace",
+      "pairs": 10,
+      "before_median_ns": 100.0,
+      "after_median_ns": 99.5,
+      "median_paired_ratio": 1.0,
+      "geometric_paired_ratio": 1.013923001038696,
+      "conditional_log_t_interval95": [
+        0.9771498757815882,
+        1.0520800109737742
+      ],
+      "aa_geometric_ratio": 1.0692694429200067,
+      "aa_conditional_interval95": [
+        0.9858553462584252,
+        1.1597412804035805
+      ],
+      "candidate_vs_control_ratio": 0.948239012862681,
+      "candidate_vs_control_interval95": [
+        0.8809449366820341,
+        1.0206735836423009
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0363388871903512,
+        "2": 0.9919919678228657
+      },
+      "paired_ratio_range": [
+        0.99,
+        1.1717171717171717
+      ],
+      "paired_ratios": [
+        1.1717171717171717,
+        1.0,
+        1.02020202020202,
+        1.0,
+        1.0,
+        1.0,
+        0.99,
+        0.99,
+        0.99,
+        0.99
+      ],
+      "aa_ratios": [
+        1.1717171717171717,
+        1.1616161616161615,
+        1.3434343434343434,
+        1.17,
+        0.99,
+        0.98,
+        0.99,
+        0.98,
+        0.98,
+        0.99
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "math/kernel/Float64/GroupNormL2/n256/nested_scaled/view_inplace",
+      "pairs": 10,
+      "before_median_ns": 97.5,
+      "after_median_ns": 98.0,
+      "median_paired_ratio": 1.0051020408163265,
+      "geometric_paired_ratio": 1.0222234506663326,
+      "conditional_log_t_interval95": [
+        0.9825331710581858,
+        1.0635170535431238
+      ],
+      "aa_geometric_ratio": 1.0870592574587736,
+      "aa_conditional_interval95": [
+        0.989211204016563,
+        1.1945859735804552
+      ],
+      "candidate_vs_control_ratio": 0.9403566950489818,
+      "candidate_vs_control_interval95": [
+        0.8713358189234772,
+        1.01484490218243
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0428212102918737,
+        "2": 1.0020325371016543
+      },
+      "paired_ratio_range": [
+        1.0,
+        1.1958762886597938
+      ],
+      "paired_ratios": [
+        1.0,
+        1.0103092783505154,
+        1.0103092783505154,
+        1.0103092783505154,
+        1.1958762886597938,
+        1.010204081632653,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "aa_ratios": [
+        1.175257731958763,
+        1.0103092783505154,
+        1.1030927835051547,
+        1.3608247422680413,
+        1.3608247422680413,
+        0.9897959183673469,
+        0.9897959183673469,
+        0.9897959183673469,
+        0.9897959183673469,
+        0.9897959183673469
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float64/n256/range/active_zero/vector",
+      "pairs": 10,
+      "before_median_ns": 124.0,
+      "after_median_ns": 22.0,
+      "median_paired_ratio": 0.1774193548387097,
+      "geometric_paired_ratio": 0.17767015749168272,
+      "conditional_log_t_interval95": [
+        0.1749293883203985,
+        0.1804538686507163
+      ],
+      "aa_geometric_ratio": 1.002425596226402,
+      "aa_conditional_interval95": [
+        0.9996323905702362,
+        1.0052266067495481
+      ],
+      "candidate_vs_control_ratio": 0.1772402442241261,
+      "candidate_vs_control_interval95": [
+        0.17452431190933584,
+        0.179998441643748
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.17606119010310706,
+        "2": 0.17929382872303018
+      },
+      "paired_ratio_range": [
+        0.1693548387096774,
+        0.18548387096774194
+      ],
+      "paired_ratios": [
+        0.1774193548387097,
+        0.1774193548387097,
+        0.1693548387096774,
+        0.17886178861788618,
+        0.1774193548387097,
+        0.18548387096774194,
+        0.17886178861788618,
+        0.1774193548387097,
+        0.1774193548387097,
+        0.1774193548387097
+      ],
+      "aa_ratios": [
+        1.0080645161290323,
+        1.0,
+        1.0,
+        1.008130081300813,
+        1.0,
+        1.0,
+        1.008130081300813,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float64/n256/range/inactive_zero/vector",
+      "pairs": 10,
+      "before_median_ns": 124.0,
+      "after_median_ns": 42.0,
+      "median_paired_ratio": 0.3387096774193548,
+      "geometric_paired_ratio": 0.33708119004298565,
+      "conditional_log_t_interval95": [
+        0.33464022509716707,
+        0.33953996011030446
+      ],
+      "aa_geometric_ratio": 0.9991906067123417,
+      "aa_conditional_interval95": [
+        0.9973621752121549,
+        1.001022390216278
+      ],
+      "candidate_vs_control_ratio": 0.3373542423022682,
+      "candidate_vs_control_interval95": [
+        0.33473798665206256,
+        0.33999094616540504
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.33708119004298565,
+        "2": 0.33708119004298565
+      },
+      "paired_ratio_range": [
+        0.33064516129032256,
+        0.3387096774193548
+      ],
+      "paired_ratios": [
+        0.3387096774193548,
+        0.3387096774193548,
+        0.3387096774193548,
+        0.33064516129032256,
+        0.3387096774193548,
+        0.3387096774193548,
+        0.33064516129032256,
+        0.3387096774193548,
+        0.3387096774193548,
+        0.3387096774193548
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.9919354838709677,
+        1.0,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float64/n256/strided/active_zero/vector",
+      "pairs": 10,
+      "before_median_ns": 125.0,
+      "after_median_ns": 56.0,
+      "median_paired_ratio": 0.4462222222222222,
+      "geometric_paired_ratio": 0.45090142852481296,
+      "conditional_log_t_interval95": [
+        0.44175042619137184,
+        0.46024199681844713
+      ],
+      "aa_geometric_ratio": 1.0160011213087412,
+      "aa_conditional_interval95": [
+        1.004194659561828,
+        1.0279463933327793
+      ],
+      "candidate_vs_control_ratio": 0.44380012882662323,
+      "candidate_vs_control_interval95": [
+        0.43593886921560654,
+        0.45180315006303257
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.4455034829558345,
+        "2": 0.456364778332996
+      },
+      "paired_ratio_range": [
+        0.44,
+        0.47580645161290325
+      ],
+      "paired_ratios": [
+        0.44,
+        0.4435483870967742,
+        0.45161290322580644,
+        0.4444444444444444,
+        0.448,
+        0.47580645161290325,
+        0.44,
+        0.472,
+        0.44,
+        0.45528455284552843
+      ],
+      "aa_ratios": [
+        0.992,
+        1.0161290322580645,
+        1.0161290322580645,
+        0.9920634920634921,
+        1.0,
+        1.032258064516129,
+        1.024,
+        1.024,
+        1.024,
+        1.0406504065040652
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float64/n256/strided/active_zero/view",
+      "pairs": 10,
+      "before_median_ns": 127.0,
+      "after_median_ns": 58.0,
+      "median_paired_ratio": 0.4566929133858268,
+      "geometric_paired_ratio": 0.46100160896298026,
+      "conditional_log_t_interval95": [
+        0.451850479469301,
+        0.4703380722668802
+      ],
+      "aa_geometric_ratio": 1.0023679620818728,
+      "aa_conditional_interval95": [
+        0.9918172334079999,
+        1.0130309270345683
+      ],
+      "candidate_vs_control_ratio": 0.4599125534753732,
+      "candidate_vs_control_interval95": [
+        0.45057951077845076,
+        0.4694389154065237
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.4666532502391824,
+        "2": 0.4554184147598425
+      },
+      "paired_ratio_range": [
+        0.4496124031007752,
+        0.49612403100775193
+      ],
+      "paired_ratios": [
+        0.49612403100775193,
+        0.46825396825396826,
+        0.453125,
+        0.4603174603174603,
+        0.4566929133858268,
+        0.45384615384615384,
+        0.4496124031007752,
+        0.4603174603174603,
+        0.4566929133858268,
+        0.4566929133858268
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0158730158730158,
+        1.0078125,
+        1.0238095238095237,
+        1.015748031496063,
+        0.9846153846153847,
+        0.9767441860465116,
+        1.007936507936508,
+        0.9921259842519685,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float64/n256/reversed/active_zero/view",
+      "pairs": 10,
+      "before_median_ns": 128.0,
+      "after_median_ns": 58.5,
+      "median_paired_ratio": 0.46062992125984253,
+      "geometric_paired_ratio": 0.46977328015647607,
+      "conditional_log_t_interval95": [
+        0.45260536914619554,
+        0.48759239238651436
+      ],
+      "aa_geometric_ratio": 1.2419767506394528,
+      "aa_conditional_interval95": [
+        1.0645564125978202,
+        1.4489661899314288
+      ],
+      "candidate_vs_control_ratio": 0.3782464365090613,
+      "candidate_vs_control_interval95": [
+        0.31433478239422796,
+        0.455152833046549
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.4885398261757135,
+        "2": 0.45172762367504565
+      },
+      "paired_ratio_range": [
+        0.4461538461538462,
+        0.5118110236220472
+      ],
+      "paired_ratios": [
+        0.5118110236220472,
+        0.4645669291338583,
+        0.5038759689922481,
+        0.4645669291338583,
+        0.5,
+        0.4496124031007752,
+        0.4461538461538462,
+        0.453125,
+        0.4566929133858268,
+        0.453125
+      ],
+      "aa_ratios": [
+        1.015748031496063,
+        1.0078740157480315,
+        1.0,
+        1.0236220472440944,
+        1.015625,
+        1.5116279069767442,
+        1.5,
+        1.53125,
+        1.5354330708661417,
+        1.5390625
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float64/n256/reversed/inactive_zero/vector",
+      "pairs": 10,
+      "before_median_ns": 125.5,
+      "after_median_ns": 91.0,
+      "median_paired_ratio": 0.7232862903225806,
+      "geometric_paired_ratio": 0.7110161130467336,
+      "conditional_log_t_interval95": [
+        0.6512677555039033,
+        0.776245881574365
+      ],
+      "aa_geometric_ratio": 0.9960868899753204,
+      "aa_conditional_interval95": [
+        0.9894387891962689,
+        1.0027796597570944
+      ],
+      "candidate_vs_control_ratio": 0.7138093274818126,
+      "candidate_vs_control_interval95": [
+        0.6569713865362654,
+        0.7755646082036958
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.6335053647139149,
+        "2": 0.7980104686885869
+      },
+      "paired_ratio_range": [
+        0.6220472440944882,
+        0.8145161290322581
+      ],
+      "paired_ratios": [
+        0.65625,
+        0.6220472440944882,
+        0.6299212598425197,
+        0.6299212598425197,
+        0.6299212598425197,
+        0.7903225806451613,
+        0.8145161290322581,
+        0.7967479674796748,
+        0.7903225806451613,
+        0.7983870967741935
+      ],
+      "aa_ratios": [
+        0.9765625,
+        0.9921259842519685,
+        0.9921259842519685,
+        0.9921259842519685,
+        0.9921259842519685,
+        1.0080645161290323,
+        1.0,
+        1.008130081300813,
+        1.0,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "writer/Float64/n256/reversed/inactive_zero/view",
+      "pairs": 10,
+      "before_median_ns": 128.5,
+      "after_median_ns": 150.0,
+      "median_paired_ratio": 1.1673328488372094,
+      "geometric_paired_ratio": 1.1702089611368052,
+      "conditional_log_t_interval95": [
+        1.1629689952415143,
+        1.1774939988322723
+      ],
+      "aa_geometric_ratio": 1.0007907339133535,
+      "aa_conditional_interval95": [
+        0.9936227160839155,
+        1.0080104619933437
+      ],
+      "candidate_vs_control_ratio": 1.1692843683324106,
+      "candidate_vs_control_interval95": [
+        1.1639988631588496,
+        1.1745938740147557
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.1685167613984022,
+        "2": 1.1719036114519128
+      },
+      "paired_ratio_range": [
+        1.1550387596899225,
+        1.1811023622047243
+      ],
+      "paired_ratios": [
+        1.1811023622047243,
+        1.1550387596899225,
+        1.1627906976744187,
+        1.1811023622047243,
+        1.1627906976744187,
+        1.1627906976744187,
+        1.1811023622047243,
+        1.1627906976744187,
+        1.1811023622047243,
+        1.171875
+      ],
+      "aa_ratios": [
+        1.015748031496063,
+        0.9922480620155039,
+        0.9844961240310077,
+        1.015748031496063,
+        1.0,
+        1.0,
+        1.0,
+        0.9922480620155039,
+        1.0078740157480315,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": true
+    },
+    {
+      "case": "norm/public/Float32/n4/stridedfalse",
+      "pairs": 10,
+      "before_median_ns": 24.0,
+      "after_median_ns": 24.0,
+      "median_paired_ratio": 1.0,
+      "geometric_paired_ratio": 1.0042650309076446,
+      "conditional_log_t_interval95": [
+        0.99464337481706,
+        1.0139797618311486
+      ],
+      "aa_geometric_ratio": 1.0,
+      "aa_conditional_interval95": [
+        1.0,
+        1.0
+      ],
+      "candidate_vs_control_ratio": 1.0042650309076446,
+      "candidate_vs_control_interval95": [
+        0.99464337481706,
+        1.0139797618311486
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0,
+        "2": 1.0085482523039324
+      },
+      "paired_ratio_range": [
+        1.0,
+        1.0434782608695652
+      ],
+      "paired_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0434782608695652
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "norm/storage/Float32/n4/stridedfalse",
+      "pairs": 10,
+      "before_median_ns": 23.0,
+      "after_median_ns": 23.0,
+      "median_paired_ratio": 1.0,
+      "geometric_paired_ratio": 0.9915242009646987,
+      "conditional_log_t_interval95": [
+        0.9726160369111434,
+        1.0107999496089952
+      ],
+      "aa_geometric_ratio": 0.9915242009646987,
+      "aa_conditional_interval95": [
+        0.9788783510066983,
+        1.00433341904806
+      ],
+      "candidate_vs_control_ratio": 1.0,
+      "candidate_vs_control_interval95": [
+        0.979909100766258,
+        1.0205028193105172
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.974787511507595,
+        "2": 1.0085482523039324
+      },
+      "paired_ratio_range": [
+        0.9583333333333334,
+        1.0434782608695652
+      ],
+      "paired_ratios": [
+        0.9583333333333334,
+        1.0,
+        0.9583333333333334,
+        1.0,
+        0.9583333333333334,
+        1.0,
+        1.0,
+        1.0,
+        1.0434782608695652,
+        1.0
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.9583333333333334,
+        0.9583333333333334,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "norm/public/Float32/n4/stridedtrue",
+      "pairs": 10,
+      "before_median_ns": 24.0,
+      "after_median_ns": 24.0,
+      "median_paired_ratio": 1.0,
+      "geometric_paired_ratio": 1.0,
+      "conditional_log_t_interval95": [
+        1.0,
+        1.0
+      ],
+      "aa_geometric_ratio": 1.0040905429776572,
+      "aa_conditional_interval95": [
+        0.9875844948780321,
+        1.020872465825499
+      ],
+      "candidate_vs_control_ratio": 0.9959261213978506,
+      "candidate_vs_control_interval95": [
+        0.9795542866281333,
+        1.012571587733869
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0,
+        "2": 1.0
+      },
+      "paired_ratio_range": [
+        1.0,
+        1.0
+      ],
+      "paired_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "aa_ratios": [
+        1.0416666666666667,
+        1.0,
+        1.0,
+        1.0416666666666667,
+        1.0,
+        1.0,
+        1.0,
+        0.96,
+        1.0,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "norm/storage/Float32/n4/stridedtrue",
+      "pairs": 10,
+      "before_median_ns": 22.0,
+      "after_median_ns": 22.0,
+      "median_paired_ratio": 1.0,
+      "geometric_paired_ratio": 1.0,
+      "conditional_log_t_interval95": [
+        0.9851226851105325,
+        1.0151019919796063
+      ],
+      "aa_geometric_ratio": 0.995564688916004,
+      "aa_conditional_interval95": [
+        0.9856044561563166,
+        1.0056255768989988
+      ],
+      "candidate_vs_control_ratio": 1.0044550707084894,
+      "candidate_vs_control_interval95": [
+        0.9944058931791034,
+        1.0146058023112268
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0,
+        "2": 1.0
+      },
+      "paired_ratio_range": [
+        0.9565217391304348,
+        1.0454545454545454
+      ],
+      "paired_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0454545454545454,
+        0.9565217391304348
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.9565217391304348
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "quadratic_like/public/Float32/n5/groups24",
+      "pairs": 10,
+      "before_median_ns": 416.5,
+      "after_median_ns": 278.0,
+      "median_paired_ratio": 0.6686746987951807,
+      "geometric_paired_ratio": 0.6641962739221989,
+      "conditional_log_t_interval95": [
+        0.6548273507573312,
+        0.6736992426811728
+      ],
+      "aa_geometric_ratio": 1.0146676826559802,
+      "aa_conditional_interval95": [
+        0.9801767197198473,
+        1.0503723313493116
+      ],
+      "candidate_vs_control_ratio": 0.65459488389697,
+      "candidate_vs_control_interval95": [
+        0.6257185399526674,
+        0.6848038449627866
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.6718011007096428,
+        "2": 0.6566775342078573
+      },
+      "paired_ratio_range": [
+        0.6359447004608295,
+        0.6795180722891566
+      ],
+      "paired_ratios": [
+        0.6795180722891566,
+        0.6714975845410628,
+        0.6707021791767555,
+        0.6674698795180722,
+        0.6698795180722892,
+        0.6746411483253588,
+        0.6496519721577726,
+        0.6579572446555819,
+        0.665871121718377,
+        0.6359447004608295
+      ],
+      "aa_ratios": [
+        0.9975903614457832,
+        1.002415458937198,
+        1.026634382566586,
+        1.0,
+        1.002409638554217,
+        0.9976076555023924,
+        0.974477958236659,
+        0.997624703087886,
+        1.0,
+        1.1589861751152073
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "quadratic_like/kernel/Float32/n5/groups24",
+      "pairs": 10,
+      "before_median_ns": 273.0,
+      "after_median_ns": 269.5,
+      "median_paired_ratio": 0.9972323972323973,
+      "geometric_paired_ratio": 0.9968836598864845,
+      "conditional_log_t_interval95": [
+        0.9796843564384766,
+        1.0143849136893721
+      ],
+      "aa_geometric_ratio": 0.9908432225328365,
+      "aa_conditional_interval95": [
+        0.9762959023415193,
+        1.0056073054128438
+      ],
+      "candidate_vs_control_ratio": 1.0060962594447658,
+      "candidate_vs_control_interval95": [
+        0.9892407966059982,
+        1.0232389189180473
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.9875170978766392,
+        "2": 1.0063390633797562
+      },
+      "paired_ratio_range": [
+        0.967391304347826,
+        1.041044776119403
+      ],
+      "paired_ratios": [
+        1.0146520146520146,
+        0.967391304347826,
+        0.9854014598540146,
+        0.9745454545454545,
+        0.9962962962962963,
+        1.041044776119403,
+        1.0037313432835822,
+        0.9981684981684982,
+        1.0226415094339623,
+        0.9676258992805755
+      ],
+      "aa_ratios": [
+        0.978021978021978,
+        0.9782608695652174,
+        0.9781021897810219,
+        0.9818181818181818,
+        1.0296296296296297,
+        0.9925373134328358,
+        1.007462686567164,
+        0.978021978021978,
+        1.0188679245283019,
+        0.9676258992805755
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "quadratic_fixed10/public/Float32/n5/groups24",
+      "pairs": 10,
+      "before_median_ns": 5966.5,
+      "after_median_ns": 5593.5,
+      "median_paired_ratio": 0.9359186331727436,
+      "geometric_paired_ratio": 0.9360139594511859,
+      "conditional_log_t_interval95": [
+        0.9320045955714162,
+        0.9400405710986135
+      ],
+      "aa_geometric_ratio": 1.0110340303539782,
+      "aa_conditional_interval95": [
+        1.0063636403124037,
+        1.0157260950092475
+      ],
+      "candidate_vs_control_ratio": 0.9257986688375598,
+      "candidate_vs_control_interval95": [
+        0.9193577068889015,
+        0.9322847557582644
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.9391852165565089,
+        "2": 0.9328534104271347
+      },
+      "paired_ratio_range": [
+        0.928059950041632,
+        0.9444444444444444
+      ],
+      "paired_ratios": [
+        0.9444444444444444,
+        0.9360173738723688,
+        0.938744769874477,
+        0.9337665583604099,
+        0.9429964688078023,
+        0.9294314381270903,
+        0.9358198924731183,
+        0.928059950041632,
+        0.9307847760188616,
+        0.940225627209968
+      ],
+      "aa_ratios": [
+        1.0073850285330648,
+        1.00417641162713,
+        1.006192468619247,
+        1.0010830625676914,
+        1.011854716663864,
+        1.0095317725752508,
+        1.0131048387096775,
+        1.0195670274771025,
+        1.0179353317615358,
+        1.0197002862434754
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "quadratic_fixed10/kernel/Float32/n5/groups24",
+      "pairs": 10,
+      "before_median_ns": 5559.25,
+      "after_median_ns": 5576.5,
+      "median_paired_ratio": 1.003689609739259,
+      "geometric_paired_ratio": 1.0027753576713152,
+      "conditional_log_t_interval95": [
+        0.9985538563558943,
+        1.007014705869248
+      ],
+      "aa_geometric_ratio": 0.9987303026399497,
+      "aa_conditional_interval95": [
+        0.9944149161838949,
+        1.0030644162489886
+      ],
+      "candidate_vs_control_ratio": 1.0040501975565108,
+      "candidate_vs_control_interval95": [
+        1.000321909637076,
+        1.0077923811336098
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0051765156716952,
+        "2": 1.0003799355388678
+      },
+      "paired_ratio_range": [
+        0.9942000535379674,
+        1.0129799891833424
+      ],
+      "paired_ratios": [
+        1.0074647000629553,
+        1.0023423423423423,
+        1.0050368771361755,
+        1.0129799891833424,
+        0.9981203007518797,
+        1.0005383097075184,
+        1.0070308274743105,
+        0.9950606196677144,
+        0.9942000535379674,
+        1.0051365233846985
+      ],
+      "aa_ratios": [
+        1.009083550679018,
+        1.0034234234234234,
+        0.9960424536787192,
+        0.9976563908418965,
+        0.9953455066237021,
+        0.9967701417548896,
+        1.0025238867856499,
+        0.9954198473282443,
+        0.9875078076202374,
+        1.0036946922591692
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "norm/public/Float64/n4/stridedfalse",
+      "pairs": 10,
+      "before_median_ns": 22.0,
+      "after_median_ns": 23.0,
+      "median_paired_ratio": 1.0,
+      "geometric_paired_ratio": 1.0264629526877418,
+      "conditional_log_t_interval95": [
+        0.9964905393098259,
+        1.057336875441069
+      ],
+      "aa_geometric_ratio": 0.995564688916004,
+      "aa_conditional_interval95": [
+        0.9777566800172712,
+        1.0136970373845076
+      ],
+      "candidate_vs_control_ratio": 1.0310359177216104,
+      "candidate_vs_control_interval95": [
+        1.0099771764978607,
+        1.0525337486517894
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0089299890719963,
+        "2": 1.0443006002919508
+      },
+      "paired_ratio_range": [
+        1.0,
+        1.1363636363636365
+      ],
+      "paired_ratios": [
+        1.0,
+        1.0454545454545454,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0454545454545454,
+        1.0454545454545454,
+        1.1363636363636365
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        0.9565217391304348,
+        1.0,
+        1.0,
+        1.0,
+        0.9565217391304348,
+        1.0,
+        1.0,
+        1.0454545454545454
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "norm/storage/Float64/n4/stridedfalse",
+      "pairs": 10,
+      "before_median_ns": 22.0,
+      "after_median_ns": 21.5,
+      "median_paired_ratio": 1.0,
+      "geometric_paired_ratio": 0.9907391451890704,
+      "conditional_log_t_interval95": [
+        0.9650720215330958,
+        1.0170889134788874
+      ],
+      "aa_geometric_ratio": 1.0087391026304016,
+      "aa_conditional_interval95": [
+        0.9754576649485723,
+        1.043156062779244
+      ],
+      "candidate_vs_control_ratio": 0.9821559832523651,
+      "candidate_vs_control_interval95": [
+        0.9523081722537117,
+        1.012939302154204
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0,
+        "2": 0.9815640538099698
+      },
+      "paired_ratio_range": [
+        0.9545454545454546,
+        1.0476190476190477
+      ],
+      "paired_ratios": [
+        1.0,
+        0.9545454545454546,
+        1.0,
+        1.0,
+        1.0476190476190477,
+        0.9545454545454546,
+        1.0,
+        0.9545454545454546,
+        0.9545454545454546,
+        1.0476190476190477
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0909090909090908,
+        1.0,
+        1.0,
+        1.0476190476190477,
+        0.9545454545454546,
+        1.0476190476190477,
+        0.9545454545454546,
+        0.9545454545454546,
+        1.0476190476190477
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "norm/public/Float64/n4/stridedtrue",
+      "pairs": 10,
+      "before_median_ns": 23.0,
+      "after_median_ns": 23.0,
+      "median_paired_ratio": 1.0,
+      "geometric_paired_ratio": 0.9953763311479694,
+      "conditional_log_t_interval95": [
+        0.9778539122349574,
+        1.0132127388487968
+      ],
+      "aa_geometric_ratio": 1.0,
+      "aa_conditional_interval95": [
+        1.0,
+        1.0
+      ],
+      "candidate_vs_control_ratio": 0.9953763311479694,
+      "candidate_vs_control_interval95": [
+        0.9778539122349574,
+        1.0132127388487968
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0085482523039324,
+        "2": 0.9823764389519918
+      },
+      "paired_ratio_range": [
+        0.9565217391304348,
+        1.0434782608695652
+      ],
+      "paired_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0434782608695652,
+        1.0,
+        0.9565217391304348,
+        1.0,
+        1.0,
+        0.9565217391304348
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "norm/storage/Float64/n4/stridedtrue",
+      "pairs": 10,
+      "before_median_ns": 22.0,
+      "after_median_ns": 22.0,
+      "median_paired_ratio": 1.0,
+      "geometric_paired_ratio": 1.0,
+      "conditional_log_t_interval95": [
+        1.0,
+        1.0
+      ],
+      "aa_geometric_ratio": 1.0,
+      "aa_conditional_interval95": [
+        1.0,
+        1.0
+      ],
+      "candidate_vs_control_ratio": 1.0,
+      "candidate_vs_control_interval95": [
+        1.0,
+        1.0
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.0,
+        "2": 1.0
+      },
+      "paired_ratio_range": [
+        1.0,
+        1.0
+      ],
+      "paired_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "aa_ratios": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "quadratic_like/public/Float64/n5/groups24",
+      "pairs": 10,
+      "before_median_ns": 393.5,
+      "after_median_ns": 304.5,
+      "median_paired_ratio": 0.7763655855646401,
+      "geometric_paired_ratio": 0.7741940899216828,
+      "conditional_log_t_interval95": [
+        0.7683525148702927,
+        0.7800800768783126
+      ],
+      "aa_geometric_ratio": 0.9997382002803815,
+      "aa_conditional_interval95": [
+        0.9932110629951781,
+        1.0063082322963497
+      ],
+      "candidate_vs_control_ratio": 0.7743968267938109,
+      "candidate_vs_control_interval95": [
+        0.7667032132874468,
+        0.7821676431705419
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.7704762906040512,
+        "2": 0.7779298288332186
+      },
+      "paired_ratio_range": [
+        0.76010101010101,
+        0.7862595419847328
+      ],
+      "paired_ratios": [
+        0.7690355329949239,
+        0.7766497461928934,
+        0.76010101010101,
+        0.7794871794871795,
+        0.7672634271099744,
+        0.7837150127226463,
+        0.7766497461928934,
+        0.7670886075949367,
+        0.7760814249363868,
+        0.7862595419847328
+      ],
+      "aa_ratios": [
+        1.0050761421319796,
+        0.9923857868020305,
+        0.9924242424242424,
+        1.0102564102564102,
+        1.0179028132992327,
+        0.9949109414758269,
+        0.9923857868020305,
+        0.9898734177215189,
+        1.0025445292620865,
+        1.0
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "quadratic_like/kernel/Float64/n5/groups24",
+      "pairs": 10,
+      "before_median_ns": 298.5,
+      "after_median_ns": 294.0,
+      "median_paired_ratio": 0.9848591349696729,
+      "geometric_paired_ratio": 0.9865784972651668,
+      "conditional_log_t_interval95": [
+        0.974859058861809,
+        0.998438822943707
+      ],
+      "aa_geometric_ratio": 1.0105762134267167,
+      "aa_conditional_interval95": [
+        0.990552782704095,
+        1.0310044057984946
+      ],
+      "candidate_vs_control_ratio": 0.9762534326033886,
+      "candidate_vs_control_interval95": [
+        0.9590779878587901,
+        0.9937364601576325
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.9819600355708058,
+        "2": 0.9912186810130222
+      },
+      "paired_ratio_range": [
+        0.9634551495016611,
+        1.0136986301369864
+      ],
+      "paired_ratios": [
+        0.9800664451827242,
+        0.9832775919732442,
+        0.9832214765100671,
+        1.0,
+        0.9635761589403974,
+        0.9864406779661017,
+        1.0067114093959733,
+        0.9865771812080537,
+        0.9634551495016611,
+        1.0136986301369864
+      ],
+      "aa_ratios": [
+        0.9867109634551495,
+        1.0,
+        0.9865771812080537,
+        0.98,
+        0.9801324503311258,
+        1.040677966101695,
+        1.0302013422818792,
+        1.0201342281879195,
+        1.0232558139534884,
+        1.0616438356164384
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "quadratic_fixed10/public/Float64/n5/groups24",
+      "pairs": 10,
+      "before_median_ns": 6934.5,
+      "after_median_ns": 6452.0,
+      "median_paired_ratio": 0.9305666132243746,
+      "geometric_paired_ratio": 0.9292297288217208,
+      "conditional_log_t_interval95": [
+        0.9052227076688549,
+        0.953873429832208
+      ],
+      "aa_geometric_ratio": 1.1064191049143197,
+      "aa_conditional_interval95": [
+        0.9842631960160417,
+        1.2437356600088223
+      ],
+      "candidate_vs_control_ratio": 0.8398532931096483,
+      "candidate_vs_control_interval95": [
+        0.727864588320723,
+        0.9690724968149117
+      ],
+      "cohort_geometric_ratios": {
+        "1": 0.9619918241512607,
+        "2": 0.8975833964991368
+      },
+      "paired_ratio_range": [
+        0.8953104832927005,
+        0.9632747858905502
+      ],
+      "paired_ratios": [
+        0.9596762537939009,
+        0.9611594202898551,
+        0.9632747858905502,
+        0.9630706600756034,
+        0.9627829367382472,
+        0.9014569726548483,
+        0.8961709450738563,
+        0.8953104832927005,
+        0.8992086330935252,
+        0.8957855504587156
+      ],
+      "aa_ratios": [
+        0.943778002601532,
+        0.9457971014492753,
+        0.947162142546088,
+        0.9515847630125036,
+        0.9487811955890888,
+        1.2927581999569369,
+        1.2911229026244084,
+        1.29083608203069,
+        1.2951079136690649,
+        1.290711009174312
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    },
+    {
+      "case": "quadratic_fixed10/kernel/Float64/n5/groups24",
+      "pairs": 10,
+      "before_median_ns": 6183.5,
+      "after_median_ns": 6447.25,
+      "median_paired_ratio": 1.0418072245113246,
+      "geometric_paired_ratio": 1.0422713546896158,
+      "conditional_log_t_interval95": [
+        1.0235125235038358,
+        1.061373995784289
+      ],
+      "aa_geometric_ratio": 1.0347612899419056,
+      "aa_conditional_interval95": [
+        1.0075623387047796,
+        1.0626944716280882
+      ],
+      "candidate_vs_control_ratio": 1.007257775122349,
+      "candidate_vs_control_interval95": [
+        0.963155895329406,
+        1.0533790328900343
+      ],
+      "cohort_geometric_ratios": {
+        "1": 1.017479992299306,
+        "2": 1.0676667698906144
+      },
+      "paired_ratio_range": [
+        1.0171604338675733,
+        1.0690491591203104
+      ],
+      "paired_ratios": [
+        1.0172218628719276,
+        1.0171604338675733,
+        1.0174018615944962,
+        1.0178079974097458,
+        1.0178079974097458,
+        1.0690491591203104,
+        1.0675719366311025,
+        1.0658064516129033,
+        1.0688985929160602,
+        1.067011141611497
+      ],
+      "aa_ratios": [
+        1.0708279430789134,
+        1.0722033349522422,
+        1.072278429785512,
+        1.0717176622956128,
+        1.0726890076088715,
+        1.000646830530401,
+        0.9988684125444552,
+        0.9959677419354839,
+        1.0008086689309397,
+        0.9980623284353302
+      ],
+      "candidate_bytes": 0,
+      "candidate_allocations": 0,
+      "repeatable_regression_candidate": false
+    }
+  ]
+}

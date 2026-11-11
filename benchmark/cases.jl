@@ -3614,7 +3614,7 @@ end
 # With a `selector` (see `build_cases`) a scenario or function none of whose IDs matches is not built, and the
 # group layouts are built only for what is. The guarded calls go through `Base.invokelatest`, so that a function
 # that is skipped is not compiled. Without a selector nothing is enumerated and everything is built.
-function block_cases!(cases, rep; quick=false, selector=nothing)
+function block_iterate_cases!(cases, rep; quick=false, selector=nothing)
     grid = block_grid(quick)
     caches = (Dict{Any,Any}(), Dict{Any,Any}(), Dict{Any,Any}())     # vectors, dense operands, penalties
     scache = Dict{Any,Any}()
@@ -3708,7 +3708,7 @@ end
 
 const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks", "owner", "sparse", "block", "ridge")
 
-# `selector` (a Regex or `nothing`) lets the builders that take it, `sparse_cases!` and `block_cases!`, skip scenarios and
+# `selector` (a Regex or `nothing`) lets the builders that take it, `sparse_cases!` and `block_iterate_cases!`, skip scenarios and
 # operations none of whose case IDs it matches, before their fixtures exist. The result is a superset of the
 # cases whose IDs match, in the original relative order, with the fixtures they always had; the caller applies
 # the exact filter. Without a selector it is the whole catalog.
@@ -3718,11 +3718,11 @@ function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS), selector::
     all(in(CASE_GROUPS), groups) || error("PB_GROUPS must select from $(join(CASE_GROUPS, ','))")
     length(unique(groups)) == length(groups) || error("Duplicate benchmark group")
     cases=PerfCase[]
-    builders=(separable_cases!,smooth_cases!,matrix_cases!,constrained_cases!,tensor_cases!,product_cases!,block_cases!,owner_cases!,sparse_cases!,block_cases!,ridge_cases!)
+    builders=(separable_cases!,smooth_cases!,matrix_cases!,constrained_cases!,tensor_cases!,product_cases!,block_cases!,owner_cases!,sparse_cases!,block_iterate_cases!,ridge_cases!)
     # Select groups and sizes before allocating data or constructing function objects.
     for (group,builder) in zip(CASE_GROUPS,builders)
         group in groups || continue
-        builder in (sparse_cases!, block_cases!) ? builder(cases,rep;quick=suite=="quick",selector) : builder(cases,rep;quick=suite=="quick")
+        builder in (sparse_cases!, block_iterate_cases!) ? builder(cases,rep;quick=suite=="quick",selector) : builder(cases,rep;quick=suite=="quick")
         group == "vectors" && loss_coefficient_cases!(cases,rep;quick=suite=="quick")
     end
     suite == "extended" && "vectors" in groups && group_layout_cases!(cases, rep)

@@ -28,6 +28,14 @@ const SPARSE_QUICK_CASES = 117
 const SPARSE_QUICK_CATALOG_SHA1 = "1a2530cf8db96e564f86171dcf749dc222f3abe9"
 const SPARSE_QUICK_ORDER_SHA1 = "6d65d157e790d2e1f8cef55f6c86783d68a7c753"
 
+@testset "function blocks and iterate blocks coexist in the catalog" begin
+    cases = build_cases(1; suite="quick", groups=["blocks", "block"])
+    ids = [c.meta.id for c in cases]
+    @test length(unique(ids)) == length(ids)
+    @test any(id -> startswith(id, "blocks/"), ids)
+    @test any(id -> startswith(id, "block/"), ids)
+end
+
 sel_catalog_sha1(cases) = bytes2hex(sha1(join(sort!([c.meta.id for c in cases]), '\n')))
 function sel_order_sha1(cases)
     io = IOBuffer()

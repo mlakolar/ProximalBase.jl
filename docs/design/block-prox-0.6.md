@@ -84,8 +84,9 @@ activation. An inactive block activates once only for a converted nonzero;
 checked/fallible sources retain scalar value-write failure behavior. This
 optimization belongs to storage, not to the mathematical oracle.
 A specialized validated `GroupNormL2` boundary exposes its existing checks
-to small-loop optimization. The generic boundary and wrapper forwarding keep
-their original route. No check, wrapper dispatch or public extension method is
+to small-loop optimization for buffers of at most 32 entries. Larger buffers,
+the generic boundary and wrapper forwarding keep their original route. No
+check, wrapper dispatch or public extension method is
 removed; nested wrappers retain public validation.
 The separate size-5, 24-group diagnostic uses individual entry writes, so its
 result cannot be attributed to the bulk writer. PB-only timings do not replace

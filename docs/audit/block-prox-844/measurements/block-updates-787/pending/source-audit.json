@@ -1,0 +1,18 @@
+{
+  "baseline_commit": "a9f53e6ef3febffd58496c4a1c4fcb7609d0ca1c",
+  "candidate_commit": "2fb4d9aab0e5db1f51217b9d03e5e158b4d90bb1",
+  "production_source_sha256": "a4c75b79409b31722d94568c9fee4c6f21f84e5dd3c470da690a53da32d5ca06",
+  "production_files": 55,
+  "changed_production_files": [
+    "src/block_iterate.jl",
+    "src/block_prox.jl"
+  ],
+  "only_production_additions": [
+    "specialized Base.copyto! for eligible owned block views and two private buffer/index aliases",
+    "validated inline GroupNormL2 overload, capped at length 32"
+  ],
+  "generic_checker_wrappers_numeric_kernels_unchanged": true,
+  "constructors_existing_scalar_writes_activations_layouts_views_norm_dot_unchanged": true,
+  "dependencies_and_extensions_unchanged": true,
+  "public_exports_unchanged_relative_to_baseline": true
+}

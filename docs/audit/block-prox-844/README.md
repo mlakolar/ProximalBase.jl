@@ -1,6 +1,25 @@
 # #844 implementation and validation
 
-## Current PB-only follow-up (2026-11-10)
+## PB-only performance follow-up (2026-11-10; decision pending)
+
+The [block-update investigation](block-update-performance.md) records the
+baseline, exact source revisions, call paths, rejected prototypes, paired
+measurements and allocation evidence for PB #787. The bounded candidate
+`2fb4d9aa` passes 30,513 targeted assertions on both Julia 1.10.13 and 1.13.3.
+Its ten-pair Julia 1.10 focus run improves the target combined update
+69→48 ns and the independent size-5 public mathematical call 32→29 ns, but
+confirms inactive-zero copy regressions of about 127→219 ns. This candidate
+**fails the performance gate**. Optimization attempts stop for a maintainer
+decision; no measured regression is approved. Raw evidence and narrow
+alternatives are linked from the investigation.
+
+All performance work is PB-only. It changes neither ProximalSolvers nor its
+pins, tests, documentation, CI or PR #237. The historical whole-solver figures
+remain historical evidence and the downstream gate stays pending under
+PS #238 / PB #527. The following naming validation predates this performance
+candidate and must not be reported as its final full-suite validation.
+
+## Completed PB-only naming follow-up (2026-11-10)
 
 The [maintainer ruling](https://github.com/mlakolar/ProximalBase.jl/pull/848#issuecomment-6779277418)
 requires `BlockIterate`, `blockview` and `blockindices` in PB 0.6, with no

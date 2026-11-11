@@ -62,16 +62,25 @@ same-type ordinary Float32/Float64 vectors or Array-backed strided views;
 a custom `DenseArray` reader is not assumed infallible. A one-entry copy reads
 its entire source value into a scalar before performing one public value write.
 
-Longer copies finish `Base.unalias` before mutation, then use the existing
-private storage-view helper. Zero-prefix writes cannot change activity and
-preserve signed zeros, so they need no group lookup or second data pass.
-Before a nonzero write the method derives a group from the first entry and
-requires index identity with that owned group. Identity is constant time for
-vectors and built-in integer ranges; no layout or cache scan is involved.
-An owned group needs at most one activity check and one activation, before its
-first nonzero write, followed by an unchecked storage tail. An unrecognized
-view uses scalar value writes for that tail, with the already snapshotted
-source. There is no repeated alias preflight or prefix copy.
+For longer copies, one reverse-map lookup and an index-identity check establish
+that the view is exactly one owned group. Identity is constant time for vectors
+and built-in integer ranges; no layout or cache scan is involved. An
+unrecognized view uses Base's ordinary value-copy path.
+
+An owned-group copy finishes `Base.unalias` before mutation and uses the
+existing private storage view. An already-active group takes Base's unaliased
+index-style copy path without changing activity. An inactive group uses one
+SIMD traversal to copy the values, preserve signed zeros and reduce whether
+any value is nonzero, then activates exactly once when needed.
+
+Deferring activation is safe only within this narrowly dispatched path:
+source reads, same-type primitive stores and zero comparisons cannot throw;
+the constructor has validated the distinct destination indices, and extent
+and alias handling have already finished. A valid inactive group has reserved
+active-list capacity, so activation itself requires no allocation. There is no
+fallible operation between a nonzero storage write and activation. Do not
+extend this path to custom readers or conversions without reestablishing that
+property.
 
 Fallible readers, conversions, partial sources and unrecognized views retain
 the generic scalar path. This preserves prefix-copy semantics and the existing

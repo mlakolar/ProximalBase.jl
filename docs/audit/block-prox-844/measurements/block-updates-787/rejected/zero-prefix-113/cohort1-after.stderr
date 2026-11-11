@@ -1,0 +1,2 @@
+WARNING: Imported binding StyledStrings.@styled_str was undeclared at import time during import to Profile.
+Julia=1.13.3 PB=/tmp/pb848-performance-candidate-77b32b8d/src/ProximalBase.jl threads=1 BLAS=1 cases=3774

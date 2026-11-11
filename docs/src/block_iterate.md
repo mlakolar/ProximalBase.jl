@@ -23,9 +23,8 @@ is nonzero. NaN and infinities count as nonzero; signed zeros do not.
 Unrelated blocks and their order are unchanged.
 
 For matching `Float32` or `Float64` ordinary vectors and supported Array-backed
-strided views, a complete-block copy uses at most one activity check before
-nonzero writes and updates backing values directly. Zero prefixes need no
-activity check. An independent source does not allocate. Contiguous,
+strided views, a complete-block copy checks activity once and updates backing
+values directly. An independent source does not allocate. Contiguous,
 noncontiguous and reordered owned groups have the same semantics. Other
 sources, partial copies and arbitrary views keep ordinary scalar value-write
 behavior. A shorter source copies a prefix as in Base; an overlong source fails

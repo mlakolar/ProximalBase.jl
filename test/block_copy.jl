@@ -106,7 +106,7 @@ end
       same_state(x,ref)
     end
     # The zero prefix overwrites a location that a later source read needs.
-    # The source is snapshotted before the optimized arbitrary-view tail runs.
+    # Base snapshots the source before any scalar destination writes.
     for ids in ([3,4,1,8],[3,4,1,1])
       x=BlockIterate(T[0,-0.0,0,7,0,0,0,0,9],gs);ref=copy(x)
       source=view(x.storage,2:5);values=collect(source)

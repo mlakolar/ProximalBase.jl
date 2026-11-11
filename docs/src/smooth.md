@@ -90,7 +90,8 @@ rather than a general projection policy. On a matrix the norm is Frobenius.
 The domain is real arrays of matching shape; symmetric owners are explicitly
 supported, with exactly symmetric center parameters.
 
-This is the ridge penalty with a factor of one half. `SqrNormL2(1,y)` is half
+When used as a regularizer, this is the usual squared-ℓ₂ (ridge) term
+with a factor of one half. `SqrNormL2(1,y)` is half
 the squared distance to `y`. It is smooth, convex, proximable and separable
 by trait, but it is not a `SeparableFunction` subtype and has no `value_entry`.
 It has scalar `prox_block`, scalar zero-coordinate screens and `restrict`:

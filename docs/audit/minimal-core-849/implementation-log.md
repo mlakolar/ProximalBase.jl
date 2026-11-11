@@ -116,3 +116,27 @@ Source digest (ordered path:SHA256 list): `5e173f646116a9b70d0a0dbc22eb3b209a92b
 `d11d70893697579aef34bddeed900c6144f38df8`. Current file inventory is in
 current-source-inventory.tsv. Final performance reproduction, final-SHA remote
 CI and independent final-source review remain integration gates.
+
+## Exact-source performance evidence and remaining gate
+
+The final 102-case, 11-round run used the committed e272df3b source snapshot
+with digest 5e173f646116a9b70d0a0dbc22eb3b209a92b253241febecb9aa69acaa5f7c18.
+The independent references pass 12,832 assertions and no allocation regression
+was measured. Earlier timing flags that disappeared under controlled repeats
+remain in the raw archive. Two inactive block-write cases still exceed five
+percent in a pinned-CPU, same-namespace separate-process confirmation:
+arbitrary groups 37→43 ns (+16.2%, interval 13.2–16.2%) and reversed groups
+37→42 ns (+13.5%, interval 10.8–13.5%). The relevant stored-write, block-view and
+activation bodies are byte-identical to the frozen source; the cause is not
+yet established. Performance acceptance remains pending investigation and an
+explicit maintainer decision. No source tweak or numerical formula change was
+made to conceal these results.
+
+The complete report is performance.md; performance-evidence.tar.gz preserves
+all datasets, manifests, raw initial flags/repeats, source snapshot and logs.
+Its checksum is in performance-evidence.sha256. Final preservation checks are
+in refs-final-verified.json: 14 archival refs, the eight recorded open-PR heads
+and three additional development heads match their frozen values. Two stale
+already-merged remote-tracking refs in the initial listing were already absent
+remotely; this task deleted no refs. Archive-ref protection still needs an
+administrator.

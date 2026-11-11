@@ -1,6 +1,6 @@
 # ProximalBase minimal-core rebuild (#849)
 
-**Status (2026-11-10 PT):** Phase A declaration/dependency audit accepted by the independent architecture critic; Phases B/C extracted the core and removed deferred source. All 18 supported tests pass locally through bounds-checked Pkg.test; exported-API docs and 102 benchmark reference probes pass. Final performance/CI/review integration is in progress. See [implementation-log.md](implementation-log.md).
+**Status (2026-11-10 PT):** Phase A declaration/dependency audit accepted by the independent architecture critic; Phases B/C extracted the core and removed deferred source. All 18 supported tests pass locally through bounds-checked Pkg.test; exported-API docs and 102 benchmark reference probes pass. Final performance investigation, CI and review integration are in progress. Two repeatable inactive block-write timing flags remain above five percent; acceptance is pending. See [implementation-log.md](implementation-log.md).
 
 The separate fresh GPT-6.1-Sol/high critic approved Phase A: “APPROVE Phase A
 architecture/dependency audit and Phase B extraction based on latest 5,476
@@ -18,6 +18,8 @@ edges, and 10,983 external symbol/path line-list records. The proposed dispositi
 is 407 retained storage declarations, 912 extracted core/helper declarations,
 and 4,157 archived declarations. Counts describe the audit, not a runtime method
 table or a correctness result.
+
+The [performance report](performance.md) and checksummed raw archive preserve all timing flags and controls. [Final ref verification](refs-final-verified.json) confirms archival and recorded inflight heads remain unchanged.
 
 Regenerate without loading package code or installing dependencies:
 

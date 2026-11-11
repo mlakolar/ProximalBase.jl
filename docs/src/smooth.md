@@ -6,8 +6,10 @@ Each function below has a mathematical definition and a Julia constructor.
 it is evaluated. The following sections pair each formula with its constructor,
 gradient, proximal map and an executable example.
 
-The functions listed here provide value, gradient and proximal operations
-for their supported argument types. For allocating/mutating conventions,
+The first five sections describe array functions with value, gradient and
+proximal operations on their supported inputs. The final section covers a
+**different scalar observation-loss interface**, which has derivatives but
+no array proximal operator. For allocating/mutating conventions,
 input restrictions, shared storage and numerical limitations, see
 [Operations on functions](operations.md) and
 [Numerical usage](numerical_usage.md).

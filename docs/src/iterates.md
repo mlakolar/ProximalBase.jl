@@ -10,7 +10,7 @@ explicit active zeros independently of the mathematical nonzero pattern.
 | Storage | Array interface | One optimization coordinate | Capacity |
 |:--|:--|:--|:--|
 | [`SparseIterate`](@ref) | Real vector or matrix | One scalar entry | O(number of entries) |
-| [`SymmetricSparseIterate`](@ref) | Non-array owner of a symmetric p×p matrix | One lower-triangle variable | O(p(p+1)/2) |
+| [`SymmetricSparseIterate`](@ref) | Object representing a symmetric p×p matrix (not an AbstractArray) | One lower-triangle variable | O(p(p+1)/2) |
 | [`BlockIterate`](@ref) | Real vector | One ordered group of entries | O(entries + groups) |
 
 These provide sparse **work**, with direct lookup tables and reserved slots;
@@ -20,8 +20,7 @@ ordinary full-vector algorithms.
 
 ## Entries, coordinates and active slots
 
-For SparseIterate, coordinates are Julia linear entry indices. For a symmetric
-owner, coordinates number the independent lower triangle, while matrix indices
+For SparseIterate, coordinates are Julia linear entry indices. For symmetric matrix storage, coordinates number the independent lower triangle, while matrix indices
 include both mirrored entries. For BlockIterate, `x[j]` still indexes an entry,
 but coordinate `k` names a group. An active **slot** is the position in a packed
 list of coordinate IDs. It is not a coordinate ID and can move on compaction.
@@ -87,7 +86,7 @@ See the individual guides for validation and failure behavior.
 
 ## Supported products
 
-These are the retained sparse-aware specializations. Real types and compatible
+The following sparse-aware operations are available for these iterate types. Real types and compatible
 dimensions are required. Other Julia fallbacks can be dense, slower, or absent.
 Use independent product destinations: ordinary `mul!` does not permit arbitrary
 aliasing. The owner methods explicitly reject overlapping output/input storage.

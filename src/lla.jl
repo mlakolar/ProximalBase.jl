@@ -61,7 +61,7 @@ weighted lasso that majorizes `f` at `x` up to a constant, has the penalty
 The weights include the level `λ` and the entry or group weights of `f`; to
 keep the level apart, divide them by `λ` and use `NormL1(λ, w)`. `x` may be a
 [`SparseIterate`](@ref), a [`SymmetricSparseIterate`](@ref) (for the separable penalties, with a dense `p × p`
-matrix `w`; the allocating form returns a `Matrix`) or an [`AtomIterate`](@ref). `lla_weights!` allocates nothing;
+matrix `w`; the allocating form returns a `Matrix`) or a [`BlockIterate`](@ref). `lla_weights!` allocates nothing;
 `lla_weights(f, x)` allocates `w`. The weights are computed in the wider of the
 types of `w` and `x` and rounded once to `eltype(w)` (numerics T3, T4): a
 `Float32` point `x` gives `Float64` weights of the `Float64` slopes at the

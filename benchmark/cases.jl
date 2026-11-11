@@ -1,3 +1,31 @@
+# Solver-style writes measured by the benchmark harness. All group scratch is
+# supplied by the case; math is delegated to the public block oracles.
+function write_scalar_block!(x, f, k, u, γ)
+    i = k
+    cx = x
+    if x isa SymmetricSparseIterate
+        r, c = tril_cartesian(size(x, 1), k)
+        i = (c - 1) * size(x, 1) + r
+        cx = coordinates(x)
+    end
+    cx[k] = prox_block(f, convert(eltype(x), u), i, γ)
+end
+function write_group_block!(x, f, k, u, γ, out)
+    if isseparable(f)
+        for (j, i) in enumerate(blockindices(x, k))
+            out[j] = prox_block(f, convert(eltype(x), u[j]), i, γ)
+        end
+    else
+        prox_block!(out, f, u, k, γ)
+    end
+    copyto!(blockview(x, k), out)
+    nothing
+end
+function group_step_operation(x, f, k, γ)
+    out = zeros(eltype(x), length(blockview(x, k)))
+    () -> write_group_block!(x, f, k, blockview(x, k), γ, out)
+end
+
 # Case definitions are independent of the scheduler and of measurement settings.
 # Random data use stable scenario keys, so adding a scenario does not change others.
 struct PerfCase{F,S,V,M,I<:NamedTuple}
@@ -168,8 +196,8 @@ function digest!(h::UInt64, x::Union{SparseIterate{<:DigestReal},SymmetricSparse
     h
 end
 # the active groups (sorted), every entry, and the group layout, which is part of the state; the indices
-# through the build-time spelling of atomindices (defined with the atom group below), never the cache
-function digest!(h::UInt64, x::AtomIterate{<:DigestReal})
+# through the build-time spelling of blockindices (defined with the atom group below), never the cache
+function digest!(h::UInt64, x::BlockIterate{<:DigestReal})
     h = digest_step(digest_step(digest_tag(h, :atom), length(x)), ncoordinates(x))
     h = digest!(h, sort!(collect(activecoordinates(x))))
     h = digest_elements(h, x)
@@ -536,7 +564,7 @@ end
 entrywise_value(f, z) = (f0 = deepcopy(f); z0 = copy(z); sum(value_entry(f0, z0[i], i) for i in eachindex(z0)))
 function entrywise_steps(f, x, γ)
     f0, x0, γ0 = deepcopy(f), copy(x), copy(γ)
-    r = [prox_entry(f0, x0[i], i, γ0[i]) for i in eachindex(x0)]
+    r = [prox_block(f0, x0[i], i, γ0[i]) for i in eachindex(x0)]
     r isa Vector{eltype(x)} || error("the entrywise reference has element type $(eltype(r))")
     r
 end
@@ -660,15 +688,16 @@ function separable_cases!(cases, rep; quick=false)
                 addprox!(cases, "groups", string(nameof(typeof(f))), f, x; γ=steps, layout="group_steps", inputs=(; weights))
             end
             xa = copy(x); xa[1:n÷2] .= 0
-            atomx = AtomIterate(xa,f)
-            addprox!(cases, "groups", string(nameof(typeof(f))), f, atomx; layout="atom_half_active", inputs=(; weights))
+            atomx = BlockIterate(xa,f)
+            addprox!(cases, "groups", string(nameof(typeof(f))), f, atomx; layout="block_half_active", inputs=(; weights))
             z = copy(atomx)
             step = T(0.7)
             group_index = length(groups)
+            step! = group_step_operation(z, f, group_index, step)
             prep!() = copyto!(z,atomx)
-            check!() = (prep!(); prox_coordinate!(z,f,group_index,step); all(isfinite,z) || error("nonfinite group update"))
-            addcase!(cases, "coordinates", string(nameof(typeof(f))), () -> prox_coordinate!(z,f,group_index,step), check!;
-                     inputs=(; atomx), T, shape=string(n), layout="atom", prepare=prep!, work=length(last(groups)))
+            check!() = (prep!(); step!(); all(isfinite,z) || error("nonfinite group update"))
+            addcase!(cases, "coordinates", string(nameof(typeof(f))), () -> step!(), check!;
+                     inputs=(; atomx), T, shape=string(n), layout="block", prepare=prep!, work=length(last(groups)))
         end
     end
     if !quick
@@ -711,14 +740,15 @@ function group_layout_cases!(cases, rep)
       for shared in (true, false)
         layout = string(indices ? "indices" : "ranges", shared ? "_shared" : "_distinct")
         source = shared ? f : groups
-        x = AtomIterate(v, source)
-        y = AtomIterate(T, p, source)
-        z = AtomIterate(v, source)
+        x = BlockIterate(v, source)
+        y = BlockIterate(T, p, source)
+        z = BlockIterate(v, source)
         f(x); f(y); f(z)
+        step! = group_step_operation(z, f, k, step)
         prepare!() = copyto!(z, x)
         function checkcoordinate!()
           prepare!()
-          prox_coordinate!(z, f, k, step)
+          step!()
           close_enough(z, coordinate_reference)
         end
         checkkkt!() = isapprox(kkt_violation(f, grad, x, k), reference_kkt;
@@ -732,7 +762,7 @@ function group_layout_cases!(cases, rep)
           isapprox(value, reference_prox_value; atol=tolerance(T), rtol=tolerance(T)) ||
             error("proximal value differs from dense reference")
         end
-        addcase!(cases, "group_layouts", name * "/coordinate", () -> prox_coordinate!(z, f, k, step), checkcoordinate!;
+        addcase!(cases, "group_layouts", name * "/coordinate", () -> step!(), checkcoordinate!;
                  inputs=(; x), T, shape=string(K), layout, prepare=prepare!, work=8)
         addcase!(cases, "group_layouts", name * "/kkt", () -> kkt_violation(f, grad, x, k), checkkkt!;
                  inputs=(; x, grad), T, shape=string(K), layout, work=8)
@@ -915,7 +945,7 @@ function smooth_cases!(cases, rep; quick=false)
         function cdtrace!()
             for sweep in 1:5, j in 1:p
                 old=β[j]; col=view(X,:,j)
-                new=prox_entry(penalty,old+dot(col,r)/a[j],j,inv(a[j]))
+                new=prox_block(penalty,old+dot(col,r)/a[j],j,inv(a[j]))
                 β[j]=new; axpy!(old-new,col,r)
             end
             β
@@ -1086,8 +1116,8 @@ function product_cases!(cases,rep; quick=false)
         xs=SparseIterate(S)
         xd=Array(S)
         groups=[j:min(j+7,p) for j in 1:8:p]
-        xa=AtomIterate(xd,GroupNormL2(T(0.3),groups))
-        for (layout,x) in (("sparse",xs),("atom",xa))
+        xa=BlockIterate(xd,GroupNormL2(T(0.3),groups))
+        for (layout,x) in (("sparse",xs),("block",xa))
             y=zeros(T,p); ref=A*xd
             check!()=(mul!(y,A,x);close_enough(y,ref))
             addcase!(cases,"products","symmetric_$triangle",()->mul!(y,A,x),check!;
@@ -1106,12 +1136,12 @@ function product_cases!(cases,rep; quick=false)
         xs=SparseIterate(Sxs)
         xm=SparseIterate(Sxm)
         groups=[j:min(j+7,p) for j in 1:8:p]
-        xa=AtomIterate(Array(Sxs),GroupNormL2(T(0.3),groups))
+        xa=BlockIterate(Array(Sxs),GroupNormL2(T(0.3),groups))
         xt=SparseIterate(Sxt)
         for (name,B,x,S) in (("strided_vector",A,xs,Sxs),("strided_matrix",A,xm,Sxm),
-                             ("strided_atom",A,xa,Sxs),("transposed_vector",transpose(A),xt,Sxt))
+                             ("strided_block",A,xa,Sxs),("transposed_vector",transpose(A),xt,Sxt))
             shape="$(n)x$p" * (x === xm ? "x4" : "")
-            layout="$(x isa AtomIterate ? "atom" : "sparse")_$density"
+            layout="$(x isa BlockIterate ? "block" : "sparse")_$density"
             xd=Array(S)
             out=x isa AbstractVector ? zeros(T,size(B,1)) : zeros(T,size(B,1),size(x,2))
             reference=B*xd
@@ -1151,7 +1181,7 @@ end
 
 # SymmetricSparseIterate owner cases (issue #391, Phase 0; acceptance guide section 4).
 # They use only calls that exist both in 0.5.x and in 0.6 (X[i, j], activecoordinates,
-# prox_coordinate! with a lower-triangle coordinate ID, mul! and Matrix on the matrix
+# block_prox_write with a lower-triangle coordinate ID, mul! and Matrix on the matrix
 # view when there is one), so one harness run on each revision gives the before/after
 # comparison. No case here depends on the owner being an AbstractMatrix.
 function owner_fixture(rng, T, p, s)
@@ -1253,7 +1283,7 @@ function owner_cases!(cases, rep; quick=false)
                  inputs=(; Xs), T, shape, layout="trivial_update", work=s)
         f = NormL1(T(0.1))
         step = T(0.5)
-        prox_sweep() = (for k in activecoordinates(Xs); prox_coordinate!(Xs, f, k, step); end; nothing)
+        prox_sweep() = (for k in activecoordinates(Xs); write_scalar_block!(Xs, f, k, coordinates(Xs)[k], step); end; nothing)
         vstate = copy(fx.vals)
         prep_sweep!() = (for (k, v) in zip(fx.ids, fx.vals); r, c = ProximalBase.tril_cartesian(p, k); Xs[r, c] = v; end; nothing)
         function check_sweep!()
@@ -1265,7 +1295,7 @@ function owner_cases!(cases, rep; quick=false)
             ok || error("coordinate sweep gave the wrong soft threshold")
             prep_sweep!()
         end
-        addcase!(cases, "owner", "sweep_prox_coordinate!", prox_sweep, check_sweep!; inputs=(; fx_ids=fx.ids, fx_vals=fx.vals),
+        addcase!(cases, "owner", "sweep_block_prox_write", prox_sweep, check_sweep!; inputs=(; fx_ids=fx.ids, fx_vals=fx.vals),
                  T, shape, layout="NormL1",
                  prepare=prep_sweep!, evals=1, work=s)
         # matrix product with a dense vector
@@ -1503,12 +1533,12 @@ function ridge_cases!(cases, rep; quick=false)
                  () -> (prox!(z, f, x, γ); close_ref(z, refprox)); inputs=(; x, c), T, shape, work=n)
         # independent entries, as a vectorizable sweep, and a dependent chain, as in
         # coordinate descent (each update feeds the next argument)
-        addcase!(cases, "ridge", name * "/prox_entry_loop",
-                 () -> begin @inbounds for i in eachindex(x) z[i] = prox_entry(f, x[i], i, γ) end end,
-                 () -> (for i in eachindex(x); z[i] = prox_entry(f, x[i], i, γ); end; close_ref(z, refprox));
+        addcase!(cases, "ridge", name * "/prox_block_loop",
+                 () -> begin @inbounds for i in eachindex(x) z[i] = prox_block(f, x[i], i, γ) end end,
+                 () -> (for i in eachindex(x); z[i] = prox_block(f, x[i], i, γ); end; close_ref(z, refprox));
                  inputs=(; x, c), T, shape, layout="coordinate", work=n)
-        chain() = (v = zero(T); @inbounds for i in eachindex(x) v = prox_entry(f, x[i] + T(0.5) * v, i, γ) end; v)
-        addcase!(cases, "ridge", name * "/prox_entry_chain", chain,
+        chain() = (v = zero(T); @inbounds for i in eachindex(x) v = prox_block(f, x[i] + T(0.5) * v, i, γ) end; v)
+        addcase!(cases, "ridge", name * "/prox_block_chain", chain,
                  () -> isfinite(chain()) || error("nonfinite chain"); inputs=(; x, c), T, shape, layout="coordinate", work=n)
         addcase!(cases, "ridge", name * "/value_and_prox!", () -> value_and_prox!(z, f, x, γ),
                  () -> (v = value_and_prox!(z, f, x, γ); close_ref(z, refprox);
@@ -1738,7 +1768,7 @@ function check_isactive_stored_zero_atom(::Type{T}) where {T}
     groups = [(3j - 2):(3j) for j in 1:8]
     members = [1, 3, 5, 8]
     zeroed = [1, 5]
-    xz = AtomIterate(T, 24, groups)
+    xz = BlockIterate(T, 24, groups)
     for k in members; xz[first(groups[k])] = one(T); end
     for k in zeroed, i in groups[k]; xz[i] = zero(T); end
     v = Vector(xz)
@@ -1805,7 +1835,7 @@ function rmul_repeat!(x, a, r)
 end
 function prox_batch!(x, f, ids, us, γ)
     @inbounds for j in eachindex(ids)
-        prox_coordinate!(x, f, ids[j], us[j], γ)
+        write_scalar_block!(x, f, ids[j], us[j], γ)
     end
     nothing
 end
@@ -1925,7 +1955,7 @@ function sparse_vector_ids(T, n, s; rows=())
     r = sparse_rmul_repeats(T, s)
     add("rmul!_finite", "x$r"); add("rmul!_inf", "x$r")
     add("fill!_coordinates_zero", "vector")
-    add("prox_coordinate!_5arg", "NormL1_scalar_u")
+    add("block_prox_write", "NormL1_scalar_u")
     for layout in SPARSE_MOMENTUM_LAYOUTS, name in ("_values!", "_setvalues!", "_restartdot")
         add(name, layout)
     end
@@ -2246,7 +2276,7 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=(), selector=not
                  guarded(() -> (fill!(coordinates(x), 0); iszero(Array(x)) || error("an entry is not zero after the fill")));
                  inputs=(; snap), T, shape, layout="vector", prepare=restore_state!, zero_alloc=true, work=s)
 
-        # FD-12: the five-argument prox_coordinate! with a scalar u. One step takes about 1.5 ns on the pinned
+        # FD-12: scalar block math followed by an indexed write. The retired operation took about 1.5 ns on the pinned
         # source, so a call takes 1536 distinct coordinates: the active ones (at most 768), moved by a step
         # that keeps them nonzero, and absent ones that mostly end at zero and stay inactive, as in a solver.
         f, γ = NormL1(T(0.1)), T(0.5)
@@ -2266,10 +2296,10 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=(), selector=not
             end
             close_enough(Array(x), expected)
         end
-        addcase!(cases, "sparse", "prox_coordinate!_5arg", () -> prox_batch!(x, f, kb, ub, γ), guarded(check_prox);
+        addcase!(cases, "sparse", "block_prox_write", () -> prox_batch!(x, f, kb, ub, γ), guarded(check_prox);
                  inputs=(; kb, ub, snap), T, shape, layout="NormL1_scalar_u", prepare=restore_state!, zero_alloc=false, work=length(kb))
     end
-    want("fill!_coordinates_zero", "prox_coordinate!_5arg") && Base.invokelatest(fill_prox_group)
+    want("fill!_coordinates_zero", "block_prox_write") && Base.invokelatest(fill_prox_group)
 
     momentum_group = function ()
         d = d_()
@@ -2541,25 +2571,25 @@ function sparse_cases!(cases, rep; quick=false, selector=nothing)
     nothing
 end
 
-# ---- the atom group: AtomIterate ----
+# ---- the atom group: BlockIterate ----
 #
 # Fixtures: p entries in K = p/g groups, contiguous (ranges) or strided (the multi-response layout,
 # group r holding r, r + K, r + 2K, ...); a fraction of the groups is active, and every entry of an
 # active group is nonzero. The harness keeps its own group arrays: they are the reference of every
 # check, and an iterate built from them owns a copy. Only calls that exist on 0.5.x and on 0.6 are
-# used; `atomindices` and `samegroups` are reached through the build-time spelling below.
+# used; `blockindices` and `samegroups` are reached through the build-time spelling below.
 
-const ATOM_DENSITIES = ((0.01, "1"), (0.1, "10"))
+const BLOCK_DENSITIES = ((0.01, "1"), (0.1, "10"))
 
 # K = p/g contiguous ranges, or the strided groups
-function atom_groups(p, g, strided)
+function block_groups(p, g, strided)
     K = p ÷ g
     strided ? [collect(r:K:p) for r in 1:K] : [(g * (k - 1) + 1):(g * k) for k in 1:K]
 end
 
 # an iterate whose active groups `aids`, in this order, hold `vals`, group by group; an exact zero is
 # stored after activate!, as a zero write does not activate its group
-function fill_atom!(x, groups, aids, vals)
+function fill_block!(x, groups, aids, vals)
     pos = 0
     for k in aids
         activate!(x, k)
@@ -2570,10 +2600,10 @@ function fill_atom!(x, groups, aids, vals)
     end
     x
 end
-build_atom(T, p, groups, aids, vals) = fill_atom!(AtomIterate(T, p, groups), groups, aids, vals)
+build_block(T, p, groups, aids, vals) = fill_block!(BlockIterate(T, p, groups), groups, aids, vals)
 
 # the dense vector the iterate must equal: the reference of every check
-function dense_atom(T, p, groups, aids, vals)
+function dense_block(T, p, groups, aids, vals)
     D = zeros(T, p)
     pos = 0
     for k in aids, i in groups[k]
@@ -2587,9 +2617,9 @@ end
 group_entries(groups, ks) = Int[i for k in ks for i in groups[k]]
 
 # Version-dependent spelling, resolved when the case is built (0.5.x spelling as the fallback):
-# atomindices(x, k) is x.groups[k], and samegroups(x, f) is the private ProximalBase._samelayout(f, x).
+# blockindices(x, k) is x.groups[k], and samegroups(x, f) is the private ProximalBase._samelayout(f, x).
 private_group(x, k) = x.groups[k]
-group_indices_by() = isdefined(ProximalBase, :atomindices) ? ProximalBase.atomindices : private_group
+group_indices_by() = isdefined(ProximalBase, :blockindices) ? ProximalBase.blockindices : private_group
 private_samelayout(x, f) = ProximalBase._samelayout(f, x)
 samegroups_by() = isdefined(ProximalBase, :samegroups) ? ProximalBase.samegroups : private_samelayout
 
@@ -2613,16 +2643,16 @@ function sum_group_views(indices::F, x, gvec) where {F}
     acc
 end
 # the function barrier: the closures are built where the spelling has a concrete type
-atom_index_ops(indices::F, x, gvec) where {F} =
+block_index_ops(indices::F, x, gvec) where {F} =
     (() -> xor_group_indices(indices, x), () -> sum_group_views(indices, x, gvec))
-# the entries of the active groups, through the write-through view `atom(x, k)`; the update adds a zero,
+# the entries of the active groups, through the write-through view `blockview(x, k)`; the update adds a zero,
 # which the compiler cannot drop (see full_sweep!), and no stored value is -0.0, so x is unchanged. The
 # sweep returns the number of entries it touched.
-function atom_update_sweep!(x)
+function block_update_sweep!(x)
     z = zero(eltype(x))
     touched = 0
     for k in activecoordinates(x)
-        a = atom(x, k)
+        a = blockview(x, k)
         @inbounds for j in eachindex(a)
             a[j] = a[j] + z
         end
@@ -2633,80 +2663,63 @@ end
 function sum_atom_norms(x, ks, ::Type{T}) where {T}
     acc = zero(T)
     for k in ks
-        acc += norm(atom(x, k))
+        acc += norm(blockview(x, k))
     end
     acc
 end
 function sum_atom_dots(x, ks, w, ::Type{T}) where {T}
     acc = zero(T)
     for k in ks
-        acc += dot(atom(x, k), w)
+        acc += dot(blockview(x, k), w)
     end
     acc
 end
-function prox_group_batch!(x, f, ks, us, γ)
+function prox_group_batch!(x, f, ks, us, γ, out)
     @inbounds for j in eachindex(ks)
-        prox_coordinate!(x, f, ks[j], us[j], γ)
+        write_group_block!(x, f, ks[j], us[j], γ, out)
     end
     nothing
 end
-function staged_group_batch!(stage!::F, x, f, ks, us, γ) where {F}
+function staged_group_batch!(x, f, ks, us, γ, out)
     @inbounds for j in eachindex(ks)
         k = ks[j]
-        stage!(x, k, us[j])
-        prox_coordinate!(x, f, k, γ)
+        copyto!(blockview(x, k), us[j])
+        write_group_block!(x, f, k, blockview(x, k), γ, out)
     end
     nothing
 end
-# The staging control of FD-12 writes u into the entries of the group and takes the four-argument step.
-# The private spelling writes the storage (no activation); the fallback writes through atom(x, k), which
-# activates the group by the rule of x[i] = v. The two are different paths per penalty: NormL1 takes the
-# separable step, a group penalty its block step.
-struct StageStorage{I}
-    indices::I
-end
-function (s::StageStorage)(x, k, u)
-    st = x.storage
-    G = s.indices(x, k)
-    @inbounds for a in 1:length(G)
-        st[G[a]] = u[a]
-    end
-    nothing
-end
-struct StageAtom end
-(::StageAtom)(x, k, u) = (atom(x, k) .= u; nothing)
-staging_by(x, indices) = hasfield(typeof(x), :storage) ? StageStorage(indices) : StageAtom()
-# the function barrier of FD-12: the closures are built where the penalty, the iterate and the staging have concrete types
-atom_prox_ops(stage, x, snap, f, ks, us, γ) =
-    (() -> prox_group_batch!(x, f, ks, us, γ),
-     () -> staged_group_batch!(stage, x, f, ks, us, γ),
+function block_prox_ops(x, snap, f, ks, us, γ)
+    out = zeros(eltype(x), length(first(us)))
+    (() -> prox_group_batch!(x, f, ks, us, γ, out),
+     () -> staged_group_batch!(x, f, ks, us, γ, out),
      () -> (copyto!(x, snap); nothing))
+end
 
-# the momentum value loops of the audited solver over an AtomIterate (acceptance guide §3.4), through the
-# accessors of 0.6 (activecoordinates and atomindices) or through the private fields that the downstream
+# the momentum value loops of the audited solver over a BlockIterate (acceptance guide §3.4), through the
+# accessors of 0.6 (activecoordinates and blockindices) or through the private fields that the downstream
 # code reads today; a missing field falls back to the accessors
-struct AtomAccessors{I}
+struct BlockAccessors{I}
     indices::I
 end
-struct AtomFields end
-atom_loops_by(x, indices) =
-    all(f -> hasfield(typeof(x), f), (:storage, :active, :nactive, :groups)) ? AtomFields() : AtomAccessors(indices)
+struct BlockFields end
+block_loops_by(x, indices) =
+    all(f -> hasfield(typeof(x), f), (:storage, :active, :nactive, :groups)) ? BlockFields() : BlockAccessors(indices)
 
-function atom_nvalues(L::AtomAccessors, x)
+function block_nvalues(L::BlockAccessors, x)
     n = 0
     for k in activecoordinates(x)
         n += length(L.indices(x, k))
     end
     n
 end
-function atom_nvalues(::AtomFields, x)
+function block_nvalues(::BlockFields, x)
     n = 0
     @inbounds for a in 1:x.nactive
         n += length(x.groups[x.active[a]])
     end
     n
 end
-function atom_values!(L::AtomAccessors, v, x)
+function block_values!(L::BlockAccessors, v, x)
     i = 0
     @inbounds for k in activecoordinates(x), j in L.indices(x, k)
         i += 1
@@ -2714,7 +2727,7 @@ function atom_values!(L::AtomAccessors, v, x)
     end
     v
 end
-function atom_values!(::AtomFields, v, x)
+function block_values!(::BlockFields, v, x)
     i = 0
     @inbounds for a in 1:x.nactive, j in x.groups[x.active[a]]
         i += 1
@@ -2722,7 +2735,7 @@ function atom_values!(::AtomFields, v, x)
     end
     v
 end
-function atom_setvalues!(L::AtomAccessors, x, v)
+function block_setvalues!(L::BlockAccessors, x, v)
     i = 0
     @inbounds for k in activecoordinates(x), j in L.indices(x, k)
         i += 1
@@ -2730,7 +2743,7 @@ function atom_setvalues!(L::AtomAccessors, x, v)
     end
     x
 end
-function atom_setvalues!(::AtomFields, x, v)
+function block_setvalues!(::BlockFields, x, v)
     i = 0
     @inbounds for a in 1:x.nactive, j in x.groups[x.active[a]]
         i += 1
@@ -2738,7 +2751,7 @@ function atom_setvalues!(::AtomFields, x, v)
     end
     x
 end
-function atom_restartdot(L::AtomAccessors, x, y, xcur, xprev)
+function block_restartdot(L::BlockAccessors, x, y, xcur, xprev)
     d, i = zero(eltype(y)), 0
     @inbounds for k in activecoordinates(x), j in L.indices(x, k)
         i += 1
@@ -2746,7 +2759,7 @@ function atom_restartdot(L::AtomAccessors, x, y, xcur, xprev)
     end
     d
 end
-function atom_restartdot(::AtomFields, x, y, xcur, xprev)
+function block_restartdot(::BlockFields, x, y, xcur, xprev)
     d, i = zero(eltype(y)), 0
     @inbounds for a in 1:x.nactive, j in x.groups[x.active[a]]
         i += 1
@@ -2755,11 +2768,11 @@ function atom_restartdot(::AtomFields, x, y, xcur, xprev)
     d
 end
 # the function barrier: the closures are built where the spelling has a concrete type
-function atom_momentum_ops(L, x, buf, w, y, xcur, xprev)
-    (() -> atom_nvalues(L, x),
-     () -> atom_values!(L, buf, x),
-     () -> atom_setvalues!(L, x, w),
-     () -> atom_restartdot(L, x, y, xcur, xprev))
+function block_momentum_ops(L, x, buf, w, y, xcur, xprev)
+    (() -> block_nvalues(L, x),
+     () -> block_values!(L, buf, x),
+     () -> block_setvalues!(L, x, w),
+     () -> block_restartdot(L, x, y, xcur, xprev))
 end
 
 # FD-11: the timed closures are built where the spelling of samegroups has a concrete type
@@ -2795,7 +2808,7 @@ end
 
 # one step per group of the block trial: the call takes a batch of distinct groups, since one group step
 # takes 12 ns (g = 1, NormL1) to a µs or more (g = 64), and a call must take at least about 2 µs
-atom_prox_batch(g) = g == 64 ? 64 : 256
+block_prox_batch(g) = g == 64 ? 64 : 256
 
 # a penalty of the block trial (FD-12), by name
 # Euclidean projection of u onto {v : ‖v‖₁ ≤ τ} (sort and threshold)
@@ -2808,7 +2821,7 @@ function project_l1_ball(u::AbstractVector{<:AbstractFloat}, τ::AbstractFloat)
     return sign.(u) .* max.(abs.(u) .- θ, 0.0)
 end
 
-function atom_penalty(name, T, groups)
+function block_penalty(name, T, groups)
     name == "GroupNormL2" && return GroupNormL2(T(0.1), groups)
     name == "GroupNormLinf" && return GroupNormLinf(T(0.1), groups)
     name == "SparseGroupNormL2" && return SparseGroupNormL2(T(0.1), T(0.1), groups)
@@ -2855,94 +2868,95 @@ end
 # matters), an extra ID only costs build time. The registrations and the enumerators spell shapes, keys,
 # layouts and counts through the helpers below and `case_id`. A scenario or function whose IDs cannot be listed
 # completely and cheaply is built, and the exact filter that follows `build_cases` decides.
-atom_kind(strided) = strided ? "strided" : "contiguous"
-atom_shape(p, g, strided, label) = "p$(p)_g$(g)_$(atom_kind(strided))_act$label"
-atom_layout_shape(p, g, strided) = "p$(p)_g$(g)_$(atom_kind(strided))"
-atom_symmetric_shape(g) = "p1024_g$(g)_contiguous_act10"
-atom_key(T, p, g, strided, label) = "atom/$T/$p/$g/$(atom_kind(strided))/$label"
-atom_label_density(label) = only(d for (d, l) in ATOM_DENSITIES if l == label)
-atom_nactive_groups(density, K) = max(1, round(Int, density * K))
-atom_batch_count(K, na) = min(16, (K - na) ÷ 256)
-atom_rmul_repeats(T, p) = min(exponent(floatmax(T)) - 4, repeats_for(p, 16384))
-atom_penalties(full) = full ? ("GroupNormL2", "GroupNormLinf", "SparseGroupNormL2", "NormL1") : ("GroupNormL2", "NormL1")
-atom_prox_layout(pname) = "$(pname)_strided_u"
-atom_mul_layout(m, zlabel) = "rows$(m)_$zlabel"
-const ATOM_PROX_NAMES = ("prox_coordinate!_5arg", "prox_coordinate!_staged")
-const ATOM_ZLABELS = ("z0", "z50")
-const ATOM_MOMENTUM_LAYOUTS = ("accessors", "private_fields")
-const ATOM_MOMENTUM_NAMES = ("_nvalues", "_values!", "_setvalues!", "_restartdot")
-const ATOM_CONVERT_TYPES = (Float64, Float32, Int)
-const ATOM_COMPACTION = (("zeros10", 0.1), ("zeros50", 0.5))
-const ATOM_LAYOUTS = (; isactive="half_active", update="trivial_update", loops="active_groups", dense_same="dense_same_entries",
+block_kind(strided) = strided ? "strided" : "contiguous"
+block_shape(p, g, strided, label) = "p$(p)_g$(g)_$(block_kind(strided))_act$label"
+block_layout_shape(p, g, strided) = "p$(p)_g$(g)_$(block_kind(strided))"
+block_symmetric_shape(g) = "p1024_g$(g)_contiguous_act10"
+# Historical RNG subkey preserves pre-rename fixtures; public case IDs use block/.
+block_key(T, p, g, strided, label) = "atom/$T/$p/$g/$(block_kind(strided))/$label"
+block_label_density(label) = only(d for (d, l) in BLOCK_DENSITIES if l == label)
+block_nactive_groups(density, K) = max(1, round(Int, density * K))
+block_batch_count(K, na) = min(16, (K - na) ÷ 256)
+block_rmul_repeats(T, p) = min(exponent(floatmax(T)) - 4, repeats_for(p, 16384))
+block_penalties(full) = full ? ("GroupNormL2", "GroupNormLinf", "SparseGroupNormL2", "NormL1") : ("GroupNormL2", "NormL1")
+block_prox_layout(pname) = "$(pname)_strided_u"
+block_mul_layout(m, zlabel) = "rows$(m)_$zlabel"
+const BLOCK_PROX_NAMES = ("block_prox_write", "block_prox_staged_write")
+const BLOCK_ZLABELS = ("z0", "z50")
+const BLOCK_MOMENTUM_LAYOUTS = ("accessors", "private_fields")
+const BLOCK_MOMENTUM_NAMES = ("_nvalues", "_values!", "_setvalues!", "_restartdot")
+const BLOCK_CONVERT_TYPES = (Float64, Float32, Int)
+const BLOCK_COMPACTION = (("zeros10", 0.1), ("zeros50", 0.5))
+const BLOCK_LAYOUTS = (; isactive="half_active", update="trivial_update", loops="active_groups", dense_same="dense_same_entries",
                       abs="abs", same_entries="same_entries", dense_other="dense_other_entries")
-atom_batch_layouts(nbatch) = [how * suffix for suffix in ("", "_x$nbatch") for how in ("absent_distinct_batch", "activate_distinct_batch")]
+block_batch_layouts(nbatch) = [how * suffix for suffix in ("", "_x$nbatch") for how in ("absent_distinct_batch", "activate_distinct_batch")]
 
-# the (operation name, ID) pairs that `atom_scenario_cases!` registers for this scenario, `full` and `rows`
-function atom_scenario_ids(T, p, g, strided, label; full=true, rows=(), density=atom_label_density(label))
+# the (operation name, ID) pairs that `block_scenario_cases!` registers for this scenario, `full` and `rows`
+function block_scenario_ids(T, p, g, strided, label; full=true, rows=(), density=block_label_density(label))
     K = p ÷ g
-    na = atom_nactive_groups(density, K)
-    shape = atom_shape(p, g, strided, label)
+    na = block_nactive_groups(density, K)
+    shape = block_shape(p, g, strided, label)
     lay = "atoms"
     ids = Tuple{String,String}[]
-    add(name, layout, phase=DEFAULT_PHASE; type=T) = push!(ids, (name, case_id("atom", name, type, shape, layout, phase)))
+    add(name, layout, phase=DEFAULT_PHASE; type=T) = push!(ids, (name, case_id("block", name, type, shape, layout, phase)))
     add("read_x[i]", "active"); add("read_x[i]", "absent")
     add("write_x[i]_active", "active")
-    add("isactive", ATOM_LAYOUTS.isactive)
-    for layout in atom_batch_layouts(atom_batch_count(K, na))
+    add("isactive", BLOCK_LAYOUTS.isactive)
+    for layout in block_batch_layouts(block_batch_count(K, na))
         add("first_activation", layout, "first_activation")
     end
-    add("sweep_active_update", ATOM_LAYOUTS.update)
+    add("sweep_active_update", BLOCK_LAYOUTS.update)
     add("sweep_activecoordinates", lay)
-    add("atom_norm", lay); add("atom_dot", lay)
-    add("atomindices_loop", ATOM_LAYOUTS.loops)
-    add("atomindices_view", strided ? "view_vector_group" : "view_range_group")
-    for z in ATOM_ZLABELS
+    add("block_norm", lay); add("block_dot", lay)
+    add("blockindices_loop", BLOCK_LAYOUTS.loops)
+    add("blockindices_view", strided ? "view_vector_group" : "view_range_group")
+    for z in BLOCK_ZLABELS
         add("dot_vx", z)
     end
-    for m in rows, z in ATOM_ZLABELS
-        add("mul!", atom_mul_layout(m, z))
+    for m in rows, z in BLOCK_ZLABELS
+        add("mul!", block_mul_layout(m, z))
     end
-    r = atom_rmul_repeats(T, p)
+    r = block_rmul_repeats(T, p)
     add("rmul!_finite", "x$r"); add("rmul!_inf", "x$r")
-    for pname in atom_penalties(full), name in ATOM_PROX_NAMES
-        add(name, atom_prox_layout(pname))
+    for pname in block_penalties(full), name in BLOCK_PROX_NAMES
+        add(name, block_prox_layout(pname))
     end
     if full
-        for z in ATOM_ZLABELS
-            add("dot_xy", "atom_atom_$z"); add("dot_xy", "atom_sparse_$z")
+        for z in BLOCK_ZLABELS
+            add("dot_xy", "block_block_$z"); add("dot_xy", "block_sparse_$z")
         end
-        for layout in ATOM_MOMENTUM_LAYOUTS, name in ATOM_MOMENTUM_NAMES
+        for layout in BLOCK_MOMENTUM_LAYOUTS, name in BLOCK_MOMENTUM_NAMES
             add(name, layout)
         end
-        add("copyto!_unrelated", ATOM_LAYOUTS.dense_same)
-        add("broadcast_self", ATOM_LAYOUTS.abs)
+        add("copyto!_unrelated", BLOCK_LAYOUTS.dense_same)
+        add("broadcast_self", BLOCK_LAYOUTS.abs)
         add("fill!_zero", lay); add("fill!_zero_dropzeros", lay)
         add("broadcast_assign", lay); add("copyto!_state", lay)
         add("copy", lay, "allocating")
-        add("copyto!_same_kind", ATOM_LAYOUTS.same_entries)
-        add("copyto!_dense", ATOM_LAYOUTS.dense_other)
+        add("copyto!_same_kind", BLOCK_LAYOUTS.same_entries)
+        add("copyto!_dense", BLOCK_LAYOUTS.dense_other)
         if T == Float64
-            for Td in ATOM_CONVERT_TYPES
+            for Td in BLOCK_CONVERT_TYPES
                 add("copyto!_convert", "to_$(Td)"; type=Float64)
             end
         end
         add("replace_cheap", lay); add("replace_staged", lay)
-        for (zlabel, _) in ATOM_COMPACTION
+        for (zlabel, _) in BLOCK_COMPACTION
             add("dropzeros!", zlabel)
         end
     end
     ids
 end
 
-function atom_construct_ids(T, p, g, strided)
-    [("construct", case_id("atom", "construct", T, atom_layout_shape(p, g, strided), "empty", "construct"))]
+function block_construct_ids(T, p, g, strided)
+    [("construct", case_id("block", "construct", T, block_layout_shape(p, g, strided), "empty", "construct"))]
 end
-function atom_layout_ids(p, g, strided)
-    [("samegroups", case_id("atom", "samegroups", Float64, atom_layout_shape(p, g, strided), layout, DEFAULT_PHASE))
+function block_layout_ids(p, g, strided)
+    [("samegroups", case_id("block", "samegroups", Float64, block_layout_shape(p, g, strided), layout, DEFAULT_PHASE))
      for layout in ("shared", "distinct_first_seen", "alternating")]
 end
-function atom_symmetric_ids(T, g)
-    [("mul!", case_id("atom", "mul!", T, atom_symmetric_shape(g), "symmetric_$z", DEFAULT_PHASE)) for z in ATOM_ZLABELS]
+function block_symmetric_ids(T, g)
+    [("mul!", case_id("block", "mul!", T, block_symmetric_shape(g), "symmetric_$z", DEFAULT_PHASE)) for z in BLOCK_ZLABELS]
 end
 
 any_wanted(::Nothing, pairs) = true
@@ -2953,12 +2967,12 @@ operations_wanted(selector::Regex, pairs) = Set{String}(name for (name, id) in p
 want_any(::Nothing, names) = true
 want_any(wanted::Set{String}, names) = any(in(wanted), names)
 
-# FD-12: the five-argument block trial against staging u and the four-argument step, with a strided u (a
+# FD-12: pure block math followed by public writes, against writing the trial first, with a strided u (a
 # view with stride 2 of a longer vector), for the four penalties; the batch has distinct groups, half of
 # them active (moved to nonzero values) and half inactive (small trial points, which mostly stay at zero)
-function atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, snap, d, aids, pool, fcache, penalties; selector=nothing)
+function block_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, snap, d, aids, pool, fcache, penalties; selector=nothing)
     γ = T(0.5)
-    nb = atom_prox_batch(g)
+    nb = block_prox_batch(g)
     na_b = min(length(aids), nb ÷ 2)
     ks = vcat(aids[1:na_b], pool[1:nb-na_b])
     rng_u = scenario_rng(rep, key * "/trial_points")
@@ -2975,17 +2989,17 @@ function atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, s
     indices = group_indices_by()
     for pname in penalties
         # a penalty none of whose IDs is selected builds neither its penalty, its iterate nor its reference
-        selector === nothing || any(name -> wants(selector, case_id("atom", name, T, shape, atom_prox_layout(pname), DEFAULT_PHASE)),
-                                    ATOM_PROX_NAMES) || continue
-        f = get!(() -> atom_penalty(pname, T, groups), fcache, (T, p, g, strided, pname))
+        selector === nothing || any(name -> wants(selector, case_id("block", name, T, shape, block_prox_layout(pname), DEFAULT_PHASE)),
+                                    BLOCK_PROX_NAMES) || continue
+        f = get!(() -> block_penalty(pname, T, groups), fcache, (T, p, g, strided, pname))
         # a group penalty requires an iterate with its layout; NormL1 takes the iterate of the scenario
         xf, snapf = if pname == "NormL1"
             x, snap
         else
-            z = AtomIterate(d, f)
+            z = BlockIterate(d, f)
             z, copy(z)
         end
-        op5, opstaged, restore! = atom_prox_ops(staging_by(xf, indices), xf, snapf, f, ks, us, γ)
+        op5, opstaged, restore! = block_prox_ops(xf, snapf, f, ks, us, γ)
         # the reference on the entries of the batch, computed when the case is built (the trial points are
         # read by the operations); the other entries keep the scenario's dense vector
         ents = group_entries(groups, ks)
@@ -3006,10 +3020,10 @@ function atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, s
             restore!()
             nothing
         end
-        layout = atom_prox_layout(pname)
-        addcase!(cases, "atom", ATOM_PROX_NAMES[1], op5, () -> check_pair(op5, opstaged); inputs=(; ks, ubases, snapf),
+        layout = block_prox_layout(pname)
+        addcase!(cases, "block", BLOCK_PROX_NAMES[1], op5, () -> check_pair(op5, opstaged); inputs=(; ks, ubases, snapf),
                  T, shape, layout, prepare=restore!, zero_alloc=true, work=nb * g)
-        addcase!(cases, "atom", ATOM_PROX_NAMES[2], opstaged, () -> check_pair(opstaged, op5); inputs=(; ks, ubases, snapf),
+        addcase!(cases, "block", BLOCK_PROX_NAMES[2], opstaged, () -> check_pair(opstaged, op5); inputs=(; ks, ubases, snapf),
                  T, shape, layout, prepare=restore!, zero_alloc=false, work=nb * g)
     end
     nothing
@@ -3018,12 +3032,12 @@ end
 # FW-4: a state copy with a conversion, on dedicated iterates. The source holds integral values and is
 # built from scratch, so that its whole storage converts to Int; it is never changed, and `similar` gives
 # the destinations its layout, so the same-layout kernel runs. Only the success path is measured.
-function atom_convert_cases!(cases, rep, p, g, groups, x, aids, key, shape)
+function block_convert_cases!(cases, rep, p, g, groups, x, aids, key, shape)
     nvals = length(aids) * g
     rng = scenario_rng(rep, key * "/integral")
     iv = Float64[(rand(rng, Bool) ? 1 : -1) * rand(rng, 1:7) for _ in 1:nvals]
-    src = fill_atom!(similar(x), groups, aids, iv)
-    dsrc = dense_atom(Float64, p, groups, aids, iv)
+    src = fill_block!(similar(x), groups, aids, iv)
+    dsrc = dense_block(Float64, p, groups, aids, iv)
     for Td in (Float64, Float32, Int)
         dest = similar(src, Td)
         op = () -> (copyto!(dest, src); nothing)
@@ -3035,7 +3049,7 @@ function atom_convert_cases!(cases, rep, p, g, groups, x, aids, key, shape)
             end
             nothing
         end
-        addcase!(cases, "atom", "copyto!_convert", op, check; inputs=(; src), T=Float64, shape, layout="to_$(Td)", zero_alloc=false, work=nvals)
+        addcase!(cases, "block", "copyto!_convert", op, check; inputs=(; src), T=Float64, shape, layout="to_$(Td)", zero_alloc=false, work=nvals)
     end
 end
 
@@ -3052,12 +3066,12 @@ end
 # capture what they always captured. The draws of `rng_pick` are one stream in registration order, and the
 # draws after the read cases are made even when only the writes are built; every other draw has its own
 # keyed stream and goes with its fixture.
-function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, groups, caches; full=true, rows=(), selector=nothing)
+function block_scenario_cases!(cases, rep, T, p, g, strided, density, label, groups, caches; full=true, rows=(), selector=nothing)
     vcache, acache, fcache = caches
     K = p ÷ g
-    na = atom_nactive_groups(density, K)
-    key = atom_key(T, p, g, strided, label)
-    shape = atom_shape(p, g, strided, label)
+    na = block_nactive_groups(density, K)
+    key = block_key(T, p, g, strided, label)
+    shape = block_shape(p, g, strided, label)
     lay = "atoms"
     # one permutation: the active groups, in the order they join, and the other groups, in random order
     perm = randperm(scenario_rng(rep, key * "/groups"), K)
@@ -3069,23 +3083,23 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
     ny = na - na ÷ 2
     aids_y = vcat(aids[1:na÷2], pool[end-ny+1:end])
     wanted = selector === nothing ? nothing :
-             operations_wanted(selector, atom_scenario_ids(T, p, g, strided, label; full, rows, density))
+             operations_wanted(selector, block_scenario_ids(T, p, g, strided, label; full, rows, density))
     want(names...) = want_any(wanted, names)
-    x = build_atom(T, p, groups, aids, vals)
+    x = build_block(T, p, groups, aids, vals)
     snap = copy(x)
     memo = Dict{Symbol,Any}()
     aentries_() = get!(() -> group_entries(groups, aids), memo, :aentries)::Vector{Int}
-    d_() = get!(() -> dense_atom(T, p, groups, aids, vals), memo, :d)::Vector{T}
+    d_() = get!(() -> dense_block(T, p, groups, aids, vals), memo, :d)::Vector{T}
     vals_y_() = get!(() -> fixture_values(scenario_rng(rep, key * "/values_y"), T, nvals), memo, :vals_y)::Vector{T}
     vals50_() = get!(() -> with_zeros(vals, zero_slots(scenario_rng(rep, key * "/zeros"), nvals, 0.5)), memo, :vals50)::Vector{T}
     vals_y50_() = get!(() -> with_zeros(vals_y_(), zero_slots(scenario_rng(rep, key * "/zeros_y"), nvals, 0.5)), memo, :vals_y50)::Vector{T}
-    y_() = get!(() -> fill_atom!(similar(x), groups, aids_y, vals_y_()), memo, :y)::typeof(x)
-    dy_() = get!(() -> dense_atom(T, p, groups, aids_y, vals_y_()), memo, :dy)::Vector{T}
-    x50_() = get!(() -> fill_atom!(similar(x), groups, aids, vals50_()), memo, :x50)::typeof(x)
-    y50_() = get!(() -> fill_atom!(similar(x), groups, aids_y, vals_y50_()), memo, :y50)::typeof(x)
-    d50_() = get!(() -> dense_atom(T, p, groups, aids, vals50_()), memo, :d50)::Vector{T}
-    dy50_() = get!(() -> dense_atom(T, p, groups, aids_y, vals_y50_()), memo, :dy50)::Vector{T}
-    v_() = get!(() -> randn(scenario_rng(rep, "atom/v/$T/$p"), T, p), vcache, (T, p))::Vector{T}
+    y_() = get!(() -> fill_block!(similar(x), groups, aids_y, vals_y_()), memo, :y)::typeof(x)
+    dy_() = get!(() -> dense_block(T, p, groups, aids_y, vals_y_()), memo, :dy)::Vector{T}
+    x50_() = get!(() -> fill_block!(similar(x), groups, aids, vals50_()), memo, :x50)::typeof(x)
+    y50_() = get!(() -> fill_block!(similar(x), groups, aids_y, vals_y50_()), memo, :y50)::typeof(x)
+    d50_() = get!(() -> dense_block(T, p, groups, aids, vals50_()), memo, :d50)::Vector{T}
+    dy50_() = get!(() -> dense_block(T, p, groups, aids_y, vals_y50_()), memo, :dy50)::Vector{T}
+    v_() = get!(() -> randn(scenario_rng(rep, "block/v/$T/$p"), T, p), vcache, (T, p))::Vector{T}
     # the digests of the dense vectors that the copy and replace cases compare with at construction
     d_source_() = get!(() -> (; d=d_()), memo, :d_source)::NamedTuple{(:d,),Tuple{Vector{T}}}
     dy_source_() = get!(() -> (; dy=dy_()), memo, :dy_source)::NamedTuple{(:dy,),Tuple{Vector{T}}}
@@ -3105,7 +3119,7 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
         if want("read_x[i]")
             for (what, rids) in (("active", active_reads), ("absent", absent_reads))
                 expected = sum_reads(d, rids, T)
-                addcase!(cases, "atom", "read_x[i]", () -> sum_reads(x, rids, T),
+                addcase!(cases, "block", "read_x[i]", () -> sum_reads(x, rids, T),
                          guarded(() -> sum_reads(x, rids, T) == expected || error("reads differ from the dense vector"));
                          inputs=(; x, rids), T, shape, layout=what, zero_alloc=true, work=nread)
             end
@@ -3123,7 +3137,7 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                 nactive(x) == na || error("a write to an active group changed the working set")
                 nothing
             end
-            addcase!(cases, "atom", "write_x[i]_active", () -> write_values!(x, wids, wvals), guarded(check_write);
+            addcase!(cases, "block", "write_x[i]_active", () -> write_values!(x, wids, wvals), guarded(check_write);
                      inputs=(; x, wids, wvals), T, shape, layout="active", zero_alloc=true, work=length(wids))
         end
     end
@@ -3134,12 +3148,12 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
         qgroups = shuffle(scenario_rng(rep, key * "/queries"), vcat(cycled(aids, 128), pool[1:128]))
         aidset = Set(aids)
         expected_active = count(in(aidset), qgroups)       # the stored membership of the fixture, not the values
-        addcase!(cases, "atom", "isactive", () -> count_active(x, qgroups),
+        addcase!(cases, "block", "isactive", () -> count_active(x, qgroups),
                  guarded(function ()
                              count_active(x, qgroups) == expected_active || error("isactive differs from the stored membership")
                              check_isactive_stored_zero_atom(T)
                          end);
-                 inputs=(; x, qgroups), T, shape, layout=ATOM_LAYOUTS.isactive, zero_alloc=true, work=length(qgroups))
+                 inputs=(; x, qgroups), T, shape, layout=BLOCK_LAYOUTS.isactive, zero_alloc=true, work=length(qgroups))
     end
     want("isactive") && Base.invokelatest(isactive_group)
 
@@ -3148,7 +3162,7 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
         # first activation: a nonzero write to the first entry of each of a batch of distinct inactive groups,
         # and activate!; the companion has as many disjoint batches of 256 groups as fit (up to 16) in one call,
         # which a timer can resolve
-        nbatch = atom_batch_count(K, na)
+        nbatch = block_batch_count(K, na)
         for (suffix, bgroups) in (("", pool[1:256]), ("_x$nbatch", pool[1:256*nbatch]))
             bents = Int[first(groups[k]) for k in bgroups]
             bvals = fixture_values(scenario_rng(rep, key * "/batch_values$suffix"), T, length(bgroups))
@@ -3179,7 +3193,7 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                     copyto!(x, snap)
                     nothing
                 end
-                addcase!(cases, "atom", "first_activation", op, check_activation; inputs, T, shape, layout=how * suffix,
+                addcase!(cases, "block", "first_activation", op, check_activation; inputs, T, shape, layout=how * suffix,
                          phase="first_activation", prepare=restore_batch!, evals=1, zero_alloc=true, work=length(bgroups))
             end
         end
@@ -3190,48 +3204,48 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
         d = d_()
         # an active sweep with a trivial update (the state is unchanged) and FD-7: the sweep through the handle
         # created inside the call
-        addcase!(cases, "atom", "sweep_active_update", () -> atom_update_sweep!(x),
+        addcase!(cases, "block", "sweep_active_update", () -> block_update_sweep!(x),
                  guarded(function ()
-                             atom_update_sweep!(x) == nvals || error("the sweep did not visit every entry of the active groups")
+                             block_update_sweep!(x) == nvals || error("the sweep did not visit every entry of the active groups")
                              Vector(x) == d && nactive(x) == na || error("the sweep changed the iterate")
                          end);
-                 inputs=(; x), T, shape, layout=ATOM_LAYOUTS.update, zero_alloc=true, work=nvals)
+                 inputs=(; x), T, shape, layout=BLOCK_LAYOUTS.update, zero_alloc=true, work=nvals)
         sorted_aids = sort(aids)
-        addcase!(cases, "atom", "sweep_activecoordinates", () -> sum_active_ids(x),
+        addcase!(cases, "block", "sweep_activecoordinates", () -> sum_active_ids(x),
                  guarded(function ()
                              sum_active_ids(x) == sum(aids) || error("sweep visited the wrong groups")
                              sort!(collect(activecoordinates(x))) == sorted_aids || error("the active groups are not the fixture's (a sum can agree)")
                          end);
                  inputs=(; x), T, shape, layout=lay, zero_alloc=true, work=na)
 
-        # atom access: norm and dot of atom(x, k) over 64 active groups per call
+        # atom access: norm and dot of blockview(x, k) over 64 active groups per call
         ks64 = cycled(aids, 64)
-        w = randn(scenario_rng(rep, key * "/atom_w"), T, g)
+        w = randn(scenario_rng(rep, key * "/block_w"), T, g)
         expected_norm = sum(norm(d[groups[k]]) for k in ks64)
         expected_dot = sum(dot(d[groups[k]], w) for k in ks64)
         scale_dot = sum(dot(abs.(d[groups[k]]), abs.(w)) for k in ks64)
-        addcase!(cases, "atom", "atom_norm", () -> sum_atom_norms(x, ks64, T),
+        addcase!(cases, "block", "block_norm", () -> sum_atom_norms(x, ks64, T),
                  guarded(() -> close_scalar(sum_atom_norms(x, ks64, T), expected_norm, expected_norm, T));
                  inputs=(; x, ks64), T, shape, layout=lay, zero_alloc=true, work=64 * g)
-        addcase!(cases, "atom", "atom_dot", () -> sum_atom_dots(x, ks64, w, T),
+        addcase!(cases, "block", "block_dot", () -> sum_atom_dots(x, ks64, w, T),
                  guarded(() -> close_scalar(sum_atom_dots(x, ks64, w, T), expected_dot, scale_dot, T));
                  inputs=(; x, ks64, w), T, shape, layout=lay, zero_alloc=true, work=64 * g)
 
-        # FD-6: the indices of every active group through atomindices(x, k) (0.5.x: x.groups[k]), and the sum of
+        # FD-6: the indices of every active group through blockindices(x, k) (0.5.x: x.groups[k]), and the sum of
         # a dense vector over them (a range in the contiguous layout, a vector in the strided one)
         v = v_()
-        loop_op, view_op = atom_index_ops(group_indices_by(), x, v)
+        loop_op, view_op = block_index_ops(group_indices_by(), x, v)
         expected_indices = foldl(⊻, (j for k in aids for j in groups[k]); init=0)
-        addcase!(cases, "atom", "atomindices_loop", loop_op,
+        addcase!(cases, "block", "blockindices_loop", loop_op,
                  guarded(() -> loop_op() == expected_indices || error("the indices of the active groups differ from the layout"));
-                 inputs=(; x), T, shape, layout=ATOM_LAYOUTS.loops, zero_alloc=true, work=nvals)
+                 inputs=(; x), T, shape, layout=BLOCK_LAYOUTS.loops, zero_alloc=true, work=nvals)
         expected_view = sum(sum(v[groups[k]]) for k in aids)
         scale_view = sum(sum(abs, v[groups[k]]) for k in aids)
-        addcase!(cases, "atom", "atomindices_view", view_op,
+        addcase!(cases, "block", "blockindices_view", view_op,
                  guarded(() -> close_scalar(view_op(), expected_view, scale_view, T));
                  inputs=(; x, v), T, shape, layout=strided ? "view_vector_group" : "view_range_group", zero_alloc=true, work=nvals)
     end
-    want("sweep_active_update", "sweep_activecoordinates", "atom_norm", "atom_dot", "atomindices_loop", "atomindices_view") &&
+    want("sweep_active_update", "sweep_activecoordinates", "block_norm", "block_dot", "blockindices_loop", "blockindices_view") &&
         Base.invokelatest(sweeps_group)
 
     dot_vx_group = function ()
@@ -3240,12 +3254,12 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
         # FD-9: products, with 0% and 50% of the entries of the active groups exactly zero at random places in
         # storage order (a group left all zero stays active)
         absv = abs.(v)
-        for zlabel in ATOM_ZLABELS
+        for zlabel in BLOCK_ZLABELS
             xz = zlabel == "z0" ? x : x50_()
             dz = zlabel == "z0" ? d : d50_()
             scale = dot(absv, abs.(dz))
             expected = dot(v, dz)
-            addcase!(cases, "atom", "dot_vx", () -> dot(v, xz),
+            addcase!(cases, "block", "dot_vx", () -> dot(v, xz),
                      guarded(() -> close_scalar(dot(v, xz), expected, scale, T));
                      inputs=(; x=xz, v), T, shape, layout=zlabel, zero_alloc=true, work=nvals)
         end
@@ -3255,15 +3269,15 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
     mul_group = function ()
         d = d_()
         for m in rows
-            A = get!(() -> randn(scenario_rng(rep, "atom/A/$T/$m/$p"), T, m, p), acache, (T, m, p))::Matrix{T}
+            A = get!(() -> randn(scenario_rng(rep, "block/A/$T/$m/$p"), T, m, p), acache, (T, m, p))::Matrix{T}
             out = zeros(T, m)
-            for zlabel in ATOM_ZLABELS
+            for zlabel in BLOCK_ZLABELS
                 xz = zlabel == "z0" ? x : x50_()
                 dz = zlabel == "z0" ? d : d50_()
                 ref_mul = A * dz
                 check_mul() = (fill!(out, T(1000)); mul!(out, A, xz); close_enough(out, ref_mul))
-                addcase!(cases, "atom", "mul!", () -> mul!(out, A, xz), guarded(check_mul);
-                         inputs=(; A, x=xz), T, shape, layout=atom_mul_layout(m, zlabel), zero_alloc=true, work=m * nvals)
+                addcase!(cases, "block", "mul!", () -> mul!(out, A, xz), guarded(check_mul);
+                         inputs=(; A, x=xz), T, shape, layout=block_mul_layout(m, zlabel), zero_alloc=true, work=m * nvals)
             end
         end
     end
@@ -3271,27 +3285,27 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
 
     rmul_group = function ()
         d = d_()
-        # FN-9: scaling by a number. AtomIterate has no rmul! method, so the generic loop runs: O(p) for a finite
+        # FN-9: scaling by a number. BlockIterate has no rmul! method, so the generic loop runs: O(p) for a finite
         # scale, and rmul!(x, Inf) writes NaN into every inactive entry and activates every group. The scale is a
         # power of two and the repetitions stop before the values overflow, so the finite result is exact; for Inf
         # the whole vector is compared with isequal (NaN where the entry was zero). prepare restores by a state
         # copy, which zeroes the entries of every active group and so also resets the poisoning.
-        r = atom_rmul_repeats(T, p)
+        r = block_rmul_repeats(T, p)
         rscale = ldexp(one(T), r)
         check_finite() = (rmul_repeat!(x, T(2), r); Vector(x) == d .* rscale || error("rmul! differs from the dense reference"))
         check_inf() = (rmul_repeat!(x, T(Inf), r); isequal(Vector(x), d .* T(Inf)) || error("rmul!(x, Inf) differs from the dense reference"))
-        addcase!(cases, "atom", "rmul!_finite", () -> rmul_repeat!(x, T(2), r), guarded(check_finite);
+        addcase!(cases, "block", "rmul!_finite", () -> rmul_repeat!(x, T(2), r), guarded(check_finite);
                  inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * p)
-        addcase!(cases, "atom", "rmul!_inf", () -> rmul_repeat!(x, T(Inf), r), guarded(check_inf);
+        addcase!(cases, "block", "rmul!_inf", () -> rmul_repeat!(x, T(Inf), r), guarded(check_inf);
                  inputs=(; snap), T, shape, layout="x$r", prepare=restore_state!, zero_alloc=false, work=r * p)
     end
     want("rmul!_finite", "rmul!_inf") && Base.invokelatest(rmul_group)
 
     prox_group = function ()
-        # FD-12: the block trial, the five-argument call against staging
-        atom_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, snap, d_(), aids, pool, fcache, atom_penalties(full); selector)
+        # FD-12: compute the block first, against writing its trial before computing
+        block_prox_cases!(cases, rep, T, p, g, strided, groups, shape, key, x, snap, d_(), aids, pool, fcache, block_penalties(full); selector)
     end
-    want(ATOM_PROX_NAMES...) && Base.invokelatest(prox_group)
+    want(BLOCK_PROX_NAMES...) && Base.invokelatest(prox_group)
 
     full || return nothing
 
@@ -3299,7 +3313,7 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
         d, dy = d_(), dy_()
         # FD-9: dot(x, y) of two iterates that share the layout, and with a SparseIterate
         idsy = group_entries(groups, aids_y)
-        for zlabel in ATOM_ZLABELS
+        for zlabel in BLOCK_ZLABELS
             xz = zlabel == "z0" ? x : x50_()
             yz = zlabel == "z0" ? y_() : y50_()
             dz = zlabel == "z0" ? d : d50_()
@@ -3308,12 +3322,12 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
             sz = build_iterate(T, (p,), idsy, valsyz)
             scale = dot(abs.(dz), abs.(dyz))
             expected = dot(dz, dyz)
-            addcase!(cases, "atom", "dot_xy", () -> dot(xz, yz),
+            addcase!(cases, "block", "dot_xy", () -> dot(xz, yz),
                      guarded(() -> close_scalar(dot(xz, yz), expected, scale, T));
-                     inputs=(; x=xz, y=yz), T, shape, layout="atom_atom_$zlabel", zero_alloc=false, work=nvals)
-            addcase!(cases, "atom", "dot_xy", () -> dot(xz, sz),
+                     inputs=(; x=xz, y=yz), T, shape, layout="block_block_$zlabel", zero_alloc=false, work=nvals)
+            addcase!(cases, "block", "dot_xy", () -> dot(xz, sz),
                      guarded(() -> close_scalar(dot(xz, sz), expected, scale, T));
-                     inputs=(; x=xz, y=sz), T, shape, layout="atom_sparse_$zlabel", zero_alloc=false, work=nvals)
+                     inputs=(; x=xz, y=sz), T, shape, layout="block_sparse_$zlabel", zero_alloc=false, work=nvals)
         end
     end
     want("dot_xy") && Base.invokelatest(dot_xy_group)
@@ -3327,10 +3341,10 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
         buf = zeros(T, nvals)
         gather = group_entries(groups, aids)
         rd_total, rd_magnitude = restart_reference(d[gather], ybuf, xcur, xprev)
-        for (layout, loops) in ((ATOM_MOMENTUM_LAYOUTS[1], AtomAccessors(group_indices_by())),
-                                (ATOM_MOMENTUM_LAYOUTS[2], atom_loops_by(x, group_indices_by())))
+        for (layout, loops) in ((BLOCK_MOMENTUM_LAYOUTS[1], BlockAccessors(group_indices_by())),
+                                (BLOCK_MOMENTUM_LAYOUTS[2], block_loops_by(x, group_indices_by())))
             wm = copy(vals)
-            nvalues_op, values_op, setvalues_op, dot_op = atom_momentum_ops(loops, x, buf, wm, ybuf, xcur, xprev)
+            nvalues_op, values_op, setvalues_op, dot_op = block_momentum_ops(loops, x, buf, wm, ybuf, xcur, xprev)
             function check_nvalues()
                 nvalues_op() == nvals || error("_nvalues differs from the layout")
             end
@@ -3345,17 +3359,17 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                 Vector(x) == d || error("_setvalues! differs from the dense reference")
             end
             check_restartdot() = close_scalar(dot_op(), rd_total, rd_magnitude, T)
-            for (name, op, check, inputs) in ((ATOM_MOMENTUM_NAMES[1], nvalues_op, check_nvalues, (; x)),
-                                              (ATOM_MOMENTUM_NAMES[2], values_op, check_values, (; x)),
-                                              (ATOM_MOMENTUM_NAMES[3], setvalues_op, check_setvalues, (; x, w=wm)),
-                                              (ATOM_MOMENTUM_NAMES[4], dot_op, check_restartdot, (; x, ybuf, xcur, xprev)))
+            for (name, op, check, inputs) in ((BLOCK_MOMENTUM_NAMES[1], nvalues_op, check_nvalues, (; x)),
+                                              (BLOCK_MOMENTUM_NAMES[2], values_op, check_values, (; x)),
+                                              (BLOCK_MOMENTUM_NAMES[3], setvalues_op, check_setvalues, (; x, w=wm)),
+                                              (BLOCK_MOMENTUM_NAMES[4], dot_op, check_restartdot, (; x, ybuf, xcur, xprev)))
                 # _nvalues takes the length of each active group: one step per group, not per entry
-                addcase!(cases, "atom", name, op, guarded(check); inputs, T, shape, layout, zero_alloc=true,
+                addcase!(cases, "block", name, op, guarded(check); inputs, T, shape, layout, zero_alloc=true,
                          work=name == "_nvalues" ? na : nvals)
             end
         end
     end
-    want(ATOM_MOMENTUM_NAMES...) && Base.invokelatest(momentum_group)
+    want(BLOCK_MOMENTUM_NAMES...) && Base.invokelatest(momentum_group)
 
     copy_group = function ()
         d = d_()
@@ -3369,65 +3383,65 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                 copyto!(x, d)
                 Vector(x) == d || error("copyto! from a dense vector differs from the reference")
             end
-            addcase!(cases, "atom", "copyto!_unrelated", () -> (copyto!(x, d); nothing), guarded(check_unrelated);
-                     inputs=(; x, d), T, shape, layout=ATOM_LAYOUTS.dense_same, zero_alloc=false, work=p)
+            addcase!(cases, "block", "copyto!_unrelated", () -> (copyto!(x, d); nothing), guarded(check_unrelated);
+                     inputs=(; x, d), T, shape, layout=BLOCK_LAYOUTS.dense_same, zero_alloc=false, work=p)
         end
         want("broadcast_self") &&
-            addcase!(cases, "atom", "broadcast_self", () -> (x .= abs.(x); nothing),
+            addcase!(cases, "block", "broadcast_self", () -> (x .= abs.(x); nothing),
                      guarded(() -> (x .= abs.(x); Vector(x) == abs.(d) || error("x .= abs.(x) differs from the dense reference")));
-                     inputs=(; snap), T, shape, layout=ATOM_LAYOUTS.abs, prepare=restore_state!, zero_alloc=false, work=p)
+                     inputs=(; snap), T, shape, layout=BLOCK_LAYOUTS.abs, prepare=restore_state!, zero_alloc=false, work=p)
 
         # FD-2: clearing and assigning, against the state copy; values only
         want("fill!_zero") &&
-            addcase!(cases, "atom", "fill!_zero", () -> (fill!(x, 0); nothing),
+            addcase!(cases, "block", "fill!_zero", () -> (fill!(x, 0); nothing),
                      guarded(() -> (fill!(x, 0); iszero(Vector(x)) || error("fill! left a nonzero entry")));
                      inputs=(; snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=nvals)
         want("fill!_zero_dropzeros") &&
-            addcase!(cases, "atom", "fill!_zero_dropzeros", () -> (dropzeros!(fill!(x, 0)); nothing),
+            addcase!(cases, "block", "fill!_zero_dropzeros", () -> (dropzeros!(fill!(x, 0)); nothing),
                      guarded(() -> (dropzeros!(fill!(x, 0)); iszero(Vector(x)) || error("fill! and dropzeros! left a nonzero entry")));
                      inputs=(; snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=nvals)
         want("broadcast_assign") && let y = y_(), dy = dy_()
-            addcase!(cases, "atom", "broadcast_assign", () -> (x .= y; nothing),
+            addcase!(cases, "block", "broadcast_assign", () -> (x .= y; nothing),
                      guarded(() -> (x .= y; Vector(x) == dy || error("x .= y differs from y")));
                      inputs=(; y, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
         end
         want("copyto!_state") && let y = y_(), dy = dy_()
-            addcase!(cases, "atom", "copyto!_state", () -> (copyto!(x, y); nothing),
+            addcase!(cases, "block", "copyto!_state", () -> (copyto!(x, y); nothing),
                      guarded(() -> (copyto!(x, y); Vector(x) == dy || error("copyto!(x, y) differs from y")));
                      inputs=(; y, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=2 * nvals)
         end
 
         # copy and import
         want("copy") &&
-            addcase!(cases, "atom", "copy", () -> (copy(x); nothing),
+            addcase!(cases, "block", "copy", () -> (copy(x); nothing),
                      guarded(() -> (c = copy(x); c !== x && Vector(c) == d && nactive(c) == na || error("copy differs from the iterate")));
                      inputs=(; x), T, shape, layout=lay, phase="allocating", evals=1, zero_alloc=false, work=p)
         # a state copy onto an iterate that already holds the same entries (the state is unchanged); the check
         # clears the iterate first, so that a copy that does nothing cannot pass
         want("copyto!_same_kind") &&
-            addcase!(cases, "atom", "copyto!_same_kind", () -> (copyto!(x, snap); nothing),
+            addcase!(cases, "block", "copyto!_same_kind", () -> (copyto!(x, snap); nothing),
                      guarded(() -> (fill!(x, 0); copyto!(x, snap); Vector(x) == d || error("state copy differs from the source")));
-                     inputs=(; x, snap), T, shape, layout=ATOM_LAYOUTS.same_entries, zero_alloc=false, work=2 * nvals)
+                     inputs=(; x, snap), T, shape, layout=BLOCK_LAYOUTS.same_entries, zero_alloc=false, work=2 * nvals)
         want("copyto!_dense") && let dy = dy_(), dy_source = dy_source_(), dy_built = dy_built_()
-            addcase!(cases, "atom", "copyto!_dense", () -> (copyto!(x, dy); nothing),
+            addcase!(cases, "block", "copyto!_dense", () -> (copyto!(x, dy); nothing),
                      guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); copyto!(x, dy);
                                     Vector(x) == dy || error("import differs from the dense array")));
-                     inputs=(; dy, snap), T, shape, layout=ATOM_LAYOUTS.dense_other, prepare=restore_state!, zero_alloc=false, work=p)
+                     inputs=(; dy, snap), T, shape, layout=BLOCK_LAYOUTS.dense_other, prepare=restore_state!, zero_alloc=false, work=p)
         end
 
         # FW-4: conversions on dedicated iterates; the sources are Float64
         T == Float64 && want("copyto!_convert") &&
-            Base.invokelatest(atom_convert_cases!, cases, rep, p, g, groups, x, aids, key, shape)
+            Base.invokelatest(block_convert_cases!, cases, rep, p, g, groups, x, aids, key, shape)
 
         # FW-6: the cheap replace against the staged one
         want("replace_cheap", "replace_staged") && let dy = dy_(), dy_source = dy_source_(), dy_built = dy_built_()
             want("replace_cheap") &&
-                addcase!(cases, "atom", "replace_cheap", () -> replace_cheap!(x, dy),
+                addcase!(cases, "block", "replace_cheap", () -> replace_cheap!(x, dy),
                          guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_cheap!(x, dy);
                                         Vector(x) == dy || error("replace differs from the dense array")));
                          inputs=(; dy, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
             want("replace_staged") &&
-                addcase!(cases, "atom", "replace_staged", () -> replace_staged!(x, dy),
+                addcase!(cases, "block", "replace_staged", () -> replace_staged!(x, dy),
                          guarded(() -> (check_inputs(dy_source, dy_built, AFTER_BUILD); replace_staged!(x, dy);
                                         Vector(x) == dy || error("staged replace differs from the dense array")));
                          inputs=(; dy, snap), T, shape, layout=lay, prepare=restore_state!, zero_alloc=false, work=p)
@@ -3438,14 +3452,14 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
 
     dropzeros_group = function ()
         # compaction: dropzeros! with 10% and 50% of the active groups all zero (they stay active until the call)
-        for (zlabel, fraction) in ATOM_COMPACTION
+        for (zlabel, fraction) in BLOCK_COMPACTION
             nz = max(1, round(Int, fraction * na))
             zpos = randperm(scenario_rng(rep, key * "/compaction_$zlabel"), na)[1:nz]
             valsz = copy(vals)
             for j in zpos
                 valsz[((j-1)*g+1):(j*g)] .= zero(T)
             end
-            snapz = fill_atom!(similar(x), groups, aids, valsz)
+            snapz = fill_block!(similar(x), groups, aids, valsz)
             kept = sort(aids[setdiff(1:na, zpos)])
             function prepare_zeros!()          # the snapshot with all-zero active groups
                 copyto!(x, snapz)
@@ -3457,9 +3471,9 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                 dropzeros!(x)
                 nactive(x) == na - nz || error("dropzeros! left the wrong number of groups")
                 sort(collect(activecoordinates(x))) == kept || error("dropzeros! kept the wrong groups")
-                Vector(x) == dense_atom(T, p, groups, aids, valsz) || error("dropzeros! changed the values")
+                Vector(x) == dense_block(T, p, groups, aids, valsz) || error("dropzeros! changed the values")
             end
-            addcase!(cases, "atom", "dropzeros!", () -> dropzeros!(x), guarded(check_compaction);
+            addcase!(cases, "block", "dropzeros!", () -> dropzeros!(x), guarded(check_compaction);
                      inputs=(; snapz), T, shape, layout=zlabel, prepare=prepare_zeros!, zero_alloc=true, work=nvals)
         end
     end
@@ -3471,16 +3485,16 @@ end
 # seen for the first time (prepare resets the layout cache, so the call does one full comparison), and two
 # distinct equal layouts used alternately (one full comparison per call). With few groups one comparison
 # is below the 2 µs that a call with evals = 1 must take, so the first-seen call compares several iterates.
-function atom_layout_cases!(cases, p, g, strided, groups)
+function block_layout_cases!(cases, p, g, strided, groups)
     T = Float64
     K = p ÷ g
-    shape = atom_layout_shape(p, g, strided)
+    shape = block_layout_shape(p, g, strided)
     f = GroupNormL2(T(0.1), groups)           # a penalty owns a copy of the groups
     f2 = GroupNormL2(T(0.1), groups)
-    x_shared = AtomIterate(T, p, f)           # shares f.groups
+    x_shared = BlockIterate(T, p, f)           # shares f.groups
     nfirst = cld(4096, K)
-    xs_first = [AtomIterate(T, p, groups) for _ in 1:nfirst]      # equal to f.groups, in other arrays
-    x_alt = AtomIterate(T, p, groups)
+    xs_first = [BlockIterate(T, p, groups) for _ in 1:nfirst]      # equal to f.groups, in other arrays
+    x_alt = BlockIterate(T, p, groups)
     samegroups = samegroups_by()
     reset_first = reset_layout_caches_by(xs_first)
     op_shared, op_first, op_alt = samegroups_ops(samegroups, x_shared, xs_first, x_alt, f, f2)
@@ -3524,46 +3538,46 @@ function atom_layout_cases!(cases, p, g, strided, groups)
     # the group arrays of the penalties, reached through hasfield (the layout cache is not an input)
     f_groups = hasfield(typeof(f), :groups) ? (; f_groups=f.groups) : (;)
     f2_groups = hasfield(typeof(f2), :groups) ? (; f2_groups=f2.groups) : (;)
-    addcase!(cases, "atom", "samegroups", op_shared, check_shared; inputs=merge((; x_shared), f_groups),
+    addcase!(cases, "block", "samegroups", op_shared, check_shared; inputs=merge((; x_shared), f_groups),
              T, shape, layout="shared", zero_alloc=false, work=1)
-    addcase!(cases, "atom", "samegroups", op_first, check_first; inputs=merge((; xs_first), f_groups), T, shape, layout="distinct_first_seen",
+    addcase!(cases, "block", "samegroups", op_first, check_first; inputs=merge((; xs_first), f_groups), T, shape, layout="distinct_first_seen",
              prepare=reset_first, evals=1, zero_alloc=false, work=nfirst * K)
-    addcase!(cases, "atom", "samegroups", op_alt, check_alternating; inputs=merge((; x_alt), f_groups, f2_groups),
+    addcase!(cases, "block", "samegroups", op_alt, check_alternating; inputs=merge((; x_alt), f_groups, f2_groups),
              T, shape, layout="alternating", zero_alloc=false, work=2 * K)
     nothing
 end
 
-# mul! with a Symmetric operand (p = 1024) and an AtomIterate on contiguous groups, 10% of them active
-function atom_symmetric_cases!(cases, rep, T, g, scache)
+# mul! with a Symmetric operand (p = 1024) and a BlockIterate on contiguous groups, 10% of them active
+function block_symmetric_cases!(cases, rep, T, g, scache)
     p = 1024
     K = p ÷ g
     na = max(1, round(Int, 0.1 * K))
-    key = "atom/symmetric/$T/$p/$g"
-    shape = atom_symmetric_shape(g)
-    S = get!(() -> Symmetric(randn(scenario_rng(rep, "atom/S/$T/$p"), T, p, p)), scache, (T, p))::Symmetric{T,Matrix{T}}
-    groups = atom_groups(p, g, false)
+    key = "block/symmetric/$T/$p/$g"
+    shape = block_symmetric_shape(g)
+    S = get!(() -> Symmetric(randn(scenario_rng(rep, "block/S/$T/$p"), T, p, p)), scache, (T, p))::Symmetric{T,Matrix{T}}
+    groups = block_groups(p, g, false)
     aids = randperm(scenario_rng(rep, key * "/groups"), K)[1:na]
     vals = fixture_values(scenario_rng(rep, key * "/values"), T, na * g)
     vals50 = with_zeros(vals, zero_slots(scenario_rng(rep, key * "/zeros"), na * g, 0.5))
     out = zeros(T, p)
     for (zlabel, valsz) in (("z0", vals), ("z50", vals50))
-        x = build_atom(T, p, groups, aids, valsz)
-        ref_mul = S * dense_atom(T, p, groups, aids, valsz)
+        x = build_block(T, p, groups, aids, valsz)
+        ref_mul = S * dense_block(T, p, groups, aids, valsz)
         function check_mul()
             fill!(out, T(1000))
             mul!(out, S, x)
             close_enough(out, ref_mul)
         end
-        addcase!(cases, "atom", "mul!", () -> mul!(out, S, x), check_mul;
+        addcase!(cases, "block", "mul!", () -> mul!(out, S, x), check_mul;
                  inputs=(; S, x), T, shape, layout="symmetric_$zlabel", zero_alloc=true, work=p * na * g)
     end
     nothing
 end
 
-function atom_construct_case!(cases, T, p, g, strided, groups)
+function block_construct_case!(cases, T, p, g, strided, groups)
     K = p ÷ g
     function check()
-        x = AtomIterate(T, p, groups)
+        x = BlockIterate(T, p, groups)
         retained = Base.summarysize(x)
         if strided      # each group vector has its own header: a lower bound
             retained >= (sizeof(T) + 16) * p + 24 * K || error("unexpected retained size")
@@ -3572,23 +3586,23 @@ function atom_construct_case!(cases, T, p, g, strided, groups)
         end
         length(x) == p && ncoordinates(x) == K && nactive(x) == 0 || error("a new iterate is not empty")
     end
-    addcase!(cases, "atom", "construct", () -> (AtomIterate(T, p, groups); nothing), check; inputs=(; groups),
-             T, shape=atom_layout_shape(p, g, strided), layout="empty", phase="construct", evals=1,
+    addcase!(cases, "block", "construct", () -> (BlockIterate(T, p, groups); nothing), check; inputs=(; groups),
+             T, shape=block_layout_shape(p, g, strided), layout="empty", phase="construct", evals=1,
              zero_alloc=false, work=p)
 end
 
 # The scenarios of the atom group, in building order: the grid of sizes, layouts and densities of the suite, with
 # the rows of the dense operands (at p = 8·10⁴ only) and whether the scenario builds every operation (`full`).
-function atom_grid(quick)
+function block_grid(quick)
     (; types=quick ? (Float64,) : (Float32, Float64),
        sizes=quick ? (8 * 10^4,) : (8 * 10^4, 8 * 10^5),
        layouts=quick ? [(1, false), (8, false), (8, true)] : [(g, s) for g in (1, 8, 64) for s in (false, true)],
-       densities=quick ? ATOM_DENSITIES[2:2] : ATOM_DENSITIES,
+       densities=quick ? BLOCK_DENSITIES[2:2] : BLOCK_DENSITIES,
        rows=quick ? (256,) : (256, 1024),
        symmetric_groups=quick ? (8,) : (1, 8, 64))
 end
-function atom_scenarios(quick)
-    grid = atom_grid(quick)
+function block_scenarios(quick)
+    grid = block_grid(quick)
     scenarios = NamedTuple[]
     for T in grid.types, p in grid.sizes, (g, strided) in grid.layouts, (density, label) in grid.densities
         full = !quick || (g == 8 && !strided)
@@ -3600,29 +3614,29 @@ end
 # With a `selector` (see `build_cases`) a scenario or function none of whose IDs matches is not built, and the
 # group layouts are built only for what is. The guarded calls go through `Base.invokelatest`, so that a function
 # that is skipped is not compiled. Without a selector nothing is enumerated and everything is built.
-function atom_cases!(cases, rep; quick=false, selector=nothing)
-    grid = atom_grid(quick)
+function block_iterate_cases!(cases, rep; quick=false, selector=nothing)
+    grid = block_grid(quick)
     caches = (Dict{Any,Any}(), Dict{Any,Any}(), Dict{Any,Any}())     # vectors, dense operands, penalties
     scache = Dict{Any,Any}()
     gcache = Dict{Any,Any}()
-    groups_of(p, g, strided) = get!(() -> atom_groups(p, g, strided), gcache, (p, g, strided))
+    groups_of(p, g, strided) = get!(() -> block_groups(p, g, strided), gcache, (p, g, strided))
     for T in grid.types, p in grid.sizes, (g, strided) in grid.layouts
-        selector === nothing || any_wanted(selector, atom_construct_ids(T, p, g, strided)) || continue
-        Base.invokelatest(atom_construct_case!, cases, T, p, g, strided, groups_of(p, g, strided))
+        selector === nothing || any_wanted(selector, block_construct_ids(T, p, g, strided)) || continue
+        Base.invokelatest(block_construct_case!, cases, T, p, g, strided, groups_of(p, g, strided))
     end
-    for s in atom_scenarios(quick)
+    for s in block_scenarios(quick)
         selector === nothing ||
-            any_wanted(selector, atom_scenario_ids(s.T, s.p, s.g, s.strided, s.label; s.full, s.rows, s.density)) || continue
-        Base.invokelatest(atom_scenario_cases!, cases, rep, s.T, s.p, s.g, s.strided, s.density, s.label,
+            any_wanted(selector, block_scenario_ids(s.T, s.p, s.g, s.strided, s.label; s.full, s.rows, s.density)) || continue
+        Base.invokelatest(block_scenario_cases!, cases, rep, s.T, s.p, s.g, s.strided, s.density, s.label,
                           groups_of(s.p, s.g, s.strided), caches; s.full, s.rows, selector)
     end
     for p in grid.sizes, (g, strided) in grid.layouts
-        selector === nothing || any_wanted(selector, atom_layout_ids(p, g, strided)) || continue
-        Base.invokelatest(atom_layout_cases!, cases, p, g, strided, groups_of(p, g, strided))
+        selector === nothing || any_wanted(selector, block_layout_ids(p, g, strided)) || continue
+        Base.invokelatest(block_layout_cases!, cases, p, g, strided, groups_of(p, g, strided))
     end
     for T in grid.types, g in grid.symmetric_groups
-        selector === nothing || any_wanted(selector, atom_symmetric_ids(T, g)) || continue
-        Base.invokelatest(atom_symmetric_cases!, cases, rep, T, g, scache)
+        selector === nothing || any_wanted(selector, block_symmetric_ids(T, g)) || continue
+        Base.invokelatest(block_symmetric_cases!, cases, rep, T, g, scache)
     end
     nothing
 end
@@ -3692,9 +3706,9 @@ function loss_coefficient_cases!(cases, rep; quick=false)
     end
 end
 
-const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks", "owner", "sparse", "atom", "ridge")
+const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks", "owner", "sparse", "block", "ridge")
 
-# `selector` (a Regex or `nothing`) lets the builders that take it, `sparse_cases!` and `atom_cases!`, skip scenarios and
+# `selector` (a Regex or `nothing`) lets the builders that take it, `sparse_cases!` and `block_iterate_cases!`, skip scenarios and
 # operations none of whose case IDs it matches, before their fixtures exist. The result is a superset of the
 # cases whose IDs match, in the original relative order, with the fixtures they always had; the caller applies
 # the exact filter. Without a selector it is the whole catalog.
@@ -3704,11 +3718,11 @@ function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS), selector::
     all(in(CASE_GROUPS), groups) || error("PB_GROUPS must select from $(join(CASE_GROUPS, ','))")
     length(unique(groups)) == length(groups) || error("Duplicate benchmark group")
     cases=PerfCase[]
-    builders=(separable_cases!,smooth_cases!,matrix_cases!,constrained_cases!,tensor_cases!,product_cases!,block_cases!,owner_cases!,sparse_cases!,atom_cases!,ridge_cases!)
+    builders=(separable_cases!,smooth_cases!,matrix_cases!,constrained_cases!,tensor_cases!,product_cases!,block_cases!,owner_cases!,sparse_cases!,block_iterate_cases!,ridge_cases!)
     # Select groups and sizes before allocating data or constructing function objects.
     for (group,builder) in zip(CASE_GROUPS,builders)
         group in groups || continue
-        builder in (sparse_cases!, atom_cases!) ? builder(cases,rep;quick=suite=="quick",selector) : builder(cases,rep;quick=suite=="quick")
+        builder in (sparse_cases!, block_iterate_cases!) ? builder(cases,rep;quick=suite=="quick",selector) : builder(cases,rep;quick=suite=="quick")
         group == "vectors" && loss_coefficient_cases!(cases,rep;quick=suite=="quick")
     end
     suite == "extended" && "vectors" in groups && group_layout_cases!(cases, rep)

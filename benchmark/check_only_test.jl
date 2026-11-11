@@ -123,7 +123,7 @@ end
     @test digest(s1) == digest(s2)                   # the slot order is not part of the state
     activate!(s1, 50)                                # a stored zero: the dense values are unchanged
     @test Array(s1) == Array(s2) && digest(s1) != digest(s2)
-    x = AtomIterate(Float64, 12, [1:3, 4:6, 7:9, 10:12]); x[1] = 1.0; h = digest(x)
+    x = BlockIterate(Float64, 12, [1:3, 4:6, 7:9, 10:12]); x[1] = 1.0; h = digest(x)
     activate!(x, 3)                                  # an active group of zeros
     @test Vector(x)[7:9] == zeros(3) && digest(x) != h
     M = randn(3, 4)
@@ -154,9 +154,9 @@ sparse_vector_cases!(CS, 1, Float64, 10^4, 10^2, Dict{Any,Any}())
 let T = Float64, n = 1000, rng = scenario_rng(1, "blocks/flat/$T/$n")      # as block_cases! builds blocks/flat
     addblockprox!(CS, "flat", SeparableSum(NormL1(T(0.1)), SqrNormL2()), (randn(rng, T, n), randn(rng, T, n)))
 end
-const GROUPS8 = atom_groups(8 * 10^4, 8, false)
-atom_scenario_cases!(CS, 1, Float64, 8 * 10^4, 8, false, 0.1, "10", GROUPS8, (Dict{Any,Any}(), Dict{Any,Any}(), Dict{Any,Any}()))
-atom_layout_cases!(CS, 8 * 10^4, 8, false, GROUPS8)
+const GROUPS8 = block_groups(8 * 10^4, 8, false)
+block_scenario_cases!(CS, 1, Float64, 8 * 10^4, 8, false, 0.1, "10", GROUPS8, (Dict{Any,Any}(), Dict{Any,Any}(), Dict{Any,Any}()))
+block_layout_cases!(CS, 8 * 10^4, 8, false, GROUPS8)
 byid(id) = only(filter(c -> c.meta.id == id, CS))
 
 @testset "sabotage and recovery: x changed after construction" begin
@@ -219,7 +219,7 @@ end
                "sparse/first_activation/Float64/n10000_s100/absent_distinct_batch/first_activation",
                "owner/write_X[i,j]_active/Float64/p500_s100/active/warm",
                # the second sweeps the iterate that the first leaves changed
-               "owner/sweep_prox_coordinate!/Float64/p500_s100/NormL1/warm",
+               "owner/sweep_block_prox_write/Float64/p500_s100/NormL1/warm",
                "owner/sweep_activecoordinates/Float64/p500_s100/trivial_update/warm")
         @test message(() -> check!(byid(id))) == ""
     end
@@ -234,8 +234,8 @@ end
     @test occursin(after_build("x"), message(c.validate))
     dropzeros!(x)
     @test message(c.validate) == ""
-    # an active group of zeros in the shared AtomIterate; the validate restores the iterate first
-    c = byid("atom/dot_vx/Float64/p80000_g8_contiguous_act10/z0/warm")
+    # an active group of zeros in the shared BlockIterate; the validate restores the iterate first
+    c = byid("block/dot_vx/Float64/p80000_g8_contiguous_act10/z0/warm")
     x = c.inputs.x; k = findfirst(k -> !isactive(x, k), 1:ncoordinates(x))
     @test check!(without_inputs(c, on_call(c, 20, () -> activate!(x, k)))) === nothing
     @test occursin(during("x", c), message(() -> check!(with_operation(c, on_call(c, 20, () -> activate!(x, k))))))
@@ -247,7 +247,7 @@ end
     X50 = c.inputs.X50; k = findfirst(k -> !isactive(X50, k), 1:ncoordinates(X50))
     @test occursin(during("X50", c), message(() -> check!(with_operation(c, on_call(c, 10, () -> activate!(X50, k))))))
     # a changed group array: the shared call is a pointer comparison, and the validate accepts it
-    c = byid("atom/samegroups/Float64/p80000_g8_contiguous/shared/warm")
+    c = byid("block/samegroups/Float64/p80000_g8_contiguous/shared/warm")
     if haskey(c.inputs, :f_groups)
         G = c.inputs.f_groups
         swap!() = begin G[3], G[4] = G[4], G[3]; nothing end

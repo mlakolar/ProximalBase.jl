@@ -78,7 +78,7 @@ The `SymmetricCoordinates` and `SymmetricMatrixView` wrappers answer different q
 
 ## _ActiveIDs: protect working-set metadata
 
-`activecoordinates(x)` for `SparseIterate`, `SymmetricSparseIterate` and `AtomIterate` returns the same private handle type:
+`activecoordinates(x)` for `SparseIterate`, `SymmetricSparseIterate` and `BlockIterate` returns the same private handle type:
 
 ```julia
 struct _ActiveIDs <: AbstractVector{Int}
@@ -114,6 +114,13 @@ The owner types themselves also implement `Base.dataids(x)`, returning identitie
 - **`Base.unaliascopy`** produces a logically equivalent, nonaliasing source when Julia needs to protect a read/write operation from overlap. `coordinates(copy(c.x))` copies the *iterate state* and then presents the new state's coordinate vector. This can allocate O(n) or O(q) storage when actually executed.
 
 Ordinary indexed reads/writes of a coordinate view do **not** call `unaliascopy` in their hot path. The extra copy is part of the aliasing fallback, not the cost of constructing a coordinate handle.
+
+Whole-block copies through `blockview` use the same overlap rule: finish a
+source snapshot before writing, then update the recognized block's values.
+The fast path retains the original `SubArray`, `parent`, index access and alias
+reporting. Norm/dot forwarding to contiguous storage and BLAS is unchanged.
+Unknown or fallible views keep Base's scalar copy path and partial-failure
+semantics. See [Complete-block value copies](block_storage.md#Complete-block-value-copies).
 
 **These are internal Julia Base hooks.** They are implementation details that should be tested against each supported Julia version; we do not promise their names as ProximalBase public API.
 

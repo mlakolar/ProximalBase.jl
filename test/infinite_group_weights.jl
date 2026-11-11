@@ -1,5 +1,7 @@
 module InfiniteGroupWeightsTest
 
+using ..TestUtils: take_block_step!
+
 using Test, ProximalBase, LinearAlgebra, SparseArrays
 const PB = ProximalBase
 
@@ -46,23 +48,23 @@ families(T, λ, groups, w) = (GroupNormL2(T(λ), groups, w),
         @test value_and_prox!(y, f, y, γ) ≈ f(expected)
         @test y ≈ expected
         for input in (x, x0, zeros(T, 3))
-          a = AtomIterate(input, f)
+          a = BlockIterate(input, f)
           input === x0 && PB.activate!(a, fixed)
           target = prox(f, input, γ)
           @test f(a) ≈ f(input)
           @test PB.kkt_violation(f, ones(T, 3), a, fixed) == T(-Inf)
-          b = AtomIterate(T, 3, f)
+          b = BlockIterate(T, 3, f)
           @test value_and_prox!(b, f, a, γ) ≈ f(target)
           @test Vector(b) ≈ target
           @test value_and_prox!(a, f, a, γ) ≈ f(target)
           @test Vector(a) ≈ target
         end
       end
-      a = AtomIterate(x, f)
-      PB.prox_coordinate!(a, f, fixed, zero(T))
+      a = BlockIterate(x, f)
+      take_block_step!(a, f, fixed, zero(T))
       @test all(iszero, Vector(a)[groups[fixed]])
-      # A different atom partition uses the generic group path.
-      a = AtomIterate(x, [[1], [2], [3]])
+      # A different block partition uses the generic group path.
+      a = BlockIterate(x, [[1], [2], [3]])
       @test f(a) == T(Inf)
       @test Vector(prox(f, a, one(T))) ≈ prox(f, x, one(T))
       for S in ([3, 1], [2], [3, 2, 1], groups[other])
@@ -164,7 +166,7 @@ end
     expected = zeros(Float32, length(x))
     for γ in (0f0, 1f0, zeros(Float32, length(groups)), ones(Float32, length(groups)))
       @test prox(f, x, γ) == expected
-      for input in (x, AtomIterate(x, f)), inplace in (false, true)
+      for input in (x, BlockIterate(x, f)), inplace in (false, true)
         source = copy(input)
         y = inplace ? source : copy(input)
         @test value_and_prox!(y, f, source, γ) == 0f0
@@ -177,9 +179,9 @@ end
       end
     end
     for γ in (0f0, 1f0)
-      xi = AtomIterate(x, f)
+      xi = BlockIterate(x, f)
       for k in eachindex(groups)
-        PB.prox_coordinate!(xi, f, k, γ)
+        take_block_step!(xi, f, k, γ)
         @test all(iszero, Vector(xi)[groups[k]])
       end
       @test Vector(xi) == expected
@@ -193,34 +195,34 @@ end
     # A later ordinary group must still fail before an earlier group is written.
     f = F(0.0, [[1], [2]], [Inf, 1.0]; a)
     for op in (prox!, value_and_prox!), γ in (0f0, Float32[0, 1]),
-        atom in (false, true)
-      x = atom ? AtomIterate(Float32[1, 2], f) : Float32[1, 2]
-      y = atom ? AtomIterate(Float32[9, 9], f) : Float32[9, 9]
+        block in (false, true)
+      x = block ? BlockIterate(Float32[1, 2], f) : Float32[1, 2]
+      y = block ? BlockIterate(Float32[9, 9], f) : Float32[9, 9]
       @test_throws ArgumentError op(y, f, x, γ)
       @test Vector(y) == Float32[9, 9]
     end
-    xi = AtomIterate(Float32[1, 2], f)
-    PB.prox_coordinate!(xi, f, 1, 0f0)
+    xi = BlockIterate(Float32[1, 2], f)
+    take_block_step!(xi, f, 1, 0f0)
     @test Vector(xi) == Float32[0, 2]
-    @test_throws ArgumentError PB.prox_coordinate!(xi, f, 2, 0f0)
+    @test_throws ArgumentError take_block_step!(xi, f, 2, 0f0)
     @test Vector(xi) == Float32[0, 2]
     for k in (0, 3)
-      @test_throws BoundsError PB.prox_coordinate!(xi, f, k, 0f0)
+      @test_throws BoundsError take_block_step!(xi, f, k, 0f0)
       @test Vector(xi) == Float32[0, 2]
     end
-    other = AtomIterate(Float32[1, 2], [[1, 2]])
-    @test_throws DimensionMismatch PB.prox_coordinate!(other, f, 1, 0f0)
+    other = BlockIterate(Float32[1, 2], [[1, 2]])
+    @test_throws DimensionMismatch take_block_step!(other, f, 1, 0f0)
     @test Vector(other) == Float32[1, 2]
   end
 end
 
 @testset "ordinary radial validation before writes" begin
   for F in (GroupMCP, GroupSCAD), bad in (NaN, -1.0),
-      op in (prox!, value_and_prox!), γ in (0f0, Float32[0, 1]), atom in (false, true)
+      op in (prox!, value_and_prox!), γ in (0f0, Float32[0, 1]), block in (false, true)
     f = F(0.3, [[1], [2]], [1.0, 1.0])
     f.w[2] = bad
-    x = atom ? AtomIterate(Float32[1, 2], f) : Float32[1, 2]
-    y = atom ? AtomIterate(Float32[9, 9], f) : Float32[9, 9]
+    x = block ? BlockIterate(Float32[1, 2], f) : Float32[1, 2]
+    y = block ? BlockIterate(Float32[9, 9], f) : Float32[9, 9]
     @test_throws ArgumentError op(y, f, x, γ)
     @test Vector(y) == Float32[9, 9]
   end
@@ -234,7 +236,7 @@ end
     f = F(λ, [[1, 2], [3]], w)
     x = T[3, 4, 2]
     x0 = T[0, 0, 2]
-    for input in (x, AtomIterate(x, f)), zeroed in (x0, AtomIterate(x0, f))
+    for input in (x, BlockIterate(x, f)), zeroed in (x0, BlockIterate(x0, f))
       @test f(input) == T(Inf)
       @test f(zeroed) == zero(T)
     end
@@ -242,7 +244,7 @@ end
       step = γ isa Real ? γ : γ[1]
       expected = iszero(step) ? x : x0
       expected_value = iszero(step) ? T(Inf) : zero(T)
-      for input in (x, AtomIterate(x, f)), inplace in (false, true)
+      for input in (x, BlockIterate(x, f)), inplace in (false, true)
         source = copy(input)
         y = inplace ? source : copy(input)
         @test value_and_prox!(y, f, source, γ) == expected_value
@@ -254,8 +256,8 @@ end
         @test Vector(y) == expected
       end
     end
-    xi = AtomIterate(x, f)
-    PB.prox_coordinate!(xi, f, 1, one(T))
+    xi = BlockIterate(x, f)
+    take_block_step!(xi, f, 1, one(T))
     @test Vector(xi) == x0
   end
   for F in (GroupMCP, GroupSCAD), T in (Float32, Float64)
@@ -278,7 +280,7 @@ end
       for j in groups[free]
         isnan(x[j]) || (expected[j] = max(x[j] - step * λ1, 0))
       end
-      for input in (x, AtomIterate(x, f)), inplace in (false, true)
+      for input in (x, BlockIterate(x, f)), inplace in (false, true)
         source = copy(input)
         y = inplace ? source : copy(input)
         v = value_and_prox!(y, f, source, γ)
@@ -298,7 +300,7 @@ end
   for F in (GroupMCP, GroupSCAD), T in (Float32, Float64),
       w in (T[1, Inf], T[1, floatmax(T)])
     f = F(T(2), [[1, 2], [3, 4]], w)
-    x = AtomIterate(T[3, 4, 0, 0], f)
+    x = BlockIterate(T[3, 4, 0, 0], f)
     @test PB._ordinary_radial_groups(f, T, x.active, x.nactive)
     @test !PB._ordinary_radial_groups(f, T)
     @test f(x) == f(Vector(x))
@@ -314,7 +316,7 @@ end
       prox!(y, f, source, γ)
       @test Vector(y) == expected
     end
-    PB.atom(x, 2) .= T[3, 4]
+    PB.blockview(x, 2) .= T[3, 4]
     PB.activate!(x, 2)
     @test !PB._ordinary_radial_groups(f, T, x.active, x.nactive)
     @test f(x) == T(Inf)
@@ -334,10 +336,10 @@ end
         GroupNormLinf(one(T), [[1], [2]], w),
         SparseGroupNormL2(one(T), one(T), [[1], [2]], w))
       expected = f isa SparseGroupNormL2 ? one(T) : T(0.5)
-      for input in (x0, AtomIterate(x0, f), AtomIterate(x0, [[1, 2]]))
+      for input in (x0, BlockIterate(x0, f), BlockIterate(x0, [[1, 2]]))
         @test f(input) == expected
       end
-      for input in (x, AtomIterate(x, f), AtomIterate(x, [[1, 2]]))
+      for input in (x, BlockIterate(x, f), BlockIterate(x, [[1, 2]]))
         @test f(input) == T(Inf)
       end
     end
@@ -347,7 +349,7 @@ end
       SparseGroupNormL2(1.0, 1e300, [[1]], [1e10]))
     x = [1e-300]
     @test f(x) ≈ 1e10
-    @test f(AtomIterate(x, f)) ≈ 1e10
+    @test f(BlockIterate(x, f)) ≈ 1e10
   end
 end
 

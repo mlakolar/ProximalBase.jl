@@ -4,7 +4,7 @@
 #
 # One coordinate step minimizes over βⱼ alone: with the residual r = y - Xβ and
 # aⱼ = ‖Xⱼ‖², the new value is the proximal operator of the penalty, with step
-# 1/aⱼ, at the point βⱼ + Xⱼ'r / aⱼ. `prox_entry` computes it without writing β,
+# 1/aⱼ, at the point βⱼ + Xⱼ'r / aⱼ. `prox_block` computes it without writing β,
 # so a coordinate that stays at zero is never written, and a `SparseIterate`
 # stores only the coordinates that have been nonzero: its stored entries are the
 # active set. `kkt_violation` tells whether a coordinate at zero should join.
@@ -26,7 +26,7 @@ function sweep!(β, r, X, a, g, js)
     for j in js
         old = β[j]
         z = old + dot(view(X, :, j), r) / a[j]
-        new = prox_entry(g, z, j, 1 / a[j])
+        new = prox_block(g, z, j, 1 / a[j])
         if new != old                                  # write only what changes
             β[j] = new
             axpy!(old - new, view(X, :, j), r)         # keep r = y - Xβ

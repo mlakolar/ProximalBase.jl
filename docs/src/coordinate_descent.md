@@ -47,7 +47,7 @@ instead minimize a quadratic upper bound, which gives a proximal coordinate step
 In either case, a valid upper bound and an exact solution of the scalar
 problem give ``F(x^+)\le F(x)``.
 
-Using [`prox_entry`](@ref)`(g, v, j, γ)`, we compute the new scalar value
+Using [`prox_block`](@ref)`(g, v, j, γ)`, we compute the new scalar value
 before deciding whether to write it to the iterate.
 [`coordinate_lipschitz`](@ref)`(f, j)` returns a bound for entry ``j``, and
 [`coordinate_lipschitz!`](@ref) fills an array of them.
@@ -110,10 +110,10 @@ x_{G_k}^+=\left(1-\frac{\lambda w_k}{L_k\|v\|_2}\right)_+v,
 
 with value zero when ``v=0``. We use [`GroupNormL2`](@ref) to represent this
 penalty, whose default weights are ``w_k=\sqrt{|G_k|}``.
-An [`AtomIterate`](@ref) has one coordinate
-per group, and `prox_coordinate!(x, g, k, u, 1 / Lk)` applies the block
-thresholding at the gradient step `u`, which the calling procedure computes
-without writing it into `x`.
+A [`BlockIterate`](@ref) has one coordinate
+per group. Compute `prox_block!(out, g, u, k, 1 / Lk)`, then write
+`copyto!(blockview(x,k), out)` and update the residual cache. The oracle receives
+the compact trial `u` and changes only `out`.
 
 Note that this quadratic bound generally differs from the exact block
 least-squares loss, whose Hessian is ``X_{:,G_k}^\top X_{:,G_k}``.
@@ -158,7 +158,7 @@ A positive value indicates that the coordinate should enter the working set.
 A nonpositive value checks only the condition at zero, rather than the
 stationarity of a nonzero coordinate. For entry indices, we use the
 three-argument form `kkt_violation(g, grad, j)`. For group coordinates, we call
-`kkt_violation(g, grad, x, k)` with an `AtomIterate` sharing the penalty's groups.
+`kkt_violation(g, grad, x, k)` with a `BlockIterate` sharing the penalty's groups.
 
 A simple working-set procedure has the following steps:
 

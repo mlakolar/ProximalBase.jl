@@ -1,0 +1,20 @@
+{
+  "julia": "1.13.3",
+  "baseline": {
+    "PB": "8eaf8f812fd0720e180f35cfc75bc7b090e8ea97",
+    "PS": "f9b7a26663b499b6f881bcc26c56d1acced06749",
+    "passed": 120045,
+    "failed": 269,
+    "errors": 83
+  },
+  "candidate": {
+    "PB": "8fb174454a5b0c431376decf5a3c87830353a562",
+    "PS": "75894887d7272df71c2c263feb4ea0b6d211fd48",
+    "passed": 120047,
+    "failed": 269,
+    "errors": 83
+  },
+  "identical_failure_cases": 352,
+  "failure_cases_sha256": "7ae0d1d6a754f76542a2a9de9204e9217e20fe59db51167b3f7ae19d115546c3",
+  "comparison": "testset names, failure/error locations and assertion expressions; checkout paths and the approved scalar oracle rename normalized"
+}

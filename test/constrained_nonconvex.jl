@@ -1,5 +1,7 @@
 module ConstrainedNonconvexTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -22,7 +24,7 @@ end
     c = Constrained(f, IndBox(l, u))
     for x in (4 .* randn(20)..., 0., l, u, -l, -u)
       isfinite(x) || continue
-      p = prox_entry(c, x, 1, s)
+      p = prox_block(c, x, 1, s)
       @test l <= p <= u
       h = box_objective(f, l, u, x, s)
       lo, hi = isfinite(l) ? l : min(x, 0.) - 10, isfinite(u) ? u : max(x, 0.) + 10
@@ -33,8 +35,8 @@ end
 
   # the counterexample of the issue: clamping hard thresholding is not the prox
   c = Constrained(NormL0(1.), IndBox(-1., 0.5))
-  @test clamp(prox_entry(NormL0(1.), 2., 1, 1.), -1., 0.5) == 0.5
-  @test prox_entry(c, 2., 1, 1.) == 0.
+  @test clamp(prox_block(NormL0(1.), 2., 1, 1.), -1., 0.5) == 0.5
+  @test prox_block(c, 2., 1, 1.) == 0.
 
   # in the convex regime, the clamp of the unconstrained proximal operator
   x = 3 .* randn(30)
@@ -51,7 +53,7 @@ end
     check_traits(c; proximable = true, separable = true)
     v = 2 .* randn(n)
     p = check_prox(c, v, 2.)
-    @test all(i -> prox_entry(c, v[i], i, 2.) == p[i], 1:n)
+    @test all(i -> prox_block(c, v[i], i, 2.) == p[i], 1:n)
     @test value_and_prox!(similar(v), c, v, 2.) ≈ f(p)
     @test c(p) ≈ f(p) && c(fill(5., n)) == Inf
     xs = SparseIterate(sparse(v .* (rand(n) .< 0.5)))
@@ -60,7 +62,7 @@ end
     @test iszeropreserving(c)
     for k in 1:n
       w = xs[k]
-      @test prox_coordinate!(xs, c, k, 2.) == prox_entry(c, w, k, 2.)
+      @test take_block_step!(xs, c, k, 2.) == prox_block(c, w, k, 2.)
     end
     S = [2, 5, 9]
     @test prox(restrict(c, S), v[S], 2.) ≈ p[S]
@@ -77,7 +79,7 @@ end
     @test kkt_violation(Constrained(f, IndBox(-2., 2.)), g, 2) ≈ 2.
     # a violation means that a proximal gradient step from zero leaves it
     for i in 1:4
-      moves = prox_entry(c, -g[i], i, 1.) != 0
+      moves = prox_block(c, -g[i], i, 1.) != 0
       @test moves == (kkt_violation(c, g, i) > 0)
     end
   end
@@ -175,7 +177,7 @@ intersect(f, a, b) = Constrained(Constrained(f, a), b)
     for x in (Float32[1 - t, 2 + 2t], Float32[prevfloat(1 - t), nextfloat(2 + 2t)], Float32[0, 3])
       @test isequal(c(x), base(x))
       @test isequal(f(x), c.f(x))
-      @test isequal(prox_entry(c, x[1], 1, 1f0), prox_entry(base, x[1], 1, 1f0))
+      @test isequal(prox_block(c, x[1], 1, 1f0), prox_block(base, x[1], 1, 1f0))
       y, z = similar(x), similar(x)
       @test isequal(prox!(y, c, x, 1f0), prox!(z, base, x, 1f0))
       @test isequal(value_and_prox!(y, c, x, 1f0), value_and_prox!(z, base, x, 1f0))
@@ -196,7 +198,7 @@ end
             intersect(NormL0(0.5), IndBox(-rand(n), rand(n)), IndBox(-0.5, 0.5)))
     @test allocs((y, x) -> prox!(y, c, x, 3.), y, v) == 0
     @test allocs((y, x) -> value_and_prox!(y, c, x, 3.), y, v) == 0
-    @inferred prox_entry(c, v[1], 1, 3.)
+    @inferred prox_block(c, v[1], 1, 3.)
     @inferred prox!(y, c, v, 3.)
     @inferred value_and_prox!(y, c, v, 3.)
     @inferred c(v)

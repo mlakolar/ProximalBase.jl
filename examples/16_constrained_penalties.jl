@@ -73,7 +73,7 @@ println("rows rescaled: zero-sum lasso moves by ", norm(βc - β), ", the lasso 
 @assert norm(βc - β) < 1e-6 && norm(β1c - β1) > 1e-3
 
 # --- the lasso on [0, 1] by coordinate descent -------------------------------
-# NormL1 on the box 0 ≤ β ≤ 1 is separable: prox_entry clamps the soft
+# NormL1 on the box 0 ≤ β ≤ 1 is separable: prox_block clamps the soft
 # thresholding of each coordinate, so coordinate descent with exact residuals
 # solves the problem one coefficient at a time.
 X = randn(rng, n, p)
@@ -90,7 +90,7 @@ for sweep in 1:1000
     for j in 1:p
         old = β[j]
         v = old + dot(view(X, :, j), r) / (n * a[j])     # the minimizer of f along j
-        new = prox_entry(g, v, j, 1 / a[j])             # soft thresholding, then the box
+        new = prox_block(g, v, j, 1 / a[j])             # soft thresholding, then the box
         if new != old
             β[j] = new
             r .-= (new - old) .* view(X, :, j)

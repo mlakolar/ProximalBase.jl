@@ -56,14 +56,13 @@ using PrecompileTools: @setup_workload, @compile_workload
     for f in (LogDetLoss(P), NuclearNorm(0.1), IndPSD())
       value_and_prox!(Y, f, P, 0.5)
     end
-    # coordinate steps on the three iterates
-    prox_coordinate!(SparseIterate(x), NormL1(0.1), 2, 1.0)
+    # pure scalar and compact group oracles
+    prox_block(NormL1(0.1), x[2], 2, 1.0)
     S = SymmetricSparseIterate(P)
-    prox_coordinate!(S, NormL1(0.1), 2, 1.0)
-    prox_coordinate!(S, NormL1(0.1, fill(1.0, p, p)), 3, 1.0)
     fg = GroupNormL2(0.1, groups)
-    xa = AtomIterate(x, fg)
-    prox_coordinate!(xa, fg, 1, 1.0)
+    xa = BlockIterate(x, fg)
+    trial = x[groups[1]]
+    prox_block!(similar(trial), fg, trial, 1, 1.0)
     kkt_violation(fg, g, xa, 1)
     # the Kronecker quadratic at an owner, and the hard threshold of a symmetric matrix into one
     value_and_gradient!(similar(P), KronQuadratic(P, P, P), S)

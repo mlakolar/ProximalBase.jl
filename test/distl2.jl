@@ -78,7 +78,7 @@ end
     @test_throws ArgumentError lipschitz(f)
     @test_throws ArgumentError coordinate_lipschitz(f, 1)
     @test_throws ArgumentError coordinate_lipschitz!(zeros(2), f)
-    @test_throws MethodError prox_entry(f, 0.0, 1, 0.7)
+    @test_throws MethodError prox_block(f, 0.0, 1, 0.7)
     @test_throws MethodError restrict(f, [1])
     @test_throws MethodError prox(f, ones(2), ones(2))
     @test_throws ArgumentError Spectral(f)

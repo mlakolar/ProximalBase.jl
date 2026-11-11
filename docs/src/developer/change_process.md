@@ -69,7 +69,7 @@ targets, missing page files, doctest errors and Markdown parsing warnings.
 For focused iterate changes, run the corresponding files through the
 package's test harness and then the requested CI tier. Relevant groups
 include `test/iterate_queries.jl`, `test/iterate_writes.jl`,
-`test/sparse_iterate.jl`, `test/atom_iterate.jl`,
+`test/sparse_iterate.jl`, `test/block_iterate.jl`,
 `test/symmetric_iterate_interface.jl`, and `test/matrixview.jl`.
 The package-wide conformance suite is in `test/conformance/`.
 

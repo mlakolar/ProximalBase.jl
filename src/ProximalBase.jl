@@ -8,15 +8,15 @@ A function `f` is callable, `f(x)` being its value, and its traits say what it
 provides: [`issmooth`](@ref) functions have [`gradient!`](@ref) and
 [`value_and_gradient!`](@ref), [`isproximable`](@ref) ones [`prox!`](@ref) and
 [`value_and_prox!`](@ref), and [`isseparable`](@ref) ones the scalar proximal
-operators [`prox_entry`](@ref), with which [`prox_coordinate!`](@ref) updates
-one coordinate of an iterate. A function may be both smooth and proximable.
+operators [`prox_block`](@ref). Solvers write the result through the iterate
+storage API. A function may be both smooth and proximable.
 
 Proximal operators follow the convention
 
     prox_{γf}(x) = argmin_z  f(z) + ‖z - x‖² / (2γ),
 
 and mutating functions take their output first, as `mul!` does:
-`prox!(y, f, x, γ)`, `gradient!(g, f, x)`, `prox_coordinate!(x, f, k, γ)`.
+`prox!(y, f, x, γ)`, `gradient!(g, f, x)`, `prox_block!(out, f, u, k, γ)`.
 """
 module ProximalBase
 
@@ -43,7 +43,7 @@ export
   issmooth, isproximable, isseparable, isconvex,
   prox!, prox, value_and_prox!,
   gradient!, gradient, value_and_gradient!, value_and_gradient,
-  prox_coordinate!, prox_entry, kkt_violation, restrict,
+  prox_block, prox_block!, kkt_violation, restrict,
   SeparableFunction, value_entry, iszeropreserving,
   gradient_mapping, gradient_mapping!, lipschitz, opnorm2,
   reset_cache!,
@@ -86,9 +86,9 @@ export
   SliceSum, FiberSum,
 
   # iterates
-  SparseIterate, SymmetricSparseIterate, AtomIterate,
+  SparseIterate, SymmetricSparseIterate, BlockIterate,
   ncoordinates, coordinates, nactive, activecoordinates, activevalues, matrixview, isactive,
-  activate!, atom, atomindices,
+  activate!, blockview, blockindices,
   nnz, dropzeros!,
 
   # utilities
@@ -107,7 +107,7 @@ include("lapack.jl")
 include("partial.jl")
 
 include("sparse_iterate.jl")
-include("atom_iterate.jl")
+include("block_iterate.jl")
 
 include("interface.jl")
 
@@ -154,6 +154,7 @@ include("symmetric_parameters.jl")
 include("caches.jl")
 include("deprecated.jl")
 include("testing.jl")
+include("block_prox.jl")
 include("precompile.jl")
 
 end

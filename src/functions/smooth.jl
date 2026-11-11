@@ -54,7 +54,7 @@ function value_and_gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray
 end
 gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray) = (_value_and_gradient_unchecked!(g, f, x); g)
 
-prox_entry(::ZeroFunction, v::Real, ::Integer, ::Real) = v
+prox_block(::ZeroFunction, v::Real, ::Integer, ::Real) = v
 kkt_violation(::ZeroFunction, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]))
 restrict(f::ZeroFunction, ::AbstractVector{<:Integer}) = f
 
@@ -198,7 +198,7 @@ gradient!(g::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner) =
 _gradient_unchecked!(g::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner) =
   (_checkwrite(gradient!, f, g, x); _copy_parameter!(g, f.c))
 
-Base.@propagate_inbounds prox_entry(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
+Base.@propagate_inbounds prox_block(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
 _checkparams(f::LinearFunction, x) = _checkparam(f.c, x)
 kkt_violation(f::LinearFunction, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] + f.c[i]))
 restrict(f::LinearFunction, S::AbstractVector{<:Integer}) = LinearFunction(f.c[S], f.d)
@@ -282,10 +282,10 @@ function _sumabs2(x::SymmetricSparseIterate{T}) where {T}
   end
   s
 end
-_sumabs2(x::AtomIterate) = _sumabs2(x.storage)
+_sumabs2(x::BlockIterate) = _sumabs2(x.storage)
 
 _square_term_count(x::Union{SparseIterate, SymmetricSparseIterate}) = x.nnz
-_square_term_count(x::AtomIterate) = _square_term_count(x.storage)
+_square_term_count(x::BlockIterate) = _square_term_count(x.storage)
 function _square_multiplicity(x::SymmetricSparseIterate, i)
   r, c = tril_cartesian(x.p, x.nzval2ind[i])
   r == c ? 1 : 2
@@ -301,7 +301,7 @@ function _norm2(x::_ArrayOrOwner)
   _norm2_scaled(x)
 end
 _norm2_scaled(x::AbstractArray) = norm(x)
-_norm2_scaled(x::AtomIterate) = norm(x.storage)
+_norm2_scaled(x::BlockIterate) = norm(x.storage)
 function _norm2_scaled(x::SymmetricSparseIterate{T}) where {T}
   n = zero(float(T))
   @inbounds for k in 1:x.nnz
@@ -666,7 +666,7 @@ end
 @inline _ridge_apply_fit(s::_RidgeScaled{W}, x, c) where {W} = _ridge_scaled_blend(W(x), W(c), s)
 # A center outside W's range on rounding: the entry is computed in the wider type R.
 # For a hardware-float center, R holds x and c with room to spare (it is wider than W,
-# which holds x), so the plain convex combination cannot overflow. prox_entry inlines
+# which holds x), so the plain convex combination cannot overflow. prox_block inlines
 # it, so that a loop over the entries has no call and vectorizes (its weights do not
 # depend on the entry); the array methods call it, as before.
 @inline function _ridge_wide_entry(o::_RidgeOrdinary{W}, x, c::Base.IEEEFloat) where {W}
@@ -709,12 +709,12 @@ function _ridge_prox!(z, co::Union{_RidgeOrdinary{W}, _RidgeScaled{W}}, x, c) wh
   end
 end
 
-@inline function prox_entry(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real)
+@inline function prox_block(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real)
   W = typeof(float(v))
   _ridge_needs_scaling(W, γ, f.λ) ? _ridge_apply(_ridge_scaled(W, γ, f.λ), W(v)) :
                                     _ridge_apply(_ridge_ordinary(W, γ, f.λ), W(v))
 end
-Base.@propagate_inbounds function prox_entry(f::SqrNormL2, v::Real, i::Integer, γ::Real)
+Base.@propagate_inbounds function prox_block(f::SqrNormL2, v::Real, i::Integer, γ::Real)
   W = typeof(float(v))
   _ridge_needs_scaling(W, γ, f.λ) ? _ridge_apply(_ridge_scaled(W, γ, f.λ), W(v), f.y[i]) :
                                     _ridge_apply_entry(_ridge_ordinary(W, γ, f.λ), W(v), f.y[i])
@@ -723,15 +723,15 @@ end
 @inline _ridge_apply_entry(o::_RidgeOrdinary, x, c::Base.IEEEFloat) =
   _ridge_fits(typeof(o.a), c) ? _ridge_blend(x, c, o.a, o.b) : _ridge_wide_entry(o, x, c)
 # The ridge whose entries are known to take the ordinary coefficient, with every center
-# entry keeping its range in W: prox_entry without the tests, where
+# entry keeping its range in W: prox_block without the tests, where
 # _ridge_needs_scaling(W, γ, f.λ) is false and the centers fit. Constrained uses it for
 # steps and centers it has checked, so that its loops have no call.
 struct _OrdinaryRidge{F<:SqrNormL2}
   f::F
 end
-@inline prox_entry(r::_OrdinaryRidge{<:SqrNormL2{<:Real, Nothing}}, v::Real, ::Integer, γ::Real) =
+@inline prox_block(r::_OrdinaryRidge{<:SqrNormL2{<:Real, Nothing}}, v::Real, ::Integer, γ::Real) =
   (W = typeof(float(v)); _ridge_apply(_ridge_ordinary(W, γ, r.f.λ), W(v)))
-Base.@propagate_inbounds prox_entry(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) =
+Base.@propagate_inbounds prox_block(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) =
   (W = typeof(float(v)); _ridge_apply_fit(_ridge_ordinary(W, γ, r.f.λ), W(v), r.f.y[i]))
 # The slope of the ridge proximal point in its argument is the weight that multiplies it:
 # the larger weight, or the smaller one carried as m·2^e (which rounds to 0 only where
@@ -739,8 +739,8 @@ Base.@propagate_inbounds prox_entry(r::_OrdinaryRidge, v::Real, i::Integer, γ::
 @inline _ridge_slope(o::_RidgeOrdinary) = o.a
 @inline _ridge_slope(s::_RidgeScaled) = s.small_x ? ldexp(s.m, s.e) : s.L
 
-# prox_entry and the slope of the ridge, from one coefficient: the value is computed by
-# the code of prox_entry, so that the two cannot disagree.
+# prox_block and the slope of the ridge, from one coefficient: the value is computed by
+# the code of prox_block, so that the two cannot disagree.
 @inline function _ridge_prox_slope(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real)
   W = typeof(float(v))
   if _ridge_needs_scaling(W, γ, f.λ)

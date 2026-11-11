@@ -23,7 +23,7 @@ complex from the types is rejected, and a result of another non-real type (a
 rejected if an element is complex, with `x` unchanged.
 For a vector `x`, `vec(x)` and `reshape(x, length(x))` are `x` itself and are
 checked too. `copy!` from a source of another size throws Base's error first,
-unless the source is a `SparseIterate` or an [`AtomIterate`](@ref): one of the
+unless the source is a `SparseIterate` or a [`BlockIterate`](@ref): one of the
 same length is copied by value in linear order, and one of another length throws
 a `DimensionMismatch`. The two-argument `copyto!` and `copy!` read types: a tuple, a generator or an
 array of abstract element type such as `Vector{Any}` passes the check, and its
@@ -115,7 +115,7 @@ order. There is no comparison with an array and no `isapprox`: use `Matrix(x)` o
 `matrixview(x)`.
 
 Its coordinates are numbered column by column ([`tril_index`](@ref)):
-[`prox_coordinate!`](@ref) updates them, [`activecoordinates`](@ref) lists the
+Public indexed assignment updates them, [`activecoordinates`](@ref) lists the
 active ones and [`coordinates`](@ref) is a vector view of them.
 
 See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
@@ -220,10 +220,10 @@ nnz
 """
     ncoordinates(x)
 
-The number of coordinates of the iterate `x` that [`prox_coordinate!`](@ref)
+The number of independent coordinates of the iterate `x` that a solver
 updates: the entries of a [`SparseIterate`](@ref), the entries of the lower
 triangle of a [`SymmetricSparseIterate`](@ref), the groups of an
-[`AtomIterate`](@ref).
+[`BlockIterate`](@ref).
 """
 function ncoordinates end
 
@@ -232,7 +232,7 @@ function ncoordinates end
 
 The number of active coordinates of `x`: the stored entries of a
 [`SparseIterate`](@ref) or [`SymmetricSparseIterate`](@ref), the active groups
-of an [`AtomIterate`](@ref). Active-set solvers use them as the active set.
+of a [`BlockIterate`](@ref). Active-set solvers use them as the active set.
 """
 function nactive end
 
@@ -247,7 +247,7 @@ Base.dataids(h::_ActiveIDs) = Base.dataids(h.ids)     # as the view it wraps: al
 Base.unaliascopy(h::_ActiveIDs) = _ActiveIDs(Base.unaliascopy(h.ids))   # view(A, h) copies an aliasing index in its own type
 Base.@propagate_inbounds Base.getindex(h::_ActiveIDs, i::Int) = h.ids[i]
 Base.setindex!(::_ActiveIDs, v, i::Int) =
-  throw(ArgumentError("activecoordinates(x) is read-only: write values through activevalues(x), or atom(x, k) for an AtomIterate"))
+  throw(ArgumentError("activecoordinates(x) is read-only: write values through activevalues(x), or blockview(x, k) for a BlockIterate"))
 
 """
     activecoordinates(x)
@@ -261,7 +261,7 @@ changing the active set: after an activation, after `dropzeros!`, and after a
 whole-state replacement such as `copyto!(x, y)`, which can reorder the list even
 when the active set and `nactive(x)` stay the same. Writing through it throws an `ArgumentError`, because
 the list and the iterate's reverse map must stay in agreement; write values
-through [`activevalues`](@ref) (or `atom(x, k)` for an [`AtomIterate`](@ref)).
+through [`activevalues`](@ref) (or `blockview(x, k)` for a [`BlockIterate`](@ref)).
 """
 function activecoordinates end
 
@@ -354,12 +354,12 @@ end
 """
     activate!(x::SparseIterate, i)
     activate!(x::SymmetricSparseIterate, k)
-    activate!(x::AtomIterate, k)
+    activate!(x::BlockIterate, k)
 
 Make coordinate `i` of `x` active, storing it as an explicit zero if it is not
 stored already, and return `x`. Assigning a zero does not store an entry, so
 this is how a coordinate joins the active set of an active-set solver;
-`dropzeros!` removes it again while it is zero. For an [`AtomIterate`](@ref),
+`dropzeros!` removes it again while it is zero. For a [`BlockIterate`](@ref),
 make group `k` active, keeping its entries.
 """
 function activate!(x::_StoredIterate{T}, i::Integer) where {T}
@@ -1701,7 +1701,7 @@ _max_half(A::SparseMatrixCSC) = _max_half(nonzeros(A))
                                          _rounding_type(eltype(A)))))
 end
 
-# A check of one pair, such as the coordinate of prox_coordinate!, reads only that
+# A check of one pair, such as a coordinate update, reads only that
 # pair: its relative asymmetry is relative to the larger of the two entries.
 @noinline function _throw_asymmetric_pair(subject, name, where, r, c, x, y)
   relative = if x isa Number && y isa Number
@@ -1900,7 +1900,7 @@ Base.mightalias(a::AbstractArray, x::SymmetricSparseIterate) = _aliases(x, a)
 # A source with another number of dimensions cannot have the axes of x.
 Base.copyto!(x::SymmetricSparseIterate, y::AbstractArray) = _throw_axes(x, y)
 
-# A broadcast that is written into an iterate is real, for the owner's sources and for AtomIterate.
+# A broadcast that is written into an iterate is real, for the owner's sources and for BlockIterate.
 _checkreal_broadcast(x, bc::Broadcast.Broadcasted) = _checkreal_args(x, bc.args)
 _checkreal_args(x, args::Tuple) = (_checkreal_broadcast(x, first(args)); _checkreal_args(x, Base.tail(args)))
 _checkreal_args(x, ::Tuple{}) = true

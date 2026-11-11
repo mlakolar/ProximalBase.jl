@@ -145,7 +145,7 @@ end
 struct Frozen{F} <: PB.SeparableFunction
   f::F
 end
-PB.prox_entry(f::Frozen, v, i, γ) = reference_entry(f.f, v, i, γ)
+PB.prox_block(f::Frozen, v, i, γ) = reference_entry(f.f, v, i, γ)
 PB.isconvex(::Type{<:Frozen}) = true
 PB.iszeropreserving(f::Frozen) = PB.iszeropreserving(f.f)
 PB._checkparams(f::Frozen, x) = PB._checkparams(f.f, x)
@@ -210,7 +210,7 @@ PB._conjugate_isindicator(::Type{Frozen{F}}) where {F} = PB._conjugate_isindicat
     end
     for f in families(T, w)
       expected = reference(f, x, ordinary)
-      for z in (SparseIterate(x), AtomIterate(x, GroupNormL2(one(T), [1:length(x)])))
+      for z in (SparseIterate(x), BlockIterate(x, GroupNormL2(one(T), [1:length(x)])))
         y = copy(z)
         reference_y = copy(z)
         prox!(reference_y, Frozen(f), z, ordinary)

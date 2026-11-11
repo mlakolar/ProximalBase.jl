@@ -1,5 +1,7 @@
 module BinaryTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -94,7 +96,7 @@ end
     for (l, u, v) in cases
       f = IndBinary(l, u)
       expected = exact_endpoint(l, u, v)
-      @test prox_entry(f, v, 1, one(T)) == expected
+      @test prox_block(f, v, 1, one(T)) == expected
     end
     l, u, x = first.(cases), getindex.(cases, 2), last.(cases)
     f = IndBinary(l, u)
@@ -102,8 +104,8 @@ end
     @test prox(f, x) == expected
     @test prox!(x, f, x, one(T)) == expected
     @test f(expected) == 0
-    @test prox_entry(IndBinary(one(T) + e, one(T) + 6e), one(T) + 4e, 1, one(T)) == one(T) + 6e
-    @test prox_entry(IndBinary(zero(T), 3η), 2η, 1, one(T)) == 3η
+    @test prox_block(IndBinary(one(T) + e, one(T) + 6e), one(T) + 4e, 1, one(T)) == one(T) + 6e
+    @test prox_block(IndBinary(zero(T), 3η), 2η, 1, one(T)) == 3η
   end
 end
 
@@ -162,7 +164,7 @@ end
   @test !iszeropreserving(IndBinary(l, u))
 end
 
-@testset "sparse and atom iterates" begin
+@testset "sparse and block iterates" begin
   l = ReadBounds(zeros(6), Int[])
   u = ReadBounds(ones(6), Int[])
   f = IndBinary(l, u)
@@ -187,7 +189,7 @@ end
   for f in (IndBinary(0, 1), IndBinary([0., -1., 0., -1., 0., -1.], [1., 0., 1., 0., 1., 0.]),
             IndBinary(-1, 1), IndBinary(nextfloat(0.), 1.))
     for input in (SparseIterate(6), x, SparseIterate([0., -0.6, 0., 0.8, 0., 0.]),
-                  AtomIterate([0., -0.6, 0., 0.8, 0., 0.], [1:2, 3:4, 5:6]))
+                  BlockIterate([0., -0.6, 0., 0.8, 0., 0.], [1:2, 3:4, 5:6]))
       dense = Vector(input)
       expected = prox(f, dense)
       @test f(input) == f(dense)
@@ -200,7 +202,7 @@ end
     end
   end
   @test nactive(prox(IndBinary(-1, 1), SparseIterate(6))) == 6
-  a = AtomIterate(6, 3)
+  a = BlockIterate(6, 3)
   prox!(a, IndBinary(-1, 1), a, 1.)
   @test Vector(a) == fill(-1., 6) && nactive(a) == 3
   for f in (IndBinary(0, 1), IndBinary(Float64[], Float64[]))
@@ -253,9 +255,9 @@ end
     @test_throws ArgumentError IndBinary(l, u)
   end
   @test_throws DimensionMismatch IndBinary(zeros(2), ones(3))
-  @test_throws BoundsError prox_entry(IndBinary(zeros(2), ones(2)), 0., 3, 1.)
+  @test_throws BoundsError prox_block(IndBinary(zeros(2), ones(2)), 0., 3, 1.)
   points = (ones(4), SparseIterate([1., 0., -2., 0.]),
-            SymmetricSparseIterate([1. 0.; 0. -2.]), AtomIterate([1., 0., -2., 0.], 2))
+            SymmetricSparseIterate([1. 0.; 0. -2.]), BlockIterate([1., 0., -2., 0.], 2))
   for x in points
     for f in (IndBinary(zeros(2), 1), IndBinary(0, ones(2))),
         step in (0.7, fill(0.7, size(x))), op in (prox!, value_and_prox!), alias in (false, true)
@@ -282,11 +284,11 @@ end
       for f in (IndBinary(zeros(2), 1), IndBinary(0, ones(2))), k in (1, ncoordinates(x))
         out = copy(x)
         stored = copy(activecoordinates(out))
-        @test_throws DimensionMismatch prox_coordinate!(out, f, k, 0.7)
+        @test_throws DimensionMismatch take_block_step!(out, f, k, 0.7)
         @test Array(out) == Array(x) && activecoordinates(out) == stored
       end
       out = copy(x)
-      @test_throws MethodError prox_coordinate!(out, IndBinary(0, 1), 1, ones(3))
+      @test_throws MethodError take_block_step!(out, IndBinary(0, 1), 1, ones(3))
       @test Array(out) == Array(x)
     end
   end
@@ -303,12 +305,12 @@ end
     @test allocs(f, x) == 0
     @test allocs(prox!, y, f, x, γ) == 0
     @test allocs(value_and_prox!, y, f, x, γ) == 0
-    @test allocs(prox_entry, f, T(0.5), 1, γ) == 0
-    @test allocs(prox_coordinate!, s, f, 1, γ) == 0
+    @test allocs(prox_block, f, T(0.5), 1, γ) == 0
+    @test allocs(take_block_step!, s, f, 1, γ) == 0
   end
   for T in (Float32, Float64)
     f = IndBinary(-floatmax(T), floatmax(T))
-    @test allocs(prox_entry, f, nextfloat(zero(T)), 1, one(T)) == 0
+    @test allocs(prox_block, f, nextfloat(zero(T)), 1, one(T)) == 0
   end
 end
 

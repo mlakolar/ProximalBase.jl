@@ -1,5 +1,7 @@
 module LossesTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -23,7 +25,7 @@ eps_term(ε, w) = u -> w * max(0, abs(u) - ε)
 function test_scalar_prox(f, term, i)
   for v in (-3., -1.2, -0.4, -0.05, 0., 0.03, 0.3, 0.9, 1., 1.4, 3.5), γ in (0.1, 0.6, 1., 2.5)
     t, ht = brute_force_prox(term, v, γ)
-    z = prox_entry(f, v, i, γ)
+    z = prox_block(f, v, i, γ)
     @test term(z) + (z - v)^2 / (2γ) <= ht + 1e-9
     @test z ≈ t atol = 1e-5
   end
@@ -106,7 +108,7 @@ end
     test_conjugate(g, x, 0.7)
   end
   # a label scales the margin: the loss of yᵢxᵢ, with the step γwᵢyᵢ²
-  @test prox(HingeLoss(yg), x, 0.4) ≈ [prox_entry(HingeLoss(), yg[i] * x[i], i, 0.4 * yg[i]^2) / yg[i] for i in 1:12]
+  @test prox(HingeLoss(yg), x, 0.4) ≈ [prox_block(HingeLoss(), yg[i] * x[i], i, 0.4 * yg[i]^2) / yg[i] for i in 1:12]
   # the conjugate: Σ sᵢ/yᵢ on -wᵢ ≤ sᵢ/yᵢ ≤ 0
   c = Conjugate(HingeLoss(yg, w))
   s = -yg .* w ./ 2
@@ -154,8 +156,8 @@ end
     @test Vector(zs) ≈ prox(f, x, 0.6)
     # a coordinate step: the scalar proximal operator of the coordinate
     zs = copy(xs)
-    @test prox_coordinate!(zs, f, 7, 0.6) ≈ prox_entry(f, x[7], 7, 0.6)
-    xa = AtomIterate(randn(40), 8)
+    @test take_block_step!(zs, f, 7, 0.6) ≈ prox_block(f, x[7], 7, 0.6)
+    xa = BlockIterate(randn(40), 8)
     @test f(xa) ≈ f(Vector(xa))
   end
   # the zero-preserving losses touch only the stored entries (an entry set to zero
@@ -182,7 +184,7 @@ end
             EpsInsensitiveLoss(0.2))
     @test f(x) isa Float32
     @test prox(f, x, 0.3) isa Vector{Float32}
-    @test @inferred(prox_entry(f, x[2], 2, 0.3f0)) isa Float32
+    @test @inferred(prox_block(f, x[2], 2, 0.3f0)) isa Float32
   end
 end
 
@@ -291,7 +293,7 @@ a_value(f, x) = f(x)
 a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
 a_vgrad!(g, f, x) = value_and_gradient!(g, f, x)
-a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+a_cd!(x, f, k, γ) = take_block_step!(x, f, k, γ)
 a_kkt(f, g, k) = kkt_violation(f, g, k)
 
 @testset "zero allocations" begin

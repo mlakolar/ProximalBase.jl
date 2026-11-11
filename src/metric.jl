@@ -59,7 +59,7 @@ end
 # group penalties: a step per group, constant on the group, keeps the closed form
 value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (x = _symmetric_argument(y, x); _checkreal(f, γ); _checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (x = _symmetric_argument(y, x); _value_and_prox_unchecked!(y, f, x, γ); y)
-value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::AbstractVector) = (_checkreal(f, γ); _checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
+value_and_prox!(y::BlockIterate, f::AbstractGroupPenalty, x::BlockIterate, γ::AbstractVector) = (_checkreal(f, γ); _checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
 # the entrywise reciprocal of an array of steps, without allocating. Its element type T is the
 # promotion of the model precision W and the float type of the steps, as for a scalar step
@@ -157,8 +157,8 @@ function _check_regularize_group_steps(op, r, y, x, γ)
   _checkgroupsteps(r.f, γ)
   isempty(r.f.free) && length(r.f.group_of) == length(x) ||
     throw(ArgumentError("per-group steps for Regularize require groups that cover every entry"))
-  if y isa AtomIterate || y isa SymmetricSparseIterate
-    name = y isa AtomIterate ? "AtomIterate" : "SymmetricSparseIterate"
+  if y isa BlockIterate || y isa SymmetricSparseIterate
+    name = y isa BlockIterate ? "BlockIterate" : "SymmetricSparseIterate"
     throw(ArgumentError("per-group steps for Regularize do not support $name outputs"))
   end
   true

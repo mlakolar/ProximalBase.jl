@@ -147,7 +147,7 @@ end
         if isseparable(f)
           accurate(prox(c, x, fill(γ, length(x))), ref, 4)
           for i in eachindex(x)
-            accurate(T[prox_entry(c, x[i], i, γ)], [ref[i]], 4)
+            accurate(T[prox_block(c, x[i], i, γ)], [ref[i]], 4)
           end
         end
       end
@@ -165,9 +165,9 @@ end
       for f in functions, γ in (T(0.5), one(T))
         expected = x .- γ .* prox(f, x ./ γ, inv(γ))
         c = Conjugate(f)
-        for op in (prox!, value_and_prox!), atom in (false, true), alias in (false, true)
-          # The atom partition also represents holes and trailing coordinates.
-          source = atom ? AtomIterate(x, [[1, 2], [3, 4], [5, 6, 7]]) : copy(x)
+        for op in (prox!, value_and_prox!), block in (false, true), alias in (false, true)
+          # The block partition also represents holes and trailing coordinates.
+          source = block ? BlockIterate(x, [[1, 2], [3, 4], [5, 6, 7]]) : copy(x)
           y = alias ? source : copy(source)
           v = op(y, c, source, γ)
           @test Vector(y) ≈ expected rtol = 8eps(T) atol = 8eps(T)
@@ -188,16 +188,16 @@ end
         input = T[3, -4, 2]
         expected = input .- γ .* prox(f, input ./ γ, inv.(γ))
         c = Conjugate(f)
-        atoms = base isa GroupNormL2 ? (false, true) : (false,)
-        for op in (prox!, value_and_prox!), atom in atoms, alias in (false, true)
-          source = atom ? AtomIterate(input, groups) : copy(input)
+        blocks = base isa GroupNormL2 ? (false, true) : (false,)
+        for op in (prox!, value_and_prox!), block in blocks, alias in (false, true)
+          source = block ? BlockIterate(input, groups) : copy(input)
           y = alias ? source : copy(source)
           v = op(y, c, source, γ)
           @test Vector(y) ≈ expected rtol = 8eps(T) atol = 8eps(T)
           op === value_and_prox! && @test v == 0
         end
         if isseparable(f)
-          @test T[prox_entry(c, input[i], i, γ isa Real ? γ : γ[i]) for i in eachindex(input)] ≈ expected
+          @test T[prox_block(c, input[i], i, γ isa Real ? γ : γ[i]) for i in eachindex(input)] ≈ expected
         end
       end
     end

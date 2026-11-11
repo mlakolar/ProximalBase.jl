@@ -6,14 +6,14 @@ using ..TestUtils
 # expression over the thresholds γτwᵢ and γ(1-τ)wᵢ, formed in the promotion of the model precision and
 # the factors and rounded once, so that the loop vectorizes; blocks of 128 entries whose step-and-level
 # parts γτ and γ(1-τ) are not normal numbers (zero, infinite, NaN, overflowing or underflowing steps)
-# are recovered entry by entry through prox_entry, and every other block stays on the ordinary loop.
-# The array result must equal the scalar prox_entry, bit for bit and NaN for NaN, whatever the shape of
+# are recovered entry by entry through prox_block, and every other block stays on the ordinary loop.
+# The array result must equal the scalar prox_block, bit for bit and NaN for NaN, whatever the shape of
 # the data: ordinary, with exceptional weights or steps at the edges of a block, NaN entries, in place
 # (y === x), into an integer destination, with a step array, and in the three float types.
 
 const PB = ProximalBase
 
-entrywise(f, x, γ) = [PB.prox_entry(f, x[i], i, γ isa AbstractArray ? γ[i] : γ) for i in eachindex(x)]
+entrywise(f, x, γ) = [PB.prox_block(f, x[i], i, γ isa AbstractArray ? γ[i] : γ) for i in eachindex(x)]
 function same(a, b)
   length(a) == length(b) && all(i -> isequal(a[i], b[i]), eachindex(a))
 end
@@ -21,7 +21,7 @@ end
 # the indices around the edges of the blocks of 128 and the ends of the array
 edges(n) = unique(filter(k -> 1 <= k <= n, (1, 2, 127, 128, 129, 130, 255, 256, 257, n - 1, n)))
 
-@testset "ordinary data is the scalar prox_entry and the thresholds are rounded once: $S" for S in (Float16, Float32, Float64)
+@testset "ordinary data is the scalar prox_block and the thresholds are rounded once: $S" for S in (Float16, Float32, Float64)
   rng = MersenneTwister(5191)
   for n in (1, 7, 128, 129, 1000), τ in (S(0.3), S(0.5), 0.3), γ in (S(0.7), S(2), 0.7)
     x = randn(rng, S, n)

@@ -1,19 +1,19 @@
 ####################################
 #
-#  Atom Iterate
+#  Block Iterate
 #
 ####################################
 
 """
-    AtomIterate([T = Float64,] p, groups)
-    AtomIterate(x::AbstractVector, groups)
-    AtomIterate([T = Float64,] p, num_groups::Integer)
-    AtomIterate(x::AbstractVector, num_groups::Integer)
+    BlockIterate([T = Float64,] p, groups)
+    BlockIterate(x::AbstractVector, groups)
+    BlockIterate([T = Float64,] p, num_groups::Integer)
+    BlockIterate(x::AbstractVector, num_groups::Integer)
 
 A vector of length `p` whose coordinates, for coordinate descent, are the groups
-("atoms") `x.groups[k]`, which partition `1:p`. The groups are ranges such as
+("blocks") `x.groups[k]`, which partition `1:p`. The groups are ranges such as
 `1:5` or vectors of indices such as `[2, 7, 9]`, of any sizes;
-`AtomIterate(p, num_groups)` and `AtomIterate(x, num_groups)` split `1:p` into
+`BlockIterate(p, num_groups)` and `BlockIterate(x, num_groups)` split `1:p` into
 `num_groups` equal contiguous groups.
 
 As the stored entries of a [`SparseIterate`](@ref) do, a set of active groups
@@ -24,7 +24,7 @@ zero; an iterate built from a vector `x` starts with the groups that hold a
 nonzero entry. Reading or writing an entry is O(1), and so is activating or
 deactivating a group. [`ncoordinates`](@ref) is the number of groups,
 [`nactive`](@ref), [`activecoordinates`](@ref) and [`isactive`](@ref) give the
-active groups, and [`atom`](@ref) is a view of `x` at the entries of a group.
+active groups, and [`blockview`](@ref) is a view of `x` at the entries of a group.
 Writing through this view follows the same activation rule as writing to `x`.
 
 Its entries are real. The constructors, two-argument `copyto!` from an array,
@@ -35,17 +35,17 @@ to be complex from the types is rejected, and a result of another non-real type
 (a `Union` with a complex member, `Any`, `Number`) is evaluated before writing
 and rejected if an element is complex, with `x` unchanged. `vec(x)` and `reshape(x, length(x))` are `x` itself and are checked
 too. `copy!` from a source of another length throws Base's error first, unless
-the source is an `AtomIterate` or a [`SparseIterate`](@ref), which throws a
+the source is a `BlockIterate` or a [`SparseIterate`](@ref), which throws a
 `DimensionMismatch`. The two-argument `copyto!` and `copy!` read types: a tuple, a generator or an
 array of abstract element type such as `Vector{Any}` passes the check, and its
 values are converted one by one. Other
 writes also convert values one by one, as writes into a plain `Vector` of the
-element type of `x` do: writes through `atom(x, k)` or another view, indexed
+element type of `x` do: writes through `blockview(x, k)` or another view, indexed
 assignment such as `x[i] = v` or `x[:] = c`, `copyto!` with offsets or index
 ranges, and `map!`. A complex value converted one by one throws an
 `InexactError`, possibly after part of `x` has been written.
 """
-mutable struct AtomIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractVector{T}
+mutable struct BlockIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractVector{T}
   storage::Vector{T}       # the entries; those of inactive groups are zero
   groups::G                # a partition of 1:length(storage)
   group_of::Vector{Int}    # group_of[i] = k for i ∈ groups[k]
@@ -54,31 +54,31 @@ mutable struct AtomIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <:
   active::Vector{Int}      # active[1:nactive] are the active groups, in the order they joined
   position::Vector{Int}    # position[k] is the index of group k in active, 0 if it is inactive
   nactive::Int
-  function AtomIterate{T, G}(storage, groups, group_of, layout_cache, active, position, nactive) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}}
-    T <: Real || _real_error(:AtomIterate)
+  function BlockIterate{T, G}(storage, groups, group_of, layout_cache, active, position, nactive) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}}
+    T <: Real || _real_error(:BlockIterate)
     new{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
   end
 end
-AtomIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}, layout_cache, active::Vector{Int}, position::Vector{Int}, nactive::Int) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}} =
-  AtomIterate{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
+BlockIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}, layout_cache, active::Vector{Int}, position::Vector{Int}, nactive::Int) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}} =
+  BlockIterate{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
 
-_stored_values(x::AtomIterate) = x.storage
-_scaled_dot(a, x::AtomIterate, s) = _scaled_dot(a, x.storage, s)
+_stored_values(x::BlockIterate) = x.storage
+_scaled_dot(a, x::BlockIterate, s) = _scaled_dot(a, x.storage, s)
 
-AtomIterate(p::Integer, groups::AbstractVector{<:AbstractVector{<:Integer}}) = AtomIterate(Float64, p, groups)
-function AtomIterate(::Type{T}, p::Integer, groups::AbstractVector{<:AbstractVector{<:Integer}}) where {T}
+BlockIterate(p::Integer, groups::AbstractVector{<:AbstractVector{<:Integer}}) = BlockIterate(Float64, p, groups)
+function BlockIterate(::Type{T}, p::Integer, groups::AbstractVector{<:AbstractVector{<:Integer}}) where {T}
   G = _own_groups(groups)
-  _AtomIterate(zeros(T, p), G, _partition_group_of(G, p))
+  _BlockIterate(zeros(T, p), G, _partition_group_of(G, p))
 end
 
-function AtomIterate(x::AbstractVector{T}, groups::AbstractVector{<:AbstractVector{<:Integer}}) where {T}
+function BlockIterate(x::AbstractVector{T}, groups::AbstractVector{<:AbstractVector{<:Integer}}) where {T}
   G = _own_groups(groups)
-  _AtomIterate(Vector{T}(x), G, _partition_group_of(G, length(x)))
+  _BlockIterate(Vector{T}(x), G, _partition_group_of(G, length(x)))
 end
 
-AtomIterate(p::Integer, num_groups::Integer) = AtomIterate(Float64, p, num_groups)
-AtomIterate(::Type{T}, p::Integer, num_groups::Integer) where {T} = AtomIterate(T, p, _equal_groups(p, num_groups))
-AtomIterate(x::AbstractVector, num_groups::Integer) = AtomIterate(x, _equal_groups(length(x), num_groups))
+BlockIterate(p::Integer, num_groups::Integer) = BlockIterate(Float64, p, num_groups)
+BlockIterate(::Type{T}, p::Integer, num_groups::Integer) where {T} = BlockIterate(T, p, _equal_groups(p, num_groups))
+BlockIterate(x::AbstractVector, num_groups::Integer) = BlockIterate(x, _equal_groups(length(x), num_groups))
 
 # 1:p split into num_groups contiguous groups of equal sizes
 function _equal_groups(p::Integer, num_groups::Integer)
@@ -88,9 +88,9 @@ function _equal_groups(p::Integer, num_groups::Integer)
 end
 
 # the iterate with the given entries; the groups with a nonzero entry are active
-function _AtomIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}) where {T, G}
+function _BlockIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}) where {T, G}
   K = length(groups)
-  x = AtomIterate{T, G}(storage, groups, group_of, nothing, zeros(Int, K), zeros(Int, K), 0)
+  x = BlockIterate{T, G}(storage, groups, group_of, nothing, zeros(Int, K), zeros(Int, K), 0)
   for k in 1:K
     any(!iszero, view(storage, groups[k])) && activate!(x, k)
   end
@@ -131,7 +131,7 @@ function _check_partition(group_of::Vector{Int}, p::Integer)
   group_of
 end
 
-@inline function _samelayout(f, x::AtomIterate)
+@inline function _samelayout(f, x::BlockIterate)
   x.groups === f.groups && return true
   x.layout_cache === f.groups && return true
   x.groups == f.groups || return false
@@ -143,23 +143,23 @@ end
 # layout object, one remembered layout that both share, or a remembered layout that is the
 # other's own. Each remembered layout was found equal to the groups of its iterate when it
 # was stored, and equality of ordered lists is transitive, so a hit is never wrong.
-@inline _layouthit(y::AtomIterate, x::AtomIterate) =
+@inline _layouthit(y::BlockIterate, x::BlockIterate) =
   y.groups === x.groups ||
   (y.layout_cache !== nothing && y.layout_cache === x.layout_cache) ||
   y.layout_cache === x.groups || x.layout_cache === y.groups
 
 # Copying must preserve the cached penalty layouts of both iterates, so this comparison
 # remembers nothing.
-@inline _samelayout(y::AtomIterate, x::AtomIterate) = _layouthit(y, x) || y.groups == x.groups
+@inline _samelayout(y::BlockIterate, x::BlockIterate) = _layouthit(y, x) || y.groups == x.groups
 
 """
     ProximalBase.samegroups(a, b)
 
 Whether `a` and `b` have equal groups: the same number of groups, and the same indices in the
 same order in every group (`1:2` and `[1, 2]` are equal, `[2, 1]` is not). `a` and `b` are two
-[`AtomIterate`](@ref)s, or an `AtomIterate` and a group penalty (any [`ProximalBase.AbstractGroupPenalty`](@ref),
+[`BlockIterate`](@ref)s, or a `BlockIterate` and a group penalty (any [`ProximalBase.AbstractGroupPenalty`](@ref),
 such as [`GroupNormL2`](@ref) or [`GroupMCP`](@ref)) or an [`IndBallGroupL0`](@ref), in either order. It is the
-check that [`prox_coordinate!`](@ref) makes before it writes and that the four-argument
+layout check a solver makes before writing a group, and that the four-argument
 [`kkt_violation`](@ref)`(f, g, x, k)` makes before it computes (each throws a `DimensionMismatch` when it
 fails), that `value` and `prox!` of a group function make to take the active-group paths, and that `copyto!`
 between two iterates makes to copy only the active groups.
@@ -173,56 +173,57 @@ remembers the group array of the other, so that asking again takes constant time
 replaced each time, so alternating between two equal group arrays that are different objects
 compares at every call; a comparison that finds the groups unequal remembers nothing and leaves
 the remembered array in place. Neither the cache nor the comparison allocates. The groups of
-penalties and iterates must not be mutated (see [`AtomIterate`](@ref)). Because the answer is
+penalties and iterates must not be mutated (see [`BlockIterate`](@ref)). Because the answer is
 remembered in the iterate, calling `samegroups` on one iterate from several threads at once is a
 data race, as it is for the other operations on an iterate (the stored value is always an equal
 layout).
 """
 function samegroups end
 
-samegroups(a::AtomIterate, b::AtomIterate) =
+samegroups(a::BlockIterate, b::BlockIterate) =
   _layouthit(a, b) || (a.groups == b.groups && (a.layout_cache = b.groups; true))
 
 # storage, active and position are owned by x; groups, group_of and the layout
 # cache are layout shared with copies and output buffers, so they are not reported
-Base.dataids(x::AtomIterate) =
+Base.dataids(x::BlockIterate) =
   (Base.dataids(x.storage)..., Base.dataids(x.active)..., Base.dataids(x.position)...)
 
-Base.length(x::AtomIterate) = length(x.storage)
-Base.size(x::AtomIterate) = size(x.storage)
-Base.IndexStyle(::Type{<:AtomIterate}) = IndexLinear()
+Base.length(x::BlockIterate) = length(x.storage)
+Base.size(x::BlockIterate) = size(x.storage)
+Base.IndexStyle(::Type{<:BlockIterate}) = IndexLinear()
 
-Base.@propagate_inbounds Base.getindex(x::AtomIterate, i::Int) = x.storage[i]
-Base.@propagate_inbounds function Base.setindex!(x::AtomIterate, v, i::Int)
+Base.@propagate_inbounds Base.getindex(x::BlockIterate, i::Int) = x.storage[i]
+Base.@propagate_inbounds function Base.setindex!(x::BlockIterate, v, i::Int)
   s = convert(eltype(x.storage), v)
   x.storage[i] = s
   iszero(s) || activate!(x, x.group_of[i])     # the entries of inactive groups stay zero
   x
 end
 
-ncoordinates(x::AtomIterate) = length(x.groups)
-nactive(x::AtomIterate) = x.nactive
-activecoordinates(x::AtomIterate) = _ActiveIDs(view(x.active, 1:x.nactive))
-isactive(x::AtomIterate, k::Integer) = x.position[k] != 0
+ncoordinates(x::BlockIterate) = length(x.groups)
+nactive(x::BlockIterate) = x.nactive
+activecoordinates(x::BlockIterate) = _ActiveIDs(view(x.active, 1:x.nactive))
+isactive(x::BlockIterate, k::Integer) = x.position[k] != 0
 
 """
-    atom(x::AtomIterate, k)
+    blockview(x::BlockIterate, k)
 
 A view of the entries of group `k`. It is a view of `x` itself, so it aliases
 `x`. Writing through it follows the rule of `x[i] = v`: a nonzero entry
 activates the group and a zero never deactivates it (see [`dropzeros!`](@ref)).
 To take a proximal step at a trial point without activating the group first,
-use [`prox_coordinate!`](@ref)`(x, f, k, u, γ)`.
+compute [`prox_block!`](@ref)`(out, f, u, k, γ)` in a numerical buffer, then
+write the result with `copyto!(blockview(x, k), out)`.
 `norm` and `dot` of the view read the storage directly (BLAS for contiguous
 groups), while other BLAS routines take generic paths for it.
 """
-function atom(x::AtomIterate, k::Integer)
+function blockview(x::BlockIterate, k::Integer)
   G = x.groups[k]
   @inbounds view(x, G)    # groups are a validated partition; only k needs a bounds check
 end
 
 """
-    atomindices(x::AtomIterate, k::Integer)
+    blockindices(x::BlockIterate, k::Integer)
 
 The indices of the entries of group `k`, in the order in which `x` stores them, as a
 read-only `AbstractVector{<:Integer}`. A group stored as a range is returned as that range,
@@ -237,18 +238,18 @@ for as long as `x`: the groups of an iterate never change, and activating groups
 `dropzeros!`, `copyto!` and the other writes of values do not affect it. `k` must be in
 `1:ncoordinates(x)`, or a `BoundsError` is thrown (a `Bool` is not a group index).
 
-The result can index any array: `view(g, atomindices(x, k))` is the part of `g` that belongs to
+The result can index any array: `view(g, blockindices(x, k))` is the part of `g` that belongs to
 group `k`. The fields of `x` and of the wrapper (`h.ids`) are internal, and so is the array that
-`parentindices(atom(x, k))` returns: reading or changing them is not supported, and is not blocked.
+`parentindices(blockview(x, k))` returns: reading or changing them is not supported, and is not blocked.
 
 # Examples
 ```julia
-x = AtomIterate(6, [[1, 4], [2, 5], [3, 6]])
-atomindices(x, 2) == [2, 5]                 # a read-only vector of Int
-atomindices(AtomIterate(6, 3), 2) === 3:4   # the stored range
+x = BlockIterate(6, [[1, 4], [2, 5], [3, 6]])
+blockindices(x, 2) == [2, 5]                 # a read-only vector of Int
+blockindices(BlockIterate(6, 3), 2) === 3:4   # the stored range
 ```
 """
-function atomindices(x::AtomIterate, k::Integer)
+function blockindices(x::BlockIterate, k::Integer)
   # the error names the range of valid groups: a BoundsError holds the array it was thrown for, and
   # that must not be a group or the layout
   (!(k isa Bool) && checkbounds(Bool, x.groups, k)) ||
@@ -261,8 +262,8 @@ _group_indices(G::AbstractVector{<:Integer}) = _GroupIndices(G)
 
 # Read-only handle on a group array of an iterate. A writable group would let a caller break the
 # agreement between the groups and the map from entries to groups (see _ActiveIDs). The contract covers
-# the operations on the handle and the exceptions that atomindices and the handle throw; the field `ids` is
-# internal like the fields of AtomIterate, and reading it is unsupported (getproperty is not blocked).
+# the operations on the handle and the exceptions that blockindices and the handle throw; the field `ids` is
+# internal like the fields of BlockIterate, and reading it is unsupported (getproperty is not blocked).
 struct _GroupIndices{V<:AbstractVector{<:Integer}} <: AbstractVector{Int}
   ids::V
 end
@@ -275,15 +276,15 @@ Base.@propagate_inbounds function Base.getindex(h::_GroupIndices, i::Int)
   @inbounds convert(Int, h.ids[i])
 end
 Base.setindex!(::_GroupIndices, v, i::Int) =
-  throw(ArgumentError("atomindices(x, k) is read-only: the groups of an AtomIterate cannot be changed"))
+  throw(ArgumentError("blockindices(x, k) is read-only: the groups of a BlockIterate cannot be changed"))
 
 # raw storage writes leave activation to the caller
-function _atom_storage(x::AtomIterate, k::Integer)
+function _block_storage(x::BlockIterate, k::Integer)
   G = x.groups[k]
   @inbounds view(x.storage, G)
 end
 
-function activate!(x::AtomIterate, k::Integer)
+function activate!(x::BlockIterate, k::Integer)
   checkbounds(x.position, k)
   if x.position[k] == 0
     x.nactive += 1
@@ -301,7 +302,7 @@ end
   s
 end
 
-@inline function _deactivate!(x::AtomIterate, k::Integer)
+@inline function _deactivate!(x::BlockIterate, k::Integer)
   i = x.position[k]
   if i != 0
     last = x.active[x.nactive]
@@ -314,17 +315,17 @@ end
 end
 
 """
-    dropzeros!(x::AtomIterate)
+    dropzeros!(x::BlockIterate)
 
 Deactivate the active groups of `x` whose entries are all zero and return `x`.
 When every entry of every active group is zero, all groups are deactivated.
 Otherwise the last active group moves into the place of each removed one, so the
 order of [`activecoordinates`](@ref) can change. The entries of `x` do not change.
 """
-function SparseArrays.dropzeros!(x::AtomIterate)
+function SparseArrays.dropzeros!(x::BlockIterate)
   allzero = true
   for a in 1:x.nactive
-    if !all(iszero, _atom_storage(x, x.active[a]))
+    if !all(iszero, _block_storage(x, x.active[a]))
       allzero = false
       break
     end
@@ -339,7 +340,7 @@ function SparseArrays.dropzeros!(x::AtomIterate)
   i = 1
   while i <= x.nactive
     k = x.active[i]
-    if all(iszero, _atom_storage(x, k))
+    if all(iszero, _block_storage(x, k))
       _deactivate!(x, k)
     else
       i += 1
@@ -349,10 +350,10 @@ function SparseArrays.dropzeros!(x::AtomIterate)
 end
 
 # zero the entries of the active groups and deactivate them
-function _zero_active!(x::AtomIterate{T}) where {T}
+function _zero_active!(x::BlockIterate{T}) where {T}
   for a in 1:x.nactive
     k = x.active[a]
-    fill!(_atom_storage(x, k), zero(T))
+    fill!(_block_storage(x, k), zero(T))
     x.position[k] = 0
   end
   x.nactive = 0
@@ -360,90 +361,90 @@ function _zero_active!(x::AtomIterate{T}) where {T}
 end
 
 
-Base.similar(x::AtomIterate{T}) where {T} = similar(x, T)
-function Base.similar(x::AtomIterate, ::Type{S}) where {S}
+Base.similar(x::BlockIterate{T}) where {T} = similar(x, T)
+function Base.similar(x::BlockIterate, ::Type{S}) where {S}
   K = length(x.groups)
-  AtomIterate{S, typeof(x.groups)}(zeros(S, length(x)), x.groups, x.group_of, x.layout_cache, zeros(Int, K), zeros(Int, K), 0)
+  BlockIterate{S, typeof(x.groups)}(zeros(S, length(x)), x.groups, x.group_of, x.layout_cache, zeros(Int, K), zeros(Int, K), 0)
 end
 
-Base.convert(::Type{<:AtomIterate{T}}, ::AbstractArray) where {T<:Complex} = _real_error(:AtomIterate)
+Base.convert(::Type{<:BlockIterate{T}}, ::AbstractArray) where {T<:Complex} = _real_error(:BlockIterate)
 
-Base.copy(x::AtomIterate{T, G}) where {T, G} =
-  AtomIterate{T, G}(copy(x.storage), x.groups, x.group_of, x.layout_cache, copy(x.active), copy(x.position), x.nactive)
+Base.copy(x::BlockIterate{T, G}) where {T, G} =
+  BlockIterate{T, G}(copy(x.storage), x.groups, x.group_of, x.layout_cache, copy(x.active), copy(x.position), x.nactive)
 
 # with the same groups, only the entries of the active groups are copied
-function Base.copyto!(dest::AtomIterate{T}, src::AtomIterate{S}) where {T, S}
+function Base.copyto!(dest::BlockIterate{T}, src::BlockIterate{S}) where {T, S}
   dest === src && return dest
   length(dest) == length(src) || throw(DimensionMismatch())
   _samelayout(dest, src) ||
     return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
   # a fallible conversion runs once, before dest is touched, and the copy reads its result
   bufs = _convert_may_throw(T, S) ?
-    [T[convert(T, v) for v in _atom_storage(src, src.active[a])] for a in 1:src.nactive] : nothing
+    [T[convert(T, v) for v in _block_storage(src, src.active[a])] for a in 1:src.nactive] : nothing
   _zero_active!(dest)
   for a in 1:src.nactive
     k = src.active[a]
     activate!(dest, k)
-    copyto!(_atom_storage(dest, k), bufs === nothing ? _atom_storage(src, k) : bufs[a])
+    copyto!(_block_storage(dest, k), bufs === nothing ? _block_storage(src, k) : bufs[a])
   end
   dest
 end
 
-Base.copy!(dest::AtomIterate, src::AtomIterate) = copyto!(dest, src)
+Base.copy!(dest::BlockIterate, src::BlockIterate) = copyto!(dest, src)
 
 # The check reads the element type and runs before anything is written; a source
 # of abstract element type converts entry by entry, as in Base.
-function Base.copyto!(x::AtomIterate, y::AbstractArray)
+function Base.copyto!(x::BlockIterate, y::AbstractArray)
   _checkreal_broadcast(x, y)
   invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
 end
 # Resolve ambiguities with SparseArrays: each runs the method that applies without the check.
 @static if isdefined(@__MODULE__, :_CHOLMODDense)
-  function Base.copyto!(x::AtomIterate, y::_CHOLMODDense)
+  function Base.copyto!(x::BlockIterate, y::_CHOLMODDense)
     _checkreal_broadcast(x, y)
     invoke(copyto!, Tuple{AbstractArray, _CHOLMODDense}, x, y)
   end
   @static if isdefined(@__MODULE__, :_CHOLMODVTypes)
-    function Base.copyto!(x::AtomIterate{T}, y::_CHOLMODDense{T}) where {T<:_CHOLMODVTypes}
+    function Base.copyto!(x::BlockIterate{T}, y::_CHOLMODDense{T}) where {T<:_CHOLMODVTypes}
       _checkreal_broadcast(x, y)
       invoke(copyto!, Tuple{AbstractArray{T}, _CHOLMODDense{T}}, x, y)
     end
   end
 end
 
-# A SparseIterate and an AtomIterate of the same length: a value write in linear
+# A SparseIterate and a BlockIterate of the same length: a value write in linear
 # order, after the real check and the length check.
-function Base.copyto!(x::SparseIterate, y::AtomIterate)
+function Base.copyto!(x::SparseIterate, y::BlockIterate)
   _checkreal_broadcast(x, y)
   _check_iterate_lengths(x, y)
   invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
 end
-function Base.copyto!(x::AtomIterate, y::SparseIterate)
+function Base.copyto!(x::BlockIterate, y::SparseIterate)
   _checkreal_broadcast(x, y)
   _check_iterate_lengths(x, y)
   invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
 end
-Base.copy!(x::SparseIterate, y::AtomIterate) = copyto!(x, y)
-Base.copy!(x::AtomIterate, y::SparseIterate) = copyto!(x, y)
+Base.copy!(x::SparseIterate, y::BlockIterate) = copyto!(x, y)
+Base.copy!(x::BlockIterate, y::SparseIterate) = copyto!(x, y)
 
-function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{Nothing})
+function Base.copyto!(x::BlockIterate, bc::Broadcast.Broadcasted{Nothing})
   _checkreal_broadcast(x, bc)
   _staged_result(bc) && return _staged_broadcast!(x, bc)
   _broadcast_loop!(x, bc)
 end
 
-function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{S}) where {S<:Broadcast.DefaultArrayStyle{0}}
+function Base.copyto!(x::BlockIterate, bc::Broadcast.Broadcasted{S}) where {S<:Broadcast.DefaultArrayStyle{0}}
   _checkreal_broadcast(x, bc)
   invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{S}}, x, bc)
 end
 
-function Base.fill!(x::AtomIterate, v)
+function Base.fill!(x::BlockIterate, v)
   _checkreal_broadcast(x, v)
   s = convert(eltype(x), v)     # converted once, before x changes; activation follows the stored value
   if iszero(s)
     # a value write: the active groups stay active (dropzeros!(fill!(x, 0)) removes them)
     for a in 1:x.nactive
-      fill!(_atom_storage(x, x.active[a]), s)
+      fill!(_block_storage(x, x.active[a]), s)
     end
   else
     fill!(x.storage, s)
@@ -454,21 +455,21 @@ function Base.fill!(x::AtomIterate, v)
   x
 end
 
-Base.Vector(x::AtomIterate) = copy(x.storage)
+Base.Vector(x::BlockIterate) = copy(x.storage)
 
 
 ## multiplication: loops over the entries of the active groups, which are as fast
 ## as BLAS on the active columns whether the groups are contiguous or not
 
-function *(A::StridedMatrix{Ta}, x::AtomIterate{Tx}) where {Ta, Tx}
+function *(A::StridedMatrix{Ta}, x::BlockIterate{Tx}) where {Ta, Tx}
   _checkreal(x, A)
   size(A, 2) == length(x) || throw(DimensionMismatch())
   mul!(Vector{promote_type(Ta, Tx)}(undef, size(A, 1)), A, x)
 end
 
-LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::AtomIterate) =
+LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::BlockIterate) =
   mul!(out, A, x, true, false)
-function LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::AtomIterate, α::Number, β::Number)
+function LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::BlockIterate, α::Number, β::Number)
   _checkreal(x, out); _checkreal(x, A); _checkreal(x, α); _checkreal(x, β)
   size(A, 2) == length(x) || throw(DimensionMismatch("A has second dimension $(size(A, 2)), length of x is $(length(x))"))
   size(A, 1) == length(out) || throw(DimensionMismatch("A has first dimension $(size(A, 1)), length of out is $(length(out))"))
@@ -486,13 +487,13 @@ function LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::AtomIterat
   out
 end
 
-function *(A::_StridedSymmetric, x::AtomIterate{T}) where {T}
+function *(A::_StridedSymmetric, x::BlockIterate{T}) where {T}
   _checkreal(x, A)
   mul!(Vector{promote_type(eltype(A), T)}(undef, size(A, 1)), A, x)
 end
-LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::AtomIterate) =
+LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::BlockIterate) =
   mul!(out, A, x, true, false)
-function LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::AtomIterate, α::Number, β::Number)
+function LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::BlockIterate, α::Number, β::Number)
   _checkreal(x, out); _checkreal(x, A); _checkreal(x, α); _checkreal(x, β)
   length(x) == size(A, 2) && length(out) == size(A, 1) || throw(DimensionMismatch())
   _scale_product_output!(out, β)
@@ -509,7 +510,7 @@ end
 # vectors than these take the generic method, as SparseArrays has its own for
 # sparse vectors. A zero entry of x contributes nothing, even against ±Inf or
 # NaN in v (numerics M1), and so does a zero of v when v is an iterate too.
-function LinearAlgebra.dot(v::Union{StridedVector, SparseIterate{<:Any, 1}, AtomIterate}, x::AtomIterate)
+function LinearAlgebra.dot(v::Union{StridedVector, SparseIterate{<:Any, 1}, BlockIterate}, x::BlockIterate)
   _checkreal(x, v)
   length(v) == length(x) || throw(DimensionMismatch())
   s = zero(promote_type(eltype(v), eltype(x)))
@@ -520,20 +521,20 @@ function LinearAlgebra.dot(v::Union{StridedVector, SparseIterate{<:Any, 1}, Atom
   end
   s
 end
-LinearAlgebra.dot(x::AtomIterate, v::Union{StridedVector, SparseIterate{<:Any, 1}}) = dot(v, x)
+LinearAlgebra.dot(x::BlockIterate, v::Union{StridedVector, SparseIterate{<:Any, 1}}) = dot(v, x)
 
 
-_atom_view_storage(v::SubArray{<:Real, 1, <:AtomIterate}) =
+_block_view_storage(v::SubArray{<:Real, 1, <:BlockIterate}) =
   @inbounds view(parent(v).storage, parentindices(v)...)
-LinearAlgebra.norm(v::SubArray{<:Real, 1, <:AtomIterate}) = norm(_atom_view_storage(v))
-LinearAlgebra.norm(v::SubArray{<:Real, 1, <:AtomIterate}, p::Real) = norm(_atom_view_storage(v), p)
-LinearAlgebra.dot(v::SubArray{<:Real, 1, <:AtomIterate}, w::StridedVector) = dot(_atom_view_storage(v), w)
-LinearAlgebra.dot(v::StridedVector, w::SubArray{<:Real, 1, <:AtomIterate}) = dot(v, _atom_view_storage(w))
-LinearAlgebra.dot(v::SubArray{<:Real, 1, <:AtomIterate}, w::SubArray{<:Real, 1, <:AtomIterate}) =
-  dot(_atom_view_storage(v), _atom_view_storage(w))
+LinearAlgebra.norm(v::SubArray{<:Real, 1, <:BlockIterate}) = norm(_block_view_storage(v))
+LinearAlgebra.norm(v::SubArray{<:Real, 1, <:BlockIterate}, p::Real) = norm(_block_view_storage(v), p)
+LinearAlgebra.dot(v::SubArray{<:Real, 1, <:BlockIterate}, w::StridedVector) = dot(_block_view_storage(v), w)
+LinearAlgebra.dot(v::StridedVector, w::SubArray{<:Real, 1, <:BlockIterate}) = dot(v, _block_view_storage(w))
+LinearAlgebra.dot(v::SubArray{<:Real, 1, <:BlockIterate}, w::SubArray{<:Real, 1, <:BlockIterate}) =
+  dot(_block_view_storage(v), _block_view_storage(w))
 
 
-function Base.show(io::IO, ::MIME"text/plain", x::AtomIterate)
+function Base.show(io::IO, ::MIME"text/plain", x::BlockIterate)
   K, na = length(x.groups), x.nactive
   print(io, length(x), "-element ", typeof(x), " with ", na, " of ", K, K == 1 ? " group" : " groups", " active")
   na == 0 && return
@@ -545,7 +546,7 @@ function Base.show(io::IO, ::MIME"text/plain", x::AtomIterate)
   for (a, k) in enumerate(active)
     if a <= half || a > na - half
       print(io, "\n  ", k, ": ", x.groups[k], " => ")
-      show(io, Vector(_atom_storage(x, k)))
+      show(io, Vector(_block_storage(x, k)))
     elseif a == half + 1
       print(io, "\n  ⋮")
     end
@@ -553,7 +554,7 @@ function Base.show(io::IO, ::MIME"text/plain", x::AtomIterate)
 end
 
 # The cache owns the entries and active state, but shares the immutable layout.
-function _output_buffer!(s::Scratch, y::Y) where {Y<:AtomIterate}
+function _output_buffer!(s::Scratch, y::Y) where {Y<:BlockIterate}
   b = s.buf
   if b isa Y && b.groups === y.groups && length(b) == length(y)
     copyto!(b.storage, y.storage)

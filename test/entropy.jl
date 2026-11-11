@@ -1,5 +1,7 @@
 module EntropyTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -18,7 +20,7 @@ hobj(pen, z, v, γ) = pen(z) + (z - v)^2 / (2γ)
 function check_scalar_prox(f, pen; vs, γs, lo = -Inf)
   for v in vs, γ in γs
     _, hb = brute_force_prox(pen, v, γ; lo = max(lo, v - 5abs(v) - 5), hi = v + 5abs(v) + 5)
-    z = prox_entry(f, v, 1, γ)
+    z = prox_block(f, v, 1, γ)
     @test hobj(pen, z, v, γ) <= hb + 1e-9 * max(1, abs(hb))
   end
 end
@@ -72,7 +74,7 @@ end
   check_scalar_prox(f, pen; vs = (-5., -1., 0., 0.3, 1., 2.5, 10.), γs = (0.01, 0.3, 1., 5.), lo = 0.)
   # the optimality condition λ(log z + 1) + (z - v)/γ = 0, also far from 1
   for v in (-30., -2., 0., 3., 50.), γ in (1e-6, 1e-2, 1., 100.)
-    z = prox_entry(f, v, 1, γ)
+    z = prox_block(f, v, 1, γ)
     μ = γ * λ
     if v / μ - 1 - log(μ) < log(floatmin(Float64))       # the positive result underflows
       @test z == 0
@@ -82,7 +84,7 @@ end
     end
   end
   # a small step leaves a positive entry nearly unchanged, without overflow
-  @test prox_entry(f, 2.0, 1, 1e-9) ≈ 2.0 - 1e-9 * λ * (1 + log(2.0)) rtol = 1e-12
+  @test prox_block(f, 2.0, 1, 1e-9) ≈ 2.0 - 1e-9 * λ * (1 + log(2.0)) rtol = 1e-12
   check_prox(f, x, 0.8)
   check_traits(f; proximable = true, separable = true, convex = true)
   @test !iszeropreserving(f)
@@ -101,7 +103,7 @@ end
   for i in (1, 7), v in (-3., 0., 0.5, 2., 9.), γ in (0.05, 1., 4.)
     pen(t) = t < 0 ? Inf : (iszero(t) ? λ * q[i] : λ * (t * log(t / q[i]) - t + q[i]))
     _, hb = brute_force_prox(pen, v, γ; lo = 0., hi = v + 5abs(v) + 5)
-    @test hobj(pen, prox_entry(f, v, i, γ), v, γ) <= hb + 1e-9 * max(1, abs(hb))
+    @test hobj(pen, prox_block(f, v, i, γ), v, γ) <= hb + 1e-9 * max(1, abs(hb))
   end
   # the minimizer q is its own proximal point
   @test prox(f, q, 0.7) ≈ q
@@ -125,7 +127,7 @@ end
   # the positive root of z² - vz - γλ, without cancellation for negative v
   for v in (-1e6, -30., -1., 0., 1., 1e6), γ in (1e-3, 1., 10.)
     μ = γ * λ
-    z = prox_entry(f, v, 1, γ)
+    z = prox_block(f, v, 1, γ)
     @test z > 0
     @test z^2 - v * z - μ ≈ 0 atol = 1e-10 * max(z^2, μ)
   end
@@ -140,7 +142,7 @@ end
     tiny = T == Float32 ? T(1e-20) : T(1e-200)
     f = NegLog(one(T))
     for v in T[-1, 0, 1], μ in (tiny, one(T), sqrt(floatmax(T)))
-      z = prox_entry(f, v, 1, μ)
+      z = prox_block(f, v, 1, μ)
       reference = setprecision(BigFloat, 256) do
         b, m = BigFloat(v), BigFloat(μ)
         v < 0 ? 2m / (sqrt(b*b + 4m) - b) : (b + sqrt(b*b + 4m)) / 2
@@ -152,7 +154,7 @@ end
     extreme = T == Float32 ? T(1e30) : T(1e200)
     for scale in (extreme, inv(extreme))
       @test prox(NegLog(scale), T[0], scale) ≈ T[scale] rtol=8eps(T)
-      z = prox_entry(NegLog(scale), -scale, 1, scale)
+      z = prox_block(NegLog(scale), -scale, 1, scale)
       @test z ≈ T((sqrt(BigFloat(5)) - 1) / 2) * scale rtol=8eps(T)
     end
     # hypot(v/2, sqrt(γ)*sqrt(λ)) can itself overflow while the positive
@@ -163,10 +165,10 @@ end
         b, μ = BigFloat(v), BigFloat(scale)^2
         T(2μ / (sqrt(b*b + 4μ) - b))
       end
-      z = prox_entry(NegLog(scale), v, 1, scale)
+      z = prox_block(NegLog(scale), v, 1, scale)
       @test isfinite(z) && z > 0
       @test z ≈ reference rtol=8eps(T)
-      @test allocs(prox_entry, NegLog(scale), v, 1, scale) == 0
+      @test allocs(prox_block, NegLog(scale), v, 1, scale) == 0
     end
   end
 end
@@ -181,9 +183,9 @@ end
   # continuous at |v| = γλ and at |v| = M + γλ
   γ = 0.8
   c = γ * λ
-  @test prox_entry(f, c, 1, γ) == 0
-  @test prox_entry(f, (M + c) * (1 - 1e-12), 1, γ) ≈ prox_entry(f, (M + c) * (1 + 1e-12), 1, γ) rtol = 1e-10
-  @test prox_entry(f, 10.0, 1, γ) ≈ 10M / (M + c)
+  @test prox_block(f, c, 1, γ) == 0
+  @test prox_block(f, (M + c) * (1 - 1e-12), 1, γ) ≈ prox_block(f, (M + c) * (1 + 1e-12), 1, γ) rtol = 1e-10
+  @test prox_block(f, 10.0, 1, γ) ≈ 10M / (M + c)
   # weights, the iterates, optimality at zero, restriction
   w = rand(30) .+ 0.5
   fw = Berhu(λ, M, w)
@@ -209,7 +211,7 @@ end
     @test f(x) isa Float32
     @test prox(f, x, 0.3f0) isa Vector{Float32}
     @test prox(f, x, 0.3f0) ≈ Float32.(prox(f, Float64.(x), 0.3)) rtol = 1e-5
-    @inferred prox_entry(f, 0.7, 2, 0.6)
+    @inferred prox_block(f, 0.7, 2, 0.6)
     @inferred f(rand(5))
     xs = SparseIterate(sprand(8, 0.5))
     @test Vector(prox(f, xs, 0.4)) ≈ prox(f, Vector(xs), 0.4)
@@ -224,7 +226,7 @@ end
   a_value(f, x) = f(x)
   a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
   a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
-  a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+  a_cd!(x, f, k, γ) = take_block_step!(x, f, k, γ)
   x = rand(20) .+ 0.1
   for f in (NegEntropy(0.5), KLDivergence(rand(20) .+ 0.5; λ = 0.5), NegLog(0.5), Berhu(0.5, 1.), Berhu(0.5, 1., rand(20)))
     for v in (x, Float32.(x))
@@ -244,14 +246,14 @@ end
     tiny = inv(large)
     # The minimizer tends to the input for tiny positive steps; v/μ may overflow.
     for f in (NegEntropy(one(T)), KLDivergence(one(T)))
-      @test prox_entry(f, large, 1, tiny) ≈ large rtol=8eps(T)
+      @test prox_block(f, large, 1, tiny) ≈ large rtol=8eps(T)
     end
     # The step product may overflow although its positive minimizer is finite.
-    @test prox_entry(NegEntropy(large), zero(T), 1, large) ≈ exp(-one(T)) rtol=16eps(T)
-    @test prox_entry(KLDivergence(T(2); λ=large), zero(T), 1, large) ≈ T(2) rtol=16eps(T)
+    @test prox_block(NegEntropy(large), zero(T), 1, large) ≈ exp(-one(T)) rtol=16eps(T)
+    @test prox_block(KLDivergence(T(2); λ=large), zero(T), 1, large) ≈ T(2) rtol=16eps(T)
     # A tiny reference must survive an intermediate omega below the normal range.
     f = KLDivergence(tiny; λ=large)
-    @test prox_entry(f, zero(T), 1, large) ≈ tiny rtol=32eps(T)
+    @test prox_block(f, zero(T), 1, large) ≈ tiny rtol=32eps(T)
     # The finite KL value must not overflow solely in t/q.
     f = KLDivergence(tiny)
     reference = setprecision(BigFloat, 256) do
@@ -259,7 +261,7 @@ end
       T(x * (log(x)-log(q)) - x + q)
     end
     @test value_entry(f, large, 1) ≈ reference rtol=16eps(T)
-    @test allocs(prox_entry, NegEntropy(large), zero(T), 1, large) == 0
+    @test allocs(prox_block, NegEntropy(large), zero(T), 1, large) == 0
   end
 end
 

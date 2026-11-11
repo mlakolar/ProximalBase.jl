@@ -1,5 +1,7 @@
 module SmoothTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -175,7 +177,7 @@ end
     βs = SparseIterate(sprandn(p, 0.3))
     @test f(βs) ≈ f(Vector(βs))
     @test gradient(f, βs) ≈ gradient(f, Vector(βs))
-    βa = AtomIterate(randn(p), p ÷ 2)
+    βa = BlockIterate(randn(p), p ÷ 2)
     @test f(βa) ≈ f(Vector(βa))
   end
   # a matrix response: multi-task regression
@@ -214,7 +216,7 @@ end
         @test Array(prox!(sparseout, f, v, γ)) ≈ ref rtol = tol
         @test allocs(prox!, sparseout, f, v, γ) == 0
         if m == 1
-          atomout = AtomIterate(zeros(T, p), [1:p])
+          atomout = BlockIterate(zeros(T, p), [1:p])
           @test Vector(prox!(atomout, f, v, γ)) ≈ ref rtol = tol
           @test allocs(prox!, atomout, f, v, γ) == 0
         end
@@ -722,8 +724,8 @@ end
     y = similar(x)
     @test prox!(y, f, x, large) === y
     @test y ≈ center rtol=8eps(T)
-    @test prox_entry(f, x[1], 1, large) ≈ center[1]
-    @test prox_entry(f, x[1], 1, large) isa T
+    @test prox_block(f, x[1], 1, large) ≈ center[1]
+    @test prox_block(f, x[1], 1, large) isa T
     @test allocs(prox!, y, f, x, large) == 0
     # A convex combination of finite same-sign endpoints stays finite.
     nearmax = floatmax(T) / T(2)
@@ -764,7 +766,7 @@ end
     γ = T(2.9121568528227888e-6)
     f = SqrNormL2(one(T), T[endpoint])
     @test only(prox(f, T[endpoint], γ)) == endpoint
-    @test prox_entry(f, endpoint, 1, γ) == endpoint
+    @test prox_block(f, endpoint, 1, γ) == endpoint
     @test prox(SqrNormL2(1.0, [2.0]), Float32[3], 0.2) ≈ Float32[17/6]
   end
 end
@@ -837,7 +839,7 @@ end
     @test out == fill(T(-7),3)
     # Coordinate kernels retain their established linear-entry convention.
     a = SparseIterate(x)
-    @test prox_coordinate!(a,f,1,one(T)) == prox_entry(f,x[1],1,one(T))
+    @test take_block_step!(a,f,1,one(T)) == prox_block(f,x[1],1,one(T))
   end
 end
 

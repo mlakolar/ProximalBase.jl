@@ -607,7 +607,7 @@ end
     c = Constrained(f, IndSphereL2(T(1)))
     for xs in bad
       x = S.(xs)
-      for y in (zeros(T, n), SparseIterate(T, n), AtomIterate(T, n, [[1, 2], [3], [4]]))
+      for y in (zeros(T, n), SparseIterate(T, n), BlockIterate(T, n, [[1, 2], [3], [4]]))
         v = value_and_prox!(y, c, x, T(γ))
         @test allnan(y) && isnan(v) && v isa T
         y isa Array || PT.test_iterate(y)

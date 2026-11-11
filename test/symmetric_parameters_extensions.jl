@@ -1,5 +1,7 @@
 module SymmetricParametersExtensionsTest
 
+using ..TestUtils: take_block_step!
+
 using Test, ProximalBase
 
 const PB=ProximalBase
@@ -27,7 +29,7 @@ for F in (PublicSquare,PublicSeparableSquare)
   end
 end
 PB.value_entry(::PublicSeparableSquare,v,i)=v^2/2
-PB.prox_entry(::PublicSeparableSquare,v,i,γ)=v/(1+γ)
+PB.prox_block(::PublicSeparableSquare,v,i,γ)=v/(1+γ)
 
 @testset "Unchecked forwarding preserves public extensions" begin
   X=[.5 .2;.2 .8]
@@ -87,7 +89,7 @@ PB.prox!(y::AbstractArray, ::ProxOnlySquare, x::AbstractArray, γ::Real) = (y .=
 struct EntrySquare <: SeparableFunction end
 ProximalBase.entry_parameters(f::EntrySquare) = ()
 PB.value_entry(::EntrySquare, v, i) = v^2 / 2
-PB.prox_entry(::EntrySquare, v, i, γ) = v / (1 + γ)
+PB.prox_block(::EntrySquare, v, i, γ) = v / (1 + γ)
 PB.kkt_violation(::EntrySquare, g::AbstractArray, i::Integer) = abs(g[i])
 PB.iszeropreserving(::EntrySquare) = true
 PB.isconvex(::Type{EntrySquare}) = true
@@ -103,7 +105,7 @@ function kkt_loop(f, g, x, n)
 end
 function coordinate_loop(f, x, n)
   for i in 1:n
-    prox_coordinate!(x, f, mod1(i, ncoordinates(x)), .1)
+    take_block_step!(x, f, mod1(i, ncoordinates(x)), .1)
   end
 end
 function loop_allocations(f, g, x)
@@ -197,7 +199,7 @@ end
 @testset "Built-in group KKT dispatch keeps its domain" begin
   groups = [[1, 2], [3, 4]]
   f = GroupNormL2(.1, groups); g = [.3, .4, .6, .8]
-  for x in (zeros(4), SparseIterate(4), AtomIterate(4, groups))
+  for x in (zeros(4), SparseIterate(4), BlockIterate(4, groups))
     @test kkt_violation(f, g, x, 1) ≈ .5 - .1sqrt(2)
     @test kkt_violation(Scaled(f, 2.), g, x, 1) ≈ .5 - .2sqrt(2)
     @test kkt_violation(Regularize(f, .2), g, x, 1) ≈ .5 - .1sqrt(2)

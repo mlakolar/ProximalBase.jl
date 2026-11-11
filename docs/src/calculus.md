@@ -114,7 +114,7 @@ function's own parameters, before they write anything: a coefficient with the
 entries of a matrix block but another shape is rejected with a `DimensionMismatch`
 like one of another length, and nothing broadcasts. Scalar leaves, named tuples and
 nonreal arrays are rejected by the constructors. A `SparseIterate`,
-`SymmetricSparseIterate` or `AtomIterate` is refused with an `ArgumentError` as a
+`SymmetricSparseIterate` or `BlockIterate` is refused with an `ArgumentError` as a
 block of the variable, because the staged buffers do not carry their stored entries
 or their per-entry parameter checks; supporting them would need its own design.
 No other array type is refused for being sparse or a view, but only dense arrays and
@@ -123,7 +123,7 @@ the gradient, the fused value and gradient, the proximal operator and its fused
 value, the Hessian-vector product and the quadratic model, whenever the inner
 function does, with a real scalar step. The model of a tilt is the tilt of the
 model, and that of a translation the translation of the model at ``x - b``. The
-coordinate-level interfaces (`prox_entry`, `kkt_violation`, `restrict`) take array
+coordinate-level interfaces (`prox_block`, `kkt_violation`, `restrict`) take array
 coefficients only, and the conjugate of a `Translate` with a tuple translation is
 not supported (the conjugate of a `Tilt` is).
 
@@ -185,7 +185,7 @@ For a group penalty, `a` must be constant on each group. Full-array values
 and proximal operators then use the step ``\gamma c_k^2`` for group ``k``,
 where ``c_k`` is its scale. Indices outside the groups remain unchanged.
 The four-argument `kkt_violation` works on arrays and on matching groups of an
-`AtomIterate`; group coordinate updates and `restrict` are not supported.
+`BlockIterate`; group coordinate updates and `restrict` are not supported.
 Other nonseparable functions are rejected, and the array wrapper supplies no
 Hessian products.
 
@@ -423,7 +423,7 @@ homogeneous ``f`` or a cone, ``\gamma\operatorname{prox}_{f/\gamma}(x/\gamma) =
 translations and positive rescalings, it is the projection onto ``\gamma C``,
 so these conjugates take every step without dividing by ``\gamma``, with the
 accuracy of a unit step, about ``\epsilon`` times the largest input entry
-(with array steps and in `prox_entry`, only for the conjugates that are
+(with array steps and in `prox_block`, only for the conjugates that are
 indicators of separable functions, the box itself and the double conjugate); for
 the others, `prox!` and `value_and_prox!` throw an `ArgumentError` when a finite
 input gives a result that is not finite in working precision.
@@ -791,7 +791,7 @@ a linear predictor, `ProximalBase.Smoothed(φ, μ)` is the envelope of a scalar
 function of the residual as a scalar loss of [`GLMLoss`](@ref), with curvature
 at most ``1/\mu``, so that coordinate descent and proximal Newton apply to a
 smoothed check loss (quantile regression) or hinge.
-`prox_entry`, `kkt_violation` and `restrict` of a `MoreauEnvelope` are supported
+`prox_block`, `kkt_violation` and `restrict` of a `MoreauEnvelope` are supported
 only for a separable function.
 
 ```@example calculus

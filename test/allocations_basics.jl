@@ -1,7 +1,9 @@
 module AllocationsBasicsTest
 
+using ..TestUtils: take_block_step!
+
 # Quick-tier zero-allocation checks of the hot calls a solver makes: block and coordinate steps on
-# sparse, symmetric and atom iterates, prox!/value_and_prox! of NormL1 and GroupNormL2 (also on atom
+# sparse, symmetric and block iterates, prox!/value_and_prox! of NormL1 and GroupNormL2 (also on block
 # iterates with distinct group layouts), and value_and_gradient! of a least-squares loss. The
 # exhaustive catalog of functions and inputs is in allocations.jl.
 
@@ -19,7 +21,7 @@ a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
 a_vgrad!(g, f, x) = value_and_gradient!(g, f, x)
 a_grad!(g, f, x) = gradient!(g, f, x)
-a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+a_cd!(x, f, k, γ) = prox_block(f, x isa SymmetricSparseIterate ? coordinates(x)[k] : x[k], k, γ)
 a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
 a_copyto!(y, x) = copyto!(y, x)
 
@@ -39,18 +41,13 @@ function zero_alloc_grad(f, x)
   @test allocs(a_grad!, g, f, x) == 0
 end
 
-a_block!(x, f, k, u, γ) = prox_coordinate!(x, f, k, u, γ)
-
-@testset "block steps allocate nothing" begin
-  for x in (SparseIterate(zeros(4)),)
-    @test allocs(a_block!, x, NormL1(0.3), 1, 3., 0.7) == 0
-  end
-  for gs in ([1:2, 3:4], [[1, 3], [2, 4]])
-    x = AtomIterate(4, gs)
-    u = [3., -4.]
-    for f in (NormL1(0.3), GroupNormL2(0.4, gs))
-      @test allocs(a_block!, x, f, 1, u, 0.7) == 0
-    end
+@testset "pure block steps allocate nothing" begin
+  @test allocs(prox_block, NormL1(0.3), 3., 1, 0.7) == 0
+  gs = [[1, 3], [2, 4]]
+  u, out = [3., -4.], zeros(2)
+  for f in (GroupNormL2(0.4, gs), GroupNormLinf(0.4, gs),
+            SparseGroupNormL2(0.2, 0.4, gs), GroupMCP(0.4, gs), GroupSCAD(0.4, gs))
+    @test allocs(prox_block!, out, f, u, 1, 0.7) == 0
   end
 end
 
@@ -61,9 +58,9 @@ end
   for gs in layouts
     for f in (GroupNormL2(0.4, gs),)
       for xgroups in layouts, ygroups in layouts
-        xa = AtomIterate(v, xgroups)
+        xa = BlockIterate(v, xgroups)
         activate!(xa, 3)
-        ya = AtomIterate(ones(9), ygroups)
+        ya = BlockIterate(ones(9), ygroups)
         @test xa.groups !== f.groups && ya.groups !== xa.groups && ya.groups !== f.groups
         @test allocs(a_value, f, xa) == 0
         @test allocs(a_prox!, ya, f, xa, 0.7) == 0
@@ -77,7 +74,7 @@ end
           alias = copy(xa)
           @test allocs(a_vprox!, alias, f, alias, step) == 0
         end
-        @test allocs(a_cd!, copy(xa), f, 1, 0.7) == 0
+        @test allocs(prox_block!, zeros(length(blockview(xa, 1))), f, collect(blockview(xa, 1)), 1, 0.7) == 0
         @test allocs(a_kkt, f, v, xa, 2) == 0
       end
     end
@@ -93,7 +90,7 @@ end
   xs = SparseIterate(sprandn(p, 0.3))
   w = rand(p)
   groups = [1:5, 6:10, 11:15, 16:20]
-  xa = AtomIterate(randn(p), groups)
+  xa = BlockIterate(randn(p), groups)
 
   @testset "separable penalties" begin
     for f in (NormL1(0.3),)

@@ -1,5 +1,7 @@
 module MetricTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -33,7 +35,7 @@ end
   for f in (NormL1(0.3), NormL1(0.3, w), NormL1Nonneg(0.2), ElasticNet(0.3, 0.4, w), IndBox(-0.5, 0.5),
             NormL0(0.05), MCP(0.3), SCAD(0.3))
     p = prox(f, x, γ)
-    @test p == [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+    @test p == [prox_block(f, x[i], i, γ[i]) for i in 1:n]
     @test value_and_prox!(similar(x), f, x, γ) ≈ f(p)
     @test prox(f, x, fill(0.7, n)) == prox(f, x, 0.7)        # equal steps give the scalar step
     z = copy(x)
@@ -112,9 +114,9 @@ end
       γe[groups[k]] .= γ[k]
     end
     check_metric_optimality(f, x, γe, p)
-    # an AtomIterate with the groups of f
+    # a BlockIterate with the groups of f
     fa = F(0.5, [groups; [[7]]], [f.w; 0.])
-    xa = AtomIterate(x, fa)
+    xa = BlockIterate(x, fa)
     ya = similar(xa)
     γa = [γ; 1.0]
     @test value_and_prox!(ya, fa, xa, γa) ≈ fa(prox(fa, x, γa))
@@ -154,7 +156,7 @@ end
 
     # Shared groups retain the active-group path, including zero and free groups.
     fa = F(T(0.5), [1:2, 3:4, 5:6], T[1, 0.7, 0])
-    xa = AtomIterate(T[3, 4, 0, 0, 2, -1], fa)
+    xa = BlockIterate(T[3, 4, 0, 0, 2, -1], fa)
     γa = T[0.2, 4, 0.5]
     reference = prox(fa, Vector(xa), γa)
     ya = similar(xa)
@@ -167,15 +169,15 @@ end
     @test_throws DimensionMismatch prox(fa, xa, γa[1:2])
     # Equal but independently owned groups exercise the ordinary-array fallback.
     for layout in ([1:2, 3:4, 5:6], [1:3, 4:6])
-      independent = AtomIterate(Vector(xa), layout)
+      independent = BlockIterate(Vector(xa), layout)
       out = similar(independent)
       @test value_and_prox!(out, fa, independent, γa) ≈ fa(reference)
       @test Vector(out) ≈ reference
     end
-    # A regularized group penalty still updates one atom through the shared API.
+    # A regularized group penalty still updates one block through the shared API.
     regularized = Regularize(fa, T(0.3))
     alias = copy(xa)
-    prox_coordinate!(alias, regularized, 1, T(0.2))
+    take_block_step!(alias, regularized, 1, T(0.2))
     @test Vector(alias)[1:2] ≈ prox(regularized, Vector(xa), T(0.2))[1:2]
   end
 end
@@ -194,9 +196,9 @@ end
   @test prox(f, x, fill(0.6, 4)) ≈ prox(f, x, 0.6)
   @test value_and_prox!(similar(x), f, x, γ) ≈ f(p)
   @test prox!(similar(x), f, x, 0.6) ≈ prox(f, x, 0.6)   # prox! goes through value_and_prox!
-  # an AtomIterate with the groups of f
+  # a BlockIterate with the groups of f
   fa = SparseGroupNormL2(0.3, 0.5, [groups; [[7]]], [f.w; 0.])
-  xa = AtomIterate(x, fa)
+  xa = BlockIterate(x, fa)
   ya = similar(xa)
   γa = [γ; 1.0]
   @test value_and_prox!(ya, fa, xa, γa) ≈ fa(prox(fa, x, γa))
@@ -212,7 +214,7 @@ end
   for f in (Scaled(NormL1(0.3, rand(n)), 2.), Tilt(NormL1(0.3), c), Translate(NormL1(0.3), b),
             Conjugate(NormL1(0.3)), Conjugate(IndBox(-1., 1.)), 0.5 * Translate(ElasticNet(0.2, 0.3), b))
     p = prox(f, x, γ)
-    @test p ≈ [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+    @test p ≈ [prox_block(f, x[i], i, γ[i]) for i in 1:n]
     @test prox(f, x, fill(0.4, n)) ≈ prox(f, x, 0.4)
     f isa Conjugate || @test value_and_prox!(similar(x), f, x, γ) ≈ f(p)
   end
@@ -416,7 +418,7 @@ end
             Regularize(NormL1(0.3), 0.7), Regularize(NormL1(0.3), 0.7, cvec),
             Regularize(c, 0.3))
     p = prox(f, x, γ)
-    @test p ≈ [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+    @test p ≈ [prox_block(f, x[i], i, γ[i]) for i in 1:n]
     @test prox(f, x, fill(0.4, n)) ≈ prox(f, x, 0.4)
     @test value_and_prox!(similar(x), f, x, fill(0.4, n)) ≈
           value_and_prox!(similar(x), f, x, 0.4)
@@ -597,9 +599,9 @@ end
       @test y == before
     end
     r = Regularize(GroupNormL2(0.5, [1:4]), 0.7)
-    y = AtomIterate(fill(17.0, 4), [1:4])
+    y = BlockIterate(fill(17.0, 4), [1:4])
     before = deepcopy(y)
-    @test_throws ArgumentError("per-group steps for Regularize do not support AtomIterate outputs") op(y, r, reshape(x, size(y)), [0.2])
+    @test_throws ArgumentError("per-group steps for Regularize do not support BlockIterate outputs") op(y, r, reshape(x, size(y)), [0.2])
     @test isequal(y, before)
     @test all(isequal(getfield(y, field), getfield(before, field)) for field in fieldnames(typeof(y)))
     # an owner takes no array step at all
@@ -653,7 +655,7 @@ end
     @test allocs(a_prox!, y, r, x, γg) == 0
     @test allocs(a_vprox!, y, r, x, γg) == 0
   end
-  xa = AtomIterate(randn(n), g)
+  xa = BlockIterate(randn(n), g)
   @test allocs(a_vprox!, similar(xa), g, xa, γg) == 0
   X = randn(30, n)
   for f in (LeastSquaresLoss(randn(30), X), LogisticLoss(Float64.(rand(30) .< 0.5), X), QuadraticFunction(X' * X),

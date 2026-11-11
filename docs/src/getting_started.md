@@ -130,7 +130,7 @@ r^+ = r-X_{:,j}(\beta_j^+-\beta_j),
 where ``S_t(v)=\operatorname{sign}(v)\max(|v|-t,0)`` is soft thresholding.
 The residual update costs ``O(n)`` and avoids recomputing ``X\beta`` after
 each coordinate. We compute the scalar thresholding step with
-[`prox_entry`](@ref), using the curvature ``a_j`` supplied by
+[`prox_block`](@ref), using the curvature ``a_j`` supplied by
 [`coordinate_lipschitz`](@ref).
 
 We use a [`SparseIterate`](@ref) to store the coefficients and a full gradient
@@ -152,7 +152,7 @@ function lasso_cd(f, g; tol = 1e-8, maxsweeps = 1000)
         for j in axes(X, 2)
             old = β[j]
             z = old + dot(view(X, :, j), r) / a[j]
-            new = prox_entry(g, z, j, 1 / a[j])
+            new = prox_block(g, z, j, 1 / a[j])
             if new != old
                 β[j] = new
                 axpy!(old - new, view(X, :, j), r)

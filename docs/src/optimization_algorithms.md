@@ -18,8 +18,8 @@ a routine named after every algorithm below.
 | Method / idea | Primary operations | Next page |
 |:--|:--|:--|
 | Proximal gradient, projected gradient, FISTA | `gradient!`, `prox!`, `lipschitz`, `gradient_mapping!` | [Proximal gradient methods](proximal_gradient.md) |
-| Coordinate descent and active sets | `prox_entry`, `prox_coordinate!`, `coordinate_lipschitz`, `kkt_violation`, `restrict` | [Coordinate descent](coordinate_descent.md) |
-| Group or block coordinate descent | `prox_coordinate!` with a trial group, `AtomIterate` | [Coordinate oracles](iterate_oracles.md) |
+| Coordinate descent and active sets | `prox_block`, `prox_block!`, `coordinate_lipschitz`, `kkt_violation`, `restrict` | [Coordinate descent](coordinate_descent.md) |
+| Group or block coordinate descent | `prox_block!` with compact buffers, then public `BlockIterate` writes | [Coordinate oracles](iterate_oracles.md) |
 | Conditional gradient / Frank–Wolfe | `lmo`, `lmo!`, sometimes `lmo_atom` | [Operations on functions](operations.md) |
 | Newton or second-order model methods | `hessian_vec!`, `quadratic_model`, `quadratic_model!` | [Operations on functions](operations.md) |
 | Local linear approximation | `lla_weight`, `lla_weights!` | [Penalties](penalties.md) |
@@ -42,7 +42,7 @@ the solver remains responsible for algorithmic validation and iteration.
 For example, a proximal-gradient solver can use a dense `Vector` and
 call the same `NormL1` proximal operator used by a coordinate-descent
 solver's entrywise update. An active-set solver may instead use
-`SparseIterate` or `AtomIterate` to avoid visiting every coordinate
+`SparseIterate` or `BlockIterate` to avoid visiting every coordinate
 on each sweep. Storage is a performance and index-space decision, not
 a change in the mathematical penalty.
 

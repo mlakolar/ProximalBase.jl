@@ -42,7 +42,7 @@ setprecision(BigFloat, BIG) do
     z = zeros(Float32, 1)
     prox!(z, SqrNormL2(pow2(Float32, -100), Float32[pow2(Float32, 100)]), Float32[0], pow2(Float32, -60))
     @test z[1] === pow2(Float32, -60)
-    @test prox_entry(SqrNormL2(pow2(Float32, -100), Float32[pow2(Float32, 100)]), 0f0, 1, pow2(Float32, -60)) === pow2(Float32, -60)
+    @test prox_block(SqrNormL2(pow2(Float32, -100), Float32[pow2(Float32, 100)]), 0f0, 1, pow2(Float32, -60)) === pow2(Float32, -60)
 
     # V3 to V6, uncentered and centered
     @test prox!(zeros(Float32, 1), SqrNormL2(pow2(Float64, 160)), Float32[1], pow2(Float64, -160)) == Float32[0.5]
@@ -69,7 +69,7 @@ setprecision(BigFloat, BIG) do
         z = zeros(W, 1)
         prox!(z, f, x, γ)
         @test near(z[1], r, 3)
-        @test prox_entry(f, x[1], 1, γ) === z[1]
+        @test prox_block(f, x[1], 1, γ) === z[1]
         @test prox(f, x, γ)[1] === z[1]
         xa = copy(x)
         prox!(xa, f, xa, γ)                 # supported in-place call
@@ -93,7 +93,7 @@ setprecision(BigFloat, BIG) do
       normal(Float32, r) || continue
       z = prox!(zeros(Float32, 1), f, x, γ)
       @test near(z[1], r, 3)
-      @test prox_entry(f, x[1], 1, γ) === z[1]
+      @test prox_block(f, x[1], 1, γ) === z[1]
     end
     # Float32 data, Float64 center that rounds ordinarily: the converted problem is solved
     z = prox!(zeros(Float32, 1), SqrNormL2(1.0, [1 + pow2(Float64, -28)]), Float32[1], 1.0)
@@ -164,7 +164,7 @@ setprecision(BigFloat, BIG) do
         z = prox!(zeros(T, 3), f, x, γ)
         @test ys == z
         @test v === f(ys)
-        @test [prox_entry(f, x[i], i, γ) for i in 1:3] == z
+        @test [prox_block(f, x[i], i, γ) for i in 1:3] == z
         xa = copy(x)
         prox!(xa, f, xa, γ)
         @test xa == z
@@ -335,8 +335,8 @@ setprecision(BigFloat, BIG) do
       a = PB._isscaled(c.set) ? PB._normalized_normal(c.set.a, c.set.s) : c.set.a
       @test all(eachindex(x)) do i
         γᵢ = T(γ isa Real ? γ : γ[i]); v = x[i] - γᵢ * ν * T(a[i])
-        isequal(prox_entry(PB._OrdinaryRidge(f), v, i, γᵢ), prox_entry(f, v, i, γᵢ)) &&
-          isequal(PB._prox_entry_slope(PB._OrdinaryRidge(f), v, i, γᵢ), PB._prox_entry_slope(f, v, i, γᵢ))
+        isequal(prox_block(PB._OrdinaryRidge(f), v, i, γᵢ), prox_block(f, v, i, γᵢ)) &&
+          isequal(PB._prox_block_slope(PB._OrdinaryRidge(f), v, i, γᵢ), PB._prox_block_slope(f, v, i, γᵢ))
       end
       o1, o2 = similar(x), similar(x)
       PB._linear_constrained_output!(o1, f, a, x, PB._RidgeSteps(γ), ν)

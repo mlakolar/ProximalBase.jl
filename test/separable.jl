@@ -1,5 +1,7 @@
 module SeparableTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -16,7 +18,7 @@ struct WeightedSquare <: SeparableFunction       # Σᵢ wᵢ xᵢ² / 2
 end
 ProximalBase.entry_parameters(f::WeightedSquare) = (:w => f.w,)
 ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
-ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
+ProximalBase.prox_block(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 ProximalBase.iszeropreserving(::WeightedSquare) = true
 ProximalBase.isconvex(::Type{WeightedSquare}) = true
 function ProximalBase.check_parameters(f::WeightedSquare, x)
@@ -28,7 +30,7 @@ struct ShiftedAbs <: SeparableFunction           # Σᵢ |xᵢ - 1|, which does 
 end
 ProximalBase.entry_parameters(f::ShiftedAbs) = ()
 ProximalBase.value_entry(::ShiftedAbs, v, i) = abs(v - 1)
-ProximalBase.prox_entry(::ShiftedAbs, v, i, γ) = 1 + sign(v - 1) * max(abs(v - 1) - γ, 0)
+ProximalBase.prox_block(::ShiftedAbs, v, i, γ) = 1 + sign(v - 1) * max(abs(v - 1) - γ, 0)
 
 @testset "NormL1" begin
   @testset "shrink" begin
@@ -67,7 +69,7 @@ end
     w = rand(T, length(x)) .+ T(0.2)
     f = F(T(0.3), w)
     step = T(0.7)
-    expected = [prox_entry(f, x[i], i, step) for i in eachindex(x)]
+    expected = [prox_block(f, x[i], i, step) for i in eachindex(x)]
     @test prox(f, x, step) == expected
     y = copy(x)
     @test prox!(y, f, y, step) === y
@@ -124,7 +126,7 @@ end
         (T(Inf), T[0, 1], T[7, 3], T(0)))
       f = F(level, weights)
       # an infinite threshold at an infinite entry gives NaN, as soft thresholding does
-      reference = [prox_entry(f, z[i], i, γ) for i in eachindex(z)]
+      reference = [prox_block(f, z[i], i, γ) for i in eachindex(z)]
       @test isequal(prox(f, z, γ), reference)
       out = copy(z)
       @test isequal(prox!(out, f, out, γ), reference)
@@ -173,8 +175,8 @@ end
     prox!(s, f, s, 0.5)                                    # in place
     @test Matrix(s) ≈ prox(f, D, 0.5)
   end
-  # on an AtomIterate: the active groups for a function that preserves zeros
-  xa = AtomIterate([0., 0., 1., -2., 0., 0.], [1:2, 3:4, 5:6])
+  # on a BlockIterate: the active groups for a function that preserves zeros
+  xa = BlockIterate([0., 0., 1., -2., 0., 0.], [1:2, 3:4, 5:6])
   @test NormL1(0.5)(xa) ≈ 1.5
   @test MCP(1.)(xa) ≈ MCP(1.)(Vector(xa))
 end
@@ -186,21 +188,21 @@ end
             Translate(NormL1(1.), [1., 2.]), 2 * NormL1(1., [1., 2.]))
     x = ones(6)
     @test_throws DimensionMismatch prox(f, x, 0.1)
-    @test_throws DimensionMismatch prox_coordinate!(SparseIterate(x), f, 3, 0.1)
-    @test_throws DimensionMismatch prox_coordinate!(AtomIterate(x, 3), f, 2, 0.1)
+    @test_throws DimensionMismatch take_block_step!(SparseIterate(x), f, 3, 0.1)
+    @test_throws DimensionMismatch take_block_step!(BlockIterate(x, 3), f, 2, 0.1)
     f isa Union{LinearFunction, SqrNormL2, Tilt, Translate} || @test_throws DimensionMismatch f(x)
   end
   # a direct call of the scalar operator checks the index
-  @test_throws BoundsError prox_entry(NormL1(1., [1., 2.]), 1.0, 5, 0.1)
+  @test_throws BoundsError prox_block(NormL1(1., [1., 2.]), 1.0, 5, 0.1)
   # on a SymmetricSparseIterate the weights follow the p × p matrix: a vector over the
   # lower triangle, the convention of 0.4, is rejected
   p = 4
   S = SymmetricSparseIterate(Matrix(1.0I, p, p))
   wtri = rand(p * (p + 1) ÷ 2)
-  @test_throws DimensionMismatch prox_coordinate!(S, NormL1(0.1, wtri), ncoordinates(S), 0.5)
+  @test_throws DimensionMismatch take_block_step!(S, NormL1(0.1, wtri), ncoordinates(S), 0.5)
   @test_throws DimensionMismatch prox(NormL1(0.1, wtri), S, 0.5)
   @test_throws DimensionMismatch NormL1(0.1, wtri)(S)
-  @test prox_coordinate!(S, NormL1(0.1, ones(p, p)), ncoordinates(S), 0.5) ≈ 1 - 0.05
+  @test take_block_step!(S, NormL1(0.1, ones(p, p)), ncoordinates(S), 0.5) ≈ 1 - 0.05
 end
 
 @testset "public parameter checks before writes" begin
@@ -210,7 +212,7 @@ end
   @test prox(ShiftedAbs(), zeros(4), 0.5) == fill(0.5, 4)
   points = (ones(4), SparseIterate([1., 0., -2., 0.]),
             SymmetricSparseIterate([1. 0.; 0. -2.]),
-            AtomIterate([1., 0., -2., 0.], [1:2, 3:4]))
+            BlockIterate([1., 0., -2., 0.], [1:2, 3:4]))
   for x in points
     fs = (f, Scaled(f, 2.), Tilt(f, ones(size(x))), Translate(f, ones(size(x))),
           Regularize(f, 1.), Regularize(f, 1., ones(size(x))),
@@ -223,18 +225,18 @@ end
         input = copy(x)
         output = alias ? input : copy(x)
         before = Array(output)
-        stored = output isa Union{SparseIterate, SymmetricSparseIterate, AtomIterate} ? copy(activecoordinates(output)) : nothing
+        stored = output isa Union{SparseIterate, SymmetricSparseIterate, BlockIterate} ? copy(activecoordinates(output)) : nothing
         @test_throws DimensionMismatch op(output, h, input, step)
         @test Array(output) == before
         @test Array(input) == Array(x)
         stored === nothing || @test activecoordinates(output) == stored
       end
-      if x isa Union{SparseIterate, SymmetricSparseIterate, AtomIterate}
+      if x isa Union{SparseIterate, SymmetricSparseIterate, BlockIterate}
         for k in (1, ncoordinates(x))
           input = copy(x)
           before = Array(input)
           stored = copy(activecoordinates(input))
-          @test_throws DimensionMismatch prox_coordinate!(input, h, k, 0.5)
+          @test_throws DimensionMismatch take_block_step!(input, h, k, 0.5)
           @test Array(input) == before
           @test activecoordinates(input) == stored
         end
@@ -244,7 +246,7 @@ end
   # Parameters are checked even when the argument is outside the box.
   @test_throws DimensionMismatch Constrained(f, IndBox(-1., 1.))(fill(2., 4))
   # An empty stored set must not skip the hook.
-  for x in (SparseIterate(4), SymmetricSparseIterate(2), AtomIterate(4, [1:2, 3:4]))
+  for x in (SparseIterate(4), SymmetricSparseIterate(2), BlockIterate(4, [1:2, 3:4]))
     @test_throws DimensionMismatch f(x)
     @test_throws DimensionMismatch prox!(x, f, x, 0.5)
     @test all(iszero, x isa SymmetricSparseIterate ? matrixview(x) : x)
@@ -351,7 +353,7 @@ end
       end
       c = Conjugate(f)
       for γ in (T(0.7), T[0.7, 1.2])
-        expected_c = [prox_entry(c, x[i], i, γ isa Real ? γ : γ[i]) for i in eachindex(x)]
+        expected_c = [prox_block(c, x[i], i, γ isa Real ? γ : γ[i]) for i in eachindex(x)]
         @test prox!(y, c, x, γ) === y
         @test isequal(y, expected_c)
         @test isequal(value_and_prox!(y, c, x, γ), c(expected_c))
@@ -466,7 +468,7 @@ end
   @test prox(f, x, 1.) == [0., -2., 0., 1.2]       # kept when x² > 2γλ = 1
   for v in (-3., -1.1, -0.9, 0.3, 1.0, 2.5), γ in (0.3, 1., 4.)
     t, _ = brute_force_prox(u -> 0.5 * (u != 0), v, γ)
-    @test prox_entry(f, v, 1, γ) ≈ t atol = 1e-6
+    @test prox_block(f, v, 1, γ) ≈ t atol = 1e-6
   end
   check_prox(f, randn(10), 0.8)
 end
@@ -481,13 +483,13 @@ end
   # problem nonconvex
   for v in (-3., -1.5, -0.7, -0.2, 0., 0.35, 0.65, 1.0, 1.5, 2.2, 4.), γ in (0.3, 1., 2.4, 2.5, 3., 10.)
     t, ht = brute_force_prox(pen, v, γ)
-    z = prox_entry(f, v, 1, γ)
+    z = prox_block(f, v, 1, γ)
     @test pen(z) + (z - v)^2 / (2γ) <= ht + 1e-9
   end
   # firm thresholding for γ < a
-  @test prox_entry(f, 0.5, 1, 1.) == 0.
-  @test prox_entry(f, 1.0, 1, 1.) ≈ (1.0 - 0.6) / (1 - 1 / 2.5)
-  @test prox_entry(f, 2.0, 1, 1.) == 2.0
+  @test prox_block(f, 0.5, 1, 1.) == 0.
+  @test prox_block(f, 1.0, 1, 1.) ≈ (1.0 - 0.6) / (1 - 1 / 2.5)
+  @test prox_block(f, 2.0, 1, 1.) == 2.0
   check_prox(f, x, 0.8)
   @test_throws ArgumentError MCP(0.5, 0.)
 end
@@ -503,13 +505,13 @@ end
   @test f(x) ≈ sum(pen, x)
   for v in (-4., -2., -1.1, -0.7, 0., 0.3, 0.9, 1.3, 2.1, 3., 5.), γ in (0.3, 1., 2.6, 2.7, 3., 10.)
     t, ht = brute_force_prox(pen, v, γ)
-    z = prox_entry(f, v, 1, γ)
+    z = prox_block(f, v, 1, γ)
     @test pen(z) + (z - v)^2 / (2γ) <= ht + 1e-9
   end
   # the SCAD thresholding rule for γ = 1: soft thresholding up to 2λ
-  @test prox_entry(f, 1.0, 1, 1.) ≈ 0.4
-  @test prox_entry(f, 1.5, 1, 1.) ≈ ((a - 1) * 1.5 - a * λ) / (a - 2)
-  @test prox_entry(f, 3.0, 1, 1.) == 3.0
+  @test prox_block(f, 1.0, 1, 1.) ≈ 0.4
+  @test prox_block(f, 1.5, 1, 1.) ≈ ((a - 1) * 1.5 - a * λ) / (a - 2)
+  @test prox_block(f, 3.0, 1, 1.) == 3.0
   check_prox(f, x, 0.8)
   @test_throws ArgumentError SCAD(0.5, 2.)
 end
@@ -522,7 +524,7 @@ end
   check_traits(f; proximable = true, separable = true, convex = true)
   @test iszeropreserving(f) && !iszeropreserving(ShiftedAbs())
   @test iszeropreserving(IndBox(-1., 1.)) && !iszeropreserving(IndBox(1., 2.))   # a property of the instance
-  # the value and the proximal operator on a vector, from value_entry and prox_entry
+  # the value and the proximal operator on a vector, from value_entry and prox_block
   x = randn(p * p)
   @test f(x) ≈ sum(w .* x .^ 2) / 2
   check_prox(f, x, 0.7)
@@ -536,19 +538,19 @@ end
     S = SymmetricSparseIterate(D)
     @test g(S) ≈ g(Matrix(S))
     @test Matrix(prox!(SymmetricSparseIterate(p), g, S, 0.7)) ≈ prox(g, Matrix(S), 0.7)
-    xa = AtomIterate(randn(p * p), p)
+    xa = BlockIterate(randn(p * p), p)
     @test g(xa) ≈ g(Vector(xa))
   end
   # coordinate steps
   xs = SparseIterate(p * p)
   xs[3] = 2.
-  @test prox_coordinate!(xs, f, 3, 0.5) ≈ 2 / (1 + 0.5 * w[3])
-  prox_coordinate!(xs, f, 5, 0.5)
+  @test take_block_step!(xs, f, 3, 0.5) ≈ 2 / (1 + 0.5 * w[3])
+  take_block_step!(xs, f, 5, 0.5)
   @test nactive(xs) == 1                      # a zero stays zero, and unstored
   S = SymmetricSparseIterate(p)
   S[3, 2] = 1.
   k = tril_index(p, 3, 2)
-  @test prox_coordinate!(S, f, k, 0.5) ≈ 1 / (1 + 0.5 * w[(2 - 1) * p + 3])
+  @test take_block_step!(S, f, k, 0.5) ≈ 1 / (1 + 0.5 * w[(2 - 1) * p + 3])
   # zero-preserving functions touch only the stored entries of a sparse iterate
   xs = SparseIterate(sprandn(p * p, 0.3))
   y = SparseIterate(p * p)

@@ -51,7 +51,7 @@ Base.@propagate_inbounds function _value_entry_ordinary(f::CheckLoss, v::T, i::I
   _entry(f.w, i) * (v >= 0 ? τ * v : (τ - 1) * v)
 end
 _has_ordinary_value(::Type{<:CheckLoss}) = true
-Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
   u = S(v)
@@ -180,7 +180,7 @@ end
 # the proximal operator of γwᵢ max(0, 1 - u) at the margin u = yᵢv, mapped back
 # a NaN margin fails u < 1 and stays NaN (E2)
 @inline _hinge_apply(v::S, y::S, s::S) where {S<:AbstractFloat} = (u = y * v; ifelse(u < 1, ifelse(u < 1 - s, u + s, one(S)), u) / y)
-Base.@propagate_inbounds function prox_entry(f::HingeLoss, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(f::HingeLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   y = convert(S, _entry(f.y, i))
   _hinge_apply(S(v), y, _hinge_step(S, γ, y, _entry(f.w, i)))
@@ -189,9 +189,9 @@ end
 # The array loop. The ordinary arithmetic of every entry is a branch-free expression, so that the loop
 # vectorizes, and the entries that need range recovery are found by a flag (C2: recovery only on a
 # reliable trigger). Without aliasing the flag is gathered while y is written; if it is set, only the
-# flagged entries are recomputed by prox_entry from the untouched x. With y === x the coefficients are
+# flagged entries are recomputed by prox_block from the untouched x. With y === x the coefficients are
 # classified first, read-only, without computing a step; if one is not ordinary the entries are
-# visited by prox_entry in turn (each is read before it is written).
+# visited by prox_block in turn (each is read before it is written).
 Base.@propagate_inbounds function _hinge_ordinary(f::HingeLoss, v::T, i::Integer, γ) where {T<:Real}
   S = float(T)
   y = convert(S, _entry(f.y, i))
@@ -209,7 +209,7 @@ _aliases_parameters(y, f::HingeLoss, γ) = _shares_memory(y, f.y) || _shares_mem
   _normal_range(convert(R, γ) * convert(R, w))
 end
 # element types of the data and the parameters; an abstract one (Vector{Real}) has no single working type
-# for the block test, so each entry is promoted by prox_entry
+# for the block test, so each entry is promoted by prox_block
 _concrete_eltype(::Nothing) = true
 _concrete_eltype(::Real) = true
 _concrete_eltype(a::AbstractArray) = isconcretetype(eltype(a))
@@ -246,14 +246,14 @@ end
     end
     ok && continue
     @inbounds for i in blk
-      _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i)) || (y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i))))
+      _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i)) || (y[i] = convert(T, prox_block(f, x[i], i, _entry(γ, i))))
     end
   end
   y
 end
 # Blocks of 128 entries. The test of a block is a read-only, branch-free reduction over its coefficients
 # (vectorized); a block whose coefficients all have a normal product γw is written by the ordinary
-# loop (vectorized), any other block entry by entry through prox_entry (the recovery). Every entry reads
+# loop (vectorized), any other block entry by entry through prox_block (the recovery). Every entry reads
 # its value and all its parameters before its own slot of y is written, and no other slot, so a
 # destination that shares memory with a parameter array (a wrapper's step array, a view) stays exact.
 # The ordinary value is converted only where it is the result. With y === x the loop reads the
@@ -275,7 +275,7 @@ function _hinge_blocks!(y, x, f, γ, ::Type{S}) where {S}
       end
     else
       @inbounds for i in blk
-        y[i] = convert(T, prox_entry(f, src[i], i, _entry(γ, i)))
+        y[i] = convert(T, prox_block(f, src[i], i, _entry(γ, i)))
       end
     end
   end
@@ -284,7 +284,7 @@ end
 @noinline function _prox_sep_recover!(y, f, x, γ)
   T = eltype(y)
   @inbounds for i in eachindex(IndexLinear(), y, x)
-    y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i)))
+    y[i] = convert(T, prox_block(f, x[i], i, _entry(γ, i)))
   end
   y
 end
@@ -310,7 +310,7 @@ Base.@propagate_inbounds function _check_ordinary(f::CheckLoss, v::T, i::Integer
   a, b = g * convert(R, f.τ), g * _one_minus(R, f.τ)
   hi, lo = convert(S, a * wr), convert(S, b * wr)
   r = ifelse(u > hi, u - hi, ifelse(u < -lo, u + lo, zero(S)))
-  # the NaN rule of prox_entry
+  # the NaN rule of prox_block
   ifelse((u != u) & (γ == γ) & ((γ == Inf) ? (w == 0) : (w < Inf)), u, r), _normal_range(a) & _normal_range(b)
 end
 function _prox_sep_dense!(y::AbstractArray, f::CheckLoss, x::AbstractArray, γ)
@@ -341,7 +341,7 @@ end
     end
     ok && continue
     @inbounds for i in blk
-      _check_range_ok(S, f, _entry(f.w, i), _entry(γ, i)) || (y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i))))
+      _check_range_ok(S, f, _entry(f.w, i), _entry(γ, i)) || (y[i] = convert(T, prox_block(f, x[i], i, _entry(γ, i))))
     end
   end
   y
@@ -360,7 +360,7 @@ function _check_blocks!(y, x, f, γ, ::Type{S}) where {S}
       end
     else
       @inbounds for i in blk
-        y[i] = convert(T, prox_entry(f, src[i], i, _entry(γ, i)))
+        y[i] = convert(T, prox_block(f, src[i], i, _entry(γ, i)))
       end
     end
   end
@@ -469,7 +469,7 @@ end
   ldexp(n / d, ep - ed)
 end
 
-Base.@propagate_inbounds function prox_entry(f::SqrHingeLoss, v::Real, i::Integer, γ::Real)
+Base.@propagate_inbounds function prox_block(f::SqrHingeLoss, v::Real, i::Integer, γ::Real)
   S = float(typeof(v))
   u, y, w, step = promote(float(v), float(_entry(f.y, i)), float(_entry(f.w, i)), float(γ))
   (iszero(w) || iszero(step)) && return S(v)
@@ -605,7 +605,7 @@ end
 Base.@propagate_inbounds _value_entry_ordinary(f::EpsInsensitiveLoss, v::T, i::Integer) where {T<:Real} =
   _entry(f.w, i) * max(abs(v) - convert(float(T), f.ε), zero(float(T)))
 _has_ordinary_value(::Type{<:EpsInsensitiveLoss}) = true
-Base.@propagate_inbounds function prox_entry(f::EpsInsensitiveLoss, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(f::EpsInsensitiveLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
   s, ε, u = _weight_coefficient(S, γ, w), convert(S, f.ε), S(v)

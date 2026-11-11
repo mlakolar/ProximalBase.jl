@@ -20,7 +20,6 @@ Random.seed!(1)
     @test (@test_deprecated prox!(g, out, x, 0.3)) == prox(g, x, 0.3)
     @test (@test_deprecated prox!(g, out, x)) == prox(g, x)
     xs = SparseIterate(x)
-    @test (@test_deprecated cdprox!(g, xs, 2, 0.3)) == shrink(x[2], 0.15)
     f = SqrNormL2()
     gr = similar(x)
     @test (@test_deprecated gradient!(f, gr, x)) == x

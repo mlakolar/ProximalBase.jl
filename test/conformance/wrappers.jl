@@ -32,10 +32,10 @@ using ..Conformance
     expected = Float32[0]; observed = prox!(zeros(Float32, 1), t, [0.5], 1.0)
   end
   @row begin
-    id = "wrappers.staged-l1.entry"; case = ""; family = :wrappers; oracle = :prox_entry
+    id = "wrappers.staged-l1.entry"; case = ""; family = :wrappers; oracle = :prox_block
     types = "Float64"; backend = :cpu; rules = "O4"
     problem = "Unstaged scalar map: b + ((x-b)+1) = 1.5"
-    expected = 1.5; observed = prox_entry(t, 0.5, 1, 1.0)
+    expected = 1.5; observed = prox_block(t, 0.5, 1, 1.0)
   end
   @row begin
     id = "wrappers.staged-l1.bound"; case = ""; family = :wrappers; oracle = :prox

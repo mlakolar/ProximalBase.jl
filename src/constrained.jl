@@ -20,7 +20,7 @@ The function `f(x)` on the set `C`, and `Inf` outside it, for a convex separable
 - for a quadratic, an affine set [`IndAffine`](@ref), described below.
 
 On a box, the proximal operator clamps that of `f` entry by entry, so
-`Constrained(f, box)` is separable, with [`prox_entry`](@ref) for coordinate
+`Constrained(f, box)` is separable, with [`prox_block`](@ref) for coordinate
 descent. On a hyperplane `⟨a, x⟩ = b`, the proximal operator is
 `prox_{γf}(x - γνa)` for the multiplier `ν` at which it satisfies the
 constraint, found by a search over the scalar `ν`; `f` may itself be
@@ -177,8 +177,8 @@ _value_unchecked(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x::_ArrayOrOwner
 
 # the scalar problem is convex, so its minimizer on an interval is the nearest
 # point to its unconstrained minimizer
-Base.@propagate_inbounds prox_entry(c::BoxConstrained, v::Real, i::Integer, γ::Real) =
-  prox_entry(c.box, prox_entry(c.f, v, i, γ), i, γ)
+Base.@propagate_inbounds prox_block(c::BoxConstrained, v::Real, i::Integer, γ::Real) =
+  prox_block(c.box, prox_block(c.f, v, i, γ), i, γ)
 
 # γ is a scalar step or an array of steps, one per entry
 prox!(y::_ArrayOrOwner, c::BoxConstrained, x::_ArrayOrOwner, γ::Real) =
@@ -260,7 +260,7 @@ end
 Base.size(p::_BoxProxArray) = size(p.x)
 Base.IndexStyle(::Type{<:_BoxProxArray}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(p::_BoxProxArray{T}, i::Int) where {T} =
-  convert(T, prox_entry(p.c, p.x[i], i, _entry(p.γ, i)))
+  convert(T, prox_block(p.c, p.x[i], i, _entry(p.γ, i)))
 
 struct _BoxShiftArray{T, N, P, B} <: AbstractArray{T, N}
   p::P
@@ -474,7 +474,7 @@ function kkt_violation(c::BoxConstrained, g::AbstractArray, i::Integer)
   eltype(g) <: Real || _real_error(:kkt_violation)
   v = kkt_violation(c.f, g, i)
   v > 0 || return v
-  d = prox_entry(c.f, -g[i], i, one(float(eltype(g))))
+  d = prox_block(c.f, -g[i], i, one(float(eltype(g))))
   (d > 0 ? _entry(c.box.u, i) > 0 : _entry(c.box.l, i) < 0) ? v : zero(v)
 end
 
@@ -543,13 +543,13 @@ end
 function _linear_constrained_output!(y, f, a, x, γ, ν::T) where {T}
   @inbounds for i in eachindex(IndexLinear(), y, x)
     γᵢ = convert(T, _entry(γ, i))
-    y[i] = convert(eltype(y), prox_entry(f, x[i] - γᵢ * ν * convert(T, _entry(a, i)), i, γᵢ))
+    y[i] = convert(eltype(y), prox_block(f, x[i] - γᵢ * ν * convert(T, _entry(a, i)), i, γᵢ))
   end
   y
 end
 
 # A ridge whose entries are decided once per call. Where every γᵢλ, formed as
-# prox_entry forms it for the arguments of the search, lies in the band of the ordinary
+# prox_block forms it for the arguments of the search, lies in the band of the ordinary
 # coefficient (so none needs the scaled one of R3), and, for centers wider than the
 # model precision W, every center entry keeps its range on rounding to W, the steps are
 # wrapped, and every pass of the search and the output take the ordinary entry without
@@ -646,7 +646,7 @@ function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, ::Val{S}) where {
     aᵢ = convert(T, _entry(a, i))
     γᵢ = convert(T, _entry(γ, i))
     v = x[i] - γᵢ * ν * aᵢ
-    z, dz = S ? _prox_entry_slope(f, v, i, γᵢ) : (prox_entry(f, v, i, γᵢ), zero(T))
+    z, dz = S ? _prox_block_slope(f, v, i, γᵢ) : (prox_block(f, v, i, γᵢ), zero(T))
     t = aᵢ * convert(T, z)
     s += t
     m += abs(t)
@@ -696,7 +696,7 @@ _gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, ::Val{false
   ((φ, m) = _constraint_gap(c, x, ν, γ, b); (φ, m, T(NaN)))
 
 # The multiplier of the constraint, a root of φ, which is nonincreasing because
-# each prox_entry is nondecreasing in its argument; for a halfspace, 0 when the
+# each prox_block is nondecreasing in its argument; for a halfspace, 0 when the
 # proximal point of f satisfies the constraint. The search starts from the
 # multiplier of the last call, and from 0 at the first call or when that was
 # an inactive halfspace.
@@ -944,7 +944,7 @@ struct _Reindexed{F, V}
   f::F
   I::V
 end
-Base.@propagate_inbounds prox_entry(g::_Reindexed, v::Real, j::Integer, γ::Real) = prox_entry(g.f, v, g.I[j], γ)
+Base.@propagate_inbounds prox_block(g::_Reindexed, v::Real, j::Integer, γ::Real) = prox_block(g.f, v, g.I[j], γ)
 
 # fixes the entries at the bottom (low) or the top of their ranges at ν when a
 # sample shows that few stay live; if it does not, the next sample waits for a
@@ -989,7 +989,7 @@ Base.@propagate_inbounds function _at_end(f, Xs, As, Gs, Is, j, ν::T, low::Bool
   i = Is === nothing ? j : Is[j]
   aᵢ = convert(T, _entry(As, j))
   γᵢ = convert(T, _entry(Gs, j))
-  _at_end(f, prox_entry(f, Xs[j] - γᵢ * ν * aᵢ, i, γᵢ), aᵢ, i, low)
+  _at_end(f, prox_block(f, Xs[j] - γᵢ * ν * aᵢ, i, γᵢ), aᵢ, i, low)
 end
 
 # the scalar proximal operator of f where it sits at an end, and 0 elsewhere:
@@ -999,8 +999,8 @@ struct _AtEnd{F, A}
   a::A          # the normal, by index
   low::Bool
 end
-Base.@propagate_inbounds function prox_entry(g::_AtEnd, v::Real, i::Integer, γ::Real)
-  z = prox_entry(g.f, v, i, γ)
+Base.@propagate_inbounds function prox_block(g::_AtEnd, v::Real, i::Integer, γ::Real)
+  z = prox_block(g.f, v, i, γ)
   ifelse(_at_end(g.f, z, _entry(g.a, i), i, g.low), z, zero(z))
 end
 
@@ -1075,7 +1075,7 @@ end
 
 # The range [L, U] of the scalar proximal operator, in the type S of its value,
 # with ±Inf for an open end; _has_prox_range is true where an end may be finite.
-# prox_entry must return the end itself where it reaches it, and be
+# prox_block must return the end itself where it reaches it, and be
 # nondecreasing in v as computed.
 _has_prox_range(::Type{<:AbstractFunction}) = false
 for F in (:IndBox, :IndNonnegative, :NormL1Nonneg, :BoxConstrained)
@@ -1267,9 +1267,9 @@ end
 ####################################
 
 # Whether the scalar proximal operators of a separable function are piecewise
-# linear, with _prox_entry_slope(f, v, i, γ) giving prox_entry(f, v, i, γ) and
+# linear, with _prox_block_slope(f, v, i, γ) giving prox_block(f, v, i, γ) and
 # its slope at v, on either side at a kink. The value must be that of
-# prox_entry, computed the same way.
+# prox_block, computed the same way.
 _has_prox_slope(::Type{<:AbstractFunction}) = false
 
 for F in (:ZeroFunction, :LinearFunction, :SqrNormL2, :NormL1, :NormL1Nonneg, :ElasticNet, :IndBox, :IndNonnegative)
@@ -1282,26 +1282,26 @@ _has_prox_slope(::Type{<:BoxConstrained{F}}) where {F} = _has_prox_slope(F)
 
 @inline _slope(c::Bool, s::T) where {T} = ifelse(c, s, zero(T))
 
-@inline _prox_entry_slope(f::ZeroFunction, v::T, i::Integer, γ::Real) where {T<:Real} =
-  (prox_entry(f, v, i, γ), one(float(T)))
-Base.@propagate_inbounds _prox_entry_slope(f::LinearFunction, v::T, i::Integer, γ::Real) where {T<:Real} =
-  (prox_entry(f, v, i, γ), one(float(T)))
-# the slope is the weight prox_entry applies to the argument, also where γλ leaves the
+@inline _prox_block_slope(f::ZeroFunction, v::T, i::Integer, γ::Real) where {T<:Real} =
+  (prox_block(f, v, i, γ), one(float(T)))
+Base.@propagate_inbounds _prox_block_slope(f::LinearFunction, v::T, i::Integer, γ::Real) where {T<:Real} =
+  (prox_block(f, v, i, γ), one(float(T)))
+# the slope is the weight prox_block applies to the argument, also where γλ leaves the
 # range of the model type; _OrdinaryRidge takes the ordinary weight, as the tested route does
-Base.@propagate_inbounds _prox_entry_slope(f::SqrNormL2, v::Real, i::Integer, γ::Real) = _ridge_prox_slope(f, v, i, γ)
-Base.@propagate_inbounds _prox_entry_slope(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) = _ridge_prox_slope(r, v, i, γ)
-Base.@propagate_inbounds function _prox_entry_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds _prox_block_slope(f::SqrNormL2, v::Real, i::Integer, γ::Real) = _ridge_prox_slope(f, v, i, γ)
+Base.@propagate_inbounds _prox_block_slope(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) = _ridge_prox_slope(r, v, i, γ)
+Base.@propagate_inbounds function _prox_block_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   # a fixed entry has an infinite threshold, so its slope is zero
   z, t = _l1_prox_threshold(v, γ, f.λ0, _entry(f.w, i), S)
   z, _slope(abs(v) > t, one(S))
 end
-Base.@propagate_inbounds function _prox_entry_slope(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function _prox_block_slope(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   t = _weight_product(S, γ, f.λ0, _entry(f.w, i))
   max(v - t, zero(S)), _slope(v > t, one(S))
 end
-Base.@propagate_inbounds function _prox_entry_slope(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function _prox_block_slope(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
   r = _typed_product(S, γ, f.λ2)
@@ -1317,29 +1317,29 @@ end
   t = _weight_coefficient(S, γ, f.λ1, w)
   _elastic_ridge_wide(S, shrink(v, t), γ, f.λ2, r), _slope(abs(v) > t, _elastic_slope_wide(S, γ, f.λ2, r))
 end
-Base.@propagate_inbounds function _prox_entry_slope(f::IndBox, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function _prox_block_slope(f::IndBox, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   l, u = convert(S, _entry(f.l, i)), convert(S, _entry(f.u, i))
   clamp(convert(S, v), l, u), _slope((v > l) & (v < u), one(S))
 end
-@inline _prox_entry_slope(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} =
+@inline _prox_block_slope(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} =
   (max(float(v), zero(float(T))), _slope(v > 0, one(float(T))))
-Base.@propagate_inbounds function _prox_entry_slope(s::Scaled, v::Real, i::Integer, γ::Real)
+Base.@propagate_inbounds function _prox_block_slope(s::Scaled, v::Real, i::Integer, γ::Real)
   if _nested_route(s, γ)
     g, step, _ = _nested_step(s, γ)
-    return _prox_entry_slope(g, v, i, step)
+    return _prox_block_slope(g, v, i, step)
   end
-  _prox_entry_slope(s.f, v, i, s.α * γ)
+  _prox_block_slope(s.f, v, i, s.α * γ)
 end
-Base.@propagate_inbounds _prox_entry_slope(t::Tilt, v::Real, i::Integer, γ::Real) =
-  _prox_entry_slope(t.f, v - γ * t.c[i], i, γ)
-Base.@propagate_inbounds function _prox_entry_slope(t::Translate, v::Real, i::Integer, γ::Real)
-  z, dz = _prox_entry_slope(t.f, v - t.b[i], i, γ)
+Base.@propagate_inbounds _prox_block_slope(t::Tilt, v::Real, i::Integer, γ::Real) =
+  _prox_block_slope(t.f, v - γ * t.c[i], i, γ)
+Base.@propagate_inbounds function _prox_block_slope(t::Translate, v::Real, i::Integer, γ::Real)
+  z, dz = _prox_block_slope(t.f, v - t.b[i], i, γ)
   t.b[i] + z, dz
 end
-Base.@propagate_inbounds function _prox_entry_slope(c::BoxConstrained, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function _prox_block_slope(c::BoxConstrained, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  z, dz = _prox_entry_slope(c.f, v, i, γ)
+  z, dz = _prox_block_slope(c.f, v, i, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
   clamp(convert(S, z), l, u), _slope((z > l) & (z < u), convert(S, dz))
 end

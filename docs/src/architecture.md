@@ -17,7 +17,7 @@ its internal implementation.
 | What mathematical function is represented? | `AbstractFunction` and its concrete subtypes | Losses, penalties, sets and wrappers |
 | Which operations does it support? | Capability traits and callable oracles | [Operations on functions](operations.md) |
 | Can an update act on one entry or group? | `SeparableFunction`, grouped penalties and coordinate methods | [Coordinate descent](@ref) |
-| How is the iterate stored? | `SparseIterate`, `SymmetricSparseIterate`, `AtomIterate` | [Sparse iterates](@ref) |
+| How is the iterate stored? | `SparseIterate`, `SymmetricSparseIterate`, `BlockIterate` | [Sparse iterates](@ref) |
 | Does an operation transform or delegate to another function? | Composition wrappers | [Functions built from functions](@ref) |
 | Who owns temporary state? | Function-owned buffers and decomposition workspaces | [State and device methods](@ref architecture-state) |
 | In which precision, and what about overflow and NaN? | Per-result model precision and range helpers | [Numerical policy](@ref architecture-numerics) |
@@ -45,7 +45,7 @@ explain the implementation and are not additional public extension points.
 [Mermaid source](assets/architecture/01-types.mmd).
 
 `SeparableFunction` supplies entrywise operations such as `value_entry` and
-`prox_entry`. Group penalties instead update blocks; the internal
+`prox_block`. Group penalties instead update blocks; the internal
 `HomogeneousGroupNorm` subtype identifies the positively homogeneous group
 norms used by shared kernels. `GroupMCP` and `GroupSCAD` use a different
 mathematical rule and are not homogeneous group norms.
@@ -80,9 +80,9 @@ which lets a caller reuse work. The default `gradient!` delegates to
 
 | Example call | Principal computational path |
 |:---|:---|
-| `prox!(y, NormL1(λ), x, γ)` | Separable array method → `prox_entry` → soft thresholding |
+| `prox!(y, NormL1(λ), x, γ)` | Separable array method → `prox_block` → soft thresholding |
 | `value_and_prox!` for a group norm | Group method → group norm and shrinkage kernels → value at the output |
-| `prox_coordinate!` on an `AtomIterate` | Stored-coordinate lookup → scalar or group update, depending on the penalty |
+| `prox_block!(out, g, u, k, γ)` | Penalty group lookup → shared numerical group kernel → compact output buffer |
 | `gradient!` for a `GLMLoss` | Linear predictor → scalar loss derivatives → transpose-design multiplication |
 | `hessian_vec!` for a `GLMLoss` | Scalar second derivatives → weighted design products |
 | `quadratic_model` for a `GLMLoss` | Working response and curvature weights → weighted least-squares model |
@@ -123,7 +123,7 @@ not create a general standalone conjugate-value solver. Where the inner point
 functions and cones, the ℓ2 ball and the box, their translations and positive
 rescalings, and the double conjugate), the input is never divided by the step,
 and the result has the accuracy of a unit step, about eps times the largest
-input entry; with array steps and in `prox_entry` this covers only the
+input entry; with array steps and in `prox_block` this covers only the
 indicator conjugates of separable functions, the box and the double conjugate.
 The other conjugates check that a finite input gives a finite result before
 writing.
@@ -135,7 +135,7 @@ Representative source: [basic wrappers](https://github.com/mlakolar/ProximalBase
 
 ## [Iterates and coordinate storage](@id architecture-storage)
 
-![SparseIterate and AtomIterate subtype Julia arrays and contain entry maps or active group data. SymmetricSparseIterate is not an array: it stores the lower triangle, and its coordinates and matrix views are the array handles.](assets/architecture/04-storage-device.svg)
+![SparseIterate and BlockIterate subtype Julia arrays and contain entry maps or active group data. SymmetricSparseIterate is not an array: it stores the lower triangle, and its coordinates and matrix views are the array handles.](assets/architecture/04-storage-device.svg)
 
 [Mermaid source](assets/architecture/04-storage-device.mmd).
 
@@ -143,7 +143,7 @@ Representative source: [basic wrappers](https://github.com/mlakolar/ProximalBase
 stores the lower triangle of a symmetric matrix; one stored off-diagonal
 coordinate represents two matrix entries. It is not an array: `coordinates(x)` is
 its vector of variables and `matrixview(x)` its read-only matrix, and the two index
-differently, so a matrix linear index is not a coordinate. `AtomIterate` stores dense
+differently, so a matrix linear index is not a coordinate. `BlockIterate` stores dense
 data together with the active groups used by block updates.
 
 Coordinate methods translate a storage coordinate into the appropriate entry
@@ -152,7 +152,7 @@ loops. See [Sparse iterates](@ref) before mixing storage coordinates with array
 indices.
 
 Representative source: [sparse and symmetric storage](https://github.com/mlakolar/ProximalBase.jl/blob/6004c42d90e51f2410eb8147b454f2ad16e25bdc/src/sparse_iterate.jl),
-[atom storage and updates](https://github.com/mlakolar/ProximalBase.jl/blob/6004c42d90e51f2410eb8147b454f2ad16e25bdc/src/atom_iterate.jl).
+[historical grouped-storage source](https://github.com/mlakolar/ProximalBase.jl/blob/6004c42d90e51f2410eb8147b454f2ad16e25bdc/src/atom_iterate.jl).
 
 ## [Matrix decompositions](@id architecture-spectral)
 

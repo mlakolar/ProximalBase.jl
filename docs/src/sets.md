@@ -190,7 +190,7 @@ reach its tolerance it falls back to the full decomposition (`fallback = false` 
 instead). The rank-``k`` Fantope has only the exact path, because one Krylov vector cannot
 find all of a repeated eigenvalue's eigenspace.
 
-**Memory.** Four quantities differ: the storage of the returned atom (the storage column above);
+**Memory.** Four quantities differ: the storage of the returned blockview (the storage column above);
 the workspace retained in the set object; the Julia heap bytes allocated by one call (what
 `@allocated` and BenchmarkTools report); and the peak resident memory of the process. The first
 three are not the peak, which has to be measured on the process.

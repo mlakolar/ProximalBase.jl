@@ -246,13 +246,13 @@ end
                         (x -> dot(view([NaN, 1.0, 0.0], [1, 2]), x), NaN), (x -> sum(x .* [NaN, 1.0]), NaN))
     @test isequal(f(s), f(Vector(s))) && isequal(f(s), expected)
   end
-  a = AtomIterate(4, [1:2, 3:4]); a[3] = 1.0; activate!(a, 1)      # an active group of zeros
+  a = BlockIterate(4, [1:2, 3:4]); a[3] = 1.0; activate!(a, 1)      # an active group of zeros
   for f in (x -> sparse([NaN 0.0 1.0 0.0]) * x, x -> dot(sparsevec([1, 3], [NaN, 1.0], 4), x),
             x -> transpose(permutedims([NaN 0.0 1.0 0.0])) * x)
     @test isequal(f(a), f(Vector(a))) && all(isnan, f(a))
   end
   # the boundary is the object a call returns: vec of a vector is the iterate itself
-  s0 = SparseIterate([0.0, 1.0]); b0 = AtomIterate([0.0, 1.0], [1:1, 2:2])
+  s0 = SparseIterate([0.0, 1.0]); b0 = BlockIterate([0.0, 1.0], [1:1, 2:2])
   @test vec(s0) === s0 && vec(b0) === b0
   @test dot([NaN, 1.0], vec(s0)) == dot([NaN, 1.0], s0) == 1.0
   @test dot([NaN, 1.0], vec(b0)) == 1.0
@@ -260,8 +260,8 @@ end
   @test isnan(dot([NaN, 1.0], coordinates(s0)))
   m = SparseIterate(2, 2); m[2, 2] = 1.0
   @test isnan(dot([NaN, 0.0, 0.0, 1.0], vec(m)))
-  a2 = AtomIterate(4, [1:2, 3:4]); a2[2] = 1.0
-  @test isequal(dot(atom(a2, 1), [NaN, 1.0]), dot([0.0, 1.0], [NaN, 1.0])) && isnan(dot(atom(a2, 1), [NaN, 1.0]))
+  a2 = BlockIterate(4, [1:2, 3:4]); a2[2] = 1.0
+  @test isequal(dot(blockview(a2, 1), [NaN, 1.0]), dot([0.0, 1.0], [NaN, 1.0])) && isnan(dot(blockview(a2, 1), [NaN, 1.0]))
   # the owner's view outside M1's item 5: the matrix-matrix mul! and dot with a matrix
   X = SymmetricSparseIterate(3); X[2, 2] = 1.0; activate!(X, tril_index(3, 3, 1))
   M = [1.0 2.0 NaN; 2.0 3.0 4.0; NaN 4.0 5.0]

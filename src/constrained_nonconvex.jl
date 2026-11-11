@@ -58,11 +58,11 @@ Constrained(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, C::IndBox) =
   BoxConstrained(c.f, _intersect_boxes(c.box, C))
 Constrained(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, ::IndNonnegative) = Constrained(c, IndBox(0.0, Inf))
 
-Base.@propagate_inbounds prox_entry(c::BoxConstrained{<:Union{MCP, SCAD}}, v::Real, i::Integer, γ::Real) =
+Base.@propagate_inbounds prox_block(c::BoxConstrained{<:Union{MCP, SCAD}}, v::Real, i::Integer, γ::Real) =
   _box_entry(c, v, i, γ, Val(true))
 # NormL0 written out: through _box_entry the compiler no longer vectorizes the
 # loop of a box with bounds per entry. The same values as _box_entry(…, Val(true)).
-Base.@propagate_inbounds function prox_entry(c::BoxConstrained{<:NormL0}, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(c::BoxConstrained{<:NormL0}, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
   x = convert(S, v)
@@ -74,7 +74,7 @@ Base.@propagate_inbounds function _box_entry(c::BoxConstrained{<:MCP}, v::T, i::
   S = float(T)
   f, s = c.f, convert(S, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
-  s < f.a && return clamp(prox_entry(f, fixed ? _box_fixed_nan(c, v, l, u) : v, i, γ), l, u)
+  s < f.a && return clamp(prox_block(f, fixed ? _box_fixed_nan(c, v, l, u) : v, i, γ), l, u)
   x, b = convert(S, v), convert(S, f.a) * convert(S, f.λ)
   # concave (linear for γ = a) between the kinks 0 and ±aλ, flat beyond, where
   # the vertex is x
@@ -85,7 +85,7 @@ Base.@propagate_inbounds function _box_entry(c::BoxConstrained{<:SCAD}, v::T, i:
   S = float(T)
   f, s = c.f, convert(S, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
-  s < f.a - 1 && return clamp(prox_entry(f, fixed ? _box_fixed_nan(c, v, l, u) : v, i, γ), l, u)
+  s < f.a - 1 && return clamp(prox_block(f, fixed ? _box_fixed_nan(c, v, l, u) : v, i, γ), l, u)
   x, λ = convert(S, v), convert(S, f.λ)
   b = convert(S, f.a) * λ
   # λ|t| up to λ, with the vertices x ∓ sλ; concave (or linear) between λ and aλ;
@@ -151,7 +151,7 @@ end
   T, S = eltype(y), float(eltype(x))
   @inbounds for i in eachindex(IndexLinear(), y, x)
     l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
-    y[i] = convert(T, clamp(prox_entry(c.f, x[i], i, γ), l, u))
+    y[i] = convert(T, clamp(prox_block(c.f, x[i], i, γ), l, u))
   end
   y
 end

@@ -321,7 +321,7 @@ product underflows, is subnormal or overflows, the wrappers stay nested: T5 forb
 turning a finite positive scale into zero or `Inf`, and a merged scale would no
 longer say what `a` and `b` said. Each oracle then forms its coefficient from all the
 factors, with the exponent applied last (R3): the value, gradient, `prox!`,
-`value_and_prox!`, `prox_entry`, the step checks, array steps, the optimality
+`value_and_prox!`, `prox_block`, the step checks, array steps, the optimality
 violation, the Lipschitz constants and the Hessian product take the product of the
 chain; the steps of a proximal operator pass the product of the factors and the
 step to the function when that is a normal number, and otherwise fold the exponent into the
@@ -423,7 +423,7 @@ precision; where one grows with the dimension, the function says how.
 
 | decision | obligation |
 |:---|:---|
-| entrywise threshold, clamp or tie on the model's operands | an exact comparison, with the documented tie and no tolerance. Every path (`prox_entry`, `prox_coordinate!`, the whole array, aliased `prox!(x, f, x, γ)`) and every backend decides the same |
+| entrywise threshold, clamp or tie on the model's operands | an exact comparison, with the documented tie and no tolerance. Every path (`prox_block`, `prox_block!`, the whole array, aliased `prox!(x, f, x, γ)`) and every backend decides the same |
 | closed form on a computed reduction, such as a group norm | the same exact comparison, on the reduction as computed. Two paths or backends decide the same whenever the margin exceeds the reductions' error bound (A1); within that margin, either result is allowed. This describes the uncertainty, and adds no band to the comparison |
 | decision in an iterative search | certified under A3 |
 | spectral decision inside its band | returned as computed, under A5 |
@@ -791,7 +791,7 @@ positive and finite in every entry (see
 
 **P2. Step types.** Steps are validated in their given type. The effective
 step, such as `γλ`, is a combined expression under T3 and R3. Every route
-treats the step the same way: `prox!`, `value_and_prox!`, [`prox_entry`](@ref)
+treats the step the same way: `prox!`, `value_and_prox!`, [`prox_block`](@ref)
 and the checks of block functions before they write.
 
 The reciprocal `1/γ` that [`Conjugate`](@ref) needs in Moreau's identity is such
@@ -848,11 +848,11 @@ change of class among finite, `Inf` and NaN is not allowed.
 proximal operators of `Translate` and `Tilt` round to `D` between stages.
 
 - *Lipschitz inner maps.* The difference between `prox!` and entrywise
-  `prox_entry` is bounded per wrapper: each stage's rounding error, in that
+  `prox_block` is bounded per wrapper: each stage's rounding error, in that
   stage's scale, is propagated with the stage's amplification factor (one for a
   nonexpansive stage), and the errors add up over the nesting depth.
   `Translate(NormL1(1.0), [1e8])` at `[0.5]` gives `Float32[0]` from `prox!`
-  and `1.5` from `prox_entry`, within `eps(Float32)·1e8`.
+  and `1.5` from `prox_block`, within `eps(Float32)·1e8`.
 - *Discontinuous inner maps.* The staged problem and its tie rule are
   promised, not closeness to the unstaged point.
   `Translate(NormL0(0.5), [-2^-26])` at `1.0` with a unit step gives
@@ -867,7 +867,7 @@ Neither is a numerical bug.
 
 **O6. Outputs after a failure.** These guarantees cover the methods that
 ProximalBase defines. A Base or LinearAlgebra function applied to a wrapper of
-an iterate (`view`, `reshape`, `vec`, `atom`) behaves as it does on the same
+an iterate (`view`, `reshape`, `vec`, `blockview`) behaves as it does on the same
 wrapper of a plain array of the same element type, and applied to
 `coordinates(x)` as it does on a plain vector of that element type holding the
 same entries: a conversion that throws can leave a partial write.
@@ -922,15 +922,15 @@ methods are exactly these:
 1. `dot(v::StridedVector, x::SparseIterate{T,1})`,
    `dot(x::SparseIterate{T,1}, v::StridedVector)` and
    `dot(x::SparseIterate{T,1}, y::SparseIterate{T,1})`;
-2. `dot(v, x::AtomIterate)` for `v` a `StridedVector`, a
-   `SparseIterate{T,1}` or an `AtomIterate`, and `dot(x::AtomIterate, v)`
+2. `dot(v, x::BlockIterate)` for `v` a `StridedVector`, a
+   `SparseIterate{T,1}` or a `BlockIterate`, and `dot(x::BlockIterate, v)`
    for `v` a `StridedVector` or a `SparseIterate{T,1}`;
 3. `dot(a::StridedVector, X::SparseIterate{T,2}, b::StridedVector)`;
 4. `mul!(out, A, x)`, its five-argument form and `A * x`, for
    `x::SparseIterate{T,1}` with `A` a `StridedMatrix`, a transposed or
    adjoint `StridedMatrix`, or a `Symmetric` strided matrix; for
    `x::SparseIterate{T,2}` with `A` a `StridedMatrix` or a `Symmetric`
-   strided matrix; and for `x::AtomIterate` with `A` a `StridedMatrix` or a
+   strided matrix; and for `x::BlockIterate` with `A` a `StridedMatrix` or a
    `Symmetric` strided matrix;
 5. for a `SymmetricSparseIterate` `X`: `mul!(y, matrixview(X), v)` and its
    five-argument form, and `matrixview(X) * v`, which reaches that `mul!`;
@@ -956,11 +956,11 @@ through one of them at an iterate argument, such as `LeastSquaresLoss` at a
 itself, which includes `vec(x)` of a vector and `reshape(x, length(x))`,
 since Base returns `x` for those, and to the `matrixview(X)` products of
 item 5. Every other object built from an iterate (`view(x, …)`,
-`atom(x, k)`, `coordinates(x)`, `activevalues(x)`, `vec(x)` of a matrix, a
+`blockview(x, k)`, `coordinates(x)`, `activevalues(x)`, `vec(x)` of a matrix, a
 `reshape` to another shape, and `matrixview(X)` in any other product) is an
 ordinary vector or matrix and follows IEEE arithmetic, as does a product
 that ProximalBase does not define, such as `sparse(A) * x`,
-`Diagonal(d) * x`, `transpose(A) * x` for an `AtomIterate`, or
+`Diagonal(d) * x`, `transpose(A) * x` for a `BlockIterate`, or
 `sum(x .* v)`. Scaling an iterate by a number (`rmul!`,
 `lmul!`, `rdiv!`, `ldiv!`) is not among these products either: it follows
 IEEE arithmetic, as `x .*= s` does.

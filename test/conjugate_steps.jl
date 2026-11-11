@@ -120,7 +120,7 @@ end
   for f in (IndBallL2(1e39), IndBox(-1e39, 1e39))
     y = prox!(zeros(Float32, 1), Conjugate(f), Float32[1f30], 1e-10)
     @test y ≈ Float32[9f29] rtol = 4eps(Float32)
-    @test prox_entry(Conjugate(IndBox(-1e39, 1e39)), 1f30, 1, 1f-10) ≈ 9f29 rtol = 4eps(Float32)
+    @test prox_block(Conjugate(IndBox(-1e39, 1e39)), 1f30, 1, 1f-10) ≈ 9f29 rtol = 4eps(Float32)
   end
   # at γ = 1 the dilated radius overflows to Inf32: x is inside, the result is 0
   @test prox!(zeros(Float32, 1), Conjugate(IndBallL2(1e39)), Float32[1f30], 1.0) == Float32[0]
@@ -153,7 +153,7 @@ end
   @test y == expected
   @test_throws DimensionMismatch prox!(similar(x), twice, x, [1.0])
   for v in (3.0, 0.5, -2.0), step in (1e-310, 1.0, 7.0)
-    @test prox_entry(twice, v, 1, step) == prox_entry(NormL1(), v, 1, step)
+    @test prox_block(twice, v, 1, step) == prox_block(NormL1(), v, 1, step)
   end
   # array steps for a double conjugate of a fallback: f** = f, no division
   f = Conjugate(Conjugate(ElasticNet(0.4, 0.7)))
@@ -265,27 +265,27 @@ end
       @test all(i -> within_ulps(out[i], refs[i], T), eachindex(x))
       alias || @test input == x
       for i in eachindex(x)
-        e = prox_entry(c, x[i], i, γ)
+        e = prox_block(c, x[i], i, γ)
         @test within_ulps(e, refs[i], typeof(e))
       end
     end
   end
 end
 
-@testset "prox_entry" begin
+@testset "prox_block" begin
   for γ in steps, v in (0.0, 0.5, -3.0, 2.0)
-    @test prox_entry(Conjugate(NormL1()), v, 1, γ) == clamp(v, -1, 1)
-    @test prox_entry(Conjugate(IndNonnegative()), v, 1, γ) == min(v, 0)
+    @test prox_block(Conjugate(NormL1()), v, 1, γ) == clamp(v, -1, 1)
+    @test prox_block(Conjugate(IndNonnegative()), v, 1, γ) == min(v, 0)
     for f in (IndBox(-1.0, 2.0), IndBox([-Inf, -1.0], [Inf, 0.5]), IndBallLinf(1.0)), i in 1:2
       x = fill(v, 2)
-      @test prox_entry(Conjugate(f), v, i, γ) == prox(Conjugate(f), x, γ)[i]
+      @test prox_block(Conjugate(f), v, i, γ) == prox(Conjugate(f), x, γ)[i]
     end
   end
   # the fallback never throws
-  @test prox_entry(Conjugate(SqrHingeLoss()), 1.0, 1, 1e-310) isa Float64
+  @test prox_block(Conjugate(SqrHingeLoss()), 1.0, 1, 1e-310) isa Float64
   f = ElasticNet(0.4, 0.7)
-  @test prox_entry(Conjugate(f), 1.0, 1, 1e-310) isa Float64
-  @test prox_entry(Conjugate(f), 1.5, 1, 0.3) == 1.5 - 0.3 * prox_entry(f, 1.5 / 0.3, 1, inv(0.3))
+  @test prox_block(Conjugate(f), 1.0, 1, 1e-310) isa Float64
+  @test prox_block(Conjugate(f), 1.5, 1, 0.3) == 1.5 - 0.3 * prox_block(f, 1.5 / 0.3, 1, inv(0.3))
 end
 
 @testset "values" begin

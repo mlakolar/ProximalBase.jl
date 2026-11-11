@@ -111,7 +111,7 @@ isconvex(::Type{<:NegEntropy}) = true
   t > 0 ? S(f.λ) * t * log(t) : (iszero(t) ? zero(S) : S(Inf))
 end
 
-@inline function prox_entry(f::NegEntropy, v::T, ::Integer, γ::Real) where {T<:Real}
+@inline function prox_block(f::NegEntropy, v::T, ::Integer, γ::Real) where {T<:Real}
   S = float(T)
   _entropy_prox(S(v), S(γ), S(f.λ), one(S))
 end
@@ -163,7 +163,7 @@ Base.@propagate_inbounds function value_entry(f::KLDivergence, v::T, i::Integer)
   iszero(t) ? S(f.λ) * q : S(Inf)
 end
 
-Base.@propagate_inbounds function prox_entry(f::KLDivergence, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(f::KLDivergence, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   q = S(_entry(f.q, i))
   _entropy_prox(S(v), S(γ), S(f.λ), -log(q), q)
@@ -199,7 +199,7 @@ isconvex(::Type{<:NegLog}) = true
   t > 0 ? -S(f.λ) * log(t) : S(Inf)
 end
 
-@inline function prox_entry(f::NegLog, v::T, ::Integer, γ::Real) where {T<:Real}
+@inline function prox_block(f::NegLog, v::T, ::Integer, γ::Real) where {T<:Real}
   S = float(T)
   root_step = sqrt(S(γ)) * sqrt(S(f.λ))
   _logbarrier_root_half(S(v) / 2, root_step)
@@ -425,7 +425,7 @@ function _bernoulli_prox(v::T, b::T, γ::T, w::T) where {T<:AbstractFloat}
   reflected ? 1 - t : t
 end
 
-Base.@propagate_inbounds function prox_entry(f::BernoulliLoss, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(f::BernoulliLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   R = float(T)
   b, w = _entry(f.b, i), _entry(f.w, i)
   (isnan(v) || isnan(γ)) && return R(NaN)
@@ -498,7 +498,7 @@ Base.@propagate_inbounds function _value_entry_ordinary(f::Berhu, v::T, i::Integ
 end
 _has_ordinary_value(::Type{<:Berhu}) = true
 
-Base.@propagate_inbounds function prox_entry(f::Berhu, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(f::Berhu, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
   # Avoid rounding or overflow in the upper branch of an identity prox.

@@ -45,7 +45,7 @@ boxes(T) = (IndBox(T(-2), T(2)), IndBox(T(1), T(2)), IndBox(T(1), T(1)), IndBox(
   for (name, mk) in penalties(T), λ in (0, 1, Inf), B in boxes(T), γ in T.((0, 0.5, 1, 5, Inf))
     c = Constrained(mk(λ), B)
     expected = ref_box_nan(name, λ, B.l, B.u, γ, T)
-    @test same(prox_entry(c, T(NaN), 1, γ), expected)
+    @test same(prox_block(c, T(NaN), 1, γ), expected)
     # NaN first, in the middle and last, and two NaNs; the finite entries are those of the
     # proximal map at the same vector with the NaN replaced (the map is separable)
     for x in (T[NaN, 1.5, -0.5], T[1.5, NaN, -0.5], T[1.5, -0.5, NaN], T[NaN, 1.5, NaN])
@@ -276,27 +276,27 @@ group_rows(T) = (T[NaN, 1, 2, 3], T[NaN, 1, 0, 0], T[1, NaN, 2, 3], T[1, 2, 3, N
   @test same(DistL2(f)(T[NaN, 1, 2, 3]), T(NaN))
 end
 
-@testset "IndBallGroupL0 on an AtomIterate at NaN, $T" for T in (Float32, Float64)
+@testset "IndBallGroupL0 on a BlockIterate at NaN, $T" for T in (Float32, Float64)
   groups = [1:2, 3:4, 5:6]
   for s in (0, 1, 2, 3), k in (nothing, 1),
       x0 in (T[NaN, 1, 2, 3, 0, 0], T[NaN, 1, 0, 0, 0, 0], T[0, 0, 2, NaN, 0, 0], T[1, 0, 2, 3, 0, 0])
     f = IndBallGroupL0(s, groups; k)
     dense = prox(f, x0)
-    a = AtomIterate(x0, groups)
-    b = AtomIterate(zeros(T, 6), groups)
+    a = BlockIterate(x0, groups)
+    b = BlockIterate(zeros(T, 6), groups)
     @test same(Vector(prox!(b, f, a, one(T))), dense)
     @test nactive(b) == count(G -> any(!iszero, dense[G]), groups)
     @test same(f(a), f(x0))
-    b = AtomIterate(zeros(T, 6), groups)
+    b = BlockIterate(zeros(T, 6), groups)
     @test same(value_and_prox!(b, f, a, one(T)), value_and_prox!(similar(x0), f, x0, one(T)))
     @test same(Vector(b), dense)
   end
   # iterates whose groups differ from those of f take the dense route
   f = IndBallGroupL0(1, groups)
   x0 = T[NaN, 1, 2, 3, 0, 0]
-  a = AtomIterate(x0, [1:3, 4:6]); b = AtomIterate(zeros(T, 6), [1:3, 4:6])
+  a = BlockIterate(x0, [1:3, 4:6]); b = BlockIterate(zeros(T, 6), [1:3, 4:6])
   @test same(Vector(prox!(b, f, a, one(T))), prox(f, x0))
-  b = AtomIterate(zeros(T, 6), [1:3, 4:6])
+  b = BlockIterate(zeros(T, 6), [1:3, 4:6])
   @test same(value_and_prox!(b, f, a, one(T)), T(NaN)) && same(Vector(b), prox(f, x0))
 end
 

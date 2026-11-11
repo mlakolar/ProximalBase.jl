@@ -21,14 +21,14 @@ not general API discovery.
 | System design | [Package structure](@ref architecture) | Function hierarchy, traits, call paths, composition, storage and device boundaries |
 | Sparse entries | [SparseIterate internals](sparse_storage.md) | Direct addressing, compaction, state vs value copy, method inventory |
 | Independent symmetric coordinates | [Symmetric owner internals](symmetric_storage.md) | Non-array owner, coordinate mapping, matrix views, multiplicity |
-| Group coordinates | [AtomIterate internals](atom_storage.md) | Group partition, active groups, immutable layout and cache |
+| Group coordinates | [BlockIterate internals](block_storage.md) | Group partition, active groups, immutable layout and cache |
 | Julia integration | [Coordinate views and aliasing](views_aliasing.md) | Read-only handles, `dataids`/`unaliascopy`, handle lifetimes |
 | Mathematical kernels | [Function and oracle dispatch](oracle_dispatch.md) | Function traits versus method dispatch, proximal, gradient and KKT layers |
 | Engineering | [Conformance and change process](change_process.md) | Source-of-truth rules, testing, docs, CI and downstream migration |
 
 ## Authoritative contracts and acceptance criteria
 
-The four iterate-family documents below are rendered **in full** into the
+The block-prox and four iterate-family documents below are rendered **in full** into the
 documentation site at build time from `docs/design/`. The generated pages are
 not another editable copy of the contract. Links between these contracts are
 preserved; maintainer amendments in a later contract take precedence where
@@ -38,6 +38,7 @@ explicitly stated.
 |:--|:--|
 | [Iterate-family 0.6 contract](contracts/iterate-family-0.6.md) | [Family acceptance plan](contracts/iterate-family-0.6-acceptance.md) |
 | [Symmetric owner 0.6 contract](contracts/symmetric-sparse-iterate-0.6.md) | [Symmetric-owner acceptance plan](contracts/symmetric-sparse-iterate-0.6-acceptance.md) |
+| [Pure block proximal contract](contracts/block-prox-0.6.md) | [Implementation and validation](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/audit/block-prox-844/README.md) |
 | [Published numerical contract](@ref numerics) | [Numerical conformance evidence](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-contract/coverage.md) |
 
 **Read the status labels.** The design documents record 0.6 targets,
@@ -80,9 +81,9 @@ rather than making an independent rule in these explanatory pages.
 | Authoritative iterate contracts and acceptance plans | `docs/design/` |
 | Authoritative published numerical contract | `docs/src/numerics.md` |
 | Numerical decision history | `docs/design/numerical-contract/` |
-| Storage source | `src/sparse_iterate.jl`, `src/atom_iterate.jl` |
+| Storage source | `src/sparse_iterate.jl`, `src/block_iterate.jl` |
 | Function/oracle source | `src/interface.jl`, `src/functions/`, `src/calculus.jl`, `src/partial.jl` |
-| Conformance/tests | `test/conformance/`, `test/iterate_*.jl`, `test/atom_iterate.jl`, `test/symmetric_*.jl` |
+| Conformance/tests | `test/conformance/`, `test/iterate_*.jl`, `test/block_iterate.jl`, `test/symmetric_*.jl` |
 
 Generated contracts are created by `docs/make.jl`, ignored by Git, and
 should never be edited directly.

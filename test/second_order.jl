@@ -76,7 +76,7 @@ end
   @test hessian_vec(fm, randn(p, 3), ones(p, 3)) ≈ X' * (X * ones(p, 3))
   xs, vs = SparseIterate(sprandn(p, 0.4)), SparseIterate(sprandn(p, 0.4))
   @test hessian_vec(LeastSquaresLoss(y, X), xs, vs) ≈ X' * (X * Vector(vs))
-  @test hessian_vec(LeastSquaresLoss(y, X), x, AtomIterate(Vector(vs), [1:4, 5:8])) ≈ X' * (X * Vector(vs))
+  @test hessian_vec(LeastSquaresLoss(y, X), x, BlockIterate(Vector(vs), [1:4, 5:8])) ≈ X' * (X * Vector(vs))
 
   @testset "KronQuadratic" begin
     B = randn(5, 5); Bq = Matrix(Symmetric(B'B / 5))

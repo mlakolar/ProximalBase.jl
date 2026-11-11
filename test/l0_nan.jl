@@ -35,7 +35,7 @@ ref_l0_value(v, λ) = iszero(v) ? zero(v) : isnan(v) && !iszero(λ) ? oftype(v, 
     f = NormL0(λ)
     want = ref_l0_prox.(x, λ, γ)
     @test same(prox(f, x, γ), want)
-    @test same([prox_entry(f, v, i, γ) for (i, v) in enumerate(x)], want)
+    @test same([prox_block(f, v, i, γ) for (i, v) in enumerate(x)], want)
     y = fill(T(7), length(x))                       # a sentinel: every entry is overwritten
     @test prox!(y, f, x, γ) === y && same(y, want)
     z = copy(x); prox!(z, f, z, γ)                  # aliasing
@@ -47,7 +47,7 @@ ref_l0_value(v, λ) = iszero(v) ? zero(v) : isnan(v) && !iszero(λ) ? oftype(v, 
     @test same(y, want) && same(v, sum(w -> ref_l0_value(w, λ), want))
   end
   # the named cases
-  @test isnan(prox_entry(NormL0(T(1)), T(NaN), 1, T(1)))
+  @test isnan(prox_block(NormL0(T(1)), T(NaN), 1, T(1)))
   @test same(prox(NormL0(T(1)), T[NaN, 1.5], T(1)), T[NaN, 1.5])
   @test same(prox(NormL0(T(0)), T[NaN, 1.5], T(1)), T[NaN, 1.5])             # zero level: identity
   @test same(prox(NormL0(T(1)), T[NaN, 1.5], T(0)), T[NaN, 1.5])             # γ = 0: identity

@@ -83,7 +83,7 @@ for sweep in 1:100
         xj = view(X, :, j)
         old = β[j]
         z = old + dot(xj, r) / a[j]
-        new = prox_entry(g, z, j, 1 / a[j])
+        new = prox_block(g, z, j, 1 / a[j])
         if new != old
             β[j] = new
             axpy!(old - new, xj, r)  # keep r = y - Xβ for the next coordinate
@@ -92,7 +92,7 @@ for sweep in 1:100
 end
 ```
 
-Here `prox_entry` applies soft thresholding with threshold `λ / a[j]`, while
+Here `prox_block` applies soft thresholding with threshold `λ / a[j]`, while
 the iterate stores coordinates that become nonzero during the updates.
 Use `dropzeros!(β)` to remove stored entries that have returned to zero.
 

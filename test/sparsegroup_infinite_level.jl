@@ -135,23 +135,23 @@ end
   @test v === zero(T)
 end
 
-@testset "AtomIterate, $T" for T in (Float32, Float64)
+@testset "BlockIterate, $T" for T in (Float32, Float64)
   nan = T(NaN)
   for f in (SparseGroupNormL2(T(Inf), T(1), [1:2, 3:3], T[1, 1]), SparseGroupNormL2(T(Inf), T(0), [1:2, 3:3], T[1, Inf]))
     for x in (T[0, 0, 0], T[0, -0.0, -0.0], T[1, 0, 0], T[0, 0, -2], T[nan, 0, 0], T[0, 0, nan], T[nan, Inf, 0])
-      @test agree(f(AtomIterate(copy(x), f)), ref(f, x))
+      @test agree(f(BlockIterate(copy(x), f)), ref(f, x))
     end
     for x in (T[3, 4, 9], T[nan, 4, 9], T[3, 4, Inf])
       # every group is fixed at zero, also the first group of the second function (a zero group
       # level and a finite weight) at a NaN entry
-      xa = AtomIterate(copy(x), f)
-      ya = AtomIterate(fill(T(-7), 3), f)
+      xa = BlockIterate(copy(x), f)
+      ya = BlockIterate(fill(T(-7), 3), f)
       v = value_and_prox!(ya, f, xa, T(1))
       @test agree(v, f(ya))
       @test agree(v, ref(f, collect(ya)))
       @test agree(collect(ya), zeros(T, 3))
       @test v === zero(T)
-      za = AtomIterate(copy(x), f)
+      za = BlockIterate(copy(x), f)
       u = value_and_prox!(za, f, za, T(1))
       @test agree(u, f(za))
       @test agree(collect(za), collect(ya))

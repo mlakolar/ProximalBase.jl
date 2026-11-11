@@ -172,8 +172,8 @@ end
       x = T[M, 0.4M, 0.4M]
       for a in (T[1, 1, 1], T(1), up .* T[1, 1, 1]), γ in (T(1), T[1, 2, 3])
         H = F(a, 0)
-        make = (SparseIterate(x), AtomIterate(x, [1:1, 2:3]))
-        blank = (() -> SparseIterate(T, 3), () -> AtomIterate(T, 3, [1:1, 2:3]))
+        make = (SparseIterate(x), BlockIterate(x, [1:1, 2:3]))
+        blank = (() -> SparseIterate(T, 3), () -> BlockIterate(T, 3, [1:1, 2:3]))
         for (xi, new) in zip(make, blank)
           y = new()
           @test prox!(y, H, xi, γ) === y

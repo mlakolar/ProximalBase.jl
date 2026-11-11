@@ -304,7 +304,7 @@ coordinate,
 t^+ = S_{2\lambda/a}\Big(t_0 - \frac{2G_{rc}}{a}\Big).
 ```
 
-That is `prox_entry(NormL1(λ), t₀ - (2/a) G[r, c], i, 2/a)`. On the diagonal
+That is `prox_block(NormL1(λ), t₀ - (2/a) G[r, c], i, 2/a)`. On the diagonal
 the factors of 2 disappear and the step is ``1/a``. So, as the
 [`KronQuadratic`](@ref) example of the D-trace loss shows, off-diagonal
 coordinates take the step ``2/a`` where the diagonal takes ``1/a``.

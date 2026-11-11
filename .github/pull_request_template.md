@@ -6,7 +6,7 @@
 
 <!-- The plan job's summary shows the tier CI chose for the changed files. -->
 
-**Iterate change** (`src/atom_iterate.jl`, `src/sparse_iterate.jl`, `src/symmetric_parameters.jl`;
+**Iterate change** (`src/block_iterate.jl`, `src/sparse_iterate.jl`, `src/symmetric_parameters.jl`;
 see "Iterate changes" in CONTRIBUTING.md): none / narrow (label `test:iterate-narrow`) /
 shared / architectural (label `test:thorough`)
 

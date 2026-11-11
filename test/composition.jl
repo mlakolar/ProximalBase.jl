@@ -1,5 +1,7 @@
 module CompositionTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -60,7 +62,7 @@ Random.seed!(1)
       @test h(x) ≈ 0.3 * abs(a) * norm(x, 1)
       @test prox(h, x, 0.7) ≈ shrink.(x, 0.7 * 0.3 * abs(a))
       check_prox(h, x, 0.7)
-      @test [prox_entry(h, x[i], i, 0.7) for i in 1:n] ≈ prox(h, x, 0.7)
+      @test [prox_block(h, x[i], i, 0.7) for i in 1:n] ≈ prox(h, x, 0.7)
       g = randn(n)
       @test kkt_violation(h, g, 2) ≈ abs(g[2]) - 0.3 * abs(a)
       M = randn(3, 4)
@@ -83,7 +85,7 @@ end
     en = ElasticNet(0.3, 0.7)
     @test r(x) ≈ en(x)
     @test prox(r, x, 0.4) ≈ prox(en, x, 0.4)
-    @test [prox_entry(r, x[i], i, 0.4) for i in 1:n] ≈ prox(en, x, 0.4)
+    @test [prox_block(r, x[i], i, 0.4) for i in 1:n] ≈ prox(en, x, 0.4)
     @test isseparable(r) && isconvex(r) && isproximable(r) && !issmooth(r)
     check_prox(r, x, 0.4)
     g = randn(n)
@@ -104,7 +106,7 @@ end
     @test value_and_prox!(y, r, x, 0.6) ≈ r(y)
     xs = SparseIterate(sparse(x))
     for k in 1:n
-      prox_coordinate!(xs, r, k, 0.6)
+      take_block_step!(xs, r, k, 0.6)
     end
     @test Vector(xs) ≈ p
   end
@@ -113,21 +115,21 @@ end
     gn = GroupNormL2(0.6, groups)
     r = Regularize(gn, 0.5)
     p = check_prox(r, x, 0.7)
-    # on an AtomIterate, group by group
-    a = AtomIterate(x, gn)
+    # on a BlockIterate, group by group
+    a = BlockIterate(x, gn)
     for k in 1:3
-      prox_coordinate!(a, r, k, 0.7)
+      take_block_step!(a, r, k, 0.7)
     end
     @test Vector(a) ≈ p
     rc = Regularize(gn, 0.5, randn(n))
     pc = check_prox(rc, x, 0.7)
-    ac = AtomIterate(x, gn)
+    ac = BlockIterate(x, gn)
     for k in 1:3
-      prox_coordinate!(ac, rc, k, 0.7)
+      take_block_step!(ac, rc, k, 0.7)
     end
     @test Vector(ac) ≈ pc
     grad = randn(n)
-    @test kkt_violation(r, grad, AtomIterate(n, gn), 2) ≈ kkt_violation(gn, grad, AtomIterate(n, gn), 2)
+    @test kkt_violation(r, grad, BlockIterate(n, gn), 2) ≈ kkt_violation(gn, grad, BlockIterate(n, gn), 2)
   end
   @testset "the matrix elastic net" begin
     M = randn(6, 4)
@@ -217,7 +219,7 @@ a_value(f, x) = f(x)
 a_vgrad!(g, f, x) = value_and_gradient!(g, f, x)
 a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
-a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+a_cd!(x, f, k, γ) = prox_block(f, x[k], k, γ)
 
 @testset "zero allocations" begin
   n = 20
@@ -240,22 +242,22 @@ a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
   xs = SparseIterate(sprandn(n, 0.3))
   @test allocs(a_cd!, xs, Regularize(NormL1(0.3), 0.5), 3, 0.4) == 0
   gn = GroupNormL2(0.5, [1:10, 11:20])
-  @test allocs(a_cd!, AtomIterate(x, gn), Regularize(gn, 0.5), 2, 0.4) == 0
+  @test allocs(prox_block!, zeros(length(gn.groups[2])), Regularize(gn, 0.5), x[gn.groups[2]], 2, 0.4) == 0
 end
 
 @testset "regularized group validation precedes mutation" begin
   f = GroupNormL2(0.5, [1:2, 3:4])
   for r in (Regularize(f, 1.0, [1.0]),
             Regularize(GroupNormL2(0.5, [1:1, 2:4]), 1.0))
-    x = AtomIterate([1.0, 2.0, 3.0, 4.0], f)
+    x = BlockIterate([1.0, 2.0, 3.0, 4.0], f)
     before = Vector(x)
-    @test_throws DimensionMismatch prox_coordinate!(x, r, 1, 0.5)
+    @test_throws DimensionMismatch take_block_step!(x, r, 1, 0.5)
     @test Vector(x) == before
   end
-  x = AtomIterate([1.0, 2.0, 3.0, 4.0], f)
+  x = BlockIterate([1.0, 2.0, 3.0, 4.0], f)
   before = Vector(x)
-  @test_throws BoundsError prox_coordinate!(x, Regularize(f, 1.0), 0, 0.5)
-  @test_throws BoundsError prox_coordinate!(x, NormL1(), 3, 0.5)
+  @test_throws BoundsError take_block_step!(x, Regularize(f, 1.0), 0, 0.5)
+  @test_throws BoundsError take_block_step!(x, NormL1(), 3, 0.5)
   @test Vector(x) == before
 end
 
@@ -264,19 +266,19 @@ end
     r = Regularize(NormL1(one(T)), floatmax(T), ones(T, 2))
     x = zeros(T, 2)
     @test prox(r, x, T(2)) == ones(T, 2)
-    @test prox_entry(r, zero(T), 1, T(2)) == one(T)
+    @test prox_block(r, zero(T), 1, T(2)) == one(T)
     y = copy(x)
     @test prox!(y, r, y, T(2)) == ones(T, 2)
     f = GroupNormL2(one(T), [1:2], T[1])
     rg = Regularize(f, floatmax(T), ones(T, 2))
-    a = AtomIterate(x, f)
-    @test prox_coordinate!(a, rg, 1, T(2)) == ones(T, 2)
+    a = BlockIterate(x, f)
+    @test take_block_step!(a, rg, 1, T(2)) == ones(T, 2)
     @test ProximalBase._regularize_step(T(2), floatmax(T)) > zero(T)
     # Same-sign endpoints at floatmax stay finite even when weights round up.
     huge = T[floatmax(T)]
     centered = Regularize(ZeroFunction(), T(0.6), huge)
     @test prox(centered, huge, one(T)) == huge
-    @test prox_entry(centered, huge[1], 1, one(T)) == huge[1]
+    @test prox_block(centered, huge[1], 1, one(T)) == huge[1]
 
   end
 end

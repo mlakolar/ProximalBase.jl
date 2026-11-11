@@ -320,7 +320,7 @@ end
 struct NoSlope{F} <: SeparableFunction
   f::F
 end
-PB.prox_entry(g::NoSlope, v, i, γ) = prox_entry(g.f, v, i, γ)
+PB.prox_block(g::NoSlope, v, i, γ) = prox_block(g.f, v, i, γ)
 PB.value_entry(g::NoSlope, v, i) = value_entry(g.f, v, i)
 PB.isconvex(::Type{<:NoSlope}) = true
 

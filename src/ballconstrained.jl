@@ -235,7 +235,7 @@ end
 # signs of x, maximized by z ∝ the soft thresholding of x, the proximal point,
 # when an entry exceeds its threshold. Otherwise every coefficient is ≤ 0, and
 # since Σᵢ|zᵢ| ≥ ‖z‖₂ the maximum r ⋅ maxᵢ(|xᵢ| - γλwᵢ) is at one entry. The
-# thresholds are those of prox_entry, so that the two cases agree with it.
+# thresholds are those of prox_block, so that the two cases agree with it.
 value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 # Margins n - t compared without rounding errors that decide the winner:

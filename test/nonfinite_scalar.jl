@@ -52,12 +52,12 @@ const NaNx = [NaN, 1.5]
     for γ in steps
       γ = T(γ)
       # the second entry is finite and independent of the out1
-      ref2 = PB.prox_entry(f, x[2], 2, γ)
+      ref2 = PB.prox_block(f, x[2], 2, γ)
       @test isfinite(ref2)
       check(y) = out1 === :nan ? (@test isnan(y[1]); @test isequal(y[2], ref2)) :
                                   (@test isequal(y[1], zero(T)); @test isequal(y[2], ref2))
-      out1 === :nan ? @test(isnan(PB.prox_entry(f, x[1], 1, γ))) :
-                       @test(isequal(PB.prox_entry(f, x[1], 1, γ), zero(T)))
+      out1 === :nan ? @test(isnan(PB.prox_block(f, x[1], 1, γ))) :
+                       @test(isequal(PB.prox_block(f, x[1], 1, γ), zero(T)))
       y = fill(T(7), 2)                           # a sentinel the call must overwrite
       @test prox!(y, f, x, γ) === y
       check(y)
@@ -258,7 +258,7 @@ function prox_paths(f, x, γ)
   w = copy(x)
   vw = value_and_prox!(w, f, w, γ)
   @test isequal(y, z) && isequal(y, yv) && isequal(y, w) && isequal(v, vw)
-  @test isequal(y[1], PB.prox_entry(f, x[1], 1, γ))
+  @test isequal(y[1], PB.prox_block(f, x[1], 1, γ))
   (y, v)
 end
 
@@ -308,7 +308,7 @@ end
     @test isequal(y, x)                         # isequal tells -0.0 from 0.0
     @test signbit(y[4]) && !signbit(y[3])
     @test v === zero(T)
-    @test all(i -> isequal(PB.prox_entry(f, x[i], i, γ), x[i]), eachindex(x))
+    @test all(i -> isequal(PB.prox_block(f, x[i], i, γ), x[i]), eachindex(x))
   end
   # a level of zero but a NaN entry: the identity, NaN copied
   for f in (MCP(T(0), T(3)), SCAD(T(0), T(3.7)))
@@ -452,7 +452,7 @@ end
     f = MCP(T(level), T(3))
     y, v = prox_paths(f, x, γ)
     @test iszero(y) && v === zero(T)
-    @test PB.prox_entry(f, x[1], 1, γ) === zero(T)
+    @test PB.prox_block(f, x[1], 1, γ) === zero(T)
     y, v = prox_paths(f, T[NaN, 1], γ)
     @test isnan(y[1]) && y[2] === zero(T) && isnan(v)       # a NaN entry still gives NaN
   end
@@ -478,7 +478,7 @@ si_free(f) = (si = SparseIterate(2); si[1] = NaN; si[2] = 1.5; si)
       y = SparseIterate(2)
       prox!(y, f, si, γ)
       out1 === :nan ? @test(isnan(y[1])) : @test(y[1] == 0)
-      @test isequal(y[2], PB.prox_entry(f, 1.5, 2, γ))
+      @test isequal(y[2], PB.prox_block(f, 1.5, 2, γ))
       z = copy(si)
       prox!(z, f, z, γ)
       @test isequal(Vector(z), Vector(y))
@@ -487,12 +487,12 @@ si_free(f) = (si = SparseIterate(2); si[1] = NaN; si[2] = 1.5; si)
     end
     free ? @test(isfinite(f(si_free(f)))) : @test(isnan(f(si_free(f))))
   end
-  # AtomIterate, stored entries only
+  # BlockIterate, stored entries only
   for f in (CheckLoss(0.5), LogPenalty(1, 1), MCP(1, 3), SCAD(1, 3.7), HingeLoss(), MCP(0, 3), LogPenalty(0, 1))
-    a = AtomIterate(2, [1:1, 2:2]); a[1] = NaN; a[2] = 1.5
-    y = AtomIterate(2, [1:1, 2:2])
+    a = BlockIterate(2, [1:1, 2:2]); a[1] = NaN; a[2] = 1.5
+    y = BlockIterate(2, [1:1, 2:2])
     prox!(y, f, a, 1.0)
-    @test isnan(y[1]) && isequal(y[2], PB.prox_entry(f, 1.5, 2, 1.0))
+    @test isnan(y[1]) && isequal(y[2], PB.prox_block(f, 1.5, 2, 1.0))
     @test isnan(f(a)) == !(f isa Union{MCP, LogPenalty} && f.λ == 0)
   end
   # SymmetricSparseIterate: a NaN on the diagonal and an off-diagonal coordinate
@@ -500,7 +500,7 @@ si_free(f) = (si = SparseIterate(2); si[1] = NaN; si[2] = 1.5; si)
     S = SymmetricSparseIterate(2); S[1, 1] = NaN; S[2, 1] = 1.5
     y = SymmetricSparseIterate(2)
     prox!(y, f, S, 1.0)
-    r = PB.prox_entry(f, 1.5, 2, 1.0)
+    r = PB.prox_block(f, 1.5, 2, 1.0)
     @test isnan(y[1, 1]) && isequal(y[2, 1], r) && isequal(y[1, 2], r)
     v = value_and_prox!(SymmetricSparseIterate(2), f, S, 1.0)
     @test isnan(v) == !(f isa Union{MCP, LogPenalty} && f.λ == 0)

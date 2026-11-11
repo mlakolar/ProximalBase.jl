@@ -46,8 +46,8 @@ its data; its factorization type can change with the rank of `A`.
   [numerical contract](@ref numerics-oracles).
 - **Allocations.** Many built-in operations reuse their buffers for inputs of
   a fixed size and element type. The allocation tests check `f(x)`, `prox!`,
-  `value_and_prox!`, `gradient!`, `value_and_gradient!`, `prox_entry` and
-  `prox_coordinate!` on Float32 and Float64 CPU arrays after warm-up. They do
+  `value_and_prox!`, `gradient!`, `value_and_gradient!`, `prox_block` and
+  `prox_block!` on Float32 and Float64 CPU arrays after warm-up. They do
   not establish zero allocations for every array type or execution path;
   measure the method and inputs your solver uses with
   [`allocations`](@ref ProximalBase.Testing.allocations).
@@ -107,7 +107,7 @@ not yet implemented. In short:
   from `f(y)` in its last bits. The value from `value_and_gradient!` is
   `f(x)`. In mixed precision, the array proximal operators of wrappers such as
   `Translate` and `Tilt` round to the output's element type between stages,
-  so `prox!` and entrywise `prox_entry` can differ within a bound in each
+  so `prox!` and entrywise `prox_block` can differ within a bound in each
   stage's scale.
 - **Caches** follow the model precision and are rebuilt when it changes. A
   mixed call can therefore allocate: `Precompose(NuclearNorm(0.5f0), 2f0)`
@@ -294,7 +294,7 @@ the observations. The proximal operator of `LeastSquaresLoss` uses the SVD of
   the device with the argument: `Adapt.adapt(CuArray, NormL1(λ, w))` copies
   them there and checks them, as the constructor does.
 - **Your own separable functions.** A [`SeparableFunction`](@ref) whose fields
-  are numbers works as it is: its [`prox_entry`](@ref) and
+  are numbers works as it is: its [`prox_block`](@ref) and
   [`value_entry`](@ref) run inside the kernels. One that holds arrays needs an
   `Adapt.adapt_structure` method that rebuilds it with the arrays converted
   and without checks, since inside a kernel its arrays are device arrays.

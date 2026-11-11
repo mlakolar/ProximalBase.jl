@@ -13,7 +13,7 @@ for removal in 0.6. Run existing code with `--depwarn=yes` to find uses.
 | `prox!(f, y, x, γ)` | `prox!(y, f, x, γ)` |
 | `gradient!(f, g, x)` | `gradient!(g, f, x)` |
 | `value_and_gradient!(f, g, x)` | `value_and_gradient!(g, f, x)` |
-| `cdprox!(f, x, k, γ)` | `prox_coordinate!(x, f, k, γ)` |
+| `cdprox!(f, x, k, γ)` | Removed in 0.6; compute `prox_block` and write the result |
 | `DifferentiableFunction`, `ProximableFunction` | `AbstractFunction`, with explicit capability traits |
 | `ProxZero`, `ProxL1`, `ProxL2`, `ProxGroupL2` | `ZeroFunction`, `NormL1`, `NormL2`, `GroupNormL2` |
 | `ProxNuclear`, `ProxL1Fused`, `ProxGaussLikelihood` | `NuclearNorm`, `NormL1Fused`, `LogDetLoss` |
@@ -29,6 +29,32 @@ for removal in 0.6. Run existing code with `--depwarn=yes` to find uses.
 The legacy abstract-type bindings alias `AbstractFunction`; they do not
 identify smooth or proximable subsets. Query [`issmooth`](@ref) and
 [`isproximable`](@ref) instead.
+
+## Grouped storage names in 0.6
+
+**Migration from pre-rename snapshots (historical spellings):**
+
+| Removed name | Required replacement |
+|:--|:--|
+| `AtomIterate` | `BlockIterate` |
+| `atom(x,k)` | `blockview(x,k)` |
+| `atomindices(x,k)` | `blockindices(x,k)` |
+
+There are no compatibility bindings for these removed names. The iterate is
+still an `AbstractVector` with scalar entry indexing, arbitrary ordered blocks
+and a working set of block IDs. `ncoordinates` and `activecoordinates` keep
+their meanings; no `nblocks` or `activeblocks` synonyms are added. Group-penalty
+names and genuine `lmo_atom`, `VertexAtom` and `LowRankAtom` APIs are unchanged.
+Use independent output for `prox_block!`, then `copyto!(blockview(x,k),out)`.
+Complete-block copies of ordinary same-type floating buffers avoid repeated
+activation checks for active blocks. No additional bulk-write API or private
+field access is needed. Inactive all-zero results remain inactive; active
+blocks remain active even after a zero result. Read/conversion failures retain
+ordinary partial value-write semantics with consistent activity metadata.
+
+This is a PB-only change. The ProximalSolvers rename is separate work under
+[PS #238](https://github.com/mlakolar/ProximalSolvers.jl/issues/238); its existing
+source and dependency pin are not updated by this PB migration.
 
 ## Values in mixed precision
 
@@ -155,7 +181,7 @@ the earlier behavior applies.
     the check on the entries of positive weight (a zero weight leaves its entry free), and
     nothing is written before the error. A box that contains zero keeps the hard zero of an
     infinite level. Finite levels, a zero step, other penalties in the box and the standalone
-    value (`Inf` away from the domain) keep their earlier behaviour. Coordinate updates of a `SparseIterate` or an `AtomIterate`
+    value (`Inf` away from the domain) keep their earlier behaviour. Coordinate updates of a `SparseIterate` or a `BlockIterate`
     do not run the check yet.
   - `value_and_prox!` of `FiberSum(NormL1Fused(...))` on two slices, into a separate output, at a zero level,
     a zero step or a free diagonal (`diagonal = nothing`) beside a fused pair near `floatmax`, stores
@@ -380,7 +406,7 @@ must be exactly symmetric. Checked operations now throw an `ArgumentError`
 when they find different values at mirrored positions. Some calls check only
 the pairs they use; see [Symmetric parameters](@ref) for examples, the
 operation table and complete validation before a solver starts.
-Dense arrays, `SparseIterate` and `AtomIterate` are unchanged.
+Dense arrays, `SparseIterate` and `BlockIterate` are unchanged.
 
 The rows below list the earlier behavior and how to adapt.
 The linked operation table explains which symmetric arguments trigger checks.
@@ -395,7 +421,7 @@ The linked operation table explains which symmetric arguments trigger checks.
 | Gradients did not check parameter symmetry | A symmetric output or point triggers checks, also for the allocating `gradient` and `value_and_gradient` of an owner point; `gradient_mapping` has no method for an owner: pass `Matrix(x)` |
 | Hessian products and quadratic models did not check parameter symmetry | A symmetric point triggers full parameter validation, even with a dense Hessian-product output, and a symmetric Hessian-product output triggers it even at a dense point |
 | Coordinate curvature calls did not check parameter symmetry | Symmetric `L` in `coordinate_lipschitz!` triggers full validation |
-| Symmetric coordinate steps read the lower-triangle parameter without comparing its mirror | `prox_coordinate!` checks the pair at the chosen coordinate |
+| Symmetric coordinate steps read the lower-triangle parameter without comparing its mirror | Call `check_symmetric_parameters(f,x)` before scalar block calls |
 | Four-argument `kkt_violation` read the lower entry of `g` | It uses the symmetric part at the chosen pair and checks that parameter pair; `+Inf` and `-Inf` at that pair throw `ArgumentError` |
 | Symmetric proximal calls read lower-triangle steps without comparing their mirrors | Proximal calls with symmetric outputs check the relevant step pairs too |
 | Separable `lla_weights!` did not check parameter symmetry | A symmetric input triggers full validation, including with a dense output or allocating `lla_weights` |
@@ -419,32 +445,27 @@ iterate. See [The `SymmetricSparseIterate` is not an array (0.6)](@ref).
 through any wrapper that forwards it (`Scaled`, `Tilt`, `Translate`, `Regularize`,
 `Precompose`), now throws an `ArgumentError`.
 Previously it returned a function whose values and gradients were generally
-wrong, except for group penalties. `prox_entry` and `kkt_violation` now throw
+wrong, except for group penalties. `prox_block` and `kkt_violation` now throw
 an `ArgumentError` instead of a `MethodError`. Restricting a group-penalty
 envelope, including as the smooth term of an active-set solver, is no longer
 supported. These coordinate operations require a separable underlying function.
 
-## The groups of an `AtomIterate` (0.6)
+## The groups of a `BlockIterate` (0.6)
 
-The fields of an [`AtomIterate`](@ref), including `groups`, are private. Read the indices of
-group `k` with [`atomindices`](@ref)`(x, k)`, a read-only vector, instead of `x.groups[k]`, and
+The fields of a [`BlockIterate`](@ref), including `groups`, are private. Read the indices of
+group `k` with [`blockindices`](@ref)`(x, k)`, a read-only vector, instead of `x.groups[k]`, and
 compare layouts with `ProximalBase.samegroups(a, b)` instead of comparing `a.groups` and
 `b.groups`. `similar(x)` makes an iterate with the same groups. Changing the array that
-`parentindices(atom(x, k))` returns is not supported. See [AtomIterate](@ref).
+`parentindices(blockview(x, k))` returns is not supported. See [BlockIterate](@ref).
 
-## Writes through `atom(x, k)` (0.6)
+## Writes through `blockview(x, k)` (0.6)
 
-Writes through [`atom`](@ref)`(x, k)` now activate the group, as `x[i] = v`
+Writes through [`blockview`](@ref)`(x, k)` now activate the group, as `x[i] = v`
 does. Before 0.6, they left it inactive, and values, `copyto!` and products
-ignored the entries. The type of `atom(x, k)` changes to a view whose parent
-is the iterate. [`prox_coordinate!`](@ref) on an [`AtomIterate`](@ref) returns
-this view.
-
-Code that wrote a trial point into a group before
-`prox_coordinate!(x, f, k, γ)` should call `prox_coordinate!(x, f, k, u, γ)`
-instead. Writing the trial point through `atom` now activates the group even
-when the step ends at zero. The block form activates it only when the step
-ends nonzero.
+ignored the entries. The type of `blockview(x, k)` changes to a view whose parent
+is the iterate. Compute `prox_block!(out, f, u, k, γ)` in a numerical buffer,
+then write `copyto!(blockview(x,k), out)`. Writing the trial through `blockview` activates
+the group even when its eventual proximal result is zero.
 
 The `storage` field is internal. Writing into it can leave the iterate
 inconsistent. Activation follows the stored value: a value that rounds to
@@ -465,10 +486,10 @@ It now gives `[Inf, NaN, NaN, NaN]` with active coordinates `[1, 2, 3, 4]`.
 Finite multipliers and finite nonzero divisors still cost `O(nnz)` and give
 the same results as before.
 
-## Complex values written into a `SparseIterate` or an `AtomIterate` (0.6)
+## Complex values written into a `SparseIterate` or a `BlockIterate` (0.6)
 
 Two-argument `copyto!`, `copy!` and `fill!` into a [`SparseIterate`](@ref) or
-an [`AtomIterate`](@ref) now check the element type of the source or value, as
+a [`BlockIterate`](@ref) now check the element type of the source or value, as
 the constructors and broadcasts already did. A complex source or value throws
 an `ArgumentError` before anything is written. Before 0.6, `copyto!` and
 `copy!` from a complex array converted entry by entry: a nonzero imaginary
@@ -503,7 +524,7 @@ is 4x3. For speed, pass the full dense matrix `lmul!(Q, Matrix{T}(I, size(Q)))` 
 `T = eltype(Q)`.
 
 Writes through a view, through `vec` of a matrix or a `reshape` to another
-shape, and through `atom(x, k)` keep Base's conversion: a complex value throws
+shape, and through `blockview(x, k)` keep Base's conversion: a complex value throws
 an `InexactError`, possibly after a partial write.
 
 | Before 0.6 | Now |
@@ -512,7 +533,7 @@ an `InexactError`, possibly after a partial write.
 | `fill!(x, 1 + 0im)` or `fill!(x, 0im)` | `fill!(x, real(v))` |
 | `copyto!(x, (1 + 0im) * I)`, or a complex orthogonal factor with zero imaginary parts | `copyto!(x, real(λ) * I)`, or a real factor |
 
-## Writes into a `SparseIterate` or `AtomIterate` keep the working set (0.6)
+## Writes into a `SparseIterate` or `BlockIterate` keep the working set (0.6)
 
 Every write through the array interface is now a value write: it activates the
 coordinates (groups) it makes nonzero and removes none. Only `dropzeros!`
@@ -523,7 +544,7 @@ removes coordinates. Three spellings change.
   mutators that start with a `fill!`, such as `sum!(x, A)`, keep the working
   set too. To clear, write `dropzeros!(fill!(x, 0))`.
 - `x .= y` with `y` an iterate of the same kind (a `SparseIterate` of the same
-  size, or an `AtomIterate` with equal groups) is a value write, like every
+  size, or a `BlockIterate` with equal groups) is a value write, like every
   other broadcast: `x` keeps its working set and gains the nonzeros of `y`.
   Before 0.6 it copied the working set of `y`. For that copy, write
   `copyto!(x, y)`, which costs `O(nnz)` where the broadcast costs `O(length(x))`.
@@ -532,7 +553,7 @@ removes coordinates. Three spellings change.
   threw a `DimensionMismatch` and `copy!` an `ArgumentError`. Between two
   array iterates of different lengths, both now throw a `DimensionMismatch`
   before writing. Before 0.6, `copyto!` between a `SparseIterate` and an
-  `AtomIterate` copied a shorter source into the first entries and threw a
+  `BlockIterate` copied a shorter source into the first entries and threw a
   `BoundsError` for a longer one, and `copy!` threw a `MethodError` (an
   `ArgumentError` between a matrix and a vector).
 
@@ -609,14 +630,14 @@ the entries of `x`, for a vector and for a matrix alike, as it already was for a
 ## Products of an iterate: zero coefficients are strong (0.6)
 
 In the products and inner products that ProximalBase defines for a
-[`SparseIterate`](@ref) or an [`AtomIterate`](@ref), a zero coefficient of the
+[`SparseIterate`](@ref) or a [`BlockIterate`](@ref), a zero coefficient of the
 iterate, stored or not, now contributes nothing, even against `±Inf` or NaN in
 the other operand. These are `dot` with a strided vector or another iterate,
 `dot(a, X, b)` for a matrix `X`, and `mul!` and `*` with a strided, transposed,
 adjoint or `Symmetric` matrix; M1 of the
 [Numerical contract](@ref numerics-storage) lists them. Before 0.6, the
 `SparseIterate` products skipped unstored zeros and multiplied stored ones, so
-`0 · NaN` gave NaN, and the `AtomIterate` `dot` multiplied the zeros of its
+`0 · NaN` gave NaN, and the `BlockIterate` `dot` multiplied the zeros of its
 active groups: a result could change with `dropzeros!` and with the order of
 the arguments.
 
@@ -638,7 +659,7 @@ zero of a dense operand is still an IEEE zero: with `w[1] = Inf`,
 `dot([0, 1, 0], w)` is NaN. For IEEE propagation through a zero coefficient,
 multiply the dense array: `A * Vector(x)`. Products that ProximalBase does not
 define, such as `sparse(A) * x`, products of objects built from an iterate,
-such as `view(x, :)`, `coordinates(x)` and `atom(x, k)`, and scaling by a number
+such as `view(x, :)`, `coordinates(x)` and `blockview(x, k)`, and scaling by a number
 follow IEEE arithmetic and are unchanged. The products of a
 `SymmetricSparseIterate` follow the same rule: `mul!` and `*` with a vector or a matrix,
 `dot(a, X, b)`, and `dot` with a strided matrix skip a zero coefficient, stored or not;
@@ -667,3 +688,31 @@ the diagonal entries cost one unit each and the pairs two; retune `s`. The stora
 change the budget: a `SymmetricSparseIterate`, its `matrixview` and a dense `Symmetric` of
 the same matrix have the same set, and explicit zeros count as zero. Arrays that are not
 symmetric matrices, vectors and general matrices, are unchanged.
+
+## Pure block proximal operators (0.6, #844)
+
+`prox_entry` is replaced by `prox_block(g,u,k,γ)`. Custom `SeparableFunction`
+subtypes must rename their scalar author hook; `value_entry` stays unchanged.
+The scalar result, arithmetic precision and parameter entry index are unchanged.
+Both iterate-mutating forms of `prox_coordinate!`, and the older `cdprox!`,
+are removed without aliases.
+
+For group penalties use `prox_block!(out,g,u,k,γ)` or the allocating
+`prox_block(g,u,k,γ)`. `k` indexes the penalty's groups, and `u`/`out` are compact
+one-based real vectors in that group's order. The mutating method returns `out`,
+supports `out === u` and rejects other overlap. The caller must supply output
+independent of iterate storage and caches; ownership is not checked from array
+types. This includes avoiding `activevalues`, coordinate views and block views
+as outputs. Use an independent vector or the allocating form.
+Validation errors precede writes; element access/conversion or a custom kernel
+can leave a partial output. Solvers separately validate layout compatibility,
+write through public storage operations and update caches.
+
+For symmetric scalar updates map the independent coordinate ID to the linear
+matrix entry index `(c-1)p+r`, and validate pair symmetry with
+`ProximalBase.check_symmetric_parameters(g,x)` before the sweep. A pure oracle
+has no owner from which to infer the coordinate layout or parameter symmetry.
+
+The full-array proximal, gradient and second-order interfaces are unchanged.
+No new zero-curvature, infinite-step or heterogeneous group-metric semantics
+are introduced. See [Coordinate oracles](@ref) for executable storage examples.

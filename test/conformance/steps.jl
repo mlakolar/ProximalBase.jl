@@ -275,7 +275,7 @@ end
   types = "Float32 argument/destination/level; Float64 step"; backend = :cpu; rules = "P1 P2"
   problem = "Validate negative/NaN step in its given type on every route."
   expected = Throws(:ArgumentError)
-  observed = prox_entry(NormL1(one(Float32)), Float32(2), 1, -pow2(Float64, -160))
+  observed = prox_block(NormL1(one(Float32)), Float32(2), 1, -pow2(Float64, -160))
   broken = (group = :G3, baseline = Returned(v -> same(v, 2.0f0)))
 end
 
@@ -311,7 +311,7 @@ end
   types = "Float32 argument/destination/level; Float64 step"; backend = :cpu; rules = "P1 P2"
   problem = "Validate negative/NaN step in its given type on every route."
   expected = Throws(:ArgumentError)
-  observed = prox_entry(NormL1(one(Float32)), Float32(2), 1, NaN)
+  observed = prox_block(NormL1(one(Float32)), Float32(2), 1, NaN)
   broken = (group = :G3, baseline = Returned(v -> same(v, NaN32)))
 end
 
@@ -525,7 +525,7 @@ end
   types = "Float64 argument/destination/level; Float64 step"; backend = :cpu; rules = "P1 P2"
   problem = "Validate negative/NaN step in its given type on every route."
   expected = Throws(:ArgumentError)
-  observed = prox_entry(NormL1(one(Float64)), Float64(2), 1, -pow2(Float64, -160))
+  observed = prox_block(NormL1(one(Float64)), Float64(2), 1, -pow2(Float64, -160))
   broken = (group = :G3, baseline = Returned(v -> same(v, 2.0)))
 end
 
@@ -561,7 +561,7 @@ end
   types = "Float64 argument/destination/level; Float64 step"; backend = :cpu; rules = "P1 P2"
   problem = "Validate negative/NaN step in its given type on every route."
   expected = Throws(:ArgumentError)
-  observed = prox_entry(NormL1(one(Float64)), Float64(2), 1, NaN)
+  observed = prox_block(NormL1(one(Float64)), Float64(2), 1, NaN)
   broken = (group = :G3, baseline = Returned(v -> same(v, NaN)))
 end
 
@@ -595,7 +595,7 @@ end
   types = "Float32 argument/destination; Float64 step/level"; backend = :cpu; rules = "P2 R3"
   problem = "Tiny positive original step remains valid; output rounds to two."
   expected = Float32[2]
-  observed = [prox_entry(NormL1(1.0), 2f0, 1, pow2(Float64, -160))]
+  observed = [prox_block(NormL1(1.0), 2f0, 1, pow2(Float64, -160))]
 end
 
 @row begin

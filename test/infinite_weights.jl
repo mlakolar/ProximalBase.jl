@@ -1,5 +1,7 @@
 module InfiniteWeightsTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -46,12 +48,12 @@ entry1(::Type{T}) where {T} = (
         @test PB.value_entry(f, T(-0.5), 2) === T(Inf)
         @test isnan(PB.value_entry(f, T(NaN), 2))
         for v in T[1, -1, floatmax(T), -floatmax(T)], γ in T[0, 0.5, 1]
-          @test iszero(PB.prox_entry(f, v, 2, γ))
+          @test iszero(PB.prox_block(f, v, 2, γ))
         end
         for γ in T[0, 0.5, 1]
           # E4 comes first: the entry is fixed at zero (LogPenalty, #561); the others keep NaN
-          name === :LogPenalty ? @test(iszero(PB.prox_entry(f, T(NaN), 2, γ))) :
-                                 @test(isnan(PB.prox_entry(f, T(NaN), 2, γ)))
+          name === :LogPenalty ? @test(iszero(PB.prox_block(f, T(NaN), 2, γ))) :
+                                 @test(isnan(PB.prox_block(f, T(NaN), 2, γ)))
         end
         @test PB.kkt_violation(f, T[0.5, 0.5], 2) === T(-Inf)
         # arrays: entry 2 is fixed at zero
@@ -207,7 +209,7 @@ end
         @test z(xsp) === zero(T)
         @test prox(z, xsp, one(T)) == T[2, 0]
         xi = SparseIterate(sparsevec(T[2, 3]))
-        @test PB.prox_coordinate!(xi, z, 2, one(T)) === zero(T)
+        @test take_block_step!(xi, z, 2, one(T)) === zero(T)
         @test xi[2] === zero(T)
         g = T[0.5, -0.5]
         expected = nonneg ? -g[1] : abs(g[1])
@@ -297,7 +299,7 @@ end
         i != 2 ? @test(iszero(value_entry(z, T(NaN), i))) : @test(isnan(value_entry(z, T(NaN), i)))
         @test kkt_violation(z, g, i) === (i == 2 ? T(-Inf) : abs(g[i]))
         @test allocs(value_entry, z, T(3), i) == 0
-        @test allocs(prox_entry, z, T(3), i, one(T)) == 0
+        @test allocs(prox_block, z, T(3), i, one(T)) == 0
         @test allocs(kkt_violation, z, g, i) == 0
       end
       for x in (T[0.5, 2, 3, -1], T[floatmax(T)/4, 2, -0.0, 1]),
@@ -313,7 +315,7 @@ end
       end
       xi = SparseIterate(T[0.5, 2, 3, 1])
       for i in 1:4
-        @test PB.prox_coordinate!(xi, z, i, one(T)) === (i == 2 ? zero(T) : T[0.5, 2, 3, 1][i])
+        @test take_block_step!(xi, z, i, one(T)) === (i == 2 ? zero(T) : T[0.5, 2, 3, 1][i])
       end
       for indices in ([2], [1, 3, 4], [2, 1])
         r = PB.restrict(z, indices)
@@ -344,7 +346,7 @@ end
     for (F, expected) in zip((CappedL1, LogPenalty, NormLq, Berhu), snapshots)
       f = F(T(0.7), T(0.5), T[1.3, 0.8])
       x = T[0.3, 2.4]
-      values = (f(x), value_entry(f, x[2], 2), prox_entry(f, x[2], 2, T(0.4)), kkt_violation(f, x, 2))
+      values = (f(x), value_entry(f, x[2], 2), prox_block(f, x[2], 2, T(0.4)), kkt_violation(f, x, 2))
       @test reinterpret.(U, values) == expected
       @test value_entry(f, x[2], 2) === PB._value_entry_ordinary(f, x[2], 2)
       if F === LogPenalty
@@ -368,7 +370,7 @@ end
     for f in (Berhu(zero(T), T(8)), Berhu(one(T), T(8), T[0]), Berhu(one(T), T(8)))
       steps = iszero(f.λ) || f.w !== nothing ? (zero(T), one(T)) : (zero(T),)
       for v in (T(9.3), huge / 4, -huge / 4, -zero(T)), γ in steps
-        @test isequal(prox_entry(f, v, 1, γ), v)
+        @test isequal(prox_block(f, v, 1, γ), v)
       end
     end
     for λ in (zero(T), one(T)), w in (zero(T), one(T))
@@ -413,7 +415,7 @@ end
     end
     f = CheckLoss(T(0.3), w)
     for γ in T[0, 0.5, 1], v in T[1, -1, Inf, -Inf]
-      @test iszero(PB.prox_entry(f, v, 2, γ))
+      @test iszero(PB.prox_block(f, v, 2, γ))
     end
     @test PB.kkt_violation(f, T[0.5, 0.5], 2) === T(-Inf)
 
@@ -421,10 +423,10 @@ end
     @test PB.value_entry(f, T(0.05), 2) === T(0)
     @test PB.value_entry(f, T(0.1), 2) === T(0)
     for γ in T[0, 0.5, 1]
-      @test PB.prox_entry(f, T(1), 2, γ) ≈ T(0.1)
-      @test PB.prox_entry(f, T(-1), 2, γ) ≈ T(-0.1)
-      @test PB.prox_entry(f, T(0.05), 2, γ) ≈ T(0.05)
-      @test PB.prox_entry(f, T(Inf), 2, γ) ≈ T(0.1)
+      @test PB.prox_block(f, T(1), 2, γ) ≈ T(0.1)
+      @test PB.prox_block(f, T(-1), 2, γ) ≈ T(-0.1)
+      @test PB.prox_block(f, T(0.05), 2, γ) ≈ T(0.05)
+      @test PB.prox_block(f, T(Inf), 2, γ) ≈ T(0.1)
     end
     @test PB.kkt_violation(EpsInsensitiveLoss(T(0), w), T[0.5, 0.5], 2) === T(-Inf)
 
@@ -433,13 +435,13 @@ end
     @test PB.value_entry(f, T(1), 2) === T(0)
     @test PB.value_entry(f, T(0.5), 2) === T(Inf)
     for γ in T[0, 0.5, 1]
-      @test PB.prox_entry(f, T(0.3), 2, γ) ≈ T(1)
-      @test PB.prox_entry(f, T(2), 2, γ) ≈ T(2)
+      @test PB.prox_block(f, T(0.3), 2, γ) ≈ T(1)
+      @test PB.prox_block(f, T(2), 2, γ) ≈ T(2)
     end
     f = HingeLoss(T[1, -1], w)
     @test PB.value_entry(f, T(-2), 2) === T(0)
     @test PB.value_entry(f, T(0), 2) === T(Inf)
-    @test PB.prox_entry(f, T(0.3), 2, T(1)) ≈ T(-1)
+    @test PB.prox_block(f, T(0.3), 2, T(1)) ≈ T(-1)
   end
 end
 
@@ -462,7 +464,7 @@ end
         end
         for v in T[0.3, 1, -2]
           expected = nonneg ? max(v, 0) : enet ? v / T(1.25) : v
-          @test PB.prox_entry(f, v, 2, T(0.5)) ≈ expected
+          @test PB.prox_block(f, v, 2, T(0.5)) ≈ expected
         end
         @test PB.kkt_violation(f, T[0.5, 0.5], 2) ≈ (nonneg ? T(-0.5) : T(0.5))
         if name in (:NormL1, :CappedL1, :LogPenalty)
@@ -480,7 +482,7 @@ end
         @test PB.value_entry(f, v, 2) === T(0)
       end
       for v in T[0.5, -0.5, 3]
-        @test PB.prox_entry(f, v, 2, T(0.5)) ≈ v
+        @test PB.prox_block(f, v, 2, T(0.5)) ≈ v
       end
     end
   end
@@ -494,7 +496,7 @@ end
       nonneg = name === :NormL1Nonneg
       enet = name === :ElasticNet
       @test PB.value_entry(f, T(0.5), 2) ≈ (enet ? T(0.5 * 0.25 / 2) : T(0))
-      @test PB.prox_entry(f, T(0.7), 2, T(1)) ≈ (enet ? T(0.7 / 1.5) : T(0.7))
+      @test PB.prox_block(f, T(0.7), 2, T(1)) ≈ (enet ? T(0.7 / 1.5) : T(0.7))
       @test PB.kkt_violation(f, T[0.5, 0.5], 2) ≈ (nonneg ? T(-0.5) : T(0.5))
       if name in (:NormL1, :CappedL1, :LogPenalty)
         @test PB.lla_weight(f, T(0.3), 2) === T(0)
@@ -570,7 +572,7 @@ end
       f = fs[name]
       @test PB.value_entry(f, T(0), 2) === T(0)
       @test PB.value_entry(f, T(0.5), 2) === T(Inf)
-      @test iszero(PB.prox_entry(f, T(1), 2, T(1)))
+      @test iszero(PB.prox_block(f, T(1), 2, T(1)))
     end
 
     # a zero level with an infinite argument
@@ -612,7 +614,7 @@ end
 
   # BigFloat
   f = NormL1(big(0), BigFloat[1, Inf])
-  @test iszero(PB.prox_entry(f, big(1), 2, big(1)))
+  @test iszero(PB.prox_block(f, big(1), 2, big(1)))
   @test PB.value_entry(f, big(0.5), 2) == Inf
   @test PB.kkt_violation(f, BigFloat[1, 1], 2) == -Inf
 end

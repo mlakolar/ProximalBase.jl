@@ -294,7 +294,7 @@ tier = "quick"
 focus = ["examples"]
 paths = ["examples/**"]
 
-# The grids files. atom_iterate_grids, block_step_grids, blockchecks_grids, conjugate_basics_grids,
+# The grids files. block_iterate_grids, block_step_grids, blockchecks_grids, conjugate_basics_grids,
 # constrained_basics_grids, constrained_grids, extreme_normals_grids, lmo_atoms_grids, metric_grids,
 # nested_scaled_grids, scaled_infinite_level_underflow_grids, sparse_iterate_basics_grids,
 # symmetric_groups_grids, symmetric_wrappers_grids, value_overflow_glm_grids and
@@ -304,7 +304,7 @@ paths = ["examples/**"]
 # constrained_basics, which keeps the Float64 pass, a Float32 vector and one case of each refusal
 # branch). A pull request runs them, beside its tier, for a change to the source of their own
 # family:
-#   atom_iterate_grids:          src/atom_iterate.jl, src/functions/norms.jl,
+#   block_iterate_grids:          src/block_iterate.jl, src/functions/norms.jl,
 #                                src/functions/sparsegroup.jl, src/functions/nonconvex.jl
 #   sparse_iterate_basics_grids: src/sparse_iterate.jl
 #   nested_scaled_grids:         src/calculus.jl, the shared sources (src/metric.jl, ...),
@@ -313,7 +313,7 @@ paths = ["examples/**"]
 #   lmo_atoms_grids:             src/lmo.jl, src/lmo_atoms.jl, the shared sources,
 #                                src/functions/singular.jl
 #   constrained_basics_grids:    src/constrained.jl
-#   block_step_grids:            src/calculus.jl, the shared sources, src/atom_iterate.jl,
+#   block_step_grids:            src/calculus.jl, the shared sources, src/block_iterate.jl,
 #                                src/sparse_iterate.jl
 #   scaled_infinite_level_underflow_grids, zero_level_infinite_step_grids, symmetric_groups_grids,
 #   extreme_normals_grids, constrained_grids, metric_grids, value_overflow_glm_grids,
@@ -329,7 +329,7 @@ paths = ["examples/**"]
 # request on one of those paths runs the cases that moved. A standard-tier rule does not list nine
 # of them: the rule of such a path alone does not run those base files, and a grids file would run
 # the Float32 repeats without the Float64 baseline that the base file keeps. The exception is
-# block_step_grids: block_step is a focus file of the rules for src/atom_iterate.jl and
+# block_step_grids: block_step is a focus file of the rules for src/block_iterate.jl and
 # src/sparse_iterate.jl, so those two rules list block_step_grids beside it, and a pull request on
 # one of those paths runs the Float32 combinations that moved out of block_step. The nightly triage
 # defers a failure of extreme_normals_grids with extreme_normals (the group "extreme precision and
@@ -342,18 +342,18 @@ paths = ["examples/**"]
 #
 # The iterates. A change to one implementation runs standard and its focus files: the
 # iterate's own tests and those of its main interactions, beside the iterate files of quick
-# (active_handle, atom_iterate, iterate_invariants, iterate_queries, matrixview,
+# (active_handle, block_iterate, iterate_invariants, iterate_queries, matrixview,
 # sparse_iterate_basics, symmetric_parameters, symmetric_products, wrapper_buffers,
 # allocations_basics). With the
 # label test:iterate-narrow, which the author sets for a narrow change (CONTRIBUTING.md), it
 # runs quick and the same focus files. A change to two implementations runs standard and both
 # groups; a shared-semantics or architectural change needs test:thorough, set by hand.
 [[risk]]
-why = "AtomIterate: groups, activation, copies, products, block steps over groups"
+why = "BlockIterate: groups, activation, copies, products, block steps over groups"
 tier = "standard"
 narrow = "quick"
-focus = ["atom_iterate_grids", "real_iterates", "block_step", "block_step_grids", "norms", "sparsegroup", "infinite_group_weights"]
-paths = ["src/atom_iterate.jl"]
+focus = ["block_iterate_grids", "real_iterates", "block_step", "block_step_grids", "norms", "sparsegroup", "infinite_group_weights"]
+paths = ["src/block_iterate.jl"]
 
 [[risk]]
 why = "SparseIterate, SymmetricSparseIterate and the stored-iterate code they share"
@@ -570,9 +570,9 @@ focus = ["lmo_atoms_grids"]
 paths = ["src/lmo.jl", "src/lmo_atoms.jl"]
 
 [[risk]]
-why = "the group penalties, whose atomicity cases for GroupNormLinf and GroupSCAD are in atom_iterate_grids"
+why = "the group penalties, whose atomicity cases for GroupNormLinf and GroupSCAD are in block_iterate_grids"
 tier = "standard"
-focus = ["atom_iterate_grids"]
+focus = ["block_iterate_grids"]
 paths = ["src/functions/norms.jl", "src/functions/sparsegroup.jl", "src/functions/nonconvex.jl"]
 
 [[risk]]

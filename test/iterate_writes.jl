@@ -1,6 +1,6 @@
 module IterateWritesTest
 
-# One working-set rule for writes into a SparseIterate or an AtomIterate (#424): every
+# One working-set rule for writes into a SparseIterate or a BlockIterate (#424): every
 # write through the array interface is a value write, which activates the coordinates it
 # makes nonzero and removes none; a broadcast is the explicit loop; copyto! and copy! are
 # a state copy only between iterates of the same kind.
@@ -34,8 +34,8 @@ mkS() = (x = SparseIterate(4); x[4] = 7.0; activate!(x, 2); x)
 # a source holding 3 at 1 and an explicit zero at 3
 srcS() = (y = SparseIterate(4); y[1] = 3.0; activate!(y, 3); y)
 # old working set [2] (group 2 holds 7 at entry 4)
-mkA() = (a = AtomIterate(4, [1:2, 3:4]); a[4] = 7.0; a)
-srcA() = (y = AtomIterate(4, [1:2, 3:4]); y[1] = 3.0; y)
+mkA() = (a = BlockIterate(4, [1:2, 3:4]); a[4] = 7.0; a)
+srcA() = (y = BlockIterate(4, [1:2, 3:4]); y[1] = 3.0; y)
 
 # name, call (x, y), whether it is a broadcast into x itself
 const CALLS = [
@@ -66,7 +66,7 @@ const CALLS = [
 
 # the coordinates of x made nonzero, as IDs of x's coordinates (entries or groups)
 ids(x::SparseIterate, entries) = entries
-ids(x::AtomIterate, entries) = unique(k for i in entries for k in 1:ncoordinates(x) if i in atomindices(x, k))
+ids(x::BlockIterate, entries) = unique(k for i in entries for k in 1:ncoordinates(x) if i in blockindices(x, k))
 
 function check_value_write(mk, src, name, f, isbroadcast)
   x0 = mk()
@@ -88,19 +88,19 @@ end
   @testset "SparseIterate: $name" for (name, f, isbc) in CALLS
     check_value_write(mkS, srcS, name, f, isbc)
   end
-  @testset "AtomIterate: $name" for (name, f, isbc) in CALLS
+  @testset "BlockIterate: $name" for (name, f, isbc) in CALLS
     check_value_write(mkA, srcA, name, f, isbc)
   end
-  @testset "AtomIterate: atom(a, 1) .= [3, 0]" begin
+  @testset "BlockIterate: blockview(a, 1) .= [3, 0]" begin
     a = mkA()
-    atom(a, 1) .= [3.0, 0]
+    blockview(a, 1) .= [3.0, 0]
     @test Vector(a) == [3.0, 0, 0, 7] && ws(a) == [2, 1]
     PT.test_iterate(a)
   end
 
   @testset "x .= y does not import an active zero group" begin
-    x = AtomIterate(6, 3); x[6] = 7.0
-    y = AtomIterate(6, 3); y[1] = 3.0; activate!(y, 2)
+    x = BlockIterate(6, 3); x[6] = 7.0
+    y = BlockIterate(6, 3); y[1] = 3.0; activate!(y, 2)
     x .= y
     @test Vector(x) == [3.0, 0, 0, 0, 0, 0] && ws(x) == [3, 1]
     x = mkS()
@@ -121,7 +121,7 @@ end
       h = activecoordinates(x)
       before = copy(h)
       for k in h
-        x isa SparseIterate ? (x[k] = 0) : (atom(x, k) .= 0)
+        x isa SparseIterate ? (x[k] = 0) : (blockview(x, k) .= 0)
       end
       @test h == before && ws(x) == before
       fill!(x, 0)
@@ -226,11 +226,11 @@ end
   @testset "different lengths throw before writing" begin
     pairs = [
       () -> ((x = SparseIterate(6); x[6] = 1.0; x), SparseIterate(4)),
-      () -> ((x = AtomIterate(6, 3); x[6] = 1.0; x), AtomIterate(4, 2)),
-      () -> ((x = SparseIterate(6); x[6] = 1.0; x), (a = AtomIterate(4, 2); a[1] = 2.0; a)),
-      () -> ((x = SparseIterate(4); x[4] = 1.0; x), (a = AtomIterate(6, 3); a[1] = 2.0; a)),
-      () -> ((x = AtomIterate(6, 3); x[6] = 1.0; x), (s = SparseIterate(4); s[1] = 2.0; s)),
-      () -> ((x = AtomIterate(4, 2); x[4] = 1.0; x), (s = SparseIterate(6); s[1] = 2.0; s)),
+      () -> ((x = BlockIterate(6, 3); x[6] = 1.0; x), BlockIterate(4, 2)),
+      () -> ((x = SparseIterate(6); x[6] = 1.0; x), (a = BlockIterate(4, 2); a[1] = 2.0; a)),
+      () -> ((x = SparseIterate(4); x[4] = 1.0; x), (a = BlockIterate(6, 3); a[1] = 2.0; a)),
+      () -> ((x = BlockIterate(6, 3); x[6] = 1.0; x), (s = SparseIterate(4); s[1] = 2.0; s)),
+      () -> ((x = BlockIterate(4, 2); x[4] = 1.0; x), (s = SparseIterate(6); s[1] = 2.0; s)),
       () -> ((x = SparseIterate(2, 2); x[4] = 1.0; x), (s = SparseIterate(6); s[1] = 2.0; s)),
     ]
     for mk in pairs, cp! in (copyto!, copy!)
@@ -242,7 +242,7 @@ end
     end
   end
 
-  @testset "a SparseIterate and an AtomIterate of the same length" begin
+  @testset "a SparseIterate and a BlockIterate of the same length" begin
     for cp! in (copyto!, copy!)
       x = mkS(); y = srcA()
       z = loop!(copy(x), y)
@@ -256,10 +256,10 @@ end
     end
   end
 
-  @testset "AtomIterates of different layouts" begin
+  @testset "BlockIterates of different layouts" begin
     for cp! in (copyto!, copy!)
-      d = AtomIterate(4, [[1, 3], [2, 4]]); d[2] = 7.0
-      src = AtomIterate(4, [1:2, 3:4]); src[3] = 5.0; activate!(src, 1)
+      d = BlockIterate(4, [[1, 3], [2, 4]]); d[2] = 7.0
+      src = BlockIterate(4, [1:2, 3:4]); src[3] = 5.0; activate!(src, 1)
       cp!(d, src)
       @test Vector(d) == [0.0, 0, 5, 0] && ws(d) == [2, 1]
       PT.test_iterate(d)
@@ -271,7 +271,7 @@ end
       x = mkS(); y = srcS()
       cp!(x, y)
       @test Vector(x) == Vector(y) && ws(x) == ws(y) == [1, 3]
-      a = mkA(); ya = AtomIterate(4, [1:2, 3:4]); ya[1] = 3.0; activate!(ya, 2)
+      a = mkA(); ya = BlockIterate(4, [1:2, 3:4]); ya[1] = 3.0; activate!(ya, 2)
       cp!(a, ya)
       @test Vector(a) == Vector(ya) && ws(a) == ws(ya) == [1, 2]
     end
@@ -307,8 +307,8 @@ end
     @test ws(dropzeros!(copyto!(mk(), src))) == [3, 2, 9]   # the shorter form, another order
   end
 
-  @testset "AtomIterate" begin
-    mk() = (a = AtomIterate(8, 4); a[7] = 1.0; a[3] = 1.0; a[1] = 1.0; a)
+  @testset "BlockIterate" begin
+    mk() = (a = BlockIterate(8, 4); a[7] = 1.0; a[3] = 1.0; a[1] = 1.0; a)
     @test ws(mk()) == [4, 2, 1]
     src = zeros(8); src[[3, 5]] = [1.0, 2.0]
     for replace! in (cheap_replace!, staged_replace!)
@@ -317,15 +317,15 @@ end
     end
     @test ws(dropzeros!(fill!(mk(), 0))) == Int[]
     # groups met in the order of their first nonzero entry, not in group order
-    g = AtomIterate(4, [[2, 4], [1, 3]]); g[2] = 5.0
+    g = BlockIterate(4, [[2, 4], [1, 3]]); g[2] = 5.0
     @test ws(cheap_replace!(g, [1.0, 1, 0, 0])) == [2, 1]
-    @test ws(AtomIterate([1.0, 1, 0, 0], [[2, 4], [1, 3]])) == [1, 2]
+    @test ws(BlockIterate([1.0, 1, 0, 0], [[2, 4], [1, 3]])) == [1, 2]
     # the strided multi-response layout of a 3 × 2 coefficient matrix
     groups = [[1, 4], [2, 5], [3, 6]]
     B = [0.0 1; 1 0; 0 0]
-    h = AtomIterate(6, groups); h[3] = 1.0
+    h = BlockIterate(6, groups); h[3] = 1.0
     @test ws(cheap_replace!(h, vec(B))) == [2, 1]
-    @test ws(AtomIterate(vec(B), groups)) == [1, 2]
+    @test ws(BlockIterate(vec(B), groups)) == [1, 2]
   end
 
   @testset "same-kind source" begin
@@ -335,11 +335,11 @@ end
     @test Vector(x4) == [0.0, 0, 0, 2] && ws(x4) == [4]
     x4 = SparseIterate(4); x4[2] = 9.0
     @test ws(cheap_replace!(x4, y)) == [4, 1]              # the shorthand state-copies the zero
-    ya = AtomIterate(4, [1:2, 3:4]); ya[3] = 2.0; activate!(ya, 1)
-    xa = AtomIterate(4, [1:2, 3:4]); xa[1] = 9.0
+    ya = BlockIterate(4, [1:2, 3:4]); ya[3] = 2.0; activate!(ya, 1)
+    xa = BlockIterate(4, [1:2, 3:4]); xa[1] = 9.0
     staged_replace!(xa, ya)
     @test Vector(xa) == [0.0, 0, 2, 0] && ws(xa) == [2]
-    xa = AtomIterate(4, [1:2, 3:4]); xa[1] = 9.0
+    xa = BlockIterate(4, [1:2, 3:4]); xa[1] = 9.0
     @test ws(cheap_replace!(xa, ya)) == [2, 1]
   end
 
@@ -510,8 +510,8 @@ assign!(x, y) = (x .= y; nothing)
   xm = SparseIterate(30, 20); xm[7] = 1.0
   ym = SparseIterate(30, 20); ym[5] = 2.0
   dm = zeros(30, 20); dm[11] = 3.0
-  a = AtomIterate(n, 100); a[4] = 7.0
-  ay = AtomIterate(n, 100); ay[1] = 3.0
+  a = BlockIterate(n, 100); a[4] = 7.0
+  ay = BlockIterate(n, 100); ay[1] = 3.0
   for z in (x, xm, a)
     @test PT.allocations(zero_fill!, z) == 0
   end

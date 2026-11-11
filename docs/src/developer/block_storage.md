@@ -1,14 +1,14 @@
-# AtomIterate: grouped storage implementation
+# BlockIterate: grouped storage implementation
 
 For the supported entry and group operations, begin with the
-[user guide](../atom_iterate.md); for group trial points and KKT screens see
+[user guide](../block_iterate.md); for group trial points and KKT screens see
 [coordinate oracles](../iterate_oracles.md). This page describes invariants
-needed when changing `src/atom_iterate.jl`. The
+needed when changing `src/block_iterate.jl`. The
 [iterate-family contract](contracts/iterate-family-0.6.md) is authoritative.
 
 ## Two index spaces and one active set
 
-`AtomIterate{T,G} <: AbstractVector{T}` exposes ordinary entry indexing
+`BlockIterate{T,G} <: AbstractVector{T}` exposes ordinary entry indexing
 `x[j]`, but its optimization coordinates are **groups**. The groups must
 partition `1:length(x)` into nonempty, disjoint sets. The implementation
 validates the partition when an iterate is constructed and creates a
@@ -34,8 +34,8 @@ can leave an inconsistent iterate: do not use them in solver code.
 
 ## Group layout and read-only handles
 
-`atom(x,k)` is a live view of group entries through `x`, so scalar writes
-still activate the group. `atomindices(x,k)` gives a read-only index collection.
+`blockview(x,k)` is a live view of group entries through `x`, so scalar writes
+still activate the group. `blockindices(x,k)` gives a read-only index collection.
 Stored ranges are returned as ranges; stored vector groups are exposed
 through the private `_GroupIndices` wrapper, which rejects writes and
 preserves underlying alias identity. A caller must not mutate `groups` or
@@ -54,24 +54,42 @@ does not change the mathematical groups and must not be used as a reason
 to mutate an otherwise shared layout. Copies retain their layout records;
 state copying does not overwrite the destination's cache.
 
+## Complete-block value copies
+
+`copyto!(blockview(x,k), values)` uses Base's existing value-copy path.
+It snapshots aliases as needed and writes through the iterate's scalar setter.
+Active groups retain their slots even for zero results; absent groups activate
+when a converted nonzero is written. Prefixes, arbitrary views and fallible
+reads/conversions retain Base's established partial-write behavior. A value
+copy does not have the atomic failure promise of an iterate state copy.
+
+The #787 active-only bulk-write experiments remain deferred: measured guards
+and forwarding slowed ordinary small/arbitrary writes beyond the performance
+gate. No custom inactive writer, deferred activation, extra view type or
+private-storage API is shipped. Group indices remain immutable in use and
+`blockindices` remains read-only. Tests cover larger groups and aliases so a
+future optimization can be reviewed against the same public semantics.
+
 ## Oracle boundaries and failure behavior
 
-The five-argument `prox_coordinate!(x,f,k,u,γ)` is the supported block
-trial-point interface. It validates group compatibility before writing the
-trial's result. Writing a tentative group into private `storage` first and
-then calling the four-argument method is not equivalent: an inactive
-group may contain nonzero entries while remaining absent from the active set.
-The same separation applies to KKT screens, which are function methods,
-not part of the base storage type.
+The mathematical trial-point interface is `prox_block!(out,f,u,k,γ)` with
+compact numerical buffers. A solver checks `samegroups(x,f)`, constructs the
+trial, computes its result, then writes `copyto!(blockview(x,k), out)` and updates
+its caches. The caller must provide output independent of iterate storage and caches;
+the oracle neither infers ownership nor validates an iterate layout. Writing a tentative group into private `storage` can leave
+nonzero entries absent from the active set. Keep mathematical work separate
+from the public write, so a trial that shrinks to zero leaves an absent group
+inactive. KKT screens remain function methods with their own layout checks.
 
 Ordinary array writes and a same-kind iterate state copy have distinct
 preflight and activation semantics. Test both routes, including aliasing
-through `atom(x,k)` and an index permutation. External oracles must
+through `blockview(x,k)` and an index permutation. External oracles must
 maintain consistency even when they write only a subset of groups.
 
 ## Testing and performance
 
-Relevant tests include `test/atom_iterate.jl`,
+Relevant tests include `test/block_iterate.jl`,
+`test/block_copy.jl` (bulk activity/order, aliases, failures and allocations),
 `test/iterate_queries.jl`, `test/iterate_writes.jl`,
 `test/active_handle.jl`, `test/symmetric_groups.jl`, and the
 family acceptance matrix. Benchmark Float32 and Float64 vector hot paths,

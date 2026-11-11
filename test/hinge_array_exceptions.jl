@@ -1,4 +1,6 @@
 module HingeArrayExceptionsTest
+
+using ..TestUtils: take_block_step!
 using Test, ProximalBase, Random, SparseArrays
 using ..TestUtils
 
@@ -7,9 +9,9 @@ using ..TestUtils
 # underflowing while γwᵢyᵢ² is in range) is planted at the first, middle and last index of otherwise
 # ordinary data. The expected values of the planted entry are exact by construction (powers of two),
 # independent of the implementation; the ordinary entries are compared to a BigFloat oracle on a
-# sample and, all of them, to the scalar prox_entry. The same is required of prox!, in place prox!
+# sample and, all of them, to the scalar prox_block. The same is required of prox!, in place prox!
 # (y === x: no original value may be read after it is overwritten), value_and_prox! and
-# prox_coordinate!.
+# take_block_step!.
 
 const PB = ProximalBase
 
@@ -69,10 +71,10 @@ positions(n) = n == 1 ? (1,) : (1, (n + 1) ÷ 2, n)
     x0, y0, w0 = ordinary(rng, S, n, γ, wscale)
     x0[k], y0[k], w0[k] = xe, ye, we
     f = HingeLoss(y0, w0)
-    want = S[prox_entry(f, x0[i], i, γ) for i in 1:n]
+    want = S[prox_block(f, x0[i], i, γ) for i in 1:n]
     # the planted entry is exactly the expected value, whatever the implementation of the loop
     bad = Any[]
-    want[k] == expected || push!(bad, "scalar prox_entry of the planted entry: $(want[k]) ≠ $expected")
+    want[k] == expected || push!(bad, "scalar prox_block of the planted entry: $(want[k]) ≠ $expected")
     # the scalar path against the oracle on the planted entry and a sample of the ordinary entries
     for i in unique(vcat(k, rand(rng, 1:n, 40)))
       oracle_ok(S, want[i], oracle(S, x0[i], y0[i], w0[i], γ)) || push!(bad, "oracle at $i: $(want[i])")
@@ -87,7 +89,7 @@ positions(n) = n == 1 ? (1,) : (1, (n + 1) ÷ 2, n)
     vz = copy(x0)
     PB.value_and_prox!(vz, f, vz, γ)
     for (nm, got) in (("prox!", out), ("prox! in place", z), ("value_and_prox!", vout), ("value_and_prox! in place", vz))
-      isequal(got, want) || push!(bad, "$nm differs from prox_entry at $(findfirst(.!isequal.(got, want)))")
+      isequal(got, want) || push!(bad, "$nm differs from prox_block at $(findfirst(.!isequal.(got, want)))")
     end
     isempty(bad) || @info "hinge exception" name n k S bad
     @test isempty(bad)
@@ -95,7 +97,7 @@ positions(n) = n == 1 ? (1,) : (1, (n + 1) ÷ 2, n)
     # a coordinate update
     if n <= 256
       xi = SparseIterate(sparsevec(copy(x0)))
-      @test PB.prox_coordinate!(xi, f, k, γ) == expected
+      @test take_block_step!(xi, f, k, γ) == expected
     end
   end
 end
@@ -108,7 +110,7 @@ end
     ks = sort(unique(rand(rng, 1:n, 120)))
     x0[ks] .= xe; y0[ks] .= ye; w0[ks] .= we
     f = HingeLoss(y0, w0)
-    want = S[prox_entry(f, x0[i], i, γ) for i in 1:n]
+    want = S[prox_block(f, x0[i], i, γ) for i in 1:n]
     @test all(want[ks] .== expected)
     out = PB.prox!(similar(x0), f, x0, γ)
     z = copy(x0); PB.prox!(z, f, z, γ)
@@ -119,7 +121,7 @@ end
 @testset "the review example, from arrays" begin
   γ = 2.0^600
   f = HingeLoss([2.0^-600], [2.0^600])
-  @test PB.prox_entry(f, -2.0^600, 1, γ) === 0.0      # γ w label² = 1; the margin is -1: u + s = 0
+  @test PB.prox_block(f, -2.0^600, 1, γ) === 0.0      # γ w label² = 1; the margin is -1: u + s = 0
   y = [0.0]; PB.prox!(y, f, [-2.0^600], γ); @test y == [0.0]
   z = [-2.0^600]; PB.prox!(z, f, z, γ); @test z == [0.0]
   @test PB.kkt_violation(f, [2.0^-1], 1) isa Float64
@@ -130,7 +132,7 @@ end
   S = Float64
   γ = 2.0^600
   w = [2.0^-600, 2.0^600, 2.0^-600]; y = [1.0, 2.0^-600, -1.0]; x = [0.5, -2.0^600, 2.0]
-  want = [prox_entry(HingeLoss(copy(y), copy(w)), x[i], i, γ) for i in 1:3]
+  want = [prox_block(HingeLoss(copy(y), copy(w)), x[i], i, γ) for i in 1:3]
   fw = HingeLoss(copy(y), w)
   @test PB.prox!(w, fw, x, γ) === w && w == want
   w2 = [2.0^-600, 2.0^600, 2.0^-600]; y2 = [1.0, 2.0^-600, -1.0]
@@ -150,7 +152,7 @@ end
     w = ones(S, n); w[exc] = S === Float64 ? S(2)^20 : S(2)^20     # γ w overflows at the exceptional entry
     γ = S[0.5, 1, 2, 3, 0.25]; γ[exc] = big
     f = HingeLoss(ones(S, n), w); x = fill(S(-3), n)
-    want = [PB.prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+    want = [PB.prox_block(f, x[i], i, γ[i]) for i in 1:n]
     g = copy(γ); @test PB.prox!(g, f, x, g) === g && g == want
     g = copy(γ); o = similar(g); PB.prox!(o, f, x, γ); @test o == want
     g = copy(γ); v = PB.value_and_prox!(g, f, x, g); @test g == want
@@ -169,7 +171,7 @@ end
       ww = copy(w); foreach(i -> i <= n && (ww[i] = tiny), pos)
       f = labelled ? HingeLoss(S.(rand(rng, (-1, 1), n)), ww) : HingeLoss(nothing, ww)
       γ = S(0.7)
-      want = [PB.prox_entry(f, x[i], i, γ) for i in 1:n]
+      want = [PB.prox_block(f, x[i], i, γ) for i in 1:n]
       y = similar(x); PB.prox!(y, f, x, γ); @test y == want
       z = copy(x); @test PB.prox!(z, f, z, γ) === z; @test z == want
     end
@@ -189,8 +191,8 @@ end
   fi = HingeLoss([2, 2, 2], [0.0, 1, 1])                                 # zero weight, infinite step, integer output
   @test PB.prox!(zeros(Int, 3), fi, [0, 5, 7], Inf) == [0, 5, 7]
   ff = HingeLoss(Float16[-6.758], Float16[0.00681]); γ16 = Float16(2.253e-5)   # abstract element type, narrow entries
-  @test PB.prox!(Real[0.0], ff, Real[Float16(0)], γ16)[1] == PB.prox_entry(ff, Float16(0), 1, γ16)
-  z = Real[Float16(0)]; @test PB.prox!(z, ff, z, γ16)[1] == PB.prox_entry(ff, Float16(0), 1, γ16)
+  @test PB.prox!(Real[0.0], ff, Real[Float16(0)], γ16)[1] == PB.prox_block(ff, Float16(0), 1, γ16)
+  z = Real[Float16(0)]; @test PB.prox!(z, ff, z, γ16)[1] == PB.prox_block(ff, Float16(0), 1, γ16)
 end
 
 @testset "the range test as one unsigned comparison equals floatmin <= ab <= floatmax" begin

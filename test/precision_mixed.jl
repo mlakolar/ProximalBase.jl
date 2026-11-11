@@ -177,10 +177,10 @@ function rule_cases(P)
     push!(cases, case("SymmetricSparseIterate $name", f, T -> SymmetricSparseIterate(T[1 0.5; 0.5 0])))
   end
   for f in (GroupNormL2(P(1), groups), GroupNormLinf(P(1), groups), SparseGroupNormL2(P(1), P(0.5), groups), GroupMCP(P(1), groups), GroupSCAD(P(1), groups))
-    same(T) = AtomIterate(vector(T), groups)
-    different(T) = AtomIterate(vector(T), [1:1, 2:3])
+    same(T) = BlockIterate(vector(T), groups)
+    different(T) = BlockIterate(vector(T), [1:1, 2:3])
     for (layout, mkx, mky) in (("same", same, same), ("input", different, same), ("output", same, different), ("both", different, different))
-      push!(cases, case("AtomIterate $(nameof(typeof(f))) $layout", f, mkx; output = mky, metric = :group))
+      push!(cases, case("BlockIterate $(nameof(typeof(f))) $layout", f, mkx; output = mky, metric = :group))
     end
   end
   cases
@@ -393,7 +393,7 @@ if occursin(selection, "bitwise")
         @test oracle_bits(f, x, T) == expected
         if f isa PB.AbstractGroupPenalty
           for groups in (f.groups, [1:1, 2:3])
-            @test oracle_bits(f, AtomIterate(x, groups), T) == same_precision_bits[T][name]
+            @test oracle_bits(f, BlockIterate(x, groups), T) == same_precision_bits[T][name]
           end
           y, steps = similar(x), fill(T(0.4), length(f.groups))
           v = value_and_prox!(y, f, x, steps)
@@ -478,7 +478,7 @@ if occursin(selection, "regressions")
     translated = Translate(NormL1(1.0), [1e8])
     x, y = [0.5], zeros(Float32, 1)
     @test prox!(y, translated, x, 1.0) == Float32[0]
-    @test prox_entry(translated, x[1], 1, 1.0) === 1.5
+    @test prox_block(translated, x[1], 1, 1.0) === 1.5
   end
 end
 
@@ -538,7 +538,7 @@ if occursin(selection, "group allocations")
       for f in (GroupNormL2(Tx(1), groups), GroupNormLinf(Tx(1), groups),
                 SparseGroupNormL2(Tx(1), Tx(0.5), groups), GroupMCP(Tx(1), groups), GroupSCAD(Tx(1), groups))
         for xgroups in (groups, [1:1, 2:3]), ygroups in (groups, [1:1, 2:3])
-          x, y = AtomIterate(vector(Tx), xgroups), AtomIterate(zeros(Ty, 3), ygroups)
+          x, y = BlockIterate(vector(Tx), xgroups), BlockIterate(zeros(Ty, 3), ygroups)
           for step in (Tx(0.5), fill(Tx(0.5), length(groups)))
             @test PB.Testing.allocations(value_and_prox!, y, f, x, step) == 0
           end

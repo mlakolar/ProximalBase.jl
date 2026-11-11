@@ -435,7 +435,7 @@ Abstract supertype of penalties on disjoint groups of entries, including
 [`GroupNormL2`](@ref), [`GroupNormLinf`](@ref), [`GroupMCP`](@ref) and
 [`GroupSCAD`](@ref). They share groups, weights and a map from each entry to
 its group. The group norms are convex and positively homogeneous; the group
-MCP and SCAD penalties are nonconvex. An [`AtomIterate`](@ref) can use the
+MCP and SCAD penalties are nonconvex. An [`BlockIterate`](@ref) can use the
 groups as its coordinates when they partition its entries.
 """
 abstract type AbstractGroupPenalty <: AbstractFunction end
@@ -462,9 +462,9 @@ The rows of a `p × k` matrix are the groups `[i:p:p*k for i in 1:p]`, which
 gives the multi-task group lasso with a matrix response in
 [`LeastSquaresLoss`](@ref).
 
-On an [`AtomIterate`](@ref), whose coordinates are groups,
-[`prox_coordinate!`](@ref) updates a group and [`kkt_violation`](@ref) measures
-one. `AtomIterate(x, f)` builds an iterate that shares the groups of `f`, which
+On a [`BlockIterate`](@ref), whose coordinates are groups,
+[`prox_block!`](@ref) computes a compact group result and [`kkt_violation`](@ref) measures
+one. `BlockIterate(x, f)` builds an iterate that shares the groups of `f`, which
 must then partition `1:length(x)`; include otherwise unpenalized entries in
 additional groups with weight 0. With equal groups, the value and the proximal
 operator touch only the active groups. On ordinary arrays, active-set solvers can use
@@ -592,7 +592,7 @@ _dual_norm(::GroupNormLinf, g, G) = _sumabs(g, G)
 # A full reduction lets finite-weight scans vectorize.
 _has_infinite_group_weight(w) = mapreduce(isinf, |, w; init = false)
 
-# Classify once; matching atom layouts inspect only their active groups.
+# Classify once; matching block layouts inspect only their active groups.
 function _ordinary_group_weights(f, ::Type{T}) where {T}
   isfinite(f.λ0) || return false
   # Nonnegative weights make the largest product bound every coefficient.
@@ -655,9 +655,9 @@ end
 # the group of index i, 0 if i is in no group
 _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_of[i] : 0
 
-# the proximal kernels of an atom iterate run in the type of the output's storage: the argument is
+# the proximal kernels of an block iterate run in the type of the output's storage: the argument is
 # copied or staged into it first
-@inline _model_type(y::AtomIterate, x::AtomIterate) = float(eltype(y))
+@inline _model_type(y::BlockIterate, x::BlockIterate) = float(eltype(y))
 
 # the groups fit in x: the loops over a group skip the bounds checks
 @inline _checkgroups(f::AbstractGroupPenalty, x::AbstractArray) =
@@ -909,29 +909,29 @@ function _kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AbstractAr
   _allzero(x, G) ? _dual_norm(f, g, G) - _kkt_coefficient(eltype(g), f.λ0, f.w[k]) : abs(g[i])
 end
 
-# on an AtomIterate, k is a group
-_kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AtomIterate, k::Integer) =
+# on a BlockIterate, k is a group
+_kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::BlockIterate, k::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _kkt_coefficient(eltype(g), f.λ0, f.w[k]))
 
 # the coordinates of x are the groups of f
-_checksamegroups(f::AbstractGroupPenalty, x::AtomIterate) = _samelayout(f, x) ||
+_checksamegroups(f::AbstractGroupPenalty, x::BlockIterate) = _samelayout(f, x) ||
   throw(DimensionMismatch("f and x must have the same groups."))
 _kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate")))
 
-# an AtomIterate that shares the groups of f, which must partition 1:p
-AtomIterate(p::Integer, f::AbstractGroupPenalty) = AtomIterate(Float64, p, f)
-function AtomIterate(::Type{T}, p::Integer, f::AbstractGroupPenalty) where {T}
+# a BlockIterate that shares the groups of f, which must partition 1:p
+BlockIterate(p::Integer, f::AbstractGroupPenalty) = BlockIterate(Float64, p, f)
+function BlockIterate(::Type{T}, p::Integer, f::AbstractGroupPenalty) where {T}
   _check_partition(f.group_of, p)
-  _AtomIterate(zeros(T, p), f.groups, f.group_of)
+  _BlockIterate(zeros(T, p), f.groups, f.group_of)
 end
-function AtomIterate(x::AbstractVector{T}, f::AbstractGroupPenalty) where {T}
+function BlockIterate(x::AbstractVector{T}, f::AbstractGroupPenalty) where {T}
   _check_partition(f.group_of, length(x))
-  _AtomIterate(Vector{T}(x), f.groups, f.group_of)
+  _BlockIterate(Vector{T}(x), f.groups, f.group_of)
 end
 
 # with the groups of f, only the active groups count
-function (f::HomogeneousGroupNorm)(x::AtomIterate)
+function (f::HomogeneousGroupNorm)(x::BlockIterate)
   _checkreal(f, x)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   isfinite(f.λ0) && !iszero(f.λ0) && return _homogeneous_group_value(f, x, Val(true))
@@ -939,7 +939,7 @@ function (f::HomogeneousGroupNorm)(x::AtomIterate)
     _homogeneous_group_value(f, x, Val(true)) : _homogeneous_group_value(f, x, Val(false))
 end
 
-function _homogeneous_group_value(f::HomogeneousGroupNorm, x::AtomIterate, ordinary::Val{O}) where {O}
+function _homogeneous_group_value(f::HomogeneousGroupNorm, x::BlockIterate, ordinary::Val{O}) where {O}
   _samelayout(f, x) || return invoke(_homogeneous_group_value, Tuple{HomogeneousGroupNorm, AbstractArray, Val{O}}, f, x, ordinary)
   T = float(eltype(x))
   O && iszero(f.λ0) && return zero(T)
@@ -952,10 +952,10 @@ function _homogeneous_group_value(f::HomogeneousGroupNorm, x::AtomIterate, ordin
   v
 end
 
-value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::Real) =
+value_and_prox!(y::BlockIterate, f::AbstractGroupPenalty, x::BlockIterate, γ::Real) =
   (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
-function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::AtomIterate, γ::Union{Real, AbstractVector})
+function _value_and_prox_groups!(y::BlockIterate, f::HomogeneousGroupNorm, x::BlockIterate, γ::Union{Real, AbstractVector})
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, HomogeneousGroupNorm, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
   if _ordinary_group_weights(f, float(eltype(y)), x.active, x.nactive)
@@ -965,7 +965,7 @@ function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::Ato
   end
 end
 
-function _homogeneous_group_prox!(y::AtomIterate, f::HomogeneousGroupNorm, x::AtomIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
+function _homogeneous_group_prox!(y::BlockIterate, f::HomogeneousGroupNorm, x::BlockIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_homogeneous_group_prox!, Tuple{AbstractArray, HomogeneousGroupNorm, AbstractArray, Union{Real, AbstractVector}, Val{O}}, y, f, x, γ, ordinary)
   _checkgroupsteps(f, γ)
@@ -985,45 +985,6 @@ function _homogeneous_group_prox!(y::AtomIterate, f::HomogeneousGroupNorm, x::At
     v += _group_value(f, f.λ0, f.w[k], nrm, y.storage, f.groups[k], T, ordinary)
   end
   isnan(v) ? _nan_steps!(f, y.storage, y.storage, view(y.active, 1:y.nactive), γ, ordinary, T, v, y) : v
-end
-
-# Validate the layout and group before a wrapper changes any entries.
-@inline function _check_group_coordinate(f::AbstractGroupPenalty, x::AtomIterate, k::Integer)
-  _checksamegroups(f, x)
-  checkbounds(x.groups, k)
-  nothing
-end
-
-@inline _unchecked_coordinate!(x::AtomIterate, f::AbstractGroupPenalty, k, γ, ctx) = prox_coordinate!(x, f, k, γ)
-
-@inline _check_coordinate(x::AtomIterate, f::HomogeneousGroupNorm, k) = _check_group_coordinate(f, x, k)
-@inline _block_step!(x::AtomIterate, f::HomogeneousGroupNorm, k, u, γ, ctx) = _stage_and_step!(x, f, k, u, γ, ctx)
-
-# group k of x shrunk in place; the group becomes active if it ends nonzero
-function prox_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k::Integer, γ::Real)
-  ctx = _check_coordinate(x, f, k)
-  _unchecked_coordinate!(x, f, k, γ, ctx)
-end
-
-@inline function _unchecked_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k, γ, ctx)
-  T = float(eltype(x))
-  if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
-    _allzero(x.storage, x.groups[k]) || activate!(x, k)
-    return atom(x, k)
-  end
-  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])))
-  # a NaN group the kernel left (threshold 0, Inf or NaN): the parameters decide as in _nan_steps!; the
-  # group is already the identity at the step γ = 0
-  if f isa GroupNormL2 && isnan(nrm)
-    if _hard_fixed(f, γ, k)
-      _fill_group!(x.storage, x.storage, x.groups[k], nothing, 0)
-      nrm = zero(nrm)
-    elseif !iszero(γ)
-      _fill_group!(x.storage, x.storage, x.groups[k], nothing, 2)
-    end
-  end
-  iszero(nrm) || activate!(x, k)
-  atom(x, k)
 end
 
 ####################################

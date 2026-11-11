@@ -1,5 +1,7 @@
 module SparseGroupTest
 
+using ..TestUtils: take_block_step!
+
 using Test
 using ProximalBase
 using LinearAlgebra
@@ -30,7 +32,7 @@ value_ref(λ1, λ2, groups, w, x) = λ1 * sum(abs, x[reduce(vcat, collect.(group
 a_value(f, x) = f(x)
 a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
-a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+a_cd!(x, f, k, γ) = take_block_step!(x, f, k, γ)
 a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
 
 @testset "SparseGroupNormL2" begin
@@ -120,28 +122,28 @@ a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
     @test zs[3, 1, :] ≈ prox(fk, s[3, 1, :], 0.7)
   end
 
-  @testset "AtomIterate, coordinate steps and optimality" begin
+  @testset "BlockIterate, coordinate steps and optimality" begin
     x = randn(p)
-    xa = AtomIterate(x, f)
+    xa = BlockIterate(x, f)
     @test f(xa) ≈ f(x)
     γ = 0.8
     @test Vector(prox(f, xa, γ)) ≈ prox(f, x, γ)
     ya = copy(xa)
     @test value_and_prox!(ya, f, xa, γ) ≈ f(prox(f, x, γ))
     # a block step on group 2 is the proximal operator on that group
-    xc = AtomIterate(copy(x), f)
-    prox_coordinate!(xc, f, 2, γ)
+    xc = BlockIterate(copy(x), f)
+    take_block_step!(xc, f, 2, γ)
     @test Vector(xc)[6:10] ≈ prox(f, x, γ)[6:10]
     @test Vector(xc)[[1:5; 11:20]] == x[[1:5; 11:20]]
     # a group at zero: the coordinate step from zero keeps it at zero exactly when
     # kkt_violation ≤ 0, that is ‖soft(g[G], λ1)‖ ≤ λ2 w
     for _ in 1:20
       g = 0.6 .* randn(p)
-      z0 = AtomIterate(zeros(p), f)
+      z0 = BlockIterate(zeros(p), f)
       viol = kkt_violation(f, g, z0, 3)
       @test viol ≈ norm(shrink.(g[11:15], λ1)) - λ2 * w[3]
-      step = AtomIterate(-g, f)                       # the gradient step from zero, γ = 1
-      prox_coordinate!(step, f, 3, 1.)
+      step = BlockIterate(-g, f)                       # the gradient step from zero, γ = 1
+      take_block_step!(step, f, 3, 1.)
       @test all(iszero, Vector(step)[11:15]) == (viol <= 0)
     end
     # on an array: an index of a zero group, of a nonzero group, and in no group
@@ -168,11 +170,11 @@ a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
       local f = SparseGroupNormL2(0.2, 0.4, gs, [1., 1.5, 0., 0.8])
       bad = SparseGroupNormL2(0.2, 0.4, [[1, 3], [2, 4, 6], [5], [7, 8, 9]], f.w)
       for xgroups in (f, layouts...), ygroups in (f, layouts...)
-        xa = AtomIterate(v, xgroups)
+        xa = BlockIterate(v, xgroups)
         activate!(xa, 3)
-        ya = AtomIterate(ones(9), ygroups)
+        ya = BlockIterate(ones(9), ygroups)
         @test f(xa) ≈ f(Vector(xa))
-        x0 = AtomIterate(9, xgroups)
+        x0 = BlockIterate(9, xgroups)
         for k in eachindex(gs)
           @test kkt_violation(f, grad, x0, k) ≈ kkt_violation(f, grad, zeros(9), first(gs[k]))
         end
@@ -190,11 +192,11 @@ a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
             @test Vector(alias) ≈ reference
             operation! === value_and_prox! && @test value ≈ f(reference)
           end
-          xc = AtomIterate(v, xgroups)
+          xc = BlockIterate(v, xgroups)
           expected = copy(v)
           for k in eachindex(gs)
             γk = step isa Real ? step : step[k]
-            @test prox_coordinate!(xc, f, k, γk) ≈ reference[gs[k]]
+            @test take_block_step!(xc, f, k, γk) ≈ reference[gs[k]]
             expected[gs[k]] = reference[gs[k]]
             @test Vector(xc) ≈ expected
           end
@@ -204,16 +206,16 @@ a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
         @test Vector(ya) ≈ prox(bad, v, 0.7)
         @test value_and_prox!(ya, bad, xa, 0.7) ≈ bad(prox(bad, v, 0.7))
         @test Vector(ya) ≈ prox(bad, v, 0.7)
-        @test_throws DimensionMismatch prox_coordinate!(xa, bad, 1, 0.7)
+        @test_throws DimensionMismatch take_block_step!(xa, bad, 1, 0.7)
         @test_throws DimensionMismatch kkt_violation(bad, grad, xa, 1)
         @test Vector(xa) == v && Set(activecoordinates(xa)) == Set([1, 3, 4])
         @test f(xa) ≈ f(v)
         @test value_and_prox!(ya, f, xa, 0.7) ≈ f(prox(f, v, 0.7))
         @test Vector(ya) ≈ prox(f, v, 0.7)
-        other = AtomIterate(ones(9), bad)
+        other = BlockIterate(ones(9), bad)
         @test value_and_prox!(other, f, xa, 0.7) ≈ f(prox(f, v, 0.7))
         @test Vector(other) ≈ prox(f, v, 0.7)
-        @test value_and_prox!(ya, f, AtomIterate(v, bad), 0.7) ≈ f(prox(f, v, 0.7))
+        @test value_and_prox!(ya, f, BlockIterate(v, bad), 0.7) ≈ f(prox(f, v, 0.7))
         @test Vector(ya) ≈ prox(f, v, 0.7)
       end
     end
@@ -228,10 +230,10 @@ a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
     z = copy(x)
     @test allocs(a_prox!, z, f, z, 0.7) == 0
     @test allocs(a_prox!, similar(Float32.(x)), f, Float32.(x), 0.7) == 0
-    xa = AtomIterate(x, f)
+    xa = BlockIterate(x, f)
     @test allocs(a_value, f, xa) == 0
     @test allocs(a_vprox!, copy(xa), f, xa, 0.7) == 0
-    @test allocs(a_cd!, copy(xa), f, 2, 0.7) == 0
+    @test allocs(prox_block!, zeros(length(blockview(xa,2))), f, collect(blockview(xa,2)), 2, 0.7) == 0
     @test allocs(a_kkt, f, x, xa, 3) == 0
     @test allocs(a_kkt, f, x, x, 3) == 0
   end
@@ -245,8 +247,8 @@ end
       f = SparseGroupNormL2(scale/4, scale/4, [1:2], T[1])
       @test prox(f, x) ≈ T[0, scale/2] rtol=16eps(T)
       @test f(x) ≈ scale*(scale/2) rtol=16eps(T)
-      a = AtomIterate(x, f)
-      prox_coordinate!(a, f, 1, one(T))
+      a = BlockIterate(x, f)
+      take_block_step!(a, f, 1, one(T))
       @test Vector(a) ≈ T[0, scale/2] rtol=16eps(T)
     end
   end
@@ -267,12 +269,12 @@ end
       @test value_and_prox!(y, f, x, step) ≈ value rtol=32eps(T)
       @test y ≈ expected rtol=32eps(T)
       @test prox(f, x, fill(step, 2)) ≈ expected rtol=32eps(T)
-      a = AtomIterate(x, f)
+      a = BlockIterate(x, f)
       @test f(a) ≈ f(x) rtol=32eps(T)
       @test value_and_prox!(a, f, a, fill(step, 2)) ≈ value rtol=32eps(T)
       @test Vector(a) ≈ expected rtol=32eps(T)
-      a = AtomIterate(x, f)
-      prox_coordinate!(a, f, 1, step)
+      a = BlockIterate(x, f)
+      take_block_step!(a, f, 1, step)
       @test a[1] ≈ expected[1] rtol=32eps(T)
       @test a[2] == x[2]
     end

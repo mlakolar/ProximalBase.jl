@@ -1,7 +1,7 @@
 # Nonconvex penalties: MCP, SCAD and ℓ0 against the lasso.
 #
 # The proximal operator of a separable penalty is a thresholding function of one
-# variable, which `prox_entry` evaluates: soft thresholding for the ℓ1 norm,
+# variable, which `prox_block` evaluates: soft thresholding for the ℓ1 norm,
 # firm thresholding for MCP, SCAD's three pieces, and hard thresholding for ℓ0.
 # MCP and SCAD leave large values untouched, so in regression they do not shrink
 # large coefficients the way the lasso does. Their proximal operators are exact
@@ -14,21 +14,21 @@ using ProximalBase, LinearAlgebra, Random
 penalties = ("ℓ1" => NormL1(λ), "MCP" => MCP(λ, 3.0), "SCAD" => SCAD(λ, 3.7), "ℓ0" => NormL0(λ^2 / 2))
 println(rpad("v", 6), join((rpad(name, 8) for (name, _) in penalties)))
 for v in 0.0:0.5:5.0
-    println(rpad(v, 6), join((rpad(round(prox_entry(pen, v, 1, 1.0), digits = 3), 8) for (_, pen) in penalties)))
+    println(rpad(v, 6), join((rpad(round(prox_block(pen, v, 1, 1.0), digits = 3), 8) for (_, pen) in penalties)))
 end
 
-@assert prox_entry(NormL1(λ), 2.5, 1, 1.0) == 1.5                 # soft: shrinks by λ
-@assert prox_entry(MCP(λ, 3.0), 0.8, 1, 1.0) == 0                  # MCP: zero below λ,
-@assert prox_entry(MCP(λ, 3.0), 2.0, 1, 1.0) ≈ 1.5                 # firm between λ and aλ,
-@assert prox_entry(MCP(λ, 3.0), 5.0, 1, 1.0) == 5.0                # and untouched beyond aλ
-@assert prox_entry(SCAD(λ, 3.7), 1.5, 1, 1.0) ≈ 0.5                # SCAD: soft up to 2λ,
-@assert prox_entry(SCAD(λ, 3.7), 5.0, 1, 1.0) == 5.0               # untouched beyond aλ
-@assert prox_entry(NormL0(λ^2 / 2), 0.9, 1, 1.0) == 0 && prox_entry(NormL0(λ^2 / 2), 1.2, 1, 1.0) == 1.2
+@assert prox_block(NormL1(λ), 2.5, 1, 1.0) == 1.5                 # soft: shrinks by λ
+@assert prox_block(MCP(λ, 3.0), 0.8, 1, 1.0) == 0                  # MCP: zero below λ,
+@assert prox_block(MCP(λ, 3.0), 2.0, 1, 1.0) ≈ 1.5                 # firm between λ and aλ,
+@assert prox_block(MCP(λ, 3.0), 5.0, 1, 1.0) == 5.0                # and untouched beyond aλ
+@assert prox_block(SCAD(λ, 3.7), 1.5, 1, 1.0) ≈ 0.5                # SCAD: soft up to 2λ,
+@assert prox_block(SCAD(λ, 3.7), 5.0, 1, 1.0) == 5.0               # untouched beyond aλ
+@assert prox_block(NormL0(λ^2 / 2), 0.9, 1, 1.0) == 0 && prox_block(NormL0(λ^2 / 2), 1.2, 1, 1.0) == 1.2
 
 # --- regression by coordinate descent ---------------------------------------
 #     minimize  ‖y - Xβ‖² / (2n) + Σⱼ pen(βⱼ)
 # With columns scaled to ‖Xⱼ‖² = n, the coordinate problem has curvature 1, and the
-# step is βⱼ ← prox_entry(pen, βⱼ + Xⱼ'r / n, j, 1), r = y - Xβ. For MCP with a > 1
+# step is βⱼ ← prox_block(pen, βⱼ + Xⱼ'r / n, j, 1), r = y - Xβ. For MCP with a > 1
 # and SCAD with a > 2 that coordinate problem is convex, so each step is exact.
 rng = Xoshiro(3)
 n, p = 200, 100
@@ -44,7 +44,7 @@ function coordinate_descent(X, y, pen; tol = 1e-10, maxsweeps = 10_000)
         δ = 0.0
         for j in 1:p
             old = β[j]
-            new = prox_entry(pen, old + dot(view(X, :, j), r) / n, j, 1.0)
+            new = prox_block(pen, old + dot(view(X, :, j), r) / n, j, 1.0)
             if new != old
                 β[j] = new
                 axpy!(old - new, view(X, :, j), r)

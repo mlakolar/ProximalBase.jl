@@ -27,27 +27,35 @@ call `gradient!` or `prox!`; the corresponding Julia methods implement the
 operation. The trait is not a promise that every arbitrary storage backend
 has a specialized fast path.
 
-## Three levels of operation
+## Mathematical operations and storage coordinates
 
 | Level | Example | Index meaning | Ownership |
 |:--|:--|:--|:--|
-| Mathematical entry | `value_entry(f, v, i)`, `prox_entry(f, v, i, γ)` | Entry of a function's parameter/weight arrays | Function interface |
-| Optimization coordinate | `prox_coordinate!(x, f, k, γ)` and `prox_coordinate!(x, f, k, u, γ)` | Entry, lower-triangle variable, or group, depending on `x` | Function × iterate dispatch |
+| Mathematical entry | `value_entry(f, v, i)`, `prox_block(f, v, i, γ)` | Entry of a function's parameter/weight arrays | Function interface |
+| Mathematical group | `prox_block!(out, f, u, k, γ)`, `prox_block(f, u, k, γ)` | Penalty group; compact buffers follow its entry order | Function interface |
+| Optimization coordinate | `coordinates(x)[k] = v`, `copyto!(blockview(x,k), out)`, `kkt_violation(f,g,x,k)` | Entry, lower-triangle variable, or group, depending on `x` | Storage writer or function × iterate screen |
 | Whole value | `f(x)`, `prox!`, `gradient!`, `value_and_prox!`, `value_and_gradient!` | Entire vector, matrix, or supported owner | Function/oracle interface |
 
-The entry and coordinate indexes happen to agree for `SparseIterate`.
-They **do not** agree in general: for a symmetric owner a coordinate
-represents an independent matrix variable (and possibly two entries), and
-for an `AtomIterate` a coordinate is a group. Therefore do not silently
-replace entry methods with coordinate methods, or vice versa, merely because
-a current sparse-vector call takes the same integer. Consolidation of the
-API requires an explicit contract change and matching tests.
+The entry and coordinate indices agree for `SparseIterate`. For a symmetric
+owner, a coordinate represents an independent matrix variable, so the solver
+maps it to the full-matrix linear index before calling the scalar oracle and
+validates mirrored parameters explicitly. For `BlockIterate`, the solver checks
+that the iterate and penalty have the same ordered groups before using one
+group ID in both interfaces. A separable penalty has no group partition;
+apply its scalar kernel to each group's global entry indices.
 
-A coordinate method must preserve the active-set rules of its iterate.
-With a trial `u`, a group that shrinks to zero can remain inactive without
-first writing `u`. For scalar separable functions the coordinate kernel can
-reuse an entry proximal operator. Group norms use group-specific methods;
-the iterate's data structure alone cannot decide the function's shrinkage.
+A solver owns trial construction, index conversion, public storage writes,
+cache updates and active-set policy. A compact group trial that shrinks to
+zero can remain inactive because the trial is never written to the iterate.
+The block oracle supplies only the mathematical result. Its allocating form
+returns a plain `Vector`; its mutating form supports exact in-place buffers
+and rejects other overlap. Output independence from iterate storage and model
+caches is a caller precondition, not a type-based validation. Public
+`activevalues` views can expose a plain vector parent while aliasing an owner;
+array types cannot establish universal ownership. The pure numerical layer has
+no iterate-specific guard or activation policy. Use independent scratch or the
+allocating form, then perform the separate public storage write.
+See [Update vocabulary](@ref update-vocabulary) for the public terminology.
 
 ## Validation and symmetric geometry
 
@@ -74,8 +82,8 @@ a license to suppress all IEEE exceptions in every generic array product.
 | Traits and base oracle interface | `src/interface.jl` |
 | Scalar and grouped function implementations | `src/functions/` |
 | Function algebra and wrappers | `src/calculus.jl`, `src/composition.jl`, `src/constrained.jl` |
-| Coordinate and restriction oracles | `src/partial.jl`, specialized functions |
-| Iterate storage | `src/sparse_iterate.jl`, `src/atom_iterate.jl` |
+| Coordinate and restriction oracles | `src/block_prox.jl`, `src/partial.jl`, specialized functions |
+| Iterate storage | `src/sparse_iterate.jl`, `src/block_iterate.jl` |
 | Parameter and owner integration | `src/symmetric_parameters.jl` |
 | Numerical conformance | `test/conformance/`, `docs/src/numerics.md` |
 

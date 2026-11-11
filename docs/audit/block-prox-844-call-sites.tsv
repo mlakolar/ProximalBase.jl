@@ -1,0 +1,1066 @@
+repository	revision	path	line	text
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	README.md	86	        new = prox_entry(g, z, j, 1 / a[j])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	README.md	95	Here `prox_entry` applies soft thresholding with threshold `λ / a[j]`, while
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/README.md	39	`prox_entry` loop, `gradient!`, `value_and_gradient!`, the value), and, as separate
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/README.md	211	- FD-12, `prox_coordinate!_5arg`: a call takes 1536 distinct coordinates of a `SparseIterate`
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/README.md	251	  that return a value, in the older `owner` group too. The five-argument `prox_coordinate!` with
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	110	| atom | `prox_coordinate!_5arg` | `GroupNormL2_strided_u` | 48 | 3.76–42.7 | 0.917–167 | 30.9% | 16384 | 0 | 11 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	111	| atom | `prox_coordinate!_5arg` | `GroupNormLinf_strided_u` | 48 | 7.91–42.9 | 3.17–167 | 11.5% | 16384 | 0 | 18 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	112	| atom | `prox_coordinate!_5arg` | `NormL1_strided_u` | 48 | 2.2–19.5 | 0.538–76.3 | 62.3% | 0 | 0 | 10 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	113	| atom | `prox_coordinate!_5arg` | `SparseGroupNormL2_strided_u` | 48 | 8.98–42.9 | 2.22–168 | 27.5% | 16384 | 0 | 17 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	114	| atom | `prox_coordinate!_staged` | `GroupNormL2_strided_u` | 48 | 2.37–40.3 | 0.58–158 | 31.9% | 0 | 0 | 15 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	115	| atom | `prox_coordinate!_staged` | `GroupNormLinf_strided_u` | 48 | 7.11–45 | 3.04–176 | 13.9% | 0 | 0 | 15 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	116	| atom | `prox_coordinate!_staged` | `NormL1_strided_u` | 48 | 2.35–21.6 | 0.575–81.2 | 53.6% | 0 | 0 | 14 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	117	| atom | `prox_coordinate!_staged` | `SparseGroupNormL2_strided_u` | 48 | 5.95–40.7 | 1.97–159 | 25.5% | 0 | 0 | 10 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	217	| owner | `sweep_prox_coordinate!` | `NormL1` | 7 | 0.721–1.19e+03 | 7.15–11.9 | 12.3% | 0 | 0 | 2 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	295	| sparse | `prox_coordinate!_5arg` | `NormL1_scalar_u` | 8 | 2.55–5.73 | 1.66–3.73 | 20.4% | 0 | 0 | 0 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	355	| sparse (n, s) | `prox_coordinate!_5arg` | -0.02–0.00 | no stated target | 0.22–0.26 | – |  |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	392	| atom (p, active groups) | `prox_coordinate!_5arg` | -0.02–0.11 | no stated target | -0.07–0.49 | – |  |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	393	| atom (p, active groups) | `prox_coordinate!_staged` | -0.02–0.13 | no stated target | -0.07–0.52 | – |  |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	413	| owner (p, s) | `sweep_prox_coordinate!` | -0.01 | flat | 1.11 | linear |  |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	464	| atom | `prox_coordinate!_5arg` | `NormL1_strided_u` | 38 | 48 | 142% |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	472	| atom | `prox_coordinate!_staged` | `GroupNormL2_strided_u` | 33 | 48 | 108% |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	486	| atom | `prox_coordinate!_staged` | `GroupNormLinf_strided_u` | 33 | 48 | 90% |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	491	| atom | `prox_coordinate!_5arg` | `GroupNormL2_strided_u` | 37 | 48 | 85% |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	498	| atom | `prox_coordinate!_staged` | `SparseGroupNormL2_strided_u` | 38 | 48 | 74% |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	512	| atom | `prox_coordinate!_5arg` | `SparseGroupNormL2_strided_u` | 31 | 48 | 65% |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	513	| atom | `prox_coordinate!_5arg` | `GroupNormLinf_strided_u` | 30 | 48 | 64% |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	522	| atom | `prox_coordinate!_staged` | `NormL1_strided_u` | 34 | 48 | 60% |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	573	| sparse | `prox_coordinate!_5arg` | `NormL1_scalar_u` | 8 | 8 | 34% |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	622	| owner | `sweep_prox_coordinate!` | `NormL1` | 5 | 7 | 17% |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	704	| atom | `prox_coordinate!_5arg` | `GroupNormL2_strided_u` | 48 | 48 | 4096–16384 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	705	| atom | `prox_coordinate!_5arg` | `GroupNormLinf_strided_u` | 24 | 48 | 4096–16384 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/iterate-family-0.5.md	706	| atom | `prox_coordinate!_5arg` | `SparseGroupNormL2_strided_u` | 48 | 48 | 4096–16384 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/symmetric-owner-0.5.md	48	- `sweep_prox_coordinate!`: one `prox_coordinate!(X, NormL1(0.1), k, 0.5)` per active coordinate.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/symmetric-owner-0.5.md	127	sweep_prox_coordinate!  NormL1                    p1000_s100           100      0.35      0.33           0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/symmetric-owner-0.5.md	128	sweep_prox_coordinate!  NormL1                    p1000_s1000         1000      3.50      3.42           0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/symmetric-owner-0.5.md	129	sweep_prox_coordinate!  NormL1                    p1000_s10000       10000     36.96     35.38           0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/symmetric-owner-0.5.md	130	sweep_prox_coordinate!  NormL1                    p1000_s100000     100000    380.06    374.08           0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/symmetric-owner-0.5.md	131	sweep_prox_coordinate!  NormL1                    p2000_s100           100      0.38      0.33           0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/symmetric-owner-0.5.md	132	sweep_prox_coordinate!  NormL1                    p4000_s100           100      0.33      0.29           0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/symmetric-owner-0.5.md	133	sweep_prox_coordinate!  NormL1                    p500_s100            100      0.33      0.33           0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/symmetric-owner-0.5.md	167	- A sweep is linear in `s`: `prox_coordinate!` is about 3.7 ns per coordinate, and the bare iteration about 0.08 ns.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/symmetric-owner-0.5.md	175	  including cache updates). `prox_coordinate!` here is a primitive; it does not measure a solver sweep.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/baselines/tools/make_baseline.py	163	              "sweep_activecoordinates": (FLAT, LIN), "sweep_prox_coordinate!": (FLAT, LIN), "construct": (QUAD, None), "Matrix": (QUAD, None),
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/case_selection_test.jl	982	                              raw"/dropzeros!/.*zeros50", raw"/prox_coordinate!_staged/.*GroupNormLinf", raw"prox_coordinate!_5arg/.*NormL1/",
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/case_selection_test.jl	990	                              raw"prox_coordinate!_5arg/.*NormL1/", raw"absent_distinct_batch_x\d+/", raw"rmul!_inf", raw"/replace_staged/",
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/case_selection_test.jl	1117	                                   raw"/rmul!_inf", raw"/rmul!_finite", raw"/fill!_coordinates_zero", raw"/prox_coordinate!_5arg",
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/case_selection_test.jl	1125	                                raw"/prox_coordinate!_5arg", raw"/_restartdot/.*private_fields", raw"/_values!/",
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	539	    r = [prox_entry(f0, x0[i], i, γ0[i]) for i in eachindex(x0)]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	669	            check!() = (prep!(); prox_coordinate!(z,f,group_index,step); all(isfinite,z) || error("nonfinite group update"))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	670	            addcase!(cases, "coordinates", string(nameof(typeof(f))), () -> prox_coordinate!(z,f,group_index,step), check!;
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	721	          prox_coordinate!(z, f, k, step)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	735	        addcase!(cases, "group_layouts", name * "/coordinate", () -> prox_coordinate!(z, f, k, step), checkcoordinate!;
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	918	                new=prox_entry(penalty,old+dot(col,r)/a[j],j,inv(a[j]))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	1154	# prox_coordinate! with a lower-triangle coordinate ID, mul! and Matrix on the matrix
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	1256	        prox_sweep() = (for k in activecoordinates(Xs); prox_coordinate!(Xs, f, k, step); end; nothing)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	1268	        addcase!(cases, "owner", "sweep_prox_coordinate!", prox_sweep, check_sweep!; inputs=(; fx_ids=fx.ids, fx_vals=fx.vals),
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	1506	        addcase!(cases, "ridge", name * "/prox_entry_loop",
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	1507	                 () -> begin @inbounds for i in eachindex(x) z[i] = prox_entry(f, x[i], i, γ) end end,
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	1508	                 () -> (for i in eachindex(x); z[i] = prox_entry(f, x[i], i, γ); end; close_ref(z, refprox));
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	1510	        chain() = (v = zero(T); @inbounds for i in eachindex(x) v = prox_entry(f, x[i] + T(0.5) * v, i, γ) end; v)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	1511	        addcase!(cases, "ridge", name * "/prox_entry_chain", chain,
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	1808	        prox_coordinate!(x, f, ids[j], us[j], γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	1928	    add("prox_coordinate!_5arg", "NormL1_scalar_u")
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	2249	        # FD-12: the five-argument prox_coordinate! with a scalar u. One step takes about 1.5 ns on the pinned
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	2269	        addcase!(cases, "sparse", "prox_coordinate!_5arg", () -> prox_batch!(x, f, kb, ub, γ), guarded(check_prox);
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	2272	    want("fill!_coordinates_zero", "prox_coordinate!_5arg") && Base.invokelatest(fill_prox_group)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	2649	        prox_coordinate!(x, f, ks[j], us[j], γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	2657	        prox_coordinate!(x, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/cases.jl	2870	const ATOM_PROX_NAMES = ("prox_coordinate!_5arg", "prox_coordinate!_staged")
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	benchmark/check_only_test.jl	222	               "owner/sweep_prox_coordinate!/Float64/p500_s100/NormL1/warm",
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/audit/release-0.5.4/README.md	188	| `prox!` / `value_and_prox!` for separable functions | [Separable array kernels](https://github.com/mlakolar/ProximalBase.jl/blob/5839b4e973a115fa0d3c1a328903a0a58ded3aac/src/functions/separable.jl) validate parameters and call `prox_entry`; [coordinate dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/5839b4e973a115fa0d3c1a328903a0a58ded3aac/src/interface.jl) maps symmetric stored coordinates to full entry indices or updates matching atom groups. Group activation is part of the coordinate mutation contract. |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/audit/release-0.5.4/architecture/02-oracles.mmd	9	  CP ==>|SeparableFunction path| PE["prox_entry / value_entry"]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/audit/release-0.5.4/architecture/02-oracles.mmd	10	  S ==>|coordinate update| C["prox_coordinate!"]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/audit/release-0.5.4/architecture/README.md	41	Array separable proximal operations loop over `prox_entry`; coordinate methods
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/audit/release-0.5.4/composition.md	16	| C04 | P1, fixed and validated | `BoxConstrained.prox_entry` clamped an inner scalar prox without checking whether the outer box intersects the inner function's domain. `Constrained(IndBox(0,1),IndBox(2,3))` returned 2 from input 0 although its value is Inf; `value_and_prox!` reported 0 through `_isindicator`. NegLog, entropy/KL, translated nonnegative functions, and separable conjugates gave other built-in counterexamples. | Added internal scalar-domain intervals with exact open/closed endpoints and conjugate slope limits for built-ins; propagate through wrappers. A changed clamp must remain in the inner domain, including the known-slope multiplier path. Six original counterexamples, scalar/coordinate paths, nested wrappers, entropy/log boundary distinction and allocations are regressions. Fresh cross-review found and repaired an introduced mixed-precision rejection at touching bounds: compare the original interval intersection for emptiness before checking its endpoint representation in output precision. This original-interval check also runs when clamping does not change the rounded point. New Float32/Float64 regressions use higher-precision touching and nextfloat-disjoint endpoints, including scalar, sparse coordinate and multiplier-slope paths. Custom functions retain an explicit proper-intersection precondition; unknown custom domain intervals are not inferred. | Passed full Julia 1.10.12/1.13.2 suites at f68cd73; see validation receipts. Frozen baseline reproduction: `validation/baseline-probes.log`; final guard checks passed on both versions at c0e1305. |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/audit/release-0.5.4/composition.md	43	- Scalar kernels are `prox_entry`/`value_entry`; full array loops and coordinate operations dispatch separately on storage. A BoxConstrained scalar kernel calls inner scalar prox and then box clamp; C04 checks the original interval intersection and the working-precision clamped point at this exact boundary.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/audit/release-0.5.4/public-api.md	138	| `prox_coordinate!` | function | present |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/audit/release-0.5.4/public-api.md	139	| `prox_entry` | function | present |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/audit/release-0.5.4/storage-extensions.md	48	- `prox_coordinate!` dispatches on iterate and function. Scalar kernels use a full linear entry index; symmetric lower-triangle coordinates are translated before `prox_entry`. Group penalties dispatch on matching AtomIterate groups.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/audit/sparse-iterate-06-method-inventory.md	12	6. Exclusions: numerical-function oracles such as `restrict`, `prox!`, `prox_coordinate!`, `kkt_violation`, `gradient!`, etc. are catalogued separately because they are **not** methods that the iterate must implement.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/audit/sparse-iterate-06-method-inventory.md	143	- `src/interface.jl:452,471`: 4- and 5-argument `prox_coordinate!(::SparseIterate,...)`; mathematical function + iterate oracle, not storage.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6-acceptance.md	35	| `src/cd/groups.jl:19–48`, `:50–80` | group steps on an `AtomIterate` for any penalty: reads `x.groups[k]` (`:20`, `:52`), writes the trial point into `x.storage` (`:32–37`, `:64–69`), then calls the four-argument `prox_coordinate!` (`:38`, `:70`) | FW-1 fails during the call, and for good if it throws (FA-7). Recipe §3.3 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6-acceptance.md	213	form (FA-7); `x` is written only by `prox_coordinate!`.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6-acceptance.md	232	  prox_coordinate!(x, g, k, view(buf, 1:n), iszero(L) ? floatmax(T) : inv(L))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6-acceptance.md	437	| `prox_coordinate!(x, f, k, γ)` | ID; returns the scalar; FA-3, FA-4 | ID | group ID; returns `atom(x, k)`; layout checked (FL-4) | ORC-5 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6-acceptance.md	438	| `prox_coordinate!(x, f, k, u, γ)` | scalar `u` | scalar `u` | `u` of the group's length, may alias `x` (FA-5); unchanged after a validation error (FA-4); a partial write is possible if reading `u` throws (FA-7, FT16) | ORC-6 |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6-acceptance.md	463	  `x .= 2 .* x` doubles; `prox_coordinate!(a, f, 1, atom(a, 2), γ)` copies `u`
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6-acceptance.md	477	  `vec .=`, `atom .=`, and a `prox_coordinate!` whose result rounds to zero
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6-acceptance.md	511	| **FT15 coordinate oracles** | FA-1–FA-6, FL-4, FC-1 | `x = AtomIterate([1, 2, 0, 0], [1:2, 3:4])`; `fbad = GroupNormL2(1, [[1, 3], [2, 4]])`; `g = [3, 4, 0, 0]`; `x2 = AtomIterate(2, [1:2])` and `g2 = [5/8, 5/8]`; a `SparseIterate` with `x[1] = 0.5` | Return types: a `Float64` for `SparseIterate`, `atom(x, k)` for `AtomIterate`. `prox_coordinate!(x, fbad, 1, 1)`, `prox_coordinate!(x, fbad, 1, [9, 9], 1)` and `kkt_violation(fbad, g, x, 1)` throw `DimensionMismatch`; `k = 3` throws `BoundsError`; `u = [1]` throws `DimensionMismatch`; a complex `u` and a non-separable non-group `f` throw `ArgumentError`; after each, `Vector(x)` and the working set are unchanged. A group step to zero on an absent group leaves it absent; a scalar step to zero on an active coordinate keeps it active. `prox_coordinate!(y, NormL1(0.5), 1, atom(y, 2), 1)` with `atom(y, 2) == [3, 4]` gives `[2.5, 3.5]` (soft threshold by hand). Screens, each by hand from the penalty's own dual norm and default weight (contract, FA-6's table): `GroupNormL2(1, [1:2, 3:4])` at `g`, `≈ 5 − √2` (ℓ₂ norm 5, weight `√2`); **`GroupNormLinf(1, [1:2])` at `g2`, `== 0.25`** (ℓ₁ norm `5/4`, weight 1: the group must enter), where the ℓ₂ formula would give `−0.11611652351681556`, a screen-out; `GroupNormLinf(1, [1:2, 3:4])` at `g`, `== 6.0` (`7 − 1`); `SparseGroupNormL2(1, 1, [1:2, 3:4])` at `g`, `≈ √13 − √2` (the soft threshold of `[3, 4]` at 1 is `[2, 3]`); `GroupMCP` and `GroupSCAD` at `g`, `≈ 5 − √2`; `Scaled(GroupNormLinf(1, [1:2]), 2)` at `g2`, `== −0.75`; `Regularize(GroupNormL2(1, [1:2]), 1, [1, 1])` at `[3, 4]`, `≈ √13 − √2`; `kkt_violation(NormL1(1), g, x, 1) == 3.0` (largest of `|3|, |4|` minus 1); for a `SparseIterate`, `kkt_violation(NormL1(1), [3, −0.5], x, k)` is `2.0` and `−0.5`. *Fails today:* none (the code already computes each penalty's screen) | `test/block_step.jl`, `test/interface.jl` |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6-acceptance.md	512	| **FT16 block trials** | FA-7, FW-1 | `f = GroupNormL2(1, [1:2, 3:4])`, `x = AtomIterate(4, f)`; `fl = GroupNormLinf(2, [1:2, 3:4])`, `xl = AtomIterate(4, fl)`; also `SparseGroupNormL2`, `GroupMCP` and `NormL1`, groups of sizes 1, 8, 64, contiguous and not; a non-strided `u` whose `getindex(2)` throws | `prox_coordinate!(x, f, 1, [3, 4], 1) ≈ (1 − √2/5)·[3, 4]` (by hand, `rtol = 4eps`); `prox_coordinate!(xl, fl, 1, [1, 4], 1) == [1, 2]` (by hand: the prox of `2‖·‖∞` clips at τ = 2, where `max(4 − τ, 0) + max(1 − τ, 0) = 2`); for each penalty the five-argument result `==` the result of staging `u` and calling the four-argument form (this package's own test may stage through the private field); with `fbad` the five-argument call throws and `x` is unchanged and consistent; with the throwing `u`, FW-1 holds after the exception (the test does not require `x` unchanged) | `test/block_step.jl`, `test/block_step_failures.jl` |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6-acceptance.md	519	| **FT23 allocation** | FP-1, FP-2, FP-5, FP-7, FW-5 | warmed-up `Float32` and `Float64` fixtures of §6 | `@allocated` is 0 for `x[i]`, `x[i] = v`, a first activation, `isactive`, `activate!`, `activecoordinates(x)`, `activevalues(x)`, `coordinates(x)`, `atom(x, k)`, `atomindices(x, k)`, `dropzeros!`, `fill!(coordinates(x), 0)` on both coordinate views (FP-7, whose `O(s)` cost §6 measures), `mul!(out, A, x)`, `dot(v, x)`, the five-argument `prox_coordinate!` with a strided `u`, and the loops of §3.4. Growth with `n`, `s` and `p` is checked in §6 | `test/allocations.jl` |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6-acceptance.md	524	| **FT28 block trials without private writes** | FA-7, FF-2 | `_groupstep!` for `GroupNormLinf`, `SparseGroupNormL2` and `NormL1` on `LSModel` and `QuadModel` | iterates equal, to relative `1e-12`, a run recorded at the audited commits; a step whose `prox_coordinate!` throws leaves no inactive group with a nonzero entry | ProximalSolvers `test/` |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6.md	154	prox_coordinate!(x, f, 1, [3.0, 4.0], 1.0)   # the trial point is not written first
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6.md	160	storage and then calling `prox_coordinate!(x, f, 1, 1.0)` gives the same
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6.md	179	- Stage a group trial with `prox_coordinate!(x, f, k, u, γ)`.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6.md	208	| FC-1 | An integer passed to a coordinate API (`isactive`, `activate!`, `atom`, `atomindices`, `prox_coordinate!`, the four-argument `kkt_violation`) *must* be read as a coordinate ID, and one passed to `getindex` or `setindex!` as an entry index (S, A) or a matrix position (O). A slot is never read as an ID (IDX-4, for the family). | 0.5.x | S, A, O |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6.md	240	| FW-8 | **Oracle destinations.** After a ProximalBase oracle (`prox!`, `value_and_prox!`, `gradient!`, `mul!`, `prox_coordinate!`) writes an iterate, its values *must* be the result and its working set *must* contain every coordinate with a nonzero result (FW-1). Which zero coordinates stay active is unspecified; `dropzeros!` gives the support. | 0.5.x (stated) | S, A (O: ORC-3, ORC-6) |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6.md	280	| FL-4 | **Compatibility for coordinate oracles** (`prox_coordinate!`, the four-argument `kkt_violation`): an iterate and a group penalty *must* have equal ordered index lists (the same number of groups, `groups[k] == f.groups[k]` for every `k`), checked before writing; otherwise `DimensionMismatch("f and x must have the same groups.")`. | 0.5.x | A |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6.md	302	Shared by both forms of `prox_coordinate!` and by the four-argument
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6.md	315	| FA-2 | **Return.** `prox_coordinate!` *must* return the new scalar for S and O, and `atom(x, k)` for A. | 0.5.x | S, A, O |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6.md	320	| FA-7 | **Block trials.** `prox_coordinate!(x, f, k, u, γ)` *is* the supported way to take a group step at a trial point. It *must* give the result of staging `u` into group `k` and calling the four-argument form when nothing throws, and leave `x` unchanged after any of FA-4's validated errors. If reading `u` throws (a non-strided `u` whose `getindex` fails), FW-1 holds but entries of the group may already be written. The alternative, copying a non-strided `u` first, would make that atomic too, at the cost of an allocation. Staging a trial by writing private storage is unsupported: it breaks FW-1 for the duration of the call, and for good if the call throws. | 0.5.x (stated) | A |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6.md	1354	    source (an allocation). `prox_coordinate!`'s alias check
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6.md	1615	| a trial `u` whose `getindex(2)` throws: `prox_coordinate!(x, f, 1, u, 1)` throws and leaves `x == [3, 0, 0, 0]` with group 1 active | ran; `src/interface.jl:506–515` |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/iterate-family-0.6.md	1616	| `prox_coordinate!` returns `Float64` for a `SparseIterate`, a `SubArray` for an `AtomIterate` | ran |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/numerical-contract/coverage.md	315	| wrappers | prox_entry | Float64 | cpu | Unstaged scalar map: b + ((x-b)+1) = 1.5 | O4 | none | passes |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/numerical-contract/decisions.md	1284	from `prox!` and `1.5` from `prox_entry`. In Float32, `0.5 - 1e8` has lost
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6-acceptance.md	215	| the entry index passed to the penalty | `models.jl:419` `_entry(p, r, c) = (c-1)p + r` into `prox_entry` | unchanged (IDX-3) |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6-acceptance.md	286	| **T04 weights: local, full, explicit** | VAL-1, VAL-3–VAL-7, ORC-5, ORC-6 | `W = [0.0 1.0; 3.0 0.0]`, `λ = 0.1`, `γ = 1`, off-diagonal trial value `u = 0.5`, `p = 2`, `k = tril_index(2,2,1)` | `prox_coordinate!(X, NormL1(0.1, W), k, 0.5, 1.0)` and `check_symmetric_parameters(NormL1(0.1, W), X)` throw `ArgumentError` naming entries `(2,1) = 3` and `(1,2) = 1`. With `Symmetric(W, :L)` (weight 3): result `≈ 0.2` (`0.5 − 0.1·3·1`). With the explicit mean `[0 2; 2 0]`: `≈ 0.3`. Compare with `isapprox`, `rtol = 4eps`. **Untouched pair:** `p = 3`, `W3 = ones(3,3)` with `W3[2,1] = 3.0`: `prox_coordinate!` at `(3,3)`, `u = 0.5` returns `≈ 0.4` and does not throw; at `(2,1)` it throws; `check_symmetric_parameters` throws regardless. A symmetric `W` holding `−1` passes the symmetry check and is rejected by the penalty's domain check (VAL-1 independence) | `test/symmetric_parameters*.jl` (extend) |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6-acceptance.md	287	| **T05 derivatives, projection, screening** | ORC-5, ORC-8, ORC-9, CRD-4, §2.8 | `p = 4`; seeded SPD `A, B`, symmetric `C`; `f(Z) = ½tr(ZAZB) + ⟨C, Z⟩` with `KronQuadratic(A, B, C)`; a symmetric `Z`; one diagonal and one off-diagonal coordinate; an ambient `g = Gs + N`, `N` antisymmetric | Reference: central finite difference of the dense formula along `Eₖ`, `h = 1e-6‖Z‖`. Expected: `(f(Z+hEₖ) − f(Z−hEₖ))/2h ≈ mₖ Gs[r,c]` (`m = 1` diagonal, `2` off) with `Gs` from `gradient!`. For a coordinate **at zero**, `kkt_violation(NormL1(λ, W), g, X, k)` equals `\|Gs[r,c]\| − λW[r,c]` for the ambient `g` and for `Gs`; for opposing infinite entries it throws. Separable scalar-step agreement: random symmetric `V`; whole `prox!` into an owner equals per-coordinate `prox_coordinate!(Z, f, k, V[r,c], γ)`; both equal the soft-threshold formula `sign(v)max(\|v\| − γλw, 0)` written in the test. Screening is **not** asserted to certify a solution here; that is T16 | `test/symmetric_oracles.jl` |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6-acceptance.md	329	  `prox_coordinate!` with a built-in separable `f`, not only a trivial
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6.md	197	| IDX-3 | `prox_entry(f, v, i, γ)` takes a *matrix* linear index `i = (c − 1)p + r` (it indexes weights and bounds, which are matrices). This is the one place an oracle takes a matrix linear index; every coordinate operation takes an ID `k`. Docstrings *must* say which. |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6.md	198	| IDX-4 | An integer passed to a coordinate API (`coordinates(X)[k]`, `isactive`, `activate!`, `prox_coordinate!`, `kkt_violation`) is **always** interpreted as an ID. A caller holding a slot `a` writes `activecoordinates(X)[a]`. When a slot and a valid ID are the same `Int` the implementation cannot tell the intent, and no new index type is introduced to do so. |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6.md	262	| ACT-5 | Writing a value (CRD-3, `X[i,j] = v`, `activevalues`, `prox_coordinate!`) *must never remove* an active coordinate. Only `dropzeros!` removes a single coordinate, and only one whose value is zero. The one exception is **whole-state replacement**: `copyto!(X, Y)` and `copyto!(X, M)` (CPY-3, CPY-4) discard the previous working set by design, and `copy` and state copies *preserve* active zeros. A sweep over `activecoordinates(X)` that only updates already active coordinates *must* leave `activecoordinates(X)` unchanged, whatever values it writes. |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6.md	313	audited commit, `prox!` into an owner, `prox_entry(NormL1(0.5), 3.0, 2, 1.0)`,
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6.md	314	`prox_coordinate!(X, NormL1(0.5), k, 3.0, 1.0)` and a joint-direction coordinate
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6.md	326	So **the step handed to `prox_entry`, and the `γ` of the four-argument
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6.md	327	`prox_coordinate!`, is the reciprocal of the curvature measured along a
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6.md	377	| ORC-5 | `prox_coordinate!(X, f, k, γ)` | one coordinate; the scalar `prox_entry(f, θₖ, i(r,c), γ)` with the other coordinates fixed. The multiplicity cancels: `mₖ` multiplies both `f` and the quadratic. | writes `θₖ` in place (CRD-3 for zeros) | the new `θₖ` |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6.md	378	| ORC-6 | `prox_coordinate!(X, f, k, u, γ)` | as ORC-5 for the trial value `u`, which is *not* written first | writes `θₖ`; a coordinate that stays zero stays absent | the new `θₖ` |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6.md	379	| ORC-7 | `prox_entry(f, v, i, γ)` | raw scalar prox of the entry term at matrix linear index `i` (IDX-3) | none; checks no parameters | the scalar result |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6.md	424	| VAL-3 | A coordinate oracle (`prox_coordinate!`, `kkt_violation` for `k`) *may* inspect only the pair it uses. A stored-only operation *may* inspect only the pairs it touches. Neither certifies the model. |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6.md	468	| PERF-5 | After warm-up, these *must not* heap-allocate for `Float32`/`Float64` inputs: `X[i,j]`, `X[i,j] = v`, `θ[k]`, `θ[k] = v`, `isactive`, `activate!` (capacity reserved), `prox_coordinate!` for a built-in separable `f` with scalar or `Symmetric`-typed parameters, and a sweep over `activecoordinates(X)` that calls it. |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/design/symmetric-sparse-iterate-0.6.md	514	8. **`prox_entry` keeps a matrix linear index** (IDX-3). *Recommend: keep.*
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/architecture.md	42	`prox_entry`. Group penalties instead update blocks; the internal
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/architecture.md	77	| `prox!(y, NormL1(λ), x, γ)` | Separable array method → `prox_entry` → soft thresholding |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/architecture.md	79	| `prox_coordinate!` on an `AtomIterate` | Stored-coordinate lookup → scalar or group update, depending on the penalty |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/architecture.md	120	input entry; with array steps and in `prox_entry` this covers only the
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/assets/architecture/02-oracles.mmd	9	  CP ==>|SeparableFunction path| PE["prox_entry / value_entry"]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/assets/architecture/02-oracles.mmd	10	  S ==>|coordinate update| C["prox_coordinate!"]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/calculus.md	126	coordinate-level interfaces (`prox_entry`, `kkt_violation`, `restrict`) take array
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/calculus.md	426	(with array steps and in `prox_entry`, only for the conjugates that are
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/calculus.md	794	`prox_entry`, `kkt_violation` and `restrict` of a `MoreauEnvelope` are supported
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/coordinate_descent.md	45	Using [`prox_entry`](@ref)`(g, v, j, γ)`, we compute the new scalar value
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/coordinate_descent.md	109	per group, and `prox_coordinate!(x, g, k, u, 1 / Lk)` applies the block
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/developer/index.md	40	The following APIs belong to **functions or algorithms**, not to the storage type's minimum contract: `restrict`, `prox_entry`, `prox_coordinate!`, `kkt_violation`, `gradient!`, `prox!`, `quadratic_model` and `value_and_prox!`. They may accept an iterate, but a new iterate does not need to define those oracles itself. Consult [the function interface](../interface.md) and [coordinate descent](../coordinate_descent.md).
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/extending.md	61	- [`prox_entry`](@ref)`(f, v, i, γ)`, the proximal operator of ``\gamma f_i`` at
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/extending.md	67	[`prox_coordinate!`](@ref) works on the iterates. Declare
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/extending.md	78	ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/extending.md	108	prox_coordinate!(xs, f, 2, 0.5), nactive(xs)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/extending.md	183	- [`test_separable`](@ref ProximalBase.Testing.test_separable): `prox_entry`
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/getting_started.md	55	[`prox_entry`](@ref), using the curvature ``a_j`` supplied by
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/getting_started.md	77	            new = prox_entry(g, z, j, 1 / a[j])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/index.md	27	| Coordinate operations | `prox_entry`, `prox_coordinate!`, `coordinate_lipschitz`, `kkt_violation`, `restrict` | Update entries or groups and manage a working set |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/interface.md	184	| [`isseparable`](@ref) | [`prox_entry`](@ref), [`prox_coordinate!`](@ref), [`kkt_violation`](@ref) | ``f(x) = \sum_i f_i(x_i)`` |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/interface.md	226	  `value_and_prox!`, `gradient!`, `value_and_gradient!`, `prox_entry` and
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/interface.md	227	  `prox_coordinate!` on Float32 and Float64 CPU arrays after warm-up. They do
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/interface.md	287	  so `prox!` and entrywise `prox_entry` can differ within a bound in each
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/interface.md	474	  are numbers works as it is: its [`prox_entry`](@ref) and
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	31	[`prox_entry`](@ref)`(g, v, i, γ)` computes the scalar proximal operator of
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	33	[`prox_coordinate!`](@ref)`(x, g, k, γ)` reads coordinate ``k`` of the iterate,
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	38	- `prox_entry` takes an entry ``i`` of the array, the index of the weights and
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	40	- `prox_coordinate!` takes a coordinate ``k`` of the iterate.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	346	That is `prox_entry(NormL1(λ), t₀ - (2/a) G[r, c], i, 2/a)`. On the diagonal
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	543	| Both forms of [`prox_coordinate!`](@ref) | Iterate `x` | The pair at the chosen coordinate |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	629	- Raw entry calls (`value_entry`, `prox_entry`, `lla_weight`, scalar
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	679	`prox_coordinate!(x, g, k, u, 1/L_k)`, which is block soft thresholding and
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	718	indices inside a group gives `false`. For a group penalty, it is the check that [`prox_coordinate!`](@ref) makes
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	749	[`prox_coordinate!`](@ref) and the four-argument [`kkt_violation`](@ref) act on
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	757	`prox_coordinate!(x, f, k, γ)` applies the proximal operator of ``\gamma f`` to
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	758	the current value of coordinate ``k``. `prox_coordinate!(x, f, k, u, γ)` applies
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	797	v = prox_coordinate!(x, NormL1(1.0), 1, 1.0)        # soft thresholding of 0.5 at 1
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	799	v = prox_coordinate!(x, NormL1(1.0), 2, 3.0, 1.0)   # the trial value 3.0 is not written first
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	801	prox_coordinate!(x, NormL1(1.0), 3, 0.5, 1.0)       # a zero result
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	804	    prox_coordinate!(x, NormL1(1.0, ones(3)), 4, 1.0)   # three weights for four entries
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	822	r = prox_coordinate!(a, f, 1, view(a, [2, 1]), 1.0) # the trial (4, 3)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	831	`prox_coordinate!(x, f, k, u, γ)`. It gives the values that writing `u` into
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	832	group ``k`` and then calling `prox_coordinate!(x, f, k, γ)` gives. The working
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	843	r = prox_coordinate!(x, f, 1, [3.0, 4.0], 1.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	846	prox_coordinate!(x, f, 2, [0.5, 0.5], 1.0)          # the norm of u is below √2
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	852	prox_coordinate!(z, f, 2, 1.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	857	    prox_coordinate!(x, GroupNormL2(1.0, [[1, 3], [2, 4]]), 1, [9.0, 9.0], 1.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	986	[`prox_coordinate!`](@ref) writes a `SparseIterate` or an `AtomIterate`, the
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/iterates.md	990	make the working set the support. `prox_coordinate!` follows the stricter rules
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/migration.md	16	| `cdprox!(f, x, k, γ)` | `prox_coordinate!(x, f, k, γ)` |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/migration.md	398	| Symmetric coordinate steps read the lower-triangle parameter without comparing its mirror | `prox_coordinate!` checks the pair at the chosen coordinate |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/migration.md	422	wrong, except for group penalties. `prox_entry` and `kkt_violation` now throw
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/migration.md	440	is the iterate. [`prox_coordinate!`](@ref) on an [`AtomIterate`](@ref) returns
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/migration.md	444	`prox_coordinate!(x, f, k, γ)` should call `prox_coordinate!(x, f, k, u, γ)`
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/numerics.md	324	`value_and_prox!`, `prox_entry`, the step checks, array steps, the optimality
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/numerics.md	426	| entrywise threshold, clamp or tie on the model's operands | an exact comparison, with the documented tie and no tolerance. Every path (`prox_entry`, `prox_coordinate!`, the whole array, aliased `prox!(x, f, x, γ)`) and every backend decides the same |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/numerics.md	794	treats the step the same way: `prox!`, `value_and_prox!`, [`prox_entry`](@ref)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/numerics.md	851	  `prox_entry` is bounded per wrapper: each stage's rounding error, in that
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/numerics.md	855	  and `1.5` from `prox_entry`, within `eps(Float32)·1e8`.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/penalties.md	115	[`prox_entry`](@ref) still returns an exact minimizer: it compares the candidate
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	docs/src/sparse_iterate.md	245	**Not a separate iterate interface:** `restrict`, `kkt_violation`, `prox_coordinate!`, `prox!`, `value_and_prox!`, `gradient!` and `hessian_vec!`. Their APIs belong to function oracles; individual methods may accept `SparseIterate` as an input or destination.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/02_lasso_path_coordinate_descent.jl	7	# 1/aⱼ, at the point βⱼ + Xⱼ'r / aⱼ. `prox_entry` computes it without writing β,
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/02_lasso_path_coordinate_descent.jl	29	        new = prox_entry(g, z, j, 1 / a[j])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/03_nonconvex_penalties.jl	4	# variable, which `prox_entry` evaluates: soft thresholding for the ℓ1 norm,
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/03_nonconvex_penalties.jl	17	    println(rpad(v, 6), join((rpad(round(prox_entry(pen, v, 1, 1.0), digits = 3), 8) for (_, pen) in penalties)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/03_nonconvex_penalties.jl	20	@assert prox_entry(NormL1(λ), 2.5, 1, 1.0) == 1.5                 # soft: shrinks by λ
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/03_nonconvex_penalties.jl	21	@assert prox_entry(MCP(λ, 3.0), 0.8, 1, 1.0) == 0                  # MCP: zero below λ,
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/03_nonconvex_penalties.jl	22	@assert prox_entry(MCP(λ, 3.0), 2.0, 1, 1.0) ≈ 1.5                 # firm between λ and aλ,
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/03_nonconvex_penalties.jl	23	@assert prox_entry(MCP(λ, 3.0), 5.0, 1, 1.0) == 5.0                # and untouched beyond aλ
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/03_nonconvex_penalties.jl	24	@assert prox_entry(SCAD(λ, 3.7), 1.5, 1, 1.0) ≈ 0.5                # SCAD: soft up to 2λ,
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/03_nonconvex_penalties.jl	25	@assert prox_entry(SCAD(λ, 3.7), 5.0, 1, 1.0) == 5.0               # untouched beyond aλ
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/03_nonconvex_penalties.jl	26	@assert prox_entry(NormL0(λ^2 / 2), 0.9, 1, 1.0) == 0 && prox_entry(NormL0(λ^2 / 2), 1.2, 1, 1.0) == 1.2
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/03_nonconvex_penalties.jl	31	# step is βⱼ ← prox_entry(pen, βⱼ + Xⱼ'r / n, j, 1), r = y - Xβ. For MCP with a > 1
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/03_nonconvex_penalties.jl	47	            new = prox_entry(pen, old + dot(view(X, :, j), r) / n, j, 1.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/04_group_lasso.jl	8	# coordinates are the groups: `prox_coordinate!` takes a trial point for one
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/04_group_lasso.jl	52	        prox_coordinate!(β, g, k, u, 1 / Lk[k])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/15_calculus_and_custom_functions.jl	8	# implements two scalar functions, `value_entry` and `prox_entry`; the value,
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/15_calculus_and_custom_functions.jl	9	# `prox!`, `value_and_prox!` and `prox_coordinate!` then come with the type.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/15_calculus_and_custom_functions.jl	79	function ProximalBase.prox_entry(f::HuberPenalty, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/15_calculus_and_custom_functions.jl	91	    @assert abs(prox_entry(hp, v, 1, γ) - zbest) < 1e-4
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/15_calculus_and_custom_functions.jl	93	# the value and prox! come from value_entry and prox_entry, also on sparse iterates
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/15_calculus_and_custom_functions.jl	94	@assert hp(x) ≈ sum(t -> huber(t, hp.δ), x) && prox(hp, x, γ) ≈ [prox_entry(hp, v, 1, γ) for v in x]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/15_calculus_and_custom_functions.jl	97	@assert prox_coordinate!(xs, hp, 2, γ) ≈ prox_entry(hp, 1.5, 2, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/15_calculus_and_custom_functions.jl	98	prox_coordinate!(xs, hp, 4, γ)                        # a zero stays zero, and unstored
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/15_calculus_and_custom_functions.jl	113	println("HuberPenalty: prox_entry, prox! and prox_coordinate! work like the built-in functions")
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/16_constrained_penalties.jl	76	# NormL1 on the box 0 ≤ β ≤ 1 is separable: prox_entry clamps the soft
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/16_constrained_penalties.jl	93	        new = prox_entry(g, v, j, 1 / a[j])             # soft thresholding, then the box
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	examples/README.md	23	| [`02_lasso_path_coordinate_descent.jl`](02_lasso_path_coordinate_descent.jl) | a lasso path | coordinate descent with `prox_entry` on a `SparseIterate`; warm starts, an active set, `kkt_violation` |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseGPUArraysCoreExt.jl	16	                    prox_entry, value_entry, shrink, _checksize, _checkparams, _checkgroups, _tol, _ind,
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseGPUArraysCoreExt.jl	70	  y .= prox_entry.(Ref(f), x, LinearIndices(x), γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseGPUArraysCoreExt.jl	85	  y .= prox_entry.(Ref(f), x, LinearIndices(x), _steps(γ, x))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseGPUArraysCoreExt.jl	89	# At γ = Inf the parts are decided as in prox_entry, from host decisions on the levels (G5).
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseGPUArraysCoreExt.jl	129	  # the rule of prox_entry, decided on the host from the level and the step as given
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseGPUArraysCoreExt.jl	133	# prox_entry of a NormL1 whose infinite level fixes the penalized entries at zero
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseGPUArraysCoreExt.jl	610	# zero weights as in prox_entry and value_entry
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseTestExt.jl	337	  @test [prox_entry(f, x[i], i, γ) for i in eachindex(x)] ≈ vec(_dense(p))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseTestExt.jl	350	    prox_coordinate!(xs, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseTestExt.jl	351	    prox_coordinate!(y, f, k, xz[k], γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseTestExt.jl	361	    @test all(i -> iszero(prox_entry(f, zero(T), i, γ)), eachindex(x))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseTestExt.jl	395	      prox_coordinate!(a, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseTestExt.jl	396	      prox_coordinate!(y, f, k, xz[a.groups[k]], γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseTestExt.jl	418	      prox_coordinate!(S, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	ext/ProximalBaseTestExt.jl	420	      prox_coordinate!(y, f, k, X[r, c], γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/ProximalBase.jl	11	operators [`prox_entry`](@ref), with which [`prox_coordinate!`](@ref) updates
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/ProximalBase.jl	19	`prox!(y, f, x, γ)`, `gradient!(g, f, x)`, `prox_coordinate!(x, f, k, γ)`.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/ProximalBase.jl	46	  prox_coordinate!, prox_entry, kkt_violation, restrict,
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/atom_iterate.jl	162	check that [`prox_coordinate!`](@ref) makes before it writes and that the four-argument
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/atom_iterate.jl	215	use [`prox_coordinate!`](@ref)`(x, f, k, u, γ)`.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/ballconstrained.jl	238	# thresholds are those of prox_entry, so that the two cases agree with it.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	140	the gradient, the proximal operator, `prox_entry`, the optimality violation, the
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	686	  # one test for the ordinary product: a loop over `prox_entry` still vectorizes with a single
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	709	# in a loop over `prox_entry` are the ones that are not inlined (`_prox_entry_nested`).
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	753	Base.@propagate_inbounds function prox_entry(s::Scaled, v::Real, i::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	754	  _nested_route(s, γ) && return _prox_entry_nested(s, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	755	  prox_entry(s.f, v, i, s.α * γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	757	@noinline function _prox_entry_nested(s::Scaled, v::Real, i::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	759	  prox_entry(g, v, i, step)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	768	function prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	771	    return prox_coordinate!(x, g, k, step)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	773	  prox_coordinate!(x, s.f, k, s.α * γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	925	(`prox_entry`, `kkt_violation`, `restrict`) take array coefficients only.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	1038	Base.@propagate_inbounds prox_entry(t::Tilt, v::Real, i::Integer, γ::Real) = prox_entry(t.f, v - γ * t.c[i], i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	1070	model; the coordinate-level interfaces (`prox_entry`, `restrict`) and
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	1224	Base.@propagate_inbounds prox_entry(t::Translate, v::Real, i::Integer, γ::Real) = t.b[i] + prox_entry(t.f, v - t.b[i], i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	1263	for a separable `f` so does [`prox_entry`](@ref). Its value is known for the
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	1308	level. Array steps and `prox_entry` use the same clipping formulas for separable
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	1350	[`prox_entry`](@ref) takes the route under the same conditions on `λ` and `γ`, with the
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	1353	not apply the array finite-result refusal: `prox_entry(Conjugate(SqrNormL2()), 1e100, 1,
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	1537	Base.@propagate_inbounds prox_entry(c::Conjugate{<:Conjugate}, v::Real, i::Integer, γ::Real) =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	1538	  prox_entry(c.f.f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	1595	Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = _conjugate_entry(c.f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	1600	    w - prox_entry(f, w, i, one(S))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	1602	    v - γ * prox_entry(f, v / γ, i, _moreau_reciprocal(promote_type(float(typeof(v)), _data_of(f)), γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	2920	  v - γ * prox_entry(f, v / γ, i, _moreau_ratio(promote_type(float(typeof(v)), _data_of(f)), _projection_real(α), γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/calculus.jl	2922	  _conjugate_entry(f.f, v - γ * f.b[i], i, γ) : v - γ * prox_entry(f, v / γ, i, _moreau_reciprocal(promote_type(float(typeof(v)), _data_of(f)), γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/composition.jl	40	    prox_{γh}(x)ᵢ = prox_entry(f, aᵢxᵢ, i, γaᵢ²) / aᵢ.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/composition.jl	224	Base.@propagate_inbounds prox_entry(h::_ScalarPrecompose, v::Real, i::Integer, γ::Real) =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/composition.jl	225	  prox_entry(h.f, h.A * v, i, h.μ * γ) / h.A
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/composition.jl	405	Base.@propagate_inbounds function prox_entry(h::_ArrayPrecompose, v::Real, i::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/composition.jl	410	  p = convert(T, prox_entry(h.f, z, i, _precompose_step(γ, a, T)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/composition.jl	478	prox_coordinate!(::AtomIterate, ::_ArrayPrecompose{<:AbstractGroupPenalty}, ::Integer, ::Real) =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/composition.jl	696	Base.@propagate_inbounds function prox_entry(r::Regularize, v::Real, i::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/composition.jl	701	  prox_entry(r.f, w, i, _regularize_step(step, ρ, endpoint))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/composition.jl	711	function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	23	`Constrained(f, box)` is separable, with [`prox_entry`](@ref) for coordinate
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	180	Base.@propagate_inbounds prox_entry(c::BoxConstrained, v::Real, i::Integer, γ::Real) =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	181	  prox_entry(c.box, prox_entry(c.f, v, i, γ), i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	263	  convert(T, prox_entry(p.c, p.x[i], i, _entry(p.γ, i)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	477	  d = prox_entry(c.f, -g[i], i, one(float(eltype(g))))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	546	    y[i] = convert(eltype(y), prox_entry(f, x[i] - γᵢ * ν * convert(T, _entry(a, i)), i, γᵢ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	552	# prox_entry forms it for the arguments of the search, lies in the band of the ordinary
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	649	    z, dz = S ? _prox_entry_slope(f, v, i, γᵢ) : (prox_entry(f, v, i, γᵢ), zero(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	699	# each prox_entry is nondecreasing in its argument; for a halfspace, 0 when the
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	947	Base.@propagate_inbounds prox_entry(g::_Reindexed, v::Real, j::Integer, γ::Real) = prox_entry(g.f, v, g.I[j], γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	992	  _at_end(f, prox_entry(f, Xs[j] - γᵢ * ν * aᵢ, i, γᵢ), aᵢ, i, low)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1002	Base.@propagate_inbounds function prox_entry(g::_AtEnd, v::Real, i::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1003	  z = prox_entry(g.f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1078	# prox_entry must return the end itself where it reaches it, and be
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1270	# linear, with _prox_entry_slope(f, v, i, γ) giving prox_entry(f, v, i, γ) and
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1272	# prox_entry, computed the same way.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1285	@inline _prox_entry_slope(f::ZeroFunction, v::T, i::Integer, γ::Real) where {T<:Real} =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1286	  (prox_entry(f, v, i, γ), one(float(T)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1287	Base.@propagate_inbounds _prox_entry_slope(f::LinearFunction, v::T, i::Integer, γ::Real) where {T<:Real} =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1288	  (prox_entry(f, v, i, γ), one(float(T)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1289	# the slope is the weight prox_entry applies to the argument, also where γλ leaves the
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1291	Base.@propagate_inbounds _prox_entry_slope(f::SqrNormL2, v::Real, i::Integer, γ::Real) = _ridge_prox_slope(f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1292	Base.@propagate_inbounds _prox_entry_slope(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) = _ridge_prox_slope(r, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1293	Base.@propagate_inbounds function _prox_entry_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1299	Base.@propagate_inbounds function _prox_entry_slope(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1304	Base.@propagate_inbounds function _prox_entry_slope(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1320	Base.@propagate_inbounds function _prox_entry_slope(f::IndBox, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1325	@inline _prox_entry_slope(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1327	Base.@propagate_inbounds function _prox_entry_slope(s::Scaled, v::Real, i::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1330	    return _prox_entry_slope(g, v, i, step)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1332	  _prox_entry_slope(s.f, v, i, s.α * γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1334	Base.@propagate_inbounds _prox_entry_slope(t::Tilt, v::Real, i::Integer, γ::Real) =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1335	  _prox_entry_slope(t.f, v - γ * t.c[i], i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1336	Base.@propagate_inbounds function _prox_entry_slope(t::Translate, v::Real, i::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1337	  z, dz = _prox_entry_slope(t.f, v - t.b[i], i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1340	Base.@propagate_inbounds function _prox_entry_slope(c::BoxConstrained, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained.jl	1342	  z, dz = _prox_entry_slope(c.f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained_nonconvex.jl	61	Base.@propagate_inbounds prox_entry(c::BoxConstrained{<:Union{MCP, SCAD}}, v::Real, i::Integer, γ::Real) =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained_nonconvex.jl	65	Base.@propagate_inbounds function prox_entry(c::BoxConstrained{<:NormL0}, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained_nonconvex.jl	77	  s < f.a && return clamp(prox_entry(f, fixed ? _box_fixed_nan(c, v, l, u) : v, i, γ), l, u)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained_nonconvex.jl	88	  s < f.a - 1 && return clamp(prox_entry(f, fixed ? _box_fixed_nan(c, v, l, u) : v, i, γ), l, u)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/constrained_nonconvex.jl	154	    y[i] = convert(T, clamp(prox_entry(c.f, x[i], i, γ), l, u))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/deprecated.jl	16	@deprecate cdprox!(f::AbstractFunction, x::AbstractArray, k::Integer, γ::Real) prox_coordinate!(x, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/distance.jl	196	Base.@propagate_inbounds function prox_entry(f::SqrDistL2, v::Real, i::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/distance.jl	197	  isseparable(f) || throw(ArgumentError("prox_entry of SqrDistL2 requires a separable set"))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/distance.jl	201	  p = prox_entry(f.f, v, i, one(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/distance.jl	210	  abs(g[i] - f.λ * prox_entry(f.f, zero(T), i, one(T)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/envelope.jl	19	`f` is, so coordinate descent applies to it. `prox_entry`, `kkt_violation` and
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/envelope.jl	176	Base.@propagate_inbounds function prox_entry(e::MoreauEnvelope, v::Real, i::Integer, t::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/envelope.jl	177	  isseparable(e) || throw(ArgumentError("prox_entry of MoreauEnvelope requires a separable function"))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/envelope.jl	181	  p = prox_entry(e.f, v, i, combined)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/envelope.jl	192	  abs(g[i] - prox_entry(e.f, zero(float(eltype(g))), i, γ) / γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/envelope.jl	238	  p = prox_entry(ℓ.φ, r, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/envelope.jl	255	_prox_slope(φ::ElasticNet, r::T, γ::T) where {T} = last(_prox_entry_slope(φ, r, 1, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/envelope.jl	260	  s = (prox_entry(φ, r + h, 1, γ) - prox_entry(φ, r - h, 1, γ)) / (2h)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/entropy.jl	114	@inline function prox_entry(f::NegEntropy, v::T, ::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/entropy.jl	166	Base.@propagate_inbounds function prox_entry(f::KLDivergence, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/entropy.jl	202	@inline function prox_entry(f::NegLog, v::T, ::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/entropy.jl	428	Base.@propagate_inbounds function prox_entry(f::BernoulliLoss, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/entropy.jl	501	Base.@propagate_inbounds function prox_entry(f::Berhu, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	54	Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	183	Base.@propagate_inbounds function prox_entry(f::HingeLoss, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	192	# flagged entries are recomputed by prox_entry from the untouched x. With y === x the coefficients are
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	194	# visited by prox_entry in turn (each is read before it is written).
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	212	# for the block test, so each entry is promoted by prox_entry
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	249	      _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i)) || (y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i))))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	256	# loop (vectorized), any other block entry by entry through prox_entry (the recovery). Every entry reads
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	278	        y[i] = convert(T, prox_entry(f, src[i], i, _entry(γ, i)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	287	    y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	313	  # the NaN rule of prox_entry
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	344	      _check_range_ok(S, f, _entry(f.w, i), _entry(γ, i)) || (y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i))))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	363	        y[i] = convert(T, prox_entry(f, src[i], i, _entry(γ, i)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	472	Base.@propagate_inbounds function prox_entry(f::SqrHingeLoss, v::Real, i::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/losses.jl	608	Base.@propagate_inbounds function prox_entry(f::EpsInsensitiveLoss, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/matrixsets.jl	22	and preserves zeros, so [`prox_coordinate!`](@ref) updates any coordinate, and
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/matrixsets.jl	95	Base.@propagate_inbounds prox_entry(f::IndPattern, v::T, i::Integer, ::Real) where {T<:Real} =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/matrixsets.jl	160	Base.@propagate_inbounds prox_entry(f::IndBanded, v::T, i::Integer, ::Real) where {T<:Real} =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/nonconvex.jl	66	Base.@propagate_inbounds function prox_entry(f::CappedL1, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/nonconvex.jl	154	Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/nonconvex.jl	281	Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/nonconvex.jl	378	its groups, [`prox_coordinate!`](@ref) updates a group, the block step of
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/nonconvex.jl	538	  r = iszero(nx) ? nx : prox_entry(p, nx, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/nonconvex.jl	683	function prox_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/norms.jl	466	[`prox_coordinate!`](@ref) updates a group and [`kkt_violation`](@ref) measures
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/norms.jl	997	@inline _unchecked_coordinate!(x::AtomIterate, f::AbstractGroupPenalty, k, γ, ctx) = prox_coordinate!(x, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/norms.jl	1003	function prox_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	13	- [`prox_entry`](@ref)`(f, v, i, γ)`: the proximal operator of `γfᵢ` at the
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	18	[`value_and_prox!`](@ref) on any array, and [`prox_coordinate!`](@ref) on the
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	31	ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	65	[`prox_entry`](@ref).
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	228	    y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	247	    _setstored!(y, convert(T, prox_entry(f, x.nzval[k], i, _entry(γ, i))), i)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	272	      _setstored!(y, convert(T, prox_entry(f, x.nzval[k], j, _entry(γ, j))), i)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	278	    _setstored!(y, convert(T, prox_entry(f, x[r, c], j, _entry(γ, j))), tril_index(p, r, c))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	309	([`shrink`](@ref)). Separable, so [`prox_coordinate!`](@ref) updates any
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	349	Base.@propagate_inbounds prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	443	Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	610	Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	736	Base.@propagate_inbounds function prox_entry(f::IndBox, v::T, i::Integer, ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	782	@inline prox_entry(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} = max(float(v), zero(float(T)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	849	Base.@propagate_inbounds function prox_entry(f::IndBinary, v::Real, i::Integer, ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	898	Base.@propagate_inbounds prox_entry(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	971	    w = convert(T, prox_entry(f, x[i], i, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	1037	Base.@propagate_inbounds function prox_entry(f::MCP, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/separable.jl	1150	Base.@propagate_inbounds function prox_entry(f::SCAD, v::T, i::Integer, γ::Real) where {T<:Real}
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/smooth.jl	57	prox_entry(::ZeroFunction, v::Real, ::Integer, ::Real) = v
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/smooth.jl	201	Base.@propagate_inbounds prox_entry(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/smooth.jl	669	# which holds x), so the plain convex combination cannot overflow. prox_entry inlines
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/smooth.jl	712	@inline function prox_entry(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/smooth.jl	717	Base.@propagate_inbounds function prox_entry(f::SqrNormL2, v::Real, i::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/smooth.jl	726	# entry keeping its range in W: prox_entry without the tests, where
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/smooth.jl	732	@inline prox_entry(r::_OrdinaryRidge{<:SqrNormL2{<:Real, Nothing}}, v::Real, ::Integer, γ::Real) =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/smooth.jl	734	Base.@propagate_inbounds prox_entry(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/smooth.jl	742	# prox_entry and the slope of the ridge, from one coefficient: the value is computed by
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/smooth.jl	743	# the code of prox_entry, so that the two cannot disagree.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/sparsegroup.jl	35	([`AtomIterate`](@ref)`(x, f)`), [`prox_coordinate!`](@ref) takes the block step
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/functions/sparsegroup.jl	396	function prox_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	18	| [`isseparable`](@ref) | [`prox_entry`](@ref), and [`prox_coordinate!`](@ref) on every iterate |
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	88	the scalar proximal operators [`prox_entry`](@ref), with which
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	89	[`prox_coordinate!`](@ref) updates a coordinate of any iterate, and
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	99	`prox_entry(f, 0, i, γ) = 0` for every entry `i` and every positive finite step
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	405	    prox_entry(f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	413	symmetric iterate must check its parameters first. [`prox_coordinate!`](@ref)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	418	function prox_entry end
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	421	    prox_coordinate!(x, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	422	    prox_coordinate!(x, f, k, u, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	428	those of an [`AtomIterate`](@ref) its groups, for which `prox_coordinate!`
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	431	A separable `f` updates any coordinate through [`prox_entry`](@ref); a group
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	447	function prox_coordinate! end
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	450	  throw(ArgumentError("$(typeof(f)) is not separable: prox_coordinate! needs a separable function or a group penalty on matching groups"))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	452	function prox_coordinate!(x::SparseIterate, f::AbstractFunction, k::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	455	  v = prox_entry(f, x[k], k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	460	function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	466	  v = prox_entry(f, _getstored(x, k), (c - 1) * x.p + r, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	471	@inline function prox_coordinate!(x::SparseIterate, f::AbstractFunction, k::Integer, u::Number, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	477	  v = prox_entry(f, convert(T, u), k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	482	@inline function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Integer, u::Number, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	490	  v = prox_entry(f, convert(T, u), (c - 1) * x.p + r, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	509	    s = convert(T, prox_entry(f, x.storage[i], i, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	524	    s = convert(T, prox_entry(f, input, G[a], γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	532	function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/interface.jl	537	function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, u::AbstractVector, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/precompile.jl	60	    prox_coordinate!(SparseIterate(x), NormL1(0.1), 2, 1.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/precompile.jl	62	    prox_coordinate!(S, NormL1(0.1), 2, 1.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/precompile.jl	63	    prox_coordinate!(S, NormL1(0.1, fill(1.0, p, p)), 3, 1.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/precompile.jl	66	    prox_coordinate!(xa, fg, 1, 1.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/sparse_iterate.jl	118	[`prox_coordinate!`](@ref) updates them, [`activecoordinates`](@ref) lists the
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/sparse_iterate.jl	223	The number of coordinates of the iterate `x` that [`prox_coordinate!`](@ref)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/sparse_iterate.jl	1704	# A check of one pair, such as the coordinate of prox_coordinate!, reads only that
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/testing.jl	115	- [`prox_entry`](@ref) agrees with `prox!` entry by entry, and for a
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/testing.jl	117	- [`prox_coordinate!`](@ref) on every coordinate of a [`SparseIterate`](@ref)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/testing.jl	140	- with `groups`, `prox_coordinate!` on each group of an [`AtomIterate`](@ref)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/testing.jl	142	- with `symmetric = true` and a square `x`, `prox_coordinate!` on each
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	src/testing.jl	147	For each iterate, also test the block form `prox_coordinate!(y, f, k, u, γ)`
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/allocations.jl	5	# value_and_gradient!, gradient! and prox_coordinate!.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/allocations.jl	23	a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/allocations.jl	57	a_block!(x, f, k, u, γ) = prox_coordinate!(x, f, k, u, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/allocations.jl	132	      prox_coordinate!(x, f, 3, u, 0.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/allocations.jl	133	      prox_coordinate!(y, f, 3, indep, 0.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/allocations_basics.jl	22	a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/allocations_basics.jl	42	a_block!(x, f, k, u, γ) = prox_coordinate!(x, f, k, u, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/atom_iterate.jl	158	      prox_coordinate!(x, f, 1, 0.1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/atom_iterate.jl	194	    @test_throws DimensionMismatch prox_coordinate!(x, bad, 1, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/atom_iterate.jl	227	        prox_coordinate!(x, wrap(f), 1, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/atom_iterate.jl	232	        @test_throws DimensionMismatch prox_coordinate!(x, wrap(bad), 1, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/atom_iterate.jl	237	        prox_coordinate!(x, wrap(f), 1, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/atom_iterate.jl	1151	      @test_throws DimensionMismatch prox_coordinate!(am, fm, 1, 0.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/atom_iterate_grids.jl	84	        prox_coordinate!(x, wrap(f), 1, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/atom_iterate_grids.jl	89	        @test_throws DimensionMismatch prox_coordinate!(x, wrap(bad), 1, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/atom_iterate_grids.jl	94	        prox_coordinate!(x, wrap(f), 1, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	43	  z = prox_entry(f, v, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	78	  @test isnan(prox_entry(BernoulliLoss(0.5), NaN, 1, 1.))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	79	  @test isnan(prox_entry(BernoulliLoss(0.5), 0.3, 1, NaN))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	116	    @test prox_entry(f, v, 1, γ) ≈ z rtol = 0 atol = 1e-7
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	123	      @test prox_entry(BernoulliLoss(one(T), T(2)), v, 1, γ) ==
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	124	        min(one(T), prox_entry(NegLog(T(2)), v, 1, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	140	        @test prox_entry(BernoulliLoss(one(T), w), v, 1, γ) ==
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	141	          min(one(T), prox_entry(NegLog(w), v, 1, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	149	    @test prox_entry(BernoulliLoss(0.2, small), -large, 1, small) == nextfloat(zero(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	150	    @test prox_entry(BernoulliLoss(0.2, small), large, 1, small) == prevfloat(one(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	188	  expected = [prox_entry(f, x[i], i, γ[i]) for i in eachindex(x)]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	211	    @test_throws DimensionMismatch prox_coordinate!(xs, bad, 1, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	240	      @inferred prox_entry(f, x[2], 2, step)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	248	      @test allocs(prox_entry, f, x[2], 2, step) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/bernoulli.jl	251	      @test allocs(prox_coordinate!, xs, f, 2, step) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/binary.jl	97	      @test prox_entry(f, v, 1, one(T)) == expected
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/binary.jl	105	    @test prox_entry(IndBinary(one(T) + e, one(T) + 6e), one(T) + 4e, 1, one(T)) == one(T) + 6e
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/binary.jl	106	    @test prox_entry(IndBinary(zero(T), 3η), 2η, 1, one(T)) == 3η
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/binary.jl	256	  @test_throws BoundsError prox_entry(IndBinary(zeros(2), ones(2)), 0., 3, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/binary.jl	285	        @test_throws DimensionMismatch prox_coordinate!(out, f, k, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/binary.jl	289	      @test_throws MethodError prox_coordinate!(out, IndBinary(0, 1), 1, ones(3))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/binary.jl	306	    @test allocs(prox_entry, f, T(0.5), 1, γ) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/binary.jl	307	    @test allocs(prox_coordinate!, s, f, 1, γ) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/binary.jl	311	    @test allocs(prox_entry, f, nextfloat(zero(T)), 1, one(T)) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	15	function ProximalBase.prox_coordinate!(x::AtomIterate, f::CustomGroupPenalty, k::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	49	  prox_coordinate!(written, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	50	  result = prox_coordinate!(x, f, k, u, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	73	  expected = prox_entry(f, convert(eltype(x), u), i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	74	  reference = prox_coordinate!(written, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	75	  result = prox_coordinate!(x, f, k, u, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	127	      prox_coordinate!(x, f, 1, [0.01, 0.01], 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	130	      prox_coordinate!(x, f, 1, [10., 10.], 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	132	      prox_coordinate!(x, f, 1, zeros(2), 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	139	        prox_coordinate!(x, NormL1(1.), k, 0.1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	141	        prox_coordinate!(x, NormL1(1.), k, 3., 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	143	        prox_coordinate!(x, NormL1(1.), k, 0., 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	161	          prox_coordinate!(x, h, 1, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	162	          prox_coordinate!(y, h, 1, Float64.(u), 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	175	        prox_coordinate!(x, r, 1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	186	    @test_throws ErrorException("boom") prox_coordinate!(x, GroupNormL2(1., x.groups), 1, Flaky(), 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	194	      prox_coordinate!(x, GroupNormL2(3q, x.groups, Float32[1]), 1, fill(2q, 4), 1f0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	202	      prox_coordinate!(x, r, 1, 1f0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	217	      prox_coordinate!(x, f, 1, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	218	      prox_coordinate!(y, f, 1, copy(u), 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	231	        prox_coordinate!(x, NormL1(1.), 1, [0.1, -0.1], 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	233	        prox_coordinate!(x, NormL1(1.), 1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	248	        prox_coordinate!(y, f, 1, 2.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	251	        prox_coordinate!(y, f, 1, 0.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	253	      result = prox_coordinate!(x, h, 1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	257	      msg = "$(typeof(f)) is not separable: prox_coordinate! needs a separable function or a group penalty on matching groups"
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	258	      @test_throws ArgumentError(msg) prox_coordinate!(x, h, 1, [4., -8.], 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	274	      prox_coordinate!(x, r, 1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	275	      prox_coordinate!(y, r, 1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	284	    prox_coordinate!(x, Regularize(f, 1.), 1, [1//10, 1//10], 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	293	        prox_coordinate!(x, f, 1, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	304	      prox_coordinate!(x, f, 1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	306	      prox_coordinate!(x, f, 1, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	312	    prox_coordinate!(x, NormL1(0.3), 1, u, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	313	    prox_coordinate!(y, NormL1(0.3), 1, Float32.(u), 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	323	      err4 = try prox_coordinate!(x, f, 1, 1.); nothing catch e; e end
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	324	      err5 = try prox_coordinate!(x, f, 1, ones(2), 1.); nothing catch e; e end
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	333	      @test_throws E prox_coordinate!(x, f, k, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	339	      @test_throws DimensionMismatch prox_coordinate!(z, NormL1(1., ones(3)), 20, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	340	      @test_throws ArgumentError prox_coordinate!(z, NormL2(1.), 20, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	346	      @test_throws ArgumentError("NormL1 requires real entries") prox_coordinate!(x, NormL1(1.), 1, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	348	      @test_throws BoundsError prox_coordinate!(x, NormL1(1.), 20, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	356	      @test_throws InexactError prox_coordinate!(x, NormL1(0.), 1, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	359	      @test_throws InexactError prox_coordinate!(x, GroupNormL2(0., x.groups), 1, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	364	    @test_throws InexactError prox_coordinate!(x, r, 1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	367	    @test_throws InexactError prox_coordinate!(x, GroupNormL2(0.3, x.groups), 1, [3, 4], 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	371	      @test_throws ArgumentError prox_coordinate!(x, MoreauEnvelope(NormL1(1.), 1.), 1, u, -1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	383	        prox_coordinate!(y, f, 1, copy(u), 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step.jl	384	        prox_coordinate!(x, f, 1, u, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	13	function ProximalBase.prox_coordinate!(x::AtomIterate, f::ThrowingGroupPenalty, k::Integer, γ::Real)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	32	    prox_coordinate!(y, NormL1(0.), 1, copy(u), 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	33	    prox_coordinate!(x, NormL1(0.), 1, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	43	    @test_throws UndefRefError prox_coordinate!(x, f, 1, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	51	    result = prox_coordinate!(x, f, 1, u, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	52	    reference = prox_coordinate!(y, f, 1, Float64.(u), 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	63	        @test_throws ErrorException("boom") prox_coordinate!(x, r, 1, zeros(2), 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	65	        @test_throws ErrorException("boom") prox_coordinate!(x, r, 1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	75	    @test_throws ErrorException("step boom") prox_coordinate!(x, r, 1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	90	          prox_coordinate!(x, h, 1, u, one(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	103	    prox_coordinate!(x, GroupNormL2(3q, x.groups, Float32[1]), 1, fill(2q, 4), 1f0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	107	    prox_coordinate!(x, r, 1, zeros(Float32, 4), 1f0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	114	    prox_coordinate!(x, f, 1, [1e100, 0.0], 3f0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	126	  e4 = try prox_coordinate!(copy(x), f, k, .2); nothing catch e; e end
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	127	  e5 = try prox_coordinate!(copy(x), f, k, 1., .2); nothing catch e; e end
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_failures.jl	131	  @test_throws ArgumentError prox_coordinate!(y, f, k, 1., .2)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_grids.jl	38	  prox_coordinate!(written, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_grids.jl	39	  result = prox_coordinate!(x, f, k, u, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_grids.jl	62	  expected = prox_entry(f, convert(eltype(x), u), i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_grids.jl	63	  reference = prox_coordinate!(written, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/block_step_grids.jl	64	  result = prox_coordinate!(x, f, k, u, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/blockchecks.jl	45	PB.prox_entry(::CheckedSquare, v, i, γ) = v / (1 + γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/blockchecks_steps.jl	356	      @test prox_entry(c, T(x2), 1, γ) == prox(c, T[x2], γ)[1]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/blockchecks_steps.jl	599	# A user function with a proximal operator typed on Vector, and one that defines prox_entry and no prox!.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/blockchecks_steps.jl	609	ProximalBase.prox_entry(f::EntryShrink, v, i, γ) = v / (1 + γ * f.c)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/calculus.jl	78	  @test prox_entry(s, 2., 1, 0.4) ≈ shrink(2., 0.6)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/calculus.jl	91	  @test prox_coordinate!(a1, sg, 2, 0.4) ≈ prox_coordinate!(a2, gn, 2, 0.2)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/calculus.jl	103	    @test [prox_entry(t, x[i], i, 0.6) for i in 1:8] ≈ prox(t, x, 0.6)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/calculus.jl	122	  @test [prox_entry(t, x[i], i, 0.7) for i in 1:8] ≈ prox(t, x, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/calculus.jl	323	  @test [prox_entry(cf, y[i], i, 0.8) for i in 1:3] ≈ prox(cf, y, 0.8)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/check_array_exceptions.jl	9	# are recovered entry by entry through prox_entry, and every other block stays on the ordinary loop.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/check_array_exceptions.jl	10	# The array result must equal the scalar prox_entry, bit for bit and NaN for NaN, whatever the shape of
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/check_array_exceptions.jl	16	entrywise(f, x, γ) = [PB.prox_entry(f, x[i], i, γ isa AbstractArray ? γ[i] : γ) for i in eachindex(x)]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/check_array_exceptions.jl	24	@testset "ordinary data is the scalar prox_entry and the thresholds are rounded once: $S" for S in (Float16, Float32, Float64)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	18	  @test prox_entry(f, 2.0^161, 1, big32) == 2.0^160
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	49	    @test prox_entry(h, u, 1, γ) === want
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	84	    got = prox_entry(HingeLoss([y], [w]), 0.0, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	89	  @test abs(prox_entry(HingeLoss(Float32[y32], Float32[w32]), 0f0, 1, γ32) * y32 - s32) <= 2eps(s32)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	94	  # infinite weight; the others are ordinary. prox! must equal the entrywise prox_entry, aliased or not.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	106	    expected = [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	110	    # ordinary entries only: the vectorized path gives the same bits as prox_entry
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	112	    e2 = [prox_entry(g, x[i], i, T(0.7)) for i in 1:n]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	120	  @test prox_entry(f, Float16(4), 1, 2.0) === Float16(2.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	121	  @test prox_entry(f, Float16(-4), 1, 2.0) === Float16(-3.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	122	  @test prox_entry(CheckLoss(Float16(1 - 2.0^-10)), Float16(-2), 1, 2.0^10) === Float16(-1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	128	    @test prox_entry(CheckLoss(τ, [w]), u, 1, γ) === (u > hi ? u - hi : (u < -Float32(big(γ) * big(w) * (1 - big(τ))) ? u + Float32(big(γ) * big(w) * (1 - big(τ))) : 0f0))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	142	    @test prox_entry(f, u, 1, γ) === want
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	148	  @test prox_entry(g, -8f0, 1, γ) === -8f0 + lo2
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	149	  @test prox_entry(g, 8f0, 1, γ) === 8f0 - hi2
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	200	@testset "_prox_slope agrees with prox_entry at the threshold" begin
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/coefficient_factor_type.jl	203	  @test prox_entry(f, r, 1, γ) == 0f0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/composition.jl	63	      @test [prox_entry(h, x[i], i, 0.7) for i in 1:n] ≈ prox(h, x, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/composition.jl	86	    @test [prox_entry(r, x[i], i, 0.4) for i in 1:n] ≈ prox(en, x, 0.4)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/composition.jl	107	      prox_coordinate!(xs, r, k, 0.6)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/composition.jl	119	      prox_coordinate!(a, r, k, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/composition.jl	126	      prox_coordinate!(ac, rc, k, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/composition.jl	220	a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/composition.jl	252	    @test_throws DimensionMismatch prox_coordinate!(x, r, 1, 0.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/composition.jl	257	  @test_throws BoundsError prox_coordinate!(x, Regularize(f, 1.0), 0, 0.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/composition.jl	258	  @test_throws BoundsError prox_coordinate!(x, NormL1(), 3, 0.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/composition.jl	267	    @test prox_entry(r, zero(T), 1, T(2)) == one(T)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/composition.jl	273	    @test prox_coordinate!(a, rg, 1, T(2)) == ones(T, 2)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/composition.jl	279	    @test prox_entry(centered, huge[1], 1, one(T)) == huge[1]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conformance/steps.jl	278	  observed = prox_entry(NormL1(one(Float32)), Float32(2), 1, -pow2(Float64, -160))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conformance/steps.jl	314	  observed = prox_entry(NormL1(one(Float32)), Float32(2), 1, NaN)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conformance/steps.jl	528	  observed = prox_entry(NormL1(one(Float64)), Float64(2), 1, -pow2(Float64, -160))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conformance/steps.jl	564	  observed = prox_entry(NormL1(one(Float64)), Float64(2), 1, NaN)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conformance/steps.jl	598	  observed = [prox_entry(NormL1(1.0), 2f0, 1, pow2(Float64, -160))]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conformance/wrappers.jl	35	    id = "wrappers.staged-l1.entry"; case = ""; family = :wrappers; oracle = :prox_entry
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conformance/wrappers.jl	38	    expected = 1.5; observed = prox_entry(t, 0.5, 1, 1.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_basics.jl	150	            accurate(T[prox_entry(c, x[i], i, γ)], [ref[i]], 4)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_basics.jl	200	          @test T[prox_entry(c, input[i], i, γ isa Real ? γ : γ[i]) for i in eachindex(input)] ≈ expected
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_basics_grids.jl	136	            accurate(T[prox_entry(c, x[i], i, γ)], [ref[i]], 4)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_precision.jl	10	using ProximalBase: prox_entry
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_precision.jl	228	      # prox_entry is the same map, entry by entry
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_precision.jl	229	      @test all(i -> relerr(prox_entry(c, x[i], i, γ), refs[i]) <= 8 * eps(Float64), 1:2)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_precision.jl	230	      @test all(i -> prox_entry(c, x[i], i, γ) == prox_entry(c, x[i], i, Float64(γ)), 1:2)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_precision.jl	233	    @test relerr(prox_entry(Conjugate(SqrNormL2()), 1.0, 1, γ), ref_sqr(1.0, γ)) <= 8 * eps(Float64)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_precision.jl	236	  @test prox_entry(Conjugate(ElasticNet(0.5, 2.0)), 2f0, 1, 3f0) isa Float32
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_precision.jl	237	  @test relerr(prox_entry(Conjugate(ElasticNet(0.5, 2.0)), 2f0, 1, 3f0), ref_en(2f0, 3f0)) <= 4 * eps(Float32)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_precision.jl	642	    # prox_entry is the same map
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_precision.jl	645	      e = prox_entry(Conjugate(f), v, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_precision.jl	671	  # prox_entry in a loop
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_precision.jl	674	      out[i] = prox_entry(c, v[i], i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_projections.jl	150	            accurate(T[prox_entry(c, x[i], i, γ)], [ref[i]], 4)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_projections.jl	220	          @test T[prox_entry(c, input[i], i, γ isa Real ? γ : γ[i]) for i in eachindex(input)] ≈ expected
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_projections.jl	255	    @test prox_entry(Conjugate(f), 1.0, 1, 1.0) ≈ Float64(r) rtol = 4eps(Float64)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_projections.jl	258	    @test prox_entry(Conjugate(f), 1e200, 1, 1.0) ≈ Float64(r) rtol = 4eps(Float64)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_projections.jl	752	        accurate(T[prox_entry(c, v, 1, γ)], [expected], 8)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_projections.jl	756	        @test prox_entry(c, v, 1, γ) == (f isa ZeroFunction ? zero(T) : min(v, zero(T)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_steps.jl	123	    @test prox_entry(Conjugate(IndBox(-1e39, 1e39)), 1f30, 1, 1f-10) ≈ 9f29 rtol = 4eps(Float32)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_steps.jl	156	    @test prox_entry(twice, v, 1, step) == prox_entry(NormL1(), v, 1, step)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_steps.jl	268	        e = prox_entry(c, x[i], i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_steps.jl	275	@testset "prox_entry" begin
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_steps.jl	277	    @test prox_entry(Conjugate(NormL1()), v, 1, γ) == clamp(v, -1, 1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_steps.jl	278	    @test prox_entry(Conjugate(IndNonnegative()), v, 1, γ) == min(v, 0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_steps.jl	281	      @test prox_entry(Conjugate(f), v, i, γ) == prox(Conjugate(f), x, γ)[i]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_steps.jl	285	  @test prox_entry(Conjugate(SqrHingeLoss()), 1.0, 1, 1e-310) isa Float64
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_steps.jl	287	  @test prox_entry(Conjugate(f), 1.0, 1, 1e-310) isa Float64
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/conjugate_steps.jl	288	  @test prox_entry(Conjugate(f), 1.5, 1, 0.3) == 1.5 - 0.3 * prox_entry(f, 1.5 / 0.3, 1, inv(0.3))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	32	        @test all(i -> prox_entry(c, x[i], i, γ) ≈ p[i], 1:n)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	77	        @test z[3] ≈ prox_entry(f, 2x[3], 3, 0.9)           # aᵢ = 0: independent of ν
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	98	ProximalBase.prox_entry(g::NoSlope, v, i, γ) = prox_entry(g.f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	110	ProximalBase.prox_entry(g::Counted, v, i, γ) = (CALLS[] += 1; prox_entry(g.f, v, i, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	114	ProximalBase._prox_entry_slope(g::Counted, v, i, γ) =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	115	  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_entry_slope(g.f, v, i, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	174	ProximalBase.prox_entry(g::Ranged, v, i, γ) = (CALLS[] += 1; prox_entry(g.f, v, i, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	178	ProximalBase._prox_entry_slope(g::Ranged, v, i, γ) =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	179	  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_entry_slope(g.f, v, i, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	245	  # the ranges of the scalar proximal operators, reached by prox_entry
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	252	      @test isfinite(lo) ? lo == prox_entry(f, -1e300, i, 0.7) : lo == -Inf
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	253	      @test isfinite(hi) ? hi == prox_entry(f, 1e300, i, 0.7) : hi == Inf
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	318	      z, dz = ProximalBase._prox_entry_slope(f, v, i, 0.8)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	319	      @test z == prox_entry(f, v, i, 0.8)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	321	      @test dz ≈ (prox_entry(f, v + h, i, 0.8) - prox_entry(f, v - h, i, 0.8)) / 2h atol = 1e-6
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	329	  # The slope is the weight prox_entry applies to the argument. It is compared with
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	331	  # bits), and, for an entry without a center, bit for bit with prox_entry at v = 1.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	334	    z, dz = ProximalBase._prox_entry_slope(f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	336	    dz isa W && isequal(z, prox_entry(f, v, i, γ)) && abs(big(dz) - exact) <= tol(W, exact)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	359	    @test ProximalBase._prox_entry_slope(f, one(W), 1, γ)[2] == prox_entry(f, one(W), 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	370	  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1f0, 30)), 1f0, 1, ldexp(1f0, 100)) == (7.34684f-40, 7.34684f-40)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	371	  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 40)), 1.0, 1, ldexp(1.0, 1000))[2] == 8.487983164e-314
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	372	  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 40)), 1f0, 1, ldexp(1f0, 100))[2] > 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	374	  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1f0, 100)), 1f0, 1, ldexp(1f0, 100)) == (0f0, 0f0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	375	  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 1000)), 1.0, 1, ldexp(1.0, 100)) == (0.0, 0.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	377	  # With a center: the value is that of prox_entry, bit for bit; the slope does not depend
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	390	          z, dz = ProximalBase._prox_entry_slope(fc, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	391	          @test dz == ProximalBase._prox_entry_slope(f, v, i, γ)[2]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	403	      z, dz = ProximalBase._prox_entry_slope(fc, v, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	404	      @test dz isa Float32 && isequal(z, prox_entry(fc, v, 1, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	407	      @test dz == ProximalBase._prox_entry_slope(SqrNormL2(λ), v, 1, γ)[2]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	414	      @test ProximalBase._prox_entry_slope(ProximalBase._OrdinaryRidge(fc), v, i, γ) == ProximalBase._prox_entry_slope(fc, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	415	      @test ProximalBase._prox_entry_slope(ProximalBase._OrdinaryRidge(SqrNormL2(W(0.7))), v, i, γ) ==
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	416	            ProximalBase._prox_entry_slope(SqrNormL2(W(0.7)), v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	462	      @test prox_entry(c, zero(T), 1, one(T)) == T(b)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	464	      prox_coordinate!(x, c, 1, one(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained.jl	468	    @test ProximalBase._prox_entry_slope(c, zero(T), 1, one(T)) == (T(b), zero(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_basics.jl	43	        @test all(i -> prox_entry(c, x[i], i, γ) ≈ p[i], 1:n)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_basics.jl	73	    @test prox_coordinate!(xs, c, k, 0.5) == clamp(shrink(v[k], 0.15), 0, 1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_basics.jl	78	  @test prox_coordinate!(S, c, tril_index(4, 2, 1), 1.) ≈ 0.4
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_basics.jl	81	  @test prox_coordinate!(xa, c, 2, 1.) ≈ [0., 1.]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_basics.jl	198	        @test z[3] ≈ prox_entry(f, 2x[3], 3, 0.9)           # aᵢ = 0: independent of ν
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_grids.jl	34	        @test all(i -> prox_entry(c, x[i], i, γ) ≈ p[i], 1:n)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_grids.jl	48	ProximalBase.prox_entry(g::Counted, v, i, γ) = (CALLS[] += 1; prox_entry(g.f, v, i, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_grids.jl	52	ProximalBase._prox_entry_slope(g::Counted, v, i, γ) =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_grids.jl	53	  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_entry_slope(g.f, v, i, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_grids.jl	61	ProximalBase.prox_entry(g::Ranged, v, i, γ) = (CALLS[] += 1; prox_entry(g.f, v, i, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_grids.jl	65	ProximalBase._prox_entry_slope(g::Ranged, v, i, γ) =
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_grids.jl	66	  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_entry_slope(g.f, v, i, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_nonconvex.jl	25	      p = prox_entry(c, x, 1, s)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_nonconvex.jl	36	  @test clamp(prox_entry(NormL0(1.), 2., 1, 1.), -1., 0.5) == 0.5
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_nonconvex.jl	37	  @test prox_entry(c, 2., 1, 1.) == 0.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_nonconvex.jl	54	    @test all(i -> prox_entry(c, v[i], i, 2.) == p[i], 1:n)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_nonconvex.jl	63	      @test prox_coordinate!(xs, c, k, 2.) == prox_entry(c, w, k, 2.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_nonconvex.jl	80	      moves = prox_entry(c, -g[i], i, 1.) != 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_nonconvex.jl	178	      @test isequal(prox_entry(c, x[1], 1, 1f0), prox_entry(base, x[1], 1, 1f0))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/constrained_nonconvex.jl	199	    @inferred prox_entry(c, v[1], 1, 3.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/distance.jl	168	    @test_throws ArgumentError prox_entry(coupled, 0.0, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/distance.jl	334	      @test prox_entry(f, v, 1, γ) ≈ reference rtol = 16eps(T)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/distl2.jl	81	    @test_throws MethodError prox_entry(f, 0.0, 1, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/elasticnet_zero_levels.jl	48	# its slope at v (either side at a kink, as _prox_entry_slope); finite levels
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/elasticnet_zero_levels.jl	72	  @test same([prox_entry(f, x[i], i, γ isa AbstractArray ? γ[i] : γ) for i in eachindex(x)], want)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/elasticnet_zero_levels.jl	97	        z, dz = PB._prox_entry_slope(f, v, i, T(γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/elasticnet_zero_levels.jl	128	  @test same(prox_entry(ElasticNet(T(0), T(0)), T(2), 1, Inf_), T(2))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/elasticnet_zero_levels.jl	243	        @test same(PB._prox_entry_slope(f, x[i], i, γi(i)), r[i])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/elasticnet_zero_levels.jl	270	  @test same(prox_entry(ElasticNet(0, 0), 2, 1, Inf), 2.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	21	    z = prox_entry(f, v, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	75	    z = prox_entry(f, v, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	85	  @test prox_entry(f, 2.0, 1, 1e-9) ≈ 2.0 - 1e-9 * λ * (1 + log(2.0)) rtol = 1e-12
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	104	    @test hobj(pen, prox_entry(f, v, i, γ), v, γ) <= hb + 1e-9 * max(1, abs(hb))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	128	    z = prox_entry(f, v, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	143	      z = prox_entry(f, v, 1, μ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	155	      z = prox_entry(NegLog(scale), -scale, 1, scale)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	166	      z = prox_entry(NegLog(scale), v, 1, scale)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	169	      @test allocs(prox_entry, NegLog(scale), v, 1, scale) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	184	  @test prox_entry(f, c, 1, γ) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	185	  @test prox_entry(f, (M + c) * (1 - 1e-12), 1, γ) ≈ prox_entry(f, (M + c) * (1 + 1e-12), 1, γ) rtol = 1e-10
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	186	  @test prox_entry(f, 10.0, 1, γ) ≈ 10M / (M + c)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	212	    @inferred prox_entry(f, 0.7, 2, 0.6)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	227	  a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	247	      @test prox_entry(f, large, 1, tiny) ≈ large rtol=8eps(T)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	250	    @test prox_entry(NegEntropy(large), zero(T), 1, large) ≈ exp(-one(T)) rtol=16eps(T)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	251	    @test prox_entry(KLDivergence(T(2); λ=large), zero(T), 1, large) ≈ T(2) rtol=16eps(T)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	254	    @test prox_entry(f, zero(T), 1, large) ≈ tiny rtol=32eps(T)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/entropy.jl	262	    @test allocs(prox_entry, NegEntropy(large), zero(T), 1, large) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/envelope.jl	24	PB.prox_entry(f::Quad, v, i, γ) = v / (1 + γ * f.a)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/envelope.jl	67	    @test [prox_entry(e, x[i], i, 0.6) for i in 1:8] ≈ p
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/envelope.jl	70	      prox_coordinate!(xs, e, k, 0.6)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/envelope.jl	84	    prox_msg = "prox_entry of MoreauEnvelope requires a separable function"
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/envelope.jl	89	    @test_throws ArgumentError(prox_msg) prox_entry(e, 0.5, 1, 1.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/envelope.jl	99	    @test_throws ArgumentError(prox_msg) prox_entry(eg, 0.5, 1, 1.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/envelope.jl	203	    @test_throws ArgumentError prox_entry(e, one(T), 1, floatmax(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/envelope.jl	209	    @test prox_entry(centered, -m, 1, one(T)) == zero(T)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/gpu_prelude.jl	15	ProximalBase.prox_entry(f::ScaledSquare, v, i, γ) = v / (1 + γ * f.c)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/gpu_suite.jl	211	    @test ProximalBase._prox_entry_slope(f, x[1], 1, T(4))[1] == prox_entry(f, x[1], 1, T(4))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/gpu_suite.jl	1604	    @test expected == T[prox_entry(Conjugate(f), x[i], i, 1.0) for i in eachindex(x)]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_array_exceptions.jl	10	# sample and, all of them, to the scalar prox_entry. The same is required of prox!, in place prox!
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_array_exceptions.jl	12	# prox_coordinate!.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_array_exceptions.jl	72	    want = S[prox_entry(f, x0[i], i, γ) for i in 1:n]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_array_exceptions.jl	75	    want[k] == expected || push!(bad, "scalar prox_entry of the planted entry: $(want[k]) ≠ $expected")
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_array_exceptions.jl	90	      isequal(got, want) || push!(bad, "$nm differs from prox_entry at $(findfirst(.!isequal.(got, want)))")
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_array_exceptions.jl	98	      @test PB.prox_coordinate!(xi, f, k, γ) == expected
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_array_exceptions.jl	111	    want = S[prox_entry(f, x0[i], i, γ) for i in 1:n]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_array_exceptions.jl	122	  @test PB.prox_entry(f, -2.0^600, 1, γ) === 0.0      # γ w label² = 1; the margin is -1: u + s = 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_array_exceptions.jl	133	  want = [prox_entry(HingeLoss(copy(y), copy(w)), x[i], i, γ) for i in 1:3]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_array_exceptions.jl	153	    want = [PB.prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_array_exceptions.jl	172	      want = [PB.prox_entry(f, x[i], i, γ) for i in 1:n]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_array_exceptions.jl	192	  @test PB.prox!(Real[0.0], ff, Real[Float16(0)], γ16)[1] == PB.prox_entry(ff, Float16(0), 1, γ16)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_array_exceptions.jl	193	  z = Real[Float16(0)]; @test PB.prox!(z, ff, z, γ16)[1] == PB.prox_entry(ff, Float16(0), 1, γ16)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hinge_step_oracle.jl	139	      @test prox_entry(f, v, 1, γ) === want
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/hyperslab.jl	323	PB.prox_entry(g::NoSlope, v, i, γ) = prox_entry(g.f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_group_weights.jl	62	      PB.prox_coordinate!(a, f, fixed, zero(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_group_weights.jl	182	        PB.prox_coordinate!(xi, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_group_weights.jl	203	    PB.prox_coordinate!(xi, f, 1, 0f0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_group_weights.jl	205	    @test_throws ArgumentError PB.prox_coordinate!(xi, f, 2, 0f0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_group_weights.jl	208	      @test_throws BoundsError PB.prox_coordinate!(xi, f, k, 0f0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_group_weights.jl	212	    @test_throws DimensionMismatch PB.prox_coordinate!(other, f, 1, 0f0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_group_weights.jl	258	    PB.prox_coordinate!(xi, f, 1, one(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_level_nan.jl	57	      @test PB.prox_entry(f, v, 1, γ) === zero(T)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_level_nan.jl	138	    v = PB.prox_coordinate!(x, f, 2, T(1))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	49	          @test iszero(PB.prox_entry(f, v, 2, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	53	          name === :LogPenalty ? @test(iszero(PB.prox_entry(f, T(NaN), 2, γ))) :
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	54	                                 @test(isnan(PB.prox_entry(f, T(NaN), 2, γ)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	210	        @test PB.prox_coordinate!(xi, z, 2, one(T)) === zero(T)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	300	        @test allocs(prox_entry, z, T(3), i, one(T)) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	316	        @test PB.prox_coordinate!(xi, z, i, one(T)) === (i == 2 ? zero(T) : T[0.5, 2, 3, 1][i])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	347	      values = (f(x), value_entry(f, x[2], 2), prox_entry(f, x[2], 2, T(0.4)), kkt_violation(f, x, 2))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	371	        @test isequal(prox_entry(f, v, 1, γ), v)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	416	      @test iszero(PB.prox_entry(f, v, 2, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	424	      @test PB.prox_entry(f, T(1), 2, γ) ≈ T(0.1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	425	      @test PB.prox_entry(f, T(-1), 2, γ) ≈ T(-0.1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	426	      @test PB.prox_entry(f, T(0.05), 2, γ) ≈ T(0.05)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	427	      @test PB.prox_entry(f, T(Inf), 2, γ) ≈ T(0.1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	436	      @test PB.prox_entry(f, T(0.3), 2, γ) ≈ T(1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	437	      @test PB.prox_entry(f, T(2), 2, γ) ≈ T(2)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	442	    @test PB.prox_entry(f, T(0.3), 2, T(1)) ≈ T(-1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	465	          @test PB.prox_entry(f, v, 2, T(0.5)) ≈ expected
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	483	        @test PB.prox_entry(f, v, 2, T(0.5)) ≈ v
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	497	      @test PB.prox_entry(f, T(0.7), 2, T(1)) ≈ (enet ? T(0.7 / 1.5) : T(0.7))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	573	      @test iszero(PB.prox_entry(f, T(1), 2, T(1)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/infinite_weights.jl	615	  @test iszero(PB.prox_entry(f, big(1), 2, big(1)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	100	@testset "prox_entry and prox_coordinate!" begin
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	112	      @test [prox_entry(f, x[i], i, γ) for i in 1:10] ≈ z
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	116	        @test prox_coordinate!(xs, f, k, γ) ≈ z[k]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	122	        @test prox_coordinate!(xa, f, k, γ) ≈ z[xa.groups[k]]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	130	  prox_coordinate!(xs, NormL1(1.), 2, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	132	  prox_coordinate!(xs, IndBox(1, 2), 2, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	135	  prox_coordinate!(xa, NormL1(1.), 1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	137	  prox_coordinate!(xa, IndBox(1, 2), 2, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	149	    @test prox_coordinate!(x, f, k, γ) ≈ shrink(D[r, c], γ * 0.3 * W[r, c])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	153	  @test_throws BoundsError prox_coordinate!(x, f, ncoordinates(x) + 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	154	  @test_throws BoundsError prox_coordinate!(x, f, 0, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	157	  @test_throws ArgumentError prox_coordinate!(SparseIterate(3), NormL2(1.), 1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	158	  @test_throws ArgumentError prox_coordinate!(SymmetricSparseIterate(3), NuclearNorm(1.), 1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/interface.jl	159	  @test_throws ArgumentError prox_coordinate!(AtomIterate(4, 2), IndBallL1(1.), 1, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/l0_kernels_nan.jl	48	    @test same(prox_entry(c, T(NaN), 1, γ), expected)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/l0_nan.jl	38	    @test same([prox_entry(f, v, i, γ) for (i, v) in enumerate(x)], want)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/l0_nan.jl	50	  @test isnan(prox_entry(NormL0(T(1)), T(NaN), 1, T(1)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/l2_nan_blocks.jl	210	      prox_coordinate!(a, f, 1, T(2))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/l2_nan_blocks.jl	213	      prox_coordinate!(a, f, 1, T(Inf))                               # the constant zero map
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/l2_nan_blocks.jl	335	      prox_coordinate!(x, g, 1, T(1))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/l2_nan_blocks.jl	340	      prox_coordinate!(x, g, 1, T(0))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/l2_nan_blocks.jl	363	      prox_coordinate!(x, gt, 1, tiny)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/l2_nan_blocks.jl	381	      prox_coordinate!(x, s, 1, T(1))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/losses.jl	26	    z = prox_entry(f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/losses.jl	109	  @test prox(HingeLoss(yg), x, 0.4) ≈ [prox_entry(HingeLoss(), yg[i] * x[i], i, 0.4 * yg[i]^2) / yg[i] for i in 1:12]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/losses.jl	157	    @test prox_coordinate!(zs, f, 7, 0.6) ≈ prox_entry(f, x[7], 7, 0.6)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/losses.jl	185	    @test @inferred(prox_entry(f, x[2], 2, 0.3f0)) isa Float32
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/losses.jl	294	a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/matrixsets.jl	30	a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/matrixsets.jl	83	  @test prox_coordinate!(xc, fv, k, 0.5) == 0 && xc[k] == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/matrixsets.jl	85	  @test prox_coordinate!(xc, fv, j, 0.5) == x[j]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/matrixsets.jl	87	  prox_coordinate!(xa, fv, 2, 0.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/matrixsets.jl	107	    @test prox_coordinate!(Sc, fs, kc, 1.) == (Ps[r, c] ? D[r, c] : 0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/matrixsets.jl	159	    @test prox_coordinate!(Sc, f, kc, 1.) == (r - c <= 2 ? D[r, c] : 0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/matrixsets.jl	170	    @test prox_entry(fb, 1.5, i, 1.) == (inband ? 1.5 : 0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/metric.jl	36	    @test p == [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/metric.jl	178	    prox_coordinate!(alias, regularized, 1, T(0.2))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/metric.jl	215	    @test p ≈ [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/metric.jl	419	    @test p ≈ [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/metric_steps.jl	89	    @test prox(f, x, γ) == [prox_entry(f, x[i], i, γ[i]) for i in eachindex(x)]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nested_scaled.jl	194	            @test prox_entry(f, x[k], k, γ) ≈ e rtol = 8eps(T)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nested_scaled.jl	351	            @test prox_entry(c, T(2r), 1, one(T)) ≈ r rtol = 8eps(T)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nested_scaled.jl	488	      f isa NormL1 && @test allocs(prox_entry, s, 0.5, 1, 0.1) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nested_scaled.jl	569	            @test near(prox_entry(f, x[k], k, γ), r[k]) || (iszero(r[k]) && iszero(prox_entry(f, x[k], k, γ)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nested_scaled.jl	716	          @test allocs(prox_entry, f, z[1], 1, T(0.1)) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nested_scaled_grids.jl	68	          @test prox_entry(c, T(2r), 1, one(T)) ≈ r rtol = 8eps(T)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nested_scaled_grids.jl	215	            @test near(prox_entry(f, x[k], k, γ), r[k]) || (iszero(r[k]) && iszero(prox_entry(f, x[k], k, γ)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	22	    z = prox_entry(f, v, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	35	  @test prox_entry(f, 1.0, 1, 1.) ≈ 0.3
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	36	  @test prox_entry(f, -0.5, 1, 1.) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	37	  @test prox_entry(f, 4.0, 1, 1.) == 4.0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	44	    @test hobj(t -> λ * w[i] * min(abs(t), a), prox_entry(fw, x[i], i, γ), x[i], γ) <= hb + 1e-9
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	46	  @test prox_entry(fw, x[3], 3, 1.) == x[3]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	109	      @test prox_entry(f, τ * (1 - 1e-9), 1, γ) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	110	      @test prox_entry(f, -τ * (1 + 1e-9), 1, γ) <= -β * (1 - 1e-6)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	120	    @test prox_entry(NormLq(μ, q), t, 1, 1.0) ≈ lq_root_reference(t, μ, q) rtol = 1e-12
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	125	    @test prox_entry(NormLq(μ, q), 1.3τ, 1, 1.0) ≈ lq_root_reference(1.3τ, μ, q) rtol = 1e-12
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	152	    @test prox_coordinate!(xc, f, k, 0.6) ≈ prox_entry(f, x[k], k, 0.6)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	153	    @inferred prox_entry(f, 0.7, 2, 0.6)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	179	          actual = prox_entry(f, sgn*t, 1, one(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	250	    prox_coordinate!(xc, fa, 2, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	254	    prox_coordinate!(xz, fa, 2, 0.1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	303	          @test prox_coordinate!(xc, f, k, γk) ≈ reference[gs[k]]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	313	      @test_throws DimensionMismatch prox_coordinate!(xa, bad, 1, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	467	  a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	503	      z = prox_entry(f, t, 1, μ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	514	      @test allocs(prox_entry, f, t, 1, μ) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	516	    @test prox_entry(LogPenalty(zero(T), one(T)), large, 1, one(T)) == large
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	546	      z = prox_entry(f, v, 1, step)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	556	      z = prox_entry(NormLq(factor, q, T[factor]), v, 1, tiny)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	565	    z = prox_entry(f, v, 1, step)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	580	    z = prox_entry(f, v, 1, μ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonconvex.jl	604	    z = prox_entry(f, v, 1, scale)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonfinite_scalar.jl	55	      ref2 = PB.prox_entry(f, x[2], 2, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonfinite_scalar.jl	59	      out1 === :nan ? @test(isnan(PB.prox_entry(f, x[1], 1, γ))) :
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonfinite_scalar.jl	60	                       @test(isequal(PB.prox_entry(f, x[1], 1, γ), zero(T)))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonfinite_scalar.jl	261	  @test isequal(y[1], PB.prox_entry(f, x[1], 1, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonfinite_scalar.jl	311	    @test all(i -> isequal(PB.prox_entry(f, x[i], i, γ), x[i]), eachindex(x))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonfinite_scalar.jl	455	    @test PB.prox_entry(f, x[1], 1, γ) === zero(T)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonfinite_scalar.jl	481	      @test isequal(y[2], PB.prox_entry(f, 1.5, 2, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonfinite_scalar.jl	495	    @test isnan(y[1]) && isequal(y[2], PB.prox_entry(f, 1.5, 2, 1.0))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/nonfinite_scalar.jl	503	    r = PB.prox_entry(f, 1.5, 2, 1.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	167	      # prox_coordinate! shrinks one group in place, as prox! shrinks all of them
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	171	        @test prox_coordinate!(ya, fp, k, γ) ≈ z[fp.groups[k]]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	176	      prox_coordinate!(yb, fp, 1, [3., 4., 0.], γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	178	      prox_coordinate!(yb, fp, 2, zeros(length(fp.groups[2])), γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	180	      @test_throws DimensionMismatch prox_coordinate!(yb, F(λ0, [1:9]), 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	184	      @test_throws DimensionMismatch prox_coordinate!(ao, fo, 1, 0.1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	186	      @test prox_coordinate!(AtomIterate([1., 2., 3., 4.], [1:2, 3:4]), fo, 1, 0.1) isa AbstractVector   # equal, not shared
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	204	    @test eltype(prox_coordinate!(x32, g32, 1, 0.7f0)) == Float32
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	243	            @test prox_coordinate!(xc, f, k, γk) ≈ reference[gs[k]]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	253	        @test_throws DimensionMismatch prox_coordinate!(xa, bad, 1, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	351	      prox_coordinate!(a, g, 1, one(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	395	      prox_coordinate!(a,f,1,one(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	405	    prox_coordinate!(a,f,1,one(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	420	      prox_coordinate!(a,f,1,T[1,0],one(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	425	      prox_coordinate!(a,f,1,T[0,0],one(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/norms.jl	475	      prox_coordinate!(a, f, 1, step)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precision_mixed.jl	481	    @test prox_entry(translated, x[1], 1, 1.0) === 1.5
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	21	PB.prox_entry(f::ArraySquare, v::Real, i::Integer, γ::Real) = v / (1 + γ * f.w[i])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	36	    @test [prox_entry(h, x[i], i, 0.2) for i in eachindex(x)] ≈ prox(scalar, x, 0.2) rtol = 1e-14
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	63	      @test prox_entry(h, x[i], i, γ) ≈ prox_entry(f, x[i], 1, γ) rtol = 1e-12
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	82	  p = prox_entry(h, x, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	118	    p = [prox_entry(h, x[i], i, steps[i]) for i in eachindex(x)]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	176	  @test allocs(prox_coordinate!, xs, h, 2, 0.2) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	221	    @test_throws ArgumentError prox_entry(h, 1.0, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	234	  @test_throws ArgumentError prox_coordinate!(x, h, 1, 0.4)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	279	  @test_throws DimensionMismatch prox_coordinate!(xs, bad, 1, 0.4)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	290	    @test p ≈ [prox_entry(h, x[i], i, 0.3f0) for i in eachindex(x)] rtol = 5e-7
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	341	    @test prox_entry(h, x, 1, γ) ≈ reference rtol = 1e-14 atol = 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	416	    @test allocs(prox_entry, h, x[1], 1, 0.3) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	418	    @test allocs(prox_coordinate!, SparseIterate(x), h, 1, 0.3) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/precompose_array.jl	419	    @inferred prox_entry(h, x[1], 1, 0.3)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/real_functions.jl	27	ProximalBase.prox_entry(::RealCatalogSeparable, v::Real, ::Integer, γ::Real) = v / (1 + 2γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/ridge_precision.jl	45	    @test prox_entry(SqrNormL2(pow2(Float32, -100), Float32[pow2(Float32, 100)]), 0f0, 1, pow2(Float32, -60)) === pow2(Float32, -60)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/ridge_precision.jl	72	        @test prox_entry(f, x[1], 1, γ) === z[1]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/ridge_precision.jl	96	      @test prox_entry(f, x[1], 1, γ) === z[1]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/ridge_precision.jl	167	        @test [prox_entry(f, x[i], i, γ) for i in 1:3] == z
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/ridge_precision.jl	338	        isequal(prox_entry(PB._OrdinaryRidge(f), v, i, γᵢ), prox_entry(f, v, i, γᵢ)) &&
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/ridge_precision.jl	339	          isequal(PB._prox_entry_slope(PB._OrdinaryRidge(f), v, i, γᵢ), PB._prox_entry_slope(f, v, i, γᵢ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	11	# factor is folded, multiplied or combined. Scalar steps, array steps, chains of Scaled, prox_entry and
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	12	# prox_coordinate! take the same route.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	211	#  array steps, prox_entry and the coordinate updates
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	234	    @test isequal(prox_entry(s, v, i, T(tiny)), zero(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	237	  @test isequal(prox_entry(sw, T(2), 1, T(tiny)), zero(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	238	  @test isequal(prox_entry(sw, T(2), 2, T(tiny)), T(2))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	239	  @test isequal(prox_entry(Scaled(Scaled(NormL1(inf), tiny), tiny), T(5), 1, T(1)), zero(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	240	  @test isequal(prox_entry(s, T(5), 1, T(0)), T(5))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	249	        prox_coordinate!(a, s, k, T(tiny))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	253	        prox_coordinate!(b, s, k, zero(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	255	        prox_coordinate!(c, leaf, k, zero(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	463	      prox_coordinate!(a, s, k, tiny)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	465	      prox_coordinate!(c, f, k, tiny * tiny)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	673	    prox_coordinate!(a, Scaled(f, α), k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	680	    prox_coordinate!(a, Scaled(f, α), k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	682	    prox_coordinate!(c, f, k, α * γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/scaled_infinite_level_underflow.jl	1002	  prox_coordinate!(at, f, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	19	ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	31	ProximalBase.prox_entry(::ShiftedAbs, v, i, γ) = 1 + sign(v - 1) * max(abs(v - 1) - γ, 0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	70	    expected = [prox_entry(f, x[i], i, step) for i in eachindex(x)]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	127	      reference = [prox_entry(f, z[i], i, γ) for i in eachindex(z)]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	189	    @test_throws DimensionMismatch prox_coordinate!(SparseIterate(x), f, 3, 0.1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	190	    @test_throws DimensionMismatch prox_coordinate!(AtomIterate(x, 3), f, 2, 0.1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	194	  @test_throws BoundsError prox_entry(NormL1(1., [1., 2.]), 1.0, 5, 0.1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	200	  @test_throws DimensionMismatch prox_coordinate!(S, NormL1(0.1, wtri), ncoordinates(S), 0.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	203	  @test prox_coordinate!(S, NormL1(0.1, ones(p, p)), ncoordinates(S), 0.5) ≈ 1 - 0.05
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	237	          @test_throws DimensionMismatch prox_coordinate!(input, h, k, 0.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	354	        expected_c = [prox_entry(c, x[i], i, γ isa Real ? γ : γ[i]) for i in eachindex(x)]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	469	    @test prox_entry(f, v, 1, γ) ≈ t atol = 1e-6
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	484	    z = prox_entry(f, v, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	488	  @test prox_entry(f, 0.5, 1, 1.) == 0.
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	489	  @test prox_entry(f, 1.0, 1, 1.) ≈ (1.0 - 0.6) / (1 - 1 / 2.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	490	  @test prox_entry(f, 2.0, 1, 1.) == 2.0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	506	    z = prox_entry(f, v, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	510	  @test prox_entry(f, 1.0, 1, 1.) ≈ 0.4
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	511	  @test prox_entry(f, 1.5, 1, 1.) ≈ ((a - 1) * 1.5 - a * λ) / (a - 2)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	512	  @test prox_entry(f, 3.0, 1, 1.) == 3.0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	525	  # the value and the proximal operator on a vector, from value_entry and prox_entry
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	545	  @test prox_coordinate!(xs, f, 3, 0.5) ≈ 2 / (1 + 0.5 * w[3])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	546	  prox_coordinate!(xs, f, 5, 0.5)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/separable.jl	551	  @test prox_coordinate!(S, f, k, 0.5) ≈ 1 / (1 + 0.5 * w[(2 - 1) * p + 3])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/smooth.jl	725	    @test prox_entry(f, x[1], 1, large) ≈ center[1]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/smooth.jl	726	    @test prox_entry(f, x[1], 1, large) isa T
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/smooth.jl	767	    @test prox_entry(f, endpoint, 1, γ) == endpoint
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/smooth.jl	840	    @test prox_coordinate!(a,f,1,one(T)) == prox_entry(f,x[1],1,one(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sparsegroup.jl	33	a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sparsegroup.jl	133	    prox_coordinate!(xc, f, 2, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sparsegroup.jl	144	      prox_coordinate!(step, f, 3, 1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sparsegroup.jl	197	            @test prox_coordinate!(xc, f, k, γk) ≈ reference[gs[k]]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sparsegroup.jl	207	        @test_throws DimensionMismatch prox_coordinate!(xa, bad, 1, 0.7)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sparsegroup.jl	249	      prox_coordinate!(a, f, 1, one(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sparsegroup.jl	275	      prox_coordinate!(a, f, 1, step)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sparsegroup_infinite_prox.jl	131	        r = prox_coordinate!(xa, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sparsegroup_infinite_prox.jl	144	          prox_coordinate!(xa, f, k, staged, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sparsegroup_infinite_prox.jl	256	      prox_coordinate!(xa, r, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sparsegroup_infinite_prox.jl	327	alloc_coordinate(x, f, k, γ) = (prox_coordinate!(x, f, k, γ); @allocated prox_coordinate!(x, f, k, γ))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sqrhinge.jl	79	    @test prox_entry(f, v, 1, γ) ≈ Float64(p) atol = 1e-8 rtol = 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sqrhinge.jl	105	  p = [prox_entry(f, x[i], i, γ[i]) for i in eachindex(x)]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sqrhinge.jl	165	      p = prox_entry(f, v, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sqrhinge.jl	172	    @test prox_entry(SqrHingeLoss([high]), high, 1, one(T)) == high
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sqrhinge.jl	194	    @test prox_entry(f, -h, 1, h) == -h
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sqrhinge.jl	197	    p = prox_entry(SqrHingeLoss([y], [w]), v, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sqrhinge.jl	230	  @test @inferred(prox_entry(f, 0.2f0, 1, 0.3f0)) isa Float32
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sqrhinge.jl	269	  @test_throws BoundsError prox_entry(SqrHingeLoss([1.]), 0., 2, 0.4)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/sqrhinge.jl	285	    @test allocs(prox_coordinate!, SparseIterate(x), f, 2, 0.4) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/stepchecks.jl	333	    @test_throws ArgumentError prox_coordinate!(x, penalty, 1, 0.75f0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/stepchecks.jl	358	    @test_throws BoundsError prox_coordinate!(x, Regularize(f, 0.5), k, 0.75)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/stepchecks.jl	365	  prox_coordinate!(x, r, 1, 0.75f0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/stepchecks.jl	367	  @test allocs(prox_coordinate!, x, r, 1, 0.75f0) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_centers.jl	81	        rejects(y -> prox_coordinate!(y, f, k, .2), copy(x), name, F)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_centers.jl	114	          @test prox_coordinate!(z,h,k,.2) ≈ Y[2,1] atol=2e-7
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_centers.jl	156	  rejects(y -> prox_coordinate!(y,f,tril_index(3,2,1),1.),copy(x),:P,:IndPattern)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_centers.jl	166	    @test prox_coordinate!(z,h,tril_index(3,2,1),1.) == Y[2,1]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_extensions.jl	30	PB.prox_entry(::PublicSeparableSquare,v,i,γ)=v/(1+γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_extensions.jl	90	PB.prox_entry(::EntrySquare, v, i, γ) = v / (1 + γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_extensions.jl	106	    prox_coordinate!(x, f, mod1(i, ncoordinates(x)), .1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_inventory.jl	81	        rejects(y -> prox_coordinate!(y, f, k, .2), copy(x), name, F)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_inventory.jl	114	          @test prox_coordinate!(z,h,k,.2) ≈ Y[2,1] atol=2e-7
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_paths.jl	32	             y -> prox_coordinate!(y,f,k,1.), y -> kkt_violation(f,fill(.25,2,2),y,k))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_paths.jl	43	  unchanged(y -> prox_coordinate!(y,fv,k,1.),copy(x))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_paths.jl	53	    z=copy(x); @test prox_coordinate!(z,h,k,1.) ≈ Y[2,1]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_paths.jl	91	  err=try prox_coordinate!(x,f,k,1.); nothing catch e; e end
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_paths.jl	127	    @test prox_coordinate!(x,f,k,1.) ≈ .4
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_paths.jl	132	    unchanged(y -> prox_coordinate!(y,f,j,1.),copy(x))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_paths.jl	306	    prox_coordinate!(y,f,2,1.)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_paths.jl	307	    @test allocs(prox_coordinate!,y,f,2,1.) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_trait.jl	15	PB.prox_entry(f::MyL1, v, i, γ) = shrink(v, γ * weight(f, i))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_trait.jl	24	PB.prox_entry(::FreeL1, v, i, γ) = shrink(v, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_trait.jl	92	      rejects(y -> prox_coordinate!(y, h, 2, .1), copy(x), message)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_trait.jl	131	      @test prox_coordinate!(y, h, 2, .1) ≈ prox_coordinate!(z, b, 2, .1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_trait.jl	140	  @test prox_coordinate!(x, f, 2, .1) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/symmetric_parameters_trait.jl	172	    prox_coordinate!(x, h, 2, .1)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/testing.jl	47	PB.prox_entry(::IdentityProx, v, i, γ) = float(v)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/testing.jl	87	PB.prox_entry(::FalseZero, v, i, γ) = (v + 0.1γ) / (1 + γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/testing.jl	95	PB.prox_entry(f::FalseZeroWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/testing.jl	104	PB.prox_entry(f::OffsetWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/testing.jl	115	PB.prox_entry(f::ValueWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/testing.jl	137	    PB.prox_entry(f::$W, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/testing.jl	163	    PB.prox_entry(f::$W, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/testing.jl	170	struct WrongEntries <: SeparableFunction               # prox! overridden, disagreeing with prox_entry
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/testing.jl	174	PB.prox_entry(f::WrongEntries, v, i, γ) = shrink(v, γ * f.λ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/testing.jl	181	PB.prox_entry(f::WrongKKT, v, i, γ) = shrink(v, γ * f.λ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/testing.jl	187	PB.prox_entry(::UserSquare, v, i, γ) = v / (1 + γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	43	    y = prox_entry(f, h, 1, 1e-9)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	45	    @test isapprox(Float64(y), prox_entry(g, 3.0, 1, 1e-9); rtol = 2e-3)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	48	  @test isapprox(Float64(prox_entry(NormLq(1.0, 0.5, [1e9]), h, 1, 1e-9)), prox_entry(NormLq(1.0, 0.5, [1e9]), 3.0, 1, 1e-9); rtol = 2e-3)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	49	  @test prox_entry(NormLq(1.0, 0.5, [Inf]), h, 1, 1.0) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	59	  @test prox_entry(f, x32[1], 1, 2.0^80) === want[1]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	66	  @test ProximalBase._prox_entry_slope(g, 2f0^100, 1, 2.0^70) == (2f0^-40, 2f0^-140)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	74	  @test prox_entry(e, 2.0^601, 1, 2.0^800) == 2.0^600
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	76	  @test ProximalBase._prox_entry_slope(e, 2.0^601, 1, 2.0^800) == (2.0^600, 1.0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	128	  @test prox_entry(f, 2f0^110, 1, 2.0^100) === 2f0^110
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	161	    @test prox_entry(NormL0(λ), x, 1, γ) === x
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	176	      @test prox_entry(f, nextfloat(x), 1, γ) === nextfloat(x) && prox_entry(f, x, 1, γ) === T(0)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	195	      @test prox_entry(f, sgn, 1, γ) === want
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	238	  @test @inferred(prox_entry(e, 1f0, 1, 0.5f0)) isa Float32
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_factor_type.jl	239	  prox_entry(e, 1f0, 1, 0.5f0); @test (@allocated prox_entry(e, 1f0, 1, 0.5f0)) == 0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_precision.jl	166	      prox_coordinate!(z, f, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_precision.jl	168	      prox_coordinate!(z, f, 2, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_precision.jl	171	      prox_coordinate!(small, f, 1, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/threshold_precision.jl	173	      prox_coordinate!(small, f, 2, γ)                 # an inactive group stays inactive
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/weight_steps.jl	148	PB.prox_entry(f::Frozen, v, i, γ) = reference_entry(f.f, v, i, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/weighted_overflow.jl	69	      prox_coordinate!(a, f, 1, floatmin(T))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/weighted_overflow.jl	94	        prox_coordinate!(a, f, 1, 1e-80)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/weighted_overflow.jl	134	    prox_coordinate!(a, f, 1, 2e10)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	45	# (also with y === x), prox_entry and the fused value, which is the value at the stored point
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	54	  @test same([prox_entry(f, x[i], i, entry(γ, i)) for i in eachindex(x)],
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	55	             [prox_entry(f, x[i], i, entry(ref, i)) for i in eachindex(x)])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	100	    @test prox_entry(CappedL1(0, 1), 2, 1, Inf) === 2.0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	101	    @test prox_entry(CappedL1(0, 1, [Inf]), 2, 1, Inf) === 0.0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	102	    @test prox_entry(CappedL1(0, 1), 2, 1, 1) === prox_entry(CappedL1(0, 1), 2, 1, Inf)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	128	  @test prox_entry(SqrNormL2(0), 2, 1, Inf) === 2.0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	129	  @test prox_entry(SqrNormL2(0, [1.0]), 2, 1, Inf) === 2.0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	145	# fused value, and prox_entry for a separable f. A center c enters as the point (v + 0⋅c)/(1 + 0), which
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	171	      @test same([prox_entry(r, x[i], i, entry(γ, i)) for i in eachindex(x)],
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	172	                 [prox_entry(f, x[i], i, entry(γ, i)) for i in eachindex(x)])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	251	            prox_coordinate!(xf, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	252	            prox_coordinate!(xr, Regularize(f, 0, rc), k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	289	    @test prox_entry(Regularize(NormL1(1), 0), 2, 1, Inf) === 0.0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	290	    @test prox_entry(Regularize(ZeroFunction(), 0), 2, 1, Inf) === 2.0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	291	    @test prox_entry(Regularize(NormL1(1), 0), 2, 1, 1) === 1.0
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	325	# step. Each route must give them: prox, prox!, the fused point, prox_entry, array steps, per-group steps
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	356	                        :entry => outcome(() -> [prox_entry(f, x[i], i, γ) for i in 1:n])]
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	371	    push!(res, Symbol(:coord, k) => outcome(() -> (xi = AtomIterate(copy(x), FGROUPS); prox_coordinate!(xi, r, k, γ); Vector(xi))))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	630	  @test same(prox_entry(r, T(-0.0), 1, one(T)), T(-0.0))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	636	  @test same(prox_entry(r, T(-0.0), 1, nz), T(-0.0))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	641	  @test same(prox_entry(Regularize(ZeroFunction(), nz, T[0]), T(-0.0), 1, Inf_), T(-0.0))
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	649	    @test same([prox_entry(r, T(0.5), 1, big)], want)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	652	    prox_coordinate!(xi, Regularize(GroupNormL2(T(0.5), [1:1], T[0]), ρ), 1, big)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	662	    @test same([prox_entry(f, T(0.5), 1, N)], want)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step.jl	711	  # CappedL1: the coefficient is decided in prox_entry, on the device as on the host
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step_grids.jl	41	      @test same([prox_entry(r, x[i], i, entry(γ, i)) for i in eachindex(x)],
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step_grids.jl	42	                 [prox_entry(f, x[i], i, entry(γ, i)) for i in eachindex(x)])
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step_grids.jl	86	            prox_coordinate!(xf, f, k, γ)
+PB	8eaf8f812fd0720e180f35cfc75bc7b090e8ea97	test/zero_level_infinite_step_grids.jl	87	            prox_coordinate!(xr, Regularize(f, 0, rc), k, γ)
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	CONTRIBUTING.md	162	and the five-argument `prox_coordinate!(x, g, k, u, γ)` for a block step at a trial point).
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	benchmark/campaigns/stage2b/CASE_MAPPING.md	53	| P05 | `sgl/sparse-group/cd/tight/call` | primary | call | A | AtomIterate reset equivalent (probe); solver writes x.storage and calls prox_coordinate!: #163, #165 and pilot. |
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	benchmark/campaigns/stage2b/CASE_MAPPING.md	160	  `x.storage` directly (`:32-42`) and calls `prox_coordinate!(x, g, k, step)` (`:38`), the sites of
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	benchmark/campaigns/stage2b/CASE_MAPPING.md	220	| `MoreauEnvelope` and `Conjugate` `restrict`, `prox_entry`, `kkt_violation` (ledger #271) | 8 mentions of `MoreauEnvelope`, `Conjugate` or `LinearConstrained`; `kkt_violation` at `src/solvers/active_accelerated_proximal_gradient_descent.jl:296`; `prox_entry` at `leastsquares.jl:462`, `models.jl:157`, `glm.jl:644,679` | D01 calls `kkt_violation` with `NormL1` (separable, not affected). No case uses a `MoreauEnvelope`. |
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	benchmark/campaigns/stage2b/READINESS.md	17	| ProximalSolvers migration | No open or merged 0.6 migration PR. `Project.toml` compat is `ProximalBase = "0.5.3"`. Open: #162 (symmetric penalty validation), #163 (block step `prox_coordinate!`), #165 (private iterate fields), #211, #213. | **Blocking** |
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	benchmark/campaigns/stage2b/READINESS.md	41	| Nonseparable `MoreauEnvelope` throws in `restrict`, `prox_entry`, `kkt_violation` (#271) | `MoreauEnvelope`: 2 lines (`cd/models.jl`, `cd/solver.jl`). No benchmark case reaches it. | Open, covered by the suite only |
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	benchmark/campaigns/stage2b/STAGE2B_PLAN.md	121	| G2 | The migration PRs of ProximalSolvers are merged, each with its own tests | **Unmet.** No open or merged 0.6 migration PR. Open: #162 (symmetric penalty validation), #163 (block step `prox_coordinate!`), #165 (private iterate fields); also #211 and #213, whose relevance is assessed in `CASE_MAPPING.md`. |
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	benchmark/campaigns/stage2b/case-mapping.toml	266	  "x.storage and prox_coordinate! are NOT used here (src/cd/groups.jl is the generic group step, reached only for penalties without a specialized _groupstep!); the Anderson/momentum history that reads x.active, x.nactive, x.storage (src/cd/solver.jl:553-602) is not reached (cyclic, anderson 0)",
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	benchmark/campaigns/stage2b/case-mapping.toml	324	  "src/cd/groups.jl:19-48 generic _groupstep! (no specialized method for the sparse group penalty: src/cd/leastsquares.jl:597 is GroupNormL2 only): x.groups[k] (:20), x.storage (:32, :34, :36, :42) written directly, and prox_coordinate!(x, g, k, step) (:38)",
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	benchmark/campaigns/stage2b/case-mapping.toml	327	  "migration issues: #163 (take the block step prox_coordinate!(x, g, k, u, γ) instead of writing x.storage) and #165 (private iterate fields); this is the one case of the 19 that writes x.storage",
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	benchmark/campaigns/stage2b/case-mapping.toml	332	class_reason = "The reset is equivalent (probe) and the harness needs no edit. This case writes x.storage and calls prox_coordinate! with the 0.5 signature (src/cd/groups.jl:32-42): it cannot run on the 0.6 candidate before #163 and #165, so the gap is solver migration, not harness."
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	benchmark/campaigns/stage2b/case-mapping.toml	925	  "same file :296 kkt_violation(g, grad, x, k): ledger row #271 (a nonseparable MoreauEnvelope throws in restrict, prox_entry and kkt_violation) does not apply, the penalty is NormL1 (separable)",
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	docs/make.jl	7	                                    "prox_entry" => "@extref ProximalBase.prox_entry")
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	docs/src/coordinate_descent.md	30	[`prox_entry`](@extref ProximalBase.prox_entry)`(g, v, i, γ)` of ProximalBase,
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	docs/src/coordinate_descent.md	201	  `prox_coordinate!` checks the pair it updates.
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	docs/src/coordinate_descent.md	244	step through its own proximal operator on the group, `prox_coordinate!`, and a
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	docs/src/extending.md	30	with [`prox_entry`](@extref ProximalBase.prox_entry), where ``i`` is the entry
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	examples/04_penalties.jl	5	# reached through their scalar proximal operators, `prox_entry` of
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/generic_newton.jl	29	    v = prox_entry(g, x[i] - grad[i], i, one(T))
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/generic_newton.jl	43	    v = prox_entry(g, cx[k] - d, _entry(size(x, 1), r, c), μ)
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/glm.jl	644	    r = sqrt(a) * abs(prox_entry(g, x[j] - grad[j] / a, j, inv(a)) - x[j])
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/glm.jl	679	  stationarity = maximum((abs(x[j] - prox_entry(g, x[j] - grad[j], j, one(T))) for j in inds); init=zero(T))
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/groups.jl	12	# on the group, the five-argument prox_coordinate!, takes its proximal operator at
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/groups.jl	39	  prox_coordinate!(x, g, k, view(buf, 1:n), iszero(L) ? floatmax(T) : inv(L))
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/groups.jl	70	  prox_coordinate!(x, g, k, view(buf, 1:n), iszero(L) ? floatmax(T) : inv(L))
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/leastsquares.jl	462	  new = iszero(a) ? _coordinate_minimizer(g, old, zero(T), zero(T), k) : prox_entry(g, old + b / a, k, inv(m.s * a))
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/models.jl	67	[`prox_entry`](@ref)`(g, xₖ - G/a, i, μ/a)`, where `i` is the index of the
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/models.jl	157	  new = prox_entry(g, old - G * ainv, i, μ * ainv)
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/models.jl	221	  c = T(prox_entry(g, zero(T), i, floatmax(T)))
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/models.jl	224	  c = T(prox_entry(g, -copysign(floatmax(T), G), i, μ))
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/models.jl	241	  prox_entry(g.box, v, i, one(v)) == v && _flat_indomain(g.f, v, i)
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/models.jl	300	  c = _flat_candidate(T, prox_entry(g.f, v, i, step))
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/models.jl	323	    _flat_candidate(T, prox_entry(g.box, v, i, one(T)))
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/models.jl	344	  c = T(prox_entry(g, v, i, one(T)))
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	src/cd/models.jl	365	  isfinite(v) && isfinite(step) && prox_entry(g, v, i, step) == c
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	test/flat_coordinates.jl	444	    @test PS._coordinate_minimizer(g, 0.7, G, 2.0, 1) === prox_entry(g, 0.7 - G * inv(2.0), 1, inv(2.0))
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	test/group_penalties.jl	231	# and the penalty's five-argument prox_coordinate! stores the result, so only that call writes the iterate.
+PS	f9b7a26663b499b6f881bcc26c56d1acced06749	test/nonconvex_penalties.jl	26	    abs(prox_entry(g, b[k] - grad[k] / a, k, 1 / a) - b[k])

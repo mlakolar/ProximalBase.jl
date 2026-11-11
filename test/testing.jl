@@ -44,7 +44,7 @@ struct IdentityProx <: SeparableFunction               # λ|x| with the identity
   λ::Float64
 end
 PB.value_entry(f::IdentityProx, v, i) = f.λ * abs(v)
-PB.prox_entry(::IdentityProx, v, i, γ) = float(v)
+PB.prox_block(::IdentityProx, v, i, γ) = float(v)
 PB.isconvex(::Type{IdentityProx}) = true
 
 struct WrongValue <: AbstractFunction                  # value_and_prox! reports twice the value
@@ -84,7 +84,7 @@ end
 struct FalseZero <: SeparableFunction                  # declares that it preserves zero, but shifts it
 end
 PB.value_entry(::FalseZero, v, i) = abs2(v - 0.1) / 2
-PB.prox_entry(::FalseZero, v, i, γ) = (v + 0.1γ) / (1 + γ)
+PB.prox_block(::FalseZero, v, i, γ) = (v + 0.1γ) / (1 + γ)
 PB.iszeropreserving(::FalseZero) = true
 
 struct FalseZeroWrapper{F<:AbstractFunction} <: AbstractFunction
@@ -92,7 +92,7 @@ struct FalseZeroWrapper{F<:AbstractFunction} <: AbstractFunction
 end
 PB.isseparable(::Type{<:FalseZeroWrapper}) = true
 PB.iszeropreserving(::FalseZeroWrapper) = true
-PB.prox_entry(f::FalseZeroWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB.prox_block(f::FalseZeroWrapper, v::Real, i::Integer, γ::Real) = prox_block(f.f, v, i, γ)
 PB.prox!(y::AbstractArray, f::FalseZeroWrapper, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
 
 # a separable wrapper with correct delegated prox, whose value is shifted by 1 (so f(0) = 1)
@@ -101,7 +101,7 @@ struct OffsetWrapper{F<:AbstractFunction} <: AbstractFunction
 end
 PB.isseparable(::Type{<:OffsetWrapper}) = true
 PB.iszeropreserving(::OffsetWrapper) = true
-PB.prox_entry(f::OffsetWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB.prox_block(f::OffsetWrapper, v::Real, i::Integer, γ::Real) = prox_block(f.f, v, i, γ)
 PB.prox!(y::AbstractArray, f::OffsetWrapper, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
 (f::OffsetWrapper)(x::AbstractArray) = f.f(x) + 1
 
@@ -112,7 +112,7 @@ end
 ValueWrapper(f::F; value::Bool = true) where {F<:AbstractFunction} = ValueWrapper{F, value}(f)
 PB.isseparable(::Type{<:ValueWrapper}) = true
 PB.iszeropreserving(::ValueWrapper) = true
-PB.prox_entry(f::ValueWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB.prox_block(f::ValueWrapper, v::Real, i::Integer, γ::Real) = prox_block(f.f, v, i, γ)
 PB.prox!(y::AbstractArray, f::ValueWrapper, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
 (f::ValueWrapper{<:Any, true})(x::AbstractArray) = f.f(x)
 
@@ -134,7 +134,7 @@ for W in (:VectorValue, :WrongSparseValue, :WrongFusedValue, :WrongFusedOutput)
   @eval begin
     PB.isseparable(::Type{<:$W}) = true
     PB.iszeropreserving(::$W) = true
-    PB.prox_entry(f::$W, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+    PB.prox_block(f::$W, v::Real, i::Integer, γ::Real) = prox_block(f.f, v, i, γ)
     PB.prox!(y::AbstractArray, f::$W, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
   end
 end
@@ -160,34 +160,34 @@ for W in (:OffsetVectorValue, :TwoArgCall)
   @eval begin
     PB.isseparable(::Type{<:$W}) = true
     PB.iszeropreserving(::$W) = true
-    PB.prox_entry(f::$W, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+    PB.prox_block(f::$W, v::Real, i::Integer, γ::Real) = prox_block(f.f, v, i, γ)
     PB.prox!(y::AbstractArray, f::$W, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
   end
 end
 (f::OffsetVectorValue)(x::Vector) = f.f(x) + 1
 (f::TwoArgCall)(x::AbstractArray, y::AbstractArray) = f.f(x) + f.f(y)
 
-struct WrongEntries <: SeparableFunction               # prox! overridden, disagreeing with prox_entry
+struct WrongEntries <: SeparableFunction               # prox! overridden, disagreeing with prox_block
   λ::Float64
 end
 PB.value_entry(f::WrongEntries, v, i) = f.λ * abs(v)
-PB.prox_entry(f::WrongEntries, v, i, γ) = shrink(v, γ * f.λ)
+PB.prox_block(f::WrongEntries, v, i, γ) = shrink(v, γ * f.λ)
 PB.prox!(y::AbstractArray, ::WrongEntries, x::AbstractArray, γ::Real) = (y .= x)
 
 struct WrongKKT <: SeparableFunction                   # NormL1 with twice the threshold in kkt_violation
   λ::Float64
 end
 PB.value_entry(f::WrongKKT, v, i) = f.λ * abs(v)
-PB.prox_entry(f::WrongKKT, v, i, γ) = shrink(v, γ * f.λ)
+PB.prox_block(f::WrongKKT, v, i, γ) = shrink(v, γ * f.λ)
 PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
 
-struct WrongAtomKKT <: SeparableFunction               # NormL1 with an atom violation that always reports optimality
+struct WrongBlockKKT <: SeparableFunction               # NormL1 with an block violation that always reports optimality
   λ::Float64
 end
-PB.value_entry(f::WrongAtomKKT, v, i) = f.λ * abs(v)
-PB.prox_entry(f::WrongAtomKKT, v, i, γ) = shrink(v, γ * f.λ)
-PB.kkt_violation(f::WrongAtomKKT, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ
-PB.kkt_violation(::WrongAtomKKT, g::AbstractArray, x::AtomIterate, k::Integer) = -1.0
+PB.value_entry(f::WrongBlockKKT, v, i) = f.λ * abs(v)
+PB.prox_block(f::WrongBlockKKT, v, i, γ) = shrink(v, γ * f.λ)
+PB.kkt_violation(f::WrongBlockKKT, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ
+PB.kkt_violation(::WrongBlockKKT, g::AbstractArray, x::BlockIterate, k::Integer) = -1.0
 
 # Correct conjugate prox, but an incorrect value: Moreau alone cannot reject it.
 struct WrongConjugateValue <: AbstractFunction end
@@ -198,7 +198,7 @@ PB.prox!(y::AbstractArray, ::WrongConjugateValue, x::AbstractArray, γ::Real) =
 struct UserSquare{D} <: SeparableFunction end
 PB.entry_parameters(::UserSquare{true}) = ()
 PB.value_entry(::UserSquare, v, i) = abs2(v) / 2
-PB.prox_entry(::UserSquare, v, i, γ) = v / (1 + γ)
+PB.prox_block(::UserSquare, v, i, γ) = v / (1 + γ)
 PB.iszeropreserving(::UserSquare) = true
 
 # tuple-valued arguments: functions that fail the gradient check, and one that records its points
@@ -297,13 +297,13 @@ PB.value_and_gradient!(g, r::Recorder, x) = (r.gradients[] += 1; value_and_gradi
 
   @testset "iterate bookkeeping" begin
     groups = [1:2, 3:4, 5:6]
-    large_atom = AtomIterate(ones(65_536), [i:i+3 for i in 1:4:65_536])
+    large_atom = BlockIterate(ones(65_536), [i:i+3 for i in 1:4:65_536])
     large_sparse = SparseIterate(65_536)
     for i in 1:16:65_536
       large_sparse[i] = 1
     end
     state(x) = deepcopy(ntuple(i -> getfield(x, i), fieldcount(typeof(x))))
-    for x in (AtomIterate(6, groups), AtomIterate([1., 0, 0, 0, 2, 0], groups),
+    for x in (BlockIterate(6, groups), BlockIterate([1., 0, 0, 0, 2, 0], groups),
               SparseIterate(4), SparseIterate([1., 0, 2, 0]),
               SparseIterate(2, 2), SparseIterate([1. 0; 0 2]),
               SymmetricSparseIterate(2), SymmetricSparseIterate([1. 2; 2 0]),
@@ -317,7 +317,7 @@ PB.value_and_gradient!(g, r::Recorder, x) = (r.gradients[] += 1; value_and_gradi
     end
 
     corruptions = Any[]
-    a = AtomIterate(6, groups)
+    a = BlockIterate(6, groups)
     a.storage[3] = 1
     push!(corruptions, a)
     for mutate! in (a -> (a.active[2] = a.active[1]),
@@ -327,18 +327,18 @@ PB.value_and_gradient!(g, r::Recorder, x) = (r.gradients[] += 1; value_and_gradi
                     a -> (a.group_of[1] = 2),
                     a -> resize!(a.group_of, 5),
                     a -> resize!(a.position, 2))
-      a = AtomIterate(ones(6), groups)
+      a = BlockIterate(ones(6), groups)
       mutate!(a)
       push!(corruptions, a)
     end
-    a = AtomIterate(6, [[1, 2], [3, 4], [5, 6]])
+    a = BlockIterate(6, [[1, 2], [3, 4], [5, 6]])
     a.groups[3][2] = 7
     push!(corruptions, a)
-    a = AtomIterate(4, [[1, 2], [3, 4]])
+    a = BlockIterate(4, [[1, 2], [3, 4]])
     a.groups[1][2] = 1
     a.storage[2] = 1
     push!(corruptions, a)
-    a = AtomIterate(4, [[1, 2], [3, 4]])
+    a = BlockIterate(4, [[1, 2], [3, 4]])
     a.groups[2][1] = 2
     push!(corruptions, a)
     for make in (() -> SparseIterate([1., 0, 2, 0]),
@@ -429,8 +429,8 @@ PB.value_and_gradient!(g, r::Recorder, x) = (r.gradients[] += 1; value_and_gradi
       @test passes(() -> PT.test_kkt(f, x, 0.5))
     end
     gn = GroupNormL2(0.5, groups)
-    @test passes(() -> PT.test_kkt(gn, AtomIterate(12, gn), γ))
-    @test passes(() -> PT.test_kkt(NormL1(0.5), AtomIterate(12, groups), γ))
+    @test passes(() -> PT.test_kkt(gn, BlockIterate(12, gn), γ))
+    @test passes(() -> PT.test_kkt(NormL1(0.5), BlockIterate(12, groups), γ))
   end
 
   @testset "gradient precision" begin
@@ -550,12 +550,12 @@ PB.value_and_gradient!(g, r::Recorder, x) = (r.gradients[] += 1; value_and_gradi
       () -> PT.test_separable(FalseZero(), v, γ; rng = Xoshiro(841)),
       () -> PT.test_conjugate(NormL1(0.5), v, γ; conjugate = WrongConjugateValue()),
       () -> PT.test_kkt(WrongKKT(0.5), v, γ; trials = 20, rng = Xoshiro(841)),
-      () -> PT.test_kkt(WrongAtomKKT(0.5), AtomIterate(6, [1:2, 3:4, 5:6]), γ;
+      () -> PT.test_kkt(WrongBlockKKT(0.5), BlockIterate(6, [1:2, 3:4, 5:6]), γ;
                         trials = 20, rng = Xoshiro(841)),
     )
     # The incorrect value leaves the proximal point unchanged.
     @test prox(WrongConjugateValue(), v, γ) == prox(IndBallLinf(0.5), v, γ)
-    @test outcomes(() -> PT.test_kkt(WrongAtomKKT(0.5), v, γ; trials = 20, rng = Xoshiro(841))) == (0, 0)
+    @test outcomes(() -> PT.test_kkt(WrongBlockKKT(0.5), v, γ; trials = 20, rng = Xoshiro(841))) == (0, 0)
     for (i, check) in enumerate(checks)
       @testset "helper $i" begin
         failed, errored = outcomes(check)

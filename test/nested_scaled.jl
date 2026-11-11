@@ -191,7 +191,7 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
           @test y ≈ expected rtol = 8eps(T)
           @test near(v, effective(f, f -> f.λ0) * 4)
           for (k, e) in zip(1:3, expected)
-            @test prox_entry(f, x[k], k, γ) ≈ e rtol = 8eps(T)
+            @test prox_block(f, x[k], k, γ) ≈ e rtol = 8eps(T)
           end
           # a zero step copies the argument; a step that is not a number is passed on as it is
           @test prox(f, x, zero(T)) == x
@@ -348,7 +348,7 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
             y = zeros(T, 1)
             @test value_and_prox!(y, c, T[2r], one(T)) === zero(T)
             @test y ≈ T[r] rtol = 8eps(T)
-            @test prox_entry(c, T(2r), 1, one(T)) ≈ r rtol = 8eps(T)
+            @test prox_block(c, T(2r), 1, one(T)) ≈ r rtol = 8eps(T)
           end
           # a Moreau route (a leaf without a direct projection) and a block sum
           q = Scaled(Scaled(SqrNormL2(tens(T, -l)), tens(T, a)), tens(T, a))
@@ -452,8 +452,8 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
               @test kkt_violation(s, g, zeros(T, 3), i) === kkt_violation(ind, g, zeros(T, 3), i)
             end
             @test kkt_violation(s, g, 1) == 1
-            # an atom iterate takes the worst index of a group
-            x = AtomIterate(T, 3, 1)
+            # an block iterate takes the worst index of a group
+            x = BlockIterate(T, 3, 1)
             @test kkt_violation(s, g, x, 1) === kkt_violation(ind, g, x, 1)
             # a symmetric parameter takes the entry of the lower triangle
             G = T[-1 2; 2 -3]
@@ -466,7 +466,7 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
         # a penalty that needs its scale keeps it, by the folded level and by the reciprocal alike
         let g = T[2 * λs, -λs / 2], x = zeros(T, 2)
           @test near(kkt_violation(small, g, x, 1), λs)
-          @test near(kkt_violation(small, g, AtomIterate(T, 2, 1), 1), λs)
+          @test near(kkt_violation(small, g, BlockIterate(T, 2, 1), 1), λs)
         end
         let s = Scaled(Scaled(NormL1(T(0.2)), T(3)), T(5))
           @test kkt_violation(s, T[2, -0.1], 1) ≈ 2 - T(3) rtol = 8eps(T)      # |g| - 15 ⋅ 0.2
@@ -485,7 +485,7 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
       @test allocs(s, x) == 0
       @test allocs(prox!, y, s, x, 0.1) == 0
       @test allocs(value_and_prox!, y, s, x, 0.1) == 0
-      f isa NormL1 && @test allocs(prox_entry, s, 0.5, 1, 0.1) == 0
+      f isa NormL1 && @test allocs(prox_block, s, 0.5, 1, 0.1) == 0
     end
     @test Scaled(Scaled(NormL1(1.0), 1e-100), 1e-100) isa Scaled{<:NormL1}
     @test Scaled(Scaled(NormL1(1.0), 1e100), 1e100) isa Scaled{<:NormL1}
@@ -566,7 +566,7 @@ steps566(::Type{Float32}) = (a = 25, l = 30, g = 10, l2 = 10, g2 = 20)
           end
           γ isa AbstractArray || @test close(prox(f, x, γ), r)
           γ isa AbstractArray || !array || for k in 1:n
-            @test near(prox_entry(f, x[k], k, γ), r[k]) || (iszero(r[k]) && iszero(prox_entry(f, x[k], k, γ)))
+            @test near(prox_block(f, x[k], k, γ), r[k]) || (iszero(r[k]) && iszero(prox_block(f, x[k], k, γ)))
           end
         end
       end
@@ -713,7 +713,7 @@ steps566(::Type{Float32}) = (a = 25, l = 30, g = 10, l2 = 10, g2 = 20)
             @test allocs(prox!, y, f, z, step) == 0
             @test allocs(value_and_prox!, y, f, z, step) == 0
           end
-          @test allocs(prox_entry, f, z[1], 1, T(0.1)) == 0
+          @test allocs(prox_block, f, z[1], 1, T(0.1)) == 0
         end
         # a factor at the edge of the band and a step that is itself ordinary
         edge = Scaled(NormL1(one(T)), T(2)^(exponent(floatmax(T)) ÷ 4))

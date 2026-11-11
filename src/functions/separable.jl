@@ -10,12 +10,12 @@
 The supertype of the separable functions `f(x) = Σᵢ fᵢ(xᵢ)`, and the way to add
 one of your own. A subtype implements, for the entry with linear index `i`,
 
-- [`prox_entry`](@ref)`(f, v, i, γ)`: the proximal operator of `γfᵢ` at the
+- [`prox_block`](@ref)`(f, v, i, γ)`: the proximal operator of `γfᵢ` at the
   scalar `v`;
 - [`value_entry`](@ref)`(f, v, i)`: the value `fᵢ(v)`.
 
 From these it gets the value `f(x)`, [`prox!`](@ref) and
-[`value_and_prox!`](@ref) on any array, and [`prox_coordinate!`](@ref) on the
+[`value_and_prox!`](@ref) on any array, including the
 three iterates. Declare [`iszeropreserving`](@ref) when `fᵢ(0) = 0` and the
 proximal operator maps 0 to 0; then the value and the proximal operator on a
 sparse iterate touch only its stored entries. `isseparable` and `isproximable`
@@ -28,7 +28,7 @@ struct WeightedSquare <: SeparableFunction            # Σᵢ wᵢ xᵢ² / 2
     w::Vector{Float64}
 end
 ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
-ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
+ProximalBase.prox_block(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 ProximalBase.iszeropreserving(::WeightedSquare) = true
 ProximalBase.isconvex(::Type{WeightedSquare}) = true
 ProximalBase.entry_parameters(f::WeightedSquare) = (:w => f.w,)
@@ -62,7 +62,7 @@ _reshapeparam(p::Array, x) = Base.ReshapedArray(p, size(x), ())
 
 For a [`SeparableFunction`](@ref) `f(x) = Σᵢ fᵢ(xᵢ)`, the value `fᵢ(v)` of the
 term of entry `i` at the scalar `v`. `i` is a linear index of the array, as in
-[`prox_entry`](@ref).
+[`prox_block`](@ref).
 """
 function value_entry end
 
@@ -128,7 +128,7 @@ function _value_sep(f, x::SymmetricSparseIterate)
   s
 end
 
-function _value_sep(f, x::AtomIterate)
+function _value_sep(f, x::BlockIterate)
   _checkparams(f, x)
   iszeropreserving(f) || return _value_dense(f, x)
   T = _valtype(x)
@@ -181,7 +181,7 @@ function _sep_terms(acc, f, x::SymmetricSparseIterate)
   end
   acc
 end
-function _sep_terms(acc, f, x::AtomIterate)
+function _sep_terms(acc, f, x::BlockIterate)
   iszeropreserving(f) || return invoke(_sep_terms, Tuple{Any, Any, AbstractArray}, acc, f, x)
   @inbounds for a in 1:x.nactive, i in x.groups[x.active[a]]
     acc = _entry_terms(acc, f, x.storage[i], i)
@@ -225,7 +225,7 @@ function _prox_sep_dense!(y::AbstractArray, f, x::AbstractArray, γ)
   _checkparam(γ, x)
   T = eltype(y)
   @inbounds for i in eachindex(IndexLinear(), y, x)
-    y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i)))
+    y[i] = convert(T, prox_block(f, x[i], i, _entry(γ, i)))
   end
   y
 end
@@ -244,7 +244,7 @@ function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Union{Real, Abstr
   end
   @inbounds for k in 1:x.nnz
     i = x.nzval2ind[k]
-    _setstored!(y, convert(T, prox_entry(f, x.nzval[k], i, _entry(γ, i))), i)
+    _setstored!(y, convert(T, prox_block(f, x.nzval[k], i, _entry(γ, i))), i)
   end
   y
 end
@@ -269,13 +269,13 @@ function _prox_sep!(y::SymmetricSparseIterate, f, x::Union{AbstractMatrix, Symme
       i = x.nzval2ind[k]
       r, c = tril_cartesian(p, i)
       j = (c - 1) * p + r
-      _setstored!(y, convert(T, prox_entry(f, x.nzval[k], j, _entry(γ, j))), i)
+      _setstored!(y, convert(T, prox_block(f, x.nzval[k], j, _entry(γ, j))), i)
     end
     return y
   end
   @inbounds for c in 1:p, r in c:p
     j = (c - 1) * p + r
-    _setstored!(y, convert(T, prox_entry(f, x[r, c], j, _entry(γ, j))), tril_index(p, r, c))
+    _setstored!(y, convert(T, prox_block(f, x[r, c], j, _entry(γ, j))), tril_index(p, r, c))
   end
   y
 end
@@ -306,7 +306,7 @@ _restrict_entries(w::AbstractArray, S::AbstractVector{<:Integer}) = w[S]
 
 The weighted ℓ1 norm `f(x) = λ0 Σᵢ wᵢ |xᵢ|`, with all `wᵢ = 1` when `w` is
 omitted. Its proximal operator is entry-wise soft thresholding
-([`shrink`](@ref)). Separable, so [`prox_coordinate!`](@ref) updates any
+([`shrink`](@ref)). Separable, so [`prox_block`](@ref) computes any scalar
 coordinate, and on a sparse iterate the value and the proximal operator touch
 only the stored entries. On a [`SymmetricSparseIterate`](@ref) the weights are a
 `p × p` matrix (or anything indexed by the linear indices of one), as for a
@@ -346,7 +346,7 @@ Base.@propagate_inbounds function value_entry(f::NormL1, v::Real, i::Integer)
   p = _positive_product(f.λ0, w, a)
   ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
 end
-Base.@propagate_inbounds prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
+Base.@propagate_inbounds prox_block(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
   first(_l1_prox_threshold(v, γ, f.λ0, _entry(f.w, i), float(T)))
 
 # Whether the level and the step, as given, fix a penalized entry (w > 0) at zero whatever it holds,
@@ -440,7 +440,7 @@ Base.@propagate_inbounds function value_entry(f::NormL1Nonneg, v::T, i::Integer)
     oftype(_positive_product(f.λ0, _entry(f.w, i), zero(S)), isnan(v) ? NaN : Inf)
   end
 end
-Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
+Base.@propagate_inbounds prox_block(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
   max(v - _weight_product(float(T), γ, f.λ0, _entry(f.w, i)), zero(float(T)))
 
 # moving up from zero decreases the objective when -gᵢ exceeds λ0 wᵢ
@@ -607,7 +607,7 @@ end
 end
 # While γλ2 is finite in S this is shrink(v, γλ1w)/(1 + γλ2), as before. A nonfinite γλ2 is the
 # trigger for both exceptions: an overflow at a finite step, and every γ = Inf.
-Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
   t = _typed_product(S, γ, f.λ2)
@@ -733,7 +733,7 @@ Base.@propagate_inbounds function value_entry(f::IndBox, v::T, i::Integer) where
 end
 # the bounds in the type of the result: a clamp between integer bounds compares
 # a float with an integer exactly, which does not vectorize
-Base.@propagate_inbounds function prox_entry(f::IndBox, v::T, i::Integer, ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(f::IndBox, v::T, i::Integer, ::Real) where {T<:Real}
   S = float(T)
   clamp(convert(S, v), convert(S, _entry(f.l, i)), convert(S, _entry(f.u, i)))
 end
@@ -779,7 +779,7 @@ _value_dense(::IndNonnegative, x::AbstractArray) =
 
 @inline value_entry(::IndNonnegative, v::T, ::Integer) where {T<:Real} =
   v >= -_tol(float(T)) ? zero(float(T)) : float(T)(Inf)
-@inline prox_entry(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} = max(float(v), zero(float(T)))
+@inline prox_block(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} = max(float(v), zero(float(T)))
 kkt_violation(::IndNonnegative, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); -g[i])
 restrict(f::IndNonnegative, ::AbstractVector{<:Integer}) = f
 
@@ -846,7 +846,7 @@ end
   (a - (d - z)) - (b + z)
 end
 
-Base.@propagate_inbounds function prox_entry(f::IndBinary, v::Real, i::Integer, ::Real)
+Base.@propagate_inbounds function prox_block(f::IndBinary, v::Real, i::Integer, ::Real)
   w, l, u = promote(float(v), float(_entry(f.l, i)), float(_entry(f.u, i)))
   isnan(w) && return w
   w <= l && return l
@@ -895,7 +895,7 @@ Base.@propagate_inbounds function value_entry(f::NormL0, v::T, ::Integer) where 
   S = float(T)
   iszero(v) ? zero(S) : (isnan(v) & !iszero(f.λ)) ? convert(S, NaN) : convert(S, f.λ)
 end
-Base.@propagate_inbounds prox_entry(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =
+Base.@propagate_inbounds prox_block(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =
   _l0_keeps(float(T), v, γ, f.λ) ? float(v) : zero(float(T))
 
 # The arrays in host memory: an Array, or a view or a reshape of one. A device array is none of these, whatever
@@ -926,7 +926,7 @@ end
 # the iterates that have their own routes (stored entries only)
 _value_sep(f::NormL0, x::SparseIterate) = invoke(_value_sep, Tuple{Any, SparseIterate}, f, x)
 _value_sep(f::NormL0, x::SymmetricSparseIterate) = invoke(_value_sep, Tuple{Any, SymmetricSparseIterate}, f, x)
-_value_sep(f::NormL0, x::AtomIterate) = invoke(_value_sep, Tuple{Any, AtomIterate}, f, x)
+_value_sep(f::NormL0, x::BlockIterate) = invoke(_value_sep, Tuple{Any, BlockIterate}, f, x)
 
 # The scaled-value mechanism: λ times the number of nonzero entries, in parts. A count of the entries
 # of a host IEEE array as above; the iterates and other arrays sum their terms.
@@ -968,7 +968,7 @@ function _value_and_prox_sep!(y::_HostFloatDest, f::NormL0, x::_HostArray, γ::R
   a = zero(sizeof(T) <= 4 ? Int32 : Int64)
   z = zero(T)
   @inbounds @simd for i in eachindex(IndexLinear(), y, x)
-    w = convert(T, prox_entry(f, x[i], i, γ))
+    w = convert(T, prox_block(f, x[i], i, γ))
     y[i] = w
     a += !iszero(w)
     z += w
@@ -1034,7 +1034,7 @@ Base.@propagate_inbounds function value_entry(f::MCP, v::T, ::Integer) where {T<
   t > a * λ ? a * λ^2 / 2 : λ * t - t^2 / (2a)   # a NaN entry takes the second branch
 end
 
-Base.@propagate_inbounds function prox_entry(f::MCP, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(f::MCP, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   λ, a, s, t = S(f.λ), S(f.a), S(γ), abs(S(v))
   if s < a
@@ -1147,7 +1147,7 @@ Base.@propagate_inbounds function value_entry(f::SCAD, v::T, ::Integer) where {T
   t > λ ? (t > a * λ ? λ^2 * (a + 1) / 2 : (2a * λ * t - t^2 - λ^2) / (2 * (a - 1))) : λ * t
 end
 
-Base.@propagate_inbounds function prox_entry(f::SCAD, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_block(f::SCAD, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   λ, a, s, t = S(f.λ), S(f.a), S(γ), abs(S(v))
   if s < a - 1

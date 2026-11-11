@@ -1,0 +1,84 @@
+{
+  "implementation_commit": "8fb174454a5b0c431376decf5a3c87830353a562",
+  "PB_full": {
+    "julia": "1.13.3",
+    "files": 220,
+    "passed": 1959875,
+    "broken": 368,
+    "failed": 0,
+    "errors": 0,
+    "exit_code": 0,
+    "bounds_checking": "yes"
+  },
+  "PB_cache_warning_rerun": {
+    "julia": "1.13.3",
+    "passed": 88589,
+    "failed": 0,
+    "errors": 0,
+    "files": [
+      "gpu_smoke",
+      "sparsegroup_infinite_prox",
+      "value_overflow_glm",
+      "value_overflow_glm_grids"
+    ],
+    "native_package_images": false,
+    "exit_code": 0
+  },
+  "PB_LTS_affected": {
+    "julia": "1.10.13",
+    "files": [
+      "allocations_basics",
+      "atom_iterate_grids",
+      "binary",
+      "block_step",
+      "block_step_failures",
+      "block_step_grids",
+      "blockchecks_values",
+      "composition",
+      "distl2",
+      "infinite_group_weights",
+      "interface",
+      "nonconvex",
+      "sparsegroup",
+      "sparsegroup_infinite_level",
+      "sparsegroup_infinite_prox",
+      "stepchecks"
+    ],
+    "passed": 129236,
+    "failed": 0,
+    "errors": 0,
+    "note": "Three native compilation failures from exhausted disk were retried successfully with package images disabled."
+  },
+  "PS_LTS_affected": {
+    "julia": "1.10.13",
+    "files": [
+      "coordinate_descent_basics",
+      "generic_newton",
+      "group_curvature",
+      "group_lasso",
+      "group_momentum",
+      "group_penalties",
+      "multiresponse",
+      "nonconvex_penalties"
+    ],
+    "passed": 90094,
+    "failed": 0,
+    "errors": 0
+  },
+  "differential": {
+    "julia": "1.13.3",
+    "rows": 5616,
+    "byte_identical": true,
+    "sha256": "38f602910b92cc26ab477a228deaea605c5bafe6128414be0a1197600f8be0fc"
+  },
+  "benchmark_harness_checks": {
+    "julia": "1.10.10",
+    "exit_code": 0
+  },
+  "documentation_build": {
+    "julia": "1.10.13",
+    "exit_code": 0,
+    "bounds_checking": "yes",
+    "deployment": false
+  }
+}

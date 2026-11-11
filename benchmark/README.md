@@ -4,6 +4,37 @@ This suite tracks the runtime and Julia heap allocations of ProximalBase
 operations. Keep reusable cases and measurement tools here. Save generated
 results with the pull request or release that uses them.
 
+## PB-only block-update diagnostics
+
+`block_updates.jl` isolates public `prox_block!`, preflight and internal kernels,
+block-view copies, combined calls, scalar writes, and view norm/dot controls.
+It includes Float32/Float64, sizes 1/5/8/32/256, all group penalties, nested
+wrappers and compact views. Every sample has one evaluation; in-place input
+and inactive-block resets are outside timing. Concrete closure factories avoid
+boxing vector/view unions. Numerical metadata is checked before and after runs.
+
+Prepare two benchmark projects with identical dependencies and immutable PB
+source paths, then run each required Julia version separately:
+
+```sh
+python3 benchmark/block_updates_run.py --julia /path/to/julia \
+  --before /path/to/baseline-project --after /path/to/candidate-project \
+  --depot /path/to/depot --output /path/to/fresh-results --cohorts 2 --pairs 5
+```
+
+The controller warms three isolated workers (baseline, candidate and an
+independent baseline A/A control), excludes their first timing rounds, and
+alternates measurement order. Only one worker measures at a time; it restarts
+all workers for the second cohort. Save raw per-case medians, quartiles,
+allocations, metadata, source hashes and paired variability. Use `--filter`
+for confirmation of a problematic subset. Ten paired repetitions are a minimum;
+an isolated noisy median does not establish a regression or approve a tradeoff.
+Do not use an exclusive-node requirement or unrelated background work.
+
+The [#787 audit](../docs/audit/block-prox-844/block-update-performance.md)
+records provenance and the explicitly historical combined-step adapter. It
+uses PB only; formal PS whole-solver results remain separate from these probes.
+
 ## Setup and selections
 
 From the package root, with Julia 1.10 or later and Python 3.11 or later:
@@ -23,20 +54,20 @@ for each measurement series; existing repetitions are never overwritten.
 | `PB_SUITE=quick` | Small representative cases; the default. |
 | `PB_SUITE=extended` | Float32/Float64, larger inputs and broader cases. |
 | `PB_GROUPS=vectors,smooth` | Select groups before constructing their inputs. |
-| `PB_CASES=ordered/SLOPE` | Keep only the cases whose ID matches this regular expression. It is compiled once, before anything is built, so an invalid one fails at once. The `atom` and `sparse` builders skip, before building their fixtures, the scenarios and operation groups whose case IDs cannot match, and the exact filter that follows decides which cases remain. The inputs of a selected case do not depend on the selection (see [Selecting cases before building them](#selecting-cases-before-building-them)). |
+| `PB_CASES=ordered/SLOPE` | Keep only the cases whose ID matches this regular expression. It is compiled once, before anything is built, so an invalid one fails at once. The `block` and `sparse` builders skip, before building their fixtures, the scenarios and operation groups whose case IDs cannot match, and the exact filter that follows decides which cases remain. The inputs of a selected case do not depend on the selection (see [Selecting cases before building them](#selecting-cases-before-building-them)). |
 | `PB_REPETITION=1` | Seeded process/input draw, numbered 1–10. |
 | `PB_OUTPUT=/absolute/path` | Output directory; defaults to `benchmark/results`. |
 | `PB_LIST=true` | List selected case IDs without measuring them. |
 | `PB_PROFILE_SECONDS=0.2` | Enable representative profiles; disabled by default. |
 
 Groups are `vectors`, `smooth`, `matrices`, `constraints`, `tensors`, `products`, `blocks`, `owner`,
-`sparse`, `atom` and `ridge`. They cover dense/sparse/atom calls, values and derivatives,
+`sparse`, `block` and `ridge`. They cover dense/sparse/block calls, values and derivatives,
 coordinate operations, ordered penalties, constraints and workspace states.
 The blocks group covers flat and nested tuple oracles, wrappers and long block sums
 on Float32/Float64 inputs, with the same cases in both suites.
 The `ridge` group measures `SqrNormL2`, centered and uncentered, in homogeneous `Float32` and
 `Float64` and in `Float32` storage with `Float64` parameters (`prox!`, `value_and_prox!`, a
-`prox_entry` loop, `gradient!`, `value_and_gradient!`, the value), and, as separate
+`prox_block` loop, `gradient!`, `value_and_gradient!`, the value), and, as separate
 `layout=recovery` cases, calls whose parameters or centers leave the model's range. The
 extended suite adds `Constrained(SqrNormL2, IndHyperplane)` with per-entry steps (repeated
 and cold calls) and a scalar-step control (`layout=constrained`).
@@ -54,11 +85,11 @@ gives the before and after of the redesign in
 [#391](https://github.com/mlakolar/ProximalBase.jl/issues/391). The pre-refactor
 numbers are recorded in `baselines/symmetric-owner-0.5.md`.
 
-The `sparse` and `atom` groups measure `SparseIterate` and `AtomIterate` on the hot paths of the
+The `sparse` and `block` groups measure `SparseIterate` and `BlockIterate` on the hot paths of the
 iterate-family design, the cases of the
 [benchmark protocol](../docs/design/iterate-family-0.6-acceptance.md#6-benchmark-protocol-a-future-measurement-not-a-result)
 (§6 of the acceptance guide): reads, writes, first activation, the handle and value sweeps,
-`atom` and `atomindices`, products, scaling, clears, the block trial, the momentum loops,
+`blockview` and `blockindices`, products, scaling, clears, the block trial, the momentum loops,
 `samegroups`, aliasing, copy and import, and compaction. They run the same calls on 0.5.x and
 0.6, so each 0.6 change on a hot path is measured against the 0.5.x baseline in
 `baselines/iterate-family-0.5.md`. The FD-7 handle sweeps that `owner` once held are the
@@ -79,17 +110,17 @@ to independently checked accuracy on physical GPU hardware.
 
 ### Selecting cases before building them
 
-To avoid building the inputs of cases that are not selected, the `atom` and
+To avoid building the inputs of cases that are not selected, the `block` and
 `sparse` builders take the selection (`selected_cases` in `run.jl` passes the compiled expression to
 `build_cases`). Each scenario lists the full IDs it can register, from cheap fields only, and is skipped
-only if none of them matches. In the `atom` vector scenarios and the `sparse` vector and matrix scenarios,
+only if none of them matches. In the `block` vector scenarios and the `sparse` vector and matrix scenarios,
 an operation group is run only if one of its operation names has a matching ID. Such a scenario builds
 its working iterate and its snapshot, and a few setup arrays (the permutation of the groups, the active
 values, the group list of the second iterate), whenever it is retained; its other fixtures (dense
 references, further iterates, operands) are built on first use and shared by the groups that read them.
 The other builders of the two families (constructors, layouts, symmetric and conversion cases) are
 guarded as a whole: each is built, with its fixtures, when one of its IDs can match. A group that draws
-from a shared random stream (the scalar reads and writes of `atom`) draws all its picks in the original
+from a shared random stream (the scalar reads and writes of `block`) draws all its picks in the original
 order whenever it runs, even if only some of its cases are selected, so that the inputs of a selected
 case do not depend on the selection. A scenario or group whose IDs cannot be listed cheaply is built. A
 false positive costs build time; a false exclusion would be a bug. The expression itself is never
@@ -110,7 +141,7 @@ state (through a test-only walker), the success or error message of `validate` b
 case runs, and the captured state after `prepare` and `operation` (the return values of the callbacks
 are not compared). The walker has an explicit list of supported kinds and fails closed on any other, and
 a census reports the kinds met. Further checks cover the completeness of the ID enumerators, the digests of the unfiltered
-quick `atom` and `sparse` groups, and the random draws. The extended `atom` and `sparse` branches are
+quick `block` and `sparse` groups, and the random draws. The extended `block` and `sparse` branches are
 tested one scenario at a time, so these tests build no unfiltered extended group of either. A parity
 audit of the whole extended catalog is a manual run in one process that holds the unfiltered catalog
 (about 16 GiB) and the selected builds and walker state on top of it (measured peak about 22 GiB of
@@ -136,33 +167,33 @@ selection of cases.
 
 ```sh
 JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/check_only.jl
-PB_SUITE=extended PB_GROUPS=products,sparse,atom,owner JULIA_NUM_THREADS=1 \
+PB_SUITE=extended PB_GROUPS=products,sparse,block,owner JULIA_NUM_THREADS=1 \
   julia --project=benchmark benchmark/check_only.jl
 ```
 
-CI runs the driver's tests and the quick suite (839 cases) on Julia lts and 1 whenever the package
+CI runs the driver's tests and the quick suite (836 cases) on the applicable matrix versions whenever the package
 tests run or the benchmark harness changes, and uploads the errors file of a failing run as the
 artifact `benchmark-check-errors-<version>-<attempt>`. On recent pull-request runs, CI's
 quick-suite step took between about 1.5 and 4 minutes; its step for the driver's tests also runs
 `case_selection_test.jl`. The extended suite
-(5,540 cases) is a manual run; its `products,sparse,atom,owner` cases need about 16 GB of memory
+(5,540 cases) is a manual run; its `products,sparse,block,owner` cases need about 16 GB of memory
 in one process. `check_only.jl` is not part of the harness hash, which covers `run.jl` and
 `cases.jl`.
 
 ## Iterate-family groups
 
-A new case in `sparse`, `atom` or `owner` must keep these rules:
+A new case in `sparse`, `block` or `owner` must keep these rules:
 
-- It calls only what exists in 0.5.x and 0.6. A new accessor (`atomindices`, `samegroups`,
+- The current harness targets the final PB 0.6 storage and oracle names. A new accessor (`blockindices`, `samegroups`,
   `matrixview`) or private field is reached when the case is built, through `isdefined` or
   `hasfield`, and reaches the timed closure through a function barrier; nothing is tested inside
   the timed call. The set of case IDs never depends on the source. The fallback depends on the
-  control. For `atomindices`, `samegroups` and `matrixview` it is the 0.5.x spelling
+  control. For `blockindices`, `samegroups` and `matrixview` it is the 0.5.x spelling
   (`x.groups[k]`, the private `_samelayout`, the owner itself). A control that reads a private
   field falls back the other way when the field is missing: the `private_fields` momentum loops
-  (`nzval`; for `AtomIterate`, `storage`, `active`, `nactive` and `groups`) fall back to the
-  accessors (`activevalues`, `activecoordinates`, `atomindices`), the FD-12 staging control
-  (`storage`) to a write through `atom(x, k)`, and the layout-cache reset of `samegroups`
+  (`nzval`; for `BlockIterate`, `storage`, `active`, `nactive` and `groups`) fall back to the
+  accessors (`activevalues`, `activecoordinates`, `blockindices`), the FD-12 staging control
+  (`storage`) to a write through `blockview(x, k)`, and the layout-cache reset of `samegroups`
   (`layout_cache`) to no reset. The row keeps its ID and measures the other path.
 - It is checked against an independent reference built from the harness's own data (a dense
   array, a CSC matrix, a formula), never against the kernel under test. A reference that depends on
@@ -184,19 +215,19 @@ A new case in `sparse`, `atom` or `owner` must keep these rules:
 `(n, s) ∈ {(10⁴, 10²), (10⁶, 10²), (10⁶, 10³), (10⁶, 10⁴)}`, so `s ≤ n/100`. The matrices are
 `1000 × 64` and `256 × 1000` with 0.5%, 3% and 20% of the entries stored, exactly `round(d·L)`
 of them, so that a repetition never crosses the 1/32 switch between the two walks of the matrix
-`mul!` (the stored entries at 0.5% and 3%, the columns at 20%). `AtomIterate` has `p = 8·10⁴`
+`mul!` (the stored entries at 0.5% and 3%, the columns at 20%). `BlockIterate` has `p = 8·10⁴`
 (`8·10⁵` in the extended suite), groups of 1, 8 and 64 entries, contiguous or strided (the
 multi-response layout), with 1% and 10% of the groups active. A dense operand is built only
 where it fits: the vector `mul!` (strided and transposed `A`, 256 and 1024 rows) runs at
 `n = 10⁴`, `s = 10²` only, so the growth with `s` is read from the matrix fixtures; the matrix
-`mul!` takes an `A` of 256 and 1024 rows; the `AtomIterate` `mul!` takes a strided `A` of 256
+`mul!` takes an `A` of 256 and 1024 rows; the `BlockIterate` `mul!` takes a strided `A` of 256
 and 1024 rows at `p = 8·10⁴` and nothing dense at `8·10⁵`; the `Symmetric` operands have
 `p ∈ {256, 1024}` for `SparseIterate` (3% and 20% of the entries stored) and `p = 1024` for
-`AtomIterate` (10% of the groups active). Every product runs with 0% and 50% of the stored
+`BlockIterate` (10% of the groups active). Every product runs with 0% and 50% of the stored
 values exact zeros at random slots (layouts ending `z0` and `z50`). The quick suite builds a
 small subset of `Float64` fixtures: for `sparse`, the vectors `(10⁴, 10²)` and `(10⁶, 10³)`, the
 matrices at 3% (the conversion cases also use the 20% `1000 × 64`) and the smallest dense
-operands; for `atom`, `p = 8·10⁴` with 10% of the groups active, `g = 1` and `g = 8` contiguous,
+operands; for `block`, `p = 8·10⁴` with 10% of the groups active, `g = 1` and `g = 8` contiguous,
 `g = 8` strided, and 256-row operands.
 
 **Rows that need a note.**
@@ -204,22 +235,22 @@ operands; for `atom`, `p = 8·10⁴` with 10% of the groups active, `g = 1` and 
 - The sweeps (`sweep_full`, `sweep_active_update`, `sweep_via_coordinates`, `sweep_via_x`) write
   back `x[i] + zero`: the compiler removes `x[i] = x[i]`, and the sweep would measure nothing.
 - `rmul!`: one call on a `SparseIterate` repeats a power-of-two scale (layout `x<r>`,
-  `work = r·s`) and stops before overflow, so the reference is exact. `AtomIterate` has no
+  `work = r·s`) and stops before overflow, so the reference is exact. `BlockIterate` has no
   `rmul!` method: the generic loop visits all `p` entries (repeat count 1), and `rmul!(x, Inf)`
   is checked on the whole vector. For a `SparseIterate` with `Inf`, only the active entries are
   checked.
-- FD-12, `prox_coordinate!_5arg`: a call takes 1536 distinct coordinates of a `SparseIterate`
-  (at most 768 of them active), or 256 groups of an `AtomIterate` (64 for `g = 64`), so that a
+- FD-12, `block_prox_write`: a call takes 1536 distinct coordinates of a `SparseIterate`
+  (at most 768 of them active), or 256 groups of a `BlockIterate` (64 for `g = 64`), so that a
   call takes about 2 µs or more on 0.5.x.
 - `broadcast_assign` equals `copyto!_state` on 0.5.x: `x .= y` from an iterate of the same type
   takes the Base identity fast path and calls `copyto!(x, y)`. `broadcast_self` (`x .= abs.(x)`)
   is the real broadcast.
-- FD-6, `atomindices_loop` takes the exclusive or of the indices of every active group. A sum over a
+- FD-6, `blockindices_loop` takes the exclusive or of the indices of every active group. A sum over a
   range has a closed form that the compiler uses, and the loop would measure nothing per index.
   The exclusive or is real work per index, and it vectorizes on long contiguous groups, so its time
   per index falls as the group size grows (on the pinned source, about 1.0 ns per index at `g = 1`,
   0.7 at `g = 8` contiguous, and about 0.15 at `g = 64`); compare a row only with the same row.
-  `atomindices_view` reads a dense vector through the indices instead.
+  `blockindices_view` reads a dense vector through the indices instead.
 - The owner's clears: `fill!_coordinates_zero` writes a zero into each of the `q = p(p + 1)/2`
   coordinates and keeps the working set; `fill!_coordinates_zero_dropzeros` adds `dropzeros!`
   (the 0.6 clear); `fill!_zero` is `fill!(X, 0)`, the 0.5.x clear, O(s). Only the values are
@@ -235,7 +266,7 @@ operands; for `atom`, `p = 8·10⁴` with 10% of the groups active, `g = 1` and 
   the pointer comparison.
 - The first activation of 256 coordinates or groups is fixed by the design; its companion has as
   many disjoint batches of 256 as fit, up to 16 (layout ending `_x16`, or `_x4` where only four
-  fit: `AtomIterate`, `p = 8·10⁴`, `g = 64`).
+  fit: `BlockIterate`, `p = 8·10⁴`, `g = 64`).
 - Some rows are timer-limited (the baseline lists them): the small clears and copies (`fill!_*`,
   `dropzeros!`, `copyto!_state`, `broadcast_assign` at small `s`; the owner's `fill!_zero`, which
   is O(s) and takes well under 2 µs there), the `group_layouts` coordinate rows and `samegroups`
@@ -247,17 +278,10 @@ operands; for `atom`, `p = 8·10⁴` with 10% of the groups active, `g = 1` and 
   `absent_distinct_batch` and `absent_distinct_batch_x16` are diagnostic and never gate: each of
   the two missed the 20% cross-check with an independent loop on one of the two machines tried
   (see the baseline).
-- Zero-allocation readings are checked on Julia 1.13. Julia 1.10 reads a few bytes for closures
-  that return a value, in the older `owner` group too. The five-argument `prox_coordinate!` with
-  a strided `u` allocates for some group penalties on both sources, so FT23's zero-byte promise
-  does not hold today: `GroupNormL2` and `SparseGroupNormL2` allocate for contiguous and strided
-  groups (16,384 B per call of 256 steps), `GroupNormLinf` only for strided groups, and `NormL1`
-  never. Its rows keep `zero_alloc`, so that the baseline lists them.
-- BenchmarkTools protects the timed closure from the optimizer only where `Base.blackbox` exists,
-  and neither Julia 1.10 nor 1.13.3 has it. On Julia 1.13.3 the timed operations were checked by
-  perturbing an input between evaluations: the time did not change, so nothing is hoisted. Another
-  Julia version needs that check again, and a baseline and its comparison must use the same Julia
-  version.
+- Archived zero-allocation readings were checked on Julia 1.13. Some retired
+  storage-aware group calls allocated with a strided trial. The #844 cases now
+  use preallocated compact numerical buffers followed by public writes; their
+  current allocation results are recorded separately from those historical rows.
 
 **Baseline and comparisons.** The metadata records `check_bounds` (`default`, `yes` or `no`,
 from `--check-bounds`) and `os` (`Sys.KERNEL` and `Sys.MACHINE`). `compare.py` rejects two sides
@@ -287,7 +311,7 @@ of `vectors` (FD-11). Validate and summarize each directory with `--expected-run
 ```sh
 julia benchmark/setup.jl /absolute/path/to/pinned benchmark/results/env-pinned
 for r in 1 2 3; do
-  PB_SUITE=extended PB_GROUPS=products,sparse,atom,owner PB_REPETITION=$r \
+  PB_SUITE=extended PB_GROUPS=products,sparse,block,owner PB_REPETITION=$r \
     PB_OUTPUT=benchmark/results/groups PB_EXPECTED_PACKAGE_ROOT=/absolute/path/to/pinned \
     JULIA_NUM_THREADS=1 julia --project=benchmark/results/env-pinned benchmark/run.jl
   PB_SUITE=extended PB_GROUPS=vectors PB_CASES='^group_layouts/' PB_REPETITION=$r \
@@ -454,7 +478,7 @@ with nothing to declare passes `inputs = (;)` with a comment.
 
 `measure!` and `check_only.jl` digest the inputs right after the pre-trial `validate()` (another case
 may legitimately have changed shared state before) and compare the digests after the trial, for every
-case, before the post-trial `validate()` of an automatic evaluation count (the sparse and atom
+case, before the post-trial `validate()` of an automatic evaluation count (the sparse and block
 validations restore the shared iterate first). A change throws
 ``read-only input `x` changed during the trial of <id>``, and no metrics row is written. Profiling
 runs after the last check; it is diagnostic and writes no metrics.
@@ -464,8 +488,8 @@ The digest is 64 bits over a logical record, computed by a loop over every store
 is built): a dense array by its size and elements (with `isequal` semantics: `-0.0` differs from `0.0`, NaNs are equal),
 a `Transpose` by its parent, a `Symmetric` by its whole parent (only the referenced triangle is
 meaningful), a view by its elements, a `SparseIterate` or `SymmetricSparseIterate` by its stored
-(coordinate, value) pairs, stored zeros included, sorted by coordinate, an `AtomIterate` by its sorted
-active groups, its entries and its group layout (through the build-time spelling of `atomindices`), and
+(coordinate, value) pairs, stored zeros included, sorted by coordinate, a `BlockIterate` by its sorted
+active groups, its entries and its group layout (through the build-time spelling of `blockindices`), and
 a tuple by its leaves. A digest names the input, not the entry.
 
 The builders (`addprox!`, `addcold!`, `addgrad!`, `addblockprox!`, `addblockgrad!`) compute their
@@ -494,3 +518,41 @@ performance comparison must use the same updated harness (this change alters the
 operation that exists on one revision only is not a comparable case. The archived 0.5.x baseline under
 `baselines/` is historical evidence and is not changed. The two-representation support is temporary: a
 later cleanup removes it after the 0.6 release and its comparisons.
+
+## PB-only storage rename
+
+The current grouped-storage family is `block/`, with `blockview` and
+`blockindices` operations. It is distinct from the existing `blocks/` family
+of tuple/product-space operations. The rename preserves all 118 quick grouped
+cases and the 108 extended / 10 quick product cases; the catalog hashes change
+with their labels. The historical RNG subkey preserves the numerical fixtures.
+Saved baseline CSVs retain their original IDs and are historical evidence,
+not direct comparison points for this changed harness. A comparison across the
+rename needs explicit matched workloads and baseline-only name adapters.
+`block_prox.jl` now measures PB-only math and public block writers; the earlier
+PB/PS whole-solve program is frozen in `docs/audit/block-prox-844/measurements/`.
+No ProximalSolvers change or benchmark is part of this PB-only rename.
+
+## #844 block-prox migration
+
+Live cases named `block_prox_write` and `block_prox_staged_write` measure
+pure `prox_block` / `prox_block!` math plus public iterate writes. The staged
+control first writes the trial through `blockview`; it uses no private storage.
+Archived 0.5/0.6 baselines retain their original operation names. Case catalog
+digests were deliberately updated for the new names, and reusable numerical
+scratch is initialized so filtered and complete case builds hold identical state.
+
+`block_prox_differential.jl` prints a deterministic reference table under the
+pre-844 and migrated environments. Compare the two outputs byte for byte.
+It deliberately names the retired APIs only to execute the immutable baseline.
+`block_prox.jl` requires BenchmarkTools and the companion ProximalSolvers
+checkout in a separate environment. It measures scalar kernels, compact group
+kernels, public writes, zero-group results, and complete scalar, grouped,
+quadratic, CSC-design and multiresponse CD solves at Float32 and Float64.
+The whole-solve cases fix `order=:cyclic` and record convergence pass counts.
+Use one Julia/BLAS thread and matched dependencies/source pins for both runs.
+Run with `--compiled-modules=no --check-bounds=no` to avoid comparing cached
+code lowered under different bounds-check settings. Set `PB_BLOCK_BENCH_REPEATS=4`
+and `PB_BLOCK_BENCH_OUTPUT=<prefix>` to save four rounds; the first warms the
+complete case set. Numerical validation runs separately with bounds checks on.
+See the #844 validation record for exact source pins, commands and local results.

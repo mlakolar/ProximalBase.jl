@@ -1,9 +1,11 @@
-module AtomIterateGridsTest
+module BlockIterateGridsTest
 
-# Cases of atom_iterate.jl that repeat one that stays there for another element type or group
+using ..TestUtils: take_block_step!
+
+# Cases of block_iterate.jl that repeat one that stays there for another element type or group
 # function: the mixed Float32 x Float64 triple and the Float32 strided views of the five-argument
 # products, the group wrappers of GroupNormLinf and GroupSCAD, and the Float32 pass of the group view
-# norms and dots. The rest of each testset is in atom_iterate.jl; the helpers are copied from it.
+# norms and dots. The rest of each testset is in block_iterate.jl; the helpers are copied from it.
 
 using Test
 using ProximalBase
@@ -33,14 +35,14 @@ function check_product_state(x, before)
   @test x.position == before.position
 end
 
-@testset "AtomIterate" begin
+@testset "BlockIterate" begin
 
   @testset "five-argument products" begin
     n, p = 7, 9
     types = ((Float32, Float32, Float32), (Float32, Float64, Float64))
     for (Ta, Tx, To) in types, support in (:empty, :partial, :full), strided in (false, true)
       strided && !(Ta == Tx == To && Ta <: Real) && continue
-      # the homogeneous Float32 triple is in atom_iterate.jl, except its strided views
+      # the homogeneous Float32 triple is in block_iterate.jl, except its strided views
       Ta == Tx == To && !strided && continue
       @testset "$Ta × $Tx → $To, $support, views=$strided" begin
         A = strided ? view(randn(Ta, 2n, 2p), 1:2:2n, 1:2:2p) : randn(Ta, n, p)
@@ -48,7 +50,7 @@ end
         support == :empty && fill!(dense, 0)
         support == :partial && (dense[1:2:end] .= 0)
         for G in (groups,)
-          x = AtomIterate(dense, G)
+          x = BlockIterate(dense, G)
           support == :partial && activate!(x, length(G))
           before = copy(x)
           out = strided ? view(randn(To, 2n), 1:2:2n) : randn(To, n)
@@ -79,19 +81,19 @@ end
       f = F === SparseGroupNormL2 ? F(0.2, 0.4, gs) : F(0.4, gs)
       bad = F === SparseGroupNormL2 ? F(0.2, 0.4, other) : F(0.4, other)
       for wrap in (h -> 2.0 * h, h -> Regularize(h, 0.3, ones(6)))
-        x = AtomIterate(v, gs)
+        x = BlockIterate(v, gs)
         activate!(x, 3)
-        prox_coordinate!(x, wrap(f), 1, 0.7)
+        take_block_step!(x, wrap(f), 1, 0.7)
         reference = prox(wrap(f), v, 0.7)
         @test Vector(x)[gs[1]] ≈ reference[gs[1]]
         @test Vector(x)[3:6] == v[3:6]
         before = copy(x)
-        @test_throws DimensionMismatch prox_coordinate!(x, wrap(bad), 1, 0.7)
+        @test_throws DimensionMismatch take_block_step!(x, wrap(bad), 1, 0.7)
         @test_throws DimensionMismatch kkt_violation(wrap(bad), ones(6), x, 1)
         @test x.storage == before.storage
         @test activecoordinates(x) == activecoordinates(before)
         @test x.position == before.position && x.layout_cache === f.groups
-        prox_coordinate!(x, wrap(f), 1, 0.7)
+        take_block_step!(x, wrap(f), 1, 0.7)
         @test Vector(x)[gs[1]] ≈ prox(wrap(f), Vector(before), 0.7)[gs[1]]
       end
     end
@@ -99,8 +101,8 @@ end
 
   @testset "group view norms and dots read storage" begin
     for T in (Float32,), m in (4, 64), gs in ([1:m, (m+1):2m], [collect(1:2:2m), collect(2:2:2m)])
-      x = AtomIterate(randn(T, 2m), gs)
-      v, w = atom(x, 1), atom(x, 2)
+      x = BlockIterate(randn(T, 2m), gs)
+      v, w = blockview(x, 1), blockview(x, 2)
       rawv, raww = view(x.storage, gs[1]), view(x.storage, gs[2])
       z = randn(T, m)
       for p in (1, 2, Inf)

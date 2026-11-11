@@ -53,7 +53,7 @@ computational property. They do not perform the computation themselves.
 |:--|:--|:--|
 | [`issmooth(f)`](@ref issmooth) | Differentiable on the interior of its domain | [`gradient!`](@ref), [`value_and_gradient!`](@ref) |
 | [`isproximable(f)`](@ref isproximable) | Has a supported, efficiently computed proximal map | [`prox!`](@ref), [`value_and_prox!`](@ref) |
-| [`isseparable(f)`](@ref isseparable) | Expressible as a sum of independent entry functions | [`value_entry`](@ref), [`prox_entry`](@ref) |
+| [`isseparable(f)`](@ref isseparable) | Expressible as a sum of independent entry functions | [`value_entry`](@ref), [`prox_block`](@ref) |
 | [`isconvex(f)`](@ref isconvex) | Convexity, used to justify optimization guarantees | Property, not an oracle |
 | [`hashessian(f)`](@ref hashessian) | Supports the second-order interface | [`hessian_vec!`](@ref), [`quadratic_model`](@ref) |
 | [`haslmo(C)`](@ref haslmo) | A supported linear minimization oracle for this set instance | [`lmo!`](@ref), [`lmo`](@ref); sometimes [`lmo_atom`](@ref) |
@@ -91,16 +91,18 @@ x = [2.0, -1.0]
 2. **Iterates** describe how an algorithm stores and changes optimization
    coordinates: entries in a [`SparseIterate`](@ref), independent symmetric
    variables in a [`SymmetricSparseIterate`](@ref), or groups in an
-   [`AtomIterate`](@ref).
+   [`BlockIterate`](@ref).
 3. **Solvers** choose an update schedule, steps, momentum, line searches,
    active-set management, and convergence tests. ProximalBase supplies
    primitives for these choices, not a general solver interface.
 
-The distinction matters for `prox_entry(f, v, i, γ)`, which addresses entry
-`i` of a function's arrays, versus `prox_coordinate!(x, f, k, γ)`,
-which updates the optimization coordinate `k` of an iterate. For a grouped
-iterate one coordinate is a *group*, not an entry; for a symmetric iterate one
-coordinate represents an independent variable, not a full-matrix linear index.
+`prox_block(f, u, k, γ)` computes one mathematical penalty block without
+writing an iterate. For a separable function, `u` is a scalar and `k` indexes
+its parameter arrays. For a group penalty, `u` is a compact vector and `k`
+identifies the penalty group. The solver maps that result into an iterate:
+a grouped iterate coordinate is a group, and a symmetric iterate coordinate
+is an independent variable rather than a full-matrix linear index. See
+[Entries and coordinates](@ref) for the required index conversion.
 
 To implement your own mathematical function, read
 [Writing your own function](extending.md). To understand Julia dispatch and

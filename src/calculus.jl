@@ -137,7 +137,7 @@ argument (#357), spectral functions (#384), and `Regularize`, `Constrained`,
 number. When it underflows, is subnormal or overflows, although the factors are
 finite and positive, the wrappers stay nested, so that the function is never replaced
 by `ZeroFunction` or an infinite scale because of an intermediate product. The value,
-the gradient, the proximal operator, `prox_entry`, the optimality violation, the
+the gradient, the proximal operator, `prox_block`, the optimality violation, the
 Lipschitz constants and the conjugate then use the product of all the factors where
 the coefficient is formed: it is folded into the levels of the functions listed above,
 or applied to the result with its exponent last, so a chain such as `Scaled(Scaled(NormL1(1e300), 1e-200), 1e-200)`
@@ -598,7 +598,7 @@ end
 # only for a value that is infinite, zero or subnormal. An exactly zero value whose true value,
 # times α, cannot be a normal number (`_zero_value_exponent`) is not recomputed.
 @inline _parts_argument(x) = false
-@inline _parts_argument(::Union{Array, _HostArray, SparseIterate, SymmetricSparseIterate, SymmetricMatrixView, AtomIterate,
+@inline _parts_argument(::Union{Array, _HostArray, SparseIterate, SymmetricSparseIterate, SymmetricMatrixView, BlockIterate,
                                 SparseArrays.AbstractSparseArray, AbstractRange}) = true
 @inline function _parts_wanted(f, α, x, v, out)
   _has_value_parts(typeof(f)) || return false
@@ -683,7 +683,7 @@ prox!(y, s::Scaled, x, γ::Real) =
 @inline function _step_exceptional(s::Scaled, γ::Real)
   p = s.α * γ
   p isa AbstractFloat || return false
-  # one test for the ordinary product: a loop over `prox_entry` still vectorizes with a single
+  # one test for the ordinary product: a loop over `prox_block` still vectorizes with a single
   # branch to a function that is not inlined, and does not with a chain of tests
   ((p >= floatmin(typeof(p))) & (p <= floatmax(typeof(p)))) && return false
   _step_positive_finite(s, γ)
@@ -706,7 +706,7 @@ end
 # The factor is the one that takes the value of the returned function to the value of the chain.
 # Not marked `@noinline`: the result is a union of tuples (folded or plain function, and the factor or
 # `nothing`), which a call that is not inlined must box (144 bytes per call). The callers that sit
-# in a loop over `prox_entry` are the ones that are not inlined (`_prox_entry_nested`).
+# in a loop over `prox_block` are the ones that are not inlined (`_prox_block_nested`).
 function _nested_step(s::Scaled, γ::Real)
   f, a = _scaled_chain(s)
   _isindicator(f) && return (f, γ, a)
@@ -750,13 +750,13 @@ _value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _
   v = _value_and_prox_unchecked!(y, g, x, step)
   _value_at(_scaled_value_by(g, a, y, v), y)
 end
-Base.@propagate_inbounds function prox_entry(s::Scaled, v::Real, i::Integer, γ::Real)
-  _nested_route(s, γ) && return _prox_entry_nested(s, v, i, γ)
-  prox_entry(s.f, v, i, s.α * γ)
+Base.@propagate_inbounds function prox_block(s::Scaled, v::Real, i::Integer, γ::Real)
+  _nested_route(s, γ) && return _prox_block_nested(s, v, i, γ)
+  prox_block(s.f, v, i, s.α * γ)
 end
-@noinline function _prox_entry_nested(s::Scaled, v::Real, i::Integer, γ::Real)
+@noinline function _prox_block_nested(s::Scaled, v::Real, i::Integer, γ::Real)
   g, step, _ = _nested_step(s, γ)
-  prox_entry(g, v, i, step)
+  prox_block(g, v, i, step)
 end
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
 _checkwrite(op::O, s::Scaled, y, x) where {O} = (_checkreal(s, y); _checkreal(s, x); (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checkwrite(op, s.f, y, x))
@@ -764,26 +764,10 @@ iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 _counts_nonzeros(f::Scaled) = _counts_nonzeros(f.f)
 _scale_invariant(f::Scaled) = _scale_invariant(f.f)
-# a scaled group penalty updates a group of an AtomIterate with a scaled step
-function prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real)
-  if _nested_route(s, γ)
-    g, step, _ = _nested_step(s, γ)
-    return prox_coordinate!(x, g, k, step)
-  end
-  prox_coordinate!(x, s.f, k, s.α * γ)
-end
-@inline _check_coordinate(x::AtomIterate, s::Scaled, k) = _check_coordinate(x, s.f, k)
-@inline function _block_step!(x::AtomIterate, s::Scaled, k, u, γ, ctx)
-  if _nested_route(s, γ)
-    g, step, _ = _nested_step(s, γ)
-    return _block_step!(x, g, k, u, step, ctx)
-  end
-  _block_step!(x, s.f, k, u, s.α * γ, ctx)
-end
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _nested_kkt((f, h) -> kkt_violation(f, h, i), s, g) :
    iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
-for X in (:AbstractArray, :AtomIterate)
+for X in (:AbstractArray, :BlockIterate)
   @eval _kkt_violation(s::Scaled, g::AbstractArray, x::$X, k::Integer) =
     _chained(s) ? _nested_kkt((f, h) -> _kkt_violation(f, h, x, k), s, g) :
     iszero(s.α) ? _kkt_violation(ZeroFunction(), g, x, k) : s.α * _kkt_violation(s.f, _ScaledArray(g, inv(s.α)), x, k)
@@ -857,11 +841,11 @@ _check_parameter_leaves(name, c) = _throw_parameter_leaf(name, c)
 @noinline _throw_parameter_leaf(name, c) = throw(ArgumentError(
   "the blocks of a tuple parameter of $name must be arrays or tuples of arrays, got $(typeof(c))"))
 
-# SparseIterate, SymmetricSparseIterate and AtomIterate keep their stored entries and, for the
+# SparseIterate, SymmetricSparseIterate and BlockIterate keep their stored entries and, for the
 # symmetric one, the per-entry parameter checks, which the staged tuple buffers do not carry over:
 # they are not accepted as blocks of a tuple variable. Other array types are not restricted.
 _check_iterate_block(x) = true
-_check_iterate_block(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) = throw(ArgumentError(
+_check_iterate_block(x::Union{SparseIterate, SymmetricSparseIterate, BlockIterate}) = throw(ArgumentError(
   "Tilt and Translate on tuples do not support a $(nameof(typeof(x))) as a block"))
 _check_tuple_parameter(c::AbstractArray, x::AbstractArray) =
   (_check_iterate_block(x); size(c) == size(x) || _parameter_size_error(size(c), size(x)))
@@ -915,14 +899,14 @@ For a variable that is a tuple of arrays, possibly nested, as for a
 [`SeparableSum`](@ref), `c` is a tuple of the same structure whose leaves are
 real arrays of the sizes of the blocks of `x`; `⟨c, x⟩` is the sum over the blocks and
 every block is shifted on its own. A [`SparseIterate`](@ref), [`SymmetricSparseIterate`](@ref)
-or [`AtomIterate`](@ref) is refused as a block of a tuple, and so is an output block that is
+or [`BlockIterate`](@ref) is refused as a block of a tuple, and so is an output block that is
 `Symmetric`, `Hermitian`, `Diagonal`, triangular or banded, which cannot take every entry.
 The oracles check the structure, every size and these types
 before writing, and the proximal operator stages the result in the buffer and writes
 it to the output last, so a predictable failure leaves the output unchanged.
 The tuple methods cover the value, the gradient, the proximal operator, the
 Hessian-vector product and the quadratic model; the coordinate-level interfaces
-(`prox_entry`, `kkt_violation`, `restrict`) take array coefficients only.
+(`prox_block`, `kkt_violation`, `restrict`) take array coefficients only.
 """
 struct Tilt{F<:AbstractFunction, C<:_BlockParameter, D<:Real} <: AbstractFunction
   f::F
@@ -1035,7 +1019,7 @@ function _value_and_prox_unchecked!(y::Tuple, t::Tilt, x::Tuple, γ::Real)
   _projection_commit!(y, z)
   result
 end
-Base.@propagate_inbounds prox_entry(t::Tilt, v::Real, i::Integer, γ::Real) = prox_entry(t.f, v - γ * t.c[i], i, γ)
+Base.@propagate_inbounds prox_block(t::Tilt, v::Real, i::Integer, γ::Real) = prox_block(t.f, v - γ * t.c[i], i, γ)
 _checkparams(t::Tilt, x) = (_checkparam(t.c, x); _checkparams(t.f, x))
 kkt_violation(t::Tilt, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); kkt_violation(t.f, _ShiftedArray(g, t.c), i))
 restrict(t::Tilt, S::AbstractVector{<:Integer}) = Tilt(restrict(t.f, S), t.c[S], t.d)
@@ -1060,14 +1044,14 @@ stored entries and their order.
 For a variable that is a tuple of arrays, possibly nested, as for a
 [`SeparableSum`](@ref), `b` is a tuple of the same structure whose leaves are real
 arrays of the sizes of the blocks of `x`, and every block is shifted on its own.
-A [`SparseIterate`](@ref), [`SymmetricSparseIterate`](@ref) or [`AtomIterate`](@ref) is refused
+A [`SparseIterate`](@ref), [`SymmetricSparseIterate`](@ref) or [`BlockIterate`](@ref) is refused
 as a block of a tuple, and so is an output block that is `Symmetric`, `Hermitian`, `Diagonal`,
 triangular or banded, which cannot take every entry.
 The oracles check the structure, every size and these types before writing, and the proximal
 operator stages the result in the buffer and writes it to the output last, so a
 predictable failure leaves the output unchanged. The tuple methods cover the value,
 the gradient, the proximal operator, the Hessian-vector product and the quadratic
-model; the coordinate-level interfaces (`prox_entry`, `restrict`) and
+model; the coordinate-level interfaces (`prox_block`, `restrict`) and
 [`Conjugate`](@ref) take array translations only.
 """
 struct Translate{F<:AbstractFunction, B<:_BlockParameter} <: AbstractFunction
@@ -1221,7 +1205,7 @@ function _value_and_prox_unchecked!(y::Tuple, t::Translate, x::Tuple, γ::Real)
   _projection_commit!(y, z)
   result
 end
-Base.@propagate_inbounds prox_entry(t::Translate, v::Real, i::Integer, γ::Real) = t.b[i] + prox_entry(t.f, v - t.b[i], i, γ)
+Base.@propagate_inbounds prox_block(t::Translate, v::Real, i::Integer, γ::Real) = t.b[i] + prox_block(t.f, v - t.b[i], i, γ)
 _checkparams(t::Translate, x) = (_checkparam(t.b, x); _checkparams(t.f, x))
 _isindicator(::Type{<:Translate{F}}) where {F} = _isindicator(F)
 # a nonseparable f requires zero translation outside S, which is about more
@@ -1260,7 +1244,7 @@ end
 The convex conjugate `f*(y) = supₓ ⟨x, y⟩ - f(x)` of a convex `f`. Its proximal
 operator follows from that of `f` by Moreau's identity,
 `prox_{γf*}(x) = x - γ prox_{f/γ}(x/γ)`, so every proximable function gives one;
-for a separable `f` so does [`prox_entry`](@ref). Its value is known for the
+for a separable `f` so does [`prox_block`](@ref). Its value is known for the
 norms (the indicators of the dual balls), the balls (their support functions),
 the box, [`IndSimplex`](@ref), [`SumLargest`](@ref), the nonnegative orthant,
 [`SqrNormL2`](@ref), [`LinearFunction`](@ref),
@@ -1305,7 +1289,7 @@ when the norm overflows or the projection factor underflows. Ungrouped dual
 coordinates of `GroupNormL2` and `GroupNormLinf` are zero for every input,
 including non-finite entries. Infinite weights
 leave the corresponding dual coordinates or groups free, including at zero
-level. Array steps and `prox_entry` use the same clipping formulas for separable
+level. Array steps and `prox_block` use the same clipping formulas for separable
 families. Translations require `γb` to be finite in working precision.
 
 On known CPU storage with one-based input and output axes, the ℓ1-ball
@@ -1347,10 +1331,10 @@ level, a step that is not finite and positive, an array step (a `MethodError` fo
 `SqrNormL2`), an output and input whose promoted floating-point type is another
 precision, a `BigFloat` level or step, and the conjugates of `Scaled(SqrNormL2(…), α)`,
 `Translate(SqrNormL2(…), b)` and of a [`SeparableSum`](@ref) of quadratics.
-[`prox_entry`](@ref) takes the route under the same conditions on `λ` and `γ`, with the
+[`prox_block`](@ref) takes the route under the same conditions on `λ` and `γ`, with the
 promotion of the floating-point types of the entry and the step in place of that of the
 output and the input, and uses Moreau's identity elsewhere. It has no output and does
-not apply the array finite-result refusal: `prox_entry(Conjugate(SqrNormL2()), 1e100, 1,
+not apply the array finite-result refusal: `prox_block(Conjugate(SqrNormL2()), 1e100, 1,
 1.0)` is `5.0e99`.
 
 Other families use Moreau's identity, including `NuclearNorm`, singular-value
@@ -1534,8 +1518,8 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate{<:Conjugate},
   _checkwrite(value_and_prox!, c, y, x)
   _value_and_prox_unchecked!(y, c.f.f, x, γ)
 end
-Base.@propagate_inbounds prox_entry(c::Conjugate{<:Conjugate}, v::Real, i::Integer, γ::Real) =
-  prox_entry(c.f.f, v, i, γ)
+Base.@propagate_inbounds prox_block(c::Conjugate{<:Conjugate}, v::Real, i::Integer, γ::Real) =
+  prox_block(c.f.f, v, i, γ)
 # At a proximal point y = x - γp, Fenchel equality gives f*(y) = <p,y> - f(p).
 # Keep the direct value for known closed forms, especially exact indicator zeros.
 # A convex indicator with a linear minimization oracle has the value of its support function
@@ -1592,14 +1576,14 @@ end
 
 # entrywise Pγ without dividing by γ where the arrays do; never throws, since
 # entrywise wrappers write entry by entry
-Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = _conjugate_entry(c.f, v, i, γ)
+Base.@propagate_inbounds prox_block(c::Conjugate, v::Real, i::Integer, γ::Real) = _conjugate_entry(c.f, v, i, γ)
 Base.@propagate_inbounds function _conjugate_entry(f, v, i, γ)
   if isseparable(typeof(f)) && _conjugate_isindicator(typeof(f))
     S = float(promote_type(typeof(v), typeof(γ)))
     w = convert(S, v)
-    w - prox_entry(f, w, i, one(S))
+    w - prox_block(f, w, i, one(S))
   else
-    v - γ * prox_entry(f, v / γ, i, _moreau_reciprocal(promote_type(float(typeof(v)), _data_of(f)), γ))
+    v - γ * prox_block(f, v / γ, i, _moreau_reciprocal(promote_type(float(typeof(v)), _data_of(f)), γ))
   end
 end
 # the ridge with a finite positive level at a finite positive step: the route of its array method
@@ -2605,7 +2589,7 @@ _direct_conjugate(::Type{<:Union{Scaled{F}, Translate{F}}}) where {F} = _direct_
 # Unknown storage and unsupported axes retain Moreau, including on devices.
 _projection_host(::Array) = true
 _projection_host(x::Union{BitArray, UnitRange, StepRange, StepRangeLen, LinRange, Base.OneTo,
-                          SparseVector, SparseMatrixCSC, SparseIterate, SymmetricSparseIterate, AtomIterate}) =
+                          SparseVector, SparseMatrixCSC, SparseIterate, SymmetricSparseIterate, BlockIterate}) =
   !Base.has_offset_axes(x)
 @static if isdefined(Base, :Memory)
   _projection_host(::Base.Memory) = true
@@ -2917,9 +2901,9 @@ _scaled_conjugate_entry(f::NormL1, v, i, γ, α) = _projection_clip(v, α, f.λ0
 _scaled_conjugate_entry(f::NormL1Nonneg, v, i, γ, α) = _projection_upper(v, α, f.λ0, _entry(f.w, i))
 _scaled_conjugate_entry(f::CheckLoss, v, i, γ, α) = _projection_check(v, α, f.τ, _entry(f.w, i))
 _scaled_conjugate_entry(f, v, i, γ, α) =
-  v - γ * prox_entry(f, v / γ, i, _moreau_ratio(promote_type(float(typeof(v)), _data_of(f)), _projection_real(α), γ))
+  v - γ * prox_block(f, v / γ, i, _moreau_ratio(promote_type(float(typeof(v)), _data_of(f)), _projection_real(α), γ))
 _conjugate_entry(f::Translate, v, i, γ) = _direct_conjugate(typeof(f.f)) ?
-  _conjugate_entry(f.f, v - γ * f.b[i], i, γ) : v - γ * prox_entry(f, v / γ, i, _moreau_reciprocal(promote_type(float(typeof(v)), _data_of(f)), γ))
+  _conjugate_entry(f.f, v - γ * f.b[i], i, γ) : v - γ * prox_block(f, v / γ, i, _moreau_reciprocal(promote_type(float(typeof(v)), _data_of(f)), γ))
 
 _projection_commit!(y::AbstractArray, z::AbstractArray) = copyto!(y, z)
 _projection_check_commit(y, z) = true

@@ -1,5 +1,7 @@
 module StepChecksTest
 
+using ..TestUtils: take_block_step!
+
 # Translate, Tilt and Regularize pass a transformed input to the inner function
 # in a buffer of their own: when the inner function rejects a step, the output
 # and an input that it aliases are unchanged.
@@ -328,16 +330,16 @@ end
   f = GroupSCAD(1.0, groups; a = nextfloat(2.0))
   r = Regularize(f, 0.5)
   for penalty in (f, r)
-    x = AtomIterate(Float32[1, 2, 3, 4], groups)
+    x = BlockIterate(Float32[1, 2, 3, 4], groups)
     before = copy(x)
-    @test_throws ArgumentError prox_coordinate!(x, penalty, 1, 0.75f0)
+    @test_throws ArgumentError take_block_step!(x, penalty, 1, 0.75f0)
     @test x.storage == before.storage
     @test x.active == before.active
     @test x.position == before.position
   end
-  for op in (prox!, value_and_prox!), atom in (false, true), aliased in (false, true), step in (0.75f0, Float32[0.75, 0.5])
-    x = atom ? AtomIterate(Float32[1, 2, 3, 4], groups) : Float32[1, 2, 3, 4]
-    y = aliased ? x : (atom ? AtomIterate(Float32[4, 3, 2, 1], groups) : Float32[4, 3, 2, 1])
+  for op in (prox!, value_and_prox!), block in (false, true), aliased in (false, true), step in (0.75f0, Float32[0.75, 0.5])
+    x = block ? BlockIterate(Float32[1, 2, 3, 4], groups) : Float32[1, 2, 3, 4]
+    y = aliased ? x : (block ? BlockIterate(Float32[4, 3, 2, 1], groups) : Float32[4, 3, 2, 1])
     before, input = copy(y), copy(x)
     @test_throws ArgumentError op(y, f, x, step)
     @test y == before
@@ -351,20 +353,20 @@ end
     @test y == Float32[4, 3, 2, 1]
   end
   # An inactive group does not construct its scalar penalty.
-  x = AtomIterate(Float32, 4, groups)
+  x = BlockIterate(Float32, 4, groups)
   @test value_and_prox!(copy(x), f, x, 0.75f0) === 0.0f0
   for f in (GroupNormL2(1.0, groups), GroupSCAD(1.0, groups)), k in (0, 3)
-    x = AtomIterate(ones(4), groups)
-    @test_throws BoundsError prox_coordinate!(x, Regularize(f, 0.5), k, 0.75)
+    x = BlockIterate(ones(4), groups)
+    @test_throws BoundsError take_block_step!(x, Regularize(f, 0.5), k, 0.75)
     @test x == ones(4)
   end
-  x = AtomIterate(Float32[1, 2, 3, 4], groups)
+  x = BlockIterate(Float32[1, 2, 3, 4], groups)
   f = GroupSCAD(1.0, groups)
   r = Regularize(f, 0.5)
   expected = prox(r, Vector(x), 0.75f0)
-  prox_coordinate!(x, r, 1, 0.75f0)
+  take_block_step!(x, r, 1, 0.75f0)
   @test x.storage[1:2] == expected[1:2]
-  @test allocs(prox_coordinate!, x, r, 1, 0.75f0) == 0
+  @test allocs(prox_block!, zeros(Float32,2), r, collect(blockview(x,1)), 1, 0.75f0) == 0
   @test allocs(value_and_prox!, copy(x), f, x, 0.75f0) == 0
   @test allocs(value_and_prox!, Vector(x), f, Vector(x), 0.75f0) == 0
 end

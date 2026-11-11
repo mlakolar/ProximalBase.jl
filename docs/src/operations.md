@@ -37,7 +37,8 @@ appropriate theory when the known bound is infinite or not available.
 | [`prox!(out, g, x, γ)`](@ref prox!) | Stores proximal point in `out`; returns `out` | Regularization, proximal gradient and projection |
 | [`prox(g, x, γ)`](@ref prox) | Allocated proximal point | Convenience form |
 | [`value_and_prox!(out, g, x, γ)`](@ref value_and_prox!) | Writes proximal point; **returns the function value at the resulting point** | Avoid separate evaluation when available |
-| [`prox_entry(g, v, i, γ)`](@ref) | Scalar proximal point at entry `i` | Coordinate descent with a separable penalty |
+| [`prox_block(g, u, k, γ)`](@ref prox_block) | Scalar entry or allocated compact group proximal point | Coordinate descent with a separable or group penalty |
+| [`prox_block!(out, g, u, k, γ)`](@ref prox_block!) | Writes one compact group proximal point into a numerical buffer | Reuse a group buffer before writing an iterate |
 | [`shrink(v, c)`](@ref) | Soft-thresholded scalar or supported input | Low-level shrinkage utility, not a generic function oracle |
 
 For a set indicator `g = IndBox(l, u)` or another proximable indicator,
@@ -70,10 +71,27 @@ For mathematical derivations and step-size geometry, read
 
 ## Coordinate descent, restrictions, and optimality
 
+### [Update vocabulary](@id update-vocabulary)
+
+| Term | Meaning |
+|:--|:--|
+| Entry | One scalar of the full vector or matrix; its linear index addresses a separable function's weights and bounds. |
+| Iterate coordinate | One independent storage update: an entry of `SparseIterate`, a lower-triangle variable of `SymmetricSparseIterate`, or a group of `BlockIterate`. |
+| Penalty block | One independent mathematical term of a penalty: a scalar entry for a separable penalty, or a compact vector in a group penalty's own order. This is the index space of `prox_block[!]`. |
+| Group | An ordered collection of global entry indices. A solver must check that its iterate and penalty use matching ordered groups before sharing a group ID. |
+| Active slot | A temporary position in packed working-set handles; its order can change during compaction. It is never a penalty block or coordinate ID. |
+| Atom | A compact linear-minimization result, such as `VertexAtom` or `LowRankAtom`, returned by supported `lmo_atom` calls. It does not mean a group of coefficients. |
+
+`BlockIterate`, `blockview(x,k)` and `blockindices(x,k)` name grouped storage
+and its public views. They are the mandatory PB 0.6 names under the 2026-11-10
+maintainer ruling. The later ProximalSolvers rename is tracked separately in
+[PS #238](https://github.com/mlakolar/ProximalSolvers.jl/issues/238). `value_entry`, `coordinate_lipschitz`
+and iterate-aware `kkt_violation` retain their existing scopes.
+
 | Operation | Use |
 |:--|:--|
-| [`prox_coordinate!(x, g, k, γ)`](@ref prox_coordinate!) | Proximal step on coordinate `k` of an iterate, using its current value |
-| [`prox_coordinate!(x, g, k, u, γ)`](@ref prox_coordinate!) | Step at a supplied scalar/group trial point `u` without writing the trial first |
+| [`prox_block(g, u, k, γ)`](@ref prox_block) | Mathematical result for scalar entry or penalty group `k` at trial `u` |
+| [`prox_block!(out, g, u, k, γ)`](@ref prox_block!) | Mathematical group result in caller-owned compact numerical storage |
 | [`coordinate_lipschitz(f, k)`](@ref) | Coordinate curvature bound when defined by the smooth loss |
 | [`coordinate_lipschitz!(out, f)`](@ref) | Fill supported per-coordinate bounds in a caller-provided output |
 | [`kkt_violation(g, grad, i)`](@ref kkt_violation) | Screen entry `i` at zero against the smooth-part gradient |
@@ -85,9 +103,10 @@ For mathematical derivations and step-size geometry, read
 The curvature, restriction and screening methods are **not** available for
 arbitrary functions merely because they subtype `AbstractFunction`.
 `gradient_mapping` is for an `AbstractArray` point, not the non-array
-symmetric owner. `prox_coordinate!` acts on **optimization coordinates**:
-entries, independent symmetric variables, or groups depending on the
-iterate. For the actual active-set and trial-point rules see
+symmetric owner. `prox_block` and `prox_block!` use **penalty block indices**;
+the solver converts iterate coordinate IDs, validates group layouts and
+symmetric parameters, and writes the result through public storage methods.
+For the active-set and trial-point rules see
 [Coordinate oracles](iterate_oracles.md) and
 [Coordinate descent](coordinate_descent.md).
 
@@ -149,10 +168,10 @@ type.
 ## Where the remaining public API belongs
 
 Other exports do **not** represent mathematical-function oracles.
-`SparseIterate`, `SymmetricSparseIterate` and `AtomIterate`, together with
+`SparseIterate`, `SymmetricSparseIterate` and `BlockIterate`, together with
 `ncoordinates`, `coordinates`, `nactive`, `activecoordinates`,
-`activevalues`, `matrixview`, `isactive`, `activate!`, `atom`,
-`atomindices` and `dropzeros!`, belong to the
+`activevalues`, `matrixview`, `isactive`, `activate!`, `blockview`,
+`blockindices` and `dropzeros!`, belong to the
 [Iterates](iterates.md) and [iterate API reference](api/iterates.md).
 `nnz` is re-exported for ordinary sparse arrays; it does **not**
 define the number of active coordinates of an iterate.

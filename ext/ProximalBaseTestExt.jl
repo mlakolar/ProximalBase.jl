@@ -73,7 +73,7 @@ end
 #  iterate bookkeeping
 ####################################
 
-function test_iterate(x::AtomIterate)
+function test_iterate(x::BlockIterate)
   ok = length(x.group_of) == length(x.storage)
   @test length(x.group_of) == length(x.storage)
   ok || return x
@@ -334,7 +334,7 @@ _function_name(f) = string(nameof(typeof(f)))
 function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symmetric = false, rng = nothing)
   @test isseparable(f)
   p = prox(f, x, γ)
-  @test [prox_entry(f, x[i], i, γ) for i in eachindex(x)] ≈ vec(_dense(p))
+  @test [prox_block(f, x[i], i, γ) for i in eachindex(x)] ≈ vec(_dense(p))
   if f isa SeparableFunction
     vx = f(x)
     vs = sum(i -> value_entry(f, x[i], i), eachindex(x))
@@ -347,8 +347,8 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
   xs = SparseIterate(xz)
   y = SparseIterate(float(eltype(x)), size(x)...)
   for k in 1:ncoordinates(xs)
-    prox_coordinate!(xs, f, k, γ)
-    prox_coordinate!(y, f, k, xz[k], γ)
+    xs[k] = prox_block(f, xs[k], k, γ)
+    y[k] = prox_block(f, xz[k], k, γ)
   end
   @test _dense(xs) ≈ _dense(pz)
   @test _dense(y) ≈ _dense(pz)
@@ -358,7 +358,7 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
   # the stored entries only, when zero is preserved
   if iszeropreserving(f)
     T = float(eltype(x))
-    @test all(i -> iszero(prox_entry(f, zero(T), i, γ)), eachindex(x))
+    @test all(i -> iszero(prox_block(f, zero(T), i, γ)), eachindex(x))
     xs = SparseIterate(xz)
     ys = SparseIterate(xz)
     @test _dense(prox!(ys, f, xs, γ)) ≈ _dense(pz)
@@ -389,15 +389,17 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
 
   if groups !== nothing
     x isa AbstractVector || throw(ArgumentError("groups need a vector x"))
-    a = AtomIterate(xz, groups)
-    y = AtomIterate(float(eltype(x)), length(x), groups)
+    a = BlockIterate(xz, groups)
+    y = BlockIterate(float(eltype(x)), length(x), groups)
     for k in 1:ncoordinates(a)
-      prox_coordinate!(a, f, k, γ)
-      prox_coordinate!(y, f, k, xz[a.groups[k]], γ)
+      for i in blockindices(a, k)
+        a[i] = prox_block(f, a[i], i, γ)
+        y[i] = prox_block(f, xz[i], i, γ)
+      end
     end
     @test _dense(a) ≈ _dense(pz)
     @test _dense(y) ≈ _dense(pz)
-    @test nactive(y) == count(k -> any(!iszero, atom(y, k)), activecoordinates(y))
+    @test nactive(y) == count(k -> any(!iszero, blockview(y, k)), activecoordinates(y))
     test_iterate(y)
   end
 
@@ -415,9 +417,10 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
     valid || return p
     y = SymmetricSparseIterate(float(eltype(x)), size(x, 1))
     for k in 1:ncoordinates(S)
-      prox_coordinate!(S, f, k, γ)
       r, c = tril_cartesian(size(x, 1), k)
-      prox_coordinate!(y, f, k, X[r, c], γ)
+      i = (c - 1) * size(x, 1) + r
+      coordinates(S)[k] = prox_block(f, coordinates(S)[k], i, γ)
+      coordinates(y)[k] = prox_block(f, X[r, c], i, γ)
     end
     @test Matrix(S) ≈ _dense(prox(f, X, γ))
     @test Matrix(y) ≈ _dense(prox(f, X, γ))
@@ -463,7 +466,7 @@ function test_kkt(f, x::AbstractArray, γ::Real; trials = 5, rng = nothing, tol 
     # gradients of various sizes, so that some coordinates stay at zero
     g = _randn(rng, size(x)...) .* exp.(_randn(rng, size(x)...))
     z = _dense(prox(f, -γ .* g, γ))                 # a proximal gradient step from zero
-    if x isa AtomIterate
+    if x isa BlockIterate
       x0 = similar(x)
       fill!(x0, 0)
       for k in 1:ncoordinates(x)

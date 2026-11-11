@@ -11,7 +11,7 @@ wrappers(f, c) = (Tilt(f, c), Translate(f, c), Regularize(f, 0.5, c))
 # Compare storage order directly; findnz sorts the stored indices.
 state(x::Union{SparseIterate, SymmetricSparseIterate}) =
   (copy(x.nzval[1:x.nnz]), copy(x.nzval2ind[1:x.nnz]), copy(x.ind2nzval), x.nnz)
-state(x::AtomIterate) =
+state(x::BlockIterate) =
   (copy(x.storage), copy(x.active), copy(x.position), x.nactive)
 
 function failure(op, y, f, x, γ)
@@ -117,10 +117,10 @@ end
 @testset "Atom buffers on inner failure" begin
   for T in (Float32, Float64), op in (prox!, value_and_prox!), aliased in (false, true)
     for f in wrappers(MoreauEnvelope(NormL1(), 1.0), fill(0.125, 6))
-      y = AtomIterate(T, 6, 3)
+      y = BlockIterate(T, 6, 3)
       y[6] = 3
       activate!(y, 1)
-      x = aliased ? y : AtomIterate(ones(T, 6), 3)
+      x = aliased ? y : BlockIterate(ones(T, 6), 3)
       before, input = state(y), state(x)
       error = failure(op, y, f, x, -2.0)
       reference = failure(op, similar(y), f.f, similar(y), -2.0)
@@ -137,8 +137,8 @@ end
   for op in (prox!, value_and_prox!), make in (Tilt, Translate, (f, c) -> Regularize(f, 0.5, c))
     f = make(NormL1(0.25), fill(0.125, 6))
     for T in (Float32, Float64, Float32)
-      y = AtomIterate(T, 6, 3)
-      x = AtomIterate(T[1, 2, 0, 0, 3, 4], 3)
+      y = BlockIterate(T, 6, 3)
+      x = BlockIterate(T[1, 2, 0, 0, 3, 4], 3)
       for k in (3, 1, 2)
         activate!(y, k)
       end
@@ -157,7 +157,7 @@ end
 end
 
 @testset "Atom layout cache" begin
-  y = AtomIterate(ones(6), 3)
+  y = BlockIterate(ones(6), 3)
   f = GroupNormL2(0.25, y.groups)
   other = GroupNormL2(0.25, y.groups)
   for op in (prox!, value_and_prox!), h in wrappers(f, fill(0.125, 6))
@@ -171,7 +171,7 @@ end
     @test y.layout_cache === other.groups
     @test allocs(op, y, h, y, 0.75) == 0
     # Equal layouts owned by different iterates must replace the cached buffer.
-    z = AtomIterate(ones(6), 3)
+    z = BlockIterate(ones(6), 3)
     @test ProximalBase._output_buffer!(scratch, z) !== b
     @test scratch.buf.groups === z.groups
   end

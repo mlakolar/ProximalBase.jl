@@ -42,7 +42,7 @@ function check_zero_prox(f, x, γ)
 end
 
 zero_arguments(T) = (zeros(T, 1), zeros(T, 2), zeros(T, 0), zeros(T, 2, 2), spzeros(T, 3),
-                     SymmetricSparseIterate(T, 3), AtomIterate(zeros(T, 4), GroupNormL2(one(T), [1:2, 3:4])))
+                     SymmetricSparseIterate(T, 3), BlockIterate(zeros(T, 4), GroupNormL2(one(T), [1:2, 3:4])))
 nonzero_arguments(T) = (T[1, 0], T[floatmin(T) / 4, 0], T[0, Inf], T[0, -Inf], T[floatmax(T), floatmax(T)], T[0 0; 0 -2])
 nan_arguments(T) = (T[0, NaN], T[1, NaN], T[NaN 0; 0 0])
 
@@ -198,7 +198,7 @@ scaled_cases(T) = (
     @test same(sep((T[1, 0], zeros(T, 2))), T(Inf))
     @test same(Scaled(NormL1(one(T)), T(Inf))(SymmetricSparseIterate(T, 3)), zero(T))
     g = GroupNormL2(one(T), [1:2, 3:4])
-    @test same(Scaled(g, T(Inf))(AtomIterate(zeros(T, 4), g)), zero(T))
+    @test same(Scaled(g, T(Inf))(BlockIterate(zeros(T, 4), g)), zero(T))
     @test same(Scaled(NormL2(one(T)), T(Inf))(JLArray(zeros(T, 2))), zero(T))
     @test same(Scaled(NormL1(one(T)), T(Inf))(JLArray(zeros(T, 2))), zero(T))
   end
@@ -233,7 +233,7 @@ end
     @test same(value_and_prox!(y, sep, (T[3, 4], T[1, 2]), one(T)), T(NaN))   # a wrapper
     @test y == (zeros(T, 2), zeros(T, 2))
     g = GroupNormL2(one(T), [1:2, 3:4])
-    a = AtomIterate(T[1, 2, 3, 4], g)
+    a = BlockIterate(T[1, 2, 3, 4], g)
     y = copy(a)
     @test same(value_and_prox!(y, Scaled(g, T(Inf)), a, one(T)), zero(T))
     @test y.storage == zeros(T, 4)

@@ -160,7 +160,7 @@ EXPECT = {
              "fill!_zero": (FLAT, LIN), "fill!_zero_dropzeros": (FLAT, LIN), "copyto!_state": (FLAT, LIN), "copyto!_same_kind": (FLAT, LIN),
              "broadcast_assign": (FLAT, LIN), "_nvalues": (FLAT, LIN), "_values!": (FLAT, LIN), "_setvalues!": (FLAT, LIN), "_restartdot": (FLAT, LIN)},
     "owner": {"read_X[i,j]": (FLAT, FLAT), "write_X[i,j]_active": (FLAT, FLAT), "first_activation": (FLAT, FLAT),
-              "sweep_activecoordinates": (FLAT, LIN), "sweep_prox_coordinate!": (FLAT, LIN), "construct": (QUAD, None), "Matrix": (QUAD, None),
+              "sweep_activecoordinates": (FLAT, LIN), "sweep_prox_coordinate!": (FLAT, LIN), "sweep_block_prox_write": (FLAT, LIN), "construct": (QUAD, None), "Matrix": (QUAD, None),
               "fill!_coordinates_zero": (QUAD, FLAT), "fill!_coordinates_zero_dropzeros": (QUAD, None), "fill!_zero": (FLAT, LIN),
               "_values!": (FLAT, LIN), "_setvalues!": (FLAT, LIN), "_restartdot": (FLAT, LIN)},
 }

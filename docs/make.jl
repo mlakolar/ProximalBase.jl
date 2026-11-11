@@ -34,6 +34,7 @@ const CONTRACT_PAGES = joinpath(@__DIR__, "src", "developer", "contracts")
 rm(CONTRACT_PAGES; force = true, recursive = true)
 mkpath(CONTRACT_PAGES)
 for file in (
+    "block-prox-0.6.md",
     "iterate-family-0.6.md",
     "iterate-family-0.6-acceptance.md",
     "symmetric-sparse-iterate-0.6.md",
@@ -42,6 +43,8 @@ for file in (
     source = read(joinpath(DESIGN, file), String)
     # Original relative link from docs/design to docs/src needs a new base.
     source = replace(source, "(../src/numerics.md)" => "(../../numerics.md)")
+    source = replace(source, "(../audit/block-prox-844-call-sites.tsv)" =>
+        "(https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/audit/block-prox-844-call-sites.tsv)")
     write(joinpath(CONTRACT_PAGES, file), source)
 end
 makedocs(
@@ -82,7 +85,7 @@ makedocs(
             "Overview and working sets" => "iterates.md",
             "SparseIterate" => "sparse_iterate.md",
             "SymmetricSparseIterate" => "symmetric_sparse_iterate.md",
-            "AtomIterate" => "atom_iterate.md",
+            "BlockIterate" => "block_iterate.md",
             "Coordinate oracles" => "iterate_oracles.md",
             "Symmetric parameters" => "symmetric_parameters.md",
         ],
@@ -93,10 +96,11 @@ makedocs(
             "System architecture" => "architecture.md",
             "SparseIterate internals" => "developer/sparse_storage.md",
             "Symmetric owner internals" => "developer/symmetric_storage.md",
-            "AtomIterate internals" => "developer/atom_storage.md",
+            "BlockIterate internals" => "developer/block_storage.md",
             "Coordinate views and aliasing" => "developer/views_aliasing.md",
             "Function and oracle dispatch" => "developer/oracle_dispatch.md",
             "Numerical contract" => "numerics.md",
+            "0.6 pure block proximal contract" => "developer/contracts/block-prox-0.6.md",
             "0.6 iterate-family contract" => "developer/contracts/iterate-family-0.6.md",
             "Iterate-family acceptance" => "developer/contracts/iterate-family-0.6-acceptance.md",
             "0.6 symmetric-owner contract" => "developer/contracts/symmetric-sparse-iterate-0.6.md",

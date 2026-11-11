@@ -106,9 +106,9 @@ end
     @test vec(lla_weights(f, S)) == [lla_weight(f, D[i], i) for i in 1:p^2]
     @test lla_weights(f, D) == reshape([lla_weight(f, D[i], i) for i in 1:p^2], p, p)
   end
-  # on an AtomIterate, entry by entry
+  # on a BlockIterate, entry by entry
   groups = [1:4, 5:8]
-  xa = AtomIterate([1.0, 0.0, -2.0, 0.5, 0.0, 0.0, 0.0, 0.0], groups)
+  xa = BlockIterate([1.0, 0.0, -2.0, 0.5, 0.0, 0.0, 0.0, 0.0], groups)
   @test lla_weights(MCP(0.5, 3.0), xa) == lla_weights(MCP(0.5, 3.0), Vector(xa))
 end
 
@@ -159,9 +159,9 @@ end
       v = 3 .* randn(12)
       @test f(v) <= f(x) + gl(v) - gl(x) + 1e-10
     end
-    # an AtomIterate with the groups of f
+    # a BlockIterate with the groups of f
     fa = F(λ, [groups; [[7]]], [f.w; 0.0]; a)
-    xa = AtomIterate(x, fa)
+    xa = BlockIterate(x, fa)
     @test lla_weights(fa, xa) ≈ [w; 0.0]
     # groups of one entry with unit weights give the scalar weights
     fs = F(λ, [[i] for i in 1:12], ones(12); a)
@@ -214,7 +214,7 @@ end
     @test allocs(a_lla!, zeros(6, 6), f, S) == 0
   end
   groups = [1:5, 6:10, 11:15, 16:20]
-  xa = AtomIterate(randn(20), groups)
+  xa = BlockIterate(randn(20), groups)
   for f in (GroupMCP(0.4, groups), GroupSCAD(0.4, groups), GroupNormL2(0.4, groups))
     @test allocs(a_lla!, zeros(4), f, x) == 0
     @test allocs(a_lla!, zeros(4), f, xa) == 0

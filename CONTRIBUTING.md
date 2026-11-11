@@ -33,7 +33,7 @@ listed in [`test/tiers.toml`](test/tiers.toml):
 While working on a change, run the files that test it, then a tier:
 
 ```sh
-julia scripts/test.jl sparse_iterate atom_iterate   # files whose names start with these
+julia scripts/test.jl sparse_iterate block_iterate   # files whose names start with these
 julia scripts/test.jl --tier=quick                  # early feedback
 julia scripts/test.jl --tier=standard               # before an ordinary implementation PR
 julia scripts/test.jl --tier=thorough               # numerical or structural changes
@@ -102,7 +102,7 @@ other table is validated by its own reader (`test/tiers.jl` or
   - test files, examples or README only: quick;
   - a self-contained function family together with a test change: quick and that
     family's own test files;
-  - one iterate implementation (`src/atom_iterate.jl`, `src/sparse_iterate.jl`,
+  - one iterate implementation (`src/block_iterate.jl`, `src/sparse_iterate.jl`,
     `src/symmetric_parameters.jl`): standard and that iterate's focus files, or
     quick and the same files with the label `test:iterate-narrow` (see
     "Iterate changes" below);
@@ -274,16 +274,16 @@ gh run download <id>
 
 ### Iterate changes
 
-`SparseIterate`, `AtomIterate` and `SymmetricSparseIterate` change in many small
+`SparseIterate`, `BlockIterate` and `SymmetricSparseIterate` change in many small
 PRs during the 0.6 work. A change to one of them runs the iterate's own tests and
 those of its main interactions (its focus files), not the unrelated families
 that thorough adds. The focus files are in `.github/tier-rules.toml`, beside the
-iterate files that quick always runs (`active_handle`, `atom_iterate`,
+iterate files that quick always runs (`active_handle`, `block_iterate`,
 `iterate_invariants`, `iterate_queries`, `matrixview`, `sparse_iterate_basics`,
 `symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
 `allocations_basics`). The cases that six quick files and ten thorough files leave out
 (Float32 repeats, indicator-wrapper variants, wrapper variants and type grids:
-`atom_iterate_grids`, `block_step_grids`, `blockchecks_grids`, `conjugate_basics_grids`,
+`block_iterate_grids`, `block_step_grids`, `blockchecks_grids`, `conjugate_basics_grids`,
 `constrained_basics_grids`, `constrained_grids`, `extreme_normals_grids`, `lmo_atoms_grids`,
 `metric_grids`, `nested_scaled_grids`, `scaled_infinite_level_underflow_grids`,
 `sparse_iterate_basics_grids`, `symmetric_groups_grids`, `symmetric_wrappers_grids`,
@@ -293,7 +293,7 @@ companions of thorough-tier files (`block_step_grids`, `blockchecks_grids`, `con
 `extreme_normals_grids`, `metric_grids`, `scaled_infinite_level_underflow_grids`,
 `symmetric_groups_grids`, `symmetric_wrappers_grids`, `value_overflow_glm_grids`,
 `zero_level_infinite_step_grids`) are listed by the rule for `src/calculus.jl` and the rule for
-the shared sources. No standard-tier rule lists nine of them; the rules for `src/atom_iterate.jl`
+the shared sources. No standard-tier rule lists nine of them; the rules for `src/block_iterate.jl`
 and `src/sparse_iterate.jl` list `block_step_grids`, because `block_step` is a focus file of
 both. So the rule of a standard-tier path alone does not select those nine (`test:full` selects
 all ten, `test:thorough` none; a changed companion selects itself). A pull request runs a grids
@@ -308,7 +308,7 @@ The iterate rows:
 
 | Change | Before merge |
 |---|---|
-| `src/atom_iterate.jl`, narrow | quick + `atom_iterate_grids`, `real_iterates`, `block_step`, `block_step_grids`, `norms`, `sparsegroup`, `infinite_group_weights` |
+| `src/block_iterate.jl`, narrow | quick + `block_iterate_grids`, `real_iterates`, `block_step`, `block_step_grids`, `norms`, `sparsegroup`, `infinite_group_weights` |
 | `src/sparse_iterate.jl`, narrow | quick + `sparse_iterate`, `sparse_iterate_basics_grids`, `real_iterates`, `block_step`, `block_step_grids`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_mul`, `symmetric_argument` |
 | `src/symmetric_parameters.jl`, narrow | quick + `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` |
 | one of them, not declared narrow | standard + the same focus files |
@@ -326,8 +326,8 @@ and the reviewer checks it.
 
 - **Narrow** (`test:iterate-narrow`): a local fix or addition inside one
   implementation that keeps its documented behavior, with a regression test.
-  Example: an agent fixes the group indexing of `AtomIterate`, adds a test to
-  `test/atom_iterate.jl` and sets the label; CI runs quick and the atom focus
+  Example: an agent fixes the group indexing of `BlockIterate`, adds a test to
+  `test/block_iterate.jl` and sets the label; CI runs quick and the atom focus
   files, and the PR merges once both required checks pass.
 - **Shared**: behavior that more than one iterate type uses, such as the stored
   iterates' activation, storage, copying or aliasing. Example: an agent changes

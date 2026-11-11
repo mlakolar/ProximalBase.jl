@@ -147,7 +147,7 @@ end
         if isseparable(f)
           accurate(prox(c, x, fill(γ, length(x))), ref, 4)
           for i in eachindex(x)
-            accurate(T[prox_entry(c, x[i], i, γ)], [ref[i]], 4)
+            accurate(T[prox_block(c, x[i], i, γ)], [ref[i]], 4)
           end
         end
       end
@@ -185,9 +185,9 @@ end
       for f in functions, γ in (T(0.5), one(T))
         expected = x .- γ .* prox(f, x ./ γ, inv(γ))
         c = Conjugate(f)
-        for op in (prox!, value_and_prox!), atom in (false, true), alias in (false, true)
-          # The atom partition also represents holes and trailing coordinates.
-          source = atom ? AtomIterate(x, [[1, 2], [3, 4], [5, 6, 7]]) : copy(x)
+        for op in (prox!, value_and_prox!), block in (false, true), alias in (false, true)
+          # The block partition also represents holes and trailing coordinates.
+          source = block ? BlockIterate(x, [[1, 2], [3, 4], [5, 6, 7]]) : copy(x)
           y = alias ? source : copy(source)
           v = op(y, c, source, γ)
           @test Vector(y) ≈ expected rtol = 8eps(T) atol = 8eps(T)
@@ -208,16 +208,16 @@ end
         input = T[3, -4, 2]
         expected = input .- γ .* prox(f, input ./ γ, inv.(γ))
         c = Conjugate(f)
-        atoms = base isa GroupNormL2 ? (false, true) : (false,)
-        for op in (prox!, value_and_prox!), atom in atoms, alias in (false, true)
-          source = atom ? AtomIterate(input, groups) : copy(input)
+        blocks = base isa GroupNormL2 ? (false, true) : (false,)
+        for op in (prox!, value_and_prox!), block in blocks, alias in (false, true)
+          source = block ? BlockIterate(input, groups) : copy(input)
           y = alias ? source : copy(source)
           v = op(y, c, source, γ)
           @test Vector(y) ≈ expected rtol = 8eps(T) atol = 8eps(T)
           op === value_and_prox! && @test v == 0
         end
         if isseparable(f)
-          @test T[prox_entry(c, input[i], i, γ isa Real ? γ : γ[i]) for i in eachindex(input)] ≈ expected
+          @test T[prox_block(c, input[i], i, γ isa Real ? γ : γ[i]) for i in eachindex(input)] ≈ expected
         end
       end
     end
@@ -252,10 +252,10 @@ end
     end
     f = Scaled(Translate(Scaled(NormL1(1e300), 1e-200), [0.0]), 1e-200)
     r = BigFloat(1e300) * BigFloat(1e-200)^2
-    @test prox_entry(Conjugate(f), 1.0, 1, 1.0) ≈ Float64(r) rtol = 4eps(Float64)
+    @test prox_block(Conjugate(f), 1.0, 1, 1.0) ≈ Float64(r) rtol = 4eps(Float64)
     f = Scaled(Translate(Scaled(NormL1(1e-300), 1e200), [0.0]), 1e200)
     r = BigFloat(1e-300) * BigFloat(1e200)^2
-    @test prox_entry(Conjugate(f), 1e200, 1, 1.0) ≈ Float64(r) rtol = 4eps(Float64)
+    @test prox_block(Conjugate(f), 1e200, 1, 1.0) ≈ Float64(r) rtol = 4eps(Float64)
     for op in (prox!, value_and_prox!), base in (NormL1(), NormL1Nonneg(), NormL2(), GroupNormL2(1.0, [1:1], [1.0]))
       y = zeros(Float32, 1)
       v = op(y, Conjugate(Translate(base, [0.0])), [1e39], 1.0)
@@ -749,11 +749,11 @@ end
       c = Conjugate(Scaled(SqrNormL2(T(2)), α))
       for v in (T(-3), zero(T), T(6))
         expected = BigFloat(v) * (2BigFloat(α)) / (2BigFloat(α) + BigFloat(γ))
-        accurate(T[prox_entry(c, v, 1, γ)], [expected], 8)
+        accurate(T[prox_block(c, v, 1, γ)], [expected], 8)
       end
       for f in (ZeroFunction(), IndNonnegative()), v in (T(-3), zero(T), T(6))
         c = Conjugate(Scaled(f, α))
-        @test prox_entry(c, v, 1, γ) == (f isa ZeroFunction ? zero(T) : min(v, zero(T)))
+        @test prox_block(c, v, 1, γ) == (f isa ZeroFunction ? zero(T) : min(v, zero(T)))
       end
       for tuple_block in (false, true)
         f = tuple_block ? Conjugate(SeparableSum(SqrNormL2(T(2)))) : SqrNormL2(T(2), T[1, -2])
@@ -922,7 +922,7 @@ end
       y = similar(x)
       @test warmed_projection_allocation(op, y, c, x, one(T)) == 0
       expected = copy(y)
-      for source in (SparseIterate(x), AtomIterate(x, [1:2, 3:3])), alias in (false, true)
+      for source in (SparseIterate(x), BlockIterate(x, [1:2, 3:3])), alias in (false, true)
         y = alias ? source : copy(source)
         op(y, c, source, one(T))
         @test Vector(y) == expected
@@ -1480,7 +1480,7 @@ end
       sparsevec([1, 3], [4.0, 2.0], 3),
       sparse([4.0 0.0; 0.0 2.0]), SparseIterate([4.0, 0.0, 2.0]),
       SymmetricSparseIterate([4.0 0.0; 0.0 2.0]),
-      AtomIterate([4.0, 0.0, 2.0], [1:2, 3:3]),
+      BlockIterate([4.0, 0.0, 2.0], [1:2, 3:3]),
       Bidiagonal([4.0, 2.0], [0.0], :U), SymTridiagonal([4.0, 2.0], [0.0]),
       Tridiagonal([0.0], [4.0, 2.0], [0.0]))
     for x in inputs, op in (prox!, value_and_prox!)

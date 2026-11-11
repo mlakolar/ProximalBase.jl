@@ -130,7 +130,6 @@ argument must be a `SymmetricSparseIterate` for these checks to apply.
 | `f(x)` | Input `x` | Every pair, or only stored pairs as with weighted `NormL1` |
 | [`prox!`](@ref), [`value_and_prox!`](@ref) | Output, or the point `x` with a dense output | Every pair, or pairs stored in either input or output as with weighted `NormL1` |
 | [`gradient!`](@ref), [`value_and_gradient!`](@ref) | Output, or the point `x` with a dense output | Every pair |
-| Both forms of [`prox_coordinate!`](@ref) | Iterate `x` | The pair at the chosen coordinate |
 | Four-argument [`kkt_violation`](@ref) | Iterate `x` | The pair at the chosen coordinate |
 | [`hessian_vec!`](@ref) | Point `x`, even with dense output; the output, even at a dense point | Every pair |
 | [`quadratic_model`](@ref), [`quadratic_model!`](@ref) | Point `x` | Every pair |
@@ -216,7 +215,7 @@ triangle to read; the package never picks one for a parameter.
 
 ## When no check happens
 
-- Raw entry calls (`value_entry`, `prox_entry`, `lla_weight`, scalar
+- Raw entry calls (`value_entry`, `prox_block`, `lla_weight`, scalar
   `coordinate_lipschitz` and three-argument `kkt_violation`) and `restrict`
   have no symmetric iterate from which to determine mirrored positions.
   Validate the original function before using them in a symmetric solver.
@@ -225,7 +224,7 @@ triangle to read; the package never picks one for a parameter.
 - Arrays symmetric by construction, such as `Symmetric(W)`, skip comparison
   of their entries. The wrapper defines equal mirrored values by reading one
   triangle; it does not verify agreement between the triangles of `W`.
-- Dense arrays, `SparseIterate` and `AtomIterate` do not trigger this
+- Dense arrays, `SparseIterate` and `BlockIterate` do not trigger this
   symmetric-parameter check. For example, `gradient!` into a dense matrix at a
   dense point does not check. A call checks as soon as one of its iterate arguments
   is a `SymmetricSparseIterate`, as the point (`gradient!` into a dense matrix at

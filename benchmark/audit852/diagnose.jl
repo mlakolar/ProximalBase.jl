@@ -21,9 +21,16 @@ if isdefined(Main,:residual_cd!)
     cases,src=scalar_cases("sparse",Float64,1000000,1000,["residual_cd_fixed"],852)
     p=only(cases);for _ in 1:3;p.setup();p.op();end
     dumpcode("sparse_residual_cd_fixed",p.op,Tuple{})
-    cases,src=block_cases(Float64,8192,102,8,"contiguous",["residual_bcd"],852)
-    p=only(cases);for _ in 1:3;p.setup();p.op();end
-    dumpcode("block_residual_bcd",p.op,Tuple{})
+    for layout in ("contiguous","strided")
+        cases,src=block_cases(Float64,8192,102,8,layout,["residual_bcd"],852)
+        p=only(cases);for _ in 1:3;p.setup();p.op();end
+        dumpcode("block_residual_bcd_"*layout,p.op,Tuple{})
+    end
+    cases,src=scalar_cases("symmetric",Float64,144,10000,["bilinear","bilinear_native","matmat"],852)
+    for p in cases
+        for _ in 1:3;p.setup();p.op();end
+        dumpcode("symmetric_"*p.id,p.op,Tuple{})
+    end
 end
 dumpcode("sparse_constructor_f64",PB.SparseIterate,Tuple{Type{Float64},Int})
 dumpcode("sparse_constructor_f32",PB.SparseIterate,Tuple{Type{Float32},Int})

@@ -7,8 +7,9 @@ or frozen historical baseline is modified.
 
 ## Executive findings
 
-The changes have mixed effects. Sparse state copying and clearing avoid full
-ambient-dimension passes and improve substantially at low activity. The new
+The changes have mixed effects. Sparse state copying and clearing, and block
+products over active groups, avoid full ambient-dimension passes and improve
+substantially at low activity. The new
 block implementation adds activity tracking and more general layouts, with
 material costs in several value-update and state-copy workloads. Fixed-active
 scalar arithmetic is much closer to the original when state preparation is
@@ -231,3 +232,134 @@ execution, compilation, validation/fixture and measurement-wrapper effects in
 different fields; they are not pure compilation timings. A separate diagnostic
 records @timed compile counters, outside the runtime campaigns. Its limited
 contexts cannot support a general startup or compiler-performance claim.
+
+## Completed native-setup confirmation results
+
+The following are **21 independent confirmation rounds**, separate from the
+initial seven. Times are microseconds per complete operation/sequence, and
+all listed non-construction cases allocate zero in both sources. These are
+public value-equivalent block operations: only current maintains activity.
+
+| Operation (Float64) | Original µs | Post850 µs | Paired R [95% CI] | Original A/A |
+|---|---:|---:|---|---:|
+| Contiguous copyto, n=8192, b=1, 819 active groups | 1.124 | 12.850 | 11.217 [9.097, 11.570] | 0.999 |
+| Contiguous copyto, n=8192, b=1, 81 active groups | 1.116 | 5.543 | 4.973 [4.951, 4.982] | 1.000 |
+| Four diagonal BCD sweeps, n=8192, b=64, 12 groups | 0.529 | 2.756 | 5.229 [5.175, 5.267] | 0.998 |
+| Four diagonal BCD sweeps, n=8192, b=8, 102 groups | 0.965 | 3.723 | 3.782 [3.641, 3.829] | 0.993 |
+| Four diagonal BCD sweeps, n=65536, b=8, 819 groups | 10.952 | 49.192 | 4.388 [4.335, 4.519] | 1.003 |
+| Contiguous construction, n=8192, b=8 | 14.175 | 19.149 | 1.554 [1.358, 2.514] | 0.994 |
+| Symmetric generic bilinear, p=144, 10000 active coordinates | 16.437 | 32.196 | 1.958 [1.950, 1.968] | 1.005 |
+| Symmetric × 8-column matrix, p=144, 10000 active coordinates | 95.005 | 110.348 | 1.160 [1.147, 1.318] | 1.001 |
+
+The b=8 construction row allocates 106,640→164,264 bytes and 6→16 objects;
+constructor time is more variable than the zero-allocation sequences. The
+b=64 diagonal workload adds about 2.23 µs per four sweeps, whereas n=65536/b=8
+adds about 38.24 µs. Those absolute costs and the residual-maintaining workloads
+matter more than the largest percentage on a single tiny write.
+
+Current block copy first checks layout identity or ordered group equality.
+With independently owned equal layouts, the equality result is deliberately
+not remembered by copyto!: work can remain O(K) for K groups, or O(n) for
+explicit arbitrary ID arrays. It then clears destination active groups,
+activates source groups and copies each group. Original copyto! copies the
+dense backing array in one pass. This explains why sparse activity does not
+automatically make modern state copy cheaper. A similar(src) destination
+shares layout and isolates the equality component; supplemental results keep
+that use context separate. Shared-layout copy can be much faster for a few
+large active blocks and still slower for many size-one groups.
+
+Elementwise writes through current block views pass through the owner writer,
+which checks/maintains group activation on each nonzero value. Original cached
+views write the dense backing array directly. This is additional behavior,
+not an unfairly inserted historical conversion. Generated-code diagnostics and
+the fuller BCD sequences distinguish its cost from a percentage inflated by a
+very small original kernel.
+
+## Complexity and memory
+
+Scalar and symmetric copyto! used to copy all three full-capacity arrays.
+Current same-shape state replacement clears old destination active positions
+and copies the source active prefix: O(s_destination+s_source), while copying
+public values, coordinate order, activity and active zeros. Unused capacity
+bytes are not part of the compared mathematical state. At n=1,000,000/s=100,
+Float64 sparse native copy is 1,610.869 µs versus 0.097 µs in the broad seven
+rounds. The paired ratio and intervals are preserved without rounding to zero
+in the result CSV. The 97 ns endpoint is timer-limited, so this is evidence of
+a large complexity improvement rather than a precise universal 16,000× factor.
+Symmetric state replacement has the same capacity-versus-active distinction.
+
+Scalar clear changes from an ambient pass to a stored-value-prefix write.
+Under common-full preparation, Float64 n=1,000,000/s=1,000 clear is
+254.130→0.603 µs (exploratory seven rounds). The improvement persists when both
+versions start with the same full-array cache preparation, unlike the apparent
+native-setup speedup of many active-coordinate reads/updates. The original
+symmetric clear number includes the explicitly documented complete-coordinate
+adapter. Both clear operations retain deliberate active zeros until compaction.
+
+Backing capacity remains ambient-sized. Float64 n=1,000,000 sparse storage is
+**24,000,152 reachable bytes in both sources**; p=1414 symmetric storage is
+24,009,880 bytes in both. Faster active-prefix operations did not make those
+owners dynamically sparse in memory.
+
+| Float64 contiguous n=8192 | Original reachable bytes | Post850 reachable bytes | Ratio |
+|---|---:|---:|---:|
+| b=1 (8192 groups) | 393312 | 393472 | 1.0004 |
+| b=8 (1024 groups) | 106592 | 164096 | 1.5395 |
+| b=64 (128 groups) | 70752 | 135424 | 1.9141 |
+
+The block redesign stores a coordinate-to-group map, group activity and position
+metadata in addition to values and layouts; original cached views have their
+own per-group footprint. Consequently the memory tradeoff changes with block
+size. summarysize follows shared layouts as reachable objects, so these totals
+must not be interpreted as incremental allocation for each shared-layout copy.
+Allocated bytes/counts for construction and copy are separate CSV columns.
+
+## Historical attribution
+
+These broad seven-round marginal times show why historical05 is a misleading
+substitute for the original. They all come from this machine and Julia binary.
+They are descriptive attribution points; only the stated revisions are timed.
+
+| Case (Float64, native setup) | Original µs | Historical05 µs | Post848 µs | Post850 µs |
+|---|---:|---:|---:|---:|
+| Block four diagonal sweeps, n8192/b64/12 active groups | 0.533 | 248.911 | 2.750 | 2.761 |
+| Block copyto, n8192/b1/819 active groups | 1.134 | 11.380 | 12.864 | 12.858 |
+| Symmetric generic bilinear, p144/10000 active | 16.335 | 26.268 | 32.104 | 32.166 |
+| Sparse copyto, n1m/100 active | 1610.869 | 0.095 | 0.095 | 0.097 |
+
+Historical05's first block sequence allocates 345,600 bytes / 18,480 objects;
+post848/post850 and original allocate zero. Thus the current code is dramatically
+better than that historical05 public-view path while remaining slower than the
+original dense cached-view path. The original/current question would have a
+wrong answer if the agent-era baseline were silently called pre-agent.
+
+The active-group design appears in source history at
+7cee9dd439479ba8d94dff375810beaabd396461 (2026-10-22). That is source-history
+localization, not a timing of that intermediate commit. Post848/post850
+executable iterate ASTs are identical. Their paired results and A/A are kept
+for every comparable case; small placement/context differences are not ascribed
+to a new iterate algorithm introduced by #850.
+
+The recorded full-directory harness digest varies during the long primary
+campaign because analysis/support scripts were added while the seven timed
+files remained frozen. It is not presented as one unchanged directory hash.
+Those timed file hashes were saved before the final campaign and checked again
+afterward; generated supplemental/control harnesses are preserved separately
+with their exact files and digests. Report/statistical tools can evolve without
+silently changing the already-recorded timed callbacks.
+
+Block products also benefit from active-group kernels. For contiguous Float64
+n=8192/b=8 with 102 active groups (816 active values), the broad seven rounds
+measure dot at 3.234→0.373 µs, R=0.115 [0.114,0.117], and a 16-row dense-matrix
+product at 14.943→1.636 µs, R=0.109 [0.108,0.111]. Both allocate zero; original
+A/A is 1.000 and 1.001. The original generic AtomIterate products traverse dense
+storage, whereas current products visit active groups. These are native-API,
+matched-value product comparisons; they are not predictions of BCD sequence
+speed, which also pays for coefficient writes and residual maintenance.
+
+CSV work counts describe logical active updates/product contributions or problem
+size. In particular, a copy's n/time is logical coordinate-equivalents per
+second, not physical memory bandwidth: the modern implementation intentionally
+does not write all n entries. Whole-operation throughput is 1e9/time_ns; solver
+active-update throughput is work*1e9/time_ns. No FLOP/s or bandwidth claim is
+inferred from those logical counts.

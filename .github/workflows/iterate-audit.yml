@@ -22,6 +22,11 @@ jobs:
         run: julia --startup-file=no --project=benchmark/audit852 -e 'using Pkg; Pkg.instantiate()'
       - name: Generate supplemental harness
         run: python3 benchmark/audit852/supplement.py --harness "$RUNNER_TEMP/pb852-supplement-harness" --sources "$RUNNER_TEMP/pb852-frozen"
+      - name: Diagnose historical adapter inference outside timing campaigns
+        run: |
+          for source in original historical05 post848 post850; do
+            julia --startup-file=no --threads=1 -O2 --check-bounds=no --project=benchmark/audit852 benchmark/audit852/adapter_diagnostic.jl "$RUNNER_TEMP/pb852-frozen/$source"
+          done
       - name: Check targeted residual block sequence
         run: |
           if ! python3 "$RUNNER_TEMP/pb852-supplement-harness/run.py" --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --output "$RUNNER_TEMP/pb852-targeted-check" --check --rounds 1 --roles original,historical05,post848,post850 --filter '^block/Float64/n8192/s819/b1/contiguous/residual_bcd$'; then
@@ -48,6 +53,11 @@ jobs:
         run: |
           python3 benchmark/audit852/strict_correctness.py --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --output "$RUNNER_TEMP/pb852-strict-primary"
           python3 benchmark/audit852/strict_correctness.py --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --harness-source "$RUNNER_TEMP/pb852-supplement-harness" --output "$RUNNER_TEMP/pb852-strict-supplement"
+      - name: Check every block order using nonuniform coordinates
+        run: |
+          for source in original historical05 post848 post850; do
+            julia --startup-file=no --threads=1 --check-bounds=yes --project=benchmark/audit852 benchmark/audit852/layout_correctness.jl "$RUNNER_TEMP/pb852-frozen/$source" "$RUNNER_TEMP/pb852-supplement-harness"
+          done
       - name: Check native row-block indexing and common restoration
         run: |
           python3 -c 'import sys; sys.path.insert(0,sys.argv[1]); from spec import scenarios; print("\n".join(s["key"]+"/"+op for s in scenarios() for op in s["ops"]))' "$RUNNER_TEMP/pb852-supplement-harness" > "$RUNNER_TEMP/native-cases.txt"

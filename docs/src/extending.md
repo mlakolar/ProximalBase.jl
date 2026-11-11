@@ -71,7 +71,7 @@ f(x)=\frac12\sum_{i=1}^{p}w_i x_i^2,\qquad w_i\geq0.
 Its scalar functions are
 
 ```math
-\operatorname{value\_entry}(f,v,i)=\frac{w_i v^2}{2},\qquad
+f_i(v)=\frac{w_i v^2}{2},\qquad
 \operatorname{prox}_{\gamma f_i}(v)=\frac{v}{1+\gamma w_i}.
 ```
 

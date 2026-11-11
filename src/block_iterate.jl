@@ -288,12 +288,9 @@ end
 # Other views and fallible sources keep Base's scalar value-write path. These
 # built-in indices and buffers cannot throw during the subsequent raw copy.
 const _BlockCopyIndices = Union{Vector{Int}, UnitRange{<:Base.BitInteger}, StepRange{<:Base.BitInteger, <:Base.BitInteger}}
-const _BlockCopySource{T} = Union{Vector{T},
-  SubArray{T, 1, <:Array{T}, <:Tuple{Vararg{Union{Int, UnitRange{Int}, StepRange{Int, Int}, Base.OneTo{Int}, Base.Slice{Base.OneTo{Int}}}}}}}
-
-@inline function Base.copyto!(dest::SubArray{T, 1, <:BlockIterate{T, <:AbstractVector{G}}, Tuple{G}}, src::_BlockCopySource{T}) where {T<:Union{Float32, Float64}, G<:_BlockCopyIndices}
+@inline function Base.copyto!(dest::SubArray{T, 1, <:BlockIterate{T, <:AbstractVector{G}}, Tuple{G}}, src::Vector{T}) where {T<:Union{Float32, Float64}, G<:_BlockCopyIndices}
   # Small/partial copies retain Base's value-write path before any group lookup.
-  length(dest) >= 16 && length(src) == length(dest) ||
+  length(dest) >= 32 && length(src) == length(dest) && !iszero(@inbounds src[1]) ||
     return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
   x, ids = parent(dest), only(parentindices(dest))
   k = @inbounds x.group_of[first(ids)]

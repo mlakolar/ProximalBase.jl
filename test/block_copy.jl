@@ -43,7 +43,7 @@ function scalar_copy!(x,k,values)
   x
 end
 function initial(::Type{T},groups,k,active) where T
-  x = BlockIterate(T,9,groups)
+  x = BlockIterate(T,maximum(maximum,groups),groups)
   for other in reverse(1:ncoordinates(x))
     other == k && continue
     x[first(blockindices(x,other))] = T(7)
@@ -56,7 +56,10 @@ caught(op) = try op(); nothing catch err; typeof(err) end
 @testset "whole-block copies match scalar value writes" begin
   layouts = ([1:3,4:6,7:9], [[1,4,7],[2,5,8],[3,6,9]],
     [[7,1,4],[8,2,5],[9,3,6]], [1:1,2:4,5:9], [1:8,9:9],
-    [Int32(1):Int32(3),Int32(4):Int32(6),Int32(7):Int32(9)])
+    [Int32(1):Int32(3),Int32(4):Int32(6),Int32(7):Int32(9)],
+    [1:16,17:32,33:48], [1:32,33:64,65:96],
+    [collect(1:3:96),collect(2:3:96),collect(3:3:96)],
+    [collect(32:-1:1),collect(64:-1:33),collect(96:-1:65)])
   for T in (Float32,Float64), gs in layouts, k in eachindex(gs), active in (false,true)
     n = length(gs[k])
     for data in (zeros(T,n),fill(-zero(T),n),ones(T,n),fill(T(NaN),n),fill(T(Inf),n),
@@ -152,9 +155,19 @@ end
   end
 end
 
+@testset "large active copy snapshots an aliased ordinary vector" begin
+  for T in (Float32,Float64), ids in (collect(1:32),collect(32:-1:1))
+    x=BlockIterate(T.(1:32),[ids]);ref=copy(x)
+    scalar_copy!(ref,1,copy(x.storage))
+    dest=blockview(x,1)
+    @test copyto!(dest,x.storage) === dest
+    same_state(x,ref)
+  end
+end
+
 @testset "view math and the same-type active writer allocate no storage" begin
-  for T in (Float32,Float64), gs in ([1:4,5:8],[[7,1,5,3],[8,2,6,4]])
-    x=BlockIterate(ones(T,8),gs);v=blockview(x,1);u=ones(T,4)
+  for T in (Float32,Float64), n in (4,32,256), gs in ([1:n,n+1:2n],[collect(1:2:2n),collect(2:2:2n)])
+    x=BlockIterate(ones(T,2n),gs);v=blockview(x,1);u=ones(T,n)
     copyto!(v,u)
     write!(v,u) = (copyto!(v,u);nothing)
     write!(v,u)

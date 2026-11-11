@@ -153,3 +153,16 @@ protection is not enabled; authenticated administrator action is still needed.
 Do not call the branches immutable. Root owns remote updates. Phase B starts
 only after the independent architecture critic accepts this inventory and its
 boundaries; this document does not constitute that approval.
+
+## Validation-driven refinements
+
+The implementation log records the exact shared dispatches recovered during
+independent runtime validation: five-argument/Scaled write preflights from
+constrained.jl; tuple parameter checks; generic scalar-penalty BlockIterate KKT
+reducers; and the four retained reset_cache! methods. These refinements preserve
+retained behavior without restoring deferred families. PrecisionError and the
+second-order-only Float16 role helper are archived because no retained oracle
+uses them. The declaration policy/TSVs now reflect these resolved boundaries.
+The generic vector allocating prox_block adapter remains; built-in group
+proximal kernels are archived. See implementation-log.md for the final resource
+layout and verification, and the unchanged frozen graph for original locations.

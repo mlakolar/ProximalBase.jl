@@ -1,6 +1,6 @@
 # ProximalBase minimal-core rebuild (#849)
 
-**Status (2026-11-10 PT):** Phase A declaration/dependency audit accepted by the independent architecture critic; Phase B extracted the included core and passed package-load smoke checks. Deferred files remain on disk until Phase C. See [implementation-log.md](implementation-log.md).
+**Status (2026-11-10 PT):** Phase A declaration/dependency audit accepted by the independent architecture critic; Phases B/C extracted the core and removed deferred source. All 18 supported tests pass locally through bounds-checked Pkg.test; exported-API docs and 102 benchmark reference probes pass. Final performance/CI/review integration is in progress. See [implementation-log.md](implementation-log.md).
 
 The separate fresh GPT-6.1-Sol/high critic approved Phase A: “APPROVE Phase A
 architecture/dependency audit and Phase B extraction based on latest 5,476
@@ -15,8 +15,8 @@ Read [extraction-boundaries.md](extraction-boundaries.md) first. The reproducibl
 Julia AST inventory covers all 52 frozen files: 5,476 declaration rows (including
 literal generated-method instances), 23,781 conservative lexical dependency
 edges, and 10,983 external symbol/path line-list records. The proposed disposition
-is 407 retained storage declarations, 907 extracted core/helper declarations,
-and 4,162 archived declarations. Counts describe the audit, not a runtime method
+is 407 retained storage declarations, 912 extracted core/helper declarations,
+and 4,157 archived declarations. Counts describe the audit, not a runtime method
 table or a correctness result.
 
 Regenerate without loading package code or installing dependencies:
@@ -72,4 +72,4 @@ Defer full GLM families, group penalties/group-lasso math, constrained sets/orac
 
 Open one ordinary draft PR targeting protected `master`. Require a declaration/dependency audit before accepting code deletion, a meaningful correctness and performance comparison, final-SHA Linux/current-Julia CI green, independent final-source review, and a normal protected-branch merge. Keep source modifications restricted to `refactor/minimal-core`; no force pushes or history rewrite.
 
-**Not yet completed:** archival-ref protection; extraction/removal; minimal tests and CI; final independent source review; merge. See [umbrella #849](https://github.com/mlakolar/ProximalBase.jl/issues/849) for the authoritative feature scope.
+**Not yet completed:** archival-ref protection; final validation/CI and independent final-source review; merge. See [umbrella #849](https://github.com/mlakolar/ProximalBase.jl/issues/849) for the authoritative feature scope.

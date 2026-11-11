@@ -17,7 +17,7 @@ positive-indexed, disjoint and the total partition must cover exactly 1:p.
 Inner constructors and private-field access are not supported validation escapes.
 
 A scalar nonzero write converts and stores its value, then activates its group
-once. A zero write never deactivates. dropzeros! checks active groups and swaps
+once. A zero write never deactivates. `dropzeros!` checks active groups and swaps
 a surviving last group into removed slots. Active IDs are unsorted live handles;
 their read-only interface protects reverse-map integrity.
 
@@ -60,6 +60,6 @@ Relevant retained suites: `test/block_copy.jl`, `iterate_invariants.jl`,
 `cache_and_blocks.jl`, `core_functions.jl` and `minimal_math.jl`.
 Include arbitrary order, noncontiguous groups, unequal cardinality, aliases,
 partial source/conversion failures, explicit zero groups, state-copy atomic
-conversion and different-layout copies. Norm/dot forwarding through blockview
+conversion and different-layout copies. Norm/dot forwarding through `blockview`
 must preserve values while enabling contiguous storage paths where available.
 Historical writer experiments are evidence at pinned commits, not shipped APIs.

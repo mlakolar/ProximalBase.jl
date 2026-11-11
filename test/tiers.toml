@@ -27,6 +27,7 @@ quick = [
   "platform_focus",
   "readme",
   "release_record",
+  "retained_scale_exponents",
   "tier_selection",
   "utils",
   # iterates: active sets, value writes versus state copies, symmetric coordinates, aliasing

@@ -1689,9 +1689,8 @@ function _project_l2_scaled!(y, x, λ, α, w, c, n)
   r2, e2 = _frexp(float(λ))
   r3, e3 = _frexp(float(w))
   r = ((r1 * r2) * r3) / (a * q)
-  k = e1 + e2 + e3 - e
   fr, er = _frexp(r)
-  k += er
+  k = _exponent_sum(typeof(r), e1, e2, e3, -e, er)
   (k > 1 || (k == 1 && fr >= 0.5)) && return copyto!(y, x)
   y .= _projection_scale.(x, fr, k)
 end
@@ -1742,7 +1741,7 @@ function _project_l2_group_scaled!(y, x, G, λ, α, w, c, n)
   r3, e3 = _frexp(float(w))
   r = ((r1 * r2) * r3) / (a * sqrt(s + err))
   fr, er = _frexp(r)
-  k = e1 + e2 + e3 - e + er
+  k = _exponent_sum(typeof(r), e1, e2, e3, -e, er)
   (k > 1 || (k == 1 && fr >= 0.5)) && return _project_l2_group_scale!(y, x, G, 1)
   @inbounds for i in G
     y[i] = _projection_scale(x[i], fr, k)

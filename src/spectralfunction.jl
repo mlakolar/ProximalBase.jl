@@ -567,8 +567,15 @@ function _conjugate_ball_scaled(s::AbstractVector{T}, λ, a::_ProjectionScale, k
   S = float(promote_type(T, typeof(λ), typeof(a.m)))
   iszero(λ) && return _spectrum_ball_scaled(s, zero(S), 0, k, p)
   mλ, eλ = frexp(S(λ))
-  _spectrum_ball_scaled(s, S(a.m) * mλ, a.e + Int(eλ), k, p)
+  _spectrum_ball_scaled(s, S(a.m) * mλ, _ball_exponent(a.e + Int(eλ)), k, p)
 end
+# `_spectrum_ball_scaled` takes the exponent of the bound as an Int. An exponent beyond Int (a BigFloat chain) is
+# clamped to a magnitude of 3 * 2^61. For the spectra that the spectral functions support (Float32 and Float64) this
+# lies beyond the exponent range of the type and of every exponent of the spectrum, so the shift decides as the
+# exact one would. A BigFloat spectrum is not supported by the spectral functions (there is no BigFloat
+# eigenvalue routine); for that helper-only input the clamped shift may be finite where the exact one is not.
+@inline _ball_exponent(e::Int) = e
+@inline _ball_exponent(e::Integer) = Int(clamp(e, -3 * 2^61, 3 * 2^61))
 # (aλ/2 ‖⋅‖²)*(y) = ‖y‖²/(2aλ) is ElasticNet(0, 1/m) with the factor 2^-e, for aλ = m 2^e.
 function _conjugate_spectrum_scaled(g::SqrNormL2{<:Real, Nothing}, f0, s, k, b, a)
   (g.λ > 0 && isfinite(g.λ)) || return nothing

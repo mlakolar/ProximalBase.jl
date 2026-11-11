@@ -188,8 +188,8 @@ end
 # the number of Scaled layers
 depth(f) = f isa Scaled ? 1 + depth(f.f) : 0
 
-# A chain of three extreme factors has a retained exponent beyond Int64 that is stored wrapped. The Int sums
-# of the retained call sites return the right exponent whenever the final one fits (#767).
+# A chain of three extreme factors has a retained exponent beyond Int64, which the scale stores exactly: the
+# exponent returns into range through the level and the weight (first case), or stays out of it (second case).
 @testset "wrapped retained exponents, precision $p" for p in (53, 256, 5, 2)
   setprecision(BigFloat, p) do
     P, Q = 3_100_000_000_000_000_000, 3_000_000_000_000_000_000

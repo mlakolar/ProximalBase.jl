@@ -326,7 +326,12 @@ violation, the Lipschitz constants and the Hessian product take the product of t
 chain; the steps of a proximal operator pass the product of the factors and the
 step to the function when that is a normal number, and otherwise fold the exponent into the
 levels, with the step reduced to its significand, for the functions of the
-scaled-value mechanism. Conjugates and their projections accumulate the factors the same way. A
+scaled-value mechanism. Conjugates and their projections accumulate the factors the same way. The
+exponent that the chain retains is exact for `BigFloat`, whose exponents reach `±(2^62 - 1)` by default on
+64-bit Unix (`±(2^30 - 1)` on Windows), so that there a chain of three extreme factors has an exponent beyond
+`Int64` (it is held in an `Int128`, exact for chains of up to `2^64` factors). On the host it is exact through its last cancellation, and the final shift into the
+result saturates; two bounded handoffs are clamped on purpose: the exponent of a ball bound passed to the
+spectral ball test, and a scale converted for a device (device types only). A
 function that folds no level (a `SqrNormL2`, a loss, a `Tilt`) recovers its *value* through the
 scaled-value mechanism when it implements it (the built-in functions that the `Scaled` docstring
 lists, on host arrays): `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` at `[1e10]` has the value
@@ -352,7 +357,23 @@ A chain takes the route always. A single factor takes it when it lies outside th
 a factor inside the band, an entry of the step that is itself within `E` of a limit of the range is
 rounded together with the factor. When no normal level holds the whole product, the value of a
 function with levels is computed at levels that are normal numbers, with the power of two that this
-takes out of the product applied last. Not recovered: levels whose exponents are too far apart for
+takes out of the product applied last. A weighted `NormL1` or `NormL1Nonneg` whose `BigFloat` scale
+no level takes folds the scale and the step into its weights instead: the level becomes a power of two, the
+function gets the step 1, and each weight becomes the coefficient that the leaf forms for the step (the scale times the
+step, as the chain forms it), the level and the weight, in the leaf's order, from the operands as they are stored (a
+level or weight that is not a `BigFloat` first rounded to the precision of the call), each product rounded to that
+precision in the current rounding mode. Levels, weights and scale significands of any stored precision are folded. A
+call with an array of steps gives each entry of the weights its own step, by index; the steps must have the axes of the
+weights, and a negative, `NaN` or infinite step is not folded (a zero step gives a zero weight, as the leaf treats it).
+The weights are an array with the standard axes, which the folded weights have too, or a vector with other axes, whose
+axes and indices the folded weights keep; another array is not folded. A weight that is zero or infinite, or that
+becomes so when it is converted to a `BigFloat`, stays as it is. The fold reproduces the unfolded leaf bit for bit when its
+intermediate products and the final shift stay normal numbers. It is refused, and the function is left as without it, when
+there is no weight to fold, the level or the scale is zero or not finite, or the coefficients do not fit, with a margin of
+three binades, in the exponents of a normal level and normal weights, as to their positions (below `2 emin + 6` or above
+`2 emax - 6`, `emin` and `emax` the exponent limits of `BigFloat`) or as to their spread (more than `emax - emin - 6`). The
+value that such a call returns is the value of the chain at the stored output, never that of the function with the
+rebuilt weights. Not recovered: levels whose exponents are too far apart for
 one normal fold, weights or entries for which no normal level gives a leaf value that is a finite
 normal number, and subnormal results; array-step entries whose exponents spread too
 far for the levels to hold them, which are rounded with the factors; and the steps of a function

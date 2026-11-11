@@ -1,8 +1,15 @@
 # The interface
 
-Function evaluation, gradients and proximal maps answer different mathematical
-questions. A solver combines them; the function object does not maintain a
-solver iteration count, working set or convergence policy.
+This page explains **how to call** ProximalBase's mathematical operations:
+which methods allocate, which write into an output buffer, what they return,
+and which argument and storage combinations are supported. For the mathematical
+meaning of gradients, proximal maps, coordinate updates, KKT checks and
+step-size bounds, start with [Operations on functions](operations.md).
+
+A solver combines these operations; the function object does not maintain a
+solver iteration count, working set or convergence policy. Numerical precision,
+parameter ownership, cache validity and uncommon aliasing behavior are described
+separately in the [developer numerical usage guide](numerical_usage.md).
 
 ## Values and gradients
 

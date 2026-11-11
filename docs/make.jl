@@ -74,8 +74,8 @@ makedocs(;
         "Function library" => [
             "Browse available functions" => "function_library.md",
             "Smooth functions and losses" => "smooth.md",
-            "Penalties" => "penalties.md",
-            "Functions built from functions" => "calculus.md",
+            "The ℓ₁ norm and soft thresholding" => "penalties.md",
+            "Scaling a function" => "calculus.md",
         ],
         "Building optimization algorithms" => [
             "Overview" => "optimization_algorithms.md",

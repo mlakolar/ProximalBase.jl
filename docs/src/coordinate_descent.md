@@ -101,8 +101,10 @@ constant ``(λ/2)\sum_{j\notin S}y_j^2``. When that omitted contribution is fini
 changes objective values but not the restricted minimizers, gradients or prox;
 add the constant back when comparing full and restricted values. Nonzero fixed
 variables require a separately derived residual/linear term.
-Only vector-response `LeastSquaresLoss` has a restriction method. See
-[the working-set example](examples/sparse_working_sets.md).
+Only vector-response `LeastSquaresLoss` has a restriction method.
+See [Restricting functions](restrict.md) for full mathematical definitions,
+nonseparable examples and the distinction between zero-fixed and nonzero-fixed
+subproblems, or the [working-set example](examples/sparse_working_sets.md).
 
 ## Block updates
 

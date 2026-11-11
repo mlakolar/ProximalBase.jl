@@ -3,6 +3,10 @@
 Extend mathematical hooks without reaching into iterate fields. Choose the
 smallest interface that describes the operations you can implement.
 
+The `AbstractFunction` extension rules below apply to array functions.
+For observation-level prediction losses, implement the separate
+[`ProximalBase.ScalarLoss` interface](scalar_losses.md).
+
 ## Any mathematical function
 
 Subtype `AbstractFunction`, define the callable value `(f::MyFunction)(x)` and

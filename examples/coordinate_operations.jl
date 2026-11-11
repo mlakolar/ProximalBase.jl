@@ -24,7 +24,7 @@ function illustrate_coordinates()
         if iszero(β[j])
             @assert kkt_violation(g, grad, β, j) <= 1e-10
         else
-            @assert abs(grad[j] + 0.2sign(β[j])) < 1e-10
+            @assert abs(grad[j] + 0.2 * sign(β[j])) < 1e-10
         end
     end
     ## The three-argument screen tests a coordinate hypothetically at zero.

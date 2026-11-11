@@ -1,258 +1,101 @@
-# PB-only block-update performance (#787, #844)
+# PB-only block-update performance (#787 / #844)
 
-## Baseline and call paths
+## Sources and scope
 
-The starting PR #848 head is `a9f53e6ef3febffd58496c4a1c4fcb7609d0ca1c`,
-with master base `147d025211b681e53e5c987116609a8351a4391e`.
-The exact benchmark hashes, official Julia 1.10.13/1.13.3 archive hashes and
-compiler/thread settings are in [baseline.json](measurements/block-updates-787/baseline.json).
-No ProximalSolvers source, tests, documentation, CI, pin or PR is changed.
+The performance baseline is PR head `a9f53e6ef3febffd58496c4a1c4fcb7609d0ca1c`,
+based on master `147d025211b681e53e5c987116609a8351a4391e`.
+The rejected broad writer and its full history are preserved at
+[the durable audit archive](https://github.com/mlakolar/ProximalBase.jl/tree/audit/pb848-block-updates-20261111).
+[Checksums](measurements/archive.json) identify removed raw files; this archive
+has no CI artifact expiry. Benchmark and reproduction scripts remain in PB.
+No ProximalSolvers source, pin, tests, documentation, CI or PR is changed.
 
-At that baseline, `blockview(x,k)` (`src/block_iterate.jl:220`) validates `k`
-by indexing the owned group array and returns a `SubArray` whose parent is `x`.
-For an ordinary vector source, `copyto!` selects Base's
-`copyto!(::AbstractArray,::AbstractArray)` (Julia 1.13.3
-`base/abstractarray.jl:1073`). Base checks aliasing once, snapshots an overlapping
-source, checks its extent, and executes a scalar destination loop.
-Each destination `setindex!` (`src/block_iterate.jl:196`) converts and writes the
-value; each nonzero then reads `group_of[i]` and calls `activate!` (`:287`),
-which reads `position[k]` even when the block is already active.
-Bounds propagation can remove entry bounds checks in this loop. It does not
-remove the data-dependent group/activation bookkeeping. The initial dispatch
-and compiler output were inspected directly, rather than inferred from timing.
+## Measurement correction
 
-`SparseIterate` behaves differently (`src/sparse_iterate.jl:326–352`):
-`_setstored!` converts once, reads its entry's slot, then writes an existing
-slot directly or calls `_store!` for an absent nonzero. Its writable
-`activevalues` accessor (`:316`) is a view of a plain value vector. The block
-oracle's independent-output caller precondition already covers these views;
-performance work does not change that ownership policy.
+`fill!(x,0)` intentionally preserves active IDs. Earlier `inactive_nonzero`
+probes therefore measured active blocks after warm-up. Their inactive-nonzero
+timing claims are superseded, including earlier full grids and focused runs.
+The earlier inactive-zero and active-zero regressions remain credible.
 
-The mathematical entry point (`src/block_prox.jl:6–40`) checks the group ID,
-one-based indexing, real element types, lengths, input/output overlap and
-selected parameters, then calls the shared numerical kernel. Ordinary type
-and indexing checks specialize away; lengths, group bounds and possible
-aliasing remain runtime checks where not established by the caller's code.
-The exact in-place case avoids the overlap test. `Scaled` and `Regularize`
-(`:104–123`) re-enter the public oracle, repeating buffer preflight after the
-outer call has already checked those same buffers and selected parameters.
-This is a separate cost from the storage writer.
+The corrected setup, outside each timed evaluation, clears values, calls
+`dropzeros!`, activates group 2, then activates group 1 only for active cases.
+Before timing, every writer scenario asserts initial values, activity and order
+through three operation/reset rounds. A post-write check alone is insufficient.
+The corrected driver is used unchanged for baseline, candidate and A/A workers.
 
-The pinned historical whole-solver quadratic path calls the oracle on an
-in-place compact view, followed by individual coefficient/cache writes. It
-does not call the bulk block-view copy. The PB-only `quadratic_like` probe
-therefore sweeps 24 groups of 5 with that public math/individual-write boundary.
-It diagnoses PB overhead; it is not a PS solve or proof that the historical
-31.17→32.93 µs / 23.19→23.83 µs whole-solver costs are resolved.
+## Before and after call paths
 
-## Check frequency and retained API
+At the baseline, [`blockview` returns a SubArray](https://github.com/mlakolar/ProximalBase.jl/blob/a9f53e6ef3febffd58496c4a1c4fcb7609d0ca1c/src/block_iterate.jl#L220).
+Base `copyto!` resolves aliasing and extent once, then writes through the
+iterate's [scalar setindex!](https://github.com/mlakolar/ProximalBase.jl/blob/a9f53e6ef3febffd58496c4a1c4fcb7609d0ca1c/src/block_iterate.jl#L196). Every nonzero entry loads `group_of` and calls
+[activate!](https://github.com/mlakolar/ProximalBase.jl/blob/a9f53e6ef3febffd58496c4a1c4fcb7609d0ca1c/src/block_iterate.jl#L287), which checks `position` even for an already-active group.
+Compiler-elided entry bounds checks do not remove this activity bookkeeping;
+optimized Julia 1.10 copy-loop output confirms the field loads remain.
 
-| Operation | Once per block call | Per entry |
-|:--|:--|:--|
-| Baseline ordinary block-view copy | source alias handling and extent | conversion/store; reverse lookup and activation check for each nonzero |
-| Proposed owned active-block copy | exact owned-group recognition, extent, alias snapshot and activity | backing-value copy |
-| Proposed owned inactive-block copy | same preflight; at most one activation after an infallible traversal | backing-value copy and zero reduction |
-| Fallible or arbitrary-view fallback | Base alias and extent handling | established scalar conversion/activation behavior |
-| Public mathematical call | group, shape, real type, indexing, overlap and selected parameters | shared numerical kernel only |
-| Wrapper mathematical call | public preflight again at nested public boundaries | ridge transformation/shared kernel as applicable |
+The [narrowed proposal](https://github.com/mlakolar/ProximalBase.jl/blob/26b6ec6446d732771dabb8bede50e90cf49bf125/src/block_iterate.jl#L291) keeps SubArray and targets ordinary matching floating
+vectors only. Small, partial and zero-leading sources return to Base before
+a group lookup. Other sources, including Array-backed views and fallible
+conversions, keep Base dispatch. Eligible views require constant-time exact
+owned-index identity and an already-active group. They snapshot aliases once,
+then use the existing `_block_storage` helper and Base's unaliased index-style
+copy. The active list is untouched. Inactive groups always use Base value
+writes. There is no custom inactive scan, activation or deferred raw write.
 
-Julia can specialize away matching primitive element types and ordinary
-one-based indexing. An `@inbounds` caller can also elide bounds checks; it does
-not authorize skipping group activity bookkeeping or alias snapshots. Nested
-wrapper preflight remains repeated in the accepted numerical policy: broad
-annotation changes affected floating-point results or allocations, so they
-were rejected rather than deleting checks.
+A first cutoff trial at 16 (`1c2205da`) retained inactive fallback overhead:
+21 of 506 Julia 1.10 probes flagged above 5% over ten pairs, notably small
+Array-backed sources and size-64 zero writes. The next trial uses vector
+sources and a cutoff of 32; zero-leading inputs bypass the activity lookup.
+This is a conservative optimization condition, not a changed value contract.
+The final cutoff remains subject to the complete corrected gate.
 
-Option A is used: the existing `SubArray`, parent, indices, lifetime and
-norm/dot forwarding remain intact. Owned-index identity is a constant-time
-test, not a whole-layout comparison. No custom view, BlockArrays dependency,
-additional public writer or exported unchecked numerical API is introduced.
+The [mathematical entry](https://github.com/mlakolar/ProximalBase.jl/blob/26b6ec6446d732771dabb8bede50e90cf49bf125/src/block_prox.jl#L42) retains public group, indexing, real-type, shape, overlap and
+parameter validation, then the existing shared numerical kernel. The small
+GroupNormL2 specialization exposes that boundary for buffers up to 32 entries;
+larger buffers invoke the generic method. A redundant outer `checkbounds`
+is removed because both routes already check bounds in `_check_block_buffers`.
+Generic and wrapper bodies, numerical formulas and output-ownership policy
+remain unchanged. Nested wrappers still re-enter the validated public oracle.
+Broad wrapper annotations were rejected for changed numerical bits or new
+allocations; this work does not delete checks to obtain a timing result.
 
-## Measurement boundaries
+## Protocol and acceptance
 
-`benchmark/block_updates.jl` separates public preflight, the public numerical
-call, its internal kernel, the public block writer, combined math/write,
-individual sparse/grouped entry writes, arbitrary views, and public/raw
-view norms and dots. The mathematical grid covers sizes 1, 5, 8, 32 and 256,
-both floating types, all five group families, separate/in-place vectors and
-compact views, scaling, ridge regularization and nested wrappers. Writer
-probes distinguish already-active and initially inactive blocks, zero and
-nonzero outputs, ranges, strided and reversed groups, ordinary buffers and
-checked conversions.
+Julia 1.10.13 and 1.13.3, Float32 and Float64, matched immutable PB sources
+and dependencies, one Julia/BLAS thread, fixed coordinate order and CPU.
+At least ten paired rounds use two fresh process cohorts, alternating order
+and an independent baseline A/A worker. Warm-up and setup are excluded;
+each timing sample has one evaluation. No competing local test/build work
+runs during timing. Raw records retain medians, quartiles, allocation counts,
+result hashes, exact driver hashes and process/source provenance.
 
-Every timed sample has one evaluation. Input restoration and inactive-state
-setup happen outside timing. Three operation warm-ups and the first complete
-timing round are excluded. A function barrier gives every timed closure
-concrete buffer types; an initial exploratory harness without this barrier
-boxed vector/view unions and is excluded from acceptance evidence. In
-particular, neither an artificial closure allocation nor a batched timing is
-treated as a production allocation or as a reproduction of the historical
-single-evaluation 48→69 ns comparison.
+The grid covers five penalty families; math sizes 1/5/8/32/256; plain, scaled,
+regularized and nested wrappers; separate/in-place vectors and compact views;
+writer sizes 1/5/8/16/32/64/128/256, activity/value states, ranges, strided and
+reversed groups, ordinary/converted/checked sources; scalar writers, norm/dot
+controls and PB-only quadratic-style loops. Full corrected acceptance is
+pending. No repeatable ordinary-path regression above 5% is accepted.
+Conditional log-ratio intervals describe the sampled cohorts; A/A and separate
+focused confirmation distinguish repeatable costs from compiler/run variation.
 
-The original performance gate remains pending until the matched measurements
-and final independent review establish the outcome. PB #380's other numerical
-paths and PS #238 / PB #527 integration remain separately scoped.
+## Historical evidence and remaining work
 
-## Candidate call paths and numerical boundaries
+The original 48→69 ns figure is retained in the archive. Exact historical PB
+sources in a PB-only adapter reproduced a smaller Julia 1.13 cost (47→53 ns);
+this neither dismisses the original magnitude as noise nor attributes all
+21 ns to activation. Component timings need not add to combined timings.
 
-The writer retains `SubArray`. Its method requires a compatible owned group
-index type and built-in same-type floating buffers, then verifies exact owned
-group identity using one reverse-map lookup. Unrecognized views retain scalar
-value writes. The source restriction is expressed in dispatch, so a custom dense
-source's own copy method remains applicable. It resolves overlap once before
-any mutation. An active block uses Base's unaliased index-style storage copy;
-an inactive block uses one SIMD copy/nonzero reduction and then activates once
-if needed. Reads and primitive same-type writes cannot throw in this restricted
-path, and owned-group construction reserves activation capacity. No fallible
-operation can intervene between a nonzero store and activation. Fallible
-sources/conversions keep scalar failure state.
+The historical PS whole-solver figures (31.17→32.93 µs on Julia 1.10 and
+23.19→23.83 µs on Julia 1.13) remain separate evidence. Its quadratic path
+uses compact in-place math and individual coefficient writes, not the public
+bulk writer. The size-5 public/kernel probes and fixed-pass PB-only quadratic
+loop diagnose that boundary; they cannot establish a PS whole-solve result.
+The earlier 6.760→5.917 µs PB-only result is promising on Julia 1.10;
+the Julia 1.13 A/A of 1.106 makes its apparent improvement inconclusive.
+Formal downstream integration belongs to PS #238 / PB #527.
 
-The mathematical candidate specializes only `GroupNormL2`'s validated public
-boundary for buffers of at most 32 entries, with exactly the same buffer checks,
-shared numerical kernel and return value. The generic public method, checker
-and Scaled/Regularize forwarding retain their baseline bodies. Larger buffers
-invoke the original public method to preserve Julia 1.10 code generation. No unchecked
-API or competing formula is introduced.
-
-Two broad annotation variants were rejected during measurement. Forcing every
-public leaf inline changed 224 of 3,770 numerical fixtures by 1–3 ULPs in
-regularized SparseGroupNormL2/MCP/SCAD calls. Keeping wrapper calls explicitly
-noinline restored those bits, but ten paired repetitions then exposed allocations
-and large slowdowns in nested wrappers. Neither variant is accepted. The
-narrow candidate leaves those existing routes intact instead. See
-[the discovery record](measurements/block-updates-787/wrapper-boundary.json).
-
-The first whole-block writer used a separate nonzero scan followed by a copy.
-Ten paired Julia 1.13.3 repetitions found repeatable inactive-zero slowdowns
-(up to about 1.54× for size-256 views). That two-pass variant is rejected.
-A zero-prefix variant removed the second traversal but still regressed on
-large Julia 1.10 zero copies. The final candidate instead preserves Base's
-active-copy loop and uses a SIMD copy/reduction for infallible inactive writes.
-
-
-## Pending performance decision: bounded candidate
-
-The immutable candidate `2fb4d9aab0e5db1f51217b9d03e5e158b4d90bb1`
-passes 30,513 targeted assertions with bounds enabled on each requested Julia
-version. Ten paired repetitions in two fresh process cohorts on Julia 1.10.13
-confirm that the target and the zero-write paths have different outcomes:
-
-| PB-only case | Baseline median | Candidate median | Paired geometric ratio | Conditional 95% interval | A/A ratio |
-|:--|--:|--:|--:|:--|--:|
-| Float32 GroupNormL2, size 32, combined math + public write | 69 ns | 48 ns | 0.700 | 0.689–0.711 | 1.005 |
-| Float32 size 256, contiguous, inactive zero/vector | 127 ns | 219 ns | 1.727 | 1.716–1.737 | 0.991 |
-| Float64 size 256, contiguous, inactive zero/vector | 126 ns | 219 ns | 1.741 | 1.733–1.749 | 0.996 |
-| Float64 GroupNormL2, size 5, separate vectors, public math | 28 ns | 27 ns | 0.964 | 0.964–0.964 | 1.000 |
-| Float64 GroupNormL2, size 5, exact in-place compact view, public math | 32 ns | 29 ns | 0.906 | 0.896–0.916 | 1.000 |
-| Float64 fixed ten quadratic passes, 24 groups of 5 | 6.760 µs | 5.917 µs | 0.875 | 0.874–0.876 | 1.005 |
-
-These intervals are conditional on two process cohorts; nanosecond quantization
-can produce a degenerate interval. The raw sample quartiles and all case ratios
-are retained. This is **not an accepted candidate**: eleven of the 52 focused
-cases meet the repeatability criterion above 5%, including ordinary zero copies.
-Optimization attempts stop here pending the maintainer's choice. Narrow
-alternatives are an active-block-only fast path, retaining just the measured
-small-block mathematical specialization, or keeping this measured proposal
-for review. No regression is silently approved.
-
-The full focused record (including warm-up, A/A and allocation data) is in
-[pending/bounded-focused-110](measurements/block-updates-787/pending/bounded-focused-110/manifest.json).
-The earlier zero-prefix candidate's full 3,774-case ten-pair grids on both
-runtimes and its separate Julia 1.10 confirmation are archived under
-`measurements/block-updates-787/rejected/zero-prefix-*`. Its Julia 1.13 run
-had no repeatable flags, while 24 Julia 1.10 flags were confirmed separately.
-Do not substitute those earlier grids for a final-candidate acceptance run.
-
-The small-block diagnostic isolates a real public-call overhead: the baseline
-size-5 Float64 internal kernel takes 26 ns for separate vectors and 27 ns for
-an exact in-place compact view, versus 28 ns and 32 ns through the public call.
-The candidate retains all validation and reduces the corresponding public
-costs to 27 ns and 29 ns. The independent coefficient-write quadratic probe
-improves without any bulk view copy. These measurements support the narrow
-boundary optimization; they do not identify every cost in historical PS solves
-or close PS #238 / PB #527.
-
-
-The corresponding ten-pair Julia 1.13.3 focus run (55 cases, including separate
-writer/math controls) gives a combined target of 53.5→35 ns, ratio 0.649
-[0.639, 0.659], A/A 1.017. Its public writer alone is 46→25 ns, ratio 0.541
-[0.512, 0.570], A/A 0.990; pure math at size 32 is 33→32 ns, ratio 0.989
-[0.857, 1.140], A/A 1.005. This isolates a storage improvement without assuming
-that independently compiled component timings add to the combined timing.
-Four ordinary writer cases still flag above 5%, including Float32 size-256
-inactive-zero strided views (127→144 ns, 1.134 [1.128, 1.140], A/A 1.007).
-All 55 cases allocate zero bytes. Public size-4 norm controls show no repeatable regression in these focused
-runs. The Julia 1.13 fixed-pass quadratic comparison
-has an A/A ratio of 1.106; its apparent speedup is therefore inconclusive.
-See [its raw record](measurements/block-updates-787/pending/bounded-focused-113/manifest.json).
-
-## Historical 48→69 ns case
-
-The historical PB-only adapter retains the original coefficients, two groups,
-block sizes and warmed nonzero state, and compares immutable sources without
-loading PS. Ten paired Julia 1.13.3 repetitions compare the exact original
-`8eaf8f8` storage-aware operation with `8fb17445` pure-math/public-write code:
-47→53 ns, paired ratio 1.116 [1.105, 1.128], A/A 1.006. Replacing the latter
-by the starting PR head `a9f53e6e` gives 47→54.5 ns, 1.161 [1.138, 1.184],
-A/A 1.008. On Julia 1.10.13, old versus the starting head is 55→54.5 ns,
-0.983 [0.956, 1.011], A/A 0.995.
-
-Thus the original direction of cost is reproducible on Julia 1.13, but the full
-21 ns magnitude is not reproduced by this PB-only adapter. The original
-four-repetition, three-reported-pair evidence stays intact. Differences in
-compiler context and harness shape remain material: the current-head target
-also measures 69 ns in the larger Julia 1.10 diagnostic. These are not grounds
-to label the original result noise, attribute all 21 ns to activation, or waive
-the historical gate. Direct writer measurements and the source audit establish
-which redundant work the proposed writer removes; final performance acceptance
-still fails on other ordinary paths.
-
-## Remaining work and CI review
-
-PB #787 now has an existing-API bulk-write proposal, storage/failure tests and
-separate validated-math diagnostics. It remains open: the writer needs a
-maintainer decision about narrowing or deferral, nested wrapper preflight is
-retained, and formal downstream whole solves belong to PS #238 / PB #527.
-PB #380's historical 1,024-entry Float64 residual and scalar-step investigation
-are not closed by size-256 or size-4 controls. PB #703's zero-group-level and
-infinite-level cleanup/step-policy questions remain separate; no global step,
-KKT, symmetric-parameter or zero-curvature policy changes are made here.
-
-The previous PR head's full package tests and conformance check passed in CI,
-while its benchmark quick catalog failed with duplicate IDs. The storage rename
-had collided with the preexisting `block_cases!` builder. The storage builder
-is now `block_iterate_cases!`; the `blocks` and `block` families retain their
-IDs and an explicit combined-family regression check. This fixes a catalog
-bug without changing numerical or storage production code. Final-head CI,
-documentation and independent review remain required; a known performance
-failure is not a green acceptance result.
-
-
-## Final-source validation
-
-At head `0768d0c1` (production-identical to measured `2fb4d9aa`), the 14 local
-conformance files pass 1,310 assertions with 220 preexisting broken assertions,
-no failures/errors. The generated coverage payload matches the checked-in
-matrix; `--check` passes on Julia 1.13.3 and 1.10.13. The recorded provenance
-is refreshed separately from the unchanged coverage cells.
-
-All 5,616 scalar/group/wrapper/extreme-value differential rows match the
-preserved pre-change reference byte for byte on both requested runtimes
-(SHA-256 `38f602910b92cc26ab477a228deaea605c5bafe6128414be0a1197600f8be0fc`).
-All 3,774 diagnostic result hashes also match the PR baseline exactly on each
-runtime. These are correctness comparisons, not final performance acceptance.
-
-The Julia 1.10.13 documentation build passes all executable examples with
-deployment disabled. The Julia 1.13.3 benchmark harness passes 7,347 assertions,
-including the combined-family catalog regression. All 836 full quick reference cases pass with zero failures. Final-head GitHub
-checks are tracked in the PR body. See the [validation summary](measurements/block-updates-787/validation/summary.json) and checksummed raw logs/reports alongside it.
-
-The compiler audit confirms the source explanation: Julia 1.10's optimized
-Base destination-copy loop still loads `group_of` and `position` inside its
-nonzero-entry branches. The corresponding backing-vector loop has neither
-field. Ordinary type/index traits specialize away, while writer alias handling
-and explicit mathematical group/shape/overlap checks remain. Before the
-specialization, the compact math probe forwards through a non-inlined public
-call; the narrow candidate exposes that validated boundary. No numerical check
-is removed. Compiler output and its reproduction scripts accompany the raw
-validation evidence.
+PB #380's historical large-group/scalar residuals and PB #703's cleanup and
+step-policy questions remain separate. No KKT, zero-curvature, global-step,
+symmetric-parameter or #426 private-layout protection changes are introduced.
+Under PB #527, PB correctness/CI/review/performance govern PB merges;
+downstream exact-pin integration governs the 0.6 release. This PR remains
+draft and unmerged, with final-source performance and review gates pending.

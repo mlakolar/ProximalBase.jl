@@ -1,1 +1,0 @@
-Julia=1.10.13 PB=/tmp/pb848-performance-candidate-2fb4d9aa/src/ProximalBase.jl threads=1 BLAS=1 cases=52

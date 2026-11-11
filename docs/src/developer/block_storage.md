@@ -56,31 +56,17 @@ state copying does not overwrite the destination's cache.
 
 ## Complete-block value copies
 
-The specialized `copyto!(blockview(x,k), values)` retains the existing
-`SubArray` representation. Dispatch requires built-in owned-index kinds and
-same-type ordinary Float32/Float64 vectors or Array-backed strided views;
-a custom `DenseArray` reader is not assumed infallible. A one-entry copy reads
-its entire source value into a scalar before performing one public value write.
+The specialized `copyto!(blockview(x,k), values)` retains `SubArray` and
+recognizes an exact owned group by one reverse lookup and index identity.
+The current experiment limits the fast path to already-active blocks of at
+least 16 entries and ordinary same-type Float32/Float64 vectors or supported
+Array-backed views. The cutoff is subject to paired measurement.
 
-For longer copies, one reverse-map lookup and an index-identity check establish
-that the view is exactly one owned group. Identity is constant time for vectors
-and built-in integer ranges; no layout or cache scan is involved. An
-unrecognized view uses Base's ordinary value-copy path.
-
-An owned-group copy finishes `Base.unalias` before mutation and uses the
-existing private storage view. An already-active group takes Base's unaliased
-index-style copy path without changing activity. An inactive group uses one
-SIMD traversal to copy the values, preserve signed zeros and reduce whether
-any value is nonzero, then activates exactly once when needed.
-
-Deferring activation is safe only within this narrowly dispatched path:
-source reads, same-type primitive stores and zero comparisons cannot throw;
-the constructor has validated the distinct destination indices, and extent
-and alias handling have already finished. A valid inactive group has reserved
-active-list capacity, so activation itself requires no allocation. There is no
-fallible operation between a nonzero storage write and activation. Do not
-extend this path to custom readers or conversions without reestablishing that
-property.
+Small, partial, inactive and unrecognized views use Base's existing scalar
+value-write path. Eligible active copies finish `Base.unalias` before writing,
+then use the existing private storage view and Base's unaliased index-style
+copy. They neither query activity per entry nor modify the active list.
+There is no custom inactive writer or deferred activation.
 
 Fallible readers, conversions, partial sources and unrecognized views retain
 the generic scalar path. This preserves prefix-copy semantics and the existing

@@ -78,10 +78,11 @@ Performance of these public writes is measured with the companion migration;
 this does not redesign the generalized storage API of #787.
 
 The PB #787 follow-up specializes complete owned-block view copies for
-ordinary matching floating buffers. It checks the block once, snapshots an
-overlapping source before writing, and updates active storage without per-entry
-activation. An inactive block activates once only for a converted nonzero;
-checked/fallible sources retain scalar value-write failure behavior. This
+eligible ordinary matching floating vectors. It checks the owned active block
+once, snapshots an overlapping source before writing, and updates backing
+values without per-entry activation. Inactive, small, zero-leading and other
+source cases retain Base scalar value-write behavior, including activation
+only for converted nonzeros and partial-failure safety. This
 optimization belongs to storage, not to the mathematical oracle.
 A specialized validated `GroupNormL2` boundary exposes its existing checks
 to small-loop optimization for buffers of at most 32 entries. Larger buffers,
@@ -119,11 +120,21 @@ remaining #230 / #527 integration requirements are recorded with validation.
 
 ## Review and release gates
 
-This is a breaking 0.6 change. Review the public API inventory, local numerical
-and whole-solver results, companion patch and dependency pin together. Local
-runs do not substitute for green PB/PS CI or complete the separate symmetric
-owner migration. Do not close #844 or merge before those coordinated gates.
-The companion is [PS #237](https://github.com/mlakolar/ProximalSolvers.jl/pull/237).
-Matching its baseline failures is regression evidence and does not meet the
-green required-CI gate. The writer-performance gate remains pending by the
-maintainer's 2026-11-10 instruction; the measured regression is not approved.
+This is a breaking 0.6 change. Under the development/release policy in
+[PB #527](https://github.com/mlakolar/ProximalBase.jl/issues/527), merging this
+PB change requires PB correctness, applicable PB tests/CI, documentation,
+performance acceptance and independent maintainer review. Deferred downstream
+migration does not relax any PB requirement.
+
+Before publishing PB 0.6, downstream packages must migrate, admit the final
+version in compat, and pass their required tests/integration against the exact
+release candidate. PS #238 owns the later naming migration; PS #230 and PB #527
+retain the wider integration/release requirements. Historical PS #237 and its
+pin are evidence, not a prerequisite for each breaking PB master merge.
+Matching baseline downstream failures does not establish green release
+integration. Do not close the coordinated release trackers on PB-only results.
+This request changes no PS source, tests, docs, CI or dependency pins.
+
+The PB writer-performance gate remains pending; no measured regression is
+approved. This PR remains draft and must not be merged by this implementation
+work.

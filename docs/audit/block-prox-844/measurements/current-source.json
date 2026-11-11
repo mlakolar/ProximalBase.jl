@@ -1,0 +1,17 @@
+{
+  "baseline": "a9f53e6ef3febffd58496c4a1c4fcb7609d0ca1c",
+  "candidate": "26b6ec6446d732771dabb8bede50e90cf49bf125",
+  "production_sha256": "dceb419e1434ea9160c0598eba41a7a6af19dac02708cd705e76bc6581a08086",
+  "changed_files": [
+    "src/block_iterate.jl",
+    "src/block_prox.jl"
+  ],
+  "only_additions": [
+    "private eligible owned-active-vector copy specialization",
+    "bounded validated GroupNormL2 specialization"
+  ],
+  "generic_checker_wrappers_formulas_unchanged": true,
+  "scalar_writes_constructors_views_norm_dot_dependencies_exports_unchanged": true,
+  "block_copy_tests_each_runtime": 33644,
+  "performance_gate": "full corrected 4080-case paired gate running; acceptance pending"
+}

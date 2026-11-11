@@ -87,7 +87,7 @@ makedocs(;
             "SparseIterate" => "sparse_iterate.md",
             "SymmetricSparseIterate" => "symmetric_sparse_iterate.md",
             "BlockIterate" => "block_iterate.md",
-            "Coordinate oracles" => "iterate_oracles.md",
+            "Coordinate and block operations" => "iterate_oracles.md",
             "Symmetric parameters" => "symmetric_parameters.md",
         ],
         "Compatibility and migration" => "migration.md",

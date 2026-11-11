@@ -171,7 +171,7 @@ PB_SUITE=extended PB_GROUPS=products,sparse,block,owner JULIA_NUM_THREADS=1 \
   julia --project=benchmark benchmark/check_only.jl
 ```
 
-CI runs the driver's tests and the quick suite (839 cases) on Julia lts and 1 whenever the package
+CI runs the driver's tests and the quick suite (836 cases) on the applicable matrix versions whenever the package
 tests run or the benchmark harness changes, and uploads the errors file of a failing run as the
 artifact `benchmark-check-errors-<version>-<attempt>`. On recent pull-request runs, CI's
 quick-suite step took between about 1.5 and 4 minutes; its step for the driver's tests also runs

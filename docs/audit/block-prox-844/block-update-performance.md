@@ -181,8 +181,8 @@ writer/math controls) gives a combined target of 53.5→35 ns, ratio 0.649
 that independently compiled component timings add to the combined timing.
 Four ordinary writer cases still flag above 5%, including Float32 size-256
 inactive-zero strided views (127→144 ns, 1.134 [1.128, 1.140], A/A 1.007).
-All 55 cases allocate zero bytes. Public size-4 norms remain within the
-5% gate in both focused runs. The Julia 1.13 fixed-pass quadratic comparison
+All 55 cases allocate zero bytes. Public size-4 norm controls show no repeatable regression in these focused
+runs. The Julia 1.13 fixed-pass quadratic comparison
 has an A/A ratio of 1.106; its apparent speedup is therefore inconclusive.
 See [its raw record](measurements/block-updates-787/pending/bounded-focused-113/manifest.json).
 
@@ -226,3 +226,33 @@ IDs and an explicit combined-family regression check. This fixes a catalog
 bug without changing numerical or storage production code. Final-head CI,
 documentation and independent review remain required; a known performance
 failure is not a green acceptance result.
+
+
+## Final-source validation
+
+At head `0768d0c1` (production-identical to measured `2fb4d9aa`), the 14 local
+conformance files pass 1,310 assertions with 220 preexisting broken assertions,
+no failures/errors. The generated coverage payload matches the checked-in
+matrix; `--check` passes on Julia 1.13.3 and 1.10.13. The recorded provenance
+is refreshed separately from the unchanged coverage cells.
+
+All 5,616 scalar/group/wrapper/extreme-value differential rows match the
+preserved pre-change reference byte for byte on both requested runtimes
+(SHA-256 `38f602910b92cc26ab477a228deaea605c5bafe6128414be0a1197600f8be0fc`).
+All 3,774 diagnostic result hashes also match the PR baseline exactly on each
+runtime. These are correctness comparisons, not final performance acceptance.
+
+The Julia 1.10.13 documentation build passes all executable examples with
+deployment disabled. The Julia 1.13.3 benchmark harness passes 7,347 assertions,
+including the combined-family catalog regression. All 836 full quick reference cases pass with zero failures. Final-head GitHub
+checks are tracked in the PR body. See the [validation summary](measurements/block-updates-787/validation/summary.json) and checksummed raw logs/reports alongside it.
+
+The compiler audit confirms the source explanation: Julia 1.10's optimized
+Base destination-copy loop still loads `group_of` and `position` inside its
+nonzero-entry branches. The corresponding backing-vector loop has neither
+field. Ordinary type/index traits specialize away, while writer alias handling
+and explicit mathematical group/shape/overlap checks remain. Before the
+specialization, the compact math probe forwards through a non-inlined public
+call; the narrow candidate exposes that validated boundary. No numerical check
+is removed. Compiler output and its reproduction scripts accompany the raw
+validation evidence.

@@ -1218,7 +1218,7 @@ end
 # The kinds of captured value that the walker meets, over the catalogs that this file compares (the quick `blockview`,
 # `sparse` and `vectors` groups and the extended scenarios), must all be supported, and the supported list holds nothing
 # else but the kinds that a self-test needs and the kinds that only groups the oracle never compares reach. The census of
-# the whole quick catalog (`sel_census(build_cases(1))`, 839 cases) is not part of this test: it needs the builds of all
+# the whole quick catalog (`sel_census(build_cases(1))`) is not part of this test: it needs the builds of all
 # eleven groups, about two minutes cold, and belongs to the one-off audit.
 const SEL_SELF_TEST_KINDS = (:missing, :symbol, :string, :module, :box, :dict, :set)
 const SEL_NOT_COMPARED = [:ref => "constraints, matrices, owner"]

@@ -450,8 +450,11 @@ Restrict a retained function's entry parameters to the integer index vector S.
 NormL1 slices weights, centered SqrNormL2 slices its center, LinearFunction
 slices coefficients, QuadraticFunction selects its principal submatrix and
 linear term, vector-response LeastSquaresLoss selects design columns, and
-Scaled forwards. These restrictions assume omitted coordinates fixed at zero;
-a nonzero fixed point needs separately derived residual/linear terms. Raw restriction has no iterate
+Scaled forwards. For least squares and quadratics, omitted coordinates are fixed at zero.
+Centered SqrNormL2 drops the omitted-coordinate constant λ*sum(y[j]^2)/2;
+when finite, it changes values but not restricted minimizers/gradients/prox.
+Add it back for full-value comparisons. A nonzero fixed point needs separately
+derived residual/linear terms. Raw restriction has no iterate
 on which to validate symmetric per-entry parameters; validate the original
 function before using the result in a coordinate routine.
 """

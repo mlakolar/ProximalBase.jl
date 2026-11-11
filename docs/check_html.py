@@ -4,6 +4,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 import json
+import subprocess
 
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / 'build'
@@ -56,9 +57,19 @@ def main():
     pages = {p.resolve(): Page(p.resolve()) for p in BUILD.rglob('*.html')}
     assert pages, 'No generated HTML; run docs/make.jl first'
     errors = []
+    tracked = set(subprocess.check_output(['git', 'ls-files'], cwd=ROOT.parent, text=True).splitlines())
     link_count = 0
+    checked_source_links = 0
     for page in pages.values():
         for href in page.links + page.assets:
+            url = urlsplit(href)
+            for mode in ('blob', 'edit'):
+                prefix = f'/mlakolar/ProximalBase.jl/{mode}/master/'
+                if url.netloc == 'github.com' and url.path.startswith(prefix):
+                    checked_source_links += 1
+                    source = unquote(url.path[len(prefix):])
+                    if source not in tracked:
+                        errors.append(f'{page.path.relative_to(BUILD)}: untracked repository source/edit target {href}')
             # Documenter adds these version-selector scripts during deployment,
             # not makedocs. Their absence in a local artifact is expected.
             if href in page.assets and urlsplit(href).path.split('/')[-1] in ('siteinfo.js', 'versions.js'):
@@ -97,6 +108,7 @@ def main():
     assert not errors, '\n'.join(errors)
     report = dict(html_pages=len(pages), source_pages=source_count,
                   checked_local_links_and_assets=link_count,
+                  checked_repository_source_links=checked_source_links,
                   expandable_categories=len(home.toggles),
                   home_categories_initially_collapsed=True,
                   broken_links=0, orphan_pages=0,

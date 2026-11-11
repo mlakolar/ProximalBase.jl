@@ -75,7 +75,10 @@ metadata through fields or a view's parent indices.
 empty storage of the same kind/shape/layout. Same-kind state copies replace
 the destination's active set when shapes/layouts match. Ordinary array writes,
 broadcasts and most mathematical proximal writes preserve already active
-coordinates. A fresh allocating prox can omit the source's active zeros.
+coordinates. A fresh allocating prox can omit the source's active zeros. ZeroFunction is a
+copying exception: its distinct array-iterate output uses `copyto!`, replacing
+state for matching SparseIterate shapes/BlockIterate layouts. Its owner route
+instead uses coordinate value writes.
 
 For BlockIterate, same-layout `copyto!` replaces state; different layouts of
 the same entry length copy by value. A symmetric owner's `copyto!(x,A)` is a

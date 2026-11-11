@@ -41,7 +41,9 @@ const CONTRACT_PAGES = joinpath(@__DIR__, "src", "developer", "contracts")
 rm(CONTRACT_PAGES; force=true, recursive=true)
 mkpath(CONTRACT_PAGES)
 for file in ("block-prox-0.6.md", "iterate-family-0.6.md", "symmetric-sparse-iterate-0.6.md")
-    cp(joinpath(@__DIR__, "design", file), joinpath(CONTRACT_PAGES, file))
+    source = read(joinpath(@__DIR__, "design", file), String)
+    metadata = "```@meta\nEditURL = \"../../../design/$file\"\n```\n\n"
+    write(joinpath(CONTRACT_PAGES, file), metadata * source)
 end
 
 DocMeta.setdocmeta!(ProximalBase, :DocTestSetup, :(using ProximalBase, LinearAlgebra); recursive=true)

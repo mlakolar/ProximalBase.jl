@@ -13,6 +13,9 @@
 
 The zero function `f(x) = 0`: smooth, with gradient zero, and proximable, with
 the identity as proximal operator. The penalty of an unpenalized problem.
+Array proximal copies use copyto!, so matching SparseIterate/BlockIterate
+input and output replace active state when distinct. Owner proximal writes
+preserve destination activity. Owner gradients are not implemented.
 """
 struct ZeroFunction <: AbstractFunction end
 

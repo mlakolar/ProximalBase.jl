@@ -85,7 +85,12 @@ This is the ridge penalty with a factor of one half. `SqrNormL2(1,y)` is half
 the squared distance to `y`. It is smooth, convex, proximable and separable
 by trait, but it is not a `SeparableFunction` subtype and has no `value_entry`.
 It has scalar `prox_block`, scalar zero-coordinate screens and `restrict`:
-the latter slices the center, or returns the same uncentered object.
+the latter slices the center, or returns the same uncentered object. Slicing a
+center omits the constant ``(λ/2)\sum_{j\notin S}y_j^2`` from dropped coordinates
+fixed at zero. When that omitted contribution is finite, restore it when comparing full
+objective values; the restricted minimizers, gradient and prox are unaffected. Restriction does
+not check whether the discarded contribution is finite; a non-finite constant
+cannot be ignored when reasoning about the original extended-valued objective.
 `lipschitz(f)` is `float(λ)`. Array-step prox is not implemented.
 
 The value has the floating type of the argument. Gradient/prox calculations
@@ -182,6 +187,13 @@ an array step must still have the correct entry count. Prox returns the
 destination, combined prox returns zero. Type and shape errors still apply,
 even though the function is identically zero. Exact gradient aliasing is
 rejected; the value is zero even at NaN/Inf array entries.
+
+**Activity exception:** an array ZeroFunction prox copies via `copyto!` when
+the destination differs from the input. Between same-shaped SparseIterates or
+same-layout BlockIterates this replaces the destination's active state with the
+source's, including explicit zeros. A dense-source copy is an ordinary value
+write. The symmetric-owner route uses coordinate value writes and preserves
+its destination's existing activity. Exact in-place identity leaves state alone.
 
 ```@example library_zero
 using ProximalBase

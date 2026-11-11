@@ -95,8 +95,12 @@ alone cannot certify the full problem. Stored coordinates include explicit
 zeros and need not equal the current mathematical support.
 
 `restrict(f,S)` and `restrict(g,S)` slice supported function parameters, with
-local entry order given by S. They represent omitted variables fixed at zero;
-nonzero fixed variables require a separately derived residual/linear term.
+local entry order given by S. For least squares and quadratics, they represent omitted variables fixed at
+zero. Centered SqrNormL2 slices its center and drops the omitted-coordinate
+constant ``(λ/2)\sum_{j\notin S}y_j^2``. When that omitted contribution is finite, this
+changes objective values but not the restricted minimizers, gradients or prox;
+add the constant back when comparing full and restricted values. Nonzero fixed
+variables require a separately derived residual/linear term.
 Only vector-response LeastSquaresLoss has a restriction method. See
 [the working-set example](examples/sparse_working_sets.md).
 

@@ -35,14 +35,31 @@ API and developer overview at 1440×1050; Getting started at 390×844.
 - Desktop and mobile document widths fit their viewports; long code scrolls
   inside code blocks, preserving standard Documenter behavior.
 - Internal link/fragment targets and previous/next footers exist on all 48 pages.
+  Actual next/previous links were followed successfully in Chrome. The mobile
+  sidebar opened with its menu control and closed on a content click.
 - The standard read-only local build omits Documenter's deployment-generated
   siteinfo.js/versions.js; these optional selector scripts are not missing
   authored content. Network abort events during page navigation were observed;
   there were no JavaScript runtime exceptions.
 
-The HTML browser report and representative screenshots are added with the
-final inspection receipt. Structural validation is reproducible with
+The exact-head browser report is [inspection/browser-report.json](inspection/browser-report.json).
+Representative screenshots: [Home](inspection/home.png),
+[mathematical function guide](inspection/smooth.png),
+[extension code](inspection/extending.png), [mobile tutorial](inspection/getting-started-mobile.png)
+and [mobile sidebar](inspection/mobile-sidebar-open.png).
+The inspected content head is `6d9174b3ae280fff4a2fad8b78063054b21a08f8`;
+this receipt adds evidence without modifying rendered content. Structural validation is reproducible with
 `python3 docs/check_html.py`. Live browser checks complement that script.
+
+## Independent review and corrections
+
+[GPT-6.1 Sol high-effort review](https://github.com/mlakolar/ProximalBase.jl/pull/854#pullrequestreview-5861490159)
+was posted directly on PR #854. The P2 centered-ridge restriction constant and
+P3 ZeroFunction state-copy clarification are addressed in the guides/docstrings
+and executable working-set example. Kernel code remains unchanged. The reviewer
+also independently checked FP32/FP64 prox stationarity, fused values, aliases,
+owner geometry, array steps, API coverage, source preservation and HTML links.
+Final re-review and CI results are recorded in the PR conversation.
 
 ## Remaining merge gates
 

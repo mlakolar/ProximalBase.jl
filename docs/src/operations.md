@@ -41,6 +41,9 @@ residual/cache. See [coordinate oracles](iterate_oracles.md).
 `restrict` supports ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction,
 NormL1, vector-response LeastSquaresLoss, and Scaled when its leaf supports it.
 It does not encode a full subproblem offset at an arbitrary current point.
+Centered SqrNormL2 returns the sliced center and omits the constant value from
+dropped coordinates fixed at zero; add it back for full objective comparisons.
+When that constant is finite it does not affect restricted minimizers/gradients/prox.
 For a quadratic it selects the principal submatrix and matching linear term;
 for a vector-response loss it selects columns and retains the response.
 

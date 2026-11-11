@@ -1,0 +1,934 @@
+{
+  "browser": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/157.0.8103.38",
+    "revision": "@a733b5afbb3ba618844ff8876b89ad1a774b2f18",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+    "jsVersion": "15.7.112.23"
+  },
+  "base_url": "local HTTP preview",
+  "pages": [
+    {
+      "title": "Home \u00b7 ProximalBase.jl",
+      "width": 1440,
+      "bodyWidth": 1425,
+      "math": 2,
+      "katex": 8,
+      "katexErrors": 0,
+      "codeBlocks": 2,
+      "highlighted": 2,
+      "categories": [
+        {
+          "id": "menuitem-3",
+          "checked": false
+        },
+        {
+          "id": "menuitem-4",
+          "checked": false
+        },
+        {
+          "id": "menuitem-5",
+          "checked": false
+        },
+        {
+          "id": "menuitem-6",
+          "checked": false
+        },
+        {
+          "id": "menuitem-8",
+          "checked": false
+        },
+        {
+          "id": "menuitem-9",
+          "checked": false
+        },
+        {
+          "id": "menuitem-10",
+          "checked": false
+        }
+      ],
+      "footer": [
+        {
+          "label": "Getting started \u00bb",
+          "href": "http://127.0.0.1:42971/getting_started/"
+        },
+        {
+          "label": "Documenter.jl",
+          "href": "https://github.com/JuliaDocs/Documenter.jl"
+        },
+        {
+          "label": "Julia Programming Language",
+          "href": "https://julialang.org/"
+        }
+      ],
+      "active": [
+        "Home"
+      ],
+      "path": ""
+    },
+    {
+      "title": "Getting started \u00b7 ProximalBase.jl",
+      "width": 1440,
+      "bodyWidth": 1425,
+      "math": 5,
+      "katex": 18,
+      "katexErrors": 0,
+      "codeBlocks": 9,
+      "highlighted": 9,
+      "categories": [
+        {
+          "id": "menuitem-3",
+          "checked": false
+        },
+        {
+          "id": "menuitem-4",
+          "checked": false
+        },
+        {
+          "id": "menuitem-5",
+          "checked": false
+        },
+        {
+          "id": "menuitem-6",
+          "checked": false
+        },
+        {
+          "id": "menuitem-8",
+          "checked": false
+        },
+        {
+          "id": "menuitem-9",
+          "checked": false
+        },
+        {
+          "id": "menuitem-10",
+          "checked": false
+        }
+      ],
+      "footer": [
+        {
+          "label": "\u00ab Home",
+          "href": "http://127.0.0.1:42971/"
+        },
+        {
+          "label": "Function objects and capabilities \u00bb",
+          "href": "http://127.0.0.1:42971/function_objects/"
+        },
+        {
+          "label": "Documenter.jl",
+          "href": "https://github.com/JuliaDocs/Documenter.jl"
+        },
+        {
+          "label": "Julia Programming Language",
+          "href": "https://julialang.org/"
+        }
+      ],
+      "active": [
+        "Getting started"
+      ],
+      "path": "getting_started/"
+    },
+    {
+      "title": "Smooth functions and losses \u00b7 ProximalBase.jl",
+      "width": 1440,
+      "bodyWidth": 1425,
+      "math": 6,
+      "katex": 22,
+      "katexErrors": 0,
+      "codeBlocks": 12,
+      "highlighted": 12,
+      "categories": [
+        {
+          "id": "menuitem-3",
+          "checked": false
+        },
+        {
+          "id": "menuitem-4",
+          "checked": true
+        },
+        {
+          "id": "menuitem-5",
+          "checked": false
+        },
+        {
+          "id": "menuitem-6",
+          "checked": false
+        },
+        {
+          "id": "menuitem-8",
+          "checked": false
+        },
+        {
+          "id": "menuitem-9",
+          "checked": false
+        },
+        {
+          "id": "menuitem-10",
+          "checked": false
+        }
+      ],
+      "footer": [
+        {
+          "label": "\u00ab Browse available functions",
+          "href": "http://127.0.0.1:42971/function_library/"
+        },
+        {
+          "label": "Penalties \u00bb",
+          "href": "http://127.0.0.1:42971/penalties/"
+        },
+        {
+          "label": "Documenter.jl",
+          "href": "https://github.com/JuliaDocs/Documenter.jl"
+        },
+        {
+          "label": "Julia Programming Language",
+          "href": "https://julialang.org/"
+        }
+      ],
+      "active": [
+        "Smooth functions and losses"
+      ],
+      "path": "smooth/"
+    },
+    {
+      "title": "SymmetricSparseIterate \u00b7 ProximalBase.jl",
+      "width": 1440,
+      "bodyWidth": 1425,
+      "math": 1,
+      "katex": 6,
+      "katexErrors": 0,
+      "codeBlocks": 6,
+      "highlighted": 6,
+      "categories": [
+        {
+          "id": "menuitem-3",
+          "checked": false
+        },
+        {
+          "id": "menuitem-4",
+          "checked": false
+        },
+        {
+          "id": "menuitem-5",
+          "checked": false
+        },
+        {
+          "id": "menuitem-6",
+          "checked": true
+        },
+        {
+          "id": "menuitem-8",
+          "checked": false
+        },
+        {
+          "id": "menuitem-9",
+          "checked": false
+        },
+        {
+          "id": "menuitem-10",
+          "checked": false
+        }
+      ],
+      "footer": [
+        {
+          "label": "\u00ab SparseIterate",
+          "href": "http://127.0.0.1:42971/sparse_iterate/"
+        },
+        {
+          "label": "BlockIterate \u00bb",
+          "href": "http://127.0.0.1:42971/block_iterate/"
+        },
+        {
+          "label": "Documenter.jl",
+          "href": "https://github.com/JuliaDocs/Documenter.jl"
+        },
+        {
+          "label": "Julia Programming Language",
+          "href": "https://julialang.org/"
+        }
+      ],
+      "active": [
+        "SymmetricSparseIterate"
+      ],
+      "path": "symmetric_sparse_iterate/"
+    },
+    {
+      "title": "Writing your own function \u00b7 ProximalBase.jl",
+      "width": 1440,
+      "bodyWidth": 1425,
+      "math": 0,
+      "katex": 5,
+      "katexErrors": 0,
+      "codeBlocks": 2,
+      "highlighted": 2,
+      "categories": [
+        {
+          "id": "menuitem-3",
+          "checked": true
+        },
+        {
+          "id": "menuitem-4",
+          "checked": false
+        },
+        {
+          "id": "menuitem-5",
+          "checked": false
+        },
+        {
+          "id": "menuitem-6",
+          "checked": false
+        },
+        {
+          "id": "menuitem-8",
+          "checked": false
+        },
+        {
+          "id": "menuitem-9",
+          "checked": false
+        },
+        {
+          "id": "menuitem-10",
+          "checked": false
+        }
+      ],
+      "footer": [
+        {
+          "label": "\u00ab Array and precision conventions",
+          "href": "http://127.0.0.1:42971/numerical_usage/"
+        },
+        {
+          "label": "Browse available functions \u00bb",
+          "href": "http://127.0.0.1:42971/function_library/"
+        },
+        {
+          "label": "Documenter.jl",
+          "href": "https://github.com/JuliaDocs/Documenter.jl"
+        },
+        {
+          "label": "Julia Programming Language",
+          "href": "https://julialang.org/"
+        }
+      ],
+      "active": [
+        "Writing your own function"
+      ],
+      "path": "extending/"
+    },
+    {
+      "title": "A compact-vector block extension \u00b7 ProximalBase.jl",
+      "width": 1440,
+      "bodyWidth": 1425,
+      "math": 0,
+      "katex": 0,
+      "katexErrors": 0,
+      "codeBlocks": 5,
+      "highlighted": 5,
+      "categories": [
+        {
+          "id": "menuitem-3",
+          "checked": false
+        },
+        {
+          "id": "menuitem-4",
+          "checked": false
+        },
+        {
+          "id": "menuitem-5",
+          "checked": false
+        },
+        {
+          "id": "menuitem-6",
+          "checked": false
+        },
+        {
+          "id": "menuitem-8",
+          "checked": true
+        },
+        {
+          "id": "menuitem-9",
+          "checked": false
+        },
+        {
+          "id": "menuitem-10",
+          "checked": false
+        }
+      ],
+      "footer": [
+        {
+          "label": "\u00ab A custom separable function",
+          "href": "http://127.0.0.1:42971/examples/custom_function/"
+        },
+        {
+          "label": "Overview and contract map \u00bb",
+          "href": "http://127.0.0.1:42971/developer/"
+        },
+        {
+          "label": "Documenter.jl",
+          "href": "https://github.com/JuliaDocs/Documenter.jl"
+        },
+        {
+          "label": "Julia Programming Language",
+          "href": "https://julialang.org/"
+        }
+      ],
+      "active": [
+        "A compact-vector block extension"
+      ],
+      "path": "examples/block_prox_extension/"
+    },
+    {
+      "title": "The interface \u00b7 ProximalBase.jl",
+      "width": 1440,
+      "bodyWidth": 1425,
+      "math": 0,
+      "katex": 0,
+      "katexErrors": 0,
+      "codeBlocks": 27,
+      "highlighted": 27,
+      "categories": [
+        {
+          "id": "menuitem-3",
+          "checked": false
+        },
+        {
+          "id": "menuitem-4",
+          "checked": false
+        },
+        {
+          "id": "menuitem-5",
+          "checked": false
+        },
+        {
+          "id": "menuitem-6",
+          "checked": false
+        },
+        {
+          "id": "menuitem-8",
+          "checked": false
+        },
+        {
+          "id": "menuitem-9",
+          "checked": false
+        },
+        {
+          "id": "menuitem-10",
+          "checked": true
+        }
+      ],
+      "footer": [
+        {
+          "label": "\u00ab Overview",
+          "href": "http://127.0.0.1:42971/api/"
+        },
+        {
+          "label": "Functions \u00bb",
+          "href": "http://127.0.0.1:42971/api/functions/"
+        },
+        {
+          "label": "Documenter.jl",
+          "href": "https://github.com/JuliaDocs/Documenter.jl"
+        },
+        {
+          "label": "Julia Programming Language",
+          "href": "https://julialang.org/"
+        }
+      ],
+      "active": [
+        "The interface"
+      ],
+      "path": "api/interface/"
+    },
+    {
+      "title": "Overview and contract map \u00b7 ProximalBase.jl",
+      "width": 1440,
+      "bodyWidth": 1425,
+      "math": 0,
+      "katex": 0,
+      "katexErrors": 0,
+      "codeBlocks": 0,
+      "highlighted": 0,
+      "categories": [
+        {
+          "id": "menuitem-3",
+          "checked": false
+        },
+        {
+          "id": "menuitem-4",
+          "checked": false
+        },
+        {
+          "id": "menuitem-5",
+          "checked": false
+        },
+        {
+          "id": "menuitem-6",
+          "checked": false
+        },
+        {
+          "id": "menuitem-8",
+          "checked": false
+        },
+        {
+          "id": "menuitem-9",
+          "checked": true
+        },
+        {
+          "id": "menuitem-10",
+          "checked": false
+        }
+      ],
+      "footer": [
+        {
+          "label": "\u00ab A compact-vector block extension",
+          "href": "http://127.0.0.1:42971/examples/block_prox_extension/"
+        },
+        {
+          "label": "System architecture \u00bb",
+          "href": "http://127.0.0.1:42971/architecture/"
+        },
+        {
+          "label": "Documenter.jl",
+          "href": "https://github.com/JuliaDocs/Documenter.jl"
+        },
+        {
+          "label": "Julia Programming Language",
+          "href": "https://julialang.org/"
+        }
+      ],
+      "active": [
+        "Overview and contract map"
+      ],
+      "path": "developer/index.html"
+    },
+    {
+      "title": "Getting started \u00b7 ProximalBase.jl",
+      "width": 390,
+      "bodyWidth": 390,
+      "math": 5,
+      "katex": 18,
+      "katexErrors": 0,
+      "codeBlocks": 9,
+      "highlighted": 9,
+      "categories": [
+        {
+          "id": "menuitem-3",
+          "checked": false
+        },
+        {
+          "id": "menuitem-4",
+          "checked": false
+        },
+        {
+          "id": "menuitem-5",
+          "checked": false
+        },
+        {
+          "id": "menuitem-6",
+          "checked": false
+        },
+        {
+          "id": "menuitem-8",
+          "checked": false
+        },
+        {
+          "id": "menuitem-9",
+          "checked": false
+        },
+        {
+          "id": "menuitem-10",
+          "checked": false
+        }
+      ],
+      "footer": [
+        {
+          "label": "\u00ab Home",
+          "href": "http://127.0.0.1:42971/"
+        },
+        {
+          "label": "Function objects and capabilities \u00bb",
+          "href": "http://127.0.0.1:42971/function_objects/"
+        },
+        {
+          "label": "Documenter.jl",
+          "href": "https://github.com/JuliaDocs/Documenter.jl"
+        },
+        {
+          "label": "Julia Programming Language",
+          "href": "https://julialang.org/"
+        }
+      ],
+      "active": [
+        "Getting started"
+      ],
+      "path": "getting_started/ (mobile)"
+    }
+  ],
+  "sidebar_tests": [
+    {
+      "id": "menuitem-3",
+      "opens": true,
+      "closes": true
+    },
+    {
+      "id": "menuitem-4",
+      "opens": true,
+      "closes": true
+    },
+    {
+      "id": "menuitem-5",
+      "opens": true,
+      "closes": true
+    },
+    {
+      "id": "menuitem-6",
+      "opens": true,
+      "closes": true
+    },
+    {
+      "id": "menuitem-8",
+      "opens": true,
+      "closes": true
+    },
+    {
+      "id": "menuitem-9",
+      "opens": true,
+      "closes": true
+    },
+    {
+      "id": "menuitem-10",
+      "opens": true,
+      "closes": true
+    }
+  ],
+  "footer_navigation": {
+    "next_link_followed": true,
+    "previous_link_followed": true
+  },
+  "mobile_sidebar": {
+    "opens": true,
+    "closes_on_content_click": true
+  },
+  "mobile_controls": [
+    {
+      "tag": "A",
+      "id": "documenter-sidebar-button",
+      "cls": "docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop",
+      "title": ""
+    }
+  ],
+  "runtime_events": [
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.11",
+        "timestamp": 44669.746447,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.12",
+        "timestamp": 44669.746512,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/versions.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.168",
+        "timestamp": 44670.118146,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/versions.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.167",
+        "timestamp": 44670.120051,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.322",
+        "timestamp": 44670.288253,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.323",
+        "timestamp": 44670.289203,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/versions.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.477",
+        "timestamp": 44670.448192,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.478",
+        "timestamp": 44670.448266,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/versions.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.633",
+        "timestamp": 44670.611962,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/versions.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.632",
+        "timestamp": 44670.612102,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.787",
+        "timestamp": 44670.77683,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.788",
+        "timestamp": 44670.776932,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/versions.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.943",
+        "timestamp": 44670.94536,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/versions.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.942",
+        "timestamp": 44670.945432,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.1097",
+        "timestamp": 44671.103265,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.1098",
+        "timestamp": 44671.103342,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/versions.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.1252",
+        "timestamp": 44671.273274,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.1253",
+        "timestamp": 44671.27333,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/versions.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.1407",
+        "timestamp": 44671.394377,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.1408",
+        "timestamp": 44671.394451,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/versions.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.1563",
+        "timestamp": 44671.512623,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/versions.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.1562",
+        "timestamp": 44671.512751,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.1717",
+        "timestamp": 44671.625563,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.1718",
+        "timestamp": 44671.626683,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/versions.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.1873",
+        "timestamp": 44671.748816,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/versions.js"
+    },
+    {
+      "method": "Network.loadingFailed",
+      "params": {
+        "requestId": "144519.1872",
+        "timestamp": 44671.748871,
+        "type": "Script",
+        "errorText": "net::ERR_ABORTED",
+        "canceled": true
+      },
+      "sessionId": "AC67CE23473CEBC02D5309395972E19B",
+      "request_url": "http://127.0.0.1:42971/siteinfo.js"
+    }
+  ],
+  "inspected_head": "6d9174b3ae280fff4a2fad8b78063054b21a08f8"
+}

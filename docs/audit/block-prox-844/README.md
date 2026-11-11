@@ -8,8 +8,10 @@ Independent numerical output is a caller precondition, including when public
 `activevalues` accessors expose storage-backed views.
 
 The current performance follow-up corrects writer benchmark setup, removes
-the custom inactive writer, and measures a bounded already-active fast path.
-The small validated GroupNormL2 optimization is evaluated separately. No new
+the custom inactive writer, and evaluates already-active fast paths. Those writer trials are now deferred
+after confirmed ordinary-path regressions. The remaining candidate optimizes
+small validated GroupNormL2 CPU calls and preserves original checked wrapper
+routing; it is evaluated independently. No new
 view type, public writer, unchecked operation or #426 protection is introduced.
 See [the investigation](block-update-performance.md).
 
@@ -46,5 +48,8 @@ for each breaking PB master merge. PS #238 owns its future naming migration;
 PS #230 and PB #527 retain wider release integration. No downstream gate is
 waived and no ProximalSolvers source, pins, tests, docs, CI or PR #237 is changed.
 
-The PR stays draft and unmerged. Performance acceptance remains pending until
-the corrected final-source gate is complete. No Claude is used.
+The corrected mathematical candidate's full matrices and independent
+confirmations are complete; compact results and immutable raw evidence are
+linked from the investigation. Writer optimization is deferred. The original
+bulk/whole-solver performance gate and independent review remain pending.
+The PR stays draft and unmerged. No Claude is used.

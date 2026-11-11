@@ -22,16 +22,12 @@ are zero, and joins the end of the active list once when a converted value
 is nonzero. NaN and infinities count as nonzero; signed zeros do not.
 Unrelated blocks and their order are unchanged.
 
-For matching `Float32` or `Float64` ordinary vectors, eligible sufficiently
-large already-active blocks can update backing values directly after one
-activity check. Views, zero-leading inputs, inactive blocks and small copies
-use Base value-write semantics. An independent source does not allocate. Contiguous,
-noncontiguous and reordered owned groups have the same semantics. Other
-sources, partial copies and arbitrary views keep ordinary scalar value-write
-behavior. A shorter source copies a prefix as in Base; an overlong source fails
-before writing. Overlapping sources are snapshotted as needed and may allocate.
-A failing source read or conversion can leave a partially written block;
-every stored nonzero is nevertheless represented in the active set.
+The operation follows Base's value-copy and alias semantics. A shorter source
+copies a prefix; an overlong source fails before writing. Overlapping sources
+are snapshotted as needed and may allocate. A failing source read or conversion
+can leave a partially written block; every stored nonzero remains represented
+in the active set. Independent ordinary same-type copies allocate no storage.
+Contiguous, noncontiguous and reordered groups have the same value semantics.
 
 ```@example block_bulk_guide
 using ProximalBase

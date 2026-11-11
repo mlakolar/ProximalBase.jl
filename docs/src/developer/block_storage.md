@@ -56,24 +56,19 @@ state copying does not overwrite the destination's cache.
 
 ## Complete-block value copies
 
-The specialized `copyto!(blockview(x,k), values)` retains `SubArray` and
-recognizes an exact owned group by one reverse lookup and index identity.
-The current experiment limits the fast path to already-active blocks of at
-least 16 entries and ordinary same-type Float32/Float64 vectors or supported
-Array-backed views. The cutoff is subject to paired measurement.
+`copyto!(blockview(x,k), values)` uses Base's existing value-copy path.
+It snapshots aliases as needed and writes through the iterate's scalar setter.
+Active groups retain their slots even for zero results; absent groups activate
+when a converted nonzero is written. Prefixes, arbitrary views and fallible
+reads/conversions retain Base's established partial-write behavior. A value
+copy does not have the atomic failure promise of an iterate state copy.
 
-Small, partial, inactive and unrecognized views use Base's existing scalar
-value-write path. Eligible active copies finish `Base.unalias` before writing,
-then use the existing private storage view and Base's unaliased index-style
-copy. They neither query activity per entry nor modify the active list.
-There is no custom inactive writer or deferred activation.
-
-Fallible readers, conversions, partial sources and unrecognized views retain
-the generic scalar path. This preserves prefix-copy semantics and the existing
-partial-failure state: a successfully stored nonzero is active before another
-source element can throw. A value copy never has the stronger atomic failure
-promise of an iterate state copy. Owned layout indices remain immutable and
-`blockindices` remains read-only.
+The #787 active-only bulk-write experiments remain deferred: measured guards
+and forwarding slowed ordinary small/arbitrary writes beyond the performance
+gate. No custom inactive writer, deferred activation, extra view type or
+private-storage API is shipped. Group indices remain immutable in use and
+`blockindices` remains read-only. Tests cover larger groups and aliases so a
+future optimization can be reviewed against the same public semantics.
 
 ## Oracle boundaries and failure behavior
 

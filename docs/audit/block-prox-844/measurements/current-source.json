@@ -1,17 +1,73 @@
 {
   "baseline": "a9f53e6ef3febffd58496c4a1c4fcb7609d0ca1c",
-  "candidate": "26b6ec6446d732771dabb8bede50e90cf49bf125",
-  "production_sha256": "dceb419e1434ea9160c0598eba41a7a6af19dac02708cd705e76bc6581a08086",
+  "candidate": "424c5e9ed4731ae871d68b855725ee287c2081e2",
+  "production_sha256": "bd14d270fe9543ec100bb1bb4ce36c4af959d9f6910f824108c0c4266d977f89",
   "changed_files": [
-    "src/block_iterate.jl",
     "src/block_prox.jl"
   ],
-  "only_additions": [
-    "private eligible owned-active-vector copy specialization",
-    "bounded validated GroupNormL2 specialization"
-  ],
-  "generic_checker_wrappers_formulas_unchanged": true,
-  "scalar_writes_constructors_views_norm_dot_dependencies_exports_unchanged": true,
-  "block_copy_tests_each_runtime": 33644,
-  "performance_gate": "full corrected 4080-case paired gate running; acceptance pending"
+  "bulk_writer": "deferred; iterate implementation byte-identical to baseline",
+  "math_change": "bounded builtin CPU GroupNormL2 entry with original checked CPU wrapper routing",
+  "generic_checker_formulas_unchanged": true,
+  "backend_and_custom_function_public_dispatch": true,
+  "tests_each_runtime": 48801,
+  "performance_gate": "Incremental math candidate: no independently repeated >5% regression in the recorded confirmations; historical bulk and whole-solver gate remains pending",
+  "performance_runs": {
+    "final110": {
+      "case_count": 4080,
+      "paired_repetitions": 10,
+      "flagged_cases": 5
+    },
+    "confirm110": {
+      "case_count": 9,
+      "paired_repetitions": 10,
+      "flagged_cases": 0
+    },
+    "final113": {
+      "case_count": 4080,
+      "paired_repetitions": 10,
+      "flagged_cases": 8
+    },
+    "confirm113": {
+      "case_count": 12,
+      "paired_repetitions": 10,
+      "flagged_cases": 0
+    }
+  },
+  "allocation_increases": {
+    "final110": [],
+    "confirm110": [],
+    "final113": [],
+    "confirm113": []
+  },
+  "evidence_commit": "4d05b0d6338d869c769887a91771fca85fd76d6d",
+  "evidence_archive_sha256": "4cb5e7817ad98a50cc41350bcc478f6f4d8f655c6fdfc28b7b450f4d5cc44e0d",
+  "fresh_local_validation": {
+    "source": "424c5e9ed4731ae871d68b855725ee287c2081e2",
+    "julia_versions": [
+      "1.10.13",
+      "1.13.3"
+    ],
+    "targeted_assertions_each": 48801,
+    "conformance": {
+      "julia": "1.13.3",
+      "pass": 1310,
+      "broken": 220,
+      "failed": 0,
+      "errors": 0
+    },
+    "numerical_differential": {
+      "rows": 5616,
+      "reference_sha256": "38f602910b92cc26ab477a228deaea605c5bafe6128414be0a1197600f8be0fc",
+      "byte_identical": true
+    },
+    "documentation": {
+      "julia": "1.13.3",
+      "build": "passed",
+      "deployment": false
+    },
+    "conformance_snapshot_check": {
+      "1.10.13": "passed",
+      "1.13.3": "passed"
+    }
+  }
 }

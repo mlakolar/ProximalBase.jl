@@ -77,18 +77,14 @@ their existing exact movement/NaN decisions before updating residuals.
 Performance of these public writes is measured with the companion migration;
 this does not redesign the generalized storage API of #787.
 
-The PB #787 follow-up specializes complete owned-block view copies for
-eligible ordinary matching floating vectors. It checks the owned active block
-once, snapshots an overlapping source before writing, and updates backing
-values without per-entry activation. Inactive, small, zero-leading and other
-source cases retain Base scalar value-write behavior, including activation
-only for converted nonzeros and partial-failure safety. This
-optimization belongs to storage, not to the mathematical oracle.
-A specialized validated `GroupNormL2` boundary exposes its existing checks
-to small-loop optimization for buffers of at most 32 entries. Larger buffers,
-the generic boundary and wrapper forwarding keep their original route. No
-check, wrapper dispatch or public extension method is
-removed; nested wrappers retain public validation.
+The PB #787 bulk-writer candidates are deferred after corrected paired tests
+found ordinary-path regressions. Public block views keep Base value writes;
+no new view type, writer API or private-storage solver dependency is introduced.
+A bounded validated GroupNormL2 entry targets small builtin CPU buffers.
+Builtin CPU wrapper leaves deliberately use the original generic checked entry
+to preserve larger-view performance; custom functions and backend-owned buffers
+retain public dispatch. No required check or numerical formula is removed.
+The final performance gate must validate this math change independently.
 The separate size-5, 24-group diagnostic uses individual entry writes, so its
 result cannot be attributed to the bulk writer. PB-only timings do not replace
 the separately scoped PS whole-solver integration/performance gate.

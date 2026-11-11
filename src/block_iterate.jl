@@ -292,38 +292,17 @@ const _BlockCopySource{T} = Union{Vector{T},
   SubArray{T, 1, <:Array{T}, <:Tuple{Vararg{Union{Int, UnitRange{Int}, StepRange{Int, Int}, Base.OneTo{Int}, Base.Slice{Base.OneTo{Int}}}}}}}
 
 @inline function Base.copyto!(dest::SubArray{T, 1, <:BlockIterate{T, <:AbstractVector{G}}, Tuple{G}}, src::_BlockCopySource{T}) where {T<:Union{Float32, Float64}, G<:_BlockCopyIndices}
-  # Base permits a shorter prefix source; retain that behavior in the fallback.
-  length(src) == length(dest) && !isempty(dest) ||
+  # Small/partial copies retain Base's value-write path before any group lookup.
+  length(dest) >= 16 && length(src) == length(dest) ||
     return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
-  n = length(src)
-  if n == 1
-    # A scalar is the complete alias snapshot; one write needs no bulk lookup.
-    value = @inbounds src[1]
-    @inbounds dest[1] = value
-    return dest
-  end
   x, ids = parent(dest), only(parentindices(dest))
   k = @inbounds x.group_of[first(ids)]
-  ids === @inbounds(x.groups[k]) ||
+  if ids !== @inbounds(x.groups[k]) || @inbounds(x.position[k]) == 0
     return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
-  values = Base.unalias(dest, src)    # all fallible work finishes before writes
-  storage = _block_storage(x, k)
-  if @inbounds x.position[k] != 0
-    # Base's index-style copy preserves vectorized/strided large-buffer paths.
-    Base.copyto_unaliased!(IndexStyle(storage), storage, IndexStyle(values), values)
-  else
-    nonzero = false
-    # Owned groups have distinct validated indices; the ordinary source is
-    # already unaliased. Reads, same-type stores and comparisons cannot throw.
-    @inbounds @simd ivdep for j in 1:n
-      value = values[j]
-      nonzero |= !iszero(value)
-      storage[j] = value
-    end
-    # No supported throw point occurs between the infallible loop and this
-    # activation: k/capacity are valid for this owned, previously inactive group.
-    nonzero && activate!(x, k)
   end
+  values = Base.unalias(dest, src)
+  storage = _block_storage(x, k)
+  Base.copyto_unaliased!(IndexStyle(storage), storage, IndexStyle(values), values)
   dest
 end
 

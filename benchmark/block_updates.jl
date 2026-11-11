@@ -4,6 +4,7 @@
 # Every sample has one evaluation: setup is outside timing, including restoration
 # of in-place inputs and initially inactive blocks. Warm-up never enters results.
 using ProximalBase, BenchmarkTools, LinearAlgebra, Statistics, SHA, Random
+using SparseArrays: dropzeros!
 const PB = ProximalBase
 Base.JLOptions().check_bounds == 2 || error("run with --check-bounds=no")
 BLAS.set_num_threads(1)
@@ -213,6 +214,12 @@ for T in (Float32,Float64), n in (1,5,8,32,256)
     for strided in (false,true)
         combined_probe(T,n,strided)
     end
+end
+# Additional writer sizes establish the profitable cutoff independently of math.
+for T in (Float32,Float64), n in (16,64,128),
+    layout in (:range,:strided,:reversed), state in (:active_nonzero,:active_zero,:inactive_nonzero,:inactive_zero),
+    source in (:vector,:view,:conversion,:checked)
+    writer_probes(T,n,layout,state,source)
 end
 for T in (Float32,Float64)
     control_probes(T)

@@ -1,0 +1,12 @@
+Independent final reviewer correctness smoke, source e272df3b87dcacb982b64b0e2124ca75cc50a966.
+Source tree identical to d11d70893697579aef34bddeed900c6144f38df8.
+Executed once using Julia 1.13.3, JULIA_DEPOT_PATH=/tmp/pb848-verify-depot,
+--startup-file=no --check-bounds=yes --project=/tmp/pb849-minimal,
+via stdin. Script saved afterward from the executed body as pb849-final-review-smoke.jl.
+This log transcribes the actual test-summary stdout from exec session 57492;
+interactive echoes of definitions and the resulting DefaultTestSet are omitted.
+
+Test Summary:                 | Pass  Total  Time
+Independent final review #850 |   78     78  6.1s
+
+Process exit code: 0

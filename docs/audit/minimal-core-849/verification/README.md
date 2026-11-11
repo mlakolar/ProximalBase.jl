@@ -25,3 +25,11 @@ Its captured log contains two failures of the old 64-byte growth allowance;
 this is intentional historical evidence, not a passing test or part of the
 supported runner. The migrated test keeps a constant 512-byte allowance and
 the original strict total-allocation cap. Display/storage code is unchanged.
+
+The fresh final reviewer passed 78 further assertions on source e272df3b/d11,
+including empty, underdetermined and multiresponse least squares; exact aliases
+and cache resets; ordered weighted Scaled block KKT; a live read-only symmetric
+matrix view; and custom Scaled symmetric parameter validation. The reviewer
+executed the body once through stdin, saved the script afterward and provided
+an explicitly transcribed stdout summary/provenance. The .log labels this
+accurately; it is not represented as a captured full raw process log.

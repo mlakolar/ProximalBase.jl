@@ -33,6 +33,22 @@ stored-output value for `value_and_prox!`. Proximal output may be exactly the
 input; gradient output must be independent. Do not write parameters, input
 buffers or solver storage while constructing a pure numerical result.
 
+## Floating-point precision for extensions
+
+For the supported CPU numerical targets, test custom functions with
+homogeneous `Float64` arguments/parameters/outputs and, where supported
+by the extension, homogeneous `Float32` arguments/parameters/outputs.
+Custom hooks are not automatically required to handle mixed
+`Float32`/`Float64` calls, and the generic interface does not supply
+arbitrary-precision or exceptional-range recovery. If an extension
+supports additional combinations, document their conversion and result
+type rules separately.
+
+Stable formulas and selective recovery for representable results are
+encouraged. The common finite path should remain efficient; the
+extension author decides which exceptional cases merit additional
+arithmetic. See the [numerical contract](numerics.md).
+
 ## Separable functions
 
 Suppose the function can be written as a sum of independent coordinate terms,

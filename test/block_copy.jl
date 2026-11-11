@@ -63,7 +63,7 @@ caught(op) = try op(); nothing catch err; typeof(err) end
   for T in (Float32,Float64), gs in layouts, k in eachindex(gs), active in (false,true)
     n = length(gs[k])
     for data in (zeros(T,n),fill(-zero(T),n),ones(T,n),fill(T(NaN),n),fill(T(Inf),n),
-                 T[isodd(i) ? -Inf : 0 for i in 1:n])
+                 T[isodd(i) ? -Inf : 0 for i in 1:n], T[isodd(i) ? 0 : 2 for i in 1:n])
       for source in (data,view(vcat(data,data),1:n),view(repeat(data;inner=2),1:2:2n))
         x = initial(T,gs,k,active); ref = copy(x)
         h = blockindices(x,k); before_indices = collect(h)

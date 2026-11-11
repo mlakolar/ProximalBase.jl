@@ -15,11 +15,6 @@ function _check_block_buffers(out, f, u, k)
   _check_block_parameters(f, _model_type(out, u), k)
   nothing
 end
-# Expose only integer/type/alias preflight to specialization; public numerical
-# forwarding and its floating-point boundaries retain their original bodies.
-@inline function _check_block_buffers(out, f::GroupNormL2, u, k)
-  @inline invoke(_check_block_buffers, Tuple{Any, Any, Any, Any}, out, f, u, k)
-end
 _check_block_parameters(::AbstractFunction, ::Type, k) = nothing
 _check_block_parameters(f::Scaled, T::Type, k) = _check_block_parameters(f.f, T, k)
 function _check_block_parameters(f::Regularize, T::Type, k)
@@ -41,6 +36,21 @@ function prox_block!(out::AbstractVector, f::AbstractFunction, u::AbstractVector
   _check_block_buffers(out, f, u, k)
   _prox_block!(out, f, u, k, γ)
   out
+end
+
+# Only builtin CPU buffers use this specialization; custom/GPU buffers retain
+# their public dispatch. Wrapped builtin leaves keep the original checked route.
+const _BlockMathBuffer{T} = Union{Vector{T}, SubArray{T, 1, Vector{T}, Tuple{UnitRange{Int}}, true}}
+@inline function prox_block!(out::_BlockMathBuffer{T}, f::GroupNormL2, u::_BlockMathBuffer{T}, k::Integer, γ::Real) where {T<:Union{Float32, Float64}}
+  length(out) > 32 && return invoke(prox_block!,
+    Tuple{AbstractVector, AbstractFunction, AbstractVector, Integer, Real}, out, f, u, k, γ)
+  @inline _check_block_buffers(out, f, u, k)
+  _prox_block!(out, f, u, k, γ)
+  out
+end
+@inline _forward_prox_block!(out, f, u, k, γ) = prox_block!(out, f, u, k, γ)
+@inline function _forward_prox_block!(out::_BlockMathBuffer{T}, f::GroupNormL2, u::_BlockMathBuffer{T}, k::Integer, γ::Real) where {T<:Union{Float32, Float64}}
+  invoke(prox_block!, Tuple{AbstractVector, AbstractFunction, AbstractVector, Integer, Real}, out, f, u, k, γ)
 end
 
 @inline function _prox_block!(out, f::HomogeneousGroupNorm, u, k, γ)
@@ -96,9 +106,9 @@ end
 function _prox_block!(out, s::Scaled, u, k, γ)
   if _nested_route(s, γ)
     f, step, _ = _nested_step(s, γ)
-    return prox_block!(out, f, u, k, step)
+    return _forward_prox_block!(out, f, u, k, step)
   end
-  prox_block!(out, s.f, u, k, s.α * γ)
+  _forward_prox_block!(out, s.f, u, k, s.α * γ)
 end
 function _prox_block!(out, r::Regularize, u, k, γ)
   T = float(eltype(out))
@@ -107,5 +117,5 @@ function _prox_block!(out, r::Regularize, u, k, γ)
   @inbounds for j in eachindex(out, u)
     out[j] = r.c === nothing ? a * u[j] : _ridge_blend(u[j], r.c[G[j]], a, b)
   end
-  prox_block!(out, r.f, out, k, step)
+  _forward_prox_block!(out, r.f, out, k, step)
 end

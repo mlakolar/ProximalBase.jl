@@ -396,7 +396,7 @@ function Base.copyto!(dest::BlockIterate{T}, src::BlockIterate{S}) where {T, S}
   dest === src && return dest
   length(dest) == length(src) || throw(DimensionMismatch())
   _samelayout(dest, src) ||
-    return invoke(Base.copyto_unaliased!, Tuple{IndexStyle, AbstractArray, IndexStyle, AbstractArray}, deststyle, dest, srcstyle, src)
+    return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
   # a fallible conversion runs once, before dest is touched, and the copy reads its result
   bufs = _convert_may_throw(T, S) ?
     [T[convert(T, v) for v in _block_storage(src, src.active[a])] for a in 1:src.nactive] : nothing

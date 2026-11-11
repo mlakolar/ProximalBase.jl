@@ -63,7 +63,8 @@ For functions of an individual **prediction** ``\eta`` and
 It is called as `loss(η, y)`, not `f(x)`, and has the
 specialized `deriv`, `deriv2` and `value_and_deriv` operations.
 It is not a general array loss constructor or an automatic regression
-model. See [Scalar squared loss](smooth.md#Scalar-squared-loss).
+model. See [Scalar losses](scalar_losses.md) for the separate interface and
+[Squared loss](scalar_squared.md) for its mathematical definition and Julia example.
 
 ## Combining functions
 

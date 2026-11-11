@@ -284,3 +284,20 @@ conservatively marked superseded in the exported CSVs and replaced for source
 attribution by this control; raw observations remain unchanged. The CI
 allocation/typed-code evidence already confirms the runtime-selection artifact
 (345600→0 bytes, Any→concrete SubArray), with 0→0 bytes in the other sources.
+
+## Existing backing-array BLAS strategy control, specified before timing
+
+Default AtomIterate dot/mul! methods may use generic array traversal, but its
+existing storage Vector also supports native dense BLAS. A separate control
+compares original dot(v,x.storage)/mul!(out,A,x.storage) with current dot(v,x)/
+mul!(out,A,x), reusing raw-native fixtures for both precisions/all block layouts.
+There is no timed conversion or historical kernel shim. Current storage also
+supports the same dense BLAS route; this is an available-strategy comparison,
+not unique credit to an ownership redesign. Deterministic finite operands make
+the products mathematically equivalent; nonfinite zero-skipping contracts are
+outside this control. Construction remains outside timing. Common-full setup,
+80 samples/1 s, fresh original/current/A/A processes, seven rounds 601–607 and
+21 additional rounds 608–628 for every >5% flag use the same paired protocol.
+The control runs after corrected historical attribution and before post-timing
+validation/packing, with no overlapping Julia work. Default-API results remain
+separate and cannot alone establish a best-historical-strategy speedup.

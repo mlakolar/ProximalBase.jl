@@ -207,7 +207,8 @@ Each process contributes its trial median; the point estimate is the median
 of paired round ratios. Absolute times are marginal medians of per-round
 medians, so their quotient need not equal the paired ratio. Allocation bytes
 and counts are BenchmarkTools trial estimates; individual timing/GC samples
-are separate. Reachable heap is Base.summarysize of the fixture, not RSS,
+are separate. They describe Julia-managed heap allocation; native-library
+allocation and process RSS are not measured. Reachable heap is Base.summarysize of the fixture, not RSS,
 reserved capacity outside reachable Julia objects or incremental copy ownership.
 
 95% intervals use a seeded 10,000-resample percentile bootstrap of whole
@@ -342,6 +343,8 @@ preserving their working sets before timing. All legacy historical05 block
 contrasts are conservatively marked superseded in the exported CSVs. Corrected
 static-adapter historical timing is pending; raw observations remain available.
 An agent-era baseline cannot silently be substituted for the pre-agent source.
+This defect belongs to this new cross-version adapter. Frozen historical
+baseline files and their reproducer remain unchanged.
 
 The active-group design appears in source history at
 7cee9dd439479ba8d94dff375810beaabd396461 (2026-10-22). That is source-history
@@ -373,3 +376,23 @@ second, not physical memory bandwidth: the modern implementation intentionally
 does not write all n entries. Whole-operation throughput is 1e9/time_ns; solver
 active-update throughput is work*1e9/time_ns. No FLOP/s or bandwidth claim is
 inferred from those logical counts.
+
+## Matched-preparation active-set operations
+
+Complete active-set pruning benefits beyond the faster native state copy.
+For Float64 n=1,000,000/s=1,000, these seven-round controls give:
+
+| Operation | Common preparation | Original µs | Post850 µs | Paired R [95% CI] |
+|---|---|---:|---:|---|
+| dropzeros after zeroing half the active entries | full arrays | 2.085 | 1.597 | 0.760 [0.716,0.785] |
+| same compaction | active prefix | 1.291 | 0.771 | 0.601 [0.594,0.603] |
+| zero half, compact, add up to 256 inactive coordinates | full arrays | 4.623 | 4.161 | 0.888 [0.865,0.990] |
+| same complete pruning/reconstruction sequence | active prefix | 1.865 | 1.422 | 0.757 [0.733,0.766] |
+
+All four rows allocate zero in both versions. Preparation changes absolute
+costs and the size of the benefit, but the direction persists in both controls.
+This supports a practical improvement in these active-set sequences, alongside
+approximately unchanged fixed-set scalar arithmetic. The four-cycle complete
+clear/compact/rebuild supplement is retained in its native-setup context;
+its ratio is not treated as an isolated kernel improvement without a matching
+whole-sequence preparation control.

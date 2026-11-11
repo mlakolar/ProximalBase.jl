@@ -2,8 +2,8 @@
 """Resolve historical API-selection inference before source attribution.
 
 Waits for all primary/raw block campaigns, then diagnoses allocation/inference
-for all sources. If runtime API selection changes historical05 allocations,
-measure a separately preserved static-adapter block campaign. No package method
+for all sources, then measures a separately preserved static-adapter block
+campaign with equal retained-zero copy preparation. No package method
 or production file is changed, and original measurements are never overwritten.
 """
 import argparse,json,os,re,shutil,subprocess,sys,time
@@ -30,7 +30,7 @@ for source in ('original','historical05','post848','post850'):
     records[source]=dict(runtime_bytes=int(match[1]),static_bytes=int(match[2]))
 artifact=records['historical05']['runtime_bytes']>records['historical05']['static_bytes']
 assert all(records[source]['runtime_bytes']==records[source]['static_bytes'] for source in ('original','post848','post850')), 'API adapter affected a primary/extraction source; investigate before export'
-if artifact:
+def run_static_campaign():
     harness=Path(prefix+'-static-adapter-harness');assert not harness.exists()
     shutil.copytree(Path(prefix+'-supplement-restore-harness'),harness,ignore=shutil.ignore_patterns('__pycache__'))
     file=harness/'adapters.jl';s=file.read_text();needle='    block(x,k)=isdefined(PB,:blockview) ? PB.blockview(x,k) : PB.atom(x,k)'
@@ -78,6 +78,8 @@ end
         run('confirmation21',base+['--output',output,'--rounds','21','--start-round','408','--cases-file',flags])
         shutil.copyfile(flags,output/'selection.txt')
         run('analysis21',[sys.executable,harness/'analyze.py',output,str(output)+'-summary','--verify'])
+run_static_campaign() # copy-state correction is required even without an inference artifact
 Path(prefix+'-adapter-control-complete.json').write_text(json.dumps({'status':'pass','historical05_runtime_adapter_artifact':artifact,
+ 'static_control_measured':True,'equal_retained_zero_copy_preparation':True,
  'allocations':records,'steps':steps},indent=2)+'\n')
 print('Adapter attribution resolved.',flush=True)

@@ -119,6 +119,7 @@ python3 benchmark/audit852/supplement_controls.py --prefix /tmp/pb852-final --ju
 python3 benchmark/audit852/confirm_controls.py --prefix /tmp/pb852-final --julia "$JULIA" --sources /tmp/pb852-frozen
 python3 benchmark/audit852/raw_blocks.py --prefix /tmp/pb852-final --julia "$JULIA" --sources /tmp/pb852-frozen
 python3 benchmark/audit852/static_adapter_control.py --prefix /tmp/pb852-final --julia "$JULIA" --sources /tmp/pb852-frozen
+python3 benchmark/audit852/backing_blas_control.py --prefix /tmp/pb852-final --julia "$JULIA" --sources /tmp/pb852-frozen
 python3 benchmark/audit852/finalize_data.py --prefix /tmp/pb852-final --broad /tmp/pb852-broad --julia "$JULIA" --sources /tmp/pb852-frozen
 ```
 
@@ -148,10 +149,16 @@ from source-kernel attribution.
 
 Run static_adapter_control.py after raw_blocks.py and before finalize_data.py,
 with the same --prefix/--julia/--sources arguments. It diagnoses all four adapter
-paths, and conditionally measures corrected historical05 block attribution if
-runtime API selection affected inference. --wait serializes it after raw block
+paths, then measures corrected historical05 block attribution with static API
+selection and equal retained-zero copy preparation. --wait serializes it after raw block
 measurements. All original observations remain available; source_attribution
 in the exported summaries/all-comparisons.csv and adapter-exclusions.csv identify
 superseded historical block contrasts, including unequal native-clear copy
 preparation. This diagnostic is required before final
 export, and finalization also waits for its completion marker.
+
+backing_blas_control.py then compares the original's existing storage-Vector
+BLAS products with current sparse-aware owner products, without conversion or
+new kernels. Current storage can also use BLAS; this available-strategy control
+is separate from default-owner-API results. It uses the same seven-plus-21
+protocol and must finish before finalize_data.py; --wait enforces serialization.

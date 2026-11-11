@@ -15,9 +15,11 @@ paths=[('broad7',a.broad,Path(prefix+'-broad-summary')),
  ('common-active7',Path(prefix+'-active-restore'),Path(prefix+'-active-restore-summary')),
  ('raw-block7',Path(prefix+'-raw-block'),Path(prefix+'-raw-block-summary')),
  ('raw-block-confirmation21',Path(prefix+'-raw-block-confirmation'),Path(prefix+'-raw-block-confirmation-summary')),
+ ('backing-blas7',Path(prefix+'-backing-blas'),Path(prefix+'-backing-blas-summary')),
+ ('backing-blas-confirmation21',Path(prefix+'-backing-blas-confirmation'),Path(prefix+'-backing-blas-confirmation-summary')),
  ('common-full-confirmation21',Path(prefix+'-restore-confirmation'),Path(prefix+'-restore-confirmation-summary')),
  ('common-active-confirmation21',Path(prefix+'-active-restore-confirmation'),Path(prefix+'-active-restore-confirmation-summary'))]
-if adapter['historical05_runtime_adapter_artifact']:
+if adapter['static_control_measured']:
     paths.append(('static-adapter7',Path(prefix+'-static-adapter'),Path(prefix+'-static-adapter-summary')))
     if Path(prefix+'-static-adapter-summary/suspicious.txt').read_text().strip():
         paths.append(('static-adapter-confirmation21',Path(prefix+'-static-adapter-confirmation'),Path(prefix+'-static-adapter-confirmation-summary')))
@@ -29,6 +31,7 @@ for name,raw,summary in paths:
         # A confirmation may be empty only when its exploratory flag file is empty.
         context='raw-block' if name=='raw-block-confirmation21' else 'restore' if name=='common-full-confirmation21' else 'active-restore'
         if name=='raw-block-confirmation21' and not Path(prefix+'-raw-block-summary/suspicious.txt').read_text().strip():continue
+        if name=='backing-blas-confirmation21' and not Path(prefix+'-backing-blas-summary/suspicious.txt').read_text().strip():continue
         if name.endswith('confirmation21') and name.startswith('common-'):
             assert not Path(prefix+'-'+context+'-summary/suspicious.txt').read_text().strip()
             continue
@@ -41,7 +44,7 @@ for name,raw,summary in paths:
     rows=list(csv.DictReader((summary/'summary.csv').open()))
     annotated=[]
     for r in rows:
-        affected=(adapter['historical05_runtime_adapter_artifact'] and not name.startswith('static-adapter')
+        affected=(adapter['static_control_measured'] and not name.startswith('static-adapter')
           and 'historical05' in (r['before'],r['after']) and r['case'].startswith('block/'))
         status='superseded for source attribution: static API selection and equal retained-zero copy preparation' if affected else 'comparable source observation in the stated context'
         annotated.append(dict(source_attribution=status,**r))
@@ -70,6 +73,7 @@ for name,raw,summary in paths:
         if name.startswith('allocation-isolation'):harness=raw.parent/'harness'
         elif name.startswith('raw-block'):harness=Path(prefix+'-raw-block-harness')
         elif name.startswith('static-adapter'):harness=Path(prefix+'-static-adapter-harness')
+        elif name.startswith('backing-blas'):harness=Path(prefix+'-backing-blas-harness')
         else:harness=raw.with_name(raw.name+'-harness')
         assert harness.exists();harness_relative=os.path.relpath(harness,Path(prefix).parent)
     index.append(dict(campaign=name,raw_directory=raw.name,analysis_harness=harness_relative,

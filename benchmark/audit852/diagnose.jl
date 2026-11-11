@@ -32,6 +32,11 @@ if isdefined(Main,:residual_cd!)
         dumpcode("symmetric_"*p.id,p.op,Tuple{})
     end
 end
+cases,src=scalar_cases("sparse",Float64,1000000,1000,["dropzeros","prune_rebuild"],852)
+for p in cases
+    for _ in 1:3;p.setup();p.op();end
+    dumpcode("sparse_"*p.id,p.op,Tuple{})
+end
 dumpcode("sparse_constructor_f64",PB.SparseIterate,Tuple{Type{Float64},Int})
 dumpcode("sparse_constructor_f32",PB.SparseIterate,Tuple{Type{Float32},Int})
 open(joinpath(out,"dispatch.txt"),"w") do io

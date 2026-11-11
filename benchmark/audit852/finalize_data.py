@@ -19,6 +19,8 @@ def ready():
     if not raw.exists() or json.loads(raw.read_text())['status']!='pass':return False
     adapter=Path(prefix+'-adapter-control-complete.json')
     if not adapter.exists() or json.loads(adapter.read_text())['status']!='pass':return False
+    backing=Path(prefix+'-backing-blas-complete.json')
+    if not backing.exists() or json.loads(backing.read_text())['status']!='pass':return False
     for name in ['supplement-restore','active-restore']:
         f=Path(prefix+'-'+name+'-summary/analysis.json')
         if not f.exists() or not json.loads(f.read_text())['raw_samples_verified']:return False
@@ -48,6 +50,8 @@ for name,harness in [('primary',HERE),('supplement',native)]:
        '--harness-source',harness,'--output',prefix+'-strict-'+name])
 run('strict-raw-block',[python,HERE/'strict_correctness.py','--julia',julia,'--sources',sources,
     '--harness-source',prefix+'-raw-block-harness','--output',prefix+'-strict-raw-block'])
+run('strict-backing-blas',[python,HERE/'strict_correctness.py','--julia',julia,'--sources',sources,
+    '--harness-source',prefix+'-backing-blas-harness','--output',prefix+'-strict-backing-blas'])
 for source in ['original','historical05','post848','post850']:
     flags=['taskset','-c',a.cpu,julia,'--startup-file=no','--threads=1','-O2','--project='+str(HERE)]
     corrected=Path(prefix+'-static-adapter-harness')

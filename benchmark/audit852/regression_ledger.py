@@ -8,6 +8,7 @@ contexts=[('broad7','native-confirmation21',False),('common-full7','common-full-
  ('common-active7','common-active-confirmation21',False),
  ('supplement-common-full-exploratory7','supplement-common-full-confirmation21',False),
  ('raw-block7','raw-block-confirmation21',False),
+ ('backing-blas7','backing-blas-confirmation21',False),
  ('supplement-native7','supplement-common-full-confirmation21',True)]
 if (a.results/'static-adapter7').exists():contexts.append(('static-adapter7','static-adapter-confirmation21',False))
 # Supplemental28 selection was registered from native7 flags plus all residual
@@ -30,6 +31,7 @@ for first,follow,changed_context in contexts:
             elif any(float(c['before_'+field])!=float(c['after_'+field]) for field in ('bytes','allocs')):
                 classification='constructor/import allocation changes; inspect bytes/counts and process controls'
             else:classification='matching scalar allocations; inspect isolated A/A and allocation/process context'
+        elif fam=='block' and op in ('dot_backing_native','matvec_backing_native'):classification='backing-array BLAS versus sparse-aware owner API; inspect density/group-size crossover'
         elif fam=='block' and op in ('copyto','copyto_shared'):classification='layout equality and per-active-group state replacement'
         elif fam=='block' and op in ('block_cd','block_sweep','write_active','repeat_update','residual_bcd'):classification='owner-view writes and group activity tracking; inspect native-index controls'
         elif fam=='symmetric' and op in ('bilinear','matmat','matvec'):classification='product dispatch and stored-coordinate kernel; inspect native helper and common setup'

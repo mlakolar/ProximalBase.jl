@@ -220,8 +220,7 @@ Values follow the overflow rule in Overflow and underflow of values.
 # Precision
 
 The level `λ`, the center `y` and the step are parameters; they are rounded once
-to the *model precision* of each result (the numerical contract,
-T3) and never widen it. That precision is the wider of the argument's and the
+to the *model precision* of each result and never widen it. That precision is the wider of the argument's and the
 destination's for a gradient or a proximal point, and the argument's for the value
 (so the value written by `value_and_prox!` is the value at the stored point, and
 `value_and_gradient!` returns the standalone value and writes the standalone
@@ -229,7 +228,7 @@ gradient). The proximal weight `γλ` is formed from the unrounded factors befor
 is rounded.
 
 A parameter, a product or a coefficient that would leave the range of the model
-precision does not change a representable result (R2, R3): the gradient of
+precision does not change a representable result: the gradient of
 `SqrNormL2(2^-1022, [-2^1023])` at `[2^1023]` is `[4.0]` although `x - y`
 overflows, and `prox!` of `SqrNormL2(2^800)` with step `2^800` at `[2^900]`
 gives `2^-700` in `Float64`, where `1/(1 + γλ)` is not a number. The ordinary
@@ -759,7 +758,13 @@ The quadratic `f(x) = x'Ax / 2 + b'x + c` for a symmetric positive semidefinite
 `A`, with `b = 0` when omitted. Smooth, with gradient `Ax + b`, and proximable:
 the first proximal operator computes the eigendecomposition `A = QΛQ'` once,
 after which `prox_{γf}(x) = Q (I + γΛ)⁻¹ Q'(x - γb)` costs two products with
-`Q` for any `γ`.
+`Q` for any positive finite `γ`.
+
+The constructor checks real types, squareness and the length of b, but does
+not verify symmetry or positive semidefiniteness. Those are caller assumptions.
+Values/gradients use A directly; the cached eigenbasis uses Symmetric(Matrix(A))
+with its default upper triangle. Use vectors of compatible length. Data are
+retained by reference; after same-shape A changes call reset_cache!.
 """
 mutable struct QuadraticFunction{T<:AbstractFloat, M<:AbstractMatrix, V<:Union{Nothing, AbstractVector}} <: AbstractFunction
   A::M

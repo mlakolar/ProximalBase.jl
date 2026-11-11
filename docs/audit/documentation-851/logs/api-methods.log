@@ -1,0 +1,370 @@
+Julia Version 1.13.3
+Commit 67ac47b9cd8 (2026-10-25 15:28 UTC)
+Build Info:
+  Official https://julialang.org release
+Platform Info:
+  OS: Linux (x86_64-linux-gnu)
+  CPU: 20 × 13th Gen Intel(R) Core(TM) i5-13600K
+  WORD_SIZE: 64
+  LLVM: libLLVM-20.1.8 (ORCJIT, raptorlake)
+  GC: Built with stock GC
+Threads: 1 default, 1 interactive, 1 GC (on 20 virtual cores)
+Environment:
+  JULIA_DEPOT_PATH = /tmp/pb848-verify-depot
+
+Public bindings and defining methods (PB methods only):
+
+AbstractFunction [exported]
+
+BlockIterate [exported]
+BlockIterate(::Type{T}, p::Integer, groups::AbstractVector{<:AbstractVector{<:Integer}}) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:69
+BlockIterate(::Type{T}, p::Integer, num_groups::Integer) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:80
+BlockIterate(storage::Vector{T}, groups::G, group_of::Vector{Int64}, layout_cache, active::Vector{Int64}, position::Vector{Int64}, nactive::Int64) where {T, G<:(AbstractVector{<:AbstractVector{<:Integer}})} @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:62
+BlockIterate(x::AbstractVector, num_groups::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:81
+BlockIterate(x::AbstractVector{T}, groups::AbstractVector{<:AbstractVector{<:Integer}}) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:74
+BlockIterate(p::Integer, groups::AbstractVector{<:AbstractVector{<:Integer}}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:68
+BlockIterate(p::Integer, num_groups::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:79
+
+LeastSquaresLoss [exported]
+LeastSquaresLoss(Y::Ty, X::Tx, tmp::A, V::Matrix{T}, s2::Vector{T}, XtY::Array{T, N}, sUtY::Array{T, N}, w::Array{T, N}, output::ProximalBase.Scratch, svd_ready::Bool) where {T<:AbstractFloat, Ty<:(AbstractVecOrMat), Tx<:(AbstractMatrix), N, A<:AbstractArray{T, N}} @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/leastsquares.jl:43
+LeastSquaresLoss(Y::AbstractVecOrMat, X::AbstractMatrix) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/leastsquares.jl:48
+
+LinearFunction [exported]
+LinearFunction(c::AbstractArray, d::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:79
+LinearFunction(c::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:81
+
+NormL1 [exported]
+NormL1() @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/separable.jl:264
+NormL1(λ0::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/separable.jl:264
+NormL1(λ0::Real, w::Union{Nothing, AbstractArray}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/separable.jl:264
+
+ProximalBase [exported]
+
+QuadraticFunction [exported]
+QuadraticFunction(A::M, b::V, c::T, tmp::Vector{T}, Λ::Vector{T}, Q::Matrix{T}, w::Vector{T}) where {T<:AbstractFloat, M<:(AbstractMatrix), V<:Union{Nothing, AbstractVector}} @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:785
+QuadraticFunction(A::AbstractMatrix) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:789
+QuadraticFunction(A::AbstractMatrix, b::Union{Nothing, AbstractVector}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:789
+QuadraticFunction(A::AbstractMatrix, b::Union{Nothing, AbstractVector}, c::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:789
+
+ScalarLoss [qualified public/module]
+
+Scaled [exported]
+Scaled(f::Scaled, α::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:123
+Scaled(f::AbstractFunction, α::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:113
+
+SeparableFunction [exported]
+
+SparseIterate [exported]
+SparseIterate(n::Int64) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:525
+SparseIterate(n::Int64, m::Int64) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:527
+SparseIterate(::Type{T}, n::Int64) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:526
+SparseIterate(::Type{T}, n::Int64, m::Int64) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:528
+SparseIterate(x::SparseArrays.SparseMatrixCSC{T}) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:577
+SparseIterate(x::Array{T}) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:599
+SparseIterate(nzval::Vector{T}, nzval2ind::Vector{Int64}, ind2nzval::Array{Int64, N}, nnz::Int64) where {T, N} @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:66
+SparseIterate(x::SparseArrays.SparseVector{T}) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:589
+
+SqrNormL2 [exported]
+SqrNormL2() @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:250
+SqrNormL2(λ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:250
+SqrNormL2(λ::Real, y::Union{Nothing, AbstractArray}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:250
+
+Squared [qualified public/module]
+ProximalBase.Squared() @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/scalar_loss.jl:55
+
+SymmetricSparseIterate [exported]
+SymmetricSparseIterate(n::Int64) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:1303
+SymmetricSparseIterate(nzval::Vector{T}, nzval2ind::Vector{Int64}, ind2nzval::Vector{Int64}, nnz::Int64, p::Int64) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:134
+SymmetricSparseIterate(::Type{T}, n::Int64) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:1304
+SymmetricSparseIterate(X::SparseArrays.SparseMatrixCSC{T}) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:1765
+SymmetricSparseIterate(X::AbstractMatrix{T}) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:1783
+
+ZeroFunction [exported]
+ZeroFunction() @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:17
+
+activate! [exported]
+activate!(x::Union{SymmetricSparseIterate{T}, SparseIterate{T}}, i::Integer) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:365
+activate!(x::BlockIterate, k::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:269
+
+activecoordinates [exported]
+activecoordinates(x::Union{SymmetricSparseIterate{T}, SparseIterate{T}} where T) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:315
+activecoordinates(x::BlockIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:187
+
+activevalues [exported]
+activevalues(x::Union{SymmetricSparseIterate{T}, SparseIterate{T}} where T) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:316
+
+blockindices [exported]
+blockindices(x::BlockIterate, k::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:234
+
+blockview [exported]
+blockview(x::BlockIterate, k::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:202
+
+check_parameters [qualified public/module]
+check_parameters(::AbstractFunction, x) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:166
+
+check_symmetric_parameters [qualified public/module]
+check_symmetric_parameters(f::AbstractFunction, x) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:14
+
+coordinates [exported]
+coordinates(x::SparseIterate{T, N}) where {T, N} @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:566
+coordinates(x::SymmetricSparseIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:1379
+
+curvature [qualified public/module]
+curvature(::ProximalBase.Squared) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/scalar_loss.jl:59
+
+deriv [qualified public/module]
+deriv(::ProximalBase.Squared, η::Real, y::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/scalar_loss.jl:57
+
+deriv2 [qualified public/module]
+deriv2(::ProximalBase.Squared, η::T, ::Real) where T<:Real @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/scalar_loss.jl:58
+
+dropzeros! [exported]
+dropzeros!(x::SparseIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:382
+dropzeros!(x::Union{SymmetricSparseIterate{T}, SparseIterate{T}} where T) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:380
+dropzeros!(x::BlockIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:307
+
+entry_parameters [qualified public/module]
+entry_parameters(f::NormL1) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:9
+entry_parameters(::SeparableFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:6
+entry_parameters(f::LinearFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:10
+entry_parameters(f::SqrNormL2) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:11
+entry_parameters(::AbstractFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:5
+
+gradient [exported]
+gradient(f::AbstractFunction, x::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:329
+gradient(f::AbstractFunction, x::Tuple) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:330
+gradient(f::Union{LinearFunction, SqrNormL2}, x::SymmetricSparseIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:165
+gradient(f::Scaled, x::SymmetricSparseIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:365
+
+gradient! [exported]
+gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:55
+gradient!(g::Union{AbstractArray, SymmetricSparseIterate}, f::LinearFunction, x::Union{AbstractArray, SymmetricSparseIterate}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:196
+gradient!(g::Union{AbstractArray, SymmetricSparseIterate}, f::SqrNormL2, x::Union{AbstractArray, SymmetricSparseIterate}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:425
+gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:909
+gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/leastsquares.jl:131
+gradient!(g, s::Scaled, x) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:482
+gradient!(g, f::AbstractFunction, x) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:283
+
+isactive [exported]
+isactive(x::Union{SymmetricSparseIterate{T}, SparseIterate{T}} where T, k::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:317
+isactive(x::BlockIterate, k::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:188
+
+isconvex [exported]
+isconvex(::Type{ZeroFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:22
+isconvex(::Type{<:Scaled{F}}) where F @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:149
+isconvex(::Type{<:LinearFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:86
+isconvex(::Type{<:LeastSquaresLoss}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/leastsquares.jl:64
+isconvex(::Type{<:SqrNormL2}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:255
+isconvex(::Type{<:QuadraticFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:801
+isconvex(::Type{<:NormL1}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/separable.jl:266
+isconvex(::Type{<:AbstractFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:91
+isconvex(f::AbstractFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:92
+
+isproximable [exported]
+isproximable(::Type{ZeroFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:20
+isproximable(::Type{<:Scaled{F}}) where F @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:149
+isproximable(::Type{<:LinearFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:84
+isproximable(::Type{<:LeastSquaresLoss}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/leastsquares.jl:63
+isproximable(::Type{<:SqrNormL2}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:253
+isproximable(::Type{<:QuadraticFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:800
+isproximable(::Type{<:SeparableFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/separable.jl:52
+isproximable(::Type{<:AbstractFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:52
+isproximable(f::AbstractFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:53
+
+isseparable [exported]
+isseparable(::Type{ZeroFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:21
+isseparable(::Type{<:LinearFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:85
+isseparable(::Type{<:SqrNormL2}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:254
+isseparable(::Type{<:SeparableFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/separable.jl:51
+isseparable(::Type{<:Scaled{F}}) where F @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:149
+isseparable(::Type{<:AbstractFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:62
+isseparable(f::AbstractFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:63
+
+issmooth [exported]
+issmooth(::Type{ZeroFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:19
+issmooth(::Type{<:Scaled{F}}) where F @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:149
+issmooth(::Type{<:LinearFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:83
+issmooth(::Type{<:LeastSquaresLoss}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/leastsquares.jl:61
+issmooth(::Type{<:SqrNormL2}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:252
+issmooth(::Type{<:QuadraticFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:798
+issmooth(::Type{<:AbstractFunction}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:43
+issmooth(f::AbstractFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:44
+
+iszeropreserving [exported]
+iszeropreserving(::ZeroFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:23
+iszeropreserving(f::SqrNormL2) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:256
+iszeropreserving(::NormL1) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/separable.jl:267
+iszeropreserving(s::Scaled) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:581
+iszeropreserving(::AbstractFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:82
+
+kkt_violation [exported]
+kkt_violation(::ZeroFunction, g::AbstractArray, i::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:58
+kkt_violation(s::Scaled, g::AbstractArray, i::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:585
+kkt_violation(f::LinearFunction, g::AbstractArray, i::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:203
+kkt_violation(f::AbstractFunction, g::AbstractArray, x::BlockIterate, k::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:487
+kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:419
+kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:423
+kkt_violation(f::NormL1, g::AbstractArray, i::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/separable.jl:301
+kkt_violation(::SqrNormL2{<:Real, Nothing}, g::AbstractArray, i::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:744
+kkt_violation(f::SqrNormL2, g::AbstractArray, i::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:745
+
+lipschitz [exported]
+lipschitz(::ZeroFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:960
+lipschitz(f::LinearFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:961
+lipschitz(f::SqrNormL2) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:962
+lipschitz(f::QuadraticFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:963
+lipschitz(f::LeastSquaresLoss) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/leastsquares.jl:218
+lipschitz(s::Scaled) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:666
+lipschitz(f::AbstractFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:474
+
+matrixview [exported]
+matrixview(x::SymmetricSparseIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:1437
+
+nactive [exported]
+nactive(x::Union{SymmetricSparseIterate{T}, SparseIterate{T}} where T) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:314
+nactive(x::BlockIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:186
+
+ncoordinates [exported]
+ncoordinates(x::Union{SymmetricSparseIterate{T}, SparseIterate{T}} where T) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:313
+ncoordinates(x::BlockIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:185
+
+nnz [exported]
+
+norm_diff [exported]
+norm_diff(A::AbstractArray, B::SymmetricSparseIterate, p::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:2188
+norm_diff(A::AbstractArray, B::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/utils.jl:760
+norm_diff(A::AbstractArray, B::AbstractArray, p::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/utils.jl:760
+norm_diff(A::AbstractArray, B::SymmetricSparseIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:2188
+norm_diff(A::SymmetricSparseIterate, B::AbstractArray, p::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:2187
+norm_diff(A::SymmetricSparseIterate, B::SymmetricSparseIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:2185
+norm_diff(A::SymmetricSparseIterate, B::SymmetricSparseIterate, p::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:2185
+norm_diff(A::SymmetricSparseIterate, B::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/sparse_iterate.jl:2187
+
+opnorm2 [exported]
+opnorm2(X::AbstractMatrix{<:Real}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/utils.jl:962
+
+prox [exported]
+prox(f::ZeroFunction, x::SymmetricSparseIterate, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:371
+prox(f::ZeroFunction, x::SymmetricSparseIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:371
+prox(f::Scaled, x::SymmetricSparseIterate, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:363
+prox(f::Scaled, x::SymmetricSparseIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:363
+prox(f::AbstractFunction, x::Union{Hermitian, Symmetric}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:127
+prox(f::AbstractFunction, x::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:125
+prox(f::AbstractFunction, x::Union{Hermitian, Symmetric}, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:127
+prox(f::AbstractFunction, x::AbstractArray, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:125
+prox(f::AbstractFunction, x::AbstractArray, γ::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/array_steps.jl:14
+prox(f::AbstractFunction, x::Tuple, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:319
+prox(f::AbstractFunction, x::Tuple) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:319
+prox(f::AbstractFunction, x::SymmetricSparseIterate, γ::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:159
+prox(f::Union{SeparableFunction, LinearFunction, SqrNormL2}, x::SymmetricSparseIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:164
+prox(f::Union{SeparableFunction, LinearFunction, SqrNormL2}, x::SymmetricSparseIterate, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:164
+
+prox! [exported]
+prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/array_steps.jl:32
+prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/array_steps.jl:16
+prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:32
+prox!(y::AbstractVector, f::QuadraticFunction{T}, x::AbstractVector, γ::Real) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:924
+prox!(β::AbstractVecOrMat, f::LeastSquaresLoss{T, Ty, Tx, N, A} where {Ty<:(AbstractVecOrMat), Tx<:(AbstractMatrix), N, A<:AbstractArray{T, N}}, v::AbstractVecOrMat, γ::Real) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/leastsquares.jl:184
+prox!(y::SymmetricSparseIterate, f::ZeroFunction, x::Union{AbstractArray, SymmetricSparseIterate}, ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:42
+prox!(y::SymmetricSparseIterate, f::Scaled, x, γ::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:156
+prox!(y::SymmetricSparseIterate, f::AbstractFunction, x, γ::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:155
+prox!(z::Union{AbstractArray, SymmetricSparseIterate}, f::SqrNormL2, x::Union{AbstractArray, SymmetricSparseIterate}, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:508
+prox!(y::Union{AbstractArray, SymmetricSparseIterate}, f::LinearFunction, x::Union{AbstractArray, SymmetricSparseIterate}, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:159
+prox!(y::Union{AbstractArray, SymmetricSparseIterate}, f::SeparableFunction, x::Union{AbstractArray, SymmetricSparseIterate}, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/separable.jl:72
+prox!(y, f::AbstractFunction, x) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:117
+prox!(y, s::Scaled, x, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:492
+prox!(y, s::Scaled, x, γ::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/array_steps.jl:41
+
+prox_block [exported]
+prox_block(::ZeroFunction, v::Real, ::Integer, ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:57
+prox_block(s::Scaled, v::Real, i::Integer, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:571
+prox_block(f::LinearFunction, v::Real, i::Integer, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:201
+prox_block(r::ProximalBase._OrdinaryRidge{<:SqrNormL2{<:Real, Nothing}}, v::Real, ::Integer, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:706
+prox_block(r::ProximalBase._OrdinaryRidge, v::Real, i::Integer, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:708
+prox_block(f::AbstractFunction, u::AbstractVector, k::Integer, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_prox.jl:2
+prox_block(f::NormL1, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/separable.jl:276
+prox_block(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:686
+prox_block(f::SqrNormL2, v::Real, i::Integer, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:691
+
+prox_block! [exported]
+
+reset_cache! [exported]
+reset_cache!(f::LeastSquaresLoss{T, Ty, Tx, N, A} where A<:AbstractArray{T, N}) where {T, Ty, Tx, N} @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/caches.jl:13
+reset_cache!(f::QuadraticFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/caches.jl:21
+reset_cache!(f::Scaled) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/caches.jl:29
+reset_cache!(f::AbstractFunction) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/caches.jl:11
+
+restrict [exported]
+restrict(f::ZeroFunction, ::AbstractVector{<:Integer}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:59
+restrict(s::Scaled, S::AbstractVector{<:Integer}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:602
+restrict(f::LinearFunction, S::AbstractVector{<:Integer}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:204
+restrict(f::LeastSquaresLoss{T, var"#s595", Tx, N, A} where {var"#s595"<:(AbstractVector), Tx<:(AbstractMatrix), N, A<:AbstractArray{T, N}}, S::AbstractVector{<:Integer}) where T @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/leastsquares.jl:215
+restrict(f::QuadraticFunction, S::AbstractVector{<:Integer}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:953
+restrict(f::NormL1, S::AbstractVector{<:Integer}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/separable.jl:303
+restrict(f::SqrNormL2{<:Real, Nothing}, ::AbstractVector{<:Integer}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:747
+restrict(f::SqrNormL2, S::AbstractVector{<:Integer}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:748
+
+samegroups [qualified public/module]
+samegroups(a::BlockIterate, b::BlockIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/block_iterate.jl:165
+
+shrink [exported]
+shrink(v::T, c::T) where T<:AbstractFloat @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/utils.jl:14
+shrink(v::Real, c::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/utils.jl:15
+
+tril_cartesian [exported]
+tril_cartesian(p::Integer, k::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/utils.jl:729
+
+tril_index [exported]
+tril_index(p::Integer, r::Integer, c::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/utils.jl:721
+
+value_and_deriv [qualified public/module]
+value_and_deriv(::ProximalBase.Squared, η::Real, y::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/scalar_loss.jl:60
+value_and_deriv(ℓ::ProximalBase.ScalarLoss, η, y) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/scalar_loss.jl:48
+
+value_and_gradient [exported]
+value_and_gradient(f::AbstractFunction, x::Union{Tuple, AbstractArray}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:337
+value_and_gradient(f::Union{LinearFunction, SqrNormL2}, x::SymmetricSparseIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:166
+value_and_gradient(f::Scaled, x::SymmetricSparseIterate) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:366
+
+value_and_gradient! [exported]
+value_and_gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:50
+value_and_gradient!(g::Union{AbstractArray, SymmetricSparseIterate}, f::LinearFunction, x::Union{AbstractArray, SymmetricSparseIterate}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:188
+value_and_gradient!(g::Union{AbstractArray, SymmetricSparseIterate}, f::SqrNormL2, x::Union{AbstractArray, SymmetricSparseIterate}) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:417
+value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:811
+value_and_gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/leastsquares.jl:76
+value_and_gradient!(g, s::Scaled, x) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:471
+
+value_and_prox! [exported]
+value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/array_steps.jl:36
+value_and_prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:38
+value_and_prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/array_steps.jl:23
+value_and_prox!(y::SymmetricSparseIterate, f::Scaled, x, γ::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:158
+value_and_prox!(y::SymmetricSparseIterate, f::AbstractFunction, x, γ::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/symmetric_parameters.jl:157
+value_and_prox!(y::SymmetricSparseIterate, f::ZeroFunction, x::Union{AbstractArray, SymmetricSparseIterate}, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/smooth.jl:47
+value_and_prox!(y::Union{AbstractArray, SymmetricSparseIterate}, f::SeparableFunction, x::Union{AbstractArray, SymmetricSparseIterate}, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/separable.jl:76
+value_and_prox!(y, s::Scaled, x, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/scaled.jl:555
+value_and_prox!(y, f::AbstractFunction, x, γ::Real) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:138
+value_and_prox!(y, f::AbstractFunction, x) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/interface.jl:138
+value_and_prox!(y, s::Scaled, x, γ::AbstractArray) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/array_steps.jl:45
+
+value_entry [exported]
+value_entry(f::NormL1, v::Real, i::Integer) @ ProximalBase ~/projects/juliaPkg/ProximalBase.jl/src/functions/separable.jl:270
+
+Concrete capability boundaries:
+ZeroFunction: scalar block=true; value_entry=false; traits=(true, true, true, true, true)
+LinearFunction: scalar block=true; value_entry=false; traits=(true, true, true, true, false)
+SqrNormL2: scalar block=true; value_entry=false; traits=(true, true, true, true, true)
+NormL1: scalar block=true; value_entry=true; traits=(false, true, true, true, true)
+QuadraticFunction: scalar block=false; value_entry=false; traits=(true, true, false, true, false)
+LeastSquaresLoss: scalar block=false; value_entry=false; traits=(true, true, false, true, false)
+
+Reported separately as #853:
+level=0.0 weight=Inf trial=2.0 prox=[0.0]
+level=0.0 weight=Inf trial=Inf prox=[NaN]
+level=0.0 weight=Inf trial=NaN prox=[NaN]
+level=1.0 weight=Inf trial=2.0 prox=[0.0]
+level=1.0 weight=Inf trial=Inf prox=[NaN]
+level=1.0 weight=Inf trial=NaN prox=[NaN]
+level=Inf weight=Inf trial=2.0 prox=[0.0]
+level=Inf weight=Inf trial=Inf prox=[0.0]
+level=Inf weight=Inf trial=NaN prox=[0.0]

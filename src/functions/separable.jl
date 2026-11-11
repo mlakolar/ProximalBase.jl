@@ -10,9 +10,9 @@
 The supertype of the separable functions `f(x) = Σᵢ fᵢ(xᵢ)`, and the way to add
 one of your own. A subtype implements, for the entry with linear index `i`,
 
-- `prox_block``(f, v, i, γ)`: the proximal operator of `γfᵢ` at the
+- `prox_block(f, v, i, γ)`: the proximal operator of `γfᵢ` at the
   scalar `v`;
-- `value_entry``(f, v, i)`: the value `fᵢ(v)`.
+- `value_entry(f, v, i)`: the value `fᵢ(v)`.
 
 From these it gets the value `f(x)`, `prox!` and
 `value_and_prox!` on any array, including the
@@ -239,8 +239,10 @@ dense matrix. When symmetry is required, mirrored weights must agree at each
 coordinate the operation reads. Wrap a matrix in `Symmetric(W, :L)` to use its
 lower triangle.
 Values follow the overflow rule in Overflow and underflow of values.
-An infinite weight fixes the entry at
-zero at every level (the value is `Inf` away from zero), and a zero weight
+An infinite weight thresholds a finite trial entry to
+zero at every level (the value is `Inf` away from zero). With a finite level,
+a NaN or infinite trial currently returns NaN from the infinite threshold
+arithmetic; infinite-level fixing below is a distinct case, and a zero weight
 leaves it unpenalized at every level.
 An infinite level `λ0` at a positive step fixes every penalized entry (`wᵢ > 0`)
 at zero, so its output is `0` also where the argument is NaN or `±Inf`

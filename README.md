@@ -1,6 +1,13 @@
 # ProximalBase.jl
 
-Sparse iterate storage and mathematical functions for proximal algorithms.
+Mathematical function objects and sparse working-set storage for optimization
+problems `min_x f(x)+g(x)`, with smooth loss `f` and penalty `g`.
+
+Read the [manual](https://mlakolar.github.io/ProximalBase.jl/dev/), starting with
+[getting started](docs/src/getting_started.md), or browse the
+[complete retained function library](docs/src/function_library.md). ProximalBase
+supplies values, gradients, proximal maps and storage; ProximalSolvers implements
+optimization algorithms.
 
 The minimal core retains `SparseIterate`, `BlockIterate`,
 `SymmetricSparseIterate`; values, gradients and proximal interfaces;

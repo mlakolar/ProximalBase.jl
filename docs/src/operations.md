@@ -25,12 +25,17 @@ each operation is explained below, including its mathematics and Julia usage.
 | Make a reduced function | `restrict` | Function on selected coordinates, normally fixing others at zero |
 | Gradient bound | `lipschitz` | Bound on how rapidly the gradient can change |
 | Squared spectral norm estimate | `opnorm2` | Estimate of the squared matrix operator norm |
+| Soft-threshold a scalar | `shrink` | Apply the scalar soft-threshold utility |
 | Update after data changes | `reset_cache!` | Invalidate cached decompositions |
 
 `f(x)` is ordinary callable-function syntax rather than a separately
 exported named operation. There is no allocating `value_and_prox` method.
-Scalar observation-loss derivatives (`ProximalBase.deriv`, `deriv2`,
-`curvature`, `value_and_deriv`) form a distinct qualified API described
+The scalar utility `shrink(v,c)` returns
+``\operatorname{sign}(v)\max(|v|-c,0)`` for nonnegative threshold ``c``;
+see [Penalties](penalties.md).
+
+Scalar observation-loss operations (`ProximalBase.deriv`, `deriv2`,
+`curvature`, `value_and_deriv`) form a separate qualified API, documented
 in the [scalar squared-loss guide](smooth.md#Scalar-squared-loss).
 Validation hooks used when defining new functions are described under
 [Writing your own function](extending.md). Storage operations on

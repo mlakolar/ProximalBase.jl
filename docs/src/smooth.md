@@ -46,8 +46,8 @@ current data entries. Do not call the same loss object concurrently without
 synchronization. After changing entries of `X` or `Y`, call `reset_cache!(f)`;
 construct a new object if dimensions change. The input data are not copied.
 
-Dense coefficients, vector/matrix SparseIterate and vector BlockIterate use
-supported array products. This loss has no SymmetricSparseIterate-owner,
+Dense coefficients, vector/matrix `SparseIterate` and vector `BlockIterate` use
+supported array products. This loss has no `SymmetricSparseIterate`-owner,
 scalar `prox_block`, `value_entry` or KKT-screen method. Converting an owner
 to `Matrix` gives an ordinary matrix-coefficient problem if dimensions fit.
 `restrict(f,S)` selects design columns only for **vector-response** losses.
@@ -145,7 +145,7 @@ formula, and `f(x)` evaluates it at the variable `x`. The constructor takes
 `A`, the ``p\times p`` quadratic coefficient matrix; `b`, an optional
 length-``p`` linear coefficient vector; and `c`, an optional scalar constant.
 When omitted, `b` and `c` are zero. The domain is real length-``p`` vectors,
-including vector SparseIterate and BlockIterate; matrix and symmetric-owner
+including vector `SparseIterate` and `BlockIterate`; matrix and symmetric-owner
 inputs are not supported. All four capability traits except separability are
 true. There is no scalar `prox_block`, `value_entry` or KKT screen.
 
@@ -204,7 +204,7 @@ destination, combined prox returns zero. Type and shape errors still apply,
 even though the function is identically zero. Exact gradient aliasing is
 rejected; the value is zero even at NaN/Inf array entries.
 
-**Activity exception:** an array ZeroFunction prox copies via `copyto!` when
+**Activity exception:** an array `ZeroFunction` prox copies via `copyto!` when
 the destination differs from the input. Between same-shaped SparseIterates or
 same-layout BlockIterates this replaces the destination's active state with the
 source's, including explicit zeros. A dense-source copy is an ordinary value
@@ -287,7 +287,7 @@ regression model. Use `ℓ(η,y)`, `ProximalBase.deriv(ℓ,η,y)`,
 It has no array `gradient` or `prox` operation and does not automatically
 construct a regression objective. Scalar arithmetic uses ordinary
 promotion and can overflow, e.g. squaring a large residual; it does not inherit
-the array LeastSquaresLoss value recovery. Non-real arguments have no method.
+the array `LeastSquaresLoss` value recovery. Non-real arguments have no method.
 
 ```@example library_squared
 using ProximalBase

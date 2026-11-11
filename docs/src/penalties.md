@@ -1,7 +1,8 @@
 # The ℓ₁ norm and soft thresholding
 
-`NormL1` represents the (possibly weighted) **ℓ₁ norm**. This is a
-mathematical function, not an optimization algorithm. An algorithm may use
+`NormL1` represents a nonnegative weighted sum of absolute values,
+often called a **weighted ℓ₁ function**. It is a mathematical function,
+not an optimization algorithm. An algorithm may use
 it as a **regularization penalty** to encourage sparse coefficients, but
 that is one application of the function, not a different Julia type.
 
@@ -42,9 +43,13 @@ expected = λ0 * sum(w .* abs.(x))
 g(x)
 ```
 
-A zero weight means that its coordinate is not penalized. The function
-is convex, separable and proximable, but not smooth at a coordinate
-with a positive weight when that coordinate is zero. Consequently,
+A zero weight leaves its coordinate unpenalized. With **finite strictly
+positive** weights and a positive overall scale, this function is a norm;
+with zero weights it is a seminorm, and infinite weights introduce
+extended-valued restrictions.
+
+The function family is convex, separable and proximable, but is not smooth
+at zero in any positively weighted coordinate. Consequently,
 `gradient(g,x)` is not the right operation there.
 
 ## Proximal operator: soft thresholding

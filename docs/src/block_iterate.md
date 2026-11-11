@@ -21,8 +21,9 @@ the order used by compact block buffers. Vector groups are copied into owned
 
 `BlockIterate([T,]p,K)` and `BlockIterate(x,K)` divide the entries into `K`
 equal contiguous groups; `K` must be positive and divide the entry length.
-There is no retained constructor accepting a built-in group-penalty object.
-A partition is a storage choice independent of NormL1's entrywise penalty.
+A group partition describes how variables are **stored and updated**; it
+is not itself a penalty or regularization function. Pass groups as indices,
+not as a penalty object. `NormL1` remains an entrywise mathematical function.
 
 ```@example block_layout
 using ProximalBase

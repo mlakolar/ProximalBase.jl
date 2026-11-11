@@ -73,6 +73,7 @@ function writer_probes(::Type{T}, n, layout, state, source) where T
     inactive = state in (:inactive_nonzero,:inactive_zero)
     function setup()
         fill!(x,zero(T))
+        dropzeros!(x)
         activate!(x,2)
         inactive || activate!(x,1)
         nothing
@@ -87,6 +88,16 @@ function writer_probes(::Type{T}, n, layout, state, source) where T
         vcat(Vector(x),T.(ids))
     end
     id = "$T/n$n/$layout/$state/$source"
+    # Check starting state outside measurement, including after an operation
+    # that activated the destination in the preceding round.
+    for _ in 1:3
+        setup()
+        @assert isactive(x,1) == !inactive "$id: wrong initial activity"
+        @assert collect(activecoordinates(x)) == (inactive ? [2] : [2,1]) "$id: wrong initial order"
+        @assert all(iszero,x) "$id: values were not reset"
+        op()
+    end
+    setup()
     addprobe("writer/$id",op,setup,check)
     if state === :active_nonzero && source === :vector
         # A separately constructed equal index vector deliberately misses identity

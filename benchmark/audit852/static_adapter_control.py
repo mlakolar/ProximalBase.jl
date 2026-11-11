@@ -9,6 +9,7 @@ or production file is changed, and original measurements are never overwritten.
 import argparse,json,os,re,shutil,subprocess,sys,time
 from pathlib import Path
 from spec import scenarios,VERSIONS
+from control_manifest import record_control
 HERE=Path(__file__).resolve().parent;REPO=HERE.parent.parent
 p=argparse.ArgumentParser();p.add_argument('--prefix',type=Path,required=True)
 p.add_argument('--julia',type=Path,required=True);p.add_argument('--sources',type=Path,required=True)
@@ -38,14 +39,34 @@ if artifact:
     else
         block(x,k)=PB.atom(x,k)
     end''');file.write_text(s)
+    # Historical05 native fill removes activity, unlike current retained-zero
+    # fill. Preserve the destination working set before both copy operations.
+    file=harness/'cases.jl';s=file.read_text()
+    assert 'prep=()->fill!(dest,zero(T));work=n' in s
+    assert 'prep=()->fill!(shared,zero(T));work=n' in s
+    s=s.replace('prep=()->fill!(dest,zero(T));work=n','prep=()->retained_zero_blocks!(dest);work=n')
+    s=s.replace('prep=()->fill!(shared,zero(T));work=n','prep=()->retained_zero_blocks!(shared);work=n')
+    s='''# Benchmark-only state preparation; no package methods added.
+function retained_zero_blocks!(x)
+    before=PB.nactive(x)
+    for k in PB.activecoordinates(x)
+        fill!(block(x,k),zero(eltype(x)))
+    end
+    @assert PB.nactive(x)==before
+    x
+end
+'''+s
+    file.write_text(s)
     chosen=[]
     for x in scenarios():
         if x['family']=='block':
             x=dict(x);x['ops']=list(x['ops'])+['copyto_shared','residual_bcd'];chosen.append(x)
     (harness/'spec.py').write_text('VERSIONS='+repr(VERSIONS)+'\nSCENARIOS='+repr(chosen)+'\ndef scenarios():return SCENARIOS\n')
     (harness/'static-adapter-control.json').write_text(json.dumps({'change':'API choice at adapter definition time; no inline hint or package method change',
-      'original_observations':'retained; affected historical05 view-operation contrasts excluded from source attribution',
+      'original_observations':'retained; legacy historical05 block contrasts superseded for source attribution',
+      'copy_preparation':'explicit zero writes retain the destination active groups in every source; native historical05 fill removes them',
       'restore':'common full state, 80 samples/1 second'},indent=2)+'\n')
+    record_control(harness,'static API selection and equal retained-zero block-copy preparation')
     base=[sys.executable,harness/'run.py','--julia',a.julia,'--sources',a.sources,'--cpu',a.cpu,
           '--roles','historical05,post848,post850,post850AA']
     run('check',base+['--output',prefix+'-static-adapter-check','--check','--rounds','1','--start-round','501'])

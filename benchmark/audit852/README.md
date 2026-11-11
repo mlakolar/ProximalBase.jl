@@ -151,6 +151,7 @@ with the same --prefix/--julia/--sources arguments. It diagnoses all four adapte
 paths, and conditionally measures corrected historical05 block attribution if
 runtime API selection affected inference. --wait serializes it after raw block
 measurements. All original observations remain available; source_attribution
-in all-comparisons.csv and adapter-exclusions.csv identify any invalidated
-historical view-operation contrasts. This diagnostic is required before final
+in the exported summaries/all-comparisons.csv and adapter-exclusions.csv identify
+superseded historical block contrasts, including unequal native-clear copy
+preparation. This diagnostic is required before final
 export, and finalization also waits for its completion marker.

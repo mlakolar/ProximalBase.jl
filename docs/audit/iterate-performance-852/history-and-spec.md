@@ -274,3 +274,13 @@ seven-round historical05/post848/post850 block campaign is measured. Any new
 post848/post850 >5% flags receive 21 further rounds. Original/current adapter
 allocation parity is checked explicitly; any effect there stops export for
 investigation. This changes Main benchmark adapters only, never package methods.
+
+The static control also equalizes block copy preparation: native historical05
+fill!(dest,0) deletes its active groups, while current fill retains them. Both
+copyto and copyto_shared instead zero existing active block views without
+changing the working set before timing. This is untimed preparation, not a
+replacement copy kernel. All legacy historical05 block contrasts are
+conservatively marked superseded in the exported CSVs and replaced for source
+attribution by this control; raw observations remain unchanged. The CI
+allocation/typed-code evidence already confirms the runtime-selection artifact
+(345600→0 bytes, Any→concrete SubArray), with 0→0 bytes in the other sources.

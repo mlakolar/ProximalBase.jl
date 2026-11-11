@@ -323,7 +323,7 @@ They are descriptive attribution points; only the stated revisions are timed.
 | Case (Float64, native setup) | Original µs | Historical05 µs | Post848 µs | Post850 µs |
 |---|---:|---:|---:|---:|
 | Block four diagonal sweeps, n8192/b64/12 active groups | 0.533 | excluded: adapter artifact | 2.750 | 2.761 |
-| Block copyto, n8192/b1/819 active groups | 1.134 | 11.380 | 12.864 | 12.858 |
+| Block copyto, n8192/b1/819 active groups | 1.134 | superseded: copy setup | 12.864 | 12.858 |
 | Symmetric generic bilinear, p144/10000 active | 16.335 | 26.268 | 32.104 | 32.166 |
 | Sparse copyto, n1m/100 active | 1610.869 | 0.095 | 0.095 | 0.097 |
 
@@ -335,8 +335,12 @@ selection of the native API removes all 345,600 allocated bytes in the
 [independent CI diagnostic](research/ci-adapter-diagnostic.log). Original,
 post848 and post850 record zero bytes before and after the same adapter control.
 The primary original adapter directly accesses cached views; its comparison to
-current is separate and unaffected. Corrected static-adapter historical timing
-is pending; raw affected observations remain available with explicit exclusions.
+current is separate and unaffected. The copy setup also differed: native
+historical05 fill deletes activity, while current fill retains active zeros.
+Corrected copy preparation zeroes existing active block views in both versions,
+preserving their working sets before timing. All legacy historical05 block
+contrasts are conservatively marked superseded in the exported CSVs. Corrected
+static-adapter historical timing is pending; raw observations remain available.
 An agent-era baseline cannot silently be substituted for the pre-agent source.
 
 The active-group design appears in source history at

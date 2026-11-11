@@ -27,6 +27,14 @@ for campaign in csv.DictReader((a.results/'campaigns.csv').open()):
     raw=a.raw_parent/campaign['raw_relative_directory']
     assert sha(raw/'observations.csv')==campaign['observations_sha256']
     config=json.loads((raw/'campaign.json').read_text());assert not config['argv']['persistent']
+    harness_digest=None
+    if campaign['analysis_harness']!='MAIN':
+        harness=a.raw_parent/campaign['analysis_harness'];harness_digest=tree(harness)
+        control=harness/'control.json'
+        if control.exists():
+            manifest=json.loads(control.read_text())
+            for name,expected_hash in manifest.get('code_sha256',{}).items():
+                assert sha(harness/name)==expected_hash,(harness,name,'generated control code hash')
     args=config['argv'];start=args['start_round']
     expected={(f'round-{r:02}',role) for r in range(start,start+args['rounds']) for role in args['roles'].split(',')}
     provenance=list(raw.glob('round-*/*/provenance.toml'))
@@ -38,6 +46,7 @@ for campaign in csv.DictReader((a.results/'campaigns.csv').open()):
         assert d['binary_sha256']==binary and d['julia']=='1.13.3',prov
         assert d['kernel']=='Linux' and d['threads']==d['blas_threads']==1,prov
         assert d['bounds']==2 and d['opt_level']==2,prov
+        if harness_digest is not None:assert d['harness_digest']==harness_digest,(prov,'generated harness changed')
         for endpoint in ('calibration_start','calibration_end'):
             cal=d[endpoint];assert st.median(cal['times_ns'])==cal['median_ns']
             assert min(cal['times_ns'])==cal['min_ns']

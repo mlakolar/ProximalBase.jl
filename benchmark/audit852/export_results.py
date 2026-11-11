@@ -39,16 +39,40 @@ for name,raw,summary in paths:
     for f in summary.iterdir():
         if f.is_file():shutil.copyfile(f,dest/f.name)
     rows=list(csv.DictReader((summary/'summary.csv').open()))
+    annotated=[]
     for r in rows:
         affected=(adapter['historical05_runtime_adapter_artifact'] and not name.startswith('static-adapter')
-          and 'historical05' in (r['before'],r['after']) and r['case'].startswith('block/')
-          and r['case'].rsplit('/',1)[1] in ('write_active','block_read','block_sweep','block_cd','residual_bcd'))
-        status='excluded from source attribution: runtime API-selection inference artifact' if affected else 'comparable source observation in the stated context'
+          and 'historical05' in (r['before'],r['after']) and r['case'].startswith('block/'))
+        status='superseded for source attribution: static API selection and equal retained-zero copy preparation' if affected else 'comparable source observation in the stated context'
+        annotated.append(dict(source_attribution=status,**r))
         allrows.append(dict(campaign=name,source_attribution=status,**r))
+    with (dest/'summary.csv').open('w') as f:
+        writer=csv.DictWriter(f,fieldnames=list(annotated[0]));writer.writeheader();writer.writerows(annotated)
+    compatibility=list(csv.DictReader((summary/'incompatibilities.csv').open()))
+    for row in compatibility:
+        error=row['error'];op=row['case'].rsplit('/',1)[1]
+        if 'original block public constructor' in error:
+            scope=('Construction scope: native row factories are separate; raw-field factory timing is intentionally excluded'
+              if op.startswith('construct') else 'Convenience-vector API exclusion only; see raw-native and native-row campaigns for representable original operations')
+        elif 'no active group metadata' in error:scope='Genuine original feature incompatibility: no active-group metadata'
+        elif 'historical fill zero removes' in error:scope='Different activity semantics; explicit zero-write/reconstruction sequences remain comparable'
+        elif 'full active set' in error:scope='Fixture has no inactive coordinates; no measurement is inferred'
+        else:scope='Explicit recorded capability/scope exclusion; see the original reason'
+        row['audit_scope']=scope
+    if compatibility:
+        with (dest/'incompatibilities.csv').open('w') as f:
+            writer=csv.DictWriter(f,fieldnames=list(compatibility[0]));writer.writeheader();writer.writerows(compatibility)
     config=json.loads((raw/'campaign.json').read_text());counts={}
     for r in csv.DictReader((raw/'observations.csv').open()):counts[r['status']]=counts.get(r['status'],0)+1
     assert counts.get('failure',0)==0
-    index.append(dict(campaign=name,raw_directory=raw.name,
+    if name in ('broad7','native-confirmation21'):harness_relative='MAIN'
+    else:
+        if name.startswith('allocation-isolation'):harness=raw.parent/'harness'
+        elif name.startswith('raw-block'):harness=Path(prefix+'-raw-block-harness')
+        elif name.startswith('static-adapter'):harness=Path(prefix+'-static-adapter-harness')
+        else:harness=raw.with_name(raw.name+'-harness')
+        assert harness.exists();harness_relative=os.path.relpath(harness,Path(prefix).parent)
+    index.append(dict(campaign=name,raw_directory=raw.name,analysis_harness=harness_relative,
         raw_relative_directory=os.path.relpath(raw,Path(prefix).parent),summary_directory=summary.name,
         rounds=config['argv']['rounds'],start_round=config['argv']['start_round'],
         chosen_cases=config['argv']['chosen_case_count'],roles=config['argv']['roles'],
@@ -57,7 +81,7 @@ for name,raw,summary in paths:
 for name,rows in [('campaigns.csv',index),('all-comparisons.csv',allrows)]:
     with (out/name).open('w') as f:
         writer=csv.DictWriter(f,fieldnames=list(rows[0]));writer.writeheader();writer.writerows(rows)
-excluded=[r for r in allrows if r['source_attribution'].startswith('excluded')]
+excluded=[r for r in allrows if r['source_attribution'].startswith('superseded')]
 with (out/'adapter-exclusions.csv').open('w') as f:
     writer=csv.DictWriter(f,fieldnames=list(allrows[0]));writer.writeheader();writer.writerows(excluded)
 shutil.copyfile(prefix+'-adapter-control-complete.json',out/'adapter-diagnostic.json')

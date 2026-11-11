@@ -9,6 +9,7 @@ import argparse,json,os,shutil,subprocess,sys,time
 from pathlib import Path
 from spec import scenarios,VERSIONS
 from run import archive_sources
+from control_manifest import record_control
 HERE=Path(__file__).resolve().parent;REPO=HERE.parent.parent
 p=argparse.ArgumentParser();p.add_argument('--prefix',type=Path,required=True)
 p.add_argument('--julia',type=Path,required=True);p.add_argument('--sources',type=Path,required=True)
@@ -56,6 +57,7 @@ for x in scenarios():
  'original_api':'existing AtomIterate(storage, atoms) with native vector SubArray views',
  'source_patches':False,'restore':'common full fields outside timing','trial':'80 samples / 1 second',
  'roles':'original,post850,originalAA,post850AA','fixtures':len(chosen),'case_ids':sum(len(x['ops']) for x in chosen)},indent=2)+'\n')
+record_control(harness,'raw-native original block views; construction outside timing')
 if a.generate_only:
     print('Generated raw-native harness:',harness,flush=True);raise SystemExit(0)
 base=[sys.executable,str(harness/'run.py'),'--julia',str(a.julia),'--sources',str(a.sources),'--cpu',str(a.cpu)]

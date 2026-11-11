@@ -50,15 +50,18 @@ run('strict-raw-block',[python,HERE/'strict_correctness.py','--julia',julia,'--s
     '--harness-source',prefix+'-raw-block-harness','--output',prefix+'-strict-raw-block'])
 for source in ['original','historical05','post848','post850']:
     flags=['taskset','-c',a.cpu,julia,'--startup-file=no','--threads=1','-O2','--project='+str(HERE)]
+    corrected=Path(prefix+'-static-adapter-harness')
+    profile_harness=corrected if source=='historical05' and corrected.exists() else native
     run('layout-'+source,flags+['--check-bounds=yes',HERE/'layout_correctness.jl',sources/source,native])
     run('generated-code-'+source,flags+['--check-bounds=no',HERE/'diagnose.jl',sources/source,
-        prefix+'-generated-code/'+source,native])
+        prefix+'-generated-code/'+source,profile_harness])
     run('compilation-'+source,flags+['--check-bounds=no',HERE/'compile_diagnostic.jl',sources/source,
-        prefix+'-pinned-compilation-'+source+'.toml'])
+        prefix+'-pinned-compilation-'+source+'.toml',profile_harness])
 run('partition-supplement',[python,HERE/'split_confirmation.py',prefix+'-supplement-restore',native,prefix+'-supplement-partitions'])
 run('export-results',[python,HERE/'export_results.py','--prefix',prefix,'--broad',a.broad,'--output',results])
 run('independent-integrity',[python,HERE/'verify_integrity.py','--results',results,'--raw-parent',Path(prefix).parent,
        '--sources',sources,'--julia',julia])
+run('raw-summary-replay',[python,HERE/'replay_results.py','--results',results,'--raw-parent',Path(prefix).parent])
 run('regression-ledger',[python,HERE/'regression_ledger.py','--results',results])
 if not a.skip_plots:run('plots',[python,HERE/'plot_report.py',results,results.parent/'figures'])
 print('Post-timing validation/export complete; final report/review/packaging remain.',flush=True)

@@ -3,7 +3,8 @@ using LinearAlgebra, SparseArrays, Random, TOML
 BLAS.set_num_threads(1)
 load_stats=@timed include(joinpath(ARGS[1],"src","ProximalBase.jl"))
 const PB=Main.ProximalBase
-include("adapters.jl");include("cases.jl")
+harness=length(ARGS)>=3 ? ARGS[3] : @__DIR__
+include(joinpath(harness,"adapters.jl"));include(joinpath(harness,"cases.jl"))
 function stats(t)
     Dict("wall_seconds"=>t.time,"bytes"=>t.bytes,"gc_seconds"=>t.gctime,
          "compile_seconds"=>t.compile_time,"recompile_seconds"=>t.recompile_time)

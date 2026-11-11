@@ -1,0 +1,75 @@
+name: Historical iterate audit correctness
+on:
+  pull_request:
+    paths:
+      - 'benchmark/audit852/**'
+      - '.github/workflows/iterate-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  correctness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.13.3'
+      - uses: julia-actions/cache@v3
+      - name: Instantiate locked benchmark dependencies
+        run: julia --startup-file=no --project=benchmark/audit852 -e 'using Pkg; Pkg.instantiate()'
+      - name: Generate supplemental harness
+        run: python3 benchmark/audit852/supplement.py --harness "$RUNNER_TEMP/pb852-supplement-harness" --sources "$RUNNER_TEMP/pb852-frozen"
+      - name: Diagnose historical adapter inference outside timing campaigns
+        run: |
+          for source in original historical05 post848 post850; do
+            julia --startup-file=no --threads=1 -O2 --check-bounds=no --project=benchmark/audit852 benchmark/audit852/adapter_diagnostic.jl "$RUNNER_TEMP/pb852-frozen/$source"
+          done
+      - name: Check targeted residual block sequence
+        run: |
+          if ! python3 "$RUNNER_TEMP/pb852-supplement-harness/run.py" --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --output "$RUNNER_TEMP/pb852-targeted-check" --check --rounds 1 --roles original,historical05,post848,post850 --filter '^block/Float64/n8192/s819/b1/contiguous/residual_bcd$'; then
+            cat "$RUNNER_TEMP/pb852-targeted-check/failures.json" || true
+            find "$RUNNER_TEMP/pb852-targeted-check" -name '*.failure.txt' -exec cat {} \;
+            find "$RUNNER_TEMP/pb852-targeted-check" -name stderr.log -exec cat {} \;
+            exit 1
+          fi
+      - name: Check all four source revisions against independent references
+        run: python3 benchmark/audit852/run.py --julia "$(command -v julia)" --output "$RUNNER_TEMP/pb852-check" --sources "$RUNNER_TEMP/pb852-frozen" --check --rounds 1 --roles original,historical05,post848,post850
+      - name: Check supplemental native layouts and residual workloads
+        run: |
+          if ! python3 "$RUNNER_TEMP/pb852-supplement-harness/run.py" --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --output "$RUNNER_TEMP/pb852-supplement-check" --check --rounds 1 --roles original,historical05,post848,post850; then
+            cat "$RUNNER_TEMP/pb852-supplement-check/failures.json" || true
+            find "$RUNNER_TEMP/pb852-supplement-check" -name '*.failure.txt' -exec cat {} \;
+            exit 1
+          fi
+      - name: Check active-zero copies and complete reconstruction transitions
+        run: |
+          for source in original historical05 post848 post850; do
+            julia --startup-file=no --threads=1 --check-bounds=yes --project=benchmark/audit852 benchmark/audit852/extra_correctness.jl "$RUNNER_TEMP/pb852-frozen/$source"
+          done
+      - name: Tight Float64 scalar-product references
+        run: |
+          python3 benchmark/audit852/strict_correctness.py --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --output "$RUNNER_TEMP/pb852-strict-primary"
+          python3 benchmark/audit852/strict_correctness.py --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --harness-source "$RUNNER_TEMP/pb852-supplement-harness" --output "$RUNNER_TEMP/pb852-strict-supplement"
+      - name: Check every block order using nonuniform coordinates
+        run: |
+          for source in original historical05 post848 post850; do
+            julia --startup-file=no --threads=1 --check-bounds=yes --project=benchmark/audit852 benchmark/audit852/layout_correctness.jl "$RUNNER_TEMP/pb852-frozen/$source" "$RUNNER_TEMP/pb852-supplement-harness"
+          done
+      - name: Check native row-block indexing and common restoration
+        run: |
+          python3 -c 'import sys; sys.path.insert(0,sys.argv[1]); from spec import scenarios; print("\n".join(s["key"]+"/"+op for s in scenarios() for op in s["ops"]))' "$RUNNER_TEMP/pb852-supplement-harness" > "$RUNNER_TEMP/native-cases.txt"
+          python3 benchmark/audit852/restore_control.py --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --harness-source "$RUNNER_TEMP/pb852-supplement-harness" --cases-file "$RUNNER_TEMP/native-cases.txt" --output "$RUNNER_TEMP/pb852-native-check" --native-block-indexing --check --rounds 1 --start-round 301
+      - name: Check original raw-native Float32 and arbitrary block layouts
+        run: |
+          python3 benchmark/audit852/raw_blocks.py --prefix "$RUNNER_TEMP/pb852-ci-raw" --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --harness-source "$RUNNER_TEMP/pb852-native-check-harness" --generate-only
+          python3 benchmark/audit852/strict_correctness.py --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --harness-source "$RUNNER_TEMP/pb852-ci-raw-raw-block-harness" --output "$RUNNER_TEMP/pb852-ci-raw-strict"
+          for source in original historical05 post848 post850; do
+            julia --startup-file=no --threads=1 --check-bounds=yes --project=benchmark/audit852 benchmark/audit852/layout_correctness.jl "$RUNNER_TEMP/pb852-frozen/$source" "$RUNNER_TEMP/pb852-ci-raw-raw-block-harness"
+          done
+      - name: Verify frozen historical evidence without modification
+        run: python3 "$RUNNER_TEMP/pb852-frozen/post848/benchmark/baselines/tools/reproduce.py"
+      - name: Check analysis invariants
+        run: python3 benchmark/audit852/check_analysis.py

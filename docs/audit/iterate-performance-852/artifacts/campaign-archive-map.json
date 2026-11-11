@@ -1,0 +1,30 @@
+{
+  "raw-primary.tar.gz": [
+    "pb852-broad-final",
+    "pb852-final-followup",
+    "pb852-final-allocation-isolation"
+  ],
+  "raw-controls.tar.gz": [
+    "pb852-final-active-restore",
+    "pb852-final-active-restore-confirmation",
+    "pb852-final-active-restore-confirmation-harness",
+    "pb852-final-active-restore-harness",
+    "pb852-final-backing-blas",
+    "pb852-final-backing-blas-confirmation",
+    "pb852-final-backing-blas-harness",
+    "pb852-final-raw-block",
+    "pb852-final-raw-block-confirmation",
+    "pb852-final-raw-block-harness",
+    "pb852-final-restore",
+    "pb852-final-restore-confirmation",
+    "pb852-final-restore-confirmation-harness",
+    "pb852-final-restore-harness",
+    "pb852-final-static-adapter",
+    "pb852-final-static-adapter-confirmation",
+    "pb852-final-static-adapter-harness",
+    "pb852-final-supplement",
+    "pb852-final-supplement-harness",
+    "pb852-final-supplement-restore",
+    "pb852-final-supplement-restore-harness"
+  ]
+}

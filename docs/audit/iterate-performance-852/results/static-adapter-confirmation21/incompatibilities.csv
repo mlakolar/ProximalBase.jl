@@ -1,0 +1,3 @@
+case,role,status,error,audit_scope
+block/Float64/n8192/s819/b1/contiguous/clear,historical05,incompatible,historical fill zero removes active coordinates whereas original/current retain them,Different activity semantics; explicit zero-write/reconstruction sequences remain comparable
+block/Float32/n8192/s102/b8/arbitrary/clear,historical05,incompatible,historical fill zero removes active coordinates whereas original/current retain them,Different activity semantics; explicit zero-write/reconstruction sequences remain comparable

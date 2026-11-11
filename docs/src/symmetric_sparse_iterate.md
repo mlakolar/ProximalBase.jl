@@ -6,7 +6,7 @@ constant-time pair access, membership and activation, and packed active
 traversal. Capacity is reserved for all ``q=p(p+1)/2`` coordinates, so memory
 is O(q) even when the working set is small.
 
-**It is not an AbstractArray or AbstractMatrix.** It has `size(x)==(p,p)` and
+**It is not an `AbstractArray` or `AbstractMatrix`.** It has `size(x)==(p,p)` and
 `eltype(x)`, but no array length, axes, iteration or broadcasting. This prevents
 an algorithm from accidentally treating a lower-triangle coordinate ID as a
 full-matrix linear position.
@@ -42,7 +42,7 @@ Pair bounds are checked before narrowing other integer types, with a
 `BoundsError` for an invalid pair. `ncoordinates(x)` is q, `nactive(x)` counts
 stored independent variables, and `isactive/activate!` take independent IDs.
 The direct constructor `SymmetricSparseIterate([T,]p)` accepts nonnegative
-Int dimensions, with Float64 as the default element type.
+Int dimensions, with `Float64` as the default element type.
 
 ## The live views and dense copy
 
@@ -53,7 +53,7 @@ and an active one active. `fill!(coordinates(x),0)` touches active values
 only and preserves membership; following it with `dropzeros!(x)` empties the
 working set in O(nactive).
 
-`matrixview(x)` is a read-only live ``p\times p`` AbstractMatrix. Both triangles
+`matrixview(x)` is a read-only live ``p\times p`` `AbstractMatrix`. Both triangles
 read the same variable. Writes through the view or derived views/wrappers
 are refused; use the owner or its coordinate view to write. `Matrix(x)` is
 an independent dense snapshot. Allocating broadcasts and `similar` on the
@@ -156,11 +156,11 @@ stored zero and absent zero have the same product contribution. Other generic
 operations on the matrix view can visit all p² entries. Generic coordinate
 vector products have ordinary IEEE arithmetic.
 
-SqrNormL2, LinearFunction and SeparableFunction have explicit owner value/prox
-methods; supported Scaled leaves forward them. SqrNormL2 and LinearFunction
-also have owner gradients, allocating a dense symmetric matrix. ZeroFunction
-has owner value/prox, but no owner gradient. LeastSquaresLoss and
-QuadraticFunction have no owner interface. A true capability trait is not
+`SqrNormL2`, `LinearFunction` and `SeparableFunction` have explicit owner value/prox
+methods; supported `Scaled` leaves forward them. `SqrNormL2` and `LinearFunction`
+also have owner gradients, allocating a dense symmetric matrix. `ZeroFunction`
+has owner value/prox, but no owner gradient. `LeastSquaresLoss` and
+`QuadraticFunction` have no owner interface. A true capability trait is not
 sufficient to accept an owner.
 
 A symmetric-owner prox destination accepts a scalar step only. Array steps

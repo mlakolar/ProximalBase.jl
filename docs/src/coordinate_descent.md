@@ -34,7 +34,7 @@ For ``f(\beta)=\|y-X\beta\|^2/(2n)``, maintain ``r=y-X\beta``. Then
  a_j=\|X_{:,j}\|^2/n,
 ```
 
-and for weighted NormL1,
+and for weighted `NormL1`,
 
 ```math
 \beta_j^+=S_{\lambda_0w_j/a_j}
@@ -86,7 +86,7 @@ The weighted lasso conditions are
 coordinate assumed zero. It is signed and can be negative. It is not the
 stationarity residual at a nonzero coordinate. `kkt_violation(g,grad,x,k)`
 uses x's coordinate interpretation and adds specified validation; on a
-BlockIterate it takes the maximum scalar screen over the chosen group.
+`BlockIterate` it takes the maximum scalar screen over the chosen group.
 
 A working-set procedure optimizes selected coordinates, computes a full
 gradient to screen excluded zeros, adds violations, and repeats until both
@@ -96,12 +96,12 @@ zeros and need not equal the current mathematical support.
 
 `restrict(f,S)` and `restrict(g,S)` slice supported function parameters, with
 local entry order given by S. For least squares and quadratics, they represent omitted variables fixed at
-zero. Centered SqrNormL2 slices its center and drops the omitted-coordinate
+zero. Centered `SqrNormL2` slices its center and drops the omitted-coordinate
 constant ``(λ/2)\sum_{j\notin S}y_j^2``. When that omitted contribution is finite, this
 changes objective values but not the restricted minimizers, gradients or prox;
 add the constant back when comparing full and restricted values. Nonzero fixed
 variables require a separately derived residual/linear term.
-Only vector-response LeastSquaresLoss has a restriction method. See
+Only vector-response `LeastSquaresLoss` has a restriction method. See
 [the working-set example](examples/sparse_working_sets.md).
 
 ## Block updates
@@ -118,7 +118,7 @@ Least squares can use ``L_k=\|X_{:,G_k}\|_2^2/n``. This generally gives one
 upper-model step, rather than an exact block least-squares solution. Scalar
 column curvatures alone are not a block spectral bound.
 
-BlockIterate supplies an ordered partition and public block views. A separable
+`BlockIterate` supplies an ordered partition and public block views. A separable
 penalty uses scalar `prox_block` at each global member index. A custom block
 penalty supplies the compact-vector extension hook; no built-in group-penalty
 family is available in this package. See [coordinate oracles](iterate_oracles.md)

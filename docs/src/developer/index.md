@@ -1,7 +1,7 @@
 # Developer Documentation
 
 This section explains implementation invariants and extension boundaries.
-Begin with [function objects](../function_objects.md), [the interface](../interface.md)
+Begin with [function objects](../function_objects.md), [operations and calling conventions](../operations.md)
 and [iterates](../iterates.md) for ordinary usage.
 
 | Area | Guide | Contract / evidence |

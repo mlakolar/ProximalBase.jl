@@ -1,18 +1,18 @@
-# Coordinate oracles
+# Coordinate and block operations
 
 The pure mathematical hook computes a proximal point at a supplied trial.
-The solver then writes the result to storage. There is no storage-aware
-coordinate-prox API in the retained core.
+The solver then writes the result to storage. ProximalBase does not offer an operation that both computes a coordinate
+proximal point and changes the iterate's active set.
 
 ## Entries, groups and independent variables
 
 | Hook/call | Trial and index | Storage write afterward |
 |:--|:--|:--|
 | `prox_block(f,v,i,γ)` | Scalar v, global array-entry index i | `x[i]=result` for SparseIterate |
-| `prox_block!(out,f,u,k,γ)` | Compact vectors in custom penalty group k's order | `copyto!(blockview(x,k),out)` after matching layouts |
+| `prox_block!(out,f,u,k,γ)` | Compact vectors in custom group k's order | `copyto!(blockview(x,k),out)` after matching layouts |
 | Scalar hook for a symmetric owner | Scalar v, entry index `(c-1)p+r` derived from independent coordinate k | `coordinates(x)[k]=result` |
 
-An active slot is never a penalty index. BlockIterate has a storage partition,
+An active slot is never a coordinate or group index. BlockIterate has a storage partition,
 not a penalty: NormL1 has no groups and uses each global member index.
 `ProximalBase.samegroups` accepts two BlockIterates; custom functions must
 provide their own layout comparison or compare lists with `blockindices`.
@@ -34,8 +34,7 @@ Vector(x)
 ## Compact block buffers
 
 The generic vector `prox_block` allocates a floating Vector of `length(u)`
-and invokes the custom `prox_block!`. No retained built-in has a compact group
-kernel. An extension must validate group ID, dimensions, real one-based
+and invokes the custom `prox_block!`. No built-in function implements a compact group proximal update by default. An extension must validate group ID, dimensions, real one-based
 buffers and overlap before writes. Exact `out === u` is supported by the
 contract; other overlap must be rejected by the extension. The generic
 allocating wrapper adds no such checks on the extension's behalf.
@@ -55,7 +54,7 @@ Scaled compact-vector forwarding.
 
 ## Screening a zero coordinate
 
-For retained scalar penalties, `kkt_violation(g,grad,i)` reports a signed
+For the supported scalar functions, `kkt_violation(g,grad,i)` reports a signed
 violation of the zero-coordinate condition. NormL1 returns
 ``|\mathrm{grad}_i|-\lambda_0w_i``. A positive value means zero fails the
 condition. The routine does not inspect whether the coordinate is actually zero.
@@ -66,7 +65,7 @@ condition. The routine does not inspect whether the coordinate is actually zero.
 |:--|:--|
 | SparseIterate | Valid coordinate first, then gradient entry count equal to length(x); flat or matrix-shaped gradient of that length is accepted |
 | SymmetricSparseIterate | Valid independent coordinate, then p² gradient entries; symmetric part of that gradient pair and parameter-pair validation |
-| BlockIterate | Maximum scalar screen over global members of group k for retained scalar-screen functions |
+| BlockIterate | Maximum scalar screen over global members of group k for supported scalar-screen functions |
 | Other arrays | No extra point/gradient extent validation; indexing/function checks still apply |
 
 For SparseIterate/owner, invalid coordinate throws `BoundsError` before

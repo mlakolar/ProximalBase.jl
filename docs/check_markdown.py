@@ -23,7 +23,7 @@ CONTRACTS = (
 API_NAMES = (
     "AbstractFunction", "SeparableFunction", "ScalarLoss",
     "LeastSquaresLoss", "SqrNormL2", "QuadraticFunction", "ZeroFunction",
-    "LinearFunction", "NormL1", "Scaled", "Squared", "SparseIterate",
+    "LinearFunction", "NormL1", "Scaled", "SparseIterate",
     "SymmetricSparseIterate", "BlockIterate",
     "Float32", "Float64", "AbstractArray", "AbstractVector", "AbstractMatrix",
     "value_and_gradient!", "value_and_gradient", "value_and_prox!",

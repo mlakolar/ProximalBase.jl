@@ -4,7 +4,7 @@ ProximalBase supplies mathematical operations and storage. A caller chooses
 an update schedule, step size, residual/cache lifecycle, working set and stopping
 criterion. [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl)
 provides optimization algorithms; the loops here explain how such algorithms
-consume the retained primitives.
+use ProximalBase's mathematical operations.
 
 | Method | ProximalBase operations | Caller responsibility |
 |:--|:--|:--|

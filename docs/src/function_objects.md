@@ -13,11 +13,6 @@ g = NormL1(0.5)
 (f(x), g(x))
 ```
 
-The built-in functions in this example are [`AbstractFunction`](@ref)
-objects, which means they can be evaluated through the common Julia interface
-explained below. Other specialized interfaces are introduced where they are
-used, rather than needed to understand this first example.
-
 The benefit of representing functions as objects is that an optimization
 algorithm can request the operations it needs, such as a **gradient** or a
 **proximal map**, without knowing the precise formula of the function.
@@ -279,7 +274,7 @@ method combines a gradient step on ``f`` with a proximal step on ``g``:
 x_new = prox(g, x - γ * gradient(f, x), γ)
 ```
 
-Here, `f` and `g` are the squared-norm loss and `l1` penalty
+Here, `f` and `g` are the squared-norm loss and ``\ell_1`` penalty
 introduced at the top of the page. ProximalBase supplies `gradient` and
 `prox`; an optimization algorithm chooses the step sizes, repeats the
 updates, and decides when to stop.
@@ -287,5 +282,4 @@ updates, and decides when to stop.
 To see which operations are available, continue to
 [Operations on functions](operations.md). If you want to implement your own
 mathematical function, see [Writing your own function](extending.md), which
-explains parameter storage and extension hooks such as `value_entry` and
-`prox_block`.
+explains how to define a new function and supply its mathematical operations.

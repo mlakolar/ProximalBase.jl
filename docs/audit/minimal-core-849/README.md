@@ -1,6 +1,6 @@
 # ProximalBase minimal-core rebuild (#849)
 
-**Status (2026-11-10 PT):** Phase A declaration/dependency audit accepted by the independent architecture critic; Phases B/C extracted the core and removed deferred source. All 18 supported tests pass locally through bounds-checked Pkg.test; exported-API docs and 102 benchmark reference probes pass. Final performance investigation, CI and review integration are in progress. Two repeatable inactive block-write timing flags remain above five percent; acceptance is pending. See [implementation-log.md](implementation-log.md).
+**Status (2026-11-10 PT):** Phase A declaration/dependency audit accepted by the independent architecture critic; Phases B/C extracted the core and removed deferred source. All 18 supported tests pass locally through bounds-checked Pkg.test; exported-API docs and 102 benchmark reference probes pass. The performance investigator and independent final reviewer cleared the source-regression blocker after native-code and varied-fixture attribution; all original timing flags remain recorded with their causal limits. Final-head Linux CI, direct PR review and protected merge remain integration gates. See [implementation-log.md](implementation-log.md).
 
 The separate fresh GPT-6.1-Sol/high critic approved Phase A: “APPROVE Phase A
 architecture/dependency audit and Phase B extraction based on latest 5,476
@@ -74,4 +74,4 @@ Defer full GLM families, group penalties/group-lasso math, constrained sets/orac
 
 Open one ordinary draft PR targeting protected `master`. Require a declaration/dependency audit before accepting code deletion, a meaningful correctness and performance comparison, final-SHA Linux/current-Julia CI green, independent final-source review, and a normal protected-branch merge. Keep source modifications restricted to `refactor/minimal-core`; no force pushes or history rewrite.
 
-**Not yet completed:** archival-ref protection; final validation/CI and independent final-source review; merge. See [umbrella #849](https://github.com/mlakolar/ProximalBase.jl/issues/849) for the authoritative feature scope.
+**Not yet completed:** archival-ref protection; final-head Linux CI and direct PR review; protected merge. See [umbrella #849](https://github.com/mlakolar/ProximalBase.jl/issues/849) for the authoritative feature scope.

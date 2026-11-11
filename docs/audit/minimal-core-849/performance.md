@@ -1,6 +1,6 @@
 # Independent numerical and performance evidence for #849
 
-**Numerical checks pass; performance acceptance requires an explicit maintainer decision.** The exact final source has two repeatable inactive block-write slowdowns above 5% after a same-namespace, separate-process, pinned-CPU confirmation. No allocation regression was measured. No numerical formula or source optimization was changed to hide these results. Preserve all raw runs, including earlier flags that did not reproduce.
+**Numerical checks pass; the performance evidence supports acceptance after attribution.** Two fixed-fixture inactive-write flags above 5% were investigated through source, dispatch, generated code, state validation and independently reconstructed public fixtures. The hot native kernel is identical, and the candidate/baseline median over 24 independent fixture sets is 1.000 for each layout; identical baseline/baseline controls vary more. No representative source-attributable slowdown above 5% or allocation regression remains established. No numerical formula or source optimization was changed. All flags and raw results are retained.
 
 The immutable baseline is the full post-848 commit `eff21b6d7d33c622313122f46c6ee71693c101ee`, peeled from annotated tag object `5239e1043a370f999753710e958fb2742aa786ac`. Its source digest is `40b7a3a59db8820b6dcb00f31ae7f4dce09bead4e0992d21cee1743ef7465f94`. No ProximalSolvers code or remote references were changed by this investigation.
 
@@ -27,7 +27,7 @@ The first sweep increase is stable within its original process, so it was not di
 
 The confirmation is a source-loaded same-namespace package-module comparison; package startup, precompilation time, cold-cache behavior and solver-level performance are outside this warmed kernel evidence. The initial raw results remain intact so reviewers can see the original flag rather than only the successful repetitions.
 
-## Exact final-source acceptance run and unresolved gate
+## Exact final-source run, fixed-fixture flags and attribution
 
 The final acceptance candidate is commit `e272df3b87dcacb982b64b0e2124ca75cc50a966`, tree `03f82e4837af3d8895d6f11636e15fa0270eeb28`. A fresh immutable `git archive` snapshot has source digest `5e173f646116a9b70d0a0dbc22eb3b209a92b253241febecb9aa69acaa5f7c18`, independently matching the root agent's digest. The same 102 cases × 11 repetitions × three roles produce another **3,366 raw rows** in `final-source-results/`; all earlier measurements remain unchanged. The independent numerical reference script rerun against this exact snapshot passes **12,832/12,832 checks** with bounds checks enabled (`final-source-differential.log`).
 
@@ -43,14 +43,33 @@ The exact-final full run has no allocation regressions and two bootstrap flags: 
 | Float32 sparse active writes | 524 → 505 ns | 0.963 [0.951,0.981] | 0/31 | 0.989 | None |
 | Float64 range-group inactive write | 44 → 42 ns | 0.955 [0.933,0.955] | 0/31 | 0.932 | None |
 
-The arbitrary and reversed inactive-write slowdowns remain **unresolved performance flags**. Their absolute increases of 6 ns and 5 ns do not exempt them from the requested relative 5% gate. The baseline/candidate implementations of the relevant scalar access/write methods, `blockview` and `activate!` are byte-identical (hashes in `final-source-attribution.txt`); their view copy uses the same Julia runtime's generic `SubArray` copy implementation. Generated code or placement may explain the difference, but this source comparison does not establish that explanation or clear the gate. A maintainer must explicitly accept the measured tradeoff or request further work before performance acceptance. No source repair was attempted by this investigator.
+The arbitrary and reversed inactive-write increases were treated as performance flags requiring attribution; their absolute sizes of 6 ns and 5 ns do not exempt them from the requested relative 5% gate. Source identity alone was not used to dismiss them.
 
-The original sweep and block-L1 flags did not survive their independent confirmations and are documented separately above; the exact-final inactive-write flags are not dismissed on the basis of those earlier outcomes.
+Read-only diagnostics establish the following:
+
+- The relevant scalar access/write methods, `blockview` and `activate!` are byte-identical (hashes in `final-source-attribution.txt`). Both sources dispatch to the same Julia runtime's `copyto!(AbstractArray,AbstractArray)` and generic `copyto_unaliased!`, with the corresponding unchanged owner `setindex!` and `activate!` methods.
+- For each source/layout, 1,000 setup/operation checks verify that the target group is inactive, every storage value and position is zero before the timed operation, the source does not alias its destination, and the operation activates only group 1 and stores exactly the source values. Setup remains outside the timed region.
+- The **hot `copyto_unaliased!` native kernel is identical** for both sources/layouts after normalizing only a cold-path absolute `movabs` relocation. All instructions, registers, branch offsets and stack offsets are preserved. The shared normalized SHA256 is `443351061c09d6080ae13fb71fd2da30ada1a95c52baa4114b2058b9bd581145`. The outer wrapper has relocation and temporary-stack-assignment differences, so whole-wrapper binary identity is not claimed. Raw LLVM/native dumps, diagnostics and the normalization script are included.
+- The original fixed fixtures have different source/storage/index pointer alignments between processes. This is an observed context difference rather than an assumed explanation.
+
+A further exclusive experiment therefore reconstructs **24 independent public fixture sets**, varies held allocation padding, retains all fixture sets to avoid simple allocator reuse, and uses the **original probe closures** from `probes.jl`. Each source runs in the same namespaces in an independent persistent process pinned to the same CPU. Seven paired rounds with baseline/baseline controls yield **1,008 raw rows**. All 24 fixture sets/layouts pass repeated inactive-state, value and non-aliasing assertions. Source, storage and index pointer offsets modulo 64 and 4096 are recorded, along with all timings and allocations.
+
+| Layout | Candidate/baseline median over 24 independent fixtures | Fixture medians >5% | Fixture ratio range | Baseline/baseline median | Median baseline → candidate → baseline-control time |
+| --- | --- | --- | --- | --- | --- |
+| Arbitrary groups | **1.000** | 1/24 | 0.579–1.366 | **1.093** | 43 → 43 → 47 ns |
+| Reversed groups | **1.000** | 0/24 | 0.977–1.023 | **1.093** | 43 → 43 → 47 ns |
+
+The fixture-level bootstrap interval for each candidate/baseline median is [1.000,1.000] at this timer's nanosecond quantization; this does not imply exact equality below that resolution. The arbitrary-group identical-source control ranges from 0.627 to 2.122 across fixture sets. Storage offsets cover 12–19 distinct values modulo 4096, depending on process/layout; source offsets cover 19–21. Thus the candidate increase does not persist across independently reconstructed representative fixtures, while identical-source controls exhibit a larger systematic process-context difference. This supports clearing the source-regression gate on measured attribution evidence, rather than on the small absolute cost or a presumed source-code explanation. The experiment does not distinguish the exact contributions of heap/cache placement and instruction placement. Individual fixed contexts remain sensitive, and their raw flags are deliberately retained. No source repair or formula change was attempted by this investigator.
+
+The original sweep and block-L1 flags did not survive their independent confirmations and are documented separately above; the exact-final inactive-write flags are resolved through their own generated-code and varied-fixture investigation above, not on the basis of those earlier outcomes.
 
 ## Source identity and artifacts
 
 Source docstrings were being edited during the permitted documentation work; raw source digests therefore differ between timing stages even though no numerical kernel changed. The earlier separate-process confirmation uses an immutable local `candidate-snapshot` with source digest `a5f25867e676ea48047474fa845e069a7846dda7eacc25a135cbcd787c279eab`. The primary source digest is separately recorded as `7d9046c20813bce9d36815f44658e1176e01cce9917cfecc5c6635bcc94648a9`. The frozen confirmation source is included in the standalone evidence archive.
 
+- `fixture-results/`: 24 independent public fixture sets × seven paired rounds, pointer alignments, per-fixture summaries and provenance.
+- `fixture_server.jl`, `fixture_repeat.py`, `fixture_summarize.py`: varied-fixture reproduction and analysis.
+- `attribution-baseline/`, `attribution-candidate/`, `attribution.jl`, `native-attribution.json`, `normalize_native.py`: dispatch/state/alias diagnostics, raw LLVM/native and normalized comparison.
 - `final-source-identity.json`: exact final commit, tree and source digest.
 - `final-source-results/`: exact-final full102case raw results, summary and provenance.
 - `final-package-results/`: exact-final pinned-CPU seven-case confirmation.

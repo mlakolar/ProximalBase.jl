@@ -140,3 +140,30 @@ and three additional development heads match their frozen values. Two stale
 already-merged remote-tracking refs in the initial listing were already absent
 remotely; this task deleted no refs. Archive-ref protection still needs an
 administrator.
+
+## Performance attribution disposition
+
+The performance investigator and fresh final reviewer independently cleared
+the source-regression blocker after further attribution. The hot native copy
+kernel is identical except for one absolute relocation on a cold path;
+dispatch, inactive state and alias checks pass. Twenty-four independently
+constructed public fixture sets, seven paired rounds and pinned CPUs give a
+candidate/baseline median ratio of 1.000 for both arbitrary and reversed
+layouts. Same-source baseline/baseline controls have median ratio 1.093.
+This larger process-context variation does not establish a representative
+source-attributable slowdown. No allocation regression was found.
+
+The fixed-context +16.2%/+13.5% results and individual arbitrary-fixture tails
+remain real measurements and are preserved. The precise contribution of heap,
+cache and instruction placement is unproven; the conclusion does not guarantee
+every individual placement has equal timing. Source identity alone and the
+small absolute times were not used to waive the relative five-percent gate.
+No source optimization or formula change was made during the investigation.
+
+The updated complete archive preserves 8,829 timing rows, raw native/LLVM,
+dispatch/state checks, pointer offsets, all original flags and controls,
+source snapshots and the exact dependency manifests. Its SHA256 is
+`d3c483f33d0bedcd5694a9dd37bb7b359d80a8d2ec67e5521032160bf24bf76c`.
+The numerical source remains d11/e272 with the recorded 17-file digest.
+Final-head remote Linux CI, the direct PR review and protected merge remain
+integration gates; archive-ref protection still requires an administrator.

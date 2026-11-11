@@ -10,12 +10,15 @@ to see exactly how the symbols in a definition become Julia arguments.
 | Julia constructor | Mathematical function | Arguments and interpretation | Detailed guide |
 |:--|:--|:--|:--|
 | [`LeastSquaresLoss(Y, X)`](@ref LeastSquaresLoss) | ``f(B)=\frac12\|Y-XB\|_F^2`` | ``X``: design matrix; ``Y``: response; ``B``: argument supplied to `f(B)` | [Least squares](smooth.md#Least-squares-loss) |
-| [`SqrNormL2(λ, y)`](@ref SqrNormL2) | ``f(x)=\frac{\lambda}{2}\|x-y\|_2^2`` | ``\lambda\geq0``: level; ``y``: center (zero when omitted) | [Squared Euclidean norm](smooth.md#Squared-Euclidean-norm) |
+| [`SqrNormL2(λ, y)`](@ref SqrNormL2) | ``f(x)=\frac{\lambda}{2}\|x-y\|^2`` | ``\lambda\geq0``: level; ``y``: center (zero when omitted) | [Squared Euclidean norm](smooth.md#Squared-Euclidean-norm) |
 | [`QuadraticFunction(A, b, c)`](@ref QuadraticFunction) | ``f(x)=\frac12x^\mathsf{T}Ax+b^\mathsf{T}x+c`` | ``A``: symmetric positive semidefinite matrix (caller assumption); ``b``: linear coefficient (zero when omitted); ``c``: constant (zero when omitted) | [Quadratic function](smooth.md#Quadratic-function) |
 | [`ZeroFunction()`](@ref ZeroFunction) | ``f(x)=0`` | No parameters | [Zero function](smooth.md#Zero-function) |
 | [`LinearFunction(c, d)`](@ref LinearFunction) | ``f(x)=\langle c,x\rangle+d`` | ``c``: coefficient array; ``d``: constant (zero when omitted) | [Linear function](smooth.md#Linear-function) |
 | [`NormL1(λ0, w)`](@ref NormL1) | ``g(x)=\lambda_0\sum_iw_i|x_i|`` | ``\lambda_0\geq0``: overall level; ``w``: nonnegative weights (all one when omitted) | [The ℓ₁ norm](penalties.md) |
 | [`Scaled(f, α)`](@ref Scaled) | ``h(x)=\alpha f(x)`` | ``f``: existing function object; ``\alpha\geq0``: scale | [Scaling a function](calculus.md) |
+
+For `SqrNormL2`, the norm is the usual Euclidean norm for vectors and
+the **Frobenius norm** for matrices. It is not the spectral norm of a matrix.
 
 The variable **being optimized** (such as ``x`` or ``B``) is
 passed when the function is *evaluated*, not when the function object is

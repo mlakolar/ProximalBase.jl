@@ -6,7 +6,7 @@ argument domain. Mutating oracles put the destination first. Gradients require
 an independent input/output pair; proximal calls support `out === x`.
 Other overlapping input/output views are unsupported. The combined gradient
 returns the value at the input; the combined prox returns the value at the
-stored output. Parameter arrays are retained by reference.
+stored output. The function keeps references to parameter arrays rather than copying them.
 
 ## Least-squares loss
 
@@ -45,7 +45,7 @@ to `Matrix` gives an ordinary matrix-coefficient problem if dimensions fit.
 `lipschitz(f)` bounds ``\|X\|_2^2``; it uses a full spectral norm for dense
 strided data and a one/infinity-norm bound for other matrices.
 
-Constructor row mismatch and oracle dimension mismatch throw
+Constructor row mismatch and operation dimension mismatch throw
 `DimensionMismatch`; complex data/arguments throw `ArgumentError`. SVD-based
 proximal evaluation is intended for finite data; no general non-finite-data
 recovery is promised for the decomposition. Value range recovery is separate

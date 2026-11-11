@@ -7,7 +7,7 @@ it requires your parameter arrays to be **exactly symmetric**.
 
 ## Which parameters are checked
 
-| Retained function | Per-entry array |
+| Function | Per-entry array |
 |:--|:--|
 | NormL1 | weights w |
 | SqrNormL2 | center y |
@@ -16,7 +16,7 @@ it requires your parameter arrays to be **exactly symmetric**.
 | Custom SeparableFunction | every declared per-entry array |
 
 Parameters refer to full matrix positions, usually a p×p array. An entrywise
-weight vector of length p² can be paired in column-major order where the leaf
+weight vector of length p² can be paired in column-major order where the wrapped function
 permits it; center/coefficient writers can impose the full matrix shape/axes.
 Use matching matrices for centers and coefficients. Design matrices, response
 data, block-indexed parameters and scalar levels are not per-entry matrix

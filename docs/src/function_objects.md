@@ -236,9 +236,16 @@ declares otherwise.
  iszeropreserving(f))
 ```
 
-### Retained built-in functions
+### Properties of functions provided by ProximalBase.jl
 
-| Retained function | Smooth | Proximable | Separable | Convex | Zero preserving |
+ProximalBase.jl provides mathematical functions that serve as building blocks
+for optimization algorithms. The table summarizes their properties: whether
+they support gradient-based operations, proximal updates, or independent
+coordinate calculations. These properties help determine which operations
+an optimization algorithm can use with each function.
+
+
+| Function | Smooth | Proximable | Separable | Convex | Zero preserving |
 |:--|:--:|:--:|:--:|:--:|:--|
 | `ZeroFunction` | yes | yes | yes | yes | yes |
 | `LinearFunction` | yes | yes | yes | yes | no |

@@ -31,6 +31,8 @@ function seed(r)
   p in STORAGE_FILES && return true
   p == "src/ProximalBase.jl" && return n == "ldexp"
   p == "src/lapack.jl" && return n == "_is_device_array"
+  p == "src/utils.jl" && return n == "opnorm2"
+  p == "src/constrained.jl" && return n == "_checkwrite" && l in (211, 213, 221)
   p == "src/interface.jl" && return l <= 610 && !(n in SECOND_ORDER_NAMES) && n != "_excluded_coordinates" &&
     !(n in ("kkt_violation", "_kkt_violation") && "BlockIterate" in r.typed)
   p == "src/functions/smooth.jl" && return l < 975 || (p == "src/functions/smooth.jl" && n == "lipschitz" && !isempty(intersect(CORE_TYPES, r.typed)))
@@ -44,7 +46,7 @@ function seed(r)
     (isempty(intersect(r.typed, ALL_FUNCTION_TYPES)) || !isempty(intersect(r.typed, CORE_TYPES)))
   p == "src/metric.jl" && return l <= 39 || (p == "src/metric.jl" && 225 <= l <= 333)
   p == "src/symmetric_parameters.jl" && return !(n in SYMMETRIC_ARCHIVE_NAMES) && !(n in SECOND_ORDER_NAMES) &&
-    !("Tuple" in r.typed && isempty(intersect(r.typed, CORE_TYPES)) && !(n in ("_check_inner_arrays", "_stored_value_pairs", "_has_symmetric")))
+    !("Tuple" in r.typed && isempty(intersect(r.typed, CORE_TYPES)) && !(n in ("_check_own_arrays", "_check_inner_arrays", "_stored_value_pairs", "_has_symmetric")))
   p == "src/block_prox.jl" && return n == "prox_block" && "AbstractFunction" in r.typed
   false
 end

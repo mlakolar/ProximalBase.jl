@@ -56,10 +56,6 @@ _nentries(x::SymmetricSparseIterate) = x.p^2
 
 function value_and_prox! end
 function gradient! end
-function hessian_vec! end
-function quadratic_model end
-function quadratic_model! end
-function coordinate_lipschitz! end
 
 """
     issmooth(f)
@@ -437,7 +433,6 @@ method, alongside [`value_entry`](@ref). Full `prox!` uses that same method.
 """
 function prox_block end
 function prox_block! end
-@doc (@doc prox_block) prox_block!
 
 ####################################
 #  Optimality and active sets
@@ -501,10 +496,6 @@ _gradient_extent(x::SparseIterate) = length(x.ind2nzval)
 _gradient_extent(x::SymmetricSparseIterate) = x.p^2
 @noinline _throw_kkt_extent(g, x) = throw(DimensionMismatch(
   "the gradient has length $(length(g)), but the $(nameof(typeof(x))) needs one of length $(_gradient_extent(x))"))
-# a group at zero violates optimality as much as its worst index
-kkt_violation(f::AbstractFunction, g::AbstractArray, x::BlockIterate, k::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation);
-   _isbuiltin(f) ? _kkt_violation(f, g, x, k) : maximum(i -> kkt_violation(f, g, i), x.groups[k]))
 
 """
     restrict(f, S)
@@ -535,45 +526,6 @@ function restrict end
 # the restriction without the check that the dropped terms are finite at zero,
 # for wrappers that evaluate those terms elsewhere
 _restrict_unchecked(f::AbstractFunction, S::AbstractVector{<:Integer}) = restrict(f, S)
-# the coordinates of 1:n outside S, through a mask so that ranges, duplicates
-# and Boolean masks select as indexing does
-function _excluded_coordinates(n::Integer, S::AbstractVector{<:Integer})
-  selected = falses(n)
-  selected[S] .= true
-  findall(!, selected)
-end
-
-"""
-    gradient_mapping!(G, f, g, x, γ)
-    gradient_mapping(f, g, x, γ)
-
-The gradient mapping `G = (x - prox_{γg}(x - γ∇f(x))) / γ` of the problem
-`minimize f(x) + g(x)`, for a smooth `f` and a proximable `g`. When `f` and `g`
-are convex it is zero exactly at the minimizers, for every `γ > 0`; with
-`g = 0` it is `∇f(x)`. Its norm is a stopping rule that needs neither the
-optimal value nor the structure of `g`, and a proximal gradient step from `x` is
-`x - γG`. `G` must not be `x`; `gradient_mapping!` allocates nothing beyond
-what `gradient!` and `prox!` do. Overlapping views of `G` and `x` are unsupported.
-"""
-function gradient_mapping!(G::AbstractArray, f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ::Real)
-  eltype(G) <: Real && eltype(x) <: Real || _real_error(:gradient_mapping!)
-  G === x && throw(ArgumentError("G must not be x"))
-  _checksize(G, x)
-  _checkparams(f, x)
-  _checkparams(g, x)
-  _checkwrite(gradient!, f, G, x)
-  _checkwrite(prox!, g, G, G)
-  _check_write_arrays(gradient!, f, G, x)
-  _check_write_arrays(prox!, g, G, G)
-  _gradient_unchecked!(G, f, x)
-  G .= x .- γ .* G
-  _prox_unchecked!(G, g, G, γ)
-  G .= (x .- G) ./ γ
-end
-
-gradient_mapping(f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ::Real) =
-  gradient_mapping!(_gradient_buffer(x), f, g, x, γ)
-@doc (@doc gradient_mapping!) gradient_mapping
 
 """
     lipschitz(f)
@@ -606,102 +558,3 @@ end
 
 _kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
   _isbuiltin(f) ? kkt_violation(f, g, i) : kkt_violation(f, g, x, i)
-_kkt_violation(f::AbstractFunction, g::AbstractArray, x::BlockIterate, k::Integer) =
-  _isbuiltin(f) ? maximum(i -> kkt_violation(f, g, i), x.groups[k]) : kkt_violation(f, g, x, k)
-
-####################################
-#  Linear minimization oracles
-####################################
-
-"""
-    haslmo(C)
-
-Whether the set `C` (an indicator function) has a linear minimization oracle,
-[`lmo!`](@ref), on its documented input domain. It is `false` unless a set
-declares it. Unlike the other traits it is a property of the instance, not the
-type: [`IndBox`](@ref) has an oracle when every bound is finite, and
-[`IndSimplex`](@ref), [`IndBallL1`](@ref) and [`IndBallL2`](@ref) when the radius
-is finite, and the capped simplex `Constrained(IndBox(0, 1), IndHyperplane(a, k))`
-when `a` is `1` or an array of ones and `k` is a nonnegative integer; a scalar `a`
-does not know the dimension, so `0 ≤ k ≤ n` is checked by `lmo!`. It is also `true` for the matrix sets
-`SingularValue(IndBallL1(r))` (the nuclear-norm ball), `Spectral(IndSimplex(r))` (the density matrices and,
-with `equality = false`, the PSD trace ball) and the Fantope `Spectral(Constrained(IndBox(0, 1),
-IndHyperplane(1, k)))`, under the same conditions on `r` and `k`. A `false` means that the oracle is unsupported, which is a different
-statement from "the linear objective is unbounded below": an unbounded set can
-have a finite minimum for some directions, and `lmo!` makes no promise about
-sets outside the compact families it lists.
-"""
-haslmo(::AbstractFunction) = false
-
-"""
-    lmo!(s, C, g)
-
-Store in `s` a minimizer of the linear function `s ↦ dot(g, s)` over the compact
-set `C`, the linear minimization oracle of Frank–Wolfe methods, and return `s`.
-`C` must have [`haslmo`](@ref); otherwise `lmo!` throws an `ArgumentError`
-before writing. Supported sets: [`IndSimplex`](@ref) (equality and inequality),
-[`IndBallL1`](@ref), [`IndBallL2`](@ref), [`IndBox`](@ref) and
-[`IndBallLinf`](@ref) with finite bounds, and the capped simplex
-`Constrained(IndBox(0, 1), IndHyperplane(1, k))` (the normal `1` or an array of
-ones, an integer `0 ≤ k ≤ length(g)`). The matrix sets `SingularValue(IndBallL1(r))`,
-`Spectral(IndSimplex(r))` and the Fantope have dense oracles for a real square (spectral sets) or
-rectangular `g`, which write `-r u vᵀ`, `r v vᵀ` and `Q Qᵀ`, and [`lmo_atom`](@ref) returns the same
-minimizers in factored form without the dense matrix; see there for their ties, symmetric-part
-convention and exactness. A non-finite entry of such a `g` gives an all-`NaN` `s`. No other
-`LinearConstrained` set has an oracle: other bounds, normals, halfspaces and hyperslabs do not.
-
-| Set | `s` | Ties and degenerate cases |
-|:----|:----|:--------------------------|
-| `IndSimplex(r)` | `r eᵢ`, `i` the first index of the smallest `gᵢ` | with `equality = false`, `0` when `minᵢ gᵢ ≥ 0` (including a tie at `0`) |
-| `IndBallL1(r)` | `-r sign(gᵢ) eᵢ`, `i` the first index of the largest `\\|gᵢ\\|` | `0` when `g = 0` |
-| `IndBallL2(r)` | `-r g / ‖g‖₂` | `0` when `g = 0` |
-| `IndBox(l, u)`, `IndBallLinf(r)` | `lᵢ` if `gᵢ > 0`, `uᵢ` if `gᵢ < 0` | `lᵢ` when `gᵢ = 0` |
-| capped simplex, `k` | `sᵢ = 1` for the `k` smallest `gᵢ`, `0` elsewhere | the earliest indices among equal entries; `0` for `k = 0` and `1` for `k = n`, whatever `g` holds |
-
-The capped simplex selects in `O(n)` expected time, without sorting, and compares
-entries in their own type, so integers of any size keep their order. It keeps a
-copy of `g` in the scratch of the set, which is reused by later calls and by
-`Conjugate(C)`: use one set object per thread. An infeasible `k > length(g)`
-is an `ArgumentError`, and `NaN` in `g` gives `NaN` in all of `s` unless `k` is `0` or `n`.
-
-Arrays of any shape are vectors in linear (column-major) order, so "first
-index" is the first in that order and a matrix has the Frobenius pairing. `g`
-holds real numbers, and `s` must be an `Array`, or a view of one, of
-floating-point numbers of the size of `g`. A radius or bound is rounded to the
-element type of `s`; a finite one that overflows it is an `ArgumentError`, and one that underflows
-to zero is accepted as zero. The
-result is feasible up to that rounding. A radius of `0` gives `0`, and a box
-coordinate with `lᵢ = uᵢ` gives that value, whatever `g` holds there. Zeros are
-`+0.0`.
-
-`s` may be `g`; a partial overlap, such as shifted views of one array, is not
-supported. A `Symmetric` `g` is read as a dense matrix, and the result need not
-be symmetric. Validation precedes every write: a size mismatch is a
-`DimensionMismatch`, and an unsupported set, an invalid output or parameter, or
-an empty simplex with `equality = true` and a radius above the tolerance of the
-element type, an `ArgumentError`, with `s` unchanged.
-
-A `NaN` in `g` gives `NaN` in every output entry that depends on it: all of
-`s` for the simplex and the balls, entry `i` for the box. Infinite entries take
-the limit where it is determined: the simplex, the ℓ1 ball and the box compare
-entries, so `-Inf` wins the minimum and `±Inf` the largest magnitude; for the
-ℓ2 ball one infinite entry gives the vertex `-r sign(gᵢ) eᵢ`, and two or more
-give `NaN`. See [`prox!`](@ref) for the conventions the aliasing and the
-non-finite rules follow.
-"""
-function lmo!(s, C::AbstractFunction, g)
-  haslmo(C) || _lmo_unsupported(C)
-  throw(MethodError(lmo!, (s, C, g)))
-end
-
-@noinline _lmo_unsupported(C) = throw(ArgumentError(
-  "no linear minimization oracle for $(typeof(C)) with these parameters: haslmo(C) is false " *
-  "(only compact sets listed in lmo! are supported; this does not say the linear objective is unbounded)"))
-
-"""
-    lmo(C, g)
-
-Allocating version of [`lmo!`](@ref): the result is a dense `Array` of the size of `g` and
-the element type `float(eltype(g))`, also for a sparse or structured `g`.
-"""
-lmo(C::AbstractFunction, g::AbstractArray) = lmo!(Array{float(eltype(g))}(undef, size(g)), C, g)

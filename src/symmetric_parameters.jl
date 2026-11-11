@@ -4,33 +4,12 @@
 # indexed by groups, ranks or image coordinates are deliberately absent.
 entry_parameters(::AbstractFunction) = ()
 entry_parameters(::SeparableFunction) = nothing
-for F in (:IndNonnegative, :NormL0, :MCP, :SCAD, :NegEntropy, :NegLog, :IndBanded)
-  @eval entry_parameters(::$F) = ()
-end
 _entry_arrays(f) = entry_parameters(f)
 _inner_functions(::AbstractFunction) = ()
-for F in (:NormL1, :NormL1Nonneg, :ElasticNet, :CappedL1, :LogPenalty, :NormLq,
-          :Berhu, :CheckLoss, :EpsInsensitiveLoss)
-  @eval entry_parameters(f::$F) = (:w => f.w,)
-end
-entry_parameters(f::Union{HingeLoss, SqrHingeLoss}) = (:w => f.w, :y => f.y)
-entry_parameters(f::BernoulliLoss) = (:w => f.w, :b => f.b)
-entry_parameters(f::Union{Tilt, LinearFunction, Regularize}) = (:c => f.c,)
-entry_parameters(f::KronQuadratic) = (:C => f.C,)
-entry_parameters(f::Union{IndBox, IndBinary}) = (:l => f.l, :u => f.u)
-entry_parameters(f::IndPattern) = (:P => f.P,)
+entry_parameters(f::NormL1) = (:w => f.w,)
+entry_parameters(f::LinearFunction) = (:c => f.c,)
 entry_parameters(f::SqrNormL2) = (:y => f.y,)
-entry_parameters(f::KLDivergence) = (:q => f.q,)
-entry_parameters(f::Translate) = (:b => f.b,)
-entry_parameters(f::Union{_ArrayPrecompose, IndHyperplane, IndHalfspace, IndHyperslab}) = (:a => f.a,)
-_inner_functions(f::Union{Scaled, Tilt, Translate, Regularize, _ArrayPrecompose,
-                         MoreauEnvelope, Conjugate, SqrDistL2, DistL2,
-                         BallConstrained, SphereConstrained}) = (f.f,)
-_inner_functions(f::_ScalarPrecompose) = (f.f,)
-_inner_functions(f::BoxConstrained) = (f.f, f.box)
-_inner_functions(f::LinearConstrained) = (f.f, f.set)
-_inner_functions(f::Union{Sum, SeparableSum, PointwiseMinimum}) = f.fs
-_inner_functions(f::IndIntersection) = f.sets
+_inner_functions(f::Scaled) = (f.f,)
 
 check_symmetric_parameters(f::AbstractFunction, x) = (_check_entry_arrays(f, x); true)
 
@@ -73,13 +52,6 @@ function _check_inner_arrays(fs::Tuple, x, domain)
   _check_entry_arrays(first(fs), x, domain)
   _check_inner_arrays(Base.tail(fs), x, domain)
 end
-function _check_entry_arrays(f::SeparableSum, x::Tuple, domain = _AllPairs())
-  _checkblocks(f, x)
-  _check_entry_array_blocks(f.fs, x, domain)
-end
-@generated _check_entry_array_blocks(fs::Tuple, x::Tuple, domain) =
-  _blockwise(k -> :(_check_entry_arrays(fs[$k], x[$k],
-    domain isa _StoredValuePairs ? _stored_value_pairs(x[$k]) : _AllPairs())), min(fieldcount(fs), fieldcount(x)), true)
 function _check_entry_arrays(f::AbstractFunction, x::Tuple, domain = _AllPairs())
   _check_inner_arrays(_inner_functions(f), x, domain)
 end
@@ -140,53 +112,20 @@ end
 # Only kernels that actually stay on stored coordinates use a sparse domain.
 _stored_value(f::AbstractFunction) = isempty(entry_parameters(f)) && isempty(_inner_functions(f))
 _stored_value(f::SeparableFunction) = _isbuiltin(f) && iszeropreserving(f)
-_stored_value(::Union{LinearFunction, IndHyperplane, IndHalfspace, IndHyperslab}) = true
+_stored_value(::LinearFunction) = true
 _stored_value(f::SqrNormL2) = f.y === nothing
-_stored_value(f::Union{Scaled, Tilt, BallConstrained, SphereConstrained}) = _stored_value(f.f)
-_stored_value(f::BoxConstrained) = _stored_value(f.f) && _stored_value(f.box)
-_stored_value(f::LinearConstrained) = _stored_value(f.f) && _stored_value(f.set)
-_stored_value(f::Regularize) = f.c === nothing && _stored_value(f.f)
-_stored_value(f::Union{Sum, PointwiseMinimum}) = all(_stored_value, f.fs)
-@generated _stored_value(f::SeparableSum{F}) where {F} =
-  _blockall(k -> :(_stored_value(f.fs[$k])), fieldcount(F))
-_stored_value(f::IndIntersection) = all(_stored_value, f.sets)
+_stored_value(f::Scaled) = _stored_value(f.f)
 _stored_value_pairs(x::SymmetricSparseIterate) = _StoredPairs(x, x)
 _stored_value_pairs(x::Tuple) = _StoredValuePairs()
 _stored_value_pairs(x) = _AllPairs()
 _stored_write(op, ::AbstractFunction) = false
 _stored_write(op, f::SeparableFunction) = _isbuiltin(f)
 _stored_write(op::O, f::Scaled) where {O} = _stored_write(op, f.f)
-_stored_write(op::O, f::Conjugate{<:Conjugate}) where {O} = _stored_write(op, f.f.f)
-_stored_box_value(::AbstractFunction) = false
-_stored_box_value(f::SeparableFunction) = _isbuiltin(f)
-_stored_box_value(f::Scaled) = _stored_box_value(f.f)
-_stored_box_value(f::BoxConstrained) = _stored_box_value(f.f) && _stored_box_value(f.box)
-_stored_box_value(f::Regularize) = f.c === nothing && _stored_box_value(f.f)
-_builtin_kernels(f) = _isbuiltin(f) && all(_builtin_kernels, _inner_functions(f))
-_stored_write(op::O, f::BoxConstrained) where {O} =
-  _builtin_kernels(f.f) && (op === prox! || _stored_box_value(f.f))
-_stored_write(op::O, f::_ArrayPrecompose) where {O} = _builtin_kernels(f.f) && op === prox!
 _stored_domain(op::O, f) where {O} =
   (op === prox! || op === value_and_prox!) && isseparable(f) && iszeropreserving(f) && _stored_write(op, f)
 # Keep the value oracle's shape errors ahead of the pair scan.
 _check_value_shape(f, x) = _checkvalue(f, x)
-_check_value_shape(f::Regularize, x) = _checkparams(f, x)
 _check_value_shape(f::Scaled, x) = _check_value_shape(f.f, x)
-_check_value_shape(f::_ScalarPrecompose, x) = _check_value_shape(f.f, _checkimage(f, x))
-_check_value_shape(f::Translate, x) = _check_value_shape(f.f, _checkshifted(f, x))
-_check_value_shape(f::Tilt, x) = (_checkreal(f, x); _check_value_shape(f.f, x); _checkdot(f.c, x))
-_check_value_shape(f::Union{Sum, PointwiseMinimum}, x) = _check_value_shapes(f.fs, x)
-_check_value_shapes(::Tuple{}, x) = true
-_check_value_shapes(fs::Tuple, x) = (_check_value_shape(first(fs), x); _check_value_shapes(Base.tail(fs), x))
-function _check_value_shape(f::SeparableSum, x::Tuple)
-  _checkparams(f, x)
-  _check_value_shape_blocks(f.fs, x)
-end
-@generated _check_value_shape_blocks(fs::Tuple, x::Tuple) =
-  _blockwise(k -> :(_check_value_shape(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)), true)
-_check_value_arrays(f, x::Tuple) =
-  (_checkreal(f, x); _check_value_shape(f, x);
-   _check_entry_arrays(f, x, _stored_value(f) ? _StoredValuePairs() : _AllPairs()))
 _check_value_arrays(f, x) = (_checkreal(f, x); _check_entry_arrays(f, x))
 function _check_value_arrays(f, x::SymmetricSparseIterate)
   _checkreal(f, x)
@@ -205,13 +144,6 @@ function _check_write_arrays(op::O, f, y::SymmetricSparseIterate, x::SymmetricSp
     _check_entry_arrays(f, y)
   end
 end
-function _check_write_arrays(op::O, f::SeparableSum, y::Tuple, x::Tuple) where {O}
-  _checkblocks(f, x)
-  _checksize(y, x)
-  _check_write_array_blocks(f.fs, y)
-end
-@generated _check_write_array_blocks(fs::Tuple, y::Tuple) =
-  _blockwise(k -> :(_check_entry_arrays(fs[$k], y[$k])), min(fieldcount(fs), fieldcount(y)), true)
 
 # A SymmetricSparseIterate output takes a scalar step, the Frobenius proximal operator of the
 # symmetric matrix. An array or per-group step is refused before anything is written: the
@@ -228,28 +160,13 @@ prox(f::AbstractFunction, x::SymmetricSparseIterate, γ::AbstractArray) = _throw
 # The allocating oracles at the owner of a symmetric matrix, for the families that accept it. The
 # proximal operator is an independent owner, and the gradient a dense exactly symmetric matrix.
 const _OwnerSeparable = Union{SeparableFunction, LinearFunction, SqrNormL2}
-const _OwnerSmooth = Union{LinearFunction, SqrNormL2, SqrHingeLoss, BernoulliLoss, KronQuadratic}
+const _OwnerSmooth = Union{LinearFunction, SqrNormL2}
 prox(f::_OwnerSeparable, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
 gradient(f::_OwnerSmooth, x::SymmetricSparseIterate) = gradient!(_gradient_buffer(x), f, x)
 function value_and_gradient(f::_OwnerSmooth, x::SymmetricSparseIterate)
   g = _gradient_buffer(x)
   v = value_and_gradient!(g, f, x)
   v, g
-end
-hessian_vec(f::Union{LinearFunction, SqrNormL2, KronQuadratic, Scaled, Tilt, Translate, Regularize, Precompose, Sum},
-            x::SymmetricSparseIterate, v::_ArrayOrOwner) = hessian_vec!(_gradient_buffer(x), f, x, v)
-
-# The constants of an owner, one per coordinate, are those of the entry at the lower position.
-# the constants of the smooth families, and of the wrappers whose constants are those of the function inside
-const _OwnerLipschitz = Union{_OwnerSmooth, Scaled, Tilt, Translate, Regularize, Precompose, _ArrayPrecompose, Sum}
-function coordinate_lipschitz!(L::SymmetricSparseIterate, f::_OwnerLipschitz)
-  _check_lipschitz_arrays(f, L)
-  _checkparams(f, L)
-  p = L.p
-  @inbounds for c in 1:p, r in c:p
-    _setstored!(L, coordinate_lipschitz(f, (c - 1) * p + r), tril_index(p, r, c))
-  end
-  L
 end
 
 # an owner output that shares memory with a parameter array
@@ -351,44 +268,11 @@ _kkt_violation(s::Scaled, g::AbstractArray, x::SymmetricSparseIterate, k::Intege
   _chained(s) ? _nested_kkt((f, h) -> _kkt_violation(f, h, x, k), s, g) :
   iszero(s.α) ? _kkt_violation(ZeroFunction(), g, x, k) :
     s.α * _kkt_violation(s.f, _ScaledArray(g, inv(s.α)), x, k)
-_kkt_violation(r::Regularize, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) =
-  _kkt_violation(r.f, _ridge_shifted(g, r), x, k)
 
 # Fallbacks for functions outside the entry-array kernels.
 _prox_unchecked!(y, f::AbstractFunction, x, γ) = prox!(y, f, x, γ)
 _value_and_prox_unchecked!(y, f::AbstractFunction, x, γ) = value_and_prox!(y, f, x, γ)
-# The functions whose proximal operator runs over arrays, and has no kernel for an owner: their public methods check
-# the parameters of an owner role and end here, where the fallbacks above would call the public method again.
-# The call is the one that has no method; the argument x is the one that the caller gave, not its symmetric part.
-@noinline _owner_role_error(op, y, f, x, γ) = throw(MethodError(op, (y, f, x isa _SymmetricPart ? x.A : x, γ)))
-for F in (PointwiseMinimum, IndIntersection, LinearConstrained), (op, unchecked) in ((prox!, :_prox_unchecked!), (value_and_prox!, :_value_and_prox_unchecked!))
-  @eval begin
-    $unchecked(y::SymmetricSparseIterate, f::$F, x::_ArrayOrOwner, γ::Real) = _owner_role_error($op, y, f, x, γ)
-    $unchecked(y::AbstractArray, f::$F, x::SymmetricSparseIterate, γ::Real) = _owner_role_error($op, y, f, x, γ)
-  end
-end
-# Whether the proximal operator of f has a method at an owner (as the output or as the point): false for the
-# functions above, whose owner roles end in the MethodError of the operation. A block of a separable sum asks it
-# before any block is written, so that a tuple call that is known to fail does not change its first blocks.
-_owner_role_supported(op, f) = true
-_owner_role_supported(op, ::Union{PointwiseMinimum, IndIntersection, LinearConstrained}) = false
-# the wrappers that forward their owner role to the inner function, and end in its MethodError
-_owner_role_supported(op, f::Union{Scaled, Translate, Tilt}) = _owner_role_supported(op, f.f)
-# Whether the proximal operator of f has a scalar-step method: false for the built-in functions that this package
-# gives none, whose default scalar-step check (in interface.jl) ends in the MethodError of the direct call.
-_prox_supported(::Type{<:Union{GLMLoss, KronQuadratic, Sum}}) = false
-# the preflight of a block: the error of the direct call, with the arguments of the tuple call
-_owner_role_preflight(op, f, y, x, γ) =
-  ((y isa SymmetricSparseIterate || x isa SymmetricSparseIterate) && !_owner_role_supported(op, f) &&
-     _owner_role_error(op, y, f, x, γ); true)
-_owner_role_preflight(op, s::SeparableSum, y::Tuple, x::Tuple, γ) = _owner_role_preflight_blocks(op, s.fs, y, x, γ)
-# a scaled sum of blocks passes its tuple arguments to its inner sum
-_owner_role_preflight(op, s::Scaled, y::Tuple, x::Tuple, γ) = _owner_role_preflight(op, s.f, y, x, γ)
-@generated _owner_role_preflight_blocks(op, fs::Tuple, y::Tuple, x::Tuple, γ) =
-  _blockwise(k -> :(_owner_role_preflight(op, fs[$k], y[$k], x[$k], γ)), min(fieldcount(fs), fieldcount(y), fieldcount(x)), true)
 _value_and_gradient_unchecked!(y, f::AbstractFunction, x) = value_and_gradient!(y, f, x)
-_hessian_vec_unchecked!(y, f, x, v) = hessian_vec!(y, f, x, v)
-_quadratic_model_unchecked!(q, f, x) = quadratic_model!(q, f, x)
 
 # A local proof that a parameter was checked, without changing its axes.
 struct _CheckedParameter{T, A<:AbstractMatrix{T}} <: AbstractMatrix{T}
@@ -415,120 +299,8 @@ function _store_lower!(y::SymmetricSparseIterate, a::AbstractMatrix)
   y
 end
 _store_lower!(y::AbstractArray, a::AbstractMatrix) = copyto!(y, a)
-
-_hessian_vec_unchecked!(y::AbstractArray, f::Union{LeastSquaresLoss, GLMLoss, LogDetLoss}, x::_ArrayOrOwner, v::_ArrayOrOwner) = hessian_vec!(y, f, x, v)
-_quadratic_model_unchecked(f::GLMLoss, x::AbstractVector) = quadratic_model(f, x)
-_quadratic_model_unchecked(f::LogDetLoss, x::AbstractMatrix) = quadratic_model(f, x)
-_coordinate_lipschitz_unchecked!(L::AbstractArray, f::LeastSquaresLoss) = coordinate_lipschitz!(L, f)
-
-# Preserve the specialized joint oracles outside the entry-array domain.
-_value_and_prox_unchecked!(y::AbstractArray, f::Union{ZeroFunction, NormL2, CubeNormL2, NormLinf,
-    AbstractGroupPenalty, SliceSum, FiberSum, LinearImage, IndPolyhedron}, x::AbstractArray, γ::Real) =
-  value_and_prox!(y, f, x, γ)
-_value_and_prox_unchecked!(y::AbstractMatrix, f::Union{Spectral, SingularValue, NuclearNorm, TracePSD, LogDetLoss}, x::AbstractMatrix, γ::Real) =
-  value_and_prox!(y, f, x, γ)
-_value_and_prox_unchecked!(y::AbstractVector, f::Union{NormL1Fused, TotalVariation1D, FusedLasso, SLOPE, AffineConstrained}, x::AbstractVector, γ::Real) =
-  value_and_prox!(y, f, x, γ)
-_value_and_prox_unchecked!(y::AbstractArray{<:Real}, f::SumLargest, x::AbstractArray{<:Real}, γ::Real) =
-  value_and_prox!(y, f, x, γ)
-_value_and_prox_unchecked!(y, f::IndGraph, x, γ::Real) = value_and_prox!(y, f, x, γ)
-_quadratic_model_unchecked!(q::GLMLoss{Squared, T, Vector{T}, <:Any, Vector{T}}, f::GLMLoss{L, T}, x::AbstractVector) where {L, T} =
-  quadratic_model!(q, f, x)
-_value_and_prox_unchecked!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) =
-  value_and_prox!(y, f, x, γ)
+_value_and_prox_unchecked!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::Real) = value_and_prox!(y, f, x, γ)
 _value_unchecked(f::NormL1{<:Real, Nothing}, x::DenseArray{<:AbstractFloat}) = f(x)
-
-_check_second_order_arrays(f, x) = (_checkreal(f, x); _check_entry_arrays(f, x))
-function _check_second_order_arrays(f, x, Hv, v)
-  _checkreal(f, Hv)
-  _checkreal(f, x)
-  _checkreal(f, v)
-  _checkhessian_output(Hv, x, v)
-  _check_hessian_shape(f, x, Hv, v)
-  _check_entry_arrays(f, x)
-  # the output is written at every entry: its parameters are checked too, before the first write
-  Hv isa SymmetricSparseIterate && !(x isa SymmetricSparseIterate) && _check_entry_arrays(f, Hv)
-  true
-end
-_check_lipschitz_arrays(f, L) =
-  (eltype(L) <: Real || _real_error(:coordinate_lipschitz!); _check_entry_arrays(f, L))
-_value_and_prox_unchecked!(y::AbstractMatrix, f::Union{IndPSD, IndBallRank}, x::AbstractMatrix, γ::Real) =
-  value_and_prox!(y, f, x, γ)
-_value_and_prox_unchecked!(y, f::IndStiefel, x, γ::Real) = value_and_prox!(y, f, x, γ)
-
-_hessian_vec_unchecked!(Hv::AbstractVector, f::QuadraticFunction, x::AbstractVector, v::AbstractVector) =
-  hessian_vec!(Hv, f, x, v)
-_check_hessian_shape(f, x, Hv, v) = true
-_check_hessian_shape(f::Union{ZeroFunction, LinearFunction, SqrNormL2}, x, Hv, v) =
-  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x))
-_check_hessian_shape(f::KronQuadratic, x, Hv, v) = (_checkshape(f, Hv); _checkshape(f, x))
-# The dimension errors of the products, found before a sum writes anything.
-# Each method takes the arguments that its hessian_vec! takes.
-@noinline _throw_product_shape(f, x) = throw(DimensionMismatch("the product with $(nameof(typeof(f))) does not fit an argument of size $(size(x))"))
-_check_product_dims(f::QuadraticFunction, x) = length(x) == size(f.A, 2) || _throw_product_shape(f, x)
-_check_product_dims(f::LeastSquaresLoss, x) =
-  size(x, 1) == size(f.X, 2) && size(x, 2) == size(f.tmp, 2) || _throw_product_shape(f, x)
-_check_product_dims(f::GLMLoss, x) = _checkpredictor(f, x)
-function _check_product_dims(f::LogDetLoss{T}, x, Hv) where {T}
-  size(x) == size(f.S) || _throw_product_shape(f, x)
-  Hv isa StridedMatrix{T} || _throw_logdet_output(f)
-end
-_check_hessian_shape(f::QuadraticFunction, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) =
-  (_checksize(Hv, x); _checkdirection(v, x); _check_product_dims(f, x); true)
-_check_hessian_shape(f::LeastSquaresLoss, x::AbstractVecOrMat, Hv::AbstractVecOrMat, v::AbstractVecOrMat) =
-  (_checksize(Hv, x); _checkdirection(v, x); _check_product_dims(f, x); true)
-_check_hessian_shape(f::GLMLoss, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) =
-  (_checksize(Hv, x); _checkdirection(v, x); _check_product_dims(f, x); true)
-_check_hessian_shape(f::LogDetLoss, x::AbstractMatrix, Hv::AbstractMatrix, v::AbstractMatrix) =
-  (_checksize(Hv, x); _checkdirection(v, x); _check_product_dims(f, x, Hv); true)
-_check_hessian_shape(f::Union{Scaled, Tilt}, x, Hv, v) =
-  (_checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v))
-_check_hessian_shape(f::Translate, x, Hv, v) = _check_hessian_shape(f.f, _checkshifted(f, x), Hv, v)
-# A tuple product writes its blocks one after the other into the caller. An output block that cannot
-# accept every entry (Symmetric, Hermitian, Diagonal, banded, triangular, UpperHessenberg) or that is a
-# sparse iterate is refused by its type, as for the gradient and the proximal operator, before any block is
-# written and before any inner product runs (O6). Here, and not in the public hessian_vec!, so that an
-# enclosing Scaled, Sum or SeparableSum, which checks its parts before it writes, reaches it too. The
-# dimension checks of the inner function come first: a shape error keeps its DimensionMismatch.
-_check_hessian_shape(f::Tilt, x::Tuple, Hv::Tuple, v) =
-  (_checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v); _check_block_output(Hv); true)
-_check_hessian_shape(f::Translate, x::Tuple, Hv::Tuple, v) =
-  (_check_hessian_shape(f.f, _checkshifted(f, x), Hv, v); _check_block_output(Hv); true)
-# the inner function at the image Ax, whose shape the product Hessian and direction share
-function _check_hessian_shape(f::Precompose, x::AbstractArray, Hv, v)
-  _checksize(Hv, x); _checkdirection(v, x)
-  z = _checkimage(f, x)
-  _checkparams(f.f, z)
-  _check_hessian_shape(f.f, z, z, z)
-  true
-end
-_check_hessian_shape(f::Precompose, x, Hv, v) = (_checksize(Hv, x); _checkdirection(v, x))
-_check_hessian_shape(f::Regularize, x, Hv, v) =
-  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v))
-# A built-in function without a Hessian fails before any part of a sum writes; a
-# user-defined function is trusted to supply its own, also inside a wrapper.
-_check_hessian_support(f::AbstractFunction) = (_isbuiltin(f) && !hashessian(f) && _no_hessian(f); true)
-_check_hessian_support(f::Union{Scaled, Tilt, Translate, Regularize, Precompose}) = _check_hessian_support(f.f)
-_check_hessian_support(f::Union{Sum, SeparableSum}) = _check_hessian_support_parts(f.fs)
-@generated _check_hessian_support_parts(fs::Tuple) = _blockwise(k -> :(_check_hessian_support(fs[$k])), fieldcount(fs), true)
-
-# a sum checks every function, a separable sum every block, before the first product
-_check_hessian_shape(f::Sum, x, Hv, v) =
-  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); length(f.fs) > 1 && _check_sum_output(Hv); _check_hessian_support(f); _check_hessian_parts(f.fs, x, Hv, v))
-# a function of a sum: the sum has just checked the sizes, the direction and every
-# function's parameters, so only what its own product needs remains
-@generated _check_hessian_parts(fs::Tuple, x, Hv, v) =
-  _blockwise(k -> :(_check_hessian_part(fs[$k], x, Hv, v)), fieldcount(fs), true)
-_check_hessian_part(f, x, Hv, v) = _check_hessian_shape(f, x, Hv, v)
-_check_hessian_part(f::Union{ZeroFunction, LinearFunction, SqrNormL2}, x, Hv, v) = true
-_check_hessian_part(f::QuadraticFunction, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) = (_check_product_dims(f, x); true)
-_check_hessian_part(f::LeastSquaresLoss, x::AbstractVecOrMat, Hv::AbstractVecOrMat, v::AbstractVecOrMat) = (_check_product_dims(f, x); true)
-_check_hessian_part(f::GLMLoss, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) = (_check_product_dims(f, x); true)
-_check_hessian_part(f::LogDetLoss, x::AbstractMatrix, Hv::AbstractMatrix, v::AbstractMatrix) = (_check_product_dims(f, x, Hv); true)
-_check_hessian_shape(f::SeparableSum, x, Hv, v) =
-  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); _check_hessian_support(f); _check_hessian_blocks(f.fs, x, Hv, v))
-@generated _check_hessian_blocks(fs::Tuple, x::Tuple, Hv::Tuple, v::Tuple) =
-  _blockwise(k -> :(_check_hessian_shape(fs[$k], x[$k], Hv[$k], v[$k])), min(fieldcount(fs), fieldcount(x), fieldcount(Hv), fieldcount(v)), true)
 
 _gradient_unchecked!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector) = gradient!(g, f, x)
 
@@ -543,30 +315,8 @@ function _checked_value_dot(a, x::SymmetricSparseIterate)
   end
   s
 end
-function _checked_scaled_dot(a, x::SymmetricSparseIterate, factors)
-  v = zero(factors[1])
-  @inbounds for k in 1:x.nnz
-    r, c = tril_cartesian(x.p, x.nzval2ind[k])
-    u = _scale_value(x.nzval[k], factors)
-    ar = float(_entry(a, (c - 1) * x.p + r))
-    ac = r == c ? zero(ar) : ar
-    v += (ar + ac) * u
-  end
-  v
-end
-_value_dot_normal(a, x, ::Val{false}) = _dot_normal(a, x)
-function _value_dot_normal(a, x::SymmetricSparseIterate, ::Val{true})
-  T = float(promote_type(eltype(a), eltype(x)))
-  _checked_scaled_dot(a, x, (one(T), one(T)))
-end
-_value_scaled_dot(a, x, s, ::Val{false}) = _scaled_dot(a, x, s)
-_value_scaled_dot(a, x::SymmetricSparseIterate, s, ::Val{true}) = _checked_scaled_dot(a, x, s)
 _value_checked(f::LinearFunction, x::SymmetricSparseIterate) =
   (_checkvalue(f, x); _value_at(_linear_value(f, x, _checked_value_dot(f.c, x) + f.d), x))
-_value_checked(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::SymmetricSparseIterate) =
-  _normal_value(f, x, Val(true))
-_value_checked(f::Tilt, x::SymmetricSparseIterate) =
-  _value_at(_value_checked(f.f, x) + _checked_value_dot(f.c, x) + f.d, x)
 function _value_checked(s::Scaled, x::Union{SymmetricSparseIterate, Tuple})
   if _chained(s)
     f, a = _scaled_chain(s)
@@ -574,33 +324,6 @@ function _value_checked(s::Scaled, x::Union{SymmetricSparseIterate, Tuple})
   end
   _value_at(_scaled_value(s, x, _value_checked(s.f, x)), x)
 end
-_value_checked(f::Regularize, x::SymmetricSparseIterate) =
-  (_checkparams(f, x); _value_at(_value_checked(f.f, x) + _ridge(f, x), x))
-_value_checked(f::Sum, x::Union{SymmetricSparseIterate, Tuple}) =
-  _value_at(sum(g -> _value_checked(g, x), f.fs), x)
-_value_checked(f::SeparableSum, x::Tuple) =
-  (_checkparams(f, x); _value_at(_sum_checked_values(f.fs, x), x))
-@generated _sum_checked_values(fs::Tuple, x::Tuple) =
-  _blocksum(k -> :(_value_checked(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)))
-_value_checked(f::PointwiseMinimum, x::SymmetricSparseIterate) =
-  (_checkparams(f, x); _value_at(minimum(map(g -> _value_checked(g, x), f.fs)), x))
-_value_checked(f::BoxConstrained, x::SymmetricSparseIterate) =
-  (_checkparams(f, x); T = float(eltype(x));
-   iszero(_value_checked(f.box, x)) ? convert(T, _value_checked(f.f, x)) : T(Inf))
-_value_checked(f::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x::SymmetricSparseIterate) =
-  (_checkparams(f, x); T = float(eltype(x));
-   iszero(_value_checked(f.box, x)) ? convert(T, _value_checked(f.f, x)) : _box_nan_value(f, x, T))
-_value_checked(f::LinearConstrained, x::SymmetricSparseIterate) =
-  (_checkparams(f, x); T = float(eltype(x));
-   iszero(_value_checked(f.set, x)) ? convert(T, _value_checked(f.f, x)) : T(Inf))
-_value_checked(f::BallConstrained, x::SymmetricSparseIterate) =
-  (T = float(eltype(x)); iszero(_value_checked(f.ball, x)) ? convert(T, _value_checked(f.f, x)) : T(Inf))
-_value_checked(f::SphereConstrained, x::SymmetricSparseIterate) =
-  (T = float(eltype(x)); iszero(_value_checked(f.sphere, x)) ? convert(T, _value_checked(f.f, x)) : T(Inf))
-_value_checked(f::IndIntersection, x::SymmetricSparseIterate) =
-  _ind(_in_checked_sets(f.sets, x), _valtype(x))
-_in_checked_sets(::Tuple{}, x) = true
-_in_checked_sets(sets::Tuple, x) = iszero(_value_checked(first(sets), x)) && _in_checked_sets(Base.tail(sets), x)
 
 # A proximal step into an owner by a kernel written for matrices: the kernel writes through the matrix
 # of the owner, which stores the lower triangle of the result, and the argument is that matrix itself
@@ -616,20 +339,6 @@ end
   w = _OwnerMatrix(y)
   x.x === y ? op(w, f, w, γ) : op(w, f, x, γ)
 end
-# The ℓ0 ball counts the entries of the symmetric matrix, a mirrored pair twice: every point reaches it as the
-# symmetric matrix that it represents, which is the point itself, or its symmetric part, as a Symmetric one
-@inline function _owner_call(op::O, y, f::IndBallL0, x::SymmetricSparseIterate, γ) where {O}
-  w = _OwnerMatrix(y)
-  x === y ? op(w, f, Symmetric(w, :L), γ) : op(w, f, Symmetric(matrixview(x), :L), γ)
-end
-@inline function _owner_call(op::O, y, f::IndBallL0, x::SymmetricMatrixView, γ) where {O}
-  w = _OwnerMatrix(y)
-  x.x === y ? op(w, f, Symmetric(w, :L), γ) : op(w, f, Symmetric(x, :L), γ)
-end
-@inline _owner_call(op::O, y, f::IndBallL0, x::AbstractMatrix, γ) where {O} =
-  op(_OwnerMatrix(y), f, _l0_point(_symmetric_argument(y, x)), γ)
-@inline _l0_point(x::AbstractMatrix) = Symmetric(x, :L)
-@inline _l0_point(x::Symmetric) = x
 
 # The owner of a symmetric matrix inside code written for matrices. `_ow(y)` is the matrix that a broadcast
 # writes through (each coordinate once, from its lower position) and `_vw(x)` the read-only matrix of an
@@ -646,37 +355,17 @@ end
 @inline _baxes(y::AbstractArray) = axes(y)
 @inline _baxes(y::SymmetricSparseIterate) = axes(matrixview(y))
 
-# g += b into an owner, one coordinate at a time, with the symmetric part of b: the entry itself when the two
-# positions of a pair are equal (a parameter that has been checked, or the dense result of a kernel at a
-# symmetric point), and their mean otherwise (the gradient at a point that is not symmetric); a coordinate
-# whose sum is zero stays as it is
-function _accumulate!(g::SymmetricSparseIterate, b::AbstractMatrix)
-  p = g.p
-  @inbounds for c in 1:p, r in c:p
-    k = tril_index(p, r, c)
-    v = r == c ? b[r, c] : _symmetric_pair(b[r, c], b[c, r], r, c)
-    _setstored!(g, _getstored(g, k) + v, k)
-  end
-  g
-end
-
 # y = x for a proximal step that is the identity: an array takes the copy, an owner the lower entries of x,
 # one coordinate at a time (a coordinate that is active stays active), and nothing when x is y
 _assign!(y::AbstractArray, x) = copyto!(y, _vw(x))
 _assign!(y::SymmetricSparseIterate, x) = (x === y ? y : _store_lower!(y, _vw(x)))
-
-# The allocating oracles of the wrappers at an owner. The proximal operator is an independent owner, and the
-# gradient a dense exactly symmetric matrix.
-const _OwnerWrapperProx = Union{Scaled, Tilt, Translate, Regularize, Precompose, _ArrayPrecompose, MoreauEnvelope, Conjugate,
-                                SqrDistL2, DistL2, BoxConstrained}
+const _OwnerWrapperProx = Scaled
 prox(f::_OwnerWrapperProx, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
-const _OwnerWrapperSmooth = Union{Scaled, Tilt, Translate, Regularize, Precompose, _ArrayPrecompose, Sum}
+const _OwnerWrapperSmooth = Scaled
 gradient(f::_OwnerWrapperSmooth, x::SymmetricSparseIterate) = gradient!(_gradient_buffer(x), f, x)
 function value_and_gradient(f::_OwnerWrapperSmooth, x::SymmetricSparseIterate)
   g = _gradient_buffer(x)
   v = value_and_gradient!(g, f, x)
   v, g
 end
-# the allocating proximal operator of the families with a scalar-step proximal operator into an owner
-prox(f::Union{ZeroFunction, CubeNormL2, SumLargest, IndBallGroupL0}, x::SymmetricSparseIterate, γ::Real = 1) =
-  prox!(similar(x, float(eltype(x))), f, x, γ)
+prox(f::ZeroFunction, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)

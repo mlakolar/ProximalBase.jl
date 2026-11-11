@@ -179,18 +179,6 @@ function _svd_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
   f
 end
 
-function _xty_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
-  dims = N == 1 ? (size(f.X, 2),) : (size(f.X, 2), size(f.Y, 2))
-  if any(iszero, dims)
-    # An empty result is also a ready cache; isempty cannot identify its
-    # uninitialized state on later calls.
-    size(f.XtY) == dims || (f.XtY = Array{T, N}(undef, dims))
-  elseif isempty(f.XtY)
-    f.XtY = Array{T, N}(transpose(f.X) * f.Y)
-  end
-  f.XtY
-end
-
 # In the V basis the solution is (s U'Y + ρ V'v)/(s² + ρ). When V is
 # rectangular, keep v's null-space component with v + V(s U'Y - s² V'v)/(s² + ρ).
 # Neither form subtracts terms of size γ X'Y at a large step γ.

@@ -1,7 +1,9 @@
 # Browse available functions
 
-The table is the complete retained concrete library. Each name links to its
-mathematical definition, constructors, dimensions, errors and executable example.
+These are the mathematical functions provided by ProximalBase.jl. Each entry
+links to its definition, how to construct it, and a working example.
+The same function may have more than one use: for example, a squared norm
+can serve as either a smooth objective or a regularization penalty.
 
 | Object | Definition | Gradient | Proximal map | Guide |
 |:--|:--|:--:|:--:|:--|
@@ -22,13 +24,16 @@ SqrNormL2 is a smooth objective or a ridge penalty; LeastSquaresLoss has both
 a gradient and an SVD-based prox. Trait categories overlap. See
 [capabilities](function_objects.md) for the full trait table.
 
-All retained array-function domains use real element types. Ordinary dense
+The functions operating on arrays use real element types. Ordinary dense
 arrays and the array iterates are accepted within each function's shape
 contract; symmetric owners have a narrower explicit method surface described
-in [the symmetric guide](symmetric_sparse_iterate.md). The scalar loss has a
-separate two-argument interface.
+in [the symmetric guide](symmetric_sparse_iterate.md). `ProximalBase.Squared` is a specialized **scalar loss**: it measures the
+squared discrepancy between a prediction and an observation. Unlike the
+other functions in the table, it is called with two scalar arguments,
+`loss(prediction, observation)`. It is described in detail in the
+[scalar squared-loss section](smooth.md#Scalar-squared-loss).
 
-The retained wrapper library is nonnegative scaling. Construct a composite
+ProximalBase also supports multiplying a function by a nonnegative scalar. Construct a composite
 objective by keeping `f` and `g` separately and evaluating `f(x)+g(x)`; this
 expression adds two scalar values. It does not construct a function object
 with automatic gradient/prox dispatch.

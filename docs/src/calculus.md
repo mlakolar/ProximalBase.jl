@@ -66,7 +66,7 @@ For finite-data built-in losses, quadratics, centered squared norms and affine
 functions it returns `ZeroFunction()`. A zero-scaled finite-level NormL1 with
 finite weights also returns ZeroFunction. Infinite weights are retained in
 `NormL1(0,w)` so their fixed-zero restrictions survive. Infinite NormL1 levels
-and non-finite parameters of the other retained families can make construction
+and non-finite parameters of other function families can make construction
 throw `ArgumentError`. A custom function's zero scale has no generic supported
 representation and throws. Inspect the constructed object rather than assume
 it is always a `Scaled`.

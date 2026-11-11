@@ -88,112 +88,17 @@ Base.@propagate_inbounds Base.getindex(a::_ExpScaledArray{T}, i::Int) where {T} 
 
 """
     Scaled(f, α)
-    α * f
 
-The function `α f(x)` for `α ≥ 0`, with the roles of `f`: its gradient is
-`α ∇f`, and its proximal operator `prox_{γαf}`, so that `0.5 * f` halves a loss
-and `(1/n) * f` averages one. An infinite factor gives the value `0` where `f` is certainly `0`:
-an indicator inside its set, and `NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`, `NuclearNorm`,
-`ElasticNet`, `GroupNormL2`, `GroupNormLinf` and `SparseGroupNormL2` where `f` is `0` at an argument
-that is zero on every entry they penalize (an entry under a zero level or weight, or in no group, may
-hold anything); elsewhere a computed zero of `f` gives NaN, except where the value of `f` is recovered
-from its significand and exponent (the functions without a level listed below, on host arrays), which
-gives `±Inf` at a value that underflowed.
+The nonnegative multiple `α*f`. Multiplication `α*f` and `f*α` construct it.
+Traits and mathematical oracles forward to the wrapped function. Zero scales
+simplify only when the original data and parameters permit it; invalid or
+non-finite parameters keep the frozen function's validation policy.
 
-When `α f(x)` overflows or underflows although it is representable, the value
-is computed with the scale folded into the level for `NormL1`, `NormL1Nonneg`,
-`NormL2`, `NormLinf`, `ElasticNet`, the homogeneous group norms,
-`SparseGroupNormL2`, `NuclearNorm`, `TracePSD`, and the support functions of
-the ℓ1 and ℓ2 balls. For functions without such a level, it is computed from
-the value of `f` as a significand and a power of two, with `α` applied last, for
-`SqrNormL2`, `CubeNormL2`, `SqrDistL2`, `DistL2`, `NormL1Fused`,
-`TotalVariation1D`, `FusedLasso`, `SLOPE`, `SumLargest`, `NegEntropy`,
-`KLDivergence`, `NegLog`, `Berhu`, `HingeLoss`, `SqrHingeLoss`,
-`EpsInsensitiveLoss`, `CheckLoss`, `NormL0`, `CappedL1`, `LogPenalty`, `NormLq`,
-`MCP`, `SCAD`, `GroupMCP` and `GroupSCAD`, and for `Translate` and nested
-`Scaled` of these. This holds for the value, the value of
-`value_and_gradient!` and, when `α f` overflows, the value of `value_and_prox!`,
-on host arrays (an `Array`, a view or a reshape of one, the iterates, sparse
-arrays and ranges); other array types and tuple arguments keep the ordinary
-result. A `value_and_gradient!` whose gradient output may share memory with a
-parameter of `f` returns the ordinary value. Not covered: the data functions
-(`LinearFunction`, `QuadraticFunction`, the least-squares and GLM losses,
-`BernoulliLoss`; #609), the sums and other wrappers (`Sum`, `SeparableSum`,
-`Tilt`, `MoreauEnvelope`, `Conjugate`; #359), wrappers that transform the
-argument (#357), spectral functions (#384), and `Regularize`, `Constrained`,
-`PointwiseMinimum` and the gradients of these functions (#610).
-
-`Scaled(Scaled(f, a), b)` is `Scaled(f, a * b)` when the product is an ordinary
-number. When it underflows, is subnormal or overflows, although the factors are
-finite and positive, the wrappers stay nested, so that the function is never replaced
-by `ZeroFunction` or an infinite scale because of an intermediate product. The value,
-the gradient, the proximal operator, `prox_block`, the optimality violation, the
-Lipschitz constants and the conjugate then use the product of all the factors where
-the coefficient is formed: it is folded into the levels of the functions listed above,
-or applied to the result with its exponent last, so a chain such as `Scaled(Scaled(NormL1(1e300), 1e-200), 1e-200)`
-is the penalty `1e-100 * norm(x, 1)`. The levels are folded through `Translate`, `Sum` and
-`SeparableSum` of such functions (indicators and the zero function pass through). The conjugate
-value of a function without levels to fold, under a product that is not a number in range,
-throws. The value of a function with levels, whose leaf value overflows or underflows when the whole
-product does not fold into normal levels (`Scaled(Scaled(Scaled(NormL1(1e300), 1e-300), 1e-300), 1e-300)`
-at `[1e300]` is `1e-300`), is computed at levels that are normal numbers, with the power of two
-that this takes out of the product applied last. Not recovered: levels whose exponents are too far
-apart for one normal fold (`Sum(NormL1(1e300), NormL2(1e-300))` under such a chain at `[1e300]`),
-weights or entries for which no normal level gives a leaf value that is a finite normal number, and
-results that are subnormal.
-
-A step is not rounded together with the factors. For a scalar step whose product with the
-factor is not a normal number, the exponent of the factors and of the step goes into the levels
-(for a single factor as for a chain). An array step takes the whole factor into the levels and
-passes the caller's array on unchanged; when the product of the levels and the factors is not a
-normal number, a power of two that centres the exponents of the entries moves from the step into the
-levels (the step is read once, only then). A single factor takes the array route when it lies outside
-the band `2^-E` to `2^E`, with `E` a quarter of the exponent range of the element type (255 for
-`Float64`, 31 for `Float32`), so that an ordinary call reads nothing more than before; for a factor
-inside the band, an entry of the step that is itself within `E` of a limit of the range is rounded
-together with the factor. Array-step entries whose exponents spread too far for the levels to hold
-them are rounded, and so are the steps of a function without levels to fold.
-A level that is stored as infinite is a hard constraint, which no product of a factor and a step can
-change: `Scaled(NormL1(Inf), 1e-300)` at the step `1e-300` has the proximal map of the domain `{0}`, as at
-the step `1`, and not the identity of a step rounded to zero. The contract of this route is exact: the call
-returns what the same function returns at a step whose product is an ordinary (normal) positive number, the
-hard domain `{0}` at finite arguments included, up to the sign of a zero (`ElasticNet(1.0, Inf)` at `[-1.0]` gives
-`[0.0]` at the step `1` and `[-0.0]` at the step `0.75` and in the wrapper). How a leaf treats a NaN or infinite entry of the argument at an
-ordinary step is that leaf's own rule (decision 49 settles `NormL1`, `SLOPE`, `NormL1Fused` and `NormLinf`; the
-others are tracked in #662), and the call follows it. A call takes this route only when its function holds a
-stored infinite level (through `Scaled`, `Translate` and sums), every factor of the whole tree, indicators and
-translated or nested wrappers included, and the step are positive finite numbers (for an array step, every
-entry), and every block is a function with an infinite level whose other levels the infinite level makes
-irrelevant, or an indicator of the library's list of plain-data indicators (`IndBox`, `IndNonnegative`, `IndBinary`,
-`IndBallL0`, `IndBallL1`, `IndBallL2`, `IndSphereL2`, `IndSimplex`, `IndHyperplane`, `IndHalfspace`, `IndHyperslab`, `IndSOC`,
-`IndRotatedSOC`, `IndExpPrimal`, `IndExpDual`, `IndPattern`, `IndBanded`, `IndToeplitz`, `IndIsotonic`, `IndBallGroupL0`), also
-under a positive finite `Scaled` or a `Translate`. These are `NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`,
-the group norms, `NuclearNorm` and `TracePSD` with an infinite level; `SLOPE` and `NormL1Fused` with an infinite
-first level; `ElasticNet` with an infinite ridge level, or an infinite ℓ1 level and every weight positive, or with
-the finite levels zero; `SparseGroupNormL2` with an infinite ℓ1 level, or an infinite group level and every group
-weight positive, or a zero ℓ1 level. No finite level or factor is folded, multiplied or combined on this route:
-the leaf gets the step of any positive finite size, and the levels that the infinite level makes irrelevant are
-removed. Every other call, a function with a finite level that acts, a finite sibling block, a factor or step that
-is zero, negative, infinite or NaN anywhere in the tree, an indicator that is not on that list (an intersection, a
-constrained or composed indicator, a spectral or factorized one, a user type; also under a `Scaled` or a `Translate`), or a
-function without a stored infinite level, takes the route that it always had.
-A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its gradient and Hessian
-product at its own scale before the factors are applied, so an intermediate that leaves the range is
-lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` at `[1e10]`
-has the value `5e-81`, recovered as above, but the gradient and Hessian product `Inf`, not `1e-90`
-(#610).
-
-At zero scale, supported finite-parameter penalties and losses simplify to
-[`ZeroFunction`](@ref), while an indicator retains its domain and is returned
-unchanged. Zero scaling removes finite penalty terms and keeps domain constraints.
-For `NormL1`, `NormL1Nonneg`, `ElasticNet`, `CappedL1`, `LogPenalty`, `NormLq`,
-`Berhu`, `GroupNormL2`, `GroupNormLinf`, `SparseGroupNormL2`, `GroupMCP` and
-`GroupSCAD`, infinite weights retain the same family with all levels zero.
-With finite weights, `NormL1Nonneg` becomes `IndNonnegative()` and the others
-become `ZeroFunction()`. Non-finite levels or shape parameters are rejected.
-The retained zero-level family is not an indicator type, so wrappers that
-require one still reject it. Zero scaling of other functions is rejected when
-the package has no domain-preserving proximal representation.
+Nested positive finite factors retain their exponents when an intermediate
+product would overflow or underflow. NormL1 can fold a scale into its level;
+SqrNormL2 supplies exponent-separated values. Ordinary calls preserve their
+original multiply order. Combined oracles return the value at the stored
+result using its model precision. Exact input/output aliasing is supported.
 """
 struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
   f::F
@@ -334,9 +239,7 @@ _value_fold_scale(α) = α
 # α splits as 2^k β, with β small or large enough that β times every level is a normal number, the
 # function folded with β is evaluated at x, and 2^k is applied last, to the significand of that value.
 #
-# `_fold_level(f, probe)` runs the fold of every function that has one (the levels of `ElasticNet`
-# and `SparseGroupNormL2`, a `Translate`, `Sum` or `SeparableSum` of such functions with the
-# factors of their `Scaled` terms, the radius of the conjugate of a ball) with a scale that records
+# `_fold_level(f, probe)` records the scale of a retained NormL1 level
 # instead of multiplying. For a level λ times the factors inside, in [2^q, 2^(q+1)), a shift s makes
 # β = a.m 2^s times it a normal number of the type T of the fold when q + s - 1 ≥ exponent(floatmin(T))
 # and q + s + 1 ≤ exponent(floatmax(T)). The product of the two significands is in [1/4, 1), so these

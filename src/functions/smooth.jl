@@ -215,12 +215,12 @@ The squared Euclidean norm `f(x) = (λ/2) ‖x - y‖²`, with `y = 0` when omit
 the ridge penalty, and for `λ = 1` the loss `‖x - y‖² / 2`. Smooth, with
 gradient `λ(x - y)`, separable, and proximable, with proximal operator
 `(x + γλy) / (1 + γλ)`. For a matrix `x`, `‖⋅‖` is the Frobenius norm.
-Values follow the overflow rule in [Overflow and underflow of values](@ref).
+Values follow the overflow rule in Overflow and underflow of values.
 
 # Precision
 
 The level `λ`, the center `y` and the step are parameters; they are rounded once
-to the *model precision* of each result ([the numerical contract](@ref numerics),
+to the *model precision* of each result (the numerical contract,
 T3) and never widen it. That precision is the wider of the argument's and the
 destination's for a gradient or a proximal point, and the argument's for the value
 (so the value written by `value_and_prox!` is the value at the stored point, and
@@ -237,15 +237,6 @@ computation runs first, and the recovery is chosen once per call from the
 parameters, except for a `Float64` center entry outside the range of a `Float32`
 model, which is handled for that entry.
 
-For a finite positive level `λ` and a finite positive scalar step `γ`, the proximal
-operator of `Conjugate(SqrNormL2(λ, y))` is `(λ/(λ + γ))(x - γy)`. When the promotion of
-the floating-point types of the output and the input is `Float32` or `Float64`, and so is
-its promotion with those of `λ` and `γ`, it is computed from the significands and
-exponents of its factors, without dividing `x` by the step: `prox!` of `Conjugate(SqrNormL2())` at `[1e300]` with step `1e-10`, where
-`x / γ` overflows, gives about `1e300`. A zero or infinite level, a `BigFloat` level or
-step and any step that is not finite and positive use Moreau's identity instead. The
-conditions, and the case of an output that cannot hold the point, are in
-[`Conjugate`](@ref).
 """
 struct SqrNormL2{T<:Real, Y<:Union{Nothing, AbstractArray}} <: AbstractFunction
   λ::T
@@ -540,22 +531,6 @@ function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gr
   true
 end
 
-# The convex weights 1/(1+γλ), γλ/(1+γλ), without overflowing γλ or
-# the numerator x + γλy of a centered proximal operator. Shared with Regularize
-# (its scalar and array steps), the distance functions and SqrHingeLoss; the ridge itself uses
-# _ridge_ordinary and _ridge_scaled below. A zero level at an infinite step is the product
-# Inf⋅0 here, and the weights are NaN: a caller that admits it decides on the level as given
-# (Regularize does), before it converts the level to the working type.
-@inline function _ridge_weights(γ::T, λ::T) where {T}
-  t = γ * λ
-  if t <= one(T)
-    d = one(T) + t
-    return inv(d), t / d
-  end
-  ρ = inv(γ) / λ
-  d = one(T) + ρ
-  ρ / d, inv(d)
-end
 # Interpolate same-sign endpoints from the endpoint with larger weight,
 # so rounding in two weighted products cannot overflow near floatmax.
 @inline function _ridge_blend(x, y, a::T, b::T) where {T}

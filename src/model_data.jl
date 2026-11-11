@@ -1,9 +1,5 @@
-# The precision of the data of a function, from its type alone (numerics T2, T3). The model precision
-# of a call is the widest of the destination, the argument and the data, so that a `Float32` call of a
-# function with `Float64` data is a `Float64` model. `Conjugate` takes it into account when it forms the
-# reciprocal of a step (`_moreau_reciprocal`), which the inner function then receives. A function
-# without data, or one not listed here, gives `Union{}`, which promotes to the other types. Parameters
-# (levels, weights, centers, bounds, steps) are not data.
+# Floating precision of retained loss data. Parameters such as levels, centers,
+# weights and steps are not data; Scaled forwards its inner data precision.
 _data_type(::Type) = Union{}
 
 # the float type of the entries of an array, a linear operator or a number type; Union{} for a type

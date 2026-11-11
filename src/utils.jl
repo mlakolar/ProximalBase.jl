@@ -715,8 +715,8 @@ end
 
 The linear index of entry `(r, c)`, `r ≥ c`, of the lower triangle of a `p × p`
 matrix, numbered column by column: the coordinate of a
-[`SymmetricSparseIterate`](@ref) that holds the entry. Inverse of
-[`tril_cartesian`](@ref).
+`SymmetricSparseIterate` that holds the entry. Inverse of
+`tril_cartesian`.
 """
 tril_index(p::Integer, r::Integer, c::Integer) = p * (c - 1) - div(c * (c - 1), 2) + r
 
@@ -724,7 +724,7 @@ tril_index(p::Integer, r::Integer, c::Integer) = p * (c - 1) - div(c * (c - 1), 
     tril_cartesian(p, k)
 
 The entry `(r, c)`, `r ≥ c`, of the lower triangle of a `p × p` matrix with
-linear index `k`, numbered column by column. Inverse of [`tril_index`](@ref).
+linear index `k`, numbered column by column. Inverse of `tril_index`.
 """
 @inline function tril_cartesian(p::Integer, k::Integer)
   rv = div(p * (p + 1), 2) - k

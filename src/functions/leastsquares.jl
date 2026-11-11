@@ -10,9 +10,8 @@
 The least-squares loss `f(β) = ‖Y - Xβ‖² / 2`, smooth with gradient
 `X'(Xβ - Y)`. `Y` may be a vector or an `n × k` matrix with one column per
 response; then `β` and the gradient are `p × k` matrices and `‖⋅‖` is the
-Frobenius norm, as in multi-response regression with [`NuclearNorm`](@ref) or
-the row groups of [`GroupNormL2`](@ref). `β` may be a dense array, a
-[`SparseIterate`](@ref) or a [`BlockIterate`](@ref), whose products cost
+Frobenius norm, as in multi-response regression. `β` may be a dense array, a
+`SparseIterate` or a `BlockIterate`, whose products cost
 O(n ⋅ nnz).
 
 It is also proximable: the first proximal operator computes the thin SVD

@@ -18,7 +18,7 @@ import Base: *
 export AbstractFunction, SeparableFunction,
   issmooth, isproximable, isseparable, isconvex, iszeropreserving,
   prox!, prox, value_and_prox!, gradient!, gradient, value_and_gradient!, value_and_gradient,
-  prox_block, prox_block!, value_entry, kkt_violation, restrict, lipschitz, opnorm2,
+  prox_block, prox_block!, value_entry, kkt_violation, restrict, lipschitz, opnorm2, reset_cache!,
   ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, LeastSquaresLoss, NormL1, Scaled,
   SparseIterate, SymmetricSparseIterate, BlockIterate,
   ncoordinates, coordinates, nactive, activecoordinates, activevalues, matrixview, isactive,
@@ -35,13 +35,14 @@ include("block_iterate.jl")
 include("interface.jl")
 include("functions/smooth.jl")
 include("functions/leastsquares.jl")
-include("functions/glm.jl")
+include("functions/scalar_loss.jl")
 include("functions/separable.jl")
-include("calculus.jl")
+include("scaled.jl")
 include("model_data.jl")
-include("metric.jl")
+include("array_steps.jl")
 include("symmetric_parameters.jl")
 include("block_prox.jl")
+include("caches.jl")
 include("precompile.jl")
 
 end

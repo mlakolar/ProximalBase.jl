@@ -32,10 +32,10 @@ function seed(r)
   p == "src/ProximalBase.jl" && return n == "ldexp"
   p == "src/lapack.jl" && return n == "_is_device_array"
   p == "src/utils.jl" && return n == "opnorm2"
+  p == "src/caches.jl" && return n == "reset_cache!" && !isempty(intersect(r.typed, CORE_TYPES))
   p == "src/constrained.jl" && return n == "_checkwrite" && l in (211, 213, 221)
-  p == "src/interface.jl" && return l <= 610 && !(n in SECOND_ORDER_NAMES) && n != "_excluded_coordinates" &&
-    !(n in ("kkt_violation", "_kkt_violation") && "BlockIterate" in r.typed)
-  p == "src/functions/smooth.jl" && return l < 975 || (p == "src/functions/smooth.jl" && n == "lipschitz" && !isempty(intersect(CORE_TYPES, r.typed)))
+  p == "src/interface.jl" && return l <= 610 && !(n in SECOND_ORDER_NAMES) && n != "_excluded_coordinates"
+  p == "src/functions/smooth.jl" && return (l < 975 && n != "_ridge_weights") || (p == "src/functions/smooth.jl" && n == "lipschitz" && !isempty(intersect(CORE_TYPES, r.typed)))
   p == "src/functions/leastsquares.jl" && return n != "_xty_cache!"
   p == "src/functions/glm.jl" && return l <= 81
   p == "src/functions/separable.jl" && return (l <= 390 && !(n in ("_sep_value_parts", "_sep_terms", "_term_add", "_weighted_term_add", "_rparts", "_sep_parts_type", "_parts_eltype"))) || (p == "src/functions/separable.jl" &&

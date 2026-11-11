@@ -10,13 +10,13 @@
 The supertype of the separable functions `f(x) = Σᵢ fᵢ(xᵢ)`, and the way to add
 one of your own. A subtype implements, for the entry with linear index `i`,
 
-- [`prox_block`](@ref)`(f, v, i, γ)`: the proximal operator of `γfᵢ` at the
+- `prox_block``(f, v, i, γ)`: the proximal operator of `γfᵢ` at the
   scalar `v`;
-- [`value_entry`](@ref)`(f, v, i)`: the value `fᵢ(v)`.
+- `value_entry``(f, v, i)`: the value `fᵢ(v)`.
 
-From these it gets the value `f(x)`, [`prox!`](@ref) and
-[`value_and_prox!`](@ref) on any array, including the
-three iterates. Declare [`iszeropreserving`](@ref) when `fᵢ(0) = 0` and the
+From these it gets the value `f(x)`, `prox!` and
+`value_and_prox!` on any array, including the
+three iterates. Declare `iszeropreserving` when `fᵢ(0) = 0` and the
 proximal operator maps 0 to 0; then the value and the proximal operator on a
 sparse iterate touch only its stored entries. `isseparable` and `isproximable`
 are true; declare `isconvex` when it holds.
@@ -39,12 +39,12 @@ end
 ```
 
 The generic kernels call `check_parameters` before writing any output or
-updating a coordinate; a [`SymmetricSparseIterate`](@ref) has a `size` and no
+updating a coordinate; a `SymmetricSparseIterate` has a `size` and no
 `length`. On a `SymmetricSparseIterate`, also declare
-[`ProximalBase.entry_parameters`](@ref); public oracle overrides should call
-[`ProximalBase.check_symmetric_parameters`](@ref) before writing.
+`ProximalBase.entry_parameters`; public oracle overrides should call
+`ProximalBase.check_symmetric_parameters` before writing.
 
-See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
+See Symmetric parameters for which arrays must be symmetric and which calls check them.
 """
 abstract type SeparableFunction <: AbstractFunction end
 
@@ -60,9 +60,9 @@ _reshapeparam(p::Array, x) = Base.ReshapedArray(p, size(x), ())
 """
     value_entry(f, v, i)
 
-For a [`SeparableFunction`](@ref) `f(x) = Σᵢ fᵢ(xᵢ)`, the value `fᵢ(v)` of the
+For a `SeparableFunction` `f(x) = Σᵢ fᵢ(xᵢ)`, the value `fᵢ(v)` of the
 term of entry `i` at the scalar `v`. `i` is a linear index of the array, as in
-[`prox_block`](@ref).
+`prox_block`.
 """
 function value_entry end
 
@@ -231,14 +231,14 @@ _restrict_entries(w::AbstractArray, S::AbstractVector{<:Integer}) = w[S]
 
 The weighted ℓ1 norm `f(x) = λ0 Σᵢ wᵢ |xᵢ|`, with all `wᵢ = 1` when `w` is
 omitted. Its proximal operator is entry-wise soft thresholding
-([`shrink`](@ref)). Separable, so [`prox_block`](@ref) computes any scalar
+(`shrink`). Separable, so `prox_block` computes any scalar
 coordinate, and on a sparse iterate the value and the proximal operator touch
-only the stored entries. On a [`SymmetricSparseIterate`](@ref) the weights are a
+only the stored entries. On a `SymmetricSparseIterate` the weights are a
 `p × p` matrix (or anything indexed by the linear indices of one), as for a
 dense matrix. When symmetry is required, mirrored weights must agree at each
 coordinate the operation reads. Wrap a matrix in `Symmetric(W, :L)` to use its
 lower triangle.
-Values follow the overflow rule in [Overflow and underflow of values](@ref).
+Values follow the overflow rule in Overflow and underflow of values.
 An infinite weight fixes the entry at
 zero at every level (the value is `Inf` away from zero), and a zero weight
 leaves it unpenalized at every level.
@@ -246,7 +246,7 @@ An infinite level `λ0` at a positive step fixes every penalized entry (`wᵢ > 
 at zero, so its output is `0` also where the argument is NaN or `±Inf`
 (decision 49). The value is `0` at the zero vector and stays NaN at a NaN entry.
 
-See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
+See Symmetric parameters for which arrays must be symmetric and which calls check them.
 """
 struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T

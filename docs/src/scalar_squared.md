@@ -87,11 +87,11 @@ f = LeastSquaresLoss(responses, X)
 observation_loss
 ```
 
-**The interfaces are different.** `Squared()` handles one
+**The interfaces are different.** `ProximalBase.Squared()` handles one
 `(prediction, observation)` pair. `LeastSquaresLoss(y, X)`
 handles a full coefficient vector, design matrix and response, and
 supplies array `gradient` and `prox` operations. Calling
-`Squared()` does not automatically construct a regression model.
+`ProximalBase.Squared()` does not automatically construct a regression model.
 
 The scalar implementation works with real arguments and performs
 ordinary promoted scalar arithmetic. Large residuals can overflow;

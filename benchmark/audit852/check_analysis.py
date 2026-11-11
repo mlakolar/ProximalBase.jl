@@ -1,7 +1,8 @@
 """Small negative checks for audit integrity and paired statistics; no timing."""
-import csv,tempfile
+import csv,tempfile,json
 from pathlib import Path
-from analyze import interval,summarize,verify_samples
+from analyze import interval,summarize,verify_samples,verify_completeness
+from spec import scenarios
 
 def row(case,role,r,t):
     return dict(case=case,role=role,round=str(r),seed='42',status='pass',median_ns=t,min_ns=t,p90_ns=t,
@@ -31,3 +32,21 @@ with tempfile.TemporaryDirectory() as d:
     except AssertionError:pass
     else:raise AssertionError('tampered samples accepted')
 print('known ratios, exact A/A, missing pairs and tampered samples: pass')
+
+with tempfile.TemporaryDirectory() as d:
+    root=Path(d);case=scenarios()[0]['key']+'/read_scalar'
+    (root/'selection.txt').write_text(case+'\n')
+    (root/'campaign.json').write_text(json.dumps({'argv':{'cases_file':'selection.txt','filter':'','chosen_case_count':1,'start_round':1,'rounds':7,'roles':'original,post850'}}))
+    complete=[]
+    for r in range(1,8):
+        for role in ('original','post850'):
+            x=row(case,role,r,100);x['seed']=str(852000+r*101);complete.append(x)
+    assert verify_completeness(root,complete)==14
+    try:verify_completeness(root,[r for r in complete if r['role']=='original'])
+    except AssertionError:pass
+    else:raise AssertionError('wholly missing role accepted')
+    complete[0]['seed']='42'
+    try:verify_completeness(root,complete)
+    except AssertionError:pass
+    else:raise AssertionError('unpaired input seed accepted')
+print('whole-role omission and fixture seed mismatch rejection: pass')

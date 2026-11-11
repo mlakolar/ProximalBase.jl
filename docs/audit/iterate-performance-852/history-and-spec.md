@@ -140,3 +140,51 @@ are investigated without production modifications. Old-machine baseline
 numbers never enter these ratios. Full conclusions await actual measurements.
 
 Pre-timing compatibility checks found that historical05 fill!(x,0) deletes the active set in all three families, unlike original/current retained-zero writes. Native clear is therefore N/A for that attribution revision; explicit zero_active and prune_rebuild sequences remain comparable. Full-active fixtures have no first-activation/expansion operation and report N/A. Original detection uses absence of ncoordinates, since historical05 retains a deprecated numCoordinates alias. The initial failed adapter checks are retained as harness-development evidence; no measurements from them enter conclusions.
+
+## Supplemental questions identified during measurement review
+
+These controls are specified before their timing, in a separate generated
+harness; the 942-case primary timing code remains frozen.
+
+* The original row-block constructor AtomIterate((K,b),K,true) represents the
+  strided IDs k:K:n. A supplemental comparison uses that native matrix shape
+  against current vector groups for value reads/writes, sweeps, copies, clears
+  and block CD. There is no timed shape conversion. Native dot/matvec and active
+  metadata operations are excluded from that shape-adapted comparison.
+* Four explicit zero-write/compact/reconstruct cycles exercise complete active
+  set rebuilding. Using coordinate zero writes instead of native fill gives
+  identical intermediate active-zero and empty-set transitions in every source.
+* Block state-copy cost is measured for both independently constructed equal
+  layouts (primary copyto) and a destination built by similar(src) (supplemental
+  copyto_shared). Current copyto checks group equality without registering its
+  result in the identity cache, so independently owned equal layouts can require
+  O(number of groups) work at every call. This is a real use-context distinction,
+  not an implementation optimization in the audit.
+* A separately generated full-field restoration control copies values, IDs and
+  reverse maps in the same order for every scalar source, entirely outside
+  timing. It distinguishes native restore cache conditioning from hot-kernel
+  implementation costs, including for large apparent improvements.
+* Original generic dot(a,x,b) traverses its matrix interface, but original source
+  also provides the active-set helper A_mul_X_mul_B_rc(A,x,B,r,c). A supplemental
+  bilinear_native case compares that helper to current dot(view(A,:,1),x,
+  view(B,:,1)) using preconstructed symmetric A/B whose first columns are the
+  same independent operand vectors. No timed construction/conversion is added.
+  The generic API improvement must not be presented as a new storage-kernel
+  capability that was absent from the original optimized helper.
+
+The common-restoration control also raises the per-trial wall budget from 8 ms
+to 1 s while retaining the 80-sample cap. BenchmarkTools' wall budget includes
+untimed setup: a full O(q) historical restore can otherwise yield fewer timing
+samples than a current O(s) restore. Raw sample counts remain explicit. The
+longer control budget permits matching sample counts and tests that precision/
+cache-conditioning asymmetry without changing timed package operations.
+* Complete residual-maintaining lasso workloads supplement the diagonal model:
+  four coordinate sweeps (fixed and expanding schedule) and four block proximal
+  sweeps (contiguous, strided and arbitrary layouts), with 16-row deterministic
+  dense designs. Timed loops update coefficients and the residual after each
+  coordinate/block. Independent dense-vector/BLAS references and a final
+  residual = target - design*coefficients identity check validate the sequence.
+  Scratch, steps, design and state restoration are outside timing. The original
+  strided row-block matrix uses native block views and linear coefficient IDs;
+  no vector conversion is inserted. These results, rather than sums of separate
+  microbenchmarks, support conclusions about that fuller synthetic workload.

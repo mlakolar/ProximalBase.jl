@@ -65,3 +65,27 @@ For plots, optionally install requirements-plot.txt in a virtual environment and
 pass --plots to analyze.py. It writes standalone SVG and PNG scaling figures.
 Raw observations, provenance, logs, fixture pointers and individual samples
 are packaged by pack.py; SHA256SUMS pins the archive and source artifacts.
+
+Supplemental shape-adapted and rebuilding workloads use a generated copy:
+
+```sh
+python3 benchmark/audit852/supplement.py --harness /tmp/pb852-supplement-harness --sources /tmp/pb852-frozen
+python3 /tmp/pb852-supplement-harness/run.py --julia "$JULIA" --sources /tmp/pb852-frozen --output /tmp/pb852-supplement-check --check --rounds 1 --roles original,historical05,post848,post850
+python3 /tmp/pb852-supplement-harness/run.py --julia "$JULIA" --sources /tmp/pb852-frozen --output /tmp/pb852-supplement --rounds 7
+python3 /tmp/pb852-supplement-harness/analyze.py /tmp/pb852-supplement /tmp/pb852-supplement-summary --verify
+```
+
+The generator prearchives sources using the actual Git checkout before copying
+its harness outside the repository. It adds original strided row-block matrix
+value operations, copyto_shared using similar(src), and four repeated complete
+zero-write/compact/reconstruct cycles. The original matrix and current vector
+shapes differ explicitly; no timed conversion or fabricated activity metadata
+is used. Native vector products are not compared across those shapes.
+
+For common scalar cache conditioning, put selected primary scalar case IDs in
+selection.txt and run restore_control.py with --julia, --sources, --cases-file,
+--output and --rounds (default 21). It copies the harness and changes only untimed
+scalar state restoration: all three full-capacity arrays are copied in the same
+order, then nnz is set. The generated harness and hashes are retained alongside
+its campaign. Use its analyze.py for the control's raw-to-summary replay. This
+is a setup diagnostic, not a new package API measurement.

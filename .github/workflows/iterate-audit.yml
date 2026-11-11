@@ -22,5 +22,16 @@ jobs:
         run: julia --startup-file=no --project=benchmark/audit852 -e 'using Pkg; Pkg.instantiate()'
       - name: Check all four source revisions against independent references
         run: python3 benchmark/audit852/run.py --julia "$(command -v julia)" --output "$RUNNER_TEMP/pb852-check" --sources "$RUNNER_TEMP/pb852-frozen" --check --rounds 1 --roles original,historical05,post848,post850
+      - name: Check supplemental native layouts and residual workloads
+        run: |
+          python3 benchmark/audit852/supplement.py --harness "$RUNNER_TEMP/pb852-supplement-harness" --sources "$RUNNER_TEMP/pb852-frozen"
+          python3 "$RUNNER_TEMP/pb852-supplement-harness/run.py" --julia "$(command -v julia)" --sources "$RUNNER_TEMP/pb852-frozen" --output "$RUNNER_TEMP/pb852-supplement-check" --check --rounds 1 --roles original,historical05,post848,post850
+      - name: Check active-zero copies and complete reconstruction transitions
+        run: |
+          for source in original historical05 post848 post850; do
+            julia --startup-file=no --threads=1 --check-bounds=yes --project=benchmark/audit852 benchmark/audit852/extra_correctness.jl "$RUNNER_TEMP/pb852-frozen/$source"
+          done
+      - name: Verify frozen historical evidence without modification
+        run: python3 "$RUNNER_TEMP/pb852-frozen/post848/benchmark/baselines/tools/reproduce.py"
       - name: Check analysis invariants
         run: python3 benchmark/audit852/check_analysis.py

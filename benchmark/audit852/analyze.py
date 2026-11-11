@@ -37,6 +37,10 @@ def verify_completeness(path,rows):
     start=args['start_round'];rounds=range(start,start+args['rounds'])
     expected={(str(r),role,case) for r in rounds for role in args['roles'].split(',') for case in cases}
     observed={(r['round'],r['role'],r['case']) for r in rows}
+    indices={x['key']+'/'+op:i for i,x in enumerate(scenarios()) for op in x['ops']}
+    for row in rows:
+        expected_seed=852000+int(row['round'])*101+indices[row['case']]
+        assert int(row['seed'])==expected_seed,(row['case'],row['role'],'fixture seed mismatch')
     assert expected==observed, ('missing/extra campaign records',len(expected-observed),len(observed-expected))
     return len(expected)
 

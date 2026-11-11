@@ -71,18 +71,17 @@ for a nonzero coefficient; use the full KKT conditions in
 
 ## Zero and infinite parameters
 
-A zero weight leaves its entry unpenalized at every level. An infinite weight
-thresholds a **finite trial** to zero, including a zero level/step under the implemented
-arithmetic; its value is infinite away from zero. At a NaN/Inf trial with a
-finite level it currently returns NaN (infinite threshold arithmetic), rather
-than enforcing a singleton projection. This contract question is tracked in
-[#853](https://github.com/mlakolar/ProximalBase.jl/issues/853). An infinite level at a
-positive step fixes every positive-weight entry to zero, including NaN/Inf
-trial entries. A zero level on an unweighted dense array returns zero value,
-even with NaN entries. Do not infer a uniform cancellation policy for weighted
-or non-finite cases; [the numerical contract](numerics.md) gives checked
-examples and distinguishes infinite parameters from finite-product overflow.
+A zero weight leaves its coordinate unpenalized. An infinite weight acts
+as a fixed-zero restriction for finite proximal trial values. An infinite
+overall penalty level similarly forces positively weighted coordinates to
+zero for ordinary positive steps.
 
+Non-finite inputs and parameters require additional care: `NaN`, `Inf`,
+and coefficients that overflow during multiplication do not always behave
+like their formal mathematical limits. In particular, an infinite weight
+with a non-finite trial value can produce `NaN` rather than zero.
+For these exceptional cases and their current implementation boundaries,
+see the [numerical contract](numerics.md).
 [`shrink(v,c)`](@ref shrink) is the raw scalar soft-threshold utility for
 ``c\ge0``; it does not validate a threshold's sign. A NaN argument propagates.
 A threshold that overflows from finite parameters does not mean the model has

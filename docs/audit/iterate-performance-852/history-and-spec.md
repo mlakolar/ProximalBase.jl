@@ -203,3 +203,29 @@ audited here. Primary N/A rows describe exclusions from the documented
 convenience-API vector comparison, not proof of representational impossibility.
 Native original strided matrix blocks are measured in the supplement; no
 cross-layout speed superiority is claimed for unmeasured raw-field cases.
+
+Allocation-only isolation includes Float32 n=10,000 empty construction and
+Float64 n=1,000,000 empty construction/import, one selected operation per fresh
+process. The initial 8-ms large-allocation trials sometimes retained only two
+or three samples; their individual times and zero GC counters are preserved.
+The isolation uses a 1-s budget with the same 80-sample cap to distinguish
+fixture history and truncated transient samples from sustained source costs.
+
+A complementary hot scalar control uses the same active-prefix field restore
+for both original and current owners, entirely outside timing. It clears only
+previously active reverse-map entries, copies the source active values/IDs and
+rebuilds their positions, preserving active zeros. This avoids the native
+old-full/current-active setup asymmetry while retaining hot working sets. The
+full-field and active-prefix controls bracket cache-conditioning effects; they
+are reported separately, never pooled into one universal kernel ratio.
+
+The initial residual BCD context uses linear v[j] indexing for every view.
+For original strided row-block matrix views, that can invoke generic linear-to-
+Cartesian conversion. A corrected best-native control uses inlined typed
+accessors: v[1,j] for original 1×b matrix views and v[j] for vector views, with
+row shape asserted outside timing. There is no timed conversion. This control
+runs 28 fresh-process paired rounds (seven plus 21 confirmation rounds) under
+common state restoration and a 1-s budget. Initial linear-index measurements
+remain separate and are never pooled with this corrected context. Because
+indexing and restoration both differ, cross-context changes are not attributed
+solely to indexing; source comparisons within each context remain explicit.

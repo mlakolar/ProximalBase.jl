@@ -19,7 +19,7 @@ s=s.replace('newblock(T,n,b,groups)=ORIGINAL ? BT(n,n÷b) : BT(T,n,groups)',
  '''newblock(T,n,b,groups)=ORIGINAL ? (eltype(groups)<:StepRange ? BT((n÷b,b),n÷b,true) : BT(n,n÷b)) : BT(T,n,groups)''')
 file.write_text(s)
 file=h/'worker.jl';s=file.read_text().replace('(T==Float32 || layout!="contiguous")','(T==Float32 || layout=="arbitrary")')
-s=s.replace('p.id in ("activate_batch","dropzeros")','p.id in ("activate_batch","dropzeros")')
+s=s.replace('p.id in ("activate_batch","cd_expand")','p.id in ("activate_batch","cd_expand","residual_cd_expand")')
 file.write_text(s)
 file=h/'cases.jl';s='include("residual_workloads.jl")\n'+file.read_text();needle='        elseif name=="prune_rebuild"'
 assert needle in s

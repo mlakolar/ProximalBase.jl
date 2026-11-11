@@ -15,7 +15,8 @@ p.add_argument('--rounds',type=int,default=21);p.add_argument('--cpu',type=int,d
 a=p.parse_args();a.output=a.output.resolve();assert not a.output.exists();a.output.mkdir()
 archive_sources(a.sources.resolve());h=a.output/'harness';shutil.copytree(HERE,h,ignore=shutil.ignore_patterns('__pycache__'))
 p=h/'worker.jl';s=p.read_text();assert 'samples=80 seconds=.008' in s;p.write_text(s.replace('samples=80 seconds=.008','samples=80 seconds=1.0'))
-cases=['sparse/Float64/n1000000/s1000/b1/scalar/construct_empty',
+cases=['sparse/Float32/n10000/s100/b1/scalar/construct_empty',
+       'sparse/Float64/n1000000/s1000/b1/scalar/construct_empty',
        'sparse/Float64/n1000000/s1000/b1/scalar/dense_import']
 (a.output/'isolation.json').write_text(json.dumps({'cases':cases,'rounds':a.rounds,'protocol':'one operation per fresh source process; source/timed callbacks unchanged; matched 80 samples and 1 second budget; standard BenchmarkTools gctrial=true','roles':['original','post850','originalAA','post850AA']},indent=2)+'\n')
 for i,case in enumerate(cases):

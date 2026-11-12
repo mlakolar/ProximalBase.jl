@@ -15,6 +15,9 @@ and BigFloat references across Float32/64.
 (bounded products, halved residuals, squared residuals) against BigFloat
 references in Float32/64, including genuine NaN/Inf inputs and exact zeros. `core_functions` exercises retained
 interface, lasso building blocks and custom scalar/vector block extensions.
+`dropzeros_compaction` checks the shared `dropzeros!` loop of `SparseIterate` and
+`SymmetricSparseIterate` against an independent copy of the previous loop (count, live
+values and IDs in order, reverse map) and a dense reference, with later use and allocations.
 `block_replacement` checks whole-iterate copies against independent value/activity
 references, layout ownership and cache preservation, conversions and preflight errors.
 `block_value_updates` checks buffered writes against independent dense values,

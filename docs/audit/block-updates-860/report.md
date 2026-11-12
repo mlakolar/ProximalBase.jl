@@ -8,7 +8,7 @@ the diagnosis, independent tests, generated code and reproducible measurements.
 The target is block value writes. Whole-iterate state replacement, layout
 comparison/cache behavior and removed proximal interfaces are out of scope.
 The starting source is master `eb74a914d779371a02e4a6637eaa724aeb66fdf5`.
-The final audit branch is rebased onto merged #861 at
+The audit branch includes merged #861 at
 `998b3b4c1ef2a77fddb5477bf823def9b2811041`; its entire `src/` tree is unchanged
 from that base. The frozen experimental comparisons remain explicitly pinned
 to the starting source. Twenty package test files pass after the rebase,
@@ -210,7 +210,7 @@ native-code size are separate from those heap observations. Aliased copies may
 allocate a snapshot, as Base requires; aliases are tested independently rather
 than hidden inside the disjoint-buffer allocation claims.
 
-The [regression ledger](results/regression-ledger.csv) accounts for all **64**
+The [regression ledger](evidence.md#summaries) accounts for all **64**
 contrasts flagged in discovery or confirmation. Forty-one repeat a >5% median;
 37 confirmation intervals are entirely above 1.05. None is timer-limited by the
 100 ns marginal-time screen. Each row retains both phases, absolute added time,
@@ -228,7 +228,7 @@ working-set semantics remain unchanged. Whole-iterate state copying is left to
 
 The [recipe](../../../benchmark/audit860/README.md) reconstructs the experimental
 source trees from the frozen baseline and the [rejected patches](patches/README.md),
-not from the moving checkout. The published artifacts retain raw samples,
+not from the moving checkout. The [prepared evidence](evidence.md) retains raw samples,
 source/harness hashes, fixture pointers/padding, provenance and generated code.
 Discovery and placement-controlled phases are not pooled: the latter prebuilds
 both designs before numerical warmup and explicitly preserves allocation padding.

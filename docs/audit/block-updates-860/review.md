@@ -44,4 +44,5 @@ Independent verification reproduced all 105 process files, 60,480 observations,
 4,837,587 timing samples and every exported bootstrap endpoint. The singleton
 fallback caller retains per-group length guards; both versions make one copy
 call on the b8 path. No unique allocation/spill cause is asserted. Final
-artifact and CI receipts are linked from PR #867.
+artifact checksums and publication status are in [the evidence manifest](evidence.md);
+final CI is linked from PR #867.

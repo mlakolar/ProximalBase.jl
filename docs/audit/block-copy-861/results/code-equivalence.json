@@ -1,0 +1,173 @@
+{
+  "normalization": "Replace only numeric addresses of symbols explicitly declared by assembler .set directives, using their declared symbol name. Instructions/registers/labels/constants unchanged.",
+  "comparisons": [
+    {
+      "file": "Float32-Float32-arbitrary-active.s",
+      "v1_sha256": "be6cfa623e64e8953b80ebc1ee69b1dca9bc2c3c651d49b55991b71863e22bd6",
+      "final_sha256": "be6cfa623e64e8953b80ebc1ee69b1dca9bc2c3c651d49b55991b71863e22bd6",
+      "exact_equal": true,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float32-Float32-arbitrary-public.s",
+      "v1_sha256": "116979124f37a0fbbf4499378c49987327a74298e9bb6fa127d99e3fbe561ae9",
+      "final_sha256": "c28e8871d99a8ab72d571c2e369c527c0d68c956700713c11cc24222ed0146c2",
+      "exact_equal": false,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float32-Float32-contiguous-active.s",
+      "v1_sha256": "e4611f291a366a3dc242b2cab2cc10fc6644ba2fc7da573b6888fa6954daa1a5",
+      "final_sha256": "e4611f291a366a3dc242b2cab2cc10fc6644ba2fc7da573b6888fa6954daa1a5",
+      "exact_equal": true,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float32-Float32-contiguous-public.s",
+      "v1_sha256": "e0a7740fd0ed56ef63157c771c5cc7a4c6af164131d7074bed44fda824874f53",
+      "final_sha256": "79573a407c63f20660b77d6f49ed7281bbd067c7a64ed36e165d9c91e02356b1",
+      "exact_equal": false,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float32-Float32-strided-active.s",
+      "v1_sha256": "cfdc3fba73868ee068eb17a1f11493c5bb4b63a668b83a02a5a608cf017cd036",
+      "final_sha256": "cfdc3fba73868ee068eb17a1f11493c5bb4b63a668b83a02a5a608cf017cd036",
+      "exact_equal": true,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float32-Float32-strided-public.s",
+      "v1_sha256": "6b57af2ce8997176122c4f405fa719d89661a37d0966ea316b539559bdea39ae",
+      "final_sha256": "4f3ea70a0fe1675dea77c15f81db607c5749eadac62c7d9c9fd9f1bb19cc5d82",
+      "exact_equal": false,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float32-Float64-arbitrary-active.s",
+      "v1_sha256": "b7244e6cbc4e1392381dad395a4956b55536c6a2b63d2337f86b217046497430",
+      "final_sha256": "b7244e6cbc4e1392381dad395a4956b55536c6a2b63d2337f86b217046497430",
+      "exact_equal": true,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float32-Float64-arbitrary-public.s",
+      "v1_sha256": "0fcb606470e47f920385676d8a0f9b08912a3594a5306a42780dc77f5ed7bbb2",
+      "final_sha256": "f456b599024ad9c06785e317bc94a8fc935d8d8f7dfa610e3e9f6f3c20b3c4f8",
+      "exact_equal": false,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float32-Float64-contiguous-active.s",
+      "v1_sha256": "1113535311a987d0870a47dc17d14c91de7e318a281e0dfb21ed3f2ca74b47d5",
+      "final_sha256": "1113535311a987d0870a47dc17d14c91de7e318a281e0dfb21ed3f2ca74b47d5",
+      "exact_equal": true,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float32-Float64-contiguous-public.s",
+      "v1_sha256": "18a08fec5b7edd8847cb8ab3446c7c4fa2916ab2e384dc1b02add1aa78101260",
+      "final_sha256": "895cbfdd085ac09825dbb6f0b7e016870a59a5e907ad657f535f1fecdd4e4d1c",
+      "exact_equal": false,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float32-Float64-strided-active.s",
+      "v1_sha256": "b65fd514cac9368cacbf8298eaf2a8b2c55956f4f9ce19d81a0bb35cb1968dbf",
+      "final_sha256": "b65fd514cac9368cacbf8298eaf2a8b2c55956f4f9ce19d81a0bb35cb1968dbf",
+      "exact_equal": true,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float32-Float64-strided-public.s",
+      "v1_sha256": "1c21abcef896329d466aa7c346d61cb4bc6e7daf629cc27cee54f652ea1a7bbe",
+      "final_sha256": "76ed069f8c8528fe23c30276b556e48eaffbf021fd6d8b174c64d52f166f966d",
+      "exact_equal": false,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float64-Float32-arbitrary-active.s",
+      "v1_sha256": "5015f3d3adca01ae12e70e44994ef5beb3d946e1a6b3b5cfbf4a3ced6b7f1000",
+      "final_sha256": "5015f3d3adca01ae12e70e44994ef5beb3d946e1a6b3b5cfbf4a3ced6b7f1000",
+      "exact_equal": true,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float64-Float32-arbitrary-public.s",
+      "v1_sha256": "6e45c6fdf9d408b0dc5a08f534c5cd4daec0fa2eddeab1be77303a97c080a0d3",
+      "final_sha256": "152be0116629aa83a5b830fe7f5f74408400b59c018b6171907071ba121d8114",
+      "exact_equal": false,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float64-Float32-contiguous-active.s",
+      "v1_sha256": "a591af59f090ec587dcaa4c03fc4c50bc8a650baa3e1809cdda124a6c3d9abff",
+      "final_sha256": "a591af59f090ec587dcaa4c03fc4c50bc8a650baa3e1809cdda124a6c3d9abff",
+      "exact_equal": true,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float64-Float32-contiguous-public.s",
+      "v1_sha256": "f511b753dd0c8af313360db65bc3b2283dbcc3ff0db362b1f5b19bd7fa482efe",
+      "final_sha256": "e1c6a9101f1d76148e931f59130aea936a1f56275c16d38215a46009245a4126",
+      "exact_equal": false,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float64-Float32-strided-active.s",
+      "v1_sha256": "b7ac784a53b7976faf3c170b938a5f2de3b25374698d77f90d5313f38c1c770a",
+      "final_sha256": "b7ac784a53b7976faf3c170b938a5f2de3b25374698d77f90d5313f38c1c770a",
+      "exact_equal": true,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float64-Float32-strided-public.s",
+      "v1_sha256": "982d3c9c791a778e1576fce1ea0e10da28244b683b0900990047f535ac0a101f",
+      "final_sha256": "dbc4046e18c4118b487a281f7cc616c359c0a2cbc9b364e7f05b3f254a6fd542",
+      "exact_equal": false,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float64-Float64-arbitrary-active.s",
+      "v1_sha256": "a0458de0a260f116e8fc93b047921d44b2d94d624a76ccf3ec3ff8095185c747",
+      "final_sha256": "a0458de0a260f116e8fc93b047921d44b2d94d624a76ccf3ec3ff8095185c747",
+      "exact_equal": true,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float64-Float64-arbitrary-public.s",
+      "v1_sha256": "21d1ab3b274d5b5e7fbecd62d7c3fb10c575bc6778dba504e5fc1e57fdb0f596",
+      "final_sha256": "1bda9fd56259a1784d720e4de39b2d219e0771ea176d2460a69c676561073dee",
+      "exact_equal": false,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float64-Float64-contiguous-active.s",
+      "v1_sha256": "459f7308ed69710f9a93499f2db917e59df55bcc88d967cdaf5b1477affb7afc",
+      "final_sha256": "459f7308ed69710f9a93499f2db917e59df55bcc88d967cdaf5b1477affb7afc",
+      "exact_equal": true,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float64-Float64-contiguous-public.s",
+      "v1_sha256": "c6e81b298a52b919ab23292a669c76f7924f633acd7b46e26755f480699a38b1",
+      "final_sha256": "64cc34378be39e095832fa50614bb399830a6f3c93e1f4fc00e28edf6fd9d157",
+      "exact_equal": false,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float64-Float64-strided-active.s",
+      "v1_sha256": "bf9162a0281c227755411aa19481dd3962bfe2b6842fdb7b8589e2d912a0ce45",
+      "final_sha256": "bf9162a0281c227755411aa19481dd3962bfe2b6842fdb7b8589e2d912a0ce45",
+      "exact_equal": true,
+      "equal_after_global_address_normalization": true
+    },
+    {
+      "file": "Float64-Float64-strided-public.s",
+      "v1_sha256": "26fba133d2c1c5f301091309f162bd343760f2f9ea5ce03565c1e73f0e647596",
+      "final_sha256": "e95f82f5193868d259bc3d9bdd7ac26e3c957bb34a626f7ecbe33a568ecdd81c",
+      "exact_equal": false,
+      "equal_after_global_address_normalization": true
+    }
+  ]
+}

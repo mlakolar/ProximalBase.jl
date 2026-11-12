@@ -53,3 +53,18 @@ summarize a reversed-role run on its own (its ratios are the inverse). The usage
 PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
   julia --threads=1 --project=benchmark benchmark/norml1_infinite_weight.jl
 ```
+
+## NormL1 value harness
+
+`norml1_value_underflow.jl` times the `NormL1` value paths (the dense weighted SIMD loop, mixed zero
+weights, small ordinary values, the zero vector, unweighted values, views, sparse, block and symmetric
+iterates and `value_and_prox!`) and the recomputation of sums whose terms round below `floatmin`, for
+Float32 and Float64 at n = 100, 1024, 65536 and 100000. It was written for issue #373 and has the design
+of the hot-loop harness above (roles X, Y and the A/A control XC, alternating order, reversed-role and
+fresh-process repeats), and `summarize_norml1_infinite_weight.py` summarizes its output. The `underflow`
+probes are the recomputed sums, whose values the fix changes; the other outputs must agree.
+
+```sh
+PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
+  julia --threads=1 --project=benchmark benchmark/norml1_value_underflow.jl
+```

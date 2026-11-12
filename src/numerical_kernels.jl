@@ -304,13 +304,20 @@ _expsum_start(::Type{R}) where {R<:AbstractFloat} = _ExpSum{R}(zero(R), zero(R),
   if iszero(acc.s) && iszero(acc.c)
     return _ExpSum{R}(m, zero(R), e)
   elseif e > acc.ex
-    d = acc.ex - e
+    d = _frame_shift(R, acc.ex, e)
     s, c = _compensated_add(ldexp(acc.s, d), ldexp(acc.c, d), m)
     return _ExpSum{R}(s, c, e)
   end
-  s, c = _compensated_add(acc.s, acc.c, ldexp(m, e - acc.ex))
+  s, c = _compensated_add(acc.s, acc.c, ldexp(m, _frame_shift(R, e, acc.ex)))
   _ExpSum{R}(s, c, acc.ex)
 end
+# The shift a - b from one frame to another. The exponents of BigFloat terms reach ±(2^62 - 1), so two of them can
+# differ by more than typemax(Int) (a wrapped shift would scale a negligible part up to Inf): the difference is taken
+# in Int128 and clamped to Int, which loses nothing, as a shift beyond 2^63 binades already scales any significand to
+# 0 (or Inf). Other types keep their Int difference.
+@inline _frame_shift(::Type, a::Integer, b::Integer) = a - b
+@inline _frame_shift(::Type{BigFloat}, a::Integer, b::Integer) =
+  Int(clamp(Int128(a) - Int128(b), Int128(typemin(Int)), Int128(typemax(Int))))
 # the term a b 2^k, with the product of the significands rounded once per factor
 @inline function _expsum_product(acc::_ExpSum{R}, a, b, k::Int = 0) where {R}
   (iszero(a) || iszero(b)) && return acc
@@ -368,10 +375,15 @@ function _expsum_dot(acc::_ExpSum, a::AbstractArray, x::AbstractArray, k::Int)
   end
   acc
 end
-function _expsum_value(::Type{R}, acc::_ExpSum{A}) where {R, A}
+# The accumulated sum times a scale w >= 0 in R: w multiplies the significand and the exponent is applied
+# with it, so that a sum outside the range of R (or of A) that w brings back is not rounded to 0 or Inf
+# first. The product is formed by the three-factor kernel in A and converted to R; with A wider than R
+# (Float64 for Float32 data) that conversion is the only rounding that matters. An exactly zero sum is +0
+# at every w.
+function _expsum_value(::Type{R}, acc::_ExpSum{A}, w = one(A)) where {R, A}
   m = acc.s + acc.c
   iszero(m) && return zero(R)
-  convert(R, _scaled_product(one(A), m, acc.ex))
+  convert(R, _scaled_product(convert(A, w), m, acc.ex))
 end
 
 # The smallest nonzero |x_i| as an exponent (the exponent of floatmax if there is none): a product of two

@@ -89,6 +89,34 @@ function test_expsum_accumulator(::Type{T}) where {T<:AbstractFloat}
     @test PB._expsum_value(Float32, PB._expsum_add(acc0, 0.5, -300)) === 0.0f0
     @test PB._expsum_value(Float32, PB._expsum_add(acc0, 0.75, -148)) === Float32(ldexp(big(0.75), -148))
     @test PB._expsum_value(Float64, PB._expsum_add(PB._expsum_add(acc0, 0.75, 5), -0.75, 5)) === 0.0
+    # a scale w applied to the significand before the final conversion (#373): a sum outside the range of T
+    # (or of R) that w brings back is not rounded to 0 or Inf first; the default scale is the unscaled value
+    for _ in 1:300
+      m, e = signif(rng, Float64, 0), rand(rng, -1400:1400)
+      w = abs(signif(rng, T, rand(rng, e0:E)))
+      acc = PB._expsum_add(acc0, m, e)
+      @test within(PB._expsum_value(T, acc, w), big(w) * bigparts(m, e), 1)
+      @test PB._expsum_value(T, acc) === PB._expsum_value(T, acc, 1) === PB._expsum_value(T, acc, one(R))
+    end
+    lo = PB._expsum_add(acc0, 0.75, 2 * e0 + 10)                 # below the range of T (and of R for Float64)
+    @test PB._expsum_value(T, lo) === zero(T) && PB._expsum_value(T, lo, pow2(T, -e0)) === T(0.75) * pow2(T, e0 + 10)
+    hi = PB._expsum_add(acc0, 0.75, 2 * E - 10)                  # above it
+    @test PB._expsum_value(T, hi) === T(Inf) && PB._expsum_value(T, hi, pow2(T, -E)) === T(0.75) * pow2(T, E - 10)
+    @test PB._expsum_value(T, PB._expsum_add(acc0, 0.75, 2 * e0), pow2(T, -E)) === zero(T)     # a value below the range is 0
+    @test PB._expsum_value(T, acc0, T(Inf)) === zero(T)        # an exactly zero sum is +0 at every scale
+    @test PB._expsum_value(T, PB._expsum_add(acc0, 0.5, 3), zero(T)) === zero(T)
+    @test PB._expsum_value(T, PB._expsum_add(acc0, 0.5, 3), T(Inf)) === T(Inf)
+    # BigFloat frames whose exponents differ by more than typemax(Int) (#373 review): the shift is not wrapped, the
+    # negligible term scales to 0 in either order and the sum stays finite
+    @test PB._frame_shift(Float64, 5, 12) === -7 && PB._frame_shift(BigFloat, 5, 12) === -7
+    Eb = Int(Base.MPFR.get_emax())                                       # 2 Eb + 100 > typemax(Int)
+    @test PB._frame_shift(BigFloat, -Eb - 100, Eb) === typemin(Int) && PB._frame_shift(BigFloat, Eb, -Eb - 100) === typemax(Int)
+    @test PB._frame_shift(BigFloat, -Eb + 100, Eb) === -2Eb + 100       # a difference within Int is exact
+    accb0 = PB._expsum_start(BigFloat)
+    for (e1, e2) in ((Eb, -Eb - 100), (-Eb - 100, Eb))
+      accb = PB._expsum_add(PB._expsum_add(accb0, big(0.5), e1), big(0.75), e2)
+      @test accb.ex == max(e1, e2) && accb.s == (e1 > e2 ? big(0.5) : big(0.75)) && iszero(accb.c)
+    end
     # many terms of widely different exponents: the sum of the terms, with the accuracy of a compensated sum
     for n in (2, 5, 40)
       es = rand(rng, -900:900, n)
@@ -704,6 +732,263 @@ function test_normL1_value_entry_type(::Type{T}) where {T<:AbstractFloat}
     @test (@inferred value_entry(NormL1(λw), T(3), 1)) isa W
     @test value_entry(NormL1(λw), T(3), 1) == 3 * λw
     @test value_entry(NormL1(T(2)), W(3), 1) isa W                     # and a wider argument
+  end
+end
+
+# Issue #373: terms λ0 wᵢ |xᵢ| that round into the subnormal range (or to zero) lost up to δ/2 each, also when the
+# total is normal. Tolerances: Float32 sums are recomputed from exact significand products in Float64 and rounded
+# once to Float32 (1 ulp, the #373 case exactly); Float64 sums round each significand product, the compensated sum,
+# the level product and a subnormal result once (3 ulp, one subnormal spacing per rounding below floatmin). A kept
+# ordinary sum is the unchanged loop, compared bitwise. Sums in another order (symmetric, sparse) are not compared
+# bitwise with the dense value.
+function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
+  E, e0 = emax(T), emin(T)
+  δ = nextfloat(zero(T))
+  p = precision(T)
+  tol = T === Float32 ? 1 : 3
+  rng = Xoshiro(373)
+  # the representations whose values read the same entries (block groups in two halves, the second half active
+  # only where it holds a nonzero entry)
+  function reps(x)
+    n = length(x)
+    xs = SparseIterate(T, n)
+    for i in 1:n
+      iszero(x[i]) || (xs[i] = x[i])
+    end
+    xb = BlockIterate(copy(x), n == 1 ? [[1]] : [collect(1:2:n), collect(2:2:n)])
+    (dense = x, view = view(x, :), sparse = xs, block = xb)
+  end
+  # the loop of the dense weighted value before #373, as an independent per-term rounding: what was returned
+  oldsum(λ, w, x) = (s = zero(T); for i in eachindex(x); s += (λ * w[i]) * abs(x[i]); end; s)
+  ldexp_rounds = ldexp(0.75, -1074) === nextfloat(0.0)
+  # the ordinary SIMD loop as _value_dense inlines it (a constant `false`: a call with a runtime flag may vectorize,
+  # and so sum, in another order)
+  l1loop(f, x) = PB._l1_value_sum(f, x, false)
+  @testset "NormL1 values: products that round below floatmin (#373)" begin
+    # 1. the reproducer of #373 (Float32), and its analogue at the precision of T: every product 2^(e0-9) + δ/2
+    # rounds to 2^(e0-9) (a tie, to even); 512 of them lose 2^(e0-p+9), 256 units of the normal total 2^e0
+    w = fill(pow2(T, e0), 512)
+    x = fill(pow2(T, -9) + pow2(T, -p), 512)
+    @test big(x[1]) == big(2.0)^-9 + big(2.0)^-p                       # the stored value, not a decimal approximation
+    r = l1val(one(T), w, x)
+    @test r == big(2.0)^e0 + big(2.0)^(e0 - p + 9)
+    f = NormL1(one(T), w)
+    @test oldsum(one(T), w, x) === floatmin(T) && (r - big(floatmin(T))) / eps(floatmin(T)) == 256
+    @test f(x) === T(r)                                                 # correctly rounded (exactly representable)
+    T === Float32 && @test f(x) === 1.1755302f-38 && T(r) - floatmin(T) == 256 * eps(floatmin(T))
+    for (k, y) in pairs(reps(x))
+      @test f(y) === T(r)
+      @test NormL1(floatmin(T))(y) === T(r)                             # the unweighted level, as a value entry
+    end
+    # 3. normal coefficients whose products are subnormal, random: n, level and weights vary, every product is below
+    # floatmin (λ < 2^(exponent(λ)+1), w < 1, |x| < 2^(e0-exponent(λ)-1)), from just below it to below δ/2
+    for _ in 1:150
+      n = rand(rng, 1:200)
+      λ = abs(signif(rng, T, rand(rng, -30:30)))
+      w = [abs(signif(rng, T, rand(rng, -8:0))) for _ in 1:n]
+      x = [signif(rng, T, e0 - exponent(λ) - rand(rng, 1:(p + 3))) for _ in 1:n]
+      x[rand(rng, 1:n)] = zero(T)
+      f = NormL1(λ, w)
+      r = l1val(λ, w, x)
+      for (k, y) in pairs(reps(x))
+        @test within(f(y), r, tol)
+      end
+    end
+    # 4. and 6. products rounded to zero one by one: an aggregate that is subnormal, below δ/2 (+0) and exactly zero
+    for (n, q, expected) in ((4096, T(0.375), 1536δ), (4, T(3) / 16, δ), (2, T(1) / 8, zero(T)))
+      w = fill(floatmin(T), n)
+      x = fill(q * eps(T), n)                                           # each product q δ < δ/2
+      @test oldsum(one(T), w, x) === zero(T)
+      @test T(l1val(one(T), w, x)) === expected
+      for (k, y) in pairs(reps(x))
+        v = NormL1(one(T), w)(y)
+        # the shared kernel applies the exponent with ldexp, which truncates a subnormal result on Julia 1.10 (a Float64
+        # value is then within one subnormal spacing, the documented contract); Float32 rounds through Float64
+        @test v === expected || (!ldexp_rounds && T === Float64 && within(v, l1val(one(T), w, x), 1))
+      end
+    end
+    for z in (zeros(T, 5), T[-0.0, 0, -0.0])                           # exact zeros, signed included: +0
+      for (k, y) in pairs(reps(z))
+        @test NormL1(one(T), fill(floatmin(T), length(z)))(y) === zero(T)
+      end
+    end
+    # the exact-zero scan (_all_zero): zeros of either sign only; NaN, ±Inf and δ are not zero, in any position of a
+    # vectorized pass; views, stored values and integers
+    @test PB._all_zero(T[]) && PB._all_zero(zeros(T, 37)) && PB._all_zero(T[-0.0, 0, -0.0])
+    for v in (δ, -δ, T(NaN), T(Inf), -T(Inf), floatmin(T), one(T)), k in (1, 17, 37)
+      z = zeros(T, 37); z[k] = v
+      @test !PB._all_zero(z) && !PB._all_zero(view(z, :)) && PB._all_zero(view(z, setdiff(1:37, k)))
+    end
+    @test PB._all_zero([0, 0]) && !PB._all_zero([0, 1])
+    xa = SparseIterate(T, 4); activate!(xa, 1); activate!(xa, 3); xa[3] = -zero(T)     # stored (active) zeros
+    @test PB._all_zero(PB._stored_values(xa))
+    @test xa.nnz == 2 && NormL1(one(T), fill(floatmin(T), 4))(xa) === zero(T)
+    # 5. a coefficient λ0 w below floatmin (the value entries form each product once, then round it)
+    λ = pow2(T, e0 ÷ 2); w = fill(pow2(T, e0 - 14 - e0 ÷ 2), 512)
+    x = fill(pow2(T, 5) + pow2(T, 5 + 9 - p), 512)
+    @test !(floatmin(T) <= λ * w[1]) && big(λ) * big(w[1]) * big(x[1]) == big(2.0)^(e0 - 9) + big(2.0)^(e0 - p)
+    r = l1val(λ, w, x)
+    @test sum(T(big(λ) * big(w[i]) * big(x[i])) for i in 1:512) === floatmin(T)     # what the entries summed to
+    for (k, y) in pairs(reps(x))
+      @test NormL1(λ, w)(y) === T(r)
+    end
+    # 7. sums at or above n floatmin keep the ordinary loop, bitwise, with subnormal products included: a loss of
+    # at most n δ/2 ≤ eps/2 of the sum. Below the bound (or at a zero sum) the value is recomputed.
+    n = 64
+    @test PB._l1_sum_kept(n * floatmin(T), n) && !PB._l1_sum_kept(prevfloat(n * floatmin(T)), n)
+    @test PB._l1_sum_kept(T(NaN), n) && PB._l1_sum_kept(T(Inf), n) && !PB._l1_sum_kept(zero(T), 1) && PB._l1_sum_kept(zero(T), 0)
+    x = fill(floatmin(T), n)                                            # at the bound: kept, and exact
+    @test NormL1(one(T), ones(T, n))(x) === n * floatmin(T)
+    # two terms, the second a subnormal product 0.75 (floatmin/2 + δ) rounded up by δ/4: at s ≥ 2 floatmin the loop
+    # is kept, within one unit (the loss δ/4 is below eps/2 of s); below, the value is recomputed
+    fk = NormL1(one(T), T[1, 0.75])
+    for (x1, kept) in ((2floatmin(T), true), (floatmin(T), false))
+      x = T[x1, floatmin(T) / 2 + δ]
+      s, ordinary = l1loop(fk, x)
+      @test ordinary && PB._l1_sum_kept(s, 2) == kept
+      @test kept ? fk(x) === s : fk(x) === T(l1val(one(T), fk.w, x))
+      @test within(fk(x), l1val(one(T), fk.w, x), 1)
+    end
+    # ordinary values, small ones included, are the loop itself (dense) or the generic sum of the entries (sparse)
+    for e in (0, -20, e0 + 30, e0 + 12)
+      n = rand(rng, 1:3000)
+      w = [abs(signif(rng, T, rand(rng, -3:3))) for _ in 1:n]
+      x = [signif(rng, T, e + rand(rng, -3:3)) for _ in 1:n]
+      λ = abs(signif(rng, T, 0))
+      f = NormL1(λ, w)
+      s, ordinary = l1loop(f, x)
+      @test ordinary && PB._l1_sum_kept(s, n) && f(x) === s
+      xs = reps(x).sparse
+      @test f(xs) === foldl((a, k) -> a + value_entry(f, xs.nzval[k], xs.nzval2ind[k]), 1:xs.nnz; init = zero(T))
+    end
+    # 8. mixed zero and positive weights (the second SIMD pass), with a NaN and an Inf entry where the weight is zero
+    w = [isodd(i) ? floatmin(T) : zero(T) for i in 1:1024]
+    x = fill(pow2(T, -9) + pow2(T, -p), 1024)
+    r = l1val(one(T), w, x)
+    @test r == big(2.0)^e0 + big(2.0)^(e0 - p + 9)
+    for (k, y) in pairs(reps(x))
+      @test NormL1(one(T), w)(y) === T(r)
+    end
+    x[2] = T(NaN); x[4] = T(-Inf)
+    @test NormL1(one(T), w)(x) === T(r) && NormL1(one(T), w)(view(x, :)) === T(r)
+    # 9. infinite weights and levels, NaN and ±Inf entries keep their rules next to underflowing products
+    wi = [T(Inf); fill(floatmin(T), 512)]
+    xi = [zero(T); fill(pow2(T, -9) + pow2(T, -p), 512)]
+    for (k, y) in pairs(reps(xi))
+      @test NormL1(one(T), wi)(y) === T(r)                              # an infinite weight at a zero entry is free
+    end
+    xi[1] = δ
+    @test NormL1(one(T), wi)(xi) === T(Inf) && NormL1(one(T), wi)(reps(xi).sparse) === T(Inf)
+    @test NormL1(zero(T), wi)(xi) === T(Inf)                            # an infinite weight beats a zero level
+    xi[1] = zero(T)
+    @test NormL1(zero(T), wi)(xi) === zero(T) && NormL1(zero(T), wi)(reps(xi).sparse) === zero(T)
+    @test NormL1(T(Inf), [zero(T), zero(T)])(T[5, δ]) === zero(T) && NormL1(T(Inf), [one(T), zero(T)])(T[0, δ]) === zero(T)
+    @test NormL1(T(Inf), [one(T), zero(T)])(T[δ, 0]) === T(Inf)
+    xn = copy(xi); xn[2] = T(NaN)
+    @test isnan(NormL1(one(T), wi)(xn)) && isnan(NormL1(one(T), wi)(reps(xn).sparse))
+    xn[2] = T(Inf)
+    @test NormL1(one(T), wi)(xn) === T(Inf)
+    # 10. a symmetric iterate: each stored off-diagonal coordinate is read at both positions, with the weight of each
+    # (a symmetric weight matrix, and the lower triangle of an asymmetric one through Symmetric(W, :L))
+    P = 24
+    xv = pow2(T, -9) + pow2(T, -p)
+    S = SymmetricSparseIterate(T, P)
+    for c in 1:P, rr in c:P
+      S[rr, c] = isodd(rr + c) ? xv : -xv
+    end
+    W = fill(floatmin(T), P, P)
+    M = Matrix(matrixview(S))
+    r = l1val(one(T), W, M)
+    @test sum((one(T) * W[i]) * abs(M[i]) for i in eachindex(M)) < T(r)     # the per-term rounding loses
+    @test NormL1(one(T), W)(S) === T(r) && NormL1(floatmin(T))(S) === T(r)
+    @test NormL1(one(T), W)(matrixview(S)) === T(r)
+    Wa = copy(W); Wa[1, 2:end] .= T(7)                                  # garbage above the diagonal
+    @test NormL1(one(T), Symmetric(Wa, :L))(S) === T(r)
+    Wd = [i == j ? 2floatmin(T) : floatmin(T) for i in 1:P, j in 1:P]   # a different diagonal weight
+    @test within(NormL1(one(T), Wd)(S), l1val(one(T), Wd, M), tol)
+    # symmetric weights are a model precondition that check_symmetric_parameters validates (#374); an oracle given
+    # asymmetric ones reads each position with its own weight, and the recomputation reads them as the generic loop does
+    @test_throws ArgumentError PB.check_symmetric_parameters(NormL1(one(T), Wa), S)
+    Wu = copy(W); Wu[1, 2:end] .= 2floatmin(T)
+    @test within(NormL1(one(T), Wu)(S), l1val(one(T), Wu, M), tol)
+    # 11. value_and_prox! returns the value at the stored output: the identity step and a positive step
+    # (the positive step 2^(-10-e0) has the threshold 2^-10: every output is 2^-10 + 2^-p, whose products with floatmin
+    # again lose δ/2 each, so the value at the stored output must be recovered, and differs from the value at the input)
+    for γ in (zero(T), pow2(T, -10 - e0))
+      w = fill(floatmin(T), 512)
+      x = fill(pow2(T, -9) + pow2(T, -p), 512)
+      y = iszero(γ) ? x : fill(pow2(T, -10) + pow2(T, -p), 512)
+      f = NormL1(one(T), w)
+      ry = l1val(one(T), w, y)
+      for (k, y0) in pairs(reps(x))
+        k === :view && continue
+        out = copy(y0)
+        v = value_and_prox!(out, f, y0, γ)
+        @test collect(out) == y
+        @test v === f(out) === T(ry)
+      end
+      out = copy(S)
+      v = value_and_prox!(out, NormL1(one(T), W), S, γ)
+      My = Matrix(matrixview(out))
+      @test iszero(γ) ? My == M : all(abs.(My) .== y[1])
+      @test v === NormL1(one(T), W)(out) === T(l1val(one(T), W, My))
+    end
+    # 12. a wider level (the generic sum of entries rounded to T), a Scaled wrapper and the unchanged wider-level
+    # and recovered-coefficient routes
+    W2 = T === Float32 ? Float64 : BigFloat
+    w = fill(floatmin(T), 512)
+    x = fill(pow2(T, -9) + pow2(T, -p), 512)
+    r = l1val(one(T), w, x)
+    @test NormL1(one(W2), w)(x) === T(r) && NormL1(one(W2), w)(reps(x).sparse) === T(r)
+    @test NormL1(1, w)(x) === T(r)                                      # an integer level
+    @test Scaled(NormL1(T(4), w), T(0.25))(x) === T(r)
+    @test Scaled(NormL1(T(4), w), T(0.25))(reps(x).sparse) === T(r)
+    @test Scaled(NormL1(T(0.25), w), T(4))(x) === T(r)                   # a subnormal leaf value: the factor is folded
+    @test Scaled(NormL1(T(0.25), w), T(4))(reps(x).sparse) === T(r)
+    # weights of an abstract element type: the accumulator takes the type of the entries (a BigFloat weight is not
+    # narrowed to Float64, an AbstractFloat array does not leave it abstract)
+    @test NormL1(one(T), Real[floatmin(T) for _ in 1:512])(x) === T(r)
+    @test NormL1(one(T), AbstractFloat[floatmin(T) for _ in 1:512])(x) === T(r)
+    @test NormL1(one(T), Union{Float32, Float64}[floatmin(T) for _ in 1:512])(x) === T(r)
+    for wa in (Union{Float32, Float64, BigFloat}[floatmin(T) for _ in 1:512], AbstractFloat[floatmin(T) for _ in 1:512]),
+        λa in (one(T), big(1.0)), y in (x, view(x, :), reps(x).sparse, reps(x).block, ones(T, 512))
+      # inferred, recomputed or not, where master infers it on every supported Julia (AbstractFloat weights are not
+      # inferred by master: on 1.13 at a level of type T, on 1.10 at any level)
+      if wa isa Vector{AbstractFloat}
+        @test NormL1(λa, wa)(y) isa T
+      else
+        @test (@inferred NormL1(λa, wa)(y)) isa T
+      end
+    end
+    λb = pow2(T, -e0 - 10); xb = T[pow2(T, -e0 - 10)]
+    wb = Real[big(2.0)^(3 * e0 + 16)]                                        # far below the range of T and of Float64
+    @test NormL1(λb, wb)(xb) === pow2(T, e0 - 4)                             # a subnormal value: recomputed in BigFloat
+    @test NormL1(δ, Real[big(2.0)^(E + 1)])(T[δ]) === zero(T)                # a weight beyond floatmax(T): not Inf
+    # BigFloat parameters at the ends of the MPFR exponent range: the terms' exponents differ by more than typemax(Int)
+    Em = Base.MPFR.get_emax()
+    λm = ldexp(big(0.5), 1 - Em)
+    for (wm, xm) in (([ldexp(big(0.5), Em), λm], T[2floatmin(T), δ]), ([λm, ldexp(big(0.5), Em)], T[δ, 2floatmin(T)]))
+      fm = NormL1(λm, wm)
+      for y in (xm, view(xm, :), reps(xm).sparse, reps(xm).block)
+        @test fm(y) === floatmin(T)
+      end
+      @test Scaled(fm, T(Inf))(xm) === T(Inf)
+    end
+    # an infinite Scaled factor multiplies the leaf value: a positive leaf value (here one whose products each rounded
+    # to zero) gives Inf, as the folded level NormL1(Inf, w) does; an exactly zero leaf value is still 0
+    wz = fill(floatmin(T), 2); xz = fill(T(0.375) * eps(T), 2)
+    # (where ldexp truncates subnormal results, Julia 1.10 and #896, the Float64 leaf value 0.75δ becomes 0 and the
+    # product with Inf stays NaN, as on master)
+    vz = NormL1(one(T), wz)(xz)
+    @test vz === δ || (!ldexp_rounds && T === Float64 && vz === zero(T))
+    @test NormL1(T(Inf), wz)(xz) === T(Inf)
+    for y in (xz, view(xz, :), reps(xz).sparse)
+      @test isequal(Scaled(NormL1(one(T), wz), T(Inf))(y), iszero(vz) ? T(NaN) : T(Inf))
+    end
+    @test Scaled(NormL1(one(T), wz), T(Inf))(zeros(T, 2)) === zero(T)
+    λw = W2(2)^(T === Float32 ? -200 : -1500)                           # a level out of the range of T, unweighted
+    xw = fill(T(1.5) * pow2(T, T === Float32 ? 100 : 1000), 3)
+    @test within(NormL1(λw)(xw), big(λw) * sum(abs, big.(xw)), 2)
   end
 end
 
@@ -1443,6 +1728,7 @@ setprecision(BigFloat, 2400) do
   test_scaled_array_steps(T)   # Scaled array steps: folded, shifted and rounded routes
   test_normL1_values(T)   # NormL1 values: levels and weights outside the range, infinite and zero parameters
   test_normL1_value_entry_type(T)   # NormL1 value entries: the unweighted entry type (#684)
+  test_normL1_value_underflow(T)   # NormL1 values: products that round below floatmin (#373)
   test_normL1_prox(T)   # NormL1 prox thresholds and the weight kernels
   test_pow2_sums(T)   # power-of-two sums (_pow2_weighted) and the recomputed-dot shift
   test_square_consumers(T)   # squared-residual consumers: the exceptional branches of the value

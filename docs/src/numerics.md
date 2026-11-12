@@ -109,9 +109,9 @@ all-NaN result or a particular exception.
 | `ZeroFunction` value | Zero even at NaN/Inf input entries |
 | Unweighted `NormL1`, zero level | Zero value on dense float arrays, including NaN entries |
 | `NormL1`, zero weight | Unpenalized entry at every level |
-| `NormL1`, infinite weight | Finite trial thresholds to zero even at zero level; NaN/Inf trial can return NaN with finite level; infinite value away from zero |
+| `NormL1`, infinite weight | Finite trials prox to zero, even with zero level or step. No fixed-zero guarantee for `NaN`/`±Inf` trials with finite level; `shrink` can return `NaN`. Value is `Inf` away from zero. See [#853](https://github.com/mlakolar/ProximalBase.jl/issues/853). |
 | `NormL1`, infinite level and positive step | Positive-weight entries prox to zero, including non-finite trials |
-| `NormL1`, finite factors whose product overflows | Distinguished from a genuinely infinite level; bounded-factor recovery is used |
+| `NormL1`, finite factors whose product overflows | Distinguished from genuinely infinite weights/levels; recovery handles representable finite results where supported. With a `±Inf` trial, an overflowed finite threshold can yield `NaN`; [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) is a documented, deferred limitation, not an authorized hot-loop fix. |
 | `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
 | `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual |
 | Generic custom value/prox | Author-defined arithmetic; traits do not grant recovery or NaN policy |
@@ -124,9 +124,34 @@ using ProximalBase
 @assert prox(NormL1(Inf),[NaN,Inf],1.0) == [0,0]
 @assert prox(NormL1(0.0,[Inf,0.0]),[2.0,3.0]) == [0,3]
 @assert isnan(shrink(NaN,1.0))
-@assert isnan(prox(NormL1(1.0,[Inf]),[Inf],1.0)[1])
+@assert prox(NormL1(1.0,[Inf]),[2.0],1.0) == [0.0]  # fixed finite trial
+@assert prox(NormL1(0.0,[Inf]),[2.0],0.0) == [0.0]  # zero level/step
+@assert isnan(prox(NormL1(1.0,[Inf]),[Inf],1.0)[1])  # non-finite limitation (#853)
+@assert isnan(prox(NormL1(1e300,[1e10]),[Inf],1.0)[1])  # final factor overflows (#866)
+@assert isnan(prox(NormL1(1e10,[1.0]),[Inf],1e300)[1]) # intermediate product overflows (#866)
 prox(NormL1(Inf),[NaN,Inf],1.0)
 ```
+
+**Decision on `NormL1` exceptional trials (#853 and #866).** A genuinely infinite
+coordinate weight fixes a *finite* trial to zero, even at zero level and step.
+For `NaN` or `±Inf` trials with finite level, that fixed-zero guarantee is
+intentionally not extended: retained soft-threshold arithmetic may return
+`NaN`. Separately, a threshold made from *finite* factors can overflow to
+`Inf`; with a `±Inf` trial, the current result can likewise be `NaN` even
+though the mathematical threshold is finite. These examples characterize
+present behavior, not additional non-finite-output guarantees. A genuinely
+infinite **level** with positive step retains its distinct fixed-zero rule
+for positive weights, including non-finite trials (historical decision 49).
+
+The endpoint extensions were deferred to protect ordinary proximal throughput:
+PR [#874](https://github.com/mlakolar/ProximalBase.jl/pull/874) measured
+slowdowns of **+5.9% (Float32) and +9.9% (Float64)** for weighted array steps
+at 65,536 entries after optimization, and reported **+19–31%** for weighted
+scalar steps on a newer local CPU. Unlike finite-input overflow/underflow
+recovery, these cases require a particular convention for a genuinely
+non-finite trial. No additional checks or scans are authorized in the hot
+loop for #853 or #866. Reconsider #866 if a practically important finite-input
+failure is demonstrated or an implementation preserves ordinary-path speed.
 
 Signed zeros do not activate absent coordinates; explicit active signed zeros
 can be retained in storage. Owner `isequal` distinguishes stored negative zero

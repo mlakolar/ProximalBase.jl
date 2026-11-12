@@ -1,7 +1,9 @@
 # Getting started
 
-Start with a loss and a penalty, evaluate their operations, then assemble one
-proximal-gradient step. The example uses functions available in this version.
+*Assumes: gradients, convexity and basic Julia · You will learn: how to assemble a lasso objective, take a proximal-gradient step and run a short iteration.*
+
+Start with a loss and a regularizer, evaluate their operations, and assemble a
+proximal-gradient method.
 
 ## Installation
 
@@ -52,8 +54,10 @@ The smooth loss has gradient
 \nabla f(\beta)=\frac1n X^\top(X\beta-y).
 ```
 
-The penalty is not differentiable at zero. Its proximal operator is
-soft thresholding, with threshold ``\gamma\lambda``:
+The regularizer is not differentiable at zero. Its
+[proximal operator](glossary.md#Proximal-operator) uses
+[soft thresholding](glossary.md#Soft-thresholding), with threshold
+``\gamma\lambda``:
 
 ```math
 \operatorname{prox}_{\gamma g}(v)_j=
@@ -88,14 +92,54 @@ L = lipschitz(f)
 βnext
 ```
 
-For an all-zero design, ``L=0``; choose a positive step separately rather
-than take its reciprocal. [`opnorm2`](@ref) is an estimate and may miss an
-eigenspace; it is not interchangeable with the bound from `lipschitz`.
+### A short proximal-gradient run
+
+To see sparsity develop over several iterations, reuse the same design and
+response but choose a stronger regularization level ``\lambda=1.5``.
+Starting from the current ``\beta``, run 100 steps of size ``1/L`` and
+record the objective after every step.
+
+```@example getting_started
+g_sparse = NormL1(1.5)
+β_run = copy(β)
+objective_history = [f(β_run) + g_sparse(β_run)]
+for _ in 1:100
+    β_run = prox(g_sparse, β_run - γ * gradient(f, β_run), γ)
+    push!(objective_history, f(β_run) + g_sparse(β_run))
+end
+# For a convex smooth loss and a valid step, the exact objective
+# is nonincreasing. The tolerance accounts for floating-point rounding.
+@assert all(diff(objective_history) .<= 1e-12)
+@assert any(iszero, β_run)
+(final_coefficients = β_run,
+ zero_coordinates = findall(iszero, β_run),
+ initial_objective = first(objective_history),
+ final_objective = last(objective_history))
+```
+
+The first coefficient becomes exactly zero. This is the effect of
+soft thresholding rather than an explicit equality constraint.
+
+!!! details "Degenerate data and step-size estimates"
+    If the design matrix is zero, then `lipschitz(f)` can be zero.
+    Do not divide by it; choose a positive step separately.
+
+    [`opnorm2`](@ref) uses an iterative estimate of a squared spectral
+    norm. Such an estimate can **underestimate** the true norm, so it is
+    not interchangeable with the bound from `lipschitz` when choosing a
+    guaranteed descent step. See [numerical usage](numerical_usage.md).
+
+
 
 ## Reusing output buffers
 
-Mutating mathematical operations put the destination first. A gradient needs
-an output separate from its input. A proximal map permits exact in-place use.
+The Julia convention `!` means that an operation may **mutate** an
+argument; it does not promise zero allocations. ProximalBase puts the
+**destination first** in mutating mathematical operations.
+A gradient needs an output buffer separate from its input, while a proximal
+map permits exact in-place use. Other overlapping views are not supported.
+See [aliasing](glossary.md#Aliasing) and
+[the numerical usage contract](numerical_usage.md) for the precise rules.
 
 ```@example getting_started
 gradbuf = similar(β)
@@ -114,23 +158,71 @@ shape, aliasing and return-type details.
 
 ## Optimality and storage
 
-For this convex problem, the KKT conditions are
+For this convex problem, the
+[Karush–Kuhn–Tucker (KKT) conditions](glossary.md#KKT-conditions-for-nonsmooth-objectives)
+take a slightly different form from stationarity for a smooth constrained
+problem. The [subdifferential](glossary.md#Subgradient-and-subdifferential)
+of the scalar absolute value is
 
 ```math
-\nabla_j f(\beta)+\lambda\operatorname{sign}(\beta_j)=0\quad(\beta_j\ne0),
-\qquad |\nabla_j f(\beta)|\le\lambda\quad(\beta_j=0).
+\partial |t|=
+\begin{cases}
+\{1\}, & t>0,\\
+[-1,1], & t=0,\\
+\{-1\}, & t<0.
+\end{cases}
 ```
 
-`kkt_violation(g, grad, j)` computes ``|\mathrm{grad}_j|-\lambda`` for a
-coordinate assumed to be zero. A nonpositive value checks that zero condition;
-it does not certify a nonzero coefficient's stationarity.
+Here ``\partial |t|`` contains the slopes of supporting lines to the
+convex function ``|t|``. Since
+``g(\beta)=\lambda\sum_j|\beta_j|``, first-order optimality reads
+
+```math
+0\in \nabla f(\beta)+\lambda\partial\|\beta\|_1.
+```
+
+Examining one coordinate at a time gives
+
+```math
+\begin{cases}
+\nabla_j f(\beta)+\lambda\operatorname{sign}(\beta_j)=0,
+&\beta_j\ne0,\\[3pt]
+|\nabla_j f(\beta)|\le\lambda, &\beta_j=0.
+\end{cases}
+```
+
+For a nonzero coordinate, the subgradient has the single value
+``\operatorname{sign}(\beta_j)``, giving the first equality.
+At zero, the subgradient can be **any number in** ``[-1,1]``;
+thus the equation ``0=\nabla_j f(\beta)+\lambda s_j`` can hold
+precisely when ``|\nabla_j f(\beta)|\le\lambda``.
+This is the nonsmooth analogue of the multiplier-based KKT conditions:
+if you introduce ``t_j\ge\beta_j`` and ``t_j\ge-\beta_j`` to
+represent ``|\beta_j|``, the constraint multipliers lead to the
+same two conditions.
+
+For a coordinate assumed to be zero, `kkt_violation(g, grad, j)`
+returns ``|\mathrm{grad}_j|-\lambda``. A **positive** result means
+that keeping that coefficient at zero violates its stationarity condition;
+a **nonpositive** result means zero passes this one check. It does not
+evaluate the stationarity condition for a nonzero coefficient, and
+checking zero coordinates alone is not a global optimality certificate.
+See [coordinate descent](coordinate_descent.md) for the full screening
+procedure.
 
 A solver can store coefficients in a [`SparseIterate`](@ref) and use
-[`activate!`](@ref), [`isactive`](@ref) and [`dropzeros!`](@ref) to manage its
-working set. Mathematical zeros and active coordinates are different concepts:
-a thresholded coefficient can remain active until explicitly compacted.
+[`activate!`](@ref), [`isactive`](@ref), and [`dropzeros!`](@ref)
+to maintain a [working set](glossary.md#Working-set).
+Here **active** means the coordinate is retained in storage or visited
+by the solver, **not** that an inequality constraint holds with equality
+as in the KKT terminology from a constraints course.
+A coefficient can be exactly zero yet remain active so that the solver
+checks it again on its next sweep. [Compaction](glossary.md#Compaction)
+removes stored zeros when the solver no longer wants to keep them.
 
 Continue with [proximal-gradient methods](proximal_gradient.md),
 [coordinate descent](coordinate_descent.md), or the executable
-[lasso primitives](examples/lasso.md). Those examples illustrate caller loops;
-complete solver implementations belong in ProximalSolvers.
+[lasso primitives](examples/lasso.md).
+A production solver also needs stopping rules, acceleration and possibly
+line search; those belong in
+[ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl).

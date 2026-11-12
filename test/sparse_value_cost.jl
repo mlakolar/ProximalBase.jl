@@ -90,7 +90,8 @@ nonzero_indices(p, entries) = Set(linear(p, r, c) for (r, c, v) in entries if !i
       n, value = zeros_made(() -> LinearFunction(c2, -1.5e308)(big))
       @test n == 0 && Float64(value) == 5.0e307
       # an empty iterate
-      n, value = zeros_made(() -> LinearFunction(fill(cT(NaN), p, p), 0.5)(make_iterate(C, p, [])))
+      empty_x, g = make_iterate(C, p, []), LinearFunction(fill(cT(NaN), p, p), 0.5)
+      n, value = zeros_made(() -> g(empty_x))
       @test n == 0 && Float64(value) == 0.5
     end
   end

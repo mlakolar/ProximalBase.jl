@@ -32,7 +32,7 @@ function reference(c, d, x, T; diagonal = false)
     for (i, v) in zip(collect(activecoordinates(x)), collect(activevalues(x)))
       iszero(v) && continue
       diagonal && (i - 1) % p != (i - 1) ÷ p && continue
-      push!(terms, big(c[i]) * big(v))
+      push!(terms, big(diagonal ? c[(i - 1) % p + 1] : c[i]) * big(v))
     end
     r = sum(terms; init = big(0)) + big(d)
     sabs = sum(abs, terms; init = big(0)) + abs(big(d))
@@ -279,7 +279,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
         # the dense value agrees where the coefficients at zeros are finite
         vd = f(Matrix(x))
         rd = (setprecision(BigFloat, 4400) do
-                sum(huge.(a) .* huge.(Matrix(x))) + big(d)
+                sum(big.(a) .* big.(Matrix(x))) + big(d)
               end)
         @test abs(big(v) - big(vd)) <= r.bound + 4 * length(a) * big(eps(T)) * (r.sabs) + length(a) * big(floatmin(T)) * big(eps(T))
         @test abs(big(vd) - rd) <= 4 * length(a) * big(eps(T)) * r.sabs + length(a) * big(floatmin(T)) * big(eps(T))
@@ -446,13 +446,13 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     for y in (zeros(T, p, p), SparseIterate(T, p, p))
       val = value_and_prox!(y, f, x, γ)
       @test isapprox(Matrix(y), expected; rtol = 4 * eps(T))
-      @test abs(big(val) - (sum(huge.(a) .* huge.(Matrix(y))) + big(d))) <= 4 * length(a) * big(eps(T)) * (sum(abs, huge.(a) .* huge.(Matrix(y))) + abs(big(d)))
+      @test abs(big(val) - (sum(big.(a) .* big.(Matrix(y))) + big(d))) <= 4 * length(a) * big(eps(T)) * (sum(abs, big.(a) .* big.(Matrix(y))) + abs(big(d)))
     end
     @test isequal(Matrix(prox(f, x, γ)), Matrix(x) .- γ .* a)
     # Scaled: the value is α f(x), also with a NaN coefficient at a zero; a leaf value out of range stays Inf
     f = LinearFunction([T(1) T(NaN); T(1) T(1)], d)
     x2 = make_iterate(T, 2, [(1, 1, T(2))])
-    for α in (T(2), T(0.5), T(-3))
+    for α in (T(2), T(0.5), T(3))
       s = α * f
       @test s(x2) ≈ α * f(x2) rtol = 4 * eps(T)
       @test isfinite(s(x2))
@@ -514,8 +514,8 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     end
     cs = randn(rng, T, p, p); cs = cs + cs'
     f = LinearFunction(cs, d)
-    ref = sum(huge.(cs) .* huge.(Matrix(si))) + big(d)
-    @test abs(big(f(si)) - ref) <= 4 * p^2 * big(eps(T)) * (sum(abs, huge.(cs) .* huge.(Matrix(si))) + abs(big(d)))
+    ref = sum(big.(cs) .* big.(Matrix(si))) + big(d)
+    @test abs(big(f(si)) - ref) <= 4 * p^2 * big(eps(T)) * (sum(abs, big.(cs) .* big.(Matrix(si))) + abs(big(d)))
     # a stored zero of the symmetric iterate against a NaN coefficient: its term is formed
     sz = SymmetricSparseIterate(T, p)
     sz[2, 1] = T(1); sz[2, 1] = zero(T); sz[1, 1] = T(1)

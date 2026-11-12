@@ -1065,9 +1065,9 @@ function test_linear_function(::Type{T}) where {T<:AbstractFloat}
       @test within(fo(xo), sum(big.(cm) .* big.(xm)) + big(d), 1)
       @test fo(xo) === fo(xm)                                          # the owner and the matrix it represents
     end
-    # a function of a vector whose argument is a matrix of the same length: the elementwise prox, the shapes differ
+    # a function of a vector and a matrix argument of the same length: the shapes differ, so it is refused (linear_shapes.jl)
     fl = LinearFunction(T[1, 2, 3, 4])
-    @test prox!(zeros(T, 2, 2), fl, T[1 2; 3 4], T(2)) == reshape(vec(T[1 2; 3 4]) .- T(2) .* T[1, 2, 3, 4], 2, 2)
+    @test_throws DimensionMismatch prox!(zeros(T, 2, 2), fl, T[1 2; 3 4], T(2))
     # an owner output: each coordinate once
     po = SymmetricSparseIterate(T, 2)
     cs = T[1 2; 2 3]

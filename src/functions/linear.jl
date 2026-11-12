@@ -7,6 +7,10 @@
 
 The linear function `f(x) = ⟨c, x⟩ + d`, with gradient `c`. Its proximal operator
 is the shift `x - γc`.
+
+The coefficients and the argument have the same dimensions, `size(c) == size(x)`;
+on a `SymmetricSparseIterate`, `c` is `p × p`. Every oracle throws a
+`DimensionMismatch` for any other pair, even one with as many entries, before it writes.
 """
 struct LinearFunction{C<:AbstractArray, D<:Real} <: AbstractFunction
   c::C
@@ -63,24 +67,12 @@ end
 _linear_scaled_dot(c, x, s) = _linear_scaled_copy_dot(c, x, s)
 _linear_scaled_copy_dot(c, x, s) = dot(c, x .* s[1] .* s[2])
 
-# Generic dot only needs equal lengths; specialized matrix methods check shapes.
-_dot_checks_size(::Type{C}, ::Type{X}) where {C, X} =
-  (C <: Diagonal && X <: AbstractMatrix) ||
-  (C <: AbstractMatrix && X <: Diagonal) ||
-  (C <: StridedMatrix && X <: SymmetricSparseIterate) ||
-  (C <: _SparseDotCSC && X <: Union{_SparseDotCSC, _SparseDotMatrix}) ||
-  (C <: _SparseDotMatrix && X <: _SparseDotCSC) ||
-  (_SparseWrappedColumnDotChecksSize &&
-   ((C <: _SparseDotWrappedCSC && X <: _SparseDotCSC) ||
-    (C <: _SparseDotCSC && X <: _SparseDotWrappedCSC)))
-_dot_checks_size(::Type{<:Adjoint{<:Real, C}}, ::Type{<:Adjoint{<:Real, X}}) where {C, X} = _dot_checks_size(C, X)
-_dot_checks_size(::Type{<:Transpose{<:Any, C}}, ::Type{<:Transpose{<:Any, X}}) where {C, X} = _dot_checks_size(C, X)
-_dot_checks_size(::Type{<:Adjoint{<:Any, C}}, ::Type{<:Transpose{<:Any, X}}) where {C, X} =
-  _SparseMixedDotChecksSize && C <: _SparseDotCSC && X <: _SparseDotCSC
-_dot_checks_size(::Type{<:Transpose{<:Any, C}}, ::Type{<:Adjoint{<:Any, X}}) where {C, X} =
-  _SparseMixedDotChecksSize && C <: _SparseDotCSC && X <: _SparseDotCSC
-_checkdot(c::C, x::X) where {C, X} = (_dot_checks_size(C, X) ? _checksize(c, x) : _checkparam(c, x))
-_checkvalue(f::LinearFunction, x) = (_checkreal(f, x); _checkdot(f.c, x))
+# c and x have the same dimensions, size(c) == size(x), the size of a symmetric
+# iterate being that of the p × p matrix it represents. Every oracle applies this
+# rule before it reads or writes, whatever dot would accept for the array types.
+_checkparams(f::LinearFunction, x) = size(f.c) == size(x) || _coefficient_size_mismatch(size(f.c), size(x))
+@noinline _coefficient_size_mismatch(sc, sx) =
+  throw(DimensionMismatch("the coefficients c have size $sc and the argument has size $sx"))
 
 function _checkwrite(op::O, f::LinearFunction, y::_ArrayOrSymmetricIterate, x::_ArrayOrSymmetricIterate) where {O}
   _checkreal(f, x)
@@ -88,8 +80,6 @@ function _checkwrite(op::O, f::LinearFunction, y::_ArrayOrSymmetricIterate, x::_
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   _checkparams(f, x)
-  op === value_and_prox! && _checkdot(f.c, y)
-  op === value_and_gradient! && _checkdot(f.c, x)
   # c is written into y: copied by the gradient, subtracted by the prox
   _check_parameter_axes(y, f.c)
   true
@@ -100,14 +90,7 @@ prox!(y::_ArrayOrSymmetricIterate, f::LinearFunction, x::_ArrayOrSymmetricIterat
 function _prox_unchecked!(y::AbstractArray, f::LinearFunction, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, y, x)
   γ = convert(float(eltype(y)), γ)
-  if size(f.c) == size(x)
-    y .= x .- γ .* _assumed_symmetric(y, f.c)
-  else
-    # dot accepts equal-length arrays even when their shapes differ.
-    @inbounds for i in eachindex(IndexLinear(), y, x)
-      y[i] = x[i] - γ * f.c[i]
-    end
-  end
+  y .= x .- γ .* _assumed_symmetric(y, f.c)
   y
 end
 # a symmetric iterate point and a dense output: the entries of the matrix that the symmetric iterate represents
@@ -138,7 +121,6 @@ _gradient_unchecked!(g::_ArrayOrSymmetricIterate, f::LinearFunction, x::_ArrayOr
   (_checkwrite(gradient!, f, g, x); _copy_parameter!(g, f.c))
 
 Base.@propagate_inbounds prox_block(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
-_checkparams(f::LinearFunction, x) = _checkparam(f.c, x)
 kkt_violation(f::LinearFunction, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] + f.c[i]))
 restrict(f::LinearFunction, S::AbstractVector{<:Integer}) = LinearFunction(f.c[S], f.d)
 

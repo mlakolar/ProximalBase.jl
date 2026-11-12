@@ -20,7 +20,14 @@ class Page(HTMLParser):
         self.math = self.code = self.footer = 0
         self.tables = []
         self._table_stack = []
-        self.feed(path.read_text())
+        html = path.read_text()
+        self.feed(html)
+        # Documenter emits inline math as <span>$...$</span> and display
+        # math inside math-container elements. Count both rendered forms.
+        self.math += len(re.findall(
+            r'<span(?:\\s[^>]*)?>\\s*\\$[^<>\\n]+\\$\\s*</span>',
+            html,
+        ))
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         if tag == 'table':

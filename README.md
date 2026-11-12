@@ -62,7 +62,9 @@ The [function library](docs/src/function_library.md) covers
 `ZeroFunction`, `LinearFunction`, `NormL1` and `Scaled`.
 A separate [Scalar-loss interface](docs/src/scalar_losses.md) handles
 individual prediction/observation pairs, with
-[`ProximalBase.Squared()`](docs/src/scalar_squared.md) as a built-in example. The [iterate guide](docs/src/iterates.md) covers
+[`ProximalBase.Squared()`](docs/src/scalar_squared.md) as a built-in example.
+The `ProximalBase.` prefix is necessary because `Squared` is not exported.
+The [iterate guide](docs/src/iterates.md) covers
 `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate`.
 
 See [Operations on functions](docs/src/operations.md) for formulas and

@@ -1,6 +1,7 @@
 # Coordinate-level operations
 #
 # *Assumes: partial derivatives and vector indexing · You will learn: coordinate-wise updates, residual tracking and KKT screens.*
+# For the terminology behind [working-set screening](../glossary.md#Working-set).
 using ProximalBase, LinearAlgebra
 function illustrate_coordinates()
     X = [1.0 0; 0 2; 1 1]

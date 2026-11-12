@@ -948,8 +948,9 @@ function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
     @test NormL1(one(T), Union{Float32, Float64}[floatmin(T) for _ in 1:512])(x) === T(r)
     for wa in (Union{Float32, Float64, BigFloat}[floatmin(T) for _ in 1:512], AbstractFloat[floatmin(T) for _ in 1:512]),
         λa in (one(T), big(1.0)), y in (x, view(x, :), reps(x).sparse, reps(x).block, ones(T, 512))
-      # inferred, recomputed or not, wherever master infers it (AbstractFloat weights at a level of type T are not)
-      if wa isa Vector{AbstractFloat} && λa isa T
+      # inferred, recomputed or not, where master infers it on every supported Julia (AbstractFloat weights are not
+      # inferred by master: on 1.13 at a level of type T, on 1.10 at any level)
+      if wa isa Vector{AbstractFloat}
         @test NormL1(λa, wa)(y) isa T
       else
         @test (@inferred NormL1(λa, wa)(y)) isa T
@@ -972,9 +973,13 @@ function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
     # an infinite Scaled factor multiplies the leaf value: a positive leaf value (here one whose products each rounded
     # to zero) gives Inf, as the folded level NormL1(Inf, w) does; an exactly zero leaf value is still 0
     wz = fill(floatmin(T), 2); xz = fill(T(0.375) * eps(T), 2)
-    @test NormL1(one(T), wz)(xz) === δ && NormL1(T(Inf), wz)(xz) === T(Inf)
+    # (where ldexp truncates subnormal results, Julia 1.10 and #896, the Float64 leaf value 0.75δ becomes 0 and the
+    # product with Inf stays NaN, as on master)
+    vz = NormL1(one(T), wz)(xz)
+    @test vz === δ || (!ldexp_rounds && T === Float64 && vz === zero(T))
+    @test NormL1(T(Inf), wz)(xz) === T(Inf)
     for y in (xz, view(xz, :), reps(xz).sparse)
-      @test Scaled(NormL1(one(T), wz), T(Inf))(y) === T(Inf)
+      @test isequal(Scaled(NormL1(one(T), wz), T(Inf))(y), iszero(vz) ? T(NaN) : T(Inf))
     end
     @test Scaled(NormL1(one(T), wz), T(Inf))(zeros(T, 2)) === zero(T)
     λw = W2(2)^(T === Float32 ? -200 : -1500)                           # a level out of the range of T, unweighted

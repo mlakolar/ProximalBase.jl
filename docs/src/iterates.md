@@ -1,4 +1,4 @@
-# Overview and working sets
+# [Overview and working sets](@id Sparse-iterates)
 
 *Assumes: vectors, matrices and basic optimization iterations · You will learn: when to use specialized storage and what active coordinates mean.*
 

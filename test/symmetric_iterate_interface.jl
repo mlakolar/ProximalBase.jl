@@ -1,8 +1,8 @@
 module SymmetricIterateInterfaceTest
 
-# The surface of the owner of the variables of a symmetric matrix: what it has (T09), what it does
+# The surface of the SymmetricSparseIterate: what it has (T09), what it does
 # not have, the one throwing axes method (D3), the rejected fills (#638), equality and hash of two
-# owners (D2), the display, and the retained storage.
+# symmetric iterates (D2), the display, and the retained storage.
 
 using Test, ProximalBase, LinearAlgebra, SparseArrays, Random
 
@@ -20,9 +20,9 @@ function dense_from(::Type{T}, v, p) where {T}
   D
 end
 
-# an owner with the matrix of the values v (the zeros of v absent or active, at random, and the
+# a symmetric iterate with the matrix of the values v (the zeros of v absent or active, at random, and the
 # negative zeros active), its coordinates activated in a random order
-function owner_from(rng, ::Type{T}, v, p) where {T}
+function symmetric_iterate_from(rng, ::Type{T}, v, p) where {T}
   X = SymmetricSparseIterate(T, p)
   for k in randperm(rng, length(v))
     if iszero(v[k])
@@ -33,8 +33,8 @@ function owner_from(rng, ::Type{T}, v, p) where {T}
   X
 end
 
-# the owner of the table of absent operations, and the operands of its rows
-absent_owner() = (X = SymmetricSparseIterate(Float64, 3); X[2, 1] = 2.0; X[3, 3] = 5.0; activate!(X, 4); X)
+# the symmetric iterate for the table of absent operations, and the operands of its rows
+absent_iterate() = (X = SymmetricSparseIterate(Float64, 3); X[2, 1] = 2.0; X[3, 3] = 5.0; activate!(X, 4); X)
 const AM = Float64[1 2 3; 2 4 5; 3 5 6]
 const AD = Diagonal([1.0, 2.0, 3.0])
 const AQ = qr(AM).Q
@@ -165,7 +165,7 @@ const ABSENT_ALGEBRA = Pair{String, Function}[
   "mul!(X, A, s)" => X -> mul!(X, AM, 2.0),
   "mul!(X, s, A)" => X -> mul!(X, 2.0, AM),
   "mul!(X, A, B, α, β)" => X -> mul!(X, AM, AM, 1.0, 0.0),
-  "mul!(X, Y, Z)" => X -> mul!(X, absent_owner(), absent_owner()),
+  "mul!(X, Y, Z)" => X -> mul!(X, absent_iterate(), absent_iterate()),
   "mul!(X, 'N', 'N', A, B, α, β)" => X -> mul!(X, 'N', 'N', AM, AM, 1.0, 0.0),
 ]
 @static if isdefined(LinearAlgebra, :copytrito!)
@@ -174,7 +174,7 @@ end
 
 const ABSENT_COPIES = Pair{String, Function}[
   "copy!(X, A)" => X -> copy!(X, AM),
-  "copy!(X, Y)" => X -> copy!(X, absent_owner()),
+  "copy!(X, Y)" => X -> copy!(X, absent_iterate()),
   "copyto!(X, offset, v)" => X -> copyto!(X, 1, vec(AM)),
   "copyto!(X, offset, v, offset)" => X -> copyto!(X, 1, vec(AM), 1),
   "copyto!(X, offset, v, offset, n)" => X -> copyto!(X, 1, vec(AM), 1, 9),
@@ -202,7 +202,7 @@ const ABSENT_BUILDS = Pair{String, Function}[
 ]
 
 @testset "T09: the interface surface" begin
-  @testset "what an owner has, $T, p = $p" for T in (Float32, Float64, Int), p in (0, 1, 3, 6)
+  @testset "what a symmetric iterate has, $T, p = $p" for T in (Float32, Float64, Int), p in (0, 1, 3, 6)
     X = SymmetricSparseIterate(T, p)
     q = p * (p + 1) ÷ 2
     @test !(X isa AbstractArray) && !(X isa AbstractMatrix) && !(X isa AbstractVector)
@@ -221,7 +221,7 @@ const ABSENT_BUILDS = Pair{String, Function}[
     end
   end
 
-  @testset "what an owner does not have" begin
+  @testset "what a symmetric iterate does not have" begin
     for T in (Float32, Float64), p in (0, 1, 3)
       X = SymmetricSparseIterate(T, p)
       @test_throws MethodError length(X)
@@ -247,22 +247,22 @@ const ABSENT_BUILDS = Pair{String, Function}[
       end
       @test_throws MethodError isapprox(X, copy(X))
     end
-    # the vector and the matrix views keep what the owner does not have
+    # the vector and the matrix views keep what the symmetric iterate does not have
     X = SymmetricSparseIterate(Float64, 3)
     @test length(coordinates(X)) == 6 && length(matrixview(X)) == 9
     @test axes(matrixview(X)) == (Base.OneTo(3), Base.OneTo(3))
     @test nnz(sparse(matrixview(X))) == 0
   end
 
-  # One table of the array operations that an owner has no method for. Each call is a MethodError, and
-  # a call that took the owner as its destination leaves it unchanged. The owner is 3 × 3, with an
+  # One table of the array operations that a symmetric iterate has no method for. Each call is a MethodError, and
+  # a call that took the symmetric iterate as its destination leaves it unchanged. The symmetric iterate is 3 × 3, with an
   # active zero and a diagonal entry.
-  @testset "operations that an owner does not have, $name" for (name, rows) in (
+  @testset "operations that a symmetric iterate does not have, $name" for (name, rows) in (
       ("reading and traversal", ABSENT_READS), ("writing and filling", ABSENT_WRITES),
       ("in-place algebra", ABSENT_ALGEBRA), ("copies and index writes", ABSENT_COPIES),
-      ("matrices built from the owner", ABSENT_BUILDS))
+      ("matrices built from the symmetric iterate", ABSENT_BUILDS))
     @testset "$row" for (row, f) in rows
-      X = absent_owner()
+      X = absent_iterate()
       before = state(X)
       err = try
         f(X)
@@ -271,7 +271,7 @@ const ABSENT_BUILDS = Pair{String, Function}[
         e
       end
       if row in AXES_ROWS
-        # Julia reaches axes(X) first, on some versions: the one throwing method of the owner
+        # Julia reaches axes(X) first, on some versions: the one throwing method of the symmetric iterate
         @test err isa MethodError || (err isa ArgumentError && occursin("has no axes", sprint(showerror, err)))
       else
         @test err isa MethodError
@@ -318,7 +318,7 @@ const ABSENT_BUILDS = Pair{String, Function}[
     @test isequal(state(X), snapshot)
   end
 
-  @testset "#638: every fill of the owner is refused and nothing changes" begin
+  @testset "#638: every fill of the symmetric iterate is refused and nothing changes" begin
     for T in (Float32, Float64)
       X = SymmetricSparseIterate(T, 3)
       X[2, 1] = 2
@@ -346,7 +346,7 @@ const ABSENT_BUILDS = Pair{String, Function}[
     fill!(coordinates(X), 0)
     @test all(==(7.0), X.nzval[4:end])
     @test nactive(X) == 3 && all(iszero, activevalues(X)) && all(iszero, Matrix(X))
-    dropzeros!(X)                              # the supported clear of the owner
+    dropzeros!(X)                              # the supported clear of the symmetric iterate
     @test nactive(X) == 0 && all(iszero, Matrix(X)) && isempty(activecoordinates(X))
     @test all(k -> !isactive(X, k), 1:q)
 
@@ -369,14 +369,14 @@ const ABSENT_BUILDS = Pair{String, Function}[
     @test isequal(state(W), snapshot)
     fill!(coordinates(W), 0im)                 # a complex zero converts
     @test all(iszero, activevalues(W))
-    # an owner with a fill of its own would have changed the other fills: the vector keeps vector semantics
+    # a symmetric iterate with a fill of its own would have changed the other fills: the vector keeps vector semantics
     V = SymmetricSparseIterate(Float64, 2)
     fill!(coordinates(V), NaN)
     @test nactive(V) == 3 && all(isnan, activevalues(V))
   end
 end
 
-@testset "D2: equality and hash of two owners" begin
+@testset "D2: equality and hash of two symmetric iterates" begin
   @testset "an active zero is the absent coordinate" begin
     X = SymmetricSparseIterate(Float64, 3)
     activate!(X, 2)
@@ -483,8 +483,8 @@ end
       if q > 0 && rand(rng) < 0.5
         vy[rand(rng, 1:q)] = rand(rng, menu)
       end
-      X = owner_from(rng, T1, vx, p)
-      Y = owner_from(rng, T2, vy, p)
+      X = symmetric_iterate_from(rng, T1, vx, p)
+      Y = symmetric_iterate_from(rng, T2, vy, p)
       DX, DY = dense_from(T1, vx, p), dense_from(T2, vy, p)
       @test isequal(Matrix(X), DX) && isequal(Matrix(Y), DY)
       same = isequal(DX, DY)
@@ -496,9 +496,9 @@ end
   end
 end
 
-# the replacement of the absent scaling of the owner by a number: ordinary vector operations on the
+# the replacement of the absent scaling of the symmetric iterate by a number: ordinary vector operations on the
 # vector of the variables, which follow IEEE arithmetic (also for Inf, NaN and a zero divisor)
-@testset "scaling the coordinates of the owner by a number is an ordinary vector operation" begin
+@testset "scaling the coordinates of the symmetric iterate by a number is an ordinary vector operation" begin
   ops = (("rmul!", (x, s) -> rmul!(x, s), (a, s) -> a * s), ("lmul!", (x, s) -> lmul!(s, x), (a, s) -> s * a),
          ("rdiv!", (x, s) -> rdiv!(x, s), (a, s) -> a / s), ("ldiv!", (x, s) -> ldiv!(s, x), (a, s) -> s \ a))
   @testset "$name, $T, p = $p" for (name, op, scalar) in ops, T in (Float32, Float64), p in (0, 1, 3)
@@ -571,14 +571,14 @@ end
     @test occursin("SymmetricSparseIterate", sprint(show, MIME"text/plain"(), matrixview(s)))
   end
 
-  @testset "the cost of a display: empty, small and large owners" begin
+  @testset "the cost of a display: empty, small and large symmetric iterates" begin
     E = SymmetricSparseIterate(0)
     @test sprint(show, E) == "0×0 $(typeof(E)) with 0 stored entries"
     @test sprint(show, MIME"text/plain"(), E) == "0×0 $(typeof(E)) with 0 stored entries in the lower triangle"
     @test !occursin("nnz", sprint(show, SymmetricSparseIterate(2))) &&
           !occursin("nnz", sprint(show, MIME"text/plain"(), SymmetricSparseIterate(2)))
     # three active coordinates whatever p: the display does not grow with the p² entries
-    function owner3(p)
+    function display_iterate(p)
       X = SymmetricSparseIterate(Float64, p)
       X[2, 1] = 1.5
       X[p, p] = -2.0
@@ -586,7 +586,7 @@ end
       X
     end
     allocated(f, X) = (f(X); @allocated f(X))
-    small, large = owner3(100), owner3(2000)
+    small, large = display_iterate(100), display_iterate(2000)
     for f in (X -> sprint(show, X), X -> string(X), X -> repr(X), X -> sprint(show, MIME"text/plain"(), X))
       # Fixed allowance for decimal-width/IOBuffer allocator buckets on current
       # Julia. The frozen post-848 source also exceeds the former 64-byte cap.
@@ -594,8 +594,8 @@ end
       @test allocated(f, large) <= allocated(f, small) + 512
       @test allocated(f, large) < 65_536
     end
-    # a very large owner: the storage is not touched
-    X = owner3(10_000)
+    # a very large symmetric iterate: the storage is not touched
+    X = display_iterate(10_000)
     @test sprint(show, X) == "10000×10000 $(typeof(X)) with 3 stored entries"
     out = sprint(show, MIME"text/plain"(), X)
     @test startswith(out, "10000×10000 $(typeof(X)) with 3 stored entries in the lower triangle:")

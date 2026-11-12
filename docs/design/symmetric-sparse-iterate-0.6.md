@@ -18,7 +18,7 @@ independent lower-triangular coordinates, numbered down columns. The
 matrix positions ``(r,c)`` and ``(c,r)`` refer to the **same
 variable**, so only one value is stored for each pair.
 
-The owner is **not** an `AbstractArray` or `AbstractMatrix`. Although
+The symmetric iterate is **not** an `AbstractArray` or `AbstractMatrix`. Although
 `size(x)` returns `(p,p)` and `eltype(x)` is defined, it does not
 support ordinary array iteration, `length`, `axes`, `vec`, or
 broadcasting. This prevents confusion between independent-coordinate IDs
@@ -48,7 +48,7 @@ k = tril_index(3, 3, 1)
 
 The public `matrixview(x)` is live but **read-only**, while
 `Matrix(x)` creates an independent dense copy. No view derived
-from the public matrix view may write to owner storage. Bounds checks
+from the public matrix view may write to symmetric matrix storage. Bounds checks
 for `x[r,c]` precede narrowing of other integer index types.
 
 ## Activity, copies and matrix imports
@@ -59,29 +59,29 @@ iterate-family contract, but in **independent-coordinate space**.
 - `activate!(x,k)` retains an active zero; `dropzeros!(x)` removes
   numerical zeros while preserving other entries and their values.
 - `copy(x)` makes an independent state copy; `similar(x)` creates
-  an empty owner with the same dimensions.
-- `copyto!(dest,src)` between owners of the same size replaces both
+  an empty symmetric iterate with the same dimensions.
+- `copyto!(dest,src)` between symmetric iterates of the same size replaces both
   numerical values and activity, staging fallible stored conversions
   before updating the destination.
-- Creating or importing an owner from a matrix requires real data,
+- Creating or importing a symmetric iterate from a matrix requires real data,
   compatible one-based ``p\times p`` dimensions and **exact**
   symmetry. Equal mirrored `NaN` values are accepted, and signed
   zeros compare equal.
-- A source matrix overlapping owner storage must be rejected. Matrix
+- A source matrix overlapping symmetric matrix storage must be rejected. Matrix
   import replaces activity with converted nonzeros in increasing
   independent-coordinate order. A conversion failure after clearing
   destination state may leave a partially imported result.
 - `==` compares the represented matrix values. `isequal` and
   `hash` also reflect signed-zero and `NaN` distinctions.
-  There is no general owner-array `isapprox` or array equality method.
+  There is no general symmetric-iterate/array `isapprox` or array equality method.
 
-Owner matrix imports require exact symmetry; proximal calls with an
-owner destination instead use the **symmetric part** of a matrix
+Symmetric-iterate matrix imports require exact symmetry; proximal calls with an
+symmetric-iterate destination instead use the **symmetric part** of a matrix
 argument when supported.
 
 ## Frobenius geometry
 
-The owner represents a full symmetric matrix ``X``, not just its
+The symmetric iterate represents a full symmetric matrix ``X``, not just its
 coordinate vector. Its squared Frobenius norm is
 
 ```math
@@ -106,18 +106,18 @@ Mathematical function methods accept a `SymmetricSparseIterate`
 |:--|:--|
 | `f(x)`, `prox(f,x,γ)` | `SeparableFunction`, `SqrNormL2`, `LinearFunction`, `ZeroFunction`, and supported `Scaled` wrappers |
 | `gradient(f,x)` | `SqrNormL2`, `LinearFunction`, and supported scaling; the allocated result is a dense symmetric matrix |
-| `prox!(out,f,x,γ)` with an owner `out` | An independent-coordinate owner is written; only scalar steps `γ` are supported |
+| `prox!(out,f,x,γ)` with a symmetric iterate `out` | An independent-coordinate symmetric iterate is written; only scalar steps `γ` are supported |
 | `kkt_violation(f,grad,x,k)` | The chosen independent coordinate, using the symmetric matrix gradient and relevant parameter pair |
 
-`ZeroFunction` supports owner values and proximal maps, but no owner
+`ZeroFunction` supports symmetric-iterate values and proximal maps, but no symmetric iterate
 gradient. `LeastSquaresLoss` and `QuadraticFunction` have no
-direct owner methods.
+direct symmetric-iterate methods.
 
 The fused operations `value_and_gradient!` and
 `value_and_prox!` return the value at the input or **stored output**,
 respectively, just as for ordinary arrays. An allocating `prox`
-returns a new independent owner. Array-valued proximal steps with
-an owner destination are rejected before writes.
+returns a new independent symmetric iterate. Array-valued proximal steps with
+a symmetric iterate destination are rejected before writes.
 
 ### Symmetric parameters and raw scalar hooks
 
@@ -135,16 +135,16 @@ i = (c - 1) * p + r
 
 and pass the **full-matrix entry index** `i` to
 `prox_block(f, v, i, γ)` or `value_entry(f, v, i)`.
-A raw scalar hook has no owner argument and therefore does not verify
+A raw scalar hook has no `SymmetricSparseIterate` argument and therefore does not verify
 symmetric parameter pairs itself.
 
-The owner-specific `kkt_violation` checks its chosen mirrored pair,
+The `SymmetricSparseIterate`-specific `kkt_violation` checks its chosen mirrored pair,
 uses the symmetric matrix gradient, and rejects an opposing-infinity
 gradient pair. It does not double the reported scalar screen.
 
 ## Linear algebra and aliasing
 
-Supported owner products reject outputs overlapping the owner or a
+Supported symmetric-iterate products reject outputs overlapping the symmetric iterate or a
 numerical operand **before writing**. Zero iterate coefficients are
 skipped even against `NaN` or `Inf` in another factor. The exact
 product and three-factor numerical guarantees apply only to their
@@ -152,7 +152,7 @@ documented Julia dispatch domains.
 
 ## Internal implementation and evidence
 
-The current owner shares packed active-list and reverse-map primitives
+The current `SymmetricSparseIterate` implementation shares packed active-list and reverse-map primitives
 with `SparseIterate`, plus its matrix dimension `p`.
 Public and private matrix-view types have different write permissions;
 the internal `Base` alias integration hooks are **not** public

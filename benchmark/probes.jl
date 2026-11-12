@@ -69,7 +69,7 @@ function makeprobes(::Type{T}) where T
         add("$family/first_activation",()->writes(c,ids,1),clear,check)
         add("$family/full_sweep",()->sweep(c),reset,check)
         dest=similar(x)
-        add("$family/copyto_owner",()->(copyto!(dest,x);nothing),reset,()->family===:symmetric ? Matrix(dest) : Vector(dest))
+        add("$family/copyto_iterate",()->(copyto!(dest,x);nothing),reset,()->family===:symmetric ? Matrix(dest) : Vector(dest))
         add("$family/copyto_dense",()->(copyto!(dest,dense);nothing),reset,()->family===:symmetric ? Matrix(dest) : Vector(dest))
         add("$family/conversion",()->family===:symmetric ? Matrix(x) : Vector(x),reset,check)
         if family===:symmetric

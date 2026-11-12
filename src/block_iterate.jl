@@ -365,7 +365,7 @@ function Base.copyto!(dest::BlockIterate{T}, src::BlockIterate{S}) where {T, S}
   dest
 end
 
-# The layouts and nonthrowing conversion have already been checked. Both owners
+# The layouts and nonthrowing conversion have already been checked. Both iterates
 # have independent value/active storage. Groups shared with src will be entirely
 # overwritten, so only groups absent from src need their values cleared.
 function _copy_active!(dest::BlockIterate{T}, src::BlockIterate) where {T}

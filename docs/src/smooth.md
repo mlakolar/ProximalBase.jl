@@ -49,8 +49,8 @@ synchronization. After changing entries of `X` or `Y`, call `reset_cache!(f)`;
 construct a new object if dimensions change. The input data are not copied.
 
 Dense coefficients, vector/matrix `SparseIterate` and vector `BlockIterate` use
-supported array products. This loss has no `SymmetricSparseIterate`-owner,
-scalar `prox_block`, `value_entry` or KKT-screen method. Converting an owner
+supported array products. This loss has no `SymmetricSparseIterate`,
+scalar `prox_block`, `value_entry` or KKT-screen method. Converting a symmetric iterate
 to `Matrix` gives an ordinary matrix-coefficient problem if dimensions fit.
 `restrict(f,S)` selects design columns only for **vector-response** losses.
 `lipschitz(f)` bounds ``\|X\|_2^2``; it uses a full spectral norm for dense
@@ -91,7 +91,7 @@ it at `x`. The argument `λ` is the nonnegative **scale**, while `y` is the
 and center zero. When supplied, `y` is a real array of the **same shape** as `x`. The level must be nonnegative; negative/NaN levels
 throw `ArgumentError`, while `Inf` is accepted with exceptional arithmetic
 rather than a general projection policy. On a matrix the norm is Frobenius.
-The domain is real arrays of matching shape; symmetric owners are explicitly
+The domain is real arrays of matching shape; symmetric iterates are explicitly
 supported, with exactly symmetric center parameters.
 
 When used as a regularizer, this is the usual squared-ℓ₂ (ridge) term
@@ -149,7 +149,7 @@ formula, and `f(x)` evaluates it at the variable `x`. The constructor takes
 `A`, the ``p\times p`` quadratic coefficient matrix; `b`, an optional
 length-``p`` linear coefficient vector; and `c`, an optional scalar constant.
 When omitted, `b` and `c` are zero. The domain is real length-``p`` vectors,
-including vector `SparseIterate` and `BlockIterate`; matrix and symmetric-owner
+including vector `SparseIterate` and `BlockIterate`; matrix and symmetric iterate
 inputs are not supported. All four capability traits except separability are
 true. There is no scalar `prox_block`, `value_entry` or KKT screen.
 
@@ -199,8 +199,8 @@ It needs no parameters or dimensions. `lipschitz(f)==0`; `restrict(f,S)`
 returns `f`; scalar `prox_block(f,v,i,γ)` returns `v`; its zero-coordinate
 screen is ``|\mathrm{grad}_i|``. It has no `value_entry` method.
 
-Value/prox also accept symmetric owners, but gradients at/into owners are
-not implemented. `prox!` into an owner symmetrizes a matrix argument before
+Value/prox also accept symmetric iterates, but gradients at/into symmetric iterates are
+not implemented. `prox!` into a symmetric iterate symmetrizes a matrix argument before
 writing, as described in [symmetric parameters](symmetric_parameters.md).
 For arrays, scalar and array steps are accepted and ignored numerically;
 an array step must still have the correct entry count. Prox returns the
@@ -212,7 +212,7 @@ rejected; the value is zero even at NaN/Inf array entries.
 the destination differs from the input. Between same-shaped SparseIterates or
 same-layout BlockIterates this replaces the destination's active state with the
 source's, including explicit zeros. A dense-source copy is an ordinary value
-write. The symmetric-owner route uses coordinate value writes and preserves
+write. The symmetric-iterate route uses coordinate value writes and preserves
 its destination's existing activity. Exact in-place identity leaves state alone.
 
 ```@example library_zero
@@ -241,8 +241,8 @@ matrices use the Frobenius inner product. Coefficients must have the same
 entry count as `x`; ordinary same-shaped arrays are the portable choice.
 Value calls based on generic `dot` can accept equal-length differently shaped
 arrays, while specialized dot/write methods can impose matching shapes/axes.
-Use matching matrices for symmetric-owner coefficients; the pairs must agree
-exactly. The gradient is a dense matrix when allocated at an owner.
+Use matching matrices for symmetric-iterate coefficients; the pairs must agree
+exactly. The gradient is a dense matrix when allocated at a symmetric iterate.
 
 The function is smooth, convex, proximable and separable by trait, but is
 not declared zero preserving and has no `value_entry`. It supports scalar

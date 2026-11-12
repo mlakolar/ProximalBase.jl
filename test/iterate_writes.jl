@@ -452,7 +452,7 @@ end
 
 lower_positions(p) = [(r, c) for c in 1:p for r in c:p]
 
-@testset "the coordinates of an owner are an ordinary vector (CRD-4)" begin
+@testset "the coordinates of a symmetric iterate are an ordinary vector (CRD-4)" begin
   @testset "$T, p = $p" for T in (Float32, Float64), p in (0, 1, 3)
     q = p * (p + 1) ÷ 2
     vals = T.(1:q)

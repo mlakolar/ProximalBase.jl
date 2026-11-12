@@ -23,8 +23,8 @@ infinite factors), `NormL1` weights and thresholds, the ridge prox weights and o
 part of an asymmetric argument, each against an independent BigFloat evaluation of the formula in Float32 and
 Float64. Known defects are recorded with `@test_broken` against the correct reference and flip when fixed.
 `symmetric_parameters` covers symmetric per-entry parameters as a model precondition: valid
-symmetric models of every retained family against dense and structurally symmetric references in
-Float32/64, the explicit `check_symmetric_parameters` (stored and unstored pairs, nested `Scaled`,
+symmetric models (`NormL1`, `SqrNormL2`, `LinearFunction`, nested `Scaled` and a custom separable
+function) against dense and structurally symmetric references in Float32/64, the explicit `check_symmetric_parameters` (stored and unstored pairs, nested `Scaled`,
 NaN and signed zeros, malformed metadata), the structural refusals that the oracles keep, and
 instrumented parameter arrays that count reads to show the oracles perform no mirrored-pair scan.
 `core_functions` exercises retained

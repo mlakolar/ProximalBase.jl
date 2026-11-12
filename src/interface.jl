@@ -175,7 +175,7 @@ supply this method to work on a `SymmetricSparseIterate`; its default
 is `nothing` (undeclared). The declaration must include every per-entry array.
 It describes only `f` itself, not the functions inside its wrappers.
 
-Only `ProximalBase.check_symmetric_parameters` reads this declaration. The
+Within ProximalBase, only `ProximalBase.check_symmetric_parameters` reads this declaration. The
 numerical oracles do not compare mirrored entries of these arrays: the caller or
 solver validates the model, and an oracle given asymmetric parameters has no
 guaranteed numerical meaning. Built-in wrappers expose their inner function's

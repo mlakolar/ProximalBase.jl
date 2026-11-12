@@ -128,7 +128,7 @@ gradient oracles, `value_and_prox!`, `value_and_gradient!` and the four-argument
 their structural validation (shapes, parameter extents, element types, aliases,
 supported operations). With asymmetric parameters, an oracle's result is outside
 its contract: it need not match direct evaluation of the full-matrix function, and
-it is never an averaged or repaired model. Use
+no oracle averages or repairs the array. Use
 `ProximalBase.check_symmetric_parameters(f, x)` to validate **all** declared pairs
 recursively, including pairs the iterate does not store. It is the only explicit
 validation; it records no certificate, so the caller or solver runs it at each solve

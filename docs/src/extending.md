@@ -75,7 +75,7 @@ iterate your per-entry arrays must be exactly symmetric: the generic kernels
 assume it and compare no mirrored entries, so asymmetric arrays are an invalid
 model with no guaranteed numerical meaning. Call
 `check_symmetric_parameters(f,x)` once per model, at the solve or workspace
-boundary and after any change to the arrays. It is the only reader of
+boundary and after any change to the arrays. Within ProximalBase it is the only reader of
 `entry_parameters`; the extent of your arrays is the job of `check_parameters`.
 See [symmetric parameters](symmetric_parameters.md).
 

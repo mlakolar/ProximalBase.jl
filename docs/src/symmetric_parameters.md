@@ -21,9 +21,9 @@ oracle verifies. Three parties share the work:
 An oracle given asymmetric parameters has **no guaranteed numerical meaning**:
 its result may disagree with direct evaluation of the full-matrix function
 (for example, a proximal operator reads the lower triangle of the weights while
-the value sums both positions). ProximalBase never averages, repairs or
-reinterprets a raw asymmetric array, and it records no validation certificate:
-a successful check says nothing about later mutation.
+the value sums both positions). No oracle averages or repairs a raw asymmetric array, and the explicit
+check does not modify what it rejects. ProximalBase records no validation
+certificate: a successful check says nothing about later mutation.
 
 ## Which parameters must be symmetric
 

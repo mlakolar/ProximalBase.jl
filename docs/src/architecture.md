@@ -18,7 +18,8 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/smooth.jl` | Zero/linear/ridge/quadratic functions and their specialized kernels |
 | `src/functions/leastsquares.jl` | Least-squares residual scratch and lazy thin SVD prox |
 | `src/functions/scalar_loss.jl` | Qualified ScalarLoss/Squared and scalar derivative hooks |
-| `src/functions/separable.jl` | Generic entry kernels and NormL1 |
+| `src/functions/separable.jl` | Generic separable entry kernels and shared host-array alias |
+| `src/functions/norml1.jl` | Weighted ℓ1 norm and specialized value/proximal kernels |
 | `src/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
 | `src/model_data.jl` | Private retained data-precision metadata |
 | `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods and Scaled forwarding |

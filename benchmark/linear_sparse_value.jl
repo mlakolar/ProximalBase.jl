@@ -51,6 +51,7 @@ mutable struct Data{T}
     ones::Matrix{T}              # the coefficients of the exceptional cells
     dg::Vector{T}                # the diagonal of a Diagonal coefficient array
     cv::Vector{T}                # a vector of coefficients, for the vector control
+    xv::Vector{T}                # the data of the vector iterate of that control (one entry in ten nonzero)
     out::Vector{T}               # a sink for a value
     sym::Vector{Tuple{Int, Int, T}}
     Cs::Matrix{T}
@@ -61,7 +62,8 @@ function makedata(::Type{T}, m::Int) where {T}
     rng = Random.MersenneTwister(810 + m + (T === Float32 ? 1 : 0))
     C = randn(rng, T, m, m)
     sym = [(i, j, randn(rng, T)) for j in 1:m for i in j:m if mod(i + j, 8) == 0]
-    Data{T}(m, C, randn(rng, T, m, m), similar(C), ones(T, m, m), randn(rng, T, m), randn(rng, T, m * m), zeros(T, 1),
+    xv = randn(rng, T, m * m); xv[mod.(1:m^2, 10) .!= 1] .= zero(T)
+    Data{T}(m, C, randn(rng, T, m, m), similar(C), ones(T, m, m), randn(rng, T, m), randn(rng, T, m * m), xv, zeros(T, 1),
             sym, C + C', rng, Dict{String, Entries{T}}())
 end
 
@@ -111,7 +113,7 @@ end
 # check, and ref is a BigFloat value with its bound for an exceptional cell (nothing otherwise).
 function makeprobes(PB, ::Type{T}, m::Int, D::Data{T}, wanted) where {T}
     n = m^2
-    (; C, X, Out, ones, dg, cv, out, sym, Cs) = D
+    (; C, X, Out, ones, dg, cv, xv, out, sym, Cs) = D
     γ = T(0.7); d = T(0.25)
     probes = NamedTuple[]
     add(id, work, build, atol = 0.0, ref = nothing) = begin
@@ -176,7 +178,6 @@ function makeprobes(PB, ::Type{T}, m::Int, D::Data{T}, wanted) where {T}
     # controls: dense matrix value, vector SparseIterate value, symmetric value
     add("control/dense_value", n, () -> (() -> (out[1] = f(X); nothing), () -> out[1]), 8 * Float64(eps(T)) * sqrt(n) * (1.0 + sum(abs, C) * 4))
     if m == 128 || m == 1024
-        xv = randn(D.rng, T, n); xv[mod.(1:n, 10) .!= 1] .= zero(T)
         fv = PB.LinearFunction(cv, d)
         atolv = 8 * Float64(eps(T)) * sqrt(n) * (1.0 + sum(abs, cv) * 4)
         add("control/vector_iterate_value", n ÷ 10, () -> (x = PB.SparseIterate(copy(xv)); (() -> (out[1] = fv(x); nothing), () -> out[1])), atolv)

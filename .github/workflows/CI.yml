@@ -10,8 +10,33 @@ concurrency:
   group: minimal-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  # All validation lanes are required, but run concurrently.
   test:
-    name: Julia 1 / Linux
+    name: Julia 1 / Linux (tests ${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - name: Test declared minimal inventory (shard ${{ matrix.shard }}/3)
+        run: |
+          set -o pipefail
+          julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(; test_args=["--shard=${{ matrix.shard }}/3"], julia_args=["--check-bounds=yes"])' 2>&1 | tee "${RUNNER_TEMP}/pb-package-tests-shard-${{ matrix.shard }}.log"
+      - name: Preserve package validation logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-validation-logs-linux-current-julia-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/pb-package-tests-shard-${{ matrix.shard }}.log
+          if-no-files-found: ignore
+  benchmark:
+    name: Frozen benchmark differential / Linux
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -25,10 +50,6 @@ jobs:
         with:
           version: '1'
       - uses: julia-actions/cache@v3
-      - name: Test declared minimal inventory
-        run: |
-          set -o pipefail
-          julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(; julia_args=["--check-bounds=yes"])' 2>&1 | tee "${RUNNER_TEMP}/pb-package-tests.log"
       - name: Prepare benchmark environment
         run: julia scripts/instantiate.jl benchmark
       - name: Check frozen benchmark references
@@ -37,9 +58,26 @@ jobs:
           PB_CANDIDATE: ${{ github.workspace }}
           PB_CHECK_ONLY: '1'
         run: |
+          set -o pipefail
           mkdir -p "$PB_BASELINE"
           git archive eff21b6d7d33c622313122f46c6ee71693c101ee src | tar -x -C "$PB_BASELINE"
-          julia --project=benchmark benchmark/run.jl
+          julia --project=benchmark benchmark/run.jl 2>&1 | tee "${RUNNER_TEMP}/pb-benchmark-differential.log"
+      - name: Preserve benchmark differential logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-validation-logs-linux-current-julia
+          path: ${{ runner.temp }}/pb-benchmark-differential.log
+          if-no-files-found: ignore
+  docs:
+    name: Strict documentation / Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
       - name: Lint authored Markdown and generated contract sources
         run: python3 docs/check_markdown.py
       - name: Prepare documentation environment
@@ -58,23 +96,28 @@ jobs:
           name: documentation-linux-current-julia
           path: docs/build
           if-no-files-found: error
-      - name: Preserve complete validation logs
+      - name: Preserve documentation validation logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: documentation-validation-logs-linux-current-julia
-          path: ${{ runner.temp }}/pb-*.log
-          if-no-files-found: error
+          path: ${{ runner.temp }}/pb-docs-*.log
+          if-no-files-found: ignore
   required:
     name: PR required jobs
     if: always()
-    needs: [test]
+    needs: [test, benchmark, docs]
     runs-on: ubuntu-latest
     steps:
-      - name: Require Linux current-Julia validation
+      - name: Require every Linux validation lane
         env:
           TEST_RESULT: ${{ needs.test.result }}
-        run: test "$TEST_RESULT" = success
+          BENCHMARK_RESULT: ${{ needs.benchmark.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
+        run: |
+          test "$TEST_RESULT" = success
+          test "$BENCHMARK_RESULT" = success
+          test "$DOCS_RESULT" = success
   gate:
     name: PR merge gate
     if: always()
@@ -91,7 +134,7 @@ jobs:
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.draft == false
-    needs: [gate, test]
+    needs: [gate, docs]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -99,7 +142,7 @@ jobs:
       group: gh-pages-writes
       cancel-in-progress: false
     steps:
-      # The untrusted PR code was run only in the read-only test job.
+      # Untrusted PR code runs only in the read-only validation jobs.
       # This privileged job checks out gh-pages, never the PR branch, and
       # publishes the already validated HTML artifact without executing it.
       - name: Checkout published pages
@@ -148,7 +191,7 @@ jobs:
   deploy-docs:
     name: Publish validated documentation
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: [gate]
+    needs: [gate, docs]
     runs-on: ubuntu-latest
     concurrency:
       group: gh-pages-writes

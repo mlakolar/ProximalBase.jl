@@ -1,5 +1,7 @@
 # Scaling a function
 
+*Assumes: scalar multiplication and gradients · You will learn: how `Scaled(f, α)` changes function values, gradients and proximal steps.*
+
 The Julia type [`Scaled`](@ref) represents a nonnegative multiple of
 an existing mathematical function. This **changes the scale** of a function;
 it does not add two functions together or create a solver.
@@ -30,7 +32,7 @@ For example, scaling does not create a gradient for a function without one.
 Details about per-entry steps, special storage and extension hooks are in
 [Operations on functions](operations.md) and [Writing your own function](extending.md).
 
-For example, a proximal point for positive finite `α` and `γ` uses the
+For example, a [proximal point](glossary.md#Proximal-operator) for positive finite `α` and `γ` uses the
 original function's proximal map with step `α * γ`, as in the equation above.
 The `lipschitz` bound also scales by `α`. Other supported operations, such
 as scalar coordinate updates, coordinate restriction, and cache invalidation,

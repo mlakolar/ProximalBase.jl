@@ -1,6 +1,8 @@
 # Writing your own function
 
-Extend mathematical hooks without reaching into iterate fields. Choose the
+*Assumes: Julia structs and multiple dispatch · You will learn: how to implement mathematical function interfaces and check their inputs.*
+
+Extend mathematical methods without reaching into [iterate](glossary.md#Iterate) fields. Choose the
 smallest interface that describes the operations you can implement.
 
 The `AbstractFunction` extension rules below apply to array functions.
@@ -26,7 +28,7 @@ Generic methods accepting tuples do not imply that the underlying function
 supports tuple inputs; it still needs methods for the requested argument types. The generic `gradient!` default depends on
 `value_and_gradient!`, so implement that hook if relying on the default.
 
-An overriding public oracle owns real-type, shape, parameter, alias and symmetric
+An overriding public operation owns real-type, shape, parameter, [aliasing](glossary.md#Aliasing) and symmetric
 preflight. Destination comes first. Return the identical output for `gradient!`/
 `prox!`/`prox_block!`, a scalar input value for `value_and_gradient!`, and a scalar
 stored-output value for `value_and_prox!`. Proximal output may be exactly the

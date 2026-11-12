@@ -1,0 +1,93 @@
+# Bounded attribution of a flagged cell (#834): base and head loaded into ONE process and timed on
+# the same fixtures, interleaved, so that per-process layout cannot differ between them; plus the
+# native code of dropzeros! of both trees. Optional hardware counters with LinuxPerf.jl.
+# usage: julia --project=ENV attribution.jl BASE_SRC HEAD_SRC OUTDIR ORDER(base-first|head-first) ROUNDS
+using BenchmarkTools, Random, Statistics, SHA, InteractiveUtils, Printf
+const BASE, HEAD, OUT, ORDER = ARGS[1], ARGS[2], ARGS[3], ARGS[4]
+const ROUNDS = parse(Int, ARGS[5])
+mkpath(OUT)
+module SrcBase end
+module SrcHead end
+for (m, src) in (ORDER == "base-first" ? ((SrcBase, BASE), (SrcHead, HEAD)) : ((SrcHead, HEAD), (SrcBase, BASE)))
+    Base.include(m, joinpath(src, "src", "ProximalBase.jl"))
+end
+const TREES = (base = SrcBase.ProximalBase, head = SrcHead.ProximalBase)
+using SparseArrays: dropzeros!
+const HAVE_PERF = Base.find_package("LinuxPerf") !== nothing
+HAVE_PERF && @eval using LinuxPerf
+
+# fixtures exactly as in worker.jl (same seed derivation, generator calls and restoration)
+case_seed(seed, id) = foldl((a, b) -> (a << 8) | b, UInt64.(sha256("dropzeros834|$seed|$id")[1:8]); init=UInt64(0))
+make_iterate(PB, kind, ::Type{T}, q) where {T} =
+    kind === :sparse ? PB.SparseIterate(T, q) : PB.SymmetricSparseIterate(T, ceil(Int, (sqrt(8q + 1) - 1) / 2))
+function make_pattern(rng, ::Type{T}, q, s, f) where {T}
+    ids = randperm(rng, q)[1:s]
+    vals = T[(rand(rng, Bool) ? 1 : -1) * (T(0.5) + rand(rng, T)) for _ = 1:s]
+    for k in randperm(rng, s)[1:round(Int, f * s)]
+        vals[k] = rand(rng, Bool) ? zero(T) : -zero(T)
+    end
+    (ids, vals)
+end
+function restore!(x, (ids, vals))
+    @inbounds for t = 1:x.nnz
+        x.ind2nzval[x.nzval2ind[t]] = 0
+    end
+    @inbounds for t in eachindex(ids)
+        x.nzval[t] = vals[t]; x.nzval2ind[t] = ids[t]; x.ind2nzval[ids[t]] = t
+    end
+    x.nnz = length(ids)
+    nothing
+end
+mutable struct Cell{X, P}
+    x::X
+    patterns::P
+    next::Int
+end
+setup!(c::Cell) = (restore!(c.x, c.patterns[c.next]); c.next = c.next % length(c.patterns) + 1; nothing)
+kernel!(c::Cell) = (dropzeros!(c.x); nothing)
+
+const CELLS = [(:symmetric, Float32, 16384, 0.1), (:symmetric, Float64, 16384, 0.1),
+               (:sparse, Float32, 16384, 0.1), (:sparse, Float64, 16384, 0.1)]
+
+open(joinpath(OUT, "timing-$ORDER.csv"), "w") do io
+    println(io, "cell,round,tree,median_ns,min_ns")
+    for (kind, T, s, f) in CELLS
+        id = "$kind/$T/s$s/zeros$(round(Int, 100f))"
+        cells = map(TREES) do PB
+            x = make_iterate(PB, kind, T, 8s)
+            rng = Xoshiro(case_seed(834001, id))     # same fixtures for both trees
+            Cell(x, [make_pattern(rng, T, PB.ncoordinates(x), s, f) for _ = 1:32], 1)
+        end
+        @assert cells.base.patterns == cells.head.patterns
+        bench(c) = (b = @benchmarkable kernel!($c) setup=(setup!($c)) evals=1 samples=4000 seconds=0.3; run(b))
+        foreach(c -> (for _ = 1:5; setup!(c); kernel!(c); end), cells)
+        for r = 1:ROUNDS
+            for tree in (isodd(r) ? (:base, :head) : (:head, :base))
+                t = bench(cells[tree])
+                println(io, id, ',', r, ',', tree, ',', median(t.times), ',', minimum(t.times))
+            end
+            flush(io)
+        end
+        if HAVE_PERF
+            # counters of 2000 restore+dropzeros! cycles minus 2000 restores alone, per call
+            events = "(cpu-cycles,instructions,branch-instructions,branch-misses),(L1-dcache-load-misses,cache-misses)"
+            open(joinpath(OUT, "counters-$ORDER.txt"), "a") do cio
+                for tree in (:base, :head)
+                    c = cells[tree]
+                    both = @pstats events (for _ = 1:2000; setup!(c); kernel!(c); end)
+                    only = @pstats events (for _ = 1:2000; setup!(c); end)
+                    println(cio, "== $id $tree (both, then restore only; divide by 2000)")
+                    show(cio, MIME"text/plain"(), both); println(cio)
+                    show(cio, MIME"text/plain"(), only); println(cio)
+                end
+            end
+        end
+    end
+end
+
+for (name, PB) in pairs(TREES), (kind, S) in ((:sparse, PB.SparseIterate), (:symmetric, PB.SymmetricSparseIterate)),
+        T in (Float32, Float64)
+    sig = S === PB.SparseIterate ? S{T, 1} : S{T}
+    asm = sprint(io -> code_native(io, dropzeros!, (sig,); debuginfo=:none, syntax=:intel))
+    write(joinpath(OUT, "native-$name-$kind-$T.s"), asm)
+end

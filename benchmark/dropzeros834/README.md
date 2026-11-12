@@ -54,3 +54,9 @@ control, the absolute times, the dispersion over rounds and the allocations. A c
 
 `diagnose.jl SOURCE OUTPUT_DIR` writes the optimized LLVM IR of `dropzeros!` for each type and
 element type, with type names and debug information removed, so that two trees can be diffed.
+
+`attribution.jl BASE_SRC HEAD_SRC OUTDIR ORDER ROUNDS` is the bounded attribution of a flagged
+cell. It loads both trees into one process (`ORDER` is `base-first` or `head-first`), times them
+interleaved on the same fixtures, and writes the native code of `dropzeros!` for both trees.
+When LinuxPerf.jl is in the environment, it also writes hardware counters: 2000 restore + call
+cycles minus 2000 restores.

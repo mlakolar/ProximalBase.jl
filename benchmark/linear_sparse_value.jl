@@ -179,7 +179,7 @@ function makeprobes(PB, ::Type{T}, m::Int, D::Data{T}, wanted) where {T}
         xv = randn(D.rng, T, n); xv[mod.(1:n, 10) .!= 1] .= zero(T)
         fv = PB.LinearFunction(cv, d)
         atolv = 8 * Float64(eps(T)) * sqrt(n) * (1.0 + sum(abs, cv) * 4)
-        add("control/vector_iterate_value", n ÷ 10, () -> (x = PB.SparseIterate(xv); (() -> (out[1] = fv(x); nothing), () -> out[1])), atolv)
+        add("control/vector_iterate_value", n ÷ 10, () -> (x = PB.SparseIterate(copy(xv)); (() -> (out[1] = fv(x); nothing), () -> out[1])), atolv)
         fsym = PB.LinearFunction(Cs, d)
         add("control/symmetric_value", length(sym),
             () -> (si = PB.SymmetricSparseIterate(T, m); for (i, j, v) in sym; si[i, j] = v; end;

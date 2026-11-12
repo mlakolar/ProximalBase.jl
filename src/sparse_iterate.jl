@@ -332,9 +332,7 @@ When every stored value is zero, the working set is emptied. Otherwise the last
 stored coordinate moves into the place of each removed one, so the order of
 `activecoordinates` can change. The entries of `x` do not change.
 """
-SparseArrays.dropzeros!(x::_StoredIterate) = _dropzeros_compact!(x)
-
-function SparseArrays.dropzeros!(x::SparseIterate)
+function SparseArrays.dropzeros!(x::_StoredIterate)
   nz, idx, pos = x.nzval, x.nzval2ind, x.ind2nzval
   n = x.nnz
   i = 1
@@ -358,24 +356,6 @@ function SparseArrays.dropzeros!(x::SparseIterate)
     end
   end
   x.nnz = n
-  x
-end
-
-function _dropzeros_compact!(x::_StoredIterate)
-  i = 1
-  while i <= x.nnz
-    if iszero(x.nzval[i])
-      x.ind2nzval[x.nzval2ind[i]] = 0
-      if i != x.nnz
-        x.nzval[i] = x.nzval[x.nnz]
-        x.ind2nzval[x.nzval2ind[x.nnz]] = i
-        x.nzval2ind[i] = x.nzval2ind[x.nnz]
-      end
-      x.nnz -= 1
-    else
-      i += 1
-    end
-  end
   x
 end
 

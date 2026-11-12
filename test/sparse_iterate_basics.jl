@@ -823,7 +823,7 @@ end
             @test drop_allocs(drop_fixture(T, zeros(T, 20))) == 0
             @test drop_allocs(drop_fixture(T, T[0, 1, 0, 2, 0, 3, 4, 0])) == 0
             @test drop_allocs(drop_fixture(T, T[1, 2, 3])) == 0
-            # the symmetric iterate keeps the compaction, with the same order as the oracle
+            # the symmetric iterate uses the same loop, with the same order as the oracle (#834)
             s = SymmetricSparseIterate(T, 4)
             for (i, j) in ((2, 1), (3, 2), (4, 4)); s[i, j] = T(1); end
             for k = 1:s.nnz; k == 2 || (s.nzval[k] = 0); end

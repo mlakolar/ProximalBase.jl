@@ -72,7 +72,7 @@ PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
 ## LinearFunction value harness
 
 `linear_sparse_value.jl` times the `LinearFunction` value at a matrix `SparseIterate` (#810), which sums the stored
-nonzero entries and reads the coefficients only at them, for Float32 and Float64 at 16 × 16, 128 × 128 and
+nonzero entries and reads the coefficients at them (at the diagonal ones for a `Diagonal` coefficient array), for Float32 and Float64 at 16 × 16, 128 × 128 and
 1024 × 1024: densities of 2 entries, 1%, 10%, 50% and 100%, a fully stored iterate with 50% and 90% of the
 entries stored as zeros, sequential and shuffled activation order, an overflowing dot with finite coefficients
 (the exceptional path), a `Diagonal` coefficient array, `value_and_gradient!` and `value_and_prox!` at a matrix

@@ -91,7 +91,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
       a = ones(T, p, p); a[r, c] = bad
       f = LinearFunction(a, T(0.25))
       @test f(x) === T(2.25)
-      @test isnan(f(Matrix(x)))                 # the dense value divergence: dot over every position
+      @test isnan(f(Matrix(x)))                 # the dense value diverges here: the generic dot of a dense c visits all positions
       @test check(f, x, T)
       @test LinearFunction(a)(x) === T(2)       # d omitted
     end

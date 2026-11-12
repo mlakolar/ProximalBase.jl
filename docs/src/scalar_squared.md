@@ -1,6 +1,9 @@
 # Squared scalar loss
 
-The built-in `ProximalBase.Squared()` represents the **squared error of
+*Assumes: ordinary derivatives · You will learn: the squared observation-loss formula and its Julia derivative methods.*
+
+The built-in [`ProximalBase.Squared()`](glossary.md#Exported-and-qualified-names)
+uses a module prefix because it is not exported. It represents the **squared error of
 one prediction and one observation**. It is a concrete subtype of
 `ProximalBase.ScalarLoss`, not an array-function object.
 

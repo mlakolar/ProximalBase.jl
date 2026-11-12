@@ -648,6 +648,65 @@ function test_normL1_values(::Type{T}) where {T<:AbstractFloat}
   end
 end
 
+# Issue #684: the absent weight of an unweighted NormL1 promoted the entry value to Float64 (Float32 data).
+function test_normL1_value_entry_type(::Type{T}) where {T<:AbstractFloat}
+  E, e0 = emax(T), emin(T)
+  δ = nextfloat(zero(T))
+  rng = Xoshiro(684)
+  @testset "NormL1 value entries: the unweighted entry type (#684)" begin
+    ref(λ, v) = big(λ) * abs(big(v))
+    unw(λ, v) = value_entry(NormL1(λ), v, 1)
+    wtd(λ, v) = value_entry(NormL1(λ, T[1]), v, 1)
+    # the entry value is in T, inferred, weighted or not
+    @test (@inferred value_entry(NormL1(T(0.3)), T(-2), 1)) isa T
+    @test (@inferred value_entry(NormL1(T(0.3), T[1, 2]), T(-2), 2)) isa T
+    # ordinary levels: one rounding of λ0|v|, the same bits as a unit weight, inputs subnormal to huge
+    for _ in 1:200
+      λ = abs(signif(rng, T, rand(rng, -20:20)))
+      v = signif(rng, T, rand(rng, (e0 - precision(T) + 2):(E - 21)))
+      @test unw(λ, v) === wtd(λ, v) === T(ref(λ, v))
+    end
+    # zero, infinite and NaN levels and inputs (the zero factor gives +0 before NaN or Inf)
+    for λ in (zero(T), T(2), T(Inf)), v in (zero(T), -zero(T), T(3), T(-Inf), T(NaN))
+      r = unw(λ, v)
+      @test r isa T && isequal(r, wtd(λ, v))
+      expected = (iszero(λ) || iszero(v)) ? zero(T) : isnan(v) ? T(NaN) : isinf(λ) || isinf(v) ? T(Inf) : T(6)
+      @test isequal(r, expected)
+    end
+    @test value_entry(NormL1(T(2), T[Inf, 0]), T(3), 1) === T(Inf)     # weighted: an infinite weight away from zero
+    @test value_entry(NormL1(T(2), T[Inf, 0]), zero(T), 1) === zero(T)
+    @test value_entry(NormL1(T(2), T[Inf, 0]), T(3), 2) === zero(T)    # and a zero weight
+    # subnormal, tiny and huge factors (the exceptional product): one neighbouring float or subnormal spacing
+    for (λ, v) in ((δ, T(3)), (3δ, T(0.7)), (floatmin(T) / 3, pow2(T, 30) * T(1.3)), (pow2(T, e0 - 5), T(1.9)),
+                   (T(0.75), 5δ), (pow2(T, -40), floatmin(T) * T(1.5)), (floatmax(T) / 2, T(1.5)), (floatmax(T) / 2, T(3)),
+                   (floatmax(T), pow2(T, -E) * T(1.7)), (prevfloat(T(Inf)), δ), (pow2(T, E - 10), pow2(T, -E - 3)))
+      r = unw(λ, v)
+      @test r isa T && r === wtd(λ, v)
+      @test within(r, ref(λ, v), 1)
+    end
+    # dense, sparse-iterate and symmetric sparse-iterate values: in T, against the BigFloat sum of the entries
+    λ = T(0.3)
+    f, fw = NormL1(λ), NormL1(λ, ones(T, 4))
+    x = T[signif(rng, T, 0), 0, signif(rng, T, -3), signif(rng, T, 2)]
+    @test (@inferred f(x)) isa T && within(f(x), l1val(λ, nothing, x), 2)
+    xsp = SparseIterate(T, 4); xsp[1] = x[1]; xsp[3] = x[3]; xsp[4] = x[4]
+    @test (@inferred f(xsp)) isa T && f(xsp) === fw(xsp) && within(f(xsp), l1val(λ, nothing, x), 2)
+    xo = SymmetricSparseIterate(T, 2); xo[2, 1] = x[1]; xo[2, 2] = x[3]
+    fs = NormL1(λ, ones(T, 2, 2))
+    @test (@inferred f(xo)) isa T && f(xo) === fs(xo)
+    @test within(f(xo), l1val(λ, nothing, T[x[1], x[1], x[3]]), 2)          # the off-diagonal entry counts twice
+    # the dense overflow fallback sums the value entries: Σ|x| overflows, λ0 Σ|x| does not
+    xb = T[floatmax(T), floatmax(T) / 2]; fb = NormL1(pow2(T, -10))
+    @test !isfinite(sum(abs, xb)) && fb(xb) isa T && within(fb(xb), l1val(fb.λ0, nothing, xb), 2)
+    # a wider level keeps its precision: the entry is not narrowed to the argument's type
+    W = T === Float32 ? Float64 : BigFloat
+    λw = one(W) + eps(T) / 1024
+    @test (@inferred value_entry(NormL1(λw), T(3), 1)) isa W
+    @test value_entry(NormL1(λw), T(3), 1) == 3 * λw
+    @test value_entry(NormL1(T(2)), W(3), 1) isa W                     # and a wider argument
+  end
+end
+
 function test_normL1_prox(::Type{T}) where {T<:AbstractFloat}
   E, e0 = emax(T), emin(T)
   δ = nextfloat(zero(T))
@@ -1383,6 +1442,7 @@ setprecision(BigFloat, 2400) do
   test_scaled_oracles(T)   # Scaled oracles on factor chains: gradient, prox, fused and block forms
   test_scaled_array_steps(T)   # Scaled array steps: folded, shifted and rounded routes
   test_normL1_values(T)   # NormL1 values: levels and weights outside the range, infinite and zero parameters
+  test_normL1_value_entry_type(T)   # NormL1 value entries: the unweighted entry type (#684)
   test_normL1_prox(T)   # NormL1 prox thresholds and the weight kernels
   test_pow2_sums(T)   # power-of-two sums (_pow2_weighted) and the recomputed-dot shift
   test_square_consumers(T)   # squared-residual consumers: the exceptional branches of the value

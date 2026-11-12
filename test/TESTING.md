@@ -18,8 +18,8 @@ references in Float32/64, including genuine NaN/Inf inputs and exact zeros.
 (`docs/audit/numerical-kernels-file/recovery-coverage.md` lists each one and the coverage evidence):
 the `_ExpSum` accumulator and the signed/overflowing/underflowing `QuadraticFunction` values, nested and
 single-factor `Scaled` recovery (value parts, level folds, partial folds, array-step routes, exact zeros and
-infinite factors), `NormL1` weights and thresholds, the ridge prox weights and owners, the SVD prox, the
-`_pow2_weighted` sums, `norm`/`norm_diff`, the sparse and symmetric three-factor products and the symmetric
+infinite factors), `NormL1` weights and thresholds (and the unweighted entry type, #684), the ridge prox
+weights and owners, the SVD prox, the `_pow2_weighted` sums, `norm`/`norm_diff`, the sparse and symmetric three-factor products and the symmetric
 part of an asymmetric argument, each against an independent BigFloat evaluation of the formula in Float32 and
 Float64. Known defects are recorded with `@test_broken` against the correct reference and flip when fixed.
 `core_functions` exercises retained

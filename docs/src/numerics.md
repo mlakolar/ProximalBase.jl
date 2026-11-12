@@ -61,7 +61,11 @@ affine/quadratic values and products of nonnegative level/step/weight factors.
 coefficients. `SqrNormL2` and `LeastSquaresLoss` share one squared-residual
 recomputation: each residual is formed before scaling (as `x/2 - y/2`, one
 binade up, when `x - y` itself overflows) and the squares are summed in units
-of the largest one. Genuine NaN/Inf data or parameters keep their ordinary
+of the largest one. The eigendecomposition proximal operator of
+`QuadraticFunction` recomputes its point when `γλ`, `γb`, `x - γb` or a
+product with the eigenbasis overflows: the one-dimensional
+`QuadraticFunction(Diagonal([λ]))` then agrees with `SqrNormL2(λ)` to a few
+ulps. Genuine NaN/Inf data or parameters keep their ordinary
 IEEE result; only finite inputs whose intermediates leave the range are
 recomputed. Recovery is worthwhile when it changes a materially inaccurate
 answer into a representable result in the working precision.

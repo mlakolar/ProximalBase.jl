@@ -237,6 +237,17 @@ defect.
   implemented for indicators and `NormL1` only (the code comment says "otherwise what
   the parts give": `Inf * 0`).
 
+## Follow-up: the QuadraticFunction proximal operator
+
+The eigendecomposition proximal operator had no overflow recovery: `γλ`, `γb`,
+`x - γb` or a product with the eigenbasis that overflows gave `0`, `±Inf` or `NaN`
+at representable points (for example `QuadraticFunction(Diagonal([2.0^816]))`
+with step `2.0^816` at `[2.0^970]`: `0.0` against `2^-662`; `SqrNormL2` gave the
+right value). The follow-up that adds the recomputation also adds the testset
+"quadratic prox: intermediate overflow at a representable proximal point"
+(one-dimensional and dense cases against BigFloat, the ridge agreement, bitwise
+ordinary path, exact zeros, NaN/Inf, an infinite step, aliasing, the fused oracle).
+
 ## Remaining gaps
 
 This is an audit of the paths reachable from the library as it is today, not a proof

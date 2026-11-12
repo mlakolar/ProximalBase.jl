@@ -330,6 +330,66 @@ function test_quadratic_oracles(::Type{T}) where {T<:AbstractFloat}
   end
 end
 
+function test_quadratic_spectral_prox(::Type{T}) where {T<:AbstractFloat}
+  E = emax(T)
+  @testset "quadratic prox: intermediate overflow at a representable proximal point" begin
+    rng = Xoshiro(1016)
+    # one dimension, (x - γb)/(1 + γλ): γλ, γb and x - γb overflow; without b it is the ridge proximal point
+    for (λ, b, x, γ) in ((pow2(T, E ÷ 2 + E ÷ 5), zero(T), pow2(T, E - E ÷ 20), pow2(T, E ÷ 2 + E ÷ 5)),
+                         (pow2(T, E - 3), zero(T), pow2(T, E - 2), pow2(T, 4)),
+                         (one(T), pow2(T, E - 10), pow2(T, E - 5), pow2(T, 20)),
+                         (T(2), T(0.75) * pow2(T, E), -pow2(T, E - 1), T(4)),
+                         (pow2(T, -E ÷ 2), T(1.5) * pow2(T, E - 4), T(3), pow2(T, E - 2)))
+      f = QuadraticFunction(Diagonal([λ]), [b])
+      r = (big(x) - big(γ) * big(b)) / (1 + big(γ) * big(λ))
+      @test within(prox(f, [x], γ)[1], r, 3)
+      iszero(b) && @test within(prox(SqrNormL2(λ), [x], γ)[1], r, 3)
+    end
+    # well-conditioned dense forms (spectrum in [2^eA, 2^(eA+1)]) at extreme scales, against the BigFloat solution of
+    # (I + γA) z = x - γb with the stored A, in the normwise measure of an eigendecomposition solver
+    recovered = 0
+    for eA in (E - 4, E ÷ 2, 0, -E ÷ 2), eγ in (E - 3, E ÷ 2 + 3, 0), ex in (E - 2, 0), withb in (false, true), n in (2, 4)
+      Q = Matrix(qr(randn(rng, n, n)).Q)
+      A = T.(Q * Diagonal(ldexp.(1 .+ rand(rng, n), eA)) * Q'); A = (A + A') / 2
+      all(isfinite, A) || continue
+      x = T[signif(rng, T, ex) for _ in 1:n]
+      b = withb ? T[signif(rng, T, ex - 1) for _ in 1:n] : nothing
+      γ = pow2(T, eγ)
+      f = QuadraticFunction(A, b)
+      rhs = big.(x) .- (withb ? big(γ) .* big.(b) : 0)
+      z = (Matrix{BigFloat}(I, n, n) + big(γ) * big.(A)) \ rhs
+      all(isfinite, T.(z)) || continue
+      y = prox(f, x, γ)
+      scale = (norm(big.(x)) + (withb ? big(γ) * norm(big.(b)) : 0)) / (1 + big(γ) * big(2.0)^(eA - 1))
+      # (plus n subnormal spacings: a point below the subnormal range rounds to zero)
+      @test all(isfinite, y) && norm(big.(y) .- z) <= 64n * eps(T) * scale + n * nextfloat(zero(T))
+      recovered += !isfinite(γ * maximum(abs, f.Λ)) || !all(isfinite, x .- (withb ? γ .* b : 0))
+      # exact aliasing and the fused oracle take the same path
+      xa = copy(x)
+      @test prox!(xa, f, xa, γ) == y
+      ya = zeros(T, n)
+      @test value_and_prox!(ya, f, x, γ) === f(ya) && ya == y
+    end
+    @test recovered > 0
+    # ordinary data: the result is the plain eigendecomposition formula, bit for bit, and allocates nothing
+    n = 4
+    Q = Matrix(qr(randn(rng, n, n)).Q)
+    A = T.(Q * Diagonal(T[0.5, 1, 1.5, 2]) * Q'); A = (A + A') / 2
+    b, x, γ = T.(randn(rng, n)), T.(randn(rng, n)), T(0.75)
+    f = QuadraticFunction(A, b)
+    y = prox(f, x, γ)
+    @test y == f.Q * ((transpose(f.Q) * (x .- γ .* b)) ./ (1 .+ γ .* f.Λ))
+    @test (@allocated prox!(y, f, x, γ)) == 0
+    # an exact zero stays +0 on the recomputation; genuine NaN/Inf data and a step outside (0, Inf) keep the ordinary result
+    fh = QuadraticFunction(Diagonal(T[pow2(T, E - 1), pow2(T, E - 2)]))
+    @test prox(fh, zeros(T, 2), pow2(T, E - 1)) == zeros(T, 2) && !any(signbit, prox(fh, zeros(T, 2), pow2(T, E - 1)))
+    @test !all(isfinite, prox(fh, T[NaN, 1], pow2(T, E - 1)))
+    @test !all(isfinite, prox(fh, T[Inf, 1], pow2(T, E - 1)))
+    fb = QuadraticFunction(Diagonal(T[1, 2]), T[1, 1])
+    @test isequal(prox(fb, T[1, 1], T(Inf)), fb.Q * ((transpose(fb.Q) * (T[1, 1] .- T(Inf) .* T[1, 1])) ./ (1 .+ T(Inf) .* fb.Λ)))
+  end
+end
+
 function test_scaled_values(::Type{T}) where {T<:AbstractFloat}
   E, e0 = emax(T), emin(T)
   δ = nextfloat(zero(T))
@@ -1404,6 +1464,7 @@ setprecision(BigFloat, 2400) do
   test_quadratic_value(T)   # quadratic value: overflow, cancellation and underflow recovery
   test_quadratic_guards(T)   # quadratic recovery trigger and guards
   test_quadratic_oracles(T)   # quadratic oracles: fused and standalone, eigendecomposition prox
+  test_quadratic_spectral_prox(T)   # quadratic prox: intermediate overflow at a representable proximal point
   test_scaled_values(T)   # Scaled values: overflow, underflow and exact zeros through the factor
   test_scaled_oracles(T)   # Scaled oracles on factor chains: gradient, prox, fused and block forms
   test_scaled_array_steps(T)   # Scaled array steps: folded, shifted and rounded routes

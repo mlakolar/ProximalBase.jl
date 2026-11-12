@@ -144,27 +144,27 @@ end
 # symmetric matrix. An array or per-group step is refused before anything is written: the
 # active coordinates, the values and the metadata of the output are untouched. Scaled has array-step
 # methods of its own that do not constrain the output, so it needs methods here to stay unambiguous.
-@noinline _throw_owner_step(γ) = throw(ArgumentError(
+@noinline _throw_symmetric_iterate_step(γ) = throw(ArgumentError(
   "a step γ of type $(typeof(γ)) is not supported with a SymmetricSparseIterate as the output; " *
   "use a scalar step, or Matrix(x) or matrixview(x) with a dense output"))
-prox!(y::SymmetricSparseIterate, f::AbstractFunction, x, γ::AbstractArray) = _throw_owner_step(γ)
-prox!(y::SymmetricSparseIterate, f::Scaled, x, γ::AbstractArray) = _throw_owner_step(γ)
-value_and_prox!(y::SymmetricSparseIterate, f::AbstractFunction, x, γ::AbstractArray) = _throw_owner_step(γ)
-value_and_prox!(y::SymmetricSparseIterate, f::Scaled, x, γ::AbstractArray) = _throw_owner_step(γ)
-prox(f::AbstractFunction, x::SymmetricSparseIterate, γ::AbstractArray) = _throw_owner_step(γ)
-# The allocating oracles at the owner of a symmetric matrix, for the families that accept it. The
-# proximal operator is an independent owner, and the gradient a dense exactly symmetric matrix.
-const _OwnerSeparable = Union{SeparableFunction, LinearFunction, SqrNormL2}
-const _OwnerSmooth = Union{LinearFunction, SqrNormL2}
-prox(f::_OwnerSeparable, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
-gradient(f::_OwnerSmooth, x::SymmetricSparseIterate) = gradient!(_gradient_buffer(x), f, x)
-function value_and_gradient(f::_OwnerSmooth, x::SymmetricSparseIterate)
+prox!(y::SymmetricSparseIterate, f::AbstractFunction, x, γ::AbstractArray) = _throw_symmetric_iterate_step(γ)
+prox!(y::SymmetricSparseIterate, f::Scaled, x, γ::AbstractArray) = _throw_symmetric_iterate_step(γ)
+value_and_prox!(y::SymmetricSparseIterate, f::AbstractFunction, x, γ::AbstractArray) = _throw_symmetric_iterate_step(γ)
+value_and_prox!(y::SymmetricSparseIterate, f::Scaled, x, γ::AbstractArray) = _throw_symmetric_iterate_step(γ)
+prox(f::AbstractFunction, x::SymmetricSparseIterate, γ::AbstractArray) = _throw_symmetric_iterate_step(γ)
+# The allocating oracles at a SymmetricSparseIterate, for the families that accept it. The
+# proximal operator is an independent SymmetricSparseIterate, and the gradient a dense exactly symmetric matrix.
+const _SymmetricProxFamily = Union{SeparableFunction, LinearFunction, SqrNormL2}
+const _SymmetricGradientFamily = Union{LinearFunction, SqrNormL2}
+prox(f::_SymmetricProxFamily, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
+gradient(f::_SymmetricGradientFamily, x::SymmetricSparseIterate) = gradient!(_gradient_buffer(x), f, x)
+function value_and_gradient(f::_SymmetricGradientFamily, x::SymmetricSparseIterate)
   g = _gradient_buffer(x)
   v = value_and_gradient!(g, f, x)
   v, g
 end
 
-# an owner output that shares memory with a parameter array
+# a symmetric iterate output that shares memory with a parameter array
 _mightalias_parameter(out::SymmetricSparseIterate, p::AbstractArray) = _aliases(out, p)
 
 _has_symmetric(x) = false
@@ -181,7 +181,7 @@ function _check_oracle_arrays(op::O, f, y, x, γ = nothing) where {O}
     γ === nothing ? _checkwrite(op, f, y, x) : _checkwrite(op, f, y, x, γ)
     _check_write_arrays(op, f, y, x)
   elseif x isa SymmetricSparseIterate
-    # an owner point with another output: the parameters are read at every entry of the matrix
+    # a symmetric iterate point with another output: the parameters are read at every entry of the matrix
     _check_entry_arrays(f, x)
   end
   true
@@ -209,8 +209,8 @@ end
 @noinline _throw_gradient_pair(r, c, a, b) = throw(ArgumentError(
   "the gradient g has no symmetric part: entry ($r, $c) is $a and entry ($c, $r) is $b"))
 
-# The owner g written one coordinate at a time. Coordinate (r, c) takes entry(v, j) at the lower
-# position of a point x whose matrix is symmetric (an owner, or an argument that has been symmetrized),
+# The symmetric iterate g written one coordinate at a time. Coordinate (r, c) takes entry(v, j) at the lower
+# position of a point x whose matrix is symmetric (a symmetric iterate, or an argument that has been symmetrized),
 # j being the linear index (c - 1)p + r of the matrix where the parameters are read.
 @inline function _lower_coordinates!(g::SymmetricSparseIterate, entry::F, x) where {F}
   p = g.p
@@ -220,7 +220,7 @@ end
   g
 end
 # The same for an entrywise gradient at any point: the symmetric part of the computed gradient, from
-# the two positions of a pair when x is not an owner, whose matrix is symmetric.
+# the two positions of a pair when x is not a symmetric iterate, whose matrix is symmetric.
 @inline function _symmetric_coordinates!(g::SymmetricSparseIterate, entry::F, x) where {F}
   p = g.p
   @inbounds for c in 1:p, r in c:p
@@ -233,9 +233,9 @@ end
   g
 end
 
-# ⟨a, x⟩ over the matrix that the owner x represents, for a read at the linear indices of a p × p matrix:
+# ⟨a, x⟩ over the matrix that the symmetric iterate x represents, for a read at the linear indices of a p × p matrix:
 # an off-diagonal coordinate counts at both of its positions, each with its own entry of a
-function _owner_dot(a, x::SymmetricSparseIterate)
+function _symmetric_matrix_dot(a, x::SymmetricSparseIterate)
   s = zero(float(promote_type(eltype(a), eltype(x))))
   @inbounds for k in 1:x.nnz
     r, c = tril_cartesian(x.p, x.nzval2ind[k])
@@ -270,7 +270,7 @@ _symmetric_by_type(::_CheckedParameter) = true
 @inline _checked_parameter(y::SymmetricSparseIterate, a::AbstractMatrix) =
   _symmetric_by_type(a) ? a : _CheckedParameter(a)
 _copy_parameter!(y, a) = copyto!(y, a)
-# an owner output takes the values of a parameter matrix that has been checked to be symmetric, one
+# a symmetric iterate output takes the values of a parameter matrix that has been checked to be symmetric, one
 # coordinate at a time from its lower entry: a coordinate that is active stays active
 _copy_parameter!(y::SymmetricSparseIterate, a::AbstractMatrix) = _store_lower!(y, a)
 function _store_lower!(y::SymmetricSparseIterate, a::AbstractMatrix)
@@ -310,15 +310,15 @@ end
 @inline _vw(x::SymmetricSparseIterate) = matrixview(x)
 @inline _vw(x) = x
 
-# y = x for a proximal step that is the identity: an array takes the copy, an owner the lower entries of x,
+# y = x for a proximal step that is the identity: an array takes the copy, a symmetric iterate the lower entries of x,
 # one coordinate at a time (a coordinate that is active stays active), and nothing when x is y
 _assign!(y::AbstractArray, x) = copyto!(y, _vw(x))
 _assign!(y::SymmetricSparseIterate, x) = (x === y ? y : _store_lower!(y, _vw(x)))
-const _OwnerWrapperProx = Scaled
-prox(f::_OwnerWrapperProx, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
-const _OwnerWrapperSmooth = Scaled
-gradient(f::_OwnerWrapperSmooth, x::SymmetricSparseIterate) = gradient!(_gradient_buffer(x), f, x)
-function value_and_gradient(f::_OwnerWrapperSmooth, x::SymmetricSparseIterate)
+const _SymmetricProxWrapper = Scaled
+prox(f::_SymmetricProxWrapper, x::SymmetricSparseIterate, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
+const _SymmetricGradientWrapper = Scaled
+gradient(f::_SymmetricGradientWrapper, x::SymmetricSparseIterate) = gradient!(_gradient_buffer(x), f, x)
+function value_and_gradient(f::_SymmetricGradientWrapper, x::SymmetricSparseIterate)
   g = _gradient_buffer(x)
   v = value_and_gradient!(g, f, x)
   v, g

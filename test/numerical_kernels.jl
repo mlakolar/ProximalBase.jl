@@ -110,7 +110,7 @@ setprecision(BigFloat, 1200) do
       q = PB._residual_squares(x, y, T)
       @test relerr(parts_value(q), ref(x, y)) <= 6eps(T)
     end
-    # stored entries only, with the logical multiplicity of a symmetric owner
+    # stored entries only, with the logical multiplicity of a symmetric iterate
     xs = PB.SparseIterate(T, 9)
     xs[2], xs[7] = pow2(T, E - 1), T(-3)
     @test relerr(parts_value(PB._residual_squares(xs, nothing, T)), ref(Vector(xs), nothing)) <= 4eps(T)

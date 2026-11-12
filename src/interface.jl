@@ -18,12 +18,12 @@ A failure during numerical computation may leave the output changed.
 """
 abstract type AbstractFunction end
 
-# Where the oracles of the families that support it take either an array or the owner of a
-# symmetric matrix. The owner is not an array: a method that is not written with this type, or with
-# the owner, does not accept it.
-const _ArrayOrOwner = Union{AbstractArray, SymmetricSparseIterate}
+# Where the oracles of the families that support it take either an array or a SymmetricSparseIterate.
+# A symmetric iterate is not an array: a method that is not written with this type, or with
+# SymmetricSparseIterate, does not accept it.
+const _ArrayOrSymmetricIterate = Union{AbstractArray, SymmetricSparseIterate}
 
-# the number of entries of the array, or of the matrix that the owner represents
+# the number of entries of the array, or of the matrix that the symmetric iterate represents
 _nentries(x::AbstractArray) = length(x)
 _nentries(x::SymmetricSparseIterate) = x.p^2
 
@@ -201,13 +201,13 @@ _checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
 _argument_type(::Type{<:AbstractFunction}) = Any
 _checkargument(f, x) = x isa _argument_type(typeof(f)) || throw(MethodError(f, (x,)))
 _checkgradient_output(g, x) = (g === x && throw(ArgumentError("the gradient must not overwrite x")); nothing)
-# An owner output is also aliased by a matrix that shares its storage, such as its matrix view and the wrappers of
+# A symmetric iterate output is also aliased by a matrix that shares its storage, such as its matrix view and the wrappers of
 # that view, which a gradient written coordinate by coordinate would change before the point is read again
 _checkgradient_output(g::SymmetricSparseIterate, x) =
-  (_owner_shares(g, x) && throw(ArgumentError("the gradient must not overwrite x")); nothing)
-_owner_shares(g::SymmetricSparseIterate, x) = g === x
-_owner_shares(g::SymmetricSparseIterate, x::AbstractArray) = Base.mightalias(g, x)
-_owner_shares(g::SymmetricSparseIterate, x::SymmetricSparseIterate) =
+  (_symmetric_iterate_mightalias(g, x) && throw(ArgumentError("the gradient must not overwrite x")); nothing)
+_symmetric_iterate_mightalias(g::SymmetricSparseIterate, x) = g === x
+_symmetric_iterate_mightalias(g::SymmetricSparseIterate, x::AbstractArray) = Base.mightalias(g, x)
+_symmetric_iterate_mightalias(g::SymmetricSparseIterate, x::SymmetricSparseIterate) =
   g === x || (g.p > 0 && x.p > 0 && any(id -> id in Base.dataids(g), Base.dataids(x)))
 # blocks pair up to the shorter tuple; the size checks report a length mismatch
 @generated _checkgradient_output(g::Tuple, x::Tuple) =
@@ -260,7 +260,7 @@ throw an `ArgumentError`.
 """
 function value_and_gradient! end
 
-# a dense array for the gradient at x, also when x is a sparse iterate or the owner of a symmetric matrix
+# a dense array for the gradient at x, also when x is a sparse iterate or a SymmetricSparseIterate
 _gradient_buffer(x::AbstractArray) = similar(Array{float(eltype(x))}, axes(x))
 _gradient_buffer(x::SymmetricSparseIterate) = Matrix{float(eltype(x))}(undef, size(x))
 @generated _gradient_buffer(x::Tuple) = _blocktuple(k -> :(_gradient_buffer(x[$k])), fieldcount(x))
@@ -282,9 +282,9 @@ prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = prox!(_prox_buffer(x), f, x,
     gradient(f, x)
 
 Allocating version of `gradient!`; array arguments get dense floating output.
-Supported owner gradients (SqrNormL2, LinearFunction and supported Scaled
-leaves) return a dense symmetric Matrix. ZeroFunction has owner value/prox
-but no owner gradient method. Traits do not supply missing operand methods.
+Supported symmetric-iterate gradients (SqrNormL2, LinearFunction and supported Scaled
+leaves) return a dense symmetric Matrix. ZeroFunction has symmetric-iterate value/prox
+but no symmetric-iterate gradient method. Traits do not supply missing operand methods.
 """
 gradient(f::AbstractFunction, x::AbstractArray) = gradient!(_gradient_buffer(x), f, x)
 gradient(f::AbstractFunction, x::Tuple) = gradient!(_gradient_buffer(x), f, x)
@@ -320,7 +320,7 @@ order are defined by that extension; no built-in group penalty remains.
 The generic wrapper supplies no group, shape, parameter or overlap validation.
 Implementing a block hook does not add a full-array prox or capability trait.
 
-For symmetric owner coordinate k, convert `(r,c)=tril_cartesian(p,k)` to
+For symmetric iterate coordinate k, convert `(r,c)=tril_cartesian(p,k)` to
 full-entry `i=(c-1)p+r` for a scalar hook and validate the original function
 with ProximalBase.check_symmetric_parameters before using raw entry calls.
 """
@@ -362,7 +362,7 @@ ZeroFunction, LinearFunction, SqrNormL2 and supported Scaled leaves.
 For SparseIterate and SymmetricSparseIterate, the four-argument form checks
 real types, coordinate bounds (BoundsError), then full gradient entry count
 (DimensionMismatch): length(x) or p², respectively. A flat or matrix-shaped
-gradient of that count is accepted. The owner uses the symmetric gradient pair
+gradient of that count is accepted. The symmetric iterate uses the symmetric gradient pair
 and checks parameter symmetry at the chosen independent coordinate; opposing
 infinities in that gradient pair throw ArgumentError.
 
@@ -370,7 +370,7 @@ For BlockIterate, k is a group and retained scalar-screen functions return
 the maximum screen over its ordered global entry indices. That path does not
 add the same explicit full-gradient extent preflight. Other array points add
 no coordinate/gradient extent check beyond function/indexing checks. Raw
-three-argument calls have no owner on which to validate mirrored parameters.
+three-argument calls have no symmetric iterate on which to validate mirrored parameters.
 """
 function kkt_violation end
 

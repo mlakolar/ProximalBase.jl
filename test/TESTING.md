@@ -24,8 +24,11 @@ part of an asymmetric argument, each against an independent BigFloat evaluation 
 Float64. Known defects are recorded with `@test_broken` against the correct reference and flip when fixed.
 `core_functions` exercises retained
 interface, lasso building blocks and custom scalar/vector block extensions.
-`block_replacement` checks whole-owner copies against independent value/activity
+`block_replacement` checks whole-iterate copies against independent value/activity
 references, layout ownership and cache preservation, conversions and preflight errors.
+`block_value_updates` checks buffered writes against independent dense values,
+including activation, active zeros, aliases, conversion/partial failures, custom
+callbacks, offset axes and live block views after whole-iterate replacement.
 `cache_and_blocks` protects cache reset after referenced data mutations and
 block-coordinate KKT semantics. `ci_contract` protects required Linux gates and
 inventory rejection. The local helper contains only allocation measurement and

@@ -11,7 +11,7 @@ the first proximal operator computes the eigendecomposition `A = QΛQ'` once,
 after which `prox_{γf}(x) = Q (I + γΛ)⁻¹ Q'(x - γb)` costs two products with
 `Q` for any positive finite `γ`. A product `γλ`, `γb` or `x - γb` that overflows
 does not change a representable proximal point: those calls recompute it in
-power-of-two units (two extra vectors are allocated), and ordinary calls run as before.
+power-of-two units (a few extra vectors are allocated), and ordinary calls run as before.
 
 The constructor checks real types, squareness and the length of b, but does
 not verify symmetry or positive semidefiniteness. Those are caller assumptions.
@@ -218,39 +218,53 @@ end
   m, e = _frexp(mγ * mλ)
   (m, eγ + eλ + e)
 end
+# Q'v as significands and exponents, m 2^e (O(n) BLAS or O(n²) scalar): the BLAS product where all
+# its entries are finite (the exponents are then 0), and otherwise each entry summed exactly from the
+# significands of its terms (_ExpSum), so that no entry of v is scaled away before the product.
+function _quadratic_prox_transpose!(m::Vector{T}, e::Vector{Int}, Q, v, t::Vector{T}) where {T}
+  t .= v
+  mul!(m, transpose(Q), t)
+  if all(isfinite, m)
+    fill!(e, 0)
+    return m
+  end
+  @inbounds for j in axes(Q, 2)
+    acc = _expsum_start(T)
+    for i in axes(Q, 1)
+      acc = _expsum_product(acc, Q[i, j], v[i])
+    end
+    m[j], f = _frexp(acc.s + acc.c)
+    e[j] = acc.ex + f
+  end
+  m
+end
+
 # The proximal point Q z, zᵢ = (wᵢ - γuᵢ)/(1 + γλᵢ) with w = Q'x and u = Q'b, recomputed where an
 # intermediate left the range while the point may be representable (R3, as for the ridge proximal
-# point; the one-dimensional QuadraticFunction(Diagonal([λ])) is SqrNormL2(λ)). No step scales the
-# whole vector by its largest entry, which would round its small entries away:
-# - x and b are scaled only as far as keeps their products with Q' finite (|Qᵢⱼ| <= 1), zero
-#   unless they are near floatmax, and then by a few binades;
+# point; the one-dimensional QuadraticFunction(Diagonal([λ])) is SqrNormL2(λ)). No step scales a
+# vector down by its largest entry, which would round its small entries away:
+# - Q'x and Q'b are the BLAS products of x and b as they are, and where such a product overflows,
+#   its entries are summed exactly from significands and exponents (_quadratic_prox_transpose!);
 # - each zᵢ is kept as its own significand and exponent: the numerator wᵢ - γuᵢ is summed exactly
 #   (_ExpSum), so that a cancellation between its terms is not amplified, and divided once;
 # - Q z is the BLAS product in a unit that scales z up (never down), so that its entries are normal
 #   numbers and none rounds coarser than its own spacing; where z would have to be scaled down (some
 #   zᵢ within a few binades of floatmax or beyond), each entry of Q z is summed from the parts and
 #   rounded once instead (O(n²) scalar terms), so that no small entry is rounded away.
-# This path allocates two vectors (Q'b and the exponents of z).
+# This path allocates four vectors (Q'b and three of exponents).
 @noinline function _quadratic_prox_recover!(y, f::QuadraticFunction{T}, x, γ::T) where {T}
   Q, Λ, w, t, b = f.Q, f.Λ, f.w, f.tmp, f.b
   n = length(w)
-  sx = _product_sum_shift(T, _stored_maxabs(x), one(T), n, 2)
-  t .= _scale_value.(x, Ref(_power_factors(T, -sx)))
-  mul!(w, transpose(Q), t)
+  ew, eu, ez = zeros(Int, n), zeros(Int, n), Vector{Int}(undef, n)
+  _quadratic_prox_transpose!(w, ew, Q, x, t)
   u = zero(w)
-  sb = 0
-  if b !== nothing
-    sb = _product_sum_shift(T, _stored_maxabs(b), one(T), n, 2)
-    t .= _scale_value.(b, Ref(_power_factors(T, -sb)))
-    mul!(u, transpose(Q), t)
-  end
-  ez = Vector{Int}(undef, n)
+  b === nothing || _quadratic_prox_transpose!(u, eu, Q, b, t)
   E = typemin(Int)
   @inbounds for i in eachindex(w)
     md, ed = _quadratic_prox_denominator(γ, Λ[i])
-    mw, ew = _frexp(w[i])
-    acc = _expsum_add(_expsum_start(T), mw, ew + sx)
-    acc = _expsum_product(acc, -γ, u[i], sb)          # γuᵢ from the significands (u may be subnormal)
+    mw, fw = _frexp(w[i])
+    acc = _expsum_add(_expsum_start(T), mw, fw + ew[i])
+    acc = _expsum_product(acc, -γ, u[i], eu[i])       # γuᵢ from the significands (u may be subnormal)
     mn, en = _frexp(acc.s + acc.c)
     m = mn / md
     w[i], ez[i] = m, acc.ex + en - ed

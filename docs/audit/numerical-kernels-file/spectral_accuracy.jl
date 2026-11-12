@@ -86,16 +86,19 @@ end
 # eps ‖A‖ as 0 when the spectrum spans more than the range (it rescales A), an error of the
 # eigendecomposition that both trees share and that is counted separately.
 ulps(a::T, r::BigFloat) where {T} = (t = T(r); isinf(t) ? (a == t ? 0.0 : Inf) : Float64(abs(big(a) - r) / big(eps(max(abs(t), nextfloat(zero(T)))))))
-for T in (Float64, Float32)
+for T in (Float64, Float32), family in ("whole range", "ends of the range")
   rng = Xoshiro(1113)
   E = exponent(floatmax(T))
+  es = exponent(nextfloat(zero(T)))
+  # "ends of the range": data entries near floatmax beside subnormal ones in the same call
+  dataexp() = family == "whole range" ? rand(rng, -E:E-1) : rand(rng, (E - 1, E - 1, E - 2, es, es + 1, es + 3, rand(rng, -E:E-1)))
   worst = ([0.0, 0.0]...,)
   bad = [0, 0]; recovered = 0; lost = 0; skipped = 0; N = 6000
   for _ in 1:N
     n = rand(rng, 1:6)
     λ = T[rand(rng) < 0.15 ? zero(T) : abs(signif(rng, T, rand(rng, -E:E-2))) for _ in 1:n]
-    x = T[rand(rng) < 0.1 ? zero(T) : signif(rng, T, rand(rng, -E:E-1)) for _ in 1:n]
-    b = rand(rng) < 0.4 ? nothing : T[signif(rng, T, rand(rng, -E:E-1)) for _ in 1:n]
+    x = T[rand(rng) < 0.1 ? zero(T) : signif(rng, T, dataexp()) for _ in 1:n]
+    b = rand(rng) < 0.4 ? nothing : T[signif(rng, T, dataexp()) for _ in 1:n]
     γ = ldexp(one(T), rand(rng, -E:E-2))
     fs = map(PB -> PB.QuadraticFunction(Diagonal(λ), b), PBS)
     ys = map((PB, f) -> PB.prox(f, x, γ), PBS, fs)
@@ -113,6 +116,6 @@ for T in (Float64, Float32)
       bad[k] += e > 4
     end
   end
-  @printf("\n%s diagonal, coordinate-wise (%d cases, %d skipped for a basis that is not a signed permutation, %d differ between the trees, %d with an eigenvalue that LAPACK returned inexactly): worst coordinate %.2f vs %.2f ulp; cases with a coordinate beyond 4 ulp: %d vs %d (baseline vs candidate)\n",
-          T, N, skipped, recovered, lost, worst[1], worst[2], bad[1], bad[2])
+  @printf("\n%s diagonal, %s, coordinate-wise (%d cases, %d skipped for a basis that is not a signed permutation, %d differ between the trees, %d with an eigenvalue that LAPACK returned inexactly): worst coordinate %.2f vs %.2f ulp; cases with a coordinate beyond 4 ulp: %d vs %d (baseline vs candidate)\n",
+          T, family, N, skipped, recovered, lost, worst[1], worst[2], bad[1], bad[2])
 end

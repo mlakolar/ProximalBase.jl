@@ -333,6 +333,8 @@ end
 
 function test_quadratic_spectral_prox(::Type{T}) where {T<:AbstractFloat}
   E = emax(T)
+  # (|Q| D |Q|' (|x| + γ|b|)) in BigFloat, D = Diagonal(1 ./ (1 .+ γΛ)), with the factorization that f holds
+  componentwise(f, x, b, γ) = (Qa = abs.(big.(f.Q)); Qa * ((transpose(Qa) * (abs.(big.(x)) .+ (b === nothing ? 0 : big(γ) .* abs.(big.(b))))) ./ (1 .+ big(γ) .* big.(f.Λ))))
   @testset "quadratic prox: intermediate overflow at a representable proximal point" begin
     rng = Xoshiro(1016)
     # one dimension, (x - γb)/(1 + γλ): γλ, γb and x - γb overflow; without b it is the ridge proximal point
@@ -364,6 +366,9 @@ function test_quadratic_spectral_prox(::Type{T}) where {T<:AbstractFloat}
       scale = (norm(big.(x)) + (withb ? big(γ) * norm(big.(b)) : 0)) / (1 + big(γ) * big(2.0)^(eA - 1))
       # (plus n subnormal spacings: a point below the subnormal range rounds to zero)
       @test all(isfinite, y) && norm(big.(y) .- z) <= 64n * eps(T) * scale + n * nextfloat(zero(T))
+      # coordinate by coordinate: |yᵢ - zᵢ| <= 64 n eps (|Q| D |Q|' (|x| + γ|b|))ᵢ, D = Diagonal(1 ./ (1 .+ γΛ)),
+      # the componentwise bound of the eigendecomposition solver, plus n subnormal spacings
+      @test all(abs.(big.(y) .- z) .<= 64n * eps(T) .* componentwise(f, x, b, γ) .+ n * nextfloat(zero(T)))
       recovered += !isfinite(γ * maximum(abs, f.Λ)) || !all(isfinite, x .- (withb ? γ .* b : 0))
       # exact aliasing and the fused oracle take the same path
       xa = copy(x)
@@ -372,6 +377,21 @@ function test_quadratic_spectral_prox(::Type{T}) where {T<:AbstractFloat}
       @test value_and_prox!(ya, f, x, γ) === f(ya) && ya == y
     end
     @test recovered > 0
+    # dense forms whose data mix entries near floatmax with subnormal ones: Q'x (or Q'b) overflows, and its
+    # entries are summed exactly from significands and exponents (no entry is scaled away), coordinate by coordinate
+    for n in (2, 3, 4), withb in (false, true), eγ in (E - 3, E ÷ 2)
+      Q = Matrix(qr(randn(rng, n, n)).Q)
+      A = T.(Q * Diagonal(ldexp.(1 .+ rand(rng, n), E ÷ 2)) * Q'); A = (A + A') / 2
+      big1, tiny = T(0.9) * floatmax(T), nextfloat(zero(T)) * 3
+      x = T[isodd(i) ? (-1)^i * big1 : tiny for i in 1:n]
+      b = withb ? T[isodd(i) ? tiny : big1 / 2 for i in 1:n] : nothing
+      γ = pow2(T, eγ)
+      f = QuadraticFunction(A, b)
+      z = (Matrix{BigFloat}(I, n, n) + big(γ) * big.(A)) \ (big.(x) .- (withb ? big(γ) .* big.(b) : 0))
+      all(isfinite, T.(z)) || continue
+      y = prox(f, x, γ)
+      @test all(isfinite, y) && all(abs.(big.(y) .- z) .<= 64n * eps(T) .* componentwise(f, x, b, γ) .+ n * nextfloat(zero(T)))
+    end
     # coordinate by coordinate: one recovery must not round small coordinates away beside large ones
     # (review of #882). A diagonal A has an exact eigenbasis (a signed permutation), so each coordinate
     # has its own BigFloat value; it is computed with the eigenvalues that the function holds, because
@@ -400,6 +420,20 @@ function test_quadratic_spectral_prox(::Type{T}) where {T<:AbstractFloat}
       z = prox(f, zeros(T, 2), γ)
       r = -(big(γ) .* big.(f.b)) ./ (1 .+ big(γ) .* big.(T[0, 1]))
       @test z[1] === -T(Inf) && within(z[2], r[2], 2)
+    end
+    # the smallest subnormal beside floatmax (review of ee082902): in x it must come through unchanged where its
+    # eigenvalue is zero, and in b as -γδ, while γλ overflows for the other coordinate
+    let δ = nextfloat(zero(T)), λ = pow2(T, T === Float64 ? 800 : 100)
+      f = QuadraticFunction(Diagonal([λ, zero(T)]))
+      z = prox(f, [floatmax(T), δ], λ)
+      @test z[2] === δ
+      @test isapprox(z[1], T(big(floatmax(T)) / (1 + big(λ)^2)), rtol = 4 * eps(T))
+      @test coordinates_ok([λ, zero(T)], nothing, [floatmax(T), δ], λ, 2)
+      fb = QuadraticFunction(Diagonal([λ, zero(T)]), [floatmax(T), δ])
+      zb = prox(fb, zeros(T, 2), λ)
+      @test zb[2] === T(-big(λ) * big(δ)) && zb[2] != 0
+      @test isapprox(zb[1], T(-big(λ) * big(floatmax(T)) / (1 + big(λ)^2)), rtol = 4 * eps(T))
+      @test coordinates_ok([λ, zero(T)], [floatmax(T), δ], zeros(T, 2), λ, 2)
     end
     # a subnormal b and a cancellation x - γb inside a recovered call
     @test coordinates_ok(T[0, 1, pow2(T, E - 3)], T[-nextfloat(zero(T)) * 7, 3, 1], T[1, pow2(T, 4) * 3, 2], pow2(T, E - 2), 2)

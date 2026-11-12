@@ -75,7 +75,7 @@ PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
 pure `prox_block!`: the compact block proximal operator of one group (sizes 2, 5, 10, 32, 128 and 1024,
 nonzero and zero trials), a sweep over every group, and the array `prox!`, `value_and_prox!` and value,
 for Float32 and Float64, contiguous (range) and noncontiguous (permuted index vector) layouts, and dense,
-partially zero and mostly zero arguments of 4096 entries. It has the design of the `NormL1` harnesses (roles X, Y and the
+partially zero and mostly zero arguments of about 4096 entries (`(4096 ÷ m)⋅m`). It has the design of the `NormL1` harnesses (roles X, Y and the
 A/A control XC, alternating order, shared input and output arrays) and
 `summarize_norml1_infinite_weight.py` summarizes it. The frozen full tree at
 eff21b6d7d33c622313122f46c6ee71693c101ee (`legacy/full`) is the historical reference; its fused value is

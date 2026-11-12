@@ -303,7 +303,7 @@ end
     (s(emax - 3) .* T[1, -1, 1], s(emax - 10), s(5), T(1.5)),
     # sums of squares that underflow, with thresholds at the same scale
     (s(emin - 5) .* T[1, 0.75, -0.5], one(T), s(emin - 6), one(T)),
-    (s(emin + 1) .* T[1, -1, 0.25], s(emin + 2), s(-3), T(0.5)),    # γλ underflows, γλw does not
+    (s(emin + 1) .* T[1, -1, 0.25], s(emin + 2), s(-3), T(0.5)),    # γλ and γλw subnormal
     (s(emin - 20) .* T[1, 3, 2], s(-100), s(emin + 80), T(2)^-3),    # subnormal entries
     (s(emin ÷ 2 - 3) .* T[1, 1, 1], one(T), s(emin ÷ 2 - 2), one(T)), # squares below floatmin/eps
     # ordinary data with thresholds out of range
@@ -322,15 +322,17 @@ end
     @test close_value(v, refvalue(z, λ, G, T[w]))
     @test close_value(f(u), refvalue(u, λ, G, T[w]))
   end
-  # a value whose terms round into the subnormal range (#373): 512 groups of terms 2^-135 + 2^-150
-  # in Float32 (2^-1022-ish in Float64); the ordinary sum loses 256 units of floatmin
+  # a value whose terms round into the subnormal range (#373): 512 groups whose terms are
+  # 2^(emin-9) plus half a smallest-subnormal spacing (2^-135 + 2^-150 in Float32), each rounded to
+  # 2^(emin-9); the ordinary sum floatmin loses 256 smallest-subnormal spacings
   K = 512
   e0 = emin - 9
   groups = [[2k - 1, 2k] for k in 1:K]
-  x = repeat(s(e0 ÷ 2) .* T[1 + 2.0^-15, 0], K)
+  x = repeat(s(e0 ÷ 2) .* T[1 + T(2)^-(precision(T) - 9), 0], K)
   λ = s(e0 - e0 ÷ 2)
   f = GroupNormL2(λ, groups, ones(T, K))
   ref = refvalue(x, λ, groups, ones(T, K))
+  @test sum(fill(λ * x[1], K)) == floatmin(T) != T(ref)   # the fixture defeats the ordinary sum
   @test close_value(f(x), ref; k = 2)
   @test f(x) == NormL1(λ)(x)                 # the singleton-equivalent NormL1 value, also recomputed
   y = similar(x)

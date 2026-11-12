@@ -24,7 +24,7 @@ Base.include(First, joinpath(first_root, "src", "ProximalBase.jl"))
 Base.include(Second, joinpath(second_root, "src", "ProximalBase.jl"))
 Base.include(FirstControl, joinpath(first_root, "src", "ProximalBase.jl"))
 
-const TOTAL = 4096          # entries of the array cases
+const TOTAL = 4096          # target entries of the array cases: (TOTAL ÷ m) groups of size m
 const SIZES = (2, 5, 10, 32, 128, 1024)
 
 # Data shared by the roles: per (T, m, layout, pattern) the groups, the argument, an output and the

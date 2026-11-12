@@ -136,7 +136,7 @@ all-NaN result or a particular exception.
 | `NormL1`, infinite level, nonnegative step | Positive-weight entries prox to `+0`, including non-finite inputs; zero-weight entries stay free. At `γ = 0` this is the fixed-function limit `γ → 0+`, the projection onto the closure of the domain ([#665](https://github.com/mlakolar/ProximalBase.jl/issues/665)) |
 | `NormL1`, finite factors whose product overflows | Distinguished from genuinely infinite weights/levels; recovery handles representable finite results where supported. With an input of `±Inf`, an overflowed finite threshold can yield `NaN`; [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) is a documented, deferred limitation, not an authorized hot-loop fix. |
 | `GroupNormL2`, zero weight | Unpenalized group: returned unchanged (`NaN`/`±Inf` included), zero value |
-| `GroupNormL2`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` included (#665 reading), also for `NaN`/`±Inf` inputs; value `Inf` away from zero, `0` at zero |
+| `GroupNormL2`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` included (#665 reading), also for `NaN`/`±Inf` inputs; value `0` at zero, `Inf` elsewhere (`NaN` at a `NaN` entry) |
 | `GroupNormL2`, positive finite parameters and step | A `NaN` entry makes the group `NaN`; a `±Inf` entry (no `NaN`) leaves the group unchanged, also when the finite threshold's product overflows; `γ = Inf` fixes the group at `+0` |
 | `GroupNormL2`, negative or `NaN` step | `ArgumentError` before any write, in `prox!`, `value_and_prox!` and `prox_block!` |
 | `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
@@ -187,15 +187,16 @@ matters: for a fixed *finite* level, `shrink(x, γλ) → x` as `γ → 0+`, but
 `NormL1(Inf)` is already the constraint at every positive step, so the result
 is not computed as `shrink(x, 0⋅Inf)`. Before #665 the zero step returned the
 identity; results at `γ = 0` with an infinite level changed, and every other
-case is unchanged. This rule is specific to the infinite *overall level* of
-`NormL1`. An infinite *coordinate weight* at a finite level keeps the narrower
+case is unchanged. Among the `NormL1` parameters, this rule is specific to the infinite *overall level*. An infinite *coordinate weight* at a finite level keeps the narrower
 #853 rule above (finite inputs fixed; non-finite inputs may give `NaN`), and
 finite factors whose product overflows are never treated as an infinite level
 (#866). Finite levels at `γ = 0` keep the identity. A finite positive `Scaled`
 factor passes the zero step through, so `2 * NormL1(Inf)` projects as well; an
 infinite factor at a zero step forms the step `Inf⋅0 = NaN` in the wrapper
-before `NormL1` sees it, and that wrapper step rule is unchanged (#311). No
-other function is claimed to implement a zero-step projection rule. The test is made only on the
+before `NormL1` sees it, and that wrapper step rule is unchanged (#311).
+`GroupNormL2` applies the same reading at `γ = 0` to an infinite level (groups with
+a positive weight become `+0`) and to an infinite group weight; no other function
+is claimed to implement a zero-step projection rule. In `NormL1` the test is made only on the
 exceptional branch of the kernel (the product `0⋅Inf` is not an ordinary
 number), so ordinary positive finite steps run the unchanged loop.
 

@@ -15,16 +15,20 @@ group are not penalized: `prox!` copies them and `f(x)` ignores them.
 `λ0` and the weights must be nonnegative (an `ArgumentError` otherwise, `NaN`
 included), with one weight per group (`DimensionMismatch`). Groups must be
 nonempty and disjoint, with positive indices (`ArgumentError`). The constructor
-stores its own copies of `groups` and `w`, converted to the floating type of
-`λ0` and `w`; changing the arrays passed in does not change `f`.
+stores its own copies of `groups` (integer indices: ranges are kept, other groups
+become `Vector{Int}`) and of `w`; the level and the weights are converted to the
+promoted floating type of `λ0` and `w`. Changing the arrays passed in does not
+change `f`.
 
 The proximal operator shrinks each group towards zero in Euclidean norm:
 `prox_{γf}(x)[Gₖ] = max(1 - γλ0wₖ/‖x[Gₖ]‖₂, 0) x[Gₖ]`. On arrays, `prox!`,
 `prox` and `value_and_prox!` take a scalar step. For one group,
 `prox_block!(out, f, u, k, γ)` writes the result for the compact vector
 `u = x[Gₖ]` (in the order of `groups[k]`) into `out` and returns `out`.
-`prox_block(f, u, k, γ)` allocates `out`. Neither touches an iterate: to
-update a `BlockIterate` with the same groups, write `out` with
+`prox_block(f, u, k, γ)` allocates `out`. Neither writes to or activates an
+iterate (`u` may be a view that reads one; `out` must not alias iterate
+storage, as the block contract requires): to update a `BlockIterate` with the
+same groups, write `out` with
 `copyto!(blockview(x, k), out)`. `BlockIterate(x, f)` and `BlockIterate(p, f)`
 build an iterate with the groups of `f`. The groups must then partition
 `1:length(x)`.
@@ -35,7 +39,12 @@ violation of the optimality of the zero group `k` for the smooth-part gradient
 an array point, `kkt_violation(f, g, x, i)` takes an entry `i`: the same
 group screen when the group of `i` is zero in `x`, and `|g[i]|` when `i` is in
 no group or its group has a nonzero entry. The three-argument form throws an
-`ArgumentError`: the penalty is not separable.
+`ArgumentError`: the penalty is not separable. The coefficient `λ0 wₖ` follows
+the `NormL1` screen (`Inf` for an infinite weight or level, `0` for a zero
+weight); a norm or coefficient outside the range is recomputed for finite
+gradients, but a `±Inf` gradient entry gives the IEEE `Inf - λ0 wₖ`, which is
+`NaN` when that coefficient is infinite, also when it overflows from finite
+factors.
 
 Steps must be nonnegative: a negative or `NaN` step throws an `ArgumentError`
 before anything is written, in `prox!`, `value_and_prox!` and `prox_block!`.
@@ -67,8 +76,8 @@ For finite inputs, a norm whose sum of squares overflows or underflows, and a
 threshold `γλ0wₖ` outside the floating-point range, are recomputed in
 power-of-two units, so that a representable proximal point is returned
 accurately. Values follow the overflow rule in Overflow and underflow of
-values: a sum of group terms below `K⋅floatmin`, for `K` groups, is recomputed
-with each term's exponent, as for `NormL1` (#373). `value_and_prox!` returns
+values: for Float32 and Float64 values, a sum of group terms below `K⋅floatmin`,
+for `K` groups, is recomputed with each term's exponent, as for `NormL1` (#373). `value_and_prox!` returns
 the value at the stored output.
 
 The penalty does not apply to a `SymmetricSparseIterate`, and it has no
@@ -318,8 +327,9 @@ end
 end
 
 # Exceptional terms: an infinite weight or level is Inf away from the zero group (NaN at a NaN entry)
-# and 0 at it, a zero level gives 0, and a positive finite level and weight give λ0 w ns 2^e with one
-# rounding, or the ordinary Inf or NaN of a non-finite entry.
+# and 0 at it, a zero level gives 0, and a positive finite level and weight give λ0 w ns 2^e with the
+# exponent applied once (the significand products round as usual), or the ordinary Inf or NaN of a
+# non-finite entry.
 @noinline function _group_term_cold(f::GroupNormL2, k::Integer, x, G, ::Type{T}) where {T}
   λ, w = f.λ0, @inbounds(f.w[k])
   R = promote_type(_working_type(T, λ, w), float(eltype(x)))

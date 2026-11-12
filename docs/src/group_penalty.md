@@ -67,8 +67,10 @@ writes it into `out`. It returns `out`, and `out === u` is supported. The group
 index, the buffer lengths, the step and the overlap of `out` and `u` are checked
 before any write. `prox_block(g, u, k, γ)` allocates the output.
 
-The call does not read or write any iterate. With a `BlockIterate` that has the
-groups of `g` (for example `BlockIterate(p, g)`), the caller builds the trial,
+The call does not write to or activate any iterate: `u` may be a view that reads
+one, and `out` must be independent of iterate storage, the caller precondition of
+the block contract. With a `BlockIterate` that has the groups of `g` (for example
+`BlockIterate(p, g)`), the caller builds the trial,
 computes the result in its own buffer and then writes it, which is the step that
 activates the group:
 
@@ -96,7 +98,11 @@ for `h + g` when ``\lVert G_{G_k}\rVert_2\le\lambda_0w_k``. On a `BlockIterate`,
 value means that zero violates the condition. Group `k` of the iterate must equal
 `groups[k]`. On an array point, `kkt_violation(g, G, x, i)` takes an entry `i`:
 it is the same group screen when the group of `i` is zero in `x`, and
-``\lvert G_i\rvert`` when `i` is in no group or its group is nonzero.
+``\lvert G_i\rvert`` when `i` is in no group or its group is nonzero. An infinite
+weight or level gives `-Inf` for a finite gradient. Norms and coefficients outside
+the range are recomputed for finite gradients; a `±Inf` gradient entry gives the
+IEEE ``\infty-\lambda_0w_k``, which is `NaN` when the coefficient is infinite, also
+when it overflows from finite factors.
 
 ```@example group_penalty
 G = [0.3, -0.4, 1.0, 0.0, 0.0, 2.0]
@@ -113,8 +119,8 @@ kkt_violation(f, G, z, 3)
 | ``w_k=\infty``, or ``\lambda_0=\infty`` with ``w_k>0`` | Fixed at `+0` at every nonnegative step, ``\gamma=0`` included, also for `NaN` and `±Inf` inputs ([#665](https://github.com/mlakolar/ProximalBase.jl/issues/665)) |
 | ``\lambda_0=0`` or ``\gamma=0``, finite parameters | The identity |
 | ``\gamma=\infty``, positive finite level and weight | Fixed at `+0` |
-| A `NaN` entry, positive finite parameters | Every entry of the group becomes `NaN` |
-| A `±Inf` entry and no `NaN`, positive finite parameters | Returned unchanged: the norm is infinite and the threshold ``\gamma\lambda_0w_k`` is finite, also when its floating-point product overflows |
+| A `NaN` entry, positive finite level, weight and step | Every entry of the group becomes `NaN` |
+| A `±Inf` entry and no `NaN`, positive finite level, weight and step | Returned unchanged: the norm is infinite and the threshold ``\gamma\lambda_0w_k`` is finite, also when its floating-point product overflows |
 | ``\gamma<0`` or ``\gamma=`` `NaN` | `ArgumentError` before any write |
 
 At ``\gamma=0`` an infinite level is the limit ``\gamma\to0^+`` with the function
@@ -127,6 +133,9 @@ recover terms that round below `floatmin` as `NormL1` values do
 
 `GroupNormL2` does not apply to a `SymmetricSparseIterate`, and it has no
 `restrict`, no per-group step and no compact block method under `Scaled`.
-`Scaled(GroupNormL2(...), α)` supports values, array proximal operators and
-`kkt_violation`. The [group-lasso example](examples/group_lasso_prox.md) checks
-these operations against their formulas.
+With a positive finite `α`, `Scaled(GroupNormL2(...), α)` forwards values, array
+proximal operators and `kkt_violation` to the penalty with the scaled step
+(`test/groupnorml2.jl` checks the array prox and the screen). A zero `α` throws an
+`ArgumentError`, and an infinite `α` has no endpoint rule of its own. The
+[group-lasso example](examples/group_lasso_prox.md) checks the value, the
+proximal operators, the block operations and the screen against their formulas.

@@ -52,7 +52,8 @@ _checkparams(f::NormL1, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::NormL1, v::Real, i::Integer)
   a = abs(float(v))
-  w = _entry(f.w, i)
+  # an absent weight is one in the entry's type: the Bool `true` of `_entry` would widen to Float64 (#684)
+  w = f.w === nothing ? one(a) : _entry(f.w, i)
   p = _positive_product(f.λ0, w, a)
   ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
 end

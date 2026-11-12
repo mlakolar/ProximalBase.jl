@@ -6,11 +6,17 @@ manifest = TestTiers.inventory()
 tier = "full"
 selectors = String[]
 list_only = false
+shard = nothing
 for arg in ARGS
     if startswith(arg,"--tier=")
         global tier = split(arg,'=';limit=2)[2]
     elseif arg == "--list"
         global list_only = true
+    elseif startswith(arg,"--shard=")
+        shard === nothing || error("shard specified twice")
+        parts = split(split(arg,'=';limit=2)[2],'/')
+        length(parts) == 2 || error("shard must be in the form index/count")
+        global shard = (parse(Int,parts[1]),parse(Int,parts[2]))
     elseif startswith(arg,"--")
         error("unknown test option: $arg")
     else
@@ -22,8 +28,12 @@ for selector in selectors
     any(n -> startswith(n,selector),selected) || error("no test file matches $selector in tier $tier")
 end
 isempty(selectors) || filter!(n -> any(s -> startswith(n,s),selectors),selected)
+if shard !== nothing
+    selected = TestTiers.shard_files(selected,shard...)
+end
 isempty(selected) && error("no tests selected")
-println("ProximalBase minimal tests: tier $tier; $(length(selected)) files; Julia $VERSION on $(Sys.MACHINE)")
+shard_label = shard === nothing ? "all" : "$(shard[1])/$(shard[2])"
+println("ProximalBase minimal tests: tier $tier; shard $shard_label; $(length(selected)) files; Julia $VERSION on $(Sys.MACHINE)")
 println("  ",join(selected," "))
 flush(stdout)
 if !list_only

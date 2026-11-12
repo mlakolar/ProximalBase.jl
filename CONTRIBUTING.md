@@ -40,10 +40,15 @@ and `docs/design/*.md`; generated example/contract pages are ignored. See
 [the developer workflow](docs/src/developer/change_process.md) for validation
 and ownership contracts. CI retains HTML and full validation logs as artifacts.
 
-CI gates pull requests with current Julia 1.x on Linux. The required checks
-are named `PR required jobs` and `PR merge gate`; both require the test and docs
-job to succeed. GPU, cross-platform and release automation are deferred for
-this reduction. No release or ProximalSolvers pin/source change is implied.
+CI gates pull requests with current Julia 1.x on Linux. Three independent
+test shards cover the complete retained inventory with bounds checks. The
+frozen benchmark differential, repository hygiene checks and strict docs
+build run concurrently on separate Linux runners. The required checks remain
+`PR required jobs` and `PR merge gate` and require every validation lane to
+pass. Job-specific Julia caches are reused on subsequent runs. Reproduce one
+shard with `julia scripts/test.jl --shard=1/3` (or `2/3`, `3/3`).
+GPU, cross-platform and release automation remain deferred. No release or
+ProximalSolvers pin/source change is implied.
 
 Use the retained benchmark harness for changes affecting hot paths and compare
 against the frozen post-#848 source on the same machine with the same harness,

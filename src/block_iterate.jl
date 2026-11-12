@@ -355,12 +355,39 @@ function Base.copyto!(dest::BlockIterate{T}, src::BlockIterate{S}) where {T, S}
   # a fallible conversion runs once, before dest is touched, and the copy reads its result
   bufs = _convert_may_throw(T, S) ?
     [T[convert(T, v) for v in _block_storage(src, src.active[a])] for a in 1:src.nactive] : nothing
+  bufs === nothing && return _copy_active!(dest, src)
   _zero_active!(dest)
   for a in 1:src.nactive
     k = src.active[a]
     activate!(dest, k)
     copyto!(_block_storage(dest, k), bufs === nothing ? _block_storage(src, k) : bufs[a])
   end
+  dest
+end
+
+# The layouts and nonthrowing conversion have already been checked. Both owners
+# have independent value/active storage. Groups shared with src will be entirely
+# overwritten, so only groups absent from src need their values cleared.
+function _copy_active!(dest::BlockIterate{T}, src::BlockIterate) where {T}
+  @inbounds for a in 1:dest.nactive
+    k = dest.active[a]
+    if src.position[k] == 0
+      z = zero(T)
+      for i in dest.groups[k]
+        dest.storage[i] = z
+      end
+    end
+    dest.position[k] = 0
+  end
+  @inbounds for a in 1:src.nactive
+    k = src.active[a]
+    for i in src.groups[k]
+      dest.storage[i] = src.storage[i]
+    end
+    dest.active[a] = k
+    dest.position[k] = a
+  end
+  dest.nactive = src.nactive
   dest
 end
 

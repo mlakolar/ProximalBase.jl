@@ -17,9 +17,19 @@ class Page(HTMLParser):
         self.menu_links, self.toggles = [], []
         self.in_sidebar = False
         self.math = self.code = self.footer = 0
+        self.tables = []
+        self._table_stack = []
         self.feed(path.read_text())
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
+        if tag == 'table':
+            self._table_stack.append({'rows': [], 'columns': None})
+        elif tag == 'tr' and self._table_stack:
+            self._table_stack[-1]['columns'] = 0
+        elif tag in ('td', 'th') and self._table_stack:
+            current = self._table_stack[-1]
+            if current['columns'] is not None:
+                current['columns'] += int(a.get('colspan', 1))
         if 'id' in a:
             self.ids.add(a['id'])
         if tag == 'nav' and a.get('class') == 'docs-sidebar':
@@ -41,6 +51,14 @@ class Page(HTMLParser):
         if tag == 'code':
             self.code += 1
     def handle_endtag(self, tag):
+        if tag == 'tr' and self._table_stack:
+            current = self._table_stack[-1]
+            if current['columns'] is not None:
+                current['rows'].append(current['columns'])
+                current['columns'] = None
+        elif tag == 'table' and self._table_stack:
+            current = self._table_stack.pop()
+            self.tables.append(current['rows'])
         if tag == 'nav':
             self.in_sidebar = False
 
@@ -83,6 +101,14 @@ def main():
                 errors.append(f'{page.path.relative_to(BUILD)}: missing {href}')
             elif fragment and dest in pages and fragment not in pages[dest].ids:
                 errors.append(f'{page.path.relative_to(BUILD)}: missing anchor {href}')
+        # Source Markdown validation catches broken pipe tables before build;
+        # this independently catches any ragged tables in rendered HTML.
+        for table_index, counts in enumerate(page.tables, 1):
+            if len(counts) > 1 and len(set(counts)) != 1:
+                errors.append(
+                    f'{page.path.relative_to(BUILD)}: table {table_index} '
+                    f'has inconsistent cell counts: {counts}'
+                )
         assert page.footer, f'Missing previous/next footer: {page.path}'
         assert len(page.toggles) == 8, f'Expected eight shallow expandable categories: {page.path}'
     # These pages are generated from docs/design/*.md. Their math and code

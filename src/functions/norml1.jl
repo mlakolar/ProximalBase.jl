@@ -16,15 +16,15 @@ dense matrix. When symmetry is required, mirrored weights must agree at each
 coordinate the operation reads. Wrap a matrix in `Symmetric(W, :L)` to use its
 lower triangle.
 Values follow the overflow rule in Overflow and underflow of values.
-An infinite weight thresholds a **finite trial** to zero at every level and
+An infinite weight maps a **finite input value** to zero at every level and
 step, including a zero level or step (the value is `Inf` away from zero).
-For `NaN` or `±Inf` trials with finite level there is **no fixed-zero
+For inputs of `NaN` or `±Inf` at finite level there is **no fixed-zero
 guarantee**: ordinary soft thresholding may return `NaN` (issue #853).
 A zero weight remains unpenalized. An infinite overall level `λ0` at a
 positive step instead fixes every positive-weight entry even for non-finite
-trials (historical decision 49). A threshold that overflows to `Inf` from
+inputs (historical decision 49). A threshold that overflows to `Inf` from
 finite level, step and weight factors is not an infinite model parameter;
-its `±Inf`-trial behavior is a deferred limitation (issue #866).
+its behavior for `±Inf` inputs is a deferred limitation (issue #866).
 The value is `0` at the zero vector and remains `NaN` at a `NaN` entry.
 
 See Symmetric parameters for which arrays must be symmetric and which calls check them.

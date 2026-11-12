@@ -106,6 +106,17 @@ function test_expsum_accumulator(::Type{T}) where {T<:AbstractFloat}
     @test PB._expsum_value(T, acc0, T(Inf)) === zero(T)        # an exactly zero sum is +0 at every scale
     @test PB._expsum_value(T, PB._expsum_add(acc0, 0.5, 3), zero(T)) === zero(T)
     @test PB._expsum_value(T, PB._expsum_add(acc0, 0.5, 3), T(Inf)) === T(Inf)
+    # BigFloat frames whose exponents differ by more than typemax(Int) (#373 review): the shift is not wrapped, the
+    # negligible term scales to 0 in either order and the sum stays finite
+    @test PB._frame_shift(Float64, 5, 12) === -7 && PB._frame_shift(BigFloat, 5, 12) === -7
+    Eb = Int(Base.MPFR.get_emax())                                       # 2 Eb + 100 > typemax(Int)
+    @test PB._frame_shift(BigFloat, -Eb - 100, Eb) === typemin(Int) && PB._frame_shift(BigFloat, Eb, -Eb - 100) === typemax(Int)
+    @test PB._frame_shift(BigFloat, -Eb + 100, Eb) === -2Eb + 100       # a difference within Int is exact
+    accb0 = PB._expsum_start(BigFloat)
+    for (e1, e2) in ((Eb, -Eb - 100), (-Eb - 100, Eb))
+      accb = PB._expsum_add(PB._expsum_add(accb0, big(0.5), e1), big(0.75), e2)
+      @test accb.ex == max(e1, e2) && accb.s == (e1 > e2 ? big(0.5) : big(0.75)) && iszero(accb.c)
+    end
     # many terms of widely different exponents: the sum of the terms, with the accuracy of a compensated sum
     for n in (2, 5, 40)
       es = rand(rng, -900:900, n)
@@ -948,6 +959,16 @@ function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
     wb = Real[big(2.0)^(3 * e0 + 16)]                                        # far below the range of T and of Float64
     @test NormL1(λb, wb)(xb) === pow2(T, e0 - 4)                             # a subnormal value: recomputed in BigFloat
     @test NormL1(δ, Real[big(2.0)^(E + 1)])(T[δ]) === zero(T)                # a weight beyond floatmax(T): not Inf
+    # BigFloat parameters at the ends of the MPFR exponent range: the terms' exponents differ by more than typemax(Int)
+    Em = Base.MPFR.get_emax()
+    λm = ldexp(big(0.5), 1 - Em)
+    for (wm, xm) in (([ldexp(big(0.5), Em), λm], T[2floatmin(T), δ]), ([λm, ldexp(big(0.5), Em)], T[δ, 2floatmin(T)]))
+      fm = NormL1(λm, wm)
+      for y in (xm, view(xm, :), reps(xm).sparse, reps(xm).block)
+        @test fm(y) === floatmin(T)
+      end
+      @test Scaled(fm, T(Inf))(xm) === T(Inf)
+    end
     # an infinite Scaled factor multiplies the leaf value: a positive leaf value (here one whose products each rounded
     # to zero) gives Inf, as the folded level NormL1(Inf, w) does; an exactly zero leaf value is still 0
     wz = fill(floatmin(T), 2); xz = fill(T(0.375) * eps(T), 2)

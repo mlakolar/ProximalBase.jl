@@ -1,5 +1,9 @@
 # SymmetricSparseIterate: independent coordinates and matrix views
 
+*Assumes: symmetric matrices and indexing · You will learn: independent lower-triangle variables, views and symmetric-matrix geometry.*
+
+This is a specialized [iterate](glossary.md#Iterate), not a Julia `AbstractArray`.
+
 A [`SymmetricSparseIterate`](@ref) owns a real symmetric ``p\times p`` matrix
 with one stored value per independent lower-triangular coordinate. It supports
 constant-time pair access, membership and activation, and packed active

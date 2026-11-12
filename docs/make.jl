@@ -66,6 +66,7 @@ makedocs(;
     pages=[
         "Home" => "index.md",
         "Getting started" => "getting_started.md",
+        "Glossary" => "glossary.md",
         "Working with functions" => [
             "Function objects and their properties" => "function_objects.md",
             "Operations on functions" => "operations.md",

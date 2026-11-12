@@ -1,5 +1,9 @@
 # BlockIterate
 
+*Assumes: vector indexing and block-coordinate methods · You will learn: group storage, active blocks and block views.*
+
+Here an [active](glossary.md#Active-coordinate) block is retained in the solver's storage, even if all its entries are zero.
+
 A [`BlockIterate`](@ref) is an `AbstractVector` whose optimization coordinates
 are ordered groups of entries. It stores a dense value vector and an active
 set of groups. A nonzero entry activates the whole group. An active group may

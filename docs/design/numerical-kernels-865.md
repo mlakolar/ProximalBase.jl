@@ -1,0 +1,147 @@
+# Shared numerical kernels (issue #865)
+
+Status: implementation pilot. Scope is the minimal core after #850 and the
+dead-code removal of `refactor/dead-code-865`. Targets are homogeneous
+`Float64` and `Float32` on the CPU. Cross-precision behavior that is already
+documented or tested is kept, not extended. Nothing here is public API.
+
+## 1. Inventory of recovery helpers and their live callers
+
+Callers were taken from the current sources, not the archived pre-#850 tree.
+"Ordinary path" is the code that runs for finite, well-scaled data.
+
+| Mechanism | Helpers (src/utils.jl unless noted) | Live callers | Ordinary path | Guarantee |
+|---|---|---|---|---|
+| Bounded product of three factors | `_positive_product`, `_exceptional_product`, `_weight_product`, `_scaled_product(a,b,c,k)` | NormL1 value and prox (`_positive_product`, `_weight_product`). `_exceptional_product` is their cold path. | `(a*b)*c`, plus one range test on `a*b`, which is loop-invariant for a scalar step | O7/R3: a product of finite factors is not lost to an intermediate over- or underflow |
+| Weighted exponent-scaled product | `_scaled_product(w,v,k)` | `_pow2_weighted` (Linear, LeastSquares), `_expsum_value` (Quadratic), `_scaled_square_value` (SqrNormL2, LeastSquares), the ridge gradient fallback, the NormL1 converted-level value | cold paths only | R1/R3: w·v·2^k rounded once at the end |
+| Retained-exponent product | `_scaled_product_retained` (2 and 3 factors) | `Scaled` value parts (`_apply_parts`, scaled.jl) | cold | #767: Int exponent sums that may wrap |
+| Correctly rounded coefficient | `_scaled_coefficient`, `_weight_coefficient3` | kkt coefficients | cold | one correctly rounded product, also when subnormal |
+| Squared residuals in power-of-two units | `_square_value`, `_exceptional_square_value`, `_scaled_square_value`, `_square_parts`, `_square_exponent`, `_square_scaled_sum`, `_residual_exponent`, `_scaled_residual` | SqrNormL2 value and value parts. LeastSquaresLoss recovery (`_exceptional_square_value`, and `_square_exponent`/`_square_scaled_sum` through `_leastsquares_squares`) | `_sumabs2`/`_sumabs2_diff` and one comparison | R1: an overflowing or underflowing square does not hide a representable value |
+| Overflowing residual a − b of finite data | inline `a/2 - b/2` in `_residual_exponent`, `_scaled_residual`, `_ridge_gradient_overflow` (sqrnorml2.jl) | SqrNormL2 value and gradient, LeastSquaresLoss recovery | none | R2: the difference is formed before scaling, so cancellation keeps its units |
+| Ordinary sum-of-squares trigger | inline `s >= n * (floatmin/eps)` | `_square_value`, `_ridge_value_wide_center` (sqrnorml2.jl), `_leastsquares_value` (leastsquares.jl) | one comparison | R1: no square underflowed by more than eps of the sum |
+| Overflow-safe units of a recomputed dot | inline `max(0, bound(maxabs a) + bound(maxabs b) + ⌈log₂ n⌉ + margin - emax)` | `_linear_value_recover` (margin 2), `_leastsquares_recover` (margin 3, plus a Y term) | none | R1: no partial sum of the recomputation overflows |
+| Exponent-ordered sum of parts | `_pow2_weighted`, `_pow2_sum` | LinearFunction, LeastSquaresLoss recoveries | none | R1 |
+| Exact-product accumulator | `_ExpSum`, `_expsum_*` | QuadraticFunction recovery only | none | R1 (#520) |
+| Underflow risk of products | `_underflow_threshold`, `_min_nonzero_exponent`, `_quadratic_products_normal` | QuadraticFunction only | one pass for max\|x\| | R1 (#520) |
+| Ridge prox weights | `_RidgeOrdinary`, `_RidgeScaled`, `_ridge_*` (sqrnorml2.jl) | SqrNormL2 prox and prox_block | precomputed weights, vectorized loop | R3 |
+| Ridge center rounding | `_ridge_fits`, `_ridge_round_big`, `_ridge_round_center32`, `_ridge_all_fit` | SqrNormL2 value, value parts, gradient, prox | free for a center stored in the model precision | T3/R3 |
+
+### Mechanisms that are genuinely shared
+
+* **Squared residuals.** One recomputation backs both SqrNormL2 and
+  LeastSquaresLoss. On master the sequence "exponent of the largest residual,
+  then typemax/typemin cases, then scaled compensated sum, then the 2k−1 half
+  exponent" was written out three times: in `_scaled_square_value`,
+  `_square_parts` and `_leastsquares_squares`.
+* **Halved residual.** Three sites form an overflowing `a − b` of finite data as
+  `a/2 − b/2` one binade up: the exponent and scaled-residual helpers, and the
+  ridge gradient.
+* **Bounded product.** `_exceptional_product(a,b,c,p)` repeated the body of the
+  then-uncalled `_scaled_product(a,b,c,k)` with `k = 0`, line for line. The
+  two-factor `_scaled_product(w,v,k)` and `_scaled_product_retained(w,v,k)` each
+  re-derived the three-factor kernel with `c = 1`.
+* **Sum-of-squares trigger.** The same predicate appears in three places in two
+  families.
+* **Units of a recomputed dot.** The same shift formula appears in
+  LinearFunction and LeastSquaresLoss.
+
+### Mechanisms left function-specific
+
+* `_ExpSum` and the quadratic underflow test have one family, QuadraticFunction.
+  The issue says not to redesign `_ExpSum`.
+* `_pow2_weighted` already is the shared kernel for Linear and LeastSquares; it
+  is unchanged.
+* The ridge prox weights (`_RidgeOrdinary`/`_RidgeScaled`) and the
+  `_ProjectionScale` machinery are specific to one family, out of scope.
+* `_scaled_coefficient` gives correct rounding, a stronger guarantee than the
+  bounded-product kernel. Merging the two would weaken one of them.
+* `norm_diff`/`_norm_diff2` uses a `hypot` fallback that could be replaced by
+  the squared-residual kernel. That would change the public function's
+  exceptional-path results in the last bits, so it is recorded as a follow-up
+  (section 6), not done here.
+
+## 2. Behavior table
+
+The same rules hold for every kernel and for both consumer families.
+
+| Case | Rule | Where it is enforced |
+|---|---|---|
+| Homogeneous ordinary finite data | The ordinary arithmetic result is returned bitwise, with no extra pass, allocation or call | the triggers (`_squares_normal`, the `a*b` range test, `isfinite` of the dot) |
+| Finite inputs, overflowing difference, product or sum, representable result | Recomputed in power-of-two units and rounded once at the end. The ordinary Inf is never returned | `_halved_difference`, `_residual_squares`, `_scaled_product`, `_product_sum_shift` + `_pow2_sum` |
+| Underflow restored by a later factor (λ, a weight, a scale) | The significands are combined first and the exponent is applied once, so the later factor finds the value | `_scaled_product`, `_square_parts`, `_scaled_square_value` |
+| Genuine NaN/Inf input (data, center, level) | The ordinary IEEE result is kept. The kernels return `nothing` or the ordinary product, and never "recover" a value from a nonfinite input | `_residual_exponent` (typemax), `_residual_squares` (`nothing`), the finiteness gates of the recoveries |
+| Exact zero residuals or zero factors | Zero without a recomputation. The three-factor kernel gives `+0` (a zero factor wins over an infinite one, as on master). The weighted form gives the signed `w·v` | `_residual_squares` (`(0, 0)`), `_scaled_product` |
+| Aliased output (`prox!(x, f, x, γ)`, gradient over a center) | Any decision that needs a full pass reads only the parameters before the output is written. The kernels do not write | unchanged consumer code |
+
+## 3. Minimal internal API
+
+Each primitive below has at least two live call sites in different code paths,
+and at least one of them is used by two function families.
+
+```julia
+# utils.jl: bounded-product kernel (three significands, one final ldexp)
+_scaled_product(a, b, c, k)          # the kernel
+_scaled_product(w, v, k)             # = kernel with c = 1, zero rule w*v
+_exceptional_product(a, b, c)        # = kernel with k = 0, @noinline cold path
+_scaled_product_retained(w, v, k)    # = retained kernel with c = 1
+
+# utils.jl: squared residuals
+_halved_difference(a, b, R) -> (d, h)        # a - b, or a/2 - b/2 with h = 1
+_residual_squares(x, y, R) -> (s, k) | nothing   # Σ μᵢ(xᵢ - yᵢ)² = s 2^(2k)
+_squares_normal(s, n, T) -> Bool             # keep the ordinary sum (R1)
+
+# utils.jl: recomputed dot
+_product_sum_shift(R, maxabs_a, maxabs_b, n, margin) -> k
+```
+
+These replace inline copies; they add no new layer. No helper takes a policy
+argument, and none dispatches abstractly in a per-entry loop.
+
+## 4. Consumers migrated
+
+* SqrNormL2 uses `_halved_difference` (gradient), `_squares_normal` (Float64
+  center at a Float32 argument), and `_residual_squares` through
+  `_scaled_square_value`/`_square_parts`. Its two duplicated center-rounding
+  dispatches (value and value parts) become one, `_ridge_value_center`. The two
+  identical center rounders become one, `_ridge_round`.
+* LeastSquaresLoss uses `_squares_normal`, `_residual_squares` (replacing the
+  local `_leastsquares_squares` body), `_scaled_square_value` (directly, instead
+  of through `_exceptional_square_value` with λ = 1), and `_product_sum_shift`.
+* LinearFunction uses `_product_sum_shift`.
+
+## 5. Verification
+
+* `test/numerical_kernels.jl`: kernel-level tests in Float32 and Float64 against
+  BigFloat references, covering every row of the behavior table, plus
+  consumer-level regression tests for SqrNormL2 and LeastSquaresLoss.
+* `docs/audit/numerical-kernels-865/characterize.jl` loads the baseline and the
+  candidate source trees in one process. It runs the same grid of 148,528
+  ordinary and exceptional calls on each and compares every result bit for bit.
+  The grid covers SqrNormL2 value, gradient, value_and_gradient, prox!,
+  prox_block and Scaled value parts, on dense, sparse, block and symmetric
+  arguments, centered and uncentered, with wide and BigFloat centers. It also
+  covers LeastSquaresLoss value, gradient and value_and_gradient on dense,
+  sparse and multi-response arguments, plus LinearFunction, NormL1 and
+  `norm_diff`. Mutating each kernel in a scratch copy is detected by this
+  harness, which shows the grid reaches the cold paths. Results are in
+  `docs/audit/numerical-kernels-865/README.md`.
+* Paired benchmarks: `docs/audit/numerical-kernels-865/bench.jl`.
+
+## 6. Limitations and follow-ups (not done here)
+
+* `norm_diff` and `_norm2_scaled` (SymmetricSparseIterate norm) use `hypot`
+  loops on the exceptional path. Both could use `_residual_squares` instead,
+  which is O(n) without `hypot` and more accurate. Doing so would change
+  exceptional-path results in the last bits of a public function, so it needs
+  maintainer approval.
+* `_scaled_product_retained` (3 factors) and `_scaled_product` (3 factors)
+  differ only in how BigFloat exponents are summed (Int wraparound vs Int128).
+  They are kept separate because #767 depends on the wraparound.
+* `_ridge_fits(Float32, ::Float64)` tests the unrounded center against the
+  Float32 range, while `_level_fits` tests the rounded value. They disagree
+  within half an ulp of `floatmax(Float32)` and `floatmin(Float32)`, and there
+  the conservative test computes with the unrounded center. This is existing
+  behavior, kept bitwise. It is recorded as a possible contract clarification.
+* The QuadraticFunction recovery (`_ExpSum`) is a third, distinct mechanism (an
+  exact-product sum, not scaled squares). Migrating it was not justified by
+  shared code.

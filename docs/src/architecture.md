@@ -24,7 +24,6 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/separable.jl` | Generic separable entry kernels and array/sparse traversal |
 | `src/functions/norml1.jl` | Weighted ℓ₁ family, value and specialized proximal operations |
 | `src/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
-| `src/model_data.jl` | Private retained data-precision metadata |
 | `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods and `Scaled` forwarding |
 | `src/symmetric_parameters.jl` | Per-entry metadata, checked pair domains, explicit owner oracle integration |
 | `src/block_prox.jl` | Allocating compact-vector wrapper; custom mutating hook remains external |

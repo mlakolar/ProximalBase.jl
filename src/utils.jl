@@ -26,16 +26,10 @@ shrink(v::Real, c::Real) = shrink(promote(float(v), float(c))...)
   ab = a * b
   p = ab * c
   floatmin(T) <= ab <= floatmax(T) && return p
-  _exceptional_product(a, b, c, p)
+  _exceptional_product(a, b, c)
 end
-@noinline function _exceptional_product(a::T, b::T, c::T, p::T) where {T<:AbstractFloat}
-  (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
-  (isfinite(a) && isfinite(b) && isfinite(c)) || return p
-  ma, ea = _frexp(a)
-  mb, eb = _frexp(b)
-  mc, ec = _frexp(c)
-  ldexp((ma * mb) * mc, _exponent_sum(T, ea, eb, ec))
-end
+# the cold path: abc in scaled units (_scaled_product), a zero factor giving +0
+@noinline _exceptional_product(a::T, b::T, c::T) where {T<:AbstractFloat} = _scaled_product(a, b, c, 0)
 @inline _positive_product(a::Real, b::Real, c::Real) = _positive_product(promote(float(a), float(b), float(c))...)
 
 # Weights of separable functions: an infinite weight fixes the entry at zero,
@@ -60,7 +54,7 @@ end
   ab = a * b
   p = ab * w
   floatmin(T) <= ab <= floatmax(T) && return p
-  isinf(w) ? T(Inf) : _exceptional_product(a, b, w, p)
+  isinf(w) ? T(Inf) : _exceptional_product(a, b, w)
 end
 @inline _weight_product(a::Real, b::Real, w::Real) = _weight_product(promote(float(a), float(b), float(w))...)
 
@@ -75,10 +69,6 @@ end
 @inline function _weight_product(::Type{U}, a, b, w) where {U<:AbstractFloat}
   R = _working_type(U, a, b, w)
   convert(U, _weight_product(convert(R, a), convert(R, b), convert(R, w)))
-end
-@inline function _positive_product(::Type{U}, a, b, c) where {U<:AbstractFloat}
-  R = _working_type(U, a, b, c)
-  convert(U, _positive_product(convert(R, a), convert(R, b), convert(R, c)))
 end
 # The coefficient and product of a KKT diagnostic in the gradient's element type T, rounded once. A
 # gradient that is not floating point (integers) keeps the untyped value and type of the baseline.
@@ -127,7 +117,7 @@ end
   r = ldexp(R(q), E0 + u)                                                  # exact: q fits R's grid
   (signbit(a) ⊻ signbit(b) ⊻ signbit(c)) ? -r : r
 end
-@noinline _scaled_coefficient(a::R, b::R, c::R, p::R) where {R<:AbstractFloat} = _exceptional_product(a, b, c, p)
+@noinline _scaled_coefficient(a::R, b::R, c::R, p::R) where {R<:AbstractFloat} = _exceptional_product(a, b, c)
 @inline _recoverable_factors(a, b, c) =
   isfinite(a) & isfinite(b) & isfinite(c) & !iszero(a) & !iszero(b) & !iszero(c)
 
@@ -136,14 +126,11 @@ end
 # coefficient at an infinite entry); NaN arguments propagate
 @inline _weighted_value(p, φ) = ifelse(isnan(p) & !isnan(φ), zero(p), p)
 
-# Keep the power outside the floating-point range until the final rounding.
+# w v 2^k for a weight w >= 0, with the power kept outside the floating-point range until the final
+# rounding (the three-factor kernel below); a zero factor gives the signed zero w v.
 @inline function _scaled_product(w::T, v::T, k::Integer) where {T<:AbstractFloat}
   (iszero(w) || iszero(v)) && return w * v
-  (isfinite(w) && isfinite(v)) || return w * v
-  k = _product_power(T, k)
-  mw, ew = _frexp(w)
-  mv, ev = _frexp(abs(v))
-  copysign(ldexp(_positive_product(mw, mv, one(T)), _exponent_sum(T, ew, ev, k)), v)
+  _scaled_product(w, v, one(T), k)
 end
 
 # A converted parameter must retain normal precision on the ordinary path.
@@ -154,7 +141,10 @@ end
   iszero(λ) || !isfinite(λ) || floatmin(T) <= abs(convert(T, λ)) <= floatmax(T)
 end
 
-# Three bounded significands, with the power applied after all factors.
+# The bounded-product kernel: a b c 2^k from three significands in [1/2, 1), whose product is a
+# normal number, with all exponents and the power applied by one final ldexp, so that no
+# intermediate overflows or underflows. A zero factor gives +0; a factor that is not finite gives
+# the ordinary product. Every other exponent-scaled product above is a call of this one.
 @inline function _scaled_product(a::Real, b::Real, c::Real, k::Integer)
   a, b, c = promote(float(a), float(b), float(c))
   (iszero(a) || iszero(b) || iszero(c)) && return zero(a)
@@ -172,11 +162,7 @@ end
 # the wrapped k as if it were true would lose that.
 @inline function _scaled_product_retained(w::T, v::T, k::Integer) where {T<:AbstractFloat}
   (iszero(w) || iszero(v)) && return w * v
-  (isfinite(w) && isfinite(v)) || return w * v
-  k = Int(k)
-  mw, ew = _frexp(w)
-  mv, ev = _frexp(abs(v))
-  copysign(ldexp(_positive_product(mw, mv, one(T)), ew + ev + k), v)
+  _scaled_product_retained(w, v, one(T), k)
 end
 @inline function _scaled_product_retained(a::Real, b::Real, c::Real, k::Integer)
   a, b, c = promote(float(a), float(b), float(c))
@@ -222,44 +208,6 @@ end
 
 # CPU prototypes keep the existing dense buffer and cache checks.
 _array_buffer!(s::Scratch, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(s, T, size(x))
-
-# A buffer for the transformed input, reused while its type and size agree.
-# Adapted functions have no cache and allocate a device buffer on each call.
-_output_buffer!(s::Scratch, y::Union{Array, SubArray{<:Any, <:Any, <:Array}}) = _array_buffer!(s, eltype(y), size(y))
-_output_buffer!(::Nothing, y::AbstractArray) = similar(y)
-
-# A view of an Array whose indices shift to start at 1 keeping their types gets
-# a view of the same type into an owned Array, so that f sees the same layout;
-# a view with other indices, such as a vector of indices, gets an Array.
-const _ShiftableIndex = Union{Int, UnitRange{Int}, StepRange{Int, Int}, Base.Slice{Base.OneTo{Int}}, Base.OneTo{Int}}
-function _output_buffer!(s::Scratch, y::SubArray{T, N, Array{T, M}, I}) where {T, N, M, I<:NTuple{M, _ShiftableIndex}}
-  shifted = map(_shifted_index, y.indices)
-  P = _array_buffer!(s, T, map(last, shifted))
-  view(P, map(first, shifted)...)
-end
-
-# an index shifted to start at 1, and the extent of the parent dimension that it spans
-_shifted_index(i::Int) = (1, 1)
-_shifted_index(r::UnitRange{Int}) = (1:length(r), length(r))
-_shifted_index(r::Union{Base.Slice{Base.OneTo{Int}}, Base.OneTo{Int}}) = (r, length(r))
-function _shifted_index(r::StepRange{Int, Int})
-  s = step(r)
-  isempty(r) && return (StepRange(1, s, s > 0 ? 0 : 2), 0)
-  lo = min(first(r), last(r))
-  (StepRange(first(r) - lo + 1, s, last(r) - lo + 1), abs(last(r) - first(r)) + 1)
-end
-function _output_buffer!(s::Scratch, y::A) where {A<:DenseArray}
-  b = s.buf
-  b isa A && size(b) == size(y) && return b
-  b = similar(y)
-  s.buf = b
-  b
-end
-_output_buffer!(::Scratch, y::AbstractArray) = copy(y)
-
-# Most kernels read scratch and write y. Stored iterates must run in place to
-# preserve their stored zeros and summation order, then publish the full state.
-_wrapper_output(y, z) = y
 
 # Scratch is an implementation detail: copies of a function object share no buffer
 Base.copy(s::Scratch) = Scratch()
@@ -370,15 +318,6 @@ function _maximum_abs(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
 end
 _maximum_abs(x::Diagonal{T}) where {T<:Union{Float32, Float64}} = _maximum_abs(x.diag)
 
-# Scale each entry before summing, including before taking its square.
-function _scaled_sum(x::AbstractArray, s, f::F = identity) where {F}
-  v = zero(s[1])
-  @inbounds for u in _stored_values(x)
-    v += f(_scale_value(u, s))
-  end
-  v
-end
-
 # Exceptional values need the small terms even after a large one was added.
 function _scaled_value_sum(x::AbstractArray, s, f::F = identity) where {F}
   v = e = zero(s[1])
@@ -396,56 +335,6 @@ function _scaled_dot(a, x::AbstractArray, s)
     v += float(_entry(a, i)) * _scale_value(x[i], s)
   end
   v
-end
-
-# Σᵢ aᵢxᵢ over n products as three compensated sums in the type of the scales:
-# the large products, those that overflow or exceed floatmax/2n, in units of
-# the two scales; the products below floatmin·2^(p+1), which underflow or lose
-# bits, in units of 2^-U (_tiny_unit), formed from the significands of the
-# factors, so that a weight applied later still finds them; and the others in
-# their own units, whose sum cannot overflow. Exact zeros are skipped.
-function _split_dot(a::AbstractArray, x::AbstractArray, sa, sx)
-  _checksize(a, x)
-  R = typeof(sx[1])
-  acc = _split_start(R, length(a))
-  @inbounds for i in eachindex(IndexLinear(), a, x)
-    acc = _split_add(acc, a[i], x[i], sa, sx)
-  end
-  _split_finish(acc)
-end
-struct _SplitAcc{R}
-  big::R
-  eb::R
-  small::R
-  es::R
-  tiny::R
-  et::R
-  t::R              # the largest product summed in its own units
-end
-_split_start(::Type{R}, n::Integer) where {R} =
-  (z = zero(R); _SplitAcc{R}(z, z, z, z, z, z, floatmax(R) / (2 * max(n, 1))))
-_split_finish(acc::_SplitAcc) = (acc.big + acc.eb, acc.small + acc.es, acc.tiny + acc.et)
-# Products below floatmin·2^(p+1) are summed in units of 2^-U. With
-# U = emax + p + 4 they stay normal there down to about 2^-(emax - emin), below
-# which no weight up to floatmax lifts them into the normal range.
-_tiny_unit(::Type{R}) where {R} = exponent(floatmax(R)) + precision(R) + 4
-_tiny_limit(::Type{R}) where {R} = ldexp(floatmin(R), precision(R) + 1)
-@inline function _split_add(acc::_SplitAcc{R}, a, x, sa, sx) where {R}
-  ar, xr = convert(R, a), convert(R, x)
-  p = ar * xr
-  m = abs(p)
-  if m > acc.t
-    u = ((ar * sa[1]) * sa[2]) * ((xr * sx[1]) * sx[2])
-    big, eb = _compensated_add(acc.big, acc.eb, u)
-    return _SplitAcc{R}(big, eb, acc.small, acc.es, acc.tiny, acc.et, acc.t)
-  elseif m >= _tiny_limit(R) || iszero(ar) || iszero(xr)
-    small, es = _compensated_add(acc.small, acc.es, p)
-    return _SplitAcc{R}(acc.big, acc.eb, small, es, acc.tiny, acc.et, acc.t)
-  end
-  ma, ea = _frexp(ar)
-  mx, ex = _frexp(xr)
-  tiny, et = _compensated_add(acc.tiny, acc.et, ldexp(ma * mx, ea + ex + _tiny_unit(R)))
-  _SplitAcc{R}(acc.big, acc.eb, acc.small, acc.es, tiny, et, acc.t)
 end
 
 ####################################
@@ -820,12 +709,16 @@ _square_term_count(x) = length(x)
 _square_term_count(x::SparseArrays.AbstractSparseArray) = length(nonzeros(x))
 _square_multiplicity(x, i) = 1
 
+# Can an ordinary sum s of n squares in T be kept (R1)? Below n floatmin/eps a square may have
+# underflowed and lost more than eps of the sum, and the scaled recomputation runs instead.
+@inline _squares_normal(s, n, ::Type{T}) where {T} = s >= n * (floatmin(T) / eps(T))
+
 @inline function _square_value(λ, x, y)
   T = _valtype(x)
   s = y === nothing ? _sumabs2(x) : _sumabs2_diff(x, y)
   v = convert(T, λ) * s / 2
   n = y === nothing ? _square_term_count(x) : length(x)
-  if (isfinite(v) & (real(s) >= n * (floatmin(T) / eps(T)))) && _level_fits(T, λ)
+  if (isfinite(v) & _squares_normal(real(s), n, T)) && _level_fits(T, λ)
     return _value_at(v, x)
   end
   _exceptional_square_value(λ, x, y, real(s), v)
@@ -842,18 +735,30 @@ end
 @inline _square_difference(a, b, ::Type{R}) where {R} = R(a) - R(b)
 @inline _square_difference(a::Integer, b::Integer, ::Type{R}) where {R} = R(_norm_difference(a, b))
 
-# A finite difference is formed before scaling, so cancellation retains its units.
+# The residual a - b in R and the binade shift h of its units: formed before any scaling, so that
+# cancellation keeps its units (h = 0); where the difference of finite a and b overflows it is
+# formed as a/2 - b/2 instead (h = 1), which is finite and loses at most the last bit of a
+# subnormal operand. Shared by the squared residuals below and the ridge gradient.
+@inline function _halved_difference(a, b, ::Type{R}) where {R}
+  d = _square_difference(a, b, R)
+  isfinite(d) ? (d, 0) : (_halved(a, b, R), 1)
+end
+@inline _halved(a, b, ::Type{R}) where {R} = R(a) / 2 - R(b) / 2
+
+# the exponent of the largest residual: typemax(Int) for an entry that is not finite, typemin(Int)
+# for an exactly zero residual
 @inline function _residual_exponent(a, b, ::Type{R}) where {R}
   (isfinite(a) && isfinite(b)) || return typemax(Int)
-  d = _square_difference(a, b, R)
-  iszero(d) && return typemin(Int)
-  isfinite(d) && return exponent(abs(d))
-  exponent(abs(R(a) / 2 - R(b) / 2)) + 1
+  d, h = _halved_difference(a, b, R)
+  iszero(d) ? typemin(Int) : exponent(abs(d)) + h
 end
 
+# the residual scaled by 2^-k (s) or, where it was halved, by 2^(1-k) (h). The loop over the entries
+# branches on the difference itself: the pair (d, h) of _halved_difference would become a select,
+# which computes the rare halved case and both scalings for every entry (about 1.5x slower).
 @inline function _scaled_residual(a, b, s, h, ::Type{R}) where {R}
   d = _square_difference(a, b, R)
-  isfinite(d) ? _scale_value(d, s) : _scale_value(R(a) / 2 - R(b) / 2, h)
+  isfinite(d) ? _scale_value(d, s) : _scale_value(_halved(a, b, R), h)
 end
 
 function _square_exponent(x, y, ::Type{R}) where {R}
@@ -886,24 +791,39 @@ function _square_scaled_sum(x, y, k, ::Type{R}) where {R}
   v + e
 end
 
-@noinline function _scaled_square_value(λ, x, y, ordinary)
-  R = promote_type(_valtype(x), y === nothing ? _valtype(x) : _valtype(y), float(typeof(λ)))
+# The squared-residual kernel (R1): Σ μᵢ (xᵢ - yᵢ)² = s 2^(2k) in R, so that the half sum is
+# s 2^(2k-1). y === nothing stands for y = 0 and visits the stored entries of x only, each with its
+# logical multiplicity μᵢ (2 for an off-diagonal entry of a symmetric owner). Every residual is
+# formed before it is scaled by 2^-k, k the exponent of the largest one, and the squares are summed
+# compensated, so that no square overflows and a small residual after a cancellation is kept. It
+# gives (zero(R), 0) when every residual is exactly zero and `nothing` when an entry is not finite
+# (the ordinary result then stands: a genuine Inf or NaN is not an intermediate failure).
+function _residual_squares(x, y, ::Type{R}) where {R}
   k = _square_exponent(x, y, R)
-  k == typemax(Int) && return _value_at(ordinary, x)
-  k == typemin(Int) && return _value_at(convert(R, λ) * zero(R), x)
-  s = _square_scaled_sum(x, y, k, R)
+  k == typemax(Int) && return nothing
+  k == typemin(Int) && return (zero(R), 0)
+  (_square_scaled_sum(x, y, k, R), k)
+end
+# the type of the recomputation of λ/2 Σ (xᵢ - yᵢ)²
+_square_type(λ, x, y) = promote_type(_valtype(x), y === nothing ? _valtype(x) : _valtype(y), float(typeof(λ)))
+
+@noinline function _scaled_square_value(λ, x, y, ordinary)
+  R = _square_type(λ, x, y)
+  q = _residual_squares(x, y, R)
+  q === nothing && return _value_at(ordinary, x)
+  s, k = q
   _value_at(_scaled_product(convert(R, λ), s, _exponent_sum(R, k, k, -1)), x)
 end
 
 # Σ (xᵢ - yᵢ)² λ/2 as a significand and an exponent (the scaled-value mechanism), from the
 # recomputation above; a non-finite entry or level gives `nothing`
 @noinline function _square_parts(λ, x, y)
-  R = promote_type(_valtype(x), y === nothing ? _valtype(x) : _valtype(y), float(typeof(λ)))
   (iszero(λ) || !isfinite(λ)) && return nothing
-  k = _square_exponent(x, y, R)
-  k == typemax(Int) && return nothing
-  k == typemin(Int) && return (zero(R), 0)
-  s = _square_scaled_sum(x, y, k, R)
+  R = _square_type(λ, x, y)
+  q = _residual_squares(x, y, R)
+  q === nothing && return nothing
+  s, k = q
+  iszero(s) && return (zero(R), 0)
   _parts_product(_frexp(convert(R, λ)), _parts(s, 2k - 1))
 end
 

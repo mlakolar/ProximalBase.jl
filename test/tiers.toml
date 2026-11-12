@@ -12,6 +12,7 @@ quick = [
   "iterate_writes",
   "matrixview",
   "minimal_math",
+  "numerical_kernels",
   "real_iterates",
   "ridge_precision",
   "sparse_iterate",

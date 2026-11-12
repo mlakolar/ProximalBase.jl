@@ -8,6 +8,11 @@ the diagnosis, independent tests, generated code and reproducible measurements.
 The target is block value writes. Whole-iterate state replacement, layout
 comparison/cache behavior and removed proximal interfaces are out of scope.
 The starting source is master `eb74a914d779371a02e4a6637eaa724aeb66fdf5`.
+The final audit branch is rebased onto merged #861 at
+`998b3b4c1ef2a77fddb5477bf823def9b2811041`; its entire `src/` tree is unchanged
+from that base. The frozen experimental comparisons remain explicitly pinned
+to the starting source. Twenty package test files pass after the rebase,
+including live-view updates after whole-owner state replacement.
 The investigation and implementation plan were posted [on #860 before source
 changes](https://github.com/mlakolar/ProximalBase.jl/issues/860#issuecomment-6810647366).
 
@@ -117,7 +122,7 @@ pressure in the bulk variant. It is an inference that this contributes to
 full-workload costs, not a uniquely isolated causal assignment. The measurements
 must decide whether the tradeoff is acceptable. In the seven-round comparison,
 one high-penalty Float64 reversed b8 workload is about 6.5% slower despite fast
-isolated copies, with A/A close to one. Fresh quiet-host confirmation is required.
+isolated copies, with A/A close to one. That flag was carried into the fresh confirmation below.
 
 The narrower singleton experiment uses the existing scalar owner-backed write
 for a one-value same-precision buffer. It retains `Base.copyto!` for longer

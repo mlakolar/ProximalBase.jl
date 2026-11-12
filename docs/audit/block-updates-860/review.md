@@ -39,6 +39,9 @@ annotation and measures that combined compiler-boundary effect.
 
 The singleton-only fallback candidate was independently reviewed with no
 correctness or scope finding: it uses one existing owner-backed scalar write,
-while longer buffers and custom descriptors retain Base's copy path. Final
-performance acceptance and final-content review are recorded after the fresh
-confirmation campaign.
+while longer buffers and custom descriptors retain Base's copy path. The final confirmation rejects all three candidates under the declared gate.
+Independent verification reproduced all 105 process files, 60,480 observations,
+4,837,587 timing samples and every exported bootstrap endpoint. The singleton
+fallback caller retains per-group length guards; both versions make one copy
+call on the b8 path. No unique allocation/spill cause is asserted. Final
+artifact and CI receipts are linked from PR #867.

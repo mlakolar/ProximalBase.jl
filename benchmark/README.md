@@ -68,3 +68,24 @@ probes are the recomputed sums, whose values the fix changes; the other outputs 
 PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
   julia --threads=1 --project=benchmark benchmark/norml1_value_underflow.jl
 ```
+
+## LinearFunction value harness
+
+`linear_sparse_value.jl` times the `LinearFunction` value at a matrix `SparseIterate` (#810), which sums the stored
+nonzero entries and reads the coefficients only at them, for Float32 and Float64 at 16 × 16, 128 × 128 and
+1024 × 1024: densities of 2 entries, 1%, 10%, 50% and 100%, a fully stored iterate with 50% and 90% of the
+entries stored as zeros, sequential and shuffled activation order, an overflowing dot with finite coefficients
+(the exceptional path), a `Diagonal` coefficient array, `value_and_gradient!` and `value_and_prox!` at a matrix
+iterate, and controls for code that the change does not touch (the dense matrix value, the vector and the symmetric
+iterate values, `gradient!` and `prox!` at a matrix iterate). It has the design of the harnesses above (roles X, Y
+and the A/A control XC, alternating order, shared arrays, reversed-role and fresh-process repeats), and
+`summarize_norml1_infinite_weight.py` summarizes its output. The roles agree on a value only to the accuracy of the
+sum, because the new value sums in the storage order of the iterate, so the output check uses a tolerance; the
+exceptional cells are compared with a BigFloat value for each role, and a difference across the roles there is
+printed. A sample is repeated until it takes about a microsecond or more, and with `PB_FILTER` the iterates of
+the other cells are not built (the shared arrays of each size are). The usage is in the header of the script.
+
+```sh
+PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
+  julia --threads=1 --project=benchmark benchmark/linear_sparse_value.jl
+```

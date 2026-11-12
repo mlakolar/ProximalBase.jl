@@ -65,8 +65,9 @@ of the largest one. Genuine NaN/Inf data or parameters keep their ordinary
 IEEE result; only finite inputs whose intermediates leave the range are
 recomputed. For the `LinearFunction` value at a matrix `SparseIterate`, the finite
 inputs are `d`, the nonzero stored entries and the coefficients at them: the
-recomputation reads only those entries, `O(nactive(x))`, and a nonfinite coefficient
-at a zero of the iterate does not prevent it. Recovery is worthwhile when it changes a materially inaccurate
+recomputation reads the nonzero stored entries (the nonzero stored diagonal entries for a
+`Diagonal` coefficient array), `O(nactive(x))`, and a nonfinite coefficient at a zero of the
+iterate does not prevent it. Recovery is worthwhile when it changes a materially inaccurate
 answer into a representable result in the working precision.
 
 `NormL1` values also recover terms `λ0*w[i]*abs(x[i])` that round into the
@@ -231,8 +232,8 @@ The `LinearFunction` value at a matrix `SparseIterate` follows the same rule, as
 its own computation and not through `dot(c, x)`: a position that is not stored, or is
 stored as `+0` or `-0`, contributes nothing and `c` is not read there, so a `NaN` or
 `±Inf` coefficient at it does not reach the value, while a nonzero entry keeps
-ordinary arithmetic. `f(Matrix(x))` takes the dense IEEE dot and gives `NaN` for such a
-coefficient.
+ordinary arithmetic. For a dense `c` that is not a `Diagonal`, `f(Matrix(x))` takes the
+dense IEEE dot and gives `NaN` for such a coefficient.
 
 ```@example numerical_linear_sparse
 using ProximalBase, LinearAlgebra

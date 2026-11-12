@@ -122,8 +122,8 @@ Other matching-type Symmetric wrappers use a restricted/dense route; mixed
 types use generic/dense multiplication. See [numerics](numerics.md) for the
 three-factor range and summation guarantees.
 
-`dot(c, X)` for a matrix `SparseIterate` `X` and a dense `c` is the generic `dot`
-over every position, `O(mn)`; it is not in the table. The value of a
+`dot(c, X)` for a matrix `SparseIterate` `X` and a dense `c` that is not a `Diagonal` is the
+generic `dot`, which visits all `mn` positions; it is not in the table. The value of a
 [`LinearFunction`](smooth.md#Linear-function) at a matrix `SparseIterate` is
 computed separately from the stored nonzero entries, with the strong-zero rule below.
 

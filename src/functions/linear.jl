@@ -18,8 +18,9 @@ at the nonzero stored diagonal entries, and the other entries of `x` are ignored
 `dot`). An entry that is not stored, or is stored as `+0` or `-0`, adds nothing, even if
 the coefficient there is `NaN`, `Inf` or `-Inf`; the constant `d` is added after the sum.
 A nonzero entry follows ordinary arithmetic, also when it or its coefficient is not finite.
-Finite `d`, finite nonzero entries and finite coefficients at them give a finite value
-when it is representable, also if the products or their sum overflow.
+When `d`, the nonzero entries and the coefficients at them are finite, the value is finite if
+the exact value lies inside the range of the type by the accuracy of the sum, also if the
+products or the partial sums overflow.
 
 ```julia
 x = SparseIterate(2, 2); x[1, 1] = 2.0
@@ -87,8 +88,8 @@ _linear_scaled_dot(c, x, s) = _linear_scaled_copy_dot(c, x, s)
 _linear_scaled_copy_dot(c, x, s) = dot(c, x .* s[1] .* s[2])
 
 # A matrix SparseIterate (D1): an entry of x that is not stored, or is stored as a zero, adds
-# nothing to the value, whatever the coefficient there is. The sum runs over the stored
-# entries, tests the value of each against zero before it reads c, and reads c only at the
+# nothing to the value, also if the coefficient there is NaN or Inf. The sum runs over the stored
+# entries, tests the value of each against zero before it reads c, and reads c at the
 # nonzero ones, with the linear index of the entry (size(c) == size(x) is checked first).
 # The value of x is read from the storage, not through getindex, which would form a zero.
 function _value_unchecked(f::LinearFunction, x::SparseIterate{<:Any, 2})

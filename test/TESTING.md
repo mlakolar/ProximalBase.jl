@@ -39,9 +39,9 @@ entries, the `Diagonal` coefficient array, cancellation, underflow and the overf
 references computed from the stored entries in Float32/64, warmed allocations, the oracles that reach the value, the
 shape refusals and unchanged results for dense, vector and symmetric arguments.
 `sparse_value_cost` restores the deterministic guard for that value: a counted `zero` and a coefficient array that
-records its reads show that no zero is formed for an unstored entry and that the coefficients are read only at the
-nonzero stored entries (and at the nonzero stored diagonal entries for a `Diagonal`), on the ordinary and the recovery
-paths, with a control that catches a dense pass.
+records its reads show, in the cases tested, that no zero is formed for an unstored entry and that the
+coefficients are read at the nonzero stored entries (at the nonzero stored diagonal entries for a `Diagonal`) and nowhere
+else, on the ordinary and the recovery paths, with a control that catches a dense pass.
 `core_functions` exercises retained
 interface, lasso building blocks and custom scalar/vector block extensions.
 `dropzeros_compaction` checks the shared `dropzeros!` loop of `SparseIterate` and

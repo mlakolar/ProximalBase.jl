@@ -4,7 +4,7 @@ const PB = ProximalBase
 
 # The value of a LinearFunction at a matrix SparseIterate is computed from the stored nonzero
 # entries: it forms no zero for an unstored entry and reads the coefficients at the nonzero
-# stored entries only (#810), on the ordinary path and on the recovery of an overflowing dot.
+# stored entries (#810), on the ordinary path and on the recovery of an overflowing dot.
 # Two detectors count it. A real type C whose zero is counted shows that no pass over the
 # unstored entries is made (it is Float64-backed, so a Float32 coefficient array runs in
 # Float64 here). A coefficient array that records the linear indices it is read at shows
@@ -37,7 +37,7 @@ Base.:*(x::C, y::C) = C(x.v * y.v)
 
 zeros_made(f) = (ZEROS[] = 0; v = f(); (ZEROS[], v))
 
-# a coefficient matrix that records the linear index of every read
+# a coefficient matrix that records the linear index of each read through getindex(c, i::Int)
 struct Reading{T} <: AbstractMatrix{T}
   a::Matrix{T}
   seen::Vector{Int}
@@ -46,7 +46,7 @@ Reading(a) = Reading(a, Int[])
 Base.size(c::Reading) = size(c.a)
 Base.IndexStyle(::Type{<:Reading}) = IndexLinear()
 Base.getindex(c::Reading, i::Int) = (push!(c.seen, i); c.a[i])
-# the coefficient vector of a Diagonal, recording the position of every read
+# the coefficient vector of a Diagonal, recording the position of each read
 struct ReadingVector{T} <: AbstractVector{T}
   a::Vector{T}
   seen::Vector{Int}

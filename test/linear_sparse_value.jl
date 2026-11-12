@@ -116,7 +116,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     # Inf against a zero coefficient is NaN
     a = ones(T, p, p); a[1, 1] = zero(T)
     @test isnan(LinearFunction(a)(make_iterate(T, p, [(1, 1, T(Inf))])))
-    # an empty iterate: the constant, whatever the coefficients are
+    # an empty iterate: the constant, also when the coefficients are NaN or infinite
     for (cv, dv) in ((T(NaN), T(0.5)), (T(Inf), zero(T)), (-T(Inf), T(-3)))
       v = LinearFunction(fill(cv, p, p), dv)(SparseIterate(T, p, p))
       @test v === dv && typeof(v) === T
@@ -204,7 +204,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     @test LinearFunction(ones_p, small)(four) === small
     @test LinearFunction(ones_p, -small)(four) === -small
     @test LinearFunction(ones_p, zero(T))(four) === zero(T)
-    # the overflow boundary: 2^emax + 2^emax - 2^s is the value floatmax for s = M - 1 - precision(T) + 1 - ... built exactly
+    # the overflow boundary: 2^emax + 2^emax - 2^(M - precision(T)) is floatmax(T) (M = emax + 1)
     pair(extra) = make_iterate(T, p, [(1, 1, h), (2, 1, h), (3, 1, extra)])
     exact = -ldexp(one(T), emax + 1 - precision(T))        # 2^M - 2^(M-p) = floatmax(T)
     @test f0(pair(exact)) === floatmax(T)
@@ -221,7 +221,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     a = ones(T, p, p); a[1, 1] = T(4); a[2, 1] = T(-4); a[3, 1] = T(2)
     x = make_iterate(T, p, [(1, 1, h), (2, 1, h), (3, 1, h / 2)])
     @test LinearFunction(a, zero(T))(x) === h                                    # 4h - 4h + h = h
-    # entries and coefficients of every binade near both ends: BigFloat references
+    # entries and coefficients in the binades near the top of the range: BigFloat references
     rng = Xoshiro(810_001 + (T == Float32))
     for _ in 1:40
       pairs = [(rand_mag(rng, T, emax - 4, emax - 1), rand_mag(rng, T, 0, 3)) for _ in 1:4]   # products beyond the range
@@ -248,7 +248,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
       x = SparseIterate(T, p, p); a = ones(T, p, p)
       for i in pos
         x[i] = rand_mag(rng, T, emin, emin + 20 + rand(rng, 0:80))
-        a[i] = rand_mag(rng, T, -60, 0)                                              # products of every size below floatmin
+        a[i] = rand_mag(rng, T, -60, 0)                                              # products of different sizes, many below floatmin
       end
       for dv in (zero(T), floatmin(T) / 4, T(1), -floatmin(T))
         f = LinearFunction(a, dv)
@@ -521,7 +521,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     sz[2, 1] = T(1); sz[2, 1] = zero(T); sz[1, 1] = T(1)
     csz = ones(T, p, p); csz[2, 1] = T(NaN); csz[1, 2] = T(NaN)
     @test isnan(LinearFunction(csz, d)(sz))
-    # dot(c, x) of a matrix iterate is the generic dot, and f(x) differs from it only at a nonfinite coefficient at a zero
+    # dot(c, x) of a matrix iterate is the generic dot: f(x) agrees with it up to rounding unless a coefficient at a zero is not finite
     xm = make_iterate(T, p, [(1, 1, T(2)), (3, 3, T(-1))])
     am = ones(T, p, p); am[4, 4] = T(NaN)
     @test isnan(dot(am, xm) + d)

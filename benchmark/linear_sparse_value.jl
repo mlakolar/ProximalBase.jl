@@ -1,6 +1,6 @@
 # Paired benchmark of the LinearFunction value at a matrix SparseIterate (#810), which sums the stored nonzero
-# entries of the iterate in the storage order and reads the coefficients only at them, where the earlier value
-# was the generic dot over all m × m positions. Float32/Float64, m = 16, 128, 1024.
+# entries of the iterate in the storage order and reads the coefficients at them (at the diagonal ones for a Diagonal
+# coefficient array), where the earlier value was the generic dot, which visits all m × m positions. Float32/Float64, m = 16, 128, 1024.
 #
 #   PB_FIRST=<root of role X> PB_SECOND=<root of role Y> PB_OUTPUT=<dir> PB_ROUNDS=21 \
 #     julia --threads=1 --check-bounds=no --project=benchmark benchmark/linear_sparse_value.jl
@@ -9,7 +9,8 @@
 # compiled twice (X and the independent A/A control XC), role Y is the one under test, each round times X, Y and
 # XC in alternating order, and benchmark/summarize_norml1_infinite_weight.py DIR... reports the per-round ratios
 # Y/X and XC/X. Run it again with the roles reversed (summarized on its own) and in a fresh process.
-# PB_FILTER selects cases by a regular expression on their ids, and only the selected cases are built.
+# PB_FILTER selects cases by a regular expression on their ids; the iterates of the other cases are not built (the
+# shared arrays of each size are).
 # PB_CHECK_ONLY=1 checks the outputs and exits.
 #
 # The output check differs from linear_shape.jl, where the kernels are unchanged: the new value sums in the storage
@@ -19,9 +20,9 @@
 # exceptional cells (an overflowing dot with finite coefficients) are compared with a BigFloat value of each role's
 # own output instead, and a difference across the roles there is reported, not an error.
 #
-# As in linear_shape.jl the roles share their input and output arrays (only the iterates, whose types belong to
-# each tree, are built per role): these kernels stream through arrays that fit in L2, where the relative placement
-# of x, c and the output moves a role by up to ±40% with identical machine code. A sample is repeated (evals) until
+# As in linear_shape.jl the roles share their input and output arrays (the iterates, whose types belong to each
+# tree, are built per role): these kernels stream through arrays that fit in L2, where the relative placement of
+# x, c and the output has moved a role by tens of percent with identical machine code (see linear_shape.jl). A sample is repeated (evals) until
 # it takes about a microsecond or more. The cells that run code the change does not touch (the dense matrix value,
 # the vector SparseIterate value, the symmetric value and the matrix-iterate gradient! and prox!) are controls.
 using BenchmarkTools, LinearAlgebra, SparseArrays, Random, Statistics, Dates
@@ -265,7 +266,7 @@ open(joinpath(outdir, "provenance.txt"), "w") do io
     println(io, "Bounds option: ", Base.JLOptions().check_bounds)
     println(io, "X: ", first_root, "\nY: ", second_root)
 end
-for r in ("X", "Y", "XC"), p in suites[r]          # compile and warm every specialization
+for r in ("X", "Y", "XC"), p in suites[r]          # compile and warm the operation of each cell
     bench(p)
 end
 rounds = parse(Int, get(ENV, "PB_ROUNDS", "15"))

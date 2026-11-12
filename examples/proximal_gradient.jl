@@ -1,5 +1,7 @@
 # Proximal-gradient iteration
 #
+# *Assumes: gradient descent and convexity · You will learn: a complete proximal-gradient iteration and its optimality check.*
+#
 # This loop is educational caller code. ProximalBase supplies gradient and prox.
 using ProximalBase, LinearAlgebra
 function illustrate_pg()

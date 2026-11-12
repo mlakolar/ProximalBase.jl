@@ -64,9 +64,14 @@ See [proximal-gradient methods](proximal_gradient.md).
 ## Gradient mapping
 
 For differentiable ``f`` and proximable ``g``, the **gradient mapping**
-is ``G_\gamma(x)=[x-\operatorname{prox}_{\gamma g}
-(x-\gamma\nabla f(x))]/\gamma``. It measures how far one proximal-gradient
-step moves the point; zero indicates the corresponding first-order
+is
+
+```math
+G_\gamma(x)=\frac{x-\operatorname{prox}_{\gamma g}(x-\gamma\nabla f(x))}{\gamma}.
+```
+
+It measures how far one proximal-gradient step moves the point; zero
+indicates the corresponding first-order
 stationarity condition. See
 [gradient mapping and optimality](proximal_gradient.md#Gradient-mapping-and-optimality).
 

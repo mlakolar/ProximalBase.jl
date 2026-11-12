@@ -906,7 +906,11 @@ function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
     @test NormL1(one(T), Symmetric(Wa, :L))(S) === T(r)
     Wd = [i == j ? 2floatmin(T) : floatmin(T) for i in 1:P, j in 1:P]   # a different diagonal weight
     @test within(NormL1(one(T), Wd)(S), l1val(one(T), Wd, M), tol)
-    @test_throws ArgumentError NormL1(one(T), Wa)(S)                     # the parameter validation is unchanged
+    # symmetric weights are a model precondition that check_symmetric_parameters validates (#374); an oracle given
+    # asymmetric ones reads each position with its own weight, and the recomputation reads them as the generic loop does
+    @test_throws ArgumentError PB.check_symmetric_parameters(NormL1(one(T), Wa), S)
+    Wu = copy(W); Wu[1, 2:end] .= 2floatmin(T)
+    @test within(NormL1(one(T), Wu)(S), l1val(one(T), Wu, M), tol)
     # 11. value_and_prox! returns the value at the stored output: the identity step and a positive step
     # (the positive step 2^(-10-e0) has the threshold 2^-10: every output is 2^-10 + 2^-p, whose products with floatmin
     # again lose δ/2 each, so the value at the stored output must be recovered, and differs from the value at the input)

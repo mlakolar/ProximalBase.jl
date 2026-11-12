@@ -115,7 +115,7 @@ argument, and none dispatches abstractly in a per-entry loop.
   BigFloat references, covering every row of the behavior table, plus
   consumer-level regression tests for SqrNormL2 and LeastSquaresLoss.
 * `docs/audit/numerical-kernels-865/characterize.jl` loads the baseline and the
-  candidate source trees in one process. It runs the same grid of about 118,000
+  candidate source trees in one process. It runs the same grid of 148,528
   ordinary and exceptional calls on each and compares every result bit for bit.
   The grid covers SqrNormL2 value, gradient, value_and_gradient, prox!,
   prox_block and Scaled value parts, on dense, sparse, block and symmetric

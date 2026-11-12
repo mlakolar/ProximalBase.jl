@@ -22,3 +22,7 @@ frozen storage bookkeeping checks, with no packaged Testing extension.
 This is the complete minimal suite, not the historical package full suite.
 The removed historical catalog is preserved at the frozen baseline and
 legacy/full. No retained failure is skipped to accommodate the reduction.
+
+`block_value_updates` checks buffered block writes against a plain dense vector,
+including active zeros, position/order invariants, prefixes, conversion failures,
+overlapping sources, and contiguous, strided, arbitrary and reversed groups.

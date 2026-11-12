@@ -1,4 +1,6 @@
 # Independent symmetric coordinates
+#
+# *Assumes: symmetric matrices and norms · You will learn: independent matrix coordinates, views and symmetric operations.*
 using ProximalBase, LinearAlgebra, SparseArrays
 x = SymmetricSparseIterate(3)
 x[3, 1] = 2

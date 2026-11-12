@@ -4,6 +4,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 import json
+import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parent
@@ -109,6 +110,16 @@ def main():
                     f'{page.path.relative_to(BUILD)}: table {table_index} '
                     f'has inconsistent cell counts: {counts}'
                 )
+        # Documenter inline math uses double backticks in source. If table
+        # parsing consumed a mathematical |, malformed math can survive as
+        # literal double backticks inside a cell even when that row happens
+        # to have the expected final number of HTML columns.
+        raw_html = page.path.read_text()
+        if re.search(r'<td\\b[^>]*>(?:(?!</td>).)*`{2}', raw_html, re.S | re.I):
+            errors.append(
+                f'{page.path.relative_to(BUILD)}: unrendered double-backtick '
+                'math or code inside a rendered table cell'
+            )
         assert page.footer, f'Missing previous/next footer: {page.path}'
         assert len(page.toggles) == 8, f'Expected eight shallow expandable categories: {page.path}'
     # These pages are generated from docs/design/*.md. Their math and code

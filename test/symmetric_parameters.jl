@@ -305,6 +305,62 @@ end
   end
 end
 
+@testset "ordinary oracles do not scan mirrored parameter pairs" begin
+  p = 12
+  rng = MersenneTwister(7)
+  W = symm(rand(rng, p, p) .+ 0.1)
+  makers = ["NormL1" => a -> NormL1(0.3, a), "SqrNormL2" => a -> SqrNormL2(0.7, a),
+            "LinearFunction" => a -> LinearFunction(a), "Scaled(NormL1)" => a -> 2.0 * NormL1(0.3, a),
+            "nested Scaled(LinearFunction)" => a -> 2.0 * (1.5 * LinearFunction(a)),
+            "WeightedSquare" => WeightedSquare]
+  xs = ["sparse" => sparse_iterate(Float64, p), "full" => full_iterate(Float64, p, rng)]
+  for (name, mk) in makers, (xname, x) in xs
+    a = ReadCounter(W)
+    f, c = mk(a), mk(Symmetric(ReadCounter(W), :L))
+    # The control is symmetric by type, so no oracle scans it: its reads are the ones the mathematics needs.
+    counter(g) = g isa Scaled ? counter(g.f) : first(PB.entry_parameters(g)).second
+    carr = counter(c)
+    carr = carr isa Symmetric ? carr.data : carr
+    function measure(op)
+      reset!(a); reset!(carr)
+      for (g, k) in ((f, a), (c, carr))
+        try
+          op(g)
+        catch e
+          e isa MethodError || rethrow()      # an operation that the function does not define
+        end
+      end
+      reads(a), reads(carr)
+    end
+    ops = Pair{String, Function}[
+      "value" => g -> g(x),
+      "prox! to a symmetric iterate" => g -> prox!(output_iterate(Float64, p), g, x, 0.4),
+      "prox! to a dense matrix" => g -> prox!(zeros(p, p), g, x, 0.4),
+      "value_and_prox! to a symmetric iterate" => g -> value_and_prox!(output_iterate(Float64, p), g, x, 0.4),
+      "value_and_prox! to a dense matrix" => g -> value_and_prox!(zeros(p, p), g, x, 0.4),
+      "prox! from a dense matrix" => g -> prox!(output_iterate(Float64, p), g, Matrix(x), 0.4),
+      "kkt_violation" => g -> kkt_violation(g, ones(p, p), x, 2),
+    ]
+    if issmooth(f)
+      push!(ops, "gradient! to a symmetric iterate" => g -> gradient!(output_iterate(Float64, p), g, x))
+      push!(ops, "gradient! to a dense matrix" => g -> gradient!(zeros(p, p), g, x))
+      push!(ops, "value_and_gradient! to a symmetric iterate" => g -> value_and_gradient!(output_iterate(Float64, p), g, x))
+    end
+    for (opname, op) in ops
+      n, m = measure(op)
+      @test n == m
+    end
+    # the explicit checker reads both entries of every mirrored pair, once
+    reset!(a)
+    @test PB.check_symmetric_parameters(f, x) === true
+    @test reads(a) == p * (p - 1)
+    @test count(>(1), a.n) == 0 && all(iszero, a.n[diagind(a.n)])
+    reset!(carr)
+    @test PB.check_symmetric_parameters(c, x) === true
+    @test reads(carr) == 0
+  end
+end
+
 @testset "a custom extension is validated explicitly" begin
   for T in (Float32, Float64)
     f = WeightedSquare(T[1 2; 2 3]); s = SymmetricSparseIterate(T[1 2; 2 0]); snapshot = state(s)

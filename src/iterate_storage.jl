@@ -118,7 +118,7 @@ Its coordinates are numbered column by column (`tril_index`):
 Public indexed assignment updates them, `activecoordinates` lists the
 active ones and `coordinates` is a vector view of them.
 
-See Symmetric parameters for which arrays must be symmetric and which calls check them.
+See Symmetric parameters for which arrays must be symmetric and who validates them.
 """
 mutable struct SymmetricSparseIterate{T}
     nzval::Vector{T}            # stored nonzero values (1:nnz)

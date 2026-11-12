@@ -11,10 +11,13 @@ Abstract supertype for mathematical functions with callable values, gradients
 and proximal operators. Declare `issmooth`, `isproximable`, `isseparable` and
 `isconvex` for the function's type. Mutating oracles take their output first.
 
-Shapes, real element types and parameters are checked before predictable output
-writes. SymmetricSparseIterate parameters must be exactly symmetric at the
-pairs the kernel reads; custom separable functions declare `entry_parameters`.
-A failure during numerical computation may leave the output changed.
+Shapes, real element types and parameter extents are checked before predictable
+output writes. The per-entry parameters of a function used on a
+SymmetricSparseIterate (weights, centers, coefficients) must be exactly symmetric:
+this is a precondition on the model that the oracles assume and do not compare.
+Validate it once per model with `ProximalBase.check_symmetric_parameters`; custom
+separable functions declare their arrays with `entry_parameters`. A failure during
+numerical computation may leave the output changed.
 """
 abstract type AbstractFunction end
 
@@ -172,24 +175,31 @@ supply this method to work on a `SymmetricSparseIterate`; its default
 is `nothing` (undeclared). The declaration must include every per-entry array.
 It describes only `f` itself, not the functions inside its wrappers.
 
-The generic array and coordinate oracles check these parameters automatically.
-An override of a public oracle replaces that boundary and should call
-`ProximalBase.check_symmetric_parameters` when accepting a symmetric
-iterate. Built-in wrappers also check their inner functions before writing.
-Raw entry oracles and `restrict` have no iterate to check; validate the original
-function before using them.
+Only `ProximalBase.check_symmetric_parameters` reads this declaration. The
+numerical oracles do not compare mirrored entries of these arrays: the caller or
+solver validates the model, and an oracle given asymmetric parameters has no
+guaranteed numerical meaning. Built-in wrappers expose their inner function's
+arrays to the checker. Raw entry oracles and `restrict` have no iterate; validate the
+original function before using them.
 
-See Symmetric parameters for which arrays must be symmetric and which calls check them.
+See Symmetric parameters for which arrays must be symmetric and who validates them.
 """
 function entry_parameters end
 
 """
     ProximalBase.check_symmetric_parameters(f,x)
 
-Validate caller-supplied per-entry parameters on a symmetric iterate. Arrays
-must be exactly symmetric at off-diagonal pairs; malformed or undeclared
-custom separable parameter metadata throws ArgumentError. Built-in public
-oracles call their relevant checks before writes. Other iterates return true.
+Validate caller-supplied per-entry parameters on a symmetric iterate. Every
+declared array must be exactly symmetric at every off-diagonal pair, including
+pairs the iterate does not store, recursively through `Scaled`; an asymmetric
+array, or malformed or undeclared custom separable parameter metadata, throws
+`ArgumentError`. Arrays symmetric by type, such as `Symmetric(W, :L)`, pass.
+Other iterates return true.
+
+The numerical oracles never call this check: validate the model at the solve or
+workspace boundary, and again after changing a parameter array. A successful
+check is not recorded anywhere and is not a replacement for `check_parameters`
+or the shape checks of the oracles.
 """
 function check_symmetric_parameters end
 
@@ -362,15 +372,16 @@ ZeroFunction, LinearFunction, SqrNormL2 and supported Scaled leaves.
 For SparseIterate and SymmetricSparseIterate, the four-argument form checks
 real types, coordinate bounds (BoundsError), then full gradient entry count
 (DimensionMismatch): length(x) or p², respectively. A flat or matrix-shaped
-gradient of that count is accepted. The symmetric iterate uses the symmetric gradient pair
-and checks parameter symmetry at the chosen independent coordinate; opposing
-infinities in that gradient pair throw ArgumentError.
+gradient of that count is accepted. The symmetric iterate uses the symmetric gradient pair;
+opposing infinities in that gradient pair throw ArgumentError. The extent of
+the function's parameters is checked, but their mirrored entries are not compared:
+symmetric parameters are a precondition (see `check_symmetric_parameters`).
 
 For BlockIterate, k is a group and retained scalar-screen functions return
 the maximum screen over its ordered global entry indices. That path does not
 add the same explicit full-gradient extent preflight. Other array points add
 no coordinate/gradient extent check beyond function/indexing checks. Raw
-three-argument calls have no symmetric iterate on which to validate mirrored parameters.
+three-argument calls have no symmetric iterate and no parameter validation.
 """
 function kkt_violation end
 
@@ -386,7 +397,7 @@ function kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparse
   r, c = tril_cartesian(x.p, k)
   view = _SymmetricGradient(g, x.p)
   view[(c - 1) * x.p + r]  # reject an undefined symmetric part before dispatch
-  _check_entry_arrays(f, x, _CoordinatePair(Int(k)))
+  _check_parameter_extent(f, x)
   _kkt_violation(f, view, x, k)
 end
 # k must be a coordinate of x, tested before any conversion of k, and g must have the extent of the

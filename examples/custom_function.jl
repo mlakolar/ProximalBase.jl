@@ -33,21 +33,20 @@ activate!(s, 3)
 z = prox(f, s, 0.5)
 @assert Vector(z) ≈ prox(f, x, 0.5)
 @assert nactive(z) == 2  # fresh output does not inherit an active zero
-# The declaration enables exact mirrored-parameter checks on symmetric iterates.
+# On a symmetric iterate the weights must be exactly symmetric. The oracles assume
+# this; the declaration above lets the explicit check validate the model once.
 h = WeightedSquare([1.0 2; 2 3])
 sym = SymmetricSparseIterate([1.0 2; 2 0])
 @assert ProximalBase.check_symmetric_parameters(h, sym)
 @assert h(sym) ≈ sum(h.w .* Matrix(sym).^2) / 2
 @assert Matrix(prox(h, sym, 0.5)) ≈ Matrix(sym) ./ (1 .+ 0.5 .* h.w)
-# Preflight errors leave both the values and activity of a destination unchanged.
+# Asymmetric weights are an invalid model, rejected by the explicit check before any
+# oracle is called. The oracles give them no meaning.
 bad = WeightedSquare([1.0 2; 3 1])
-before = copy(sym)
 try
-    prox!(sym, bad, sym, 0.5)
+    ProximalBase.check_symmetric_parameters(bad, sym)
     error("expected asymmetric weights to fail")
 catch err
     @assert err isa ArgumentError
 end
-@assert Matrix(sym) == Matrix(before)
-@assert collect(activecoordinates(sym)) == collect(activecoordinates(before))
 Vector(z)

@@ -12,8 +12,9 @@ omitted. Its proximal operator is entry-wise soft thresholding
 coordinate, and on a sparse iterate the value and the proximal operator touch
 only the stored entries. On a `SymmetricSparseIterate` the weights are a
 `p × p` matrix (or anything indexed by the linear indices of one), as for a
-dense matrix. When symmetry is required, mirrored weights must agree at each
-coordinate the operation reads. Wrap a matrix in `Symmetric(W, :L)` to use its
+dense matrix. On a symmetric iterate the weights must be exactly symmetric, a
+precondition that the oracles assume and do not compare; validate it with
+`ProximalBase.check_symmetric_parameters`. Wrap a matrix in `Symmetric(W, :L)` to use its
 lower triangle.
 Values follow the overflow rule in Overflow and underflow of values.
 An infinite weight maps a **finite input value** to zero at every level and
@@ -27,7 +28,7 @@ finite level, step and weight factors is not an infinite model parameter;
 its behavior for `±Inf` inputs is a deferred limitation (issue #866).
 The value is `0` at the zero vector and remains `NaN` at a `NaN` entry.
 
-See Symmetric parameters for which arrays must be symmetric and which calls check them.
+See Symmetric parameters for which arrays must be symmetric and who validates them.
 """
 struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T

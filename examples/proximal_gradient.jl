@@ -1,5 +1,8 @@
 # Proximal-gradient iteration
 #
+# *Assumes: gradient descent and convexity · You will learn: a complete proximal-gradient iteration and its optimality check.*
+# Review the proximal idea in [proximal gradient](../glossary.md#Proximal-operator).
+#
 # This loop is educational caller code. ProximalBase supplies gradient and prox.
 using ProximalBase, LinearAlgebra
 function illustrate_pg()
@@ -28,7 +31,7 @@ function illustrate_pg()
     ## Compute the gradient mapping explicitly: no solver helper is needed.
     G = (β - prox(g, β - γ * gradient(f, β), γ)) / γ
     @assert norm(G, Inf) < 1e-10
-    @assert maximum(abs.(gradient(f, β) + 0.2sign.(β))) < 1e-10
+    @assert maximum(abs.(gradient(f, β) + 0.2 .* sign.(β))) < 1e-10
     (coefficients = β, mapping_norm = norm(G, Inf))
 end
 illustrate_pg()

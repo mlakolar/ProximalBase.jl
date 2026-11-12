@@ -1,5 +1,9 @@
 # BlockIterate
 
+*Assumes: vector indexing and block-coordinate methods · You will learn: group storage, active blocks and block views.*
+
+Here an [active](glossary.md#Active-coordinate) block is retained in the solver's storage, even if all its entries are zero.
+
 A [`BlockIterate`](@ref) is an `AbstractVector` whose optimization coordinates
 are ordered groups of entries. It stores a dense value vector and an active
 set of groups. A nonzero entry activates the whole group. An active group may
@@ -9,7 +13,7 @@ contain only zeros until `dropzeros!` removes it.
 
 Use `BlockIterate([T,]p,groups)` for empty storage or
 `BlockIterate(x::AbstractVector,groups)` to copy entry values. `T` defaults
-to Float64. A copied input starts with the groups containing a converted
+to `Float64`. A copied input starts with the groups containing a converted
 nonzero entry active, in group order. Real element types are required.
 
 Groups must be nonempty disjoint integer lists covering exactly `1:p`.
@@ -21,8 +25,9 @@ the order used by compact block buffers. Vector groups are copied into owned
 
 `BlockIterate([T,]p,K)` and `BlockIterate(x,K)` divide the entries into `K`
 equal contiguous groups; `K` must be positive and divide the entry length.
-There is no retained constructor accepting a built-in group-penalty object.
-A partition is a storage choice independent of NormL1's entrywise penalty.
+A group partition describes how variables are **stored and updated**; it
+is not itself a penalty or regularization function. Pass groups as indices,
+not as a penalty object. `NormL1` remains an entrywise mathematical function.
 
 ```@example block_layout
 using ProximalBase
@@ -40,7 +45,7 @@ collect(blockindices(x,1))
 `x[j]` reads/writes entry `j`; `activate!(x,k)` and `isactive(x,k)` use a
 **group** ID. `nactive` counts groups; `activecoordinates` lists their IDs
 in activation order except for later compaction. `coordinates(x)` and
-`activevalues(x)` have no BlockIterate method. Use `blockview(x,k)` to access
+`activevalues(x)` have no `BlockIterate` method. Use `blockview(x,k)` to access
 a group's values.
 
 `blockindices(x,k)` returns a read-only vector/range of global entry indices.

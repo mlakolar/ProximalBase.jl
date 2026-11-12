@@ -1,7 +1,7 @@
 # Developer Documentation
 
 This section explains implementation invariants and extension boundaries.
-Begin with [function objects](../function_objects.md), [the interface](../interface.md)
+Begin with [function objects](../function_objects.md), [operations and calling conventions](../operations.md)
 and [iterates](../iterates.md) for ordinary usage.
 
 | Area | Guide | Contract / evidence |
@@ -10,7 +10,7 @@ and [iterates](../iterates.md) for ordinary usage.
 | Entry storage | [SparseIterate internals](sparse_storage.md) | [Iterate-family contract](contracts/iterate-family-0.6.md) |
 | Group storage | [BlockIterate internals](block_storage.md) | Same family contract; block_copy tests |
 | Symmetric owner | [Owner internals](symmetric_storage.md) | [Symmetric contract](contracts/symmetric-sparse-iterate-0.6.md) |
-| Ownership | [Views, aliases and failure behavior](views_aliasing.md) | Retained iterate_writes/matrixview/real_iterates suites |
+| Ownership | [Views, aliases and failure behavior](views_aliasing.md) | Retained iterate_writes/`matrixview`/real_iterates suites |
 | Mathematical extension | [Function dispatch](oracle_dispatch.md) | [Pure block contract](contracts/block-prox-0.6.md) |
 | Precision and exceptional arithmetic | [Numerical contract](../numerics.md) | ridge_precision, minimal_math and product suites |
 | Contribution/validation | [Change process](change_process.md) | Current CI.yml and test/tiers.toml |

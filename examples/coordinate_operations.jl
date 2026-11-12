@@ -1,4 +1,7 @@
 # Coordinate-level operations
+#
+# *Assumes: partial derivatives and vector indexing · You will learn: coordinate-wise updates, residual tracking and KKT screens.*
+# For the terminology behind [working-set screening](../glossary.md#Working-set).
 using ProximalBase, LinearAlgebra
 function illustrate_coordinates()
     X = [1.0 0; 0 2; 1 1]
@@ -24,7 +27,7 @@ function illustrate_coordinates()
         if iszero(β[j])
             @assert kkt_violation(g, grad, β, j) <= 1e-10
         else
-            @assert abs(grad[j] + 0.2sign(β[j])) < 1e-10
+            @assert abs(grad[j] + 0.2 * sign(β[j])) < 1e-10
         end
     end
     ## The three-argument screen tests a coordinate hypothetically at zero.

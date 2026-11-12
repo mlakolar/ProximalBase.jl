@@ -31,7 +31,7 @@ surviving last slot into a hole. Slot order is unstable; coordinate meaning is
 stable. Consumers must reacquire active handles and remap any slot-indexed
 history. Empty/all-zero working sets must preserve the same invariants.
 
-Same-shape SparseIterate `copyto!` replaces state. It converts fallible **stored**
+Same-shape `SparseIterate` `copyto!` replaces state. It converts fallible **stored**
 values before writing; stale capacity beyond s is irrelevant and must not be
 converted. Different shapes of equal length copy values in linear order.
 Different lengths throw. Ordinary broadcasts and array writes preserve
@@ -54,7 +54,7 @@ Sparse-aware matrix/dot kernels address stored entries and skip zero iterate
 coefficients. Generic array fallback and coordinate-view operations may visit
 all entries and use IEEE zeros. The direct three-factor FP32/FP64 methods have
 specific range recovery, not a universal guarantee for all products.
-Scalar lmul!/rmul!/division on SparseIterate matches corresponding broadcasts:
+Scalar lmul!/rmul!/division on `SparseIterate` matches corresponding broadcasts:
 if the scalar maps zero to a nonzero (Inf/NaN arithmetic), absent coordinates
 must activate. A failed conversion may partially write, while keeping maps
 consistent. See [numerics](../numerics.md).

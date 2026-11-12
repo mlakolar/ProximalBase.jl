@@ -1,6 +1,10 @@
 # Coordinate descent
 
-Coordinate methods update one entry or one ordered block at a time. The caller
+*Assumes: derivatives, quadratic upper models and KKT conditions · You will learn: scalar and block updates, residual maintenance and working-set screening.*
+
+Coordinate methods update one entry or one ordered block at a time.
+A [working set](glossary.md#Working-set) is the subset selected for
+updates and screening; it is not necessarily the nonzero support. The caller
 constructs a trial, requests a pure proximal result, writes the result and
 updates its residual/cache. ProximalBase supplies the function and storage
 operations; the schedule and curvature calculations below are caller code.
@@ -20,9 +24,9 @@ x_j^+=\operatorname{prox}_{g_j/a_j}
 \left(x_j-\frac{\nabla_j f(x)}{a_j}\right).
 ```
 
-The retained scalar call is `prox_block(g,trial,j,1/a[j])`. It accepts a
+The scalar call is `prox_block(g,trial,j,1/a[j])`. It accepts a
 numerical trial and the global entry index, and does not mutate storage.
-The package has no retained coordinate-curvature helper; compute a valid
+ProximalBase does not provide a coordinate-curvature helper; compute a valid
 curvature from the model. Handle a zero curvature explicitly before inversion.
 
 ## Least squares and residual updates
@@ -34,7 +38,7 @@ For ``f(\beta)=\|y-X\beta\|^2/(2n)``, maintain ``r=y-X\beta``. Then
  a_j=\|X_{:,j}\|^2/n,
 ```
 
-and for weighted NormL1,
+and for weighted `NormL1`,
 
 ```math
 \beta_j^+=S_{\lambda_0w_j/a_j}
@@ -71,8 +75,11 @@ repeated sweeps checked against the KKT conditions.
 
 ## Optimality and working sets
 
-For convex differentiable ``f`` and proper closed convex entry penalties,
+For convex differentiable ``f`` and
+[proper closed convex](glossary.md#Proper-closed-convex-function) entry functions,
 ``0\in\nabla_jf(x)+\partial g_j(x_j)`` for every j characterizes a minimizer.
+Here [the subdifferential](glossary.md#Subgradient-and-subdifferential)
+replaces the ordinary derivative at nonsmooth points.
 The weighted lasso conditions are
 
 ```math
@@ -86,7 +93,7 @@ The weighted lasso conditions are
 coordinate assumed zero. It is signed and can be negative. It is not the
 stationarity residual at a nonzero coordinate. `kkt_violation(g,grad,x,k)`
 uses x's coordinate interpretation and adds specified validation; on a
-BlockIterate it takes the maximum scalar screen over the chosen group.
+`BlockIterate` it takes the maximum scalar screen over the chosen group.
 
 A working-set procedure optimizes selected coordinates, computes a full
 gradient to screen excluded zeros, adds violations, and repeats until both
@@ -96,13 +103,15 @@ zeros and need not equal the current mathematical support.
 
 `restrict(f,S)` and `restrict(g,S)` slice supported function parameters, with
 local entry order given by S. For least squares and quadratics, they represent omitted variables fixed at
-zero. Centered SqrNormL2 slices its center and drops the omitted-coordinate
+zero. Centered `SqrNormL2` slices its center and drops the omitted-coordinate
 constant ``(λ/2)\sum_{j\notin S}y_j^2``. When that omitted contribution is finite, this
 changes objective values but not the restricted minimizers, gradients or prox;
 add the constant back when comparing full and restricted values. Nonzero fixed
 variables require a separately derived residual/linear term.
-Only vector-response LeastSquaresLoss has a restriction method. See
-[the working-set example](examples/sparse_working_sets.md).
+Only vector-response `LeastSquaresLoss` has a restriction method.
+See [Restricting functions](restrict.md) for full mathematical definitions,
+nonseparable examples and the distinction between zero-fixed and nonzero-fixed
+subproblems, or the [working-set example](examples/sparse_working_sets.md).
 
 ## Block updates
 
@@ -118,9 +127,9 @@ Least squares can use ``L_k=\|X_{:,G_k}\|_2^2/n``. This generally gives one
 upper-model step, rather than an exact block least-squares solution. Scalar
 column curvatures alone are not a block spectral bound.
 
-BlockIterate supplies an ordered partition and public block views. A separable
+`BlockIterate` supplies an ordered partition and public block views. A separable
 penalty uses scalar `prox_block` at each global member index. A custom block
 penalty supplies the compact-vector extension hook; no built-in group-penalty
-family remains in the minimal core. See [coordinate oracles](iterate_oracles.md)
+family is available in this package. See [coordinate oracles](iterate_oracles.md)
 and the [block extension](examples/block_prox_extension.md). Matching layouts,
 constructing trials and updating caches are the caller's responsibilities.

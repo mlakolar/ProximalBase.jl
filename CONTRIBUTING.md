@@ -20,7 +20,7 @@ New tests go in that manifest and test/TESTING.md.
 
 The unchanged storage suites test active zeros, copies, aliases, views, indexing,
 products and allocation regressions. Independent numerical references and
-retained ridge precision tests cover Float32/64; a custom function verifies the
+ridge precision tests cover `Float32` and `Float64`; a custom function verifies the
 extension hooks. This suite is not the historical full package suite, which is
 preserved on legacy/full.
 

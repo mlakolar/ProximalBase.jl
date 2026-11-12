@@ -5,40 +5,68 @@ This page states the retained numerical behavior and its limits. The
 cover a much larger package; they are historical evidence rather than a live
 capability list. Current source and tests govern the minimal core.
 
-## Result precision and oracle agreement
+## Supported precision and oracle agreement
 
-The supported validation targets are Float32 and Float64 on CPU. Real input
-is required; other real element types can dispatch, with less validation
-coverage. Retained array values are delivered in `float(eltype(x))`.
-Allocating gradient/prox buffers start in the argument's floating element type.
-Mutating methods convert to the destination's element type.
+The supported CPU numerical targets are homogeneous `Float64` and
+homogeneous `Float32`. In the supported configuration, the floating-point
+design/response data, iterate or trial point, function parameters (such as
+levels, weights and centers), proximal step, and floating output buffers
+all use the same type `T`. `Float64` is the primary performance and
+accuracy target; `Float32` is also tested. Individual methods may accept
+ordinary integer parameters; this is not a promise to coerce arbitrary
+mixed floating-point arguments.
 
-The contracts of the fused calls are:
+**Mixed `Float32`/`Float64` is not a guaranteed mode.** Some current
+methods still accept it and perform internal promotion, but their return
+types, numerical accuracy, exceptional-range behavior and performance
+are implementation-specific. They are not required to reject such calls.
+A wider data or parameter type does not establish a general promotion rule
+for the result. Other real types, including `BigFloat`, are not guaranteed
+production types. `BigFloat` remains useful for independent reference tests.
 
-- `value_and_gradient!(out,f,x)` returns the standalone value at x, and writes
-  the standalone gradient in out's precision.
-- `value_and_prox!(out,f,x,γ)` returns the value at the **stored** proximal
-  output, including its rounding, rather than at an unrounded temporary.
-- Exact input/output proximal identity is supported; gradient identity is
-  rejected for built-ins. Other partial/derived-view overlap is unsupported.
+For supported homogeneous array-function calls:
 
-SqrNormL2's model precision for gradient/prox is the wider of argument and
-output floats. Its level, center and step do not widen ordinary calculations;
-parameters are rounded to that model where representable. Least-squares scratch
-uses floating promotion of X and Y; quadratic scratch also promotes b and c.
-A wide parameter/data type is not permission to assume every result is returned
-in that wider type. The source's internal `_model_precision` commentary is
-not a generic precision override for custom functions.
+- `f(x)` returns the value in `T = float(eltype(x))`.
+- Allocating gradient and proximal operations produce their documented
+  representations in `T`; owner-specific results are described in the
+  symmetric iterate guide.
+- Mutating operations respect the destination's element type and never
+  change the caller's storage type.
+- `value_and_gradient!(out,f,x)` returns the standalone value at the
+  input `x` and stores the corresponding gradient in `out`.
+- `value_and_prox!(out,f,x,γ)` returns the value at the **stored**
+  proximal output, including its rounding, not at an unrounded temporary.
+- Exact input/output proximal identity is supported; built-in gradients
+  reject input/output identity. Other partial/derived-view overlap is
+  unsupported.
+
+Some implementations use promoted private scratch or widened arithmetic
+to improve numerical stability. Those internals do not widen the supported
+set of caller precision combinations or imply a generic model-precision
+override for custom functions.
+
+For `Float32` calls, explicitly construct floating parameters and steps
+in `Float32`, rather than assuming Julia's `Float64` literal `0.5`
+will be treated as a supported `Float32` parameter. The
+[array and precision conventions](numerical_usage.md) include a
+homogeneous example for both supported types.
 
 ## Overflow and underflow of values
 
-Ordinary arithmetic order is retained at ordinary magnitudes. Exceptional
-paths recover representable values when an intermediate product or sum would
-leave range. These include scaled square sums, finite-data affine/quadratic
-values and products of nonnegative level/step/weight factors. SqrNormL2 also
-recovers gradient differences and proximal convex-combination coefficients.
-This does not guarantee correctly rounded arbitrary reductions or recovery of
-every gradient/matrix product.
+Ordinary finite calls use efficient numerical paths. Exceptional paths
+selectively recover representable values when an intermediate product or sum
+would overflow or underflow. These include scaled square sums, finite-data
+affine/quadratic values and products of nonnegative level/step/weight factors.
+`SqrNormL2` also recovers gradient differences and proximal convex-combination
+coefficients. Recovery is worthwhile when it changes a materially inaccurate
+answer into a representable result in the working precision.
+
+These are practical numerical safeguards, not a promise of exhaustive
+range recovery or correctly rounded arbitrary reductions, gradients, or
+matrix products. When the final mathematical value itself is out of range,
+an appropriate infinity or underflow to zero may be unavoidable, subject
+to the function's endpoint semantics. There is no cross-platform or
+cross-version bitwise arithmetic-order guarantee.
 
 ```@example numerical_range
 using ProximalBase
@@ -55,7 +83,7 @@ end
 z
 ```
 
-Nested positive finite Scaled factors can retain their exponent sum so an
+Nested positive finite `Scaled` factors can retain their exponent sum so an
 overflowed/underflowed intermediate scale does not discard a recoverable leaf
 result. This mechanism is implemented for retained kernels, not synthesized
 for custom functions. Original `Squared()` scalar arithmetic has no such
@@ -73,13 +101,13 @@ all-NaN result or a particular exception.
 
 | Case | Retained behavior |
 |:--|:--|
-| ZeroFunction value | Zero even at NaN/Inf input entries |
-| Unweighted NormL1, zero level | Zero value on dense float arrays, including NaN entries |
-| NormL1, zero weight | Unpenalized entry at every level |
-| NormL1, infinite weight | Finite trial thresholds to zero even at zero level; NaN/Inf trial can return NaN with finite level; infinite value away from zero |
-| NormL1, infinite level and positive step | Positive-weight entries prox to zero, including non-finite trials |
-| NormL1, finite factors whose product overflows | Distinguished from a genuinely infinite level; bounded-factor recovery is used |
-| SqrNormL2, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
+| `ZeroFunction` value | Zero even at NaN/Inf input entries |
+| Unweighted `NormL1`, zero level | Zero value on dense float arrays, including NaN entries |
+| `NormL1`, zero weight | Unpenalized entry at every level |
+| `NormL1`, infinite weight | Finite trial thresholds to zero even at zero level; NaN/Inf trial can return NaN with finite level; infinite value away from zero |
+| `NormL1`, infinite level and positive step | Positive-weight entries prox to zero, including non-finite trials |
+| `NormL1`, finite factors whose product overflows | Distinguished from a genuinely infinite level; bounded-factor recovery is used |
+| `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
 | Generic custom value/prox | Author-defined arithmetic; traits do not grant recovery or NaN policy |
 | Paired symmetric parameters | Exact equality, NaN matches NaN, signed zeros agree |
 | Opposing infinities in an owner KKT gradient pair | ArgumentError at that chosen pair |
@@ -125,7 +153,7 @@ old numerical entries; α=0 scales/clears output without reading right-operand
 values, after required type/shape/alias checks. Finite summation can depend on
 activation order; compaction can therefore change final rounding.
 
-The direct `A*X*B` kernels for matching Float32/Float64 Symmetric-strided factors
+The direct `A*X*B` kernels for matching `Float32`/`Float64` Symmetric-strided factors
 and matrix iterate X recover the range of individual finite three-factor terms.
 They promise accuracy within one neighboring floating value for a normal term,
 or one spacing for a subnormal term, not correct rounding. A non-finite sum

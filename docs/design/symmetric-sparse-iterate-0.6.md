@@ -1,70 +1,167 @@
-# Symmetric-owner contract: retained minimal core
+# Symmetric sparse iterate contract
 
-**Status:** current documentation of the retained SymmetricSparseIterate
-surface after #850. Historical acceptance goals are archived separately.
+This document describes the current public `SymmetricSparseIterate`
+representation, coordinate indexing, and mathematical operations.
+It replaces the previous full-package design, which remains available in
+the [preserved historical snapshot](https://github.com/mlakolar/ProximalBase.jl/blob/eff21b6d7d33c622313122f46c6ee71693c101ee/docs/design/symmetric-sparse-iterate-0.6-acceptance.md).
 
-## Public representation
+## Mathematical representation
 
-- The owner is a real non-array object of size (p,p), with q=p(p+1)/2
-  independent lower-triangle coordinates numbered down columns.
-- x[r,c] and x[c,r] address one variable. Pair bounds precede narrowing of
-  other integer types. One-integer access throws ArgumentError as ambiguous.
-- coordinates(x) is a live writable length-q vector. matrixview(x) is a live
-  read-only p×p matrix. Matrix(x) is an independent dense copy.
-- The owner has no ordinary length, iteration, array broadcast, fill!, copy!,
-  view or vec interface. axes explicitly throws. Derived matrix-view wrappers
-  must not permit a write to owner storage.
-- Real type, active-zero lifecycle, direct-address capacity, packed handles and
-  compaction follow the retained family contract in independent-coordinate space.
-- copy preserves explicit zeros/order independently; similar is empty.
-  Owner-to-owner copyto! replaces state and stages fallible stored conversions.
-- Matrix construction/import requires real, exact-size/one-based, exactly symmetric
-  input, with equality before conversion. Paired NaNs and signed zeros agree.
-  A source sharing owner storage is rejected. Imports replace activity with
-  converted nonzeros in increasing coordinate order. Conversion failure after
-  clearing can leave partial imported state; import is not atomic state copy.
-- Two owners compare/hash by represented values independent of activation
-  order. NaN/signed-zero distinctions follow == versus isequal. There is no
-  owner-array equality-by-values or isapprox owner method.
+A `SymmetricSparseIterate` represents a real symmetric
+``p\times p`` matrix using
 
-## Geometry and supported mathematical boundaries
+```math
+q=\frac{p(p+1)}{2}
+```
 
-- Matrix values and squared Frobenius distances count an off-diagonal variable
-  twice. The coordinate vector norm counts once. Entrywise Frobenius proximal
-  thresholds are unchanged because both terms have matching multiplicity.
-- Supported mathematical oracles explicitly accept the owner. Current values/
-  prox cover SeparableFunction, SqrNormL2, LinearFunction, ZeroFunction and
-  supported Scaled leaves. Gradients cover SqrNormL2/LinearFunction and supported
-  scaling; ZeroFunction has no owner gradient. Loss/quadratic owner methods
-  are absent.
-- Owner allocating gradient is a dense symmetric matrix; allocating prox is
-  an independent owner. Fused values refer to the input or stored output as
-  specified by the operation.
-- An owner prox output accepts scalar steps only. Array steps are rejected
-  before writes. Supported nonsymmetric matrix arguments are read through
-  their symmetric part; exactly symmetric/type-symmetric arguments retain
-  their values. Import, unlike prox, requires exact symmetry.
-- Per-entry parameter arrays must be exactly symmetric on the pairs the
-  kernel reads. Full validation via check_symmetric_parameters checks all
-  declared pairs recursively. Raw scalar hooks/restrict have no owner check.
-- A scalar hook uses full-entry index (c-1)p+r derived from owner coordinate
-  k. Owner KKT checks its chosen pair and uses the symmetric matrix gradient,
-  rejecting an opposing infinity pair. It does not double the reported screen.
-- Public owner matrix/vector products reject output overlapping either operand
-  before writes. Zero coefficients are skipped, whether stored or absent.
-  The product/three-factor numerical guarantees remain scoped to their exact
-  dispatch domains.
+independent lower-triangular coordinates, numbered down columns. The
+matrix positions ``(r,c)`` and ``(c,r)`` refer to the **same
+variable**, so only one value is stored for each pair.
 
-## Implementation details and evidence
+The owner is **not** an `AbstractArray` or `AbstractMatrix`. Although
+`size(x)` returns `(p,p)` and `eltype(x)` is defined, it does not
+support ordinary array iteration, `length`, `axes`, `vec`, or
+broadcasting. This prevents confusion between independent-coordinate IDs
+and full-matrix linear indices.
 
-The owner currently shares packed list/reverse-map primitives with SparseIterate,
-adding p; public/private matrix views are different types. Those details and
-internal Base alias hooks are not extension APIs. Test pair writes once,
-coordinate mapping, view refusals through wrappers, empty owners, explicit
-zeros, conversion/alias failures and multiplicity independently.
+### Three distinct forms of indexing
 
-Retained suites: symmetric_iterate_interface, symmetric_iterate_indexing,
-matrixview, real_iterates, sparse_iterate_basics, symmetric_products,
-core_functions and minimal_math. Historical acceptance records remain at
-[the preserved snapshot](https://github.com/mlakolar/ProximalBase.jl/blob/eff21b6d7d33c622313122f46c6ee71693c101ee/docs/design/symmetric-sparse-iterate-0.6-acceptance.md).
-They are not reproduced unchanged as current capabilities or test commands.
+| Julia expression | Meaning |
+|:--|:--|
+| `x[r,c]` | Read/write one symmetric matrix variable; `x[c,r]` refers to the same value |
+| `coordinates(x)[k]` | Read/write independent lower-triangle coordinate `k` |
+| `matrixview(x)[i]` | Read full-matrix entry by ordinary Julia linear index `i` |
+| `activecoordinates(x)[a]` | Active coordinate ID in packed slot `a` |
+| `x[k]` | Deliberately rejected with `ArgumentError`: the index space is ambiguous |
+
+For example:
+
+```julia
+x = SymmetricSparseIterate(3)
+x[3, 1] = 2.0
+@assert x[1, 3] == 2.0
+
+k = tril_index(3, 3, 1)
+@assert coordinates(x)[k] == 2.0
+@assert matrixview(x)[1, 3] == 2.0
+```
+
+The public `matrixview(x)` is live but **read-only**, while
+`Matrix(x)` creates an independent dense copy. No view derived
+from the public matrix view may write to owner storage. Bounds checks
+for `x[r,c]` precede narrowing of other integer index types.
+
+## Activity, copies and matrix imports
+
+`SymmetricSparseIterate` follows the same working-set rules as the
+iterate-family contract, but in **independent-coordinate space**.
+
+- `activate!(x,k)` retains an active zero; `dropzeros!(x)` removes
+  numerical zeros while preserving other entries and their values.
+- `copy(x)` makes an independent state copy; `similar(x)` creates
+  an empty owner with the same dimensions.
+- `copyto!(dest,src)` between owners of the same size replaces both
+  numerical values and activity, staging fallible stored conversions
+  before updating the destination.
+- Creating or importing an owner from a matrix requires real data,
+  compatible one-based ``p\times p`` dimensions and **exact**
+  symmetry. Equal mirrored `NaN` values are accepted, and signed
+  zeros compare equal.
+- A source matrix overlapping owner storage must be rejected. Matrix
+  import replaces activity with converted nonzeros in increasing
+  independent-coordinate order. A conversion failure after clearing
+  destination state may leave a partially imported result.
+- `==` compares the represented matrix values. `isequal` and
+  `hash` also reflect signed-zero and `NaN` distinctions.
+  There is no general owner-array `isapprox` or array equality method.
+
+Owner matrix imports require exact symmetry; proximal calls with an
+owner destination instead use the **symmetric part** of a matrix
+argument when supported.
+
+## Frobenius geometry
+
+The owner represents a full symmetric matrix ``X``, not just its
+coordinate vector. Its squared Frobenius norm is
+
+```math
+\|X\|_F^2
+=\sum_{i=1}^{p}X_{ii}^2
+ +2\sum_{i>j}X_{ij}^2.
+```
+
+Each independent off-diagonal variable contributes **twice** to matrix
+values and squared Frobenius distances. The norm of
+`coordinates(x)` counts that independent coordinate only once.
+For separable symmetric entry penalties, the factor of two appears in
+both the function and the proximal squared distance; the scalar
+threshold itself is therefore unchanged.
+
+## Supported mathematical operations
+
+Mathematical function methods accept a `SymmetricSparseIterate`
+**only when that input/output combination is explicitly supported**.
+
+| Operation | Supported function families and behavior |
+|:--|:--|
+| `f(x)`, `prox(f,x,γ)` | `SeparableFunction`, `SqrNormL2`, `LinearFunction`, `ZeroFunction`, and supported `Scaled` wrappers |
+| `gradient(f,x)` | `SqrNormL2`, `LinearFunction`, and supported scaling; the allocated result is a dense symmetric matrix |
+| `prox!(out,f,x,γ)` with an owner `out` | An independent-coordinate owner is written; only scalar steps `γ` are supported |
+| `kkt_violation(f,grad,x,k)` | The chosen independent coordinate, using the symmetric matrix gradient and relevant parameter pair |
+
+`ZeroFunction` supports owner values and proximal maps, but no owner
+gradient. `LeastSquaresLoss` and `QuadraticFunction` have no
+direct owner methods.
+
+The fused operations `value_and_gradient!` and
+`value_and_prox!` return the value at the input or **stored output**,
+respectively, just as for ordinary arrays. An allocating `prox`
+returns a new independent owner. Array-valued proximal steps with
+an owner destination are rejected before writes.
+
+### Symmetric parameters and raw scalar hooks
+
+Per-entry parameter arrays must have exactly equal mirrored entries on
+the pairs examined by the relevant operation. Use
+`ProximalBase.check_symmetric_parameters(f, x)` to validate **all**
+declared pairs recursively before constructing raw scalar trials.
+
+For independent coordinate `k`, first compute
+
+```julia
+r, c = tril_cartesian(p, k)
+i = (c - 1) * p + r
+```
+
+and pass the **full-matrix entry index** `i` to
+`prox_block(f, v, i, γ)` or `value_entry(f, v, i)`.
+A raw scalar hook has no owner argument and therefore does not verify
+symmetric parameter pairs itself.
+
+The owner-specific `kkt_violation` checks its chosen mirrored pair,
+uses the symmetric matrix gradient, and rejects an opposing-infinity
+gradient pair. It does not double the reported scalar screen.
+
+## Linear algebra and aliasing
+
+Supported owner products reject outputs overlapping the owner or a
+numerical operand **before writing**. Zero iterate coefficients are
+skipped even against `NaN` or `Inf` in another factor. The exact
+product and three-factor numerical guarantees apply only to their
+documented Julia dispatch domains.
+
+## Internal implementation and evidence
+
+The current owner shares packed active-list and reverse-map primitives
+with `SparseIterate`, plus its matrix dimension `p`.
+Public and private matrix-view types have different write permissions;
+the internal `Base` alias integration hooks are **not** public
+extension APIs. Test active zeros, mirrored pair writes, coordinate
+mapping, blocked view writes, conversions, aliases and multiplicity.
+
+Relevant test suites include `test/symmetric_iterate_interface.jl`,
+`test/symmetric_iterate_indexing.jl`, `test/matrixview.jl`,
+`test/real_iterates.jl`, `test/sparse_iterate_basics.jl`,
+`test/symmetric_products.jl`, `test/core_functions.jl` and
+`test/minimal_math.jl`. Historical acceptance evidence is kept
+in the archived snapshot, not treated as a current test requirement.

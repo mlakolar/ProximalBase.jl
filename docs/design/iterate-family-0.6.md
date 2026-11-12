@@ -1,76 +1,132 @@
-# Iterate-family contract: retained minimal core
+# Iterate-family contract
 
-**Status:** current documentation of retained public storage behavior after #850.
-This replaces the archived full-family design as the live manual contract.
-It makes no new implementation requirement or performance acceptance claim.
+This contract defines the public storage behavior of `SparseIterate` and
+`BlockIterate`. The independent-coordinate behavior of
+`SymmetricSparseIterate` is documented separately. These requirements
+describe the current implementation and supersede the older full-family
+design preserved in the [historical snapshot](https://github.com/mlakolar/ProximalBase.jl/tree/eff21b6d7d33c622313122f46c6ee71693c101ee/docs/design).
+They do not introduce new performance acceptance targets.
 
-## Public requirements
+## Representations and coordinate spaces
 
-- SparseIterate is a real vector/matrix AbstractArray. Its coordinates are
-  entries in Julia column-major order. BlockIterate is a real AbstractVector
-  with a validated ordered partition, and its coordinates are groups.
-- Coordinate reads/writes, membership and first activation are direct-address
-  operations. Capacity is proportional to the full coordinate/entry domain;
-  sparse traversal is not a compressed-memory guarantee.
-- A nonzero converted value activates an absent coordinate/group. Zero does
-  not activate an absent coordinate or deactivate an active one. activate!
-  explicitly retains a zero coordinate/group. NaN/Inf are nonzero; signed zeros
-  are zero for activation/compaction.
-- nactive counts stored coordinates, including explicit zeros. Active IDs are
-  read-only, unsorted live handles. Sparse activevalues is writable and pairs
-  by slot. Reacquire both after activation, compaction or state replacement.
-- dropzeros! removes only zero coordinates/all-zero groups, preserving values
-  and possibly changing slot order. A stable coordinate ID is not a packed slot.
-- coordinates(SparseIterate) is a live writable ordinary vector. BlockIterate
-  has blockview/blockindices instead, with no coordinates/activevalues method.
-- copy is an independent mutable state copy. similar is zero-valued empty
-  storage. Matching same-kind copyto! replaces active state and preconverts
-  fallible stored values before writes. Different SparseIterate shapes of equal
-  length, or different BlockIterate layouts of equal entry length, copy values.
-- Ordinary value writes and broadcasts preserve existing activity. Clearing
-  requires a zero fill followed by dropzeros!. Matrix-import owner semantics
-  are specified separately in the symmetric contract.
-- Direct array-iterate bulk writers preflight predictable complex-type/shape
-  failures. Arbitrary views, abstractly typed sources and element conversions
-  can fail after partial writes. Invariants must remain consistent.
-- Group membership is immutable in use. Vector input groups are copied;
-  copies/similar can share internal immutable layout data. Public blockindices
-  is read-only and keeps ordered indices for the owner's lifetime.
-- samegroups accepts two BlockIterates and compares ordered groups/members.
-  It may cache equality and needs synchronization when shared concurrently.
-- blockview writes through public entry setters. Complete-block value copy
-  follows Base prefix/alias/conversion semantics; it is not an atomic state copy.
-- nnz is re-exported for standard SparseArrays. It is not implemented for
-  iterates; nactive and explicit nonzero counts have distinct meanings.
+| Type | Julia representation | One optimization coordinate |
+|:--|:--|:--|
+| `SparseIterate` | Real `AbstractArray` (vector or matrix) | One scalar array entry, in column-major order |
+| `BlockIterate` | Real `AbstractVector` with an ordered partition | One group of entries |
 
-## Mathematical operation boundary
+Both representations reserve storage proportional to the **full entry or
+coordinate domain**, not just the number of active variables. They are
+designed for sparse *work*, not compressed sparse *memory*.
 
-Storage does not grant a function operation merely by implementing coordinates.
-Scalar prox_block is pure numerical entry work; compact-vector prox_block! is
-an extension hook. The caller constructs a trial, computes in independent
-scratch, then writes through public storage and updates residuals. No private
-metadata access or implicit storage-aware proximal update is supported.
+Coordinate reads, writes, membership tests and first activation use
+direct-address structures. An **active coordinate** is a position retained
+in the working set. It may contain an exact numerical zero.
 
-Supported sparse-aware products skip zero iterate coefficients even against
-non-finite other operands. Coordinate views instead use ordinary vector
-products and can form IEEE 0*Inf. Exact dispatch domains and range guarantees
-are in the user product table and numerical contract, not all AbstractArray
-fallbacks. No universal no-allocation, atomicity or sparse-complexity promise
-applies to arbitrary inherited array methods.
+## Activity and zero values
 
-## Current implementation notes
+The observable behavior is:
 
-Packed value/ID lists and reverse maps implement SparseIterate; BlockIterate
-uses a dense value vector plus group/position maps. Fields, wrapper types,
-loop thresholds and equality-cache identities are private. They may change
-while preserving the public behavior above.
+- Writing a converted **nonzero** value to an inactive entry/group activates
+  it. Writing zero to an inactive entry/group does not.
+- Writing zero to an **already active** entry/group does not deactivate it.
+  `activate!(x, k)` can explicitly activate a zero-valued coordinate/group.
+- `nactive(x)` counts stored coordinates or groups, including active zeros.
+- `dropzeros!(x)` removes entries equal to zero (or groups whose entries are
+  all zero). It does not remove `NaN` or `Inf`.
+- Positive and negative signed zeros are numerical zeros for activation and
+  compaction; `NaN` and `Inf` are nonzero.
+- An active coordinate **ID** is not its position in the packed active list.
+  Packed slots may change when activity is modified.
 
-## Evidence and historical boundary
+For example:
 
-Retained suites: iterate_invariants, iterate_queries, active_handle,
-iterate_writes, real_iterates, block_copy, sparse_iterate_basics,
-sparse_iterate_basics_grids, sparse_iterate, symmetric_products and matrixview.
-Run the declared test/tiers.toml inventory. Historical full-family acceptance
-records include removed mathematical families and old writers; they are at
-[the immutable snapshot](https://github.com/mlakolar/ProximalBase.jl/tree/eff21b6d7d33c622313122f46c6ee71693c101ee/docs/design),
-not a current method inventory or evidence of tests run today.
+```julia
+x = SparseIterate(4)
+activate!(x, 2)       # keep coordinate 2 active, even though x[2] == 0
+@assert isactive(x, 2)
+@assert nactive(x) == 1
+dropzeros!(x)         # remove the active zero
+@assert nactive(x) == 0
+```
+
+The `activecoordinates(x)` result is a read-only, unsorted **live handle**
+to active IDs; for `SparseIterate`, `activevalues(x)` is a writable
+handle to values in the matching packed-slot order. Reacquire both
+handles after activation, compaction, or replacing storage state.
+
+## Views, groups and copying
+
+- `coordinates(x)` for a `SparseIterate` is a live writable vector.
+  A `BlockIterate` instead exposes `blockindices(x, k)` and
+  `blockview(x, k)`; it does not expose `coordinates` or `activevalues`.
+- Groups are validated, ordered, and immutable **in use**. Vector group
+  inputs are copied. Copies and `similar` may share immutable layout
+  metadata.
+- `ProximalBase.samegroups(x, y)` compares ordered group partitions.
+  Any cached equality result must be synchronized when objects are shared
+  concurrently.
+- `copy(x)` makes independent mutable values and active state.
+  `similar(x)` creates zero-valued empty storage.
+- For matching same-kind layouts, `copyto!(dest, src)` replaces active
+  state, preconverting potentially failing stored-value conversions.
+  For different compatible shapes or group layouts with the same entry
+  length, copying instead proceeds by numerical entries.
+- Ordinary value writes and broadcasting preserve existing activity.
+  Clearing active state requires setting values to zero followed by
+  `dropzeros!(x)`.
+- The exact `copyto!` behavior for a `SymmetricSparseIterate` matrix
+  import is documented in the symmetric-owner contract.
+- `blockview(x, k)` writes through public entry setters. Copying an entire
+  block follows Julia's prefix, alias and conversion behavior; it is not
+  guaranteed to be an atomic state copy.
+
+## Validation and partial writes
+
+Direct bulk writers on array iterates reject predictable complex-type and
+shape errors before writing. Ordinary views, abstractly typed inputs, and
+fallible per-element conversions can still fail after partial writes.
+**The iterate's storage invariants must remain consistent even on failure.**
+
+`nnz` is re-exported for standard `SparseArrays` types, but it is
+**not** a method on these iterates. Use `nactive(x)` for working-set
+cardinality; explicitly stored zeros mean that this need not equal a
+mathematical count of nonzero entries.
+
+## Mathematical operations and storage
+
+Storage methods do not automatically provide a mathematical function
+operation. A scalar `prox_block(f, v, i, γ)` returns a numerical entry
+result. The compact-vector extension `prox_block!(out, f, u, k, γ)`
+writes a numerical output buffer. Neither automatically updates
+`SparseIterate` or `BlockIterate` storage.
+
+The caller constructs the trial, computes the proximal result in
+independent scratch, writes the result through public storage, and updates
+any residuals. Do not access private metadata to synthesize a storage-aware
+proximal update.
+
+Supported sparse-aware products skip **zero iterate coefficients** even
+when the corresponding entry of another operand is `NaN` or `Inf`.
+In contrast, an ordinary coordinate view uses the usual IEEE expression
+``0\cdot\infty``, which can yield `NaN`. The exact supported
+matrix/vector combinations and numerical accuracy promises are specified
+in the user product table and numerical contract. No universal
+zero-allocation, atomicity, or sparse-time guarantee applies to arbitrary
+inherited `AbstractArray` methods.
+
+## Internal representation and tests
+
+Current implementations use packed active value/ID lists and reverse maps
+for `SparseIterate`, and a dense value vector plus group/position maps
+for `BlockIterate`. Fields, wrapper types, thresholds and cache identities
+are private implementation details, not public extension hooks.
+
+Relevant test suites include `test/iterate_invariants.jl`,
+`test/iterate_queries.jl`, `test/active_handle.jl`,
+`test/iterate_writes.jl`, `test/real_iterates.jl`,
+`test/block_copy.jl`, `test/sparse_iterate_basics.jl`,
+`test/sparse_iterate_basics_grids.jl`,
+`test/symmetric_products.jl` and `test/matrixview.jl`.
+Run the test inventory specified by `test/tiers.toml`.
+Historical acceptance plans describe a broader package and are not
+current method inventories or evidence of tests run today.

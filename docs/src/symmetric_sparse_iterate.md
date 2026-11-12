@@ -1,12 +1,16 @@
 # SymmetricSparseIterate: independent coordinates and matrix views
 
+*Assumes: symmetric matrices and indexing · You will learn: independent lower-triangle variables, views and symmetric-matrix geometry.*
+
+This is a specialized [iterate](glossary.md#Iterate), not a Julia `AbstractArray`.
+
 A [`SymmetricSparseIterate`](@ref) owns a real symmetric ``p\times p`` matrix
 with one stored value per independent lower-triangular coordinate. It supports
 constant-time pair access, membership and activation, and packed active
 traversal. Capacity is reserved for all ``q=p(p+1)/2`` coordinates, so memory
 is O(q) even when the working set is small.
 
-**It is not an AbstractArray or AbstractMatrix.** It has `size(x)==(p,p)` and
+**It is not an `AbstractArray` or `AbstractMatrix`.** It has `size(x)==(p,p)` and
 `eltype(x)`, but no array length, axes, iteration or broadcasting. This prevents
 an algorithm from accidentally treating a lower-triangle coordinate ID as a
 full-matrix linear position.
@@ -42,7 +46,7 @@ Pair bounds are checked before narrowing other integer types, with a
 `BoundsError` for an invalid pair. `ncoordinates(x)` is q, `nactive(x)` counts
 stored independent variables, and `isactive/activate!` take independent IDs.
 The direct constructor `SymmetricSparseIterate([T,]p)` accepts nonnegative
-Int dimensions, with Float64 as the default element type.
+Int dimensions, with `Float64` as the default element type.
 
 ## The live views and dense copy
 
@@ -51,9 +55,9 @@ one variable. An inactive coordinate reads zero. A converted nonzero write
 (including NaN/Inf) activates it; zero leaves an inactive coordinate absent
 and an active one active. `fill!(coordinates(x),0)` touches active values
 only and preserves membership; following it with `dropzeros!(x)` empties the
-working set in O(nactive).
+working set in O(s), where `s = nactive(x)`.
 
-`matrixview(x)` is a read-only live ``p\times p`` AbstractMatrix. Both triangles
+`matrixview(x)` is a read-only live ``p\times p`` `AbstractMatrix`. Both triangles
 read the same variable. Writes through the view or derived views/wrappers
 are refused; use the owner or its coordinate view to write. `Matrix(x)` is
 an independent dense snapshot. Allocating broadcasts and `similar` on the
@@ -143,7 +147,7 @@ without doubling the reported entry screen.
 | Operation | Meaning |
 |:--|:--|
 | `x*v`, `x*B`, `mul!(out,x,v/B[,α,β])` | Real right operand; sparse stored traversal; independent output required |
-| `mul!(out,matrixview(x),v[,α,β])` | O(p+nactive) vector product |
+| `mul!(out,matrixview(x),v[,α,β])` | O(p+s) vector product, with `s = nactive(x)` |
 | `dot(a,x,b)` | Bilinear form; one-based real vectors; off-diagonal pair contributes twice |
 | `dot(A,x)` / `dot(x,A)` | Frobenius inner product for strided real matrix A |
 | `transpose(x)` / `adjoint(x)` | The same owner |
@@ -156,11 +160,11 @@ stored zero and absent zero have the same product contribution. Other generic
 operations on the matrix view can visit all p² entries. Generic coordinate
 vector products have ordinary IEEE arithmetic.
 
-SqrNormL2, LinearFunction and SeparableFunction have explicit owner value/prox
-methods; supported Scaled leaves forward them. SqrNormL2 and LinearFunction
-also have owner gradients, allocating a dense symmetric matrix. ZeroFunction
-has owner value/prox, but no owner gradient. LeastSquaresLoss and
-QuadraticFunction have no owner interface. A true capability trait is not
+`SqrNormL2`, `LinearFunction` and `SeparableFunction` have explicit owner value/prox
+methods; supported `Scaled` leaves forward them. `SqrNormL2` and `LinearFunction`
+also have owner gradients, allocating a dense symmetric matrix. `ZeroFunction`
+has owner value/prox, but no owner gradient. `LeastSquaresLoss` and
+`QuadraticFunction` have no owner interface. A true capability trait is not
 sufficient to accept an owner.
 
 A symmetric-owner prox destination accepts a scalar step only. Array steps

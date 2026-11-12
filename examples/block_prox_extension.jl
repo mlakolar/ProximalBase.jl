@@ -1,7 +1,10 @@
 # A compact-vector block proximal extension
 #
+# *Assumes: block-coordinate methods and Julia dispatch · You will learn: a custom block proximal operator that does not mutate solver storage.*
+# The [proximal operator](../glossary.md#Proximal-operator) computes a mathematical point without updating solver storage.
+#
 # BlockSquare defines h_k(u)=a[k]*||u||²/2 on each ordered group.
-# It demonstrates an extension, not a retained built-in group penalty.
+# This example implements a custom group function, not a built-in group penalty.
 using ProximalBase, LinearAlgebra
 struct BlockSquare <: AbstractFunction
     groups::Vector{Vector{Int}}

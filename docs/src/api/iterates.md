@@ -31,7 +31,7 @@ ProximalBase.samegroups
 
 ## Compaction and sparse-array binding
 
-There is no nnz method for iterates. Count activity or mathematical nonzeros
+There is no `nnz` method for iterates. Count activity or mathematical nonzeros
 explicitly as explained in [the guide](../iterates.md).
 
 ```@docs
@@ -54,7 +54,7 @@ tril_cartesian
 
 ## Selected three-factor product docstrings
 
-These methods require matching Float32/Float64 and Symmetric wrappers of strided
+These methods require matching `Float32`/`Float64` and `Symmetric` wrappers of strided
 factors for their direct numerical guarantee. Mixed/generic methods have the
 narrower guarantees described in [numerics](../numerics.md).
 

@@ -1,5 +1,9 @@
 # Symmetric parameters
 
+*Assumes: symmetric matrices · You will learn: when per-entry parameters must match across mirrored matrix positions.*
+
+A symmetric [iterate](glossary.md#Iterate) stores one independent variable for a mirrored matrix pair.
+
 A symmetric owner stores one variable for `(r,c)` and `(c,r)`. Per-entry
 parameters must give the same mathematical function at both positions.
 ProximalBase symmetrizes supported computed matrix arguments and gradients;
@@ -7,16 +11,16 @@ it requires your parameter arrays to be **exactly symmetric**.
 
 ## Which parameters are checked
 
-| Retained function | Per-entry array |
+| Function | Per-entry array |
 |:--|:--|
-| NormL1 | weights w |
-| SqrNormL2 | center y |
-| LinearFunction | coefficients c |
-| Scaled | recurses through its inner function |
-| Custom SeparableFunction | every declared per-entry array |
+| `NormL1` | weights w |
+| `SqrNormL2` | center y |
+| `LinearFunction` | coefficients c |
+| `Scaled` | recurses through its inner function |
+| Custom `SeparableFunction` | every declared per-entry array |
 
 Parameters refer to full matrix positions, usually a p×p array. An entrywise
-weight vector of length p² can be paired in column-major order where the leaf
+weight vector of length p² can be paired in column-major order where the wrapped function
 permits it; center/coefficient writers can impose the full matrix shape/axes.
 Use matching matrices for centers and coefficients. Design matrices, response
 data, block-indexed parameters and scalar levels are not per-entry matrix
@@ -38,12 +42,12 @@ domains; declaring a parameter does not make a negative/NaN weight valid.
 
 | Operation involving an owner | Pairs checked |
 |:--|:--|
-| `f(x)` | Usually all; built-in stored-value paths such as NormL1 compare stored pairs only |
+| `f(x)` | Usually all; built-in stored-value paths such as `NormL1` compare stored pairs only |
 | `prox!`, `value_and_prox!` with owner destination | All, except built-in zero-preserving stored paths with both arguments owners compare pairs stored in input or output |
 | Prox with dense destination and owner point | All declared pairs |
 | Gradient/fused gradient, owner point or output | All declared pairs, when that method exists |
 | Four-argument `kkt_violation` on an owner | Chosen coordinate pair only |
-| `check_symmetric_parameters(f,x)` | All declared pairs, recursively through Scaled |
+| `check_symmetric_parameters(f,x)` | All declared pairs, recursively through `Scaled` |
 | Raw `value_entry`, `prox_block`, three-argument KKT, `restrict` | No owner; no pair check |
 
 A successful stored-only call does not certify unvisited parameter pairs.

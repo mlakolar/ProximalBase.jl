@@ -1,7 +1,7 @@
 # Interface reference
 
-For mathematical meaning and allocation/return conventions, see
-[the interface](../interface.md) and [operation catalog](../operations.md).
+For mathematical meaning, Julia calling conventions, and allocation/return
+behavior, see [Operations on functions](../operations.md).
 The docstrings describe generic declarations as well as concrete methods;
 consult the concrete guides for supported storage/argument combinations.
 

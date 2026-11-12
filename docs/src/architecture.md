@@ -12,19 +12,23 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/ProximalBase.jl` | Module, exports, qualified public names and include order |
 | `src/compat.jl` | Version-dependent Base/SparseArrays compatibility types |
 | `src/utils.jl` | Shape/type checks, range-aware arithmetic, norms, triangular indices and Lanczos norm estimate |
-| `src/sparse_iterate.jl` | SparseIterate, symmetric owner, active maps, views, copies, products and alias integration |
+| `src/sparse_iterate.jl` | `SparseIterate`, symmetric owner, active maps, views, copies, products and alias integration |
 | `src/block_iterate.jl` | Ordered partitions, dense values, group activity, block views and layout comparison |
-| `src/interface.jl` | AbstractFunction, traits, generic allocating/mutating interfaces and coordinate KKT dispatch |
-| `src/functions/smooth.jl` | Zero/linear/ridge/quadratic functions and their specialized kernels |
+| `src/interface.jl` | `AbstractFunction`, traits, generic allocating/mutating interfaces and coordinate KKT dispatch |
+| `src/functions/zero.jl` | Zero function and its value/gradient/proximal operations |
+| `src/functions/linear.jl` | Linear functions and their value/gradient/proximal operations |
+| `src/functions/sqrnorml2.jl` | Squared Euclidean norm and centered ridge operations |
+| `src/functions/quadratic.jl` | Quadratic function and cached eigendecomposition-based proximal map |
 | `src/functions/leastsquares.jl` | Least-squares residual scratch and lazy thin SVD prox |
-| `src/functions/scalar_loss.jl` | Qualified ScalarLoss/Squared and scalar derivative hooks |
-| `src/functions/separable.jl` | Generic entry kernels and NormL1 |
+| `src/functions/scalar_loss.jl` | Qualified `ScalarLoss`/`Squared` and scalar derivative hooks |
+| `src/functions/separable.jl` | Generic separable entry kernels and array/sparse traversal |
+| `src/functions/norml1.jl` | Weighted ℓ₁ family, value and specialized proximal operations |
 | `src/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
 | `src/model_data.jl` | Private retained data-precision metadata |
-| `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods and Scaled forwarding |
+| `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods and `Scaled` forwarding |
 | `src/symmetric_parameters.jl` | Per-entry metadata, checked pair domains, explicit owner oracle integration |
 | `src/block_prox.jl` | Allocating compact-vector wrapper; custom mutating hook remains external |
-| `src/caches.jl` | Public cache invalidation, recursing through Scaled |
+| `src/caches.jl` | Public cache invalidation, recursing through `Scaled` |
 | `src/precompile.jl` | Small retained precompile workloads |
 
 The include order puts storage before the mathematical interface because
@@ -36,11 +40,11 @@ There is no automatic device registration or removed-family plugin layer.
 
 | Public call | Principal retained path |
 |:--|:--|
-| `prox!(y,NormL1(λ,w),x,γ)` | Checked separable boundary → dense/stored traversal → scalar prox_block → shrink |
-| `f(x)` for custom SeparableFunction | Parameter/symmetric validation → entry values; skip inactive zeros only under declared promise |
+| `prox!(y,NormL1(λ,w),x,γ)` | Checked separable boundary → dense/stored traversal → scalar `prox_block` → shrink |
+| `f(x)` for custom `SeparableFunction` | Parameter/symmetric validation → entry values; skip inactive zeros only under declared promise |
 | `gradient!(g,LeastSquaresLoss(Y,X),β)` | Checked output → residual Xβ−Y → transpose-design product |
 | `prox!(y,QuadraticFunction(A,b),x,γ)` | Shape/type preflight → cached eigenbasis → diagonal inverse factors → output conversion |
-| `prox_block(f,u::AbstractVector,k,γ)` | Allocate plain floating Vector → user prox_block! |
+| `prox_block(f,u::AbstractVector,k,γ)` | Allocate plain floating Vector → user `prox_block!` |
 | `prox!(owner,g,V,γ)` | Symmetric argument where needed → parameter-pair preflight → each independent coordinate written once |
 | `kkt_violation(g,grad,block,k)` | Retained scalar screen at each global member → maximum |
 

@@ -1,12 +1,20 @@
-# Smooth functions and losses
+# Smooth array functions
 
-Each array function below supports `f(x)`, `gradient[!]`,
-`value_and_gradient[!]`, `prox[!]` and `value_and_prox!` on its specified
-argument domain. Mutating oracles put the destination first. Gradients require
-an independent input/output pair; proximal calls support `out === x`.
-Other overlapping input/output views are unsupported. The combined gradient
-returns the value at the input; the combined prox returns the value at the
-stored output. Parameter arrays are retained by reference.
+*Assumes: derivatives, matrices and convexity · You will learn: the exact formulas, constructors and supported operations for smooth array functions.*
+
+Each function below has a mathematical definition and a Julia constructor.
+**Constructing** a function supplies its fixed coefficients or data;
+**calling** the resulting object with `f(x)` supplies the point at which
+it is evaluated. The following sections pair each formula with its constructor,
+gradient, proximal map and an executable example.
+
+All functions on this page operate on arrays. Each has values, gradients
+and [proximal operators](glossary.md#Proximal-operator) for its supported inputs. **Scalar prediction losses**
+use a separate [scalar-loss interface](scalar_losses.md).
+For allocating and mutating conventions, input restrictions, shared
+storage and numerical limitations, see
+[Operations on functions](operations.md) and
+[Numerical usage](numerical_usage.md).
 
 ## Least-squares loss
 
@@ -15,8 +23,11 @@ f(B)=\frac12\|Y-XB\|_F^2,\qquad
 \nabla f(B)=X^\top(XB-Y).
 ```
 
-Construct `LeastSquaresLoss(Y,X)` with a real ``n\times p`` design matrix.
-`Y` is a real length-``n`` vector or ``n\times k`` matrix. A vector response
+The mathematical symbols correspond to Julia as follows: construct
+`f = LeastSquaresLoss(Y, X)`, then evaluate `f(B)` or `gradient(f, B)`.
+Here `X` is the real ``n\times p`` **design matrix**, `Y` is the observed
+response, and `B` is the coefficient vector or matrix we want to evaluate.
+`Y` can be a real length-``n`` vector or ``n\times k`` matrix. A vector response
 uses length-``p`` coefficients; a matrix response uses ``p\times k``
 coefficients and a gradient of that shape. There is no intercept, weight or
 normalization keyword. Include an intercept column in `X` if needed, and use
@@ -37,15 +48,15 @@ current data entries. Do not call the same loss object concurrently without
 synchronization. After changing entries of `X` or `Y`, call `reset_cache!(f)`;
 construct a new object if dimensions change. The input data are not copied.
 
-Dense coefficients, vector/matrix SparseIterate and vector BlockIterate use
-supported array products. This loss has no SymmetricSparseIterate-owner,
+Dense coefficients, vector/matrix `SparseIterate` and vector `BlockIterate` use
+supported array products. This loss has no `SymmetricSparseIterate`-owner,
 scalar `prox_block`, `value_entry` or KKT-screen method. Converting an owner
 to `Matrix` gives an ordinary matrix-coefficient problem if dimensions fit.
 `restrict(f,S)` selects design columns only for **vector-response** losses.
 `lipschitz(f)` bounds ``\|X\|_2^2``; it uses a full spectral norm for dense
 strided data and a one/infinity-norm bound for other matrices.
 
-Constructor row mismatch and oracle dimension mismatch throw
+Constructor row mismatch and operation dimension mismatch throw
 `DimensionMismatch`; complex data/arguments throw `ArgumentError`. SVD-based
 proximal evaluation is intended for finite data; no general non-finite-data
 recovery is promised for the decomposition. Value range recovery is separate
@@ -69,19 +80,22 @@ out = similar(x)
 ## Squared Euclidean norm
 
 ```math
-f(x)=\frac\lambda2\|x-y\|^2,\qquad
+f(x)=\frac{\lambda}{2}\|x-y\|^2,\qquad
 \nabla f(x)=\lambda(x-y),\qquad
 \operatorname{prox}_{\gamma f}(x)=\frac{x+\gamma\lambda y}{1+\gamma\lambda}.
 ```
 
-`SqrNormL2(λ=1)` uses zero center; `SqrNormL2(λ,y)` retains a real array center
-of the **same shape** as `x`. The level must be nonnegative; negative/NaN levels
+In Julia, `f = SqrNormL2(λ, y)` creates this function and `f(x)` evaluates
+it at `x`. The argument `λ` is the nonnegative **scale**, while `y` is the
+**center**. `SqrNormL2(λ)` uses center zero, and `SqrNormL2()` uses `λ=1`
+and center zero. When supplied, `y` is a real array of the **same shape** as `x`. The level must be nonnegative; negative/NaN levels
 throw `ArgumentError`, while `Inf` is accepted with exceptional arithmetic
 rather than a general projection policy. On a matrix the norm is Frobenius.
 The domain is real arrays of matching shape; symmetric owners are explicitly
 supported, with exactly symmetric center parameters.
 
-This is the ridge penalty with a factor of one half. `SqrNormL2(1,y)` is half
+When used as a regularizer, this is the usual squared-ℓ₂ (ridge) term
+with a factor of one half. `SqrNormL2(1,y)` is half
 the squared distance to `y`. It is smooth, convex, proximable and separable
 by trait, but it is not a `SeparableFunction` subtype and has no `value_entry`.
 It has scalar `prox_block`, scalar zero-coordinate screens and `restrict`:
@@ -93,11 +107,13 @@ not check whether the discarded contribution is finite; a non-finite constant
 cannot be ignored when reasoning about the original extended-valued objective.
 `lipschitz(f)` is `float(λ)`. Array-step prox is not implemented.
 
-The value has the floating type of the argument. Gradient/prox calculations
-use the wider floating type of argument and destination; level, center and
-step are parameters that do not widen the model. Range recovery avoids losing
-a representable result to overflow/underflow in a coefficient or difference.
-The center is rounded in the model precision where it fits. See
+For supported homogeneous `Float32` or `Float64` calls, the value and
+numerical outputs use that working precision. The implementation may compute
+in a wider type for heterogeneous argument/destination calls, but this is
+not a supported mixed-precision contract. Range recovery avoids losing a
+representable result to overflow/underflow in a coefficient or difference.
+For the supported mode, supply the level, center, step and destination in
+the same floating-point type as the argument. See
 [numerics](numerics.md) for FP32/FP64 and zero/non-finite cases.
 Shape mismatch is `DimensionMismatch`; complex center, argument or output is
 `ArgumentError`. Exact gradient aliasing with the input is rejected. Use
@@ -128,10 +144,12 @@ f(x)=\frac12x^\top A x+b^\top x+c,\qquad
 \operatorname{prox}_{\gamma f}(v)=(I+\gamma A)^{-1}(v-\gamma b).
 ```
 
-Construct `QuadraticFunction(A,b=nothing,c=0)` with a real square
-``p\times p`` matrix, optional real length-``p`` vector, and real scalar
-constant. `nothing` means ``b=0``. The domain is real length-``p`` vectors,
-including vector SparseIterate and BlockIterate; matrix and symmetric-owner
+In Julia, `f = QuadraticFunction(A, b, c)` represents the displayed
+formula, and `f(x)` evaluates it at the variable `x`. The constructor takes
+`A`, the ``p\times p`` quadratic coefficient matrix; `b`, an optional
+length-``p`` linear coefficient vector; and `c`, an optional scalar constant.
+When omitted, `b` and `c` are zero. The domain is real length-``p`` vectors,
+including vector `SparseIterate` and `BlockIterate`; matrix and symmetric-owner
 inputs are not supported. All four capability traits except separability are
 true. There is no scalar `prox_block`, `value_entry` or KKT screen.
 
@@ -173,8 +191,10 @@ prox(f,x,0.5)
 
 ## Zero function
 
-`ZeroFunction()` represents ``f(x)=0`` on real arrays, has zero gradient,
-and identity proximal map. It has all four traits true and is zero preserving.
+The no-argument constructor `f = ZeroFunction()` represents
+``f(x)=0`` for any supported real array `x`. Its gradient is
+``\nabla f(x)=0``, and its proximal operator is the identity,
+``\operatorname{prox}_{\gamma f}(x)=x``. It has all four traits true and is zero preserving.
 It needs no parameters or dimensions. `lipschitz(f)==0`; `restrict(f,S)`
 returns `f`; scalar `prox_block(f,v,i,γ)` returns `v`; its zero-coordinate
 screen is ``|\mathrm{grad}_i|``. It has no `value_entry` method.
@@ -188,7 +208,7 @@ destination, combined prox returns zero. Type and shape errors still apply,
 even though the function is identically zero. Exact gradient aliasing is
 rejected; the value is zero even at NaN/Inf array entries.
 
-**Activity exception:** an array ZeroFunction prox copies via `copyto!` when
+**Activity exception:** an array `ZeroFunction` prox copies via `copyto!` when
 the destination differs from the input. Between same-shaped SparseIterates or
 same-layout BlockIterates this replaces the destination's active state with the
 source's, including explicit zeros. A dense-source copy is an ordinary value
@@ -213,8 +233,10 @@ f(x)=\langle c,x\rangle+d,\qquad
 \operatorname{prox}_{\gamma f}(x)=x-\gamma c.
 ```
 
-Construct `LinearFunction(c,d=0)` with real array coefficients and a real
-constant. It represents an affine function on the full real entry domain;
+Construct `f = LinearFunction(c, d)` and evaluate `f(x)`. In the formula
+above, the Julia array `c` supplies the coefficients and the scalar `d`
+is the constant; omitting `d` sets it to zero. The function is affine on
+the full real entry domain;
 matrices use the Frobenius inner product. Coefficients must have the same
 entry count as `x`; ordinary same-shaped arrays are the portable choice.
 Value calls based on generic `dot` can accept equal-length differently shaped
@@ -249,29 +271,8 @@ prox(f,x,0.5)
 
 ## Scalar squared loss
 
-`ProximalBase.Squared()` is a qualified public concrete subtype of
-`ProximalBase.ScalarLoss`, not `AbstractFunction`. It has no parameters and
-operates on two real scalars:
-
-```math
-\ell(\eta,y)=\tfrac12(\eta-y)^2,\quad
-\partial_\eta\ell=\eta-y,\quad\partial^2_\eta\ell=1.
-```
-
-Use `ℓ(η,y)`, `ProximalBase.deriv(ℓ,η,y)`, `deriv2`, `curvature(ℓ)` and
-`value_and_deriv`. The last returns `(value, derivative)`; none mutates inputs.
-`deriv2` returns one in the floating type of `η`; `curvature` returns `1.0`.
-There is no array `gradient`, `prox`, trait integration, model wrapper or
-automatic loss construction from this hook. Scalar arithmetic uses ordinary
-promotion and can overflow, e.g. squaring a large residual; it does not inherit
-the array LeastSquaresLoss value recovery. Non-real arguments have no method.
-
-```@example library_squared
-using ProximalBase
-ℓ = ProximalBase.Squared()
-@assert ℓ(3.0,1.0) == 2
-@assert ProximalBase.value_and_deriv(ℓ,3.0,1.0) == (2.0,2.0)
-@assert ProximalBase.deriv2(ℓ,3f0,1f0) === 1f0
-@assert ProximalBase.curvature(ℓ) == 1
-ProximalBase.value_and_deriv(ℓ,3.0,1.0)
-```
+For a loss of one prediction and one observation, use the separate
+[Scalar losses](scalar_losses.md) interface. The built-in
+[Squared loss](scalar_squared.md) represents
+``\ell(\eta,y)=(\eta-y)^2/2`` and supplies scalar derivatives,
+rather than array gradients and proximal maps.

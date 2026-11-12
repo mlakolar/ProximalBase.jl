@@ -1,7 +1,10 @@
-# Functions built from functions
+# Scaling a function
 
-The retained wrapper is nonnegative scaling, [`Scaled`](@ref). Keep the loss
-and penalty as separate function objects for composite algorithms.
+*Assumes: scalar multiplication and gradients · You will learn: how `Scaled(f, α)` changes function values, gradients and proximal steps.*
+
+The Julia type [`Scaled`](@ref) represents a nonnegative multiple of
+an existing mathematical function. This **changes the scale** of a function;
+it does not add two functions together or create a solver.
 
 ## Nonnegative scaling
 
@@ -12,30 +15,39 @@ h(x)=\alpha f(x),\qquad \nabla h(x)=\alpha\nabla f(x),\qquad
 \operatorname{prox}_{\gamma h}(x)=\operatorname{prox}_{(\gamma\alpha)f}(x).
 ```
 
-Construct `Scaled(f,α)`, `α*f` or `f*α`, with `f::AbstractFunction` and a real
-nonnegative scale. Negative or NaN scales throw `ArgumentError`; `Inf` is
-accepted with the leaf's exceptional arithmetic. The inner function is retained
-by reference, including its parameters, mutable scratch and caches.
+The symbols map to Julia as follows: start with a function object `f`,
+choose a nonnegative scale `α`, and construct `h = Scaled(f, α)`.
+The expressions `α * f` and `f * α` have the same meaning.
+Call `h(x)` to evaluate the scaled function. Thus **`f` is the function
+being scaled, `α` is the multiplier, and `x` is the evaluation point**.
+Negative or NaN scales throw `ArgumentError`; infinite scaling has
+function-specific exceptional arithmetic described in
+[Numerical usage](numerical_usage.md).
 
-Smoothness, convexity, proximability and separability traits forward from the
-inner type. Zero preservation requires a finite scale and a zero-preserving
-inner instance. Calls only work when the leaf has the necessary method:
-scaling cannot add owner gradients, array-step support, value_entry, full-array
-prox from a block-only extension, or arbitrary compositions.
+Smoothness, convexity, proximability and separability traits come from the
+original function. Zero preservation additionally requires a finite scale
+and an original function that preserves zero. Scaling only works with
+operations already supported by the original function.
+For example, scaling does not create a gradient for a function without one.
+Details about per-entry steps, special storage and extension hooks are in
+[Operations on functions](operations.md) and [Writing your own function](extending.md).
 
-Scalar `prox_block` forwards with the scaled step, and `restrict` wraps the
-restricted leaf. The zero-coordinate screen for positive ordinary scale is
-``\alpha\,v_f(\mathrm{grad}/\alpha)``. `lipschitz` scales the inner bound.
-There is no Scaled `value_entry` or Scaled compact-vector `prox_block!` fallback.
-`reset_cache!` recurses to the leaf and returns the outer object.
+For example, a [proximal point](glossary.md#Proximal-operator) for positive finite `α` and `γ` uses the
+original function's proximal map with step `α * γ`, as in the equation above.
+The `lipschitz` bound also scales by `α`. Other supported operations, such
+as scalar coordinate updates, coordinate restriction, and cache invalidation,
+are forwarded to the original function where methods exist.
+This wrapper does **not** automatically provide every possible extension,
+including `value_entry` or a compact-vector `prox_block!` implementation.
+See [Writing your own function](extending.md) for extension contracts.
 
 ```@example library_scaled
 using ProximalBase
 f = SqrNormL2(2.0)
 h = Scaled(f,0.25)
 x = [2.0,-1]
-@assert h(x) == 0.25f(x)
-@assert gradient(h,x) == 0.25gradient(f,x)
+@assert h(x) == 0.25 * f(x)
+@assert gradient(h,x) == 0.25 * gradient(f,x)
 @assert prox(h,x,0.4) ≈ prox(f,x,0.1)
 @assert lipschitz(h) == 0.5
 @assert reset_cache!(h) === h
@@ -44,26 +56,24 @@ prox(h,x,0.4)
 
 ## Allocation, aliases and validation
 
-The allocating APIs follow the inner argument's array/owner conventions.
-The mutating APIs take the output first; exact proximal input/output identity
-is supported. The combined calls return the value at their respective input
-or stored output. Shapes, types and parameters are checked according to the
-inner operation before predictable writes. Other overlapping input/output
-views remain unsupported. Use independent data/parameter/output arrays.
+The wrapper follows the original function's supported input shapes and
+allocation conventions. It retains the function object by reference, not as
+an independent copy. See [Operations on functions](operations.md) for mutating
+calls and [Numerical usage](numerical_usage.md) for aliasing and cache rules.
 
 Nested positive finite scales retain their exponents when multiplying them
 would overflow or underflow. Built-in recovery paths can fold the total scale
-into NormL1's level or recover a representable squared-norm value. This is not
-a promise that arbitrary custom leaves acquire numerical range recovery.
+into `NormL1`'s level or recover a representable squared-norm value. This is not
+a promise that arbitrary user-defined functions acquire numerical range recovery.
 
 ## A zero scale can change the returned type
 
 `Scaled(f,0)` simplifies only when a domain-preserving representation is known.
 For finite-data built-in losses, quadratics, centered squared norms and affine
-functions it returns `ZeroFunction()`. A zero-scaled finite-level NormL1 with
-finite weights also returns ZeroFunction. Infinite weights are retained in
-`NormL1(0,w)` so their fixed-zero restrictions survive. Infinite NormL1 levels
-and non-finite parameters of the other retained families can make construction
+functions it returns `ZeroFunction()`. A zero-scaled finite-level `NormL1` with
+finite weights also returns `ZeroFunction`. Infinite weights are retained in
+`NormL1(0,w)` so their fixed-zero restrictions survive. Infinite `NormL1` levels
+and non-finite parameters of other function families can make construction
 throw `ArgumentError`. A custom function's zero scale has no generic supported
 representation and throws. Inspect the constructed object rather than assume
 it is always a `Scaled`.
@@ -77,6 +87,6 @@ h = 0 * NormL1(1.0,[Inf,1.0])
 prox(h,[2.0,3.0])
 ```
 
-There is no retained function-object addition or general composition API.
+There is no general function-object addition or composition API.
 `f(x)+g(x)` evaluates two functions then adds their scalar values. To implement
 another mathematical object, use the [extension interface](extending.md).

@@ -1,8 +1,11 @@
 # Function objects and their properties
 
+*Assumes: convexity, gradients, and basic Julia · You will learn: all five function traits and how to use them when selecting operations.*
+
 ProximalBase.jl represents mathematical functions as objects. An
 optimization algorithm can ask a function which properties it has before
-choosing operations such as a gradient or proximal step.
+choosing operations such as a gradient or
+[proximal step](glossary.md#Proximal-operator).
 
 ## The five function traits
 
@@ -37,120 +40,96 @@ and discuss what its value does *and does not* guarantee.
 
 ## Convexity
 
-A function ``f`` is **convex** if, for any points ``x`` and ``y`` in its
-domain and ``0 \leq t \leq 1``,
+You already know the definition of convexity. In this package,
+`isconvex(f)` reports that the function **declares** this property,
+which an algorithm may use when choosing its convergence guarantees.
+This is a declaration, not a runtime verification of the parameters:
+for example, `QuadraticFunction` assumes a symmetric positive-semidefinite
+coefficient matrix and does not certify that condition at construction.
+A convex function need not be differentiable, as ``|t|`` illustrates.
 
-```math
-f(tx+(1-t)y) \leq t f(x) + (1-t)f(y).
+```@example properties
+@assert isconvex(f) && isconvex(g)
 ```
-
-Geometrically, the line segment joining two points on the graph lies above
-the graph. For a convex function, every local minimum is a global minimum
-(under the usual meaning of local minimum relative to its domain).
-This is why convexity helps establish guarantees for optimization algorithms.
-
-Both the squared Euclidean norm and the absolute-value function are convex:
-
-```math
-f(x)=\tfrac12\|x\|_2^2,\qquad
-g(x)=\lambda\|x\|_1,\quad \lambda\geq0.
-```
-
-A function can be convex without being differentiable: ``|x|`` has a corner
-at zero. Thus **convex** and **smooth** describe different properties.
-
-For the functions provided here, `isconvex(f)` reports the declared mathematical
-assumption; it is **not** a runtime proof about supplied data. For example,
-`QuadraticFunction` assumes its matrix is symmetric positive semidefinite;
-its constructor does not certify that assumption.
 
 ## Smoothness and gradients
 
-In optimization, a **smooth** function generally means one that can be
-differentiated and for which gradient-based computations are appropriate.
-For a differentiable function, the gradient is the vector of partial
-derivatives:
-
-```math
-\nabla f(x)=
-\begin{bmatrix}
-\partial f(x)/\partial x_1\\
-\vdots\\
-\partial f(x)/\partial x_p
-\end{bmatrix}.
-```
-
-It describes the first-order change in the function:
-
-```math
-f(x+h)\approx f(x)+\langle\nabla f(x),h\rangle.
-```
-
-For the squared norm, ``f(x)=\|x\|_2^2/2``, the gradient is simply
-``\nabla f(x)=x``. A gradient-descent step therefore has the form
-
-```math
-x^{+}=x-\gamma\nabla f(x).
-```
+The trait `issmooth(f)` indicates that the function supplies gradient
+and combined value/gradient operations on the interior of its domain.
+It does **not** promise a particular step size or a globally Lipschitz
+gradient. When available, use
+[`lipschitz`](@ref) to obtain a bound appropriate to the algorithm.
 
 ```@example properties
 gradient(f, x)                  # [2.0, -1.0]
-x - 0.1 * gradient(f, x)        # one gradient-descent step
+@assert issmooth(f) && !issmooth(g)
 ```
-
-By contrast, the ``\ell_1`` norm is not differentiable at coordinates equal
-to zero, so `NormL1` is not smooth. It is still convex and proximable.
-
-**What the trait promises:** `issmooth(f)` indicates that the function
-supplies gradient and fused value/gradient operations on the interior of its
-domain. It does **not**, by itself, establish a globally Lipschitz gradient
-or an acceptable step size. Where available, consult [`lipschitz`](@ref)
-and use an algorithm with an appropriate step-selection rule.
 
 ## Proximability and proximal operators
 
-A function is **proximable** when its *proximal operator* can be computed
-efficiently. For step ``\gamma>0``, this operator is
+A **[proximal operator](glossary.md#Proximal-operator)** generalizes
+something you already know: Euclidean projection.
+If ``g`` is the mathematical **indicator** of a nonempty closed convex
+set ``C`` (zero on ``C`` and ``+\infty`` outside),
+then the proximal point of ``g`` is the projection of the input onto
+``C``. Thus proximal gradient extends projected gradient descent.
+This indicator is a mathematical illustration, not a claim that the
+current function library includes every indicator function.
+
+For a general function ``g`` and positive step ``\gamma``,
+the proximal operator instead solves
 
 ```math
-\operatorname{prox}_{\gamma g}(x)
-=\mathop{\arg\min}_z
-\left\{
-g(z)+\frac{1}{2\gamma}\|z-x\|_2^2
-\right\}.
+\operatorname{prox}_{\gamma g}(v)=
+\operatorname*{argmin}_z\left\{g(z)+\frac{\|z-v\|_2^2}{2\gamma}\right\}.
 ```
 
-The proximal operator balances two goals: reducing ``g(z)`` while staying
-near the input ``x``. Unlike a gradient step, it can handle many
-**nondifferentiable** penalties directly.
+The first term rewards lowering ``g``; the second discourages moving too
+far from ``v``. A function is **[proximable](glossary.md#Proximable)**
+when its proximal point can be computed efficiently.
+In particular, it may be proximable without being differentiable.
 
-For ``g(x)=\lambda\|x\|_1``, the proximal operator is **soft
-thresholding**, applied independently to each coordinate:
+For the ℓ₁ function ``g(x)=\lambda\|x\|_1``, the proximal operator is
+[soft thresholding](glossary.md#Soft-thresholding):
+reduce each magnitude by ``\gamma\lambda`` and set it exactly to zero
+when it starts in ``[-\gamma\lambda,\gamma\lambda]``.
 
 ```math
-[\operatorname{prox}_{\gamma g}(x)]_i
-=\operatorname{sign}(x_i)\max(|x_i|-\gamma\lambda,0).
+[\operatorname{prox}_{\gamma g}(v)]_i
+=\operatorname{sign}(v_i)\max(|v_i|-\gamma\lambda,0).
 ```
+
+For our earlier example, ``v=(2,-1)``, ``\lambda=0.5`` and
+``\gamma=1``. The threshold is ``0.5``, giving
+``(2-0.5,-(1-0.5))=(1.5,-0.5)``.
 
 ```@example properties
-prox(g, x, 1.0)                 # [1.5, -0.5]
-isproximable(g)                # true
-issmooth(g)                    # false
+@assert prox(g, x, 1.0) == [1.5, -0.5]
+@assert isproximable(g) && !issmooth(g)
 ```
 
-This illustrates why a nonsmooth penalty can still be convenient in a
-solver. For example, a proximal-gradient algorithm for ``f+g`` can use
+**Why does a solver combine a gradient and a proximal map?**
+You know that an ``L``-smooth loss obeys the quadratic upper bound
 
 ```math
-x^{+}=\operatorname{prox}_{\gamma g}
+f(z)\le f(x)+\langle\nabla f(x),z-x\rangle
++\frac{L}{2}\|z-x\|_2^2.
+```
+
+Add ``g(z)`` to that upper model and minimize it over ``z``.
+Completing the square yields the proximal-gradient step, with
+``\gamma=1/L``:
+
+```math
+x^+=\operatorname{prox}_{\gamma g}
 \bigl(x-\gamma\nabla f(x)\bigr).
 ```
 
-ProximalBase provides the mathematical operations; choosing step sizes,
-iterations and stopping criteria belongs to an optimization algorithm
-(such as one implemented using ProximalSolvers.jl). A proximable trait
-does not mean a prox method supports every possible input shape or storage
-type. See [Operations on functions](operations.md).
+A solver chooses the step size, repeats the update, and checks a stopping
+condition; ProximalBase only supplies the mathematical operations.
+The trait `isproximable(g)` does not imply that every possible array
+shape or iterate type has a corresponding `prox` method.
+See [Operations on functions](operations.md) for supported calls.
 
 ## Separability and coordinate operations
 

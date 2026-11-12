@@ -10,7 +10,10 @@ The preserved storage suites cover scalar/block/symmetric indexing, active
 zeros, copies, views, aliases, arbitrary block layouts, writes and products.
 `ridge_precision` preserves the frozen independent BigFloat ridge tests and
 excludes only constrained-ridge sections. `minimal_math` uses independent dense
-and BigFloat references across Float32/64. `core_functions` exercises retained
+and BigFloat references across Float32/64.
+`numerical_kernels` tests the shared overflow/underflow kernels of utils.jl
+(bounded products, halved residuals, squared residuals) against BigFloat
+references in Float32/64, including genuine NaN/Inf inputs and exact zeros. `core_functions` exercises retained
 interface, lasso building blocks and custom scalar/vector block extensions.
 `cache_and_blocks` protects cache reset after referenced data mutations and
 block-coordinate KKT semantics. `ci_contract` protects required Linux gates and

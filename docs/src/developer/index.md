@@ -9,7 +9,7 @@ and [iterates](../iterates.md) for ordinary usage.
 | Architecture | [Source map](../architecture.md) | Current module include graph |
 | Entry storage | [SparseIterate internals](sparse_storage.md) | [Iterate-family contract](contracts/iterate-family-0.6.md) |
 | Group storage | [BlockIterate internals](block_storage.md) | Same family contract; block_copy tests |
-| Symmetric owner | [Owner internals](symmetric_storage.md) | [Symmetric contract](contracts/symmetric-sparse-iterate-0.6.md) |
+| Symmetric iterate | [SymmetricSparseIterate internals](symmetric_storage.md) | [Symmetric contract](contracts/symmetric-sparse-iterate-0.6.md) |
 | Ownership | [Views, aliases and failure behavior](views_aliasing.md) | Retained iterate_writes/`matrixview`/real_iterates suites |
 | Mathematical extension | [Function dispatch](oracle_dispatch.md) | [Pure block contract](contracts/block-prox-0.6.md) |
 | Precision and exceptional arithmetic | [Numerical contract](../numerics.md) | ridge_precision, minimal_math, numerical_kernels and product suites; [shared kernels](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-kernels-865.md) |

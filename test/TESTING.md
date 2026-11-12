@@ -15,11 +15,11 @@ and BigFloat references across Float32/64.
 (bounded products, halved residuals, squared residuals) against BigFloat
 references in Float32/64, including genuine NaN/Inf inputs and exact zeros. `core_functions` exercises retained
 interface, lasso building blocks and custom scalar/vector block extensions.
-`block_replacement` checks whole-owner copies against independent value/activity
+`block_replacement` checks whole-iterate copies against independent value/activity
 references, layout ownership and cache preservation, conversions and preflight errors.
 `block_value_updates` checks buffered writes against independent dense values,
 including activation, active zeros, aliases, conversion/partial failures, custom
-callbacks, offset axes and live block views after whole-owner replacement.
+callbacks, offset axes and live block views after whole-iterate replacement.
 `cache_and_blocks` protects cache reset after referenced data mutations and
 block-coordinate KKT semantics. `ci_contract` protects required Linux gates and
 inventory rejection. The local helper contains only allocation measurement and

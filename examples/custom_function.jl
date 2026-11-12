@@ -33,21 +33,21 @@ activate!(s, 3)
 z = prox(f, s, 0.5)
 @assert Vector(z) ≈ prox(f, x, 0.5)
 @assert nactive(z) == 2  # fresh output does not inherit an active zero
-# The declaration enables exact mirrored-parameter checks on symmetric owners.
+# The declaration enables exact mirrored-parameter checks on symmetric iterates.
 h = WeightedSquare([1.0 2; 2 3])
-owner = SymmetricSparseIterate([1.0 2; 2 0])
-@assert ProximalBase.check_symmetric_parameters(h, owner)
-@assert h(owner) ≈ sum(h.w .* Matrix(owner).^2) / 2
-@assert Matrix(prox(h, owner, 0.5)) ≈ Matrix(owner) ./ (1 .+ 0.5 .* h.w)
+sym = SymmetricSparseIterate([1.0 2; 2 0])
+@assert ProximalBase.check_symmetric_parameters(h, sym)
+@assert h(sym) ≈ sum(h.w .* Matrix(sym).^2) / 2
+@assert Matrix(prox(h, sym, 0.5)) ≈ Matrix(sym) ./ (1 .+ 0.5 .* h.w)
 # Preflight errors leave both the values and activity of a destination unchanged.
 bad = WeightedSquare([1.0 2; 3 1])
-before = copy(owner)
+before = copy(sym)
 try
-    prox!(owner, bad, owner, 0.5)
+    prox!(sym, bad, sym, 0.5)
     error("expected asymmetric weights to fail")
 catch err
     @assert err isa ArgumentError
 end
-@assert Matrix(owner) == Matrix(before)
-@assert collect(activecoordinates(owner)) == collect(activecoordinates(before))
+@assert Matrix(sym) == Matrix(before)
+@assert collect(activecoordinates(sym)) == collect(activecoordinates(before))
 Vector(z)

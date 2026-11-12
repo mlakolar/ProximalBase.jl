@@ -1,12 +1,12 @@
-# SymmetricSparseIterate: owner implementation
+# SymmetricSparseIterate: implementation
 
 The [public guide](../symmetric_sparse_iterate.md) teaches the two views.
-The [current owner contract](contracts/symmetric-sparse-iterate-0.6.md) scopes
+The [current `SymmetricSparseIterate` contract](contracts/symmetric-sparse-iterate-0.6.md) scopes
 the stable requirements. This page describes private implementation details.
 
-## A non-array owner
+## A non-array iterate
 
-The owner stores q=p(p+1)/2 independent variables, while its represented matrix
+The symmetric iterate stores q=p(p+1)/2 independent variables, while its represented matrix
 has p² positions. Making it an `AbstractMatrix` or exposing a one-integer index
 would blur those spaces. Pair access maps either triangle to the same
 lower-triangle coordinate; coordinates(x) addresses q variables and `matrixview`(x)
@@ -22,16 +22,16 @@ Storage capacity is O(q), active work O(s). Coordinate IDs do not depend on slot
 
 Public SymmetricMatrixView is live and read-only, including derived views and
 wrappers. Generic allocating operations return ordinary writable dense arrays.
-No writable matrix wrapper of the owner exists, and none may be added as a
-public escape hatch; the owner is written through its coordinates.
+No writable matrix wrapper of the symmetric iterate exists, and none may be added as a
+public escape hatch; the symmetric iterate is written through its coordinates.
 
-Alias identities follow all backing arrays; owner products
-reject output overlapping the owner or numerical right operand before writes.
+Alias identities follow all backing arrays; symmetric-iterate products
+reject output overlapping the symmetric iterate or numerical right operand before writes.
 Read-only wrapper behavior and alias detection are tested in `matrixview`.jl.
 
 ## Imports, copies and numerical geometry
 
-Owner state copies preserve order and explicit zeros and preconvert fallible
+Symmetric-iterate state copies preserve order and explicit zeros and preconvert fallible
 stored values. Matrix import instead checks real type, exact axes, independence
 and exact symmetry before clearing old state, then converts/stores nonzero
 coordinates in increasing order. Conversion failure during import can leave
@@ -54,7 +54,7 @@ exactly symmetric or explicitly wrapped by the caller.
 Retained tests include `test/symmetric_iterate_interface.jl`,
 `symmetric_iterate_indexing.jl`, `matrixview.jl`, `symmetric_products.jl`,
 `real_iterates.jl`, `sparse_iterate_basics.jl`, `core_functions.jl` and
-`minimal_math.jl`. Test refusals as well as supported operations: no owner
+`minimal_math.jl`. Test refusals as well as supported operations: no symmetric iterate
 length/iteration/broadcast/fill/copy!, no one-index ambiguity, no write through
-a public matrix view. Include empty/one-dimensional owners, active zeros,
+a public matrix view. Include empty/one-dimensional symmetric iterates, active zeros,
 signed zeros/NaNs, failure state, dense import and off-diagonal multiplicity.

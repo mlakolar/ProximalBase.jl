@@ -95,9 +95,7 @@ end
 
 # The ordinary value, or its recomputation from the exact products: after an overflow (a non-finite
 # value of finite data), or when the products A x rounded into the buffer type P, and the final dots,
-# could have lost more than eps |v| (R1, #520).
-@inline _quadratic_checked(f::QuadraticFunction, x, v, ::Type{P}) where {P} =
-  _quadratic_checked(f, x, v, P, _stored_maxabs(x))
+# could have lost more than eps |v| (R1, #520). m is max|x|, which the product A x has already read.
 @inline function _quadratic_checked(f::QuadraticFunction, x, v, ::Type{P}, m) where {P}
   if !isfinite(v) || (_quadratic_underflow_risk(f, x, v, P, m) && !_quadratic_products_normal(f, x, v, P))
     _quadratic_value_recover(f, x, v)
@@ -134,8 +132,6 @@ end
 # denorm_min(P)/2 each. |v| < floatmin(P) (n² max|x| / 4 + n) (see _underflow_threshold) is the condition
 # under which that can exceed eps |v|. A well-scaled value passes with
 # one pass over x. An exact zero of x, or any entry of A, does not fire it.
-@inline _quadratic_underflow_risk(f::QuadraticFunction, x, v, ::Type{P}) where {P} =
-  _quadratic_underflow_risk(f, x, v, P, _stored_maxabs(x))
 @inline function _quadratic_underflow_risk(f::QuadraticFunction, x, v, ::Type{P}, m) where {P}
   (_underflow_checked(P) && _underflow_checked(typeof(v))) || return false
   n = length(x)

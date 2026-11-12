@@ -239,19 +239,19 @@ function test_quadratic_guards(::Type{T}) where {T<:AbstractFloat}
     x = T[3, 3]
     v = f(x)
     @test v === zero(T)
-    @test PB._quadratic_underflow_risk(f, x, v, T)
+    @test PB._quadratic_underflow_risk(f, x, v, T, maximum(abs, x))
     @test PB._quadratic_products_normal(f, x, v, T)
-    @test PB._quadratic_checked(f, x, v, T) === v
+    @test PB._quadratic_checked(f, x, v, T, maximum(abs, x)) === v
     # subnormal products (A and x small): the same test does not allow keeping the ordinary value
     fs = QuadraticFunction(A0 .* pow2(T, e0 ÷ 2))
     xs = T[1, 1] .* pow2(T, e0 ÷ 2 - 2)
     vs = fs(xs)
-    @test PB._quadratic_underflow_risk(fs, xs, vs, T)
+    @test PB._quadratic_underflow_risk(fs, xs, vs, T, maximum(abs, xs))
     @test !PB._quadratic_products_normal(fs, xs, vs, T)
     # no risk at an exact zero of x, or when |v| is large compared with the underflow threshold
-    @test !PB._quadratic_underflow_risk(f, zeros(T, 2), zero(T), T)
-    @test !PB._quadratic_underflow_risk(f, T[1, 2], T(100), T)
-    @test PB._quadratic_underflow_risk(f, T[1, 2], zero(T), T)
+    @test !PB._quadratic_underflow_risk(f, zeros(T, 2), zero(T), T, zero(T))
+    @test !PB._quadratic_underflow_risk(f, T[1, 2], T(100), T, T(2))
+    @test PB._quadratic_underflow_risk(f, T[1, 2], zero(T), T, T(2))
     # the threshold: kappa floatmin max|x| + N floatmin, in Float64, Inf when it overflows
     @test PB._underflow_threshold(T, 3, T(5), 7) == (3.0 * Float64(floatmin(T))) * 5.0 + 7 * Float64(floatmin(T))
     @test PB._underflow_threshold(T, 2^40, T(1), 0) == 2.0^40 * Float64(floatmin(T))

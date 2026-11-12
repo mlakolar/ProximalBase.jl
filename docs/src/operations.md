@@ -1,8 +1,10 @@
 # Operations on functions
 
+*Assumes: gradients and basic Julia · You will learn: the complete function-operation catalog, including proximal maps, mutation and coordinate checks.*
+
 ProximalBase provides **operations on mathematical functions**. They answer
 questions such as “What is the objective value?”, “What is its gradient?”,
-or “What is the proximal point?” An optimization algorithm combines
+or “What is the [proximal point](glossary.md#Proximal-operator)?” An optimization algorithm combines
 these operations to update its variables and check optimality.
 
 ## Available operations at a glance
@@ -231,13 +233,16 @@ prox_block(g, 2.0, 1, 1.0)  # 1.5
 
 `value_entry(g,v,i)` evaluates the scalar contribution ``g_i(v)``
 where this operation is implemented (not for every mathematically
-separable function). A custom group penalty can instead implement
+separable function). A custom group function can instead implement
 `prox_block!(out,g,u,k,γ)` on compact vector buffers. These hooks
 compute mathematical answers; **they do not update an iterate's active
 set or write back to solver state**. See [Coordinate oracles](iterate_oracles.md)
 and [Writing your own function](extending.md) for precise contracts.
 
 ## Checking optimality with KKT conditions
+
+This uses the [nonsmooth KKT conditions](glossary.md#KKT-conditions-for-nonsmooth-objectives),
+not just stationarity equations involving ordinary derivatives.
 
 **Question:** Is a coordinate that we have kept at zero allowed to
 remain zero at the optimum?

@@ -238,12 +238,15 @@ Construct `f = LinearFunction(c, d)` and evaluate `f(x)`. In the formula
 above, the Julia array `c` supplies the coefficients and the scalar `d`
 is the constant; omitting `d` sets it to zero. The function is affine on
 the full real entry domain;
-matrices use the Frobenius inner product. Coefficients must have the same
-entry count as `x`; ordinary same-shaped arrays are the portable choice.
-Value calls based on generic `dot` can accept equal-length differently shaped
-arrays, while specialized dot/write methods can impose matching shapes/axes.
-Use matching matrices for symmetric-iterate coefficients; the pairs must agree
-exactly. The gradient is a dense matrix when allocated at a symmetric iterate.
+matrices use the Frobenius inner product. The coefficients and the argument
+must have the same dimensions, `size(c) == size(x)`: a vector for a vector, an
+`m × n` matrix for an `m × n` matrix, in any storage (dense, sparse, a view, an
+`Adjoint` or `Transpose`, a `Diagonal`, an iterate). For a symmetric iterate,
+`c` is a `p × p` matrix, the shape of the matrix the iterate represents, and its
+mirrored pairs must agree exactly. Every value, gradient and proximal oracle
+applies this rule and refuses any other pair, including one with the same number
+of entries in another shape, with a `DimensionMismatch` before it writes.
+The gradient is a dense matrix when allocated at a symmetric iterate.
 
 The function is smooth, convex, proximable and separable by trait, but is
 not declared zero preserving and has no `value_entry`. It supports scalar

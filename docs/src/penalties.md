@@ -19,8 +19,8 @@ The correspondence with Julia is:
 
 | Mathematics | Julia | Meaning |
 |:--|:--|:--|
-| ``g(x)=\lambda_0\sum_i|x_i|`` | `NormL1(λ0)` | All weights are one |
-| ``g(x)=\lambda_0\sum_iw_i|x_i|`` | `NormL1(λ0, w)` | Individual nonnegative weights |
+| ``g(x)=\lambda_0\sum_i\lvert x_i\rvert`` | `NormL1(λ0)` | All weights are one |
+| ``g(x)=\lambda_0\sum_i w_i\lvert x_i\rvert`` | `NormL1(λ0, w)` | Individual nonnegative weights |
 | ``\lambda_0=1,\ w_i=1`` | `NormL1()` | The ordinary ℓ₁ norm |
 
 Here `λ0` is the **overall scale**, `w[i]` is the weight of coordinate

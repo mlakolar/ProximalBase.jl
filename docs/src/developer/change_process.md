@@ -41,15 +41,18 @@ julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(; julia_args=["--ch
 python3 docs/check_html.py
 ```
 
-CI is `.github/workflows/CI.yml`: one Linux/current-Julia job plus the existing
-`PR required jobs` and `PR merge gate` checks. There is no LTS/cross-platform/GPU
-documentation matrix. The docs build uses small deterministic CPU examples,
-without datasets or benchmark runs. CI also keeps the existing package tests
-and frozen benchmark reference integrity check. HTML and complete logs are uploaded as separate artifacts for
-review. On master pushes, a Linux/current-Julia deployment job waits for the
-merge gate, retrieves that exact validated HTML and calls `docs/deploy.jl` to
-restore historical Documenter publication to gh-pages/dev. Pull requests do
-not deploy previews or releases. Local `docs/make.jl` only validates/builds. Do not bypass required gates because local docs passed.
+CI is `.github/workflows/CI.yml`: three deterministic package-test
+shards plus independent frozen benchmark and strict documentation validation
+run concurrently on Linux/current Julia 1.x. The `PR required jobs` verdict
+and `PR merge gate` require all five validation lanes. There is no
+LTS/cross-platform/GPU matrix. HTML and job-specific logs are retained as
+artifacts; every PR still executes all 19 declared test files with bounds
+checks. On master pushes, a deployment job waits for the merge gate, retrieves
+the validated HTML artifact and calls `docs/deploy.jl` to publish development
+documentation. Same-repository non-draft PRs publish their validated HTML
+artifact to an isolated `gh-pages` preview through a separate job that never
+executes PR code. Local `docs/make.jl` only validates/builds. Do not bypass
+required gates because local docs passed.
 
 ## Tests and independent numerical checks
 

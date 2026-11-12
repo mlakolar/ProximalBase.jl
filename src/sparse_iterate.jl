@@ -1498,18 +1498,11 @@ function _scaled_symmetric_mul!(C, S::_SymmetricPart, B, α, β)
   @inbounds for k in axes(Bm, 2), i in axes(A, 1)
     acc = zero(T)
     for j in axes(A, 2)
-      acc += _product3(a, T(S[i, j]), T(Bm[j, k]))
+      acc += _scaled_product(a, T(S[i, j]), T(Bm[j, k]), 0)
     end
     Cm[i, k] = iszero(β) ? acc : acc + β * Cm[i, k]
   end
   C
-end
-# a * b * c rounded once (up to the product of the significands) for finite factors
-@inline function _product3(a::T, b::T, c::T) where {T<:AbstractFloat}
-  (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
-  (isfinite(a) && isfinite(b) && isfinite(c)) || return a * b * c
-  fa, ea = _frexp(a); fb, eb = _frexp(b); fc, ec = _frexp(c)
-  ldexp(fa * fb * fc, _exponent_sum(T, ea, eb, ec))
 end
 
 # The argument that a proximal map into y reads: x itself when y is not a

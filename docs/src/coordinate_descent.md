@@ -1,6 +1,10 @@
 # Coordinate descent
 
-Coordinate methods update one entry or one ordered block at a time. The caller
+*Assumes: derivatives, quadratic upper models and KKT conditions · You will learn: scalar and block updates, residual maintenance and working-set screening.*
+
+Coordinate methods update one entry or one ordered block at a time.
+A [working set](glossary.md#Working-set) is the subset selected for
+updates and screening; it is not necessarily the nonzero support. The caller
 constructs a trial, requests a pure proximal result, writes the result and
 updates its residual/cache. ProximalBase supplies the function and storage
 operations; the schedule and curvature calculations below are caller code.
@@ -71,8 +75,11 @@ repeated sweeps checked against the KKT conditions.
 
 ## Optimality and working sets
 
-For convex differentiable ``f`` and proper closed convex entry penalties,
+For convex differentiable ``f`` and
+[proper closed convex](glossary.md#Proper-closed-convex-function) entry functions,
 ``0\in\nabla_jf(x)+\partial g_j(x_j)`` for every j characterizes a minimizer.
+Here [the subdifferential](glossary.md#Subgradient-and-subdifferential)
+replaces the ordinary derivative at nonsmooth points.
 The weighted lasso conditions are
 
 ```math

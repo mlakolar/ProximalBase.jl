@@ -15,10 +15,14 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/sparse_iterate.jl` | `SparseIterate`, symmetric owner, active maps, views, copies, products and alias integration |
 | `src/block_iterate.jl` | Ordered partitions, dense values, group activity, block views and layout comparison |
 | `src/interface.jl` | `AbstractFunction`, traits, generic allocating/mutating interfaces and coordinate KKT dispatch |
-| `src/functions/smooth.jl` | Zero/linear/ridge/quadratic functions and their specialized kernels |
+| `src/functions/zero.jl` | Zero function and its value/gradient/proximal operations |
+| `src/functions/linear.jl` | Linear functions and their value/gradient/proximal operations |
+| `src/functions/sqrnorml2.jl` | Squared Euclidean norm and centered ridge operations |
+| `src/functions/quadratic.jl` | Quadratic function and cached eigendecomposition-based proximal map |
 | `src/functions/leastsquares.jl` | Least-squares residual scratch and lazy thin SVD prox |
 | `src/functions/scalar_loss.jl` | Qualified `ScalarLoss`/`Squared` and scalar derivative hooks |
-| `src/functions/separable.jl` | Generic entry kernels and `NormL1` |
+| `src/functions/separable.jl` | Generic separable entry kernels and array/sparse traversal |
+| `src/functions/norml1.jl` | Weighted ℓ₁ family, value and specialized proximal operations |
 | `src/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
 | `src/model_data.jl` | Private retained data-precision metadata |
 | `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods and `Scaled` forwarding |

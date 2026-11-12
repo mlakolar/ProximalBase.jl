@@ -1,5 +1,9 @@
 # Coordinate and block operations
 
+*Assumes: scalar proximal updates and coordinate indexing · You will learn: how to compute a coordinate result separately from writing it to storage.*
+
+These are [proximal](glossary.md#Proximal-operator) and coordinate operations; they do not select a solver's [working set](glossary.md#Working-set).
+
 The pure mathematical hook computes a proximal point at a supplied trial.
 The solver then writes the result to storage. ProximalBase does not offer an operation that both computes a coordinate
 proximal point and changes the iterate's active set.

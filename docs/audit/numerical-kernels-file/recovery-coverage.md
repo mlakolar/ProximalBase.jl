@@ -6,6 +6,12 @@ numerical helpers from `src/utils.jl` into `src/numerical_kernels.jl`). This
 commit is test-only: nothing under `src/` changed, and `test/numerical_recovery.jl`
 passes on the unchanged tree, so it is also the behavioral baseline for that move.
 
+Locations in the tables are those of a5010d20. After the move, every helper listed
+under `utils.jl` lives in `src/numerical_kernels.jl`, except the scaled-value
+protocol hooks (`_value_parts`, `_zero_value_exponent`, `_EXACT_ZERO`, the alias
+hooks), the stored-value scans (`_stored_maxabs`, `_all_finite`), `_tril_column_isqrt`
+and `_model_precision`, which stay in `src/utils.jl`.
+
 The tests are in `test/numerical_recovery.jl` (declared in `test/tiers.toml`,
 quick tier, and described in `test/TESTING.md`). Every case runs in Float32 and
 Float64 against a BigFloat evaluation of the mathematical formula on the exact

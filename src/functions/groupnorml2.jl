@@ -15,8 +15,9 @@ group are not penalized: `prox!` copies them and `f(x)` ignores them.
 `λ0` and the weights must be nonnegative (an `ArgumentError` otherwise, `NaN`
 included), with one weight per group (`DimensionMismatch`). Groups must be
 nonempty and disjoint, with positive indices (`ArgumentError`). The constructor
-stores its own copies of `groups` (integer indices: ranges are kept, other groups
-become `Vector{Int}`) and of `w`; the level and the weights are converted to the
+stores its own copies of `groups` (integer indices: when the element type of
+`groups` is a concrete range type the ranges are kept, otherwise every group
+becomes a `Vector{Int}`) and of `w`; the level and the weights are converted to the
 promoted floating type of `λ0` and `w`. Changing the arrays passed in does not
 change `f`.
 
@@ -39,12 +40,14 @@ violation of the optimality of the zero group `k` for the smooth-part gradient
 an array point, `kkt_violation(f, g, x, i)` takes an entry `i`: the same
 group screen when the group of `i` is zero in `x`, and `|g[i]|` when `i` is in
 no group or its group has a nonzero entry. The three-argument form throws an
-`ArgumentError`: the penalty is not separable. The coefficient `λ0 wₖ` follows
-the `NormL1` screen (`Inf` for an infinite weight or level, `0` for a zero
-weight); a norm or coefficient outside the range is recomputed for finite
-gradients, but a `±Inf` gradient entry gives the IEEE `Inf - λ0 wₖ`, which is
-`NaN` when that coefficient is infinite, also when it overflows from finite
-factors.
+`ArgumentError`: the penalty is not separable. In the group screen the
+coefficient `λ0 wₖ` follows the `NormL1` screen: `0` for a zero weight, also
+with an infinite level, and `Inf` for an infinite weight or for an infinite
+level with a positive weight. A norm or coefficient outside the range is
+recomputed for finite gradients. When the screened group holds a `±Inf` entry
+and no `NaN`, the screen is the IEEE `Inf - λ0 wₖ`, which is `NaN` when that
+coefficient is infinite, also when it overflows from finite factors; a `NaN`
+entry gives `NaN`.
 
 Steps must be nonnegative: a negative or `NaN` step throws an `ArgumentError`
 before anything is written, in `prox!`, `value_and_prox!` and `prox_block!`.
@@ -127,10 +130,6 @@ BlockIterate(x::AbstractVector, f::GroupNormL2) = BlockIterate(x, f.groups)
 #  Checks
 ####################################
 
-@noinline _group_step_error(γ) = throw(ArgumentError("the step of GroupNormL2 must be nonnegative, got $γ"))
-# a negative or NaN step fails the comparison
-@inline _check_group_step(γ::Real) = (γ >= zero(γ) || _group_step_error(γ); nothing)
-
 @noinline _group_extent_error(f, x) = throw(DimensionMismatch(
   "the groups of GroupNormL2 reach index $(length(f.group_of)), but the argument has $(length(x)) entries"))
 # every group index is a linear index of x: the loops over a group skip the bounds checks
@@ -145,7 +144,7 @@ function _check_group_arrays(f::GroupNormL2, y::AbstractArray, x::AbstractArray,
   Base.require_one_based_indexing(y, x)
   _checksize(y, x)
   _check_group_extent(f, x)
-  _check_group_step(γ)
+  _check_l2_step(f, γ)
   nothing
 end
 
@@ -160,191 +159,15 @@ end
   m = @inbounds length(f.groups[k])
   (length(u) == m && length(out) == m) || _block_length_error(k, m, length(u), length(out))
   (out === u || !Base.mightalias(out, u)) || _block_alias_error()
-  _check_group_step(γ)
+  _check_l2_step(f, γ)
   m
 end
 
 ####################################
-#  Group kernels
+#  Group values
 ####################################
 
-# Codes returned by the proximal kernel in place of the sum of squares of the stored group: the
-# stored group is exactly zero, or its value must be recomputed from the stored entries.
-const _GROUP_ZERO = -2
-const _GROUP_RECOMPUTE = -1
-
-@inline function _group_sumsq(x, G, ::Type{T}) where {T}
-  s = zero(T)
-  @inbounds @simd for i in G
-    s += abs2(convert(T, x[i]))
-  end
-  s
-end
-
-# A zero sum of squares is also the sum of an underflowing group; a vectorized sum of magnitudes
-# tells an exactly zero group apart (it is NaN or nonzero otherwise).
-@inline function _group_allzero(x, G, ::Type{T}) where {T}
-  s = zero(T)
-  @inbounds @simd for i in G
-    s += abs(convert(T, x[i]))
-  end
-  iszero(s)
-end
-
-# One pass for the cold paths: whether the group holds a NaN or an infinity, and the largest exponent
-# of its finite nonzero entries (typemin(Int) when there is none).
-function _group_scan(x, G, ::Type{R}) where {R}
-  nan = inf = false
-  e = typemin(Int)
-  @inbounds for i in G
-    v = convert(R, x[i])
-    if isnan(v)
-      nan = true
-    elseif isinf(v)
-      inf = true
-    elseif !iszero(v)
-      e = max(e, Int(exponent(v)))
-    end
-  end
-  nan, inf, e
-end
-
-# ‖x[G]‖₂ = ns 2^e for finite entries with the largest exponent e: every entry is scaled by 2^-e before
-# it is squared, so its largest magnitude is in [1, 2), and the squares are summed compensated. Then
-# ns is in [1, 2√|G|) and no square overflows or underflows below the rounding of the sum.
-function _group_scaled_norm(x, G, ::Type{R}, e::Int) where {R}
-  sc = _power_factors(R, -e)
-  s = c = zero(R)
-  @inbounds for i in G
-    s, c = _compensated_add(s, c, abs2(_scale_value(convert(R, x[i]), sc)))
-  end
-  sqrt(s + c)
-end
-
-@inline function _group_zero!(y, G)
-  S = eltype(y)
-  @inbounds for i in G
-    y[i] = zero(S)
-  end
-  _GROUP_ZERO
-end
-@inline function _group_copy!(y, x, G)
-  if y !== x
-    @inbounds for i in G
-      y[i] = x[i]
-    end
-  end
-  _GROUP_RECOMPUTE
-end
-@inline function _group_fill!(y, G, v)
-  @inbounds for i in G
-    y[i] = v
-  end
-  _GROUP_RECOMPUTE
-end
-# y[G] = t x[G], and the sum of squares of the stored entries when V
-@inline function _group_scale!(y, x, G, t::T, ::Val{V}) where {T, V}
-  S = eltype(y)
-  s = zero(T)
-  @inbounds @simd for i in G
-    v = convert(S, t * convert(T, x[i]))
-    y[i] = v
-    V && (s += abs2(convert(T, v)))
-  end
-  s
-end
-
-# y[G] = prox of γλ0w‖⋅‖₂ at x[G], possibly in place (y === x), where G indexes both arrays. Returns,
-# in T, the sum of squares of the stored group when V, or one of the codes above. The ordinary path needs a
-# normal threshold c = γλ0w (formed as _l1_prox_threshold forms it) and a normal sum of squares that
-# no underflowing square can have changed by more than ordinary rounding; everything else, exceptional
-# parameters and values included, is decided by the cold path, which does not run on that path.
-@inline function _group_prox!(y, x, G, f::GroupNormL2, k::Integer, γ::Real, ::Val{V}) where {V}
-  T = float(eltype(y))
-  w = @inbounds f.w[k]
-  R = _working_type(T, γ, f.λ0, w)
-  ab = convert(R, γ) * convert(R, f.λ0)
-  c = convert(T, ab * convert(R, w))
-  if (floatmin(R) <= ab <= floatmax(R)) & (floatmin(T) <= c <= floatmax(T))
-    s = _group_sumsq(x, G, T)
-    if isfinite(s) & _squares_normal(s, length(G), T)
-      n = sqrt(s)
-      n > c && return _group_scale!(y, x, G, one(T) - c / n, Val(V))
-      return T(_group_zero!(y, G))
-    elseif iszero(s) && _group_allzero(x, G, T)
-      return T(_group_zero!(y, G))
-    end
-  end
-  T(_group_prox_cold!(y, x, G, f, k, γ))
-end
-
-# The parameters decide first, in this order: an unpenalized group (w = 0), a group fixed at zero (an
-# infinite weight, or an infinite level at every nonnegative step, #665), the identity (a zero level or
-# step), a group fixed by an infinite step. Then the values, at positive finite γ, λ0 and w: a NaN entry
-# makes every output NaN; an infinite entry (and no NaN) makes the norm infinite and the threshold finite,
-# so 1 - c/‖x‖ = 1 and the group is copied, also when c overflows in floating point; a zero group gives +0.
-# Otherwise r = c/‖x‖ = (γλ0w 2^-e) / ns from the scaled norm ns 2^e, with c formed by the bounded-product
-# kernel, so that neither c nor the norm needs to be in range: r ≥ 1 gives zero, and t = 1 - r in (0, 1]
-# scales the group without overflow. A product γλ0w 2^-e that overflows means r > 1, and one that
-# underflows means r < floatmin, where t rounds to 1.
-@noinline function _group_prox_cold!(y, x, G, f::GroupNormL2, k::Integer, γ::Real)
-  λ, w = f.λ0, @inbounds(f.w[k])
-  iszero(w) && return _group_copy!(y, x, G)
-  (isinf(w) || isinf(λ)) && return _group_zero!(y, G)
-  (iszero(λ) || iszero(γ)) && return _group_copy!(y, x, G)
-  isinf(γ) && return _group_zero!(y, G)
-  T = float(eltype(y))
-  R = promote_type(_working_type(T, γ, λ, w), float(eltype(x)))
-  nan, inf, e = _group_scan(x, G, R)
-  nan && return _group_fill!(y, G, convert(eltype(y), NaN))
-  inf && return _group_copy!(y, x, G)
-  e == typemin(Int) && return _group_zero!(y, G)
-  ns = _group_scaled_norm(x, G, R, e)
-  r = _scaled_product(convert(R, γ), convert(R, λ), convert(R, w), -e) / ns
-  r >= one(R) && return _group_zero!(y, G)
-  t = one(R) - r
-  S = eltype(y)
-  @inbounds for i in G
-    y[i] = convert(S, t * convert(R, x[i]))
-  end
-  _GROUP_RECOMPUTE
-end
-
-# The term λ0 w ‖x[G]‖₂ of the value in T, given the sum of squares s of x[G] in T, or one of the codes
-# above (s = _GROUP_RECOMPUTE reads x). The ordinary path needs a normal λ0 w and a normal sum of squares.
-@inline function _group_term(f::GroupNormL2, k::Integer, x, G, s, ::Type{T}) where {T}
-  w = @inbounds f.w[k]
-  iszero(w) && return zero(T)
-  s == _GROUP_ZERO && return zero(T)
-  R = _working_type(T, f.λ0, w)
-  λw = convert(R, f.λ0) * convert(R, w)
-  if floatmin(R) <= λw <= floatmax(R)
-    s = s == _GROUP_RECOMPUTE ? _group_sumsq(x, G, T) : convert(T, s)
-    (isfinite(s) & _squares_normal(s, length(G), T)) && return convert(T, λw * sqrt(convert(R, s)))
-    iszero(s) && _group_allzero(x, G, T) && return zero(T)
-  end
-  _group_term_cold(f, k, x, G, T)
-end
-
-# Exceptional terms: an infinite weight or level is Inf away from the zero group (NaN at a NaN entry)
-# and 0 at it, a zero level gives 0, and a positive finite level and weight give λ0 w ns 2^e with the
-# exponent applied once (the significand products round as usual), or the ordinary Inf or NaN of a
-# non-finite entry.
-@noinline function _group_term_cold(f::GroupNormL2, k::Integer, x, G, ::Type{T}) where {T}
-  λ, w = f.λ0, @inbounds(f.w[k])
-  R = promote_type(_working_type(T, λ, w), float(eltype(x)))
-  nan, inf, e = _group_scan(x, G, R)
-  isinf(w) || iszero(λ) || isinf(λ) || return _finite_group_term(λ, w, x, G, nan, inf, e, T, R)
-  !isinf(w) && iszero(λ) && return zero(T)
-  nan && return T(NaN)
-  (inf || e != typemin(Int)) ? T(Inf) : zero(T)
-end
-@inline function _finite_group_term(λ, w, x, G, nan, inf, e, ::Type{T}, ::Type{R}) where {T, R}
-  nan && return T(NaN)
-  inf && return T(Inf)
-  e == typemin(Int) && return zero(T)
-  convert(T, _scaled_product(convert(R, λ), convert(R, w), _group_scaled_norm(x, G, R, e), e))
-end
+# The kernels are the shared ℓ2 kernels of norml2.jl, with the level λ0 and the weight wₖ of each group.
 
 # Recompute a value s of K terms below K floatmin(T), where the roundings of terms into the subnormal
 # range may have lost more than ordinary rounding (#373): each finite term w ns 2^e is accumulated with
@@ -366,11 +189,11 @@ end
     w = @inbounds f.w[k]
     iszero(w) && continue
     G = @inbounds f.groups[k]
-    nan, inf, e = _group_scan(x, G, R)
+    nan, inf, e = _l2_scan(x, G, R)
     (nan || inf) && return s
     e == typemin(Int) && continue
     isinf(w) && return s
-    acc = _expsum_product(acc, w, _group_scaled_norm(x, G, R, e), e)
+    acc = _expsum_product(acc, w, _l2_scaled_norm(x, G, R, e), e)
   end
   _expsum_value(T, acc, λ)
 end
@@ -386,7 +209,7 @@ function (f::GroupNormL2)(x::AbstractArray)
   T = _valtype(x)
   v = zero(T)
   for k in eachindex(f.groups)
-    v += _group_term(f, k, x, @inbounds(f.groups[k]), _GROUP_RECOMPUTE, T)
+    v += _l2_term(f.λ0, @inbounds(f.w[k]), x, @inbounds(f.groups[k]), _L2_RECOMPUTE, T)
   end
   _group_value_checked(f, x, v)
 end
@@ -411,15 +234,16 @@ function _group_prox_all!(y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {V}
   v = zero(T)
   for k in eachindex(f.groups)
     G = @inbounds f.groups[k]
-    s = _group_prox!(y, x, G, f, k, γ, Val(V))
-    V && (v += _group_term(f, k, y, G, s, T))
+    w = @inbounds f.w[k]
+    s = _l2_shrink!(y, x, G, f.λ0, w, γ)
+    V && (v += _l2_term(f.λ0, w, y, G, s, T))
   end
   V ? _group_value_checked(f, y, v) : nothing
 end
 
 function prox_block!(out::AbstractVector, f::GroupNormL2, u::AbstractVector, k::Integer, γ::Real)
   m = _check_group_block(out, f, u, k, γ)
-  _group_prox!(out, u, Base.OneTo(m), f, k, γ, Val(false))
+  _l2_shrink!(out, u, Base.OneTo(m), f.λ0, @inbounds(f.w[k]), γ)
   out
 end
 
@@ -472,7 +296,7 @@ end
 @inline function _group_screen(f::GroupNormL2, k::Integer, g, G)
   T = float(eltype(g))
   c = _kkt_coefficient(T, f.λ0, @inbounds(f.w[k]))
-  s = _group_sumsq(g, G, T)
+  s = _l2_sumsq(g, G, T)
   (isfinite(s) & _squares_normal(s, length(G), T) & isfinite(c)) && return sqrt(s) - c
   _group_screen_cold(f, k, g, G, T, c)
 end
@@ -483,11 +307,11 @@ end
 @noinline function _group_screen_cold(f::GroupNormL2, k::Integer, g, G, ::Type{T}, c) where {T}
   λ, w = f.λ0, @inbounds(f.w[k])
   R = promote_type(T, float(typeof(λ)), float(eltype(g)))
-  nan, inf, e = _group_scan(g, G, R)
+  nan, inf, e = _l2_scan(g, G, R)
   nan && return T(NaN)
   inf && return convert(T, T(Inf) - c)
   e == typemin(Int) && return -c
-  ns = _group_scaled_norm(g, G, R, e)
+  ns = _l2_scaled_norm(g, G, R, e)
   if iszero(λ) || iszero(w) || isinf(λ) || isinf(w)
     isinf(c) && return T(-Inf)
     return convert(T, _scaled_product(ns, one(R), e)) - c
@@ -497,4 +321,15 @@ end
   E = max(e, eλ + ew)
   d = ldexp(ns, e - E) - ldexp(mλ * mw, eλ + ew - E)
   convert(T, ldexp(d, E))
+end
+
+# no proximal operator for a symmetric iterate (argument or output); nothing is written
+for F in (:NormL2, :GroupNormL2)
+  @eval begin
+    prox!(::SymmetricSparseIterate, f::$F, x, ::Real) = _symmetric_prox_error(f)
+    prox!(::AbstractArray, f::$F, ::SymmetricSparseIterate, ::Real) = _symmetric_prox_error(f)
+    value_and_prox!(::SymmetricSparseIterate, f::$F, x, ::Real) = _symmetric_prox_error(f)
+    value_and_prox!(::AbstractArray, f::$F, ::SymmetricSparseIterate, ::Real) = _symmetric_prox_error(f)
+    prox(f::$F, ::SymmetricSparseIterate, ::Real = 1) = _symmetric_prox_error(f)
+  end
 end

@@ -17,7 +17,8 @@ to see exactly how the symbols in a definition become Julia arguments.
 | [`ZeroFunction()`](@ref ZeroFunction) | ``f(x)=0`` | No parameters | [Zero function](smooth.md#Zero-function) |
 | [`LinearFunction(c, d)`](@ref LinearFunction) | ``f(x)=\langle c,x\rangle+d`` | ``c``: coefficient array; ``d``: constant (zero when omitted) | [Linear function](smooth.md#Linear-function) |
 | [`NormL1(λ0, w)`](@ref NormL1) | ``g(x)=\lambda_0\sum_i w_i\lvert x_i\rvert`` | ``\lambda_0\geq0``: overall level; ``w``: nonnegative weights (all one when omitted) | [The ℓ₁ norm](penalties.md) |
-| [`GroupNormL2(λ0, groups, w)`](@ref GroupNormL2) | ``g(x)=\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_2`` | ``\lambda_0\geq0``: overall level; ``G_k``: disjoint groups of indices; ``w``: nonnegative weights (``\sqrt{\lvert G_k\rvert}`` when omitted) | [The group ℓ₂ norm](group_penalty.md) |
+| [`NormL2(λ)`](@ref NormL2) | ``g(x)=\lambda\lVert x\rVert_2`` | ``\lambda\geq0``: level; the Frobenius norm for a matrix | [The ℓ₂ and group ℓ₂ norms](group_penalty.md) |
+| [`GroupNormL2(λ0, groups, w)`](@ref GroupNormL2) | ``g(x)=\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_2`` | ``\lambda_0\geq0``: overall level; ``G_k``: disjoint groups of indices; ``w``: nonnegative weights (``\sqrt{\lvert G_k\rvert}`` when omitted) | [The ℓ₂ and group ℓ₂ norms](group_penalty.md) |
 | [`Scaled(f, α)`](@ref Scaled) | ``h(x)=\alpha f(x)`` | ``f``: existing function object; ``\alpha\geq0``: scale | [Scaling a function](calculus.md) |
 
 For `SqrNormL2`, the norm is the usual Euclidean norm for vectors and

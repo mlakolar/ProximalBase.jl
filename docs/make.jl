@@ -78,7 +78,7 @@ makedocs(;
             "Browse available functions" => "function_library.md",
             "Smooth array functions" => "smooth.md",
             "The ℓ₁ norm and soft thresholding" => "penalties.md",
-            "The group ℓ₂ norm" => "group_penalty.md",
+            "The ℓ₂ and group ℓ₂ norms" => "group_penalty.md",
             "Scaling a function" => "calculus.md",
         ],
         "Scalar losses" => [

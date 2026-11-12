@@ -1,6 +1,36 @@
-# The group ℓ₂ norm and group soft thresholding
+# The ℓ₂ and group ℓ₂ norms
 
-*Assumes: the ℓ₁ norm guide and grouped variables · You will learn: the group-lasso penalty, its proximal operator, its compact block form and its optimality screen.*
+*Assumes: the ℓ₁ norm guide and grouped variables · You will learn: the Euclidean norm penalty, the group-lasso penalty, their proximal operators, the compact block form and the group optimality screen.*
+
+## The ℓ₂ norm
+
+`NormL2(λ)` is ``g(x)=\lambda\lVert x\rVert_2`` (the Frobenius norm for a matrix)
+with ``\lambda\ge0``. Its proximal operator shrinks the whole argument,
+``\max(1-\gamma\lambda/\lVert x\rVert_2,0)\,x``. It is the group ℓ₂ norm below
+with one group `1:length(x)` of weight one, and follows the same rules, the
+exceptional cases included.
+
+```@example group_penalty
+using ProximalBase, LinearAlgebra
+h = NormL2(0.5)
+@assert h([3.0, 4.0]) == 2.5
+@assert prox(h, [3.0, 4.0], 2.0) ≈ (1 - 1 / 5) * [3.0, 4.0]
+@assert prox(h, [3.0, 4.0], 10.0) == [0.0, 0.0]          # ‖x‖ = 5 ≤ γλ
+@assert prox(h, [3.0, 4.0], 1.0) == prox(GroupNormL2(0.5, [1:2], [1.0]), [3.0, 4.0], 1.0)
+prox(h, [3.0, 4.0], 2.0)
+```
+
+The value takes arrays and the three iterates. On a `SymmetricSparseIterate` it is
+the Frobenius norm of the symmetric matrix: each stored off-diagonal coordinate
+counts twice in the squared norm. On a `SparseIterate` or a `SymmetricSparseIterate`
+it reads only the stored entries, also when a sum of squares that overflows or
+underflows is recomputed ([#808](https://github.com/mlakolar/ProximalBase.jl/issues/808)).
+The proximal operators take arrays of the same size; a `BlockIterate` or a
+`SparseIterate` is read and written entry by entry, as an array. A
+`SymmetricSparseIterate` has no `NormL2` proximal operator: those calls throw an
+`ArgumentError` before anything is written.
+
+## The group ℓ₂ norm
 
 `GroupNormL2` represents the group-lasso penalty
 
@@ -25,7 +55,6 @@ level or weight, an empty group, a nonpositive index and an index in two groups
 group count throws a `DimensionMismatch`.
 
 ```@example group_penalty
-using ProximalBase, LinearAlgebra
 groups = [[1, 4, 2], [5, 3]]          # entry 6 is in no group
 g = GroupNormL2(0.4, groups, [1.0, 3.0])
 x = [1.0, -2.0, 0.5, 2.0, 0.0, 7.0]
@@ -33,7 +62,7 @@ x = [1.0, -2.0, 0.5, 2.0, 0.0, 7.0]
 g(x)
 ```
 
-## Proximal operator: group soft thresholding
+### Proximal operator: group soft thresholding
 
 For a step ``\gamma\ge0``, the proximal operator acts on each group separately:
 
@@ -59,7 +88,7 @@ p
 returns the value at the stored output. The step is a nonnegative scalar: a
 negative or `NaN` step throws an `ArgumentError` before anything is written.
 
-## Compact block operations
+### Compact block operations
 
 `prox_block!(out, g, u, k, γ)` computes the result for **one group** from a
 compact trial vector `u`, whose entries follow the order of `groups[k]`, and
@@ -90,7 +119,7 @@ The [block storage guide](block_iterate.md) describes the activation rule of
 these writes, and the [pure block-prox contract](developer/contracts/block-prox-0.6.md)
 the general extension hook.
 
-## Optimality screen
+### Optimality screen
 
 For a smooth part `h` with gradient `G = ∇h(x)`, a zero group ``k`` is optimal
 for `h + g` when ``\lVert G_{G_k}\rVert_2\le\lambda_0w_k``. On a `BlockIterate`,
@@ -98,11 +127,13 @@ for `h + g` when ``\lVert G_{G_k}\rVert_2\le\lambda_0w_k``. On a `BlockIterate`,
 value means that zero violates the condition. Group `k` of the iterate must equal
 `groups[k]`. On an array point, `kkt_violation(g, G, x, i)` takes an entry `i`:
 it is the same group screen when the group of `i` is zero in `x`, and
-``\lvert G_i\rvert`` when `i` is in no group or its group is nonzero. An infinite
-weight or level gives `-Inf` for a finite gradient. Norms and coefficients outside
-the range are recomputed for finite gradients; a `±Inf` gradient entry gives the
-IEEE ``\infty-\lambda_0w_k``, which is `NaN` when the coefficient is infinite, also
-when it overflows from finite factors.
+``\lvert G_i\rvert`` when `i` is in no group or its group is nonzero. In the group
+screen, a zero weight gives the coefficient `0` (also with an infinite level), and an
+infinite weight, or an infinite level with a positive weight, gives `-Inf` for a
+finite gradient. Norms and coefficients outside the range are recomputed for finite
+gradients. When the screened group holds a `±Inf` entry and no `NaN`, the screen is
+the IEEE ``\infty-\lambda_0w_k``, which is `NaN` when the coefficient is infinite,
+also when it overflows from finite factors; a `NaN` entry gives `NaN`.
 
 ```@example group_penalty
 G = [0.3, -0.4, 1.0, 0.0, 0.0, 2.0]
@@ -111,7 +142,7 @@ G = [0.3, -0.4, 1.0, 0.0, 0.0, 2.0]
 kkt_violation(f, G, z, 3)
 ```
 
-## Exceptional parameters and values
+### Exceptional parameters and values
 
 | Case | Result for group ``k`` |
 |:--|:--|
@@ -131,11 +162,13 @@ units, so that a representable proximal point is returned accurately. Values
 recover terms that round below `floatmin` as `NormL1` values do
 ([numerical contract](numerics.md)).
 
-`GroupNormL2` does not apply to a `SymmetricSparseIterate`, and it has no
+`GroupNormL2` does not apply to a `SymmetricSparseIterate` (its proximal operators
+throw an `ArgumentError` before anything is written), and it has no
 `restrict`, no per-group step and no compact block method under `Scaled`.
-With a positive finite `α`, `Scaled(GroupNormL2(...), α)` forwards values, array
-proximal operators and `kkt_violation` to the penalty with the scaled step
-(`test/groupnorml2.jl` checks the array prox and the screen). A zero `α` throws an
+With a positive finite `α`, `Scaled(GroupNormL2(...), α)` multiplies the value by
+`α`, computes the array proximal operator with the step `αγ`, and gives the screen
+`α*kkt_violation(f, g/α, x, k)` (`test/groupnorml2.jl` checks the array prox and the
+screen). A zero `α` throws an
 `ArgumentError`, and an infinite `α` has no endpoint rule of its own. The
 [group-lasso example](examples/group_lasso_prox.md) checks the value, the
 proximal operators, the block operations and the screen against their formulas.

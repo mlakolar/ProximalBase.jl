@@ -230,8 +230,18 @@ end
   @test out == T[7, 7]
   # traits do not create symmetric-iterate or scalar-entry methods
   @test_throws MethodError prox_block(f, one(T), 1, one(T))
+  # no proximal operator for a symmetric iterate (#900 NR2): a clear error, nothing written
   S = SymmetricSparseIterate(T[1 2; 2 1])
-  @test_throws MethodError prox!(similar(S), f, S, one(T))
+  S2 = SymmetricSparseIterate(T[5 6; 6 7])
+  g2 = GroupNormL2(T(0.5), [1:2, 3:4])
+  @test_throws ArgumentError prox!(S2, g2, S, one(T))
+  @test_throws ArgumentError value_and_prox!(S2, g2, S, one(T))
+  @test Matrix(S2) == T[5 6; 6 7]
+  D = fill(T(7), 2, 2)
+  @test_throws ArgumentError prox!(D, g2, S, one(T))
+  @test_throws ArgumentError value_and_prox!(D, g2, S, one(T))
+  @test D == fill(T(7), 2, 2)
+  @test_throws ArgumentError prox(g2, S, one(T))
 end
 
 @testset "exceptional parameters and values ($T)" for T in (Float32, Float64)

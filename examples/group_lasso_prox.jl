@@ -13,8 +13,10 @@ g = GroupNormL2(λ, groups)
 w = [sqrt(3), sqrt(2), 1.0]                  # the default weights, for the checks below
 β = [1.0, -2.0, 0.25, 2.0, 0.0, -1.5]
 @assert g(β) ≈ λ * (sqrt(3) * norm(β[[1, 4, 2]]) + sqrt(2) * norm(β[[5, 3]]) + abs(β[6]))
-# A group of one index is the ℓ₁ term with the same weight.
+# A group of one index is the ℓ₁ term with the same weight, and one group of all
+# indices with weight one is the ℓ₂ norm.
 @assert GroupNormL2(λ, [[i] for i in 1:6])(β) ≈ NormL1(λ)(β)
+@assert GroupNormL2(λ, [1:6], [1.0])(β) ≈ NormL2(λ)(β) ≈ λ * norm(β)
 # ---- Group soft thresholding ----
 # Each group shrinks towards zero in Euclidean norm: max(1 - γλwₖ/‖βₖ‖, 0) βₖ.
 γ = 0.5

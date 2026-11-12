@@ -19,9 +19,10 @@ LinearFunction
 NormL1
 ```
 
-## Group ℓ₂ norm
+## ℓ₂ and group ℓ₂ norms
 
 ```@docs
+NormL2
 GroupNormL2
 ```
 

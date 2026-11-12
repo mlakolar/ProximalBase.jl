@@ -35,6 +35,14 @@ groups, in-place and aliased buffers, preflight failures that leave outputs
 unchanged (invalid steps included), exceptional parameters and values, norms and
 thresholds that overflow or underflow, values whose terms round below `floatmin`,
 and the separation of the pure compact `prox_block!` from `BlockIterate` storage.
+`norml2` checks `NormL2` against BigFloat: values on arrays and on the three
+iterates (stored zeros, empty iterates, symmetric off-diagonal multiplicity, huge and
+subnormal entries), proximal operators, invalid steps, the symmetric-iterate
+refusals, and its equality with one group of `GroupNormL2` in ordinary and
+exceptional cases. `sparse_value_cost` ports the counting element type of the
+historical suite: the `NormL2` value of a 100 × 100 sparse or symmetric iterate with a
+few stored entries creates no zero of that type, on the ordinary and the recovery
+paths (#808).
 `core_functions` exercises retained
 interface, lasso building blocks and custom scalar/vector block extensions.
 `dropzeros_compaction` checks the shared `dropzeros!` loop of `SparseIterate` and

@@ -69,13 +69,17 @@ PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
   julia --threads=1 --project=benchmark benchmark/norml1_value_underflow.jl
 ```
 
-## GroupNormL2 harness
+## ℓ₂ norms harness
 
-`groupnorml2.jl` times `GroupNormL2` (issue #900) between two source trees that both define it with the
-pure `prox_block!`: the compact block proximal operator of one group (sizes 2, 5, 10, 32, 128 and 1024,
+`l2_norms.jl` times `GroupNormL2` and `NormL2` (issue #900) between two source trees that both define
+them, `GroupNormL2` with the pure `prox_block!`. For `GroupNormL2`: the compact block proximal operator of one group (sizes 2, 5, 10, 32, 128 and 1024,
 nonzero and zero trials), a sweep over every group, and the array `prox!`, `value_and_prox!` and value,
 for Float32 and Float64, contiguous (range) and noncontiguous (permuted index vector) layouts, and dense,
-partially zero and mostly zero arguments of about 4096 entries (`(4096 ÷ m)⋅m`). It has the design of the `NormL1` harnesses (roles X, Y and the
+partially zero and mostly zero arguments of about 4096 entries (`(4096 ÷ m)⋅m`). For `NormL2`: the
+dense `prox!`, `value_and_prox!` and value at 1024 and 65536 entries, and the value of a 200 × 200
+matrix `SparseIterate` and of a `SymmetricSparseIterate` with 400 stored entries on the ordinary path
+and on the recovery of an overflowing sum of squares (#808), which the frozen tree computes over the
+logical matrix. It has the design of the `NormL1` harnesses (roles X, Y and the
 A/A control XC, alternating order, shared input and output arrays) and
 `summarize_norml1_infinite_weight.py` summarizes it. The frozen full tree at
 eff21b6d7d33c622313122f46c6ee71693c101ee (`legacy/full`) is the historical reference; its fused value is
@@ -85,5 +89,5 @@ exact agreement between X and XC.
 ```sh
 mkdir -p /tmp/pb-legacy && git archive eff21b6d7d33c622313122f46c6ee71693c101ee src | tar -x -C /tmp/pb-legacy
 PB_FIRST=/tmp/pb-legacy PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
-  julia --threads=1 --project=benchmark benchmark/groupnorml2.jl
+  julia --threads=1 --project=benchmark benchmark/l2_norms.jl
 ```

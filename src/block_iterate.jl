@@ -398,17 +398,12 @@ function Base.copyto!(x::BlockIterate, y::AbstractArray)
   _checkreal_broadcast(x, y)
   invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
 end
-# Resolve ambiguities with SparseArrays: each runs the method that applies without the check.
+# Resolve the ambiguity with CHOLMOD's copyto!(dest::AbstractArray, D::Dense), which runs
+# after the check; as for SparseIterate, one method covers every element type of D.
 @static if isdefined(@__MODULE__, :_CHOLMODDense)
   function Base.copyto!(x::BlockIterate, y::_CHOLMODDense)
     _checkreal_broadcast(x, y)
     invoke(copyto!, Tuple{AbstractArray, _CHOLMODDense}, x, y)
-  end
-  @static if isdefined(@__MODULE__, :_CHOLMODVTypes)
-    function Base.copyto!(x::BlockIterate{T}, y::_CHOLMODDense{T}) where {T<:_CHOLMODVTypes}
-      _checkreal_broadcast(x, y)
-      invoke(copyto!, Tuple{AbstractArray{T}, _CHOLMODDense{T}}, x, y)
-    end
   end
 end
 

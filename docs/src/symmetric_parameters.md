@@ -1,5 +1,9 @@
 # Symmetric parameters
 
+*Assumes: symmetric matrices · You will learn: when per-entry parameters must match across mirrored matrix positions.*
+
+A symmetric [iterate](glossary.md#Iterate) stores one independent variable for a mirrored matrix pair.
+
 A symmetric owner stores one variable for `(r,c)` and `(c,r)`. Per-entry
 parameters must give the same mathematical function at both positions.
 ProximalBase symmetrizes supported computed matrix arguments and gradients;

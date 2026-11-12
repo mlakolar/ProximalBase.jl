@@ -66,6 +66,20 @@ IEEE result; only finite inputs whose intermediates leave the range are
 recomputed. Recovery is worthwhile when it changes a materially inaccurate
 answer into a representable result in the working precision.
 
+`NormL1` values also recover terms `λ0*w[i]*abs(x[i])` that round into the
+subnormal range, which loses accuracy even when the total is normal
+([#373](https://github.com/mlakolar/ProximalBase.jl/issues/373)). Each such
+rounding loses at most half the smallest subnormal spacing,
+`eps(T)*floatmin(T)/2`, so an ordinary sum `s ≥ n*floatmin(T)` of `n` terms
+loses at most `eps(T)/2` relative to `s` and is returned from the unchanged
+vectorized loop. A smaller sum, a zero one included, is recomputed: the
+products `w[i]*abs(x[i])` are accumulated with their exponents, and `λ0` is
+applied before the single conversion to `T`. This holds for dense arrays and
+for the stored entries of `SparseIterate`, `BlockIterate` and
+`SymmetricSparseIterate`, and for `value_and_prox!` at its stored output.
+Zero and infinite levels, infinite weights and NaN/Inf entries keep the rules
+below.
+
 These are practical numerical safeguards, not a promise of exhaustive
 range recovery or correctly rounded arbitrary reductions, gradients, or
 matrix products. When the final mathematical value itself is out of range,

@@ -113,6 +113,20 @@ function _maximum_abs(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
 end
 _maximum_abs(x::Diagonal{T}) where {T<:Union{Float32, Float64}} = _maximum_abs(x.diag)
 
+# Whether every stored value is a zero of either sign. For Float32 and Float64, by an OR of the bit patterns with the sign
+# cleared at the end: an OR vectorizes on every target (an integer maximum of 64-bit lanes is a scalar chain without
+# AVX-512), and a NaN or an Inf is not zero.
+_all_zero(x) = all(iszero, _stored_values(x))
+function _all_zero(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  U = _int_type(T)
+  vals = _stored_values(x)
+  m = zero(U)
+  @inbounds @simd for i in eachindex(vals)
+    m |= reinterpret(U, vals[i])
+  end
+  iszero(m & typemax(U))
+end
+
 # The largest magnitude, and finiteness, over the stored entries only.
 const _WrappedSparse = Union{Adjoint{<:Any, <:SparseArrays.AbstractSparseArray},
                              Transpose{<:Any, <:SparseArrays.AbstractSparseArray}}

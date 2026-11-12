@@ -368,10 +368,15 @@ function _expsum_dot(acc::_ExpSum, a::AbstractArray, x::AbstractArray, k::Int)
   end
   acc
 end
-function _expsum_value(::Type{R}, acc::_ExpSum{A}) where {R, A}
+# The accumulated sum times a scale w >= 0 in R: w multiplies the significand and the exponent is applied
+# with it, so that a sum outside the range of R (or of A) that w brings back is not rounded to 0 or Inf
+# first. The product is formed by the three-factor kernel in A and converted to R; with A wider than R
+# (Float64 for Float32 data) that conversion is the only rounding that matters. An exactly zero sum is +0
+# at every w.
+function _expsum_value(::Type{R}, acc::_ExpSum{A}, w = one(A)) where {R, A}
   m = acc.s + acc.c
   iszero(m) && return zero(R)
-  convert(R, _scaled_product(one(A), m, acc.ex))
+  convert(R, _scaled_product(convert(A, w), m, acc.ex))
 end
 
 # The smallest nonzero |x_i| as an exponent (the exponent of floatmax if there is none): a product of two

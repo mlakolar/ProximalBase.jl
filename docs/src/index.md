@@ -79,7 +79,7 @@ when the corresponding gradient entry is not zero.
 The [coordinate descent guide](coordinate_descent.md) explains how this
 leads to deciding which zero coordinates require further updates.
 
-## Learning paths
+## [Learning paths](@id Where-to-start)
 
 **Use operations in your own code.** Read
 [Getting started](getting_started.md) →

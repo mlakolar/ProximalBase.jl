@@ -815,6 +815,11 @@ _square_type(λ, x, y) = promote_type(_valtype(x), y === nothing ? _valtype(x) :
   _value_at(_scaled_product(convert(R, λ), s, _exponent_sum(R, k, k, -1)), x)
 end
 
+# The k >= 0 for which n products of entries below 2^bound(ma) and 2^bound(mb), scaled by 2^-k, sum
+# below 2^(emax - margin) in R: the units of the recomputation of an overflowing dot (R1).
+@inline _product_sum_shift(::Type{R}, ma, mb, n, margin) where {R} =
+  max(0, _bound_exponent(ma) + _bound_exponent(mb) + _log2_ceil(n) + margin - _max_exponent(R))
+
 # Σ (xᵢ - yᵢ)² λ/2 as a significand and an exponent (the scaled-value mechanism), from the
 # recomputation above; a non-finite entry or level gives `nothing`
 @noinline function _square_parts(λ, x, y)

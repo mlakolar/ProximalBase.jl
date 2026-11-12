@@ -39,8 +39,7 @@ _value_unchecked(f::LinearFunction, x::SymmetricSparseIterate) =
 @noinline function _linear_value_recover(c, d, x, v)
   (_all_finite(x) && _all_finite(c) && isfinite(d)) || return v
   R = typeof(v)
-  E = _max_exponent(R)
-  k = max(0, _bound_exponent(_stored_maxabs(c)) + _bound_exponent(_stored_maxabs(x)) + _log2_ceil(_nentries(x)) + 2 - E)
+  k = _product_sum_shift(R, _stored_maxabs(c), _stored_maxabs(x), _nentries(x), 2)
   p = convert(R, _linear_scaled_dot(c, x, _power_factors(R, -k)))
   _pow2_sum(R, (p, k), (convert(R, d), 0))
 end

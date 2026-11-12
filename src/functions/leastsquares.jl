@@ -85,8 +85,7 @@ end
 # raw, Xβ - Y otherwise. The ordinary sum is kept when it is finite and its
 # squares cannot have underflowed (R1); otherwise the recovery runs.
 @inline _leastsquares_value(f::LeastSquaresLoss, β, s, raw::Bool) =
-  isfinite(s) & (s >= length(f.tmp) * (floatmin(typeof(s)) / eps(typeof(s)))) ? s / 2 :
-    _leastsquares_recover(f, β, s, raw)
+  isfinite(s) & _squares_normal(s, length(f.tmp), typeof(s)) ? s / 2 : _leastsquares_recover(f, β, s, raw)
 
 # - every residual exactly zero: the value is zero, at once, for exact fits;
 # - a finite residual: its squares overflow or underflow, and the sum is formed
@@ -104,11 +103,10 @@ end
     zero_residual = raw ? mapreduce(==, &, r, Y; init = true) : all(iszero, r)
     zero_residual && return zero(s)
   end
-  _all_finite(r) && return _exceptional_square_value(one(T), r, raw ? Y : nothing, s, s / 2)
+  _all_finite(r) && return _scaled_square_value(one(T), r, raw ? Y : nothing, s / 2)
   (_all_finite(β) && _all_finite(f.X) && _all_finite(Y)) || return s / 2
-  E = _max_exponent(T)
-  k = max(0, _bound_exponent(_stored_maxabs(f.X)) + _bound_exponent(_stored_maxabs(β)) + _log2_ceil(size(f.X, 2)) + 3 - E,
-          _bound_exponent(_stored_maxabs(Y)) + 3 - E)
+  k = max(_product_sum_shift(T, _stored_maxabs(f.X), _stored_maxabs(β), size(f.X, 2), 3),
+          _bound_exponent(_stored_maxabs(Y)) + 3 - _max_exponent(T))
   sc, up = _power_factors(T, -k), _power_factors(T, k)
   mul!(r, f.X, β .* sc[1] .* sc[2])
   lim = _scale_value(floatmax(T) / 4, sc)
@@ -120,12 +118,10 @@ end
 @inline _leastsquares_own(a::T, lim, up) where {T} = abs(a) <= lim ? _scale_value(a, up) : zero(T)
 @inline _leastsquares_own_y(a, y, lim, ::Type{T}) where {T} = abs(a) <= lim ? convert(T, y) : zero(T)
 @inline _leastsquares_big(a::T, y, lim, sc) where {T} = abs(a) <= lim ? zero(T) : a - _scale_value(convert(T, y), sc)
-# ‖x - y‖²/2 as a significand and an exponent, in units of 2^shift
+# ‖x - y‖²/2 as a significand and an exponent, in units of 2^shift; the entries are finite here
 function _leastsquares_squares(x, y, shift = 0)
-  T = eltype(x)
-  j = _square_exponent(x, y, T)
-  j == typemin(Int) && return (zero(T), 0)
-  (_square_scaled_sum(x, y, j, T), 2j - 1 + shift)
+  s, k = _residual_squares(x, y, eltype(x))
+  (s, iszero(s) ? 0 : 2k - 1 + shift)
 end
 
 function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)

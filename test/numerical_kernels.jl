@@ -155,7 +155,7 @@ setprecision(BigFloat, 1200) do
     # the gradient λ(x - c) where x - c overflows and λ restores the range; the value and the fused
     # oracle on the same data
     for _ in 1:300
-      x, c = abs(signif(rng, T, E)), -abs(signif(rng, T, rand(rng, E-1:E)))
+      x, c = abs(signif(rng, T, E + 1)), -abs(signif(rng, T, rand(rng, E:E+1)))   # x - c overflows
       λ = abs(signif(rng, T, rand(rng, -E:-2)))
       r = big(λ) * (big(x) - big(c))
       abs(r) <= floatmax(T) || continue
@@ -175,7 +175,8 @@ setprecision(BigFloat, 1200) do
     # centers are rounded once as the value rounds them, in the value and in the value parts:
     # an entry that leaves T's range on rounding is read unrounded, the others are rounded to T
     W = T === Float32 ? Float64 : BigFloat
-    c = W[ldexp(W(1), e0 - 4), W(1) / 3]
+    # the second entry rounds to exactly 1 in T: read unrounded, its residual would dominate the value
+    c = W[ldexp(W(1), e0 - 4), 1 + ldexp(W(1), -(precision(T) + 20))]
     λ = pow2(T, E)
     x = T[0, 1]
     cr = [big(c[1]), big(T(c[2]))]
@@ -210,6 +211,65 @@ setprecision(BigFloat, 1200) do
         @test prox!(xa, f, xa, γ) == z
       end
     end
+  end
+
+  @testset "recomputed-dot units" begin
+    # no partial sum of n products, scaled by 2^-k, can reach 2^(emax - margin)
+    for _ in 1:500
+      ma, mb = abs(signif(rng, T, rand(rng, e0:E))), abs(signif(rng, T, rand(rng, e0:E)))
+      n, margin = rand(rng, 1:1000), rand(rng, 2:3)
+      k = PB._product_sum_shift(T, ma, mb, n, margin)
+      @test k >= 0
+      @test big(n) * big(ma) * big(mb) * big(2.0)^(-k) < big(2.0)^(E + 1 - margin)
+      k > 0 && @test big(n) * big(ma) * big(mb) * big(2.0)^(1 - k) >= big(2.0)^(E - 1 - margin - 2)
+    end
+    @test PB._product_sum_shift(T, T(1), T(1), 1, 2) == 0
+    @test PB._product_sum_shift(T, T(Inf), T(1), 10, 2) == 0
+  end
+
+  @testset "LeastSquaresLoss and LinearFunction on the shared kernels" begin
+    ref(Y, X, β) = sum(abs2, big.(Y) .- big.(X) * big.(β)) / 2
+    h = E ÷ 2
+    cases = Any[
+      # residual squares overflow, value representable only as Inf or not: the reference decides
+      (T[pow2(T, h + 2), 1], T[1 0; 0 1], T[0, 0]),
+      # residual squares underflow, value restored by summing in power-of-two units
+      (T[pow2(T, e0 ÷ 2 - 4), -pow2(T, e0 ÷ 2 - 3)], T[1 0; 0 1], T[0, 0]),
+      # Y - Xβ overflows while Xβ is finite (halved residual)
+      (T[floatmax(T), 1], T[1 0; 0 1], T[-floatmax(T) / 2, 0]),
+      # Xβ overflows in its partial products although Xβ = 0 and the value is representable
+      (T[3, -2], T[pow2(T, h + 4) pow2(T, h + 4); 1 1], T[pow2(T, h + 4), -pow2(T, h + 4)]),
+      # an exact fit
+      (T[pow2(T, E - 3), 1], T[1 0; 0 1], T[pow2(T, E - 3), 1]),
+    ]
+    for (Y, X, β) in cases
+      f = LeastSquaresLoss(Y, X)
+      r = ref(Y, X, β)
+      v = f(β)
+      @test within(v, r, 3)
+      g = similar(β)
+      @test within(value_and_gradient!(g, f, β), r, 3)
+      @test isequal(g, gradient!(similar(β), f, β))   # the gradient itself has no recovery path
+      bs = SparseIterate(T, length(β))
+      for i in eachindex(β)
+        iszero(β[i]) || (bs[i] = β[i])
+      end
+      @test f(bs) === v
+    end
+    # genuine NaN/Inf data keep the ordinary result
+    f = LeastSquaresLoss(T[NaN, 1], T[1 0; 0 1])
+    @test isnan(f(T[1, 1]))
+    @test LeastSquaresLoss(T[Inf, 1], T[1 0; 0 1])(T[1, 1]) === T(Inf)
+    @test isnan(LeastSquaresLoss(T[1, 1], T[1 0; 0 1])(T[Inf, -Inf]) - T(Inf)) # Inf or NaN, never finite
+    # LinearFunction: an overflowing dot at a representable value, with d in its own units
+    a = pow2(T, h + 4)
+    for (c, x, d) in ((T[a, a, 1], T[a, -a, 1], T(1)), (T[floatmax(T), floatmax(T)], T[1, -1], T(0.25)),
+                      (T[a, a], T[a, -a], pow2(T, e0)))
+      rr = sum(big.(c) .* big.(x)) + big(d)
+      @test within(LinearFunction(c, d)(x), rr, 1)
+    end
+    @test LinearFunction(T[1, 1], T(0))(T[Inf, 1]) === T(Inf)
+    @test isnan(LinearFunction(T[1, 1], T(0))(T[Inf, -Inf]))
   end
 end
 end

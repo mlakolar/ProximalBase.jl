@@ -104,6 +104,20 @@ end
     end
 end
 
+@testset "replacement preserves nonfinite values and signed active zeros" begin
+    for T in (Float32,Float64), S in (Float32,Float64), op in (copyto!,copy!)
+        gs=[[6,1],[5,2],[4,3]]
+        src=BlockIterate(S,6,gs)
+        src[6]=S(NaN);src[1]=S(Inf);src[5]=S(-Inf)
+        activate!(src,3);src[4]=-zero(S)
+        dest=similar(src,T)
+        @test op(dest,src) === dest
+        check(dest,T.(Vector(src)),[1,2,3])
+        dropzeros!(dest)
+        check(dest,T.(Vector(src)),[1,2])
+    end
+end
+
 @testset "preflight errors preserve complete destination and layout caches" begin
     for gs in ([1:3,4:6,7:9], [1:3:9,2:3:9,3:3:9], [[7,1,4],[8,2,5],[9,3,6]]),
         op in (copyto!,copy!)

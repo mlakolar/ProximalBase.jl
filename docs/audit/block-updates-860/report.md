@@ -1,5 +1,10 @@
 # Block value update investigation (#860)
 
+**No evaluated optimization meets the acceptance gate. Production source is
+unchanged.** The experiments produce real gains on some complete BCD workloads,
+but also repeatable regressions on other ordinary write paths. This PR retains
+the diagnosis, independent tests, generated code and reproducible measurements.
+
 The target is block value writes. Whole-iterate state replacement, layout
 comparison/cache behavior and removed proximal interfaces are out of scope.
 The starting source is master `eb74a914d779371a02e4a6637eaa724aeb66fdf5`.
@@ -139,3 +144,101 @@ without changing the copy or activity algorithm. It cannot independently
 identify spill costs versus instruction-cache effects. The singleton-only
 variant provides a separate minimal candidate if broader bulk writes fail the
 complete-workload gate.
+
+## Acceptance rule
+
+The final decision uses the complete paired source matrix, not only favorable
+rows. Every broad median above 1.05 receives fresh confirmation across the
+entire matrix. A candidate must improve a representative complete BCD workload
+without a repeatable >5% regression in another ordinary BCD or value-copy sweep.
+The raw-storage and once-checked sweeps are diagnostics. Very short cases and
+same-source control sensitivity require interpretation using absolute times,
+round dispersion and A/A, rather than treating every percentage as a source
+mechanism. An evaluated candidate that fails this gate is reported and excluded;
+it is not shipped solely because its copy microbenchmark is faster.
+
+## Confirmed results and decision
+
+The final placement-controlled campaign contains **60,480 observations and
+4,837,587 individual timing samples**: 576 cases, five source/control roles and
+21 fresh processes per role. The complete matrix is Float32/64 × n8192/65536 ×
+b1/8/64 × four layouts, with 12 operations per fixture. Three candidates were
+compared to the same baseline; a separate baseline process provides A/A.
+Every operation passed its independent reference before timing.
+
+R is the median of paired process ratios. Times below are marginal medians,
+so their quotient need not equal R. Intervals are descriptive, unadjusted 95%
+round-bootstrap intervals (10,000 seeded resamples).
+
+| Experiment and case | Baseline µs | Experiment µs | R [95% interval] |
+|:--|--:|--:|:--|
+| Inlined bulk, Float32 n65536/b64 contiguous, complete buffered BCD | 195.068 | 183.215 | 0.9424 [0.9364, 0.9529] |
+| Inlined bulk, Float64 n65536/b8 reversed, complete zero-commit BCD | 291.552 | 310.691 | **1.0641 [1.0609, 1.0684]** |
+| Outlined bulk, Float32 n65536/b8 contiguous, complete zero-commit BCD | 231.083 | 242.872 | 1.0559 [1.0486, 1.0701] |
+| Outlined bulk, Float32 n8192/b8 strided, active groups copied to zero | 1.398 | 2.017 | **1.4379 [1.3903, 1.5030]** |
+| Singleton path, Float64 n65536/b1 contiguous, complete buffered BCD | 952.606 | 829.297 | 0.8690 [0.8664, 0.8718] |
+| Singleton path, Float64 n8192/b8 strided, active groups copied to zero | 1.809 | 2.0025 | **1.1066 [1.0957, 1.1276]** |
+| Singleton path, same size/layout, inactive groups copied to zero | 1.823 | 2.000 | **1.0952 [1.0824, 1.1139]** |
+
+These are real gains and real tradeoffs. The inlined bulk experiment has three
+complete-BCD median flags above 1.05; the reversed Float64 case has its entire
+interval above 1.05. Outlining reduces the caller's explicit stack reservation
+to 376 bytes (versus 360 baseline and 672 inlined), but it has 37 copy-sweep
+flags and one BCD median flag. The singleton specialization has no complete-BCD
+flags, but six ordinary copy-sweep flags, including the two strong strided
+zero-copy regressions above. Its one additional diagnostic flag is not a
+bulk-write result.
+
+The singleton regression is not an extra copy call: both versions make one
+copy call on the ordinary b8 path. Its generated `copy_blocks!` caller now
+loads/tests source length inside each group iteration before falling back to
+Base, and retains the larger cold scalar/activation branch. The caller's stack
+reservation is 168 versus 152 bytes. This supports added guard/code-shape costs;
+it does not uniquely attribute elapsed time to one instruction. The active-zero
+case adds about **0.194 µs across 102 groups**, which is small absolutely but a
+repeatable 10.7% regression on a targeted value-write path.
+
+All 576 case-level A/A medians lie between **0.9653 and 1.0384**, with no >5%
+median flag. Every timed disjoint-buffer operation reports **0 Julia heap bytes
+and 0 allocations** for baseline and all candidates. Stack reservations and
+native-code size are separate from those heap observations. Aliased copies may
+allocate a snapshot, as Base requires; aliases are tested independently rather
+than hidden inside the disjoint-buffer allocation claims.
+
+The [regression ledger](results/regression-ledger.csv) accounts for all **64**
+contrasts flagged in discovery or confirmation. Forty-one repeat a >5% median;
+37 confirmation intervals are entirely above 1.05. None is timer-limited by the
+100 ns marginal-time screen. Each row retains both phases, absolute added time,
+A/A controls, allocations and an investigation class. Initial flags that do not
+repeat remain visible. Static codegen classes are evidence, not claims of a
+uniquely isolated cache/spill cause.
+
+**No production source optimization is included.** These three evaluated
+candidates fail the declared gate; this does not establish that a safe internal
+optimization is impossible. The public `blockview` implementation and all
+working-set semantics remain unchanged. Whole-iterate state copying is left to
+#861, which landed separately during this investigation.
+
+## Reproduction, review and remaining options
+
+The [recipe](../../../benchmark/audit860/README.md) reconstructs the experimental
+source trees from the frozen baseline and the [rejected patches](patches/README.md),
+not from the moving checkout. The published artifacts retain raw samples,
+source/harness hashes, fixture pointers/padding, provenance and generated code.
+Discovery and placement-controlled phases are not pooled: the latter prebuilds
+both designs before numerical warmup and explicitly preserves allocation padding.
+The final twenty-one-round comparison evaluates every strategy in that same
+controlled context on CPU2 while other agent CPU-heavy work is stopped.
+
+The [independent review record](review.md) documents GPT-6.1-Sol/high findings and
+corrections. Its final independent verification reproduced all 105 confirmation
+files, all 60,480 observations and individual sample medians, every exported
+ratio/allocation metric, and every seeded bootstrap endpoint exactly.
+
+Future work can evaluate payload/layout-specific kernels or compiler-boundary
+choices that avoid both short-copy fixed costs and large-caller code expansion.
+Any proposed public active-group/bulk writer requires a maintainer API ruling
+before implementation. The removed `prox_coordinate!` and `prox_entry!`
+interfaces are not candidates for restoration. The retained evidence supports
+further investigation, not shipping one favorable microbenchmark in spite of
+ordinary-workload regressions.

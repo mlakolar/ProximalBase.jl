@@ -10,27 +10,34 @@ The `_zero` variants use a high penalty so complete BCD commits zero blocks;
 they test whether zero-copy overhead affects full residual workloads.
 
 Run on Linux / Julia 1.13.3 with one Julia and BLAS thread. Prepare the locked
-environment and immutable source trees from a full clone:
+environment and immutable source trees from a full clone. The experimental
+patches failed the acceptance gate; apply them only to isolated source trees:
 
 ```sh
 JULIA=/absolute/path/to/julia-1.13.3/bin/julia
 export JULIA_DEPOT_PATH=/tmp/pb860-depot
 "$JULIA" --project=benchmark/audit852 -e 'using Pkg; Pkg.instantiate()'
-mkdir -p /tmp/pb860-baseline /tmp/pb860-candidate
+mkdir -p /tmp/pb860-baseline
 git archive eb74a914d779371a02e4a6637eaa724aeb66fdf5 src | tar -x -C /tmp/pb860-baseline
-cp -a src /tmp/pb860-candidate/
+for variant in singleton bulk-inline bulk-outlined; do
+  mkdir -p "/tmp/pb860-$variant"
+  cp -a /tmp/pb860-baseline/src "/tmp/pb860-$variant/"
+  patch -d "/tmp/pb860-$variant" -p1 < "docs/audit/block-updates-860/patches/$variant.patch"
+done
 python3 benchmark/audit860/run.py --julia "$JULIA" --cpu 2 \
   --output /tmp/pb860-check --check --rounds 1 \
-  --role base=/tmp/pb860-baseline --role candidate=/tmp/pb860-candidate
+  --role base=/tmp/pb860-baseline --role candidate=/tmp/pb860-singleton \
+  --role outlined=/tmp/pb860-bulk-outlined --role bulk=/tmp/pb860-bulk-inline
 python3 benchmark/audit860/run.py --julia "$JULIA" --cpu 2 \
   --output /tmp/pb860-broad --rounds 7 \
   --role base=/tmp/pb860-baseline --role baseAA=/tmp/pb860-baseline \
-  --role candidate=/tmp/pb860-candidate --role candidateAA=/tmp/pb860-candidate
+  --role candidate=/tmp/pb860-singleton --role outlined=/tmp/pb860-bulk-outlined
 python3 benchmark/audit860/analyze.py /tmp/pb860-broad --output /tmp/pb860-broad.csv
 python3 benchmark/audit860/run.py --julia "$JULIA" --cpu 2 \
   --output /tmp/pb860-confirm --rounds 21 --start 101 \
   --role base=/tmp/pb860-baseline --role baseAA=/tmp/pb860-baseline \
-  --role candidate=/tmp/pb860-candidate --role candidateAA=/tmp/pb860-candidate
+  --role candidate=/tmp/pb860-singleton --role outlined=/tmp/pb860-bulk-outlined \
+  --role bulk=/tmp/pb860-bulk-inline
 python3 benchmark/audit860/analyze.py /tmp/pb860-confirm --output /tmp/pb860-confirm.csv
 ```
 
@@ -46,8 +53,9 @@ information, and checks source immutability at the end. The analyzer requires
 all requested role/round/case pairs and matching seed/compiler/source provenance,
 and recomputes medians from individual samples. It reports the median of paired
 process ratios and descriptive, unadjusted 95% round-bootstrap intervals.
-Run A/A analysis with `--numerator baseAA --denominator base`, and analogously
-`candidateAA/candidate`. Seven-round estimates are exploratory; confirmation
+Run A/A analysis with `--numerator baseAA --denominator base`. Analyze the
+other strategies with `--numerator outlined` or `--numerator bulk`.
+Seven-round estimates are exploratory; confirmation
 uses 21 new fixture seeds and processes for the entire matrix, including every
 initial >5% flag. Do not pool those rounds silently.
 
@@ -74,7 +82,7 @@ After timing, capture typed IR, LLVM and native code for both sources:
   /tmp/pb860-baseline /tmp/pb860-code-base
 "$JULIA" --startup-file=no --threads=1 --check-bounds=no -O2 \
   --project=benchmark/audit852 benchmark/audit860/codegen.jl \
-  /tmp/pb860-candidate /tmp/pb860-code-candidate
+  /tmp/pb860-bulk-outlined /tmp/pb860-code-outlined
 "$JULIA" --project=. -e 'using Pkg; Pkg.test(; julia_args=["--check-bounds=yes"])'
 ```
 

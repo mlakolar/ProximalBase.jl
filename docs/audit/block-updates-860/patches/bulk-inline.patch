@@ -1,0 +1,48 @@
+--- a/src/block_iterate.jl
++++ b/src/block_iterate.jl
+@@ -549,3 +549,45 @@
+   s.buf = b
+   b
+ end
++
++# Same-type numerical buffers cannot run user conversion/indexing callbacks.
++# Recognize the full stored group, including its ordering, before bypassing
++# entry-wise activation. General views and fallible sources keep Base's path.
++@inline function Base.copyto!(dest::SubArray{T,1,<:BlockIterate{T}}, src::Vector{T}) where {T<:Union{Float32,Float64}}
++  isempty(src) && return dest
++  G = parentindices(dest)[1]
++  if !(G isa Union{UnitRange{Int},StepRange{Int,Int},Vector{Int}})
++    return invoke(copyto!, Tuple{AbstractArray,AbstractArray}, dest, src)
++  end
++  if length(src) == 1 && !isempty(dest)
++    @inbounds dest[firstindex(dest)] = src[1]
++    return dest
++  end
++  _copyto_block_buffer!(dest, src)
++end
++
++@inline function _copyto_block_buffer!(dest, src)
++  if length(src) <= length(dest) && !isempty(dest)
++    x = parent(dest)
++    G = parentindices(dest)[1]
++    # Other view index arrays can run user code when indexed. Leave them to
++    # Base rather than evaluating them an extra time just to recognize a group.
++    if !(G isa Union{UnitRange{Int},StepRange{Int,Int},Vector{Int}})
++      return invoke(copyto!, Tuple{AbstractArray,AbstractArray}, dest, src)
++    end
++    @inbounds k = x.group_of[first(G)]
++    @inbounds if G === x.groups[k]
++      raw = _block_view_storage(dest)
++      values = Base.unalias(raw, src)
++      nonzero = false
++      @simd for j in eachindex(values)
++        s = values[j]
++        x.storage[G[j]] = s
++        nonzero |= !iszero(s)
++      end
++      nonzero && x.position[k] == 0 && activate!(x, k)
++      return dest
++    end
++  end
++  invoke(copyto!, Tuple{AbstractArray,AbstractArray}, dest, src)
++end

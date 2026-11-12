@@ -161,6 +161,30 @@ for T in (Float32,Float64), b in (1,8,64), layout in (:contiguous,:strided,:arbi
     end
 end
 
+@testset "live block view after owner-state replacement" begin
+    layouts=([1:2,3:4,5:6,7:8], [2:-1:1,4:-1:3,6:-1:5,8:-1:7],
+             [k:4:8 for k in 1:4], [[3,1],[7,2],[8,6],[4,5]])
+    for T in (Float32,Float64),groups in layouts
+        x=BlockIterate(T,8,groups);v=blockview(x,1)
+        x[groups[1][1]]=T(9);x[groups[4][1]]=T(7)
+        y=BlockIterate(T,8,groups)
+        y[groups[3][1]]=T(2);activate!(y,2)
+        copyto!(x,y)
+        dense=zeros(T,8);dense[groups[3][1]]=T(2)
+        check_state(x,dense,[3,2],groups)
+        copyto!(v,T[4,0]);dense[groups[1]]=T[4,0]
+        check_state(x,dense,[3,2,1],groups)
+        w=BlockIterate(T,8,groups)
+        activate!(w,1);w[groups[4][1]]=T(5)
+        copyto!(x,w)
+        dense=zeros(T,8);dense[groups[4][1]]=T(5)
+        copyto!(v,zeros(T,2))
+        check_state(x,dense,[1,4],groups)
+        copyto!(v,ones(T,2));dense[groups[1]].=one(T)
+        check_state(x,dense,[1,4],groups)
+    end
+end
+
 @testset "aliased Vector source and ordered block layouts" begin
     for T in (Float32,Float64),G in (1:8,8:-1:1,[3,7,1,8,4,6,2,5])
         dense=T.(1:8);x=BlockIterate(dense,[G]);v=blockview(x,1)

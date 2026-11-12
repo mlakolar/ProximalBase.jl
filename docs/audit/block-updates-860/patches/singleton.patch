@@ -1,0 +1,20 @@
+--- a/src/block_iterate.jl
++++ b/src/block_iterate.jl
+@@ -549,3 +549,17 @@
+   s.buf = b
+   b
+ end
++
++# A one-value numerical buffer needs one scalar write. Preserve Base's alias
++# callbacks for general view indices; built-in descriptors have no callbacks.
++@inline function Base.copyto!(dest::SubArray{T,1,<:BlockIterate{T}}, src::Vector{T}) where {T<:Union{Float32,Float64}}
++  isempty(src) && return dest
++  if length(src) == 1 && !isempty(dest)
++    G = parentindices(dest)[1]
++    if G isa Union{UnitRange{Int},StepRange{Int,Int},Vector{Int}}
++      @inbounds dest[firstindex(dest)] = src[1]
++      return dest
++    end
++  end
++  invoke(copyto!, Tuple{AbstractArray,AbstractArray}, dest, src)
++end

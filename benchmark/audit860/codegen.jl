@@ -24,4 +24,5 @@ for T in (Float32,Float64),layout in ("contiguous","arbitrary","reversed","strid
     dump("$T-$layout-bcd",residual_bcd!,args)
     dump("$T-$layout-bulk",residual_bulk!,args)
     dump("$T-$layout-copy",copyto!,Tuple{typeof(block(f.x,1)),Vector{T}})
+    dump("$T-$layout-copysweep",copy_blocks!,Tuple{typeof(f.x),typeof(f.ks),Vector{T}})
 end

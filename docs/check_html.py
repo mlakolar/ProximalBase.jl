@@ -25,7 +25,7 @@ class Page(HTMLParser):
         # Documenter emits inline math as <span>$...$</span> and display
         # math inside math-container elements. Count both rendered forms.
         self.math += len(re.findall(
-            r'<span(?:\\s[^>]*)?>\\s*\\$[^<>\\n]+\\$\\s*</span>',
+            r'<span(?:\s[^>]*)?>\s*\$[^<>\n]+\$\s*</span>',
             html,
         ))
     def handle_starttag(self, tag, attrs):

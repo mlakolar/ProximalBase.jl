@@ -46,3 +46,11 @@ fallback caller retains per-group length guards; both versions make one copy
 call on the b8 path. No unique allocation/spill cause is asserted. Final
 artifact checksums and publication status are in [the evidence manifest](evidence.md);
 final CI is linked from PR #867.
+
+Independent contents and packaging review also checked the explicitly approved
+sanitized replacement. Privacy scans passed; all 185 raw-result files and
+93 source/CSV files preserve their numerical/source contents. Four confirmation
+replays and the regression ledger matched byte for byte. Archive ownership and
+timestamps are normalized, and the review receipt is bound to the exact
+SHA256 in the evidence manifest. A subsequent anonymous public download matched
+that approved checksum. Historical unsanitized Git objects are a separate concern.

@@ -77,7 +77,7 @@ Source/fixture order rotates. Full storage/activity/residual restoration occurs
 outside timing and does not call production state-copy routines. Three warmups
 and a preliminary wrapper trial precede up to 80 evals=1 samples / 0.1 seconds.
 Raw times/GC samples, allocation counts, source/harness hashes, Julia binary
-hash and compiler/machine provenance are retained. The runner snapshots its
+hash and compiler/hardware provenance are retained in sanitized form. The runner snapshots its
 harness and validates source immutability; the analyzer rejects incomplete
 role/round/case pairs or mismatched provenance and recomputes sample medians.
 
@@ -228,8 +228,10 @@ working-set semantics remain unchanged. Whole-iterate state copying is left to
 
 The [recipe](../../../benchmark/audit860/README.md) reconstructs the experimental
 source trees from the frozen baseline and the [rejected patches](patches/README.md),
-not from the moving checkout. The [prepared evidence](evidence.md) retains raw samples,
-source/harness hashes, fixture pointers/padding, provenance and generated code.
+not from the moving checkout. The [published sanitized evidence](evidence.md) retains
+raw samples, source/harness hashes, fixture padding, compiler/hardware provenance
+and generated code. Identifying metadata and runtime addresses are removed;
+original pointer-placement information is not retained in that attachment.
 Discovery and placement-controlled phases are not pooled: the latter prebuilds
 both designs before numerical warmup and explicitly preserves allocation padding.
 The final twenty-one-round comparison evaluates every strategy in that same

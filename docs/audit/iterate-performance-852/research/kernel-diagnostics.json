@@ -1,0 +1,82 @@
+[
+  {
+    "source": "original",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--check-bounds=no",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "/tmp/pb852-audit/benchmark/audit852/diagnose.jl",
+      "/tmp/pb852-frozen/original",
+      "/tmp/pb852-final-kernel-code/original",
+      "/tmp/pb852-final-supplement-restore-harness"
+    ],
+    "seconds": 5.602281332015991,
+    "status": "pass"
+  },
+  {
+    "source": "historical05",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--check-bounds=no",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "/tmp/pb852-audit/benchmark/audit852/diagnose.jl",
+      "/tmp/pb852-frozen/historical05",
+      "/tmp/pb852-final-kernel-code/historical05",
+      "/tmp/pb852-final-static-adapter-harness"
+    ],
+    "seconds": 8.074126720428467,
+    "status": "pass"
+  },
+  {
+    "source": "post848",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--check-bounds=no",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "/tmp/pb852-audit/benchmark/audit852/diagnose.jl",
+      "/tmp/pb852-frozen/post848",
+      "/tmp/pb852-final-kernel-code/post848",
+      "/tmp/pb852-final-supplement-restore-harness"
+    ],
+    "seconds": 8.798579692840576,
+    "status": "pass"
+  },
+  {
+    "source": "post850",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--check-bounds=no",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "/tmp/pb852-audit/benchmark/audit852/diagnose.jl",
+      "/tmp/pb852-frozen/post850",
+      "/tmp/pb852-final-kernel-code/post850",
+      "/tmp/pb852-final-supplement-restore-harness"
+    ],
+    "seconds": 6.427750110626221,
+    "status": "pass"
+  }
+]

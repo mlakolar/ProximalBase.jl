@@ -1,0 +1,19 @@
+{
+  "status": "pass",
+  "reviewer": "Independent Codex GPT-6.1-Sol, high effort, /root/independent_review",
+  "date": "2026-11-11",
+  "reviewed_publication_commit": "a84115788e8eec417f3c871341fe2bcb9a033325",
+  "checks": [
+    "Four compressed archives match SHA256SUMS and inventory hashes, bytes, member counts and uncompressed totals",
+    "All223058 archive members have valid relative file paths and no within-archive duplicates",
+    "Campaign map covers all17 campaign roots and all10 distinct generated analysis-harness roots",
+    "Archived .jl/.py/.toml generated harness files match retained originals byte-for-byte",
+    "All44 report/benchmark README/artifact README local links resolve"
+  ],
+  "minor_findings": [
+    "Name raw-primary.tar.gz and raw-controls.tar.gz explicitly instead of first two archives",
+    "Describe retained stderr/campaign logs accurately; worker stdout READY/DONE protocol is consumed"
+  ],
+  "resolution": "Both README wording corrections applied; no code, metrics or archive changes",
+  "disposition": "No publication blocker remains"
+}

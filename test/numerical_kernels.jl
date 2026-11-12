@@ -1,6 +1,6 @@
 module NumericalKernelsTest
 
-# The shared numerical kernels of src/utils.jl (issue #865), tested at the primitive level in
+# The shared numerical kernels of src/numerical_kernels.jl (issue #865), tested at the primitive level in
 # Float32 and Float64: finite inputs whose intermediate products, differences or squares leave the
 # range while the result is representable, underflow restored by a later factor, genuine NaN/Inf
 # inputs, exact zeros and signed zeros. BigFloat is the test oracle only; the kernels never use it.

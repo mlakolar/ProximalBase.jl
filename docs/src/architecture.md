@@ -11,7 +11,8 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 |:--|:--|
 | `src/ProximalBase.jl` | Module, exports, qualified public names and include order |
 | `src/compat.jl` | Version-dependent Base/SparseArrays compatibility types |
-| `src/utils.jl` | Shape/type checks, range-aware arithmetic, norms, triangular indices and Lanczos norm estimate |
+| `src/utils.jl` | Shape/type checks, scratch buffers, stored-value scans, scaled-value protocol hooks and triangular indices |
+| `src/numerical_kernels.jl` | Shared numerical kernels: soft thresholding, exponent-scaled products, compensated and power-of-two sums, underflow and squared-residual recovery, norms and Lanczos norm estimate |
 | `src/sparse_iterate.jl` | `SparseIterate`, symmetric iterate, active maps, views, copies, products and alias integration |
 | `src/block_iterate.jl` | Ordered partitions, dense values, group activity, block views and layout comparison |
 | `src/interface.jl` | `AbstractFunction`, traits, generic allocating/mutating interfaces and coordinate KKT dispatch |

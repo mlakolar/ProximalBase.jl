@@ -11,9 +11,18 @@ zeros, copies, views, aliases, arbitrary block layouts, writes and products.
 `ridge_precision` preserves the frozen independent BigFloat ridge tests and
 excludes only constrained-ridge sections. `minimal_math` uses independent dense
 and BigFloat references across Float32/64.
-`numerical_kernels` tests the shared overflow/underflow kernels of utils.jl
+`numerical_kernels` tests the shared overflow/underflow kernels of numerical_kernels.jl
 (bounded products, halved residuals, squared residuals) against BigFloat
-references in Float32/64, including genuine NaN/Inf inputs and exact zeros. `core_functions` exercises retained
+references in Float32/64, including genuine NaN/Inf inputs and exact zeros.
+`numerical_recovery` audits the live recovery paths themselves, branch by branch
+(`docs/audit/numerical-kernels-file/recovery-coverage.md` lists each one and the coverage evidence):
+the `_ExpSum` accumulator and the signed/overflowing/underflowing `QuadraticFunction` values, nested and
+single-factor `Scaled` recovery (value parts, level folds, partial folds, array-step routes, exact zeros and
+infinite factors), `NormL1` weights and thresholds, the ridge prox weights and owners, the SVD prox, the
+`_pow2_weighted` sums, `norm`/`norm_diff`, the sparse and symmetric three-factor products and the symmetric
+part of an asymmetric argument, each against an independent BigFloat evaluation of the formula in Float32 and
+Float64. Known defects are recorded with `@test_broken` against the correct reference and flip when fixed.
+`core_functions` exercises retained
 interface, lasso building blocks and custom scalar/vector block extensions.
 `block_replacement` checks whole-iterate copies against independent value/activity
 references, layout ownership and cache preservation, conversions and preflight errors.

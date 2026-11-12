@@ -5,6 +5,9 @@ dead-code removal of `refactor/dead-code-865`. Targets are homogeneous
 `Float64` and `Float32` on the CPU. Cross-precision behavior that is already
 documented or tested is kept, not extended. Nothing here is public API.
 
+The helpers that this note places in `src/utils.jl` now live in
+`src/numerical_kernels.jl`; the move changed no code.
+
 ## 1. Inventory of recovery helpers and their live callers
 
 Callers were taken from the current sources, not the archived pre-#850 tree.

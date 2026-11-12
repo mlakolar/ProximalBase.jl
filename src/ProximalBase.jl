@@ -30,6 +30,7 @@ VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public,
 
 include("compat.jl")
 include("utils.jl")
+include("numerical_kernels.jl")
 include("sparse_iterate.jl")
 include("block_iterate.jl")
 include("interface.jl")

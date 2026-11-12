@@ -1,0 +1,16 @@
+{
+  "cases": 8,
+  "samples": 53702,
+  "rows": 672,
+  "regressions_above_5_percent": 1,
+  "source_digests": {
+    "baseline": "0094023a4953b1727175e790ecfe758bd889dc5b4732a9c374e269f4ee494dfb",
+    "baselineAA": "0094023a4953b1727175e790ecfe758bd889dc5b4732a9c374e269f4ee494dfb",
+    "original": "5f45be431c5dac35878f5ba43e1c473aa228096f150766eed682921c857a2063",
+    "candidate": "c8fee67b89eebfd4d40d4be8eb5cf16e2e6fe6ae00ffbf74a1fa5bb7f04e838d"
+  },
+  "harness_digests": {
+    "/tmp/pb861-exact21": "31e2afaa4c7ff12cf283ad515ff5b8ac0d0f97b2537fe4b35bdd50104faa2cdd"
+  },
+  "julia_binary_sha256": "6cbeea7d1416fb31952325b75f88c83173d939263767adc43e7b43c6de48ab03"
+}

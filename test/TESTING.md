@@ -12,6 +12,8 @@ zeros, copies, views, aliases, arbitrary block layouts, writes and products.
 excludes only constrained-ridge sections. `minimal_math` uses independent dense
 and BigFloat references across Float32/64. `core_functions` exercises retained
 interface, lasso building blocks and custom scalar/vector block extensions.
+`block_replacement` checks whole-owner copies against independent value/activity
+references, layout ownership and cache preservation, conversions and preflight errors.
 `cache_and_blocks` protects cache reset after referenced data mutations and
 block-coordinate KKT semantics. `ci_contract` protects required Linux gates and
 inventory rejection. The local helper contains only allocation measurement and

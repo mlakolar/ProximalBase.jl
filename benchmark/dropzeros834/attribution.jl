@@ -70,30 +70,39 @@ open(joinpath(OUT, "timing-$ORDER.csv"), "w") do io
             flush(io)
         end
         if HAVE_PERF
-            # counters around each dropzeros! call alone: enabled after the restoration and disabled
-            # after the call, minus an empty enable/disable window taken after the same restorations,
-            # which removes the constant cost of the window itself; per call, 2000 calls each
+            # Counters of the call: a phase with the counters enabled after each restoration and disabled
+            # after the call, and a control phase with an empty enable/disable window followed by the
+            # same call with the counters disabled. Both phases start from the same primed state at
+            # pattern 1 and run 2048 = 64 * 32 iterations, so every restoration has the same input
+            # state and every pattern the same multiplicity. The control estimates the cost of the
+            # window itself; call - control is the estimate per call. enabled/running are recorded.
             pb = LinuxPerf.make_bench([LinuxPerf.EventType(:hw, :cycles),
                                        [LinuxPerf.EventType(:hw, :instructions), LinuxPerf.EventType(:hw, :branches),
                                         LinuxPerf.EventType(:hw, :branch_mispredicts)],
                                        [LinuxPerf.EventType(:cache, :L1_data, :read, :miss)]])
-            totals(cnt) = Dict(string(k.event) => Float64(k.value) for k in cnt.counters)
-            open(joinpath(OUT, "counters-$ORDER.csv"), isfile(joinpath(OUT, "counters-$ORDER.csv")) ? "a" : "w") do cio
-                filesize(joinpath(OUT, "counters-$ORDER.csv")) == 0 && println(cio, "cell,tree,event,call,empty,net_per_call")
+            N = 64 * length(first(cells).patterns)
+            totals(cnt) = Dict(string(k.event) => (Float64(k.value), Int(k.enabled), Int(k.running)) for k in cnt.counters)
+            function prime!(c)                       # the state the loop leaves: pattern 32, compacted
+                c.next = length(c.patterns); setup!(c); kernel!(c); c.next = 1
+            end
+            path = joinpath(OUT, "counters-$ORDER.csv")
+            open(path, isfile(path) ? "a" : "w") do cio
+                filesize(path) == 0 && println(cio, "cell,tree,event,call,empty,net_per_call,call_enabled,call_running,empty_enabled,empty_running")
                 for tree in (:base, :head)
                     c = cells[tree]
-                    LinuxPerf.reset!(pb)
-                    for _ = 1:2000
+                    prime!(c); LinuxPerf.reset!(pb)
+                    for _ = 1:N
                         setup!(c); LinuxPerf.enable!(pb); kernel!(c); LinuxPerf.disable!(pb)
                     end
                     call = totals(LinuxPerf.counters(pb))
-                    LinuxPerf.reset!(pb)
-                    for _ = 1:2000
-                        setup!(c); LinuxPerf.enable!(pb); LinuxPerf.disable!(pb)
+                    prime!(c); LinuxPerf.reset!(pb)
+                    for _ = 1:N
+                        setup!(c); LinuxPerf.enable!(pb); LinuxPerf.disable!(pb); kernel!(c)
                     end
                     empty = totals(LinuxPerf.counters(pb))
                     for e in sort(collect(keys(call)))
-                        println(cio, id, ',', tree, ',', e, ',', call[e], ',', empty[e], ',', (call[e] - empty[e]) / 2000)
+                        (cv, ce, cr), (ev, ee, er) = call[e], empty[e]
+                        println(cio, id, ',', tree, ',', e, ',', cv, ',', ev, ',', (cv - ev) / N, ',', ce, ',', cr, ',', ee, ',', er)
                     end
                 end
             end

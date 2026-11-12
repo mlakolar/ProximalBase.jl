@@ -24,7 +24,7 @@ end
 
 const SIZES = (64, 1024, 16384)          # active coordinates: small, medium, large
 const ZERO_FRACTIONS = (0.0, 0.1, 0.5, 0.9, 1.0)
-const NPATTERNS = 32                     # cycled, so successive calls see varying zero patterns
+const NPATTERNS = 32                     # cycled: varying working sets and values (and zero masks unless 0% or 100%)
 const BATCH_COORDS = 4096                # a sample runs max(1, 4096 ÷ s) calls on separate iterates
 const MAINTAIN_SIZES = (1024, 16384)     # sizes of the working-set maintenance workload
 

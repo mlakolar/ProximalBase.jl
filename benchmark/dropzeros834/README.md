@@ -28,8 +28,8 @@ eight times as many coordinates (exactly 8s for `SparseIterate`; the smallest tr
 - `reset`: the restoration alone, which runs untimed before every other sample.
 
 Every working set is a random subset of the coordinates in random order. Each case cycles through
-32 patterns, so successive calls see varying zero patterns (for `zeros0` and `zeros100` only the
-working sets vary). One sample times
+32 patterns, so successive calls see varying zero patterns; for `zeros0` and `zeros100` the zero
+mask is constant, while the coordinate IDs, their order and the stored values vary. One sample times
 `max(1, 4096 ÷ s)` calls on separate iterates (one evaluation per sample), and times are reported
 per call; restoration is outside the timed region, except in `reset`, which times it. The check
 mode runs bounds-checked and compares every call of the non-`reset` cases with an independent copy
@@ -64,7 +64,9 @@ element type, with type names and debug information removed, so that two trees c
 cell. It loads both trees into one process (`ORDER` is `base-first` or `head-first`), times them
 interleaved on the same fixtures, and writes the native code of `dropzeros!` for both trees.
 Separate processes are thus removed from the comparison, but the two trees' code and data still sit
-at different addresses. When LinuxPerf.jl is in the environment, it also writes hardware counters of
-the call alone: counters enabled after each restoration and disabled after the call, minus an empty
-enable/disable window after the same restorations, per call over 2000 calls. `ROUNDS = 0` skips the
+at different addresses. When LinuxPerf.jl is in the environment, it also writes hardware counters: a phase counting from
+after each restoration to after the call, minus a control phase with an empty window followed by the
+same call uncounted. Both phases start from the same primed state and pattern and run 64 cycles of
+the 32 patterns, so the subtraction estimates the counts of the call with the window's own cost
+removed; the enabled and running times of every event are recorded. `ROUNDS = 0` skips the
 timing.

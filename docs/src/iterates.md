@@ -1,9 +1,20 @@
-# Sparse iterates
+# Overview and working sets
 
-An iterate stores the variable of an optimization algorithm. A **working set**
-is a selected set of coordinates the algorithm currently visits. These
-specialized storage types make membership and value updates cheap, and retain
-explicit active zeros independently of the mathematical nonzero pattern.
+*Assumes: vectors, matrices and basic optimization iterations · You will learn: when to use specialized storage and what active coordinates mean.*
+
+For full-vector methods such as ordinary proximal gradient, a plain Julia
+`Vector` (or `Matrix`) is often all the storage you need.
+Use `SparseIterate`, `BlockIterate` or `SymmetricSparseIterate`
+when an algorithm repeatedly visits only a selected
+[working set](glossary.md#Working-set) of coordinates, groups or independent
+symmetric-matrix entries. These types make working-set access and updates
+convenient, but they are not compressed-memory sparse matrices.
+
+An [iterate](glossary.md#Iterate) stores the current optimization variable.
+A coordinate is **[active](glossary.md#Active-coordinate)** here when it is
+explicitly stored or chosen for visits, **not** when an inequality constraint
+holds with equality as in standard KKT terminology.
+A zero coordinate may remain active so a solver checks it on its next sweep.
 
 ## Choosing an iterate
 
@@ -15,14 +26,14 @@ explicit active zeros independently of the mathematical nonzero pattern.
 
 These provide sparse **work**, with direct lookup tables and reserved slots;
 they are not compressed sparse formats for avoiding memory proportional to the
-full coordinate domain. A dense Vector/Matrix remains a good choice for
-ordinary full-vector algorithms.
+full coordinate domain. For an algorithm that updates every coordinate at each step, a regular
+array is often simpler.
 
 ## Entries, coordinates and active slots
 
 For `SparseIterate`, coordinates are Julia linear entry indices. For symmetric matrix storage, coordinates number the independent lower triangle, while matrix indices
 include both mirrored entries. For `BlockIterate`, `x[j]` still indexes an entry,
-but coordinate `k` names a group. An active **slot** is the position in a packed
+but coordinate `k` names a group. An [active **slot**](glossary.md#Active-slot) is the position in a packed
 list of coordinate IDs. It is not a coordinate ID and can move on compaction.
 
 | Call | `SparseIterate` | `SymmetricSparseIterate` | `BlockIterate` |
@@ -46,7 +57,8 @@ sum `count(!iszero,blockview(x,k))` over active group IDs.
 Writing a nonzero converted value activates its coordinate. Writing zero to
 an absent coordinate leaves it absent; writing zero to an active coordinate
 keeps it active. `activate!(x,k)` explicitly retains a zero coordinate, and
-`dropzeros!(x)` removes zero coordinates/all-zero groups. NaN/Inf are nonzero
+[`dropzeros!(x)`](glossary.md#Compaction) removes zero coordinates/all-zero
+groups. NaN/Inf are nonzero
 for this rule; signed zeros are zero.
 
 ```@example iterate_working_set

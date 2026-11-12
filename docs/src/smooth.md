@@ -9,7 +9,7 @@ it is evaluated. The following sections pair each formula with its constructor,
 gradient, proximal map and an executable example.
 
 All functions on this page operate on arrays. Each has values, gradients
-and proximal operators for its supported inputs. **Scalar prediction losses**
+and [proximal operators](glossary.md#Proximal-operator) for its supported inputs. **Scalar prediction losses**
 use a separate [scalar-loss interface](scalar_losses.md).
 For allocating and mutating conventions, input restrictions, shared
 storage and numerical limitations, see

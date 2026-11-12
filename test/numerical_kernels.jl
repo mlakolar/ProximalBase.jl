@@ -274,4 +274,38 @@ setprecision(BigFloat, 1200) do
 end
 end
 
+
+# #767: the retained exponent of a _ProjectionScale is an Int that may already have wrapped. The
+# retained products sum the exponents in Int, modulo 2^64, so they are right whenever the final
+# exponent fits in Int. The ordinary kernel widens BigFloat exponents to Int128 and would read the
+# wrapped power at face value. MPFR exponents near -2^62 let two factors carry the wrap back.
+setprecision(BigFloat, 256) do
+@testset "retained exponent across Int wraparound (#767)" begin
+  E = exponent(floatmax(BigFloat))
+  a, b = ldexp(big(0.75), -E + 10), ldexp(big(0.625), -E + 10)
+  (ma, ea), (mb, eb) = PB._frexp(a), PB._frexp(b)
+  # a small third factor gives negative final exponents with the same wrapped power
+  for d in (0, 40, 1000), c in (ldexp(big(0.875), 3), ldexp(big(0.875), -3000))
+    mc, ec = PB._frexp(c)
+    K = Int128(typemax(Int)) + 1 + d          # the true power: not an Int
+    kw = K % Int                              # as a _ProjectionScale stores it, wrapped
+    final3, final2 = Int128(ea) + eb + ec + K, Int128(ea) + eb + 1 + K   # c = 1 has exponent 1
+    # the intended boundary: the power is not an Int, the widened sum of the stored exponents
+    # leaves Int (so widening gives the wrong exponent), and the true final exponent fits in Int
+    inint(e) = typemin(Int) <= e <= typemax(Int)
+    @test !inint(K)
+    @test !inint(Int128(ea) + eb + ec + kw) && !inint(Int128(ea) + eb + 1 + kw)
+    @test inint(final3) && inint(final2)
+    ref3 = (ma * mb * mc) * big(2.0)^Int(final3)
+    ref2 = (ma * mb / 2) * big(2.0)^Int(final2)
+    @test PB._scaled_product_retained(a, b, c, kw) == ref3
+    @test PB._scaled_product_retained(a, b, kw) == ref2
+    # the live caller: a scale m 2^e applied to parts whose exponent is added to the retained one
+    @test PB._apply_parts(PB._ProjectionScale(a, kw), b, 0) == ldexp(a, -ea) * ldexp(b, -eb) * big(2.0)^Int(Int128(ea) + eb + K)
+    # widening the wrapped power, as the ordinary kernel does, loses the value
+    @test PB._scaled_product(a, b, c, kw) != ref3
+  end
+end
+end
+
 end

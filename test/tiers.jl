@@ -18,4 +18,14 @@ function select(tiers,tier)
     stop === nothing && error("unknown test tier: $tier")
     sort!(reduce(vcat,(String.(tiers[t]) for t in TIERS[1:stop])))
 end
+
+# Partition the selected inventory deterministically and without duplication.
+# Each shard still validates the complete manifest before selecting its files.
+function shard_files(names::Vector{String}, index::Int, count::Int)
+    count >= 1 || error("shard count must be positive")
+    1 <= index <= count || error("shard index must lie in 1:$count")
+    length(names) >= count || error("more shards than selected test files")
+    names[index:count:end]
+end
+
 end

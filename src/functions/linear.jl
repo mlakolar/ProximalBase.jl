@@ -13,14 +13,17 @@ on a `SymmetricSparseIterate`, `c` is `p × p`. Every oracle throws a
 `DimensionMismatch` for any other pair, even one with as many entries, before it writes.
 
 At a matrix `SparseIterate` the value is the sum over its stored entries, in the storage
-order, and reads `c` at the stored entries whose value is nonzero (a `Diagonal` `c` is read
-at the nonzero stored diagonal entries, and the other entries of `x` are ignored, as in
-`dot`). An entry that is not stored, or is stored as `+0` or `-0`, adds nothing, even if
-the coefficient there is `NaN`, `Inf` or `-Inf`; the constant `d` is added after the sum.
-A nonzero entry follows ordinary arithmetic, also when it or its coefficient is not finite.
-When `d`, the nonzero entries and the coefficients at them are finite, the value is finite if
-the exact value lies inside the range of the type by the accuracy of the sum, also if the
-products or the partial sums overflow.
+order, and reads `c` at the stored entries whose value is nonzero. A `Diagonal` `c` is read
+at the nonzero stored diagonal entries, summed in increasing diagonal index, in `O(p)`; the
+other entries of `x` are ignored, as in the diagonal-only `dot` of `Diagonal`. An entry that
+is not stored, or is stored as `+0` or `-0`, adds nothing, even if the coefficient there is
+`NaN`, `Inf` or `-Inf`; the constant `d` is added after the sum. A nonzero entry follows
+ordinary arithmetic, also when it or its coefficient is not finite; the order of the
+summation can then change the IEEE class of the result (an overflow that precedes an
+infinite entry of the other sign gives `NaN`, one that follows it gives that infinity).
+When `d`, the nonzero entries of `x` and the coefficients at them are finite and the exact
+value lies inside the range of the type by the accuracy of the sum, the value is finite,
+also if products or partial sums overflow.
 
 ```julia
 x = SparseIterate(2, 2); x[1, 1] = 2.0
@@ -29,8 +32,10 @@ f(x)                                            # 2.25
 f(Matrix(x))                                    # NaN, as dot(f.c, Matrix(x)) + f.d
 ```
 
-This rule is for the value at a matrix `SparseIterate`. `dot(c, x)` itself is the generic
-`dot`, and a vector `SparseIterate` and a `SymmetricSparseIterate` keep their own rules.
+This rule is for the value at a matrix `SparseIterate`. For a dense `c` that is not a
+`Diagonal`, `dot(c, x)` is the generic `dot`, which visits all positions; for a `Diagonal` it is
+the diagonal-only `dot` of `Diagonal`. A vector `SparseIterate` and a `SymmetricSparseIterate`
+keep their own rules.
 """
 struct LinearFunction{C<:AbstractArray, D<:Real} <: AbstractFunction
   c::C
@@ -91,7 +96,8 @@ _linear_scaled_copy_dot(c, x, s) = dot(c, x .* s[1] .* s[2])
 # nothing to the value, also if the coefficient there is NaN or Inf. The sum runs over the stored
 # entries, tests the value of each against zero before it reads c, and reads c at the
 # nonzero ones, with the linear index of the entry (size(c) == size(x) is checked first).
-# The value of x is read from the storage, not through getindex, which would form a zero.
+# The value of x is read from the storage (nzval), not through getindex: a scan of the logical
+# matrix that visits the implicit entries forms a zero at each of them.
 function _value_unchecked(f::LinearFunction, x::SparseIterate{<:Any, 2})
   _checkvalue(f, x)
   _value_at(_linear_value(f, x, _linear_stored_dot(f.c, x) + f.d), x)
@@ -107,39 +113,26 @@ function _linear_stored_dot(c, x::SparseIterate{<:Any, 2})
 end
 
 # The recomputation for a matrix SparseIterate, when the ordinary value is not finite. The
-# participating entries are the stored entries of x that are nonzero. It runs when d and
-# the participating entries of x and of c are finite, and reads c only at the participating
-# entries. Otherwise the ordinary value v stands: an Inf or a NaN in the data, not in a
-# product, is a genuine result. A coefficient at a zero of x is not read, so it does not stop
-# the recomputation.
+# participating entries are the stored entries of x that are nonzero. If d and those entries of
+# x and of c are finite, the products and d are summed as exponent-separated terms (_ExpSum), a
+# product from the significands and the sum of the exponents of its factors, so that neither
+# factor is scaled before the other acts, and d enters as a term of its own; c is read at the
+# participating entries only. Otherwise the ordinary value v stands: an Inf or a NaN in the
+# data, not in a product, is a genuine result. A coefficient at a zero of x is not read, so it
+# does not stop the recomputation.
 @noinline function _linear_value_recover(c, d, x::SparseIterate{<:Any, 2}, v)
   isfinite(d) || return v
   R = typeof(v)
-  mc = mx = zero(R)
+  acc = _expsum_start(promote_type(R, Float64))
   @inbounds for k in 1:x.nnz
     xk = x.nzval[k]
     iszero(xk) && continue
-    a, b = abs(float(_entry(c, x.nzval2ind[k]))), abs(float(xk))
-    (isfinite(a) && isfinite(b)) || return v
-    mc, mx = max(mc, a), max(mx, b)
+    ck = _entry(c, x.nzval2ind[k])
+    (isfinite(xk) && isfinite(ck)) || return v
+    acc = _expsum_product(acc, ck, xk)
   end
-  _linear_recovered_value(R, mc, mx, d, x.nnz, _linear_scaled_dot, c, x)
-end
-# Σ cᵢ (xᵢ 2^-k) over the participating entries of a matrix SparseIterate
-function _linear_scaled_dot(c, x::SparseIterate{<:Any, 2}, s)
-  v = zero(s[1])
-  @inbounds for k in 1:x.nnz
-    xk = x.nzval[k]
-    iszero(xk) && continue
-    v += float(_entry(c, x.nzval2ind[k])) * _scale_value(xk, s)
-  end
-  v
-end
-# the shift k of the units, the sum in them and d in its own units
-function _linear_recovered_value(::Type{R}, mc, mx, d, n, scaled_dot, c, x) where {R}
-  k = _product_sum_shift(R, mc, mx, n, 2)
-  p = convert(R, scaled_dot(c, x, _power_factors(R, -k)))
-  _pow2_sum(R, (p, k), (convert(R, d), 0))
+  acc = _expsum_product(acc, d, one(R))
+  _expsum_value(R, acc)
 end
 
 # A Diagonal coefficient at a matrix SparseIterate: dot(c, x) for a Diagonal c reads the
@@ -161,35 +154,24 @@ function _linear_diagonal_dot(dg, x::SparseIterate{<:Any, 2})
   s
 end
 # The recomputation for a Diagonal coefficient: the participating entries are the nonzero stored
-# diagonal entries of x. The other entries of x are not read, so a NaN there does not stop it.
+# diagonal entries of x, summed in increasing diagonal index like the ordinary value; the other
+# entries of x are not read, so a NaN there does not stop it. As for the general method, the
+# terms are exponent-separated and d is a term of its own.
 @noinline function _linear_value_recover(c::Diagonal, d, x::SparseIterate{<:Any, 2}, v)
   isfinite(d) || return v
   R = typeof(v)
-  mc = mx = zero(R)
-  n = 0
+  acc = _expsum_start(promote_type(R, Float64))
   @inbounds for j in 1:size(x, 1)
     pos = x.ind2nzval[j, j]
     pos == 0 && continue
     xj = x.nzval[pos]
     iszero(xj) && continue
-    a, b = abs(float(c.diag[j])), abs(float(xj))
-    (isfinite(a) && isfinite(b)) || return v
-    mc, mx = max(mc, a), max(mx, b)
-    n += 1
+    cj = c.diag[j]
+    (isfinite(xj) && isfinite(cj)) || return v
+    acc = _expsum_product(acc, cj, xj)
   end
-  _linear_recovered_value(R, mc, mx, d, n, _linear_diagonal_scaled_dot, c, x)
-end
-# Σ cⱼⱼ (xⱼⱼ 2^-k) over the nonzero stored diagonal entries of x
-function _linear_diagonal_scaled_dot(c, x::SparseIterate{<:Any, 2}, s)
-  v = zero(s[1])
-  @inbounds for j in 1:size(x, 1)
-    pos = x.ind2nzval[j, j]
-    pos == 0 && continue
-    xj = x.nzval[pos]
-    iszero(xj) && continue
-    v += float(c.diag[j]) * _scale_value(xj, s)
-  end
-  v
+  acc = _expsum_product(acc, d, one(R))
+  _expsum_value(R, acc)
 end
 
 # c and x have the same dimensions, size(c) == size(x), the size of a symmetric

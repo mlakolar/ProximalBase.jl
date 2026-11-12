@@ -23,8 +23,8 @@ state(x::AbstractArray) = copy(x)
 state(x::SparseIterate) = (Array(x), collect(activecoordinates(x)), nactive(x))
 
 # ⟨c, x⟩ + d over the stored nonzero entries (the diagonal ones for a Diagonal c), in BigFloat of enough precision
-# for the exponents of Float32 and Float64 products; the number n of those entries, Σ|cᵢxᵢ| + |d|, and the R1 bound
-# 4 n eps(T) (Σ|cᵢxᵢ| + |d|) + n floatmin(T) eps(T) of a value of type T
+# for the exponents of Float32 and Float64 products; n = max(the number of those entries, 1), Σ|cᵢxᵢ| + |d|, and the
+# R1 bound 4 n eps(T) (Σ|cᵢxᵢ| + |d|) + n floatmin(T) eps(T) of a value of type T
 function reference(c, d, x, T; diagonal = false)
   setprecision(BigFloat, 4400) do
     p = size(x, 1)
@@ -74,6 +74,34 @@ function random_pair(rng, T, p, k, lox, hix, loc, hic; zeros = 0.25)
   end
   c = T[rand_mag(rng, T, loc, hic) for _ in 1:p, _ in 1:p]
   x, c
+end
+
+# Terms whose factors have widely separated exponents: a product has the exponent about E + (-8:1), E = exponent(floatmax(T)),
+# from a factor of any size in the range and a coefficient that makes up the rest. With `cancel`, a second entry (another
+# coefficient and an iterate entry) cancels about the product of each of them. Positions on the diagonal when `diagonal`.
+function separated_pair(rng, T, p; diagonal, cancel)
+  E, Emin = exponent(floatmax(T)), exponent(floatmin(T))
+  sgn() = rand(rng, Bool) ? one(T) : -one(T)
+  x = SparseIterate(T, p, p)
+  c = ones(T, p, p)
+  slots = diagonal ? [(j, j) for j in randperm(rng, p)] : [(r, k) for (r, k) in Iterators.product(1:p, 1:p)][randperm(rng, p^2)]
+  next = 1
+  for _ in 1:rand(rng, 1:(cancel ? 3 : 5))
+    ex = rand(rng, Emin:E-1)
+    ep = E + rand(rng, -8:1)
+    ec = clamp(ep - ex, Emin, E - 1)
+    xv, cv = sgn() * ldexp(T(0.5 + rand(rng)), ex), sgn() * ldexp(T(0.5 + rand(rng)), ec)
+    r, k = slots[next]; next += 1
+    x[r, k] = one(T); x[r, k] = xv; c[r, k] = cv
+    cancel || continue
+    ex2 = rand(rng, max(Emin, ep - E + 1):E-1)
+    c2 = sgn() * ldexp(T(0.5 + rand(rng)), clamp(ep - ex2, Emin, E - 1))
+    x2 = T(-(big(cv) * big(xv) / big(c2)))
+    isfinite(x2) || continue
+    r, k = slots[next]; next += 1
+    x[r, k] = one(T); x[r, k] = x2; c[r, k] = c2
+  end
+  x, diagonal ? Diagonal(T[c[j, j] for j in 1:p]) : c
 end
 
 # allocations of a warmed call
@@ -521,11 +549,133 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     sz[2, 1] = T(1); sz[2, 1] = zero(T); sz[1, 1] = T(1)
     csz = ones(T, p, p); csz[2, 1] = T(NaN); csz[1, 2] = T(NaN)
     @test isnan(LinearFunction(csz, d)(sz))
-    # dot(c, x) of a matrix iterate is the generic dot: f(x) agrees with it up to rounding unless a coefficient at a zero is not finite
+    # dot(c, x) of a matrix iterate and a dense c that is not a Diagonal is the generic dot, which forms c[i] * 0 at the zeros
     xm = make_iterate(T, p, [(1, 1, T(2)), (3, 3, T(-1))])
     am = ones(T, p, p); am[4, 4] = T(NaN)
     @test isnan(dot(am, xm) + d)
     @test LinearFunction(am, d)(xm) === T(1.25)
+  end
+
+  @testset "Widely separated exponents ($T)" for T in (Float32, Float64)
+    E = exponent(floatmax(T))
+    h = ldexp(one(T), E)
+    e = T == Float64 ? -46 : -17
+    # a small entry times the largest coefficient, beside two large entries that overflow: the exact value
+    # 2^(E+1) (1 - 2^e) is inside the range by more than the R1 bound, for a Diagonal and for a dense c
+    cs, vs = T[1, 1, floatmax(T)], T[h, h, -ldexp(one(T), e)]
+    for diagonal in (true, false)
+      x = SparseIterate(T, 3, 3)
+      c = diagonal ? Diagonal(cs) : ones(T, 3, 3)
+      for j in 1:3
+        x[j, j] = vs[j]
+        diagonal || (c[j, j] = cs[j])
+      end
+      f = LinearFunction(c, zero(T))
+      ref = reference(f, x, T)
+      v = f(x)
+      @test isfinite(v) && agrees(v, ref, T)
+      @test big(floatmax(T)) - ref.value > ref.bound               # the reference is finite by more than the bound
+      @test T(ref.value) == (T == Float64 ? 1.7976931348622904e308 : 3.4027977f38)
+      @test abs(big(v) - ref.value) <= ref.bound
+      # with d of other sizes, in its own units
+      for dv in (zero(T), T(1), -h, h / 4)
+        g = LinearFunction(c, dv)
+        @test check(g, x, T)
+      end
+    end
+    # the cancellation probe: two products of size 2^(E+1) that cancel and a third of size about 2^(E - 17) or 2^(E - 46)
+    a, tiny = ldexp(one(T), T == Float64 ? 512 : 64), ldexp(one(T), e)
+    cs, vs = T[a, -a, floatmax(T), 0], T[a, a, tiny, floatmax(T)]
+    for diagonal in (false, true)
+      x = diagonal ? make_iterate(T, 4, [(j, j, vs[j]) for j in 1:4]) : make_iterate(T, 2, [(1, 1, vs[1]), (2, 1, vs[2]), (1, 2, vs[3]), (2, 2, vs[4])])
+      c = diagonal ? Diagonal(cs) : reshape(cs, 2, 2)
+      f = LinearFunction(c, zero(T))
+      ref = reference(f, x, T)
+      v = f(x)
+      @test !iszero(v) && isfinite(v) && agrees(v, ref, T)
+      @test Float64(ref.value) == (T == Float64 ? 2.554675596204441e294 : 2.596148274524909e33)
+      @test abs(big(v) - ref.value) <= ref.bound
+    end
+    # families: separated exponents, with and without cancellation, d zero, tiny, one, large
+    rng = Xoshiro(810_700 + (T == Float32))
+    for diagonal in (false, true), cancel in (false, true), _ in 1:150
+      x, c = separated_pair(rng, T, 7; diagonal = diagonal, cancel = cancel)
+      for dv in (zero(T), ldexp(T(0.7), exponent(nextfloat(zero(T))) + 6), T(1), ldexp(T(-1.3), E - 3), ldexp(T(1.1), E - 1))
+        @test check(LinearFunction(c, dv), x, T)
+      end
+    end
+  end
+
+  @testset "Zeros made by activation and by arithmetic ($T)" for T in (Float32, Float64)
+    p = 6
+    x = SparseIterate(T, p, p)
+    x[1, 1] = T(2)
+    activate!(x, linear_of(p, 2, 2)); activate!(x, linear_of(p, 3, 3))
+    x[4, 4] = T(3); x[4, 4] -= T(3)                     # a zero made by arithmetic
+    x[5, 1] = T(-2); x[5, 1] += T(2)
+    @test nactive(x) == 5 && all(isactive(x, linear_of(p, r, c)) for (r, c) in ((1, 1), (2, 2), (3, 3), (4, 4), (5, 1)))
+    @test count(iszero, activevalues(x)) == 4
+    c = ones(T, p, p)
+    for (i, (r, k)) in enumerate(((2, 2), (3, 3), (4, 4), (5, 1), (6, 6)))
+      c[r, k] = (T(NaN), T(Inf), -T(Inf))[mod1(i, 3)]
+    end
+    @test LinearFunction(c, T(0.25))(x) === T(2.25)
+    @test isnan(LinearFunction(c, T(0.25))(Matrix(x)))
+    # a recovered value with the activated zeros
+    huge, d = T == Float64 ? (T(1e308), T(-1.5e308)) : (T(2e38), T(-3e38))
+    y = SparseIterate(T, p, p)
+    y[1, 1] = huge; y[2, 1] = huge
+    activate!(y, linear_of(p, 3, 3)); activate!(y, linear_of(p, 4, 4))
+    @test nactive(y) == 4
+    f = LinearFunction(c, d)
+    @test isfinite(f(y)) && agrees(f(y), reference(f, y, T), T)
+  end
+
+  @testset "Nested Scaled ($T)" for T in (Float32, Float64)
+    E = exponent(floatmax(T))
+    A = round(Int, 0.6 * (E + 1))
+    p = 4
+    near(v, r) = abs(big(v) - r) <= 8 * big(eps(T)) * abs(r) + big(floatmin(T)) * big(eps(T))
+    # a leaf value of size 2^(E - 23), and scales whose product is a normal number, one that underflows, one that overflows
+    L = E - 23
+    x = make_iterate(T, p, [(1, 1, ldexp(one(T), L))]); f = LinearFunction(ones(T, p, p), zero(T))
+    leaf = f(x)
+    @test leaf == ldexp(one(T), L)
+    for (α, β) in ((T(2), T(0.5)), (ldexp(one(T), -A), ldexp(one(T), -A)), (ldexp(one(T), A), ldexp(one(T), -A)), (ldexp(T(1.5), -A), ldexp(T(1.25), -A)))
+      v = Scaled(Scaled(f, α), β)(x)
+      @test near(v, big(leaf) * big(α) * big(β))
+      @test isfinite(v) && !iszero(v)
+    end
+    xs = make_iterate(T, p, [(1, 1, ldexp(one(T), -L))]); leaf = f(xs)
+    v = Scaled(Scaled(f, ldexp(one(T), A)), ldexp(one(T), A))(xs)       # the product of the scales overflows
+    @test near(v, big(leaf) * big(ldexp(one(T), A))^2) && isfinite(v)
+    # a leaf recovered from an overflowing dot, scaled
+    huge, d = T == Float64 ? (T(1e308), T(-1.5e308)) : (T(2e38), T(-3e38))
+    xb = make_iterate(T, p, [(1, 1, huge), (2, 1, huge)])
+    fb = LinearFunction(ones(T, p, p), d)
+    lb = fb(xb)
+    @test isfinite(lb)
+    for (α, β) in ((T(0.5), T(0.25)), (T(2), T(0.125)))
+      @test near(Scaled(Scaled(fb, α), β)(xb), big(lb) * big(α) * big(β))
+    end
+    @test near((T(0.5) * (T(2) * fb))(xb), big(lb))
+  end
+
+  @testset "Order-dependent classes ($T)" for T in (Float32, Float64)
+    h = ldexp(one(T), exponent(floatmax(T)))
+    # finite coefficients, and an overflow before an infinite entry of the other sign: the value follows the
+    # storage order (NaN), the dense dot the column-major order (-Inf)
+    x = SparseIterate(T, 2, 2)
+    x[2] = h; x[3] = h; x[1] = -T(Inf)
+    f = LinearFunction(ones(T, 2, 2), zero(T))
+    @test isnan(f(x))
+    @test f(Matrix(x)) === -T(Inf) && dot(f.c, x) === -T(Inf)
+    # a Diagonal coefficient array is summed in increasing diagonal index, whatever the storage order
+    xd = SparseIterate(T, 3, 3)
+    xd[2, 2] = h; xd[3, 3] = h; xd[1, 1] = -T(Inf)
+    fd = LinearFunction(Diagonal(ones(T, 3)), zero(T))
+    @test fd(xd) === -T(Inf)
+    @test isnan(sum(activevalues(xd)))
   end
 end
 

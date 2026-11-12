@@ -11,6 +11,25 @@ is the shift `x - γc`.
 The coefficients and the argument have the same dimensions, `size(c) == size(x)`;
 on a `SymmetricSparseIterate`, `c` is `p × p`. Every oracle throws a
 `DimensionMismatch` for any other pair, even one with as many entries, before it writes.
+
+At a matrix `SparseIterate` the value is the sum over its stored entries, in the storage
+order, and reads `c` at the stored entries whose value is nonzero (a `Diagonal` `c` is read
+at the nonzero stored diagonal entries, and the other entries of `x` are ignored, as in
+`dot`). An entry that is not stored, or is stored as `+0` or `-0`, adds nothing, even if
+the coefficient there is `NaN`, `Inf` or `-Inf`; the constant `d` is added after the sum.
+A nonzero entry follows ordinary arithmetic, also when it or its coefficient is not finite.
+Finite `d`, finite nonzero entries and finite coefficients at them give a finite value
+when it is representable, also if the products or their sum overflow.
+
+```julia
+x = SparseIterate(2, 2); x[1, 1] = 2.0
+f = LinearFunction([1.0 NaN; 1.0 1.0], 0.25)    # NaN at an entry of x that is not stored
+f(x)                                            # 2.25
+f(Matrix(x))                                    # NaN, as dot(f.c, Matrix(x)) + f.d
+```
+
+This rule is for the value at a matrix `SparseIterate`. `dot(c, x)` itself is the generic
+`dot`, and a vector `SparseIterate` and a `SymmetricSparseIterate` keep their own rules.
 """
 struct LinearFunction{C<:AbstractArray, D<:Real} <: AbstractFunction
   c::C
@@ -66,6 +85,111 @@ function _linear_scaled_dot(c, x::SymmetricSparseIterate, s)
 end
 _linear_scaled_dot(c, x, s) = _linear_scaled_copy_dot(c, x, s)
 _linear_scaled_copy_dot(c, x, s) = dot(c, x .* s[1] .* s[2])
+
+# A matrix SparseIterate (D1): an entry of x that is not stored, or is stored as a zero, adds
+# nothing to the value, whatever the coefficient there is. The sum runs over the stored
+# entries, tests the value of each against zero before it reads c, and reads c only at the
+# nonzero ones, with the linear index of the entry (size(c) == size(x) is checked first).
+# The value of x is read from the storage, not through getindex, which would form a zero.
+function _value_unchecked(f::LinearFunction, x::SparseIterate{<:Any, 2})
+  _checkvalue(f, x)
+  _value_at(_linear_value(f, x, _linear_stored_dot(f.c, x) + f.d), x)
+end
+function _linear_stored_dot(c, x::SparseIterate{<:Any, 2})
+  s = zero(promote_type(eltype(c), eltype(x)))
+  @inbounds for k in 1:x.nnz
+    v = x.nzval[k]
+    iszero(v) && continue
+    s += _entry(c, x.nzval2ind[k]) * v
+  end
+  s
+end
+
+# The recomputation for a matrix SparseIterate, when the ordinary value is not finite. The
+# participating entries are the stored entries of x that are nonzero. It runs when d and
+# the participating entries of x and of c are finite, and reads c only at the participating
+# entries. Otherwise the ordinary value v stands: an Inf or a NaN in the data, not in a
+# product, is a genuine result. A coefficient at a zero of x is not read, so it does not stop
+# the recomputation.
+@noinline function _linear_value_recover(c, d, x::SparseIterate{<:Any, 2}, v)
+  isfinite(d) || return v
+  R = typeof(v)
+  mc = mx = zero(R)
+  @inbounds for k in 1:x.nnz
+    xk = x.nzval[k]
+    iszero(xk) && continue
+    a, b = abs(float(_entry(c, x.nzval2ind[k]))), abs(float(xk))
+    (isfinite(a) && isfinite(b)) || return v
+    mc, mx = max(mc, a), max(mx, b)
+  end
+  _linear_recovered_value(R, mc, mx, d, x.nnz, _linear_scaled_dot, c, x)
+end
+# Σ cᵢ (xᵢ 2^-k) over the participating entries of a matrix SparseIterate
+function _linear_scaled_dot(c, x::SparseIterate{<:Any, 2}, s)
+  v = zero(s[1])
+  @inbounds for k in 1:x.nnz
+    xk = x.nzval[k]
+    iszero(xk) && continue
+    v += float(_entry(c, x.nzval2ind[k])) * _scale_value(xk, s)
+  end
+  v
+end
+# the shift k of the units, the sum in them and d in its own units
+function _linear_recovered_value(::Type{R}, mc, mx, d, n, scaled_dot, c, x) where {R}
+  k = _product_sum_shift(R, mc, mx, n, 2)
+  p = convert(R, scaled_dot(c, x, _power_factors(R, -k)))
+  _pow2_sum(R, (p, k), (convert(R, d), 0))
+end
+
+# A Diagonal coefficient at a matrix SparseIterate: dot(c, x) for a Diagonal c reads the
+# diagonal of x only, in O(p), and ignores the other entries of x, as f(Matrix(x)) does. The
+# value keeps that, and reads c.diag[j] only where x has a nonzero stored diagonal entry.
+function _value_unchecked(f::LinearFunction{<:Diagonal}, x::SparseIterate{<:Any, 2})
+  _checkvalue(f, x)
+  _value_at(_linear_value(f, x, _linear_diagonal_dot(f.c.diag, x) + f.d), x)
+end
+function _linear_diagonal_dot(dg, x::SparseIterate{<:Any, 2})
+  s = zero(promote_type(eltype(dg), eltype(x)))
+  @inbounds for j in 1:size(x, 1)
+    pos = x.ind2nzval[j, j]
+    pos == 0 && continue
+    v = x.nzval[pos]
+    iszero(v) && continue
+    s += dg[j] * v
+  end
+  s
+end
+# The recomputation for a Diagonal coefficient: the participating entries are the nonzero stored
+# diagonal entries of x. The other entries of x are not read, so a NaN there does not stop it.
+@noinline function _linear_value_recover(c::Diagonal, d, x::SparseIterate{<:Any, 2}, v)
+  isfinite(d) || return v
+  R = typeof(v)
+  mc = mx = zero(R)
+  n = 0
+  @inbounds for j in 1:size(x, 1)
+    pos = x.ind2nzval[j, j]
+    pos == 0 && continue
+    xj = x.nzval[pos]
+    iszero(xj) && continue
+    a, b = abs(float(c.diag[j])), abs(float(xj))
+    (isfinite(a) && isfinite(b)) || return v
+    mc, mx = max(mc, a), max(mx, b)
+    n += 1
+  end
+  _linear_recovered_value(R, mc, mx, d, n, _linear_diagonal_scaled_dot, c, x)
+end
+# Σ cⱼⱼ (xⱼⱼ 2^-k) over the nonzero stored diagonal entries of x
+function _linear_diagonal_scaled_dot(c, x::SparseIterate{<:Any, 2}, s)
+  v = zero(s[1])
+  @inbounds for j in 1:size(x, 1)
+    pos = x.ind2nzval[j, j]
+    pos == 0 && continue
+    xj = x.nzval[pos]
+    iszero(xj) && continue
+    v += float(c.diag[j]) * _scale_value(xj, s)
+  end
+  v
+end
 
 # c and x have the same dimensions, size(c) == size(x), the size of a symmetric
 # iterate being that of the p × p matrix it represents. Every oracle applies this

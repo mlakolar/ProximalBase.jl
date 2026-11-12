@@ -419,4 +419,42 @@ end
   @test isempty(owned)
 end
 
+# Every source that SparseArrays or LinearAlgebra copy with a method of their own reaches a
+# ProximalBase method, which checks the element type before that writer runs; a source of the
+# element type of the iterate included, where CHOLMOD has typed methods of its own.
+@testset "copyto! sources reach the real-only check" begin
+  S = sparse([1.0 0; 0 2]); v = sparsevec([1.0, 0, 0, 2])
+  hasdense = isdefined(SparseArrays, :CHOLMOD) && isdefined(SparseArrays.CHOLMOD, :Dense)
+  for T in (Float32, Float64)
+    matrix_sources = Any[T[1 0; 0 2], sparse(T[1 0; 0 2]), S, view(S, :, :), view(S, :, 1:2), S', transpose(S),
+                         2I, qr(T[2 1; 1 3]).Q, qr(T[2 1; 1 3], ColumnNorm()).Q, lq(T[2 1; 1 3]).Q, hessenberg(T[2 1; 1 3]).Q]
+    row_sources = Any[v', transpose(v), view(v, :)']
+    vector_sources = Any[T[1, 0, 0, 2], v, S]
+    if hasdense
+      D = SparseArrays.CHOLMOD.Dense
+      push!(matrix_sources, D(T[1 0; 0 2]), D([1.0 0; 0 2]))
+      push!(vector_sources, D(reshape(T[1, 0, 0, 2], 4, 1)), D(reshape([1.0, 0, 0, 2], 4, 1)))
+    end
+    for y in vcat(matrix_sources, row_sources)
+      @test parentmodule(which(copyto!, Tuple{SparseIterate{T, 2}, typeof(y)})) === ProximalBase
+    end
+    for y in vector_sources, X in (SparseIterate{T, 1}, typeof(BlockIterate(T, 4, 2)))
+      @test parentmodule(which(copyto!, Tuple{X, typeof(y)})) === ProximalBase
+    end
+    # these sources write the values and the activity of the dense source of the same values
+    state(x) = (Array(x), collect(activecoordinates(x)), nactive(x))
+    fresh2() = (x = SparseIterate(T, 2, 2); x[2, 1] = 5; x)
+    fresh1() = (x = SparseIterate(T, 4); x[3] = 5; x)
+    freshb() = (x = BlockIterate(T, 4, 2); x[3] = 5; x)
+    for y in matrix_sources
+      y isa UniformScaling && continue
+      dense = y isa LinearAlgebra.AbstractQ ? T.(Matrix(y)) : T.(Array(y))
+      @test state(copyto!(fresh2(), y)) == state(copyto!(fresh2(), dense))
+    end
+    for y in vector_sources, fresh in (fresh1, freshb)
+      @test state(copyto!(fresh(), y)) == state(copyto!(fresh(), T.(vec(Array(y)))))
+    end
+  end
+end
+
 end

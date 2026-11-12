@@ -380,8 +380,9 @@ function _copy_active!(dest::BlockIterate{T}, src::BlockIterate) where {T}
   @inbounds for a in 1:dest.nactive
     k = dest.active[a]
     if src.position[k] == 0
+      z = zero(T)
       for i in dest.groups[k]
-        dest.storage[i] = zero(T)
+        dest.storage[i] = z
       end
     end
     dest.position[k] = 0

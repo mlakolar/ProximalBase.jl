@@ -118,6 +118,18 @@ end
     end
 end
 
+@testset "destination-only groups reuse one constructed zero per group" begin
+    gs=[1:3,4:6,7:9]
+    src=BlockIterate(BigFloat,9,gs);src[8]=BigFloat(2.5)
+    dest=BlockIterate(BigFloat.(1:9),gs)
+    @test copyto!(dest,src) === dest
+    check(dest,Vector(src),[3])
+    @test dest.storage[1] === dest.storage[2] === dest.storage[3]
+    @test dest.storage[4] === dest.storage[5] === dest.storage[6]
+    @test dest.storage[1] !== dest.storage[4]
+    @test dest.storage[8] === src.storage[8]
+end
+
 @testset "preflight errors preserve complete destination and layout caches" begin
     for gs in ([1:3,4:6,7:9], [1:3:9,2:3:9,3:3:9], [[7,1,4],[8,2,5],[9,3,6]]),
         op in (copyto!,copy!)

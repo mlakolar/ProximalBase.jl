@@ -46,6 +46,19 @@ are zeroed and deactivated. Source activity ordering becomes destination
 ordering, and every reverse position is rebuilt accordingly. Unused active-array
 capacity is internal; the active prefix and position map define the state.
 
+Clearing constructs `zero(T)` once per destination-only group, as the baseline
+does. A review refinement hoisted this construction out of the inner loop to
+preserve allocation and zero-object reuse for `BigFloat` and other real types.
+The broad Float32/64 campaign uses the frozen pre-hoist snapshot. All twelve
+`_copy_active!` native specializations (both source/destination precisions and
+three descriptor types) are byte-identical before/after the hoist. All twelve
+public `copyto!` listings have identical instructions, registers and labels
+after replacing only assembler-declared global/GOT addresses with their symbol
+names. Both snapshots and all generated listings are preserved as evidence.
+The final source receives a separate exact-#852 focal repeat; broad timings are
+not described as direct measurements of the final source. Independent review
+accepted this distinction and code-equivalence evidence.
+
 ## Causal investigation
 
 Final component diagnostics are recorded separately from headline paired

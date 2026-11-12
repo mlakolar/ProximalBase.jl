@@ -223,44 +223,6 @@ end
 # CPU prototypes keep the existing dense buffer and cache checks.
 _array_buffer!(s::Scratch, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(s, T, size(x))
 
-# A buffer for the transformed input, reused while its type and size agree.
-# Adapted functions have no cache and allocate a device buffer on each call.
-_output_buffer!(s::Scratch, y::Union{Array, SubArray{<:Any, <:Any, <:Array}}) = _array_buffer!(s, eltype(y), size(y))
-_output_buffer!(::Nothing, y::AbstractArray) = similar(y)
-
-# A view of an Array whose indices shift to start at 1 keeping their types gets
-# a view of the same type into an owned Array, so that f sees the same layout;
-# a view with other indices, such as a vector of indices, gets an Array.
-const _ShiftableIndex = Union{Int, UnitRange{Int}, StepRange{Int, Int}, Base.Slice{Base.OneTo{Int}}, Base.OneTo{Int}}
-function _output_buffer!(s::Scratch, y::SubArray{T, N, Array{T, M}, I}) where {T, N, M, I<:NTuple{M, _ShiftableIndex}}
-  shifted = map(_shifted_index, y.indices)
-  P = _array_buffer!(s, T, map(last, shifted))
-  view(P, map(first, shifted)...)
-end
-
-# an index shifted to start at 1, and the extent of the parent dimension that it spans
-_shifted_index(i::Int) = (1, 1)
-_shifted_index(r::UnitRange{Int}) = (1:length(r), length(r))
-_shifted_index(r::Union{Base.Slice{Base.OneTo{Int}}, Base.OneTo{Int}}) = (r, length(r))
-function _shifted_index(r::StepRange{Int, Int})
-  s = step(r)
-  isempty(r) && return (StepRange(1, s, s > 0 ? 0 : 2), 0)
-  lo = min(first(r), last(r))
-  (StepRange(first(r) - lo + 1, s, last(r) - lo + 1), abs(last(r) - first(r)) + 1)
-end
-function _output_buffer!(s::Scratch, y::A) where {A<:DenseArray}
-  b = s.buf
-  b isa A && size(b) == size(y) && return b
-  b = similar(y)
-  s.buf = b
-  b
-end
-_output_buffer!(::Scratch, y::AbstractArray) = copy(y)
-
-# Most kernels read scratch and write y. Stored iterates must run in place to
-# preserve their stored zeros and summation order, then publish the full state.
-_wrapper_output(y, z) = y
-
 # Scratch is an implementation detail: copies of a function object share no buffer
 Base.copy(s::Scratch) = Scratch()
 
@@ -370,15 +332,6 @@ function _maximum_abs(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
 end
 _maximum_abs(x::Diagonal{T}) where {T<:Union{Float32, Float64}} = _maximum_abs(x.diag)
 
-# Scale each entry before summing, including before taking its square.
-function _scaled_sum(x::AbstractArray, s, f::F = identity) where {F}
-  v = zero(s[1])
-  @inbounds for u in _stored_values(x)
-    v += f(_scale_value(u, s))
-  end
-  v
-end
-
 # Exceptional values need the small terms even after a large one was added.
 function _scaled_value_sum(x::AbstractArray, s, f::F = identity) where {F}
   v = e = zero(s[1])
@@ -396,56 +349,6 @@ function _scaled_dot(a, x::AbstractArray, s)
     v += float(_entry(a, i)) * _scale_value(x[i], s)
   end
   v
-end
-
-# Σᵢ aᵢxᵢ over n products as three compensated sums in the type of the scales:
-# the large products, those that overflow or exceed floatmax/2n, in units of
-# the two scales; the products below floatmin·2^(p+1), which underflow or lose
-# bits, in units of 2^-U (_tiny_unit), formed from the significands of the
-# factors, so that a weight applied later still finds them; and the others in
-# their own units, whose sum cannot overflow. Exact zeros are skipped.
-function _split_dot(a::AbstractArray, x::AbstractArray, sa, sx)
-  _checksize(a, x)
-  R = typeof(sx[1])
-  acc = _split_start(R, length(a))
-  @inbounds for i in eachindex(IndexLinear(), a, x)
-    acc = _split_add(acc, a[i], x[i], sa, sx)
-  end
-  _split_finish(acc)
-end
-struct _SplitAcc{R}
-  big::R
-  eb::R
-  small::R
-  es::R
-  tiny::R
-  et::R
-  t::R              # the largest product summed in its own units
-end
-_split_start(::Type{R}, n::Integer) where {R} =
-  (z = zero(R); _SplitAcc{R}(z, z, z, z, z, z, floatmax(R) / (2 * max(n, 1))))
-_split_finish(acc::_SplitAcc) = (acc.big + acc.eb, acc.small + acc.es, acc.tiny + acc.et)
-# Products below floatmin·2^(p+1) are summed in units of 2^-U. With
-# U = emax + p + 4 they stay normal there down to about 2^-(emax - emin), below
-# which no weight up to floatmax lifts them into the normal range.
-_tiny_unit(::Type{R}) where {R} = exponent(floatmax(R)) + precision(R) + 4
-_tiny_limit(::Type{R}) where {R} = ldexp(floatmin(R), precision(R) + 1)
-@inline function _split_add(acc::_SplitAcc{R}, a, x, sa, sx) where {R}
-  ar, xr = convert(R, a), convert(R, x)
-  p = ar * xr
-  m = abs(p)
-  if m > acc.t
-    u = ((ar * sa[1]) * sa[2]) * ((xr * sx[1]) * sx[2])
-    big, eb = _compensated_add(acc.big, acc.eb, u)
-    return _SplitAcc{R}(big, eb, acc.small, acc.es, acc.tiny, acc.et, acc.t)
-  elseif m >= _tiny_limit(R) || iszero(ar) || iszero(xr)
-    small, es = _compensated_add(acc.small, acc.es, p)
-    return _SplitAcc{R}(acc.big, acc.eb, small, es, acc.tiny, acc.et, acc.t)
-  end
-  ma, ea = _frexp(ar)
-  mx, ex = _frexp(xr)
-  tiny, et = _compensated_add(acc.tiny, acc.et, ldexp(ma * mx, ea + ex + _tiny_unit(R)))
-  _SplitAcc{R}(acc.big, acc.eb, acc.small, acc.es, tiny, et, acc.t)
 end
 
 ####################################

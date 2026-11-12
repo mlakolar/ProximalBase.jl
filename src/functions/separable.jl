@@ -51,12 +51,6 @@ abstract type SeparableFunction <: AbstractFunction end
 isseparable(::Type{<:SeparableFunction}) = true
 isproximable(::Type{<:SeparableFunction}) = true
 
-# Broadcast parameters in the argument's shape to preserve linear pairing.
-_reshapeparam(p, x) = p
-_reshapeparam(p::AbstractArray, x) = reshape(p, size(x))
-# The wrapper avoids allocating an Array header on CPU broadcasts.
-_reshapeparam(p::Array, x) = Base.ReshapedArray(p, size(x), ())
-
 """
     value_entry(f, v, i)
 
@@ -204,13 +198,6 @@ function _prox_sep!(y::SymmetricSparseIterate, f, x::Union{AbstractMatrix, Symme
   end
   y
 end
-
-# The matrix of an owner as the destination: the coordinate kernel above, which reads and writes each
-# coordinate of a mirrored pair once. A traversal of both positions of a pair would read the second one after
-# the first has been written when the argument is the destination.
-_prox_sep!(y::_OwnerMatrix, f, x::AbstractArray, γ::Real) = (_prox_sep!(y.x, f, _coordinate_source(x), γ); y)
-_coordinate_source(x::AbstractArray) = x
-_coordinate_source(x::Union{_OwnerMatrix, SymmetricMatrixView}) = x.x
 
 # the proximal operator, then the value at the result: two vectorized passes are
 # several times faster than one that stores and sums, which does not vectorize;

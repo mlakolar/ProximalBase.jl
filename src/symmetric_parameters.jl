@@ -4,7 +4,6 @@
 # indexed by groups, ranks or image coordinates are deliberately absent.
 entry_parameters(::AbstractFunction) = ()
 entry_parameters(::SeparableFunction) = nothing
-_entry_arrays(f) = entry_parameters(f)
 _inner_functions(::AbstractFunction) = ()
 entry_parameters(f::NormL1) = (:w => f.w,)
 entry_parameters(f::LinearFunction) = (:c => f.c,)
@@ -19,7 +18,6 @@ _check_parameter_axes(y, a) = true
 _check_parameter_axes(y::SymmetricSparseIterate, a::AbstractArray) = _check_axes(y, a)
 
 struct _AllPairs end
-struct _StoredValuePairs end
 struct _StoredPairs{X, Y}
   x::X
   y::Y
@@ -115,9 +113,6 @@ _stored_value(f::SeparableFunction) = _isbuiltin(f) && iszeropreserving(f)
 _stored_value(::LinearFunction) = true
 _stored_value(f::SqrNormL2) = f.y === nothing
 _stored_value(f::Scaled) = _stored_value(f.f)
-_stored_value_pairs(x::SymmetricSparseIterate) = _StoredPairs(x, x)
-_stored_value_pairs(x::Tuple) = _StoredValuePairs()
-_stored_value_pairs(x) = _AllPairs()
 _stored_write(op, ::AbstractFunction) = false
 _stored_write(op, f::SeparableFunction) = _isbuiltin(f)
 _stored_write(op::O, f::Scaled) where {O} = _stored_write(op, f.f)
@@ -191,19 +186,6 @@ function _check_oracle_arrays(op::O, f, y, x, γ = nothing) where {O}
   end
   true
 end
-# The same checks for a destination that is the matrix of an owner: the write checks see the matrix,
-# and the parameters are those of the owner, as for the owner itself.
-function _check_oracle_arrays(op::O, f, y::_OwnerMatrix, x, γ = nothing) where {O}
-  _checkreal(f, y)
-  _checkreal(f, x)
-  γ === nothing || _checkreal(f, γ)
-  γ === nothing ? _checkwrite(op, f, y, x) : _checkwrite(op, f, y, x, γ)
-  _check_write_arrays(op, f, y.x, _owner_of(x))
-  true
-end
-_owner_of(x) = x
-_owner_of(x::_OwnerMatrix) = x.x
-_owner_of(x::SymmetricMatrixView) = x.x
 _value_unchecked(f, x) = f(x)
 
 # Symmetrize computed gradients before any wrapper scales or shifts them.
@@ -325,35 +307,8 @@ function _value_checked(s::Scaled, x::Union{SymmetricSparseIterate, Tuple})
   _value_at(_scaled_value(s, x, _value_checked(s.f, x)), x)
 end
 
-# A proximal step into an owner by a kernel written for matrices: the kernel writes through the matrix
-# of the owner, which stores the lower triangle of the result, and the argument is that matrix itself
-# when the call is in place. One method per type of argument, so that the call is inferred.
-@inline _owner_value_and_prox!(y::SymmetricSparseIterate, f, x, γ) = _owner_call(value_and_prox!, y, f, x, γ)
-@inline _owner_prox!(y::SymmetricSparseIterate, f, x, γ) = (_owner_call(prox!, y, f, x, γ); y)
-@inline _owner_call(op::O, y, f, x, γ) where {O} = op(_OwnerMatrix(y), f, x, γ)
-@inline function _owner_call(op::O, y, f, x::SymmetricSparseIterate, γ) where {O}
-  w = _OwnerMatrix(y)
-  x === y ? op(w, f, w, γ) : op(w, f, matrixview(x), γ)
-end
-@inline function _owner_call(op::O, y, f, x::SymmetricMatrixView, γ) where {O}
-  w = _OwnerMatrix(y)
-  x.x === y ? op(w, f, w, γ) : op(w, f, x, γ)
-end
-
-# The owner of a symmetric matrix inside code written for matrices. `_ow(y)` is the matrix that a broadcast
-# writes through (each coordinate once, from its lower position) and `_vw(x)` the read-only matrix of an
-# argument; `_pt(dest, x)` is the argument as it is read while `dest` is written, which is `dest` itself for
-# a call in place. For an array all three are the array, so that a kernel written with them is the kernel
-# of the array.
-@inline _ow(y::SymmetricSparseIterate) = _OwnerMatrix(y)
-@inline _ow(y) = y
 @inline _vw(x::SymmetricSparseIterate) = matrixview(x)
 @inline _vw(x) = x
-@inline _pt(dest, x) = _vw(x)
-@inline _pt(dest::_OwnerMatrix, x) = _owner_point(dest, x)
-# the axes that a broadcast of the matrix of y has
-@inline _baxes(y::AbstractArray) = axes(y)
-@inline _baxes(y::SymmetricSparseIterate) = axes(matrixview(y))
 
 # y = x for a proximal step that is the identity: an array takes the copy, an owner the lower entries of x,
 # one coordinate at a time (a coordinate that is active stays active), and nothing when x is y

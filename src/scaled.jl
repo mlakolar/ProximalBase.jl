@@ -14,8 +14,6 @@ Base.isfinite(a::_ProjectionScale) = isfinite(a.m)
 Base.isinf(a::_ProjectionScale) = isinf(a.m)
 Base.iszero(a::_ProjectionScale) = iszero(a.m)
 Base.isone(a::_ProjectionScale) = a.m == 0.5 && a.e == 1
-_projection_real(a::Real) = a
-_projection_real(a::_ProjectionScale) = ldexp(a.m, a.e)
 _projection_scale_parts(a::Real) = _frexp(float(a))
 _projection_scale_parts(a::_ProjectionScale) = (a.m, a.e)
 function _projection_accumulate(a::Real, b::Real)
@@ -34,29 +32,6 @@ function _projection_accumulate(a::_ProjectionScale, b::Real)
   mb, eb = _frexp(float(b))
   m, e = _frexp(a.m * mb)
   _ProjectionScale(m, Int(a.e + eb + e))
-end
-_projection_product(a, b, w) = _positive_product(a, b, w)
-# the stored exponent may have wrapped: Int sums (#767)
-_projection_product(a::_ProjectionScale, b, w) = _scaled_product_retained(a.m, b, w, a.e)
-# f scaled by an accumulated factor, as nested wrappers when the factor is not a normal number:
-# pieces of at most half the exponent range, so that each is stored exactly
-_projection_scaled(f, α::Real) = Scaled(f, α)
-# Two wrappers hold any factor within twice that range, and have a type that inference follows;
-# the general case is the loop below.
-_projection_two_pieces(α::_ProjectionScale{T}) where {T} = abs(α.e) <= 2 * (exponent(floatmax(T)) ÷ 2)
-function _projection_scaled2(f, α::_ProjectionScale{T}) where {T}
-  h = α.e ÷ 2
-  Scaled(Scaled(f, ldexp(one(T), h)), ldexp(α.m, α.e - h))
-end
-function _projection_scaled(f, α::_ProjectionScale{T}) where {T}
-  step = exponent(floatmax(T)) ÷ 2
-  g, e = f, α.e
-  while abs(e) > step
-    k = copysign(step, e)
-    g = Scaled(g, ldexp(one(T), k))
-    e -= k
-  end
-  Scaled(g, ldexp(α.m, e))
 end
 
 # lazy views of a gradient for the optimality tests: c g and g + c
@@ -161,8 +136,6 @@ end
 # a wrapper of its own), and those keep their recursive oracles. Only a chain whose product is
 # not a normal number takes the methods that combine the factors.
 @inline _chained(::Scaled) = false
-@inline _chained_scaled(f) = false
-@inline _chained_scaled(f::Scaled) = _chained(f) || _chained_scaled(f.f)
 @inline _chained(s::Scaled{<:Scaled}) = _chain_exceptional(s.f, s.α)
 @inline _chain_exceptional(f, a) = false
 @inline _chain_exceptional(f::Scaled, a) = _nested_scales(a, f.α) || _chain_exceptional(f.f, a * f.α)
@@ -223,8 +196,6 @@ _fold_level(f::Scaled, α) = _fold_level(f.f, _projection_accumulate(α, f.α))
 # level that falls below the range multiplies the step by less than the range can resolve, so it
 # is dropped instead of discarding the fold.
 _fold_level_step(f, α) = _fold_level(f, α)
-_fold_block_step(f, α) = _isindicator(f) ? f : _fold_level_step(f, α)
-_fold_block_step(f::ZeroFunction, α) = f
 
 # The scale of the fold that recovers a value: only a fold into normal levels is used. A subnormal
 # level has fewer bits than the factors give, and the partial fold below recovers those values at
@@ -580,8 +551,6 @@ _checkparams(s::Scaled, x) = _checkparams(s.f, x)
 _checkwrite(op::O, s::Scaled, y, x) where {O} = (_checkreal(s, y); _checkreal(s, x); (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checkwrite(op, s.f, y, x))
 iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
-_counts_nonzeros(f::Scaled) = _counts_nonzeros(f.f)
-_scale_invariant(f::Scaled) = _scale_invariant(f.f)
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _nested_kkt((f, h) -> kkt_violation(f, h, i), s, g) :
    iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
@@ -600,7 +569,6 @@ function _nested_kkt(kkt, s::Scaled, g)
   h === nothing ? _apply_scale(a, kkt(f, _ExpScaledArray(g, _scale_inverse(a)))) : kkt(h, g)
 end
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
-_restrict_unchecked(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(_restrict_unchecked(s.f, S), s.α)
 
 # The parts of a scaled function inside another wrapper: those of the function under the chain,
 # times the product of its factors, which the scale still to apply multiplies further.

@@ -1,0 +1,91 @@
+{
+  "original": {
+    "commit": "bd0740d0ebbebcc76fe208e4318fe6fc5451d34b",
+    "source_digest": "5f45be431c5dac35878f5ba43e1c473aa228096f150766eed682921c857a2063",
+    "files": {
+      "src/ProximalBase.jl": "e2b751028506c1229a9fb33bdb6de16424b27cd2ce4bb3f9d4d5c4cf120a65f9",
+      "src/differentiable_functions.jl": "00d08033168cb44cff40d3763efa5673acff40dd93d4f4d951122b058c93103d",
+      "src/proximal_functions.jl": "f109669120e9927468e29fff84996188b3648aa3df28b35490e9181bb54ef667",
+      "src/sparseIterate.jl": "411e1ff44dd6ba01c715d6df3c4783459f5cf76ca4a9a255f82dc276ce620c5d",
+      "src/utils.jl": "ae88594a41ce823571dbfeaf49b39234237d8b0c9531e3216d0df08bb00953d0"
+    }
+  },
+  "master": {
+    "commit": "eb74a914d779371a02e4a6637eaa724aeb66fdf5",
+    "source_digest": "0094023a4953b1727175e790ecfe758bd889dc5b4732a9c374e269f4ee494dfb",
+    "files": {
+      "src/ProximalBase.jl": "1521e7ae98e572f06d16e20c0e7b56fcfade34d473a0d0c670eb8cc8b52162a9",
+      "src/array_steps.jl": "7cc38fa3526ecffa49b85339ae5673ab28a1a2bdbffd392950a575b899aab24b",
+      "src/block_iterate.jl": "befae2d757893ef68e9a0df6cbf2b4b42b92dca69116f29964074acf7a6fb139",
+      "src/block_prox.jl": "e20f7164c34428997e1eccf3f925101515f89586a7f4f64a6497ad5640dca28b",
+      "src/caches.jl": "86b2168054f530d2582d82c4c5a28de6982f43ed4f790504ddaf77fb3f99e389",
+      "src/compat.jl": "e87279857e6ffe7186f8692a9c679bcf57f2df6311a460006f66621f1af9424b",
+      "src/functions/leastsquares.jl": "72193f6ffc76cfac224b780dbf9de81de40cddb62b98e1df5de7040c9b6cd476",
+      "src/functions/linear.jl": "1d90edff829c76e0729a524cedea59564fd3159dab325192f4a2c76d5ff69b83",
+      "src/functions/quadratic.jl": "45cba31060284885a92026a701543c1469006241ce6dd8676de4791251670da0",
+      "src/functions/scalar_loss.jl": "b04631a6eff3aace12574b99e1708260456ad813c3e9bf0fe4cdc0a334da79ed",
+      "src/functions/separable.jl": "0368f3438895c3ef9a3e0c5a14b3f6bafbd46c3b97be3dbbcccf57e4298e51e1",
+      "src/functions/sqrnorml2.jl": "99adc6064f4f0ea39ab22ecd15459f689f0ef1da4ec117cdffc4e50fe82d91e6",
+      "src/functions/zero.jl": "02a38b65703110232c1c9feb05f658ac37177a549ddde4fa696186d7f39b35f1",
+      "src/interface.jl": "3ca69a86d9a831d79eab1bded39fbabb964564e6887cb45c0ab6c4db206e330f",
+      "src/model_data.jl": "28435fc4fb5e24579d326426a493b79cdb1f1c24628712d4c8a037005ebb27e6",
+      "src/precompile.jl": "1e3a8218200ca57c57fcbba58316e993b2ec94963f6c64652555ffad6225cd2b",
+      "src/scaled.jl": "9072f45f95ede5a38e3f7a779dd5f383d2d67978f7c52e71fca37bbc540e7c03",
+      "src/sparse_iterate.jl": "c3112875043ff5522b327ae52b1eca09c7e861f0c6dbbf54bcb7a691944549cd",
+      "src/symmetric_parameters.jl": "72c0569c51602108044d738fa0a32ec377843b648e23e155377adde9dbbaafa6",
+      "src/utils.jl": "cbbca258010cb0e92127ab8f5447cc392e0971953c92b7ed669c41dd1a6726af"
+    }
+  },
+  "timed": {
+    "commit": "9b12babc69d9939b21d38f564db132c23429dbe9",
+    "source_digest": "fab1a461fec67b414fa66e9cc028cb77608d08743d04c2a553eac03eb8c3b7a2",
+    "files": {
+      "src/ProximalBase.jl": "1521e7ae98e572f06d16e20c0e7b56fcfade34d473a0d0c670eb8cc8b52162a9",
+      "src/array_steps.jl": "7cc38fa3526ecffa49b85339ae5673ab28a1a2bdbffd392950a575b899aab24b",
+      "src/block_iterate.jl": "e9262fffa1ed559807d9e4ed1fcadb786ba97931c14579edf9cfb89afa828a98",
+      "src/block_prox.jl": "e20f7164c34428997e1eccf3f925101515f89586a7f4f64a6497ad5640dca28b",
+      "src/caches.jl": "86b2168054f530d2582d82c4c5a28de6982f43ed4f790504ddaf77fb3f99e389",
+      "src/compat.jl": "e87279857e6ffe7186f8692a9c679bcf57f2df6311a460006f66621f1af9424b",
+      "src/functions/leastsquares.jl": "72193f6ffc76cfac224b780dbf9de81de40cddb62b98e1df5de7040c9b6cd476",
+      "src/functions/linear.jl": "1d90edff829c76e0729a524cedea59564fd3159dab325192f4a2c76d5ff69b83",
+      "src/functions/quadratic.jl": "45cba31060284885a92026a701543c1469006241ce6dd8676de4791251670da0",
+      "src/functions/scalar_loss.jl": "b04631a6eff3aace12574b99e1708260456ad813c3e9bf0fe4cdc0a334da79ed",
+      "src/functions/separable.jl": "0368f3438895c3ef9a3e0c5a14b3f6bafbd46c3b97be3dbbcccf57e4298e51e1",
+      "src/functions/sqrnorml2.jl": "99adc6064f4f0ea39ab22ecd15459f689f0ef1da4ec117cdffc4e50fe82d91e6",
+      "src/functions/zero.jl": "02a38b65703110232c1c9feb05f658ac37177a549ddde4fa696186d7f39b35f1",
+      "src/interface.jl": "3ca69a86d9a831d79eab1bded39fbabb964564e6887cb45c0ab6c4db206e330f",
+      "src/model_data.jl": "28435fc4fb5e24579d326426a493b79cdb1f1c24628712d4c8a037005ebb27e6",
+      "src/precompile.jl": "1e3a8218200ca57c57fcbba58316e993b2ec94963f6c64652555ffad6225cd2b",
+      "src/scaled.jl": "9072f45f95ede5a38e3f7a779dd5f383d2d67978f7c52e71fca37bbc540e7c03",
+      "src/sparse_iterate.jl": "c3112875043ff5522b327ae52b1eca09c7e861f0c6dbbf54bcb7a691944549cd",
+      "src/symmetric_parameters.jl": "72c0569c51602108044d738fa0a32ec377843b648e23e155377adde9dbbaafa6",
+      "src/utils.jl": "cbbca258010cb0e92127ab8f5447cc392e0971953c92b7ed669c41dd1a6726af"
+    }
+  },
+  "final": {
+    "commit": "933d104d853ff6c00534b75789cb2d9359cf532a",
+    "source_digest": "c8fee67b89eebfd4d40d4be8eb5cf16e2e6fe6ae00ffbf74a1fa5bb7f04e838d",
+    "files": {
+      "src/ProximalBase.jl": "1521e7ae98e572f06d16e20c0e7b56fcfade34d473a0d0c670eb8cc8b52162a9",
+      "src/array_steps.jl": "7cc38fa3526ecffa49b85339ae5673ab28a1a2bdbffd392950a575b899aab24b",
+      "src/block_iterate.jl": "4880cd61a3cc080117a6637db2549c3a2a5ff054006702b24965e1acdd385fcb",
+      "src/block_prox.jl": "e20f7164c34428997e1eccf3f925101515f89586a7f4f64a6497ad5640dca28b",
+      "src/caches.jl": "86b2168054f530d2582d82c4c5a28de6982f43ed4f790504ddaf77fb3f99e389",
+      "src/compat.jl": "e87279857e6ffe7186f8692a9c679bcf57f2df6311a460006f66621f1af9424b",
+      "src/functions/leastsquares.jl": "72193f6ffc76cfac224b780dbf9de81de40cddb62b98e1df5de7040c9b6cd476",
+      "src/functions/linear.jl": "1d90edff829c76e0729a524cedea59564fd3159dab325192f4a2c76d5ff69b83",
+      "src/functions/quadratic.jl": "45cba31060284885a92026a701543c1469006241ce6dd8676de4791251670da0",
+      "src/functions/scalar_loss.jl": "b04631a6eff3aace12574b99e1708260456ad813c3e9bf0fe4cdc0a334da79ed",
+      "src/functions/separable.jl": "0368f3438895c3ef9a3e0c5a14b3f6bafbd46c3b97be3dbbcccf57e4298e51e1",
+      "src/functions/sqrnorml2.jl": "99adc6064f4f0ea39ab22ecd15459f689f0ef1da4ec117cdffc4e50fe82d91e6",
+      "src/functions/zero.jl": "02a38b65703110232c1c9feb05f658ac37177a549ddde4fa696186d7f39b35f1",
+      "src/interface.jl": "3ca69a86d9a831d79eab1bded39fbabb964564e6887cb45c0ab6c4db206e330f",
+      "src/model_data.jl": "28435fc4fb5e24579d326426a493b79cdb1f1c24628712d4c8a037005ebb27e6",
+      "src/precompile.jl": "1e3a8218200ca57c57fcbba58316e993b2ec94963f6c64652555ffad6225cd2b",
+      "src/scaled.jl": "9072f45f95ede5a38e3f7a779dd5f383d2d67978f7c52e71fca37bbc540e7c03",
+      "src/sparse_iterate.jl": "c3112875043ff5522b327ae52b1eca09c7e861f0c6dbbf54bcb7a691944549cd",
+      "src/symmetric_parameters.jl": "72c0569c51602108044d738fa0a32ec377843b648e23e155377adde9dbbaafa6",
+      "src/utils.jl": "cbbca258010cb0e92127ab8f5447cc392e0971953c92b7ed669c41dd1a6726af"
+    }
+  }
+}

@@ -18,6 +18,7 @@ def main():
     p.add_argument('--rounds',type=int,default=7)
     p.add_argument('--start-round',type=int,default=1)
     p.add_argument('--check',action='store_true')
+    p.add_argument('--exact852',action='store_true',help='unchanged #852 focal copyto/copy fixtures')
     p.add_argument('--roles',default='original,baseline,candidate,baselineAA')
     p.add_argument('--cases-file',type=Path)
     p.add_argument('--cpu',type=int,default=min(os.sched_getaffinity(0)))
@@ -37,6 +38,13 @@ def main():
                     names=['shared_active','equal_active','copy','restart_shared']
                 ops=[op for op in names if selected is None or key+'/'+op in selected]
                 if ops:fixtures.append((key,dt,n,s,b,layout,ops))
+    if a.exact852:
+        fixtures=[]
+        for dt,layout in (('Float32','strided'),('Float64','contiguous')):
+            for s in (81,819):
+                key=f'block/{dt}/n8192/s{s}/b1/{layout}'
+                ops=[op for op in ('copyto','copy') if selected is None or key+'/'+op in selected]
+                if ops:fixtures.append((key,dt,8192,s,1,layout,ops))
     assert fixtures
     paths=list(HERE.glob('*.jl'))+list(HERE.glob('*.py'))
     paths+=list((HERE.parent/'audit852').glob('*.toml'))
@@ -58,7 +66,8 @@ def main():
                 cmd=['taskset','-c',str(a.cpu),str(a.julia),'--startup-file=no','--threads=1','-O2',
                      '--check-bounds='+('yes' if a.check else 'no'),'--project='+str(HERE.parent/'audit852'),
                      str(HERE/'worker.jl'),str(source.resolve()),role,str(procdir.resolve())]
-                env=os.environ|{'JULIA_NUM_THREADS':'1','OPENBLAS_NUM_THREADS':'1','OMP_NUM_THREADS':'1'}
+                env=os.environ|{'JULIA_NUM_THREADS':'1','OPENBLAS_NUM_THREADS':'1','OMP_NUM_THREADS':'1',
+                                'PB_EXACT852':'1' if a.exact852 else '0'}
                 with (procdir/'stderr.log').open('w') as err:
                     worker=subprocess.Popen(cmd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=err,text=True,env=env)
                     assert worker.stdout.readline().strip()=='READY',procdir

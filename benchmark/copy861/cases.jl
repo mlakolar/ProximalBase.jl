@@ -47,7 +47,12 @@ function restart!(x,src,checkpoint,groups,ks)
     end
     x
 end
+@static if ORIGINAL
+    # The same raw native-vector constructor used by #852's raw-block control.
+    newblock(::Type{T},n,b,groups) where T=owner(T,n,groups)
+end
 function replacement_cases(T,n,s,b,layout,ops,seed)
+    get(ENV,"PB_EXACT852","0")=="1" && return block_cases(T,n,s,b,layout,ops,seed)
     rng=Xoshiro(seed);groups=group_layout(n,b,layout,rng);K=length(groups)
     ks=randperm(rng,K)[1:s]
     src=owner(T,n,groups)

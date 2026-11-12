@@ -15,7 +15,9 @@ end
 
 @testset "whole-owner replacement and independent state references" begin
     layouts = ([1:3,4:6,7:9,10:12], [1:4:12,2:4:12,3:4:12,4:4:12],
-               [[9,1,5],[10,2,6],[11,3,7],[12,4,8]], [k:12:12 for k in 1:12])
+               [[9,1,5],[10,2,6],[11,3,7],[12,4,8]], [k:12:12 for k in 1:12],
+               [Int32(k):Int32(k+2) for k in 1:3:12],
+               [Int32(k):Int32(4):Int32(12) for k in 1:4])
     for gs in layouts, T in (Float32,Float64), S in (Float32,Float64),
         ownership in (:shared,:independent,:cached), populated in (false,true), op in (copyto!,copy!)
         src = BlockIterate(S,12,gs)
@@ -90,17 +92,28 @@ end
 end
 
 @testset "different compatible layouts retain ordinary value-write semantics" begin
-    for T in (Float32,Float64), S in (Float32,Float64), op in (copy!,copyto!)
+    for T in (Float32,Float64), S in (Float32,Float64), op in (copy!,copyto!),
+        dg in ([[1,5,9],[2,6,10],[3,7,11],[4,8,12]], [1:6,7:12])
         src = BlockIterate(S,12,[1:3,4:6,7:9,10:12])
         src[8] = S(3); activate!(src,1)
-        dest = BlockIterate(T,12,[[1,5,9],[2,6,10],[3,7,11],[4,8,12]])
+        dest = BlockIterate(T,12,dg)
         dest[3] = T(7) # retained zero activity after generic fallback
         ref = copy(dest)
         for i in 1:12; ref[i] = src[i]; end
         @test op(dest,src) === dest
         check(dest,Vector(ref),collect(activecoordinates(ref)))
         dropzeros!(dest)
-        check(dest,T.(Vector(src)),[4])
+        check(dest,T.(Vector(src)),[findfirst(g -> 8 in g,dg)])
+    end
+end
+
+@testset "zero-length replacement and empty conversion staging" begin
+    for T in (Float32,Float64,Int), S in (Float32,Float64), op in (copyto!,copy!)
+        src=BlockIterate(S,0,UnitRange{Int}[])
+        for dest in (similar(src,T),BlockIterate(T,0,Vector{Int}[]))
+            @test op(dest,src) === dest
+            check(dest,T[],Int[])
+        end
     end
 end
 
@@ -116,6 +129,16 @@ end
         dropzeros!(dest)
         check(dest,T.(Vector(src)),[1,2])
     end
+end
+
+@testset "mixed float conversion retains groups that underflow to zero" begin
+    src=BlockIterate(Float64,4,[1:2,3:4])
+    src[3]=1e-100;src[4]=-1e-100;src[1]=1e100
+    dest=similar(src,Float32)
+    @test copyto!(dest,src) === dest
+    check(dest,Float32[Inf,0,0,-0.0],[2,1])
+    dropzeros!(dest)
+    check(dest,Float32[Inf,0,0,-0.0],[1])
 end
 
 @testset "destination-only groups reuse one constructed zero per group" begin

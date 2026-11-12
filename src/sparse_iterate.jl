@@ -70,7 +70,7 @@ SparseIterate(nzval::Vector{T}, nzval2ind::Vector{Int}, ind2nzval::Array{Int, N}
     SymmetricSparseIterate([T = Float64,] p)
     SymmetricSparseIterate(X::AbstractMatrix)
 
-The owner of the `q = p(p + 1) / 2` variables of a real symmetric `p × p` matrix:
+Symmetric matrix storage for the `q = p(p + 1) / 2` variables of a real symmetric `p × p` matrix:
 the entries of its lower triangle, stored in a compact list with O(1) access, as
 `SparseIterate`. It is not an array. It has `size(x) == (p, p)`,
 `eltype(x)`, `ncoordinates``(x) == q`, and the two-index access below; it
@@ -94,8 +94,8 @@ remove active zeros. `nactive` counts the active coordinates;
 `count(!iszero, activevalues(x))` counts those that are nonzero.
 
   - `copy(x)` is an independent state: values, active zeros and activation order.
-  - `similar(x)` and `similar(x, S)` are empty owners of the same `p`.
-  - `copyto!(y, x)` between owners replaces the state of `y` with a copy of that
+  - `similar(x)` and `similar(x, S)` are empty symmetric iterates of the same `p`.
+  - `copyto!(y, x)` between symmetric iterates replaces the state of `y` with a copy of that
     of `x`; `copyto!(x, x)` does nothing.
   - `copyto!(x, A)` and `SymmetricSparseIterate(A)` import a matrix `A`: it must
     be real, of size `(p, p)` and exactly symmetric (`NaN` matches `NaN`, `0.0`
@@ -107,7 +107,7 @@ remove active zeros. `nactive` counts the active coordinates;
   - `fill!(coordinates(x), 0)` writes only the active values; with `dropzeros!(x)`
     it empties `x` in O(`nactive(x)`). There is no `fill!(x, v)`.
 
-Two owners are `==` and `isequal` when their matrices are: `isequal(x, y)` is
+Two symmetric iterates are `==` and `isequal` when their matrices are: `isequal(x, y)` is
 `isequal(Matrix(x), Matrix(y))`, so an active `-0.0` differs from an absent
 coordinate under `isequal` but not under `==`, and paired `NaN`s are `isequal`
 but not `==`. Equal matrices have equal hashes whatever the active sets and their
@@ -283,7 +283,7 @@ activecoordinates(x::_StoredIterate) = _ActiveIDs(view(x.nzval2ind, 1:x.nnz))
 activevalues(x::_StoredIterate) = view(x.nzval, 1:x.nnz)
 isactive(x::_StoredIterate, k::Integer) = x.ind2nzval[k] != 0
 
-# aliasing hooks from Base (non-public functions); the owner reports its storage
+# aliasing hooks from Base (non-public functions); the symmetric iterate reports its storage
 # arrays, so that activevalues(x), activecoordinates(x) and the views of x are all
 # seen to overlap x
 Base.dataids(x::SparseIterate) =
@@ -1074,7 +1074,7 @@ end
 
 # Adds the terms A[:, r] * x * B[c, :] of one nonzero coefficient x of X, at the coordinate (r, c),
 # into C; a, ax and b are buffers of the lengths of the column of A and the row of B. Written so
-# that an owner method can call it once for each stored coefficient (and, for an off-diagonal
+# that a symmetric iterate method can call it once for each stored coefficient (and, for an off-diagonal
 # coordinate, for its transpose).
 function _add_coefficient!(C::Matrix{T}, A, B, r::Int, c::Int, x::T,
                            a::Vector{T}, ax::Vector{T}, b::Vector{T}) where {T}
@@ -1230,7 +1230,7 @@ end
 The product `A * X * B` for a sparse iterate `X`, restricted to the rows and
 columns where `X` has nonzeros: O(p² k) for nonzeros in k rows, instead of the
 O(p³) of dense products. This is the path of matrix iterates of element types other than
-`Float32` and `Float64` (and, through `SymmetricSparseIterate`'s own method, of an owner of such a
+`Float32` and `Float64` (and, through `SymmetricSparseIterate`'s own method, of a symmetric iterate of such a
 type); the guarantee of the direct methods does not cover it.
 """
 function *(A::Symmetric{T}, X::SparseIterate{T, 2}, B::Symmetric{T}) where {T}
@@ -1320,7 +1320,7 @@ end
 Base.getindex(x::SymmetricSparseIterate, k::Integer) = _throw_linear_index(x, k)
 Base.setindex!(x::SymmetricSparseIterate, v, k::Integer) = _throw_linear_index(x, k)
 
-# Base derives axes(x) from size(x) for any object that has a size. The owner has no axes,
+# Base derives axes(x) from size(x) for any object that has a size. The symmetric iterate has no axes,
 # so that eachindex, broadcasting and checks of position lists are refused at once; its
 # one-index access, length and iteration have no methods.
 Base.axes(x::SymmetricSparseIterate) = throw(ArgumentError(
@@ -1331,7 +1331,7 @@ Base.axes(x::SymmetricSparseIterate) = throw(ArgumentError(
 struct SymmetricCoordinates{T} <: AbstractVector{T}
   x::SymmetricSparseIterate{T}
 end
-# aliasing hooks from Base (non-public functions); the owner reports its storage
+# aliasing hooks from Base (non-public functions); the symmetric iterate reports its storage
 # arrays, so that activevalues(x) and the views of x are all seen to overlap x
 Base.dataids(x::SymmetricSparseIterate) =
   (Base.dataids(x.nzval)..., Base.dataids(x.nzval2ind)..., Base.dataids(x.ind2nzval)...)
@@ -1405,12 +1405,12 @@ Base.unaliascopy(A::SymmetricMatrixView) = SymmetricMatrixView(copy(A.x))
 # Julia 1.10, where the copy must have the type of the original
 Base.unaliascopy(A::Symmetric{<:Any, <:SymmetricMatrixView}) = Symmetric(Base.unaliascopy(A.data), Symbol(A.uplo))
 Base.unaliascopy(A::Hermitian{<:Any, <:SymmetricMatrixView}) = Hermitian(Base.unaliascopy(A.data), Symbol(A.uplo))
-# Base.unalias(x, A) of the owner x copies a source that shares memory with it, keeping the type of the
+# Base.unalias(x, A) of the symmetric iterate x copies a source that shares memory with it, keeping the type of the
 # source. Base does that through unaliascopy of each wrapper, and on Julia 1.10 it has no such copy for a
 # Symmetric or Hermitian wrapper (a copy of the wrapper has a dense parent), so a wrapper of a view or a
 # reshape of x, or a view of such a wrapper, was refused. The copy here goes through every derived parent,
-# the wrapper types of Base and LinearAlgebra that the views of an owner can be in, and keeps the type, the
-# triangle and the independence; any other source takes the copy of Base. The method is for the owner as the
+# the wrapper types of Base and LinearAlgebra that the views of a symmetric iterate can be in, and keeps the type, the
+# triangle and the independence; any other source takes the copy of Base. The method is for the symmetric iterate as the
 # destination, so that it adds nothing to a function of Base for Base's types.
 function Base.unalias(dest::SymmetricSparseIterate, A::AbstractArray)
   Base.mightalias(dest, A) ? _unaliascopy(A) : A
@@ -1652,19 +1652,19 @@ end
 # a parameter array a of f, a matrix or the vector of its p² entries, read as the
 # p × p matrix that the pair checks index; r = 0 checks every pair
 @noinline function _throw_asymmetric_parameter(f, name, a, p, r, c)
-  owner = f === nothing ? "the steps γ" : "the array $name of $(nameof(typeof(f)))"
+  subject = f === nothing ? "the steps γ" : "the array $name of $(nameof(typeof(f)))"
   label = f === nothing ? "γ" : string(name)
   a isa AbstractMatrix && size(a) == (p, p) || (label = "reshape($label, $p, $p)")
   where = " on a SymmetricSparseIterate"
-  r == 0 && _throw_asymmetric(reshape(a, p, p), owner, label, where)
-  _throw_asymmetric_pair(owner, label, where, r, c, a[(c - 1) * p + r], a[(r - 1) * p + c])
+  r == 0 && _throw_asymmetric(reshape(a, p, p), subject, label, where)
+  _throw_asymmetric_pair(subject, label, where, r, c, a[(c - 1) * p + r], a[(r - 1) * p + c])
 end
 
 # the axes of the matrix that x represents
-_owner_axes(x::SymmetricSparseIterate) = (Base.OneTo(x.p), Base.OneTo(x.p))
-_check_axes(x::SymmetricSparseIterate, A::AbstractArray) = axes(A) == _owner_axes(x) || _throw_axes(x, A)
+_symmetric_matrix_axes(x::SymmetricSparseIterate) = (Base.OneTo(x.p), Base.OneTo(x.p))
+_check_axes(x::SymmetricSparseIterate, A::AbstractArray) = axes(A) == _symmetric_matrix_axes(x) || _throw_axes(x, A)
 @noinline _throw_axes(x, A) =
-  throw(DimensionMismatch("source axes $(axes(A)) do not match destination axes $(_owner_axes(x))"))
+  throw(DimensionMismatch("source axes $(axes(A)) do not match destination axes $(_symmetric_matrix_axes(x))"))
 
 Base.convert(::Type{SymmetricSparseIterate{T}}, ::Union{AbstractArray, SymmetricSparseIterate}) where {T<:Complex} =
   _real_error(:SymmetricSparseIterate)
@@ -1727,11 +1727,11 @@ _checkparam(w::AbstractArray, x::SymmetricSparseIterate) =
 
 # copies of the state of x: values, active zeros and the order of activation
 Base.copy(x::SymmetricSparseIterate) = copyto!(similar(x), x)
-# empty owners of the same dimension
+# empty symmetric iterates of the same dimension
 Base.similar(x::SymmetricSparseIterate{T}) where {T} = SymmetricSparseIterate(T, x.p)
 Base.similar(x::SymmetricSparseIterate, ::Type{S}) where {S} = SymmetricSparseIterate(S, x.p)
 
-# Between owners, a state copy: the working set of y replaces that of x, active zeros and
+# Between symmetric iterates, a state copy: the working set of y replaces that of x, active zeros and
 # order included, and only the active values are converted, before anything is written.
 function Base.copyto!(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
   x === y && return x
@@ -1740,12 +1740,12 @@ function Base.copyto!(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
   _copyto_stored!(x, y)
 end
 
-# Equality of two owners is that of their matrices, so it does not depend on which coordinates are
+# Equality of two symmetric iterates is that of their matrices, so it does not depend on which coordinates are
 # active or on their order: isequal(x, y) is isequal(Matrix(x), Matrix(y)), and x == y is
 # Matrix(x) == Matrix(y). An absent coordinate is zero(T), so an active -0.0 differs from it
 # under isequal and not under ==, and paired NaNs are isequal and not ==. Both comparisons read
-# the active coordinates of the two owners and nothing else.
-function _owners_agree(eq::F, x::SymmetricSparseIterate{S}, y::SymmetricSparseIterate{T}) where {F, S, T}
+# the active coordinates of the two symmetric iterates and nothing else.
+function _symmetric_iterates_agree(eq::F, x::SymmetricSparseIterate{S}, y::SymmetricSparseIterate{T}) where {F, S, T}
   @inbounds for k in 1:x.nnz
     eq(x.nzval[k], _getstored(y, x.nzval2ind[k])) || return false
   end
@@ -1756,12 +1756,12 @@ function _owners_agree(eq::F, x::SymmetricSparseIterate{S}, y::SymmetricSparseIt
 end
 function Base.isequal(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
   x === y && return true
-  x.p == y.p && _owners_agree(isequal, x, y)
+  x.p == y.p && _symmetric_iterates_agree(isequal, x, y)
 end
-Base.:(==)(x::SymmetricSparseIterate, y::SymmetricSparseIterate) = x.p == y.p && _owners_agree(==, x, y)
+Base.:(==)(x::SymmetricSparseIterate, y::SymmetricSparseIterate) = x.p == y.p && _symmetric_iterates_agree(==, x, y)
 # The sum over the coordinates that are not the zero of an absent coordinate, of the hash of
 # the value and the coordinate: independent of the order of the active set. hash of a real
-# number does not depend on its type, so owners of different element types that are isequal
+# number does not depend on its type, so symmetric iterates of different element types that are isequal
 # hash alike, and an active -0.0 contributes where an absent coordinate does not.
 function Base.hash(x::SymmetricSparseIterate, h::UInt)
   acc = zero(UInt)
@@ -1801,14 +1801,14 @@ function _shares_data(ids, y)
   q = parent(y)
   q === y ? false : _shares_data(ids, q)
 end
-# aliasing hooks from Base: an owner is not an array, so Base.unalias copies a view of it
+# aliasing hooks from Base: a symmetric iterate is not an array, so Base.unalias copies a view of it
 # (through the unaliascopy methods of the views) when it is the destination
 Base.mightalias(x::SymmetricSparseIterate, a::AbstractArray) = _aliases(x, a)
 Base.mightalias(a::AbstractArray, x::SymmetricSparseIterate) = _aliases(x, a)
 # A source with another number of dimensions cannot have the axes of x.
 Base.copyto!(x::SymmetricSparseIterate, y::AbstractArray) = _throw_axes(x, y)
 
-# A broadcast that is written into an iterate is real, for the owner's sources and for BlockIterate.
+# A broadcast that is written into an iterate is real, for the symmetric iterate's sources and for BlockIterate.
 _checkreal_broadcast(x, bc::Broadcast.Broadcasted) = _checkreal_args(x, bc.args)
 _checkreal_args(x, args::Tuple) = (_checkreal_broadcast(x, first(args)); _checkreal_args(x, Base.tail(args)))
 _checkreal_args(x, ::Tuple{}) = true
@@ -2089,7 +2089,7 @@ function Base.:*(A::SymmetricSparseIterate, B::AbstractMatrix)
   mul!(Matrix{_product_eltype(eltype(A), eltype(B))}(undef, A.p, size(B, 2)), A, B)
 end
 
-# norm_diff(A, B, p) of the matrices that the arguments represent: both triangles of an owner
+# norm_diff(A, B, p) of the matrices that the arguments represent: both triangles of a symmetric iterate
 norm_diff(A::SymmetricSparseIterate, B::SymmetricSparseIterate, p::Real = 2) =
   norm_diff(matrixview(A), matrixview(B), p)
 norm_diff(A::SymmetricSparseIterate, B::AbstractArray, p::Real = 2) = norm_diff(matrixview(A), B, p)
@@ -2100,7 +2100,7 @@ function *(A::Symmetric, X::SparseIterate{<:Any, 2}, B::Symmetric)
   _checkreal(X, A); _checkreal(X, B)
   invoke(*, Tuple{AbstractMatrix, AbstractMatrix, AbstractMatrix}, A, X, B)
 end
-# an owner of another element type than the factors: the dense product of the matrix it represents
+# a symmetric iterate of another element type than the factors: the dense product of the matrix it represents
 function *(A::Symmetric, X::SymmetricSparseIterate, B::Symmetric)
   _checkreal(X, A); _checkreal(X, B)
   size(A, 2) == X.p == size(B, 1) || throw(DimensionMismatch())

@@ -60,16 +60,16 @@ term of entry `i` at the scalar `v`. `i` is a linear index of the array, as in
 """
 function value_entry end
 
-(f::SeparableFunction)(x::_ArrayOrOwner) =
+(f::SeparableFunction)(x::_ArrayOrSymmetricIterate) =
   (_check_value_arrays(f, x); _value_sep(f, x))
-_value_unchecked(f::SeparableFunction, x::_ArrayOrOwner) = _isbuiltin(f) ? _value_sep(f, x) : f(x)
-prox!(y::_ArrayOrOwner, f::SeparableFunction, x::_ArrayOrOwner, γ::Real) =
+_value_unchecked(f::SeparableFunction, x::_ArrayOrSymmetricIterate) = _isbuiltin(f) ? _value_sep(f, x) : f(x)
+prox!(y::_ArrayOrSymmetricIterate, f::SeparableFunction, x::_ArrayOrSymmetricIterate, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_sep!(y, f, x, γ))
-_prox_unchecked!(y::_ArrayOrOwner, f::SeparableFunction, x::_ArrayOrOwner, γ::Real) =
+_prox_unchecked!(y::_ArrayOrSymmetricIterate, f::SeparableFunction, x::_ArrayOrSymmetricIterate, γ::Real) =
   _isbuiltin(f) ? _prox_sep!(y, f, x, γ) : prox!(y, f, x, γ)
-value_and_prox!(y::_ArrayOrOwner, f::SeparableFunction, x::_ArrayOrOwner, γ::Real) =
+value_and_prox!(y::_ArrayOrSymmetricIterate, f::SeparableFunction, x::_ArrayOrSymmetricIterate, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_sep!(y, f, x, γ))
-_value_and_prox_unchecked!(y::_ArrayOrOwner, f::SeparableFunction, x::_ArrayOrOwner, γ::Real) =
+_value_and_prox_unchecked!(y::_ArrayOrSymmetricIterate, f::SeparableFunction, x::_ArrayOrSymmetricIterate, γ::Real) =
   _isbuiltin(f) ? _value_and_prox_sep!(y, f, x, γ) : value_and_prox!(y, f, x, γ)
 
 # The value, entry by entry over the dense array. A weighted family sums its
@@ -136,7 +136,7 @@ end
 # the proximal operator, entry by entry; y may be x
 _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Union{Real, AbstractArray}) = _prox_sep_dense!(y, f, x, γ)
 
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SeparableFunction, y::_ArrayOrOwner, x::_ArrayOrOwner) =
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SeparableFunction, y::_ArrayOrSymmetricIterate, x::_ArrayOrSymmetricIterate) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkparams(f, x); true)
 
 function _prox_sep_dense!(y::AbstractArray, f, x::AbstractArray, γ)
@@ -168,7 +168,7 @@ function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Union{Real, Abstr
   y
 end
 
-# an owner point and a dense destination: the entries of the matrix that it represents
+# a symmetric iterate point and a dense destination: the entries of the matrix that it represents
 _prox_sep!(y::AbstractArray, f, x::SymmetricSparseIterate, γ::Real) = _prox_sep!(y, f, matrixview(x), γ)
 
 # each coordinate (an entry of the lower triangle) once, and from a
@@ -202,7 +202,7 @@ end
 # the proximal operator, then the value at the result: two vectorized passes are
 # several times faster than one that stores and sums, which does not vectorize;
 # an indicator function is 0 at its projection
-_value_and_prox_sep!(y::_ArrayOrOwner, f, x::_ArrayOrOwner, γ::Union{Real, AbstractArray}) =
+_value_and_prox_sep!(y::_ArrayOrSymmetricIterate, f, x::_ArrayOrSymmetricIterate, γ::Union{Real, AbstractArray}) =
   _isindicator(f) ? (_prox_sep!(y, f, x, γ); zero(_valtype(y))) : _value_sep(f, _prox_sep!(y, f, x, γ))
 
 _restrict_entries(w::Union{Nothing, Real}, ::AbstractVector{<:Integer}) = w

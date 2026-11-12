@@ -31,14 +31,14 @@ ProximalSolvers migration is separate; this documentation does not change it.
 | `prox_coordinate!`, `prox_entry!`, `cdprox!` storage updates | Compute a pure result, then write through public storage; no retained aliases |
 | Function-first mutating calls | Destination-first `prox!(out,f,x,γ)` and `gradient!(out,f,x)` |
 | Iterate `nnz`, `nonzeros`, `findnz` assumptions | `nactive`, `activecoordinates`, `activevalues` (latter absent on `BlockIterate`) |
-| Treat symmetric owner as `AbstractMatrix` | `coordinates(x)` for variables, read-only `matrixview(x)` for matrix operations |
-| Symmetric-owner `x[k]` | `coordinates(x)[k]` or `matrixview(x)[k]`, depending on index space |
-| Symmetric-owner broadcast/fill | Write coordinates, or compute a dense symmetric matrix then `copyto!` |
-| Symmetric array steps | Owner outputs accept scalar steps only; use dense output for entry-step calculations where supported |
+| Treat symmetric iterate as `AbstractMatrix` | `coordinates(x)` for variables, read-only `matrixview(x)` for matrix operations |
+| Symmetric-iterate `x[k]` | `coordinates(x)[k]` or `matrixview(x)[k]`, depending on index space |
+| Symmetric-iterate broadcast/fill | Write coordinates, or compute a dense symmetric matrix then `copyto!` |
+| Symmetric array steps | Symmetric-iterate outputs accept scalar steps only; use dense output for entry-step calculations where supported |
 | User separable parameter arrays without metadata | Declare `ProximalBase.entry_parameters` and validate pair symmetry |
 
 The working set survives value writes. `fill!(x,0)` followed by `dropzeros!(x)`
-clears array iterates; use `fill!(coordinates(x),0)` for a symmetric owner.
+clears array iterates; use `fill!(coordinates(x),0)` for a symmetric iterate.
 Same-kind matching state copies replace active state; ordinary broadcasts copy
 values and keep previous activity. Read the [storage guide](iterates.md) before
 assuming conventional dense-array behavior.

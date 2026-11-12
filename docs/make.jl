@@ -102,7 +102,7 @@ makedocs(;
             "Overview and contract map" => "developer/index.md",
             "System architecture" => "architecture.md",
             "SparseIterate internals" => "developer/sparse_storage.md",
-            "Symmetric owner internals" => "developer/symmetric_storage.md",
+            "SymmetricSparseIterate internals" => "developer/symmetric_storage.md",
             "BlockIterate internals" => "developer/block_storage.md",
             "Coordinate views and aliasing" => "developer/views_aliasing.md",
             "Function and oracle dispatch" => "developer/oracle_dispatch.md",
@@ -110,7 +110,7 @@ makedocs(;
             "Numerical contract" => "numerics.md",
             "Pure block proximal contract" => "developer/contracts/block-prox-0.6.md",
             "Iterate-family contract" => "developer/contracts/iterate-family-0.6.md",
-            "Symmetric-owner contract" => "developer/contracts/symmetric-sparse-iterate-0.6.md",
+            "SymmetricSparseIterate contract" => "developer/contracts/symmetric-sparse-iterate-0.6.md",
             "Conformance and change process" => "developer/change_process.md",
         ],
         "API reference" => [

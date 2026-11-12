@@ -622,7 +622,7 @@ end
 
 # The squared-residual kernel (R1): Σ μᵢ (xᵢ - yᵢ)² = s 2^(2k) in R, so that the half sum is
 # s 2^(2k-1). y === nothing stands for y = 0 and visits the stored entries of x only, each with its
-# logical multiplicity μᵢ (2 for an off-diagonal entry of a symmetric owner). Every residual is
+# logical multiplicity μᵢ (2 for an off-diagonal entry of a symmetric iterate). Every residual is
 # formed before it is scaled by 2^-k, k the exponent of the largest one, and the squares are summed
 # compensated, so that no square overflows and a small residual after a cancellation is kept. It
 # gives (zero(R), 0) when every residual is exactly zero and `nothing` when an entry is not finite

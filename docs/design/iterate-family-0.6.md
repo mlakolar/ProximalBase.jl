@@ -75,7 +75,7 @@ handles after activation, compaction, or replacing storage state.
   Clearing active state requires setting values to zero followed by
   `dropzeros!(x)`.
 - The exact `copyto!` behavior for a `SymmetricSparseIterate` matrix
-  import is documented in the symmetric-owner contract.
+  import is documented in the symmetric-iterate contract.
 - `blockview(x, k)` writes through public entry setters. Copying an entire
   block follows Julia's prefix, alias and conversion behavior; it is not
   guaranteed to be an atomic state copy.

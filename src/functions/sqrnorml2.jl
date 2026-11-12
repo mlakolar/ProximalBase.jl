@@ -240,7 +240,7 @@ function _ridge_gradient!(g, λ, c, x)
   if _level_fits(W, λ)
     l = convert(W, λ)
     c === nothing && return g .= l .* x
-    cp = _checked_parameter(g, c)
+    cp = _assumed_symmetric(g, c)
     if g isa DenseArray && x isa DenseArray && cp isa DenseArray && size(g) == size(x) == size(cp) &&
        !Base.mightalias(g, cp)       # the repair pass rereads c
       _ridge_gradient_dense!(g, l, x, cp)
@@ -250,7 +250,7 @@ function _ridge_gradient!(g, λ, c, x)
   else
     R = promote_type(W, float(typeof(λ)))
     l = convert(R, λ)
-    g .= _ridge_gradient_wide.(W, l, x, c === nothing ? zero(W) : _checked_parameter(g, c))
+    g .= _ridge_gradient_wide.(W, l, x, c === nothing ? zero(W) : _assumed_symmetric(g, c))
   end
   g
 end
@@ -301,7 +301,7 @@ _prox_unchecked!(z::AbstractArray, f::SqrNormL2, x::SymmetricSparseIterate, γ::
 function _prox_unchecked!(z::_ArrayOrSymmetricIterate, f::SqrNormL2, x::_ArrayOrSymmetricIterate, γ::Real)
   _checkwrite(prox!, f, z, x)
   W = _model_precision(eltype(z), eltype(x))
-  c = f.y === nothing ? nothing : _checked_parameter(z, f.y)
+  c = f.y === nothing ? nothing : _assumed_symmetric(z, f.y)
   if _ridge_needs_scaling(W, γ, f.λ)
     _ridge_prox!(z, _ridge_scaled(W, γ, f.λ), x, c)
   else

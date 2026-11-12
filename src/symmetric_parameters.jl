@@ -17,60 +17,45 @@ check_symmetric_parameters(f::AbstractFunction, x) = (_check_entry_arrays(f, x);
 _check_parameter_axes(y, a) = true
 _check_parameter_axes(y::SymmetricSparseIterate, a::AbstractArray) = _check_axes(y, a)
 
-struct _AllPairs end
-struct _StoredPairs{X, Y}
-  x::X
-  y::Y
+# The explicit validation of a model: each declared array that is not symmetric by type is checked for extent and
+# compared at every mirrored pair, including pairs that the iterate does not store; an array symmetric by type
+# (such as Symmetric(W, :L)) is accepted without either. Only check_symmetric_parameters calls it; the
+# numerical oracles take the symmetry of these arrays as a precondition and never compare their entries.
+_check_entry_arrays(f, x) = true
+function _check_entry_arrays(f::AbstractFunction, x::SymmetricSparseIterate)
+  _check_own_arrays(f, entry_parameters(f), x)
+  _check_inner_arrays(_inner_functions(f), x)
 end
-struct _CoordinatePair
-  k::Int
-end
-
-_check_entry_arrays(f, x, domain = _AllPairs()) = true
-function _check_entry_arrays(f::AbstractFunction, x::SymmetricSparseIterate, domain = _AllPairs())
-  _check_own_arrays(f, entry_parameters(f), x, domain)
-  _check_inner_arrays(_inner_functions(f), x, domain)
-end
-_check_own_arrays(f, ::Tuple{}, x, domain) = true
-_check_own_arrays(f, ::Nothing, x, domain) = _throw_undeclared_parameters(f)
-_check_own_arrays(f, arrays, x, domain) = _throw_parameter_declaration(f, :entry_parameters)
+_check_own_arrays(f, ::Tuple{}, x) = true
+_check_own_arrays(f, ::Nothing, x) = _throw_undeclared_parameters(f)
+_check_own_arrays(f, arrays, x) = _throw_parameter_declaration(f, :entry_parameters)
 @noinline _throw_undeclared_parameters(f) = throw(ArgumentError(
   "$(nameof(typeof(f))) does not declare its per-entry parameters; define ProximalBase.entry_parameters(f::$(nameof(typeof(f)))) to return them, or () when it has none, to use it on a SymmetricSparseIterate"))
 @noinline _throw_parameter_declaration(f, name) = throw(ArgumentError(
   "$(nameof(typeof(f))) parameter $name must be nothing, a scalar or an array in a tuple of name => value pairs"))
-function _check_own_arrays(f, arrays::Tuple, x, domain)
+function _check_own_arrays(f, arrays::Tuple, x)
   pair = first(arrays)
   pair isa Pair{Symbol} || _throw_parameter_declaration(f, :entry_parameters)
   name, a = pair
-  _check_entry_array(f, name, a, x, domain)
-  _check_own_arrays(f, Base.tail(arrays), x, domain)
+  _check_entry_array(f, name, a, x)
+  _check_own_arrays(f, Base.tail(arrays), x)
 end
-_check_inner_arrays(::Tuple{}, x, domain) = true
-function _check_inner_arrays(fs::Tuple, x, domain)
-  _check_entry_arrays(first(fs), x, domain)
-  _check_inner_arrays(Base.tail(fs), x, domain)
+_check_inner_arrays(::Tuple{}, x) = true
+function _check_inner_arrays(fs::Tuple, x)
+  _check_entry_arrays(first(fs), x)
+  _check_inner_arrays(Base.tail(fs), x)
 end
-function _check_entry_arrays(f::AbstractFunction, x::Tuple, domain = _AllPairs())
-  _check_inner_arrays(_inner_functions(f), x, domain)
+function _check_entry_arrays(f::AbstractFunction, x::Tuple)
+  _check_inner_arrays(_inner_functions(f), x)
 end
-_check_entry_array(f, name, a, x, domain) = _throw_parameter_declaration(f, name)
-_check_entry_array(f, name, a::Union{Nothing, Number}, x, domain) = true
-function _check_entry_array(f, name, a::AbstractArray, x, domain)
+_check_entry_array(f, name, a, x) = _throw_parameter_declaration(f, name)
+_check_entry_array(f, name, a::Union{Nothing, Number}, x) = true
+function _check_entry_array(f, name, a::AbstractArray, x)
   _symmetric_by_type(a) && return true
   _checkparam(a, x)
-  _check_pairs(f, name, a, x.p, domain)
+  _check_pairs(f, name, a, x.p)
 end
-function _check_pair(f, name, a, p, k)
-  r, c = tril_cartesian(p, k)
-  _check_pair(f, name, a, p, r, c)
-end
-function _check_pair(f, name, a, p, r, c)
-  r == c && return true
-  u, v = a[(c - 1) * p + r], a[(r - 1) * p + c]
-  _symequal(u, v) || _throw_asymmetric_parameter(f, name, a, p, r, c)
-  true
-end
-function _check_pairs(f, name, a, p, ::_AllPairs)
+function _check_pairs(f, name, a, p)
   @inbounds for cb in 1:32:p, rb in cb:32:p
     for c in cb:min(cb + 31, p), r in max(c + 1, rb):min(rb + 31, p)
       u, v = a[(c - 1) * p + r], a[(r - 1) * p + c]
@@ -79,65 +64,19 @@ function _check_pairs(f, name, a, p, ::_AllPairs)
   end
   true
 end
-_check_pairs(f, name, a, p, d::_CoordinatePair) = _check_pair(f, name, a, p, d.k)
-function _check_stored_pairs(f, name, a, p, x)
-  c, lo, hi = 0, 1, 0
-  @inbounds for i in 1:x.nnz
-    k = x.nzval2ind[i]
-    if lo <= k <= hi
-      r = c + k - lo
-    else
-      r, c = tril_cartesian(p, k)
-      lo = k - r + c
-      hi = lo + p - c
-    end
-    _check_pair(f, name, a, p, r, c)
-  end
-  true
-end
-function _check_pairs(f, name, a, p, d::_StoredPairs)
-  d.x.nnz == ncoordinates(d.x) && return _check_pairs(f, name, a, p, _AllPairs())
-  _check_stored_pairs(f, name, a, p, d.x)
-  if d.y !== d.x
-    @inbounds for i in 1:d.y.nnz
-      k = d.y.nzval2ind[i]
-      iszero(d.x.ind2nzval[k]) && _check_pair(f, name, a, p, k)
-    end
-  end
-  true
-end
 
-# Only kernels that actually stay on stored coordinates use a sparse domain.
-_stored_value(f::AbstractFunction) = isempty(entry_parameters(f)) && isempty(_inner_functions(f))
-_stored_value(f::SeparableFunction) = _isbuiltin(f) && iszeropreserving(f)
-_stored_value(::LinearFunction) = true
-_stored_value(f::SqrNormL2) = f.y === nothing
-_stored_value(f::Scaled) = _stored_value(f.f)
-_stored_write(op, ::AbstractFunction) = false
-_stored_write(op, f::SeparableFunction) = _isbuiltin(f)
-_stored_write(op::O, f::Scaled) where {O} = _stored_write(op, f.f)
-_stored_domain(op::O, f) where {O} =
-  (op === prox! || op === value_and_prox!) && isseparable(f) && iszeropreserving(f) && _stored_write(op, f)
-# Keep the value oracle's shape errors ahead of the pair scan.
+# The value oracle's structural errors (a parameter of the wrong extent, an unsupported element type), raised
+# before any entry is read.
 _check_value_shape(f, x) = _checkvalue(f, x)
 _check_value_shape(f::Scaled, x) = _check_value_shape(f.f, x)
-_check_value_arrays(f, x) = (_checkreal(f, x); _check_entry_arrays(f, x))
+# The extent of a function's parameters against an iterate: O(1) for the built-in functions, and
+# check_parameters for a custom one.
+_check_parameter_extent(f, x) = _checkparams(f, x)
+_check_parameter_extent(f::Scaled, x) = _check_parameter_extent(f.f, x)
+_check_value_arrays(f, x) = _checkreal(f, x)
 function _check_value_arrays(f, x::SymmetricSparseIterate)
   _checkreal(f, x)
   _check_value_shape(f, x)
-  if _stored_value(f)
-    _check_entry_arrays(f, x, _StoredPairs(x, x))
-  else
-    _check_entry_arrays(f, x)
-  end
-end
-_check_write_arrays(op::O, f, y, x) where {O} = _check_entry_arrays(f, y)
-function _check_write_arrays(op::O, f, y::SymmetricSparseIterate, x::SymmetricSparseIterate) where {O}
-  if _stored_domain(op, f)
-    _check_entry_arrays(f, y, _StoredPairs(x, y))
-  else
-    _check_entry_arrays(f, y)
-  end
 end
 
 # A SymmetricSparseIterate output takes a scalar step, the Frobenius proximal operator of the
@@ -171,18 +110,16 @@ _has_symmetric(x) = false
 _has_symmetric(::SymmetricSparseIterate) = true
 @generated _has_symmetric(x::Tuple) = _blockany(k -> :(_has_symmetric(x[$k])), fieldcount(x))
 
-# Only public boundaries check arrays. Inner kernels retain the existing shape
-# preflights, but never scan a caller's arrays a second time.
+# Only public boundaries run these preflights; inner kernels keep the shape checks of their own. The
+# arrays of a symmetric model are not compared here (see _check_entry_arrays), and the checks that remain
+# are structural: element types, and for a symmetric output the sizes, aliases and supported operation of
+# _checkwrite. A symmetric point with another output reaches the same _checkwrite in the kernel body.
 function _check_oracle_arrays(op::O, f, y, x, γ = nothing) where {O}
   _checkreal(f, y)
   _checkreal(f, x)
   γ === nothing || _checkreal(f, γ)
   if _has_symmetric(y)
     γ === nothing ? _checkwrite(op, f, y, x) : _checkwrite(op, f, y, x, γ)
-    _check_write_arrays(op, f, y, x)
-  elseif x isa SymmetricSparseIterate
-    # a symmetric iterate point with another output: the parameters are read at every entry of the matrix
-    _check_entry_arrays(f, x)
   end
   true
 end
@@ -256,21 +193,24 @@ _prox_unchecked!(y, f::AbstractFunction, x, γ) = prox!(y, f, x, γ)
 _value_and_prox_unchecked!(y, f::AbstractFunction, x, γ) = value_and_prox!(y, f, x, γ)
 _value_and_gradient_unchecked!(y, f::AbstractFunction, x) = value_and_gradient!(y, f, x)
 
-# A local proof that a parameter was checked, without changing its axes.
-struct _CheckedParameter{T, A<:AbstractMatrix{T}} <: AbstractMatrix{T}
+# A parameter matrix of a function that writes into a symmetric iterate. Its entries are read at their lower
+# positions on the assumption that the caller's model is symmetric: nothing here compares them, and
+# check_symmetric_parameters validates the model on request. The wrapper forwards the size, axes, aliasing ids,
+# index style and entries of the parameter unchanged, and is symmetric by type for _symmetric_by_type.
+struct _AssumedSymmetric{T, A<:AbstractMatrix{T}} <: AbstractMatrix{T}
   array::A
 end
-Base.size(a::_CheckedParameter) = size(a.array)
-Base.axes(a::_CheckedParameter) = axes(a.array)
-Base.dataids(a::_CheckedParameter) = Base.dataids(a.array)
-Base.IndexStyle(::Type{<:_CheckedParameter{T, A}}) where {T, A} = IndexStyle(A)
-Base.@propagate_inbounds Base.getindex(a::_CheckedParameter, I::Vararg{Int, N}) where {N} = a.array[I...]
-_symmetric_by_type(::_CheckedParameter) = true
-@inline _checked_parameter(y, a) = a
-@inline _checked_parameter(y::SymmetricSparseIterate, a::AbstractMatrix) =
-  _symmetric_by_type(a) ? a : _CheckedParameter(a)
+Base.size(a::_AssumedSymmetric) = size(a.array)
+Base.axes(a::_AssumedSymmetric) = axes(a.array)
+Base.dataids(a::_AssumedSymmetric) = Base.dataids(a.array)
+Base.IndexStyle(::Type{<:_AssumedSymmetric{T, A}}) where {T, A} = IndexStyle(A)
+Base.@propagate_inbounds Base.getindex(a::_AssumedSymmetric, I::Vararg{Int, N}) where {N} = a.array[I...]
+_symmetric_by_type(::_AssumedSymmetric) = true
+@inline _assumed_symmetric(y, a) = a
+@inline _assumed_symmetric(y::SymmetricSparseIterate, a::AbstractMatrix) =
+  _symmetric_by_type(a) ? a : _AssumedSymmetric(a)
 _copy_parameter!(y, a) = copyto!(y, a)
-# a symmetric iterate output takes the values of a parameter matrix that has been checked to be symmetric, one
+# a symmetric iterate output takes the values of a parameter matrix that is symmetric by the model's precondition, one
 # coordinate at a time from its lower entry: a coordinate that is active stays active
 _copy_parameter!(y::SymmetricSparseIterate, a::AbstractMatrix) = _store_lower!(y, a)
 function _store_lower!(y::SymmetricSparseIterate, a::AbstractMatrix)
@@ -286,7 +226,8 @@ _value_unchecked(f::NormL1{<:Real, Nothing}, x::DenseArray{<:AbstractFloat}) = f
 
 _gradient_unchecked!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector) = gradient!(g, f, x)
 
-# Public value preflights prove the pairs used by these reductions equal.
+# Under the precondition that mirrored entries of a parameter are equal, the dot of a parameter with a symmetric
+# iterate reads the lower entry of each stored coordinate and counts it at both positions of an off-diagonal one.
 _value_checked(f, x) = _value_unchecked(f, x)
 function _checked_value_dot(a, x::SymmetricSparseIterate)
   s = zero(promote_type(eltype(a), eltype(x)))

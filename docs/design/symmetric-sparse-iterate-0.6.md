@@ -121,10 +121,21 @@ a symmetric iterate destination are rejected before writes.
 
 ### Symmetric parameters and raw scalar hooks
 
-Per-entry parameter arrays must have exactly equal mirrored entries on
-the pairs examined by the relevant operation. Use
-`ProximalBase.check_symmetric_parameters(f, x)` to validate **all**
-declared pairs recursively before constructing raw scalar trials.
+Per-entry parameter arrays must have exactly equal mirrored entries. This is a
+**precondition of the model**, not a per-oracle assertion: value, proximal and
+gradient oracles, `value_and_prox!`, `value_and_gradient!` and the four-argument
+`kkt_violation` assume it and compare no mirrored parameter entries, while keeping
+their structural validation (shapes, parameter extents, element types, aliases,
+supported operations). With asymmetric parameters, an oracle's result is outside
+its contract: it need not match direct evaluation of the full-matrix function, and
+no oracle averages or repairs the array. Use
+`ProximalBase.check_symmetric_parameters(f, x)` to validate **all** declared pairs
+recursively, including pairs the iterate does not store. It is the only explicit
+validation; it records no certificate, so the caller or solver runs it at each solve
+or workspace boundary and again after replacing a function, mutating a parameter
+array or creating new weights. Matrix imports (`SymmetricSparseIterate(A)`,
+`copyto!(x, A)`) remain checked, since they validate the iterate's own data. Computed
+gradients keep their mathematical symmetrization.
 
 For independent coordinate `k`, first compute
 
@@ -138,9 +149,10 @@ and pass the **full-matrix entry index** `i` to
 A raw scalar hook has no `SymmetricSparseIterate` argument and therefore does not verify
 symmetric parameter pairs itself.
 
-The `SymmetricSparseIterate`-specific `kkt_violation` checks its chosen mirrored pair,
-uses the symmetric matrix gradient, and rejects an opposing-infinity
-gradient pair. It does not double the reported scalar screen.
+The `SymmetricSparseIterate`-specific `kkt_violation` checks the extent of the function's
+parameters, uses the symmetric matrix gradient, and rejects an opposing-infinity
+gradient pair. It does not compare mirrored parameter entries and does not double the
+reported scalar screen.
 
 ## Linear algebra and aliasing
 

@@ -29,7 +29,7 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
 | `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods |
 | `src/functions/scaled_array.jl` | Diagonal array-step methods and scaling recovery for `Scaled` functions |
-| `src/symmetric_parameters.jl` | Per-entry metadata, checked pair domains, explicit symmetric-iterate oracle integration |
+| `src/symmetric_parameters.jl` | Per-entry metadata, the explicit all-pairs symmetric-parameter check, symmetric-iterate oracle preflight (structural checks only) |
 | `src/block_prox.jl` | Allocating compact-vector wrapper; custom mutating hook remains external |
 | `src/caches.jl` | Public cache invalidation, recursing through `Scaled` |
 | `src/precompile.jl` | Small retained precompile workloads |
@@ -46,11 +46,11 @@ There is no automatic device registration or removed-family plugin layer.
 | Public call | Principal retained path |
 |:--|:--|
 | `prox!(y,NormL1(λ,w),x,γ)` | Checked separable boundary → dense/stored traversal → scalar `prox_block` → shrink |
-| `f(x)` for custom `SeparableFunction` | Parameter/symmetric validation → entry values; skip inactive zeros only under declared promise |
+| `f(x)` for custom `SeparableFunction` | Parameter-extent validation (symmetric parameters are assumed, not compared) → entry values; skip inactive zeros only under declared promise |
 | `gradient!(g,LeastSquaresLoss(Y,X),β)` | Checked output → residual Xβ−Y → transpose-design product |
 | `prox!(y,QuadraticFunction(A,b),x,γ)` | Shape/type preflight → cached eigenbasis → diagonal inverse factors → output conversion |
 | `prox_block(f,u::AbstractVector,k,γ)` | Allocate plain floating Vector → user `prox_block!` |
-| `prox!(X::SymmetricSparseIterate,g,V,γ)` | Symmetric argument where needed → parameter-pair preflight → each independent coordinate written once |
+| `prox!(X::SymmetricSparseIterate,g,V,γ)` | Symmetric argument where needed → structural preflight (parameter symmetry is a model precondition) → the symmetric-coordinate kernel of the function, which follows the iterate activity rules |
 | `kkt_violation(g,grad,block,k)` | Retained scalar screen at each global member → maximum |
 
 Traits describe mathematical properties and capabilities; Julia concrete

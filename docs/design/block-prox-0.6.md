@@ -55,7 +55,8 @@ i = (c - 1) * p + r
 Use `i`, not `k`, for scalar function parameters. Validate the
 original function's mirrored parameter pairs first, using
 `ProximalBase.check_symmetric_parameters(f, x)` when appropriate:
-a raw scalar hook has no `SymmetricSparseIterate` object to inspect. Coordinate curvature
+a raw scalar hook has no `SymmetricSparseIterate` object to inspect, and no
+oracle compares mirrored parameters. Coordinate curvature
 and gradients must respect the represented matrix's Frobenius geometry.
 
 ## Compact-vector block extensions

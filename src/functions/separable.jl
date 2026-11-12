@@ -40,11 +40,12 @@ end
 
 The generic kernels call `check_parameters` before writing any output or
 updating a coordinate; a `SymmetricSparseIterate` has a `size` and no
-`length`. On a `SymmetricSparseIterate`, also declare
-`ProximalBase.entry_parameters`; public oracle overrides should call
-`ProximalBase.check_symmetric_parameters` before writing.
+`length`. On a `SymmetricSparseIterate`, the parameter arrays must be exactly
+symmetric, which the kernels assume and do not compare; also declare
+`ProximalBase.entry_parameters`, so that `ProximalBase.check_symmetric_parameters`
+can validate the model once, before the first oracle call.
 
-See Symmetric parameters for which arrays must be symmetric and which calls check them.
+See Symmetric parameters for which arrays must be symmetric and who validates them.
 """
 abstract type SeparableFunction <: AbstractFunction end
 

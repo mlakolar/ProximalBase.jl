@@ -153,7 +153,8 @@ nonzero coordinate. See [Coordinate descent](coordinate_descent.md) and
 they must have the same total number of entries as the argument, paired
 in Julia's linear indexing order. The function also has explicitly
 supported sparse and symmetric iterate operations; for symmetric matrix
-storage, matching off-diagonal weights must agree. See
+storage, matching off-diagonal weights must agree: this is a precondition that the
+oracles assume and `check_symmetric_parameters` validates. See
 [Symmetric parameters](symmetric_parameters.md).
 
 `prox!` writes to a supplied destination; `value_and_prox!` writes

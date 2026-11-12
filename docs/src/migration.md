@@ -1,5 +1,7 @@
 # Compatibility and migration
 
+For terms used in the current manual, see the [Glossary](glossary.md).
+
 This manual describes the minimal core after merged PR #850, based on
 `2b373c54`. The full post-#848 implementation and its documentation are
 preserved at [`eff21b6d7d33c622313122f46c6ee71693c101ee`](https://github.com/mlakolar/ProximalBase.jl/tree/eff21b6d7d33c622313122f46c6ee71693c101ee)

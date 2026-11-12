@@ -80,7 +80,10 @@ threshold `γλ0wₖ` outside the floating-point range, are recomputed in
 power-of-two units, so that a representable proximal point is returned
 accurately. Values follow the overflow rule in Overflow and underflow of
 values: for Float32 and Float64 values, a sum of group terms below `K⋅floatmin`,
-for `K` groups, is recomputed with each term's exponent, as for `NormL1` (#373). `value_and_prox!` returns
+for `K` groups, is recomputed with each term's exponent, as for `NormL1` (#373), and
+a value at or above `floatmax/2` is recomputed in power-of-two units, and within 9 eps
+of the overflow threshold in BigFloat, so that it is finite exactly when its
+correctly rounded value is. `value_and_prox!` returns
 the value at the stored output.
 
 The penalty does not apply to a `SymmetricSparseIterate`, and it has no
@@ -169,15 +172,20 @@ end
 
 # The kernels are the shared ℓ2 kernels of norml2.jl, with the level λ0 and the weight wₖ of each group.
 
-# Recompute a value s of K terms below K floatmin(T), where the roundings of terms into the subnormal
-# range may have lost more than ordinary rounding (#373): each finite term w ns 2^e is accumulated with
-# its exponent and λ0 is applied once at the end. A zero, infinite or NaN level, an infinite or NaN s and
-# an exactly zero argument keep s; infinite or NaN terms make s infinite or NaN, so they do not reach it.
+# The ordinary sum s of the terms is returned unless it may have lost its accuracy or its class: a sum
+# below K floatmin(T), for K groups, whose terms may have rounded into the subnormal range (#373), and a
+# sum at or above floatmax(T)/2 (Inf included), whose class the terms' rounding may decide. Those are
+# recomputed from the terms w ns 2^e, accumulated with their exponents (_ExpSum), with λ0 applied once
+# and the result classified near the overflow threshold (_l2_overflow_class). Exceptional cases keep s:
+# a NaN s, a zero level (every term is 0), and an infinite level or weight at a nonzero group or a NaN or
+# ±Inf entry in a penalized group, which make s infinite or NaN already. So does an exactly zero argument.
 @inline function _group_value_checked(f::GroupNormL2, x, s::T) where {T}
-  _underflow_checked(T) || return s
-  K = length(f.groups)
-  !(s < K * floatmin(T)) && return s
-  iszero(s) && _all_zero(_stored_values(x)) && return s
+  isnan(s) && return s
+  if _l2_ordinary(s, T)
+    _underflow_checked(T) || return s
+    !(s < length(f.groups) * floatmin(T)) && return s
+    iszero(s) && _all_zero(_stored_values(x)) && return s
+  end
   _group_value_recomputed(f, x, s)
 end
 @noinline function _group_value_recomputed(f::GroupNormL2, x, s::T)::T where {T}
@@ -195,7 +203,11 @@ end
     isinf(w) && return s
     acc = _expsum_product(acc, w, _l2_scaled_norm(x, G, R, e), e)
   end
-  _expsum_value(T, acc, λ)
+  m = acc.s + acc.c
+  iszero(m) && return zero(T)
+  mλ, eλ = _frexp(convert(R, λ))
+  _l2_overflow_class(T, mλ * m, eλ + acc.ex,
+    () -> _l2_exact(T, () -> BigFloat(λ) * sum(BigFloat(f.w[k]) * _l2_big_norm(x, f.groups[k]) for k in eachindex(f.groups); init = zero(BigFloat))))
 end
 
 ####################################

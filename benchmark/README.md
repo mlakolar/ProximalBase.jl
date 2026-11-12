@@ -75,9 +75,11 @@ PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
 them, `GroupNormL2` with the pure `prox_block!`. For `GroupNormL2`: the compact block proximal operator of one group (sizes 2, 5, 10, 32, 128 and 1024,
 nonzero and zero trials), a sweep over every group, and the array `prox!`, `value_and_prox!` and value,
 for Float32 and Float64, contiguous (range) and noncontiguous (permuted index vector) layouts, and dense,
-partially zero and mostly zero arguments of about 4096 entries (`(4096 ÷ m)⋅m`). For `NormL2`: the
+partially zero and mostly zero arguments of about 4096 entries (`(4096 ÷ m)⋅m`), and a block-coordinate
+sweep on a `BlockIterate` (for every group the trial from the iterate, the pure `prox_block!` into scratch
+and the write `copyto!(blockview(x, k), out)`, after restoring the iterate by a whole-iterate copy). For `NormL2`: the
 dense `prox!`, `value_and_prox!` and value at 1024 and 65536 entries, and the value of a 200 × 200
-matrix `SparseIterate` and of a `SymmetricSparseIterate` with 400 stored entries on the ordinary path
+matrix `SparseIterate` and of a `SymmetricSparseIterate` from 400 random assignments (about 400 stored coordinates) on the ordinary path
 and on the recovery of an overflowing sum of squares (#808), which the frozen tree computes over the
 logical matrix. It has the design of the `NormL1` harnesses (roles X, Y and the
 A/A control XC, alternating order, shared input and output arrays) and

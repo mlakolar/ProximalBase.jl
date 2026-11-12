@@ -87,6 +87,10 @@ range from the squared-residual kernel above, in units of the largest stored ent
 On a `SparseIterate` and a `SymmetricSparseIterate` both the ordinary sum and that
 recomputation visit the stored entries only, each off-diagonal symmetric coordinate
 twice ([#808](https://github.com/mlakolar/ProximalBase.jl/issues/808)).
+Both functions, and their fused values, recompute a value at or above `floatmax(T)/2`
+in power-of-two units and classify it: within 9 eps of the overflow threshold it is
+recomputed in BigFloat over the same entries, so that it is finite exactly when its
+correctly rounded value is.
 `GroupNormL2` values apply the same check to their group terms `λ0*w[k]*‖x[G_k]‖₂`,
 and recompute a sum below `K*floatmin(T)` for `K` groups from the terms' exponents.
 Its proximal operators recompute, for finite inputs, a group norm whose sum of
@@ -273,8 +277,8 @@ ridge references), `test/minimal_math.jl`, `test/core_functions.jl`,
 `test/numerical_kernels.jl` (BigFloat references for the shared recovery
 kernels and their `SqrNormL2`/`LeastSquaresLoss`/`LinearFunction` consumers) and
 `test/groupnorml2.jl` and `test/norml2.jl` (BigFloat references for `GroupNormL2`
-and `NormL2` values, proximal points and KKT screens, including the exceptional
-cases above), and `test/sparse_value_cost.jl` (a counting element type that shows the
+and `NormL2` values and proximal points, and for the `GroupNormL2` KKT screens,
+including the exceptional cases above), and `test/sparse_value_cost.jl` (a counting element type that shows the
 `NormL2` value visits no unstored entry of a sparse or symmetric iterate). These are concrete tested
 domains; a historical acceptance goal for a removed family is not evidence for
 this implementation. New numerical claims need independent calculations,

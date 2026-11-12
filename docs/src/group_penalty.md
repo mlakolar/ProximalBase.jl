@@ -6,9 +6,9 @@
 
 `NormL2(λ)` is ``g(x)=\lambda\lVert x\rVert_2`` (the Frobenius norm for a matrix)
 with ``\lambda\ge0``. Its proximal operator shrinks the whole argument,
-``\max(1-\gamma\lambda/\lVert x\rVert_2,0)\,x``. It is the group ℓ₂ norm below
-with one group `1:length(x)` of weight one, and follows the same rules, the
-exceptional cases included.
+``\max(1-\gamma\lambda/\lVert x\rVert_2,0)\,x``. On a nonempty argument it is the
+group ℓ₂ norm below with one group `1:length(x)` of weight one, and follows the same
+rules, the exceptional cases included.
 
 ```@example group_penalty
 using ProximalBase, LinearAlgebra
@@ -26,7 +26,8 @@ counts twice in the squared norm. On a `SparseIterate` or a `SymmetricSparseIter
 it reads only the stored entries, also when a sum of squares that overflows or
 underflows is recomputed ([#808](https://github.com/mlakolar/ProximalBase.jl/issues/808)).
 The proximal operators take arrays of the same size; a `BlockIterate` or a
-`SparseIterate` is read and written entry by entry, as an array. A
+`SparseIterate` is read and written by indexing its entries, O(length) in general, as
+an array. A
 `SymmetricSparseIterate` has no `NormL2` proximal operator: those calls throw an
 `ArgumentError` before anything is written.
 

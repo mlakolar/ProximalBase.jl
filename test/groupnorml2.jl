@@ -449,6 +449,58 @@ end
   @test allocs(kkt_violation, f, g, x, 2) == 0
 end
 
+@testset "values at the overflow threshold and subnormal values ($T)" for T in (Float32, Float64)
+  # the class of every value is that of the correctly rounded BigFloat value (finite floatmax, or Inf)
+  same_class(v, ref) = isinf(v) == isinf(T(ref)) && (isinf(v) || abs(big(v) - ref) <= 8 * big(eps(T)) * abs(ref) + 2 * big(nextfloat(zero(T))))
+  # reproducers of standalone values whose ordinary or recovered sum overflowed although the value is finite
+  fixtures = T === Float32 ?
+    [(Float32[-2.5213273, 0.27024558, 0.64377713, 0.8137605, -0.49109128, -1.100171, 1.5615983, 0.70515937], [1:4, 5:8], Float32[0.8435895, 0.73866713], 8.818969f37),
+     (Float32[1.2626572, 0.79796016, -1.6117067], [1:3], Float32[1.2702762], 1.2190703f38)] :
+    [([-0.07312823706023215, 1.3229738772397932, 0.4408404901829929, -0.5521009045153256, -0.45097332420421443], [1:5], [0.6830546515360696], 1.67863692812149e308),
+     ([0.38404986280275943, -1.9135391084491589, 0.024367670945626523, -1.2807864420007569, 0.1981528027756723, -0.1403750996117117], [1:3, 4:6], [1.4948884409876482, 1.1576985411815683], 4.060767109142168e307)]
+  for (x, groups, w, λ) in fixtures
+    f = GroupNormL2(λ, groups, w)
+    ref = refvalue(x, λ, groups, w)
+    @test ref < big(floatmax(T)) && isfinite(f(x)) && same_class(f(x), ref)
+  end
+  # sweeps across floatmax: direct values on arrays, sparse and block iterates, and fused values
+  rng = Xoshiro(903)
+  for K in (1, 3), n in (1, 4)
+    groups = [((k - 1) * n + 1):(k * n) for k in 1:K]
+    x = randn(rng, T, n * K)
+    w = T(0.5) .+ rand(rng, T, K)
+    base = refvalue(x, 1, groups, w)
+    for k in -6:6
+      λ = T(setprecision(() -> big(floatmax(T)) / base * (1 + k * big(eps(T)) / 2), BigFloat, PREC))
+      isfinite(λ) || continue
+      f = GroupNormL2(λ, groups, w)
+      ref = refvalue(x, λ, groups, w)
+      @test same_class(f(x), ref)
+      @test same_class(f(SparseIterate(copy(x))), ref)
+      @test same_class(f(BlockIterate(copy(x), f)), ref)
+      y = similar(x)
+      v = value_and_prox!(y, f, x, nextfloat(zero(T)) * 3)
+      @test same_class(v, refvalue(y, λ, groups, w))
+      z = similar(x)
+      @test same_class(value_and_prox!(z, f, x, zero(T)), ref) && z == x
+      # a NaN or an infinite entry keeps the ordinary NaN or Inf near the threshold too
+      xe = copy(x); xe[1] = T(NaN)
+      @test isnan(f(xe))
+      xe[1] = T(Inf)
+      @test f(xe) == Inf
+    end
+  end
+  # subnormal values and terms, direct and fused, against BigFloat (two subnormal spacings)
+  emin = exponent(floatmin(T))
+  for (x, λ) in ((T[3, 4, 0, 1], T(2)^(emin - 8)), (T(2)^(emin + 2) .* T[3, 4, 1, 1], T(2)^-6))
+    f = GroupNormL2(λ, [1:2, 3:4], T[1, 2])
+    ref = refvalue(x, λ, [1:2, 3:4], T[1, 2])
+    @test ref < big(floatmin(T)) && same_class(f(x), ref)
+    y = similar(x)
+    @test same_class(value_and_prox!(y, f, x, zero(T)), ref)
+  end
+end
+
 @testset "no ambiguities" begin
   @test isempty(Test.detect_ambiguities(ProximalBase; recursive = true))
 end

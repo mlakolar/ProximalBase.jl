@@ -193,4 +193,73 @@ end
   @test (2 * f)(d) ≈ 2 * f(d)
 end
 
+@testset "values at the overflow threshold ($T)" for T in (Float32, Float64)
+  # λ‖x‖ swept across floatmax(T): the class of every value is that of the correctly rounded
+  # reference (finite floatmax, or Inf), also on the fused paths and on the stored entries of iterates
+  M = floatmax(T)
+  same_class(v, ref) = isinf(v) == isinf(T(ref)) && (isinf(v) || abs(big(v) - ref) <= 8 * big(eps(T)) * ref + 2 * big(nextfloat(zero(T))))
+  for d in ([0.9, 1.8], [-0.23658908984510604, 0.15161309761297329, 1.8488719233840984, 1.09267226965541], [1, 2, 3])
+    x = T.(d)
+    nx = bignorm(x)
+    for k in -6:6
+      λ = T(setprecision(() -> big(M) / nx * (1 + k * big(eps(T)) / 2), BigFloat, PREC))
+      isfinite(λ) || continue
+      ref = refvalue(x, λ)
+      @test same_class(NormL2(λ)(x), ref)
+      @test same_class(GroupNormL2(λ, [1:length(x)], T[1])(x), ref)
+      S = SymmetricSparseIterate(T, 100)
+      Ms = SparseIterate(T, 100, 100)
+      for (i, v) in enumerate(x)
+        S[i, i] = v
+        Ms[i, i] = v
+      end
+      @test same_class(NormL2(λ)(S), ref) && same_class(NormL2(λ)(Ms), ref)
+      # fused values at the stored output, with a step so small that the output is nearly x
+      for f in (NormL2(λ), GroupNormL2(λ, [1:length(x)], T[1]))
+        y = similar(x)
+        γ = nextfloat(zero(T)) * 3
+        v = value_and_prox!(y, f, x, γ)
+        @test same_class(v, refvalue(y, λ))
+      end
+    end
+  end
+  # subnormal values, direct and fused, on arrays and on the stored entries of iterates
+  emin = exponent(floatmin(T))
+  for (d, λ) in (([3, 4], T(2)^(emin - 8)), ([3 * 2.0^(emin + 2), 4 * 2.0^(emin + 2)], T(2)^-6))
+    x = T.(d)
+    ref = refvalue(x, λ)
+    @test ref < big(floatmin(T))
+    @test same_class(NormL2(λ)(x), ref) && same_class(GroupNormL2(λ, [1:2], T[1])(x), ref)
+    S = SymmetricSparseIterate(T, 50); S[1, 1] = x[1]; S[2, 2] = x[2]
+    Ms = SparseIterate(T, 50, 50); Ms[1, 1] = x[1]; Ms[2, 2] = x[2]
+    @test same_class(NormL2(λ)(S), ref) && same_class(NormL2(λ)(Ms), ref)
+    y = similar(x)
+    @test same_class(value_and_prox!(y, NormL2(λ), x, zero(T)), ref) && y == x
+  end
+  # NaN and Inf entries near the threshold keep the ordinary result, on owners too
+  λb = T(setprecision(() -> big(M) / 5, BigFloat, PREC))
+  S = SymmetricSparseIterate(T, 50); S[1, 1] = 3; S[2, 1] = T(NaN)
+  @test isnan(NormL2(λb)(S))
+  S[2, 1] = T(Inf)
+  @test NormL2(λb)(S) == Inf
+  @test isnan(NormL2(λb)(T[3, NaN])) && NormL2(λb)(T[3, -Inf]) == Inf
+  # reproducers from review: fused Inf where the stored value is finite, and recovered values
+  y = similar(T[1, 2, 3])
+  λ32 = T === Float32 ? 1.0104921f38 : T(8.932809004970744e307)
+  for f in (NormL2(λ32), GroupNormL2(λ32, [1:3], T[1]))
+    v = value_and_prox!(y, f, T[1, 2, 3], T === Float32 ? 3.702808f-39 : T(2.503208090820603e-309))
+    @test same_class(v, refvalue(y, λ32))
+  end
+  # a sum of group terms near floatmax: finite terms whose sum rounds to floatmax or overflows
+  for k in -6:6
+    x = T[3, 4, 3, 4]
+    λ = T(setprecision(() -> big(M) / 10 * (1 + k * big(eps(T)) / 2), BigFloat, PREC))
+    f = GroupNormL2(λ, [1:2, 3:4], T[1, 1])
+    ref = setprecision(() -> big(λ) * 10, BigFloat, PREC)
+    @test same_class(f(x), ref)
+    z = similar(x)
+    @test same_class(value_and_prox!(z, f, x, zero(T)), ref) && z == x
+  end
+end
+
 end

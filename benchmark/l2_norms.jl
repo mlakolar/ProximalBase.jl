@@ -3,7 +3,7 @@
 # value_and_prox! and value, Float32/Float64, contiguous (range) and noncontiguous (permuted index
 # vector) layouts, with dense, partially zero and zero groups. NormL2: the dense prox!, value_and_prox!
 # and value at 1024 and 65536 entries, and the value of a 200 × 200 matrix SparseIterate and of a
-# SymmetricSparseIterate with 400 stored entries, on the ordinary path and on the recovery of a sum of
+# SymmetricSparseIterate from 400 random assignments (about 400 stored coordinates), on the ordinary path and on the recovery of a sum of
 # squares that overflows (#808).
 #
 #   PB_FIRST=<root of role X> PB_SECOND=<root of role Y> PB_OUTPUT=<dir> PB_ROUNDS=15 \
@@ -51,7 +51,7 @@ function makedata(::Type{T}, m::Int, layout::Symbol, pattern::Symbol) where {T}
     end
     U = [x[G] for G in groups]
     (; groups, x, y = similar(x), U, outs = [similar(u) for u in U], λ = T(0.6), γ = T(0.8),
-       w = T(0.5) .+ rand(rng, T, K))
+       w = T(0.5) .+ rand(rng, T, K), g = randn(rng, T, p))
 end
 
 function makeprobes(PB, data)
@@ -62,6 +62,7 @@ function makeprobes(PB, data)
         x, y, U, outs, γ = d.x, d.y, d.U, d.outs, d.γ
         K = length(U)
         add(name, op, check) = push!(probes, (id = "$id/$name", op = op, check = check, n = length(x)))
+        T = eltype(x)
         if layout === :range                         # the compact kernel does not see the layout
             k1 = findfirst(u -> any(!iszero, u), U)
             u, out = U[k1], outs[k1]
@@ -77,6 +78,28 @@ function makeprobes(PB, data)
                 end
                 nothing
             end, () -> reduce(vcat, outs))
+        end
+        if pattern !== :partial
+            # a block-coordinate sweep as a solver runs it: for every group, the trial u = x[G] - s g[G]
+            # from the iterate, the pure prox_block! into scratch, and the write copyto!(blockview(x, k), out);
+            # the iterate is restored from x0 by a whole-iterate copy before each sweep
+            xb = PB.BlockIterate(copy(x), d.groups)
+            x0 = copy(xb)
+            g = d.g
+            add("block_update_sweep", () -> begin
+                copyto!(xb, x0)
+                for k in 1:K
+                    G = PB.blockindices(xb, k)
+                    u, out = U[k], outs[k]
+                    @inbounds for a in eachindex(u)
+                        i = G[a]
+                        u[a] = xb[i] - T(0.5) * g[i]
+                    end
+                    PB.prox_block!(out, f, u, k, γ)
+                    copyto!(PB.blockview(xb, k), out)
+                end
+                nothing
+            end, () -> Vector(xb))
         end
         add("prox", () -> (PB.prox!(y, f, x, γ); nothing), () -> copy(y))
         add("value_and_prox", () -> (PB.value_and_prox!(y, f, x, γ); nothing), () -> (PB.value_and_prox!(y, f, x, γ), copy(y)))

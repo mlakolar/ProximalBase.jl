@@ -43,6 +43,10 @@ exceptional cases. `sparse_value_cost` ports the counting element type of the
 historical suite: the `NormL2` value of a 100 × 100 sparse or symmetric iterate with a
 few stored entries creates no zero of that type, on the ordinary and the recovery
 paths (#808).
+`linear_shapes` checks the `LinearFunction` shape contract, `size(c) == size(x)` (the
+p × p matrix of a symmetric iterate): every value, gradient and proximal oracle, allocating
+and in place, `Scaled` included, on dense, sparse, wrapped and iterate arguments in Float32/64,
+against BigFloat references; same-length pairs of other shapes are refused with an unchanged output.
 `core_functions` exercises retained
 interface, lasso building blocks and custom scalar/vector block extensions.
 `dropzeros_compaction` checks the shared `dropzeros!` loop of `SparseIterate` and

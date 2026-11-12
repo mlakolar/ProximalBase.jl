@@ -54,6 +54,16 @@ Positive steps, finite levels at `γ = 0`, infinite coordinate weights at a
 finite level (#853) and finite-factor overflow (#866) are unchanged. See
 [NaN, infinities and zeros](numerics.md#NaN,-infinities-and-zeros).
 
+## Changed argument checks
+
+| Call | Before | Now |
+|:--|:--|:--|
+| `LinearFunction(c, d)` with `c` and `x` of the same length but different shapes, such as a vector `c` and a matrix `x`, or a `2 × 3` `c` and a `3 × 2` `x` | Accepted or refused depending on which `dot` method the array types reached: dense pairs were accepted (the prox paired entries in linear order), sparse pairs were refused by the value but accepted by `gradient!` and `prox!` | `DimensionMismatch` from every oracle, before any output is written. `c` must satisfy `size(c) == size(x)`; on a `SymmetricSparseIterate` it must be `p × p`, including for `kkt_violation` |
+
+Pairs of the same size are unchanged, with the same values. To keep a model
+written with a flattened coefficient vector, reshape it once to the shape of the
+argument, as in `LinearFunction(reshape(c, size(x)), d)`.
+
 ## Historical contracts
 
 Current [developer contracts](developer/index.md) are reconciled against retained

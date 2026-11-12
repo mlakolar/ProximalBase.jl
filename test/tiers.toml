@@ -13,6 +13,7 @@ quick = [
   "iterate_invariants",
   "iterate_queries",
   "iterate_writes",
+  "linear_shapes",
   "matrixview",
   "minimal_math",
   "norml2",

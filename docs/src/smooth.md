@@ -1,16 +1,18 @@
 # Smooth array functions
 
+*Assumes: derivatives, matrices and convexity · You will learn: the exact formulas, constructors and supported operations for smooth array functions.*
+
 Each function below has a mathematical definition and a Julia constructor.
 **Constructing** a function supplies its fixed coefficients or data;
 **calling** the resulting object with `f(x)` supplies the point at which
 it is evaluated. The following sections pair each formula with its constructor,
 gradient, proximal map and an executable example.
 
-The first five sections describe array functions with value, gradient and
-proximal operations on their supported inputs. The final section covers a
-**different scalar observation-loss interface**, which has derivatives but
-no array proximal operator. For allocating/mutating conventions,
-input restrictions, shared storage and numerical limitations, see
+All functions on this page operate on arrays. Each has values, gradients
+and proximal operators for its supported inputs. **Scalar prediction losses**
+use a separate [scalar-loss interface](scalar_losses.md).
+For allocating and mutating conventions, input restrictions, shared
+storage and numerical limitations, see
 [Operations on functions](operations.md) and
 [Numerical usage](numerical_usage.md).
 
@@ -269,8 +271,8 @@ prox(f,x,0.5)
 
 ## Scalar squared loss
 
-Scalar prediction losses use a different interface from these array
-functions. The former content of this section now lives in the dedicated
-[Scalar losses](scalar_losses.md) section, with mathematical definitions,
-the complete `ProximalBase.ScalarLoss` interface and a
-[worked `Squared()` example](scalar_squared.md).
+For a loss of one prediction and one observation, use the separate
+[Scalar losses](scalar_losses.md) interface. The built-in
+[Squared loss](scalar_squared.md) represents
+``\ell(\eta,y)=(\eta-y)^2/2`` and supplies scalar derivatives,
+rather than array gradients and proximal maps.

@@ -1,4 +1,6 @@
 # Ordered grouped storage
+#
+# *Assumes: vector indexing and grouped variables · You will learn: ordered block storage and compact block updates.*
 using ProximalBase, LinearAlgebra
 input_groups = [[3, 1], [4, 2]]
 x = BlockIterate(Float32, 4, input_groups)

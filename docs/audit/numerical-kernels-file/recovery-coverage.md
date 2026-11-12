@@ -260,7 +260,9 @@ that every branch is exercised; the points below are known holes.
   oracle: `_weight_coefficient(::Type, γ, λ, w)`, `_weight_coefficient3`,
   `_scaled_coefficient` (correct rounding), `_recoverable_factors`; the owner and block
   methods of `_scaled_dot`. If the planned move drops them, the corresponding checks
-  can go with them.
+  can go with them. (Done in the follow-up that removes duplicated and unreachable
+  helpers: the helpers and their baseline checks are gone, and the owner and block
+  checks now go through the live routes, `_linear_scaled_dot`.)
 - The remaining deep branches of nested wrappers are reached only through the public
   types that exist in the package (`NormL1`, `SqrNormL2`, `ZeroFunction`, plus a custom
   `SeparableFunction` in the test): the `Scaled` machinery for custom leaf functions

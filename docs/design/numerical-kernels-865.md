@@ -8,6 +8,16 @@ documented or tested is kept, not extended. Nothing here is public API.
 The helpers that this note places in `src/utils.jl` now live in
 `src/numerical_kernels.jl`; the move changed no code.
 
+**Historical record.** The inventory, tables and decisions below describe the
+code as #865 found and left it. The current implementation differs as follows:
+
+- The correctly rounded coefficient chain (`_scaled_coefficient`,
+  `_weight_coefficient3`, `_recoverable_factors`, the typed four-argument and
+  untyped three-argument `_weight_coefficient`) has been removed.
+- It had no caller: the KKT coefficient uses the two-factor
+  `_weight_coefficient` only.
+- Rows and bullets that mention it are marked *(removed)*.
+
 ## 1. Inventory of recovery helpers and their live callers
 
 Callers were taken from the current sources, not the archived pre-#850 tree.
@@ -18,7 +28,7 @@ Callers were taken from the current sources, not the archived pre-#850 tree.
 | Bounded product of three factors | `_positive_product`, `_exceptional_product`, `_weight_product`, `_scaled_product(a,b,c,k)` | NormL1 value and prox (`_positive_product`, `_weight_product`). `_exceptional_product` is their cold path. | `(a*b)*c`, plus one range test on `a*b`, which is loop-invariant for a scalar step | O7/R3: a product of finite factors is not lost to an intermediate over- or underflow |
 | Weighted exponent-scaled product | `_scaled_product(w,v,k)` | `_pow2_weighted` (Linear, LeastSquares), `_expsum_value` (Quadratic), `_scaled_square_value` (SqrNormL2, LeastSquares), the ridge gradient fallback, the NormL1 converted-level value | cold paths only | R1/R3: w·v·2^k rounded once at the end |
 | Retained-exponent product | `_scaled_product_retained` (2 and 3 factors) | `Scaled` value parts (`_apply_parts`, scaled.jl) | cold | #767: Int exponent sums that may wrap |
-| Correctly rounded coefficient | `_scaled_coefficient`, `_weight_coefficient3` | kkt coefficients | cold | one correctly rounded product, also when subnormal |
+| Correctly rounded coefficient *(removed: had no caller)* | `_scaled_coefficient`, `_weight_coefficient3` | none (the KKT coefficient uses the two-factor `_weight_coefficient`) | cold | one correctly rounded product, also when subnormal |
 | Squared residuals in power-of-two units | `_square_value`, `_exceptional_square_value`, `_scaled_square_value`, `_square_parts`, `_square_exponent`, `_square_scaled_sum`, `_residual_exponent`, `_scaled_residual` | SqrNormL2 value and value parts. LeastSquaresLoss recovery (`_exceptional_square_value`, and `_square_exponent`/`_square_scaled_sum` through `_leastsquares_squares`) | `_sumabs2`/`_sumabs2_diff` and one comparison | R1: an overflowing or underflowing square does not hide a representable value |
 | Overflowing residual a − b of finite data | inline `a/2 - b/2` in `_residual_exponent`, `_scaled_residual`, `_ridge_gradient_overflow` (sqrnorml2.jl) | SqrNormL2 value and gradient, LeastSquaresLoss recovery | none | R2: the difference is formed before scaling, so cancellation keeps its units |
 | Ordinary sum-of-squares trigger | inline `s >= n * (floatmin/eps)` | `_square_value`, `_ridge_value_wide_center` (sqrnorml2.jl), `_leastsquares_value` (leastsquares.jl) | one comparison | R1: no square underflowed by more than eps of the sum |
@@ -56,8 +66,9 @@ Callers were taken from the current sources, not the archived pre-#850 tree.
   is unchanged.
 * The ridge prox weights (`_RidgeOrdinary`/`_RidgeScaled`) and the
   `_ProjectionScale` machinery are specific to one family, out of scope.
-* `_scaled_coefficient` gives correct rounding, a stronger guarantee than the
+* `_scaled_coefficient` gave correct rounding, a stronger guarantee than the
   bounded-product kernel. Merging the two would weaken one of them.
+  *(removed: the helper had no caller and was deleted rather than merged.)*
 * `norm_diff`/`_norm_diff2` uses a `hypot` fallback that could be replaced by
   the squared-residual kernel. That would change the public function's
   exceptional-path results in the last bits, so it is recorded as a follow-up

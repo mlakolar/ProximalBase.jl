@@ -1,5 +1,7 @@
 # Scalar losses: interface and operations
 
+*Assumes: derivatives and basic Julia · You will learn: observation-level losses, qualified method calls, and how to build a regression objective.*
+
 A **scalar loss** measures how well a single prediction ``\eta`` agrees
 with a single observed outcome ``y``:
 
@@ -12,7 +14,9 @@ Its derivatives are taken with respect to the **prediction** ``\eta``,
 not the observation ``y``. Scalar losses are useful for constructing
 statistical objectives with one term per observation.
 
-The Julia abstraction is `ProximalBase.ScalarLoss`. It is **separate
+The Julia abstraction is `ProximalBase.ScalarLoss`. The
+[qualified prefix](glossary.md#Exported-and-qualified-names) means these
+names are not exported and must be called through `ProximalBase.`. It is **separate
 from `AbstractFunction`**: scalar losses do not automatically provide
 the five `AbstractFunction` traits, array `gradient` methods, or
 array `prox` methods. The only built-in concrete scalar loss currently

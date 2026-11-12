@@ -28,6 +28,10 @@ symmetric models (`NormL1`, `SqrNormL2`, `LinearFunction`, nested `Scaled` and a
 function) against dense and structurally symmetric references in Float32/64, the explicit `check_symmetric_parameters` (stored and unstored pairs, nested `Scaled`,
 NaN and signed zeros, malformed metadata), the structural refusals that the oracles keep, and
 instrumented parameter arrays that count reads to show the oracles perform no mirrored-pair scan.
+`linear_shapes` checks the `LinearFunction` shape contract, `size(c) == size(x)` (the
+p × p matrix of a symmetric iterate): every value, gradient and proximal oracle, allocating
+and in place, `Scaled` included, on dense, sparse, wrapped and iterate arguments in Float32/64,
+against BigFloat references; same-length pairs of other shapes are refused with an unchanged output.
 `core_functions` exercises retained
 interface, lasso building blocks and custom scalar/vector block extensions.
 `dropzeros_compaction` checks the shared `dropzeros!` loop of `SparseIterate` and

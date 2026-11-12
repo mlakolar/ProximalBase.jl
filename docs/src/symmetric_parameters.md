@@ -37,7 +37,8 @@ certificate: a successful check says nothing about later mutation.
 
 Parameters refer to full matrix positions, usually a p×p array. An entrywise
 weight vector of length p² can be paired in column-major order where the wrapped function
-permits it; center/coefficient writers can impose the full matrix shape/axes.
+permits it; center writers can impose the full matrix shape/axes, and the
+coefficients of `LinearFunction` must be a p×p matrix for every oracle.
 Use matching matrices for centers and coefficients. Design matrices, response
 data, block-indexed parameters and scalar levels are not per-entry matrix
 parameters merely because they are arrays or numbers.

@@ -43,14 +43,14 @@ jobs:
       - name: Check rendered internal links and navigation
         run: python3 docs/check_html.py 2>&1 | tee "${RUNNER_TEMP}/pb-docs-html.log"
       - name: Preserve rendered documentation
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: documentation-linux-current-julia
           path: docs/build
           if-no-files-found: error
       - name: Preserve complete validation logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: documentation-validation-logs-linux-current-julia
           path: ${{ runner.temp }}/pb-*.log
@@ -98,7 +98,7 @@ jobs:
           ref: gh-pages
           persist-credentials: true
       - name: Download the validated documentation
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: documentation-linux-current-julia
           path: ${{ runner.temp }}/docs-preview
@@ -156,7 +156,7 @@ jobs:
       - name: Prepare documentation environment
         run: julia scripts/instantiate.jl docs
       - name: Retrieve the validated HTML artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: documentation-linux-current-julia
           path: docs/build

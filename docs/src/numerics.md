@@ -78,7 +78,9 @@ applied before the single conversion to `T`. This holds for dense arrays and
 for the stored entries of `SparseIterate`, `BlockIterate` and
 `SymmetricSparseIterate`, and for `value_and_prox!` at its stored output.
 Zero and infinite levels, infinite weights and NaN/Inf entries keep the rules
-below.
+below. Under an infinite `Scaled` factor a recovered positive value gives `Inf`,
+as the folded level `NormL1(Inf, w)` does; before #373 a value whose terms all
+rounded to zero gave `NaN` there. An exactly zero value still gives `0`.
 
 These are practical numerical safeguards, not a promise of exhaustive
 range recovery or correctly rounded arbitrary reductions, gradients, or

@@ -182,9 +182,16 @@ end
   (λ > 0 && isfinite(λ)) || return s
   iszero(s) && _all_zero(_stored_values(x)) && return s
   T = typeof(s)
-  R = promote_type(T, Float64, _factor_type(λ), f.w === nothing ? T : float(eltype(f.w)))
+  R = promote_type(T, Float64, _factor_type(λ), _l1_factor_type(f.w), _l1_factor_type(_stored_values(x)))
   _expsum_value(T, _l1_weighted_abs(_expsum_start(R), f.w, x), λ)
 end
+
+# The floating type that holds every entry of a factor array without narrowing it: from the element type, or,
+# for an abstract one (Real[...], AbstractFloat[...]), from the entries themselves, so that the accumulator is
+# concrete and a wider entry (a BigFloat among Float64s) keeps its range.
+_l1_factor_type(::Nothing) = Float16
+_l1_factor_type(a::AbstractArray) =
+  isconcretetype(eltype(a)) ? float(eltype(a)) : mapreduce(v -> typeof(float(v)), promote_type, a; init = Float16)
 
 # Σ wᵢ |xᵢ| (wᵢ = 1 without weights) over the entries that the value reads, as the generic separable
 # kernels index them: every entry of a dense array, the stored entries of a sparse iterate, the active

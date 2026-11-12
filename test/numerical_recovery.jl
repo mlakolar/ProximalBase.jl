@@ -897,20 +897,26 @@ function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
     @test within(NormL1(one(T), Wd)(S), l1val(one(T), Wd, M), tol)
     @test_throws ArgumentError NormL1(one(T), Wa)(S)                     # the parameter validation is unchanged
     # 11. value_and_prox! returns the value at the stored output: the identity step and a positive step
-    for γ in (zero(T), pow2(T, -5))
+    # (the positive step 2^(-10-e0) has the threshold 2^-10: every output is 2^-10 + 2^-p, whose products with floatmin
+    # again lose δ/2 each, so the value at the stored output must be recovered, and differs from the value at the input)
+    for γ in (zero(T), pow2(T, -10 - e0))
       w = fill(floatmin(T), 512)
       x = fill(pow2(T, -9) + pow2(T, -p), 512)
+      y = iszero(γ) ? x : fill(pow2(T, -10) + pow2(T, -p), 512)
       f = NormL1(one(T), w)
+      ry = l1val(one(T), w, y)
       for (k, y0) in pairs(reps(x))
         k === :view && continue
         out = copy(y0)
         v = value_and_prox!(out, f, y0, γ)
-        @test v === f(out)
-        @test within(v, l1val(one(T), w, collect(out)), tol)
+        @test collect(out) == y
+        @test v === f(out) === T(ry)
       end
       out = copy(S)
       v = value_and_prox!(out, NormL1(one(T), W), S, γ)
-      @test v === NormL1(one(T), W)(out)
+      My = Matrix(matrixview(out))
+      @test iszero(γ) ? My == M : all(abs.(My) .== y[1])
+      @test v === NormL1(one(T), W)(out) === T(l1val(one(T), W, My))
     end
     # 12. a wider level (the generic sum of entries rounded to T), a Scaled wrapper and the unchanged wider-level
     # and recovered-coefficient routes
@@ -924,6 +930,23 @@ function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
     @test Scaled(NormL1(T(4), w), T(0.25))(reps(x).sparse) === T(r)
     @test Scaled(NormL1(T(0.25), w), T(4))(x) === T(r)                   # a subnormal leaf value: the factor is folded
     @test Scaled(NormL1(T(0.25), w), T(4))(reps(x).sparse) === T(r)
+    # weights of an abstract element type: the accumulator takes the type of the entries (a BigFloat weight is not
+    # narrowed to Float64, an AbstractFloat array does not leave it abstract)
+    @test NormL1(one(T), Real[floatmin(T) for _ in 1:512])(x) === T(r)
+    @test NormL1(one(T), AbstractFloat[floatmin(T) for _ in 1:512])(x) === T(r)
+    @test NormL1(one(T), Union{Float32, Float64}[floatmin(T) for _ in 1:512])(x) === T(r)
+    λb = pow2(T, -e0 - 10); xb = T[pow2(T, -e0 - 10)]
+    wb = Real[big(2.0)^(3 * e0 + 16)]                                        # far below the range of T and of Float64
+    @test NormL1(λb, wb)(xb) === pow2(T, e0 - 4)                             # a subnormal value: recomputed in BigFloat
+    @test NormL1(δ, Real[big(2.0)^(E + 1)])(T[δ]) === zero(T)                # a weight beyond floatmax(T): not Inf
+    # an infinite Scaled factor multiplies the leaf value: a positive leaf value (here one whose products each rounded
+    # to zero) gives Inf, as the folded level NormL1(Inf, w) does; an exactly zero leaf value is still 0
+    wz = fill(floatmin(T), 2); xz = fill(T(0.375) * eps(T), 2)
+    @test NormL1(one(T), wz)(xz) === δ && NormL1(T(Inf), wz)(xz) === T(Inf)
+    for y in (xz, view(xz, :), reps(xz).sparse)
+      @test Scaled(NormL1(one(T), wz), T(Inf))(y) === T(Inf)
+    end
+    @test Scaled(NormL1(one(T), wz), T(Inf))(zeros(T, 2)) === zero(T)
     λw = W2(2)^(T === Float32 ? -200 : -1500)                           # a level out of the range of T, unweighted
     xw = fill(T(1.5) * pow2(T, T === Float32 ? 100 : 1000), 3)
     @test within(NormL1(λw)(xw), big(λw) * sum(abs, big.(xw)), 2)

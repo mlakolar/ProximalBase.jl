@@ -163,8 +163,19 @@ views are not. Weights are stored by reference, so modifying them also
 changes the function.
 
 Infinite parameters, NaNs, zeros, overflow and sparse active-zero
-semantics require extra care. A zero weight leaves an entry unpenalized,
-and an infinite weight fixes finite trial values to zero, but the behavior
-of non-finite trial values is more subtle. The detailed contracts belong
-in [Numerical usage](numerical_usage.md) and the
-[Numerical contract](numerics.md).
+semantics require extra care. A zero weight leaves an entry unpenalized.
+An infinite weight fixes a **finite trial** to zero, including at zero
+level and zero step. For non-finite trials (`NaN`, `±Inf`) with finite level,
+there is **no fixed-zero guarantee**: ordinary soft-threshold arithmetic can
+return `NaN` ([#853](https://github.com/mlakolar/ProximalBase.jl/issues/853)).
+A genuinely infinite overall level with positive step separately fixes every
+positive-weight entry, including non-finite trials (decision 49).
+
+A threshold formed from entirely finite factors may itself overflow to `Inf`.
+For a `±Inf` trial this can also return `NaN`, even though the mathematical
+threshold is finite. This is a **documented, deferred limitation**
+([#866](https://github.com/mlakolar/ProximalBase.jl/issues/866)), not an
+approved change to the proximal kernel. The decision preserves performance
+of normal Float32/Float64 weighted operations; the measured cost of extra
+checks is recorded in the [numerical contract](numerics.md).
+See also [Numerical usage](numerical_usage.md).

@@ -1,6 +1,7 @@
 # Proximal-gradient iteration
 #
 # *Assumes: gradient descent and convexity · You will learn: a complete proximal-gradient iteration and its optimality check.*
+# Review the proximal idea in [proximal gradient](../glossary.md#Proximal-operator).
 #
 # This loop is educational caller code. ProximalBase supplies gradient and prox.
 using ProximalBase, LinearAlgebra

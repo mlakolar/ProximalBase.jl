@@ -248,6 +248,20 @@ right value). The follow-up that adds the recomputation also adds the testset
 (one-dimensional and dense cases against BigFloat, the ridge agreement, bitwise
 ordinary path, exact zeros, NaN/Inf, an infinite step, aliasing, the fused oracle).
 
+The recomputation takes the numerator `Q'(x - γb)` with `γ` applied before the
+projection, as on the ordinary path: the BLAS product where `x - γb` and the
+product are finite, and otherwise each entry summed from significands and
+exponents (`_ExpSum`). After the projection it only divides by `1 + γλ ≥ 1` and
+rescales exactly, so no projected term is rounded where a later factor could
+restore it. An earlier revision rounded `Q'b` to the working type and multiplied
+it by `γ` afterwards, which lost a projected coefficient below the subnormal
+range that `γ` would have restored (for `A = 2^300 [1 -2; -2 4]`, `b = [0, δ]`, `x = 0`, `γ = 2^800`, the
+point `-(γδ/5)[2, 1]` came out as `[0, -0]`). The testset covers that rank-one
+reproducer in Float32 and Float64, a cancelling subnormal `b`, and random dense,
+sparse and diagonal 2×2 forms with a zero eigenvalue beside an overflowing `γλ`
+(both numerator routes), each coordinate against the BigFloat solution of `(I + γA) z = x - γb`.
+`spectral_accuracy.jl` has the corresponding study.
+
 ## Remaining gaps
 
 This is an audit of the paths reachable from the library as it is today, not a proof

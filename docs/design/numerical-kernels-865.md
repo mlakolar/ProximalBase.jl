@@ -109,6 +109,13 @@ argument, and none dispatches abstractly in a per-entry loop.
   of through `_exceptional_square_value` with λ = 1), and `_product_sum_shift`.
 * LinearFunction uses `_product_sum_shift`.
 
+Behavior change (needs maintainer acceptance): the SqrNormL2 gradient at an
+infinite level with a nonzero subnormal residual. Master's cold path always
+halved the residual, which rounds such a residual to zero, and returned
+`Inf·0 = NaN`. With `_halved_difference` the residual is halved only where
+`x - y` overflows, so the gradient is the IEEE `λ(x - y) = ±Inf`. This is the
+only difference on the characterization grid.
+
 ## 5. Verification
 
 * `test/numerical_kernels.jl`: kernel-level tests in Float32 and Float64 against

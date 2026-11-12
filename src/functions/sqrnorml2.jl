@@ -101,10 +101,7 @@ function _value_unchecked(f::SqrNormL2, x::_ArrayOrOwner)
   # A center is a parameter: it is rounded to the model precision of the value, the
   # argument's (T3), so a Float64 center does not widen a Float32 value.
   T === Float32 && y !== nothing && eltype(y) === Float64 && return _ridge_value_wide_center(f.λ, x, y)
-  # a BigFloat center is rounded entry by entry, except where that leaves T's range (R3)
-  y !== nothing && T <: Union{Float32, Float64} && float(eltype(y)) <: BigFloat &&
-    return _square_value(f.λ, x, map(c -> _ridge_round_big(T, c), y))
-  _square_value(f.λ, x, y)
+  _square_value(f.λ, x, _ridge_value_center(T, y))
 end
 
 _checkvalue(f::SqrNormL2, x) = (_checkreal(f, x); _checkparams(f, x); f.y === nothing || _checksize(f.y, x); true)
@@ -119,14 +116,7 @@ _checkvalue(f::SqrNormL2, x) = (_checkreal(f, x); _checkparams(f, x); f.y === no
 # rounded to zero: below δ/2 (1 + n eps). The centers are rounded as the value rounds them, both
 # here and in the parts. So |f(x)| < n δ in every case, whatever λ is (λ = 0 is exact).
 _has_value_parts(::Type{<:SqrNormL2}) = true
-function _value_parts(f::SqrNormL2, x::AbstractArray, v)
-  T = _valtype(x)
-  y = f.y
-  T === Float32 && y !== nothing && eltype(y) === Float64 && return _square_parts(f.λ, x, map(_ridge_round_center32, y))
-  y !== nothing && T <: Union{Float32, Float64} && float(eltype(y)) <: BigFloat &&
-    return _square_parts(f.λ, x, map(c -> _ridge_round_big(T, c), y))
-  _square_parts(f.λ, x, y)
-end
+_value_parts(f::SqrNormL2, x::AbstractArray, v) = _square_parts(f.λ, x, _ridge_value_center(_valtype(x), f.y))
 @inline _zero_value_exponent(f::SqrNormL2, x::AbstractArray) =
   iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
 _parameter_alias(f::SqrNormL2, out) = _mightalias_parameter(out, f.y)
@@ -175,13 +165,21 @@ function _ridge_all_fit(::Type{Float32}, c::AbstractArray{Float64})
   hi <= _F32_MAX_BITS && lo >= _F32_MIN_BITS - one(UInt64)
 end
 
+# A center entry rounded to the model precision T where that keeps its range, as given otherwise (R3).
+@inline _ridge_round(::Type{T}, c) where {T} = _ridge_fits(T, c) ? oftype(c, T(c)) : c
+# The centers as the value at an argument of type T reads them (T3, R3), for the recomputation and
+# the value parts: a Float64 center at a Float32 argument, and a BigFloat center at a Float32 or
+# Float64 argument, are rounded entry by entry (_ridge_round); other centers are read as stored.
+function _ridge_value_center(::Type{T}, y) where {T}
+  y === nothing && return y
+  ((T === Float32 && eltype(y) === Float64) || (T <: Union{Float32, Float64} && float(eltype(y)) <: BigFloat)) || return y
+  map(c -> _ridge_round(T, c), y)
+end
+
 # Σ (xᵢ - round(cᵢ))² for a Float32 argument and a Float64 center. The ordinary
 # computation runs in Float32 when every center entry keeps its range on rounding;
 # otherwise the centers that fit are rounded and the scaled recovery of
 # _square_value sees them in Float64 (R3).
-@inline _ridge_round_big(::Type{T}, c) where {T} = _level_fits(T, c) ? oftype(c, T(c)) : c
-# a Float64 center entry rounded to Float32 where that keeps its range, as given otherwise
-@inline _ridge_round_center32(c::Float64) = _ridge_fits(Float32, c) ? Float64(Float32(c)) : c
 function _ridge_value_wide_center(λ, x, y)
   T = Float32
   s = 0.0           # the squares are exact in Float64; the sum accumulates there
@@ -193,11 +191,11 @@ function _ridge_value_wide_center(λ, x, y)
   end
   sT = T(s)
   v = convert(T, λ) * sT / 2
-  if !u & isfinite(v) & (sT >= length(x) * (floatmin(T) / eps(T))) && _level_fits(T, λ)
+  if !u & isfinite(v) & _squares_normal(sT, length(x), T) && _level_fits(T, λ)
     return _value_at(v, x)
   end
   # a rounded center left the range, or the ordinary value is out of range
-  _exceptional_square_value(λ, x, map(_ridge_round_center32, y), sT, v)
+  _exceptional_square_value(λ, x, _ridge_value_center(T, y), sT, v)
 end
 
 value_and_gradient!(g::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner) =
@@ -281,8 +279,12 @@ end
   r = l * (W(x) - W(c))
   isfinite(r) ? r : _ridge_gradient_overflow(l, W(x), W(c), r)
 end
-@noinline _ridge_gradient_overflow(l, x, c, r) =
-  isfinite(x) && isfinite(c) ? _scaled_product(l, x / 2 - c / 2, 1) : r
+# a nonfinite entry of finite operands: λ(x - c) from the residual in its own units (_halved_difference)
+@noinline function _ridge_gradient_overflow(l, x, c, r)
+  (isfinite(x) && isfinite(c)) || return r
+  d, h = _halved_difference(x, c, typeof(l))
+  _scaled_product(l, d, h)
+end
 # l is a level wider than W, or c is a center wider than W: the entry is computed in R
 function _ridge_gradient_wide(::Type{W}, l, x, c) where {W}
   R = promote_type(W, typeof(l), float(typeof(c)))

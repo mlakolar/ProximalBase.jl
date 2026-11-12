@@ -103,6 +103,12 @@ def check_file(path):
         # escaped or replaced by \\lvert/\\rvert or \\lVert/\\rVert.
         # A broken row may otherwise survive Documenter's HTML checks.
         if line.lstrip().startswith("|"):
+            if "``" in line and "\\|" in line:
+                errors.append((
+                    line_number,
+                    "Use LaTeX \\lVert / \\rVert inside Markdown table math "
+                    "instead of \\|, which Markdown can consume as an escape"
+                ))
             delimiters = table_delimiter_count(line)
             if delimiters >= 2 and line.rstrip().endswith("|"):
                 columns = delimiters - 1

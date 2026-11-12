@@ -20,9 +20,13 @@ An infinite weight maps a **finite input value** to zero at every level and
 step, including a zero level or step (the value is `Inf` away from zero).
 For inputs of `NaN` or `±Inf` at finite level there is **no fixed-zero
 guarantee**: ordinary soft thresholding may return `NaN` (issue #853).
-A zero weight remains unpenalized. An infinite overall level `λ0` at a
-positive step instead fixes every positive-weight entry even for non-finite
-inputs (historical decision 49). A threshold that overflows to `Inf` from
+A zero weight remains unpenalized. An infinite overall level `λ0` at any
+nonnegative step instead fixes every positive-weight entry at `+0`, even for
+non-finite inputs (historical decision 49). At `γ = 0` this is the limit
+`γ → 0+` of the proximal map of the fixed function, the projection onto the
+closure of its domain, not soft thresholding by `0⋅Inf` (issue #665):
+`prox(NormL1(Inf, [1, 0, 2]), [3.0, 4.0, 5.0], 0.0) == [0.0, 4.0, 0.0]`.
+Zero-weight entries stay free. A threshold that overflows to `Inf` from
 finite level, step and weight factors is not an infinite model parameter;
 its behavior for `±Inf` inputs is a deferred limitation (issue #866).
 The value is `0` at the zero vector and remains `NaN` at a `NaN` entry.
@@ -56,10 +60,12 @@ Base.@propagate_inbounds prox_block(f::NormL1, v::T, i::Integer, γ::Real) where
   first(_l1_prox_threshold(v, γ, f.λ0, _entry(f.w, i), float(T)))
 
 # Whether the level and the step, as given, fix a penalized entry (w > 0) at zero whatever it holds,
-# NaN and ±Inf included (E4 before E2): an infinite level at a positive step, finite or Inf, where
-# the domain of the entry is {0}. Never decided from the threshold γλ0w, which overflows for finite
-# parameters (R3) and is 0⋅Inf at a zero step.
-@inline _l1_fixing(γ, λ) = (γ > 0) & isinf(λ)
+# NaN and ±Inf included (E4 before E2): an infinite level at a nonnegative step, where the domain of
+# the entry is {0}. At γ = 0 this is the limit γ → 0+ with the function fixed (#665), the projection
+# onto the closure of the domain, not the identity that the threshold 0⋅Inf would suggest. Never
+# decided from the threshold γλ0w, which overflows for finite parameters (R3) and is 0⋅Inf at a
+# zero step. Only the exceptional branch below reads it: 0⋅Inf is NaN, outside the ordinary range.
+@inline _l1_fixing(γ, λ) = (γ >= 0) & isinf(λ)
 @inline _l1_fixed(γ, λ, w) = (w > 0) & _l1_fixing(γ, λ)
 
 # The scalar proximal operator and its threshold γλ0w, as _weight_product forms it. In the ordinary

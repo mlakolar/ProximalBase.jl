@@ -43,6 +43,16 @@ Same-kind matching state copies replace active state; ordinary broadcasts copy
 values and keep previous activity. Read the [storage guide](iterates.md) before
 assuming conventional dense-array behavior.
 
+## Changed numerical results
+
+| Call | Before | Now |
+|:--|:--|:--|
+| `NormL1(Inf, w)` at step `γ = 0` ([#665](https://github.com/mlakolar/ProximalBase.jl/issues/665)) | Input returned unchanged (`shrink(x, 0⋅Inf)` read as a zero threshold) | Projection onto the closure of the domain: `+0` where `w[i] > 0`, including `NaN`/`±Inf` inputs; unchanged where `w[i] = 0`. Unweighted `NormL1(Inf)` gives all `+0` |
+
+Positive steps, finite levels at `γ = 0`, infinite coordinate weights at a
+finite level (#853) and finite-factor overflow (#866) are unchanged. See
+[NaN, infinities and zeros](numerics.md#NaN,-infinities-and-zeros).
+
 ## Historical contracts
 
 Current [developer contracts](developer/index.md) are reconciled against retained

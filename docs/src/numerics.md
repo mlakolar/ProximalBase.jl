@@ -110,7 +110,7 @@ all-NaN result or a particular exception.
 | Unweighted `NormL1`, zero level | Zero value on dense float arrays, including NaN entries |
 | `NormL1`, zero weight | Unpenalized entry at every level |
 | `NormL1`, infinite weight | Finite input values map to zero, even with zero level or step. No fixed-zero guarantee for `NaN`/`±Inf` inputs with finite level; `shrink` can return `NaN`. Value is `Inf` away from zero. See [#853](https://github.com/mlakolar/ProximalBase.jl/issues/853). |
-| `NormL1`, infinite level and positive step | Positive-weight entries prox to zero, including non-finite inputs |
+| `NormL1`, infinite level, nonnegative step | Positive-weight entries prox to `+0`, including non-finite inputs; zero-weight entries stay free. At `γ = 0` this is the fixed-function limit `γ → 0+`, the projection onto the closure of the domain ([#665](https://github.com/mlakolar/ProximalBase.jl/issues/665)) |
 | `NormL1`, finite factors whose product overflows | Distinguished from genuinely infinite weights/levels; recovery handles representable finite results where supported. With an input of `±Inf`, an overflowed finite threshold can yield `NaN`; [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) is a documented, deferred limitation, not an authorized hot-loop fix. |
 | `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
 | `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual |
@@ -122,6 +122,9 @@ all-NaN result or a particular exception.
 using ProximalBase
 @assert NormL1(0.0)([NaN,Inf]) == 0
 @assert prox(NormL1(Inf),[NaN,Inf],1.0) == [0,0]
+@assert prox(NormL1(Inf),[1.0,2.0],0.0) == [0,0]  # zero step: projection onto {0} (#665)
+@assert isequal(prox(NormL1(Inf,[1.0,0.0,2.0]),[3.0,NaN,Inf],0.0), [0,NaN,0])
+@assert prox(NormL1(1.0),[1.0,2.0],0.0) == [1,2]  # finite level: zero threshold
 @assert prox(NormL1(0.0,[Inf,0.0]),[2.0,3.0]) == [0,3]
 @assert isnan(shrink(NaN,1.0))
 @assert prox(NormL1(1.0,[Inf]),[2.0],1.0) == [0.0]  # finite input fixed at zero
@@ -140,8 +143,34 @@ intentionally not extended: retained soft-threshold arithmetic may return
 `Inf`; with an input of `±Inf`, the current result can likewise be `NaN` even
 though the mathematical threshold is finite. These examples characterize
 present behavior, not additional non-finite-output guarantees. A genuinely
-infinite **level** with positive step retains its distinct fixed-zero rule
-for positive weights, including non-finite inputs (historical decision 49).
+infinite **level** at any nonnegative step retains its distinct fixed-zero rule
+for positive weights, including non-finite inputs (historical decision 49,
+extended to `γ = 0` by #665 below).
+
+**Zero step at an infinite `NormL1` level (#665, Option A).** For
+`NormL1(Inf, w)`, the `γ = 0` endpoint is `lim_{γ→0+} prox_{γf}(x)` with the
+function `f` held fixed. That function is the indicator of `{0}` in each
+coordinate with `w[i] > 0` (an infinite `w[i]` included) and is zero in each
+coordinate with `w[i] = 0`, so the limit is the projection onto the closure of
+its domain: positive-weight coordinates become exactly `+0`, even for `NaN` or
+`±Inf` inputs, and zero-weight coordinates are returned as soft thresholding by
+a zero threshold returns them (`NaN` and `±Inf` unchanged). Unweighted
+`NormL1(Inf)` therefore maps every coordinate to `+0`. The order of limits
+matters: for a fixed *finite* level, `shrink(x, γλ) → x` as `γ → 0+`, but
+`NormL1(Inf)` is already the constraint at every positive step, so the result
+is not computed as `shrink(x, 0⋅Inf)`. Before #665 the zero step returned the
+identity; results at `γ = 0` with an infinite level changed, and every other
+case is unchanged. This rule is specific to the infinite *overall level* of
+`NormL1`. An infinite *coordinate weight* at a finite level keeps the narrower
+#853 rule above (finite inputs fixed; non-finite inputs may give `NaN`), and
+finite factors whose product overflows are never treated as an infinite level
+(#866). Finite levels at `γ = 0` keep the identity. A finite positive `Scaled`
+factor passes the zero step through, so `2 * NormL1(Inf)` projects as well; an
+infinite factor at a zero step forms the step `Inf⋅0 = NaN` in the wrapper
+before `NormL1` sees it, and that wrapper step rule is unchanged (#311). No
+other function is claimed to implement a zero-step projection rule. The test is made only on the
+exceptional branch of the kernel (the product `0⋅Inf` is not an ordinary
+number), so ordinary positive finite steps run the unchanged loop.
 
 The endpoint extensions were deferred to protect ordinary proximal throughput:
 PR [#874](https://github.com/mlakolar/ProximalBase.jl/pull/874) measured

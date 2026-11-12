@@ -107,7 +107,7 @@ g_sparse = NormL1(1.5)
 β_run = copy(β)
 objective_history = [f(β_run) + g_sparse(β_run)]
 for _ in 1:100
-    β_run = prox(g_sparse, β_run - γ * gradient(f, β_run), γ)
+    β_run .= prox(g_sparse, β_run - γ * gradient(f, β_run), γ)
     push!(objective_history, f(β_run) + g_sparse(β_run))
 end
 # For a convex smooth loss and a valid step, the exact objective

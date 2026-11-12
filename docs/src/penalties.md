@@ -168,8 +168,23 @@ An infinite weight sets the proximal output to zero for a **finite input value**
 level and zero step. For non-finite inputs (`NaN`, `±Inf`) with finite level,
 there is **no fixed-zero guarantee**: ordinary soft-threshold arithmetic can
 return `NaN` ([#853](https://github.com/mlakolar/ProximalBase.jl/issues/853)).
-A genuinely infinite overall level with positive step separately fixes every
-positive-weight entry, including non-finite inputs (decision 49).
+A genuinely infinite overall level `λ0 = Inf` separately fixes every
+positive-weight entry at `+0` at any nonnegative step, including non-finite
+inputs (decision 49). At `γ = 0` this is the limit `γ → 0+` of the proximal map
+of the fixed function, which is the projection onto the closure of its domain,
+not soft thresholding by `0⋅Inf`
+([#665](https://github.com/mlakolar/ProximalBase.jl/issues/665)). Zero-weight
+entries stay free:
+
+```julia
+prox(NormL1(Inf, [1.0, 0.0, 2.0]), [3.0, 4.0, 5.0], 0.0)  # [0.0, 4.0, 0.0]
+prox(NormL1(Inf), [1.0, 2.0], 0.0)                         # [0.0, 0.0]
+prox(NormL1(1.0), [1.0, 2.0], 0.0)                         # [1.0, 2.0]: finite level
+```
+
+Before #665 these zero-step calls with an infinite level returned their input.
+The infinite overall level and an infinite coordinate weight are distinct: the
+latter, at a finite level, keeps the #853 rule above at every step.
 
 A threshold formed from entirely finite factors may itself overflow to `Inf`.
 For an input of `±Inf` this can also return `NaN`, even though the mathematical

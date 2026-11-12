@@ -1,5 +1,7 @@
 # Browse available functions
 
+*Assumes: gradients and matrix notation · You will learn: which constructor matches each mathematical function and which squared loss to use.*
+
 ProximalBase provides mathematical functions for building optimization
 algorithms. Each Julia object represents a **specific mathematical formula**.
 The table below pairs the formula with the constructor: you should be able
@@ -50,9 +52,23 @@ separable-coordinate operations, or convexity, see
 To learn what these operations compute, see
 [Operations on functions](operations.md).
 
+!!! note "Which squared-loss object should I use?"
+    - `SqrNormL2(λ, y)` represents ``\lambda\|x-y\|^2/2`` for an array
+      argument ``x``. In particular, `SqrNormL2(1.0)` uses
+      ``\lambda=1`` and no center, so its value is ``\|x\|^2/2``.
+      It supplies array gradients and proximal operations.
+    - `LeastSquaresLoss(y, X)` represents
+      ``\|y-X\beta\|^2/2`` as a function of coefficients ``\beta``.
+      It also supplies array gradients and proximal operations.
+    - `ProximalBase.Squared()` evaluates just one prediction–observation
+      pair, ``(\eta-y)^2/2``, with scalar derivatives but **no array
+      proximal method**. The `ProximalBase.` prefix is required because
+      this name is not exported.
+
 ## Scalar squared loss
 
-For functions of an individual **prediction** ``\eta`` and
+The [qualified-name convention](glossary.md#Exported-and-qualified-names)
+explains the module prefix. For functions of an individual **prediction** ``\eta`` and
 **observation** ``y``, ProximalBase also provides
 [`ProximalBase.Squared()`](@ref ProximalBase.Squared), representing
 

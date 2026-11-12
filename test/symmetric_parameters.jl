@@ -335,7 +335,8 @@ end
   for (name, mk) in makers, (xname, x) in xs
     a = ReadCounter(W)
     f, c = mk(a), mk(Symmetric(ReadCounter(W), :L))
-    # The control is symmetric by type, so no oracle scans it: its reads are the ones the mathematics needs.
+    # The control is symmetric by type, so no oracle scans it: its reads are the baseline work (evaluation and
+    # constructor or domain validation) without any parameter-symmetry validation.
     counter(g) = g isa Scaled ? counter(g.f) : first(PB.entry_parameters(g)).second
     carr = counter(c)
     carr = carr isa Symmetric ? carr.data : carr

@@ -10,7 +10,7 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | Source | Responsibility |
 |:--|:--|
 | `src/ProximalBase.jl` | Module, exports, qualified public names and include order |
-| `src/compat.jl` | Version-dependent Base/SparseArrays compatibility types |
+| `src/compat.jl` | SparseArrays names that only some Julia versions or builds define |
 | `src/utils.jl` | Shape/type checks, scratch buffers, stored-value scans, scaled-value protocol hooks and triangular indices |
 | `src/numerical_kernels.jl` | Shared numerical kernels: soft thresholding, exponent-scaled products, compensated and power-of-two sums, underflow and squared-residual recovery, norms and Lanczos norm estimate |
 | `src/iterate_storage.jl` | Both concrete type declarations, shared active-coordinate storage and APIs, copying and `dropzeros!` compaction, plus retained early sparse helpers |

@@ -137,18 +137,19 @@ function Base.copyto!(x::SparseIterate, y::AbstractArray)
   invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
 end
 # Resolve ambiguities with SparseArrays: each runs the method that applies without the check.
-@static if isdefined(@__MODULE__, :_AbstractSparseMatrixCSC)
-  function Base.copyto!(x::SparseIterate{<:Any, 2}, y::_AbstractSparseMatrixCSC)
-    _checkreal_broadcast(x, y)
-    invoke(copyto!, Tuple{AbstractMatrix, _AbstractSparseMatrixCSC}, x, y)
-  end
-  function Base.copyto!(x::SparseIterate{T, 2}, y::Union{Adjoint{<:Any, <:_AbstractSparseMatrixCSC},
-                                                         Transpose{<:Any, <:_AbstractSparseMatrixCSC}}) where {T}
-    _checkreal_broadcast(x, y)
-    invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
-  end
+# SparseArrays' copyto!(A::AbstractMatrix, B::AbstractSparseMatrixCSC), on every supported Julia.
+function Base.copyto!(x::SparseIterate{<:Any, 2}, y::SparseArrays.AbstractSparseMatrixCSC)
+  _checkreal_broadcast(x, y)
+  invoke(copyto!, Tuple{AbstractMatrix, SparseArrays.AbstractSparseMatrixCSC}, x, y)
 end
-# Newer SparseArrays also specializes matrix views and transposed sparse vectors.
+# SparseArrays 1.14 adds copyto!(dest::AbstractMatrix, src) for adjoint and transposed CSC
+# matrices, matrix views and transposed sparse vectors; before it, the copyto! from an
+# AbstractArray above applies, with the same check and Base's method.
+function Base.copyto!(x::SparseIterate{T, 2}, y::Union{Adjoint{<:Any, <:SparseArrays.AbstractSparseMatrixCSC},
+                                                       Transpose{<:Any, <:SparseArrays.AbstractSparseMatrixCSC}}) where {T}
+  _checkreal_broadcast(x, y)
+  invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
+end
 @static if isdefined(@__MODULE__, :_SparseMatrixCSCOrView)
   function Base.copyto!(x::SparseIterate{T, 2}, y::_SparseMatrixCSCOrView) where {T}
     _checkreal_broadcast(x, y)
@@ -161,20 +162,12 @@ end
     invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
   end
 end
+# CHOLMOD's copyto!(dest::AbstractArray, D::Dense); this method is also more specific than
+# its methods for a destination of the element type of D, which copy with the same kernel.
 @static if isdefined(@__MODULE__, :_CHOLMODDense)
   function Base.copyto!(x::SparseIterate, y::_CHOLMODDense)
     _checkreal_broadcast(x, y)
     invoke(copyto!, Tuple{AbstractArray, _CHOLMODDense}, x, y)
-  end
-  @static if isdefined(@__MODULE__, :_CHOLMODVTypes)
-    function Base.copyto!(x::SparseIterate{T}, y::_CHOLMODDense{T}) where {T<:_CHOLMODVTypes}
-      _checkreal_broadcast(x, y)
-      invoke(copyto!, Tuple{AbstractArray{T}, _CHOLMODDense{T}}, x, y)
-    end
-    function Base.copyto!(x::SparseIterate{T, 2}, y::_CHOLMODDense{T}) where {T<:_CHOLMODVTypes}
-      _checkreal_broadcast(x, y)
-      invoke(copyto!, Tuple{AbstractArray{T, 2}, _CHOLMODDense{T}}, x, y)
-    end
   end
 end
 # I and orthogonal factors are not arrays, so their element type is checked here.
@@ -182,19 +175,19 @@ function Base.copyto!(x::SparseIterate{<:Any, 2}, y::UniformScaling)
   !(eltype(y) <: Complex) || _real_error(:SparseIterate)
   invoke(copyto!, Tuple{AbstractMatrix, UniformScaling}, x, y)
 end
-@static if isdefined(@__MODULE__, :_AbstractQ)
-  # Q is a lazy factorization, so it is materialized into a dense matrix of the element
-  # type of x first; the validation, the materialization and the conversion all run
-  # before x is touched, and the result is written as an ordinary array value write.
-  function Base.copyto!(x::SparseIterate{T, 2}, y::_AbstractQ) where {T}
-    !(eltype(y) <: Complex) || _real_error(:SparseIterate)
-    size(y) == size(x) || throw(DimensionMismatch(
-      "destination has size $(size(x)), orthogonal factor has size $(size(y))"))
-    # Matrix(y) can be thin (a tall QR factor), so the full size(y) matrix is built from the identity.
-    staged = convert(Matrix{T}, lmul!(y, Matrix{eltype(y)}(I, size(y))))
-    invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, staged)
-    return x
-  end
+# Q is a lazy factorization, so it is materialized into a dense matrix of the element
+# type of x first; the validation, the materialization and the conversion all run
+# before x is touched, and the result is written as an ordinary array value write.
+# (LinearAlgebra's copyto!(dest::AbstractMatrix, Q::AbstractQ) skips the real-only check,
+# writes I into x and multiplies it in place, which fails for most factors after x changed.)
+function Base.copyto!(x::SparseIterate{T, 2}, y::LinearAlgebra.AbstractQ) where {T}
+  !(eltype(y) <: Complex) || _real_error(:SparseIterate)
+  size(y) == size(x) || throw(DimensionMismatch(
+    "destination has size $(size(x)), orthogonal factor has size $(size(y))"))
+  # Matrix(y) can be thin (a tall QR factor), so the full size(y) matrix is built from the identity.
+  staged = convert(Matrix{T}, lmul!(y, Matrix{eltype(y)}(I, size(y))))
+  invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, staged)
+  return x
 end
 
 function Base.copyto!(x::SparseIterate, bc::Broadcast.Broadcasted{Nothing})

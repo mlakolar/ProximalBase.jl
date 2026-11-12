@@ -63,7 +63,10 @@ recomputation: each residual is formed before scaling (as `x/2 - y/2`, one
 binade up, when `x - y` itself overflows) and the squares are summed in units
 of the largest one. Genuine NaN/Inf data or parameters keep their ordinary
 IEEE result; only finite inputs whose intermediates leave the range are
-recomputed. Recovery is worthwhile when it changes a materially inaccurate
+recomputed. For the `LinearFunction` value at a matrix `SparseIterate`, the finite
+inputs are `d`, the nonzero stored entries and the coefficients at them: the
+recomputation reads only those entries, `O(nactive(x))`, and a nonfinite coefficient
+at a zero of the iterate does not prevent it. Recovery is worthwhile when it changes a materially inaccurate
 answer into a representable result in the working precision.
 
 `NormL1` values also recover terms `λ0*w[i]*abs(x[i])` that round into the
@@ -224,6 +227,25 @@ dropzeros!(x)
 dot(v,x)
 ```
 
+The `LinearFunction` value at a matrix `SparseIterate` follows the same rule, as
+its own computation and not through `dot(c, x)`: a position that is not stored, or is
+stored as `+0` or `-0`, contributes nothing and `c` is not read there, so a `NaN` or
+`±Inf` coefficient at it does not reach the value, while a nonzero entry keeps
+ordinary arithmetic. `f(Matrix(x))` takes the dense IEEE dot and gives `NaN` for such a
+coefficient.
+
+```@example numerical_linear_sparse
+using ProximalBase, LinearAlgebra
+x = SparseIterate(2, 2)
+x[1, 1] = 2
+activate!(x, 4)                    # the entry (2, 2) is stored as a zero
+c = [1.0 NaN; Inf 1.0]
+f = LinearFunction(c, 0.25)
+@assert f(x) == 2.25
+@assert isnan(f(Matrix(x)))
+f(x)
+```
+
 Five-argument products with β=0 overwrite the destination without reading its
 old numerical entries; α=0 scales/clears output without reading right-operand
 values, after required type/shape/alias checks. Finite summation can depend on
@@ -250,7 +272,10 @@ cached data changes.
 Retained evidence includes `test/ridge_precision.jl` (independent BigFloat
 ridge references), `test/minimal_math.jl`, `test/core_functions.jl`,
 `test/sparse_iterate.jl`, `test/sparse_iterate_basics.jl`,
-`test/symmetric_products.jl`, `test/matrixview.jl` and
+`test/symmetric_products.jl`, `test/matrixview.jl`, `test/linear_sparse_value.jl`
+(BigFloat references and the strong-zero examples of the `LinearFunction` value at a matrix
+`SparseIterate`), `test/sparse_value_cost.jl` (counts of the zeros formed and of the
+coefficient entries read by that value) and
 `test/numerical_kernels.jl` (BigFloat references for the shared recovery
 kernels and their `SqrNormL2`/`LeastSquaresLoss`/`LinearFunction` consumers). These are concrete tested
 domains; a historical acceptance goal for a removed family is not evidence for

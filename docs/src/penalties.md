@@ -1,5 +1,7 @@
 # The ℓ₁ norm and soft thresholding
 
+*Assumes: norms and basic convexity · You will learn: the weighted ℓ₁ function, its Julia constructor and soft-thresholding proximal map.*
+
 `NormL1` represents a nonnegative weighted sum of absolute values,
 often called a **weighted ℓ₁ function**. It is a mathematical function,
 not an optimization algorithm. An algorithm may use
@@ -53,6 +55,9 @@ at zero in any positively weighted coordinate. Consequently,
 `gradient(g,x)` is not the right operation there.
 
 ## Proximal operator: soft thresholding
+
+The [proximal operator](glossary.md#Proximal-operator) of this function
+performs [soft thresholding](glossary.md#Soft-thresholding).
 
 For an ordinary positive step ``\gamma>0``, its proximal operator is
 

@@ -68,6 +68,13 @@ function ridge_cases!(res, PB, ::Type{T}, rng) where {T}
     push!(centers, Float64[scaled(rng, Float64, rand(rng, (-1060, -300, -140, -20, 0, 20, 130, 300, 1000))) for _ in 1:n])
   end
   push!(centers, big.(rand(rng, vs)))
+  # centers that land on the recovery path: entries below T's normal range on rounding beside entries
+  # that round, at the scale of the small arguments
+  tiny = (exps(T)[1] - 10, exps(T)[1], exps(T)[3] - 1, exps(T)[3] + 2)
+  W = T === Float32 ? Float64 : BigFloat
+  for _ in 1:4
+    push!(centers, W[rand(rng, Bool) ? ldexp(W(rand(rng)) + 1, rand(rng, tiny)) : W(scaled(rng, T, rand(rng, tiny))) * (1 + W(rand(rng)) * eps(T)) for _ in 1:n])
+  end
   # opposite-sign centers make x - c overflow (the halved residual); nextfloat makes it cancel
   for x in vs, λ in levels(T), c in (centers..., -x, nextfloat.(x), T(-0.75) .* x)
     c !== nothing && length(c) != length(x) && continue
@@ -133,6 +140,12 @@ function leastsquares_cases!(res, PB, ::Type{T}, rng) where {T}
       β = T[abs(scaled(rng, T, h - 1 - ndigits(p, base = 2))) for _ in 1:p]
       Y = -X * β
     end
+    if trial % 3 == 0                                     # partial products of Xβ overflow, Xβ cancels
+      a = ldexp(T(0.75), exponent(floatmax(T)) ÷ 2 + 4)
+      X = hcat(fill(a, n), fill(a, n), T[scaled(rng, T, 0) for _ in 1:n])
+      β = T[a, -a, scaled(rng, T, rand(rng, E))]
+      p = 3
+    end
     trial % 7 == 0 && (Y = X * β)                         # an exact or nearly exact fit
     trial % 11 == 0 && (Y[1] = rand(rng, specials(T)))
     trial % 13 == 0 && (β[1] = rand(rng, specials(T)))
@@ -187,6 +200,19 @@ length(a) == length(b) || error("case counts differ: $(length(a)) vs $(length(b)
 bad = findall(i -> a[i] != b[i], eachindex(a))
 nerr = count(r -> r isa Tuple && length(r) == 2 && r[1] === :error, a)
 println("characterized $(length(a)) results ($nerr raise in both); $(length(bad)) differ")
+# every differing leaf, as (baseline, candidate) classes
+leaves(x) = x isa Tuple && length(x) == 2 && x[1] isa DataType && x[1] <: AbstractFloat ? [x] :
+            x isa Union{Tuple, AbstractArray} ? reduce(vcat, map(leaves, collect(x)); init = Any[]) : Any[x]
+class(l) = l isa Tuple && length(l) == 2 && l[1] isa DataType && l[1] <: AbstractFloat ?
+           (l[2] == "NaN" ? "NaN" : (v = reinterpret(l[1] === Float64 ? Float64 : Float32, parse(l[1] === Float64 ? UInt64 : UInt32, l[2]; base = 2));
+                              isinf(v) ? (v > 0 ? "+Inf" : "-Inf") : iszero(v) ? "zero" : "finite")) : string(l)
+classes = Dict{Tuple{String, String}, Int}()
+for i in bad
+  for (u, w) in zip(leaves(a[i]), leaves(b[i]))
+    u == w || (classes[(class(u), class(w))] = get(classes, (class(u), class(w)), 0) + 1)
+  end
+end
+isempty(classes) || println("differing leaves (baseline => candidate): ", classes)
 for i in first(bad, 10)
   println("  #$i\n    baseline:  ", a[i], "\n    candidate: ", b[i])
 end

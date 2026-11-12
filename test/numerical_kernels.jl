@@ -68,7 +68,7 @@ setprecision(BigFloat, 1200) do
   @testset "halved difference" begin
     # a finite difference is exact units (h = 0) and bitwise the ordinary one
     for _ in 1:500
-      a, b = signif(rng, T, rand(rng, e0:E)), signif(rng, T, rand(rng, e0:E))
+      a, b = signif(rng, T, rand(rng, e0:E+1)), signif(rng, T, rand(rng, e0:E+1))
       d, h = PB._halved_difference(a, b, T)
       if isfinite(a - b)
         @test (d, h) === (a - b, 0)
@@ -94,7 +94,7 @@ setprecision(BigFloat, 1200) do
   @testset "squared-residual kernel" begin
     ref(x, y) = sum(abs2, big.(collect(x)) .- (y === nothing ? 0 : big.(y)); init = big(0))
     parts_value(q) = big(q[1]) * big(2.0)^(2q[2])
-    scales = (e0 + 2, e0 ÷ 2 - 3, -20, 0, 20, E ÷ 2 + 3, E - 1, E)
+    scales = (e0 + 2, e0 ÷ 2 - 3, -20, 0, 20, E ÷ 2 + 3, E - 1, E, E + 1)   # signif(·, E + 1) is the top binade
     for _ in 1:400, n in (1, 4, 13)
       x = T[signif(rng, T, rand(rng, scales)) for _ in 1:n]
       y = rand(rng, Bool) ? nothing : T[signif(rng, T, rand(rng, scales)) for _ in 1:n]

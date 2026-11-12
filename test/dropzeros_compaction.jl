@@ -1,7 +1,7 @@
 module DropzerosCompactionTest
 
 # dropzeros! on SparseIterate and SymmetricSparseIterate shares one compaction loop (#834). Each
-# call is compared with an independent copy of the previous swap-with-last loop, run on copies of
+# correctness-check call is compared with an independent copy of the previous swap-with-last loop, run on copies of
 # the raw storage: the count, the live values and coordinate IDs in order, and the whole reverse map
 # must agree. Stale slots past the count may differ and are not compared. The entries are checked
 # against an independent dense reference, and the state is used afterwards (activation, writes,

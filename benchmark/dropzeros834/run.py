@@ -72,7 +72,7 @@ def main():
                     prints[role][row['case']] = row['fingerprint']
                     row['case_seed'] = row.pop('seed')
                     writer.writerow(dict(round=r, order=ordinal, role=role, seed=seed, loadavg=load) | row)
-                    if row['status'] != 'pass':
+                    if row['status'] != 'pass' and not (a.check and row['status'] == 'not_checked'):
                         failures.append((r, role, row['case']))
                 out.flush()
                 print(f'round {r} {role} (position {ordinal}, load {load:.2f}) failures={len(failures)}', flush=True)

@@ -1,6 +1,7 @@
-# Bounded attribution of a flagged cell (#834): base and head loaded into ONE process and timed on
-# the same fixtures, interleaved, so that per-process layout cannot differ between them; plus the
-# native code of dropzeros! of both trees. Optional hardware counters with LinuxPerf.jl.
+# Bounded attribution of a flagged cell (#834): base and head loaded into one process and timed on
+# the same fixtures, interleaved, which removes the differences between separate processes (their
+# code and data still sit at different addresses); plus the native code of dropzeros! of both
+# trees. Optional hardware counters with LinuxPerf.jl. ROUNDS = 0 skips the timing.
 # usage: julia --project=ENV attribution.jl BASE_SRC HEAD_SRC OUTDIR ORDER(base-first|head-first) ROUNDS
 using BenchmarkTools, Random, Statistics, SHA, InteractiveUtils, Printf
 const BASE, HEAD, OUT, ORDER = ARGS[1], ARGS[2], ARGS[3], ARGS[4]
@@ -69,16 +70,31 @@ open(joinpath(OUT, "timing-$ORDER.csv"), "w") do io
             flush(io)
         end
         if HAVE_PERF
-            # counters of 2000 restore+dropzeros! cycles minus 2000 restores alone, per call
-            events = "(cpu-cycles,instructions,branch-instructions,branch-misses),(L1-dcache-load-misses,cache-misses)"
-            open(joinpath(OUT, "counters-$ORDER.txt"), "a") do cio
+            # counters around each dropzeros! call alone: enabled after the restoration and disabled
+            # after the call, minus an empty enable/disable window taken after the same restorations,
+            # which removes the constant cost of the window itself; per call, 2000 calls each
+            pb = LinuxPerf.make_bench([LinuxPerf.EventType(:hw, :cycles),
+                                       [LinuxPerf.EventType(:hw, :instructions), LinuxPerf.EventType(:hw, :branches),
+                                        LinuxPerf.EventType(:hw, :branch_mispredicts)],
+                                       [LinuxPerf.EventType(:cache, :L1_data, :read, :miss)]])
+            totals(cnt) = Dict(string(k.event) => Float64(k.value) for k in cnt.counters)
+            open(joinpath(OUT, "counters-$ORDER.csv"), isfile(joinpath(OUT, "counters-$ORDER.csv")) ? "a" : "w") do cio
+                filesize(joinpath(OUT, "counters-$ORDER.csv")) == 0 && println(cio, "cell,tree,event,call,empty,net_per_call")
                 for tree in (:base, :head)
                     c = cells[tree]
-                    both = @pstats events (for _ = 1:2000; setup!(c); kernel!(c); end)
-                    only = @pstats events (for _ = 1:2000; setup!(c); end)
-                    println(cio, "== $id $tree (both, then restore only; divide by 2000)")
-                    show(cio, MIME"text/plain"(), both); println(cio)
-                    show(cio, MIME"text/plain"(), only); println(cio)
+                    LinuxPerf.reset!(pb)
+                    for _ = 1:2000
+                        setup!(c); LinuxPerf.enable!(pb); kernel!(c); LinuxPerf.disable!(pb)
+                    end
+                    call = totals(LinuxPerf.counters(pb))
+                    LinuxPerf.reset!(pb)
+                    for _ = 1:2000
+                        setup!(c); LinuxPerf.enable!(pb); LinuxPerf.disable!(pb)
+                    end
+                    empty = totals(LinuxPerf.counters(pb))
+                    for e in sort(collect(keys(call)))
+                        println(cio, id, ',', tree, ',', e, ',', call[e], ',', empty[e], ',', (call[e] - empty[e]) / 2000)
+                    end
                 end
             end
         end

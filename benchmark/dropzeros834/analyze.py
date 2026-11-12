@@ -72,8 +72,8 @@ def main():
              'Ratios are medians over rounds of the per-round ratio of per-call medians; [lo, hi] is a seeded',
              '10,000-resample 95% bootstrap interval over rounds. Verdict: pass if the median ratio is at most',
              '1.05; investigate if it exceeds 1.05 and the lower bound exceeds 1.0; otherwise inconclusive.', '']
-    lines += ['## Groups (geometric mean over Float32/Float64 and the three sizes)', '',
-              '| kind | case | head/base | A/A | head verdicts | A/A verdicts |', '|---|---|---|---|---|---|']
+    lines += ['## Groups (geometric mean over the measured cells of each group; n = number of cells)', '',
+              '| kind | case | n | head/base | A/A | head verdicts | A/A verdicts |', '|---|---|---|---|---|---|---|']
     for kind in ('sparse', 'symmetric'):
         for op in ('zeros0', 'zeros10', 'zeros50', 'zeros90', 'zeros100', 'fill_drop', 'maintain10', 'reset'):
             g = [r for r in out if r['kind'] == kind and r['op'] == op]
@@ -81,7 +81,7 @@ def main():
                 continue
             hv = ', '.join(f'{v} {sum(r["head_verdict"] == v for r in g)}' for v in ('pass', 'inconclusive', 'investigate'))
             av = ', '.join(f'{v} {sum(r["aa_verdict"] == v for r in g)}' for v in ('pass', 'inconclusive', 'investigate'))
-            lines.append(f'| {kind} | {op} | {gmean([r["head_ratio"] for r in g]):.3f} | '
+            lines.append(f'| {kind} | {op} | {len(g)} | {gmean([r["head_ratio"] for r in g]):.3f} | '
                          f'{gmean([r["aa_ratio"] for r in g]):.3f} | {hv} | {av} |')
     lines += ['', '## Cases', '',
               '| case | base ns/call | head ns/call | head/base [95%] | A/A [95%] | CV base/head | allocs b/h | verdict |',
@@ -94,7 +94,7 @@ def main():
     work = [r for r in out if r['op'] == 'maintain10']
     if work:
         lines += ['', '## Maintenance workload: cycle time and the part inside dropzeros! (medians over rounds)', '',
-                  '| case | cycle base ns | cycle head ns | head/base [95%] | dropzeros! base ns | dropzeros! head ns | head - base, ns | share of base cycle in dropzeros! |',
+                  '| case | cycle base ns | cycle head ns | head/base [95%] | dropzeros! base ns | dropzeros! head ns | head - base, ns | approx. share of base cycle in dropzeros! (mean inner / median cycle) |',
                   '|---|---|---|---|---|---|---|---|']
         for r in work:
             lines.append(f'| {r["case"]} | {r["base_ns"]:.0f} | {r["head_ns"]:.0f} | {r["head_ratio"]:.3f} [{r["head_lo"]:.3f}, {r["head_hi"]:.3f}] | '

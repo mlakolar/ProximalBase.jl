@@ -15,7 +15,8 @@ Base.include(Src, joinpath(SOURCE, "src", "ProximalBase.jl"))
 const PB = Src.ProximalBase
 using SparseArrays: dropzeros!
 
-# The worker writes the raw storage only to restore a state outside the timed region. Both trees
+# The worker writes the raw storage only to restore a state, outside the timed region except in the
+# reset cases, which time the restoration itself. Both trees
 # must have the storage layout this relies on.
 for S in (PB.SparseIterate, PB.SymmetricSparseIterate)
     (:nzval, :nzval2ind, :ind2nzval, :nnz) ⊆ fieldnames(S) || error("unexpected layout of $S")
@@ -23,7 +24,7 @@ end
 
 const SIZES = (64, 1024, 16384)          # active coordinates: small, medium, large
 const ZERO_FRACTIONS = (0.0, 0.1, 0.5, 0.9, 1.0)
-const NPATTERNS = 32                     # cycled, so successive calls see different zero patterns
+const NPATTERNS = 32                     # cycled, so successive calls see varying zero patterns
 const BATCH_COORDS = 4096                # a sample runs max(1, 4096 ÷ s) calls on separate iterates
 const MAINTAIN_SIZES = (1024, 16384)     # sizes of the working-set maintenance workload
 
@@ -52,7 +53,7 @@ function make_pattern(rng, ::Type{T}, q, s, f) where {T}
     Pattern(ids, vals)
 end
 
-# restore x to pattern P in O(nactive): unmap the live coordinates, then write the pattern
+# restore x to pattern P in O(x.nnz + length(P.ids)): unmap the live coordinates, then write P
 function restore!(x, P)
     @inbounds for t = 1:x.nnz
         x.ind2nzval[x.nzval2ind[t]] = 0
@@ -247,7 +248,8 @@ open(OUTPUT, "w") do io
         foreach(c -> println(io, head(c), "pass,,,,,,,,,", length(c.xs), ','), cases)
     elseif MODE == "check"
         for c in cases
-            println(io, head(c), check(c) ? "pass" : "FAIL", ",,,,,,,,,", length(c.xs), ',')
+            status = opof(c) === :reset ? "not_checked" : check(c) ? "pass" : "FAIL"
+            println(io, head(c), status, ",,,,,,,,,", length(c.xs), ',')
         end
     else
         foreach(c -> (setup!(c); kernel!(c)), cases)    # compile every specialization first

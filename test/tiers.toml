@@ -8,6 +8,7 @@ quick = [
   "ci_contract",
   "core_functions",
   "dropzeros_compaction",
+  "groupnorml2",
   "infinite_weights",
   "iterate_invariants",
   "iterate_queries",

@@ -82,6 +82,13 @@ below. Under an infinite `Scaled` factor a recovered positive value gives `Inf`,
 as the folded level `NormL1(Inf, w)` does; before #373 a value whose terms all
 rounded to zero gave `NaN` there. An exactly zero value still gives `0`.
 
+`GroupNormL2` values apply the same check to their group terms `λ0*w[k]*‖x[G_k]‖₂`,
+and recompute a sum below `K*floatmin(T)` for `K` groups from the terms' exponents.
+Its proximal operators recompute, for finite inputs, a group norm whose sum of
+squares overflows or underflows and a threshold `γ*λ0*w[k]` outside the range, in
+power-of-two units; the ordinary path needs a normal threshold and a normal sum of
+squares, and is otherwise unchanged.
+
 These are practical numerical safeguards, not a promise of exhaustive
 range recovery or correctly rounded arbitrary reductions, gradients, or
 matrix products. When the final mathematical value itself is out of range,
@@ -128,6 +135,10 @@ all-NaN result or a particular exception.
 | `NormL1`, infinite weight | Finite input values map to zero, even with zero level or step. No fixed-zero guarantee for `NaN`/`±Inf` inputs with finite level; `shrink` can return `NaN`. Value is `Inf` away from zero. See [#853](https://github.com/mlakolar/ProximalBase.jl/issues/853). |
 | `NormL1`, infinite level, nonnegative step | Positive-weight entries prox to `+0`, including non-finite inputs; zero-weight entries stay free. At `γ = 0` this is the fixed-function limit `γ → 0+`, the projection onto the closure of the domain ([#665](https://github.com/mlakolar/ProximalBase.jl/issues/665)) |
 | `NormL1`, finite factors whose product overflows | Distinguished from genuinely infinite weights/levels; recovery handles representable finite results where supported. With an input of `±Inf`, an overflowed finite threshold can yield `NaN`; [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) is a documented, deferred limitation, not an authorized hot-loop fix. |
+| `GroupNormL2`, zero weight | Unpenalized group: returned unchanged (`NaN`/`±Inf` included), zero value |
+| `GroupNormL2`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` included (#665 reading), also for `NaN`/`±Inf` inputs; value `Inf` away from zero, `0` at zero |
+| `GroupNormL2`, positive finite parameters and step | A `NaN` entry makes the group `NaN`; a `±Inf` entry (no `NaN`) leaves the group unchanged, also when the finite threshold's product overflows; `γ = Inf` fixes the group at `+0` |
+| `GroupNormL2`, negative or `NaN` step | `ArgumentError` before any write, in `prox!`, `value_and_prox!` and `prox_block!` |
 | `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
 | `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual |
 | Generic custom value/prox | Author-defined arithmetic; traits do not grant recovery or NaN policy |
@@ -252,7 +263,9 @@ ridge references), `test/minimal_math.jl`, `test/core_functions.jl`,
 `test/sparse_iterate.jl`, `test/sparse_iterate_basics.jl`,
 `test/symmetric_products.jl`, `test/matrixview.jl` and
 `test/numerical_kernels.jl` (BigFloat references for the shared recovery
-kernels and their `SqrNormL2`/`LeastSquaresLoss`/`LinearFunction` consumers). These are concrete tested
+kernels and their `SqrNormL2`/`LeastSquaresLoss`/`LinearFunction` consumers) and
+`test/groupnorml2.jl` (BigFloat references for `GroupNormL2` values, proximal
+points and KKT screens, including the exceptional cases above). These are concrete tested
 domains; a historical acceptance goal for a removed family is not evidence for
 this implementation. New numerical claims need independent calculations,
 FP32/FP64 checks, exceptional inputs and regression tests.

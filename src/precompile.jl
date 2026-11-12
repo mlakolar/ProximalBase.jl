@@ -19,6 +19,9 @@ using PrecompileTools: @setup_workload, @compile_workload
         end
       end
       prox_block(NormL1(T(0.1)), x[1], 1, one(T))
+      gl = GroupNormL2(T(0.1), [[3, 1], [4, 2]])
+      gl(x); prox!(y, gl, x, one(T)); value_and_prox!(y, gl, x, one(T))
+      prox_block!(y[1:2], gl, x[1:2], 1, one(T))
       s = SparseIterate(x)
       a = BlockIterate(x, [Int[3, 1], Int[4, 2]])
       S = SymmetricSparseIterate(T[1 2; 2 0])

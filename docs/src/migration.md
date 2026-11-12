@@ -10,12 +10,13 @@ API. This development reduction is not a release announcement.
 
 ## Retained and removed scope
 
-The [function library](function_library.md) is exhaustive. Group/nonconvex
-penalties, logistic/Poisson/robust-loss families, constraints and indicators,
+The [function library](function_library.md) is exhaustive. Group penalties other
+than `GroupNormL2`, nonconvex penalties, logistic/Poisson/robust-loss families, constraints and indicators,
 spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
 frameworks and GPU extensions were removed. They have no replacement capability
-implied by this manual. In particular, `BlockIterate` retains grouped **storage**,
-not a built-in group-lasso penalty.
+implied by this manual. `BlockIterate` retains grouped **storage**; the group-lasso
+penalty `GroupNormL2` was restored separately (#900), without the other group
+penalties.
 
 Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
 retained. Compute mathematical gradient mappings in caller code. Coordinate

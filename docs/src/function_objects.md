@@ -218,6 +218,7 @@ the parameters of the particular object.
 | `QuadraticFunction` | yes | yes | no | yes¹ | no |
 | `LeastSquaresLoss` | yes | yes | no | yes | no |
 | `NormL1` | no | yes | yes | yes | yes |
+| `GroupNormL2` | no | yes | no | yes | no |
 | `Scaled` | forwards | forwards | forwards | forwards | finite scale and zero-preserving inner function |
 
 ¹ `QuadraticFunction` assumes a symmetric positive semidefinite matrix.

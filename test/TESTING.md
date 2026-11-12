@@ -28,6 +28,13 @@ symmetric models (`NormL1`, `SqrNormL2`, `LinearFunction`, nested `Scaled` and a
 function) against dense and structurally symmetric references in Float32/64, the explicit `check_symmetric_parameters` (stored and unstored pairs, nested `Scaled`,
 NaN and signed zeros, malformed metadata), the structural refusals that the oracles keep, and
 instrumented parameter arrays that count reads to show the oracles perform no mirrored-pair scan.
+`groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
+its value, group soft thresholding and group KKT screen in Float32/64: analytical
+and threshold cases, singleton groups against weighted `NormL1`, noncontiguous
+groups, in-place and aliased buffers, preflight failures that leave outputs
+unchanged (invalid steps included), exceptional parameters and values, norms and
+thresholds that overflow or underflow, values whose terms round below `floatmin`,
+and the separation of the pure compact `prox_block!` from `BlockIterate` storage.
 `core_functions` exercises retained
 interface, lasso building blocks and custom scalar/vector block extensions.
 `dropzeros_compaction` checks the shared `dropzeros!` loop of `SparseIterate` and

@@ -19,5 +19,11 @@ LinearFunction
 NormL1
 ```
 
+## Group ℓ₂ norm
+
+```@docs
+GroupNormL2
+```
+
 Scalar observation losses belong to a separate mathematical interface.
 See the [Scalar-loss API reference](scalar_losses.md).

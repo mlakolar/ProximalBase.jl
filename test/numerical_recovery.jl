@@ -240,19 +240,19 @@ function test_quadratic_guards(::Type{T}) where {T<:AbstractFloat}
     x = T[3, 3]
     v = f(x)
     @test v === zero(T)
-    @test PB._quadratic_underflow_risk(f, x, v, T)
+    @test PB._quadratic_underflow_risk(f, x, v, T, maximum(abs, x))
     @test PB._quadratic_products_normal(f, x, v, T)
-    @test PB._quadratic_checked(f, x, v, T) === v
+    @test PB._quadratic_checked(f, x, v, T, maximum(abs, x)) === v
     # subnormal products (A and x small): the same test does not allow keeping the ordinary value
     fs = QuadraticFunction(A0 .* pow2(T, e0 ÷ 2))
     xs = T[1, 1] .* pow2(T, e0 ÷ 2 - 2)
     vs = fs(xs)
-    @test PB._quadratic_underflow_risk(fs, xs, vs, T)
+    @test PB._quadratic_underflow_risk(fs, xs, vs, T, maximum(abs, xs))
     @test !PB._quadratic_products_normal(fs, xs, vs, T)
     # no risk at an exact zero of x, or when |v| is large compared with the underflow threshold
-    @test !PB._quadratic_underflow_risk(f, zeros(T, 2), zero(T), T)
-    @test !PB._quadratic_underflow_risk(f, T[1, 2], T(100), T)
-    @test PB._quadratic_underflow_risk(f, T[1, 2], zero(T), T)
+    @test !PB._quadratic_underflow_risk(f, zeros(T, 2), zero(T), T, zero(T))
+    @test !PB._quadratic_underflow_risk(f, T[1, 2], T(100), T, T(2))
+    @test PB._quadratic_underflow_risk(f, T[1, 2], zero(T), T, T(2))
     # the threshold: kappa floatmin max|x| + N floatmin, in Float64, Inf when it overflows
     @test PB._underflow_threshold(T, 3, T(5), 7) == (3.0 * Float64(floatmin(T))) * 5.0 + 7 * Float64(floatmin(T))
     @test PB._underflow_threshold(T, 2^40, T(1), 0) == 2.0^40 * Float64(floatmin(T))
@@ -1043,7 +1043,7 @@ function test_norms(::Type{T}) where {T<:AbstractFloat}
   δ = nextfloat(zero(T))
   precT = precision(T)
   rng = Xoshiro(1014)
-  @testset "norms: the symmetric owner multiplicity and the norm_diff hypot fallback" begin
+  @testset "norms: the symmetric owner multiplicity and the norm_diff scaled fallback" begin
     rng = Xoshiro(61)
     # the Frobenius norm of the matrix an owner represents: an off-diagonal coordinate counts twice, no square overflows
     for (e1, e2, e3) in ((E - 3, E - 4, E - 4), (e0 + 5, e0 + 3, e0 + 4), (0, 3, -2))
@@ -1069,8 +1069,8 @@ function test_norms(::Type{T}) where {T<:AbstractFloat}
     xi[2, 2] = T(NaN)
     @test isnan(norm(xi))
     # a block iterate takes the norm of its storage
-    @test PB._norm2_scaled(BlockIterate(T[pow2(T, E - 2), pow2(T, E - 2), 3], [[1], [2, 3]])) ≈ sqrt(T(2)) * pow2(T, E - 2) rtol = 4 * eps(T)
-    # norm_diff: the sum of squares overflows, underflows, or both arrays are equal; hypot accumulates without squaring
+    @test norm(BlockIterate(T[pow2(T, E - 2), pow2(T, E - 2), 3], [[1], [2, 3]])) ≈ sqrt(T(2)) * pow2(T, E - 2) rtol = 4 * eps(T)
+    # norm_diff: the sum of squares overflows, underflows, or both arrays are equal; the recomputation scales before squaring
     for (A, B) in ((T[pow2(T, E - 2), 1, 5], T[-pow2(T, E - 2), 0, 5]),
                    (T[pow2(T, e0 ÷ 2 - 3) * T(1.3), 0], T[0, pow2(T, e0 ÷ 2 - 4)]),
                    (T[pow2(T, e0 - 10), -pow2(T, e0 - 12)], zeros(T, 2)))
@@ -1389,7 +1389,7 @@ setprecision(BigFloat, 2400) do
   test_sqrnorml2_oracles(T)   # SqrNormL2 oracles: ridge weights, owners, wide levels and centers
   test_leastsquares(T)   # LeastSquaresLoss: SVD prox, multi-response data and iterate arguments
   test_linear_function(T)   # LinearFunction: overflowing dots, owners and iterates
-  test_norms(T)   # norms: the symmetric owner multiplicity and the norm_diff hypot fallback
+  test_norms(T)   # norms: the symmetric owner multiplicity and the norm_diff scaled fallback
   test_sparse_products(T)   # sparse and symmetric matrix products: overflowing terms, cancellation and non-finite factors
   test_symmetric_part(T)   # symmetric part of an asymmetric argument: the mean and the tiny-α product
   test_scaled_single_factors(T)   # Scaled single factors, zero and infinite scales, aliases and nested wrappers

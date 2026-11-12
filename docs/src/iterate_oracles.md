@@ -81,8 +81,9 @@ own stationarity test, as explained in [coordinate descent](coordinate_descent.m
 ## Symmetric scalar steps
 
 For symmetric-iterate coordinate k, compute `(r,c)=tril_cartesian(p,k)`, then use the
-full-matrix entry index `i=(c-1)p+r`. Validate the original function's mirrored
-parameters before raw scalar hooks, since the hook has no symmetric iterate to inspect.
+full-matrix entry index `i=(c-1)p+r`. The function's parameters must be symmetric;
+validate the original function with `check_symmetric_parameters` before raw scalar hooks,
+since the hook has no symmetric iterate to inspect and no oracle checks it.
 Use a symmetric matrix gradient and the appropriate Frobenius curvature.
 
 ```@example symmetric_coordinate_trial

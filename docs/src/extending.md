@@ -70,10 +70,14 @@ wrong parameter extent before generic writes. Use `prod(size(x))` rather than
 
 Declare every per-entry array in `entry_parameters(f)` as a tuple of
 `Symbol=>value` pairs; declare `()` if none. A custom `SeparableFunction`'s
-default is `nothing`, which rejects symmetric use. Full symmetric operations
-validate metadata, shape and exact mirrored pairs. Overriding a public oracle
-replaces that generic boundary: call `check_symmetric_parameters(f,x)` yourself
-when accepting a symmetric iterate.
+default is `nothing`, which `check_symmetric_parameters` rejects. On a symmetric
+iterate your per-entry arrays must be exactly symmetric: the generic kernels
+assume it and compare no mirrored entries, so asymmetric arrays are an invalid
+model with no guaranteed numerical meaning. Call
+`check_symmetric_parameters(f,x)` once per model, at the solve or workspace
+boundary and after any change to the arrays. It is the only reader of
+`entry_parameters`; the extent of your arrays is the job of `check_parameters`.
+See [symmetric parameters](symmetric_parameters.md).
 
 `iszeropreserving(f)=true` is a mathematical promise that ``f_i(0)=0`` and
 ``prox_{γf_i}(0)=0`` for **all positive finite γ**. Only declare it when valid

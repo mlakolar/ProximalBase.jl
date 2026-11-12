@@ -43,11 +43,15 @@ independent-vector objective/derivative instead needs explicit multiplicities.
 KKT uses a symmetric matrix-gradient pair; it is not the doubled independent
 coordinate derivative. Scalar hooks need conversion to full entry indices.
 
-Parameter validation belongs at implemented public boundaries, with all/stored/
-chosen-pair domains determined by the kernel. Arbitrary custom public overrides
-must call `check_symmetric_parameters` themselves. Non-symmetric prox arguments
-are read through their symmetric part, whereas parameters/imports must be
-exactly symmetric or explicitly wrapped by the caller.
+Symmetry of per-entry function parameters is a precondition of the model. The
+numerical oracles assume it and never compare mirrored parameter entries;
+`check_symmetric_parameters` is the explicit all-pairs validation, and the caller
+or solver runs it at its solve or workspace boundary. The oracles do keep their
+structural validation (shapes, parameter extents, element types, aliases,
+supported operations). Non-symmetric prox arguments are trial points, read through
+their symmetric part; computed gradients are symmetrized. Matrix imports into the
+iterate are validated exactly, since they are iterate data, and a caller that wants a
+triangle wraps the matrix explicitly.
 
 ## Regression evidence
 

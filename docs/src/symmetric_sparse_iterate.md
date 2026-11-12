@@ -169,7 +169,8 @@ sufficient to accept a symmetric iterate.
 
 A symmetric-iterate prox destination accepts a scalar step only. Array steps
 throw `ArgumentError` before writes. Full-entry parameter arrays must satisfy
-the [exact symmetric-parameter contract](symmetric_parameters.md).
+the [exact symmetric-parameter contract](symmetric_parameters.md): the oracles assume it,
+and `check_symmetric_parameters` validates it on request.
 
 ## Deliberately unsupported symmetric-iterate operations
 

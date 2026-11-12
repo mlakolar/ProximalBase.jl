@@ -29,7 +29,7 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
 | `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods |
 | `src/functions/scaled_array.jl` | Diagonal array-step methods and scaling recovery for `Scaled` functions |
-| `src/symmetric_parameters.jl` | Per-entry metadata, checked pair domains, explicit symmetric-iterate oracle integration |
+| `src/symmetric_parameters.jl` | Per-entry metadata, the explicit all-pairs symmetric-parameter check, symmetric-iterate oracle preflight (structural checks only) |
 | `src/block_prox.jl` | Allocating compact-vector wrapper; custom mutating hook remains external |
 | `src/caches.jl` | Public cache invalidation, recursing through `Scaled` |
 | `src/precompile.jl` | Small retained precompile workloads |

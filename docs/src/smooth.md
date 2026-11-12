@@ -92,7 +92,8 @@ and center zero. When supplied, `y` is a real array of the **same shape** as `x`
 throw `ArgumentError`, while `Inf` is accepted with exceptional arithmetic
 rather than a general projection policy. On a matrix the norm is Frobenius.
 The domain is real arrays of matching shape; symmetric iterates are explicitly
-supported, with exactly symmetric center parameters.
+supported, with exactly symmetric center parameters (a precondition that the oracles
+assume; see [symmetric parameters](symmetric_parameters.md)).
 
 When used as a regularizer, this is the usual squared-ℓ₂ (ridge) term
 with a factor of one half. `SqrNormL2(1,y)` is half

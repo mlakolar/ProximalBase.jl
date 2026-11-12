@@ -62,9 +62,27 @@ def sources():
     return sorted(files)
 
 
+def table_delimiter_count(line):
+    """Count actual Markdown table separators, not escaped mathematical bars.
+
+    Code/math spans do not protect unescaped | characters from the Markdown
+    table parser. E.g. the | in ``|x|`` is a column separator even though
+    the formula is inside Documenter math delimiters.
+    """
+    count = 0
+    backslashes = 0
+    for char in line:
+        if char == "|":
+            if backslashes % 2 == 0:
+                count += 1
+        backslashes = backslashes + 1 if char == "\\" else 0
+    return count
+
+
 def check_file(path):
     errors = []
     opened = None
+    table_columns = None
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         fence = FENCE.match(line)
         if fence:
@@ -78,6 +96,29 @@ def check_file(path):
             continue
         if opened is not None:
             continue
+
+        # Every row of a Markdown pipe table must have the same number
+        # of cells. In particular, |x_i| or \\|x\\| inside Documenter
+        # double-backtick math still splits a cell unless the pipe is
+        # escaped or replaced by \\lvert/\\rvert or \\lVert/\\rVert.
+        # A broken row may otherwise survive Documenter's HTML checks.
+        if line.lstrip().startswith("|"):
+            delimiters = table_delimiter_count(line)
+            if delimiters >= 2 and line.rstrip().endswith("|"):
+                columns = delimiters - 1
+                if table_columns is None:
+                    table_columns = columns
+                elif columns != table_columns:
+                    errors.append((
+                        line_number,
+                        f"Markdown table has {columns} columns; "
+                        f"expected {table_columns}. Escape literal | in math/code "
+                        "or use LaTeX \\lvert / \\rvert or \\lVert / \\rVert"
+                    ))
+            else:
+                table_columns = None
+        else:
+            table_columns = None
 
         # Headings are navigational labels; API names there may intentionally
         # appear without code formatting. Their bodies still require formatting.

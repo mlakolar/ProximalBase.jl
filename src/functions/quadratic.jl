@@ -218,56 +218,64 @@ end
   m, e = _frexp(mγ * mλ)
   (m, eγ + eλ + e)
 end
-# Q'v as significands and exponents, m 2^e (O(n) BLAS or O(n²) scalar): the BLAS product where all
-# its entries are finite (the exponents are then 0), and otherwise each entry summed exactly from the
-# significands of its terms (_ExpSum), so that no entry of v is scaled away before the product.
-function _quadratic_prox_transpose!(m::Vector{T}, e::Vector{Int}, Q, v, t::Vector{T}) where {T}
-  t .= v
-  mul!(m, transpose(Q), t)
-  if all(isfinite, m)
-    fill!(e, 0)
-    return m
+# Q'(x - γb) as significands and exponents, w 2^e. γ is applied before the projection, as on the
+# ordinary path: after this product the recomputation only divides by 1 + γλ >= 1 and rescales exactly,
+# so no projected term is rounded where a later factor could restore it (rounding Q'b and multiplying it
+# by γ afterwards loses a coefficient of a subnormal b that γ brings back into the range). Where x - γb
+# and its BLAS product are finite they are the ordinary ones (the exponents are 0, O(n²) BLAS);
+# otherwise x - γb is formed entry by entry as mⱼ 2^eⱼ (γbⱼ rounded once) and each entry
+# Σⱼ Qⱼᵢ mⱼ 2^eⱼ is summed from the exact exponents of its terms (_ExpSum, O(n²) scalar terms), so that
+# no term overflows, or is scaled away, before the sum is complete.
+function _quadratic_prox_numerator!(w::Vector{T}, e::Vector{Int}, Q, x, b, γ::T, t::Vector{T}) where {T}
+  b === nothing ? copyto!(t, x) : (t .= x .- γ .* b)
+  fill!(e, 0)
+  if all(isfinite, t)
+    mul!(w, transpose(Q), t)
+    all(isfinite, w) && return w
   end
-  @inbounds for j in axes(Q, 2)
+  et = Vector{Int}(undef, length(t))
+  copyto!(t, x)
+  @inbounds for j in eachindex(t, et)
+    mx, ex = _frexp(t[j])
+    acc = _expsum_add(_expsum_start(T), mx, ex)
+    b === nothing || (acc = _expsum_product(acc, -γ, b[j]))
+    t[j], f = _frexp(acc.s + acc.c)
+    et[j] = acc.ex + f
+  end
+  @inbounds for i in axes(Q, 2)
     acc = _expsum_start(T)
-    for i in axes(Q, 1)
-      acc = _expsum_product(acc, Q[i, j], v[i])
+    for j in axes(Q, 1)
+      acc = _expsum_product(acc, Q[j, i], t[j], et[j])
     end
-    m[j], f = _frexp(acc.s + acc.c)
-    e[j] = acc.ex + f
+    w[i], f = _frexp(acc.s + acc.c)
+    e[i] = acc.ex + f
   end
-  m
+  w
 end
 
-# The proximal point Q z, zᵢ = (wᵢ - γuᵢ)/(1 + γλᵢ) with w = Q'x and u = Q'b, recomputed where an
-# intermediate left the range while the point may be representable (R3, as for the ridge proximal
-# point; the one-dimensional QuadraticFunction(Diagonal([λ])) is SqrNormL2(λ)). No step scales a
-# vector down by its largest entry, which would round its small entries away:
-# - Q'x and Q'b are the BLAS products of x and b as they are, and where such a product overflows,
-#   its entries are summed exactly from significands and exponents (_quadratic_prox_transpose!);
-# - each zᵢ is kept as its own significand and exponent: the numerator wᵢ - γuᵢ is summed exactly
-#   (_ExpSum), so that a cancellation between its terms is not amplified, and divided once;
+# The proximal point Q z, zᵢ = (Q'(x - γb))ᵢ/(1 + γλᵢ), recomputed where an intermediate left the
+# range while the point may be representable (R3, as for the ridge proximal point; the one-dimensional
+# QuadraticFunction(Diagonal([λ])) is SqrNormL2(λ)). No step scales a vector down by its largest entry,
+# which would round its small entries away:
+# - Q'(x - γb) is the ordinary BLAS product where it and x - γb are finite, and otherwise summed from
+#   significands and exponents (_quadratic_prox_numerator!);
+# - each zᵢ is kept as its own significand and exponent, the numerator divided once by 1 + γλᵢ;
 # - Q z is the BLAS product in a unit that scales z up (never down), so that its entries are normal
 #   numbers and none rounds coarser than its own spacing; where z would have to be scaled down (some
 #   zᵢ within a few binades of floatmax or beyond), each entry of Q z is summed from the parts and
 #   rounded once instead (O(n²) scalar terms), so that no small entry is rounded away.
-# This path allocates four vectors (Q'b and three of exponents).
+# This path allocates one vector of exponents (two where x - γb or its product overflows).
 @noinline function _quadratic_prox_recover!(y, f::QuadraticFunction{T}, x, γ::T) where {T}
   Q, Λ, w, t, b = f.Q, f.Λ, f.w, f.tmp, f.b
   n = length(w)
-  ew, eu, ez = zeros(Int, n), zeros(Int, n), Vector{Int}(undef, n)
-  _quadratic_prox_transpose!(w, ew, Q, x, t)
-  u = zero(w)
-  b === nothing || _quadratic_prox_transpose!(u, eu, Q, b, t)
+  ez = Vector{Int}(undef, n)
+  _quadratic_prox_numerator!(w, ez, Q, x, b, γ, t)
   E = typemin(Int)
-  @inbounds for i in eachindex(w)
+  @inbounds for i in 1:n
     md, ed = _quadratic_prox_denominator(γ, Λ[i])
-    mw, fw = _frexp(w[i])
-    acc = _expsum_add(_expsum_start(T), mw, fw + ew[i])
-    acc = _expsum_product(acc, -γ, u[i], eu[i])       # γuᵢ from the significands (u may be subnormal)
-    mn, en = _frexp(acc.s + acc.c)
+    mn, en = _frexp(w[i])
     m = mn / md
-    w[i], ez[i] = m, acc.ex + en - ed
+    w[i], ez[i] = m, ez[i] + en - ed
     iszero(m) || (E = max(E, exponent(m) + ez[i]))
   end
   E == typemin(Int) && return fill!(y, zero(eltype(y)))

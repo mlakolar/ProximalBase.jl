@@ -437,6 +437,72 @@ function test_quadratic_spectral_prox(::Type{T}) where {T<:AbstractFloat}
     end
     # a subnormal b and a cancellation x - γb inside a recovered call
     @test coordinates_ok(T[0, 1, pow2(T, E - 3)], T[-nextfloat(zero(T)) * 7, 3, 1], T[1, pow2(T, 4) * 3, 2], pow2(T, E - 2), 2)
+    # a projected coefficient of b that underflows before γ restores it: A = 2^p [1 -2; -2 4] is PSD with the
+    # eigenvalues 0 and 5·2^p and the null direction [2, 1]/√5, and b = [0, δ]. The product Q'b rounds its
+    # null-space entry δ/√5 to zero, while the proximal point -(γδ/5)[2, 1] is far above the subnormal range
+    # (γλ₂ overflows, so the call is recomputed). The reference solves (I + γA) z = x - γb with the stored A.
+    let δ = nextfloat(zero(T)), p = T === Float64 ? 300 : 40, γ = pow2(T, T === Float64 ? 800 : 100)
+      A = pow2(T, p) .* T[1 -2; -2 4]
+      f = QuadraticFunction(A, T[0, δ])
+      z = prox(f, zeros(T, 2), γ)
+      r = (Matrix{BigFloat}(I, 2, 2) + big(γ) * big.(A)) \ (-big(γ) .* big.(f.b))
+      @test iszero(f.Λ[1]) && !isfinite(γ * f.Λ[2])
+      @test all(z .< 0) && all(within(z[i], r[i], 8) for i in 1:2)
+      xa = zeros(T, 2)
+      @test prox!(xa, f, xa, γ) == z                                # exact aliasing and the fused oracle
+      ya = zeros(T, 2)
+      @test value_and_prox!(ya, f, zeros(T, 2), γ) === f(ya) && ya == z
+      # the projection cancels: b = [3δ, -5δ] has null-space coefficient (2·3 - 5)δ/√5 = δ/√5, while the
+      # terms 6δ/√5 and 5δ/√5, rounded separately to subnormals, gave 3δ - 2δ = δ (an error of 124%)
+      fc = QuadraticFunction(A, T[3δ, -5δ])
+      zc = prox(fc, zeros(T, 2), γ)
+      rc = (Matrix{BigFloat}(I, 2, 2) + big(γ) * big.(A)) \ (-big(γ) .* big.(fc.b))
+      @test all(abs.(big.(zc) .- rc) .<= 64 * 2 * eps(T) .* componentwise(fc, zeros(T, 2), fc.b, γ))
+      @test all(within(zc[i], rc[i], 32) for i in 1:2)
+      # genuine NaN/Inf data keep the ordinary result; zero data give +0 on the recomputation
+      @test !all(isfinite, prox(f, T[NaN, 0], γ)) && !all(isfinite, prox(QuadraticFunction(A, T[Inf, δ]), zeros(T, 2), γ))
+      z0 = prox(QuadraticFunction(A), zeros(T, 2), γ)
+      @test z0 == zeros(T, 2) && !any(signbit, z0) && prox(QuadraticFunction(A, zeros(T, 2)), zeros(T, 2), γ) == zeros(T, 2)
+    end
+    # The same mechanism over random data on the rank-one 2×2 forms 2^p M (dense, sparse) with a zero eigenvalue
+    # beside one whose product with γ overflows, and on Diagonal forms with an exact eigenbasis: b and x with
+    # subnormal integer multiples of δ (whose projections underflow and cancel), entries near floatmax beside
+    # subnormal ones, b === nothing. LAPACK returns the zero eigenvalue of these 2×2 forms exactly, which an
+    # eigendecomposition solver needs once γ‖A‖ overflows; for larger forms it returns about eps ‖A‖ instead (a
+    # limit of the solver, not of the recovery), so larger forms are left to the well-conditioned cases above.
+    # Each coordinate is checked against the BigFloat solution of (I + γA) z = x - γb with the stored A.
+    let δ = nextfloat(zero(T)), checked = 0, recovered = 0, exact = 0
+      for M in (T[1 -2; -2 4], T[4 -2; -2 1], T[1 2; 2 4]), form in (:dense, :sparse, :diagonal), _ in 1:40
+        p = rand(rng, E ÷ 4:E ÷ 2)
+        A = form === :diagonal ? Diagonal(pow2(T, p) .* T[0, 5]) : pow2(T, p) .* M
+        A = form === :sparse ? sparse(A) : A
+        overflow = rand(rng) < 0.8
+        γ = pow2(T, overflow ? rand(rng, E - p - 1:E - 1) : rand(rng, 0:E - p - 5))
+        bkind, xkind = rand(rng, 1:4), rand(rng, 1:3)
+        # (kind 4: γb₂ overflows beside a subnormal b₁, so x - γb is summed from exponents; on the dense forms the
+        # point is then beyond the range and the case is skipped, on the diagonal ones γ restores -γb₁)
+        b = bkind == 1 ? nothing : bkind == 2 ? T.(rand(rng, -9:9, 2)) .* δ : bkind == 4 ? T[δ * rand(rng, 1:9), signif(rng, T, E - 2)] :
+            T[rand(rng, Bool) ? δ * rand(rng, 1:9) : signif(rng, T, rand(rng, -E:-E ÷ 2)) for _ in 1:2]
+        x = xkind == 1 ? zeros(T, 2) : xkind == 2 ? T.(rand(rng, -9:9, 2)) .* δ :
+            T[rand(rng, Bool) ? signif(rng, T, E - 2) : signif(rng, T, rand(rng, -E:0)) for _ in 1:2]
+        f = QuadraticFunction(A, b)
+        y = prox(f, x, γ)
+        iszero(minimum(abs, f.Λ)) || continue                        # the zero eigenvalue as LAPACK returns it
+        z = (Matrix{BigFloat}(I, 2, 2) + big(γ) * big.(Matrix(A))) \ (big.(x) .- (b === nothing ? 0 : big(γ) .* big.(b)))
+        all(isfinite, T.(z)) || continue
+        checked += 1
+        recovered += !isfinite(γ * maximum(f.Λ))
+        exact += !all(isfinite, b === nothing ? x : x .- γ .* b)
+        @test all(isfinite, y) && all(abs.(big.(y) .- z) .<= 64 * 2 * eps(T) .* componentwise(f, x, b, γ) .+ 2δ)
+        xa = copy(x)
+        @test prox!(xa, f, xa, γ) == y
+        ya = zeros(T, 2)
+        @test value_and_prox!(ya, f, x, γ) === f(ya) && ya == y
+        # ordinary data take the plain formula, bit for bit
+        (overflow || bkind == 4) || @test y == f.Q * ((transpose(f.Q) * (b === nothing ? x : x .- γ .* b)) ./ (1 .+ γ .* f.Λ))
+      end
+      @test checked >= 200 && recovered >= 150 && exact >= 10
+    end
     for _ in 1:300
       n = rand(rng, 1:5)
       λ = T[rand(rng) < 0.15 ? zero(T) : abs(signif(rng, T, rand(rng, -E:E-2))) for _ in 1:n]

@@ -58,7 +58,12 @@ selectively recover representable values when an intermediate product or sum
 would overflow or underflow. These include scaled square sums, finite-data
 affine/quadratic values and products of nonnegative level/step/weight factors.
 `SqrNormL2` also recovers gradient differences and proximal convex-combination
-coefficients. Recovery is worthwhile when it changes a materially inaccurate
+coefficients. `SqrNormL2` and `LeastSquaresLoss` share one squared-residual
+recomputation: each residual is formed before scaling (as `x/2 - y/2`, one
+binade up, when `x - y` itself overflows) and the squares are summed in units
+of the largest one. Genuine NaN/Inf data or parameters keep their ordinary
+IEEE result; only finite inputs whose intermediates leave the range are
+recomputed. Recovery is worthwhile when it changes a materially inaccurate
 answer into a representable result in the working precision.
 
 These are practical numerical safeguards, not a promise of exhaustive
@@ -108,6 +113,7 @@ all-NaN result or a particular exception.
 | `NormL1`, infinite level and positive step | Positive-weight entries prox to zero, including non-finite trials |
 | `NormL1`, finite factors whose product overflows | Distinguished from a genuinely infinite level; bounded-factor recovery is used |
 | `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
+| `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual |
 | Generic custom value/prox | Author-defined arithmetic; traits do not grant recovery or NaN policy |
 | Paired symmetric parameters | Exact equality, NaN matches NaN, signed zeros agree |
 | Opposing infinities in an owner KKT gradient pair | ArgumentError at that chosen pair |
@@ -174,7 +180,9 @@ cached data changes.
 Retained evidence includes `test/ridge_precision.jl` (independent BigFloat
 ridge references), `test/minimal_math.jl`, `test/core_functions.jl`,
 `test/sparse_iterate.jl`, `test/sparse_iterate_basics.jl`,
-`test/symmetric_products.jl` and `test/matrixview.jl`. These are concrete tested
+`test/symmetric_products.jl`, `test/matrixview.jl` and
+`test/numerical_kernels.jl` (BigFloat references for the shared recovery
+kernels and their `SqrNormL2`/`LeastSquaresLoss`/`LinearFunction` consumers). These are concrete tested
 domains; a historical acceptance goal for a removed family is not evidence for
 this implementation. New numerical claims need independent calculations,
 FP32/FP64 checks, exceptional inputs and regression tests.

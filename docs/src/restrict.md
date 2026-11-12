@@ -1,5 +1,7 @@
 # Restricting functions to selected coordinates
 
+*Assumes: vector indexing and quadratic objectives · You will learn: exactly what `restrict(f, S)` does and what happens to omitted coordinates.*
+
 This page explains how `restrict(f, S)` constructs a lower-dimensional
 function, what happens to coordinates outside `S`, and why the original
 function **need not be separable**. We also distinguish setting omitted
@@ -9,7 +11,8 @@ coordinates to zero from holding them at their current nonzero values.
 what function should it use for that smaller problem?
 
 The call `restrict(f, S)` constructs a function of the selected coordinates
-`S`. **The original function does not have to be separable.** However,
+`S`. **The original function does not have to be
+[separable](glossary.md#Separable-function).** However,
 not every mathematical function has a `restrict` method; this operation is
 implemented for specific families.
 

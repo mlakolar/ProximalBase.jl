@@ -23,8 +23,9 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/scalar_loss.jl` | Qualified `ScalarLoss`/`Squared` and scalar derivative hooks |
 | `src/functions/separable.jl` | Generic separable entry kernels and array/sparse traversal |
 | `src/functions/norml1.jl` | Weighted ℓ₁ family, value and specialized proximal operations |
-| `src/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
-| `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods and `Scaled` forwarding |
+| `src/functions/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
+| `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods |
+| `src/functions/scaled_array.jl` | Diagonal array-step methods and scaling recovery for `Scaled` functions |
 | `src/symmetric_parameters.jl` | Per-entry metadata, checked pair domains, explicit owner oracle integration |
 | `src/block_prox.jl` | Allocating compact-vector wrapper; custom mutating hook remains external |
 | `src/caches.jl` | Public cache invalidation, recursing through `Scaled` |

@@ -2154,4 +2154,3 @@ function *(A::Symmetric{T, <:StridedMatrix{T}}, X::SymmetricSparseIterate{T},
   end
   _rescue_nonfinite!(C, A, X, B)
 end
-

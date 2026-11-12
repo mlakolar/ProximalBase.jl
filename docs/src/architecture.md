@@ -13,7 +13,9 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/compat.jl` | Version-dependent Base/SparseArrays compatibility types |
 | `src/utils.jl` | Shape/type checks, scratch buffers, stored-value scans, scaled-value protocol hooks and triangular indices |
 | `src/numerical_kernels.jl` | Shared numerical kernels: soft thresholding, exponent-scaled products, compensated and power-of-two sums, underflow and squared-residual recovery, norms and Lanczos norm estimate |
-| `src/sparse_iterate.jl` | `SparseIterate`, symmetric iterate, active maps, views, copies, products and alias integration |
+| `src/iterate_storage.jl` | Both concrete type declarations, shared active-coordinate storage and APIs, copying and `dropzeros!` compaction, plus retained early sparse helpers |
+| `src/sparse_iterate.jl` | `SparseIterate` constructors, array indexing and conversion, broadcasting, sparse products and numerical recovery |
+| `src/symmetric_sparse_iterate.jl` | `SymmetricSparseIterate` constructors, coordinate/matrix views, copying, indexing and symmetric matrix operations |
 | `src/block_iterate.jl` | Ordered partitions, dense values, group activity, block views and layout comparison |
 | `src/interface.jl` | `AbstractFunction`, traits, generic allocating/mutating interfaces and coordinate KKT dispatch |
 | `src/functions/zero.jl` | Zero function and its value/gradient/proximal operations |
@@ -32,8 +34,10 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/caches.jl` | Public cache invalidation, recursing through `Scaled` |
 | `src/precompile.jl` | Small retained precompile workloads |
 
-The include order puts storage before the mathematical interface because
-explicit symmetric-iterate methods need the `SymmetricSparseIterate` type. Generic interface methods then
+The include order defines both iterate types in `iterate_storage.jl` before
+shared union dispatch and the sparse/symmetric implementations. Storage precedes
+the mathematical interface because explicit symmetric-iterate methods need the
+`SymmetricSparseIterate` type. Generic interface methods then
 combine with concrete implementations and final symmetric/array-step routes.
 There is no automatic device registration or removed-family plugin layer.
 

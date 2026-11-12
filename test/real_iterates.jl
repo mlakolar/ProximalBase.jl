@@ -414,7 +414,7 @@ end
 @testset "iterate dispatch" begin
   ambiguities = Test.detect_ambiguities(ProximalBase, LinearAlgebra; recursive = true)
   owned = filter(ambiguities) do pair
-    any(m -> basename(string(m.file)) in ("sparse_iterate.jl", "block_iterate.jl"), pair)
+    any(m -> basename(string(m.file)) in ("iterate_storage.jl", "sparse_iterate.jl", "symmetric_sparse_iterate.jl", "block_iterate.jl"), pair)
   end
   @test isempty(owned)
 end

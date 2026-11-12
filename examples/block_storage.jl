@@ -1,6 +1,7 @@
 # Ordered grouped storage
 #
 # *Assumes: vector indexing and grouped variables · You will learn: ordered block storage and compact block updates.*
+# Group storage is explained by [active coordinates](../glossary.md#Active-coordinate).
 using ProximalBase, LinearAlgebra
 input_groups = [[3, 1], [4, 2]]
 x = BlockIterate(Float32, 4, input_groups)

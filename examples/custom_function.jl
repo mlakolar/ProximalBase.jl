@@ -1,6 +1,7 @@
 # A custom separable function
 #
 # *Assumes: Julia structs and convex separable functions · You will learn: a custom function with mathematical value and proximal hooks.*
+# See [zero-preserving functions](../glossary.md#Zero-preserving-function) for the sparse-computation trait.
 #
 # WeightedSquare represents sum(w[i]*x[i]^2)/2, with finite nonnegative weights.
 using ProximalBase, LinearAlgebra

@@ -38,6 +38,9 @@ def main():
         keys = sorted(k for k in obs if k[0] == case)
         rows = [obs[k] for k in keys]
         assert all(set(r) == {'baseline', 'candidate', 'baselineAA'} for r in rows), case
+        # the roles of each round timed the same fixtures (absent only in campaigns before fingerprints)
+        fingerprints = [{x.get('fingerprint') for x in r.values()} for r in rows]
+        assert all(len(f) == 1 and None not in f and '' not in f for f in fingerprints), ('fingerprint', case)
         t = {role: [float(r[role]['median_ns']) for r in rows] for role in ('baseline', 'candidate', 'baselineAA')}
         head = [c / b for c, b in zip(t['candidate'], t['baseline'])]
         aa = [c / b for c, b in zip(t['baselineAA'], t['baseline'])]
@@ -47,6 +50,7 @@ def main():
         direct = {role: max(int(r[role]['direct_bytes']) for r in rows) for role in t}
         cv = {role: statistics.stdev(v) / statistics.mean(v) if len(v) > 1 else 0.0 for role, v in t.items()}
         kind, T, s, op = case.split('/')
+        drop = {role: [float(r[role]['drop_mean_ns']) for r in rows if r[role].get('drop_mean_ns')] for role in t}
         out.append(dict(case=case, kind=kind, T=T, s=s, op=op, rounds=len(rows),
                         base_ns=statistics.median(t['baseline']), head_ns=statistics.median(t['candidate']),
                         aa_ns=statistics.median(t['baselineAA']),
@@ -56,7 +60,9 @@ def main():
                         head_verdict=verdict(statistics.median(head), hlo),
                         aa_verdict=verdict(statistics.median(aa), alo),
                         allocs_base=allocs['baseline'], allocs_head=allocs['candidate'],
-                        direct_bytes_base=direct['baseline'], direct_bytes_head=direct['candidate']))
+                        direct_bytes_base=direct['baseline'], direct_bytes_head=direct['candidate'],
+                        drop_base_ns=statistics.median(drop['baseline']) if drop['baseline'] else '',
+                        drop_head_ns=statistics.median(drop['candidate']) if drop['candidate'] else ''))
     a.output.mkdir(parents=True, exist_ok=True)
     with (a.output / 'cases.csv').open('w') as f:
         w = csv.DictWriter(f, fieldnames=list(out[0]))
@@ -69,7 +75,7 @@ def main():
     lines += ['## Groups (geometric mean over Float32/Float64 and the three sizes)', '',
               '| kind | case | head/base | A/A | head verdicts | A/A verdicts |', '|---|---|---|---|---|---|']
     for kind in ('sparse', 'symmetric'):
-        for op in ('zeros0', 'zeros10', 'zeros50', 'zeros90', 'zeros100', 'fill_drop', 'reset'):
+        for op in ('zeros0', 'zeros10', 'zeros50', 'zeros90', 'zeros100', 'fill_drop', 'maintain10', 'reset'):
             g = [r for r in out if r['kind'] == kind and r['op'] == op]
             if not g:
                 continue
@@ -85,6 +91,14 @@ def main():
                      f'{r["head_ratio"]:.3f} [{r["head_lo"]:.3f}, {r["head_hi"]:.3f}] | '
                      f'{r["aa_ratio"]:.3f} [{r["aa_lo"]:.3f}, {r["aa_hi"]:.3f}] | '
                      f'{r["base_cv"]:.3f}/{r["head_cv"]:.3f} | {r["allocs_base"]}/{r["allocs_head"]} | {r["head_verdict"]} |')
+    work = [r for r in out if r['op'] == 'maintain10']
+    if work:
+        lines += ['', '## Maintenance workload: cycle time and the part inside dropzeros! (medians over rounds)', '',
+                  '| case | cycle base ns | cycle head ns | head/base [95%] | dropzeros! base ns | dropzeros! head ns | head - base, ns | share of base cycle in dropzeros! |',
+                  '|---|---|---|---|---|---|---|---|']
+        for r in work:
+            lines.append(f'| {r["case"]} | {r["base_ns"]:.0f} | {r["head_ns"]:.0f} | {r["head_ratio"]:.3f} [{r["head_lo"]:.3f}, {r["head_hi"]:.3f}] | '
+                         f'{r["drop_base_ns"]:.0f} | {r["drop_head_ns"]:.0f} | {r["head_ns"] - r["base_ns"]:+.0f} | {r["drop_base_ns"] / r["base_ns"]:.2f} |')
     flagged = [r for r in out if r['op'] != 'reset' and r['head_verdict'] != 'pass']
     lines += ['', f'Non-pass head cells (reset excluded): {len(flagged)}',
               f'Non-pass A/A cells (reset excluded): {sum(r["aa_verdict"] != "pass" for r in out if r["op"] != "reset")}',

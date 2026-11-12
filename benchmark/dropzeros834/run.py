@@ -48,14 +48,15 @@ def main():
     }
     (a.output / 'campaign.json').write_text(json.dumps(provenance, indent=2) + '\n')
     failures = []
-    fields = ['round', 'order', 'role', 'seed', 'loadavg', 'case', 'status', 'median_ns', 'min_ns', 'mean_ns',
-              'p90_ns', 'allocs', 'memory', 'direct_bytes', 'samples', 'batch']
+    fields = ['round', 'order', 'role', 'seed', 'loadavg', 'case', 'case_seed', 'fingerprint', 'status', 'median_ns',
+              'min_ns', 'mean_ns', 'p90_ns', 'allocs', 'memory', 'direct_bytes', 'samples', 'batch', 'drop_mean_ns']
     with (a.output / 'observations.csv').open('w') as out:
         writer = csv.DictWriter(out, fieldnames=fields)
         writer.writeheader()
         for r in range(a.start_round, a.start_round + a.rounds):
             order = roles[r % 3:] + roles[:r % 3]        # each role takes each position once per 3 rounds
             seed = 834000 + r                            # same seed for every role of a round
+            prints = {}                                  # role -> case -> fixture fingerprint
             for ordinal, role in enumerate(order, 1):
                 target = a.output / f'round-{r:02}-{role}.csv'
                 load = os.getloadavg()[0]
@@ -66,12 +67,19 @@ def main():
                 env = os.environ | {'JULIA_NUM_THREADS': '1', 'OPENBLAS_NUM_THREADS': '1', 'OMP_NUM_THREADS': '1'}
                 with (a.output / f'round-{r:02}-{role}.log').open('w') as log:
                     subprocess.run(cmd, check=True, stdout=log, stderr=subprocess.STDOUT, env=env)
+                prints[role] = {}
                 for row in csv.DictReader(target.open()):
+                    prints[role][row['case']] = row['fingerprint']
+                    row['case_seed'] = row.pop('seed')
                     writer.writerow(dict(round=r, order=ordinal, role=role, seed=seed, loadavg=load) | row)
                     if row['status'] != 'pass':
                         failures.append((r, role, row['case']))
                 out.flush()
                 print(f'round {r} {role} (position {ordinal}, load {load:.2f}) failures={len(failures)}', flush=True)
+            # the roles of a round must have timed the same fixtures
+            if len({json.dumps(v, sort_keys=True) for v in prints.values()}) != 1:
+                (a.output / 'failures.json').write_text(json.dumps({'fingerprint_mismatch_round': r, 'prints': prints}, indent=2))
+                raise SystemExit(f'fixture fingerprints differ across roles in round {r}')
     provenance['finished_utc'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
     (a.output / 'campaign.json').write_text(json.dumps(provenance, indent=2) + '\n')
     (a.output / 'failures.json').write_text(json.dumps(failures, indent=2) + '\n')

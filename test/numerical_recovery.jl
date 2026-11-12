@@ -165,11 +165,12 @@ function test_quadratic_value(::Type{T}) where {T<:AbstractFloat}
       @test value_and_gradient!(g, f, xs) === v          # the fused oracle takes the same recovery
       @test g == gradient!(zeros(T, n), f, xs)
     end
-    # (2) A x overflows: a null-space direction of a signed matrix, whose partial sums are Inf - Inf = NaN
+    # (2) A x overflows: a null-space direction of a signed matrix, whose partial sums overflow (Inf - Inf = NaN, or
+    # Inf, as the BLAS kernel of the machine orders and fuses them)
     p = pow2(T, E - s + 5)
     Anull = [p -p; -p p]
     xs = T[pow2(T, s), pow2(T, s)]
-    @test isnan((Anull * xs)[1])
+    @test !isfinite((Anull * xs)[1])
     b2, c2 = T[1, 2], T(3)
     f = QuadraticFunction(Anull, b2, c2)
     @test within(f(xs), qref(Anull, b2, c2, xs), 1)

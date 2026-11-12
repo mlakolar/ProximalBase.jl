@@ -59,7 +59,7 @@ working set in O(s), where `s = nactive(x)`.
 
 `matrixview(x)` is a read-only live ``p\times p`` `AbstractMatrix`. Both triangles
 read the same variable. Writes through the view or derived views/wrappers
-are refused; use the owner or its coordinate view to write. `Matrix(x)` is
+are refused; use the symmetric iterate or its coordinate view to write. `Matrix(x)` is
 an independent dense snapshot. Allocating broadcasts and `similar` on the
 matrix view produce ordinary writable dense arrays.
 
@@ -83,13 +83,13 @@ Matrix(snapshot)
 `activecoordinates` is read-only and `activevalues` is writable. They pair by
 slot, keep their old extent and must be reacquired after activation,
 compaction or whole-state replacement. Coordinate/matrix views instead keep
-a stable index mapping for the owner's lifetime.
+a stable index mapping for the symmetric iterate's lifetime.
 
 ## Copying state versus importing a matrix
 
 `copy(x)` preserves active zeros and slot order independently. `similar(x)`
-and `similar(x,T)` allocate an empty owner of the same dimension.
-`copyto!(dest,src)` between owners replaces values and active state;
+and `similar(x,T)` allocate an empty symmetric iterate of the same dimension.
+`copyto!(dest,src)` between symmetric iterates replaces values and active state;
 self-copy does nothing. Fallible conversion of stored values is staged
 before state writes; dimension mismatch leaves the destination unchanged.
 
@@ -106,7 +106,7 @@ matrix first when conversion failure must be atomic.
 
 Use `Symmetric(A,:L)` to deliberately select the lower triangle of a matrix
 whose stored triangles differ. Import does not average them. This differs
-from a mathematical **prox into an owner**, which reads a nonsymmetric
+from a mathematical **prox into a symmetric iterate**, which reads a nonsymmetric
 argument through its symmetric part.
 
 ## The multiplicity of an off-diagonal variable
@@ -139,7 +139,7 @@ off-diagonal term cancel the two copies of its squared distance, so the scalar
 threshold is unchanged. If instead solving a Euclidean coordinate-vector
 problem with a loss differentiated in coordinate space, both the coordinate
 gradient and curvature carry the corresponding multiplicity. Do not mix the
-two geometries. Owner KKT screens use the symmetric **matrix** gradient,
+two geometries. Symmetric-iterate KKT screens use the symmetric **matrix** gradient,
 without doubling the reported entry screen.
 
 ## Supported numerical operations
@@ -150,40 +150,40 @@ without doubling the reported entry screen.
 | `mul!(out,matrixview(x),v[,α,β])` | O(p+s) vector product, with `s = nactive(x)` |
 | `dot(a,x,b)` | Bilinear form; one-based real vectors; off-diagonal pair contributes twice |
 | `dot(A,x)` / `dot(x,A)` | Frobenius inner product for strided real matrix A |
-| `transpose(x)` / `adjoint(x)` | The same owner |
-| `norm_diff(x,y[,p])` | Full-matrix difference norm, p=2 or Inf; owner/array combinations |
+| `transpose(x)` / `adjoint(x)` | The same symmetric iterate |
+| `norm_diff(x,y[,p])` | Full-matrix difference norm, p=2 or Inf; symmetric-iterate/array combinations |
 | `sparse(matrixview(x))`, `tril/triu(matrixview(x),k)` | SparseMatrixCSC containing mathematical nonzero entries |
 | `A*x*B` | Selected Symmetric-factor kernels; see [product domains](iterates.md#Supported-products) |
 
-Zero owner coefficients are skipped even against a non-finite right operand;
+Zero symmetric-iterate coefficients are skipped even against a non-finite right operand;
 stored zero and absent zero have the same product contribution. Other generic
 operations on the matrix view can visit all p² entries. Generic coordinate
 vector products have ordinary IEEE arithmetic.
 
-`SqrNormL2`, `LinearFunction` and `SeparableFunction` have explicit owner value/prox
+`SqrNormL2`, `LinearFunction` and `SeparableFunction` have explicit symmetric-iterate value/prox
 methods; supported `Scaled` leaves forward them. `SqrNormL2` and `LinearFunction`
-also have owner gradients, allocating a dense symmetric matrix. `ZeroFunction`
-has owner value/prox, but no owner gradient. `LeastSquaresLoss` and
-`QuadraticFunction` have no owner interface. A true capability trait is not
-sufficient to accept an owner.
+also have symmetric-iterate gradients, allocating a dense symmetric matrix. `ZeroFunction`
+has symmetric-iterate value/prox, but no symmetric-iterate gradient. `LeastSquaresLoss` and
+`QuadraticFunction` have no symmetric-iterate interface. A true capability trait is not
+sufficient to accept a symmetric iterate.
 
-A symmetric-owner prox destination accepts a scalar step only. Array steps
+A symmetric-iterate prox destination accepts a scalar step only. Array steps
 throw `ArgumentError` before writes. Full-entry parameter arrays must satisfy
 the [exact symmetric-parameter contract](symmetric_parameters.md).
 
-## Deliberately unsupported owner operations
+## Deliberately unsupported symmetric-iterate operations
 
 There is no `length(x)`, `axes(x)`, `iterate(x)`, `eachindex(x)`, `vec(x)`,
 `reshape(x,...)`, `view(x,...)`, broadcast, `fill!(x,v)`, `copy!(x,A)` or
-`mul!(x,A,B)` owner-array interface. Use `coordinates` for variables or
+`mul!(x,A,B)` symmetric-iterate/array interface. Use `coordinates` for variables or
 `matrixview`/`Matrix` for ordinary matrix computations, then import an exactly
 symmetric result if necessary. `axes` and one-index access explicitly throw
 `ArgumentError`; many other absent calls throw `MethodError`.
 
-Two owners compare by represented matrix values under `==` and `isequal`,
+Two symmetric iterates compare by represented matrix values under `==` and `isequal`,
 independently of active order. NaNs and signed zeros follow those operators'
-ordinary distinctions; equal owners have equal hashes. There is no owner-array
-value comparison or `isapprox` owner method: compare `Matrix(x)` or the view.
+ordinary distinctions; equal symmetric iterates have equal hashes. There is no symmetric-iterate/array
+value comparison or `isapprox` symmetric-iterate method: compare `Matrix(x)` or the view.
 
 See [the complete example](examples/symmetric_storage.md) and
 [developer invariants](developer/symmetric_storage.md).

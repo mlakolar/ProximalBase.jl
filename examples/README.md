@@ -19,7 +19,7 @@ executes their code again in independent page sandboxes.
 | sparse_working_sets.jl | Explicit active zeros, state/value copying, KKT selection and restriction |
 | block_storage.jl | Ordered noncontiguous groups, ownership, active-zero groups and global penalty indices |
 | symmetric_storage.jl | Independent IDs, matrix view, Frobenius multiplicity, import/state-copy distinctions |
-| custom_function.jl | Complete separable hooks, parameter metadata, dense/sparse/owner checks and preflight failure |
+| custom_function.jl | Complete separable hooks, parameter metadata, dense/sparse/symmetric-iterate checks and preflight failure |
 | block_prox_extension.jl | Compact-vector extension, independent buffers, exact alias and rejected partial overlap |
 
 These are mathematical building blocks and educational caller loops. They do

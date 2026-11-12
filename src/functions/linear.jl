@@ -25,12 +25,12 @@ isproximable(::Type{<:LinearFunction}) = true
 isseparable(::Type{<:LinearFunction}) = true
 isconvex(::Type{<:LinearFunction}) = true
 
-(f::LinearFunction)(x::_ArrayOrOwner) =
+(f::LinearFunction)(x::_ArrayOrSymmetricIterate) =
   (_check_value_arrays(f, x); _value_checked(f, x))
 _value_unchecked(f::LinearFunction, x::AbstractArray) = (_checkvalue(f, x); _value_at(_linear_value(f, x, dot(f.c, x) + f.d), x))
-# the matrix that the owner represents, whose off-diagonal entries count at both positions
+# the matrix that the symmetric iterate represents, whose off-diagonal entries count at both positions
 _value_unchecked(f::LinearFunction, x::SymmetricSparseIterate) =
-  (_checkvalue(f, x); _value_at(_linear_value(f, x, _owner_dot(f.c, x) + f.d), x))
+  (_checkvalue(f, x); _value_at(_linear_value(f, x, _symmetric_matrix_dot(f.c, x) + f.d), x))
 
 # A dot that overflows, alone or with d, at a representable value is summed
 # again with x in units of 2^k, chosen so that no partial sum can overflow; d
@@ -82,7 +82,7 @@ _dot_checks_size(::Type{<:Transpose{<:Any, C}}, ::Type{<:Adjoint{<:Any, X}}) whe
 _checkdot(c::C, x::X) where {C, X} = (_dot_checks_size(C, X) ? _checksize(c, x) : _checkparam(c, x))
 _checkvalue(f::LinearFunction, x) = (_checkreal(f, x); _checkdot(f.c, x))
 
-function _checkwrite(op::O, f::LinearFunction, y::_ArrayOrOwner, x::_ArrayOrOwner) where {O}
+function _checkwrite(op::O, f::LinearFunction, y::_ArrayOrSymmetricIterate, x::_ArrayOrSymmetricIterate) where {O}
   _checkreal(f, x)
   _checkreal(f, y)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
@@ -95,7 +95,7 @@ function _checkwrite(op::O, f::LinearFunction, y::_ArrayOrOwner, x::_ArrayOrOwne
   true
 end
 
-prox!(y::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner, γ::Real) =
+prox!(y::_ArrayOrSymmetricIterate, f::LinearFunction, x::_ArrayOrSymmetricIterate, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
 function _prox_unchecked!(y::AbstractArray, f::LinearFunction, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, y, x)
@@ -110,11 +110,11 @@ function _prox_unchecked!(y::AbstractArray, f::LinearFunction, x::AbstractArray,
   end
   y
 end
-# an owner point and a dense output: the entries of the matrix that the owner represents
+# a symmetric iterate point and a dense output: the entries of the matrix that the symmetric iterate represents
 _prox_unchecked!(y::AbstractArray, f::LinearFunction, x::SymmetricSparseIterate, γ::Real) =
   _prox_unchecked!(y, f, matrixview(x), γ)
-# an owner output: each coordinate once, from the lower entry of the symmetric argument
-function _prox_unchecked!(y::SymmetricSparseIterate, f::LinearFunction, x::_ArrayOrOwner, γ::Real)
+# a symmetric iterate output: each coordinate once, from the lower entry of the symmetric argument
+function _prox_unchecked!(y::SymmetricSparseIterate, f::LinearFunction, x::_ArrayOrSymmetricIterate, γ::Real)
   _checkwrite(prox!, f, y, x)
   γ = convert(float(eltype(y)), γ)
   p = y.p
@@ -124,17 +124,17 @@ function _prox_unchecked!(y::SymmetricSparseIterate, f::LinearFunction, x::_Arra
   y
 end
 
-value_and_gradient!(g::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner) =
+value_and_gradient!(g::_ArrayOrSymmetricIterate, f::LinearFunction, x::_ArrayOrSymmetricIterate) =
   (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
-function _value_and_gradient_unchecked!(g::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner)
+function _value_and_gradient_unchecked!(g::_ArrayOrSymmetricIterate, f::LinearFunction, x::_ArrayOrSymmetricIterate)
   _checkwrite(value_and_gradient!, f, g, x)
   v = _value_unchecked(f, x)
   _copy_parameter!(g, f.c)
   v
 end
-gradient!(g::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner) =
+gradient!(g::_ArrayOrSymmetricIterate, f::LinearFunction, x::_ArrayOrSymmetricIterate) =
   (_check_oracle_arrays(gradient!, f, g, x); _gradient_unchecked!(g, f, x))
-_gradient_unchecked!(g::_ArrayOrOwner, f::LinearFunction, x::_ArrayOrOwner) =
+_gradient_unchecked!(g::_ArrayOrSymmetricIterate, f::LinearFunction, x::_ArrayOrSymmetricIterate) =
   (_checkwrite(gradient!, f, g, x); _copy_parameter!(g, f.c))
 
 Base.@propagate_inbounds prox_block(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]

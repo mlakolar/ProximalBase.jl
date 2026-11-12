@@ -63,7 +63,7 @@ to inspect selection. Add tests to the declared inventory and test/TESTING.md.
 
 Choose independent reference calculations: direct residual/gradient formulas,
 linear solves for quadratic prox, BigFloat for range-sensitive ridge cases,
-explicit lower-triangle enumerations for owners, and expected active IDs for
+explicit lower-triangle enumerations for symmetric iterates, and expected active IDs for
 storage. Comparing two PB oracles alone can reproduce the same bug. Test
 FP32/FP64, dimensions, non-finite/zero parameters, aliasing, partial failures,
 active zeros and arbitrary ordered blocks as appropriate to the change.
@@ -88,7 +88,7 @@ active zeros and arbitrary ordered blocks as appropriate to the change.
 ## Historical acceptance records
 
 The archived [iterate-family acceptance](https://github.com/mlakolar/ProximalBase.jl/blob/eff21b6d7d33c622313122f46c6ee71693c101ee/docs/design/iterate-family-0.6-acceptance.md)
-and [symmetric-owner acceptance](https://github.com/mlakolar/ProximalBase.jl/blob/eff21b6d7d33c622313122f46c6ee71693c101ee/docs/design/symmetric-sparse-iterate-0.6-acceptance.md)
+and [symmetric-iterate acceptance](https://github.com/mlakolar/ProximalBase.jl/blob/eff21b6d7d33c622313122f46c6ee71693c101ee/docs/design/symmetric-sparse-iterate-0.6-acceptance.md)
 include old targets, amendments and past evidence. They are not current test
 commands or new public requirements. The current contracts and actual retained
 source/tests must agree before a behavior is described as supported.

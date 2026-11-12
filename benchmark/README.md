@@ -36,3 +36,20 @@ the PB_BASELINE/PB_CANDIDATE variables. For an exact dependency replay, update
 only that unused path to a restored checkout before instantiating the archived
 environment; preserve the pinned BenchmarkTools/PrecompileTools versions.
 The active benchmark/Project.toml is a clean environment without that path.
+
+## NormL1 hot-loop harness
+
+`norml1_infinite_weight.jl` times the `NormL1` proximal loops (weighted and
+unweighted, scalar and per-entry steps, dense, sparse and block storage, Float32 and
+Float64) between two source trees, with an independently compiled A/A control, and
+`summarize_norml1_infinite_weight.py` reports the per-round ratios. It was written for
+issue #853 and is meant for #866 and any numerical change that touches these loops.
+Run it with the roles reversed and in fresh processes, and judge slowdowns above five
+percent against the A/A column. The summarizer pools only runs with the same X and Y trees;
+summarize a reversed-role run on its own (its ratios are the inverse). The usage is in the header of the script;
+`PB_CHECK_ONLY=1` checks that the outputs agree without timing.
+
+```sh
+PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
+  julia --threads=1 --project=benchmark benchmark/norml1_infinite_weight.jl
+```

@@ -49,7 +49,7 @@ list of coordinate IDs. It is not a coordinate ID and can move on compaction.
 The exported `nnz` is SparseArrays' binding for standard sparse arrays. There
 is no `nnz`, `nonzeros` or `findnz` method for these iterates. Count a
 `SparseIterate`'s nonzeros using `count(!iszero,activevalues(x))`; for a symmetric
-owner that counts independent nonzeros, not full-matrix entries. For blocks,
+iterate that counts independent nonzeros, not full-matrix entries. For blocks,
 sum `count(!iszero,blockview(x,k))` over active group IDs.
 
 ## Active coordinates are deliberate state
@@ -77,7 +77,7 @@ nactive(x)
 Acquire `activecoordinates` and `activevalues` again after any activation,
 compaction or whole-state replacement. Handles retain their old extent and
 refer to live slots; they are not snapshots. Coordinate and matrix views keep
-their stable index mapping for the owner's lifetime. Never modify private
+their stable index mapping for the iterate's lifetime. Never modify private
 metadata through fields or a view's parent indices.
 
 ## Copies and mathematical operations
@@ -88,11 +88,11 @@ the destination's active set when shapes/layouts match. Ordinary array writes,
 broadcasts and most mathematical proximal writes preserve already active
 coordinates. A fresh allocating prox can omit the source's active zeros. `ZeroFunction` is a
 copying exception: its distinct array-iterate output uses `copyto!`, replacing
-state for matching `SparseIterate` shapes/`BlockIterate` layouts. Its owner route
+state for matching `SparseIterate` shapes/`BlockIterate` layouts. Its symmetric-iterate route
 instead uses coordinate value writes.
 
 For `BlockIterate`, same-layout `copyto!` replaces state; different layouts of
-the same entry length copy by value. A symmetric owner's `copyto!(x,A)` is a
+the same entry length copy by value. A symmetric iterate's `copyto!(x,A)` is a
 checked import, replacing state with nonzero coordinates in increasing order.
 See the individual guides for validation and failure behavior.
 
@@ -101,7 +101,7 @@ See the individual guides for validation and failure behavior.
 The following sparse-aware operations are available for these iterate types. Real types and compatible
 dimensions are required. Other Julia fallbacks can be dense, slower, or absent.
 Use independent product destinations: ordinary `mul!` does not permit arbitrary
-aliasing. The owner methods explicitly reject overlapping output/input storage.
+aliasing. The symmetric iterate methods explicitly reject overlapping output/input storage.
 
 | Call | Supported domain / cost |
 |:--|:--|
@@ -110,11 +110,11 @@ aliasing. The owner methods explicitly reject overlapping output/input storage.
 | `A*x`, `A*B` and mul! | Symmetric wrapper of a strided matrix, vector/matrix `SparseIterate` or vector `BlockIterate`; respects selected triangle |
 | `A'*x`, `transpose(A)*x`, mul! | Strided A and vector `SparseIterate`, strided output |
 | `dot(v,x)` in either order | Strided vector and vector `SparseIterate`/`BlockIterate`; also combinations of those vector iterates |
-| `dot(a,X,b)` | Strided vectors and matrix `SparseIterate`; arbitrary one-based real vectors and symmetric owner |
-| `X*v`, `X*B`, mul! | Symmetric owner and real vector/matrix right operand; O((p+s)·number of columns) |
-| `mul!(out,matrixview(X),v[,α,β])` | Owner view and real vector; O(p+s) |
-| `dot(A,X)` in either order | Strided matrix and owner, full Frobenius inner product |
-| `A*X*B` | Symmetric wrappers of strided matrices and matrix `SparseIterate`/owner of matching `Float32`/`Float64`; direct sparse terms, O(s·rows(X)·cols(X)) |
+| `dot(a,X,b)` | Strided vectors and matrix `SparseIterate`; arbitrary one-based real vectors and symmetric iterate |
+| `X*v`, `X*B`, mul! | Symmetric iterate and real vector/matrix right operand; O((p+s)·number of columns) |
+| `mul!(out,matrixview(X),v[,α,β])` | Symmetric-iterate view and real vector; O(p+s) |
+| `dot(A,X)` in either order | Strided matrix and symmetric iterate, full Frobenius inner product |
+| `A*X*B` | Symmetric wrappers of strided matrices and matrix `SparseIterate`/`SymmetricSparseIterate` of matching `Float32`/`Float64`; direct sparse terms, O(s·rows(X)·cols(X)) |
 
 Here `s` counts stored coefficients; active blocks can contain several entries.
 The direct three-factor guarantee requires all three element types to match.

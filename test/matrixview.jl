@@ -14,7 +14,7 @@ using Test, ProximalBase, LinearAlgebra, SparseArrays, Random
   @test A[1, 2] == A[2, 1] == 3.0
   @test nactive(X) == 1
   @test sum(abs, θ) == 3.0
-  @test NormL1(1.0)(X) == 6.0                    # the owner and its matrix count both positions
+  @test NormL1(1.0)(X) == 6.0                    # the symmetric iterate and its matrix count both positions
   @test NormL1(1.0)(A) == 6.0
 
   B = Matrix(X)
@@ -133,13 +133,13 @@ end
   @test_throws ArgumentError mul!(v, matrixview(Y), zeros(2), 1.0, 1.0)
   @test_throws ArgumentError mul!(v, matrixview(Y), zeros(2))
   @test Y[1, 1] == 1.0 && Y[2, 1] == 4.0
-  # a different owner is fine
+  # a different symmetric iterate is fine
   Z = SymmetricSparseIterate(Float64, 1)
   Z[1, 1] = 5.0
   out = zeros(1)
   mul!(out, matrixview(X), [3.0], 1.0, 0.0)
   @test out == [6.0]
-  mul!(coordinates(Z), matrixview(X), [1.0], 1.0, 0.0)   # writes into another owner: allowed
+  mul!(coordinates(Z), matrixview(X), [1.0], 1.0, 0.0)   # writes into another symmetric iterate: allowed
   @test Z[1, 1] == 2.0 && X[1, 1] == 2.0
 end
 
@@ -232,7 +232,7 @@ end
   @test_throws ArgumentError mul!(zeros(3), A, ones(3), 1.0 + 2.0im, 0.0)
 end
 
-# A coefficient of the owner that is zero contributes nothing: a stored explicit zero does not
+# A coefficient of the symmetric iterate that is zero contributes nothing: a stored explicit zero does not
 # multiply a non-finite entry of v, and dropzeros! leaves the product unchanged.
 @testset "matrixview: non-finite vector and a stored zero" begin
   v = [Inf, 1.0, 0.0]
@@ -251,7 +251,7 @@ end
   end
 end
 
-@testset "matrixview: empty and one-dimensional owners" begin
+@testset "matrixview: empty and one-dimensional symmetric iterates" begin
   A0 = matrixview(SymmetricSparseIterate(Float64, 0))
   @test size(A0) == (0, 0) && Matrix(A0) == zeros(0, 0)
   X1 = SymmetricSparseIterate(Float64, 1)

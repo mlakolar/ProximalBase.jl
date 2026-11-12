@@ -3,7 +3,7 @@
 ## Shapes and destination-first mutation
 
 Use real arrays in each function's supported shape. Vector and matrix iterates
-participate in array dispatch; a symmetric owner requires an explicit method.
+participate in array dispatch; a symmetric iterate requires an explicit method.
 Gradients and proximal points must match their input shape. Per-entry weights
 and array steps can use equal entry count in linear order, while centers,
 coefficient writers and matrix products can impose matching shapes/axes.
@@ -13,7 +13,7 @@ Mutating calls write the first argument. They can allocate scratch, stage an
 alias, or build a decomposition; `!` is not a no-allocation promise. Allocating
 gradients use dense buffers. Allocating proximal points use floating `similar`
 arrays/iterates, except symmetric array wrappers return dense matrices and
-supported owner calls return new owners.
+supported symmetric-iterate calls return new symmetric iterates.
 
 ## Precision
 
@@ -75,7 +75,7 @@ input/output views are unsupported and generally undetected. Copy the source
 first. Built-in gradients reject input/output identity; other shared-memory
 views also need independent scratch. Do not use function data or parameters
 as writable output unless the specific method explicitly permits it.
-`mul!` outputs should be independent of operands; owner kernels reject aliases.
+`mul!` outputs should be independent of operands; symmetric-iterate kernels reject aliases.
 
 After same-shape design/response/quadratic-matrix entry changes, invalidate
 proximal decomposition caches with `reset_cache!(outermost_function)`.
@@ -86,7 +86,7 @@ weights. Neither reset nor parameter validation copies caller data.
 ## Predictable failures and partial writes
 
 Built-in oracles preflight predictable real-type, shape and parameter errors.
-Symmetric pair checks occur before owner writes on implemented public boundaries.
+Symmetric pair checks occur before symmetric-iterate writes on implemented public boundaries.
 A failing user element access, conversion or numerical computation may leave
 partial output. A raw hook does not gain checks from a trait declaration.
 
@@ -95,7 +95,7 @@ zero imaginary parts, before writing. Broadcasts check leaves and inferred
 results; uncertain non-real result types are staged before writes. Ordinary
 views, indexed/offset writes and abstractly typed sources retain elementwise
 conversion behavior and can fail partway. A same-kind state copy stages
-fallible stored-value conversion; an owner matrix import checks shape/symmetry/
+fallible stored-value conversion; a symmetric iterate matrix import checks shape/symmetry/
 aliases first but can fail converting after clearing old state.
 
 For atomic conversion failure, prepare an independent correctly typed result

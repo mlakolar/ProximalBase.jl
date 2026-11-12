@@ -4,7 +4,7 @@
 
 A symmetric [iterate](glossary.md#Iterate) stores one independent variable for a mirrored matrix pair.
 
-A symmetric owner stores one variable for `(r,c)` and `(c,r)`. Per-entry
+A symmetric iterate stores one variable for `(r,c)` and `(c,r)`. Per-entry
 parameters must give the same mathematical function at both positions.
 ProximalBase symmetrizes supported computed matrix arguments and gradients;
 it requires your parameter arrays to be **exactly symmetric**.
@@ -40,15 +40,15 @@ Equality has no tolerance: paired NaNs match, `0.0` matches `-0.0`, and equal
 integers/floats match. Constructors separately enforce real types and parameter
 domains; declaring a parameter does not make a negative/NaN weight valid.
 
-| Operation involving an owner | Pairs checked |
+| Operation involving a symmetric iterate | Pairs checked |
 |:--|:--|
 | `f(x)` | Usually all; built-in stored-value paths such as `NormL1` compare stored pairs only |
-| `prox!`, `value_and_prox!` with owner destination | All, except built-in zero-preserving stored paths with both arguments owners compare pairs stored in input or output |
-| Prox with dense destination and owner point | All declared pairs |
-| Gradient/fused gradient, owner point or output | All declared pairs, when that method exists |
-| Four-argument `kkt_violation` on an owner | Chosen coordinate pair only |
+| `prox!`, `value_and_prox!` with symmetric-iterate destination | All, except built-in zero-preserving stored paths with both arguments symmetric iterates compare pairs stored in input or output |
+| Prox with dense destination and symmetric-iterate point | All declared pairs |
+| Gradient/fused gradient, symmetric-iterate point or output | All declared pairs, when that method exists |
+| Four-argument `kkt_violation` on a symmetric iterate | Chosen coordinate pair only |
 | `check_symmetric_parameters(f,x)` | All declared pairs, recursively through `Scaled` |
-| Raw `value_entry`, `prox_block`, three-argument KKT, `restrict` | No owner; no pair check |
+| Raw `value_entry`, `prox_block`, three-argument KKT, `restrict` | No symmetric iterate; no pair check |
 
 A successful stored-only call does not certify unvisited parameter pairs.
 Custom separable functions use the conservative full pair check at generic
@@ -89,7 +89,7 @@ Matrix(prox(NormL1(1.0,Symmetric(Wbad,:L)),x))
 Selecting `Symmetric(Wbad,:L)` keeps the lower values. Averaging the triangles
 changes the model; choose the intended definition explicitly. Do not average
 labels or other nonnumerical metadata. Type/shape/parameter failures at built-in
-owner boundaries are checked before predictable writes.
+symmetric-iterate boundaries are checked before predictable writes.
 
 ## Proximal arguments and computed gradients
 
@@ -99,7 +99,7 @@ For symmetric Z and any V,
 \|Z-V\|_F^2=\|Z-(V+V^\top)/2\|_F^2+\|(V-V^\top)/2\|_F^2.
 ```
 
-Therefore a supported prox **into an owner** at a nonsymmetric matrix reads
+Therefore a supported prox **into a symmetric iterate** at a nonsymmetric matrix reads
 its symmetric part. Equal pairs are preserved; finite sums are averaged before
 halving to retain subnormal digits, with halves added when the sum overflows.
 Opposite infinities give NaN. A `Symmetric(V,:L)` argument deliberately selects
@@ -116,7 +116,7 @@ prox!(out,NormL1(0.5),Symmetric(V,:L),1.0)
 Matrix(out)
 ```
 
-Owner gradients of supported smooth functions store the symmetric part.
+Symmetric-iterate gradients of supported smooth functions store the symmetric part.
 Four-argument KKT uses the symmetric gradient pair, with no independent-variable
 factor of two. An opposing `+Inf/-Inf` gradient pair has no symmetric part and
 throws `ArgumentError` at the chosen coordinate. The routine does not scan

@@ -1,9 +1,9 @@
 module SymmetricIterateIndexingTest
 
-# The owner of the variables of a symmetric matrix: index spaces (T01), the two live views and the
+# The SymmetricSparseIterate: index spaces (T01), the two live views and the
 # dense copy (T02), and active zeros, compaction and handles (T03, T12). Expected values come from
 # a dense matrix that each test updates itself, and from the column-major order of the lower triangle
-# written out by hand, not from a second path through the owner.
+# written out by hand, not from a second path through the symmetric iterate.
 
 using Test, ProximalBase, LinearAlgebra, SparseArrays, Random
 
@@ -82,7 +82,7 @@ end
     @test A[3] == A[7] == -1.0
   end
 
-  @testset "a pair write returns the owner, and reads back at both positions" begin
+  @testset "a pair write returns the symmetric iterate, and reads back at both positions" begin
     for T in (Float32, Float64)
       x = SymmetricSparseIterate(T, 2)
       @test setindex!(x, 7, 1, 2) === x

@@ -312,7 +312,7 @@ end
 # gradient already written, which the parts must not read in place of a parameter. A NaN product at
 # a value that is not NaN, which the fold does not recover, is Inf⋅0 at an infinite factor: 0 where
 # f is certainly 0 (`_scaled_nan_value`), and otherwise what the parts give.
-# The recoveries read the entries of the argument: an owner is read as the matrix that it represents, which
+# The recoveries read the entries of the argument: a symmetric iterate is read as the matrix that it represents, which
 # counts an off-diagonal coordinate at both of its positions
 @noinline _scaled_value_recover(f, α, x::SymmetricSparseIterate, v, r, out = nothing) =
   _scaled_value_recover(f, α, matrixview(x), v, r, out)
@@ -434,7 +434,7 @@ end
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::AbstractArray, α::_ProjectionScale) = (g .= _apply_scale.(α, g))
-# an owner gradient: every coordinate that is stored, which are the coordinates of the symmetric gradient
+# a symmetric iterate gradient: every coordinate that is stored, which are the coordinates of the symmetric gradient
 # that are not zero
 _scale!(g::SymmetricSparseIterate, α) = (v = activevalues(g); v .*= α; g)
 _scale!(g::SymmetricSparseIterate, α::_ProjectionScale) = (v = activevalues(g); v .= _apply_scale.(α, v); g)

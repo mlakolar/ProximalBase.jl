@@ -71,22 +71,23 @@ _sumabs2(x::BlockIterate) = _sumabs2(x.storage)
 
 _square_term_count(x::Union{SparseIterate, SymmetricSparseIterate}) = x.nnz
 _square_term_count(x::BlockIterate) = _square_term_count(x.storage)
-function _square_multiplicity(x::SymmetricSparseIterate, i)
+# inlined into the loop of the squared-residual kernel, whose @inbounds then reaches the index
+Base.@propagate_inbounds function _square_multiplicity(x::SymmetricSparseIterate, i)
   r, c = tril_cartesian(x.p, x.nzval2ind[i])
   r == c ? 1 : 2
 end
 
-_norm2_scaled(x::AbstractArray) = norm(x)
-_norm2_scaled(x::BlockIterate) = norm(x.storage)
-function _norm2_scaled(x::SymmetricSparseIterate{T}) where {T}
-  n = zero(float(T))
-  @inbounds for k in 1:x.nnz
-    r, c = tril_cartesian(x.p, x.nzval2ind[k])
-    isnan(x.nzval[k]) && return oftype(n, NaN)
-    n = hypot(n, x.nzval[k])
-    r == c || (n = hypot(n, x.nzval[k]))
-  end
-  n
+# The Frobenius norm of the matrix that an owner represents, an off-diagonal coordinate counted
+# twice, in O(nnz): the ordinary sum of squares where it is a finite normal number, and otherwise
+# the norm from the squared residuals in power-of-two units (_scaled_norm), as for norm_diff. Where
+# every square is below floatmin (the largest stored magnitude tells, in one vectorized pass), the
+# recomputation runs at once: the ordinary sum would form only subnormal squares, which are slow.
+function _norm2_scaled(x::SymmetricSparseIterate)
+  m = _stored_maxabs(x)
+  isfinite(m) && m * m < floatmin(typeof(m)) && return _scaled_norm(x, nothing, zero(m))
+  s = _sumabs2(x)
+  isfinite(s) && s >= floatmin(typeof(s)) && return sqrt(s)
+  _scaled_norm(x, nothing, s)
 end
 
 (f::SqrNormL2)(x::_ArrayOrOwner) =

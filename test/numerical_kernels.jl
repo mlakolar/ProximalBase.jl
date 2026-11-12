@@ -6,6 +6,7 @@ module NumericalKernelsTest
 # inputs, exact zeros and signed zeros. BigFloat is the test oracle only; the kernels never use it.
 
 using Test, ProximalBase, Random, SparseArrays
+using LinearAlgebra: norm
 const PB = ProximalBase
 
 pow2(T, k) = ldexp(one(T), k)
@@ -270,6 +271,54 @@ setprecision(BigFloat, 1200) do
     end
     @test LinearFunction(T[1, 1], T(0))(T[Inf, 1]) === T(Inf)
     @test isnan(LinearFunction(T[1, 1], T(0))(T[Inf, -Inf]))
+  end
+
+  @testset "Euclidean norm recovery" begin
+    function owner(vals, p)
+      S = SymmetricSparseIterate(T, p)
+      k = 0
+      for c in 1:p, r in c:p
+        k += 1
+        k <= length(vals) && (S[r, c] = vals[k])
+      end
+      S
+    end
+    frob(S, p) = sqrt(sum(big(S[r, c])^2 for r in 1:p, c in 1:p; init = big(0.0)))
+    # residuals whose squares overflow, underflow or are subnormal, and mixed scales; the
+    # recomputation (a sum of squares that is not a finite normal number) is within 2 ulps
+    es = exponent(nextfloat(zero(T)))
+    for (lo, hi) in ((E ÷ 2 + 1, E - 4), (e0 ÷ 2 - 20, e0 ÷ 2 - 1), (es + 3, e0 - 1), (e0 + 2, E - 6))
+      for _ in 1:300
+        n = rand(rng, 1:30)
+        x = T[signif(rng, T, rand(rng, lo:hi)) for _ in 1:n]
+        y = T[signif(rng, T, rand(rng, lo:hi)) for _ in 1:n]
+        rand(rng) < 0.2 && (y .= nextfloat.(x, rand(rng, -3:3)))    # cancellation
+        r = sqrt(sum((big.(x) .- big.(y)) .^ 2))
+        s = sum(abs2, x .- y)
+        (isfinite(s) && s >= floatmin(T)) || @test within(norm_diff(x, y), r, 2)
+        p = rand(rng, 1:7)
+        S = owner(x[1:min(n, p * (p + 1) ÷ 2)], p)
+        # every scale, O(nnz); the ordinary sum of m squares adds up to (m - 1)/4 ulps to the norm
+        @test within(norm(S), frob(S, p), 2 + S.nnz / 4)
+      end
+    end
+    # one residual whose square overflows, a finite norm; an overflowing difference is a norm beyond range
+    fm = floatmax(T)
+    @test within(norm_diff(T[0.6fm, 0], T[-0.1fm, 0]), big(0.7) * big(fm), 1)
+    @test norm_diff(T[0.75fm], T[-0.5fm]) === T(Inf)
+    S = owner(T[0, pow2(T, E - 2), 0], 2)                            # an off-diagonal entry counts twice
+    @test within(norm(S), sqrt(big(2.0)) * big(pow2(T, E - 2)), 1)
+    S = owner(T[pow2(T, es), -pow2(T, es + 1), pow2(T, es)], 2)       # subnormal entries only
+    @test within(norm(S), sqrt(big(1.0) + 2 * 4 + 1) * big(pow2(T, es)), 1)
+    @test (@allocated norm(S)) == 0
+    # genuine NaN/Inf keep the ordinary result; exact and signed zeros give +0
+    @test isnan(norm_diff(T[NaN, 1], T[0, 1])) && isnan(norm_diff(T[Inf, NaN], T[0, 0]))
+    @test isnan(norm_diff(T[Inf], T[Inf]))                              # Inf - Inf
+    @test norm_diff(T[Inf, pow2(T, e0 - 4)], T[0, 0]) === T(Inf)
+    @test norm_diff(T[-0.0, 0], T[0, -0.0]) === zero(T)
+    @test norm_diff(T[pow2(T, es), 1], T[pow2(T, es), 1]) === zero(T)
+    @test isnan(norm(owner(T[pow2(T, E - 1), NaN], 2))) && norm(owner(T[Inf, pow2(T, es)], 2)) === T(Inf)
+    @test norm(owner(T[-0.0, -0.0], 2)) === zero(T) && norm(SymmetricSparseIterate(T, 3)) === zero(T)
   end
 end
 end

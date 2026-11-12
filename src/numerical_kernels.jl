@@ -492,11 +492,11 @@ function norm_diff(A::AbstractArray, B::AbstractArray, p::Real = 2)
   end
 end
 
-# Preserve the inexpensive sum-of-squares path at ordinary scales. Outside
-# its representable range, hypot accumulates the norm without squaring the
-# unscaled differences and without constructing a temporary array. Equal
-# arrays also have a zero sum of squares; a vectorized sum of absolute
-# differences confirms them without hypot.
+# Preserve the inexpensive sum-of-squares path at ordinary scales. Where the sum
+# overflows or falls below floatmin, the norm is recomputed from the squared
+# residuals in power-of-two units (_scaled_norm), without a temporary array.
+# Equal arrays also have a zero sum of squares; a vectorized sum of absolute
+# differences confirms them without the recomputation.
 function _norm_diff2(A::AbstractArray, B::AbstractArray)
   s = _sumabs2_diff(A, B)
   T = typeof(s)
@@ -510,13 +510,18 @@ function _norm_diff2(A::AbstractArray, B::AbstractArray)
     end
     iszero(a) && return s
   end
-  v = zero(T)
-  @inbounds for i in eachindex(A, B)
-    d = S(_norm_difference(A[i], B[i]))
-    isnan(d) && return T(NaN)
-    v = hypot(v, abs(d))
-  end
-  v
+  _scaled_norm(A, B, s)
+end
+
+# √(Σ μᵢ (xᵢ - yᵢ)²) for an ordinary sum of squares s in R that overflowed or fell below
+# floatmin(R): the squared-residual kernel gives the sum as m 2^(2k), and the norm is √m 2^k,
+# rounded once (twice where it is subnormal). An entry that is not finite keeps the ordinary
+# result √s: Inf, or NaN where a NaN or an Inf - Inf residual occurs.
+@noinline function _scaled_norm(x, y, s::R) where {R}
+  q = _residual_squares(x, y, R)
+  q === nothing && return sqrt(s)
+  m, k = q
+  _scaled_product(sqrt(m), one(R), k)
 end
 
 # Σᵢ (xᵢ - yᵢ)², without allocating x - y

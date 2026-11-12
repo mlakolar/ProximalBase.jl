@@ -82,14 +82,28 @@ function models(T, W, Y, C)
   ["NormL1" => l1, "SqrNormL2(y)" => sq, "SqrNormL2" => SqrNormL2(T(0.7)), "LinearFunction" => lin,
    "WeightedSquare" => ws, "Scaled(NormL1)" => T(2) * l1, "Scaled(SqrNormL2)" => T(0.5) * sq,
    "Scaled(LinearFunction)" => T(3) * lin, "Scaled(WeightedSquare)" => T(2) * ws,
-   "nested Scaled(NormL1)" => T(2) * (T(0.5) * l1), "nested Scaled(LinearFunction)" => T(2) * (T(1.5) * lin)]
+   "Scaled of Scaled(NormL1)" => T(2) * (T(0.5) * l1), "Scaled of Scaled(LinearFunction)" => T(2) * (T(1.5) * lin),
+   "retained chain(NormL1)" => chain(T, NormL1(ldexp(one(T), T === Float32 ? 100 : 1000), W)),
+   "retained chain(SqrNormL2(y))" => chain(T, SqrNormL2(T(0.7), Y)),
+   "retained chain(LinearFunction)" => chain(T, lin)]
 end
 # the same models with their arrays read through the lower triangle
 function controls(T, W, Y, C)
   l1, sq, lin, ws = NormL1(T(0.3), Symmetric(W, :L)), SqrNormL2(T(0.7), Symmetric(Y, :L)),
                     LinearFunction(Symmetric(C, :L)), WeightedSquare(Symmetric(W, :L))
   ["NormL1" => l1, "SqrNormL2(y)" => sq, "LinearFunction" => lin, "WeightedSquare" => ws,
-   "Scaled(NormL1)" => T(2) * l1, "Scaled(SqrNormL2)" => T(0.5) * sq, "Scaled(LinearFunction)" => T(3) * lin]
+   "Scaled(NormL1)" => T(2) * l1, "Scaled(SqrNormL2)" => T(0.5) * sq, "Scaled(LinearFunction)" => T(3) * lin,
+   "retained chain(NormL1)" => chain(T, NormL1(ldexp(one(T), T === Float32 ? 100 : 1000), Symmetric(W, :L))),
+   "retained chain(SqrNormL2(y))" => chain(T, SqrNormL2(T(0.7), Symmetric(Y, :L))),
+   "retained chain(LinearFunction)" => chain(T, LinearFunction(Symmetric(C, :L)))]
+end
+# A chain of two wrappers that the constructors keep as two: the product of the factors underflows, so it is
+# not folded into one factor.
+tiny(T) = ldexp(one(T), T === Float32 ? -100 : -600)
+function chain(T, f)
+  c = tiny(T) * (tiny(T) * f)
+  c.f isa Scaled || error("the factors were merged")
+  c
 end
 # the screen of a coordinate exists for the built-in functions only
 haskkt(f) = hasmethod(kkt_violation, Tuple{typeof(f), AbstractArray, Int})
@@ -183,7 +197,8 @@ end
   badstored = copy(W); badstored[2, 1] += 1                            # a stored pair
   for (label, mk) in ("NormL1" => W -> NormL1(1.0, W), "SqrNormL2" => W -> SqrNormL2(1.0, W),
                       "LinearFunction" => W -> LinearFunction(W), "WeightedSquare" => WeightedSquare,
-                      "Scaled" => W -> 2.0 * NormL1(1.0, W), "nested Scaled" => W -> 2.0 * (3.0 * LinearFunction(W)))
+                      "Scaled" => W -> 2.0 * NormL1(1.0, W), "Scaled of Scaled" => W -> 2.0 * (3.0 * LinearFunction(W)),
+                      "retained chain" => W -> chain(Float64, LinearFunction(W)))
     @test check(mk(W), x) === true
     @test_throws ArgumentError check(mk(bad), x)
     @test_throws ArgumentError check(mk(badstored), x)
@@ -313,7 +328,8 @@ end
   W = symm(rand(rng, p, p) .+ 0.1)
   makers = ["NormL1" => a -> NormL1(0.3, a), "SqrNormL2" => a -> SqrNormL2(0.7, a),
             "LinearFunction" => a -> LinearFunction(a), "Scaled(NormL1)" => a -> 2.0 * NormL1(0.3, a),
-            "nested Scaled(LinearFunction)" => a -> 2.0 * (1.5 * LinearFunction(a)),
+            "Scaled of Scaled(LinearFunction)" => a -> 2.0 * (1.5 * LinearFunction(a)),
+            "retained chain(NormL1)" => a -> chain(Float64, NormL1(2.0^1000, a)),
             "WeightedSquare" => WeightedSquare]
   xs = ["sparse" => sparse_iterate(Float64, p), "full" => full_iterate(Float64, p, rng)]
   for (name, mk) in makers, (xname, x) in xs
@@ -325,13 +341,7 @@ end
     carr = carr isa Symmetric ? carr.data : carr
     function measure(op)
       reset!(a); reset!(carr)
-      for (g, k) in ((f, a), (c, carr))
-        try
-          op(g)
-        catch e
-          e isa MethodError || rethrow()      # an operation that the function does not define
-        end
-      end
+      op(f); op(c)
       reads(a), reads(carr)
     end
     ops = Pair{String, Function}[
@@ -341,8 +351,8 @@ end
       "value_and_prox! to a symmetric iterate" => g -> value_and_prox!(output_iterate(Float64, p), g, x, 0.4),
       "value_and_prox! to a dense matrix" => g -> value_and_prox!(zeros(p, p), g, x, 0.4),
       "prox! from a dense matrix" => g -> prox!(output_iterate(Float64, p), g, Matrix(x), 0.4),
-      "kkt_violation" => g -> kkt_violation(g, ones(p, p), x, 2),
     ]
+    haskkt(f) && push!(ops, "kkt_violation" => g -> kkt_violation(g, ones(p, p), x, 2))
     if issmooth(f)
       push!(ops, "gradient! to a symmetric iterate" => g -> gradient!(output_iterate(Float64, p), g, x))
       push!(ops, "gradient! to a dense matrix" => g -> gradient!(zeros(p, p), g, x))

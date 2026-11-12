@@ -28,8 +28,8 @@ Generic methods accepting tuples do not imply that the underlying function
 supports tuple inputs; it still needs methods for the requested argument types. The generic `gradient!` default depends on
 `value_and_gradient!`, so implement that hook if relying on the default.
 
-An overriding public operation owns real-type, shape, parameter, [aliasing](glossary.md#Aliasing) and symmetric
-preflight. Destination comes first. Return the identical output for `gradient!`/
+An overriding public operation owns real-type, shape, parameter-extent and [aliasing](glossary.md#Aliasing)
+preflight; parameter symmetry is a model precondition that the caller or solver validates. Destination comes first. Return the identical output for `gradient!`/
 `prox!`/`prox_block!`, a scalar input value for `value_and_gradient!`, and a scalar
 stored-output value for `value_and_prox!`. Proximal output may be exactly the
 input; gradient output must be independent. Do not write parameters, input
@@ -110,7 +110,7 @@ ProximalBase.prox_block(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 
 The complete implementation owns its weights, checks finite nonnegative
 parameters, defines both methods and the required parameter metadata, and
-verifies dense, sparse and symmetric use and failure-before-write behavior.
+verifies dense, sparse and symmetric use and the explicit rejection of asymmetric weights.
 Its definition and checks are included below from that executable source.
 
 ```@eval

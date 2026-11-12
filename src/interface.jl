@@ -381,7 +381,7 @@ For BlockIterate, k is a group and retained scalar-screen functions return
 the maximum screen over its ordered global entry indices. That path does not
 add the same explicit full-gradient extent preflight. Other array points add
 no coordinate/gradient extent check beyond function/indexing checks. Raw
-three-argument calls have no symmetric iterate and no parameter validation.
+three-argument calls have no symmetric iterate, so no parameter-symmetry preflight.
 """
 function kkt_violation end
 

@@ -17,9 +17,10 @@ check_symmetric_parameters(f::AbstractFunction, x) = (_check_entry_arrays(f, x);
 _check_parameter_axes(y, a) = true
 _check_parameter_axes(y::SymmetricSparseIterate, a::AbstractArray) = _check_axes(y, a)
 
-# The explicit validation of a model: every declared array is compared at every mirrored pair, including
-# pairs that the iterate does not store. Only check_symmetric_parameters calls it; the numerical oracles
-# take the symmetry of these arrays as a precondition and never compare their entries.
+# The explicit validation of a model: each declared array that is not symmetric by type is checked for extent and
+# compared at every mirrored pair, including pairs that the iterate does not store; an array symmetric by type
+# (such as Symmetric(W, :L)) is accepted without either. Only check_symmetric_parameters calls it; the
+# numerical oracles take the symmetry of these arrays as a precondition and never compare their entries.
 _check_entry_arrays(f, x) = true
 function _check_entry_arrays(f::AbstractFunction, x::SymmetricSparseIterate)
   _check_own_arrays(f, entry_parameters(f), x)

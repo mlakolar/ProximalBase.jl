@@ -1201,7 +1201,7 @@ function test_norms(::Type{T}) where {T<:AbstractFloat}
   δ = nextfloat(zero(T))
   precT = precision(T)
   rng = Xoshiro(1014)
-  @testset "norms: the symmetric owner multiplicity and the norm_diff hypot fallback" begin
+  @testset "norms: the symmetric owner multiplicity and the norm_diff scaled fallback" begin
     rng = Xoshiro(61)
     # the Frobenius norm of the matrix an owner represents: an off-diagonal coordinate counts twice, no square overflows
     for (e1, e2, e3) in ((E - 3, E - 4, E - 4), (e0 + 5, e0 + 3, e0 + 4), (0, 3, -2))
@@ -1227,8 +1227,8 @@ function test_norms(::Type{T}) where {T<:AbstractFloat}
     xi[2, 2] = T(NaN)
     @test isnan(norm(xi))
     # a block iterate takes the norm of its storage
-    @test PB._norm2_scaled(BlockIterate(T[pow2(T, E - 2), pow2(T, E - 2), 3], [[1], [2, 3]])) ≈ sqrt(T(2)) * pow2(T, E - 2) rtol = 4 * eps(T)
-    # norm_diff: the sum of squares overflows, underflows, or both arrays are equal; hypot accumulates without squaring
+    @test norm(BlockIterate(T[pow2(T, E - 2), pow2(T, E - 2), 3], [[1], [2, 3]])) ≈ sqrt(T(2)) * pow2(T, E - 2) rtol = 4 * eps(T)
+    # norm_diff: the sum of squares overflows, underflows, or both arrays are equal; the recomputation scales before squaring
     for (A, B) in ((T[pow2(T, E - 2), 1, 5], T[-pow2(T, E - 2), 0, 5]),
                    (T[pow2(T, e0 ÷ 2 - 3) * T(1.3), 0], T[0, pow2(T, e0 ÷ 2 - 4)]),
                    (T[pow2(T, e0 - 10), -pow2(T, e0 - 12)], zeros(T, 2)))
@@ -1548,7 +1548,7 @@ setprecision(BigFloat, 2400) do
   test_sqrnorml2_oracles(T)   # SqrNormL2 oracles: ridge weights, owners, wide levels and centers
   test_leastsquares(T)   # LeastSquaresLoss: SVD prox, multi-response data and iterate arguments
   test_linear_function(T)   # LinearFunction: overflowing dots, owners and iterates
-  test_norms(T)   # norms: the symmetric owner multiplicity and the norm_diff hypot fallback
+  test_norms(T)   # norms: the symmetric owner multiplicity and the norm_diff scaled fallback
   test_sparse_products(T)   # sparse and symmetric matrix products: overflowing terms, cancellation and non-finite factors
   test_symmetric_part(T)   # symmetric part of an asymmetric argument: the mean and the tiny-α product
   test_scaled_single_factors(T)   # Scaled single factors, zero and infinite scales, aliases and nested wrappers

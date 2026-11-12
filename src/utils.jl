@@ -739,13 +739,11 @@ end
 # cancellation keeps its units (h = 0); where the difference of finite a and b overflows it is
 # formed as a/2 - b/2 instead (h = 1), which is finite and loses at most the last bit of a
 # subnormal operand. Shared by the squared residuals below and the ridge gradient.
-# The rare halved case is out of line: as a select it would be computed for every entry of the
-# loops that call this (about 1.5x slower), as a call it leaves a predictable branch.
 @inline function _halved_difference(a, b, ::Type{R}) where {R}
   d = _square_difference(a, b, R)
-  isfinite(d) ? (d, 0) : _halved(a, b, R)
+  isfinite(d) ? (d, 0) : (_halved(a, b, R), 1)
 end
-@noinline _halved(a, b, ::Type{R}) where {R} = (R(a) / 2 - R(b) / 2, 1)
+@inline _halved(a, b, ::Type{R}) where {R} = R(a) / 2 - R(b) / 2
 
 # the exponent of the largest residual: typemax(Int) for an entry that is not finite, typemin(Int)
 # for an exactly zero residual
@@ -755,10 +753,12 @@ end
   iszero(d) ? typemin(Int) : exponent(abs(d)) + h
 end
 
-# the residual scaled by 2^-k (s) or, where it was halved, by 2^(1-k) (h)
+# the residual scaled by 2^-k (s) or, where it was halved, by 2^(1-k) (h). The loop over the entries
+# branches on the difference itself: the pair (d, h) of _halved_difference would become a select,
+# which computes the rare halved case and both scalings for every entry (about 1.5x slower).
 @inline function _scaled_residual(a, b, s, h, ::Type{R}) where {R}
-  d, sh = _halved_difference(a, b, R)
-  iszero(sh) ? _scale_value(d, s) : _scale_value(d, h)
+  d = _square_difference(a, b, R)
+  isfinite(d) ? _scale_value(d, s) : _scale_value(_halved(a, b, R), h)
 end
 
 function _square_exponent(x, y, ::Type{R}) where {R}

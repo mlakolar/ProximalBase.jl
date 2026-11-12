@@ -18,16 +18,14 @@ with a dimension p. The reverse-map invariant and unique active IDs apply in
 independent-coordinate space. Pair writes must update once and activate once.
 Storage capacity is O(q), active work O(s). Coordinate IDs do not depend on slots.
 
-## Public matrix view and internal writer
+## Public matrix view
 
 Public SymmetricMatrixView is live and read-only, including derived views and
 wrappers. Generic allocating operations return ordinary writable dense arrays.
-Private `_OwnerMatrix` is a separate mutable wrapper used by trusted kernels;
-it must never become a public writable matrix escape hatch.
+No writable matrix wrapper of the owner exists, and none may be added as a
+public escape hatch; the owner is written through its coordinates.
 
-A broadcast through the private writer visits each lower-triangle coordinate
-once. Reading/writing both positions independently would apply an in-place
-operation twice. Alias identities follow all backing arrays; owner products
+Alias identities follow all backing arrays; owner products
 reject output overlapping the owner or numerical right operand before writes.
 Read-only wrapper behavior and alias detection are tested in `matrixview`.jl.
 

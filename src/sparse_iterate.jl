@@ -136,16 +136,6 @@ SymmetricSparseIterate(nzval::Vector{T}, nzval2ind::Vector{Int}, ind2nzval::Vect
 
 _stored_values(x::Union{SparseIterate, SymmetricSparseIterate}) = view(x.nzval, 1:x.nnz)
 
-function _scaled_sum(x::SymmetricSparseIterate, s, f::F = identity) where {F}
-  v = zero(s[1])
-  @inbounds for k in 1:x.nnz
-    r, c = tril_cartesian(x.p, x.nzval2ind[k])
-    u = f(_scale_value(x.nzval[k], s))
-    v += r == c ? u : 2u
-  end
-  v
-end
-
 function _scaled_dot(a, x::SparseIterate, s)
   _checkparam(a, x)
   v = zero(s[1])
@@ -165,29 +155,6 @@ function _scaled_dot(a, x::SymmetricSparseIterate, s)
     v += (ar + ac) * u
   end
   v
-end
-
-function _split_dot(a::AbstractArray, x::SparseIterate, sa, sx)
-  _checksize(a, x)
-  R = typeof(sx[1])
-  acc = _split_start(R, x.nnz)
-  @inbounds for k in 1:x.nnz
-    acc = _split_add(acc, a[x.nzval2ind[k]], x.nzval[k], sa, sx)
-  end
-  _split_finish(acc)
-end
-# each off-diagonal product separately: a[r, c] + a[c, r] can overflow on its own
-function _split_dot(a::AbstractArray, x::SymmetricSparseIterate, sa, sx)
-  _checksize(a, x)
-  R = typeof(sx[1])
-  acc = _split_start(R, 2 * x.nnz)
-  @inbounds for k in 1:x.nnz
-    r, c = tril_cartesian(x.p, x.nzval2ind[k])
-    u = x.nzval[k]
-    acc = _split_add(acc, a[r, c], u, sa, sx)
-    r == c || (acc = _split_add(acc, a[c, r], u, sa, sx))
-  end
-  _split_finish(acc)
 end
 
 # the stored entries of an iterate: the recoveries of R1 read only these
@@ -1401,16 +1368,6 @@ struct SymmetricMatrixView{T} <: AbstractMatrix{T}
   x::SymmetricSparseIterate{T}
 end
 
-# The matrix that an owner represents, written through by the kernels that address a position of it
-# (the groups of a penalty, a sphere, a spectral decomposition) and store each result in the
-# coordinate of its pair. Internal: the public view is read-only, and an owner is written through
-# the methods that name it.
-# A broadcast into it reads each coordinate from its lower position and expects operands that are symmetric:
-# an operand that is not is read from its lower position, not averaged.
-struct _OwnerMatrix{T} <: AbstractMatrix{T}
-  x::SymmetricSparseIterate{T}
-end
-
 """
     matrixview(x::SymmetricSparseIterate)
 
@@ -1440,28 +1397,6 @@ Base.size(A::SymmetricMatrixView) = size(A.x)
 Base.IndexStyle(::Type{<:SymmetricMatrixView}) = IndexCartesian()
 Base.@propagate_inbounds Base.getindex(A::SymmetricMatrixView, r::Int, c::Int) = A.x[r, c]
 
-Base.size(A::_OwnerMatrix) = size(A.x)
-Base.IndexStyle(::Type{<:_OwnerMatrix}) = IndexCartesian()
-Base.@propagate_inbounds Base.getindex(A::_OwnerMatrix, r::Int, c::Int) = A.x[r, c]
-Base.@propagate_inbounds function Base.setindex!(A::_OwnerMatrix, v, r::Int, c::Int)
-  A.x[r, c] = v
-  A
-end
-Base.dataids(A::_OwnerMatrix) = Base.dataids(A.x)
-# a zero reaches the active coordinates only, as for fill!(coordinates(x), 0)
-Base.fill!(A::_OwnerMatrix, v) = (fill!(coordinates(A.x), v); A)
-# A broadcast into the matrix of an owner stores each coordinate once, from its lower position, so that an
-# update such as y .= f.(y) is applied once; the operands are symmetric, as the caller has ensured.
-function Base.copyto!(A::_OwnerMatrix, bc::Broadcast.Broadcasted{Nothing})
-  axes(A) == axes(bc) || throw(DimensionMismatch("destination axes $(axes(A)) do not match $(axes(bc))"))
-  bc′ = Broadcast.preprocess(A, bc)
-  x = A.x
-  p = x.p
-  @inbounds for c = 1:p, r = c:p
-    _setstored!(x, bc′[CartesianIndex(r, c)], tril_index(p, r, c))
-  end
-  A
-end
 # aliasing hooks from Base (non-public functions)
 Base.dataids(A::SymmetricMatrixView) = Base.dataids(A.x)
 Base.unaliascopy(A::SymmetricMatrixView) = SymmetricMatrixView(copy(A.x))
@@ -1513,7 +1448,7 @@ _symequal(a, b) = isequal(a, b) || (a == b) === true
 
 # sources whose entries (r, c) and (c, r) are equal by construction
 _symmetric_by_type(A) = false
-_symmetric_by_type(::Union{SymmetricSparseIterate, SymmetricMatrixView, _OwnerMatrix, Symmetric{<:Number},
+_symmetric_by_type(::Union{SymmetricSparseIterate, SymmetricMatrixView, Symmetric{<:Number},
                            Hermitian{<:Real}, Diagonal{<:Number}, SymTridiagonal{<:Number}}) = true
 _symmetric_by_type(A::Union{Adjoint, Transpose}) = _symmetric_by_type(parent(A))
 
@@ -1601,14 +1536,7 @@ function _symmetric_argument(y::SymmetricSparseIterate, x::AbstractMatrix)
   _is_device_array(x) && return _symmetric_argument(y, Array(x))
   _exactly_symmetric(x) ? x : _SymmetricPart(x)
 end
-_symmetric_argument(y::_OwnerMatrix, x::AbstractMatrix) = _symmetric_argument(y.x, x)
 _exactly_symmetric(x::AbstractMatrix) = size(x, 1) == size(x, 2) && _issymmetric_exact(x, _symequal)
-# A spectral function is defined on symmetric matrices, so its proximal map reads the
-# symmetric part of a matrix that is not symmetric by type, whatever the output.
-_spectral_argument(x) = x
-# A device matrix is read on the host, as the decompositions do.
-_spectral_argument(x::AbstractMatrix) =
-  _symmetric_by_type(x) ? x : _SymmetricPart(_is_device_array(x) ? Array(x) : x)
 # A tuple with no symmetric block, at any depth, is returned as it is; otherwise the
 # blocks are unrolled by type, nested tuples included.
 @inline _symmetric_argument(y::Tuple, x::Tuple) = _symmetric_blocks(y, x)
@@ -1732,31 +1660,11 @@ end
   _throw_asymmetric_pair(owner, label, where, r, c, a[(c - 1) * p + r], a[(r - 1) * p + c])
 end
 
-# A, which may live on a device and not allow scalar indexing: checked as a host copy
-# in its own element type, so that a mismatch cannot vanish in a promotion
-_host(A::Union{Matrix, SparseMatrixCSC}) = A
-_host(A::AbstractMatrix) = Matrix{eltype(A)}(A)
-_check_symmetric_host(A::AbstractMatrix, subject, name) =
-  _symmetric_by_type(A) || _check_symmetric(_host(A), subject, name)
-
 # the axes of the matrix that x represents
 _owner_axes(x::SymmetricSparseIterate) = (Base.OneTo(x.p), Base.OneTo(x.p))
 _check_axes(x::SymmetricSparseIterate, A::AbstractArray) = axes(A) == _owner_axes(x) || _throw_axes(x, A)
 @noinline _throw_axes(x, A) =
   throw(DimensionMismatch("source axes $(axes(A)) do not match destination axes $(_owner_axes(x))"))
-
-# B, a product such as U Σ Vᵀ whose triangles agree only up to rounding when its
-# input is symmetric: a SymmetricSparseIterate keeps the lower one
-_copyto_rounded!(Y, B) = copyto!(Y, B)
-_copyto_rounded!(Y::SymmetricSparseIterate, B) = copyto!(Y, Symmetric(B, :L))
-# the lower triangle of B, one coordinate at a time: a proximal value write keeps the coordinates that are active
-_copyto_rounded!(Y::_OwnerMatrix, B) = (_store_lower!(Y.x, B); Y)
-
-# The destination, and the argument, as the kernels that write through the matrix of an owner see them: x is
-# the destination itself, or its read-only view, when the call is in place, and the matrix of x otherwise.
-_owner_point(::_OwnerMatrix, x) = x
-_owner_point(w::_OwnerMatrix, x::SymmetricSparseIterate) = x === w.x ? w : matrixview(x)
-_owner_point(w::_OwnerMatrix, x::SymmetricMatrixView) = x.x === w.x ? w : x
 
 Base.convert(::Type{SymmetricSparseIterate{T}}, ::Union{AbstractArray, SymmetricSparseIterate}) where {T<:Complex} =
   _real_error(:SymmetricSparseIterate)
@@ -2247,13 +2155,3 @@ function *(A::Symmetric{T, <:StridedMatrix{T}}, X::SymmetricSparseIterate{T},
   _rescue_nonfinite!(C, A, X, B)
 end
 
-# Retain the complete stored pattern, including zeros, across wrapper calls.
-function _output_buffer!(s::Scratch, y::Y) where {Y<:_StoredIterate}
-  b = s.buf
-  if !(b isa Y && size(b) == size(y))
-    b = similar(y)
-    s.buf = b
-  end
-  copyto!(b::Y, y)
-end
-_wrapper_output(y::_StoredIterate, z) = z

@@ -23,10 +23,6 @@ abstract type AbstractFunction end
 # the owner, does not accept it.
 const _ArrayOrOwner = Union{AbstractArray, SymmetricSparseIterate}
 
-# A matrix, or the owner of one: the destination or the point of the oracles of the families that
-# are defined on matrices and write whole results (a spectral function, a set of matrices)
-const _MatrixOrOwner = Union{AbstractMatrix, SymmetricSparseIterate}
-
 # the number of entries of the array, or of the matrix that the owner represents
 _nentries(x::AbstractArray) = length(x)
 _nentries(x::SymmetricSparseIterate) = x.p^2
@@ -201,8 +197,6 @@ function check_symmetric_parameters end
 # arrays privately; the fallback calls the public extension hook before writes.
 _isindicator(::Type{<:AbstractFunction}) = false
 _isindicator(f::AbstractFunction) = _isindicator(typeof(f))
-_counts_nonzeros(::AbstractFunction) = false
-_scale_invariant(::AbstractFunction) = false
 _checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
 _argument_type(::Type{<:AbstractFunction}) = Any
 _checkargument(f, x) = x isa _argument_type(typeof(f)) || throw(MethodError(f, (x,)))
@@ -232,41 +226,7 @@ function _checkwrite(op, f, y, x)
   end
   true
 end
-# Scalar-step checks inspect types and shapes; transformed inputs have no values.
-# A built-in function for which `_prox_supported` is false is rejected with the MethodError of the direct call;
-# a block of a sum then raises it before any block is written. The trait is a function of the type, which is
-# a constant where the type is known.
-_prox_supported(f) = _prox_supported(typeof(f))
-_prox_supported(::Type) = true
-_checkstep(op, f, y, x, γ) = _prox_supported(f) || _prox_unsupported(y, f, x, γ)
-# The arguments of the direct call: a placeholder of the step pass is replaced by the array that it stands for.
-# A MethodError records the world age of its call, which the message of Julia 1.12 and later shows.
-@static if isdefined(Base, :tls_world_age)
-  _call_world() = Base.tls_world_age()
-else
-  _call_world() = typemax(UInt)
-end
-@noinline _prox_unsupported(y, f, x, γ) = throw(MethodError(prox!, (_unplaced(y), f, _unplaced(x), γ), _call_world()))
-_unplaced(a) = a
-_unplaced(a::Tuple) = map(_unplaced, a)
-# The steps of an indicator projection, and of the penalized ball and sphere kernels, are
-# the scalars in [0, Inf]; the comparison is written so that it rejects NaN.
-@inline _checkstep_nonneg(γ::Real) = γ >= 0 || _throw_step(γ)
-@noinline _throw_step(γ) = throw(ArgumentError("γ must be nonnegative, got $γ"))
-struct _StepInput{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
-  array::A
-end
-Base.size(x::_StepInput) = size(x.array)
-Base.axes(x::_StepInput) = axes(x.array)
-_unplaced(a::_StepInput) = _unplaced(a.array)
-_step_values(x::AbstractArray) = true
-# A placeholder shows the storage of the array it stands for, never its values.
-_projection_host(x::_StepInput) = _projection_host(x.array)
-_step_values(x::_StepInput) = false
-_step_values(x::SubArray) = _step_values(parent(x))
-
 _checkvalue(f, x) = (_checkreal(f, x); _checkparams(f, x))
-_checkconjugate(f, y) = (_checkreal(f, y); true)
 
 ####################################
 #  Gradients
@@ -459,9 +419,6 @@ on which to validate symmetric per-entry parameters; validate the original
 function before using the result in a coordinate routine.
 """
 function restrict end
-# the restriction without the check that the dropped terms are finite at zero,
-# for wrappers that evaluate those terms elsewhere
-_restrict_unchecked(f::AbstractFunction, S::AbstractVector{<:Integer}) = restrict(f, S)
 
 """
     lipschitz(f)

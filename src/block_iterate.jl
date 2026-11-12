@@ -276,14 +276,6 @@ function activate!(x::BlockIterate, k::Integer)
   x
 end
 
-@inline function _anynonzero(storage, G)
-  s = false
-  @inbounds for i in G
-    s |= !iszero(storage[i])
-  end
-  s
-end
-
 @inline function _deactivate!(x::BlockIterate, k::Integer)
   i = x.position[k]
   if i != 0
@@ -533,19 +525,4 @@ function Base.show(io::IO, ::MIME"text/plain", x::BlockIterate)
       print(io, "\n  ⋮")
     end
   end
-end
-
-# The cache owns the entries and active state, but shares the immutable layout.
-function _output_buffer!(s::Scratch, y::Y) where {Y<:BlockIterate}
-  b = s.buf
-  if b isa Y && b.groups === y.groups && length(b) == length(y)
-    copyto!(b.storage, y.storage)
-    copyto!(b.active, y.active)
-    copyto!(b.position, y.position)
-    b.nactive = y.nactive
-    return b
-  end
-  b = copy(y)
-  s.buf = b
-  b
 end

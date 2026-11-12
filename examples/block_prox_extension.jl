@@ -1,5 +1,7 @@
 # A compact-vector block proximal extension
 #
+# *Assumes: block-coordinate methods and Julia dispatch · You will learn: a custom block proximal operator that does not mutate solver storage.*
+#
 # BlockSquare defines h_k(u)=a[k]*||u||²/2 on each ordered group.
 # This example implements a custom group function, not a built-in group penalty.
 using ProximalBase, LinearAlgebra

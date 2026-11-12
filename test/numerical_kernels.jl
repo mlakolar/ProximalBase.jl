@@ -150,6 +150,67 @@ setprecision(BigFloat, 1200) do
     @test PB._square_parts(T(Inf), T[1, 1], nothing) === nothing
     @test PB._square_parts(T(2), zeros(T, 2), nothing) === (zero(T), 0)
   end
+
+  @testset "SqrNormL2 on the shared kernels" begin
+    # the gradient λ(x - c) where x - c overflows and λ restores the range; the value and the fused
+    # oracle on the same data
+    for _ in 1:300
+      x, c = abs(signif(rng, T, E)), -abs(signif(rng, T, rand(rng, E-1:E)))
+      λ = abs(signif(rng, T, rand(rng, -E:-2)))
+      r = big(λ) * (big(x) - big(c))
+      abs(r) <= floatmax(T) || continue
+      f = SqrNormL2(λ, [c])
+      g = gradient!(zeros(T, 1), f, [x])
+      @test within(g[1], r, 2)
+      g2 = zeros(T, 1)
+      v = value_and_gradient!(g2, f, [x])
+      @test g2 == g && v === f([x])
+      @test within(v, big(λ) * (big(x) - big(c))^2 / 2, 3)
+    end
+    # a genuine infinite level keeps the IEEE gradient λ(x - c), also for a subnormal residual,
+    # which halving would have rounded to zero (NaN on master)
+    δ = nextfloat(zero(T))
+    g = gradient!(zeros(T, 3), SqrNormL2(T(Inf), T[0, 0, 1]), T[-δ, 3δ, 1])
+    @test g[1] === T(-Inf) && g[2] === T(Inf) && isnan(g[3])
+    # centers are rounded once as the value rounds them, in the value and in the value parts:
+    # an entry that leaves T's range on rounding is read unrounded, the others are rounded to T
+    W = T === Float32 ? Float64 : BigFloat
+    c = W[ldexp(W(1), e0 - 4), W(1) / 3]
+    λ = pow2(T, E)
+    x = T[0, 1]
+    cr = [big(c[1]), big(T(c[2]))]
+    ref = big(λ) * sum(abs2, big.(x) .- cr) / 2
+    f = SqrNormL2(λ, c)
+    @test within(f(x), ref, 2)
+    α = pow2(T, -E ÷ 2)
+    @test within(Scaled(f, α)(x), big(α) * ref, 2)
+    λs = pow2(T, -E + 2)
+    xs = T[0, 0]
+    ref_small = big(λs) * sum(abs2, big.(xs) .- cr) / 2
+    @test within(Scaled(SqrNormL2(λs, c), pow2(T, E - 1))(xs), big(pow2(T, E - 1)) * ref_small, 2)
+    # stored iterates: O(nnz) reductions with the logical multiplicity, on the recovery path
+    xsp = SparseIterate(T, 6)
+    xsp[2], xsp[5] = pow2(T, E - 1), T(-3)
+    xm = SymmetricSparseIterate(T, 3)
+    xm[2, 1], xm[3, 3] = pow2(T, E - 1), T(-0.75) * pow2(T, E - 1)
+    λt = pow2(T, -E + 1)
+    for z in (xsp, xm)
+      dense = z isa SparseIterate ? Vector(z) : Matrix(z)
+      @test within(SqrNormL2(λt)(z), big(λt) * sum(abs2, big.(dense)) / 2, 2)
+      @test SqrNormL2(λt)(z) === SqrNormL2(λt)(dense)
+    end
+    # prox: the coordinate and array methods, and the in-place alias, agree at exceptional scales
+    for (γ, λp) in ((pow2(T, E - 1), pow2(T, E - 1)), (pow2(T, -E), pow2(T, e0)), (T(1), T(3)))
+      x = T[pow2(T, E), -pow2(T, e0), T(0.3)]
+      cc = T[-pow2(T, E - 1), pow2(T, e0), T(1)]
+      for f in (SqrNormL2(λp), SqrNormL2(λp, cc))
+        z = prox!(similar(x), f, x, γ)
+        @test z == [prox_block(f, x[i], i, γ) for i in eachindex(x)]
+        xa = copy(x)
+        @test prox!(xa, f, xa, γ) == z
+      end
+    end
+  end
 end
 end
 

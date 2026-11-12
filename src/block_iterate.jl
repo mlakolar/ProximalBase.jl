@@ -63,7 +63,6 @@ BlockIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}, layout_cache,
   BlockIterate{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
 
 _stored_values(x::BlockIterate) = x.storage
-_scaled_dot(a, x::BlockIterate, s) = _scaled_dot(a, x.storage, s)
 
 BlockIterate(p::Integer, groups::AbstractVector{<:AbstractVector{<:Integer}}) = BlockIterate(Float64, p, groups)
 function BlockIterate(::Type{T}, p::Integer, groups::AbstractVector{<:AbstractVector{<:Integer}}) where {T}

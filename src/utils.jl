@@ -208,7 +208,7 @@ integers and `Bool` give `Float64`; `BigInt` gives `BigFloat`.
 For `value_and_gradient!`, the value passes `R`, the argument and data types;
 the gradient passes `D`, the argument and data types. The value of
 `value_and_prox!` passes the output and data types, not the argument type.
-Callers promote tuple blocks. This helper is not yet used by the oracles.
+Callers promote tuple blocks. The SqrNormL2 gradient and proximal operator use it.
 """
 function _model_precision(::Type{D}, types::Type...) where {D}
   all(T -> T <: Real, (D, types...)) || _real_error(:_model_precision)

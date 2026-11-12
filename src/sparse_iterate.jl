@@ -144,18 +144,6 @@ function _scaled_dot(a, x::SparseIterate, s)
   end
   v
 end
-function _scaled_dot(a, x::SymmetricSparseIterate, s)
-  _checkparam(a, x)
-  v = zero(s[1])
-  @inbounds for k in 1:x.nnz
-    r, c = tril_cartesian(x.p, x.nzval2ind[k])
-    u = _scale_value(x.nzval[k], s)
-    ar = float(_entry(a, r + (c - 1) * x.p))
-    ac = r == c ? zero(ar) : float(_entry(a, c + (r - 1) * x.p))
-    v += (ar + ac) * u
-  end
-  v
-end
 
 # the stored entries of an iterate: the recoveries of R1 read only these
 _stored_maxabs(x::Union{SparseIterate, SymmetricSparseIterate}) = _maximum_abs(view(x.nzval, 1:x.nnz))

@@ -22,7 +22,9 @@ jobs:
           version: '1'
       - uses: julia-actions/cache@v3
       - name: Test declared minimal inventory
-        run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(; julia_args=["--check-bounds=yes"])' 2>&1 | tee "${RUNNER_TEMP}/pb-package-tests.log"
+        run: |
+          set -o pipefail
+          julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(; julia_args=["--check-bounds=yes"])' 2>&1 | tee "${RUNNER_TEMP}/pb-package-tests.log"
       - name: Prepare benchmark environment
         run: julia scripts/instantiate.jl benchmark
       - name: Check frozen benchmark references
@@ -39,9 +41,13 @@ jobs:
       - name: Prepare documentation environment
         run: julia scripts/instantiate.jl docs
       - name: Build strict documentation, doctests and isolated Literate examples
-        run: julia --project=docs docs/make.jl 2>&1 | tee "${RUNNER_TEMP}/pb-docs-build.log"
+        run: |
+          set -o pipefail
+          julia --project=docs docs/make.jl 2>&1 | tee "${RUNNER_TEMP}/pb-docs-build.log"
       - name: Check rendered internal links and navigation
-        run: python3 docs/check_html.py 2>&1 | tee "${RUNNER_TEMP}/pb-docs-html.log"
+        run: |
+          set -o pipefail
+          python3 docs/check_html.py 2>&1 | tee "${RUNNER_TEMP}/pb-docs-html.log"
       - name: Preserve rendered documentation
         uses: actions/upload-artifact@v7
         with:

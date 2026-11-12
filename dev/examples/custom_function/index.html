@@ -25,21 +25,18 @@ s = SparseIterate(x)
 activate!(s, 3)
 z = prox(f, s, 0.5)
 @assert Vector(z) ≈ prox(f, x, 0.5)
-@assert nactive(z) == 2  # fresh output does not inherit an active zero</code></pre><p>The declaration enables exact mirrored-parameter checks on symmetric iterates.</p><pre><code class="language-julia hljs">h = WeightedSquare([1.0 2; 2 3])
+@assert nactive(z) == 2  # fresh output does not inherit an active zero</code></pre><p>On a symmetric iterate the weights must be exactly symmetric. The oracles assume this; the declaration above lets the explicit check validate the model once.</p><pre><code class="language-julia hljs">h = WeightedSquare([1.0 2; 2 3])
 sym = SymmetricSparseIterate([1.0 2; 2 0])
 @assert ProximalBase.check_symmetric_parameters(h, sym)
 @assert h(sym) ≈ sum(h.w .* Matrix(sym).^2) / 2
-@assert Matrix(prox(h, sym, 0.5)) ≈ Matrix(sym) ./ (1 .+ 0.5 .* h.w)</code></pre><p>Preflight errors leave both the values and activity of a destination unchanged.</p><pre><code class="language-julia hljs">bad = WeightedSquare([1.0 2; 3 1])
-before = copy(sym)
+@assert Matrix(prox(h, sym, 0.5)) ≈ Matrix(sym) ./ (1 .+ 0.5 .* h.w)</code></pre><p>Asymmetric weights are an invalid model, rejected by the explicit check before any oracle is called. The oracles give them no meaning.</p><pre><code class="language-julia hljs">bad = WeightedSquare([1.0 2; 3 1])
 try
-    prox!(sym, bad, sym, 0.5)
+    ProximalBase.check_symmetric_parameters(bad, sym)
     error(&quot;expected asymmetric weights to fail&quot;)
 catch err
     @assert err isa ArgumentError
 end
-@assert Matrix(sym) == Matrix(before)
-@assert collect(activecoordinates(sym)) == collect(activecoordinates(before))
 Vector(z)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">3-element Vector{Float64}:
   0.6666666666666666
  -1.0
-  0.0</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../symmetric_storage/">« Independent symmetric coordinates</a><a class="docs-footer-nextpage" href="../block_prox_extension/">A compact-vector block extension »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.20.0 on <span class="colophon-date" title="Thursday 12 November 2026 18:03">Thursday 12 November 2026</span>. Using Julia version 1.13.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+  0.0</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../symmetric_storage/">« Independent symmetric coordinates</a><a class="docs-footer-nextpage" href="../block_prox_extension/">A compact-vector block extension »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.20.0 on <span class="colophon-date" title="Thursday 12 November 2026 19:19">Thursday 12 November 2026</span>. Using Julia version 1.13.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

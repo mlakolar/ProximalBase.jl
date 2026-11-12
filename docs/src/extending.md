@@ -64,23 +64,23 @@ A Julia subtype of `SeparableFunction` supplies two scalar operations:
 `prox_block(f, v, i, γ)` computes the scalar proximal point of
 ``\gamma f_i`` at ``v``. Here i is the **linear entry index** of the underlying
 argument, used to index parameters. Generic kernels visit arrays, `SparseIterate`,
-`BlockIterate` and symmetric owners. Declare `check_parameters(f,x)` to reject
+`BlockIterate` and symmetric iterates. Declare `check_parameters(f,x)` to reject
 wrong parameter extent before generic writes. Use `prod(size(x))` rather than
-`length(x)` when accepting symmetric owners.
+`length(x)` when accepting symmetric iterates.
 
 Declare every per-entry array in `entry_parameters(f)` as a tuple of
 `Symbol=>value` pairs; declare `()` if none. A custom `SeparableFunction`'s
 default is `nothing`, which rejects symmetric use. Full symmetric operations
 validate metadata, shape and exact mirrored pairs. Overriding a public oracle
 replaces that generic boundary: call `check_symmetric_parameters(f,x)` yourself
-when accepting an owner.
+when accepting a symmetric iterate.
 
 `iszeropreserving(f)=true` is a mathematical promise that ``f_i(0)=0`` and
 ``prox_{γf_i}(0)=0`` for **all positive finite γ**. Only declare it when valid
 for every parameter value the instance permits. It enables sparse traversal;
 it does not provide an oracle or license arbitrary NaN suppression. Symmetric
 values count off-diagonal entry terms twice, while coordinate vectors count
-one independent value. Raw scalar calls do not check owner symmetry; validate
+one independent value. Raw scalar calls do not check symmetric-iterate symmetry; validate
 the original function before using them.
 
 For example, the [WeightedSquare implementation](examples/custom_function.md)
@@ -149,7 +149,7 @@ caller matches the partition, computes the trial, invokes the hook in scratch,
 then writes `copyto!(blockview(x,k),out)` and updates its residual. A zero result
 can leave an absent block inactive because the trial was never written there.
 Parameter symmetry and independent-coordinate geometry are not automatically
-defined for an arbitrary block decomposition on a symmetric owner.
+defined for an arbitrary block decomposition on a symmetric iterate.
 
 The complete BlockSquare example checks allocating, exact in-place and
 rejected-overlap calls. Implementing only this block method does not by

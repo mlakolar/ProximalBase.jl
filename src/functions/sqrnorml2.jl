@@ -89,10 +89,10 @@ function _norm2_scaled(x::SymmetricSparseIterate{T}) where {T}
   n
 end
 
-(f::SqrNormL2)(x::_ArrayOrOwner) =
+(f::SqrNormL2)(x::_ArrayOrSymmetricIterate) =
   (_check_value_arrays(f, x); _value_checked(f, x))
-function _value_unchecked(f::SqrNormL2, x::_ArrayOrOwner)
-  # a center is read at every entry of the matrix that the owner represents
+function _value_unchecked(f::SqrNormL2, x::_ArrayOrSymmetricIterate)
+  # a center is read at every entry of the matrix that the symmetric iterate represents
   x isa SymmetricSparseIterate && f.y !== nothing && return _value_unchecked(f, matrixview(x))
   _checkvalue(f, x)
   T = _valtype(x)
@@ -198,24 +198,24 @@ function _ridge_value_wide_center(λ, x, y)
   _exceptional_square_value(λ, x, _ridge_value_center(T, y), sT, v)
 end
 
-value_and_gradient!(g::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner) =
+value_and_gradient!(g::_ArrayOrSymmetricIterate, f::SqrNormL2, x::_ArrayOrSymmetricIterate) =
   (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
-function _value_and_gradient_unchecked!(g::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner)
+function _value_and_gradient_unchecked!(g::_ArrayOrSymmetricIterate, f::SqrNormL2, x::_ArrayOrSymmetricIterate)
   _checkwrite(value_and_gradient!, f, g, x)
   v = _value_unchecked(f, x)      # before the gradient, which may be written over the center
   _ridge_gradient!(g, f.λ, f.y, x)
   v
 end
-gradient!(g::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner) =
+gradient!(g::_ArrayOrSymmetricIterate, f::SqrNormL2, x::_ArrayOrSymmetricIterate) =
   (_check_oracle_arrays(gradient!, f, g, x); _gradient_unchecked!(g, f, x))
-function _gradient_unchecked!(g::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner)
+function _gradient_unchecked!(g::_ArrayOrSymmetricIterate, f::SqrNormL2, x::_ArrayOrSymmetricIterate)
   _checkwrite(gradient!, f, g, x)
   _ridge_gradient!(g, f.λ, f.y, x)
 end
 
-# an owner point with a dense output: the entries of the matrix that the owner represents
+# a symmetric iterate point with a dense output: the entries of the matrix that the symmetric iterate represents
 _ridge_gradient!(g::AbstractArray, λ, c, x::SymmetricSparseIterate) = _ridge_gradient!(g, λ, c, matrixview(x))
-# an owner output: the symmetric part of the entrywise gradient, once per coordinate
+# a symmetric iterate output: the symmetric part of the entrywise gradient, once per coordinate
 function _ridge_gradient!(g::SymmetricSparseIterate, λ, c, x)
   W = _model_precision(eltype(g), eltype(x))
   if _level_fits(W, λ)
@@ -293,11 +293,11 @@ function _ridge_gradient_wide(::Type{W}, l, x, c) where {W}
   isfinite(r) ? r : _ridge_gradient_overflow(R(l), R(x), cw, r)
 end
 
-prox!(z::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner, γ::Real) =
+prox!(z::_ArrayOrSymmetricIterate, f::SqrNormL2, x::_ArrayOrSymmetricIterate, γ::Real) =
   (x = _symmetric_argument(z, x); _check_oracle_arrays(prox!, f, z, x, γ); _prox_unchecked!(z, f, x, γ))
 _prox_unchecked!(z::AbstractArray, f::SqrNormL2, x::SymmetricSparseIterate, γ::Real) =
   _prox_unchecked!(z, f, matrixview(x), γ)
-function _prox_unchecked!(z::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner, γ::Real)
+function _prox_unchecked!(z::_ArrayOrSymmetricIterate, f::SqrNormL2, x::_ArrayOrSymmetricIterate, γ::Real)
   _checkwrite(prox!, f, z, x)
   W = _model_precision(eltype(z), eltype(x))
   c = f.y === nothing ? nothing : _checked_parameter(z, f.y)
@@ -308,7 +308,7 @@ function _prox_unchecked!(z::_ArrayOrOwner, f::SqrNormL2, x::_ArrayOrOwner, γ::
   end
 end
 
-function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::SqrNormL2, y::_ArrayOrOwner, x::_ArrayOrOwner)
+function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::SqrNormL2, y::_ArrayOrSymmetricIterate, x::_ArrayOrSymmetricIterate)
   _checkreal(f, x)
   _checkreal(f, y)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
@@ -447,7 +447,7 @@ end
   W(_ridge_scaled_blend(R(x), R(c), _ridge_scaled(R, promote_type(R, typeof(s.γ))(s.γ), promote_type(R, typeof(s.λ))(s.λ))))
 end
 
-# an owner output: each coordinate once, from the lower entry of the symmetric argument
+# a symmetric iterate output: each coordinate once, from the lower entry of the symmetric argument
 _ridge_prox!(z::SymmetricSparseIterate, o::_RidgeOrdinary, x, ::Nothing) =
   _lower_coordinates!(z, (v, j) -> _ridge_apply(o, v), x)
 _ridge_prox!(z::SymmetricSparseIterate, s::_RidgeScaled, x, ::Nothing) =

@@ -9,7 +9,7 @@ capability list. Current source and tests govern the minimal core.
 
 The supported CPU numerical targets are homogeneous `Float64` and
 homogeneous `Float32`. In the supported configuration, the floating-point
-design/response data, iterate or trial point, function parameters (such as
+design/response data, iterate or proximal input point, function parameters (such as
 levels, weights and centers), proximal step, and floating output buffers
 all use the same type `T`. `Float64` is the primary performance and
 accuracy target; `Float32` is also tested. Individual methods may accept
@@ -28,7 +28,7 @@ For supported homogeneous array-function calls:
 
 - `f(x)` returns the value in `T = float(eltype(x))`.
 - Allocating gradient and proximal operations produce their documented
-  representations in `T`; owner-specific results are described in the
+  representations in `T`; `SymmetricSparseIterate`-specific results are described in the
   symmetric iterate guide.
 - Mutating operations respect the destination's element type and never
   change the caller's storage type.
@@ -113,14 +113,14 @@ all-NaN result or a particular exception.
 | `ZeroFunction` value | Zero even at NaN/Inf input entries |
 | Unweighted `NormL1`, zero level | Zero value on dense float arrays, including NaN entries |
 | `NormL1`, zero weight | Unpenalized entry at every level |
-| `NormL1`, infinite weight | Finite trial thresholds to zero even at zero level; NaN/Inf trial can return NaN with finite level; infinite value away from zero |
-| `NormL1`, infinite level and positive step | Positive-weight entries prox to zero, including non-finite trials |
-| `NormL1`, finite factors whose product overflows | Distinguished from a genuinely infinite level; bounded-factor recovery is used |
+| `NormL1`, infinite weight | Finite input values map to zero, even with zero level or step. No fixed-zero guarantee for `NaN`/`±Inf` inputs with finite level; `shrink` can return `NaN`. Value is `Inf` away from zero. See [#853](https://github.com/mlakolar/ProximalBase.jl/issues/853). |
+| `NormL1`, infinite level and positive step | Positive-weight entries prox to zero, including non-finite inputs |
+| `NormL1`, finite factors whose product overflows | Distinguished from genuinely infinite weights/levels; recovery handles representable finite results where supported. With an input of `±Inf`, an overflowed finite threshold can yield `NaN`; [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) is a documented, deferred limitation, not an authorized hot-loop fix. |
 | `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
 | `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual |
 | Generic custom value/prox | Author-defined arithmetic; traits do not grant recovery or NaN policy |
 | Paired symmetric parameters | Exact equality, NaN matches NaN, signed zeros agree |
-| Opposing infinities in an owner KKT gradient pair | ArgumentError at that chosen pair |
+| Opposing infinities in a symmetric iterate KKT gradient pair | ArgumentError at that chosen pair |
 
 ```@example numerical_endpoints
 using ProximalBase
@@ -128,12 +128,37 @@ using ProximalBase
 @assert prox(NormL1(Inf),[NaN,Inf],1.0) == [0,0]
 @assert prox(NormL1(0.0,[Inf,0.0]),[2.0,3.0]) == [0,3]
 @assert isnan(shrink(NaN,1.0))
-@assert isnan(prox(NormL1(1.0,[Inf]),[Inf],1.0)[1])
+@assert prox(NormL1(1.0,[Inf]),[2.0],1.0) == [0.0]  # finite input fixed at zero
+@assert prox(NormL1(0.0,[Inf]),[2.0],0.0) == [0.0]  # zero level/step
+@assert isnan(prox(NormL1(1.0,[Inf]),[Inf],1.0)[1])  # non-finite limitation (#853)
+@assert isnan(prox(NormL1(1e300,[1e10]),[Inf],1.0)[1])  # final factor overflows (#866)
+@assert isnan(prox(NormL1(1e10,[1.0]),[Inf],1e300)[1]) # intermediate product overflows (#866)
 prox(NormL1(Inf),[NaN,Inf],1.0)
 ```
 
+**Decision on `NormL1` non-finite inputs (#853 and #866).** A genuinely infinite
+coordinate weight maps a *finite input value* to zero, even at zero level and step.
+For inputs of `NaN` or `±Inf` with finite level, that fixed-zero guarantee is
+intentionally not extended: retained soft-threshold arithmetic may return
+`NaN`. Separately, a threshold made from *finite* factors can overflow to
+`Inf`; with an input of `±Inf`, the current result can likewise be `NaN` even
+though the mathematical threshold is finite. These examples characterize
+present behavior, not additional non-finite-output guarantees. A genuinely
+infinite **level** with positive step retains its distinct fixed-zero rule
+for positive weights, including non-finite inputs (historical decision 49).
+
+The endpoint extensions were deferred to protect ordinary proximal throughput:
+PR [#874](https://github.com/mlakolar/ProximalBase.jl/pull/874) measured
+slowdowns of **+5.9% (`Float32`) and +9.9% (`Float64`)** for weighted array steps
+at 65,536 entries after optimization, and reported **+19–31%** for weighted
+scalar steps on a newer local CPU. Unlike finite-input overflow/underflow
+recovery, these cases require a particular convention for a genuinely
+non-finite input. No additional checks or scans are authorized in the hot
+loop for #853 or #866. Reconsider #866 if a practically important finite-input
+failure is demonstrated or an implementation preserves ordinary-path speed.
+
 Signed zeros do not activate absent coordinates; explicit active signed zeros
-can be retained in storage. Owner `isequal` distinguishes stored negative zero
+can be retained in storage. Symmetric-iterate `isequal` distinguishes stored negative zero
 from absent positive zero; `==` does not. `dropzeros!` removes either signed zero
 and preserves NaN/Inf.
 

@@ -5,12 +5,12 @@
 | Handle | Writable | Lifetime / interpretation |
 |:--|:--|:--|
 | coordinates(`SparseIterate`) | yes | Stable full-entry vector mapping |
-| coordinates(symmetric owner) | yes | Stable independent lower-triangle mapping |
-| `matrixview`(owner) | no | Stable full-matrix mapping, mirrored entries |
+| coordinates(symmetric iterate) | yes | Stable independent lower-triangle mapping |
+| `matrixview`(symmetric iterate) | no | Stable full-matrix mapping, mirrored entries |
 | `blockview`(block,k) | yes | Stable group order, writes through entry setter |
 | `blockindices`(block,k) | no | Immutable-in-use ordered global indices |
 | `activecoordinates`(x) | no | Old-extent packed slot handle; reacquire after structural change |
-| `activevalues`(sparse/owner) | yes | Same slot mapping and reacquisition rule |
+| `activevalues`(sparse/symmetric iterate) | yes | Same slot mapping and reacquisition rule |
 
 Coordinate views are ordinary vectors with ordinary conversion and IEEE
 products, not sparse-kernel proxies. Active handles protect IDs while permitting
@@ -23,7 +23,7 @@ Backing arrays report identities through Base.dataids. Coordinate/active/matrix
 wrappers preserve those identities; unaliascopy returns an independent source
 in the wrapper's own representation when Base needs a copy for overlap.
 These are version-dependent internal Julia hooks, not PB public extension APIs.
-Creating/reading a view does not itself copy the owner. Actual overlap handling
+Creating/reading a view does not itself copy the symmetric iterate. Actual overlap handling
 can allocate O(full coordinate capacity).
 
 Ordinary array copying/broadcasting and `blockview` copying can snapshot aliased
@@ -31,7 +31,7 @@ sources. This does **not** make every mathematical oracle overlap-safe:
 `prox!(x,f,x,γ)` supports exact identity; shifted/reversed/derived overlapping
 views are unsupported and can silently give incorrect values. Built-in gradient
 identity is rejected; supply independent scratch for other overlaps too.
-Owner matrix products reject output aliases with either operand.
+Symmetric-iterate matrix products reject output aliases with either operand.
 
 Compact-vector `prox_block!` has a separate caller precondition: independent
 output from all iterate/model cache storage. A view's plain-vector parent does
@@ -44,7 +44,7 @@ other buffer overlap; the allocating wrapper does not enforce that for it.
 |:--|:--|:--|
 | Scalar iterate setter | Bounds and conversion | No prior state change if conversion fails |
 | Same-kind matching state copy | Extent/layout and fallible active-value conversions | Staged conversion avoids partial destination state |
-| Owner matrix import | Real type, axes, alias rejection, exact symmetry | Conversion/read failure can leave cleared/partial new state |
+| Symmetric-iterate matrix import | Real type, axes, alias rejection, exact symmetry | Conversion/read failure can leave cleared/partial new state |
 | Direct array-iterate fill | Real-type check and scalar conversion | Valid scalar then written using activity rules |
 | Direct array-iterate broadcast | Leaf/result type and shape; uncertain non-real results staged | Real result conversion can still partially write |
 | Ordinary view/coordinate/block value writes | Base indexing/extent rules | Partial reads/conversions permitted, storage invariants maintained |

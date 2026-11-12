@@ -1178,7 +1178,7 @@ function test_linear_function(::Type{T}) where {T<:AbstractFloat}
     @test isnan(LinearFunction(T[NaN, 1], zero(T))(T[1, 1]))
     @test LinearFunction(T[1, 2], T(Inf))(T[1, 1]) === T(Inf)
     @test LinearFunction(T[1, 1], zero(T))(T[0, -0.0]) === zero(T)
-    # the fused oracle on an owner reads the stored coordinates through _owner_dot (c need not be checked symmetric there)
+    # the fused oracle on an owner reads the stored coordinates through _symmetric_matrix_dot (c need not be checked symmetric there)
     for d in (T(1), T(0))
       fo = LinearFunction(cm, d)
       go = SymmetricSparseIterate(T, p)

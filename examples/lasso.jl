@@ -1,6 +1,7 @@
 # Least-squares and lasso primitives
 #
 # *Assumes: gradients, least squares and basic Julia · You will learn: the mathematical loss/penalty scaling and corresponding operations.*
+# This example uses [proximal operators](../glossary.md#Proximal-operator).
 #
 # For n observations, use f(β) = ||Xβ-y||²/(2n) and g(β) = λ||β||₁.
 # LeastSquaresLoss itself divides by two, not by 2n.

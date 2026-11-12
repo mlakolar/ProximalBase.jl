@@ -387,7 +387,7 @@ end
         @test isequal(Array(x), Array(expected))
         @test collect(activecoordinates(x)) == collect(activecoordinates(expected))
 
-        # the owner has no scaling by a number: the vector of its coordinates follows IEEE arithmetic, and
+        # the symmetric iterate has no scaling by a number: the vector of its coordinates follows IEEE arithmetic, and
         # the NaN written into a zero activates it
         X = SymmetricSparseIterate(3); X[2, 1] = 1.0; activate!(X, 1)
         @test_throws MethodError rmul!(X, Inf)
@@ -823,7 +823,7 @@ end
             @test drop_allocs(drop_fixture(T, zeros(T, 20))) == 0
             @test drop_allocs(drop_fixture(T, T[0, 1, 0, 2, 0, 3, 4, 0])) == 0
             @test drop_allocs(drop_fixture(T, T[1, 2, 3])) == 0
-            # the owner keeps the compaction, with the same order as the oracle
+            # the symmetric iterate keeps the compaction, with the same order as the oracle
             s = SymmetricSparseIterate(T, 4)
             for (i, j) in ((2, 1), (3, 2), (4, 4)); s[i, j] = T(1); end
             for k = 1:s.nnz; k == 2 || (s.nzval[k] = 0); end

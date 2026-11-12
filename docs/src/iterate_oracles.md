@@ -14,7 +14,7 @@ proximal point and changes the iterate's active set.
 |:--|:--|:--|
 | `prox_block(f,v,i,γ)` | Scalar v, global array-entry index i | `x[i]=result` for `SparseIterate` |
 | `prox_block!(out,f,u,k,γ)` | Compact vectors in custom group k's order | `copyto!(blockview(x,k),out)` after matching layouts |
-| Scalar hook for a symmetric owner | Scalar v, entry index `(c-1)p+r` derived from independent coordinate k | `coordinates(x)[k]=result` |
+| Scalar hook for a symmetric iterate | Scalar v, entry index `(c-1)p+r` derived from independent coordinate k | `coordinates(x)[k]=result` |
 
 An active slot is never a coordinate or group index. `BlockIterate` has a storage partition,
 not a penalty: `NormL1` has no groups and uses each global member index.
@@ -53,7 +53,7 @@ output; keeping it independent protects the iterate until the separate write.
 
 The [block extension](examples/block_prox_extension.md) is a complete checked
 implementation. Implementing this hook does not automatically supply a full
-array value, full-array prox, traits, KKT screen, symmetric-owner interface or
+array value, full-array prox, traits, KKT screen, symmetric-iterate interface or
 `Scaled` compact-vector forwarding.
 
 ## Screening a zero coordinate
@@ -72,7 +72,7 @@ condition. The routine does not inspect whether the coordinate is actually zero.
 | `BlockIterate` | Maximum scalar screen over global members of group k for supported scalar-screen functions |
 | Other arrays | No extra point/gradient extent validation; indexing/function checks still apply |
 
-For `SparseIterate`/owner, invalid coordinate throws `BoundsError` before
+For `SparseIterate`/`SymmetricSparseIterate`, invalid coordinate throws `BoundsError` before
 extent mismatch throws `DimensionMismatch`, after checking real element types.
 The `BlockIterate` path does not add that same explicit full-gradient extent
 preflight; ensure the gradient is full-length. Nonzero coordinates need their
@@ -80,9 +80,9 @@ own stationarity test, as explained in [coordinate descent](coordinate_descent.m
 
 ## Symmetric scalar steps
 
-For owner coordinate k, compute `(r,c)=tril_cartesian(p,k)`, then use the
+For symmetric-iterate coordinate k, compute `(r,c)=tril_cartesian(p,k)`, then use the
 full-matrix entry index `i=(c-1)p+r`. Validate the original function's mirrored
-parameters before raw scalar hooks, since the hook has no owner to inspect.
+parameters before raw scalar hooks, since the hook has no symmetric iterate to inspect.
 Use a symmetric matrix gradient and the appropriate Frobenius curvature.
 
 ```@example symmetric_coordinate_trial

@@ -161,7 +161,7 @@ for T in (Float32,Float64), b in (1,8,64), layout in (:contiguous,:strided,:arbi
     end
 end
 
-@testset "live block view after owner-state replacement" begin
+@testset "live block view after whole-iterate state replacement" begin
     layouts=([1:2,3:4,5:6,7:8], [2:-1:1,4:-1:3,6:-1:5,8:-1:7],
              [k:4:8 for k in 1:4], [[3,1],[7,2],[8,6],[4,5]])
     for T in (Float32,Float64),groups in layouts

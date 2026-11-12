@@ -12,7 +12,7 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/ProximalBase.jl` | Module, exports, qualified public names and include order |
 | `src/compat.jl` | Version-dependent Base/SparseArrays compatibility types |
 | `src/utils.jl` | Shape/type checks, range-aware arithmetic, norms, triangular indices and Lanczos norm estimate |
-| `src/sparse_iterate.jl` | `SparseIterate`, symmetric owner, active maps, views, copies, products and alias integration |
+| `src/sparse_iterate.jl` | `SparseIterate`, symmetric iterate, active maps, views, copies, products and alias integration |
 | `src/block_iterate.jl` | Ordered partitions, dense values, group activity, block views and layout comparison |
 | `src/interface.jl` | `AbstractFunction`, traits, generic allocating/mutating interfaces and coordinate KKT dispatch |
 | `src/functions/zero.jl` | Zero function and its value/gradient/proximal operations |
@@ -26,13 +26,13 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
 | `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods |
 | `src/functions/scaled_array.jl` | Diagonal array-step methods and scaling recovery for `Scaled` functions |
-| `src/symmetric_parameters.jl` | Per-entry metadata, checked pair domains, explicit owner oracle integration |
+| `src/symmetric_parameters.jl` | Per-entry metadata, checked pair domains, explicit symmetric-iterate oracle integration |
 | `src/block_prox.jl` | Allocating compact-vector wrapper; custom mutating hook remains external |
 | `src/caches.jl` | Public cache invalidation, recursing through `Scaled` |
 | `src/precompile.jl` | Small retained precompile workloads |
 
 The include order puts storage before the mathematical interface because
-explicit owner methods need the owner type. Generic interface methods then
+explicit symmetric-iterate methods need the `SymmetricSparseIterate` type. Generic interface methods then
 combine with concrete implementations and final symmetric/array-step routes.
 There is no automatic device registration or removed-family plugin layer.
 
@@ -45,7 +45,7 @@ There is no automatic device registration or removed-family plugin layer.
 | `gradient!(g,LeastSquaresLoss(Y,X),β)` | Checked output → residual Xβ−Y → transpose-design product |
 | `prox!(y,QuadraticFunction(A,b),x,γ)` | Shape/type preflight → cached eigenbasis → diagonal inverse factors → output conversion |
 | `prox_block(f,u::AbstractVector,k,γ)` | Allocate plain floating Vector → user `prox_block!` |
-| `prox!(owner,g,V,γ)` | Symmetric argument where needed → parameter-pair preflight → each independent coordinate written once |
+| `prox!(X::SymmetricSparseIterate,g,V,γ)` | Symmetric argument where needed → parameter-pair preflight → each independent coordinate written once |
 | `kkt_violation(g,grad,block,k)` | Retained scalar screen at each global member → maximum |
 
 Traits describe mathematical properties and capabilities; Julia concrete

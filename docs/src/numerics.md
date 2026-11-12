@@ -28,7 +28,7 @@ For supported homogeneous array-function calls:
 
 - `f(x)` returns the value in `T = float(eltype(x))`.
 - Allocating gradient and proximal operations produce their documented
-  representations in `T`; owner-specific results are described in the
+  representations in `T`; `SymmetricSparseIterate`-specific results are described in the
   symmetric iterate guide.
 - Mutating operations respect the destination's element type and never
   change the caller's storage type.
@@ -116,7 +116,7 @@ all-NaN result or a particular exception.
 | `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual |
 | Generic custom value/prox | Author-defined arithmetic; traits do not grant recovery or NaN policy |
 | Paired symmetric parameters | Exact equality, NaN matches NaN, signed zeros agree |
-| Opposing infinities in an owner KKT gradient pair | ArgumentError at that chosen pair |
+| Opposing infinities in a symmetric iterate KKT gradient pair | ArgumentError at that chosen pair |
 
 ```@example numerical_endpoints
 using ProximalBase
@@ -154,7 +154,7 @@ loop for #853 or #866. Reconsider #866 if a practically important finite-input
 failure is demonstrated or an implementation preserves ordinary-path speed.
 
 Signed zeros do not activate absent coordinates; explicit active signed zeros
-can be retained in storage. Owner `isequal` distinguishes stored negative zero
+can be retained in storage. Symmetric-iterate `isequal` distinguishes stored negative zero
 from absent positive zero; `==` does not. `dropzeros!` removes either signed zero
 and preserves NaN/Inf.
 

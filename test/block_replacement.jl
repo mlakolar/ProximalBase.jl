@@ -13,7 +13,7 @@ function check(x, values, ids)
     end
 end
 
-@testset "whole-owner replacement and independent state references" begin
+@testset "whole-iterate replacement and independent state references" begin
     layouts = ([1:3,4:6,7:9,10:12], [1:4:12,2:4:12,3:4:12,4:4:12],
                [[9,1,5],[10,2,6],[11,3,7],[12,4,8]], [k:12:12 for k in 1:12],
                [Int32(k):Int32(k+2) for k in 1:3:12],

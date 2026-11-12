@@ -24,6 +24,9 @@ part of an asymmetric argument, each against an independent BigFloat evaluation 
 Float64. Known defects are recorded with `@test_broken` against the correct reference and flip when fixed.
 `core_functions` exercises retained
 interface, lasso building blocks and custom scalar/vector block extensions.
+`dropzeros_compaction` checks the shared `dropzeros!` loop of `SparseIterate` and
+`SymmetricSparseIterate` against an independent copy of the previous loop (count, live
+values and IDs in order, reverse map) and a dense reference, with later use and allocations.
 `block_replacement` checks whole-iterate copies against independent value/activity
 references, layout ownership and cache preservation, conversions and preflight errors.
 `block_value_updates` checks buffered writes against independent dense values,

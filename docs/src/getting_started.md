@@ -20,6 +20,9 @@ The documentation and CI are validated on Linux with current Julia 1.x.
 
 ## A lasso objective
 
+A lasso objective combines squared-error data fitting with an ℓ₁ regularizer,
+which can set some coefficients exactly to zero.
+
 With design matrix ``X\in\mathbb R^{n\times p}``, response ``y\in\mathbb R^n``
 and coefficient vector ``\beta\in\mathbb R^p``, consider
 

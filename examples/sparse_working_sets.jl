@@ -1,4 +1,6 @@
 # Sparse working sets
+#
+# *Assumes: arrays and coordinate descent · You will learn: active stored zeros, screening, restriction and compaction.*
 using ProximalBase, LinearAlgebra
 x = SparseIterate(5)
 activate!(x, 4)

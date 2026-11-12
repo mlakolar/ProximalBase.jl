@@ -37,9 +37,9 @@ Exactly these three checked refs retain the contaminated commit:
 
 No checked tag, master ref, other advertised main-repository ref or checked
 fork ref contains it. The audit release tag points to clean `b77f4a4e`.
-The fork listing also names `zxj5470-mirrors/ProximalBase.jl`; its Git and REST
-ref endpoints returned 404 even with authenticated access. Its contents and
-refs therefore remain unverified, not established clean.
+The fork listing also names `zxj5470-mirrors/ProximalBase.jl`; Git reported
+repository-not-found and the authenticated REST ref endpoint returned 404.
+Its contents and refs remain unverified, not established clean.
 
 The original commit page and historical raw-archive URL returned HTTP 200 to
 anonymous HEAD requests. The same commit-page URL under `tkelman/ProximalBase.jl`

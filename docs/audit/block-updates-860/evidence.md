@@ -35,8 +35,12 @@ cmp ledger.csv results/regression-ledger.csv
 
 Python 3.11+ supplies `tomllib`; statistical replay needs no Julia or repository
 checkout. Independent review reproduced these five outputs byte for byte.
-The archived runner documents full fixture reproduction with Julia 1.13.3 and
-the locked environment. Its synthetic paths are labels, so configure source/output
-paths for a new run. Frozen runners can collect identifying metadata; sanitize
-new outputs before sharing. No new benchmark campaign is part of this finalization.
+The archived runner README uses the former checkout and patch-file paths and
+is not runnable verbatim from this replacement. Complete measured source trees
+are bundled under `sources/{base,singleton,bulk-inline,bulk-outlined}` and drivers
+under `generator/{audit860,audit852}`; use those instead of missing patch paths.
+New fixture runs require Linux/Julia 1.13.3, the locked environment, configured
+source/output paths and an allowed CPU. Statistical replay above is self-contained.
+Frozen runners collect identifying metadata; sanitize new outputs before sharing.
+No new benchmark campaign is part of this finalization.
 The clean replacement does not erase [remaining historical exposure](remediation-876.md).

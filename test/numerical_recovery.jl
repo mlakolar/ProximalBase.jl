@@ -12,7 +12,7 @@ module NumericalRecoveryTest
 # contract of the three-factor sparse/symmetric terms is one neighbouring float for a normal term and one
 # spacing for a subnormal one), a compensated sum is accurate to the unit roundoff of its result, sums of
 # terms in storage order carry an error relative to the sum of the magnitudes of the terms (as docs/src/numerics.md
-# says), and the three-factor coefficient `_scaled_coefficient` is correctly rounded (0 ulp). The retained
+# says). The retained
 # frozen ridge references are in ridge_precision.jl, the primitive kernels in numerical_kernels.jl.
 #
 # Each test function builds its own seeded Xoshiro; the cases that need a long random sample say so.
@@ -710,32 +710,6 @@ function test_normL1_prox(::Type{T}) where {T<:AbstractFloat}
     @test kkt_violation(NormL1(T(2), T[0]), T[-7], 1) === T(7)
     @test within(kkt_violation(NormL1(pow2(T, E - 10) * T(1.3), T[4]), T[-pow2(T, E - 3)], 1), big(pow2(T, E - 3)) - big(pow2(T, E - 10) * T(1.3)) * 4, 1)
     @test kkt_violation(NormL1(pow2(T, E - 3) * T(1.3), T[16]), T[-pow2(T, E - 3)], 1) === -T(Inf)      # the coefficient itself is out of range
-    # the three-factor coefficient, correctly rounded (no live caller in src/: the audit pins it as a baseline)
-    for _ in 1:3000
-      ea, eb, ec = rand(rng, -E:E), rand(rng, -E:E), rand(rng, -E:E)
-      a, b, c = signif(rng, T, ea), signif(rng, T, eb), signif(rng, T, ec)
-      r = big(a) * big(b) * big(c)
-      @test PB._scaled_coefficient(a, b, c, a * b * c) === T(r)
-      γc = a * b
-      if !(floatmin(T) <= abs(γc) <= floatmax(T)) && isfinite(γc) && !iszero(γc)
-        @test PB._weight_coefficient3(a, b, c) === T(r)                                  # the factors restore the range of a b
-      end
-    end
-    @test PB._scaled_coefficient(pow2(T, e0), T(0.75), T(-0.5), -zero(T)) === T(-0.375) * pow2(T, e0)
-    @test PB._scaled_coefficient(T(-1), pow2(T, e0 - 5), pow2(T, -E), T(-1) * pow2(T, e0 - 5) * pow2(T, -E)) === -zero(T)   # underflow keeps the sign
-    @test PB._scaled_coefficient(T(1), pow2(T, e0 - 5), pow2(T, -E), T(1) * pow2(T, e0 - 5) * pow2(T, -E)) === zero(T)
-    @test PB._scaled_coefficient(pow2(T, E), pow2(T, E), T(1), T(Inf)) === T(Inf)
-    @test PB._scaled_coefficient(pow2(T, E), pow2(T, E), pow2(T, -E), T(Inf)) === pow2(T, E)    # restored by the third factor
-    @test PB._weight_coefficient3(T(2), T(3), T(5)) === T(30)                                   # a normal γλ is the ordinary coefficient
-    @test PB._weight_coefficient3(zero(T), T(3), T(Inf)) === T(Inf)                               # zero level, infinite weight
-    @test PB._weight_coefficient3(zero(T), T(3), T(5)) === zero(T)
-    @test PB._weight_coefficient3(T(Inf), T(3), T(0)) === zero(T)
-    @test isnan(PB._weight_coefficient3(T(NaN), T(3), T(5)))
-    @test PB._weight_coefficient3(T(Inf), T(3), T(5)) === T(Inf)
-    @test PB._weight_coefficient(Float32, 2.0^100, 2.0^100, 2.0^-190) === Float32(2.0^10)
-    @test PB._weight_coefficient(T, T(2), T(3), T(5)) === T(30)
-    # recoverable factors are finite and nonzero
-    @test PB._recoverable_factors(T(1), T(2), T(3)) && !PB._recoverable_factors(T(1), T(0), T(3)) && !PB._recoverable_factors(T(1), T(Inf), T(3)) && !PB._recoverable_factors(T(NaN), T(1), T(3))
     # a zero or NaN value times an infinite or zero coefficient
     @test PB._weighted_value(T(NaN), T(2)) === zero(T) && isnan(PB._weighted_value(T(NaN), T(NaN))) && PB._weighted_value(T(3), T(2)) === T(3)
   end
@@ -1054,12 +1028,12 @@ function test_linear_function(::Type{T}) where {T<:AbstractFloat}
       @test Matrix(go) == cm
     end
     # the scaled dots of the stored entries, for a sparse iterate, an owner (an off-diagonal entry reads c at both positions)
-    # and a block iterate: Σ cᵢ xᵢ 2^-k
+    # and a block iterate (the scaled copy): Σ cᵢ xᵢ 2^-k
     sf = PB._power_factors(T, -(h + 4))
-    @test within(PB._scaled_dot(cm, xo, sf), sum(big.(cm) .* big.(xm)) * big(2.0)^-(h + 4), 2)
+    @test within(PB._linear_scaled_dot(cm, xo, sf), sum(big.(cm) .* big.(xm)) * big(2.0)^-(h + 4), 2)
     xsp3 = SparseIterate(T, 3); xsp3[1] = a; xsp3[3] = -a
     @test within(PB._scaled_dot(T[1, 2, 3], xsp3, sf), (big(a) - 3 * big(a)) * big(2.0)^-(h + 4), 1)
-    @test PB._scaled_dot(T[1, 2, 3], BlockIterate(T[a, 0, -a], [[1, 2], [3]]), sf) == PB._scaled_dot(T[1, 2, 3], T[a, 0, -a], sf)
+    @test PB._linear_scaled_dot(T[1, 2, 3], BlockIterate(T[a, 0, -a], [[1, 2], [3]]), sf) == PB._scaled_dot(T[1, 2, 3], T[a, 0, -a], sf)
   end
 end
 
@@ -1264,9 +1238,9 @@ function test_symmetric_part(::Type{T}) where {T<:AbstractFloat}
     refv = big(α) * ((big.(A) + big.(A)') / 2) * big.(bv)
     @test all(abs(big(y[i]) - refv[i]) <= 4 * eps(T) * abs(big(α)) * ((abs.((big.(A) + big.(A)') / 2)) * abs.(big.(bv)))[i] + eps(abs(T(refv[i]))) for i in 1:2)
     @test_throws DimensionMismatch PB._scaled_symmetric_mul!(zeros(T, 3, 2), PB._SymmetricPart(A), B, α, zero(T))
-    # _product3: rounded once for finite factors, ordinary for non-finite, zero for zero
-    @test within(PB._product3(pow2(T, E - 2) * T(1.3), pow2(T, E - 2) * T(1.7), pow2(T, -(E - 4)) * T(1.1)), big(pow2(T, E - 2) * T(1.3)) * big(pow2(T, E - 2) * T(1.7)) * big(pow2(T, -(E - 4)) * T(1.1)), 1)
-    @test PB._product3(zero(T), T(Inf), T(2)) === zero(T) && PB._product3(T(Inf), T(2), T(3)) === T(Inf) && isnan(PB._product3(T(NaN), T(2), T(3)))
+    # the terms of the tiny-α product (_scaled_product with k = 0): rounded once for finite factors, ordinary for non-finite, zero for zero
+    @test within(PB._scaled_product(pow2(T, E - 2) * T(1.3), pow2(T, E - 2) * T(1.7), pow2(T, -(E - 4)) * T(1.1), 0), big(pow2(T, E - 2) * T(1.3)) * big(pow2(T, E - 2) * T(1.7)) * big(pow2(T, -(E - 4)) * T(1.1)), 1)
+    @test PB._scaled_product(zero(T), T(Inf), T(2), 0) === zero(T) && PB._scaled_product(T(Inf), T(2), T(3), 0) === T(Inf) && isnan(PB._scaled_product(T(NaN), T(2), T(3), 0))
   end
 end
 

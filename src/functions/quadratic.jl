@@ -11,7 +11,7 @@ the first proximal operator computes the eigendecomposition `A = QΛQ'` once,
 after which `prox_{γf}(x) = Q (I + γΛ)⁻¹ Q'(x - γb)` costs two products with
 `Q` for any positive finite `γ`. A product `γλ`, `γb` or `x - γb` that overflows
 does not change a representable proximal point: those calls recompute it in
-power-of-two units (one extra vector is allocated), and ordinary calls run as before.
+power-of-two units (two extra vectors are allocated), and ordinary calls run as before.
 
 The constructor checks real types, squareness and the length of b, but does
 not verify symmetry or positive semidefiniteness. Those are caller assumptions.
@@ -218,46 +218,64 @@ end
   m, e = _frexp(mγ * mλ)
   (m, eγ + eλ + e)
 end
-# zᵢ = (wᵢ - γuᵢ)/(1 + γλᵢ) as two terms p 2^ep - q 2^eq, from w = Q'(x 2^-sx) and u = Q'(b 2^-sb)
-@inline function _quadratic_prox_terms(w, u, λ::T, γ::T, sx, sb) where {T}
-  md, ed = _quadratic_prox_denominator(γ, λ)
-  mγ, eγ = _frexp(γ)
-  (w / md, sx - ed), ((mγ * u) / md, eγ + sb - ed)
-end
-
 # The proximal point Q z, zᵢ = (wᵢ - γuᵢ)/(1 + γλᵢ) with w = Q'x and u = Q'b, recomputed where an
 # intermediate left the range while the point may be representable (R3, as for the ridge proximal
-# point; the one-dimensional QuadraticFunction(Diagonal([λ])) is SqrNormL2(λ)). x and b are scaled
-# by powers of two before their products with Q', each zᵢ is formed from its two terms in power-of-
-# two units with one rounding (_pow2_sum) in a common unit 2^K, and the product Q z is scaled by 2^K
-# last. u needs a buffer: this path allocates one vector.
+# point; the one-dimensional QuadraticFunction(Diagonal([λ])) is SqrNormL2(λ)). No step scales the
+# whole vector by its largest entry, which would round its small entries away:
+# - x and b are scaled only as far as keeps their products with Q' finite (|Qᵢⱼ| <= 1), zero
+#   unless they are near floatmax, and then by a few binades;
+# - each zᵢ is kept as its own significand and exponent: the numerator wᵢ - γuᵢ is summed exactly
+#   (_ExpSum), so that a cancellation between its terms is not amplified, and divided once;
+# - Q z is the BLAS product in a unit that scales z up (never down), so that its entries are normal
+#   numbers and none rounds coarser than its own spacing; where z would have to be scaled down (some
+#   zᵢ within a few binades of floatmax or beyond), each entry of Q z is summed from the parts and
+#   rounded once instead (O(n²) scalar terms), so that no small entry is rounded away.
+# This path allocates two vectors (Q'b and the exponents of z).
 @noinline function _quadratic_prox_recover!(y, f::QuadraticFunction{T}, x, γ::T) where {T}
   Q, Λ, w, t, b = f.Q, f.Λ, f.w, f.tmp, f.b
-  sx = _bound_exponent(_stored_maxabs(x))
-  sc = _power_factors(T, -sx)
-  t .= _scale_value.(x, Ref(sc))
+  n = length(w)
+  sx = _product_sum_shift(T, _stored_maxabs(x), one(T), n, 2)
+  t .= _scale_value.(x, Ref(_power_factors(T, -sx)))
   mul!(w, transpose(Q), t)
   u = zero(w)
   sb = 0
   if b !== nothing
-    sb = _bound_exponent(_stored_maxabs(b))
-    sc = _power_factors(T, -sb)
-    t .= _scale_value.(b, Ref(sc))
+    sb = _product_sum_shift(T, _stored_maxabs(b), one(T), n, 2)
+    t .= _scale_value.(b, Ref(_power_factors(T, -sb)))
     mul!(u, transpose(Q), t)
   end
-  K = typemin(Int)
+  ez = Vector{Int}(undef, n)
+  E = typemin(Int)
   @inbounds for i in eachindex(w)
-    (p, ep), (q, eq) = _quadratic_prox_terms(w[i], u[i], Λ[i], γ, sx, sb)
-    iszero(p) || (K = max(K, _magnitude_exponent(p) + ep + 1))
-    iszero(q) || (K = max(K, _magnitude_exponent(q) + eq + 1))
+    md, ed = _quadratic_prox_denominator(γ, Λ[i])
+    mw, ew = _frexp(w[i])
+    acc = _expsum_add(_expsum_start(T), mw, ew + sx)
+    acc = _expsum_product(acc, -γ, u[i], sb)          # γuᵢ from the significands (u may be subnormal)
+    mn, en = _frexp(acc.s + acc.c)
+    m = mn / md
+    w[i], ez[i] = m, acc.ex + en - ed
+    iszero(m) || (E = max(E, exponent(m) + ez[i]))
   end
-  K == typemin(Int) && return fill!(y, zero(eltype(y)))
-  @inbounds for i in eachindex(w)
-    (p, ep), (q, eq) = _quadratic_prox_terms(w[i], u[i], Λ[i], γ, sx, sb)
-    w[i] = _pow2_sum(T, (p, ep - K), (-q, eq - K))
+  E == typemin(Int) && return fill!(y, zero(eltype(y)))
+  # |zᵢ| < 2^(E+1): in the unit 2^K the largest zᵢ is near the top of the range and the sums of Q z
+  # stay below 2^(emax - 2). For K <= 0 (z is scaled up, or not at all) no entry of z rounds coarser
+  # than its own spacing, and Q z is the BLAS product of normal numbers, scaled back with one rounding.
+  K = E + 4 + _log2_ceil(n) - _max_exponent(T)
+  if K <= 0
+    @inbounds for i in eachindex(w)
+      w[i] = _scaled_product(w[i], one(T), ez[i] - K)
+    end
+    mul!(t, Q, w)
+    return y .= _scaled_product.(t, one(T), K)
   end
-  mul!(t, Q, w)
-  y .= _scaled_product.(t, one(T), K)
+  @inbounds for i in eachindex(y)
+    acc = _expsum_start(T)
+    for j in 1:n
+      acc = _expsum_product(acc, Q[i, j], w[j], ez[j])
+    end
+    y[i] = _expsum_value(T, acc)
+  end
+  y
 end
 
 function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, f::QuadraticFunction{T}, y::AbstractVector, x::AbstractVector) where {T}

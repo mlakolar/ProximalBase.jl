@@ -372,6 +372,44 @@ function test_quadratic_spectral_prox(::Type{T}) where {T<:AbstractFloat}
       @test value_and_prox!(ya, f, x, γ) === f(ya) && ya == y
     end
     @test recovered > 0
+    # coordinate by coordinate: one recovery must not round small coordinates away beside large ones
+    # (review of #882). A diagonal A has an exact eigenbasis (a signed permutation), so each coordinate
+    # has its own BigFloat value; it is computed with the eigenvalues that the function holds, because
+    # LAPACK returns an eigenvalue below about eps ‖A‖ as 0 when the spectrum spans more than the range.
+    ulp(a, r) = (t = T(r); isinf(t) ? (a == t ? 0.0 : Inf) : Float64(abs(big(a) - r) / big(eps(max(abs(t), nextfloat(zero(T)))))))
+    function coordinates_ok(λ, b, x, γ, tol)
+      f = QuadraticFunction(Diagonal(λ), b)
+      y = prox(f, x, γ)
+      Q, Λ = big.(f.Q), big.(f.Λ)
+      all(q -> q == 0 || abs(q) == 1, Q) || return true             # a repeated eigenvalue: no exact basis
+      r = Q * ((transpose(Q) * (big.(x) .- (b === nothing ? 0 : big(γ) .* big.(b)))) ./ (1 .+ big(γ) .* Λ))
+      all(ulp(y[i], r[i]) <= tol for i in eachindex(y))
+    end
+    # the reproducer of the review: x₂ = 2^-100 beside x₁ = 2^(E-23) and γλ₃ overflowing
+    let λ = T[1, 2, pow2(T, E - E ÷ 4)], γ = pow2(T, E - E ÷ 4), x = T[pow2(T, E - E ÷ 50), pow2(T, -E ÷ 10), 0]
+      z = prox(QuadraticFunction(Diagonal(λ)), x, γ)
+      r = big.(x) ./ (1 .+ big(γ) .* big.(λ))
+      @test all(within(z[i], r[i], 2) for i in 1:3) && z[2] > 0
+      if T === Float64                                              # the literal example of the review
+        zr = prox(QuadraticFunction(Diagonal([1.0, 2.0, 2.0^800])), [2.0^1000, 2.0^-100, 0.0], 2.0^800)
+        @test within(zr[2], big(2.0)^-100 / (1 + big(2.0)^801), 1) && within(zr[1], big(2.0)^1000 / (1 + big(2.0)^800), 1)
+      end
+    end
+    # a coordinate beyond the range beside a representable one (the entrywise product with Q)
+    let f = QuadraticFunction(Diagonal(T[0, 1]), T[pow2(T, E - 2), pow2(T, E - 100 * (E ÷ 1023) - 20)]), γ = pow2(T, E - 2)
+      z = prox(f, zeros(T, 2), γ)
+      r = -(big(γ) .* big.(f.b)) ./ (1 .+ big(γ) .* big.(T[0, 1]))
+      @test z[1] === -T(Inf) && within(z[2], r[2], 2)
+    end
+    # a subnormal b and a cancellation x - γb inside a recovered call
+    @test coordinates_ok(T[0, 1, pow2(T, E - 3)], T[-nextfloat(zero(T)) * 7, 3, 1], T[1, pow2(T, 4) * 3, 2], pow2(T, E - 2), 2)
+    for _ in 1:300
+      n = rand(rng, 1:5)
+      λ = T[rand(rng) < 0.15 ? zero(T) : abs(signif(rng, T, rand(rng, -E:E-2))) for _ in 1:n]
+      x = T[rand(rng) < 0.1 ? zero(T) : signif(rng, T, rand(rng, -E:E-1)) for _ in 1:n]
+      b = rand(rng) < 0.4 ? nothing : T[signif(rng, T, rand(rng, -E:E-1)) for _ in 1:n]
+      @test coordinates_ok(λ, b, x, pow2(T, rand(rng, -E:E-2)), 2)
+    end
     # ordinary data: the result is the plain eigendecomposition formula, bit for bit, and allocates nothing
     n = 4
     Q = Matrix(qr(randn(rng, n, n)).Q)

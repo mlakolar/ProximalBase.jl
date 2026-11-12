@@ -192,9 +192,10 @@ _prox_unchecked!(y, f::AbstractFunction, x, γ) = prox!(y, f, x, γ)
 _value_and_prox_unchecked!(y, f::AbstractFunction, x, γ) = value_and_prox!(y, f, x, γ)
 _value_and_gradient_unchecked!(y, f::AbstractFunction, x) = value_and_gradient!(y, f, x)
 
-# A parameter matrix that a symmetric-iterate kernel reads as symmetric without comparing its entries: the
-# caller guarantees the symmetry of the model (check_symmetric_parameters validates it on request). The wrapper
-# keeps the axes of the parameter and marks it symmetric by type for the routes that dispatch on that.
+# A parameter matrix of a function that writes into a symmetric iterate. Its entries are read at their lower
+# positions on the assumption that the caller's model is symmetric: nothing here compares them, and
+# check_symmetric_parameters validates the model on request. The wrapper forwards the size, axes, aliasing ids,
+# index style and entries of the parameter unchanged, and is symmetric by type for _symmetric_by_type.
 struct _AssumedSymmetric{T, A<:AbstractMatrix{T}} <: AbstractMatrix{T}
   array::A
 end
@@ -224,8 +225,8 @@ _value_unchecked(f::NormL1{<:Real, Nothing}, x::DenseArray{<:AbstractFloat}) = f
 
 _gradient_unchecked!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector) = gradient!(g, f, x)
 
-# Under the precondition that mirrored entries of a parameter are equal, an off-diagonal coordinate counts the entry
-# at its lower position twice, so these reductions read one entry of each pair.
+# Under the precondition that mirrored entries of a parameter are equal, the dot of a parameter with a symmetric
+# iterate reads the lower entry of each stored coordinate and counts it at both positions of an off-diagonal one.
 _value_checked(f, x) = _value_unchecked(f, x)
 function _checked_value_dot(a, x::SymmetricSparseIterate)
   s = zero(promote_type(eltype(a), eltype(x)))

@@ -44,6 +44,8 @@ reads(a::ReadCounter) = sum(a.n)
 reset!(a::ReadCounter) = (fill!(a.n, 0); a)
 
 symm(A) = (A + A') / 2
+# the symmetric-iterate and dense kernels are separate loops, and may round the last bit differently
+near(a, b) = norm(Matrix(a) - Matrix(b), Inf) <= 8 * eps(real(float(eltype(b)))) * max(1, norm(Matrix(b), Inf))
 state(x::SymmetricSparseIterate) = (Matrix(x), collect(activecoordinates(x)), nactive(x))
 state(x::AbstractArray) = copy(x)
 same(a::Tuple, b::Tuple) = length(a) == length(b) && all(same(u, v) for (u, v) in zip(a, b))
@@ -104,31 +106,31 @@ for T in (Float32, Float64)
         # prox: the dense computation is independent of the iterate routes
         ref = prox(f, D, γ)
         y = output_iterate(T, p); prox!(y, f, x, γ)
-        @test Matrix(y) == ref
+        @test near(y, ref)
         z = zeros(T, p, p); prox!(z, f, x, γ)
-        @test z == ref
+        @test near(z, ref)
         y2 = output_iterate(T, p); v2 = value_and_prox!(y2, f, x, γ)
-        @test Matrix(y2) == ref
+        @test near(y2, ref)
         @test isapprox(v2, f(ref); rtol = 20eps(T))
         yi = copy(x); prox!(yi, f, yi, γ)
-        @test Matrix(yi) == ref
-        @test Matrix(prox(f, x, γ)) == ref
+        @test near(yi, ref)
+        @test near(prox(f, x, γ), ref)
         # an argument that is not symmetric is read through its symmetric part
         X = randn(rng, T, p, p)
         y3 = output_iterate(T, p); prox!(y3, f, X, γ)
-        @test Matrix(y3) == prox(f, T.(symm(X)), γ)
+        @test near(y3, prox(f, T.(symm(X)), γ))
         if issmooth(f)
           g = gradient(f, x)
-          @test Matrix(g) == gradient(f, D)
+          @test near(g, gradient(f, D))
           gs = output_iterate(T, p); gradient!(gs, f, x)
-          @test Matrix(gs) == gradient(f, D)
+          @test near(gs, gradient(f, D))
           gv = output_iterate(T, p); vg = value_and_gradient!(gv, f, x)
-          @test Matrix(gv) == gradient(f, D) && isapprox(vg, f(D); rtol = 20eps(T))
+          @test near(gv, gradient(f, D)) && isapprox(vg, f(D); rtol = 20eps(T))
           gd = zeros(T, p, p); gradient!(gd, f, x)
-          @test gd == gradient(f, D)
+          @test near(gd, gradient(f, D))
           # a gradient that is computed at a non-symmetric point is symmetrized
           g4 = output_iterate(T, p); gradient!(g4, f, X)
-          @test Matrix(g4) == T.(symm(gradient(f, X)))
+          @test near(g4, T.(symm(gradient(f, X))))
         end
         # the screens of a coordinate at zero, from the symmetric part of a full gradient
         G = randn(rng, T, p, p); Gs = T.(symm(G))

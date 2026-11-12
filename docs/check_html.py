@@ -115,7 +115,7 @@ def main():
         # literal double backticks inside a cell even when that row happens
         # to have the expected final number of HTML columns.
         raw_html = page.path.read_text()
-        if re.search(r'<td\\b[^>]*>(?:(?!</td>).)*`{2}', raw_html, re.S | re.I):
+        if re.search(r'<td\b[^>]*>(?:(?!</td>).)*`{2}', raw_html, re.S | re.I):
             errors.append(
                 f'{page.path.relative_to(BUILD)}: unrendered double-backtick '
                 'math or code inside a rendered table cell'

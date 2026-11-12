@@ -131,7 +131,7 @@ all-NaN result or a particular exception.
 | `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
 | `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual |
 | Generic custom value/prox | Author-defined arithmetic; traits do not grant recovery or NaN policy |
-| Paired symmetric parameters | Exact equality, NaN matches NaN, signed zeros agree |
+| Paired symmetric parameters, in `check_symmetric_parameters` | Exact equality, NaN matches NaN, signed zeros agree; the numerical oracles assume it and do not compare |
 | Opposing infinities in a symmetric iterate KKT gradient pair | ArgumentError at that chosen pair |
 
 ```@example numerical_endpoints

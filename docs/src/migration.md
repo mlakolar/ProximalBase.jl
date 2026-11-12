@@ -35,7 +35,7 @@ ProximalSolvers migration is separate; this documentation does not change it.
 | Symmetric-iterate `x[k]` | `coordinates(x)[k]` or `matrixview(x)[k]`, depending on index space |
 | Symmetric-iterate broadcast/fill | Write coordinates, or compute a dense symmetric matrix then `copyto!` |
 | Symmetric array steps | Symmetric-iterate outputs accept scalar steps only; use dense output for entry-step calculations where supported |
-| User separable parameter arrays without metadata | Declare `ProximalBase.entry_parameters` and validate pair symmetry |
+| User separable parameter arrays without metadata | Declare `ProximalBase.entry_parameters`; call `ProximalBase.check_symmetric_parameters` once per model, because the oracles assume symmetric parameters and do not compare them |
 
 The working set survives value writes. `fill!(x,0)` followed by `dropzeros!(x)`
 clears array iterates; use `fill!(coordinates(x),0)` for a symmetric iterate.

@@ -69,11 +69,12 @@ for T in (Float32,Float64)
         f=WeightedSquare(T[1 2;2 3]);s=SymmetricSparseIterate(T[1 2;2 0]);snapshot=copy(s)
         @test f(s)≈sum(f.w.*Matrix(s).^2)/2
         @test Matrix(prox(f,s,T(.5)))≈Matrix(s)./(1 .+T(.5).*f.w)
+        # asymmetric weights are an invalid model, rejected by the explicit validation
         bad=WeightedSquare(T[1 2;3 1]);out=copy(s)
-        @test_throws ArgumentError prox!(out,bad,s,T(.5))
-        @test Matrix(out)==Matrix(snapshot) && collect(activecoordinates(out))==collect(activecoordinates(snapshot))
+        @test PB.check_symmetric_parameters(f,s)
+        @test_throws ArgumentError PB.check_symmetric_parameters(bad,s)
         @test_throws ArgumentError prox!(out,NormL1(),s,fill(one(T),2,2))
-        @test Matrix(out)==Matrix(snapshot)
+        @test Matrix(out)==Matrix(snapshot) && collect(activecoordinates(out))==collect(activecoordinates(snapshot))
         x=BlockIterate(T[1,0,2,-1],[Int[3,1],Int[4,2]])
         before=Vector(x);u=collect(blockview(x,1));z=prox_block(CompactSquare(),u,1,T(.5))
         @test z≈u/T(1.5) && z!==u

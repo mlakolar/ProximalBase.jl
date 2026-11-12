@@ -101,7 +101,7 @@ function _prox_unchecked!(y::AbstractArray, f::LinearFunction, x::AbstractArray,
   _checkwrite(prox!, f, y, x)
   γ = convert(float(eltype(y)), γ)
   if size(f.c) == size(x)
-    y .= x .- γ .* _checked_parameter(y, f.c)
+    y .= x .- γ .* _assumed_symmetric(y, f.c)
   else
     # dot accepts equal-length arrays even when their shapes differ.
     @inbounds for i in eachindex(IndexLinear(), y, x)

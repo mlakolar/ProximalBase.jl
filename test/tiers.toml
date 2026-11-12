@@ -23,6 +23,7 @@ quick = [
   "sparse_iterate_basics_grids",
   "symmetric_iterate_indexing",
   "symmetric_iterate_interface",
+  "symmetric_parameters",
   "symmetric_products",
 ]
 standard = []

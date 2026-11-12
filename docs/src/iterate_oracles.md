@@ -68,7 +68,7 @@ condition. The routine does not inspect whether the coordinate is actually zero.
 | Iterate | Interpretation/checks |
 |:--|:--|
 | `SparseIterate` | Valid coordinate first, then gradient entry count equal to length(x); flat or matrix-shaped gradient of that length is accepted |
-| `SymmetricSparseIterate` | Valid independent coordinate, then p² gradient entries; symmetric part of that gradient pair and parameter-pair validation |
+| `SymmetricSparseIterate` | Valid independent coordinate, then p² gradient entries; symmetric part of that gradient pair, and the extent of the function's parameters (their mirrored entries are not compared) |
 | `BlockIterate` | Maximum scalar screen over global members of group k for supported scalar-screen functions |
 | Other arrays | No extra point/gradient extent validation; indexing/function checks still apply |
 
@@ -81,8 +81,9 @@ own stationarity test, as explained in [coordinate descent](coordinate_descent.m
 ## Symmetric scalar steps
 
 For symmetric-iterate coordinate k, compute `(r,c)=tril_cartesian(p,k)`, then use the
-full-matrix entry index `i=(c-1)p+r`. Validate the original function's mirrored
-parameters before raw scalar hooks, since the hook has no symmetric iterate to inspect.
+full-matrix entry index `i=(c-1)p+r`. The function's parameters must be symmetric;
+validate the original function with `check_symmetric_parameters` before raw scalar hooks,
+since the hook has no symmetric iterate to inspect and no oracle checks it.
 Use a symmetric matrix gradient and the appropriate Frobenius curvature.
 
 ```@example symmetric_coordinate_trial

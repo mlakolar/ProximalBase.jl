@@ -86,7 +86,8 @@ weights. Neither reset nor parameter validation copies caller data.
 ## Predictable failures and partial writes
 
 Built-in oracles preflight predictable real-type, shape and parameter errors.
-Symmetric pair checks occur before symmetric-iterate writes on implemented public boundaries.
+Structural checks occur before symmetric-iterate writes on implemented public boundaries.
+Mirrored parameter entries are not compared there: validate a model with `check_symmetric_parameters`.
 A failing user element access, conversion or numerical computation may leave
 partial output. A raw hook does not gain checks from a trait declaration.
 

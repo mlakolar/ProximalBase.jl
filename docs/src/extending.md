@@ -28,8 +28,8 @@ Generic methods accepting tuples do not imply that the underlying function
 supports tuple inputs; it still needs methods for the requested argument types. The generic `gradient!` default depends on
 `value_and_gradient!`, so implement that hook if relying on the default.
 
-An overriding public operation owns real-type, shape, parameter, [aliasing](glossary.md#Aliasing) and symmetric
-preflight. Destination comes first. Return the identical output for `gradient!`/
+An overriding public operation owns real-type, shape, parameter-extent and [aliasing](glossary.md#Aliasing)
+preflight; parameter symmetry is a model precondition that the caller or solver validates. Destination comes first. Return the identical output for `gradient!`/
 `prox!`/`prox_block!`, a scalar input value for `value_and_gradient!`, and a scalar
 stored-output value for `value_and_prox!`. Proximal output may be exactly the
 input; gradient output must be independent. Do not write parameters, input
@@ -70,10 +70,14 @@ wrong parameter extent before generic writes. Use `prod(size(x))` rather than
 
 Declare every per-entry array in `entry_parameters(f)` as a tuple of
 `Symbol=>value` pairs; declare `()` if none. A custom `SeparableFunction`'s
-default is `nothing`, which rejects symmetric use. Full symmetric operations
-validate metadata, shape and exact mirrored pairs. Overriding a public oracle
-replaces that generic boundary: call `check_symmetric_parameters(f,x)` yourself
-when accepting a symmetric iterate.
+default is `nothing`, which `check_symmetric_parameters` rejects. On a symmetric
+iterate your per-entry arrays must be exactly symmetric: the generic kernels
+assume it and compare no mirrored entries, so asymmetric arrays are an invalid
+model with no guaranteed numerical meaning. Call
+`check_symmetric_parameters(f,x)` once per model, at the solve or workspace
+boundary and after any change to the arrays. Within ProximalBase it is the only reader of
+`entry_parameters`; the extent of your arrays is the job of `check_parameters`.
+See [symmetric parameters](symmetric_parameters.md).
 
 `iszeropreserving(f)=true` is a mathematical promise that ``f_i(0)=0`` and
 ``prox_{γf_i}(0)=0`` for **all positive finite γ**. Only declare it when valid
@@ -106,7 +110,7 @@ ProximalBase.prox_block(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 
 The complete implementation owns its weights, checks finite nonnegative
 parameters, defines both methods and the required parameter metadata, and
-verifies dense, sparse and symmetric use and failure-before-write behavior.
+verifies dense, sparse and symmetric use and the explicit rejection of asymmetric weights.
 Its definition and checks are included below from that executable source.
 
 ```@eval

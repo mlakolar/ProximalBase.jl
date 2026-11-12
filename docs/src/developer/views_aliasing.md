@@ -48,7 +48,7 @@ other buffer overlap; the allocating wrapper does not enforce that for it.
 | Direct array-iterate fill | Real-type check and scalar conversion | Valid scalar then written using activity rules |
 | Direct array-iterate broadcast | Leaf/result type and shape; uncertain non-real results staged | Real result conversion can still partially write |
 | Ordinary view/coordinate/block value writes | Base indexing/extent rules | Partial reads/conversions permitted, storage invariants maintained |
-| Built-in function oracle | Predictable type/shape/parameter/symmetry checks in supported method | Numerical/conversion/user-read failure may leave output changed |
+| Built-in function oracle | Predictable type/shape/parameter-extent checks in supported method; mirrored parameter entries are not compared | Numerical/conversion/user-read failure may leave output changed |
 | Custom public oracle override | Whatever its author implements | Must document its own boundary |
 
 A typed complex array source for direct array-iterate copying is rejected before

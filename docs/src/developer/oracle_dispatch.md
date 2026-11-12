@@ -23,13 +23,15 @@ the value at out; its scalar return is not a `(value,out)` tuple. There is no
 allocating value_and_prox binding.
 
 Custom public overrides replace the checked boundary. Validate real types,
-shape, parameters and aliases yourself and invoke `check_symmetric_parameters`
-if accepting a symmetric iterate. Generic `check_parameters` defaults to nothing; for a
-parameterized extension implement it. For custom `SeparableFunction`,
-`entry_parameters` must be declared for symmetric-iterate use. Built-ins have private checked/
-unchecked routes to avoid repeated full scans; those private helpers are not
-extension targets. Generic custom dispatch calls public methods rather than
-requiring an `_isbuiltin` escape.
+shape, parameter extents and aliases yourself. Generic `check_parameters` defaults to
+nothing; for a parameterized extension implement it. Symmetry of per-entry
+parameters is a precondition of the model: no public oracle, generic or built-in,
+compares mirrored parameter entries, so an override has nothing to add, and the
+caller or solver runs `check_symmetric_parameters` once per model. For a custom
+`SeparableFunction`, `entry_parameters` must be declared so that explicit check
+can validate it. Built-ins have private routes that skip the public preflight
+once it has run; those private helpers are not extension targets. Generic custom
+dispatch calls public methods rather than requiring an `_isbuiltin` escape.
 
 Array steps are a distinct method family: generic separable and zero functions
 accept entry steps; `Scaled` forwards when its leaf supports them. Symmetric-iterate array
@@ -41,7 +43,7 @@ Raw scalar `value_entry`/`prox_block` use **global entry indices**. Generic spar
 kernels pass stored coordinate IDs for `SparseIterate`, global members for blocks,
 and converted full matrix indices for symmetric-iterate variables. Symmetric values count
 both mirrored entry terms. A declared zero-preserving function can skip inactive
-zeros; custom metadata still receives conservative full pair validation.
+zeros. No kernel reads parameter entries to compare mirrored pairs.
 
 Compact-vector `prox_block!` is a public extension hook with no retained built-in
 implementation. The default allocating method supplies an independent floating

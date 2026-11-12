@@ -119,11 +119,12 @@ function makeprobes(PB, ::Type{T}, m::Int, D::Data{T}, wanted) where {T}
         wanted(full) && push!(probes, (id = full, work = work, build = build, atol = atol, ref = ref))
     end
     value_probe(id, f, mk_x, e, work) = add(id, work, () -> (x = mk_x(); (() -> (out[1] = f(x); nothing), () -> out[1])), e.atol)
+    # NB: the thunks run after this function returns, so each captures a variable that is assigned once
     # the BigFloat value and its R1 bound 4 k eps(T) (Σ|cᵢxᵢ| + |d|), over the k stored entries
     big_ref(e, c, dd) = (sum(big(c[i]) * big(v) for (i, v) in zip(e.idx, e.val)) + big(dd),
         4 * length(e.idx) * big(eps(T)) * (sum(abs(big(c[i]) * big(v)) for (i, v) in zip(e.idx, e.val)) + abs(big(dd))))
 
-    # (label, entries, nstored)
+    # the cells of the iterate values: label, number of stored entries, fraction of them stored as zeros, shuffled order
     k2 = 2; k1 = max(2, round(Int, 0.01 * n)); k10 = round(Int, 0.1 * n); k50 = round(Int, 0.5 * n)
     f = PB.LinearFunction(C, d)
     cases = Tuple{String, Int, Float64, Bool}[("d2_seq", k2, 0.0, false), ("d1pct_seq", k1, 0.0, false),
@@ -133,8 +134,8 @@ function makeprobes(PB, ::Type{T}, m::Int, D::Data{T}, wanted) where {T}
     m == 128 && push!(cases, ("d100pct_z50_shuf", n, 0.5, true), ("d1pct_shuf", k1, 0.0, true))
     for (label, k, z, shuf) in cases
         wanted("$(T)/n$(n)/sparse_value/$label") || continue
-        e = entries!(D, label, k, z, shuf)
-        value_probe("sparse_value/$label", f, () -> iterate_of(PB, T, m, e), e, length(e.idx))
+        ev = entries!(D, label, k, z, shuf)
+        value_probe("sparse_value/$label", f, () -> iterate_of(PB, T, m, ev), ev, length(ev.idx))
     end
     # an overflowing dot with finite coefficients: the base recovers too
     if m >= 128
@@ -142,35 +143,35 @@ function makeprobes(PB, ::Type{T}, m::Int, D::Data{T}, wanted) where {T}
         for (label, k) in (("d1pct", max(3, round(Int, 0.01 * n))), ("d100pct", n))
             id = "exceptional/$label"
             wanted("$(T)/n$(n)/$id") || continue
-            e = exceptional!(D, "exc_" * label, k)
-            ref = big_ref(e, ones, d)
-            add(id, length(e.idx), () -> (x = iterate_of(PB, T, m, e); (() -> (out[1] = fo(x); nothing), () -> out[1])), 0.0, ref)
+            eo = exceptional!(D, "exc_" * label, k)
+            ref = big_ref(eo, ones, d)
+            add(id, length(eo.idx), () -> (x = iterate_of(PB, T, m, eo); (() -> (out[1] = fo(x); nothing), () -> out[1])), 0.0, ref)
         end
     end
     # a Diagonal coefficient array: the diagonal of the iterate is read
     fd = PB.LinearFunction(Diagonal(dg), d)
     for (label, key) in (("d2", "d2_seq"), ("d100pct", "d100pct_seq"))
         wanted("$(T)/n$(n)/diagonal/$label") || continue
-        e = key == "d2_seq" ? diagonal_entries!(D) : entries!(D, key, n, 0.0, false)
-        atol = key == "d2_seq" ? e.atol : 8 * Float64(eps(T)) * sqrt(m) * (1.0 + sum(abs, dg) * 4)
-        add("diagonal/$label", m, () -> (x = iterate_of(PB, T, m, e); (() -> (out[1] = fd(x); nothing), () -> out[1])), atol)
+        ed = key == "d2_seq" ? diagonal_entries!(D) : entries!(D, key, n, 0.0, false)
+        atol = key == "d2_seq" ? ed.atol : 8 * Float64(eps(T)) * sqrt(m) * (1.0 + sum(abs, dg) * 4)
+        add("diagonal/$label", m, () -> (x = iterate_of(PB, T, m, ed); (() -> (out[1] = fd(x); nothing), () -> out[1])), atol)
     end
     # the other oracles that reach the value, at m = 128, 10% stored
     if m == 128
-        e = entries!(D, "d10pct_seq", k10, 0.0, false)
+        e10 = entries!(D, "d10pct_seq", k10, 0.0, false)
         atol = 8 * Float64(eps(T)) * sqrt(n) * 6 * (1.0 + sum(abs, C))
-        add("value_and_gradient!/dense_output", length(e.idx),
-            () -> (x = iterate_of(PB, T, m, e); (() -> (out[1] = PB.value_and_gradient!(Out, f, x); nothing), () -> (out[1], copy(Out)))), atol)
-        add("value_and_prox!/dense_output", length(e.idx),
-            () -> (x = iterate_of(PB, T, m, e); (() -> (out[1] = PB.value_and_prox!(Out, f, x, γ); nothing), () -> (out[1], copy(Out)))), atol)
+        add("value_and_gradient!/dense_output", length(e10.idx),
+            () -> (x = iterate_of(PB, T, m, e10); (() -> (out[1] = PB.value_and_gradient!(Out, f, x); nothing), () -> (out[1], copy(Out)))), atol)
+        add("value_and_prox!/dense_output", length(e10.idx),
+            () -> (x = iterate_of(PB, T, m, e10); (() -> (out[1] = PB.value_and_prox!(Out, f, x, γ); nothing), () -> (out[1], copy(Out)))), atol)
         add("value_and_prox!/iterate_output", n,
-            () -> (x = iterate_of(PB, T, m, e); y = PB.SparseIterate(T, m, m);
+            () -> (x = iterate_of(PB, T, m, e10); y = PB.SparseIterate(T, m, m);
                    (() -> (out[1] = PB.value_and_prox!(y, f, x, γ); nothing), () -> (out[1], Matrix(y)))), atol)
         # controls: the code of these paths is unchanged
-        add("control/gradient!_iterate_input", length(e.idx),
-            () -> (x = iterate_of(PB, T, m, e); (() -> (PB.gradient!(Out, f, x); nothing), () -> copy(Out))))
-        add("control/prox!_iterate_input", length(e.idx),
-            () -> (x = iterate_of(PB, T, m, e); (() -> (PB.prox!(Out, f, x, γ); nothing), () -> copy(Out))))
+        add("control/gradient!_iterate_input", length(e10.idx),
+            () -> (x = iterate_of(PB, T, m, e10); (() -> (PB.gradient!(Out, f, x); nothing), () -> copy(Out))))
+        add("control/prox!_iterate_input", length(e10.idx),
+            () -> (x = iterate_of(PB, T, m, e10); (() -> (PB.prox!(Out, f, x, γ); nothing), () -> copy(Out))))
     end
     # controls: dense matrix value, vector SparseIterate value, symmetric value
     add("control/dense_value", n, () -> (() -> (out[1] = f(X); nothing), () -> out[1]), 8 * Float64(eps(T)) * sqrt(n) * (1.0 + sum(abs, C) * 4))

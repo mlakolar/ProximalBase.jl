@@ -1,5 +1,7 @@
 # A custom separable function
 #
+# *Assumes: Julia structs and convex separable functions · You will learn: a custom function with mathematical value and proximal hooks.*
+#
 # WeightedSquare represents sum(w[i]*x[i]^2)/2, with finite nonnegative weights.
 using ProximalBase, LinearAlgebra
 struct WeightedSquare{A<:AbstractArray} <: SeparableFunction

@@ -935,6 +935,15 @@ function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
     @test NormL1(one(T), Real[floatmin(T) for _ in 1:512])(x) === T(r)
     @test NormL1(one(T), AbstractFloat[floatmin(T) for _ in 1:512])(x) === T(r)
     @test NormL1(one(T), Union{Float32, Float64}[floatmin(T) for _ in 1:512])(x) === T(r)
+    for wa in (Union{Float32, Float64, BigFloat}[floatmin(T) for _ in 1:512], AbstractFloat[floatmin(T) for _ in 1:512]),
+        λa in (one(T), big(1.0)), y in (x, view(x, :), reps(x).sparse, reps(x).block, ones(T, 512))
+      # inferred, recomputed or not, wherever master infers it (AbstractFloat weights at a level of type T are not)
+      if wa isa Vector{AbstractFloat} && λa isa T
+        @test NormL1(λa, wa)(y) isa T
+      else
+        @test (@inferred NormL1(λa, wa)(y)) isa T
+      end
+    end
     λb = pow2(T, -e0 - 10); xb = T[pow2(T, -e0 - 10)]
     wb = Real[big(2.0)^(3 * e0 + 16)]                                        # far below the range of T and of Float64
     @test NormL1(λb, wb)(xb) === pow2(T, e0 - 4)                             # a subnormal value: recomputed in BigFloat

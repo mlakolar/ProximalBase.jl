@@ -176,12 +176,13 @@ end
 # infinite weight at a zero entry), and every other term has finite factors: an infinite weight at a
 # nonzero entry, or a positive weight at a NaN or ±Inf entry, makes s Inf or NaN. A zero level (an exact
 # zero, or the Inf of an infinite weight) and an infinite level (its domain rule) keep s, and so does an
-# exact zero, which a scan of the stored values (`_all_zero`) decides before the recomputation.
-@noinline function _l1_underflow_value(f::NormL1, x, s)
+# exact zero, which a scan of the stored values (`_all_zero`) decides before the recomputation. The result is
+# in the type of s also where the accumulator type is known only at run time (abstract factor arrays), so that
+# the callers stay inferred.
+@noinline function _l1_underflow_value(f::NormL1, x, s::T)::T where {T}
   λ = f.λ0
   (λ > 0 && isfinite(λ)) || return s
   iszero(s) && _all_zero(_stored_values(x)) && return s
-  T = typeof(s)
   R = promote_type(T, Float64, _factor_type(λ), _l1_factor_type(f.w), _l1_factor_type(_stored_values(x)))
   _expsum_value(T, _l1_weighted_abs(_expsum_start(R), f.w, x), λ)
 end

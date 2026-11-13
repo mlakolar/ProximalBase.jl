@@ -67,6 +67,16 @@ function addspec!(family, op, T, rest, n, build; ref = nothing, diff = nothing, 
 end
 validate_count!(family) = (validated[family] = get(validated, family, 0) + 1)
 
+# Function barriers for the timed operations. The package is reached through a module that is a run-time
+# value (PB), so a call written in a closure over it would be a dynamic call that allocates; these helpers take
+# the function and the arguments as arguments, so the closure they return captures concretely typed values and
+# the call is resolved at compile time.
+bindcall(fn, args...) = () -> (fn(args...); nothing)
+bindstore(out, fn, args...) = () -> (out[1] = fn(args...); nothing)
+bindsweep_block(pb!, outs, f, U, γ) = () -> (for k in eachindex(U); pb!(outs[k], f, U[k], k, γ); end; nothing)
+bindsweep_kkt(kkt, kout, f, g, x0, firsts) = () -> (for k in eachindex(firsts); kout[k] = kkt(f, g, x0, firsts[k]); end; nothing)
+bindsweep_kkt_block(kkt, kout, f, g, xb) = () -> (for k in eachindex(kout); kout[k] = kkt(f, g, xb, k); end; nothing)
+
 exact_equal(a::Tuple, b::Tuple) = length(a) == length(b) && all(exact_equal(u, v) for (u, v) in zip(a, b))
 exact_equal(a::AbstractArray, b::AbstractArray) = size(a) == size(b) && all(i -> exact_equal(a[i], b[i]), eachindex(a, b))
 exact_equal(a::BigFloat, b::BigFloat) =
@@ -379,37 +389,37 @@ function add_group_cases!(T, sc, m, layout, total)
         if op == "prox"
             addspec!("GroupNormL2", op, T, rest, p, PB -> begin
                 f = mk(PB)
-                (op = () -> (PB.prox!(y, f, x, γ); nothing), check = () -> (PB.prox!(y, f, x, γ); copy(y)))
+                (op = bindcall(PB.prox!, y, f, x, γ), check = () -> (PB.prox!(y, f, x, γ); copy(y)))
             end)
         elseif op == "value_and_prox"
             addspec!("GroupNormL2", op, T, rest, p, PB -> begin
                 f = mk(PB)
-                (op = () -> (out1[1] = PB.value_and_prox!(y, f, x, γ); nothing),
+                (op = bindstore(out1, PB.value_and_prox!, y, f, x, γ),
                  check = () -> (v = PB.value_and_prox!(y, f, x, γ); (v, copy(y))))
             end)
         elseif op == "value"
             addspec!("GroupNormL2", op, T, rest, p, PB -> begin
                 f = mk(PB)
-                (op = () -> (out1[1] = f(x); nothing), check = () -> f(x))
+                (op = bindstore(out1, f, x), check = () -> f(x))
             end; ref)
         elseif op == "prox_block"
             addspec!("GroupNormL2", op, T, rest, p, PB -> begin
                 f = mk(PB)
                 U = d.U
-                (op = () -> (for k in 1:K; PB.prox_block!(outs[k], f, U[k], k, γ); end; nothing),
+                (op = bindsweep_block(PB.prox_block!, outs, f, U, γ),
                  check = () -> (for k in 1:K; PB.prox_block!(outs[k], f, U[k], k, γ); end; reduce(vcat, outs)))
             end)
         elseif op == "kkt_array"
             addspec!("GroupNormL2", op, T, rest, p, PB -> begin
                 f = mk(PB)
-                (op = () -> (for k in 1:K; kout[k] = PB.kkt_violation(f, x, x0, firsts[k]); end; nothing),
+                (op = bindsweep_kkt(PB.kkt_violation, kout, f, x, x0, firsts),
                  check = () -> [PB.kkt_violation(f, x, x0, firsts[k]) for k in 1:K])
             end)
         elseif op == "kkt_block"
             addspec!("GroupNormL2", op, T, rest, p, PB -> begin
                 f = mk(PB)
                 xb = PB.BlockIterate(zeros(T, p), f.groups)
-                (op = () -> (for k in 1:K; kout[k] = PB.kkt_violation(f, x, xb, k); end; nothing),
+                (op = bindsweep_kkt_block(PB.kkt_violation, kout, f, x, xb),
                  check = () -> [PB.kkt_violation(f, x, xb, k) for k in 1:K])
             end)
         end
@@ -420,23 +430,23 @@ function add_group_cases!(T, sc, m, layout, total)
         if sub == "prox"
             addspec!("GroupNormL2", op, T, rest, p, PB -> begin
                 f = mk(PB)
-                (op = () -> (PB.prox!(ym, f, xm, γ); nothing), check = () -> (PB.prox!(ym, f, xm, γ); copy(ym)))
+                (op = bindcall(PB.prox!, ym, f, xm, γ), check = () -> (PB.prox!(ym, f, xm, γ); copy(ym)))
             end)
         elseif sub == "value_and_prox"
             addspec!("GroupNormL2", op, T, rest, p, PB -> begin
                 f = mk(PB)
-                (op = () -> (out1[1] = PB.value_and_prox!(ym, f, xm, γ); nothing),
+                (op = bindstore(out1, PB.value_and_prox!, ym, f, xm, γ),
                  check = () -> (v = PB.value_and_prox!(ym, f, xm, γ); (v, copy(ym))))
             end)
         elseif sub == "value"
             addspec!("GroupNormL2", op, T, rest, p, PB -> begin
                 f = mk(PB)
-                (op = () -> (out1[1] = f(xm); nothing), check = () -> f(xm))
+                (op = bindstore(out1, f, xm), check = () -> f(xm))
             end; ref)
         elseif sub == "kkt"
             addspec!("GroupNormL2", op, T, rest, p, PB -> begin
                 f = mk(PB)
-                (op = () -> (for k in 1:K; kout[k] = PB.kkt_violation(f, xm, x0m, firsts[k]); end; nothing),
+                (op = bindsweep_kkt(PB.kkt_violation, kout, f, xm, x0m, firsts),
                  check = () -> [PB.kkt_violation(f, xm, x0m, firsts[k]) for k in 1:K])
             end)
         end
@@ -532,7 +542,7 @@ let e = 2^62 - 2
     o1 = [BigFloat(0)]
     addspec!("GroupNormL2", "value", BigFloat, "dx_exponent_sum_beyond_Int64", 1, PB -> begin
         f = PB.GroupNormL2(λ, [1:1], [λ])
-        (op = () -> (o1[1] = f(xv); nothing), check = () -> f(xv))
+        (op = bindstore(o1, f, xv), check = () -> f(xv))
     end; diff = (x = a -> a isa BigFloat && iszero(a) && !signbit(a), y = a -> a isa BigFloat && isinf(a) && a > 0))
 end
 
@@ -564,11 +574,11 @@ function add_iterate_values!(family, mkf, T, sc, rest_prefix)
     fill_sym!(S, PB) = (for (i, (r, c)) in enumerate(coords); nonzero[i] && (S[r, c] = vals[i]); end; S)
     addspec!(family, "value_sparse", T, "$(sc.name)/stored$NL2_STORED", 2NL2_STORED, PB -> begin
         f = mkf(PB, d); M = fill_sparse!(PB.SparseIterate(T, p, p), PB)
-        (op = () -> (out1[1] = f(M); nothing), check = () -> f(M))
+        (op = bindstore(out1, f, M), check = () -> f(M))
     end)
     addspec!(family, "value_symmetric", T, "$(sc.name)/stored$NL2_STORED", 2NL2_STORED, PB -> begin
         f = mkf(PB, d); S = fill_sym!(PB.SymmetricSparseIterate(T, p), PB)
-        (op = () -> (out1[1] = f(S); nothing), check = () -> f(S))
+        (op = bindstore(out1, f, S), check = () -> f(S))
     end)
 end
 
@@ -584,24 +594,24 @@ function add_normL2_cases!(T, sc, dense_sizes)
             if op == "prox"
                 addspec!("NormL2", op, T, rest, n, PB -> begin
                     f = PB.NormL2(λ)
-                    (op = () -> (PB.prox!(y, f, x, γ); nothing), check = () -> (PB.prox!(y, f, x, γ); copy(y)))
+                    (op = bindcall(PB.prox!, y, f, x, γ), check = () -> (PB.prox!(y, f, x, γ); copy(y)))
                 end)
             elseif op == "value_and_prox"
                 addspec!("NormL2", op, T, rest, n, PB -> begin
                     f = PB.NormL2(λ)
-                    (op = () -> (out1[1] = PB.value_and_prox!(y, f, x, γ); nothing),
+                    (op = bindstore(out1, PB.value_and_prox!, y, f, x, γ),
                      check = () -> (v = PB.value_and_prox!(y, f, x, γ); (v, copy(y))))
                 end)
             elseif op == "value"
                 addspec!("NormL2", op, T, rest, n, PB -> begin
                     f = PB.NormL2(λ)
-                    (op = () -> (out1[1] = f(x); nothing), check = () -> f(x))
+                    (op = bindstore(out1, f, x), check = () -> f(x))
                 end; ref)
                 if sc.iter && n == 1024
                     groups = [(k-1)*32+1:k*32 for k in 1:32]
                     addspec!("NormL2", "value_block", T, rest, n, PB -> begin
                         f = PB.NormL2(λ); xb = PB.BlockIterate(copy(x), groups)
-                        (op = () -> (out1[1] = f(xb); nothing), check = () -> f(xb))
+                        (op = bindstore(out1, f, xb), check = () -> f(xb))
                     end)
                 end
             end
@@ -736,12 +746,12 @@ function add_sqrnorm_cases!(T, sc, n)
     nref = d.S === nothing || sc.lev !== :one ? nothing : sref
     addspec!("SqrNormL2", "value", T, rest, n, PB -> begin
         f = PB.SqrNormL2(λ)
-        (op = () -> (out1[1] = f(x); nothing), check = () -> f(x))
+        (op = bindstore(out1, f, x), check = () -> f(x))
     end; ref = sc.center === :none ? sref : nothing)
     if sc.center !== :none
         addspec!("SqrNormL2", "value_center", T, rest, n, PB -> begin
             f = PB.SqrNormL2(λ, y)
-            (op = () -> (out1[1] = f(x); nothing), check = () -> f(x))
+            (op = bindstore(out1, f, x), check = () -> f(x))
         end; ref = sref)
     end
     if sc.iter && sc.zero === :none && n == NL2_DENSE[1]
@@ -753,12 +763,12 @@ function add_sqrnorm_cases!(T, sc, n)
         addspec!("SqrNormL2", "value_sparse", T, "$(sc.name)/stored$NL2_STORED", 2NL2_STORED, PB -> begin
             f = PB.SqrNormL2(fsq); M = PB.SparseIterate(T, p, p)
             for (i, (r, c)) in enumerate(coords); iszero(vals[i]) || (M[r, c] = vals[i]); end
-            (op = () -> (out1[1] = f(M); nothing), check = () -> f(M))
+            (op = bindstore(out1, f, M), check = () -> f(M))
         end)
         addspec!("SqrNormL2", "value_symmetric", T, "$(sc.name)/stored$NL2_STORED", 2NL2_STORED, PB -> begin
             f = PB.SqrNormL2(fsq); Sy = PB.SymmetricSparseIterate(T, p)
             for (i, (r, c)) in enumerate(coords); iszero(vals[i]) || (Sy[r, c] = vals[i]); end
-            (op = () -> (out1[1] = f(Sy); nothing), check = () -> f(Sy))
+            (op = bindstore(out1, f, Sy), check = () -> f(Sy))
         end)
     end
 end
@@ -792,7 +802,7 @@ function add_norm_diff_cases!(T, sc, n)
     out1 = Vector{T}(undef, 1)
     ref = d.S === nothing ? nothing : (sqrt(d.S), n)
     addspec!("norm_diff", "norm_diff", T, "$(sc.name)/n$n", n, PB -> begin
-        (op = () -> (out1[1] = PB.norm_diff(x, y); nothing), check = () -> PB.norm_diff(x, y))
+        (op = bindstore(out1, PB.norm_diff, x, y), check = () -> PB.norm_diff(x, y))
     end; ref)
     if sc.iter && n == NL2_DENSE[1]
         dd = build_group_data(T, S(sc.name; mag = sc.mag, poison = sc.poison, zero = sc.zero), NL2_STORED, :range, NL2_STORED; family = "norm_diff")
@@ -803,7 +813,7 @@ function add_norm_diff_cases!(T, sc, n)
         addspec!("norm_diff", "norm_diff_symmetric", T, "$(sc.name)/p$p", p * p, PB -> begin
             A = PB.SymmetricSparseIterate(T, p); B = PB.SymmetricSparseIterate(T, p)
             for (i, (r, c)) in enumerate(coords); iszero(v1[i]) || (A[r, c] = v1[i]); iszero(v2[i]) || (B[r, c] = v2[i]); end
-            (op = () -> (out1[1] = PB.norm_diff(A, B); nothing), check = () -> PB.norm_diff(A, B))
+            (op = bindstore(out1, PB.norm_diff, A, B), check = () -> PB.norm_diff(A, B))
         end)
     end
 end
@@ -880,7 +890,7 @@ function add_ls_cases!(T, sc)
     end
     addspec!("LeastSquaresLoss", "value", T, sc.name, n * p, PB -> begin
         f = PB.LeastSquaresLoss(Y, X)
-        (op = () -> (out1[1] = f(β); nothing), check = () -> f(β))
+        (op = bindstore(out1, f, β), check = () -> f(β))
     end; ref)
 end
 ls_scenarios = [
@@ -1006,17 +1016,17 @@ function add_l1_cases!(T, sc, n)
         if op == "value"
             addspec!("NormL1", op, T, rest, n, PB -> begin
                 f = mkf(PB)
-                (op = () -> (out1[1] = f(x); nothing), check = () -> f(x))
+                (op = bindstore(out1, f, x), check = () -> f(x))
             end; ref)
         elseif op == "prox"
             addspec!("NormL1", op, T, rest, n, PB -> begin
                 f = mkf(PB)
-                (op = () -> (PB.prox!(y, f, x, γ); nothing), check = () -> (PB.prox!(y, f, x, γ); copy(y)))
+                (op = bindcall(PB.prox!, y, f, x, γ), check = () -> (PB.prox!(y, f, x, γ); copy(y)))
             end)
         elseif op == "value_and_prox"
             addspec!("NormL1", op, T, rest, n, PB -> begin
                 f = mkf(PB)
-                (op = () -> (out1[1] = PB.value_and_prox!(y, f, x, γ); nothing),
+                (op = bindstore(out1, PB.value_and_prox!, y, f, x, γ),
                  check = () -> (v = PB.value_and_prox!(y, f, x, γ); (v, copy(y))))
             end)
         end
@@ -1024,17 +1034,17 @@ function add_l1_cases!(T, sc, n)
     if sc.iter && n == 1024
         addspec!("NormL1", "value_sparse", T, rest, n, PB -> begin
             f = mkf(PB); M = PB.SparseIterate(x)
-            (op = () -> (out1[1] = f(M); nothing), check = () -> f(M))
+            (op = bindstore(out1, f, M), check = () -> f(M))
         end)
         addspec!("NormL1", "value_and_prox_sparse", T, rest, n, PB -> begin
             f = mkf(PB); M = PB.SparseIterate(x); Mo = copy(M)
-            (op = () -> (out1[1] = PB.value_and_prox!(Mo, f, M, γ); nothing),
+            (op = bindstore(out1, PB.value_and_prox!, Mo, f, M, γ),
              check = () -> (v = PB.value_and_prox!(Mo, f, M, γ); (v, Vector(Mo))))
         end)
         groups = [collect(1:2:n), collect(2:2:n)]
         addspec!("NormL1", "value_block", T, rest, n, PB -> begin
             f = mkf(PB); B = PB.BlockIterate(copy(x), groups)
-            (op = () -> (out1[1] = f(B); nothing), check = () -> f(B))
+            (op = bindstore(out1, f, B), check = () -> f(B))
         end)
         if sc.kind === :underflow
             ps = 32                                     # a symmetric iterate of 32 × 32 with every lower-triangle coordinate stored
@@ -1042,7 +1052,7 @@ function add_l1_cases!(T, sc, n)
                 S = PB.SymmetricSparseIterate(T, ps)
                 for c in 1:ps, r in c:ps; S[r, c] = x[1]; end
                 f = PB.NormL1(one(T), fill(floatmin(T), ps, ps))
-                (op = () -> (out1[1] = f(S); nothing), check = () -> f(S))
+                (op = bindstore(out1, f, S), check = () -> f(S))
             end)
         end
     end
@@ -1073,6 +1083,11 @@ for sc in l1_scenarios, T in (Float32, Float64), n in NL2_DENSE
     add_l1_cases!(T, sc, n)
 end
 
+# A level of BigFloat type with Float64 data (the "level out of the range of Float64" cases) is arithmetic in
+# BigFloat inside the package, which allocates: these cases are checked but not timed, as the BigFloat cases are.
+specs = Spec[occursin(r"/Float64/(lvl_(big|small)|\w+_lvl)/", p.id) ?
+             Spec(p.id, p.family, p.op, p.T, false, p.n, p.build, p.ref, p.diff) : p for p in specs]
+
 ####################################
 #  Roles, checks, timing
 ####################################
@@ -1098,6 +1113,18 @@ expect_diff_mode = let s = get(ENV, "PB_EXPECT_DIFF", "auto")
     error("PB_EXPECT_DIFF must be auto, 0, 1, forward, same or reversed")
 end
 
+# The package calls that allocate after warming, by id: the check asserts 0 allocated bytes for role X
+# everywhere else (the closures of the cases are allocation-free; see bindcall).
+const ALLOC_OK = Pair{Regex, String}[
+    r"^LeastSquaresLoss/value/(Float32|Float64)/(under|sub|zero_residual|exact_fit)$" =>
+        "_leastsquares_recover: mapreduce(==, &, r, Y; init = true) allocates 368 bytes where the ordinary sum of squares is zero",
+    r"^LeastSquaresLoss/value/(Float32|Float64)/prod_over$" =>
+        "_leastsquares_recover (documented): recomputing an overflowing product Xβ copies β and allocates arrays of the size of Y"]
+allocated_by(op) = (op(); op(); @allocated op())      # a function barrier: op is a concretely typed closure here
+alloc_exempt(id) = any(r -> occursin(r.first, id), ALLOC_OK)
+alloc_bad = Pair{String, Int}[]                       # (id, bytes) of the cases that allocate and are not exempt
+alloc_seen = Pair{String, Int}[]                      # (id, bytes) of the exempt cases that allocate in X
+alloc_y_more = Pair{String, Tuple{Int, Int}}[]        # cases where Y allocates more than X
 shown(x) = (s = repr(x); length(s) > 120 ? s[1:120] * "..." : s)
 nvalue = 0
 for (i, p) in enumerate(selected)
@@ -1112,6 +1139,13 @@ for (i, p) in enumerate(selected)
     else
         exact_equal(ra, rb) || error("output differs bit for bit: $(p.id): X = $(shown(ra)), Y = $(shown(rb))")
     end
+    if p.timed
+        ax, ay = allocated_by(a.op), allocated_by(b.op)
+        if ax != 0
+            alloc_exempt(p.id) ? push!(alloc_seen, p.id => ax) : push!(alloc_bad, p.id => ax)
+        end
+        ay > ax && push!(alloc_y_more, p.id => (ax, ay))
+    end
     if p.ref !== nothing
         global nvalue += 1
         value_agrees(ra, p.ref[1], p.T, p.ref[2]) || error("value of the reference tree differs from the BigFloat reference: $(p.id): $(shown(ra)) vs $(p.T(p.ref[1]))")
@@ -1120,6 +1154,21 @@ end
 println("exact check: ", length(selected), " probes, XC = X bit for bit and Y = X bit for bit",
         any(p -> p.diff !== nothing, selected) ? (expect_diff_mode === :same ? "" : " except the D-X case ($expect_diff_mode)") : "",
         "; ", nvalue, " values against a BigFloat reference")
+if !isempty(alloc_bad)
+    for (id, b) in alloc_bad
+        println("  allocates ", b, " bytes in X: ", id)
+    end
+    error("$(length(alloc_bad)) cases allocate after warming in role X and are not exempt (listed above)")
+end
+println("allocation check: role X allocates 0 bytes after warming in ", count(p -> p.timed, selected) - length(alloc_seen), " of ",
+        count(p -> p.timed, selected), " timed cases; ", length(alloc_seen), " allocate in the package call itself",
+        isempty(alloc_y_more) ? "; role Y never allocates more than X" : "; role Y allocates MORE than X in $(length(alloc_y_more)) cases")
+for (id, b) in alloc_seen
+    println("  allocates ", b, " bytes in X (package call: ", first(r.second for r in ALLOC_OK if occursin(r.first, id)), "): ", id)
+end
+for (id, (bx, by)) in first(alloc_y_more, 20)
+    println("  Y allocates more: ", id, " X = ", bx, " Y = ", by)
+end
 let cnt = Dict{String, Int}(), cop = Dict{String, Int}()
     for p in selected
         cnt[p.family] = get(cnt, p.family, 0) + 1

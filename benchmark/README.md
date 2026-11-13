@@ -154,6 +154,13 @@ PB_FIRST=/path/to/reference-tree PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
 object per role and case and times it with `gctrial = false` (no full collection before each timing, which would
 otherwise dominate a run over thousands of short cases); the other settings are those of `l2_norms.jl`.
 
+**Allocations.** The closures that the harness times are built by function barriers (`bindcall` and the like),
+so that a call through the run-time module value does not allocate by itself. After warming, the check requires
+`@allocated op() == 0` for role X in every timed case, and lists the cases where Y allocates more than X. The
+exceptions, which are allocations of the package call and are listed by id when the check runs, are in the
+`ALLOC_OK` table of the script with the reason. Cases whose level is a `BigFloat` with Float64 data are checked
+but not timed (the arithmetic is BigFloat).
+
 **The BigFloat exception (D-X).** One case, `GroupNormL2/value/BigFloat/dx_exponent_sum_beyond_Int64`, has
 `λ0 = w = x = 2^(2^62-2)`, whose value overflows MPFR. The reference tree wraps the sum of three exponents and
 returns `+0`; the shared kernel returns `+Inf`. The case is the only one allowed to differ. `PB_EXPECT_DIFF`

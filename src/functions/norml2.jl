@@ -95,8 +95,6 @@ end
 # is decided by the cold path, which does not run on that path.
 @inline function _l2_shrink!(y, x, G, λ, w, γ::Real)
   T = float(eltype(y))
-  # an unpenalized group is copied here, in line: the cold path would be called for every such group
-  iszero(w) && return T(_l2_copy!(y, x, G))
   R = _working_type(T, γ, λ, w)
   ab = convert(R, γ) * convert(R, λ)
   c = convert(T, ab * convert(R, w))
@@ -114,6 +112,8 @@ end
       return T(_l2_zero!(y, G))
     end
   end
+  # an unpenalized group is copied here, in line: the cold path would be called for every such group
+  iszero(w) && return T(_l2_copy!(y, x, G))
   T(_l2_shrink_cold!(y, x, G, λ, w, γ))
 end
 

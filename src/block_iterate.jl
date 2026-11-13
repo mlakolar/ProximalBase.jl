@@ -398,7 +398,7 @@ end
 # They require active and position of both iterates to have length K. With the groups a
 # partition of the entries, the loops then write every entry of dest and set all of
 # dest.active and dest.position from src, as the whole-array copies do, provided no copy
-# writes a byte that a later copy, or the source, reads. The elements of a Vector occupy
+# changes a byte that a later copy, or the source, reads. The elements of a Vector occupy
 # the bytes [pointer, pointer + length * elsize), except that an isbits union also keeps
 # type tags outside them, so such storage is not copied whole. The checks require the
 # byte range of each array of dest to be disjoint from the ranges of the other arrays of

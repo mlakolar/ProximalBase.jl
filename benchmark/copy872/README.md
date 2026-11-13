@@ -111,7 +111,7 @@ repository. In summary:
 
 - When every source group is active, copying `storage`, `active` and `position`
   as whole arrays gives the state of the per-group loops, provided `active` and
-  `position` of both iterates have one entry per group and no copy writes a byte
+  `position` of both iterates have one entry per group and no copy changes a byte
   that a later copy or the source reads. The merged code checks sufficient
   conditions and otherwise runs the loops: the byte range of each of the
   destination's three arrays must be disjoint from those of its other two and of

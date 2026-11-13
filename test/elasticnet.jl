@@ -438,7 +438,7 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
       tie = ElasticNet(T(0.5), λ2)
       @test prox_block(tie, one(T), 1, T(2)) === zero(T) && prox_block(tie, -one(T), 1, T(2)) === zero(T)
       @test prox_block(tie, -zero(T), 1, T(2)) === zero(T) && prox_block(ElasticNet(zero(T), λ2), -zero(T), 1, γ) === zero(T)
-      # λ2 = 0 is NormL1 bit for bit at every step and trial
+      # λ2 = 0 is NormL1 bit for bit, at the steps 0, 1/4, 1 and Inf and the trials below
       trials = T[3, -3, 0.2, -0.2, 0, -0.0, Inf, -Inf, NaN]
       for ww in (nothing, T[0, 1, 2, Inf, 0.5, 1, 3, 1, 1]), s in T[0, 0.25, 1, Inf]
         f, g = ElasticNet(λ1, zero(T), ww), NormL1(λ1, ww)
@@ -454,7 +454,7 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
         @test prox_block(ElasticNet(λ1, λ2, T[0]), v, 1, s) === r
       end
       @test valok(ElasticNet(zero(T), λ2)(x), valref(ElasticNet(zero(T), λ2), x), n)
-      # both levels zero: the identity, except that -0 gives +0, and the value 0 at every entry
+      # both levels zero: the identity, except that -0 gives +0, and the value 0, also at NaN and ±Inf entries
       f00 = ElasticNet(zero(T), zero(T), T[1, 2, 0])
       @test isequal(prox(f00, T[NaN, -Inf, -0.0], γ), T[NaN, -Inf, 0])
       @test prox(f00, T[3, -2, 0.5], γ) == T[3, -2, 0.5]
@@ -586,7 +586,7 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
       g = T[0.2, -0.7, 1.5, 4]
       @test kkt_violation(f, g, 1) ≈ T(0.2) - T(0.5)
       @test kkt_violation(f, g, 2) ≈ T(0.7) && kkt_violation(f, g, 3) ≈ T(0.5) && kkt_violation(f, g, 4) == -Inf
-      @test kkt_violation(ElasticNet(T(Inf), T(1), w), g, 2) ≈ T(0.7)        # a zero weight stays free
+      @test kkt_violation(ElasticNet(T(Inf), T(1), w), g, 2) ≈ T(0.7)        # a zero weight is not penalized by the infinite level
       @test kkt_violation(ElasticNet(T(Inf), T(1), w), g, 1) == -Inf
       @test kkt_violation(ElasticNet(T(1), T(Inf)), g, 3) === -T(Inf)          # an infinite ridge level (D2)
       @test kkt_violation(f, g, 1) === kkt_violation(NormL1(T(0.5), w), g, 1)

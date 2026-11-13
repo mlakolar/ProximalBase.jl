@@ -42,7 +42,7 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
     @testset "$T truth table" begin
       trials = T[3, -3, 0.25, 0, -0.0, Inf, -Inf, NaN]
       steps = T[0, 0.5, 1, Inf]
-      # λ2 = Inf (D2): the indicator of {0}, +0 at every γ ≥ 0 and trial, whatever λ1 and the weight are
+      # λ2 = Inf (D2): the indicator of {0}, +0 at each step and trial below, for each λ1 and weight below
       for λ1 in T[0, 1, Inf], w in (nothing, T[0], T[1], T[Inf]), γ in steps
         f = ElasticNet(λ1, T(Inf), w)
         @test all(prox_block(f, v, 1, γ) === zero(T) for v in trials)
@@ -67,7 +67,7 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       y = T[5, 5]
       @test value_and_prox!(y, fD, T[3, NaN], zero(T)) === zero(T) && y == T[0, 0]
 
-      # λ1 = Inf: positive-weight entries +0 at every γ ≥ 0 and trial (#665); a zero weight is free, then the ridge
+      # λ1 = Inf: positive-weight entries +0 at each step and trial below (#665); a zero weight leaves the entry to the ridge
       for λ2 in T[0, 1], γ in steps
         f = ElasticNet(T(Inf), λ2, T[1, 0, Inf])
         @test all(prox_block(f, v, 1, γ) === zero(T) && prox_block(f, v, 3, γ) === zero(T) for v in trials)
@@ -76,7 +76,7 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       fI = ElasticNet(T(Inf), T(1), T[1, 0])
       @test fI(T[0, 4]) === T(8) && fI(T[tiny, 0]) === T(Inf) && fI(T[-0.0, 0]) === zero(T)
 
-      # an infinite weight maps a finite trial to +0 at every level and step, a zero level or step included (#853);
+      # an infinite weight maps a finite trial to +0 at each level and step below, a zero level or step included (#853);
       # NaN and ±Inf trials at a finite λ1 have no fixed-zero guarantee: the arithmetic gives NaN (observed, #653)
       for λ1 in T[0, 1], λ2 in T[0, 1], γ in steps
         f = ElasticNet(λ1, λ2, T[Inf])
@@ -174,7 +174,7 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
         f = ElasticNet(λ1, λ2, ones(T, 64))
         @test PB._elastic_fused_value(f, x)[2]
       end
-      # and every term below floatmin does not (the composed value recomputes it)
+      # and a sum of terms below floatmin does not pass its test (the composed value recomputes it)
       f = ElasticNet(p2(T, m ÷ 2), one(T), ones(T, 8))
       @test !PB._elastic_fused_value(f, fill(p2(T, m ÷ 2 - 2), 8))[2]
       # value_entry of single extreme terms
@@ -183,7 +183,7 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       @test value_entry(ElasticNet(zero(T), one(T)), T(Inf), 1) === T(Inf) && value_entry(ElasticNet(T(1), zero(T)), T(Inf), 1) === T(Inf)
       @test value_entry(ElasticNet(T(1), zero(T), T[0]), T(NaN), 1) === zero(T)
 
-      # value_and_prox! returns the value at the stored point, on every representation
+      # value_and_prox! returns the value at the stored point, on dense, sparse and block arguments
       rng = Xoshiro(908)
       x = T(3) .* randn(rng, T, 40)
       for f in (ElasticNet(T(0.4), T(0.7), T(0.5) .+ rand(rng, T, 40)), ElasticNet(p2(T, 3m ÷ 4), one(T)), ElasticNet(T(Inf), one(T)))
@@ -265,7 +265,7 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
         sc = Scaled(hf, p2(T, m ÷ 2 - 10))
         got = prox(sc, T[3, -4], p2(T, m ÷ 2 - 10))
         ref = prox(hf, T[3, -4], one(T))
-        @test got == ref || (hf.λ2 < Inf && hf.w !== nothing)          # a free entry under a finite ridge keeps its route
+        @test got == ref || (hf.λ2 < Inf && hf.w !== nothing)          # an entry with a zero weight under a finite ridge keeps its route
       end
       @test PB._hard(ElasticNet(T(Inf), T(2), T[1, 0])) === nothing && PB._hard(ElasticNet(T(1), T(2))) === nothing
       @test PB._hard(ElasticNet(T(1), T(Inf))).λ1 === zero(T) && PB._hard(ElasticNet(T(Inf), T(2))).λ2 === zero(T)

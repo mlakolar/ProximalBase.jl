@@ -262,8 +262,9 @@ linear index, and is stored by reference. `ElasticNet` accepts real dense
 vectors and matrices (views included), `SparseIterate`, `BlockIterate` and
 `SymmetricSparseIterate`, with a scalar step or, except as noted below, an
 array of per-entry steps. On a sparse iterate the value and the proximal
-operator read the stored entries only; a stored zero stays stored, and an
-absent entry is not activated. On a `SymmetricSparseIterate` the weights
+operator read the stored entries only; an entry stored in the output stays
+stored, possibly as a zero, and a zero result does not activate an absent
+entry. On a `SymmetricSparseIterate` the weights
 are a `p × p` matrix read at both positions of an off-diagonal
 coordinate, and the value counts such a coordinate twice, as the matrix
 it represents does. The weights must then be exactly symmetric, a
@@ -282,8 +283,8 @@ negative or `NaN` scalar step before anything is written. The entries of
 an array of steps are not checked: they must be nonnegative, a documented
 precondition. This is an exception to the requirement of
 [#908](https://github.com/mlakolar/ProximalBase.jl/issues/908) that
-negative and `NaN` steps fail before writes, because a pass over an array
-of steps would slow every call
+negative and `NaN` steps fail before writes, because the check would add a
+pass over the steps to each such call
 ([#874](https://github.com/mlakolar/ProximalBase.jl/pull/874)).
 `prox_block` does not check its step, and `Scaled` keeps its own step rule.
 

@@ -84,8 +84,9 @@ rounded to zero gave `NaN` there. An exactly zero value still gives `0`.
 
 `ElasticNet` values are the value of the ℓ₁ part, computed as `NormL1`
 computes it, plus the value of the ridge part, computed as `SqrNormL2`
-computes it, each with the recovery above, then one addition; on sparse,
-block and symmetric iterates both parts read the stored entries only. On a
+computes it, each with the recovery above, then one addition; on sparse
+and symmetric iterates both parts read the stored entries only, and on a
+`BlockIterate` its storage. On a
 dense `Float32` or `Float64` `Array` with parameters of its type, a single
 pass over the entries is returned instead when a test on its sum bounds its
 relative error by `(n + 2) eps(T)` for `n` entries; the bound is proved in a

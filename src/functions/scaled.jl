@@ -648,7 +648,7 @@ _hard(f::NormL1) = isinf(f.λ0) ? f : nothing
 # Two levels. An infinite ridge level fixes every entry (#908), and an infinite ℓ1 level every entry with a
 # positive weight. The finite level is then removed (set to zero) when the infinite one fixes every entry, or
 # when it is zero already; otherwise (an infinite ℓ1 level, a positive finite ridge level and a zero weight)
-# the ridge acts on the free entries with the step, and the call keeps its route.
+# the ridge acts with the step on the entries with a zero weight, and the call keeps its route.
 function _hard(f::ElasticNet)
   (isinf(f.λ1) || isinf(f.λ2)) || return nothing
   zeroed = (isinf(f.λ1) || iszero(f.λ1)) && (isinf(f.λ2) || iszero(f.λ2))

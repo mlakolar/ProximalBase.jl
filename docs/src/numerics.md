@@ -168,19 +168,16 @@ for custom functions. Original `Squared()` scalar arithmetic has no such
 array-value recovery.
 
 A known limitation ([#567](https://github.com/mlakolar/ProximalBase.jl/issues/567)):
-for `Scaled(ElasticNet(λ1, λ2, w), α)` with a finite positive `α` and a
-positive finite scalar step `γ` whose product `αγ` is above `floatmax`, the
-proximal operators fold `α` and the exponent of `γ` into the levels; the folded
-ridge level lies between `αγλ2` and `2αγλ2`. Where a folded level is above
-`floatmax`, no fold is used: the function receives the step `αγ`, rounded to
-`Inf`, and `prox`, `prox!`, `prox_block` and `value_and_prox!` can return `0`
-where the exact result is representable. A representable result does not need
-a representable coefficient. With `λ1 = 0`, `α = γ = 2.0^600` and `x = [2.0^1000]`,
+for `Scaled(ElasticNet(λ1, λ2, w), α)` with finite levels, a finite positive `α`
+and a positive finite scalar step `γ` whose product `αγ` is above `floatmax`,
+`prox`, `prox!`, `prox_block` and `value_and_prox!` can return `0` where the
+exact result is representable. A representable result does not need a
+representable coefficient. With `λ1 = 0`, `α = γ = 2.0^600` and `x = [2.0^1000]`,
 the coefficient `αγλ2` is `2^1300` for `λ2 = 2.0^100`, above `floatmax`,
 while the quotient `x/(1 + αγλ2)`, about `2^-300`, is representable, and the
-result is `0`. For `λ2 = 2.0^-1000` and `x = [4.0]` the coefficient is `2^200`,
-the fold holds it, and the result is the representable `4/(1 + 2^200)`.
-`Scaled(SqrNormL2(λ2), α)` folds no level and returns `0` in the first case.
+result is `0`. For `λ2 = 2.0^-1000` and `x = [4.0]` the coefficient is `2^200`
+and the result is the representable `4/(1 + 2^200)`.
+`Scaled(SqrNormL2(λ2), α)` also returns `0` in the first case.
 In some cases the same step passed as an array of steps gives the
 representable result, for example in the first case and in its `Float32`
 analogue (`λ2 = 2.0f0^80`, `α = γ = 2.0f0^80`, `x = [2.0f0^127]`); for

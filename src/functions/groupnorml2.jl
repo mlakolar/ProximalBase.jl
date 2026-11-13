@@ -192,6 +192,22 @@ function _group_value(f::GroupNormL2, x)
   lc = convert(Q, λ)
   v = zero(T)
   nt = 0
+  if _all_singletons(f)
+    # one entry per group: the term is λ0 wₖ |x[i]|, with no sum of squares; a NaN or an infinite entry gives a sum that is
+    # not ordinary, and the recovery decides
+    @inbounds for k in eachindex(f.groups)
+      w = W[k]
+      iszero(w) && continue
+      lw = lc * convert(Q, w)
+      a = abs(convert(T, x[f.groups[k][1]]))
+      ((floatmin(Q) <= lw) & (lw <= floatmax(Q))) || return _group_value_recovered(f, x, T)
+      v += convert(T, lw * convert(Q, a))
+      nt += !iszero(a)
+    end
+    _l2_ordinary(v, T) || return _group_value_recovered(f, x, T)
+    _underflow_checked(T) && !_sum_kept(v, nt) && return _group_value_recovered(f, x, T)
+    return v
+  end
   inf = false
   @inbounds for k in eachindex(f.groups)
     w = W[k]
@@ -264,6 +280,10 @@ value_and_prox!(y::AbstractArray, f::GroupNormL2, x::AbstractArray, γ::Real) =
 # routes of wrappers such as Scaled, which preflight with _checkwrite first
 _value_and_prox_unchecked!(y::AbstractArray, f::GroupNormL2, x::AbstractArray, γ::Real) = value_and_prox!(y, f, x, γ)
 
+# Whether every group has exactly one entry: the entries in groups are those up to the largest in a group that are in
+# none of the free ones, and a group has at least one.
+@inline _all_singletons(f::GroupNormL2) = length(f.group_of) - length(f.free) == length(f.groups)
+
 # The proximal point of the groups, and with V the value at the stored output. The parameters of the call decide the
 # loop, once: γλ0 in the normal range gives the ordinary loop, where each group tests its own threshold γλ0wₖ; a zero or
 # infinite γ or λ0 decides every group by its weight alone (no data are read); otherwise γλ0 is out of the range and
@@ -283,7 +303,8 @@ function _group_prox_all!(y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {V}
   R = _working_type(T, γ, λ, oneunit(eltype(f.w)))
   ab = convert(R, γ) * convert(R, λ)
   if floatmin(R) <= ab <= floatmax(R)
-    return _group_prox_ordinary!(y, f, x, γ, ab, Val(V))
+    return _all_singletons(f) ? _group_prox_ordinary!(y, f, x, γ, ab, Val(V), Val(true)) :
+                                _group_prox_ordinary!(y, f, x, γ, ab, Val(V), Val(false))
   elseif iszero(γ) | iszero(λ) | isinf(γ) | isinf(λ)
     _group_prox_decided!(y, f, x, γ)
     V || return nothing
@@ -300,7 +321,7 @@ end
 # returns) is added to the value. The value at the stored output is formed again, once, after the loop, if the output of
 # a group was recomputed without its norm (a group that the kernel left to the cold path and did not zero), if a
 # coefficient λ0 wₖ is out of the normal range, or if the sum cannot be kept (as in _group_value).
-function _group_prox_ordinary!(y, f::GroupNormL2, x, γ, ab, ::Val{V}) where {V}
+function _group_prox_ordinary!(y, f::GroupNormL2, x, γ, ab, ::Val{V}, ::Val{single}) where {V, single}
   T = float(eltype(y))
   λ = f.λ0
   W = f.w
@@ -312,7 +333,7 @@ function _group_prox_ordinary!(y, f::GroupNormL2, x, γ, ab, ::Val{V}) where {V}
   nan = inf = false
   @inbounds for k in eachindex(f.groups)
     w = W[k]
-    s = _group_shrink!(y, x, f.groups[k], λ, w, γ, ab)
+    s = single ? _single_shrink!(y, x, f.groups[k], λ, w, γ, ab) : _group_shrink!(y, x, f.groups[k], λ, w, γ, ab)
     V || continue
     if s >= 0
       lw = lc * convert(Q, w)
@@ -337,27 +358,13 @@ end
 # The group of weight w with the threshold c = γλ0w in the normal range of T, at γλ0 = ab in the normal range of its
 # type: returns the norm t‖x‖ of the stored group on the ordinary shrinking path (each stored entry is t x[i] rounded
 # once, so this is the norm of the stored entries to within a few rounding errors, without a second pass), or one of
-# the codes of the kernels. A group of one entry has the norm |x[i]|, with no sum of squares to underflow or overflow:
-# a NaN entry (which makes the group NaN) and an infinite one (which leaves it unchanged) follow from t = 1 - c/|x[i]|.
-# Otherwise the ordinary path needs a normal sum of squares that no underflowing square can have changed by more than
-# ordinary rounding. A threshold out of the range (an unpenalized group, w = 0, included) and everything else,
-# exceptional parameters and values, is decided by the cold kernel, which does not run on this path.
+# the codes of the kernels. The ordinary path needs a normal sum of squares that no underflowing square can have
+# changed by more than ordinary rounding. A threshold out of the range (an unpenalized group, w = 0, included) and
+# everything else, exceptional parameters and values, is decided by the cold kernel, which does not run on this path.
 @inline function _group_shrink!(y, x, G, λ, w, γ::Real, ab::R) where {R}
   T = float(eltype(y))
   c = convert(T, ab * convert(R, w))
   if (floatmin(T) <= c) & (c <= floatmax(T))
-    if length(G) == 1
-      i = @inbounds G[1]
-      a = convert(T, @inbounds x[i])
-      n = abs(a)
-      if n <= c
-        @inbounds y[i] = zero(eltype(y))
-        return T(_L2_ZERO)
-      end
-      t = one(T) - c / n
-      @inbounds y[i] = convert(eltype(y), t * a)
-      return t * n
-    end
     s = _indexed_sumabs2(x, G, T)
     if isfinite(s) & _squares_normal(s, length(G), T)
       n = sqrt(s)
@@ -370,6 +377,29 @@ end
     elseif iszero(s) && _l2_all_zero(x, G, T)
       return T(_l2_zero!(y, G))
     end
+  elseif iszero(w)
+    return T(_l2_copy!(y, x, G))
+  end
+  T(_l2_prox_cold!(y, x, G, λ, w, γ))
+end
+
+# The same for a group of one entry, whose norm |x[i]| has no sum of squares to underflow or overflow: a NaN entry
+# (which makes the group NaN) and an infinite one (which leaves it unchanged) follow from t = 1 - c/|x[i]|. A loop over
+# groups that are all of one entry uses it (a call with a mixture of sizes uses _group_shrink!).
+@inline function _single_shrink!(y, x, G, λ, w, γ::Real, ab::R) where {R}
+  T = float(eltype(y))
+  c = convert(T, ab * convert(R, w))
+  if (floatmin(T) <= c) & (c <= floatmax(T))
+    i = @inbounds G[1]
+    a = convert(T, @inbounds x[i])
+    n = abs(a)
+    if n <= c
+      @inbounds y[i] = zero(eltype(y))
+      return T(_L2_ZERO)
+    end
+    t = one(T) - c / n
+    @inbounds y[i] = convert(eltype(y), t * a)
+    return t * n
   elseif iszero(w)
     return T(_l2_copy!(y, x, G))
   end
@@ -416,7 +446,7 @@ function prox_block!(out::AbstractVector, f::GroupNormL2, u::AbstractVector, k::
   R = _working_type(T, γ, λ, w)
   ab = convert(R, γ) * convert(R, λ)
   if floatmin(R) <= ab <= floatmax(R)
-    _group_shrink!(out, u, G, λ, w, γ, ab)
+    m == 1 ? _single_shrink!(out, u, G, λ, w, γ, ab) : _group_shrink!(out, u, G, λ, w, γ, ab)
   else
     _l2_prox_cold!(out, u, G, λ, w, γ)
   end

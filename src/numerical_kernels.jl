@@ -851,7 +851,7 @@ end
 # nonzero group and need_norm, ns is the norm of the entries scaled by 2^-k, so that its largest entry is in
 # [1, 2) and no square overflows or underflows below the rounding of the sum: ns is in [1, 2√|G|). Otherwise
 # ns is zero. A caller that does not need the norm passes need_norm = false, and then there is no second pass.
-@inline function _l2_classified_norm(x, G, ::Type{R}, need_norm::Bool = true) where {R}
+@noinline function _l2_classified_norm(x, G, ::Type{R}, need_norm::Bool = true) where {R}
   v = _IndexedValues(x, G)
   k = _square_exponent(v, nothing, R)
   (need_norm & (_EXPONENT_ZERO < k < _EXPONENT_INF)) || return (k, zero(R))

@@ -166,9 +166,9 @@ function aexp_of(::Type{T}, mag, m) where {T}
     emax, emin, p = emax_of(T), emin_of(T), prec_of(T)
     mag === :ord && return 0
     mag === :over_mid && return emax ÷ 2 + 3              # the sum of squares overflows, the norm is far below floatmax
-    mag === :over_norm && return emax - lgm(m) - 1        # the norm is in about [0.088, 0.354) floatmax (see the scenarios)
-    mag === :over_entries && return emax                  # entries in [0.25, 0.5) floatmax
-    mag === :max_entries && return emax + 1               # entries up to 0.9 floatmax (see genvec)
+    mag === :over_norm && return emax - lgm(m) - 1        # the norm is about 0.09 to 0.36 floatmax (approximate; see the scenarios)
+    mag === :over_entries && return emax                  # entries of magnitude 2^(emax-1) to 2^emax, about 0.25 to 0.5 floatmax
+    mag === :max_entries && return emax + 1               # entries of about 0.5 to 0.9 floatmax (see genvec)
     mag === :under && return emin + 2                     # entries of 2 to 4 floatmin: every square underflows to zero
     mag === :sub && return emin - 3                       # subnormal entries
     mag === :tiny && return emin ÷ 2 + p ÷ 4              # normal squares, the sum below m floatmin/eps
@@ -469,11 +469,12 @@ end
 
 group_scenarios = Any[]
 add!(sc) = push!(group_scenarios, sc)
-# overflowing sums of squares (:sumsq_over), with entries ±U[1/2, 1) 2^aexp, that is, of magnitude in [2^(aexp-1), 2^aexp).
-# over_mid: the norm is far below floatmax. over_norm: the norm of m entries is in about [0.088, 0.354) floatmax, so it is
-# finite (:norm_finite). over_entries: entries in [0.25, 0.5) floatmax, a norm that is finite for m = 2, above floatmax for
-# m >= 16 and either in between. over_max: entries in [0.5, 0.9) floatmax, a norm above floatmax for m >= 4. The proximal
-# points are finite where :finite_result is listed.
+# overflowing sums of squares (:sumsq_over), with entries ±U[1/2, 1) 2^aexp, that is, of magnitude between 2^(aexp-1) and
+# 2^aexp (the significand is rounded to T, so both endpoints can occur). The ranges relative to floatmax are approximate
+# (floatmax is a little below 2^(emax+1)). over_mid: the norm is far below floatmax. over_norm: the norm of m entries is
+# about 0.09 to 0.36 floatmax, so it is finite (:norm_finite). over_entries: entries of about 0.25 to 0.5 floatmax, a norm that
+# is finite for m = 2, above floatmax for m >= 16 and either in between. over_max: entries of about 0.5 to 0.9 floatmax, a norm
+# above floatmax for m >= 4. The proximal points are finite where :finite_result is listed.
 add!(S("over_mid", mag = :over_mid, param = :tuned, grid = :full, matrix = true, req = (:sumsq_over, :norm_finite, :finite_result)))
 add!(S("over_mid_val", mag = :over_mid, param = :val_fin, grid = :full, matrix = true, ref = true,
        req = (:sumsq_over, :norm_finite, :val_range => (0.02, 0.1))))

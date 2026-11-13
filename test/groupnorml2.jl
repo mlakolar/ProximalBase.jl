@@ -698,7 +698,8 @@ end
   fill!(y, Float16(7))
   v = value_and_prox!(y, f, x, Float16(1))
   @test v === zero(Float16) && count(signbit, y) == 0 && all(iszero, y)
-  # two groups, one of them an exceptional one by its parameters, and the compact block operator
+  # two groups with ordinary parameters (level 1/4, weights 1, step 1), the first with entries that round to zero in
+  # Float16 and the second with ordinary entries, and the compact block operator
   m = 1000
   xs = vcat(fill(-prevfloat(2.0^-25), m), fill(0.5, m))
   g = GroupNormL2(Float16(0.25), [1:m, m+1:2m], Float16[1, 1])

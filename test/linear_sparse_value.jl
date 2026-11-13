@@ -795,7 +795,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
       # exactly cancelling sets with more terms, in a random order: d exactly, ordinary value overflowing
       rng = Xoshiro(810_900 + 7 * (T === Float32) + (Tc === Float32))
       counted = 0
-      for _ in 1:400
+      for _ in 1:2000
         terms = cancelling_terms(rng, T, Tc, 100, rand(rng, 1:4), 3)
         terms === nothing && continue
         p = length(terms)
@@ -844,7 +844,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
           δ = big(δx) * big(δc)
           sabs = sum(abs(big(a) * big(b)) for (a, b) in terms)
           budget = 4 * big(eps(T)) * (abs(δ) + abs(big(d))) + 4 * length(terms) * big(eps(Float64))^2 * sabs +
-                   2 * length(terms) * big(2)^(E + 3 - 1074)
+                   2 * length(terms) * ldexp(big(1.0), E + 3 - 1074)
           if budget <= 16 * big(eps(T)) * (abs(δ) + abs(big(d)))
             within += 1
             @test abs(big(v) - (δ + big(d))) <= budget

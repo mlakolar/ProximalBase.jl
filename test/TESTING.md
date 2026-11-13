@@ -28,6 +28,14 @@ symmetric models (`NormL1`, `SqrNormL2`, `LinearFunction`, nested `Scaled` and a
 function) against dense and structurally symmetric references in Float32/64, the explicit `check_symmetric_parameters` (stored and unstored pairs, nested `Scaled`,
 NaN and signed zeros, malformed metadata), the structural refusals that the oracles keep, and
 instrumented parameter arrays that count reads to show the oracles perform no mirrored-pair scan.
+`elasticnet` and `elasticnet_extremes` cover `ElasticNet` (#908): the constructor, traits, analytic cases
+(a zero `λ2` is `NormL1` bit for bit, a zero `λ1` or weight is the `SqrNormL2` ridge), the refusal of negative
+and NaN scalar steps before writes, dense, sparse, block and symmetric representations, the KKT screen and
+restriction, agreement with the archived implementation within 4 ulp, warmed allocations, the endpoint truth
+table of the plan, Float32/Float64 extremes against 4096-bit BigFloat (proximal points within 4 ulp of
+`shrink(v, t̂)/(1 + γλ2)` with the kernel's threshold, values within `(n + 2) eps`), `Scaled` folds, chains,
+infinite and zero factors, and read counts that show values and proximal points on sparse and symmetric
+iterates read the weights of the stored entries only.
 `linear_shapes` checks the `LinearFunction` shape contract, `size(c) == size(x)` (the
 p × p matrix of a symmetric iterate): every value, gradient and proximal oracle, allocating
 and in place, `Scaled` included, on dense, sparse, wrapped and iterate arguments in Float32/64,

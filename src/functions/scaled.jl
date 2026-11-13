@@ -111,6 +111,11 @@ function _zero_scaled(f::NormL1)
   isfinite(f.λ0) || _zero_scale_error(f)
   _finite_parameter(f.w) ? ZeroFunction() : NormL1(zero(f.λ0), f.w)
 end
+# finite levels give the zero function, or, with an infinite weight, zero levels that keep its fixed zeros
+function _zero_scaled(f::ElasticNet)
+  isfinite(f.λ1) && isfinite(f.λ2) || _zero_scale_error(f)
+  _finite_parameter(f.w) ? ZeroFunction() : ElasticNet(zero(f.λ1), zero(f.λ2), f.w)
+end
 _zero_scaled(f::SqrNormL2) = _finite_zero(f, f.λ, f.y)
 _zero_scaled(f::QuadraticFunction) = _finite_zero(f, f.A, f.b, f.c)
 _zero_scaled(f::LeastSquaresLoss) = _finite_zero(f, f.X, f.Y)
@@ -191,11 +196,25 @@ function _fold_level(f::NormL1, α)
   c = _folded_level(f.λ0, α)
   c === nothing ? nothing : NormL1(c, f.w)
 end
+# both levels fold, or neither
+function _fold_level(f::ElasticNet, α)
+  c1, c2 = _folded_level(f.λ1, α), _folded_level(f.λ2, α)
+  c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
+end
 _fold_level(f::Scaled, α) = _fold_level(f.f, _projection_accumulate(α, f.α))
-# The levels as the proximal operator folds them together with the exponent of the step: a ridge
-# level that falls below the range multiplies the step by less than the range can resolve, so it
-# is dropped instead of discarding the fold.
+# The levels as the proximal operator folds them together with the exponent of the step, for a step
+# reduced to its significand in [1/2, 1) (`_nested_step`): those of `_fold_level`, except that an
+# ElasticNet ridge level that the fold takes below floatmin (to zero included) is set to zero instead
+# of discarding the fold. Times that step it is below floatmin, so the ridge weight 1/(1 + γλ2) of the
+# kernel is 1 for it as for zero. The folded function then lacks that ridge term, and its value is not
+# the value of the chain.
 _fold_level_step(f, α) = _fold_level(f, α)
+function _fold_level_step(f::ElasticNet, α)
+  c1 = _folded_level(f.λ1, α)
+  c = iszero(f.λ2) ? f.λ2 : _apply_scale(α, f.λ2)
+  c2 = isfinite(c) && abs(c) < floatmin(typeof(float(c))) ? zero(c) : _folded_level(f.λ2, α)
+  c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
+end
 
 # The scale of the fold that recovers a value: only a fold into normal levels is used. A subnormal
 # level has fewer bits than the factors give, and the partial fold below recovers those values at
@@ -379,6 +398,10 @@ function _exactly_zero_at(f::NormL1, x::AbstractArray)
   end
   true
 end
+# a positive ridge level penalizes every entry (an infinite one is the indicator of {0}, #908); a zero
+# one leaves the entries that the ℓ1 part penalizes, as for NormL1
+_exactly_zero_at(f::ElasticNet, x::AbstractArray) =
+  f.λ2 > 0 ? _all_zero(_host_entries(x)) : _exactly_zero_at(f.l1, x)
 
 # The scaled-value mechanism (R1, "Wrappers"). A function with `_has_value_parts` returns its
 # value at x as (m, e), the value m 2^e with a finite significand m, or `nothing` to keep the
@@ -616,11 +639,22 @@ _steps_hard(γ) = all(g -> g isa Real && isfinite(g) && g > 0, γ)
 # a stored infinite level in the function tree, read from the parameters as stored
 _has_infinite_level(::AbstractFunction) = false
 _has_infinite_level(f::NormL1) = isinf(f.λ0)
+_has_infinite_level(f::ElasticNet) = isinf(f.λ1) || isinf(f.λ2)
 _has_infinite_level(f::Scaled) = _has_infinite_level(f.f)
 _hard_function(f) = _hard(f)
 _hard(_) = nothing
 _hard(f::ZeroFunction) = f
 _hard(f::NormL1) = isinf(f.λ0) ? f : nothing
+# Two levels. An infinite ridge level fixes every entry (#908), and an infinite ℓ1 level every entry with a
+# positive weight. The finite level is then removed (set to zero) when the infinite one fixes every entry, or
+# when it is zero already; otherwise (an infinite ℓ1 level, a positive finite ridge level and a zero weight)
+# the ridge acts on the free entries with the step, and the call keeps its route.
+function _hard(f::ElasticNet)
+  (isinf(f.λ1) || isinf(f.λ2)) || return nothing
+  zeroed = (isinf(f.λ1) || iszero(f.λ1)) && (isinf(f.λ2) || iszero(f.λ2))
+  (zeroed || isinf(f.λ2) || f.w === nothing || all(>(0), f.w)) || return nothing
+  ElasticNet(isinf(f.λ1) ? f.λ1 : zero(f.λ1), isinf(f.λ2) ? f.λ2 : zero(f.λ2), f.w)
+end
 # a factor is irrelevant when it is a positive finite number; any other factor keeps the earlier route
 function _hard(f::Scaled)
   c = f.α

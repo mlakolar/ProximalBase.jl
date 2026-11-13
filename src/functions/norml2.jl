@@ -125,6 +125,8 @@ end
 # anything else (a recomputed output, a level or value out of the range) is the value of y.
 @inline function _norml2_fused_value(λ, y, s::T, ::Type{T}) where {T}
   s == T(_L2_ZERO) && return zero(T)
+  s == T(_L2_NAN) && return T(NaN)
+  s == T(_L2_INF) && return T(Inf)
   if s >= 0
     R = _working_type(T, λ, true)
     lr = convert(R, λ)
@@ -148,6 +150,18 @@ function _l2_value(λ, x)
   end
   iszero(s) && _all_zero(_stored_values(x)) && return zero(T)
   _l2_value_cold(λ, x, s, T)
+end
+
+# The class of a dense array of Float32 or Float64 and its scaled norm, from the classified norm of the kernels (one pass
+# for the class and the largest exponent, one for the scaled sum): NaN at a NaN entry, Inf at an infinite entry or an
+# infinite level away from zero, 0 at the zero array, and otherwise λ ns 2^k rounded once to T.
+@noinline function _l2_value_cold(λ, x::DenseArray{<:Union{Float32, Float64}}, s, ::Type{T}) where {T}
+  R = _recovery_type(T, float(typeof(λ)))
+  k, ns = _l2_classified_norm(x, Base.OneTo(length(x)), R, !isinf(λ))
+  k == _EXPONENT_NAN && return T(NaN)
+  k == _EXPONENT_ZERO && return zero(T)
+  (k == _EXPONENT_INF || isinf(λ)) && return T(Inf)
+  convert(T, _scaled_product(convert(R, λ), ns, k))
 end
 
 # The scaled norm (_scaled_norm: the sum of squares recomputed in units of the largest stored entry, in

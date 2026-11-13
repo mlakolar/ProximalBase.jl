@@ -359,7 +359,8 @@ _expsum_start(::Type{R}) where {R<:AbstractFloat} = _ExpSum{R}(zero(R), zero(R),
     s, c = _compensated_add(ldexp(acc.s, d), ldexp(acc.c, d), m)
     return _ExpSum{R}(s, c, e)
   end
-  s, c = _compensated_add(acc.s, acc.c, ldexp(m, _frame_shift(R, e, acc.ex)))
+  d = _frame_shift(R, e, acc.ex)
+  s, c = _compensated_add(acc.s, acc.c, iszero(d) ? m : ldexp(m, d))
   _ExpSum{R}(s, c, acc.ex)
 end
 # The shift a - b from one frame to another. The exponents of BigFloat terms reach ±(2^62 - 1), so two of them can
@@ -781,8 +782,13 @@ _recovery_type(types...) = promote_type(Float64, types...)
 
 # Codes returned by the shrinkage kernels in place of the norm of the stored group: the stored group is
 # exactly zero, or its value must be recomputed from the stored entries.
+# A group of a NaN or an infinite entry (and no NaN), with the positive finite parameters of a proximal point, has the
+# NaN (all entries NaN) or infinite (unchanged) output, and the term of the value is NaN or Inf: the codes _L2_NAN and
+# _L2_INF tell the fused value so, without a pass over the output.
 const _L2_ZERO = -2
 const _L2_RECOMPUTE = -1
+const _L2_INF = -3
+const _L2_NAN = -4
 
 @inline function _l2_zero!(y, G)
   S = eltype(y)
@@ -871,8 +877,8 @@ end
   T = float(eltype(y))
   R = _recovery_type(_working_type(T, γ, λ, w), float(eltype(x)))
   k, ns = _l2_classified_norm(x, G, R)
-  k == _EXPONENT_NAN && return _l2_fill!(y, G, convert(eltype(y), NaN))
-  k == _EXPONENT_INF && return _l2_copy!(y, x, G)
+  k == _EXPONENT_NAN && (_l2_fill!(y, G, convert(eltype(y), NaN)); return _L2_NAN)
+  k == _EXPONENT_INF && (_l2_copy!(y, x, G); return _L2_INF)
   k == _EXPONENT_ZERO && return _l2_zero!(y, G)
   r = _scaled_product(convert(R, γ), convert(R, λ), convert(R, w), -k) / ns
   r >= one(R) && return _l2_zero!(y, G)
@@ -906,7 +912,16 @@ end
   end
   mλ, eλ = _frexp(convert(R, λ))
   mw, ew = _frexp(convert(R, w))
+  R <: Base.IEEEFloat && return _screen_difference(T, ns, k, mλ * mw, eλ + ew)
   convert(T, _pow2_sum(R, (ns, k), (-(mλ * mw), eλ + ew)))
+end
+# ns 2^k - m 2^e for the IEEE types, with ns in [1, 2√|G|) and m in [1/4, 1): the two terms in the units of the larger
+# exponent E, where the larger is below 2√|G| and the smaller is scaled down by a power of two (it rounds to a
+# subnormal or to zero only far below the unit of the difference's rounding, or exactly when they cancel, which the
+# subtraction of near operands does exactly), and the difference scaled back once.
+@inline function _screen_difference(::Type{T}, ns::R, k::Integer, m::R, e::Integer) where {T, R}
+  E = max(k, e)
+  convert(T, ldexp(ldexp(ns, k - E) - ldexp(m, e - E), E))
 end
 
 ####################################

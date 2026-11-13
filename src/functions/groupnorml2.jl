@@ -192,6 +192,7 @@ function _group_value(f::GroupNormL2, x)
   lc = convert(Q, λ)
   v = zero(T)
   nt = 0
+  inf = false
   @inbounds for k in eachindex(f.groups)
     w = W[k]
     iszero(w) && continue
@@ -201,10 +202,17 @@ function _group_value(f::GroupNormL2, x)
     if isfinite(q) & _squares_normal(q, length(G), T) & (floatmin(Q) <= lw) & (lw <= floatmax(Q))
       v += convert(T, lw * sqrt(convert(Q, q)))
       nt += 1
-    elseif !(iszero(q) && _l2_all_zero(x, G, T))
+    elseif isnan(q)
+      return T(NaN)       # a NaN entry of a penalized group at a positive finite level: the value is NaN
+    elseif iszero(q) && _l2_all_zero(x, G, T)
+      continue
+    elseif q == T(Inf) && _square_exponent(_IndexedValues(x, G), nothing, T) == _EXPONENT_INF
+      inf = true          # an infinite entry (and no NaN in the group): the term is Inf, and a later NaN decides
+    else
       return _group_value_recovered(f, x, T)
     end
   end
+  inf && return T(Inf)
   _l2_ordinary(v, T) || return _group_value_recovered(f, x, T)
   _underflow_checked(T) && !_sum_kept(v, nt) && return _group_value_recovered(f, x, T)
   v
@@ -230,7 +238,8 @@ end
     if k_ == _EXPONENT_INF || unbounded
       inf = true
     else
-      acc = _expsum_product(acc, w, ns, k_)
+      mw, ew = _frexp(convert(R, w))
+      acc = _expsum_add(acc, mw * ns, ew + k_)
     end
   end
   inf && return T(Inf)
@@ -277,10 +286,14 @@ function _group_prox_all!(y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {V}
     return _group_prox_ordinary!(y, f, x, γ, ab, Val(V))
   elseif iszero(γ) | iszero(λ) | isinf(γ) | isinf(λ)
     _group_prox_decided!(y, f, x, γ)
-  else
-    _group_prox_exceptional!(y, f, x, γ)
+    V || return nothing
+    # a group is zero or unchanged by its weight: at an infinite level, or an infinite step at a positive level, every
+    # penalized group is +0 and the value is 0; at a zero step or level the value is that of the unchanged groups
+    return isinf(λ) | (isinf(γ) & !iszero(λ)) ? zero(T) : _group_value(f, y)
   end
-  V ? _group_value(f, y) : nothing
+  flags = _group_prox_exceptional!(y, f, x, γ)
+  V || return nothing
+  flags == _FLAG_NAN ? T(NaN) : flags == _FLAG_INF ? T(Inf) : _group_value(f, y)
 end
 
 # The ordinary loop, γλ0 = ab normal. With V, the term λ0 wₖ (t ‖xₖ‖) of the stored group (the norm that the kernel
@@ -296,6 +309,7 @@ function _group_prox_ordinary!(y, f::GroupNormL2, x, γ, ab, ::Val{V}) where {V}
   v = zero(T)
   nt = 0
   ok = true
+  nan = inf = false
   @inbounds for k in eachindex(f.groups)
     w = W[k]
     s = _group_shrink!(y, x, f.groups[k], λ, w, γ, ab)
@@ -305,11 +319,17 @@ function _group_prox_ordinary!(y, f::GroupNormL2, x, γ, ab, ::Val{V}) where {V}
       ok &= (floatmin(Q) <= lw) & (lw <= floatmax(Q))
       v += convert(T, lw * convert(Q, s))
       nt += 1
+    elseif s == T(_L2_NAN)
+      nan = true
+    elseif s == T(_L2_INF)
+      inf = true
     elseif s != T(_L2_ZERO) && !iszero(w)
       ok = false
     end
   end
   V || return nothing
+  nan && return T(NaN)
+  inf && return T(Inf)
   ok && _l2_ordinary(v, T) && (!_underflow_checked(T) || _sum_kept(v, nt)) && return v
   _group_value(f, y)
 end
@@ -373,12 +393,19 @@ function _group_prox_decided!(y, f::GroupNormL2, x, γ)
   end
 end
 
-# γλ0 outside the range with positive finite γ and λ0: every group is decided by its threshold and its values
+# γλ0 outside the range with positive finite γ and λ0: every group is decided by its threshold and its values. Returns
+# _FLAG_NAN if a group is NaN, else _FLAG_INF if one is infinite (the codes of the kernel), else 0: those are the cases
+# where the value at the stored output is known without reading it.
+const _FLAG_INF = 0x01
+const _FLAG_NAN = 0x02
 function _group_prox_exceptional!(y, f::GroupNormL2, x, γ)
   λ = f.λ0
+  flags = 0x00
   @inbounds for k in eachindex(f.groups)
-    _l2_prox_cold!(y, x, f.groups[k], λ, f.w[k], γ)
+    code = _l2_prox_cold!(y, x, f.groups[k], λ, f.w[k], γ)
+    flags |= code == _L2_NAN ? _FLAG_NAN : code == _L2_INF ? _FLAG_INF : 0x00
   end
+  flags & _FLAG_NAN != 0 ? _FLAG_NAN : flags
 end
 
 function prox_block!(out::AbstractVector, f::GroupNormL2, u::AbstractVector, k::Integer, γ::Real)

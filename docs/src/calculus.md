@@ -71,8 +71,9 @@ since its ridge factor `1/(1 + γλ2)` rounds to one. An infinite level of
 leave the range; the folds of an `ElasticNet` keep an infinite level as it is
 and fold the finite one, which still acts on the entries with a zero weight.
 The scaled value of an `ElasticNet` is recovered as for any function with
-levels; where that gives no finite value (the two levels do not fold by one
-factor), it is the scaled value of the ℓ₁ part plus that of the ridge part,
+levels; for a finite positive factor, where that gives no finite value (the two
+levels do not fold by one factor), or `0` at a point where the function is not
+exactly `0`, it is the scaled value of the ℓ₁ part plus that of the ridge part,
 each recovered as for `NormL1` and `SqrNormL2` and rounded on its own. This is not
 a promise that arbitrary user-defined functions acquire numerical range recovery.
 

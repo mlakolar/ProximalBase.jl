@@ -337,6 +337,17 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
     sb = Scaled(ElasticNet(0.4 * 2.0^-1029, 0.4 * 2.0^-979), 16.0)
     Vb = Float64(big4096(() -> 16 * (big(0.4 * 2.0^-1029) * big(2.0)^-49 + big(0.4 * 2.0^-979) / 2 * big(2.0)^-98)))
     @test Vb === nextfloat(0.0) && rounded(sb([2.0^-49]), Vb)
+    # a first result of 0 at a point where the value is not 0, which the sum of the parts recovers (the first case is
+    # also Scaled(SqrNormL2)); an exactly zero value stays +0
+    for (l1, l2, α, xz, w) in ((0.0, 2.242946011063277e131, 1.6778225587956818e288, [4.4835202439803e-310], [2.5]),
+                               (2.4782844382164948e-74, 5.818480390471323e281, 1.3894409002024665e111,
+                                [0.0, -6.114549625272e-311], nothing))
+      fz = ElasticNet(l1, l2, w)
+      Vz = Float64(big4096(() -> big(α) * valref(fz, xz)))
+      @test Vz > 0 && Scaled(fz, α)(xz) === Vz && Scaled(fz, α)(SparseIterate(xz)) === Vz
+      @test Scaled(fz, α)(zero(xz)) === 0.0
+      iszero(l1) && @test Scaled(SqrNormL2(l2), α)(xz) === Vz
+    end
     @test prox(Scaled(ElasticNet(Inf, 2.0^-1000, [1.0, 0.0]), 2.0^600), [3.0, 4.0], 2.0^600) ==
           [0.0, Float64(big4096(() -> 4 / (1 + big(2.0)^200)))]
     # a factor and a step whose product overflows, with a finite ridge level that the fold cannot hold (#567): the

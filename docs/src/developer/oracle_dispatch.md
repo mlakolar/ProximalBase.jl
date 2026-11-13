@@ -48,8 +48,9 @@ element type of the destination and its storage (a new `SparseIterate` destinati
 does not store a zero result, so that entry reads as `+0`). An argument of another
 element type, and an array of steps, run `prox_block` per entry. A `Scaled`
 `ElasticNet` takes the value recovery of every function first; where that gives no finite
-value, for a finite positive factor, it adds the scaled values of the ℓ₁ part and of the
-ridge part, each recovered as its own family recovers it and rounded on its own. The folds
+value, or `0` at a point where the function is not exactly `0`, for a finite positive
+factor, it adds the scaled values of the ℓ₁ part and of the ridge part, each recovered as
+its own family recovers it and rounded on its own. The folds
 keep an infinite level, so that the other level still folds.
 
 ## Pure hooks and storage kernels

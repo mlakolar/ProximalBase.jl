@@ -113,7 +113,9 @@ comment next to the code (`src/functions/elasticnet.jl`). With both levels
 positive and finite, a sum of the two parts below `2 floatmin(T)` (each part
 rounded on its own) is recomputed: the terms of both parts are added in one
 exponent-sum accumulator, as the `NormL1` recomputation adds its terms, and
-the sum is rounded once. For `N` terms the result is within
+the sum is rounded once. For `N` nonzero terms (`λ1*w[i]*abs(x[i])` and
+`λ2*x[i]^2/2`, up to two per entry and three per off-diagonal coordinate of a
+symmetric iterate) the result is within
 `(γ_3 + (γ_{N-1}^2 + N 2^-1070)(1 + γ_2)) V` of the exact value `V` plus half
 a spacing of `T` at the result (`γ_m = m u/(1 - m u)`, `u` half the epsilon of
 the accumulator, `Float64` for `Float32` data), as proved next to the code, which
@@ -124,8 +126,9 @@ term of the bound is a whole spacing;
 `ElasticNet(2.0^-538, 1.0)([2.0^-537])` is `2.0^-1074`. Only a value whose
 stored entries are all zero keeps its sum. Under `Scaled`, the value of an
 `ElasticNet` is recovered as for any function with levels; only where that
-gives no finite value, for a finite positive factor, is it the scaled value of
-the ℓ₁ part plus that of the ridge part, each rounded on its own.
+gives no finite value, or `0` at a point where the function is not exactly `0`,
+for a finite positive factor, is it the scaled value of the ℓ₁ part plus that of
+the ridge part, each rounded on its own.
 Where one part
 dominates, the test can pass although the other part alone would be
 recomputed (ℓ₁ terms below `floatmin(T)` beside a normal ridge part, or

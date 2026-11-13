@@ -163,33 +163,36 @@ end
 # The recomputation of a value or a term c of type T that _elastic_recompute selects. Each part of c rounds to T on its
 # own, so c can lose half a spacing δ/2 (δ = eps(T) floatmin(T)) to each part of a total of that size:
 # ElasticNet(2^-538, 1) at [2^-537] has two parts 2^-1075, which each round to 0, and the value 2^-1074. The
-# recomputation adds the N terms λ1 wᵢ|xᵢ| and λ2 xᵢ²/2 of the entries that the separable loops visit (every entry of
-# an array, the stored entries of a sparse iterate, the active groups of a block iterate, each stored coordinate of a
-# symmetric iterate at both of its positions) to one exponent-sum accumulator (_ExpSum) in R, the promotion of T,
-# Float64 and the factors, and rounds the sum to T once (_expsum_value), as the NormL1 recomputation does for its own
-# terms (#373). A value whose stored entries are all zero is kept.
+# recomputation adds the N nonzero terms (λ1 wᵢ|xᵢ| and λ2 xᵢ²/2, up to two per entry and three per off-diagonal
+# coordinate of a symmetric iterate) of the entries that the separable loops visit (every entry of an array, the stored
+# entries of a sparse iterate, the active groups of a block iterate, each stored coordinate of a symmetric iterate at
+# both of its positions) to one exponent-sum accumulator (_ExpSum) in R, the promotion of T, Float64 and the factors,
+# and rounds the sum to T once (_expsum_value), as the NormL1 recomputation does for its own terms (#373). A value
+# whose stored entries are all zero is kept.
 #
 # Claim: with u = eps(R)/2 and γₘ = m u/(1 - m u), the result r and the exact value V satisfy
 #   |r - V| ≤ (γ₃ + (γ²_{N-1} + N 2^-1070)(1 + γ₂)) V + h,
-# h being half the spacing of T at r (δ/2 for r below 2 floatmin(T)), or the whole spacing where ldexp truncates below
-# floatmin (Julia 1.10, T = Float64, #896).
+# h being half the spacing of T at r (δ/2 for r below 2 floatmin(T)), or a whole spacing on Julia 1.10 with
+# T = Float64, whose ldexp returns 0 for a result in [δ/2, δ) (#896).
 # Proof. A term is formed from the significands of its two factors and of its level, with the exponents summed exactly,
 # as (mₐ mᵦ) m_λ 2^e: two roundings in R, so it is within γ₂ of its exact value, and it is nonnegative; their sum S is
 # within γ₂ V of V. The accumulator adds each term with an error-free transformation (Fast2Sum on ordered magnitudes)
 # and sums the errors in plain floating point, then forms s + c once: the summation Sum2 of Ogita, Rump and Oishi
 # (2005), within u S + γ²_{N-1} S of S for nonnegative terms. Moving the sum into the frame of a larger term, or a term
-# into the frame of the sum, multiplies by a power of two, exactly except below the smallest subnormal of R: at most
-# 2^-1073 frame units per term, while the sum is at least 2^-3 frame units (a term is a product of three significands
-# in [1/2, 1)), so at most N 2^-1070 S in all. The exponent is applied exactly (_scaled_product with the factor 1
-# multiplies by powers of two), and the result is rounded once to T, within h. The relative factors combine to at most
-# γ₃ + (γ²_{N-1} + N 2^-1070)(1 + γ₂).  □
+# into the frame of the sum, multiplies by a power of two, exactly except for the bits below the subnormal spacing of R
+# (a result in the subnormal range is rounded, or on Julia 1.10 set to 0 in [δ/2, δ)), less than 2^-1074 frame units
+# for each of s, c and the term: at most 2^-1073 frame units per term, while the sum is at least 2^-3 frame units (a
+# term is a product of three significands in [1/2, 1)), so at most N 2^-1070 S in all. The exponent is applied exactly
+# (_scaled_product with the factor 1 multiplies by powers of two), and the result is rounded once to T, within h. The
+# relative factors combine to at most γ₃ + (γ²_{N-1} + N 2^-1070)(1 + γ₂).  □
 # The bound depends on N only through γ²_{N-1}, a second-order term, and N 2^-1070, below 2^-1000 for any N that an
 # array can hold. It is below the worst case of c: a part of c that is recomputed (NormL1 from the same kind of
-# accumulator, the ridge from scaled squares summed the same compensated way, in the type of the data) carries a
-# relative term at least as large plus its own rounding to T, and c adds the two parts with one more rounding, so the
-# bound of c is (γ₄ + γ²_{N-1}(1 + γ₄)) V, with a u at least that of R, plus three halves of a spacing; a part that
-# keeps the sum of its ordinary loop has an error that grows with its number of terms. For Float32 data R is Float64,
-# and for N ≤ 2^26 the relative term is below 2^-50 V: r is the rounding of V except within that distance of a tie.
+# accumulator, the ridge from scaled squares summed the same compensated way in _square_type, the promotion of the
+# data type and the type of λ2) carries a relative term at least as large plus its own rounding to T, and c adds the
+# two parts with one more rounding, so the bound of c is (γ₄ + γ²_{N-1}(1 + γ₄)) V, with a u at least that of R, plus
+# three halves of a spacing; a part that keeps the sum of its ordinary loop has an error that grows with its number of
+# terms. R is at least Float64, and for N ≤ 2^26 the relative term is below 2^-50 V: for Float32 data r is the
+# rounding of V except within that distance of a tie.
 @noinline function _elastic_entry_recomputed(λ1, λ2, w, a, e::T) where {T}
   R = promote_type(T, Float64, _factor_type(λ1), _factor_type(λ2), _factor_type(w), _factor_type(a))
   m1, e1 = _frexp(convert(R, λ1))

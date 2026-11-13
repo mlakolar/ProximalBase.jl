@@ -75,13 +75,17 @@ function _check_l2_arrays(f, y::AbstractArray, x::AbstractArray, γ::Real)
   nothing
 end
 
-prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) =
-  (_check_l2_arrays(f, y, x, γ); _norml2_shrink!(y, x, f.λ, γ); y)
+function prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real)
+  _check_l2_arrays(f, y, x, γ)
+  s = _norml2_shrink!(y, x, f.λ, γ)
+  s == float(eltype(y))(_L2_COLD) && _l2_prox_cold!(y, x, Base.OneTo(length(x)), f.λ, true, γ)
+  y
+end
 function value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real)
   _check_l2_arrays(f, y, x, γ)
-  s, m, e = _norml2_shrink!(y, x, f.λ, γ)
-  # a recomputed value reads y as the value does: its stored entries only for a sparse iterate
-  _norml2_fused_value(f.λ, y, s, m, e, _valtype(y))
+  T = _valtype(y)
+  s = _norml2_shrink!(y, x, f.λ, γ)
+  s == T(_L2_COLD) ? _norml2_cold_fused!(y, x, f.λ, γ, T) : _norml2_fused_value(f.λ, y, s, T)
 end
 # routes of wrappers such as Scaled, which preflight with _checkwrite first
 _value_and_prox_unchecked!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = value_and_prox!(y, f, x, γ)
@@ -90,19 +94,20 @@ _value_and_prox_unchecked!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Re
 #  Kernels of NormL2
 ####################################
 
-# y = prox of γλ‖⋅‖₂ at x, possibly in place (y === x), the one group of all the entries and the weight one. Returns
-# (s, m, e): in T, the norm s = t‖x‖ of the stored output on the ordinary shrinking path (each stored entry is t x[i]
-# rounded once, so this is the norm of the stored entries to within a few rounding errors, without a second pass), or one
-# of the codes of the kernels, with the stored norm m 2^e of a scaled group in the recovery type where the cold kernel gave
-# one (m = 0 otherwise). The threshold is the product c = γλ, which the ordinary path needs in the normal range of the type of the
-# product and of T, and a normal sum of squares that no underflowing square can have changed by more than ordinary
-# rounding. Everything else, exceptional parameters and values included, is decided by the cold kernel, which does not
-# run on that path.
-function _norml2_shrink!(y, x, λ, γ::Real)
+# The code of the ordinary path when it does not apply (nothing is written then): the cold kernel decides.
+const _L2_COLD = -5
+
+# y = prox of γλ‖⋅‖₂ at x, possibly in place (y === x), the one group of all the entries and the weight one, on the
+# ordinary path. Returns, in T, the norm t‖x‖ of the stored output (each stored entry is t x[i] rounded once, so this is
+# the norm of the stored entries to within a few rounding errors, without a second pass), the code _L2_ZERO of a zero
+# output, or _L2_COLD with nothing written. The threshold is the product c = γλ, which the path needs in the normal range
+# of the type of the product and of T, and a normal sum of squares that no underflowing square can have changed by more
+# than ordinary rounding. Everything else, exceptional parameters and values included, is decided by the cold kernel,
+# which does not run on that path.
+@inline function _norml2_shrink!(y, x, λ, γ::Real)
   T = float(eltype(y))
   G = Base.OneTo(length(x))
   R = _working_type(T, γ, λ, true)
-  none = zero(_recovery_type(R, float(eltype(x))))
   ab = convert(R, γ) * convert(R, λ)
   c = convert(T, ab)
   if (floatmin(R) <= ab <= floatmax(R)) & (floatmin(T) <= c <= floatmax(T))
@@ -112,33 +117,37 @@ function _norml2_shrink!(y, x, λ, γ::Real)
       if n > c
         t = one(T) - c / n
         _l2_scale!(y, x, G, t)
-        return (t * n, none, 0)
+        return t * n
       end
-      return (T(_l2_zero!(y, G)), none, 0)
+      return T(_l2_zero!(y, G))
     elseif iszero(s) && _l2_all_zero(x, G, T)
-      return (T(_l2_zero!(y, G)), none, 0)
+      return T(_l2_zero!(y, G))
     end
   end
-  code, m, e = _l2_prox_cold_norm!(y, x, G, λ, true, γ)
-  (T(code), m, e)
+  T(_L2_COLD)
 end
 
-# The value at the stored output y, given the code or the stored norm s of the kernel: the zero output is 0, a NaN or an
-# infinite group gives its class, and the norm t‖x‖ gives λ t‖x‖ where the level is in the normal range of its working
-# type and the value is below floatmax(T)/2. The norm m 2^e that the cold kernel gives is scaled by λ with one rounding;
-# anything else (a copy, a level or value out of the range) is the value of y.
-@inline function _norml2_fused_value(λ, y, s::T, m, e, ::Type{T}) where {T}
+# The cold kernel and the value at the stored output from its passes: the zero output is 0, a NaN or an infinite group
+# gives its class, and the stored norm m 2^e of a scaled group is scaled by λ with one rounding; anything else (a copy)
+# is the value of y.
+@noinline function _norml2_cold_fused!(y, x, λ, γ, ::Type{T}) where {T}
+  code, m, e = _l2_prox_cold_norm!(y, x, Base.OneTo(length(x)), λ, true, γ)
+  code == _L2_ZERO && return zero(T)
+  code == _L2_NAN && return T(NaN)
+  code == _L2_INF && return T(Inf)
+  iszero(m) || return convert(T, _scaled_product(convert(typeof(m), λ), m, e))
+  _l2_value(λ, y)
+end
+
+# The value at the stored output y, given the code or the stored norm s of the ordinary path: the zero output is 0 and the
+# norm t‖x‖ gives λ t‖x‖ where the level is in the normal range of its working type and the value is below floatmax(T)/2;
+# anything else (a level or value out of the range) is the value of y.
+@inline function _norml2_fused_value(λ, y, s::T, ::Type{T}) where {T}
   s == T(_L2_ZERO) && return zero(T)
-  s == T(_L2_NAN) && return T(NaN)
-  s == T(_L2_INF) && return T(Inf)
-  if s >= 0
-    R = _working_type(T, λ, true)
-    lr = convert(R, λ)
-    v = convert(T, lr * convert(R, s))
-    ((floatmin(R) <= lr <= floatmax(R)) & _l2_ordinary(v, T)) && return v
-  elseif s == T(_L2_RECOMPUTE) && !iszero(m)      # the scaled norm of the stored group: one rounding of λ m 2^e
-    return convert(T, _scaled_product(convert(typeof(m), λ), m, e))
-  end
+  R = _working_type(T, λ, true)
+  lr = convert(R, λ)
+  v = convert(T, lr * convert(R, s))
+  ((floatmin(R) <= lr <= floatmax(R)) & _l2_ordinary(v, T)) && return v
   _l2_value(λ, y)
 end
 

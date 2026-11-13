@@ -45,7 +45,10 @@ reference(f::LinearFunction, x, T; kw...) = reference(f.c isa Diagonal ? f.c.dia
 # the smallest value that rounds to Inf
 overflow_threshold(T) = big(floatmax(T)) + (big(floatmax(T)) - big(prevfloat(floatmax(T)))) / 2
 # v is the value of the reference r: finite and within the bound when the bound keeps r in range, ±Inf of the sign of r
-# when r is beyond the range by more than the bound, and either between
+# when r is beyond the range by more than the bound, and anything between. This is R1 in the numerically meaningful
+# regime only: once the bound is at least floatmax(T) - |r| the first branch is not taken, and nothing is asserted about a
+# result that is finite or an infinity for a finite exact value (R1 does not guarantee a finite value there, #907). Such
+# cases are constrained by the pinned reference values of the tests, not by this function.
 function agrees(v, ref, T)
   r, bound = ref.value, ref.bound
   if abs(r) + bound <= big(floatmax(T))
@@ -773,7 +776,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
       # Float32 iterate with Float64 coefficients, coefficients 2^(E+1-xexp) and 2^((E+1)/2-xexp)
       cbig, csmall = ldexp(one(Tc), E + 1 - xexp), ldexp(one(Tc), (E + 1) ÷ 2 - xexp)
       cs = Tc[cbig, csmall, -cbig, -csmall]
-      for d in (T(0.25), -T(0.25), T(3), ldexp(T(1.5), -20)), diagonal in (true, false), order in ORDERS4
+      for d in (T(0.25), -T(0.25), T(3), ldexp(T(1.5), -20), nextfloat(zero(T)), -floatmin(T), floatmin(T) / 4), diagonal in (true, false), order in ORDERS4
         x = SparseIterate(T, 4, 4)                                      # activated in the order `order`
         for j in order
           x[j, j] = one(T); x[j, j] = xa
@@ -813,9 +816,12 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
 
   # Near cancellation: a cancelling set and one more product delta, beside d. The value is within the R1 bound of
   # delta + d, and whenever the error budget of the argument is small relative to |delta| + |d| it is also within that
-  # budget: 4 eps(T) (|delta| + |d|) for the roundings of delta and d, 4 n eps(A)^2 sum|terms| for the compensated sum
-  # (A = Float64 the type of the accumulator) and 2 n 2^(ex - 1074) for the terms below the frame of the largest
-  # product (2^ex, ex <= E + 3 here), which the accumulator drops. The budget is not small for a delta much smaller than the terms.
+  # budget: 4 eps(T) (|delta| + |d|) for the roundings of delta and d, n^2 eps(A)^2 / 4 sum|terms| for the compensated
+  # sum (A = Float64 the type of the accumulator; the Sum2 bound gamma_(n-1)^2 sum|terms|, gamma_k ~ k eps(A)/2, which
+  # holds here since n <= 13) and 2 n 2^(E - 1074) for the terms below the frame of the largest product (2^E, E <= e + 3
+  # for the exponent e of floatmax(T) here), which the accumulator drops. The products are exact in A, so none is rounded.
+  # The budget is not small for a delta much smaller than the terms. The R1 assertion in this testset is the bound
+  # of `reference`, which is at least about 2^970 in absolute terms for Float64 here and so constrains little: the budget does.
   @testset "Near cancellation ($T)" for T in (Float32, Float64)
     for Tc in (T,)        # a mixed pair would need |delta| below floatmax(Float32) beside terms of size 2^1024: no relative claim
       R = promote_type(T, Tc)
@@ -843,7 +849,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
           @test isfinite(v) && abs(big(v) - ref.value) <= ref.bound                 # R1
           δ = big(δx) * big(δc)
           sabs = sum(abs(big(a) * big(b)) for (a, b) in terms)
-          budget = 4 * big(eps(T)) * (abs(δ) + abs(big(d))) + 4 * length(terms) * big(eps(Float64))^2 * sabs +
+          budget = 4 * big(eps(T)) * (abs(δ) + abs(big(d))) + length(terms)^2 * big(eps(Float64))^2 / 4 * sabs +
                    2 * length(terms) * ldexp(big(1.0), E + 3 - 1074)
           if budget <= 16 * big(eps(T)) * (abs(δ) + abs(big(d)))
             within += 1
@@ -852,6 +858,62 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
         end
       end
       @test within >= 100
+    end
+  end
+
+  # Drop and restart. A pair that reaches exactly (0, 0) restarts in the frame of the next term, and a term more than 1074
+  # binades below an earlier frame is dropped: the products 1, 2^1100, -2^1100, -1 (and d = 0.25) give 0.25 when the
+  # cancelling terms are adjacent in the order of the sum, and in the other orders the result is documented as not
+  # guaranteed: only R1 is asserted there.
+  @testset "Drop and restart" begin
+    T = Float64
+    a = ldexp(1.0, 550)
+    c = [1.0 -a; a -1.0]
+    for order in ORDERS4, d in (0.25, -0.25)
+      vals = [1.0, a, a, 1.0]
+      x = SparseIterate(T, 2, 2)
+      for i in order
+        x[i] = one(T); x[i] = vals[i]
+      end
+      f = LinearFunction(c, d)
+      v = f(x)
+      @test isfinite(v) && agrees(v, reference(f, x, T), T)
+      # the products in the order of the sum; the exact 0.25 only when the two cancelling pairs are adjacent
+      adjacent = (order[1:2] in ([2, 3], [3, 2], [1, 4], [4, 1])) && (order[3:4] in ([2, 3], [3, 2], [1, 4], [4, 1]))
+      adjacent && @test v === d
+    end
+    # the products 2^1100, 3, -2^1100 beside d = 0.25: the 3 is lost when it is added after the large terms (3.25 exact)
+    x = SparseIterate(T, 2, 2)
+    x[1] = a; x[2] = 3.0; x[3] = a
+    f = LinearFunction(reshape([a, 1.0, -a, 0.0], 2, 2), 0.25)
+    @test agrees(f(x), reference(f, x, T), T)
+  end
+
+  # d cancels the dot: the collapse keeps its remainder, so the result is what the pair holds beyond d. Float64: products
+  # 2^1030, -2^1030, -floatmax, 1.5 2^900 and d = floatmax give exactly 1.5 2^900. Float32 data: 2^140, -2^140,
+  # -floatmax, 1.5 2^67 with d = floatmax give 1.5 2^67.
+  @testset "d cancels the dot" begin
+    for sgn in (1, -1)
+      fm = floatmax(Float64)
+      x = make_iterate(Float64, 3, [(1, 1, 2.0^515), (2, 1, 2.0^515), (3, 1, 1.0), (1, 2, 2.0^900)])
+      c = zeros(3, 3); c[1:4] = [sgn * 2.0^515, -sgn * 2.0^515, -sgn * fm, sgn * 1.5]
+      @test LinearFunction(c, sgn * fm)(x) === sgn * 1.5 * 2.0^900
+      x32 = make_iterate(Float32, 3, [(1, 1, 2f0^70), (2, 1, 2f0^70), (3, 1, 1f0), (1, 2, 2f0^67)])
+      c32 = zeros(Float32, 3, 3); c32[1:4] = [sgn * 2f0^70, -sgn * 2f0^70, -sgn * floatmax(Float32), sgn * 1.5f0]
+      @test LinearFunction(c32, sgn * floatmax(Float32))(x32) === sgn * 1.5f0 * 2f0^67
+    end
+  end
+
+  # Float32 data and a value at the overflow threshold: the accumulator is Float64, so the value is rounded to Float64 and
+  # then to Float32 (a double rounding). The exact value floatmax + 2^103 - 2^50 is just below the tie that rounds to Inf, and
+  # the Float64 rounding lands on the tie. The documented result is floatmax(Float32) (correct rounding) or Inf (the
+  # double rounding).
+  @testset "Float32 double rounding at the threshold" begin
+    x = make_iterate(Float32, 5, [(1, 1, 2f0^70), (2, 2, 2f0^70), (3, 3, 1f0), (4, 4, 1f0), (5, 5, 1f0)])
+    cd = Float32[2f0^70, -2f0^70, floatmax(Float32), 2f0^103, -2f0^50]
+    for c in (Diagonal(cd), Matrix(Diagonal(cd)))
+      v = LinearFunction(c, 0f0)(x)
+      @test v === floatmax(Float32) || v === Inf32
     end
   end
 end

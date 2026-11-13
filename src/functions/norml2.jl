@@ -112,6 +112,8 @@ end
       return T(_l2_zero!(y, G))
     end
   end
+  # an unpenalized group is copied here, in line: the cold path would be called for every such group
+  iszero(w) && return T(_l2_copy!(y, x, G))
   T(_l2_shrink_cold!(y, x, G, λ, w, γ))
 end
 
@@ -198,6 +200,7 @@ end
     v = convert(T, λw * convert(R, s))
     ((floatmin(R) <= λw <= floatmax(R)) & _l2_ordinary(v, T)) && return v
   end
+  iszero(w) && return zero(T)       # an unpenalized group has no term (_l2_term decides it first)
   _l2_term_outofline(λ, w, x, G, s, T)
 end
 @noinline _l2_term_outofline(λ, w, x, G, s, ::Type{T}) where {T} = _l2_term(λ, w, x, G, s, T)
@@ -291,12 +294,23 @@ function _l2_value(λ, x)
   _l2_value_cold(λ, x, s, T)
 end
 
+# Whether a stored entry is NaN or infinite.
+@inline function _l2_nonfinite(x)
+  for a in _stored_values(x)
+    isfinite(a) || return true
+  end
+  false
+end
+
 # The sum of squares recomputed in units of the largest stored entry, m 2^(2k), in at least Float64, and
 # λ√m 2^k (_l2_parts_value). A NaN or ±Inf entry keeps the ordinary IEEE result (NaN, or Inf), and an
 # infinite level is Inf away from zero.
 @noinline function _l2_value_cold(λ, x, s, ::Type{T}) where {T}
   R = _l2_cold_type(T, float(typeof(λ)))
-  q = _residual_squares(x, nothing, R)
+  # A NaN sum holds a NaN entry (no other entry makes a sum of squares NaN), and an infinite sum with an entry that is
+  # not finite is the ordinary result; neither needs the classification of _residual_squares.
+  ordinary = isnan(s) || (isinf(s) && _l2_nonfinite(x))
+  q = ordinary ? nothing : _residual_squares(x, nothing, R)
   q === nothing && return isinf(λ) ? (isnan(s) ? T(NaN) : T(Inf)) : convert(T, convert(R, λ) * sqrt(convert(R, s)))
   m, k = q
   iszero(m) && return zero(T)

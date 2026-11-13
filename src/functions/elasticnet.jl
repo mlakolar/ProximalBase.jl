@@ -206,9 +206,9 @@ end
 # intermediate is nonnegative: an overflow makes s Inf, and a zero times Inf makes it NaN, both excluded; so no
 # operation overflows. A product rounds to p(1 + ε) + η with |ε| ≤ u and |η| ≤ δ/2 (η ≠ 0 only where the result is
 # below floatmin), a sum to (a + b)(1 + ε), and a sum of n nonnegative terms, in any order, within γ_{n-1} of their sum.
-# @simd may also contract a product into its addition (Julia 1.13 emits fma for both sums); an fma rounds acc + p once,
-# to (acc + p)(1 + ε) + η, so each term still meets at most n roundings and each η at most n - 1 later ones, and the
-# bounds below hold unchanged.
+# @simd may also contract a product into its addition (Julia 1.13 emits fma for s2, and for s1 with weights); an
+# fma rounds acc + p once, to (acc + p)(1 + ε) + η, so each term still meets at most n roundings and each η at most
+# n - 1 later ones, and the bounds below hold unchanged.
 # The terms wᵢ aᵢ and aᵢ² give
 #   |ŝ1 - W| ≤ γₙ W + (1 + γ_{n-1}) n δ/2,    |ŝ2 - Q| ≤ γₙ Q + (1 + γ_{n-1}) n δ/2.
 # The products with λ1 and λ2, and the halving (exact unless subnormal, then within δ/2), give

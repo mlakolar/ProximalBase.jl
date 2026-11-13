@@ -767,7 +767,7 @@ end
 
 # ---- D-X ----
 @testset "BigFloat exponents beyond Int (D-X)" begin
-  # The sole difference from the code before the consolidation of the ℓ2 kernels that the maintainer's ruling D-X
+  # A difference from the code before the consolidation of the ℓ2 kernels that the maintainer's ruling D-X
   # permits: the exponent sum of the recomputed value and of the screen does not wrap at Int. With the level and
   # the weight 2^(2^62 - 2) the value of x = [2^(2^62 - 2)] overflows MPFR's exponent range and is Inf (the
   # previous code wrapped the sum and gave 0); the coefficient of the screen overflows, so the screen at the

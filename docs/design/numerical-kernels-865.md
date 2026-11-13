@@ -178,8 +178,9 @@ only difference on the characterization grid.
 The ℓ2 shrinkage, values and group screen live in `src/numerical_kernels.jl`; the
 norm files keep types, validation, oracles and loops over groups. The recovery paths
 call the kernels of sections 1-4 and were not copied. Outputs are bit-identical to the
-code before the consolidation, except for BigFloat exponent arithmetic that leaves
-`Int64` (see below).
+code before the consolidation, except for two BigFloat exceptions that the maintainer ruled
+on (see the end of this section): D-X, exponent arithmetic that leaves `Int64`, and
+D-MPFR, results under a directed rounding mode at MPFR's exponent limits.
 
 **New shared primitives**
 
@@ -205,9 +206,16 @@ code before the consolidation, except for BigFloat exponent arithmetic that leav
   sum, which round-to-nearest then leaves unchanged, and the shift can round to a
   subnormal number or to zero, the slow case that is avoided. Every other type, BigFloat
   included, does the generic method's sum in every rounding mode: under RoundUp,
-  RoundDown and RoundToZero a term below half an ulp still moves the result. The generic
-  method remains the definition, and the tests compare the two bit for bit, for BigFloat
-  at two precisions under all four rounding modes.
+  RoundDown and RoundToZero a term below half an ulp can still move the result,
+  depending on its sign and the mode. The generic method remains the definition. The
+  two agree where each nonzero term has an exponent sum `exponent(m) + e` above
+  `typemin(Int)`, the value from which the selection of the generic method starts, and
+  the tests compare them there bit for bit, for BigFloat at two precisions under all four
+  rounding modes. At that sum the generic method selects no term and the method for two
+  terms takes the single nonzero term, so the two differ there: for BigFloat
+  `(floatmin(BigFloat), -2^62)` with a zero term, and for the IEEE types
+  `(T(0.75), typemin(Int) + 1)` with a zero term and the weight `T(Inf)` (`Inf` from the
+  method for two terms, `NaN` from the generic one).
 * `_scaled_norm(x, y, s, scale)`: the optional scale multiplies the norm (default one).
 * `_threshold_product`, `_sum_kept`, `_indexed_sumabs2`, `_recovery_type`.
 
@@ -228,9 +236,61 @@ code before the consolidation, except for BigFloat exponent arithmetic that leav
 | `_l2_shrink!`, `_l2_zero!`, `_l2_copy!`, `_l2_fill!`, `_l2_scale!`, `_l2_term`, `_l2_fused_term`, `_l2_term_outofline`, `_l2_ordinary`, `_l2_value`, `_L2_ZERO`, `_L2_RECOMPUTE` | moved from norml2.jl, ordinary path unchanged |
 | arithmetic of `_group_screen`, per-group term of `_group_value_recomputed` | `_l2_screen`, `_l2_expsum_add` (groupnorml2.jl keeps adapters and the loop over groups) |
 
-**The one difference from the code before the consolidation.** For BigFloat, a sum of
+**D-X: exponent sums beyond `Int64`.** For BigFloat, a sum of
 exponents (the level, the weight and the norm of a group term, or a difference of
 exponents of the group screen) can leave `Int64`, as MPFR exponents reach ±(2^62 − 1).
 The shared kernels take these sums in `Int128`. For example,
 `GroupNormL2(λ0 = w = 2^(2^62-2))` at `x = [2^(2^62-2)]` had value `0` (the sum wrapped)
 and now has value `Inf`. Float32 and Float64 are not affected.
+
+**D-MPFR: BigFloat under a directed rounding mode at MPFR's exponent limits.** This is a
+second exception, separate from D-X.
+
+* Scope: a BigFloat result computed under a rounding mode other than `RoundNearest`
+  (`RoundUp`, `RoundDown`, `RoundToZero`, set with `setrounding`), where an operand or a
+  product lies at the edge of MPFR's exponent range (exponents near ±2^62). It was found
+  in the group screen (`kkt_violation` of `GroupNormL2`), through the shared `_pow2_sum`.
+  The screen before the consolidation aligned its two terms by hand; the shared kernel,
+  which LinearFunction and LeastSquaresLoss already used, aligns them in another frame,
+  and at the edge of MPFR's range the two frames drop a vanishing term at different
+  points. A directed rounding mode sees that.
+* Not a waiver: it covers no other BigFloat difference. Float32 and Float64 are not
+  affected, as Julia has no `setrounding` method for them and they round to nearest. BigFloat
+  under `RoundNearest` agreed with the code before the consolidation, outside D-X, in the grid
+  below and in the comparison sweeps that were run.
+* The shared generic `_pow2_sum` shows the same difference (the specialization for two
+  terms is not the cause): with the method for two terms routed to the generic one, the
+  reproducer below gives `m` under `RoundDown` and `RoundToZero`, where the code before the
+  consolidation gives `0`. The cause is the move of the screen to the shared kernel. Restoring
+  the old arithmetic would copy the recovery code of the sum back into the screen, and
+  changing `_pow2_sum` would change LinearFunction and LeastSquaresLoss; neither was done.
+* Reproducer, at precision 256 under `RoundToZero`, with `m = floatmin(BigFloat)`:
+
+  ```julia
+  setprecision(BigFloat, 256) do
+      setrounding(BigFloat, RoundToZero) do
+          m = floatmin(BigFloat)
+          kkt_violation(GroupNormL2(m, [1:1], [m]), [m], [BigFloat(0)], 1)
+      end
+  end
+  ```
+
+  It returns `0` before the consolidation (`76964085`) and `m` now. The product of the level
+  and the weight has an exponent near −2^63, below MPFR's range but inside `Int64`, so
+  this is not D-X.
+* Extent, measured as the number of cases where the screen differs from the code before the
+  consolidation, at precision 256. Each case is `kkt_violation` of a `GroupNormL2` with one
+  group of one entry, at the point 0 with the gradient entry `g`. The exponents of λ, w and `g`
+  are taken from MPFR's smallest exponent and the values 1 and 300 above it, MPFR's largest
+  exponent and the values 1 and 300 below it, ±2^61, ±1000 and 0. The significands are 1 and 1.5
+  for λ, 1 for w, and 1, 1.25 and −1.75 for `g` (7986 cases per mode):
+
+  | Mode | λw exponent within MPFR's range | λw exponent outside |
+  |---|---|---|
+  | RoundNearest | 0/5016 | 930/2970 (D-X) |
+  | RoundUp | 0/5016 | 930/2970 |
+  | RoundDown | 11/5016 | 528/2970 |
+  | RoundToZero | 42/5016 | 486/2970 |
+
+  The 53 differences with λw inside MPFR's range all have an operand at MPFR's smallest
+  exponent.

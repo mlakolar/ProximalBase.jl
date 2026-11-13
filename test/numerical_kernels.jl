@@ -305,7 +305,9 @@ setprecision(BigFloat, 1200) do
 
   @testset "two-term power-of-two sum" begin
     # the method for two terms performs the operations of the generic method: the same bits for cancellation to zero,
-    # equal exponents, exponents far apart, either sign, zero terms, non-finite terms and a weight w
+    # equal exponents, exponents far apart, either sign, zero terms, non-finite terms and a weight w, where each nonzero
+    # term has an exponent sum above typemin(Int), the value from which the selection of the generic method starts (at
+    # that sum the two differ)
     generic(R, w, t1, t2) = invoke(PB._pow2_weighted, Tuple{Type, Any, Vararg{Tuple{Any, Int}}}, R, w, t1, t2)
     es = exponent(nextfloat(zero(T)))
     for R in unique((T, Float64))
@@ -688,7 +690,8 @@ end
 @testset "two-term power-of-two sum under directed rounding (BigFloat)" begin
   # Only the IEEE types skip the shift of a term far below the sum (they round to nearest only). A BigFloat does the
   # sum of the generic method in every rounding mode: under RoundUp, RoundDown and RoundToZero a term below half an ulp
-  # still moves the result. The precisions and gaps below straddle the skip bound 2 precision for the types that have it.
+  # can still move the result, depending on its sign and the mode. The precisions and gaps below straddle the skip bound
+  # 2 precision for the types that have it.
   generic(R, w, t1, t2) = invoke(PB._pow2_weighted, Tuple{Type, Any, Vararg{Tuple{Any, Int}}}, R, w, t1, t2)
   ntests = 0
   for p in (256, 512), mode in (RoundNearest, RoundUp, RoundDown, RoundToZero)

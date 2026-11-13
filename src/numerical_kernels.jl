@@ -253,7 +253,12 @@ end
 # group screen: the operations of the method above for N = 2 without the loops over the terms (the larger term
 # first, the first one if their exponents are equal; the aligned addition and the renormalization; a zero term
 # skipped; the final product), and, for the IEEE types only, the skip of a shift that cannot change the sum (below).
-# The method above remains the definition; the tests compare the two, also under directed rounding.
+# The method above remains the definition. The two agree where each nonzero term has an exponent sum exponent(m) + e
+# above typemin(Int) (taken in Int128 for BigFloat), the value from which the selection of the method above starts; the
+# tests compare them there, also under directed rounding. At that sum the method above selects no term, and this method
+# takes the single nonzero term, so the two differ there: for BigFloat (floatmin(BigFloat), -2^62) with a zero term, and
+# for the IEEE types (T(0.75), typemin(Int) + 1) with a zero term and the weight T(Inf) (Inf from this method, NaN from
+# the method above).
 function _pow2_weighted(::Type{R}, w, t1::Tuple{Any, Int}, t2::Tuple{Any, Int}) where {R}
   m1, m2 = convert(R, t1[1]), convert(R, t2[1])
   (isfinite(m1) & isfinite(m2)) || return convert(R, w) * ((zero(R) + m1) + m2)
@@ -629,8 +634,9 @@ end
 # an infinite entry gives the Inf code unless a NaN follows, and zero entries are skipped. The largest exponent and
 # the zero code are those of the method above for entries whose precision is at most that of the arithmetic of R
 # (the IEEE types, and a BigFloat at its current precision). A BigFloat entry above the current precision gives the
-# exponent of the entry (as the _l2_scan of the code before the consolidation did), which can be one more than that of
-# a - 0 rounded to the current precision.
+# exponent of the entry (as the _l2_scan of the code before the consolidation did), which can differ by one from that of
+# a - 0 rounded to the current precision: it is one less where that rounding carries into the next binade (v = 1 - 2^-258
+# stored at 768 bits, used at 256 bits).
 @inline function _square_exponent(x, ::Nothing, ::Type{R}) where {R}
   k = _EXPONENT_ZERO
   inf = false

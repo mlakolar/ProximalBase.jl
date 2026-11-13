@@ -85,7 +85,7 @@ and for the candidate (a second, identical tree) whenever ratios are reported.
 ran in every round for every role, the rotation, one Julia binary, and that each
 A/A control (a role named `<role>AA`) loaded a tree identical to its role. The
 configured cases are the keys `run.py` writes to `campaign.json`; for campaigns
-written before that, they are regenerated for the full grid, and for a campaign
+written before that, they are regenerated from the recorded grid, and for a campaign
 run from a case file only their number is checked. It
 reports each role's median paired ratio to `baseline` with seeded 10,000-resample
 95% bootstrap intervals over rounds, and counts a case as an allocation increase
@@ -99,7 +99,7 @@ public `copyto!` on identical fixtures, splits master's replacement into its
 component loops, and times layout equality for independently built layouts.
 `codegen.jl` writes the native code of the replacement functions for one tree
 and prints, per function, its instruction, push and call counts, the number of
-instructions before its first jump, and whether it reads an fs- or gs-based
+instructions up to and including its first jump, and whether it reads an fs- or gs-based
 (thread-local) address. The candidate headers and D/CD's trailing blank lines
 were edited after the campaigns, so regenerated trees differ from the measured
 ones in those comment and blank lines only.
@@ -109,12 +109,15 @@ ones in those comment and blank lines only.
 The full record, with tables, is on #872. Raw samples are kept outside the
 repository. In summary:
 
-- When every source group is active, copying whole arrays gives the state of the
-  per-group loops, provided `active` and `position` of both iterates have one
-  entry per group and no array of the destination is shared with another array of
-  either iterate (two shared value arrays excepted); the merged code checks both
-  and otherwise runs the loops. With an inactive source group, the copies can
-  differ: the loops keep the destination's values there, such as a `-0.0`.
+- When every source group is active, copying `storage`, `active` and `position`
+  as whole arrays gives the state of the per-group loops, provided `active` and
+  `position` of both iterates have one entry per group and none of the
+  destination's three arrays shares memory with another of them or with one of
+  the source's, except a value array held by both. The merged code checks these
+  sufficient conditions and otherwise runs the loops. With an inactive source
+  group, the copies can differ: the loops keep the destination's values there,
+  such as a `-0.0`, unless the destination has the group active, when they clear
+  it to `+0.0`.
   C, Cn and CD run full-activity replacement at a median 0.11–0.17× of master for
   each group size; B gains less, C2 is up to 2.6× slower at 1% activity, and D
   gains at most 1–7%, at partial activity with singleton groups.

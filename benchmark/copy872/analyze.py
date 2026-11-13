@@ -63,7 +63,8 @@ def main():
             assert int(row['order'])==rot.index(role)+1
             used.add(key);assert (r,role) not in by[row['case']];by[row['case']][r,role]=row
         assert used==set(verified)
-        # every configured case in every round for every role, before any ratio is formed
+        # every case in every round for every role, before any ratio is formed: the cases are
+        # the stored or regenerated keys, or for an older case-file campaign only their number
         observed={c for _,_,c in verified}
         if cases is None:assert len(observed)==int(cfg['cases']),(len(observed),cfg['cases'])
         else:assert observed==cases,(len(observed),len(cases))

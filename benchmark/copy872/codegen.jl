@@ -2,7 +2,8 @@
 # usage: julia -O2 --check-bounds=no codegen.jl SOURCE_ROOT OUTDIR
 # Writes the full listings to OUTDIR and prints, per function, element type and layout,
 # the instruction, push and call counts of the whole function, the number of
-# instructions before its first jump, and whether it reads an fs- or gs-based address.
+# instructions up to and including its first jump, and whether it reads an fs- or gs-based
+# address.
 using InteractiveUtils
 const ROOT, OUT = abspath(ARGS[1]), abspath(ARGS[2])
 mkpath(OUT)

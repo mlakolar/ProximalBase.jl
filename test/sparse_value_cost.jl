@@ -5,12 +5,14 @@ const PB = ProximalBase
 # The value of a LinearFunction at a matrix SparseIterate is computed from the stored nonzero
 # entries: it forms no zero for an unstored entry and reads the coefficients at the nonzero
 # stored entries (#810), on the ordinary path and on the recovery of an overflowing dot.
-# Two detectors count it. A real type C whose zero is counted shows that no pass over the
-# unstored entries is made (it is Float64-backed, so a Float32 coefficient array runs in
-# Float64 here). A coefficient array that records the linear indices it is read at shows
-# which entries are read, with plain Float32 and Float64 iterates.
+# Two detectors observe it. A real type C whose zero is counted shows that no implicit position of
+# the iterate is read through getindex (no zero(C) is formed; it is Float64-backed, so a Float32
+# coefficient array runs in Float64 here). A coefficient array that records the linear indices it
+# is read at shows which coefficient entries are read, with plain Float32 and Float64 iterates, and
+# that none is read at a forbidden position. Neither shows that no traversal of the logical
+# positions is made: a scan of the reverse map that does not call getindex is not seen.
 
-# zero(C) is counted: a pass over unstored entries creates one for each entry.
+# zero(C) is counted: reading an unstored entry through getindex creates one.
 const ZEROS = Ref(0)
 struct C <: AbstractFloat
   v::Float64

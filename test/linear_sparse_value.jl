@@ -45,10 +45,10 @@ reference(f::LinearFunction, x, T; kw...) = reference(f.c isa Diagonal ? f.c.dia
 # the smallest value that rounds to Inf
 overflow_threshold(T) = big(floatmax(T)) + (big(floatmax(T)) - big(prevfloat(floatmax(T)))) / 2
 # v is the value of the reference r: finite and within the bound when the bound keeps r in range, ±Inf of the sign of r
-# when r is beyond the range by more than the bound, and anything between. This is R1 in the numerically meaningful
-# regime only: once |r| + bound exceeds floatmax(T) the first branch is not taken, and nothing is asserted about a
-# result that is finite or an infinity for a finite exact value (R1 does not guarantee a finite value there, #907). Such
-# cases are constrained by the pinned reference values of the tests, not by this function.
+# when r is beyond the overflow threshold by more than the bound, and anything between. This is R1 in the numerically
+# meaningful regime only: nothing is asserted for an exact value inside the output range whose error interval
+# |r| + bound crosses floatmax(T), where R1 gives no finite-output guarantee (#907). Such cases are constrained by the
+# pinned reference values of the tests, not by this function.
 function agrees(v, ref, T)
   r, bound = ref.value, ref.bound
   if abs(r) + bound <= big(floatmax(T))
@@ -79,10 +79,11 @@ function random_pair(rng, T, p, k, lox, hix, loc, hic; zeros = 0.25)
   x, c
 end
 
-# Terms with separated scales, E = exponent(floatmax(T)): the iterate entry is ldexp(m, ex) with a mantissa m in
-# [1/2, 3/2) and the scale power ex uniform in exponent(floatmin(T)):E-1, and its coefficient is ldexp(m', ec) with
-# ec = clamp(ep - ex, exponent(floatmin(T)), E-1) and ep = E + (-8:1). The product is m m' 2^(ex + ec), with m m' in
-# [1/4, 9/4): it has the scale power ep unless the clamp acts (ex < ep - (E - 1) or ep - ex < exponent(floatmin(T))),
+# Terms with separated scales, E = exponent(floatmax(T)): the magnitude of the iterate entry is ldexp(m, ex) with a
+# mantissa m = T(0.5 + u), u in [0, 1) (rounding to T can give 3/2), so m in [1/2, 3/2], and the scale power ex uniform in
+# exponent(floatmin(T)):E-1; its coefficient has the magnitude ldexp(m', ec) with ec = clamp(ep - ex,
+# exponent(floatmin(T)), E-1) and ep = E + (-8:1); the signs are random. The product magnitude is m m' 2^(ex + ec), with
+# m m' in [1/4, 9/4]: it has the scale power ep unless the clamp acts (ex < ep - (E - 1) or ep - ex < exponent(floatmin(T))),
 # and then a smaller one. (These are scale powers, not the exponents of the values.) With `cancel`, a second entry
 # (another coefficient and an iterate entry, whose product is the negative of the first to rounding) is added.
 # Positions on the diagonal when `diagonal`.
@@ -114,9 +115,10 @@ end
 
 # Terms x c that cancel exactly in pairs, for the diagonal of a p × p iterate, x of type Tx and c of type Tc: a class has
 # the scale power pe = E + 1 - rand(0:spread), E = exponent(floatmax(promote_type(Tx, Tc))), and a product is
-# s s' 2^pe for significands s, s' in {1, 5/4, 3/2, 7/4} (so s s' is not an integer over 4, and the exponent of the value
-# is pe or pe + 1); every product is exact in Float64 (at most six bits). Each pair is (x, c), (x, -c).
-# Returns the entries (x, c) in a random order, or nothing if a factor is out of the range of its type.
+# s s' 2^pe for significands s, s' in {1, 5/4, 3/2, 7/4} (so s s' is not necessarily an integer over 4, and the exponent
+# of the value is pe or pe + 1); the product of the significands is exact in Float64 (at most six bits), with the exponent
+# kept separately (some full products overflow Float64 by construction). Each pair is (x, c), (x, -c). Returns the
+# entries (x, c) in a random order, or nothing if a factor overflows its type (for spreads larger than those used).
 function cancelling_terms(rng, Tx, Tc, spread, nclass, maxpairs)
   E = exponent(floatmax(promote_type(Tx, Tc)))
   sig() = rand(rng, (4, 5, 6, 7)) / 4
@@ -276,7 +278,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     exact = -ldexp(one(T), emax + 1 - precision(T))        # 2^M - 2^(M-p) = floatmax(T)
     @test f0(pair(exact)) === floatmax(T)
     @test f0(make_iterate(T, p, [(1, 1, -h), (2, 1, -h), (3, 1, -exact)])) === -floatmax(T)
-    below = -ldexp(one(T), M - margin)                      # the true value is below floatmax by a relative 2^-margin
+    below = -ldexp(one(T), M - margin)                      # the true value is below floatmax by about a relative 2^-margin
     above = ldexp(one(T), M - margin)                       # and above 2^M
     @test isfinite(f0(pair(below))) && check(f0, pair(below), T)
     @test f0(pair(below)) ≈ ldexp(T(2) - ldexp(one(T), 1 - margin), emax) rtol = 12 * eps(T)
@@ -291,7 +293,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     # entries and coefficients in the binades near the top of the range: BigFloat references
     rng = Xoshiro(810_001 + (T == Float32))
     for _ in 1:40
-      pairs = [(rand_mag(rng, T, emax - 4, emax - 1), rand_mag(rng, T, 0, 3)) for _ in 1:4]   # products beyond the range
+      pairs = [(rand_mag(rng, T, emax - 4, emax - 1), rand_mag(rng, T, 0, 3)) for _ in 1:4]   # potentially overflowing products
       xs, cs = [u for (u, _) in pairs], [w for (_, w) in pairs]
       pos = [(1, 1), (2, 1), (3, 2), (5, 5)]
       a = ones(T, p, p); x = SparseIterate(T, p, p)
@@ -350,7 +352,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
               end)
         @test abs(big(v) - big(vd)) <= r.bound + 4 * length(a) * big(eps(T)) * (r.sabs) + length(a) * big(floatmin(T)) * big(eps(T))
         @test abs(big(vd) - rd) <= 4 * length(a) * big(eps(T)) * r.sabs + length(a) * big(floatmin(T)) * big(eps(T))
-        # nonfinite coefficients at zeros of x leave the value as is; a stored-order permutation of the same data too
+        # nonfinite coefficients at zeros of x leave the value as is (the same entries read, in the same order)
         a2 = copy(a)
         for i in 1:length(a2)
           (!isactive(x, i) || iszero(x[i])) && rand(rng) < 0.5 && (a2[i] = rand(rng, (T(NaN), T(Inf), -T(Inf))))
@@ -910,7 +912,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     end
   end
 
-  # Float32 data and a value at the overflow threshold: the accumulator is Float64, so the value is rounded to Float64 and
+  # Float32 data and a value just below the overflow threshold: the accumulator is Float64, so the value is rounded to Float64 and
   # then to Float32 (a double rounding). The exact value floatmax + 2^103 - 2^50 is just below the tie that rounds to Inf, and
   # the Float64 rounding lands on the tie. The documented result is floatmax(Float32) (correct rounding) or Inf (the
   # double rounding).

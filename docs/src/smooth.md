@@ -286,15 +286,15 @@ value: extreme cancellation can give an infinity for a finite exact value (see
 [Overflow and underflow of values](numerics.md#Overflow-and-underflow-of-values)).
 
 For a dense `c` that is not a `Diagonal`, `f(Matrix(x))` and `dot(c, x) + d` take the
-generic IEEE `dot`, which visits all positions in column-major order, so a `NaN`
+ordinary `dot`, which visits all positions, so a `NaN`
 coefficient at a zero gives `NaN` there: the value differs from them on purpose in that
 case. When the participating entries of `x`, the coefficients at them, the coefficients
-at the positions where `x` is zero, and `d` are all finite and no partial sum overflows, the
+at the positions where `x` is zero, and `d` are all finite and the ordinary products and partial sums remain finite, the
 value agrees with them to the accuracy of the sum. When a
 participating entry is not finite, the order of summation can change the IEEE class: with
 `c = ones(2, 2)`, `d = 0` and `h = 2^exponent(floatmax(T))`, storing `x[2] = h`, `x[3] = h`
 and then `x[1] = -Inf`, a sum that adds `h` and `h` before the `-Inf` gives `NaN`, while
-`f(Matrix(x))` and `dot(c, x) + d` (column-major order) give `-Inf`; `f(x)` may give either. This rule is for the matrix
+`f(Matrix(x))` and `dot(c, x) + d` give `-Inf`; `f(x)` may give either. This rule is for the matrix
 `SparseIterate`: a vector `SparseIterate` keeps its own rules, and a `SymmetricSparseIterate`
 forms the terms at its stored zeros, so a `NaN` coefficient there gives `NaN`.
 

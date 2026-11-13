@@ -16,14 +16,16 @@
 # PB_CHECK_ONLY=1 checks the outputs and exits.
 #
 # The output check differs from linear_shape.jl, where the kernels are unchanged: the new value traverses the stored
-# entries by their storage index with an unspecified reduction order (a vectorized loop; the Diagonal cells sum in
-# increasing diagonal index), so the roles can differ in the last bits. A value of finite data is compared across the roles
-# with isapprox (rtol = 64 eps(T), or atol = 8 eps(T) sqrt(max(n, 1)) (Σ|cᵢxᵢ| + 1), n the number of entries of the
-# cell and the 1 the init of the sum in sumtol), a value that is not finite with isequal. The sqrt(n) tolerance is an
-# empirical output check for the random data of these cells, not an error bound: the error of a sequential sum can
-# reach the order of n eps(T) Σ|cᵢxᵢ|. The exceptional cells (an overflowing dot with finite coefficients) are compared
-# with a BigFloat value of each role's own output instead, and a difference across the roles there is reported, not
-# an error.
+# entries by their storage index with an unspecified reduction order (an @simd-enabled loop; the Diagonal cells sum in
+# increasing diagonal index), so the roles can differ in the last bits. `agree` is an empirical comparison of the
+# outputs of the roles with each other: a finite value is compared with isapprox (rtol = 64 eps(T) and an atol per
+# cell), a value that is not finite with isequal. For the sparse-value cells the atol is
+# 8 eps(T) sqrt(max(n, 1)) (Σ|cᵢxᵢ| + 1) (sumtol; n the number of entries of the cell, the 1 the init of the sum); the
+# Diagonal, combined-oracle and control cells set their own atols where they are built. These tolerances are empirical
+# for the random data of the cells, not error bounds: the error of a sequential sum can reach the order of
+# n eps(T) Σ|cᵢxᵢ|. The independent check against a BigFloat value is the exceptional-cell branch below (an overflowing dot
+# with finite coefficients): each role's output is compared with a BigFloat reference computed from the inputs
+# (the R1 bound of that reference), and a difference across the roles there is reported, not an error.
 #
 # As in linear_shape.jl the roles share their input and output arrays; the iterates, whose types belong to each tree,
 # and their backing arrays are built per role, so the placement of those arrays can differ between the roles. In
@@ -105,7 +107,8 @@ function iterate_of(PB, ::Type{T}, m, e::Entries) where {T}
     x
 end
 # the overflowing dot, with an odd number k of entries (k - 1 if k is even): the first (k + 1) / 2 in column-major
-# order are +B and the others -B, B = floatmax / 16, so that the partial sums overflow and the value is B
+# order are +B and the others -B, B = floatmax / 16, so that for a k large enough (the selected cells have one) the
+# partial sums overflow, and the value is B
 function exceptional!(D::Data{T}, key, k) where {T}
     get!(D.entries, key) do
         n = D.m^2
@@ -118,8 +121,8 @@ function exceptional!(D::Data{T}, key, k) where {T}
     end
 end
 
-# n = m², the size that the case ids carry. A probe is (id, work, build, atol, ref): work counts the entries
-# that a call visits, build makes the role's operation and the reading of its result, atol is the tolerance of the
+# n = m², the size that the case ids carry. A probe is (id, work, build, atol, ref): work is a nominal size, about the
+# number of stored entries of the cell, used to choose evals (it is not a count of all the entries a call visits), build makes the role's operation and the reading of its result, atol is the tolerance of the
 # check, and ref is a BigFloat value with its bound for an exceptional cell (nothing otherwise).
 function makeprobes(PB, ::Type{T}, m::Int, D::Data{T}, wanted) where {T}
     n = m^2
@@ -228,7 +231,7 @@ suites = Dict(r => build_suite(r) for r in keys(roles))
 @assert getfield.(suites["X"], :id) == getfield.(suites["Y"], :id) == getfield.(suites["XC"], :id)
 isempty(suites["X"]) && error("PB_FILTER selects no case")
 
-# the value of a role is a BigFloat value within the R1 bound, or a result of the given kind
+# the outputs of two roles compared with each other: equal (isequal), or finite and within the tolerances
 function agree(a, b, atol, T)
     if a isa Number && b isa Number
         return isequal(a, b) || (isfinite(a) && isfinite(b) && isapprox(a, b; rtol = 64 * eps(T), atol = atol))

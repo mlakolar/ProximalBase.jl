@@ -64,7 +64,9 @@ binade up, when `x - y` itself overflows) and the squares are summed in units
 of the largest one. Genuine NaN/Inf data or parameters keep their ordinary
 IEEE result; only finite inputs whose intermediates leave the range are
 recomputed. For the `LinearFunction` value at a matrix `SparseIterate`, the finite
-inputs are `d`, the nonzero stored entries and the coefficients at them: the
+inputs are `d`, the nonzero stored entries and the coefficients at them (for a `Diagonal`
+coefficient array, the nonzero stored diagonal entries and their coefficients: an off-diagonal
+`NaN` or `Inf` of the iterate is ignored): the
 recomputation sums their products as exponent-separated terms (as the `QuadraticFunction`
 recovery does), collapses the sum and adds `d` to it in its own units, and a nonfinite coefficient at a zero of the
 iterate does not prevent it. It reads the nonzero stored entries, `O(nactive(x))`; for a
@@ -74,7 +76,7 @@ answer into a representable result in the working precision.
 
 The accuracy of a recovered value is an absolute bound `B = 4 n eps (sum |terms| + |d|)` for
 `n` terms. It is a statement about the computed value when the exact value plus `B` is within
-the range (`|exact| + B <= floatmax`), and an exact value past the overflow threshold gives `Inf`. When `B`
+the range (`|exact| + B <= floatmax`). When `B`
 exceeds the representable range, there is no guarantee of a finite output. Extreme cancellation
 among products far beyond the output range (about `2^1077` for `Float64`, `2^150` for `Float32`
 data) can return an infinity although the exact result is a finite, normal number, in the

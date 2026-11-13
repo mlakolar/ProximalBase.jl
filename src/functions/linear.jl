@@ -182,13 +182,14 @@ end
 # (A = promote_type(R, Float64) is wider only for other element types, which are not covered).
 #   Steps. (1) m = fl_A(s + c): one rounding, |m - (s + c)| <= eps(A)/2 |m|, and m == 0 only if
 # s + c == 0 exactly. The remainder r = (s + c) - m is computed exactly (a TwoSum of s and c), and
-# |r| <= eps(A)/2 |m|. (2) m = mm 2^em with 1/2 <= |mm| < 1, and the dot goes into a new
+# |r| <= eps(A)/2 |m|. (2) If m is nonzero, m = mm 2^em with 1/2 <= |mm| < 1, and the dot goes into a new
 # accumulator in the frame ex + em: only an exponent changes, so this step is exact. (3) d enters
 # by `_expsum_product` as a term of its own, then r as one more term in the frame ex: the sum
 # is taken in the frame of the largest of them, and when d cancels the dot, r is what remains of
 # the pair. (4) `_expsum_value` rounds the pair to A and converts that to R. Overflow follows
-# this rounded value: with T = R, it is floatmax(T) below the round-to-nearest tie and Inf at or
-# beyond floatmax(T) + 2^(exponent(floatmax(T)) - precision(T)); for Float32 data (A = Float64,
+# this rounded value: with T = R, a value in the top rounding interval, from floatmax(T) up to
+# but not including floatmax(T) + 2^(exponent(floatmax(T)) - precision(T)), gives floatmax(T), and
+# Inf comes at or beyond that threshold; for Float32 data (A = Float64,
 # R = Float32) the rounding to A comes first, a double rounding that can differ from the correctly
 # rounded result at that tie. The caller then converts the value to float(eltype(x)): for a Float32
 # iterate with Float64 coefficients (R = Float64) that is one more rounding, and one more point
@@ -202,15 +203,15 @@ end
 # errors, so the error of the pair grows like n^2 eps(A)^2 / 4 times the sum of the magnitudes,
 # not n eps(A)^2. With the drops above, for n < 2^50 (any n for Float32 data), the value is within
 # B = 4 n eps(R) (sum |cᵢ xᵢ| + |d|) of the exact one when the exact value plus B is within the
-# range of R (|exact| + B <= floatmax(R)); an exact value past the overflow threshold gives Inf. When B
+# range of R (|exact| + B <= floatmax(R)). When B
 # exceeds the range there is no finite-output guarantee: the result can be an infinity for a
 # finite exact value (see #907).
 #   Guaranteed. The absolute bound B where |exact| + B <= floatmax(R), as above. If the pair
 # sums to zero, the value is R(d) when d is representable in R (d is a term of its own, converted
 # once), and +0 if d is zero. A dot of value delta beside d, when the products are exact in A (for
 # example Float32 data, or significands of at most 26 bits), delta is above n 2^(E-1074) / eps(R),
-# n^2 eps(A)^2 / 4 times the sum of the magnitudes is below eps(R) |delta|, and |delta + d| and
-# that error are inside the range of R, is returned by `_expsum_value` with an error of at most
+# n^2 eps(A)^2 / 4 times the sum of the magnitudes is below eps(R) |delta|, and |delta + d| plus
+# that error is at most floatmax(R), is returned by `_expsum_value` with an error of at most
 # a few eps(R) (|delta| + |d|); the caller's conversion to float(eltype(x)) can add its own
 # rounding when that type is narrower than R.
 #   Not guaranteed. (1) That terms which cancel exactly in real arithmetic cancel: Float64 and
@@ -219,7 +220,7 @@ end
 # leave one whole term as the result. (3) That the pair sums to zero for an exactly cancelling
 # dot: the compensation is a rounded sum, and it fails for terms of very different sizes (it
 # depends on the spread of the exponents and on the number of terms, and not on the spread
-# alone); the value then has the absolute error B. Relative accuracy when d cancels the dot is
+# alone); the value then has the absolute error B when |exact| + B <= floatmax(R) (above). Relative accuracy when d cancels the dot is
 # limited by the error of the pair, the drops above, and the final rounding to A, to R and to
 # the returned type float(eltype(x)) (with a Float32 iterate and Float64 coefficients, the
 # rounding to Float32 alone can be far above the Float64 error of the helper's value). The
@@ -246,7 +247,7 @@ function _linear_recovered_value(::Type{R}, acc::_ExpSum{A}, d) where {R, A}
 end
 
 # A Diagonal coefficient at a matrix SparseIterate: dot(c, x) for a Diagonal c reads the
-# diagonal of x only, in O(p), and ignores the other entries of x, as f(Matrix(x)) does. The
+# diagonal of x only, in O(p), and ignores the other entries of x, as the ordinary dot(c, Matrix(x)) does. The
 # value keeps that, and reads c.diag[j] only where x has a nonzero stored diagonal entry.
 function _value_unchecked(f::LinearFunction{<:Diagonal}, x::SparseIterate{<:Any, 2})
   _checkvalue(f, x)

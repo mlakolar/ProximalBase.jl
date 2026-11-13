@@ -811,8 +811,8 @@ _recovery_type(types...) = promote_type(Float64, types...)
 # of every ordinary value. The test is false for NaN, so an ordinary NaN (or Inf) is returned as it was.
 @inline _sum_kept(s, n) = !(s < n * floatmin(typeof(s)))
 
-# Codes returned by the shrinkage kernel in place of the norm of the stored group: the stored group is
-# exactly zero, or its value must be recomputed from the stored entries.
+# Codes returned by the shrinkage kernel in place of the norm of the stored group: the term of the group is zero
+# (the stored group is exactly zero, or the group is unpenalized), or its value must be recomputed from the stored entries.
 const _L2_ZERO = -2
 const _L2_RECOMPUTE = -1
 
@@ -882,17 +882,16 @@ end
       return T(_l2_zero!(y, G))
     end
   end
-  # an unpenalized group (the threshold is then 0, below the normal range) is copied without the call
-  iszero(w) && return T(_l2_copy!(y, x, G))
+  # an unpenalized group (its threshold is 0, below the normal range) is copied without the call, and its term is zero
+  iszero(w) && (_l2_copy!(y, x, G); return T(_L2_ZERO))
   T(_l2_shrink_cold!(y, x, G, λ, w, γ))
 end
 
-# The parameters decide first, in this order: an unpenalized group (w = 0), a group fixed at zero (an
+# The parameters decide first, in this order: an unpenalized group (w = 0, copied by _l2_shrink! itself), a group fixed at zero (an
 # infinite weight, or an infinite level at every nonnegative step, #665), the identity (a zero level or
 # step), a group fixed by an infinite step. Otherwise the values decide (below). The values are in a
 # function of their own, so that the exits decided by the parameters do not carry its frame.
 @noinline function _l2_shrink_cold!(y, x, G, λ, w, γ::Real)
-  iszero(w) && return _l2_copy!(y, x, G)
   (isinf(w) || isinf(λ)) && return _l2_zero!(y, G)
   (iszero(λ) || iszero(γ)) && return _l2_copy!(y, x, G)
   isinf(γ) && return _l2_zero!(y, G)
@@ -964,7 +963,6 @@ end
     v = convert(T, λw * convert(R, s))
     ((floatmin(R) <= λw <= floatmax(R)) & _l2_ordinary(v, T)) && return v
   end
-  iszero(w) && return zero(T)
   _l2_term_outofline(λ, w, x, G, s, T)
 end
 @noinline _l2_term_outofline(λ, w, x, G, s, ::Type{T}) where {T} = _l2_term(λ, w, x, G, s, T)

@@ -194,7 +194,7 @@ end
 # out of line, so that the loop over the groups of the callers does not carry the scans
 @noinline function _group_value_unkept(f::GroupNormL2, x, s::T)::T where {T}
   if _l2_ordinary(s, T)
-    iszero(s) && _all_zero(_stored_values(x)) && return s
+    iszero(s) && _all_zero_early(_stored_values(x)) && return s
     _sum_kept(s, _penalized_count(f.w)) && return s
   end
   _group_value_recomputed(f, x, s)

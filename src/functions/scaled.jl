@@ -411,12 +411,13 @@ _exactly_zero_at(f::ElasticNet, x::AbstractArray) =
 # the product itself otherwise). Where that gives no finite value, or 0 at an x where f is not exactly 0, and the factor
 # is a finite positive number, the sum of the two parts: α λ1 Σ wᵢ|xᵢ| from Scaled(NormL1(λ1, w), α) and α λ2/2 Σ xᵢ²
 # from Scaled(SqrNormL2(λ2), α) (the indicator value for an infinite λ2, which such a factor leaves unchanged), each
-# recovered as its family recovers it, rounded on its own, and added once; a non-finite sum keeps the first result.
+# recovered as its family recovers it, rounded on its own, and added once; the sum replaces the first result only if
+# it is finite after conversion to the type of that result.
 # The two levels need not fold by one factor: ElasticNet(2^-1000, 2^1000) under the factor 2^-600 at [2^300] has the
 # ℓ1 part 2^-1300, the ridge part overflows before the factor, and the value is 2^999. A first result of 0 can be a
 # value that the parts recover: ElasticNet(0, 2.242946011063277e131, [2.5]) under 1.6778225587956818e288 at
-# [4.4835202439803e-310] is 3.7824493718933436e-200, as for Scaled(SqrNormL2). The sum of the parts is nonnegative and
-# is 0 where both parts are 0.
+# [4.4835202439803e-310] is 3.7824493718933436e-200, as for Scaled(SqrNormL2). For parts that are not NaN the sum is
+# nonnegative, and it is 0 where both parts are 0.
 @noinline function _scaled_value_recover(f::ElasticNet, α, x::AbstractArray, v, r, out = nothing)
   z = invoke(_scaled_value_recover, Tuple{Any, Any, Any, Any, Any, Any}, f, α, x, v, r, out)
   _elastic_finite_scale(α) || return z

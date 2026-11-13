@@ -170,7 +170,7 @@ end
 # and rounds the sum to T once (_expsum_value), as the NormL1 recomputation does for its own terms (#373). A value
 # whose stored entries are all zero is kept.
 #
-# Claim: with u = eps(R)/2 and γₘ = m u/(1 - m u), the result r and the exact value V satisfy
+# Claim: with u = eps(R)/2, γₘ = m u/(1 - m u) and N u < 1, the result r and the exact value V satisfy
 #   |r - V| ≤ (γ₃ + (γ²_{N-1} + N 2^-1070)(1 + γ₂)) V + h,
 # h being half the spacing of T at r (δ/2 for r below 2 floatmin(T)), or a whole spacing on Julia 1.10 with
 # T = Float64, whose ldexp returns 0 for a result in [δ/2, δ) (#896).
@@ -178,13 +178,14 @@ end
 # as (mₐ mᵦ) m_λ 2^e: two roundings in R, so it is within γ₂ of its exact value, and it is nonnegative; their sum S is
 # within γ₂ V of V. The accumulator adds each term with an error-free transformation (Fast2Sum on ordered magnitudes)
 # and sums the errors in plain floating point, then forms s + c once: the summation Sum2 of Ogita, Rump and Oishi
-# (2005), within u S + γ²_{N-1} S of S for nonnegative terms. Moving the sum into the frame of a larger term, or a term
-# into the frame of the sum, multiplies by a power of two, exactly except for the bits below the subnormal spacing of R
-# (a result in the subnormal range is rounded, or on Julia 1.10 set to 0 in [δ/2, δ)), less than 2^-1074 frame units
-# for each of s, c and the term: at most 2^-1073 frame units per term, while the sum is at least 2^-3 frame units (a
-# term is a product of three significands in [1/2, 1)), so at most N 2^-1070 S in all. The exponent is applied exactly
-# (_scaled_product with the factor 1 multiplies by powers of two), and the result is rounded once to T, within h. The
-# relative factors combine to at most γ₃ + (γ²_{N-1} + N 2^-1070)(1 + γ₂).  □
+# (2005), within u S + γ²_{N-1} S of S for nonnegative terms when N u < 1 (their Proposition 4.5). Moving the sum
+# into the frame of a larger term, or a term into the frame of the sum, multiplies by a power of two, exactly except
+# for the bits below the subnormal spacing of R (a result in the subnormal range is rounded, or on Julia 1.10 set to 0
+# in [δ/2, δ)), less than 2^-1074 frame units for each of s, c and the term: at most 2^-1073 frame units per term,
+# while the sum is at least 2^-3 frame units (a term is a product of three significands in [1/2, 1)), so at most
+# N 2^-1070 S in all. The exponent is applied exactly (_scaled_product with the factor 1 multiplies by powers of two),
+# and the result is rounded once to T, within h. The relative factors combine to at most
+# γ₃ + (γ²_{N-1} + N 2^-1070)(1 + γ₂).  □
 # The bound depends on N only through γ²_{N-1}, a second-order term, and N 2^-1070, below 2^-1000 for any N that an
 # array can hold. It is below the worst case of c: a part of c that is recomputed (NormL1 from the same kind of
 # accumulator, the ridge from scaled squares summed the same compensated way in _square_type, the promotion of the

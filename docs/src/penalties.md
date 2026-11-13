@@ -273,7 +273,10 @@ array of per-entry steps. On a `SparseIterate` or a
 `SymmetricSparseIterate` the value reads the stored entries only, and so
 does the proximal operator from such an iterate into an iterate of the same
 kind; with a dense destination it writes, and reads the weights of, every
-entry. An entry stored in an iterate destination stays stored, possibly as
+entry. This is the traversal of the entries: a value whose two parts are
+recomputed together (above) also reads every entry of a weight array whose
+element type is not concrete, such as a `Vector{Real}`, to choose the type of
+its accumulator. An entry stored in an iterate destination stays stored, possibly as
 a zero, and a zero result does not activate an absent entry. On a
 `SymmetricSparseIterate` the weights
 are a `p × p` matrix read at both positions of an off-diagonal

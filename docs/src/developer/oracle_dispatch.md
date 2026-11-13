@@ -50,8 +50,9 @@ element type, and an array of steps, run `prox_block` per entry. A `Scaled`
 `ElasticNet` takes the value recovery of every function first; where that gives no finite
 value, or `0` at a point where the function is not exactly `0`, for a finite positive
 factor, it adds the scaled values of the ℓ₁ part and of the ridge part, each recovered as
-its own family recovers it and rounded on its own. The folds
-keep an infinite level, so that the other level still folds.
+its own family recovers it and rounded on its own, and the sum replaces the first result
+only if it is finite after conversion to the type of that result. The folds keep an
+infinite level, so that the other level can fold; a fold that overflows is not used.
 
 ## Pure hooks and storage kernels
 

@@ -33,11 +33,13 @@ valref(f, x) = big4096() do
     big(f.λ2) / 2 * sum(big(v)^2 for v in x; init = big(0))
 end
 valok(got::T, ref, n) where {T} = isfinite(got) && abs(big(got) - ref) <= (n + 2) * eps(T) * abs(ref)
-# a value that rounds to r: r itself, or 0 for r the smallest subnormal where ldexp truncates a Float64 result in
-# [δ/2, δ) to 0 (Julia 1.10, #896), as the final rounding of the recomputed values does there
+# a value that rounds the exact value V: T(V), or 0 for V in [δ/2, δ), δ the smallest subnormal, where ldexp returns 0
+# for a Float64 result in that interval (Julia 1.10, #896), as in the final rounding of the recomputed values
 const LDEXP_ROUNDS = ldexp(0.75, -1074) === nextfloat(0.0)
-rounded(got::T, r::T) where {T} =
-  got === r || (!LDEXP_ROUNDS && T === Float64 && r === nextfloat(zero(T)) && got === zero(T))
+function rounded(got::T, V::BigFloat) where {T}
+  δ = big(nextfloat(zero(T)))
+  got === T(V) || (!LDEXP_ROUNDS && T === Float64 && δ / 2 <= V < δ && got === zero(T))
+end
 
 # a weight array that counts its reads, to show that values and proximal points on sparse and symmetric
 # iterates read the weights of the stored entries only
@@ -288,8 +290,9 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
           end
         end
       end
-      # an infinite ℓ1 level beside a finite ridge level whose product with the factor and the step overflows: the
-      # folds keep the infinite level and fold the ridge, which acts on the entry with a zero weight
+      # an infinite ℓ1 level beside a finite ridge level, under a factor and a step whose product overflows (the ridge
+      # coefficient, factor times step times level, is 2^200, 2^60 in Float32): the folds keep the infinite level and
+      # fold the ridge, which acts on the entry with a zero weight
       A = T === Float64 ? p2(T, 600) : p2(T, 80)
       λr = T === Float64 ? p2(T, -1000) : p2(T, -100)
       hc = Scaled(ElasticNet(T(Inf), λr, T[1, 0]), A)
@@ -330,13 +333,14 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
     # the recovery of every function runs first: a normal leaf value whose product rounds into the subnormal range,
     # and a zero leaf value that the partial fold recovers
     sa, xa = Scaled(ElasticNet(1.0, 81920.0), 2.0^-1060), [0.4 * 2.0^-14]
-    Va = Float64(big4096(() -> big(2.0)^-1060 * (big(xa[1]) + 40960 * big(xa[1])^2)))
+    VA = big4096(() -> big(2.0)^-1060 * (big(xa[1]) + 40960 * big(xa[1])^2))
+    Va = Float64(VA)
     ya = [0.0]
     @test Va === nextfloat(0.0) && sa(xa) === Va && sa(SparseIterate(xa)) === Va && value_and_prox!(ya, sa, xa, 0.0) === Va
-    @test rounded(Scaled(Scaled(ElasticNet(1.0, 81920.0), 2.0^-530), 2.0^-530)(xa), Va)
+    @test rounded(Scaled(Scaled(ElasticNet(1.0, 81920.0), 2.0^-530), 2.0^-530)(xa), VA)
     sb = Scaled(ElasticNet(0.4 * 2.0^-1029, 0.4 * 2.0^-979), 16.0)
-    Vb = Float64(big4096(() -> 16 * (big(0.4 * 2.0^-1029) * big(2.0)^-49 + big(0.4 * 2.0^-979) / 2 * big(2.0)^-98)))
-    @test Vb === nextfloat(0.0) && rounded(sb([2.0^-49]), Vb)
+    VB = big4096(() -> 16 * (big(0.4 * 2.0^-1029) * big(2.0)^-49 + big(0.4 * 2.0^-979) / 2 * big(2.0)^-98))
+    @test Float64(VB) === nextfloat(0.0) && rounded(sb([2.0^-49]), VB)
     # a first result of 0 at a point where the value is not 0, which the sum of the parts recovers (the first case is
     # also Scaled(SqrNormL2)); an exactly zero value stays +0
     for (l1, l2, α, xz, w) in ((0.0, 2.242946011063277e131, 1.6778225587956818e288, [4.4835202439803e-310], [2.5]),
@@ -350,12 +354,23 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
     end
     @test prox(Scaled(ElasticNet(Inf, 2.0^-1000, [1.0, 0.0]), 2.0^600), [3.0, 4.0], 2.0^600) ==
           [0.0, Float64(big4096(() -> 4 / (1 + big(2.0)^200)))]
-    # a factor and a step whose product overflows, with a finite ridge level that the fold cannot hold (#567): the
-    # result is that of Scaled(SqrNormL2), 0 instead of 2^-300 (2^-113 in Float32); recorded as broken
+    # a factor and a step whose product overflows, with a ridge coefficient (factor times step times level) that
+    # overflows too, 2^1300 (2^240 in Float32), so that the fold of the scalar step is not used (#567): the result is
+    # that of Scaled(SqrNormL2), 0 instead of the representable 2^-300 (2^-113 in Float32); recorded as broken
     @test_broken prox(Scaled(ElasticNet(0.0, 2.0^100), 2.0^600), [2.0^1000], 2.0^600) ==
                  [Float64(big4096(() -> big(2.0)^1000 / (1 + big(2.0)^1300)))]
     @test_broken prox(Scaled(ElasticNet(0.0f0, 2.0f0^80), 2.0f0^80), [2.0f0^127], 2.0f0^80) ==
                  [Float32(big4096(() -> big(2.0)^127 / (1 + big(2.0)^240)))]
+    # the array step gives these two results; with the ridge level 2^880 it gives 0 as well, where the result is the
+    # representable 2^-1057 (#567); recorded as broken
+    @test within(prox(Scaled(ElasticNet(0.0, 2.0^100), 2.0^600), [2.0^1000], [2.0^600])[1],
+                 big4096(() -> big(2.0)^1000 / (1 + big(2.0)^1300)))
+    @test within(prox(Scaled(ElasticNet(0.0f0, 2.0f0^80), 2.0f0^80), [2.0f0^127], [2.0f0^80])[1],
+                 big4096(() -> big(2.0)^127 / (1 + big(2.0)^240)))
+    r880 = [Float64(big4096(() -> big(2.0)^1023 / (1 + big(2.0)^2080)))]
+    @test r880 == [2.0^-1057]
+    @test_broken prox(Scaled(ElasticNet(0.0, 2.0^880), 2.0^600), [2.0^1023], 2.0^600) == r880
+    @test_broken prox(Scaled(ElasticNet(0.0, 2.0^880), 2.0^600), [2.0^1023], [2.0^600]) == r880
   end
 
   # Values whose two parts each round below the subnormal spacing δ on their own: the parts are rounded together.
@@ -370,19 +385,20 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       for (μ1, μ2, n) in ((1, 1, 1), (0.75, 0.75, 1), (0.75, 2.5, 1), (0.5, 7, 1), (0.5, 0.5, 4), (0.25, 0.25, 3))
         λ1, λ2 = T(μ1) * λ1⁰, T(μ2) * λ2⁰
         x = fill(p2(T, ex), n)
-        r = T(big4096(() -> big(λ1) * n * big(x[1]) + big(λ2) / 2 * n * big(x[1])^2))
+        V = big4096(() -> big(λ1) * n * big(x[1]) + big(λ2) / 2 * n * big(x[1])^2)
+        r = T(V)
         f, fw = ElasticNet(λ1, λ2), ElasticNet(λ1, λ2, ones(T, n))
-        @test r > 0 && rounded(f(x), r) && rounded(fw(x), r)
-        @test rounded(f(view(copy(x), :)), r) && rounded(f(SparseIterate(x)), r)
-        @test rounded(f(BlockIterate(copy(x), [collect(1:n)])), r)
+        @test r > 0 && rounded(f(x), V) && rounded(fw(x), V)
+        @test rounded(f(view(copy(x), :)), V) && rounded(f(SparseIterate(x)), V)
+        @test rounded(f(BlockIterate(copy(x), [collect(1:n)])), V)
         S = SymmetricSparseIterate(T, n)
         for i in 1:n
           S[i, i] = x[i]
         end
-        @test rounded(ElasticNet(λ1, λ2, ones(T, n, n))(S), r)
-        n == 1 && @test rounded(value_entry(f, x[1], 1), r) && rounded(value_entry(fw, x[1], 1), r)
+        @test rounded(ElasticNet(λ1, λ2, ones(T, n, n))(S), V)
+        n == 1 && @test rounded(value_entry(f, x[1], 1), V) && rounded(value_entry(fw, x[1], 1), V)
         y = similar(x)
-        @test rounded(value_and_prox!(y, f, x, zero(T)), r) && y == x
+        @test rounded(value_and_prox!(y, f, x, zero(T)), V) && y == x
       end
       # the first case: each part rounds to zero on its own
       f = ElasticNet(λ1⁰, λ2⁰)
@@ -472,6 +488,16 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       W.reads = 0
       @test f(S) ≈ T(0.3) * (2 * 2 + 1 + 2 * T(0.5)) + T(0.35) * (2 * 4 + 1 + 2 * T(0.25))
       @test W.reads <= 4 * nactive(S)
+      # a value whose two parts are recomputed together also reads every entry of a weight array whose element type
+      # is not concrete, to choose the type of its accumulator
+      cr = CountingArray(Real[one(T) for _ in 1:20])
+      xr = SparseIterate(T, 20)
+      xr[3] = T(1.5) * floatmin(T)
+      fr = ElasticNet(one(T), one(T), cr)
+      cr.reads = 0
+      vr = fr(xr)
+      nr = cr.reads
+      @test within(vr, valref(fr, Vector(xr))) && length(cr) <= nr <= length(cr) + 2 * nactive(xr)
     end
   end
 end

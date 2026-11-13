@@ -68,14 +68,20 @@ representable squared-norm value. When the fold takes the ridge level of an
 `ElasticNet` below `floatmin` while folding a step, that level is dropped,
 since its ridge factor `1/(1 + γλ2)` rounds to one. An infinite level of
 `NormL1` or `ElasticNet` stays a hard constraint when the factor and the step
-leave the range; the folds of an `ElasticNet` keep an infinite level as it is
-and fold the finite one, which still acts on the entries with a zero weight.
-The scaled value of an `ElasticNet` is recovered as for any function with
-levels; for a finite positive factor, where that gives no finite value (the two
-levels do not fold by one factor), or `0` at a point where the function is not
-exactly `0`, it is the scaled value of the ℓ₁ part plus that of the ridge part,
-each recovered as for `NormL1` and `SqrNormL2` and rounded on its own. This is not
-a promise that arbitrary user-defined functions acquire numerical range recovery.
+leave the range. The folds of an `ElasticNet` keep an infinite level as it is
+and fold the other level as they fold it beside a finite level; a fold that
+overflows is not used. With `λ1 = Inf`, a folded ridge level acts on the
+entries with a zero weight; with `λ2 = Inf` and a nonnegative step, the
+proximal point is `0` at every entry, whatever `λ1`. The scaled value of an `ElasticNet` is recovered as for any
+function with levels. For a finite positive factor, where that gives no finite
+value (for example `ElasticNet(2.0^-1000, 2.0^1000)` under the factor
+`2.0^-600` at `[2.0^300]`, whose levels do not fold by one factor), or `0` at a
+point where the function is not exactly `0`, the scaled values of the ℓ₁ part
+and of the ridge part, each recovered as for `NormL1` and `SqrNormL2` and
+rounded on its own, are added; the sum replaces that result if it is finite
+after conversion to its type, and the first result is kept otherwise. This is
+not a promise that arbitrary user-defined functions acquire numerical range
+recovery.
 
 ## A zero scale can change the returned type
 

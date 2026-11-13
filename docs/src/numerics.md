@@ -115,20 +115,21 @@ rounded on its own) is recomputed: the terms of both parts are added in one
 exponent-sum accumulator, as the `NormL1` recomputation adds its terms, and
 the sum is rounded once. For `N` nonzero terms (`λ1*w[i]*abs(x[i])` and
 `λ2*x[i]^2/2`, up to two per entry and three per off-diagonal coordinate of a
-symmetric iterate) the result is within
-`(γ_3 + (γ_{N-1}^2 + N 2^-1070)(1 + γ_2)) V` of the exact value `V` plus half
-a spacing of `T` at the result (`γ_m = m u/(1 - m u)`, `u` half the epsilon of
-the accumulator, `Float64` for `Float32` data), as proved next to the code, which
-is below the worst case of the separate parts. On Julia 1.10 `ldexp` returns `0`
+symmetric iterate), with `u` half the epsilon of the accumulator (`Float64` for
+`Float32` data) and `N u < 1`, the hypothesis of the summation bound used, the
+result is within `(γ_3 + (γ_{N-1}^2 + N 2^-1070)(1 + γ_2)) V` of the exact
+value `V` plus half a spacing of `T` at the result (`γ_m = m u/(1 - m u)`), as
+proved next to the code, which is below the worst case of the separate parts. On Julia 1.10 `ldexp` returns `0`
 for a `Float64` result in `[δ/2, δ)`, `δ` the smallest subnormal
 ([#896](https://github.com/mlakolar/ProximalBase.jl/issues/896)), and the final
 term of the bound is a whole spacing;
 `ElasticNet(2.0^-538, 1.0)([2.0^-537])` is `2.0^-1074`. Only a value whose
 stored entries are all zero keeps its sum. Under `Scaled`, the value of an
-`ElasticNet` is recovered as for any function with levels; only where that
-gives no finite value, or `0` at a point where the function is not exactly `0`,
-for a finite positive factor, is it the scaled value of the ℓ₁ part plus that of
-the ridge part, each rounded on its own.
+`ElasticNet` is recovered as for any function with levels. For a finite
+positive factor, where that gives no finite value, or `0` at a point where the
+function is not exactly `0`, the scaled values of the ℓ₁ part and of the ridge
+part, each rounded on its own, are added; the sum replaces that result if it is
+finite after conversion to its type, and the first result is kept otherwise.
 Where one part
 dominates, the test can pass although the other part alone would be
 recomputed (ℓ₁ terms below `floatmin(T)` beside a normal ridge part, or
@@ -167,17 +168,32 @@ for custom functions. Original `Squared()` scalar arithmetic has no such
 array-value recovery.
 
 A known limitation ([#567](https://github.com/mlakolar/ProximalBase.jl/issues/567)):
-for `Scaled(SqrNormL2(λ2), α)` and `Scaled(ElasticNet(λ1, λ2, w), α)` with a
-finite positive `α` and a scalar step `γ` for which `αγ` exceeds `floatmax`
-while `αγλ2` is in range, the folded ridge level overflows, and `prox`,
-`prox!`, `prox_block` and `value_and_prox!` return `0` where the result is
-representable. For `ElasticNet` the same step passed as an array of steps
-gives the representable result (`SqrNormL2` takes no array of steps):
+for `Scaled(ElasticNet(λ1, λ2, w), α)` with a finite positive `α` and a
+positive finite scalar step `γ` whose product `αγ` is above `floatmax`, the
+proximal operators fold `α` and the exponent of `γ` into the levels; the folded
+ridge level lies between `αγλ2` and `2αγλ2`. Where a folded level is above
+`floatmax`, no fold is used: the function receives the step `αγ`, rounded to
+`Inf`, and `prox`, `prox!`, `prox_block` and `value_and_prox!` can return `0`
+where the exact result is representable. A representable result does not need
+a representable coefficient. With `λ1 = 0`, `α = γ = 2.0^600` and `x = [2.0^1000]`,
+the coefficient `αγλ2` is `2^1300` for `λ2 = 2.0^100`, above `floatmax`,
+while the quotient `x/(1 + αγλ2)`, about `2^-300`, is representable, and the
+result is `0`. For `λ2 = 2.0^-1000` and `x = [4.0]` the coefficient is `2^200`,
+the fold holds it, and the result is the representable `4/(1 + 2^200)`.
+`Scaled(SqrNormL2(λ2), α)` folds no level and returns `0` in the first case.
+In some cases the same step passed as an array of steps gives the
+representable result, for example in the first case and in its `Float32`
+analogue (`λ2 = 2.0f0^80`, `α = γ = 2.0f0^80`, `x = [2.0f0^127]`); for
+`λ2 = 2.0^880` and `x = [2.0^1023]`, with the same `α` and `γ`, both steps
+give `0` where the result is `2^-1057`:
 
 ```julia
 s = Scaled(ElasticNet(0.0, 2.0^100), 2.0^600)
 prox(s, [2.0^1000], 2.0^600)      # [0.0]
 prox(s, [2.0^1000], [2.0^600])    # [4.909093465297727e-91], about 2^-300
+t = Scaled(ElasticNet(0.0, 2.0^880), 2.0^600)
+prox(t, [2.0^1023], 2.0^600)      # [0.0]
+prox(t, [2.0^1023], [2.0^600])    # [0.0]; the result is 2^-1057
 ```
 
 ## NaN, infinities and zeros

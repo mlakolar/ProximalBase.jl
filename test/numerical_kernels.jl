@@ -249,9 +249,9 @@ setprecision(BigFloat, 1200) do
   end
 
   @testset "exponent of the entries (y = 0)" begin
-    # the method for y = 0 gives the exponent of the general method with y = 0 for every finite input, and the
-    # same class: the general code for an entry that is not finite is typemax(Int), which is the NaN code or
-    # the Inf code here
+    # the method for y = 0 gives the exponent of the general method with y = 0 for the finite data below (random
+    # values over all binades, with signed zeros, subnormals and entries near floatmax) and the same class: the
+    # general code for an entry that is not finite is typemax(Int), which is the NaN code or the Inf code here
     es = exponent(nextfloat(zero(T)))
     specials = T[-zero(T), zero(T), nextfloat(zero(T)), -nextfloat(zero(T)), prevfloat(floatmin(T)), floatmin(T), floatmax(T), -floatmax(T),
                  prevfloat(floatmax(T)), T(1), T(-1), T(0.75)]

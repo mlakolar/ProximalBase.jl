@@ -198,9 +198,10 @@ code before the consolidation, except for BigFloat exponent arithmetic that leav
   factor.
 * `_pow2_weighted(R, w, t1, t2)`: a method for two terms with the operations of the
   generic method (the larger term first, aligned addition, renormalization, the final
-  product); a term more than `2 precision(R)` binades below the sum is not shifted, as
-  it cannot change the rounded sum. The generic method remains the definition, and the
-  tests compare the two bit for bit.
+  product); a term more than `2 precision(R)` binades below the sum is not shifted: it is
+  below half an ulp of the sum, which the rounded sum then equals (Float32 and Float64,
+  and a BigFloat with at most the default precision). The generic method remains the
+  definition, and the tests compare the two bit for bit.
 * `_scaled_norm(x, y, s, scale)`: the optional scale multiplies the norm (default one).
 * `_threshold_product`, `_sum_kept`, `_indexed_sumabs2`, `_recovery_type`.
 

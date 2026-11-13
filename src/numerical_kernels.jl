@@ -274,8 +274,9 @@ function _pow2_weighted(::Type{R}, w, t1::Tuple{Any, Int}, t2::Tuple{Any, Int}) 
   mj, f2 = _frexp(m2)
   D = _exponent_sum(R, f2, e2)
   # D <= E, as the larger term is first. A term more than 2 precision(R) binades below the sum is below half an ulp
-  # of s, which is in [1/2, 1) in magnitude, so s + ldexp(mj, D - E) rounds to s: the shift, an ldexp whose result is
-  # subnormal or zero (slow), is skipped, and s + zero(R) rounds s as that sum would.
+  # of s, which is in [1/2, 1) in magnitude, so for Float32 and Float64 s + ldexp(mj, D - E) rounds to s: the shift, an
+  # ldexp whose result is subnormal or zero (slow), is skipped. s + zero(R) is that sum for the types whose
+  # significands have at most precision(R) bits (a BigFloat of a higher precision than the default is rounded to it).
   s = D - E < -2 * precision(R) ? s + zero(R) : s + ldexp(mj, D - E)
   iszero(s) && return convert(R, w) * zero(R)
   s, f = _frexp(s)

@@ -74,7 +74,7 @@ answer into a representable result in the working precision.
 
 The accuracy of a recovered value is an absolute bound `B = 4 n eps (sum |terms| + |d|)` for
 `n` terms. It is a statement about the computed value when the exact value plus `B` is within
-the range (`|exact| + B <= floatmax`), and an exact value beyond the range gives `Inf`. When `B`
+the range (`|exact| + B <= floatmax`), and an exact value past the overflow threshold gives `Inf`. When `B`
 exceeds the representable range, there is no guarantee of a finite output. Extreme cancellation
 among products far beyond the output range (about `2^1077` for `Float64`, `2^150` for `Float32`
 data) can return an infinity although the exact result is a finite, normal number, in the

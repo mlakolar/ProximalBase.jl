@@ -202,7 +202,7 @@ end
 # errors, so the error of the pair grows like n^2 eps(A)^2 / 4 times the sum of the magnitudes,
 # not n eps(A)^2. With the drops above, for n < 2^50 (any n for Float32 data), the value is within
 # B = 4 n eps(R) (sum |cᵢ xᵢ| + |d|) of the exact one when the exact value plus B is within the
-# range of R (|exact| + B <= floatmax(R)); an exact value beyond the range gives Inf. When B
+# range of R (|exact| + B <= floatmax(R)); an exact value past the overflow threshold gives Inf. When B
 # exceeds the range there is no finite-output guarantee: the result can be an infinity for a
 # finite exact value (see #907).
 #   Guaranteed. The absolute bound B where |exact| + B <= floatmax(R), as above. If the pair

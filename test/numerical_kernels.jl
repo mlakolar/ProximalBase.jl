@@ -40,6 +40,9 @@ function index_sum(v)
 end
 # the allocations of a second call
 alloc(f::F, a::A) where {F, A} = (f(a); @allocated f(a))
+# BigFloats are the same when sign, precision and value agree (NaN with NaN)
+bigsame(a::BigFloat, b::BigFloat) = signbit(a) == signbit(b) && precision(a) == precision(b) &&
+  ((isnan(a) && isnan(b)) || (!isnan(a) && !isnan(b) && a == b))
 
 setprecision(BigFloat, 1200) do
 @testset "numerical kernels $T" for T in (Float64, Float32)
@@ -666,8 +669,6 @@ setprecision(BigFloat, 256) do
 @testset "two-term power-of-two sum, BigFloat exponents beyond Int64" begin
   # MPFR exponents reach 2^62 - 1: the frame exponents of the sum are taken in Int128, as in the generic method
   generic(R, w, t1, t2) = invoke(PB._pow2_weighted, Tuple{Type, Any, Vararg{Tuple{Any, Int}}}, R, w, t1, t2)
-  bigsame(a::BigFloat, b::BigFloat) = signbit(a) == signbit(b) && precision(a) == precision(b) &&
-    ((isnan(a) && isnan(b)) || (!isnan(a) && !isnan(b) && a == b))
   big_e = (2^62 - 3, 2^61, 2^40, 5, 0, -5, -2^40, -2^61, -(2^62 - 3))
   ms = (BigFloat(0.75), BigFloat(-0.75), BigFloat(1.5), BigFloat(3) / 7, BigFloat(0))
   count = 0
@@ -682,6 +683,67 @@ setprecision(BigFloat, 256) do
   @test PB._pow2_sum(BigFloat, (BigFloat(0.5), 2^62 - 3), (BigFloat(-0.5), 2^62 - 3)) == 0
   v = PB._pow2_sum(BigFloat, (BigFloat(0.75), 2^62 - 3), (BigFloat(0.75), -(2^62 - 3)))
   @test v == BigFloat(0.75) * big2^(2^62 - 3)
+end
+
+@testset "two-term power-of-two sum under directed rounding (BigFloat)" begin
+  # Only the IEEE types skip the shift of a term far below the sum (they round to nearest only). A BigFloat does the
+  # sum of the generic method in every rounding mode: under RoundUp, RoundDown and RoundToZero a term below half an ulp
+  # still moves the result. The precisions and gaps below straddle the skip bound 2 precision for the types that have it.
+  generic(R, w, t1, t2) = invoke(PB._pow2_weighted, Tuple{Type, Any, Vararg{Tuple{Any, Int}}}, R, w, t1, t2)
+  ntests = 0
+  for p in (256, 512), mode in (RoundNearest, RoundUp, RoundDown, RoundToZero)
+    setprecision(BigFloat, p) do
+      setrounding(BigFloat, mode) do
+        for gap in (1, 30, 255, 256, 257, 511, 512, 513, 600, 1023, 1024, 1025, 1112, 4000), sgn in (1, -1),
+            (m1, m2) in ((BigFloat(0.75), BigFloat(0.75)), (BigFloat(0.75), BigFloat(0.5)), (BigFloat(1) / 3, BigFloat(2) / 3)),
+            e in (0, 7, -50, 2^40), w in (BigFloat(1), BigFloat(3) / 7)
+          t1, t2 = (m1, e), (sgn * m2, e - gap)
+          for (u, v) in ((t1, t2), (t2, t1), ((-m1, e), t2))
+            a = PB._pow2_weighted(BigFloat, w, u, v)
+            ntests += 1
+            @test bigsame(a, generic(BigFloat, w, u, v))
+          end
+        end
+        # the example of the review: 0.75 + 0.75 2^-600 at 256 bits is above 0.75 under RoundUp, and
+        # 0.75 - 0.75 2^-600 is below it under RoundDown and RoundToZero
+        if p == 256
+          up = PB._pow2_sum(BigFloat, (BigFloat(0.75), 0), (BigFloat(0.75), -600))
+          dn = PB._pow2_sum(BigFloat, (BigFloat(0.75), 0), (BigFloat(-0.75), -600))
+          @test up == (mode === RoundUp ? nextfloat(BigFloat(0.75)) : BigFloat(0.75))
+          @test dn == (mode in (RoundDown, RoundToZero) ? prevfloat(BigFloat(0.75)) : BigFloat(0.75))
+        end
+      end
+    end
+  end
+  @test ntests == 2 * 4 * 14 * 2 * 3 * 4 * 2 * 3
+  # significands stored above the current precision: frexp rounds, and the frexp exponent of the second term can exceed
+  # that of the first (D > E); the sum is still that of the generic method, in every mode
+  v = setprecision(() -> 1 - ldexp(BigFloat(1), -258), BigFloat, 768)
+  @test precision(v) == 768
+  for mode in (RoundNearest, RoundUp, RoundDown, RoundToZero)
+    setprecision(BigFloat, 256) do
+      setrounding(BigFloat, mode) do
+        for (t1, t2) in (((BigFloat(0.75), 0), (v, 0)), ((v, 0), (BigFloat(0.75), 0)), ((v, 3), (-v, 3)), ((v, 0), (ldexp(v, -300), 0)))
+          @test bigsame(PB._pow2_weighted(BigFloat, BigFloat(1), t1, t2), generic(BigFloat, BigFloat(1), t1, t2))
+        end
+      end
+    end
+  end
+  # the public caller of the review: the group screen ‖g‖ - λw with λw 2^-600 of ‖g‖, g = 2^e, e = -2^61: the exact
+  # value is g (1 - 2^-600), which rounds to g to nearest and upward, and to prevfloat(g) downward and toward zero
+  for (mode, down) in ((RoundNearest, false), (RoundUp, false), (RoundDown, true), (RoundToZero, true)), p in (256, 512)
+    setprecision(BigFloat, p) do
+      setrounding(BigFloat, mode) do
+        e = -2^61
+        g = [ldexp(BigFloat(1), e)]
+        f = GroupNormL2(ldexp(BigFloat(1), e - (p == 256 ? 600 : 1112)), [1:1], [BigFloat(1)])
+        r = kkt_violation(f, g, zeros(BigFloat, 1), 1)
+        @test r == (down ? prevfloat(g[1]) : g[1])
+      end
+    end
+  end
+  # the IEEE types have no rounding mode to set (the skip is exact for them): there is no setrounding method
+  @test_throws MethodError setrounding(() -> 1.0, Float64, RoundUp)
 end
 
 @testset "retained exponent across Int wraparound (#767)" begin

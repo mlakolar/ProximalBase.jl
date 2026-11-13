@@ -39,7 +39,7 @@ Callers were taken from the current sources, not the archived pre-#850 tree.
 | Overflow-safe units of a recomputed dot | inline `max(0, bound(maxabs a) + bound(maxabs b) + ⌈log₂ n⌉ + margin - emax)` | `_linear_value_recover` (margin 2), `_leastsquares_recover` (margin 3, plus a Y term) | none | R1: no partial sum of the recomputation overflows |
 | Exponent-ordered sum of parts | `_pow2_weighted` (generic, and a method for two terms), `_pow2_sum` | LinearFunction, LeastSquaresLoss recoveries. The ℓ2 group screen (`_l2_screen_cold`) | none | R1 |
 | Exact-product accumulator | `_ExpSum`, `_expsum_*` | QuadraticFunction recovery. The recomputed `GroupNormL2` value (`_l2_expsum_add`, `_expsum_value`) | none | R1 (#520) |
-| Index-set ℓ2 norm (section 7) | `_IndexedValues`, `_l2_classified_norm`, `_l2_all_zero`, `_l2_shrink!`, `_l2_shrink_cold!`, `_l2_term`, `_l2_fused_term`, `_l2_term_cold`, `_l2_value`, `_l2_value_cold`, `_l2_expsum_add`, `_l2_screen`, `_l2_screen_cold`, `_indexed_sumabs2`, `_recovery_type` | NormL2 and GroupNormL2 (oracles in `norml2.jl`, `groupnorml2.jl`) | `_indexed_sumabs2`, one range test, no extra pass | R1/R3, NR1/NR2, D1-D3, Option C |
+| Index-set ℓ2 norm (section 7) | `_IndexedValues`, `_l2_classified_norm`, `_l2_all_zero`, `_l2_shrink!`, `_l2_shrink_cold!`, `_l2_shrink_values!`, `_l2_term`, `_l2_fused_term`, `_l2_term_cold`, `_l2_value`, `_l2_value_cold`, `_l2_expsum_add`, `_l2_screen`, `_l2_screen_cold`, `_indexed_sumabs2`, `_recovery_type` | NormL2 and GroupNormL2 (oracles in `norml2.jl`, `groupnorml2.jl`) | `_indexed_sumabs2`, one range test, no extra pass | R1/R3, NR1/NR2, D1-D3, Option C |
 | Sum kept at the ordinary result | `_sum_kept` | NormL1 value, GroupNormL2 value | one comparison | #373 |
 | Underflow risk of products | `_underflow_threshold`, `_min_nonzero_exponent`, `_quadratic_products_normal` | QuadraticFunction only | one pass for max\|x\| | R1 (#520) |
 | Ridge prox weights | `_RidgeOrdinary`, `_RidgeScaled`, `_ridge_*` (sqrnorml2.jl) | SqrNormL2 prox and prox_block | precomputed weights, vectorized loop | R3 |
@@ -189,7 +189,8 @@ code before the consolidation, except for BigFloat exponent arithmetic that leav
   decides a zero group on the entries as the loops in the destination type `T` read them.
   The cold paths scan the adapter.
 * `_square_exponent(x, nothing, R)`, the method for `y = 0`: one pass that returns the
-  largest exponent or a class, `_EXPONENT_NAN` at the first NaN, `_EXPONENT_INF` for an
+  largest exponent (that of the entry converted to `R`, as the `_l2_scan` of the code before
+  the consolidation took it) or a class, `_EXPONENT_NAN` at the first NaN, `_EXPONENT_INF` for an
   infinite entry and no NaN, `_EXPONENT_ZERO` for a zero group. The method with a second
   operand and `_residual_exponent` are those of the code before the consolidation: a
   residual that is not finite gives `_EXPONENT_NONFINITE` (`typemax(Int)`) there, not
@@ -198,10 +199,15 @@ code before the consolidation, except for BigFloat exponent arithmetic that leav
   factor.
 * `_pow2_weighted(R, w, t1, t2)`: a method for two terms with the operations of the
   generic method (the larger term first, aligned addition, renormalization, the final
-  product); a term more than `2 precision(R)` binades below the sum is not shifted: it is
-  below half an ulp of the sum, which the rounded sum then equals (Float32 and Float64,
-  and a BigFloat with at most the default precision). The generic method remains the
-  definition, and the tests compare the two bit for bit.
+  product). For the IEEE types only (`R <: Base.IEEEFloat`: Julia rounds them to nearest
+  only, and their `frexp` is exact, so the larger term is first), a term more than
+  `2 precision(R)` binades below the sum is not shifted: it is below half an ulp of the
+  sum, which round-to-nearest then leaves unchanged, and the shift can round to a
+  subnormal number or to zero, the slow case that is avoided. Every other type, BigFloat
+  included, does the generic method's sum in every rounding mode: under RoundUp,
+  RoundDown and RoundToZero a term below half an ulp still moves the result. The generic
+  method remains the definition, and the tests compare the two bit for bit, for BigFloat
+  at two precisions under all four rounding modes.
 * `_scaled_norm(x, y, s, scale)`: the optional scale multiplies the norm (default one).
 * `_threshold_product`, `_sum_kept`, `_indexed_sumabs2`, `_recovery_type`.
 
@@ -217,6 +223,7 @@ code before the consolidation, except for BigFloat exponent arithmetic that leav
 | `_l2_sumsq` | `_indexed_sumabs2`; `_sumabs2(::SparseIterate)` is the same loop |
 | `_l2_cold_type` | `_recovery_type` |
 | `_l1_sum_kept` | `_sum_kept` (also in `_group_value_checked`) |
+| `_l2_shrink_cold!` (one function) | `_l2_shrink_cold!` for the exits that the parameters decide, and `_l2_shrink_values!` for the values (classification, scaled norm, shrinkage), so that those exits do not carry the frame of the value part |
 | γλw in `_l1_prox_threshold` and `_l2_shrink!` | `_threshold_product` |
 | `_l2_shrink!`, `_l2_zero!`, `_l2_copy!`, `_l2_fill!`, `_l2_scale!`, `_l2_term`, `_l2_fused_term`, `_l2_term_outofline`, `_l2_ordinary`, `_l2_value`, `_L2_ZERO`, `_L2_RECOMPUTE` | moved from norml2.jl, ordinary path unchanged |
 | arithmetic of `_group_screen`, per-group term of `_group_value_recomputed` | `_l2_screen`, `_l2_expsum_add` (groupnorml2.jl keeps adapters and the loop over groups) |

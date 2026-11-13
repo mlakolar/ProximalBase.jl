@@ -252,7 +252,8 @@ end
 # Two terms, the case of the dot with a shift d (LinearFunction), of the two sums of LeastSquaresLoss and of the
 # group screen: the operations of the method above for N = 2 without the loops over the terms (the larger term
 # first, the first one if their exponents are equal; the aligned addition and the renormalization; a zero term
-# skipped; the final product). The method above remains the definition; the tests compare the two.
+# skipped; the final product), and, for the IEEE types only, the skip of a shift that cannot change the sum (below).
+# The method above remains the definition; the tests compare the two, also under directed rounding.
 function _pow2_weighted(::Type{R}, w, t1::Tuple{Any, Int}, t2::Tuple{Any, Int}) where {R}
   m1, m2 = convert(R, t1[1]), convert(R, t2[1])
   (isfinite(m1) & isfinite(m2)) || return convert(R, w) * ((zero(R) + m1) + m2)
@@ -273,11 +274,15 @@ function _pow2_weighted(::Type{R}, w, t1::Tuple{Any, Int}, t2::Tuple{Any, Int}) 
   E = _exponent_sum(R, f1, e1)
   mj, f2 = _frexp(m2)
   D = _exponent_sum(R, f2, e2)
-  # D <= E, as the larger term is first. A term more than 2 precision(R) binades below the sum is below half an ulp
-  # of s, which is in [1/2, 1) in magnitude, so for Float32 and Float64 s + ldexp(mj, D - E) rounds to s: the shift, an
-  # ldexp whose result is subnormal or zero (slow), is skipped. s + zero(R) is that sum for the types whose
-  # significands have at most precision(R) bits (a BigFloat of a higher precision than the default is rounded to it).
-  s = D - E < -2 * precision(R) ? s + zero(R) : s + ldexp(mj, D - E)
+  # For the IEEE types frexp is exact, so D <= E: the larger term is first. Such a term more than 2 precision(R) binades
+  # below the sum is below half an ulp of s, which is in [1/2, 1) in magnitude, and the IEEE types round to nearest only,
+  # so s + ldexp(mj, D - E) is s. The shift, which can round to a subnormal or to zero (slow), is skipped. Every other
+  # type does the sum of the generic method: a BigFloat is rounded in the mode that is set, which a term below half an ulp
+  # can still change, and the frexp of one above the current precision rounds, so D > E can occur there.
+  if !(R <: Base.IEEEFloat && D - E < -2 * precision(R))
+    s = D <= E ? s + ldexp(mj, D - E) : ldexp(s, E - D) + mj
+    E = max(E, D)
+  end
   iszero(s) && return convert(R, w) * zero(R)
   s, f = _frexp(s)
   _scaled_product(convert(R, w), s, _exponent_sum(R, E, f))
@@ -619,10 +624,13 @@ function _square_exponent(x, y, ::Type{R}) where {R}
   end
   k
 end
-# y = 0, with R at least as wide as the entries: the residual a - 0 of a finite a is a in R, so the exponent
-# is that of a and no difference is formed. The first NaN decides (the NaN code is the largest, so the
-# maximum would give it anyway), an infinite entry gives the Inf code unless a NaN follows, and zero entries
-# are skipped. The largest exponent and the zero code are those of the method above for finite entries.
+# y = 0, with R at least as wide as the entries: the exponent is that of the entry itself, converted to R, and no
+# difference is formed. The first NaN decides (the NaN code is the largest, so the maximum would give it anyway),
+# an infinite entry gives the Inf code unless a NaN follows, and zero entries are skipped. The largest exponent and
+# the zero code are those of the method above for entries whose precision is at most that of the arithmetic of R
+# (the IEEE types, and a BigFloat at its current precision). A BigFloat entry above the current precision gives the
+# exponent of the entry (as the _l2_scan of the code before the consolidation did), which can be one more than that of
+# a - 0 rounded to the current precision.
 @inline function _square_exponent(x, ::Nothing, ::Type{R}) where {R}
   k = _EXPONENT_ZERO
   inf = false
@@ -841,18 +849,22 @@ end
 
 # The parameters decide first, in this order: an unpenalized group (w = 0), a group fixed at zero (an
 # infinite weight, or an infinite level at every nonnegative step, #665), the identity (a zero level or
-# step), a group fixed by an infinite step. Then the values, at positive finite γ, λ and w: a NaN entry
-# makes every output NaN; an infinite entry (and no NaN) makes the norm infinite and the threshold finite,
-# so 1 - c/‖x‖ = 1 and the group is copied, also when c overflows in floating point; a zero group gives +0.
-# Otherwise r = c/‖x‖ = (γλw 2^-k) / ns from the scaled norm ns 2^k, with c formed by the bounded-product
-# kernel, so that neither c nor the norm needs to be in range: r ≥ 1 gives zero, and t = 1 - r in (0, 1]
-# scales the group without overflow. A product γλw 2^-k that overflows means r > 1, and one that
-# underflows means r < floatmin, where t rounds to 1.
+# step), a group fixed by an infinite step. Otherwise the values decide (below). The values are in a
+# function of their own, so that the exits decided by the parameters do not carry its frame.
 @noinline function _l2_shrink_cold!(y, x, G, λ, w, γ::Real)
   iszero(w) && return _l2_copy!(y, x, G)
   (isinf(w) || isinf(λ)) && return _l2_zero!(y, G)
   (iszero(λ) || iszero(γ)) && return _l2_copy!(y, x, G)
   isinf(γ) && return _l2_zero!(y, G)
+  _l2_shrink_values!(y, x, G, λ, w, γ)
+end
+# The values, at positive finite γ, λ and w: a NaN entry makes every output NaN; an infinite entry (and
+# no NaN) makes the norm infinite and the threshold finite, so 1 - c/‖x‖ = 1 and the group is copied, also
+# when c overflows in floating point; a zero group gives +0. Otherwise r = c/‖x‖ = (γλw 2^-k) / ns from
+# the scaled norm ns 2^k, with c formed by the bounded-product kernel, so that neither c nor the norm needs
+# to be in range: r ≥ 1 gives zero, and t = 1 - r in (0, 1] scales the group without overflow. A product
+# γλw 2^-k that overflows means r > 1, and one that underflows means r < floatmin, where t rounds to 1.
+@noinline function _l2_shrink_values!(y, x, G, λ, w, γ::Real)
   T = float(eltype(y))
   R = _recovery_type(_working_type(T, γ, λ, w), float(eltype(x)))
   k, ns = _l2_classified_norm(x, G, R)

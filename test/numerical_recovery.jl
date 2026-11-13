@@ -1334,7 +1334,7 @@ function test_linear_function(::Type{T}) where {T<:AbstractFloat}
       @test value_and_gradient!(g, f, x) === f(x) && g == c
       @test prox!(zeros(T, 3), f, x, T(2)) == x .- T(2) .* c
     end
-    # a view takes the copy-and-scale dot; a sparse iterate and a block iterate their stored entries
+    # a view takes the generic recovery; a sparse iterate and a block iterate their stored entries
     f = LinearFunction(c, T(1))
     @test f(view(x, :)) === f(x)
     xsp = SparseIterate(T, 3); xsp[1] = x[1]; xsp[2] = x[2]; xsp[3] = x[3]
@@ -1372,13 +1372,10 @@ function test_linear_function(::Type{T}) where {T<:AbstractFloat}
       @test value_and_gradient!(SymmetricSparseIterate(T, p), fo, xo) === fo(xo)
       @test Matrix(go) == cm
     end
-    # the scaled dots of the stored entries, for a sparse iterate, an owner (an off-diagonal entry reads c at both positions)
-    # and a block iterate (the scaled copy): Σ cᵢ xᵢ 2^-k
+    # the scaled dot of the stored entries of a sparse iterate: Σ cᵢ xᵢ 2^-k
     sf = PB._power_factors(T, -(h + 4))
-    @test within(PB._linear_scaled_dot(cm, xo, sf), sum(big.(cm) .* big.(xm)) * big(2.0)^-(h + 4), 2)
     xsp3 = SparseIterate(T, 3); xsp3[1] = a; xsp3[3] = -a
     @test within(PB._scaled_dot(T[1, 2, 3], xsp3, sf), (big(a) - 3 * big(a)) * big(2.0)^-(h + 4), 1)
-    @test PB._linear_scaled_dot(T[1, 2, 3], BlockIterate(T[a, 0, -a], [[1, 2], [3]]), sf) == PB._scaled_dot(T[1, 2, 3], T[a, 0, -a], sf)
   end
 end
 

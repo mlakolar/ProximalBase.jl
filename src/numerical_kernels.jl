@@ -128,6 +128,15 @@ end
   ldexp((ma * mb) * mc, _exponent_sum(typeof(a), ea, eb, ec, k))
 end
 
+# a b c 2^k for finite positive a and b and a scaled norm c (_l2_classified_norm), which is finite with
+# 1 <= c < 2 sqrt(n): the significands of a and b are multiplied by c itself, so that c needs no frexp, and the
+# product is in range. The result is that of _scaled_product, whose significand of c is c 2^-ec, scaled back.
+@inline function _norm_product(a::R, b::R, c::R, k::Integer) where {R<:AbstractFloat}
+  ma, ea = _frexp(a)
+  mb, eb = _frexp(b)
+  ldexp((ma * mb) * c, _exponent_sum(R, ea, eb, _product_power(R, k)))
+end
+
 # _scaled_product with the exponents summed in Int, for a power k that is the retained exponent of a
 # _ProjectionScale (issue #767). That exponent is an Int that may already have wrapped; the Int sum is
 # taken modulo 2^64 too, so it returns the right exponent whenever the final one fits in Int. Widening
@@ -161,7 +170,19 @@ end
 
 # Powers of two keep the units of a comparison without rounding the scale.
 # Split a power that is outside the range of a single floating-point factor.
+# 2^k for a k in the normal range of a Float32 or Float64, from its bit pattern
+@inline _normal_power(::Type{Float64}, k::Int) = reinterpret(Float64, ((k + 1023) % UInt64) << 52)
+@inline _normal_power(::Type{Float32}, k::Int) = reinterpret(Float32, ((k + 127) % UInt32) << 23)
+@inline function _power_factors(::Type{T}, k::Integer) where {T<:Union{Float32, Float64}}
+  k = Int(k)
+  # k in the normal range: the single factor is exact, and the second one is one
+  -exponent(floatmax(T)) + 1 <= k <= exponent(floatmax(T)) && return (_normal_power(T, k), one(T))
+  _power_factors_split(T, k)
+end
 @inline function _power_factors(::Type{T}, k::Integer) where {T<:AbstractFloat}
+  _power_factors_split(T, k)
+end
+@inline function _power_factors_split(::Type{T}, k::Integer) where {T<:AbstractFloat}
   k = _product_power(T, k)
   k1 = clamp(k, exponent(nextfloat(zero(T))), exponent(floatmax(T)))
   (ldexp(one(T), k1), ldexp(one(T), k - k1))
@@ -652,6 +673,17 @@ end
   inf ? _EXPONENT_INF : k
 end
 
+# For Float32 and Float64 entries the same result from the largest magnitude, taken on the bit patterns where it
+# vectorizes (_maximum_abs): a NaN has the largest pattern, then an Inf, and the exponent of the largest finite
+# entry is the largest exponent. No entry is classified, converted or its exponent taken, but one.
+@inline function _square_exponent(x::AbstractArray{<:Union{Float32, Float64}}, ::Nothing, ::Type{R}) where {R}
+  m = _maximum_abs(x)
+  isnan(m) && return _EXPONENT_NAN
+  isinf(m) && return _EXPONENT_INF
+  iszero(m) && return _EXPONENT_ZERO
+  Int(exponent(convert(R, m)))
+end
+
 function _square_scaled_sum(x, y, k, ::Type{R}) where {R}
   s, h = _power_factors(R, -k), _power_factors(R, 1-k)
   v = e = zero(R)
@@ -950,7 +982,7 @@ end
   k == _EXPONENT_INF && return T(Inf)
   k == _EXPONENT_ZERO && return zero(T)
   unbounded && return T(Inf)
-  convert(T, _scaled_product(convert(R, λ), convert(R, w), ns, k))
+  convert(T, _norm_product(convert(R, λ), convert(R, w), ns, k))
 end
 
 # λ‖x‖₂ in O(stored entries): _sumabs2 and the squared-residual kernel visit the stored values of the

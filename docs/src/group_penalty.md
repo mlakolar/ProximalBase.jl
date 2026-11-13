@@ -160,8 +160,11 @@ fixed, the projection onto the closure of its domain, as for `NormL1(Inf)`.
 For finite inputs, norms whose sums of squares overflow or underflow and
 thresholds outside the floating-point range are recomputed in power-of-two
 units, so that a representable proximal point is returned accurately. Values
-recover terms that round below `floatmin` as `NormL1` values do
-([numerical contract](numerics.md)).
+recover terms that round below `floatmin` as `NormL1` values do. Values at or above
+`floatmax/2` are recomputed in power-of-two units; within a few eps of the overflow
+threshold the result may be `floatmax` or `Inf`
+([#904](https://github.com/mlakolar/ProximalBase.jl/issues/904); see the
+[numerical contract](numerics.md)).
 
 `GroupNormL2` does not apply to a `SymmetricSparseIterate` (its proximal operators
 throw an `ArgumentError` before anything is written), and it has no

@@ -86,11 +86,12 @@ function makeprobes(PB, data)
             xb = PB.BlockIterate(copy(x), d.groups)
             x0 = copy(xb)
             g = d.g
+            Uu, Ou = [similar(u) for u in U], [similar(u) for u in U]   # own scratch: U stays as the other probes use it
             add("block_update_sweep", () -> begin
                 copyto!(xb, x0)
                 for k in 1:K
                     G = PB.blockindices(xb, k)
-                    u, out = U[k], outs[k]
+                    u, out = Uu[k], Ou[k]
                     @inbounds for a in eachindex(u)
                         i = G[a]
                         u[a] = xb[i] - T(0.5) * g[i]

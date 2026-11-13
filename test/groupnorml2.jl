@@ -450,9 +450,15 @@ end
 end
 
 @testset "values at the overflow threshold and subnormal values ($T)" for T in (Float32, Float64)
-  # the class of every value is that of the correctly rounded BigFloat value (finite floatmax, or Inf)
-  same_class(v, ref) = isinf(v) == isinf(T(ref)) && (isinf(v) || abs(big(v) - ref) <= 8 * big(eps(T)) * abs(ref) + 2 * big(nextfloat(zero(T))))
-  # reproducers of standalone values whose ordinary or recovered sum overflowed although the value is finite
+  # Outside a band of 32 eps around the threshold Ω = floatmax + ulp/2, where rounding to T overflows, a
+  # value has the class of its correctly rounded BigFloat value and is within 8 eps of it (two subnormal
+  # spacings in the subnormal range). Within the band it may be Inf or such a finite value (#904).
+  Ω = big(floatmax(T)) * (1 + big(eps(T)) / 4)
+  same_class(v, ref) = abs(ref / Ω - 1) <= 32 * big(eps(T)) ?
+    (isinf(v) || abs(big(v) - ref) <= 8 * big(eps(T)) * abs(ref)) :
+    (isinf(v) == isinf(T(ref)) && (isinf(v) || abs(big(v) - ref) <= 8 * big(eps(T)) * abs(ref) + 2 * big(nextfloat(zero(T)))))
+  # reproducers of standalone values whose ordinary or recovered sum overflowed although the value rounds
+  # to floatmax; they lie within the band
   fixtures = T === Float32 ?
     [(Float32[-2.5213273, 0.27024558, 0.64377713, 0.8137605, -0.49109128, -1.100171, 1.5615983, 0.70515937], [1:4, 5:8], Float32[0.8435895, 0.73866713], 8.818969f37),
      (Float32[1.2626572, 0.79796016, -1.6117067], [1:3], Float32[1.2702762], 1.2190703f38)] :
@@ -461,7 +467,7 @@ end
   for (x, groups, w, λ) in fixtures
     f = GroupNormL2(λ, groups, w)
     ref = refvalue(x, λ, groups, w)
-    @test ref < big(floatmax(T)) && isfinite(f(x)) && same_class(f(x), ref)
+    @test ref < big(floatmax(T)) && same_class(f(x), ref)
   end
   # sweeps across floatmax: direct values on arrays, sparse and block iterates, and fused values
   rng = Xoshiro(903)
@@ -489,6 +495,14 @@ end
       xe[1] = T(Inf)
       @test f(xe) == Inf
     end
+  end
+  # near floatmax, a zero-weight group contributes zero also at a NaN or ±Inf entry, and an infinite
+  # weight contributes zero at an exactly zero group (analytical expectations), direct and fused
+  for (w, x) in ((T[1, 0], T[1, NaN]), (T[1, 0], T[1, -Inf]), (T[1, Inf], T[1, 0]), (T[1, Inf], T[1, -0.0]))
+    f = GroupNormL2(floatmax(T), [1:1, 2:2], w)
+    @test f(x) == floatmax(T)
+    y = similar(x)
+    @test value_and_prox!(y, f, x, zero(T)) == floatmax(T) && isequal(y, w[2] == 0 ? x : T[1, 0])
   end
   # subnormal values and terms, direct and fused, against BigFloat (two subnormal spacings)
   emin = exponent(floatmin(T))

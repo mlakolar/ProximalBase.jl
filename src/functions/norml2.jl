@@ -136,7 +136,7 @@ end
   (iszero(λ) || iszero(γ)) && return _l2_copy!(y, x, G)
   isinf(γ) && return _l2_zero!(y, G)
   T = float(eltype(y))
-  R = promote_type(_working_type(T, γ, λ, w), float(eltype(x)))
+  R = _l2_cold_type(_working_type(T, γ, λ, w), float(eltype(x)))
   nan, inf, e = _l2_scan(x, G, R)
   nan && return _l2_fill!(y, G, convert(eltype(y), NaN))
   inf && return _l2_copy!(y, x, G)
@@ -156,50 +156,21 @@ end
 #  Values near the overflow threshold
 ####################################
 
-# An ordinary value v carries a relative error of a few eps, which decides its class only away from the
-# overflow threshold: below floatmax(T)/2 it is certainly finite, and the ordinary paths return it only
-# there (a NaN fails the test too). Larger values are formed in power-of-two units as m 2^E, with m from
-# compensated sums and a few rounded products (relative error below 8 eps(T)), and classified here: a
-# value certainly below the threshold floatmax + ulp/2 at which rounding to T overflows is returned, one
-# certainly above it is Inf, and one within 9 eps of it is recomputed exactly by `exact()` (_l2_exact,
-# over the same entries), so that the class of a value is that of its correctly rounded result.
+# The ordinary paths return a value only below floatmax(T)/2 (a NaN fails the test too). A larger value
+# is formed again in power-of-two units, as m 2^E from compensated sums accumulated in at least Float64
+# and a few rounded products, and rounded once to T. Within a few eps of the overflow threshold
+# floatmax + ulp/2 this does not decide on which side the exact value lies: the result may then be
+# floatmax or Inf (#904).
 @inline _l2_ordinary(v, ::Type{T}) where {T} = v < floatmax(T) / 2
-
-@noinline function _l2_overflow_class(::Type{T}, m, E::Integer, exact::F) where {T, F}
-  fm, fe = _frexp(m)
-  fe += E
-  top = exponent(floatmax(T)) + 1                 # floatmax(T) = (1 - eps/2) 2^top
-  (fe < top || (fe == top && fm <= 1 - 9eps(T))) && return convert(T, ldexp(fm, fe))
-  (fe > top + 1 || (fe == top + 1 && fm >= (1 + 9eps(T)) / 2)) && return T(Inf)
-  exact()
-end
-
-# The exact recomputation: value() evaluates a value in BigFloat with more than four times the precision
-# of T, from the norms below, and the result is rounded once to T.
-_l2_exact_precision(::Type{T}) where {T} = 4precision(T) + 64
-@noinline _l2_exact(::Type{T}, value::F) where {T, F} = setprecision(() -> convert(T, value()), BigFloat, _l2_exact_precision(T))
-# ‖x[G]‖₂, and the norm of the stored entries of x each with its multiplicity, in BigFloat
-function _l2_big_norm(x, G)
-  s = zero(BigFloat)
-  for i in G
-    v = BigFloat(float(x[i]))
-    s += v * v
-  end
-  sqrt(s)
-end
-function _l2_big_norm_stored(x)
-  s = zero(BigFloat)
-  for (i, a) in enumerate(_stored_values(x))
-    v = BigFloat(float(a))
-    s += _square_multiplicity(x, i) * (v * v)
-  end
-  sqrt(s)
-end
+# m 2^E rounded to T: m is finite and positive, in a type at least as wide as T, and 2^E is applied once
+@inline _l2_parts_value(::Type{T}, m, E::Integer) where {T} = convert(T, ldexp(m, E))
+# the type of the cold recomputations: at least Float64, so that a compensated sum of Float32 squares
+# does not stall as a Float32 one does over more than 2^24 terms
+_l2_cold_type(types...) = promote_type(Float64, types...)
 
 # The term λw‖x[G]‖₂ of a value in T, given the norm s of x[G] from the shrinkage kernel, or one of the
 # codes above (s = _L2_RECOMPUTE reads x). The ordinary path needs a normal λw, a value below
-# floatmax(T)/2 and, when it reads x, a normal sum of squares; a larger value given the norm s is
-# recomputed from the stored entries x[G].
+# floatmax(T)/2 and, when it reads x, a normal sum of squares; a larger value is recomputed from x[G].
 @inline function _l2_term(λ, w, x, G, s, ::Type{T}) where {T}
   iszero(w) && return zero(T)
   s == _L2_ZERO && return zero(T)
@@ -222,13 +193,27 @@ end
   _l2_term_cold(λ, w, x, G, T)
 end
 
+# The term of the fused value_and_prox!, after the shrinkage kernel: the stored group's norm s ≥ 0 and the
+# zero group inline, as _l2_term computes them; the codes of the cold shrinkage and out-of-range values
+# call _l2_term out of line, which keeps its sums out of the loop over the groups.
+@inline function _l2_fused_term(λ, w, x, G, s, ::Type{T}) where {T}
+  s == _L2_ZERO && return zero(T)
+  if s >= 0
+    R = _working_type(T, λ, w)
+    λw = convert(R, λ) * convert(R, w)
+    v = convert(T, λw * convert(R, s))
+    ((floatmin(R) <= λw <= floatmax(R)) & _l2_ordinary(v, T)) && return v
+  end
+  _l2_term_outofline(λ, w, x, G, s, T)
+end
+@noinline _l2_term_outofline(λ, w, x, G, s, ::Type{T}) where {T} = _l2_term(λ, w, x, G, s, T)
+
 # Exceptional terms, in this order: a zero level with a finite weight gives 0 whatever x holds; a NaN
 # entry gives NaN and an infinite one Inf; the zero group gives 0; an infinite weight or level gives Inf.
-# A positive finite level and weight give λw ns 2^e from the scaled norm, classified near the overflow
-# threshold (_l2_overflow_class).
+# A positive finite level and weight give λw ns 2^e from the scaled norm (_l2_parts_value).
 @noinline function _l2_term_cold(λ, w, x, G, ::Type{T}) where {T}
   iszero(λ) && !isinf(w) && return zero(T)
-  R = promote_type(_working_type(T, λ, w), float(eltype(x)))
+  R = _l2_cold_type(T, float(typeof(λ)), float(typeof(w)), float(eltype(x)))
   nan, inf, e = _l2_scan(x, G, R)
   nan && return T(NaN)
   inf && return T(Inf)
@@ -236,8 +221,7 @@ end
   (isinf(w) || isinf(λ)) && return T(Inf)
   mλ, eλ = _frexp(convert(R, λ))
   mw, ew = _frexp(convert(R, w))
-  m = (mλ * mw) * _l2_scaled_norm(x, G, R, e)
-  _l2_overflow_class(T, m, eλ + ew + e, () -> _l2_exact(T, () -> BigFloat(λ) * BigFloat(w) * _l2_big_norm(x, G)))
+  _l2_parts_value(T, (mλ * mw) * _l2_scaled_norm(x, G, R, e), eλ + ew + e)
 end
 
 @noinline _symmetric_prox_error(f) = throw(ArgumentError(
@@ -281,9 +265,9 @@ without `NaN` leaves the argument unchanged, also when the finite threshold `γ�
 overflows in floating point, and the zero argument gives `+0`. For finite inputs,
 a norm whose sum of squares overflows or underflows and a threshold out of range are
 recomputed in power-of-two units. A value at or above `floatmax/2` is recomputed in
-power-of-two units, and within 9 eps of the overflow threshold in BigFloat, so that it
-is finite exactly when its correctly rounded value is. `value_and_prox!` returns the
-value at the stored output.
+power-of-two units, accumulated in at least Float64; within a few eps of the overflow
+threshold the result may be `floatmax` or `Inf`, whichever the exact value rounds to
+(#904). `value_and_prox!` returns the value at the stored output.
 """
 struct NormL2{T<:Real} <: AbstractFunction
   λ::T
@@ -313,19 +297,18 @@ function _l2_value(λ, x)
   _l2_value_cold(λ, x, s, T)
 end
 
-# The sum of squares recomputed in units of the largest stored entry, m 2^(2k), and λ√m 2^k classified
-# near the overflow threshold (_l2_overflow_class, whose exact recomputation also reads the stored
-# entries only). A NaN or ±Inf entry keeps the ordinary IEEE result (NaN, or Inf), and an infinite level
-# is Inf away from zero.
+# The sum of squares recomputed in units of the largest stored entry, m 2^(2k), in at least Float64, and
+# λ√m 2^k (_l2_parts_value). A NaN or ±Inf entry keeps the ordinary IEEE result (NaN, or Inf), and an
+# infinite level is Inf away from zero.
 @noinline function _l2_value_cold(λ, x, s, ::Type{T}) where {T}
-  R = promote_type(T, float(typeof(λ)))
+  R = _l2_cold_type(T, float(typeof(λ)))
   q = _residual_squares(x, nothing, R)
   q === nothing && return isinf(λ) ? (isnan(s) ? T(NaN) : T(Inf)) : convert(T, convert(R, λ) * sqrt(convert(R, s)))
   m, k = q
   iszero(m) && return zero(T)
   isinf(λ) && return T(Inf)
   mλ, eλ = _frexp(convert(R, λ))
-  _l2_overflow_class(T, mλ * sqrt(m), eλ + k, () -> _l2_exact(T, () -> BigFloat(λ) * _l2_big_norm_stored(x)))
+  _l2_parts_value(T, mλ * sqrt(m), eλ + k)
 end
 
 function _check_l2_arrays(f, y::AbstractArray, x::AbstractArray, γ::Real)
@@ -344,7 +327,7 @@ function value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real
   G = Base.OneTo(length(x))
   s = _l2_shrink!(y, x, G, f.λ, true, γ)
   # a recomputed value reads y as the value does: its stored entries only for a sparse iterate
-  s == _L2_RECOMPUTE ? _l2_value(f.λ, y) : _l2_term(f.λ, true, y, G, s, _valtype(y))
+  s == _L2_RECOMPUTE ? _l2_value(f.λ, y) : _l2_fused_term(f.λ, true, y, G, s, _valtype(y))
 end
 # routes of wrappers such as Scaled, which preflight with _checkwrite first
 _value_and_prox_unchecked!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = value_and_prox!(y, f, x, γ)

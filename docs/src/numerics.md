@@ -88,9 +88,11 @@ On a `SparseIterate` and a `SymmetricSparseIterate` both the ordinary sum and th
 recomputation visit the stored entries only, each off-diagonal symmetric coordinate
 twice ([#808](https://github.com/mlakolar/ProximalBase.jl/issues/808)).
 Both functions, and their fused values, recompute a value at or above `floatmax(T)/2`
-in power-of-two units and classify it: within 9 eps of the overflow threshold it is
-recomputed in BigFloat over the same entries, so that it is finite exactly when its
-correctly rounded value is.
+in power-of-two units, with sums accumulated in at least `Float64`. Within a few eps of
+the overflow threshold `floatmax(T) + ulp/2` that recomputation does not decide on
+which side the exact value lies, so a value that rounds to `floatmax(T)` may be
+returned as `Inf`, or the reverse: the same limit as the other recoveries above
+([#904](https://github.com/mlakolar/ProximalBase.jl/issues/904)).
 `GroupNormL2` values apply the same check to their group terms `λ0*w[k]*‖x[G_k]‖₂`,
 and recompute a sum below `K*floatmin(T)` for `K` groups from the terms' exponents.
 Its proximal operators recompute, for finite inputs, a group norm whose sum of

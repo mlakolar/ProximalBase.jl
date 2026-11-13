@@ -28,6 +28,12 @@ function close_value(v, ref; k = 8)
   abs(ref) > big(floatmax(T)) * (1 + big(eps(T))) && return v == copysign(T(Inf), ref)
   abs(big(v) - ref) <= k * big(eps(T)) * abs(ref) + 2 * big(nextfloat(zero(T)))
 end
+# the constant vector of Float32 ones, without storage
+struct OnesVector <: AbstractVector{Float32}
+  n::Int
+end
+Base.size(o::OnesVector) = (o.n,)
+Base.getindex(::OnesVector, i::Int) = 1f0
 # equal, or finite and within 4 eps: exceptional and zero values must agree exactly
 same_value(a, b) = isequal(a, b) || (isfinite(a) && isfinite(b) && !iszero(a) && abs(a - b) <= 4eps(typeof(a)) * max(abs(a), abs(b)))
 # the matrix a symmetric iterate represents, for the references
@@ -194,10 +200,16 @@ end
 end
 
 @testset "values at the overflow threshold ($T)" for T in (Float32, Float64)
-  # λ‖x‖ swept across floatmax(T): the class of every value is that of the correctly rounded
-  # reference (finite floatmax, or Inf), also on the fused paths and on the stored entries of iterates
+  # λ‖x‖ swept across floatmax(T), on arrays, on the stored entries of iterates and on the fused paths,
+  # against the contract below
   M = floatmax(T)
-  same_class(v, ref) = isinf(v) == isinf(T(ref)) && (isinf(v) || abs(big(v) - ref) <= 8 * big(eps(T)) * ref + 2 * big(nextfloat(zero(T))))
+  # Outside a band of 32 eps around the threshold Ω = floatmax + ulp/2, where rounding to T overflows, a
+  # value has the class of its correctly rounded BigFloat value and is within 8 eps of it (two subnormal
+  # spacings in the subnormal range). Within the band it may be Inf or such a finite value (#904).
+  Ω = big(floatmax(T)) * (1 + big(eps(T)) / 4)
+  same_class(v, ref) = abs(ref / Ω - 1) <= 32 * big(eps(T)) ?
+    (isinf(v) || abs(big(v) - ref) <= 8 * big(eps(T)) * abs(ref)) :
+    (isinf(v) == isinf(T(ref)) && (isinf(v) || abs(big(v) - ref) <= 8 * big(eps(T)) * abs(ref) + 2 * big(nextfloat(zero(T)))))
   for d in ([0.9, 1.8], [-0.23658908984510604, 0.15161309761297329, 1.8488719233840984, 1.09267226965541], [1, 2, 3])
     x = T.(d)
     nx = bignorm(x)
@@ -243,6 +255,16 @@ end
   S[2, 1] = T(Inf)
   @test NormL2(λb)(S) == Inf
   @test isnan(NormL2(λb)(T[3, NaN])) && NormL2(λb)(T[3, -Inf]) == Inf
+  # a recomputed sum of 2^25 + 1024 Float32 squares: accumulated in Float64, it neither stalls at 2^25
+  # (128 eps low) nor misses the class outside the band (allocation-free constant vector)
+  if T === Float32
+    N = 2^25 + 1024
+    ones32 = OnesVector(N)
+    for k in (-256, 64)
+      λ = T(setprecision(() -> big(M) / sqrt(big(N)) * (1 + k * big(eps(T))), BigFloat, PREC))
+      @test same_class(NormL2(λ)(ones32), setprecision(() -> big(λ) * sqrt(big(N)), BigFloat, PREC))
+    end
+  end
   # reproducers from review: fused Inf where the stored value is finite, and recovered values
   y = similar(T[1, 2, 3])
   λ32 = T === Float32 ? 1.0104921f38 : T(8.932809004970744e307)

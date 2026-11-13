@@ -39,7 +39,7 @@ Callers were taken from the current sources, not the archived pre-#850 tree.
 | Overflow-safe units of a recomputed dot | inline `max(0, bound(maxabs a) + bound(maxabs b) + ⌈log₂ n⌉ + margin - emax)` | `_linear_value_recover` (margin 2), `_leastsquares_recover` (margin 3, plus a Y term) | none | R1: no partial sum of the recomputation overflows |
 | Exponent-ordered sum of parts | `_pow2_weighted` (generic, and a method for two terms), `_pow2_sum` | LinearFunction, LeastSquaresLoss recoveries. The ℓ2 group screen (`_l2_screen_cold`) | none | R1 |
 | Exact-product accumulator | `_ExpSum`, `_expsum_*` | QuadraticFunction recovery. The recomputed `GroupNormL2` value (`_l2_expsum_add`, `_expsum_value`) | none | R1 (#520) |
-| Index-set ℓ2 norm (section 7) | `_IndexedValues`, `_l2_classified_norm`, `_l2_all_zero`, `_l2_shrink!`, `_l2_shrink_cold!`, `_l2_shrink_values!`, `_l2_term`, `_l2_fused_term`, `_l2_term_cold`, `_l2_value`, `_l2_value_cold`, `_l2_expsum_add`, `_l2_screen`, `_l2_screen_cold`, `_indexed_sumabs2`, `_recovery_type` | NormL2 and GroupNormL2 (oracles in `norml2.jl`, `groupnorml2.jl`) | `_indexed_sumabs2`, one range test, no extra pass | R1/R3, NR1/NR2, D1-D3, Option C |
+| Index-set ℓ2 norm (section 7) | `_IndexedValues`, `_l2_classified_norm`, `_l2_all_zero`, `_l2_shrink!`, `_l2_shrink_fixed!`, `_l2_shrink_values!`, `_l2_term`, `_l2_fused_term`, `_l2_term_cold`, `_l2_value`, `_l2_value_cold`, `_l2_expsum_add`, `_l2_screen`, `_l2_screen_cold`, `_indexed_sumabs2`, `_recovery_type` | NormL2 and GroupNormL2 (oracles in `norml2.jl`, `groupnorml2.jl`) | `_indexed_sumabs2`, one range test, no extra pass | R1/R3, NR1/NR2, D1-D3, Option C |
 | Sum kept at the ordinary result | `_sum_kept` | NormL1 value, GroupNormL2 value | one comparison | #373 |
 | Underflow risk of products | `_underflow_threshold`, `_min_nonzero_exponent`, `_quadratic_products_normal` | QuadraticFunction only | one pass for max\|x\| | R1 (#520) |
 | Ridge prox weights | `_RidgeOrdinary`, `_RidgeScaled`, `_ridge_*` (sqrnorml2.jl) | SqrNormL2 prox and prox_block | precomputed weights, vectorized loop | R3 |
@@ -225,13 +225,13 @@ D-MPFR, results under a directed rounding mode at MPFR's exponent limits.
 |---|---|
 | `_l2_scan`, `_l2_scaled_norm` (norml2.jl) | removed: `_l2_classified_norm` = `_square_exponent(…, nothing, R)` on `_IndexedValues`, then `_square_scaled_sum(…, nothing, k, R)` |
 | `_l2_parts_value` | removed: `_scaled_product` (term, value) and `_expsum_value` (group value) |
-| `_l2_value_cold` | `_scaled_norm(x, nothing, s, λ)`; the infinite level is decided by the class |
-| difference in `_group_screen_cold` | `_pow2_sum(R, (ns, k), (-mλmw, eλ+ew))` |
+| `_l2_value_cold` | the classified exponent and the scaled sum directly (no `_scaled_norm`, `_residual_squares` frames); the infinite level is decided by the class |
+| difference in `_group_screen_cold` | the difference of the two bounded terms in the frame of the larger exponent (`_l2_screen_cold`; not `_pow2_sum`, whose renormalization the bounded terms do not need) |
 | `_l2_allzero(x, G, T)` | `_l2_all_zero(x, G, T)` = `_all_zero(_IndexedValues(x, G, T))`: the entries rounded to `T`, as before |
 | `_l2_sumsq` | `_indexed_sumabs2`; `_sumabs2(::SparseIterate)` is the same loop |
 | `_l2_cold_type` | `_recovery_type` |
 | `_l1_sum_kept` | `_sum_kept` (also in `_group_value_checked`) |
-| `_l2_shrink_cold!` (one function) | `_l2_shrink_cold!` for the exits that the parameters decide, and `_l2_shrink_values!` for the values (classification, scaled norm, shrinkage), so that those exits do not carry the frame of the value part |
+| `_l2_shrink_cold!` (one function) | `_l2_shrink!` decides in its fallthrough whether the parameters fix the group (an unpenalized group is copied there, with the zero-term code); `_l2_shrink_fixed!` holds the other exits that the parameters decide (small frame) and `_l2_shrink_values!` the values (classification, scaled norm, shrinkage): one call per group on each cold path |
 | γλw in `_l1_prox_threshold` and `_l2_shrink!` | `_threshold_product` |
 | `_l2_shrink!`, `_l2_zero!`, `_l2_copy!`, `_l2_fill!`, `_l2_scale!`, `_l2_term`, `_l2_fused_term`, `_l2_term_outofline`, `_l2_ordinary`, `_l2_value`, `_L2_ZERO`, `_L2_RECOMPUTE` | moved from norml2.jl, ordinary path unchanged |
 | arithmetic of `_group_screen`, per-group term of `_group_value_recomputed` | `_l2_screen`, `_l2_expsum_add` (groupnorml2.jl keeps adapters and the loop over groups) |

@@ -83,17 +83,18 @@ function _norm_value(λ, x)
   _norm_value_cold(λ, x, s, T)
 end
 
-# The scaled norm (_scaled_norm: the sum of squares recomputed in units of the largest stored entry, in
-# at least Float64) times the level, rounded once to T. A NaN or ±Inf entry keeps the ordinary IEEE result
-# (NaN, or Inf). An infinite level is decided by the class of x alone: T(NaN) at a NaN entry (not a
-# propagated NaN), +0 where every entry is zero, otherwise Inf.
+# The sum of squares recomputed in units of the largest stored entry, m 2^(2k), in at least Float64
+# (_residual_squares), and λ √m 2^k rounded once to T. A NaN or ±Inf entry keeps the ordinary IEEE result
+# (NaN, or Inf), and an infinite level is Inf away from zero.
 @noinline function _norm_value_cold(λ, x, s, ::Type{T}) where {T}
   R = _recovery_type(T, float(typeof(λ)))
-  if isinf(λ)
-    k = _square_exponent(x, nothing, R)
-    return k == _EXPONENT_NAN ? T(NaN) : k == _EXPONENT_ZERO ? zero(T) : T(Inf)
-  end
-  convert(T, _scaled_norm(x, nothing, convert(R, s), convert(R, λ)))
+  q = _residual_squares(x, nothing, R)
+  q === nothing && return isinf(λ) ? (isnan(s) ? T(NaN) : T(Inf)) : convert(T, convert(R, λ) * sqrt(convert(R, s)))
+  m, k = q
+  iszero(m) && return zero(T)
+  isinf(λ) && return T(Inf)
+  mλ, eλ = _frexp(convert(R, λ))
+  convert(T, ldexp(mλ * sqrt(m), eλ + k))
 end
 
 function _check_l2_arrays(f, y::AbstractArray, x::AbstractArray, γ::Real)

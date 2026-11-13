@@ -425,8 +425,8 @@ end
 end
 
 # A norm or a coefficient out of range: the difference ns 2^k - mλ mw 2^(eλ+ew) of the scaled norm and the
-# coefficient is formed in the recovery type, in the units of the larger exponent (_pow2_sum), and
-# converted to T. Coefficients that are zero or infinite by the parameters keep c.
+# coefficient's significands is formed in the recovery type, in the units of the larger exponent, where both
+# are below 2√|G|, and scaled back once. Coefficients that are zero or infinite by the parameters keep c.
 @noinline function _group_screen_cold(λ, w, g, G, ::Type{T}, c) where {T}
   R = _recovery_type(T, float(typeof(λ)), float(eltype(g)))
   k, ns = _l2_classified_norm(g, G, R)
@@ -439,7 +439,9 @@ end
   end
   mλ, eλ = _frexp(convert(R, λ))
   mw, ew = _frexp(convert(R, w))
-  convert(T, _pow2_sum(R, (ns, k), (-(mλ * mw), eλ + ew)))
+  E = max(k, eλ + ew)
+  d = ldexp(ns, k - E) - ldexp(mλ * mw, eλ + ew - E)
+  convert(T, ldexp(d, E))
 end
 
 # no proximal operator for a symmetric iterate (argument or output); nothing is written

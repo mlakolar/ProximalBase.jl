@@ -11,6 +11,38 @@ is the shift `x - γc`.
 The coefficients and the argument have the same dimensions, `size(c) == size(x)`;
 on a `SymmetricSparseIterate`, `c` is `p × p`. Every oracle throws a
 `DimensionMismatch` for any other pair, even one with as many entries, before it writes.
+
+At a matrix `SparseIterate` the value is the sum over its stored entries whose value is
+nonzero, and reads `c` at those entries only. A `Diagonal` `c` is read at the nonzero stored
+diagonal entries, in `O(p)`; the other entries of `x` are ignored, as in the diagonal-only
+`dot` of `Diagonal`. An entry that is not stored, or is stored as `+0` or `-0`, adds nothing,
+even if the coefficient there is `NaN`, `Inf` or `-Inf`; the constant `d` is added after the
+sum. A nonzero entry follows ordinary arithmetic, also when it or its coefficient is not
+finite. The order of the summation is not specified: the general loop may reassociate
+(`@simd`), and the `Diagonal` loop runs in increasing diagonal index. The order can change
+the IEEE class of the result when an entry is not finite. For example, with `c = ones(2, 2)`, `d = 0`
+and `h = 2^exponent(floatmax(T))`, storing `x[2] = h`, `x[3] = h` and then `x[1] = -Inf`, a
+serial sum in the storage order overflows to `+Inf` before it adds `-Inf` and gives `NaN`,
+while the dense `dot` gives `-Inf`.
+When `d`, the nonzero entries of `x` and the coefficients at them are finite, a dot that
+overflows is summed again in exponent-separated terms and combined with `d` in its own units.
+Its accuracy is the absolute bound `4 n eps (sum |cᵢxᵢ| + |d|)`, and when that bound is below
+the range of the type and the exact value lies inside the range by that bound, the value is
+finite, also if products or partial sums overflow. When the bound exceeds the range (products
+far beyond it), there is no guarantee of a finite value: extreme cancellation can give an
+infinity for a finite exact value.
+
+```julia
+x = SparseIterate(2, 2); x[1, 1] = 2.0
+f = LinearFunction([1.0 NaN; 1.0 1.0], 0.25)    # NaN at an entry of x that is not stored
+f(x)                                            # 2.25
+f(Matrix(x))                                    # NaN, as dot(f.c, Matrix(x)) + f.d
+```
+
+This rule is for the value at a matrix `SparseIterate`. For a dense `c` that is not a
+`Diagonal`, `dot(c, x)` is the generic `dot`, which visits all positions; for a `Diagonal` it is
+the diagonal-only `dot` of `Diagonal`. A vector `SparseIterate` and a `SymmetricSparseIterate`
+keep their own rules.
 """
 struct LinearFunction{C<:AbstractArray, D<:Real} <: AbstractFunction
   c::C
@@ -38,7 +70,8 @@ _value_unchecked(f::LinearFunction, x::SymmetricSparseIterate) =
 
 # A dot that overflows, alone or with d, at a representable value is summed
 # again with x in units of 2^k, chosen so that no partial sum can overflow; d
-# keeps its own units, so that a small d survives a dot that cancels (R1).
+# keeps its own units, so that a small d survives a dot that cancels (R1). A matrix
+# SparseIterate takes the exponent-separated recomputation below instead.
 @inline _linear_value(f::LinearFunction, x, v) = isfinite(v) ? v : _linear_value_recover(f.c, f.d, x, v)
 @noinline function _linear_value_recover(c, d, x, v)
   (_all_finite(x) && _all_finite(c) && isfinite(d)) || return v
@@ -66,6 +99,196 @@ function _linear_scaled_dot(c, x::SymmetricSparseIterate, s)
 end
 _linear_scaled_dot(c, x, s) = _linear_scaled_copy_dot(c, x, s)
 _linear_scaled_copy_dot(c, x, s) = dot(c, x .* s[1] .* s[2])
+
+# A matrix SparseIterate (D1): an entry of x that is not stored, or is stored as a zero, adds
+# nothing to the value, also if the coefficient there is NaN or Inf. The value of x is read from
+# the storage (nzval, ind2nzval), not through getindex: a scan of the logical matrix that visits
+# the implicit entries forms a zero at each of them. size(c) == size(x) is checked first.
+function _value_unchecked(f::LinearFunction, x::SparseIterate{<:Any, 2})
+  _checkvalue(f, x)
+  _value_at(_linear_value(f, x, _linear_stored_dot(f.c, x) + f.d), x)
+end
+
+# The sum over the stored entries, traversed by their storage index (the reduction is @simd, so its
+# order is not specified). The main loop has no branch on the value of an entry (a data-dependent
+# branch on stored zeros that are interleaved with nonzeros can mispredict; the search for the first
+# nonzero entry below does branch): a zero entry takes the coefficient index of the first stored
+# nonzero entry, i0, and its product is replaced by a zero by a select. So c is read at the indices of
+# nonzero stored entries and, for a zero entry, again at i0 (the coefficient at the zero entry's own
+# index is not read), and a NaN or Inf coefficient there cannot reach the sum. Without a nonzero
+# stored entry the sum is 0. In benchmark/linear_sparse_value.jl at this change (AMD Zen 3, Julia
+# 1.13.3, Float32 and Float64, m = 128 and 1024), fully stored iterates in sequential or shuffled
+# storage order with 0, 50% and 90% stored zeros took 0.45 to 0.94 times the time of the base's
+# generic dot(c, x) over the matrix SparseIterate. In quick paired probes, a traversal in column
+# order through ind2nzval was slower than this loop in every cell measured (iterates of 2% to 100%
+# stored entries).
+function _linear_stored_dot(c, x::SparseIterate{<:Any, 2})
+  T = promote_type(eltype(c), eltype(x))
+  s, z = zero(T), zero(T)
+  k0 = _first_nonzero(x)
+  k0 == 0 && return s
+  i0 = x.nzval2ind[k0]
+  @inbounds @simd for k in 1:x.nnz
+    v = x.nzval[k]
+    skip = iszero(v)
+    t = _entry(c, ifelse(skip, i0, x.nzval2ind[k])) * v
+    s += ifelse(skip, z, t)
+  end
+  s
+end
+# the position in nzval of the first nonzero stored entry, 0 if there is none
+function _first_nonzero(x::SparseIterate{<:Any, 2})
+  @inbounds for k in 1:x.nnz
+    iszero(x.nzval[k]) || return k
+  end
+  0
+end
+
+# The recomputation for a matrix SparseIterate, when the ordinary value is not finite. The
+# participating entries are the stored entries of x that are nonzero. If d and those entries of
+# x and of c are finite, the products are summed as exponent-separated terms (_ExpSum), a product
+# from the significands and the sum of the exponents of its factors, so that neither factor is
+# scaled before the other acts, and the sum is combined with d by `_linear_recovered_value`
+# below. Zero entries are skipped before c is read, so c is read at participating entries only.
+# Otherwise the ordinary value v stands: an Inf or a NaN in the data, not in a product, is a
+# genuine result. A coefficient at a zero of x is not read, so it does not stop the recomputation.
+@noinline function _linear_value_recover(c, d, x::SparseIterate{<:Any, 2}, v)
+  isfinite(d) || return v
+  R = typeof(v)
+  acc = _expsum_start(promote_type(R, Float64))
+  @inbounds for k in 1:x.nnz
+    xk = x.nzval[k]
+    iszero(xk) && continue
+    ck = _entry(c, x.nzval2ind[k])
+    (isfinite(xk) && isfinite(ck)) || return v
+    acc = _expsum_product(acc, ck, xk)
+  end
+  _linear_recovered_value(R, acc, d)
+end
+
+# The value of a recovery: the dot kept by `_expsum_product` as the compensated pair (s, c) in the
+# frame 2^ex, combined with d. d is not added to the pair itself: after an exactly cancelling dot
+# the pair can hold nonzero opposite parts s = -c (the compensation of absorbed terms), and a small
+# d added to it is absorbed in their rounding. The pair is collapsed first, and the dot is rebased
+# to its own exponent, so that d meets the dot's value and not its largest product. A is the type
+# of the accumulator, at least Float64, and R the type of the value.
+#   Range. Every term added since the last restart of the pair is m 2^e with |m| < 1 and e <= ex
+# (a pair that reaches exactly (0, 0) restarts in the frame of its next term, which can be a
+# smaller one), so in the units of the frame each term is below 1, and |s|, |c| and m = s + c are
+# below 2n + 4 for n terms (|c| collects the roundings of the partial sums, which are of the order
+# of eps(A) times them), with n < 2^63. The collapse is made in A, where it cannot overflow, and the
+# dot alone is not converted to R.
+#   Scope. The constants below are those of A = Float64, that is, of Float32 and Float64 data
+# (A = promote_type(R, Float64) is wider only for other element types, which are not covered).
+#   Steps. (1) m = fl_A(s + c): one rounding, |m - (s + c)| <= eps(A)/2 |m|, and m == 0 only if
+# s + c == 0 exactly. The remainder r = (s + c) - m is computed exactly (a TwoSum of s and c), and
+# |r| <= eps(A)/2 |m|. (2) If m is nonzero, m = mm 2^em with 1/2 <= |mm| < 1, and the dot goes into a new
+# accumulator in the frame ex + em: only an exponent changes, so this step is exact. (3) d enters
+# by `_expsum_product` as a term of its own, then r as one more term in the frame ex: the sum
+# is taken in the frame of the largest of them, and when d cancels the dot, r is what remains of
+# the pair. (4) `_expsum_value` rounds the pair to A and converts that to R. Overflow follows
+# this rounded value: with T = R, a value in the top rounding interval, from floatmax(T) up to
+# but not including floatmax(T) + 2^(exponent(floatmax(T)) - precision(T)), gives floatmax(T), and
+# Inf comes at or beyond that threshold; for Float32 data (A = Float64,
+# R = Float32) the rounding to A comes first, a double rounding that can differ from the correctly
+# rounded result at that tie. The caller then converts the value to float(eltype(x)): for a Float32
+# iterate with Float64 coefficients (R = Float64) that is one more rounding, and one more point
+# of overflow.
+#   Dropped terms. `_expsum_add` loses a term, or a part of the sum, below 2^-1074 of the frame it
+# adds to (the subnormal limit of A). With E the largest frame exponent the pair ever held, the
+# loss is at most n 2^(E-1074) in all, at most n 2^-1072 times the largest |product|; it can be a
+# whole term, when the pair restarts in a frame more than 1074 binades below an earlier one.
+#   Error of the pair. A product of Float64 or mixed factors is rounded once (eps(A)/2 |p|); of
+# Float32 factors it is exact in A. The compensation c is a recursive (Neumaier, Sum2) sum of exact
+# errors, so the error of the pair grows like n^2 eps(A)^2 / 4 times the sum of the magnitudes,
+# not n eps(A)^2. With the drops above, for n < 2^50 (any n for Float32 data), the value is within
+# B = 4 n eps(R) (sum |cᵢ xᵢ| + |d|) of the exact one when the exact value plus B is within the
+# range of R (|exact| + B <= floatmax(R)). When B
+# exceeds the range there is no finite-output guarantee: the result can be an infinity for a
+# finite exact value (see #907).
+#   Guaranteed. The absolute bound B where |exact| + B <= floatmax(R), as above. If the pair
+# sums to zero, the value is R(d) when d is representable in R (d is a term of its own, converted
+# once), and +0 if d is zero. A dot of value delta beside d, when the products are exact in A (for
+# example Float32 data, or significands of at most 26 bits), delta is above n 2^(E-1074) / eps(R),
+# n^2 eps(A)^2 / 4 times the sum of the magnitudes is below eps(R) |delta|, and |delta + d| plus
+# that error is at most floatmax(R), is returned by `_expsum_value` with an error of at most
+# a few eps(R) (|delta| + |d|); the caller's conversion to float(eltype(x)) can add its own
+# rounding when that type is narrower than R.
+#   Not guaranteed. (1) That terms which cancel exactly in real arithmetic cancel: Float64 and
+# mixed products are rounded, so the pair can keep a residual and a small d is lost against it.
+# (2) Terms more than 1074 binades below the frame are dropped, and after a restart this can
+# leave one whole term as the result. (3) That the pair sums to zero for an exactly cancelling
+# dot: the compensation is a rounded sum, and it fails for terms of very different sizes (it
+# depends on the spread of the exponents and on the number of terms, and not on the spread
+# alone); the value then has the absolute error B when |exact| + B <= floatmax(R) (above). Relative accuracy when d cancels the dot is
+# limited by the error of the pair, the drops above, and the final rounding to A, to R and to
+# the returned type float(eltype(x)) (with a Float32 iterate and Float64 coefficients, the
+# rounding to Float32 alone can be far above the Float64 error of the helper's value). The
+# collapse remainder is kept, so the collapse itself adds no error. (4) A finite value when the
+# products lie far beyond the range (about 2^1077 for Float64, 2^150 for Float32 data): the
+# error of the pair, in the units of the products, can exceed the range, and the result is then
+# an infinity.
+function _linear_recovered_value(::Type{R}, acc::_ExpSum{A}, d) where {R, A}
+  s, c = acc.s, acc.c
+  m = s + c
+  collapsed = _expsum_start(A)
+  if !iszero(m)
+    mm, em = _frexp(m)
+    collapsed = _expsum_add(collapsed, mm, _exponent_sum(A, acc.ex, em))
+  end
+  collapsed = _expsum_product(collapsed, d, one(R))
+  b = m - s
+  r = (s - (m - b)) + (c - b)           # the remainder (s + c) - m, exactly
+  if !iszero(r)
+    mr, er = _frexp(r)
+    collapsed = _expsum_add(collapsed, mr, _exponent_sum(A, acc.ex, er))
+  end
+  _expsum_value(R, collapsed)
+end
+
+# A Diagonal coefficient at a matrix SparseIterate: dot(c, x) for a Diagonal c reads the
+# diagonal of x only, in O(p), and ignores the other entries of x, as the ordinary dot(c, Matrix(x)) does. The
+# value keeps that, and reads c.diag[j] only where x has a nonzero stored diagonal entry.
+function _value_unchecked(f::LinearFunction{<:Diagonal}, x::SparseIterate{<:Any, 2})
+  _checkvalue(f, x)
+  _value_at(_linear_value(f, x, _linear_diagonal_dot(f.c.diag, x) + f.d), x)
+end
+# The diagonal positions are visited in increasing index, with a branch on an absent or zero entry.
+# A branch-free select like that of the general matrix was slower than this loop in quick paired
+# probes (Float32 and Float64, p = 128 and 1024, AMD Zen 3, Julia 1.13.3). In
+# benchmark/linear_sparse_value.jl at this change, fully stored Diagonal cells took 0.61 to 0.94
+# times the base's dot(c, x) for Float32, and the Float64 cells were inconclusive: the forward
+# and reversed-role runs disagreed.
+function _linear_diagonal_dot(dg, x::SparseIterate{<:Any, 2})
+  s = zero(promote_type(eltype(dg), eltype(x)))
+  @inbounds for j in 1:size(x, 1)
+    pos = x.ind2nzval[j, j]
+    pos == 0 && continue
+    v = x.nzval[pos]
+    iszero(v) && continue
+    s += dg[j] * v
+  end
+  s
+end
+# The recomputation for a Diagonal coefficient: the participating entries are the nonzero stored
+# diagonal entries of x; the other entries of x are not read, so a NaN there does not stop it. As
+# for the general method, the products are exponent-separated terms and the sum is combined with d
+# by `_linear_recovered_value`.
+@noinline function _linear_value_recover(c::Diagonal, d, x::SparseIterate{<:Any, 2}, v)
+  isfinite(d) || return v
+  R = typeof(v)
+  acc = _expsum_start(promote_type(R, Float64))
+  @inbounds for j in 1:size(x, 1)
+    pos = x.ind2nzval[j, j]
+    pos == 0 && continue
+    xj = x.nzval[pos]
+    iszero(xj) && continue
+    cj = c.diag[j]
+    (isfinite(xj) && isfinite(cj)) || return v
+    acc = _expsum_product(acc, cj, xj)
+  end
+  _linear_recovered_value(R, acc, d)
+end
 
 # c and x have the same dimensions, size(c) == size(x), the size of a symmetric
 # iterate being that of the p × p matrix it represents. Every oracle applies this

@@ -259,9 +259,55 @@ its constructor type, and there is no decomposition cache. Exact proximal
 input/output aliasing is supported. Gradient input/output identity is rejected;
 use an independent destination and coefficient array to avoid modifying the
 function's parameters. Mismatched dimensions throw `DimensionMismatch`;
-non-real inputs throw `ArgumentError`. Non-finite entries follow arithmetic;
-finite-data overflowed values have a scaled recovery path. There is no
-nonnegative restriction on `c` or `d`.
+non-real inputs throw `ArgumentError`. Non-finite entries follow arithmetic,
+except at a zero of a matrix `SparseIterate` (below); finite-data overflowed values
+have a scaled recovery path. There is no nonnegative restriction on `c` or `d`.
+
+At a matrix `SparseIterate` the value `f(x)` is computed from the stored entries of
+`x` whose value is nonzero, in `O(nactive(x))` and without forming a zero for an unstored
+entry; the order of the summation is not specified. A `Diagonal` coefficient array is the
+exception to the cost: its value is summed over the nonzero stored diagonal entries in
+`O(p)` (it scans the `p` diagonal positions), and the other entries of `x` are ignored, as
+in the diagonal-only `dot` of `Diagonal`. An entry that is not stored, or is stored as
+`+0` or `-0`, adds nothing, even when the coefficient at that position is `NaN`,
+`Inf` or `-Inf`, and `c` is not read there; a nonzero entry follows ordinary
+arithmetic, also when it or its coefficient is not finite. The constant `d` is added
+after the sum. When the ordinary value is not finite but `d`, the nonzero entries
+and the coefficients at them are, the value is recomputed from those entries (a
+coefficient at a zero does not prevent it) as exponent-separated terms, each product
+formed from its two factors without scaling one before the other acts. The sum is then
+collapsed to one value with its own exponent, and `d` is added to that value in its own
+units, so that when the compensated sum of the products cancels to zero the value is `d`,
+and a small `d` is not absorbed by the larger terms. The accuracy is the absolute bound
+`B = 4 n eps(T) (sum |cᵢxᵢ| + |d|)`, not relative to a dot much smaller than its terms, and the
+returned value is finite when the exact value plus `B` is within the range of the type. When the
+products lie far beyond the range, so that `B` exceeds it, there is no guarantee of a finite
+value: extreme cancellation can give an infinity for a finite exact value (see
+[Overflow and underflow of values](numerics.md#Overflow-and-underflow-of-values)).
+
+For a dense `c` that is not a `Diagonal`, `f(Matrix(x))` and `dot(c, x) + d` take the
+ordinary `dot`, which visits all positions, so a `NaN`
+coefficient at a zero gives `NaN` there: the value differs from them on purpose in that
+case. When the participating entries of `x`, the coefficients at them, the coefficients
+at the positions where `x` is zero, and `d` are all finite and the ordinary products and partial sums remain finite, the
+value agrees with them to the accuracy of the sum. When a
+participating entry is not finite, the order of summation can change the IEEE class: with
+`c = ones(2, 2)`, `d = 0` and `h = 2^exponent(floatmax(T))`, storing `x[2] = h`, `x[3] = h`
+and then `x[1] = -Inf`, a sum that adds `h` and `h` before the `-Inf` gives `NaN`, while
+`f(Matrix(x))` and `dot(c, x) + d` give `-Inf`; `f(x)` may give either. This rule is for the matrix
+`SparseIterate`: a vector `SparseIterate` keeps its own rules, and a `SymmetricSparseIterate`
+forms the terms at its stored zeros, so a `NaN` coefficient there gives `NaN`.
+
+```@example library_linear_sparse
+using ProximalBase, LinearAlgebra
+x = SparseIterate(2, 2)
+x[1, 1] = 2.0
+c = [1.0 NaN; 1.0 1.0]            # NaN at a position that x does not store
+f = LinearFunction(c, 0.25)
+@assert f(x) == 2.25
+@assert isnan(f(Matrix(x)))
+f(x)
+```
 
 ```@example library_linear
 using ProximalBase, LinearAlgebra

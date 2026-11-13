@@ -86,6 +86,19 @@ setprecision(BigFloat, 1200) do
       w, v, k = abs(signif(rng, T, rand(rng, -E:E))), signif(rng, T, rand(rng, -E:E)), rand(rng, -E:E)
       @test PB._scaled_product_retained(w, v, k) === PB._scaled_product(w, v, k)
     end
+    # the product with a scaled norm c in [1, 2^30), which is not split into a significand and an exponent, gives the
+    # bits of the three-factor kernel: factors over many binades, subnormal and zero factors, powers that leave the range
+    for _ in 1:4000
+      a = abs(signif(rng, T, rand(rng, e0 - 20:E)))
+      b = abs(signif(rng, T, rand(rng, e0 - 20:E)))
+      c = T(2)^(29 * rand(rng, T)) * (rand(rng) < 0.2 ? 1 : 1 + rand(rng, T) / 2)
+      k = rand(rng, -2E:2E)
+      @test PB._scaled_product_norm(a, b, c, k) === PB._scaled_product(a, b, c, k)
+    end
+    for a in (zero(T), nextfloat(zero(T)), prevfloat(floatmin(T)), floatmin(T), T(1), floatmax(T)),
+        b in (zero(T), nextfloat(zero(T)), T(0.75), floatmax(T)), c in (T(1), T(1.5), prevfloat(T(2)^30)), k in (-3E, -E, 0, E, 3E)
+      @test PB._scaled_product_norm(a, b, c, k) === PB._scaled_product(a, b, c, k)
+    end
   end
 
   @testset "halved difference" begin
@@ -353,6 +366,27 @@ setprecision(BigFloat, 1200) do
     end
   end
 
+  @testset "two-term power-of-two sum at the edges of the range" begin
+    # sums whose scaled value is subnormal, rounds to zero, overflows, or is the larger term alone (gaps around the skip
+    # bound 2 precision), with the weight one of _pow2_sum, whose result is scaled without a renormalization, and with
+    # another weight, in both orders of the terms
+    generic(R, w, t1, t2) = invoke(PB._pow2_weighted, Tuple{Type, Any, Vararg{Tuple{Any, Int}}}, R, w, t1, t2)
+    for R in unique((T, Float64))
+      p = precision(R)
+      lo, hi = exponent(floatmin(R)) - p - 2, exponent(floatmax(R))
+      ntests = 0
+      for edge in vcat(collect(lo:lo + p + 5), collect(hi - 3:hi + 2)), gap in (0, 1, p - 1, p, p + 1, 2p - 1, 2p, 2p + 1, 2p + 2, 3p),
+          (m1, m2) in ((R(0.75), R(0.6875)), (R(0.5), -R(0.5)), (prevfloat(R(1)), nextfloat(R(0.5))), (R(0.5), R(0.5))),
+          sgn in (1, -1), w in (one(R), R(3) / 7)
+        for (t1, t2) in (((m1, edge), (sgn * m2, edge - gap)), ((sgn * m2, edge - gap), (m1, edge)))
+          ntests += 1
+          @test PB._pow2_weighted(R, w, t1, t2) === generic(R, w, t1, t2)
+        end
+      end
+      @test ntests == (p + 6 + 6) * 10 * 4 * 2 * 2 * 2
+    end
+  end
+
   @testset "scaled sum without a second operand" begin
     # y === nothing gives the bits of the general method with y = 0, for finite data over many binades,
     # signed zeros, subnormals and entries near floatmax, in the entries' type and in Float64
@@ -453,6 +487,28 @@ setprecision(BigFloat, 1200) do
     # the weight true of an unweighted entry does not widen the type
     c, ok = PB._threshold_product(T, T(0.5), T(3), true)
     @test c === T(1.5) && ok && c isa T
+  end
+
+  @testset "shrinkage kernel at exceptional parameters and values" begin
+    # data whose sum of squares is not a finite normal number (overflowing, underflowing, subnormal, NaN or Inf entries):
+    # with any step, level and weight, positive and finite or not, the shrinkage is the cold one, so it gives the bits of
+    # _l2_shrink_cold! (the exits that the parameters decide, then the values) in its code and in the group it writes
+    fm, fn = floatmax(T), floatmin(T)
+    params = (zero(T), 4fn, T(0.7), fm / 4, T(Inf))
+    datas = (T[pow2(T, E - 3), -pow2(T, E - 4), 0, 3], T[pow2(T, e0 + 2), pow2(T, e0 + 3), 0], T[1, NaN, 2], T[1, Inf, 2],
+             T[1, -Inf, NaN], fill(nextfloat(zero(T)), 4), zeros(T, 3))
+    ntests = 0
+    for x in datas, γ in params, λ in params, w in params
+      G = 1:length(x)
+      y1, y2 = fill(T(7), length(x)), fill(T(7), length(x))
+      @test PB._l2_shrink!(y1, x, G, λ, w, γ) === T(PB._l2_shrink_cold!(y2, x, G, λ, w, γ))
+      @test same(y1, y2)
+      z1, z2 = copy(x), copy(x)
+      @test PB._l2_shrink!(z1, z1, G, λ, w, γ) === T(PB._l2_shrink_cold!(z2, z2, G, λ, w, γ))
+      @test same(z1, z2)
+      ntests += 1
+    end
+    @test ntests == length(datas) * 5^3
   end
 
   @testset "kept sums" begin
@@ -747,6 +803,27 @@ end
   end
   # the IEEE types have no rounding mode to set (the skip is exact for them): there is no setrounding method
   @test_throws MethodError setrounding(() -> 1.0, Float64, RoundUp)
+end
+
+@testset "scaled product of a norm under directed rounding (BigFloat)" begin
+  # the product with a scaled norm c in [1, 2^30) rounds as the three-factor kernel does, in every rounding mode, also with
+  # exponents beyond Int64 (Int128 sums) and for factors above the current precision
+  ntests = 0
+  big2 = BigFloat(2)
+  for p in (53, 256), mode in (RoundNearest, RoundUp, RoundDown, RoundToZero)
+    setprecision(BigFloat, p) do
+      setrounding(BigFloat, mode) do
+        a0 = setprecision(() -> BigFloat(1) / 3, BigFloat, 400)
+        for a in (BigFloat(0), BigFloat(0.75), BigFloat(1) / 7, BigFloat(3) / 7 * big2^40, big2^(-2^61), big2^(2^61), a0),
+            b in (BigFloat(0), BigFloat(0.6), BigFloat(5) / 3, big2^(-2^61 - 3), big2^(2^61)),
+            c in (BigFloat(1), BigFloat(3) / 2, BigFloat(10) / 3, BigFloat(2)^29 * 0.999), k in (-2^62, -3, 0, 5, 2^61, 2^62 - 1)
+          ntests += 1
+          @test bigsame(PB._scaled_product_norm(a, b, c, k), PB._scaled_product(a, b, c, k))
+        end
+      end
+    end
+  end
+  @test ntests == 2 * 4 * 7 * 5 * 4 * 6
 end
 
 @testset "retained exponent across Int wraparound (#767)" begin

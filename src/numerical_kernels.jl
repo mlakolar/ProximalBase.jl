@@ -147,6 +147,16 @@ end
   ldexp((ma * mb) * mc, ea + eb + ec + k)
 end
 
+# a b c 2^k for finite a, b >= 0 and a scaled norm c, which is finite with 1 <= c < 2^30 (the norm of a group of entries
+# scaled by the largest exponent is in [1, 2 sqrt(n)), below 2^30 for n < 2^58 entries): the significands of a and b are
+# multiplied by c, which needs no frexp, and the product, in [1/4, 2^30), is in range. The kernel above, which frexps c as
+# well (_scaled_product), gives the same bits for such c; a zero a or b gives +0.
+@inline function _scaled_product_norm(a::T, b::T, c::T, k::Integer) where {T<:AbstractFloat}
+  ma, ea = _frexp(a)
+  mb, eb = _frexp(b)
+  ldexp((ma * mb) * c, _exponent_sum(T, ea, eb, _product_power(T, k)))
+end
+
 @inline function _compensated_add(s, e, v)
   t = s + v
   e += abs(s) >= abs(v) ? (s - t) + v : (v - t) + s
@@ -252,33 +262,40 @@ end
 # Two terms, the case of the dot with a shift d (LinearFunction), of the two sums of LeastSquaresLoss and of the
 # group screen: the operations of the method above for N = 2 without the loops over the terms (the larger term
 # first, the first one if their exponents are equal; the aligned addition and the renormalization; a zero term
-# skipped; the final product), and, for the IEEE types only, the skip of a shift that cannot change the sum (below).
+# skipped; the final product), and, for the IEEE types only, the skip of a shift that cannot change the sum and, for the
+# weight one of every call of _pow2_sum, the final scaling of the sum without the renormalization (below).
 # The method above remains the definition. The two agree where each nonzero term has an exponent sum exponent(m) + e
 # above typemin(Int) (taken in Int128 for BigFloat), the value from which the selection of the method above starts; the
 # tests compare them there, also under directed rounding. At that sum the method above selects no term, and this method
 # takes the single nonzero term, so the two differ there: for BigFloat (floatmin(BigFloat), -2^62) with a zero term, and
 # for the IEEE types (T(0.75), typemin(Int) + 1) with a zero term and the weight T(Inf) (Inf from this method, NaN from
 # the method above).
-function _pow2_weighted(::Type{R}, w, t1::Tuple{Any, Int}, t2::Tuple{Any, Int}) where {R}
-  m1, m2 = convert(R, t1[1]), convert(R, t2[1])
+# exponent(m) of a finite nonzero m, from the exponent f that frexp returns for it: f - 1 for the IEEE types, whose frexp is
+# exact (a BigFloat above the current precision rounds in frexp)
+@inline _entry_exponent(::Type{<:Base.IEEEFloat}, m, f) = f - 1
+@inline _entry_exponent(::Type, m, f) = exponent(m)
+# a term that is not finite, or a zero one: the sum without the alignment
+@noinline function _pow2_weighted_edge(::Type{R}, w, m1, e1, m2, e2) where {R}
   (isfinite(m1) & isfinite(m2)) || return convert(R, w) * ((zero(R) + m1) + m2)
+  (iszero(m1) & iszero(m2)) && return convert(R, w) * zero(R)
+  m, e = iszero(m1) ? (m2, e2) : (m1, e1)
+  s, f = _frexp(m)
+  _scaled_product(convert(R, w), s, _exponent_sum(R, f, e))
+end
+# inlined, so that R and the weight one of _pow2_sum are known to the caller
+@inline function _pow2_weighted(::Type{R}, w, t1::Tuple{Any, Int}, t2::Tuple{Any, Int}) where {R}
+  m1, m2 = convert(R, t1[1]), convert(R, t2[1])
   e1, e2 = t1[2], t2[2]
-  if iszero(m1) | iszero(m2)
-    (iszero(m1) & iszero(m2)) && return convert(R, w) * zero(R)
-    m, e = iszero(m1) ? (m2, e2) : (m1, e1)
-    s, f = _frexp(m)
-    return _scaled_product(convert(R, w), s, _exponent_sum(R, f, e))
-  end
-  # the frame exponents are Int128 for BigFloat and Int for the other types, as above
-  E1 = _exponent_sum(R, exponent(m1), e1)
-  E2 = _exponent_sum(R, exponent(m2), e2)
-  if E2 > E1
-    m1, m2, e1, e2 = m2, m1, e2, e1
-  end
-  s, f1 = _frexp(m1)
-  E = _exponent_sum(R, f1, e1)
-  mj, f2 = _frexp(m2)
-  D = _exponent_sum(R, f2, e2)
+  (isfinite(m1) & isfinite(m2) & !iszero(m1) & !iszero(m2)) || return _pow2_weighted_edge(R, w, m1, e1, m2, e2)
+  # the frame exponents are Int128 for BigFloat and Int for the other types, as above. The larger term, by the exponents
+  # exponent(m) + e of the entries, is the first (the first one if they are equal): the same terms in the same roles as
+  # the method above, taken by selection and not by exchange.
+  s1, f1 = _frexp(m1)
+  s2, f2 = _frexp(m2)
+  second = _exponent_sum(R, _entry_exponent(R, m2, f2), e2) > _exponent_sum(R, _entry_exponent(R, m1, f1), e1)
+  E1, E2 = _exponent_sum(R, f1, e1), _exponent_sum(R, f2, e2)
+  s, mj = ifelse(second, s2, s1), ifelse(second, s1, s2)
+  E, D = ifelse(second, E2, E1), ifelse(second, E1, E2)
   # For the IEEE types frexp is exact, so D <= E: the larger term is first. Such a term more than 2 precision(R) binades
   # below the sum is below half an ulp of s, which is in [1/2, 1) in magnitude, and the IEEE types round to nearest only,
   # so s + ldexp(mj, D - E) is s. The shift, which can round to a subnormal or to zero (slow), is skipped. Every other
@@ -289,6 +306,9 @@ function _pow2_weighted(::Type{R}, w, t1::Tuple{Any, Int}, t2::Tuple{Any, Int}) 
     E = max(E, D)
   end
   iszero(s) && return convert(R, w) * zero(R)
+  # With the weight one the final product of the method above is s 2^E, rounded once, with the significand of s
+  # renormalized by an exact power of two: an IEEE type scales s itself and skips that frexp.
+  R <: Base.IEEEFloat && isone(w) && return ldexp(s, E)
   s, f = _frexp(s)
   _scaled_product(convert(R, w), s, _exponent_sum(R, E, f))
 end
@@ -947,7 +967,7 @@ end
   k == _EXPONENT_INF && return T(Inf)
   k == _EXPONENT_ZERO && return zero(T)
   unbounded && return T(Inf)
-  convert(T, _scaled_product(convert(R, λ), convert(R, w), ns, k))
+  convert(T, _scaled_product_norm(convert(R, λ), convert(R, w), ns, k))
 end
 
 # λ‖x‖₂ in O(stored entries): _sumabs2 and the squared-residual kernel visit the stored values of the
@@ -982,8 +1002,8 @@ end
 # The term w‖x[G]‖₂ of a penalized group, added to the accumulator of a value recomputed with the terms'
 # exponents (_ExpSum). A zero weight and a zero group add nothing, and a NaN or ±Inf entry, or an infinite
 # weight at a nonzero group, make the ordinary sum infinite or NaN: nothing is returned for them, and the
-# caller keeps that sum.
-function _l2_expsum_add(acc::_ExpSum{R}, x, G, w) where {R}
+# caller keeps that sum. Inlined into the loop over the groups: a zero weight then skips its group without a call.
+@inline function _l2_expsum_add(acc::_ExpSum{R}, x, G, w) where {R}
   iszero(w) && return acc
   k, ns = _l2_classified_norm(x, G, R, !isinf(w))
   k >= _EXPONENT_INF && return nothing

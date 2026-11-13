@@ -215,7 +215,16 @@ D-MPFR, results under a directed rounding mode at MPFR's exponent limits.
   terms takes the single nonzero term, so the two differ there: for BigFloat
   `(floatmin(BigFloat), -2^62)` with a zero term, and for the IEEE types
   `(T(0.75), typemin(Int) + 1)` with a zero term and the weight `T(Inf)` (`Inf` from the
-  method for two terms, `NaN` from the generic one).
+  method for two terms, `NaN` from the generic one). The method is inlined into its
+  callers, where the weight one of `_pow2_sum` and the type are known. It takes the
+  larger term by selection, from the `frexp` of both terms (for the IEEE types `exponent(m)`
+  is the `frexp` exponent minus one), and for the weight one the IEEE types scale the sum
+  once by `ldexp(s, E)` without the renormalization, which is the same value, rounded once.
+  The group screen forms its difference with it, once per group on its cold path.
+* `_scaled_product_norm(a, b, c, k)`: `a b c 2^k` for a scaled norm `c` in `[1, 2^30)`,
+  which the cold value term uses: the significands of `a` and `b` multiply `c`, which is
+  not split again. It gives the bits of the three-factor kernel `_scaled_product`
+  for such `c`.
 * `_scaled_norm(x, y, s, scale)`: the optional scale multiplies the norm (default one).
 * `_threshold_product`, `_sum_kept`, `_indexed_sumabs2`, `_recovery_type`.
 
@@ -234,7 +243,7 @@ D-MPFR, results under a directed rounding mode at MPFR's exponent limits.
 | `_l2_shrink_cold!` (one function) | `_l2_shrink_cold!` for the exits that the parameters decide, and `_l2_shrink_values!` for the values (classification, scaled norm, shrinkage), so that those exits do not carry the frame of the value part |
 | γλw in `_l1_prox_threshold` and `_l2_shrink!` | `_threshold_product` |
 | `_l2_shrink!`, `_l2_zero!`, `_l2_copy!`, `_l2_fill!`, `_l2_scale!`, `_l2_term`, `_l2_fused_term`, `_l2_term_outofline`, `_l2_ordinary`, `_l2_value`, `_L2_ZERO`, `_L2_RECOMPUTE` | moved from norml2.jl, ordinary path unchanged |
-| arithmetic of `_group_screen`, per-group term of `_group_value_recomputed` | `_l2_screen`, `_l2_expsum_add` (groupnorml2.jl keeps adapters and the loop over groups) |
+| arithmetic of `_group_screen`, per-group term of `_group_value_recomputed` | `_l2_screen`, `_l2_expsum_add` (inlined into the loop over the groups, where a zero weight skips the group without a call; groupnorml2.jl keeps adapters and the loop over groups) |
 
 **D-X: exponent sums beyond `Int64`.** For BigFloat, a sum of
 exponents (the level, the weight and the norm of a group term, or a difference of

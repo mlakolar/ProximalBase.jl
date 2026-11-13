@@ -18,8 +18,8 @@
 #
 # The check is always exact: every output of Y and of XC must equal that of X bit for bit (`===` per array
 # element and per scalar, so signed zeros and NaN bit patterns count; a BigFloat by precision, sign and
-# value). An A/A mismatch (X against XC) is an error. A case may carry expect_diff: the one documented
-# difference of the consolidation, decision D-X (a BigFloat sum of exponents beyond Int64). PB_EXPECT_DIFF
+# value). An A/A mismatch (X against XC) is an error. A case may carry expect_diff: the one BigFloat difference
+# between a widened exponent sum and the wrapping one, decision D-X (a BigFloat sum of exponents beyond Int64). PB_EXPECT_DIFF
 # selects what the check requires of it:
 #   auto (default)  `same` when PB_FIRST and PB_SECOND are the same path, `forward` otherwise
 #   0 | same        X and Y must be equal (use it when both roots hold the same source, also at two paths)

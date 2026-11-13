@@ -17,10 +17,9 @@ code as #865 found and left it. The current implementation differs as follows:
 - It had no caller: the KKT coefficient uses the two-factor
   `_weight_coefficient` only.
 - Rows and bullets that mention it are marked *(removed)*.
-- The ℓ2 kernels of `NormL2` and `GroupNormL2` (#900) are in `src/numerical_kernels.jl`
-  and reuse the kernels below; section 7 lists what moved, what is reused and what was
-  removed. `norml2.jl` and `groupnorml2.jl` hold the types, docstrings, validation, oracles,
-  thin adapters to the kernels and the loops over groups.
+- The ℓ2 kernels of `NormL2` and `GroupNormL2` (#900) are not in `src/numerical_kernels.jl`: they are
+  dedicated code in `norml2.jl` and `groupnorml2.jl`, which share with the other families only the
+  kernels that section 7 lists.
 
 ## 1. Inventory of recovery helpers and their live callers
 
@@ -29,17 +28,17 @@ Callers were taken from the current sources, not the archived pre-#850 tree.
 
 | Mechanism | Helpers (src/utils.jl unless noted) | Live callers | Ordinary path | Guarantee |
 |---|---|---|---|---|
-| Bounded product of three factors | `_positive_product`, `_exceptional_product`, `_weight_product`, `_threshold_product`, `_scaled_product(a,b,c,k)` | NormL1 value and prox (`_positive_product`, `_weight_product`, `_threshold_product`). `_exceptional_product` is their cold path. `_threshold_product` is also the ordinary threshold of the ℓ2 shrinkage. | `(a*b)*c`, plus one range test on `a*b`, which is loop-invariant for a scalar step | O7/R3: a product of finite factors is not lost to an intermediate over- or underflow |
+| Bounded product of three factors | `_positive_product`, `_exceptional_product`, `_weight_product`, `_threshold_product`, `_scaled_product(a,b,c,k)` | NormL1 value and prox (`_positive_product`, `_weight_product`, `_threshold_product`). `_exceptional_product` is their cold path. The ℓ2 shrinkage forms its ordinary threshold inline (section 7). | `(a*b)*c`, plus one range test on `a*b`, which is loop-invariant for a scalar step | O7/R3: a product of finite factors is not lost to an intermediate over- or underflow |
 | Weighted exponent-scaled product | `_scaled_product(w,v,k)` | `_pow2_weighted` (Linear, LeastSquares), `_expsum_value` (Quadratic), `_scaled_square_value` (SqrNormL2, LeastSquares), the ridge gradient fallback, the NormL1 converted-level value | cold paths only | R1/R3: w·v·2^k rounded once at the end |
 | Retained-exponent product | `_scaled_product_retained` (2 and 3 factors) | `Scaled` value parts (`_apply_parts`, scaled.jl) | cold | #767: Int exponent sums that may wrap |
 | Correctly rounded coefficient *(removed: had no caller)* | `_scaled_coefficient`, `_weight_coefficient3` | none (the KKT coefficient uses the two-factor `_weight_coefficient`) | cold | one correctly rounded product, also when subnormal |
-| Squared residuals in power-of-two units | `_square_value`, `_exceptional_square_value`, `_scaled_square_value`, `_square_parts`, `_square_exponent`, `_square_scaled_sum` (a method for `y === nothing`), `_residual_exponent` (the code `_EXPONENT_NONFINITE` for a residual that is not finite, `_EXPONENT_ZERO`), `_square_exponent` (a method for `y === nothing` that also tells NaN, `_EXPONENT_NAN`, from Inf, `_EXPONENT_INF`), `_scaled_residual`, `_scaled_norm` (optional scale) | SqrNormL2 value and value parts. LeastSquaresLoss recovery (`_exceptional_square_value`, and `_square_exponent`/`_square_scaled_sum` through `_leastsquares_squares`). NormL2 value and the ℓ2 norm of an index set (section 7) | `_sumabs2`/`_sumabs2_diff` and one comparison | R1: an overflowing or underflowing square does not hide a representable value |
+| Squared residuals in power-of-two units | `_square_value`, `_exceptional_square_value`, `_scaled_square_value`, `_square_parts`, `_square_exponent`, `_square_scaled_sum` (a method for `y === nothing`), `_residual_exponent` (the code `_EXPONENT_NONFINITE` for a residual that is not finite, `_EXPONENT_ZERO`), `_square_exponent` (a method for `y === nothing` that also tells NaN, `_EXPONENT_NAN`, from Inf, `_EXPONENT_INF`), `_scaled_residual`, `_scaled_norm` | SqrNormL2 value and value parts. LeastSquaresLoss recovery (`_exceptional_square_value`, and `_square_exponent`/`_square_scaled_sum` through `_leastsquares_squares`). The cold path of the NormL2 value (`_l2_value_cold` calls `_residual_squares`) | `_sumabs2`/`_sumabs2_diff` and one comparison | R1: an overflowing or underflowing square does not hide a representable value |
 | Overflowing residual a − b of finite data | inline `a/2 - b/2` in `_residual_exponent`, `_scaled_residual`, `_ridge_gradient_overflow` (sqrnorml2.jl) | SqrNormL2 value and gradient, LeastSquaresLoss recovery | none | R2: the difference is formed before scaling, so cancellation keeps its units |
 | Ordinary sum-of-squares trigger | inline `s >= n * (floatmin/eps)` | `_square_value`, `_ridge_value_wide_center` (sqrnorml2.jl), `_leastsquares_value` (leastsquares.jl) | one comparison | R1: no square underflowed by more than eps of the sum |
 | Overflow-safe units of a recomputed dot | inline `max(0, bound(maxabs a) + bound(maxabs b) + ⌈log₂ n⌉ + margin - emax)` | `_linear_value_recover` (margin 2), `_leastsquares_recover` (margin 3, plus a Y term) | none | R1: no partial sum of the recomputation overflows |
-| Exponent-ordered sum of parts | `_pow2_weighted` (generic, and a method for two terms), `_pow2_sum` | LinearFunction, LeastSquaresLoss recoveries. The ℓ2 group screen (`_l2_screen_cold`) | none | R1 |
-| Exact-product accumulator | `_ExpSum`, `_expsum_*` | QuadraticFunction recovery. The recomputed `GroupNormL2` value (`_l2_expsum_add`, `_expsum_value`) | none | R1 (#520) |
-| Index-set ℓ2 norm (section 7) | `_IndexedValues`, `_l2_classified_norm`, `_l2_all_zero`, `_l2_shrink!`, `_l2_shrink_cold!`, `_l2_shrink_values!`, `_l2_term`, `_l2_fused_term`, `_l2_term_cold`, `_l2_value`, `_l2_value_cold`, `_l2_expsum_add`, `_l2_screen`, `_l2_screen_cold`, `_indexed_sumabs2`, `_recovery_type` | NormL2 and GroupNormL2 (oracles in `norml2.jl`, `groupnorml2.jl`) | `_indexed_sumabs2`, one range test, no extra pass | R1/R3, NR1/NR2, D1-D3, Option C |
+| Exponent-ordered sum of parts | `_pow2_weighted` (generic, and a method for two terms), `_pow2_sum` | LinearFunction, LeastSquaresLoss recoveries | none | R1 |
+| Exact-product accumulator | `_ExpSum`, `_expsum_*` | QuadraticFunction recovery. The recomputed `GroupNormL2` value (`_expsum_start`, `_expsum_product`) | none | R1 (#520) |
+| Index-set ℓ2 norm (section 7) | Dedicated kernels of norml2.jl: `_l2_allzero`, `_l2_scan`, `_l2_scaled_norm`, `_l2_shrink!`, `_l2_shrink_cold!`, `_l2_term`, `_l2_fused_term`, `_l2_term_cold`, `_l2_value`, `_l2_value_cold`, `_l2_parts_value`, `_l2_cold_type`; `_group_screen`, `_group_screen_cold`, `_group_value_recomputed` (groupnorml2.jl) | NormL2 and GroupNormL2 | `_indexed_sumabs2`, one range test, no extra pass | R1/R3, NR1/NR2, D1-D3, Option C |
 | Sum kept at the ordinary result | `_sum_kept` | NormL1 value, GroupNormL2 value | one comparison | #373 |
 | Underflow risk of products | `_underflow_threshold`, `_min_nonzero_exponent`, `_quadratic_products_normal` | QuadraticFunction only | one pass for max\|x\| | R1 (#520) |
 | Ridge prox weights | `_RidgeOrdinary`, `_RidgeScaled`, `_ridge_*` (sqrnorml2.jl) | SqrNormL2 prox and prox_block | precomputed weights, vectorized loop | R3 |
@@ -173,124 +172,73 @@ only difference on the characterization grid.
   exact-product sum, not scaled squares). Migrating it was not justified by
   shared code.
 
-## 7. The ℓ2 kernels of NormL2 and GroupNormL2 (#900)
+## 7. The ℓ2 kernels of NormL2 and GroupNormL2 (#900): dedicated paths
 
-The ℓ2 shrinkage, values and group screen live in `src/numerical_kernels.jl`; the
-norm files keep types, validation, oracles and loops over groups. The recovery paths
-call the kernels of sections 1-4 and were not copied. Outputs are bit-identical to the
-code before the consolidation, except for two BigFloat exceptions that the maintainer ruled
-on (see the end of this section): D-X, exponent arithmetic that leaves `Int64`, and
-D-MPFR, results under a directed rounding mode at MPFR's exponent limits.
+The ℓ2 shrinkage, values and group screen are dedicated code in `src/functions/norml2.jl` (for one index
+set, the whole array for `NormL2`, one group for `GroupNormL2`) and `src/functions/groupnorml2.jl` (the group
+value recomputation and the group screen with its cold path). Their outputs are bit-identical to `76964085`
+in every type and rounding mode. A consolidation of these kernels into `numerical_kernels.jl`, shared with
+the other families, was measured against this design; this file records the dedicated one.
 
-**New shared primitives**
+**Shared with other families** (the only dependencies of the ℓ2 kernels on `numerical_kernels.jl`)
 
-* `_IndexedValues(x, G)`: the entries `x[G[j]]` as a read-only vector, without the
-  allocation of `view` for a matrix `x`. With an element type, `_IndexedValues(x, G, T)`
-  reads them rounded to `T`; `_l2_all_zero(x, G, T)` = `_all_zero(_IndexedValues(x, G, T))`
-  decides a zero group on the entries as the loops in the destination type `T` read them.
-  The cold paths scan the adapter.
-* `_square_exponent(x, nothing, R)`, the method for `y = 0`: one pass that returns the
-  largest exponent (that of the entry converted to `R`, as the `_l2_scan` of the code before
-  the consolidation took it) or a class, `_EXPONENT_NAN` at the first NaN, `_EXPONENT_INF` for an
-  infinite entry and no NaN, `_EXPONENT_ZERO` for a zero group. The method with a second
-  operand and `_residual_exponent` are those of the code before the consolidation: a
-  residual that is not finite gives `_EXPONENT_NONFINITE` (`typemax(Int)`) there, not
-  classified. `_residual_squares` returns `nothing` for the non-finite codes of both.
-* `_square_scaled_sum(x, nothing, k, R)`: the scaled sum for `y = 0`, with one power
-  factor.
-* `_pow2_weighted(R, w, t1, t2)`: a method for two terms with the operations of the
-  generic method (the larger term first, aligned addition, renormalization, the final
-  product). For the IEEE types only (`R <: Base.IEEEFloat`: Julia rounds them to nearest
-  only, and their `frexp` is exact, so the larger term is first), a term more than
-  `2 precision(R)` binades below the sum is not shifted: it is below half an ulp of the
-  sum, which round-to-nearest then leaves unchanged, and the shift can round to a
-  subnormal number or to zero, the slow case that is avoided. Every other type, BigFloat
-  included, does the generic method's sum in every rounding mode: under RoundUp,
-  RoundDown and RoundToZero a term below half an ulp can still move the result,
-  depending on its sign and the mode. The generic method remains the definition. The
-  two agree where each nonzero term has an exponent sum `exponent(m) + e` above
-  `typemin(Int)`, the value from which the selection of the generic method starts, and
-  the tests compare them there bit for bit, for BigFloat at two precisions under all four
-  rounding modes. At that sum the generic method selects no term and the method for two
-  terms takes the single nonzero term, so the two differ there: for BigFloat
-  `(floatmin(BigFloat), -2^62)` with a zero term, and for the IEEE types
-  `(T(0.75), typemin(Int) + 1)` with a zero term and the weight `T(Inf)` (`Inf` from the
-  method for two terms, `NaN` from the generic one).
-* `_scaled_norm(x, y, s, scale)`: the optional scale multiplies the norm (default one).
-* `_threshold_product`, `_sum_kept`, `_indexed_sumabs2`, `_recovery_type`.
+* `_indexed_sumabs2(x, G, T)`: the vectorized sum of squares of the entries of `x[G]`, each rounded to `T`;
+  the first pass of the ordinary shrinkage, value and screen, and the sum of squares of the stored values of a
+  `SparseIterate` (`_sumabs2` of `SqrNormL2`).
+* `_sum_kept`: the test that the ordinary sum of the terms of a value is kept (`NormL1` values, the `GroupNormL2`
+  value).
+* `_working_type`, `_squares_normal`, `_level_fits`, `_scaled_product`, `_power_factors`, `_scale_value`,
+  `_compensated_add`, `_frexp`, `_kkt_coefficient`, `_ExpSum` with `_expsum_start` and `_expsum_product`, and,
+  for the `NormL2` value, `_sumabs2`, `_all_zero`, `_residual_squares` and `_square_term_count`.
+* The kernels that the other families use and that stay in `numerical_kernels.jl`: the `y = nothing` methods of
+  `_square_exponent` and `_square_scaled_sum` with the classification codes `_EXPONENT_NAN`, `_EXPONENT_INF`,
+  `_EXPONENT_ZERO` (`SqrNormL2`, `norm`), `_scaled_norm`, `_threshold_product` (`NormL1`), and the method of
+  `_pow2_weighted(R, w, t1, t2)` for two terms, described next.
 
-**Helper by helper**
+**The two-term `_pow2_weighted`** (LinearFunction, LeastSquaresLoss) has the operations of the generic method
+(the larger term first, aligned addition, renormalization, the final product). For the IEEE types only
+(`R <: Base.IEEEFloat`: Julia rounds them to nearest only, and their `frexp` is exact, so the larger term is
+first), a term more than `2 precision(R)` binades below the sum is not shifted: it is below half an ulp of the
+sum, which round-to-nearest then leaves unchanged, and the shift can round to a subnormal number or to zero,
+the slow case that is avoided. Every other type, BigFloat included, does the generic method's sum in every
+rounding mode: under RoundUp, RoundDown and RoundToZero a term below half an ulp can still move the result,
+depending on its sign and the mode. The generic method remains the definition. The two agree where each
+nonzero term has an exponent sum `exponent(m) + e` above `typemin(Int)`, the value from which the selection of
+the generic method starts, and the tests compare them there bit for bit, for BigFloat at two precisions under
+all four rounding modes. At that sum the generic method selects no term and the method for two terms takes the
+single nonzero term, so the two differ there: for BigFloat `(floatmin(BigFloat), -2^62)` with a zero term, and
+for the IEEE types `(T(0.75), typemin(Int) + 1)` with a zero term and the weight `T(Inf)` (`Inf` from the
+method for two terms, `NaN` from the generic one).
 
-| Before | Now |
+**Dedicated to the ℓ2 norms**
+
+| Function | Role |
 |---|---|
-| `_l2_scan`, `_l2_scaled_norm` (norml2.jl) | removed: `_l2_classified_norm` = `_square_exponent(…, nothing, R)` on `_IndexedValues`, then `_square_scaled_sum(…, nothing, k, R)` |
-| `_l2_parts_value` | removed: `_scaled_product` (term, value) and `_expsum_value` (group value) |
-| `_l2_value_cold` | `_scaled_norm(x, nothing, s, λ)`; the infinite level is decided by the class |
-| difference in `_group_screen_cold` | `_pow2_sum(R, (ns, k), (-mλmw, eλ+ew))` |
-| `_l2_allzero(x, G, T)` | `_l2_all_zero(x, G, T)` = `_all_zero(_IndexedValues(x, G, T))`: the entries rounded to `T`, as before |
-| `_l2_sumsq` | `_indexed_sumabs2`; `_sumabs2(::SparseIterate)` is the same loop |
-| `_l2_cold_type` | `_recovery_type` |
-| `_l1_sum_kept` | `_sum_kept` (also in `_group_value_checked`) |
-| `_l2_shrink_cold!` (one function) | `_l2_shrink_cold!` for the exits that the parameters decide, and `_l2_shrink_values!` for the values (classification, scaled norm, shrinkage), so that those exits do not carry the frame of the value part |
-| γλw in `_l1_prox_threshold` and `_l2_shrink!` | `_threshold_product` |
-| `_l2_shrink!`, `_l2_zero!`, `_l2_copy!`, `_l2_fill!`, `_l2_scale!`, `_l2_term`, `_l2_fused_term`, `_l2_term_outofline`, `_l2_ordinary`, `_l2_value`, `_L2_ZERO`, `_L2_RECOMPUTE` | moved from norml2.jl, ordinary path unchanged |
-| arithmetic of `_group_screen`, per-group term of `_group_value_recomputed` | `_l2_screen`, `_l2_expsum_add` (groupnorml2.jl keeps adapters and the loop over groups) |
+| `_l2_allzero(x, G, T)` | whether every entry rounded to `T` is a zero of either sign (the destination type decides, as in the sums of squares in `T`) |
+| `_l2_scan`, `_l2_scaled_norm` | the cold pass: NaN, Inf and the largest exponent of a group, then the compensated sum of its entries scaled by `2^-e` |
+| `_l2_shrink!`, `_l2_shrink_cold!` | the ordinary shrinkage with its single normal-range test and the cold path decided by the parameters and the values |
+| `_l2_term`, `_l2_fused_term`, `_l2_term_cold` | the term `λw‖x[G]‖₂` of a value, the fused variant and the cold term |
+| `_l2_value`, `_l2_value_cold` | the `NormL2` value on arrays and on the three iterates |
+| `_l2_parts_value`, `_l2_cold_type`, `_l2_ordinary` | `m 2^E` rounded once, the type of the cold recomputations (at least Float64), the ordinary range test |
+| `_group_value_checked`, `_group_value_recomputed` | the recomputed `GroupNormL2` value, with `_ExpSum` |
+| `_group_screen`, `_group_screen_cold` | `‖g[G]‖₂ - λ0 w` and its cold path |
 
-**D-X: exponent sums beyond `Int64`.** For BigFloat, a sum of
-exponents (the level, the weight and the norm of a group term, or a difference of
-exponents of the group screen) can leave `Int64`, as MPFR exponents reach ±(2^62 − 1).
-The shared kernels take these sums in `Int128`. For example,
-`GroupNormL2(λ0 = w = 2^(2^62-2))` at `x = [2^(2^62-2)]` had value `0` (the sum wrapped)
-and now has value `Inf`. Float32 and Float64 are not affected.
+**Recovery algorithms that exist twice.** The dedicated paths copy these algorithms of the shared kernels,
+all on cold paths only:
 
-**D-MPFR: BigFloat under a directed rounding mode at MPFR's exponent limits.** This is a
-second exception, separate from D-X.
+* the scaled norm of a group: `_l2_scan` + `_l2_scaled_norm` (one pass for the class and the largest exponent, one
+  for the compensated sum of entries scaled by `2^-e`) against `_square_exponent` + `_square_scaled_sum`
+  (`y === nothing` methods), which serve `SqrNormL2` and `norm`;
+* the product of the level, the weight and the norm rounded once to `T`: `_l2_parts_value` and the frexp products in
+  `_l2_term_cold` and `_group_screen_cold` against `_scaled_product` and `_expsum_value`;
+* the difference of the scaled norm and the coefficient in the group screen, aligned by hand in the units of the
+  larger exponent, against `_pow2_sum`;
+* the threshold `γλw` of the ordinary shrinkage, formed inline against `_threshold_product` (three lines);
+* the `NormL2` value cold path, which calls `_residual_squares` as `SqrNormL2` does (one algorithm).
 
-* Scope: a BigFloat result computed under a rounding mode other than `RoundNearest`
-  (`RoundUp`, `RoundDown`, `RoundToZero`, set with `setrounding`), where an operand or a
-  product lies at the edge of MPFR's exponent range (exponents near ±2^62). It was found
-  in the group screen (`kkt_violation` of `GroupNormL2`), through the shared `_pow2_sum`.
-  The screen before the consolidation aligned its two terms by hand; the shared kernel,
-  which LinearFunction and LeastSquaresLoss already used, aligns them in another frame,
-  and at the edge of MPFR's range the two frames drop a vanishing term at different
-  points. A directed rounding mode sees that.
-* Not a waiver: it covers no other BigFloat difference. Float32 and Float64 are not
-  affected, as Julia has no `setrounding` method for them and they round to nearest. BigFloat
-  under `RoundNearest` agreed with the code before the consolidation, outside D-X, in the grid
-  below and in the comparison sweeps that were run.
-* The shared generic `_pow2_sum` shows the same difference (the specialization for two
-  terms is not the cause): with the method for two terms routed to the generic one, the
-  reproducer below gives `m` under `RoundDown` and `RoundToZero`, where the code before the
-  consolidation gives `0`. The cause is the move of the screen to the shared kernel. Restoring
-  the old arithmetic would copy the recovery code of the sum back into the screen, and
-  changing `_pow2_sum` would change LinearFunction and LeastSquaresLoss; neither was done.
-* Reproducer, at precision 256 under `RoundToZero`, with `m = floatmin(BigFloat)`:
-
-  ```julia
-  setprecision(BigFloat, 256) do
-      setrounding(BigFloat, RoundToZero) do
-          m = floatmin(BigFloat)
-          kkt_violation(GroupNormL2(m, [1:1], [m]), [m], [BigFloat(0)], 1)
-      end
-  end
-  ```
-
-  It returns `0` before the consolidation (`76964085`) and `m` now. The product of the level
-  and the weight has an exponent near −2^63, below MPFR's range but inside `Int64`, so
-  this is not D-X.
-* Extent, measured as the number of cases where the screen differs from the code before the
-  consolidation, at precision 256. Each case is `kkt_violation` of a `GroupNormL2` with one
-  group of one entry, at the point 0 with the gradient entry `g`. The exponents of λ, w and `g`
-  are taken from MPFR's smallest exponent and the values 1 and 300 above it, MPFR's largest
-  exponent and the values 1 and 300 below it, ±2^61, ±1000 and 0. The significands are 1 and 1.5
-  for λ, 1 for w, and 1, 1.25 and −1.75 for `g` (7986 cases per mode):
-
-  | Mode | λw exponent within MPFR's range | λw exponent outside |
-  |---|---|---|
-  | RoundNearest | 0/5016 | 930/2970 (D-X) |
-  | RoundUp | 0/5016 | 930/2970 |
-  | RoundDown | 11/5016 | 528/2970 |
-  | RoundToZero | 42/5016 | 486/2970 |
-
-  The 53 differences with λw inside MPFR's range all have an operand at MPFR's smallest
-  exponent.
+**Exceptions to bit identity.** None for the ℓ2 norms. The two BigFloat differences that the maintainer ruled
+on for the shared kernel (D-X: exponent sums beyond `Int64`; D-MPFR: a directed rounding mode at MPFR's
+exponent limits) do not arise here, because the dedicated paths are those of `76964085`; with them the
+BigFloat exponent sums of the group value and the screen wrap at `Int64` as before
+(`GroupNormL2(λ0 = w = 2^(2^62-2))` at `x = [2^(2^62-2)]` has value `0`, and `test/groupnorml2.jl` records it as a known defect with
+`@test_broken`).

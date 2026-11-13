@@ -177,20 +177,20 @@ exceptions, which are allocations of the package call and are listed by id when 
 `ALLOC_OK` table of the script with the reason. Cases whose level is a `BigFloat` with Float64 data are checked
 but not timed (the arithmetic is BigFloat).
 
-**The BigFloat exception (D-X).** One case, `GroupNormL2/value/BigFloat/dx_exponent_sum_beyond_Int64`, has
-`λ0 = w = x = 2^(2^62-2)`, whose value overflows MPFR. The reference tree wraps the sum of three exponents and
-returns `+0`; the shared kernel returns `+Inf`. The case is the only one allowed to differ. `PB_EXPECT_DIFF`
-tells the check what to require of it:
+**The BigFloat case (D-X).** One case, `GroupNormL2/value/BigFloat/dx_exponent_sum_beyond_Int64`, has
+`λ0 = w = x = 2^(2^62-2)`, whose value overflows MPFR. The dedicated ℓ2 paths wrap the sum of three exponents
+and return `+0`, as `76964085` does; a kernel with a widened exponent sum returns `+Inf`. The case is the only one
+that can differ between trees. `PB_EXPECT_DIFF` tells the check what to require of it:
 
 | `PB_EXPECT_DIFF` | requirement |
 |---|---|
 | `auto` (default) | `same` when `PB_FIRST` and `PB_SECOND` are the same path, `forward` otherwise |
-| `0` or `same` | X and Y are equal (use it when both roots hold the same source) |
-| `1` or `forward` | X gives `+0` and Y gives `+Inf` (the reference tree is X) |
+| `0` or `same` | X and Y are equal (use it when both roots hold the same source, or the same dedicated ℓ2 paths) |
+| `1` or `forward` | X gives `+0` and Y gives `+Inf` (X wraps, Y has the widened sum) |
 | `reversed` | X gives `+Inf` and Y gives `+0` (a run with the roles reversed) |
 
 Run `l2_cold_paths.jl` with the roles reversed with `PB_EXPECT_DIFF=reversed` (or `0` when both trees hold the
-same source); otherwise `auto` fails there.
+same source or the same dedicated ℓ2 paths, as `76964085` and this tree do); otherwise `auto` fails there.
 
 ## Timing campaign
 

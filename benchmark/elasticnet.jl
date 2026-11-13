@@ -95,7 +95,7 @@ function makeprobes(PB, ::Type{T}, D) where {T}
         add("value/weighted/n$n", n, :value, value_case(d.out, fw, d.x))
         add("value/ridge_dominant/n$n", n, :value, value_case(d.out, fr, d.xr))
         add("value/l1_dominant/n$n", n, :value, value_case(d.out, fl, d.xl))
-        add("value_and_prox!/weighted/n$n", n, :vprox, vprox_case(px, d.out, fw, d.x, γ))
+        add("value_and_prox!/weighted/n$n", n, :vprox, vprox_case(vp, d.out, fw, d.x, γ))
         add("scaled_prox!/weighted/n$n", n, :prox, prox_case(px, d.out, fs, d.x, γ))
     end
     I = D[:iterates]

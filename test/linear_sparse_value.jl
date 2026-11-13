@@ -106,6 +106,37 @@ function separated_pair(rng, T, p; diagonal, cancel)
   x, diagonal ? Diagonal(T[c[j, j] for j in 1:p]) : c
 end
 
+
+# Terms x c that cancel exactly in pairs, for the diagonal of a p × p iterate, x of type Tx and c of type Tc: a class has
+# the product exponent pe = E + 1 - rand(0:spread), E = exponent(floatmax(promote_type(Tx, Tc))), the product of the
+# significands being small integers over 4 (so every product is exact in Float64), and each pair is (x, c), (x, -c).
+# Returns the entries (x, c) in a random order, or nothing if a factor is out of the range of its type.
+function cancelling_terms(rng, Tx, Tc, spread, nclass, maxpairs)
+  E = exponent(floatmax(promote_type(Tx, Tc)))
+  sig() = rand(rng, (4, 5, 6, 7)) / 4
+  terms = Tuple{Tx, Tc}[]
+  for _ in 1:nclass
+    pe = E + 1 - rand(rng, 0:spread)
+    for _ in 1:rand(rng, 1:maxpairs)
+      xe = rand(rng, 1:20)
+      x, c = ldexp(Tx(sig()), xe), ldexp(Tc(sig()), pe - xe)
+      (isfinite(x) && isfinite(c)) || return nothing
+      push!(terms, (x, c), (x, -c))
+    end
+  end
+  terms[randperm(rng, length(terms))]
+end
+# an iterate with the entries xs on the diagonal, activated in the order of the vector, and the coefficients cs
+function diagonal_iterate(Tx, p, xs)
+  x = SparseIterate(Tx, p, p)
+  for (j, v) in enumerate(xs)
+    x[j, j] = one(Tx); x[j, j] = v
+  end
+  x
+end
+# all 24 orders of 1:4
+const ORDERS4 = [[a, b, c, d] for a in 1:4 for b in 1:4 for c in 1:4 for d in 1:4 if allunique((a, b, c, d))]
+
 # allocations of a warmed call
 allocated(f, x) = (f(x); f(x); @allocated f(x))
 
@@ -727,6 +758,100 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
       end
       f = LinearFunction(a2, T(0.5))
       @test agrees(f(x), reference(f, x, T), T)
+    end
+  end
+
+  # A small d after a dot that cancels (the dot is recomputed from exponent-separated terms because it overflows): the
+  # recovery collapses the pair of the compensated sum before d enters, so an exactly cancelling dot gives d exactly.
+  @testset "A small d after a cancelling dot ($T)" for T in (Float32, Float64)
+    for Tc in (T === Float32 ? (Float32, Float64) : (Float64,))
+      R = promote_type(T, Tc)
+      E = exponent(floatmax(R))
+      xexp = T === Float32 ? 64 : 512
+      xa = ldexp(one(T), xexp)
+      # the reported case: products a^2 = 2^(E+1) (overflow), a, -a^2, -a with a = 2^(E+1)/2 for uniform types; for a
+      # Float32 iterate with Float64 coefficients, coefficients 2^(E+1-xexp) and 2^((E+1)/2-xexp)
+      cbig, csmall = ldexp(one(Tc), E + 1 - xexp), ldexp(one(Tc), (E + 1) ÷ 2 - xexp)
+      cs = Tc[cbig, csmall, -cbig, -csmall]
+      for d in (T(0.25), -T(0.25), T(3), ldexp(T(1.5), -20)), diagonal in (true, false), order in ORDERS4
+        x = SparseIterate(T, 4, 4)                                      # activated in the order `order`
+        for j in order
+          x[j, j] = one(T); x[j, j] = xa
+        end
+        c = diagonal ? Diagonal(cs) : Matrix(Diagonal(cs))
+        f = LinearFunction(c, d)
+        @test !isfinite(PB._linear_stored_dot(c, x) + d)                  # the ordinary value overflows: the recovery runs
+        @test f(x) === d
+      end
+      # the coefficient order is also permuted (the products cancel in another order)
+      x = SparseIterate(T, 4, 4)
+      for j in 1:4
+        x[j, j] = one(T); x[j, j] = xa
+      end
+      for perm in ORDERS4, d in (T(0.25), -T(0.25))
+        @test LinearFunction(Diagonal(cs[perm]), d)(x) === d
+        @test LinearFunction(Matrix(Diagonal(cs[perm])), d)(x) === d
+      end
+      # exactly cancelling sets with more terms, in a random order: d exactly, ordinary value overflowing
+      rng = Xoshiro(810_900 + 7 * (T === Float32) + (Tc === Float32))
+      counted = 0
+      for _ in 1:400
+        terms = cancelling_terms(rng, T, Tc, 100, rand(rng, 1:4), 3)
+        terms === nothing && continue
+        p = length(terms)
+        x = diagonal_iterate(T, p, first.(terms)); cd = Tc[t[2] for t in terms]
+        for d in (T(0.25), -T(0.25))
+          isfinite(PB._linear_diagonal_dot(cd, x) + d) && continue
+          counted += 1
+          @test LinearFunction(Diagonal(cd), d)(x) === d
+          @test LinearFunction(Matrix(Diagonal(cd)), d)(x) === d
+        end
+      end
+      @test counted >= 40
+    end
+  end
+
+  # Near cancellation: a cancelling set and one more product delta, beside d. The value is within the R1 bound of
+  # delta + d, and whenever the error budget of the argument is small relative to |delta| + |d| it is also within that
+  # budget: 4 eps(T) (|delta| + |d|) for the roundings of delta and d, 4 n eps(A)^2 sum|terms| for the compensated sum
+  # (A = Float64 the type of the accumulator) and 2 n 2^(ex - 1074) for the terms below the frame of the largest
+  # product (2^ex, ex <= E + 3 here), which the accumulator drops. The budget is not small for a delta much smaller than the terms.
+  @testset "Near cancellation ($T)" for T in (Float32, Float64)
+    for Tc in (T,)        # a mixed pair would need |delta| below floatmax(Float32) beside terms of size 2^1024: no relative claim
+      R = promote_type(T, Tc)
+      E = exponent(floatmax(R))
+      rng = Xoshiro(810_950 + 7 * (T === Float32) + (Tc === Float32))
+      within = 0
+      for _ in 1:500
+        terms = cancelling_terms(rng, T, Tc, 20, rand(rng, 1:3), 2)
+        terms === nothing && continue
+        # the extra product delta = (s1 2^k)(s2 2^l)-style with a significand of at most 4 bits and an exponent so that
+        # |delta| is far above the budget of the large terms; d of a size from far below to far above delta
+        k = T === Float32 ? rand(rng, 70:120) : rand(rng, 985:1000)
+        dk = min(k + rand(rng, -30:30), T === Float32 ? 120 : 1000)
+        xe = rand(rng, 1:20)
+        δx, δc = ldexp(T(rand(rng, 1:7)), xe), ldexp(Tc((rand(rng, Bool) ? 1 : -1) * rand(rng, 1:7)), k - xe)
+        push!(terms, (δx, δc))
+        p = length(terms)
+        x = diagonal_iterate(T, p, first.(terms)); cd = Tc[t[2] for t in terms]
+        d = (rand(rng, Bool) ? one(T) : -one(T)) * ldexp(T(rand(rng, 1:7)), dk)
+        isfinite(PB._linear_diagonal_dot(cd, x) + d) && continue
+        for c in (Diagonal(cd), Matrix(Diagonal(cd)))
+          f = LinearFunction(c, d)
+          ref = reference(f, x, T)
+          v = f(x)
+          @test isfinite(v) && abs(big(v) - ref.value) <= ref.bound                 # R1
+          δ = big(δx) * big(δc)
+          sabs = sum(abs(big(a) * big(b)) for (a, b) in terms)
+          budget = 4 * big(eps(T)) * (abs(δ) + abs(big(d))) + 4 * length(terms) * big(eps(Float64))^2 * sabs +
+                   2 * length(terms) * big(2)^(E + 3 - 1074)
+          if budget <= 16 * big(eps(T)) * (abs(δ) + abs(big(d)))
+            within += 1
+            @test abs(big(v) - (δ + big(d))) <= budget
+          end
+        end
+      end
+      @test within >= 100
     end
   end
 end

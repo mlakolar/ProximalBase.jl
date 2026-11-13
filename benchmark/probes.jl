@@ -127,15 +127,15 @@ function makeprobes(::Type{T}) where T
         add("$family/elasticnet_value",()->en(x),reset,()->en(x))
         add("$family/elasticnet_prox",()->(PB.prox!(enout,en,x,T(.7));nothing),reset,()->family===:symmetric ? Matrix(enout) : Vector(enout))
     end
-    en=PB.ElasticNet(T(.3),T(.5),T(.5).+T.(mod.(1:1024,7))./4)
+    enw=PB.ElasticNet(T(.3),T(.5),T(.5).+T.(mod.(1:1024,7))./4)
     add("elasticnet/scalar_prox",()->begin
         s=zero(T)
         @inbounds for i in eachindex(scalar_u)
-            s+=PB.prox_block(en,scalar_u[i],i,T(.7))
+            s+=PB.prox_block(enw,scalar_u[i],i,T(.7))
         end
         s
-    end,noop,()->[PB.prox_block(en,scalar_u[i],i,T(.7)) for i in eachindex(scalar_u)])
-    add("elasticnet/vector_prox",()->(PB.prox!(out,en,scalar_u,T(.7));nothing),noop,()->copy(out))
-    add("elasticnet/vector_value",()->en(scalar_u),noop,()->en(scalar_u))
+    end,noop,()->[PB.prox_block(enw,scalar_u[i],i,T(.7)) for i in eachindex(scalar_u)])
+    add("elasticnet/vector_prox",()->(PB.prox!(out,enw,scalar_u,T(.7));nothing),noop,()->copy(out))
+    add("elasticnet/vector_value",()->enw(scalar_u),noop,()->enw(scalar_u))
     ps
 end

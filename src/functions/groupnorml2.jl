@@ -247,10 +247,6 @@ function _group_prox_all!(y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {V}
   for k in eachindex(f.groups)
     G = @inbounds f.groups[k]
     w = @inbounds f.w[k]
-    if iszero(w)   # an unpenalized group: copied, no term (the cold path would be called for each)
-      _l2_copy!(y, x, G)
-      continue
-    end
     s = _l2_shrink!(y, x, G, f.λ0, w, γ)
     V && (v += _l2_fused_term(f.λ0, w, y, G, s, T))
   end

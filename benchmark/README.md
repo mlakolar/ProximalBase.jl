@@ -68,3 +68,28 @@ probes are the recomputed sums, whose values the fix changes; the other outputs 
 PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
   julia --threads=1 --project=benchmark benchmark/norml1_value_underflow.jl
 ```
+
+## LinearFunction value harness
+
+`linear_sparse_value.jl` times the `LinearFunction` value at a matrix `SparseIterate` (#810), which sums the stored
+nonzero entries and reads the coefficients at them (a `Diagonal` coefficient array is summed over
+the nonzero stored diagonal entries, `O(p)`), for Float32 and Float64 at 16 × 16,
+128 × 128 and 1024 × 1024: nominal densities of 2 entries, 1%, 10%, 25% (shuffled), 50% and 100% (rounded to integer counts), a fully stored iterate with 50% and 90% of the
+entries stored as zeros, sequential and shuffled activation order, an overflowing dot with finite coefficients
+(the exceptional path), a `Diagonal` coefficient array, `value_and_gradient!` and `value_and_prox!` at a matrix
+iterate, and controls for code that the change does not touch (the dense matrix value, the vector and the symmetric
+iterate values, `gradient!` and `prox!` at a matrix iterate). It has the design of the harnesses above (roles X, Y
+and the A/A control XC, alternating order, shared arrays, reversed-role and fresh-process repeats), and
+`summarize_norml1_infinite_weight.py` summarizes its output. The roles can differ in the last bits of a value, because
+the new value sums in another order than the base, so the roles' outputs are compared with each other with
+tolerances (an empirical check for the random data of the cells, not an error bound); the exceptional cells are
+compared with a BigFloat reference computed from the inputs, and a difference across the roles there is printed. The number of repetitions of a sample (`evals`) is a heuristic
+from a nominal size of the cell (about its number of stored entries), and the duration of a sample is not calibrated. The iterates and their
+backing arrays are built per role while the coefficient and output arrays are shared, so read timings through the A/A
+spread, reversed-role and fresh-process repeats. With `PB_FILTER` the iterates of the other cells are not built (the
+shared arrays of each size are). The usage is in the header of the script.
+
+```sh
+PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
+  julia --threads=1 --project=benchmark benchmark/linear_sparse_value.jl
+```

@@ -4,7 +4,7 @@
 
 The [working set](glossary.md#Working-set) records coordinates selected for updates, not just nonzero values.
 
-This page describes **only the `SparseIterate` data structure**: what a solver can do with it, the meaning of active coordinates, and the cost of each operation. It does not define a function's value, gradient, proximal operator, restriction, or KKT screen. Those belong to [the function interface](interface.md) and [coordinate descent](coordinate_descent.md).
+This page describes **only the `SparseIterate` data structure**: what a solver can do with it, the meaning of active coordinates, and the cost of each operation. It does not define a function's value, gradient, proximal operator, restriction, or KKT screen. Those belong to [the function interface](interface.md) and [coordinate descent](coordinate_descent.md); for example, the value of a `LinearFunction` at a matrix iterate is described under [Linear function](smooth.md#Linear-function).
 
 ## Purpose and representation
 

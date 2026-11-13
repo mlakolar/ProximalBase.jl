@@ -1,85 +1,75 @@
-# Whole-iterate BlockIterate replacement strategies (#872)
+# Whole-array BlockIterate replacement (#872)
 
-This campaign compares strategies for `_copy_active!`, the step of
-`copyto!(dest::BlockIterate, src::BlockIterate)` that runs after the
-self-copy, length, layout and conversion checks. It reuses #861's `owner`,
-restore, validation and restart helpers (`../copy861/cases.jl`) and #852's
-locked environment and measurement worker (`../audit852`). Ordinary block
-writes and `copyto!(blockview(x, k), buffer)` (#860) are outside its scope.
+This benchmark compares master's `_copy_active!` with the merged one. `_copy_active!`
+is the step of `copyto!(dest::BlockIterate, src::BlockIterate)` that runs after the
+self-copy, length, layout and conversion checks. When every source group is active,
+the merged version copies `storage`, `active` and `position` as whole arrays in an
+out-of-line function. The benchmark reuses #861's `owner`, restore, validation and
+restart helpers (`../copy861/cases.jl`) and #852's locked environment and measurement
+worker (`../audit852`). Ordinary block writes and `copyto!(blockview(x, k), buffer)`
+(#860) are outside its scope.
 
 Use Linux, Julia 1.13.3, one Julia/BLAS thread and an exclusively reserved CPU.
-From the repository root:
+From the repository root, with the merged source checked out:
 
 ```sh
 W=$(mktemp -d)                                   # every output goes here
-BASE=a5010d20446b0fcd518e5ec6f0194d55bd227f21   # master before the change
+BASE=a5010d20446b0fcd518e5ec6f0194d55bd227f21   # master measured as the baseline
 python3 benchmark/copy872/make_sources.py "$BASE" $W/sources
 export JULIA_DEPOT_PATH=$W/depot
 JULIA=/absolute/path/to/julia-1.13.3/bin/julia
 "$JULIA" --startup-file=no --project=benchmark/audit852 -e 'using Pkg; Pkg.instantiate()'
+# correctness: master passes and the negative control fails, then the merged source
 "$JULIA" --startup-file=no --project=benchmark/audit852 benchmark/copy872/check_all.jl $W/sources
-S=$W/sources; cp -r $S/C $S/CAA; cp -r $S/Cn $S/CnAA
-run() { python3 benchmark/copy872/run.py --julia "$JULIA" "$@"; }
-# strategies: 7-round exploration, 21-round confirmation of C
-run --source original=$S/O --source baseline=$S/A --source baselineAA=$S/AA --source B=$S/B \
-  --source C=$S/C --source C2=$S/C2 --source D=$S/D --source CD=$S/CD --output $W/explore --rounds 7
-run --source original=$S/O --source baseline=$S/A --source baselineAA=$S/AA --source C=$S/C \
-  --source CAA=$S/CAA --source CD=$S/CD --output $W/confirm --rounds 21 --start-round 8
-# refinements of C on the cells it regressed, then the full grid for Cn
+"$JULIA" --startup-file=no --project=benchmark/audit852 --check-bounds=yes \
+  benchmark/copy872/check.jl $PWD 4000 872
+# timing: targeted 21-round confirmation against master, with A/A controls
+S=$W/sources
 python3 benchmark/copy872/targeted_cases.py > $W/cases-targeted.txt
-run --source baseline=$S/A --source baselineAA=$S/AA --source C=$S/C --source Cn=$S/Cn --source Cs=$S/Cs \
-  --cases-file $W/cases-targeted.txt --output $W/target --rounds 21 --start-round 8
-run --source baseline=$S/A --source baselineAA=$S/AA --source Cn=$S/Cn --source CnAA=$S/CnAA \
-  --output $W/cn7 --rounds 7
-run --source baseline=$S/A --source baselineAA=$S/AA --source Cn=$S/Cn --source CnAA=$S/CnAA \
-  --output $W/cn21 --rounds 21 --start-round 8
-# the merged source, which adds a metadata-length check to Cn's out-of-line copies
-run --source baseline=$S/A --source baselineAA=$S/AA --source final=$PWD --source finalAA=$PWD \
+python3 benchmark/copy872/run.py --julia "$JULIA" --cpu 2 \
+  --source baseline=$S/A --source baselineAA=$S/AA --source final=$PWD --source finalAA=$PWD \
   --cases-file $W/cases-targeted.txt --output $W/final --rounds 21 --start-round 8
-for c in explore confirm target cn7 cn21 final; do
-  python3 -I benchmark/copy872/analyze.py $W/$c --output $W/summary-$c
-done
-for t in $S/A $S/C $S/Cn $S/Cs $PWD; do
-  taskset -c 0 "$JULIA" --startup-file=no -O2 --check-bounds=no --project=benchmark/audit852 \
+python3 -I benchmark/copy872/analyze.py $W/final --output $W/summary-final
+# native code of the replacement path
+for t in $S/A $PWD; do
+  taskset -c 2 "$JULIA" --startup-file=no -O2 --check-bounds=no --project=benchmark/audit852 \
     benchmark/copy872/codegen.jl $t $W/codegen
 done
-taskset -c 0 "$JULIA" --startup-file=no -O2 --check-bounds=no --project=benchmark/audit852 \
-  benchmark/copy872/diag.jl $W/sources $W/diag
 ```
 
-`make_sources.py` builds every tree in its output directory, which it requires to
-lie outside the repository. `A` and `AA` are
-the base commit, `O` is the original implementation used by #852, and every
-other tree is the base commit with `_copy_active!` replaced by
-`candidates/<name>.jl`:
+`--cpu` and `taskset -c` name the reserved CPU. Leaving out `--cases-file` runs the
+full grid; run it as a 7-round exploration and a separate 21-round confirmation
+(`--start-round 8`), and assess the two separately.
 
-| Tree | `_copy_active!` |
-|---|---|
-| B | when every source group is active: dense value copy, then the per-group metadata loop |
-| C | when every source group is active: dense value copy and bulk copies of `active` and `position` |
-| C2 | C, plus a bulk `position` copy at any activity |
-| D | for singleton layouts (one entry per group), loops that index each group's entry directly; master's loops otherwise |
-| CD | C's all-active path, then D's singleton path, then master's loops |
-| Cn | C, with the bulk copies in a separate `@noinline` function; the merged code adds the metadata-length check below to that function |
-| Cs | a dispatch between the bulk copies and the unchanged master loops |
-| X | an unconditional dense copy; a negative control that must fail `check.jl` |
+The baseline is `a5010d20`. Its `copyto!(::BlockIterate, ::BlockIterate)` and
+`_copy_active!` differ from those of `1f3749f3`, the base of the merged change, in one
+comment only; other files differ between the two commits.
+
+`make_sources.py` builds its trees in an output directory that it requires to lie
+outside the repository. `A` and `AA` are the base commit. Each file in `candidates/`
+gives a tree with `_copy_active!` replaced by that file; the only one is `X`, an
+unconditional dense copy of values and metadata, a negative control that must fail
+`check.jl`.
 
 `check.jl` compares one tree with a model written from the documented contract:
 values with signed zeros, NaN and Inf, active IDs and their order, reverse
 positions and counts, inactive and active zeros, storage ownership, layout-cache
 identity, conversion preflight, the different-layout fallback, self-copy,
 Float32/Float64 conversion and `BigFloat`. `check_all.jl` runs it in fresh
-bounds-checked processes for `A` and every candidate tree (not `AA` or `O`), and
-passes only when every tree but `X` passes and `X` completes its checks and fails.
+bounds-checked processes for `A` and every tree built from `candidates/` (not `AA`),
+and passes only when every such tree but `X` passes and `X` completes its checks
+and fails.
 
 Each round of `run.py` starts one fresh worker per role in rotated order and
 reverses the fixture order every second round. Seeds vary by round and match
-across roles. The grid covers Float32 and Float64, n = 8192 and 65536, group
+across roles. The full grid covers Float32 and Float64, n = 8192 and 65536, group
 sizes 1, 8 and 64, contiguous, strided and arbitrary layouts, and 1, 10, 50
 and 100% source activity. Destinations share or equal the source layout, are
 empty or active, hold destination-only groups, use the `samegroups` cache, mix
-precisions, or run a checkpoint/restart sequence. Run an A/A control for master
-and for the candidate (a second, identical tree) whenever ratios are reported.
+precisions, or run a checkpoint/restart sequence. `targeted_cases.py` selects every
+1% and every 100% case and the 10% `restart_shared` cases (648 cases). Run an A/A
+control for master and for the merged source (a second role loading an identical
+tree) whenever ratios are reported.
 
 `analyze.py` checks every sample's median and minimum, that every configured case
 ran in every round for every role, the rotation, one Julia binary, and that each
@@ -90,23 +80,23 @@ run from a case file only their number is checked. It
 reports each role's median paired ratio to `baseline` with seeded 10,000-resample
 95% bootstrap intervals over rounds, and counts a case as an allocation increase
 when, in some round, the role allocates more bytes or more times than the baseline
-process of that round. Assess the 7- and
-21-round campaigns separately. Small, timer-limited cases need the A/A
-controls; not every ratio above 1.05 comes from a source change.
+process of that round. Small, timer-limited cases need the A/A controls; not every
+ratio above 1.05 comes from a source change.
 
-`diag.jl` loads trees A, B, C, C2, D and CD as separate modules, times the
-public `copyto!` on identical fixtures, splits master's replacement into its
-component loops, and times layout equality for independently built layouts.
 `codegen.jl` writes the native code of the replacement functions for one tree
 and prints, per function, its instruction, push and call counts, the number of
 instructions up to and including its first jump, and whether it reads an fs- or gs-based
-(thread-local) address. The candidate headers and D/CD's trailing blank lines
-were edited after the campaigns, so regenerated trees differ from the measured
-ones in those comment and blank lines only.
+(thread-local) address.
+
+The strategy exploration that led to the merged design compared further
+replacements (B, C, C2, D, CD, Cn, Cs) and timed their components with `diag.jl`.
+Those candidates, `diag.jl` and the commands that reproduce those campaigns are in
+this directory at commit `ca19cbde714fd71c4daa1581e5ff4a6756897d78`; the results are
+on #872.
 
 ## Results (exclusive Intel Xeon E5-2640 v4, Julia 1.13.3)
 
-The full record, with tables, is on #872. Raw samples are kept outside the
+The full record, with tables, is on #872 and #914. Raw samples are kept outside the
 repository. In summary:
 
 - When every source group is active, copying `storage`, `active` and `position`
@@ -122,18 +112,13 @@ repository. In summary:
   inactive source group, the copies can differ: the loops keep the destination's
   values there, such as a `-0.0`, unless the destination has the group active,
   when they clear it to `+0.0`.
-  C, Cn and CD run full-activity replacement at a median 0.11–0.17× of master for
-  each group size; B gains less, C2 is up to 2.6× slower at 1% activity, and D
-  gains at most 1–7%, at partial activity with singleton groups.
-- C was 6–10% slower than master on the smallest 1% restart cells in the
-  exploration, the 21-round confirmation and the targeted campaign; in the
-  21-round confirmation, the only campaign with a C A/A role, so was that
-  identical tree. Its copies gave
-  `_copy_active!` thread-local access and 9–13 calls; moving them to another
-  function (Cn, Cs) removed the slowdown.
-- Cn on the full grid: 21-round medians at partial activity are 0.999–1.000
-  (master A/A 0.999–1.000), no case has a median above 1.05 with an interval
-  above 1.0, and no case allocates more than master.
+- Copies inlined into `_copy_active!` gave it thread-local access and 9–13 calls,
+  and were 6–10% slower than master on the smallest 1% restart cells; the merged
+  code keeps them in a separate `@noinline` function.
+- The merged source, targeted 21-round confirmation: median paired ratios to master
+  are 1.001 at 1% activity, 1.003 at 10% and 0.142 at 100% (0.053–0.952 across
+  cases). No case has a median above 1.05 with an interval above 1.0, and no case
+  allocates more than master.
 - Layout equality between independently built layouts costs 11–40 µs at
   K = 8192 singleton groups; sharing a layout through `similar`/`copy` or one
   `samegroups` call avoids it, so the layout cache is unchanged.

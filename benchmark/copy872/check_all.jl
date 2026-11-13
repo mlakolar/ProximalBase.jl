@@ -1,7 +1,7 @@
 # Run check.jl in fresh bounds-checked processes for tree A and for every tree that
-# make_sources.py builds from candidates/*.jl. AA (a copy of A), O (the original
-# implementation) and any other directory are not checked. Passes only when every
-# checked tree but the negative control X passes, and X runs to completion and fails.
+# make_sources.py builds from candidates/*.jl. AA (a copy of A) and any other directory
+# are not checked. Passes only when every checked tree but the negative control X
+# passes, and X runs to completion and fails.
 # usage: julia --project=benchmark/audit852 check_all.jl SOURCES_DIR [NTRIALS]
 srcdir = abspath(ARGS[1])
 ntr = length(ARGS) > 1 ? ARGS[2] : "4000"

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Build benchmark-only source trees in OUTDIR, which must lie outside the repository: the base commit's src/ with
-_copy_active! replaced by each candidate in candidates/ (A and AA are the base itself), plus
-the original implementation at bd0740d0 used by #852 (role O).
+"""Build benchmark-only source trees in OUTDIR, which must lie outside the repository: A and AA are the
+base commit's src/, and each file in candidates/ gives a tree with _copy_active! replaced by that file.
 usage: python3 make_sources.py BASE_SHA OUTDIR"""
 import pathlib,subprocess,sys
 here=pathlib.Path(__file__).resolve().parent
@@ -21,5 +20,4 @@ for name in ['A','AA']+sorted(p.stem for p in (here/'candidates').glob('*.jl')):
     f=out/name/'src'/'block_iterate.jl';s=f.read_text()
     i=s.index(start);j=s.index(endmark,i)+len(endmark)
     f.write_text(s[:i]+(here/'candidates'/f'{name}.jl').read_text()+s[j:])
-extract('bd0740d0ebbebcc76fe208e4318fe6fc5451d34b',out/'O')
 print('built',sorted(p.name for p in out.iterdir()),'from',base)

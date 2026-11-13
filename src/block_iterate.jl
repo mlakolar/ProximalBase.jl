@@ -368,6 +368,7 @@ end
 # have independent value/active storage. Groups shared with src will be entirely
 # overwritten, so only groups absent from src need their values cleared.
 function _copy_active!(dest::BlockIterate{T}, src::BlockIterate) where {T}
+  src.nactive == length(src.groups) && return _copy_all_active!(dest, src)
   @inbounds for a in 1:dest.nactive
     k = dest.active[a]
     if src.position[k] == 0
@@ -386,6 +387,21 @@ function _copy_active!(dest::BlockIterate{T}, src::BlockIterate) where {T}
     dest.active[a] = k
     dest.position[k] = a
   end
+  dest.nactive = src.nactive
+  dest
+end
+
+# Used by _copy_active! when every group of src is active. The groups partition the
+# entries, so its loops would then write every entry of dest and copy all of active
+# and position from src; the whole-array copies below give the same state. With an
+# inactive group in src they would not: the loops keep dest's values in that group,
+# such as a -0.0, unless dest has it active. Kept out of line: inlined into
+# _copy_active!, the copies slowed its loop path for small, partly active sources in
+# measurements on Julia 1.13.
+@noinline function _copy_all_active!(dest::BlockIterate, src::BlockIterate)
+  copyto!(dest.storage, src.storage)
+  copyto!(dest.active, src.active)
+  copyto!(dest.position, src.position)
   dest.nactive = src.nactive
   dest
 end

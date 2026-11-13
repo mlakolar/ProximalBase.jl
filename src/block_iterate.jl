@@ -46,12 +46,14 @@ ranges, and `map!`. A complex value converted one by one throws an
 `InexactError`, possibly after part of `x` has been written.
 
 Iterates built by these constructors, `copy` and `similar` own independent
-`storage`, `active` and `position` arrays. The seven-argument constructor
+`storage`, `active` and `position` arrays; `copy` and `similar` share the
+`groups`, `group_of` and layout cache of their argument, which must not be mutated.
+The seven-argument constructor
 `BlockIterate(storage, groups, group_of, layout_cache, active, position, nactive)`
-is a low-level construction mechanism. Passing it arrays that overlap in memory,
-with each other or with the arrays of another iterate, is unsupported and may
-give incorrect results, in particular when copying; callers that arrange storage
-themselves are responsible for its aliasing.
+is a low-level construction mechanism. Passing it `storage`, `active` or
+`position` arrays that overlap in memory, with each other or with those of another
+iterate, is unsupported and may give incorrect results, in particular when
+copying; callers that arrange storage themselves are responsible for its aliasing.
 """
 mutable struct BlockIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractVector{T}
   storage::Vector{T}       # the entries; those of inactive groups are zero
@@ -67,7 +69,8 @@ mutable struct BlockIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <
     new{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
   end
 end
-# Low-level: the arrays passed in must not overlap in memory (see the docstring).
+# Low-level: storage, active and position must not overlap in memory with each other or
+# with those of another iterate (see the docstring); groups and group_of may be shared.
 BlockIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}, layout_cache, active::Vector{Int}, position::Vector{Int}, nactive::Int) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}} =
   BlockIterate{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
 
@@ -404,12 +407,12 @@ end
 # both iterates have length K, it copies storage, active and position as whole arrays and
 # returns true; otherwise it returns false without writing, and the loops of _copy_active!
 # run. The 7-argument constructor accepts longer vectors, whose entries past K the loops
-# leave alone. With the groups a partition of the entries and the arrays of the two
-# iterates not overlapping in memory, as the ownership contract in the docstring requires,
-# the loops write every entry of dest and set all of dest.active and dest.position from
-# src, as the copies do. With an inactive group in src, the copies can differ from the
-# loops, which keep dest's values in that group, such as a -0.0, unless dest has it
-# active and they clear it to +0.0.
+# leave alone. With the groups a partition of the entries and the storage, active and
+# position arrays of the two iterates not overlapping in memory, as the ownership
+# contract in the docstring requires, the loops write every entry of dest and set all
+# of dest.active and dest.position from src, as the copies do. With an inactive group
+# in src, the copies can differ from the loops, which keep dest's values in that group,
+# such as a -0.0, unless dest has it active and they clear it to +0.0.
 # Kept out of line: inlined into _copy_active!, the copies slowed its loop path for
 # small, partly active sources in measurements on Julia 1.13.
 @noinline function _try_copy_all_active!(dest::BlockIterate, src::BlockIterate)

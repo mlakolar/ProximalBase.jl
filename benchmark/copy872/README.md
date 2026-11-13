@@ -111,10 +111,13 @@ repository. In summary:
 
 - When every source group is active, copying `storage`, `active` and `position`
   as whole arrays gives the state of the per-group loops, provided `active` and
-  `position` of both iterates have one entry per group and the arrays of the two
-  iterates do not overlap in memory. Iterates built by the constructors, `copy`
-  and `similar` own independent arrays; overlapping arrays passed to the
-  seven-argument constructor are unsupported (see the `BlockIterate` docstring).
+  `position` of both iterates have one entry per group and the `storage`,
+  `active` and `position` arrays of the two iterates do not overlap in memory.
+  Iterates built by the constructors, `copy` and `similar` own independent
+  arrays of these three kinds, while `copy` and `similar` share the
+  layout (`groups`, `group_of`, layout cache); overlapping `storage`, `active` or
+  `position` arrays passed to the seven-argument constructor are unsupported (see
+  the `BlockIterate` docstring).
   The merged code checks the lengths and otherwise runs the loops. With an
   inactive source group, the copies can differ: the loops keep the destination's
   values there, such as a `-0.0`, unless the destination has the group active,

@@ -707,7 +707,7 @@ end
             @test bigsame(a, generic(BigFloat, w, u, v))
           end
         end
-        # the example of the review: 0.75 + 0.75 2^-600 at 256 bits is above 0.75 under RoundUp, and
+        # a term below half an ulp that moves the sum: 0.75 + 0.75 2^-600 at 256 bits is above 0.75 under RoundUp, and
         # 0.75 - 0.75 2^-600 is below it under RoundDown and RoundToZero
         if p == 256
           up = PB._pow2_sum(BigFloat, (BigFloat(0.75), 0), (BigFloat(0.75), -600))
@@ -732,7 +732,7 @@ end
       end
     end
   end
-  # the public caller of the review: the group screen ‖g‖ - λw with λw 2^-600 of ‖g‖, g = 2^e, e = -2^61: the exact
+  # the group screen ‖g‖ - λw through the public kkt_violation, with λw 2^-600 of ‖g‖, g = 2^e, e = -2^61: the exact
   # value is g (1 - 2^-600), which rounds to g to nearest and upward, and to prevfloat(g) downward and toward zero
   for (mode, down) in ((RoundNearest, false), (RoundUp, false), (RoundDown, true), (RoundToZero, true)), p in (256, 512)
     setprecision(BigFloat, p) do

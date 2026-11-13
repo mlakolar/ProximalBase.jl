@@ -688,7 +688,7 @@ end
   # The same decision as NormL2: a group whose entries round to zero in the destination type T is zero in T, also if
   # the norm of the entries is not, and its output is +0. Float16 destination, Float64 entries just below half the
   # smallest Float16 (2^-25): in a group beyond 2^22 entries c/‖x‖ < 1 in the cold recomputation, so only the
-  # decision on the entries rounded to T gives +0 (a reproducer found in review).
+  # decision on the entries rounded to T gives +0: this input tells the two decisions apart.
   n = 2^22 + 1
   x = fill(-prevfloat(2.0^-25), n)
   f = GroupNormL2(floatmin(Float16), [1:n], Float16[1])

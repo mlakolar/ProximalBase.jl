@@ -388,7 +388,7 @@ end
   # is not: the sum of squares in T is zero, the entries are decided as zeros of T, and the output is +0 (not the
   # entries scaled to -0). With a Float16 destination and Float64 entries just below the rounding threshold
   # (2^-25 is half the smallest Float16), a group beyond 2^22 entries has c/‖x‖ < 1 in the cold recomputation, so
-  # only the decision on the entries rounded to T gives +0 there (a reproducer found in review).
+  # only the decision on the entries rounded to T gives +0 there: this input tells the two decisions apart.
   n = 2^22 + 1
   x = fill(-prevfloat(2.0^-25), n)
   @test all(v -> iszero(Float16(v)), x[1:8]) && !iszero(x[1])

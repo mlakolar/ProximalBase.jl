@@ -77,3 +77,43 @@ N5. **Inference.** Existing `@inferred` tests pass.
 `src/functions/norml2.jl`, `src/functions/groupnorml2.jl`; count of `@noinline`/`@inline` kernel functions
 serving NormL2/GroupNormL2; number of independent copies of a recovery algorithm (scaled norm, exponent
 sum, threshold product) — the consolidation exists to have one of each.
+
+## Calibration (orchestrator, 2026-11-13, Discovery oneweek, Xeon E5-2640 v4, jobs 14217165 and 14217167)
+
+- One process on 23 screening cases: 7 s; the full 826-case screen with 3 roles and 11 rounds, split in 5
+  shards: 34–38 s per shard. Screening is cheap: use all cases and several fresh processes.
+- Concurrency on an exclusive 20-core node, same cases: base times rise by 7% (5 processes), 15% (10), 28%
+  (20) (turbo frequency), but the paired ref/base ratio moves by about 1% at the median in every phase.
+  Single cases move by 5–10% (up to 40%) **between processes**, also between solo runs: placement noise.
+  Hence: **3 fresh processes per role order** and judge a case by all of them; up to 10 concurrent
+  processes per 2640v4 node are acceptable for paired ratios.
+- A/A per process: median |XC/X − 1| about 0.6%, p90 about 4.5%, max about 27% (single cases).
+- ref/base on Discovery (fwd/rev): zero-weight `value` 2.0–3.1× (m = 1, 2, 5, 32), zero-weight fused
+  1.2–1.3×, small-group overflow `kkt` 1.3–1.4×, NormL2 n = 1, 2 exceptional values 1.2–1.3×; NaN groups
+  and m = 1024 cold paths faster. Overall geomean 0.935.
+- Hardware for the whole experiment: `--constraint=xeon-2640v4` (Broadwell, AVX2, like the local AVX2
+  machine; most free capacity in oneweek).
+
+## How to run
+
+Paths: `H=/home/mkolar/projects/juliaPkg/pb901x/harness/experiment901`. Commit first; trees are copied by SHA.
+
+Accuracy (local is fine, pinned to your cores; no timing):
+
+    cd <your scratch dir> && PB_TREES="base=/home/mkolar/projects/juliaPkg/pb901x/base;X=/home/mkolar/projects/juliaPkg/pb901x/X" \
+      PB_OUTPUT=$PWD/acc-<sha> PB_TRIALS=6 taskset -c <cores> julia --threads=1 --startup-file=no \
+      --project=/tmp/claude-1000/-home-mkolar-projects-juliaPkg-ProximalBase-jl/f8b9f9c7-b78d-4e7d-b03f-28871ee5aa1e/scratchpad/benchenv $H/accuracy901.jl
+
+  (exit code 0 = all criteria met; it prints violations, class failures and regressions vs base.)
+
+Screening (Discovery; standard = all 826 cases, 3 forward + 3 reversed fresh processes, 6 concurrent):
+
+    $H/discovery/submit_screen.sh -s <your session> -n <X>-<short sha> -c <X>=/home/mkolar/projects/juliaPkg/pb901x/<X> \
+       -o fwd1,fwd2,fwd3,rev1,rev2,rev3 -k 1 -p 6 -r 15
+    # prints "job <id> run <remote dir>"; about 10 min once running. Wait with a bounded sacct loop.
+    $H/discovery/fetch_run.sh <your session> <remote dir> <local dir>
+    python3 -I $H/summarize901.py --num <X> --den base --also ref <local dir>/<run>/o*_s1 > summary.txt
+
+  Focused re-screens: add `-f '<regex>'` (no commas, no single quotes) on case ids such as
+  `Group/Float64/m5/range/w0/value`. Quote the ratios of the standard screen in reports.
+  The order is fwd = base, ref, X; rev = X, base, ref (X is then the A/A role).

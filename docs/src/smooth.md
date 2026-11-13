@@ -264,9 +264,9 @@ except at a zero of a matrix `SparseIterate` (below); finite-data overflowed val
 have a scaled recovery path. There is no nonnegative restriction on `c` or `d`.
 
 At a matrix `SparseIterate` the value `f(x)` is computed from the stored entries of
-`x` whose value is nonzero, summed in the storage order, in `O(nactive(x))` and without
-forming a zero for an unstored entry. A `Diagonal` coefficient array is the exception: its
-value is summed over the nonzero stored diagonal entries in increasing diagonal index, in
+`x` whose value is nonzero, in `O(nactive(x))` and without forming a zero for an unstored
+entry; the order of the summation is not specified. A `Diagonal` coefficient array is the
+exception to the cost: its value is summed over the nonzero stored diagonal entries in
 `O(p)` (it scans the `p` diagonal positions), and the other entries of `x` are ignored, as
 in the diagonal-only `dot` of `Diagonal`. An entry that is not stored, or is stored as
 `+0` or `-0`, adds nothing, even when the coefficient at that position is `NaN`,
@@ -286,8 +286,8 @@ case. When the participating entries of `x` and `d` are finite and no partial su
 overflows, the value agrees with them to the accuracy of the sum. When a
 participating entry is not finite, the order of summation can change the IEEE class: with
 `c = ones(2, 2)`, `d = 0` and `h = 2^exponent(floatmax(T))`, storing `x[2] = h`, `x[3] = h`
-and then `x[1] = -Inf` gives `NaN` (the storage order overflows to `+Inf` before the
-`-Inf`), while `f(Matrix(x))` and `dot(c, x) + d` give `-Inf`. This rule is for the matrix
+and then `x[1] = -Inf`, a sum that adds `h` and `h` before the `-Inf` gives `NaN`, while
+`f(Matrix(x))` and `dot(c, x) + d` (column-major order) give `-Inf`; `f(x)` may give either. This rule is for the matrix
 `SparseIterate`: a vector `SparseIterate` keeps its own rules, and a `SymmetricSparseIterate`
 forms the terms at its stored zeros, so a `NaN` coefficient there gives `NaN`.
 

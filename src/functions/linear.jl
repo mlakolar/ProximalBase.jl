@@ -12,15 +12,15 @@ The coefficients and the argument have the same dimensions, `size(c) == size(x)`
 on a `SymmetricSparseIterate`, `c` is `p × p`. Every oracle throws a
 `DimensionMismatch` for any other pair, even one with as many entries, before it writes.
 
-At a matrix `SparseIterate` the value is the sum over its stored entries, in the storage
-order, and reads `c` at the stored entries whose value is nonzero. A `Diagonal` `c` is read
-at the nonzero stored diagonal entries, summed in increasing diagonal index, in `O(p)`; the
-other entries of `x` are ignored, as in the diagonal-only `dot` of `Diagonal`. An entry that
-is not stored, or is stored as `+0` or `-0`, adds nothing, even if the coefficient there is
-`NaN`, `Inf` or `-Inf`; the constant `d` is added after the sum. A nonzero entry follows
-ordinary arithmetic, also when it or its coefficient is not finite; the order of the
-summation can then change the IEEE class of the result (an overflow that precedes an
-infinite entry of the other sign gives `NaN`, one that follows it gives that infinity).
+At a matrix `SparseIterate` the value is the sum over its stored entries whose value is
+nonzero, and reads `c` at those entries only. A `Diagonal` `c` is read at the nonzero stored
+diagonal entries, in `O(p)`; the other entries of `x` are ignored, as in the diagonal-only
+`dot` of `Diagonal`. An entry that is not stored, or is stored as `+0` or `-0`, adds nothing,
+even if the coefficient there is `NaN`, `Inf` or `-Inf`; the constant `d` is added after the
+sum. A nonzero entry follows ordinary arithmetic, also when it or its coefficient is not
+finite. The order of the summation is not specified, and it can change the IEEE class of the
+result when an entry is not finite (an overflow that precedes an infinite entry of the other
+sign gives `NaN`, one that follows it gives that infinity).
 When `d`, the nonzero entries of `x` and the coefficients at them are finite and the exact
 value lies inside the range of the type by the accuracy of the sum, the value is finite,
 also if products or partial sums overflow.
@@ -102,30 +102,18 @@ function _value_unchecked(f::LinearFunction, x::SparseIterate{<:Any, 2})
   _value_at(_linear_value(f, x, _linear_stored_dot(f.c, x) + f.d), x)
 end
 
-# The sum over the nonzero stored entries, with no branch on the value of an entry (a data-dependent
-# branch on stored zeros that are interleaved with nonzeros mispredicts): a zero entry takes the
-# coefficient index of the first stored nonzero entry, i0, and its term is dropped by a select, so c
-# is read at the indices of nonzero stored entries only (i0 more than once) and a NaN or Inf
-# coefficient at an unread position cannot reach the sum. Without a nonzero stored entry the sum is 0.
-# The entries are visited in the storage order, or in column order through ind2nzval when
-# `_LINEAR_COLUMN_FACTOR` times the number of stored entries exceeds the length of x: then the
-# coefficients are read in sequence, as the dot of two dense arrays does, instead of in the order
-# of activation (the method of `mul!` for a matrix SparseIterate has a similar threshold, 32).
-# The factor is the crossover measured for Float32 and Float64 on one AMD Zen 3 CPU, see the
-# benchmark in benchmark/linear_sparse_value.jl.
-const _LINEAR_COLUMN_FACTOR = 4
+# The sum over the nonzero stored entries in the storage order, with no branch on the value of an
+# entry (a data-dependent branch on stored zeros that are interleaved with nonzeros mispredicts): a
+# zero entry takes the coefficient index of the first stored nonzero entry, i0, and its term is
+# dropped by a select, so c is read at the indices of nonzero stored entries only (i0 more than
+# once) and a NaN or Inf coefficient at an unread position cannot reach the sum. Without a nonzero
+# stored entry the sum is 0. Measured on one AMD Zen 3 CPU (Float32 and Float64, m = 128 and 1024,
+# benchmark/linear_sparse_value.jl), this loop takes 0.46 to 0.89 times the time of the dot of two
+# dense arrays on fully stored iterates in sequential or shuffled order with 0, 50% and 90% stored
+# zeros; a traversal in column order through ind2nzval was slower than it in every cell measured
+# (iterates of 2% to 100% stored entries).
 function _linear_stored_dot(c, x::SparseIterate{<:Any, 2})
   T = promote_type(eltype(c), eltype(x))
-  _LINEAR_COLUMN_FACTOR * x.nnz > length(x) ? _linear_column_dot(c, x, T) : _linear_storage_dot(c, x, T)
-end
-# the position in nzval of the first nonzero stored entry, 0 if there is none
-function _first_nonzero(x::SparseIterate{<:Any, 2})
-  @inbounds for k in 1:x.nnz
-    iszero(x.nzval[k]) || return k
-  end
-  0
-end
-function _linear_storage_dot(c, x::SparseIterate{<:Any, 2}, ::Type{T}) where {T}
   s, z = zero(T), zero(T)
   k0 = _first_nonzero(x)
   k0 == 0 && return s
@@ -138,19 +126,12 @@ function _linear_storage_dot(c, x::SparseIterate{<:Any, 2}, ::Type{T}) where {T}
   end
   s
 end
-function _linear_column_dot(c, x::SparseIterate{<:Any, 2}, ::Type{T}) where {T}
-  s, z = zero(T), zero(T)
-  k0 = _first_nonzero(x)
-  k0 == 0 && return s
-  i0 = x.nzval2ind[k0]
-  @inbounds @simd for i in 1:length(x)
-    pos = x.ind2nzval[i]
-    v = x.nzval[ifelse(pos == 0, k0, pos)]
-    skip = (pos == 0) | iszero(v)
-    t = _entry(c, ifelse(skip, i0, i)) * v
-    s += ifelse(skip, z, t)
+# the position in nzval of the first nonzero stored entry, 0 if there is none
+function _first_nonzero(x::SparseIterate{<:Any, 2})
+  @inbounds for k in 1:x.nnz
+    iszero(x.nzval[k]) || return k
   end
-  s
+  0
 end
 
 # The recomputation for a matrix SparseIterate, when the ordinary value is not finite. The
@@ -178,38 +159,28 @@ end
 
 # A Diagonal coefficient at a matrix SparseIterate: dot(c, x) for a Diagonal c reads the
 # diagonal of x only, in O(p), and ignores the other entries of x, as f(Matrix(x)) does. The
-# value keeps that, and reads c.diag at the indices of nonzero stored diagonal entries only.
+# value keeps that, and reads c.diag[j] only where x has a nonzero stored diagonal entry.
 function _value_unchecked(f::LinearFunction{<:Diagonal}, x::SparseIterate{<:Any, 2})
   _checkvalue(f, x)
   _value_at(_linear_value(f, x, _linear_diagonal_dot(f.c.diag, x) + f.d), x)
 end
-# The diagonal positions are visited in increasing index with the same select as above: an absent or
-# zero diagonal entry takes the coefficient index of the first nonzero one, and its term is dropped.
+# The diagonal positions are visited in increasing index, with a branch on an absent or zero entry:
+# the loop has p iterations, and on one AMD Zen 3 CPU (Float32 and Float64, p = 128 and 1024) the
+# branch-free select used for the general matrix was slower than the dot of Diagonal (1.05 to 1.5
+# times its time on fully stored diagonals), while this loop took 0.78 to 1.04 times it.
 function _linear_diagonal_dot(dg, x::SparseIterate{<:Any, 2})
-  T = promote_type(eltype(dg), eltype(x))
-  s, z = zero(T), zero(T)
-  p = size(x, 1)
-  j0 = 0
-  @inbounds for j in 1:p
+  s = zero(promote_type(eltype(dg), eltype(x)))
+  @inbounds for j in 1:size(x, 1)
     pos = x.ind2nzval[j, j]
-    if pos != 0 && !iszero(x.nzval[pos])
-      j0 = j
-      break
-    end
-  end
-  j0 == 0 && return s
-  k0 = x.ind2nzval[j0, j0]
-  @inbounds @simd for j in 1:p
-    pos = x.ind2nzval[j, j]
-    v = x.nzval[ifelse(pos == 0, k0, pos)]
-    skip = (pos == 0) | iszero(v)
-    t = dg[ifelse(skip, j0, j)] * v
-    s += ifelse(skip, z, t)
+    pos == 0 && continue
+    v = x.nzval[pos]
+    iszero(v) && continue
+    s += dg[j] * v
   end
   s
 end
 # The recomputation for a Diagonal coefficient: the participating entries are the nonzero stored
-# diagonal entries of x, summed in increasing diagonal index like the ordinary value; the other
+# diagonal entries of x; the other
 # entries of x are not read, so a NaN there does not stop it. As for the general method, the
 # terms are exponent-separated and d is a term of its own.
 @noinline function _linear_value_recover(c::Diagonal, d, x::SparseIterate{<:Any, 2}, v)

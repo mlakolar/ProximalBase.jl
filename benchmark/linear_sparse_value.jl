@@ -1,6 +1,6 @@
 # Paired benchmark of the LinearFunction value at a matrix SparseIterate (#810). The new value sums the stored nonzero
-# entries of the iterate in the storage order and reads the coefficients at them; for a Diagonal coefficient array it
-# sums the nonzero stored diagonal entries in increasing diagonal index (O(p)). The earlier value was dot(c, x) + d:
+# entries of the iterate and reads the coefficients at them; for a Diagonal coefficient array it sums the nonzero
+# stored diagonal entries (O(p)). The earlier value was dot(c, x) + d:
 # for a dense coefficient array the generic dot, which visits all m × m positions, and for a Diagonal the diagonal-only
 # dot of Diagonal. Float32/Float64, m = 16, 128, 1024.
 #
@@ -136,10 +136,11 @@ function makeprobes(PB, ::Type{T}, m::Int, D::Data{T}, wanted) where {T}
         4 * length(e.idx) * big(eps(T)) * (sum(abs(big(c[i]) * big(v)) for (i, v) in zip(e.idx, e.val)) + abs(big(dd))))
 
     # the cells of the iterate values: label, number of stored entries, fraction of them stored as zeros, shuffled order
-    k2 = 2; k1 = max(2, round(Int, 0.01 * n)); k10 = round(Int, 0.1 * n); k50 = round(Int, 0.5 * n)
+    k2 = 2; k1 = max(2, round(Int, 0.01 * n)); k10 = round(Int, 0.1 * n); k25 = round(Int, 0.25 * n); k50 = round(Int, 0.5 * n)
     f = PB.LinearFunction(C, d)
     cases = Tuple{String, Int, Float64, Bool}[("d2_seq", k2, 0.0, false), ("d1pct_seq", k1, 0.0, false),
-        ("d10pct_seq", k10, 0.0, false), ("d10pct_shuf", k10, 0.0, true), ("d50pct_seq", k50, 0.0, false),
+        ("d10pct_seq", k10, 0.0, false), ("d10pct_shuf", k10, 0.0, true), ("d25pct_shuf", k25, 0.0, true),
+        ("d50pct_seq", k50, 0.0, false), ("d50pct_shuf", k50, 0.0, true),
         ("d100pct_seq", n, 0.0, false), ("d100pct_shuf", n, 0.0, true),
         ("d100pct_z50_seq", n, 0.5, false), ("d100pct_z90_seq", n, 0.9, false)]
     m == 128 && push!(cases, ("d100pct_z50_shuf", n, 0.5, true), ("d1pct_shuf", k1, 0.0, true))

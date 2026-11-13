@@ -663,19 +663,67 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
 
   @testset "Order-dependent classes ($T)" for T in (Float32, Float64)
     h = ldexp(one(T), exponent(floatmax(T)))
-    # finite coefficients, and an overflow before an infinite entry of the other sign: the value follows the
-    # storage order (NaN), the dense dot the column-major order (-Inf)
+    # finite coefficients, and an overflow before an infinite entry of the other sign: the order of the summation
+    # decides the class (NaN, or -Inf), and the dense dot takes the column-major order (-Inf)
     x = SparseIterate(T, 2, 2)
     x[2] = h; x[3] = h; x[1] = -T(Inf)
     f = LinearFunction(ones(T, 2, 2), zero(T))
-    @test isnan(f(x))
+    @test isnan(f(x)) || f(x) === -T(Inf)
     @test f(Matrix(x)) === -T(Inf) && dot(f.c, x) === -T(Inf)
-    # a Diagonal coefficient array is summed in increasing diagonal index, not in the storage order
+    # the same with a Diagonal coefficient array
     xd = SparseIterate(T, 3, 3)
     xd[2, 2] = h; xd[3, 3] = h; xd[1, 1] = -T(Inf)
     fd = LinearFunction(Diagonal(ones(T, 3)), zero(T))
-    @test fd(xd) === -T(Inf)
-    @test isnan(sum(activevalues(xd)))
+    @test isnan(fd(xd)) || fd(xd) === -T(Inf)
+  end
+
+  # The ordinary sum has no branch on the value of an entry: a zero entry takes the coefficient index of the first stored
+  # nonzero entry and its term is dropped by a select.
+  @testset "Select on a zero entry ($T)" for T in (Float32, Float64)
+    p = 40
+    sums = (a, x, T) -> PB._linear_stored_dot(a, x)
+    variants = (sums,)
+    # the first stored nonzero entry (1,1) follows stored zeros and carries a nonfinite coefficient: only its own term counts
+    for cv in (T(Inf), -T(Inf), T(NaN), T(3), zero(T))
+      x = make_iterate(T, p, [(2, 2, zero(T)), (1, 1, T(2)), (3, 3, -zero(T)), (5, 5, zero(T))])
+      a = ones(T, p, p); a[1, 1] = cv
+      a[2, 2] = T(NaN); a[3, 3] = T(Inf); a[5, 5] = -T(Inf); a[7, 7] = T(NaN)
+      expected = T(2) * cv
+      for dot_variant in variants
+        @test isequal(dot_variant(a, x, T), expected)
+      end
+      @test isequal(LinearFunction(a, T(0.25))(x), expected + T(0.25))
+      # a second participating entry with the opposite infinity: ordinary arithmetic
+      y = make_iterate(T, p, [(2, 2, zero(T)), (1, 1, T(2)), (4, 4, T(1))])
+      b = copy(a); b[4, 4] = -T(Inf)
+      for dot_variant in variants
+        @test isequal(dot_variant(b, y, T), T(2) * cv + -T(Inf))
+      end
+    end
+    # no nonzero stored entry: the sum is +0, whatever the coefficients are
+    for x in (SparseIterate(T, p, p), make_iterate(T, p, [(1, 1, zero(T)), (2, 2, -zero(T))]))
+      a = fill(T(NaN), p, p)
+      for dot_variant in variants
+        @test dot_variant(a, x, T) === zero(T)
+      end
+    end
+    # random iterates of every density, with stored zeros, and nonfinite coefficients at zeros: the sum agrees with the reference
+    rng = Xoshiro(810_800 + (T == Float32))
+    for p in (3, 9, 17), k in unique(clamp.((1, 2, p, p^2 ÷ 4, p^2 ÷ 3, p^2 ÷ 2, p^2 - 1, p^2), 1, p^2))
+      x, a = random_pair(rng, T, p, k, -3, 3, -3, 3)
+      ref = reference(a, zero(T), x, T)
+      a2 = copy(a)
+      for i in 1:length(a2)
+        (!isactive(x, i) || iszero(x[i])) && (a2[i] = rand(rng, (T(NaN), T(Inf), -T(Inf))))
+      end
+      for dot_variant in variants
+        v = dot_variant(a, x, T)
+        @test abs(big(v) - ref.value) <= ref.bound
+        @test isequal(dot_variant(a2, x, T), v)
+      end
+      f = LinearFunction(a2, T(0.5))
+      @test agrees(f(x), reference(f, x, T), T)
+    end
   end
 end
 

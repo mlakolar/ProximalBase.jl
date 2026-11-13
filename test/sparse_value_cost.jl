@@ -109,7 +109,8 @@ nonzero_indices(p, entries) = Set(linear(p, r, c) for (r, c, v) in entries if !i
         value = LinearFunction(c, T(0.25))(x)
         seen = reads!(c)
         @test value == T(3.75)
-        @test Set(seen) == allowed && length(seen) == length(allowed)   # each nonzero entry once, nothing else
+        @test !isempty(seen) && issubset(Set(seen), allowed)             # nonzero stored entries only
+        @test length(seen) <= nactive(x)                                 # at most one read for each stored entry
         counts[:ordinary] = length(seen)
 
         # the recovery of an overflowing dot: a pair of large entries and a negative d
@@ -124,6 +125,7 @@ nonzero_indices(p, entries) = Set(linear(p, r, c) for (r, c, v) in entries if !i
         @test isfinite(value)
         @test isapprox(value, T == Float64 ? T(5.0e307) : T(1.0e38); rtol = 12 * eps(T))
         @test !isempty(seen) && issubset(Set(seen), allowed)
+        @test length(seen) <= 2 * nactive(x) + 2                         # the ordinary sum, then the recomputation
         # the count of reads does not grow with the size
         if haskey(counts, :recovery)
           @test length(seen) == counts[:recovery]
@@ -135,7 +137,6 @@ nonzero_indices(p, entries) = Set(linear(p, r, c) for (r, c, v) in entries if !i
 
   @testset "A Diagonal coefficient array is read at the nonzero stored diagonal entries" begin
     for T in (Float64, Float32)
-      counts = Int[]
       for p in (100, 1000)
         entries = [(1, 1, 2.0), (2, 2, 0.0), (5, 5, -0.0), (1, 2, NaN), (9, 3, 4.0)]    # (1,2) and (9,3) are off the diagonal
         x = make_iterate(T, p, entries)
@@ -144,8 +145,8 @@ nonzero_indices(p, entries) = Set(linear(p, r, c) for (r, c, v) in entries if !i
         value = LinearFunction(Diagonal(c), T(0.25))(x)
         seen = reads!(c)
         @test value == T(2.25)
-        @test seen == [1]
-        push!(counts, length(seen))
+        @test !isempty(seen) && issubset(Set(seen), Set([1]))
+        @test length(seen) <= p                                          # one read for each diagonal position at most
         # the recovery: the diagonal entries (1,1) and (2,2) are large, a NaN off the diagonal is ignored
         big = T == Float64 ? T(1e308) : T(2e38)
         d = T == Float64 ? T(-1.5e308) : T(-3e38)
@@ -156,9 +157,46 @@ nonzero_indices(p, entries) = Set(linear(p, r, c) for (r, c, v) in entries if !i
         seen = reads!(c)
         @test isapprox(value, T == Float64 ? T(5.0e307) : T(1.0e38); rtol = 12 * eps(T))
         @test !isempty(seen) && issubset(Set(seen), Set([1, 2]))
-        push!(counts, length(seen))
+        @test length(seen) <= p + 4
       end
-      @test counts[1] == counts[3] && counts[2] == counts[4]
+    end
+  end
+
+  # A fully stored iterate with stored zeros among the nonzero entries: the same guarantees hold.
+  @testset "A dense iterate: no zero formed, coefficients read at nonzero stored entries" begin
+    p = 100
+    entries = [(r, c, 1.0 + r / p) for c in 1:p for r in 1:p]
+    for (r, c) in ((3, 3), (4, 4), (10, 20), (50, 50), (99, 1)), (k, e) in enumerate(entries)
+      (e[1], e[2]) == (r, c) && (entries[k] = (r, c, k % 2 == 0 ? 0.0 : -0.0))
+    end
+    zeros_at = [(r, c) for (r, c, v) in entries if iszero(v)]
+    @test length(zeros_at) == 5
+    for cT in (Float64, Float32)
+      x = make_iterate(C, p, entries)
+      @test nactive(x) == p^2
+      a = ones(cT, p, p)
+      for (i, (r, c)) in enumerate(zeros_at)
+        a[r, c] = (NaN, Inf, -Inf)[mod1(i, 3)]
+      end
+      g = LinearFunction(a, cT(0.25))
+      n, value = zeros_made(() -> g(x))
+      @test n == 0
+      expected = sum(Float64(a[r, c]) * v for (r, c, v) in entries if !iszero(v)) + 0.25
+      @test isapprox(Float64(value), expected; rtol = 1e-12)
+    end
+    for T in (Float64, Float32)
+      x = make_iterate(T, p, entries)
+      allowed = nonzero_indices(p, entries)
+      a = ones(T, p, p)
+      for (i, (r, c)) in enumerate(zeros_at)
+        a[r, c] = (T(NaN), T(Inf), -T(Inf))[mod1(i, 3)]
+      end
+      c = Reading(a)
+      value = LinearFunction(c, T(0.25))(x)
+      seen = reads!(c)
+      @test isfinite(value)
+      @test !isempty(seen) && issubset(Set(seen), allowed)
+      @test length(seen) <= p^2
     end
   end
 

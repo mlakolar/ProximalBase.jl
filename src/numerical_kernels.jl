@@ -869,25 +869,30 @@ end
 # kernel, so that neither c nor the norm needs to be in range: r ≥ 1 gives zero, and t = 1 - r in (0, 1] scales the
 # group without overflow. A product γλw 2^-k that overflows means r > 1, and one that underflows means r < floatmin,
 # where t rounds to 1. The call is out of line, in one function, so that the loops over groups carry none of it.
-@noinline function _l2_prox_cold!(y, x, G, λ, w, γ::Real)
-  iszero(w) && return _l2_copy!(y, x, G)
-  (isinf(w) || isinf(λ)) && return _l2_zero!(y, G)
-  (iszero(λ) || iszero(γ)) && return _l2_copy!(y, x, G)
-  isinf(γ) && return _l2_zero!(y, G)
+@inline _l2_prox_cold!(y, x, G, λ, w, γ::Real) = _l2_prox_cold_norm!(y, x, G, λ, w, γ)[1]
+# The same, with the norm of the stored group for a fused value: (code, m, e) with the stored norm m 2^e (in the recovery
+# type, zero where there is none) when the code is _L2_RECOMPUTE after the values decided, that is, the norm t ns 2^k of
+# the scaled group.
+@noinline function _l2_prox_cold_norm!(y, x, G, λ, w, γ::Real)
   T = float(eltype(y))
   R = _recovery_type(_working_type(T, γ, λ, w), float(eltype(x)))
+  none = zero(R)
+  iszero(w) && return (_l2_copy!(y, x, G), none, 0)
+  (isinf(w) || isinf(λ)) && return (_l2_zero!(y, G), none, 0)
+  (iszero(λ) || iszero(γ)) && return (_l2_copy!(y, x, G), none, 0)
+  isinf(γ) && return (_l2_zero!(y, G), none, 0)
   k, ns = _l2_classified_norm(x, G, R)
-  k == _EXPONENT_NAN && (_l2_fill!(y, G, convert(eltype(y), NaN)); return _L2_NAN)
-  k == _EXPONENT_INF && (_l2_copy!(y, x, G); return _L2_INF)
-  k == _EXPONENT_ZERO && return _l2_zero!(y, G)
+  k == _EXPONENT_NAN && (_l2_fill!(y, G, convert(eltype(y), NaN)); return (_L2_NAN, none, 0))
+  k == _EXPONENT_INF && (_l2_copy!(y, x, G); return (_L2_INF, none, 0))
+  k == _EXPONENT_ZERO && return (_l2_zero!(y, G), none, 0)
   r = _scaled_product(convert(R, γ), convert(R, λ), convert(R, w), -k) / ns
-  r >= one(R) && return _l2_zero!(y, G)
+  r >= one(R) && return (_l2_zero!(y, G), none, 0)
   t = one(R) - r
   S = eltype(y)
   @inbounds for i in G
     y[i] = convert(S, t * convert(R, x[i]))
   end
-  _L2_RECOMPUTE
+  (_L2_RECOMPUTE, t * ns, k)
 end
 
 # The ordinary paths return a value only below floatmax(T)/2 (a NaN fails the test too). A larger value

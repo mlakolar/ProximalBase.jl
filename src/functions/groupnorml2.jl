@@ -312,9 +312,7 @@ function _group_prox_all!(y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {V}
     # penalized group is +0 and the value is 0; at a zero step or level the value is that of the unchanged groups
     return isinf(λ) | (isinf(γ) & !iszero(λ)) ? zero(T) : _group_value(f, y)
   end
-  flags = _group_prox_exceptional!(y, f, x, γ)
-  V || return nothing
-  flags == _FLAG_NAN ? T(NaN) : flags == _FLAG_INF ? T(Inf) : _group_value(f, y)
+  return _group_prox_exceptional!(y, f, x, γ, Val(V))
 end
 
 # The ordinary loop, γλ0 = ab normal. With V, the term λ0 wₖ (t ‖xₖ‖) of the stored group (the norm that the kernel
@@ -423,19 +421,41 @@ function _group_prox_decided!(y, f::GroupNormL2, x, γ)
   end
 end
 
-# γλ0 outside the range with positive finite γ and λ0: every group is decided by its threshold and its values. Returns
-# _FLAG_NAN if a group is NaN, else _FLAG_INF if one is infinite (the codes of the kernel), else 0: those are the cases
-# where the value at the stored output is known without reading it.
-const _FLAG_INF = 0x01
-const _FLAG_NAN = 0x02
-function _group_prox_exceptional!(y, f::GroupNormL2, x, γ)
+# γλ0 outside the range with positive finite γ and λ0: every group is decided by its threshold and its values, by the
+# cold kernel. With V, the value at the stored output is formed from the same passes: the cold kernel gives the stored
+# norm m 2^e of each scaled group, accumulated with its exponent (_ExpSum) as the recovery of a value does, and the
+# class of a group that is NaN (the value is NaN) or infinite (Inf, if none is NaN). A group of weight zero adds nothing,
+# an infinite weight gives +0. The recovery type of the cold kernel and that of the value must be one, or the value is
+# formed from the output.
+function _group_prox_exceptional!(y, f::GroupNormL2, x, γ, ::Val{V}) where {V}
+  T = float(eltype(y))
   λ = f.λ0
-  flags = 0x00
+  W = f.w
+  R = _recovery_type(_working_type(T, γ, λ, oneunit(eltype(W))), float(eltype(x)))
+  same = V && R === _recovery_type(T, float(typeof(λ)), float(eltype(y)))
+  acc = _expsum_start(R)
+  nan = inf = false
   @inbounds for k in eachindex(f.groups)
-    code = _l2_prox_cold!(y, x, f.groups[k], λ, f.w[k], γ)
-    flags |= code == _L2_NAN ? _FLAG_NAN : code == _L2_INF ? _FLAG_INF : 0x00
+    w = W[k]
+    code, m, e = _l2_prox_cold_norm!(y, x, f.groups[k], λ, w, γ)
+    V || continue
+    if code == _L2_NAN
+      nan = true
+    elseif code == _L2_INF
+      inf = true
+    elseif code == _L2_RECOMPUTE && !iszero(w)
+      if same
+        mw, ew = _frexp(convert(R, w))
+        acc = _expsum_add(acc, mw * m, ew + e)
+      else
+        return _group_value(f, y)
+      end
+    end
   end
-  flags & _FLAG_NAN != 0 ? _FLAG_NAN : flags
+  V || return nothing
+  nan && return T(NaN)
+  inf && return T(Inf)
+  _expsum_value(T, acc, λ)
 end
 
 function prox_block!(out::AbstractVector, f::GroupNormL2, u::AbstractVector, k::Integer, γ::Real)

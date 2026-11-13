@@ -170,35 +170,70 @@ end
 #  Group values
 ####################################
 
-# The kernels are the shared ℓ2 kernels of numerical_kernels.jl, with the level λ0 and the weight wₖ of each group.
+# The loops over the groups below are this file's own. They use the building blocks of numerical_kernels.jl: the sums
+# of squares of a group, the classified norm and the exponent sum (_ExpSum) of the recoveries, and the cold prox kernel.
 
-# The ordinary sum s of the terms is returned unless it may have lost its accuracy or its class: a sum
-# below K floatmin(T), for K groups, whose terms may have rounded into the subnormal range (#373), and a
-# sum at or above floatmax(T)/2 (Inf included), whose class the terms' rounding may decide. Those are
-# recomputed from the terms w ns 2^k, accumulated with their exponents (_ExpSum, in at least Float64),
-# with λ0 applied once (_expsum_value). Exceptional cases keep s: a NaN s, a zero level (every term with
-# a finite weight is 0, and an infinite weight at a nonzero group without NaN makes s Inf), and an infinite level or
-# weight at a nonzero group or a NaN or ±Inf entry in a penalized group, which make s infinite or NaN
-# already. So does an exactly zero argument.
-@inline function _group_value_checked(f::GroupNormL2, x, s::T) where {T}
-  if _l2_ordinary(s, T)
-    _underflow_checked(T) || return s
-    _sum_kept(s, length(f.groups)) && return s
-    iszero(s) && _all_zero(_stored_values(x)) && return s
-  end
-  _group_value_recomputed(f, x, s)
-end
-@noinline function _group_value_recomputed(f::GroupNormL2, x, s::T)::T where {T}
-  isnan(s) && return s
+# λ0 Σₖ wₖ ‖x[Gₖ]‖₂. A group of weight zero adds nothing and its entries are not read. The ordinary loop adds the term
+# λ0 wₖ √qₖ of each penalized group, from its sum of squares qₖ in T, and leaves for the recovery (below), once and for
+# the whole value, at the first group that it cannot certify: a sum of squares that is not finite or may have lost its
+# accuracy to underflow (below m floatmin/eps), unless the group is exactly zero (it adds 0 whatever the weight), or a
+# coefficient λ0 wₖ out of the normal range, an infinite weight included. After the loop, the sum is kept if it is
+# below floatmax(T)/2 (a NaN or Inf is not, and their class is decided by the recovery) and, for Float32 and Float64, if
+# it is not below nt floatmin(T) for the nt groups with a nonzero term (#373): a term rounds into the subnormal range
+# with an absolute loss of at most eps floatmin/2, so that a sum from nt floatmin on keeps its relative accuracy. A zero
+# level and an infinite level are decided by the recovery at once.
+function _group_value(f::GroupNormL2, x)
+  T = _valtype(x)
   λ = f.λ0
-  (λ > 0 && isfinite(λ)) || return s
+  W = f.w
+  isempty(W) && return zero(T)
+  (iszero(λ) | isinf(λ)) && return _group_value_recovered(f, x, T)
+  Q = _working_type(T, λ, oneunit(eltype(W)))
+  lc = convert(Q, λ)
+  v = zero(T)
+  nt = 0
+  @inbounds for k in eachindex(f.groups)
+    w = W[k]
+    iszero(w) && continue
+    G = f.groups[k]
+    lw = lc * convert(Q, w)
+    q = _indexed_sumabs2(x, G, T)
+    if isfinite(q) & _squares_normal(q, length(G), T) & (floatmin(Q) <= lw) & (lw <= floatmax(Q))
+      v += convert(T, lw * sqrt(convert(Q, q)))
+      nt += 1
+    elseif !(iszero(q) && _l2_all_zero(x, G, T))
+      return _group_value_recovered(f, x, T)
+    end
+  end
+  _l2_ordinary(v, T) || return _group_value_recovered(f, x, T)
+  _underflow_checked(T) && !_sum_kept(v, nt) && return _group_value_recovered(f, x, T)
+  v
+end
+
+# The value from the terms w ns 2^k of the groups, accumulated with their exponents (_ExpSum, in at least Float64)
+# with λ0 applied once (_expsum_value), one rounding to T. The class of each term, in this order: a zero weight, and a
+# zero level with a finite weight, give 0 whatever x holds; a NaN entry gives NaN (and so the value) and an infinite one
+# Inf; the zero group gives 0; an infinite weight or level gives Inf (decided by the class of x, without the norm). The
+# value is the sum of the classes: NaN, else Inf, else the accumulated sum.
+@noinline function _group_value_recovered(f::GroupNormL2, x, ::Type{T}) where {T}
+  λ = f.λ0
   R = _recovery_type(T, float(typeof(λ)), float(eltype(x)))
   acc = _expsum_start(R)
+  inf = false
   for k in eachindex(f.groups)
-    next = _l2_expsum_add(acc, x, @inbounds(f.groups[k]), @inbounds(f.w[k]))
-    next === nothing && return s
-    acc = next
+    w = @inbounds f.w[k]
+    (iszero(w) || (iszero(λ) && !isinf(w))) && continue
+    unbounded = isinf(w) || isinf(λ)
+    k_, ns = _l2_classified_norm(x, @inbounds(f.groups[k]), R, !unbounded)
+    k_ == _EXPONENT_NAN && return T(NaN)
+    k_ == _EXPONENT_ZERO && continue
+    if k_ == _EXPONENT_INF || unbounded
+      inf = true
+    else
+      acc = _expsum_product(acc, w, ns, k_)
+    end
   end
+  inf && return T(Inf)
   _expsum_value(T, acc, λ)
 end
 
@@ -210,12 +245,7 @@ function (f::GroupNormL2)(x::AbstractArray)
   _checkreal(f, x)
   Base.require_one_based_indexing(x)
   _check_group_extent(f, x)
-  T = _valtype(x)
-  v = zero(T)
-  for k in eachindex(f.groups)
-    v += _l2_term(f.λ0, @inbounds(f.w[k]), x, @inbounds(f.groups[k]), _L2_RECOMPUTE, T)
-  end
-  _group_value_checked(f, x, v)
+  _group_value(f, x)
 end
 
 prox!(y::AbstractArray, f::GroupNormL2, x::AbstractArray, γ::Real) =
@@ -225,6 +255,10 @@ value_and_prox!(y::AbstractArray, f::GroupNormL2, x::AbstractArray, γ::Real) =
 # routes of wrappers such as Scaled, which preflight with _checkwrite first
 _value_and_prox_unchecked!(y::AbstractArray, f::GroupNormL2, x::AbstractArray, γ::Real) = value_and_prox!(y, f, x, γ)
 
+# The proximal point of the groups, and with V the value at the stored output. The parameters of the call decide the
+# loop, once: γλ0 in the normal range gives the ordinary loop, where each group tests its own threshold γλ0wₖ; a zero or
+# infinite γ or λ0 decides every group by its weight alone (no data are read); otherwise γλ0 is out of the range and
+# each group goes to the cold kernel.
 function _group_prox_all!(y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {V}
   if y !== x       # the entries in no group are unpenalized
     @inbounds for i in f.free
@@ -235,19 +269,130 @@ function _group_prox_all!(y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {V}
     end
   end
   T = _valtype(y)
-  v = zero(T)
-  for k in eachindex(f.groups)
-    G = @inbounds f.groups[k]
-    w = @inbounds f.w[k]
-    s = _l2_shrink!(y, x, G, f.λ0, w, γ)
-    V && (v += _l2_fused_term(f.λ0, w, y, G, s, T))
+  isempty(f.groups) && return V ? zero(T) : nothing
+  λ = f.λ0
+  R = _working_type(T, γ, λ, oneunit(eltype(f.w)))
+  ab = convert(R, γ) * convert(R, λ)
+  if floatmin(R) <= ab <= floatmax(R)
+    return _group_prox_ordinary!(y, f, x, γ, ab, Val(V))
+  elseif iszero(γ) | iszero(λ) | isinf(γ) | isinf(λ)
+    _group_prox_decided!(y, f, x, γ)
+  else
+    _group_prox_exceptional!(y, f, x, γ)
   end
-  V ? _group_value_checked(f, y, v) : nothing
+  V ? _group_value(f, y) : nothing
+end
+
+# The ordinary loop, γλ0 = ab normal. With V, the term λ0 wₖ (t ‖xₖ‖) of the stored group (the norm that the kernel
+# returns) is added to the value. The value at the stored output is formed again, once, after the loop, if the output of
+# a group was recomputed without its norm (a group that the kernel left to the cold path and did not zero), if a
+# coefficient λ0 wₖ is out of the normal range, or if the sum cannot be kept (as in _group_value).
+function _group_prox_ordinary!(y, f::GroupNormL2, x, γ, ab, ::Val{V}) where {V}
+  T = float(eltype(y))
+  λ = f.λ0
+  W = f.w
+  Q = _working_type(T, λ, oneunit(eltype(W)))
+  lc = convert(Q, λ)
+  v = zero(T)
+  nt = 0
+  ok = true
+  @inbounds for k in eachindex(f.groups)
+    w = W[k]
+    s = _group_shrink!(y, x, f.groups[k], λ, w, γ, ab)
+    V || continue
+    if s >= 0
+      lw = lc * convert(Q, w)
+      ok &= (floatmin(Q) <= lw) & (lw <= floatmax(Q))
+      v += convert(T, lw * convert(Q, s))
+      nt += 1
+    elseif s != T(_L2_ZERO) && !iszero(w)
+      ok = false
+    end
+  end
+  V || return nothing
+  ok && _l2_ordinary(v, T) && (!_underflow_checked(T) || _sum_kept(v, nt)) && return v
+  _group_value(f, y)
+end
+
+# The group of weight w with the threshold c = γλ0w in the normal range of T, at γλ0 = ab in the normal range of its
+# type: returns the norm t‖x‖ of the stored group on the ordinary shrinking path (each stored entry is t x[i] rounded
+# once, so this is the norm of the stored entries to within a few rounding errors, without a second pass), or one of
+# the codes of the kernels. A group of one entry has the norm |x[i]|, with no sum of squares to underflow or overflow:
+# a NaN entry (which makes the group NaN) and an infinite one (which leaves it unchanged) follow from t = 1 - c/|x[i]|.
+# Otherwise the ordinary path needs a normal sum of squares that no underflowing square can have changed by more than
+# ordinary rounding. A threshold out of the range (an unpenalized group, w = 0, included) and everything else,
+# exceptional parameters and values, is decided by the cold kernel, which does not run on this path.
+@inline function _group_shrink!(y, x, G, λ, w, γ::Real, ab::R) where {R}
+  T = float(eltype(y))
+  c = convert(T, ab * convert(R, w))
+  if (floatmin(T) <= c) & (c <= floatmax(T))
+    if length(G) == 1
+      i = @inbounds G[1]
+      a = convert(T, @inbounds x[i])
+      n = abs(a)
+      if n <= c
+        @inbounds y[i] = zero(eltype(y))
+        return T(_L2_ZERO)
+      end
+      t = one(T) - c / n
+      @inbounds y[i] = convert(eltype(y), t * a)
+      return t * n
+    end
+    s = _indexed_sumabs2(x, G, T)
+    if isfinite(s) & _squares_normal(s, length(G), T)
+      n = sqrt(s)
+      if n > c
+        t = one(T) - c / n
+        _l2_scale!(y, x, G, t)
+        return t * n
+      end
+      return T(_l2_zero!(y, G))
+    elseif iszero(s) && _l2_all_zero(x, G, T)
+      return T(_l2_zero!(y, G))
+    end
+  elseif iszero(w)
+    return T(_l2_copy!(y, x, G))
+  end
+  T(_l2_prox_cold!(y, x, G, λ, w, γ))
+end
+
+# Groups decided by the parameters alone, in the order of the cold kernel: weight zero (unchanged), infinite weight or
+# level (+0), zero level or step (unchanged), an infinite step at a positive finite level (+0).
+function _group_prox_decided!(y, f::GroupNormL2, x, γ)
+  λ = f.λ0
+  identity = iszero(λ) | iszero(γ)
+  infinite_level = isinf(λ)
+  @inbounds for k in eachindex(f.groups)
+    G = f.groups[k]
+    w = f.w[k]
+    if iszero(w) | (!isinf(w) & !infinite_level & identity)
+      _l2_copy!(y, x, G)
+    else
+      _l2_zero!(y, G)
+    end
+  end
+end
+
+# γλ0 outside the range with positive finite γ and λ0: every group is decided by its threshold and its values
+function _group_prox_exceptional!(y, f::GroupNormL2, x, γ)
+  λ = f.λ0
+  @inbounds for k in eachindex(f.groups)
+    _l2_prox_cold!(y, x, f.groups[k], λ, f.w[k], γ)
+  end
 end
 
 function prox_block!(out::AbstractVector, f::GroupNormL2, u::AbstractVector, k::Integer, γ::Real)
   m = _check_group_block(out, f, u, k, γ)
-  _l2_shrink!(out, u, Base.OneTo(m), f.λ0, @inbounds(f.w[k]), γ)
+  G = Base.OneTo(m)
+  λ, w = f.λ0, @inbounds(f.w[k])
+  T = float(eltype(out))
+  R = _working_type(T, γ, λ, w)
+  ab = convert(R, γ) * convert(R, λ)
+  if floatmin(R) <= ab <= floatmax(R)
+    _group_shrink!(out, u, G, λ, w, γ, ab)
+  else
+    _l2_prox_cold!(out, u, G, λ, w, γ)
+  end
   out
 end
 
@@ -296,7 +441,17 @@ function _kkt_violation(f::GroupNormL2, g::AbstractArray, x::BlockIterate, k::In
 end
 
 # ‖g[G]‖₂ - λ0 w of group k, with the level and the weight of the group
-@inline _group_screen(f::GroupNormL2, k::Integer, g, G) = _l2_screen(f.λ0, @inbounds(f.w[k]), g, G)
+@inline function _group_screen(f::GroupNormL2, k::Integer, g, G)
+  T = float(eltype(g))
+  λ, w = f.λ0, @inbounds(f.w[k])
+  c = _kkt_coefficient(T, λ, w)
+  if length(G) == 1 && isfinite(c)     # the norm of one entry is its magnitude: no square to underflow
+    return abs(convert(T, @inbounds g[@inbounds G[1]])) - c
+  end
+  s = _indexed_sumabs2(g, G, T)
+  (isfinite(s) & _squares_normal(s, length(G), T) & isfinite(c)) && return sqrt(s) - c
+  _l2_screen_cold(λ, w, g, G, T, c)
+end
 
 # no proximal operator for a symmetric iterate (argument or output); nothing is written
 for F in (:NormL2, :GroupNormL2)

@@ -117,7 +117,8 @@ end
   T(_l2_shrink_cold!(y, x, G, λ, w, γ))
 end
 
-# The parameters decide first, in this order: an unpenalized group (w = 0), a group fixed at zero (an
+# The parameters decide first, in this order: an unpenalized group (w = 0, copied by _l2_shrink!, which
+# does not call this function for it), a group fixed at zero (an
 # infinite weight, or an infinite level at every nonnegative step, #665), the identity (a zero level or
 # step), a group fixed by an infinite step. Then the values, at positive finite γ, λ and w: a NaN entry
 # makes every output NaN; an infinite entry (and no NaN) makes the norm infinite and the threshold finite,
@@ -127,7 +128,6 @@ end
 # scales the group without overflow. A product γλw 2^-e that overflows means r > 1, and one that
 # underflows means r < floatmin, where t rounds to 1.
 @noinline function _l2_shrink_cold!(y, x, G, λ, w, γ::Real)
-  iszero(w) && return _l2_copy!(y, x, G)
   (isinf(w) || isinf(λ)) && return _l2_zero!(y, G)
   (iszero(λ) || iszero(γ)) && return _l2_copy!(y, x, G)
   isinf(γ) && return _l2_zero!(y, G)

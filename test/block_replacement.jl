@@ -255,33 +255,42 @@ end
 end
 
 # The seven-argument constructor accepts metadata vectors longer than the number of
-# groups and arrays shared between iterates. Expected states follow the group-by-group
-# replacement: dest's ids, positions and entries are written in src's activation order,
-# and entries past the number of groups are left alone.
+# groups and arrays that share memory between iterates. Expected states follow the
+# group-by-group replacement: dest's ids, positions and entries are written in src's
+# activation order, and metadata entries past the number of groups are left alone.
 @testset "fully active sources with spare or shared metadata arrays" begin
     gs, go = [1:1,2:2], [1,2]
     # spare capacity in the active list, the positions, or both, of src and of dest
     for (sa, sp) in (([2,1,0],[2,1]), ([2,1],[2,1,9]), ([2,1,0],[2,1,9])),
-        (da, dp) in ((zeros(Int,2),zeros(Int,2)), ([0,0,7],[0,0,8]))
-        src = BlockIterate([1.0,-0.0], gs, go, nothing, sa, sp, 2)
-        dest = BlockIterate([5.0,6.0], gs, go, nothing, copy(da), copy(dp), 0)
+        (da, dp) in (([1,0],[1,0]), ([1,0,7],[1,0,8]))
+        src = BlockIterate([1.0,-0.0], gs, go, nothing, copy(sa), copy(sp), 2)
+        dest = BlockIterate([5.0,0.0], gs, go, nothing, copy(da), copy(dp), 1)
         @test copyto!(dest,src) === dest
         check(dest, [1.0,-0.0], [2,1])
         @test dest.active[3:end] == da[3:end] && dest.position[3:end] == dp[3:end]
         @test src.active == sa && src.position == sp
     end
-    # the active list of dest is the position array of src
+    # the active list of dest is the memory of src's positions: the same array, or
+    # another array header over it
     gs3, go3 = [1:1,2:2,3:3], [1,2,3]
-    src = BlockIterate([1.0,2.0,3.0], gs3, go3, nothing, [3,1,2], [2,3,1], 3)
-    dest = BlockIterate([4.0,5.0,6.0], gs3, go3, nothing, src.position, [3,1,2], 3)
-    @test copyto!(dest,src) === dest
-    @test dest.storage == [1.0,2.0,3.0] && dest.nactive == 3
-    @test dest.active == [3,1,2] && dest.position == [2,3,1]
-    # shared value arrays and independent metadata: every entry is src's
-    src = BlockIterate([1.0,-0.0,3.0], gs3, go3, nothing, [2,3,1], [3,1,2], 3)
-    dest = BlockIterate(src.storage, gs3, go3, nothing, zeros(Int,3), zeros(Int,3), 0)
-    @test copyto!(dest,src) === dest
-    check(dest, [1.0,-0.0,3.0], [2,3,1])
+    for alias in (identity, v -> vec(reshape(v, length(v), 1)))
+        src = BlockIterate([1.0,2.0,3.0], gs3, go3, nothing, [3,1,2], [2,3,1], 3)
+        da = alias(src.position)
+        @test Base.mightalias(da, src.position)
+        dest = BlockIterate([4.0,5.0,6.0], gs3, go3, nothing, da, [3,1,2], 3)
+        @test copyto!(dest,src) === dest
+        @test dest.storage == [1.0,2.0,3.0] && dest.nactive == 3
+        @test dest.active == [3,1,2] && dest.position == [2,3,1]
+    end
+    # value memory shared with src, through the same array or another header, and
+    # independent metadata: every entry is src's
+    for alias in (identity, v -> vec(reshape(v, length(v), 1)))
+        src = BlockIterate([1.0,-0.0,3.0], gs3, go3, nothing, [2,3,1], [3,1,2], 3)
+        dest = BlockIterate(alias(src.storage), gs3, go3, nothing, [1,2,3], [1,2,3], 3)
+        @test copyto!(dest,src) === dest
+        check(dest, [1.0,-0.0,3.0], [2,3,1])
+        check(src, [1.0,-0.0,3.0], [2,3,1])
+    end
 end
 
 @testset "one inactive source group keeps active-only replacement" begin

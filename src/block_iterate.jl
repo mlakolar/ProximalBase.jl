@@ -391,15 +391,18 @@ function _copy_active!(dest::BlockIterate{T}, src::BlockIterate) where {T}
   dest
 end
 
-# Called by _copy_active! when every group of src is active. It copies storage, active
-# and position as whole arrays and returns true when that gives the state the loops of
-# _copy_active! would; otherwise it returns false without writing. With the groups a
-# partition of the entries and active and position of both iterates of length K, the
-# loops write every entry of dest and set all of dest.active and dest.position from src.
-# The arrays of dest must also be distinct objects from each other and from those of
-# src, apart from the two value arrays: through a shared array, one copy changes what a
-# later copy reads. With an inactive group in src, the copies can differ from the loops,
-# which keep dest's values in that group, such as a -0.0, unless dest has it active.
+# Called by _copy_active! when every group of src is active. When the checks below hold,
+# it copies storage, active and position as whole arrays and returns true; otherwise it
+# returns false without writing, and the loops of _copy_active! run. The checks are
+# sufficient, not necessary: some rejected states would also copy correctly. They require
+# active and position of both iterates to have length K, and no array among storage,
+# active and position of dest to share memory (as Base.mightalias reports) with another
+# of them or with one of src, except that dest and src may hold the same value array.
+# Then, with the groups a partition of the entries, the loops write every entry of dest
+# and set all of dest.active and dest.position from src, and no copy reads memory that an
+# earlier copy wrote. With an inactive group in src, the copies can differ from the
+# loops, which keep dest's values in that group, such as a -0.0, unless dest has it
+# active and they clear it to +0.0.
 # Kept out of line: inlined into _copy_active!, the copies slowed its loop path for
 # small, partly active sources in measurements on Julia 1.13.
 @noinline function _try_copy_all_active!(dest::BlockIterate, src::BlockIterate)
@@ -407,8 +410,10 @@ end
   da, dp, ds = dest.active, dest.position, dest.storage
   sa, sp, ss = src.active, src.position, src.storage
   length(da) == length(dp) == length(sa) == length(sp) == K || return false
-  (da === dp || da === sa || da === sp || dp === sa || dp === sp || ds === da ||
-   ds === dp || ds === sa || ds === sp || ss === da || ss === dp) && return false
+  shares(a, b) = Base.mightalias(a, b)
+  (shares(da, dp) || shares(da, sa) || shares(da, sp) || shares(dp, sa) || shares(dp, sp) ||
+   shares(ds, da) || shares(ds, dp) || shares(ds, sa) || shares(ds, sp) || shares(ss, da) ||
+   shares(ss, dp) || (ds !== ss && shares(ds, ss))) && return false
   copyto!(ds, ss)
   copyto!(da, sa)
   copyto!(dp, sp)

@@ -110,7 +110,7 @@ nonzero_indices(p, entries) = Set(linear(p, r, c) for (r, c, v) in entries if !i
         seen = reads!(c)
         @test value == T(3.75)
         @test !isempty(seen) && issubset(Set(seen), allowed)             # nonzero stored entries only
-        @test length(seen) <= nactive(x)                                 # at most one read for each stored entry
+        @test length(seen) <= nactive(x)                                 # at most nactive(x) reads in all (a zero entry reads i0 again)
         counts[:ordinary] = length(seen)
 
         # the recovery of an overflowing dot: a pair of large entries and a negative d

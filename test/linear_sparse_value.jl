@@ -76,9 +76,11 @@ function random_pair(rng, T, p, k, lox, hix, loc, hic; zeros = 0.25)
   x, c
 end
 
-# Terms whose factors have widely separated exponents: a product has the exponent about E + (-8:1), E = exponent(floatmax(T)),
-# from a factor of any size in the range and a coefficient that makes up the rest. With `cancel`, a second entry (another
-# coefficient and an iterate entry) cancels about the product of each of them. Positions on the diagonal when `diagonal`.
+# Terms with separated exponents, E = exponent(floatmax(T)): the iterate entry has the exponent ex, uniform in
+# exponent(floatmin(T)):E-1, and its coefficient the exponent clamp(ep - ex, exponent(floatmin(T)), E-1) with
+# ep = E + (-8:1), so a product has the exponent ep unless the clamp acts (ex < ep - (E - 1) or ep - ex < exponent(floatmin(T))),
+# and then a smaller one. With `cancel`, a second entry (another coefficient and an iterate entry, whose product is
+# the negative of the first to rounding) is added. Positions on the diagonal when `diagonal`.
 function separated_pair(rng, T, p; diagonal, cancel)
   E, Emin = exponent(floatmax(T)), exponent(floatmin(T))
   sgn() = rand(rng, Bool) ? one(T) : -one(T)
@@ -561,7 +563,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     h = ldexp(one(T), E)
     e = T == Float64 ? -46 : -17
     # a small entry times the largest coefficient, beside two large entries that overflow: the exact value
-    # 2^(E+1) (1 - 2^e) is inside the range by more than the R1 bound, for a Diagonal and for a dense c
+    # 2^(E+1) - floatmax(T) 2^e is inside the range by more than the R1 bound, for a Diagonal and for a dense c
     cs, vs = T[1, 1, floatmax(T)], T[h, h, -ldexp(one(T), e)]
     for diagonal in (true, false)
       x = SparseIterate(T, 3, 3)
@@ -583,7 +585,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
         @test check(g, x, T)
       end
     end
-    # the cancellation probe: two products of size 2^(E+1) that cancel and a third of size about 2^(E - 17) or 2^(E - 46)
+    # the cancellation probe: two products of size 2^(E+1) that cancel and a third product floatmax(T) 2^e, about 2^(E+1+e)
     a, tiny = ldexp(one(T), T == Float64 ? 512 : 64), ldexp(one(T), e)
     cs, vs = T[a, -a, floatmax(T), 0], T[a, a, tiny, floatmax(T)]
     for diagonal in (false, true)
@@ -677,13 +679,15 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     @test isnan(fd(xd)) || fd(xd) === -T(Inf)
   end
 
-  # The ordinary sum has no branch on the value of an entry: a zero entry takes the coefficient index of the first stored
-  # nonzero entry and its term is dropped by a select.
+  # The main loop of the ordinary sum has no branch on the value of an entry (the search for the first stored nonzero
+  # entry does): a zero entry takes the coefficient index of the first stored nonzero entry and its term is dropped by a
+  # select.
   @testset "Select on a zero entry ($T)" for T in (Float32, Float64)
     p = 40
     sums = (a, x, T) -> PB._linear_stored_dot(a, x)
     variants = (sums,)
-    # the first stored nonzero entry (1,1) follows stored zeros and carries a nonfinite coefficient: only its own term counts
+    # the first stored nonzero entry (1,1) follows stored zeros and carries Inf, -Inf or NaN, or the finite 3 or 0: only
+    # its own term counts, and the coefficients at the zeros are NaN and infinite
     for cv in (T(Inf), -T(Inf), T(NaN), T(3), zero(T))
       x = make_iterate(T, p, [(2, 2, zero(T)), (1, 1, T(2)), (3, 3, -zero(T)), (5, 5, zero(T))])
       a = ones(T, p, p); a[1, 1] = cv

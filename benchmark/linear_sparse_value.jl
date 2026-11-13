@@ -15,8 +15,9 @@
 # shared arrays of each size are).
 # PB_CHECK_ONLY=1 checks the outputs and exits.
 #
-# The output check differs from linear_shape.jl, where the kernels are unchanged: the new value sums in the storage
-# order of the iterate, so the roles can differ in the last bits. A value of finite data is compared across the roles
+# The output check differs from linear_shape.jl, where the kernels are unchanged: the new value traverses the stored
+# entries by their storage index with an unspecified reduction order (a vectorized loop; the Diagonal cells sum in
+# increasing diagonal index), so the roles can differ in the last bits. A value of finite data is compared across the roles
 # with isapprox (rtol = 64 eps(T), or atol = 8 eps(T) sqrt(max(n, 1)) (Σ|cᵢxᵢ| + 1), n the number of entries of the
 # cell and the 1 the init of the sum in sumtol), a value that is not finite with isequal. The sqrt(n) tolerance is an
 # empirical output check for the random data of these cells, not an error bound: the error of a sequential sum can

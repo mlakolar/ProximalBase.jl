@@ -282,8 +282,9 @@ ordinary sum is returned finite.
 For a dense `c` that is not a `Diagonal`, `f(Matrix(x))` and `dot(c, x) + d` take the
 generic IEEE `dot`, which visits all positions in column-major order, so a `NaN`
 coefficient at a zero gives `NaN` there: the value differs from them on purpose in that
-case. When the participating entries of `x` and `d` are finite and no partial sum
-overflows, the value agrees with them to the accuracy of the sum. When a
+case. When the participating entries of `x`, the coefficients at them, the coefficients
+at the positions where `x` is zero, and `d` are all finite and no partial sum overflows, the
+value agrees with them to the accuracy of the sum. When a
 participating entry is not finite, the order of summation can change the IEEE class: with
 `c = ones(2, 2)`, `d = 0` and `h = 2^exponent(floatmax(T))`, storing `x[2] = h`, `x[3] = h`
 and then `x[1] = -Inf`, a sum that adds `h` and `h` before the `-Inf` gives `NaN`, while

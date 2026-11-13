@@ -658,8 +658,7 @@ end
 # exponent of the entry (as the _l2_scan of the code before the consolidation did), which can differ by one from that of
 # a - 0 rounded to the current precision: it is one less where that rounding carries into the next binade (v = 1 - 2^-258
 # stored at 768 bits, used at 256 bits).
-@inline _square_exponent(x, ::Nothing, ::Type{R}) where {R} = _square_exponent_scan(x, R)
-@inline function _square_exponent_scan(x, ::Type{R}) where {R}
+@inline function _square_exponent(x, ::Nothing, ::Type{R}) where {R}
   k = _EXPONENT_ZERO
   inf = false
   for v in _stored_values(x)
@@ -677,9 +676,7 @@ end
 # For Float32 and Float64 entries the same result from the largest magnitude, taken on the bit patterns where it
 # vectorizes (_maximum_abs): a NaN has the largest pattern, then an Inf, and the exponent of the largest finite
 # entry is the largest exponent. No entry is classified, converted or its exponent taken, but one.
-const _SQUARE_EXPONENT_SIMD = 16
 @inline function _square_exponent(x::AbstractArray{<:Union{Float32, Float64}}, ::Nothing, ::Type{R}) where {R}
-  length(x) < _SQUARE_EXPONENT_SIMD && return _square_exponent_scan(x, R)
   m = _maximum_abs(x)
   isnan(m) && return _EXPONENT_NAN
   isinf(m) && return _EXPONENT_INF

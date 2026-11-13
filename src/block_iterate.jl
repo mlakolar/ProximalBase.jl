@@ -44,6 +44,14 @@ element type of `x` do: writes through `blockview(x, k)` or another view, indexe
 assignment such as `x[i] = v` or `x[:] = c`, `copyto!` with offsets or index
 ranges, and `map!`. A complex value converted one by one throws an
 `InexactError`, possibly after part of `x` has been written.
+
+Iterates built by these constructors, `copy` and `similar` own independent
+`storage`, `active` and `position` arrays. The seven-argument constructor
+`BlockIterate(storage, groups, group_of, layout_cache, active, position, nactive)`
+is a low-level construction mechanism. Passing it arrays that overlap in memory,
+with each other or with the arrays of another iterate, is unsupported and may
+give incorrect results, in particular when copying; callers that arrange storage
+themselves are responsible for its aliasing.
 """
 mutable struct BlockIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractVector{T}
   storage::Vector{T}       # the entries; those of inactive groups are zero
@@ -59,6 +67,7 @@ mutable struct BlockIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <
     new{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
   end
 end
+# Low-level: the arrays passed in must not overlap in memory (see the docstring).
 BlockIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}, layout_cache, active::Vector{Int}, position::Vector{Int}, nactive::Int) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}} =
   BlockIterate{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
 
@@ -391,50 +400,28 @@ function _copy_active!(dest::BlockIterate{T}, src::BlockIterate) where {T}
   dest
 end
 
-# Called by _copy_active! when every group of src is active. When the checks below hold,
-# it copies storage, active and position as whole arrays and returns true; otherwise it
-# returns false without writing, and the loops of _copy_active! run. The checks are
-# sufficient, not necessary: some rejected states would also copy correctly.
-# They require active and position of both iterates to have length K. With the groups a
-# partition of the entries, the loops then write every entry of dest and set all of
-# dest.active and dest.position from src, as the whole-array copies do, provided no copy
-# changes a byte that a later copy, or the source, reads. The elements of a Vector occupy
-# the bytes [pointer, pointer + length * elsize), except that an isbits union also keeps
-# type tags outside them, so such storage is not copied whole. The checks require the
-# byte range of each array of dest to be disjoint from the ranges of the other arrays of
-# dest and of the arrays of src, except that dest and src may hold the same value array,
-# whose copy writes the values it reads. With an inactive group in src, the copies can
-# differ from the loops, which keep dest's values in that group, such as a -0.0, unless
-# dest has it active and they clear it to +0.0.
+# Called by _copy_active! when every group of src is active. When active and position of
+# both iterates have length K, it copies storage, active and position as whole arrays and
+# returns true; otherwise it returns false without writing, and the loops of _copy_active!
+# run. The 7-argument constructor accepts longer vectors, whose entries past K the loops
+# leave alone. With the groups a partition of the entries and the arrays of the two
+# iterates not overlapping in memory, as the ownership contract in the docstring requires,
+# the loops write every entry of dest and set all of dest.active and dest.position from
+# src, as the copies do. With an inactive group in src, the copies can differ from the
+# loops, which keep dest's values in that group, such as a -0.0, unless dest has it
+# active and they clear it to +0.0.
 # Kept out of line: inlined into _copy_active!, the copies slowed its loop path for
 # small, partly active sources in measurements on Julia 1.13.
 @noinline function _try_copy_all_active!(dest::BlockIterate, src::BlockIterate)
   K = length(src.groups)
-  da, dp, ds = dest.active, dest.position, dest.storage
-  sa, sp, ss = src.active, src.position, src.storage
-  length(da) == length(dp) == length(sa) == length(sp) == K || return false
-  (Base.isbitsunion(eltype(ds)) || Base.isbitsunion(eltype(ss))) && return false
-  disjoint = GC.@preserve da dp ds sa sp ss begin
-    rda, rdp, rds = _byte_range(da), _byte_range(dp), _byte_range(ds)
-    rsa, rsp, rss = _byte_range(sa), _byte_range(sp), _byte_range(ss)
-    !(_overlap(rda, rdp) || _overlap(rda, rsa) || _overlap(rda, rsp) || _overlap(rdp, rsa) ||
-      _overlap(rdp, rsp) || _overlap(rds, rda) || _overlap(rds, rdp) || _overlap(rds, rsa) ||
-      _overlap(rds, rsp) || _overlap(rss, rda) || _overlap(rss, rdp) ||
-      (ds !== ss && _overlap(rds, rss)))
-  end
-  disjoint || return false
-  copyto!(ds, ss)
-  copyto!(da, sa)
-  copyto!(dp, sp)
+  length(dest.active) == length(dest.position) == length(src.active) == length(src.position) == K ||
+    return false
+  copyto!(dest.storage, src.storage)
+  copyto!(dest.active, src.active)
+  copyto!(dest.position, src.position)
   dest.nactive = src.nactive
   true
 end
-
-# the addresses [first, last) of the element bytes of a Vector whose elements are stored
-# without type tags; the caller keeps x alive while it uses them
-_byte_range(x::Vector) = (p = UInt(pointer(x)); (p, p + UInt(length(x)) * UInt(Base.elsize(x))))
-# whether two such ranges share a byte; an empty range shares none
-_overlap(a, b) = a[1] < a[2] && b[1] < b[2] && a[1] < b[2] && b[1] < a[2]
 
 Base.copy!(dest::BlockIterate, src::BlockIterate) = copyto!(dest, src)
 

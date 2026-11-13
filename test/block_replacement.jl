@@ -255,10 +255,10 @@ end
 end
 
 # The seven-argument constructor accepts metadata vectors longer than the number of
-# groups and arrays that share memory between iterates. Expected states follow the
-# group-by-group replacement: dest's ids, positions and entries are written in src's
-# activation order, and metadata entries past the number of groups are left alone.
-@testset "fully active sources with spare or shared metadata arrays" begin
+# groups. Expected states follow the group-by-group replacement: dest's ids, positions
+# and entries are written in src's activation order, and metadata entries past the
+# number of groups are left alone.
+@testset "fully active sources with spare metadata capacity or union storage" begin
     gs, go = [1:1,2:2], [1,2]
     # spare capacity in the active list, the positions, or both, of src and of dest
     for (sa, sp) in (([2,1,0],[2,1]), ([2,1],[2,1,9]), ([2,1,0],[2,1,9])),
@@ -270,73 +270,13 @@ end
         @test dest.active[3:end] == da[3:end] && dest.position[3:end] == dp[3:end]
         @test src.active == sa && src.position == sp
     end
-    # the active list of dest is the memory of src's positions: the same array, or
-    # another array header over it
-    gs3, go3 = [1:1,2:2,3:3], [1,2,3]
-    for alias in (identity, v -> vec(reshape(v, length(v), 1)))
-        src = BlockIterate([1.0,2.0,3.0], gs3, go3, nothing, [3,1,2], [2,3,1], 3)
-        da = alias(src.position)
-        @test Base.mightalias(da, src.position)
-        dest = BlockIterate([4.0,5.0,6.0], gs3, go3, nothing, da, [3,1,2], 3)
-        @test copyto!(dest,src) === dest
-        @test dest.storage == [1.0,2.0,3.0] && dest.nactive == 3
-        @test dest.active == [3,1,2] && dest.position == [2,3,1]
-    end
-    # value memory shared with src, through the same array or another header, and
-    # independent metadata: every entry is src's
-    for alias in (identity, v -> vec(reshape(v, length(v), 1)))
-        src = BlockIterate([1.0,-0.0,3.0], gs3, go3, nothing, [2,3,1], [3,1,2], 3)
-        dest = BlockIterate(alias(src.storage), gs3, go3, nothing, [1,2,3], [1,2,3], 3)
-        @test copyto!(dest,src) === dest
-        check(dest, [1.0,-0.0,3.0], [2,3,1])
-        check(src, [1.0,-0.0,3.0], [2,3,1])
-    end
-end
-
-# Vectors wrapped over parts of one buffer: overlapping parts must give the result of the
-# group-by-group replacement, in which each write can change a later read; adjacent parts
-# share no byte and are copied whole.
-@testset "fully active sources over overlapping or adjacent memory" begin
-    gs, ids = [1:1,2:2,3:3], [1,2,3]
-    wrap(::Type{T}, buf, i) where {T} = unsafe_wrap(Vector{T}, pointer(buf, i), 3; own = false)
-    # values: src holds entries 1-3 of a buffer, dest entries 2-4
-    backing = [1.0,2.0,3.0,4.0]
-    GC.@preserve backing begin
-        src = BlockIterate(wrap(Float64, backing, 1), gs, ids, nothing, copy(ids), copy(ids), 3)
-        dest = BlockIterate(wrap(Float64, backing, 2), gs, ids, nothing, copy(ids), copy(ids), 3)
-        @test !Base.mightalias(dest.storage, src.storage)
-        @test !ProximalBase._try_copy_all_active!(dest, src)
-        @test backing == [1.0,2.0,3.0,4.0]          # rejected without writing
-        @test copyto!(dest,src) === dest
-        @test dest.storage == [1.0,1.0,1.0] && collect(activecoordinates(dest)) == [1,2,3]
-    end
-    # metadata: src's positions are entries 1-3 of a buffer, dest's active list entries 2-4
-    backing = [1,2,3,1]
-    GC.@preserve backing begin
-        src = BlockIterate([1.0,2.0,3.0], gs, ids, nothing, [1,2,3], wrap(Int, backing, 1), 3)
-        dest = BlockIterate([4.0,5.0,6.0], gs, ids, nothing, wrap(Int, backing, 2), [3,1,2], 3)
-        @test !Base.mightalias(dest.active, src.position)
-        @test copyto!(dest,src) === dest
-        @test dest.storage == [1.0,2.0,3.0]
-        @test dest.active == [1,2,3] && dest.position == [1,2,3]
-    end
-    # adjacent parts of one buffer: copied whole, src unchanged
-    backing = [1.0,-0.0,3.0,7.0,8.0,9.0]
-    GC.@preserve backing begin
-        src = BlockIterate(wrap(Float64, backing, 1), gs, ids, nothing, [3,1,2], [2,3,1], 3)
-        dest = BlockIterate(wrap(Float64, backing, 4), gs, ids, nothing, copy(ids), copy(ids), 3)
-        @test ProximalBase._try_copy_all_active!(dest, src)
-        check(dest, [1.0,-0.0,3.0], [3,1,2])
-        check(src, [1.0,-0.0,3.0], [3,1,2])
-        @test isequal(backing, [1.0,-0.0,3.0,1.0,-0.0,3.0])
-    end
-    # an isbits union keeps type tags outside the element bytes: not copied whole
+    # storage of a union element type: values and their element types are src's
+    gs3, ids = [1:1,2:2,3:3], [1,2,3]
     U = Union{Float64,Int}
-    src = BlockIterate(U[1.0,2,3.0], gs, ids, nothing, [2,3,1], [3,1,2], 3)
-    dest = BlockIterate(U[4,5.0,6], gs, ids, nothing, copy(ids), copy(ids), 3)
-    @test !ProximalBase._try_copy_all_active!(dest, src)
+    src = BlockIterate(U[1.0,2,3.0], gs3, ids, nothing, [2,3,1], [3,1,2], 3)
+    dest = BlockIterate(U[4,5.0,6], gs3, ids, nothing, copy(ids), copy(ids), 3)
     @test copyto!(dest,src) === dest
-    @test dest.storage == U[1.0,2,3.0] && map(typeof, dest.storage) == [Float64,Int,Float64]
+    @test map(typeof, dest.storage) == [Float64,Int,Float64]
     check(dest, Vector(src), [2,3,1])
 end
 

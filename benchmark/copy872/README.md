@@ -33,7 +33,7 @@ run --source baseline=$S/A --source baselineAA=$S/AA --source Cn=$S/Cn --source 
   --output $W/cn7 --rounds 7
 run --source baseline=$S/A --source baselineAA=$S/AA --source Cn=$S/Cn --source CnAA=$S/CnAA \
   --output $W/cn21 --rounds 21 --start-round 8
-# the merged source, which adds eligibility checks to Cn's out-of-line copies
+# the merged source, which adds a metadata-length check to Cn's out-of-line copies
 run --source baseline=$S/A --source baselineAA=$S/AA --source final=$PWD --source finalAA=$PWD \
   --cases-file $W/cases-targeted.txt --output $W/final --rounds 21 --start-round 8
 for c in explore confirm target cn7 cn21 final; do
@@ -60,7 +60,7 @@ other tree is the base commit with `_copy_active!` replaced by
 | C2 | C, plus a bulk `position` copy at any activity |
 | D | for singleton layouts (one entry per group), loops that index each group's entry directly; master's loops otherwise |
 | CD | C's all-active path, then D's singleton path, then master's loops |
-| Cn | C, with the bulk copies in a separate `@noinline` function; the merged code adds the eligibility checks below to that function |
+| Cn | C, with the bulk copies in a separate `@noinline` function; the merged code adds the metadata-length check below to that function |
 | Cs | a dispatch between the bulk copies and the unchanged master loops |
 | X | an unconditional dense copy; a negative control that must fail `check.jl` |
 
@@ -111,16 +111,14 @@ repository. In summary:
 
 - When every source group is active, copying `storage`, `active` and `position`
   as whole arrays gives the state of the per-group loops, provided `active` and
-  `position` of both iterates have one entry per group and no copy changes a byte
-  that a later copy or the source reads. The merged code checks sufficient
-  conditions and otherwise runs the loops: the byte range of each of the
-  destination's three arrays must be disjoint from those of its other two and of
-  the source's three, except a value array held by both, and storage whose element
-  type is an isbits union (type tags outside the element bytes) is not copied
-  whole. With an inactive source
-  group, the copies can differ: the loops keep the destination's values there,
-  such as a `-0.0`, unless the destination has the group active, when they clear
-  it to `+0.0`.
+  `position` of both iterates have one entry per group and the arrays of the two
+  iterates do not overlap in memory. Iterates built by the constructors, `copy`
+  and `similar` own independent arrays; overlapping arrays passed to the
+  seven-argument constructor are unsupported (see the `BlockIterate` docstring).
+  The merged code checks the lengths and otherwise runs the loops. With an
+  inactive source group, the copies can differ: the loops keep the destination's
+  values there, such as a `-0.0`, unless the destination has the group active,
+  when they clear it to `+0.0`.
   C, Cn and CD run full-activity replacement at a median 0.11–0.17× of master for
   each group size; B gains less, C2 is up to 2.6× slower at 1% activity, and D
   gains at most 1–7%, at partial activity with singleton groups.

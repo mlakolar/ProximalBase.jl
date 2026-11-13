@@ -65,9 +65,11 @@ of the largest one. Genuine NaN/Inf data or parameters keep their ordinary
 IEEE result; only finite inputs whose intermediates leave the range are
 recomputed. For the `LinearFunction` value at a matrix `SparseIterate`, the finite
 inputs are `d`, the nonzero stored entries and the coefficients at them: the
-recomputation reads the nonzero stored entries (the nonzero stored diagonal entries for a
-`Diagonal` coefficient array), `O(nactive(x))`, and a nonfinite coefficient at a zero of the
-iterate does not prevent it. Recovery is worthwhile when it changes a materially inaccurate
+recomputation sums their products as exponent-separated terms (as the `QuadraticFunction`
+recovery does), with `d` as a term of its own, and a nonfinite coefficient at a zero of the
+iterate does not prevent it. It reads the nonzero stored entries, `O(nactive(x))`; for a
+`Diagonal` coefficient array it scans the `p` diagonal positions, `O(p)`, whatever
+`nactive(x)` is. Recovery is worthwhile when it changes a materially inaccurate
 answer into a representable result in the working precision.
 
 `NormL1` values also recover terms `λ0*w[i]*abs(x[i])` that round into the

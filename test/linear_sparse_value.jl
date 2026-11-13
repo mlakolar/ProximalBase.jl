@@ -6,7 +6,7 @@ const PB = ProximalBase
 # stored entries of x whose value is nonzero (D1: an entry that is not stored, or is stored as +0 or -0, adds
 # nothing, even against a NaN or infinite coefficient; a nonzero entry follows ordinary arithmetic), then d. When
 # the ordinary value is not finite and d, the nonzero entries and the coefficients at them are finite, the value
-# is recomputed in units of a power of two (R1). A Diagonal coefficient array is read at the diagonal of x only.
+# is recomputed from exponent-separated terms (R1). A Diagonal coefficient array is read at the diagonal of x only.
 # The references below are computed from the stored entries in BigFloat, without the package's value.
 
 # Writing a nonzero first keeps the coordinate stored when its value is zero.
@@ -289,7 +289,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     @test f0(xs) === T(3) * sub
     @test LinearFunction(ones_p, T(2) * sub)(xs) === T(5) * sub
     @test f0(make_iterate(T, p, [(1, 1, sub)])) === sub
-    # a small value beside a large one: the small one is within the R1 bound, not necessarily kept
+    # a small value beside large ones that cancel: the value is within the R1 bound
     xb = make_iterate(T, p, [(1, 1, h), (2, 1, h), (3, 1, -h), (4, 1, -h), (5, 5, small)])
     @test check(f0, xb, T)
   end

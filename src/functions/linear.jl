@@ -63,7 +63,8 @@ _value_unchecked(f::LinearFunction, x::SymmetricSparseIterate) =
 
 # A dot that overflows, alone or with d, at a representable value is summed
 # again with x in units of 2^k, chosen so that no partial sum can overflow; d
-# keeps its own units, so that a small d survives a dot that cancels (R1).
+# keeps its own units, so that a small d survives a dot that cancels (R1). A matrix
+# SparseIterate takes the exponent-separated recomputation below instead.
 @inline _linear_value(f::LinearFunction, x, v) = isfinite(v) ? v : _linear_value_recover(f.c, f.d, x, v)
 @noinline function _linear_value_recover(c, d, x, v)
   (_all_finite(x) && _all_finite(c) && isfinite(d)) || return v

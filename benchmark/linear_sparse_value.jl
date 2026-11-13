@@ -1,6 +1,8 @@
-# Paired benchmark of the LinearFunction value at a matrix SparseIterate (#810), which sums the stored nonzero
-# entries of the iterate in the storage order and reads the coefficients at them (at the diagonal ones for a Diagonal
-# coefficient array), where the earlier value was the generic dot, which visits all m × m positions. Float32/Float64, m = 16, 128, 1024.
+# Paired benchmark of the LinearFunction value at a matrix SparseIterate (#810). The new value sums the stored nonzero
+# entries of the iterate in the storage order and reads the coefficients at them; for a Diagonal coefficient array it
+# sums the nonzero stored diagonal entries in increasing diagonal index (O(p)). The earlier value was dot(c, x) + d:
+# for a dense coefficient array the generic dot, which visits all m × m positions, and for a Diagonal the diagonal-only
+# dot of Diagonal. Float32/Float64, m = 16, 128, 1024.
 #
 #   PB_FIRST=<root of role X> PB_SECOND=<root of role Y> PB_OUTPUT=<dir> PB_ROUNDS=21 \
 #     julia --threads=1 --check-bounds=no --project=benchmark benchmark/linear_sparse_value.jl
@@ -14,17 +16,23 @@
 # PB_CHECK_ONLY=1 checks the outputs and exits.
 #
 # The output check differs from linear_shape.jl, where the kernels are unchanged: the new value sums in the storage
-# order of the iterate, so the roles agree to the accuracy of the sum, not bit for bit. A value of finite data is
-# compared across the roles with isapprox (rtol = 64 eps(T), or atol = 8 eps(T) sqrt(n) Σ|cᵢxᵢ|, n the number of
-# stored entries, which covers the rounding of a sum of many terms), a value that is not finite with isequal. The
-# exceptional cells (an overflowing dot with finite coefficients) are compared with a BigFloat value of each role's
-# own output instead, and a difference across the roles there is reported, not an error.
+# order of the iterate, so the roles can differ in the last bits. A value of finite data is compared across the roles
+# with isapprox (rtol = 64 eps(T), or atol = 8 eps(T) sqrt(max(n, 1)) (Σ|cᵢxᵢ| + 1), n the number of entries of the
+# cell and the 1 the init of the sum in sumtol), a value that is not finite with isequal. The sqrt(n) tolerance is an
+# empirical output check for the random data of these cells, not an error bound: the error of a sequential sum can
+# reach the order of n eps(T) Σ|cᵢxᵢ|. The exceptional cells (an overflowing dot with finite coefficients) are compared
+# with a BigFloat value of each role's own output instead, and a difference across the roles there is reported, not
+# an error.
 #
-# As in linear_shape.jl the roles share their input and output arrays (the iterates, whose types belong to each
-# tree, are built per role): these kernels stream through arrays that fit in L2, where the relative placement of
-# x, c and the output has moved a role by tens of percent with identical machine code (see linear_shape.jl). A sample is repeated (evals) until
-# it takes about a microsecond or more. The cells that run code the change does not touch (the dense matrix value,
-# the vector SparseIterate value, the symmetric value and the matrix-iterate gradient! and prox!) are controls.
+# As in linear_shape.jl the roles share their input and output arrays; the iterates, whose types belong to each tree,
+# and their backing arrays are built per role, so the placement of those arrays can differ between the roles. In
+# linear_shape.jl, for arrays that fit in L2, the relative placement of x, c and the output has moved a role by tens
+# of percent with identical machine code; the small cells here (a 16 × 16 or 128 × 128 matrix) are of that kind, and the
+# larger ones (a 1024 × 1024 Float64 coefficient matrix alone is 8 MiB) were not checked against any cache size. Read
+# a timing through the A/A spread, the reversed-role run and fresh-process repeats. A sample repeats the operation
+# evals = max(1, 2^16 ÷ max(work, 8)) times, a heuristic from the number of entries that a call visits; the duration of
+# a sample is not calibrated or checked. The cells that run code the change does not touch (the dense matrix value, the
+# vector SparseIterate value, the symmetric value and the matrix-iterate gradient! and prox!) are controls.
 using BenchmarkTools, LinearAlgebra, SparseArrays, Random, Statistics, Dates
 Threads.nthreads() == 1 || error("one Julia thread required")
 first_root = abspath(ENV["PB_FIRST"]); second_root = abspath(ENV["PB_SECOND"])
@@ -68,7 +76,7 @@ function makedata(::Type{T}, m::Int) where {T}
             sym, C + C', rng, Dict{String, Entries{T}}())
 end
 
-# the tolerance 8 eps(T) sqrt(n) Σ|cᵢ xᵢ| of the sum of n stored entries
+# the tolerance 8 eps(T) sqrt(max(n, 1)) (Σ|cᵢ xᵢ| + 1) of the sum of n entries (the 1 is the init of the sum)
 sumtol(::Type{T}, c, idx, val) where {T} =
     8 * Float64(eps(T)) * sqrt(max(length(idx), 1)) * sum(abs(Float64(c[i]) * Float64(v)) for (i, v) in zip(idx, val); init = 1.0)
 

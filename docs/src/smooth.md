@@ -264,23 +264,32 @@ except at a zero of a matrix `SparseIterate` (below); finite-data overflowed val
 have a scaled recovery path. There is no nonnegative restriction on `c` or `d`.
 
 At a matrix `SparseIterate` the value `f(x)` is computed from the stored entries of
-`x` whose value is nonzero, in the storage order, in `O(nactive(x))` (`O(p)` for a
-`Diagonal` coefficient array, below) and without forming a zero for an unstored entry. An entry that is not stored, or is stored as
+`x` whose value is nonzero, summed in the storage order, in `O(nactive(x))` and without
+forming a zero for an unstored entry. A `Diagonal` coefficient array is the exception: its
+value is summed over the nonzero stored diagonal entries in increasing diagonal index, in
+`O(p)` (it scans the `p` diagonal positions), and the other entries of `x` are ignored, as
+in the diagonal-only `dot` of `Diagonal`. An entry that is not stored, or is stored as
 `+0` or `-0`, adds nothing, even when the coefficient at that position is `NaN`,
 `Inf` or `-Inf`, and `c` is not read there; a nonzero entry follows ordinary
 arithmetic, also when it or its coefficient is not finite. The constant `d` is added
 after the sum. When the ordinary value is not finite but `d`, the nonzero entries
-and the coefficients at them are, the value is recomputed in units of a power of two
-from those entries (a coefficient at a zero does not prevent it): a value that lies
-inside the range of the type by the accuracy of the ordinary sum is returned finite, and `d`
-keeps its own units. A `Diagonal` coefficient array is read at the nonzero stored diagonal entries
-of `x` in `O(p)`, and the other entries of `x` are ignored, as in `dot(c, Matrix(x))`.
+and the coefficients at them are, the value is recomputed from those entries (a
+coefficient at a zero does not prevent it) as exponent-separated terms, each product
+formed from its two factors without scaling one before the other acts, and `d` as a term
+of its own: a value that lies inside the range of the type by the accuracy of the
+ordinary sum is returned finite.
+
 For a dense `c` that is not a `Diagonal`, `f(Matrix(x))` and `dot(c, x) + d` take the
-generic IEEE `dot`, which visits all positions, so a `NaN` coefficient at a zero gives `NaN`
-there: the value differs from them on purpose in that case, and agrees with them to the
-accuracy of the sum when the coefficients at zeros are finite. This rule is for the matrix `SparseIterate`: a vector `SparseIterate` keeps its
-own rules, and a `SymmetricSparseIterate` forms the terms at its stored zeros, so a
-`NaN` coefficient there gives `NaN`.
+generic IEEE `dot`, which visits all positions in column-major order, so a `NaN`
+coefficient at a zero gives `NaN` there: the value differs from them on purpose in that
+case. When the participating entries of `x` and `d` are finite and no partial sum
+overflows, the value agrees with them to the accuracy of the sum. When a
+participating entry is not finite, the order of summation can change the IEEE class: with
+`c = ones(2, 2)`, `d = 0` and `h = 2^exponent(floatmax(T))`, storing `x[2] = h`, `x[3] = h`
+and then `x[1] = -Inf` gives `NaN` (the storage order overflows to `+Inf` before the
+`-Inf`), while `f(Matrix(x))` and `dot(c, x) + d` give `-Inf`. This rule is for the matrix
+`SparseIterate`: a vector `SparseIterate` keeps its own rules, and a `SymmetricSparseIterate`
+forms the terms at its stored zeros, so a `NaN` coefficient there gives `NaN`.
 
 ```@example library_linear_sparse
 using ProximalBase, LinearAlgebra

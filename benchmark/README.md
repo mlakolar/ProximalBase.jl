@@ -93,3 +93,106 @@ mkdir -p /tmp/pb-legacy && git archive eff21b6d7d33c622313122f46c6ee71693c101ee 
 PB_FIRST=/tmp/pb-legacy PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
   julia --threads=1 --project=benchmark benchmark/l2_norms.jl
 ```
+
+### Bit-for-bit differential of `l2_norms.jl`
+
+`PB_EXACT=1` with `PB_CHECK_ONLY=1` replaces the tolerance check of `l2_norms.jl` by an exact one: every
+output of Y and of XC must equal that of X with `===` per array element (tuples element by element, scalars
+by `===`), so signed zeros and NaN bit patterns count. It is meant for a refactor that must not change a bit
+of any output; without it the check is the one described above.
+
+```sh
+git worktree add /tmp/pb-ref 769640859ca791d08a3f08a0faafadc137bb685a      # the reference tree, read only
+PB_FIRST=/tmp/pb-ref PB_SECOND="$PWD" PB_EXACT=1 PB_CHECK_ONLY=1 \
+  julia --threads=1 --project=benchmark benchmark/l2_norms.jl
+```
+
+## Cold-path harness
+
+`l2_cold_paths.jl` is a differential check and a paired benchmark of the exceptional paths of `NormL2` and
+`GroupNormL2` and of the shared kernels that serve them (issue #900). It has the design of `l2_norms.jl`
+(roles X, Y and the A/A control XC compiled from source in one process, alternating order, inputs and output
+buffers shared by the roles, `raw.csv` and `provenance.txt` in the format of
+`summarize_norml1_infinite_weight.py`).
+
+**Cases.** Every case is one operation, one element type and one input, with a name of the form
+`family/operation/type/scenario/size[/layout]`.
+
+| Family | Operations | Inputs |
+|---|---|---|
+| `GroupNormL2` | `prox`, `value_and_prox`, `value`, `prox_block`, `kkt_array`, `kkt_block`, and `*_matrix` for `Matrix` arguments | group sizes 2, 5, 32 and 1024 (and 2^16 in Float32), contiguous (range) and permuted (index-vector) groups, about 4096 entries |
+| `NormL2` | `prox`, `value_and_prox`, `value` on arrays of 1024 and 65536 entries; `value_sparse`, `value_symmetric`, `value_block` | 400 stored entries of a 200 × 200 `SparseIterate` and `SymmetricSparseIterate`, a `BlockIterate` of 1024 entries |
+| `SqrNormL2`, `norm_diff`, `LeastSquaresLoss`, `NormL1` | values (`NormL1` also `prox` and `value_and_prox`) | the paths of the shared kernels that the two norms use |
+
+The scenarios are: overflowing norms (entries near `floatmax`, sums of squares that overflow with a finite
+norm); underflowing norms (entries near `floatmin`, subnormal entries, sums of squares below `m floatmin/eps`);
+thresholds `γλ0w` that overflow or underflow with finite results, also where only `γλ0` is out of range;
+extreme finite products; values near `floatmax/2` and above it (Option C); values below `K floatmin` (#373);
+long Float32 groups of 2^16 entries; zero and infinite levels, weights and steps; NaN and Inf at the first, middle
+and last positions (NaN after Inf, NaN before Inf); zero and `-0.0` groups. BigFloat has a few representative
+inputs of each operation; the BigFloat cases are checked but not timed.
+
+**Validation of the inputs.** Before any role is compared, each data set is validated with computations that use
+no package code: the ordinary sum of squares in the element type overflows or underflows, the product `γλ0w`
+is out of range in the element type and in range in exact arithmetic where the case says so, a value lies in the
+intended fraction of `floatmax`, the exact BigFloat proximal point is finite. A failed assertion is an error that
+names the case. Value cases with a BigFloat reference also require the value of X to lie within `128 eps(T)`
+of it.
+
+**Differential.** The check is always exact (`===` per array element and per scalar; a BigFloat by precision,
+sign and value). XC must equal X and Y must equal X for every case, so a one-bit difference anywhere stops the
+run with the case name.
+
+```sh
+PB_FIRST=/path/to/reference-tree PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
+  julia --threads=1 --project=benchmark benchmark/l2_cold_paths.jl
+```
+
+`PB_FILTER` selects cases by a regular expression on their ids (for example `'^GroupNormL2/prox/Float32/'`);
+`PB_STRIDE=k` keeps every k-th selected case (a smoke run of the timing code, for example with `PB_ROUNDS=1`);
+`PB_INVENTORY=1` prints the number of cases of each family, operation and type. The harness builds one benchmark
+object per role and case and times it with `gctrial = false` (no full collection before each timing, which would
+otherwise dominate a run over thousands of short cases); the other settings are those of `l2_norms.jl`.
+
+**The BigFloat exception (D-X).** One case, `GroupNormL2/value/BigFloat/dx_exponent_sum_beyond_Int64`, has
+`λ0 = w = x = 2^(2^62-2)`, whose value overflows MPFR. The reference tree wraps the sum of three exponents and
+returns `+0`; the shared kernel returns `+Inf`. The case is the only one allowed to differ. `PB_EXPECT_DIFF`
+tells the check what to require of it:
+
+| `PB_EXPECT_DIFF` | requirement |
+|---|---|
+| `auto` (default) | `same` when `PB_FIRST` and `PB_SECOND` are the same path, `forward` otherwise |
+| `0` or `same` | X and Y are equal (use it when both roots hold the same source) |
+| `1` or `forward` | X gives `+0` and Y gives `+Inf` (the reference tree is X) |
+| `reversed` | X gives `+Inf` and Y gives `+0` (a run with the roles reversed) |
+
+Run `l2_cold_paths.jl` with the roles reversed with `PB_EXPECT_DIFF=reversed` (or `0` when both trees hold the
+same source); otherwise `auto` fails there.
+
+## Timing campaign
+
+The two harnesses time X, Y and XC in alternating rounds and write `raw.csv`; the check runs first and stops
+at a mismatch. For the campaign, run each harness in a fresh process with one thread, on an otherwise idle
+machine, pinned to one core (`taskset -c <core>` on Linux), forward and with the roles reversed, and
+summarize each run on its own:
+
+```sh
+# forward: X = reference tree, Y = candidate
+PB_FIRST=/path/to/reference-tree PB_SECOND="$PWD" PB_OUTPUT=/tmp/cold-fwd PB_ROUNDS=15 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/l2_cold_paths.jl
+python3 benchmark/summarize_norml1_infinite_weight.py /tmp/cold-fwd
+
+# reversed roles: X = candidate, Y = reference tree (the ratios are the inverse)
+PB_FIRST="$PWD" PB_SECOND=/path/to/reference-tree PB_EXPECT_DIFF=reversed PB_OUTPUT=/tmp/cold-rev PB_ROUNDS=15 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/l2_cold_paths.jl
+python3 benchmark/summarize_norml1_infinite_weight.py /tmp/cold-rev
+```
+
+The same commands with `benchmark/l2_norms.jl` time the ordinary cases (`PB_EXACT=1` applies to its check).
+`--check-bounds=no` removes every bounds check, also those that the code does not elide with `@inbounds`;
+run each harness again without the option (default bounds checking) and compare, because an access
+that is checked in the shipped code (for example through an adapter whose reads are not marked `@inbounds`)
+costs nothing in the first run and something in the second. Use a different `PB_OUTPUT` for each run:
+the summarizer pools directories only when their `X:` and `Y:` lines of `provenance.txt` agree.
+Judge a slowdown against the A/A column (`XC/X`) and repeat it with the roles reversed and in a fresh process
+before calling it a regression; `PB_FILTER` restricts a repeat to the rows concerned.

@@ -17,7 +17,9 @@
 # are shared by the three roles, so that array placement does not differ between them (the iterates of
 # the NormL2 value cases are each role's own type, built from the same entries). PB_CHECK_ONLY=1
 # only compares the outputs: XC must equal X exactly, and Y must agree with X to a few rounding errors
-# (the two implementations may round the fused value differently); PB_FILTER selects cases by id.
+# (the two implementations may round the fused value differently); PB_EXACT=1 with PB_CHECK_ONLY=1 requires
+# Y to equal X bit for bit instead (`===` per array element and per scalar, so signed zeros and NaN bit
+# patterns count, and XC must equal X the same way); PB_FILTER selects cases by id.
 using BenchmarkTools, Random, Statistics, Dates
 Threads.nthreads() == 1 || error("one Julia thread required")
 first_root = abspath(ENV["PB_FIRST"]); second_root = abspath(ENV["PB_SECOND"])
@@ -159,14 +161,24 @@ function agree(a, b)
     scale = maximum(abs, a; init = zero(T))
     all(i -> abs(a[i] - b[i]) <= 8eps(T) * max(scale, abs(a[i])), eachindex(a, b))
 end
+# bit-for-bit equality: tuples elementwise, arrays by size and `===` per element, scalars by `===`
+exact_equal(a::Tuple, b::Tuple) = length(a) == length(b) && all(exact_equal(u, v) for (u, v) in zip(a, b))
+exact_equal(a::AbstractArray, b::AbstractArray) = size(a) == size(b) && all(i -> a[i] === b[i], eachindex(a, b))
+exact_equal(a, b) = a === b
+exact = get(ENV, "PB_EXACT", "0") == "1"
 for (a, b, c) in zip(suites["X"], suites["Y"], suites["XC"])
     a.op(); ra = a.check()
     c.op(); rc = c.check()
     b.op(); rb = b.check()
-    isequal(ra, rc) || error("A/A output mismatch: $(a.id)")
-    agree(ra, rb) || error("output mismatch beyond rounding: $(a.id)")
+    (exact ? exact_equal(ra, rc) : isequal(ra, rc)) || error("A/A output mismatch: $(a.id)")
+    if exact
+        exact_equal(ra, rb) || error("output differs bit for bit: $(a.id)")
+    else
+        agree(ra, rb) || error("output mismatch beyond rounding: $(a.id)")
+    end
 end
-println("outputs agree across roles for $(length(suites["X"])) probes")
+println(exact ? "outputs identical bit for bit across roles for $(length(suites["X"])) probes" :
+                "outputs agree across roles for $(length(suites["X"])) probes")
 get(ENV, "PB_CHECK_ONLY", "0") == "1" && exit()
 
 function bench(p)

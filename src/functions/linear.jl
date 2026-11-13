@@ -164,36 +164,38 @@ end
 
 # The value of a recovery: the dot kept by `_expsum_product` as the compensated pair (s, c) in the
 # frame 2^ex, combined with d. d is not added to the pair itself: after an exactly cancelling dot
-# the pair can hold nonzero opposite parts s = -c (compensation of the absorbed terms), and a small
+# the pair can hold nonzero opposite parts s = -c (the compensation of absorbed terms), and a small
 # d added to it is absorbed in their rounding. The pair is collapsed first, and the dot is rebased
 # to its own exponent, so that d meets the dot's value and not its largest product. A is the type
 # of the accumulator, at least Float64, and R the type of the value.
-#   Why nothing overflows. Every term is m 2^e with |m| < 1 and e <= ex, so in the units of the
-# frame |s|, |c| and m = s + c are below 2n + 4 for n terms (n < 2^63): the collapse is made in A,
-# where it cannot overflow, and the dot is never formed in R, where it could.
-#   The steps. (1) m = fl_A(s + c): one rounding, |m - (s + c)| <= eps(A)/2 |m|; m == 0 only if
+#   Range. Every product is m 2^e with |m| < 1 and e <= ex, so in the units of the frame each term
+# is below 1, and |s|, |c| and m = s + c are below 2n + 4 for n terms (|c| collects the roundings of
+# the partial sums, which are of the order of eps(A) times them), with n < 2^63. The collapse is
+# made in A, where it cannot overflow, and the dot alone is not converted to R.
+#   Steps. (1) m = fl_A(s + c): one rounding, |m - (s + c)| <= eps(A)/2 |m|, and m == 0 only if
 # s + c == 0 exactly. (2) m = mm 2^em with 1/2 <= |mm| < 1, and the dot goes into a new
 # accumulator in the frame ex + em: only an exponent changes, so this step is exact. (3) d enters
 # by `_expsum_product` as a term of its own, and the sum is taken in the frame of the larger of the
-# dot and d. (4) The result is converted to R once: <= eps(R)/2 relative, or Inf if the exact value
-# is beyond the range of R.
-#   What is dropped. `_expsum_add` drops a term, or a part of the sum, below 2^-1074 of the current
-# frame (the subnormal limit of A): at most 2^(ex-1074) each, that is 2^-1074 relative to the
+# dot and d. (4) `_expsum_value` rounds the sum to A and converts it to R, or gives Inf if the
+# exact value is beyond the range of R.
+#   Dropped terms. `_expsum_add` loses a term, or a part of the sum, below 2^-1074 of the current
+# frame (the subnormal limit of A): at most n 2^(ex-1074) in all, that is 2^-1074 relative to the
 # largest product. The pair (s, c) holds the products with an error of at most
 # (eps(A)/2 + n eps(A)^2) times the sum of their magnitudes, plus these drops. Hence the value is
-# within the R1 bound 4 n eps(R) (sum |cᵢ xᵢ| + |d|) of the exact one, and d is kept in its own
-# units. The error relative to the dot itself is not bounded by this: a dot much smaller than the
-# sum of the magnitudes of its terms carries the absolute error above, and a dot below about
-# 2^-1022 times its largest product is held in A as a subnormal, where only the absolute error
-# 2^-1074 remains.
-#   What is guaranteed. R1 as above; an exactly cancelling dot whose pair sums to zero gives
-# R(d) exactly (d is its own term, converted once) and +0 if d is zero; a dot of value delta
-# beside d, when the products are exact in A (for example Float32 data, or significands of at most
-# 26 bits), the dot is above n 2^(ex-1074) / eps(R), and n eps(A)^2 times the sum of the
-# magnitudes is below eps(R) |delta|, is returned with a relative error of at most a few eps(R)
-# against delta + d. What is not guaranteed: that a cancellation is exact (the pair's sum is
-# the computed one: rounding in the compensation can leave s + c != 0 for terms of widely different
-# size), or accuracy of a small dot beside much larger terms beyond the absolute error above.
+# within the R1 bound 4 n eps(R) (sum |cᵢ xᵢ| + |d|) of the exact one, with d in its own units.
+# The error relative to the dot itself is not bounded by this: a dot much smaller than the sum of
+# the magnitudes of its terms carries the absolute error above, and a dot below about 2^-1022
+# times its largest product is held in A as a subnormal, with only an absolute error of 2^-1074
+# in the units of the frame.
+#   Guaranteed. R1 as above. If the pair sums to zero, the value is R(d) when d is representable
+# in R (d is a term of its own, converted once), and +0 if d is zero. A dot of value delta beside
+# d, when the products are exact in A (for example Float32 data, or significands of at most 26
+# bits), delta is above n 2^(ex-1074) / eps(R), and n eps(A)^2 times the sum of the magnitudes is
+# below eps(R) |delta|, is returned with an error of at most a few eps(R) (|delta| + |d|).
+#   Not guaranteed. That the pair sums to zero for an exactly cancelling dot: the sum of the
+# compensations is itself rounded, so terms of very different sizes can leave s + c != 0 (the
+# value then has the absolute error of R1, and a small d is lost against it). Accuracy of a small
+# dot beside much larger terms beyond the absolute error above.
 function _linear_recovered_value(::Type{R}, acc::_ExpSum{A}, d) where {R, A}
   m = acc.s + acc.c
   collapsed = _expsum_start(A)

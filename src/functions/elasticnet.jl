@@ -191,46 +191,44 @@ _value_dense(f::ElasticNet, x::AbstractArray) = _elastic_value(f, x)
 # the value of the ℓ1 part, the value of NormL1(λ1, w).
 function _value_dense(f::ElasticNet{T, <:Union{Nothing, Array{T}}}, x::Array{T}) where {T<:Union{Float32, Float64}}
   iszero(f.λ2) && return _value_unchecked(f.l1, x)
-  s, ordinary = _elastic_fused_sum(f, x)
-  ordinary && _elastic_sum_kept(s, f.λ2, length(x)) && return s
-  _elastic_value(f, x)
+  s, kept = _elastic_fused_value(f, x)
+  kept ? s : _elastic_value(f, x)
 end
 
-# s = Σᵢ tᵢ with tᵢ = cᵢ aᵢ + h aᵢ², cᵢ = λ1 wᵢ, h = λ2/2, aᵢ = |xᵢ| (wᵢ = 1 without weights), in one vectorized
-# loop, and whether every coefficient cᵢ is normal or has a zero factor (λ1 = 0 or wᵢ = 0): condition (A).
-@inline function _elastic_fused_sum(f::ElasticNet{T}, x::Array{T}) where {T}
-  λ1, h = f.λ1, f.λ2 / 2
-  s = zero(T)
-  ordinary = true
-  @inbounds @simd for i in eachindex(IndexLinear(), x)
-    w = _entry(f.w, i)
-    c = λ1 * w
-    a = abs(x[i])
-    s += c * a + h * (a * a)
-    ordinary &= (iszero(λ1) | iszero(w)) | ((floatmin(T) <= c) & (c <= floatmax(T)))
-  end
-  s, ordinary
-end
-
-# Conditions (B) and (C) on the fused sum s of n terms: (B) λ2 = 0 or 2 floatmin ≤ λ2 ≤ floatmax, and (C) s finite
-# with s ≥ 4 n floatmin (1 + λ2). With (A), they bound the relative error of s by (n + 2) eps for n ≤ 1/(2 eps) - 2.
+# The fused value s = fl(fl(λ1 s1) + fl(fl(λ2 s2)/2)) of the sums s1 = Σᵢ wᵢ|xᵢ| (wᵢ = 1 without weights) and
+# s2 = Σᵢ xᵢ², both accumulated in one vectorized loop, and whether s is finite with s ≥ 4 floatmin (n (λ1 + λ2) + 1)
+# for n entries. Then the relative error of s is at most (n + 2) eps, for n ≤ 1/(2 eps) - 2.
 #
-# Proof. Let u = eps/2, δ = eps floatmin (the spacing of the subnormal numbers), γₖ = k u/(1 - k u), S the exact
-# value Σᵢ (Lᵢ + Qᵢ), Lᵢ = λ1 wᵢ aᵢ, Qᵢ = h aᵢ², and assume (n + 2) u ≤ 1/4. A product rounds to p(1 + ε) + η with
-# |ε| ≤ u, |η| ≤ δ/2, and a sum to (a + b)(1 + ε). Every intermediate is nonnegative, so an overflow or a NaN would
-# make s infinite or NaN, which (C) excludes; the model holds for every operation. By (A), cᵢ = λ1 wᵢ (1 + ε) or
-# cᵢ = 0 = λ1 wᵢ exactly (aᵢ is finite, as s is); by (B), h = λ2/2 exactly. So
-#   |fl(cᵢ aᵢ) - Lᵢ| ≤ γ₂ Lᵢ + δ/2,    |fl(h fl(aᵢ aᵢ)) - Qᵢ| ≤ γ₂ Qᵢ + (h (1 + u) + 1) δ/2,
-# and the rounded sum of the two is a term tᵢ with |tᵢ - (Lᵢ + Qᵢ)| ≤ γ₃ (Lᵢ + Qᵢ) + A, A = (1 + u)(2 + h (1 + u)) δ/2.
-# The n nonnegative terms, summed in any order, give |s - Σ tᵢ| ≤ γ_{n-1} Σ tᵢ, hence (γₐ + γ_b + γₐ γ_b ≤ γ_{a+b})
-#   |s - S| ≤ γ_{n+2} S + E,    E = (1 + γ_{n-1}) n A.
-# From (C), S ≥ (s - E)/(1 + γ_{n+2}) ≥ (4 n floatmin (1 + λ2) - E)/(1 + γ_{n+2}), so E ≤ u S when
-# 4 n floatmin (1 + λ2) ≥ E (1 + γ_{n+2} + u)/u. With δ = 2 u floatmin, γ_{n-1}, γ_{n+2} ≤ 1/3 and h = λ2/2,
-# E (1 + γ_{n+2} + u)/u ≤ (4/3 + u)(4/3)(1 + u)² (2 + λ2/2) n floatmin < (3.56 + 0.89 λ2) n floatmin, and the
-# rounding of the computed bound (three operations) leaves it above that. Then
+# Proof. Let u = eps/2, δ = eps floatmin (the spacing of the subnormal numbers, δ/2 = u floatmin), γₖ = k u/(1 - k u),
+# W = Σ wᵢ aᵢ, Q = Σ aᵢ² with aᵢ = |xᵢ|, S = λ1 W + λ2 Q/2 the exact value, and assume (n + 2) u ≤ 1/4. Every
+# intermediate is nonnegative: an overflow makes s Inf, and a zero times Inf makes it NaN, both excluded; so no
+# operation overflows. A product rounds to p(1 + ε) + η with |ε| ≤ u and |η| ≤ δ/2 (η ≠ 0 only for a subnormal
+# result), a sum to (a + b)(1 + ε), and a sum of n nonnegative terms, in any order, within γ_{n-1} of their sum.
+# The terms wᵢ aᵢ and aᵢ² give
+#   |ŝ1 - W| ≤ γₙ W + (1 + γ_{n-1}) n δ/2,    |ŝ2 - Q| ≤ γₙ Q + (1 + γ_{n-1}) n δ/2.
+# The products with λ1 and λ2, and the halving (exact unless subnormal, then within δ/2), give
+#   |fl(λ1 ŝ1) - λ1 W| ≤ γ_{n+1} λ1 W + (1 + u)(1 + γ_{n-1}) λ1 n δ/2 + δ/2,
+#   |fl(fl(λ2 ŝ2)/2) - λ2 Q/2| ≤ γ_{n+1} λ2 Q/2 + (1 + u)(1 + γ_{n-1}) (λ2/2) n δ/2 + 3δ/4,
+# and the final sum |s - S| ≤ γ_{n+2} S + E with E = (1 + u)² (1 + γ_{n-1}) (λ1 + λ2/2) n δ/2 + (5/2)(1 + u) δ/2.
+# The test gives S ≥ (s - E)/(1 + γ_{n+2}) ≥ (B - E)/(1 + γ_{n+2}), B = 4 floatmin (n (λ1 + λ2) + 1), so E ≤ u S when
+# B ≥ E (1 + γ_{n+2} + u)/u. With δ/2 = u floatmin and γ_{n-1}, γ_{n+2} ≤ 1/3,
+#   E (1 + γ_{n+2} + u)/u ≤ (4/3 + u) ((4/3)(1 + u)² (λ1 + λ2/2) n + (5/2)(1 + u)) floatmin
+#                       < (1.78 λ1 n + 0.89 λ2 n + 3.34) floatmin,
+# which B exceeds by a factor 1.19 or more, also as computed (four roundings). Then
 #   |s - S| ≤ (γ_{n+2} + u) S ≤ ((4/3)(n + 2) + 1) u S ≤ 2 (n + 2) u S = (n + 2) eps S.  □
-@inline _elastic_sum_kept(s::T, λ2::T, n) where {T} =
-  (iszero(λ2) | ((2 * floatmin(T) <= λ2) & (λ2 <= floatmax(T)))) & (s <= floatmax(T)) & (s >= 4 * T(n) * floatmin(T) * (1 + λ2))
+@inline function _elastic_fused_value(f::ElasticNet{T}, x::Array{T}) where {T}
+  s1 = s2 = zero(T)
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
+    a = abs(x[i])
+    s1 += _elastic_weighted(f.w, i, a)
+    s2 += a * a
+  end
+  λ1, λ2 = f.λ1, f.λ2
+  s = λ1 * s1 + λ2 * s2 / 2
+  s, (s <= floatmax(T)) & (s >= 4 * floatmin(T) * (T(length(x)) * (λ1 + λ2) + 1))
+end
+@inline _elastic_weighted(::Nothing, i, a) = a
+Base.@propagate_inbounds _elastic_weighted(w::AbstractArray, i, a) = w[i] * a
 
 _value_sep(f::ElasticNet, x::SparseIterate) = (_checkparams(f, x); _elastic_value(f, x))
 _value_sep(f::ElasticNet, x::BlockIterate) = (_checkparams(f, x); _elastic_value(f, x))

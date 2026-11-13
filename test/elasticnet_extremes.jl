@@ -172,13 +172,11 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       # the two regimes where one part dominates take the fused loop: its bound holds there
       for (λ1, λ2, x) in ((p2(T, 3m ÷ 4), one(T), fill(p2(T, m ÷ 3), 64)), (one(T), one(T), fill(p2(T, 3m ÷ 5), 64)))
         f = ElasticNet(λ1, λ2, ones(T, 64))
-        s, ok = PB._elastic_fused_sum(f, x)
-        @test ok && PB._elastic_sum_kept(s, f.λ2, length(x))
+        @test PB._elastic_fused_value(f, x)[2]
       end
       # and every term below floatmin does not (the composed value recomputes it)
       f = ElasticNet(p2(T, m ÷ 2), one(T), ones(T, 8))
-      s, ok = PB._elastic_fused_sum(f, fill(p2(T, m ÷ 2 - 2), 8))
-      @test !(ok && PB._elastic_sum_kept(s, f.λ2, 8))
+      @test !PB._elastic_fused_value(f, fill(p2(T, m ÷ 2 - 2), 8))[2]
       # value_entry of single extreme terms
       @test value_entry(ElasticNet(zero(T), p2(T, -E ÷ 2 - 4)), p2(T, E ÷ 2 + 4), 1) === p2(T, E ÷ 2 + 3)
       @test value_entry(ElasticNet(zero(T), p2(T, E ÷ 2 + 4)), p2(T, m ÷ 2 - 4), 1) === p2(T, E ÷ 2 + m - 5)

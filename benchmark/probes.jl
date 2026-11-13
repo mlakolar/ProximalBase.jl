@@ -114,5 +114,28 @@ function makeprobes(::Type{T}) where T
         s
     end,noop,()->PB.prox_block(f,T(2),1,T(.7)))
     add("l1/vector_prox",()->(PB.prox!(out,f,scalar_u,T(.7));nothing),noop,()->copy(out))
+    # ElasticNet on ordinary inputs with finite levels: the stored entries of the three iterates, and dense
+    # weighted prox_block, prox! and value (the weights do not draw from rng, so the data above is unchanged)
+    for family in (:sparse,:symmetric,:block)
+        x = family === :sparse ? PB.SparseIterate(T,p) : family === :symmetric ? PB.SymmetricSparseIterate(T,45) : PB.BlockIterate(T,p,groups)
+        c = family === :block ? x : PB.coordinates(x)
+        @inbounds for i in 1:13:length(c)
+            c[i]=T(sin(i)*2)
+        end
+        src=copy(x);reset=()->(copyto!(x,src);nothing)
+        en=PB.ElasticNet(T(.3),T(.5));enout=similar(x)
+        add("$family/elasticnet_value",()->en(x),reset,()->en(x))
+        add("$family/elasticnet_prox",()->(PB.prox!(enout,en,x,T(.7));nothing),reset,()->family===:symmetric ? Matrix(enout) : Vector(enout))
+    end
+    en=PB.ElasticNet(T(.3),T(.5),T(.5).+T.(mod.(1:1024,7))./4)
+    add("elasticnet/scalar_prox",()->begin
+        s=zero(T)
+        @inbounds for i in eachindex(scalar_u)
+            s+=PB.prox_block(en,scalar_u[i],i,T(.7))
+        end
+        s
+    end,noop,()->[PB.prox_block(en,scalar_u[i],i,T(.7)) for i in eachindex(scalar_u)])
+    add("elasticnet/vector_prox",()->(PB.prox!(out,en,scalar_u,T(.7));nothing),noop,()->copy(out))
+    add("elasticnet/vector_value",()->en(scalar_u),noop,()->en(scalar_u))
     ps
 end

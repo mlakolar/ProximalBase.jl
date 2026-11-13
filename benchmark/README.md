@@ -1,6 +1,6 @@
 # Minimal-core benchmark and independent references
 
-The 102-case harness compares the retained storage/function hot paths to the
+The 120-case harness compares the retained storage/function hot paths to the
 full post-#848 source at eff21b6d7d33c622313122f46c6ee71693c101ee. It includes
 an independently compiled same-source A/A control, alternating roles/order,
 Float32/64, state restoration outside timing, warmup, raw medians/minima and
@@ -67,4 +67,25 @@ probes are the recomputed sums, whose values the fix changes; the other outputs 
 ```sh
 PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
   julia --threads=1 --project=benchmark benchmark/norml1_value_underflow.jl
+```
+
+## ElasticNet harness
+
+`elasticnet.jl` times `ElasticNet` (issue #908) between the archived source tree at
+eff21b6d7d33c622313122f46c6ee71693c101ee (`PB_ARCHIVE`), the candidate (`PB_CANDIDATE`) and a
+second compilation of the candidate as the A/A control: a loop of `prox_block`, dense `prox!`
+(unweighted and weighted, a zero `λ1` or `λ2`, per-entry steps) at n = 1024 and 65536, dense
+values (unweighted, weighted, and the two regimes where one part dominates), `value_and_prox!`,
+`SparseIterate`, `BlockIterate` and `SymmetricSparseIterate` values and `prox!`, and the `prox!`
+of a `Scaled` `ElasticNet`, in Float32 and Float64. The roles share their plain input and output
+arrays. Each round times every case in alternating role order and keeps the minimum over the
+samples of each role; the summary gives per case the median, minimum and maximum of the paired
+ratios candidate/archive and control/candidate, with the warmed allocations, and marks medians
+above 1.05. `PB_REVERSE=1` loads and times the candidate in the place of the archive, for the
+reversed-role rerun in a fresh process; `PB_FILTER` selects cases; `PB_CHECK_ONLY=1` compares
+the outputs only (proximal points within 4 ulp, values within `2(n + 2) eps`).
+
+```sh
+PB_ARCHIVE=/tmp/pb849-baseline PB_CANDIDATE="$PWD" PB_ROUNDS=21 PB_OUTPUT=/tmp/pb908-results \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/elasticnet.jl
 ```

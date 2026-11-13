@@ -883,24 +883,30 @@ end
       return T(_l2_zero!(y, G))
     end
   end
-  # an unpenalized group (its threshold is 0, below the normal range) is copied without the call, and its term is zero
-  iszero(w) && (_l2_copy!(y, x, G); return T(_L2_ZERO))
-  T(_l2_shrink_cold!(y, x, G, λ, w, γ))
+  # The parameters decide the exits in the order of _l2_shrink_fixed!, whose frame holds the loops of those exits only;
+  # the values, at finite positive parameters, are in a function of their own (_l2_shrink_values!).
+  if iszero(w) | isinf(w) | isinf(λ) | iszero(λ) | iszero(γ) | isinf(γ)
+    return T(_l2_shrink_fixed!(y, x, G, λ, w, γ))
+  end
+  T(_l2_shrink_values!(y, x, G, λ, w, γ))
 end
 
-# The parameters decide first, in this order: an unpenalized group (w = 0, copied by _l2_shrink! itself), a group
+# The parameters decide first, in this order: an unpenalized group (w = 0: copied, and its term is zero), a group
 # fixed at zero (an infinite weight, or an infinite level at every nonnegative step, #665), the identity (a zero level
-# or step), a group fixed by an infinite step. Otherwise the values decide, at positive finite γ, λ and w: a NaN entry
-# makes every output NaN; an infinite entry (and no NaN) makes the norm infinite and the threshold finite, so
-# 1 - c/‖x‖ = 1 and the group is copied, also when c overflows in floating point; a zero group gives +0. Otherwise
-# r = c/‖x‖ = (γλw 2^-k) / ns from the scaled norm ns 2^k, with c formed by the bounded-product kernel, so that
-# neither c nor the norm needs to be in range: r ≥ 1 gives zero, and t = 1 - r in (0, 1] scales the group without
-# overflow. A product γλw 2^-k that overflows means r > 1, and one that underflows means r < floatmin, where t rounds
-# to 1. One function, so that a group of the cold paths costs one call.
-@noinline function _l2_shrink_cold!(y, x, G, λ, w, γ::Real)
+# or step), a group fixed by an infinite step. Otherwise the values decide (below).
+@noinline function _l2_shrink_fixed!(y, x, G, λ, w, γ::Real)
+  iszero(w) && (_l2_copy!(y, x, G); return _L2_ZERO)
   (isinf(w) || isinf(λ)) && return _l2_zero!(y, G)
   (iszero(λ) || iszero(γ)) && return _l2_copy!(y, x, G)
-  isinf(γ) && return _l2_zero!(y, G)
+  _l2_zero!(y, G)                      # isinf(γ)
+end
+# The values, at positive finite γ, λ and w: a NaN entry makes every output NaN; an infinite entry (and no NaN) makes
+# the norm infinite and the threshold finite, so 1 - c/‖x‖ = 1 and the group is copied, also when c overflows in
+# floating point; a zero group gives +0. Otherwise r = c/‖x‖ = (γλw 2^-k) / ns from the scaled norm ns 2^k, with c
+# formed by the bounded-product kernel, so that neither c nor the norm needs to be in range: r ≥ 1 gives zero, and
+# t = 1 - r in (0, 1] scales the group without overflow. A product γλw 2^-k that overflows means r > 1, and one that
+# underflows means r < floatmin, where t rounds to 1.
+@noinline function _l2_shrink_values!(y, x, G, λ, w, γ::Real)
   T = float(eltype(y))
   R = _recovery_type(_working_type(T, γ, λ, w), float(eltype(x)))
   k, ns = _l2_classified_norm(x, G, R)

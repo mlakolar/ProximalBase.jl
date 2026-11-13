@@ -71,7 +71,9 @@ recomputation sums their products as exponent-separated terms (as the `Quadratic
 recovery does), collapses the sum and adds `d` to it in its own units, and a nonfinite coefficient at a zero of the
 iterate does not prevent it. It reads the nonzero stored entries, `O(nactive(x))`; for a
 `Diagonal` coefficient array it scans the `p` diagonal positions, `O(p)`, whatever
-`nactive(x)` is. Recovery is worthwhile when it changes a materially inaccurate
+`nactive(x)` is. At a dense array, a vector `SparseIterate` and a `SymmetricSparseIterate`, the
+recomputation sums the same exponent-separated terms when `d`, all coefficients and all entries of
+the argument are finite. Recovery is worthwhile when it changes a materially inaccurate
 answer into a representable result in the working precision.
 
 The accuracy of a recovered value is an absolute bound `B = 4 n eps (sum |terms| + |d|)` for

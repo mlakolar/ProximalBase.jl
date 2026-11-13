@@ -14,6 +14,7 @@ quick = [
   "iterate_writes",
   "linear_shapes",
   "linear_sparse_value",
+  "linear_value_recovery",
   "matrixview",
   "minimal_math",
   "numerical_kernels",

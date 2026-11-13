@@ -700,14 +700,14 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
         @test isequal(dot_variant(b, y, T), T(2) * cv + -T(Inf))
       end
     end
-    # no nonzero stored entry: the sum is +0, whatever the coefficients are
+    # no nonzero stored entry: the sum is +0, also when the coefficients are NaN
     for x in (SparseIterate(T, p, p), make_iterate(T, p, [(1, 1, zero(T)), (2, 2, -zero(T))]))
       a = fill(T(NaN), p, p)
       for dot_variant in variants
         @test dot_variant(a, x, T) === zero(T)
       end
     end
-    # random iterates of every density, with stored zeros, and nonfinite coefficients at zeros: the sum agrees with the reference
+    # random iterates of densities from one entry to fully stored, with stored zeros, and nonfinite coefficients at zeros: the sum agrees with the reference
     rng = Xoshiro(810_800 + (T == Float32))
     for p in (3, 9, 17), k in unique(clamp.((1, 2, p, p^2 ÷ 4, p^2 ÷ 3, p^2 ÷ 2, p^2 - 1, p^2), 1, p^2))
       x, a = random_pair(rng, T, p, k, -3, 3, -3, 3)

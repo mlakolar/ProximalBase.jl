@@ -249,6 +249,38 @@ function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {
   iszero(s) && return convert(R, w) * zero(R)
   _scaled_product(convert(R, w), s, E)
 end
+# Two terms, the case of the dot with a shift d (LinearFunction), of the two sums of LeastSquaresLoss and of the
+# group screen: the operations of the method above for N = 2 without the loops over the terms (the larger term
+# first, the first one if their exponents are equal; the aligned addition and the renormalization; a zero term
+# skipped; the final product). The method above remains the definition; the tests compare the two.
+function _pow2_weighted(::Type{R}, w, t1::Tuple{Any, Int}, t2::Tuple{Any, Int}) where {R}
+  m1, m2 = convert(R, t1[1]), convert(R, t2[1])
+  (isfinite(m1) & isfinite(m2)) || return convert(R, w) * ((zero(R) + m1) + m2)
+  e1, e2 = t1[2], t2[2]
+  if iszero(m1) | iszero(m2)
+    (iszero(m1) & iszero(m2)) && return convert(R, w) * zero(R)
+    m, e = iszero(m1) ? (m2, e2) : (m1, e1)
+    s, f = _frexp(m)
+    return _scaled_product(convert(R, w), s, _exponent_sum(R, f, e))
+  end
+  # the frame exponents are Int128 for BigFloat and Int for the other types, as above
+  E1 = _exponent_sum(R, exponent(m1), e1)
+  E2 = _exponent_sum(R, exponent(m2), e2)
+  if E2 > E1
+    m1, m2, e1, e2 = m2, m1, e2, e1
+  end
+  s, f1 = _frexp(m1)
+  E = _exponent_sum(R, f1, e1)
+  mj, f2 = _frexp(m2)
+  D = _exponent_sum(R, f2, e2)
+  # D <= E, as the larger term is first. A term more than 2 precision(R) binades below the sum is below half an ulp
+  # of s, which is in [1/2, 1) in magnitude, so s + ldexp(mj, D - E) rounds to s: the shift, an ldexp whose result is
+  # subnormal or zero (slow), is skipped, and s + zero(R) rounds s as that sum would.
+  s = D - E < -2 * precision(R) ? s + zero(R) : s + ldexp(mj, D - E)
+  iszero(s) && return convert(R, w) * zero(R)
+  s, f = _frexp(s)
+  _scaled_product(convert(R, w), s, _exponent_sum(R, E, f))
+end
 _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_weighted(R, one(R), terms...)
 
 ####################################
@@ -556,16 +588,17 @@ end
 end
 @inline _halved(a, b, ::Type{R}) where {R} = R(a) / 2 - R(b) / 2
 
-# The exponent of the largest residual, or a code: _EXPONENT_NAN for a NaN residual (a NaN entry, or
-# Inf - Inf), _EXPONENT_INF for an infinite residual that is not NaN, and _EXPONENT_ZERO for an exactly
-# zero one. The maximum over the residuals is the NaN code if any residual is NaN, else the Inf code if
-# any is infinite, else the largest exponent (the zero code if all are zero). The class of a residual that
-# is not finite is decided on that branch only.
+# The exponent of the largest residual, or a code that no exponent equals: _EXPONENT_ZERO for an exactly
+# zero residual, and for an entry that is not finite _EXPONENT_NONFINITE, which does not tell NaN from
+# Inf (the callers with a second operand only need to know that the residual is not finite). The method
+# for y = 0 below tells them apart: _EXPONENT_NAN (the same value as _EXPONENT_NONFINITE, the largest, so
+# that a NaN wins the maximum) for a NaN entry and _EXPONENT_INF for an infinite one.
+const _EXPONENT_ZERO = typemin(Int)
+const _EXPONENT_NONFINITE = typemax(Int)
 const _EXPONENT_NAN = typemax(Int)
 const _EXPONENT_INF = typemax(Int) - 1
-const _EXPONENT_ZERO = typemin(Int)
 @inline function _residual_exponent(a, b, ::Type{R}) where {R}
-  (isfinite(a) && isfinite(b)) || return isnan(_square_difference(a, b, R)) ? _EXPONENT_NAN : _EXPONENT_INF
+  (isfinite(a) && isfinite(b)) || return _EXPONENT_NONFINITE
   d, h = _halved_difference(a, b, R)
   iszero(d) ? _EXPONENT_ZERO : exponent(abs(d)) + h
 end
@@ -580,16 +613,28 @@ end
 
 function _square_exponent(x, y, ::Type{R}) where {R}
   k = _EXPONENT_ZERO
-  if y === nothing
-    for a in _stored_values(x)
-      k = max(k, _residual_exponent(a, zero(R), R))
-    end
-  else
-    @inbounds for i in eachindex(x, y)
-      k = max(k, _residual_exponent(x[i], y[i], R))
-    end
+  @inbounds for i in eachindex(x, y)
+    k = max(k, _residual_exponent(x[i], y[i], R))
   end
   k
+end
+# y = 0, with R at least as wide as the entries: the residual a - 0 of a finite a is a in R, so the exponent
+# is that of a and no difference is formed. The first NaN decides (the NaN code is the largest, so the
+# maximum would give it anyway), an infinite entry gives the Inf code unless a NaN follows, and zero entries
+# are skipped. The largest exponent and the zero code are those of the method above for finite entries.
+@inline function _square_exponent(x, ::Nothing, ::Type{R}) where {R}
+  k = _EXPONENT_ZERO
+  inf = false
+  for v in _stored_values(x)
+    a = convert(R, v)
+    if isfinite(a)
+      iszero(a) || (k = max(k, Int(exponent(a))))
+    else
+      isnan(a) && return _EXPONENT_NAN
+      inf = true
+    end
+  end
+  inf ? _EXPONENT_INF : k
 end
 
 function _square_scaled_sum(x, y, k, ::Type{R}) where {R}
@@ -602,7 +647,7 @@ function _square_scaled_sum(x, y, k, ::Type{R}) where {R}
 end
 # y = 0 with a finite exponent k, R at least as wide as the entries: the residual a - 0 of a finite a is
 # a in R and is not halved, so the entry is scaled by the one power factor 2^-k
-function _square_scaled_sum(x, ::Nothing, k, ::Type{R}) where {R}
+@inline function _square_scaled_sum(x, ::Nothing, k, ::Type{R}) where {R}
   s = _power_factors(R, -k)
   v = e = zero(R)
   @inbounds for (i, a) in enumerate(_stored_values(x))
@@ -661,29 +706,36 @@ end
 
 # The kernels below compute, for an index set G of an array x (all of x for NormL2, one group for
 # GroupNormL2), the shrinkage max(1 - γλw/‖x[G]‖₂, 0) x[G] and the term λw‖x[G]‖₂ of a value. They take
-# the level λ and the weight w as scalars (w = true for NormL2) and allocate nothing for Float32 and
-# Float64 data.
+# the level λ and the weight w as scalars (w = true for NormL2). They allocate nothing when the data, the destination
+# and the level, weight and step are all Float32 or Float64 (a BigFloat, for example, allocates in its own arithmetic).
 
-# The vector of the entries x[G[j]], j = 1:length(G), read through x and G without a copy. A view would
-# reshape a matrix x, which allocates; the callers have checked that G is within x, so the reads are not
-# checked again (the index j is, unless @inbounds). _stored_values gives all of its entries and
-# _square_multiplicity gives 1, as for any vector.
+# The vector of the entries x[G[j]], j = 1:length(G), read through x and G without a copy, in the element
+# type of x or, if one is given, rounded to it. A view would reshape a matrix x, which allocates; the callers have
+# checked that G is within x, so the reads are not checked again (the index j is, unless @inbounds).
+# _stored_values gives all of its entries and _square_multiplicity gives 1, as for any vector.
 struct _IndexedValues{T, X, I} <: AbstractVector{T}
   x::X
   G::I
 end
-_IndexedValues(x, G) = _IndexedValues{eltype(x), typeof(x), typeof(G)}(x, G)
+_IndexedValues(x, G) = _IndexedValues(x, G, eltype(x))
+# with an element type T, the entries are convert(T, x[G[j]]): the entries as the loops in T read them
+_IndexedValues(x, G, ::Type{T}) where {T} = _IndexedValues{T, typeof(x), typeof(G)}(x, G)
 Base.size(v::_IndexedValues) = (length(v.G),)
 Base.length(v::_IndexedValues) = length(v.G)
 Base.IndexStyle(::Type{<:_IndexedValues}) = IndexLinear()
-Base.@propagate_inbounds function Base.getindex(v::_IndexedValues, j::Int)
+Base.@propagate_inbounds function Base.getindex(v::_IndexedValues{T}, j::Int) where {T}
   @boundscheck checkbounds(v, j)
-  @inbounds v.x[v.G[j]]
+  @inbounds convert(T, v.x[v.G[j]])
 end
-@inline function Base.iterate(v::_IndexedValues, j::Int = 1)
+@inline function Base.iterate(v::_IndexedValues{T}, j::Int = 1) where {T}
   j > length(v.G) && return nothing
-  @inbounds (v.x[v.G[j]], j + 1)
+  @inbounds (convert(T, v.x[v.G[j]]), j + 1)
 end
+
+# Whether every entry of x[G], rounded to T, is a zero of either sign: an exactly zero group has the norm 0 also where its
+# sum of squares underflows. A group that is zero only after the rounding (x wider than T) counts as zero, as in the
+# sums of squares in T.
+@inline _l2_all_zero(x, G, ::Type{T}) where {T} = _all_zero(_IndexedValues(x, G, T))
 
 # Σ x[i]² over i ∈ G, each entry converted to T before it is squared, in one vectorizable loop
 @inline function _indexed_sumabs2(x, G, ::Type{T}) where {T}
@@ -706,7 +758,8 @@ _recovery_type(types...) = promote_type(Float64, types...)
 # rounding of a term into the subnormal range (or to zero). That rounding loses at most δ/2 =
 # eps(T) floatmin(T)/2 per term, n eps floatmin / 2 in all, which is at most eps/2 of a sum s ≥ n floatmin.
 # A sum below that bound (a zero sum included) may have lost more than ordinary rounding, even a normal one:
-# 512 terms 2^-135 + 2^-150 in Float32 each round to 2^-135 and the sum loses 256 units of 2^-126. Sums of
+# 512 terms 2^-135 + 2^-150 in Float32 each round to 2^-135 and the sum loses 512 2^-150 = 2^-141, 256 units of 2^-149
+# (the spacing of the numbers below floatmin(Float32)). Sums of
 # subnormal partial sums are exact, and the relative errors of normal terms and of the summation are those
 # of every ordinary value. The test is false for NaN, so an ordinary NaN (or Inf) is returned as it was.
 @inline _sum_kept(s, n) = !(s < n * floatmin(typeof(s)))
@@ -745,9 +798,9 @@ end
   nothing
 end
 
-# ‖x[G]‖₂ = ns 2^k from the classified exponent pass over the entries (_square_exponent), for the cold
-# paths. k is the largest exponent of the entries, or the code of the group: _EXPONENT_NAN if an entry is
-# NaN, _EXPONENT_INF if one is infinite and none is NaN, _EXPONENT_ZERO if all are zero. For a finite
+# ‖x[G]‖₂ = ns 2^k from the classified exponent pass over the entries (the method of _square_exponent for
+# y = 0), for the cold paths. k is the largest exponent of the entries, or the code of the group: _EXPONENT_NAN if
+# an entry is NaN, _EXPONENT_INF if one is infinite and none is NaN, _EXPONENT_ZERO if all are zero. For a finite
 # nonzero group and need_norm, ns is the norm of the entries scaled by 2^-k, so that its largest entry is in
 # [1, 2) and no square overflows or underflows below the rounding of the sum: ns is in [1, 2√|G|). Otherwise
 # ns is zero. A caller that does not need the norm passes need_norm = false, and then there is no second pass.
@@ -778,7 +831,7 @@ end
         return t * n
       end
       return T(_l2_zero!(y, G))
-    elseif iszero(s) && _all_zero(_IndexedValues(x, G))   # a group that is zero in T but not in x (x wider than T) is left to the cold path: +0 while √|G| ≤ 2/eps(T)
+    elseif iszero(s) && _l2_all_zero(x, G, T)
       return T(_l2_zero!(y, G))
     end
   end
@@ -836,7 +889,7 @@ end
       if isfinite(q) & _squares_normal(q, length(G), T)
         v = convert(T, λw * sqrt(convert(R, q)))
         _l2_ordinary(v, T) && return v
-      elseif iszero(q) && _all_zero(_IndexedValues(x, G))
+      elseif iszero(q) && _l2_all_zero(x, G, T)
         return zero(T)
       end
     else

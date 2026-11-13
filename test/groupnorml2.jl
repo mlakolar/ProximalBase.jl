@@ -684,6 +684,44 @@ end
 end
 
 # ---- accuracy of the recomputed values and screens ----
+@testset "entries that round to zero in the destination type" begin
+  # The same decision as NormL2: a group whose entries round to zero in the destination type T is zero in T, also if
+  # the norm of the entries is not, and its output is +0. Float16 destination, Float64 entries just below half the
+  # smallest Float16 (2^-25): in a group beyond 2^22 entries c/‖x‖ < 1 in the cold recomputation, so only the
+  # decision on the entries rounded to T gives +0 (a reproducer found in review).
+  n = 2^22 + 1
+  x = fill(-prevfloat(2.0^-25), n)
+  f = GroupNormL2(floatmin(Float16), [1:n], Float16[1])
+  y = zeros(Float16, n)
+  prox!(y, f, x, Float16(1))
+  @test count(signbit, y) == 0 && all(iszero, y)
+  fill!(y, Float16(7))
+  v = value_and_prox!(y, f, x, Float16(1))
+  @test v === zero(Float16) && count(signbit, y) == 0 && all(iszero, y)
+  # two groups, one of them an exceptional one by its parameters, and the compact block operator
+  m = 1000
+  xs = vcat(fill(-prevfloat(2.0^-25), m), fill(0.5, m))
+  g = GroupNormL2(Float16(0.25), [1:m, m+1:2m], Float16[1, 1])
+  ys = fill(Float16(3), 2m)
+  prox!(ys, g, xs, Float16(1))
+  @test all(i -> ys[i] === Float16(0), 1:m)
+  expected = 0.5 * (1 - 0.25 / (0.5 * sqrt(m)))    # the second group, an ordinary shrinkage
+  @test all(i -> abs(Float64(ys[i]) - expected) <= 2 * Float64(eps(Float16)) * expected, m+1:2m)
+  out = fill(Float16(3), m)
+  prox_block!(out, g, xs[1:m], 1, Float16(1))
+  @test all(i -> out[i] === Float16(0), 1:m)
+  for k in (1, 2, 7, 1000), val in (-prevfloat(2.0^-25), 2.0^-26, -2.0^-40), (λ, γ) in ((floatmin(Float16), 1), (1.0, 1.0), (1.0, 0.5), (1e-3, 1e3))
+    xk = fill(val, k)
+    gk = GroupNormL2(Float16(λ), [1:k], Float16[1])
+    yk = fill(Float16(3), k)
+    prox!(yk, gk, xk, Float16(γ))
+    @test all(i -> yk[i] === Float16(0), 1:k)
+    yk = fill(Float16(3), k)
+    prox!(yk, gk, Float32.(xk), Float16(γ))
+    @test all(i -> yk[i] === Float16(0), 1:k)
+  end
+end
+
 @testset "recomputed values and screens against BigFloat ($T)" for T in (Float32, Float64)
   # Groups of random sizes and layouts whose ordinary computation fails: the sum of squares overflows
   # (entries above 2^(emax/2 + 2)) or the squares of a group underflow below floatmin / eps. The level makes

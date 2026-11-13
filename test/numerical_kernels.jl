@@ -105,8 +105,8 @@ setprecision(BigFloat, 1200) do
     @test PB._halved_difference(nextfloat(T(1)), T(1), T) === (eps(T), 0)
     # zeros, and genuine Inf/NaN operands, which the callers screen before using the result
     @test PB._residual_exponent(T(3), T(3), T) == typemin(Int)
-    @test PB._residual_exponent(T(Inf), T(3), T) == PB._EXPONENT_INF
-    @test PB._residual_exponent(T(3), T(NaN), T) == PB._EXPONENT_NAN
+    @test PB._residual_exponent(T(Inf), T(3), T) == typemax(Int)
+    @test PB._residual_exponent(T(3), T(NaN), T) == typemax(Int)
     # integer operands take a widened integer difference
     @test PB._halved_difference(typemin(Int), typemax(Int), Float64) === (-18446744073709551615.0, 0)
   end
@@ -174,6 +174,31 @@ setprecision(BigFloat, 1200) do
       @test alloc(index_sum, v) == 0
       @test alloc(sum, v) == 0
     end
+    # with an element type the entries are rounded to it: the entries of a wider parent as the loops in that type read
+    # them, a group that is zero only after the rounding is zero, and the rounding does not allocate
+    if T === Float64
+      tiny = fill(-prevfloat(2.0^-150), 6)                     # below half the smallest Float32
+      tiny[3] = -0.0
+      Gt = [5, 3, 1, 6]
+      for S in (Float32, Float16)
+        v = PB._IndexedValues(tiny, Gt, S)
+        @test eltype(v) === S && length(v) == 4
+        @test same(collect(v), S.(tiny[Gt])) && same([a for a in v], S.(tiny[Gt])) && same([v[j] for j in 1:4], S.(tiny[Gt]))
+        @test PB._all_zero(v) && PB._l2_all_zero(tiny, Gt, S)
+        @test alloc(iter_sum, v) == 0 && alloc(index_sum, v) == 0
+      end
+      @test !PB._all_zero(PB._IndexedValues(tiny, Gt)) && !PB._l2_all_zero(tiny, Gt, Float64)
+      # the entries of Float32 and larger magnitude are not zero in Float32, one entry that is not rounds the group
+      mixed = copy(tiny); mixed[6] = 2.0^-140
+      @test !PB._l2_all_zero(mixed, Gt, Float32) && PB._l2_all_zero(mixed, [1, 2, 3], Float32)
+      # the same through a matrix parent and a vector group
+      @test PB._l2_all_zero(reshape(copy(tiny), 2, 3), [1, 4, 6, 3], Float32)
+      # NaN, an infinity and an overflow in the rounding are not zero
+      for bad in (NaN, Inf, -Inf, 1e300)
+        w = copy(tiny); w[2] = bad
+        @test !PB._l2_all_zero(w, [1, 2, 3], Float32) && !PB._l2_all_zero(w, [1, 2, 3], Float16)
+      end
+    end
     # an index outside 1:length(G) is a BoundsError when bounds checks are on
     if Base.JLOptions().check_bounds != 2
       for G in (2:9, [7, 3, 12, 1, 5])
@@ -202,16 +227,17 @@ setprecision(BigFloat, 1200) do
     @test se(T[1.0, 3.0]) == 1
     @test se(T[-0.0, 0.75, -0.5]) == -1
     @test se(T[floatmax(T), 1]) == E
-    # with a second operand the residuals decide: Inf - Inf is NaN, Inf - 1 is infinite
-    @test PB._residual_exponent(T(Inf), T(Inf), T) == PB._EXPONENT_NAN
-    @test PB._residual_exponent(T(Inf), T(-Inf), T) == PB._EXPONENT_INF
-    @test PB._residual_exponent(T(Inf), T(1), T) == PB._EXPONENT_INF
-    @test PB._residual_exponent(T(1), T(-Inf), T) == PB._EXPONENT_INF
-    @test PB._residual_exponent(T(NaN), T(Inf), T) == PB._EXPONENT_NAN
-    @test PB._square_exponent(T[Inf, 1], T[Inf, 0], T) == PB._EXPONENT_NAN
-    @test PB._square_exponent(T[Inf, 1], T[0, 0], T) == PB._EXPONENT_INF
-    @test PB._square_exponent(T[1, Inf], T[1, -Inf], T) == PB._EXPONENT_INF
+    # with a second operand a residual that is not finite is not classified: NaN, Inf and Inf - Inf all give
+    # the code of the base, typemax(Int)
+    @test PB._EXPONENT_NONFINITE == typemax(Int) && PB._EXPONENT_NONFINITE >= PB._EXPONENT_INF
+    for (a, b) in ((T(Inf), T(Inf)), (T(Inf), T(-Inf)), (T(Inf), T(1)), (T(1), T(-Inf)), (T(NaN), T(Inf)), (T(NaN), T(1)), (T(1), T(NaN)))
+      @test PB._residual_exponent(a, b, T) == typemax(Int)
+    end
+    @test PB._square_exponent(T[Inf, 1], T[Inf, 0], T) == typemax(Int)
+    @test PB._square_exponent(T[Inf, 1], T[0, 0], T) == typemax(Int)
+    @test PB._square_exponent(T[1, Inf], T[1, -Inf], T) == typemax(Int)
     @test PB._square_exponent(T[3, 3], T[3, 3], T) == PB._EXPONENT_ZERO
+    @test PB._square_exponent(T[3, 5], T[1, 1], T) == exponent(T(4))
     # the squared residuals are `nothing` for both codes, and a pair for a finite group
     for v in (T[Inf, 1], T[-Inf, 2], T[Inf, NaN], T[NaN, Inf], T[NaN, 1])
       @test PB._residual_squares(v, nothing, T) === nothing
@@ -220,6 +246,106 @@ setprecision(BigFloat, 1200) do
     @test PB._residual_squares(T[Inf, 1], T[0, 0], T) === nothing
     @test PB._residual_squares(T[0.0, -0.0], nothing, T) === (zero(T), 0)
     @test PB._residual_squares(T[1.0, 3.0], nothing, T) isa Tuple{T, Int}
+  end
+
+  @testset "exponent of the entries (y = 0)" begin
+    # the method for y = 0 gives the exponent of the general method with y = 0 for every finite input, and the
+    # same class: the general code for an entry that is not finite is typemax(Int), which is the NaN code or
+    # the Inf code here
+    es = exponent(nextfloat(zero(T)))
+    specials = T[-zero(T), zero(T), nextfloat(zero(T)), -nextfloat(zero(T)), prevfloat(floatmin(T)), floatmin(T), floatmax(T), -floatmax(T),
+                 prevfloat(floatmax(T)), T(1), T(-1), T(0.75)]
+    for R in unique((T, Float64)), trial in 1:600
+      n = rand(rng, 1:17)
+      x = T[signif(rng, T, rand(rng, es:E + 1)) for _ in 1:n]
+      for _ in 1:rand(rng, 0:4)
+        x[rand(rng, 1:n)] = rand(rng, specials)
+      end
+      @test PB._square_exponent(x, nothing, R) == PB._square_exponent(x, zeros(R, n), R)
+      # one entry that is not finite: the class decides, and a NaN wins at any position
+      p = rand(rng, 1:n)
+      for (bad, code) in ((T(Inf), PB._EXPONENT_INF), (-T(Inf), PB._EXPONENT_INF), (T(NaN), PB._EXPONENT_NAN), (-T(NaN), PB._EXPONENT_NAN))
+        y = copy(x)
+        y[p] = bad
+        @test PB._square_exponent(y, zeros(R, n), R) == typemax(Int)
+        @test PB._square_exponent(y, nothing, R) == code
+        q = rand(rng, 1:n)
+        y[q] = T(NaN)
+        @test PB._square_exponent(y, nothing, R) == PB._EXPONENT_NAN
+        y[q] = T(Inf)
+        @test PB._square_exponent(y, nothing, R) == (any(isnan, y) ? PB._EXPONENT_NAN : PB._EXPONENT_INF)
+      end
+    end
+    for R in unique((T, Float64)), x in (T[-0.0, 0.0], T[], T[floatmax(T), -floatmax(T)], fill(nextfloat(zero(T)), 5), T[3], T[-0.0, 0.75, -0.5],
+                                          T[Inf, NaN], T[NaN, Inf], T[Inf, Inf], T[-Inf, 2], T[2, -Inf, NaN, 4])
+      g = PB._square_exponent(x, zeros(R, length(x)), R)
+      v = PB._square_exponent(x, nothing, R)
+      all(isfinite, x) ? @test(v == g) : @test(g == typemax(Int) && v >= PB._EXPONENT_INF)
+    end
+    # the adapter, in the entries' type and rounded to another, and the stored values of sparse iterates
+    xd = T[signif(rng, T, rand(rng, es:E + 1)) for _ in 1:10]
+    G = [7, 3, 10, 1, 5, 9]
+    for R in unique((T, Float64))
+      @test PB._square_exponent(PB._IndexedValues(xd, G), nothing, R) == PB._square_exponent(xd[G], zeros(R, length(G)), R)
+    end
+    xs = PB.SparseIterate(T, 10)
+    xs[2], xs[5], xs[8] = floatmax(T), T(-3), -zero(T)
+    @test PB._square_exponent(xs, nothing, Float64) == PB._square_exponent(xs.nzval[1:xs.nnz], zeros(xs.nnz), Float64)
+    S = PB.SymmetricSparseIterate(T, 4)
+    S[1, 1], S[3, 2], S[4, 1] = T(2), T(-6), -zero(T)
+    @test PB._square_exponent(S, nothing, Float64) == PB._square_exponent(S.nzval[1:S.nnz], zeros(S.nnz), Float64)
+    S[2, 2] = T(Inf)
+    @test PB._square_exponent(S, nothing, Float64) == PB._EXPONENT_INF
+    S[1, 1] = T(NaN)
+    @test PB._square_exponent(S, nothing, Float64) == PB._EXPONENT_NAN
+  end
+
+  @testset "two-term power-of-two sum" begin
+    # the method for two terms performs the operations of the generic method: the same bits for cancellation to zero,
+    # equal exponents, exponents far apart, either sign, zero terms, non-finite terms and a weight w
+    generic(R, w, t1, t2) = invoke(PB._pow2_weighted, Tuple{Type, Any, Vararg{Tuple{Any, Int}}}, R, w, t1, t2)
+    es = exponent(nextfloat(zero(T)))
+    for R in unique((T, Float64))
+      terms = Tuple[]
+      for _ in 1:2500
+        m1 = signif(rng, R, rand(rng, -3:3)) * (rand(rng) < 0.1 ? 3 : 1)
+        k = rand(rng, (0, 0, 1, 2, 30, 200, -200, 2 * E, -2 * E, E + 30, -(E + 30), 3 * E))
+        m2 = rand(rng) < 0.25 ? -m1 : rand(rng) < 0.25 ? m1 : signif(rng, R, rand(rng, -3:3))
+        push!(terms, ((m1, rand(rng, -E:E)), (m2, rand(rng, -E:E) + k)))
+      end
+      # exponents that differ by at most 3, either order
+      for _ in 1:1500
+        e = rand(rng, -E:E)
+        push!(terms, ((signif(rng, R, rand(rng, -2:2)), e), (signif(rng, R, rand(rng, -2:2)), e + rand(rng, -3:3))))
+      end
+      # exactly cancelling terms, with unnormalized significands, and a remainder that is below the frame
+      for a in (R(0.75), R(1.5), R(3), R(-0.625)), ea in (-40, 0, 7, E + 3)
+        push!(terms, ((a, ea), (-a, ea)))
+        push!(terms, ((a, ea), (-a * 2, ea - 1)))
+        push!(terms, ((a, ea), (nextfloat(-a), ea)))
+        push!(terms, ((a, ea), (zero(R), 0)))
+        push!(terms, ((zero(R), 0), (a, ea)))
+        push!(terms, ((zero(R), 0), (-zero(R), 5)))
+        push!(terms, ((R(Inf), ea), (a, 3)))
+        push!(terms, ((a, 3), (R(NaN), ea)))
+        push!(terms, ((R(Inf), 0), (-R(Inf), 0)))
+        push!(terms, ((R(-Inf), 0), (-R(Inf), 4)))
+      end
+      for (t1, t2) in terms, w in (one(R), R(3) / 7, R(2)^(E ÷ 2), zero(R), R(Inf))
+        t1 = (t1[1], Int(t1[2])); t2 = (t2[1], Int(t2[2]))
+        a = PB._pow2_weighted(R, w, t1, t2)
+        b = generic(R, w, t1, t2)
+        @test a === b
+      end
+      @test PB._pow2_sum(R, (R(3), 5), (R(1), 5)) === PB._pow2_weighted(R, one(R), (R(3), 5), (R(1), 5))
+      # and against the exact value, so that the generic method is not the only reference
+      for (t1, t2) in terms[1:300]
+        all(isfinite, (t1[1], t2[1])) || continue
+        r = big(t1[1]) * big(2.0)^t1[2] + big(t2[1]) * big(2.0)^t2[2]
+        (isfinite(R(r)) && (iszero(r) || abs(r) >= big(nextfloat(zero(R))) * 4)) || continue
+        @test within(PB._pow2_sum(R, t1, t2), r, 2)
+      end
+    end
   end
 
   @testset "scaled sum without a second operand" begin
@@ -537,6 +663,27 @@ end
 # exponent fits in Int. The ordinary kernel widens BigFloat exponents to Int128 and would read the
 # wrapped power at face value. MPFR exponents near -2^62 let two factors carry the wrap back.
 setprecision(BigFloat, 256) do
+@testset "two-term power-of-two sum, BigFloat exponents beyond Int64" begin
+  # MPFR exponents reach 2^62 - 1: the frame exponents of the sum are taken in Int128, as in the generic method
+  generic(R, w, t1, t2) = invoke(PB._pow2_weighted, Tuple{Type, Any, Vararg{Tuple{Any, Int}}}, R, w, t1, t2)
+  bigsame(a::BigFloat, b::BigFloat) = signbit(a) == signbit(b) && precision(a) == precision(b) &&
+    ((isnan(a) && isnan(b)) || (!isnan(a) && !isnan(b) && a == b))
+  big_e = (2^62 - 3, 2^61, 2^40, 5, 0, -5, -2^40, -2^61, -(2^62 - 3))
+  ms = (BigFloat(0.75), BigFloat(-0.75), BigFloat(1.5), BigFloat(3) / 7, BigFloat(0))
+  count = 0
+  for m1 in ms, m2 in ms, e1 in big_e, e2 in big_e, w in (BigFloat(1), BigFloat(0.3))
+    t1, t2 = (m1, e1), (m2, e2)
+    @test bigsame(PB._pow2_weighted(BigFloat, w, t1, t2), generic(BigFloat, w, t1, t2))
+    count += 1
+  end
+  @test count == 5 * 5 * 9 * 9 * 2
+  # a value in range through terms with exponents beyond Int64 in sum, and the overflow of the weight
+  big2 = BigFloat(2)
+  @test PB._pow2_sum(BigFloat, (BigFloat(0.5), 2^62 - 3), (BigFloat(-0.5), 2^62 - 3)) == 0
+  v = PB._pow2_sum(BigFloat, (BigFloat(0.75), 2^62 - 3), (BigFloat(0.75), -(2^62 - 3)))
+  @test v == BigFloat(0.75) * big2^(2^62 - 3)
+end
+
 @testset "retained exponent across Int wraparound (#767)" begin
   E = exponent(floatmax(BigFloat))
   a, b = ldexp(big(0.75), -E + 10), ldexp(big(0.625), -E + 10)

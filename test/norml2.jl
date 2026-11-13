@@ -383,6 +383,34 @@ end
 end
 
 # ---- accuracy of the recomputed values and proximal points ----
+@testset "entries that round to zero in the destination type" begin
+  # The group is zero in the destination type T when its entries round to zero there, also if the norm of the entries
+  # is not: the sum of squares in T is zero, the entries are decided as zeros of T, and the output is +0 (not the
+  # entries scaled to -0). With a Float16 destination and Float64 entries just below the rounding threshold
+  # (2^-25 is half the smallest Float16), a group beyond 2^22 entries has c/‖x‖ < 1 in the cold recomputation, so
+  # only the decision on the entries rounded to T gives +0 there (a reproducer found in review).
+  n = 2^22 + 1
+  x = fill(-prevfloat(2.0^-25), n)
+  @test all(v -> iszero(Float16(v)), x[1:8]) && !iszero(x[1])
+  y = zeros(Float16, n)
+  prox!(y, NormL2(floatmin(Float16)), x, Float16(1))
+  @test count(signbit, y) == 0 && all(iszero, y)
+  fill!(y, Float16(7))
+  v = value_and_prox!(y, NormL2(floatmin(Float16)), x, Float16(1))
+  @test v === zero(Float16) && count(signbit, y) == 0 && all(iszero, y)
+  # smaller groups, and Float32 entries below the Float16 range, with a few levels and steps
+  for m in (1, 2, 7, 1000), val in (-prevfloat(2.0^-25), 2.0^-26, -2.0^-40, -5.0e-324), (λ, γ) in ((floatmin(Float16), 1), (1.0, 1.0), (1.0, 0.5), (1e-3, 1e3))
+    xs = fill(val, m)
+    ys = fill(Float16(3), m)
+    prox!(ys, NormL2(Float16(λ)), xs, Float16(γ))
+    @test all(i -> ys[i] === Float16(0), 1:m)
+    xf = Float32.(xs)
+    ys = fill(Float16(3), m)
+    prox!(ys, NormL2(Float16(λ)), xf, Float16(γ))
+    @test all(i -> ys[i] === Float16(0), 1:m)
+  end
+end
+
 @testset "recomputed values and proximal points against BigFloat ($T)" for T in (Float32, Float64)
   # Vectors and matrices whose ordinary computation fails: the sum of squares overflows (entries above
   # 2^(emax/2 + 2)) or underflows below floatmin / eps. The level makes the value representable and normal and

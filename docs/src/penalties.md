@@ -242,18 +242,26 @@ result can differ in its last bits from a division by ``1+\gamma\lambda_2``:
 @assert 2.5 / 1.5 == 1.6666666666666667
 ```
 
-At steps ``\gamma\geq0``, a zero `λ2` gives the proximal points of
+At steps ``\gamma\geq0``, with the argument, the parameters and the
+destination of one element type, a zero `λ2` gives the proximal points of
 `NormL1(λ1, w)` bit for bit, and with a finite `λ2`, an entry with a zero
 weight, or with a zero `λ1` and a finite weight, has the proximal points of
 the ridge `SqrNormL2(λ2)` bit for bit, except that an input `-0.0` becomes
-`+0.0`. A zero `λ2` also gives the values of `NormL1(λ1, w)` bit for bit.
+`+0.0`. A destination of another element type receives these numbers
+converted to its type, and a new `SparseIterate` destination does not
+store a zero result. A zero `λ2` also gives the values of `NormL1(λ1, w)`
+bit for bit.
 The value is the value of the ℓ₁ part, computed as `NormL1` computes it,
 plus the value of the ridge part, computed as `SqrNormL2` computes it,
 each with its recovery of terms that over- or underflow (see the
 [numerical contract](numerics.md)). On a dense `Float32` or `Float64`
 `Array` with parameters of its type, a single pass over the entries
 replaces the two when a test on its sum bounds its relative error by
-``(n+2)\,\varepsilon`` for ``n\leq 1/(2\varepsilon)-2`` entries.
+``(n+2)\,\varepsilon`` for ``n\leq 1/(2\varepsilon)-2`` entries. With both
+levels positive and finite, a sum of the two parts below twice `floatmin`
+is recomputed with both levels scaled by a power of two, so that the parts
+are rounded together: `ElasticNet(2.0^-538, 1.0)([2.0^-537])` is
+`2.0^-1074`, although each part, `2.0^-1075`, rounds to zero on its own.
 
 ### Weights, shapes and representations
 
@@ -261,10 +269,13 @@ The array `w` has one weight per entry of the argument, paired by Julia's
 linear index, and is stored by reference. `ElasticNet` accepts real dense
 vectors and matrices (views included), `SparseIterate`, `BlockIterate` and
 `SymmetricSparseIterate`, with a scalar step or, except as noted below, an
-array of per-entry steps. On a sparse iterate the value and the proximal
-operator read the stored entries only; an entry stored in the output stays
-stored, possibly as a zero, and a zero result does not activate an absent
-entry. On a `SymmetricSparseIterate` the weights
+array of per-entry steps. On a `SparseIterate` or a
+`SymmetricSparseIterate` the value reads the stored entries only, and so
+does the proximal operator from such an iterate into an iterate of the same
+kind; with a dense destination it writes, and reads the weights of, every
+entry. An entry stored in an iterate destination stays stored, possibly as
+a zero, and a zero result does not activate an absent entry. On a
+`SymmetricSparseIterate` the weights
 are a `p × p` matrix read at both positions of an off-diagonal
 coordinate, and the value counts such a coordinate twice, as the matrix
 it represents does. The weights must then be exactly symmetric, a

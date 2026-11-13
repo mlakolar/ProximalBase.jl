@@ -68,7 +68,11 @@ representable squared-norm value. When the fold takes the ridge level of an
 `ElasticNet` below `floatmin` while folding a step, that level is dropped,
 since its ridge factor `1/(1 + γλ2)` rounds to one. An infinite level of
 `NormL1` or `ElasticNet` stays a hard constraint when the factor and the step
-leave the range. This is not
+leave the range; the folds of an `ElasticNet` keep an infinite level as it is
+and fold the finite one, which still acts on the entries with a zero weight.
+Where the two levels of an `ElasticNet` do not fold by one factor, its scaled
+value is the scaled value of the ℓ₁ part plus that of the ridge part, each
+recovered as for `NormL1` and `SqrNormL2`. This is not
 a promise that arbitrary user-defined functions acquire numerical range recovery.
 
 ## A zero scale can change the returned type

@@ -6,9 +6,12 @@ module ElasticNetTest
 #
 # References are independent of the kernels: the closed form shrink(v, t̂)/(1 + γλ2) in 4096-bit BigFloat,
 # with t̂ the threshold that the NormL1 kernel forms (the ridge kernel multiplies by the rounded weight
-# 1/(1 + γλ2), so a result is compared within 4 units in the last place), and the value
-# λ1 Σ wᵢ|xᵢ| + λ2/2 Σ xᵢ² in BigFloat, within (n + 2) eps relative for n terms. Equality is asserted only
-# where the result is exact (zeros, identities, the cases that reduce to NormL1 or SqrNormL2).
+# 1/(1 + γλ2), so a result is within 4 units in the last place of the rounded reference, the error measured in
+# BigFloat), and the value λ1 Σ wᵢ|xᵢ| + λ2/2 Σ xᵢ² in BigFloat, within (n + 2) eps relative for n terms.
+# Equalities are of two kinds: with an exact answer (zeros, identities, infinities, representable values), and
+# between routes that compute the same numbers (prox! and prox_block, in place and out of place, value_and_prox!
+# and the value at its stored output, matrix and vector forms, the reductions to NormL1 and SqrNormL2), whose
+# common result need not be exact.
 using Test, ProximalBase, LinearAlgebra, SparseArrays, Random
 const PB = ProximalBase
 
@@ -16,14 +19,21 @@ big4096(f) = setprecision(f, BigFloat, 4096)
 weight(f, i) = f.w === nothing ? 1 : f.w[i]
 # the threshold γλ1wᵢ as the NormL1 kernel rounds it (it does not depend on the trial)
 threshold(::Type{T}, f, i, γ) where {T} = PB._l1_prox_threshold(zero(T), γ, f.λ1, PB._entry(f.w, i), T)[2]
+# the reference in BigFloat; `within` measures the error in BigFloat against k units in the last place of the
+# reference rounded to the type of the result (an infinite rounded reference must be reproduced)
 function proxref(::Type{T}, f, v, i, γ) where {T}
   t = threshold(T, f, i, γ)
   big4096() do
     b = big(T(v))
-    T(sign(b) * max(abs(b) - big(t), 0) / (1 + big(γ) * big(f.λ2)))
+    sign(b) * max(abs(b) - big(t), 0) / (1 + big(γ) * big(f.λ2))
   end
 end
-within(got, ref, k = 4) = isequal(got, ref) || abs(got - ref) <= k * eps(abs(ref))
+function within(got::T, ref::BigFloat, k = 4) where {T}
+  r = T(ref)
+  isfinite(r) || return isequal(got, r)
+  isequal(got, r) || big4096(() -> abs(big(got) - ref) <= k * big(eps(abs(r))))
+end
+within(got, ref::AbstractFloat, k = 4) = isequal(got, ref) || abs(got - ref) <= k * eps(abs(ref))
 # λ1 Σ wᵢ|xᵢ| + λ2/2 Σ xᵢ² over the entries of a dense array, in BigFloat
 valref(f, x) = big4096() do
   big(f.λ1) * sum(iszero(x[i]) ? big(0) : big(weight(f, i)) * abs(big(x[i])) for i in eachindex(x); init = big(0)) +

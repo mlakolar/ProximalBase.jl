@@ -13,14 +13,21 @@ big4096(f) = setprecision(f, BigFloat, 4096)
 p2(::Type{T}, k) where {T} = ldexp(one(T), k)
 weight(f, i) = f.w === nothing ? 1 : f.w[i]
 threshold(::Type{T}, f, i, γ) where {T} = PB._l1_prox_threshold(zero(T), γ, f.λ1, PB._entry(f.w, i), T)[2]
+# the reference in BigFloat; `within` measures the error in BigFloat against k units in the last place of the
+# reference rounded to the type of the result (an infinite rounded reference must be reproduced)
 function proxref(::Type{T}, f, v, i, γ) where {T}
   t = threshold(T, f, i, γ)
   big4096() do
     b = big(T(v))
-    T(sign(b) * max(abs(b) - big(t), 0) / (1 + big(γ) * big(f.λ2)))
+    sign(b) * max(abs(b) - big(t), 0) / (1 + big(γ) * big(f.λ2))
   end
 end
-within(got, ref, k = 4) = isequal(got, ref) || abs(got - ref) <= k * eps(abs(ref))
+function within(got::T, ref::BigFloat, k = 4) where {T}
+  r = T(ref)
+  isfinite(r) || return isequal(got, r)
+  isequal(got, r) || big4096(() -> abs(big(got) - ref) <= k * big(eps(abs(r))))
+end
+within(got, ref::AbstractFloat, k = 4) = isequal(got, ref) || abs(got - ref) <= k * eps(abs(ref))
 valref(f, x) = big4096() do
   big(f.λ1) * sum(iszero(x[i]) ? big(0) : big(weight(f, i)) * abs(big(x[i])) for i in eachindex(x); init = big(0)) +
     big(f.λ2) / 2 * sum(big(v)^2 for v in x; init = big(0))
@@ -235,7 +242,7 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       # with a ridge level that the fold takes below floatmin: it is dropped, and the ridge factor is 1
       g = Scaled(ElasticNet(p2(T, E), one(T)), b)
       @test prox(g, [3tb / 2], b) == [tb / 2]
-      @test within(prox(g, [3tb / 2], b)[1], T(big4096(() -> (3 * big(tb) / 2 - big(tb)) / (1 + big(b)^2))))
+      @test within(prox(g, [3tb / 2], b)[1], big4096(() -> (3 * big(tb) / 2 - big(tb)) / (1 + big(b)^2)))
       # values whose leaf value overflows or vanishes under the factor
       @test (p2(T, -3E ÷ 5) * ElasticNet(zero(T), p2(T, 3E ÷ 5)))([p2(T, E ÷ 2)]) === p2(T, 2 * (E ÷ 2) - 1)
       @test (p2(T, 3E ÷ 5) * ElasticNet(p2(T, -3E ÷ 5), zero(T)))([p2(T, m ÷ 2)]) === p2(T, m ÷ 2)
@@ -247,7 +254,7 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       rc = big4096(() -> lev * (2big(p2(T, E ÷ 4)) + big(p2(T, E ÷ 4))^2))
       @test valok(c(xc), rc, 2)
       yc = prox(c, xc, one(T))
-      @test all(within(yc[i], T(big4096(() -> sign(big(xc[i])) * max(abs(big(xc[i])) - lev, 0) / (1 + lev)))) for i in 1:2)
+      @test all(within(yc[i], big4096(() -> sign(big(xc[i])) * max(abs(big(xc[i])) - lev, 0) / (1 + lev))) for i in 1:2)
       # array steps with a wide factor fold the factor into the levels
       g = Scaled(ElasticNet(λ, zero(T)), a)
       @test prox(g, [v, -v], [a, a]) == prox(g, [v, -v], a)
@@ -260,13 +267,43 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       @test value_and_prox!(y2, h, T[3, -2], one(T)) === zero(T) && y2 == T[0, 0]
       @test value_and_prox!(y2, h, T[3, -2], T[1, 1]) === zero(T)
       @test all(isnan, prox(h, T[3, -2], zero(T)))
-      # an infinite level is a hard constraint under factors and steps that leave the range
+      # an infinite level is a hard constraint under factors and steps that leave the range: each coordinate against
+      # the proximal map at the effective step αγ, formed in BigFloat (+0 where an infinite level fixes the entry; an
+      # entry with a zero weight under an infinite λ1 has only the ridge)
+      bh = p2(T, m ÷ 2 - 10)
+      geff = big4096(() -> big(bh) * big(bh))
       for hf in (ElasticNet(T(1), T(Inf)), ElasticNet(T(Inf), T(2)), ElasticNet(T(Inf), T(2), T[1, 0]))
-        sc = Scaled(hf, p2(T, m ÷ 2 - 10))
-        got = prox(sc, T[3, -4], p2(T, m ÷ 2 - 10))
-        ref = prox(hf, T[3, -4], one(T))
-        @test got == ref || (hf.λ2 < Inf && hf.w !== nothing)          # an entry with a zero weight under a finite ridge keeps its route
+        got = prox(Scaled(hf, bh), T[3, -4], bh)
+        for (i, v) in enumerate(T[3, -4])
+          wi = hf.w === nothing ? one(T) : hf.w[i]
+          if isinf(hf.λ2) || (isinf(hf.λ1) && wi > 0)
+            @test got[i] === zero(T)
+          else
+            @test iszero(wi) && within(got[i], big4096(() -> big(v) / (1 + geff * big(hf.λ2))))
+          end
+        end
       end
+      # an infinite ℓ1 level beside a finite ridge level whose product with the factor and the step overflows: the
+      # folds keep the infinite level and fold the ridge, which acts on the entry with a zero weight
+      A = T === Float64 ? p2(T, 600) : p2(T, 80)
+      λr = T === Float64 ? p2(T, -1000) : p2(T, -100)
+      hc = Scaled(ElasticNet(T(Inf), λr, T[1, 0]), A)
+      ref2 = big4096(() -> 4 / (1 + big(A) * big(A) * big(λr)))
+      for got in (prox(hc, T[3, 4], A), prox(hc, T[3, 4], [A, A]), Vector(prox(hc, BlockIterate(T[3, 4], [[1], [2]]), A)))
+        @test got[1] === zero(T) && within(got[2], ref2)
+      end
+      @test prox_block(hc, T(4), 2, A) === prox(hc, T[3, 4], A)[2] && prox_block(hc, T(3), 1, A) === zero(T)
+      y2 = zeros(T, 2)
+      v2 = value_and_prox!(y2, hc, T[3, 4], A)
+      @test y2[1] === zero(T) && within(y2[2], ref2) && within(v2, big4096(() -> big(A) * big(λr) / 2 * big(y2[2])^2))
+      # levels that do not fold by one factor: the parts are recovered separately and added once
+      L1, L2, F, X = T === Float64 ? (p2(T, -1000), p2(T, 1000), p2(T, -600), p2(T, 300)) : (p2(T, -100), p2(T, 100), p2(T, -60), p2(T, 30))
+      s3 = Scaled(ElasticNet(L1, L2), F)
+      V3 = T(big4096(() -> big(F) * (big(L1) * big(X) + big(L2) / 2 * big(X)^2)))
+      @test isfinite(V3) && s3([X]) === V3 && s3(view([X], :)) === V3 && s3(SparseIterate([X])) === V3
+      y3 = [zero(T)]
+      @test value_and_prox!(y3, s3, [X], zero(T)) === V3 && y3 == [X]
+      @test value_and_prox!(y3, s3, [X], [zero(T)]) === V3
       @test PB._hard(ElasticNet(T(Inf), T(2), T[1, 0])) === nothing && PB._hard(ElasticNet(T(1), T(2))) === nothing
       @test PB._hard(ElasticNet(T(1), T(Inf))).λ1 === zero(T) && PB._hard(ElasticNet(T(Inf), T(2))).λ2 === zero(T)
       # a zero factor: finite parameters give the zero function; an infinite weight keeps its fixed zeros
@@ -284,6 +321,48 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
     @test (2.0^-600 * ElasticNet(0, 2.0^600))([2.0^300]) === 2.0^599
     y = zeros(2)
     @test value_and_prox!(y, Inf * ElasticNet(1.0, 1.0), [3.0, -2.0], 1.0) === 0.0
+    @test Scaled(ElasticNet(2.0^-1000, 2.0^1000), 2.0^-600)([2.0^300]) === 2.0^999
+    @test prox(Scaled(ElasticNet(Inf, 2.0^-1000, [1.0, 0.0]), 2.0^600), [3.0, 4.0], 2.0^600) ==
+          [0.0, Float64(big4096(() -> 4 / (1 + big(2.0)^200)))]
+    # a factor and a step whose product overflows, with a finite ridge level that the fold cannot hold (#567): the
+    # result is that of Scaled(SqrNormL2), 0 instead of 2^-300 (2^-113 in Float32); recorded as broken
+    @test_broken prox(Scaled(ElasticNet(0.0, 2.0^100), 2.0^600), [2.0^1000], 2.0^600) ==
+                 [Float64(big4096(() -> big(2.0)^1000 / (1 + big(2.0)^1300)))]
+    @test_broken prox(Scaled(ElasticNet(0.0f0, 2.0f0^80), 2.0f0^80), [2.0f0^127], 2.0f0^80) ==
+                 [Float32(big4096(() -> big(2.0)^127 / (1 + big(2.0)^240)))]
+  end
+
+  # Values whose two parts each round below the subnormal spacing δ on their own: the parts are rounded together.
+  # λ1⁰ and λ2⁰ give each part δ/2 at x = 2^ex; the cases scale them, with n equal entries, and the exact value is
+  # representable or rounds to the nearest multiple of δ
+  for T in (Float32, Float64)
+    @testset "$T values whose parts round below the subnormal spacing" begin
+      δ = nextfloat(zero(T))
+      eδ = exponent(δ)
+      ex = fld(eδ, 2)
+      λ1⁰, λ2⁰ = p2(T, eδ - 1 - ex), p2(T, eδ - 2ex)
+      for (μ1, μ2, n) in ((1, 1, 1), (0.75, 0.75, 1), (0.75, 2.5, 1), (0.5, 7, 1), (0.5, 0.5, 4), (0.25, 0.25, 3))
+        λ1, λ2 = T(μ1) * λ1⁰, T(μ2) * λ2⁰
+        x = fill(p2(T, ex), n)
+        r = T(big4096(() -> big(λ1) * n * big(x[1]) + big(λ2) / 2 * n * big(x[1])^2))
+        f, fw = ElasticNet(λ1, λ2), ElasticNet(λ1, λ2, ones(T, n))
+        @test r > 0 && f(x) === r && fw(x) === r
+        @test f(view(copy(x), :)) === r && f(SparseIterate(x)) === r
+        @test f(BlockIterate(copy(x), [collect(1:n)])) === r
+        S = SymmetricSparseIterate(T, n)
+        for i in 1:n
+          S[i, i] = x[i]
+        end
+        @test ElasticNet(λ1, λ2, ones(T, n, n))(S) === r
+        n == 1 && @test value_entry(f, x[1], 1) === r && value_entry(fw, x[1], 1) === r
+        y = similar(x)
+        @test value_and_prox!(y, f, x, zero(T)) === r && y == x
+      end
+      # the first case: each part rounds to zero on its own
+      f = ElasticNet(λ1⁰, λ2⁰)
+      x = [p2(T, ex)]
+      @test PB._value_unchecked(f.l1, x) + PB._elastic_ridge_value(f.λ2, x) === zero(T) && f(x) === δ
+    end
   end
 
   @testset "the fused value up to 1/(2 eps) - 2 entries" begin

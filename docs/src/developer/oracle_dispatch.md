@@ -42,8 +42,14 @@ refuse a negative or `NaN` step before writes, then takes the checked separable 
 its private routes (used by `Scaled`) and `prox_block` do not check the step. Its
 scalar-step array kernels form the ridge factor of the step once per call, as
 `SqrNormL2` does, and apply it in the separable loops after the soft threshold of
-each entry; every entry equals `prox_block(f, x[i], i, γ)` bit for bit. An array of
-steps runs `prox_block` per entry.
+each entry. For an argument of a concrete element type, the number computed for each
+entry equals `prox_block(f, x[i], i, γ)` bit for bit, before its conversion to the
+element type of the destination and its storage (a new `SparseIterate` destination
+does not store a zero result, so that entry reads as `+0`). An argument of another
+element type, and an array of steps, run `prox_block` per entry. For a `Scaled`
+`ElasticNet` whose levels do not fold by one factor, the value recovery adds the scaled
+values of the ℓ₁ part and of the ridge part, each recovered as its own family recovers
+it; an infinite level is kept by the folds, so that the other level still folds.
 
 ## Pure hooks and storage kernels
 

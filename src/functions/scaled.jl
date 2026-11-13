@@ -196,9 +196,12 @@ function _fold_level(f::NormL1, α)
   c = _folded_level(f.λ0, α)
   c === nothing ? nothing : NormL1(c, f.w)
 end
-# both levels fold, or neither
+# Both levels fold, or neither. An infinite level is kept as it is: it is the same level after any positive factor,
+# and the finite level still folds (the ridge of an entry with a zero weight under an infinite λ1, say). Probes of
+# the partial fold see the finite level only.
+@inline _elastic_folded(λ, α) = isinf(λ) ? λ : _folded_level(λ, α)
 function _fold_level(f::ElasticNet, α)
-  c1, c2 = _folded_level(f.λ1, α), _folded_level(f.λ2, α)
+  c1, c2 = _elastic_folded(f.λ1, α), _elastic_folded(f.λ2, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
 end
 _fold_level(f::Scaled, α) = _fold_level(f.f, _projection_accumulate(α, f.α))
@@ -210,9 +213,9 @@ _fold_level(f::Scaled, α) = _fold_level(f.f, _projection_accumulate(α, f.α))
 # the value of the chain.
 _fold_level_step(f, α) = _fold_level(f, α)
 function _fold_level_step(f::ElasticNet, α)
-  c1 = _folded_level(f.λ1, α)
-  c = iszero(f.λ2) ? f.λ2 : _apply_scale(α, f.λ2)
-  c2 = isfinite(c) && abs(c) < floatmin(typeof(float(c))) ? zero(c) : _folded_level(f.λ2, α)
+  c1 = _elastic_folded(f.λ1, α)
+  c = iszero(f.λ2) || isinf(f.λ2) ? f.λ2 : _apply_scale(α, f.λ2)
+  c2 = isfinite(c) && abs(c) < floatmin(typeof(float(c))) ? zero(c) : _elastic_folded(f.λ2, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
 end
 
@@ -402,6 +405,31 @@ end
 # one leaves the entries that the ℓ1 part penalizes, as for NormL1
 _exactly_zero_at(f::ElasticNet, x::AbstractArray) =
   f.λ2 > 0 ? _all_zero(_host_entries(x)) : _exactly_zero_at(f.l1, x)
+
+# The recovery of α f(x) for an ElasticNet f. First the fold of the factor into both levels and the rule of an infinite
+# factor at a point where f is 0, as for every function with levels. Then, for a finite positive factor, the sum of
+# the two parts, α λ1 Σ wᵢ|xᵢ| from Scaled(NormL1(λ1, w), α) and α λ2/2 Σ xᵢ² from Scaled(SqrNormL2(λ2), α) (the
+# indicator value for an infinite λ2, which a positive finite factor leaves unchanged), each recovered as its family
+# recovers it (folds, partial folds, value parts), and added once: the two levels need not fold by one factor
+# (ElasticNet(2^-1000, 2^1000) under the factor 2^-600 at [2^300] has the ℓ1 part 2^-1300 and the value 2^999).
+# Any other factor keeps the product r.
+@noinline function _scaled_value_recover(f::ElasticNet, α, x::AbstractArray, v, r, out = nothing)
+  g = _fold_level(f, _value_fold_scale(α))
+  g === nothing || return convert(typeof(r), _value_unchecked(g, x))
+  if isnan(r) && !isnan(v)
+    z = _scaled_nan_value(f, α, x, r)
+    iszero(z) && return z
+  end
+  _elastic_finite_scale(α) || return r
+  l = _scaled_value_by(f.l1, α, x, _value_unchecked(f.l1, x))
+  λ = f.λ2
+  q = iszero(λ) ? zero(l) : isinf(λ) ? _elastic_ridge_value(λ, x) :
+      (h = SqrNormL2(λ); _scaled_value_by(h, α, x, _value_unchecked(h, x)))
+  convert(typeof(r), l + q)
+end
+_elastic_finite_scale(α::Real) = isfinite(α) && α > 0
+_elastic_finite_scale(α::_ProjectionScale) = isfinite(α.m) && !iszero(α.m)
+_elastic_finite_scale(α) = false
 
 # The scaled-value mechanism (R1, "Wrappers"). A function with `_has_value_parts` returns its
 # value at x as (m, e), the value m 2^e with a finite significand m, or `nothing` to keep the

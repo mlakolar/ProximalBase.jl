@@ -439,8 +439,9 @@ end
   end
   mλ, eλ = _frexp(convert(R, λ))
   mw, ew = _frexp(convert(R, w))
-  E = max(k, eλ + ew)
-  d = ldexp(ns, k - E) - ldexp(mλ * mw, eλ + ew - E)
+  ec = _exponent_sum(R, eλ, ew)
+  E = max(k, ec)
+  d = ldexp(ns, _frame_shift(R, k, E)) - ldexp(mλ * mw, _frame_shift(R, ec, E))
   convert(T, ldexp(d, E))
 end
 

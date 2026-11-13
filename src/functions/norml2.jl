@@ -83,19 +83,31 @@ function _norm_value(λ, x)
   _norm_value_cold(λ, x, s, T)
 end
 
-# The sum of squares recomputed in units of the largest stored entry, m 2^(2k), in at least Float64
-# (_residual_squares), and λ √m 2^k rounded once to T. A NaN or ±Inf entry keeps the ordinary IEEE result
-# (NaN, or Inf), and an infinite level is Inf away from zero.
+# The norm recomputed in units of the largest stored entry, ns 2^k, in at least Float64, and λ ns 2^k rounded once
+# to T: the squared-residual kernel (_residual_squares) reads the stored entries of any iterate, and the dense
+# array has the direct scan of the index sets (_l2_classified_norm). A NaN or ±Inf entry keeps the ordinary IEEE
+# result (NaN, or Inf), and an infinite level is Inf away from zero.
 @noinline function _norm_value_cold(λ, x, s, ::Type{T}) where {T}
   R = _recovery_type(T, float(typeof(λ)))
   q = _residual_squares(x, nothing, R)
-  q === nothing && return isinf(λ) ? (isnan(s) ? T(NaN) : T(Inf)) : convert(T, convert(R, λ) * sqrt(convert(R, s)))
+  q === nothing && return _norm_value_ieee(λ, s, R, T)
   m, k = q
   iszero(m) && return zero(T)
   isinf(λ) && return T(Inf)
   mλ, eλ = _frexp(convert(R, λ))
-  convert(T, ldexp(mλ * sqrt(m), eλ + k))
+  convert(T, ldexp(mλ * sqrt(m), _exponent_sum(R, eλ, k)))
 end
+@noinline function _norm_value_cold(λ, x::Array, s, ::Type{T}) where {T}
+  R = _recovery_type(T, float(typeof(λ)))
+  k, ns = _l2_classified_norm(x, eachindex(x), R)
+  k >= _EXPONENT_INF && return _norm_value_ieee(λ, s, R, T)
+  k == _EXPONENT_ZERO && return zero(T)
+  isinf(λ) && return T(Inf)
+  mλ, eλ = _frexp(convert(R, λ))
+  convert(T, ldexp(mλ * ns, _exponent_sum(R, eλ, k)))
+end
+@inline _norm_value_ieee(λ, s, ::Type{R}, ::Type{T}) where {R, T} =
+  isinf(λ) ? (isnan(s) ? T(NaN) : T(Inf)) : convert(T, convert(R, λ) * sqrt(convert(R, s)))
 
 function _check_l2_arrays(f, y::AbstractArray, x::AbstractArray, γ::Real)
   _checkreal(f, x)

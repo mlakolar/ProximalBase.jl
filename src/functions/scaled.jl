@@ -406,26 +406,23 @@ end
 _exactly_zero_at(f::ElasticNet, x::AbstractArray) =
   f.λ2 > 0 ? _all_zero(_host_entries(x)) : _exactly_zero_at(f.l1, x)
 
-# The recovery of α f(x) for an ElasticNet f. First the fold of the factor into both levels and the rule of an infinite
-# factor at a point where f is 0, as for every function with levels. Then, for a finite positive factor, the sum of
-# the two parts, α λ1 Σ wᵢ|xᵢ| from Scaled(NormL1(λ1, w), α) and α λ2/2 Σ xᵢ² from Scaled(SqrNormL2(λ2), α) (the
-# indicator value for an infinite λ2, which a positive finite factor leaves unchanged), each recovered as its family
-# recovers it (folds, partial folds, value parts), and added once: the two levels need not fold by one factor
-# (ElasticNet(2^-1000, 2^1000) under the factor 2^-600 at [2^300] has the ℓ1 part 2^-1300 and the value 2^999).
-# Any other factor keeps the product r.
+# The recovery of α f(x) for an ElasticNet f: the recovery of every function first (the fold of the factor into both
+# levels, the partial fold and the fold into a subnormal level, the rule of an infinite factor at a point where f is 0,
+# the product itself otherwise). Where that gives no finite value and the factor is a finite positive number, the sum
+# of the two parts: α λ1 Σ wᵢ|xᵢ| from Scaled(NormL1(λ1, w), α) and α λ2/2 Σ xᵢ² from Scaled(SqrNormL2(λ2), α) (the
+# indicator value for an infinite λ2, which such a factor leaves unchanged), each recovered as its family recovers it,
+# rounded on its own, and added once; a non-finite sum keeps the first result. The two levels need not fold by one
+# factor: ElasticNet(2^-1000, 2^1000) under the factor 2^-600 at [2^300] has the ℓ1 part 2^-1300, the ridge part
+# overflows before the factor, and the value is 2^999.
 @noinline function _scaled_value_recover(f::ElasticNet, α, x::AbstractArray, v, r, out = nothing)
-  g = _fold_level(f, _value_fold_scale(α))
-  g === nothing || return convert(typeof(r), _value_unchecked(g, x))
-  if isnan(r) && !isnan(v)
-    z = _scaled_nan_value(f, α, x, r)
-    iszero(z) && return z
-  end
-  _elastic_finite_scale(α) || return r
+  z = invoke(_scaled_value_recover, Tuple{Any, Any, Any, Any, Any, Any}, f, α, x, v, r, out)
+  (isfinite(z) || !_elastic_finite_scale(α)) && return z
   l = _scaled_value_by(f.l1, α, x, _value_unchecked(f.l1, x))
   λ = f.λ2
   q = iszero(λ) ? zero(l) : isinf(λ) ? _elastic_ridge_value(λ, x) :
       (h = SqrNormL2(λ); _scaled_value_by(h, α, x, _value_unchecked(h, x)))
-  convert(typeof(r), l + q)
+  p = convert(typeof(z), l + q)
+  isfinite(p) ? p : z
 end
 _elastic_finite_scale(α::Real) = isfinite(α) && α > 0
 _elastic_finite_scale(α::_ProjectionScale) = isfinite(α.m) && !iszero(α.m)

@@ -322,6 +322,16 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
     y = zeros(2)
     @test value_and_prox!(y, Inf * ElasticNet(1.0, 1.0), [3.0, -2.0], 1.0) === 0.0
     @test Scaled(ElasticNet(2.0^-1000, 2.0^1000), 2.0^-600)([2.0^300]) === 2.0^999
+    # the recovery of every function runs first: a normal leaf value whose product rounds into the subnormal range,
+    # and a zero leaf value that the partial fold recovers
+    sa, xa = Scaled(ElasticNet(1.0, 81920.0), 2.0^-1060), [0.4 * 2.0^-14]
+    Va = Float64(big4096(() -> big(2.0)^-1060 * (big(xa[1]) + 40960 * big(xa[1])^2)))
+    ya = [0.0]
+    @test Va === nextfloat(0.0) && sa(xa) === Va && sa(SparseIterate(xa)) === Va && value_and_prox!(ya, sa, xa, 0.0) === Va
+    @test Scaled(Scaled(ElasticNet(1.0, 81920.0), 2.0^-530), 2.0^-530)(xa) === Va
+    sb = Scaled(ElasticNet(0.4 * 2.0^-1029, 0.4 * 2.0^-979), 16.0)
+    Vb = Float64(big4096(() -> 16 * (big(0.4 * 2.0^-1029) * big(2.0)^-49 + big(0.4 * 2.0^-979) / 2 * big(2.0)^-98)))
+    @test Vb === nextfloat(0.0) && sb([2.0^-49]) === Vb
     @test prox(Scaled(ElasticNet(Inf, 2.0^-1000, [1.0, 0.0]), 2.0^600), [3.0, 4.0], 2.0^600) ==
           [0.0, Float64(big4096(() -> 4 / (1 + big(2.0)^200)))]
     # a factor and a step whose product overflows, with a finite ridge level that the fold cannot hold (#567): the
@@ -362,6 +372,43 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       f = ElasticNet(λ1⁰, λ2⁰)
       x = [p2(T, ex)]
       @test PB._value_unchecked(f.l1, x) + PB._elastic_ridge_value(f.λ2, x) === zero(T) && f(x) === δ
+      # the bound proved for the recomputation, with the whole spacing δ for the final rounding (ldexp truncates below
+      # floatmin up to Julia 1.10): u of the accumulator, Float64 for both element types, and N terms
+      uR = big4096(() -> big(2.0)^-53)
+      γ(m) = big4096(() -> m * uR / (1 - m * uR))
+      bnd(V, N) = big4096(() -> (γ(3) + (γ(N - 1)^2 + N * big(2.0)^-1070) * (1 + γ(2))) * V + big(δ))
+      # one term near floatmin beside 4095 terms at the smallest subnormal, on each representation that sums them
+      N = 4096
+      g = ElasticNet(T(0.49), one(T))
+      xb = fill(δ, N)
+      xb[1] = T(1.5) * floatmin(T) / T(0.49)
+      Vb = valref(g, xb)
+      for got in (g(xb), g(SparseIterate(xb)), g(view(copy(xb), :)), g(BlockIterate(copy(xb), [collect(1:N)])))
+        @test big4096(() -> abs(big(got) - Vb)) <= min(bnd(Vb, 2N), big(δ))
+      end
+      # a batch of random tiny entries
+      rng = Xoshiro(373)
+      for _ in 1:24
+        n = rand(rng, (16, 256, 4096))
+        h = ElasticNet(T(0.25 + rand(rng)), T(0.25 + rand(rng)))
+        xr = T.(rand(rng, n) .* (Float64(floatmin(T)) / n))
+        Vr = valref(h, xr)
+        big4096(() -> Vr < 2 * big(floatmin(T))) || continue
+        @test big4096(() -> abs(big(h(xr)) - Vr)) <= bnd(Vr, 2n)
+        @test big4096(() -> abs(big(h(SparseIterate(xr))) - Vr)) <= bnd(Vr, 2n)
+      end
+      # a single entry just above a tie: within the bound in Float64 (the sum is rounded to 53 bits, then to the
+      # subnormal spacing), and the rounding of V in Float32 (whose accumulator is Float64)
+      if T === Float64
+        f1 = ElasticNet(1.0, (1 + 2.0^-52) * 2.0^1016)
+        V1 = valref(f1, [2.0^-1045])
+        @test big4096(() -> abs(big(f1([2.0^-1045])) - V1)) <= min(bnd(V1, 2), big(δ))
+        @test value_entry(f1, 2.0^-1045, 1) === f1([2.0^-1045])
+      else
+        f1 = ElasticNet(1.0f0, (1 + 2.0f0^-23) * 2.0f0^111)
+        V1 = valref(f1, [2.0f0^-130])
+        @test f1([2.0f0^-130]) === Float32(V1) && value_entry(f1, 2.0f0^-130, 1) === Float32(V1)
+      end
     end
   end
 

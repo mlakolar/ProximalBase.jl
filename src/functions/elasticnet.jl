@@ -21,9 +21,9 @@ recovery of terms that leave the range (Overflow and underflow of values). On a
 dense `Float32` or `Float64` `Array` with parameters of its type, a single pass
 over the entries replaces the two when a test on its sum bounds its relative
 error by `(n + 2) eps` for `n` entries, `n ≤ 1/(2 eps) - 2`. With both levels positive and finite, a
-sum of the two parts below `2 floatmin` is recomputed with both levels scaled by a power of two, so that
-the parts are rounded together: `ElasticNet(2.0^-538, 1.0)([2.0^-537])` is `2.0^-1074`, although each part
-rounds to zero on its own. A zero `λ2` gives the values of
+sum of the two parts below `2 floatmin` is recomputed with the terms of both parts added in one
+exponent-sum accumulator and rounded together: `ElasticNet(2.0^-538, 1.0)([2.0^-537])` is `2.0^-1074`,
+although each part rounds to zero on its own. A zero `λ2` gives the values of
 `NormL1(λ1, w)`, and at steps `γ ≥ 0` its proximal points, bit for bit.
 
 `w` has one weight per entry of the argument, paired by linear index, and is
@@ -141,57 +141,60 @@ _prox_stored!(y, f, x, γ) = invoke(_prox_sep!, Tuple{SparseIterate, Any, Sparse
 _prox_coordinates!(y, f, x, γ) =
   invoke(_prox_sep!, Tuple{SymmetricSparseIterate, Any, Union{AbstractMatrix, SymmetricSparseIterate}, Real}, y, f, x, γ)
 
-# The term of entry i: the expression of value_entry(::NormL1) with λ1, plus λ2 v²/2. A term below 2 floatmin with
-# both levels positive and finite is recomputed at levels scaled by a power of two (_elastic_rescale_exponent).
+# The term of entry i: the expression of value_entry(::NormL1) with λ1, plus λ2 v²/2. A nonzero term below 2 floatmin
+# with both levels positive and finite is recomputed with its two parts rounded together (_elastic_entry_recomputed).
 Base.@propagate_inbounds function value_entry(f::ElasticNet, v::Real, i::Integer)
   a = abs(float(v))
   # an absent weight is one in the entry's type, as for NormL1 (#684)
   w = f.w === nothing ? one(a) : _entry(f.w, i)
   e = _elastic_entry(f.λ1, f.λ2, w, a)
-  _elastic_rescale(e, f.λ1, f.λ2) ? _elastic_entry_rescaled(f.λ1, f.λ2, w, a, e) : e
+  _elastic_recompute(e, f.λ1, f.λ2) && !iszero(a) ? _elastic_entry_recomputed(f.λ1, f.λ2, w, a, e) : e
 end
 @inline function _elastic_entry(λ1, λ2, w, a)
   p = _positive_product(λ1, w, a)
   ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p) + _elastic_square(λ2, a)
 end
-@noinline function _elastic_entry_rescaled(λ1, λ2, w, a, e::T) where {T}
-  k = _elastic_rescale_exponent(T, λ1, λ2, 1)
-  k === nothing && return e
-  _elastic_entry(ldexp(float(λ1), k), ldexp(float(λ2), k), w, a) * ldexp(one(T), -k)
-end
 
 # Whether a value or a term c, the sum of the two parts each rounded on its own, is recomputed: a Float32 or Float64
 # c below 2 floatmin, with both levels positive and finite (one zero level leaves one part, rounded once).
-@inline _elastic_rescale(c, λ1, λ2) =
+@inline _elastic_recompute(c, λ1, λ2) =
   _underflow_checked(typeof(c)) && (c < 2 * floatmin(typeof(c))) & (λ1 > 0) & (λ2 > 0) & isfinite(λ1) & isfinite(λ2)
 
-# The recomputation of a value or a term c of type T that _elastic_rescale selects. Each part rounds once on its own,
-# so c can lose a half spacing δ/2 (δ = eps(T) floatmin(T)) to each part of a total of that size: ElasticNet(2^-538, 1)
-# at [2^-537] has two parts 2^-1075, which each round to 0, and the value 2^-1074. The value is homogeneous of degree
-# one in (λ1, λ2): it is the sum of the same N terms (value_entry over the entries that the separable loops visit)
-# at the levels 2^k λ1 and 2^k λ2, times 2^-k. k is the largest integer up to P + 2 + ⌈log₂ N⌉ (P = precision(T))
-# for which both scaled levels are finite; the recomputation runs when k ≥ ⌈log₂ N⌉ + 5 and (N + 4) u ≤ 1/4
-# (u = eps(T)/2), and c is kept otherwise. Then k ≤ 2P, so 2^-k is a normal number and the product with it is one
-# rounding. The exact value V is a small multiple of floatmin (each part of c carries the error of its kernel, a
-# small relative error plus at most δ), so the scaled terms and their sum, at most 2^(2P) V, stay finite.
+# The recomputation of a value or a term c of type T that _elastic_recompute selects. Each part of c rounds to T on its
+# own, so c can lose half a spacing δ/2 (δ = eps(T) floatmin(T)) to each part of a total of that size:
+# ElasticNet(2^-538, 1) at [2^-537] has two parts 2^-1075, which each round to 0, and the value 2^-1074. The
+# recomputation adds the N terms λ1 wᵢ|xᵢ| and λ2 xᵢ²/2 of the entries that the separable loops visit (every entry of
+# an array, the stored entries of a sparse iterate, the active groups of a block iterate, each stored coordinate of a
+# symmetric iterate at both of its positions) to one exponent-sum accumulator (_ExpSum) in R, the promotion of T,
+# Float64 and the factors, and rounds the sum to T once (_expsum_value), as the NormL1 recomputation does for its own
+# terms (#373). A value whose stored entries are all zero is kept.
 #
-# Claim: the result r satisfies |r - V| ≤ γ_{N+4} V + 0.61 δ, with γₘ = m u/(1 - m u).
-# Proof. Each part of a scaled term comes from _positive_product or _elastic_square: products rounded to nearest, an
-# exact halving or one below floatmin, or the bounded-product kernel (two roundings of a product of significands and
-# one ldexp, which below floatmin rounds, or truncates up to Julia 1.10); so it is within γ₂ of its exact value plus δ.
-# Adding the two parts and the N terms, in any order and with or without an fma contraction, adds at most N roundings
-# to each term and at most one loss δ/2 per term (an fma result below floatmin), each loss also multiplied by at most
-# N roundings. So the scaled sum ŝ has |ŝ - 2^k V| ≤ γ_{N+3} 2^k V + (1 + γ_N)(5/2) N δ, and r = fl(ŝ 2^-k) has
-# |r - V| ≤ γ_{N+4} V + δ/2 + (1 + u)(1 + γ_N)(5/2) N 2^-k δ, whose last term is below 0.105 δ for N 2^-k ≤ 1/32
-# and γ_N ≤ 1/3.  □
-# A representable V below floatmin with γ_{N+4} V < 0.39 δ is then returned exactly. A c of at least 2 floatmin has
-# lost at most δ ≤ eps(T) c/2 to the rounding of the two parts.
-@inline function _elastic_rescale_exponent(::Type{T}, λ1, λ2, N::Integer) where {T}
-  L = _log2_ceil(N)
-  R = float(promote_type(typeof(λ1), typeof(λ2)))
-  kcap = exponent(floatmax(R)) - 1 - exponent(float(max(λ1, λ2)))
-  k = min(precision(T) + 2 + L, kcap)
-  (k >= L + 5) & (N <= (1 << (precision(T) - 2)) - 4) ? k : nothing
+# Claim: with u = eps(R)/2 and γₘ = m u/(1 - m u), the result r and the exact value V satisfy
+#   |r - V| ≤ (γ₃ + (γ²_{N-1} + N 2^-1070)(1 + γ₂)) V + h,
+# h being half the spacing of T at r (δ/2 for r below 2 floatmin(T)), or the whole spacing where ldexp truncates below
+# floatmin (Julia 1.10, T = Float64).
+# Proof. A term is formed from the significands of its two factors and of its level, with the exponents summed exactly,
+# as (mₐ mᵦ) m_λ 2^e: two roundings in R, so it is within γ₂ of its exact value, and it is nonnegative; their sum S is
+# within γ₂ V of V. The accumulator adds each term with an error-free transformation (Fast2Sum on ordered magnitudes)
+# and sums the errors in plain floating point, then forms s + c once: the summation Sum2 of Ogita, Rump and Oishi
+# (2005), within u S + γ²_{N-1} S of S for nonnegative terms. Moving the sum into the frame of a larger term, or a term
+# into the frame of the sum, multiplies by a power of two, exactly except below the smallest subnormal of R: at most
+# 2^-1073 frame units per term, while the sum is at least 2^-3 frame units (a term is a product of three significands
+# in [1/2, 1)), so at most N 2^-1070 S in all. The exponent is applied exactly (_scaled_product with the factor 1
+# multiplies by powers of two), and the result is rounded once to T, within h. The relative factors combine to at most
+# γ₃ + (γ²_{N-1} + N 2^-1070)(1 + γ₂).  □
+# The bound depends on N only through the second-order term. It is below the worst case of c: a part of c that is
+# recomputed (NormL1 from the same kind of accumulator, the ridge from scaled squares summed the same compensated way)
+# carries at least the same relative term plus its own rounding to T, and c adds the parts with one more rounding,
+# so c is within (γ₄ + γ²_{N-1}(1 + γ₄)) V plus up to three halves of a spacing; a part that keeps the sum of its
+# ordinary loop carries an error that grows with its number of terms. For Float32 data R is Float64, and for
+# N ≤ 2^26 the relative term is below 2^-50 V: r is the rounding of V except within that distance of a tie.
+@noinline function _elastic_entry_recomputed(λ1, λ2, w, a, e::T) where {T}
+  R = promote_type(T, Float64, _factor_type(λ1), _factor_type(λ2), _factor_type(w), _factor_type(a))
+  m1, e1 = _frexp(convert(R, λ1))
+  m2, e2 = _frexp(convert(R, λ2))
+  acc = _expsum_term(_expsum_start(R), w, a, m1, e1, 0)
+  _expsum_value(T, _expsum_term(acc, a, a, m2, e2, -1))
 end
 
 # λ a²/2 for a = |v|. While a² is normal and λ a² is in [2 floatmin, floatmax], the two products are kept and
@@ -219,36 +222,51 @@ end
 function _elastic_value(f::ElasticNet, x)
   l = _value_unchecked(f.l1, x)
   c = _value_at(l + _elastic_ridge_value(f.λ2, x), x)
-  _elastic_rescale(c, f.λ1, f.λ2) ? _elastic_value_rescaled(f, x, c) : c
+  _elastic_recompute(c, f.λ1, f.λ2) ? _elastic_value_recomputed(f, x, c) : c
 end
 
-# The recomputation of _elastic_rescale_exponent for a value: the separable loops of the representation (every entry
-# of an array, the stored entries of a sparse iterate, the active groups of a block iterate, each stored coordinate of
-# a symmetric iterate at both of its positions) over value_entry at the scaled levels. An exact zero is kept.
-@noinline function _elastic_value_rescaled(f::ElasticNet, x, c::T) where {T}
+# The recomputation of _elastic_entry_recomputed for a value, over the entries of each representation.
+@noinline function _elastic_value_recomputed(f::ElasticNet, x, c::T) where {T}
   iszero(c) && _all_zero(_stored_values(x)) && return c
-  k = _elastic_rescale_exponent(T, f.λ1, f.λ2, _elastic_terms(x))
-  k === nothing && return c
-  g = _ElasticLevels(f, ldexp(float(f.λ1), k), ldexp(float(f.λ2), k))
-  _value_at(_value_sep(g, x), x) * ldexp(one(T), -k)
+  R = promote_type(T, Float64, _factor_type(f.λ1), _factor_type(f.λ2), _l1_factor_type(f.w), _l1_factor_type(_stored_values(x)))
+  m1, e1 = _frexp(convert(R, f.λ1))
+  m2, e2 = _frexp(convert(R, f.λ2))
+  _expsum_value(T, _elastic_expsum(_expsum_start(R), f.w, m1, e1, m2, e2, x))
 end
-# at most the number of terms that those loops add
-_elastic_terms(x::AbstractArray) = length(x)
-_elastic_terms(x::SparseIterate) = x.nnz
-_elastic_terms(x::BlockIterate) = length(x.storage)
-_elastic_terms(x::SymmetricSparseIterate) = 2 * x.nnz
-# f with its levels replaced (by 2^k λ1 and 2^k λ2), for the generic separable value loops
-struct _ElasticLevels{F<:ElasticNet, L<:Real} <: SeparableFunction
-  f::F
-  λ1::L
-  λ2::L
+# Σ (λ1 wᵢ|xᵢ| + λ2 xᵢ²/2) added to the accumulator, the levels given by their significands and exponents
+function _elastic_expsum(acc, w, m1, e1, m2, e2, x::AbstractArray)
+  @inbounds for i in eachindex(IndexLinear(), x)
+    a = abs(float(x[i]))
+    acc = _expsum_term(_expsum_term(acc, _entry(w, i), a, m1, e1, 0), a, a, m2, e2, -1)
+  end
+  acc
 end
-Base.@propagate_inbounds function value_entry(g::_ElasticLevels, v::Real, i::Integer)
-  a = abs(float(v))
-  _elastic_entry(g.λ1, g.λ2, g.f.w === nothing ? one(a) : _entry(g.f.w, i), a)
+function _elastic_expsum(acc, w, m1, e1, m2, e2, x::SparseIterate)
+  @inbounds for k in 1:x.nnz
+    a = abs(float(x.nzval[k]))
+    acc = _expsum_term(_expsum_term(acc, _entry(w, x.nzval2ind[k]), a, m1, e1, 0), a, a, m2, e2, -1)
+  end
+  acc
 end
-iszeropreserving(::_ElasticLevels) = true
-_checkparams(g::_ElasticLevels, x) = _checkparams(g.f, x)
+function _elastic_expsum(acc, w, m1, e1, m2, e2, x::BlockIterate)
+  @inbounds for g in 1:x.nactive, i in x.groups[x.active[g]]
+    a = abs(float(x.storage[i]))
+    acc = _expsum_term(_expsum_term(acc, _entry(w, i), a, m1, e1, 0), a, a, m2, e2, -1)
+  end
+  acc
+end
+# an off-diagonal coordinate: its ℓ1 terms with the weights of both positions, its square counted twice
+function _elastic_expsum(acc, w, m1, e1, m2, e2, x::SymmetricSparseIterate)
+  p = x.p
+  @inbounds for k in 1:x.nnz
+    r, c = tril_cartesian(p, x.nzval2ind[k])
+    a = abs(float(x.nzval[k]))
+    acc = _expsum_term(acc, _entry(w, (c - 1) * p + r), a, m1, e1, 0)
+    r == c || (acc = _expsum_term(acc, _entry(w, (r - 1) * p + c), a, m1, e1, 0))
+    acc = _expsum_term(acc, a, a, m2, e2, r == c ? -1 : 0)
+  end
+  acc
+end
 
 # λ/2 Σ xᵢ²: exactly 0 for a zero λ, also at NaN and ±Inf entries, as for SqrNormL2, and for an infinite λ the
 # indicator of {0} (#908, D2), from the largest stored magnitude, never from Inf⋅0: 0 when every stored entry

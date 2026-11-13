@@ -259,8 +259,8 @@ each with its recovery of terms that over- or underflow (see the
 replaces the two when a test on its sum bounds its relative error by
 ``(n+2)\,\varepsilon`` for ``n\leq 1/(2\varepsilon)-2`` entries. With both
 levels positive and finite, a sum of the two parts below twice `floatmin`
-is recomputed with both levels scaled by a power of two, so that the parts
-are rounded together: `ElasticNet(2.0^-538, 1.0)([2.0^-537])` is
+is recomputed with the terms of both parts added in one exponent-sum
+accumulator and rounded once: `ElasticNet(2.0^-538, 1.0)([2.0^-537])` is
 `2.0^-1074`, although each part, `2.0^-1075`, rounds to zero on its own.
 
 ### Weights, shapes and representations

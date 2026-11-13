@@ -46,10 +46,11 @@ each entry. For an argument of a concrete element type, the number computed for 
 entry equals `prox_block(f, x[i], i, γ)` bit for bit, before its conversion to the
 element type of the destination and its storage (a new `SparseIterate` destination
 does not store a zero result, so that entry reads as `+0`). An argument of another
-element type, and an array of steps, run `prox_block` per entry. For a `Scaled`
-`ElasticNet` whose levels do not fold by one factor, the value recovery adds the scaled
-values of the ℓ₁ part and of the ridge part, each recovered as its own family recovers
-it; an infinite level is kept by the folds, so that the other level still folds.
+element type, and an array of steps, run `prox_block` per entry. A `Scaled`
+`ElasticNet` takes the value recovery of every function first; where that gives no finite
+value, for a finite positive factor, it adds the scaled values of the ℓ₁ part and of the
+ridge part, each recovered as its own family recovers it and rounded on its own. The folds
+keep an infinite level, so that the other level still folds.
 
 ## Pure hooks and storage kernels
 

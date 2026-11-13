@@ -23,21 +23,6 @@ relerr(a::BigFloat, r::BigFloat) = iszero(r) ? abs(a) : abs(a - r) / abs(r)
 signif(rng, T, e) = (rand(rng, Bool) ? -1 : 1) * ldexp(T(0.5) + T(rand(rng)) / 2, e)
 # equal entry by entry under ===, so that signed zeros and NaN bit patterns count
 same(a, b) = length(a) == length(b) && all(i -> a[i] === b[i], eachindex(a))
-# sums over an indexed vector, by iteration and by index
-function iter_sum(v)
-  s = zero(eltype(v))
-  for a in v
-    s += a
-  end
-  s
-end
-function index_sum(v)
-  s = zero(eltype(v))
-  for j in eachindex(v)
-    s += v[j]
-  end
-  s
-end
 # the allocations of a second call
 alloc(f::F, a::A) where {F, A} = (f(a); @allocated f(a))
 # BigFloats are the same when sign, precision and value agree (NaN with NaN)
@@ -146,10 +131,11 @@ setprecision(BigFloat, 1200) do
     @test PB._residual_squares(T[1, 2], T[NaN, 2], T) === nothing
   end
 
-  @testset "indexed values" begin
-    # the entries x[G[j]] of a parent read without a copy: equal to x[G] under === for a Vector, a
-    # Matrix (linear indices), a SparseIterate and a BlockIterate, with a range, a permuted vector and a
-    # noncontiguous vector as groups
+  @testset "indexed ℓ2 kernels" begin
+    # the entries x[G[j]] of a parent read in place, for a Vector, a Matrix (linear indices), a SparseIterate and a
+    # BlockIterate, with a range, a permuted vector and a noncontiguous vector as groups: the classified norm is
+    # that of the gathered vector (the codes of the group, the largest exponent, the scaled norm), without
+    # allocating
     n = 12
     d = T[signif(rng, T, rand(rng, -20:20)) for _ in 1:n]
     d[3], d[6], d[8] = -zero(T), T(NaN), T(-Inf)
@@ -158,39 +144,36 @@ setprecision(BigFloat, 1200) do
       xs[i] = d[i]
     end
     xb = PB.BlockIterate(copy(d), 3)
-    parents = (vector = d, matrix = reshape(copy(d), 3, 4), sparse = xs, block = xb)
-    groups = (2:9, 5:5, [7, 3, 12, 1, 5], [11, 2, 9, 4], Int[])
-    for (name, parent) in pairs(parents), G in groups
-      v = PB._IndexedValues(parent, G)
-      ref = [parent[i] for i in G]
-      @test v isa AbstractVector{T} && length(v) == length(G) && size(v) == (length(G),)
-      @test same([v[j] for j in 1:length(v)], ref)
-      @test same([a for a in v], ref)
-      @test same(collect(v), ref)
-      @test same(collect(PB._stored_values(v)), ref)
-      @test all(j -> PB._square_multiplicity(v, j) == 1, eachindex(v))
+    finite = T[signif(rng, T, rand(rng, -20:20)) for _ in 1:n]
+    parents = (vector = d, matrix = reshape(copy(d), 3, 4), sparse = xs, block = xb, finite = finite)
+    groups = (2:9, 5:5, [7, 3, 12, 1, 5], [11, 2, 9, 4], [3], [4, 9, 12], Int[])
+    for (name, parent) in pairs(parents), G in groups, R in unique((T, Float64))
+      xg = R[parent[i] for i in G]
+      k, ns = PB._l2_classified_norm(parent, G, R)
+      @test k == PB._square_exponent(xg, nothing, R)
+      if PB._EXPONENT_ZERO < k < PB._EXPONENT_INF
+        @test ns === sqrt(PB._square_scaled_sum(xg, nothing, k, R))
+      else
+        @test ns === zero(R)
+      end
+      @test PB._l2_classified_norm(parent, G, R, false) === (k, zero(R))
     end
-    # a warmed sum allocates nothing, by iteration, by index and through sum
     for parent in (parents.vector, parents.matrix), G in (2:9, [7, 3, 12, 1, 5])
-      v = PB._IndexedValues(copy(parent), G)
-      @test alloc(iter_sum, v) == 0
-      @test alloc(index_sum, v) == 0
-      @test alloc(sum, v) == 0
+      @test alloc(a -> PB._l2_classified_norm(a, G, T), copy(parent)) == 0
+      @test alloc(a -> PB._indexed_sumabs2(a, G, T), copy(parent)) == 0
     end
-    # with an element type the entries are rounded to it: the entries of a wider parent as the loops in that type read
-    # them, a group that is zero only after the rounding is zero, and the rounding does not allocate
+    # the entries are rounded to T: a wider parent as the loops in that type read them, a group that is zero only
+    # after the rounding is zero, and the rounding does not allocate
     if T === Float64
       tiny = fill(-prevfloat(2.0^-150), 6)                     # below half the smallest Float32
       tiny[3] = -0.0
       Gt = [5, 3, 1, 6]
       for S in (Float32, Float16)
-        v = PB._IndexedValues(tiny, Gt, S)
-        @test eltype(v) === S && length(v) == 4
-        @test same(collect(v), S.(tiny[Gt])) && same([a for a in v], S.(tiny[Gt])) && same([v[j] for j in 1:4], S.(tiny[Gt]))
-        @test PB._all_zero(v) && PB._l2_all_zero(tiny, Gt, S)
-        @test alloc(iter_sum, v) == 0 && alloc(index_sum, v) == 0
+        @test PB._l2_all_zero(tiny, Gt, S)
+        @test alloc(a -> PB._l2_all_zero(a, Gt, S), tiny) == 0
+        @test PB._indexed_sumabs2(tiny, Gt, S) === zero(S)
       end
-      @test !PB._all_zero(PB._IndexedValues(tiny, Gt)) && !PB._l2_all_zero(tiny, Gt, Float64)
+      @test !PB._l2_all_zero(tiny, Gt, Float64)
       # the entries of Float32 and larger magnitude are not zero in Float32, one entry that is not rounds the group
       mixed = copy(tiny); mixed[6] = 2.0^-140
       @test !PB._l2_all_zero(mixed, Gt, Float32) && PB._l2_all_zero(mixed, [1, 2, 3], Float32)
@@ -200,14 +183,6 @@ setprecision(BigFloat, 1200) do
       for bad in (NaN, Inf, -Inf, 1e300)
         w = copy(tiny); w[2] = bad
         @test !PB._l2_all_zero(w, [1, 2, 3], Float32) && !PB._l2_all_zero(w, [1, 2, 3], Float16)
-      end
-    end
-    # an index outside 1:length(G) is a BoundsError when bounds checks are on
-    if Base.JLOptions().check_bounds != 2
-      for G in (2:9, [7, 3, 12, 1, 5])
-        v = PB._IndexedValues(d, G)
-        @test_throws BoundsError v[0]
-        @test_throws BoundsError v[length(G) + 1]
       end
     end
   end
@@ -285,12 +260,7 @@ setprecision(BigFloat, 1200) do
       v = PB._square_exponent(x, nothing, R)
       all(isfinite, x) ? @test(v == g) : @test(g == typemax(Int) && v >= PB._EXPONENT_INF)
     end
-    # the adapter, in the entries' type and rounded to another, and the stored values of sparse iterates
-    xd = T[signif(rng, T, rand(rng, es:E + 1)) for _ in 1:10]
-    G = [7, 3, 10, 1, 5, 9]
-    for R in unique((T, Float64))
-      @test PB._square_exponent(PB._IndexedValues(xd, G), nothing, R) == PB._square_exponent(xd[G], zeros(R, length(G)), R)
-    end
+    # the stored values of sparse iterates
     xs = PB.SparseIterate(T, 10)
     xs[2], xs[5], xs[8] = floatmax(T), T(-3), -zero(T)
     @test PB._square_exponent(xs, nothing, Float64) == PB._square_exponent(xs.nzval[1:xs.nnz], zeros(xs.nnz), Float64)
@@ -377,11 +347,7 @@ setprecision(BigFloat, 1200) do
         @test PB._square_scaled_sum(x, nothing, k, R) === PB._square_scaled_sum(x, zeros(R, length(x)), k, R)
       end
     end
-    # the adapter and the stored values of a sparse iterate are read in order, as a vector of the same entries
-    xd = T[signif(rng, T, rand(rng, es:E + 1)) for _ in 1:10]
-    G = [7, 3, 10, 1, 5, 9]
-    k = PB._square_exponent(PB._IndexedValues(xd, G), nothing, Float64)
-    @test PB._square_scaled_sum(PB._IndexedValues(xd, G), nothing, k, Float64) === PB._square_scaled_sum(xd[G], zeros(length(G)), k, Float64)
+    # the stored values of a sparse iterate are read in order, as a vector of the same entries
     xs = PB.SparseIterate(T, 10)
     xs[2], xs[5], xs[8] = floatmax(T), T(-3), -zero(T)
     vals = xs.nzval[1:xs.nnz]

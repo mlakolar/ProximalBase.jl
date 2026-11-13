@@ -170,7 +170,9 @@ end
 #  Group values
 ####################################
 
-# The kernels are the shared ℓ2 kernels of numerical_kernels.jl, with the level λ0 and the weight wₖ of each group.
+# The arithmetic is that of numerical_kernels.jl (sums of squares, the scaled norm ns 2^k, the writes of a
+# group), with the level λ0 and the weight wₖ of each group; the shrinkage, the terms of a value, the screen
+# and their recovery are below. NormL2 has its own (norml2.jl).
 
 # The ordinary sum s of the terms is returned unless it may have lost its accuracy or its class: a sum
 # below K floatmin(T), for K groups, whose terms may have rounded into the subnormal range (#373), and a
@@ -188,6 +190,7 @@ end
   end
   _group_value_recomputed(f, x, s)
 end
+# A zero weight adds nothing and is skipped in the loop itself: a sum of zero-weight groups is zero and lands here
 @noinline function _group_value_recomputed(f::GroupNormL2, x, s::T)::T where {T}
   isnan(s) && return s
   λ = f.λ0
@@ -195,11 +198,126 @@ end
   R = _recovery_type(T, float(typeof(λ)), float(eltype(x)))
   acc = _expsum_start(R)
   for k in eachindex(f.groups)
-    next = _l2_expsum_add(acc, x, @inbounds(f.groups[k]), @inbounds(f.w[k]))
-    next === nothing && return s
-    acc = next
+    w = @inbounds f.w[k]
+    iszero(w) && continue
+    # a NaN or ±Inf entry, or an infinite weight at a nonzero group, make the ordinary sum infinite or NaN
+    e, ns = _l2_classified_norm(x, @inbounds(f.groups[k]), R, !isinf(w))
+    e >= _EXPONENT_INF && return s
+    e == _EXPONENT_ZERO && continue
+    isinf(w) && return s
+    acc = _expsum_product(acc, w, ns, e)
   end
   _expsum_value(T, acc, λ)
+end
+
+# The term λw‖x[G]‖₂ of a value in T, from x[G]. The ordinary path needs a normal λw, a normal sum of squares and a
+# value below floatmax(T)/2; the exactly zero group gives 0 at every level; everything else is recomputed.
+@inline function _group_term(λ, w, x, G, ::Type{T}) where {T}
+  iszero(w) && return zero(T)
+  R = _working_type(T, λ, w)
+  λw = convert(R, λ) * convert(R, w)
+  if floatmin(R) <= λw <= floatmax(R)
+    q = _indexed_sumabs2(x, G, T)
+    if isfinite(q) & _squares_normal(q, length(G), T)
+      v = convert(T, λw * sqrt(convert(R, q)))
+      _l2_ordinary(v, T) && return v
+    elseif iszero(q) && _l2_all_zero(x, G, T)
+      return zero(T)
+    end
+  end
+  _group_term_cold(λ, w, x, G, T)
+end
+
+# The term of the fused value_and_prox!, after the shrinkage of the group: its stored norm s ≥ 0, the zero group and
+# the unpenalized group inline; the codes of the cold shrinkage and out-of-range values call _group_term out of
+# line, which keeps its sums out of the loop over the groups.
+@inline function _group_fused_term(λ, w, y, G, s, ::Type{T}) where {T}
+  iszero(w) && return zero(T)
+  s == _L2_ZERO && return zero(T)
+  if s >= 0
+    R = _working_type(T, λ, w)
+    λw = convert(R, λ) * convert(R, w)
+    v = convert(T, λw * convert(R, s))
+    ((floatmin(R) <= λw <= floatmax(R)) & _l2_ordinary(v, T)) && return v
+  end
+  _group_term_outofline(λ, w, y, G, T)
+end
+@noinline _group_term_outofline(λ, w, y, G, ::Type{T}) where {T} = _group_term(λ, w, y, G, T)
+
+# Exceptional terms, in this order: a zero level with a finite weight gives 0 whatever x holds; a NaN
+# entry gives NaN and an infinite one Inf; the zero group gives 0; an infinite weight or level gives Inf
+# (decided by the class of x, without the norm). A positive finite level and weight give λw ns 2^k from
+# the scaled norm, in one rounding to T (_scaled_product).
+@noinline function _group_term_cold(λ, w, x, G, ::Type{T}) where {T}
+  iszero(λ) && !isinf(w) && return zero(T)
+  R = _recovery_type(T, float(typeof(λ)), float(typeof(w)), float(eltype(x)))
+  unbounded = isinf(w) || isinf(λ)
+  k, ns = _l2_classified_norm(x, G, R, !unbounded)
+  k == _EXPONENT_NAN && return T(NaN)
+  k == _EXPONENT_INF && return T(Inf)
+  k == _EXPONENT_ZERO && return zero(T)
+  unbounded && return T(Inf)
+  convert(T, _scaled_product(convert(R, λ), convert(R, w), ns, k))
+end
+
+####################################
+#  Shrinkage
+####################################
+
+# y[G] = prox of γλw‖⋅‖₂ at x[G], possibly in place (y === x), where G indexes both arrays. Returns, in
+# T, the norm t‖x[G]‖ of the stored group on the ordinary shrinking path (each stored entry is t x[i]
+# rounded once, so this is the norm of the stored entries to within a few rounding errors, without a
+# second pass), or one of the codes _L2_ZERO and _L2_RECOMPUTE. The ordinary path needs a normal threshold
+# c = γλw (formed by _threshold_product) and a normal sum of squares that no underflowing square can have
+# changed by more than ordinary rounding; everything else, exceptional parameters and values included,
+# is decided by the cold path, which does not run on that path.
+@inline function _group_shrink!(y, x, G, λ, w, γ::Real)
+  T = float(eltype(y))
+  c, normal = _threshold_product(T, γ, λ, w)
+  if normal & (floatmin(T) <= c <= floatmax(T))
+    s = _indexed_sumabs2(x, G, T)
+    if isfinite(s) & _squares_normal(s, length(G), T)
+      n = sqrt(s)
+      if n > c
+        t = one(T) - c / n
+        _l2_scale!(y, x, G, t)
+        return t * n
+      end
+      return T(_l2_zero!(y, G))
+    elseif iszero(s) && _l2_all_zero(x, G, T)
+      return T(_l2_zero!(y, G))
+    end
+  end
+  T(_group_shrink_cold!(y, x, G, λ, w, γ))
+end
+
+# The parameters decide first, in this order: an unpenalized group (w = 0), a group fixed at zero (an
+# infinite weight, or an infinite level at every nonnegative step, #665), the identity (a zero level or
+# step), a group fixed by an infinite step. Otherwise the values decide (below). The values are in a
+# function of their own, so that the exits decided by the parameters do not carry its frame.
+@noinline function _group_shrink_cold!(y, x, G, λ, w, γ::Real)
+  iszero(w) && return _l2_copy!(y, x, G)
+  (isinf(w) || isinf(λ)) && return _l2_zero!(y, G)
+  (iszero(λ) || iszero(γ)) && return _l2_copy!(y, x, G)
+  isinf(γ) && return _l2_zero!(y, G)
+  _group_shrink_values!(y, x, G, λ, w, γ)
+end
+# The values, at positive finite γ, λ and w: a NaN entry makes every output NaN; an infinite entry (and
+# no NaN) makes the norm infinite and the threshold finite, so 1 - c/‖x‖ = 1 and the group is copied, also
+# when c overflows in floating point; a zero group gives +0. Otherwise r = c/‖x‖ = (γλw 2^-k) / ns from
+# the scaled norm ns 2^k, with c formed by the bounded-product kernel, so that neither c nor the norm needs
+# to be in range: r ≥ 1 gives zero, and t = 1 - r in (0, 1] scales the group without overflow. A product
+# γλw 2^-k that overflows means r > 1, and one that underflows means r < floatmin, where t rounds to 1.
+@noinline function _group_shrink_values!(y, x, G, λ, w, γ::Real)
+  R = _recovery_type(_working_type(float(eltype(y)), γ, λ, w), float(eltype(x)))
+  k, ns = _l2_classified_norm(x, G, R)
+  k == _EXPONENT_NAN && return _l2_fill!(y, G, convert(eltype(y), NaN))
+  k == _EXPONENT_INF && return _l2_copy!(y, x, G)
+  k == _EXPONENT_ZERO && return _l2_zero!(y, G)
+  r = _scaled_product(convert(R, γ), convert(R, λ), convert(R, w), -k) / ns
+  r >= one(R) && return _l2_zero!(y, G)
+  _l2_scale!(y, x, G, one(R) - r)
+  _L2_RECOMPUTE
 end
 
 ####################################
@@ -213,7 +331,7 @@ function (f::GroupNormL2)(x::AbstractArray)
   T = _valtype(x)
   v = zero(T)
   for k in eachindex(f.groups)
-    v += _l2_term(f.λ0, @inbounds(f.w[k]), x, @inbounds(f.groups[k]), _L2_RECOMPUTE, T)
+    v += _group_term(f.λ0, @inbounds(f.w[k]), x, @inbounds(f.groups[k]), T)
   end
   _group_value_checked(f, x, v)
 end
@@ -239,15 +357,15 @@ function _group_prox_all!(y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {V}
   for k in eachindex(f.groups)
     G = @inbounds f.groups[k]
     w = @inbounds f.w[k]
-    s = _l2_shrink!(y, x, G, f.λ0, w, γ)
-    V && (v += _l2_fused_term(f.λ0, w, y, G, s, T))
+    s = _group_shrink!(y, x, G, f.λ0, w, γ)
+    V && (v += _group_fused_term(f.λ0, w, y, G, s, T))
   end
   V ? _group_value_checked(f, y, v) : nothing
 end
 
 function prox_block!(out::AbstractVector, f::GroupNormL2, u::AbstractVector, k::Integer, γ::Real)
   m = _check_group_block(out, f, u, k, γ)
-  _l2_shrink!(out, u, Base.OneTo(m), f.λ0, @inbounds(f.w[k]), γ)
+  _group_shrink!(out, u, Base.OneTo(m), f.λ0, @inbounds(f.w[k]), γ)
   out
 end
 
@@ -295,8 +413,34 @@ function _kkt_violation(f::GroupNormL2, g::AbstractArray, x::BlockIterate, k::In
   _group_screen(f, k, g, G)
 end
 
-# ‖g[G]‖₂ - λ0 w of group k, with the level and the weight of the group
-@inline _group_screen(f::GroupNormL2, k::Integer, g, G) = _l2_screen(f.λ0, @inbounds(f.w[k]), g, G)
+# ‖g[G]‖₂ - λ0 w of group k, with the coefficient of the NormL1 screen (an infinite weight or level gives Inf, a
+# zero weight 0) in the floating type of g
+@inline function _group_screen(f::GroupNormL2, k::Integer, g, G)
+  λ, w = f.λ0, @inbounds(f.w[k])
+  T = float(eltype(g))
+  c = _kkt_coefficient(T, λ, w)
+  s = _indexed_sumabs2(g, G, T)
+  (isfinite(s) & _squares_normal(s, length(G), T) & isfinite(c)) && return sqrt(s) - c
+  _group_screen_cold(λ, w, g, G, T, c)
+end
+
+# A norm or a coefficient out of range: the difference ns 2^k - mλ mw 2^(eλ+ew) of the scaled norm and the
+# coefficient is formed in the recovery type, in the units of the larger exponent (_pow2_sum), and
+# converted to T. Coefficients that are zero or infinite by the parameters keep c.
+@noinline function _group_screen_cold(λ, w, g, G, ::Type{T}, c) where {T}
+  R = _recovery_type(T, float(typeof(λ)), float(eltype(g)))
+  k, ns = _l2_classified_norm(g, G, R)
+  k == _EXPONENT_NAN && return T(NaN)
+  k == _EXPONENT_INF && return convert(T, T(Inf) - c)
+  k == _EXPONENT_ZERO && return -c
+  if iszero(λ) || iszero(w) || isinf(λ) || isinf(w)
+    isinf(c) && return T(-Inf)
+    return convert(T, _scaled_product(ns, one(R), k)) - c
+  end
+  mλ, eλ = _frexp(convert(R, λ))
+  mw, ew = _frexp(convert(R, w))
+  convert(T, _pow2_sum(R, (ns, k), (-(mλ * mw), eλ + ew)))
+end
 
 # no proximal operator for a symmetric iterate (argument or output); nothing is written
 for F in (:NormL2, :GroupNormL2)

@@ -2,8 +2,10 @@
 #  ℓ2 norm  λ ‖x‖₂
 ####################################
 
-# The numerical kernels of NormL2 and GroupNormL2 (shrinkage, values, screens and their recovery of values
-# out of range) are in numerical_kernels.jl; this file has the checks, the type and the oracles.
+# NormL2 and GroupNormL2 share the small arithmetic of numerical_kernels.jl (sums of squares, the scaled norm
+# ns 2^k, the writes of a group) and nothing else: this file has the checks, the type, the oracles and the
+# shrinkage, the value and the recovery of NormL2, which has no weights; groupnorml2.jl has those of
+# GroupNormL2.
 
 @noinline _l2_step_error(f, γ) = throw(ArgumentError("the step of $(nameof(typeof(f))) must be nonnegative, got $γ"))
 # a negative or NaN step fails the comparison
@@ -64,7 +66,35 @@ NormL2(λ::Real = 1) = NormL2{typeof(λ)}(λ)
 isproximable(::Type{<:NormL2}) = true
 isconvex(::Type{<:NormL2}) = true
 
-(f::NormL2)(x::_ArrayOrSymmetricIterate) = (_checkreal(f, x); _l2_value(f.λ, x))
+# λ‖x‖₂ in O(stored entries): _sumabs2 and the squared-residual kernel visit the stored values of the
+# sparse and symmetric iterates only (each off-diagonal symmetric coordinate twice). The ordinary value
+# needs a level that fits T, a finite product and a normal sum of squares; the exactly zero argument
+# returns zero at every level (the domain of an infinite level is {0}).
+(f::NormL2)(x::_ArrayOrSymmetricIterate) = (_checkreal(f, x); _norm_value(f.λ, x))
+function _norm_value(λ, x)
+  T = _valtype(x)
+  iszero(λ) && return zero(T)
+  s = _sumabs2(x)
+  if _level_fits(T, λ)
+    v = convert(T, convert(T, λ) * sqrt(s))
+    (_l2_ordinary(v, T) & _squares_normal(s, _square_term_count(x), T)) && return v
+  end
+  iszero(s) && _all_zero(_stored_values(x)) && return zero(T)
+  _norm_value_cold(λ, x, s, T)
+end
+
+# The scaled norm (_scaled_norm: the sum of squares recomputed in units of the largest stored entry, in
+# at least Float64) times the level, rounded once to T. A NaN or ±Inf entry keeps the ordinary IEEE result
+# (NaN, or Inf). An infinite level is decided by the class of x alone: T(NaN) at a NaN entry (not a
+# propagated NaN), +0 where every entry is zero, otherwise Inf.
+@noinline function _norm_value_cold(λ, x, s, ::Type{T}) where {T}
+  R = _recovery_type(T, float(typeof(λ)))
+  if isinf(λ)
+    k = _square_exponent(x, nothing, R)
+    return k == _EXPONENT_NAN ? T(NaN) : k == _EXPONENT_ZERO ? zero(T) : T(Inf)
+  end
+  convert(T, _scaled_norm(x, nothing, convert(R, s), convert(R, λ)))
+end
 
 function _check_l2_arrays(f, y::AbstractArray, x::AbstractArray, γ::Real)
   _checkreal(f, x)
@@ -76,13 +106,70 @@ function _check_l2_arrays(f, y::AbstractArray, x::AbstractArray, γ::Real)
 end
 
 prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) =
-  (_check_l2_arrays(f, y, x, γ); _l2_shrink!(y, x, Base.OneTo(length(x)), f.λ, true, γ); y)
+  (_check_l2_arrays(f, y, x, γ); _norm_shrink!(y, x, f.λ, γ); y)
 function value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real)
   _check_l2_arrays(f, y, x, γ)
-  G = Base.OneTo(length(x))
-  s = _l2_shrink!(y, x, G, f.λ, true, γ)
+  s = _norm_shrink!(y, x, f.λ, γ)
+  T = _valtype(y)
+  s == _L2_ZERO && return zero(T)
+  if s >= 0
+    R = _working_type(T, f.λ, true)
+    λR = convert(R, f.λ)
+    v = convert(T, λR * convert(R, s))
+    ((floatmin(R) <= λR <= floatmax(R)) & _l2_ordinary(v, T)) && return v
+  end
   # a recomputed value reads y as the value does: its stored entries only for a sparse iterate
-  s == _L2_RECOMPUTE ? _l2_value(f.λ, y) : _l2_fused_term(f.λ, true, y, G, s, _valtype(y))
+  _norm_value(f.λ, y)
 end
 # routes of wrappers such as Scaled, which preflight with _checkwrite first
 _value_and_prox_unchecked!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = value_and_prox!(y, f, x, γ)
+
+# y = prox of γλ‖⋅‖₂ at x, possibly in place (y === x). Returns, in T, the norm t‖x‖ of the stored vector on the
+# ordinary shrinking path (each stored entry is t x[i] rounded once, so this is the norm of the stored entries to
+# within a few rounding errors, without a second pass), or one of the codes _L2_ZERO and _L2_RECOMPUTE. The
+# ordinary path needs a normal threshold c = γλ and a normal sum of squares that no underflowing square can have
+# changed by more than ordinary rounding; everything else, exceptional parameters and values included, is
+# decided by the cold path, which does not run on that path.
+@inline function _norm_shrink!(y, x, λ, γ::Real)
+  T = float(eltype(y))
+  G = Base.OneTo(length(x))
+  c, normal = _threshold_product(T, γ, λ, true)
+  if normal & (floatmin(T) <= c <= floatmax(T))
+    s = _indexed_sumabs2(x, G, T)
+    if isfinite(s) & _squares_normal(s, length(x), T)
+      n = sqrt(s)
+      if n > c
+        t = one(T) - c / n
+        _l2_scale!(y, x, G, t)
+        return t * n
+      end
+      return T(_l2_zero!(y, G))
+    elseif iszero(s) && _l2_all_zero(x, G, T)
+      return T(_l2_zero!(y, G))
+    end
+  end
+  T(_norm_shrink_cold!(y, x, λ, γ))
+end
+
+# The parameters decide first, in this order: a level fixed at infinity (zero at every nonnegative step, #665), the
+# identity (a zero level or step), an infinite step. Otherwise the values decide, at positive finite γ and λ: a NaN
+# entry makes every output NaN; an infinite entry (and no NaN) makes the norm infinite and the threshold finite, so
+# 1 - c/‖x‖ = 1 and x is copied, also when c overflows in floating point; a zero argument gives +0. Otherwise
+# r = c/‖x‖ = (γλ 2^-k) / ns from the scaled norm ns 2^k, with c formed by the bounded-product kernel, so that
+# neither c nor the norm needs to be in range: r ≥ 1 gives zero, and t = 1 - r in (0, 1] scales x without overflow.
+# A product γλ 2^-k that overflows means r > 1, and one that underflows means r < floatmin, where t rounds to 1.
+@noinline function _norm_shrink_cold!(y, x, λ, γ::Real)
+  G = Base.OneTo(length(x))
+  isinf(λ) && return _l2_zero!(y, G)
+  (iszero(λ) || iszero(γ)) && return _l2_copy!(y, x, G)
+  isinf(γ) && return _l2_zero!(y, G)
+  R = _recovery_type(_working_type(float(eltype(y)), γ, λ, true), float(eltype(x)))
+  k, ns = _l2_classified_norm(x, G, R)
+  k == _EXPONENT_NAN && return _l2_fill!(y, G, convert(eltype(y), NaN))
+  k == _EXPONENT_INF && return _l2_copy!(y, x, G)
+  k == _EXPONENT_ZERO && return _l2_zero!(y, G)
+  r = _scaled_product(convert(R, γ), convert(R, λ), one(R), -k) / ns
+  r >= one(R) && return _l2_zero!(y, G)
+  _l2_scale!(y, x, G, one(R) - r)
+  _L2_RECOMPUTE
+end

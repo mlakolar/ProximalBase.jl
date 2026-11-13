@@ -123,7 +123,18 @@ function _all_zero(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
   U = _int_type(T)
   vals = _stored_values(x)
   n = length(vals)
-  lo = 1
+  hi = min(n, _ALL_ZERO_BLOCK)
+  m = zero(U)
+  @inbounds @simd for i in 1:hi
+    m |= reinterpret(U, vals[i])
+  end
+  iszero(m & typemax(U)) || return false
+  n > hi && return _all_zero_blocks(vals, hi + 1, n)
+  true
+end
+# the rest of a long array, block by block
+@noinline function _all_zero_blocks(vals, lo::Int, n::Int)
+  U = _int_type(eltype(vals))
   while lo <= n
     hi = min(lo + (_ALL_ZERO_BLOCK - 1), n)
     m = zero(U)

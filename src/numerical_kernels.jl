@@ -998,20 +998,19 @@ function _l2_value(λ, x)
     (_l2_ordinary(v, T) & _squares_normal(s, _square_term_count(x), T)) && return v
   end
   iszero(s) && _all_zero(_stored_values(x)) && return zero(T)
-  _l2_value_cold(λ, x, s, T)
+  _l2_value_cold(λ, x, T)
 end
 
-# The scaled norm (_scaled_norm: the sum of squares recomputed in units of the largest stored entry, in
-# at least Float64) times the level, rounded once to T. A NaN or ±Inf entry keeps the ordinary IEEE result
-# (NaN, or Inf). An infinite level is decided by the class of x alone: T(NaN) at a NaN entry (not a
-# propagated NaN), +0 where every entry is zero, otherwise Inf.
-@noinline function _l2_value_cold(λ, x, s, ::Type{T}) where {T}
+# The norm from the classified exponent pass and the scaled sum (the squared-residual kernel for y = 0), times the
+# level, rounded once to T. A NaN entry gives T(NaN) (not a propagated NaN), and an infinite one Inf; an infinite level
+# gives +0 where every entry is zero, otherwise Inf. A level of zero was decided by the caller.
+@noinline function _l2_value_cold(λ, x, ::Type{T}) where {T}
   R = _recovery_type(T, float(typeof(λ)))
-  if isinf(λ)
-    k = _square_exponent(x, nothing, R)
-    return k == _EXPONENT_NAN ? T(NaN) : k == _EXPONENT_ZERO ? zero(T) : T(Inf)
-  end
-  convert(T, _scaled_norm(x, nothing, convert(R, s), convert(R, λ)))
+  k = _square_exponent(x, nothing, R)
+  k == _EXPONENT_NAN && return T(NaN)
+  k == _EXPONENT_ZERO && return zero(T)
+  (isinf(λ) || k == _EXPONENT_INF) && return T(Inf)
+  convert(T, _scaled_product(convert(R, λ), sqrt(_square_scaled_sum(x, nothing, k, R)), k))
 end
 
 # The term w‖x[G]‖₂ of a penalized group, added to the accumulator of a value recomputed with the terms'
@@ -1038,7 +1037,7 @@ end
 end
 
 # A norm or a coefficient out of range: the difference ns 2^k - mλ mw 2^(eλ+ew) of the scaled norm and the
-# coefficient is formed in the recovery type, in the units of the larger exponent (_pow2_sum), and
+# coefficient is formed in the recovery type, in the units of the larger exponent, and
 # converted to T. Coefficients that are zero or infinite by the parameters keep c.
 @noinline function _l2_screen_cold(λ, w, g, G, ::Type{T}, c) where {T}
   R = _recovery_type(T, float(typeof(λ)), float(eltype(g)))
@@ -1050,9 +1049,15 @@ end
     isinf(c) && return T(-Inf)
     return convert(T, _scaled_product(ns, one(R), k)) - c
   end
+  # Both terms are bounded (ns < 2 sqrt(n), mλ mw < 1) and nonzero, so the difference needs only the common frame of the larger
+  # exponent: the smaller term is scaled down into it (below its precision, or exactly), the difference is exact
+  # where the terms are close, and the final scaling rounds once.
   mλ, eλ = _frexp(convert(R, λ))
   mw, ew = _frexp(convert(R, w))
-  convert(T, _pow2_sum(R, (ns, k), (-(mλ * mw), eλ + ew)))
+  ek, ec = _exponent_sum(R, k), _exponent_sum(R, eλ, ew)
+  E = max(ek, ec)
+  d = ldexp(ns, _frame_shift(R, ek, E)) - ldexp(mλ * mw, _frame_shift(R, ec, E))
+  convert(T, ldexp(d, E))
 end
 
 ####################################

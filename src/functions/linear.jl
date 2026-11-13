@@ -94,21 +94,61 @@ _linear_scaled_dot(c, x, s) = _linear_scaled_copy_dot(c, x, s)
 _linear_scaled_copy_dot(c, x, s) = dot(c, x .* s[1] .* s[2])
 
 # A matrix SparseIterate (D1): an entry of x that is not stored, or is stored as a zero, adds
-# nothing to the value, also if the coefficient there is NaN or Inf. The sum runs over the stored
-# entries, tests the value of each against zero before it reads c, and reads c at the
-# nonzero ones, with the linear index of the entry (size(c) == size(x) is checked first).
-# The value of x is read from the storage (nzval), not through getindex: a scan of the logical
-# matrix that visits the implicit entries forms a zero at each of them.
+# nothing to the value, also if the coefficient there is NaN or Inf. The value of x is read from
+# the storage (nzval, ind2nzval), not through getindex: a scan of the logical matrix that visits
+# the implicit entries forms a zero at each of them. size(c) == size(x) is checked first.
 function _value_unchecked(f::LinearFunction, x::SparseIterate{<:Any, 2})
   _checkvalue(f, x)
   _value_at(_linear_value(f, x, _linear_stored_dot(f.c, x) + f.d), x)
 end
+
+# The sum over the nonzero stored entries, with no branch on the value of an entry (a data-dependent
+# branch on stored zeros that are interleaved with nonzeros mispredicts): a zero entry takes the
+# coefficient index of the first stored nonzero entry, i0, and its term is dropped by a select, so c
+# is read at the indices of nonzero stored entries only (i0 more than once) and a NaN or Inf
+# coefficient at an unread position cannot reach the sum. Without a nonzero stored entry the sum is 0.
+# The entries are visited in the storage order, or in column order through ind2nzval when
+# `_LINEAR_COLUMN_FACTOR` times the number of stored entries exceeds the length of x: then the
+# coefficients are read in sequence, as the dot of two dense arrays does, instead of in the order
+# of activation (the method of `mul!` for a matrix SparseIterate has a similar threshold, 32).
+# The factor is the crossover measured for Float32 and Float64 on one AMD Zen 3 CPU, see the
+# benchmark in benchmark/linear_sparse_value.jl.
+const _LINEAR_COLUMN_FACTOR = 4
 function _linear_stored_dot(c, x::SparseIterate{<:Any, 2})
-  s = zero(promote_type(eltype(c), eltype(x)))
+  T = promote_type(eltype(c), eltype(x))
+  _LINEAR_COLUMN_FACTOR * x.nnz > length(x) ? _linear_column_dot(c, x, T) : _linear_storage_dot(c, x, T)
+end
+# the position in nzval of the first nonzero stored entry, 0 if there is none
+function _first_nonzero(x::SparseIterate{<:Any, 2})
   @inbounds for k in 1:x.nnz
+    iszero(x.nzval[k]) || return k
+  end
+  0
+end
+function _linear_storage_dot(c, x::SparseIterate{<:Any, 2}, ::Type{T}) where {T}
+  s, z = zero(T), zero(T)
+  k0 = _first_nonzero(x)
+  k0 == 0 && return s
+  i0 = x.nzval2ind[k0]
+  @inbounds @simd for k in 1:x.nnz
     v = x.nzval[k]
-    iszero(v) && continue
-    s += _entry(c, x.nzval2ind[k]) * v
+    skip = iszero(v)
+    t = _entry(c, ifelse(skip, i0, x.nzval2ind[k])) * v
+    s += ifelse(skip, z, t)
+  end
+  s
+end
+function _linear_column_dot(c, x::SparseIterate{<:Any, 2}, ::Type{T}) where {T}
+  s, z = zero(T), zero(T)
+  k0 = _first_nonzero(x)
+  k0 == 0 && return s
+  i0 = x.nzval2ind[k0]
+  @inbounds @simd for i in 1:length(x)
+    pos = x.ind2nzval[i]
+    v = x.nzval[ifelse(pos == 0, k0, pos)]
+    skip = (pos == 0) | iszero(v)
+    t = _entry(c, ifelse(skip, i0, i)) * v
+    s += ifelse(skip, z, t)
   end
   s
 end
@@ -138,19 +178,33 @@ end
 
 # A Diagonal coefficient at a matrix SparseIterate: dot(c, x) for a Diagonal c reads the
 # diagonal of x only, in O(p), and ignores the other entries of x, as f(Matrix(x)) does. The
-# value keeps that, and reads c.diag[j] only where x has a nonzero stored diagonal entry.
+# value keeps that, and reads c.diag at the indices of nonzero stored diagonal entries only.
 function _value_unchecked(f::LinearFunction{<:Diagonal}, x::SparseIterate{<:Any, 2})
   _checkvalue(f, x)
   _value_at(_linear_value(f, x, _linear_diagonal_dot(f.c.diag, x) + f.d), x)
 end
+# The diagonal positions are visited in increasing index with the same select as above: an absent or
+# zero diagonal entry takes the coefficient index of the first nonzero one, and its term is dropped.
 function _linear_diagonal_dot(dg, x::SparseIterate{<:Any, 2})
-  s = zero(promote_type(eltype(dg), eltype(x)))
-  @inbounds for j in 1:size(x, 1)
+  T = promote_type(eltype(dg), eltype(x))
+  s, z = zero(T), zero(T)
+  p = size(x, 1)
+  j0 = 0
+  @inbounds for j in 1:p
     pos = x.ind2nzval[j, j]
-    pos == 0 && continue
-    v = x.nzval[pos]
-    iszero(v) && continue
-    s += dg[j] * v
+    if pos != 0 && !iszero(x.nzval[pos])
+      j0 = j
+      break
+    end
+  end
+  j0 == 0 && return s
+  k0 = x.ind2nzval[j0, j0]
+  @inbounds @simd for j in 1:p
+    pos = x.ind2nzval[j, j]
+    v = x.nzval[ifelse(pos == 0, k0, pos)]
+    skip = (pos == 0) | iszero(v)
+    t = dg[ifelse(skip, j0, j)] * v
+    s += ifelse(skip, z, t)
   end
   s
 end

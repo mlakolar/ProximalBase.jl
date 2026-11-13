@@ -878,7 +878,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
       f = LinearFunction(c, d)
       v = f(x)
       @test isfinite(v) && agrees(v, reference(f, x, T), T)
-      # the products in the order of the sum; the exact 0.25 only when the two cancelling pairs are adjacent
+      # the products are summed in storage order; `=== d` is asserted only when the two cancelling pairs are adjacent in it
       adjacent = (order[1:2] in ([2, 3], [3, 2], [1, 4], [4, 1])) && (order[3:4] in ([2, 3], [3, 2], [1, 4], [4, 1]))
       adjacent && @test v === d
     end

@@ -76,6 +76,14 @@ end
   R = _working_type(U, a, b, w)
   convert(U, _weight_product(convert(R, a), convert(R, b), convert(R, w)))
 end
+# The threshold γλw rounded once to S, and whether γλ, formed in the working type R, is in the normal range
+# (the range test of _positive_product). The soft-thresholding loop of NormL1 and the ℓ2 shrinkage form their
+# ordinary threshold with it.
+@inline function _threshold_product(::Type{S}, γ, λ, w) where {S}
+  R = _working_type(S, γ, λ, w)
+  ab = convert(R, γ) * convert(R, λ)
+  convert(S, ab * convert(R, w)), floatmin(R) <= ab <= floatmax(R)
+end
 # The coefficient and product of a KKT diagnostic in the gradient's element type T, rounded once. A
 # gradient that is not floating point (integers) keeps the untyped value and type of the baseline.
 @inline _kkt_coefficient(::Type{T}, λ, w) where {T<:AbstractFloat} = _weight_coefficient(T, λ, w)
@@ -482,15 +490,15 @@ function _norm_diff2(A::AbstractArray, B::AbstractArray)
   _scaled_norm(A, B, s)
 end
 
-# √(Σ μᵢ (xᵢ - yᵢ)²) for an ordinary sum of squares s in R that overflowed or fell below
-# floatmin(R): the squared-residual kernel gives the sum as m 2^(2k), and the norm is √m 2^k,
-# rounded once (twice where it is subnormal). An entry that is not finite keeps the ordinary
-# result √s: Inf, or NaN where a NaN or an Inf - Inf residual occurs.
-@noinline function _scaled_norm(x, y, s::R) where {R}
+# scale ⋅ √(Σ μᵢ (xᵢ - yᵢ)²) for a scale ≥ 0 (one by default) and an ordinary sum of squares s in R that
+# overflowed or fell below floatmin(R): the squared-residual kernel gives the sum as m 2^(2k), and the
+# norm is scale √m 2^k, rounded once (twice where it is subnormal). An entry that is not finite keeps
+# the ordinary result scale √s: Inf, or NaN where a NaN or an Inf - Inf residual occurs.
+@noinline function _scaled_norm(x, y, s::R, scale::R = one(R)) where {R}
   q = _residual_squares(x, y, R)
-  q === nothing && return sqrt(s)
+  q === nothing && return scale * sqrt(s)
   m, k = q
-  _scaled_product(sqrt(m), one(R), k)
+  _scaled_product(scale, sqrt(m), k)
 end
 
 # Σᵢ (xᵢ - yᵢ)², without allocating x - y
@@ -548,12 +556,18 @@ end
 end
 @inline _halved(a, b, ::Type{R}) where {R} = R(a) / 2 - R(b) / 2
 
-# the exponent of the largest residual: typemax(Int) for an entry that is not finite, typemin(Int)
-# for an exactly zero residual
+# The exponent of the largest residual, or a code: _EXPONENT_NAN for a NaN residual (a NaN entry, or
+# Inf - Inf), _EXPONENT_INF for an infinite residual that is not NaN, and _EXPONENT_ZERO for an exactly
+# zero one. The maximum over the residuals is the NaN code if any residual is NaN, else the Inf code if
+# any is infinite, else the largest exponent (the zero code if all are zero). The class of a residual that
+# is not finite is decided on that branch only.
+const _EXPONENT_NAN = typemax(Int)
+const _EXPONENT_INF = typemax(Int) - 1
+const _EXPONENT_ZERO = typemin(Int)
 @inline function _residual_exponent(a, b, ::Type{R}) where {R}
-  (isfinite(a) && isfinite(b)) || return typemax(Int)
+  (isfinite(a) && isfinite(b)) || return isnan(_square_difference(a, b, R)) ? _EXPONENT_NAN : _EXPONENT_INF
   d, h = _halved_difference(a, b, R)
-  iszero(d) ? typemin(Int) : exponent(abs(d)) + h
+  iszero(d) ? _EXPONENT_ZERO : exponent(abs(d)) + h
 end
 
 # the residual scaled by 2^-k (s) or, where it was halved, by 2^(1-k) (h). The loop over the entries
@@ -565,7 +579,7 @@ end
 end
 
 function _square_exponent(x, y, ::Type{R}) where {R}
-  k = typemin(Int)
+  k = _EXPONENT_ZERO
   if y === nothing
     for a in _stored_values(x)
       k = max(k, _residual_exponent(a, zero(R), R))
@@ -581,15 +595,19 @@ end
 function _square_scaled_sum(x, y, k, ::Type{R}) where {R}
   s, h = _power_factors(R, -k), _power_factors(R, 1-k)
   v = e = zero(R)
-  if y === nothing
-    @inbounds for (i, a) in enumerate(_stored_values(x))
-      q = _square_multiplicity(x, i) * abs2(_scaled_residual(a, zero(R), s, h, R))
-      v, e = _compensated_add(v, e, q)
-    end
-  else
-    @inbounds for i in eachindex(x, y)
-      v, e = _compensated_add(v, e, abs2(_scaled_residual(x[i], y[i], s, h, R)))
-    end
+  @inbounds for i in eachindex(x, y)
+    v, e = _compensated_add(v, e, abs2(_scaled_residual(x[i], y[i], s, h, R)))
+  end
+  v + e
+end
+# y = 0 with a finite exponent k, R at least as wide as the entries: the residual a - 0 of a finite a is
+# a in R and is not halved, so the entry is scaled by the one power factor 2^-k
+function _square_scaled_sum(x, ::Nothing, k, ::Type{R}) where {R}
+  s = _power_factors(R, -k)
+  v = e = zero(R)
+  @inbounds for (i, a) in enumerate(_stored_values(x))
+    q = _square_multiplicity(x, i) * abs2(_scale_value(convert(R, a), s))
+    v, e = _compensated_add(v, e, q)
   end
   v + e
 end
@@ -599,12 +617,12 @@ end
 # logical multiplicity μᵢ (2 for an off-diagonal entry of a symmetric iterate). Every residual is
 # formed before it is scaled by 2^-k, k the exponent of the largest one, and the squares are summed
 # compensated, so that no square overflows and a small residual after a cancellation is kept. It
-# gives (zero(R), 0) when every residual is exactly zero and `nothing` when an entry is not finite
+# gives (zero(R), 0) when every residual is exactly zero and `nothing` when a residual is not finite
 # (the ordinary result then stands: a genuine Inf or NaN is not an intermediate failure).
 function _residual_squares(x, y, ::Type{R}) where {R}
   k = _square_exponent(x, y, R)
-  k == typemax(Int) && return nothing
-  k == typemin(Int) && return (zero(R), 0)
+  k >= _EXPONENT_INF && return nothing
+  k == _EXPONENT_ZERO && return (zero(R), 0)
   (_square_scaled_sum(x, y, k, R), k)
 end
 # the type of the recomputation of λ/2 Σ (xᵢ - yᵢ)²
@@ -633,6 +651,301 @@ end
   s, k = q
   iszero(s) && return (zero(R), 0)
   _parts_product(_frexp(convert(R, λ)), _parts(s, 2k - 1))
+end
+
+####################################
+#
+#  The ℓ2 norm of an index set (NormL2, GroupNormL2)
+#
+####################################
+
+# The kernels below compute, for an index set G of an array x (all of x for NormL2, one group for
+# GroupNormL2), the shrinkage max(1 - γλw/‖x[G]‖₂, 0) x[G] and the term λw‖x[G]‖₂ of a value. They take
+# the level λ and the weight w as scalars (w = true for NormL2) and allocate nothing for Float32 and
+# Float64 data.
+
+# The vector of the entries x[G[j]], j = 1:length(G), read through x and G without a copy. A view would
+# reshape a matrix x, which allocates; the callers have checked that G is within x, so the reads are not
+# checked again (the index j is, unless @inbounds). _stored_values gives all of its entries and
+# _square_multiplicity gives 1, as for any vector.
+struct _IndexedValues{T, X, I} <: AbstractVector{T}
+  x::X
+  G::I
+end
+_IndexedValues(x, G) = _IndexedValues{eltype(x), typeof(x), typeof(G)}(x, G)
+Base.size(v::_IndexedValues) = (length(v.G),)
+Base.length(v::_IndexedValues) = length(v.G)
+Base.IndexStyle(::Type{<:_IndexedValues}) = IndexLinear()
+Base.@propagate_inbounds function Base.getindex(v::_IndexedValues, j::Int)
+  @boundscheck checkbounds(v, j)
+  @inbounds v.x[v.G[j]]
+end
+@inline function Base.iterate(v::_IndexedValues, j::Int = 1)
+  j > length(v.G) && return nothing
+  @inbounds (v.x[v.G[j]], j + 1)
+end
+
+# Σ x[i]² over i ∈ G, each entry converted to T before it is squared, in one vectorizable loop
+@inline function _indexed_sumabs2(x, G, ::Type{T}) where {T}
+  s = zero(T)
+  @inbounds @simd for i in G
+    s += abs2(convert(T, x[i]))
+  end
+  s
+end
+
+# the type of the cold recomputations: at least Float64, so that a compensated sum of Float32 squares
+# does not stall as a Float32 one does over more than 2^24 terms
+_recovery_type(types...) = promote_type(Float64, types...)
+
+# Can the ordinary sum s of n nonnegative terms be kept? NormL1 (n entries) and GroupNormL2 (n groups)
+# test their ordinary values with it; the argument below is stated for NormL1.
+# Products that round below floatmin (#373). The value is a sum of n terms λ0 wᵢ |xᵢ| ≥ 0, each rounded
+# once or twice (the coefficient, then the product with |xᵢ|); a coefficient out of the normal range is
+# formed by value_entry with one rounding, so the ordinary flag and these exact products leave only the
+# rounding of a term into the subnormal range (or to zero). That rounding loses at most δ/2 =
+# eps(T) floatmin(T)/2 per term, n eps floatmin / 2 in all, which is at most eps/2 of a sum s ≥ n floatmin.
+# A sum below that bound (a zero sum included) may have lost more than ordinary rounding, even a normal one:
+# 512 terms 2^-135 + 2^-150 in Float32 each round to 2^-135 and the sum loses 256 units of 2^-126. Sums of
+# subnormal partial sums are exact, and the relative errors of normal terms and of the summation are those
+# of every ordinary value. The test is false for NaN, so an ordinary NaN (or Inf) is returned as it was.
+@inline _sum_kept(s, n) = !(s < n * floatmin(typeof(s)))
+
+# Codes returned by the shrinkage kernel in place of the norm of the stored group: the stored group is
+# exactly zero, or its value must be recomputed from the stored entries.
+const _L2_ZERO = -2
+const _L2_RECOMPUTE = -1
+
+@inline function _l2_zero!(y, G)
+  S = eltype(y)
+  @inbounds for i in G
+    y[i] = zero(S)
+  end
+  _L2_ZERO
+end
+@inline function _l2_copy!(y, x, G)
+  if y !== x
+    @inbounds for i in G
+      y[i] = x[i]
+    end
+  end
+  _L2_RECOMPUTE
+end
+@inline function _l2_fill!(y, G, v)
+  @inbounds for i in G
+    y[i] = v
+  end
+  _L2_RECOMPUTE
+end
+@inline function _l2_scale!(y, x, G, t::T) where {T}
+  S = eltype(y)
+  @inbounds @simd for i in G
+    y[i] = convert(S, t * convert(T, x[i]))
+  end
+  nothing
+end
+
+# ‖x[G]‖₂ = ns 2^k from the classified exponent pass over the entries (_square_exponent), for the cold
+# paths. k is the largest exponent of the entries, or the code of the group: _EXPONENT_NAN if an entry is
+# NaN, _EXPONENT_INF if one is infinite and none is NaN, _EXPONENT_ZERO if all are zero. For a finite
+# nonzero group and need_norm, ns is the norm of the entries scaled by 2^-k, so that its largest entry is in
+# [1, 2) and no square overflows or underflows below the rounding of the sum: ns is in [1, 2√|G|). Otherwise
+# ns is zero. A caller that does not need the norm passes need_norm = false, and then there is no second pass.
+@inline function _l2_classified_norm(x, G, ::Type{R}, need_norm::Bool = true) where {R}
+  v = _IndexedValues(x, G)
+  k = _square_exponent(v, nothing, R)
+  (need_norm & (_EXPONENT_ZERO < k < _EXPONENT_INF)) || return (k, zero(R))
+  (k, sqrt(_square_scaled_sum(v, nothing, k, R)))
+end
+
+# y[G] = prox of γλw‖⋅‖₂ at x[G], possibly in place (y === x), where G indexes both arrays. Returns, in
+# T, the norm t‖x[G]‖ of the stored group on the ordinary shrinking path (each stored entry is t x[i]
+# rounded once, so this is the norm of the stored entries to within a few rounding errors, without a
+# second pass), or one of the codes above. The ordinary path needs a normal threshold c = γλw (formed
+# by _threshold_product) and a normal sum of squares that no underflowing square can have
+# changed by more than ordinary rounding; everything else, exceptional parameters and values included,
+# is decided by the cold path, which does not run on that path.
+@inline function _l2_shrink!(y, x, G, λ, w, γ::Real)
+  T = float(eltype(y))
+  c, normal = _threshold_product(T, γ, λ, w)
+  if normal & (floatmin(T) <= c <= floatmax(T))
+    s = _indexed_sumabs2(x, G, T)
+    if isfinite(s) & _squares_normal(s, length(G), T)
+      n = sqrt(s)
+      if n > c
+        t = one(T) - c / n
+        _l2_scale!(y, x, G, t)
+        return t * n
+      end
+      return T(_l2_zero!(y, G))
+    elseif iszero(s) && _all_zero(_IndexedValues(x, G))   # a group that is zero in T but not in x (x wider than T) is left to the cold path: +0 while √|G| ≤ 2/eps(T)
+      return T(_l2_zero!(y, G))
+    end
+  end
+  T(_l2_shrink_cold!(y, x, G, λ, w, γ))
+end
+
+# The parameters decide first, in this order: an unpenalized group (w = 0), a group fixed at zero (an
+# infinite weight, or an infinite level at every nonnegative step, #665), the identity (a zero level or
+# step), a group fixed by an infinite step. Then the values, at positive finite γ, λ and w: a NaN entry
+# makes every output NaN; an infinite entry (and no NaN) makes the norm infinite and the threshold finite,
+# so 1 - c/‖x‖ = 1 and the group is copied, also when c overflows in floating point; a zero group gives +0.
+# Otherwise r = c/‖x‖ = (γλw 2^-k) / ns from the scaled norm ns 2^k, with c formed by the bounded-product
+# kernel, so that neither c nor the norm needs to be in range: r ≥ 1 gives zero, and t = 1 - r in (0, 1]
+# scales the group without overflow. A product γλw 2^-k that overflows means r > 1, and one that
+# underflows means r < floatmin, where t rounds to 1.
+@noinline function _l2_shrink_cold!(y, x, G, λ, w, γ::Real)
+  iszero(w) && return _l2_copy!(y, x, G)
+  (isinf(w) || isinf(λ)) && return _l2_zero!(y, G)
+  (iszero(λ) || iszero(γ)) && return _l2_copy!(y, x, G)
+  isinf(γ) && return _l2_zero!(y, G)
+  T = float(eltype(y))
+  R = _recovery_type(_working_type(T, γ, λ, w), float(eltype(x)))
+  k, ns = _l2_classified_norm(x, G, R)
+  k == _EXPONENT_NAN && return _l2_fill!(y, G, convert(eltype(y), NaN))
+  k == _EXPONENT_INF && return _l2_copy!(y, x, G)
+  k == _EXPONENT_ZERO && return _l2_zero!(y, G)
+  r = _scaled_product(convert(R, γ), convert(R, λ), convert(R, w), -k) / ns
+  r >= one(R) && return _l2_zero!(y, G)
+  t = one(R) - r
+  S = eltype(y)
+  @inbounds for i in G
+    y[i] = convert(S, t * convert(R, x[i]))
+  end
+  _L2_RECOMPUTE
+end
+
+# The ordinary paths return a value only below floatmax(T)/2 (a NaN fails the test too). A larger value
+# is formed again in power-of-two units, as m 2^E from compensated sums accumulated in at least Float64
+# and a few rounded products, and rounded once to T. Within a few eps of the overflow threshold
+# floatmax + ulp/2 this does not decide on which side the exact value lies: the result may then be
+# floatmax or Inf (#904).
+@inline _l2_ordinary(v, ::Type{T}) where {T} = v < floatmax(T) / 2
+
+# The term λw‖x[G]‖₂ of a value in T, given the norm s of x[G] from the shrinkage kernel, or one of the
+# codes above (s = _L2_RECOMPUTE reads x). The ordinary path needs a normal λw, a value below
+# floatmax(T)/2 and, when it reads x, a normal sum of squares; a larger value is recomputed from x[G].
+@inline function _l2_term(λ, w, x, G, s, ::Type{T}) where {T}
+  iszero(w) && return zero(T)
+  s == _L2_ZERO && return zero(T)
+  R = _working_type(T, λ, w)
+  λw = convert(R, λ) * convert(R, w)
+  if floatmin(R) <= λw <= floatmax(R)
+    if s == _L2_RECOMPUTE
+      q = _indexed_sumabs2(x, G, T)
+      if isfinite(q) & _squares_normal(q, length(G), T)
+        v = convert(T, λw * sqrt(convert(R, q)))
+        _l2_ordinary(v, T) && return v
+      elseif iszero(q) && _all_zero(_IndexedValues(x, G))
+        return zero(T)
+      end
+    else
+      v = convert(T, λw * convert(R, s))
+      _l2_ordinary(v, T) && return v
+    end
+  end
+  _l2_term_cold(λ, w, x, G, T)
+end
+
+# The term of the fused value_and_prox!, after the shrinkage kernel: the stored group's norm s ≥ 0 and the
+# zero group inline, as _l2_term computes them; the codes of the cold shrinkage and out-of-range values
+# call _l2_term out of line, which keeps its sums out of the loop over the groups.
+@inline function _l2_fused_term(λ, w, x, G, s, ::Type{T}) where {T}
+  s == _L2_ZERO && return zero(T)
+  if s >= 0
+    R = _working_type(T, λ, w)
+    λw = convert(R, λ) * convert(R, w)
+    v = convert(T, λw * convert(R, s))
+    ((floatmin(R) <= λw <= floatmax(R)) & _l2_ordinary(v, T)) && return v
+  end
+  _l2_term_outofline(λ, w, x, G, s, T)
+end
+@noinline _l2_term_outofline(λ, w, x, G, s, ::Type{T}) where {T} = _l2_term(λ, w, x, G, s, T)
+
+# Exceptional terms, in this order: a zero level with a finite weight gives 0 whatever x holds; a NaN
+# entry gives NaN and an infinite one Inf; the zero group gives 0; an infinite weight or level gives Inf
+# (decided by the class of x, without the norm). A positive finite level and weight give λw ns 2^k from
+# the scaled norm, in one rounding to T (_scaled_product).
+@noinline function _l2_term_cold(λ, w, x, G, ::Type{T}) where {T}
+  iszero(λ) && !isinf(w) && return zero(T)
+  R = _recovery_type(T, float(typeof(λ)), float(typeof(w)), float(eltype(x)))
+  unbounded = isinf(w) || isinf(λ)
+  k, ns = _l2_classified_norm(x, G, R, !unbounded)
+  k == _EXPONENT_NAN && return T(NaN)
+  k == _EXPONENT_INF && return T(Inf)
+  k == _EXPONENT_ZERO && return zero(T)
+  unbounded && return T(Inf)
+  convert(T, _scaled_product(convert(R, λ), convert(R, w), ns, k))
+end
+
+# λ‖x‖₂ in O(stored entries): _sumabs2 and the squared-residual kernel visit the stored values of the
+# sparse and symmetric iterates only (each off-diagonal symmetric coordinate twice). The ordinary value
+# needs a level that fits T, a finite product and a normal sum of squares; the exactly zero argument
+# returns zero at every level (the domain of an infinite level is {0}).
+function _l2_value(λ, x)
+  T = _valtype(x)
+  iszero(λ) && return zero(T)
+  s = _sumabs2(x)
+  if _level_fits(T, λ)
+    v = convert(T, convert(T, λ) * sqrt(s))
+    (_l2_ordinary(v, T) & _squares_normal(s, _square_term_count(x), T)) && return v
+  end
+  iszero(s) && _all_zero(_stored_values(x)) && return zero(T)
+  _l2_value_cold(λ, x, s, T)
+end
+
+# The scaled norm (_scaled_norm: the sum of squares recomputed in units of the largest stored entry, in
+# at least Float64) times the level, rounded once to T. A NaN or ±Inf entry keeps the ordinary IEEE result
+# (NaN, or Inf). An infinite level is decided by the class of x alone: T(NaN) at a NaN entry (not a
+# propagated NaN), +0 where every entry is zero, otherwise Inf.
+@noinline function _l2_value_cold(λ, x, s, ::Type{T}) where {T}
+  R = _recovery_type(T, float(typeof(λ)))
+  if isinf(λ)
+    k = _square_exponent(x, nothing, R)
+    return k == _EXPONENT_NAN ? T(NaN) : k == _EXPONENT_ZERO ? zero(T) : T(Inf)
+  end
+  convert(T, _scaled_norm(x, nothing, convert(R, s), convert(R, λ)))
+end
+
+# The term w‖x[G]‖₂ of a penalized group, added to the accumulator of a value recomputed with the terms'
+# exponents (_ExpSum). A zero weight and a zero group add nothing, and a NaN or ±Inf entry, or an infinite
+# weight at a nonzero group, make the ordinary sum infinite or NaN: nothing is returned for them, and the
+# caller keeps that sum.
+function _l2_expsum_add(acc::_ExpSum{R}, x, G, w) where {R}
+  iszero(w) && return acc
+  k, ns = _l2_classified_norm(x, G, R, !isinf(w))
+  k >= _EXPONENT_INF && return nothing
+  k == _EXPONENT_ZERO && return acc
+  isinf(w) && return nothing
+  _expsum_product(acc, w, ns, k)
+end
+
+# ‖g[G]‖₂ - λw, with the coefficient of the NormL1 screen (an infinite weight or level gives Inf, a zero
+# weight 0) in the floating type of g
+@inline function _l2_screen(λ, w, g, G)
+  T = float(eltype(g))
+  c = _kkt_coefficient(T, λ, w)
+  s = _indexed_sumabs2(g, G, T)
+  (isfinite(s) & _squares_normal(s, length(G), T) & isfinite(c)) && return sqrt(s) - c
+  _l2_screen_cold(λ, w, g, G, T, c)
+end
+
+# A norm or a coefficient out of range: the difference ns 2^k - mλ mw 2^(eλ+ew) of the scaled norm and the
+# coefficient is formed in the recovery type, in the units of the larger exponent (_pow2_sum), and
+# converted to T. Coefficients that are zero or infinite by the parameters keep c.
+@noinline function _l2_screen_cold(λ, w, g, G, ::Type{T}, c) where {T}
+  R = _recovery_type(T, float(typeof(λ)), float(eltype(g)))
+  k, ns = _l2_classified_norm(g, G, R)
+  k == _EXPONENT_NAN && return T(NaN)
+  k == _EXPONENT_INF && return convert(T, T(Inf) - c)
+  k == _EXPONENT_ZERO && return -c
+  if iszero(λ) || iszero(w) || isinf(λ) || isinf(w)
+    isinf(c) && return T(-Inf)
+    return convert(T, _scaled_product(ns, one(R), k)) - c
+  end
+  mλ, eλ = _frexp(convert(R, λ))
+  mw, ew = _frexp(convert(R, w))
+  convert(T, _pow2_sum(R, (ns, k), (-(mλ * mw), eλ + ew)))
 end
 
 ####################################

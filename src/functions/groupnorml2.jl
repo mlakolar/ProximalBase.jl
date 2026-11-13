@@ -170,20 +170,20 @@ end
 #  Group values
 ####################################
 
-# The kernels are the shared ℓ2 kernels of norml2.jl, with the level λ0 and the weight wₖ of each group.
+# The kernels are the shared ℓ2 kernels of numerical_kernels.jl, with the level λ0 and the weight wₖ of each group.
 
 # The ordinary sum s of the terms is returned unless it may have lost its accuracy or its class: a sum
 # below K floatmin(T), for K groups, whose terms may have rounded into the subnormal range (#373), and a
 # sum at or above floatmax(T)/2 (Inf included), whose class the terms' rounding may decide. Those are
-# recomputed from the terms w ns 2^e, accumulated with their exponents (_ExpSum, in at least Float64),
-# with λ0 applied once (_l2_parts_value). Exceptional cases keep s: a NaN s, a zero level (every term with
+# recomputed from the terms w ns 2^k, accumulated with their exponents (_ExpSum, in at least Float64),
+# with λ0 applied once (_expsum_value). Exceptional cases keep s: a NaN s, a zero level (every term with
 # a finite weight is 0, and an infinite weight at a nonzero group without NaN makes s Inf), and an infinite level or
 # weight at a nonzero group or a NaN or ±Inf entry in a penalized group, which make s infinite or NaN
 # already. So does an exactly zero argument.
 @inline function _group_value_checked(f::GroupNormL2, x, s::T) where {T}
   if _l2_ordinary(s, T)
     _underflow_checked(T) || return s
-    !(s < length(f.groups) * floatmin(T)) && return s
+    _sum_kept(s, length(f.groups)) && return s
     iszero(s) && _all_zero(_stored_values(x)) && return s
   end
   _group_value_recomputed(f, x, s)
@@ -192,22 +192,14 @@ end
   isnan(s) && return s
   λ = f.λ0
   (λ > 0 && isfinite(λ)) || return s
-  R = promote_type(T, Float64, float(typeof(λ)), float(eltype(x)))
+  R = _recovery_type(T, float(typeof(λ)), float(eltype(x)))
   acc = _expsum_start(R)
   for k in eachindex(f.groups)
-    w = @inbounds f.w[k]
-    iszero(w) && continue
-    G = @inbounds f.groups[k]
-    nan, inf, e = _l2_scan(x, G, R)
-    (nan || inf) && return s
-    e == typemin(Int) && continue
-    isinf(w) && return s
-    acc = _expsum_product(acc, w, _l2_scaled_norm(x, G, R, e), e)
+    next = _l2_expsum_add(acc, x, @inbounds(f.groups[k]), @inbounds(f.w[k]))
+    next === nothing && return s
+    acc = next
   end
-  m = acc.s + acc.c
-  iszero(m) && return zero(T)
-  mλ, eλ = _frexp(convert(R, λ))
-  _l2_parts_value(T, mλ * m, eλ + acc.ex)
+  _expsum_value(T, acc, λ)
 end
 
 ####################################
@@ -303,37 +295,8 @@ function _kkt_violation(f::GroupNormL2, g::AbstractArray, x::BlockIterate, k::In
   _group_screen(f, k, g, G)
 end
 
-# ‖g[G]‖₂ - λ0 w, with the coefficient of the NormL1 screen (an infinite weight or level gives Inf, a zero
-# weight 0) in the floating type of g
-@inline function _group_screen(f::GroupNormL2, k::Integer, g, G)
-  T = float(eltype(g))
-  c = _kkt_coefficient(T, f.λ0, @inbounds(f.w[k]))
-  s = _l2_sumsq(g, G, T)
-  (isfinite(s) & _squares_normal(s, length(G), T) & isfinite(c)) && return sqrt(s) - c
-  _group_screen_cold(f, k, g, G, T, c)
-end
-
-# A norm or a coefficient out of range: the difference ns 2^e - mc 2^ec of the scaled norm and the
-# coefficient's significands is formed in the units of the larger exponent, where both are below 2√|G|,
-# and scaled back once. Coefficients that are zero or infinite by the parameters keep c.
-@noinline function _group_screen_cold(f::GroupNormL2, k::Integer, g, G, ::Type{T}, c) where {T}
-  λ, w = f.λ0, @inbounds(f.w[k])
-  R = _l2_cold_type(T, float(typeof(λ)), float(eltype(g)))
-  nan, inf, e = _l2_scan(g, G, R)
-  nan && return T(NaN)
-  inf && return convert(T, T(Inf) - c)
-  e == typemin(Int) && return -c
-  ns = _l2_scaled_norm(g, G, R, e)
-  if iszero(λ) || iszero(w) || isinf(λ) || isinf(w)
-    isinf(c) && return T(-Inf)
-    return convert(T, _scaled_product(ns, one(R), e)) - c
-  end
-  mλ, eλ = _frexp(convert(R, λ))
-  mw, ew = _frexp(convert(R, w))
-  E = max(e, eλ + ew)
-  d = ldexp(ns, e - E) - ldexp(mλ * mw, eλ + ew - E)
-  convert(T, ldexp(d, E))
-end
+# ‖g[G]‖₂ - λ0 w of group k, with the level and the weight of the group
+@inline _group_screen(f::GroupNormL2, k::Integer, g, G) = _l2_screen(f.λ0, @inbounds(f.w[k]), g, G)
 
 # no proximal operator for a symmetric iterate (argument or output); nothing is written
 for F in (:NormL2, :GroupNormL2)

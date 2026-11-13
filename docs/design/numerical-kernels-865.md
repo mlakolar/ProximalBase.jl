@@ -17,6 +17,10 @@ code as #865 found and left it. The current implementation differs as follows:
 - It had no caller: the KKT coefficient uses the two-factor
   `_weight_coefficient` only.
 - Rows and bullets that mention it are marked *(removed)*.
+- The ℓ2 kernels of `NormL2` and `GroupNormL2` (#900) are in `src/numerical_kernels.jl`
+  and reuse the kernels below; section 7 lists what moved, what is reused and what was
+  removed. `norml2.jl` and `groupnorml2.jl` hold the types, docstrings, validation, oracles,
+  thin adapters to the kernels and the loops over groups.
 
 ## 1. Inventory of recovery helpers and their live callers
 
@@ -25,16 +29,18 @@ Callers were taken from the current sources, not the archived pre-#850 tree.
 
 | Mechanism | Helpers (src/utils.jl unless noted) | Live callers | Ordinary path | Guarantee |
 |---|---|---|---|---|
-| Bounded product of three factors | `_positive_product`, `_exceptional_product`, `_weight_product`, `_scaled_product(a,b,c,k)` | NormL1 value and prox (`_positive_product`, `_weight_product`). `_exceptional_product` is their cold path. | `(a*b)*c`, plus one range test on `a*b`, which is loop-invariant for a scalar step | O7/R3: a product of finite factors is not lost to an intermediate over- or underflow |
+| Bounded product of three factors | `_positive_product`, `_exceptional_product`, `_weight_product`, `_threshold_product`, `_scaled_product(a,b,c,k)` | NormL1 value and prox (`_positive_product`, `_weight_product`, `_threshold_product`). `_exceptional_product` is their cold path. `_threshold_product` is also the ordinary threshold of the ℓ2 shrinkage. | `(a*b)*c`, plus one range test on `a*b`, which is loop-invariant for a scalar step | O7/R3: a product of finite factors is not lost to an intermediate over- or underflow |
 | Weighted exponent-scaled product | `_scaled_product(w,v,k)` | `_pow2_weighted` (Linear, LeastSquares), `_expsum_value` (Quadratic), `_scaled_square_value` (SqrNormL2, LeastSquares), the ridge gradient fallback, the NormL1 converted-level value | cold paths only | R1/R3: w·v·2^k rounded once at the end |
 | Retained-exponent product | `_scaled_product_retained` (2 and 3 factors) | `Scaled` value parts (`_apply_parts`, scaled.jl) | cold | #767: Int exponent sums that may wrap |
 | Correctly rounded coefficient *(removed: had no caller)* | `_scaled_coefficient`, `_weight_coefficient3` | none (the KKT coefficient uses the two-factor `_weight_coefficient`) | cold | one correctly rounded product, also when subnormal |
-| Squared residuals in power-of-two units | `_square_value`, `_exceptional_square_value`, `_scaled_square_value`, `_square_parts`, `_square_exponent`, `_square_scaled_sum`, `_residual_exponent`, `_scaled_residual` | SqrNormL2 value and value parts. LeastSquaresLoss recovery (`_exceptional_square_value`, and `_square_exponent`/`_square_scaled_sum` through `_leastsquares_squares`) | `_sumabs2`/`_sumabs2_diff` and one comparison | R1: an overflowing or underflowing square does not hide a representable value |
+| Squared residuals in power-of-two units | `_square_value`, `_exceptional_square_value`, `_scaled_square_value`, `_square_parts`, `_square_exponent`, `_square_scaled_sum` (a method for `y === nothing`), `_residual_exponent` (codes `_EXPONENT_NAN`, `_EXPONENT_INF`, `_EXPONENT_ZERO`), `_scaled_residual`, `_scaled_norm` (optional scale) | SqrNormL2 value and value parts. LeastSquaresLoss recovery (`_exceptional_square_value`, and `_square_exponent`/`_square_scaled_sum` through `_leastsquares_squares`). NormL2 value and the ℓ2 norm of an index set (section 7) | `_sumabs2`/`_sumabs2_diff` and one comparison | R1: an overflowing or underflowing square does not hide a representable value |
 | Overflowing residual a − b of finite data | inline `a/2 - b/2` in `_residual_exponent`, `_scaled_residual`, `_ridge_gradient_overflow` (sqrnorml2.jl) | SqrNormL2 value and gradient, LeastSquaresLoss recovery | none | R2: the difference is formed before scaling, so cancellation keeps its units |
 | Ordinary sum-of-squares trigger | inline `s >= n * (floatmin/eps)` | `_square_value`, `_ridge_value_wide_center` (sqrnorml2.jl), `_leastsquares_value` (leastsquares.jl) | one comparison | R1: no square underflowed by more than eps of the sum |
 | Overflow-safe units of a recomputed dot | inline `max(0, bound(maxabs a) + bound(maxabs b) + ⌈log₂ n⌉ + margin - emax)` | `_linear_value_recover` (margin 2), `_leastsquares_recover` (margin 3, plus a Y term) | none | R1: no partial sum of the recomputation overflows |
-| Exponent-ordered sum of parts | `_pow2_weighted`, `_pow2_sum` | LinearFunction, LeastSquaresLoss recoveries | none | R1 |
-| Exact-product accumulator | `_ExpSum`, `_expsum_*` | QuadraticFunction recovery only | none | R1 (#520) |
+| Exponent-ordered sum of parts | `_pow2_weighted`, `_pow2_sum` | LinearFunction, LeastSquaresLoss recoveries. The ℓ2 group screen (`_l2_screen_cold`) | none | R1 |
+| Exact-product accumulator | `_ExpSum`, `_expsum_*` | QuadraticFunction recovery. The recomputed `GroupNormL2` value (`_l2_expsum_add`, `_expsum_value`) | none | R1 (#520) |
+| Index-set ℓ2 norm (section 7) | `_IndexedValues`, `_l2_classified_norm`, `_l2_shrink!`, `_l2_shrink_cold!`, `_l2_term`, `_l2_fused_term`, `_l2_term_cold`, `_l2_value`, `_l2_value_cold`, `_l2_expsum_add`, `_l2_screen`, `_l2_screen_cold`, `_indexed_sumabs2`, `_recovery_type` | NormL2 and GroupNormL2 (oracles in `norml2.jl`, `groupnorml2.jl`) | `_indexed_sumabs2`, one range test, no extra pass | R1/R3, NR1/NR2, D1-D3, Option C |
+| Sum kept at the ordinary result | `_sum_kept` | NormL1 value, GroupNormL2 value | one comparison | #373 |
 | Underflow risk of products | `_underflow_threshold`, `_min_nonzero_exponent`, `_quadratic_products_normal` | QuadraticFunction only | one pass for max\|x\| | R1 (#520) |
 | Ridge prox weights | `_RidgeOrdinary`, `_RidgeScaled`, `_ridge_*` (sqrnorml2.jl) | SqrNormL2 prox and prox_block | precomputed weights, vectorized loop | R3 |
 | Ridge center rounding | `_ridge_fits`, `_ridge_round_big`, `_ridge_round_center32`, `_ridge_all_fit` | SqrNormL2 value, value parts, gradient, prox | free for a center stored in the model precision | T3/R3 |
@@ -166,3 +172,47 @@ only difference on the characterization grid.
 * The QuadraticFunction recovery (`_ExpSum`) is a third, distinct mechanism (an
   exact-product sum, not scaled squares). Migrating it was not justified by
   shared code.
+
+## 7. The ℓ2 kernels of NormL2 and GroupNormL2 (#900)
+
+The ℓ2 shrinkage, values and group screen live in `src/numerical_kernels.jl`; the
+norm files keep types, validation, oracles and loops over groups. The recovery paths
+call the kernels of sections 1-4 and were not copied. Outputs are bit-identical to the
+code before the consolidation, except for BigFloat exponent arithmetic that leaves
+`Int64` (see below).
+
+**New shared primitives**
+
+* `_IndexedValues(x, G)`: the entries `x[G[j]]` as a read-only vector, without the
+  allocation of `view` for a matrix `x`. The cold paths scan it.
+* `_residual_exponent` returns `_EXPONENT_NAN` for a NaN residual, `_EXPONENT_INF` for
+  an infinite one that is not NaN and `_EXPONENT_ZERO` for a zero one, so that the
+  maximum over the entries classifies them in one pass. `_residual_squares` still
+  returns `nothing` for both non-finite codes.
+* `_square_scaled_sum(x, nothing, k, R)`: the scaled sum for `y = 0`, with one power
+  factor.
+* `_scaled_norm(x, y, s, scale)`: the optional scale multiplies the norm (default one).
+* `_threshold_product`, `_sum_kept`, `_indexed_sumabs2`, `_recovery_type`.
+
+**Helper by helper**
+
+| Before | Now |
+|---|---|
+| `_l2_scan`, `_l2_scaled_norm` (norml2.jl) | removed: `_l2_classified_norm` = `_square_exponent` on `_IndexedValues`, then `_square_scaled_sum(…, nothing, k, R)` |
+| `_l2_parts_value` | removed: `_scaled_product` (term, value) and `_expsum_value` (group value) |
+| `_l2_value_cold` | `_scaled_norm(x, nothing, s, λ)`; the infinite level is decided by the class |
+| difference in `_group_screen_cold` | `_pow2_sum(R, (ns, k), (-mλmw, eλ+ew))` |
+| `_l2_allzero` | `_all_zero(_IndexedValues(x, G))` |
+| `_l2_sumsq` | `_indexed_sumabs2`; `_sumabs2(::SparseIterate)` is the same loop |
+| `_l2_cold_type` | `_recovery_type` |
+| `_l1_sum_kept` | `_sum_kept` (also in `_group_value_checked`) |
+| γλw in `_l1_prox_threshold` and `_l2_shrink!` | `_threshold_product` |
+| `_l2_shrink!`, `_l2_zero!`, `_l2_copy!`, `_l2_fill!`, `_l2_scale!`, `_l2_term`, `_l2_fused_term`, `_l2_term_outofline`, `_l2_ordinary`, `_l2_value`, `_L2_ZERO`, `_L2_RECOMPUTE` | moved from norml2.jl, ordinary path unchanged |
+| arithmetic of `_group_screen`, per-group term of `_group_value_recomputed` | `_l2_screen`, `_l2_expsum_add` (groupnorml2.jl keeps adapters and the loop over groups) |
+
+**The one difference from the code before the consolidation.** For BigFloat, a sum of
+exponents (the level, the weight and the norm of a group term, or a difference of
+exponents of the group screen) can leave `Int64`, as MPFR exponents reach ±(2^62 − 1).
+The shared kernels take these sums in `Int128`. For example,
+`GroupNormL2(λ0 = w = 2^(2^62-2))` at `x = [2^(2^62-2)]` had value `0` (the sum wrapped)
+and now has value `Inf`. Float32 and Float64 are not affected.

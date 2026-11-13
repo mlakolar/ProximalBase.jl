@@ -52,13 +52,7 @@ iszeropreserving(f::SqrNormL2) = f.y === nothing && isfinite(f.λ)
 
 # Σ xᵢ² over the entries of x, in O(nnz) for the sparse iterates
 _sumabs2(x::AbstractArray) = eltype(x) <: Integer ? sum(v -> abs2(float(v)), x) : sum(abs2, x)
-function _sumabs2(x::SparseIterate)
-  s = zero(float(eltype(x)))
-  @inbounds @simd for k in 1:x.nnz
-    s += abs2(float(x.nzval[k]))
-  end
-  s
-end
+_sumabs2(x::SparseIterate) = _indexed_sumabs2(x.nzval, Base.OneTo(x.nnz), float(eltype(x)))
 function _sumabs2(x::SymmetricSparseIterate{T}) where {T}
   s = zero(float(T))
   @inbounds for k = 1:x.nnz

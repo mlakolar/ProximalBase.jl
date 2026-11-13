@@ -850,6 +850,8 @@ end
       return T(_l2_zero!(y, G))
     end
   end
+  # an unpenalized group (the threshold is then 0, below the normal range) is copied without the call
+  iszero(w) && return T(_l2_copy!(y, x, G))
   T(_l2_shrink_cold!(y, x, G, λ, w, γ))
 end
 
@@ -930,6 +932,7 @@ end
     v = convert(T, λw * convert(R, s))
     ((floatmin(R) <= λw <= floatmax(R)) & _l2_ordinary(v, T)) && return v
   end
+  iszero(w) && return zero(T)
   _l2_term_outofline(λ, w, x, G, s, T)
 end
 @noinline _l2_term_outofline(λ, w, x, G, s, ::Type{T}) where {T} = _l2_term(λ, w, x, G, s, T)
@@ -982,8 +985,8 @@ end
 # The term w‖x[G]‖₂ of a penalized group, added to the accumulator of a value recomputed with the terms'
 # exponents (_ExpSum). A zero weight and a zero group add nothing, and a NaN or ±Inf entry, or an infinite
 # weight at a nonzero group, make the ordinary sum infinite or NaN: nothing is returned for them, and the
-# caller keeps that sum.
-function _l2_expsum_add(acc::_ExpSum{R}, x, G, w) where {R}
+# caller keeps that sum. Inlined into the loop over the groups, of which it is the whole body.
+@inline function _l2_expsum_add(acc::_ExpSum{R}, x, G, w) where {R}
   iszero(w) && return acc
   k, ns = _l2_classified_norm(x, G, R, !isinf(w))
   k >= _EXPONENT_INF && return nothing

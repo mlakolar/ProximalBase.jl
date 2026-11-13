@@ -66,7 +66,7 @@ IEEE result; only finite inputs whose intermediates leave the range are
 recomputed. For the `LinearFunction` value at a matrix `SparseIterate`, the finite
 inputs are `d`, the nonzero stored entries and the coefficients at them: the
 recomputation sums their products as exponent-separated terms (as the `QuadraticFunction`
-recovery does), with `d` as a term of its own, and a nonfinite coefficient at a zero of the
+recovery does), collapses the sum and adds `d` to it in its own units, and a nonfinite coefficient at a zero of the
 iterate does not prevent it. It reads the nonzero stored entries, `O(nactive(x))`; for a
 `Diagonal` coefficient array it scans the `p` diagonal positions, `O(p)`, whatever
 `nactive(x)` is. Recovery is worthwhile when it changes a materially inaccurate

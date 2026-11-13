@@ -275,9 +275,12 @@ arithmetic, also when it or its coefficient is not finite. The constant `d` is a
 after the sum. When the ordinary value is not finite but `d`, the nonzero entries
 and the coefficients at them are, the value is recomputed from those entries (a
 coefficient at a zero does not prevent it) as exponent-separated terms, each product
-formed from its two factors without scaling one before the other acts, and `d` as a term
-of its own: a value that lies inside the range of the type by the accuracy of the
-ordinary sum is returned finite.
+formed from its two factors without scaling one before the other acts. The sum is then
+collapsed to one value with its own exponent, and `d` is added to that value in its own
+units, so that an exactly cancelling dot gives `d` and a small `d` is not lost against the
+larger terms. A value that lies inside the range of the type by the accuracy of the ordinary
+sum is returned finite; the accuracy is that of the absolute bound `4 n eps(T) (sum |cᵢxᵢ| + |d|)`,
+not relative to a dot much smaller than its terms.
 
 For a dense `c` that is not a `Diagonal`, `f(Matrix(x))` and `dot(c, x) + d` take the
 generic IEEE `dot`, which visits all positions in column-major order, so a `NaN`

@@ -775,6 +775,75 @@ end
     @test PB._scaled_product(a, b, c, kw) != ref3
   end
 end
+# The fast paths of the group kernels agree with the definitions they shorten (design C of #901).
+@testset "group kernel fast paths: $T" for T in (Float32, Float64)
+  rng = MersenneTwister(901)
+  @testset "powers of two from bits equal the split ldexp factors" begin
+    for k in -1200:1200
+      @test PB._power_factors(T, k) === PB._power_factors_split(T, k)
+    end
+  end
+  @testset "all-zero scan in blocks" begin
+    for n in (0, 1, 5, 511, 512, 513, 1024, 1500, 5000)
+      z = zeros(T, n)
+      @test PB._all_zero_early(z) == PB._all_zero(z) == true
+      n == 0 && continue
+      for pos in unique((1, n, (n + 1) ÷ 2, min(n, 513), min(n, 512))), v in (T(1), -T(1), T(NaN), T(Inf), nextfloat(zero(T)), -zero(T))
+        w = copy(z); w[pos] = v
+        @test PB._all_zero_early(w) == PB._all_zero(w) == (v === -zero(T))
+      end
+    end
+    @test PB._all_zero_early(Int[0, 0]) && !PB._all_zero_early(Int[0, 1])
+  end
+  @testset "exponent of a group from the largest magnitude" begin
+    R = Float64
+    for n in (1, 2, 5, 17, 64), trial in 1:200
+      x = [signif(rng, T, rand(rng, emin(T)-20:emax(T))) for _ in 1:n]
+      rand(rng) < 0.2 && (x[rand(rng, 1:n)] = zero(T))
+      rand(rng) < 0.1 && (x .= zero(T))
+      rand(rng) < 0.1 && (x[rand(rng, 1:n)] = T(Inf))
+      rand(rng) < 0.1 && (x[rand(rng, 1:n)] = T(NaN))
+      G = randperm(rng, n)
+      v = PB._IndexedValues(x, G)
+      @test PB._square_exponent(v, nothing, R) == PB._square_exponent_scan(v, R)
+      @test PB._square_exponent(x, nothing, R) == PB._square_exponent_scan(x, R)
+    end
+  end
+  @testset "scaled norm product equals the three-factor kernel" begin
+    for trial in 1:2000
+      a, b = signif(rng, Float64, rand(rng, -1000:1000)) |> abs, signif(rng, Float64, rand(rng, -1000:1000)) |> abs
+      c = 1 + 7rand(rng)
+      k = rand(rng, -1000:1000)
+      @test PB._norm_product(a, b, c, k) === PB._scaled_product(a, b, c, k)
+    end
+  end
+end
+
+@testset "group value of unpenalized groups" begin
+  # zero weights: the K floatmin bound counts the penalized groups, the sum of an unpenalized group is exactly zero
+  for T in (Float32, Float64)
+    K = 600
+    groups = [(2j - 1):(2j) for j in 1:K]
+    x = ones(T, 2K)
+    f0 = GroupNormL2(T(0.6), groups, zeros(T, K))
+    @test f0(x) === zero(T)
+    @test value_and_prox!(similar(x), f0, x, T(0.8)) === zero(T)
+    # one penalized group of a tiny norm among zero weights: the value is the exact one, not a rounded sum
+    w = zeros(T, K); w[7] = 1
+    for e in (emin(T) - 3, emin(T) + 2, emin(T) + 12)
+      y = zeros(T, 2K); y[13] = pow2(T, e); y[14] = pow2(T, e)       # group 7
+      y[1] = T(3)                                                     # an unpenalized group with a large entry
+      f = GroupNormL2(T(0.5), groups, w)
+      ref = 0.5 * big(1.0) * sqrt(big(y[13])^2 + big(y[14])^2)
+      @test within(f(y), ref, 2)
+    end
+    # the penalized weights all positive again, with the data below K floatmin: the recomputation still runs
+    f = GroupNormL2(T(0.5), groups, ones(T, K))
+    y = zeros(T, 2K); y[1] = pow2(T, emin(T) - 3)
+    @test within(f(y), 0.5 * big(y[1]), 2)
+  end
+end
+
 end
 
 end

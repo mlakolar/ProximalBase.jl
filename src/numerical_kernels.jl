@@ -658,7 +658,8 @@ end
 # exponent of the entry (as the _l2_scan of the code before the consolidation did), which can differ by one from that of
 # a - 0 rounded to the current precision: it is one less where that rounding carries into the next binade (v = 1 - 2^-258
 # stored at 768 bits, used at 256 bits).
-@inline function _square_exponent(x, ::Nothing, ::Type{R}) where {R}
+@inline _square_exponent(x, ::Nothing, ::Type{R}) where {R} = _square_exponent_scan(x, R)
+@inline function _square_exponent_scan(x, ::Type{R}) where {R}
   k = _EXPONENT_ZERO
   inf = false
   for v in _stored_values(x)
@@ -673,7 +674,7 @@ end
   inf ? _EXPONENT_INF : k
 end
 
-# For Float32 and Float64 entries the same result from the largest magnitude, taken on the bit patterns where it
+# For Float32 and Float64 entries the same result as the scan above, from the largest magnitude, taken on the bit patterns where it
 # vectorizes (_maximum_abs): a NaN has the largest pattern, then an Inf, and the exponent of the largest finite
 # entry is the largest exponent. No entry is classified, converted or its exponent taken, but one.
 @inline function _square_exponent(x::AbstractArray{<:Union{Float32, Float64}}, ::Nothing, ::Type{R}) where {R}
@@ -851,7 +852,7 @@ end
 # nonzero group and need_norm, ns is the norm of the entries scaled by 2^-k, so that its largest entry is in
 # [1, 2) and no square overflows or underflows below the rounding of the sum: ns is in [1, 2√|G|). Otherwise
 # ns is zero. A caller that does not need the norm passes need_norm = false, and then there is no second pass.
-@noinline function _l2_classified_norm(x, G, ::Type{R}, need_norm::Bool = true) where {R}
+@inline function _l2_classified_norm(x, G, ::Type{R}, need_norm::Bool = true) where {R}
   v = _IndexedValues(x, G)
   k = _square_exponent(v, nothing, R)
   (need_norm & (_EXPONENT_ZERO < k < _EXPONENT_INF)) || return (k, zero(R))
@@ -887,23 +888,19 @@ end
   T(_l2_shrink_cold!(y, x, G, λ, w, γ))
 end
 
-# The parameters decide first, in this order: an unpenalized group (w = 0, copied by _l2_shrink! itself), a group fixed at zero (an
-# infinite weight, or an infinite level at every nonnegative step, #665), the identity (a zero level or
-# step), a group fixed by an infinite step. Otherwise the values decide (below). The values are in a
-# function of their own, so that the exits decided by the parameters do not carry its frame.
+# The parameters decide first, in this order: an unpenalized group (w = 0, copied by _l2_shrink! itself), a group
+# fixed at zero (an infinite weight, or an infinite level at every nonnegative step, #665), the identity (a zero level
+# or step), a group fixed by an infinite step. Otherwise the values decide, at positive finite γ, λ and w: a NaN entry
+# makes every output NaN; an infinite entry (and no NaN) makes the norm infinite and the threshold finite, so
+# 1 - c/‖x‖ = 1 and the group is copied, also when c overflows in floating point; a zero group gives +0. Otherwise
+# r = c/‖x‖ = (γλw 2^-k) / ns from the scaled norm ns 2^k, with c formed by the bounded-product kernel, so that
+# neither c nor the norm needs to be in range: r ≥ 1 gives zero, and t = 1 - r in (0, 1] scales the group without
+# overflow. A product γλw 2^-k that overflows means r > 1, and one that underflows means r < floatmin, where t rounds
+# to 1. One function, so that a group of the cold paths costs one call.
 @noinline function _l2_shrink_cold!(y, x, G, λ, w, γ::Real)
   (isinf(w) || isinf(λ)) && return _l2_zero!(y, G)
   (iszero(λ) || iszero(γ)) && return _l2_copy!(y, x, G)
   isinf(γ) && return _l2_zero!(y, G)
-  _l2_shrink_values!(y, x, G, λ, w, γ)
-end
-# The values, at positive finite γ, λ and w: a NaN entry makes every output NaN; an infinite entry (and
-# no NaN) makes the norm infinite and the threshold finite, so 1 - c/‖x‖ = 1 and the group is copied, also
-# when c overflows in floating point; a zero group gives +0. Otherwise r = c/‖x‖ = (γλw 2^-k) / ns from
-# the scaled norm ns 2^k, with c formed by the bounded-product kernel, so that neither c nor the norm needs
-# to be in range: r ≥ 1 gives zero, and t = 1 - r in (0, 1] scales the group without overflow. A product
-# γλw 2^-k that overflows means r > 1, and one that underflows means r < floatmin, where t rounds to 1.
-@noinline function _l2_shrink_values!(y, x, G, λ, w, γ::Real)
   T = float(eltype(y))
   R = _recovery_type(_working_type(T, γ, λ, w), float(eltype(x)))
   k, ns = _l2_classified_norm(x, G, R)

@@ -63,7 +63,12 @@ calls and [Numerical usage](numerical_usage.md) for aliasing and cache rules.
 
 Nested positive finite scales retain their exponents when multiplying them
 would overflow or underflow. Built-in recovery paths can fold the total scale
-into `NormL1`'s level or recover a representable squared-norm value. This is not
+into `NormL1`'s level or into both levels of `ElasticNet`, or recover a
+representable squared-norm value. When the fold takes the ridge level of an
+`ElasticNet` below `floatmin` while folding a step, that level is dropped,
+since its ridge factor `1/(1 + γλ2)` rounds to one. An infinite level of
+`NormL1` or `ElasticNet` stays a hard constraint when the factor and the step
+leave the range. This is not
 a promise that arbitrary user-defined functions acquire numerical range recovery.
 
 ## A zero scale can change the returned type
@@ -72,8 +77,10 @@ a promise that arbitrary user-defined functions acquire numerical range recovery
 For finite-data built-in losses, quadratics, centered squared norms and affine
 functions it returns `ZeroFunction()`. A zero-scaled finite-level `NormL1` with
 finite weights also returns `ZeroFunction`. Infinite weights are retained in
-`NormL1(0,w)` so their fixed-zero restrictions survive. Infinite `NormL1` levels
-and non-finite parameters of other function families can make construction
+`NormL1(0,w)` so their fixed-zero restrictions survive. A zero-scaled
+`ElasticNet` with finite levels likewise returns `ZeroFunction` for finite
+weights and `ElasticNet(0,0,w)` for infinite ones. Infinite `NormL1` and
+`ElasticNet` levels and non-finite parameters of other function families can make construction
 throw `ArgumentError`. A custom function's zero scale has no generic supported
 representation and throws. Inspect the constructed object rather than assume
 it is always a `Scaled`.

@@ -82,6 +82,22 @@ below. Under an infinite `Scaled` factor a recovered positive value gives `Inf`,
 as the folded level `NormL1(Inf, w)` does; before #373 a value whose terms all
 rounded to zero gave `NaN` there. An exactly zero value still gives `0`.
 
+`ElasticNet` values are the value of the ℓ₁ part, computed as `NormL1`
+computes it, plus the value of the ridge part, computed as `SqrNormL2`
+computes it, each with the recovery above, then one addition; on sparse,
+block and symmetric iterates both parts read the stored entries only. On a
+dense `Float32` or `Float64` `Array` with parameters of its type, a single
+pass over the entries is returned instead when a test on its sum bounds its
+relative error by `(n + 2) eps(T)` for `n` entries; the bound is proved in a
+comment next to the code (`src/functions/elasticnet.jl`). Where one part
+dominates, the test can pass although the other part alone would be
+recomputed (ℓ₁ terms below `floatmin(T)` beside a normal ridge part, or
+squares below `floatmin(T)` beside a normal ℓ₁ part). Its proximal point soft thresholds
+by the threshold of the `NormL1` kernel and multiplies by the ridge factor
+`1/(1 + γλ2)` of the `SqrNormL2` kernel, both formed from the unrounded
+factors, so a factor `γλ2` outside the range still acts on a representable
+result.
+
 These are practical numerical safeguards, not a promise of exhaustive
 range recovery or correctly rounded arbitrary reductions, gradients, or
 matrix products. When the final mathematical value itself is out of range,
@@ -130,6 +146,10 @@ all-NaN result or a particular exception.
 | `NormL1`, finite factors whose product overflows | Distinguished from genuinely infinite weights/levels; recovery handles representable finite results where supported. With an input of `±Inf`, an overflowed finite threshold can yield `NaN`; [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) is a documented, deferred limitation, not an authorized hot-loop fix. |
 | `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
 | `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual |
+| `ElasticNet`, negative or `NaN` scalar step | `prox`, `prox!` and `value_and_prox!` throw `ArgumentError` before any write. The entries of an array of steps are not checked: nonnegative entries are a precondition, an exception to the requirement of [#908](https://github.com/mlakolar/ProximalBase.jl/issues/908) that negative and `NaN` steps fail before writes (no scan of the steps, as for #874). `prox_block` and `Scaled` routes do not check |
+| `ElasticNet`, infinite ridge level `λ2`, nonnegative step | The indicator of `{0}` (#908): every entry proxes to `+0`, including at `γ = 0` and for non-finite inputs; value `0` at the zero vector, `NaN` at a `NaN` entry, `Inf` otherwise; `kkt_violation` is `-Inf`. `SqrNormL2(Inf)` keeps its own rule |
+| `ElasticNet`, infinite `λ1` or infinite weight, overflowing finite threshold | The `NormL1` rows above (decision 49, #665, #853, #866) |
+| `ElasticNet`, zero `λ2` | Values of `NormL1(λ1, w)`, and at `γ ≥ 0` its proximal points, bit for bit; a zero `λ2` adds `0` also at `NaN`/`±Inf` entries |
 | Generic custom value/prox | Author-defined arithmetic; traits do not grant recovery or NaN policy |
 | Paired symmetric parameters, in `check_symmetric_parameters` | Exact equality, NaN matches NaN, signed zeros agree; the numerical oracles assume it and do not compare |
 | Opposing infinities in a symmetric iterate KKT gradient pair | ArgumentError at that chosen pair |
@@ -149,6 +169,15 @@ using ProximalBase
 @assert isnan(prox(NormL1(1e300,[1e10]),[Inf],1.0)[1])  # final factor overflows (#866)
 @assert isnan(prox(NormL1(1e10,[1.0]),[Inf],1e300)[1]) # intermediate product overflows (#866)
 prox(NormL1(Inf),[NaN,Inf],1.0)
+```
+
+```@example numerical_endpoints
+@assert prox(ElasticNet(1.0,Inf),[3.0,NaN,-Inf],0.0) == [0,0,0]  # infinite ridge level: {0}
+@assert ElasticNet(1.0,Inf)([0.0,0.0]) == 0 && ElasticNet(1.0,Inf)([0.0,1e-300]) == Inf
+@assert isnan(ElasticNet(1.0,Inf)([NaN,0.0]))
+@assert prox(ElasticNet(Inf,1.0,[1.0,0.0]),[NaN,3.0],0.0) == [0,3]  # the NormL1 rule (#665)
+@assert try prox(ElasticNet(1.0,1.0),[1.0],-1.0); false catch e; e isa ArgumentError end
+prox(ElasticNet(1.0,Inf),[3.0,NaN,-Inf],0.0)
 ```
 
 **Decision on `NormL1` non-finite inputs (#853 and #866).** A genuinely infinite
@@ -183,8 +212,11 @@ finite factors whose product overflows are never treated as an infinite level
 (#866). Finite levels at `γ = 0` keep the identity. A finite positive `Scaled`
 factor passes the zero step through, so `2 * NormL1(Inf)` projects as well; an
 infinite factor at a zero step forms the step `Inf⋅0 = NaN` in the wrapper
-before `NormL1` sees it, and that wrapper step rule is unchanged (#311). No
-other function is claimed to implement a zero-step projection rule. The test is made only on the
+before `NormL1` sees it, and that wrapper step rule is unchanged (#311).
+`ElasticNet` follows this rule for an infinite `λ1`, and implements the
+same zero-step projection for an infinite ridge level `λ2`, the indicator
+of `{0}` in every coordinate (#908); no other function is claimed to
+implement a zero-step projection rule. For `NormL1` the test is made only on the
 exceptional branch of the kernel (the product `0⋅Inf` is not an ordinary
 number), so ordinary positive finite steps run the unchanged loop.
 
@@ -252,7 +284,9 @@ ridge references), `test/minimal_math.jl`, `test/core_functions.jl`,
 `test/sparse_iterate.jl`, `test/sparse_iterate_basics.jl`,
 `test/symmetric_products.jl`, `test/matrixview.jl` and
 `test/numerical_kernels.jl` (BigFloat references for the shared recovery
-kernels and their `SqrNormL2`/`LeastSquaresLoss`/`LinearFunction` consumers). These are concrete tested
+kernels and their `SqrNormL2`/`LeastSquaresLoss`/`LinearFunction` consumers),
+and `test/elasticnet.jl` and `test/elasticnet_extremes.jl` (`ElasticNet`
+against 4096-bit BigFloat references and its endpoint rules). These are concrete tested
 domains; a historical acceptance goal for a removed family is not evidence for
 this implementation. New numerical claims need independent calculations,
 FP32/FP64 checks, exceptional inputs and regression tests.

@@ -37,6 +37,14 @@ Array steps are a distinct method family: generic separable and zero functions
 accept entry steps; `Scaled` forwards when its leaf supports them. Symmetric-iterate array
 steps are rejected before writes. No trait automatically supplies this dispatch.
 
+`ElasticNet` overrides the public scalar-step `prox!` and `value_and_prox!` only to
+refuse a negative or `NaN` step before writes, then takes the checked separable route;
+its private routes (used by `Scaled`) and `prox_block` do not check the step. Its
+scalar-step array kernels form the ridge factor of the step once per call, as
+`SqrNormL2` does, and apply it in the separable loops after the soft threshold of
+each entry; every entry equals `prox_block(f, x[i], i, γ)` bit for bit. An array of
+steps runs `prox_block` per entry.
+
 ## Pure hooks and storage kernels
 
 Raw scalar `value_entry`/`prox_block` use **global entry indices**. Generic sparse
@@ -59,7 +67,7 @@ independent ID to the full-entry index; no symmetric iterate is available in the
 
 ## KKT and restrictions
 
-Retained scalar screens are explicitly implemented for `NormL1`, `SqrNormL2`,
+Retained scalar screens are explicitly implemented for `NormL1`, `ElasticNet`, `SqrNormL2`,
 `ZeroFunction` and `LinearFunction`; `Scaled` forwards. Four-argument dispatch adds
 coordinate semantics and checks, or maximum-over-group for `BlockIterate`.
 It does not turn a quadratic/least-squares loss into a scalar penalty screen.

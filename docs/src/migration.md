@@ -22,6 +22,12 @@ retained. Compute mathematical gradient mappings in caller code. Coordinate
 curvatures and residual/working-set policies are algorithm responsibilities.
 ProximalSolvers migration is separate; this documentation does not change it.
 
+## Restored functions
+
+| Function | Restored from the archive | Differences from the archived version |
+|:--|:--|:--|
+| `ElasticNet(λ1, λ2, w)` ([#908](https://github.com/mlakolar/ProximalBase.jl/issues/908)) | Constructor, fields `λ1`, `λ2`, `w`, value, `prox_block`, `value_entry`, array proximal operators, KKT screen, `restrict`, `Scaled` folds and zero scaling | Built on the retained `NormL1` threshold and `SqrNormL2` ridge kernels, so ordinary results can differ in the last bits (multiplication by the rounded `1/(1 + γλ2)`). An infinite `λ1` follows the current `NormL1` rule (`+0` for positive weights, also at `γ = 0` and for `NaN`/`±Inf` inputs) where the archive returned `NaN`. An infinite `λ2` is the indicator of `{0}`. A negative or `NaN` scalar step throws `ArgumentError` before writes; the archive applied the arithmetic |
+
 ## Names, coordinates and writes
 
 | Historical code | Retained interface |

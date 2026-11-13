@@ -17,7 +17,11 @@ last bits from a division by `1 + γλ2`: `prox_block(ElasticNet(1.0, 1.0), 3.0,
 is `1.6666666666666665`, where `2.5 / 1.5` is `1.6666666666666667`.
 Values are the ℓ1 part, computed as `NormL1(λ1, w)` computes its value, plus
 the ridge part, computed as `SqrNormL2(λ2)` computes its value, each with its
-recovery of terms that leave the range (Overflow and underflow of values).
+recovery of terms that leave the range (Overflow and underflow of values). On a
+dense `Float32` or `Float64` `Array` with parameters of its type, a single pass
+over the entries replaces the two when a test on its sum bounds its relative
+error by `(n + 2) eps` for `n` entries. A zero `λ2` gives the values of
+`NormL1(λ1, w)`, and at steps `γ ≥ 0` its proximal points, bit for bit.
 
 `w` has one weight per entry of the argument, paired by linear index, and is
 stored by reference. On a `SymmetricSparseIterate` the weights are a `p × p`

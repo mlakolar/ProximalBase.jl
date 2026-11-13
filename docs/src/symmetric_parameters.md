@@ -30,6 +30,7 @@ certificate: a successful check says nothing about later mutation.
 | Function | Per-entry array |
 |:--|:--|
 | `NormL1` | weights w |
+| `ElasticNet` | weights w |
 | `SqrNormL2` | center y |
 | `LinearFunction` | coefficients c |
 | `Scaled` | recurses through its inner function |

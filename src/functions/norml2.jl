@@ -112,8 +112,6 @@ end
       return T(_l2_zero!(y, G))
     end
   end
-  # an unpenalized group is copied here, in line: the cold path would be called for every such group
-  iszero(w) && return T(_l2_copy!(y, x, G))
   T(_l2_shrink_cold!(y, x, G, λ, w, γ))
 end
 

@@ -450,10 +450,11 @@ end
 end
 
 @testset "values at the overflow threshold and subnormal values ($T)" for T in (Float32, Float64)
-  # Outside a band of 32 eps around the threshold Ω = floatmax + ulp/2, where rounding to T overflows, a
-  # value has the class of its correctly rounded BigFloat value and is within 8 eps of it (two subnormal
-  # spacings in the subnormal range). Within the band it may be Inf or such a finite value (#904).
-  Ω = big(floatmax(T)) * (1 + big(eps(T)) / 4)
+  # The acceptance check of these fixtures (its 32-eps band and 8-eps tolerance are test tolerances, not a
+  # proven error bound): outside 32 eps of the threshold Ω = floatmax + ulp/2, where rounding to T
+  # overflows, a value has the class of its correctly rounded BigFloat value and is within 8 eps of it (two
+  # subnormal spacings in the subnormal range); within the band it may be Inf or such a finite value (#904).
+  Ω = big(floatmax(T)) + big(2)^(exponent(floatmax(T)) - precision(T))
   same_class(v, ref) = abs(ref / Ω - 1) <= 32 * big(eps(T)) ?
     (isinf(v) || abs(big(v) - ref) <= 8 * big(eps(T)) * abs(ref)) :
     (isinf(v) == isinf(T(ref)) && (isinf(v) || abs(big(v) - ref) <= 8 * big(eps(T)) * abs(ref) + 2 * big(nextfloat(zero(T)))))

@@ -266,8 +266,8 @@ overflows in floating point, and the zero argument gives `+0`. For finite inputs
 a norm whose sum of squares overflows or underflows and a threshold out of range are
 recomputed in power-of-two units. A value at or above `floatmax/2` is recomputed in
 power-of-two units, accumulated in at least Float64; within a few eps of the overflow
-threshold the result may be `floatmax` or `Inf`, whichever the exact value rounds to
-(#904). `value_and_prox!` returns the value at the stored output.
+threshold either `floatmax` or `Inf` may be returned, regardless of which of them the
+exact value rounds to (#904). `value_and_prox!` returns the value at the stored output.
 """
 struct NormL2{T<:Real} <: AbstractFunction
   λ::T

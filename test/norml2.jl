@@ -201,12 +201,13 @@ end
 
 @testset "values at the overflow threshold ($T)" for T in (Float32, Float64)
   # λ‖x‖ swept across floatmax(T), on arrays, on the stored entries of iterates and on the fused paths,
-  # against the contract below
+  # with the acceptance check below
   M = floatmax(T)
-  # Outside a band of 32 eps around the threshold Ω = floatmax + ulp/2, where rounding to T overflows, a
-  # value has the class of its correctly rounded BigFloat value and is within 8 eps of it (two subnormal
-  # spacings in the subnormal range). Within the band it may be Inf or such a finite value (#904).
-  Ω = big(floatmax(T)) * (1 + big(eps(T)) / 4)
+  # The acceptance check of these fixtures (its 32-eps band and 8-eps tolerance are test tolerances, not a
+  # proven error bound): outside 32 eps of the threshold Ω = floatmax + ulp/2, where rounding to T
+  # overflows, a value has the class of its correctly rounded BigFloat value and is within 8 eps of it (two
+  # subnormal spacings in the subnormal range); within the band it may be Inf or such a finite value (#904).
+  Ω = big(floatmax(T)) + big(2)^(exponent(floatmax(T)) - precision(T))
   same_class(v, ref) = abs(ref / Ω - 1) <= 32 * big(eps(T)) ?
     (isinf(v) || abs(big(v) - ref) <= 8 * big(eps(T)) * abs(ref)) :
     (isinf(v) == isinf(T(ref)) && (isinf(v) || abs(big(v) - ref) <= 8 * big(eps(T)) * abs(ref) + 2 * big(nextfloat(zero(T)))))
@@ -255,8 +256,8 @@ end
   S[2, 1] = T(Inf)
   @test NormL2(λb)(S) == Inf
   @test isnan(NormL2(λb)(T[3, NaN])) && NormL2(λb)(T[3, -Inf]) == Inf
-  # a recomputed sum of 2^25 + 1024 Float32 squares: accumulated in Float64, it neither stalls at 2^25
-  # (128 eps low) nor misses the class outside the band (allocation-free constant vector)
+  # a recomputed sum of 2^25 + 1024 Float32 squares: accumulated in Float64, it does not stall at 2^25
+  # (which made the norm about 128 eps low) or miss the class outside the band (allocation-free vector)
   if T === Float32
     N = 2^25 + 1024
     ones32 = OnesVector(N)

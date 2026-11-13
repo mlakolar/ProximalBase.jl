@@ -83,7 +83,7 @@ values: for Float32 and Float64 values, a sum of group terms below `K⋅floatmin
 for `K` groups, is recomputed with each term's exponent, as for `NormL1` (#373), and
 a value at or above `floatmax/2` is recomputed in power-of-two units, accumulated in
 at least Float64; within a few eps of the overflow threshold the result may be
-`floatmax` or `Inf`, whichever the exact value rounds to (#904). `value_and_prox!` returns
+`floatmax` or `Inf`, regardless of which of them the exact value rounds to (#904). `value_and_prox!` returns
 the value at the stored output.
 
 The penalty does not apply to a `SymmetricSparseIterate`, and it has no
@@ -177,7 +177,7 @@ end
 # sum at or above floatmax(T)/2 (Inf included), whose class the terms' rounding may decide. Those are
 # recomputed from the terms w ns 2^e, accumulated with their exponents (_ExpSum, in at least Float64),
 # with λ0 applied once (_l2_parts_value). Exceptional cases keep s: a NaN s, a zero level (every term with
-# a finite weight is 0, and an infinite weight at a nonzero group makes s Inf), and an infinite level or
+# a finite weight is 0, and an infinite weight at a nonzero group without NaN makes s Inf), and an infinite level or
 # weight at a nonzero group or a NaN or ±Inf entry in a penalized group, which make s infinite or NaN
 # already. So does an exactly zero argument.
 @inline function _group_value_checked(f::GroupNormL2, x, s::T) where {T}

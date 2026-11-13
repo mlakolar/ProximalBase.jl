@@ -192,23 +192,28 @@ function _group_value(f::GroupNormL2, x)
   lc = convert(Q, λ)
   v = zero(T)
   nt = 0
+  inf = false
   if _all_singletons(f)
-    # one entry per group: the term is λ0 wₖ |x[i]|, with no sum of squares; a NaN or an infinite entry gives a sum that is
-    # not ordinary, and the recovery decides
+    # one entry per group: the term is λ0 wₖ |x[i]|, with no sum of squares to underflow or overflow
     @inbounds for k in eachindex(f.groups)
       w = W[k]
       iszero(w) && continue
       lw = lc * convert(Q, w)
       a = abs(convert(T, x[f.groups[k][1]]))
+      if !isfinite(a)
+        isnan(a) && return T(NaN)       # the term of a NaN entry at a positive finite level is NaN, and so is the value
+        inf = true                      # an infinite entry: Inf, and a later NaN decides
+        continue
+      end
       ((floatmin(Q) <= lw) & (lw <= floatmax(Q))) || return _group_value_recovered(f, x, T)
       v += convert(T, lw * convert(Q, a))
       nt += !iszero(a)
     end
+    inf && return T(Inf)
     _l2_ordinary(v, T) || return _group_value_recovered(f, x, T)
     _underflow_checked(T) && !_sum_kept(v, nt) && return _group_value_recovered(f, x, T)
     return v
   end
-  inf = false
   @inbounds for k in eachindex(f.groups)
     w = W[k]
     iszero(w) && continue

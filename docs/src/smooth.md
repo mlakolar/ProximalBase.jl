@@ -278,11 +278,11 @@ coefficient at a zero does not prevent it) as exponent-separated terms, each pro
 formed from its two factors without scaling one before the other acts. The sum is then
 collapsed to one value with its own exponent, and `d` is added to that value in its own
 units, so that when the compensated sum of the products cancels to zero the value is `d`,
-and a small `d` is not absorbed by the larger terms. A value that lies inside the range of the type by the accuracy of the ordinary
-sum is returned finite when that bound is below the range of the type; the accuracy is the
-absolute bound `4 n eps(T) (sum |cᵢxᵢ| + |d|)`, not relative to a dot much smaller than its
-terms. When the products lie far beyond the range, so that the bound exceeds it, no finite value
-is guaranteed: extreme cancellation can give an infinity for a finite exact value (see
+and a small `d` is not absorbed by the larger terms. The accuracy is the absolute bound
+`B = 4 n eps(T) (sum |cᵢxᵢ| + |d|)`, not relative to a dot much smaller than its terms, and the
+returned value is finite when the exact value plus `B` is within the range of the type. When the
+products lie far beyond the range, so that `B` exceeds it, there is no guarantee of a finite
+value: extreme cancellation can give an infinity for a finite exact value (see
 [Overflow and underflow of values](numerics.md#Overflow-and-underflow-of-values)).
 
 For a dense `c` that is not a `Diagonal`, `f(Matrix(x))` and `dot(c, x) + d` take the

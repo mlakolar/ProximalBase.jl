@@ -162,7 +162,8 @@ nonzero_indices(p, entries) = Set(linear(p, r, c) for (r, c, v) in entries if !i
     end
   end
 
-  # A fully stored iterate with stored zeros among the nonzero entries: the same guarantees hold.
+  # A fully stored iterate with stored zeros among the nonzero entries: no zero is formed, the coefficients read are at
+  # nonzero stored entries, and the number of reads is bounded.
   @testset "A dense iterate: no zero formed, coefficients read at nonzero stored entries" begin
     p = 100
     entries = [(r, c, 1.0 + r / p) for c in 1:p for r in 1:p]

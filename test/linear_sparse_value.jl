@@ -46,7 +46,7 @@ reference(f::LinearFunction, x, T; kw...) = reference(f.c isa Diagonal ? f.c.dia
 overflow_threshold(T) = big(floatmax(T)) + (big(floatmax(T)) - big(prevfloat(floatmax(T)))) / 2
 # v is the value of the reference r: finite and within the bound when the bound keeps r in range, ±Inf of the sign of r
 # when r is beyond the range by more than the bound, and anything between. This is R1 in the numerically meaningful
-# regime only: once the bound is at least floatmax(T) - |r| the first branch is not taken, and nothing is asserted about a
+# regime only: once |r| + bound exceeds floatmax(T) the first branch is not taken, and nothing is asserted about a
 # result that is finite or an infinity for a finite exact value (R1 does not guarantee a finite value there, #907). Such
 # cases are constrained by the pinned reference values of the tests, not by this function.
 function agrees(v, ref, T)
@@ -79,11 +79,13 @@ function random_pair(rng, T, p, k, lox, hix, loc, hic; zeros = 0.25)
   x, c
 end
 
-# Terms with separated exponents, E = exponent(floatmax(T)): the iterate entry has the exponent ex, uniform in
-# exponent(floatmin(T)):E-1, and its coefficient the exponent clamp(ep - ex, exponent(floatmin(T)), E-1) with
-# ep = E + (-8:1), so a product has the exponent ep unless the clamp acts (ex < ep - (E - 1) or ep - ex < exponent(floatmin(T))),
-# and then a smaller one. With `cancel`, a second entry (another coefficient and an iterate entry, whose product is
-# the negative of the first to rounding) is added. Positions on the diagonal when `diagonal`.
+# Terms with separated scales, E = exponent(floatmax(T)): the iterate entry is ldexp(m, ex) with a mantissa m in
+# [1/2, 3/2) and the scale power ex uniform in exponent(floatmin(T)):E-1, and its coefficient is ldexp(m', ec) with
+# ec = clamp(ep - ex, exponent(floatmin(T)), E-1) and ep = E + (-8:1). The product is m m' 2^(ex + ec), with m m' in
+# [1/4, 9/4): it has the scale power ep unless the clamp acts (ex < ep - (E - 1) or ep - ex < exponent(floatmin(T))),
+# and then a smaller one. (These are scale powers, not the exponents of the values.) With `cancel`, a second entry
+# (another coefficient and an iterate entry, whose product is the negative of the first to rounding) is added.
+# Positions on the diagonal when `diagonal`.
 function separated_pair(rng, T, p; diagonal, cancel)
   E, Emin = exponent(floatmax(T)), exponent(floatmin(T))
   sgn() = rand(rng, Bool) ? one(T) : -one(T)
@@ -111,8 +113,9 @@ end
 
 
 # Terms x c that cancel exactly in pairs, for the diagonal of a p × p iterate, x of type Tx and c of type Tc: a class has
-# the product exponent pe = E + 1 - rand(0:spread), E = exponent(floatmax(promote_type(Tx, Tc))), the product of the
-# significands being small integers over 4 (so every product is exact in Float64), and each pair is (x, c), (x, -c).
+# the scale power pe = E + 1 - rand(0:spread), E = exponent(floatmax(promote_type(Tx, Tc))), and a product is
+# s s' 2^pe for significands s, s' in {1, 5/4, 3/2, 7/4} (so s s' is not an integer over 4, and the exponent of the value
+# is pe or pe + 1); every product is exact in Float64 (at most six bits). Each pair is (x, c), (x, -c).
 # Returns the entries (x, c) in a random order, or nothing if a factor is out of the range of its type.
 function cancelling_terms(rng, Tx, Tc, spread, nclass, maxpairs)
   E = exponent(floatmax(promote_type(Tx, Tc)))
@@ -765,14 +768,15 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
   end
 
   # A small d after a dot that cancels (the dot is recomputed from exponent-separated terms because it overflows): the
-  # recovery collapses the pair of the compensated sum before d enters, so an exactly cancelling dot gives d exactly.
+  # recovery collapses the pair of the compensated sum before d enters, so when the represented pair sums to zero the
+  # value is d exactly. The assertions here pin fixtures for which it does (not every exactly cancelling set).
   @testset "A small d after a cancelling dot ($T)" for T in (Float32, Float64)
     for Tc in (T === Float32 ? (Float32, Float64) : (Float64,))
       R = promote_type(T, Tc)
       E = exponent(floatmax(R))
       xexp = T === Float32 ? 64 : 512
       xa = ldexp(one(T), xexp)
-      # the reported case: products a^2 = 2^(E+1) (overflow), a, -a^2, -a with a = 2^(E+1)/2 for uniform types; for a
+      # the reported case: products a^2 = 2^(E+1) (overflow), a, -a^2, -a with a = 2^((E+1)/2) for uniform types; for a
       # Float32 iterate with Float64 coefficients, coefficients 2^(E+1-xexp) and 2^((E+1)/2-xexp)
       cbig, csmall = ldexp(one(Tc), E + 1 - xexp), ldexp(one(Tc), (E + 1) ÷ 2 - xexp)
       cs = Tc[cbig, csmall, -cbig, -csmall]
@@ -795,7 +799,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
         @test LinearFunction(Diagonal(cs[perm]), d)(x) === d
         @test LinearFunction(Matrix(Diagonal(cs[perm])), d)(x) === d
       end
-      # exactly cancelling sets with more terms, in a random order: d exactly, ordinary value overflowing
+      # exactly cancelling sets with more terms, in a random order (seeded fixtures, spread at most 100): d exactly, ordinary value overflowing
       rng = Xoshiro(810_900 + 7 * (T === Float32) + (Tc === Float32))
       counted = 0
       for _ in 1:2000
@@ -831,8 +835,9 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
       for _ in 1:500
         terms = cancelling_terms(rng, T, Tc, 20, rand(rng, 1:3), 2)
         terms === nothing && continue
-        # the extra product delta = (s1 2^k)(s2 2^l)-style with a significand of at most 4 bits and an exponent so that
-        # |delta| is far above the budget of the large terms; d of a size from far below to far above delta
+        # the extra product delta = (s1 2^xe)(s2 2^(k-xe)) with integer factors s1, s2 of at most three bits, so a
+        # product of up to six bits (7 * 7 = 49), exact in Float64, and a scale so that |delta| is far above the budget of
+        # the large terms; d of a size from far below to far above delta
         k = T === Float32 ? rand(rng, 70:120) : rand(rng, 985:1000)
         dk = min(k + rand(rng, -30:30), T === Float32 ? 120 : 1000)
         xe = rand(rng, 1:20)
@@ -864,7 +869,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
   # Drop and restart. A pair that reaches exactly (0, 0) restarts in the frame of the next term, and a term more than 1074
   # binades below an earlier frame is dropped: the products 1, 2^1100, -2^1100, -1 (and d = 0.25) give 0.25 when the
   # cancelling terms are adjacent in the order of the sum, and in the other orders the result is documented as not
-  # guaranteed: only R1 is asserted there.
+  # guaranteed: only `agrees` (R1 in its meaningful regime) is asserted there, with no finite-output requirement.
   @testset "Drop and restart" begin
     T = Float64
     a = ldexp(1.0, 550)
@@ -877,12 +882,13 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
       end
       f = LinearFunction(c, d)
       v = f(x)
-      @test isfinite(v) && agrees(v, reference(f, x, T), T)
+      @test agrees(v, reference(f, x, T), T)
       # the products are summed in storage order; `=== d` is asserted only when the two cancelling pairs are adjacent in it
       adjacent = (order[1:2] in ([2, 3], [3, 2], [1, 4], [4, 1])) && (order[3:4] in ([2, 3], [3, 2], [1, 4], [4, 1]))
       adjacent && @test v === d
     end
-    # the products 2^1100, 3, -2^1100 beside d = 0.25: the 3 is lost when it is added after the large terms (3.25 exact)
+    # the products 2^1100, 3, -2^1100 beside d = 0.25, in this order: the 3 is lost between the two large terms (0.25
+    # instead of 3.25); placed after both it would give 3.25
     x = SparseIterate(T, 2, 2)
     x[1] = a; x[2] = 3.0; x[3] = a
     f = LinearFunction(reshape([a, 1.0, -a, 0.0], 2, 2), 0.25)

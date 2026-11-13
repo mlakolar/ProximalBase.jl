@@ -18,9 +18,9 @@ diagonal entries, in `O(p)`; the other entries of `x` are ignored, as in the dia
 `dot` of `Diagonal`. An entry that is not stored, or is stored as `+0` or `-0`, adds nothing,
 even if the coefficient there is `NaN`, `Inf` or `-Inf`; the constant `d` is added after the
 sum. A nonzero entry follows ordinary arithmetic, also when it or its coefficient is not
-finite. The order of the summation is not specified (the reduction is vectorized, so its
-partial sums follow neither the storage order nor the index order), and it can change the IEEE
-class of the result when an entry is not finite. For example, with `c = ones(2, 2)`, `d = 0`
+finite. The order of the summation is not specified: the general loop may reassociate
+(`@simd`), and the `Diagonal` loop runs in increasing diagonal index. The order can change
+the IEEE class of the result when an entry is not finite. For example, with `c = ones(2, 2)`, `d = 0`
 and `h = 2^exponent(floatmax(T))`, storing `x[2] = h`, `x[3] = h` and then `x[1] = -Inf`, a
 serial sum in the storage order overflows to `+Inf` before it adds `-Inf` and gives `NaN`,
 while the dense `dot` gives `-Inf`.
@@ -29,8 +29,8 @@ overflows is summed again in exponent-separated terms and combined with `d` in i
 Its accuracy is the absolute bound `4 n eps (sum |cᵢxᵢ| + |d|)`, and when that bound is below
 the range of the type and the exact value lies inside the range by that bound, the value is
 finite, also if products or partial sums overflow. When the bound exceeds the range (products
-far beyond it), no finite value is guaranteed: extreme cancellation can give an infinity for a
-finite exact value.
+far beyond it), there is no guarantee of a finite value: extreme cancellation can give an
+infinity for a finite exact value.
 
 ```julia
 x = SparseIterate(2, 2); x[1, 1] = 2.0
@@ -178,6 +178,8 @@ end
 # below 2n + 4 for n terms (|c| collects the roundings of the partial sums, which are of the order
 # of eps(A) times them), with n < 2^63. The collapse is made in A, where it cannot overflow, and the
 # dot alone is not converted to R.
+#   Scope. The constants below are those of A = Float64, that is, of Float32 and Float64 data
+# (A = promote_type(R, Float64) is wider only for other element types, which are not covered).
 #   Steps. (1) m = fl_A(s + c): one rounding, |m - (s + c)| <= eps(A)/2 |m|, and m == 0 only if
 # s + c == 0 exactly. The remainder r = (s + c) - m is computed exactly (a TwoSum of s and c), and
 # |r| <= eps(A)/2 |m|. (2) m = mm 2^em with 1/2 <= |mm| < 1, and the dot goes into a new
@@ -185,11 +187,12 @@ end
 # by `_expsum_product` as a term of its own, then r as one more term in the frame ex: the sum
 # is taken in the frame of the largest of them, and when d cancels the dot, r is what remains of
 # the pair. (4) `_expsum_value` rounds the pair to A and converts that to R. Overflow follows
-# this rounded value: a value just above floatmax(R) rounds to floatmax(R), and the result is Inf
-# only past floatmax(R) plus half an ulp; for Float32 data (A = Float64, R = Float32) it is a
-# double rounding, which can differ from the correctly rounded result at that threshold. The
-# caller then converts the value to float(eltype(x)): for a Float32 iterate with Float64
-# coefficients (R = Float64) that is one more rounding, and one more point of overflow.
+# this rounded value: with T = R, it is floatmax(T) below the round-to-nearest tie and Inf at or
+# beyond floatmax(T) + 2^(exponent(floatmax(T)) - precision(T)); for Float32 data (A = Float64,
+# R = Float32) the rounding to A comes first, a double rounding that can differ from the correctly
+# rounded result at that tie. The caller then converts the value to float(eltype(x)): for a Float32
+# iterate with Float64 coefficients (R = Float64) that is one more rounding, and one more point
+# of overflow.
 #   Dropped terms. `_expsum_add` loses a term, or a part of the sum, below 2^-1074 of the frame it
 # adds to (the subnormal limit of A). With E the largest frame exponent the pair ever held, the
 # loss is at most n 2^(E-1074) in all, at most n 2^-1072 times the largest |product|; it can be a
@@ -197,27 +200,33 @@ end
 #   Error of the pair. A product of Float64 or mixed factors is rounded once (eps(A)/2 |p|); of
 # Float32 factors it is exact in A. The compensation c is a recursive (Neumaier, Sum2) sum of exact
 # errors, so the error of the pair grows like n^2 eps(A)^2 / 4 times the sum of the magnitudes,
-# not n eps(A)^2. With the drops above, for n < 2^50 (any n for Float32 data) the value is within
-# 4 n eps(R) (sum |cᵢ xᵢ| + |d|) of the exact one whenever it is finite. That bound can exceed
-# floatmax(R), and then it constrains nothing: R1 does not guarantee a finite value there, and
-# the result can be an infinity for a finite exact value (see #907).
-#   Guaranteed. R1 where the bound is below the range, as above. If the pair sums to zero, the
-# value is R(d) when d is representable in R (d is a term of its own, converted once), and +0 if
-# d is zero. A dot of value delta beside d, when the products are exact in A (for example Float32
-# data, or significands of at most 26 bits), delta is above n 2^(E-1074) / eps(R), and
-# n^2 eps(A)^2 / 4 times the sum of the magnitudes is below eps(R) |delta|, is returned with an
-# error of at most a few eps(R) (|delta| + |d|).
+# not n eps(A)^2. With the drops above, for n < 2^50 (any n for Float32 data), the value is within
+# B = 4 n eps(R) (sum |cᵢ xᵢ| + |d|) of the exact one when the exact value plus B is within the
+# range of R (|exact| + B <= floatmax(R)); an exact value beyond the range gives Inf. When B
+# exceeds the range there is no finite-output guarantee: the result can be an infinity for a
+# finite exact value (see #907).
+#   Guaranteed. The absolute bound B where |exact| + B <= floatmax(R), as above. If the pair
+# sums to zero, the value is R(d) when d is representable in R (d is a term of its own, converted
+# once), and +0 if d is zero. A dot of value delta beside d, when the products are exact in A (for
+# example Float32 data, or significands of at most 26 bits), delta is above n 2^(E-1074) / eps(R),
+# n^2 eps(A)^2 / 4 times the sum of the magnitudes is below eps(R) |delta|, and |delta + d| and
+# that error are inside the range of R, is returned by `_expsum_value` with an error of at most
+# a few eps(R) (|delta| + |d|); the caller's conversion to float(eltype(x)) can add its own
+# rounding when that type is narrower than R.
 #   Not guaranteed. (1) That terms which cancel exactly in real arithmetic cancel: Float64 and
 # mixed products are rounded, so the pair can keep a residual and a small d is lost against it.
 # (2) Terms more than 1074 binades below the frame are dropped, and after a restart this can
 # leave one whole term as the result. (3) That the pair sums to zero for an exactly cancelling
 # dot: the compensation is a rounded sum, and it fails for terms of very different sizes (it
 # depends on the spread of the exponents and on the number of terms, and not on the spread
-# alone); the value then has the absolute error of R1. Relative accuracy when d cancels the dot
-# is limited by the error of the pair and the drops above only, since the collapse remainder is
-# kept. (4) A finite value when the products lie far beyond the range (about 2^1077 for Float64,
-# 2^150 for Float32 data): the error of the pair, in the units of the products, can exceed the
-# range, and the result is then an infinity.
+# alone); the value then has the absolute error B. Relative accuracy when d cancels the dot is
+# limited by the error of the pair, the drops above, and the final rounding to A, to R and to
+# the returned type float(eltype(x)) (with a Float32 iterate and Float64 coefficients, the
+# rounding to Float32 alone can be far above the Float64 error of the helper's value). The
+# collapse remainder is kept, so the collapse itself adds no error. (4) A finite value when the
+# products lie far beyond the range (about 2^1077 for Float64, 2^150 for Float32 data): the
+# error of the pair, in the units of the products, can exceed the range, and the result is then
+# an infinity.
 function _linear_recovered_value(::Type{R}, acc::_ExpSum{A}, d) where {R, A}
   s, c = acc.s, acc.c
   m = s + c

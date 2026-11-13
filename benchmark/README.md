@@ -84,6 +84,9 @@ ratios candidate/archive and control/candidate, with the warmed allocations, and
 above 1.05. `PB_REVERSE=1` loads and times the candidate in the place of the archive, for the
 reversed-role rerun in a fresh process; `PB_FILTER` selects cases; `PB_CHECK_ONLY=1` compares
 the outputs only (proximal points within 4 ulp, values within `2(n + 2) eps`).
+Measured with Julia 1.13.3 and 21 rounds, the four `prox!/array_step_weighted` cases (Float32 and
+Float64, n = 1024 and 65536) exceed the five percent threshold, with median ratios 1.76 to 1.86 that a
+reversed-role run reproduced; the per-entry ridge factor of an array of steps is tracked in #910.
 
 ```sh
 PB_ARCHIVE=/tmp/pb849-baseline PB_CANDIDATE="$PWD" PB_ROUNDS=21 PB_OUTPUT=/tmp/pb908-results \

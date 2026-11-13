@@ -89,7 +89,7 @@ and symmetric iterates both parts read the stored entries only, and on a
 `BlockIterate` its storage. On a
 dense `Float32` or `Float64` `Array` with parameters of its type, a single
 pass over the entries is returned instead when a test on its sum bounds its
-relative error by `(n + 2) eps(T)` for `n` entries; the bound is proved in a
+relative error by `(n + 2) eps(T)` for `n ≤ 1/(2 eps(T)) - 2` entries; the bound is proved in a
 comment next to the code (`src/functions/elasticnet.jl`). Where one part
 dominates, the test can pass although the other part alone would be
 recomputed (ℓ₁ terms below `floatmin(T)` beside a normal ridge part, or

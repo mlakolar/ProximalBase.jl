@@ -253,7 +253,7 @@ each with its recovery of terms that over- or underflow (see the
 [numerical contract](numerics.md)). On a dense `Float32` or `Float64`
 `Array` with parameters of its type, a single pass over the entries
 replaces the two when a test on its sum bounds its relative error by
-``(n+2)\,\varepsilon`` for ``n`` entries.
+``(n+2)\,\varepsilon`` for ``n\leq 1/(2\varepsilon)-2`` entries.
 
 ### Weights, shapes and representations
 

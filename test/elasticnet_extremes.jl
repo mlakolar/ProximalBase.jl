@@ -286,6 +286,17 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
     @test value_and_prox!(y, Inf * ElasticNet(1.0, 1.0), [3.0, -2.0], 1.0) === 0.0
   end
 
+  @testset "the fused value up to 1/(2 eps) - 2 entries" begin
+    n = PB._elastic_fused_length(Float32)
+    @test n == 4_194_302 && PB._elastic_fused_length(Float64) == 2^51 - 2
+    f = ElasticNet(0.3f0, 0.5f0)
+    x = fill(0.5f0, n)
+    @test PB._elastic_fused_value(f, x)[2]
+    push!(x, 0.5f0)                                                      # one entry beyond the proved bound
+    @test !PB._elastic_fused_value(f, x)[2] && f(x) === PB._elastic_value(f, x)
+    fw = ElasticNet(0.3f0, 0.5f0, fill(1.5f0, n + 1))
+    @test !PB._elastic_fused_value(fw, x)[2] && fw(x) === PB._elastic_value(fw, x)
+  end
   for T in (Float32, Float64)
     @testset "$T values on stored entries" begin
       n = 20_000

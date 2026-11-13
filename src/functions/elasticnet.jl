@@ -20,7 +20,7 @@ the ridge part, computed as `SqrNormL2(λ2)` computes its value, each with its
 recovery of terms that leave the range (Overflow and underflow of values). On a
 dense `Float32` or `Float64` `Array` with parameters of its type, a single pass
 over the entries replaces the two when a test on its sum bounds its relative
-error by `(n + 2) eps` for `n` entries. A zero `λ2` gives the values of
+error by `(n + 2) eps` for `n` entries, `n ≤ 1/(2 eps) - 2`. A zero `λ2` gives the values of
 `NormL1(λ1, w)`, and at steps `γ ≥ 0` its proximal points, bit for bit.
 
 `w` has one weight per entry of the argument, paired by linear index, and is
@@ -197,14 +197,18 @@ function _value_dense(f::ElasticNet{T, <:Union{Nothing, Array{T}}}, x::Array{T})
 end
 
 # The fused value s = fl(fl(λ1 s1) + fl(fl(λ2 s2)/2)) of the sums s1 = Σᵢ wᵢ|xᵢ| (wᵢ = 1 without weights) and
-# s2 = Σᵢ xᵢ², both accumulated in one vectorized loop, and whether s is finite with s ≥ 4 floatmin (n (λ1 + λ2) + 1)
-# for n entries. Then the relative error of s is at most (n + 2) eps, for n ≤ 1/(2 eps) - 2.
+# s2 = Σᵢ xᵢ², both accumulated in one vectorized loop, and whether the n entries number at most 1/(2 eps) - 2
+# (an integer comparison: 1/(2 eps) = 2^(precision - 2)) and s is finite with s ≥ 4 floatmin (n (λ1 + λ2) + 1).
+# Then the relative error of s is at most (n + 2) eps. For more entries the loop is not run and the flag is false.
 #
 # Proof. Let u = eps/2, δ = eps floatmin (the spacing of the subnormal numbers, δ/2 = u floatmin), γₖ = k u/(1 - k u),
-# W = Σ wᵢ aᵢ, Q = Σ aᵢ² with aᵢ = |xᵢ|, S = λ1 W + λ2 Q/2 the exact value, and assume (n + 2) u ≤ 1/4. Every
+# W = Σ wᵢ aᵢ, Q = Σ aᵢ² with aᵢ = |xᵢ|, S = λ1 W + λ2 Q/2 the exact value; the length test gives (n + 2) u ≤ 1/4. Every
 # intermediate is nonnegative: an overflow makes s Inf, and a zero times Inf makes it NaN, both excluded; so no
 # operation overflows. A product rounds to p(1 + ε) + η with |ε| ≤ u and |η| ≤ δ/2 (η ≠ 0 only where the result is
 # below floatmin), a sum to (a + b)(1 + ε), and a sum of n nonnegative terms, in any order, within γ_{n-1} of their sum.
+# @simd may also contract a product into its addition (Julia 1.13 emits fma for both sums); an fma rounds acc + p once,
+# to (acc + p)(1 + ε) + η, so each term still meets at most n roundings and each η at most n - 1 later ones, and the
+# bounds below hold unchanged.
 # The terms wᵢ aᵢ and aᵢ² give
 #   |ŝ1 - W| ≤ γₙ W + (1 + γ_{n-1}) n δ/2,    |ŝ2 - Q| ≤ γₙ Q + (1 + γ_{n-1}) n δ/2.
 # The products with λ1 and λ2, and the halving (exact unless subnormal, then within δ/2), give
@@ -218,6 +222,7 @@ end
 # which B exceeds by a factor 1.19 or more, also as computed (four roundings). Then
 #   |s - S| ≤ (γ_{n+2} + u) S ≤ ((4/3)(n + 2) + 1) u S ≤ 2 (n + 2) u S = (n + 2) eps S.  □
 @inline function _elastic_fused_value(f::ElasticNet{T}, x::Array{T}) where {T}
+  length(x) <= _elastic_fused_length(T) || return (zero(T), false)
   s1 = s2 = zero(T)
   @inbounds @simd for i in eachindex(IndexLinear(), x)
     a = abs(x[i])
@@ -228,6 +233,8 @@ end
   s = λ1 * s1 + λ2 * s2 / 2
   s, (s <= floatmax(T)) & (s >= 4 * floatmin(T) * (T(length(x)) * (λ1 + λ2) + 1))
 end
+# 1/(2 eps) - 2 entries, the most for which the bound above is proved
+@inline _elastic_fused_length(::Type{T}) where {T} = (1 << (precision(T) - 2)) - 2
 @inline _elastic_weighted(::Nothing, i, a) = a
 Base.@propagate_inbounds _elastic_weighted(w::AbstractArray, i, a) = w[i] * a
 

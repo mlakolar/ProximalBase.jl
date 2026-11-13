@@ -195,3 +195,131 @@ approved change to the proximal kernel. The decision preserves performance
 of normal `Float32`/`Float64` weighted operations; the measured cost of extra
 checks is recorded in the [numerical contract](numerics.md).
 See also [Numerical usage](numerical_usage.md).
+
+## The elastic-net penalty
+
+`ElasticNet` adds a ridge term to the weighted ℓ₁ function. For levels
+``\lambda_1,\lambda_2\geq0`` and nonnegative weights ``w_i\geq0``,
+
+```math
+g(x)=\lambda_1\sum_{i}w_i|x_i|+\frac{\lambda_2}{2}\sum_{i}x_i^2 .
+```
+
+| Mathematics | Julia | Meaning |
+|:--|:--|:--|
+| ``\lambda_1\sum_i\lvert x_i\rvert+\frac{\lambda_2}{2}\sum_i x_i^2`` | `ElasticNet(λ1, λ2)` | All weights are one |
+| ``\lambda_1\sum_i w_i\lvert x_i\rvert+\frac{\lambda_2}{2}\sum_i x_i^2`` | `ElasticNet(λ1, λ2, w)` | Weights on the ℓ₁ term only |
+
+It is one separable function, not a sum of two function objects: it is
+convex, proximable and zero-preserving, and not smooth. For a step
+``\gamma>0`` its proximal operator soft thresholds each entry and then
+shrinks it by the ridge factor:
+
+```math
+[\operatorname{prox}_{\gamma g}(v)]_i
+=\frac{\operatorname{sign}(v_i)\max\bigl(|v_i|-\gamma\lambda_1w_i,\ 0\bigr)}{1+\gamma\lambda_2}.
+```
+
+```@example library_l1
+h = ElasticNet(0.5, 2.0, [1.0, 0.0, 2.0])
+x = [2.0, -3.0, 0.25]
+@assert h(x) ≈ 0.5 * (2.0 + 0.0 + 0.5) + 2.0 / 2 * (4.0 + 9.0 + 0.0625)
+γ = 0.25
+reference = sign.(x) .* max.(abs.(x) .- γ * 0.5 .* [1.0, 0.0, 2.0], 0.0) ./ (1 + γ * 2.0)
+@assert prox(h, x, γ) ≈ reference
+@assert prox_block(h, x[1], 1, γ) == prox(h, x, γ)[1]
+@assert value_entry(h, x[3], 3) ≈ 0.5 * 2.0 * 0.25 + 2.0 * 0.25^2 / 2
+prox(h, x, γ)
+```
+
+The threshold is formed as `NormL1(λ1, w)` forms it and the ridge factor
+as `SqrNormL2(λ2)` forms it, each from the unrounded factors. The ridge
+kernel multiplies by the rounded factor ``1/(1+\gamma\lambda_2)``, so a
+result can differ in its last bits from a division by ``1+\gamma\lambda_2``:
+
+```@example library_l1
+@assert prox_block(ElasticNet(1.0, 1.0), 3.0, 1, 0.5) == 1.6666666666666665
+@assert 2.5 / 1.5 == 1.6666666666666667
+```
+
+At steps ``\gamma\geq0``, with the argument, the parameters and the
+destination of one element type, a zero `λ2` gives the proximal points of
+`NormL1(λ1, w)` bit for bit, and with a finite `λ2`, an entry with a zero
+weight, or with a zero `λ1` and a finite weight, has the proximal points of
+the ridge `SqrNormL2(λ2)` bit for bit, except that an input `-0.0` becomes
+`+0.0`. A destination of another element type receives these numbers
+converted to its type, and a new `SparseIterate` destination does not
+store a zero result. A zero `λ2` also gives the values of `NormL1(λ1, w)`
+bit for bit.
+The value is the value of the ℓ₁ part, computed as `NormL1` computes it,
+plus the value of the ridge part, computed as `SqrNormL2` computes it,
+each with its recovery of terms that over- or underflow (see the
+[numerical contract](numerics.md)). On a dense `Float32` or `Float64`
+`Array` with parameters of its type, a single pass over the entries
+replaces the two when a test on its sum bounds its relative error by
+``(n+2)\,\varepsilon`` for ``n\leq 1/(2\varepsilon)-2`` entries. With both
+levels positive and finite, a sum of the two parts below twice `floatmin`
+is recomputed with the terms of both parts added in one exponent-sum
+accumulator and rounded once: `ElasticNet(2.0^-538, 1.0)([2.0^-537])` is
+`2.0^-1074`, although each part, `2.0^-1075`, rounds to zero on its own.
+
+### Weights, shapes and representations
+
+The array `w` has one weight per entry of the argument, paired by Julia's
+linear index, and is stored by reference. `ElasticNet` accepts real dense
+vectors and matrices (views included), `SparseIterate`, `BlockIterate` and
+`SymmetricSparseIterate`, with a scalar step or, except as noted below, an
+array of per-entry steps. On a `SparseIterate` or a
+`SymmetricSparseIterate` the value reads the stored entries only, and so
+does the proximal operator from such an iterate into an iterate of the same
+kind; with a dense destination it writes, and reads the weights of, every
+entry. This is the traversal of the entries: a value whose two parts are
+recomputed together (above) also reads every entry of a weight array whose
+element type is not concrete, such as a `Vector{Real}`, to choose the type of
+its accumulator. An entry stored in an iterate destination stays stored, possibly as
+a zero, and a zero result does not activate an absent entry. On a
+`SymmetricSparseIterate` the weights
+are a `p × p` matrix read at both positions of an off-diagonal
+coordinate, and the value counts such a coordinate twice, as the matrix
+it represents does. The weights must then be exactly symmetric, a
+precondition that the oracles assume and `check_symmetric_parameters`
+validates (see [Symmetric parameters](symmetric_parameters.md)).
+
+Not supported: an array of steps with a `SymmetricSparseIterate`
+destination (an `ArgumentError` before any write), or with a dense
+destination and a `SymmetricSparseIterate` argument (a `MethodError`);
+the vector form of `prox_block`; complex arguments or weights.
+
+### Steps and endpoint rules
+
+`prox`, `prox!` and `value_and_prox!` throw an `ArgumentError` for a
+negative or `NaN` scalar step before anything is written. The entries of
+an array of steps are not checked: they must be nonnegative, a documented
+precondition. This is an exception to the requirement of
+[#908](https://github.com/mlakolar/ProximalBase.jl/issues/908) that
+negative and `NaN` steps fail before writes, because the check would add a
+pass over the steps to each such call
+([#874](https://github.com/mlakolar/ProximalBase.jl/pull/874)).
+`prox_block` does not check its step, and `Scaled` keeps its own step rule.
+
+```@example library_l1
+y = [7.0, 7.0, 7.0]
+refused = try prox!(y, h, x, -1.0); false catch e; e isa ArgumentError end
+@assert refused && y == [7.0, 7.0, 7.0]
+```
+
+An infinite ridge level makes `g` the indicator of ``\{0\}``: at every
+step ``\gamma\geq0``, ``\gamma=0`` included, each entry of the proximal
+point is `+0`, also for `NaN` and `±Inf` inputs; the value is `0` at the
+zero vector, `NaN` if an entry is `NaN`, and `Inf` otherwise; and
+`kkt_violation` is `-Inf`. An infinite `λ1` and infinite weights follow
+the rules of `NormL1` above (decision 49, #665, #853 and
+[#653](https://github.com/mlakolar/ProximalBase.jl/issues/653)), and a
+threshold that overflows from finite factors keeps the #866 limitation.
+
+```@example library_l1
+hard = ElasticNet(1.0, Inf)
+@assert prox(hard, [3.0, NaN], 0.0) == [0.0, 0.0]
+@assert hard([0.0, 0.0]) == 0 && hard([0.0, 1e-300]) == Inf
+@assert kkt_violation(hard, [5.0], 1) == -Inf
+```

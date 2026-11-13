@@ -320,8 +320,8 @@ prox_block(f, v::Real, i::Integer, γ::Real)
 
 Compute a pure mathematical proximal point at an already constructed trial.
 Scalar methods use the underlying array's global linear entry index `i`;
-retained built-ins are NormL1, SqrNormL2, LinearFunction, ZeroFunction and
-supported Scaled leaves. Custom SeparableFunction subtypes implement this
+retained built-ins are NormL1, ElasticNet, SqrNormL2, LinearFunction,
+ZeroFunction and supported Scaled leaves. Custom SeparableFunction subtypes implement this
 scalar method together with value_entry. No iterate or cache is updated.
 
 The vector form allocates a plain floating Vector of length(u) and delegates
@@ -366,7 +366,8 @@ kkt_violation(f, g, i)
 Signed screen of a coordinate assumed zero in `h+f`, with full smooth-part
 gradient `g=∇h(x)`. A positive value means zero violates its condition;
 a nonpositive value checks zero only, not stationarity of a nonzero coordinate.
-NormL1 returns `abs(g[i])-λ0*w[i]`. Retained scalar screens also cover
+NormL1 returns `abs(g[i])-λ0*w[i]`, and ElasticNet `abs(g[i])-λ1*w[i]`
+(`-Inf` for an infinite ridge level). Retained scalar screens also cover
 ZeroFunction, LinearFunction, SqrNormL2 and supported Scaled leaves.
 
 For SparseIterate and SymmetricSparseIterate, the four-argument form checks
@@ -418,7 +419,7 @@ _gradient_extent(x::SymmetricSparseIterate) = x.p^2
     restrict(f,S)
 
 Restrict a retained function's entry parameters to the integer index vector S.
-NormL1 slices weights, centered SqrNormL2 slices its center, LinearFunction
+NormL1 and ElasticNet slice weights, centered SqrNormL2 slices its center, LinearFunction
 slices coefficients, QuadraticFunction selects its principal submatrix and
 linear term, vector-response LeastSquaresLoss selects design columns, and
 Scaled forwards. For least squares and quadratics, omitted coordinates are fixed at zero.

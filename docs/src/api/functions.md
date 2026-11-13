@@ -13,10 +13,11 @@ ZeroFunction
 LinearFunction
 ```
 
-## Entrywise ℓ₁ norm
+## Entrywise ℓ₁ norm and elastic net
 
 ```@docs
 NormL1
+ElasticNet
 ```
 
 Scalar observation losses belong to a separate mathematical interface.

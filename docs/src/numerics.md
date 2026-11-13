@@ -72,6 +72,18 @@ iterate does not prevent it. It reads the nonzero stored entries, `O(nactive(x))
 `nactive(x)` is. Recovery is worthwhile when it changes a materially inaccurate
 answer into a representable result in the working precision.
 
+The accuracy of a recovered value is an absolute bound, `4 n eps (sum |terms| + |d|)` for `n`
+terms, and it is a statement about the computed value when that bound is below the largest
+finite number. When the bound exceeds the representable range, the accuracy requirement does not
+guarantee a finite output, and an infinity is then within it. Extreme cancellation among
+products far beyond the output range (about `2^1077` for `Float64`, `2^150` for `Float32` data) can
+return an infinity although the exact result is a finite, normal number, in the recovery of a
+dense argument and in the recovery of the `LinearFunction` value at a matrix `SparseIterate`
+alike ([#907](https://github.com/mlakolar/ProximalBase.jl/issues/907)). A small `d` beside a dot
+that cancels exactly is returned as `d` when the compensated sum of the products cancels to
+zero, which is not guaranteed for products of very different sizes. The guarantees of this section
+are those of the numerically meaningful regime, where the bound is below the range.
+
 `NormL1` values also recover terms `λ0*w[i]*abs(x[i])` that round into the
 subnormal range, which loses accuracy even when the total is normal
 ([#373](https://github.com/mlakolar/ProximalBase.jl/issues/373)). Each such

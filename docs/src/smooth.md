@@ -279,8 +279,11 @@ formed from its two factors without scaling one before the other acts. The sum i
 collapsed to one value with its own exponent, and `d` is added to that value in its own
 units, so that an exactly cancelling dot gives `d` and a small `d` is not lost against the
 larger terms. A value that lies inside the range of the type by the accuracy of the ordinary
-sum is returned finite; the accuracy is that of the absolute bound `4 n eps(T) (sum |cᵢxᵢ| + |d|)`,
-not relative to a dot much smaller than its terms.
+sum is returned finite when that bound is below the range of the type; the accuracy is the
+absolute bound `4 n eps(T) (sum |cᵢxᵢ| + |d|)`, not relative to a dot much smaller than its
+terms. When the products lie far beyond the range, so that the bound exceeds it, no finite value
+is guaranteed: extreme cancellation can give an infinity for a finite exact value (see
+[Overflow and underflow of values](numerics.md#Overflow-and-underflow-of-values)).
 
 For a dense `c` that is not a `Diagonal`, `f(Matrix(x))` and `dot(c, x) + d` take the
 generic IEEE `dot`, which visits all positions in column-major order, so a `NaN`

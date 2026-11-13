@@ -24,9 +24,13 @@ class of the result when an entry is not finite. For example, with `c = ones(2, 
 and `h = 2^exponent(floatmax(T))`, storing `x[2] = h`, `x[3] = h` and then `x[1] = -Inf`, a
 serial sum in the storage order overflows to `+Inf` before it adds `-Inf` and gives `NaN`,
 while the dense `dot` gives `-Inf`.
-When `d`, the nonzero entries of `x` and the coefficients at them are finite and the exact
-value lies inside the range of the type by the accuracy of the sum, the value is finite,
-also if products or partial sums overflow.
+When `d`, the nonzero entries of `x` and the coefficients at them are finite, a dot that
+overflows is summed again in exponent-separated terms and combined with `d` in its own units.
+Its accuracy is the absolute bound `4 n eps (sum |cᵢxᵢ| + |d|)`, and when that bound is below
+the range of the type and the exact value lies inside the range by that bound, the value is
+finite, also if products or partial sums overflow. When the bound exceeds the range (products
+far beyond it), no finite value is guaranteed: extreme cancellation can give an infinity for a
+finite exact value.
 
 ```julia
 x = SparseIterate(2, 2); x[1, 1] = 2.0

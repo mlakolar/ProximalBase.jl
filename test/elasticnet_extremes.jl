@@ -33,6 +33,11 @@ valref(f, x) = big4096() do
     big(f.λ2) / 2 * sum(big(v)^2 for v in x; init = big(0))
 end
 valok(got::T, ref, n) where {T} = isfinite(got) && abs(big(got) - ref) <= (n + 2) * eps(T) * abs(ref)
+# a value that rounds to r: r itself, or 0 for r the smallest subnormal where ldexp truncates a Float64 result in
+# [δ/2, δ) to 0 (Julia 1.10, #896), as the final rounding of the recomputed values does there
+const LDEXP_ROUNDS = ldexp(0.75, -1074) === nextfloat(0.0)
+rounded(got::T, r::T) where {T} =
+  got === r || (!LDEXP_ROUNDS && T === Float64 && r === nextfloat(zero(T)) && got === zero(T))
 
 # a weight array that counts its reads, to show that values and proximal points on sparse and symmetric
 # iterates read the weights of the stored entries only
@@ -328,10 +333,10 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
     Va = Float64(big4096(() -> big(2.0)^-1060 * (big(xa[1]) + 40960 * big(xa[1])^2)))
     ya = [0.0]
     @test Va === nextfloat(0.0) && sa(xa) === Va && sa(SparseIterate(xa)) === Va && value_and_prox!(ya, sa, xa, 0.0) === Va
-    @test Scaled(Scaled(ElasticNet(1.0, 81920.0), 2.0^-530), 2.0^-530)(xa) === Va
+    @test rounded(Scaled(Scaled(ElasticNet(1.0, 81920.0), 2.0^-530), 2.0^-530)(xa), Va)
     sb = Scaled(ElasticNet(0.4 * 2.0^-1029, 0.4 * 2.0^-979), 16.0)
     Vb = Float64(big4096(() -> 16 * (big(0.4 * 2.0^-1029) * big(2.0)^-49 + big(0.4 * 2.0^-979) / 2 * big(2.0)^-98)))
-    @test Vb === nextfloat(0.0) && sb([2.0^-49]) === Vb
+    @test Vb === nextfloat(0.0) && rounded(sb([2.0^-49]), Vb)
     @test prox(Scaled(ElasticNet(Inf, 2.0^-1000, [1.0, 0.0]), 2.0^600), [3.0, 4.0], 2.0^600) ==
           [0.0, Float64(big4096(() -> 4 / (1 + big(2.0)^200)))]
     # a factor and a step whose product overflows, with a finite ridge level that the fold cannot hold (#567): the
@@ -356,24 +361,24 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
         x = fill(p2(T, ex), n)
         r = T(big4096(() -> big(λ1) * n * big(x[1]) + big(λ2) / 2 * n * big(x[1])^2))
         f, fw = ElasticNet(λ1, λ2), ElasticNet(λ1, λ2, ones(T, n))
-        @test r > 0 && f(x) === r && fw(x) === r
-        @test f(view(copy(x), :)) === r && f(SparseIterate(x)) === r
-        @test f(BlockIterate(copy(x), [collect(1:n)])) === r
+        @test r > 0 && rounded(f(x), r) && rounded(fw(x), r)
+        @test rounded(f(view(copy(x), :)), r) && rounded(f(SparseIterate(x)), r)
+        @test rounded(f(BlockIterate(copy(x), [collect(1:n)])), r)
         S = SymmetricSparseIterate(T, n)
         for i in 1:n
           S[i, i] = x[i]
         end
-        @test ElasticNet(λ1, λ2, ones(T, n, n))(S) === r
-        n == 1 && @test value_entry(f, x[1], 1) === r && value_entry(fw, x[1], 1) === r
+        @test rounded(ElasticNet(λ1, λ2, ones(T, n, n))(S), r)
+        n == 1 && @test rounded(value_entry(f, x[1], 1), r) && rounded(value_entry(fw, x[1], 1), r)
         y = similar(x)
-        @test value_and_prox!(y, f, x, zero(T)) === r && y == x
+        @test rounded(value_and_prox!(y, f, x, zero(T)), r) && y == x
       end
       # the first case: each part rounds to zero on its own
       f = ElasticNet(λ1⁰, λ2⁰)
       x = [p2(T, ex)]
       @test PB._value_unchecked(f.l1, x) + PB._elastic_ridge_value(f.λ2, x) === zero(T) && f(x) === δ
-      # the bound proved for the recomputation, with the whole spacing δ for the final rounding (ldexp truncates below
-      # floatmin up to Julia 1.10): u of the accumulator, Float64 for both element types, and N terms
+      # the bound proved for the recomputation, with the whole spacing δ for the final rounding (see `rounded`): u of
+      # the accumulator, Float64 for both element types, and N terms
       uR = big4096(() -> big(2.0)^-53)
       γ(m) = big4096(() -> m * uR / (1 - m * uR))
       bnd(V, N) = big4096(() -> (γ(3) + (γ(N - 1)^2 + N * big(2.0)^-1070) * (1 + γ(2))) * V + big(δ))

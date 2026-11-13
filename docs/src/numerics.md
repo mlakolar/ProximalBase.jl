@@ -117,7 +117,10 @@ the sum is rounded once. For `N` terms the result is within
 `(γ_3 + (γ_{N-1}^2 + N 2^-1070)(1 + γ_2)) V` of the exact value `V` plus half
 a spacing of `T` at the result (`γ_m = m u/(1 - m u)`, `u` half the epsilon of
 the accumulator, `Float64` for `Float32` data), as proved next to the code, which
-is below the worst case of the separate parts;
+is below the worst case of the separate parts. On Julia 1.10 `ldexp` returns `0`
+for a `Float64` result in `[δ/2, δ)`, `δ` the smallest subnormal
+([#896](https://github.com/mlakolar/ProximalBase.jl/issues/896)), and the final
+term of the bound is a whole spacing;
 `ElasticNet(2.0^-538, 1.0)([2.0^-537])` is `2.0^-1074`. Only a value whose
 stored entries are all zero keeps its sum. Under `Scaled`, the value of an
 `ElasticNet` is recovered as for any function with levels; only where that

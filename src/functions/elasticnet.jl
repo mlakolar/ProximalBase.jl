@@ -172,7 +172,7 @@ end
 # Claim: with u = eps(R)/2 and γₘ = m u/(1 - m u), the result r and the exact value V satisfy
 #   |r - V| ≤ (γ₃ + (γ²_{N-1} + N 2^-1070)(1 + γ₂)) V + h,
 # h being half the spacing of T at r (δ/2 for r below 2 floatmin(T)), or the whole spacing where ldexp truncates below
-# floatmin (Julia 1.10, T = Float64).
+# floatmin (Julia 1.10, T = Float64, #896).
 # Proof. A term is formed from the significands of its two factors and of its level, with the exponents summed exactly,
 # as (mₐ mᵦ) m_λ 2^e: two roundings in R, so it is within γ₂ of its exact value, and it is nonnegative; their sum S is
 # within γ₂ V of V. The accumulator adds each term with an error-free transformation (Fast2Sum on ordered magnitudes)
@@ -183,12 +183,13 @@ end
 # in [1/2, 1)), so at most N 2^-1070 S in all. The exponent is applied exactly (_scaled_product with the factor 1
 # multiplies by powers of two), and the result is rounded once to T, within h. The relative factors combine to at most
 # γ₃ + (γ²_{N-1} + N 2^-1070)(1 + γ₂).  □
-# The bound depends on N only through the second-order term. It is below the worst case of c: a part of c that is
-# recomputed (NormL1 from the same kind of accumulator, the ridge from scaled squares summed the same compensated way)
-# carries at least the same relative term plus its own rounding to T, and c adds the parts with one more rounding,
-# so c is within (γ₄ + γ²_{N-1}(1 + γ₄)) V plus up to three halves of a spacing; a part that keeps the sum of its
-# ordinary loop carries an error that grows with its number of terms. For Float32 data R is Float64, and for
-# N ≤ 2^26 the relative term is below 2^-50 V: r is the rounding of V except within that distance of a tie.
+# The bound depends on N only through γ²_{N-1}, a second-order term, and N 2^-1070, below 2^-1000 for any N that an
+# array can hold. It is below the worst case of c: a part of c that is recomputed (NormL1 from the same kind of
+# accumulator, the ridge from scaled squares summed the same compensated way, in the type of the data) carries a
+# relative term at least as large plus its own rounding to T, and c adds the two parts with one more rounding, so the
+# bound of c is (γ₄ + γ²_{N-1}(1 + γ₄)) V, with a u at least that of R, plus three halves of a spacing; a part that
+# keeps the sum of its ordinary loop has an error that grows with its number of terms. For Float32 data R is Float64,
+# and for N ≤ 2^26 the relative term is below 2^-50 V: r is the rounding of V except within that distance of a tie.
 @noinline function _elastic_entry_recomputed(λ1, λ2, w, a, e::T) where {T}
   R = promote_type(T, Float64, _factor_type(λ1), _factor_type(λ2), _factor_type(w), _factor_type(a))
   m1, e1 = _frexp(convert(R, λ1))

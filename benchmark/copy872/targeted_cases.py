@@ -2,7 +2,7 @@
 """Print the targeted case list: every 1% case, the 100% cases with group size 1 or 64,
 and the 10% restart_shared cases. usage: python3 targeted_cases.py > cases-targeted.txt"""
 import sys,pathlib
-sys.path.insert(0,str(pathlib.Path(__file__).resolve().parent))
+sys.dont_write_bytecode=True;sys.path.insert(0,str(pathlib.Path(__file__).resolve().parent))
 from run import fixtures
 for key,dt,n,s,b,layout,ops in fixtures(None,'full'):
     frac=int(key.split('/f')[1].split('/')[0])

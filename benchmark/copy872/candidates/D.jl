@@ -41,4 +41,3 @@ function _copy_singletons!(dest::BlockIterate{T}, src::BlockIterate) where {T}
   dest.nactive = src.nactive
   dest
 end
-

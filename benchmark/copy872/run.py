@@ -53,7 +53,8 @@ def main():
                 'platform':platform.platform(),'started':time.time(),
                 'harness_sha256':{str(f.relative_to(ROOT)):digest(f) for f in paths},
                 'lscpu':subprocess.check_output(['lscpu'],text=True),'rounds':a.rounds,
-                'fixtures':len(fx),'cases':sum(len(f[-1]) for f in fx)}
+                'fixtures':len(fx),'cases':sum(len(f[-1]) for f in fx),
+                'case_keys':[f[0]+'/'+op for f in fx for op in f[-1]]}
     (a.output/'campaign.json').write_text(json.dumps(provenance,indent=2)+'\n')
     failures=[]
     with (a.output/'observations.csv').open('w') as output:

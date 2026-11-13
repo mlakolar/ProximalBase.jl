@@ -1,5 +1,5 @@
-# Candidate Cn: C with the all-active copies in an out-of-line function, so that the
-# active-only loops keep master's call-free function body.
+# Candidate Cn: C with the all-active bulk copies in a separate @noinline function; the
+# loops for partly active sources are master's, unchanged.
 function _copy_active!(dest::BlockIterate{T}, src::BlockIterate) where {T}
   src.nactive == length(src.groups) && return _copy_all_active!(dest, src)
   @inbounds for a in 1:dest.nactive

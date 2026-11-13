@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build benchmark-only source trees outside the repository: the base commit's src/ with
+"""Build benchmark-only source trees in OUTDIR, which must lie outside the repository: the base commit's src/ with
 _copy_active! replaced by each candidate in candidates/ (A and AA are the base itself), plus
 the original implementation at bd0740d0 used by #852 (role O).
 usage: python3 make_sources.py BASE_SHA OUTDIR"""
@@ -7,6 +7,7 @@ import pathlib,subprocess,sys
 here=pathlib.Path(__file__).resolve().parent
 root=here.parent.parent
 base,out=sys.argv[1],pathlib.Path(sys.argv[2]).resolve()
+assert not out.is_relative_to(root),'OUTDIR must lie outside the repository'
 out.mkdir(parents=True,exist_ok=False)
 start='# The layouts and nonthrowing conversion have already been checked.'
 endmark='  dest.nactive = src.nactive\n  dest\nend\n'

@@ -1,6 +1,6 @@
 # In-process diagnostics for #872 (exploratory; the headline comparison is run.py).
 # usage: julia -O2 --check-bounds=no --project=benchmark/audit852 diag.jl SOURCES_DIR OUTDIR [quick]
-# Loads every candidate tree as its own module, builds identical fixtures in each, and
+# Loads trees A, B, C, C2, D and CD (NAMES below), each as its own module, builds identical fixtures in each, and
 # times public copyto! with the candidates in rotated order, plus a decomposition of
 # master's _copy_active! and the cost of comparing independently built layouts.
 using BenchmarkTools, Random, Statistics, InteractiveUtils, Printf

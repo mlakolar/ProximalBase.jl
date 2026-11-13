@@ -33,18 +33,22 @@ run --source baseline=$S/A --source baselineAA=$S/AA --source Cn=$S/Cn --source 
   --output $W/cn7 --rounds 7
 run --source baseline=$S/A --source baselineAA=$S/AA --source Cn=$S/Cn --source CnAA=$S/CnAA \
   --output $W/cn21 --rounds 21 --start-round 8
-for c in explore confirm target cn7 cn21; do
+# the merged source, which adds eligibility checks to Cn's out-of-line copies
+run --source baseline=$S/A --source baselineAA=$S/AA --source final=$PWD --source finalAA=$PWD \
+  --cases-file $W/cases-targeted.txt --output $W/final --rounds 21 --start-round 8
+for c in explore confirm target cn7 cn21 final; do
   python3 -I benchmark/copy872/analyze.py $W/$c --output $W/summary-$c
 done
-for t in A C Cn Cs; do
+for t in $S/A $S/C $S/Cn $S/Cs $PWD; do
   taskset -c 0 "$JULIA" --startup-file=no -O2 --check-bounds=no --project=benchmark/audit852 \
-    benchmark/copy872/codegen.jl $S/$t $W/codegen
+    benchmark/copy872/codegen.jl $t $W/codegen
 done
 taskset -c 0 "$JULIA" --startup-file=no -O2 --check-bounds=no --project=benchmark/audit852 \
   benchmark/copy872/diag.jl $W/sources $W/diag
 ```
 
-`make_sources.py` builds every tree outside the repository. `A` and `AA` are
+`make_sources.py` builds every tree in its output directory, which it requires to
+lie outside the repository. `A` and `AA` are
 the base commit, `O` is the original implementation used by #852, and every
 other tree is the base commit with `_copy_active!` replaced by
 `candidates/<name>.jl`:
@@ -54,9 +58,9 @@ other tree is the base commit with `_copy_active!` replaced by
 | B | when every source group is active: dense value copy, then the per-group metadata loop |
 | C | when every source group is active: dense value copy and bulk copies of `active` and `position` |
 | C2 | C, plus a bulk `position` copy at any activity |
-| D | special loops for singleton and `UnitRange` groups |
-| CD | C and D together |
-| Cn | C, with the bulk copies in a separate `@noinline` function (the merged change) |
+| D | for singleton layouts (one entry per group), loops that index each group's entry directly; master's loops otherwise |
+| CD | C's all-active path, then D's singleton path, then master's loops |
+| Cn | C, with the bulk copies in a separate `@noinline` function; the merged code adds the eligibility checks below to that function |
 | Cs | a dispatch between the bulk copies and the unchanged master loops |
 | X | an unconditional dense copy; a negative control that must fail `check.jl` |
 
@@ -65,7 +69,8 @@ values with signed zeros, NaN and Inf, active IDs and their order, reverse
 positions and counts, inactive and active zeros, storage ownership, layout-cache
 identity, conversion preflight, the different-layout fallback, self-copy,
 Float32/Float64 conversion and `BigFloat`. `check_all.jl` runs it in fresh
-bounds-checked processes for every tree and passes only when `X` fails.
+bounds-checked processes for `A` and every candidate tree (not `AA` or `O`), and
+passes only when every tree but `X` passes and `X` completes its checks and fails.
 
 Each round of `run.py` starts one fresh worker per role in rotated order and
 reverses the fixture order every second round. Seeds vary by round and match
@@ -76,10 +81,16 @@ empty or active, hold destination-only groups, use the `samegroups` cache, mix
 precisions, or run a checkpoint/restart sequence. Run an A/A control for master
 and for the candidate (a second, identical tree) whenever ratios are reported.
 
-`analyze.py` checks every sample's median and minimum, complete round and role
-pairing, rotation and one Julia binary. It reports each role's median paired
-ratio to `baseline` with seeded 10,000-resample 95% bootstrap intervals over
-rounds, and any increase in allocated bytes or counts. Assess the 7- and
+`analyze.py` checks every sample's median and minimum, that every configured case
+ran in every round for every role, the rotation, one Julia binary, and that each
+A/A control (a role named `<role>AA`) loaded a tree identical to its role. The
+configured cases are the keys `run.py` writes to `campaign.json`; for campaigns
+written before that, they are regenerated for the full grid, and for a campaign
+run from a case file only their number is checked. It
+reports each role's median paired ratio to `baseline` with seeded 10,000-resample
+95% bootstrap intervals over rounds, and counts a case as an allocation increase
+when, in some round, the role allocates more bytes or more times than the baseline
+process of that round. Assess the 7- and
 21-round campaigns separately. Small, timer-limited cases need the A/A
 controls; not every ratio above 1.05 comes from a source change.
 
@@ -87,20 +98,30 @@ controls; not every ratio above 1.05 comes from a source change.
 public `copyto!` on identical fixtures, splits master's replacement into its
 component loops, and times layout equality for independently built layouts.
 `codegen.jl` writes the native code of the replacement functions for one tree
-and prints instruction, push and call counts and any thread-local access.
+and prints, per function, its instruction, push and call counts, the number of
+instructions before its first jump, and whether it reads an fs- or gs-based
+(thread-local) address. The candidate headers and D/CD's trailing blank lines
+were edited after the campaigns, so regenerated trees differ from the measured
+ones in those comment and blank lines only.
 
 ## Results (exclusive Intel Xeon E5-2640 v4, Julia 1.13.3)
 
 The full record, with tables, is on #872. Raw samples are kept outside the
 repository. In summary:
 
-- When every source group is active, copying whole arrays is equivalent to the
-  per-group loops; with any inactive source group it is not (inactive `-0.0`
-  entries and destination-only values differ). C, Cn and CD run full-activity
-  replacement at a median 0.11–0.17× of master for each group size; B gains
-  less, C2 is up to 2.6× slower at 1% activity, and D gains 1–7% at most.
-- C was 6–10% slower than master on the smallest 1% restart cells in every
-  campaign, and so was its identical A/A tree. Its copies gave
+- When every source group is active, copying whole arrays gives the state of the
+  per-group loops, provided `active` and `position` of both iterates have one
+  entry per group and no array of the destination is shared with another array of
+  either iterate (two shared value arrays excepted); the merged code checks both
+  and otherwise runs the loops. With an inactive source group, the copies can
+  differ: the loops keep the destination's values there, such as a `-0.0`.
+  C, Cn and CD run full-activity replacement at a median 0.11–0.17× of master for
+  each group size; B gains less, C2 is up to 2.6× slower at 1% activity, and D
+  gains at most 1–7%, at partial activity with singleton groups.
+- C was 6–10% slower than master on the smallest 1% restart cells in the
+  exploration, the 21-round confirmation and the targeted campaign; in the
+  21-round confirmation, the only campaign with a C A/A role, so was that
+  identical tree. Its copies gave
   `_copy_active!` thread-local access and 9–13 calls; moving them to another
   function (Cn, Cs) removed the slowdown.
 - Cn on the full grid: 21-round medians at partial activity are 0.999–1.000

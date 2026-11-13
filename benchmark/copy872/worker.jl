@@ -1,5 +1,7 @@
 # Reuse #852's unchanged measurement, sample export, warmup, allocation and
-# provenance implementation, as #861's worker does; only the fixtures differ.
+# provenance implementation, as #861's worker does. Two adaptations: the fixtures are
+# #872's, and #852's guard that skips the original implementation for Float32 and
+# non-contiguous block layouts is off, since #861's raw constructor supports them.
 path=joinpath(@__DIR__,"..","audit852","worker.jl")
 code=read(path,String)
 for (from,to) in (

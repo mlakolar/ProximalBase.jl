@@ -54,6 +54,16 @@ paths (#808).
 p × p matrix of a symmetric iterate): every value, gradient and proximal oracle, allocating
 and in place, `Scaled` included, on dense, sparse, wrapped and iterate arguments in Float32/64,
 against BigFloat references; same-length pairs of other shapes are refused with an unchanged output.
+`linear_sparse_value` checks the `LinearFunction` value at a matrix `SparseIterate` (#810): the strong-zero rule
+(a position that is not stored, or is stored as `+0` or `-0`, adds nothing, even against a `NaN` or infinite
+coefficient; a nonzero entry keeps ordinary arithmetic), the recovery of an overflowing dot with finite participating
+entries, the `Diagonal` coefficient array, cancellation, underflow and the overflow boundary against BigFloat
+references computed from the stored entries in Float32/64, warmed allocations, the oracles that reach the value, the
+shape refusals and unchanged results for dense, vector and symmetric arguments.
+`sparse_value_cost` also restores the deterministic guard for that value: a counted `zero` and a coefficient array that
+records its reads show, in the cases tested, that no zero is formed for an unstored entry and that the
+coefficients are read at the nonzero stored entries (at the nonzero stored diagonal entries for a `Diagonal`) and nowhere
+else, on the ordinary and the recovery paths, with a control that catches a dense pass.
 `core_functions` exercises retained
 interface, lasso building blocks and custom scalar/vector block extensions.
 `dropzeros_compaction` checks the shared `dropzeros!` loop of `SparseIterate` and

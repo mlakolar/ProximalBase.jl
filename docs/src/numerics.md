@@ -63,8 +63,27 @@ recomputation: each residual is formed before scaling (as `x/2 - y/2`, one
 binade up, when `x - y` itself overflows) and the squares are summed in units
 of the largest one. Genuine NaN/Inf data or parameters keep their ordinary
 IEEE result; only finite inputs whose intermediates leave the range are
-recomputed. Recovery is worthwhile when it changes a materially inaccurate
+recomputed. For the `LinearFunction` value at a matrix `SparseIterate`, the finite
+inputs are `d`, the nonzero stored entries and the coefficients at them (for a `Diagonal`
+coefficient array, the nonzero stored diagonal entries and their coefficients: an off-diagonal
+`NaN` or `Inf` of the iterate is ignored): the
+recomputation sums their products as exponent-separated terms (as the `QuadraticFunction`
+recovery does), collapses the sum and adds `d` to it in its own units, and a nonfinite coefficient at a zero of the
+iterate does not prevent it. It reads the nonzero stored entries, `O(nactive(x))`; for a
+`Diagonal` coefficient array it scans the `p` diagonal positions, `O(p)`, whatever
+`nactive(x)` is. Recovery is worthwhile when it changes a materially inaccurate
 answer into a representable result in the working precision.
+
+The accuracy of a recovered value is an absolute bound `B = 4 n eps (sum |terms| + |d|)` for
+`n` terms. It is a statement about the computed value when the exact value plus `B` is within
+the range (`|exact| + B <= floatmax`). When `B`
+exceeds the representable range, there is no guarantee of a finite output. Extreme cancellation
+among products far beyond the output range (about `2^1077` for `Float64`, `2^150` for `Float32`
+data) can return an infinity although the exact result is a finite, normal number, in the
+recovery of a dense argument and in the recovery of the `LinearFunction` value at a matrix
+`SparseIterate` alike ([#907](https://github.com/mlakolar/ProximalBase.jl/issues/907)). A small
+`d` beside a dot that cancels exactly is returned as `d` when the compensated sum of the
+products cancels to zero, which is not guaranteed for products of very different sizes.
 
 `NormL1` values also recover terms `λ0*w[i]*abs(x[i])` that round into the
 subnormal range, which loses accuracy even when the total is normal
@@ -249,6 +268,25 @@ dropzeros!(x)
 dot(v,x)
 ```
 
+The `LinearFunction` value at a matrix `SparseIterate` follows the same rule, as
+its own computation and not through `dot(c, x)`: a position that is not stored, or is
+stored as `+0` or `-0`, contributes nothing and `c` is not read there, so a `NaN` or
+`±Inf` coefficient at it does not reach the value, while a nonzero entry keeps
+ordinary arithmetic. For a dense `c` that is not a `Diagonal`, `f(Matrix(x))` takes the
+dense IEEE dot and gives `NaN` for such a coefficient.
+
+```@example numerical_linear_sparse
+using ProximalBase, LinearAlgebra
+x = SparseIterate(2, 2)
+x[1, 1] = 2
+activate!(x, 4)                    # the entry (2, 2) is stored as a zero
+c = [1.0 NaN; Inf 1.0]
+f = LinearFunction(c, 0.25)
+@assert f(x) == 2.25
+@assert isnan(f(Matrix(x)))
+f(x)
+```
+
 Five-argument products with β=0 overwrite the destination without reading its
 old numerical entries; α=0 scales/clears output without reading right-operand
 values, after required type/shape/alias checks. Finite summation can depend on
@@ -275,7 +313,10 @@ cached data changes.
 Retained evidence includes `test/ridge_precision.jl` (independent BigFloat
 ridge references), `test/minimal_math.jl`, `test/core_functions.jl`,
 `test/sparse_iterate.jl`, `test/sparse_iterate_basics.jl`,
-`test/symmetric_products.jl`, `test/matrixview.jl` and
+`test/symmetric_products.jl`, `test/matrixview.jl`, `test/linear_sparse_value.jl`
+(BigFloat references and the strong-zero examples of the `LinearFunction` value at a matrix
+`SparseIterate`), `test/sparse_value_cost.jl` (counts of the zeros formed and of the
+coefficient entries read by that value) and
 `test/numerical_kernels.jl` (BigFloat references for the shared recovery
 kernels and their `SqrNormL2`/`LeastSquaresLoss`/`LinearFunction` consumers) and
 `test/groupnorml2.jl` and `test/norml2.jl` (BigFloat references for `GroupNormL2`

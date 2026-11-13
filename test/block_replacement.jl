@@ -221,6 +221,7 @@ const REPLACEMENT_LAYOUTS = ([1:3,4:6,7:9,10:12], [1:4:12,2:4:12,3:4:12,4:4:12],
         dvals, dids = copy(dest.storage), collect(activecoordinates(dest))
         owned = (dest.storage, dest.active, dest.position)
         caches = (src.layout_cache, dest.layout_cache)
+        groups0 = dest.groups
         svals, sids = copy(src.storage), collect(activecoordinates(src))
         @test op(dest,src) === dest
         vals, ids = model_replacement(dvals, dids, svals, sids, gs, T)
@@ -228,7 +229,8 @@ const REPLACEMENT_LAYOUTS = ([1:3,4:6,7:9,10:12], [1:4:12,2:4:12,3:4:12,4:4:12],
         check(src, svals, sids)
         @test (dest.storage, dest.active, dest.position) === owned
         @test (src.layout_cache, dest.layout_cache) === caches
-        @test dest.groups === (ownership == :shared ? src.groups : dest.groups)
+        @test dest.groups === groups0
+        @test (dest.groups === src.groups) == (ownership == :shared)
         @test !Base.mightalias(dest,src)
         # later writes and pruning follow the usual rules
         dest[first(gs[order[1]])] = T(5)
@@ -250,6 +252,36 @@ end
         @test all(i -> dest.storage[i] === src.storage[i], 1:6)
         @test signbit(dest[3])
     end
+end
+
+# The seven-argument constructor accepts metadata vectors longer than the number of
+# groups and arrays shared between iterates. Expected states follow the group-by-group
+# replacement: dest's ids, positions and entries are written in src's activation order,
+# and entries past the number of groups are left alone.
+@testset "fully active sources with spare or shared metadata arrays" begin
+    gs, go = [1:1,2:2], [1,2]
+    # spare capacity in the active list, the positions, or both, of src and of dest
+    for (sa, sp) in (([2,1,0],[2,1]), ([2,1],[2,1,9]), ([2,1,0],[2,1,9])),
+        (da, dp) in ((zeros(Int,2),zeros(Int,2)), ([0,0,7],[0,0,8]))
+        src = BlockIterate([1.0,-0.0], gs, go, nothing, sa, sp, 2)
+        dest = BlockIterate([5.0,6.0], gs, go, nothing, copy(da), copy(dp), 0)
+        @test copyto!(dest,src) === dest
+        check(dest, [1.0,-0.0], [2,1])
+        @test dest.active[3:end] == da[3:end] && dest.position[3:end] == dp[3:end]
+        @test src.active == sa && src.position == sp
+    end
+    # the active list of dest is the position array of src
+    gs3, go3 = [1:1,2:2,3:3], [1,2,3]
+    src = BlockIterate([1.0,2.0,3.0], gs3, go3, nothing, [3,1,2], [2,3,1], 3)
+    dest = BlockIterate([4.0,5.0,6.0], gs3, go3, nothing, src.position, [3,1,2], 3)
+    @test copyto!(dest,src) === dest
+    @test dest.storage == [1.0,2.0,3.0] && dest.nactive == 3
+    @test dest.active == [3,1,2] && dest.position == [2,3,1]
+    # shared value arrays and independent metadata: every entry is src's
+    src = BlockIterate([1.0,-0.0,3.0], gs3, go3, nothing, [2,3,1], [3,1,2], 3)
+    dest = BlockIterate(src.storage, gs3, go3, nothing, zeros(Int,3), zeros(Int,3), 0)
+    @test copyto!(dest,src) === dest
+    check(dest, [1.0,-0.0,3.0], [2,3,1])
 end
 
 @testset "one inactive source group keeps active-only replacement" begin

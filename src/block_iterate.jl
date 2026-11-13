@@ -368,7 +368,7 @@ end
 # have independent value/active storage. Groups shared with src will be entirely
 # overwritten, so only groups absent from src need their values cleared.
 function _copy_active!(dest::BlockIterate{T}, src::BlockIterate) where {T}
-  src.nactive == length(src.groups) && return _copy_all_active!(dest, src)
+  src.nactive == length(src.groups) && _try_copy_all_active!(dest, src) && return dest
   @inbounds for a in 1:dest.nactive
     k = dest.active[a]
     if src.position[k] == 0
@@ -391,19 +391,29 @@ function _copy_active!(dest::BlockIterate{T}, src::BlockIterate) where {T}
   dest
 end
 
-# Used by _copy_active! when every group of src is active. The groups partition the
-# entries, so its loops would then write every entry of dest and copy all of active
-# and position from src; the whole-array copies below give the same state. With an
-# inactive group in src they would not: the loops keep dest's values in that group,
-# such as a -0.0, unless dest has it active. Kept out of line: inlined into
-# _copy_active!, the copies slowed its loop path for small, partly active sources in
-# measurements on Julia 1.13.
-@noinline function _copy_all_active!(dest::BlockIterate, src::BlockIterate)
-  copyto!(dest.storage, src.storage)
-  copyto!(dest.active, src.active)
-  copyto!(dest.position, src.position)
+# Called by _copy_active! when every group of src is active. It copies storage, active
+# and position as whole arrays and returns true when that gives the state the loops of
+# _copy_active! would; otherwise it returns false without writing. With the groups a
+# partition of the entries and active and position of both iterates of length K, the
+# loops write every entry of dest and set all of dest.active and dest.position from src.
+# The arrays of dest must also be distinct objects from each other and from those of
+# src, apart from the two value arrays: through a shared array, one copy changes what a
+# later copy reads. With an inactive group in src, the copies can differ from the loops,
+# which keep dest's values in that group, such as a -0.0, unless dest has it active.
+# Kept out of line: inlined into _copy_active!, the copies slowed its loop path for
+# small, partly active sources in measurements on Julia 1.13.
+@noinline function _try_copy_all_active!(dest::BlockIterate, src::BlockIterate)
+  K = length(src.groups)
+  da, dp, ds = dest.active, dest.position, dest.storage
+  sa, sp, ss = src.active, src.position, src.storage
+  length(da) == length(dp) == length(sa) == length(sp) == K || return false
+  (da === dp || da === sa || da === sp || dp === sa || dp === sp || ds === da ||
+   ds === dp || ds === sa || ds === sp || ss === da || ss === dp) && return false
+  copyto!(ds, ss)
+  copyto!(da, sa)
+  copyto!(dp, sp)
   dest.nactive = src.nactive
-  dest
+  true
 end
 
 Base.copy!(dest::BlockIterate, src::BlockIterate) = copyto!(dest, src)

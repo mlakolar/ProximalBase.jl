@@ -1,0 +1,18 @@
+start 2026-11-13T08:38:01Z node=<NODE> job=<JOB> restart=0
+CPU(s):              20
+Thread(s) per core:  1
+NUMA node(s):        2
+Model name:          Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz
+co-tenants at start:
+<USER> pb911-xeon 20
+=== 1.13.3 2026-11-13T08:38:02Z
+julia 1.13.3 exit 0 2026-11-13T08:49:44Z
+=== 1.10.12 2026-11-13T08:49:44Z
+julia 1.10.12 exit 0 2026-11-13T09:13:00Z
+=== compile 1.13.3 2026-11-13T09:13:00Z
+compile 1.13.3 exit 0 2026-11-13T09:21:51Z
+=== compile 1.10.12 2026-11-13T09:21:51Z
+compile 1.10.12 exit 0 2026-11-13T09:29:24Z
+co-tenants at end:
+<USER> pb911-xeon 20
+end 2026-11-13T09:29:25Z

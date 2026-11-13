@@ -1,0 +1,31 @@
+VERSION = 1.13.3
+PB_ENV = master  active project = <CLUSTER-PATH>
+pathof(ProximalBase) = <RUN>/pkgs/pb-master/src/ProximalBase.jl
+ProximalBase: version=0.6.0-DEV source=<RUN>/pkgs/pb-master git_revision=nothing tree_hash=nothing
+PB exported tree marker: 1f3749f3332d1551bd65805d25786f3f53731db2 03a4bb444f0720a28337d386681c2917e9ab5503
+BLAS.get_config() = LBTConfig([ILP64] libopenblas64_.so)
+BLAS.get_num_threads() = 1  Threads.nthreads() = 1
+Sys.cpu_info()[1].model = AMD EPYC 7513 32-Core Processor  hostname-class = <PARTITION>
+SLURM_JOB_ID = <JOB>
+input hash dab628973e94cf6  floatmax(Float32) = 3.4028235e38
+version-independent fingerprint: X[1,1]=-1.8365982f0 X[2,1]=-2.2289677f0 y[1]=0.0425368f0 sum(Float64.(X))=3.7687415778636932 sum(Float64.(y))=8.51870534941554
+== K: threw: line search failed: nonfinite curvature estimate; backtracking decisions logged: 6
+   simple=true  f_x=2.2708468f38   f_prev=9.561261f31    L=6.380692f31  local_l=6.380692115204011e31 xy_sq=7.12583f6    gnorm2=Inf32
+   simple=true  f_x=7.615002f30    f_prev=2.4634903f31   L=1.1485246f32 local_l=6.578856024086583e31 xy_sq=0.69378513f0 gnorm2=Inf32
+   simple=true  f_x=1.7870744f29   f_prev=1.7870732f29   L=1.1076024f32 local_l=1.1076023833227688e32 xy_sq=4.09305f-9   gnorm2=Inf32
+   simple=true  f_x=1.7870755f29   f_prev=1.7870732f29   L=1.8510908f33 local_l=1.8510908777426026e33 xy_sq=2.8572614f-10 gnorm2=Inf32
+   simple=true  f_x=1.7870755f29   f_prev=1.7870732f29   L=4.788084f35  local_l=4.788084020656293e35 xy_sq=9.468238f-13 gnorm2=Inf32
+   simple=true  f_x=1.7870734f29   f_prev=1.7870732f29   L=Inf32        local_l=6.16724106833607e39 xy_sq=6.1257427f-18 gnorm2=Inf32
+== B3: returned: iterations=36; backtracking decisions logged: 6
+   simple=true  f_x=2.2708468f38   f_prev=9.561261f31    L=6.380692f31  local_l=6.380692115204011e31 xy_sq=7.12583f6    gnorm2=Inf32
+   simple=true  f_x=7.615f30       f_prev=2.4634903f31   L=1.1485246f32 local_l=6.578854804331307e31 xy_sq=0.69378513f0 gnorm2=Inf32
+   simple=true  f_x=1.7870748f29   f_prev=1.7870734f29   L=1.2031153f32 local_l=1.2031153350564351e32 xy_sq=4.08212f-9   gnorm2=Inf32
+   simple=true  f_x=1.7870744f29   f_prev=1.7870734f29   L=1.0968765f33 local_l=1.0968764240610643e33 xy_sq=2.41096f-10  gnorm2=Inf32
+   simple=true  f_x=1.787074f29    f_prev=1.7870734f29   L=3.8495729f34 local_l=3.8495728653859133e34 xy_sq=2.9441395f-12 gnorm2=Inf32
+   simple=true  f_x=1.787074f29    f_prev=1.7870734f29   L=1.1588575f38 local_l=1.1588575261599357e38 xy_sq=9.780046f-16 gnorm2=Inf32
+== H: returned: iterations=16; backtracking decisions logged: 5
+   simple=true  f_x=2.2708466f38   f_prev=9.561261f31    L=6.3806916f31 local_l=6.38069154593953e31 xy_sq=7.12583f6    gnorm2=Inf32
+   simple=true  f_x=7.6150014f30   f_prev=2.4634903f31   L=1.1485245f32 local_l=6.578856113433137e31 xy_sq=0.69378525f0 gnorm2=Inf32
+   simple=true  f_x=1.7870746f29   f_prev=1.7870742f29   L=7.277893f31  local_l=7.277893081036098e31 xy_sq=4.152733f-9  gnorm2=Inf32
+   simple=true  f_x=1.7870755f29   f_prev=1.7870738f29   L=1.3719395f33 local_l=1.3719393898235748e33 xy_sq=2.753688f-10 gnorm2=Inf32
+   simple=true  f_x=1.7870757f29   f_prev=1.7870738f29   L=5.6504622f35 local_l=5.6504622087471674e35 xy_sq=6.6859897f-13 gnorm2=Inf32

@@ -1,0 +1,82 @@
+VERSION = 1.10.12
+PB_ENV = master  active project = <CLUSTER-PATH>
+pathof(ProximalBase) = <RUN>/pkgs/pb-master/src/ProximalBase.jl
+ProximalBase: version=0.6.0-DEV source=<RUN>/pkgs/pb-master git_revision=nothing tree_hash=nothing
+PB exported tree marker: 1f3749f3332d1551bd65805d25786f3f53731db2 03a4bb444f0720a28337d386681c2917e9ab5503
+BLAS.get_config() = LBTConfig([ILP64] libopenblas64_.so)
+BLAS.get_num_threads() = 1  Threads.nthreads() = 1
+Sys.cpu_info()[1].model = Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz  hostname-class = <PARTITION>
+SLURM_JOB_ID = <JOB>
+CSV header: pbaa,julia,T,n,p,scale,op,variant,ratio_median_paired,ci_lo,ci_hi,median_ns
+pbaa,1.10.12,Float64,2000,500,raw,f(β),A2,1.0428,0.9833,1.0643,231890.2
+pbaa,1.10.12,Float64,2000,500,raw,f(β),R,0.9959,0.9633,1.0506,232699.5
+pbaa,1.10.12,Float64,2000,500,raw,value_and_gradient!,A2,1.0058,0.9728,1.0262,409545.2
+pbaa,1.10.12,Float64,2000,500,raw,value_and_gradient!,R,0.9992,0.9760,1.0146,408308.3
+pbaa,1.10.12,Float64,2000,500,raw,gradient!,A2,0.9955,0.9708,1.0058,406104.2
+pbaa,1.10.12,Float64,2000,500,raw,gradient!,R,1.0042,0.9671,1.0259,407082.0
+pbaa,1.10.12,Float64,2000,500,scaled,f(β),A2,1.0284,0.9545,1.0574,219138.6
+pbaa,1.10.12,Float64,2000,500,scaled,f(β),R,1.0000,0.9546,1.0502,219201.6
+pbaa,1.10.12,Float64,2000,500,scaled,value_and_gradient!,A2,0.9994,0.9775,1.0320,412117.0
+pbaa,1.10.12,Float64,2000,500,scaled,value_and_gradient!,R,0.9965,0.9659,1.0354,412583.3
+pbaa,1.10.12,Float64,2000,500,scaled,gradient!,A2,0.9984,0.9751,1.0303,413456.2
+pbaa,1.10.12,Float64,2000,500,scaled,gradient!,R,0.9973,0.9692,1.0173,419018.0
+pbaa,1.10.12,Float64,240,160,raw,f(β),A2,1.0281,1.0273,1.0289,9005.6
+pbaa,1.10.12,Float64,240,160,raw,f(β),R,1.0269,1.0245,1.0279,8996.1
+pbaa,1.10.12,Float64,240,160,raw,value_and_gradient!,A2,1.0303,1.0297,1.0314,16929.2
+pbaa,1.10.12,Float64,240,160,raw,value_and_gradient!,R,1.0218,1.0209,1.0226,16776.3
+pbaa,1.10.12,Float64,240,160,raw,gradient!,A2,1.0319,1.0311,1.0327,16845.7
+pbaa,1.10.12,Float64,240,160,raw,gradient!,R,1.0249,1.0242,1.0257,16739.9
+pbaa,1.10.12,Float64,240,160,scaled,f(β),A2,1.0336,1.0327,1.0345,9018.6
+pbaa,1.10.12,Float64,240,160,scaled,f(β),R,1.0302,1.0287,1.0314,8992.7
+pbaa,1.10.12,Float64,240,160,scaled,value_and_gradient!,A2,1.0510,1.0504,1.0523,17025.6
+pbaa,1.10.12,Float64,240,160,scaled,value_and_gradient!,R,1.0451,1.0443,1.0459,16926.5
+pbaa,1.10.12,Float64,240,160,scaled,gradient!,A2,1.0502,1.0497,1.0508,16970.8
+pbaa,1.10.12,Float64,240,160,scaled,gradient!,R,1.0480,1.0468,1.0483,16939.4
+pbaa,1.10.12,Float64,100,32,raw,f(β),A2,0.9946,0.9913,0.9980,1085.7
+pbaa,1.10.12,Float64,100,32,raw,f(β),R,1.0067,1.0050,1.0081,1100.4
+pbaa,1.10.12,Float64,100,32,raw,value_and_gradient!,A2,0.9841,0.9822,0.9857,1648.4
+pbaa,1.10.12,Float64,100,32,raw,value_and_gradient!,R,0.9920,0.9907,0.9946,1659.8
+pbaa,1.10.12,Float64,100,32,raw,gradient!,A2,0.9806,0.9777,0.9821,1634.3
+pbaa,1.10.12,Float64,100,32,raw,gradient!,R,0.9890,0.9873,0.9898,1629.4
+pbaa,1.10.12,Float64,100,32,scaled,f(β),A2,1.0035,1.0014,1.0062,1121.8
+pbaa,1.10.12,Float64,100,32,scaled,f(β),R,1.0030,0.9989,1.0073,1122.0
+pbaa,1.10.12,Float64,100,32,scaled,value_and_gradient!,A2,0.9955,0.9942,0.9964,1711.2
+pbaa,1.10.12,Float64,100,32,scaled,value_and_gradient!,R,1.0003,0.9980,1.0018,1718.7
+pbaa,1.10.12,Float64,100,32,scaled,gradient!,A2,0.9992,0.9964,1.0007,1693.1
+pbaa,1.10.12,Float64,100,32,scaled,gradient!,R,1.0007,0.9987,1.0017,1695.8
+pbaa,1.10.12,Float32,2000,500,raw,f(β),A2,0.9981,0.9948,0.9998,96458.9
+pbaa,1.10.12,Float32,2000,500,raw,f(β),R,0.9991,0.9968,0.9998,96563.6
+pbaa,1.10.12,Float32,2000,500,raw,value_and_gradient!,A2,1.0002,0.9997,1.0006,193294.6
+pbaa,1.10.12,Float32,2000,500,raw,value_and_gradient!,R,1.0004,1.0003,1.0013,193616.7
+pbaa,1.10.12,Float32,2000,500,raw,gradient!,A2,0.9995,0.9993,0.9997,192892.1
+pbaa,1.10.12,Float32,2000,500,raw,gradient!,R,1.0008,1.0005,1.0013,193141.9
+pbaa,1.10.12,Float32,2000,500,scaled,f(β),A2,1.0013,1.0010,1.0019,96587.1
+pbaa,1.10.12,Float32,2000,500,scaled,f(β),R,1.0016,1.0007,1.0023,96610.2
+pbaa,1.10.12,Float32,2000,500,scaled,value_and_gradient!,A2,1.0018,1.0015,1.0022,193717.8
+pbaa,1.10.12,Float32,2000,500,scaled,value_and_gradient!,R,1.0034,1.0030,1.0038,193984.9
+pbaa,1.10.12,Float32,2000,500,scaled,gradient!,A2,1.0018,1.0012,1.0028,193601.2
+pbaa,1.10.12,Float32,2000,500,scaled,gradient!,R,1.0025,1.0020,1.0034,193684.9
+pbaa,1.10.12,Float32,240,160,raw,f(β),A2,0.9842,0.9825,0.9854,2807.9
+pbaa,1.10.12,Float32,240,160,raw,f(β),R,1.0044,1.0027,1.0058,2862.6
+pbaa,1.10.12,Float32,240,160,raw,value_and_gradient!,A2,0.9868,0.9857,0.9892,5602.3
+pbaa,1.10.12,Float32,240,160,raw,value_and_gradient!,R,0.9897,0.9886,0.9913,5615.4
+pbaa,1.10.12,Float32,240,160,raw,gradient!,A2,0.9829,0.9804,0.9839,5540.5
+pbaa,1.10.12,Float32,240,160,raw,gradient!,R,0.9943,0.9921,0.9959,5607.5
+pbaa,1.10.12,Float32,240,160,scaled,f(β),A2,1.0171,1.0151,1.0186,2800.9
+pbaa,1.10.12,Float32,240,160,scaled,f(β),R,1.0005,0.9986,1.0024,2752.1
+pbaa,1.10.12,Float32,240,160,scaled,value_and_gradient!,A2,1.0089,1.0070,1.0098,5652.3
+pbaa,1.10.12,Float32,240,160,scaled,value_and_gradient!,R,1.0017,1.0007,1.0024,5615.8
+pbaa,1.10.12,Float32,240,160,scaled,gradient!,A2,1.0057,1.0039,1.0081,5668.4
+pbaa,1.10.12,Float32,240,160,scaled,gradient!,R,0.9886,0.9877,0.9895,5571.6
+pbaa,1.10.12,Float32,100,32,raw,f(β),A2,1.0315,1.0231,1.0351,898.3
+pbaa,1.10.12,Float32,100,32,raw,f(β),R,1.0098,1.0085,1.0140,878.5
+pbaa,1.10.12,Float32,100,32,raw,value_and_gradient!,A2,1.0322,1.0311,1.0336,1348.7
+pbaa,1.10.12,Float32,100,32,raw,value_and_gradient!,R,1.0062,1.0053,1.0079,1314.4
+pbaa,1.10.12,Float32,100,32,raw,gradient!,A2,1.0291,1.0264,1.0311,1328.0
+pbaa,1.10.12,Float32,100,32,raw,gradient!,R,0.9999,0.9972,1.0017,1289.9
+pbaa,1.10.12,Float32,100,32,scaled,f(β),A2,1.0202,1.0170,1.0220,906.1
+pbaa,1.10.12,Float32,100,32,scaled,f(β),R,1.0041,1.0019,1.0063,892.7
+pbaa,1.10.12,Float32,100,32,scaled,value_and_gradient!,A2,1.0283,1.0261,1.0302,1350.2
+pbaa,1.10.12,Float32,100,32,scaled,value_and_gradient!,R,1.0011,0.9996,1.0034,1314.8
+pbaa,1.10.12,Float32,100,32,scaled,gradient!,A2,1.0352,1.0324,1.0366,1334.1
+pbaa,1.10.12,Float32,100,32,scaled,gradient!,R,1.0141,1.0126,1.0174,1309.9

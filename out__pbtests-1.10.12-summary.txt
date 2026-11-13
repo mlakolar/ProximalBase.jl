@@ -1,0 +1,831 @@
+VERSION = 1.10.12  cpu = AMD EPYC 7513 32-Core Processor
+=== PB test suite on pb-H (pb-master 1f3749f3 + PB #911 H refactor (disposable))
+Test Summary:                  | Pass  Total  Time
+activecoordinates is read-only |  154    154  1.8s
+Test Summary:                                |  Pass  Total  Time
+whole-block copies match scalar value writes | 36852  36852  3.6s
+Test Summary:                          | Pass  Total  Time
+aliasing, prefixes and arbitrary views |  976    976  1.5s
+Test Summary:                                              | Pass  Total  Time
+fallible reads and conversions retain scalar failure state |  544    544  0.8s
+Test Summary:                                          | Pass  Total  Time
+large active copy snapshots an aliased ordinary vector |   24     24  0.0s
+Test Summary:                                                 | Pass  Total  Time
+view math and the same-type active writer allocate no storage |   72     72  1.4s
+Test Summary:                                              |  Pass  Total  Time
+whole-iterate replacement and independent state references | 26784  26784  4.8s
+Test Summary:                                                         | Pass  Total  Time
+empty source, layout cache hits, and equal descriptor representations |  468    468  0.4s
+Test Summary:                                                      | Pass  Total  Time
+different compatible layouts retain ordinary value-write semantics |  352    352  0.2s
+Test Summary:                                        | Pass  Total  Time
+zero-length replacement and empty conversion staging |   96     96  0.7s
+Test Summary:                                                  | Pass  Total  Time
+replacement preserves nonfinite values and signed active zeros |  160    160  0.0s
+Test Summary:                                                | Pass  Total  Time
+mixed float conversion retains groups that underflow to zero |   16     16  0.0s
+Test Summary:                                                | Pass  Total  Time
+destination-only groups reuse one constructed zero per group |   16     16  0.3s
+Test Summary:                                                    | Pass  Total  Time
+preflight errors preserve complete destination and layout caches |  150    150  0.2s
+Test Summary:                          | Pass  Total  Time
+activation follows the converted value |    3      3  0.2s
+Test Summary:                                  | Pass  Total  Time
+scalar buffer starts at the view's first index |   22     22  0.5s
+Test Summary:                                          | Pass  Total  Time
+singleton copies preserve custom alias-metadata errors |   22     22  0.2s
+Test Summary:                                                   | Pass  Total  Time
+custom view indices keep Base's read and partial-write behavior |   44     44  0.3s
+Test Summary:                             | Pass  Total  Time
+Float32 b=1 contiguous block value copies |  268    268  0.7s
+Test Summary:                          | Pass  Total  Time
+Float32 b=1 strided block value copies |  268    268  0.7s
+Test Summary:                            | Pass  Total  Time
+Float32 b=1 arbitrary block value copies |  268    268  0.8s
+Test Summary:                           | Pass  Total  Time
+Float32 b=1 reversed block value copies |  268    268  0.0s
+Test Summary:                             | Pass  Total  Time
+Float32 b=8 contiguous block value copies |  266    266  0.0s
+Test Summary:                          | Pass  Total  Time
+Float32 b=8 strided block value copies |  266    266  0.0s
+Test Summary:                            | Pass  Total  Time
+Float32 b=8 arbitrary block value copies |  266    266  0.0s
+Test Summary:                           | Pass  Total  Time
+Float32 b=8 reversed block value copies |  266    266  0.0s
+Test Summary:                              | Pass  Total  Time
+Float32 b=64 contiguous block value copies |  266    266  0.0s
+Test Summary:                           | Pass  Total  Time
+Float32 b=64 strided block value copies |  266    266  0.0s
+Test Summary:                             | Pass  Total  Time
+Float32 b=64 arbitrary block value copies |  266    266  0.0s
+Test Summary:                            | Pass  Total  Time
+Float32 b=64 reversed block value copies |  266    266  0.0s
+Test Summary:                             | Pass  Total  Time
+Float64 b=1 contiguous block value copies |  268    268  0.6s
+Test Summary:                          | Pass  Total  Time
+Float64 b=1 strided block value copies |  268    268  0.6s
+Test Summary:                            | Pass  Total  Time
+Float64 b=1 arbitrary block value copies |  268    268  0.7s
+Test Summary:                           | Pass  Total  Time
+Float64 b=1 reversed block value copies |  268    268  0.0s
+Test Summary:                             | Pass  Total  Time
+Float64 b=8 contiguous block value copies |  266    266  0.0s
+Test Summary:                          | Pass  Total  Time
+Float64 b=8 strided block value copies |  266    266  0.0s
+Test Summary:                            | Pass  Total  Time
+Float64 b=8 arbitrary block value copies |  266    266  0.0s
+Test Summary:                           | Pass  Total  Time
+Float64 b=8 reversed block value copies |  266    266  0.0s
+Test Summary:                              | Pass  Total  Time
+Float64 b=64 contiguous block value copies |  266    266  0.0s
+Test Summary:                           | Pass  Total  Time
+Float64 b=64 strided block value copies |  266    266  0.0s
+Test Summary:                             | Pass  Total  Time
+Float64 b=64 arbitrary block value copies |  266    266  0.0s
+Test Summary:                            | Pass  Total  Time
+Float64 b=64 reversed block value copies |  266    266  0.0s
+Test Summary:                                         | Pass  Total  Time
+live block view after whole-iterate state replacement |  360    360  0.5s
+Test Summary:                                   | Pass  Total  Time
+aliased Vector source and ordered block layouts |   78     78  0.6s
+Test Summary:                    | Pass  Total  Time
+Float32 retained cache lifecycle |    7      7  0.5s
+Test Summary:                | Pass  Total  Time
+Float32 block coordinate KKT |    8      8  0.4s
+Test Summary:                    | Pass  Total  Time
+Float64 retained cache lifecycle |    7      7  0.4s
+Test Summary:                | Pass  Total  Time
+Float64 block coordinate KKT |    8      8  0.3s
+ERROR: LoadError: SystemError: opening file "<RUN>/pkgs/pb-H/.github/workflows/CI.yml": No such file or directory
+ci_contract: Test Failed at <RUN>/pkgs/pb-H/test/runtests.jl:46
+Test Summary:                | Pass  Total  Time
+public bindings and dispatch |    2      2  0.5s
+Test Summary:                                 | Pass  Total  Time
+Float32 values, gradients and proximal points |   45     45  2.3s
+Test Summary:                                   | Pass  Total  Time
+Float32 least squares and lasso building blocks |    5      5  8.5s
+Test Summary:                             | Pass  Total  Time
+Float32 extension and symmetric preflight |    9      9  1.1s
+Test Summary:                                 | Pass  Total  Time
+Float64 values, gradients and proximal points |   45     45  2.2s
+Test Summary:                                   | Pass  Total  Time
+Float64 least squares and lasso building blocks |    5      5  8.7s
+Test Summary:                             | Pass  Total  Time
+Float64 extension and symmetric preflight |    9      9  0.8s
+Test Summary:                       |  Pass  Total  Time
+dropzeros! shared compaction (#834) | 23452  23452  3.4s
+Test Summary:                          | Pass  Total  Time
+Float32 scalar step: every entry point | 1648   1648  0.5s
+Test Summary:                 | Pass  Total  Time
+Float32 per-entry array steps | 1288   1288  0.2s
+Test Summary:                | Pass  Total  Time
+Float32 the documented cases |  186    186  0.2s
+Test Summary:                                               | Pass  Total  Time
+Float32 finite-factor overflow (#866): pinned, not endorsed |   10     10  0.0s
+Test Summary:                          | Pass  Total  Time
+Float64 scalar step: every entry point | 1648   1648  0.3s
+Test Summary:                 | Pass  Total  Time
+Float64 per-entry array steps | 1288   1288  0.2s
+Test Summary:                | Pass  Total  Time
+Float64 the documented cases |  186    186  0.1s
+Test Summary:                                               | Pass  Total  Time
+Float64 finite-factor overflow (#866): pinned, not endorsed |   10     10  0.0s
+Test Summary:         | Pass  Total  Time
+Float32 SparseIterate | 1044   1044  0.3s
+Test Summary:        | Pass  Total  Time
+Float32 BlockIterate | 1046   1046  0.4s
+Test Summary:                  | Pass  Total  Time
+Float32 SymmetricSparseIterate | 1140   1140  0.4s
+Test Summary:         | Pass  Total  Time
+Float64 SparseIterate | 1044   1044  0.2s
+Test Summary:        | Pass  Total  Time
+Float64 BlockIterate | 1046   1046  0.4s
+Test Summary:                  | Pass  Total  Time
+Float64 SymmetricSparseIterate | 1140   1140  0.4s
+Test Summary:                         | Pass  Total  Time
+Scaled NormL1 with an infinite weight |    6      6  0.2s
+Test Summary:                                                        | Pass  Total  Time
+Float32 #665 zero step at an infinite level: every dense entry point |  289    289  0.2s
+Test Summary:                                              | Pass  Total  Time
+Float32 #665 per-entry steps: zero and positive neighbours |   19     19  0.1s
+Test Summary:                                                                                     | Pass  Total  Time
+Float32 #665 finite levels, infinite weights (#853) and overflow (#866) keep their rules at γ = 0 |   38     38  0.1s
+Test Summary:                           | Pass  Total  Time
+Float32 #665 zero step on SparseIterate |   39     39  0.2s
+Test Summary:                          | Pass  Total  Time
+Float32 #665 zero step on BlockIterate |   22     22  0.0s
+Test Summary:                                                                      | Pass  Total  Time
+Float32 #665 zero step on SymmetricSparseIterate (scalar steps, symmetric weights) |   22     22  0.2s
+Test Summary:                         | Pass  Total  Time
+Float32 #665 zero step through Scaled |   53     53  2.0s
+Test Summary:                                                        | Pass  Total  Time
+Float64 #665 zero step at an infinite level: every dense entry point |  289    289  0.1s
+Test Summary:                                              | Pass  Total  Time
+Float64 #665 per-entry steps: zero and positive neighbours |   19     19  0.1s
+Test Summary:                                                                                     | Pass  Total  Time
+Float64 #665 finite levels, infinite weights (#853) and overflow (#866) keep their rules at γ = 0 |   38     38  0.0s
+Test Summary:                           | Pass  Total  Time
+Float64 #665 zero step on SparseIterate |   39     39  0.2s
+Test Summary:                          | Pass  Total  Time
+Float64 #665 zero step on BlockIterate |   22     22  0.0s
+Test Summary:                                                                      | Pass  Total  Time
+Float64 #665 zero step on SymmetricSparseIterate (scalar steps, symmetric weights) |   22     22  0.2s
+Test Summary:                         | Pass  Total  Time
+Float64 #665 zero step through Scaled |   53     53  1.6s
+Test Summary:                                     | Pass  Total  Time
+iterate invariants: SparseIterate vector, Float64 |    9      9  0.3s
+Test Summary:                                   | Pass  Total  Time
+iterate invariants: SparseIterate vector, Int64 |   13     13  0.5s
+Test Summary:                                     | Pass  Total  Time
+iterate invariants: SparseIterate matrix, Float64 |    9      9  0.3s
+Test Summary:                                   | Pass  Total  Time
+iterate invariants: SparseIterate matrix, Int64 |   13     13  0.4s
+Test Summary:                                       | Pass  Total  Time
+iterate invariants: SymmetricSparseIterate, Float64 |    9      9  0.2s
+Test Summary:                                     | Pass  Total  Time
+iterate invariants: SymmetricSparseIterate, Int64 |   13     13  0.3s
+Test Summary:                             | Pass  Total  Time
+iterate invariants: BlockIterate, Float64 |    9      9  0.4s
+Test Summary:                           | Pass  Total  Time
+iterate invariants: BlockIterate, Int64 |   13     13  0.6s
+Test Summary:                                                      | Pass  Total  Time
+iterate invariants: one SymmetricSparseIterate coordinate per pair |    6      6  0.1s
+Test Summary:         | Pass  Total  Time
+SparseIterate queries |  174    174  4.0s
+Test Summary:                  | Pass  Total  Time
+coordinates of a SparseIterate |   29     29  0.5s
+Test Summary:                    | Pass  Total   Time
+value writes never remove (FT05) |  695    695  12.3s
+Test Summary:              | Pass  Total  Time
+imports and lengths (FT07) |  238    238  1.1s
+Test Summary:                            | Pass  Total  Time
+replace and clear (FT08, array iterates) |   33     33  0.9s
+Test Summary:                                                  | Pass  Total  Time
+coordinates(x) is an ordinary vector that writes values (FP-7) |   45     45  0.6s
+Test Summary:                                                         | Pass  Total  Time
+the coordinates of a symmetric iterate are an ordinary vector (CRD-4) |   46     46  2.6s
+Test Summary:                                                                       | Pass  Total  Time
+a matrix SparseIterate has the array writers that a SymmetricSparseIterate does not |   11     11  0.8s
+Test Summary:          | Pass  Total  Time
+writes do not allocate |    9      9  0.2s
+Test Summary:                           | Pass  Total   Time
+LinearFunction shape contract (Float32) | 1409   1409  45.5s
+Test Summary:                           | Pass  Total   Time
+LinearFunction shape contract (Float64) | 1409   1409  48.1s
+Test Summary:                                  |  Pass  Total   Time
+LinearFunction value at a matrix SparseIterate | 12809  12809  20.6s
+Test Summary:                                 | Pass  Total  Time
+matrixview: live, read-only, independent copy |   11     11  1.4s
+Test Summary:                                           | Pass  Total  Time
+matrixview: indices are matrix indices, not coordinates |    6      6  0.0s
+Test Summary:                                 | Pass  Total  Time
+matrixview: nothing can be written through it |   36     36  1.0s
+Test Summary:                                                   | Pass  Total  Time
+matrixview: allocating operations give ordinary writable arrays |    8      8  0.2s
+Test Summary:              | Pass  Total  Time
+matrixview: aliasing hooks |    5      5  0.0s
+Test Summary:                                  | Pass  Total  Time
+matrixview: output aliasing the matrix storage |   10     10  0.4s
+Test Summary:                           | Pass  Total  Time
+matrixview: product with a dense vector |   16     16  0.4s
+Test Summary:                                    | Pass  Total  Time
+matrixview: both products touch O(p + s) entries |   15     15  0.0s
+Test Summary:                               | Pass  Total  Time
+matrixview: five-argument product semantics |  149    149  0.3s
+Test Summary:                                   | Pass  Total  Time
+matrixview: non-finite vector and a stored zero |    6      6  0.1s
+Test Summary:                                            | Pass  Total  Time
+matrixview: empty and one-dimensional symmetric iterates |    3      3  0.1s
+Test Summary:                                                                | Pass  Total  Time
+matrixview: sparse, triu and tril are sparse matrices of the nonzero entries |  348    348  1.4s
+Test Summary:    | Pass  Total  Time
+matrixview: show |    1      1  0.2s
+Test Summary:                                                 | Pass  Total  Time
+activevalues: stored values in the order of activecoordinates |   18     18  0.4s
+Test Summary:                                              | Pass  Total  Time
+activevalues: replaces by-slot access to the stored arrays |    2      2  0.0s
+Test Summary:        | Pass  Total   Time
+ProximalBase Float32 | 3208   3208  10.4s
+Test Summary:        | Pass  Total  Time
+ProximalBase Float64 | 3208   3208  9.8s
+Euclidean norm recovery: Test Failed at <RUN>/pkgs/pb-H/test/numerical_kernels.jl:313
+Test Summary:                                               | Pass  Fail  Total  Time
+numerical kernels Float64                                   | 9401     1   9402  4.3s
+  bounded-product kernel                                    | 2064         2064  0.1s
+  halved difference                                         |  507          507  0.0s
+  squared-residual kernel                                   | 2410         2410  0.4s
+  ordinary sum-of-squares trigger                           |    3            3  0.0s
+  scaled square value and parts                             |   15           15  0.2s
+  SqrNormL2 on the shared kernels                           |  920          920  1.1s
+  recomputed-dot units                                      | 1063         1063  0.0s
+  LeastSquaresLoss and LinearFunction on the shared kernels |   28           28  0.6s
+  Euclidean norm recovery                                   | 2391     1   2392  1.9s
+ERROR: LoadError: Some tests did not pass: 9401 passed, 1 failed, 0 errored, 0 broken.
+numerical_kernels: Test Failed at <RUN>/pkgs/pb-H/test/runtests.jl:46
+Test Summary:              | Pass  Broken  Total     Time
+numerical recovery Float64 | 6253       5   6258  1m01.5s
+Test Summary:              | Pass  Broken  Total     Time
+numerical recovery Float32 | 6315       5   6320  1m00.7s
+Test Summary:             | Pass  Total  Time
+real iterate constructors |   62     62  1.7s
+Test Summary:                  | Pass  Total  Time
+real sparse and block products |  728    728  3.6s
+Test Summary:                               | Pass  Total  Time
+real symmetric iterate products and writers |  223    223  7.7s
+Test Summary:                        | Pass  Total  Time
+broadcast data and control arguments |  100    100  3.6s
+Test Summary:                       | Pass  Total  Time
+real scalar and structured operands |   39     39  2.1s
+Test Summary:                                           | Pass  Total  Time
+real-only bulk writes of SparseIterate and BlockIterate |  285    285  5.3s
+Test Summary:     | Pass  Total   Time
+broadcast results |  538    538  16.8s
+Test Summary:    | Pass  Total  Time
+iterate dispatch |    1      1  3.0s
+Test Summary:                             | Pass  Total  Time
+copyto! sources reach the real-only check |  100    100  2.8s
+Test Summary:           | Pass  Total  Time
+cases from the contract |    8      8  0.0s
+Test Summary:                        |  Pass  Total  Time
+prox: sweep against exact references | 99136  99136  0.6s
+Test Summary:                                | Pass  Total  Time
+prox: extremes of the data and a wide center |   10     10  0.0s
+Test Summary:                                  | Pass  Total  Time
+gradient: sweep and overflow of the difference | 3496   3496  0.2s
+Test Summary:                                 | Pass  Total  Time
+fused calls: both outputs from one invocation |   40     40  0.3s
+Test Summary:                                          | Pass  Total  Time
+value: a Float64 center does not widen a Float32 value |    6      6  0.3s
+Test Summary:                                        | Pass  Total  Time
+dense paths: one center entry leaves Float32's range |   37     37  0.0s
+Test Summary:                                          | Pass  Total  Time
+a center that underflows on rounding is used unrounded |    3      3  0.0s
+Test Summary:      | Pass  Total  Time
+review regressions |    5      5  0.1s
+Test Summary:  | Pass  Total  Time
+review of #411 |  652    652  0.0s
+Test Summary:                               | Pass  Total  Time
+BigFloat centers are rounded entry by entry |    1      1  0.0s
+Test Summary: | Pass  Total     Time
+sparseIterate | 5293   5293  1m03.3s
+Test Summary:          | Pass  Total   Time
+sparseSymmetricIterate |   41     41  48.8s
+Test Summary:                                                 | Pass  Total  Time
+copyto! from an orthogonal factor into a matrix SparseIterate | 1182   1182  3.1s
+Test Summary: | Pass  Total   Time
+sparseIterate | 1443   1443  10.1s
+Test Summary:          | Pass  Total  Time
+sparseSymmetricIterate |  110    110  5.7s
+Test Summary:                                    | Pass  Total  Time
+sparse triple products agree with dense products |   12     12  0.0s
+Test Summary:                            | Pass  Total  Time
+aliasing of the views of a SparseIterate |   36     36  0.7s
+Test Summary:                         | Pass  Total  Time
+dropzeros all-zero and trailing zeros |  540    540  1.5s
+Test Summary: | Pass  Total  Time
+sparseIterate | 1224   1224  4.5s
+Test Summary:                                    | Pass  Total  Time
+sparse triple products agree with dense products |   12     12  0.7s
+Test Summary:     | Pass  Total  Time
+Sparse value cost |   99     99  3.0s
+Test Summary:               | Pass  Total  Time
+T01: index spaces and edges | 2822   2822  2.7s
+Test Summary:                                 | Pass  Total  Time
+T02: one variable, two entries, live and copy |  108    108  1.1s
+Test Summary:                                  | Pass  Total  Time
+T03, T12: active zeros, compaction and handles |   48     48  0.9s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float32, p = 0 |    6      6  0.2s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float32, p = 1 |  346    346  0.3s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float32, p = 3 |  341    341  0.0s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float32, p = 6 |  351    351  0.0s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float64, p = 0 |    6      6  0.1s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float64, p = 1 |  362    362  0.1s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float64, p = 3 |  345    345  0.0s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float64, p = 6 |  350    350  0.0s
+Test Summary:              | Pass  Total  Time
+T09: the interface surface |  607    607  2.0s
+Test Summary:                                   | Pass  Total  Time
+D2: equality and hash of two symmetric iterates | 8890   8890  2.0s
+Test Summary:                                                                                | Pass  Total  Time
+scaling the coordinates of the symmetric iterate by a number is an ordinary vector operation |  530    530  0.8s
+Test Summary: | Pass  Total  Time
+show          |   42     42  0.9s
+Test Summary:                                                                   | Pass  Total  Time
+retained storage: one T array and two Int arrays of length q, and small headers |   44     44  0.1s
+Test Summary:                                                                         | Pass  Total   Time
+Float32 valid symmetric models agree with dense and structurally symmetric references | 1024   1024  11.5s
+Test Summary:                                                                                 | Pass  Total  Time
+Float32 a raw symmetric parameter array and its lower-triangle control give identical results |  342    342  5.7s
+Test Summary:                                                                         | Pass  Total   Time
+Float64 valid symmetric models agree with dense and structurally symmetric references | 1024   1024  11.2s
+Test Summary:                                                                                 | Pass  Total  Time
+Float64 a raw symmetric parameter array and its lower-triangle control give identical results |  342    342  5.7s
+Test Summary:                                               | Pass  Total  Time
+the explicit checker validates every declared mirrored pair |   56     56  0.8s
+Test Summary:                                              | Pass  Total  Time
+structural validation of the ordinary oracles is unchanged |  274    274  2.4s
+Test Summary:                                         | Pass  Total   Time
+ordinary oracles do not scan mirrored parameter pairs |  184    184  13.4s
+Test Summary:                              | Pass  Total  Time
+a custom extension is validated explicitly |   10     10  1.3s
+Test Summary:                              | Pass  Total  Time
+Symmetric products over active coordinates |  152    152  6.0s
+Test Summary:                                | Pass  Total  Time
+strided destinations and mixed element types |   41     41  1.4s
+Test Summary:                                  | Pass  Total  Time
+raw symmetric quadratic has no hot allocations |   20     20  4.0s
+Test Summary:                 | Pass  Fail  Total      Time
+ProximalBase minimal core     |   26     2     28  12m05.6s
+  active_handle               |    1            1     11.8s
+  block_copy                  |    1            1      8.8s
+  block_replacement           |    1            1      8.2s
+  block_value_updates         |    1            1      8.1s
+  cache_and_blocks            |    1            1      2.2s
+  ci_contract                 |          1      1      3.8s
+  core_functions              |    1            1     24.8s
+  dropzeros_compaction        |    1            1      4.1s
+  infinite_weights            |    1            1      9.8s
+  iterate_invariants          |    1            1      4.1s
+  iterate_queries             |    1            1      5.3s
+  iterate_writes              |    1            1     20.3s
+  linear_shapes               |    1            1   1m39.3s
+  linear_sparse_value         |    1            1     23.2s
+  matrixview                  |    1            1      8.9s
+  minimal_math                |    1            1     24.9s
+  numerical_kernels           |          1      1     13.8s
+  numerical_recovery          |    1            1   2m22.4s
+  real_iterates               |    1            1     51.1s
+  ridge_precision             |    1            1      9.4s
+  sparse_iterate              |    1            1   1m56.7s
+  sparse_iterate_basics       |    1            1     23.0s
+  sparse_iterate_basics_grids |    1            1      8.3s
+  sparse_value_cost           |    1            1      3.8s
+  symmetric_iterate_indexing  |    1            1      6.5s
+  symmetric_iterate_interface |    1            1      8.0s
+  symmetric_parameters        |    1            1     56.2s
+  symmetric_products          |    1            1     18.7s
+ERROR: LoadError: Some tests did not pass: 26 passed, 2 failed, 0 errored, 0 broken.
+=== pb-H: test suite FAILED in 727.5 s
+=== PB test suite on pb-master (1f3749f3332d1551bd65805d25786f3f53731db2 03a4bb444f0720a28337d386681c2917e9ab5503)
+Test Summary:                  | Pass  Total  Time
+activecoordinates is read-only |  154    154  2.2s
+Test Summary:                                |  Pass  Total  Time
+whole-block copies match scalar value writes | 36852  36852  4.1s
+Test Summary:                          | Pass  Total  Time
+aliasing, prefixes and arbitrary views |  976    976  1.9s
+Test Summary:                                              | Pass  Total  Time
+fallible reads and conversions retain scalar failure state |  544    544  0.9s
+Test Summary:                                          | Pass  Total  Time
+large active copy snapshots an aliased ordinary vector |   24     24  0.0s
+Test Summary:                                                 | Pass  Total  Time
+view math and the same-type active writer allocate no storage |   72     72  1.7s
+Test Summary:                                              |  Pass  Total  Time
+whole-iterate replacement and independent state references | 26784  26784  5.8s
+Test Summary:                                                         | Pass  Total  Time
+empty source, layout cache hits, and equal descriptor representations |  468    468  0.5s
+Test Summary:                                                      | Pass  Total  Time
+different compatible layouts retain ordinary value-write semantics |  352    352  0.3s
+Test Summary:                                        | Pass  Total  Time
+zero-length replacement and empty conversion staging |   96     96  0.7s
+Test Summary:                                                  | Pass  Total  Time
+replacement preserves nonfinite values and signed active zeros |  160    160  0.0s
+Test Summary:                                                | Pass  Total  Time
+mixed float conversion retains groups that underflow to zero |   16     16  0.0s
+Test Summary:                                                | Pass  Total  Time
+destination-only groups reuse one constructed zero per group |   16     16  0.4s
+Test Summary:                                                    | Pass  Total  Time
+preflight errors preserve complete destination and layout caches |  150    150  0.2s
+Test Summary:                          | Pass  Total  Time
+activation follows the converted value |    3      3  0.3s
+Test Summary:                                  | Pass  Total  Time
+scalar buffer starts at the view's first index |   22     22  0.6s
+Test Summary:                                          | Pass  Total  Time
+singleton copies preserve custom alias-metadata errors |   22     22  0.3s
+Test Summary:                                                   | Pass  Total  Time
+custom view indices keep Base's read and partial-write behavior |   44     44  0.3s
+Test Summary:                             | Pass  Total  Time
+Float32 b=1 contiguous block value copies |  268    268  0.8s
+Test Summary:                          | Pass  Total  Time
+Float32 b=1 strided block value copies |  268    268  0.8s
+Test Summary:                            | Pass  Total  Time
+Float32 b=1 arbitrary block value copies |  268    268  0.9s
+Test Summary:                           | Pass  Total  Time
+Float32 b=1 reversed block value copies |  268    268  0.0s
+Test Summary:                             | Pass  Total  Time
+Float32 b=8 contiguous block value copies |  266    266  0.0s
+Test Summary:                          | Pass  Total  Time
+Float32 b=8 strided block value copies |  266    266  0.0s
+Test Summary:                            | Pass  Total  Time
+Float32 b=8 arbitrary block value copies |  266    266  0.0s
+Test Summary:                           | Pass  Total  Time
+Float32 b=8 reversed block value copies |  266    266  0.0s
+Test Summary:                              | Pass  Total  Time
+Float32 b=64 contiguous block value copies |  266    266  0.0s
+Test Summary:                           | Pass  Total  Time
+Float32 b=64 strided block value copies |  266    266  0.0s
+Test Summary:                             | Pass  Total  Time
+Float32 b=64 arbitrary block value copies |  266    266  0.0s
+Test Summary:                            | Pass  Total  Time
+Float32 b=64 reversed block value copies |  266    266  0.0s
+Test Summary:                             | Pass  Total  Time
+Float64 b=1 contiguous block value copies |  268    268  0.8s
+Test Summary:                          | Pass  Total  Time
+Float64 b=1 strided block value copies |  268    268  0.7s
+Test Summary:                            | Pass  Total  Time
+Float64 b=1 arbitrary block value copies |  268    268  0.8s
+Test Summary:                           | Pass  Total  Time
+Float64 b=1 reversed block value copies |  268    268  0.0s
+Test Summary:                             | Pass  Total  Time
+Float64 b=8 contiguous block value copies |  266    266  0.0s
+Test Summary:                          | Pass  Total  Time
+Float64 b=8 strided block value copies |  266    266  0.0s
+Test Summary:                            | Pass  Total  Time
+Float64 b=8 arbitrary block value copies |  266    266  0.0s
+Test Summary:                           | Pass  Total  Time
+Float64 b=8 reversed block value copies |  266    266  0.0s
+Test Summary:                              | Pass  Total  Time
+Float64 b=64 contiguous block value copies |  266    266  0.0s
+Test Summary:                           | Pass  Total  Time
+Float64 b=64 strided block value copies |  266    266  0.0s
+Test Summary:                             | Pass  Total  Time
+Float64 b=64 arbitrary block value copies |  266    266  0.0s
+Test Summary:                            | Pass  Total  Time
+Float64 b=64 reversed block value copies |  266    266  0.0s
+Test Summary:                                         | Pass  Total  Time
+live block view after whole-iterate state replacement |  360    360  0.6s
+Test Summary:                                   | Pass  Total  Time
+aliased Vector source and ordered block layouts |   78     78  0.7s
+Test Summary:                    | Pass  Total  Time
+Float32 retained cache lifecycle |    7      7  0.6s
+Test Summary:                | Pass  Total  Time
+Float32 block coordinate KKT |    8      8  0.4s
+Test Summary:                    | Pass  Total  Time
+Float64 retained cache lifecycle |    7      7  0.4s
+Test Summary:                | Pass  Total  Time
+Float64 block coordinate KKT |    8      8  0.4s
+ERROR: LoadError: SystemError: opening file "<RUN>/pkgs/pb-master/.github/workflows/CI.yml": No such file or directory
+ci_contract: Test Failed at <RUN>/pkgs/pb-master/test/runtests.jl:46
+Test Summary:                | Pass  Total  Time
+public bindings and dispatch |    2      2  0.5s
+Test Summary:                                 | Pass  Total  Time
+Float32 values, gradients and proximal points |   45     45  2.6s
+Test Summary:                                   | Pass  Total  Time
+Float32 least squares and lasso building blocks |    5      5  9.6s
+Test Summary:                             | Pass  Total  Time
+Float32 extension and symmetric preflight |    9      9  1.2s
+Test Summary:                                 | Pass  Total  Time
+Float64 values, gradients and proximal points |   45     45  2.5s
+Test Summary:                                   | Pass  Total  Time
+Float64 least squares and lasso building blocks |    5      5  9.5s
+Test Summary:                             | Pass  Total  Time
+Float64 extension and symmetric preflight |    9      9  1.0s
+Test Summary:                       |  Pass  Total  Time
+dropzeros! shared compaction (#834) | 23452  23452  3.7s
+Test Summary:                          | Pass  Total  Time
+Float32 scalar step: every entry point | 1648   1648  0.5s
+Test Summary:                 | Pass  Total  Time
+Float32 per-entry array steps | 1288   1288  0.2s
+Test Summary:                | Pass  Total  Time
+Float32 the documented cases |  186    186  0.2s
+Test Summary:                                               | Pass  Total  Time
+Float32 finite-factor overflow (#866): pinned, not endorsed |   10     10  0.0s
+Test Summary:                          | Pass  Total  Time
+Float64 scalar step: every entry point | 1648   1648  0.3s
+Test Summary:                 | Pass  Total  Time
+Float64 per-entry array steps | 1288   1288  0.2s
+Test Summary:                | Pass  Total  Time
+Float64 the documented cases |  186    186  0.2s
+Test Summary:                                               | Pass  Total  Time
+Float64 finite-factor overflow (#866): pinned, not endorsed |   10     10  0.0s
+Test Summary:         | Pass  Total  Time
+Float32 SparseIterate | 1044   1044  0.3s
+Test Summary:        | Pass  Total  Time
+Float32 BlockIterate | 1046   1046  0.4s
+Test Summary:                  | Pass  Total  Time
+Float32 SymmetricSparseIterate | 1140   1140  0.4s
+Test Summary:         | Pass  Total  Time
+Float64 SparseIterate | 1044   1044  0.2s
+Test Summary:        | Pass  Total  Time
+Float64 BlockIterate | 1046   1046  0.3s
+Test Summary:                  | Pass  Total  Time
+Float64 SymmetricSparseIterate | 1140   1140  0.3s
+Test Summary:                         | Pass  Total  Time
+Scaled NormL1 with an infinite weight |    6      6  0.1s
+Test Summary:                                                        | Pass  Total  Time
+Float32 #665 zero step at an infinite level: every dense entry point |  289    289  0.2s
+Test Summary:                                              | Pass  Total  Time
+Float32 #665 per-entry steps: zero and positive neighbours |   19     19  0.1s
+Test Summary:                                                                                     | Pass  Total  Time
+Float32 #665 finite levels, infinite weights (#853) and overflow (#866) keep their rules at γ = 0 |   38     38  0.1s
+Test Summary:                           | Pass  Total  Time
+Float32 #665 zero step on SparseIterate |   39     39  0.2s
+Test Summary:                          | Pass  Total  Time
+Float32 #665 zero step on BlockIterate |   22     22  0.0s
+Test Summary:                                                                      | Pass  Total  Time
+Float32 #665 zero step on SymmetricSparseIterate (scalar steps, symmetric weights) |   22     22  0.2s
+Test Summary:                         | Pass  Total  Time
+Float32 #665 zero step through Scaled |   53     53  2.0s
+Test Summary:                                                        | Pass  Total  Time
+Float64 #665 zero step at an infinite level: every dense entry point |  289    289  0.1s
+Test Summary:                                              | Pass  Total  Time
+Float64 #665 per-entry steps: zero and positive neighbours |   19     19  0.1s
+Test Summary:                                                                                     | Pass  Total  Time
+Float64 #665 finite levels, infinite weights (#853) and overflow (#866) keep their rules at γ = 0 |   38     38  0.0s
+Test Summary:                           | Pass  Total  Time
+Float64 #665 zero step on SparseIterate |   39     39  0.2s
+Test Summary:                          | Pass  Total  Time
+Float64 #665 zero step on BlockIterate |   22     22  0.0s
+Test Summary:                                                                      | Pass  Total  Time
+Float64 #665 zero step on SymmetricSparseIterate (scalar steps, symmetric weights) |   22     22  0.2s
+Test Summary:                         | Pass  Total  Time
+Float64 #665 zero step through Scaled |   53     53  1.6s
+Test Summary:                                     | Pass  Total  Time
+iterate invariants: SparseIterate vector, Float64 |    9      9  0.3s
+Test Summary:                                   | Pass  Total  Time
+iterate invariants: SparseIterate vector, Int64 |   13     13  0.4s
+Test Summary:                                     | Pass  Total  Time
+iterate invariants: SparseIterate matrix, Float64 |    9      9  0.3s
+Test Summary:                                   | Pass  Total  Time
+iterate invariants: SparseIterate matrix, Int64 |   13     13  0.3s
+Test Summary:                                       | Pass  Total  Time
+iterate invariants: SymmetricSparseIterate, Float64 |    9      9  0.2s
+Test Summary:                                     | Pass  Total  Time
+iterate invariants: SymmetricSparseIterate, Int64 |   13     13  0.3s
+Test Summary:                             | Pass  Total  Time
+iterate invariants: BlockIterate, Float64 |    9      9  0.4s
+Test Summary:                           | Pass  Total  Time
+iterate invariants: BlockIterate, Int64 |   13     13  0.6s
+Test Summary:                                                      | Pass  Total  Time
+iterate invariants: one SymmetricSparseIterate coordinate per pair |    6      6  0.1s
+Test Summary:         | Pass  Total  Time
+SparseIterate queries |  174    174  4.0s
+Test Summary:                  | Pass  Total  Time
+coordinates of a SparseIterate |   29     29  0.5s
+Test Summary:                    | Pass  Total   Time
+value writes never remove (FT05) |  695    695  12.2s
+Test Summary:              | Pass  Total  Time
+imports and lengths (FT07) |  238    238  1.1s
+Test Summary:                            | Pass  Total  Time
+replace and clear (FT08, array iterates) |   33     33  0.9s
+Test Summary:                                                  | Pass  Total  Time
+coordinates(x) is an ordinary vector that writes values (FP-7) |   45     45  0.6s
+Test Summary:                                                         | Pass  Total  Time
+the coordinates of a symmetric iterate are an ordinary vector (CRD-4) |   46     46  2.6s
+Test Summary:                                                                       | Pass  Total  Time
+a matrix SparseIterate has the array writers that a SymmetricSparseIterate does not |   11     11  0.8s
+Test Summary:          | Pass  Total  Time
+writes do not allocate |    9      9  0.2s
+Test Summary:                           | Pass  Total   Time
+LinearFunction shape contract (Float32) | 1409   1409  46.5s
+Test Summary:                           | Pass  Total   Time
+LinearFunction shape contract (Float64) | 1409   1409  48.7s
+Test Summary:                                  |  Pass  Total   Time
+LinearFunction value at a matrix SparseIterate | 12809  12809  20.3s
+Test Summary:                                 | Pass  Total  Time
+matrixview: live, read-only, independent copy |   11     11  1.4s
+Test Summary:                                           | Pass  Total  Time
+matrixview: indices are matrix indices, not coordinates |    6      6  0.0s
+Test Summary:                                 | Pass  Total  Time
+matrixview: nothing can be written through it |   36     36  1.0s
+Test Summary:                                                   | Pass  Total  Time
+matrixview: allocating operations give ordinary writable arrays |    8      8  0.2s
+Test Summary:              | Pass  Total  Time
+matrixview: aliasing hooks |    5      5  0.0s
+Test Summary:                                  | Pass  Total  Time
+matrixview: output aliasing the matrix storage |   10     10  0.4s
+Test Summary:                           | Pass  Total  Time
+matrixview: product with a dense vector |   16     16  0.3s
+Test Summary:                                    | Pass  Total  Time
+matrixview: both products touch O(p + s) entries |   15     15  0.0s
+Test Summary:                               | Pass  Total  Time
+matrixview: five-argument product semantics |  149    149  0.3s
+Test Summary:                                   | Pass  Total  Time
+matrixview: non-finite vector and a stored zero |    6      6  0.0s
+Test Summary:                                            | Pass  Total  Time
+matrixview: empty and one-dimensional symmetric iterates |    3      3  0.1s
+Test Summary:                                                                | Pass  Total  Time
+matrixview: sparse, triu and tril are sparse matrices of the nonzero entries |  348    348  1.4s
+Test Summary:    | Pass  Total  Time
+matrixview: show |    1      1  0.2s
+Test Summary:                                                 | Pass  Total  Time
+activevalues: stored values in the order of activecoordinates |   18     18  0.4s
+Test Summary:                                              | Pass  Total  Time
+activevalues: replaces by-slot access to the stored arrays |    2      2  0.0s
+Test Summary:        | Pass  Total   Time
+ProximalBase Float32 | 3208   3208  10.2s
+Test Summary:        | Pass  Total   Time
+ProximalBase Float64 | 3208   3208  10.3s
+Euclidean norm recovery: Test Failed at <RUN>/pkgs/pb-master/test/numerical_kernels.jl:313
+Test Summary:                                               | Pass  Fail  Total  Time
+numerical kernels Float64                                   | 9401     1   9402  4.4s
+  bounded-product kernel                                    | 2064         2064  0.1s
+  halved difference                                         |  507          507  0.0s
+  squared-residual kernel                                   | 2410         2410  0.4s
+  ordinary sum-of-squares trigger                           |    3            3  0.0s
+  scaled square value and parts                             |   15           15  0.2s
+  SqrNormL2 on the shared kernels                           |  920          920  1.0s
+  recomputed-dot units                                      | 1063         1063  0.0s
+  LeastSquaresLoss and LinearFunction on the shared kernels |   28           28  0.7s
+  Euclidean norm recovery                                   | 2391     1   2392  1.9s
+ERROR: LoadError: Some tests did not pass: 9401 passed, 1 failed, 0 errored, 0 broken.
+numerical_kernels: Test Failed at <RUN>/pkgs/pb-master/test/runtests.jl:46
+Test Summary:              | Pass  Broken  Total     Time
+numerical recovery Float64 | 6253       5   6258  1m02.3s
+Test Summary:              | Pass  Broken  Total     Time
+numerical recovery Float32 | 6315       5   6320  1m01.0s
+Test Summary:             | Pass  Total  Time
+real iterate constructors |   62     62  1.6s
+Test Summary:                  | Pass  Total  Time
+real sparse and block products |  728    728  3.5s
+Test Summary:                               | Pass  Total  Time
+real symmetric iterate products and writers |  223    223  7.6s
+Test Summary:                        | Pass  Total  Time
+broadcast data and control arguments |  100    100  3.6s
+Test Summary:                       | Pass  Total  Time
+real scalar and structured operands |   39     39  1.9s
+Test Summary:                                           | Pass  Total  Time
+real-only bulk writes of SparseIterate and BlockIterate |  285    285  5.0s
+Test Summary:     | Pass  Total   Time
+broadcast results |  538    538  15.4s
+Test Summary:    | Pass  Total  Time
+iterate dispatch |    1      1  2.9s
+Test Summary:                             | Pass  Total  Time
+copyto! sources reach the real-only check |  100    100  2.7s
+Test Summary:           | Pass  Total  Time
+cases from the contract |    8      8  0.0s
+Test Summary:                        |  Pass  Total  Time
+prox: sweep against exact references | 99136  99136  0.6s
+Test Summary:                                | Pass  Total  Time
+prox: extremes of the data and a wide center |   10     10  0.0s
+Test Summary:                                  | Pass  Total  Time
+gradient: sweep and overflow of the difference | 3496   3496  0.2s
+Test Summary:                                 | Pass  Total  Time
+fused calls: both outputs from one invocation |   40     40  0.3s
+Test Summary:                                          | Pass  Total  Time
+value: a Float64 center does not widen a Float32 value |    6      6  0.3s
+Test Summary:                                        | Pass  Total  Time
+dense paths: one center entry leaves Float32's range |   37     37  0.0s
+Test Summary:                                          | Pass  Total  Time
+a center that underflows on rounding is used unrounded |    3      3  0.0s
+Test Summary:      | Pass  Total  Time
+review regressions |    5      5  0.0s
+Test Summary:  | Pass  Total  Time
+review of #411 |  652    652  0.0s
+Test Summary:                               | Pass  Total  Time
+BigFloat centers are rounded entry by entry |    1      1  0.0s
+Test Summary: | Pass  Total   Time
+sparseIterate | 5293   5293  54.7s
+Test Summary:          | Pass  Total   Time
+sparseSymmetricIterate |   41     41  45.1s
+Test Summary:                                                 | Pass  Total  Time
+copyto! from an orthogonal factor into a matrix SparseIterate | 1182   1182  2.8s
+Test Summary: | Pass  Total  Time
+sparseIterate | 1443   1443  9.0s
+Test Summary:          | Pass  Total  Time
+sparseSymmetricIterate |  110    110  4.6s
+Test Summary:                                    | Pass  Total  Time
+sparse triple products agree with dense products |   12     12  0.0s
+Test Summary:                            | Pass  Total  Time
+aliasing of the views of a SparseIterate |   36     36  0.5s
+Test Summary:                         | Pass  Total  Time
+dropzeros all-zero and trailing zeros |  540    540  1.2s
+Test Summary: | Pass  Total  Time
+sparseIterate | 1224   1224  3.8s
+Test Summary:                                    | Pass  Total  Time
+sparse triple products agree with dense products |   12     12  0.6s
+Test Summary:     | Pass  Total  Time
+Sparse value cost |   99     99  2.6s
+Test Summary:               | Pass  Total  Time
+T01: index spaces and edges | 2822   2822  2.3s
+Test Summary:                                 | Pass  Total  Time
+T02: one variable, two entries, live and copy |  108    108  1.0s
+Test Summary:                                  | Pass  Total  Time
+T03, T12: active zeros, compaction and handles |   48     48  0.8s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float32, p = 0 |    6      6  0.1s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float32, p = 1 |  346    346  0.3s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float32, p = 3 |  341    341  0.0s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float32, p = 6 |  351    351  0.0s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float64, p = 0 |    6      6  0.1s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float64, p = 1 |  362    362  0.1s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float64, p = 3 |  345    345  0.0s
+Test Summary:                                                                                | Pass  Total  Time
+randomized activations, writes, compaction and imports against a dense model, Float64, p = 6 |  350    350  0.0s
+Test Summary:              | Pass  Total  Time
+T09: the interface surface |  607    607  1.6s
+Test Summary:                                   | Pass  Total  Time
+D2: equality and hash of two symmetric iterates | 8890   8890  1.7s
+Test Summary:                                                                                | Pass  Total  Time
+scaling the coordinates of the symmetric iterate by a number is an ordinary vector operation |  530    530  0.6s
+Test Summary: | Pass  Total  Time
+show          |   42     42  0.7s
+Test Summary:                                                                   | Pass  Total  Time
+retained storage: one T array and two Int arrays of length q, and small headers |   44     44  0.1s
+Test Summary:                                                                         | Pass  Total  Time
+Float32 valid symmetric models agree with dense and structurally symmetric references | 1024   1024  9.6s
+Test Summary:                                                                                 | Pass  Total  Time
+Float32 a raw symmetric parameter array and its lower-triangle control give identical results |  342    342  5.3s
+Test Summary:                                                                         | Pass  Total   Time
+Float64 valid symmetric models agree with dense and structurally symmetric references | 1024   1024  10.6s
+Test Summary:                                                                                 | Pass  Total  Time
+Float64 a raw symmetric parameter array and its lower-triangle control give identical results |  342    342  6.1s
+Test Summary:                                               | Pass  Total  Time
+the explicit checker validates every declared mirrored pair |   56     56  0.9s
+Test Summary:                                              | Pass  Total  Time
+structural validation of the ordinary oracles is unchanged |  274    274  2.7s
+Test Summary:                                         | Pass  Total   Time
+ordinary oracles do not scan mirrored parameter pairs |  184    184  14.7s
+Test Summary:                              | Pass  Total  Time
+a custom extension is validated explicitly |   10     10  1.4s
+Test Summary:                              | Pass  Total  Time
+Symmetric products over active coordinates |  152    152  6.1s
+Test Summary:                                | Pass  Total  Time
+strided destinations and mixed element types |   41     41  1.4s
+Test Summary:                                  | Pass  Total  Time
+raw symmetric quadratic has no hot allocations |   20     20  3.9s
+Test Summary:                 | Pass  Fail  Total      Time
+ProximalBase minimal core     |   26     2     28  11m53.6s
+  active_handle               |    1            1     12.5s
+  block_copy                  |    1            1     10.5s
+  block_replacement           |    1            1      9.8s
+  block_value_updates         |    1            1      9.6s
+  cache_and_blocks            |    1            1      2.6s
+  ci_contract                 |          1      1      3.0s
+  core_functions              |    1            1     27.8s
+  dropzeros_compaction        |    1            1      4.5s
+  infinite_weights            |    1            1      9.6s
+  iterate_invariants          |    1            1      4.1s
+  iterate_queries             |    1            1      5.3s
+  iterate_writes              |    1            1     20.2s
+  linear_shapes               |    1            1   1m41.3s
+  linear_sparse_value         |    1            1     23.0s
+  matrixview                  |    1            1      8.7s
+  minimal_math                |    1            1     25.4s
+  numerical_kernels           |          1      1     13.8s
+  numerical_recovery          |    1            1   2m23.4s
+  real_iterates               |    1            1     48.7s
+  ridge_precision             |    1            1      9.1s
+  sparse_iterate              |    1            1   1m44.1s
+  sparse_iterate_basics       |    1            1     19.5s
+  sparse_iterate_basics_grids |    1            1      7.0s
+  sparse_value_cost           |    1            1      3.3s
+  symmetric_iterate_indexing  |    1            1      5.7s
+  symmetric_iterate_interface |    1            1      6.7s
+  symmetric_parameters        |    1            1     55.5s
+  symmetric_products          |    1            1     19.0s
+ERROR: LoadError: Some tests did not pass: 26 passed, 2 failed, 0 errored, 0 broken.
+=== pb-master: test suite FAILED in 715.7 s

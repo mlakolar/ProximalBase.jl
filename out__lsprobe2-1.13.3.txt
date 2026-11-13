@@ -1,0 +1,29 @@
+VERSION = 1.13.3
+PB_ENV = master  active project = <CLUSTER-PATH>
+pathof(ProximalBase) = <RUN>/pkgs/pb-master/src/ProximalBase.jl
+ProximalBase: version=0.6.0-DEV source=<RUN>/pkgs/pb-master git_revision=nothing tree_hash=nothing
+PB exported tree marker: 1f3749f3332d1551bd65805d25786f3f53731db2 03a4bb444f0720a28337d386681c2917e9ab5503
+BLAS.get_config() = LBTConfig([ILP64] libopenblas64_.so)
+BLAS.get_num_threads() = 1  Threads.nthreads() = 1
+Sys.cpu_info()[1].model = Intel(R) Xeon(R) Silver 4116 CPU @ 2.10GHz  hostname-class = <PARTITION>
+SLURM_JOB_ID = <JOB>
+input hash b4cb8c48c2e9e44b  floatmax(Float32) = 3.4028235e38
+version-independent digest: SHA-256 of the bit patterns of X and y = 5bd3aa751cdf54374f7e6055b05614d27601b72d58cbc5561f29118b46e8a125
+(logged: the backtracking decisions that reject a trial and raise L; accepted trials return before the hook)
+== K: returned: iterations=18; backtracking decisions logged: 4
+   simple=true  f_x=2.2708468f38   f_prev=9.561261f31    L=6.380692f31  local_l=6.380692115204011e31 xy_sq=7.12583f6    gnorm2=Inf32
+   simple=true  f_x=7.615002f30    f_prev=2.4634903f31   L=1.1485246f32 local_l=6.578856024086583e31 xy_sq=0.69378513f0 gnorm2=Inf32
+   simple=true  f_x=1.7870748f29   f_prev=1.7870751f29   L=5.8387897f31 local_l=4.457093516030503e31 xy_sq=4.238068f-9  gnorm2=Inf32
+   simple=true  f_x=1.7870746f29   f_prev=1.7870738f29   L=4.163095f32  local_l=4.1630949347979304e32 xy_sq=4.5373613f-10 gnorm2=Inf32
+== B3: returned: iterations=15; backtracking decisions logged: 5
+   simple=true  f_x=2.2708466f38   f_prev=9.561261f31    L=6.3806916f31 local_l=6.38069154593953e31 xy_sq=7.12583f6    gnorm2=Inf32
+   simple=true  f_x=7.6150014f30   f_prev=2.4634905f31   L=1.1485245f32 local_l=6.578855680027578e31 xy_sq=0.69378537f0 gnorm2=Inf32
+   simple=true  f_x=1.7870748f29   f_prev=1.787074f29    L=9.227952f31  local_l=9.227952346321498e31 xy_sq=4.093967f-9  gnorm2=Inf32
+   simple=true  f_x=1.7870753f29   f_prev=1.787074f29    L=8.302859f32  local_l=8.302859003918712e32 xy_sq=4.0951f-10   gnorm2=Inf32
+   simple=true  f_x=1.7870751f29   f_prev=1.787074f29    L=4.6063313f34 local_l=4.606331142366411e34 xy_sq=4.920914f-12 gnorm2=Inf32
+== H: returned: iterations=17; backtracking decisions logged: 5
+   simple=true  f_x=2.2708466f38   f_prev=9.561261f31    L=6.3806916f31 local_l=6.38069154593953e31 xy_sq=7.12583f6    gnorm2=Inf32
+   simple=true  f_x=7.6150014f30   f_prev=2.4634903f31   L=1.1485245f32 local_l=6.578856113433137e31 xy_sq=0.69378525f0 gnorm2=Inf32
+   simple=true  f_x=1.787075f29    f_prev=1.7870753f29   L=5.8387897f31 local_l=4.3086396726351225e31 xy_sq=4.3840904f-9 gnorm2=Inf32
+   simple=true  f_x=1.7870748f29   f_prev=1.7870736f29   L=1.01172994f33 local_l=1.0117299684328514e33 xy_sq=2.6138647f-10 gnorm2=Inf32
+   simple=true  f_x=1.7870746f29   f_prev=1.7870736f29   L=3.681523f35  local_l=3.681523247583693e35 xy_sq=5.130883f-13 gnorm2=Inf32

@@ -1,0 +1,43 @@
+VERSION = 1.10.12
+PB_ENV = master  active project = <CLUSTER-PATH>
+pathof(ProximalBase) = <RUN>/pkgs/pb-master/src/ProximalBase.jl
+ProximalBase: version=0.6.0-DEV source=<RUN>/pkgs/pb-master git_revision=nothing tree_hash=nothing
+PB exported tree marker: 1f3749f3332d1551bd65805d25786f3f53731db2 03a4bb444f0720a28337d386681c2917e9ab5503
+BLAS.get_config() = LBTConfig([ILP64] libopenblas64_.so)
+BLAS.get_num_threads() = 1  Threads.nthreads() = 1
+Sys.cpu_info()[1].model = AMD EPYC 7513 32-Core Processor  hostname-class = <PARTITION>
+SLURM_JOB_ID = <JOB>
+H   Float64 raw    value_at_image                -> Float64  dynamic: none   non-inlined: _image_length_error;_sumabs2_diff;_exceptional_square_value
+H   Float64 raw    value_and_gradient_at_image!  -> Float64  dynamic: none   non-inlined: _image_length_error;_image_alias_error;DimensionMismatch;throw_boundserror;throwdm;gemv!;_mapreduce;_exceptional_square_value
+H   Float64 raw    value_at_residual             -> Float64  dynamic: none   non-inlined: _image_length_error;_mapreduce;_exceptional_square_value
+H   Float64 scaled value_at_image                -> Float64  dynamic: none   non-inlined: _image_scale_error;_image_length_error;_sumabs2_diff;_exceptional_square_value
+H   Float64 scaled value_and_gradient_at_image!  -> Float64  dynamic: none   non-inlined: _image_scale_error;_image_length_error;_image_alias_error;DimensionMismatch;throw_boundserror;throwdm;gemv!;_mapreduce;_exceptional_square_value;_scale!
+H   Float64 scaled value_at_residual             -> Float64  dynamic: none   non-inlined: _image_scale_error;_image_length_error;_mapreduce;_exceptional_square_value
+H   Float32 raw    value_at_image                -> Float32  dynamic: none   non-inlined: _image_length_error;_sumabs2_diff;_exceptional_square_value
+H   Float32 raw    value_and_gradient_at_image!  -> Float32  dynamic: none   non-inlined: _image_length_error;_image_alias_error;DimensionMismatch;throw_boundserror;throwdm;gemv!;_mapreduce;_exceptional_square_value
+H   Float32 raw    value_at_residual             -> Float32  dynamic: none   non-inlined: _image_length_error;_mapreduce;_exceptional_square_value
+H   Float32 scaled value_at_image                -> Float32  dynamic: none   non-inlined: _image_scale_error;_image_length_error;_sumabs2_diff;_exceptional_square_value
+H   Float32 scaled value_and_gradient_at_image!  -> Float32  dynamic: none   non-inlined: _image_scale_error;_image_length_error;_image_alias_error;DimensionMismatch;throw_boundserror;throwdm;gemv!;_mapreduce;_exceptional_square_value;_scale!
+H   Float32 scaled value_at_residual             -> Float32  dynamic: none   non-inlined: _image_scale_error;_image_length_error;_mapreduce;_exceptional_square_value
+H   Float32 mixed  value_at_image                -> Float32  dynamic: none   non-inlined: _image_scale_error;_image_length_error;_sumabs2_diff;_exceptional_square_value
+H   Float32 mixed  value_and_gradient_at_image!  -> Float32  dynamic: none   non-inlined: _image_scale_error;_image_length_error;_image_alias_error;DimensionMismatch;throw_boundserror;throwdm;gemv!;_mapreduce;_exceptional_square_value;_scale!
+H   Float32 mixed  value_at_residual             -> Float32  dynamic: none   non-inlined: _image_scale_error;_image_length_error;_mapreduce;_exceptional_square_value
+H   Float64 _square_value_level (center)     vector types: 
+H   Float64 _square_value_level (no center)  vector types: 
+H   Float32 _square_value_level (center)     vector types: 
+H   Float32 _square_value_level (no center)  vector types: 
+B2  Float64 raw    value_at_image                -> Float64  dynamic: none   non-inlined: _loss_sum;_scaled_square_value;_len_error
+B2  Float64 raw    value_and_gradient_at_image!  -> Float64  dynamic: Main.B2.ProximalSolvers.PBOracle.DimensionMismatch non-inlined: _alias_error;_loss_sum_deriv!;_scaled_square_value;gemv!;_len_error
+B2  Float64 raw    value_at_residual             -> Float64  dynamic: none   non-inlined: loss_value;_len_error
+B2  Float64 scaled value_at_image                -> Float64  dynamic: none   non-inlined: _loss_sum;_scaled_square_value;_scaled_value_recover;_len_error
+B2  Float64 scaled value_and_gradient_at_image!  -> Float64  dynamic: Main.B2.ProximalSolvers.PBOracle.DimensionMismatch non-inlined: _alias_error;_loss_sum_deriv!;_scaled_square_value;gemv!;_scale!;_scaled_value_recover;_len_error
+B2  Float64 scaled value_at_residual             -> Float64  dynamic: none   non-inlined: loss_value;_scaled_value_recover;_len_error
+B2  Float32 raw    value_at_image                -> Float32  dynamic: none   non-inlined: _loss_sum;_scaled_square_value;_len_error
+B2  Float32 raw    value_and_gradient_at_image!  -> Float32  dynamic: Main.B2.ProximalSolvers.PBOracle.DimensionMismatch non-inlined: _alias_error;_loss_sum_deriv!;_scaled_square_value;gemv!;_len_error
+B2  Float32 raw    value_at_residual             -> Float32  dynamic: none   non-inlined: loss_value;_len_error
+B2  Float32 scaled value_at_image                -> Float32  dynamic: none   non-inlined: _loss_sum;_scaled_square_value;_scaled_value_recover;_len_error
+B2  Float32 scaled value_and_gradient_at_image!  -> Float32  dynamic: Main.B2.ProximalSolvers.PBOracle.DimensionMismatch non-inlined: _alias_error;_loss_sum_deriv!;_scaled_square_value;gemv!;_scale!;_scaled_value_recover;_len_error
+B2  Float32 scaled value_at_residual             -> Float32  dynamic: none   non-inlined: loss_value;_scaled_value_recover;_len_error
+B2  Float32 mixed  value_at_image                -> Float32  dynamic: none   non-inlined: _loss_sum;_scaled_square_value;_scaled_value_recover;_len_error
+B2  Float32 mixed  value_and_gradient_at_image!  -> Float32  dynamic: Main.B2.ProximalSolvers.PBOracle.DimensionMismatch non-inlined: _alias_error;_loss_sum_deriv!;_scaled_square_value;gemv!;_scale!;_scaled_value_recover;_len_error
+B2  Float32 mixed  value_at_residual             -> Float32  dynamic: none   non-inlined: loss_value;_scaled_value_recover;_len_error

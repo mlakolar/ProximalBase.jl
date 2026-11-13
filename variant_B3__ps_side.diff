@@ -1,0 +1,97 @@
+diff -ruN '--exclude=pb_oracle.jl' K/src/cd/leastsquares.jl B3/src/cd/leastsquares.jl
+--- K/src/cd/leastsquares.jl	2026-11-12 23:00:43.569809284 -0800
++++ B3/src/cd/leastsquares.jl	2026-11-12 23:02:10.613836588 -0800
+@@ -1,15 +1,16 @@
+ # Borrowed scalar unweighted LS data and native residual/curvature caches.
+-mutable struct LSModel{T<:AbstractFloat, MX<:AbstractMatrix{T}, VY<:AbstractVector{T}} <: CDModel{T}
++mutable struct LSModel{T<:AbstractFloat, MX<:AbstractMatrix{T}, VY<:AbstractVector{T}, F} <: CDModel{T}
+   X::MX
+   y::VY
+   s::T
+   r::Vector{T}
+   a::Vector{T}
++  f::F                 # PB #911 prototype: the loss, for the reported value (PB-side oracle)
+ end
+-LSModel(y::AbstractVector{T}, X::AbstractMatrix{T}, s::Real) where T =
+-  LSModel(X, y, T(s), zeros(T, length(y)), fill(T(NaN), size(X, 2)))
+-cdmodel(f::LeastSquaresLoss{T, <:AbstractVector}, x) where T = LSModel(f.Y, f.X, one(T))
+-cdmodel(f::Scaled{<:LeastSquaresLoss{T, <:AbstractVector}}, x) where T = LSModel(f.f.Y, f.f.X, f.α)
++LSModel(y::AbstractVector{T}, X::AbstractMatrix{T}, s::Real, f) where T =
++  LSModel(X, y, T(s), zeros(T, length(y)), fill(T(NaN), size(X, 2)), f)
++cdmodel(f::LeastSquaresLoss{T, <:AbstractVector}, x) where T = LSModel(f.Y, f.X, one(T), f)
++cdmodel(f::Scaled{<:LeastSquaresLoss{T, <:AbstractVector}}, x) where T = LSModel(f.f.Y, f.f.X, f.α, f)
+ _activeentries(x::SparseIterate) = activecoordinates(x)
+ initialize!(m::LSModel{T}, x::SparseIterate{T}) where T = _initialize!(m, x, true)
+ function _initialize!(m::LSModel{T}, x::SparseIterate{T}, fresh::Bool) where T
+@@ -86,10 +87,4 @@
+   end
+   sqrt(m.s*s)
+ end
+-function loss_value(m::LSModel{T}, x) where T
+-  v = zero(T)
+-  @inbounds @simd for i in eachindex(m.r)
+-    v += m.r[i]*m.r[i]
+-  end
+-  m.s*v/2
+-end
++loss_value(m::LSModel, x) = PBOracle.value_at_residual(m.f, m.r)
+diff -ruN '--exclude=pb_oracle.jl' K/src/ProximalSolvers.jl B3/src/ProximalSolvers.jl
+--- K/src/ProximalSolvers.jl	2026-11-12 23:00:43.569767420 -0800
++++ B3/src/ProximalSolvers.jl	2026-11-12 23:02:10.613717142 -0800
+@@ -14,6 +14,7 @@
+ using ProximalBase: LeastSquaresLoss, Scaled, NormL1, SparseIterate,
+   ncoordinates, nactive, activecoordinates, activevalues, prox_block,
+   value_and_prox!
++include("pb_oracle.jl")
+ include("blocks.jl")
+ using .Blocks
+ include("line_searches.jl")
+diff -ruN '--exclude=pb_oracle.jl' K/src/solvers/image_models.jl B3/src/solvers/image_models.jl
+--- K/src/solvers/image_models.jl	2026-11-12 23:00:43.569887293 -0800
++++ B3/src/solvers/image_models.jl	2026-11-12 23:02:10.613769801 -0800
+@@ -1,34 +1,23 @@
+ # Historical LS image evaluation; no exceptional-range recovery is added.
+ 
+-struct _LSImage{TY<:AbstractVecOrMat, TX<:AbstractMatrix, A<:Real, T<:AbstractFloat}
++# PB #911 prototype: the value and gradient come from the PB-side oracle (pb_oracle.jl); PS keeps
++# the image caches, X for the products and α for the certified bound.
++struct _LSImage{F, TY<:AbstractVecOrMat, TX<:AbstractMatrix, A<:Real, T<:AbstractFloat}
++  f::F                  # the loss as passed to solve!
+   Y::TY
+   X::TX
+-  α::A                  # the scale of a Scaled loss, one otherwise
++  α::A                  # the scale of a Scaled loss, one otherwise (the certified bound only)
+ end
+ 
+-_LSImage(f::LeastSquaresLoss{T}, α::Real) where {T} = _LSImage{typeof(f.Y), typeof(f.X), typeof(α), T}(f.Y, f.X, α)
+-_image_model(f::LeastSquaresLoss) = _LSImage(f, true)
+-_image_model(f::Scaled{<:LeastSquaresLoss}) = _LSImage(f.f, f.α)
+-_image_buffer(m::_LSImage{TY, TX, A, T}) where {TY, TX, A, T} = zeros(T, size(m.Y))
++_LSImage(f, base::LeastSquaresLoss{T}, α::Real) where {T} = _LSImage{typeof(f), typeof(base.Y), typeof(base.X), typeof(α), T}(f, base.Y, base.X, α)
++_image_model(f::LeastSquaresLoss) = _LSImage(f, f, true)
++_image_model(f::Scaled{<:LeastSquaresLoss}) = _LSImage(f, f.f, f.α)
++_image_buffer(m::_LSImage{F, TY, TX, A, T}) where {F, TY, TX, A, T} = zeros(T, size(m.Y))
+ _image!(z, m::_LSImage, x) = mul!(z, m.X, x)
+ _value!(x, m, z) = (_image!(z, m, x); convert(_eltype(x), _image_value(m, z)))
+ _value_and_gradient!(G, x, m, z, d) = convert(_eltype(x), _image_value_and_gradient!(G, m, z, d))
+-function _image_value(m::_LSImage{TY, TX, A, T}, z) where {TY, TX, A, T}
+-  Y = m.Y
+-  v = zero(T)
+-  @inbounds @simd for i in eachindex(z, Y)
+-    v += abs2(Y[i] - z[i])
+-  end
+-  m.α * (v / 2)
+-end
+-
+-function _image_value_and_gradient!(G, m::_LSImage, z, d)
+-  d .= z .- m.Y
+-  mul!(G, transpose(m.X), d)
+-  v = sum(abs2, d) / 2
+-  G .*= m.α
+-  m.α * v
+-end
++_image_value(m::_LSImage, z) = PBOracle.value_at_image(m.f, z)
++_image_value_and_gradient!(G, m::_LSImage, z, d) = PBOracle.value_and_gradient_at_image!(G, d, m.f, z)
+ 
+ # ---- The accelerated method's certified backtracking test ----------------------------
+ #

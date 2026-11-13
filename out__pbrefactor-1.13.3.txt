@@ -1,0 +1,51 @@
+VERSION = 1.13.3
+PB_ENV = master  active project = <CLUSTER-PATH>
+pathof(ProximalBase) = <RUN>/pkgs/pb-master/src/ProximalBase.jl
+ProximalBase: version=0.6.0-DEV source=<RUN>/pkgs/pb-master git_revision=nothing tree_hash=nothing
+PB exported tree marker: 1f3749f3332d1551bd65805d25786f3f53731db2 03a4bb444f0720a28337d386681c2917e9ab5503
+BLAS.get_config() = LBTConfig([ILP64] libopenblas64_.so)
+BLAS.get_num_threads() = 1  Threads.nthreads() = 1
+Sys.cpu_info()[1].model = AMD EPYC 7513 32-Core Processor  hostname-class = <PARTITION>
+SLURM_JOB_ID = <JOB>
+refactored copy loaded from <RUN>/pkgs/pb-H/src
+bitwise identical, gradient                     161 / 161
+bitwise identical, value                        161 / 161
+bitwise identical, value_and_gradient gradient  161 / 161
+bitwise identical, value_and_gradient value     161 / 161
+value_at_image / value_and_gradient_at_image! equal to f(β) / value_and_gradient! (finite images): 56 / 56
+timing Float64 n=2000  p=500  raw    f(β)                 original  104051.9 ns  refactored  102054.5 ns  paired-median ratio 0.9807  bytes 16/16
+timing Float64 n=2000  p=500  raw    value_and_gradient!  original  205839.7 ns  refactored  201763.6 ns  paired-median ratio 0.9812  bytes 16/16
+timing Float64 n=2000  p=500  raw    gradient!            original  204993.9 ns  refactored  200870.4 ns  paired-median ratio 0.9802  bytes 0/0
+timing Float64 n=2000  p=500  scaled f(β)                 original  101679.1 ns  refactored  100615.6 ns  paired-median ratio 0.9894  bytes 16/16
+timing Float64 n=2000  p=500  scaled value_and_gradient!  original  201897.4 ns  refactored  200273.4 ns  paired-median ratio 0.9921  bytes 16/16
+timing Float64 n=2000  p=500  scaled gradient!            original  201740.0 ns  refactored  200224.5 ns  paired-median ratio 0.9931  bytes 0/0
+timing Float64 n=240   p=160  raw    f(β)                 original    3843.4 ns  refactored    3581.1 ns  paired-median ratio 0.9327  bytes 16/16
+timing Float64 n=240   p=160  raw    value_and_gradient!  original    6956.3 ns  refactored    6603.9 ns  paired-median ratio 0.9485  bytes 16/16
+timing Float64 n=240   p=160  raw    gradient!            original    6875.9 ns  refactored    6489.1 ns  paired-median ratio 0.9431  bytes 0/0
+timing Float64 n=240   p=160  scaled f(β)                 original    3453.6 ns  refactored    3603.4 ns  paired-median ratio 1.0433  bytes 16/16
+timing Float64 n=240   p=160  scaled value_and_gradient!  original    6361.0 ns  refactored    6615.6 ns  paired-median ratio 1.0405  bytes 16/16
+timing Float64 n=240   p=160  scaled gradient!            original    6300.4 ns  refactored    6608.3 ns  paired-median ratio 1.0491  bytes 0/0
+timing Float64 n=100   p=32   raw    f(β)                 original     486.1 ns  refactored     483.5 ns  paired-median ratio 0.9951  bytes 16/16
+timing Float64 n=100   p=32   raw    value_and_gradient!  original     749.5 ns  refactored     746.6 ns  paired-median ratio 0.9962  bytes 16/16
+timing Float64 n=100   p=32   raw    gradient!            original     726.1 ns  refactored     721.1 ns  paired-median ratio 0.9927  bytes 0/0
+timing Float64 n=100   p=32   scaled f(β)                 original     495.6 ns  refactored     496.9 ns  paired-median ratio 1.0035  bytes 16/16
+timing Float64 n=100   p=32   scaled value_and_gradient!  original     777.8 ns  refactored     759.6 ns  paired-median ratio 0.9764  bytes 16/16
+timing Float64 n=100   p=32   scaled gradient!            original     760.4 ns  refactored     756.9 ns  paired-median ratio 0.9956  bytes 0/0
+timing Float32 n=2000  p=500  raw    f(β)                 original   51085.3 ns  refactored   51250.2 ns  paired-median ratio 1.0019  bytes 16/16
+timing Float32 n=2000  p=500  raw    value_and_gradient!  original  103229.4 ns  refactored  103470.5 ns  paired-median ratio 1.0005  bytes 16/16
+timing Float32 n=2000  p=500  raw    gradient!            original  103247.4 ns  refactored  103337.6 ns  paired-median ratio 1.0003  bytes 0/0
+timing Float32 n=2000  p=500  scaled f(β)                 original   50774.7 ns  refactored   52065.1 ns  paired-median ratio 1.0244  bytes 16/16
+timing Float32 n=2000  p=500  scaled value_and_gradient!  original  102992.1 ns  refactored  103991.4 ns  paired-median ratio 1.0093  bytes 16/16
+timing Float32 n=2000  p=500  scaled gradient!            original  103313.5 ns  refactored  104208.7 ns  paired-median ratio 1.0080  bytes 0/0
+timing Float32 n=240   p=160  raw    f(β)                 original    1719.7 ns  refactored    1685.5 ns  paired-median ratio 0.9783  bytes 16/16
+timing Float32 n=240   p=160  raw    value_and_gradient!  original    3299.3 ns  refactored    3333.0 ns  paired-median ratio 1.0098  bytes 16/16
+timing Float32 n=240   p=160  raw    gradient!            original    3295.5 ns  refactored    3241.3 ns  paired-median ratio 0.9835  bytes 0/0
+timing Float32 n=240   p=160  scaled f(β)                 original    1781.6 ns  refactored    1677.3 ns  paired-median ratio 0.9419  bytes 16/16
+timing Float32 n=240   p=160  scaled value_and_gradient!  original    3452.5 ns  refactored    3278.0 ns  paired-median ratio 0.9499  bytes 16/16
+timing Float32 n=240   p=160  scaled gradient!            original    3454.2 ns  refactored    3279.1 ns  paired-median ratio 0.9502  bytes 0/0
+timing Float32 n=100   p=32   raw    f(β)                 original     344.9 ns  refactored     339.6 ns  paired-median ratio 0.9854  bytes 16/16
+timing Float32 n=100   p=32   raw    value_and_gradient!  original     537.8 ns  refactored     538.4 ns  paired-median ratio 1.0019  bytes 16/16
+timing Float32 n=100   p=32   raw    gradient!            original     524.3 ns  refactored     516.1 ns  paired-median ratio 0.9854  bytes 0/0
+timing Float32 n=100   p=32   scaled f(β)                 original     354.0 ns  refactored     337.9 ns  paired-median ratio 0.9537  bytes 16/16
+timing Float32 n=100   p=32   scaled value_and_gradient!  original     553.4 ns  refactored     568.4 ns  paired-median ratio 1.0267  bytes 16/16
+timing Float32 n=100   p=32   scaled gradient!            original     551.7 ns  refactored     550.6 ns  paired-median ratio 0.9984  bytes 0/0

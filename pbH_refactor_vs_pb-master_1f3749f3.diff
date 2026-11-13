@@ -1,0 +1,227 @@
+diff -ruN pb-master/src/functions/leastsquares_image.jl pb-H/src/functions/leastsquares_image.jl
+--- pb-master/src/functions/leastsquares_image.jl	1969-12-31 16:00:00.000000000 -0800
++++ pb-H/src/functions/leastsquares_image.jl	2026-11-12 23:51:58.822573962 -0800
+@@ -0,0 +1,69 @@
++# PB #911 prototype H (disposable): the cache-aware least-squares oracle. The value is the shared
++# squared-residual kernel with the scale as its level, kept as supplied (`_square_value_wide`, the same
++# call as `f(β)` makes with level one); the coefficient gradient is Xᵀd with the scale applied last by
++# Scaled's rule (`_scale!`), the same helper as `value_and_gradient!`.
++
++const _LSImageBase{T} = LeastSquaresLoss{T, <:StridedVector{T}, <:StridedMatrix{T}}
++const _LSImageLoss{T} = Union{_LSImageBase{T}, Scaled{<:_LSImageBase{T}}}
++_image_parts(f::_LSImageBase{T}) where {T} = (f, one(T))
++_image_parts(s::Scaled{<:_LSImageBase}) = (s.f, s.α)
++_image_scale!(g, ::_LSImageBase) = g
++_image_scale!(g, s::Scaled{<:_LSImageBase}) = _scale!(g, s.α)
++
++@noinline _image_length_error(name, m, n) = throw(DimensionMismatch("$name has length $m, expected $n"))
++@noinline _image_scale_error(α) = throw(ArgumentError("the scale must be positive and finite, got $α"))
++@noinline _image_alias_error() = throw(ArgumentError("g and d must not overlap each other, X, Y, z or the loss's internal storage"))
++@inline function _image_checks(base, α, n, z, name)
++  length(z) == n || _image_length_error(name, length(z), n)
++  isfinite(α) & (α > 0) || _image_scale_error(α)
++  nothing
++end
++
++"""
++    ProximalBase.value_at_image(f, z) -> T
++
++`α‖Y - z‖²/2` for a caller-held image `z` (length `n`, typically `Xβ` or an extrapolation of
++images), `f` a vector-response `LeastSquaresLoss{T}` with strided `X`, `Y`, or one `Scaled` of it with a
++positive finite scale `α`, kept as supplied. `z` and `Y` are only read; no internal storage of `f` is
++used, so calls are reentrant. Exceptional ranges are recomputed as by `f(β)`, except that a non-finite
++entry of `z` gives the ordinary `Inf`/`NaN`: without `β`, an overflowed image cannot be formed again.
++"""
++function value_at_image(f::_LSImageLoss{T}, z::StridedVector{T}) where {T<:Union{Float32, Float64}}
++  base, α = _image_parts(f)
++  _image_checks(base, α, length(base.Y), z, "z")
++  _square_value_wide(α, z, base.Y)
++end
++
++"""
++    ProximalBase.value_and_gradient_at_image!(g, d, f, z) -> T
++
++Writes `d .= z .- Y` (length `n`) and `g .= α Xᵀd` (length `p`) and returns `α‖d‖²/2`. `g` and `d`
++must not overlap each other, `X`, `Y`, `z` or `f`'s internal storage (checked before anything is
++written). A difference `z - Y` that overflows gives non-finite `d`, `g` and value.
++"""
++function value_and_gradient_at_image!(g::StridedVector{T}, d::StridedVector{T}, f::_LSImageLoss{T},
++                                      z::StridedVector{T}) where {T<:Union{Float32, Float64}}
++  base, α = _image_parts(f)
++  X, Y = base.X, base.Y
++  n = length(Y)
++  _image_checks(base, α, n, z, "z")
++  length(d) == n || _image_length_error("d", length(d), n)
++  length(g) == size(X, 2) || _image_length_error("g", length(g), size(X, 2))
++  (Base.mightalias(d, z) | Base.mightalias(d, Y) | Base.mightalias(d, X) | Base.mightalias(g, d) |
++   Base.mightalias(g, X) | Base.mightalias(g, Y) | Base.mightalias(g, z) |
++   Base.mightalias(d, base.tmp) | Base.mightalias(g, base.tmp)) && _image_alias_error()
++  v = _leastsquares_residual_gradient!(g, d, X, z, Y, α)
++  _image_scale!(g, f)
++  v
++end
++
++"""
++    ProximalBase.value_at_residual(f, r) -> T
++
++`α‖r‖²/2` for a caller-held residual `r = ±(Y - Xβ)` (length `n`). Specific to the squared loss.
++"""
++function value_at_residual(f::_LSImageLoss{T}, r::StridedVector{T}) where {T<:Union{Float32, Float64}}
++  base, α = _image_parts(f)
++  _image_checks(base, α, length(base.Y), r, "r")
++  _square_value_wide(α, r, nothing)
++end
+diff -ruN pb-master/src/functions/leastsquares.jl pb-H/src/functions/leastsquares.jl
+--- pb-master/src/functions/leastsquares.jl	2026-11-12 19:58:41.000000000 -0800
++++ pb-H/src/functions/leastsquares.jl	2026-11-12 23:51:41.332489380 -0800
+@@ -66,45 +66,46 @@
+ function (f::LeastSquaresLoss{T})(β::AbstractVecOrMat) where {T}
+   _checkreal(f, β)
+   mul!(f.tmp, f.X, β)
+-  v = zero(T)
+-  @inbounds @simd for i in eachindex(f.tmp, f.Y)
+-    v += abs2(f.Y[i] - f.tmp[i])
+-  end
+-  _value_at(_leastsquares_value(f, β, v, true), β)
++  v = _square_value_wide(one(T), f.tmp, f.Y)          # the image value, shared with value_at_image
++  _value_at(isfinite(v) ? v : _leastsquares_image_overflow(f, β, v), β)
+ end
+ 
+-function value_and_gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)
++function value_and_gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss{T}, β::AbstractVecOrMat) where {T}
+   _checkwrite(value_and_gradient!, f, g, β)
+   mul!(f.tmp, f.X, β)
+-  f.tmp .-= f.Y
+-  mul!(g, transpose(f.X), f.tmp)
+-  _value_at(_leastsquares_value(f, β, sum(abs2, f.tmp), false), β)
++  v = _leastsquares_residual_gradient!(g, f.tmp, f.X, f.tmp, f.Y, one(T))
++  _value_at(isfinite(v) ? v : _leastsquares_image_overflow(f, β, v), β)
+ end
+ 
+-# The value s/2 from the sum of squares s of the residual: f.tmp holds Xβ when
+-# raw, Xβ - Y otherwise. The ordinary sum is kept when it is finite and its
+-# squares cannot have underflowed (R1); otherwise the recovery runs.
+-@inline _leastsquares_value(f::LeastSquaresLoss, β, s, raw::Bool) =
+-  isfinite(s) & _squares_normal(s, length(f.tmp), typeof(s)) ? s / 2 : _leastsquares_recover(f, β, s, raw)
++function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)
++  _checkwrite(gradient!, f, g, β)
++  mul!(f.tmp, f.X, β)
++  _leastsquares_residual_gradient!(g, f.tmp, f.X, f.tmp, f.Y)
++  g
++end
++
++# d .= z .- Y and g .= Xᵀd (d may be z itself); with a level α, also the value α‖d‖²/2 by the shared
++# squared-residual kernel (α kept as supplied, rounded once at the result).
++@inline function _leastsquares_residual_gradient!(g, d, X, z, Y)
++  d .= z .- Y
++  mul!(g, transpose(X), d)
++end
++@inline function _leastsquares_residual_gradient!(g, d, X, z, Y, α)
++  _leastsquares_residual_gradient!(g, d, X, z, Y)
++  _square_value_wide(α, d, nothing)
++end
+ 
+-# - every residual exactly zero: the value is zero, at once, for exact fits;
+-# - a finite residual: its squares overflow or underflow, and the sum is formed
+-#   in units of a power of two;
+-# - a residual that overflowed although β, X and Y are finite: Xβ is formed again
+-#   as 2^k X βs from βs = β 2^-k, with k chosen so that no entry of X βs can
+-#   overflow. An entry 2^k (X βs)ᵢ that is representable meets Yᵢ in its own units,
+-#   so that a small Yᵢ survives a product that cancels; the others are formed as
+-#   (X βs)ᵢ - Yᵢ 2^-k in units of 2^k. The two sums of squares are added by their
+-#   exponents. This allocates a copy of β and two arrays of the size of Y.
+-# Broadcasts, mul! and reductions only, so that device arrays stay on the device.
+-@noinline function _leastsquares_recover(f::LeastSquaresLoss{T}, β, s, raw::Bool) where {T}
++# A non-finite value whose image Xβ (in f.tmp) has a non-finite entry although β, X and Y are finite:
++# Xβ is formed again as 2^k X βs from βs = β 2^-k, with k chosen so that no entry of X βs can
++# overflow. An entry 2^k (X βs)ᵢ that is representable meets Yᵢ in its own units, so that a small Yᵢ
++# survives a product that cancels; the others are formed as (X βs)ᵢ - Yᵢ 2^-k in units of 2^k. The two
++# sums of squares are added by their exponents. This allocates a copy of β and two arrays of the size
++# of Y. Exact zeros and finite residuals were already handled by the shared kernel; any other
++# non-finite value is returned unchanged. Broadcasts, mul! and reductions only (device arrays).
++@noinline function _leastsquares_image_overflow(f::LeastSquaresLoss{T}, β, v) where {T}
+   r, Y = f.tmp, f.Y
+-  if iszero(s)
+-    zero_residual = raw ? mapreduce(==, &, r, Y; init = true) : all(iszero, r)
+-    zero_residual && return zero(s)
+-  end
+-  _all_finite(r) && return _scaled_square_value(one(T), r, raw ? Y : nothing, s / 2)
+-  (_all_finite(β) && _all_finite(f.X) && _all_finite(Y)) || return s / 2
++  _all_finite(r) && return v
++  (_all_finite(β) && _all_finite(f.X) && _all_finite(Y)) || return v
+   k = max(_product_sum_shift(T, _stored_maxabs(f.X), _stored_maxabs(β), size(f.X, 2), 3),
+           _bound_exponent(_stored_maxabs(Y)) + 3 - _max_exponent(T))
+   sc, up = _power_factors(T, -k), _power_factors(T, k)
+@@ -124,13 +125,6 @@
+   (s, iszero(s) ? 0 : 2k - 1 + shift)
+ end
+ 
+-function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)
+-  _checkwrite(gradient!, f, g, β)
+-  mul!(f.tmp, f.X, β)
+-  f.tmp .-= f.Y
+-  mul!(g, transpose(f.X), f.tmp)
+-end
+-
+ function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::LeastSquaresLoss, g::AbstractVecOrMat, β::AbstractVecOrMat)
+   _checkreal(f, β)
+   _checkreal(f, g)
+diff -ruN pb-master/src/numerical_kernels.jl pb-H/src/numerical_kernels.jl
+--- pb-master/src/numerical_kernels.jl	2026-11-12 19:58:41.000000000 -0800
++++ pb-H/src/numerical_kernels.jl	2026-11-12 23:50:52.214001397 -0800
+@@ -516,12 +516,17 @@
+ # underflowed and lost more than eps of the sum, and the scaled recomputation runs instead.
+ @inline _squares_normal(s, n, ::Type{T}) where {T} = s >= n * (floatmin(T) / eps(T))
+ 
+-@inline function _square_value(λ, x, y)
++# λ/2 Σ (xᵢ - yᵢ)²: the level rounded to the value's type first (SqrNormL2, T3), or kept as supplied
++# and the product rounded once at the result (`_square_value_wide`, the least-squares scale rule,
++# PB #911). One body: the ordinary sum, the fast-path test and the exceptional recomputation.
++@inline _square_value(λ, x, y) = _square_value_level(convert(_valtype(x), λ), λ, x, y, _level_fits(_valtype(x), λ))
++@inline _square_value_wide(λ, x, y) = _square_value_level(λ, λ, x, y, true)
++@inline function _square_value_level(l, λ, x, y, fits::Bool)
+   T = _valtype(x)
+   s = y === nothing ? _sumabs2(x) : _sumabs2_diff(x, y)
+-  v = convert(T, λ) * s / 2
++  v = l * s / 2
+   n = y === nothing ? _square_term_count(x) : length(x)
+-  if (isfinite(v) & _squares_normal(real(s), n, T)) && _level_fits(T, λ)
++  if (isfinite(v) & _squares_normal(real(s), n, T)) && fits
+     return _value_at(v, x)
+   end
+   _exceptional_square_value(λ, x, y, real(s), v)
+diff -ruN pb-master/src/precompile.jl pb-H/src/precompile.jl
+--- pb-master/src/precompile.jl	2026-11-12 19:58:41.000000000 -0800
++++ pb-H/src/precompile.jl	2026-11-12 23:52:09.115363015 -0800
+@@ -18,6 +18,10 @@
+           value_and_gradient!(y, f, x)
+         end
+       end
++      zz = X * x; dd = similar(b); gg = similar(x); rr = b .- zz
++      for ff in (LeastSquaresLoss(b, X), Scaled(LeastSquaresLoss(b, X), T(0.2)))
++        value_at_image(ff, zz); value_and_gradient_at_image!(gg, dd, ff, zz); value_at_residual(ff, rr)
++      end
+       prox_block(NormL1(T(0.1)), x[1], 1, one(T))
+       s = SparseIterate(x)
+       a = BlockIterate(x, [Int[3, 1], Int[4, 2]])
+diff -ruN pb-master/src/ProximalBase.jl pb-H/src/ProximalBase.jl
+--- pb-master/src/ProximalBase.jl	2026-11-12 19:58:41.000000000 -0800
++++ pb-H/src/ProximalBase.jl	2026-11-12 23:52:09.115232000 -0800
+@@ -26,7 +26,8 @@
+ 
+ VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public,
+   :ScalarLoss, :Squared, :deriv, :deriv2, :curvature, :value_and_deriv,
+-  :check_parameters, :entry_parameters, :check_symmetric_parameters, :samegroups))
++  :check_parameters, :entry_parameters, :check_symmetric_parameters, :samegroups,
++  :value_at_image, :value_and_gradient_at_image!, :value_at_residual))
+ 
+ include("compat.jl")
+ include("utils.jl")
+@@ -45,6 +46,7 @@
+ include("functions/separable.jl")
+ include("functions/norml1.jl")
+ include("functions/scaled.jl")
++include("functions/leastsquares_image.jl")
+ include("array_steps.jl")
+ include("functions/scaled_array.jl")
+ include("symmetric_parameters.jl")

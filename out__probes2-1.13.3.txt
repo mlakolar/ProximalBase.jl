@@ -1,0 +1,103 @@
+VERSION = 1.13.3
+PB_ENV = master  active project = <CLUSTER-PATH>
+pathof(ProximalBase) = <RUN>/pkgs/pb-master/src/ProximalBase.jl
+ProximalBase: version=0.6.0-DEV source=<RUN>/pkgs/pb-master git_revision=nothing tree_hash=nothing
+PB exported tree marker: 1f3749f3332d1551bd65805d25786f3f53731db2 03a4bb444f0720a28337d386681c2917e9ab5503
+BLAS.get_config() = LBTConfig([ILP64] libopenblas64_.so)
+BLAS.get_num_threads() = 1  Threads.nthreads() = 4
+Sys.cpu_info()[1].model = AMD EPYC 7513 32-Core Processor  hostname-class = <PARTITION>
+SLURM_JOB_ID = <JOB>
+Float64 B1  alias d === z                                      refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B1  alias d partial-overlaps z (views of one buffer)   refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B1  alias g overlaps d (views of one buffer)           refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B1  alias d === Y                                      refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B1  alias g aliases X (vec view of X)                  refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B1  alias d === f.tmp (PB storage)                     accepted
+Float64 B1  alias g partial-overlaps f.tmp (view)              accepted
+Float64 B1  alias distinct buffers                             accepted
+Float64 B1  f.tmp poisoned with NaN: results identical and f.tmp untouched = true
+Float64 B1  concurrent calls on a shared f with 4 threads x 4 tasks each x 200 (value, g, d, value_at_image, value_at_residual compared): all equal = true
+Float64 B2  alias d === z                                      refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B2  alias d partial-overlaps z (views of one buffer)   refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B2  alias g overlaps d (views of one buffer)           refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B2  alias d === Y                                      refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B2  alias g aliases X (vec view of X)                  refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B2  alias d === f.tmp (PB storage)                     accepted
+Float64 B2  alias g partial-overlaps f.tmp (view)              accepted
+Float64 B2  alias distinct buffers                             accepted
+Float64 B2  f.tmp poisoned with NaN: results identical and f.tmp untouched = true
+Float64 B2  concurrent calls on a shared f with 4 threads x 4 tasks each x 200 (value, g, d, value_at_image, value_at_residual compared): all equal = true
+Float64 B3  alias d === z                                      refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B3  alias d partial-overlaps z (views of one buffer)   refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B3  alias g overlaps d (views of one buffer)           refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B3  alias d === Y                                      refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B3  alias g aliases X (vec view of X)                  refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float64 B3  alias d === f.tmp (PB storage)                     accepted
+Float64 B3  alias g partial-overlaps f.tmp (view)              accepted
+Float64 B3  alias distinct buffers                             accepted
+Float64 B3  f.tmp poisoned with NaN: results identical and f.tmp untouched = true
+Float64 B3  concurrent calls on a shared f with 4 threads x 4 tasks each x 200 (value, g, d, value_at_image, value_at_residual compared): all equal = true
+Float64 H   alias d === z                                      refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float64 H   alias d partial-overlaps z (views of one buffer)   refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float64 H   alias g overlaps d (views of one buffer)           refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float64 H   alias d === Y                                      refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float64 H   alias g aliases X (vec view of X)                  refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float64 H   alias d === f.tmp (PB storage)                     refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float64 H   alias g partial-overlaps f.tmp (view)              refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float64 H   alias distinct buffers                             accepted
+Float64 H   f.tmp poisoned with NaN: results identical and f.tmp untouched = true
+Float64 H   concurrent calls on a shared f with 4 threads x 4 tasks each x 200 (value, g, d, value_at_image, value_at_residual compared): all equal = true
+Float32 B1  alias d === z                                      refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B1  alias d partial-overlaps z (views of one buffer)   refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B1  alias g overlaps d (views of one buffer)           refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B1  alias d === Y                                      refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B1  alias g aliases X (vec view of X)                  refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B1  alias d === f.tmp (PB storage)                     accepted
+Float32 B1  alias g partial-overlaps f.tmp (view)              accepted
+Float32 B1  alias distinct buffers                             accepted
+Float32 B1  f.tmp poisoned with NaN: results identical and f.tmp untouched = true
+Float32 B1  concurrent calls on a shared f with 4 threads x 4 tasks each x 200 (value, g, d, value_at_image, value_at_residual compared): all equal = true
+Float32 B2  alias d === z                                      refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B2  alias d partial-overlaps z (views of one buffer)   refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B2  alias g overlaps d (views of one buffer)           refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B2  alias d === Y                                      refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B2  alias g aliases X (vec view of X)                  refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B2  alias d === f.tmp (PB storage)                     accepted
+Float32 B2  alias g partial-overlaps f.tmp (view)              accepted
+Float32 B2  alias distinct buffers                             accepted
+Float32 B2  f.tmp poisoned with NaN: results identical and f.tmp untouched = true
+Float32 B2  concurrent calls on a shared f with 4 threads x 4 tasks each x 200 (value, g, d, value_at_image, value_at_residual compared): all equal = true
+Float32 B3  alias d === z                                      refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B3  alias d partial-overlaps z (views of one buffer)   refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B3  alias g overlaps d (views of one buffer)           refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B3  alias d === Y                                      refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B3  alias g aliases X (vec view of X)                  refused: ArgumentError: g and d must not overlap each other, X, Y or z
+Float32 B3  alias d === f.tmp (PB storage)                     accepted
+Float32 B3  alias g partial-overlaps f.tmp (view)              accepted
+Float32 B3  alias distinct buffers                             accepted
+Float32 B3  f.tmp poisoned with NaN: results identical and f.tmp untouched = true
+Float32 B3  concurrent calls on a shared f with 4 threads x 4 tasks each x 200 (value, g, d, value_at_image, value_at_residual compared): all equal = true
+Float32 H   alias d === z                                      refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float32 H   alias d partial-overlaps z (views of one buffer)   refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float32 H   alias g overlaps d (views of one buffer)           refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float32 H   alias d === Y                                      refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float32 H   alias g aliases X (vec view of X)                  refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float32 H   alias d === f.tmp (PB storage)                     refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float32 H   alias g partial-overlaps f.tmp (view)              refused: ArgumentError: g and d must not overlap each other, X, Y, z or the loss's internal storage
+Float32 H   alias distinct buffers                             accepted
+Float32 H   f.tmp poisoned with NaN: results identical and f.tmp untouched = true
+Float32 H   concurrent calls on a shared f with 4 threads x 4 tasks each x 200 (value, g, d, value_at_image, value_at_residual compared): all equal = true
+Float64 B1  gradient range: Xᵀd overflows before a tiny α      g = Inf, reference 8.0
+Float64 B1  gradient range: Xᵀd underflows before a large α    g = 0.0, reference 2.409919865102884e-181
+Float64 B2  gradient range: Xᵀd overflows before a tiny α      g = Inf, reference 8.0
+Float64 B2  gradient range: Xᵀd underflows before a large α    g = 0.0, reference 2.409919865102884e-181
+Float64 B3  gradient range: Xᵀd overflows before a tiny α      g = 8.0, reference 8.0
+Float64 B3  gradient range: Xᵀd underflows before a large α    g = 2.409919865102884e-181, reference 2.409919865102884e-181
+Float64 H   gradient range: Xᵀd overflows before a tiny α      g = Inf, reference 8.0
+Float64 H   gradient range: Xᵀd underflows before a large α    g = 0.0, reference 2.409919865102884e-181
+Float64 B2 layer with DoubleSquared: rel err value 6.87e-18, value+deriv 6.87e-18, deriv exact = true, inferred Any[Float64]
+Float64 B2 _loss_sum_deriv!(DoubleSquared) non-inlined calls: 5 throw_eachindex_mismatch_indices;throw_boundserror
+Float64 B2 DoubleSquared, terms that overflow (no recovery hook): 1.6e63 (exact 1.6000000000000002e63)
+Float32 B2 layer with DoubleSquared: rel err value 1.02e-07, value+deriv 1.02e-07, deriv exact = true, inferred Any[Float32]
+Float32 B2 _loss_sum_deriv!(DoubleSquared) non-inlined calls: 5 throw_eachindex_mismatch_indices;throw_boundserror
+Float32 B2 DoubleSquared, terms that overflow (no recovery hook): Inf32 (exact 1.6000001690444782e63)

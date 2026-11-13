@@ -38,6 +38,9 @@ function close_value(v, ref; k = 8)
   abs(big(v) - ref) <= k * big(eps(T)) * abs(ref) + 2 * big(nextfloat(zero(T)))
 end
 
+# a random significand in [1/2, 1) with a random sign, times 2^e
+signif(rng, T, e) = (rand(rng, Bool) ? -1 : 1) * ldexp(T(0.5) + T(rand(rng)) / 2, e)
+
 # the dense result of prox! from the compact references, entries in no group copied
 function refprox_full(x, γ, λ, groups, w)
   y = big.(x)
@@ -347,6 +350,22 @@ end
   @test f(x) == NormL1(λ)(x)                 # the singleton-equivalent NormL1 value, also recomputed
   y = similar(x)
   @test close_value(value_and_prox!(y, f, x, zero(T)), ref; k = 2) && y == x
+  # the same bound with terms of 0.05 to 0.33 floatmin: 16 groups of three entries in [1, 2), weights in [0.5, 1.5)
+  # and a level of 2^(emin - 4), so that the ordinary sum is below 16 floatmin and its terms may have lost bits as
+  # subnormals; the recomputed value, direct and fused, is within a few eps of BigFloat
+  let K = 16
+    rng6 = Xoshiro(373)
+    groups6 = [3k-2:3k for k in 1:K]
+    x6 = T(1) .+ rand(rng6, T, 3K)
+    w6 = T(0.5) .+ rand(rng6, T, K)
+    λ6 = s(emin - 4)
+    f6 = GroupNormL2(λ6, groups6, w6)
+    ref6 = refvalue(x6, λ6, groups6, w6)
+    @test ref6 < K * big(floatmin(T))
+    @test close_value(f6(x6), ref6; k = 4)
+    y6 = similar(x6)
+    @test close_value(value_and_prox!(y6, f6, x6, zero(T)), ref6; k = 4) && y6 == x6
+  end
 end
 
 @testset "BlockIterate storage separation ($T)" for T in (Float32, Float64)
@@ -514,6 +533,212 @@ end
     y = similar(x)
     @test same_class(value_and_prox!(y, f, x, zero(T)), ref)
   end
+end
+
+# ---- NaN and Inf on the cold paths ----
+# One group of four entries in each context that puts the ordinary computation out of range: a sum of
+# squares that overflows or underflows, and a threshold γλw that overflows or underflows. Each context is
+# (name, finite entries, level, weight, step). The patterns put an Inf or a NaN at different positions among
+# the finite entries, with its kind; a group of -0.0 is the zero group.
+function cold_contexts(::Type{T}) where {T}
+  emax, emin = exponent(floatmax(T)), exponent(floatmin(T))
+  s(e) = T(2)^e
+  [(:squares_overflow, s(emax - 1) .* T[1, -0.75, 0.5, 0.25], one(T), one(T), one(T)),
+   (:squares_underflow, s(emin - 5) .* T[1, -0.75, 0.5, 0.25], one(T), one(T), one(T)),
+   (:threshold_overflow, T[3, -4, 12, 1], floatmax(T) / 4, T(8), one(T)),
+   (:threshold_underflow, T[3, -4, 12, 1], s(emin), T(0.5), s(-3))]
+end
+function nonfinite_patterns(a::AbstractVector{T}) where {T}
+  (inf, nan) = (T(Inf), T(NaN))
+  [(:inf_first, T[inf, a[2], a[3], a[4]], :inf), (:inf_last, T[a[1], a[2], a[3], -inf], :inf),
+   (:inf_both_ends, T[-inf, a[2], a[3], inf], :inf),
+   (:nan_first, T[nan, a[2], a[3], a[4]], :nan), (:nan_last, T[a[1], a[2], a[3], nan], :nan),
+   (:nan_before_inf, T[a[1], nan, a[3], inf], :nan), (:inf_before_nan, T[inf, a[2], nan, a[4]], :nan),
+   (:negative_zeros, fill(-zero(T), 4), :zero)]
+end
+# the output of a positive finite step, level and weight on a group of the kind: a NaN fills the group, an
+# infinite entry (no NaN) leaves it unchanged, the zero group is +0
+function prox_matches(y, u, kind)
+  T = eltype(u)
+  kind == :nan && return all(isnan, y)
+  kind == :inf && return all(i -> y[i] === u[i], eachindex(u))
+  all(v -> v === zero(T), y)
+end
+# the value of groups of these kinds: NaN if one has a NaN, else Inf if one has an Inf, else +0
+value_class(kinds...) = :nan in kinds ? :nan : :inf in kinds ? :inf : :zero
+value_matches(v, kind) = kind == :nan ? isnan(v) : kind == :inf ? v === typeof(v)(Inf) : v === zero(v)
+
+@testset "NaN and Inf precedence on the cold paths ($T)" for T in (Float32, Float64)
+  G1, G2 = [7, 2, 5, 3], [1, 4, 6, 8]            # two permuted groups of an 8-vector
+  ordinary = T[1, -2, 3, 0.5]
+  # positive finite parameters: a NaN gives NaN, an Inf (no NaN) leaves the group and gives an infinite value,
+  # the zero group gives +0, in prox!, prox_block!, value_and_prox! and the value, whichever group holds it
+  for (ctx, a, λ, w, γ) in cold_contexts(T)
+    f1 = GroupNormL2(λ, [1:4], T[w])
+    f2 = GroupNormL2(λ, [G1, G2], T[w, w])
+    ref2 = prox_block(f2, ordinary, 2, γ)
+    for (n1, u1, k1) in nonfinite_patterns(a)
+      @testset "$ctx $n1" begin
+        out = prox_block(f1, u1, 1, γ)
+        @test prox_matches(out, u1, k1)
+        out2 = copy(u1)
+        @test prox_block!(out2, f1, out2, 1, γ) === out2 && prox_matches(out2, u1, k1)   # in place
+        @test prox_matches(prox(f1, u1, γ), u1, k1)
+        y = similar(u1)
+        v = value_and_prox!(y, f1, u1, γ)
+        @test prox_matches(y, u1, k1) && value_matches(v, k1) && value_matches(f1(u1), k1)
+        # the other group is read and written independently of the first
+        x = zeros(T, 8); x[G1] = u1; x[G2] = ordinary
+        z = prox(f2, x, γ)
+        @test prox_matches(z[G1], u1, k1) && all(i -> z[G2][i] === ref2[i], 1:4)
+        zi = copy(x)
+        @test prox!(zi, f2, zi, γ) === zi && isequal(zi, z)
+        for (n2, u2, k2) in nonfinite_patterns(a)
+          x = zeros(T, 8); x[G1] = u1; x[G2] = u2
+          @test value_matches(f2(x), value_class(k1, k2))
+          y = similar(x)
+          v = value_and_prox!(y, f2, x, γ)
+          @test value_matches(v, value_class(k1, k2)) && prox_matches(y[G1], u1, k1) && prox_matches(y[G2], u2, k2)
+        end
+      end
+    end
+  end
+  # the screen ‖g‖ - λw: a NaN gives NaN; an Inf (no NaN) the IEEE Inf - λw, which is Inf, or NaN where λw is
+  # infinite after rounding (an overflow of finite factors included); the zero gradient gives -λw
+  for (ctx, a, λ, w, _) in cold_contexts(T)
+    f2 = GroupNormL2(λ, [G1, G2], T[w, w])
+    c = T(big(λ) * big(w))
+    for (n1, g1, k1) in nonfinite_patterns(a)
+      g = zeros(T, 8); g[G1] = g1; g[G2] = ordinary
+      for (point, i1, i2) in ((zeros(T, 8), G1[1], G2[1]), (BlockIterate(T, 8, f2), 1, 2))
+        v = kkt_violation(f2, g, point, i1)
+        if k1 == :nan
+          @test isnan(v)
+        elseif k1 == :inf
+          @test isfinite(c) ? v === T(Inf) : isnan(v)
+        else
+          @test close_value(v, -big(λ) * big(w))
+        end
+        @test close_value(kkt_violation(f2, g, point, i2), bignorm(ordinary) - big(λ) * big(w))   # the other group
+      end
+    end
+  end
+  # infinite parameters: an infinite level or weight fixes the group at +0 for each pattern below (D1), the value
+  # is Inf at an infinite entry and NaN at a NaN (the zero group gives +0), the screen is NaN at an Inf entry
+  # (Inf - Inf) and at a NaN, and -Inf at the zero gradient; a zero weight leaves the group unchanged with value 0
+  for (ctx, a, _, _, γ) in cold_contexts(T), (λ, w) in ((T(Inf), one(T)), (one(T), T(Inf)), (T(Inf), T(Inf)))
+    f1 = GroupNormL2(λ, [1:4], T[w])
+    for (n1, u1, k1) in nonfinite_patterns(a)
+      @test all(v -> v === zero(T), prox_block(f1, u1, 1, γ))
+      y = similar(u1)
+      v = value_and_prox!(y, f1, u1, γ)
+      @test all(v -> v === zero(T), y) && v === zero(T)
+      @test value_matches(f1(u1), k1)
+      v = kkt_violation(f1, u1, zeros(T, 4), 1)
+      @test k1 == :zero ? v === T(-Inf) : isnan(v)
+    end
+  end
+  for (ctx, a, _, _, γ) in cold_contexts(T), λ in (T(0.5), T(Inf), floatmax(T))
+    f1 = GroupNormL2(λ, [1:4], T[0])
+    for (n1, u1, k1) in nonfinite_patterns(a)
+      @test isequal(prox_block(f1, u1, 1, γ), u1) && f1(u1) === zero(T)
+      y = similar(u1)
+      @test value_and_prox!(y, f1, u1, γ) === zero(T) && isequal(y, u1)
+      v = kkt_violation(f1, u1, zeros(T, 4), 1)
+      @test k1 == :nan ? isnan(v) : k1 == :inf ? v === T(Inf) : iszero(v)
+    end
+  end
+end
+
+# ---- no allocations on matrix arguments ----
+@testset "no allocations on matrix arguments ($T)" for T in (Float32, Float64)
+  emax, emin = exponent(floatmax(T)), exponent(floatmin(T))
+  s(e) = T(2)^e
+  rng = Xoshiro(913)
+  # a 4 × 3 matrix and groups of linear indices: ranges, and permuted vectors; group 1 holds the case
+  layouts = (ranges = [1:4, 5:8, 9:12], vectors = [[10, 6, 8, 12], [1, 3, 2, 4], [5, 7, 9, 11]])
+  base = T(0.5) .+ rand(rng, T, 4, 3)
+  cases = (zero_argument = nothing, zero_group = zeros(T, 4), overflowing_group = s(emax - 1) .* T[1, -0.75, 0.5, 0.25],
+           underflowing_group = s(emin - 5) .* T[1, -0.75, 0.5, 0.25], nan_group = T[1, NaN, -2, 3], inf_group = T[1, -Inf, 2, 3])
+  params = ((:ordinary, T(0.7), T[1.5, 1, 1], T(0.5)),
+            (:threshold_overflow, floatmax(T) / 4, T[8, 1, 1], one(T)),
+            (:threshold_underflow, s(emin), T[0.5, 1, 1], s(-3)),
+            (:infinite_level, T(Inf), T[1.5, 1, 1], T(0.5)),
+            (:infinite_weight, T(0.7), T[Inf, 1, 1], T(0.5)),
+            (:zero_weight, T(0.7), T[0, 1, 1], T(0.5)))
+  @test allocs(getindex, base, [1, 2, 3]) > 0       # the counting detects an allocating call
+  bad = String[]
+  for (layout, groups) in pairs(layouts), (case, u) in pairs(cases), (pname, λ, w, γ) in params
+    X = copy(base)
+    u === nothing ? fill!(X, zero(T)) : (X[groups[1]] .= u)
+    Y = similar(X)
+    f = GroupNormL2(λ, groups, w)
+    x0 = zeros(T, size(X))
+    for (op, n) in (("prox!", allocs(prox!, Y, f, X, γ)), ("value_and_prox!", allocs(value_and_prox!, Y, f, X, γ)),
+                    ("value", allocs(f, X)), ("screen", allocs(kkt_violation, f, X, x0, groups[1][1])))
+      n == 0 || push!(bad, "$op $layout $case $pname: $n bytes")
+    end
+  end
+  @test isempty(bad)
+  isempty(bad) || @info "allocating calls" bad
+end
+
+# ---- accuracy of the recomputed values and screens ----
+@testset "recomputed values and screens against BigFloat ($T)" for T in (Float32, Float64)
+  # Groups of random sizes and layouts whose ordinary computation fails: the sum of squares overflows
+  # (entries above 2^(emax/2 + 2)) or the squares of a group underflow below floatmin / eps. The level makes
+  # the value representable and normal, and not near floatmax; the screen's coefficient is 2^3 to 2^5 times
+  # or 1/2^3 to 1/2^5 of the norm, away from cancellation. Within the tolerance of close_value.
+  rng = Xoshiro(914)
+  emax, emin = exponent(floatmax(T)), exponent(floatmin(T))
+  es = exponent(nextfloat(zero(T)))
+  checked = 0
+  for trial in 1:400
+    overflow = isodd(trial)
+    sizes = rand(rng, 1:6, rand(rng, 1:3))
+    p = sum(sizes)
+    ex = overflow ? rand(rng, emax ÷ 2 + 3:emax - 3) : rand(rng, es + 8:emin ÷ 2 - precision(T) ÷ 2 - 2)
+    x = T[signif(rng, T, ex - rand(rng, 0:3)) for _ in 1:p]
+    perm = rand(rng, Bool) ? randperm(rng, p) : collect(1:p)
+    cuts = cumsum(sizes)
+    groups = [perm[(k == 1 ? 1 : cuts[k - 1] + 1):cuts[k]] for k in eachindex(sizes)]
+    w = T(0.5) .+ rand(rng, T, length(sizes))
+    ref1 = refvalue(x, 1, groups, w)
+    λ = ldexp(one(T), clamp(-exponent(ref1) + rand(rng, -10:10), -emax, emax - 2))
+    ref = refvalue(x, λ, groups, w)
+    (4 * big(floatmin(T)) < ref < big(floatmax(T)) / 4) || continue
+    checked += 1
+    f = GroupNormL2(λ, groups, w)
+    @test close_value(f(x), ref)
+    y = similar(x)
+    @test close_value(value_and_prox!(y, f, x, zero(T)), ref) && y == x
+    # the screen of each group at the point 0, on an array and on a BlockIterate
+    for k in eachindex(groups)
+      ng = bignorm(x[groups[k]])
+      l = exponent(ng / big(w[k])) + rand(rng, (-5:-3, 3:5)[rand(rng, 1:2)])
+      λs = ldexp(one(T), clamp(l, es, emax - 2))
+      fs = GroupNormL2(λs, groups, w)
+      refs = ng - big(λs) * big(w[k])
+      @test close_value(kkt_violation(fs, x, zeros(T, p), groups[k][1]), refs)
+      @test close_value(kkt_violation(fs, x, BlockIterate(T, p, fs), k), refs)
+    end
+  end
+  @test checked >= 100
+end
+
+# ---- D-X ----
+@testset "BigFloat exponents beyond Int (D-X)" begin
+  # The sole difference from the code before the consolidation of the ℓ2 kernels that the maintainer's ruling D-X
+  # permits: the exponent sum of the recomputed value and of the screen does not wrap at Int. With the level and
+  # the weight 2^(2^62 - 2) the value of x = [2^(2^62 - 2)] overflows MPFR's exponent range and is Inf (the
+  # previous code wrapped the sum and gave 0); the coefficient of the screen overflows, so the screen at the
+  # point 0 with gradient [2^(-2^60)] is -Inf (the previous code gave +Inf).
+  e = 2^62 - 2
+  λ = ldexp(BigFloat(1), e)
+  f = GroupNormL2(λ, [1:1], [λ])
+  @test f([λ]) == Inf
+  g = [ldexp(BigFloat(1), -2^60)]
+  @test kkt_violation(f, g, [zero(BigFloat)], 1) == -Inf
 end
 
 @testset "no ambiguities" begin

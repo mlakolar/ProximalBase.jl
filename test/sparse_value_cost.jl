@@ -89,6 +89,47 @@ bigfro(A) = setprecision(() -> sqrt(sum(big.(A) .^ 2; init = big(0))), BigFloat,
       end
     end
   end
+
+  # The counting also covers the vector SparseIterate, and the recoveries that classify the stored entries: an
+  # infinite level, and NaN and ±Inf entries. The rows are sums of squares that overflow,
+  # that underflow and that are ordinary, infinite levels, and non-finite entries at finite and infinite levels;
+  # none creates a zero of the element type.
+  @testset "Vector iterate, infinite levels and non-finite entries" begin
+    function vector_iterate(T, data; p = 10_000)
+      x = SparseIterate(T, p)
+      for (i, v) in data
+        x[i] = T(1)
+        x[i] = T(v)
+      end
+      x
+    end
+    # control: a generic pass over the logical vector is counted
+    n, _ = zeros_made(() -> sum(abs2, vector_iterate(C, [(1, 1.0), (2, 0.5)]; p = 300)))
+    @test n >= 300 - 4
+    for (λ, data) in ((1e-100, [(1, 1e300), (7, 1e300)]),                   # the sum of squares overflows
+                      (1e200, [(1, 1e-310), (7, 3e-320)]),                  # and underflows
+                      (1.0, [(1, 3.0), (7, -4.0), (9, 0.0)]),               # ordinary
+                      (Inf, [(1, 3.0), (7, -4.0)]), (Inf, [(4, 1e300)]), (Inf, [(4, -0.0)]), (Inf, Tuple{Int, Float64}[]),
+                      (1e-100, [(1, Inf), (7, 1e300)]), (1.0, [(1, -Inf)]), (1e300, [(1, 1e300), (2, Inf)]),
+                      (Inf, [(1, Inf)]), (1.0, [(1, NaN), (7, Inf)]), (1e-100, [(1, Inf), (7, NaN)]), (Inf, [(1, NaN)]))
+      x = vector_iterate(C, data)
+      y = vector_iterate(Float64, data)
+      n, v = zeros_made(() -> NormL2(λ)(x))
+      @test n == 0
+      @test isequal(v, NormL2(λ)(y))
+    end
+    # the same for the matrix and symmetric iterates
+    for kind in (:sym, :mat), (λ, data) in ((Inf, [(1, 1, 3.0), (2, 1, -4.0)]), (Inf, [(4, 2, 1e300)]),
+                                            (1e-100, [(1, 1, Inf), (2, 1, 1e300)]), (1.0, [(1, 1, -Inf)]),
+                                            (1.0, [(1, 1, NaN), (2, 1, Inf)]), (1e-100, [(1, 1, Inf), (2, 1, NaN)]),
+                                            (Inf, [(1, 1, NaN)]))
+      x = make_iterate(C, kind, data)
+      y = make_iterate(Float64, kind, data)
+      n, v = zeros_made(() -> NormL2(λ)(x))
+      @test n == 0
+      @test isequal(v, NormL2(λ)(y))
+    end
+  end
 end
 
 end

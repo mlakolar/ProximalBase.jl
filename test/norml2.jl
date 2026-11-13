@@ -36,6 +36,8 @@ Base.size(o::OnesVector) = (o.n,)
 Base.getindex(::OnesVector, i::Int) = 1f0
 # equal, or finite and within 4 eps: exceptional and zero values must agree exactly
 same_value(a, b) = isequal(a, b) || (isfinite(a) && isfinite(b) && !iszero(a) && abs(a - b) <= 4eps(typeof(a)) * max(abs(a), abs(b)))
+# a random significand in [1/2, 1) with a random sign, times 2^e
+signif(rng, T, e) = (rand(rng, Bool) ? -1 : 1) * ldexp(T(0.5) + T(rand(rng)) / 2, e)
 # the matrix a symmetric iterate represents, for the references
 symmetric_dense(S) = Matrix(S)
 
@@ -283,6 +285,136 @@ end
     z = similar(x)
     @test same_class(value_and_prox!(z, f, x, zero(T)), ref) && z == x
   end
+end
+
+# ---- NaN and Inf on the cold paths ----
+# One vector of four entries in each context that puts the ordinary computation out of range: a sum of
+# squares that overflows or underflows, and a threshold γλ that overflows or underflows. Each context is
+# (name, finite entries, level, step). The patterns put an Inf or a NaN at different positions among the
+# finite entries, with its kind; a vector of -0.0 is the zero argument.
+function cold_contexts(::Type{T}) where {T}
+  emax, emin = exponent(floatmax(T)), exponent(floatmin(T))
+  s(e) = T(2)^e
+  [(:squares_overflow, s(emax - 1) .* T[1, -0.75, 0.5, 0.25], one(T), one(T)),
+   (:squares_underflow, s(emin - 5) .* T[1, -0.75, 0.5, 0.25], one(T), one(T)),
+   (:threshold_overflow, T[3, -4, 12, 1], floatmax(T) / 4, T(8)),
+   (:threshold_underflow, T[3, -4, 12, 1], s(emin), s(-3))]
+end
+function nonfinite_patterns(a::AbstractVector{T}) where {T}
+  (inf, nan) = (T(Inf), T(NaN))
+  [(:inf_first, T[inf, a[2], a[3], a[4]], :inf), (:inf_last, T[a[1], a[2], a[3], -inf], :inf),
+   (:inf_both_ends, T[-inf, a[2], a[3], inf], :inf),
+   (:nan_first, T[nan, a[2], a[3], a[4]], :nan), (:nan_last, T[a[1], a[2], a[3], nan], :nan),
+   (:nan_before_inf, T[a[1], nan, a[3], inf], :nan), (:inf_before_nan, T[inf, a[2], nan, a[4]], :nan),
+   (:negative_zeros, fill(-zero(T), 4), :zero)]
+end
+# the output of a positive finite step and level on an argument of the kind: a NaN fills it, an infinite entry
+# (no NaN) leaves it unchanged, the zero argument is +0
+function prox_matches(y, u, kind)
+  T = eltype(u)
+  kind == :nan && return all(isnan, y)
+  kind == :inf && return all(i -> y[i] === u[i], eachindex(u))
+  all(v -> v === zero(T), y)
+end
+value_matches(v, kind) = kind == :nan ? isnan(v) : kind == :inf ? v === typeof(v)(Inf) : v === zero(v)
+
+@testset "NaN and Inf precedence on the cold paths ($T)" for T in (Float32, Float64)
+  # positive finite level and step: a NaN gives NaN, an Inf (no NaN) leaves the argument and gives an infinite
+  # value, the zero argument gives +0, in prox!, value_and_prox! and the value, on a vector and on a matrix
+  for (ctx, a, λ, γ) in cold_contexts(T), (name, u, kind) in nonfinite_patterns(a)
+    f = NormL2(λ)
+    @testset "$ctx $name" begin
+      for arg in (u, reshape(copy(u), 2, 2))
+        y = similar(arg)
+        @test prox!(y, f, arg, γ) === y && prox_matches(y, arg, kind)
+        @test prox_matches(prox(f, arg, γ), arg, kind)
+        z = copy(arg)
+        @test prox!(z, f, z, γ) === z && prox_matches(z, arg, kind)             # in place
+        @test value_matches(f(arg), kind)
+        y = similar(arg)
+        v = value_and_prox!(y, f, arg, γ)
+        @test prox_matches(y, arg, kind) && value_matches(v, kind)
+        z = copy(arg)
+        @test value_matches(value_and_prox!(z, f, z, γ), kind) && prox_matches(z, arg, kind)
+      end
+    end
+  end
+  # an infinite level fixes the argument at +0 at the steps of the contexts and at step 0 (D1); its value is Inf at an infinite
+  # entry, NaN at a NaN, and +0 at the zero argument. A zero level and a zero step are the identity, and an
+  # infinite step with a positive finite level fixes the argument at +0
+  for (ctx, a, _, γ) in cold_contexts(T), (name, u, kind) in nonfinite_patterns(a)
+    f = NormL2(T(Inf))
+    @test all(v -> v === zero(T), prox(f, u, γ)) && all(v -> v === zero(T), prox(f, u, zero(T)))
+    y = similar(u)
+    @test value_and_prox!(y, f, u, γ) === zero(T) && all(v -> v === zero(T), y)
+    @test value_matches(f(u), kind)
+    @test isequal(prox(NormL2(zero(T)), u, γ), u) && NormL2(zero(T))(u) === zero(T)
+    @test isequal(prox(NormL2(T(0.5)), u, zero(T)), u)
+    @test all(v -> v === zero(T), prox(NormL2(T(0.5)), u, T(Inf)))
+  end
+end
+
+# ---- no allocations on matrix arguments ----
+@testset "no allocations on matrix arguments ($T)" for T in (Float32, Float64)
+  emax, emin = exponent(floatmax(T)), exponent(floatmin(T))
+  s(e) = T(2)^e
+  rng = Xoshiro(913)
+  base = T(0.5) .+ rand(rng, T, 4, 3)
+  arguments = (zero_argument = zeros(T, 4, 3), overflowing = s(emax - 1) .* (T(0.5) .+ rand(rng, T, 4, 3)),
+               underflowing = s(emin - 5) .* (T(0.5) .+ rand(rng, T, 4, 3)),
+               nan_entry = (X = copy(base); X[2, 2] = NaN; X), inf_entry = (X = copy(base); X[4, 3] = -Inf; X),
+               nan_and_inf = (X = copy(base); X[1, 1] = Inf; X[4, 3] = NaN; X), ordinary = base)
+  params = ((:ordinary, T(0.7), T(0.5)), (:threshold_overflow, floatmax(T) / 4, T(8)),
+            (:threshold_underflow, s(emin), s(-3)), (:infinite_level, T(Inf), T(0.5)), (:infinite_step, T(0.7), T(Inf)),
+            (:zero_level, zero(T), T(0.5)))
+  # the counting detects an allocating call
+  @test allocs(getindex, base, [1, 2, 3]) > 0
+  bad = String[]
+  for (case, X) in pairs(arguments), (pname, λ, γ) in params
+    f = NormL2(λ)
+    Y = similar(X)
+    for (op, n) in (("prox!", allocs(prox!, Y, f, X, γ)), ("value_and_prox!", allocs(value_and_prox!, Y, f, X, γ)),
+                    ("value", allocs(f, X)))
+      n == 0 || push!(bad, "$op $case $pname: $n bytes")
+    end
+  end
+  @test isempty(bad)
+  isempty(bad) || @info "allocating calls" bad
+end
+
+# ---- accuracy of the recomputed values and proximal points ----
+@testset "recomputed values and proximal points against BigFloat ($T)" for T in (Float32, Float64)
+  # Vectors and matrices whose ordinary computation fails: the sum of squares overflows (entries above
+  # 2^(emax/2 + 2)) or underflows below floatmin / eps. The level makes the value representable and normal and
+  # not near floatmax; the proximal step puts the threshold at 1/4 to 4 times the norm. Within the tolerances
+  # of close_value and close_prox.
+  rng = Xoshiro(914)
+  emax, emin = exponent(floatmax(T)), exponent(floatmin(T))
+  es = exponent(nextfloat(zero(T)))
+  checked = 0
+  for trial in 1:400
+    overflow = isodd(trial)
+    n = rand(rng, 1:12)
+    ex = overflow ? rand(rng, emax ÷ 2 + 3:emax - 3) : rand(rng, es + 8:emin ÷ 2 - precision(T) ÷ 2 - 2)
+    x = T[signif(rng, T, ex - rand(rng, 0:3)) for _ in 1:n]
+    arg = isodd(n) || n == 2 ? x : reshape(x, 2, n ÷ 2)
+    nx = bignorm(x)
+    λ = ldexp(one(T), clamp(-exponent(nx) + rand(rng, -10:10), -emax, emax - 2))
+    ref = refvalue(x, λ)
+    if 4 * big(floatmin(T)) < ref < big(floatmax(T)) / 4
+      checked += 1
+      f = NormL2(λ)
+      @test close_value(f(arg), ref)
+      y = similar(arg)
+      @test close_value(value_and_prox!(y, f, arg, zero(T)), ref) && y == arg
+    end
+    # threshold λγ = (1/4, 1/2, 2, 4) ‖x‖ with λ = 1: the cold shrinkage
+    γ = T(nx * (1 // 4, 1 // 2, 2, 4)[rand(rng, 1:4)])
+    (isfinite(γ) && γ > 0) || continue
+    f = NormL2(one(T))
+    @test close_prox(vec(prox(f, arg, γ)), refprox(x, γ, one(T)), x)
+  end
+  @test checked >= 100
 end
 
 end

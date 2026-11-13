@@ -29,11 +29,24 @@
 # PB_STRIDE=k keeps every k-th of them (a smoke run). The
 # BigFloat cases (about the same operations at a few representative inputs) are check-only: they are not timed.
 #
-# Before the roles are compared, the inputs of every case are validated with computations that use no
-# package code: the ordinary sum of squares in the element type T overflows or underflows, the threshold
-# product is out of range, a value lies in its intended range, and a BigFloat reference of the outputs is
-# finite. A failed assertion is an error that names the case. Value cases that carry a BigFloat reference
-# also require the reference tree's value to agree with it to within 128 eps(T).
+# Before the roles are compared, the data of each scenario are validated with computations that use no package
+# code, for the properties that the scenario lists in its `req` tuple (the tags of validate_groups! and of the
+# validators of the other families): for example that the ordinary sum of squares in the element type T overflows,
+# or is zero although the group is not, that the threshold product is out of range, that the exact value lies in a
+# stated fraction of floatmax, or that the exact proximal point is finite in T (:finite_result: only the Float32
+# and Float64 scenarios that list it). A scenario with req = () has no assertion on its data (reg_lam0_ord and
+# reg_lamInf_ord, for example, whose parameters decide the path); BigFloat scenarios are not asserted to give finite
+# results, and a non-finite output (NaN or Inf data, infinite parameters) is intentional in the scenarios made for
+# it. A failed assertion is an error that names the case. That the data have these properties, or that an input was
+# built, is not evidence that every operation takes its intended path: the exact comparison of the trees is the check.
+#
+# Value cases that carry a BigFloat reference (the scenarios marked ref = true, in Float32 and Float64, the value
+# of the reference tree X only) also require X's value `a` to agree with it, as value_agrees below states: the reference
+# of 256 bits is rounded to nearest in T, e = T(ref), and a === e, or both are finite and
+# |a - e| <= max(128 eps(T) |e|, 4 K nextfloat(zero(T))), computed in T, with K the count that the scenario gives with its
+# reference (the number of groups for GroupNormL2; one or the number of entries for the other families). The absolute term is the larger one for |e| < K nextfloat(zero(T)) / (32 eps(T)) (about
+# K 2^-131 in Float32, K 2^-1027 in Float64): there the check allows a relative error above 128 eps, a = 0 for the
+# smallest subnormal e and K = 1 included. The other values are compared with the reference tree only.
 using BenchmarkTools, Random, Statistics, Dates, LinearAlgebra, SparseArrays
 Threads.nthreads() == 1 || error("one Julia thread required")
 first_root = abspath(ENV["PB_FIRST"]); second_root = abspath(ENV["PB_SECOND"])
@@ -153,8 +166,8 @@ function aexp_of(::Type{T}, mag, m) where {T}
     emax, emin, p = emax_of(T), emin_of(T), prec_of(T)
     mag === :ord && return 0
     mag === :over_mid && return emax ÷ 2 + 3              # the sum of squares overflows, the norm is far below floatmax
-    mag === :over_norm && return emax - lgm(m) - 1        # the norm is within a factor 2 of floatmax/2 or below
-    mag === :over_entries && return emax                  # entries up to floatmax/2
+    mag === :over_norm && return emax - lgm(m) - 1        # the norm is in about [0.088, 0.354) floatmax (see the scenarios)
+    mag === :over_entries && return emax                  # entries in [0.25, 0.5) floatmax
     mag === :max_entries && return emax + 1               # entries up to 0.9 floatmax (see genvec)
     mag === :under && return emin + 2                     # entries of 2 to 4 floatmin: every square underflows to zero
     mag === :sub && return emin - 3                       # subnormal entries
@@ -221,7 +234,8 @@ function data_params(::Type{T}, kind, nk, rng, unit_w = false) where {T}
 end
 const DATA_FIRST = (:tuned, :val_near, :val_over, :val_fin)
 
-# log2 of γλ0w₁, within one, from exponents only (valid also where the product leaves the range of T)
+# A lower estimate of log2(γλ0w₁) from exponents only (valid also where the product leaves the range of T): the sum
+# of the three floors of log2, so that log2(γλ0w₁) - cexp is in [0, 3)
 cexp(γ, λ0, w1) = Int(Int128(exponent(γ)) + Int128(exponent(λ0)) + Int128(exponent(w1)))
 
 ####################################
@@ -455,8 +469,11 @@ end
 
 group_scenarios = Any[]
 add!(sc) = push!(group_scenarios, sc)
-# overflowing norms: the sum of squares overflows; the norm is far below floatmax (over_mid), within a
-# factor two of it (over_norm), or infinite (over_entries, max_entries); finite results throughout
+# overflowing sums of squares (:sumsq_over), with entries ±U[1/2, 1) 2^aexp, that is, of magnitude in [2^(aexp-1), 2^aexp).
+# over_mid: the norm is far below floatmax. over_norm: the norm of m entries is in about [0.088, 0.354) floatmax, so it is
+# finite (:norm_finite). over_entries: entries in [0.25, 0.5) floatmax, a norm that is finite for m = 2, above floatmax for
+# m >= 16 and either in between. over_max: entries in [0.5, 0.9) floatmax, a norm above floatmax for m >= 4. The proximal
+# points are finite where :finite_result is listed.
 add!(S("over_mid", mag = :over_mid, param = :tuned, grid = :full, matrix = true, req = (:sumsq_over, :norm_finite, :finite_result)))
 add!(S("over_mid_val", mag = :over_mid, param = :val_fin, grid = :full, matrix = true, ref = true,
        req = (:sumsq_over, :norm_finite, :val_range => (0.02, 0.1))))

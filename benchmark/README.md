@@ -132,12 +132,28 @@ long Float32 groups of 2^16 entries; zero and infinite levels, weights and steps
 and last positions (NaN after Inf, NaN before Inf); zero and `-0.0` groups. BigFloat has a few representative
 inputs of each operation; the BigFloat cases are checked but not timed.
 
-**Validation of the inputs.** Before any role is compared, each data set is validated with computations that use
-no package code: the ordinary sum of squares in the element type overflows or underflows, the product `γλ0w`
-is out of range in the element type and in range in exact arithmetic where the case says so, a value lies in the
-intended fraction of `floatmax`, the exact BigFloat proximal point is finite. A failed assertion is an error that
-names the case. Value cases with a BigFloat reference also require the value of X to lie within `128 eps(T)`
-of it.
+**Validation of the inputs.** Before any role is compared, the data of each scenario are validated with
+computations that use no package code, for the properties that the scenario lists in its `req` tuple: the ordinary
+sum of squares in the element type overflows, or is zero or small although the group is not, the product `γλ0w` is
+out of range in the element type (and in range in exact arithmetic where the scenario says so), the exact value lies
+in a stated fraction of `floatmax`, the exact proximal point is finite in the element type (`:finite_result`, for the
+Float32 and Float64 scenarios that list it). The assertions are scenario-specific: a scenario with `req = ()`
+(`reg_lam0_ord` and `reg_lamInf_ord`, whose parameters decide the path) has none, the BigFloat scenarios are not
+asserted to give finite results, and a non-finite output (NaN or Inf data, infinite parameters) is intentional in
+the scenarios made for it. A failed assertion is an error that names the case. That the data have these
+properties, or that an input was built, is not evidence that every operation takes its intended path; the exact
+comparison of the trees below is the check.
+
+**Reference check of values.** The scenarios marked `ref` (the value operations of, for example, `over_mid_val`,
+`over_norm_val`, `val_near`, `val_over`, `val_tu` and their `NormL2`, `SqrNormL2`, `LeastSquaresLoss` and `NormL1`
+counterparts, in Float32 and Float64) also require the value `a` of X to agree with a 256-bit BigFloat reference
+`ref` that is computed from the inputs. With `e = T(ref)` (the reference rounded to nearest in T), `a` agrees when
+`a === e`, or when both are finite and `|a - e| <= max(128 eps(T) |e|, 4 K nextfloat(zero(T)))`, computed in T,
+where K is the count that the scenario gives with its reference (the number of groups for `GroupNormL2`, one or the number
+of entries for the other families). So the bound is relative, 128 eps, only where
+`|e| >= K nextfloat(zero(T)) / (32 eps(T))` (about `K 2^-131` in Float32 and `K 2^-1027` in Float64); below that it
+is absolute, and a relative error above 128 eps is accepted, up to a total loss (`a = 0` for the smallest
+subnormal `e` with `K = 1` agrees). The other operations are compared with the reference tree only.
 
 **Differential.** The check is always exact (`===` per array element and per scalar; a BigFloat by precision,
 sign and value). XC must equal X and Y must equal X for every case, so a one-bit difference anywhere stops the

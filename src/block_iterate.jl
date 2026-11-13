@@ -394,15 +394,18 @@ end
 # Called by _copy_active! when every group of src is active. When the checks below hold,
 # it copies storage, active and position as whole arrays and returns true; otherwise it
 # returns false without writing, and the loops of _copy_active! run. The checks are
-# sufficient, not necessary: some rejected states would also copy correctly. They require
-# active and position of both iterates to have length K, and no array among storage,
-# active and position of dest to share memory (as Base.mightalias reports) with another
-# of them or with one of src, except that dest and src may hold the same value array.
-# Then, with the groups a partition of the entries, the loops write every entry of dest
-# and set all of dest.active and dest.position from src, and no copy reads memory that an
-# earlier copy wrote. With an inactive group in src, the copies can differ from the
-# loops, which keep dest's values in that group, such as a -0.0, unless dest has it
-# active and they clear it to +0.0.
+# sufficient, not necessary: some rejected states would also copy correctly.
+# They require active and position of both iterates to have length K. With the groups a
+# partition of the entries, the loops then write every entry of dest and set all of
+# dest.active and dest.position from src, as the whole-array copies do, provided no copy
+# writes a byte that a later copy, or the source, reads. The elements of a Vector occupy
+# the bytes [pointer, pointer + length * elsize), except that an isbits union also keeps
+# type tags outside them, so such storage is not copied whole. The checks require the
+# byte range of each array of dest to be disjoint from the ranges of the other arrays of
+# dest and of the arrays of src, except that dest and src may hold the same value array,
+# whose copy writes the values it reads. With an inactive group in src, the copies can
+# differ from the loops, which keep dest's values in that group, such as a -0.0, unless
+# dest has it active and they clear it to +0.0.
 # Kept out of line: inlined into _copy_active!, the copies slowed its loop path for
 # small, partly active sources in measurements on Julia 1.13.
 @noinline function _try_copy_all_active!(dest::BlockIterate, src::BlockIterate)
@@ -410,16 +413,28 @@ end
   da, dp, ds = dest.active, dest.position, dest.storage
   sa, sp, ss = src.active, src.position, src.storage
   length(da) == length(dp) == length(sa) == length(sp) == K || return false
-  shares(a, b) = Base.mightalias(a, b)
-  (shares(da, dp) || shares(da, sa) || shares(da, sp) || shares(dp, sa) || shares(dp, sp) ||
-   shares(ds, da) || shares(ds, dp) || shares(ds, sa) || shares(ds, sp) || shares(ss, da) ||
-   shares(ss, dp) || (ds !== ss && shares(ds, ss))) && return false
+  (Base.isbitsunion(eltype(ds)) || Base.isbitsunion(eltype(ss))) && return false
+  disjoint = GC.@preserve da dp ds sa sp ss begin
+    rda, rdp, rds = _byte_range(da), _byte_range(dp), _byte_range(ds)
+    rsa, rsp, rss = _byte_range(sa), _byte_range(sp), _byte_range(ss)
+    !(_overlap(rda, rdp) || _overlap(rda, rsa) || _overlap(rda, rsp) || _overlap(rdp, rsa) ||
+      _overlap(rdp, rsp) || _overlap(rds, rda) || _overlap(rds, rdp) || _overlap(rds, rsa) ||
+      _overlap(rds, rsp) || _overlap(rss, rda) || _overlap(rss, rdp) ||
+      (ds !== ss && _overlap(rds, rss)))
+  end
+  disjoint || return false
   copyto!(ds, ss)
   copyto!(da, sa)
   copyto!(dp, sp)
   dest.nactive = src.nactive
   true
 end
+
+# the addresses [first, last) of the element bytes of a Vector whose elements are stored
+# without type tags; the caller keeps x alive while it uses them
+_byte_range(x::Vector) = (p = UInt(pointer(x)); (p, p + UInt(length(x)) * UInt(Base.elsize(x))))
+# whether two such ranges share a byte; an empty range shares none
+_overlap(a, b) = a[1] < a[2] && b[1] < b[2] && a[1] < b[2] && b[1] < a[2]
 
 Base.copy!(dest::BlockIterate, src::BlockIterate) = copyto!(dest, src)
 

@@ -293,6 +293,53 @@ end
     end
 end
 
+# Vectors wrapped over parts of one buffer: overlapping parts must give the result of the
+# group-by-group replacement, in which each write can change a later read; adjacent parts
+# share no byte and are copied whole.
+@testset "fully active sources over overlapping or adjacent memory" begin
+    gs, ids = [1:1,2:2,3:3], [1,2,3]
+    wrap(::Type{T}, buf, i) where {T} = unsafe_wrap(Vector{T}, pointer(buf, i), 3; own = false)
+    # values: src holds entries 1-3 of a buffer, dest entries 2-4
+    backing = [1.0,2.0,3.0,4.0]
+    GC.@preserve backing begin
+        src = BlockIterate(wrap(Float64, backing, 1), gs, ids, nothing, copy(ids), copy(ids), 3)
+        dest = BlockIterate(wrap(Float64, backing, 2), gs, ids, nothing, copy(ids), copy(ids), 3)
+        @test !Base.mightalias(dest.storage, src.storage)
+        @test !ProximalBase._try_copy_all_active!(dest, src)
+        @test backing == [1.0,2.0,3.0,4.0]          # rejected without writing
+        @test copyto!(dest,src) === dest
+        @test dest.storage == [1.0,1.0,1.0] && collect(activecoordinates(dest)) == [1,2,3]
+    end
+    # metadata: src's positions are entries 1-3 of a buffer, dest's active list entries 2-4
+    backing = [1,2,3,1]
+    GC.@preserve backing begin
+        src = BlockIterate([1.0,2.0,3.0], gs, ids, nothing, [1,2,3], wrap(Int, backing, 1), 3)
+        dest = BlockIterate([4.0,5.0,6.0], gs, ids, nothing, wrap(Int, backing, 2), [3,1,2], 3)
+        @test !Base.mightalias(dest.active, src.position)
+        @test copyto!(dest,src) === dest
+        @test dest.storage == [1.0,2.0,3.0]
+        @test dest.active == [1,2,3] && dest.position == [1,2,3]
+    end
+    # adjacent parts of one buffer: copied whole, src unchanged
+    backing = [1.0,-0.0,3.0,7.0,8.0,9.0]
+    GC.@preserve backing begin
+        src = BlockIterate(wrap(Float64, backing, 1), gs, ids, nothing, [3,1,2], [2,3,1], 3)
+        dest = BlockIterate(wrap(Float64, backing, 4), gs, ids, nothing, copy(ids), copy(ids), 3)
+        @test ProximalBase._try_copy_all_active!(dest, src)
+        check(dest, [1.0,-0.0,3.0], [3,1,2])
+        check(src, [1.0,-0.0,3.0], [3,1,2])
+        @test isequal(backing, [1.0,-0.0,3.0,1.0,-0.0,3.0])
+    end
+    # an isbits union keeps type tags outside the element bytes: not copied whole
+    U = Union{Float64,Int}
+    src = BlockIterate(U[1.0,2,3.0], gs, ids, nothing, [2,3,1], [3,1,2], 3)
+    dest = BlockIterate(U[4,5.0,6], gs, ids, nothing, copy(ids), copy(ids), 3)
+    @test !ProximalBase._try_copy_all_active!(dest, src)
+    @test copyto!(dest,src) === dest
+    @test dest.storage == U[1.0,2,3.0] && map(typeof, dest.storage) == [Float64,Int,Float64]
+    check(dest, Vector(src), [2,3,1])
+end
+
 @testset "one inactive source group keeps active-only replacement" begin
     for gs in ([1:1,2:2,3:3], [[3],[1],[2]], [1:2,3:4,5:6], [1:3:6,2:3:6,3:3:6])
         n = sum(length, gs)

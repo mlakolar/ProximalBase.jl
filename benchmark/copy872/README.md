@@ -111,10 +111,13 @@ repository. In summary:
 
 - When every source group is active, copying `storage`, `active` and `position`
   as whole arrays gives the state of the per-group loops, provided `active` and
-  `position` of both iterates have one entry per group and none of the
-  destination's three arrays shares memory with another of them or with one of
-  the source's, except a value array held by both. The merged code checks these
-  sufficient conditions and otherwise runs the loops. With an inactive source
+  `position` of both iterates have one entry per group and no copy writes a byte
+  that a later copy or the source reads. The merged code checks sufficient
+  conditions and otherwise runs the loops: the byte range of each of the
+  destination's three arrays must be disjoint from those of its other two and of
+  the source's three, except a value array held by both, and storage whose element
+  type is an isbits union (type tags outside the element bytes) is not copied
+  whole. With an inactive source
   group, the copies can differ: the loops keep the destination's values there,
   such as a `-0.0`, unless the destination has the group active, when they clear
   it to `+0.0`.

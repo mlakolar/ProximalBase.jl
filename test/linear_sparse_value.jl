@@ -670,7 +670,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     f = LinearFunction(ones(T, 2, 2), zero(T))
     @test isnan(f(x))
     @test f(Matrix(x)) === -T(Inf) && dot(f.c, x) === -T(Inf)
-    # a Diagonal coefficient array is summed in increasing diagonal index, whatever the storage order
+    # a Diagonal coefficient array is summed in increasing diagonal index, not in the storage order
     xd = SparseIterate(T, 3, 3)
     xd[2, 2] = h; xd[3, 3] = h; xd[1, 1] = -T(Inf)
     fd = LinearFunction(Diagonal(ones(T, 3)), zero(T))

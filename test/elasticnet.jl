@@ -511,7 +511,7 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
       n = 10
       w = T[1, 2, 0, 0.5, Inf, 1, 3, 1, 0.25, 2]
       f = ElasticNet(λ1, λ2, w)
-      # SparseIterate: stored entries only, a stored ±0 stays stored as +0, absent entries are not activated
+      # SparseIterate: stored entries only; in place, a stored ±0 stays stored as +0; absent entries are not activated
       x = SparseIterate(T, n)
       x[2] = 3; x[4] = -1; x[9] = T(0.1)
       activate!(x, 5); activate!(x, 7); x[7] = -zero(T)

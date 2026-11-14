@@ -325,9 +325,10 @@ supported Scaled leaves. Custom SeparableFunction subtypes implement this
 scalar method together with value_entry. No iterate or cache is updated.
 
 The vector form allocates a plain floating Vector of length(u) and delegates
-to a custom prox_block! implementation. Its group index and compact vector
-order are defined by that extension; no built-in group penalty remains.
-The generic wrapper supplies no group, shape, parameter or overlap validation.
+to prox_block!: the built-in GroupNormL2 (group k of its groups, in their order)
+or a custom implementation, whose group index and compact vector order that
+extension defines. The generic wrapper adds no group, shape, parameter or
+overlap validation of its own; GroupNormL2 validates in its prox_block!.
 Implementing a block hook does not add a full-array prox or capability trait.
 
 For symmetric iterate coordinate k, convert `(r,c)=tril_cartesian(p,k)` to
@@ -340,7 +341,7 @@ function prox_block end
 
 Pure compact-vector block proximal extension hook. A conforming custom method
 writes the proximal point of its selected block into out and returns out.
-Buffers follow that block's compact ordered indices. There is no retained
+Buffers follow that block's compact ordered indices. GroupNormL2 is the
 built-in implementation; the allocating vector prox_block delegates here.
 
 The extension validates one-based real vectors, group bounds, exact lengths,
@@ -379,7 +380,10 @@ symmetric parameters are a precondition (see `check_symmetric_parameters`).
 
 For BlockIterate, k is a group and retained scalar-screen functions return
 the maximum screen over its ordered global entry indices. That path does not
-add the same explicit full-gradient extent preflight. Other array points add
+add the same explicit full-gradient extent preflight. GroupNormL2 instead
+returns the group screen `‖g[Gₖ]‖₂-λ0*wₖ` after checking that group k of x is
+its group k and that g has length(x) entries; on an array point it takes an
+entry index (see GroupNormL2), and its three-argument form throws. Other array points add
 no coordinate/gradient extent check beyond function/indexing checks. Raw
 three-argument calls have no symmetric iterate, so no parameter-symmetry preflight.
 """

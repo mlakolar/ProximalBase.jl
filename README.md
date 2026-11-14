@@ -59,7 +59,7 @@ blocks; the code does not solve the full optimization problem.
 
 The [function library](docs/src/function_library.md) covers
 `LeastSquaresLoss`, `SqrNormL2`, `QuadraticFunction`,
-`ZeroFunction`, `LinearFunction`, `NormL1` and `Scaled`.
+`ZeroFunction`, `LinearFunction`, `NormL1`, `NormL2`, `GroupNormL2` and `Scaled`.
 A separate [Scalar-loss interface](docs/src/scalar_losses.md) handles
 individual prediction/observation pairs, with
 [`ProximalBase.Squared()`](docs/src/scalar_squared.md) as a built-in example.

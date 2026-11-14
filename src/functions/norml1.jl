@@ -76,10 +76,8 @@ Base.@propagate_inbounds prox_block(f::NormL1, v::T, i::Integer, γ::Real) where
 # range of γλ0, where the step and the level are finite and positive, no entry is fixed, and the loop
 # keeps the bare soft thresholding.
 Base.@propagate_inbounds function _l1_prox_threshold(v, γ, λ, w, ::Type{S}) where {S}
-  R = _working_type(S, γ, λ, w)
-  ab = convert(R, γ) * convert(R, λ)
-  if floatmin(R) <= ab <= floatmax(R)
-    t = convert(S, ab * convert(R, w))
+  t, normal = _threshold_product(S, γ, λ, w)
+  if normal
     return shrink(v, t), t
   end
   t = _weight_product(S, γ, λ, w)
@@ -136,7 +134,7 @@ function _value_dense(
     f::NormL1{T,<:Array{T}},
     x::Array{T}) where {T<:Union{Float32,Float64}}
   s, ordinary = _l1_value_sum(f, x, false)
-  ordinary && _l1_sum_kept(s, length(x)) && return s
+  ordinary && _sum_kept(s, length(x)) && return s
   _l1_exceptional_value(f, x, s, ordinary)
 end
 
@@ -151,22 +149,12 @@ end
   _l1_underflow_checked(f, x, s, length(x))
 end
 
-# Products that round below floatmin (#373). The value is a sum of n terms λ0 wᵢ |xᵢ| ≥ 0, each rounded
-# once or twice (the coefficient, then the product with |xᵢ|); a coefficient out of the normal range is
-# formed by value_entry with one rounding, so the ordinary flag and these exact products leave only the
-# rounding of a term into the subnormal range (or to zero). That rounding loses at most δ/2 =
-# eps(T) floatmin(T)/2 per term, n eps floatmin / 2 in all, which is at most eps/2 of a sum s ≥ n floatmin.
-# A sum below that bound (a zero sum included) may have lost more than ordinary rounding, even a normal one:
-# 512 terms 2^-135 + 2^-150 in Float32 each round to 2^-135 and the sum loses 256 units of 2^-126. Sums of
-# subnormal partial sums are exact, and the relative errors of normal terms and of the summation are those
-# of every ordinary value. The test is false for NaN, so an ordinary NaN (or Inf) is returned as it was.
-@inline _l1_sum_kept(s, n) = !(s < n * floatmin(typeof(s)))
-
 # The value s of f at x from its ordinary loop, a sum of at most n rounded terms, recomputed where those
-# terms may have lost more than ordinary rounding (above); only Float32 and Float64 values are checked.
+# terms may have lost more than ordinary rounding (#373, see _sum_kept in numerical_kernels.jl); only
+# Float32 and Float64 values are checked.
 @inline function _l1_underflow_checked(f::NormL1, x, s, n::Integer)
   _underflow_checked(typeof(s)) || return s
-  _l1_sum_kept(s, n) ? s : _l1_underflow_value(f, x, s)
+  _sum_kept(s, n) ? s : _l1_underflow_value(f, x, s)
 end
 
 # Σ wᵢ |xᵢ| is accumulated with every term's exponent (_ExpSum, products of significands that are exact for

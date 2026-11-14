@@ -226,14 +226,21 @@ D-MPFR, results under a directed rounding mode at MPFR's exponent limits.
   It gives the bits of the three-factor kernel `_scaled_product` when `a` and `b` are
   strictly positive and finite, `c` is in `[1, 2^30)` and represented at no more than the
   current precision (a `BigFloat` `c` stored at a precision at most the current one; a `c`
-  of an IEEE type is), and the sum of `k` and the `frexp` exponents does not wrap (an `Int`
-  sum, an `Int128` sum for `BigFloat`). A `BigFloat` `c` stored above the current precision
-  is rounded by the `frexp` of `_scaled_product` and not here, and the two can differ by a
-  rounding; a zero factor is outside the contract (`-0` gives `-0` here and `+0` from
-  `_scaled_product`). The cold value term passes the level and the weight after its zero
-  and infinite exits, and the scaled norm `ns`, which `sqrt` forms at the current
-  precision, with `ns >= 1` and, up to rounding, `ns <= 2 sqrt(n)` for a group of `n`
-  entries, below `2^30` for `n <= 2^56`; for such groups it meets these conditions.
+  of an IEEE type is), and every integer conversion and exponent addition of the two is
+  exact in its accumulator type: the conversion of `k` by `_product_power`, and the sums
+  `ea + eb + k` of `_scaled_product_norm` and `ea + eb + ec + k` of `_scaled_product`,
+  with `ea`, `eb`, `ec` the `frexp` exponents of `a`, `b`, `c` (`Int` sums, `Int128` sums
+  for `BigFloat`). A `BigFloat` `c` stored above the current precision is rounded by the
+  `frexp` of `_scaled_product` and not here, and the two results can differ; a zero factor
+  is outside the contract (`-0` gives `-0` here and `+0` from `_scaled_product`). The cold
+  value term `_l2_term_cold` passes the level and the weight (nonnegative by the
+  constructors' checks) converted to `R`, after the zero-weight exit of `_l2_term` and its
+  own zero-level and infinite-parameter exits; the scaled norm `ns`, which `sqrt` forms at
+  the current precision, with `ns >= 1` and, up to rounding, `ns <= 2 sqrt(n)` for a group
+  of `n` entries, below `2^30` for `n <= 2^56`; and the largest `Int` exponent `k` of the
+  entries converted to `R`. For `R = Float64` these exponents are below `2^11` in
+  magnitude, and for `R = BigFloat` the sums are `Int128` sums of `Int` terms, so there
+  the conversion and both sums are exact.
 * `_scaled_norm(x, y, s, scale)`: the optional scale multiplies the norm (default one).
 * `_threshold_product`, `_sum_kept`, `_indexed_sumabs2`, `_recovery_type`.
 

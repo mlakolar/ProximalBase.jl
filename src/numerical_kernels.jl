@@ -150,13 +150,17 @@ end
 # a b c 2^k for strictly positive finite a and b and a scaled norm c with 1 <= c < 2^30 that is represented at no more
 # than the current precision (a BigFloat c stored at a precision at most the current one; a c of an IEEE type is). The
 # significands of a and b, in [1/2, 1), are multiplied by c, which needs no frexp, and their product, in [1/4, 2^30] after
-# rounding, is in range. Under these conditions, and for a power k for which the sum of k and the frexp exponents of a, b
-# and c does not wrap (an Int sum, an Int128 sum for BigFloat), it gives the bits of the kernel above that frexps c as well
-# (_scaled_product). A BigFloat c stored above the current precision is multiplied unrounded here and rounded by frexp
-# there, and the two results can differ. A zero or non-finite a or b is outside this contract (-0 gives -0 here, +0
-# there). The caller, _l2_term_cold, passes the level and the weight after its zero and infinite exits, and the norm ns of
-# _l2_classified_norm, which sqrt forms at the current precision: ns >= 1 and, up to rounding, ns <= 2 sqrt(n) for a
-# group of n entries, below 2^30 for n <= 2^56.
+# rounding, is in range. Under these conditions it gives the bits of the kernel above that frexps c as well
+# (_scaled_product) when every integer conversion and exponent addition of the two is exact in its accumulator type: the
+# conversion of k by _product_power, and the sums ea + eb + k here and ea + eb + ec + k there, with ea, eb, ec the frexp
+# exponents of a, b, c (Int sums, Int128 sums for BigFloat). A BigFloat c stored above the current precision is
+# multiplied unrounded here and rounded by frexp there, and the two results can differ. A zero or non-finite a or b is
+# outside this contract (-0 gives -0 here, +0 there). The caller, _l2_term_cold, passes the level and the weight
+# (nonnegative by the constructors' checks) converted to R, after the zero-weight exit of _l2_term and its own zero-level
+# and infinite-parameter exits; the norm ns of _l2_classified_norm, which sqrt forms at the current precision (ns >= 1
+# and, up to rounding, ns <= 2 sqrt(n) for a group of n entries, below 2^30 for n <= 2^56); and the largest Int exponent
+# k of the entries converted to R. For R = Float64 these exponents are below 2^11 in magnitude, and for R = BigFloat the
+# sums are Int128 sums of Int terms, so there the conversion and both sums are exact.
 @inline function _scaled_product_norm(a::T, b::T, c::T, k::Integer) where {T<:AbstractFloat}
   ma, ea = _frexp(a)
   mb, eb = _frexp(b)

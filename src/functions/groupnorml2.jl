@@ -180,13 +180,32 @@ end
 # a finite weight is 0, and an infinite weight at a nonzero group without NaN makes s Inf), and an infinite level or
 # weight at a nonzero group or a NaN or ±Inf entry in a penalized group, which make s infinite or NaN
 # already. So does an exactly zero argument.
+# A group of weight zero adds the exact term 0, which loses nothing: the bound K floatmin counts the penalized
+# groups only, and a sum that is small only because of the unpenalized ones (no penalized group at all: every
+# weight zero) is kept without the recomputation. That count and the scan for a zero argument are read only
+# below K floatmin, and the scan stops at its first nonzero block.
 @inline function _group_value_checked(f::GroupNormL2, x, s::T) where {T}
   if _l2_ordinary(s, T)
     _underflow_checked(T) || return s
     _sum_kept(s, length(f.groups)) && return s
-    iszero(s) && _all_zero(_stored_values(x)) && return s
+  end
+  _group_value_unkept(f, x, s)
+end
+# out of line, so that the loop over the groups of the callers does not carry the scans
+@noinline function _group_value_unkept(f::GroupNormL2, x, s::T)::T where {T}
+  if _l2_ordinary(s, T)
+    iszero(s) && _all_zero_early(_stored_values(x)) && return s
+    _sum_kept(s, _penalized_count(f.w)) && return s
   end
   _group_value_recomputed(f, x, s)
+end
+# the number of groups with a nonzero weight (a weight is nonnegative, never NaN), in one vectorized pass
+function _penalized_count(w::AbstractVector)
+  n = 0
+  @inbounds @simd for i in eachindex(w)
+    n += !iszero(w[i])
+  end
+  n
 end
 @noinline function _group_value_recomputed(f::GroupNormL2, x, s::T)::T where {T}
   isnan(s) && return s
@@ -195,7 +214,9 @@ end
   R = _recovery_type(T, float(typeof(λ)), float(eltype(x)))
   acc = _expsum_start(R)
   for k in eachindex(f.groups)
-    next = _l2_expsum_add(acc, x, @inbounds(f.groups[k]), @inbounds(f.w[k]))
+    w = @inbounds f.w[k]
+    iszero(w) && continue          # an unpenalized group adds nothing, whatever it holds
+    next = _l2_expsum_add(acc, x, @inbounds(f.groups[k]), w)
     next === nothing && return s
     acc = next
   end
@@ -234,12 +255,23 @@ function _group_prox_all!(y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {V}
       y[i] = x[i]
     end
   end
+  # A zero or infinite level, or a zero or infinite step, decides the exits of every group alike: the ordinary path
+  # never runs then, and the loop runs the parameter exits (_l2_shrink_fixed!, inlined) directly. Each loop is a function of its
+  # own, compiled as the single loop was: LLVM hoists the loop-invariant threshold out of the ordinary one.
+  λ = f.λ0
+  if isinf(λ) | iszero(λ) | iszero(γ) | isinf(γ)
+    _group_prox_loop!(_l2_shrink_fixed!, y, f, x, γ, Val(V))
+  else
+    _group_prox_loop!(_l2_shrink!, y, f, x, γ, Val(V))
+  end
+end
+@noinline function _group_prox_loop!(shrink::F, y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {F, V}
   T = _valtype(y)
   v = zero(T)
   for k in eachindex(f.groups)
     G = @inbounds f.groups[k]
     w = @inbounds f.w[k]
-    s = _l2_shrink!(y, x, G, f.λ0, w, γ)
+    s = shrink(y, x, G, f.λ0, w, γ)
     V && (v += _l2_fused_term(f.λ0, w, y, G, s, T))
   end
   V ? _group_value_checked(f, y, v) : nothing
@@ -247,7 +279,7 @@ end
 
 function prox_block!(out::AbstractVector, f::GroupNormL2, u::AbstractVector, k::Integer, γ::Real)
   m = _check_group_block(out, f, u, k, γ)
-  _l2_shrink!(out, u, Base.OneTo(m), f.λ0, @inbounds(f.w[k]), γ)
+  _l2_shrink!(out, u, Base.OneTo(m), f.λ0, @inbounds(f.w[k]), γ, _l2_shrink_fixed!)
   out
 end
 

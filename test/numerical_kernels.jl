@@ -492,19 +492,24 @@ setprecision(BigFloat, 1200) do
   @testset "shrinkage kernel at exceptional parameters and values" begin
     # data whose sum of squares is not a finite normal number (overflowing, underflowing, subnormal, NaN or Inf entries):
     # with any step, level and weight, positive and finite or not, the shrinkage is the cold one, so it gives the bits of
-    # _l2_shrink_cold! (the exits that the parameters decide, then the values) in its code and in the group it writes
+    # the cold route (the exits that the parameters decide, _l2_shrink_fixed!, then the values, _l2_shrink_values!) in its
+    # code and in the group it writes, with the exits called (the default) or inlined (prox_block!)
     fm, fn = floatmax(T), floatmin(T)
     params = (zero(T), 4fn, T(0.7), fm / 4, T(Inf))
     datas = (T[pow2(T, E - 3), -pow2(T, E - 4), 0, 3], T[pow2(T, e0 + 2), pow2(T, e0 + 3), 0], T[1, NaN, 2], T[1, Inf, 2],
              T[1, -Inf, NaN], fill(nextfloat(zero(T)), 4), zeros(T, 3))
+    cold!(y, x, G, λ, w, γ) = (iszero(w) | isinf(w) | isinf(λ) | iszero(λ) | iszero(γ) | isinf(γ)) ?
+      PB._l2_shrink_fixed!(y, x, G, λ, w, γ) : PB._l2_shrink_values!(y, x, G, λ, w, γ)
     ntests = 0
     for x in datas, γ in params, λ in params, w in params
       G = 1:length(x)
-      y1, y2 = fill(T(7), length(x)), fill(T(7), length(x))
-      @test PB._l2_shrink!(y1, x, G, λ, w, γ) === T(PB._l2_shrink_cold!(y2, x, G, λ, w, γ))
+      y1, y2, y3 = fill(T(7), length(x)), fill(T(7), length(x)), fill(T(7), length(x))
+      @test PB._l2_shrink!(y1, x, G, λ, w, γ) === T(cold!(y2, x, G, λ, w, γ))
       @test same(y1, y2)
+      @test PB._l2_shrink!(y3, x, G, λ, w, γ, PB._l2_shrink_fixed!) === T(cold!(fill(T(7), length(x)), x, G, λ, w, γ))
+      @test same(y3, y2)
       z1, z2 = copy(x), copy(x)
-      @test PB._l2_shrink!(z1, z1, G, λ, w, γ) === T(PB._l2_shrink_cold!(z2, z2, G, λ, w, γ))
+      @test PB._l2_shrink!(z1, z1, G, λ, w, γ) === T(cold!(z2, z2, G, λ, w, γ))
       @test same(z1, z2)
       ntests += 1
     end
@@ -853,6 +858,67 @@ end
     @test PB._scaled_product(a, b, c, kw) != ref3
   end
 end
+# The fast paths of the group kernels agree with the definitions they shorten (design C of #901).
+@testset "group kernel fast paths: $T" for T in (Float32, Float64)
+  rng = MersenneTwister(901)
+  @testset "powers of two from bits equal the split ldexp factors" begin
+    for k in -1200:1200
+      @test PB._power_factors(T, k) === PB._power_factors_split(T, k)
+    end
+  end
+  @testset "all-zero scan in blocks" begin
+    for n in (0, 1, 5, 511, 512, 513, 1024, 1500, 5000)
+      z = zeros(T, n)
+      @test PB._all_zero_early(z) == PB._all_zero(z) == true
+      n == 0 && continue
+      for pos in unique((1, n, (n + 1) ÷ 2, min(n, 513), min(n, 512))), v in (T(1), -T(1), T(NaN), T(Inf), nextfloat(zero(T)), -zero(T))
+        w = copy(z); w[pos] = v
+        @test PB._all_zero_early(w) == PB._all_zero(w) == (v === -zero(T))
+      end
+    end
+    @test PB._all_zero_early(Int[0, 0]) && !PB._all_zero_early(Int[0, 1])
+  end
+  @testset "exponent of a group from the largest magnitude" begin
+    R = Float64
+    for n in (1, 2, 5, 17, 64), trial in 1:200
+      x = [signif(rng, T, rand(rng, emin(T)-20:emax(T))) for _ in 1:n]
+      rand(rng) < 0.2 && (x[rand(rng, 1:n)] = zero(T))
+      rand(rng) < 0.1 && (x .= zero(T))
+      rand(rng) < 0.1 && (x[rand(rng, 1:n)] = T(Inf))
+      rand(rng) < 0.1 && (x[rand(rng, 1:n)] = T(NaN))
+      G = randperm(rng, n)
+      v = PB._IndexedValues(x, G)
+      @test PB._square_exponent(v, nothing, R) == PB._square_exponent_scan(v, R)
+      @test PB._square_exponent(x, nothing, R) == PB._square_exponent_scan(x, R)
+    end
+  end
+end
+
+@testset "group value of unpenalized groups" begin
+  # zero weights: the K floatmin bound counts the penalized groups, the sum of an unpenalized group is exactly zero
+  for T in (Float32, Float64)
+    K = 600
+    groups = [(2j - 1):(2j) for j in 1:K]
+    x = ones(T, 2K)
+    f0 = GroupNormL2(T(0.6), groups, zeros(T, K))
+    @test f0(x) === zero(T)
+    @test value_and_prox!(similar(x), f0, x, T(0.8)) === zero(T)
+    # one penalized group of a tiny norm among zero weights: the value is the exact one, not a rounded sum
+    w = zeros(T, K); w[7] = 1
+    for e in (emin(T) - 3, emin(T) + 2, emin(T) + 12)
+      y = zeros(T, 2K); y[13] = pow2(T, e); y[14] = pow2(T, e)       # group 7
+      y[1] = T(3)                                                     # an unpenalized group with a large entry
+      f = GroupNormL2(T(0.5), groups, w)
+      ref = 0.5 * big(1.0) * sqrt(big(y[13])^2 + big(y[14])^2)
+      @test within(f(y), ref, 2)
+    end
+    # the penalized weights all positive again, with the data below K floatmin: the recomputation still runs
+    f = GroupNormL2(T(0.5), groups, ones(T, K))
+    y = zeros(T, 2K); y[1] = pow2(T, emin(T) - 3)
+    @test within(f(y), 0.5 * big(y[1]), 2)
+  end
+end
+
 end
 
 end

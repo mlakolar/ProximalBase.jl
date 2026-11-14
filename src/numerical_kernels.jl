@@ -782,8 +782,19 @@ end
 
 # Whether every entry of x[G], rounded to T, is a zero of either sign: an exactly zero group has the norm 0 also where its
 # sum of squares underflows. A group that is zero only after the rounding (x wider than T) counts as zero, as in the
-# sums of squares in T.
+# sums of squares in T. The shrinkage kernel scans G directly, for Float32 and Float64 by an OR of the bit patterns with
+# the sign cleared at the end (as _all_zero); the value term keeps the scan of the indexed values, which leaves the
+# code of its loop over the groups as it is.
 @inline _l2_all_zero(x, G, ::Type{T}) where {T} = _all_zero(_IndexedValues(x, G, T))
+@inline _l2_zero_group(x, G, ::Type{T}) where {T} = _l2_all_zero(x, G, T)
+@inline function _l2_zero_group(x, G, ::Type{T}) where {T<:Union{Float32, Float64}}
+  U = _int_type(T)
+  m = zero(U)
+  @inbounds @simd for i in G
+    m |= reinterpret(U, convert(T, x[i]))
+  end
+  iszero(m & typemax(U))
+end
 
 # Σ x[i]² over i ∈ G, each entry converted to T before it is squared, in one vectorizable loop
 @inline function _indexed_sumabs2(x, G, ::Type{T}) where {T}
@@ -879,7 +890,7 @@ end
         return t * n
       end
       return T(_l2_zero!(y, G))
-    elseif iszero(s) && _l2_all_zero(x, G, T)
+    elseif iszero(s) && _l2_zero_group(x, G, T)
       return T(_l2_zero!(y, G))
     end
   end

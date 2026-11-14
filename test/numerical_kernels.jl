@@ -23,6 +23,17 @@ relerr(a::BigFloat, r::BigFloat) = iszero(r) ? abs(a) : abs(a - r) / abs(r)
 signif(rng, T, e) = (rand(rng, Bool) ? -1 : 1) * ldexp(T(0.5) + T(rand(rng)) / 2, e)
 # equal entry by entry under ===, so that signed zeros and NaN bit patterns count
 same(a, b) = length(a) == length(b) && all(i -> a[i] === b[i], eachindex(a))
+# a vector with the axis 0:n-1 whose getindex always checks its bounds
+struct ZeroBasedVector{T} <: AbstractVector{T}
+  p::Vector{T}
+end
+Base.axes(v::ZeroBasedVector) = (Base.IdentityUnitRange(0:length(v.p)-1),)
+Base.size(v::ZeroBasedVector) = (length(v.p),)
+Base.IndexStyle(::Type{<:ZeroBasedVector}) = IndexLinear()
+function Base.getindex(v::ZeroBasedVector, i::Int)
+  checkbounds(v, i)
+  v.p[i + 1]
+end
 # sums over an indexed vector, by iteration and by index
 function iter_sum(v)
   s = zero(eltype(v))
@@ -877,6 +888,20 @@ end
       end
     end
     @test PB._all_zero_early(Int[0, 0]) && !PB._all_zero_early(Int[0, 1])
+  end
+  @testset "all-zero scans on axes that do not start at one" begin
+    # the scans read the indices of the axes: an index outside them throws (the check below is not elided by @inbounds)
+    for n in (1, 3, 513), pos in unique((0, n - 1))
+      v = zeros(T, n); v[pos + 1] = nextfloat(zero(T))
+      z = ZeroBasedVector(v)
+      @test !PB._all_zero(z) && !PB._all_zero_early(z)
+      @test PB._all_zero(ZeroBasedVector(zeros(T, n))) && PB._all_zero_early(ZeroBasedVector(zeros(T, n)))
+    end
+    # public values whose ordinary sum underflows to 0, so that the zero scan runs: the tiny entry is at index 0
+    x = ZeroBasedVector(T[floatmin(T), 0, 0])
+    @test NormL2(one(T))(x) === floatmin(T)
+    @test NormL1(floatmin(T))(x) === zero(T)
+    @test NormL1(floatmin(T))(ZeroBasedVector(zeros(T, 3))) === zero(T)
   end
   @testset "exponent of a group from the largest magnitude" begin
     R = Float64

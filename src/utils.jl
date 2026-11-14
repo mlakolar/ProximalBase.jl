@@ -126,7 +126,7 @@ _all_zero(x) = all(iszero, _stored_values(x))
 end
 function _all_zero(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
   vals = _stored_values(x)
-  _zero_bits(vals, 1, length(vals), _int_type(T))
+  _zero_bits(vals, firstindex(vals), lastindex(vals), _int_type(T))
 end
 # The same, in blocks, returning at the first block that holds a nonzero value: the caller that scans a long array
 # for a result that is usually "not zero" pays one block.
@@ -134,8 +134,8 @@ const _ALL_ZERO_BLOCK = 512
 _all_zero_early(x) = _all_zero(x)
 function _all_zero_early(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
   vals = _stored_values(x)
-  n = length(vals)
-  lo = 1
+  n = lastindex(vals)
+  lo = firstindex(vals)
   while lo <= n
     hi = min(lo + (_ALL_ZERO_BLOCK - 1), n)
     _zero_bits(vals, lo, hi, _int_type(T)) || return false

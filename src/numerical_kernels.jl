@@ -180,9 +180,11 @@ end
 ####################################
 
 # Powers of two keep the units of a comparison without rounding the scale. _power_factors(T, k) gives two factors
-# whose exact product is 2^k for k from 2 exponent(nextfloat(zero(T))) to 2 exponent(floatmax(T)) (beyond, a factor is 0
-# or Inf): a power outside the range of a single floating-point factor is split (_power_factors_split, the generic
-# method).
+# whose exact product is 2^k for k from 2 exponent(nextfloat(zero(T))) to 2 exponent(floatmax(T)): a power outside the
+# range of a single floating-point factor is split (_power_factors_split, the generic method). Beyond that interval the
+# second factor is outside the range of T, and ldexp rounds it in the active rounding mode: to 0 below and Inf above for
+# Float32 and Float64, and for BigFloat under RoundNearest; a directed BigFloat mode can give floatmin(BigFloat) below
+# or floatmax(BigFloat) above instead.
 # 2^k from its bit pattern, for a k in the normal range of a Float32 or Float64 (-emax + 1 <= k <= emax); other k give
 # another number
 @inline _normal_power(::Type{Float64}, k::Int) = reinterpret(Float64, ((k + 1023) % UInt64) << 52)

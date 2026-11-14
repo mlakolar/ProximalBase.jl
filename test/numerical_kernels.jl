@@ -34,6 +34,17 @@ function Base.getindex(v::ZeroBasedVector, i::Int)
   checkbounds(v, i)
   v.p[i + 1]
 end
+# a vector whose axis ends at typemax(Int), with a getindex that always checks its bounds
+struct EndAxis{T} <: AbstractVector{T}
+  data::Vector{T}
+end
+Base.size(x::EndAxis) = size(x.data)
+Base.axes(x::EndAxis) = (Base.IdentityUnitRange((typemax(Int) - length(x.data) + 1):typemax(Int)),)
+Base.IndexStyle(::Type{<:EndAxis}) = IndexLinear()
+function Base.getindex(x::EndAxis, i::Int)
+  checkbounds(x, i)
+  x.data[i - firstindex(x) + 1]
+end
 # sums over an indexed vector, by iteration and by index
 function iter_sum(v)
   s = zero(eltype(v))
@@ -903,6 +914,19 @@ end
     @test NormL1(floatmin(T))(x) === zero(T)
     @test NormL1(floatmin(T))(ZeroBasedVector(zeros(T, 3))) === zero(T)
   end
+  @testset "all-zero scans on an axis that ends at typemax(Int)" begin
+    # no block end or block start passes the last index, typemax(Int) here: an index outside the axis throws
+    for n in (1, 512, 513, 1025)
+      z = EndAxis(zeros(T, n))
+      @test PB._all_zero(z) && PB._all_zero_early(z)
+      # one value at the block boundaries 512 | 513 and 1024 | 1025 of the stored positions, and at the ends
+      for pos in unique(filter(<=(n), (1, 512, 513, 1024, 1025, n))), v in (nextfloat(zero(T)), -zero(T))
+        d = zeros(T, n); d[pos] = v
+        w = EndAxis(d)
+        @test PB._all_zero_early(w) == PB._all_zero(w) == (v === -zero(T))
+      end
+    end
+  end
   @testset "exponent of a group from the largest magnitude" begin
     R = Float64
     for n in (1, 2, 5, 17, 64), trial in 1:200
@@ -946,8 +970,9 @@ end
 end
 
 @testset "NormL2 value at NaN entries keeps the propagated NaN: $T" for T in (Float32, Float64)
-  # at a finite level the value is λ √s from the ordinary sum of squares s, rounded as the ordinary path rounds it: a NaN
-  # keeps its sign and payload, whatever the level's size; an infinite level gives T(NaN)
+  # at the positive finite levels tested below the value is λ √s from the ordinary sum of squares s, rounded as the
+  # ordinary path rounds it: a NaN keeps its sign and payload, from the smallest of these levels to the largest; an
+  # infinite level gives T(NaN), and a zero level gives +0 before the sum is formed
   qnan(b) = reinterpret(T, T === Float64 ? UInt64(b) : UInt32(b))
   nans = (-T(NaN), T === Float64 ? qnan(0x7ff8000000000123) : qnan(0x7fc00123), T === Float64 ? qnan(0xfff8000000000123) : qnan(0xffc00123), T(NaN))
   for v in nans, λ in (T(0.5), one(T), floatmax(T), nextfloat(zero(T)), 1e300, 2.0^-1074), rest in (T[1, 2], T[floatmax(T), 0], T[nextfloat(zero(T)), -0.0])
@@ -959,6 +984,7 @@ end
       @test isnan(expected) && signbit(expected) == signbit(v)
     end
     @test NormL2(T(Inf))(T[v, 1]) === T(NaN)
+    @test NormL2(zero(T))(T[v, 1]) === zero(T)
   end
   @test NormL2(one(T))(T[1, -Inf]) === T(Inf) && NormL2(T(Inf))(T[1, -Inf]) === T(Inf)
 end

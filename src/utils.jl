@@ -138,8 +138,10 @@ function _all_zero_early(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
   n = lastindex(vals)
   lo = firstindex(vals)
   while lo <= n
-    hi = min(lo + (_ALL_ZERO_BLOCK - 1), n)
+    # the block end from the distance left to n, so that no index sum passes n (an axis may end at typemax(Int))
+    hi = lo + min(_ALL_ZERO_BLOCK - 1, n - lo)
     _zero_bits(vals, lo, hi, _int_type(T)) || return false
+    hi == n && return true
     lo = hi + 1
   end
   true

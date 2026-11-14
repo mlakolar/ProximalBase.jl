@@ -204,7 +204,10 @@ no measured case since the group screen forms its own difference.
   Float64 entries a second method gives the same result from the largest magnitude, which
   `_maximum_abs` takes on the bit patterns in a loop that vectorizes (a NaN pattern is above
   that of Inf, which is above every finite one), and classifies that one entry only. Unlike
-  the scan it reads every entry when a NaN is present; the tests compare the two methods.
+  the scan, which returns at the first NaN, it reads all the values that `_maximum_abs`
+  selects, with no early exit at a NaN: the stored or structured values (the `nonzeros` of a
+  sparse array, the stored-value view of a `SparseIterate`, the diagonal of a `Diagonal`),
+  not every logical entry. The tests compare the two methods.
 * `_power_factors(T, k)`: for Float32 and Float64 and a `k` in the normal range, the factors
   `(2^k, 1)` with `2^k` built from its bit pattern; the `ldexp` form, which splits a power
   outside the range of one factor, is `_power_factors_split`, the generic method. The

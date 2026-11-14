@@ -892,10 +892,11 @@ end
   T(_l2_shrink_values!(y, x, G, λ, w, γ))
 end
 
-# The parameters decide first, in this order: an unpenalized group (w = 0, copied by _l2_shrink! itself), a group
+# The parameters decide first, in this order: an unpenalized group (w = 0; _l2_shrink! copies it before the call), a group
 # fixed at zero (an infinite weight, or an infinite level at every nonnegative step, #665), the identity (a zero level
 # or step), a group fixed by an infinite step. Otherwise the values decide (below).
 @noinline function _l2_shrink_fixed!(y, x, G, λ, w, γ::Real)
+  iszero(w) && (_l2_copy!(y, x, G); return _L2_ZERO)
   (isinf(w) || isinf(λ)) && return _l2_zero!(y, G)
   (iszero(λ) || iszero(γ)) && return _l2_copy!(y, x, G)
   _l2_zero!(y, G)                      # isinf(γ)

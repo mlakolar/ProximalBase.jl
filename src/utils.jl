@@ -117,28 +117,31 @@ _maximum_abs(x::Diagonal{T}) where {T<:Union{Float32, Float64}} = _maximum_abs(x
 # cleared at the end: an OR vectorizes on every target (an integer maximum of 64-bit lanes is a scalar chain without
 # AVX-512), and a NaN or an Inf is not zero.
 _all_zero(x) = all(iszero, _stored_values(x))
-@inline function _zero_bits(vals, lo::Int, hi::Int, ::Type{U}) where {U}
+function _all_zero(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  U = _int_type(T)
+  vals = _stored_values(x)
   m = zero(U)
-  @inbounds @simd for i in lo:hi
+  @inbounds @simd for i in eachindex(vals)
     m |= reinterpret(U, vals[i])
   end
   iszero(m & typemax(U))
-end
-function _all_zero(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
-  vals = _stored_values(x)
-  _zero_bits(vals, 1, length(vals), _int_type(T))
 end
 # The same, in blocks, returning at the first block that holds a nonzero value: the caller that scans a long array
 # for a result that is usually "not zero" pays one block.
 const _ALL_ZERO_BLOCK = 512
 _all_zero_early(x) = _all_zero(x)
 function _all_zero_early(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  U = _int_type(T)
   vals = _stored_values(x)
   n = length(vals)
   lo = 1
   while lo <= n
     hi = min(lo + (_ALL_ZERO_BLOCK - 1), n)
-    _zero_bits(vals, lo, hi, _int_type(T)) || return false
+    m = zero(U)
+    @inbounds @simd for i in lo:hi
+      m |= reinterpret(U, vals[i])
+    end
+    iszero(m & typemax(U)) || return false
     lo = hi + 1
   end
   true

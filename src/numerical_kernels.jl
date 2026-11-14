@@ -1045,18 +1045,23 @@ function _l2_value(λ, x)
     (_l2_ordinary(v, T) & _squares_normal(s, _square_term_count(x), T)) && return v
   end
   iszero(s) && _all_zero(_stored_values(x)) && return zero(T)
-  _l2_value_cold(λ, x, T)
+  _l2_value_cold(λ, x, s, T)
 end
 
-# The norm from the classified exponent pass and the scaled sum (the squared-residual kernel for y = 0), times the
-# level, rounded once to T. A NaN entry gives T(NaN) (not a propagated NaN), and an infinite one Inf; an infinite level
-# gives +0 where every entry is zero, otherwise Inf. A level of zero was decided by the caller.
-@noinline function _l2_value_cold(λ, x, ::Type{T}) where {T}
+# The class of x from the exponent pass decides first. A NaN or ±Inf entry: at a finite level the ordinary IEEE result
+# λ √s from the ordinary sum of squares s, so that a NaN keeps its sign and payload (NaN, or Inf); at an infinite level
+# T(NaN) for a NaN entry, otherwise Inf. Every entry zero: +0. Otherwise an infinite level gives Inf, and a finite one
+# λ ns 2^k from the scaled sum (the squared-residual kernel for y = 0), formed by _scaled_product in R and converted to
+# T. A level of zero was decided by the caller.
+@noinline function _l2_value_cold(λ, x, s, ::Type{T}) where {T}
   R = _recovery_type(T, float(typeof(λ)))
   k = _square_exponent(x, nothing, R)
-  k == _EXPONENT_NAN && return T(NaN)
+  if k >= _EXPONENT_INF
+    isinf(λ) || return convert(T, convert(R, λ) * sqrt(convert(R, s)))
+    return k == _EXPONENT_NAN ? T(NaN) : T(Inf)
+  end
   k == _EXPONENT_ZERO && return zero(T)
-  (isinf(λ) || k == _EXPONENT_INF) && return T(Inf)
+  isinf(λ) && return T(Inf)
   convert(T, _scaled_product(convert(R, λ), sqrt(_square_scaled_sum(x, nothing, k, R)), k))
 end
 

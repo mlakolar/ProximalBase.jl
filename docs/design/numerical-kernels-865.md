@@ -267,7 +267,7 @@ no measured case since the group screen forms its own difference.
 |---|---|
 | `_l2_scan`, `_l2_scaled_norm` (norml2.jl) | removed: `_l2_classified_norm` = `_square_exponent(…, nothing, R)` on `_IndexedValues`, then `_square_scaled_sum(…, nothing, k, R)` |
 | `_l2_parts_value` | removed: `_scaled_product` (term, value) and `_expsum_value` (group value) |
-| `_l2_value_cold` | the classified exponent and the scaled sum directly (no `_scaled_norm`, `_residual_squares` frames); the infinite level is decided by the class |
+| `_l2_value_cold` | the classified exponent and the scaled sum directly (no `_scaled_norm`, `_residual_squares` frames); a NaN or ±Inf entry at a finite level keeps the ordinary `λ √s` (a NaN with its sign and payload), and the infinite level is decided by the class |
 | difference in `_group_screen_cold` | the difference of the two bounded terms in the frame of the larger exponent (`_l2_screen_cold`; not `_pow2_sum`, whose renormalization the bounded terms do not need) |
 | `_l2_allzero(x, G, T)` | `_l2_all_zero(x, G, T)` = `_all_zero(_IndexedValues(x, G, T))`: the entries rounded to `T`, as before |
 | `_l2_sumsq` | `_indexed_sumabs2`; `_sumabs2(::SparseIterate)` is the same loop |

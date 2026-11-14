@@ -945,6 +945,24 @@ end
   end
 end
 
+@testset "NormL2 value at NaN entries keeps the propagated NaN: $T" for T in (Float32, Float64)
+  # at a finite level the value is λ √s from the ordinary sum of squares s, rounded as the ordinary path rounds it: a NaN
+  # keeps its sign and payload, whatever the level's size; an infinite level gives T(NaN)
+  qnan(b) = reinterpret(T, T === Float64 ? UInt64(b) : UInt32(b))
+  nans = (-T(NaN), T === Float64 ? qnan(0x7ff8000000000123) : qnan(0x7fc00123), T === Float64 ? qnan(0xfff8000000000123) : qnan(0xffc00123), T(NaN))
+  for v in nans, λ in (T(0.5), one(T), floatmax(T), nextfloat(zero(T)), 1e300, 2.0^-1074), rest in (T[1, 2], T[floatmax(T), 0], T[nextfloat(zero(T)), -0.0])
+    for pos in 1:3
+      x = copy(rest); insert!(x, pos, v)
+      R = promote_type(Float64, T, typeof(λ))
+      expected = convert(T, convert(R, λ) * sqrt(convert(R, sum(abs2, x))))
+      @test NormL2(λ)(x) === expected
+      @test isnan(expected) && signbit(expected) == signbit(v)
+    end
+    @test NormL2(T(Inf))(T[v, 1]) === T(NaN)
+  end
+  @test NormL2(one(T))(T[1, -Inf]) === T(Inf) && NormL2(T(Inf))(T[1, -Inf]) === T(Inf)
+end
+
 @testset "group value below K floatmin with zero-weight groups: $T" for T in (Float32, Float64)
   # K counts every group, penalized or not: a value between npen floatmin (npen penalized groups) and K floatmin is
   # recomputed with the terms' exponents, so it is within 2 units in the last place of the BigFloat value. The

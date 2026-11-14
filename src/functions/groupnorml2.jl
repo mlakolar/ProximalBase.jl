@@ -255,23 +255,18 @@ function _group_prox_all!(y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {V}
       y[i] = x[i]
     end
   end
-  # The level and the step decide the exits of every group alike: a level of zero or infinity, a step of zero or
-  # infinity. The ordinary path never runs then, so the loop calls the parameter exits (_l2_shrink_fixed!) directly.
+  # The level and the step decide the exits of every group alike when the level is zero or infinite or the step is
+  # zero or infinite: the ordinary path never runs then, and the loop calls the parameter exits (_l2_shrink_fixed!)
+  # directly. The test is made once; the loop keeps _l2_shrink! inline, so that its loop-invariant threshold is formed once.
   λ = f.λ0
-  if isinf(λ) | iszero(λ) | iszero(γ) | isinf(γ)
-    _group_prox_loop!(_l2_shrink_fixed!, y, f, x, γ, Val(V))
-  else
-    _group_prox_loop!(_l2_shrink!, y, f, x, γ, Val(V))
-  end
-end
-@inline function _group_prox_loop!(shrink::F, y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {F, V}
+  fixed = isinf(λ) | iszero(λ) | iszero(γ) | isinf(γ)
   T = _valtype(y)
   v = zero(T)
   for k in eachindex(f.groups)
     G = @inbounds f.groups[k]
     w = @inbounds f.w[k]
-    s = shrink(y, x, G, f.λ0, w, γ)
-    V && (v += _l2_fused_term(f.λ0, w, y, G, s, T))
+    s = fixed ? T(_l2_shrink_fixed!(y, x, G, λ, w, γ)) : _l2_shrink!(y, x, G, λ, w, γ)
+    V && (v += _l2_fused_term(λ, w, y, G, s, T))
   end
   V ? _group_value_checked(f, y, v) : nothing
 end

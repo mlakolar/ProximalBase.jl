@@ -678,6 +678,7 @@ end
 # vectorizes (_maximum_abs): a NaN has the largest pattern, then an Inf, and the exponent of the largest finite
 # entry is the largest exponent. No entry is classified, converted or its exponent taken, but one.
 @inline function _square_exponent(x::AbstractArray{<:Union{Float32, Float64}}, ::Nothing, ::Type{R}) where {R}
+  length(x) < 16 && return _square_exponent_scan(x, R)
   m = _maximum_abs(x)
   isnan(m) && return _EXPONENT_NAN
   isinf(m) && return _EXPONENT_INF

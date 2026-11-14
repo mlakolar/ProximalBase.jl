@@ -1,0 +1,21 @@
+{
+  "status": "pass",
+  "exit_code": 0,
+  "finished_utc": "2026-11-11T21:42:45.581859+00:00",
+  "command": [
+    "env",
+    "JULIA_DEPOT_PATH=/tmp/pb848-verify-depot",
+    "JULIA_PKG_OFFLINE=true",
+    "OPENBLAS_NUM_THREADS=1",
+    "/tmp/julia-1.13.3/bin/julia",
+    "--startup-file=no",
+    "--threads=1",
+    "--project=.",
+    "-e",
+    "using Pkg; Pkg.instantiate(); Pkg.test(; julia_args=[\"--check-bounds=yes\", \"--threads=1\"])"
+  ],
+  "files": {
+    "package-tests-clean.log": "f3403492b62057ddf5376a184e05102ac01f58f262ff23938171b14c2220ed0c",
+    "package-test-Manifest.toml": "49389c4ce52e2bd0b3715372af68b2fa43499429acb2da796cecf3c4f81ffbe1"
+  }
+}

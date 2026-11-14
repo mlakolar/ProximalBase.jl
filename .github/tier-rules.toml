@@ -1,0 +1,10 @@
+# The minimal-core rebuild validates the same supported inventory on every run.
+[platforms.linux]
+julia = "1"
+os = "ubuntu-latest"
+[events.pull_request]
+tier = "full"
+[events.push]
+tier = "full"
+[events.workflow_dispatch]
+tier = "full"

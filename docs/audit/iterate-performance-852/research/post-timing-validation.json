@@ -1,0 +1,440 @@
+[
+  {
+    "stage": "analysis-invariants",
+    "command": [
+      "/home/mkolar/miniconda3/bin/python3",
+      "/tmp/pb852-audit/benchmark/audit852/check_analysis.py"
+    ],
+    "started_utc": "2026-11-11T21:14:11Z",
+    "seconds": 0.037308454513549805,
+    "status": "pass",
+    "log": "pb852-final-post-analysis-invariants.log"
+  },
+  {
+    "stage": "strict-primary",
+    "command": [
+      "/home/mkolar/miniconda3/bin/python3",
+      "/tmp/pb852-audit/benchmark/audit852/strict_correctness.py",
+      "--julia",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--sources",
+      "/tmp/pb852-frozen",
+      "--harness-source",
+      "/tmp/pb852-audit/benchmark/audit852",
+      "--output",
+      "/tmp/pb852-final-strict-primary"
+    ],
+    "started_utc": "2026-11-11T21:14:11Z",
+    "seconds": 73.50417160987854,
+    "status": "pass",
+    "log": "pb852-final-post-strict-primary.log"
+  },
+  {
+    "stage": "strict-supplement",
+    "command": [
+      "/home/mkolar/miniconda3/bin/python3",
+      "/tmp/pb852-audit/benchmark/audit852/strict_correctness.py",
+      "--julia",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--sources",
+      "/tmp/pb852-frozen",
+      "--harness-source",
+      "/tmp/pb852-final-supplement-restore-harness",
+      "--output",
+      "/tmp/pb852-final-strict-supplement"
+    ],
+    "started_utc": "2026-11-11T21:15:24Z",
+    "seconds": 68.32624077796936,
+    "status": "pass",
+    "log": "pb852-final-post-strict-supplement.log"
+  },
+  {
+    "stage": "strict-raw-block",
+    "command": [
+      "/home/mkolar/miniconda3/bin/python3",
+      "/tmp/pb852-audit/benchmark/audit852/strict_correctness.py",
+      "--julia",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--sources",
+      "/tmp/pb852-frozen",
+      "--harness-source",
+      "/tmp/pb852-final-raw-block-harness",
+      "--output",
+      "/tmp/pb852-final-strict-raw-block"
+    ],
+    "started_utc": "2026-11-11T21:16:33Z",
+    "seconds": 65.16106367111206,
+    "status": "pass",
+    "log": "pb852-final-post-strict-raw-block.log"
+  },
+  {
+    "stage": "strict-backing-blas",
+    "command": [
+      "/home/mkolar/miniconda3/bin/python3",
+      "/tmp/pb852-audit/benchmark/audit852/strict_correctness.py",
+      "--julia",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--sources",
+      "/tmp/pb852-frozen",
+      "--harness-source",
+      "/tmp/pb852-final-backing-blas-harness",
+      "--output",
+      "/tmp/pb852-final-strict-backing-blas"
+    ],
+    "started_utc": "2026-11-11T21:17:38Z",
+    "seconds": 52.9983651638031,
+    "status": "pass",
+    "log": "pb852-final-post-strict-backing-blas.log"
+  },
+  {
+    "stage": "layout-original",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "--check-bounds=yes",
+      "/tmp/pb852-audit/benchmark/audit852/layout_correctness.jl",
+      "/tmp/pb852-frozen/original",
+      "/tmp/pb852-final-supplement-restore-harness"
+    ],
+    "started_utc": "2026-11-11T21:18:31Z",
+    "seconds": 1.1779000759124756,
+    "status": "pass",
+    "log": "pb852-final-post-layout-original.log"
+  },
+  {
+    "stage": "generated-code-original",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "--check-bounds=no",
+      "/tmp/pb852-audit/benchmark/audit852/diagnose.jl",
+      "/tmp/pb852-frozen/original",
+      "/tmp/pb852-final-generated-code/original",
+      "/tmp/pb852-final-supplement-restore-harness"
+    ],
+    "started_utc": "2026-11-11T21:18:32Z",
+    "seconds": 5.399528503417969,
+    "status": "pass",
+    "log": "pb852-final-post-generated-code-original.log"
+  },
+  {
+    "stage": "compilation-original",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "--check-bounds=no",
+      "/tmp/pb852-audit/benchmark/audit852/compile_diagnostic.jl",
+      "/tmp/pb852-frozen/original",
+      "/tmp/pb852-final-pinned-compilation-original.toml",
+      "/tmp/pb852-final-supplement-restore-harness"
+    ],
+    "started_utc": "2026-11-11T21:18:37Z",
+    "seconds": 4.152029752731323,
+    "status": "pass",
+    "log": "pb852-final-post-compilation-original.log"
+  },
+  {
+    "stage": "layout-historical05",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "--check-bounds=yes",
+      "/tmp/pb852-audit/benchmark/audit852/layout_correctness.jl",
+      "/tmp/pb852-frozen/historical05",
+      "/tmp/pb852-final-supplement-restore-harness"
+    ],
+    "started_utc": "2026-11-11T21:18:42Z",
+    "seconds": 4.423821449279785,
+    "status": "pass",
+    "log": "pb852-final-post-layout-historical05.log"
+  },
+  {
+    "stage": "generated-code-historical05",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "--check-bounds=no",
+      "/tmp/pb852-audit/benchmark/audit852/diagnose.jl",
+      "/tmp/pb852-frozen/historical05",
+      "/tmp/pb852-final-generated-code/historical05",
+      "/tmp/pb852-final-static-adapter-harness"
+    ],
+    "started_utc": "2026-11-11T21:18:46Z",
+    "seconds": 7.900760889053345,
+    "status": "pass",
+    "log": "pb852-final-post-generated-code-historical05.log"
+  },
+  {
+    "stage": "compilation-historical05",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "--check-bounds=no",
+      "/tmp/pb852-audit/benchmark/audit852/compile_diagnostic.jl",
+      "/tmp/pb852-frozen/historical05",
+      "/tmp/pb852-final-pinned-compilation-historical05.toml",
+      "/tmp/pb852-final-static-adapter-harness"
+    ],
+    "started_utc": "2026-11-11T21:18:54Z",
+    "seconds": 6.601311683654785,
+    "status": "pass",
+    "log": "pb852-final-post-compilation-historical05.log"
+  },
+  {
+    "stage": "layout-post848",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "--check-bounds=yes",
+      "/tmp/pb852-audit/benchmark/audit852/layout_correctness.jl",
+      "/tmp/pb852-frozen/post848",
+      "/tmp/pb852-final-supplement-restore-harness"
+    ],
+    "started_utc": "2026-11-11T21:19:01Z",
+    "seconds": 5.144092559814453,
+    "status": "pass",
+    "log": "pb852-final-post-layout-post848.log"
+  },
+  {
+    "stage": "generated-code-post848",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "--check-bounds=no",
+      "/tmp/pb852-audit/benchmark/audit852/diagnose.jl",
+      "/tmp/pb852-frozen/post848",
+      "/tmp/pb852-final-generated-code/post848",
+      "/tmp/pb852-final-supplement-restore-harness"
+    ],
+    "started_utc": "2026-11-11T21:19:06Z",
+    "seconds": 8.601800918579102,
+    "status": "pass",
+    "log": "pb852-final-post-generated-code-post848.log"
+  },
+  {
+    "stage": "compilation-post848",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "--check-bounds=no",
+      "/tmp/pb852-audit/benchmark/audit852/compile_diagnostic.jl",
+      "/tmp/pb852-frozen/post848",
+      "/tmp/pb852-final-pinned-compilation-post848.toml",
+      "/tmp/pb852-final-supplement-restore-harness"
+    ],
+    "started_utc": "2026-11-11T21:19:14Z",
+    "seconds": 7.343088150024414,
+    "status": "pass",
+    "log": "pb852-final-post-compilation-post848.log"
+  },
+  {
+    "stage": "layout-post850",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "--check-bounds=yes",
+      "/tmp/pb852-audit/benchmark/audit852/layout_correctness.jl",
+      "/tmp/pb852-frozen/post850",
+      "/tmp/pb852-final-supplement-restore-harness"
+    ],
+    "started_utc": "2026-11-11T21:19:22Z",
+    "seconds": 2.8359146118164062,
+    "status": "pass",
+    "log": "pb852-final-post-layout-post850.log"
+  },
+  {
+    "stage": "generated-code-post850",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "--check-bounds=no",
+      "/tmp/pb852-audit/benchmark/audit852/diagnose.jl",
+      "/tmp/pb852-frozen/post850",
+      "/tmp/pb852-final-generated-code/post850",
+      "/tmp/pb852-final-supplement-restore-harness"
+    ],
+    "started_utc": "2026-11-11T21:19:24Z",
+    "seconds": 6.2842018604278564,
+    "status": "pass",
+    "log": "pb852-final-post-generated-code-post850.log"
+  },
+  {
+    "stage": "compilation-post850",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/julia-1.13.3/bin/julia",
+      "--startup-file=no",
+      "--threads=1",
+      "-O2",
+      "--project=/tmp/pb852-audit/benchmark/audit852",
+      "--check-bounds=no",
+      "/tmp/pb852-audit/benchmark/audit852/compile_diagnostic.jl",
+      "/tmp/pb852-frozen/post850",
+      "/tmp/pb852-final-pinned-compilation-post850.toml",
+      "/tmp/pb852-final-supplement-restore-harness"
+    ],
+    "started_utc": "2026-11-11T21:19:31Z",
+    "seconds": 5.048314809799194,
+    "status": "pass",
+    "log": "pb852-final-post-compilation-post850.log"
+  },
+  {
+    "stage": "partition-supplement",
+    "command": [
+      "/home/mkolar/miniconda3/bin/python3",
+      "/tmp/pb852-audit/benchmark/audit852/split_confirmation.py",
+      "/tmp/pb852-final-supplement-restore",
+      "/tmp/pb852-final-supplement-restore-harness",
+      "/tmp/pb852-final-supplement-partitions"
+    ],
+    "started_utc": "2026-11-11T21:19:36Z",
+    "seconds": 10.27781367301941,
+    "status": "pass",
+    "log": "pb852-final-post-partition-supplement.log"
+  },
+  {
+    "stage": "export-results",
+    "command": [
+      "/home/mkolar/miniconda3/bin/python3",
+      "/tmp/pb852-audit/benchmark/audit852/export_results.py",
+      "--prefix",
+      "/tmp/pb852-final",
+      "--broad",
+      "/tmp/pb852-broad-final",
+      "--output",
+      "/tmp/pb852-audit/docs/audit/iterate-performance-852/results"
+    ],
+    "started_utc": "2026-11-11T21:19:46Z",
+    "seconds": 0.5456745624542236,
+    "status": "pass",
+    "log": "pb852-final-post-export-results.log"
+  },
+  {
+    "stage": "independent-integrity",
+    "command": [
+      "/home/mkolar/miniconda3/bin/python3",
+      "/tmp/pb852-audit/benchmark/audit852/verify_integrity.py",
+      "--results",
+      "/tmp/pb852-audit/docs/audit/iterate-performance-852/results",
+      "--raw-parent",
+      "/tmp",
+      "--sources",
+      "/tmp/pb852-frozen",
+      "--julia",
+      "/tmp/julia-1.13.3/bin/julia"
+    ],
+    "started_utc": "2026-11-11T21:19:47Z",
+    "seconds": 13.968925952911377,
+    "status": "pass",
+    "log": "pb852-final-post-independent-integrity.log"
+  },
+  {
+    "stage": "raw-summary-replay",
+    "command": [
+      "/home/mkolar/miniconda3/bin/python3",
+      "/tmp/pb852-audit/benchmark/audit852/replay_results.py",
+      "--results",
+      "/tmp/pb852-audit/docs/audit/iterate-performance-852/results",
+      "--raw-parent",
+      "/tmp"
+    ],
+    "started_utc": "2026-11-11T21:20:01Z",
+    "seconds": 148.33256888389587,
+    "status": "pass",
+    "log": "pb852-final-post-raw-summary-replay.log"
+  },
+  {
+    "stage": "regression-ledger",
+    "command": [
+      "/home/mkolar/miniconda3/bin/python3",
+      "/tmp/pb852-audit/benchmark/audit852/regression_ledger.py",
+      "--results",
+      "/tmp/pb852-audit/docs/audit/iterate-performance-852/results"
+    ],
+    "started_utc": "2026-11-11T21:22:29Z",
+    "seconds": 0.07857275009155273,
+    "status": "pass",
+    "log": "pb852-final-post-regression-ledger.log"
+  },
+  {
+    "stage": "plots",
+    "command": [
+      "/home/mkolar/miniconda3/bin/python3",
+      "/tmp/pb852-audit/benchmark/audit852/plot_report.py",
+      "/tmp/pb852-audit/docs/audit/iterate-performance-852/results",
+      "/tmp/pb852-audit/docs/audit/iterate-performance-852/figures"
+    ],
+    "started_utc": "2026-11-11T21:22:29Z",
+    "seconds": 2.149839401245117,
+    "status": "pass",
+    "log": "pb852-final-post-plots.log"
+  }
+]

@@ -1,108 +1,134 @@
-# Sparse iterates
+# [Overview and working sets](@id Sparse-iterates)
 
-ProximalBase provides three iterate types for coordinate descent and active-set
-procedures. We separate the choice of storage from the update formulas,
-which are derived in [Coordinate descent](@ref).
+*Assumes: vectors, matrices and basic optimization iterations · You will learn: when to use specialized storage and what active coordinates mean.*
 
-| Iterate | Array represented | One coordinate |
-|:--------|:------------------|:---------------|
-| [`SparseIterate`](@ref) | A sparse vector or matrix | One entry |
-| [`SymmetricSparseIterate`](@ref) | A sparse symmetric matrix | One lower-triangular entry and its symmetric counterpart |
-| [`AtomIterate`](@ref) | A vector partitioned into groups | One group of entries |
+For full-vector methods such as ordinary proximal gradient, a plain Julia
+`Vector` (or `Matrix`) is often all the storage you need.
+Use `SparseIterate`, `BlockIterate` or `SymmetricSparseIterate`
+when an algorithm repeatedly visits only a selected
+[working set](glossary.md#Working-set) of coordinates, groups or independent
+symmetric-matrix entries. These types make working-set access and updates
+convenient, but they are not compressed-memory sparse matrices.
 
-## Entries and coordinates
+An [iterate](glossary.md#Iterate) stores the current optimization variable.
+A coordinate is **[active](glossary.md#Active-coordinate)** here when it is
+explicitly stored or chosen for visits, **not** when an inequality constraint
+holds with equality as in standard KKT terminology.
+A zero coordinate may remain active so a solver checks it on its next sweep.
 
-[`prox_entry`](@ref)`(g, v, i, γ)` computes the scalar proximal operator of
-entry ``i`` without writing the iterate. In contrast,
-[`prox_coordinate!`](@ref)`(x, g, k, γ)` reads coordinate ``k`` of the iterate,
-applies its proximal operator and writes the result. The calling procedure
-must supply the gradient step before applying this proximal operation.
+## Choosing an iterate
 
-The two calls index different spaces:
-- `prox_entry` takes an entry ``i`` of the array, the index of the weights and
-  bounds.
-- `prox_coordinate!` takes a coordinate ``k`` of the iterate.
+| Storage | Array interface | One optimization coordinate | Capacity |
+|:--|:--|:--|:--|
+| [`SparseIterate`](@ref) | Real vector or matrix | One scalar entry | O(number of entries) |
+| [`SymmetricSparseIterate`](@ref) | Object representing a symmetric p×p matrix (not an `AbstractArray`) | One lower-triangle variable | O(p(p+1)/2) |
+| [`BlockIterate`](@ref) | Real vector | One ordered group of entries | O(entries + groups) |
 
-The two coincide for a `SparseIterate`. A coordinate is an entry of the lower
-triangle for a `SymmetricSparseIterate`, and a group for an `AtomIterate`.
+These provide sparse **work**, with direct lookup tables and reserved slots;
+they are not compressed sparse formats for avoiding memory proportional to the
+full coordinate domain. For an algorithm that updates every coordinate at each step, a regular
+array is often simpler.
 
-## SparseIterate
+## Entries, coordinates and active slots
 
-A [`SparseIterate`](@ref) is a vector or matrix that stores its nonzero
-entries in a list. Three arrays hold them: the values, their indices, and for
-every index the position of its value in the list (zero when it is not stored).
-Reading or writing any entry is therefore ``O(1)``, and a product ``Xx`` costs
-``O(n\cdot\mathrm{nnz})``. The stored entries are the active coordinates
-([`activecoordinates`](@ref), [`nactive`](@ref)). Setting an entry to zero keeps
-it stored, so that an active set does not change during a sweep. `dropzeros!`
-removes the zeros between sweeps.
+For `SparseIterate`, coordinates are Julia linear entry indices. For symmetric matrix storage, coordinates number the independent lower triangle, while matrix indices
+include both mirrored entries. For `BlockIterate`, `x[j]` still indexes an entry,
+but coordinate `k` names a group. An [active **slot**](glossary.md#Active-slot) is the position in a packed
+list of coordinate IDs. It is not a coordinate ID and can move on compaction.
 
-## SymmetricSparseIterate
+| Call | `SparseIterate` | `SymmetricSparseIterate` | `BlockIterate` |
+|:--|:--|:--|:--|
+| `ncoordinates(x)` | length(x) | p(p+1)/2 | number of groups |
+| `nactive(x)` | stored entries, zeros included | stored independent variables, zeros included | stored groups, even all-zero groups |
+| `coordinates(x)` | live writable vector in linear order | live writable lower-triangle vector | no method |
+| `activecoordinates(x)` | read-only active entry IDs | read-only independent-coordinate IDs | read-only active group IDs |
+| `activevalues(x)` | writable packed values | writable packed values | no method; use `blockview` |
+| `matrixview(x)` | no method | read-only live matrix | no method |
+| `blockview(x,k)` / `blockindices(x,k)` | no method | no method | live entry view / read-only ordered index list |
 
-A [`SymmetricSparseIterate`](@ref) is a sparse symmetric ``p \times p`` matrix
-that stores its lower triangle. For indexing, length, iteration and
-broadcasting it is an ordinary ``p \times p`` matrix, except that writing
-``x_{rc}`` also writes ``x_{cr}``. Its coordinates are the
-``p(p+1)/2`` entries ``(r, c)``, ``r \ge c``, of the lower triangle, numbered
-column by column:
+The exported `nnz` is SparseArrays' binding for standard sparse arrays. There
+is no `nnz`, `nonzeros` or `findnz` method for these iterates. Count a
+`SparseIterate`'s nonzeros using `count(!iszero,activevalues(x))`; for a symmetric
+iterate that counts independent nonzeros, not full-matrix entries. For blocks,
+sum `count(!iszero,blockview(x,k))` over active group IDs.
 
-```math
-k = \texttt{tril\_index}(p, r, c) = \frac{(c - 1)(2p - c + 2)}{2} + (r - c + 1).
+## Active coordinates are deliberate state
+
+Writing a nonzero converted value activates its coordinate. Writing zero to
+an absent coordinate leaves it absent; writing zero to an active coordinate
+keeps it active. `activate!(x,k)` explicitly retains a zero coordinate, and
+[`dropzeros!(x)`](glossary.md#Compaction) removes zero coordinates/all-zero
+groups. NaN/Inf are nonzero
+for this rule; signed zeros are zero.
+
+```@example iterate_working_set
+using ProximalBase
+x = SparseIterate(4)
+activate!(x,3)
+x[1] = 2
+x[1] = 0
+@assert nactive(x) == 2 && count(!iszero,activevalues(x)) == 0
+saved_ids = collect(activecoordinates(x))
+dropzeros!(x)
+@assert nactive(x) == 0 && saved_ids == [3,1]
+nactive(x)
 ```
 
-[`tril_cartesian`](@ref) inverts this by solving a quadratic equation. Its
-floating square root is exact for ``p < 2^{24}``, far beyond any matrix that
-fits in memory, and it switches to an integer square root beyond that.
-[`coordinates`](@ref)`(x)` is a vector view of the coordinates.
+Acquire `activecoordinates` and `activevalues` again after any activation,
+compaction or whole-state replacement. Handles retain their old extent and
+refer to live slots; they are not snapshots. Coordinate and matrix views keep
+their stable index mapping for the iterate's lifetime. Never modify private
+metadata through fields or a view's parent indices.
 
-**The coordinate step on a symmetric matrix.** A coordinate ``(r, c)`` with
-``r \ne c`` moves two entries of ``\Theta`` together. Take a penalty that
-counts both triangles, ``\lambda\sum_{i,j}|\Theta_{ij}|``, as `NormL1` does on
-the matrix. Let ``G`` be the gradient of ``f`` over symmetric matrices, and
-``a`` the curvature along the direction ``E_{rc} + E_{cr}``. Along the
-coordinate,
+## Copies and mathematical operations
 
-```math
-\varphi(t) = 2G_{rc}(t - t_0) + \frac{a}{2}(t - t_0)^2 + 2\lambda|t| + \text{const},
-\qquad
-t^+ = S_{2\lambda/a}\Big(t_0 - \frac{2G_{rc}}{a}\Big).
-```
+`copy(x)` copies values and working-set state independently. `similar(x)` is
+empty storage of the same kind/shape/layout. Same-kind state copies replace
+the destination's active set when shapes/layouts match. Ordinary array writes,
+broadcasts and most mathematical proximal writes preserve already active
+coordinates. A fresh allocating prox can omit the source's active zeros. `ZeroFunction` is a
+copying exception: its distinct array-iterate output uses `copyto!`, replacing
+state for matching `SparseIterate` shapes/`BlockIterate` layouts. Its symmetric-iterate route
+instead uses coordinate value writes.
 
-That is `prox_entry(NormL1(λ), t₀ - (2/a) G[r, c], i, 2/a)`. On the diagonal
-the factors of 2 disappear and the step is ``1/a``. So, as the
-[`KronQuadratic`](@ref) example of the D-trace loss shows, off-diagonal
-coordinates take the step ``2/a`` where the diagonal takes ``1/a``. Per-entry
-parameters, such as the weights of `NormL1`, are indexed like the dense
-``p \times p`` matrix and must be symmetric.
+For `BlockIterate`, same-layout `copyto!` replaces state; different layouts of
+the same entry length copy by value. A symmetric iterate's `copyto!(x,A)` is a
+checked import, replacing state with nonzero coordinates in increasing order.
+See the individual guides for validation and failure behavior.
 
-## AtomIterate
+## Supported products
 
-An [`AtomIterate`](@ref) is a vector whose coordinates are groups of entries,
-partitioning ``1{:}p``. Its active groups play the role of the stored entries
-of a `SparseIterate`, and [`atom`](@ref)`(x, k)` is a view of group ``k``.
-Block coordinate descent for the group lasso takes, for group ``k``, a gradient
-step of size ``1/L_k`` (with ``L_k = \|X_{G_k}\|_2^2`` for least squares). It
-then applies the group's proximal step, `prox_coordinate!(x, g, k, 1/L_k)`,
-which is block soft thresholding, and which activates the group when it ends
-nonzero. `AtomIterate(p, g)` builds an iterate that shares the groups of a
-group penalty `g`.
+The following sparse-aware operations are available for these iterate types. Real types and compatible
+dimensions are required. Other Julia fallbacks can be dense, slower, or absent.
+Use independent product destinations: ordinary `mul!` does not permit arbitrary
+aliasing. The symmetric iterate methods explicitly reject overlapping output/input storage.
 
-## Tracking an active set
+| Call | Supported domain / cost |
+|:--|:--|
+| `A*x`, `mul!(out,A,x[,α,β])` | Strided dense matrix and vector `SparseIterate` or `BlockIterate`; O(rows(A)·active entries) |
+| `mul!(out,A,B[,α,β])` | Strided matrix A and matrix `SparseIterate` B, strided matrix output; active-entry/column traversal |
+| `A*x`, `A*B` and mul! | Symmetric wrapper of a strided matrix, vector/matrix `SparseIterate` or vector `BlockIterate`; respects selected triangle |
+| `A'*x`, `transpose(A)*x`, mul! | Strided A and vector `SparseIterate`, strided output |
+| `dot(v,x)` in either order | Strided vector and vector `SparseIterate`/`BlockIterate`; also combinations of those vector iterates |
+| `dot(a,X,b)` | Strided vectors and matrix `SparseIterate`; arbitrary one-based real vectors and symmetric iterate |
+| `X*v`, `X*B`, mul! | Symmetric iterate and real vector/matrix right operand; O((p+s)·number of columns) |
+| `mul!(out,matrixview(X),v[,α,β])` | Symmetric-iterate view and real vector; O(p+s) |
+| `dot(A,X)` in either order | Strided matrix and symmetric iterate, full Frobenius inner product |
+| `A*X*B` | Symmetric wrappers of strided matrices and matrix `SparseIterate`/`SymmetricSparseIterate` of matching `Float32`/`Float64`; direct sparse terms, O(s·rows(X)·cols(X)) |
 
-The active coordinates form a stored working set, which can contain entries
-or groups that have returned to zero. We keep them during a sweep so that
-the set being traversed does not change.
+Here `s` counts stored coefficients; active blocks can contain several entries.
+The direct three-factor guarantee requires all three element types to match.
+Other matching-type Symmetric wrappers use a restricted/dense route; mixed
+types use generic/dense multiplication. See [numerics](numerics.md) for the
+three-factor range and summation guarantees.
 
-| Operation | Meaning |
-|:----------|:--------|
-| [`ncoordinates`](@ref)`(x)` | Number of possible coordinates |
-| [`nactive`](@ref)`(x)` | Number of stored active coordinates |
-| [`activecoordinates`](@ref)`(x)` | Indices of the active coordinates |
-| [`isactive`](@ref)`(x, k)` | Whether coordinate `k` is active |
-| [`activate!`](@ref)`(x, k)` | Add a coordinate to the active set |
-| `dropzeros!(x)` | Remove stored zero entries or zero groups |
+`dot(c, X)` for a matrix `SparseIterate` `X` and a dense `c` that is not a `Diagonal` is the
+generic `dot`, which visits all `mn` positions; it is not in the table. The value of a
+[`LinearFunction`](smooth.md#Linear-function) at a matrix `SparseIterate` is
+computed separately from the stored nonzero entries, with the strong-zero rule below.
 
-Use [`kkt_violation`](@ref) to test excluded zero coordinates and
-[`restrict`](@ref) to construct a supported restricted problem. The
-[Coordinate descent](@ref) chapter explains the full optimality checks that
-must accompany these storage operations.
+Specialized products skip zero iterate coefficients, including stored zeros,
+even against NaN/Inf in the other operand. This differs from an ordinary
+dense IEEE `0*Inf`. A coordinate view has ordinary vector products and does
+not inherit sparse work or strong-zero semantics. See
+[array conventions](numerical_usage.md).

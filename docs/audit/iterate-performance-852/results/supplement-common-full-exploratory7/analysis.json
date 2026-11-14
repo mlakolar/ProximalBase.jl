@@ -1,0 +1,19 @@
+{
+  "campaign": "pb852-final-supplement-restore",
+  "observations_sha256": "7bc96faab5bd56f0365c138cc0e1e9ff733e78ccadc773b27fb66f0a090de715",
+  "rounds": [
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    107
+  ],
+  "raw_samples_verified": true,
+  "rows": 3290,
+  "comparisons": 376,
+  "bootstrap_seed": 852,
+  "bootstrap_draws": 10000,
+  "unit": "paired process round"
+}

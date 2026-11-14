@@ -1,0 +1,56 @@
+# Provenance: git tree c76123a0109c0a0f683cb75085371696dffe1c8c, commit eff21b6d7d33c622313122f46c6ee71693c101ee
+# This is a complete PATH inventory, NOT a completed declaration/call dependency audit.
+# proposed_action is provisional until typed signatures, include order, tests and extension dependencies are analyzed.
+path	bytes	blob_sha	proposed_action	preliminary_rationale
+src/affineconstrained.jl	7158	12ad0de1c6ef25da88c62f80b8463f12aa81994a	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/ballconstrained.jl	53962	06fda786369721114f5070f32faa1b79aaf70603	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/block_iterate.jl	25025	fbac8d34cb6eed73882a78c2f45e1b96932003bb	keep-and-slim	retain BlockIterate storage and public views
+src/block_prox.jl	4885	86a89fdb7b081732b5cf0699618b293bf8d59428	extract-minimal	retain only the general scalar/block interface implementation needed by NormL1
+src/caches.jl	3636	69dfa0608ecf1dac6cfd7893e5991bbb345366e8	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/calculus.jl	178318	d631d6faa405eaca8049f5a1473060e429f8c609	extract-minimal	extract Scaled only, including methods for retained functions
+src/compat.jl	3339	a6b44fba643182d6e84aa4431b084657a56ececa	extract-minimal	audit compatibility helpers actually required by core
+src/composition.jl	39236	979298b51b198e8dc2863a3f51496fcbd9c19161	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/constrained_nonconvex.jl	11681	5e1da3d100a1927834ef7ed25bdfbe3f499d4249	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/constrained.jl	70408	95dd351ec644baa1290eaf92cf169333bf297781	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/deprecated.jl	5332	cc426cc3c92fa15f675cc927eeec6acb3e26c0d0	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/distance.jl	20945	9e3a56718396e85b1ab18d80d57d90742bbf5280	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/envelope.jl	11854	508bc3dd356c1f244b704b1778a68dd4d3afc1a8	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/affine.jl	8350	6b1a12c9da754e4dcf134faf3282b1547fdfdc6c	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/cones.jl	26838	fb20e1a5243ca58342421b7dd475f56b1969afcf	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/entropy.jl	28024	c53a0e6df31e52a4087cf80bc562a2ec53763aee	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/fibers.jl	24227	6957a289259a9e4b2cb94ca986f2e24ddd3ab0ea	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/glm.jl	39845	4c6355578dcb87833060656095c0bff23e187f37	extract-minimal	extract scalar Squared and hooks only if retained
+src/functions/graph.jl	14269	6df02f0c120f62ac104957744f86871a297a78fc	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/intersection.jl	7978	89fd47c7fe414a6a8d89db17c7181b5cf46fee2f	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/leastsquares.jl	10585	938e667d873eddce7f29966371720b57a8dbc33d	keep-and-slim	retain LeastSquaresLoss and necessary methods
+src/functions/logdet.jl	14774	ec85f92aec000b7a84bd6ddd7a7df5ba26ed6c3e	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/losses.jl	48271	385f52d0bcb0b6fab536c744a2907a752ae8daf5	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/matrixsets.jl	13869	1d3f2167b2241886018e18e25fa22d7bb699aba7	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/nonconvex.jl	50508	cb4523a472ea67445031b50f702295402c040114	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/norms.jl	91240	3d339ebad990a4bf80ec025c5f075a01aa8101ea	defer-after-dependency-audit	other norms and group penalties deferred
+src/functions/ordered.jl	43080	4b54261421f759173d189416cebe2a36ef429af2	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/polyhedron.jl	26488	ca4ccbeaf16fc3bcafd686a42120e4e3e9bd5ad4	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/separable.jl	53166	af3c165e29b439e7d5ea48fb3a9cb7cd09055de3	extract-minimal	extract NormL1 and minimal separable support
+src/functions/sets.jl	75760	2ee7e956fa889a2e89e0bfa58ae57ff4722ab06b	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/singular.jl	19303	0559fad1f79a9387b5a1369dd17674d3068be854	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/smooth.jl	62532	eb78074ffbe5b851ecbf3445c3d6565c0641f6af	extract-minimal	extract SqrNormL2, QuadraticFunction, ZeroFunction, LinearFunction
+src/functions/sparsegroup.jl	18109	156c3b9693860491028e46f7e8ad28e85828ede8	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/functions/spectral.jl	38399	dff6e6a837d10b509ad00e916254a419a90302c1	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/image.jl	19337	07bc03c3a45be9e8495d4ebd68b8f5697dab3d78	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/interface.jl	35192	e7fe72dafafedfa14bb2bcc5cb139a52b5495529	keep-and-slim	retain supported abstract types and function extension hooks
+src/lapack.jl	10551	0434fdbec2eed258418ff716b32168945bdaf119	extract-minimal	audit whether any retained loss calls LAPACK helpers
+src/lla.jl	11006	aeabb32e8869cbc104e7d246adbc65914578871a	defer-after-dependency-audit	nonconvex LLA machinery deferred
+src/lmo_atoms.jl	32270	62c8972c0c0dc794ec29a764d39c54b565fb280c	defer-after-dependency-audit	LMO atom machinery deferred
+src/lmo.jl	5701	8c55134f56afb7b3c4e7a8826e573ee86b614d0b	defer-after-dependency-audit	Frank-Wolfe/LMO deferred
+src/metric.jl	42935	570faecf0ad3796198436bd73ac479d416e43b1a	extract-minimal	extract only core gradient/proximal support where needed
+src/minimum.jl	9661	6aac85238041bb3e4316777651bbc6f456431d67	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/model_data.jl	6249	53ebb463658a51b8e694372c0dd85eb5abc539d1	extract-minimal	extract model-data definitions required by LeastSquaresLoss
+src/partial.jl	22673	7808e876fb60bc44a81a356f959b11fa9e1bfd5d	extract-minimal	audit shared low-level numerical helpers and extract only required parts
+src/precompile.jl	2748	42247649dbf65304f7b77c98ee650aaa7499e123	extract-minimal	replace broad precompile catalog with minimal supported API
+src/ProximalBase.jl	5957	234e9f27aa3f61dd038698000e5b8e6eddb18f32	keep-and-slim	rewrite module exports and includes for supported minimal API
+src/second_order.jl	40167	7a2b393162f4ff1ef1c97147cc920b010f7f1327	defer-after-dependency-audit	general Hessian/Newton support deferred
+src/sparse_iterate.jl	100166	3ec9ca987c6f8e695473500d9cbb0e2e35022484	keep-and-slim	retain SparseIterate and SymmetricSparseIterate storage and products
+src/spectralfunction.jl	33015	fd92531cf0fa273cabcebad82aafb012606c4bed	defer-after-dependency-audit	Outside milestone-0 retain list; inspect for essential dependencies before removing
+src/symmetric_parameters.jl	38328	3d75f3047408240db18e061bcabb102482d771ce	extract-minimal	extract parameter logic required by symmetric storage and retained functions
+src/testing.jl	10575	121c1d8c98266a42525f2c0198bc159a5296add5	extract-minimal	retain only applicable test-interface support if required
+src/utils.jl	72043	68ade20f8472b02615a580eafcc1481338729f74	extract-minimal	extract shared numerical and storage utilities used by retained code

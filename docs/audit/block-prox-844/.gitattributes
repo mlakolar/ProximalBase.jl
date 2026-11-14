@@ -1,0 +1,2 @@
+# Unified patch context and format-patch separators preserve transport whitespace.
+ProximalSolvers.patch -whitespace

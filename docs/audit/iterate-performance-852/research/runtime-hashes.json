@@ -1,0 +1,9 @@
+{
+  "benchmark/audit852/Project.toml": "717285f3203141279ccdc610aca7afff6bb42ffc0ee7545204278e46ff57c028",
+  "benchmark/audit852/Manifest.toml": "b92aff238402ae1b9e87f8199ecb03460de4c683d3ae4b4a9545a1ad3c796046",
+  "benchmark/audit852/worker.jl": "b50ad5a6d0f7485c08af2ed10277a5e9a8f1352d49737d15705b9089d3a07648",
+  "benchmark/audit852/adapters.jl": "0fb15f9d24ae6acb32ce9f7974b7cbd01be78a1400778cd996a0336a3c125931",
+  "benchmark/audit852/cases.jl": "c878dcb87e89c7f20562a67f3f203cf0e8c61cb4a0a89fdb8c31d96d4efa3262",
+  "benchmark/audit852/spec.py": "2fa243ea710d7e5517b11ef8c0ea9a456257ab13cb6c6a9dc42d9740c63f93a0",
+  "benchmark/audit852/run.py": "09fb169b3559c1da19e83299423679248582e913430e80ccadd3f8513159aa56"
+}

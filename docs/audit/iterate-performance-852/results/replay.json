@@ -1,0 +1,108 @@
+{
+  "status": "pass",
+  "python": "3.11.5 (main, Sep 11 2023, 13:54:46) [GCC 11.2.0]",
+  "campaigns": [
+    {
+      "campaign": "broad7",
+      "status": "pass",
+      "comparison_rows": 5136,
+      "metric_sha256": "a1f796aab051b1fd8208aea80cc13d492932ae258fe2e21eff7769db8450b72e"
+    },
+    {
+      "campaign": "native-confirmation21",
+      "status": "pass",
+      "comparison_rows": 650,
+      "metric_sha256": "8a9606215ee8e29434cc3fb57aaa677fc467b0307b9c3448b08a39455a73ca21"
+    },
+    {
+      "campaign": "supplement-native7",
+      "status": "pass",
+      "comparison_rows": 1198,
+      "metric_sha256": "245324c9ed7501f1db7faf2eaa5d34cd993686facf1e4d1e3b5bddb99ad8765f"
+    },
+    {
+      "campaign": "common-full7",
+      "status": "pass",
+      "comparison_rows": 1328,
+      "metric_sha256": "a12ea0b9cf2f4cae1233fb746b98d798b3aa74d277db4cf9d06cb8a709eb6481"
+    },
+    {
+      "campaign": "supplement-common-full28",
+      "status": "pass",
+      "comparison_rows": 376,
+      "metric_sha256": "406bdad7eb546ae1e4141e54960d89f96aaeeb794f2cee55bbc1dfefb0b79d71"
+    },
+    {
+      "campaign": "common-active7",
+      "status": "pass",
+      "comparison_rows": 1328,
+      "metric_sha256": "d380e6257cbfbec6876cf94c52fbae78fbca84d328b4eea3554c090fc0abee60"
+    },
+    {
+      "campaign": "raw-block7",
+      "status": "pass",
+      "comparison_rows": 1368,
+      "metric_sha256": "9085be0728690c82853a4f1a468b257989efb0b47f5e100b1e19b2770466ce23"
+    },
+    {
+      "campaign": "raw-block-confirmation21",
+      "status": "pass",
+      "comparison_rows": 672,
+      "metric_sha256": "42daf80e48b8f49f3608e60c1d68570b09210708cd4c1d70daaf6754cc2ce551"
+    },
+    {
+      "campaign": "backing-blas7",
+      "status": "pass",
+      "comparison_rows": 252,
+      "metric_sha256": "7796028f3b668d3ac1ee697daa05647c5cfc311f64c1b02d54231d92c53d547f"
+    },
+    {
+      "campaign": "backing-blas-confirmation21",
+      "status": "pass",
+      "comparison_rows": 33,
+      "metric_sha256": "0f2a14820a84d5e58d51b1a0d4d2501610726921e9e09d976586779006ba0236"
+    },
+    {
+      "campaign": "common-full-confirmation21",
+      "status": "pass",
+      "comparison_rows": 168,
+      "metric_sha256": "27929b9cf500c4efe819cf7388ff09e1f272cf11ab8441a4f1709c5b300aad64"
+    },
+    {
+      "campaign": "common-active-confirmation21",
+      "status": "pass",
+      "comparison_rows": 172,
+      "metric_sha256": "59d7998dbaf1630433701bd6101bdc9990208dd120f542885952cf5a1f259a1d"
+    },
+    {
+      "campaign": "static-adapter7",
+      "status": "pass",
+      "comparison_rows": 2244,
+      "metric_sha256": "b9f1acdf101902d4e03eb64649679507eac5cc1b9d81ab3ef1a4d9cd77811544"
+    },
+    {
+      "campaign": "static-adapter-confirmation21",
+      "status": "pass",
+      "comparison_rows": 60,
+      "metric_sha256": "dca532fb82aaf221f689df1c6b2bf533643945b904c5e06f70f9bfde46524e46"
+    },
+    {
+      "campaign": "allocation-isolation-00",
+      "status": "pass",
+      "comparison_rows": 3,
+      "metric_sha256": "64ca6204ccc80bfa923e1ecfb60490ff3ea813aa64a9d8719fcc1514e1d4489f"
+    },
+    {
+      "campaign": "allocation-isolation-01",
+      "status": "pass",
+      "comparison_rows": 3,
+      "metric_sha256": "d996cc94d5795a206dad1431faa1c88eee59494ccbb3f5c68e4679ce99636d69"
+    },
+    {
+      "campaign": "allocation-isolation-02",
+      "status": "pass",
+      "comparison_rows": 3,
+      "metric_sha256": "fe6df527dfc1270b41af1a438dffc4029613e51c0eff6a345106223cf728effd"
+    }
+  ]
+}

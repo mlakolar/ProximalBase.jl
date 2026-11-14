@@ -1,0 +1,54 @@
+name: Remove closed PR documentation preview
+
+on:
+  pull_request_target:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number whose documentation preview should be removed"
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup-preview:
+    name: Remove preview from gh-pages
+    # pull_request_target uses the trusted default-branch workflow; never
+    # check out or execute code from the PR that is being closed.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: gh-pages-writes
+      cancel-in-progress: false
+    steps:
+      - name: Checkout published pages
+        uses: actions/checkout@v7
+        with:
+          ref: gh-pages
+          persist-credentials: true
+      - name: Delete preview for closed PR
+        env:
+          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${PR_NUMBER}" =~ ^[0-9]+$ ]] || { echo 'Invalid PR number' >&2; exit 1; }
+          preview_dir="previews/PR${PR_NUMBER}"
+          if [ ! -d "${preview_dir}" ]; then
+            echo "No published preview exists at ${preview_dir}"
+            exit 0
+          fi
+          git rm -r -f --ignore-unmatch -- "${preview_dir}"
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                commit -m "docs: remove preview for PR ${PR_NUMBER}"
+            git push origin HEAD:gh-pages
+          fi

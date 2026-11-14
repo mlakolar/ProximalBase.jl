@@ -1,137 +1,177 @@
 # Writing your own function
 
-A function is a subtype of [`AbstractFunction`](@ref) that declares its traits
-and implements the oracles they promise. Solvers written against the interface
-then accept it like the built-in functions.
+*Assumes: Julia structs and multiple dispatch · You will learn: how to implement mathematical function interfaces and check their inputs.*
 
-## Any function
+Extend mathematical methods without reaching into [iterate](glossary.md#Iterate) fields. Choose the
+smallest interface that describes the operations you can implement.
 
-| Trait | Implement | You get |
-|:------|:----------|:--------|
-| always | the value, `(f::MyF)(x)`, `Inf` outside the domain | |
-| `isproximable` | [`prox!`](@ref)`(y, f, x, γ)`; `y` may be `x` | [`prox`](@ref), and [`value_and_prox!`](@ref) as `prox!` then `f(y)` |
-| `issmooth` | [`value_and_gradient!`](@ref)`(g, f, x)` | [`gradient!`](@ref), [`gradient`](@ref), [`value_and_gradient`](@ref) |
-| `isconvex` | | |
+The `AbstractFunction` extension rules below apply to array functions.
+For observation-level prediction losses, implement the separate
+[`ProximalBase.ScalarLoss` interface](scalar_losses.md).
 
-Override `value_and_prox!` when the proximal computation gives the value more
-cheaply, and define [`lipschitz`](@ref) when a smooth function's constant is
-known. The traits are defined on the type:
+## Any mathematical function
 
-```@example extending
-using ProximalBase, LinearAlgebra
+Subtype `AbstractFunction`, define the callable value `(f::MyFunction)(x)` and
+declare the appropriate type traits. Generic defaults are deliberately limited:
 
-# the indicator of the box [-1, 1]ⁿ intersected with the hyperplane Σᵢ xᵢ = 0
-struct CenteredBox <: AbstractFunction end
-ProximalBase.isproximable(::Type{CenteredBox}) = true
-ProximalBase.isconvex(::Type{CenteredBox}) = true
-(::CenteredBox)(x) = all(abs.(x) .<= 1 + 1e-12) && abs(sum(x)) <= 1e-9 ? 0.0 : Inf
+| Capability you implement | Required hooks | Generic result |
+|:--|:--|:--|
+| Smooth function | `value_and_gradient!(out,f,x)` and `issmooth` | `gradient!` delegates to it; allocating gradient/`value_and_gradient` use it |
+| Proximable function | `prox!(out,f,x,γ)` and `isproximable` | allocating prox; default `value_and_prox!` computes prox then f(out) |
+| Entry-separable function | Subtype `SeparableFunction`, `value_entry` and scalar `prox_block` | Array/iterate values, `prox!`, `value_and_prox!`; separability/proximability traits true |
+| Compact block-only oracle | `prox_block!(out,f,u,k,γ)` | Allocating vector `prox_block` only |
 
-# the projection: x = clamp.(v .- τ, -1, 1), with τ chosen by bisection so that Σᵢ xᵢ = 0
-function ProximalBase.prox!(y::AbstractVector, ::CenteredBox, v::AbstractVector, ::Real)
-    lo, hi = minimum(v) - 1, maximum(v) + 1
-    for _ in 1:100
-        τ = (lo + hi) / 2
-        sum(t -> clamp(t - τ, -1, 1), v) > 0 ? (lo = τ) : (hi = τ)
-    end
-    y .= clamp.(v .- (lo + hi) / 2, -1, 1)
-end
+`isconvex` defaults false and must be declared when justified. There is no
+automatic gradient from a value, scalar prox from a full-array prox, KKT screen,
+restriction, Lipschitz bound or full-array lifting of a compact block oracle.
+Generic methods accepting tuples do not imply that the underlying function
+supports tuple inputs; it still needs methods for the requested argument types. The generic `gradient!` default depends on
+`value_and_gradient!`, so implement that hook if relying on the default.
 
-y = prox(CenteredBox(), [3.0, 0.2, -0.4, 0.1], 1.0)
-(y, sum(y))
-```
+An overriding public operation owns real-type, shape, parameter-extent and [aliasing](glossary.md#Aliasing)
+preflight; parameter symmetry is a model precondition that the caller or solver validates. Destination comes first. Return the identical output for `gradient!`/
+`prox!`/`prox_block!`, a scalar input value for `value_and_gradient!`, and a scalar
+stored-output value for `value_and_prox!`. Proximal output may be exactly the
+input; gradient output must be independent. Do not write parameters, input
+buffers or solver storage while constructing a pure numerical result.
 
-The projection uses the same idea as the projection onto the simplex: the
-constraint ``\sum_i x_i = 0`` has a multiplier ``\tau``, and for a fixed
-``\tau`` the box projection is separable. Here a bisection on ``\tau`` replaces
-Condat's exact search.
+## Floating-point precision for extensions
+
+For the supported CPU numerical targets, test custom functions with
+homogeneous `Float64` arguments/parameters/outputs and, where supported
+by the extension, homogeneous `Float32` arguments/parameters/outputs.
+Custom hooks are not automatically required to handle mixed
+`Float32`/`Float64` calls, and the generic interface does not supply
+arbitrary-precision or exceptional-range recovery. If an extension
+supports additional combinations, document their conversion and result
+type rules separately.
+
+Stable formulas and selective recovery for representable results are
+encouraged. The common finite path should remain efficient; the
+extension author decides which exceptional cases merit additional
+arithmetic. See the [numerical contract](numerics.md).
 
 ## Separable functions
 
-A separable function ``f(x) = \sum_i f_i(x_i)`` subtypes
-[`SeparableFunction`](@ref) and implements two scalar functions:
+Suppose the function can be written as a sum of independent coordinate terms,
 
-- [`value_entry`](@ref)`(f, v, i)`, the value ``f_i(v)``;
-- [`prox_entry`](@ref)`(f, v, i, γ)`, the proximal operator of ``\gamma f_i`` at
-  ``v``.
+```math
+f(x)=\sum_{i=1}^{p} f_i(x_i).
+```
 
-Here ``i`` is the linear index of the entry, which lets parameters such as
-weights depend on it. The value, [`prox!`](@ref) and
-[`value_and_prox!`](@ref) then work on any array and on the three iterates, and
-[`prox_coordinate!`](@ref) works on the iterates. Declare
-[`iszeropreserving`](@ref) when ``f_i(0) = 0`` and the proximal operator maps
-``0`` to ``0``. Then the value and the proximal operator on a sparse iterate
-touch only its stored entries.
+A Julia subtype of `SeparableFunction` supplies two scalar operations:
+`value_entry(f, v, i)` evaluates ``f_i(v)``, while
+`prox_block(f, v, i, γ)` computes the scalar proximal point of
+``\gamma f_i`` at ``v``. Here i is the **linear entry index** of the underlying
+argument, used to index parameters. Generic kernels visit arrays, `SparseIterate`,
+`BlockIterate` and symmetric iterates. Declare `check_parameters(f,x)` to reject
+wrong parameter extent before generic writes. Use `prod(size(x))` rather than
+`length(x)` when accepting symmetric iterates.
 
-```@example extending
-# Σᵢ wᵢ xᵢ² / 2: separable, with weights
-struct WeightedSquare <: SeparableFunction
-    w::Vector{Float64}
-end
+Declare every per-entry array in `entry_parameters(f)` as a tuple of
+`Symbol=>value` pairs; declare `()` if none. A custom `SeparableFunction`'s
+default is `nothing`, which `check_symmetric_parameters` rejects. On a symmetric
+iterate your per-entry arrays must be exactly symmetric: the generic kernels
+assume it and compare no mirrored entries, so asymmetric arrays are an invalid
+model with no guaranteed numerical meaning. Call
+`check_symmetric_parameters(f,x)` once per model, at the solve or workspace
+boundary and after any change to the arrays. Within ProximalBase it is the only reader of
+`entry_parameters`; the extent of your arrays is the job of `check_parameters`.
+See [symmetric parameters](symmetric_parameters.md).
+
+`iszeropreserving(f)=true` is a mathematical promise that ``f_i(0)=0`` and
+``prox_{γf_i}(0)=0`` for **all positive finite γ**. Only declare it when valid
+for every parameter value the instance permits. It enables sparse traversal;
+it does not provide an oracle or license arbitrary NaN suppression. Symmetric
+values count off-diagonal entry terms twice, while coordinate vectors count
+one independent value. Raw scalar calls do not check symmetric-iterate symmetry; validate
+the original function before using them.
+
+For example, the [WeightedSquare implementation](examples/custom_function.md)
+represents
+
+```math
+f(x)=\frac12\sum_{i=1}^{p}w_i x_i^2,\qquad w_i\geq0.
+```
+
+Its scalar functions are
+
+```math
+f_i(v)=\frac{w_i v^2}{2},\qquad
+\operatorname{prox}_{\gamma f_i}(v)=\frac{v}{1+\gamma w_i}.
+```
+
+The Julia methods correspond directly to these formulas:
+
+```julia
 ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
-ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
-ProximalBase.iszeropreserving(::WeightedSquare) = true
-ProximalBase.isconvex(::Type{WeightedSquare}) = true
-
-f = WeightedSquare([1.0, 2.0, 4.0])
-x = [1.0, 1.0, 1.0]
-(f(x), prox(f, x, 0.5))
+ProximalBase.prox_block(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 ```
 
-```@example extending
-xs = SparseIterate(3)                          # a coordinate step on a sparse iterate
-xs[2] = 1.0
-prox_coordinate!(xs, f, 2, 0.5), nnz(xs)
+The complete implementation owns its weights, checks finite nonnegative
+parameters, defines both methods and the required parameter metadata, and
+verifies dense, sparse and symmetric use and the explicit rejection of asymmetric weights.
+Its definition and checks are included below from that executable source.
+
+```@eval
+using Markdown, ProximalBase
+source = read(joinpath(pkgdir(ProximalBase), "examples", "custom_function.jl"), String)
+Markdown.parse("```julia\n" * source * "\n```")
 ```
 
-On a `SymmetricSparseIterate`, the index ``i`` of entry ``(r, c)`` is
-``(c - 1)p + r``. A function whose parameters depend on the entry must give
-``(r, c)`` and ``(c, r)`` the same parameters, so that its value and its
-proximal operator are those of a symmetric matrix. Active-set solvers can also
-use [`kkt_violation`](@ref) and [`restrict`](@ref), which you define for your
-type when it has the structure they need.
+This example deliberately leaves `issmooth=false`; being a mathematical
+quadratic does not synthesize a gradient method. Its simple scalar arithmetic
+does not promise the built-in ridge kernel's extreme-range recovery.
+To make it smooth, implement/check a full fused gradient and define the trait;
+to support KKT/restrict/`lipschitz`, define and validate those independently.
 
-## Testing a new function
+## Compact-vector block extensions
 
-[`ProximalBase.Testing`](@ref) has the checks that the package's own test
-suite runs on every built-in function. They are defined once the Test
-standard library is loaded, and they run `@test` inside your `@testset`:
+A block function may act on a compact vector ``u`` representing one group.
+For the [BlockSquare example](examples/block_prox_extension.md), group ``k``
+has the mathematical form
 
-- [`test_prox`](@ref ProximalBase.Testing.test_prox): `prox`, `prox!` (also in
-  place) and `value_and_prox!` agree, and the result is optimal (the
-  subgradient inequality for a convex function, and no nearby point with a
-  smaller proximal objective);
-- [`test_gradient`](@ref ProximalBase.Testing.test_gradient): the gradient
-  against central finite differences;
-- [`test_separable`](@ref ProximalBase.Testing.test_separable): `prox_entry`
-  against `prox!`, `value_entry` against the value, coordinate steps on the
-  three iterates, and the O(nnz) paths when the function preserves zero;
-- [`test_conjugate`](@ref ProximalBase.Testing.test_conjugate) and
-  [`test_kkt`](@ref ProximalBase.Testing.test_kkt): Moreau's decomposition and
-  the Fenchel–Young equality, and `kkt_violation` against the proximal operator;
-- [`allocations`](@ref ProximalBase.Testing.allocations): the bytes a hot call
-  allocates, measured inside a function after a warm-up call. The built-in
-  allocation tests check these calls on Float32 and Float64 CPU arrays after
-  warm-up. Check the methods and inputs you use on Julia 1.10 and on the
-  current release, whose counts can differ.
-
-```@example extending
-using Test
-const PT = ProximalBase.Testing
-@testset "WeightedSquare" begin
-    PT.test_traits(f; proximable = true, separable = true, convex = true)
-    PT.test_prox(f, randn(3), 0.5)
-    PT.test_separable(f, randn(3), 0.5)
-    @test PT.allocations(prox!, similar(x), f, x, 0.5) == 0
-end
-nothing # hide
+```math
+h_k(u)=\frac{a_k}{2}\|u\|_2^2,\qquad
+\operatorname{prox}_{\gamma h_k}(u)=\frac{u}{1+\gamma a_k}.
 ```
 
-[`brute_force_prox`](@ref ProximalBase.Testing.brute_force_prox) is a
-reference for a scalar proximal operator, convex or not.
+Its Julia implementation stores a parameter `a[k]` for each group and
+implements `prox_block!(out, f, u, k, γ)` by writing
+`u ./ (1 + γ * f.a[k])` to `out`.
 
-## Running the package suite
+More generally, a custom block method computes ``\operatorname{prox}_{\gamma h_k}(u)``
+from a numerical trial `u` and group index `k`. Buffers are in that group's **ordered compact index space**,
+not the full vector. Validate one-based real vectors, group bounds, exact
+length, parameters and overlap before writes. Support `out===u`; reject other
+overlap. Return out. The allocating default creates a plain floating Vector
+and calls your hook; it does not check your parameters or lift the hook into
+full-array prox.
 
-From the package checkout, run `julia scripts/test.jl` after adding or changing
-an implementation. This calls `Pkg.test()` with array bounds checking enabled
-and installs the dependencies needed for the package tests. No clones of
-other packages are required.
+Output must be independent of iterate storage and solver/model caches. The
+caller matches the partition, computes the trial, invokes the hook in scratch,
+then writes `copyto!(blockview(x,k),out)` and updates its residual. A zero result
+can leave an absent block inactive because the trial was never written there.
+Parameter symmetry and independent-coordinate geometry are not automatically
+defined for an arbitrary block decomposition on a symmetric iterate.
+
+The complete BlockSquare example checks allocating, exact in-place and
+rejected-overlap calls. Implementing only this block method does not by
+itself define a full-array proximal operator or its associated traits.
+
+```@eval
+using Markdown, ProximalBase
+source = read(joinpath(pkgdir(ProximalBase), "examples", "block_prox_extension.jl"), String)
+Markdown.parse("```julia\n" * source * "\n```")
+```
+
+## Validation checklist
+
+Verify independent formulas, source/destination order, identical-output return,
+FP32/FP64 behavior you intend to support, stored zeros, wrong extent and bad
+parameters, exact in-place prox, rejected overlap and parameter metadata.
+Use arbitrary ordered/noncontiguous groups to catch accidental global indexing
+of compact buffers. For symmetric support, test multiplicity, exact pair
+checks and unchanged values/activity after preflight errors. The
+[developer workflow](developer/change_process.md) describes where regression
+tests and executable examples belong.

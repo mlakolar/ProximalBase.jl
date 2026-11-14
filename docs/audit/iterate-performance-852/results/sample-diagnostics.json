@@ -1,0 +1,362 @@
+[
+  {
+    "campaign": "broad7",
+    "trials": 33026,
+    "sample_counts": {
+      "2": 107,
+      "3": 546,
+      "4": 445,
+      "5": 1050,
+      "6": 796,
+      "7": 1359,
+      "8": 2,
+      "14": 1,
+      "15": 9,
+      "16": 43,
+      "17": 16,
+      "18": 27,
+      "19": 21,
+      "20": 11,
+      "21": 12,
+      "22": 2,
+      "24": 17,
+      "25": 46,
+      "26": 3,
+      "27": 30,
+      "28": 46,
+      "29": 9,
+      "30": 6,
+      "31": 10,
+      "32": 6,
+      "33": 10,
+      "34": 6,
+      "35": 9,
+      "36": 15,
+      "39": 2,
+      "40": 2,
+      "43": 8,
+      "44": 7,
+      "45": 1,
+      "46": 5,
+      "47": 17,
+      "48": 15,
+      "49": 16,
+      "50": 39,
+      "51": 25,
+      "52": 10,
+      "53": 14,
+      "54": 9,
+      "55": 20,
+      "56": 23,
+      "57": 17,
+      "58": 29,
+      "59": 47,
+      "60": 60,
+      "61": 55,
+      "62": 30,
+      "63": 3,
+      "64": 2,
+      "66": 2,
+      "67": 2,
+      "68": 3,
+      "69": 1,
+      "70": 18,
+      "71": 15,
+      "72": 15,
+      "74": 2,
+      "75": 1,
+      "76": 2,
+      "77": 1,
+      "78": 3,
+      "79": 2,
+      "80": 27843
+    },
+    "total_samples": 2289296,
+    "samples_with_gc": 37,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "native-confirmation21",
+    "trials": 11970,
+    "sample_counts": {
+      "3": 263,
+      "4": 190,
+      "5": 200,
+      "6": 121,
+      "7": 338,
+      "8": 1,
+      "20": 2,
+      "21": 15,
+      "22": 4,
+      "24": 1,
+      "25": 15,
+      "26": 29,
+      "27": 5,
+      "28": 23,
+      "29": 17,
+      "30": 3,
+      "31": 4,
+      "32": 15,
+      "33": 9,
+      "34": 10,
+      "35": 14,
+      "36": 10,
+      "37": 10,
+      "38": 9,
+      "39": 7,
+      "40": 13,
+      "41": 1,
+      "42": 4,
+      "43": 19,
+      "44": 1,
+      "45": 3,
+      "46": 19,
+      "47": 54,
+      "48": 12,
+      "49": 7,
+      "50": 2,
+      "51": 9,
+      "52": 24,
+      "53": 21,
+      "54": 32,
+      "55": 21,
+      "56": 10,
+      "57": 5,
+      "58": 6,
+      "59": 7,
+      "60": 5,
+      "61": 9,
+      "62": 7,
+      "63": 6,
+      "64": 6,
+      "65": 3,
+      "66": 5,
+      "67": 3,
+      "69": 4,
+      "70": 36,
+      "71": 41,
+      "72": 36,
+      "77": 1,
+      "79": 2,
+      "80": 10221
+    },
+    "total_samples": 854133,
+    "samples_with_gc": 193,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "supplement-native7",
+    "trials": 7462,
+    "sample_counts": {
+      "3": 42,
+      "4": 45,
+      "5": 133,
+      "6": 99,
+      "7": 122,
+      "9": 3,
+      "10": 56,
+      "11": 56,
+      "12": 39,
+      "13": 49,
+      "14": 14,
+      "18": 8,
+      "19": 13,
+      "20": 2,
+      "21": 16,
+      "22": 19,
+      "23": 12,
+      "25": 14,
+      "26": 11,
+      "27": 18,
+      "28": 24,
+      "29": 10,
+      "30": 3,
+      "31": 22,
+      "32": 17,
+      "33": 7,
+      "34": 5,
+      "35": 2,
+      "36": 9,
+      "37": 7,
+      "38": 7,
+      "39": 10,
+      "40": 32,
+      "41": 36,
+      "42": 7,
+      "43": 3,
+      "44": 2,
+      "46": 1,
+      "48": 1,
+      "49": 1,
+      "50": 1,
+      "51": 1,
+      "52": 2,
+      "53": 18,
+      "54": 39,
+      "55": 5,
+      "56": 16,
+      "57": 53,
+      "58": 13,
+      "59": 9,
+      "61": 1,
+      "62": 8,
+      "63": 5,
+      "64": 2,
+      "66": 1,
+      "68": 2,
+      "69": 2,
+      "70": 1,
+      "73": 1,
+      "74": 1,
+      "75": 6,
+      "76": 14,
+      "77": 4,
+      "78": 13,
+      "79": 24,
+      "80": 6243
+    },
+    "total_samples": 529375,
+    "samples_with_gc": 0,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "common-full7",
+    "trials": 11620,
+    "sample_counts": {
+      "80": 11620
+    },
+    "total_samples": 929600,
+    "samples_with_gc": 0,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "supplement-common-full28",
+    "trials": 13160,
+    "sample_counts": {
+      "80": 13160
+    },
+    "total_samples": 1052800,
+    "samples_with_gc": 0,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "common-active7",
+    "trials": 11620,
+    "sample_counts": {
+      "80": 11620
+    },
+    "total_samples": 929600,
+    "samples_with_gc": 0,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "raw-block7",
+    "trials": 13104,
+    "sample_counts": {
+      "80": 13104
+    },
+    "total_samples": 1048320,
+    "samples_with_gc": 0,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "raw-block-confirmation21",
+    "trials": 18816,
+    "sample_counts": {
+      "80": 18816
+    },
+    "total_samples": 1505280,
+    "samples_with_gc": 0,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "backing-blas7",
+    "trials": 2352,
+    "sample_counts": {
+      "80": 2352
+    },
+    "total_samples": 188160,
+    "samples_with_gc": 0,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "backing-blas-confirmation21",
+    "trials": 924,
+    "sample_counts": {
+      "80": 924
+    },
+    "total_samples": 73920,
+    "samples_with_gc": 0,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "common-full-confirmation21",
+    "trials": 4410,
+    "sample_counts": {
+      "80": 4410
+    },
+    "total_samples": 352800,
+    "samples_with_gc": 0,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "common-active-confirmation21",
+    "trials": 4515,
+    "sample_counts": {
+      "80": 4515
+    },
+    "total_samples": 361200,
+    "samples_with_gc": 0,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "static-adapter7",
+    "trials": 16002,
+    "sample_counts": {
+      "80": 16002
+    },
+    "total_samples": 1280160,
+    "samples_with_gc": 199,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "static-adapter-confirmation21",
+    "trials": 1302,
+    "sample_counts": {
+      "80": 1302
+    },
+    "total_samples": 104160,
+    "samples_with_gc": 0,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "allocation-isolation-00",
+    "trials": 84,
+    "sample_counts": {
+      "80": 84
+    },
+    "total_samples": 6720,
+    "samples_with_gc": 0,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "allocation-isolation-01",
+    "trials": 84,
+    "sample_counts": {
+      "80": 84
+    },
+    "total_samples": 6720,
+    "samples_with_gc": 3589,
+    "zero_time_samples": 0
+  },
+  {
+    "campaign": "allocation-isolation-02",
+    "trials": 84,
+    "sample_counts": {
+      "80": 84
+    },
+    "total_samples": 6720,
+    "samples_with_gc": 3659,
+    "zero_time_samples": 0
+  }
+]

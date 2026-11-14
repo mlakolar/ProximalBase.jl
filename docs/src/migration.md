@@ -1,54 +1,73 @@
 # Compatibility and migration
 
-The 0.5 interface uses callable function objects, output-first mutating
-operations, and lowercase coordinate operations. The 0.4 compatibility names
-remain available with deprecation warnings throughout 0.5 and are scheduled
-for removal in 0.6. Run existing code with `--depwarn=yes` to find uses.
+For terms used in the current manual, see the [Glossary](glossary.md).
 
-## Operations and types
+This manual describes the minimal core after merged PR #850, based on
+`2b373c54`. The full post-#848 implementation and its documentation are
+preserved at [`eff21b6d7d33c622313122f46c6ee71693c101ee`](https://github.com/mlakolar/ProximalBase.jl/tree/eff21b6d7d33c622313122f46c6ee71693c101ee)
+and `legacy/full`. Those archives are historical references, not a second live
+API. This development reduction is not a release announcement.
 
-| Compatibility call or name | Current interface |
-|:---|:---|
-| `value(f, x)` | `f(x)` |
-| `prox!(f, y, x, γ)` | `prox!(y, f, x, γ)` |
-| `gradient!(f, g, x)` | `gradient!(g, f, x)` |
-| `value_and_gradient!(f, g, x)` | `value_and_gradient!(g, f, x)` |
-| `cdprox!(f, x, k, γ)` | `prox_coordinate!(x, f, k, γ)` |
-| `DifferentiableFunction`, `ProximableFunction` | `AbstractFunction`, with explicit capability traits |
-| `ProxZero`, `ProxL1`, `ProxL2`, `ProxGroupL2` | `ZeroFunction`, `NormL1`, `NormL2`, `GroupNormL2` |
-| `ProxNuclear`, `ProxL1Fused`, `ProxGaussLikelihood` | `NuclearNorm`, `NormL1Fused`, `LogDetLoss` |
-| `ProxL2Sq(λ)` | `SqrNormL2(2λ)`; the new coefficient multiplies half the squared norm |
-| `L2Loss(y)`, `L2Loss()` | `SqrNormL2(1, y)`, `SqrNormL2()` |
-| `f.λ` for `NormL1` or `GroupNormL2` | `f.w` for weights; `f.λ0` is the overall level |
-| `numCoordinates`, `numActive`, `isActive` | `ncoordinates`, `nactive`, `isactive` |
-| `activeCoordinate(x, i)` | `activecoordinates(x)[i]` |
-| `ind2subLowerTriangular`, `sub2indLowerTriangular` | `tril_cartesian`, `tril_index` |
-| `proxL1Fused(x, y, λ1, λ2, γ)` | `prox(NormL1Fused(λ1, λ2), (x, y), γ)` |
-| `shrinkL2!(out, x, c)` | `prox!(out, NormL2(c), x)` |
+## Retained and removed scope
 
-The legacy abstract-type bindings alias `AbstractFunction`; they do not
-identify smooth or proximable subsets. Query [`issmooth`](@ref) and
-[`isproximable`](@ref) instead.
+The [function library](function_library.md) is exhaustive. Group/nonconvex
+penalties, logistic/Poisson/robust-loss families, constraints and indicators,
+spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
+frameworks and GPU extensions were removed. They have no replacement capability
+implied by this manual. In particular, `BlockIterate` retains grouped **storage**,
+not a built-in group-lasso penalty.
 
-## Matrix products
+Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
+retained. Compute mathematical gradient mappings in caller code. Coordinate
+curvatures and residual/working-set policies are algorithm responsibilities.
+ProximalSolvers migration is separate; this documentation does not change it.
 
-Use `dot(view(A, row, :), b)` in place of `A_mul_B_row`, and
-`dot(view(A, :, row), b)` in place of `At_mul_B_row`. Replace group-product
-helpers with `mul!` on `view(A, :, G)` or its transpose.
+## Names, coordinates and writes
 
-For `A_mul_X_mul_B`, use `A * X * B`, with `X` represented as a
-`SparseIterate` matrix rather than a vector of its entries. A single entry is
-`dot(view(A, :, r), X, view(B, :, c))` for symmetric real `A` and `B`.
-For `A_mul_UUt_mul_B`, use `(A * U) * transpose(B * U)`; its entry helper
-becomes `dot(U' * view(A, :, r), U' * view(B, :, c))` in the same real setting.
+| Historical code | Retained interface |
+|:--|:--|
+| `AtomIterate`, `atom`, `atomindices` | `BlockIterate`, `blockview`, `blockindices`; no compatibility aliases |
+| Scalar `prox_entry` | `prox_block(f,v,i,γ)` |
+| `prox_coordinate!`, `prox_entry!`, `cdprox!` storage updates | Compute a pure result, then write through public storage; no retained aliases |
+| Function-first mutating calls | Destination-first `prox!(out,f,x,γ)` and `gradient!(out,f,x)` |
+| Iterate `nnz`, `nonzeros`, `findnz` assumptions | `nactive`, `activecoordinates`, `activevalues` (latter absent on `BlockIterate`) |
+| Treat symmetric iterate as `AbstractMatrix` | `coordinates(x)` for variables, read-only `matrixview(x)` for matrix operations |
+| Symmetric-iterate `x[k]` | `coordinates(x)[k]` or `matrixview(x)[k]`, depending on index space |
+| Symmetric-iterate broadcast/fill | Write coordinates, or compute a dense symmetric matrix then `copyto!` |
+| Symmetric array steps | Symmetric-iterate outputs accept scalar steps only; use dense output for entry-step calculations where supported |
+| User separable parameter arrays without metadata | Declare `ProximalBase.entry_parameters`; call `ProximalBase.check_symmetric_parameters` once per model, because the oracles assume symmetric parameters and do not compare them |
 
-## Group compatibility alias
+The working set survives value writes. `fill!(x,0)` followed by `dropzeros!(x)`
+clears array iterates; use `fill!(coordinates(x),0)` for a symmetric iterate.
+Same-kind matching state copies replace active state; ordinary broadcasts copy
+values and keep previous activity. Read the [storage guide](iterates.md) before
+assuming conventional dense-array behavior.
 
-Existing code may use `ProximalBase.AbstractGroupNorm` to recognize grouped
-penalties. This compatibility alias includes `GroupMCP` and `GroupSCAD`, so it
-does not imply convexity or positive homogeneity.
+## Changed numerical results
 
-`LogisticLoss`, `PoissonLoss`, and `HuberLoss` are specializations of
-[`GLMLoss`](@ref). `IndBallLinf` and [`Constrained`](@ref) are constructor
-functions that return suitable concrete functions. Avoid dispatch that
-assumes every exported constructor name is a concrete type.
+| Call | Before | Now |
+|:--|:--|:--|
+| `NormL1(Inf, w)` at step `γ = 0` ([#665](https://github.com/mlakolar/ProximalBase.jl/issues/665)) | Input returned unchanged (`shrink(x, 0⋅Inf)` read as a zero threshold) | Projection onto the closure of the domain: `+0` where `w[i] > 0`, including `NaN`/`±Inf` inputs; unchanged where `w[i] = 0`. Unweighted `NormL1(Inf)` gives all `+0` |
+| `LinearFunction(c, d)(x)` at a matrix `SparseIterate` `x`, with `NaN` or `±Inf` in `c` at a position that `x` does not store or stores as `+0` or `-0` | `NaN`: the value was `dot(c, x) + d`, which formed the product of the coefficient and the zero at each position it visited (all `mn` positions for a dense `c`, the `p` diagonal positions for a `Diagonal`) | The value of the stored nonzero entries plus `d`, with `c` not read at a zero, in `O(nactive(x))` (`O(p)` for a `Diagonal` `c`, which scans the `p` diagonal positions). A nonzero entry of `x` keeps ordinary arithmetic, a `NaN` coefficient there gives `NaN`. The overflow recovery requires the coefficients at the nonzero entries to be finite, not all of `c`. `f(Matrix(x))` and `dot(c, x)` are unchanged and give `NaN` there |
+
+Positive steps, finite levels at `γ = 0`, infinite coordinate weights at a
+finite level (#853) and finite-factor overflow (#866) are unchanged. See
+[NaN, infinities and zeros](numerics.md#NaN,-infinities-and-zeros).
+
+## Changed argument checks
+
+| Call | Before | Now |
+|:--|:--|:--|
+| `LinearFunction(c, d)` with `c` and `x` of the same length but different shapes, such as a vector `c` and a matrix `x`, or a `2 × 3` `c` and a `3 × 2` `x` | Accepted or refused depending on which `dot` method the array types reached: dense pairs were accepted (the prox paired entries in linear order), sparse pairs were refused by the value but accepted by `gradient!` and `prox!` | `DimensionMismatch` from every oracle, before any output is written. `c` must satisfy `size(c) == size(x)`; on a `SymmetricSparseIterate` it must be `p × p`, including for `kkt_violation` |
+
+Pairs of the same size are unchanged, with the same values. To keep a model
+written with a flattened coefficient vector, reshape it once to the shape of the
+argument, as in `LinearFunction(reshape(c, size(x)), d)`.
+
+## Historical contracts
+
+Current [developer contracts](developer/index.md) are reconciled against retained
+methods and tests. Historical acceptance records remain available at the
+immutable archive, including pending requirements and measured experiments.
+They are not automatically current guarantees. Numerical endpoints, aliasing
+and decomposition caches must follow the [retained numerical contract](numerics.md).

@@ -1,66 +1,106 @@
 # ProximalBase.jl
 
-ProximalBase provides building blocks for writing optimization algorithms in
-Julia. We focus on problems in high-dimensional statistics, where a smooth
-loss is combined with a penalty or a constraint:
+*Assumes: gradients, convexity, and basic Julia syntax · You will learn: the function operations provided by ProximalBase and where to begin.*
+
+**Mathematical function objects and working-set storage for optimization in Julia.**
+
+Many statistical estimation problems take the form
 
 ```math
-\min_x\; F(x) = f(x) + g(x).
+\min_{x\in\mathbb R^p}F(x)=f(x)+g(x),
 ```
 
-Here ``f`` may be a least-squares loss or a generalized linear model, while
-``g`` may impose sparsity, a group structure or a matrix constraint.
-The package provides the mathematical operations used by an optimization
-procedure, and sparse iterates for updating entries or groups of entries.
+where ``f`` is a smooth data-fitting loss and ``g`` may be a regularizer.
+For example, least squares measures prediction error and an ℓ₁ regularizer
+can encourage exactly zero coefficients.
 
-## What the package provides
+In projected gradient descent, we take a gradient step and project onto a
+convex constraint set. A [proximal operator](glossary.md#Proximal-operator)
+generalizes the projection: when ``g`` is the mathematical indicator of a
+nonempty closed convex set ``C`` (zero inside ``C``, infinite outside),
+its proximal operator is projection onto ``C``. For other functions, such as
+an ℓ₁ regularizer, the proximal operator can shrink values rather than just
+project onto a set. ProximalBase supplies the following operations:
 
-Coordinate-descent procedures use scalar or group updates, curvature bounds
-and checks of the optimality conditions. Proximal methods use gradients and
-proximal operators on the full variable. Both use the same function objects.
-In particular, a penalty such as [`NormL1`](@ref) provides soft thresholding
-for either a single coordinate or the whole array.
+```math
+\nabla f(x),\qquad
+\operatorname{prox}_{\gamma g}(v)
+=\operatorname*{argmin}_z
+\left\{g(z)+\frac{\|z-v\|^2}{2\gamma}\right\},\quad\gamma>0.
+```
 
-| Part | Main operations | Use |
-|:-----|:----------------|:----|
-| Losses, penalties and constraints | `f(x)`, `gradient!`, `prox!` | Evaluate an objective and construct its updates |
-| Coordinate operations | `prox_entry`, `prox_coordinate!`, `coordinate_lipschitz`, `kkt_violation`, `restrict` | Update entries or groups and manage a working set |
-| Sparse iterates | `SparseIterate`, `SymmetricSparseIterate`, `AtomIterate` | Store and update active entries or groups |
+Here ``\gamma`` is a positive step size. For
+``g(x)=0.5\|x\|_1``, its proximal map at step ``\gamma=1``
+is [soft thresholding](glossary.md#Soft-thresholding): reduce each
+coordinate's magnitude by ``0.5``, clipping it at zero.
+Thus ``(2,-1)`` becomes ``(1.5,-0.5)``.
 
-We leave the optimization loop, stopping rule and choice of working set to the
-calling procedure. For complete solvers built on these operations, see
-[ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl).
+```@example homepage_intro
+using ProximalBase
+f = SqrNormL2(1.0)       # f(x) = ||x||²/2
+g = NormL1(0.5)          # g(x) = 0.5*||x||₁
+x = [2.0, -1.0]
+@assert f(x) == 2.5
+@assert gradient(f, x) == x
+@assert prox(g, x, 1.0) == [1.5, -0.5]
+(value = f(x), gradient = gradient(f, x), proximal_point = prox(g, x, 1.0))
+```
 
-## Where to start
+ProximalBase supplies the function operations and storage of
+[iterates](glossary.md#Iterate). A solver chooses steps, update order,
+stopping criteria, and the [working set](glossary.md#Working-set) of
+coordinates to visit. [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl)
+implements algorithms that combine such operations; ProximalBase itself
+does not provide a `solve()` function.
 
-The [Getting started](@ref) guide solves one lasso problem by coordinate
-descent and proximal gradient. It introduces the interface through executable
-examples, explains the loss normalization and checks the optimality conditions.
-ProximalBase requires Julia 1.10 or later, and the guide includes installation
-instructions.
+## Four pieces that fit together
 
-Next, choose the material that matches your procedure:
+| Part | Responsibility | Start here |
+|:--|:--|:--|
+| Function objects | Functions such as losses, regularizers and their nonnegative multiples | [Function objects and their properties](function_objects.md) |
+| Mathematical operations | Function values, gradients, proximal maps and checks on whether a zero coordinate should be updated | [Operations on functions](operations.md) |
+| Iterates | Dense or specialized storage for coordinates, symmetric variables and blocks | [Overview and working sets](iterates.md) |
+| Optimization algorithms | Combine the operations, maintain residuals and select coordinates | [Building optimization algorithms](optimization_algorithms.md) |
 
-| Goal | Read |
-|:-----|:-----|
-| Understand the type hierarchy, traits and who calls whom | [Package structure](@ref architecture) |
-| Derive entry or block updates, or construct an active-set procedure | [Coordinate descent](@ref) |
-| Understand coordinate indexing and sparse storage | [Sparse iterates](@ref) |
-| Derive a proximal step or choose a stopping rule | [The interface](@ref) |
-| Choose a loss, penalty or constraint | [Smooth functions](@ref), [Penalties](@ref), [Sets](@ref) |
-| Combine functions or add one of your own | [Functions built from functions](@ref), [Writing your own function](@ref) |
-| Look up a signature | [Interface reference](@ref), [Function reference](@ref), [Iterate and utility reference](@ref) |
+For convex ``f`` and ``g``, optimality can be expressed using a
+[subdifferential](glossary.md#Subgradient-and-subdifferential).
+A vector ``s`` is a subgradient of convex ``g`` at ``x`` when
+``g(z)\geq g(x)+\langle s,z-x\rangle`` for all ``z``.
+The set of such vectors is denoted ``\partial g(x)``, and the
+first-order condition becomes
 
-The examples section contains complete programs for regression, graphical
-models, matrix estimation and constrained optimization. Each program checks
-its result when the documentation is built.
+```math
+0\in\nabla f(x)+\partial g(x).
+```
 
-## Related packages
+For instance, ``\partial |t|=[-1,1]`` at ``t=0``, which is why
+a zero coefficient can satisfy the lasso optimality condition even
+when the corresponding gradient entry is not zero.
+The [coordinate descent guide](coordinate_descent.md) explains how this
+leads to deciding which zero coordinates require further updates.
 
-For statistical estimation and inference, see
-[HighDimensionalModels.jl](https://github.com/mlakolar/HighDimensionalModels.jl) for
-penalized regression,
-[CovarianceSelection.jl](https://github.com/mlakolar/CovarianceSelection.jl)
-for Gaussian graphical models, and
-[DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl) for inference on
-differences of precision matrices.
+## [Learning paths](@id Where-to-start)
+
+**Use operations in your own code.** Read
+[Getting started](getting_started.md) →
+[Function objects and their properties](function_objects.md) →
+[Operations on functions](operations.md) →
+[Function library](function_library.md). Stop there if you only
+need the mathematical building blocks.
+
+**Write an optimization algorithm.** Read
+[Getting started](getting_started.md) →
+[Proximal gradient methods](proximal_gradient.md) →
+[Coordinate descent](coordinate_descent.md) →
+[Iterates and working sets](iterates.md). Stop there if you are
+implementing a solver using existing functions.
+
+**Add a mathematical function.** Read
+[Function objects and their properties](function_objects.md) →
+[Writing your own function](extending.md) →
+[Developer Documentation](developer/index.md). Stop after the extension
+guide unless you need to change ProximalBase internals.
+
+The [Glossary](glossary.md) defines unfamiliar terminology.
+The [API reference](api/interface.md) lists signatures and qualified names.
+For changes from earlier releases, see [Compatibility and migration](migration.md).

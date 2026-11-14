@@ -1,107 +1,95 @@
-# Benchmarks
+# Minimal-core benchmark and independent references
 
-This suite tracks the runtime and Julia heap allocations of ProximalBase
-operations. Keep reusable cases and measurement tools here. Save generated
-results with the pull request or release that uses them.
+The 102-case harness compares the retained storage/function hot paths to the
+full post-#848 source at eff21b6d7d33c622313122f46c6ee71693c101ee. It includes
+an independently compiled same-source A/A control, alternating roles/order,
+Float32/64, state restoration outside timing, warmup, raw medians/minima and
+allocation counts. Historical def81ec9 is a separate diagnostic reference;
+this reduction makes no new primary performance claim against that revision.
 
-## Setup and selections
-
-From the package root, with Julia 1.10 or later and Python 3.11 or later:
+From the package root:
 
 ```sh
+mkdir -p /tmp/pb849-baseline
+git archive eff21b6d7d33c622313122f46c6ee71693c101ee src | tar -x -C /tmp/pb849-baseline
 julia scripts/instantiate.jl benchmark
-JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/run.jl
-python3 benchmark/summarize.py benchmark/results benchmark/results/summary
+PB_BASELINE=/tmp/pb849-baseline PB_CANDIDATE="$PWD" PB_CHECK_ONLY=1 julia --project=benchmark benchmark/run.jl
+PB_BASELINE=/tmp/pb849-baseline PB_CANDIDATE="$PWD" PB_OUTPUT=/tmp/pb849-results julia --threads=1 --check-bounds=no --project=benchmark benchmark/run.jl
+python3 benchmark/summarize.py /tmp/pb849-results
 ```
 
-The default is one quick run on small Float64 inputs. It is an exploratory
-check, with no between-run uncertainty estimate. Use a fresh output directory
-for each measurement series; existing repetitions are never overwritten.
+Set PB_ROUNDS=21 for follow-up measurements and PB_FILTER to a case-name regular
+expression for focused investigations. PB_CHECK_ONLY runs the cross-implementation
+probe checks without timing; CI executes it against the frozen tree. The separate
+differential.jl evaluates independent dense/BigFloat mathematical references;
+its current-package checks are also part of test/minimal_math.jl.
 
-| Setting | Use |
-|---|---|
-| `PB_SUITE=quick` | Small representative cases; the default. |
-| `PB_SUITE=extended` | Float32/Float64, larger inputs and broader cases. |
-| `PB_GROUPS=vectors,smooth` | Select groups before constructing their inputs. |
-| `PB_REPETITION=1` | Seeded process/input draw, numbered 1–10. |
-| `PB_OUTPUT=/absolute/path` | Output directory; defaults to `benchmark/results`. |
-| `PB_LIST=true` | List selected case IDs without measuring them. |
-| `PB_PROFILE_SECONDS=0.2` | Enable representative profiles; disabled by default. |
+Run timing without other Julia/CPU-heavy work. Judge reproducible slowdowns
+above five percent using the paired distribution, A/A controls, allocations,
+fresh-process repeats and reversed source roles. Evidence and the performance
+review for #849 are recorded under docs/audit/minimal-core-849.
 
-Groups are `vectors`, `smooth`, `matrices`, `constraints`, `tensors` and
-`products`. They cover dense/sparse/atom calls, values and derivatives,
-coordinate operations, ordered penalties, constraints and workspace states.
-The matrix group includes partial/full decompositions and fallback inputs.
-Construction plus first use is measured separately from workspace reuse.
+The archived measurement environment contains its original Project/Manifest as
+provenance, including an unused local ProximalBase path inherited from the
+verification environment. Drivers load both source trees explicitly through
+the PB_BASELINE/PB_CANDIDATE variables. For an exact dependency replay, update
+only that unused path to a restored checkout before instantiating the archived
+environment; preserve the pinned BenchmarkTools/PrecompileTools versions.
+The active benchmark/Project.toml is a clean environment without that path.
 
-For example, select matrix operations across the extended input sizes:
+## NormL1 hot-loop harness
+
+`norml1_infinite_weight.jl` times the `NormL1` proximal loops (weighted and
+unweighted, scalar and per-entry steps, dense, sparse and block storage, Float32 and
+Float64) between two source trees, with an independently compiled A/A control, and
+`summarize_norml1_infinite_weight.py` reports the per-round ratios. It was written for
+issue #853 and is meant for #866 and any numerical change that touches these loops.
+Run it with the roles reversed and in fresh processes, and judge slowdowns above five
+percent against the A/A column. The summarizer pools only runs with the same X and Y trees;
+summarize a reversed-role run on its own (its ratios are the inverse). The usage is in the header of the script;
+`PB_CHECK_ONLY=1` checks that the outputs agree without timing.
 
 ```sh
-PB_SUITE=extended PB_GROUPS=matrices PB_OUTPUT=benchmark/results/matrices \
-  JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/run.jl
+PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
+  julia --threads=1 --project=benchmark benchmark/norml1_infinite_weight.jl
 ```
 
-The optional [GPU solver suite](gpu_solver/README.md) measures CPU/CUDA time
-to independently checked accuracy on physical GPU hardware.
+## NormL1 value harness
 
-## Compare revisions
-
-Keep one copy of this harness fixed while measuring two package checkouts.
-Prepare fresh environments for the starting and proposed revisions with the
-same Julia executable, then run that same harness with each environment:
+`norml1_value_underflow.jl` times the `NormL1` value paths (the dense weighted SIMD loop, mixed zero
+weights, small ordinary values, the zero vector, unweighted values, views, sparse, block and symmetric
+iterates and `value_and_prox!`) and the recomputation of sums whose terms round below `floatmin`, for
+Float32 and Float64 at n = 100, 1024, 65536 and 100000. It was written for issue #373 and has the design
+of the hot-loop harness above (roles X, Y and the A/A control XC, alternating order, reversed-role and
+fresh-process repeats), and `summarize_norml1_infinite_weight.py` summarizes its output. The `underflow`
+probes are the recomputed sums, whose values the fix changes; the other outputs must agree.
 
 ```sh
-julia benchmark/setup.jl /absolute/path/to/before benchmark/results/env-before
-julia benchmark/setup.jl /absolute/path/to/after benchmark/results/env-after
-PB_EXPECTED_PACKAGE_ROOT=/absolute/path/to/before \
-  PB_OUTPUT=benchmark/results/before JULIA_NUM_THREADS=1 \
-  julia --project=benchmark/results/env-before benchmark/run.jl
-PB_EXPECTED_PACKAGE_ROOT=/absolute/path/to/after \
-  PB_OUTPUT=benchmark/results/after JULIA_NUM_THREADS=1 \
-  julia --project=benchmark/results/env-after benchmark/run.jl
-python3 benchmark/compare.py benchmark/results/before benchmark/results/after \
-  benchmark/results/comparison
+PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
+  julia --threads=1 --project=benchmark benchmark/norml1_value_underflow.jl
 ```
 
-The runner verifies `PB_EXPECTED_PACKAGE_ROOT` before building cases. Use the
-same suite, groups, CPU, Julia/BLAS versions and thread settings on both sides. The runner uses one BLAS thread. For stronger evidence, repeat in fresh
-processes with `PB_REPETITION=1,...,5` (or up to 10), alternating which revision
-runs first. Pass `--expected-runs 5` to the summarizer, validator and comparator.
-Repetitions belong in the same directory; different Julia versions need separate
-environments. Versions are discovered from metadata, or explicitly required by
-`validate.py` and `summarize.py` with `--versions`.
+## LinearFunction value harness
 
-The comparison produces `REPORT.md`, `comparison.csv` and `coverage.json`.
-It reports timing variation, paired speedup intervals, mean and maximum bytes,
-and unexpected warmed allocations. Single-run ratios are exploratory. Failed
-checks, missing repetitions, unmatched cases or incompatible settings prevent
-a comparison and retain diagnostics. An interval containing one is inconclusive.
-
-## Measurement and evidence
-
-Compilation, numerical checks and input/cache preparation are outside timing.
-Stateful calls use one evaluation per sample and reset their starting state.
-`PB_SAMPLES` and `PB_SECONDS` override the sample/time limits; keep them matched
-between revisions. Intervals describe variation across process/input draws,
-including machine noise; they do not correct for correlated noise or multiple
-comparisons. Julia heap bytes exclude native library allocations and peak memory.
-Profiles include preparation callbacks and are diagnostic, not latency estimates.
-
-Results retain all samples, checks, allocation observations, settings, package
-revision, dirty status and source/harness content hashes. Preserve manifests and
-any uncommitted source changes with evidence supporting a PR claim. Do not
-select the fastest draw or discard adverse runs. The default suite is not a
-substitute for the package tests or broad coverage of every parameter regime.
+`linear_sparse_value.jl` times the `LinearFunction` value at a matrix `SparseIterate` (#810), which sums the stored
+nonzero entries and reads the coefficients at them (a `Diagonal` coefficient array is summed over
+the nonzero stored diagonal entries, `O(p)`), for Float32 and Float64 at 16 × 16,
+128 × 128 and 1024 × 1024: nominal densities of 2 entries, 1%, 10%, 25% (shuffled), 50% and 100% (rounded to integer counts), a fully stored iterate with 50% and 90% of the
+entries stored as zeros, sequential and shuffled activation order, an overflowing dot with finite coefficients
+(the exceptional path), a `Diagonal` coefficient array, `value_and_gradient!` and `value_and_prox!` at a matrix
+iterate, and controls for code that the change does not touch (the dense matrix value, the vector and the symmetric
+iterate values, `gradient!` and `prox!` at a matrix iterate). It has the design of the harnesses above (roles X, Y
+and the A/A control XC, alternating order, shared arrays, reversed-role and fresh-process repeats), and
+`summarize_norml1_infinite_weight.py` summarizes its output. The roles can differ in the last bits of a value, because
+the new value sums in another order than the base, so the roles' outputs are compared with each other with
+tolerances (an empirical check for the random data of the cells, not an error bound); the exceptional cells are
+compared with a BigFloat reference computed from the inputs, and a difference across the roles there is printed. The number of repetitions of a sample (`evals`) is a heuristic
+from a nominal size of the cell (about its number of stored entries), and the duration of a sample is not calibrated. The iterates and their
+backing arrays are built per role while the coefficient and output arrays are shared, so read timings through the A/A
+spread, reversed-role and fresh-process repeats. With `PB_FILTER` the iterates of the other cells are not built (the
+shared arrays of each size are). The usage is in the header of the script.
 
 ```sh
-python3 benchmark/validate.py benchmark/results benchmark/results/validation.json
-python3 benchmark/check_analysis.py
+PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
+  julia --threads=1 --project=benchmark benchmark/linear_sparse_value.jl
 ```
-
-Generated results, environments and profiles are ignored by Git. Put the concise
-finding and relevant limitations in the PR, and use durable attachments when
-detailed records are needed. Historical experiments remain recoverable in the
-[pre-cleanup snapshot](https://github.com/mlakolar/ProximalBase.jl/tree/3ec6f5513d3d8c91beec010f156c533f09cbf739/benchmark).
-The repeated CPU baseline and its raw-data locations are documented with
-[PR #102](https://github.com/mlakolar/ProximalBase.jl/pull/102) and its
-[original report](https://github.com/mlakolar/ProximalBase.jl/blob/0111d1bb4ca51b40c28d8ea5dab0f63be4d76e6a/benchmark/campaign/baselines/discovery-2026-10-25/README.md).

@@ -1,0 +1,57 @@
+Public API audit for #844
+
+PB baseline: 8eaf8f812fd0720e180f35cfc75bc7b090e8ea97
+Removed exports and bindings: cdprox!, prox_coordinate!, prox_entry
+Added exports: prox_block, prox_block!
+All other exports unchanged.
+
+Scalar hooks are direct renames; group vector dispatch and the output-buffer method are new.
+Candidate methods (Julia 1.10.10; source paths normalized):
+SCALAR AND GROUP METHODS
+prox_block(f::IndBanded, v::T, i::Integer, ::Real) where T<:Real @ ProximalBase src/functions/matrixsets.jl:160
+prox_block(::ZeroFunction, v::Real, ::Integer, ::Real) @ ProximalBase src/functions/smooth.jl:57
+prox_block(::IndNonnegative, v::T, ::Integer, ::Real) where T<:Real @ ProximalBase src/functions/separable.jl:782
+prox_block(e::MoreauEnvelope, v::Real, i::Integer, t::Real) @ ProximalBase src/envelope.jl:176
+prox_block(f::NormL1, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/separable.jl:349
+prox_block(r::ProximalBase._OrdinaryRidge{<:SqrNormL2{<:Real, Nothing}}, v::Real, ::Integer, γ::Real) @ ProximalBase src/functions/smooth.jl:732
+prox_block(r::ProximalBase._OrdinaryRidge, v::Real, i::Integer, γ::Real) @ ProximalBase src/functions/smooth.jl:734
+prox_block(f::SqrHingeLoss, v::Real, i::Integer, γ::Real) @ ProximalBase src/functions/losses.jl:472
+prox_block(f::SqrDistL2, v::Real, i::Integer, γ::Real) @ ProximalBase src/distance.jl:196
+prox_block(f::NegEntropy, v::T, ::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/entropy.jl:114
+prox_block(c::ProximalBase.BoxConstrained{<:NormL0}, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/constrained_nonconvex.jl:65
+prox_block(c::ProximalBase.BoxConstrained{<:Union{MCP, SCAD}}, v::Real, i::Integer, γ::Real) @ ProximalBase src/constrained_nonconvex.jl:61
+prox_block(c::ProximalBase.BoxConstrained, v::Real, i::Integer, γ::Real) @ ProximalBase src/constrained.jl:180
+prox_block(r::Regularize, v::Real, i::Integer, γ::Real) @ ProximalBase src/composition.jl:694
+prox_block(f::ElasticNet, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/separable.jl:610
+prox_block(f::IndBox, v::T, i::Integer, ::Real) where T<:Real @ ProximalBase src/functions/separable.jl:736
+prox_block(f::IndBinary, v::Real, i::Integer, ::Real) @ ProximalBase src/functions/separable.jl:849
+prox_block(f::LogPenalty, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/nonconvex.jl:154
+prox_block(f::NegLog, v::T, ::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/entropy.jl:202
+prox_block(h::ProximalBase._ArrayPrecompose, v::Real, i::Integer, γ::Real) @ ProximalBase src/composition.jl:405
+prox_block(g::ProximalBase._Reindexed, v::Real, j::Integer, γ::Real) @ ProximalBase src/constrained.jl:947
+prox_block(c::Conjugate{<:Conjugate}, v::Real, i::Integer, γ::Real) @ ProximalBase src/calculus.jl:1521
+prox_block(c::Conjugate, v::Real, i::Integer, γ::Real) @ ProximalBase src/calculus.jl:1579
+prox_block(f::CappedL1, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/nonconvex.jl:66
+prox_block(f::CheckLoss, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/losses.jl:54
+prox_block(f::EpsInsensitiveLoss, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/losses.jl:608
+prox_block(f::Berhu, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/entropy.jl:501
+prox_block(f::AbstractFunction, u::AbstractVector, k::Integer, γ::Real) @ ProximalBase src/block_prox.jl:39
+prox_block(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/separable.jl:443
+prox_block(f::HingeLoss, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/losses.jl:183
+prox_block(h::Precompose{<:AbstractFunction, <:Real}, v::Real, i::Integer, γ::Real) @ ProximalBase src/composition.jl:224
+prox_block(f::SCAD, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/separable.jl:1150
+prox_block(f::IndPattern, v::T, i::Integer, ::Real) where T<:Real @ ProximalBase src/functions/matrixsets.jl:95
+prox_block(s::Scaled, v::Real, i::Integer, γ::Real) @ ProximalBase src/calculus.jl:753
+prox_block(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real) @ ProximalBase src/functions/smooth.jl:712
+prox_block(f::SqrNormL2, v::Real, i::Integer, γ::Real) @ ProximalBase src/functions/smooth.jl:717
+prox_block(f::NormL0, v::T, ::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/separable.jl:898
+prox_block(f::KLDivergence, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/entropy.jl:166
+prox_block(f::BernoulliLoss, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/entropy.jl:428
+prox_block(f::NormLq, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/nonconvex.jl:281
+prox_block(f::LinearFunction, v::Real, i::Integer, γ::Real) @ ProximalBase src/functions/smooth.jl:201
+prox_block(f::MCP, v::T, i::Integer, γ::Real) where T<:Real @ ProximalBase src/functions/separable.jl:1037
+prox_block(t::Tilt, v::Real, i::Integer, γ::Real) @ ProximalBase src/calculus.jl:1022
+prox_block(g::ProximalBase._AtEnd, v::Real, i::Integer, γ::Real) @ ProximalBase src/constrained.jl:1002
+prox_block(t::Translate, v::Real, i::Integer, γ::Real) @ ProximalBase src/calculus.jl:1208
+MUTATING GROUP METHODS
+prox_block!(out::AbstractVector, f::AbstractFunction, u::AbstractVector, k::Integer, γ::Real) @ ProximalBase src/block_prox.jl:43

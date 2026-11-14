@@ -1,0 +1,34 @@
+[
+  {
+    "label": "original",
+    "sha": "bd0740d0ebbebcc76fe208e4318fe6fc5451d34b",
+    "tree": "de80bb57c611a91a38f99708f4cbee276c17743d",
+    "author_date": "2020-08-13T14:44:24-05:00",
+    "commit_date": "2020-08-13T14:44:24-05:00",
+    "subject": "Adding test specific dependencies"
+  },
+  {
+    "label": "historical05",
+    "sha": "def81ec9d021c39ed1727cfeb9598357291dd60d",
+    "tree": "7fe5f8242054d5b13ea30b041f8795399656ac76",
+    "author_date": "2026-11-01T16:04:08+04:00",
+    "commit_date": "2026-11-01T07:04:08-05:00",
+    "subject": "Add matrixview and activevalues for the symmetric iterate (part of #391, Phase 0) (#392)"
+  },
+  {
+    "label": "post848",
+    "sha": "eff21b6d7d33c622313122f46c6ee71693c101ee",
+    "tree": "c76123a0109c0a0f683cb75085371696dffe1c8c",
+    "author_date": "2026-11-10T20:42:52-08:00",
+    "commit_date": "2026-11-10T20:42:52-08:00",
+    "subject": "0.6 breaking API: pure block prox, BlockIterate, and small-block math performance (#848)"
+  },
+  {
+    "label": "post850",
+    "sha": "2b373c546e247781d9514a7000ef3e010343ca4c",
+    "tree": "d1e8fea6e2bcdffe45419e6c759e3b3da4276398",
+    "author_date": "2026-11-10T22:57:16-08:00",
+    "commit_date": "2026-11-10T22:57:16-08:00",
+    "subject": "Merge PR #850: rebuild ProximalBase around the minimal core"
+  }
+]

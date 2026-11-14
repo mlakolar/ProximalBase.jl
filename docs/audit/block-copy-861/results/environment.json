@@ -1,0 +1,15 @@
+{
+  "python": "3.11.5 (main, Sep 11 2023, 13:54:46) [GCC 11.2.0]",
+  "python_executable": "/home/mkolar/miniconda3/bin/python3",
+  "platform": "Linux-7.2.15-76070215-generic-x86_64-with-glibc2.39",
+  "kernel": "Linux usc-desktop 7.2.15-76070215-generic #202611011338~1793722468~24.04~d8e9a1a SMP PREEMPT_DYNAMIC Tue N x86_64 x86_64 x86_64 GNU/Linux",
+  "cpu0_governor": "powersave",
+  "cpu0_siblings": "0-1",
+  "benchmark_project_sha256": "717285f3203141279ccdc610aca7afff6bb42ffc0ee7545204278e46ff57c028",
+  "benchmark_manifest_sha256": "b92aff238402ae1b9e87f8199ecb03460de4c683d3ae4b4a9545a1ad3c796046",
+  "measurement_processes": 320,
+  "timing_rows": 34688,
+  "broad_host_activity": "CPU0 reserved; #860 on CPU2; short codegen on CPU4",
+  "focal_and_copy_control_host_activity": "Quiet host; no other local CPU-heavy work",
+  "ci_source_validation": "https://github.com/mlakolar/ProximalBase.jl/actions/runs/43129678930"
+}

@@ -1,0 +1,632 @@
+From 75894887d7272df71c2c263feb4ea0b6d211fd48 Mon Sep 17 00:00:00 2001
+From: Mladen Kolar <mkolar@usc.edu>
+Date: Tue, 10 Nov 2026 10:02:07 -0800
+Subject: [PATCH 1/2] Migrate coordinate descent to pure PB block proximal
+ oracles
+
+Use prox_block for scalar CD and Newton calls, compute generic group results in model buffers before public iterate writes, and route specialized group lasso updates through the shared PB kernels. Preserve KKT skips, zero-curvature branches and cache updates. Pin PB 8fb174454a5b0c431376decf5a3c87830353a562 and cover extreme finite shrinkage.
+---
+ CONTRIBUTING.md                |  3 ++-
+ Manifest-v1.10.toml            |  4 ++--
+ Project.toml                   |  2 +-
+ docs/Project.toml              |  2 +-
+ docs/make.jl                   |  2 +-
+ docs/src/coordinate_descent.md |  8 ++++---
+ docs/src/extending.md          |  2 +-
+ src/cd/generic_newton.jl       |  4 ++--
+ src/cd/glm.jl                  |  4 ++--
+ src/cd/groups.jl               | 43 ++++++++++++++++++++++------------
+ src/cd/leastsquares.jl         | 13 ++++++----
+ src/cd/models.jl               | 27 +++++++--------------
+ src/cd/multiresponse.jl        | 11 +++++----
+ src/cd/quadratic.jl            |  7 +++---
+ test/flat_coordinates.jl       |  2 +-
+ test/group_penalties.jl        | 14 ++++++++++-
+ test/nonconvex_penalties.jl    |  2 +-
+ 17 files changed, 87 insertions(+), 63 deletions(-)
+
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index 83b4d3e..94baa6b 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -159,7 +159,8 @@ package cannot be released from `master`.
+ 
+ The package reads iterates only through the public interface of ProximalBase 0.6
+ (`atomindices`, `activecoordinates`, `activevalues`, `nactive`, `ProximalBase.samegroups`,
+-and the five-argument `prox_coordinate!(x, g, k, u, γ)` for a block step at a trial point).
++and `atom(x,k)` for group writes). Block math uses `prox_block(g,u,k,γ)` or
++`prox_block!(out,g,u,k,γ)` in compact buffers before the solver writes its iterate.
+ The fields of `SparseIterate` and `AtomIterate` are private and may change in any release;
+ `test/audit_regressions_basics.jl` scans `src/` for them. This is the preparation for
+ ProximalBase 0.6, not a promise of compatibility with ProximalBase 0.5. For optional dependency-source development checks, use:
+diff --git a/Manifest-v1.10.toml b/Manifest-v1.10.toml
+index 590a1d1..136de29 100644
+--- a/Manifest-v1.10.toml
++++ b/Manifest-v1.10.toml
+@@ -46,8 +46,8 @@ uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+ 
+ [[deps.ProximalBase]]
+ deps = ["LinearAlgebra", "PrecompileTools", "SparseArrays"]
+-git-tree-sha1 = "31b63f3c71939623076eac3080b390aafae6c9d9"
+-repo-rev = "e8a45a8a6ffe2a6f92d83c4c77d62a9b7631e291"
++git-tree-sha1 = "58fdb820ad84d9c30d317ccab58190dcd5ba0e04"
++repo-rev = "8fb174454a5b0c431376decf5a3c87830353a562"
+ repo-url = "https://github.com/mlakolar/ProximalBase.jl"
+ uuid = "0a755509-c5b1-5d6f-9b24-59bcda3c37a3"
+ version = "0.6.0-DEV"
+diff --git a/Project.toml b/Project.toml
+index c7e071b..489b2f9 100644
+--- a/Project.toml
++++ b/Project.toml
+@@ -12,7 +12,7 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+ 
+ [sources]
+-ProximalBase = {rev = "e8a45a8a6ffe2a6f92d83c4c77d62a9b7631e291", url = "https://github.com/mlakolar/ProximalBase.jl"}
++ProximalBase = {rev = "8fb174454a5b0c431376decf5a3c87830353a562", url = "https://github.com/mlakolar/ProximalBase.jl"}
+ 
+ [compat]
+ Aqua = "0.8"
+diff --git a/docs/Project.toml b/docs/Project.toml
+index 5fc9403..c4792ae 100644
+--- a/docs/Project.toml
++++ b/docs/Project.toml
+@@ -11,7 +11,7 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+ 
+ [sources]
+-ProximalBase = {rev = "e8a45a8a6ffe2a6f92d83c4c77d62a9b7631e291", url = "https://github.com/mlakolar/ProximalBase.jl"}
++ProximalBase = {rev = "8fb174454a5b0c431376decf5a3c87830353a562", url = "https://github.com/mlakolar/ProximalBase.jl"}
+ ProximalSolvers = {path = ".."}
+ 
+ [compat]
+diff --git a/docs/make.jl b/docs/make.jl
+index 52c708a..8aece67 100644
+--- a/docs/make.jl
++++ b/docs/make.jl
+@@ -4,7 +4,7 @@ using Documenter, DocumenterInterLinks, Literate, ProximalSolvers
+ # these pages, and the fallbacks for the `@ref`s of the docstrings.
+ const links = InterLinks("ProximalBase" => "https://mlakolar.github.io/ProximalBase.jl/dev/")
+ const fallbacks = ExternalFallbacks("KronQuadratic" => "@extref ProximalBase.KronQuadratic",
+-                                    "prox_entry" => "@extref ProximalBase.prox_entry")
++                                    "prox_block" => "@extref ProximalBase.prox_block")
+ 
+ # The examples become pages, run when the documentation is built. Each gets a
+ # title, and a section marker "# --- title ---" becomes a heading.
+diff --git a/docs/src/coordinate_descent.md b/docs/src/coordinate_descent.md
+index 06b54cc..0b1997a 100644
+--- a/docs/src/coordinate_descent.md
++++ b/docs/src/coordinate_descent.md
+@@ -27,7 +27,7 @@ x_k^+ = \operatorname*{argmin}_t \; G\,(t - x_k) + \frac{a_k}{2}(t - x_k)^2 + g_
+ ```
+ 
+ The scalar proximal operator is
+-[`prox_entry`](@extref ProximalBase.prox_entry)`(g, v, i, γ)` of ProximalBase,
++[`prox_block`](@extref ProximalBase.prox_block)`(g, v, i, γ)` of ProximalBase,
+ so every separable penalty of ProximalBase works without code in this package:
+ soft thresholding for the ℓ1 norm, ``\operatorname{shrink}(v, \gamma\lambda_1)/(1 + \gamma\lambda_2)``
+ for the elastic net, firm thresholding for MCP, a clamp for bounds. For a
+@@ -198,7 +198,8 @@ The iterate fixes what a coordinate is.
+   ``h_{rc}(t) = 2 g_{rc}(t)``. The reported minimum uses the supplied
+   objective. The low-level [`coordinate_step!`](@ref ProximalSolvers.coordinate_step!)
+   kernel does not check, and needs symmetric parameters. ProximalBase's
+-  `prox_coordinate!` checks the pair it updates.
++  `prox_block` uses a linear penalty entry index and has no owner; the solver
++  validates symmetric parameters before using it.
+   The loss arrays, such as the matrix `C` of a `KronQuadratic`, are not
+   checked by ProximalSolvers.
+ 
+@@ -241,7 +242,8 @@ checked first: ``L_k`` is never computed for a group that does not move.
+ 
+ Any other group penalty of ProximalBase on the groups of the `AtomIterate`,
+ such as `GroupNormLinf` or a sparse group lasso, takes the same majorized
+-step through its own proximal operator on the group, `prox_coordinate!`, and a
++step through `prox_block!(out,g,trial,k,γ)` on compact numerical buffers.
++The solver writes the result through `atom(x,k)` and updates its residual cache; a
+ separable penalty takes it entry by entry. When ``L_k = 0`` the loss does not
+ depend on the group, which goes to the minimizer of the penalty. These steps
+ work with the least-squares and quadratic models.
+diff --git a/docs/src/extending.md b/docs/src/extending.md
+index 3c434e5..9d5b962 100644
+--- a/docs/src/extending.md
++++ b/docs/src/extending.md
+@@ -27,7 +27,7 @@ From `coordinate_derivatives` and `update_cache!`, the default step takes
+ x_k^+ = \operatorname{prox}_{\mu g_i / a}\Big(x_k - \frac{G}{a}\Big)
+ ```
+ 
+-with [`prox_entry`](@extref ProximalBase.prox_entry), where ``i`` is the entry
++with [`prox_block`](@extref ProximalBase.prox_block), where ``i`` is the entry
+ of the coordinate and ``\mu`` the number of entries it sets (2 off the
+ diagonal of a `SymmetricSparseIterate`), and writes the change only when the
+ coordinate moves; see [The coordinate step](@ref). A coordinate with zero
+diff --git a/src/cd/generic_newton.jl b/src/cd/generic_newton.jl
+index 07a9b7f..c3f67bf 100644
+--- a/src/cd/generic_newton.jl
++++ b/src/cd/generic_newton.jl
+@@ -26,7 +26,7 @@ _newton_penalty(g, ::SymmetricSparseIterate) =
+ function _newton_residual(x::SparseIterate{T}, g, grad::AbstractArray{T}) where {T}
+   res = zero(T)
+   @inbounds for i in eachindex(x)
+-    v = prox_entry(g, x[i] - grad[i], i, one(T))
++    v = prox_block(g, x[i] - grad[i], i, one(T))
+     isfinite(v) || return T(Inf)
+     res = max(res, abs(v - x[i]))
+   end
+@@ -40,7 +40,7 @@ function _newton_residual(x::SymmetricSparseIterate{T}, g, grad::AbstractMatrix{
+     r, c = tril_cartesian(size(x, 1), k)
+     d = r == c ? grad[r, r] : grad[r, c] + grad[c, r]
+     μ = r == c ? one(T) : T(2)
+-    v = prox_entry(g, cx[k] - d, _entry(size(x, 1), r, c), μ)
++    v = prox_block(g, cx[k] - d, _entry(size(x, 1), r, c), μ)
+     isfinite(v) || return T(Inf)
+     res = max(res, abs(v - cx[k]))
+   end
+diff --git a/src/cd/glm.jl b/src/cd/glm.jl
+index 04f8d78..e14d850 100644
+--- a/src/cd/glm.jl
++++ b/src/cd/glm.jl
+@@ -641,7 +641,7 @@ function _newton_stationary!(ws::_NewtonWorkspace{T}, m::GLMModel{T}, g, x, cand
+   for j in (candidates === nothing ? eachindex(x) : candidates)
+     a = m.s * _weighted_sqnorm(m.X, v, j)
+     iszero(a) && continue                  # a column that no observation sees
+-    r = sqrt(a) * abs(prox_entry(g, x[j] - grad[j] / a, j, inv(a)) - x[j])
++    r = sqrt(a) * abs(prox_block(g, x[j] - grad[j] / a, j, inv(a)) - x[j])
+     isfinite(r) && r <= threshold || return false
+   end
+   if m.intercept && a0 > 0
+@@ -676,7 +676,7 @@ function _newton_raw_ok(m::GLMModel{T, <:ProximalBase.ConvolutionCheck}, g::Norm
+     _partial_gradient!(grad, m, x, candidates)
+   end
+   inds = candidates === nothing ? eachindex(x) : candidates
+-  stationarity = maximum((abs(x[j] - prox_entry(g, x[j] - grad[j], j, one(T))) for j in inds); init=zero(T))
++  stationarity = maximum((abs(x[j] - prox_block(g, x[j] - grad[j], j, one(T))) for j in inds); init=zero(T))
+   stationarity <= tol || return false
+   if m.intercept
+     c = m.s * sum(_obsweight(m.w, i, T) * T(ProximalBase.deriv(m.loss, m.η[i], m.y[i])) for i in eachindex(m.η))
+diff --git a/src/cd/groups.jl b/src/cd/groups.jl
+index 180b821..ab41d03 100644
+--- a/src/cd/groups.jl
++++ b/src/cd/groups.jl
+@@ -4,21 +4,29 @@
+ #
+ ####################################
+ 
+-# Group k of x ← the proximal operator of g with step 1/L at x[G] - ∇_G f(x) / L,
+-# where L is the curvature of f over G, so that the quadratic with curvature L
+-# majorizes f over the group (groupwise majorization descent, as for
+-# GroupNormL2, which has its own method with a closed form). The trial point
+-# x[G] - ∇_G f(x) / L is built in the model's buffer, and the penalty's own step
+-# on the group, the five-argument prox_coordinate!, takes its proximal operator at
+-# that point and stores the result in x: a group penalty of ProximalBase on the
+-# groups of x (GroupNormLinf, a sparse group lasso, ...) or a separable one, entry
+-# by entry. It is the only write to x, and it validates before it writes. With
+-# L = 0, f does not depend on the group, which goes to the minimizer of the
+-# penalty: zero, unless the penalty is zero there. Returns the largest change of
+-# an entry, scaled with `scaled`. The buffer holds the gradient, then the trial
+-# point, in 1:|G| and the previous entries in |G|+1:2|G|.
++# The solver constructs the trial block, calls the mathematical oracle, writes
++# the result through the public group view, and updates its own residual cache.
++# The second half of buf retains the old block for the cache difference.
++_check_group_step_layout(g::Scaled, x) = _check_group_step_layout(g.f, x)
++function _check_group_step_layout(g, x)
++  isseparable(g) && return ProximalBase._checkparams(g, x)
++  ProximalBase.samegroups(x, g) || throw(DimensionMismatch("f and x must have the same groups."))
++  nothing
++end
++
++function _prox_group_trial!(u, g, G, k, γ)
++  if isseparable(g)
++    for (i, j) in enumerate(G)
++      u[i] = prox_block(g, u[i], j, γ)
++    end
++  else
++    prox_block!(u, g, u, k, γ)
++  end
++  u
++end
+ 
+ function _groupstep!(m::LSModel{T}, g::AbstractFunction, x::AtomIterate{T}, k::Int, scaled::Bool) where {T}
++  _check_group_step_layout(g, x)
+   G = atomindices(x, k)
+   n = length(G)
+   buf = _groupbuffer!(m, 2n)
+@@ -36,7 +44,9 @@ function _groupstep!(m::LSModel{T}, g::AbstractFunction, x::AtomIterate{T}, k::I
+     buf[n + i] = old
+     buf[i] = iszero(L) ? old : old + m.s * buf[i] / L
+   end
+-  prox_coordinate!(x, g, k, view(buf, 1:n), iszero(L) ? floatmax(T) : inv(L))
++  trial = view(buf, 1:n)
++  _prox_group_trial!(trial, g, G, k, iszero(L) ? floatmax(T) : inv(L))
++  copyto!(atom(x, k), trial)
+ 
+   maxh = zero(T)
+   for (i, j) in enumerate(G)
+@@ -49,6 +59,7 @@ function _groupstep!(m::LSModel{T}, g::AbstractFunction, x::AtomIterate{T}, k::I
+ end
+ 
+ function _groupstep!(m::QuadModel{T}, g::AbstractFunction, x::AtomIterate{T}, k::Int, scaled::Bool) where {T}
++  _check_group_step_layout(g, x)
+   A, u = m.A, m.u
+   G = atomindices(x, k)
+   n = length(G)
+@@ -67,7 +78,9 @@ function _groupstep!(m::QuadModel{T}, g::AbstractFunction, x::AtomIterate{T}, k:
+     buf[n + i] = old
+     buf[i] = iszero(L) ? old : old - buf[i] / L
+   end
+-  prox_coordinate!(x, g, k, view(buf, 1:n), iszero(L) ? floatmax(T) : inv(L))
++  trial = view(buf, 1:n)
++  _prox_group_trial!(trial, g, G, k, iszero(L) ? floatmax(T) : inv(L))
++  copyto!(atom(x, k), trial)
+ 
+   maxh = zero(T)
+   for (i, j) in enumerate(G)
+diff --git a/src/cd/leastsquares.jl b/src/cd/leastsquares.jl
+index 492b979..133aa95 100644
+--- a/src/cd/leastsquares.jl
++++ b/src/cd/leastsquares.jl
+@@ -459,7 +459,7 @@ end
+   iszero(a) && !_flat_column(m, k) &&
+     throw(ArgumentError("the coordinate curvature underflows; rescale the data or loss"))
+   old = x[k]
+-  new = iszero(a) ? _coordinate_minimizer(g, old, zero(T), zero(T), k) : prox_entry(g, old + b / a, k, inv(m.s * a))
++  new = iszero(a) ? _coordinate_minimizer(g, old, zero(T), zero(T), k) : prox_block(g, old + b / a, k, inv(m.s * a))
+   m.a[k] = a
+   h = new - old
+   iszero(h) && return h      # x and the residuals do not change
+@@ -611,17 +611,20 @@ function _groupstep!(m::LSModel{T}, g::GroupNormL2, x::AtomIterate{T}, k::Int, s
+ 
+   # u = x[G] - ∇_G f(x) / L
+   L = _groupcurvature!(m, x, k)
+-  t = zero(T)
+   for (i, j) in enumerate(G)
+     v = iszero(L) ? x[j] : x[j] + m.s * u[i] / L
+     u[i] = v
+-    t += v * v
+   end
+ 
+-  shrink = _groupshrink(sqrt(t), c, L)
++  trial = view(u, 1:length(G))
++  if iszero(L)
++    iszero(c) || fill!(trial, zero(T))
++  else
++    prox_block!(trial, g, trial, k, inv(L))
++  end
+   maxh = zero(T)
+   for (i, j) in enumerate(G)
+-    new = shrink * u[i]
++    new = u[i]
+     h = new - x[j]
+     iszero(h) && continue
+     x[j] = new
+diff --git a/src/cd/models.jl b/src/cd/models.jl
+index f9a4077..2a2ec05 100644
+--- a/src/cd/models.jl
++++ b/src/cd/models.jl
+@@ -64,7 +64,7 @@ _initialize!(m::CDModel, x, curvatures::Bool) = initialize!(m, x)
+ The derivative `G` of the loss along coordinate `k` of `x` and its curvature
+ `a`, exact for a quadratic and otherwise an upper bound, from the cache of `m`.
+ The default [`coordinate_step!`](@ref) moves the coordinate to
+-[`prox_entry`](@ref)`(g, xₖ - G/a, i, μ/a)`, where `i` is the index of the
++[`prox_block`](@ref)`(g, xₖ - G/a, i, μ/a)`, where `i` is the index of the
+ entry in `x` and `μ` the number of entries the coordinate sets (2 for an
+ off-diagonal coordinate of a `SymmetricSparseIterate`). The step is exact for a
+ quadratic loss, and a majorization step when `a` bounds the curvature.
+@@ -154,7 +154,7 @@ cdmodel(f::AbstractFunction, x) =
+   end
+   ainv = inv(a)
+   isfinite(ainv) || throw(ArgumentError("the inverse coordinate curvature overflows; rescale the problem"))
+-  new = prox_entry(g, old - G * ainv, i, μ * ainv)
++  new = prox_block(g, old - G * ainv, i, μ * ainv)
+   isfinite(new) || throw(ArgumentError("the coordinate step is not finite; rescale the problem or check the model and penalty"))
+   new
+ end
+@@ -218,10 +218,10 @@ end
+ 
+ function _flat_generic(g, old::T, G::T, i, μ) where {T}
+   !iszero(G) && !ProximalBase.isconvex(g) && return nothing
+-  c = T(prox_entry(g, zero(T), i, floatmax(T)))
++  c = T(prox_block(g, zero(T), i, floatmax(T)))
+   iszero(G) && return _flat_candidate(T, c)
+   _flat_fixed(g, c, G, i, μ) && return c
+-  c = T(prox_entry(g, -copysign(floatmax(T), G), i, μ))
++  c = T(prox_block(g, -copysign(floatmax(T), G), i, μ))
+   _flat_fixed(g, c, G, i, μ) ? c : nothing
+ end
+ 
+@@ -238,7 +238,7 @@ _flat_indomain(g::Union{ProximalBase.Scaled, ProximalBase.Tilt, ProximalBase.Reg
+   _flat_indomain(g.f, v, i)
+ _flat_indomain(g::ProximalBase.Translate, v, i) = _flat_indomain(g.f, v - g.b[i], i)
+ _flat_indomain(g::ProximalBase.BoxConstrained, v, i) =
+-  prox_entry(g.box, v, i, one(v)) == v && _flat_indomain(g.f, v, i)
++  prox_block(g.box, v, i, one(v)) == v && _flat_indomain(g.f, v, i)
+ 
+ # Minimize Gx + μ(λ₁wᵢ|x| + λ₂x²/2) by thresholding the slope and dividing by λ₂.
+ function _flat_closed(g::ElasticNet, old::T, G::T, i, μ) where {T}
+@@ -297,7 +297,7 @@ function _flat_closed(g::ProximalBase.Regularize, old::T, G::T, i, μ) where {T}
+   ρ = T(g.ρ)
+   v, step = center - (G / μ) / ρ, inv(ρ)
+   isfinite(v) && isfinite(step) || return nothing
+-  c = _flat_candidate(T, prox_entry(g.f, v, i, step))
++  c = _flat_candidate(T, prox_block(g.f, v, i, step))
+   c !== nothing && _flat_indomain(g.f, c, i) ? c : nothing
+ end
+ 
+@@ -320,7 +320,7 @@ function _flat_closed(g::ProximalBase.BoxConstrained, old::T, G::T, i, μ) where
+     _flat_fixed(g, BigFloat(candidate), BigFloat(G), i, BigFloat(μ)) || return nothing
+     candidate
+   else
+-    _flat_candidate(T, prox_entry(g.box, v, i, one(T)))
++    _flat_candidate(T, prox_block(g.box, v, i, one(T)))
+   end
+   c !== nothing && _flat_indomain(g, c, i) ? c : nothing
+ end
+@@ -341,7 +341,7 @@ end
+ # floatmax must not be rejected because the fixed-point trial overflows.
+ function _flat_inexact(g::ProximalBase.IndBox, old::T, G::T, i, μ) where {T}
+   v = iszero(G) ? zero(T) : -copysign(T(Inf), G)
+-  c = T(prox_entry(g, v, i, one(T)))
++  c = T(prox_block(g, v, i, one(T)))
+   isfinite(c) ? c : nothing
+ end
+ 
+@@ -362,7 +362,7 @@ function _flat_fixed(g, c::T, G::T, i, μ) where {T}
+   t = iszero(G) ? one(T) : max(one(T), abs(c) / abs(G))
+   v = c - t * G
+   step = t * μ
+-  isfinite(v) && isfinite(step) && prox_entry(g, v, i, step) == c
++  isfinite(v) && isfinite(step) && prox_block(g, v, i, step) == c
+ end
+ 
+ # the coordinate step from coordinate_derivatives and update_cache!, for models
+@@ -633,14 +633,5 @@ function _check_iterate(g::AbstractFunction, x)
+   throw(ArgumentError("coordinate descent needs a separable penalty (isseparable(g)) or a group penalty (GroupNormL2, GroupNormLinf, ...), but g is a $(typeof(g))."))
+ end
+ 
+-# the factor max(1 - c / (L ‖u‖), 0) by which the proximal operator of c‖⋅‖₂
+-# with step 1/L shrinks a vector u, given nu = ‖u‖. With L = 0 the loss does not
+-# depend on the group, which then goes to zero if it is penalized and keeps its
+-# values otherwise
+-function _groupshrink(nu::T, c::T, L::T) where {T<:AbstractFloat}
+-  iszero(L) && return iszero(c) ? one(T) : zero(T)
+-  nu > c / L ? one(T) - c / (L * nu) : zero(T)
+-end
+-
+ # the change of an entry in the stopping rule, scaled as in _visit!
+ _scaledchange(m, x, j::Int, h, scaled::Bool) = scaled ? abs(h) * coordinate_scale(m, x, j) : abs(h)
+diff --git a/src/cd/multiresponse.jl b/src/cd/multiresponse.jl
+index 0115c4d..77f2e17 100644
+--- a/src/cd/multiresponse.jl
++++ b/src/cd/multiresponse.jl
+@@ -134,17 +134,20 @@ function _groupstep!(m::MLSModel{T}, g::GroupNormL2, x::AtomIterate{T}, k::Int,
+ 
+   # u = B[k, :] - ∇_k f / L
+   L = m.s * _sqnorm!(m, k)
+-  t = zero(T)
+   @inbounds for (ci, j) in enumerate(G)
+     v = iszero(L) ? x[j] : x[j] + m.s * u[ci] / L
+     u[ci] = v
+-    t += v * v
+   end
+ 
+-  shrink = _groupshrink(sqrt(t), c, L)
++  trial = view(u, 1:length(G))
++  if iszero(L)
++    iszero(c) || fill!(trial, zero(T))
++  else
++    prox_block!(trial, g, trial, k, inv(L))
++  end
+   maxh = zero(T)
+   for (ci, j) in enumerate(G)
+-    new = shrink * u[ci]
++    new = u[ci]
+     h = new - x[j]
+     iszero(h) && continue
+     x[j] = new
+diff --git a/src/cd/quadratic.jl b/src/cd/quadratic.jl
+index 78b0cf9..bca9266 100644
+--- a/src/cd/quadratic.jl
++++ b/src/cd/quadratic.jl
+@@ -201,17 +201,16 @@ function _groupstep!(m::QuadModel{T}, g::GroupNormL2, x::AtomIterate{T}, k::Int,
+     end
+     return maxh
+   end
+-  t = zero(T)
+   for (i, j) in enumerate(G)
+     d = x[j] - v[i] / L
+     v[i] = d
+-    t += d * d
+   end
+ 
+-  shrink = _groupshrink(sqrt(t), c, L)
++  trial = view(v, 1:length(G))
++  prox_block!(trial, g, trial, k, inv(L))
+   maxh = zero(T)
+   for (i, j) in enumerate(G)
+-    new = shrink * v[i]
++    new = v[i]
+     h = new - x[j]
+     iszero(h) && continue
+     x[j] = new
+diff --git a/test/flat_coordinates.jl b/test/flat_coordinates.jl
+index 0a91576..b8b9723 100644
+--- a/test/flat_coordinates.jl
++++ b/test/flat_coordinates.jl
+@@ -441,7 +441,7 @@ end
+   for (g, G, expected) in cases
+     @test PS._coordinate_minimizer(g, 0.7, G, 0.0, 1) === expected
+     # Positive curvature keeps the same proximal expression, bit for bit.
+-    @test PS._coordinate_minimizer(g, 0.7, G, 2.0, 1) === prox_entry(g, 0.7 - G * inv(2.0), 1, inv(2.0))
++    @test PS._coordinate_minimizer(g, 0.7, G, 2.0, 1) === prox_block(g, 0.7 - G * inv(2.0), 1, inv(2.0))
+   end
+ end
+ 
+diff --git a/test/group_penalties.jl b/test/group_penalties.jl
+index 9990262..446ea8d 100644
+--- a/test/group_penalties.jl
++++ b/test/group_penalties.jl
+@@ -228,7 +228,7 @@ end
+ end
+ 
+ # FT28 (#165): block trials without private writes. The group step builds its trial point in the model's buffer
+-# and the penalty's five-argument prox_coordinate! stores the result, so only that call writes the iterate.
++# the pure block oracle computes the result, and the solver writes through the public group view.
+ #
+ # Recorded steps, from the base commit 412063d8ac24b84a10ccde09cf072bb396109ffd (the audited behaviour, which
+ # staged the trial point in the entries of the iterate) on ProximalBase 0.5.4, Julia 1.13.3, Float64, with the data
+@@ -1117,4 +1117,16 @@ end
+   end
+ end
+ 
++@testset "shared group prox retains finite extreme shrinkage" begin
++  groups = [1:2]
++  g = GroupNormL2(1e155, groups, [1.])
++  x = AtomIterate(2, groups)
++  f = QuadraticFunction(Matrix(2.0I, 2, 2), [-2e155,0.])
++  m = cdmodel(f, x)
++  PS.initialize!(m, x)
++  h = PS._groupstep!(m, g, x, 1, false)
++  @test Vector(x) ≈ [5e154,0.]
++  @test h ≈ 5e154
++end
++
+ end
+diff --git a/test/nonconvex_penalties.jl b/test/nonconvex_penalties.jl
+index 071966e..5d69f79 100644
+--- a/test/nonconvex_penalties.jl
++++ b/test/nonconvex_penalties.jl
+@@ -23,7 +23,7 @@ function coordinate_residual(X, y, g, b)
+   grad = X' * (X * b - y) / n
+   maximum(eachindex(b)) do k
+     a = sum(abs2, view(X, :, k)) / n
+-    abs(prox_entry(g, b[k] - grad[k] / a, k, 1 / a) - b[k])
++    abs(prox_block(g, b[k] - grad[k] / a, k, 1 / a) - b[k])
+   end
+ end
+ 
+-- 
+2.43.0
+
+
+From 8e98442bf6a16bf765182c3fdfcdc8472cc3511d Mon Sep 17 00:00:00 2001
+From: Mladen Kolar <mkolar@usc.edu>
+Date: Tue, 10 Nov 2026 11:38:20 -0800
+Subject: [PATCH 2/2] Build companion docs against the pinned block API
+
+---
+ docs/make.jl                       | 14 ++++++++++----
+ docs/src/api/coordinate_descent.md | 11 +++++++++++
+ docs/src/coordinate_descent.md     |  2 +-
+ docs/src/extending.md              |  2 +-
+ docs/src/performance.md            |  2 +-
+ examples/10_proximal_gradient.jl   |  2 +-
+ 6 files changed, 25 insertions(+), 8 deletions(-)
+
+diff --git a/docs/make.jl b/docs/make.jl
+index 8aece67..f264bb7 100644
+--- a/docs/make.jl
++++ b/docs/make.jl
+@@ -1,10 +1,15 @@
+-using Documenter, DocumenterInterLinks, Literate, ProximalSolvers
++using Documenter, DocumenterInterLinks, Literate, ProximalBase, ProximalSolvers
+ 
+ # Links to the functions of ProximalBase go to its documentation: `@extref` in
+ # these pages, and the fallbacks for the `@ref`s of the docstrings.
+ const links = InterLinks("ProximalBase" => "https://mlakolar.github.io/ProximalBase.jl/dev/")
+-const fallbacks = ExternalFallbacks("KronQuadratic" => "@extref ProximalBase.KronQuadratic",
+-                                    "prox_block" => "@extref ProximalBase.prox_block")
++const fallbacks = ExternalFallbacks(
++    "KronQuadratic" => "@extref ProximalBase.KronQuadratic",
++    "ProximalBase.check_symmetric_parameters" => "@extref ProximalBase.check_symmetric_parameters",
++    "SeparableFunction" => "@extref ProximalBase.SeparableFunction",
++    "value_entry" => "@extref ProximalBase.value_entry",
++    "Symmetric-parameters" => "@extref ProximalBase `Symmetric-parameters`",
++)
+ 
+ # The examples become pages, run when the documentation is built. Each gets a
+ # title, and a section marker "# --- title ---" becomes a heading.
+@@ -34,7 +39,8 @@ makedocs(
+     sitename = "ProximalSolvers.jl",
+     authors = "Mladen Kolar",
+     repo = Documenter.Remotes.GitHub("mlakolar", "ProximalSolvers.jl"),
+-    modules = [ProximalSolvers],
++    modules = [ProximalSolvers, ProximalBase],
++    checkdocs_ignored_modules = [ProximalBase], # Only the two pinned block docstrings are rendered here.
+     format = Documenter.HTML(
+         prettyurls = get(ENV, "CI", "false") == "true",
+         canonical = "https://mlakolar.github.io/ProximalSolvers.jl/stable/",
+diff --git a/docs/src/api/coordinate_descent.md b/docs/src/api/coordinate_descent.md
+index f16f510..4ce3db9 100644
+--- a/docs/src/api/coordinate_descent.md
++++ b/docs/src/api/coordinate_descent.md
+@@ -1,5 +1,16 @@
+ # Coordinate descent reference
+ 
++## Pinned ProximalBase block interface
++
++These docstrings come from the exact ProximalBase dependency used by this
++build. Rendering them here keeps links valid while the breaking block API
++awaits publication in ProximalBase's development documentation.
++
++```@docs
++ProximalBase.prox_block
++ProximalBase.prox_block!
++```
++
+ ## Square-root losses
+ 
+ ```@docs
+diff --git a/docs/src/coordinate_descent.md b/docs/src/coordinate_descent.md
+index 0b1997a..fbab24f 100644
+--- a/docs/src/coordinate_descent.md
++++ b/docs/src/coordinate_descent.md
+@@ -27,7 +27,7 @@ x_k^+ = \operatorname*{argmin}_t \; G\,(t - x_k) + \frac{a_k}{2}(t - x_k)^2 + g_
+ ```
+ 
+ The scalar proximal operator is
+-[`prox_block`](@extref ProximalBase.prox_block)`(g, v, i, γ)` of ProximalBase,
++[`prox_block`](@ref ProximalBase.prox_block)`(g, v, i, γ)` of ProximalBase,
+ so every separable penalty of ProximalBase works without code in this package:
+ soft thresholding for the ℓ1 norm, ``\operatorname{shrink}(v, \gamma\lambda_1)/(1 + \gamma\lambda_2)``
+ for the elastic net, firm thresholding for MCP, a clamp for bounds. For a
+diff --git a/docs/src/extending.md b/docs/src/extending.md
+index 9d5b962..ba44c8a 100644
+--- a/docs/src/extending.md
++++ b/docs/src/extending.md
+@@ -27,7 +27,7 @@ From `coordinate_derivatives` and `update_cache!`, the default step takes
+ x_k^+ = \operatorname{prox}_{\mu g_i / a}\Big(x_k - \frac{G}{a}\Big)
+ ```
+ 
+-with [`prox_block`](@extref ProximalBase.prox_block), where ``i`` is the entry
++with [`prox_block`](@ref ProximalBase.prox_block), where ``i`` is the entry
+ of the coordinate and ``\mu`` the number of entries it sets (2 off the
+ diagonal of a `SymmetricSparseIterate`), and writes the change only when the
+ coordinate moves; see [The coordinate step](@ref). A coordinate with zero
+diff --git a/docs/src/performance.md b/docs/src/performance.md
+index 1d5cf3f..5be5c11 100644
+--- a/docs/src/performance.md
++++ b/docs/src/performance.md
+@@ -7,7 +7,7 @@ HighDimensionalModels on ProximalSolvers (current) take to reach the same
+ certified accuracy, a relative duality gap of at most `1e-4`. Ratios are
+ current/legacy time, so a ratio below 1 means current is faster. Over the 82
+ of 88 cases that reach the target on both sides, the like-for-like ratio is
+-0.977 [0.955, 1.00] (12 blocks, campaign of 2026-10-28). Current's best stopping
++0.977 \[0.955, 1.00\] (12 blocks, campaign of 2026-10-28). Current's best stopping
+ rule gives 0.845, and the package defaults give 0.897.
+ In the primary view, the large path speedup occurs on design C (0.150), where
+ current uses the Gram path; the point estimates on designs A, B and E are within
+diff --git a/examples/10_proximal_gradient.jl b/examples/10_proximal_gradient.jl
+index 5940821..e52cbf6 100644
+--- a/examples/10_proximal_gradient.jl
++++ b/examples/10_proximal_gradient.jl
+@@ -82,7 +82,7 @@ f32 = LeastSquaresLoss(Float32.(b), Float32.(A))
+ r32 = solve!(β32, f32, NormL1(Float32(γ)), AccProxGradDescent(), ProximalOptions(; maxiter = 5000, ftol = 1e-6))
+ βs = SparseIterate(p)
+ rs = solve!(βs, f, g, AccProxGradDescent(), options)
+-(float32_error = norm(β32 - β2, Inf), sparse_iterate_error = norm(Vector(βs) - β2, Inf), stored = nnz(βs))
++(float32_error = norm(β32 - β2, Inf), sparse_iterate_error = norm(Vector(βs) - β2, Inf), stored = nactive(βs))
+ 
+ # --- Checks ---
+ #
+-- 
+2.43.0
+

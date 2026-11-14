@@ -1,0 +1,10 @@
+{
+  "observations_sha256": "ffe1ab9b54ede705ecb884ec0249c82775ea139ee3c47b844d1eb41dcc019044",
+  "rows": 4410,
+  "comparisons": 168,
+  "flagged_cases": 23,
+  "bootstrap_draws": 10000,
+  "bootstrap_seed": 852,
+  "unit": "paired process round",
+  "raw_samples_verified": true
+}

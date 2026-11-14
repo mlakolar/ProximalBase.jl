@@ -1,0 +1,146 @@
+CASE read_scalar
+MethodInstance for (::var"#scalar_cases##18#scalar_cases##19"{Main.ProximalBase.SparseIterate{Float64, 1}, Vector{Int64}, Vector{Int64}})()
+  from (::var"#scalar_cases##18#scalar_cases##19")() @ Main /tmp/pb852-audit/benchmark/audit852/cases.jl:112
+Arguments
+  #self#::var"#scalar_cases##18#scalar_cases##19"{Main.ProximalBase.SparseIterate{Float64, 1}, Vector{Int64}, Vector{Int64}}
+Locals
+  #16::var"#scalar_cases##20#scalar_cases##21"{Main.ProximalBase.SparseIterate{Float64, 1}, Vector{Int64}, Vector{Int64}}
+  inds::Union{}
+Body::ANY
+1 ─ %1  = Main.sum::Core.Const(sum)
+│   %2  = Main.:(var"#scalar_cases##20#scalar_cases##21")::Core.Const(var"#scalar_cases##20#scalar_cases##21")
+│   %3  = Core.getfield(#self#, :x)::Main.ProximalBase.SparseIterate{Float64, 1}
+│   %4  = Core._typeof_captured_variable(%3)::Core.Const(Main.ProximalBase.SparseIterate{Float64, 1})
+│   %5  = Core.getfield(#self#, :cols)::Vector{Int64}
+│   %6  = Core._typeof_captured_variable(%5)::Core.Const(Vector{Int64})
+│   %7  = Core.getfield(#self#, :rows)::Vector{Int64}
+│   %8  = Core._typeof_captured_variable(%7)::Core.Const(Vector{Int64})
+│   %9  = Core.apply_type(%2, %4, %6, %8)::Core.Const(var"#scalar_cases##20#scalar_cases##21"{Main.ProximalBase.SparseIterate{Float64, 1}, Vector{Int64}, Vector{Int64}})
+│   %10 = Core.getfield(#self#, :x)::Main.ProximalBase.SparseIterate{Float64, 1}
+│   %11 = Core.getfield(#self#, :cols)::Vector{Int64}
+│   %12 = Core.getfield(#self#, :rows)::Vector{Int64}
+│         (#16 = %new(%9, %10, %11, %12))
+│   %14 = #16::var"#scalar_cases##20#scalar_cases##21"{Main.ProximalBase.SparseIterate{Float64, 1}, Vector{Int64}, Vector{Int64}}
+│   %15 = Core.getfield(#self#, :inds)::CORE.BOX
+│   %16 = Core.isdefined(%15, :contents)::Bool
+└──       goto #3 if not %16
+2 ─       goto #4
+3 ─       Core.NewvarNode(:(inds))
+└──       inds
+4 ┄ %21 = Core.getfield(%15, :contents)::ANY
+│   %22 = Base.Generator(%14, %21)::BASE.GENERATOR{_A, VAR"#SCALAR_CASES##20#SCALAR_CASES##21"{MAIN.PROXIMALBASE.SPARSEITERATE{FLOAT64, 1}, VECTOR{INT64}, VECTOR{INT64}}} WHERE _A
+│   %23 = (%1)(%22)::ANY
+└──       return %23
+
+#= /tmp/pb852-types.jl:7 =# @allocated(p.op()) = 96
+CASE read_random
+MethodInstance for (::var"#scalar_cases##18#scalar_cases##19"{Main.ProximalBase.SparseIterate{Float64, 1}, Vector{Int64}, Vector{Int64}})()
+  from (::var"#scalar_cases##18#scalar_cases##19")() @ Main /tmp/pb852-audit/benchmark/audit852/cases.jl:112
+Arguments
+  #self#::var"#scalar_cases##18#scalar_cases##19"{Main.ProximalBase.SparseIterate{Float64, 1}, Vector{Int64}, Vector{Int64}}
+Locals
+  #16::var"#scalar_cases##20#scalar_cases##21"{Main.ProximalBase.SparseIterate{Float64, 1}, Vector{Int64}, Vector{Int64}}
+  inds::Union{}
+Body::ANY
+1 ─ %1  = Main.sum::Core.Const(sum)
+│   %2  = Main.:(var"#scalar_cases##20#scalar_cases##21")::Core.Const(var"#scalar_cases##20#scalar_cases##21")
+│   %3  = Core.getfield(#self#, :x)::Main.ProximalBase.SparseIterate{Float64, 1}
+│   %4  = Core._typeof_captured_variable(%3)::Core.Const(Main.ProximalBase.SparseIterate{Float64, 1})
+│   %5  = Core.getfield(#self#, :cols)::Vector{Int64}
+│   %6  = Core._typeof_captured_variable(%5)::Core.Const(Vector{Int64})
+│   %7  = Core.getfield(#self#, :rows)::Vector{Int64}
+│   %8  = Core._typeof_captured_variable(%7)::Core.Const(Vector{Int64})
+│   %9  = Core.apply_type(%2, %4, %6, %8)::Core.Const(var"#scalar_cases##20#scalar_cases##21"{Main.ProximalBase.SparseIterate{Float64, 1}, Vector{Int64}, Vector{Int64}})
+│   %10 = Core.getfield(#self#, :x)::Main.ProximalBase.SparseIterate{Float64, 1}
+│   %11 = Core.getfield(#self#, :cols)::Vector{Int64}
+│   %12 = Core.getfield(#self#, :rows)::Vector{Int64}
+│         (#16 = %new(%9, %10, %11, %12))
+│   %14 = #16::var"#scalar_cases##20#scalar_cases##21"{Main.ProximalBase.SparseIterate{Float64, 1}, Vector{Int64}, Vector{Int64}}
+│   %15 = Core.getfield(#self#, :inds)::CORE.BOX
+│   %16 = Core.isdefined(%15, :contents)::Bool
+└──       goto #3 if not %16
+2 ─       goto #4
+3 ─       Core.NewvarNode(:(inds))
+└──       inds
+4 ┄ %21 = Core.getfield(%15, :contents)::ANY
+│   %22 = Base.Generator(%14, %21)::BASE.GENERATOR{_A, VAR"#SCALAR_CASES##20#SCALAR_CASES##21"{MAIN.PROXIMALBASE.SPARSEITERATE{FLOAT64, 1}, VECTOR{INT64}, VECTOR{INT64}}} WHERE _A
+│   %23 = (%1)(%22)::ANY
+└──       return %23
+
+#= /tmp/pb852-types.jl:7 =# @allocated(p.op()) = 96
+CASE prune_rebuild
+MethodInstance for (::var"#scalar_cases##58#scalar_cases##59"{Type{Float64}, Main.ProximalBase.SparseIterate{Float64, 1}, Vector{Int64}, Vector{Int64}, Vector{Int64}})()
+  from (::var"#scalar_cases##58#scalar_cases##59")() @ Main /tmp/pb852-audit/benchmark/audit852/cases.jl:148
+Arguments
+  #self#::var"#scalar_cases##58#scalar_cases##59"{Type{Float64}, Main.ProximalBase.SparseIterate{Float64, 1}, Vector{Int64}, Vector{Int64}, Vector{Int64}}
+Locals
+  @_2::UNION{NOTHING, TUPLE{INT64, INT64}}
+  @_3::ANY
+  k@_4::ANY
+  k@_5::Int64
+  half::Union{}
+Body::Main.ProximalBase.SparseIterate{Float64, 1}
+1 ──       Core.NewvarNode(:(@_2))
+│          Core.NewvarNode(:(@_3))
+│    %3  = Core.getfield(#self#, :half)::CORE.BOX
+│    %4  = Core.isdefined(%3, :contents)::Bool
+└───       goto #3 if not %4
+2 ──       goto #4
+3 ──       Core.NewvarNode(:(half))
+└───       half
+4 ┄─ %9  = Core.getfield(%3, :contents)::ANY
+│          (@_3 = Base.iterate(%9))
+│    %11 = @_3::ANY
+│    %12 = (%11 === nothing)::Bool
+│    %13 = Base.not_int(%12)::Bool
+└───       goto #7 if not %13
+5 ┄─ %15 = @_3::ANY
+│          (k@_4 = Core.getfield(%15, 1))
+│    %17 = Core.getfield(%15, 2)::ANY
+│    %18 = Main.coordset!::Core.Const(Main.coordset!)
+│    %19 = Core.getfield(#self#, :x)::Main.ProximalBase.SparseIterate{Float64, 1}
+│    %20 = Main.zero::Core.Const(zero)
+│    %21 = Core.getfield(#self#, :T)::Core.Const(Float64)
+│    %22 = (%20)(%21)::Core.Const(0.0)
+│    %23 = k@_4::ANY
+│    %24 = Core.getfield(#self#, :rows)::Vector{Int64}
+│    %25 = Core.getfield(#self#, :cols)::Vector{Int64}
+│          (%18)(%19, %22, %23, %24, %25)
+│          (@_3 = Base.iterate(%9, %17))
+│    %28 = @_3::ANY
+│    %29 = (%28 === nothing)::Bool
+│    %30 = Base.not_int(%29)::Bool
+└───       goto #7 if not %30
+6 ──       goto #5
+7 ┄─ %33 = Main.compact!::Core.Const(Main.compact!)
+│    %34 = Core.getfield(#self#, :x)::Main.ProximalBase.SparseIterate{Float64, 1}
+│          (%33)(%34)
+│    %36 = Core.getfield(#self#, :rebuild)::Vector{Int64}
+│          (@_2 = Base.iterate(%36))
+│    %38 = @_2::UNION{NOTHING, TUPLE{INT64, INT64}}
+│    %39 = (%38 === nothing)::Bool
+│    %40 = Base.not_int(%39)::Bool
+└───       goto #10 if not %40
+8 ┄─ %42 = @_2::Tuple{Int64, Int64}
+│          (k@_5 = Core.getfield(%42, 1))
+│    %44 = Core.getfield(%42, 2)::Int64
+│    %45 = Main.coordset!::Core.Const(Main.coordset!)
+│    %46 = Core.getfield(#self#, :x)::Main.ProximalBase.SparseIterate{Float64, 1}
+│    %47 = Core.getfield(#self#, :T)::Core.Const(Float64)
+│    %48 = Main.:/::Core.Const(/)
+│    %49 = (%48)(1, 2)::Core.Const(0.5)
+│    %50 = (%47)(%49)::Core.Const(0.5)
+│    %51 = k@_5::Int64
+│    %52 = Core.getfield(#self#, :rows)::Vector{Int64}
+│    %53 = Core.getfield(#self#, :cols)::Vector{Int64}
+│          (%45)(%46, %50, %51, %52, %53)
+│          (@_2 = Base.iterate(%36, %44))
+│    %56 = @_2::UNION{NOTHING, TUPLE{INT64, INT64}}
+│    %57 = (%56 === nothing)::Bool
+│    %58 = Base.not_int(%57)::Bool
+└───       goto #10 if not %58
+9 ──       goto #8
+10 ┄ %61 = Core.getfield(#self#, :x)::Main.ProximalBase.SparseIterate{Float64, 1}
+└───       return %61
+
+#= /tmp/pb852-types.jl:7 =# @allocated(p.op()) = 2368

@@ -10,9 +10,8 @@
 The least-squares loss `f(β) = ‖Y - Xβ‖² / 2`, smooth with gradient
 `X'(Xβ - Y)`. `Y` may be a vector or an `n × k` matrix with one column per
 response; then `β` and the gradient are `p × k` matrices and `‖⋅‖` is the
-Frobenius norm, as in multi-response regression with [`NuclearNorm`](@ref) or
-the row groups of [`GroupNormL2`](@ref). `β` may be a dense array, a
-[`SparseIterate`](@ref) or an [`AtomIterate`](@ref), whose products cost
+Frobenius norm, as in multi-response regression. `β` may be a dense array, a
+`SparseIterate` or a `BlockIterate`, whose products cost
 O(n ⋅ nnz).
 
 It is also proximable: the first proximal operator computes the thin SVD
@@ -23,7 +22,8 @@ It is also proximable: the first proximal operator computes the thin SVD
 mutable struct LeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVecOrMat, Tx<:AbstractMatrix, N, A<:AbstractArray{T, N}} <: AbstractFunction
   Y::Ty
   X::Tx
-  tmp::A                  # Xβ - Y, next to Y; calls to f(β) do not allocate
+  tmp::A                  # Xβ - Y, next to Y; calls to f(β) do not allocate, except to
+                          # recover a value whose product Xβ overflows (a copy of β)
   # the proximal operator: X = U Diagonal(√s2) V', computed on first use
   V::Matrix{T}
   s2::Vector{T}
@@ -32,9 +32,22 @@ mutable struct LeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVecOrMat, Tx<:Abst
   w::Array{T, N}
   output::Scratch         # dense output for a non-strided destination
   svd_ready::Bool
+
+  function LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready) where {T<:AbstractFloat,
+      Ty<:AbstractVecOrMat, Tx<:AbstractMatrix, N, A<:AbstractArray{T, N}}
+    all(a -> a === nothing || eltype(a) <: Real,
+        (Y, X, tmp, V, s2, XtY, sUtY, w)) || _real_error(:LeastSquaresLoss)
+    new{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready)
+  end
 end
+LeastSquaresLoss(Y::Ty, X::Tx, tmp::A, V::Matrix{T}, s2::Vector{T}, XtY::Array{T, N}, sUtY::Array{T, N},
+    w::Array{T, N}, output::Scratch, svd_ready::Bool) where {T<:AbstractFloat, Ty<:AbstractVecOrMat,
+    Tx<:AbstractMatrix, N, A<:AbstractArray{T, N}} =
+  LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready)
 
 function LeastSquaresLoss(Y::AbstractVecOrMat, X::AbstractMatrix)
+  eltype(Y) <: Real || _real_error(:LeastSquaresLoss)
+  eltype(X) <: Real || _real_error(:LeastSquaresLoss)
   size(X, 1) == size(Y, 1) || throw(DimensionMismatch("X has $(size(X, 1)) rows and Y has $(size(Y, 1))"))
   T = float(promote_type(eltype(Y), eltype(X)))
   N = ndims(Y)
@@ -46,31 +59,95 @@ function LeastSquaresLoss(Y::AbstractVecOrMat, X::AbstractMatrix)
 end
 
 issmooth(::Type{<:LeastSquaresLoss}) = true
+_argument_type(::Type{<:LeastSquaresLoss}) = AbstractVecOrMat
 isproximable(::Type{<:LeastSquaresLoss}) = true
 isconvex(::Type{<:LeastSquaresLoss}) = true
 
 function (f::LeastSquaresLoss{T})(β::AbstractVecOrMat) where {T}
+  _checkreal(f, β)
   mul!(f.tmp, f.X, β)
   v = zero(T)
   @inbounds @simd for i in eachindex(f.tmp, f.Y)
     v += abs2(f.Y[i] - f.tmp[i])
   end
-  v / 2
+  _value_at(_leastsquares_value(f, β, v, true), β)
 end
 
 function value_and_gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)
-  _checksize(g, β)
+  _checkwrite(value_and_gradient!, f, g, β)
   mul!(f.tmp, f.X, β)
   f.tmp .-= f.Y
   mul!(g, transpose(f.X), f.tmp)
-  sum(abs2, f.tmp) / 2
+  _value_at(_leastsquares_value(f, β, sum(abs2, f.tmp), false), β)
+end
+
+# The value s/2 from the sum of squares s of the residual: f.tmp holds Xβ when
+# raw, Xβ - Y otherwise. The ordinary sum is kept when it is finite and its
+# squares cannot have underflowed (R1); otherwise the recovery runs.
+@inline _leastsquares_value(f::LeastSquaresLoss, β, s, raw::Bool) =
+  isfinite(s) & _squares_normal(s, length(f.tmp), typeof(s)) ? s / 2 : _leastsquares_recover(f, β, s, raw)
+
+# - every residual exactly zero: the value is zero, at once, for exact fits;
+# - a finite residual: its squares overflow or underflow, and the sum is formed
+#   in units of a power of two;
+# - a residual that overflowed although β, X and Y are finite: Xβ is formed again
+#   as 2^k X βs from βs = β 2^-k, with k chosen so that no entry of X βs can
+#   overflow. An entry 2^k (X βs)ᵢ that is representable meets Yᵢ in its own units,
+#   so that a small Yᵢ survives a product that cancels; the others are formed as
+#   (X βs)ᵢ - Yᵢ 2^-k in units of 2^k. The two sums of squares are added by their
+#   exponents. This allocates a copy of β and two arrays of the size of Y.
+# Broadcasts, mul! and reductions only, so that device arrays stay on the device.
+@noinline function _leastsquares_recover(f::LeastSquaresLoss{T}, β, s, raw::Bool) where {T}
+  r, Y = f.tmp, f.Y
+  if iszero(s)
+    zero_residual = raw ? mapreduce(==, &, r, Y; init = true) : all(iszero, r)
+    zero_residual && return zero(s)
+  end
+  _all_finite(r) && return _scaled_square_value(one(T), r, raw ? Y : nothing, s / 2)
+  (_all_finite(β) && _all_finite(f.X) && _all_finite(Y)) || return s / 2
+  k = max(_product_sum_shift(T, _stored_maxabs(f.X), _stored_maxabs(β), size(f.X, 2), 3),
+          _bound_exponent(_stored_maxabs(Y)) + 3 - _max_exponent(T))
+  sc, up = _power_factors(T, -k), _power_factors(T, k)
+  mul!(r, f.X, β .* sc[1] .* sc[2])
+  lim = _scale_value(floatmax(T) / 4, sc)
+  own = _leastsquares_own.(r, lim, Ref(up))                  # 2^k (X βs)ᵢ where representable
+  Yo = _leastsquares_own_y.(r, Y, lim, T)
+  r .= _leastsquares_big.(r, Y, lim, Ref(sc))
+  _pow2_sum(T, _leastsquares_squares(own, Yo), _leastsquares_squares(r, nothing, 2k))
+end
+@inline _leastsquares_own(a::T, lim, up) where {T} = abs(a) <= lim ? _scale_value(a, up) : zero(T)
+@inline _leastsquares_own_y(a, y, lim, ::Type{T}) where {T} = abs(a) <= lim ? convert(T, y) : zero(T)
+@inline _leastsquares_big(a::T, y, lim, sc) where {T} = abs(a) <= lim ? zero(T) : a - _scale_value(convert(T, y), sc)
+# ‖x - y‖²/2 as a significand and an exponent, in units of 2^shift; the entries are finite here
+function _leastsquares_squares(x, y, shift = 0)
+  s, k = _residual_squares(x, y, eltype(x))
+  (s, iszero(s) ? 0 : 2k - 1 + shift)
 end
 
 function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)
-  _checksize(g, β)
+  _checkwrite(gradient!, f, g, β)
   mul!(f.tmp, f.X, β)
   f.tmp .-= f.Y
   mul!(g, transpose(f.X), f.tmp)
+end
+
+function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::LeastSquaresLoss, g::AbstractVecOrMat, β::AbstractVecOrMat)
+  _checkreal(f, β)
+  _checkreal(f, g)
+  _checkgradient_output(g, β)
+  _checksize(g, β)
+  # Preserve the dimension error of the product, which checks before writing.
+  size(β, 1) == size(f.X, 2) && size(β, 2) == size(f.tmp, 2) || mul!(f.tmp, f.X, β)
+end
+
+function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, f::LeastSquaresLoss{T}, β::AbstractVecOrMat, v::AbstractVecOrMat) where {T}
+  _checkreal(f, v)
+  _checkreal(f, β)
+  _checksize(β, v)
+  size(β, 1) == size(f.X, 2) || throw(DimensionMismatch("β must have $(size(f.X, 2)) rows"))
+  ndims(β) == ndims(f.Y) && size(β, 2) == size(f.Y, 2) ||
+    throw(DimensionMismatch("β must have the same number of responses as Y"))
+  true
 end
 
 function _svd_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
@@ -97,26 +174,12 @@ function _svd_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
   f
 end
 
-function _xty_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
-  dims = N == 1 ? (size(f.X, 2),) : (size(f.X, 2), size(f.Y, 2))
-  if any(iszero, dims)
-    # An empty result is also a ready cache; isempty cannot identify its
-    # uninitialized state on later calls.
-    size(f.XtY) == dims || (f.XtY = Array{T, N}(undef, dims))
-  elseif isempty(f.XtY)
-    f.XtY = Array{T, N}(transpose(f.X) * f.Y)
-  end
-  f.XtY
-end
-
 # In the V basis the solution is (s U'Y + ρ V'v)/(s² + ρ). When V is
 # rectangular, keep v's null-space component with v + V(s U'Y - s² V'v)/(s² + ρ).
 # Neither form subtracts terms of size γ X'Y at a large step γ.
 function prox!(β::AbstractVecOrMat, f::LeastSquaresLoss{T}, v::AbstractVecOrMat, γ::Real) where {T}
-  _checksize(β, v)
-  size(β, 1) == size(f.X, 2) || throw(DimensionMismatch("β must have $(size(f.X, 2)) rows"))
-  ndims(β) == ndims(f.Y) && size(β, 2) == size(f.Y, 2) ||
-    throw(DimensionMismatch("β must have the same number of responses as Y"))
+  v = _symmetric_argument(β, v)
+  _checkwrite(prox!, f, β, v)
   # With no observations or coefficients the loss is constant; avoid an empty SVD.
   (isempty(f.X) || isempty(β)) && return β === v ? β : copyto!(β, v)
   β isa StridedVecOrMat || return copyto!(β, prox!(_array_buffer!(f.output, T, size(β)), f, v, γ))

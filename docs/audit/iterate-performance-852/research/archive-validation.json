@@ -1,0 +1,39 @@
+{
+  "status": "pass",
+  "checks": "Four archive hashes and path/member validity; all17 exported summary metric cells reproduced from extracted archives",
+  "archives": [
+    {
+      "name": "excluded-development.tar.gz",
+      "sha256": "6c12f540018fb6c9247a04335824e14e4a2ed5fc7dc763e297a0eec7f919d028",
+      "bytes": 499034,
+      "members": 3804,
+      "uncompressed_bytes": 7732760
+    },
+    {
+      "name": "raw-controls.tar.gz",
+      "sha256": "c8f0e3e613bacc9f5267533c1ff934c3a34d9ab2582df2ccc09691c7639e2bb6",
+      "bytes": 27551778,
+      "members": 153515,
+      "uncompressed_bytes": 134386951
+    },
+    {
+      "name": "raw-primary.tar.gz",
+      "sha256": "b79274d6e7d9803d2318b325b2ae0755ee056b3a9c68b923790ac339873cd900",
+      "bytes": 10830977,
+      "members": 60496,
+      "uncompressed_bytes": 55025280
+    },
+    {
+      "name": "sources-validation.tar.gz",
+      "sha256": "da964d3777576230f3e340d98efe0d97028d84bbdcf112f33dfe528472ca2f79",
+      "bytes": 7085399,
+      "members": 5243,
+      "uncompressed_bytes": 27162440
+    }
+  ],
+  "additional_checks": [
+    "Extracted archives pass verify_integrity.py for all1218 processes",
+    "All local Markdown links resolve",
+    "Four published SHA256SUMS entries match"
+  ]
+}

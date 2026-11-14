@@ -1,40 +1,23 @@
 # Function reference
 
-```@autodocs
-Modules = [ProximalBase]
-Pages = ["functions/smooth.jl", "functions/leastsquares.jl", "functions/glm.jl", "functions/logdet.jl",
-         "functions/separable.jl", "functions/losses.jl", "functions/entropy.jl", "functions/norms.jl", "functions/fibers.jl", "functions/spectral.jl", "functions/sets.jl", "functions/ordered.jl", "functions/nonconvex.jl", "functions/singular.jl", "functions/matrixsets.jl", "functions/affine.jl", "lla.jl"]
-Private = false
-Filter = t -> !(t in (SeparableFunction, value_entry, iszeropreserving))
-```
+The [function library](../function_library.md) gives dimensions, errors,
+numerical examples and capability limits for the available concrete function types.
+
+## Smooth array functions
 
 ```@docs
-SparseGroupNormL2
-ProximalBase.AbstractGroupPenalty
+LeastSquaresLoss
+SqrNormL2
+QuadraticFunction
+ZeroFunction
+LinearFunction
 ```
 
-## Scalar losses of `GLMLoss`
-
-These are not exported; use them qualified, as `ProximalBase.Logistic()`.
+## Entrywise ℓ₁ norm
 
 ```@docs
-ProximalBase.ScalarLoss
-ProximalBase.Squared
-ProximalBase.Logistic
-ProximalBase.Poisson
-ProximalBase.Huber
-ProximalBase.SquaredHinge
-ProximalBase.SmoothCheck
-ProximalBase.ConvolutionCheck
-ProximalBase.Smoothed
-ProximalBase.deriv
-ProximalBase.deriv2
-ProximalBase.curvature
-ProximalBase.value_and_deriv
+NormL1
 ```
 
-## Intersections of sets
-
-```@docs
-IndIntersection
-```
+Scalar observation losses belong to a separate mathematical interface.
+See the [Scalar-loss API reference](scalar_losses.md).

@@ -1,0 +1,33 @@
+{
+  "pr_head": "a9f53e6ef3febffd58496c4a1c4fcb7609d0ca1c",
+  "pr_base": "147d025211b681e53e5c987116609a8351a4391e",
+  "runtimes_requested": [
+    "1.10.13",
+    "1.13.3"
+  ],
+  "benchmark_sources": {
+    "benchmark/block_prox.jl": "d00fa81a403423dd24d4b416605b6f7b99b381e20c88d088f4a745a770adae2b",
+    "docs/audit/block-prox-844/measurements/block_prox_pre_rename.jl": "dfdc32742260a41923c4aacb7d5c0a7cabc86282295c64aaa11d620b9099d0f9"
+  },
+  "benchmark_driver": "benchmark/block_updates.jl",
+  "benchmark_driver_sha256": "399828e8eb561b41334e91331b0c7492725afb7c4597a36dd4dcf0a3beb17f38",
+  "historical_pb_commit": "8eaf8f812fd0720e180f35cfc75bc7b090e8ea97",
+  "julia_archives": {
+    "1.10.13": {
+      "sha256": "f2bfa080db29b50a9bf250f69e9acdcfd8b7c49409dee5e55588f986706fb8bd"
+    },
+    "1.13.3": {
+      "sha256": "5c61cb4b40332cb5a3504e7779e2f5dac093caa4a1116ded19f01413f85c63e4"
+    }
+  },
+  "settings": {
+    "julia_threads": 1,
+    "blas_threads": 1,
+    "cpu": 2,
+    "compiled_modules": false,
+    "check_bounds": "no",
+    "evaluations_per_sample": 1,
+    "warm_up_included": false,
+    "source": "PB-only; no PS source, pins, PR or execution"
+  }
+}

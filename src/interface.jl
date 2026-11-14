@@ -7,34 +7,37 @@
 """
     AbstractFunction
 
-Abstract supertype of the functions of ProximalBase: losses, penalties and
-indicator functions. A function `f` is callable: `f(x)` is its value, `Inf`
-outside its domain. Its traits say which oracles it provides:
+Abstract supertype for mathematical functions with callable values, gradients
+and proximal operators. Declare `issmooth`, `isproximable`, `isseparable` and
+`isconvex` for the function's type. Mutating oracles take their output first.
 
-| Trait | Oracles |
-|:------|:--------|
-| [`issmooth`](@ref) | [`gradient!`](@ref), [`value_and_gradient!`](@ref) |
-| [`isproximable`](@ref) | [`prox!`](@ref), [`value_and_prox!`](@ref) |
-| [`isseparable`](@ref) | [`prox_entry`](@ref), and [`prox_coordinate!`](@ref) on every iterate |
-| [`hashessian`](@ref) | [`hessian_vec!`](@ref), [`quadratic_model`](@ref) |
-
-A function can have several roles: [`SqrNormL2`](@ref), [`QuadraticFunction`](@ref),
-[`LeastSquaresLoss`](@ref) and [`LogDetLoss`](@ref) are both smooth and
-proximable. [`isconvex`](@ref) tells a solver whether convex theory applies.
-
-To add a function, subtype `AbstractFunction`, make it callable, declare its
-traits for its type, as in `ProximalBase.issmooth(::Type{<:MyLoss}) = true`, and
-implement the oracles of those traits.
+Shapes, real element types and parameter extents are checked before predictable
+output writes. The per-entry parameters of a function used on a
+SymmetricSparseIterate (weights, centers, coefficients) must be exactly symmetric:
+this is a precondition on the model that the oracles assume and do not compare.
+Validate it once per model with `ProximalBase.check_symmetric_parameters`; custom
+separable functions declare their arrays with `entry_parameters`. A failure during
+numerical computation may leave the output changed.
 """
 abstract type AbstractFunction end
+
+# Where the oracles of the families that support it take either an array or a SymmetricSparseIterate.
+# A symmetric iterate is not an array: a method that is not written with this type, or with
+# SymmetricSparseIterate, does not accept it.
+const _ArrayOrSymmetricIterate = Union{AbstractArray, SymmetricSparseIterate}
+
+# the number of entries of the array, or of the matrix that the symmetric iterate represents
+_nentries(x::AbstractArray) = length(x)
+_nentries(x::SymmetricSparseIterate) = x.p^2
+
+function value_and_prox! end
+function gradient! end
 
 """
     issmooth(f)
 
-Whether `f` is differentiable on the interior of its domain, with
-[`gradient!`](@ref) and [`value_and_gradient!`](@ref). The gradient need not be
-globally Lipschitz: [`LogDetLoss`](@ref) is smooth on the positive definite
-matrices, and its value is `Inf` elsewhere.
+Whether f provides a gradient and value_and_gradient! on the interior of its
+domain. Declare the trait on its type; the instance query forwards to it.
 """
 issmooth(::Type{<:AbstractFunction}) = false
 issmooth(f::AbstractFunction) = issmooth(typeof(f))
@@ -42,8 +45,8 @@ issmooth(f::AbstractFunction) = issmooth(typeof(f))
 """
     isproximable(f)
 
-Whether `f` has an efficient proximal operator, computed by [`prox!`](@ref) and
-[`value_and_prox!`](@ref).
+Whether `f` has an efficient proximal operator, computed by `prox!` and
+`value_and_prox!`.
 """
 isproximable(::Type{<:AbstractFunction}) = false
 isproximable(f::AbstractFunction) = isproximable(typeof(f))
@@ -52,17 +55,35 @@ isproximable(f::AbstractFunction) = isproximable(typeof(f))
     isseparable(f)
 
 Whether `f(x) = Σᵢ fᵢ(xᵢ)` is a sum over the entries of `x`. A separable `f` has
-the scalar proximal operators [`prox_entry`](@ref), with which
-[`prox_coordinate!`](@ref) updates a coordinate of any iterate, and
-[`kkt_violation`](@ref) needs only the gradient.
+the scalar proximal operators `prox_block`, and
+`kkt_violation` needs only the gradient.
 """
 isseparable(::Type{<:AbstractFunction}) = false
 isseparable(f::AbstractFunction) = isseparable(typeof(f))
 
 """
+    iszeropreserving(f)
+
+Whether the separable function `f` has `fᵢ(0) = 0` and
+`prox_block(f, 0, i, γ) = 0` for every entry `i` and every positive finite step
+`γ`. Then sparse-iterate kernels may skip unstored zeros. This promises no
+standalone value oracle. It is `false` for non-separable functions and unless
+a function declares it. Wrappers forward it only where it holds for every
+entry and every positive finite step.
+
+The promise holds in exact arithmetic: for parameters or steps so extreme
+that dense computations overflow (for example, a scale beyond
+`floatmax(Float32)` with a `Float32` argument), paths over stored entries
+return exact zeros where dense results can be `NaN`.
+
+It is a property of the function instance and its parameters.
+"""
+iszeropreserving(::AbstractFunction) = false
+
+"""
     isconvex(f)
 
-Whether `f` is convex. For a nonconvex `f`, [`prox!`](@ref) returns one of the
+Whether `f` is convex. For a nonconvex `f`, `prox!` returns one of the
 minimizers that define the proximal operator, and accelerated methods such as
 FISTA lose their guarantees.
 """
@@ -80,8 +101,16 @@ Store the proximal operator
 
     prox_{γf}(x) = argmin_z  f(z) + ‖z - x‖² / (2γ)
 
-in `y` and return `y`. `y` may be `x`. For a nonconvex `f` the result is one of
-the minimizers.
+in `y` and return `y`. For a nonconvex `f` the result is one of the minimizers.
+
+The output may be the argument itself: `prox!(x, f, x, γ)` works for every
+function. A `SymmetricSparseIterate` output takes a scalar step `γ`, the Frobenius
+proximal operator of the symmetric matrix; an array or per-group step is an `ArgumentError`
+before anything is written (use `Matrix(x)` or `matrixview(x)` with a dense output). Any other sharing of memory between `y` and `x` is not supported and
+is not detected, even when the two cover the same entries: a call such as
+`prox!(view(x, :), f, x, γ)`, or with a shifted or reversed view of `x`, can
+return wrong values without an error. Copy the argument first, as in
+`prox!(y, f, copy(x), γ)`. Supported operand shapes depend on the concrete function.
 """
 function prox! end
 prox!(y, f::AbstractFunction, x) = prox!(y, f, x, 1)
@@ -89,7 +118,8 @@ prox!(y, f::AbstractFunction, x) = prox!(y, f, x, 1)
 """
     prox(f, x, γ = 1)
 
-Allocating version of [`prox!`](@ref).
+Allocating version of `prox!`. For a supported `SymmetricSparseIterate` `x` the result is an
+independent `SymmetricSparseIterate` of the float element type, and `γ` is a scalar.
 """
 prox(f::AbstractFunction, x::AbstractArray, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
 # a Symmetric or Hermitian wrapper does not accept off-diagonal writes: a dense result
@@ -97,29 +127,116 @@ prox(f::AbstractFunction, x::Union{Symmetric, Hermitian}, γ::Real = 1) =
   prox!(Matrix{float(eltype(x))}(undef, size(x)), f, x, γ)
 
 """
-    value_and_prox!(y, f, x, γ = 1)
+    value_and_prox!(y, f, x, γ=1)
 
-Store `prox_{γf}(x)` in `y`, as [`prox!`](@ref) does, and return the value at the
-result. Many functions get the value from the computation of the proximal
-operator: a nuclear norm from the singular values that it thresholds. For the
-package's indicator functions, return `0` without checking membership. This
-equals `f(y)` when the projection is exact, but is not a feasibility certificate
-for an inexact projection such as [`IndIntersection`](@ref). Computing the value this
-way can be cheaper than `prox!` followed by `f(y)`. A [`Conjugate`](@ref) whose
-value uses the Fenchel equality can return a small nonzero value even when it
-represents an indicator.
+Store the proximal point in `y` and return the value at that stored result.
+Exact input/output aliasing is supported. Other shared-memory views are not
+supported. Shape and parameter checks precede writes; failures during numerical
+computation may leave output changed.
 """
-function value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1)
-  prox!(y, f, x, γ)
-  _isindicator(f) ? zero(float(eltype(y))) : f(y)
+value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_body!(y, f, x, γ))
+_value_and_prox_unchecked!(y, f::AbstractFunction, x, γ::Real = 1) =
+  _isbuiltin(f) ? _value_and_prox_body!(y, f, x, γ) : value_and_prox!(y, f, x, γ)
+function _value_and_prox_body!(y, f::AbstractFunction, x, γ::Real = 1)
+  _checkwrite(value_and_prox!, f, y, x)
+  _prox_unchecked!(y, f, x, γ)
+  _isindicator(f) ? zero(_valtype(y)) : _value_at(_value_unchecked(f, y), y)
 end
 
-# Internal traits: an indicator function is 0 at its projection, and the
-# parameter arrays of a function (weights, bounds, centers) must have an entry
-# for every entry of the argument, which _checkparams verifies in O(1).
+"""
+    ProximalBase.check_parameters(f, x)
+
+Check that the parameters of `f` fit the argument `x`. Throw `DimensionMismatch`
+when they do not. The default for an `AbstractFunction` returns
+`nothing`. Define this method for a function with parameter arrays; the
+generic kernels call it before writing any output, including `x` when the
+output aliases it.
+
+For a `SeparableFunction` `WeightedSquare` with a weight vector `w`:
+
+```julia
+function ProximalBase.check_parameters(f::WeightedSquare, x)
+  length(f.w) == prod(size(x)) || throw(DimensionMismatch("a parameter array has length \$(length(f.w)) and the argument has \$(prod(size(x))) entries"))
+  nothing
+end
+```
+"""
+check_parameters(::AbstractFunction, x) = nothing
+
+"""
+    ProximalBase.entry_parameters(f)
+
+Declare the per-entry parameters of `f` as a tuple of `name => value` pairs,
+for example `(:w => f.w,)`. Include arrays indexed like the argument;
+`nothing` and scalar numbers are skipped. Other values throw `ArgumentError`.
+Declare `()` when there are none. Each user `SeparableFunction` must
+supply this method to work on a `SymmetricSparseIterate`; its default
+is `nothing` (undeclared). The declaration must include every per-entry array.
+It describes only `f` itself, not the functions inside its wrappers.
+
+Within ProximalBase, only `ProximalBase.check_symmetric_parameters` reads this declaration. The
+numerical oracles do not compare mirrored entries of these arrays: the caller or
+solver validates the model, and an oracle given asymmetric parameters has no
+guaranteed numerical meaning. Built-in wrappers expose their inner function's
+arrays to the checker. Raw entry oracles and `restrict` have no iterate; validate the
+original function before using them.
+
+See Symmetric parameters for which arrays must be symmetric and who validates them.
+"""
+function entry_parameters end
+
+"""
+    ProximalBase.check_symmetric_parameters(f,x)
+
+Validate caller-supplied per-entry parameters on a symmetric iterate. Every
+declared array must be exactly symmetric at every off-diagonal pair, including
+pairs the iterate does not store, recursively through `Scaled`; an asymmetric
+array, or malformed or undeclared custom separable parameter metadata, throws
+`ArgumentError`. Arrays symmetric by type, such as `Symmetric(W, :L)`, pass.
+Other iterates return true.
+
+The numerical oracles never call this check: validate the model at the solve or
+workspace boundary, and again after changing a parameter array. A successful
+check is not recorded anywhere and is not a replacement for `check_parameters`
+or the shape checks of the oracles.
+"""
+function check_symmetric_parameters end
+
+# An indicator is zero at its projection. Built-ins check their parameter
+# arrays privately; the fallback calls the public extension hook before writes.
 _isindicator(::Type{<:AbstractFunction}) = false
 _isindicator(f::AbstractFunction) = _isindicator(typeof(f))
-_checkparams(::AbstractFunction, x) = true
+_checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
+_argument_type(::Type{<:AbstractFunction}) = Any
+_checkargument(f, x) = x isa _argument_type(typeof(f)) || throw(MethodError(f, (x,)))
+_checkgradient_output(g, x) = (g === x && throw(ArgumentError("the gradient must not overwrite x")); nothing)
+# A symmetric iterate output is also aliased by a matrix that shares its storage, such as its matrix view and the wrappers of
+# that view, which a gradient written coordinate by coordinate would change before the point is read again
+_checkgradient_output(g::SymmetricSparseIterate, x) =
+  (_symmetric_iterate_mightalias(g, x) && throw(ArgumentError("the gradient must not overwrite x")); nothing)
+_symmetric_iterate_mightalias(g::SymmetricSparseIterate, x) = g === x
+_symmetric_iterate_mightalias(g::SymmetricSparseIterate, x::AbstractArray) = Base.mightalias(g, x)
+_symmetric_iterate_mightalias(g::SymmetricSparseIterate, x::SymmetricSparseIterate) =
+  g === x || (g.p > 0 && x.p > 0 && any(id -> id in Base.dataids(g), Base.dataids(x)))
+# blocks pair up to the shorter tuple; the size checks report a length mismatch
+@generated _checkgradient_output(g::Tuple, x::Tuple) =
+  _blockwise(k -> :(_checkgradient_output(g[$k], x[$k])), min(fieldcount(g), fieldcount(x)), nothing)
+
+function _checkwrite(op, f, y, x)
+  _checkreal(f, x)
+  _checkreal(f, y)
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
+  if op === value_and_prox! || op === gradient!
+    _checkparams(f, x)
+    _checkargument(f, x)
+  else
+    _checkargument(f, x)
+    _checkparams(f, x)
+  end
+  true
+end
+_checkvalue(f, x) = (_checkreal(f, x); _checkparams(f, x))
 
 ####################################
 #  Gradients
@@ -129,33 +246,65 @@ _checkparams(::AbstractFunction, x) = true
     gradient!(g, f, x)
 
 Store the gradient of `f` at `x` in `g` and return `g`.
+`g` must not be `x` unless the function documents otherwise; built-in functions
+throw an `ArgumentError`. A `SymmetricSparseIterate` `g` receives the symmetric part
+of the gradient, the derivative over symmetric matrices.
 """
-gradient!(g, f::AbstractFunction, x) = (value_and_gradient!(g, f, x); g)
+gradient!(g, f::AbstractFunction, x) =
+  (_check_oracle_arrays(gradient!, f, g, x); _gradient_body!(g, f, x))
+_gradient_unchecked!(g, f::AbstractFunction, x) =
+  _isbuiltin(f) ? _gradient_body!(g, f, x) : gradient!(g, f, x)
+function _gradient_body!(g, f::AbstractFunction, x)
+  _checkwrite(gradient!, f, g, x)
+  _value_and_gradient_unchecked!(g, f, x)
+  g
+end
 
 """
     value_and_gradient!(g, f, x)
 
 Store the gradient of `f` at `x` in `g` and return `f(x)`. Usually cheaper than
-calling `f(x)` and [`gradient!`](@ref) separately.
+calling `f(x)` and `gradient!` separately.
+`g` must not be `x` unless the function documents otherwise; built-in functions
+throw an `ArgumentError`.
 """
 function value_and_gradient! end
 
-# a dense array for the gradient at x, also when x is a sparse iterate
+# a dense array for the gradient at x, also when x is a sparse iterate or a SymmetricSparseIterate
 _gradient_buffer(x::AbstractArray) = similar(Array{float(eltype(x))}, axes(x))
+_gradient_buffer(x::SymmetricSparseIterate) = Matrix{float(eltype(x))}(undef, size(x))
+@generated _gradient_buffer(x::Tuple) = _blocktuple(k -> :(_gradient_buffer(x[$k])), fieldcount(x))
+
+_prox_buffer(x::AbstractArray) = similar(x, float(eltype(x)))
+_prox_buffer(x::Union{Symmetric, Hermitian}) = Matrix{float(eltype(x))}(undef, size(x))
+@generated _prox_buffer(x::Tuple) = _blocktuple(k -> :(_prox_buffer(x[$k])), fieldcount(x))
+
+function _checksize(y::Tuple, x::Tuple)
+  length(y) == length(x) || _block_size_error(length(y), length(x))
+  _checksize_blocks(y, x)
+end
+@generated _checksize_blocks(y::Tuple, x::Tuple) = _blockwise(k -> :(_checksize(y[$k], x[$k])), fieldcount(y), true)
+@noinline _block_size_error(n, m) = throw(DimensionMismatch("the output has $n blocks and the input $m"))
+
+prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = prox!(_prox_buffer(x), f, x, γ)
 
 """
     gradient(f, x)
 
-Allocating version of [`gradient!`](@ref).
+Allocating version of `gradient!`; array arguments get dense floating output.
+Supported symmetric-iterate gradients (SqrNormL2, LinearFunction and supported Scaled
+leaves) return a dense symmetric Matrix. ZeroFunction has symmetric-iterate value/prox
+but no symmetric-iterate gradient method. Traits do not supply missing operand methods.
 """
 gradient(f::AbstractFunction, x::AbstractArray) = gradient!(_gradient_buffer(x), f, x)
+gradient(f::AbstractFunction, x::Tuple) = gradient!(_gradient_buffer(x), f, x)
 
 """
     value_and_gradient(f, x)
 
-Allocating version of [`value_and_gradient!`](@ref): returns `(f(x), ∇f(x))`.
+Allocating version of `value_and_gradient!`: returns `(f(x), ∇f(x))`.
 """
-function value_and_gradient(f::AbstractFunction, x::AbstractArray)
+function value_and_gradient(f::AbstractFunction, x::Union{AbstractArray, Tuple})
   g = _gradient_buffer(x)
   v = value_and_gradient!(g, f, x)
   v, g
@@ -166,165 +315,149 @@ end
 ####################################
 
 """
-    prox_entry(f, v, i, γ)
+prox_block(f, v::Real, i::Integer, γ::Real)
+    prox_block(f, u::AbstractVector, k::Integer, γ::Real)
 
-For a separable `f(x) = Σᵢ fᵢ(xᵢ)` (see [`isseparable`](@ref)), the proximal
-operator of `γfᵢ` at the scalar `v`: the value that a coordinate-descent step
-gives entry `i` when the gradient step lands at `v`. `i` is a linear index of
-the array, so that weights and bounds may depend on the entry; for a
-[`SymmetricSparseIterate`](@ref), entry `(r, c)` has index `(c - 1)p + r`.
-It touches no iterate: [`prox_coordinate!`](@ref) updates a coordinate of one in
-place.
+Compute a pure mathematical proximal point at an already constructed trial.
+Scalar methods use the underlying array's global linear entry index `i`;
+retained built-ins are NormL1, SqrNormL2, LinearFunction, ZeroFunction and
+supported Scaled leaves. Custom SeparableFunction subtypes implement this
+scalar method together with value_entry. No iterate or cache is updated.
+
+The vector form allocates a plain floating Vector of length(u) and delegates
+to a custom prox_block! implementation. Its group index and compact vector
+order are defined by that extension; no built-in group penalty remains.
+The generic wrapper supplies no group, shape, parameter or overlap validation.
+Implementing a block hook does not add a full-array prox or capability trait.
+
+For symmetric iterate coordinate k, convert `(r,c)=tril_cartesian(p,k)` to
+full-entry `i=(c-1)p+r` for a scalar hook and validate the original function
+with ProximalBase.check_symmetric_parameters before using raw entry calls.
 """
-function prox_entry end
-
+function prox_block end
 """
-    prox_coordinate!(x, f, k, γ)
+    prox_block!(out, f, u, k, γ)
 
-Apply the proximal operator of `γf` to coordinate `k` of the iterate `x` in
-place, as in one step of coordinate descent, and return the new value of the
-coordinate. The coordinates of a [`SparseIterate`](@ref) are its entries, those
-of a [`SymmetricSparseIterate`](@ref) the entries of its lower triangle, and
-those of an [`AtomIterate`](@ref) its groups, for which `prox_coordinate!`
-returns a view of the group (see [`ncoordinates`](@ref)).
+Pure compact-vector block proximal extension hook. A conforming custom method
+writes the proximal point of its selected block into out and returns out.
+Buffers follow that block's compact ordered indices. There is no retained
+built-in implementation; the allocating vector prox_block delegates here.
 
-A separable `f` updates any coordinate through [`prox_entry`](@ref); a group
-penalty such as [`GroupNormL2`](@ref) updates a group of an `AtomIterate` that
-shares its groups. A coordinate that stays zero does not become stored or
-active; one that becomes nonzero does.
+The extension validates one-based real vectors, group bounds, exact lengths,
+parameters and supported step before predictable writes. Exact out===u is
+supported; other overlap must be rejected by the extension. Failed reads,
+conversions or user arithmetic may leave partial numerical output.
+
+Caller precondition: out is independent of iterate storage and solver/model
+caches, including activevalues, coordinates and blockview aliases. Ownership
+is not inferred from buffer types. Compute in independent scratch, then write
+public storage and update caller caches separately. No activation occurs here.
 """
-function prox_coordinate! end
-
-@noinline _not_separable(f) =
-  throw(ArgumentError("$(typeof(f)) is not separable: prox_coordinate! needs a separable function or a group penalty on matching groups"))
-
-function prox_coordinate!(x::SparseIterate, f::AbstractFunction, k::Integer, γ::Real)
-  isseparable(f) || _not_separable(f)
-  _checkparams(f, x)
-  v = prox_entry(f, x[k], k, γ)
-  x[k] = v
-  v
-end
-
-function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Integer, γ::Real)
-  isseparable(f) || _not_separable(f)
-  _checkparams(f, x)
-  checkbounds(coordinates(x), k)
-  r, c = tril_cartesian(x.p, k)
-  v = prox_entry(f, _getstored(x, k), (c - 1) * x.p + r, γ)
-  _setstored!(x, v, k)
-  v
-end
-
-# group k, entry by entry; the group becomes active if it ends nonzero
-function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, γ::Real)
-  isseparable(f) || _not_separable(f)
-  _checkparams(f, x)
-  checkbounds(x.groups, k)
-  nonzero = false
-  @inbounds for i in x.groups[k]
-    v = prox_entry(f, x.storage[i], i, γ)
-    x.storage[i] = v
-    nonzero |= !iszero(v)
-  end
-  nonzero && activate!(x, k)
-  atom(x, k)
-end
+function prox_block! end
 
 ####################################
 #  Optimality and active sets
 ####################################
 
 """
-    kkt_violation(f, g, i)
+kkt_violation(f, g, i)
     kkt_violation(f, g, x, k)
 
-How much a coordinate at zero violates the optimality conditions of `h + f`,
-where `g = ∇h(x)` is the gradient of the smooth part: a positive value means
-that moving the coordinate away from zero decreases the objective, and a value
-`≤ 0` that zero is optimal. For [`NormL1`](@ref) it is `|gᵢ| - λ0 wᵢ`.
+Signed screen of a coordinate assumed zero in `h+f`, with full smooth-part
+gradient `g=∇h(x)`. A positive value means zero violates its condition;
+a nonpositive value checks zero only, not stationarity of a nonzero coordinate.
+NormL1 returns `abs(g[i])-λ0*w[i]`. Retained scalar screens also cover
+ZeroFunction, LinearFunction, SqrNormL2 and supported Scaled leaves.
 
-For a separable `f` the condition involves only `gᵢ`, and the first form
-suffices. The second form takes a coordinate `k` of the point `x`: for a
-[`GroupNormL2`](@ref), the condition of an index involves the rest of its group,
-and on an [`AtomIterate`](@ref) `k` is a group, whose violation is
-`‖g[Gₖ]‖₂ - λ0 wₖ` (for a separable `f`, the largest over the group).
+For SparseIterate and SymmetricSparseIterate, the four-argument form checks
+real types, coordinate bounds (BoundsError), then full gradient entry count
+(DimensionMismatch): length(x) or p², respectively. A flat or matrix-shaped
+gradient of that count is accepted. The symmetric iterate uses the symmetric gradient pair;
+opposing infinities in that gradient pair throw ArgumentError. The extent of
+the function's parameters is checked, but their mirrored entries are not compared:
+symmetric parameters are a precondition (see `check_symmetric_parameters`).
+
+For BlockIterate, k is a group and retained scalar-screen functions return
+the maximum screen over its ordered global entry indices. That path does not
+add the same explicit full-gradient extent preflight. Other array points add
+no coordinate/gradient extent check beyond function/indexing checks. Raw
+three-argument calls have no symmetric iterate, so no parameter-symmetry preflight.
 """
 function kkt_violation end
 
 # for a separable function, the optimality of a coordinate at zero does not
 # depend on the rest of x
-kkt_violation(f::AbstractFunction, g::AbstractArray, ::AbstractArray, i::Integer) = kkt_violation(f, g, i)
+kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation);
+   _check_kkt_coordinate(g, x, i);
+   _isbuiltin(f) ? _kkt_violation(f, g, x, i) : kkt_violation(f, g, i))
 function kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
+  _check_kkt_coordinate(g, x, k)
   r, c = tril_cartesian(x.p, k)
-  kkt_violation(f, g, (c - 1) * x.p + r)
+  view = _SymmetricGradient(g, x.p)
+  view[(c - 1) * x.p + r]  # reject an undefined symmetric part before dispatch
+  _check_parameter_extent(f, x)
+  _kkt_violation(f, view, x, k)
 end
-# a group at zero violates optimality as much as its worst index
-kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer) =
-  maximum(i -> kkt_violation(f, g, i), x.groups[k])
+# k must be a coordinate of x, tested before any conversion of k, and g must have the extent of the
+# problem: length(x) for a SparseIterate, p^2 for a SymmetricSparseIterate; O(1), no scan of g
+@inline function _check_kkt_coordinate(g::AbstractArray, x::Union{SparseIterate, SymmetricSparseIterate}, k::Integer)
+  n = ncoordinates(x)
+  (1 <= k) & (k <= n) || throw(BoundsError(Base.OneTo(n), k))
+  length(g) == _gradient_extent(x) || _throw_kkt_extent(g, x)
+  nothing
+end
+_check_kkt_coordinate(::AbstractArray, ::AbstractArray, ::Integer) = nothing
+_gradient_extent(x::SparseIterate) = length(x.ind2nzval)
+_gradient_extent(x::SymmetricSparseIterate) = x.p^2
+@noinline _throw_kkt_extent(g, x) = throw(DimensionMismatch(
+  "the gradient has length $(length(g)), but the $(nameof(typeof(x))) needs one of length $(_gradient_extent(x))"))
 
 """
-    restrict(f, S)
+    restrict(f,S)
 
-The function of `x[S]` that `f` becomes on the vectors `x` supported on the
-coordinates `S`, where supported: an active-set solver minimizes the restriction
-over those coordinates. The restriction preserves the objective up to a finite
-additive constant and, for a smooth function, has gradient `∇f(x)[S]`. Centered
-[`SqrNormL2`](@ref), [`Regularize`](@ref) and separable [`Translate`](@ref) may
-drop terms belonging to excluded coordinates. These constants do not change the
-minimizer; evaluate the original function when comparing full objective values.
-
-A nonseparable `Translate` requires its translation to vanish outside `S`;
-otherwise restricting its underlying function would change more than a constant,
-and the operation throws. Excluded terms outside a translated separable
-function's domain also cause an error.
+Restrict a retained function's entry parameters to the integer index vector S.
+NormL1 slices weights, centered SqrNormL2 slices its center, LinearFunction
+slices coefficients, QuadraticFunction selects its principal submatrix and
+linear term, vector-response LeastSquaresLoss selects design columns, and
+Scaled forwards. For least squares and quadratics, omitted coordinates are fixed at zero.
+Centered SqrNormL2 drops the omitted-coordinate constant λ*sum(y[j]^2)/2;
+when finite, it changes values but not restricted minimizers/gradients/prox.
+Add it back for full-value comparisons. A nonzero fixed point needs separately
+derived residual/linear terms. Raw restriction has no iterate
+on which to validate symmetric per-entry parameters; validate the original
+function before using the result in a coordinate routine.
 """
 function restrict end
 
 """
-    gradient_mapping!(G, f, g, x, γ)
-    gradient_mapping(f, g, x, γ)
-
-The gradient mapping `G = (x - prox_{γg}(x - γ∇f(x))) / γ` of the problem
-`minimize f(x) + g(x)`, for a smooth `f` and a proximable `g`. When `f` and `g`
-are convex it is zero exactly at the minimizers, for every `γ > 0`; with
-`g = 0` it is `∇f(x)`. Its norm is a stopping rule that needs neither the
-optimal value nor the structure of `g`, and a proximal gradient step from `x` is
-`x - γG`. `G` must not be `x`; `gradient_mapping!` allocates nothing beyond
-what `gradient!` and `prox!` do.
-"""
-function gradient_mapping!(G::AbstractArray, f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ::Real)
-  G === x && throw(ArgumentError("G must not be x"))
-  gradient!(G, f, x)
-  G .= x .- γ .* G
-  prox!(G, g, G, γ)
-  G .= (x .- G) ./ γ
-end
-
-gradient_mapping(f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ::Real) =
-  gradient_mapping!(_gradient_buffer(x), f, g, x, γ)
-@doc (@doc gradient_mapping!) gradient_mapping
-
-"""
     lipschitz(f)
 
-A Lipschitz constant `L` of the gradient of the smooth function `f`, so that a
-gradient or proximal gradient step with step `1/L` decreases the objective.
-It is exact for the closed forms (`SqrNormL2(λ)` gives `λ`). Dense matrices use
-a full spectral calculation, such as `‖X‖₂²` for `LeastSquaresLoss`. Sparse and
-other indexed matrices use the conservative bound `‖X‖₁ ‖X‖∞` for `‖X‖₂²`,
-without forming a Gram matrix or densifying the input. Weighted losses apply
-this calculation to `Diagonal(sqrt.(weights)) * X`.
-
-The full dense calculation can cost more than an iterative estimate. For large
-problems, [`opnorm2`](@ref) supplies a faster estimate with matrix products, but
-it must be paired with backtracking or an independent bound when selecting a
-step: an estimate can miss a leading eigenspace. `lipschitz` is `Inf` for a
-smooth function whose gradient is not globally Lipschitz, such as `LogDetLoss`
-and `PoissonLoss`, which call for a line search, and an error for a function
-that is not smooth. Sums add the constants, `Scaled` scales them, and
-`SeparableSum` takes their maximum.
+A global gradient Lipschitz bound for retained smooth functions. ZeroFunction
+and LinearFunction return zero; SqrNormL2 returns its level. QuadraticFunction
+uses a matrix operator-norm bound; LeastSquaresLoss bounds the squared design
+norm. Dense matrices use their full spectral norm; other matrices use a safe
+one/infinity norm bound. Scaled scales the inner bound. Unknown bounds throw.
+The separate opnorm2 estimate may miss a leading eigenspace and needs an
+independent bound or backtracking when choosing a step.
 """
 lipschitz(f::AbstractFunction) =
   throw(ArgumentError(issmooth(f) ? "no Lipschitz constant is known for the gradient of $(nameof(typeof(f)))" :
                                     "$(nameof(typeof(f))) is not smooth"))
+
+function _kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
+  r, c = tril_cartesian(x.p, k)
+  kkt_violation(f, g, (c - 1) * x.p + r)
+end
+
+_kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
+  _isbuiltin(f) ? kkt_violation(f, g, i) : kkt_violation(f, g, x, i)
+
+# a group at zero violates optimality as much as its worst index
+kkt_violation(f::AbstractFunction, g::AbstractArray, x::BlockIterate, k::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation);
+   _isbuiltin(f) ? _kkt_violation(f, g, x, k) : maximum(i -> kkt_violation(f, g, i), x.groups[k]))
+
+_kkt_violation(f::AbstractFunction, g::AbstractArray, x::BlockIterate, k::Integer) =
+  _isbuiltin(f) ? maximum(i -> kkt_violation(f, g, i), x.groups[k]) : kkt_violation(f, g, x, k)

@@ -1,7 +1,9 @@
-# Calculus reference
+# Scaling reference
 
-```@autodocs
-Modules = [ProximalBase]
-Pages = ["calculus.jl", "constrained.jl", "spectralfunction.jl", "ballconstrained.jl", "affineconstrained.jl", "envelope.jl", "composition.jl"]
-Private = false
+This reference covers the `Scaled` function, which represents nonnegative scaling. Its trait forwarding does not
+add missing methods, and a zero scale can return a different concrete type.
+See [Scaling a function](../calculus.md).
+
+```@docs
+Scaled
 ```

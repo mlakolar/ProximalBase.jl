@@ -1,0 +1,42 @@
+def81ec9d021c39ed1727cfeb9598357291dd60d 2026-11-01T07:04:08-05:00 Add matrixview and activevalues for the symmetric iterate (part of #391, Phase 0) (#392)
+f2931a7955c89a6eaac6ce31f9d808b82079eacb 2026-11-01T12:20:15+04:00 Matrix-coefficient switch of mul! across CPUs (#136, item 4) (#395)
+835b4d53d6fd9b6914cdafa9b7ff4c7653340de5 2026-11-01T05:50:34+04:00 SymmetricSparseIterate: documentation of the symmetric-matrix rule (part D of #142) (#383)
+3f90a29f21bea5f442d1b1f25f67a8e972037e0f 2026-10-31T05:17:11+04:00 AtomIterate: atom(x, k) is a view of the iterate; block step prox_coordinate!(x, f, k, u, γ) (#337)
+898ba7339e35273de734520d3e4ead6ee7de098d 2026-10-31T03:55:39+04:00 SymmetricSparseIterate: per-entry parameters must be exactly symmetric; kkt_violation uses the symmetric part of g (part A of #142) (#329)
+943cf3cdb5584a7b94213203c527b330fc39c290 2026-10-30T18:10:47+04:00 Generic writes into a SymmetricSparseIterate go through the checked writers or throw before writing (#338)
+34aa94e7913bcce5199272204f526e2b27e9ee2f 2026-10-30T13:22:29+04:00 Sparse-iterate value oracles: deterministic guard against dense passes; O(nnz) 1- and Inf-norms of a SymmetricSparseIterate (#335)
+04ff9bebdf703975dab47757d99808525f306af9 2026-10-30T12:22:26+04:00 Real arguments only: reject complex input consistently (#326)
+44d570e29784be262c2f2073e10a9543244c9ea8 2026-10-30T05:32:59+04:00 mul! into a SymmetricSparseIterate stores an exactly symmetric product once (#309)
+176cd4d4293b92213f2dc9a7e7159660fc87f1bb 2026-10-30T04:22:51+04:00 Wrapper buffers for iterate and device outputs; checks before coordinate updates and gradient mapping (#288)
+8f9f7ad701e98dcaf0f30c4c22293024461ae6f9 2026-10-30T04:17:04+04:00 SymmetricSparseIterate: writes see aliasing through coordinates(x) and views of x (#306)
+dfc259962e8b34d7fa06ebafda062e747227cc7a 2026-10-30T03:33:10+04:00 SymmetricSparseIterate: replace and replace! visit each entry once (#301)
+06c7a5775d02fff3d5271b1818b1295f78f8bc27 2026-10-29T21:35:36+04:00 SymmetricSparseIterate: require symmetric values in every write (map! no longer updates twice) (#193)
+8f0f5671195c99e065523ca6de0f1bf49a926d3a 2026-10-29T17:42:29+04:00 Compute weighted spectral values in scaled units when a sum overflows (#219)
+cfbc54208c7a941518101a003f8e989f3b78c93e 2026-10-28T21:10:32+04:00 Merge remote-tracking branch 'origin/master' into fix/issue-150
+6a8d4e5d5c631448273b1a49757d5bee3c9239b0 2026-10-28T12:15:54+04:00 Merge remote-tracking branch 'origin/master' into fix/issue-136
+a929894dc86e6a1dd611156490c68f329bd3919a 2026-10-28T12:15:06+04:00 Check group layouts once and cache the result in AtomIterate
+d630adfb23070d4c4a918ca5eaf242669d79fee2 2026-10-28T10:28:27+04:00 Decide set membership in power-of-two scaled units when the check overflows (#150)
+dd42dfe24659d74d68f1ba02425a47ccb27f257f 2026-10-28T10:11:08+04:00 Add the 0.5.x API additions of #137 (round 1)
+80e112ca33703276e626c56d7416f21a145f3b34 2026-10-28T07:32:31+04:00 Merge pull request #139: five-argument products, TV value and precompile workload
+80683abb6a48b969134962e3878b86594667d29a 2026-10-28T00:41:21+04:00 Choose the matrix-coefficient product loop by density
+0b88c95299704b6e04a6846715677337c50c61ab 2026-10-27T23:03:39+04:00 Leave five-argument products with matrix coefficients to LinearAlgebra
+662365b1c007be25914fd0ea2fc4a2757504cea8 2026-10-27T22:21:01+04:00 Keep the active-entry products in five-argument mul!
+d71226927b52ee04cbf660f47520ddaf9acdd190 2026-10-27T22:02:28+04:00 Correct documented guarantees and guard documentation coverage
+9a135abf1c4abf381500742fd4fd82738038d67c 2026-10-27T20:36:28+04:00 Disambiguate symmetric copies from SparseArrays 1.14 sources
+ddedef20b1827e9109f37c60aa3a7197cc2a0bd8 2026-10-26T15:13:16+04:00 Harden numerical and dispatch boundaries for the 0.5.4 audit
+b6c949f3dd26cad09252e1c2c9e49810eb69403e 2026-10-25T17:02:05+04:00 Standardize naming and use master checkouts for workspace dependencies (#111)
+e905fdae56705f34b16e7cf6d2e80af4a55c51f7 2026-10-25T01:21:29+04:00 Avoid phantom SIMD terminator misses in Julia 1.10 coverage
+fb671b1b0a6dd9d955fd4c422072ffcef549e432 2026-10-25T01:17:49+04:00 Promote symmetric-product scales before multiplying mixed-type coefficients
+c8c81778da456d35d136ba2fdc776a0898e6b8ce 2026-10-25T00:40:03+04:00 Add allocation-free Symmetric products for sparse and atom iterates
+c64e2b559b9a4d2e15fbaa32440bcf97a5eeebf5 2026-10-23T11:03:35+04:00 Finish #22: generic functions agree with the dense matrix
+3cc1010f8bfde1d8ef45c0c2fda8f997e7715ac2 2026-10-23T10:21:18+04:00 Rename cdprox to prox_entry and cdprox! to prox_coordinate!
+595f696e5091e75e4ef5c1cb9135377c177bb184 2026-10-23T01:25:52+04:00 Redesign the interface for 0.5: callable functions, traits, new functions
+728419062d53423fe366bdd61fe2f80627b167a5 2026-10-22T22:47:07+04:00 Fix indexing, show and shrink bugs; matrix Y in LeastSquaresLoss; cleanup (#21)
+62d53252d2703a7c8ce717daa2a10a04fabb88d0 2026-10-22T20:56:08+04:00 Route Array(x) for sparse iterates to the fast Vector/Matrix methods
+00281ecaf550fa07756199f05fa6d37828a01785 2026-10-22T10:42:21+04:00 Add numActive, activeCoordinate and isActive for all three iterates
+7cee9dd439479ba8d94dff375810beaabd396461 2026-10-22T10:40:36+04:00 Redesign AtomIterate as the group counterpart of SparseIterate
+a7bd1b074035afd87c8ae1046db3dbc77bdb91a3 2026-10-22T00:45:26+04:00 Add active-set building blocks: activate!, restrict, kkt_violation (#18)
+63a065c28de58f3ca5c6b74b72ac09b752f17e09 2026-10-21T23:42:16+04:00 Speed up products, losses, sparse copies and proxes; fix Float32 proxL1Fused (#17)
+f920e41b15f644572bcca27bba88b0bdcd3078e5 2026-10-20T22:53:15-07:00 Add docstrings and expand README (#12)
+d6d33ef0a6fc619987b87bed264a71a0dbc4ea36 2026-10-20T22:41:44-07:00 Use sparse transpose path for A' * x with real A (#11)
+5ba264a5206f6afc28e2e51d97f470d945eb0eea 2026-10-20T21:34:18-07:00 Modernize package infrastructure and fix bugs (#4)

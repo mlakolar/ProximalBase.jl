@@ -8,6 +8,7 @@
 .vscode/
 /docs/Manifest*.toml
 /docs/src/examples/
+/docs/src/developer/contracts/
 
 # Generated manifests for individual Julia versions
 /Manifest-v*.toml
@@ -27,3 +28,16 @@
 
 # Local run material of the codex orchestrator (journals, prompts, logs, depots)
 /.codex-orchestrator/
+
+# One-off audit and benchmark output stays outside git.
+# Already-tracked historical artifacts remain tracked until a separate cleanup.
+/docs/audit/**/results/
+/docs/audit/**/artifacts/
+/docs/audit/**/evidence/
+/benchmark/**/results/
+/benchmark/**/artifacts/
+*.tar.gz
+*.tgz
+*.jld2
+*.parquet
+*.npz

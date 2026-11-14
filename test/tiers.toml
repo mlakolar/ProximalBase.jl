@@ -1,0 +1,38 @@
+[tiers]
+quick = [
+  "active_handle",
+  "block_copy",
+  "block_replacement",
+  "block_value_updates",
+  "cache_and_blocks",
+  "ci_contract",
+  "core_functions",
+  "dropzeros_compaction",
+  "infinite_weights",
+  "iterate_invariants",
+  "iterate_queries",
+  "iterate_writes",
+  "linear_shapes",
+  "linear_sparse_value",
+  "linear_value_recovery",
+  "matrixview",
+  "minimal_math",
+  "numerical_kernels",
+  "numerical_recovery",
+  "real_iterates",
+  "ridge_precision",
+  "sparse_iterate",
+  "sparse_iterate_basics",
+  "sparse_iterate_basics_grids",
+  "sparse_value_cost",
+  "symmetric_iterate_indexing",
+  "symmetric_iterate_interface",
+  "symmetric_parameters",
+  "symmetric_products",
+]
+standard = []
+thorough = []
+full = []
+
+[not_tests]
+files = ["runtests", "tiers", "testutils"]

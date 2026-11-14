@@ -677,8 +677,17 @@ end
 # For Float32 and Float64 entries the same result as the scan above, from the largest magnitude, taken on the bit patterns where it
 # vectorizes (_maximum_abs): a NaN has the largest pattern, then an Inf, and the exponent of the largest finite
 # entry is the largest exponent. No entry is classified, converted or its exponent taken, but one.
+# the largest magnitude of a short group, on the bit patterns, in a plain loop (a vector loop needs a long trip count)
+@inline function _small_maxabs(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  U = _int_type(T)
+  m = zero(U)
+  @inbounds for i in eachindex(x)
+    m = max(m, reinterpret(U, x[i]) & typemax(U))
+  end
+  reinterpret(T, m)
+end
 @inline function _square_exponent(x::AbstractArray{<:Union{Float32, Float64}}, ::Nothing, ::Type{R}) where {R}
-  m = _maximum_abs(x)
+  m = length(x) < 16 ? _small_maxabs(x) : _maximum_abs(x)
   isnan(m) && return _EXPONENT_NAN
   isinf(m) && return _EXPONENT_INF
   iszero(m) && return _EXPONENT_ZERO

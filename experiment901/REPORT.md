@@ -1,6 +1,7 @@
 # #901 architecture experiment: comparative decision report
 
-Status: **recommendation for maintainer approval. Nothing integrated into #901**; no merge, no PR change, no push.
+Status: **recommendation for maintainer approval. Nothing integrated into #901**; no merge, no PR change. The experiment
+branches below are pushed to `origin` for review; no pull request was opened for them.
 Date: 2026-11-13. Orchestrator: Opus; four Sonnet implementers (high effort) worked in parallel in separate worktrees.
 
 ## Recommendation
@@ -69,8 +70,8 @@ Fallbacks:
 | D | `2971e5fe` | `exp/901-D-minimal-primitive`, `D` | minimal shared primitive |
 | harness | `bfeddb37` + this report | `exp/901-harness`, `harness` | methodology, harnesses, scripts, results |
 
-C's unadopted experiment branches: `exp/C-v1`, `-v2`, `-v3`, `-v4`, `-w1`, `-w2`, `-x1`, `-x3`, `-x5`. None of
-the experiment branches are pushed.
+C's unadopted experiment branches: `exp/C-v1`, `-v2`, `-v3`, `-v4`, `-w1`, `-w2`, `-x1`, `-x3`, `-x5`. All experiment
+branches are pushed to `origin`; none has a pull request.
 
 ## Methodology (summary; full text in METHODOLOGY.md)
 
@@ -233,7 +234,7 @@ The implementers' own screening jobs are listed in their reports:
 
 ## Not done (by design or pending approval)
 
-- No integration into #901, no merge, no ready-for-review, no push, no new PR.
+- No integration into #901, no merge, no ready-for-review, no new PR (the experiment branches are pushed only).
 - No second campaign repetition for A, C and D: cancelled to free nodes once B and Y1 needed them.
 - Julia 1.10 was not run, and nothing was run on the local Raptor Lake machine, so the #901 agent's local
   campaign was not disturbed.

@@ -140,12 +140,13 @@ by the threshold of the `NormL1` kernel and multiplies by the ridge factor
 `1/(1 + γλ2)` of the `SqrNormL2` kernel, both formed from the unrounded
 factors, so a factor `γλ2` outside the range still acts on a representable
 result.
+
 `NormL2` values recompute a sum of squares that overflows or falls below the normal
 range from the squared-residual kernel above, in units of the largest stored entry.
 On a `SparseIterate` and a `SymmetricSparseIterate` both the ordinary sum and that
 recomputation visit the stored entries only, each off-diagonal symmetric coordinate
 twice ([#808](https://github.com/mlakolar/ProximalBase.jl/issues/808)).
-Both functions, and their fused values, recompute a value at or above `floatmax(T)/2`
+`NormL2` and `GroupNormL2` values, and their fused values, recompute a value at or above `floatmax(T)/2`
 in power-of-two units, with sums accumulated in at least `Float64`. Within a few eps of
 the overflow threshold `floatmax(T) + ulp/2` that recomputation does not decide on
 which side the exact value lies, so a value that rounds to `floatmax(T)` may be

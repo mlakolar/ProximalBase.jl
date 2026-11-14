@@ -117,14 +117,34 @@ _maximum_abs(x::Diagonal{T}) where {T<:Union{Float32, Float64}} = _maximum_abs(x
 # cleared at the end: an OR vectorizes on every target (an integer maximum of 64-bit lanes is a scalar chain without
 # AVX-512), and a NaN or an Inf is not zero.
 _all_zero(x) = all(iszero, _stored_values(x))
-function _all_zero(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
-  U = _int_type(T)
-  vals = _stored_values(x)
+# whether vals[lo:hi] are all zeros of either sign, by that OR (U, the integer type of the width of the entries)
+@inline function _zero_bits(vals, lo::Int, hi::Int, ::Type{U}) where {U}
   m = zero(U)
-  @inbounds @simd for i in eachindex(vals)
+  @inbounds @simd for i in lo:hi
     m |= reinterpret(U, vals[i])
   end
   iszero(m & typemax(U))
+end
+function _all_zero(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  vals = _stored_values(x)
+  _zero_bits(vals, firstindex(vals), lastindex(vals), _int_type(T))
+end
+# The same, in blocks of _ALL_ZERO_BLOCK stored values, returning false at the first block that holds a nonzero value
+# (NaN and ±Inf included): an array with a nonzero value in its first block costs one block of reads.
+const _ALL_ZERO_BLOCK = 512
+_all_zero_early(x) = _all_zero(x)
+function _all_zero_early(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  vals = _stored_values(x)
+  n = lastindex(vals)
+  lo = firstindex(vals)
+  while lo <= n
+    # the block end from the distance left to n, so that no index sum passes n (an axis may end at typemax(Int))
+    hi = lo + min(_ALL_ZERO_BLOCK - 1, n - lo)
+    _zero_bits(vals, lo, hi, _int_type(T)) || return false
+    hi == n && return true
+    lo = hi + 1
+  end
+  true
 end
 
 # The largest magnitude, and finiteness, over the stored entries only.

@@ -18,9 +18,10 @@ const TITLES = Dict(
     "symmetric_storage" => "Independent symmetric coordinates",
     "custom_function" => "A custom separable function",
     "block_prox_extension" => "A compact-vector block extension",
+    "group_lasso_prox" => "Group-lasso proximal building blocks",
 )
 const EXAMPLE_ORDER = ["lasso", "proximal_gradient", "coordinate_operations", "sparse_working_sets",
-                       "block_storage", "symmetric_storage", "custom_function", "block_prox_extension"]
+                       "block_storage", "symmetric_storage", "custom_function", "block_prox_extension", "group_lasso_prox"]
 Set(filter(endswith(".jl"), readdir(EXAMPLES))) == Set(name * ".jl" for name in EXAMPLE_ORDER) ||
     error("Every example must have a title and navigation entry")
 const SECTION = r"^# -+ (.+?) -*$"m
@@ -77,6 +78,7 @@ makedocs(;
             "Browse available functions" => "function_library.md",
             "Smooth array functions" => "smooth.md",
             "The ℓ₁ norm and soft thresholding" => "penalties.md",
+            "The ℓ₂ and group ℓ₂ norms" => "group_penalty.md",
             "Scaling a function" => "calculus.md",
         ],
         "Scalar losses" => [

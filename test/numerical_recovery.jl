@@ -835,8 +835,8 @@ function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
     # 7. sums at or above n floatmin keep the ordinary loop, bitwise, with subnormal products included: a loss of
     # at most n δ/2 ≤ eps/2 of the sum. Below the bound (or at a zero sum) the value is recomputed.
     n = 64
-    @test PB._l1_sum_kept(n * floatmin(T), n) && !PB._l1_sum_kept(prevfloat(n * floatmin(T)), n)
-    @test PB._l1_sum_kept(T(NaN), n) && PB._l1_sum_kept(T(Inf), n) && !PB._l1_sum_kept(zero(T), 1) && PB._l1_sum_kept(zero(T), 0)
+    @test PB._sum_kept(n * floatmin(T), n) && !PB._sum_kept(prevfloat(n * floatmin(T)), n)
+    @test PB._sum_kept(T(NaN), n) && PB._sum_kept(T(Inf), n) && !PB._sum_kept(zero(T), 1) && PB._sum_kept(zero(T), 0)
     x = fill(floatmin(T), n)                                            # at the bound: kept, and exact
     @test NormL1(one(T), ones(T, n))(x) === n * floatmin(T)
     # two terms, the second a subnormal product 0.75 (floatmin/2 + δ) rounded up by δ/4: at s ≥ 2 floatmin the loop
@@ -845,7 +845,7 @@ function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
     for (x1, kept) in ((2floatmin(T), true), (floatmin(T), false))
       x = T[x1, floatmin(T) / 2 + δ]
       s, ordinary = l1loop(fk, x)
-      @test ordinary && PB._l1_sum_kept(s, 2) == kept
+      @test ordinary && PB._sum_kept(s, 2) == kept
       @test kept ? fk(x) === s : fk(x) === T(l1val(one(T), fk.w, x))
       @test within(fk(x), l1val(one(T), fk.w, x), 1)
     end
@@ -857,7 +857,7 @@ function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
       λ = abs(signif(rng, T, 0))
       f = NormL1(λ, w)
       s, ordinary = l1loop(f, x)
-      @test ordinary && PB._l1_sum_kept(s, n) && f(x) === s
+      @test ordinary && PB._sum_kept(s, n) && f(x) === s
       xs = reps(x).sparse
       @test f(xs) === foldl((a, k) -> a + value_entry(f, xs.nzval[k], xs.nzval2ind[k]), 1:xs.nnz; init = zero(T))
     end

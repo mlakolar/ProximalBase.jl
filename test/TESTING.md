@@ -28,6 +28,28 @@ symmetric models (`NormL1`, `SqrNormL2`, `LinearFunction`, nested `Scaled` and a
 function) against dense and structurally symmetric references in Float32/64, the explicit `check_symmetric_parameters` (stored and unstored pairs, nested `Scaled`,
 NaN and signed zeros, malformed metadata), the structural refusals that the oracles keep, and
 instrumented parameter arrays that count reads to show the oracles perform no mirrored-pair scan.
+`groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
+its value, group soft thresholding and group KKT screen in Float32/64: analytical
+and threshold cases, singleton groups against weighted `NormL1`, noncontiguous
+groups, in-place and aliased buffers, preflight failures that leave outputs
+unchanged (invalid steps included), exceptional parameters and values, norms and
+thresholds that overflow or underflow, values whose terms round below `floatmin`,
+direct and fused values swept across `floatmax` (outside a band of 32 eps around the
+overflow threshold, the class and accuracy of the BigFloat value; within it, `floatmax`
+or `Inf`, #904) and subnormal values, zero-weight and infinite-weight groups near
+`floatmax`, and the separation of the pure compact `prox_block!` from `BlockIterate`
+storage.
+`norml2` checks `NormL2` against BigFloat: values on arrays and on the three
+iterates (stored zeros, empty iterates, symmetric off-diagonal multiplicity, huge and
+subnormal entries), proximal operators, invalid steps, the symmetric-iterate
+refusals, its equality with one group of `GroupNormL2` in ordinary and
+exceptional cases, direct values across `floatmax` and in the subnormal range on
+arrays and on sparse and symmetric iterates, fused values on arrays, and a Float32
+sum of 2^25 + 1024 squares. Most checks compare with BigFloat values; the NaN, Inf
+and zero cases use their analytical results. `sparse_value_cost` ports the counting element type of the
+historical suite: the `NormL2` value of a 100 × 100 sparse or symmetric iterate with a
+few stored entries creates no zero of that type, on the ordinary and the recovery
+paths (#808).
 `linear_shapes` checks the `LinearFunction` shape contract, `size(c) == size(x)` (the
 p × p matrix of a symmetric iterate): every value, gradient and proximal oracle, allocating
 and in place, `Scaled` included, on dense, sparse, wrapped and iterate arguments in Float32/64,
@@ -38,7 +60,7 @@ coefficient; a nonzero entry keeps ordinary arithmetic), the recovery of an over
 entries, the `Diagonal` coefficient array, cancellation, underflow and the overflow boundary against BigFloat
 references computed from the stored entries in Float32/64, warmed allocations, the oracles that reach the value, the
 shape refusals and unchanged results for dense, vector and symmetric arguments.
-`sparse_value_cost` restores the deterministic guard for that value: a counted `zero` and a coefficient array that
+`sparse_value_cost` also restores the deterministic guard for that value: a counted `zero` and a coefficient array that
 records its reads show, in the cases tested, that no zero is formed for an unstored entry and that the
 coefficients are read at the nonzero stored entries (at the nonzero stored diagonal entries for a `Diagonal`) and nowhere
 else, on the ordinary and the recovery paths, with a control that catches a dense pass.

@@ -51,7 +51,8 @@ atomic whole-block writes or bypass activation in a private raw buffer.
 Pure compact-vector `prox_block!` output must be independent of iterate storage.
 The solver verifies its custom block layout, constructs a trial, computes the
 numerical result, then uses `copyto!(blockview(x,k),out)` and updates its caches.
-No retained built-in group penalty or group-prox storage shortcut exists.
+`GroupNormL2` is the built-in group penalty; its `prox_block!` writes only `out`,
+and no group-prox storage shortcut exists.
 
 ## Regression evidence
 

@@ -806,8 +806,8 @@ end
 end
 
 @testset "scaled product of a norm under directed rounding (BigFloat)" begin
-  # the product with a scaled norm c in [1, 2^30) rounds as the three-factor kernel does, in every rounding mode, also with
-  # exponents beyond Int64 (Int128 sums) and for factors above the current precision
+  # the product with a scaled norm c in [1, 2^30) rounds as the three-factor kernel does, in each of the four rounding modes
+  # and at precisions 53 and 256, also with exponents beyond Int64 (Int128 sums) and for factors above the current precision
   ntests = 0
   big2 = BigFloat(2)
   for p in (53, 256), mode in (RoundNearest, RoundUp, RoundDown, RoundToZero)

@@ -1051,15 +1051,9 @@ end
     isinf(c) && return T(-Inf)
     return convert(T, _scaled_product(ns, one(R), k)) - c
   end
-  # Both terms are bounded (ns < 2 sqrt(n), mλ mw < 1) and nonzero, so the difference needs only the common frame of the larger
-  # exponent: the smaller term is scaled down into it (below its precision, or exactly), the difference is exact
-  # where the terms are close, and the final scaling rounds once.
   mλ, eλ = _frexp(convert(R, λ))
   mw, ew = _frexp(convert(R, w))
-  ek, ec = _exponent_sum(R, k), _exponent_sum(R, eλ, ew)
-  E = max(ek, ec)
-  d = ldexp(ns, _frame_shift(R, ek, E)) - ldexp(mλ * mw, _frame_shift(R, ec, E))
-  convert(T, ldexp(d, E))
+  convert(T, _pow2_sum(R, (ns, k), (-(mλ * mw), eλ + ew)))
 end
 
 ####################################

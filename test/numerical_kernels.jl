@@ -920,7 +920,7 @@ end
 end
 
 @testset "group value of unpenalized groups" begin
-  # zero weights: the K floatmin bound counts the penalized groups, the sum of an unpenalized group is exactly zero
+  # zero weights: the term of an unpenalized group is +0, and a sum below K floatmin (K groups) is recomputed
   for T in (Float32, Float64)
     K = 600
     groups = [(2j - 1):(2j) for j in 1:K]
@@ -942,6 +942,48 @@ end
     f = GroupNormL2(T(0.5), groups, ones(T, K))
     y = zeros(T, 2K); y[1] = pow2(T, emin(T) - 3)
     @test within(f(y), 0.5 * big(y[1]), 2)
+  end
+end
+
+@testset "group value below K floatmin with zero-weight groups: $T" for T in (Float32, Float64)
+  # K counts every group, penalized or not: a value between npen floatmin (npen penalized groups) and K floatmin is
+  # recomputed with the terms' exponents, so it is within 2 units in the last place of the BigFloat value. The
+  # unpenalized groups hold tiny, large and non-finite entries, which add nothing.
+  rng = MersenneTwister(373)
+  K = 8
+  groups = [1:1, 2:3, 4:6, 7:7, 8:9, 10:12, 13:13, 14:15]
+  inwindow = 0
+  for trial in 1:3000
+    w = T[rand(rng, Bool) ? 0 : T(0.5) + rand(rng, T) * 2 for _ in 1:K]
+    npen = count(!iszero, w)
+    npen == 0 && continue
+    x = [ldexp(T(1) + rand(rng, T), emin(T) - rand(rng, -2:precision(T) + 2)) * rand(rng, (-1, 1)) for _ in 1:15]
+    for k in 1:K
+      iszero(w[k]) || continue
+      for i in groups[k]
+        x[i] = rand(rng, (zero(T), T(3), floatmax(T), T(NaN), -T(Inf), nextfloat(zero(T))))
+      end
+    end
+    λ = T(rand(rng, (0.9, 0.5, 2.0)))
+    f = GroupNormL2(λ, groups, w)
+    ref = setprecision(BigFloat, 256) do
+      big(λ) * sum(iszero(w[k]) ? big(0) : big(w[k]) * sqrt(sum(big(x[i])^2 for i in groups[k])) for k in 1:K)
+    end
+    (npen * big(floatmin(T)) <= ref < K * big(floatmin(T))) || continue
+    inwindow += 1
+    @test within(f(x), ref, 2)
+    @test within(value_and_prox!(similar(x), f, x, zero(T)), ref, 2)          # the identity, then the fused value
+  end
+  @test inwindow >= 100
+  # two cases where the ordinary sum (kept at npen floatmin) and the recomputed value differ in the last place: the bits
+  # of the recomputed value
+  g4 = [1:1, 2:2, 3:3, 4:4]
+  if T === Float64
+    x = [-2.906061108421734e-308, -9.19875727328223e-308, -0.0, 0.0]
+    @test GroupNormL2(0.9, g4, [3.0, 0, 0, 0])(x) === 7.846364992738683e-308
+  else
+    x = Float32[2.009546f-39, -2.59f-43, 5.488473f-39, 3.1271334f-38]
+    @test GroupNormL2(0.9f0, g4, Float32[0, 0, 1, 0.75])(x) === 2.6047776f-38
   end
 end
 

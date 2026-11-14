@@ -180,10 +180,8 @@ end
 # a finite weight is 0, and an infinite weight at a nonzero group without NaN makes s Inf), and an infinite level or
 # weight at a nonzero group or a NaN or ±Inf entry in a penalized group, which make s infinite or NaN
 # already. So does an exactly zero argument.
-# A group of weight zero adds the exact term 0, which loses nothing: the bound K floatmin counts the penalized
-# groups only, and a sum that is small only because of the unpenalized ones (no penalized group at all: every
-# weight zero) is kept without the recomputation. That count and the scan for a zero argument are read only
-# below K floatmin, and the scan stops at its first nonzero block.
+# K counts every group, penalized or not. The scan for a zero argument runs only below K floatmin, and for Float32
+# and Float64 it returns at its first block of 512 stored values that holds a nonzero one.
 @inline function _group_value_checked(f::GroupNormL2, x, s::T) where {T}
   if _l2_ordinary(s, T)
     _underflow_checked(T) || return s
@@ -195,17 +193,8 @@ end
 @noinline function _group_value_unkept(f::GroupNormL2, x, s::T)::T where {T}
   if _l2_ordinary(s, T)
     iszero(s) && _all_zero_early(_stored_values(x)) && return s
-    _sum_kept(s, _penalized_count(f.w)) && return s
   end
   _group_value_recomputed(f, x, s)
-end
-# the number of groups with a nonzero weight (a weight is nonnegative, never NaN), in one vectorized pass
-function _penalized_count(w::AbstractVector)
-  n = 0
-  @inbounds @simd for i in eachindex(w)
-    n += !iszero(w[i])
-  end
-  n
 end
 @noinline function _group_value_recomputed(f::GroupNormL2, x, s::T)::T where {T}
   isnan(s) && return s

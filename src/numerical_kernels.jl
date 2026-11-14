@@ -179,14 +179,17 @@ end
 #
 ####################################
 
-# Powers of two keep the units of a comparison without rounding the scale.
-# Split a power that is outside the range of a single floating-point factor.
-# 2^k for a k in the normal range of a Float32 or Float64, from its bit pattern
+# Powers of two keep the units of a comparison without rounding the scale. _power_factors(T, k) gives two factors
+# whose exact product is 2^k for k from 2 exponent(nextfloat(zero(T))) to 2 exponent(floatmax(T)) (beyond, a factor is 0
+# or Inf): a power outside the range of a single floating-point factor is split (_power_factors_split, the generic
+# method).
+# 2^k from its bit pattern, for a k in the normal range of a Float32 or Float64 (-emax + 1 <= k <= emax); other k give
+# another number
 @inline _normal_power(::Type{Float64}, k::Int) = reinterpret(Float64, ((k + 1023) % UInt64) << 52)
 @inline _normal_power(::Type{Float32}, k::Int) = reinterpret(Float32, ((k + 127) % UInt32) << 23)
 @inline function _power_factors(::Type{T}, k::Integer) where {T<:Union{Float32, Float64}}
   k = Int(k)
-  # k in the normal range: the single factor is exact, and the second one is one
+  # k in the normal range: the first factor is 2^k exactly and the second one is one, the factors of the split method
   -exponent(floatmax(T)) + 1 <= k <= exponent(floatmax(T)) && return (_normal_power(T, k), one(T))
   _power_factors_split(T, k)
 end
@@ -281,9 +284,9 @@ function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {
   iszero(s) && return convert(R, w) * zero(R)
   _scaled_product(convert(R, w), s, E)
 end
-# Two terms, the case of the dot with a shift d (LinearFunction), of the two sums of LeastSquaresLoss and of the
-# group screen: the operations of the method above for N = 2 without the loops over the terms (the larger term
-# first, the first one if their exponents are equal; the aligned addition and the renormalization; a zero term
+# Two terms, the case of the dot with a shift d (LinearFunction) and of the two sums of LeastSquaresLoss: the operations
+# of the method above for N = 2 without the loops over the terms (the larger term first, the first one if their
+# exponents are equal; the aligned addition and the renormalization; a zero term
 # skipped; the final product), and, for the IEEE types only, the skip of a shift that cannot change the sum and, for the
 # weight one of every call of _pow2_sum, the final scaling of the sum without the renormalization (below).
 # The method above remains the definition. The two agree where each nonzero term has an exponent sum exponent(m) + e
@@ -695,9 +698,11 @@ end
   inf ? _EXPONENT_INF : k
 end
 
-# For Float32 and Float64 entries the same result as the scan above, from the largest magnitude, taken on the bit patterns where it
-# vectorizes (_maximum_abs): a NaN has the largest pattern, then an Inf, and the exponent of the largest finite
-# entry is the largest exponent. No entry is classified, converted or its exponent taken, but one.
+# For Float32 and Float64 entries, the result of the scan above from the largest magnitude, which _maximum_abs takes on
+# the bit patterns with the sign cleared (a loop that vectorizes): a NaN pattern is above that of Inf, which is above
+# every finite one, and the exponent of the largest finite entry in R is the largest exponent of the entries in R, as
+# the conversion to R is monotone. Of the entries as read (an _IndexedValues converts each to its element type), only the
+# largest magnitude is classified, converted to R and its exponent taken.
 @inline function _square_exponent(x::AbstractArray{<:Union{Float32, Float64}}, ::Nothing, ::Type{R}) where {R}
   m = _maximum_abs(x)
   isnan(m) && return _EXPONENT_NAN
@@ -803,9 +808,9 @@ end
 
 # Whether every entry of x[G], rounded to T, is a zero of either sign: an exactly zero group has the norm 0 also where its
 # sum of squares underflows. A group that is zero only after the rounding (x wider than T) counts as zero, as in the
-# sums of squares in T. The shrinkage kernel scans G directly, for Float32 and Float64 by an OR of the bit patterns with
-# the sign cleared at the end (as _all_zero); the value term keeps the scan of the indexed values, which leaves the
-# code of its loop over the groups as it is.
+# sums of squares in T. The value term (_l2_term) calls _l2_all_zero. The shrinkage kernel calls _l2_zero_group, with
+# the same result: for T = Float32 or Float64 an OR over G of the bit patterns of the entries converted to T, with the
+# sign cleared at the end (as _all_zero); for other T, _l2_all_zero.
 @inline _l2_all_zero(x, G, ::Type{T}) where {T} = _all_zero(_IndexedValues(x, G, T))
 @inline _l2_zero_group(x, G, ::Type{T}) where {T} = _l2_all_zero(x, G, T)
 @inline function _l2_zero_group(x, G, ::Type{T}) where {T<:Union{Float32, Float64}}
@@ -916,10 +921,11 @@ end
       return T(_l2_zero!(y, G))
     end
   end
-  # The parameters decide the exits in the order of _l2_shrink_fixed!: by default in a call whose frame holds the loops of
-  # those exits only (a loop over groups keeps its body small); a caller without such a loop (prox_block!) passes
-  # _l2_shrink_fixed! itself, inlined. The values, at finite positive parameters, are in a function of their own
-  # (_l2_shrink_values!).
+  # The parameters decide the exits in the order of _l2_shrink_fixed!. An unpenalized group is copied here. The other
+  # exits run in `fixed`: by default _l2_shrink_fixed_call!, a call whose frame holds the loops of those exits only, so
+  # that the body of a loop over the groups stays small; prox_block!, which has no such loop, passes
+  # _l2_shrink_fixed!, which is then inlined. Where no parameter is zero or infinite, the values decide, in a function
+  # of their own (_l2_shrink_values!).
   iszero(w) && (_l2_copy!(y, x, G); return T(_L2_ZERO))        # unpenalized: copied, and its term is zero
   if isinf(w) | isinf(λ) | iszero(λ) | iszero(γ) | isinf(γ)
     return T(fixed(y, x, G, λ, w, γ))
@@ -927,15 +933,18 @@ end
   T(_l2_shrink_values!(y, x, G, λ, w, γ))
 end
 
-# The parameters decide first, in this order: an unpenalized group (w = 0, copied by _l2_shrink! itself), a group
-# fixed at zero (an infinite weight, or an infinite level at every nonnegative step, #665), the identity (a zero level
-# or step), a group fixed by an infinite step. Otherwise the values decide (below).
+# The exits that the parameters decide, in this order: an unpenalized group (w = 0, copied, with the zero-term code;
+# _l2_shrink! tests it before it calls this function), a group fixed at zero (an infinite weight, or an infinite level
+# at every nonnegative step, #665), the identity (a zero level or step), a group fixed by an infinite step. The callers
+# (_l2_shrink! and the loop of _group_prox_all! for a zero or infinite level or step) call it where w, λ or γ is zero or
+# infinite, so that a group that passes the first three exits has an infinite step.
 @inline function _l2_shrink_fixed!(y, x, G, λ, w, γ::Real)
   iszero(w) && (_l2_copy!(y, x, G); return _L2_ZERO)
   (isinf(w) || isinf(λ)) && return _l2_zero!(y, G)
   (iszero(λ) || iszero(γ)) && return _l2_copy!(y, x, G)
   _l2_zero!(y, G)                      # isinf(γ)
 end
+# out of line: the default exits of _l2_shrink!
 @noinline _l2_shrink_fixed_call!(y, x, G, λ, w, γ::Real) = _l2_shrink_fixed!(y, x, G, λ, w, γ)
 # The values, at positive finite γ, λ and w: a NaN entry makes every output NaN; an infinite entry (and no NaN) makes
 # the norm infinite and the threshold finite, so 1 - c/‖x‖ = 1 and the group is copied, also when c overflows in
@@ -1075,8 +1084,8 @@ end
 end
 
 # A norm or a coefficient out of range: the difference ns 2^k - mλ mw 2^(eλ+ew) of the scaled norm and the
-# coefficient is formed in the recovery type, in the units of the larger exponent, and
-# converted to T. Coefficients that are zero or infinite by the parameters keep c.
+# coefficient is formed in the recovery type, in the units of the larger exponent, and converted to T. Coefficients
+# that are zero or infinite by the parameters keep c.
 @noinline function _l2_screen_cold(λ, w, g, G, ::Type{T}, c) where {T}
   R = _recovery_type(T, float(typeof(λ)), float(eltype(g)))
   k, ns = _l2_classified_norm(g, G, R)
@@ -1087,9 +1096,12 @@ end
     isinf(c) && return T(-Inf)
     return convert(T, _scaled_product(ns, one(R), k)) - c
   end
-  # Both terms are bounded (ns < 2 sqrt(n), mλ mw < 1) and nonzero, so the difference needs only the common frame of the larger
-  # exponent: the smaller term is scaled down into it (below its precision, or exactly), the difference is exact
-  # where the terms are close, and the final scaling rounds once.
+  # Both terms are nonzero and bounded: ns in [1, 2 sqrt(n)] up to rounding (_l2_classified_norm) and mλ mw in [1/4, 1).
+  # They are differenced in the frame 2^E of the larger exponent E, without a renormalization. ldexp scales the term
+  # of the smaller exponent into that frame exactly, unless the scaled term falls below the normal range of R, where it
+  # rounds and is far below the last place of the other term. The subtraction is exact where the two scaled terms are
+  # within a factor of two of each other, and rounds once otherwise; ldexp(d, E) rounds where its result leaves the
+  # normal range of R, and the conversion rounds where T is narrower than R.
   mλ, eλ = _frexp(convert(R, λ))
   mw, ew = _frexp(convert(R, w))
   ek, ec = _exponent_sum(R, k), _exponent_sum(R, eλ, ew)

@@ -37,9 +37,9 @@ Callers were taken from the current sources, not the archived pre-#850 tree.
 | Overflowing residual a − b of finite data | inline `a/2 - b/2` in `_residual_exponent`, `_scaled_residual`, `_ridge_gradient_overflow` (sqrnorml2.jl) | SqrNormL2 value and gradient, LeastSquaresLoss recovery | none | R2: the difference is formed before scaling, so cancellation keeps its units |
 | Ordinary sum-of-squares trigger | inline `s >= n * (floatmin/eps)` | `_square_value`, `_ridge_value_wide_center` (sqrnorml2.jl), `_leastsquares_value` (leastsquares.jl) | one comparison | R1: no square underflowed by more than eps of the sum |
 | Overflow-safe units of a recomputed dot | inline `max(0, bound(maxabs a) + bound(maxabs b) + ⌈log₂ n⌉ + margin - emax)` | `_linear_value_recover` (margin 2), `_leastsquares_recover` (margin 3, plus a Y term) | none | R1: no partial sum of the recomputation overflows |
-| Exponent-ordered sum of parts | `_pow2_weighted` (generic, and a method for two terms), `_pow2_sum` | LinearFunction, LeastSquaresLoss recoveries. The ℓ2 group screen (`_l2_screen_cold`) | none | R1 |
+| Exponent-ordered sum of parts | `_pow2_weighted` (generic, and a method for two terms), `_pow2_sum` | LinearFunction, LeastSquaresLoss recoveries | none | R1 |
 | Exact-product accumulator | `_ExpSum`, `_expsum_*` | QuadraticFunction recovery. The recomputed `GroupNormL2` value (`_l2_expsum_add`, `_expsum_value`) | none | R1 (#520) |
-| Index-set ℓ2 norm (section 7) | `_IndexedValues`, `_l2_classified_norm`, `_l2_all_zero`, `_l2_shrink!`, `_l2_shrink_fixed!`, `_l2_shrink_values!`, `_l2_term`, `_l2_fused_term`, `_l2_term_cold`, `_l2_value`, `_l2_value_cold`, `_l2_expsum_add`, `_l2_screen`, `_l2_screen_cold`, `_indexed_sumabs2`, `_recovery_type` | NormL2 and GroupNormL2 (oracles in `norml2.jl`, `groupnorml2.jl`) | `_indexed_sumabs2`, one range test, no extra pass | R1/R3, NR1/NR2, D1-D3, Option C |
+| Index-set ℓ2 norm (section 7) | `_IndexedValues`, `_l2_classified_norm`, `_l2_all_zero`, `_l2_zero_group`, `_l2_shrink!`, `_l2_shrink_fixed!`, `_l2_shrink_fixed_call!`, `_l2_shrink_values!`, `_l2_term`, `_l2_fused_term`, `_l2_term_cold`, `_l2_value`, `_l2_value_cold`, `_l2_expsum_add`, `_l2_screen`, `_l2_screen_cold`, `_indexed_sumabs2`, `_recovery_type` | NormL2 and GroupNormL2 (oracles in `norml2.jl`, `groupnorml2.jl`) | `_indexed_sumabs2`, one range test, no extra pass | R1/R3, NR1/NR2, D1-D3, Option C |
 | Sum kept at the ordinary result | `_sum_kept` | NormL1 value, GroupNormL2 value | one comparison | #373 |
 | Underflow risk of products | `_underflow_threshold`, `_min_nonzero_exponent`, `_quadratic_products_normal` | QuadraticFunction only | one pass for max\|x\| | R1 (#520) |
 | Ridge prox weights | `_RidgeOrdinary`, `_RidgeScaled`, `_ridge_*` (sqrnorml2.jl) | SqrNormL2 prox and prox_block | precomputed weights, vectorized loop | R3 |
@@ -178,9 +178,10 @@ only difference on the characterization grid.
 The ℓ2 shrinkage, values and group screen live in `src/numerical_kernels.jl`; the
 norm files keep types, validation, oracles and loops over groups. The recovery paths
 call the kernels of sections 1-4 and were not copied. Outputs are bit-identical to the
-code before the consolidation, except for two BigFloat exceptions that the maintainer ruled
-on (see the end of this section): D-X, exponent arithmetic that leaves `Int64`, and
-D-MPFR, results under a directed rounding mode at MPFR's exponent limits.
+code before the consolidation, except for D-X, a BigFloat exception that the maintainer ruled
+on (see the end of this section): exponent arithmetic that leaves `Int64`. The second
+exception, D-MPFR (results under a directed rounding mode at MPFR's exponent limits), covers
+no measured case since the group screen forms its own difference.
 
 **New shared primitives**
 
@@ -188,7 +189,10 @@ D-MPFR, results under a directed rounding mode at MPFR's exponent limits.
   allocation of `view` for a matrix `x`. With an element type, `_IndexedValues(x, G, T)`
   reads them rounded to `T`; `_l2_all_zero(x, G, T)` = `_all_zero(_IndexedValues(x, G, T))`
   decides a zero group on the entries as the loops in the destination type `T` read them.
-  The cold paths scan the adapter.
+  The cold paths scan the adapter. `_l2_zero_group(x, G, T)`, the zero test of the
+  shrinkage kernel, gives the same result: for `T` = Float32 or Float64 an OR over `G` of
+  the bit patterns of the entries converted to `T`, with the sign cleared at the end, and
+  `_l2_all_zero` for other `T`.
 * `_square_exponent(x, nothing, R)`, the method for `y = 0`: one pass that returns the
   largest exponent (that of the entry converted to `R`, as the `_l2_scan` of the code before
   the consolidation took it) or a class, `_EXPONENT_NAN` at the first NaN, `_EXPONENT_INF` for an
@@ -196,6 +200,18 @@ D-MPFR, results under a directed rounding mode at MPFR's exponent limits.
   operand and `_residual_exponent` are those of the code before the consolidation: a
   residual that is not finite gives `_EXPONENT_NONFINITE` (`typemax(Int)`) there, not
   classified. `_residual_squares` returns `nothing` for the non-finite codes of both.
+  The generic method is the scan `_square_exponent_scan`. For an array of Float32 or
+  Float64 entries a second method gives the same result from the largest magnitude, which
+  `_maximum_abs` takes on the bit patterns in a loop that vectorizes (a NaN pattern is above
+  that of Inf, which is above every finite one), and classifies that one entry only. Unlike
+  the scan it reads every entry when a NaN is present; the tests compare the two methods.
+* `_power_factors(T, k)`: for Float32 and Float64 and a `k` in the normal range, the factors
+  `(2^k, 1)` with `2^k` built from its bit pattern; the `ldexp` form, which splits a power
+  outside the range of one factor, is `_power_factors_split`, the generic method. The
+  tests compare the two for `|k| <= 1200`.
+* `_all_zero_early(x)`: `_all_zero` in blocks of 512 stored values, which returns at the
+  first block that holds a nonzero value (the zero scan of the `GroupNormL2` value). Both
+  scan the stored values from their first to their last index.
 * `_square_scaled_sum(x, nothing, k, R)`: the scaled sum for `y = 0`, with one power
   factor.
 * `_pow2_weighted(R, w, t1, t2)`: a method for two terms with the operations of the
@@ -220,7 +236,8 @@ D-MPFR, results under a directed rounding mode at MPFR's exponent limits.
   larger term by selection, from the `frexp` of both terms (for the IEEE types `exponent(m)`
   is the `frexp` exponent minus one), and for the weight one the IEEE types scale the sum
   once by `ldexp(s, E)` without the renormalization, which is the same value, rounded once.
-  The group screen forms its difference with it, once per group on its cold path.
+  Its callers are LinearFunction and LeastSquaresLoss; the group screen forms its own
+  difference (`_l2_screen_cold`, below).
 * `_scaled_product_norm(a, b, c, k)`: `a b c 2^k` for a scaled norm `c`, which the cold
   value term uses: the significands of `a` and `b` multiply `c`, which is not split again.
   It gives the bits of the three-factor kernel `_scaled_product` when `a` and `b` are
@@ -256,7 +273,7 @@ D-MPFR, results under a directed rounding mode at MPFR's exponent limits.
 | `_l2_sumsq` | `_indexed_sumabs2`; `_sumabs2(::SparseIterate)` is the same loop |
 | `_l2_cold_type` | `_recovery_type` |
 | `_l1_sum_kept` | `_sum_kept` (also in `_group_value_checked`) |
-| `_l2_shrink_cold!` (one function) | `_l2_shrink!` decides in its fallthrough whether the parameters fix the group (an unpenalized group is copied there, with the zero-term code); `_l2_shrink_fixed!` holds the other exits that the parameters decide (small frame) and `_l2_shrink_values!` the values (classification, scaled norm, shrinkage): one call per group on each cold path |
+| `_l2_shrink_cold!` (one function) | `_l2_shrink!` decides in its fallthrough whether the parameters fix the group (an unpenalized group is copied there, with the zero-term code); `_l2_shrink_fixed!` holds the other exits that the parameters decide and `_l2_shrink_values!` the values (classification, scaled norm, shrinkage). The group loop calls the exits out of line (`_l2_shrink_fixed_call!`, a small frame); `prox_block!` inlines them; `_group_prox_all!` runs a loop of the inlined exits alone where a zero or infinite level or step decides every group. At most one call per group on each cold path |
 | γλw in `_l1_prox_threshold` and `_l2_shrink!` | `_threshold_product` |
 | `_l2_shrink!`, `_l2_zero!`, `_l2_copy!`, `_l2_fill!`, `_l2_scale!`, `_l2_term`, `_l2_fused_term`, `_l2_term_outofline`, `_l2_ordinary`, `_l2_value`, `_L2_ZERO`, `_L2_RECOMPUTE` | moved from norml2.jl, ordinary path unchanged |
 | arithmetic of `_group_screen`, per-group term of `_group_value_recomputed` | `_l2_screen`, `_l2_expsum_add` (inlined into the loop over the groups, where a zero weight skips the group without a call; groupnorml2.jl keeps adapters and the loop over groups) |
@@ -268,28 +285,20 @@ The shared kernels take these sums in `Int128`. For example,
 `GroupNormL2(λ0 = w = 2^(2^62-2))` at `x = [2^(2^62-2)]` had value `0` (the sum wrapped)
 and now has value `Inf`. Float32 and Float64 are not affected.
 
-**D-MPFR: BigFloat under a directed rounding mode at MPFR's exponent limits.** This is a
-second exception, separate from D-X.
+**D-MPFR: BigFloat under a directed rounding mode at MPFR's exponent limits (no measured
+case left).** This exception, separate from D-X, was approved for the group screen
+(`kkt_violation` of `GroupNormL2`) when it formed its difference with the shared `_pow2_sum`.
+That kernel aligns the two terms in another frame than the screen before the consolidation, and
+at the edge of MPFR's exponent range the two frames dropped a vanishing term at different
+points, which `RoundDown` and `RoundToZero` showed.
 
-* Scope: a BigFloat result computed under a rounding mode other than `RoundNearest`
-  (`RoundUp`, `RoundDown`, `RoundToZero`, set with `setrounding`), where an operand or a
-  product lies at the edge of MPFR's exponent range (exponents near ±2^62). It was found
-  in the group screen (`kkt_violation` of `GroupNormL2`), through the shared `_pow2_sum`.
-  The screen before the consolidation aligned its two terms by hand; the shared kernel,
-  which LinearFunction and LeastSquaresLoss already used, aligns them in another frame,
-  and at the edge of MPFR's range the two frames drop a vanishing term at different
-  points. A directed rounding mode sees that.
-* Not a waiver: it covers no other BigFloat difference. Float32 and Float64 are not
-  affected, as Julia has no `setrounding` method for them and they round to nearest. BigFloat
-  under `RoundNearest` agreed with the code before the consolidation, outside D-X, in the grid
-  below and in the comparison sweeps that were run.
-* The shared generic `_pow2_sum` shows the same difference (the specialization for two
-  terms is not the cause): with the method for two terms routed to the generic one, the
-  reproducer below gives `m` under `RoundDown` and `RoundToZero`, where the code before the
-  consolidation gives `0`. The cause is the move of the screen to the shared kernel. Restoring
-  the old arithmetic would copy the recovery code of the sum back into the screen, and
-  changing `_pow2_sum` would change LinearFunction and LeastSquaresLoss; neither was done.
-* Reproducer, at precision 256 under `RoundToZero`, with `m = floatmin(BigFloat)`:
+* What changed: the screen now forms the difference itself (`_l2_screen_cold`): the two
+  bounded terms are differenced in the frame of the larger exponent, as the screen before the
+  consolidation did, with the exponent sums and shifts taken in `Int128` for BigFloat (D-X).
+  `_pow2_sum` and `_pow2_weighted` are unchanged and serve LinearFunction and
+  LeastSquaresLoss only.
+* Reproducer of the approved case, at precision 256 under `RoundToZero`, with
+  `m = floatmin(BigFloat)`:
 
   ```julia
   setprecision(BigFloat, 256) do
@@ -300,22 +309,31 @@ second exception, separate from D-X.
   end
   ```
 
-  It returns `0` before the consolidation (`76964085`) and `m` now. The product of the level
-  and the weight has an exponent near −2^63, below MPFR's range but inside `Int64`, so
-  this is not D-X.
-* Extent, measured as the number of cases where the screen differs from the code before the
-  consolidation, at precision 256. Each case is `kkt_violation` of a `GroupNormL2` with one
-  group of one entry, at the point 0 with the gradient entry `g`. The exponents of λ, w and `g`
-  are taken from MPFR's smallest exponent and the values 1 and 300 above it, MPFR's largest
-  exponent and the values 1 and 300 below it, ±2^61, ±1000 and 0. The significands are 1 and 1.5
-  for λ, 1 for w, and 1, 1.25 and −1.75 for `g` (7986 cases per mode):
+  It returns `0` before the consolidation (`76964085`) and `0` now; the screen through
+  `_pow2_sum` returned `m`.
+* The grid, measured as the number of cases where the screen differs from the code before the
+  consolidation. Each case is `kkt_violation` of a `GroupNormL2` with one group of one entry, at
+  the point 0 with the gradient entry `g`. The exponents of λ, w and `g` are taken from MPFR's
+  smallest exponent and the values 1 and 300 above it, MPFR's largest exponent and the values 1
+  and 300 below it, ±2^61, ±1000 and 0. The significands are 1 and 1.5 for λ, 1 for w, and 1,
+  1.25 and −1.75 for `g`: 7986 cases per mode and precision. The counts are the same at
+  precisions 256 and 512:
 
   | Mode | λw exponent within MPFR's range | λw exponent outside |
   |---|---|---|
-  | RoundNearest | 0/5016 | 930/2970 (D-X) |
+  | RoundNearest | 0/5016 | 930/2970 |
   | RoundUp | 0/5016 | 930/2970 |
-  | RoundDown | 11/5016 | 528/2970 |
-  | RoundToZero | 42/5016 | 486/2970 |
+  | RoundDown | 0/5016 (11 through `_pow2_sum`) | 444/2970 (528) |
+  | RoundToZero | 0/5016 (42 through `_pow2_sum`) | 444/2970 (486) |
 
-  The 53 differences with λw inside MPFR's range all have an operand at MPFR's smallest
-  exponent.
+  In parentheses, the counts of the screen through `_pow2_sum`, at both precisions; under
+  `RoundNearest` and `RoundUp` it had the same counts as now. In every one of the
+  differences with λw outside MPFR's range, a sum or difference of
+  exponents of the code before the consolidation (`eλ + ew`, `e - E` or `eλ + ew - E`) leaves
+  `Int64`: these are D-X. The comparison sweeps of the BigFloat `NormL2` value under the four
+  modes, at precisions 24 to 1000 with exponents up to MPFR's limits, showed no difference
+  either.
+* Scope now: D-MPFR covers no case that was measured. It was not a waiver for any other
+  BigFloat difference and remains none; a difference under a directed rounding mode at MPFR's
+  limits found later is to be reported, not assumed to be covered. Float32 and Float64 are not
+  affected, as Julia has no `setrounding` method for them.

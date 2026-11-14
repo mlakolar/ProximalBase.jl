@@ -869,7 +869,7 @@ end
     @test PB._scaled_product(a, b, c, kw) != ref3
   end
 end
-# The fast paths of the group kernels agree with the definitions they shorten (design C of #901).
+# The fast paths of the group kernels agree with the definitions they shorten.
 @testset "group kernel fast paths: $T" for T in (Float32, Float64)
   rng = MersenneTwister(901)
   @testset "powers of two from bits equal the split ldexp factors" begin
@@ -928,7 +928,8 @@ end
     f0 = GroupNormL2(T(0.6), groups, zeros(T, K))
     @test f0(x) === zero(T)
     @test value_and_prox!(similar(x), f0, x, T(0.8)) === zero(T)
-    # one penalized group of a tiny norm among zero weights: the value is the exact one, not a rounded sum
+    # one penalized group of a tiny norm among zero weights, and an unpenalized group with a large entry: the value is
+    # within 2 units of the BigFloat reference
     w = zeros(T, K); w[7] = 1
     for e in (emin(T) - 3, emin(T) + 2, emin(T) + 12)
       y = zeros(T, 2K); y[13] = pow2(T, e); y[14] = pow2(T, e)       # group 7

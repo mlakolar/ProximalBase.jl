@@ -255,9 +255,10 @@ function _group_prox_all!(y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {V}
       y[i] = x[i]
     end
   end
-  # A zero or infinite level, or a zero or infinite step, decides the exits of every group alike: the ordinary path
-  # never runs then, and the loop runs the parameter exits (_l2_shrink_fixed!, inlined) directly. Each loop is a function of its
-  # own, compiled as the single loop was: LLVM hoists the loop-invariant threshold out of the ordinary one.
+  # A zero or infinite level, or a zero or infinite step, makes the product γλ0 zero, infinite or NaN, so that the range
+  # test of the ordinary path (_threshold_product) fails for every group and the parameters decide it: the loop calls the
+  # parameter exits (_l2_shrink_fixed!, inlined) directly. _group_prox_loop! is compiled once for each shrinkage
+  # function, so the ordinary loop has the code of a single loop, where LLVM can hoist the loop-invariant threshold.
   λ = f.λ0
   if isinf(λ) | iszero(λ) | iszero(γ) | isinf(γ)
     _group_prox_loop!(_l2_shrink_fixed!, y, f, x, γ, Val(V))

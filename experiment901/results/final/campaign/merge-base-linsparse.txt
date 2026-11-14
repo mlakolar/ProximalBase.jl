@@ -1,0 +1,32 @@
+runs:
+  conv/merge-base-linsparse-rep1-fwd: X=base roles=base,base#aa,merge host=None cpu=None job=None core=None elapsed=Nones
+  conv/merge-base-linsparse-rep1-rev: X=merge roles=merge,merge#aa,base host=None cpu=None job=None core=None elapsed=Nones
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0023  0.0343  0.2666  (n=114)
+  run 1: 0.0019  0.0316  0.2358  (n=114)
+
+merge/base: cases 114, runs per case 2; slower in every run: >1.02: 2, >1.05: 1 (1 beyond A/A); allocation regressions: 0
+geomean 1.0015, min 0.880, max 1.311
+
+geomean by category (num/den | base#aa,merge#aa/base), worst:
+  Float32                          1.004 | nan   worst Float32/n16384/value_and_prox!/iterate_output 1.011/1.014
+  Float64                          0.999 | nan   worst Float64/n1048576/diagonal/d100pct 1.308/1.314
+
+top 15 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns base#aa,merge#aa/base
+  Float64/n1048576/diagonal/d100pct                             1.308/1.314    1.007/0.771    1812.7    2370.7             
+  Float64/n16384/value_and_prox!/iterate_output                 1.030/1.036    1.019/0.992   52785.4   54513.1             
+  Float32/n16384/value_and_prox!/iterate_output                 1.011/1.014    0.983/1.001   55293.0   55914.9             
+  Float32/n16384/value_and_prox!/dense_output                   1.009/1.024    1.016/0.980   25282.6   25516.8             
+  Float32/n16384/control/prox!_iterate_input                    1.007/1.023    1.009/0.980   23582.7   23815.8             
+  Float32/n1048576/sparse_value/d100pct_shuf                    1.007/1.012    1.002/0.993 2334173.5 2351865.0             
+  Float64/n16384/diagonal/d100pct                               1.041/1.007    1.038/0.998     162.6     169.3             
+  Float32/n16384/exceptional/d1pct                              1.012/1.003    1.005/1.009     143.9     145.6             
+  Float64/n16384/sparse_value/d100pct_z90_seq                   1.008/1.003    1.007/0.994   13454.5   13555.6             
+  Float32/n16384/sparse_value/d100pct_seq                       1.002/1.003    1.000/0.999   13682.9   13712.1             
+  Float64/n16384/sparse_value/d10pct_shuf                       1.002/1.002    0.966/0.960    1631.4    1633.9             
+  Float32/n256/sparse_value/d10pct_shuf                         1.002/1.001    1.000/1.078      31.6      31.6             
+  Float32/n1048576/sparse_value/d100pct_z90_seq                 1.001/1.001    1.002/0.999  876804.0  878028.0             
+  Float32/n1048576/sparse_value/d100pct_seq                     1.001/1.002    1.002/1.000  873004.5  873915.0             
+  Float32/n16384/sparse_value/d100pct_z50_seq                   1.002/1.001    1.006/0.999   13689.5   13723.6             

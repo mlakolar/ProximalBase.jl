@@ -1,0 +1,36 @@
+runs:
+  conv/Y1f-head-core-rep1-fwd: X=head roles=head,head#aa,Y1f host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-head-core-rep1-rev: X=Y1f roles=Y1f,Y1f#aa,head host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-head-core-rep2-fwd: X=head roles=head,head#aa,Y1f host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-head-core-rep2-rev: X=Y1f roles=Y1f,Y1f#aa,head host=None cpu=None job=None core=None elapsed=Nones
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0113  0.0695  0.3392  (n=102)
+  run 1: 0.0111  0.0495  0.4439  (n=102)
+  run 2: 0.0076  0.0548  0.2815  (n=102)
+  run 3: 0.0101  0.0791  0.2110  (n=102)
+
+Y1f/head: cases 102, runs per case 4; slower in every run: >1.02: 0, >1.05: 0 (0 beyond A/A); allocation regressions: 0
+geomean 1.0008, min 0.886, max 1.083
+
+geomean by category (num/den | head#aa,Y1f#aa/head), worst:
+  Float32                          1.003 | nan   worst Float32/sparse/full_sweep 1.016/1.026/1.015/1.056
+  Float64                          0.998 | nan   worst Float64/sparse/copyto_dense 1.024/1.045/1.007/1.027
+
+top 15 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns head#aa,Y1f#aa/head
+  Float32/sparse/full_sweep                            1.016/1.026/1.015/1.056 1.013/1.038/0.999/0.946    1583.0    1611.0             
+  Float64/sparse/copyto_dense                          1.024/1.045/1.007/1.027 1.061/0.966/0.997/1.058     941.0     968.5             
+  Float32/sparse/product                               1.085/1.004/1.046/1.060 1.339/0.996/0.992/0.942     958.0    1040.0             
+  Float64/symmetric/full_sweep                         1.015/1.022/1.019/1.004 0.986/1.011/1.017/1.008    1833.5    1862.0             
+  Float32/blockview/arbitrary/read                     1.000/1.004/1.000/1.000 1.000/0.996/1.000/1.000     246.0     246.0             
+  Float32/blockview/arbitrary/write_inactive           1.000/1.010/1.053/1.010 1.000/1.020/1.042/0.980      98.0      98.0             
+  Float32/blockview/range/read                         1.000/1.000/1.000/1.000 1.000/1.000/1.000/1.000     246.0     246.0             
+  Float32/blockview/reversed/read                      1.000/1.000/1.000/1.000 1.000/1.000/1.004/1.000     246.0     246.0             
+  Float32/blockview/reversed/write_inactive            1.010/1.000/1.042/1.000 0.990/0.970/1.052/0.990      96.0      99.0             
+  Float32/l1/vector_prox                               1.000/1.006/1.000/1.012 0.984/1.004/0.996/0.992     256.0     256.0             
+  Float32/sparse/l1_prox                               1.000/1.006/1.006/1.000 1.032/1.006/1.006/1.019     156.0     156.0             
+  Float32/sparse/l1_value                              1.000/1.025/1.024/1.000 1.000/0.975/0.988/1.000      79.0      79.0             
+  Float64/blockview/arbitrary/read                     1.000/1.000/1.000/1.000 1.000/1.000/1.000/1.000     247.0     247.0             
+  Float64/blockview/arbitrary/write_active             1.000/1.011/1.037/1.011 1.000/1.000/1.000/0.989      95.0      95.0             
+  Float64/blockview/range/read                         1.000/1.000/1.000/1.000 1.000/1.000/1.000/1.000     246.0     246.0             

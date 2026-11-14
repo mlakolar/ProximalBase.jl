@@ -1,0 +1,26 @@
+accuracy901: 5334 cells, 64.6 s
+base     violations 0, class failures 0, max bound units 0.129, negative zeros 0, regressions vs base: 0
+head     violations 0, class failures 0, max bound units 0.129, negative zeros 0, regressions vs base: 0
+Y1f      violations 0, class failures 0, max bound units 0.129, negative zeros 0, regressions vs base: 0
+max error in bound units per family/op/T (all regimes and sizes):
+  family/op/T                  base       head        Y1f
+  Group/alias/Float32        0.0000     0.0000     0.0000
+  Group/alias/Float64        0.0000     0.0000     0.0000
+  Group/block/Float32        0.1250     0.1250     0.1250
+  Group/block/Float64        0.1250     0.1250     0.1250
+  Group/fused/Float32        0.1250     0.1250     0.1250
+  Group/fused/Float64        0.1250     0.1250     0.1250
+  Group/kkt/Float32          0.1250     0.1250     0.1250
+  Group/kkt/Float64          0.1249     0.1249     0.1249
+  Group/prox/Float32         0.1250     0.1250     0.1250
+  Group/prox/Float64         0.1250     0.1250     0.1250
+  Group/value/Float32        0.0181     0.0181     0.0181
+  Group/value/Float64        0.0180     0.0180     0.0180
+  Norm/alias/Float32         0.0000     0.0000     0.0000
+  Norm/alias/Float64         0.0000     0.0000     0.0000
+  Norm/fused/Float32         0.1247     0.1247     0.1247
+  Norm/fused/Float64         0.1290     0.1290     0.1290
+  Norm/prox/Float32          0.1247     0.1247     0.1247
+  Norm/prox/Float64          0.1290     0.1290     0.1290
+  Norm/value/Float32         0.1157     0.1157     0.1157
+  Norm/value/Float64         0.0978     0.0978     0.0978

@@ -1,0 +1,36 @@
+runs:
+  conv/Y1f-base-l1inf-rep1-fwd: X=base roles=base,base#aa,Y1f host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-base-l1inf-rep1-rev: X=Y1f roles=Y1f,Y1f#aa,base host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-base-l1inf-rep2-fwd: X=base roles=base,base#aa,Y1f host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-base-l1inf-rep2-rev: X=Y1f roles=Y1f,Y1f#aa,base host=None cpu=None job=None core=None elapsed=Nones
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0054  0.0193  0.0372  (n=56)
+  run 1: 0.0046  0.0204  0.2124  (n=56)
+  run 2: 0.0090  0.0238  0.0413  (n=56)
+  run 3: 0.0057  0.0154  0.1647  (n=56)
+
+Y1f/base: cases 56, runs per case 4; slower in every run: >1.02: 0, >1.05: 0 (0 beyond A/A); allocation regressions: 0
+geomean 1.0020, min 0.965, max 1.108
+
+geomean by category (num/den | base#aa,Y1f#aa/base), worst:
+  Float32                          1.000 | nan   worst Float32/n1024/sparse_weighted/scalar 1.184/1.305/1.031/1.013
+  Float64                          1.004 | nan   worst Float64/n65536/unweighted/array 0.999/0.998/1.000/1.001
+
+top 15 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns base#aa,Y1f#aa/base
+  Float32/n1024/sparse_weighted/scalar                 1.184/1.305/1.031/1.013 0.980/0.788/0.984/0.994     460.3     542.9             
+  Float32/n1024/sparse_weighted/array                  1.017/1.063/1.036/1.008 1.012/0.948/1.013/0.993     597.8     600.9             
+  Float32/n65536/block_weighted/array                  1.003/1.003/1.010/1.003 0.983/1.019/1.010/0.996  386901.0  387660.6             
+  Float32/n1024/weighted_inf/array                     1.001/1.002/1.002/1.000 1.000/0.999/0.997/1.005    3017.0    3020.3             
+  Float32/n1024/unweighted/array                       0.999/1.001/1.006/1.004 0.997/0.999/0.999/1.001    2998.9    2989.7             
+  Float64/n65536/unweighted/array                      0.999/0.998/1.000/1.001 0.999/1.000/1.000/1.007  187052.1  186762.6             
+  Float32/n65536/unweighted/array                      1.001/0.998/1.000/1.000 1.002/1.001/1.000/1.001  186464.2  186700.0             
+  Float32/n65536/weighted/alias                        1.000/1.001/1.001/0.998 1.000/1.007/1.003/0.998  157987.2  156882.4             
+  Float64/n1024/weighted_inf/array                     0.997/1.010/0.998/1.004 0.996/0.991/1.000/0.988    3061.1    3050.6             
+  Float64/n1024/weighted/scalar                        1.016/0.998/1.009/0.997 1.004/1.002/1.010/0.996     624.1     635.7             
+  Float64/n1024/weighted/value_and_prox                1.012/1.008/1.001/0.997 1.005/0.990/1.004/1.004    1085.0    1093.5             
+  Float64/n65536/weighted/alias                        0.999/1.000/0.998/0.997 0.998/0.997/0.999/1.000  176985.9  175042.2             
+  Float64/n1024/weighted/alias                         1.005/0.997/1.001/1.005 0.999/0.997/1.002/0.989    2381.7    2389.1             
+  Float64/n1024/weighted/array                         0.996/1.000/1.002/1.003 0.994/0.999/1.000/0.992    3060.3    3051.0             
+  Float32/n1024/weighted/array                         0.996/1.000/1.007/1.002 0.999/0.999/1.001/1.005    3030.2    3014.5             

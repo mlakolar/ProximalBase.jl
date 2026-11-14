@@ -1,0 +1,36 @@
+runs:
+  conv/Y1f-head-linsparse-rep1-fwd: X=head roles=head,head#aa,Y1f host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-head-linsparse-rep1-rev: X=Y1f roles=Y1f,Y1f#aa,head host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-head-linsparse-rep2-fwd: X=head roles=head,head#aa,Y1f host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-head-linsparse-rep2-rev: X=Y1f roles=Y1f,Y1f#aa,head host=None cpu=None job=None core=None elapsed=Nones
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0024  0.0306  0.3084  (n=114)
+  run 1: 0.0018  0.0356  0.3082  (n=114)
+  run 2: 0.0029  0.0284  0.2630  (n=114)
+  run 3: 0.0041  0.0364  0.2271  (n=114)
+
+Y1f/head: cases 114, runs per case 4; slower in every run: >1.02: 0, >1.05: 0 (0 beyond A/A); allocation regressions: 0
+geomean 1.0005, min 0.880, max 1.037
+
+geomean by category (num/den | head#aa,Y1f#aa/head), worst:
+  Float32                          1.000 | nan   worst Float32/n256/sparse_value/d50pct_shuf 1.000/1.001/1.001/1.000
+  Float64                          1.001 | nan   worst Float64/n1048576/sparse_value/d50pct_shuf 1.002/1.007/1.002/1.001
+
+top 15 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns head#aa,Y1f#aa/head
+  Float64/n1048576/sparse_value/d50pct_shuf            1.002/1.007/1.002/1.001 1.000/0.994/0.996/0.999 1264128.0 1267156.5             
+  Float64/n16384/sparse_value/d100pct_z90_seq          1.039/1.001/1.030/1.042 1.008/1.048/0.993/0.972   13027.5   13525.5             
+  Float64/n1048576/sparse_value/d1pct_seq              1.001/1.001/1.001/1.001 0.999/0.999/1.001/1.013   22893.0   22907.4             
+  Float64/n1048576/control/vector_iterate_value        1.001/1.001/1.001/1.000 1.000/0.999/1.000/1.000  213884.0  214200.0             
+  Float64/n16384/sparse_value/d1pct_shuf               1.007/1.000/1.008/1.009 1.005/1.000/1.022/0.991     133.4     134.3             
+  Float32/n256/sparse_value/d50pct_shuf                1.000/1.001/1.001/1.000 1.002/1.000/1.001/1.001     114.6     114.6             
+  Float64/n256/sparse_value/d2_seq                     1.000/1.029/1.028/1.057 1.000/0.896/1.028/0.973      10.6      10.6             
+  Float64/n256/sparse_value/d1pct_seq                  1.000/1.000/1.052/1.053 1.033/0.950/1.052/1.000      11.8      11.8             
+  Float32/n256/sparse_value/d10pct_shuf                1.026/1.009/1.000/1.000 1.010/1.000/0.999/1.005      31.3      32.2             
+  Float32/n1048576/sparse_value/d2_seq                 1.029/1.000/1.000/1.000 1.025/1.000/1.000/1.000      10.0      10.3             
+  Float64/n16384/sparse_value/d2_seq                   1.000/1.000/1.029/1.057 1.000/0.972/1.028/0.973      10.6      10.6             
+  Float32/n1048576/control/dense_value                 1.000/1.000/1.000/1.000 1.000/1.000/1.000/1.000  195278.0  195312.0             
+  Float32/n256/sparse_value/d1pct_seq                  1.027/1.000/1.000/1.000 1.000/1.000/1.000/1.000      10.9      11.2             
+  Float32/n1048576/control/symmetric_value             1.000/1.000/1.000/1.000 1.000/1.000/1.000/1.000  392237.5  392225.5             
+  Float64/n1048576/control/symmetric_value             1.000/1.000/1.000/1.000 1.000/1.000/1.000/1.000  395512.0  395441.0             

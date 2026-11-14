@@ -1,0 +1,8 @@
+slurm job 14237382
+ProximalBase minimal tests: tier quick; shard all; 30 files; Julia 1.10.12 on x86_64-linux-gnu
+Euclidean norm recovery: Test Failed at /scratch2/mkolar/pb-901x/orch110-Y1f/pkg/test/numerical_kernels.jl:652
+   Evaluated: 16 == 0
+ERROR: LoadError: Some tests did not pass: 42637 passed, 1 failed, 0 errored, 0 broken.
+numerical_kernels: Test Failed at /scratch2/mkolar/pb-901x/orch110-Y1f/pkg/test/runtests.jl:46
+ProximalBase minimal core     |   29     1     30  10m43.0s
+ERROR: LoadError: Some tests did not pass: 29 passed, 1 failed, 0 errored, 0 broken.

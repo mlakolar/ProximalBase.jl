@@ -1,0 +1,4 @@
+slurm job 14237284
+ProximalBase minimal tests: tier quick; shard all; 30 files; Julia 1.13.3 on x86_64-linux-gnu
+ProximalBase minimal core |   30     30  12m45.4s
+     Testing ProximalBase tests passed 

@@ -1,0 +1,72 @@
+D-MPFR grid (differences from base; max error vs 8x-precision reference in bound units):
+  tree   prec mode          λw        cases     ≠base  max units   not CR
+  Y1      256 RoundingMode{:Down}() lw_in      5888         0    0.07437      844
+  Y1      256 RoundingMode{:Down}() lw_out     2304       208          0        0
+  Y1      256 RoundingMode{:Nearest}() lw_in      5888         0          0        0
+  Y1      256 RoundingMode{:Nearest}() lw_out     2304       480          0        0
+  Y1      256 RoundingMode{:ToZero}() lw_in      5888         0    0.08488     1367
+  Y1      256 RoundingMode{:ToZero}() lw_out     2304       208          0        0
+  Y1      256 RoundingMode{:Up}() lw_in      5888         0    0.08488      533
+  Y1      256 RoundingMode{:Up}() lw_out     2304       480          0        0
+  Y1      512 RoundingMode{:Down}() lw_in      5888         0    0.07437      836
+  Y1      512 RoundingMode{:Down}() lw_out     2304       208          0        0
+  Y1      512 RoundingMode{:Nearest}() lw_in      5888         0    0.01526       36
+  Y1      512 RoundingMode{:Nearest}() lw_out     2304       480          0        0
+  Y1      512 RoundingMode{:ToZero}() lw_in      5888         0    0.08488     1343
+  Y1      512 RoundingMode{:ToZero}() lw_out     2304       208          0        0
+  Y1      512 RoundingMode{:Up}() lw_in      5888         0    0.08488      535
+  Y1      512 RoundingMode{:Up}() lw_out     2304       480          0        0
+  Y1f     256 RoundingMode{:Down}() lw_in      5888         0    0.07437      844
+  Y1f     256 RoundingMode{:Down}() lw_out     2304       208          0        0
+  Y1f     256 RoundingMode{:Nearest}() lw_in      5888         0          0        0
+  Y1f     256 RoundingMode{:Nearest}() lw_out     2304       480          0        0
+  Y1f     256 RoundingMode{:ToZero}() lw_in      5888         0    0.08488     1367
+  Y1f     256 RoundingMode{:ToZero}() lw_out     2304       208          0        0
+  Y1f     256 RoundingMode{:Up}() lw_in      5888         0    0.08488      533
+  Y1f     256 RoundingMode{:Up}() lw_out     2304       480          0        0
+  Y1f     512 RoundingMode{:Down}() lw_in      5888         0    0.07437      836
+  Y1f     512 RoundingMode{:Down}() lw_out     2304       208          0        0
+  Y1f     512 RoundingMode{:Nearest}() lw_in      5888         0    0.01526       36
+  Y1f     512 RoundingMode{:Nearest}() lw_out     2304       480          0        0
+  Y1f     512 RoundingMode{:ToZero}() lw_in      5888         0    0.08488     1343
+  Y1f     512 RoundingMode{:ToZero}() lw_out     2304       208          0        0
+  Y1f     512 RoundingMode{:Up}() lw_in      5888         0    0.08488      535
+  Y1f     512 RoundingMode{:Up}() lw_out     2304       480          0        0
+  base    256 RoundingMode{:Down}() lw_in      5888         0    0.07437      844
+  base    256 RoundingMode{:Down}() lw_out     2304         0          0        0
+  base    256 RoundingMode{:Nearest}() lw_in      5888         0          0        0
+  base    256 RoundingMode{:Nearest}() lw_out     2304         0          0        0
+  base    256 RoundingMode{:ToZero}() lw_in      5888         0    0.08488     1367
+  base    256 RoundingMode{:ToZero}() lw_out     2304         0          0        0
+  base    256 RoundingMode{:Up}() lw_in      5888         0    0.08488      533
+  base    256 RoundingMode{:Up}() lw_out     2304         0          0        0
+  base    512 RoundingMode{:Down}() lw_in      5888         0    0.07437      836
+  base    512 RoundingMode{:Down}() lw_out     2304         0          0        0
+  base    512 RoundingMode{:Nearest}() lw_in      5888         0    0.01526       36
+  base    512 RoundingMode{:Nearest}() lw_out     2304         0          0        0
+  base    512 RoundingMode{:ToZero}() lw_in      5888         0    0.08488     1343
+  base    512 RoundingMode{:ToZero}() lw_out     2304         0          0        0
+  base    512 RoundingMode{:Up}() lw_in      5888         0    0.08488      535
+  base    512 RoundingMode{:Up}() lw_out     2304         0          0        0
+  head    256 RoundingMode{:Down}() lw_in      5888        36    0.07437      844
+  head    256 RoundingMode{:Down}() lw_out     2304       284          0        0
+  head    256 RoundingMode{:Nearest}() lw_in      5888         0          0        0
+  head    256 RoundingMode{:Nearest}() lw_out     2304       480          0        0
+  head    256 RoundingMode{:ToZero}() lw_in      5888        60    0.08488     1367
+  head    256 RoundingMode{:ToZero}() lw_out     2304       272          0        0
+  head    256 RoundingMode{:Up}() lw_in      5888         0    0.08488      533
+  head    256 RoundingMode{:Up}() lw_out     2304       480          0        0
+  head    512 RoundingMode{:Down}() lw_in      5888        36    0.07437      836
+  head    512 RoundingMode{:Down}() lw_out     2304       284          0        0
+  head    512 RoundingMode{:Nearest}() lw_in      5888         0    0.01526       36
+  head    512 RoundingMode{:Nearest}() lw_out     2304       480          0        0
+  head    512 RoundingMode{:ToZero}() lw_in      5888        60    0.08488     1343
+  head    512 RoundingMode{:ToZero}() lw_out     2304       272          0        0
+  head    512 RoundingMode{:Up}() lw_in      5888         0    0.08488      535
+  head    512 RoundingMode{:Up}() lw_out     2304       480          0        0
+
+Codex's D-MPFR reproducer: precision 256, RoundToZero, m = floatmin(BigFloat), kkt_violation(GroupNormL2(m, [1:1], [m]), [m], [0], 1)
+  base   0
+  head   m (= floatmin)
+  Y1     0
+  Y1f    0

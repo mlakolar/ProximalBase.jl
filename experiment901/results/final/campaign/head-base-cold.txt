@@ -1,0 +1,40 @@
+runs:
+  conv/head-base-cold-rep1-fwd: X=base roles=base,base#aa,head host=None cpu=None job=None core=None elapsed=Nones
+  conv/head-base-cold-rep1-rev: X=head roles=head,head#aa,base host=None cpu=None job=None core=None elapsed=Nones
+  conv/head-base-cold-rep2-fwd: X=base roles=base,base#aa,head host=None cpu=None job=None core=None elapsed=Nones
+  conv/head-base-cold-rep2-rev: X=head roles=head,head#aa,base host=None cpu=None job=None core=None elapsed=Nones
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0058  0.0334  0.3103  (n=5046)
+  run 1: 0.0054  0.0400  0.3306  (n=5046)
+  run 2: 0.0056  0.0341  0.5211  (n=5046)
+  run 3: 0.0055  0.0388  0.4148  (n=5046)
+
+head/base: cases 5046, runs per case 4; slower in every run: >1.02: 138, >1.05: 35 (35 beyond A/A); allocation regressions: 0
+geomean 0.8869, min 0.031, max 1.108
+
+geomean by category (num/den | base#aa,head#aa/base), worst:
+  GroupNormL2                      0.917 | nan   worst GroupNormL2/kkt_array/Float32/thr_under_mid/m2/range 1.113/1.123/1.104/1.094
+  LeastSquaresLoss                 0.997 | nan   worst LeastSquaresLoss/value/Float32/tiny 1.000/1.003/0.999/0.999
+  NormL1                           0.998 | nan   worst NormL1/value_and_prox/Float64/lamInf/n1024 1.007/1.005/1.024/1.019
+  NormL2                           0.684 | nan   worst NormL2/prox/Float32/sub/n1024 1.037/1.038/1.045/1.065
+  SqrNormL2                        0.834 | nan   worst SqrNormL2/value/Float32/sub_lvl/n65536 1.039/1.038/1.042/1.043
+  norm_diff                        1.002 | nan   worst norm_diff/norm_diff_symmetric/Float32/tiny_sub/p64 1.069/1.088/1.087/1.065
+
+top 15 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns base#aa,head#aa/base
+  GroupNormL2/kkt_array/Float32/thr_under_mid/m2/range 1.113/1.123/1.104/1.094 1.009/0.987/0.999/0.998   91054.2  101861.8             
+  GroupNormL2/kkt_array/Float32/under/m2/range         1.098/1.087/1.084/1.096 0.997/1.002/1.012/0.983   90901.0   99826.8             
+  GroupNormL2/kkt_array/Float32/thr_over_mid/m2/range  1.097/1.091/1.081/1.082 0.999/0.990/1.015/0.980   92463.8  101502.5             
+  GroupNormL2/prox/Float32/pre_inf_pm_thr/m5/range     1.107/1.099/1.081/1.082 1.001/1.003/0.985/1.025   19455.7   21497.9             
+  GroupNormL2/kkt_array/Float32/thr_over/m2/range      1.094/1.078/1.091/1.104 0.997/0.999/1.015/0.981   92180.8  101217.2             
+  GroupNormL2/kkt_array/Float64/over_mid_val/m2/range  1.074/1.079/1.075/1.079 1.002/1.003/1.012/1.001   89728.8   96953.1             
+  GroupNormL2/kkt_array/Float32/tiny/m2/range          1.088/1.097/1.096/1.074 1.014/1.004/1.044/1.005   90684.9   98615.1             
+  GroupNormL2/value/Float64/zero/m32/perm              1.083/1.076/1.074/1.083 0.998/1.002/0.999/0.994    6082.2    6585.8             
+  GroupNormL2/kkt_array/Float32/over_mid_val/m2/range  1.084/1.077/1.073/1.085 0.998/0.993/0.994/1.004   92827.8  100726.8             
+  GroupNormL2/kkt_array/Float64/tiny/m2/range          1.079/1.073/1.079/1.096 1.006/1.048/1.010/0.988   89152.2   96192.7             
+  GroupNormL2/value_matrix/Float64/zero/m32/perm       1.076/1.072/1.076/1.079 1.000/0.997/1.004/1.002    5874.4    6319.1             
+  GroupNormL2/kkt_matrix/Float32/over_norm/m2/range    1.071/1.073/1.077/1.074 1.000/0.998/1.013/1.006   89352.1   95723.9             
+  GroupNormL2/kkt_array/Float64/over_norm/m2/range     1.071/1.072/1.085/1.083 0.992/1.007/0.986/0.995   90841.5   97264.0             
+  GroupNormL2/value/Float64/negzero/m32/perm           1.075/1.077/1.070/1.080 1.000/1.002/1.002/0.998    5873.7    6314.8             
+  GroupNormL2/kkt_array/Float64/over_mid/m2/range      1.085/1.070/1.077/1.078 1.014/0.993/1.002/1.017   89717.1   97872.2             

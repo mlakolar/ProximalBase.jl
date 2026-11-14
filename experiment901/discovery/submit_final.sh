@@ -23,8 +23,11 @@ for dir in fwd rev; do
   echo "core run.jl $F $S 1/1 PB_ROUNDS=11 PB_BASELINE=$F PB_CANDIDATE=$S" >> "$TF"
   python3 "$SSHPY" run "$SS" "mkdir -p $RUN" >&2
   for f in "$H/../l2_cold_paths_x.jl" "$H/../l2_norms_x.jl" "$H/campaign_job.sbatch" "$BENCH/norml1_infinite_weight.jl" \
-           "$BENCH/norml1_value_underflow.jl" "$BENCH/linear_sparse_value.jl" "$BENCH/run.jl" "$BENCH/probes.jl"; do
+           "$BENCH/norml1_value_underflow.jl" "$BENCH/linear_sparse_value.jl" "$BENCH/run.jl" "$BENCH/probes.jl" \
+           "$BENCH/differential.jl" "$BENCH/Project.toml"; do
     python3 "$SSHPY" upload "$SS" "$f" "$RUN/$(basename "$f")" >&2; done
+  # run.jl records SHA-256 digests of Project.toml, Manifest.toml, differential.jl next to itself
+  python3 "$SSHPY" run "$SS" "cp /scratch2/mkolar/pb-901x/benchenv/Manifest.toml $RUN/Manifest.toml" >&2
   python3 "$SSHPY" upload "$SS" "$TF" "$RUN/tasks.txt" >&2; rm -f "$TF"
   printf 'X %s %s\nY %s %s\n' "$XL" "$XP" "$YL" "$YP" > /tmp/.pair.$$; python3 "$SSHPY" upload "$SS" /tmp/.pair.$$ "$RUN/pair.txt" >&2; rm -f /tmp/.pair.$$
   J=$(python3 "$SSHPY" run "$SS" "cd $RUN && sbatch --parsable --job-name=pb901x-final-$YL-$XL-$REP-$dir --comment=pb901x-final-$YL-$XL-$REP-$dir --constraint=xeon-2640v4 --time=08:00:00 --output=$RUN/job.out --export=ALL,RUN_DIR=$RUN,TASKS_FILE=$RUN/tasks.txt,NCONC=$NCONC campaign_job.sbatch")

@@ -1,0 +1,37 @@
+runs:
+  conv/head-base-norms-rep1-fwd: X=base roles=base,base#aa,head host=None cpu=None job=None core=None elapsed=Nones
+  conv/head-base-norms-rep1-rev: X=head roles=head,head#aa,base host=None cpu=None job=None core=None elapsed=Nones
+  conv/head-base-norms-rep2-fwd: X=base roles=base,base#aa,head host=None cpu=None job=None core=None elapsed=Nones
+  conv/head-base-norms-rep2-rev: X=head roles=head,head#aa,base host=None cpu=None job=None core=None elapsed=Nones
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0080  0.0357  0.7393  (n=368)
+  run 1: 0.0094  0.0330  0.3609  (n=368)
+  run 2: 0.0075  0.0338  0.2424  (n=368)
+  run 3: 0.0095  0.0340  0.9450  (n=368)
+
+head/base: cases 368, runs per case 4; slower in every run: >1.02: 5, >1.05: 0 (0 beyond A/A); allocation regressions: 0
+geomean 0.9905, min 0.708, max 1.067
+
+geomean by category (num/den | base#aa,head#aa/base), worst:
+  Float32                          0.989 | nan   worst Float32/m10/perm/partial/prox 1.014/1.012/1.041/1.017
+  Float64                          0.995 | nan   worst Float64/m128/perm/sparse/value 1.052/1.049/1.059/1.047
+  NormL2                           0.964 | nan   worst NormL2/Float32/n65536/value_and_prox 1.002/1.003/1.003/1.002
+
+top 15 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns base#aa,head#aa/base
+  Float64/m128/perm/sparse/value                       1.052/1.049/1.059/1.047 1.000/0.999/1.007/0.997    3929.6    4251.3             
+  Float64/m32/perm/sparse/prox                         1.051/1.047/1.047/1.035 1.001/0.994/1.001/1.008   10094.7   10614.7             
+  Float64/m32/perm/sparse/value                        1.066/1.068/1.033/1.075 0.997/0.995/0.982/0.996    5574.8    5955.2             
+  Float64/m1024/perm/sparse/value                      1.036/1.028/1.046/1.039 1.004/1.003/1.010/0.995    3805.3    3941.1             
+  Float64/m32/perm/sparse/value_and_prox               1.031/1.033/1.047/1.027 0.995/1.000/0.997/1.011   11042.5   11118.1             
+  Float64/m1024/perm/sparse/value_and_prox             1.013/1.024/1.026/1.016 0.999/1.004/1.004/1.008   12893.0   13213.6             
+  Float64/m10/perm/partial/value_and_prox              1.015/1.018/1.015/1.013 1.002/1.012/1.012/0.998   11158.5   11333.4             
+  Float32/m10/perm/partial/prox                        1.014/1.012/1.041/1.017 1.006/0.989/0.983/0.984    9250.1    9444.5             
+  Float64/m2/perm/dense/block_update_sweep             1.028/1.020/1.009/1.012 0.997/0.995/0.975/1.030 3218793.9 3278683.7             
+  Float64/m1024/perm/sparse/prox                       1.018/1.016/1.008/1.091 1.006/1.008/1.003/0.934   12195.2   12434.4             
+  Float64/m128/perm/sparse/prox                        1.008/1.011/1.019/1.016 0.995/0.986/0.991/1.000   12588.9   12806.6             
+  Float64/m5/perm/partial/value_and_prox               1.051/1.026/1.007/1.077 0.991/0.969/0.982/0.956   18079.7   18914.2             
+  Float32/m10/perm/dense/prox                          1.007/1.017/1.008/1.013 0.992/0.988/0.993/0.985    8970.8    9041.7             
+  Float64/m2/range/dense/block_sweep                   1.005/1.006/1.005/1.020 1.027/0.991/1.014/0.990  215290.0  216567.6             
+  Float32/m128/range/partial/value_and_prox            1.012/1.004/1.005/1.009 1.006/0.999/1.004/1.006    1187.6    1201.5             

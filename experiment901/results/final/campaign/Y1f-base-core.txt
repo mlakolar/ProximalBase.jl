@@ -1,0 +1,36 @@
+runs:
+  conv/Y1f-base-core-rep1-fwd: X=base roles=base,base#aa,Y1f host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-base-core-rep1-rev: X=Y1f roles=Y1f,Y1f#aa,base host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-base-core-rep2-fwd: X=base roles=base,base#aa,Y1f host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-base-core-rep2-rev: X=Y1f roles=Y1f,Y1f#aa,base host=None cpu=None job=None core=None elapsed=Nones
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0073  0.0651  0.1563  (n=102)
+  run 1: 0.0089  0.0574  0.1092  (n=102)
+  run 2: 0.0102  0.0604  0.1871  (n=102)
+  run 3: 0.0113  0.0617  0.1228  (n=102)
+
+Y1f/base: cases 102, runs per case 4; slower in every run: >1.02: 0, >1.05: 0 (0 beyond A/A); allocation regressions: 0
+geomean 0.9974, min 0.928, max 1.044
+
+geomean by category (num/den | base#aa,Y1f#aa/base), worst:
+  Float32                          1.000 | nan   worst Float32/sparse/copyto_dense 1.026/1.002/1.030/1.065
+  Float64                          0.995 | nan   worst Float64/block/read 1.000/1.000/1.000/1.000
+
+top 15 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns base#aa,Y1f#aa/base
+  Float32/sparse/copyto_dense                          1.026/1.002/1.030/1.065 0.954/0.966/0.973/1.005     999.0    1025.5             
+  Float32/symmetric/read                               1.003/1.002/1.003/1.006 1.009/0.998/0.996/0.987    7346.0    7372.0             
+  Float32/blockview/arbitrary/read                     1.000/1.008/1.000/1.000 1.000/0.992/1.000/1.000     246.0     246.0             
+  Float32/blockview/reversed/read                      1.000/1.000/1.000/1.000 1.000/1.008/1.008/1.000     246.0     246.0             
+  Float32/blockview/reversed/write_inactive            1.021/1.000/1.020/1.000 1.020/0.980/1.030/0.990      97.0      99.0             
+  Float32/l1/scalar_prox                               1.001/1.000/1.001/1.001 1.002/1.001/1.000/1.000    2136.0    2138.0             
+  Float32/sparse/l1_value                              1.025/1.000/1.000/1.000 1.000/1.000/1.000/1.000      79.0      81.0             
+  Float64/block/read                                   1.000/1.000/1.000/1.000 1.000/1.000/1.000/1.000    7262.0    7262.0             
+  Float64/blockview/arbitrary/read                     1.000/1.000/1.000/1.000 1.000/1.000/1.004/1.000     247.0     247.0             
+  Float64/blockview/arbitrary/write_active             1.000/1.000/1.011/1.000 1.000/1.011/1.000/0.989      95.0      96.0             
+  Float64/blockview/range/read                         1.000/1.000/1.000/1.000 1.000/1.000/1.000/1.000     246.0     246.0             
+  Float64/blockview/reversed/read                      1.000/1.000/1.000/1.000 1.000/1.000/1.000/1.000     247.0     247.0             
+  Float64/l1/scalar_prox                               1.000/1.000/1.000/1.000 1.000/1.000/1.000/1.000    2137.0    2137.0             
+  Float64/sparse/l1_value                              1.000/1.000/1.000/1.000 1.013/1.000/1.000/1.000      79.0      79.0             
+  Float64/symmetric/copyto_iterate                     1.019/1.026/1.000/1.066 1.076/0.978/1.017/0.877     105.0     109.0             

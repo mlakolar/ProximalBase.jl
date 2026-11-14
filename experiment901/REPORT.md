@@ -1,5 +1,7 @@
 # #901 architecture experiment: comparative decision report
 
+> **Superseded for the decision by [FINAL_REPORT.md](FINAL_REPORT.md)** (Y1 targeted round; winner Y1f `0bd9974c`).
+
 Status: **recommendation for maintainer approval. Nothing integrated into #901**; no merge, no PR change. The experiment
 branches below are pushed to `origin` for review; no pull request was opened for them.
 Date: 2026-11-13. Orchestrator: Opus; four Sonnet implementers (high effort) worked in parallel in separate worktrees.

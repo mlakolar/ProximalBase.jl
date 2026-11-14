@@ -1,0 +1,3 @@
+ProximalBase minimal tests: tier quick; shard all; 2 files; Julia 1.13.3 on x86_64-linux-gnu
+ProximalBase minimal core |    2      2  1m02.4s
+     Testing ProximalBase tests passed 

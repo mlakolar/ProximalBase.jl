@@ -1,0 +1,36 @@
+runs:
+  conv/head-base-l1under-rep1-fwd: X=base roles=base,base#aa,head host=None cpu=None job=None core=None elapsed=Nones
+  conv/head-base-l1under-rep1-rev: X=head roles=head,head#aa,base host=None cpu=None job=None core=None elapsed=Nones
+  conv/head-base-l1under-rep2-fwd: X=base roles=base,base#aa,head host=None cpu=None job=None core=None elapsed=Nones
+  conv/head-base-l1under-rep2-rev: X=head roles=head,head#aa,base host=None cpu=None job=None core=None elapsed=Nones
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0033  0.0322  0.9391  (n=144)
+  run 1: 0.0035  0.0348  0.0853  (n=144)
+  run 2: 0.0034  0.0338  0.9379  (n=144)
+  run 3: 0.0024  0.0243  0.0567  (n=144)
+
+head/base: cases 144, runs per case 4; slower in every run: >1.02: 1, >1.05: 0 (0 beyond A/A); allocation regressions: 0
+geomean 1.0038, min 0.964, max 1.326
+
+geomean by category (num/den | base#aa,head#aa/base), worst:
+  Float32                          1.004 | nan   worst Float32/n1024/block/value_and_prox 1.025/1.022/1.038/1.025
+  Float64                          1.004 | nan   worst Float64/n65536/sparse/underflow 1.001/1.003/1.001/1.001
+
+top 15 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns base#aa,head#aa/base
+  Float32/n1024/block/value_and_prox                   1.025/1.022/1.038/1.025 1.006/1.040/1.068/1.003    6065.6    5621.3             
+  Float32/n100/dense/weighted_zero_vector              1.033/1.023/1.016/1.019 1.008/0.982/1.000/1.004      41.7      43.0             
+  Float64/n65536/sparse/underflow                      1.001/1.003/1.001/1.001 1.000/0.997/1.005/1.003 3504516.2 3515747.2             
+  Float64/n1024/dense/unweighted                       1.029/1.016/1.000/1.005 1.017/0.982/0.986/0.971     129.4     132.9             
+  Float64/n100000/sparse/underflow                     1.000/1.004/1.000/1.000 1.000/0.996/1.005/1.003 5342604.0 5343114.5             
+  Float32/n100/dense/weighted_zero                     1.027/1.000/1.000/1.001 1.010/1.026/1.010/0.999      67.0      65.0             
+  Float64/n100/dense/unweighted                        1.652/1.000/1.686/1.001 1.005/1.005/1.010/1.004      21.2      35.0             
+  Float64/n65536/sparse/unweighted                     1.000/1.001/1.000/1.000 1.000/0.999/1.000/1.000    7249.2    7248.8             
+  Float64/n100000/sparse/unweighted                    1.000/1.000/1.000/1.000 1.000/1.000/1.000/1.000   11062.5   11062.0             
+  Float64/n1024/sparse/underflow                       1.002/1.002/1.004/1.000 1.001/0.996/1.008/1.004   55042.6   54979.3             
+  Float32/n100000/sparse/unweighted                    1.000/1.000/1.000/1.000 1.000/1.000/1.000/1.000   11062.0   11061.0             
+  Float32/n100000/symmetric/value_and_prox             1.000/1.003/1.000/1.001 1.002/0.999/1.000/1.000  157279.5  157734.5             
+  Float64/n100000/block/weighted                       1.000/1.000/1.000/1.000 1.000/1.001/1.000/1.009  254349.2  254296.8             
+  Float32/n100000/dense/underflow                      1.000/1.000/1.000/1.000 1.000/1.000/1.000/0.999  832860.0  832678.0             
+  Float32/n100000/block/weighted                       1.081/1.000/1.074/1.000 0.990/1.083/1.078/0.990  257405.5  278372.2             

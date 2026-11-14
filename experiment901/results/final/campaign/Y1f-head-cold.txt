@@ -1,0 +1,40 @@
+runs:
+  conv/Y1f-head-cold-rep1-fwd: X=head roles=head,head#aa,Y1f host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-head-cold-rep1-rev: X=Y1f roles=Y1f,Y1f#aa,head host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-head-cold-rep2-fwd: X=head roles=head,head#aa,Y1f host=None cpu=None job=None core=None elapsed=Nones
+  conv/Y1f-head-cold-rep2-rev: X=Y1f roles=Y1f,Y1f#aa,head host=None cpu=None job=None core=None elapsed=Nones
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0054  0.0400  0.3108  (n=5046)
+  run 1: 0.0035  0.0240  0.2798  (n=5046)
+  run 2: 0.0057  0.0382  0.6961  (n=5046)
+  run 3: 0.0032  0.0251  0.3099  (n=5046)
+
+Y1f/head: cases 5046, runs per case 4; slower in every run: >1.02: 450, >1.05: 346 (340 beyond A/A); allocation regressions: 0
+geomean 0.7948, min 0.073, max 3.784
+
+geomean by category (num/den | head#aa,Y1f#aa/head), worst:
+  GroupNormL2                      0.823 | nan   worst GroupNormL2/value/Float64/reg_lam0_wInf_nan/m32/perm 3.785/3.765/3.784/3.897
+  LeastSquaresLoss                 0.997 | nan   worst LeastSquaresLoss/value/Float64/nan 1.007/1.042/1.010/1.037
+  NormL1                           1.000 | nan   worst NormL1/prox/Float32/lamInf_zero/n1024 1.060/1.058/1.060/1.056
+  NormL2                           0.579 | nan   worst NormL2/value/Float64/reg_lamInf_nan/n1024 2.253/2.306/2.229/2.244
+  SqrNormL2                        0.751 | nan   worst SqrNormL2/value_sparse/Float64/nan/stored400 2.306/2.626/2.845/2.778
+  norm_diff                        0.998 | nan   worst norm_diff/norm_diff/Float32/inf_pm/n65536 1.000/1.006/1.001/1.006
+
+top 15 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns head#aa,Y1f#aa/head
+  GroupNormL2/value/Float64/reg_lam0_wInf_nan/m32/perm 3.785/3.765/3.784/3.897 0.970/1.005/0.999/1.002    1350.2    5109.8             
+  GroupNormL2/value/Float64/reg_lamInf_nan/m32/perm    3.836/3.700/3.703/3.816 1.000/0.997/1.001/0.997    1392.6    5341.6             
+  GroupNormL2/value/Float64/reg_wInf_nan/m32/perm      3.698/3.703/3.705/3.818 0.969/0.998/0.999/0.996    1392.9    5152.1             
+  GroupNormL2/value/Float32/reg_lam0_wInf_nan/m32/perm 2.892/2.862/2.868/2.922 1.053/1.010/1.001/0.990    1178.8    3408.8             
+  GroupNormL2/value/Float32/reg_wInf_nan/m32/perm      2.827/2.839/2.847/2.843 1.035/0.995/1.034/1.001    1222.1    3454.6             
+  GroupNormL2/value/Float32/reg_lamInf_nan/m32/perm    2.736/2.824/2.734/2.734 1.001/1.001/0.966/0.998    1264.2    3456.3             
+  SqrNormL2/value_sparse/Float64/nan/stored400         2.306/2.626/2.845/2.778 0.839/0.999/1.000/1.001      63.2     145.6             
+  GroupNormL2/kkt_array/Float64/over_norm_val/m2/range 2.257/2.256/2.280/2.255 1.003/1.007/1.005/1.007   90849.0  204948.8             
+  GroupNormL2/kkt_array/Float64/over_entries/m2/range  2.245/2.255/2.284/2.240 0.990/1.007/1.006/1.007   91391.7  205143.1             
+  GroupNormL2/kkt_matrix/Float64/over_norm_val/m2/range 2.246/2.250/2.242/2.232 1.015/1.003/1.001/1.000   87079.9  195554.1             
+  GroupNormL2/kkt_block/Float64/over_entries/m2/range  2.230/2.261/2.232/2.264 0.998/1.008/0.990/1.005   87478.7  194997.0             
+  NormL2/value/Float64/reg_lamInf_nan/n1024            2.253/2.306/2.229/2.244 1.000/0.993/1.000/0.999     180.3     406.3             
+  SqrNormL2/value/Float64/nan/n1024                    2.281/2.221/2.223/2.254 1.000/0.999/1.000/1.000     178.9     408.3             
+  GroupNormL2/kkt_block/Float64/over_norm_val/m2/range 2.221/2.262/2.230/2.266 0.987/1.008/0.989/1.005   87821.6  194925.8             
+  SqrNormL2/value/Float64/nan/n65536                   2.219/2.233/2.221/2.230 1.001/0.999/1.000/1.000   14848.5   32942.0             

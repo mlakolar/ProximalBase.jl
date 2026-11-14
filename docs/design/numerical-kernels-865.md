@@ -221,10 +221,19 @@ D-MPFR, results under a directed rounding mode at MPFR's exponent limits.
   is the `frexp` exponent minus one), and for the weight one the IEEE types scale the sum
   once by `ldexp(s, E)` without the renormalization, which is the same value, rounded once.
   The group screen forms its difference with it, once per group on its cold path.
-* `_scaled_product_norm(a, b, c, k)`: `a b c 2^k` for a scaled norm `c` in `[1, 2^30)`,
-  which the cold value term uses: the significands of `a` and `b` multiply `c`, which is
-  not split again. It gives the bits of the three-factor kernel `_scaled_product`
-  for such `c`.
+* `_scaled_product_norm(a, b, c, k)`: `a b c 2^k` for a scaled norm `c`, which the cold
+  value term uses: the significands of `a` and `b` multiply `c`, which is not split again.
+  It gives the bits of the three-factor kernel `_scaled_product` when `a` and `b` are
+  strictly positive and finite, `c` is in `[1, 2^30)` and represented at no more than the
+  current precision (a `BigFloat` `c` stored at a precision at most the current one; a `c`
+  of an IEEE type is), and the sum of `k` and the `frexp` exponents does not wrap (an `Int`
+  sum, an `Int128` sum for `BigFloat`). A `BigFloat` `c` stored above the current precision
+  is rounded by the `frexp` of `_scaled_product` and not here, and the two can differ by a
+  rounding; a zero factor is outside the contract (`-0` gives `-0` here and `+0` from
+  `_scaled_product`). The cold value term passes the level and the weight after its zero
+  and infinite exits, and the scaled norm `ns`, which `sqrt` forms at the current
+  precision, with `ns >= 1` and, up to rounding, `ns <= 2 sqrt(n)` for a group of `n`
+  entries, below `2^30` for `n <= 2^56`; for such groups it meets these conditions.
 * `_scaled_norm(x, y, s, scale)`: the optional scale multiplies the norm (default one).
 * `_threshold_product`, `_sum_kept`, `_indexed_sumabs2`, `_recovery_type`.
 

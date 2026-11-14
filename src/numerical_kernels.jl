@@ -147,10 +147,16 @@ end
   ldexp((ma * mb) * mc, ea + eb + ec + k)
 end
 
-# a b c 2^k for finite a, b >= 0 and a scaled norm c, which is finite with 1 <= c < 2^30 (the norm of a group of entries
-# scaled by the largest exponent is in [1, 2 sqrt(n)), below 2^30 for n < 2^58 entries): the significands of a and b are
-# multiplied by c, which needs no frexp, and the product, in [1/4, 2^30), is in range. The kernel above, which frexps c as
-# well (_scaled_product), gives the same bits for such c; a zero a or b gives +0.
+# a b c 2^k for strictly positive finite a and b and a scaled norm c with 1 <= c < 2^30 that is represented at no more
+# than the current precision (a BigFloat c stored at a precision at most the current one; a c of an IEEE type is). The
+# significands of a and b, in [1/2, 1), are multiplied by c, which needs no frexp, and their product, in [1/4, 2^30] after
+# rounding, is in range. Under these conditions, and for a power k for which the sum of k and the frexp exponents of a, b
+# and c does not wrap (an Int sum, an Int128 sum for BigFloat), it gives the bits of the kernel above that frexps c as well
+# (_scaled_product). A BigFloat c stored above the current precision is multiplied unrounded here and rounded by frexp
+# there, and the two results can differ. A zero or non-finite a or b is outside this contract (-0 gives -0 here, +0
+# there). The caller, _l2_term_cold, passes the level and the weight after its zero and infinite exits, and the norm ns of
+# _l2_classified_norm, which sqrt forms at the current precision: ns >= 1 and, up to rounding, ns <= 2 sqrt(n) for a
+# group of n entries, below 2^30 for n <= 2^56.
 @inline function _scaled_product_norm(a::T, b::T, c::T, k::Integer) where {T<:AbstractFloat}
   ma, ea = _frexp(a)
   mb, eb = _frexp(b)
@@ -837,7 +843,8 @@ end
 # y = 0), for the cold paths. k is the largest exponent of the entries, or the code of the group: _EXPONENT_NAN if
 # an entry is NaN, _EXPONENT_INF if one is infinite and none is NaN, _EXPONENT_ZERO if all are zero. For a finite
 # nonzero group and need_norm, ns is the norm of the entries scaled by 2^-k, so that its largest entry is in
-# [1, 2) and no square overflows or underflows below the rounding of the sum: ns is in [1, 2√|G|). Otherwise
+# [1, 2) and no square overflows or underflows below the rounding of the sum: ns is in [1, 2√|G|) for the exact
+# scaled entries and, up to rounding, ns <= 2√|G| (an entry stored above the precision of R can round to 2). Otherwise
 # ns is zero. A caller that does not need the norm passes need_norm = false, and then there is no second pass.
 @inline function _l2_classified_norm(x, G, ::Type{R}, need_norm::Bool = true) where {R}
   v = _IndexedValues(x, G)

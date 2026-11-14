@@ -87,7 +87,7 @@ setprecision(BigFloat, 1200) do
       @test PB._scaled_product_retained(w, v, k) === PB._scaled_product(w, v, k)
     end
     # the product with a scaled norm c in [1, 2^30), which is not split into a significand and an exponent, gives the
-    # bits of the three-factor kernel: factors over many binades, subnormal and zero factors, powers that leave the range
+    # bits of the three-factor kernel: factors over many binades, subnormal and +0 factors, powers that leave the range
     for _ in 1:4000
       a = abs(signif(rng, T, rand(rng, e0 - 20:E)))
       b = abs(signif(rng, T, rand(rng, e0 - 20:E)))
@@ -807,7 +807,8 @@ end
 
 @testset "scaled product of a norm under directed rounding (BigFloat)" begin
   # the product with a scaled norm c in [1, 2^30) rounds as the three-factor kernel does, in each of the four rounding modes
-  # and at precisions 53 and 256, also with exponents beyond Int64 (Int128 sums) and for factors above the current precision
+  # and at precisions 53 and 256, also with exponents beyond Int64 (Int128 sums); one a value (a0) is stored at 400 bits,
+  # above the current precision, and the four c values are formed at the current precision, as the contract requires of c
   ntests = 0
   big2 = BigFloat(2)
   for p in (53, 256), mode in (RoundNearest, RoundUp, RoundDown, RoundToZero)

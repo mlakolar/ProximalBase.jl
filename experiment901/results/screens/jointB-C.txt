@@ -1,0 +1,96 @@
+runs:
+  /tmp/claude-1000/-home-mkolar-projects-juliaPkg-ProximalBase-jl/f8b9f9c7-b78d-4e7d-b03f-28871ee5aa1e/scratchpad/runs/joint-Bfirst-20261113T162827/o0_s1: X=base roles=base,base#aa,ref,B,C,A,D host=d18-31.hpc.usc.edu cpu=Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz job=None core=0 slurm_job 14220936 elapsed=152.4s
+  /tmp/claude-1000/-home-mkolar-projects-juliaPkg-ProximalBase-jl/f8b9f9c7-b78d-4e7d-b03f-28871ee5aa1e/scratchpad/runs/joint-Bfirst-20261113T162827/o1_s1: X=base roles=base,base#aa,ref,B,C,A,D host=d18-31.hpc.usc.edu cpu=Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz job=None core=1 slurm_job 14220936 elapsed=148.9s
+  /tmp/claude-1000/-home-mkolar-projects-juliaPkg-ProximalBase-jl/f8b9f9c7-b78d-4e7d-b03f-28871ee5aa1e/scratchpad/runs/joint-Bfirst-20261113T162827/o2_s1: X=B roles=B,B#aa,base,ref,C,A,D host=d18-31.hpc.usc.edu cpu=Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz job=None core=8 slurm_job 14220936 elapsed=1063.5s
+  /tmp/claude-1000/-home-mkolar-projects-juliaPkg-ProximalBase-jl/f8b9f9c7-b78d-4e7d-b03f-28871ee5aa1e/scratchpad/runs/joint-Bfirst-20261113T162827/o3_s1: X=B roles=B,B#aa,base,ref,C,A,D host=d18-31.hpc.usc.edu cpu=Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz job=None core=9 slurm_job 14220936 elapsed=1069.1s
+  /tmp/claude-1000/-home-mkolar-projects-juliaPkg-ProximalBase-jl/f8b9f9c7-b78d-4e7d-b03f-28871ee5aa1e/scratchpad/runs/joint-Bfirst-20261113T162827/o4_s1: X=B roles=B,B#aa,base,ref,C,A,D host=d18-31.hpc.usc.edu cpu=Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz job=None core=16 slurm_job 14220936 elapsed=968.5s
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0059  0.0467  0.3069  (n=826)
+  run 1: 0.0039  0.0350  0.2406  (n=826)
+  run 2: 0.0039  0.0430  0.2749  (n=826)
+  run 3: 0.0031  0.0298  0.1833  (n=826)
+  run 4: 0.0041  0.0433  0.7785  (n=826)
+
+C/base: cases 826, runs per case 5; slower in every run: >1.02: 11, >1.05: 2 (2 beyond A/A); allocation regressions: 0
+geomean 0.7696, min 0.026, max 1.159
+
+geomean by category (num/den), worst:
+  Group/m1/inf                     0.968   worst Group/Float64/m1/range/inf/value 1.088/1.031/1.010/1.011/1.050
+  Group/m1/lamInf                  0.952   worst Group/Float64/m1/range/lamInf/prox 1.071/1.159/1.218/1.206/1.159
+  Group/m1/nan                     0.952   worst Group/Float64/m1/range/nan/value 0.997/1.000/0.966/0.975/1.007
+  Group/m1/ord                     0.978   worst Group/Float64/m1/range/ord/value 1.066/1.001/1.002/0.999/0.997
+  Group/m1/over                    0.912   worst Group/Float32/m1/range/over/fused 0.940/0.945/0.941/0.914/0.937
+  Group/m1/thr_over                0.943   worst Group/Float64/m1/range/thr_over/value 1.000/1.000/0.988/1.001/0.984
+  Group/m1/thr_under               0.787   worst Group/Float64/m1/range/thr_under/value 1.002/1.000/1.001/1.000/0.996
+  Group/m1/under                   0.959   worst Group/Float32/m1/range/under/kkt 0.981/0.975/0.977/0.974/0.976
+  Group/m1/w0                      0.593   worst Group/Float32/m1/range/w0/kkt 0.986/0.994/0.976/0.991/1.000
+  Group/m1/wmix                    0.888   worst Group/Float64/m1/range/wmix/value 1.001/0.999/1.012/1.000/1.002
+  Group/m1/zgrp                    0.999   worst Group/Float64/m1/range/zgrp/value 1.040/1.041/1.017/1.041/1.042
+  Group/m1024/inf                  0.336   worst Group/Float64/m1024/perm/inf/prox 0.808/0.805/0.803/0.800/0.804
+  Group/m1024/lamInf               0.470   worst Group/Float64/m1024/perm/lamInf/prox 1.011/0.994/0.992/0.993/0.995
+  Group/m1024/nan                  0.425   worst Group/Float64/m1024/perm/nan/prox 0.804/0.803/0.801/0.800/0.800
+  Group/m1024/ord                  0.998   worst Group/Float64/m1024/range/ord/block 1.007/1.015/0.999/1.002/1.010
+  Group/m1024/over                 0.632   worst Group/Float64/m1024/perm/over/prox 0.772/0.767/0.761/0.754/0.755
+  Group/m1024/thr_over             0.755   worst Group/Float64/m1024/range/thr_over/value 1.007/1.001/1.000/1.004/1.001
+  Group/m1024/thr_under            0.764   worst Group/Float64/m1024/perm/thr_under/value 1.000/1.001/1.008/1.008/1.002
+  Group/m1024/under                0.850   worst Group/Float64/m1024/perm/under/value 0.895/0.899/0.898/0.895/0.895
+  Group/m1024/w0                   0.593   worst Group/Float64/m1024/range/w0/block 0.994/0.995/1.010/0.999/0.998
+  Group/m1024/wmix                 0.996   worst Group/Float64/m1024/perm/wmix/prox 0.996/1.013/0.997/0.994/1.011
+  Group/m1024/zgrp                 0.988   worst Group/Float64/m1024/perm/zgrp/value 1.003/0.999/0.997/0.999/1.001
+  Group/m2/inf                     0.931   worst Group/Float64/m2/range/inf/value 0.994/0.984/0.935/0.956/0.995
+  Group/m2/lamInf                  0.924   worst Group/Float64/m2/range/lamInf/prox 1.039/1.158/1.197/1.201/1.158
+  Group/m2/nan                     0.925   worst Group/Float64/m2/range/nan/fused 0.969/0.935/0.966/0.976/1.000
+  Group/m2/ord                     0.990   worst Group/Float64/m2/range/ord/fused 1.051/1.016/1.140/1.088/1.036
+  Group/m2/over                    0.879   worst Group/Float64/m2/range/over/kkt 0.909/0.890/0.906/0.931/0.901
+  Group/m2/thr_over                0.916   worst Group/Float64/m2/range/thr_over/value 1.006/0.998/1.012/0.999/0.999
+  Group/m2/thr_under               0.780   worst Group/Float64/m2/range/thr_under/value 0.999/0.999/1.012/0.999/1.000
+  Group/m2/under                   0.954   worst Group/Float32/m2/range/under/kkt 0.965/0.970/0.965/0.966/0.965
+  Group/m2/w0                      0.602   worst Group/Float32/m2/range/w0/kkt 0.998/1.009/0.987/1.015/1.000
+  Group/m2/wmix                    0.883   worst Group/Float64/m2/range/wmix/value 0.994/0.998/1.010/1.001/1.005
+  Group/m2/zgrp                    1.011   worst Group/Float32/m2/range/zgrp/fused 1.056/1.106/1.083/1.054/1.066
+  Group/m32/inf                    0.463   worst Group/Float64/m32/range/inf/prox 0.571/0.580/0.579/0.583/0.576
+  Group/m32/lamInf                 0.588   worst Group/Float32/m32/range/lamInf/prox 1.032/1.035/1.032/1.030/1.050
+  Group/m32/nan                    0.483   worst Group/Float64/m32/range/nan/fused 0.589/0.661/0.595/0.621/0.620
+  Group/m32/ord                    0.986   worst Group/Float64/m32/range/ord/kkt 1.008/1.005/1.001/1.006/0.999
+  Group/m32/over                   0.662   worst Group/Float64/m32/range/over/block 0.731/0.741/0.747/0.744/0.733
+  Group/m32/thr_over               0.756   worst Group/Float32/m32/range/thr_over/value 0.989/1.004/0.994/1.005/0.999
+  Group/m32/thr_under              0.747   worst Group/Float32/m32/range/thr_under/value 1.036/1.002/0.993/1.006/1.007
+  Group/m32/under                  0.832   worst Group/Float64/m32/range/under/kkt 0.910/0.903/0.909/0.905/0.902
+  Group/m32/w0                     0.674   worst Group/Float64/m32/range/w0/kkt 1.002/1.000/1.004/0.986/0.999
+  Group/m32/wmix                   0.917   worst Group/Float64/m32/range/wmix/value 1.041/1.030/1.024/0.984/0.994
+  Group/m32/zgrp                   0.976   worst Group/Float32/m32/range/zgrp/value 0.998/1.018/1.012/1.021/1.007
+  Group/m5/inf                     0.873   worst Group/Float64/m5/perm/inf/value 0.931/0.988/1.057/1.011/1.042
+  Group/m5/lamInf                  0.862   worst Group/Float32/m5/range/lamInf/prox 1.106/1.040/1.040/1.034/1.060
+  Group/m5/nan                     0.901   worst Group/Float64/m5/perm/nan/value 0.979/1.041/0.963/1.045/0.963
+  Group/m5/ord                     0.983   worst Group/Float64/m5/perm/ord/prox 1.050/1.076/1.146/1.156/0.999
+  Group/m5/over                    0.895   worst Group/Float64/m5/range/over/kkt 0.983/1.026/1.028/1.022/1.020
+  Group/m5/thr_over                0.947   worst Group/Float64/m5/range/thr_over/prox 1.058/1.061/1.062/1.021/1.063
+  Group/m5/thr_under               0.878   worst Group/Float64/m5/range/thr_under/prox 1.008/1.011/1.010/1.005/1.007
+  Group/m5/under                   0.955   worst Group/Float64/m5/range/under/kkt 1.004/0.997/1.003/0.993/0.999
+  Group/m5/w0                      0.652   worst Group/Float32/m5/range/w0/kkt 0.997/1.011/0.992/0.993/1.044
+  Group/m5/wmix                    0.888   worst Group/Float64/m5/perm/wmix/value 1.014/1.016/1.130/1.020/1.006
+  Group/m5/zgrp                    0.983   worst Group/Float32/m5/range/zgrp/fused 1.040/1.040/1.066/1.044/1.024
+  Norm/inf                         0.372   worst Norm/Float64/n1/inf/prox 0.895/0.940/0.925/0.914/0.927
+  Norm/nan                         0.382   worst Norm/Float64/n2/nan/fused 0.872/0.872/0.870/0.910/0.891
+  Norm/ord                         0.997   worst Norm/Float64/n32/ord/value 1.000/1.000/1.000/1.001/1.000
+  Norm/over                        0.721   worst Norm/Float32/n1/over/fused 1.000/0.975/1.000/1.000/1.000
+  Norm/thr_under                   0.864   worst Norm/Float64/n5/thr_under/fused 1.011/1.003/1.000/1.000/1.004
+  Norm/under                       0.886   worst Norm/Float64/n5/under/prox 1.007/0.995/1.000/0.997/1.001
+  Norm/zero                        0.962   worst Norm/Float32/n1/zero/value 1.000/1.000/1.000/1.000/1.000
+  NormL1                           1.000   worst NormL1/Float64/n1024/ord/value 1.002/1.002/1.000/1.000/1.000
+  SqrNormL2                        1.000   worst SqrNormL2/Float64/n1024/over/value 1.003/1.066/1.003/1.000/1.011
+  norm_diff                        0.994   worst norm_diff/Float64/n32/ord/value 1.000/1.000/1.000/1.000/1.000
+
+top 10 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns
+  Group/Float64/m1/range/lamInf/prox                   1.071/1.159/1.218/1.206/1.159 0.999/0.960/1.061/1.073/0.936   34447.8   37648.8
+  Group/Float32/m2/range/zgrp/fused                    1.056/1.106/1.083/1.054/1.066 0.996/1.024/1.007/1.008/1.001   29047.3   31054.7
+  Group/Float64/m2/range/lamInf/prox                   1.039/1.158/1.197/1.201/1.158 1.000/0.961/1.062/1.071/0.934   16963.0   17683.7
+  Group/Float32/m5/range/lamInf/prox                   1.106/1.040/1.040/1.034/1.060 1.032/0.966/1.000/0.925/1.076    6024.2    6942.9
+  Group/Float64/m2/range/zgrp/fused                    1.045/1.034/1.103/1.068/1.122 1.005/0.991/1.070/1.061/1.025   29109.1   30375.3
+  Group/Float32/m2/range/lamInf/prox                   1.065/1.040/1.039/1.033/1.072 1.014/0.971/0.926/1.001/1.001   15388.9   16655.6
+  Group/Float32/m32/range/lamInf/prox                  1.032/1.035/1.032/1.030/1.050 0.993/0.965/0.941/1.060/0.944    1203.9    1279.5
+  Group/Float32/m1/range/lamInf/prox                   1.084/1.028/1.048/1.032/1.076 1.041/0.948/1.001/1.000/1.001   30863.0   34479.4
+  Group/Float64/m5/range/lamInf/prox                   1.026/1.102/1.172/1.169/1.103 0.966/0.969/0.998/1.013/1.001    7571.3    7768.3
+  Group/Float32/m5/range/zgrp/fused                    1.040/1.040/1.066/1.044/1.024 1.002/1.018/0.960/0.996/0.986   12878.1   13647.7

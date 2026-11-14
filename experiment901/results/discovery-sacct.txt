@@ -1,0 +1,68 @@
+14217165                      pb901x-calib-conc    oneweek   COMPLETED         98         20 
+14217167                  pb901x-calib-full-ref    oneweek   COMPLETED         81         20 
+14217203                 pb901x-active-04821b7e    oneweek   COMPLETED        110         20 
+14217214                      pb901x-A-7c50980d    oneweek   COMPLETED        108         20 
+14217215                      pb901x-D-f76fa371    oneweek   COMPLETED        109         20 
+14217217                      pb901x-B-e21260de    oneweek   COMPLETED        304         20 
+14217223                            pb901x-C-r1    oneweek   COMPLETED        112         20 
+14217225                            pb901x-C-r2    oneweek   COMPLETED        117         20 
+14217256                  pb901x-calib-campaign    oneweek   COMPLETED       3136         20 
+14217300                            pb901x-C-r3    oneweek   COMPLETED        118         20 
+14217380                            pb901x-C-r4    oneweek   COMPLETED        118         20 
+14217389                      pb901x-D-c54b1561    oneweek   COMPLETED        110         20 
+14217401                      pb901x-A-56789811    oneweek   COMPLETED        110         20 
+14217409                           pb901x-C-r5f    oneweek   COMPLETED         32         20 
+14217429                            pb901x-C-p1    oneweek      FAILED          8         20 
+14217431                     pb901x-A-26010287f    oneweek   COMPLETED         39         20 
+14217435                            pb901x-C-p1    oneweek   COMPLETED        493         20 
+14217473                      pb901x-A-b08dcd44    oneweek   COMPLETED        110         20 
+14217483                      pb901x-D-3b37672a    oneweek   COMPLETED        109         20 
+14217490                      pb901x-A-34211038    oneweek   COMPLETED        110         20 
+14217496                      pb901x-B-63b6c1c2    oneweek   COMPLETED        433         20 
+14217548                pb901x-A-164f6326-final    oneweek   COMPLETED        111         20 
+14217571                            pb901x-C-p1    oneweek   COMPLETED         42         20 
+14217639                      pb901x-A-2fde7b13    oneweek   COMPLETED        109         20 
+14217640                            pb901x-C-r6    oneweek   COMPLETED        119         20 
+14217826                            pb901x-C-r7    oneweek   COMPLETED        118         20 
+14217858                      pb901x-B-e25f0550    oneweek   COMPLETED        402         20 
+14217869                            pb901x-C-r8    oneweek   COMPLETED        118         20 
+14217961                      pb901x-B-8c0d07fc    oneweek   COMPLETED        270         20 
+14217962                            pb901x-C-r9    oneweek   COMPLETED        118         20 
+14218165                      pb901x-B-3091c669    oneweek   COMPLETED        471         20 
+14218281                      pb901x-B-71c4b37b    oneweek   COMPLETED        503         20 
+14218311                    pb901x-joint-Afirst    oneweek   COMPLETED        151         20 
+14218312                    pb901x-joint-Cfirst    oneweek   COMPLETED        169         20 
+14218313                    pb901x-joint-Dfirst    oneweek   COMPLETED        153         20 
+14218314                 pb901x-camp-A-rep1-fwd    oneweek   COMPLETED       2094         20 
+14218315                 pb901x-camp-A-rep1-rev    oneweek   COMPLETED       2084         20 
+14218317                 pb901x-camp-C-rep1-fwd    oneweek   COMPLETED       2048         20 
+14218318                 pb901x-camp-C-rep1-rev    oneweek   COMPLETED       2073         20 
+14218319                 pb901x-camp-D-rep1-fwd    oneweek   COMPLETED       2125         20 
+14218320                 pb901x-camp-D-rep1-rev    oneweek   COMPLETED       2100         20 
+14218321                 pb901x-camp-A-rep2-fwd    oneweek CANCELLED +          0          0 
+14218322                 pb901x-camp-A-rep2-rev    oneweek CANCELLED +          0          0 
+14218324                 pb901x-camp-C-rep2-fwd    oneweek CANCELLED +          0          0 
+14218326                 pb901x-camp-C-rep2-rev    oneweek CANCELLED +          0          0 
+14218329                 pb901x-camp-D-rep2-fwd    oneweek CANCELLED +          0          0 
+14218330                 pb901x-camp-D-rep2-rev    oneweek CANCELLED +          0          0 
+14218336               pb901x-camp-ref-rep1-fwd    oneweek   COMPLETED       2105         20 
+14218337               pb901x-camp-ref-rep1-rev    oneweek   COMPLETED       2085         20 
+14218343                      jl-pb-901x-orch-C       main      FAILED         22          4 
+14218344                      jl-pb-901x-orch-A       main      FAILED          9          4 
+14218345                      jl-pb-901x-orch-D       main      FAILED         11          4 
+14218415                      jl-pb-901x-orch-C       main   COMPLETED        837          4 
+14218416                      jl-pb-901x-orch-D       main   COMPLETED        679          4 
+14218417                      jl-pb-901x-orch-A       main   COMPLETED        757          4 
+14220936                    pb901x-joint-Bfirst    oneweek   COMPLETED       1083         20 
+14220937                 pb901x-camp-B-rep1-fwd    oneweek   COMPLETED       2020         20 
+14220938                 pb901x-camp-B-rep1-rev    oneweek   COMPLETED       1940         20 
+14220939                      jl-pb-901x-orch-B       main   COMPLETED        942          4 
+14220940                            pb901x-C-q1    oneweek CANCELLED +          0          0 
+14221135                            pb901x-C-q1    oneweek   COMPLETED        248         20 
+14222572                           pb901x-C-q1x    oneweek CANCELLED +          0          0 
+14223411                            pb901x-C-q2    oneweek   COMPLETED        166         20 
+14223938                            pb901x-C-q3    oneweek   COMPLETED        165         20 
+14228110                     pb901x-Y1-64cab3f1    oneweek   COMPLETED        164         20 
+14228169                pb901x-camp-Y1-rep1-fwd    oneweek   COMPLETED       2064         20 
+14228170                pb901x-camp-Y1-rep1-rev    oneweek   COMPLETED       2023         20 
+14228172                     jl-pb-901x-orch-Y1       main   COMPLETED        674          4 

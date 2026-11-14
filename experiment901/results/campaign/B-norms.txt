@@ -1,0 +1,33 @@
+runs:
+  conv/B-norms-fwd: X=base roles=base,base#aa,B host=None cpu=None job=None core=None elapsed=Nones
+  conv/B-norms-rev: X=B roles=B,B#aa,base host=None cpu=None job=None core=None elapsed=Nones
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0089  0.0421  0.2589  (n=368)
+  run 1: 0.0099  0.0331  0.2280  (n=368)
+
+B/base: cases 368, runs per case 2; slower in every run: >1.02: 18, >1.05: 10 (8 beyond A/A); allocation regressions: 0
+geomean 0.9815, min 0.672, max 1.479
+
+geomean by category (num/den), worst:
+  Float32                          0.976   worst Float32/m5/range/partial/prox 1.063/1.221
+  Float64                          0.990   worst Float64/m128/range/partial/value 1.822/1.135
+  NormL2                           0.954   worst NormL2/Float32/n1024/prox 1.015/1.021
+
+top 15 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns
+  Float64/m128/range/partial/value                              1.822/1.135    1.006/0.857     724.1    1347.7
+  Float64/m32/perm/sparse/value                                 1.077/1.073    0.968/1.005    5576.4    6004.8
+  Float32/m5/range/partial/prox                                 1.063/1.221    1.049/0.777   10472.3   11162.7
+  Float64/m10/perm/sparse/value                                 1.145/1.063    1.144/0.984    8626.8    9945.0
+  Float64/m2/perm/sparse/value                                  1.059/1.086    0.980/0.987   17863.8   18917.6
+  Float32/m32/perm/dense/value                                  1.057/1.063    0.996/0.998    3105.0    3288.4
+  Float32/m10/perm/dense/value                                  1.063/1.055    0.998/1.003    4755.3    5052.1
+  Float32/m32/perm/partial/value                                1.054/1.059    0.995/1.008    3020.5    3183.9
+  Float32/m10/perm/partial/value                                1.053/1.060    0.989/1.009    4937.2    5194.2
+  Float64/m32/perm/sparse/prox                                  1.050/1.051    1.002/1.000    9693.4   10188.0
+  Float64/m128/perm/sparse/value                                1.046/1.059    1.021/0.999    3824.9    4003.0
+  Float64/m32/perm/sparse/value_and_prox                        1.065/1.046    1.003/1.001   10290.6   11028.8
+  Float64/m1024/perm/sparse/value                               1.039/1.043    0.995/0.990    3689.1    3831.3
+  Float32/m2/perm/sparse/value                                  1.032/1.104    0.988/0.986   15950.9   16446.0
+  Float32/m1024/range/dense/block_update_sweep                  1.033/1.031    1.005/0.972 1409390.2 1452143.6

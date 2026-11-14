@@ -1,0 +1,36 @@
+runs:
+  conv/C-cold-fwd: X=base roles=base,base#aa,C host=None cpu=None job=None core=None elapsed=Nones
+  conv/C-cold-rev: X=C roles=C,C#aa,base host=None cpu=None job=None core=None elapsed=Nones
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0058  0.0332  0.5281  (n=5046)
+  run 1: 0.0031  0.0261  0.2831  (n=5046)
+
+C/base: cases 5046, runs per case 2; slower in every run: >1.02: 151, >1.05: 61 (58 beyond A/A); allocation regressions: 0
+geomean 0.7225, min 0.026, max 1.300
+
+geomean by category (num/den), worst:
+  GroupNormL2                      0.779   worst GroupNormL2/value_and_prox/Float32/zero/m5/range 1.163/1.162
+  LeastSquaresLoss                 0.991   worst LeastSquaresLoss/value/Float64/inf 1.010/1.020
+  NormL1                           1.001   worst NormL1/prox/Float32/lamInf/n1024 1.058/1.068
+  NormL2                           0.395   worst NormL2/value_symmetric/Float32/sub/stored400 1.030/1.031
+  SqrNormL2                        0.624   worst SqrNormL2/value_center/Float64/nan_after_inf/n1024 1.098/1.112
+  norm_diff                        0.999   worst norm_diff/norm_diff_symmetric/Float32/nan/p64 1.004/1.015
+
+top 15 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns
+  GroupNormL2/value_and_prox/Float32/zero/m5/range              1.163/1.162    1.023/0.999   12488.2   14390.4
+  GroupNormL2/prox/Float64/reg_gam0_ord/m5/range                1.123/1.192    0.970/0.972    8547.9    9600.1
+  GroupNormL2/value/Float32/zero/m5/range                       1.125/1.122    1.000/1.001    8479.2    9532.3
+  GroupNormL2/prox/Float64/reg_gam0_zero/m5/range               1.121/1.193    0.973/0.972    8582.4    9616.3
+  GroupNormL2/prox_block/Float64/reg_lam0_nan/m5/range          1.110/1.152    0.983/0.987   16003.6   17762.7
+  GroupNormL2/prox/Float64/reg_lamInf_inf/m5/range              1.101/1.127    1.005/0.915    7517.9    8276.0
+  SqrNormL2/value_center/Float64/nan_after_inf/n1024            1.098/1.112    0.999/0.902    3994.5    4388.1
+  GroupNormL2/value_and_prox/Float64/negzero/m5/range           1.110/1.096    1.023/0.997   13541.9   14866.8
+  GroupNormL2/prox_matrix/Float64/over_norm_val/m5/range          1.093/1.096    0.997/1.001    8544.5    9337.7
+  GroupNormL2/prox/Float64/reg_lam0_over/m5/range               1.093/1.094    1.028/0.943    8319.7    9092.6
+  GroupNormL2/prox/Float64/reg_gamInf_inf/m5/range              1.091/1.130    0.988/1.029    8580.2    9362.4
+  GroupNormL2/value_and_prox/Float32/reg_wInf_inf/m5/range          1.091/1.119    1.001/0.944    9002.3    9819.5
+  GroupNormL2/value_and_prox/Float32/negzero/m5/range           1.090/1.112    1.005/1.043   12092.9   13184.0
+  GroupNormL2/prox_block/Float32/reg_lam0_wInf_inf/m5/range          1.085/1.250    1.121/0.849   12368.6   13418.8
+  GroupNormL2/value/Float64/zero_half/m2/range                  1.522/1.079    1.049/1.005   14624.5   22256.3

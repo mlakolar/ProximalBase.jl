@@ -1,0 +1,36 @@
+runs:
+  conv/D-cold-fwd: X=base roles=base,base#aa,D host=None cpu=None job=None core=None elapsed=Nones
+  conv/D-cold-rev: X=D roles=D,D#aa,base host=None cpu=None job=None core=None elapsed=Nones
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0059  0.0341  0.1927  (n=5046)
+  run 1: 0.0050  0.0354  0.2456  (n=5046)
+
+D/base: cases 5046, runs per case 2; slower in every run: >1.02: 63, >1.05: 19 (17 beyond A/A); allocation regressions: 0
+geomean 0.8807, min 0.030, max 1.341
+
+geomean by category (num/den), worst:
+  GroupNormL2                      0.910   worst GroupNormL2/prox/Float64/sub/m5/range 1.341/1.342
+  LeastSquaresLoss                 1.002   worst LeastSquaresLoss/value/Float64/zero_residual 1.026/1.005
+  NormL1                           1.000   worst NormL1/prox/Float32/thr_over/n65536 1.079/1.081
+  NormL2                           0.679   worst NormL2/value/Float64/reg_lam0_nan/n1024 1.051/1.087
+  SqrNormL2                        0.832   worst SqrNormL2/value_center/Float64/nan/n1024 1.092/1.056
+  norm_diff                        0.996   worst norm_diff/norm_diff/Float32/under/n1024 1.005/1.006
+
+top 15 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns
+  GroupNormL2/prox/Float64/sub/m5/range                         1.341/1.342    1.002/1.001  323085.4  433396.2
+  GroupNormL2/prox_matrix/Float64/sub/m5/range                  1.347/1.327    1.006/0.998  321204.6  432355.1
+  GroupNormL2/prox/Float64/thr_under/m5/range                   1.258/1.261    1.001/1.001  302040.0  379856.7
+  GroupNormL2/prox_matrix/Float64/thr_under/m5/range            1.266/1.248    1.003/0.999  301101.0  381323.6
+  GroupNormL2/prox/Float64/ext_under/m5/range                   1.246/1.250    1.001/0.999  299310.3  373257.0
+  GroupNormL2/prox_matrix/Float64/under/m5/range                1.190/1.194    1.014/0.994   74316.4   88441.1
+  GroupNormL2/prox/Float64/thr_under_mid/m5/range               1.190/1.187    0.996/0.994   60342.8   71810.9
+  GroupNormL2/prox_matrix/Float64/thr_under_mid/m5/range          1.176/1.170    1.010/1.000   60341.8   70975.8
+  GroupNormL2/prox/Float64/under/m5/range                       1.183/1.155    1.012/1.000   75105.2   88877.9
+  GroupNormL2/value_and_prox/Float64/sub/m5/range               1.119/1.115    1.009/1.000  928298.9 1039641.6
+  GroupNormL2/value_and_prox_matrix/Float64/sub/m5/range          1.114/1.121    0.993/1.002  934007.7 1040991.3
+  GroupNormL2/value_and_prox/Float64/ext_under/m5/range          1.109/1.103    1.006/0.998  702788.1  775674.1
+  GroupNormL2/value_and_prox/Float64/thr_under/m5/range          1.108/1.102    1.002/1.011  742791.4  817686.1
+  GroupNormL2/value_and_prox_matrix/Float64/thr_under/m5/range          1.100/1.109    0.993/1.001  740189.0  813770.6
+  NormL1/prox/Float32/thr_over/n65536                           1.079/1.081    1.079/1.000  835408.0  901040.0

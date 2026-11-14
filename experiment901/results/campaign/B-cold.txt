@@ -1,0 +1,36 @@
+runs:
+  conv/B-cold-fwd: X=base roles=base,base#aa,B host=None cpu=None job=None core=None elapsed=Nones
+  conv/B-cold-rev: X=B roles=B,B#aa,base host=None cpu=None job=None core=None elapsed=Nones
+
+A/A per run (|X#aa/X - 1|): median, p90, max
+  run 0: 0.0055  0.0323  0.1970  (n=5046)
+  run 1: 0.0034  0.0300  0.5678  (n=5046)
+
+B/base: cases 5046, runs per case 2; slower in every run: >1.02: 133, >1.05: 61 (60 beyond A/A); allocation regressions: 0
+geomean 0.5726, min 0.001, max 2.031
+
+geomean by category (num/den), worst:
+  GroupNormL2                      0.582   worst GroupNormL2/value/Float64/reg_wmix_ord/m32/perm 2.046/2.016
+  LeastSquaresLoss                 1.000   worst LeastSquaresLoss/value/Float32/x_inf 1.003/1.006
+  NormL1                           0.989   worst NormL1/value_and_prox/Float32/thr_over_u/n65536 1.060/1.086
+  NormL2                           0.368   worst NormL2/value_and_prox/Float64/reg_lam0_ord/n1024 1.059/1.033
+  SqrNormL2                        0.832   worst SqrNormL2/value_center/Float64/inf/n1024 1.095/1.101
+  norm_diff                        1.000   worst norm_diff/norm_diff/Float64/nan/n1024 1.074/1.105
+
+top 15 by min ratio over runs:
+  case                                                        ratios (runs)            A/A    den ns    num ns
+  GroupNormL2/value/Float64/reg_wmix_ord/m32/perm               2.046/2.016    0.993/1.038    5147.6   10533.3
+  GroupNormL2/value/Float64/reg_wmix_ord/m5/range               1.983/1.993    0.996/0.999    9321.1   18485.5
+  GroupNormL2/value/Float32/reg_wmix_ord/m32/perm               1.780/1.798    0.997/0.966    5013.4    8920.1
+  GroupNormL2/value_and_prox/Float32/reg_lam0_wInf_ord/m32/perm          1.777/1.721    1.055/0.977    3172.6    5638.7
+  GroupNormL2/value_and_prox/Float32/reg_lam0_wInf_inf/m32/perm          1.701/1.702    1.003/1.002    3237.6    5511.2
+  GroupNormL2/value_and_prox/Float32/reg_lam0_wInf_nan/m32/perm          1.693/1.736    0.983/0.990    3257.3    5516.8
+  GroupNormL2/value_and_prox/Float32/reg_lam0_wInf_over/m32/perm          1.678/1.726    0.977/1.021    3294.2    5528.4
+  GroupNormL2/value_and_prox/Float32/reg_lam0_wInf_zero/m32/perm          1.687/1.657    0.987/1.018    3260.0    5503.3
+  GroupNormL2/value/Float32/reg_wmix_ord/m5/range               1.563/1.586    1.000/1.001    8921.6   13875.9
+  GroupNormL2/value_and_prox/Float64/reg_lam0_wInf_over/m32/perm          1.557/1.556    1.019/0.996    7362.5   11448.6
+  GroupNormL2/value_and_prox/Float64/reg_lam0_wInf_nan/m32/perm          1.568/1.542    1.002/0.999    7279.8   11405.7
+  GroupNormL2/value_and_prox/Float64/reg_lam0_wInf_zero/m32/perm          1.523/1.546    0.985/0.992    7445.3   11322.2
+  GroupNormL2/value_and_prox/Float64/reg_lam0_wInf_ord/m32/perm          1.537/1.519    0.997/1.004    7408.9   11378.6
+  GroupNormL2/value_and_prox/Float64/reg_lam0_wInf_inf/m32/perm          1.546/1.514    1.012/1.006    7439.9   11485.7
+  GroupNormL2/value_and_prox/Float64/reg_gam0_ord/m32/perm          1.456/1.465    1.000/0.998    8498.3   12371.2

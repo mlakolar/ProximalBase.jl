@@ -176,7 +176,6 @@ end
 @inline function _power_factors(::Type{T}, k::Integer) where {T<:Union{Float32, Float64}}
   k = Int(k)
   # k in the normal range: the single factor is exact, and the second one is one
-  -exponent(floatmax(T)) + 1 <= k <= exponent(floatmax(T)) && return (_normal_power(T, k), one(T))
   _power_factors_split(T, k)
 end
 @inline function _power_factors(::Type{T}, k::Integer) where {T<:AbstractFloat}

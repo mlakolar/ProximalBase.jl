@@ -116,18 +116,28 @@ end
 
 @inline _l1_value(::NormL1, v, a) = a * abs(v)
 
+# The sign bit and the exponent field of a Float32 or Float64 in a UInt32: the high word of a Float64. The low
+# word of floatmin is zero and that of floatmax all ones, so floatmin(T) <= a <= floatmax(T) exactly when
+# _high_word(a) - _high_word(floatmin(T)) <= _high_word(floatmax(T)) - _high_word(floatmin(T)) in unsigned
+# arithmetic, for every a: NaN, ±Inf, signed zeros, subnormals and negative values included.
+@inline _high_word(a::Float32) = reinterpret(UInt32, a)
+@inline _high_word(a::Float64) = (reinterpret(UInt64, a) >> 32) % UInt32
+
+# The range test is the largest such offset of a coefficient, an unsigned max reduction: LLVM 23 (Julia 1.14)
+# no longer vectorizes this loop with a Bool flag of two comparisons (#134, JuliaLang/julia#64384).
 @inline function _l1_value_sum(f, x::Array{T}, allow_zero::Bool) where {T<:Union{Float32,Float64}}
   s = zero(T)
-  ordinary = true
+  lo = _high_word(floatmin(T))
+  m = zero(UInt32)
   @inbounds @simd for i in eachindex(IndexLinear(), x)
     w = f.w[i]
     a = f.λ0 * w
     # Test the factors: a rounded zero may conceal recoverable underflow.
     z = allow_zero & (iszero(f.λ0) | iszero(w))
     s += _l1_value(f, x[i], a)
-    ordinary &= z | (floatmin(T) <= a <= floatmax(T))
+    m = max(m, ifelse(z, zero(m), _high_word(a) - lo))
   end
-  s, ordinary
+  s, m <= _high_word(floatmax(T)) - lo
 end
 
 # Preserve the original ordinary loop; the checks of its result are scalar tests after it. Every pass

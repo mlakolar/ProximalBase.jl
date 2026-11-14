@@ -866,7 +866,7 @@ end
 # by _threshold_product) and a normal sum of squares that no underflowing square can have
 # changed by more than ordinary rounding; everything else, exceptional parameters and values included,
 # is decided by the cold path, which does not run on that path.
-@inline function _l2_shrink!(y, x, G, λ, w, γ::Real)
+@inline function _l2_shrink!(y, x, G, λ, w, γ::Real, fixed::F = _l2_shrink_fixed_call!) where {F}
   T = float(eltype(y))
   c, normal = _threshold_product(T, γ, λ, w)
   if normal & (floatmin(T) <= c <= floatmax(T))
@@ -883,11 +883,13 @@ end
       return T(_l2_zero!(y, G))
     end
   end
-  # The parameters decide the exits in the order of _l2_shrink_fixed!, whose frame holds the loops of those exits only;
-  # the values, at finite positive parameters, are in a function of their own (_l2_shrink_values!).
+  # The parameters decide the exits in the order of _l2_shrink_fixed!: by default in a call whose frame holds the loops of
+  # those exits only (a loop over groups keeps its body small); a caller without such a loop (prox_block!) passes
+  # _l2_shrink_fixed! itself, inlined. The values, at finite positive parameters, are in a function of their own
+  # (_l2_shrink_values!).
   iszero(w) && (_l2_copy!(y, x, G); return T(_L2_ZERO))        # unpenalized: copied, and its term is zero
   if isinf(w) | isinf(λ) | iszero(λ) | iszero(γ) | isinf(γ)
-    return T(_l2_shrink_fixed!(y, x, G, λ, w, γ))
+    return T(fixed(y, x, G, λ, w, γ))
   end
   T(_l2_shrink_values!(y, x, G, λ, w, γ))
 end
@@ -895,12 +897,13 @@ end
 # The parameters decide first, in this order: an unpenalized group (w = 0, copied by _l2_shrink! itself), a group
 # fixed at zero (an infinite weight, or an infinite level at every nonnegative step, #665), the identity (a zero level
 # or step), a group fixed by an infinite step. Otherwise the values decide (below).
-@noinline function _l2_shrink_fixed!(y, x, G, λ, w, γ::Real)
+@inline function _l2_shrink_fixed!(y, x, G, λ, w, γ::Real)
   iszero(w) && (_l2_copy!(y, x, G); return _L2_ZERO)
   (isinf(w) || isinf(λ)) && return _l2_zero!(y, G)
   (iszero(λ) || iszero(γ)) && return _l2_copy!(y, x, G)
   _l2_zero!(y, G)                      # isinf(γ)
 end
+@noinline _l2_shrink_fixed_call!(y, x, G, λ, w, γ::Real) = _l2_shrink_fixed!(y, x, G, λ, w, γ)
 # The values, at positive finite γ, λ and w: a NaN entry makes every output NaN; an infinite entry (and no NaN) makes
 # the norm infinite and the threshold finite, so 1 - c/‖x‖ = 1 and the group is copied, also when c overflows in
 # floating point; a zero group gives +0. Otherwise r = c/‖x‖ = (γλw 2^-k) / ns from the scaled norm ns 2^k, with c

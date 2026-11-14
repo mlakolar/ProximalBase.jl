@@ -256,7 +256,7 @@ function _group_prox_all!(y, f::GroupNormL2, x, γ::Real, ::Val{V}) where {V}
     end
   end
   # A zero or infinite level, or a zero or infinite step, decides the exits of every group alike: the ordinary path
-  # never runs then, and the loop calls the parameter exits (_l2_shrink_fixed!) directly. Each loop is a function of its
+  # never runs then, and the loop runs the parameter exits (_l2_shrink_fixed!, inlined) directly. Each loop is a function of its
   # own, compiled as the single loop was: LLVM hoists the loop-invariant threshold out of the ordinary one.
   λ = f.λ0
   if isinf(λ) | iszero(λ) | iszero(γ) | isinf(γ)
@@ -279,7 +279,7 @@ end
 
 function prox_block!(out::AbstractVector, f::GroupNormL2, u::AbstractVector, k::Integer, γ::Real)
   m = _check_group_block(out, f, u, k, γ)
-  _l2_shrink!(out, u, Base.OneTo(m), f.λ0, @inbounds(f.w[k]), γ)
+  _l2_shrink!(out, u, Base.OneTo(m), f.λ0, @inbounds(f.w[k]), γ, _l2_shrink_fixed!)
   out
 end
 

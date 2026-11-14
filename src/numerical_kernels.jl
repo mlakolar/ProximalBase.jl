@@ -868,8 +868,12 @@ end
 # is decided by the cold path, which does not run on that path.
 @inline function _l2_shrink!(y, x, G, λ, w, γ::Real)
   T = float(eltype(y))
-  c, normal = _threshold_product(T, γ, λ, w)
-  if normal & (floatmin(T) <= c <= floatmax(T))
+  # γλ is formed and tested first (as _threshold_product does), and the threshold c = γλw only when γλ is normal: for a
+  # step and level whose product is not (a loop-invariant fact) a group does not form a threshold that rounds into the
+  # subnormal range, whose arithmetic is slow.
+  R = _working_type(T, γ, λ, w)
+  ab = convert(R, γ) * convert(R, λ)
+  if (floatmin(R) <= ab <= floatmax(R)) && (c = convert(T, ab * convert(R, w)); floatmin(T) <= c <= floatmax(T))
     s = _indexed_sumabs2(x, G, T)
     if isfinite(s) & _squares_normal(s, length(G), T)
       n = sqrt(s)

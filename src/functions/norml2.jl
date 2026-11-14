@@ -2,8 +2,9 @@
 #  ℓ2 norm  λ ‖x‖₂
 ####################################
 
-# The numerical kernels of NormL2 and GroupNormL2 (shrinkage, values, screens and their recovery of values
-# out of range) are in numerical_kernels.jl; this file has the checks, the type and the oracles.
+# The recovery building blocks that NormL2 and GroupNormL2 share (the classified norm, the cold proximal kernel, the
+# exponent sum) are in numerical_kernels.jl; this file has the checks, the type, the oracles and the loops of NormL2,
+# and groupnorml2.jl those of GroupNormL2.
 
 @noinline _l2_step_error(f, γ) = throw(ArgumentError("the step of $(nameof(typeof(f))) must be nonnegative, got $γ"))
 # a negative or NaN step fails the comparison

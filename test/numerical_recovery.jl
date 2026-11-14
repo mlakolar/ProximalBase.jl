@@ -1045,7 +1045,7 @@ function test_normL1_value_range_flag(::Type{T}) where {T<:AbstractFloat}
       x = T(2) .* randn(rng, T, 37)
       @test pass1(f, x)[2] == reference(λ, w, false) && pass2(f, x)[2] == reference(λ, w, true)
       a = f(x); b = f(view(x, :))
-      @test isequal(a, b) || abs(a - b) <= 74 * eps(T) * max(a, b) + 74δ
+      @test isequal(a, b) || (isfinite(a) && isfinite(b) && abs(a - b) <= 74 * eps(T) * max(a, b) + 74δ)
     end
     # products that underflow and overflow between ordinary coefficients keep the exceptional paths of #373
     w = T(0.5) .+ rand(rng, T, 64); w[17] = pow2(T, e0 - 3); w[50] = floatmax(T) / 2   # λ0 w: 2^(e0-1) and 2 floatmax

@@ -68,37 +68,43 @@ _value_unchecked(f::LinearFunction, x::AbstractArray) = (_checkvalue(f, x); _val
 _value_unchecked(f::LinearFunction, x::SymmetricSparseIterate) =
   (_checkvalue(f, x); _value_at(_linear_value(f, x, _symmetric_matrix_dot(f.c, x) + f.d), x))
 
-# A dot that overflows, alone or with d, at a representable value is summed
-# again with x in units of 2^k, chosen so that no partial sum can overflow; d
-# keeps its own units, so that a small d survives a dot that cancels (R1). A matrix
-# SparseIterate takes the exponent-separated recomputation below instead.
+# When the ordinary value is not finite and d, all coefficients and all entries of x are finite, the
+# dot is recomputed from exponent-separated products (_ExpSum, as below) and combined with d by
+# `_linear_recovered_value`; otherwise the ordinary value stands. The terms are every linear position
+# of a generic array pair, the stored entries of a vector SparseIterate, and each stored coordinate of
+# a symmetric iterate at both of its positions. A device array is copied to the host before the loop.
+# A matrix SparseIterate has its own method below, which checks only the participating entries.
 @inline _linear_value(f::LinearFunction, x, v) = isfinite(v) ? v : _linear_value_recover(f.c, f.d, x, v)
 @noinline function _linear_value_recover(c, d, x, v)
   (_all_finite(x) && _all_finite(c) && isfinite(d)) || return v
   R = typeof(v)
-  k = _product_sum_shift(R, _stored_maxabs(c), _stored_maxabs(x), _nentries(x), 2)
-  p = convert(R, _linear_scaled_dot(c, x, _power_factors(R, -k)))
-  _pow2_sum(R, (p, k), (convert(R, d), 0))
+  xh = x isa AbstractArray ? _host_entries(x) : x    # a SymmetricSparseIterate is not an AbstractArray
+  acc = _linear_expsum(_expsum_start(promote_type(R, Float64)), _host_entries(c), xh)
+  _linear_recovered_value(R, acc, d)
 end
-# Σ cᵢ (xᵢ 2^-k), over the stored entries of x where it has them; other array
-# types (and device arrays) take the scaled copy of x with their own dot
-_linear_scaled_dot(c, x::Union{DenseArray, SparseIterate}, s) =
-  _is_device_array(x) || _is_device_array(c) ? _linear_scaled_copy_dot(c, x, s) : _scaled_dot(c, x, s)
-# a symmetric iterate counts an off-diagonal entry for both of its positions:
-# each position is a separate scaled product, so the doubled coefficient is
-# never formed
-function _linear_scaled_dot(c, x::SymmetricSparseIterate, s)
-  v = zero(s[1])
+# Σ cᵢ xᵢ as exponent-separated products: every linear position of a generic pair (zero products
+# are skipped)
+_linear_expsum(acc, c, x) = _expsum_dot(acc, c, x, 0)
+# a vector SparseIterate: its stored entries, c at their coordinates
+function _linear_expsum(acc, c, x::SparseIterate)
   @inbounds for k in 1:x.nnz
-    r, j = tril_cartesian(x.p, x.nzval2ind[k])
-    q = float(_entry(c, (j - 1) * x.p + r)) * _scale_value(x.nzval[k], s)
-    v += q
-    r == j || (v += q)
+    acc = _expsum_product(acc, _entry(c, x.nzval2ind[k]), x.nzval[k])
   end
-  v
+  acc
 end
-_linear_scaled_dot(c, x, s) = _linear_scaled_copy_dot(c, x, s)
-_linear_scaled_copy_dot(c, x, s) = dot(c, x .* s[1] .* s[2])
+# a symmetric iterate: c is read at the lower position of each stored coordinate, and an
+# off-diagonal product is added a second time, as a separate term (the doubled coefficient is not
+# formed); with a symmetric c (#374) this is the sum over both positions
+function _linear_expsum(acc, c, x::SymmetricSparseIterate)
+  p = x.p
+  @inbounds for k in 1:x.nnz
+    r, j = tril_cartesian(p, x.nzval2ind[k])
+    ck, xk = _entry(c, (j - 1) * p + r), x.nzval[k]
+    acc = _expsum_product(acc, ck, xk)
+    r == j || (acc = _expsum_product(acc, ck, xk))
+  end
+  acc
+end
 
 # A matrix SparseIterate (D1): an entry of x that is not stored, or is stored as a zero, adds
 # nothing to the value, also if the coefficient there is NaN or Inf. The value of x is read from

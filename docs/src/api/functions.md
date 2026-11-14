@@ -20,5 +20,12 @@ NormL1
 ElasticNet
 ```
 
+## ℓ₂ and group ℓ₂ norms
+
+```@docs
+NormL2
+GroupNormL2
+```
+
 Scalar observation losses belong to a separate mathematical interface.
 See the [Scalar-loss API reference](scalar_losses.md).

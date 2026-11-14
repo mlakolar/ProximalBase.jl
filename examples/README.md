@@ -21,6 +21,7 @@ executes their code again in independent page sandboxes.
 | symmetric_storage.jl | Independent IDs, matrix view, Frobenius multiplicity, import/state-copy distinctions |
 | custom_function.jl | Complete separable hooks, parameter metadata, dense/sparse/symmetric-iterate checks and preflight failure |
 | block_prox_extension.jl | Compact-vector extension, independent buffers, exact alias and rejected partial overlap |
+| group_lasso_prox.jl | GroupNormL2 value and group soft thresholding against their formulas, pure compact block prox, explicit block write, group KKT screen and one caller-written block step |
 
 These are mathematical building blocks and educational caller loops. They do
 not define a general solver API. Historical full-library examples remain at

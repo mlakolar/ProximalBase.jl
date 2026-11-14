@@ -77,7 +77,10 @@ where `u` is the **trial vector** for the ordered entries of group
 ```
 
 The method must **write its result into `out`** and return the identical
-`out` object. It does not write to the `BlockIterate`. The generic
+`out` object. The built-in `GroupNormL2` implements this hook: `u` and `out`
+follow the order of its `groups[k]`, and the result is the group soft
+thresholding ``\max(1-\gamma\lambda_0w_k/\lVert u\rVert_2,0)\,u``
+(see [the group ℓ₂ norm guide](../../group_penalty.md)). It does not write to the `BlockIterate`. The generic
 allocating `prox_block(f, u, k, γ)` constructs a floating-point
 `Vector` of `length(u)` and delegates to this hook; it does not
 validate the custom function's group layout or parameters.
@@ -125,6 +128,9 @@ group ID.
 A compact block hook alone does **not** supply `f(x)`, a full-array
 `prox!`, `kkt_violation`, `restrict`, capability traits, scaling of
 compact block methods, symmetric block geometry, or storage mutation.
+`GroupNormL2` implements its value, array `prox!`/`value_and_prox!`, group
+`kkt_violation` and traits separately; it has no `restrict`, no compact block
+method under `Scaled` and no symmetric iterate support.
 Implement each separately if the mathematics and checked Julia dispatch
 support it.
 
@@ -138,7 +144,11 @@ to clarify the historical migration.
 ## Evidence and examples
 
 The Julia files `examples/custom_function.jl` and
-`examples/block_prox_extension.jl` contain complete extensions.
+`examples/block_prox_extension.jl` contain complete extensions, and
+`examples/group_lasso_prox.jl` uses the built-in `GroupNormL2`.
+`test/groupnorml2.jl` checks that implementation against independent
+BigFloat references, including its buffer validation, aliasing and the
+separation from `BlockIterate` storage.
 The documentation executes those examples using Literate.
 `test/core_functions.jl` covers the generic extension and allocating
 block result; the block example also checks buffer validation and

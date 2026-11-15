@@ -26,7 +26,8 @@ export AbstractFunction, SeparableFunction,
 
 VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public,
   :ScalarLoss, :Squared, :deriv, :deriv2, :curvature, :value_and_deriv,
-  :check_parameters, :entry_parameters, :check_symmetric_parameters, :samegroups))
+  :check_parameters, :entry_parameters, :check_symmetric_parameters, :samegroups,
+  :value_from_predictor, :value_and_gradient_from_predictor!, :value_from_residual, :leastsquares_data))
 
 include("compat.jl")
 include("utils.jl")
@@ -47,6 +48,7 @@ include("functions/norml1.jl")
 include("functions/norml2.jl")
 include("functions/groupnorml2.jl")
 include("functions/scaled.jl")
+include("functions/leastsquares_predictor.jl")
 include("array_steps.jl")
 include("functions/scaled_array.jl")
 include("symmetric_parameters.jl")

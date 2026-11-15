@@ -66,45 +66,43 @@ isconvex(::Type{<:LeastSquaresLoss}) = true
 function (f::LeastSquaresLoss{T})(β::AbstractVecOrMat) where {T}
   _checkreal(f, β)
   mul!(f.tmp, f.X, β)
-  v = zero(T)
-  @inbounds @simd for i in eachindex(f.tmp, f.Y)
-    v += abs2(f.Y[i] - f.tmp[i])
-  end
-  _value_at(_leastsquares_value(f, β, v, true), β)
+  v = _square_value_wide(one(T), f.tmp, f.Y)
+  _value_at(isfinite(v) ? v : _leastsquares_image_overflow(f, β, v), β)
 end
 
-function value_and_gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)
+function value_and_gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss{T}, β::AbstractVecOrMat) where {T}
   _checkwrite(value_and_gradient!, f, g, β)
   mul!(f.tmp, f.X, β)
-  f.tmp .-= f.Y
-  mul!(g, transpose(f.X), f.tmp)
-  _value_at(_leastsquares_value(f, β, sum(abs2, f.tmp), false), β)
+  v = _leastsquares_residual_gradient!(g, f.tmp, f.X, f.tmp, f.Y, one(T))
+  _value_at(isfinite(v) ? v : _leastsquares_image_overflow(f, β, v), β)
 end
 
-# The value s/2 from the sum of squares s of the residual: f.tmp holds Xβ when
-# raw, Xβ - Y otherwise. The ordinary sum is kept when it is finite and its
-# squares cannot have underflowed (R1); otherwise the recovery runs.
-@inline _leastsquares_value(f::LeastSquaresLoss, β, s, raw::Bool) =
-  isfinite(s) & _squares_normal(s, length(f.tmp), typeof(s)) ? s / 2 : _leastsquares_recover(f, β, s, raw)
+# d = z - Y and g = X'd, with one product by X'. d may be the same array as z (the residual then replaces the
+# predictor, as in the methods of the loss, which pass f.tmp for both); otherwise g and d must not overlap X, Y,
+# z or each other, which the predictor oracles check before they call it.
+function _leastsquares_residual_gradient!(g, d, X, z, Y)
+  d .= z .- Y
+  mul!(g, transpose(X), d)
+  g
+end
+# The same, returning also the value α‖d‖²/2 of the squared-residual kernel (α as supplied).
+function _leastsquares_residual_gradient!(g, d, X, z, Y, α)
+  _leastsquares_residual_gradient!(g, d, X, z, Y)
+  _square_value_wide(α, d, nothing)
+end
 
-# - every residual exactly zero: the value is zero, at once, for exact fits;
-# - a finite residual: its squares overflow or underflow, and the sum is formed
-#   in units of a power of two;
-# - a residual that overflowed although β, X and Y are finite: Xβ is formed again
-#   as 2^k X βs from βs = β 2^-k, with k chosen so that no entry of X βs can
-#   overflow. An entry 2^k (X βs)ᵢ that is representable meets Yᵢ in its own units,
-#   so that a small Yᵢ survives a product that cancels; the others are formed as
-#   (X βs)ᵢ - Yᵢ 2^-k in units of 2^k. The two sums of squares are added by their
-#   exponents. This allocates a copy of β and two arrays of the size of Y.
+# The value of f(β) or value_and_gradient! when the result v of the squared-residual kernel is not finite. f.tmp
+# holds Xβ (f(β)) or Xβ - Y (value_and_gradient!). Where every entry of f.tmp is finite, v stands: the kernel has
+# recomputed the squares of a finite residual, halving a difference that overflows. Where an entry is not finite
+# although β, X and Y are, Xβ is formed again as 2^k X βs from βs = β 2^-k, with k chosen so that no entry of X βs
+# can overflow. An entry 2^k (X βs)ᵢ that is representable meets Yᵢ in its own units, so that a small Yᵢ survives a
+# product that cancels; the others are formed as (X βs)ᵢ - Yᵢ 2^-k in units of 2^k. The two sums of squares are added
+# by their exponents. This allocates a copy of β and two arrays of the size of Y.
 # Broadcasts, mul! and reductions only, so that device arrays stay on the device.
-@noinline function _leastsquares_recover(f::LeastSquaresLoss{T}, β, s, raw::Bool) where {T}
+@noinline function _leastsquares_image_overflow(f::LeastSquaresLoss{T}, β, v) where {T}
   r, Y = f.tmp, f.Y
-  if iszero(s)
-    zero_residual = raw ? mapreduce(==, &, r, Y; init = true) : all(iszero, r)
-    zero_residual && return zero(s)
-  end
-  _all_finite(r) && return _scaled_square_value(one(T), r, raw ? Y : nothing, s / 2)
-  (_all_finite(β) && _all_finite(f.X) && _all_finite(Y)) || return s / 2
+  _all_finite(r) && return v
+  (_all_finite(β) && _all_finite(f.X) && _all_finite(Y)) || return v
   k = max(_product_sum_shift(T, _stored_maxabs(f.X), _stored_maxabs(β), size(f.X, 2), 3),
           _bound_exponent(_stored_maxabs(Y)) + 3 - _max_exponent(T))
   sc, up = _power_factors(T, -k), _power_factors(T, k)
@@ -127,8 +125,7 @@ end
 function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)
   _checkwrite(gradient!, f, g, β)
   mul!(f.tmp, f.X, β)
-  f.tmp .-= f.Y
-  mul!(g, transpose(f.X), f.tmp)
+  _leastsquares_residual_gradient!(g, f.tmp, f.X, f.tmp, f.Y)
 end
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::LeastSquaresLoss, g::AbstractVecOrMat, β::AbstractVecOrMat)

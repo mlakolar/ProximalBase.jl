@@ -614,16 +614,25 @@ _square_multiplicity(x, i) = 1
 # underflowed and lost more than eps of the sum, and the scaled recomputation runs instead.
 @inline _squares_normal(s, n, ::Type{T}) where {T} = s >= n * (floatmin(T) / eps(T))
 
-@inline function _square_value(λ, x, y)
+# λ/2 Σ μᵢ (xᵢ - yᵢ)² at the level λ, with `l` the level of the ordinary product and `fits` whether that
+# level is kept as it is on the ordinary path (the two entry points below set them). The product is formed in
+# the type of `l` and s and rounded to the type of x at the result.
+@inline function _square_value_level(l, λ, x, y, fits::Bool)
   T = _valtype(x)
   s = y === nothing ? _sumabs2(x) : _sumabs2_diff(x, y)
-  v = convert(T, λ) * s / 2
+  v = l * s / 2
   n = y === nothing ? _square_term_count(x) : length(x)
-  if (isfinite(v) & _squares_normal(real(s), n, T)) && _level_fits(T, λ)
+  if (isfinite(v) & _squares_normal(real(s), n, T)) && fits
     return _value_at(v, x)
   end
   _exceptional_square_value(λ, x, y, real(s), v)
 end
+# SqrNormL2: the level is converted to the type of x, and the ordinary result is kept only where the converted
+# level is a normal number, zero or not finite (_level_fits).
+@inline _square_value(λ, x, y) = _square_value_level(convert(_valtype(x), λ), λ, x, y, _level_fits(_valtype(x), λ))
+# LeastSquaresLoss and its predictor and residual oracles: the level as supplied, so that the product is formed in
+# the promoted type of the level and the sum; a Float64 level with Float32 data is not narrowed before the product.
+@inline _square_value_wide(λ, x, y) = _square_value_level(λ, λ, x, y, true)
 
 @noinline function _exceptional_square_value(λ, x, y, s, v)
   T = _valtype(x)

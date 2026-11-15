@@ -648,8 +648,9 @@ end
 # to the length; it is faster than the pairwise reduction on vectors held in cache.
 const _LS_ONE_LOOP_MAX = 2^17
 @inline _sumabs2_loop(x) = _sumabs2(x)
-@inline function _sumabs2_loop(x::StridedArray{T}) where {T<:Union{Float32, Float64}}
-  length(x) > _LS_ONE_LOOP_MAX && return sum(abs2, x)
+@inline _sumabs2_loop(x::StridedArray{T}) where {T<:Union{Float32, Float64}} =
+  length(x) > _LS_ONE_LOOP_MAX ? sum(abs2, x) : _simd_sumabs2(x)
+@inline function _simd_sumabs2(x::StridedArray{T}) where {T<:Union{Float32, Float64}}
   s = zero(T)
   @inbounds @simd for i in eachindex(x)
     s += abs2(x[i])

@@ -25,7 +25,8 @@ end
 # The same for the value oracles, which write nothing, without the check of a Float32 or Float64 factor on the
 # ordinary path: the Scaled constructor refuses a negative or NaN factor and gives no Scaled for a zero one, so
 # the factor is positive, finite or Inf. An infinite factor makes α s infinite or NaN, which _ls_square_value
-# sends to _ls_value_exceptional, which checks the factor (_ls_base_scale) and raises the ArgumentError.
+# sends through _ls_value_cold to _ls_value_exceptional, which checks the factor (_ls_base_scale) and raises the
+# ArgumentError.
 @inline _ls_base_factor(f::LeastSquaresLoss{T}) where {T} = (f, one(T))
 @inline _ls_base_factor(s::Scaled{<:AbstractFunction, <:Union{Float32, Float64}}) = (s.f, s.α)
 @inline _ls_base_factor(s::Scaled) = _ls_base_scale(s)
@@ -158,7 +159,7 @@ one of its oracles is in use, also on another task.
 function leastsquares_data end
 
 # The axes of z are checked against those of Y (whose length is size(X, 1) by the constructor of the loss) by
-# _ls_sumabs2_diff, which throws a DimensionMismatch before it reads an entry; the call reads no entry or size of X.
+# _ls_value, which throws a DimensionMismatch before it reads an entry; the call reads no entry or size of X.
 # value_from_residual checks the axes of r against those of Y in the same way.
 function value_from_predictor(f::_LSOracleLoss{T}, z::StridedVector{T}) where {T<:Union{Float32, Float64}}
   _ls_value(f, z, _ls_base_factor(f)[1].Y)

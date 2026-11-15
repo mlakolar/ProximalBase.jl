@@ -98,17 +98,24 @@ end
 # matrices, arrays that are not strided, and mixed element types (a loss with Float32 Y and Float64 X has Float64
 # scratch, so that f(β) passes a Float64 x and a Float32 y).
 @inline _ls_value(f, x, y) = _square_value_wide(_ls_base_factor(f)[2], x, y)
-@inline _ls_value(f, x::StridedVector{T}, ::Nothing) where {T<:Union{Float32, Float64}} =
-  _ls_square_value(f, x, nothing, _sumabs2_loop(x))
-@inline _ls_value(f, x::StridedVector{T}, y::StridedVector{T}) where {T<:Union{Float32, Float64}} =
-  _ls_square_value(f, x, _LSResponse(), _ls_sumabs2_diff(x, y))
+@inline function _ls_value(f, x::StridedVector{T}, ::Nothing) where {T<:Union{Float32, Float64}}
+  long = length(x) > _LS_ONE_LOOP_MAX
+  _ls_square_value(f, x, nothing, long ? zero(T) : _simd_sumabs2(x), long)
+end
+@inline function _ls_value(f, x::StridedVector{T}, y::StridedVector{T}) where {T<:Union{Float32, Float64}}
+  axes(x) == axes(y) || _ls_axes_error("the predictor", axes(x, 1), axes(y, 1))
+  long = length(x) > _LS_ONE_LOOP_MAX
+  _ls_square_value(f, x, _LSResponse(), long ? zero(T) : _ls_simd_sumabs2_diff(x, y), long)
+end
 
 # Σ (xᵢ - yᵢ)² for vectors with the same axes (an offset view has other axes than a vector of the same length; the
 # loop reads y at the indices of x): one vectorizing loop up to _LS_ONE_LOOP_MAX entries, Julia's pairwise reduction
 # over the indices above.
 @inline function _ls_sumabs2_diff(x::StridedVector{T}, y::StridedVector{T}) where {T<:Union{Float32, Float64}}
   axes(x) == axes(y) || _ls_axes_error("the predictor", axes(x, 1), axes(y, 1))
-  length(x) > _LS_ONE_LOOP_MAX && return _ls_sumabs2_diff_pairwise(x, y)
+  length(x) > _LS_ONE_LOOP_MAX ? _ls_sumabs2_diff_pairwise(x, y) : _ls_simd_sumabs2_diff(x, y)
+end
+@inline function _ls_simd_sumabs2_diff(x::StridedVector{T}, y::StridedVector{T}) where {T<:Union{Float32, Float64}}
   s = zero(T)
   @inbounds @simd for i in eachindex(x)
     s += abs2(x[i] - y[i])
@@ -119,20 +126,32 @@ _ls_sumabs2_diff_pairwise(x, y) = mapreduce(i -> @inbounds(abs2(x[i] - y[i])), +
 @noinline _ls_axes_error(name, ax, ay) =
   throw(DimensionMismatch("$name has axes $ax and the response Y has axes $ay; they must be equal"))
 
-# The ordinary path from the ordinary sum s of the n squares, n = length(x). The kernel keeps the product α s / 2,
-# formed in the promoted type R of α and T, when it is finite and s ≥ n floatmin(T)/eps(T) (_square_value_level).
-# Here the product is kept when K ≤ s ≤ floatmax(T) for K = 2^63 floatmin(T)/eps(T) (_ls_ordinary_sum) and, for a
-# Scaled, α s < floatmax(T) (_ls_product_fits; for a loss α = 1 and α s = s ≤ floatmax(T)). Then α s / 2 is finite,
-# and K is at least n floatmin(T)/eps(T) for n ≤ typemax(Int) (Int to T rounds n to at most 2^63): where the test
-# holds, the kernel's test holds too. The kept value α s / 2 is at most floatmax(T)/2. The sum s of n squares has a
-# relative error of at most about m u with u = eps(T)/2, m = n - 1 for the loop (n ≤ 2^17, so m u < 2^-7 in
-# Float32) and m = 1023 + ⌈log2 n⌉ for the pairwise reduction; with the rounding of α s, the exact value is then
-# below floatmax(T), so that a kept value is not a value that overflows T. Every other sum, a NaN s or α s
-# included, goes to _ls_value_exceptional.
-@inline function _ls_square_value(f, x::StridedVector{T}, y, s::T) where {T<:Union{Float32, Float64}}
+# The ordinary path from the sum s of the n squares in one vectorizing loop, n = length(x) ≤ _LS_ONE_LOOP_MAX (long
+# is n > _LS_ONE_LOOP_MAX, where s is not formed here). The kernel keeps the product α s / 2, formed in the promoted
+# type R of α and T, when it is finite and s ≥ n floatmin(T)/eps(T) (_square_value_level). Here the product is kept
+# when K ≤ s ≤ floatmax(T) for K = 2^63 floatmin(T)/eps(T) (_ls_ordinary_sum) and, for a Scaled, α s < floatmax(T)
+# (_ls_product_fits; for a loss α = 1 and α s = s ≤ floatmax(T)). Then α s / 2 is finite, and K is at least
+# n floatmin(T)/eps(T) for n ≤ typemax(Int) (Int to T rounds n to at most 2^63): where the test holds, the kernel's
+# test holds too. The kept value α s / 2 is at most floatmax(T)/2. The sum s of n squares has a relative error of at
+# most about m u with u = eps(T)/2, m = n - 1 for the loop (n ≤ 2^17, so m u < 2^-7 in Float32) and
+# m = 1023 + ⌈log2 n⌉ for the pairwise reduction of a long vector; with the rounding of α s, the exact value is then
+# below floatmax(T), so that a kept value is not a value that overflows T. Long vectors and every other sum, a NaN s
+# or α s included, go to _ls_value_cold, the one call on this path.
+@inline function _ls_square_value(f, x::StridedVector{T}, y, s::T, long::Bool) where {T<:Union{Float32, Float64}}
   _, α = _ls_base_factor(f)
   p = α * s
-  (_ls_ordinary_sum(s) & _ls_product_fits(f, p, T)) && return _value_at(p / 2, x)
+  (!long & _ls_ordinary_sum(s) & _ls_product_fits(f, p, T)) && return _value_at(p / 2, x)
+  _ls_value_cold(f, x, y, s)
+end
+# A long vector: its sum by the pairwise reduction (_sumabs2_loop, _ls_sumabs2_diff), and the test above on it. Then
+# the exceptional path.
+@noinline function _ls_value_cold(f, x::StridedVector{T}, y, s::T) where {T}
+  if length(x) > _LS_ONE_LOOP_MAX
+    base, α = _ls_base_factor(f)
+    s = y === nothing ? _sumabs2_loop(x) : _ls_sumabs2_diff(x, _ls_response(base, y))
+    p = α * s
+    (_ls_ordinary_sum(s) & _ls_product_fits(f, p, T)) && return _value_at(p / 2, x)
+  end
   _ls_value_exceptional(f, x, y, s)
 end
 # K ≤ s ≤ floatmax(T) with K = 2^63 floatmin(T)/eps(T), on the bits of s: with m = precision(T) - 1 significand bits

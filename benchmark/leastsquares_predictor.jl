@@ -1,5 +1,5 @@
-# Paired benchmark of the least-squares value and gradient paths (issue #915): LeastSquaresLoss f(β),
-# value_and_gradient! and gradient!, raw and as Scaled(f, 1/n); the SqrNormL2 value with a center; and the
+# Paired benchmark of the least-squares value and gradient paths (issue #915): LeastSquaresLoss f(β) and
+# value_and_gradient!, raw and as Scaled(f, 1/n), and gradient!, raw; the SqrNormL2 value with a center; and the
 # predictor and residual oracles value_from_predictor, value_and_gradient_from_predictor! and
 # value_from_residual, Float32 and Float64 (and Float32 data with a Float64 scale or level).
 #
@@ -10,8 +10,9 @@
 # control XC); role Y is the one under test. Each round times X, Y and XC in alternating order;
 # benchmark/summarize_norml1_infinite_weight.py DIR reports the per-round ratios Y/X and XC/X. Run it again with
 # the roles reversed (summarized on its own) and in a fresh process. The matrices, vectors and output buffers
-# are shared by the three roles, and so is the scratch f.tmp of the losses, which the script assigns after the
-# constructor.
+# are shared by the three roles, and so is the scratch f.tmp of the losses of the LeastSquaresLoss cells and of the
+# ordinary oracle cells, which the script assigns after the constructor. The losses of the exceptional oracle cells
+# keep the scratch of their constructor, which the value oracles timed there do not use.
 #
 # Two kinds of cells. The cells of the families LeastSquaresLoss and SqrNormL2 call the same methods in the
 # three trees (the oracles are not called there). The cells of the family LeastSquaresOracle compare the

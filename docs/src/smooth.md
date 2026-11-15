@@ -124,13 +124,17 @@ two units of the smallest subnormal where ``|v|`` is below `floatmin(T)`.
 **Range.** Write ``u=\texttt{floatmax}(T)-\texttt{prevfloat}(\texttt{floatmax}(T))``, so that ``\texttt{floatmax}(T)+u/2``
 is the round-to-nearest overflow threshold, and ``w=(n+8)\varepsilon_T`` for the relative error bound above. For finite
 `z` and `Y` and an exact value ``v`` with ``|v|(1+w)\le\texttt{floatmax}(T)`` the result is finite and within that
-bound. For ``v`` above ``(\texttt{floatmax}(T)+u/2)(1+w)`` the result is `Inf`. In between, within the relative width
-``w`` of the threshold, the recomputation that the oracles share with `SqrNormL2` does not decide on which side the
-exact value lies: the result can be `floatmax(T)` or `Inf`, also where the exact value rounds to the other, and a
-finite result there is within ``w|v|`` of ``v``. Correct overflow classification in that region is not guaranteed.
+bound. For ``v`` above ``(\texttt{floatmax}(T)+u/2)(1+w)`` the result is `Inf`. Between these two bounds the result
+depends on the side of the threshold. Below it, where ``|v|(1+w)>\texttt{floatmax}(T)`` and ``v`` rounds to a finite
+number, the result is finite and within ``w|v|`` of ``v``, which can be a number below `floatmax(T)`
+(``\alpha=`` `prevfloat(floatmax(T)/2, 4)`, `z = T[2]`, `Y = T[0]` and `X = ones(T, 1, 1)` give
+`prevfloat(floatmax(T), 4)`), or it is `Inf`. From the threshold to ``(\texttt{floatmax}(T)+u/2)(1+w)``, where ``v``
+rounds to `Inf`, the recomputation that the oracles share with `SqrNormL2` does not decide on which side of the
+threshold the exact value lies: the result can be `floatmax(T)` or `Inf`, and a finite result there is within
+``w|v|`` of ``v``. Correct overflow classification in these two regions is not guaranteed.
 It is the same kind of boundary uncertainty that
 [Overflow and underflow of values](numerics.md#Overflow-and-underflow-of-values) states for `NormL2` and
-`GroupNormL2`; it permits no materially wrong finite value away from the threshold and no finite result from
+`GroupNormL2`; it permits no materially wrong finite value outside these regions and no finite result from
 non-finite data that the value depends on. An exact positive value below the smallest subnormal can round to
 `nextfloat(zero(T))` rather than to zero: for `Float64`, ``\alpha=1.5``, `z = [2.0^-537]` and `Y = [0.0]` the exact
 value is `0.75*nextfloat(0.0)`, and the result is `nextfloat(0.0)` on Julia 1.13.3 and `0.0` on 1.10.12, both within the

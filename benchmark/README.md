@@ -251,8 +251,10 @@ PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
 center, and the predictor and residual oracles `value_from_predictor`, `value_and_gradient_from_predictor!` and
 `value_from_residual` (#915). It has the design of `l2_norms.jl` (roles X, Y and the A/A control XC compiled from
 source in one process, alternating order, shared inputs and output buffers, `raw.csv` and `provenance.txt` in the
-format of `summarize_norml1_infinite_weight.py`). The scratch `f.tmp` of the losses is also shared, assigned
-after the constructor, and the BLAS runs on one thread.
+format of `summarize_norml1_infinite_weight.py`). The scratch `f.tmp` of the losses of the `LeastSquaresLoss` cells
+and of the ordinary oracle cells is also shared, assigned after the constructor; the losses of the exceptional
+oracle cells (`over_scaled`, `under_scaled`) keep the scratch of their constructor, which the value oracles timed
+there do not use. The BLAS runs on one thread.
 
 **Cases.** A case is one operation, one element type (Float32 or Float64) and one input, with an id
 `family/operation/type/scenario/size`.
@@ -265,7 +267,8 @@ after the constructor, and the BLAS runs on one thread.
 | `LeastSquaresOracle` | the three oracles, raw (no scale), `scaled` (a scale 1/n of the data type) and for Float32 data `scaled_alpha64` (a Float64 scale 1/n), at n = 64, 4096, 100000 (the value oracles) and (n, p) = (64, 6) and (2000, 500) (value and gradient) | random data |
 | `LeastSquaresOracle` | the two value oracles at n = 64 with `over_scaled` and `under_scaled` inputs (a sum of squares that overflows, or squares that underflow to zero, with a scale that brings the value into range) | constant residual vectors |
 
-**Roles of the oracle cells.** The cells of the first three families call the same methods in the three trees.
+**Roles of the oracle cells.** The cells of the families `LeastSquaresLoss` and `SqrNormL2` (the first three rows of
+the table) call the same methods in the three trees.
 The oracle cells compare the oracles of the tree that has them with the loops that the script defines (value from
 predictor `α (Σ (Yᵢ - zᵢ)² / 2)`, value and gradient `d = z - Y`, `g = Xᵀd`, `g .*= α`, `α (Σ dᵢ² / 2)`, value from residual
 `α Σ rᵢ² / 2`; no `α` for the raw loss), which do not recover from overflow or underflow. A role whose tree has the

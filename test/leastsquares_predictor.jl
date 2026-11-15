@@ -863,12 +863,14 @@ end
       ok || @info "boundary input" T α r vr vp
       @test ok
       if α === nothing && all(isfinite, r)
-        # the methods of the loss: X = I gives Xβ = r exactly, so that f(β) and value_and_gradient! see the same sums
+        # the methods of the loss: for finite r, X = I gives Xβ = r (products by one and zero, sums with zeros), so that
+        # f(β) and value_and_gradient! see the same sums
         @test isequal(f(r), vp)
         @test isequal(value_and_gradient!(similar(r), f, r), vr)
       end
     end
-    # an infinite scale: the value oracles check it on the exceptional path, which every sum reaches
+    # an infinite scale: the value oracles check it on the exceptional path, which the call reaches for these sums
+    # (α s is Inf or NaN, or s is below the bound of the ordinary path)
     for r in (ones(T, 4), zeros(T, 4), T[1, NaN], T[floatmax(T), 1])
       f = Scaled(LeastSquaresLoss(zeros(T, length(r)), Matrix{T}(I, length(r), length(r))), T(Inf))
       @test_throws ArgumentError PB.value_from_residual(f, r)

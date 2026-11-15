@@ -2,7 +2,8 @@
 # a second compilation of the candidate (the A/A control), Float32 and Float64: a loop of prox_block,
 # dense prox! (unweighted and weighted, a zero λ1 or λ2, per-entry steps), dense values (unweighted,
 # weighted, and the two regimes where one part dominates), value_and_prox!, SparseIterate, BlockIterate
-# and SymmetricSparseIterate values and prox!, and the prox! of a Scaled ElasticNet.
+# and SymmetricSparseIterate values and prox!, and the prox! and value_and_prox! (a scalar step and an array of steps)
+# of a Scaled ElasticNet.
 #
 #   PB_ARCHIVE=<root of the archived tree> PB_CANDIDATE=<root of the candidate> PB_OUTPUT=<dir> \
 #   PB_ROUNDS=21 julia --threads=1 --check-bounds=no --project=benchmark benchmark/elasticnet.jl
@@ -97,6 +98,8 @@ function makeprobes(PB, ::Type{T}, D) where {T}
         add("value/l1_dominant/n$n", n, :value, value_case(d.out, fl, d.xl))
         add("value_and_prox!/weighted/n$n", n, :vprox, vprox_case(vp, d.out, fw, d.x, γ))
         add("scaled_prox!/weighted/n$n", n, :prox, prox_case(px, d.out, fs, d.x, γ))
+        add("scaled_value_and_prox!/weighted/n$n", n, :vprox, vprox_case(vp, d.out, fs, d.x, γ))
+        add("scaled_value_and_prox!/array_step/n$n", n, :vprox, vprox_case(vp, d.out, fs, d.x, d.steps))
     end
     I = D[:iterates]
     n = length(I.xsp)

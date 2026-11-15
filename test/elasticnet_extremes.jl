@@ -458,14 +458,16 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
     @test v === s(y) && within(v, big4096(() -> big(s.α) * valref(f, y)), 1)
     ya, va = fused(s, x, [γ])
     @test va === s(ya) && within(va, big4096(() -> big(s.α) * valref(f, ya)), 1)
-    # a family around the subnormal-to-normal boundary: the ℓ1 part or the ridge part, a leaf value at the top, the
-    # middle and the bottom of the subnormal range, and a factor inside the band of the array route or outside it
+    # a family around the subnormal-to-normal boundary: the ℓ1 part or the ridge part about 2^ev at the output y0 (the
+    # top, the middle and the bottom of the subnormal range), with a threshold and a ridge factor that leave y0 almost
+    # unchanged, and a factor inside the band of the array route or outside it
     for T in (Float32, Float64)
       E, P, band = exponent(floatmin(T)), precision(T), PB._factor_band(T)
-      for a in (band - 11, band - 1, 2band, 3band), ev in (E - 2, E - P ÷ 2, E - P + 4), ridge in (false, true)
+      y0 = p2(T, -(P + 8))
+      for a in (band - 8, band - 1, 2band, 3band), ev in (E - 2, E - P ÷ 2, E - P + 4), ridge in (false, true)
         α, γ = T(1.37) * p2(T, a), T(0.61) * p2(T, -a)
-        f = ridge ? ElasticNet(zero(T), T(0.83), T[1.9]) : ElasticNet(T(1.29) * p2(T, -a), T(0.83), T[1.9])
-        y0 = ridge ? sqrt(T(2.3) * p2(T, ev) / f.λ2) : T(1.13) * p2(T, ev) / (f.λ1 * f.w[1])
+        λ = ridge ? T(2.3) * p2(T, ev + 2P + 16) : T(1.13) * p2(T, ev + P + 8) / T(1.9)
+        f = ridge ? ElasticNet(zero(T), λ, T[1.9]) : ElasticNet(λ, λ, T[1.9])
         xb = big4096(() -> big(y0) * (1 + big(α) * big(γ) * big(f.λ2)) + big(α) * big(γ) * big(f.λ1) * big(f.w[1]))
         x, s = T[T(xb)], Scaled(f, α)
         for g in (γ, [γ])
@@ -496,11 +498,12 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       E = exponent(floatmin(T))
       α, γ = T(1.37) * p2(T, 12), T(0.61) * p2(T, -12)
       W = T[1.9 0.7; 0.7 1.3]
-      f = ElasticNet(T(1.29) * p2(T, -12), T(0.83), W)
+      y0, λ = p2(T, -(precision(T) + 8)), T(1.13) * p2(T, E - 3 + precision(T) + 8) / T(1.9)
+      f = ElasticNet(λ, λ, W)
       fv = ElasticNet(f.λ1, f.λ2, vec(W))
       tb = big4096(() -> big(α) * big(γ))
       inv1(u, w) = T(big4096(() -> big(u) * (1 + tb * big(f.λ2)) + tb * big(f.λ1) * big(w)))
-      xd = [inv1(T(1.13) * p2(T, E - 3) / (f.λ1 * w), w) for w in vec(W)]
+      xd = [inv1(y0, w) for w in vec(W)]
       s, sv = Scaled(f, α), Scaled(fv, α)
       ref(u) = big4096(() -> big(α) * valref(fv, vec(u)))
       yd, vd = fused(sv, xd, γ)
@@ -510,10 +513,13 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       u = zeros(T, 6); u[2:5] .= xd
       yv = zeros(T, 4)
       @test value_and_prox!(yv, sv, view(u, 2:5), γ) === vd && yv == yd
+      # the stored entries are summed in their own order: the value at the stored output, within the bound
       ys = SparseIterate(T, 4)
-      @test value_and_prox!(ys, sv, SparseIterate(xd), γ) === vd && Vector(ys) == yd
+      vs = value_and_prox!(ys, sv, SparseIterate(xd), γ)
+      @test Vector(ys) == yd && vs === sv(ys) && valok(vs, ref(yd), 8)
       xb = BlockIterate(copy(xd), [[1, 3], [2, 4]]); yb = copy(xb)
-      @test value_and_prox!(yb, sv, xb, γ) === vd && Vector(yb) == yd
+      vb = value_and_prox!(yb, sv, xb, γ)
+      @test Vector(yb) == yd && vb === sv(yb) && valok(vb, ref(yd), 8)
       S = SymmetricSparseIterate(T, 2); S[1, 1] = xd[1]; S[2, 1] = xd[2]; S[2, 2] = xd[4]
       ZS = copy(S)
       vS = value_and_prox!(ZS, s, S, γ)

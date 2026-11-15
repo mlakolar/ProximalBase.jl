@@ -459,16 +459,16 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
     @test within(v, big4096(() -> big(s.α) * valref(f, y)), 1) && within(s(y), big4096(() -> big(s.α) * valref(f, y)), 1)
     ya, va = fused(s, x, [γ])
     @test va === s(ya) && within(va, big4096(() -> big(s.α) * valref(f, ya)), 1)
-    # a family around the subnormal-to-normal boundary: the ℓ1 part or the ridge part about 2^ev at the output y0 (the
-    # top, the middle and the bottom of the subnormal range), with a threshold and a ridge factor that leave y0 almost
-    # unchanged, and a factor inside the band of the array route or outside it
+    # a family around the subnormal-to-normal boundary: the ℓ1 part, or the ridge part beside an ℓ1 part 16 times
+    # smaller, about 2^ev at the output y0 (the top, the middle and the bottom of the subnormal range), with a threshold
+    # and a ridge factor that leave y0 almost unchanged, and a factor inside the band of the array route or outside it
     for T in (Float32, Float64)
       E, P, band = exponent(floatmin(T)), precision(T), PB._factor_band(T)
       y0 = p2(T, -(P + 8))
       for a in (band - 8, band - 1, 2band, 3band), ev in (E - 2, E - P ÷ 2, E - P + 4), ridge in (false, true)
         α, γ = T(1.37) * p2(T, a), T(0.61) * p2(T, -a)
         λ = ridge ? T(2.3) * p2(T, ev + 2P + 16) : T(1.13) * p2(T, ev + P + 8) / T(1.9)
-        f = ridge ? ElasticNet(zero(T), λ, T[1.9]) : ElasticNet(λ, λ, T[1.9])
+        f = ridge ? ElasticNet(T(1.13) * p2(T, ev + P + 4) / T(1.9), λ, T[1.9]) : ElasticNet(λ, λ, T[1.9])
         xb = big4096(() -> big(y0) * (1 + big(α) * big(γ) * big(f.λ2)) + big(α) * big(γ) * big(f.λ1) * big(f.w[1]))
         x, s = T[T(xb)], Scaled(f, α)
         for g in (γ, [γ])

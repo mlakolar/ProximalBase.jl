@@ -95,7 +95,8 @@ finite result there is within `w |v|` of `v`. Correct overflow classification in
 guaranteed (the same kind of boundary uncertainty as for the `NormL2` recomputation, see the numerics
 page of the documentation), and no materially wrong finite value arises away from it. An exact positive value
 below the smallest subnormal can round to `nextfloat(zero(T))` rather than to zero (`Float64`, `α = 1.5`,
-`z = [2.0^-537]`, `Y = [0.0]`: exact `0.75 nextfloat(0.0)`, result `nextfloat(0.0)`). A
+`z = [2.0^-537]`, `Y = [0.0]`: exact `0.75 nextfloat(0.0)`; the result is `nextfloat(0.0)` on Julia 1.13.3 and `0.0` on
+1.10.12, both within the subnormal allowance). A
 non-finite entry of `z` or of `Y` gives a non-finite value, `Inf` or `NaN`: the call has `z`, not `β`,
 and does not form `Xβ` again to recover from it. By contrast `f(β)` and `value_and_gradient!` recompute
 `Xβ` from `β` where it overflows although `β`, `X` and `Y` are finite.

@@ -133,7 +133,8 @@ It is the same kind of boundary uncertainty that
 `GroupNormL2`; it permits no materially wrong finite value away from the threshold and no finite result from
 non-finite data that the value depends on. An exact positive value below the smallest subnormal can round to
 `nextfloat(zero(T))` rather than to zero: for `Float64`, ``\alpha=1.5``, `z = [2.0^-537]` and `Y = [0.0]` the exact
-value is `0.75*nextfloat(0.0)` and the result is `nextfloat(0.0)`.
+value is `0.75*nextfloat(0.0)`, and the result is `nextfloat(0.0)` on Julia 1.13.3 and `0.0` on 1.10.12, both within the
+subnormal allowance.
 
 **Gradient.** The product ``X^\top d`` is rounded to `T` and then multiplied by ``\alpha``. An ``X^\top d`` that overflows or underflows before the scaling is not recovered, even where ``\alpha``
 would bring the exact gradient back into range: with `X = [2.0^1023;;]`, `Y = [0.0]`, `z = [4.0]` and

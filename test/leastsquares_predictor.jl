@@ -37,8 +37,8 @@ end
 #   (c) above that region: not finite.
 # Region (b) is the maintainer-approved exception to the rule that an overflowing reference must give a non-finite
 # result: the recomputation shared with SqrNormL2 does not decide on which side of thr the value lies within the
-# relative error bound of thr (docs/src/numerics.md), so a reference that rounds to Inf may give floatmax there. Every
-# other class keeps its assertion.
+# relative error bound of thr (docs/src/numerics.md), so a reference that rounds to Inf may give floatmax there. The
+# other classes keep their assertions.
 function value_ok(v, ref, ::Type{T}, n) where {T}
   with256() do
     m, fm, e = abs(ref), big(floatmax(T)), (n + 8) * big(eps(T))
@@ -322,14 +322,16 @@ end
       end
     end
   end
-  # the rounding of a value below the smallest subnormal: the exact value 0.75 nextfloat(0.0) gives nextfloat(0.0)
+  # the rounding of a value below the smallest subnormal: the exact value is 0.75 nextfloat(0.0)
   f = Scaled(LeastSquaresLoss([0.0], ones(1, 1)), 1.5)
   z = [pow2(Float64, -537)]
   @test ref_value(1.5, z, [0.0]) == 0.75 * big(nextfloat(0.0))
   @test value_ok(PB.value_from_predictor(f, z), ref_value(1.5, z, [0.0]), Float64, 1)
-  @test PB.value_from_predictor(f, z) === nextfloat(0.0)
-  @test PB.value_from_residual(f, z) === nextfloat(0.0)
-  @test PB.value_and_gradient_from_predictor!(zeros(1), zeros(1), f, z) === nextfloat(0.0)
+  # the result is 0.0 or nextfloat(0.0) (within the subnormal allowance): Julia 1.13.3 gives nextfloat(0.0), 1.10.12 gives 0.0
+  for v in (PB.value_from_predictor(f, z), PB.value_from_residual(f, z),
+            PB.value_and_gradient_from_predictor!(zeros(1), zeros(1), f, z))
+    @test v === 0.0 || v === nextfloat(0.0)
+  end
 end
 
 @testset "the scale as supplied" begin
@@ -449,8 +451,8 @@ end
     @test !isfinite(PB.value_and_gradient_from_predictor!(g, d, f, z))
     @test isinf(d[1])
   end
-  # the gradient after an overflowing z - Y: every entry is non-finite for p > 0, a zero column of X included
-  # (0 * Inf is NaN), and the gradient is empty for p = 0
+  # the gradient after an overflowing z - Y: the entries are non-finite for p > 0 with the BLAS of the tests, a zero column
+  # of X included (0 * Inf is NaN), and the gradient is empty for p = 0
   for T in (Float32, Float64), α in (nothing, T(2))
     Xz = T[1 0 3; 0 0 0]
     f = mkloss(T[-floatmax(T), 0], Xz, α)

@@ -446,9 +446,9 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
     end
   end
 
-  # value_and_prox! of Scaled(ElasticNet) returns the value at its stored output: a leaf value that is subnormal under a
-  # factor above one is recomputed from the stored entries, not multiplied (a subnormal carries fewer bits than the
-  # product), within one unit in the last place of the exact value at the stored output
+  # value_and_prox! of Scaled(ElasticNet) with positive finite levels returns the value at its stored output: a leaf
+  # value that is subnormal under a factor above one is recomputed from the stored entries, not multiplied (a subnormal
+  # carries fewer bits than the product); the fixtures below are within one unit in the last place of the exact value
   @testset "the fused value of Scaled(ElasticNet) at a subnormal leaf value" begin
     fused(s, x, γ) = (y = similar(x); v = value_and_prox!(y, s, x, γ); (y, v))
     # the reported Float32 case: the leaf value at the stored output is 2.3765f-41
@@ -493,6 +493,16 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       end
       y, v = fused(Scaled(ElasticNet(one(T), one(T)), α), zeros(T, 3), γ)
       @test v === zero(T) && y == zeros(T, 3)
+      # a zero level keeps the value of its route: a subnormal ℓ1 leaf value beside a NaN or ±Inf entry that a zero
+      # weight and a zero ridge level leave out of the value, which stays finite
+      λz, αz, γz, x1 = T === Float64 ? (2.0^-499, 2.0^57, 2.0^-157, 1.25 * 2.0^-537) :
+                                       (2.0f0^-60, 2.0f0^20, 2.0f0^-30, 2.25f0 * 2.0f0^-70)
+      fz = ElasticNet(λz, zero(T), T[1, 0])
+      for bad in (T(Inf), T(-Inf), T(NaN)), g in (γz, fill(γz, 2))
+        yz, vz = fused(Scaled(fz, αz), T[x1, bad], g)
+        Vz = big4096(() -> big(αz) * big(λz) * abs(big(yz[1])))
+        @test issubnormal(fz(yz)) && isfinite(vz) && abs(big(vz) - Vz) <= Vz * big(2)^-15
+      end
     end
     # the representations: the stored output of each, and its value
     for T in (Float32, Float64)

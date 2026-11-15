@@ -364,15 +364,16 @@ end
 _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
 # The fused value of a finite factor α > 1 at a nonzero subnormal leaf value v (`value_and_prox!` with a scalar step
 # whose product with the factor is normal, or with an array step and a factor inside the band), for an ElasticNet with
-# finite levels: v carries fewer bits than its product with α needs, so the value at the stored output y is recomputed.
-# The terms of both parts at the entries that y stores are added in one exponent-sum accumulator (`_elastic_expsum`, as
-# the ElasticNet value recomputes a sum below 2 floatmin), and α multiplies the sum before its single rounding
-# (`_expsum_value`). This reads the stored entries of y once. Other functions, a zero leaf value and other factors
-# keep the value of their route (`_fused_small_case` is false).
+# positive finite levels: v carries fewer bits than its product with α needs, so the value at the stored output y is
+# recomputed. The terms of both parts at the entries that y stores are added in one exponent-sum accumulator
+# (`_elastic_expsum`, under the precondition with which the ElasticNet value recomputes a sum below 2 floatmin: both
+# levels positive and finite, so that a NaN or ±Inf entry makes v non-finite and never reaches it), and α multiplies
+# the sum before its single rounding (`_expsum_value`). This reads the stored entries of y once. Other functions, a
+# zero level, a zero leaf value and other factors keep the value of their route (`_fused_small_case` is false).
 _fused_small_case(f, α, v) = false
 @inline _fused_small_case(f::ElasticNet, α, v) =
   α isa Real && v isa AbstractFloat && !iszero(v) && abs(v) < floatmin(v) && α > 1 && isfinite(α) &&
-  isfinite(f.λ1) && isfinite(f.λ2)
+  f.λ1 > 0 && f.λ2 > 0 && isfinite(f.λ1) && isfinite(f.λ2)
 @noinline function _fused_small_value(f::ElasticNet, α, y, r::T) where {T}
   R = promote_type(T, Float64, _factor_type(f.λ1), _factor_type(f.λ2), _factor_type(α), _l1_factor_type(f.w),
                    _l1_factor_type(_stored_values(y)))

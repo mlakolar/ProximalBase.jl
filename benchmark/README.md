@@ -308,5 +308,5 @@ between the lines `BEGIN <file>` and `END <file>`, for a run whose output direct
 **How to judge.** Judge each cell by its median paired ratio Y/X against the A/A ratio XC/X, in the forward and in
 the reversed run (the ratios are the inverse in the reversed run). A cell above 1.05 in both orders that the A/A
 spread does not explain is repeated in a fresh process with `PB_FILTER` before it is reported. The exceptional cells
-are reported, not judged against 1.05. The cells of one operation at n = 64 take tens of nanoseconds, so a difference of a few nanoseconds is
-a few percent there.
+are reported, not judged against 1.05. The oracle value cells at n = 64 take about 10 to 25 ns on the cluster nodes used, where a difference of 1 ns is
+4 to 10 percent.

@@ -614,12 +614,11 @@ _square_multiplicity(x, i) = 1
 # underflowed and lost more than eps of the sum, and the scaled recomputation runs instead.
 @inline _squares_normal(s, n, ::Type{T}) where {T} = s >= n * (floatmin(T) / eps(T))
 
-# λ/2 Σ μᵢ (xᵢ - yᵢ)² at the level λ, with `l` the level of the ordinary product and `fits` whether that
-# level is kept as it is on the ordinary path (the two entry points below set them). The product is formed in
-# the type of `l` and s and rounded to the type of x at the result.
-@inline function _square_value_level(l, λ, x, y, fits::Bool)
+# λ/2 Σ μᵢ (xᵢ - yᵢ)² at the level λ from the ordinary sum s of the squares, with `l` the level of the ordinary
+# product and `fits` whether that level is kept as it is on the ordinary path (the two entry points below set
+# them and form s). The product is formed in the type of `l` and s and rounded to the type of x at the result.
+@inline function _square_value_level(l, λ, x, y, s, fits::Bool)
   T = _valtype(x)
-  s = y === nothing ? _sumabs2(x) : _sumabs2_diff(x, y)
   v = l * s / 2
   n = y === nothing ? _square_term_count(x) : length(x)
   if (isfinite(v) & _squares_normal(real(s), n, T)) && fits
@@ -627,12 +626,27 @@ _square_multiplicity(x, i) = 1
   end
   _exceptional_square_value(λ, x, y, real(s), v)
 end
-# SqrNormL2: the level is converted to the type of x, and the ordinary result requires that the converted level
-# be a normal number, zero or not finite (_level_fits).
-@inline _square_value(λ, x, y) = _square_value_level(convert(_valtype(x), λ), λ, x, y, _level_fits(_valtype(x), λ))
+# SqrNormL2: the level is converted to the type of x. A level that is already stored in that type (Float32 or Float64
+# data with a level of the same type) always fits, a subnormal level included. A level converted from another type
+# fits when it is zero, not finite, or converts to a normal number; otherwise the ordinary result is not kept
+# (_level_fits). The sum is _sumabs2 for y === nothing and _sumabs2_diff otherwise.
+@inline function _square_value(λ, x, y)
+  s = y === nothing ? _sumabs2(x) : _sumabs2_diff(x, y)
+  _square_value_level(convert(_valtype(x), λ), λ, x, y, s, _level_fits(_valtype(x), λ))
+end
 # LeastSquaresLoss and its predictor and residual oracles: the level as supplied, so that the product is formed in
 # the promoted type of the level and the sum; a Float64 level with Float32 data is not narrowed before the product.
-@inline _square_value_wide(λ, x, y) = _square_value_level(λ, λ, x, y, true)
+# The sum for y === nothing is _sumabs2_loop, a recursive sum in one vectorizing loop for strided Float32 and Float64
+# arrays (and _sumabs2 otherwise); for y !== nothing it is _sumabs2_diff.
+@inline _square_value_wide(λ, x, y) = _square_value_level(λ, λ, x, y, y === nothing ? _sumabs2_loop(x) : _sumabs2_diff(x, y), true)
+@inline _sumabs2_loop(x) = _sumabs2(x)
+@inline function _sumabs2_loop(x::StridedArray{T}) where {T<:Union{Float32, Float64}}
+  s = zero(T)
+  @inbounds @simd for i in eachindex(x)
+    s += abs2(x[i])
+  end
+  s
+end
 
 @noinline function _exceptional_square_value(λ, x, y, s, v)
   T = _valtype(x)

@@ -28,18 +28,30 @@ function ref_residual(α, r)
   end
 end
 
-# A value v of n squares against its reference: finite and within (n + 8) eps |v*| (plus two units of
-# the smallest subnormal where |v*| < floatmin) when v* is representable with that margin; not finite
-# when v* is beyond the range by twice the margin; in between, either.
+# A value v of n squares against its reference ref, with u = floatmax - prevfloat(floatmax), thr = floatmax + u/2
+# the round-to-nearest overflow threshold and e = (n + 8) eps(T) the relative error bound:
+#   (a) |ref| (1 + e) <= floatmax: finite and within e |ref| (plus two units of the smallest subnormal where
+#       |ref| < floatmin);
+#   (d) between that margin and thr: finite within e |ref|, or not finite (as before the exception below);
+#   (b) thr <= |ref| <= thr (1 + e), the boundary region: not finite, or finite within e |ref|;
+#   (c) above that region: not finite.
+# Region (b) is the maintainer-approved exception to the rule that an overflowing reference must give a non-finite
+# result: the recomputation shared with SqrNormL2 does not decide on which side of thr the value lies within the
+# relative error bound of thr (docs/src/numerics.md), so a reference that rounds to Inf may give floatmax there. Every
+# other class keeps its assertion.
 function value_ok(v, ref, ::Type{T}, n) where {T}
   with256() do
     m, fm, e = abs(ref), big(floatmax(T)), (n + 8) * big(eps(T))
+    thr = fm + (fm - big(prevfloat(floatmax(T)))) / 2
+    close_enough = !isfinite(v) ? false : abs(big(v) - ref) <= e * m
     if m * (1 + e) <= fm
       isfinite(v) && abs(big(v) - ref) <= e * m + (m < floatmin(T) ? 2 * big(nextfloat(zero(T))) : 0)
-    elseif m >= fm * (1 + 2e)
-      !isfinite(v)
+    elseif m < thr
+      !isfinite(v) || close_enough
+    elseif m <= thr * (1 + e)
+      !isfinite(v) || close_enough
     else
-      !isfinite(v) || abs(big(v) - ref) <= e * m
+      !isfinite(v)
     end
   end
 end
@@ -218,13 +230,17 @@ end
   end
 end
 
-@testset "the squared-residual kernel entry points agree where the level fits" begin
+@testset "the squared-residual kernel entry points where the level fits" begin
   for T in (Float32, Float64), kind in KINDS
     rng = MersenneTwister(5)
     _, Y, z = make_case(rng, T, kind, 64, 3)
     for λ in (one(T), T(0.3), floatmin(T), floatmax(T) / 8)
+      # with a second operand both entry points form the sum over the differences and agree to the bit
       @test PB._square_value(λ, z, Y) === PB._square_value_wide(λ, z, Y)
-      @test PB._square_value(λ, z, nothing) === PB._square_value_wide(λ, z, nothing)
+      # without one, SqrNormL2 sums with sum(abs2, x) and the least-squares route in one vectorizing loop: the two
+      # recursive sums of the squares can differ in the last bits, and give the same class
+      a, b = PB._square_value(λ, z, nothing), PB._square_value_wide(λ, z, nothing)
+      @test (isfinite(a) == isfinite(b)) && (!isfinite(a) || abs(a - b) <= 72 * eps(T) * abs(b) + 2 * nextfloat(zero(T)))
     end
   end
 end
@@ -253,6 +269,67 @@ end
       @test isfinite(vr) && value_ok(vr, ref_residual(α, z .- Y), T, n)
     end
   end
+end
+
+@testset "the overflow threshold region" begin
+  # The reviewer's examples (n = 1, X = 1, Y = 0, z a single entry): the exact value is just above the
+  # round-to-nearest threshold floatmax + u/2, within the boundary region, and the shared recomputation returns
+  # floatmax or Inf. The 256-bit references, rounded to the type, are Inf:
+  #   Float32, α = 3.0327533f38, z = 1.498015f0:
+  #     3.40282357622190324004480821361991745536e38, floatmax = 3.4028235e38, thr = 3.40282356779733661637539395458142568448e38
+  #   Float64, α = 9.52950562431221e307, z = 1.942395183255378:
+  #     1.797693134862315847674172902245013323878960846173726629592701784996404053128842e308,
+  #     thr = 1.797693134862315807937289714053034150799341327100378269361737789804449682927648e308
+  for (T, α, z) in ((Float32, 3.0327533f38, 1.498015f0), (Float64, 9.52950562431221e307, 1.942395183255378))
+    f = Scaled(LeastSquaresLoss(T[0], ones(T, 1, 1)), α)
+    ref = ref_value(α, [z], T[0])
+    e = 9 * big(eps(T))
+    thr = with256() do
+      big(floatmax(T)) + (big(floatmax(T)) - big(prevfloat(floatmax(T)))) / 2
+    end
+    @test T(ref) == T(Inf)
+    @test thr <= ref <= thr * (1 + e)                         # the boundary region
+    g, d = zeros(T, 1), zeros(T, 1)
+    for v in (PB.value_from_predictor(f, T[z]), PB.value_from_residual(f, T[z]),
+              PB.value_and_gradient_from_predictor!(g, d, f, T[z]))
+      @test v isa T
+      @test v == floatmax(T) || v == T(Inf)
+      @test value_ok(v, ref, T, 1)
+    end
+  end
+  # a value built from the same construction, α chosen so that α z²/2 = t floatmax before the rounding of α, and
+  # classified against the reference inside the test: below the threshold with margin (finite within the bound),
+  # and clearly beyond the region (not finite)
+  for (T, z) in ((Float32, 1.498015f0), (Float64, 1.942395183255378))
+    e = 9 * big(eps(T))
+    thr, fm = with256() do
+      big(floatmax(T)) + (big(floatmax(T)) - big(prevfloat(floatmax(T)))) / 2, big(floatmax(T))
+    end
+    for (t, kind) in ((1 - 4e, :margin), (1 + 100 * big(eps(T)), :beyond))
+      α = with256() do
+        T(2 * t * fm / big(z)^2)
+      end
+      ref = ref_value(α, [z], T[0])
+      kind === :margin && @test ref * (1 + e) <= fm
+      kind === :beyond && @test ref > thr * (1 + e)
+      f = Scaled(LeastSquaresLoss(T[0], ones(T, 1, 1)), α)
+      g, d = zeros(T, 1), zeros(T, 1)
+      for v in (PB.value_from_predictor(f, T[z]), PB.value_from_residual(f, T[z]),
+                PB.value_and_gradient_from_predictor!(g, d, f, T[z]))
+        @test value_ok(v, ref, T, 1)
+        kind === :margin && @test isfinite(v)
+        kind === :beyond && @test v == T(Inf)
+      end
+    end
+  end
+  # the rounding of a value below the smallest subnormal: the exact value 0.75 nextfloat(0.0) gives nextfloat(0.0)
+  f = Scaled(LeastSquaresLoss([0.0], ones(1, 1)), 1.5)
+  z = [pow2(Float64, -537)]
+  @test ref_value(1.5, z, [0.0]) == 0.75 * big(nextfloat(0.0))
+  @test value_ok(PB.value_from_predictor(f, z), ref_value(1.5, z, [0.0]), Float64, 1)
+  @test PB.value_from_predictor(f, z) === nextfloat(0.0)
+  @test PB.value_from_residual(f, z) === nextfloat(0.0)
+  @test PB.value_and_gradient_from_predictor!(zeros(1), zeros(1), f, z) === nextfloat(0.0)
 end
 
 @testset "the scale as supplied" begin
@@ -371,6 +448,18 @@ end
     g, d = zeros(T, 1), zeros(T, 1)
     @test !isfinite(PB.value_and_gradient_from_predictor!(g, d, f, z))
     @test isinf(d[1])
+  end
+  # the gradient after an overflowing z - Y: every entry is non-finite for p > 0, a zero column of X included
+  # (0 * Inf is NaN), and the gradient is empty for p = 0
+  for T in (Float32, Float64), α in (nothing, T(2))
+    Xz = T[1 0 3; 0 0 0]
+    f = mkloss(T[-floatmax(T), 0], Xz, α)
+    g, d = zeros(T, 3), zeros(T, 2)
+    @test !isfinite(PB.value_and_gradient_from_predictor!(g, d, f, T[floatmax(T), 0]))
+    @test isinf(d[1]) && d[2] == 0
+    @test !any(isfinite, g)
+    f0 = mkloss(T[-floatmax(T), 0], zeros(T, 2, 0), α)
+    @test !isfinite(PB.value_and_gradient_from_predictor!(T[], zeros(T, 2), f0, T[floatmax(T), 0]))
   end
   # the value that is not representable is not finite, and the one that underflows is zero
   f = Scaled(LeastSquaresLoss([0.0], fill(1.0, 1, 1)), 1e300)
@@ -611,6 +700,8 @@ end
     @test PB.value_from_residual(f, T[]) === zero(T)
     @test PB.value_and_gradient_from_predictor!(g, d, f, T[]) === zero(T)
     @test all(iszero, g)
+    # an empty view of the scratch of the loss is not counted as overlapping
+    @test PB.value_and_gradient_from_predictor!(fill(T(7), 3), view(baseloss(f).tmp, :), f, T[]) === zero(T)
     # no coefficients
     Y = T[1, 2, 3, 4]
     f = mkloss(Y, zeros(T, 4, 0), α)

@@ -80,13 +80,13 @@ end
 # d = z - Y and g = X'd, with one product by X'. d may be the same array as z (the residual then replaces the
 # predictor, as in the methods of the loss, which pass f.tmp for both); otherwise g and d must not overlap X, Y,
 # z or each other, which the predictor oracles check before they call it.
-function _leastsquares_residual_gradient!(g, d, X, z, Y)
+@inline function _leastsquares_residual_gradient!(g, d, X, z, Y)
   d .= z .- Y
   mul!(g, transpose(X), d)
   g
 end
 # The same, returning also the value α‖d‖²/2 of the squared-residual kernel (α as supplied).
-function _leastsquares_residual_gradient!(g, d, X, z, Y, α)
+@inline function _leastsquares_residual_gradient!(g, d, X, z, Y, α)
   _leastsquares_residual_gradient!(g, d, X, z, Y)
   _square_value_wide(α, d, nothing)
 end

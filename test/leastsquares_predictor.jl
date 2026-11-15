@@ -826,6 +826,65 @@ end
   end
 end
 
+@testset "the ordinary path of the least-squares route at its acceptance boundary" begin
+  # For strided Float32 and Float64 vectors the route keeps the ordinary product α s / 2 when K <= s <= floatmax(T),
+  # K = 2^63 floatmin(T)/eps(T), and, for a Scaled, α s <= floatmax; otherwise it runs the kernel's test (s >= n
+  # floatmin(T)/eps(T) and α s / 2 finite) and recomputation on s. The inputs below put s just below, at and just
+  # above n floatmin(T)/eps(T) and K, near floatmax, and make it Inf or NaN. On each of them the oracles and the
+  # methods of the loss must give the kernel's result on the same sum, and agree with the 256-bit reference.
+  for T in (Float32, Float64)
+    E = exponent(floatmax(T))
+    K = T(0x1p63) * (floatmin(T) / eps(T))
+    @test K == pow2(T, 64 + Base.significand_bits(T) - Base.exponent_bias(T))
+    inputs = Vector{T}[]
+    for n in (1, 64), t in (n * (floatmin(T) / eps(T)), K)
+      c = sqrt(t / n)
+      for u in (prevfloat(c, 2), prevfloat(c), c, nextfloat(c), nextfloat(c, 2))
+        push!(inputs, fill(u, n))
+      end
+    end
+    h = pow2(T, (E - 1) ÷ 2)                          # s = 2 h^2 = 2^E, below floatmax; 2 s and 4 s are not
+    append!(inputs, (T[h, h], T[h, nextfloat(h)], T[floatmax(T)], T[floatmax(T), one(T)], T[one(T), T(NaN)],
+                     T[one(T), T(Inf)], T[T(Inf), T(-Inf)], zeros(T, 3), T[nextfloat(zero(T)), zero(T)]))
+    wide = T === Float32 ? Any[1e-60, 1e30, 2.0^-150] : Any[]
+    for r in inputs, α in Any[nothing, T(0.5), T(2), T(4), pow2(T, -E), pow2(T, E), 3, wide...]
+      n = length(r)
+      Y = zeros(T, n)
+      X = Matrix{T}(I, n, n)
+      f = mkloss(Y, X, α)
+      a = α === nothing ? one(T) : PB._ls_base_scale(f)[2]
+      kr = PB._square_value_level(a, a, r, nothing, PB._sumabs2_loop(r), true)
+      kp = PB._square_value_level(a, a, r, Y, PB._ls_sumabs2_diff(r, Y), true)
+      vr, vp = PB.value_from_residual(f, r), PB.value_from_predictor(f, r)
+      g, d = zeros(T, n), zeros(T, n)
+      vg = PB.value_and_gradient_from_predictor!(g, d, f, r)
+      @test isequal(vr, kr) && isequal(vp, kp) && isequal(vg, kr)
+      ok = value_ok(vr, ref_residual(α, r), T, n) && value_ok(vp, ref_value(α, r, Y), T, n)
+      ok || @info "boundary input" T α r vr vp
+      @test ok
+      if α === nothing && all(isfinite, r)
+        # the methods of the loss: X = I gives Xβ = r exactly, so that f(β) and value_and_gradient! see the same sums
+        @test isequal(f(r), vp)
+        @test isequal(value_and_gradient!(similar(r), f, r), vr)
+      end
+    end
+    # an infinite scale: the value oracles check it on the exceptional path, which every sum reaches
+    for r in (ones(T, 4), zeros(T, 4), T[1, NaN], T[floatmax(T), 1])
+      f = Scaled(LeastSquaresLoss(zeros(T, length(r)), Matrix{T}(I, length(r), length(r))), T(Inf))
+      @test_throws ArgumentError PB.value_from_residual(f, r)
+      @test_throws ArgumentError PB.value_from_predictor(f, r)
+    end
+    # below the overflow threshold, outside the margin: the result is the finite value, four units below floatmax
+    f4 = Scaled(LeastSquaresLoss(T[0], ones(T, 1, 1)), prevfloat(floatmax(T) / 2, 4))
+    @test PB.value_from_predictor(f4, T[2]) === prevfloat(floatmax(T), 4)
+    @test PB.value_from_residual(f4, T[2]) === prevfloat(floatmax(T), 4)
+  end
+  # Float32 data with a Float64 scale: α s / 2 is formed in Float64 and rounds to 0f0 below the range of Float32
+  f = Scaled(LeastSquaresLoss(zeros(Float32, 4), Matrix{Float32}(I, 4, 4)), 1e-60)
+  @test PB.value_from_residual(f, ones(Float32, 4)) === 0.0f0
+  @test PB.value_from_predictor(f, ones(Float32, 4)) === 0.0f0
+end
+
 @testset "zero allocation and inference" begin
   for T in (Float32, Float64)
     rng = MersenneTwister(101)

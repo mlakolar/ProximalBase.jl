@@ -66,14 +66,14 @@ isconvex(::Type{<:LeastSquaresLoss}) = true
 function (f::LeastSquaresLoss{T})(β::AbstractVecOrMat) where {T}
   _checkreal(f, β)
   mul!(f.tmp, f.X, β)
-  v = _square_value_wide(one(T), f.tmp, f.Y)
+  v = _ls_value(f, f.tmp, f.Y)
   _value_at(isfinite(v) ? v : _leastsquares_image_overflow(f, β, v), β)
 end
 
 function value_and_gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss{T}, β::AbstractVecOrMat) where {T}
   _checkwrite(value_and_gradient!, f, g, β)
   mul!(f.tmp, f.X, β)
-  v = _leastsquares_residual_gradient!(g, f.tmp, f.X, f.tmp, f.Y, one(T))
+  v = _leastsquares_residual_gradient!(g, f.tmp, f.X, f.tmp, f.Y, f)
   _value_at(isfinite(v) ? v : _leastsquares_image_overflow(f, β, v), β)
 end
 
@@ -85,10 +85,66 @@ end
   mul!(g, transpose(X), d)
   g
 end
-# The same, returning also the value α‖d‖²/2 of the squared-residual kernel (α as supplied).
-@inline function _leastsquares_residual_gradient!(g, d, X, z, Y, α)
+# The same, returning also the value α‖d‖²/2 (_ls_value, with f the loss or its Scaled).
+@inline function _leastsquares_residual_gradient!(g, d, X, z, Y, f)
   _leastsquares_residual_gradient!(g, d, X, z, Y)
-  _square_value_wide(α, d, nothing)
+  _ls_value(f, d, nothing)
+end
+
+# The value α Σ (xᵢ - yᵢ)² / 2 (α Σ xᵢ² / 2 for y === nothing) of the least-squares methods and oracles, with f the
+# loss or its Scaled, α = 1 for a loss and the factor as supplied for a Scaled (_ls_base_factor), and y nothing or the
+# response Y of the loss. Strided Float32 or Float64 vectors take the ordinary path below; other arrays take the
+# squared-residual kernel _square_value_wide.
+@inline _ls_value(f, x, y) = _square_value_wide(_ls_base_factor(f)[2], x, y)
+@inline _ls_value(f, x::StridedVector{T}, ::Nothing) where {T<:Union{Float32, Float64}} =
+  _ls_square_value(f, x, nothing, _sumabs2_loop(x))
+@inline _ls_value(f, x::StridedVector{T}, y::StridedVector{T}) where {T<:Union{Float32, Float64}} =
+  _ls_square_value(f, x, _LSResponse(), _ls_sumabs2_diff(x, y))
+
+# Σ (xᵢ - yᵢ)² in one vectorizing loop, for vectors of equal length
+@inline function _ls_sumabs2_diff(x::StridedVector{T}, y::StridedVector{T}) where {T<:Union{Float32, Float64}}
+  length(x) == length(y) || _ls_difference_length_error(length(x), length(y))
+  s = zero(T)
+  @inbounds @simd for i in eachindex(x)
+    s += abs2(x[i] - y[i])
+  end
+  s
+end
+@noinline _ls_difference_length_error(nx, ny) =
+  throw(DimensionMismatch("the arrays have lengths $nx and $ny"))
+
+# The ordinary path from the ordinary sum s of the n squares, n = length(x). The kernel keeps the product α s / 2,
+# formed in the promoted type R of α and T, when it is finite and s ≥ n floatmin(T)/eps(T) (_square_value_level).
+# Here the product is kept when K ≤ s ≤ floatmax(T) for K = 2^63 floatmin(T)/eps(T) (_ls_ordinary_sum) and, for a
+# Scaled, α s ≤ floatmax(R) (_ls_product_fits; for a loss α = 1 and α s = s). Then α s / 2 is finite, and K is at least
+# n floatmin(T)/eps(T) for n ≤ typemax(Int) (Int to T rounds n to at most 2^63): where the test holds, the kernel
+# keeps the same product. In the other cases, a NaN s or α s included, _ls_value_exceptional runs the kernel's test
+# and recomputation on s.
+@inline function _ls_square_value(f, x::StridedVector{T}, y, s::T) where {T<:Union{Float32, Float64}}
+  _, α = _ls_base_factor(f)
+  p = α * s
+  (_ls_ordinary_sum(s) & _ls_product_fits(f, p)) && return _value_at(p / 2, x)
+  _ls_value_exceptional(f, x, y, s)
+end
+# K ≤ s ≤ floatmax(T) with K = 2^63 floatmin(T)/eps(T), on the bits of s: the biased exponent of K is
+# 64 + significand_bits(T) (2^-907 for Float64, 2^-40 for Float32), that of floatmax(T) is 2 exponent_bias(T), and
+# the shifted bits of a zero or subnormal s, an infinite or NaN s and a negative s fall outside that range.
+@inline function _ls_ordinary_sum(s::T) where {T<:Union{Float32, Float64}}
+  e = reinterpret(Unsigned, s) >> Base.significand_bits(T)
+  lo = 64 + Base.significand_bits(T)
+  e - (lo % typeof(e)) <= (2 * Base.exponent_bias(T) - lo) % typeof(e)
+end
+# The second operand of the kernel on the exceptional path: nothing, or _LSResponse() for the response Y of the loss,
+# which _ls_value_exceptional loads from f. The ordinary path then passes to the call no array that it loaded from a
+# field of the loss, which would need a GC root in the caller.
+struct _LSResponse end
+_ls_response(base, ::Nothing) = nothing
+_ls_response(base, ::_LSResponse) = base.Y
+# The test and recomputation of the kernel, after the check of the scale of an oracle (_ls_base_scale, which
+# refuses the infinite factor that _ls_base_factor does not check)
+@noinline function _ls_value_exceptional(f, x, y, s)
+  base, α = _ls_base_scale(f)
+  _square_value_level(α, α, x, _ls_response(base, y), s, true)
 end
 
 # The value of f(β) or value_and_gradient! when the result v of the squared-residual kernel is not finite. f.tmp

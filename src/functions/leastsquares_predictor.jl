@@ -22,6 +22,17 @@ const _LSOracleLoss{T} = Union{_LSStrided{T}, _LSScaledStrided{T}}
   isfinite(a) && a > 0 && a == α ? a : _ls_scale_error(α)
 end
 @inline _ls_scale(α) = _ls_scale_error(α)
+# The same for the value oracles, which write nothing, without the check of a Float32 or Float64 factor on the
+# ordinary path: the Scaled constructor refuses a negative or NaN factor and gives no Scaled for a zero one, so
+# the factor is positive, finite or Inf. An infinite factor makes α s infinite or NaN, which _ls_square_value
+# sends to _ls_value_exceptional, which checks the factor (_ls_base_scale) and raises the ArgumentError.
+@inline _ls_base_factor(f::LeastSquaresLoss{T}) where {T} = (f, one(T))
+@inline _ls_base_factor(s::Scaled{<:AbstractFunction, <:Union{Float32, Float64}}) = (s.f, s.α)
+@inline _ls_base_factor(s::Scaled) = _ls_base_scale(s)
+# Whether the product p = α s of the ordinary path is at most floatmax (_ls_square_value): for a loss α = 1 and p = s,
+# whose range _ls_ordinary_sum tests.
+@inline _ls_product_fits(::LeastSquaresLoss, p) = true
+@inline _ls_product_fits(::Scaled, p) = p <= floatmax(p)
 @noinline _ls_scale_error(α) = throw(ArgumentError(
   "the scale $α of type $(typeof(α)) is not supported by the least-squares predictor and residual oracles: " *
   "a positive finite Float32 or Float64, or an integer that Float64 represents exactly, is required"))
@@ -74,8 +85,9 @@ integer `α` with `Float64(α) == α` (for example `16777217` with `Float32` dat
 converted to `Float64` once. The factor as stored, `f.α`, is what
 [`ProximalBase.leastsquares_data`](@ref) returns; the factor of the computation is a `Float32` or
 `Float64` and is the integer's `Float64` value for an integer. Any other factor (an integer that `Float64` does not hold,
-a `Float16`, `BigFloat` or `Rational`, `Inf`) is an `ArgumentError`, raised before the
-computation. The `Scaled` constructor itself is not changed.
+a `Float16`, `BigFloat` or `Rational`, `Inf`) is an `ArgumentError`. The value oracles, which write nothing,
+raise it for an infinite `Float32` or `Float64` factor after forming the sum of squares, and for the other
+refused factors before it. The `Scaled` constructor itself is not changed.
 
 **The result** has type `T`. The product `α s / 2` of the sum of squares `s` is formed in the
 promoted type of `α` and `T` and rounded to `T` at the result (a subnormal result can round twice).
@@ -88,12 +100,16 @@ plus `2 nextfloat(zero(T))` where `|v| < floatmin(T)`.
 **Range.** Let `u = floatmax(T) - prevfloat(floatmax(T))`, so that `floatmax(T) + u/2` is the
 round-to-nearest overflow threshold, and let `w = (n + 8) eps(T)` be the relative error bound above. For
 finite `z` and `Y` and an exact value `v` with `|v| (1 + w) ≤ floatmax(T)`, the result is finite and within
-that bound. For `v` above `(floatmax(T) + u/2) (1 + w)` the result is `Inf`. In between, within the relative
-width `w` of the threshold, the recomputation that these oracles share with `SqrNormL2` does not decide on which
-side the exact value lies: the result can be `floatmax(T)` or `Inf`, also where `v` rounds to the other, and a
-finite result there is within `w |v|` of `v`. Correct overflow classification in that region is not
-guaranteed (the same kind of boundary uncertainty as for the `NormL2` recomputation, see the numerics
-page of the documentation), and no materially wrong finite value arises away from it. An exact positive value
+that bound. For `v` above `(floatmax(T) + u/2) (1 + w)` the result is `Inf`. Between these two bounds the result
+depends on the side of the threshold. Below it, where `|v| (1 + w) > floatmax(T)` and `v` rounds to a finite
+number, the result is finite and within `w |v|` of `v`, which can be a number below `floatmax(T)` (`α =
+prevfloat(floatmax(T) / 2, 4)`, `z = T[2]`, `Y = T[0]` and `X = ones(T, 1, 1)` give `prevfloat(floatmax(T), 4)`), or
+it is `Inf`. From the threshold to `(floatmax(T) + u/2) (1 + w)`, where `v` rounds to `Inf`, the recomputation that
+these oracles share with `SqrNormL2` does not decide on which side of the threshold the exact value lies: the
+result can be `floatmax(T)` or `Inf`, and a finite result there is within `w |v|` of `v`. Correct overflow
+classification in these two regions is not guaranteed (the same kind of boundary uncertainty as for the `NormL2`
+recomputation, see the numerics page of the documentation), and no materially wrong finite value arises
+outside them. An exact positive value
 below the smallest subnormal can round to `nextfloat(zero(T))` rather than to zero (`Float64`, `α = 1.5`,
 `z = [2.0^-537]`, `Y = [0.0]`: exact `0.75 nextfloat(0.0)`; the result is `nextfloat(0.0)` on Julia 1.13.3 and `0.0` on
 1.10.12, both within the subnormal allowance). A
@@ -186,9 +202,9 @@ one of its oracles is in use, also on another task.
 function leastsquares_data end
 
 function value_from_predictor(f::_LSOracleLoss{T}, z::StridedVector{T}) where {T<:Union{Float32, Float64}}
-  base, a = _ls_base_scale(f)
+  base = _ls_base_factor(f)[1]
   _ls_checklength(:z, z, size(base.X, 1))
-  _square_value_wide(a, z, base.Y)
+  _ls_value(f, z, base.Y)
 end
 
 function value_and_gradient_from_predictor!(g::StridedVector{T}, d::StridedVector{T}, f::_LSOracleLoss{T},
@@ -199,15 +215,15 @@ function value_and_gradient_from_predictor!(g::StridedVector{T}, d::StridedVecto
   _ls_checklength(:d, d, n)
   _ls_checklength(:g, g, p)
   _ls_checkalias(g, d, base, z)
-  v = _leastsquares_residual_gradient!(g, d, base.X, z, base.Y, a)
+  v = _leastsquares_residual_gradient!(g, d, base.X, z, base.Y, f)
   _ls_scale_gradient!(g, f, a)
   v
 end
 
 function value_from_residual(f::_LSOracleLoss{T}, r::StridedVector{T}) where {T<:Union{Float32, Float64}}
-  base, a = _ls_base_scale(f)
+  base = _ls_base_factor(f)[1]
   _ls_checklength(:r, r, size(base.X, 1))
-  _square_value_wide(a, r, nothing)
+  _ls_value(f, r, nothing)
 end
 
 leastsquares_data(f::LeastSquaresLoss{T}) where {T} = (; Y = f.Y, X = f.X, α = one(T))

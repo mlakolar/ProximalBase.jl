@@ -638,12 +638,18 @@ end
 # y === nothing or a strided vector y of the same element type (_ls_value, which has its own ordinary path for those
 # and calls _square_value_level on its exceptional path); mixed element types, as for f(β) of a loss with Float32 Y
 # and Float64 X, come here. The level as supplied, so that the product is formed in the promoted type of the level and the sum; a
-# Float64 level with Float32 data is not narrowed before the product. The sum for y === nothing is _sumabs2_loop, a
-# recursive sum in one vectorizing loop for strided Float32 and Float64 arrays (and _sumabs2 otherwise); for
-# y !== nothing it is _sumabs2_diff.
+# Float64 level with Float32 data is not narrowed before the product. The sum for y === nothing is _sumabs2_loop (one
+# vectorizing loop up to _LS_ONE_LOOP_MAX entries of a strided Float32 or Float64 array and Julia's pairwise sum above,
+# and _sumabs2 otherwise); for y !== nothing it is _sumabs2_diff.
 @inline _square_value_wide(λ, x, y) = _square_value_level(λ, λ, x, y, y === nothing ? _sumabs2_loop(x) : _sumabs2_diff(x, y), true)
+# The largest length summed in one vectorizing loop on the least-squares route (_sumabs2_loop, _ls_sumabs2_diff);
+# longer vectors are summed by Julia's pairwise reduction (sequential blocks of at most 1024 entries). The loop keeps
+# one partial sum per vector lane, each accumulated left to right, so that its rounding error can grow in proportion
+# to the length; it is faster than the pairwise reduction on vectors held in cache.
+const _LS_ONE_LOOP_MAX = 2^17
 @inline _sumabs2_loop(x) = _sumabs2(x)
 @inline function _sumabs2_loop(x::StridedArray{T}) where {T<:Union{Float32, Float64}}
+  length(x) > _LS_ONE_LOOP_MAX && return sum(abs2, x)
   s = zero(T)
   @inbounds @simd for i in eachindex(x)
     s += abs2(x[i])

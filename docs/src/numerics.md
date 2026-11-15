@@ -90,6 +90,9 @@ two, without recovering every representable value (the smooth-functions guide gi
 described with the [smooth functions](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds))
 take the predictor `z` as given, without `β`: they recover a value whose squares overflow or underflow and, for the
 value alone, a difference `z - Y` that overflows, and a predictor with a non-finite entry gives a non-finite value.
+For strided `Float32` and `Float64` vectors, these oracles, `f(β)` and `value_and_gradient!` also recompute a value
+whose ordinary computation `α s / 2` is above `floatmax(T)/2`, so that the error of the ordinary sum of squares, which grows with
+the length, does not decide between a finite value and `Inf`.
 
 The accuracy of a recovered value is an absolute bound `B = 4 n eps (sum |terms| + |d|)` for
 `n` terms. It is a statement about the computed value when the exact value plus `B` is within

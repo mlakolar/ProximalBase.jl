@@ -29,10 +29,10 @@ end
 @inline _ls_base_factor(f::LeastSquaresLoss{T}) where {T} = (f, one(T))
 @inline _ls_base_factor(s::Scaled{<:AbstractFunction, <:Union{Float32, Float64}}) = (s.f, s.α)
 @inline _ls_base_factor(s::Scaled) = _ls_base_scale(s)
-# Whether the product p = α s of the ordinary path is at most floatmax (_ls_square_value): for a loss α = 1 and p = s,
-# whose range _ls_ordinary_sum tests.
-@inline _ls_product_fits(::LeastSquaresLoss, p) = true
-@inline _ls_product_fits(::Scaled, p) = p <= floatmax(p)
+# Whether the product p = α s of the ordinary path is below floatmax(T) for data of type T (_ls_square_value), p in the
+# promoted type of α and T: for a loss α = 1 and p = s, which _ls_ordinary_sum keeps at most floatmax(T).
+@inline _ls_product_fits(::LeastSquaresLoss, p, ::Type{T}) where {T} = true
+@inline _ls_product_fits(::Scaled, p, ::Type{T}) where {T} = p < floatmax(T)
 @noinline _ls_scale_error(α) = throw(ArgumentError(
   "the scale $α of type $(typeof(α)) is not supported by the least-squares predictor and residual oracles: " *
   "a positive finite Float32 or Float64, or an integer that Float64 represents exactly, is required"))
@@ -40,6 +40,7 @@ end
 @noinline _ls_length_error(name, got, expected) =
   throw(DimensionMismatch("$name has length $got, expected $expected"))
 @inline _ls_checklength(name, v, n) = length(v) == n || _ls_length_error(name, length(v), n)
+@noinline _ls_offset_error() = throw(ArgumentError("the outputs g and d must have axes starting at 1"))
 
 # Whether two arrays might share memory, by Base.mightalias; an empty array shares none.
 @inline _ls_overlap(a, b) = !isempty(a) && !isempty(b) && Base.mightalias(a, b)
@@ -70,118 +71,73 @@ end
 """
     ProximalBase.value_from_predictor(f, z)
 
-The value `α ‖z - Y‖² / 2` of the least-squares loss `f` at the linear predictor `z = Xβ`
-computed by the caller, where `α = 1` for a `LeastSquaresLoss(Y, X)` and `α` is the factor of
-`f = Scaled(LeastSquaresLoss(Y, X), α)`. The entries of `X` are not read, no product is formed and the
-scratch `f.tmp` is neither read nor written, so `z` may be a view of it.
+The value `α ‖z - Y‖² / 2` of the least-squares loss `f` at the linear predictor `z = Xβ` computed by the
+caller, where `α = 1` for a `LeastSquaresLoss(Y, X)` and `α` is the factor of `Scaled(LeastSquaresLoss(Y, X), α)`.
+No entry of `X` is read and the scratch `f.tmp` is neither read nor written, so `z` may be a view of it.
 
-The domain is a vector-response `LeastSquaresLoss{T}` with strided `Float32` or `Float64` `Y` and
-`X` (`T` their type), or one `Scaled` of it, and `z::StridedVector{T}` of length `size(X, 1)`; any
-other argument is a `MethodError`, and a wrong length is a `DimensionMismatch`.
+The domain is a vector-response `LeastSquaresLoss{T}` with strided `Float32` or `Float64` `Y` and `X`, or one
+`Scaled` of it, and `z::StridedVector{T}` with the axes of `Y`. Another argument type is a `MethodError`; other
+axes (another length, or an offset view of the same length) are a `DimensionMismatch`.
 
-**The scale.** A `Scaled` factor `α` is used as supplied, not rounded to `T` before the product: a
-positive finite `Float32` or `Float64` (including a `Float64` factor with `Float32` data), or an
-integer `α` with `Float64(α) == α` (for example `16777217` with `Float32` data), which is
-converted to `Float64` once. The factor as stored, `f.α`, is what
-[`ProximalBase.leastsquares_data`](@ref) returns; the factor of the computation is a `Float32` or
-`Float64` and is the integer's `Float64` value for an integer. Any other factor (an integer that `Float64` does not hold,
-a `Float16`, `BigFloat` or `Rational`, `Inf`) is an `ArgumentError`. The value oracles, which write nothing,
-raise it for an infinite `Float32` or `Float64` factor after forming the sum of squares, and for the other
-refused factors before it. The `Scaled` constructor itself is not changed.
+A `Scaled` factor is used as supplied, not rounded to `T`: a positive finite `Float32` or `Float64`, or an integer
+`α` with `Float64(α) == α`, which is converted to `Float64` once. Any other factor (`Inf`, an integer that
+`Float64` does not hold, a `Float16`, `BigFloat` or `Rational`) is an `ArgumentError`. The factor as stored is
+what [`ProximalBase.leastsquares_data`](@ref) returns.
 
-**The result** has type `T`. The product `α s / 2` of the sum of squares `s` is formed in the
-promoted type of `α` and `T` and rounded to `T` at the result (a subnormal result can round twice).
-Where the squares overflow or underflow, or the difference `z - Y` overflows, the value is
-recomputed from the squares in units of a power of two with `α` folded in, as for `SqrNormL2`, which
-gives a finite value where the value is representable with margin (see the range statement below). For finite `z` and `Y` and a value `v` that is representable
-with a margin, the tests check the result against 256-bit references within `(n + 8) eps(T) |v|`,
-plus `2 nextfloat(zero(T))` where `|v| < floatmin(T)`.
+The result has type `T`. The sum of squares `s` is formed in `T` and `α s / 2` in the promoted type of `α` and
+`T`, then rounded to `T`. Where the squares overflow or underflow, where `z - Y` overflows, and where the ordinary
+value `α s / 2` is above `floatmax(T)/2`, the value is recomputed from the squares in units of a power of two with `α` folded
+in, summed compensated. For finite `z` and `Y` and a value `v` representable with a margin, the result is within
+`(n + 8) eps(T) |v|` of `v`, plus `2 nextfloat(zero(T))` where `|v| < floatmin(T)`. A non-finite entry of `z` or
+`Y` gives a non-finite value: unlike `f(β)`, the call does not form `Xβ` again. The behavior near the overflow
+threshold, and the difference from `Scaled(f, α)(β)` on the exceptional range (issue #609), are stated in the
+section "Least squares at a predictor or residual that the caller holds" of the guide to the smooth functions.
 
-**Range.** Let `u = floatmax(T) - prevfloat(floatmax(T))`, so that `floatmax(T) + u/2` is the
-round-to-nearest overflow threshold, and let `w = (n + 8) eps(T)` be the relative error bound above. For
-finite `z` and `Y` and an exact value `v` with `|v| (1 + w) ≤ floatmax(T)`, the result is finite and within
-that bound. For `v` above `(floatmax(T) + u/2) (1 + w)` the result is `Inf`. Between these two bounds the result
-depends on the side of the threshold. Below it, where `|v| (1 + w) > floatmax(T)` and `v` rounds to a finite
-number, the result is finite and within `w |v|` of `v`, which can be a number below `floatmax(T)` (`α =
-prevfloat(floatmax(T) / 2, 4)`, `z = T[2]`, `Y = T[0]` and `X = ones(T, 1, 1)` give `prevfloat(floatmax(T), 4)`), or
-it is `Inf`. From the threshold to `(floatmax(T) + u/2) (1 + w)`, where `v` rounds to `Inf`, the recomputation that
-these oracles share with `SqrNormL2` does not decide on which side of the threshold the exact value lies: the
-result can be `floatmax(T)` or `Inf`, and a finite result there is within `w |v|` of `v`. Correct overflow
-classification in these two regions is not guaranteed (the same kind of boundary uncertainty as for the `NormL2`
-recomputation, see the numerics page of the documentation), and no materially wrong finite value arises
-outside them. An exact positive value
-below the smallest subnormal can round to `nextfloat(zero(T))` rather than to zero (`Float64`, `α = 1.5`,
-`z = [2.0^-537]`, `Y = [0.0]`: exact `0.75 nextfloat(0.0)`; the result is `nextfloat(0.0)` on Julia 1.13.3 and `0.0` on
-1.10.12, both within the subnormal allowance). A
-non-finite entry of `z` or of `Y` gives a non-finite value, `Inf` or `NaN`: the call has `z`, not `β`,
-and does not form `Xβ` again to recover from it. By contrast `f(β)` and `value_and_gradient!` recompute
-`Xβ` from `β` where it overflows although `β`, `X` and `Y` are finite.
-
-For a `Scaled` loss the squares are recomputed with `α` folded in also where the inner value
-`‖z - Y‖²/2` leaves the range of `T` and `α` brings it back. `Scaled(f, α)(β)` forms the inner value
-first and can give an infinite or an inaccurate value there (issue #609).
-
-For a raw loss, or a `Scaled` one with a `Float32`, `Float64` or `Int` scale, the call allocates nothing on its ordinary
-path. It is reentrant: it writes no field of `f`, so several tasks may call it on one `f` provided
-that `X` and `Y` are not mutated meanwhile.
+For a raw loss, or a `Scaled` one with a `Float32`, `Float64` or `Int` factor, the call allocates nothing on its
+ordinary path. It writes no field of `f`, so several tasks may call it on one `f` while `X` and `Y` are not
+mutated.
 """
 function value_from_predictor end
 
 """
     ProximalBase.value_and_gradient_from_predictor!(g, d, f, z)
 
-Writes the residual `d = z - Y` and the gradient `g = α fl(Xᵀd)` of the least-squares loss `f` at the
-linear predictor `z = Xβ` computed by the caller, and returns the value `α ‖d‖² / 2`. Here `α = 1`
-for a `LeastSquaresLoss(Y, X)` and `α` is the factor of `Scaled(LeastSquaresLoss(Y, X), α)`. The call
-forms one product with `Xᵀ` and none with `X`, and does not read or write the scratch `f.tmp`.
+Writes the residual `d = z - Y` and the gradient `g = α fl(Xᵀd)` of the least-squares loss `f` at the linear
+predictor `z = Xβ` computed by the caller, and returns the value `α ‖d‖² / 2`. The call forms one product with
+`Xᵀ` and none with `X`, and neither reads nor writes the scratch `f.tmp` (`z` may be a view of it).
 
-The domain, the scale `α` as stored and as computed, the type of the result and its rounding are those
-of [`ProximalBase.value_from_predictor`](@ref); `g`, `d` and `z` are `StridedVector{T}`, `z` and `d` of
-length `size(X, 1)` and `g` of length `size(X, 2)`. The sum of squares is formed over `d` in one
-vectorizing loop, as for the value of `value_and_gradient!`, while `value_from_predictor` forms it over the
-differences `z - Y`; the two loops are not promised to give the same last bits.
+The domain, the factor `α`, the result type and the value's rounding and recomputation are those of
+[`ProximalBase.value_from_predictor`](@ref), with `g`, `d` and `z` of type `StridedVector{T}`: `z` and `d` have the
+axes of `Y` and length `size(X, 1)`, and `g` has length `size(X, 2)`.
 
-**The gradient order** is `α · fl(Xᵀd)`: the product `Xᵀd` is rounded to `T` and then multiplied by `α`
-(not for a `LeastSquaresLoss`, where `α = 1`). An `Xᵀd` that overflows to `Inf` or underflows to
-zero before the scaling is not recovered, even where `α` would bring the exact gradient back into
-range. A difference `z - Y` that overflows with finite entries gives an infinite entry of `d` and a
-non-finite value; when `size(X, 2) > 0` the entries of `g` are non-finite (with the BLAS of the tests, also
-the entries of a zero column of `X`, where `0 · Inf` is `NaN`), and `g` is empty when `size(X, 2) == 0`.
-`value_from_predictor` recovers the value in that case.
+The gradient is `α · fl(Xᵀd)`: an `Xᵀd` that overflows or underflows before the scaling is not recovered, even
+where `α` would bring the exact gradient back into range. A difference `z - Y` that overflows with finite
+entries gives an infinite entry of `d`, a non-finite value and, when `size(X, 2) > 0`, non-finite gradient
+entries; `value_from_predictor` recovers the value in that case. The value sums the squares of `d`, and
+`value_from_predictor` those of the differences `z - Y`; the two are not promised to agree in the last bits.
 
-**Checks before any write.** Lengths (`DimensionMismatch`), the scale (`ArgumentError`) and the
-overlap of the outputs (`ArgumentError`): `d` must not overlap `g`, `X`, `Y`, `z` or `f.tmp`, and `g`
-must not overlap `X`, `Y`, `z` or `f.tmp`. On any error `g`, `d` and `f.tmp` are unchanged. The overlap
-test is `Base.mightalias`, applied to nonempty arrays (an empty array is never counted as overlapping, so an
-empty view of its parent is accepted). For nonempty arrays it refuses two views of one array whose indices
-overlap, and in the tested cases accepts two views of one array whose index ranges do not (separate ranges,
-separate columns). It refuses a view against its parent, and against a `vec` or `reshape` of the same memory,
-also where the two are disjoint, and not every disjoint layout is accepted. Memory shared in ways that `mightalias` does not detect
-(`unsafe_wrap`, an array type without `Base.dataids`) is a precondition on the caller. `z` may be a view
-of `f.tmp`: it is read, and `f.tmp` is not written.
+Checks before any write: lengths and axes (`DimensionMismatch`), outputs `g` and `d` whose first index is 1, the
+factor, and the overlap of the outputs (`ArgumentError`). `d` must not overlap `g`, `X`, `Y`, `z` or `f.tmp`, and `g`
+must not overlap `X`, `Y`, `z` or `f.tmp`, as `Base.mightalias` decides for nonempty arrays; memory shared in ways
+that `mightalias` does not detect is a precondition on the caller. On any error `g`, `d` and `f.tmp` are unchanged.
 
-The call writes no field of `f`, so tasks that use distinct `g` and `d` may call it on one `f`
-while `X` and `Y` are not mutated. For a raw loss, or a `Scaled` one with a `Float32`, `Float64` or `Int` scale, it
-allocates nothing on its ordinary path.
+The call writes no field of `f`, so tasks that use distinct `g` and `d` may call it on one `f` while `X` and `Y`
+are not mutated. For a raw loss, or a `Scaled` one with a `Float32`, `Float64` or `Int` factor, it allocates
+nothing on its ordinary path.
 """
 function value_and_gradient_from_predictor! end
 
 """
     ProximalBase.value_from_residual(f, r)
 
-The value `α ‖r‖² / 2` of the least-squares loss `f` at the residual `r = Xβ - Y`, or `r = Y - Xβ`
-(the sign does not matter), computed by the caller; `α = 1` for a `LeastSquaresLoss(Y, X)` and `α` is
-the factor of a `Scaled` one. Neither `X` nor `Y` is read, no product is formed and `f.tmp` is
-neither read nor written, so `r` may be a view of it.
+The value `α ‖r‖² / 2` of the least-squares loss `f` at the residual `r = Xβ - Y`, or `r = Y - Xβ`, computed by
+the caller; `α = 1` for a `LeastSquaresLoss(Y, X)` and `α` is the factor of a `Scaled` one. No entry of `X` or `Y`
+is read and `f.tmp` is neither read nor written, so `r` may be a view of it.
 
-The domain, the scale `α`, the type of the result and its rounding, the recomputation where the
-squares overflow or underflow, the range statement (the region around the overflow threshold and the
-subnormal rounding included) and a non-finite entry (here of `r`) are those of
-[`ProximalBase.value_from_predictor`](@ref), with `r::StridedVector{T}` of length `size(X, 1)`. The
-sum of squares is formed over `r` in one vectorizing loop, as for the value of `value_and_gradient!`.
-
-For a raw loss, or a `Scaled` one with a `Float32`, `Float64` or `Int` scale, the call allocates nothing on its ordinary
-path, and it is reentrant as `value_from_predictor` is.
+The domain, the factor, the result type, the rounding, the recomputation and the accuracy are those of
+[`ProximalBase.value_from_predictor`](@ref), with `r::StridedVector{T}` with the axes of `Y` (other axes are a
+`DimensionMismatch`) and a non-finite entry of `r` in place of one of `z`. The call allocates nothing on its
+ordinary path in the same cases, and it is reentrant as `value_from_predictor` is.
 """
 function value_from_residual end
 
@@ -201,8 +157,9 @@ one of its oracles is in use, also on another task.
 """
 function leastsquares_data end
 
-# The length of z is checked against Y (equal to size(X, 1) by the constructor of the loss) by _ls_sumabs2_diff,
-# which throws a DimensionMismatch before it reads an entry; the call reads no entry or size of X.
+# The axes of z are checked against those of Y (whose length is size(X, 1) by the constructor of the loss) by
+# _ls_sumabs2_diff, which throws a DimensionMismatch before it reads an entry; the call reads no entry or size of X.
+# value_from_residual checks the axes of r against those of Y in the same way.
 function value_from_predictor(f::_LSOracleLoss{T}, z::StridedVector{T}) where {T<:Union{Float32, Float64}}
   _ls_value(f, z, _ls_base_factor(f)[1].Y)
 end
@@ -214,6 +171,10 @@ function value_and_gradient_from_predictor!(g::StridedVector{T}, d::StridedVecto
   _ls_checklength(:z, z, n)
   _ls_checklength(:d, d, n)
   _ls_checklength(:g, g, p)
+  Y = base.Y
+  axes(z) == axes(Y) || _ls_axes_error("z", axes(z, 1), axes(Y, 1))
+  axes(d) == axes(Y) || _ls_axes_error("d", axes(d, 1), axes(Y, 1))
+  firstindex(g) == firstindex(d) == 1 || _ls_offset_error()   # the product with Xᵀ (BLAS) refuses offset axes
   _ls_checkalias(g, d, base, z)
   v = _leastsquares_residual_gradient!(g, d, base.X, z, base.Y, f)
   _ls_scale_gradient!(g, f, a)
@@ -221,8 +182,8 @@ function value_and_gradient_from_predictor!(g::StridedVector{T}, d::StridedVecto
 end
 
 function value_from_residual(f::_LSOracleLoss{T}, r::StridedVector{T}) where {T<:Union{Float32, Float64}}
-  base = _ls_base_factor(f)[1]
-  _ls_checklength(:r, r, size(base.X, 1))
+  Y = _ls_base_factor(f)[1].Y
+  axes(r) == axes(Y) || _ls_axes_error("r", axes(r, 1), axes(Y, 1))
   _ls_value(f, r, nothing)
 end
 

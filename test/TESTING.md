@@ -63,6 +63,13 @@ the products of the existing methods), the scratch of the loss left unread and u
 the predictor), dimension, scale and overlap errors that leave `g`, `d` and the scratch unchanged, the accepted and
 refused layouts of `Base.mightalias`, empty designs, tasks that share one loss with distinct buffers (one thread
 here), the domain refusals (`MethodError`), public but unexported names, and warmed zero allocation and inference.
+It also checks the ordinary path at its acceptance bounds (sums near `n*floatmin/eps` and near the bound of the
+exponent test, which is also checked directly), offset axes (an offset view of the predictor, the residual or the
+response refused with `DimensionMismatch` where the axes differ, offset outputs refused before any write, and equal
+offset axes accepted), the accuracy of the sums of squares of a constant vector of length 10^6 through the three
+oracles, `f(β)` and `value_and_gradient!`, and the classification at the top of the range of Float32 values from
+sums of 2^16 to 2^20 + 1 squares with Float64, `Int` and Float32 scales (the oracles must give `Inf` where the
+exact value overflows and an accurate finite value just below `floatmax`).
 `linear_shapes` checks the `LinearFunction` shape contract, `size(c) == size(x)` (the
 p × p matrix of a symmetric iterate): every value, gradient and proximal oracle, allocating
 and in place, `Scaled` included, on dense, sparse, wrapped and iterate arguments in Float32/64,

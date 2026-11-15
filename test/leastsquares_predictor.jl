@@ -841,7 +841,7 @@ end
   for T in (Float32, Float64)
     E = exponent(floatmax(T))
     K = T(0x1p63) * (floatmin(T) / eps(T))
-    @test K == pow2(T, 64 + Base.significand_bits(T) - Base.exponent_bias(T))
+    @test K == pow2(T, 64 + (precision(T) - 1) - exponent(floatmax(T)))
     @test PB._ls_ordinary_sum(K) && PB._ls_ordinary_sum(nextfloat(K)) && !PB._ls_ordinary_sum(prevfloat(K))
     @test PB._ls_ordinary_sum(floatmax(T)) && PB._ls_ordinary_sum(prevfloat(floatmax(T)))
     @test !PB._ls_ordinary_sum(nextfloat(floatmax(T))) && !PB._ls_ordinary_sum(T(NaN)) && !PB._ls_ordinary_sum(-K)
@@ -895,6 +895,106 @@ end
   f = Scaled(LeastSquaresLoss(zeros(Float32, 4), Matrix{Float32}(I, 4, 4)), 1e-60)
   @test PB.value_from_residual(f, ones(Float32, 4)) === 0.0f0
   @test PB.value_from_predictor(f, ones(Float32, 4)) === 0.0f0
+end
+
+@testset "offset axes of the predictor, the residual and the response" begin
+  # A vector with other axes than the response is a DimensionMismatch, also where the lengths agree (an offset view of
+  # length n); vectors with the same axes, offset or not, give the value of the same entries in ordinary vectors.
+  for T in (Float32, Float64)
+    buf = T[100, 1, 2, 3, 4]
+    Yoff = view(buf, Base.IdentityUnitRange(2:5))            # axes 2:5, entries 1, 2, 3, 4
+    @test Yoff isa StridedVector{T} && axes(Yoff, 1) == 2:5
+    f = LeastSquaresLoss(Yoff, ones(T, 4, 1))
+    @test_throws DimensionMismatch f(T[0])                    # the scratch Xβ is a 1-based vector
+    @test_throws DimensionMismatch value_and_gradient!(zeros(T, 1), f, T[0])
+    Y = T[1, 2, 3, 4]
+    X = Matrix{T}(I, 4, 4)
+    zpar = T[10, 2, 4, 6, 8, 20]
+    zoff = view(zpar, Base.IdentityUnitRange(2:5))           # axes 2:5, entries 2, 4, 6, 8
+    for α in (nothing, T(2))
+      g = mkloss(Y, X, α)
+      @test_throws DimensionMismatch PB.value_from_predictor(g, zoff)
+      @test_throws DimensionMismatch PB.value_from_residual(g, zoff)
+      gd, dd = fill(T(7), 4), fill(T(7), 4)
+      @test_throws DimensionMismatch PB.value_and_gradient_from_predictor!(gd, dd, g, zoff)
+      @test all(==(T(7)), gd) && all(==(T(7)), dd)
+      # the same axes: a loss with the offset response and offset predictor and residual
+      h = mkloss(Yoff, X, α)
+      a = α === nothing ? 1 : 2
+      z1 = T[2, 4, 6, 8]
+      @test PB.value_from_predictor(h, zoff) == T(a * sum(abs2, z1 .- Y) / 2) == PB.value_from_predictor(g, z1)
+      roff = view(T[0, 1, 2, 3, 4, 0], Base.IdentityUnitRange(2:5))
+      @test PB.value_from_residual(h, roff) == T(a * 30 / 2)
+      gd, dd = fill(T(7), 4), fill(T(7), 4)
+      @test_throws DimensionMismatch PB.value_and_gradient_from_predictor!(gd, dd, h, zoff)
+      @test all(==(T(7)), gd) && all(==(T(7)), dd)
+      # offset outputs with the axes of the response: refused before d is written (the product with Xᵀ refuses them)
+      doff = view(fill(T(7), 6), Base.IdentityUnitRange(2:5))
+      @test_throws ArgumentError PB.value_and_gradient_from_predictor!(gd, doff, h, zoff)
+      @test all(==(T(7)), gd) && all(==(T(7)), doff)
+      # ordinary (1-based) strided views of longer arrays
+      zv = view(zpar, 2:5)
+      Yv = view(buf, 2:5)
+      @test PB.value_from_predictor(mkloss(Yv, X, α), zv) == PB.value_from_predictor(g, z1)
+    end
+  end
+end
+
+@testset "large-n accuracy of the sums of squares" begin
+  # A constant vector of length 10^6: a sum in one loop of several lanes loses thousands of eps here, a pairwise sum a
+  # few. The values must be within 64 eps(T) of the exact value (the documented bound (n + 8) eps(T) is far larger).
+  for T in (Float32, Float64)
+    n = 10^6
+    c = T(1.1)
+    exact = with256(() -> n * big(c)^2 / 2)
+    rel(v) = Float64(with256(() -> abs(big(v) - exact) / exact / big(eps(T))))
+    f = LeastSquaresLoss(zeros(T, n), ones(T, n, 1))
+    r = fill(c, n)
+    g, d = zeros(T, 1), zeros(T, n)
+    vals = (PB.value_from_residual(f, r), PB.value_from_predictor(f, r), PB.value_and_gradient_from_predictor!(g, d, f, r),
+            f(T[c]), value_and_gradient!(zeros(T, 1), f, T[c]))
+    errs = map(rel, vals)
+    all(<=(64), errs) || @info "large-n errors in eps" T errs
+    @test all(<=(64), errs)
+  end
+end
+
+@testset "classification at the top of the range with a long inexact sum" begin
+  # Float32 data of length 2^20 + 1 whose sum of squares rounds well below its exact value: with a Float64 or an
+  # integer scale the exact value overflows Float32 (by 2.5e-4 relative), and the oracles must give Inf.
+  T = Float32
+  n = 2^20 + 1
+  z = fill(T(2)^42, n)
+  z[1] = T(2)^55
+  f = LeastSquaresLoss(zeros(T, n), ones(T, n, 1))
+  exact = big(2)^110 + big(n - 1) * big(2)^84
+  for α in (516349, 516349.0, 516349f0)
+    @test T(big(α) * exact / 2) == T(Inf)
+    s = Scaled(f, α)
+    @test PB.value_from_predictor(s, z) === T(Inf)
+    @test PB.value_from_residual(s, z) === T(Inf)
+    @test PB.value_and_gradient_from_predictor!(zeros(T, 1), zeros(T, n), s, z) === T(Inf)
+  end
+  # sums that round above their exact value, and a Float64 scale for which the exact value is below floatmax: the
+  # oracles must give a finite value within 2 eps(T) of it
+  for m in (2^16, 2^20)
+    z = fill(T(7) * T(2)^10, m)
+    z[1:16] .= T(2)^24
+    exact = 16 * big(2)^48 + big(m - 16) * big(49) * big(2)^20
+    s32 = sum(Float64.(z) .^ 2; init = 0.0)                  # exact here: the squares and their sum fit Float64
+    @test big(s32) == exact
+    for ρ in (1e-4, 1e-3)
+      α = Float64(2 * big(floatmax(T)) * (1 - big(ρ)) / exact)
+      ref = big(α) * exact / 2
+      @test ref < big(floatmax(T))
+      g = Scaled(LeastSquaresLoss(zeros(T, m), ones(T, m, 1)), α)
+      vals = (PB.value_from_predictor(g, z), PB.value_from_residual(g, z),
+              PB.value_and_gradient_from_predictor!(zeros(T, 1), zeros(T, m), g, z))
+      ok = all(v -> isfinite(v) && abs(big(v) - ref) <= 2 * big(eps(T)) * ref, vals)
+      ok || @info "below the threshold" m ρ vals Float64(ref)
+      @test ok
+    end
+  end
 end
 
 @testset "zero allocation and inference" begin

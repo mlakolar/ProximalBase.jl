@@ -104,7 +104,9 @@ v=\frac{\alpha}{2}\|r\|^2\ \text{ for a residual } r.
 **Domain.** The loss has a vector `Y` and strided `Float32` or `Float64` arrays `Y` and `X` of one type `T`;
 `z`, `r`, `d` and `g` are strided vectors of that type. Anything else is a `MethodError`: a matrix response,
 a sparse or other non-strided design, another element type, a nested `Scaled`. The accessor takes any
-`LeastSquaresLoss` and one `Scaled` of it. A wrong length is a `DimensionMismatch`.
+`LeastSquaresLoss` and one `Scaled` of it. `z`, `r` and `d` must have the axes of `Y` (another length, or an offset
+view of the same length, is a `DimensionMismatch`), and the outputs `g` and `d` must have first index 1 (the
+product with ``X^\top`` refuses offset axes; an `ArgumentError` before anything is written).
 
 **The scale as stored and as computed.** The accessor returns the factor ``\alpha`` as stored, with its type.
 The oracles compute with it as supplied, not rounded to `T` first: a positive finite `Float32` or `Float64`
@@ -113,11 +115,15 @@ converted to `Float64` once. An integer that `Float64` does not hold (`2^53 + 1`
 `BigFloat` or `Rational`, and `Inf` are an `ArgumentError`, raised before anything is written; the `Scaled`
 constructor is not changed. For an integer the factor used is its `Float64` value.
 
-**Value and rounding.** The result has type `T`. The sum of squares ``s`` is formed in `T`, ``\alpha s/2`` in the
+**Value and rounding.** The result has type `T`. The sum of squares ``s`` is formed in `T`, in one vectorizing
+loop for up to ``2^{17}`` entries and by Julia's pairwise summation for longer vectors, ``\alpha s/2`` in the
 promoted type of ``\alpha`` and `T`, and the product is rounded to `T` at the result (a subnormal result can round
-twice). Where the squares overflow or underflow, or the difference ``z-Y`` overflows, the value is recomputed
-from the squares in units of a power of two with ``\alpha`` folded in, the computation that `SqrNormL2` uses,
-which gives a finite value where the value is representable with margin (see the range statement below). Against 256-bit references the tests require
+twice). Where the squares overflow or underflow, where the difference ``z-Y`` overflows, and where the ordinary
+value ``\alpha s/2`` is above ``\texttt{floatmax}(T)/2``, the value is recomputed from the squares in units of a power of two with
+``\alpha`` folded in, summed compensated, the computation that `SqrNormL2` uses for its exceptional values. The
+last case keeps the error of the ordinary sum, which grows with ``n``, from deciding between a finite value and
+`Inf`. The recomputation gives a finite value where the value is representable with margin (see the range
+statement below). Against 256-bit references the tests require
 ``(n+8)\,\varepsilon_T|v|`` accuracy for finite data and a value that is representable with that margin, plus
 two units of the smallest subnormal where ``|v|`` is below `floatmin(T)`.
 

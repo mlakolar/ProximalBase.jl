@@ -103,38 +103,47 @@ end
 @inline _ls_value(f, x::StridedVector{T}, y::StridedVector{T}) where {T<:Union{Float32, Float64}} =
   _ls_square_value(f, x, _LSResponse(), _ls_sumabs2_diff(x, y))
 
-# Σ (xᵢ - yᵢ)² in one vectorizing loop, for vectors of equal length
+# Σ (xᵢ - yᵢ)² for vectors with the same axes (an offset view has other axes than a vector of the same length; the
+# loop reads y at the indices of x): one vectorizing loop up to _LS_ONE_LOOP_MAX entries, Julia's pairwise reduction
+# over the indices above.
 @inline function _ls_sumabs2_diff(x::StridedVector{T}, y::StridedVector{T}) where {T<:Union{Float32, Float64}}
-  length(x) == length(y) || _ls_difference_length_error(length(x), length(y))
+  axes(x) == axes(y) || _ls_axes_error("the predictor", axes(x, 1), axes(y, 1))
+  length(x) > _LS_ONE_LOOP_MAX && return _ls_sumabs2_diff_pairwise(x, y)
   s = zero(T)
   @inbounds @simd for i in eachindex(x)
     s += abs2(x[i] - y[i])
   end
   s
 end
-@noinline _ls_difference_length_error(nx, ny) =
-  throw(DimensionMismatch("the arrays have lengths $nx and $ny"))
+_ls_sumabs2_diff_pairwise(x, y) = mapreduce(i -> @inbounds(abs2(x[i] - y[i])), +, eachindex(x))
+@noinline _ls_axes_error(name, ax, ay) =
+  throw(DimensionMismatch("$name has axes $ax and the response Y has axes $ay; they must be equal"))
 
 # The ordinary path from the ordinary sum s of the n squares, n = length(x). The kernel keeps the product α s / 2,
 # formed in the promoted type R of α and T, when it is finite and s ≥ n floatmin(T)/eps(T) (_square_value_level).
 # Here the product is kept when K ≤ s ≤ floatmax(T) for K = 2^63 floatmin(T)/eps(T) (_ls_ordinary_sum) and, for a
-# Scaled, α s ≤ floatmax(R) (_ls_product_fits; for a loss α = 1 and α s = s). Then α s / 2 is finite, and K is at least
-# n floatmin(T)/eps(T) for n ≤ typemax(Int) (Int to T rounds n to at most 2^63): where the test holds, the kernel
-# keeps the same product. In the other cases, a NaN s or α s included, _ls_value_exceptional runs the kernel's test
-# and recomputation on s.
+# Scaled, α s < floatmax(T) (_ls_product_fits; for a loss α = 1 and α s = s ≤ floatmax(T)). Then α s / 2 is finite,
+# and K is at least n floatmin(T)/eps(T) for n ≤ typemax(Int) (Int to T rounds n to at most 2^63): where the test
+# holds, the kernel's test holds too. The kept value α s / 2 is at most floatmax(T)/2. The sum s of n squares has a
+# relative error of at most about m u with u = eps(T)/2, m = n - 1 for the loop (n ≤ 2^17, so m u < 2^-7 in
+# Float32) and m = 1023 + ⌈log2 n⌉ for the pairwise reduction; with the rounding of α s, the exact value is then
+# below floatmax(T), so that a kept value is not a value that overflows T. Every other sum, a NaN s or α s
+# included, goes to _ls_value_exceptional.
 @inline function _ls_square_value(f, x::StridedVector{T}, y, s::T) where {T<:Union{Float32, Float64}}
   _, α = _ls_base_factor(f)
   p = α * s
-  (_ls_ordinary_sum(s) & _ls_product_fits(f, p)) && return _value_at(p / 2, x)
+  (_ls_ordinary_sum(s) & _ls_product_fits(f, p, T)) && return _value_at(p / 2, x)
   _ls_value_exceptional(f, x, y, s)
 end
-# K ≤ s ≤ floatmax(T) with K = 2^63 floatmin(T)/eps(T), on the bits of s: the biased exponent of K is
-# 64 + significand_bits(T) (2^-907 for Float64, 2^-40 for Float32), that of floatmax(T) is 2 exponent_bias(T), and
-# the shifted bits of a zero or subnormal s, an infinite or NaN s and a negative s fall outside that range.
+# K ≤ s ≤ floatmax(T) with K = 2^63 floatmin(T)/eps(T), on the bits of s: with m = precision(T) - 1 significand bits
+# and the largest exponent E = exponent(floatmax(T)), the biased exponent of K is 64 + m (2^-907 for Float64, 2^-40
+# for Float32) and that of floatmax(T) is 2E; the shifted bits of a zero or subnormal s, an infinite or NaN s and a
+# negative s fall outside that range.
 @inline function _ls_ordinary_sum(s::T) where {T<:Union{Float32, Float64}}
-  e = reinterpret(Unsigned, s) >> Base.significand_bits(T)
-  lo = 64 + Base.significand_bits(T)
-  e - (lo % typeof(e)) <= (2 * Base.exponent_bias(T) - lo) % typeof(e)
+  m = precision(T) - 1
+  e = reinterpret(Unsigned, s) >> m
+  lo = 64 + m
+  e - (lo % typeof(e)) <= (2 * exponent(floatmax(T)) - lo) % typeof(e)
 end
 # The second operand of the kernel on the exceptional path: nothing, or _LSResponse() for the response Y of the loss,
 # which _ls_value_exceptional loads from f. The ordinary path then passes to the call no array that it loaded from a
@@ -142,11 +151,18 @@ end
 struct _LSResponse end
 _ls_response(base, ::Nothing) = nothing
 _ls_response(base, ::_LSResponse) = base.Y
-# The test and recomputation of the kernel, after the check of the scale of an oracle (_ls_base_scale, which
-# refuses the infinite factor that _ls_base_factor does not check)
+# After the check of the scale of an oracle (_ls_base_scale, which refuses the infinite factor that _ls_base_factor
+# does not check): where the sum s is finite and α s is not below floatmax(T) (the value would be at least
+# floatmax(T)/2), the squares are recomputed compensated with α folded in (_scaled_square_value), in the promoted type
+# of α and T. The kernel's test (_square_value_level) would accept the same s again there, also where its error
+# decides between a finite value and Inf. The other sums (not finite, or below K with α s below floatmax(T)) go to
+# the kernel's test and recomputation.
 @noinline function _ls_value_exceptional(f, x, y, s)
   base, α = _ls_base_scale(f)
-  _square_value_level(α, α, x, _ls_response(base, y), s, true)
+  r = _ls_response(base, y)
+  p = α * s
+  (isfinite(s) && !(p < floatmax(eltype(x)))) && return _scaled_square_value(α, x, r, p / 2)
+  _square_value_level(α, α, x, r, s, true)
 end
 
 # The value of f(β) or value_and_gradient! when the result v of the squared-residual kernel is not finite. f.tmp
@@ -156,7 +172,6 @@ end
 # can overflow. An entry 2^k (X βs)ᵢ that is representable meets Yᵢ in its own units, so that a small Yᵢ survives a
 # product that cancels; the others are formed as (X βs)ᵢ - Yᵢ 2^-k in units of 2^k. The two sums of squares are added
 # by their exponents. This allocates a copy of β and two arrays of the size of Y.
-# Broadcasts, mul! and reductions only, so that device arrays stay on the device.
 @noinline function _leastsquares_image_overflow(f::LeastSquaresLoss{T}, β, v) where {T}
   r, Y = f.tmp, f.Y
   _all_finite(r) && return v

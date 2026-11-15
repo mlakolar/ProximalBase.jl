@@ -23,6 +23,11 @@
 # and in a run with the roles reversed X and XC are the oracle (compiled twice) and Y is the loop (K3). The loops
 # do not recover from overflow or underflow. XC/X is the A/A control of these cells, and Y/X compares different code.
 #
+# The cells of size n1000000 and n10000000 (value_from_residual and value_from_predictor, raw, against the loops) time
+# the long vectors; their check compares the implementation of the tree that has the new methods with a reference in
+# extended precision (the squares summed compensated in Float64 for Float32 data, in double-double for Float64 data)
+# within (n + 8) eps(T), prints the error of each role in eps, and leaves out the comparison of Y with X.
+#
 # PB_CHECK_ONLY=1 runs the check and the allocation measurement and exits without timing: XC must equal X bit for
 # bit (`===`); on the ordinary cells Y must agree with X within 32 eps(T) (the largest difference found is printed; an empirical bound for
 # the random data of the cells); the exceptional cells (marked `exc` in the list printed) are compared with a
@@ -111,6 +116,8 @@ function makedata(::Type{T}, n::Int, p::Int) where {T}
     (; n, p, X, Y, β, z, r = z .- Y, g = zeros(T, p), d = zeros(T, n), tmp = zeros(T, n))
 end
 data = Dict((T, n, p) => makedata(T, n, p) for T in TYPES for (n, p) in SIZES)
+const LARGE = (1_000_000, 10_000_000)                                # n of the long-vector oracle cells (p = 1)
+large = Dict((T, n) => makedata(T, n, 1) for T in TYPES for n in LARGE)
 
 # Exceptional cells, n = 64 and p = 6, with 256-bit references computed from the inputs. `refs[id]` is
 # (T, number of squares, v*) of the value that the cell with this id has to give.
@@ -172,6 +179,34 @@ function orexceptional(::Type{T}, ::Type{S}) where {T, S}
     end
 end
 orexc = Dict((T, S) => orexceptional(T, S) for (T, S) in ((Float32, Float32), (Float32, Float64), (Float64, Float64)))
+
+# Σ (aᵢ - bᵢ)² / 2 in extended precision (b === nothing: Σ aᵢ² / 2): Float32 differences and squares are exact in
+# Float64 for these data and are summed compensated; Float64 differences and squares are split exactly (two-sum,
+# two-product) and summed in double-double.
+function extsum(a::AbstractVector{Float32}, b)
+    s = c = 0.0
+    for i in eachindex(a)
+        d = Float64(a[i]) - (b === nothing ? 0.0 : Float64(b[i]))
+        y = d * d - c; t = s + y; c = (t - s) - y; s = t
+    end
+    big(s) / 2
+end
+function extsum(a::AbstractVector{Float64}, b)
+    hi = lo = 0.0
+    for i in eachindex(a)
+        x, y = a[i], (b === nothing ? 0.0 : -b[i])
+        d = x + y; bb = d - x; e = (x - (d - bb)) + (y - bb)        # two-sum: d + e = a - b exactly
+        p = d * d; q = fma(d, d, -p) + 2 * d * e                    # (d + e)² up to e², below the double-double unit
+        t = hi + p; bt = t - hi; err = (hi - (t - bt)) + (p - bt)
+        lo += err + q; hi = t
+    end
+    (big(hi) + big(lo)) / 2
+end
+for T in TYPES, n in LARGE
+    d = large[(T, n)]
+    refs["LeastSquaresOracle/value_from_residual/$T/raw/n$n"] = (; T, n, v = extsum(d.r, nothing))
+    refs["LeastSquaresOracle/value_from_predictor/$T/raw/n$n"] = (; T, n, v = extsum(d.z, d.Y))
+end
 
 # The closures are built behind function barriers (the callee and its arguments are captured with concrete
 # types), so that a call through the run-time module value does not allocate by itself.
@@ -260,6 +295,24 @@ function makesuite(PB, K)
                         valcheck(K.value_from_residual_scaled, α, d.r), n, false)
                 end
             end
+            if S === T
+                for n in LARGE
+                    d = large[(T, n)]
+                    sz = "n$n"
+                    if hasnew
+                        f = lossof(PB, d)
+                        add("LeastSquaresOracle/value_from_predictor/$T/raw/$sz", T, bindval(PB.value_from_predictor, f, d.z),
+                            valcheck(PB.value_from_predictor, f, d.z), n, true)
+                        add("LeastSquaresOracle/value_from_residual/$T/raw/$sz", T, bindval(PB.value_from_residual, f, d.r),
+                            valcheck(PB.value_from_residual, f, d.r), n, true)
+                    else
+                        add("LeastSquaresOracle/value_from_predictor/$T/raw/$sz", T, bindval(K.value_from_predictor_raw, d.Y, d.z),
+                            valcheck(K.value_from_predictor_raw, d.Y, d.z), n, false)
+                        add("LeastSquaresOracle/value_from_residual/$T/raw/$sz", T, bindval(K.value_from_residual_raw, d.r),
+                            valcheck(K.value_from_residual_raw, d.r), n, false)
+                    end
+                end
+            end
             for (n, p) in ((64, 6), (2000, 500))
                 d = data[(T, n, p)]
                 α = S(1) / n
@@ -336,14 +389,15 @@ shown(x) = (s = repr(x); length(s) > 100 ? s[1:100] * "..." : s)
 
 failures = String[]
 worst = Dict{String, Tuple{Float64, String}}()
-println("exceptional cells (v* is the 256-bit reference rounded to the data type; * marks the implementation of the tree with the new methods):")
+println("exceptional and long-vector cells (v* is the reference rounded to the data type; * marks the implementation of the tree with the new methods):")
 for (i, id) in enumerate(ids)
     a, b, c = suites["X"][i], suites["Y"][i], suites["XC"][i]
     ra, rc, rb = a.check(), c.check(), b.check()
     exact_equal(ra, rc) || push!(failures, "A/A output mismatch: $id: X = $(shown(ra)), XC = $(shown(rc))")
-    if a.exc
+    if a.exc || haskey(refs, id)
         T, ref = a.T, refs[id]
-        verdict(p, r) = (p.head ? "*" : "") * (within(T, r, ref) ? "within" : "OUTSIDE") * " " * shown(r)
+        errstr(r) = isfinite(r) && !iszero(ref.v) ? string(" (", round(Float64(abs(big(r) - ref.v) / abs(ref.v) / big(eps(T))); sigdigits = 3), " eps)") : ""
+        verdict(p, r) = (p.head ? "*" : "") * (within(T, r, ref) ? "within" : "OUTSIDE") * " " * shown(r) * errstr(r)
         println("  ", id, "  v* = ", T(ref.v), "\n      X: ", verdict(a, ra), "\n      Y: ", verdict(b, rb), "\n      XC: ", verdict(c, rc))
         for (p, r, role) in ((a, ra, "X"), (b, rb, "Y"), (c, rc, "XC"))
             p.head && !within(p.T, r, ref) && push!(failures, "the implementation of the tree with the new methods (role $role) is outside the bound: $id: $(shown(r)) against $(T(ref.v))")

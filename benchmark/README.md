@@ -266,6 +266,7 @@ there do not use. The BLAS runs on one thread.
 | `SqrNormL2` | `value` with a center of the data type and a level of the data type, and for Float32 data with a Float64 level (`center_lam64`), n = 64, 4096, 100000; `underflow` at n = 64 | random data; the underflow input of `under` |
 | `LeastSquaresOracle` | the three oracles, raw (no scale), `scaled` (a scale 1/n of the data type) and for Float32 data `scaled_alpha64` (a Float64 scale 1/n), at n = 64, 4096, 100000 (the value oracles) and (n, p) = (64, 6) and (2000, 500) (value and gradient) | random data |
 | `LeastSquaresOracle` | the two value oracles at n = 64 with `over_scaled` and `under_scaled` inputs (a sum of squares that overflows, or squares that underflow to zero, with a scale that brings the value into range) | constant residual vectors |
+| `LeastSquaresOracle` | `value_from_predictor` and `value_from_residual`, raw, at n = 10⁶ and 10⁷ (p = 1) | random data; the check compares the oracle with a reference in extended precision and prints the error of each role in eps |
 
 **Roles of the oracle cells.** The cells of the families `LeastSquaresLoss` and `SqrNormL2` (the first three rows of
 the table) call the same methods in the three trees.
@@ -280,7 +281,10 @@ and Y/X compares different code.
 **Check mode.** `PB_CHECK_ONLY=1` runs the check and the allocation measurement and exits.
 - XC must equal X with `===`.
 - On the ordinary cells Y must agree with X within 32 `eps(T)` (the largest difference per operation is printed;
-  the bound is empirical for the random data of the cells, not an error bound).
+  the bound is empirical for the random data of the cells, not an error bound). The long-vector cells (n = 10⁶ and
+  10⁷) are left out of this comparison: the loops and the oracles sum differently there. Their oracle result must
+  satisfy `|v - v*| <= (n + 8) eps(T) |v*|` against a reference `v*` in extended precision, and the error of each
+  role is printed in eps.
 - Each exceptional cell has a 256-bit BigFloat reference `v*` computed from its inputs. The result of the
   implementation from the tree with the new methods must be finite and satisfy `|v - v*| <= (n + 8) eps(T) |v*|`, plus `2 nextfloat(zero(T))` where
   `|v*| < floatmin(T)`. The result of the other implementation is printed, with whether it meets the bound.

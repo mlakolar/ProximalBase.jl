@@ -596,7 +596,7 @@ end
     unchanged(bufs...) = all(b -> all(==(T(7)), b), bufs) && all(==(T(7)), base.tmp)
     @test_throws DimensionMismatch PB.value_from_predictor(f, zeros(T, n + 1))
     @test_throws DimensionMismatch PB.value_from_predictor(f, zeros(T, n - 1))
-    # the predictor's length is checked against Y, also under an infinite scale (checked only after the sum)
+    # the predictor's and the residual's axes are checked against Y, also under an infinite scale (checked after the sum)
     finf = Scaled(LeastSquaresLoss(Y, X), T(Inf))
     @test_throws DimensionMismatch PB.value_from_predictor(finf, zeros(T, n + 1))
     @test_throws DimensionMismatch PB.value_from_residual(finf, zeros(T, n - 1))

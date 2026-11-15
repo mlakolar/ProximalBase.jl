@@ -44,8 +44,10 @@ For positive finite ``\gamma``,
 
 The implementation uses a thin SVD cached on the first proximal call, including
 when ``p>n``. The value and gradient use reusable residual scratch and read
-current data entries. Do not call the same loss object concurrently without
-synchronization. After changing entries of `X` or `Y`, call `reset_cache!(f)`;
+current data entries. Do not call `f(β)`, `gradient!`, `value_and_gradient!` or the
+proximal operator of the same loss object concurrently without synchronization; the
+oracles [at a supplied predictor or residual](#Least-squares-at-a-predictor-or-residual-that-the-caller-holds)
+do not write the loss. After changing entries of `X` or `Y`, call `reset_cache!(f)`;
 construct a new object if dimensions change. The input data are not copied.
 
 Dense coefficients, vector/matrix `SparseIterate` and vector `BlockIterate` use
@@ -75,6 +77,91 @@ x = [0.5, -0.25]
 out = similar(x)
 @assert value_and_prox!(out,f,x,γ) ≈ f(out)
 (value = f(x), gradient = gradient(f,x), prox = out)
+```
+
+### Least squares at a predictor or residual that the caller holds
+
+A solver that keeps the linear predictor ``z=X\beta`` current (after a coordinate update, say) can
+evaluate the loss from it without a product by ``X``. Three qualified public functions, not exported,
+serve this for a vector-response `LeastSquaresLoss` or one `Scaled` of it, and a fourth returns the data
+of the loss. Here ``\alpha`` is the factor of the `Scaled` wrapper, and ``\alpha=1`` for the loss itself:
+
+```math
+v=\frac{\alpha}{2}\|z-Y\|^2,\qquad
+d=z-Y,\qquad
+g=\alpha\,\mathrm{fl}(X^\top d),\qquad
+v=\frac{\alpha}{2}\|r\|^2\ \text{ for a residual } r.
+```
+
+- `ProximalBase.value_from_predictor(f, z)` returns ``v`` from ``z``; it reads no entry of ``X``.
+- `ProximalBase.value_and_gradient_from_predictor!(g, d, f, z)` writes ``d`` and ``g`` and returns ``v``,
+  with one product by ``X^\top`` and none by ``X``.
+- `ProximalBase.value_from_residual(f, r)` returns ``v`` from a residual ``r`` of either sign, reading
+  neither ``X`` nor ``Y``.
+- `ProximalBase.leastsquares_data(f)` returns `(; Y, X, α)`: the stored `Y` and `X` themselves, and
+  `α = one(T)` for a `LeastSquaresLoss{T}` or the stored factor of a `Scaled` loss, as it was supplied.
+
+**Domain.** The loss has a vector `Y` and strided `Float32` or `Float64` arrays `Y` and `X` of one type `T`;
+`z`, `r`, `d` and `g` are strided vectors of that type. Anything else is a `MethodError`: a matrix response,
+a sparse or other non-strided design, another element type, a nested `Scaled`. The accessor takes any
+`LeastSquaresLoss` and one `Scaled` of it. A wrong length is a `DimensionMismatch`.
+
+**The scale as stored and as computed.** The accessor returns the factor ``\alpha`` as stored, with its type.
+The oracles compute with it as supplied, not rounded to `T` first: a positive finite `Float32` or `Float64`
+(a `Float64` factor with `Float32` data included), or an integer that `Float64` holds exactly, which is
+converted to `Float64` once. An integer that `Float64` does not hold (`2^53 + 1`), a `Float16`,
+`BigFloat` or `Rational`, and `Inf` are an `ArgumentError`, raised before anything is written; the `Scaled`
+constructor is not changed. An integer is scaled as its `Float64` value, so it is not scaled more exactly than
+`Float64` represents it.
+
+**Value and rounding.** The result has type `T`. The sum of squares ``s`` is formed in `T`, ``\alpha s/2`` in the
+promoted type of ``\alpha`` and `T`, and the product is rounded to `T` at the result (a subnormal result can round
+twice). Where the squares overflow or underflow, or the difference ``z-Y`` overflows, the value is recomputed
+from the squares in units of a power of two with ``\alpha`` folded in, the computation that `SqrNormL2` uses,
+so that a representable value is returned. Against 256-bit references the tests require
+``(n+8)\,\varepsilon_T|v|`` accuracy for finite data and a value that is representable with that margin, plus
+two units of the smallest subnormal where ``|v|`` is below `floatmin(T)`. A value that is not representable is
+`Inf` or zero.
+
+**Gradient.** The product ``X^\top d`` is rounded to `T` and then multiplied by ``\alpha``. An ``X^\top d`` that overflows or underflows before the scaling is not recovered, even where ``\alpha``
+would bring the exact gradient back into range: with `X = [2.0^1023;;]`, `Y = [0.0]`, `z = [4.0]` and
+``\alpha=2^{-1022}`` the gradient is `Inf` where the exact one is 8. A difference ``z-Y`` that overflows gives
+an infinite entry of ``d``, and a non-finite value and gradient from `value_and_gradient_from_predictor!`,
+where `value_from_predictor` recovers its value.
+
+**Predictor only.** Where an entry of ``z`` is not finite the value is not finite, and the oracles do not form
+``X\beta`` again to recover it. `f(β)` and `value_and_gradient!` keep their recovery from `β`: where the
+product ``X\beta`` overflows although `β`, `X` and `Y` are finite, they form it again in units of a power of two
+and return the representable value (see [Overflow and underflow of values](numerics.md#Overflow-and-underflow-of-values)).
+On the exceptional range the value of `Scaled(f, α)(β)` can differ from `value_from_predictor` at the same
+predictor, because the wrapper forms the inner value first (issue #609).
+
+**Buffers, overlap and concurrency.** All checks run before any write, and on an error `g`, `d` and the scratch
+of the loss are unchanged. `d` must not overlap `g`, `X`, `Y`, `z` or the scratch of the loss, and `g` must
+not overlap `X`, `Y`, `z` or the scratch, as `Base.mightalias` decides. It refuses two views of one array whose
+indices overlap, and in the tested cases accepts views of one array whose ranges or columns are disjoint. It also
+refuses a view against its parent, or against a `vec` or `reshape` of the same memory, where the two are
+disjoint; acceptance of every disjoint layout is not promised. Memory shared in ways that `mightalias` cannot
+see (`unsafe_wrap`, an array type without `Base.dataids`) is a precondition on the caller. The oracles neither
+read nor write the scratch `f.tmp`, so `z` or `r` may be a view of it, and they write no field of the loss: tasks
+with distinct `g` and `d` may call them on one loss while `X` and `Y` are not mutated. The arrays that the
+accessor returns are borrowed, not copied or protected; do not mutate them while the loss or its oracles are
+in use.
+
+```@example library_ls_predictor
+using ProximalBase, LinearAlgebra
+X = [1.0 0; 0 2; 1 1]
+y = [1.0, -1, 2]
+f = LeastSquaresLoss(y, X)
+x = [0.5, -0.25]
+z = X * x                                   # the predictor, formed by the caller
+@assert ProximalBase.value_from_predictor(f, z) ≈ f(x)
+d, g = similar(y), similar(x)
+v = ProximalBase.value_and_gradient_from_predictor!(g, d, f, z)
+@assert v ≈ f(x) && g ≈ X' * (z - y) && d == z - y
+s = Scaled(f, 0.25)
+@assert ProximalBase.value_from_residual(s, d) ≈ 0.25 * f(x)
+ProximalBase.leastsquares_data(s).α
 ```
 
 ## Squared Euclidean norm

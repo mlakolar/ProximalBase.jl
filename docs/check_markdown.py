@@ -37,6 +37,8 @@ API_NAMES = (
     "isseparable", "isconvex", "iszeropreserving", "samegroups",
     "copyto!", "nnz",
     "deriv2", "deriv", "value_and_deriv",
+    "value_from_predictor", "value_and_gradient_from_predictor!", "value_from_residual",
+    "leastsquares_data",
 )
 NAME_RE = re.compile(
     r"(?<![\w])(?:" +

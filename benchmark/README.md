@@ -254,7 +254,7 @@ source in one process, alternating order, shared inputs and output buffers, `raw
 format of `summarize_norml1_infinite_weight.py`). The scratch `f.tmp` of the losses is also shared, assigned
 after the constructor, and the BLAS runs on one thread.
 
-**Cases.** Every case is one operation, one element type (Float32 and Float64) and one input, with an id
+**Cases.** A case is one operation, one element type (Float32 or Float64) and one input, with an id
 `family/operation/type/scenario/size`.
 
 | Family | Operations | Inputs |
@@ -271,7 +271,7 @@ predictor `α (Σ (Yᵢ - zᵢ)² / 2)`, value and gradient `d = z - Y`, `g = X�
 `α Σ rᵢ² / 2`; no `α` for the raw loss), which do not recover from overflow or underflow. A role whose tree has the
 oracles calls them, and a role whose tree does not calls the loops. In a forward run (X = tree before, Y = tree
 with the oracles) X and XC are the loops, compiled twice, and Y is the oracle; in a run with the roles reversed X
-and XC are the oracle, compiled twice, and Y is the loop. XC/X is therefore the only A/A control of these cells,
+and XC are the oracle, compiled twice, and Y is the loop. XC/X is therefore the A/A control of these cells,
 and Y/X compares different code.
 
 **Check mode.** `PB_CHECK_ONLY=1` runs the check and the allocation measurement and exits.
@@ -281,7 +281,7 @@ and Y/X compares different code.
 - Each exceptional cell has a 256-bit BigFloat reference `v*` computed from its inputs. The result of the
   implementation from the tree with the new methods must be finite and satisfy `|v - v*| <= (n + 8) eps(T) |v*|`, plus `2 nextfloat(zero(T))` where
   `|v*| < floatmin(T)`. The result of the other implementation is printed, with whether it meets the bound.
-- After warming, `@allocated op()` is measured for every role and case behind a function barrier and printed.
+- After warming, `@allocated op()` is measured for each role in each selected case behind a function barrier and printed.
   The check fails where the implementation from the tree with the new methods allocates more than the other, or allocates on an ordinary cell.
 
 **Usage.**

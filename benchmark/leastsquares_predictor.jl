@@ -15,19 +15,19 @@
 #
 # Two kinds of cells. The cells of the families LeastSquaresLoss and SqrNormL2 call the same methods in the
 # three trees (the oracles are not called there). The cells of the family LeastSquaresOracle compare the
-# oracles of the tree that has them with loops written in this script (the module K, compiled once per role
-# that needs it): value from predictor s = Σ (Yᵢ - zᵢ)², α (s / 2); value and gradient d = z - Y, g = Xᵀd,
+# oracles of the tree that has them with loops written in this script (the modules K1, K2 and K3, one copy
+# per role): value from predictor s = Σ (Yᵢ - zᵢ)², α (s / 2); value and gradient d = z - Y, g = Xᵀd,
 # g .*= α, α (Σ dᵢ² / 2); value from residual s = Σ rᵢ², α s / 2 (raw: no α). A role whose tree has no oracle
 # calls the loops, so in a forward run X and XC are the loops (compiled twice, K1 and K2) and Y is the oracle,
 # and in a run with the roles reversed X and XC are the oracle (compiled twice) and Y is the loop (K3). The loops
-# do not recover from overflow or underflow, so XC/X is the only A/A control of these cells.
+# do not recover from overflow or underflow. XC/X is the A/A control of these cells, and Y/X compares different code.
 #
-# PB_CHECK_ONLY=1 only checks and measures allocations: XC must equal X bit for bit (`===`); on the ordinary
-# cells Y must agree with X within 32 eps(T) (the largest difference found is printed; an empirical bound for
+# PB_CHECK_ONLY=1 runs the check and the allocation measurement and exits without timing: XC must equal X bit for
+# bit (`===`); on the ordinary cells Y must agree with X within 32 eps(T) (the largest difference found is printed; an empirical bound for
 # the random data of the cells); the exceptional cells (marked `exc` in the list printed) are compared with a
 # 256-bit BigFloat reference computed from the inputs: the implementation of the tree that has the new methods
 # must satisfy |v - v*| <= (n + 8) eps(T) |v*| (plus 2 nextfloat(zero(T)) where |v*| < floatmin(T)) with v finite,
-# and the result of the other implementation is printed. The warm allocations of every role and case are
+# and the result of the other implementation is printed. The warm allocations of each role in each selected case are
 # measured behind a function barrier and printed; the check fails where the implementation of the tree that has
 # the new methods allocates more than the other, or allocates on an ordinary cell. PB_FILTER selects cases by a
 # regular expression on their ids family/operation/type/scenario/size; PB_ROUNDS is the number of rounds (default
@@ -396,7 +396,7 @@ open(joinpath(outdir, "provenance.txt"), "w") do io
     println(io, "Filter: ", get(ENV, "PB_FILTER", ""))
     println(io, "X: ", first_root, "\nY: ", second_root)
 end
-for (r, _) in roles, p in suites[r]          # compile and warm every specialization
+for (r, _) in roles, p in suites[r]          # compile and warm the closure of each role and case
     bench(p)
 end
 rounds = parse(Int, get(ENV, "PB_ROUNDS", "11"))

@@ -50,6 +50,19 @@ and zero cases use their analytical results. `sparse_value_cost` ports the count
 historical suite: the `NormL2` value of a 100 × 100 sparse or symmetric iterate with a
 few stored entries creates no zero of that type, on the ordinary and the recovery
 paths (#808).
+`leastsquares_predictor` checks the least-squares oracles at a caller-supplied predictor or residual
+(`value_from_predictor`, `value_and_gradient_from_predictor!`, `value_from_residual`, #915) and the accessor
+`leastsquares_data` in Float32/64, raw and `Scaled`, against 256-bit BigFloat references formed from the exact
+bits of X, Y, z (or r) and the scale as supplied: ordinary, exact-fit, near-fit, cancelling, underflowing,
+overflowing, subnormal and one-large-residual data, extreme and subnormal scales, Float64 scales with Float32
+data, `Int` scales above 2^24 and the integer that Float64 cannot hold (refused with the other unsupported
+scales), the #609 inputs that `Scaled(f, α)(β)` misses, non-finite entries, the documented range limits of the
+gradient and of an overflowing `z - Y`, agreement with `f(β)` and `value_and_gradient!` on the same predictor bits,
+the products counted with a strided matrix type (none for the value oracles, one by Xᵀ for the combined one, and
+the products of the existing methods), the scratch of the loss left unread and unwritten (also as a view that is
+the predictor), dimension, scale and overlap errors that leave `g`, `d` and the scratch unchanged, the accepted and
+refused layouts of `Base.mightalias`, empty designs, tasks that share one loss with distinct buffers (one thread
+here), the domain refusals (`MethodError`), public but unexported names, and warmed zero allocation and inference.
 `linear_shapes` checks the `LinearFunction` shape contract, `size(c) == size(x)` (the
 p × p matrix of a symmetric iterate): every value, gradient and proximal oracle, allocating
 and in place, `Scaled` included, on dense, sparse, wrapped and iterate arguments in Float32/64,

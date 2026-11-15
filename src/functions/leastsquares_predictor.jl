@@ -80,12 +80,22 @@ computation. The `Scaled` constructor itself is not changed.
 **The result** has type `T`. The product `α s / 2` of the sum of squares `s` is formed in the
 promoted type of `α` and `T` and rounded to `T` at the result (a subnormal result can round twice).
 Where the squares overflow or underflow, or the difference `z - Y` overflows, the value is
-recomputed from the squares in units of a power of two with `α` folded in, as for `SqrNormL2`, so
-that a representable value is returned. For finite `z` and `Y` and a value `v` that is representable
+recomputed from the squares in units of a power of two with `α` folded in, as for `SqrNormL2`, which
+gives a finite value where the value is representable with margin (see the range statement below). For finite `z` and `Y` and a value `v` that is representable
 with a margin, the tests check the result against 256-bit references within `(n + 8) eps(T) |v|`,
 plus `2 nextfloat(zero(T))` where `|v| < floatmin(T)`.
 
-A value whose exact result is not representable gives `Inf` (or `0` where it underflows). A
+**Range.** Let `u = floatmax(T) - prevfloat(floatmax(T))`, so that `floatmax(T) + u/2` is the
+round-to-nearest overflow threshold, and let `w = (n + 8) eps(T)` be the relative error bound above. For
+finite `z` and `Y` and an exact value `v` with `|v| (1 + w) ≤ floatmax(T)`, the result is finite and within
+that bound. For `v` above `(floatmax(T) + u/2) (1 + w)` the result is `Inf`. In between, within the relative
+width `w` of the threshold, the recomputation that these oracles share with `SqrNormL2` does not decide on which
+side the exact value lies: the result can be `floatmax(T)` or `Inf`, also where `v` rounds to the other, and a
+finite result there is within `w |v|` of `v`. Correct overflow classification in that region is not
+guaranteed (the same kind of boundary uncertainty as for the `NormL2` recomputation, see the numerics
+page of the documentation), and no materially wrong finite value arises away from it. An exact positive value
+below the smallest subnormal can round to `nextfloat(zero(T))` rather than to zero (`Float64`, `α = 1.5`,
+`z = [2.0^-537]`, `Y = [0.0]`: exact `0.75 nextfloat(0.0)`, result `nextfloat(0.0)`). A
 non-finite entry of `z` or of `Y` gives a non-finite value, `Inf` or `NaN`: the call has `z`, not `β`,
 and does not form `Xβ` again to recover from it. By contrast `f(β)` and `value_and_gradient!` recompute
 `Xβ` from `β` where it overflows although `β`, `X` and `Y` are finite.
@@ -110,23 +120,26 @@ forms one product with `Xᵀ` and none with `X`, and does not read or write the 
 
 The domain, the scale `α` as stored and as computed, the type of the result and its rounding are those
 of [`ProximalBase.value_from_predictor`](@ref); `g`, `d` and `z` are `StridedVector{T}`, `z` and `d` of
-length `size(X, 1)` and `g` of length `size(X, 2)`. The sum of squares is `sum(abs2, d)`, while
-`value_from_predictor` sums the differences `z - Y` in one loop, so the two values can differ in the
-last bits, as those of `value_and_gradient!` and `f(β)` can.
+length `size(X, 1)` and `g` of length `size(X, 2)`. The sum of squares is formed over `d` in one
+vectorizing loop, as for the value of `value_and_gradient!`, while `value_from_predictor` forms it over the
+differences `z - Y`; the two loops are not promised to give the same last bits.
 
 **The gradient order** is `α · fl(Xᵀd)`: the product `Xᵀd` is rounded to `T` and then multiplied by `α`
 (not for a `LeastSquaresLoss`, where `α = 1`). An `Xᵀd` that overflows to `Inf` or underflows to
 zero before the scaling is not recovered, even where `α` would bring the exact gradient back into
-range. A difference `z - Y` that overflows with finite entries gives an infinite entry of `d`, and
-a non-finite value and gradient (`value_from_predictor` recovers its value).
+range. A difference `z - Y` that overflows with finite entries gives an infinite entry of `d` and a
+non-finite value; when `size(X, 2) > 0` the entries of `g` are non-finite (with the BLAS of the tests, also
+the entries of a zero column of `X`, where `0 · Inf` is `NaN`), and `g` is empty when `size(X, 2) == 0`.
+`value_from_predictor` recovers the value in that case.
 
 **Checks before any write.** Lengths (`DimensionMismatch`), the scale (`ArgumentError`) and the
 overlap of the outputs (`ArgumentError`): `d` must not overlap `g`, `X`, `Y`, `z` or `f.tmp`, and `g`
 must not overlap `X`, `Y`, `z` or `f.tmp`. On any error `g`, `d` and `f.tmp` are unchanged. The overlap
-test is `Base.mightalias`. It refuses two views of one array whose indices overlap, and in the tested
-cases accepts two views of one array whose index ranges do not (separate ranges, separate columns). It
-refuses a view against its parent, and against a `vec` or `reshape` of the same memory, also where the two
-are disjoint, and not every disjoint layout is accepted. Memory shared in ways that `mightalias` does not detect
+test is `Base.mightalias`, applied to nonempty arrays (an empty array is never counted as overlapping, so an
+empty view of its parent is accepted). For nonempty arrays it refuses two views of one array whose indices
+overlap, and in the tested cases accepts two views of one array whose index ranges do not (separate ranges,
+separate columns). It refuses a view against its parent, and against a `vec` or `reshape` of the same memory,
+also where the two are disjoint, and not every disjoint layout is accepted. Memory shared in ways that `mightalias` does not detect
 (`unsafe_wrap`, an array type without `Base.dataids`) is a precondition on the caller. `z` may be a view
 of `f.tmp`: it is read, and `f.tmp` is not written.
 
@@ -145,9 +158,10 @@ the factor of a `Scaled` one. Neither `X` nor `Y` is read, no product is formed 
 neither read nor written, so `r` may be a view of it.
 
 The domain, the scale `α`, the type of the result and its rounding, the recomputation where the
-squares overflow or underflow, and a non-finite entry (here of `r`) are those of
+squares overflow or underflow, the range statement (the region around the overflow threshold and the
+subnormal rounding included) and a non-finite entry (here of `r`) are those of
 [`ProximalBase.value_from_predictor`](@ref), with `r::StridedVector{T}` of length `size(X, 1)`. The
-sum of squares is `sum(abs2, r)`, as the value of `value_and_gradient!` is.
+sum of squares is formed over `r` in one vectorizing loop, as for the value of `value_and_gradient!`.
 
 For a raw loss, or a `Scaled` one with a `Float32`, `Float64` or `Int` scale, the call allocates nothing on its ordinary
 path, and it is reentrant as `value_from_predictor` is.

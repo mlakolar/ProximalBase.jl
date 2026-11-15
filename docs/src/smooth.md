@@ -117,30 +117,47 @@ constructor is not changed. For an integer the factor used is its `Float64` valu
 promoted type of ``\alpha`` and `T`, and the product is rounded to `T` at the result (a subnormal result can round
 twice). Where the squares overflow or underflow, or the difference ``z-Y`` overflows, the value is recomputed
 from the squares in units of a power of two with ``\alpha`` folded in, the computation that `SqrNormL2` uses,
-so that a representable value is returned. Against 256-bit references the tests require
+which gives a finite value where the value is representable with margin (see the range statement below). Against 256-bit references the tests require
 ``(n+8)\,\varepsilon_T|v|`` accuracy for finite data and a value that is representable with that margin, plus
-two units of the smallest subnormal where ``|v|`` is below `floatmin(T)`. A value that is not representable is
-`Inf` or zero.
+two units of the smallest subnormal where ``|v|`` is below `floatmin(T)`.
+
+**Range.** Write ``u=\texttt{floatmax}(T)-\texttt{prevfloat}(\texttt{floatmax}(T))``, so that ``\texttt{floatmax}(T)+u/2``
+is the round-to-nearest overflow threshold, and ``w=(n+8)\varepsilon_T`` for the relative error bound above. For finite
+`z` and `Y` and an exact value ``v`` with ``|v|(1+w)\le\texttt{floatmax}(T)`` the result is finite and within that
+bound. For ``v`` above ``(\texttt{floatmax}(T)+u/2)(1+w)`` the result is `Inf`. In between, within the relative width
+``w`` of the threshold, the recomputation that the oracles share with `SqrNormL2` does not decide on which side the
+exact value lies: the result can be `floatmax(T)` or `Inf`, also where the exact value rounds to the other, and a
+finite result there is within ``w|v|`` of ``v``. Correct overflow classification in that region is not guaranteed.
+It is the same kind of boundary uncertainty that
+[Overflow and underflow of values](numerics.md#Overflow-and-underflow-of-values) states for `NormL2` and
+`GroupNormL2`; it permits no materially wrong finite value away from the threshold and no finite result from
+non-finite data that the value depends on. An exact positive value below the smallest subnormal can round to
+`nextfloat(zero(T))` rather than to zero: for `Float64`, ``\alpha=1.5``, `z = [2.0^-537]` and `Y = [0.0]` the exact
+value is `0.75*nextfloat(0.0)` and the result is `nextfloat(0.0)`.
 
 **Gradient.** The product ``X^\top d`` is rounded to `T` and then multiplied by ``\alpha``. An ``X^\top d`` that overflows or underflows before the scaling is not recovered, even where ``\alpha``
 would bring the exact gradient back into range: with `X = [2.0^1023;;]`, `Y = [0.0]`, `z = [4.0]` and
 ``\alpha=2^{-1022}`` the gradient is `Inf` where the exact one is 8. A difference ``z-Y`` that overflows gives
-an infinite entry of ``d``, and a non-finite value and gradient from `value_and_gradient_from_predictor!`,
-where `value_from_predictor` recovers its value.
+an infinite entry of ``d`` and a non-finite value from `value_and_gradient_from_predictor!`, where
+`value_from_predictor` recovers the value. For ``p>0`` the entries of the gradient are then non-finite (with the BLAS
+of the tests, also those of a zero column of `X`, where `0*Inf` is `NaN`), and for ``p=0`` the gradient is empty.
 
 **Predictor as given.** Where an entry of ``z`` is not finite the value is not finite, and the oracles do not form
 ``X\beta`` again to recover it. `f(β)` and `value_and_gradient!` keep their recovery from `β`: where the
-product ``X\beta`` overflows although `β`, `X` and `Y` are finite, they form it again in units of a power of two
-and return the representable value (see [Overflow and underflow of values](numerics.md#Overflow-and-underflow-of-values)).
+product ``X\beta`` overflows although `β`, `X` and `Y` are finite, they attempt to form it again in units of a power
+of two (see [Overflow and underflow of values](numerics.md#Overflow-and-underflow-of-values)). The attempt does not
+recover every representable value: with ``a=2^{1020}``, ``b=2^{-1020}``, `X = [a a 0; 0 0 a]`, `β = [a, -a, b]` and
+`Y = zeros(2)` the exact value is 0.5, and both methods return 0.0 because the common scaling erases `b`.
 On the exceptional range the value of `Scaled(f, α)(β)` can differ from `value_from_predictor` at the same
 predictor, because the wrapper forms the inner value first (issue #609).
 
 **Buffers, overlap and concurrency.** All checks run before any write, and on an error `g`, `d` and the scratch
 of the loss are unchanged. `d` must not overlap `g`, `X`, `Y`, `z` or the scratch of the loss, and `g` must
-not overlap `X`, `Y`, `z` or the scratch, as `Base.mightalias` decides. It refuses two views of one array whose
-indices overlap, and in the tested cases accepts views of one array whose ranges or columns are disjoint. It also
-refuses a view against its parent, or against a `vec` or `reshape` of the same memory, where the two are
-disjoint; not every disjoint layout is accepted. Memory shared in ways that `mightalias` does not
+not overlap `X`, `Y`, `z` or the scratch, as `Base.mightalias` decides for nonempty arrays (an empty array is
+never counted as overlapping, so an empty view of its parent is accepted). For nonempty arrays it refuses two views
+of one array whose indices overlap, and in the tested cases accepts views of one array whose ranges or columns are
+disjoint. It also refuses a view against its parent, or against a `vec` or `reshape` of the same memory, where the
+two are disjoint; not every disjoint layout is accepted. Memory shared in ways that `mightalias` does not
 detect (`unsafe_wrap`, an array type without `Base.dataids`) is a precondition on the caller. The oracles neither
 read nor write the scratch `f.tmp`, so `z` or `r` may be a view of it, and they write no field of the loss: tasks
 with distinct `g` and `d` may call them on one loss while `X` and `Y` are not mutated. The arrays that the

@@ -108,11 +108,10 @@ a sparse or other non-strided design, another element type, a nested `Scaled`. T
 
 **The scale as stored and as computed.** The accessor returns the factor ``\alpha`` as stored, with its type.
 The oracles compute with it as supplied, not rounded to `T` first: a positive finite `Float32` or `Float64`
-(a `Float64` factor with `Float32` data included), or an integer that `Float64` holds exactly, which is
+(a `Float64` factor with `Float32` data included), or an integer `α` with `Float64(α) == α`, which is
 converted to `Float64` once. An integer that `Float64` does not hold (`2^53 + 1`), a `Float16`,
 `BigFloat` or `Rational`, and `Inf` are an `ArgumentError`, raised before anything is written; the `Scaled`
-constructor is not changed. An integer is scaled as its `Float64` value, so it is not scaled more exactly than
-`Float64` represents it.
+constructor is not changed. For an integer the factor used is its `Float64` value.
 
 **Value and rounding.** The result has type `T`. The sum of squares ``s`` is formed in `T`, ``\alpha s/2`` in the
 promoted type of ``\alpha`` and `T`, and the product is rounded to `T` at the result (a subnormal result can round
@@ -129,7 +128,7 @@ would bring the exact gradient back into range: with `X = [2.0^1023;;]`, `Y = [0
 an infinite entry of ``d``, and a non-finite value and gradient from `value_and_gradient_from_predictor!`,
 where `value_from_predictor` recovers its value.
 
-**Predictor only.** Where an entry of ``z`` is not finite the value is not finite, and the oracles do not form
+**Predictor as given.** Where an entry of ``z`` is not finite the value is not finite, and the oracles do not form
 ``X\beta`` again to recover it. `f(β)` and `value_and_gradient!` keep their recovery from `β`: where the
 product ``X\beta`` overflows although `β`, `X` and `Y` are finite, they form it again in units of a power of two
 and return the representable value (see [Overflow and underflow of values](numerics.md#Overflow-and-underflow-of-values)).
@@ -141,8 +140,8 @@ of the loss are unchanged. `d` must not overlap `g`, `X`, `Y`, `z` or the scratc
 not overlap `X`, `Y`, `z` or the scratch, as `Base.mightalias` decides. It refuses two views of one array whose
 indices overlap, and in the tested cases accepts views of one array whose ranges or columns are disjoint. It also
 refuses a view against its parent, or against a `vec` or `reshape` of the same memory, where the two are
-disjoint; acceptance of every disjoint layout is not promised. Memory shared in ways that `mightalias` cannot
-see (`unsafe_wrap`, an array type without `Base.dataids`) is a precondition on the caller. The oracles neither
+disjoint; not every disjoint layout is accepted. Memory shared in ways that `mightalias` does not
+detect (`unsafe_wrap`, an array type without `Base.dataids`) is a precondition on the caller. The oracles neither
 read nor write the scratch `f.tmp`, so `z` or `r` may be a view of it, and they write no field of the loss: tasks
 with distinct `g` and `d` may call them on one loss while `X` and `Y` are not mutated. The arrays that the
 accessor returns are borrowed, not copied or protected; do not mutate them while the loss or its oracles are

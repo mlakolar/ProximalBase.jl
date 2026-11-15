@@ -80,8 +80,8 @@ The `LeastSquaresLoss` value has one more recovery, which needs `β`: where the 
 although `β`, `X` and `Y` are finite, `f(β)` and `value_and_gradient!` form `Xβ` again in units of a power of
 two. The oracles at a caller-supplied predictor or residual (`ProximalBase.value_from_predictor` and the others
 described with the [smooth functions](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds))
-are given the predictor `z` only: they recover a value whose squares overflow or underflow and, for the value
-alone, a difference `z - Y` that overflows, and a predictor with a non-finite entry gives a non-finite value.
+take the predictor `z` as given, without `β`: they recover a value whose squares overflow or underflow and, for the
+value alone, a difference `z - Y` that overflows, and a predictor with a non-finite entry gives a non-finite value.
 
 The accuracy of a recovered value is an absolute bound `B = 4 n eps (sum |terms| + |d|)` for
 `n` terms. It is a statement about the computed value when the exact value plus `B` is within

@@ -627,8 +627,8 @@ _square_multiplicity(x, i) = 1
   end
   _exceptional_square_value(λ, x, y, real(s), v)
 end
-# SqrNormL2: the level is converted to the type of x, and the ordinary result is kept only where the converted
-# level is a normal number, zero or not finite (_level_fits).
+# SqrNormL2: the level is converted to the type of x, and the ordinary result requires that the converted level
+# be a normal number, zero or not finite (_level_fits).
 @inline _square_value(λ, x, y) = _square_value_level(convert(_valtype(x), λ), λ, x, y, _level_fits(_valtype(x), λ))
 # LeastSquaresLoss and its predictor and residual oracles: the level as supplied, so that the product is formed in
 # the promoted type of the level and the sum; a Float64 level with Float32 data is not narrowed before the product.

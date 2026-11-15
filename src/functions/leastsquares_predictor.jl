@@ -12,7 +12,7 @@ const _LSOracleLoss{T} = Union{_LSStrided{T}, _LSScaledStrided{T}}
 
 # The loss and the scale a of the computation: one(T) for a LeastSquaresLoss, and for a Scaled the factor
 # as supplied when it is a positive finite Float32 or Float64 (not rounded to T), or the Float64 of an
-# integer that Float64 holds exactly. The type of a depends on the type of the factor only. Any other
+# integer α with Float64(α) == α. The type of a is determined by the type of the factor. Any other
 # factor is refused here, before the callers write.
 @inline _ls_base_scale(f::LeastSquaresLoss{T}) where {T} = (f, one(T))
 @inline _ls_base_scale(s::Scaled) = (s.f, _ls_scale(s.α))
@@ -70,11 +70,10 @@ other argument is a `MethodError`, and a wrong length is a `DimensionMismatch`.
 
 **The scale.** A `Scaled` factor `α` is used as supplied, not rounded to `T` before the product: a
 positive finite `Float32` or `Float64` (including a `Float64` factor with `Float32` data), or an
-integer that `Float64` holds exactly (`Float64(α) == α`, for example `16777217` with `Float32`
-data), which is converted to `Float64` once. The factor as stored, `f.α`, is what
+integer `α` with `Float64(α) == α` (for example `16777217` with `Float32` data), which is
+converted to `Float64` once. The factor as stored, `f.α`, is what
 [`ProximalBase.leastsquares_data`](@ref) returns; the factor of the computation is a `Float32` or
-`Float64` and is the integer's `Float64` value for an integer, so an integer is not scaled
-more exactly than `Float64` represents it. Any other factor (an integer that `Float64` does not hold,
+`Float64` and is the integer's `Float64` value for an integer. Any other factor (an integer that `Float64` does not hold,
 a `Float16`, `BigFloat` or `Rational`, `Inf`) is an `ArgumentError`, raised before the
 computation. The `Scaled` constructor itself is not changed.
 
@@ -87,8 +86,8 @@ with a margin, the tests check the result against 256-bit references within `(n 
 plus `2 nextfloat(zero(T))` where `|v| < floatmin(T)`.
 
 A value whose exact result is not representable gives `Inf` (or `0` where it underflows). A
-non-finite entry of `z` or of `Y` gives a non-finite value, `Inf` or `NaN`: only `z` is given, and
-`Xβ` is not formed again to recover from it. By contrast `f(β)` and `value_and_gradient!` recompute
+non-finite entry of `z` or of `Y` gives a non-finite value, `Inf` or `NaN`: the call has `z`, not `β`,
+and does not form `Xβ` again to recover from it. By contrast `f(β)` and `value_and_gradient!` recompute
 `Xβ` from `β` where it overflows although `β`, `X` and `Y` are finite.
 
 For a `Scaled` loss the squares are recomputed with `α` folded in also where the inner value
@@ -127,7 +126,7 @@ must not overlap `X`, `Y`, `z` or `f.tmp`. On any error `g`, `d` and `f.tmp` are
 test is `Base.mightalias`. It refuses two views of one array whose indices overlap, and in the tested
 cases accepts two views of one array whose index ranges do not (separate ranges, separate columns). It
 refuses a view against its parent, and against a `vec` or `reshape` of the same memory, also where the two
-are disjoint, and acceptance of every disjoint layout is not promised. Memory shared in ways that `mightalias` cannot see
+are disjoint, and not every disjoint layout is accepted. Memory shared in ways that `mightalias` does not detect
 (`unsafe_wrap`, an array type without `Base.dataids`) is a precondition on the caller. `z` may be a view
 of `f.tmp`: it is read, and `f.tmp` is not written.
 
@@ -163,7 +162,8 @@ nor converted), and the scale `α`. `α` is `one(T)` for a `LeastSquaresLoss{T}`
 `α` of one `Scaled` of a `LeastSquaresLoss`, as it was supplied, with its type and without a
 check or conversion: the scale that [`ProximalBase.value_from_predictor`](@ref) and its companions
 compute with can differ from it, and they refuse a factor outside their domain. Any
-`LeastSquaresLoss` is accepted here, whatever its array types; any other function is a `MethodError`.
+`LeastSquaresLoss` is accepted here, also with array types outside the strided domain; any other function is a
+`MethodError`.
 
 The arrays are borrowed, not copied and not protected: do not mutate `Y` or `X` while the loss or
 one of its oracles is in use, also on another task.

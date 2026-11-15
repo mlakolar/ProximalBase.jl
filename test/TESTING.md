@@ -55,7 +55,7 @@ paths (#808).
 `leastsquares_data` in Float32/64, raw and `Scaled`, against 256-bit BigFloat references formed from the exact
 bits of X, Y, z (or r) and the scale as supplied: ordinary, exact-fit, near-fit, cancelling, underflowing,
 overflowing, subnormal and one-large-residual data, extreme and subnormal scales, Float64 scales with Float32
-data, `Int` scales above 2^24 and the integer that Float64 cannot hold (refused with the other unsupported
+data, `Int` scales above 2^24 and the integer that Float64 does not hold (refused with the other unsupported
 scales), the #609 inputs that `Scaled(f, α)(β)` misses, non-finite entries, the documented range limits of the
 gradient and of an overflowing `z - Y`, agreement with `f(β)` and `value_and_gradient!` on the same predictor bits,
 the products counted with a strided matrix type (none for the value oracles, one by Xᵀ for the combined one, and

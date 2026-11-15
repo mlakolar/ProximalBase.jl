@@ -3,8 +3,7 @@ module LeastSquaresPredictorTest
 # The least-squares oracles at a predictor or a residual supplied by the caller (issue #915):
 # value_from_predictor, value_and_gradient_from_predictor!, value_from_residual and leastsquares_data,
 # in Float32 and Float64, raw and Scaled. Values and gradients are compared with 256-bit BigFloat
-# references formed from the exact bits of X, Y, z (or r) and the scale as supplied. BigFloat is the
-# test oracle only.
+# references formed from the exact bits of X, Y, z (or r) and the scale as supplied.
 
 using Test, ProximalBase, Random, LinearAlgebra, SparseArrays
 const PB = ProximalBase
@@ -446,7 +445,7 @@ end
     @test PB.value_and_gradient_from_predictor!(g, d, f, z) === PB.value_and_gradient_from_predictor!(g0, d0, clean, z)
     @test all(g .=== g0) && all(d .=== d0)
     @test all(isnan, base.tmp)
-    # z or r may be a view of the scratch, which is then only read
+    # z or r may be a view of the scratch, which the call then reads and does not write
     copyto!(base.tmp, z)
     zv = view(base.tmp, 1:n)
     @test close(PB.value_from_predictor(f, zv), PB.value_from_predictor(clean, z))

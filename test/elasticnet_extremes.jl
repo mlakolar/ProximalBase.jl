@@ -447,7 +447,8 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
   end
 
   # value_and_prox! of Scaled(ElasticNet) returns the value at its stored output: a leaf value that is subnormal under a
-  # factor above one is recovered as s(y) recovers it, not multiplied (a subnormal carries fewer bits than the product)
+  # factor above one is recomputed from the stored entries, not multiplied (a subnormal carries fewer bits than the
+  # product), within one unit in the last place of the exact value at the stored output
   @testset "the fused value of Scaled(ElasticNet) at a subnormal leaf value" begin
     fused(s, x, γ) = (y = similar(x); v = value_and_prox!(y, s, x, γ); (y, v))
     # the reported Float32 case: the leaf value at the stored output is 2.3765f-41
@@ -455,7 +456,7 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
     s, x, γ = Scaled(f, 4.506362f22), Float32[6.233493f-5], 1.016843f-17
     y, v = fused(s, x, γ)
     @test y == prox(s, x, γ) && issubnormal(f(y))
-    @test v === s(y) && within(v, big4096(() -> big(s.α) * valref(f, y)), 1)
+    @test within(v, big4096(() -> big(s.α) * valref(f, y)), 1) && within(s(y), big4096(() -> big(s.α) * valref(f, y)), 1)
     ya, va = fused(s, x, [γ])
     @test va === s(ya) && within(va, big4096(() -> big(s.α) * valref(f, ya)), 1)
     # a family around the subnormal-to-normal boundary: the ℓ1 part or the ridge part about 2^ev at the output y0 (the
@@ -474,7 +475,7 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
           y, v = fused(s, x, g)
           V = big4096(() -> big(α) * valref(f, y))
           @test issubnormal(f(y)) && T(V) >= floatmin(T)
-          @test v === s(y) && valok(v, V, 2)
+          @test within(v, V, 1)
         end
       end
     end
@@ -507,24 +508,38 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       s, sv = Scaled(f, α), Scaled(fv, α)
       ref(u) = big4096(() -> big(α) * valref(fv, vec(u)))
       yd, vd = fused(sv, xd, γ)
-      @test issubnormal(fv(yd)) && vd === sv(yd) && valok(vd, ref(yd), 8)
+      @test issubnormal(fv(yd)) && within(vd, ref(yd), 1)
       yM, vM = fused(s, reshape(copy(xd), 2, 2), γ)
-      @test vec(yM) == yd && vM === s(yM) && valok(vM, ref(yM), 8)
+      @test vec(yM) == yd && within(vM, ref(yM), 1)
       u = zeros(T, 6); u[2:5] .= xd
       yv = zeros(T, 4)
       @test value_and_prox!(yv, sv, view(u, 2:5), γ) === vd && yv == yd
-      # the stored entries are summed in their own order: the value at the stored output, within the bound
+      # the stored entries are summed in their own order
       ys = SparseIterate(T, 4)
       vs = value_and_prox!(ys, sv, SparseIterate(xd), γ)
-      @test Vector(ys) == yd && vs === sv(ys) && valok(vs, ref(yd), 8)
+      @test Vector(ys) == yd && within(vs, ref(yd), 1)
       xb = BlockIterate(copy(xd), [[1, 3], [2, 4]]); yb = copy(xb)
       vb = value_and_prox!(yb, sv, xb, γ)
-      @test Vector(yb) == yd && vb === sv(yb) && valok(vb, ref(yd), 8)
+      @test Vector(yb) == yd && within(vb, ref(yd), 1)
       S = SymmetricSparseIterate(T, 2); S[1, 1] = xd[1]; S[2, 1] = xd[2]; S[2, 2] = xd[4]
       ZS = copy(S)
       vS = value_and_prox!(ZS, s, S, γ)
       MS = Matrix(ZS)
-      @test issubnormal(f(MS)) && vS === s(ZS) && valok(vS, big4096(() -> big(α) * valref(f, MS)), 8)
+      @test issubnormal(f(MS)) && within(vS, big4096(() -> big(α) * valref(f, MS)), 1)
+      # the recomputation reads the weights of the stored entries only: one stored entry, a growing dimension
+      reads = map((32, 128)) do n
+        Wn = CountingArray(ones(T, n, n)); wn = CountingArray(ones(T, n))
+        fS, fs = Scaled(ElasticNet(λ, λ, Wn), α), Scaled(ElasticNet(λ, λ, wn), α)
+        Sn = SymmetricSparseIterate(T, n); Sn[2, 1] = inv1(y0, one(T)); Zn = copy(Sn)
+        xn = SparseIterate(T, n); xn[3] = inv1(y0, one(T)); yn = SparseIterate(T, n)
+        Wn.reads = 0; vSn = value_and_prox!(Zn, fS, Sn, γ); rS = Wn.reads
+        wn.reads = 0; vn = value_and_prox!(yn, fs, xn, γ); r1 = wn.reads
+        wn.reads = 0; vna = value_and_prox!(yn, fs, xn, fill(γ, n)); r2 = wn.reads
+        @test issubnormal(ElasticNet(λ, λ)(Zn)) && within(vSn, big4096(() -> big(α) * valref(ElasticNet(λ, λ, ones(T, n, n)), Matrix(Zn))), 1)
+        @test within(vn, big4096(() -> big(α) * valref(ElasticNet(λ, λ), Vector(yn))), 1) && vna === vn
+        (rS, r1, r2)
+      end
+      @test reads[1] == reads[2] && all(<=(8), reads[1])
     end
     # warmed ordinary calls do not allocate (a scalar step, and an array step with a factor inside the band)
     for T in (Float32, Float64)

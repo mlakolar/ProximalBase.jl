@@ -9,15 +9,14 @@ _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
    _value_at(_scaled_value_overflow(s.f, s.α, y, _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α))), y))
 # α v at the output y of an array step with a factor inside the band: a product that overflows
 # with α < 1 is recovered as for a scalar step (the levels with the factor folded in, or the
-# parts of the value); an underflow is not (#359), except a leaf value below the normal range under a
-# factor above one where `_fused_small_recover` asks for it (a nonzero ElasticNet value). An indicator
-# ignores its scale and stays on this route for any factor: its value is exactly 0 or Inf, so an
-# infinite factor at 0 gives 0, as `_scaled_nan_value` certifies on the other routes, and a NaN value
-# stays NaN.
+# parts of the value); an underflow is not (#359), except the nonzero subnormal leaf value of an
+# ElasticNet under a factor above one (`_fused_small_case`). An indicator ignores its scale and stays on
+# this route for any factor: its value is exactly 0 or Inf, so an infinite factor at 0 gives 0, as
+# `_scaled_nan_value` certifies on the other routes, and a NaN value stays NaN.
 @inline function _scaled_value_overflow(f, α, y, v)
   r = α * v
-  ((!isfinite(r) && _scale_below_one(α)) || (_fused_small_recover(f, v) && _scaled_small(v) && _scale_above_one(α))) ?
-    _scaled_value_recover(f, α, y, v, r) : _indicator_product(f, r, v)
+  (!isfinite(r) && _scale_below_one(α)) && return _scaled_value_recover(f, α, y, v, r)
+  _fused_small_case(f, α, v) ? _fused_small_value(f, α, y, r) : _indicator_product(f, r, v)
 end
 @inline _indicator_product(f, r, v) = _isindicator(f) ? _weighted_value(r, v) : r
 

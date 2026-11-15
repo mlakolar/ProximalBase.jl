@@ -65,7 +65,8 @@ refused layouts of `Base.mightalias`, empty designs, tasks that share one loss w
 here), the domain refusals (`MethodError`), public but unexported names, and warmed zero allocation and inference.
 It also checks the ordinary path at its acceptance bounds (sums near `n*floatmin/eps` and near the bound of the
 exponent test, which is also checked directly), offset axes (an offset view of the predictor, the residual or the
-response refused with `DimensionMismatch` where the axes differ, offset outputs refused before any write, and equal
+response refused with `DimensionMismatch` where the axes differ, offset outputs and a row- or column-offset design
+refused by the combined oracle before any write, and equal
 offset axes accepted), the accuracy of the sums of squares of a constant vector of length 10^6 through the three
 oracles, `f(β)` and `value_and_gradient!`, and the classification at the top of the range of Float32 values from
 sums of 2^16 to 2^20 + 1 squares with Float64, `Int` and Float32 scales (the oracles must give `Inf` where the

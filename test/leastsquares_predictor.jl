@@ -932,6 +932,18 @@ end
       doff = view(fill(T(7), 6), Base.IdentityUnitRange(2:5))
       @test_throws ArgumentError PB.value_and_gradient_from_predictor!(gd, doff, h, zoff)
       @test all(==(T(7)), gd) && all(==(T(7)), doff)
+      # an offset design (rows or columns): the combined oracle refuses it before anything is written; the value
+      # oracles do not read the design
+      for Xo in (view(ones(T, 5, 4), Base.IdentityUnitRange(2:5), :), view(ones(T, 4, 5), :, Base.IdentityUnitRange(2:5)))
+        @test Xo isa StridedMatrix{T} && size(Xo) == (4, 4)
+        fo = mkloss(Y, Xo, α)
+        bo = α === nothing ? fo : fo.f
+        fill!(bo.tmp, T(7))
+        gd, dd = fill(T(7), 4), fill(T(7), 4)
+        @test_throws ArgumentError PB.value_and_gradient_from_predictor!(gd, dd, fo, z1)
+        @test all(==(T(7)), gd) && all(==(T(7)), dd) && all(==(T(7)), bo.tmp)
+        @test PB.value_from_predictor(fo, z1) == PB.value_from_predictor(g, z1)
+      end
       # ordinary (1-based) strided views of longer arrays
       zv = view(zpar, 2:5)
       Yv = view(buf, 2:5)

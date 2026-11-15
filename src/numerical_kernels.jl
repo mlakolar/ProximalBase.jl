@@ -643,7 +643,8 @@ end
 # and _sumabs2 otherwise); for y !== nothing it is _sumabs2_diff.
 @inline _square_value_wide(λ, x, y) = _square_value_level(λ, λ, x, y, y === nothing ? _sumabs2_loop(x) : _sumabs2_diff(x, y), true)
 # The largest length summed in one vectorizing loop on the least-squares route (_sumabs2_loop, _ls_sumabs2_diff);
-# longer vectors are summed by Julia's pairwise reduction (sequential blocks of at most 1024 entries). The loop keeps
+# longer vectors are summed by Julia's pairwise reduction, whose blocks of at most 1024 entries (the block size of
+# sum(abs2, x) and of mapreduce with + on Julia 1.10 and 1.13) are each summed in one loop. The loop keeps
 # one partial sum per vector lane, each accumulated left to right, so that its rounding error can grow in proportion
 # to the length; it is faster than the pairwise reduction on vectors held in cache.
 const _LS_ONE_LOOP_MAX = 2^17

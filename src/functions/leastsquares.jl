@@ -132,11 +132,13 @@ _ls_sumabs2_diff_pairwise(x, y) = mapreduce(i -> @inbounds(abs2(x[i] - y[i])), +
 # when K ≤ s ≤ floatmax(T) for K = 2^63 floatmin(T)/eps(T) (_ls_ordinary_sum) and, for a Scaled, α s < floatmax(T)
 # (_ls_product_fits; for a loss α = 1 and α s = s ≤ floatmax(T)). Then α s / 2 is finite, and K is at least
 # n floatmin(T)/eps(T) for n ≤ typemax(Int) (Int to T rounds n to at most 2^63): where the test holds, the kernel's
-# test holds too. The kept value α s / 2 is at most floatmax(T)/2. The sum s of n squares has a relative error of at
-# most about m u with u = eps(T)/2, m = n - 1 for the loop (n ≤ 2^17, so m u < 2^-7 in Float32) and
-# m = 1023 + ⌈log2 n⌉ for the pairwise reduction of a long vector; with the rounding of α s, the exact value is then
-# below floatmax(T), so that a kept value is not a value that overflows T. Long vectors and every other sum, a NaN s
-# or α s included, go to _ls_value_cold, the one call on this path.
+# test holds too. The kept value α s / 2 is at most floatmax(T)/2: a Scaled keeps α s < floatmax(T), and a loss also
+# keeps s = floatmax(T), whose value is exactly floatmax(T)/2. The computed sum of the n squares is within γ_m of the
+# exact sum of squares of the entries, γ_m = m u / (1 - m u) with u = eps(T)/2, where m = n + 1 for the loop (the
+# rounding of each difference and square included; n ≤ 2^17, so γ_m < 0.008 in Float32) and m = 1025 + ⌈log2 n⌉ for the
+# pairwise reduction of a long vector. With the rounding of α s, the exact value is then below floatmax(T), so that a
+# kept value is not a value that overflows T. Long vectors and every other sum, a NaN s or α s included, go to
+# _ls_value_cold, the one call on this path.
 @inline function _ls_square_value(f, x::StridedVector{T}, y, s::T, long::Bool) where {T<:Union{Float32, Float64}}
   _, α = _ls_base_factor(f)
   p = α * s

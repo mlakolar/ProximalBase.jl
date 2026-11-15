@@ -25,7 +25,7 @@
 #
 # The cells of size n1000000 and n10000000 (value_from_residual and value_from_predictor, raw, against the loops) time
 # the long vectors; their check compares the implementation of the tree that has the new methods with a reference in
-# extended precision (the squares summed compensated in Float64 for Float32 data, in double-double for Float64 data)
+# extended precision (Float64 evaluation and compensated summation for Float32 data, double-double for Float64 data)
 # within (n + 8) eps(T), prints the error of each role in eps, and leaves out the comparison of Y with X.
 #
 # PB_CHECK_ONLY=1 runs the check and the allocation measurement and exits without timing: XC must equal X bit for
@@ -180,9 +180,10 @@ function orexceptional(::Type{T}, ::Type{S}) where {T, S}
 end
 orexc = Dict((T, S) => orexceptional(T, S) for (T, S) in ((Float32, Float32), (Float32, Float64), (Float64, Float64)))
 
-# Σ (aᵢ - bᵢ)² / 2 in extended precision (b === nothing: Σ aᵢ² / 2): Float32 differences and squares are exact in
-# Float64 for these data and are summed compensated; Float64 differences and squares are split exactly (two-sum,
-# two-product) and summed in double-double.
+# Σ (aᵢ - bᵢ)² / 2 in extended precision relative to the data type (b === nothing: Σ aᵢ² / 2). Float32 data: the
+# differences and squares are evaluated in Float64 and summed compensated (the square of one Float32 entry is exact
+# in Float64; that of a Float64 difference of two entries can round). Float64 data: the differences and squares are
+# split by two-sum and two-product and summed in double-double.
 function extsum(a::AbstractVector{Float32}, b)
     s = c = 0.0
     for i in eachindex(a)

@@ -41,7 +41,8 @@ end
 @noinline _ls_length_error(name, got, expected) =
   throw(DimensionMismatch("$name has length $got, expected $expected"))
 @inline _ls_checklength(name, v, n) = length(v) == n || _ls_length_error(name, length(v), n)
-@noinline _ls_offset_error() = throw(ArgumentError("the outputs g and d must have axes starting at 1"))
+@noinline _ls_offset_error() =
+  throw(ArgumentError("the outputs g and d and the design X must have axes starting at 1"))
 
 # Whether two arrays might share memory, by Base.mightalias; an empty array shares none.
 @inline _ls_overlap(a, b) = !isempty(a) && !isempty(b) && Base.mightalias(a, b)
@@ -117,8 +118,8 @@ entries gives an infinite entry of `d`, a non-finite value and, when `size(X, 2)
 entries; `value_from_predictor` recovers the value in that case. The value sums the squares of `d`, and
 `value_from_predictor` those of the differences `z - Y`; the two are not promised to agree in the last bits.
 
-Checks before any write: lengths and axes (`DimensionMismatch`), outputs `g` and `d` whose first index is 1, the
-factor, and the overlap of the outputs (`ArgumentError`). `d` must not overlap `g`, `X`, `Y`, `z` or `f.tmp`, and `g`
+Checks before any write: lengths and axes (`DimensionMismatch`); `g`, `d` and both axes of `X` starting at index 1
+(the product with `Xᵀ` refuses offset axes), the factor, and the overlap of the outputs (`ArgumentError`). `d` must not overlap `g`, `X`, `Y`, `z` or `f.tmp`, and `g`
 must not overlap `X`, `Y`, `z` or `f.tmp`, as `Base.mightalias` decides for nonempty arrays; memory shared in ways
 that `mightalias` does not detect is a precondition on the caller. On any error `g`, `d` and `f.tmp` are unchanged.
 
@@ -175,7 +176,8 @@ function value_and_gradient_from_predictor!(g::StridedVector{T}, d::StridedVecto
   Y = base.Y
   axes(z) == axes(Y) || _ls_axes_error("z", axes(z, 1), axes(Y, 1))
   axes(d) == axes(Y) || _ls_axes_error("d", axes(d, 1), axes(Y, 1))
-  firstindex(g) == firstindex(d) == 1 || _ls_offset_error()   # the product with Xᵀ (BLAS) refuses offset axes
+  X = base.X                                                    # the product with Xᵀ (BLAS) refuses offset axes
+  firstindex(g) == firstindex(d) == firstindex(X, 1) == firstindex(X, 2) == 1 || _ls_offset_error()
   _ls_checkalias(g, d, base, z)
   v = _leastsquares_residual_gradient!(g, d, base.X, z, base.Y, f)
   _ls_scale_gradient!(g, f, a)

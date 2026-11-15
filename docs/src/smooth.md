@@ -106,7 +106,7 @@ v=\frac{\alpha}{2}\|r\|^2\ \text{ for a residual } r.
 a sparse or other non-strided design, another element type, a nested `Scaled`. The accessor takes any
 `LeastSquaresLoss` and one `Scaled` of it. `z`, `r` and `d` must have the axes of `Y` (another length, or an offset
 view of the same length, is a `DimensionMismatch`). For `value_and_gradient_from_predictor!` the outputs `g` and `d`
-and both axes of `X` must start at index 1 (the product with ``X^\top`` refuses offset axes; an `ArgumentError`
+and both axes of a nonempty `X` must start at index 1 (the product with ``X^\top`` refuses offset axes; an `ArgumentError`
 before anything is written).
 
 **The scale as stored and as computed.** The accessor returns the factor ``\alpha`` as stored, with its type.

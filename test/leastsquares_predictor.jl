@@ -949,6 +949,26 @@ end
       Yv = view(buf, 2:5)
       @test PB.value_from_predictor(mkloss(Yv, X, α), zv) == PB.value_from_predictor(g, z1)
     end
+    # empty designs with offset axes (n = 0, p = 0, 0 × 0): the product with Xᵀ needs no BLAS call, and the combined
+    # oracle gives the value, d and g of the same empty design without offset
+    for α in (nothing, T(2))
+      a = α === nothing ? 1 : 2
+      cases = ((view(ones(T, 5, 0), Base.IdentityUnitRange(2:5), :), ones(T, 4), zeros(T, 4), T(a * 4 / 2)),
+               (view(ones(T, 0, 4), :, Base.IdentityUnitRange(2:3)), T[], T[], zero(T)),
+               (view(ones(T, 2, 2), Base.IdentityUnitRange(2:1), Base.IdentityUnitRange(2:1)), T[], T[], zero(T)))
+      for (Xe, Ye, ze, v) in cases
+        @test isempty(Xe) && Xe isa StridedMatrix{T}
+        n, p = size(Xe)
+        fe = mkloss(Ye, Xe, α)
+        fp = mkloss(Ye, zeros(T, n, p), α)
+        ge, de = fill(T(7), p), fill(T(7), n)
+        gp, dp = fill(T(7), p), fill(T(7), n)
+        @test PB.value_and_gradient_from_predictor!(ge, de, fe, ze) === v ===
+              PB.value_and_gradient_from_predictor!(gp, dp, fp, ze)
+        @test de == dp == ze .- Ye && ge == gp == zeros(T, p)
+        @test PB.value_from_predictor(fe, ze) === v
+      end
+    end
   end
 end
 

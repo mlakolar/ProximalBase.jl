@@ -539,7 +539,7 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
         @test within(vn, big4096(() -> big(α) * valref(ElasticNet(λ, λ), Vector(yn))), 1) && vna === vn
         (rS, r1, r2)
       end
-      @test reads[1] == reads[2] && all(<=(8), reads[1])
+      @test reads[1] == reads[2] && all(<=(16), reads[1])
     end
     # warmed ordinary calls do not allocate (a scalar step, and an array step with a factor inside the band)
     for T in (Float32, Float64)

@@ -93,8 +93,10 @@ end
 
 # The value α Σ (xᵢ - yᵢ)² / 2 (α Σ xᵢ² / 2 for y === nothing) of the least-squares methods and oracles, with f the
 # loss or its Scaled, α = 1 for a loss and the factor as supplied for a Scaled (_ls_base_factor), and y nothing or the
-# response Y of the loss. Strided Float32 or Float64 vectors take the ordinary path below; other arrays take the
-# squared-residual kernel _square_value_wide.
+# response Y of the loss. The ordinary path below takes a strided Float32 or Float64 vector x with y === nothing or
+# a strided vector y of the same element type. Other arguments take the squared-residual kernel _square_value_wide:
+# matrices, arrays that are not strided, and mixed element types (a loss with Float32 Y and Float64 X has Float64
+# scratch, so that f(β) passes a Float64 x and a Float32 y).
 @inline _ls_value(f, x, y) = _square_value_wide(_ls_base_factor(f)[2], x, y)
 @inline _ls_value(f, x::StridedVector{T}, ::Nothing) where {T<:Union{Float32, Float64}} =
   _ls_square_value(f, x, nothing, _sumabs2_loop(x))

@@ -634,9 +634,10 @@ end
   s = y === nothing ? _sumabs2(x) : _sumabs2_diff(x, y)
   _square_value_level(convert(_valtype(x), λ), λ, x, y, s, _level_fits(_valtype(x), λ))
 end
-# LeastSquaresLoss and its predictor and residual oracles where the arrays are not both strided Float32 or Float64
-# vectors (_ls_value, which has its own ordinary path for those and calls _square_value_level on its exceptional
-# path): the level as supplied, so that the product is formed in the promoted type of the level and the sum; a
+# LeastSquaresLoss and its predictor and residual oracles, except for a strided Float32 or Float64 vector x with
+# y === nothing or a strided vector y of the same element type (_ls_value, which has its own ordinary path for those
+# and calls _square_value_level on its exceptional path); mixed element types, as for f(β) of a loss with Float32 Y
+# and Float64 X, come here. The level as supplied, so that the product is formed in the promoted type of the level and the sum; a
 # Float64 level with Float32 data is not narrowed before the product. The sum for y === nothing is _sumabs2_loop, a
 # recursive sum in one vectorizing loop for strided Float32 and Float64 arrays (and _sumabs2 otherwise); for
 # y !== nothing it is _sumabs2_diff.

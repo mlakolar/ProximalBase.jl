@@ -201,10 +201,10 @@ one of its oracles is in use, also on another task.
 """
 function leastsquares_data end
 
+# The length of z is checked against Y (equal to size(X, 1) by the constructor of the loss) by _ls_sumabs2_diff,
+# which throws a DimensionMismatch before it reads an entry; the call reads no entry or size of X.
 function value_from_predictor(f::_LSOracleLoss{T}, z::StridedVector{T}) where {T<:Union{Float32, Float64}}
-  base = _ls_base_factor(f)[1]
-  _ls_checklength(:z, z, size(base.X, 1))
-  _ls_value(f, z, base.Y)
+  _ls_value(f, z, _ls_base_factor(f)[1].Y)
 end
 
 function value_and_gradient_from_predictor!(g::StridedVector{T}, d::StridedVector{T}, f::_LSOracleLoss{T},

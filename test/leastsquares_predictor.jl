@@ -596,6 +596,10 @@ end
     unchanged(bufs...) = all(b -> all(==(T(7)), b), bufs) && all(==(T(7)), base.tmp)
     @test_throws DimensionMismatch PB.value_from_predictor(f, zeros(T, n + 1))
     @test_throws DimensionMismatch PB.value_from_predictor(f, zeros(T, n - 1))
+    # the predictor's length is checked against Y, also under an infinite scale (checked only after the sum)
+    finf = Scaled(LeastSquaresLoss(Y, X), T(Inf))
+    @test_throws DimensionMismatch PB.value_from_predictor(finf, zeros(T, n + 1))
+    @test_throws DimensionMismatch PB.value_from_residual(finf, zeros(T, n - 1))
     @test_throws DimensionMismatch PB.value_from_residual(f, zeros(T, n + 1))
     @test_throws DimensionMismatch PB.value_and_gradient_from_predictor!(g, d, f, zeros(T, n + 1))
     @test unchanged(g, d)
@@ -829,13 +833,19 @@ end
 @testset "the ordinary path of the least-squares route at its acceptance boundary" begin
   # For strided Float32 and Float64 vectors the route keeps the ordinary product α s / 2 when K <= s <= floatmax(T),
   # K = 2^63 floatmin(T)/eps(T), and, for a Scaled, α s <= floatmax; otherwise it runs the kernel's test (s >= n
-  # floatmin(T)/eps(T) and α s / 2 finite) and recomputation on s. The inputs below put s just below, at and just
-  # above n floatmin(T)/eps(T) and K, near floatmax, and make it Inf or NaN. On each of them the oracles and the
-  # methods of the loss must give the kernel's result on the same sum, and agree with the 256-bit reference.
+  # floatmin(T)/eps(T) and α s / 2 finite) and recomputation on s. The inputs below put s near n floatmin(T)/eps(T)
+  # and K (squares of rounded square roots and their neighbours, which bracket the two bounds without hitting them
+  # exactly in every case), near floatmax, and make it Inf or NaN. On each of them the oracles and the methods of the
+  # loss must give the kernel's result on the same sum, and agree with the 256-bit reference. The test of the bounds
+  # on s is checked directly at K, floatmax and their neighbours.
   for T in (Float32, Float64)
     E = exponent(floatmax(T))
     K = T(0x1p63) * (floatmin(T) / eps(T))
     @test K == pow2(T, 64 + Base.significand_bits(T) - Base.exponent_bias(T))
+    @test PB._ls_ordinary_sum(K) && PB._ls_ordinary_sum(nextfloat(K)) && !PB._ls_ordinary_sum(prevfloat(K))
+    @test PB._ls_ordinary_sum(floatmax(T)) && PB._ls_ordinary_sum(prevfloat(floatmax(T)))
+    @test !PB._ls_ordinary_sum(nextfloat(floatmax(T))) && !PB._ls_ordinary_sum(T(NaN)) && !PB._ls_ordinary_sum(-K)
+    @test !PB._ls_ordinary_sum(zero(T)) && !PB._ls_ordinary_sum(nextfloat(zero(T))) && !PB._ls_ordinary_sum(floatmin(T))
     inputs = Vector{T}[]
     for n in (1, 64), t in (n * (floatmin(T) / eps(T)), K)
       c = sqrt(t / n)

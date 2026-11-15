@@ -41,6 +41,8 @@ function rounded(got::T, V::BigFloat) where {T}
   got === T(V) || (!LDEXP_ROUNDS && T === Float64 && δ / 2 <= V < δ && got === zero(T))
 end
 
+alloc_vprox_scaled(y, s, x, γ) = @allocated value_and_prox!(y, s, x, γ)
+
 # a weight array that counts its reads, to show that values and proximal points on sparse and symmetric
 # iterates read the weights of the stored entries only
 mutable struct CountingArray{T, N} <: AbstractArray{T, N}
@@ -441,6 +443,89 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
         V1 = valref(f1, [2.0f0^-130])
         @test f1([2.0f0^-130]) === Float32(V1) && value_entry(f1, 2.0f0^-130, 1) === Float32(V1)
       end
+    end
+  end
+
+  # value_and_prox! of Scaled(ElasticNet) returns the value at its stored output: a leaf value that is subnormal under a
+  # factor above one is recovered as s(y) recovers it, not multiplied (a subnormal carries fewer bits than the product)
+  @testset "the fused value of Scaled(ElasticNet) at a subnormal leaf value" begin
+    fused(s, x, γ) = (y = similar(x); v = value_and_prox!(y, s, x, γ); (y, v))
+    # the reported Float32 case: the leaf value at the stored output is 2.3765f-41
+    f = ElasticNet(5.4948874f-14, 5.150996f18, Float32[2459.2388])
+    s, x, γ = Scaled(f, 4.506362f22), Float32[6.233493f-5], 1.016843f-17
+    y, v = fused(s, x, γ)
+    @test y == prox(s, x, γ) && issubnormal(f(y))
+    @test v === s(y) && within(v, big4096(() -> big(s.α) * valref(f, y)), 1)
+    ya, va = fused(s, x, [γ])
+    @test va === s(ya) && within(va, big4096(() -> big(s.α) * valref(f, ya)), 1)
+    # a family around the subnormal-to-normal boundary: the ℓ1 part or the ridge part, a leaf value at the top, the
+    # middle and the bottom of the subnormal range, and a factor inside the band of the array route or outside it
+    for T in (Float32, Float64)
+      E, P, band = exponent(floatmin(T)), precision(T), PB._factor_band(T)
+      for a in (band - 11, band - 1, 2band, 3band), ev in (E - 2, E - P ÷ 2, E - P + 4), ridge in (false, true)
+        α, γ = T(1.37) * p2(T, a), T(0.61) * p2(T, -a)
+        f = ridge ? ElasticNet(zero(T), T(0.83), T[1.9]) : ElasticNet(T(1.29) * p2(T, -a), T(0.83), T[1.9])
+        y0 = ridge ? sqrt(T(2.3) * p2(T, ev) / f.λ2) : T(1.13) * p2(T, ev) / (f.λ1 * f.w[1])
+        xb = big4096(() -> big(y0) * (1 + big(α) * big(γ) * big(f.λ2)) + big(α) * big(γ) * big(f.λ1) * big(f.w[1]))
+        x, s = T[T(xb)], Scaled(f, α)
+        for g in (γ, [γ])
+          y, v = fused(s, x, g)
+          V = big4096(() -> big(α) * valref(f, y))
+          @test issubnormal(f(y)) && T(V) >= floatmin(T)
+          @test v === s(y) && valok(v, V, 2)
+        end
+      end
+    end
+    # zero, NaN and infinite entries, infinite levels and an exactly zero output keep their results
+    for T in (Float32, Float64)
+      α, γ = p2(T, 20), p2(T, -22)
+      for (f, x) in ((ElasticNet(one(T), one(T)), zeros(T, 3)), (ElasticNet(one(T), one(T)), T[1, NaN, 0]),
+                     (ElasticNet(one(T), one(T)), T[Inf, 2, -1]), (ElasticNet(T(Inf), one(T)), T[3, -4]),
+                     (ElasticNet(one(T), T(Inf)), T[3, -4]), (ElasticNet(zero(T), one(T), T[1, 0]), T[0, 5]))
+        s = Scaled(f, α)
+        for g in (γ, fill(γ, length(x)))
+          y, v = fused(s, x, g)
+          @test isequal(v, s(y))
+        end
+      end
+      y, v = fused(Scaled(ElasticNet(one(T), one(T)), α), zeros(T, 3), γ)
+      @test v === zero(T) && y == zeros(T, 3)
+    end
+    # the representations: the stored output of each, and its value
+    for T in (Float32, Float64)
+      E = exponent(floatmin(T))
+      α, γ = T(1.37) * p2(T, 12), T(0.61) * p2(T, -12)
+      W = T[1.9 0.7; 0.7 1.3]
+      f = ElasticNet(T(1.29) * p2(T, -12), T(0.83), W)
+      fv = ElasticNet(f.λ1, f.λ2, vec(W))
+      tb = big4096(() -> big(α) * big(γ))
+      inv1(u, w) = T(big4096(() -> big(u) * (1 + tb * big(f.λ2)) + tb * big(f.λ1) * big(w)))
+      xd = [inv1(T(1.13) * p2(T, E - 3) / (f.λ1 * w), w) for w in vec(W)]
+      s, sv = Scaled(f, α), Scaled(fv, α)
+      ref(u) = big4096(() -> big(α) * valref(fv, vec(u)))
+      yd, vd = fused(sv, xd, γ)
+      @test issubnormal(fv(yd)) && vd === sv(yd) && valok(vd, ref(yd), 8)
+      yM, vM = fused(s, reshape(copy(xd), 2, 2), γ)
+      @test vec(yM) == yd && vM === s(yM) && valok(vM, ref(yM), 8)
+      u = zeros(T, 6); u[2:5] .= xd
+      yv = zeros(T, 4)
+      @test value_and_prox!(yv, sv, view(u, 2:5), γ) === vd && yv == yd
+      ys = SparseIterate(T, 4)
+      @test value_and_prox!(ys, sv, SparseIterate(xd), γ) === vd && Vector(ys) == yd
+      xb = BlockIterate(copy(xd), [[1, 3], [2, 4]]); yb = copy(xb)
+      @test value_and_prox!(yb, sv, xb, γ) === vd && Vector(yb) == yd
+      S = SymmetricSparseIterate(T, 2); S[1, 1] = xd[1]; S[2, 1] = xd[2]; S[2, 2] = xd[4]
+      ZS = copy(S)
+      vS = value_and_prox!(ZS, s, S, γ)
+      MS = Matrix(ZS)
+      @test issubnormal(f(MS)) && vS === s(ZS) && valok(vS, big4096(() -> big(α) * valref(f, MS)), 8)
+    end
+    # warmed ordinary calls do not allocate (a scalar step, and an array step with a factor inside the band)
+    for T in (Float32, Float64)
+      s, x, y = Scaled(ElasticNet(T(0.3), T(0.7), T.(1:8) ./ 4), T(3)), T.(-4:3) ./ 3, zeros(T, 8)
+      st = fill(T(0.4), 8)
+      value_and_prox!(y, s, x, T(0.4)); value_and_prox!(y, s, x, st)
+      @test alloc_vprox_scaled(y, s, x, T(0.4)) == 0 && alloc_vprox_scaled(y, s, x, st) == 0
     end
   end
 

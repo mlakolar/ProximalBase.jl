@@ -362,6 +362,13 @@ end
   p === nothing ? r : convert(typeof(r), _apply_parts(α, p[1], p[2]))
 end
 _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
+# Whether the fused value of a finite factor (`value_and_prox!` with a scalar step whose product with the factor is
+# normal, or with an array step and a factor inside the band) recovers the leaf value v at the stored output when v is
+# below the normal range and the factor is above one, as the value `s(y)` recovers it. For an ElasticNet a nonzero v
+# is: a subnormal leaf value carries fewer bits than its product with the factor needs. For other functions, and for a
+# zero ElasticNet value, the fused value is the product (an all-zero output would otherwise be read a second time).
+_fused_small_recover(f, v) = false
+_fused_small_recover(::ElasticNet, v) = !iszero(v)
 # The value α v of the function f with the scale α at the unscaled value v.
 @inline function _scaled_value_by(f, α, x, v, recover_inner_small = true, out = nothing)
   r = _apply_scale(α, v)
@@ -580,7 +587,8 @@ end
 value_and_prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _value_and_prox_chain!(y, s, x, γ) :
-  (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ)); _value_at(_scaled_value(s, y, v, isinf(s.α)), y))
+  (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ));
+   _value_at(_scaled_value(s, y, v, isinf(s.α) || _fused_small_recover(s.f, v)), y))
 @noinline function _value_and_prox_chain!(y, s, x, γ::Real)
   _checkwrite(value_and_prox!, s, y, x)
   g, step, a = _nested_step(s, γ)

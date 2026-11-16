@@ -421,11 +421,15 @@ Built-in methods check predictable shape, type and parameter errors
 before output writes, but an error during computation may leave a
 partially changed destination. The built-in functions, their constructors,
 the screens, `norm_diff`, `opnorm2` and the products of the iterates require
-one-based arrays. A call that receives an array with offset axes raises an
-`ArgumentError` at its entry, before the call's own indexed reads of the arrays
-and before any write to an output or a cache; `restrict` may index its parameter
-arrays with the index set before the constructor of the restricted function
-rejects the offset result. Offset axes are reported as a `DimensionMismatch`
+one-based arrays. Such a call checks the axes of its array arguments when it
+starts, reading axes metadata and no entries of the arrays it checks: an array
+with offset axes raises an `ArgumentError` before the numerical kernels read the
+arrays by position and before any write to an output or a cache. The group
+constructors read the list of groups to reach each group's axes. `restrict`
+indexes the stored parameter arrays with the index set, and the constructor of
+the restricted function rejects a result with offset axes; a function with no
+stored parameter array, such as `ElasticNet(λ1, λ2)` without weights, does not
+inspect the index set. Offset axes are reported as a `DimensionMismatch`
 by the point argument of `BlockIterate(x, groups)` and `SymmetricSparseIterate(X)`,
 by `copyto!` into a `SymmetricSparseIterate`, and by an offset `z`, `r` or `d` at the
 supported strided arguments of the least-squares predictor and residual oracles

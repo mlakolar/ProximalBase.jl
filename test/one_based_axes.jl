@@ -1,11 +1,16 @@
 module OneBasedAxesTest
 # One-based array arguments (#920). The built-in functions, their constructors and the products of the iterates read
-# their array arguments by position, under @inbounds or in loops over 1:n, so an array whose axes do not start at 1
-# is an ArgumentError at the entry of the call, before the call's own indexed reads of the arrays and before any
-# write to an output or a cache. Exceptions that this file pins: `restrict` indexes its parameter arrays with the
-# index set before the constructor of the restricted function rejects the offset result, and the point argument of
-# BlockIterate(x, groups), SymmetricSparseIterate(X) and copyto! into a SymmetricSparseIterate, and an offset z, r
-# or d of the least-squares predictor and residual oracles, keep their DimensionMismatch. This file checks
+# their array arguments by position, under @inbounds or in loops over 1:n, so the call checks the axes of its array
+# arguments when it starts (axes metadata only; the group constructors read the list of groups to reach each group's
+# axes), and an array whose axes do not start at 1 is an ArgumentError before the numerical kernels read the arrays by
+# position and before any write to an output or a cache. Exceptions that this file pins:
+#   - `restrict` indexes the stored parameter arrays with the index set, and the constructor of the restricted function
+#     rejects an offset result (a function without stored parameter arrays does not inspect the index set);
+#   - the point argument of BlockIterate(x, groups) and SymmetricSparseIterate(X), and copyto! into a
+#     SymmetricSparseIterate, keep their DimensionMismatch;
+#   - an offset z, r or d at the supported strided arguments of the least-squares predictor and residual oracles, with
+#     a one-based response, keeps its DimensionMismatch, while another representation of them is a MethodError.
+# This file checks
 #   - construction with an offset stored array, the typed inner constructors included;
 #   - the oracles, the screens and the products with an offset input, destination or step array, and that the
 #     destination, the scratch and the cached factorizations are left as they were;

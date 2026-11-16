@@ -11,8 +11,11 @@ function SymmetricSparseIterate(::Type{T}, n::Integer) where {T}
 end
 
 function _symmetric_sparse_iterate(::Type{T}, n::Int) where {T}
-  _t = div(n*(n+1), 2)
-  SymmetricSparseIterate{T}(zeros(T, _t), zeros(Int, _t), zeros(Int, _t), 0, n)
+  q = (Base.widemul(n, n) + n) ÷ 2
+  q <= typemax(Int) || throw(ArgumentError(
+    "SymmetricSparseIterate dimension $n is too large: coordinate count exceeds typemax(Int)"))
+  k = Int(q)
+  SymmetricSparseIterate{T}(zeros(T, k), zeros(Int, k), zeros(Int, k), 0, n)
 end
 
 Base.eltype(::Type{SymmetricSparseIterate{T}}) where {T} = T

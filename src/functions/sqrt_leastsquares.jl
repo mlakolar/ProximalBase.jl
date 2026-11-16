@@ -30,12 +30,17 @@ dense vector, a `SparseIterate` or a `BlockIterate`.
 overflows is not formed again: the value is then the norm of the computed `Xβ - Y`, typically `Inf` or `NaN`. The
 norm of the computed `Xβ - Y` is evaluated by the kernel of the oracles, not as the square root of a sum of squares:
 where the squares overflow or underflow in `T = float(promote_type(eltype(Y), eltype(X)))`, the norm is recomputed in
-power-of-two units. For finite entries, `n` of them, with `(n + 3) eps(T) ≤ 1/16` or with the arrays of the sum
-strided and of one element type, and `v` the exact norm of the computed `Xβ - Y`, the result is within
-`(n/2 + 4) eps(T) |v|` of `v`, plus `2 nextfloat(zero(T))` where `|v| < floatmin(T)`. A `v` above the round-to-nearest
-overflow threshold `floatmax(T) + ulp/2` by more than that relative error gives `Inf`; within it the result is `Inf`
-or within the bound (`floatmax(T)` is then possible). `Scaled(f, Inf)(β)` is `Inf * f(β)`, which is `NaN` at an exact
-fit; the value oracles refuse the factor `Inf` with an `ArgumentError`.
+power-of-two units. The accuracy statement is for finite entries that `T` represents exactly, `n` of them with
+`n ≤ 2^40`, and either `(n + 3) eps(T) ≤ 1/16` or strided `Float32` or `Float64` vectors of one element type. An
+entry that `T` does not represent (an `Int` `Y` above `maxintfloat(T)`, a `Rational` `Y`) is converted to `T` inside the
+sum, and that rounding is outside the bound. With `e = (n/2 + 4) eps(T)` and `v` the exact norm of the computed
+`Xβ - Y`, the value in `T` is within `e |v|` of `v`, plus `2 nextfloat(zero(T))` where `|v| < floatmin(T)`. The
+product `Xβ` itself carries the rounding of the matrix-vector product. `f(β)` returns its value converted to
+`float(eltype(β))`: the bound holds for `eltype(β) == T`, and a narrower `β` adds one rounding to its type. With
+`thr = floatmax(T) + ulp/2` the round-to-nearest overflow threshold, a `v` within the relative error `e` of `thr`, below
+it as well as above it, gives `Inf` or a finite value within the bound (`floatmax(T)` is then possible), and a `v`
+well above `thr` gives `Inf`. `Scaled(f, Inf)(β)` is `Inf * f(β)`, which is `NaN` at an exact fit; the value oracles
+refuse the factor `Inf` with an `ArgumentError`.
 """
 struct SqrtLeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVector, Tx<:AbstractMatrix, A<:AbstractVector{T}} <: AbstractFunction
   Y::Ty
@@ -107,7 +112,8 @@ end
 # exact differences, s = Σ d_i², v = α √s the exact value, u = eps(T)/2, e = (n/2 + 4) eps(T) = (n + 8) u,
 # γ_m = m u/(1 - m u), and thr = floatmax(T) + ulp(floatmax(T))/2, the round-to-nearest overflow threshold. The factor
 # α is a Float32 or Float64, which converts exactly to P and to R = _recovery_type(T, float(typeof(α))). Claim: if
-# n ≤ 2^40 and either (n + 3) u ≤ 1/32 or x and y are strided of one element type, then the result v̂ satisfies
+# n ≤ 2^40 and either (n + 3) u ≤ 1/32 or x and y are strided Float32 or Float64 vectors of one element type, then the
+# result v̂ satisfies
 #   |v̂ - v| ≤ e |v| + 2 nextfloat(zero(T)) [|v| < floatmin(T)],
 # v̂ is finite where |v| (1 + e) ≤ floatmax(T), and v̂ is not finite where |v| ≥ thr (1 + e); between the two it is
 # finite within the bound or not finite. (A strided pair of one type with n ≤ 2^17 has (n + 3) u ≤ 1/32.)
@@ -148,7 +154,7 @@ end
 #
 # (3) The ranges. Let q be the value before the last rounding to nearest to T (the rounded product in (1), the final
 # rounding in _scaled_product for R = T, the conversion otherwise); |q - v| ≤ ω_pre |v|. In (1) with (n + 3) u ≤ 1/32
-# and e = t + 5u, e - ω_pre - e ω_pre ≥ 0.46t + 1.9u - 0.032 (0.54t + 3.1u) > 0; with m ≤ 1089, e ≥ 2^17 u and
+# and e = t + 5u, e - ω_pre - e ω_pre ≥ 0.46t + 2.9u - 0.032 (0.54t + 2.1u) > 0; with m ≤ 1089, e ≥ 2^17 u and
 # ω_pre ≤ 592u, e (1 - ω_pre) - ω_pre > 0; in (2), with ω_pre ≤ 3.1u + 0.0001 n u, e (1 - ω_pre) - ω_pre > 0 too. So where |v| (1 + e) ≤
 # floatmax(T), q ≤ |v| (1 + ω_pre) ≤ floatmax(T) and the rounded result is finite, and where |v| ≥ thr (1 + e),
 # q ≥ |v| (1 - ω_pre) ≥ thr rounds to Inf. A finite result lies within |ω| |v| of v by the bounds above. For n = 0 the

@@ -247,12 +247,12 @@ not. The sum of squares ``s`` is formed in `T` (one vectorizing loop up to ``2^{
 and ``\alpha\sqrt s`` is kept when ``s`` is not below ``n\,\texttt{floatmin}(T)/\varepsilon_T`` and the
 product is below ``\texttt{floatmax}(T)/2`` (a `NaN` or infinite ``s`` is not kept). Otherwise, and for every sum that is not finite, the norm is recomputed
 from the squares in units of a power of two, with ``\alpha`` folded in and the squares summed compensated, in
-at least `Float64`. For finite entries, ``n`` of them, with ``(n+3)\varepsilon_T\le 1/16`` or strided arrays of one
-type, and ``v`` the exact value, the result is within ``(n/2+4)\,\varepsilon_T|v|`` of ``v``, plus two units of
+at least `Float64`. For finite entries that `T` represents exactly, ``n\le 2^{40}`` of them, with ``(n+3)\varepsilon_T\le 1/16`` or
+strided `Float32` or `Float64` vectors of one element type, and ``v`` the exact value, the result is within ``(n/2+4)\,\varepsilon_T|v|`` of ``v``, plus two units of
 the smallest subnormal where ``|v|<\texttt{floatmin}(T)``; with ``u`` and ``w=(n/2+4)\varepsilon_T`` as in the
 range statement above, the result is finite where ``|v|(1+w)\le\texttt{floatmax}(T)``, is `Inf` above
 ``(\texttt{floatmax}(T)+u/2)(1+w)``, and between the two is `Inf` or finite within the bound (`floatmax(T)` is possible
-within ``w`` of the threshold). The proof is in the comments of `src/functions/sqrt_leastsquares.jl`. An exact fit gives
+within ``w`` of the threshold, below it as well as above it). The proof is in the comments of `src/functions/sqrt_leastsquares.jl`. `f(β)` returns its value converted to `float(eltype(β))`, so the bound holds for `eltype(β) == T`, and a narrower `β` adds one rounding to its type. An entry that `T` does not represent exactly (an `Int` `Y` above `maxintfloat(T)`, a `Rational` `Y`) is rounded to `T` in the sum, outside the bound. An exact fit gives
 `+0`; a `NaN` entry gives `NaN`; an entry that is `±Inf` gives `Inf`, unless it meets an `Inf` of the same sign in `z`
 and `Y`, where the difference is `NaN`.
 

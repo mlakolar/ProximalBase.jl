@@ -41,7 +41,7 @@ and `docs/design/*.md`; generated example/contract pages are ignored. See
 and ownership contracts. CI retains HTML and full validation logs as artifacts.
 Comments in `src/` state numerical behavior in words, and refer to a section of
 `docs/src/numerics.md` where that page states it, not to rule labels such as `R1` or
-`D2`; `python3 docs/check_source_labels.py` checks this.
+`D2`; `python3 docs/check_source_labels.py` checks for such labels in source comments.
 
 CI gates pull requests with current Julia 1.x on Linux. Three independent
 test shards cover the complete retained inventory with bounds checks. The

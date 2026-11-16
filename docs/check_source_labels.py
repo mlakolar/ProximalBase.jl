@@ -27,22 +27,42 @@ import argparse
 import re
 import sys
 import tempfile
+import unicodedata
 
 ROOT = Path(__file__).resolve().parent.parent
 
 # A label: a family prefix followed by digits, as a whole word.
 LABEL = re.compile(r"\b(?:NR|FT|[RTMEOAD])[0-9]+\b")
 
-# A token directly preceded by one of these is not a label (CPU names).
-EXEMPT_PREFIXES = ("Apple ",)
+# CPU names are not labels: a token of one of the given families directly
+# preceded by the given prefix, as "M3" in "Apple M3". Pairs (prefix, family).
+EXEMPT_PREFIXES = (("Apple ", "M"),)
 
 MESSAGE = ("{path}:{line}: label {token} in a comment; "
            "state the rule in words and cite the numerics.md section instead")
 
 
+# Characters that Julia allows after the first one in an identifier, besides
+# letters and digits: primes, and combining marks and other symbols above ASCII.
+_PRIMES = "\u2032\u2033\u2034\u2057"
+_IDENTIFIER_CATEGORIES = {"Lu", "Ll", "Lt", "Lm", "Lo", "Nl", "Nd", "No",
+                          "Mn", "Mc", "Me", "Pc", "Sc", "So", "Sk"}
+
+
+def _is_identifier_char(ch):
+    """Whether `ch` can end a Julia identifier (so that a quote after it is a
+    suffix, as in x' or f"...", and not the start of a literal)."""
+    if not ch:
+        return False
+    if ch.isascii():
+        return ch.isalnum() or ch in "_!"
+    return ch in _PRIMES or unicodedata.category(ch) in _IDENTIFIER_CATEGORIES
+
+
 def _is_adjoint_context(prev):
-    """Whether a `'` after the character `prev` is the adjoint operator."""
-    return prev.isalnum() or prev in "_!)]}'"
+    """Whether a `'` after the character `prev` is the adjoint operator.
+    At the start of the text (prev empty) it opens a character literal."""
+    return _is_identifier_char(prev) or (bool(prev) and prev in ")]}'")
 
 
 def _char_literal_end(text, i):
@@ -77,8 +97,8 @@ def comment_texts(text):
     i = 0
     line = 1
     # Frames: ["code", None] for top-level code, ["code", depth] inside $( ... ),
-    # ["str", quote_length, interpolating] for strings and ["cmd", quote_length]
-    # for commands. The scanner looks at the top frame.
+    # ["str", quote_length, interpolating] for strings and ["cmd", quote_length,
+    # interpolating] for commands. The scanner looks at the top frame.
     stack = [["code", None]]
 
     def add(ln, s):
@@ -125,12 +145,14 @@ def comment_texts(text):
             elif c == '"':
                 q = 3 if text.startswith('"""', i) else 1
                 # a string macro (r"...", raw"...", b"...") does not interpolate
-                interp = not (i > 0 and (text[i - 1].isalnum() or text[i - 1] == "_"))
+                interp = not (i > 0 and _is_identifier_char(text[i - 1]))
                 stack.append(["str", q, interp])
                 i += q
             elif c == "`":
                 q = 3 if text.startswith("```", i) else 1
-                stack.append(["cmd", q])
+                # a command macro (custom`...`) does not interpolate either
+                interp = not (i > 0 and _is_identifier_char(text[i - 1]))
+                stack.append(["cmd", q, interp])
                 i += q
             elif c == "'":
                 prev = text[i - 1] if i > 0 else ""
@@ -153,7 +175,7 @@ def comment_texts(text):
             kind = top[0]
             q = top[1]
             quote = '"' if kind == "str" else "`"
-            interp = top[2] if kind == "str" else True
+            interp = top[2]
             if c == "\\":
                 if i + 1 < n and text[i + 1] == "\n":
                     line += 1
@@ -177,7 +199,8 @@ def find_labels(text):
     for ln, comment in sorted(comment_texts(text).items()):
         for m in LABEL.finditer(comment):
             before = comment[:m.start()]
-            if any(before.endswith(p) for p in EXEMPT_PREFIXES):
+            token = m.group(0)
+            if any(before.endswith(p) and token.startswith(f) for p, f in EXEMPT_PREFIXES):
                 continue
             hits.append((ln, m.group(0)))
     return hits
@@ -233,7 +256,19 @@ SELF_TEST_CASES = [
      's = "$(f("# x")) #"  # T1\n', [(1, "T1")]),
     ("label after an interpolation in a triple-quoted string",
      'doc = """\n$(f(")")) # R1\n"""  # E3\n', [(3, "E3")]),
+    ("label after a quote character literal at the start of the text", "'\"' # R1\n", [(1, "R1")]),
+    ("label after an adjoint of a name with a prime", "x\u2032'#' R1\n", [(1, "R1")]),
+    ("label after an adjoint of a name with a combining mark", "a\u0302'#' R1\n", [(1, "R1")]),
+    ("label in an interpolation of a command",
+     "c = `$(# R1\n)`\n", [(1, "R1")]),
+    ("label after a command macro literal that looks like an interpolation",
+     "c = custom`$(# R1)` # R2\n", [(1, "R2")]),
+    ("label after a multi-line command macro literal",
+     "c = custom`$(# R1\n)` # R2\n", [(2, "R2")]),
+    ("labels next to the CPU name exemption",
+     "# Apple R1 and Apple D2 and Apple M3\n", [(1, "R1"), (1, "D2")]),
     # not flagged
+    ("code after a character literal # at the start of the text", "'#'; E2 = 1\n", []),
     ("variables named like labels", "E1, E2 = f(x)\nR1 = E2 + 1\n", []),
     ("label in a string", 's = "text # R1"\n', []),
     ("label inside a string with a hash", 's = "a # b R1"\n', []),

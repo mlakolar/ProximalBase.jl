@@ -145,8 +145,7 @@ function _scaled_dot(a, x::SparseIterate, s)
   v
 end
 
-# the stored entries of an iterate: the recoveries of overflowing and underflowing values read only these
-# (numerics.md, "Overflow and underflow of values")
+# Maximum-magnitude and finiteness scans over the stored entries of an iterate.
 _stored_maxabs(x::Union{SparseIterate, SymmetricSparseIterate}) = _maximum_abs(view(x.nzval, 1:x.nnz))
 _maximum_abs(x::SymmetricSparseIterate) = _maximum_abs(view(x.nzval, 1:x.nnz))
 _all_finite(x::Union{SparseIterate, SymmetricSparseIterate}) = all(isfinite, view(x.nzval, 1:x.nnz))

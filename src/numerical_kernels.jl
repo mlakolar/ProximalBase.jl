@@ -65,8 +65,9 @@ end
 @inline _weight_product(a::Real, b::Real, w::Real) = _weight_product(promote(float(a), float(b), float(w))...)
 
 # The same products rounded once to the destination type U, formed in the promotion of U and
-# the factors' types, so that a product that overflows or underflows the factors'
-# type is still finite in U. For R == U the promotion and the conversion are no-ops.
+# the factors' types before conversion to U; overflow or underflow in a narrower factor type can
+# be avoided when the result is representable in U. For R == U the promotion and the conversion
+# are no-ops.
 # A Bool factor (the weight `true` of an unweighted entry) does not widen the type.
 @inline _factor_type(a) = float(typeof(a))
 @inline _factor_type(::Bool) = Float16
@@ -612,8 +613,8 @@ _square_term_count(x::SparseArrays.AbstractSparseArray) = length(nonzeros(x))
 _square_multiplicity(x, i) = 1
 
 # Can an ordinary sum s of n squares in T be kept? Below n floatmin/eps a square may have
-# underflowed and lost more than eps of the sum, and the scaled recomputation runs instead
-# (numerics.md, "Overflow and underflow of values").
+# underflowed enough to lose more than eps of the sum. This predicate rejects that sum for the
+# ordinary path; callers retain their endpoint checks before recovery.
 @inline _squares_normal(s, n, ::Type{T}) where {T} = s >= n * (floatmin(T) / eps(T))
 
 # λ/2 Σ μᵢ (xᵢ - yᵢ)² at the level λ from the ordinary sum s of the squares, with `l` the level of the ordinary

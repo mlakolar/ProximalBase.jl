@@ -21,7 +21,7 @@ CONTRACTS = (
 )
 
 API_NAMES = (
-    "AbstractFunction", "SeparableFunction", "ScalarLoss",
+    "AbstractFunction", "SeparableFunction",
     "LeastSquaresLoss", "SqrNormL2", "QuadraticFunction", "ZeroFunction",
     "LinearFunction", "NormL1", "ElasticNet", "NormL2", "GroupNormL2", "Scaled", "SparseIterate",
     "SymmetricSparseIterate", "BlockIterate",
@@ -36,7 +36,6 @@ API_NAMES = (
     "check_parameters", "entry_parameters", "issmooth", "isproximable",
     "isseparable", "isconvex", "iszeropreserving", "samegroups",
     "copyto!", "nnz",
-    "deriv2", "deriv", "value_and_deriv",
     "value_from_predictor", "value_and_gradient_from_predictor!", "value_from_residual",
     "leastsquares_data",
 )

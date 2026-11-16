@@ -68,6 +68,16 @@ storage. Comparing two PB oracles alone can reproduce the same bug. Test
 FP32/FP64, dimensions, non-finite/zero parameters, aliasing, partial failures,
 active zeros and arbitrary ordered blocks as appropriate to the change.
 
+## Local job execution and process ownership
+
+Run test and benchmark jobs in the foreground unless detached execution is
+explicitly authorized. Track the PIDs or process group of jobs you start,
+including any authorized detached jobs. Before cleanup, verify their identity
+and terminate **only those owned processes**. Never use broad name-matching
+`pkill` (such as `pkill julia`) to clean up sessions on a shared machine;
+leave unknown or other agents' processes untouched. Include or link to these
+rules in coding-agent and reviewer handoffs.
+
 ## Adding a function or storage method
 
 1. Specify mathematics, supported signatures, domain/shapes, traits, parameter

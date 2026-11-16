@@ -23,7 +23,7 @@ function _array_buffer!(s::Scratch, ::Type{T}, dims::NTuple{N, Int}) where {T, N
   b
 end
 
-# CPU scratch prototypes use dense Array storage and the same cache checks.
+# CPU prototypes keep the existing dense buffer and cache checks.
 _array_buffer!(s::Scratch, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(s, T, size(x))
 
 # Scratch is an implementation detail: copies of a function object share no buffer
@@ -96,7 +96,8 @@ end
 @inline _one_based_arg(a::AbstractArray) = Base.require_one_based_indexing(a)
 @generated _one_based_arg(a::Tuple) = _blockwise(k -> :(_one_based_arg(a[$k])), fieldcount(a), nothing)
 
-# A CPU scratch buffer of zeros with element type T and dimensions dims.
+# A buffer of zeros of type T and size dims, next to the array a: an Array,
+# and a device array of the type of a GPU array a (see the GPU extension).
 _zeros_like(a, ::Type{T}, dims) where {T} = zeros(T, dims)
 
 # The stored values suffice for maxima; symmetric multiplicities do not matter.
@@ -110,15 +111,14 @@ function _maximum_abs(x::AbstractArray)
   m
 end
 
-# Julia 1.10 compatibility: dispatch selects the signed integer type of the same
-# width; a conditional on the type is not constant-folded on that compiler.
+# The signed integer type of the same width, by dispatch (a conditional on the type is not folded by Julia 1.10)
 _int_type(::Type{Float32}) = Int32
 _int_type(::Type{Float64}) = Int64
 
 # For Float32 and Float64 the maximum is taken on the bit patterns: with the sign cleared they are ordered like the
 # magnitudes (as signed integers, whose maximum vectorizes on more targets than the unsigned one), an integer maximum vectorizes
-# where the NaN-aware float maximum is a scalar chain. Range-recovery checks read this on value calls;
-# NaN and Inf inputs retain their exceptional class.
+# where the NaN-aware float maximum is a scalar chain (the trigger of #520 reads this on every value call),
+# and a NaN or an Inf gives a NaN or an Inf as before.
 function _maximum_abs(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
   U = _int_type(T)
   vals = _stored_values(x)
@@ -175,11 +175,11 @@ _all_finite(::Nothing) = true
 
 ####################################
 #
-#  The scaled-value protocol
+#  The scaled-value protocol (R1, "Wrappers")
 #
 ####################################
 
-# The scaled-value mechanism that `Scaled` uses when its value leaves the range (functions/scaled.jl,
+# The scaled-value mechanism that `Scaled` uses when its value leaves the range (calculus.jl,
 # `_scaled_parts`). A function that implements it declares `_has_value_parts` and returns from
 # `_value_parts(f, x, v)`, given its ordinary value v (infinite, zero or subnormal), either
 # `nothing`, to keep the ordinary result, or (m, e): its value m 2^e, with m a finite float,
@@ -192,8 +192,8 @@ _value_parts(f, x, v) = nothing
 # is then recomputed). A zero value that is not exact comes from underflow: a rounding into the
 # subnormal range loses less than δ/2, δ the smallest subnormal of the computation type, and a later
 # product with a bounded factor (a level, a weight, a logarithm) multiplies that loss. A zero that
-# comes from cancellation is within the accuracy of the ordinary computation, measured against
-# the sum of the magnitudes of the terms; the recomputation does not improve that bound.
+# comes from cancellation is within the accuracy of the ordinary computation (R1 measures it against
+# the sum of the magnitudes of the terms), which the recomputation does not improve on either.
 _zero_value_exponent(f, x) = nothing
 # Is a zero or subnormal value of f exact for every argument, by its type? Then a factor above one
 # has nothing to recover from it, and `Scaled` does not try (the test folds away at compile time).
@@ -234,7 +234,7 @@ linear index `k`, numbered column by column. Inverse of `tril_index`.
 @inline function tril_cartesian(p::Integer, k::Integer)
   rv = div(p * (p + 1), 2) - k
   # j = ⌊(√(1 + 8rv) - 1)/2⌋. For p < 2²⁴, 1 + 8rv < 2⁵⁰ and the floating square
-  # root is exact and avoids isqrt; the larger p, beyond any
+  # root is exact, and three times faster than isqrt; the larger p, beyond any
   # p × p matrix in memory, take integer arithmetic, exact for any p, out of
   # line so that this function stays small enough to inline in inner loops
   j = p < 16_777_216 ? trunc(typeof(rv), (sqrt(1 + 8rv) - 1) / 2) : _tril_column_isqrt(rv)
@@ -246,7 +246,7 @@ end
 
 ####################################
 #
-#  Working precision and CPU helpers
+#  Types and devices
 #
 ####################################
 
@@ -266,5 +266,5 @@ function _model_precision(::Type{D}, types::Type...) where {D}
   promote_type(map(T -> real(float(T)), (D, types...))...)
 end
 
-# The minimal CPU core treats all supported arrays as host arrays.
+# CPU fallback retained from frozen lapack.jl.
 _is_device_array(::AbstractArray) = false

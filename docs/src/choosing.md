@@ -17,7 +17,6 @@ step selection and stopping rule.
 | Sum of norms over disjoint groups | [`GroupNormL2(λ, groups, w)`](@ref GroupNormL2) | Unlisted indices are unpenalized; compact vectors use each group's index order; default weights are √group size |
 | Affine or zero term | [`LinearFunction(c, d)`](@ref LinearFunction), [`ZeroFunction()`](@ref ZeroFunction) | Choose the coefficient shape for your array argument |
 | Nonnegative multiple of an existing function | [`Scaled(f, α)`](@ref Scaled) or `α*f` | Supported operations depend on the inner function |
-| One prediction–observation squared loss | [`ProximalBase.Squared()`](@ref ProximalBase.Squared) | This separate scalar interface has derivatives, not array proximal operations |
 
 The [function library](function_library.md) gives formulas and detailed guides.
 To combine a smooth loss `f` and a penalty `g`, evaluate `f(x) + g(x)` and use

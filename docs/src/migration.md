@@ -23,6 +23,26 @@ retained. Compute mathematical gradient mappings in caller code. Coordinate
 curvatures and residual/working-set policies are algorithm responsibilities.
 ProximalSolvers migration is separate; this documentation does not change it.
 
+### Removed scalar-loss interface (0.6, breaking)
+
+ProximalBase 0.6 removes the qualified-public `ProximalBase.ScalarLoss` and
+`ProximalBase.Squared` types and their scalar derivative interface
+(`ProximalBase.deriv`, `ProximalBase.deriv2`, `ProximalBase.curvature`,
+`ProximalBase.value_and_deriv`)
+([#916](https://github.com/mlakolar/ProximalBase.jl/issues/916)). No retained loss in
+ProximalBase used them, and the names were not exported. A qualified reference such as
+`ProximalBase.deriv`, a subtype declaration `<: ProximalBase.ScalarLoss`, and a
+qualified method definition such as `ProximalBase.deriv(ℓ::MyLoss, η, y) = …` raise
+`UndefVarError`. What `import` or `using` of these names reports, and what a later
+unqualified method definition does, depends on the Julia version and the form used.
+For least squares, use `LeastSquaresLoss` and its predictor/residual operations
+(`ProximalBase.value_from_predictor`, `ProximalBase.value_and_gradient_from_predictor!`,
+`ProximalBase.value_from_residual`, `ProximalBase.leastsquares_data`; see
+[Least squares at a caller-held predictor or residual](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds)).
+For squared-norm regularization, use `SqrNormL2`. Code that relied on this interface can
+implement the operations it needs through the [`AbstractFunction` interface](extending.md),
+or keep its own scalar-loss types and functions.
+
 ## Restored functions
 
 | Function | Restored from the archive | Differences from the archived version |

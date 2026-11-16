@@ -24,7 +24,6 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/quadratic.jl` | Quadratic function and cached eigendecomposition-based proximal map |
 | `src/functions/leastsquares.jl` | Least-squares residual scratch and lazy thin SVD prox |
 | `src/functions/leastsquares_predictor.jl` | Qualified value/gradient operations at caller-owned predictors and residuals |
-| `src/functions/scalar_loss.jl` | Qualified `ScalarLoss`/`Squared` and scalar derivative hooks |
 | `src/functions/separable.jl` | Generic separable entry kernels and array/sparse traversal |
 | `src/functions/norml1.jl` | Weighted ℓ₁ family, value and specialized proximal operations |
 | `src/functions/elasticnet.jl` | Weighted ℓ₁ plus ridge, reusing the soft-threshold and ridge kernels |

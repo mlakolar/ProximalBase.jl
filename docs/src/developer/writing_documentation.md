@@ -26,7 +26,7 @@ different points and must stay explicit.
 
 Move a detailed rule only after it has a canonical rendered destination.
 Use the [numerical contract](../numerics.md) for precision and endpoint rules,
-[numerical usage](../numerical_usage.md) for arrays and ownership, and concrete
+[array and precision conventions](../numerical_usage.md) for arrays and ownership, and concrete
 function or iterate guides for their method-specific behavior. Brief safety
 reminders can appear in several help entries; a long rationale needs one owner.
 
@@ -44,7 +44,10 @@ Preserve existing heading IDs when adding explicit anchors, or repair every
 incoming fragment link. Method-specific reference entries, including the
 three-factor products and `dropzeros!` overloads, need their full signatures.
 The API coverage checker includes qualified public names as well as exports;
-keep their explicit reference entries and coverage rows.
+keep their explicit reference entries and coverage rows. Removing a family
+also means updating the first-use [chooser](../choosing.md), the
+[function library](../function_library.md), the API coverage matrix, navigation
+and the architectural source map. Do not leave obsolete references behind.
 
 ## Review and validation
 

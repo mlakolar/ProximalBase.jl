@@ -39,10 +39,10 @@ end
 @noinline _exceptional_product(a::T, b::T, c::T) where {T<:AbstractFloat} = _scaled_product(a, b, c, 0)
 @inline _positive_product(a::Real, b::Real, c::Real) = _positive_product(promote(float(a), float(b), float(c))...)
 
-# Coefficients of separable functions: at every nonnegative level and step, including 0 and Inf,
-# an infinite weight selects an infinite coefficient and a zero weight selects
-# zero. Non-finite input values follow the caller's rule. Positive finite
-# scales keep the ordinary product order in entry loops.
+# Weights of separable functions: an infinite weight fixes the entry at zero,
+# at every level and step, and a zero weight leaves it unpenalized at every
+# level. These helpers keep the ordinary products of positive finite scales,
+# so that loops over entries are unchanged.
 
 # the coefficient s⋅w of an entry with the weight w ≥ 0 at the scale s ≥ 0 (a
 # level, or a step times a level); the test of s does not depend on the entry.
@@ -65,7 +65,7 @@ end
 @inline _weight_product(a::Real, b::Real, w::Real) = _weight_product(promote(float(a), float(b), float(w))...)
 
 # The same products rounded once to the destination type U, formed in the promotion of U and
-# the factors' types, so that a product that overflows or underflows the factors'
+# the factors' types (numerics T3), so that a product that overflows or underflows the factors'
 # type is still finite in U. For R == U the promotion and the conversion are no-ops.
 # A Bool factor (the weight `true` of an unweighted entry) does not widen the type.
 @inline _factor_type(a) = float(typeof(a))
@@ -85,7 +85,7 @@ end
   convert(S, ab * convert(R, w)), floatmin(R) <= ab <= floatmax(R)
 end
 # The coefficient and product of a KKT diagnostic in the gradient's element type T, rounded once. A
-# non-floating gradient (for example integers) uses the coefficient helper without a destination type.
+# gradient that is not floating point (integers) keeps the untyped value and type of the baseline.
 @inline _kkt_coefficient(::Type{T}, λ, w) where {T<:AbstractFloat} = _weight_coefficient(T, λ, w)
 @inline _kkt_coefficient(::Type, λ, w) = _weight_coefficient(λ, w)
 @inline function _weight_coefficient(::Type{U}, λ, w) where {U<:AbstractFloat}
@@ -129,7 +129,7 @@ end
 end
 
 # _scaled_product with the exponents summed in Int, for a power k that is the retained exponent of a
-# _ProjectionScale. That exponent is an Int that may already have wrapped; the Int sum is
+# _ProjectionScale (issue #767). That exponent is an Int that may already have wrapped; the Int sum is
 # taken modulo 2^64 too, so it returns the right exponent whenever the final one fits in Int. Widening
 # the wrapped k as if it were true would lose that.
 @inline function _scaled_product_retained(w::T, v::T, k::Integer) where {T<:AbstractFloat}
@@ -239,7 +239,7 @@ end
 
 ####################################
 #
-#  Values recomputed in power-of-two units
+#  Values recomputed in power-of-two units (R1)
 #
 ####################################
 
@@ -250,7 +250,7 @@ end
 @inline _max_exponent(::Type{R}) where {R} = exponent(floatmax(R))
 
 # w Σ mᵢ 2^eᵢ over finite mᵢ, for the terms of a value recomputed in different
-# power-of-two units. The terms are added from the largest exponent down
+# power-of-two units (R1). The terms are added from the largest exponent down
 # to an accumulator kept as a significand in [1/2, 1) and its own exponent,
 # renormalized after each addition, so terms that cancel do so before a
 # smaller term is aligned to what remains; the weight is applied last, with
@@ -343,7 +343,7 @@ _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_wei
 
 ####################################
 #
-#  Values as a significand and an exponent
+#  Values as a significand and an exponent (R1, "Wrappers")
 #
 ####################################
 
@@ -378,7 +378,7 @@ end
 
 ####################################
 #
-#  Values recomputed when an intermediate underflows
+#  Values recomputed when an intermediate underflows (R1, #520)
 #
 ####################################
 
@@ -611,7 +611,7 @@ _square_term_count(x) = length(x)
 _square_term_count(x::SparseArrays.AbstractSparseArray) = length(nonzeros(x))
 _square_multiplicity(x, i) = 1
 
-# Can an ordinary sum s of n squares in T be kept? Below n floatmin/eps a square may have
+# Can an ordinary sum s of n squares in T be kept (R1)? Below n floatmin/eps a square may have
 # underflowed and lost more than eps of the sum, and the scaled recomputation runs instead.
 @inline _squares_normal(s, n, ::Type{T}) where {T} = s >= n * (floatmin(T) / eps(T))
 
@@ -716,7 +716,7 @@ end
 # an infinite entry gives the Inf code unless a NaN follows, and zero entries are skipped. The largest exponent and
 # the zero code are those of the method above for entries whose precision is at most that of the arithmetic of R
 # (the IEEE types, and a BigFloat at its current precision). A BigFloat entry above the current precision gives the
-# exponent of the entry, which can differ by one from that of
+# exponent of the entry (as the _l2_scan of the code before the consolidation did), which can differ by one from that of
 # a - 0 rounded to the current precision: it is one less where that rounding carries into the next binade (v = 1 - 2^-258
 # stored at 768 bits, used at 256 bits).
 @inline _square_exponent(x, ::Nothing, ::Type{R}) where {R} = _square_exponent_scan(x, R)
@@ -768,7 +768,7 @@ end
   v + e
 end
 
-# The squared-residual kernel: Σ μᵢ (xᵢ - yᵢ)² = s 2^(2k) in R, so that the half sum is
+# The squared-residual kernel (R1): Σ μᵢ (xᵢ - yᵢ)² = s 2^(2k) in R, so that the half sum is
 # s 2^(2k-1). y === nothing stands for y = 0 and visits the stored entries of x only, each with its
 # logical multiplicity μᵢ (2 for an off-diagonal entry of a symmetric iterate). Every residual is
 # formed before it is scaled by 2^-k, k the exponent of the largest one, and the squares are summed
@@ -793,7 +793,7 @@ _square_type(λ, x, y) = promote_type(_valtype(x), y === nothing ? _valtype(x) :
 end
 
 # The k >= 0 for which n products of entries below 2^bound(ma) and 2^bound(mb), scaled by 2^-k, sum
-# below 2^(emax - margin) in R: the units of the recomputation of an overflowing dot.
+# below 2^(emax - margin) in R: the units of the recomputation of an overflowing dot (R1).
 @inline _product_sum_shift(::Type{R}, ma, mb, n, margin) where {R} =
   max(0, _bound_exponent(ma) + _bound_exponent(mb) + _log2_ceil(n) + margin - _max_exponent(R))
 
@@ -874,7 +874,7 @@ _recovery_type(types...) = promote_type(Float64, types...)
 
 # Can the ordinary sum s of n nonnegative terms be kept? NormL1 (n entries) and GroupNormL2 (n groups)
 # test their ordinary values with it; the argument below is stated for NormL1.
-# Products that round below floatmin. The value is a sum of n terms λ0 wᵢ |xᵢ| ≥ 0, each rounded
+# Products that round below floatmin (#373). The value is a sum of n terms λ0 wᵢ |xᵢ| ≥ 0, each rounded
 # once or twice (the coefficient, then the product with |xᵢ|); a coefficient out of the normal range is
 # formed by value_entry with one rounding, so the ordinary flag and these exact products leave only the
 # rounding of a term into the subnormal range (or to zero). That rounding loses at most δ/2 =
@@ -972,7 +972,7 @@ end
 
 # The exits that the parameters decide, in this order: an unpenalized group (w = 0, copied, with the zero-term code;
 # _l2_shrink! tests it before it calls this function), a group fixed at zero (an infinite weight, or an infinite level
-# at every nonnegative step, including zero), the identity (a zero level or step), a group fixed by an infinite step. The callers
+# at every nonnegative step, #665), the identity (a zero level or step), a group fixed by an infinite step. The callers
 # (_l2_shrink! and the loop of _group_prox_all! for a zero or infinite level or step) call it where w, λ or γ is zero or
 # infinite, so that a group that passes the first three exits has an infinite step.
 @inline function _l2_shrink_fixed!(y, x, G, λ, w, γ::Real)
@@ -1010,7 +1010,7 @@ end
 # is formed again in power-of-two units, as m 2^E from compensated sums accumulated in at least Float64
 # and a few rounded products, and rounded once to T. Within a few eps of the overflow threshold
 # floatmax + ulp/2 this does not decide on which side the exact value lies: the result may then be
-# floatmax or Inf; see the boundary qualifications in docs/src/numerics.md.
+# floatmax or Inf (#904).
 @inline _l2_ordinary(v, ::Type{T}) where {T} = v < floatmax(T) / 2
 
 # The term λw‖x[G]‖₂ of a value in T, given the norm s of x[G] from the shrinkage kernel, or one of the

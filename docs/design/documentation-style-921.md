@@ -9,20 +9,28 @@ tests and current manual pages.
 
 ## Baseline and scope
 
-The current public inventory contains **51 exported bindings**, **14 qualified
-public bindings**, and the module binding. `docs/check_api.jl` checks all 66
-against explicit grouped `@docs` entries, and checks the 65 operation/type
-bindings against the API coverage matrix. Qualified public names remain usable
-on Julia 1.10 even though the language-level `public` marker starts in 1.11.
+At the pinned audit baseline, the public inventory contained **51 exported
+bindings**, **14 qualified public bindings**, and the module binding: 66 explicit
+`@docs` entries and 65 operation/type coverage rows. After #937 retired the
+scalar observation-loss API, the current core has 51 exports, 8 qualified public
+bindings and the module (60 reference bindings, 59 operation/type rows).
+`docs/check_api.jl` checks the live inventory on each build. Qualified public
+names remain usable on Julia 1.10 even though the language-level `public`
+marker starts in Julia 1.11.
 
 The concrete array-function families are `ZeroFunction`, `LinearFunction`,
 `SqrNormL2`, `QuadraticFunction`, `LeastSquaresLoss`, `NormL1`, `ElasticNet`,
 `NormL2` and `GroupNormL2`; `Scaled` is their retained composition wrapper.
-The separate scalar interface retains `ProximalBase.Squared`. Iterates are
+At the pinned baseline, the separate scalar interface still contained
+`ProximalBase.Squared`; #937 subsequently removed that interface, its six
+docstrings and the six qualified public names. The retained iterates are
 `SparseIterate`, `SymmetricSparseIterate` and `BlockIterate`. The archived full
 package is not a source of additional current APIs.
 
-The reported issue baseline predates recent merges. At the pinned commit:
+The reported issue baseline predates recent merges. At the pinned commit
+there were **71** source docstrings; after #937 there are **65**, with the
+remaining functions and iterate types unchanged. The table below measures
+the pinned baseline, not current master:
 
 | Measure | Reproduced result |
 |:--|--:|
@@ -230,7 +238,8 @@ The audit identified current information that the rewrite must make easier
 to find:
 
 - Add a short function/oracle selection path for first use. Distinguish a
-  residual penalty, a regression loss, a general quadratic and a scalar loss.
+  residual penalty, a regression loss and a general quadratic without
+  recommending the retired scalar observation-loss interface.
 - Make numerical usage and the current contract discoverable to users while
   keeping design history separate from normative behavior.
 - Repair the unindented leading `prox_block` and `kkt_violation` signatures.

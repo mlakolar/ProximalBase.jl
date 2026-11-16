@@ -3,8 +3,7 @@
 *Assumes: gradients, convexity and basic Julia · You will learn: how to assemble a lasso objective, take a proximal-gradient step and run a short iteration.*
 
 Start with a loss and a regularizer, evaluate their operations, and assemble a
-proximal-gradient method. For a constructor or calling-convention lookup, see
-[Choose a function or operation](choosing.md).
+proximal-gradient method.
 
 ## Installation
 
@@ -143,7 +142,7 @@ argument; it does not promise zero allocations. ProximalBase puts the
 A gradient needs an output buffer separate from its input, while a proximal
 map permits exact in-place use. Other overlapping views are not supported.
 See [aliasing](glossary.md#Aliasing) and
-[the numerical usage contract](numerical_usage.md) for the precise rules.
+[array and precision conventions](numerical_usage.md) for the precise rules.
 
 ```@example getting_started
 gradbuf = similar(β)

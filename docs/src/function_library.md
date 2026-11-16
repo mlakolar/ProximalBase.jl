@@ -65,27 +65,6 @@ To learn what these operations compute, see
     - `LeastSquaresLoss(y, X)` represents
       ``\|y-X\beta\|^2/2`` as a function of coefficients ``\beta``.
       It also supplies array gradients and proximal operations.
-    - `ProximalBase.Squared()` evaluates just one prediction–observation
-      pair, ``(\eta-y)^2/2``, with scalar derivatives but **no array
-      proximal method**. The `ProximalBase.` prefix is required because
-      this name is not exported.
-
-## Scalar squared loss
-
-The [qualified-name convention](glossary.md#Exported-and-qualified-names)
-explains the module prefix. For functions of an individual **prediction** ``\eta`` and
-**observation** ``y``, ProximalBase also provides
-[`ProximalBase.Squared()`](@ref ProximalBase.Squared), representing
-
-```math
-\ell(\eta,y)=\frac12(\eta-y)^2.
-```
-
-It is called as `loss(η, y)`, not `f(x)`, and has the
-specialized `deriv`, `deriv2` and `value_and_deriv` operations.
-It is not a general array loss constructor or an automatic regression
-model. See [Scalar losses](scalar_losses.md) for the separate interface and
-[Squared loss](scalar_squared.md) for its mathematical definition and Julia example.
 
 ## Combining functions
 

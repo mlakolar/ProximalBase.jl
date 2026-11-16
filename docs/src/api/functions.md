@@ -13,6 +13,18 @@ ZeroFunction
 LinearFunction
 ```
 
+## Least-squares oracles at a supplied predictor or residual
+
+The qualified public names below evaluate a vector-response `LeastSquaresLoss`, or one `Scaled` of it,
+at a linear predictor or a residual that the caller has already formed. They are not exported.
+
+```@docs
+ProximalBase.value_from_predictor
+ProximalBase.value_and_gradient_from_predictor!
+ProximalBase.value_from_residual
+ProximalBase.leastsquares_data
+```
+
 ## Entrywise ℓ₁ norm and elastic net
 
 ```@docs

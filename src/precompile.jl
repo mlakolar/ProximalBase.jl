@@ -18,6 +18,16 @@ using PrecompileTools: @setup_workload, @compile_workload
           value_and_gradient!(y, f, x)
         end
       end
+      ls = LeastSquaresLoss(b, X)
+      oracle_losses = Any[ls, Scaled(ls, T(0.2))]
+      T === Float32 && push!(oracle_losses, Scaled(ls, 0.2))
+      z, r, d, gr = X * x, copy(b), similar(b), similar(x)
+      for f in oracle_losses
+        value_from_predictor(f, z)
+        value_and_gradient_from_predictor!(gr, d, f, z)
+        value_from_residual(f, r)
+        leastsquares_data(f)
+      end
       prox_block(NormL1(T(0.1)), x[1], 1, one(T))
       l2 = NormL2(T(0.1))
       l2(x); prox!(y, l2, x, one(T)); value_and_prox!(y, l2, x, one(T))

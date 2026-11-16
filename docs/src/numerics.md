@@ -76,6 +76,24 @@ recomputation sums the same exponent-separated terms when `d`, all coefficients 
 the argument are finite. Recovery is worthwhile when it changes a materially inaccurate
 answer into a representable result in the working precision.
 
+The squared-residual recomputation that `SqrNormL2` and the least-squares oracles share has the same kind of
+boundary uncertainty as the `NormL2` recomputation below: within a few eps (the relative error bound of the sum) of
+the overflow threshold `floatmax(T) + ulp/2`, where `ulp` is the spacing between `floatmax(T)` and its predecessor, it
+does not decide on which side the exact value lies, so a finite answer there is within the error bound of the exact
+value and `floatmax(T)` or `Inf` can be returned for a value that rounds to the other. This was observed for
+`SqrNormL2`, `Scaled(LeastSquaresLoss, α)(β)` and the oracles of the
+[least-squares section](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds).
+
+The `LeastSquaresLoss` value has one more recovery, which needs `β`: where the product `Xβ` overflows
+although `β`, `X` and `Y` are finite, `f(β)` and `value_and_gradient!` attempt to form `Xβ` again in units of a power of
+two, without recovering every representable value (the smooth-functions guide gives a counterexample). The oracles at a caller-supplied predictor or residual (`ProximalBase.value_from_predictor` and the others
+described with the [smooth functions](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds))
+take the predictor `z` as given, without `β`: they recover a value whose squares overflow or underflow and, for the
+value alone, a difference `z - Y` that overflows, and a predictor with a non-finite entry gives a non-finite value.
+For strided `Float32` and `Float64` vectors, these oracles, `f(β)` and `value_and_gradient!` also recompute a value
+whose ordinary computation `α s / 2` is above `floatmax(T)/2`, so that the error of the ordinary sum of squares, which grows with
+the length, does not decide between a finite value and `Inf`.
+
 The accuracy of a recovered value is an absolute bound `B = 4 n eps (sum |terms| + |d|)` for
 `n` terms. It is a statement about the computed value when the exact value plus `B` is within
 the range (`|exact| + B <= floatmax`). When `B`

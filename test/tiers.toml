@@ -15,6 +15,7 @@ quick = [
   "iterate_invariants",
   "iterate_queries",
   "iterate_writes",
+  "leastsquares_predictor",
   "linear_shapes",
   "linear_sparse_value",
   "linear_value_recovery",

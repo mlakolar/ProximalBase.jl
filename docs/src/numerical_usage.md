@@ -64,7 +64,7 @@ arithmetic and recovery unless they explicitly adopt these conventions.
 | Object or call | Ownership rule |
 |:--|:--|
 | Built-in function array parameters/data | Usually retained by reference; copy at construction if you need independence |
-| `LeastSquaresLoss` / `QuadraticFunction` | Own scratch and lazy decomposition caches; no concurrent reuse without synchronization |
+| `LeastSquaresLoss` / `QuadraticFunction` | Own scratch and lazy decomposition caches; the calls that write them (for `LeastSquaresLoss`: `f(β)`, `gradient!`, `value_and_gradient!` and the proximal operators) are not safe to run concurrently on one object without synchronization. The least-squares oracles at a supplied predictor or residual write no field of the loss ([smooth functions](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds)) |
 | `Scaled` | Retains the inner object, scratch and parameters |
 | Iterate `copy` | Independent mutable values and active state; `BlockIterate` layout shared, immutable in use |
 | Coordinate / block / matrix views | Live aliases; only `matrixview` is read-only |

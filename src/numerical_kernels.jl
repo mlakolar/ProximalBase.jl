@@ -543,6 +543,7 @@ end
 real entries.
 """
 function norm_diff(A::AbstractArray, B::AbstractArray, p::Real = 2)
+  _check_one_based(A, B)
   eltype(A) <: Real && eltype(B) <: Real || _real_error(:norm_diff)
   size(A) == size(B) || throw(DimensionMismatch())
   T = float(promote_type(eltype(A), eltype(B)))
@@ -1203,7 +1204,7 @@ an eigenspace orthogonal to its deterministic starting vector. Algorithms
 requiring a guaranteed bound should use an independently known bound (for
 example `opnorm(X, 1) * opnorm(X, Inf)`) or a suitable line search.
 """
-opnorm2(X::AbstractMatrix{<:Real}) = _opnorm2(X)
+opnorm2(X::AbstractMatrix{<:Real}) = (_check_one_based(X); _opnorm2(X))
 
 function _opnorm2(X::AbstractMatrix, w = nothing)
   T = float(eltype(X))

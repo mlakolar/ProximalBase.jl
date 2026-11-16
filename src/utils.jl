@@ -50,9 +50,12 @@ _checknonneg(name, ::Nothing) = true
 Base.@propagate_inbounds _entry(w::AbstractArray, i::Integer) = w[i]
 @inline _entry(::Nothing, ::Integer) = true
 
-# a parameter array has an entry for every entry of x
+# a parameter array has an entry for every entry of x; it and x, when x is an array, have one-based axes
 _checkparam(::Union{Nothing, Real}, x) = true
-_checkparam(w::AbstractArray, x) = length(w) == length(x) || _parameter_length_mismatch(length(w), length(x))
+function _checkparam(w::AbstractArray, x)
+  _check_one_based(w, x)
+  length(w) == length(x) || _parameter_length_mismatch(length(w), length(x))
+end
 @noinline _parameter_length_mismatch(nw, nx) =
   throw(DimensionMismatch("a parameter array has length $nw and the argument has length $nx"))
 
@@ -78,6 +81,20 @@ _value_at(v, x) = convert(_valtype(x), v)
 _checkreal(f, x) = eltype(x) <: Real || _real_error(nameof(typeof(f)))
 @generated _checkreal(f, x::Tuple) = _blockwise(k -> :(_checkreal(f, x[$k])), fieldcount(x), true)
 @noinline _real_error(name) = throw(ArgumentError("$name requires real entries"))
+
+# The arrays that built-in code reads by position (under @inbounds, or in loops over 1:n) start at index 1.
+# An argument that is an AbstractArray, or a block of a tuple (nested tuples included), is checked by
+# Base.require_one_based_indexing, an ArgumentError; anything else passes, including numbers, nothing and a
+# SymmetricSparseIterate (whose axes are not defined). The check calls axes and reads no entry. It returns true.
+@inline _check_one_based(args...) = (_check_one_based_each(args...); true)
+@inline _check_one_based_each() = nothing
+@inline function _check_one_based_each(a, rest...)
+  _one_based_arg(a)
+  _check_one_based_each(rest...)
+end
+@inline _one_based_arg(a) = nothing
+@inline _one_based_arg(a::AbstractArray) = Base.require_one_based_indexing(a)
+@generated _one_based_arg(a::Tuple) = _blockwise(k -> :(_one_based_arg(a[$k])), fieldcount(a), nothing)
 
 # A buffer of zeros of type T and size dims, next to the array a: an Array,
 # and a device array of the type of a GPU array a (see the GPU extension).

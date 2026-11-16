@@ -65,6 +65,8 @@ mutable struct BlockIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <
   position::Vector{Int}    # position[k] is the index of group k in active, 0 if it is inactive
   nactive::Int
   function BlockIterate{T, G}(storage, groups, group_of, layout_cache, active, position, nactive) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}}
+    _check_one_based_groups(groups)
+    _check_one_based(storage, group_of, active, position)
     T <: Real || _real_error(:BlockIterate)
     new{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
   end
@@ -108,10 +110,20 @@ function _BlockIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}) whe
   x
 end
 
+# the list of groups and each group have axes that start at 1 (the groups are read by position under @inbounds)
+function _check_one_based_groups(groups)
+  _check_one_based(groups)
+  for G in groups
+    _check_one_based(G)
+  end
+  true
+end
+
 # an owned copy of the groups, with a concrete element type: ranges are kept and
 # other collections of indices become Vector{Int}s, so that loops over a group
 # do not dispatch on its type
 function _own_groups(groups::AbstractVector{<:AbstractVector{<:Integer}})
+  _check_one_based_groups(groups)
   R = eltype(groups)
   isconcretetype(R) && R <: AbstractRange ? Vector{R}(groups) : [Vector{Int}(G) for G in groups]
 end
@@ -501,6 +513,7 @@ end
 LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::BlockIterate) =
   mul!(out, A, x, true, false)
 function LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::BlockIterate, α::Number, β::Number)
+  _check_one_based(out, A)
   _checkreal(x, out); _checkreal(x, A); _checkreal(x, α); _checkreal(x, β)
   size(A, 2) == length(x) || throw(DimensionMismatch("A has second dimension $(size(A, 2)), length of x is $(length(x))"))
   size(A, 1) == length(out) || throw(DimensionMismatch("A has first dimension $(size(A, 1)), length of out is $(length(out))"))
@@ -525,6 +538,7 @@ end
 LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::BlockIterate) =
   mul!(out, A, x, true, false)
 function LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::BlockIterate, α::Number, β::Number)
+  _check_one_based(out, A)
   _checkreal(x, out); _checkreal(x, A); _checkreal(x, α); _checkreal(x, β)
   length(x) == size(A, 2) && length(out) == size(A, 1) || throw(DimensionMismatch())
   _scale_product_output!(out, β)
@@ -542,6 +556,7 @@ end
 # sparse vectors. A zero entry of x contributes nothing, even against ±Inf or
 # NaN in v (numerics M1), and so does a zero of v when v is an iterate too.
 function LinearAlgebra.dot(v::Union{StridedVector, SparseIterate{<:Any, 1}, BlockIterate}, x::BlockIterate)
+  _check_one_based(v)
   _checkreal(x, v)
   length(v) == length(x) || throw(DimensionMismatch())
   s = zero(promote_type(eltype(v), eltype(x)))
@@ -559,10 +574,12 @@ _block_view_storage(v::SubArray{<:Real, 1, <:BlockIterate}) =
   @inbounds view(parent(v).storage, parentindices(v)...)
 LinearAlgebra.norm(v::SubArray{<:Real, 1, <:BlockIterate}) = norm(_block_view_storage(v))
 LinearAlgebra.norm(v::SubArray{<:Real, 1, <:BlockIterate}, p::Real) = norm(_block_view_storage(v), p)
-LinearAlgebra.dot(v::SubArray{<:Real, 1, <:BlockIterate}, w::StridedVector) = dot(_block_view_storage(v), w)
-LinearAlgebra.dot(v::StridedVector, w::SubArray{<:Real, 1, <:BlockIterate}) = dot(v, _block_view_storage(w))
+LinearAlgebra.dot(v::SubArray{<:Real, 1, <:BlockIterate}, w::StridedVector) =
+  (_check_one_based(v, w); dot(_block_view_storage(v), w))
+LinearAlgebra.dot(v::StridedVector, w::SubArray{<:Real, 1, <:BlockIterate}) =
+  (_check_one_based(v, w); dot(v, _block_view_storage(w)))
 LinearAlgebra.dot(v::SubArray{<:Real, 1, <:BlockIterate}, w::SubArray{<:Real, 1, <:BlockIterate}) =
-  dot(_block_view_storage(v), _block_view_storage(w))
+  (_check_one_based(v, w); dot(_block_view_storage(v), _block_view_storage(w)))
 
 
 function Base.show(io::IO, ::MIME"text/plain", x::BlockIterate)

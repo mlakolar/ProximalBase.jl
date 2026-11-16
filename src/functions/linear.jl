@@ -48,6 +48,7 @@ struct LinearFunction{C<:AbstractArray, D<:Real} <: AbstractFunction
   c::C
   d::D
   function LinearFunction{C, D}(c, d) where {C<:AbstractArray, D<:Real}
+    _check_one_based(c)
     eltype(c) <: Real || _real_error(:LinearFunction)
     new{C, D}(c, d)
   end
@@ -350,7 +351,8 @@ _gradient_unchecked!(g::_ArrayOrSymmetricIterate, f::LinearFunction, x::_ArrayOr
   (_checkwrite(gradient!, f, g, x); _copy_parameter!(g, f.c))
 
 Base.@propagate_inbounds prox_block(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
-kkt_violation(f::LinearFunction, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] + f.c[i]))
+kkt_violation(f::LinearFunction, g::AbstractArray, i::Integer) =
+  (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] + f.c[i]))
 restrict(f::LinearFunction, S::AbstractVector{<:Integer}) = LinearFunction(f.c[S], f.d)
 
 

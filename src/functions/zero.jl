@@ -20,9 +20,9 @@ isconvex(::Type{ZeroFunction}) = true
 iszeropreserving(::ZeroFunction) = true
 _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)},
             f::ZeroFunction, y::_ArrayOrSymmetricIterate, x::_ArrayOrSymmetricIterate) =
-  (_checkreal(f, x); _checkreal(f, y); (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checksize(y, x); true)
+  (_check_one_based(y, x); _checkreal(f, x); _checkreal(f, y); (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checksize(y, x); true)
 
-(f::ZeroFunction)(x::AbstractArray) = (_checkreal(f, x); zero(_valtype(x)))
+(f::ZeroFunction)(x::AbstractArray) = (_check_one_based(x); _checkreal(f, x); zero(_valtype(x)))
 # the value at a symmetric iterate, which a wrapper of ZeroFunction needs (its other oracles at a symmetric iterate are the proximal operator)
 (f::ZeroFunction)(x::SymmetricSparseIterate) = (_checkreal(f, x); zero(_valtype(x)))
 
@@ -52,7 +52,8 @@ end
 gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray) = (_value_and_gradient_unchecked!(g, f, x); g)
 
 prox_block(::ZeroFunction, v::Real, ::Integer, ::Real) = v
-kkt_violation(::ZeroFunction, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]))
+kkt_violation(::ZeroFunction, g::AbstractArray, i::Integer) =
+  (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]))
 restrict(f::ZeroFunction, ::AbstractVector{<:Integer}) = f
 
 

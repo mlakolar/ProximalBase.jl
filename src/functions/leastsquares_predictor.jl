@@ -118,8 +118,9 @@ entries gives an infinite entry of `d`, a non-finite value and, when `size(X, 2)
 entries; `value_from_predictor` recovers the value in that case. The value sums the squares of `d`, and
 `value_from_predictor` those of the differences `z - Y`; the two are not promised to agree in the last bits.
 
-Checks before any write: lengths and axes (`DimensionMismatch`); `g`, `d` and both axes of a nonempty `X` starting at
-index 1 (the product with `Xᵀ` refuses offset axes), the factor, and the overlap of the outputs (`ArgumentError`). `d` must not overlap `g`, `X`, `Y`, `z` or `f.tmp`, and `g`
+Checks before any write: lengths and axes (`DimensionMismatch`), which include `z` and `d` having the axes of `Y`;
+`g` and a nonempty `X` starting at index 1 (the product with `Xᵀ` refuses offset axes; the loss constructor already
+requires it of `X`), the factor, and the overlap of the outputs (`ArgumentError`). `d` must not overlap `g`, `X`, `Y`, `z` or `f.tmp`, and `g`
 must not overlap `X`, `Y`, `z` or `f.tmp`, as `Base.mightalias` decides for nonempty arrays; memory shared in ways
 that `mightalias` does not detect is a precondition on the caller. On any error `g`, `d` and `f.tmp` are unchanged.
 

@@ -11,7 +11,7 @@ contain only zeros until `dropzeros!` removes it.
 
 ## Construction and partitions
 
-Use `BlockIterate([T,]p,groups)` for empty storage or
+Use `BlockIterate([T,] p, groups)` for empty storage or
 `BlockIterate(x::AbstractVector,groups)` to copy entry values. `T` defaults
 to `Float64`. A copied input starts with the groups containing a converted
 nonzero entry active, in group order. Real element types are required.
@@ -23,11 +23,11 @@ An out-of-domain index, duplicate, empty group, gap or overlap throws
 the order used by compact block buffers. Vector groups are copied into owned
 `Vector{Int}` arrays. Homogeneous concrete range groups keep their range type.
 
-`BlockIterate([T,]p,K)` and `BlockIterate(x,K)` divide the entries into `K`
+`BlockIterate([T,] p, K)` and `BlockIterate(x,K)` divide the entries into `K`
 equal contiguous groups; `K` must be positive and divide the entry length.
 A group partition describes how variables are **stored and updated**; it
 is not itself a penalty or regularization function. Pass groups as indices,
-or use `BlockIterate(x, f)` / `BlockIterate([T,]p, f)` with a
+or use `BlockIterate(x, f)` / `BlockIterate([T,] p, f)` with a
 [`GroupNormL2`](@ref) penalty to copy its groups. Those groups must partition
 the full iterate, even though a penalty can leave entries unpenalized.
 `NormL1` remains an entrywise mathematical function.
@@ -103,7 +103,7 @@ member's **global entry index**, then copy the resulting compact vector into
 The [extension example](examples/block_prox_extension.md) checks the layout
 explicitly and keeps the numerical and storage writes separate.
 
-## Copies, broadcasting and products
+## Copies and broadcasting
 
 | Operation | Working-set effect |
 |:--|:--|

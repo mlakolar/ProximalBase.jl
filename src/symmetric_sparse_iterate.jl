@@ -4,9 +4,13 @@
 #
 ####################################
 
-SymmetricSparseIterate(n::Int) = SymmetricSparseIterate(Float64, n)
-function SymmetricSparseIterate(::Type{T}, n::Int) where {T}
+SymmetricSparseIterate(n::Integer) = SymmetricSparseIterate(Float64, n)
+function SymmetricSparseIterate(::Type{T}, n::Integer) where {T}
   n >= 0 || throw(ArgumentError("the dimension must be nonnegative, got $n"))
+  _symmetric_sparse_iterate(T, Int(n))
+end
+
+function _symmetric_sparse_iterate(::Type{T}, n::Int) where {T}
   _t = div(n*(n+1), 2)
   SymmetricSparseIterate{T}(zeros(T, _t), zeros(Int, _t), zeros(Int, _t), 0, n)
 end

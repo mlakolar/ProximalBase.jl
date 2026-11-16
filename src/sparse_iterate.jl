@@ -4,10 +4,13 @@
 #
 ####################################
 
-SparseIterate(n::Int) = SparseIterate(Float64, n)
-SparseIterate(::Type{T}, n::Int) where {T} = SparseIterate{T, 1}(zeros(T, n), zeros(Int, n), zeros(Int, n), 0)
-SparseIterate(n::Int, m::Int) = SparseIterate(Float64, n, m)
-SparseIterate(::Type{T}, n::Int, m::Int) where {T} = SparseIterate{T, 2}(zeros(T, n*m), zeros(Int, n*m), zeros(Int, n, m), 0)
+SparseIterate(n::Integer) = SparseIterate(Float64, n)
+SparseIterate(::Type{T}, n::Integer) where {T} = _sparse_iterate(T, Int(n))
+SparseIterate(n::Integer, m::Integer) = SparseIterate(Float64, n, m)
+SparseIterate(::Type{T}, n::Integer, m::Integer) where {T} = _sparse_iterate(T, Int(n), Int(m))
+
+_sparse_iterate(::Type{T}, n::Int) where {T} = SparseIterate{T, 1}(zeros(T, n), zeros(Int, n), zeros(Int, n), 0)
+_sparse_iterate(::Type{T}, n::Int, m::Int) where {T} = SparseIterate{T, 2}(zeros(T, n*m), zeros(Int, n*m), zeros(Int, n, m), 0)
 
 Base.length(x::SparseIterate) = length(x.ind2nzval)
 Base.size(x::SparseIterate) = size(x.ind2nzval)
@@ -374,8 +377,8 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIt
   iszero(α) && return out
   scale = _product_scale(A, coef, α)
   # Few coefficients: visit stored entries. Many: sweep columns, reading A in order.
-  # The 1/32 density cutoff is an across-CPU compromise; historical measurements
-  # and alternatives are recorded in docs/design/iterate-product-notes-921.md.
+  # No fixed cutoff is best on every CPU; measurements of 1/32 and alternatives
+  # are recorded in docs/design/iterate-product-notes-921.md.
   if 32 * nactive(coef) <= length(coef)
     p = size(coef, 1)
     @inbounds for inz = 1:nactive(coef)
@@ -692,8 +695,8 @@ A zero coefficient of `X`, stored or absent, contributes nothing even against
 zeros in `A` and `B` keep ordinary IEEE behavior. The result can therefore
 differ from `A * Matrix(X) * B` on non-finite inputs.
 
-Finite three-factor terms recover intermediate range loss, without promising
-correct rounding. Terms are summed in storage order; a non-finite sum is
+Finite three-factor terms avoid spurious intermediate overflow or underflow,
+without promising correct rounding. Terms are summed in storage order; a non-finite sum is
 recomputed only when all contributing factors are finite. See
 [three-factor products](@ref three-factor-products) for the precise rounding,
 range-boundary and cancellation guarantees. Mixed and generic product methods

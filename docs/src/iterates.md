@@ -130,7 +130,7 @@ matching shapes/layouts of the same kind copy working-set state.
 For failure-atomic conversion, stage an independent correctly typed result
 and then use a supported state copy. A same-kind state copy preconverts
 fallible stored values. A symmetric iterate's matrix import has a separate
-[validation and conversion policy](symmetric_sparse_iterate.md#Copying-state-versus-importing-a-matrix),
+[validation and conversion policy](@ref symmetric-copy-import),
 and an orthogonal factor uses the [staged matrix-copy path](@ref sparse-orthogonal-copy).
 
 ## Supported products
@@ -156,8 +156,9 @@ aliasing. The symmetric iterate methods explicitly reject overlapping output/inp
 Here `s` counts stored coefficients; active blocks can contain several entries.
 The direct three-factor guarantee requires all three element types to match.
 Other matching-type Symmetric wrappers use a restricted/dense route; mixed
-types use generic/dense multiplication. See [numerics](numerics.md) for the
-three-factor range and summation guarantees.
+types use generic/dense multiplication. See
+[three-factor products](@ref three-factor-products) for the direct method's
+range and summation guarantees.
 
 `dot(c, X)` for a matrix `SparseIterate` `X` and a dense `c` that is not a `Diagonal` is the
 generic `dot`, which visits all `mn` positions; it is not in the table. The value of a
@@ -198,8 +199,9 @@ promised. Within that margin of the overflow threshold or of half the smallest
 subnormal, a term can fall on either side of the boundary: the neighbor of
 `floatmax(T)` is `Inf`, and the neighbor of zero is the smallest subnormal.
 Beyond that margin, whether a term overflows or underflows is determined by
-its exact value, not by an intermediate partial product. For example, `2^600 * 2^600 * 2^-600` and its underflow
-mirror are evaluated exactly when the powers are `Float64` values.
+its exact value, not by an intermediate partial product. For example,
+`2^600 * 2^600 * 2^-600` and its underflow mirror are evaluated exactly
+when the powers are `Float64` values.
 
 **Summation.** Terms are added in the storage order of `X`, in precision `T`.
 For a symmetric coordinate `(r,c)`, its `(r,c)` term precedes the `(c,r)`

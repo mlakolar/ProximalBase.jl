@@ -46,7 +46,8 @@ Pair bounds are checked before narrowing other integer types, with a
 `BoundsError` for an invalid pair. `ncoordinates(x)` is q, `nactive(x)` counts
 stored independent variables, and `isactive/activate!` take independent IDs.
 The direct constructor `SymmetricSparseIterate([T,]p)` accepts nonnegative
-Int dimensions, with `Float64` as the default element type.
+nonnegative `Integer` dimensions (converted to `Int` internally), with
+`Float64` as the default element type.
 
 ## The live views and dense copy
 
@@ -85,7 +86,7 @@ slot, keep their old extent and must be reacquired after activation,
 compaction or whole-state replacement. Coordinate/matrix views instead keep
 a stable index mapping for the symmetric iterate's lifetime.
 
-## Copying state versus importing a matrix
+## [Copying state versus importing a matrix](@id symmetric-copy-import)
 
 `copy(x)` preserves active zeros and slot order independently. `similar(x)`
 and `similar(x,T)` allocate an empty symmetric iterate of the same dimension.

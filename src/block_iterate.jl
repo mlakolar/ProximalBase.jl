@@ -9,16 +9,19 @@
     BlockIterate(x::AbstractVector, groups)
     BlockIterate([T = Float64,] p, num_groups::Integer)
     BlockIterate(x::AbstractVector, num_groups::Integer)
+    BlockIterate([T = Float64,] p, f::GroupNormL2)
+    BlockIterate(x::AbstractVector, f::GroupNormL2)
 
 A real vector whose optimization coordinates are ordered groups of entries.
 The nonempty, disjoint groups must partition `1:p`; ranges and reordered
 index vectors are supported. An integer group count divides the entries into
 equal contiguous groups and must be positive and divide the entry length.
 
-`x[j]` indexes an entry; [`ncoordinates`](@ref), [`activate!`](@ref),
+`x[j]` indexes an entry; [`ncoordinates`](@ref) gives the group count,
+[`nactive`](@ref) counts active groups, and [`activate!`](@ref),
 [`isactive`](@ref) and [`activecoordinates`](@ref) use group IDs. A nonzero
-entry activates its group. Zero writes preserve activity; [`dropzeros!`](@ref)
-removes all-zero active groups. [`blockview`](@ref) gives a writable alias in
+entry activates its group. Zero writes preserve activity;
+[`dropzeros!(::BlockIterate)`](@ref) removes all-zero active groups. [`blockview`](@ref) gives a writable alias in
 stored group order, and [`blockindices`](@ref) gives its read-only indices.
 Entry access and group activation cost O(1); storage costs O(p + length(groups)).
 

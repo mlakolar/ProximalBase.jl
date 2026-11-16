@@ -24,8 +24,9 @@ The reported crossover density for `Float64` and random entry order was:
 Measurements covered Apple M3, AMD Zen 3 and Intel Skylake-SP. Crossovers
 were larger for `Float32` and differed by a factor of two or more among CPUs.
 No constant was best everywhere. Averaged over densities of 0.5–50%, the
-reported cost of the `1/32` threshold was 2.5–5% relative to the faster
-traversal, compared with 1–3% for the best constant (`1/16`). A cutoff in
+reported cost for `1/32` was 2.5–5%, compared with 1–3% for the best
+constant (`1/16`). The original comment does not specify a comparison
+baseline for these percentages. A cutoff in
 bytes, `min(1/8, 256/(m*sizeof(T)))`, cost 0.6–1.5%; it was not adopted
 because its gain over the best constant was under two percentage points.
 

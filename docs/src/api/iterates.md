@@ -56,7 +56,9 @@ tril_cartesian
 
 These methods require matching `Float32`/`Float64` and `Symmetric` wrappers of strided
 factors for their direct numerical guarantee. Mixed/generic methods have the
-narrower guarantees described in [numerics](../numerics.md).
+narrower guarantees described under
+[three-factor products](@ref three-factor-products) and
+[numerics](../numerics.md).
 
 ```@docs
 Base.:*(::LinearAlgebra.Symmetric{T, <:StridedMatrix{T}}, ::SparseIterate{T, 2}, ::LinearAlgebra.Symmetric{T, <:StridedMatrix{T}}) where {T<:Union{Float32, Float64}}

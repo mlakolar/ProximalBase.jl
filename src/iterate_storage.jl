@@ -9,8 +9,9 @@ costs O(1); reserved storage costs O(length(x)), even when few entries are
 active.
 
 A nonzero write activates its coordinate. A zero write preserves existing
-activity; [`activate!`](@ref) stores an explicit zero and [`dropzeros!`](@ref)
-removes active zeros. [`nactive`](@ref) counts stored coordinates, including
+activity; [`activate!`](@ref) stores an explicit zero and
+[`dropzeros!(::Union{SparseIterate, SymmetricSparseIterate})`](@ref) removes
+active zeros. [`nactive`](@ref) counts stored coordinates, including
 zeros. [`coordinates`](@ref) exposes all entries, while
 [`activecoordinates`](@ref) and [`activevalues`](@ref) expose the working set.
 
@@ -66,7 +67,9 @@ broadcasting or one-index `x[k]` access.
 
 Nonzero writes activate a coordinate; zero writes retain existing activity.
 [`activate!`](@ref) stores an explicit zero, [`nactive`](@ref) counts active
-independent variables, and [`dropzeros!`](@ref) removes active zeros.
+independent variables, and
+[`dropzeros!(::Union{SparseIterate, SymmetricSparseIterate})`](@ref) removes
+active zeros.
 
 # Examples
 ```jldoctest
@@ -86,7 +89,8 @@ true
   conversion. It replaces activity with converted nonzeros. Use
   `Symmetric(A, :L)` to select one triangle deliberately.
 - `copyto!(x, A)` rejects a source sharing memory with `x`. Shape, symmetry
-  and alias checks precede writes; a failing conversion can partially write.
+  and alias checks precede writes; a failing conversion can occur **after the
+  old active state has been cleared**, leaving a partially imported state.
 
 See the [symmetric-iterate guide](@ref symmetric-iterate-guide) for comparisons,
 matrix geometry and supported operations, and
@@ -285,12 +289,15 @@ end
 
 Make a coordinate active and return `x`, without changing its value. An absent
 scalar coordinate is stored as an explicit zero. For a [`BlockIterate`](@ref),
-`k` is a group ID and the group's entries are kept. An already active
-coordinate is unchanged.
+`k` is a group ID and the group's entries are kept. For a
+[`SymmetricSparseIterate`](@ref), `k` is an independent lower-triangle
+coordinate number such as `tril_index(p, r, c)`, not a matrix linear index.
+An already active coordinate is unchanged.
 
 Assigning zero to an absent coordinate does not activate it. Use this operation
-to retain zero coordinates for a solver's next sweep; [`dropzeros!`](@ref)
-removes them when they are no longer needed.
+to retain zero coordinates for a solver's next sweep;
+[`dropzeros!(::Union{SparseIterate, SymmetricSparseIterate})`](@ref) or
+[`dropzeros!(::BlockIterate)`](@ref) removes them when they are no longer needed.
 
 # Examples
 ```jldoctest
@@ -311,13 +318,15 @@ end
 
 Remove active zero coordinates and return `x`, preserving all mathematical
 values. For a [`SymmetricSparseIterate`](@ref), coordinates are independent
-lower-triangle variables. Signed zeros are removed; `NaN` and infinities are
-kept.
+lower-triangle variables. Signed zeros, including stored `-0.0`, are
+removed; afterward an absent coordinate reads `+0.0`. Thus mathematical values
+are preserved, but `isequal` can distinguish the old active `-0.0` from the
+new absent coordinate. `NaN` and infinities are kept.
 
 Compaction may reorder active slots. Reacquire [`activecoordinates`](@ref) and
 [`activevalues`](@ref) afterward. Old handles are live, fixed-length views:
 after compaction they can expose stale or reordered entries, not a snapshot.
-The cost is O(nactive(x)) before compaction.
+The cost is O(nactive(x)), counted before compaction.
 
 # Examples
 ```jldoctest

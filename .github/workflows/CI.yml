@@ -80,6 +80,10 @@ jobs:
       - uses: julia-actions/cache@v3
       - name: Lint authored Markdown and generated contract sources
         run: python3 docs/check_markdown.py
+      - name: Check that source comments cite no numerical rule labels
+        run: |
+          julia --startup-file=no docs/check_source_labels.jl --self-test
+          julia --startup-file=no docs/check_source_labels.jl
       - name: Verify direct docs instantiation uses this checkout (Julia 1.11+)
         run: |
           julia --project=docs -e 'using Pkg; Pkg.instantiate(); @assert realpath(Base.find_package("ProximalBase")) == realpath("src/ProximalBase.jl")'

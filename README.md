@@ -58,7 +58,7 @@ blocks; the code does not solve the full optimization problem.
 ## Available functionality
 
 The [function library](docs/src/function_library.md) covers
-`LeastSquaresLoss`, `SqrNormL2`, `QuadraticFunction`,
+`LeastSquaresLoss`, `SqrtLeastSquaresLoss`, `SqrNormL2`, `QuadraticFunction`,
 `ZeroFunction`, `LinearFunction`, `NormL1`, `ElasticNet`, `NormL2`,
 `GroupNormL2` and `Scaled`.
 The [iterate guide](docs/src/iterates.md) covers

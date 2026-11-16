@@ -28,6 +28,15 @@ using PrecompileTools: @setup_workload, @compile_workload
         value_from_residual(f, r)
         leastsquares_data(f)
       end
+      sq = SqrtLeastSquaresLoss(b, X)
+      sqrt_losses = Any[sq, Scaled(sq, T(0.2))]
+      T === Float32 && push!(sqrt_losses, Scaled(sq, 0.2))
+      for f in sqrt_losses
+        f(x)
+        value_from_predictor(f, z)
+        value_from_residual(f, r)
+        leastsquares_data(f)
+      end
       prox_block(NormL1(T(0.1)), x[1], 1, one(T))
       l2 = NormL2(T(0.1))
       l2(x); prox!(y, l2, x, one(T)); value_and_prox!(y, l2, x, one(T))

@@ -11,16 +11,20 @@ tests and current manual pages.
 
 At the pinned audit baseline, the public inventory contained **51 exported
 bindings**, **14 qualified public bindings**, and the module binding: 66 explicit
-`@docs` entries and 65 operation/type coverage rows. After #937 retired the
-scalar observation-loss API, the current core has 51 exports, 8 qualified public
+`@docs` entries and 65 operation/type coverage rows. Immediately after #937 retired the
+scalar observation-loss API, the core had 51 exports, 8 qualified public
 bindings and the module (60 reference bindings, 59 operation/type rows).
-`docs/check_api.jl` checks the live inventory on each build. Qualified public
+Later #957 and #961 added `NormLinf` and `SqrtLeastSquaresLoss`. These are not
+part of the pinned baseline; `docs/check_api.jl` checks the live inventory
+on every build rather than treating the old counts as current. Qualified public
 names remain usable on Julia 1.10 even though the language-level `public`
 marker starts in Julia 1.11.
 
-The concrete array-function families are `ZeroFunction`, `LinearFunction`,
-`SqrNormL2`, `QuadraticFunction`, `LeastSquaresLoss`, `NormL1`, `ElasticNet`,
-`NormL2` and `GroupNormL2`; `Scaled` is their retained composition wrapper.
+At the audit baseline, the concrete array-function families were
+`ZeroFunction`, `LinearFunction`, `SqrNormL2`, `QuadraticFunction`,
+`LeastSquaresLoss`, `NormL1`, `ElasticNet`, `NormL2` and `GroupNormL2`;
+`Scaled` was their composition wrapper. The current core additionally has
+`NormLinf` and `SqrtLeastSquaresLoss`.
 At the pinned baseline, the separate scalar interface still contained
 `ProximalBase.Squared`; #937 subsequently removed that interface, its six
 docstrings and the six qualified public names. The retained iterates are
@@ -28,9 +32,9 @@ docstrings and the six qualified public names. The retained iterates are
 package is not a source of additional current APIs.
 
 The reported issue baseline predates recent merges. At the pinned commit
-there were **71** source docstrings; after #937 there are **65**, with the
-remaining functions and iterate types unchanged. The table below measures
-the pinned baseline, not current master:
+there were **71** source docstrings; immediately after #937 there were **65**.
+The newer functions added more docstrings. The table below measures only
+the pinned baseline, not today's moving master:
 
 | Measure | Reproduced result |
 |:--|--:|

@@ -9,11 +9,13 @@ step selection and stopping rule.
 | Your model term | Use | What to check |
 |:--|:--|:--|
 | Squared regression error, `sum(abs2, X*β - y)/2` | [`LeastSquaresLoss(y, X)`](@ref LeastSquaresLoss) | Response first; use `Scaled(LeastSquaresLoss(y, X), 1/size(X, 1))` for the mean loss |
+| Square-root regression error, `norm(y - X*β)` | [`SqrtLeastSquaresLoss(y, X)`](@ref SqrtLeastSquaresLoss) | Convex but not smooth; value and supplied-predictor/residual oracles, **no gradient or prox** in this core |
 | Squared distance or ridge penalty, `λ*sum(abs2, x - y)/2` | [`SqrNormL2(λ, y)`](@ref SqrNormL2) | Omit the center for ridge at zero |
 | General quadratic, `x' * A * x / 2 + b' * x + c` | [`QuadraticFunction(A, b, c)`](@ref QuadraticFunction) | `A` must be symmetric (not checked); indefinite matrices restrict proximal steps |
 | Lasso or weighted absolute values | [`NormL1(λ, w)`](@ref NormL1) | Weights are optional; scalar prox is soft thresholding |
 | Lasso plus ridge | [`ElasticNet(λ1, λ2, w)`](@ref ElasticNet) | Weights affect only the ℓ₁ term |
 | One Euclidean norm | [`NormL2(λ)`](@ref NormL2) | This is a norm, not its square; a matrix uses its Frobenius norm |
+| Maximum absolute entry (ℓ∞ norm) | [`NormLinf(λ)`](@ref NormLinf) | Nonseparable; prox clips entries using an ℓ₁-ball threshold; matrix value is the largest entry magnitude |
 | Sum of norms over disjoint groups | [`GroupNormL2(λ, groups, w)`](@ref GroupNormL2) | Unlisted indices are unpenalized; compact vectors use each group's index order; default weights are √group size |
 | Affine or zero term | [`LinearFunction(c, d)`](@ref LinearFunction), [`ZeroFunction()`](@ref ZeroFunction) | Choose the coefficient shape for your array argument |
 | Nonnegative multiple of an existing function | [`Scaled(f, α)`](@ref Scaled) or `α*f` | Supported operations depend on the inner function |
@@ -63,9 +65,11 @@ julia> (value, Tuple(out))
 ```
 
 The [getting-started tutorial](getting_started.md) combines these operations
-into a lasso iteration. If you already hold a least-squares predictor or
-residual, the [supplied-predictor oracles](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds)
-avoid recomputing it, with their own buffer and consistency preconditions.
+into a lasso iteration. If you already hold a predictor or residual, the
+[supplied-predictor value oracles](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds)
+serve both regression losses without recomputing `X*β`; the supplied-predictor
+gradient hook applies only to `LeastSquaresLoss`. Their buffer and consistency
+preconditions still apply.
 
 ## Choose storage when you need it
 

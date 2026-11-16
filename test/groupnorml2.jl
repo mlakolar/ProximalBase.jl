@@ -765,6 +765,94 @@ end
   @test checked >= 100
 end
 
+@testset "groups with a zero sum of squares ($T)" for T in (Float32, Float64)
+  # Groups whose sum of squares in T is exactly zero: a zero group (+0 and -0 entries) and a nonzero group every square of
+  # which rounds to zero (entries in [2^(h-1), 2^h), about √nextfloat(0)/4). At ordinary thresholds both are set to +0
+  # and add exactly 0 to the fused value, through prox, prox!, in place, value_and_prox! and the compact prox_block!,
+  # for contiguous and permuted groups; at a tiny threshold below the norm of the tiny group, its shrinkage is nonzero
+  # and agrees with BigFloat. A third group of ordinary entries is shrunk as usual.
+  rng = Xoshiro(921)
+  h = exponent(nextfloat(zero(T))) ÷ 2 - 2
+  for m in (1, 2, 5, 32, 1024), layout in (:range, :index)
+    p = 3m
+    perm = layout === :range ? collect(1:p) : randperm(rng, p)
+    groups = layout === :range ? [1:m, m+1:2m, 2m+1:3m] : [perm[1:m], perm[m+1:2m], perm[2m+1:3m]]
+    x = zeros(T, p)
+    x[groups[1]] = [rand(rng, (zero(T), -zero(T))) for _ in 1:m]
+    x[groups[2]] = [signif(rng, T, h) for _ in 1:m]
+    x[groups[3]] = [signif(rng, T, 0) for _ in 1:m]
+    @test iszero(sum(abs2, x[groups[2]])) && !any(iszero, x[groups[2]])
+    γ, λ = T(1), T(0.5)
+    for w in (T[1, sqrt(T(m)), T(0.5)], fill(floatmax(T), 3) .* T[1, 1, 0])      # thresholds 0.5 to 0.5√m; and floatmax/2
+      f = GroupNormL2(λ, groups, w)
+      ref = refprox_full(x, γ, λ, groups, w)
+      y1 = prox(f, x, γ)
+      y2 = prox!(fill(T(7), p), f, x, γ)
+      y3 = copy(x); prox!(y3, f, y3, γ)
+      y4 = fill(T(7), p)
+      v = value_and_prox!(y4, f, x, γ)
+      for y in (y1, y2, y3, y4)
+        @test all(i -> y[i] === zero(T), groups[1]) && all(i -> y[i] === zero(T), groups[2])
+        @test close_prox(y[groups[3]], ref[groups[3]], x[groups[3]])
+        @test all(i -> y[i] === y1[i], 1:p)
+      end
+      # the zero groups add nothing: the value of the third group alone, and the value at the stored output
+      v3 = value_and_prox!(fill(T(7), p), GroupNormL2(λ, groups[3:3], w[3:3]), x, γ)
+      @test v === v3 && close_value(v, refvalue(y4, λ, groups, w))
+      # the two groups with a zero sum alone: value 0, and the entries in no group copied
+      y5 = fill(T(7), p)
+      @test value_and_prox!(y5, GroupNormL2(λ, groups[1:2], w[1:2]), x, γ) === zero(T)
+      @test all(i -> y5[i] === zero(T), vcat(groups[1], groups[2])) && all(i -> y5[i] === x[i], groups[3])
+      for k in 1:2
+        u = x[groups[k]]
+        @test all(a -> a === zero(T), prox_block!(fill(T(7), m), f, u, k, γ))
+        @test all(a -> a === zero(T), prox_block(f, u, k, γ))
+        uu = copy(u)
+        @test prox_block!(uu, f, uu, k, γ) === uu && all(a -> a === zero(T), uu)
+      end
+      @test close_prox(prox_block(f, x[groups[3]], 3, γ), ref[groups[3]], x[groups[3]])
+    end
+    # a tiny threshold below the norm of the tiny group: its shrinkage is nonzero, within a few eps of BigFloat
+    for r in (0.5, 0.875)
+      λt = T(r * bignorm(x[groups[2]]))
+      w = T[1, 1, 1]
+      f = GroupNormL2(λt, groups, w)
+      ref = refprox_full(x, γ, λt, groups, w)
+      y = fill(T(7), p)
+      v = value_and_prox!(y, f, x, γ)
+      @test all(i -> y[i] === zero(T), groups[1]) && all(i -> !iszero(y[i]), groups[2])
+      @test close_prox(y, ref, x) && close_prox(y[groups[2]], ref[groups[2]], x[groups[2]])
+      yp = prox(f, x, γ)
+      @test all(i -> yp[i] === y[i], 1:p)
+      @test close_value(v, refvalue(y, λt, groups, w))
+      out = prox_block(f, x[groups[2]], 2, γ)
+      @test all(j -> out[j] === y[groups[2][j]], 1:m)
+    end
+  end
+  # mixed precision: a Float64 argument whose entries round to Float32 entries with squares that round to zero, into a
+  # Float32 output, at an ordinary threshold (+0) and at a tiny threshold below the norm of the Float64 entries (their
+  # shrinkage, against BigFloat from the Float64 entries)
+  if T === Float32
+    for m in (1, 5, 32, 1024)
+      groups = [1:m, m+1:2m]
+      x = vcat([Float64(signif(rng, Float32, h)) * (1 + 2.0^-27) for _ in 1:m], [signif(rng, Float64, 0) for _ in 1:m])
+      @test all(a -> iszero(abs2(Float32(a))), x[1:m])
+      f = GroupNormL2(0.5, groups, [1.0, 1.0])
+      y = fill(7f0, 2m)
+      v = value_and_prox!(y, f, x, 1.0)
+      @test all(i -> y[i] === 0f0, 1:m)
+      ref = refprox_full(x, 1.0, 0.5, groups, [1.0, 1.0])
+      @test close_prox(y[m+1:2m], ref[m+1:2m], Float32.(x[m+1:2m])) && close_value(v, refvalue(y, 0.5, groups, [1.0, 1.0]))
+      @test all(a -> a === 0f0, prox_block!(fill(7f0, m), f, x[1:m], 1, 1.0))
+      λt = Float32(bignorm(x[1:m]) / 2)
+      ft = GroupNormL2(λt, groups, Float32[1, 1])
+      yt = prox!(fill(7f0, 2m), ft, x, 1f0)
+      reft = refprox_full(x, 1f0, λt, groups, Float32[1, 1])
+      @test all(i -> !iszero(yt[i]), 1:m) && close_prox(yt[1:m], reft[1:m], Float32.(x[1:m]))
+    end
+  end
+end
+
 # ---- D-X ----
 @testset "BigFloat exponents beyond Int (D-X)" begin
   # A difference from the code before the consolidation of the ℓ2 kernels that the maintainer's ruling D-X

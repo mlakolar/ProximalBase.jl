@@ -23,11 +23,13 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/sqrnorml2.jl` | Squared Euclidean norm and centered ridge operations |
 | `src/functions/quadratic.jl` | Quadratic function and cached eigendecomposition-based proximal map |
 | `src/functions/leastsquares.jl` | Least-squares residual scratch and lazy thin SVD prox |
+| `src/functions/sqrt_leastsquares.jl` | Convex nonsmooth square-root residual-norm loss and shared supplied-predictor value oracles |
 | `src/functions/leastsquares_predictor.jl` | Qualified value/gradient operations at caller-owned predictors and residuals |
 | `src/functions/separable.jl` | Generic separable entry kernels and array/sparse traversal |
 | `src/functions/norml1.jl` | Weighted ℓ₁ family, value and specialized proximal operations |
 | `src/functions/elasticnet.jl` | Weighted ℓ₁ plus ridge, reusing the soft-threshold and ridge kernels |
 | `src/functions/norml2.jl` | Euclidean/Frobenius norm and scalar-step proximal map |
+| `src/functions/normlinf.jl` | Maximum-entry norm and ℓ₁-threshold-based clipping proximal map |
 | `src/functions/groupnorml2.jl` | Disjoint-group norm, compact block proximal maps and group KKT screens |
 | `src/functions/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
 | `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods |

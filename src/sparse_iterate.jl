@@ -4,10 +4,20 @@
 #
 ####################################
 
-SparseIterate(n::Int) = SparseIterate(Float64, n)
-SparseIterate(::Type{T}, n::Int) where {T} = SparseIterate{T, 1}(zeros(T, n), zeros(Int, n), zeros(Int, n), 0)
-SparseIterate(n::Int, m::Int) = SparseIterate(Float64, n, m)
-SparseIterate(::Type{T}, n::Int, m::Int) where {T} = SparseIterate{T, 2}(zeros(T, n*m), zeros(Int, n*m), zeros(Int, n, m), 0)
+SparseIterate(n::Integer) = SparseIterate(Float64, n)
+SparseIterate(::Type{T}, n::Integer) where {T} = _sparse_iterate(T, Int(n))
+SparseIterate(n::Integer, m::Integer) = SparseIterate(Float64, n, m)
+SparseIterate(::Type{T}, n::Integer, m::Integer) where {T} = _sparse_iterate(T, Int(n), Int(m))
+
+_sparse_iterate(::Type{T}, n::Int) where {T} = SparseIterate{T, 1}(zeros(T, n), zeros(Int, n), zeros(Int, n), 0)
+function _sparse_iterate(::Type{T}, n::Int, m::Int) where {T}
+  n >= 0 && m >= 0 || throw(ArgumentError("SparseIterate dimensions must be nonnegative, got ($n, $m)"))
+  q = Base.widemul(n, m)
+  q <= typemax(Int) || throw(ArgumentError(
+    "SparseIterate dimensions ($n, $m) are too large: coordinate count exceeds typemax(Int)"))
+  k = Int(q)
+  SparseIterate{T, 2}(zeros(T, k), zeros(Int, k), zeros(Int, n, m), 0)
+end
 
 Base.length(x::SparseIterate) = length(x.ind2nzval)
 Base.size(x::SparseIterate) = size(x.ind2nzval)
@@ -325,7 +335,7 @@ end
 
 # In the products and inner products below, a zero coefficient of the iterate,
 # stored or not, contributes nothing, even against ±Inf or NaN in the other
-# operand (numerics M1): each kernel tests the stored value, before any scaling
+# operand (numerics.md, "Sparse product semantics"): each kernel tests the stored value, before any scaling
 # by α, so that an α·c that underflows still multiplies and α = Inf does not
 # turn a zero coefficient into NaN.
 

@@ -21,6 +21,7 @@ end
 
 @testset "public bindings and dispatch" begin
     @test all(n->isdefined(PB,n),names(PB))
+    @test !any(n->isdefined(PB,n),(:ScalarLoss,:Squared,:deriv,:deriv2,:curvature,:value_and_deriv))
     @test isempty(Test.detect_ambiguities(PB;recursive=true))
 end
 for T in (Float32,Float64)
@@ -51,8 +52,6 @@ for T in (Float32,Float64)
         @test kkt_violation(NormL1(one(T)),grad,layout,1)≈T(7)
         @test kkt_violation(Scaled(NormL1(one(T)),T(2)),grad,layout,1)≈T(6)
         @test kkt_violation(NormL1(one(T)),grad,layout,2)≈T(3)
-        @test PB.Squared()(T(3),T(1))==T(2)
-        @test PB.value_and_deriv(PB.Squared(),T(3),T(1))==(T(2),T(2))
     end
     @testset "$T least squares and lasso building blocks" begin
         X=T[1 2;3 1;0 2;2 -1];Y=T[1 -1;2 .5;3 1;-.5 2];β=T[.2 -.4;.3 .1]

@@ -175,7 +175,7 @@ _all_finite(::Nothing) = true
 
 ####################################
 #
-#  The scaled-value protocol (R1, "Wrappers")
+#  The scaled-value protocol (numerics.md, "Overflow and underflow of values")
 #
 ####################################
 
@@ -192,8 +192,9 @@ _value_parts(f, x, v) = nothing
 # is then recomputed). A zero value that is not exact comes from underflow: a rounding into the
 # subnormal range loses less than δ/2, δ the smallest subnormal of the computation type, and a later
 # product with a bounded factor (a level, a weight, a logarithm) multiplies that loss. A zero that
-# comes from cancellation is within the accuracy of the ordinary computation (R1 measures it against
-# the sum of the magnitudes of the terms), which the recomputation does not improve on either.
+# comes from cancellation is within the accuracy of the ordinary computation, which the recomputation does not
+# improve on either; that accuracy is measured against the sum of the magnitudes of the terms, as the bound
+# of a recovered value is (numerics.md, "Overflow and underflow of values").
 _zero_value_exponent(f, x) = nothing
 # Is a zero or subnormal value of f exact for every argument, by its type? Then a factor above one
 # has nothing to recover from it, and `Scaled` does not try (the test folds away at compile time).

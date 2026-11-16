@@ -554,7 +554,7 @@ end
 # dot(v, x) = Σ vⱼ xⱼ over the entries of the active groups of x; other
 # vectors than these take the generic method, as SparseArrays has its own for
 # sparse vectors. A zero entry of x contributes nothing, even against ±Inf or
-# NaN in v (numerics M1), and so does a zero of v when v is an iterate too.
+# NaN in v (numerics.md, "Sparse product semantics"), and so does a zero of v when v is an iterate too.
 function LinearAlgebra.dot(v::Union{StridedVector, SparseIterate{<:Any, 1}, BlockIterate}, x::BlockIterate)
   _check_one_based(v)
   _checkreal(x, v)

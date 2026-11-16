@@ -296,7 +296,7 @@ for T in (Float32, Float64)
       check("typed BlockIterate, offset storage, $kind",
             () -> BlockIterate{T, typeof(groups)}(off(zeros(T, 4)), groups, [1, 1, 2, 2], nothing, zeros(Int, 2), zeros(Int, 2), 0))
       check("typed ElasticNet, offset weights, $kind", () -> ElasticNet{T, typeof(off(w))}(one(T), two, off(w)))
-      # the low-level constructors take every stored array
+      # the low-level constructors check the stored arrays, the scratch included
       lsf = LeastSquaresLoss(w, M4 + 4I)
       check("LeastSquaresLoss low-level constructor, offset scratch, $kind",
             () -> LeastSquaresLoss(lsf.Y, lsf.X, off(zeros(T, 4)), lsf.V, lsf.s2, lsf.XtY, lsf.sUtY, lsf.w, lsf.output, false))

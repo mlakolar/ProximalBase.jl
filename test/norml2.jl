@@ -445,6 +445,77 @@ end
   @test checked >= 100
 end
 
+# The NormL2 value of a strided Float32 or Float64 array (an Array or a strided view) with 16 to 1024 entries sums the
+# squares in one vectorizing loop (_value_loop); shorter and longer arrays keep master's sum. The value must be within
+# (n + 8) eps relative of the BigFloat value (the level rounded to T, as the value uses it), and outside the window it
+# must be master's convert(T, convert(T, λ) * sqrt(sum(abs2, x))) for ordinary data. SqrNormL2 is unchanged: its value
+# is master's convert(T, λ) * sum(abs2, x) / 2 at every length.
+@testset "values of strided arrays: one loop for 16 to 1024 entries ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(1024)
+  lo, hi = ProximalBase._VALUE_LOOP_MIN, ProximalBase._VALUE_LOOP_MAX
+  sumsq(u) = setprecision(() -> sum(a -> big(a)^2, u; init = big(0)), BigFloat, PREC)
+  within_n(v, r, n) = abs(big(v) - r) <= (n + 8) * big(eps(T)) * r
+  # the value of u at the level λ, with S the BigFloat sum of the squares of u
+  function check(λ, u, S)
+    n = length(u)
+    a, b = NormL2(λ)(u), SqrNormL2(λ)(u)
+    l = big(convert(T, λ))
+    ok = a isa T && b isa T && within_n(a, setprecision(() -> l * sqrt(S), BigFloat, PREC), n)
+    s = lo <= n <= hi ? ProximalBase._value_loop(abs2, u) : sum(abs2, u)
+    ok &= a === convert(T, convert(T, λ) * sqrt(s))
+    ok &= b === convert(T, λ) * sum(abs2, u) / 2                      # SqrNormL2 as on master
+    n == 0 && (ok &= a === zero(T) && b === zero(T))
+    ok
+  end
+  levels = T === Float32 ? (one(T), T(0.3), 0.3) : (one(T), T(0.3))
+  for n in (0, 1, 15, 16, 17, 100, 1023, 1024, 1025, 2000),
+      x in (randn(rng, T, n), fill(T(0.1), n), fill(-T(1.1), n), ldexp.(randn(rng, T, n), -20))
+    S = sumsq(x)
+    # strided views of the same entries: every other entry of a longer vector, and a column of a matrix
+    p = zeros(T, 2n); p[1:2:end] .= x
+    M = randn(rng, T, n, 2); M[:, 2] .= x
+    for λ in levels
+      ok = check(λ, x, S)
+      ok || @info "value out of bound" T n λ x[1:min(n, 3)]
+      @test ok
+      @test check(λ, view(p, 1:2:2n), S)
+      @test check(λ, view(M, :, 2), S)
+    end
+  end
+  # matrices and a two-dimensional view in and out of the window
+  for dims in ((4, 4), (16, 16), (32, 32), (33, 32)), λ in levels
+    M = randn(rng, T, dims...)
+    @test check(λ, M, sumsq(M))
+    B = randn(rng, T, dims[1] + 3, dims[2] + 2)
+    V = view(B, 2:dims[1]+1, 2:dims[2]+1)
+    @test check(λ, V, sumsq(V))
+  end
+  # exact sums of the squares of small integers, at every length of the remainder loop
+  for n in vcat(0:70, [1023, 1024, 1025])
+    x = T.(rand(rng, -8:8, n))
+    @test NormL2(one(T))(x) === sqrt(T(sum(abs2, Int.(x); init = 0)))
+  end
+  # squares that overflow, or underflow, with a representable norm are recovered from the entries
+  for n in (15, 16, 100, 1024, 1025)
+    for x in (fill(sqrt(floatmax(T)), n), fill(sqrt(floatmin(T)) / 4, n))
+      v = NormL2(one(T))(x)
+      @test close_value(v, refvalue(x, one(T)); k = 2)
+    end
+    x = randn(rng, T, n); x[end] = T(NaN)
+    @test isnan(NormL2(T(0.3))(x)) && isnan(NormL2(T(Inf))(x))
+    x[end] = -T(Inf)
+    @test NormL2(T(0.3))(x) === T(Inf)
+    @test NormL2(T(Inf))(zeros(T, n)) === zero(T) && NormL2(zero(T))(fill(T(NaN), n)) === zero(T)
+    @test NormL2(T(Inf))(vcat(zeros(T, n - 1), nextfloat(zero(T)))) === T(Inf)
+  end
+  # no allocation in and out of the window
+  for n in (7, 100, 1024, 2000)
+    x = randn(rng, T, n)
+    @test allocs(NormL2(T(0.3)), x) == 0
+    @test allocs(NormL2(T(0.3)), view(x, 1:2:n)) == 0
+  end
+end
+
 @testset "arguments with a zero sum of squares ($T)" for T in (Float32, Float64)
   # The zero argument (+0 and -0 entries) and a nonzero argument every square of which rounds to zero (entries in
   # [2^(h-1), 2^h), about √nextfloat(0)/4): at ordinary levels (0.5, floatmax/2, a Float64 level for Float32 data) the

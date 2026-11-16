@@ -663,6 +663,29 @@ const _LS_ONE_LOOP_MAX = 2^17
   s
 end
 
+# The sums of the unweighted values of NormL1 and NormL2 for a strided Float32 or Float64 array of
+# _VALUE_LOOP_MIN to _VALUE_LOOP_MAX entries: one vectorizing loop. Up to 1024 entries Julia's pairwise reduction is
+# one such loop too (1024 is its block size), reached through the generic reduction, whose first entries are taken
+# separately; the rounding error of this loop is of the same kind, and the loop is two to three times faster for a
+# few hundred entries. Shorter arrays keep Julia's reduction, which is faster for a few entries, and longer ones keep
+# its pairwise blocks, so that the error of a long sum does not grow with its length.
+const _VALUE_LOOP_MIN = 16
+const _VALUE_LOOP_MAX = 1024
+@inline _value_sumabs2(x) = _sumabs2(x)
+@inline _value_sumabs2(x::StridedArray{T}) where {T<:Union{Float32, Float64}} =
+  _VALUE_LOOP_MIN <= length(x) <= _VALUE_LOOP_MAX ? _value_loop(abs2, x) : _sumabs2(x)
+@inline _value_sumabs(x) = sum(abs, x)
+@inline _value_sumabs(x::StridedArray{T}) where {T<:Union{Float32, Float64}} =
+  _VALUE_LOOP_MIN <= length(x) <= _VALUE_LOOP_MAX ? _value_loop(abs, x) : sum(abs, x)
+# out of line, so that the callers keep the code that they had for the other lengths
+@noinline function _value_loop(f::F, x::StridedArray{T}) where {F, T<:Union{Float32, Float64}}
+  s = zero(T)
+  @inbounds @simd for i in eachindex(x)
+    s += f(x[i])
+  end
+  s
+end
+
 @noinline function _exceptional_square_value(λ, x, y, s, v)
   T = _valtype(x)
   !isfinite(λ) && return _value_at(v, x)
@@ -1095,7 +1118,7 @@ end
 function _l2_value(λ, x)
   T = _valtype(x)
   iszero(λ) && return zero(T)
-  s = _sumabs2(x)
+  s = _value_sumabs2(x)
   if _level_fits(T, λ)
     v = convert(T, convert(T, λ) * sqrt(s))
     (_l2_ordinary(v, T) & _squares_normal(s, _square_term_count(x), T)) && return v

@@ -1215,4 +1215,86 @@ end
 
 end
 
+# The unweighted NormL1 value of an Array of Float32 or Float64 with 16 to 1024 entries sums |xᵢ| in one vectorizing
+# loop (_value_loop); shorter and longer arrays keep Base's sum, as on master. Views take the generic route of the
+# other arrays and never reach the loop. The value must be within 4n eps(T) λ0 Σ|xᵢ| of λ0 Σ|xᵢ| summed in BigFloat
+# (λ0 rounded to T, as the value uses it), and outside the window it must be master's convert(T, λ0) * sum(abs, x).
+@testset "unweighted NormL1 value: one loop for 16 to 1024 entries ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(1024)
+  lo, hi = PB._VALUE_LOOP_MIN, PB._VALUE_LOOP_MAX
+  @test (lo, hi) == (16, 1024)
+  l1_ref(λ, x) = setprecision(BigFloat, 512) do
+    big(convert(T, λ)) * sum(a -> abs(big(a)), x; init = big(0))
+  end
+  l1_within(v, λ, x) = (r = l1_ref(λ, x); abs(big(v) - r) <= 4 * length(x) * eps(T) * r)
+  levels = T === Float32 ? (one(T), T(0.3), 0.3) : (one(T), T(0.3))
+  for n in (0, 1, 15, 16, 17, 100, 1023, 1024, 1025, 2000), λ in levels
+    f = NormL1(λ)
+    for x in (randn(rng, T, n), fill(T(0.1), n), fill(-T(1.1), n), ldexp.(randn(rng, T, n), -40))
+      v = f(x)
+      @test v isa T
+      @test l1_within(v, λ, x)
+      if lo <= n <= hi
+        @test v === convert(T, λ) * PB._value_loop(abs, x)
+      else
+        @test v === convert(T, λ) * sum(abs, x)                 # master's value, bit for bit
+      end
+      n == 0 && @test v === zero(T)
+    end
+  end
+  # a sum of small integers is exact in any order: every entry counts once, at every length of the remainder loop
+  for n in vcat(0:70, [1023, 1024, 1025])
+    x = T.(rand(rng, -8:8, n))
+    @test NormL1(one(T))(x) === T(sum(abs, Int.(x); init = 0))
+    @test NormL1(T(2))(x) === T(2 * sum(abs, Int.(x); init = 0))
+  end
+  # matrices in and out of the window; views of a length in the window take the generic route (not the loop)
+  for dims in ((4, 4), (16, 16), (32, 32), (33, 32), (3, 5)), λ in levels
+    M = randn(rng, T, dims...)
+    f = NormL1(λ)
+    @test l1_within(f(M), λ, M)
+    @test f(M) === convert(T, λ) * (lo <= length(M) <= hi ? PB._value_loop(abs, M) : sum(abs, M))
+    @test l1_within(f(view(M, :, 2)), λ, M[:, 2])
+    @test l1_within(f(view(vec(M), 1:2:length(M))), λ, vec(M)[1:2:end])
+  end
+  @test which(NormL1(T(1)), Tuple{typeof(view(zeros(T, 100), 1:2:100))}) !== which(NormL1(T(1)), Tuple{Vector{T}})
+  # NaN and ±Inf entries propagate, at both ends, in and out of the window
+  for n in (1, 15, 16, 100, 1024, 1025), at in unique((1, n)), λ in (T(0.3), T(Inf))
+    f = NormL1(λ)
+    x = randn(rng, T, n)
+    x[at] = T(NaN); @test isnan(f(x))
+    x[at] = T(Inf); @test f(x) === T(Inf)
+    x[at] = -T(Inf); @test f(x) === T(Inf)
+    if n > 1
+      x[n + 1 - at] = T(Inf); x[at] = -T(Inf); @test f(x) === T(Inf)
+      x[n + 1 - at] = T(NaN); @test isnan(f(x))
+    end
+  end
+  # a sum that overflows with finite entries is recovered from the entries (Inf where the value overflows, the
+  # value where it is finite), at both ends of the window
+  for n in (15, 16, 100, 1024, 1025)
+    x = fill(floatmax(T) / 4, n)
+    @test NormL1(one(T))(x) === T(Inf)
+    for λ in (T(2) / n, T(1) / (8n))
+      v = NormL1(λ)(x)
+      r = l1_ref(λ, x)
+      @test isfinite(v) == (r <= floatmax(T)) && (!isfinite(v) || abs(big(v) - r) <= 4 * n * eps(T) * r)
+    end
+  end
+  # an infinite level at the zero vector is 0, elsewhere Inf; a zero level is 0, NaN entries included
+  for n in (0, 1, 15, 16, 100, 1024, 1025)
+    @test NormL1(T(Inf))(zeros(T, n)) === zero(T)
+    @test NormL1(T(Inf))(fill(-zero(T), n)) === zero(T)
+    @test NormL1(0.0)(zeros(T, n)) === zero(T)
+    @test NormL1(zero(T))(fill(T(NaN), n)) === zero(T)
+    n > 0 && @test NormL1(T(Inf))(vcat(zeros(T, n - 1), nextfloat(zero(T)))) === T(Inf)
+  end
+  # no allocation, in and out of the window
+  for n in (7, 100, 1024, 2000)
+    x = randn(rng, T, n)
+    @test alloc(NormL1(T(0.3)), x) == 0
+    @test alloc(NormL1(T(0.3)), reshape(x, 1, n)) == 0
+  end
+end
+
 end

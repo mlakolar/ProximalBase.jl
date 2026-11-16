@@ -90,13 +90,14 @@ kkt_violation(f::NormL1, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _kkt_coefficient(eltype(g), f.λ0, _entry(f.w, i)))
 restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entries(f.w, S))
 
-# without weights, Base's vectorized sum (a sum with init takes a slow sequential path)
+# without weights: one loop for a few hundred entries (_value_sumabs) and Base's vectorized sum otherwise (a sum with
+# init takes a slow sequential path)
 function (f::NormL1{<:Real, Nothing})(x::DenseArray{<:AbstractFloat})
   _check_one_based(x)
   T = float(eltype(x))
   iszero(f.λ0) && return zero(T)
   _level_fits(T, f.λ0) || return _converted_l1_value(f.λ0, x)
-  s = sum(abs, x)
+  s = _value_sumabs(x)
   # an infinite level fixes every entry at zero: the value at the zero vector is 0, not Inf⋅0
   isinf(f.λ0) && iszero(s) && return zero(T)
   v = convert(T, f.λ0) * s

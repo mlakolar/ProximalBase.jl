@@ -12,6 +12,7 @@ to see exactly how the symbols in a definition become Julia arguments.
 | Julia constructor | Mathematical function | Arguments and interpretation | Detailed guide |
 |:--|:--|:--|:--|
 | [`LeastSquaresLoss(Y, X)`](@ref LeastSquaresLoss) | ``f(B)=\frac12\lVert Y-XB\rVert_F^2`` | ``X``: design matrix; ``Y``: response; ``B``: argument supplied to `f(B)` | [Least squares](smooth.md#Least-squares-loss) |
+| [`SqrtLeastSquaresLoss(Y, X)`](@ref SqrtLeastSquaresLoss) | ``f(\beta)=\lVert Y-X\beta\rVert_2`` | ``X``: design matrix; ``Y``: response vector; ``\beta``: argument supplied to `f(β)`; convex, not smooth, no proximal operator | [Square-root least squares](smooth.md#Square-root-least-squares-is-not-smooth) |
 | [`SqrNormL2(λ, y)`](@ref SqrNormL2) | ``f(x)=\frac{\lambda}{2}\lVert x-y\rVert^2`` | ``\lambda\geq0``: level; ``y``: center (zero when omitted) | [Squared Euclidean norm](smooth.md#Squared-Euclidean-norm) |
 | [`QuadraticFunction(A, b, c)`](@ref QuadraticFunction) | ``f(x)=\frac12x^\mathsf{T}Ax+b^\mathsf{T}x+c`` | ``A``: symmetric matrix (caller precondition), positive semidefinite not required; ``b``: linear coefficient (zero when omitted); ``c``: constant (zero when omitted) | [Quadratic function](smooth.md#Quadratic-function) |
 | [`ZeroFunction()`](@ref ZeroFunction) | ``f(x)=0`` | No parameters | [Zero function](smooth.md#Zero-function) |

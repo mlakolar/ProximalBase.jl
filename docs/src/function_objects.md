@@ -219,6 +219,7 @@ the parameters of the particular object.
 | `SqrNormL2` | yes | yes | yes | yes | uncentered and finite level only |
 | `QuadraticFunction` | yes | yes | no | no¹ | no |
 | `LeastSquaresLoss` | yes | yes | no | yes | no |
+| `SqrtLeastSquaresLoss` | no | no | no | yes | no |
 | `NormL1` | no | yes | yes | yes | yes |
 | `ElasticNet` | no | yes | yes | yes | yes |
 | `NormL2` | no | yes | no | yes | no |

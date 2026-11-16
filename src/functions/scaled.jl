@@ -119,6 +119,7 @@ end
 _zero_scaled(f::SqrNormL2) = _finite_zero(f, f.λ, f.y)
 _zero_scaled(f::QuadraticFunction) = _finite_zero(f, f.A, f.b, f.c)
 _zero_scaled(f::LeastSquaresLoss) = _finite_zero(f, f.X, f.Y)
+_zero_scaled(f::SqrtLeastSquaresLoss) = _finite_zero(f, f.X, f.Y)
 _zero_scaled(f::LinearFunction) = _finite_zero(f, f.c, f.d)
 _zero_scaled(f::Scaled) = (_finite_parameter(f.α) || _zero_scale_error(f); _zero_scaled(f.f))
 

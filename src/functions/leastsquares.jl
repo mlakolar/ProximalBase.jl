@@ -12,7 +12,8 @@ The least-squares loss `f(β) = ‖Y - Xβ‖² / 2`, smooth with gradient
 response; then `β` and the gradient are `p × k` matrices and `‖⋅‖` is the
 Frobenius norm, as in multi-response regression. `β` may be a dense array, a
 `SparseIterate` or a `BlockIterate`, whose products cost
-O(n ⋅ nnz).
+O(n ⋅ nnz). `Y` and `X` must have axes that start at 1: an offset-axes `Y` or
+`X` is an `ArgumentError` at construction.
 
 It is also proximable: the first proximal operator computes the thin SVD
 `X = U Diagonal(s) V'` and `Diagonal(s) U'Y` once, after which
@@ -35,6 +36,7 @@ mutable struct LeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVecOrMat, Tx<:Abst
 
   function LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready) where {T<:AbstractFloat,
       Ty<:AbstractVecOrMat, Tx<:AbstractMatrix, N, A<:AbstractArray{T, N}}
+    _check_one_based(Y, X)
     all(a -> a === nothing || eltype(a) <: Real,
         (Y, X, tmp, V, s2, XtY, sUtY, w)) || _real_error(:LeastSquaresLoss)
     new{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready)
@@ -64,6 +66,7 @@ isproximable(::Type{<:LeastSquaresLoss}) = true
 isconvex(::Type{<:LeastSquaresLoss}) = true
 
 function (f::LeastSquaresLoss{T})(β::AbstractVecOrMat) where {T}
+  _check_one_based(β)
   _checkreal(f, β)
   mul!(f.tmp, f.X, β)
   v = _ls_value(f, f.tmp, f.Y)
@@ -226,6 +229,7 @@ function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMa
 end
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::LeastSquaresLoss, g::AbstractVecOrMat, β::AbstractVecOrMat)
+  _check_one_based(g, β)
   _checkreal(f, β)
   _checkreal(f, g)
   _checkgradient_output(g, β)
@@ -235,6 +239,7 @@ function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f:
 end
 
 function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, f::LeastSquaresLoss{T}, β::AbstractVecOrMat, v::AbstractVecOrMat) where {T}
+  _check_one_based(β, v)
   _checkreal(f, v)
   _checkreal(f, β)
   _checksize(β, v)

@@ -113,13 +113,17 @@ struct GroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: A
   end
 end
 function GroupNormL2(λ0::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}, w::AbstractVector)
+  _check_one_based_groups(groups)
+  _check_one_based(w)
   eltype(w) <: Real || _real_error(:GroupNormL2)
   T = float(promote_type(typeof(λ0), eltype(w)))
   G = _own_groups(groups)
   GroupNormL2{T, typeof(G)}(convert(T, λ0), G, Vector{T}(w))
 end
-GroupNormL2(λ0::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}) =
+function GroupNormL2(λ0::Real, groups::AbstractVector{<:AbstractVector{<:Integer}})
+  _check_one_based_groups(groups)
   GroupNormL2(λ0, groups, [sqrt(float(typeof(λ0))(length(G))) for G in groups])
+end
 
 isproximable(::Type{<:GroupNormL2}) = true
 isconvex(::Type{<:GroupNormL2}) = true

@@ -543,6 +543,7 @@ end
 real entries.
 """
 function norm_diff(A::AbstractArray, B::AbstractArray, p::Real = 2)
+  _check_one_based(A, B)
   eltype(A) <: Real && eltype(B) <: Real || _real_error(:norm_diff)
   size(A) == size(B) || throw(DimensionMismatch())
   T = float(promote_type(eltype(A), eltype(B)))

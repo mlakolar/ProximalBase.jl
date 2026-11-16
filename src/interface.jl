@@ -121,10 +121,11 @@ prox!(y, f::AbstractFunction, x) = prox!(y, f, x, 1)
 Allocating version of `prox!`. For a supported `SymmetricSparseIterate` `x` the result is an
 independent `SymmetricSparseIterate` of the float element type, and `γ` is a scalar.
 """
-prox(f::AbstractFunction, x::AbstractArray, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
+prox(f::AbstractFunction, x::AbstractArray, γ::Real = 1) =
+  (_check_one_based(x); prox!(similar(x, float(eltype(x))), f, x, γ))
 # a Symmetric or Hermitian wrapper does not accept off-diagonal writes: a dense result
 prox(f::AbstractFunction, x::Union{Symmetric, Hermitian}, γ::Real = 1) =
-  prox!(Matrix{float(eltype(x))}(undef, size(x)), f, x, γ)
+  (_check_one_based(x); prox!(Matrix{float(eltype(x))}(undef, size(x)), f, x, γ))
 
 """
     value_and_prox!(y, f, x, γ=1)
@@ -135,7 +136,7 @@ supported. Shape and parameter checks precede writes; failures during numerical
 computation may leave output changed.
 """
 value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1) =
-  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_body!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_fallback_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_body!(y, f, x, γ))
 _value_and_prox_unchecked!(y, f::AbstractFunction, x, γ::Real = 1) =
   _isbuiltin(f) ? _value_and_prox_body!(y, f, x, γ) : value_and_prox!(y, f, x, γ)
 function _value_and_prox_body!(y, f::AbstractFunction, x, γ::Real = 1)
@@ -251,7 +252,7 @@ throw an `ArgumentError`. A `SymmetricSparseIterate` `g` receives the symmetric 
 of the gradient, the derivative over symmetric matrices.
 """
 gradient!(g, f::AbstractFunction, x) =
-  (_check_oracle_arrays(gradient!, f, g, x); _gradient_body!(g, f, x))
+  (_check_fallback_arrays(gradient!, f, g, x); _gradient_body!(g, f, x))
 _gradient_unchecked!(g, f::AbstractFunction, x) =
   _isbuiltin(f) ? _gradient_body!(g, f, x) : gradient!(g, f, x)
 function _gradient_body!(g, f::AbstractFunction, x)
@@ -286,7 +287,7 @@ end
 @generated _checksize_blocks(y::Tuple, x::Tuple) = _blockwise(k -> :(_checksize(y[$k], x[$k])), fieldcount(y), true)
 @noinline _block_size_error(n, m) = throw(DimensionMismatch("the output has $n blocks and the input $m"))
 
-prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = prox!(_prox_buffer(x), f, x, γ)
+prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = (_check_one_based(x); prox!(_prox_buffer(x), f, x, γ))
 
 """
     gradient(f, x)
@@ -296,8 +297,8 @@ Supported symmetric-iterate gradients (SqrNormL2, LinearFunction and supported S
 leaves) return a dense symmetric Matrix. ZeroFunction has symmetric-iterate value/prox
 but no symmetric-iterate gradient method. Traits do not supply missing operand methods.
 """
-gradient(f::AbstractFunction, x::AbstractArray) = gradient!(_gradient_buffer(x), f, x)
-gradient(f::AbstractFunction, x::Tuple) = gradient!(_gradient_buffer(x), f, x)
+gradient(f::AbstractFunction, x::AbstractArray) = (_check_one_based(x); gradient!(_gradient_buffer(x), f, x))
+gradient(f::AbstractFunction, x::Tuple) = (_check_one_based(x); gradient!(_gradient_buffer(x), f, x))
 
 """
     value_and_gradient(f, x)
@@ -305,6 +306,7 @@ gradient(f::AbstractFunction, x::Tuple) = gradient!(_gradient_buffer(x), f, x)
 Allocating version of `value_and_gradient!`: returns `(f(x), ∇f(x))`.
 """
 function value_and_gradient(f::AbstractFunction, x::Union{AbstractArray, Tuple})
+  _check_one_based(x)
   g = _gradient_buffer(x)
   v = value_and_gradient!(g, f, x)
   v, g
@@ -392,10 +394,11 @@ function kkt_violation end
 # for a separable function, the optimality of a coordinate at zero does not
 # depend on the rest of x
 kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation);
+  (_check_one_based(g, x); eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation);
    _check_kkt_coordinate(g, x, i);
    _isbuiltin(f) ? _kkt_violation(f, g, x, i) : kkt_violation(f, g, i))
 function kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
+  _check_one_based(g)
   eltype(g) <: Real || _real_error(:kkt_violation)
   _check_kkt_coordinate(g, x, k)
   r, c = tril_cartesian(x.p, k)
@@ -460,7 +463,7 @@ _kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integ
 
 # a group at zero violates optimality as much as its worst index
 kkt_violation(f::AbstractFunction, g::AbstractArray, x::BlockIterate, k::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation);
+  (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation);
    _isbuiltin(f) ? _kkt_violation(f, g, x, k) : maximum(i -> kkt_violation(f, g, i), x.groups[k]))
 
 _kkt_violation(f::AbstractFunction, g::AbstractArray, x::BlockIterate, k::Integer) =

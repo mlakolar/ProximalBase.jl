@@ -37,6 +37,7 @@ struct SqrNormL2{T<:Real, Y<:Union{Nothing, AbstractArray}} <: AbstractFunction
   y::Y
 
   function SqrNormL2{T, Y}(λ::T, y::Y) where {T<:Real, Y<:Union{Nothing, AbstractArray}}
+    _check_one_based(y)
     y === nothing || eltype(y) <: Real || _real_error(:SqrNormL2)
     _checknonneg("λ", λ)
     new{T, Y}(λ, y)
@@ -482,8 +483,10 @@ end
 
 _checkparams(f::SqrNormL2, x) = _checkparam(f.y, x)
 
-kkt_violation(::SqrNormL2{<:Real, Nothing}, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]))
-kkt_violation(f::SqrNormL2, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] - f.λ * f.y[i]))
+kkt_violation(::SqrNormL2{<:Real, Nothing}, g::AbstractArray, i::Integer) =
+  (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]))
+kkt_violation(f::SqrNormL2, g::AbstractArray, i::Integer) =
+  (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] - f.λ * f.y[i]))
 
 restrict(f::SqrNormL2{<:Real, Nothing}, ::AbstractVector{<:Integer}) = f
 restrict(f::SqrNormL2, S::AbstractVector{<:Integer}) = SqrNormL2(f.λ, f.y[S])

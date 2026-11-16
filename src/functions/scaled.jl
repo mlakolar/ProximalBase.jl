@@ -552,7 +552,7 @@ _checkwrite(op::O, s::Scaled, y, x) where {O} = (_checkreal(s, y); _checkreal(s,
 iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _nested_kkt((f, h) -> kkt_violation(f, h, i), s, g) :
+  (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _nested_kkt((f, h) -> kkt_violation(f, h, i), s, g) :
    iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
 for X in (:AbstractArray, :BlockIterate)
   @eval _kkt_violation(s::Scaled, g::AbstractArray, x::$X, k::Integer) =

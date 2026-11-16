@@ -507,11 +507,12 @@ end
 # The fold of `_nested_step`, which passes the step reduced to its significand in [1/2, 1). The fold with the whole
 # exponent can fail where the fold with half the scale succeeds: the level then overflows with the whole exponent. The
 # result is the function with the half-scale level inside a factor 2: the leaf receives the step 2 mγ in [1, 2), a normal
-# number, and the radius is the level times that step, the folded product. The half-scale fold succeeds only where the
-# whole fold overflowed, since a smaller scale cannot turn an underflow to zero into a nonzero level. When the half-scale
-# fold fails too, the result is nothing and the wrapper keeps its rounded step (see the limit in the docstring). The
-# fold with half the scale needs the scale as a `_ProjectionScale`, which `_nested_step` passes. The value of the chain is
-# computed from the original chain by the caller (the factor returned with this fold is nothing), not from this function.
+# number, and the radius is the level times that step, the folded product. The half-scale fold is tried after the whole
+# fold has failed. Its level is half the whole-fold level, so it does not repair an underflow of the whole fold to zero.
+# When the half-scale fold fails too, the result is nothing and the wrapper keeps its rounded step (see the limit in the
+# docstring). The fold with half the scale needs the scale as a `_ProjectionScale`, which `_nested_step` passes. The
+# value of the chain is computed from the original chain by the caller (the factor returned with this fold is nothing),
+# not from this function.
 function _fold_level_step(f::NormLinf, α)
   g = _fold_level(f, α)
   g === nothing || return g

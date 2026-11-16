@@ -738,10 +738,10 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
         lo = typemax(Int) - m
         xs = ShiftedVector(T(2) .* randn(rng, T, m), lo); xs[lo] = T(Inf)
         gs = ShiftedVector(T(0.5) .+ rand(rng, T, m), lo)
-        finf = ElasticNet(T(Inf), λ2)
+        finf, fu = ElasticNet(T(Inf), λ2), ElasticNet(λ1, λ2)
         @test !PB._elastic_ordinary_steps(finf, gs, T, eachindex(IndexLinear(), xs))
-        @test PB._elastic_ordinary_steps(f, gs, T, eachindex(IndexLinear(), xs))
-        for h in (finf, f)
+        @test PB._elastic_ordinary_steps(fu, gs, T, eachindex(IndexLinear(), xs))
+        for h in (finf, fu)
           ys = ShiftedVector(zeros(T, m), lo)
           @test prox!(ys, h, xs, gs) === ys && identical(ys, perentry(ys, h, xs, gs))
         end

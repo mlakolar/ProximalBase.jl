@@ -617,6 +617,59 @@ end
     end
 end
 
+@testset "size constructors with Integer sizes (#935)" begin
+    same(x, y) = typeof(x) == typeof(y) && size(x) == size(y) && nactive(x) == nactive(y) &&
+        ncoordinates(x) == ncoordinates(y)
+    # (size type, k, a, b): Bool(true) is the size 1
+    for (T, k, a, b) in ((Int32, 5, 2, 3), (UInt, 5, 2, 3), (Int8, 5, 2, 3), (Bool, 1, 1, 1))
+        @testset "$T" begin
+            @test same(SparseIterate(T(k)), SparseIterate(k))
+            @test SparseIterate(T(k)) == SparseIterate(k)
+            @test SparseIterate(T(k)) isa SparseIterate{Float64, 1}
+            @test size(SparseIterate(T(k))) == (k,)
+            @test same(SparseIterate(Float32, T(k)), SparseIterate(Float32, k))
+            @test SparseIterate(Float32, T(k)) == SparseIterate(Float32, k)
+            @test same(SparseIterate(T(a), T(b)), SparseIterate(a, b))
+            @test SparseIterate(T(a), T(b)) == SparseIterate(a, b)
+            @test size(SparseIterate(T(a), T(b))) == (a, b)
+            @test same(SparseIterate(Float32, T(a), b), SparseIterate(Float32, a, b))
+            @test SparseIterate(Float32, T(a), b) == SparseIterate(Float32, a, b)
+            @test same(SymmetricSparseIterate(T(k)), SymmetricSparseIterate(k))
+            @test Matrix(SymmetricSparseIterate(T(k))) == Matrix(SymmetricSparseIterate(k))
+            @test same(SymmetricSparseIterate(Float32, T(k)), SymmetricSparseIterate(Float32, k))
+            @test Matrix(SymmetricSparseIterate(Float32, T(k))) == Matrix(SymmetricSparseIterate(Float32, k))
+        end
+    end
+    @testset "mixed integer types" begin
+        x = SparseIterate(Float32, Int32(2), 3)
+        @test x isa SparseIterate{Float32, 2}
+        @test size(x) == (2, 3)
+        @test same(x, SparseIterate(Float32, 2, 3))
+        @test same(SparseIterate(UInt8(2), Int16(3)), SparseIterate(2, 3))
+        @test same(SparseIterate(2, UInt8(3)), SparseIterate(2, 3))
+        y = SymmetricSparseIterate(UInt8(3))
+        @test y isa SymmetricSparseIterate{Float64}
+        @test size(y) == (3, 3)
+        @test ncoordinates(y) == 6
+        @test size(SparseIterate(Int32(0))) == (0,)
+        @test size(SymmetricSparseIterate(Int8(0))) == (0, 0)
+    end
+    @testset "negative sizes" begin
+        @test_throws ArgumentError SparseIterate(Int32(-1))
+        @test_throws ArgumentError SparseIterate(Int32(-1), 2)
+        @test_throws ArgumentError SymmetricSparseIterate(Int32(-1))
+        @test_throws ArgumentError SymmetricSparseIterate(Float32, Int8(-2))
+        err = try SymmetricSparseIterate(Int32(-1)) catch e e end
+        @test err isa ArgumentError && occursin("got -1", err.msg)
+    end
+    @testset "sizes that do not fit in Int" begin
+        @test_throws InexactError SparseIterate(UInt128(2)^70)
+        @test_throws InexactError SparseIterate(2, UInt128(2)^70)
+        @test_throws InexactError SparseIterate(Float32, 2, UInt128(2)^70)
+        @test_throws InexactError SymmetricSparseIterate(UInt128(2)^70)
+    end
+end
+
 @testset "sparse triple products agree with dense products" begin
     rng = Xoshiro(20261025)
     for T in (Float64,)   # Float32 is in sparse_iterate_basics_grids.jl

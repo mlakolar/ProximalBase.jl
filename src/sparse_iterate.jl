@@ -4,10 +4,13 @@
 #
 ####################################
 
-SparseIterate(n::Int) = SparseIterate(Float64, n)
-SparseIterate(::Type{T}, n::Int) where {T} = SparseIterate{T, 1}(zeros(T, n), zeros(Int, n), zeros(Int, n), 0)
-SparseIterate(n::Int, m::Int) = SparseIterate(Float64, n, m)
-SparseIterate(::Type{T}, n::Int, m::Int) where {T} = SparseIterate{T, 2}(zeros(T, n*m), zeros(Int, n*m), zeros(Int, n, m), 0)
+SparseIterate(n::Integer) = SparseIterate(Float64, n)
+SparseIterate(::Type{T}, n::Integer) where {T} = _sparse_iterate(T, Int(n))
+SparseIterate(n::Integer, m::Integer) = SparseIterate(Float64, n, m)
+SparseIterate(::Type{T}, n::Integer, m::Integer) where {T} = _sparse_iterate(T, Int(n), Int(m))
+
+_sparse_iterate(::Type{T}, n::Int) where {T} = SparseIterate{T, 1}(zeros(T, n), zeros(Int, n), zeros(Int, n), 0)
+_sparse_iterate(::Type{T}, n::Int, m::Int) where {T} = SparseIterate{T, 2}(zeros(T, n*m), zeros(Int, n*m), zeros(Int, n, m), 0)
 
 Base.length(x::SparseIterate) = length(x.ind2nzval)
 Base.size(x::SparseIterate) = size(x.ind2nzval)

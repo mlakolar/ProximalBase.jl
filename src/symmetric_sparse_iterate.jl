@@ -4,11 +4,18 @@
 #
 ####################################
 
-SymmetricSparseIterate(n::Int) = SymmetricSparseIterate(Float64, n)
-function SymmetricSparseIterate(::Type{T}, n::Int) where {T}
+SymmetricSparseIterate(n::Integer) = SymmetricSparseIterate(Float64, n)
+function SymmetricSparseIterate(::Type{T}, n::Integer) where {T}
   n >= 0 || throw(ArgumentError("the dimension must be nonnegative, got $n"))
-  _t = div(n*(n+1), 2)
-  SymmetricSparseIterate{T}(zeros(T, _t), zeros(Int, _t), zeros(Int, _t), 0, n)
+  _symmetric_sparse_iterate(T, Int(n))
+end
+
+function _symmetric_sparse_iterate(::Type{T}, n::Int) where {T}
+  q = (Base.widemul(n, n) + n) ÷ 2
+  q <= typemax(Int) || throw(ArgumentError(
+    "SymmetricSparseIterate dimension $n is too large: coordinate count exceeds typemax(Int)"))
+  k = Int(q)
+  SymmetricSparseIterate{T}(zeros(T, k), zeros(Int, k), zeros(Int, k), 0, n)
 end
 
 Base.eltype(::Type{SymmetricSparseIterate{T}}) where {T} = T

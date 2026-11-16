@@ -39,5 +39,8 @@ NormL2
 GroupNormL2
 ```
 
-Scalar observation losses belong to a separate mathematical interface.
-See the [Scalar-loss API reference](scalar_losses.md).
+## Maximum-magnitude norm
+
+```@docs
+NormLinf
+```

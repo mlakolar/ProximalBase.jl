@@ -289,8 +289,8 @@ is written; otherwise it applies the formula above, and when
 ``\gamma`` and finite cached eigenvalues, the check accepts exactly when every
 computed denominator ``1+\gamma\lambda_i`` is positive.
 
-In exact arithmetic the proximal subproblem has a unique minimizer if and only
-if ``1+\gamma\lambda_{\min}(A)>0`` for the true smallest eigenvalue. The check
+In exact arithmetic and for ``\gamma>0``, the proximal subproblem has a unique
+minimizer if and only if ``1+\gamma\lambda_{\min}(A)>0`` for the true smallest eigenvalue. The check
 tests computed values, so near that boundary it can accept a step for which the
 true ``I+\gamma A`` is not positive definite, and reject one for which it is. The
 second case includes a singular positive semidefinite `A` whose computed

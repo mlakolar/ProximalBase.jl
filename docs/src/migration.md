@@ -79,7 +79,7 @@ steps the earlier kernel divided by a computed denominator `1 + γT·λmin ≤ 0
 A matrix with `λmin ≥ 0`, and a negative step, are not checked and behave as
 before. For a nonnegative finite `γT` and finite cached eigenvalues, the check
 accepts exactly when every computed denominator `1 + γT·λi` is positive. In
-exact arithmetic the proximal subproblem has a unique minimizer if and only if
+exact arithmetic and for `γ > 0`, the proximal subproblem has a unique minimizer if and only if
 `1 + γ λmin(A) > 0` for the true smallest eigenvalue, so near that boundary
 the check can accept a step for which the true `I + γA` is not positive
 definite, and reject one for which it is.

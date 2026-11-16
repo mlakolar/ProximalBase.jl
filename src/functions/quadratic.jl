@@ -21,7 +21,7 @@ rounded product `γ (-λmin)` is not `< 1` (a NaN step included), `prox!` throws
 `DomainError` before `y` is written; otherwise it applies the formula above.
 For a nonnegative finite `γ` and finite cached eigenvalues, the check accepts
 exactly when every computed denominator `1 + γ λi` is positive. In exact
-arithmetic the proximal subproblem has a unique minimizer if and only if
+arithmetic and for `γ > 0`, the proximal subproblem has a unique minimizer if and only if
 `1 + γ λmin(A) > 0` for the true smallest eigenvalue. The check tests computed
 values, so near that boundary it can accept a step for which the true
 `I + γA` is not positive definite, and reject one for which it is. The

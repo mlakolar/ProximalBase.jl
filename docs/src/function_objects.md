@@ -229,8 +229,8 @@ when its symmetric matrix is positive semidefinite, which is not checked. When
 the smallest eigenvalue `λmin` of the cached decomposition (a computed
 approximation) is negative and the rounded product `γ (-λmin)`, with `γ` the
 step converted to the element type after any `Scaled` factors, is not `< 1`
-(a NaN step included), the prox throws `DomainError`. In exact arithmetic the
-proximal subproblem has a unique minimizer if and only if `1 + γ λmin(A) > 0`
+(a NaN step included), the prox throws `DomainError`. In exact arithmetic and for
+`γ > 0`, the proximal subproblem has a unique minimizer if and only if `1 + γ λmin(A) > 0`
 for the true smallest eigenvalue; the check tests the computed value. A
 successful prox does not establish convexity.
 

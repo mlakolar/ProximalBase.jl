@@ -1,8 +1,12 @@
 module OneBasedAxesTest
 # One-based array arguments (#920). The built-in functions, their constructors and the products of the iterates read
 # their array arguments by position, under @inbounds or in loops over 1:n, so an array whose axes do not start at 1
-# is an ArgumentError, raised before anything is read or written. This file checks
-#   - construction with an offset stored array;
+# is an ArgumentError at the entry of the call, before the call's own indexed reads of the arrays and before any
+# write to an output or a cache. Exceptions that this file pins: `restrict` indexes its parameter arrays with the
+# index set before the constructor of the restricted function rejects the offset result, and the point argument of
+# BlockIterate(x, groups), SymmetricSparseIterate(X) and copyto! into a SymmetricSparseIterate, and an offset z, r
+# or d of the least-squares predictor and residual oracles, keep their DimensionMismatch. This file checks
+#   - construction with an offset stored array, the typed inner constructors included;
 #   - the oracles, the screens and the products with an offset input, destination or step array, and that the
 #     destination, the scratch and the cached factorizations are left as they were;
 #   - the routes that keep their earlier DimensionMismatch, and the extension routes that are not checked;
@@ -55,6 +59,17 @@ Base.@propagate_inbounds function Base.setindex!(s::ShiftedMatrix, v, i::Int, j:
 end
 Base.similar(s::ShiftedMatrix, ::Type{T}, d::Tuple{Base.IdentityUnitRange, Base.IdentityUnitRange}) where {T} =
   ShiftedMatrix(Matrix{T}(undef, length(d[1]), length(d[2])), first(d[1]) - 1, first(d[2]) - 1)
+
+# A one-based symmetric matrix that counts its reads.
+struct CountingMatrix{T} <: AbstractMatrix{T}
+  data::Matrix{T}
+  reads::Base.RefValue{Int}
+end
+Base.size(a::CountingMatrix) = size(a.data)
+Base.@propagate_inbounds function Base.getindex(a::CountingMatrix, i::Int, j::Int)
+  a.reads[] += 1
+  a.data[i, j]
+end
 
 # The kinds of offset vector: a strided view with the axes 2:n+1 over a buffer whose entry 1 is a decoy, the type above,
 # and an OffsetArray with the axes 0:n-1. A vector of ranges (a list of groups) is also built this way.
@@ -269,6 +284,27 @@ for T in (Float32, Float64)
       check("BlockIterate type, list of groups, $kind", () -> BlockIterate(T, 4, mkvec(kind, groups)))
       check("BlockIterate one group, $kind", () -> BlockIterate(4, [1:2, off([3, 4])]))
       check("BlockIterate storage and list of groups, $kind", () -> BlockIterate(zeros(T, 4), mkvec(kind, groups)))
+      # the typed inner constructors take the list of groups and each group as they are
+      gs = [off([1, 2]), off([3, 4])]
+      gl = mkvec(kind, groups)
+      check("typed GroupNormL2, offset groups, $kind", () -> GroupNormL2{T, typeof(gs)}(one(T), gs, ones(T, 2)))
+      check("typed GroupNormL2, offset list of groups, $kind", () -> GroupNormL2{T, typeof(gl)}(one(T), gl, ones(T, 2)))
+      check("typed BlockIterate, offset groups, $kind",
+            () -> BlockIterate{T, typeof(gs)}(zeros(T, 4), gs, [1, 1, 2, 2], nothing, zeros(Int, 2), zeros(Int, 2), 0))
+      check("typed BlockIterate, offset list of groups, $kind",
+            () -> BlockIterate{T, typeof(gl)}(zeros(T, 4), gl, [1, 1, 2, 2], nothing, zeros(Int, 2), zeros(Int, 2), 0))
+      check("typed BlockIterate, offset storage, $kind",
+            () -> BlockIterate{T, typeof(groups)}(off(zeros(T, 4)), groups, [1, 1, 2, 2], nothing, zeros(Int, 2), zeros(Int, 2), 0))
+      check("typed ElasticNet, offset weights, $kind", () -> ElasticNet{T, typeof(off(w))}(one(T), two, off(w)))
+      # the low-level constructors take every stored array
+      lsf = LeastSquaresLoss(w, M4 + 4I)
+      check("LeastSquaresLoss low-level constructor, offset scratch, $kind",
+            () -> LeastSquaresLoss(lsf.Y, lsf.X, off(zeros(T, 4)), lsf.V, lsf.s2, lsf.XtY, lsf.sUtY, lsf.w, lsf.output, false))
+      check("LeastSquaresLoss low-level constructor, offset response, $kind",
+            () -> LeastSquaresLoss(off(w), lsf.X, lsf.tmp, lsf.V, lsf.s2, lsf.XtY, lsf.sUtY, lsf.w, lsf.output, false))
+      qf = QuadraticFunction(A, w)
+      check("QuadraticFunction low-level constructor, offset b, $kind",
+            () -> QuadraticFunction(A, off(w), qf.c, qf.tmp, qf.Λ, qf.Q, qf.w))
       b = BlockIterate(T, 4, groups)
       check("BlockIterate low-level constructor, $kind", () -> BlockIterate(b.storage, mkvec(kind, groups), b.group_of, nothing, zeros(Int, 2), zeros(Int, 2), 0))
       # restricting to an offset index set gives an offset parameter
@@ -293,6 +329,9 @@ for T in (Float32, Float64)
       check("LinearFunction matrix coefficients, $kind", () -> LinearFunction(offm(M4)))
       check("QuadraticFunction A, $kind", () -> QuadraticFunction(offm(A), w))
       check("QuadraticFunction A without b, $kind", () -> QuadraticFunction(offm(A)))
+      qf = QuadraticFunction(A, w)
+      check("QuadraticFunction low-level constructor, offset A, $kind",
+            () -> QuadraticFunction(offm(A), qf.b, qf.c, qf.tmp, qf.Λ, qf.Q, qf.w))
       check("LeastSquaresLoss design, $kind", () -> LeastSquaresLoss(w, offm(M4)))
       check("LeastSquaresLoss matrix response, $kind", () -> LeastSquaresLoss(offm(M4), M4))
     end
@@ -570,6 +609,59 @@ for T in (Float32, Float64)
     check("gradient! at an offset matrix, $kind", () -> gradient!(G, SqrNormL2(two), offm(Msym)), G)
     Go = offm(fill(T(7), 3, 3))
     check("gradient! into an offset matrix, $kind", () -> gradient!(Go, SqrNormL2(two), Msym), Go)
+  end
+
+  @testset "opnorm2: $kind" for kind in MATKINDS
+    check("opnorm2 of an offset matrix, $kind", () -> opnorm2(mkmat(kind, M4)))
+    check("opnorm2 of an offset rectangular matrix, $kind", () -> opnorm2(mkmat(kind, T[1 2 0; 0 3 1])))
+  end
+  @testset "opnorm2 of an empty matrix with offset axes" begin
+    for Xe in (OffsetArray(zeros(T, 0, 2), 0:-1, 1:2), OffsetArray(zeros(T, 2, 0), 0:1, 1:0), OffsetArray(zeros(T, 0, 0), 0:-1, 0:-1),
+               view(ones(T, 5, 0), Base.IdentityUnitRange(2:5), :), view(ones(T, 0, 4), :, Base.IdentityUnitRange(2:3)))
+      @test isempty(Xe)
+      check("opnorm2 of an empty matrix with the axes $(axes(Xe))", () -> opnorm2(Xe))
+    end
+    @test opnorm2(zeros(T, 0, 2)) === zero(T) && opnorm2(zeros(T, 2, 0)) === zero(T)
+  end
+
+  @testset "products with a view of a BlockIterate" begin
+    b = BlockIterate(T[1, 2, 3, 4], [1:2, 3:4])
+    v = view(b, Base.IdentityUnitRange(2:3))
+    w9 = view(T[9, 2, 3, 9], Base.IdentityUnitRange(2:3))
+    @test v isa SubArray{<:Real, 1, <:BlockIterate} && axes(v, 1) == 2:3
+    check("dot of a block view and an offset strided vector", () -> dot(v, w9))
+    check("dot of an offset strided vector and a block view", () -> dot(w9, v))
+    check("dot of two offset block views", () -> dot(v, v))
+    ok = view(b, 2:3)
+    wk = view(T[9, 2, 3, 9], 2:3)
+    @test same(dot(ok, wk), dot(T[2, 3], T[2, 3])) && same(dot(wk, ok), dot(T[2, 3], T[2, 3])) && same(dot(ok, ok), dot(T[2, 3], T[2, 3]))
+    check("dot of a one-based block view and an offset strided vector", () -> dot(ok, w9))
+    check("dot of an offset strided vector and a one-based block view", () -> dot(w9, ok))
+  end
+
+  @testset "tuples with a symmetric block: the later blocks are checked before the first scan" begin
+    two_, A2 = T(2), T[2 1; 1 3]
+    for kind in KINDS
+      off(v) = mkvec(kind, v)
+      log = Symbol[]
+      s = Scaled(Recorded(log), two_)
+      reads = Ref(0)
+      Ac = CountingMatrix(A2, reads)
+      # a symmetric destination and a later offset block of the argument, and the reverse
+      S = SymmetricSparseIterate(T, 2); S[1, 1] = T(5)
+      z = fill(T(7), 4)
+      check("prox! at a tuple with a later offset input block, $kind", () -> prox!((S, z), s, (Ac, off(ones(T, 4))), one(T)), S, z)
+      @test reads[] == 0
+      zo = off(fill(T(7), 4))
+      check("value_and_prox! into a tuple with a later offset output block, $kind", () -> value_and_prox!((S, zo), s, (Ac, ones(T, 4)), one(T)), S, zo)
+      @test reads[] == 0
+      check("prox! at a tuple with an offset block before the symmetric one, $kind", () -> prox!((zo, S), s, (ones(T, 4), Ac), one(T)), S, zo)
+      @test reads[] == 0 && isempty(log)
+      # the counter counts: the one-based tuple is scanned
+      z1 = fill(T(7), 4)
+      prox!((S, z1), s, (Ac, ones(T, 4)), one(T))
+      @test reads[] > 0 && log == [:prox]
+    end
   end
 
   @testset "products of the iterates with an offset array" begin

@@ -38,8 +38,11 @@ precondition that the oracles assume and do not compare; validate it with
 or `NaN` scalar step before anything is written. The entries of an array of
 steps are not checked: they must be nonnegative, a precondition. This is an
 exception to the requirement of issue #908 that negative and `NaN` steps fail
-before writes: the check would add a pass over the steps to each such call
-(issue #874).
+before writes: a check reads every step, while such a call reads the steps
+before its loop only to choose the loop, up to the first block of 256 steps
+that holds a step outside the ordinary branches (a call from a `SparseIterate`
+into a `SparseIterate` reads none); the check would add a pass over the steps,
+or the rest of one (issue #874).
 `prox_block` does not check its step.
 
 An infinite ridge level makes `f` the indicator of `{0}` (issue #908): at
@@ -89,8 +92,9 @@ _checkparams(f::ElasticNet, x) = (_checkparam(f.w, x); true)
 # NaN or ±Inf entry). The tests of λ1, λ2 and a scalar γ do not depend on the entry.
 Base.@propagate_inbounds prox_block(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real} =
   _elastic_prox(f, v, i, γ, float(T), false)
-# With `ordinary` (a constant), the step is known to take the ordinary threshold product and the ordinary ridge
-# weights (_elastic_ordinary_step), and the code of the other paths is left out: the same arithmetic otherwise.
+# With `ordinary` true, the caller has found that the step takes the ordinary threshold product and the ordinary ridge
+# weights (_elastic_ordinary_step), and the other branches are not evaluated: the same arithmetic as with `false` for
+# such a step. With the constant true of prox_block(::_ElasticOrdinarySteps), the compiler can leave their code out.
 Base.@propagate_inbounds function _elastic_prox(f::ElasticNet, v, i, γ, ::Type{S}, ordinary::Bool) where {S}
   z = _elastic_threshold(f, v, i, γ, S, ordinary)
   r = !ordinary && _ridge_needs_scaling(S, γ, f.λ2) ? _ridge_apply(_ridge_scaled(S, γ, f.λ2), z) :
@@ -100,7 +104,7 @@ end
 Base.@propagate_inbounds function _elastic_threshold(f::ElasticNet, v, i, γ, ::Type{S}, ordinary::Bool = false) where {S}
   w = _entry(f.w, i)
   iszero(f.λ1) && return shrink(v, ifelse(isinf(w), S(Inf), zero(S)))
-  # the ordinary branch of _l1_prox_threshold
+  # with `ordinary` true, the ordinary branch of _l1_prox_threshold
   ordinary ? shrink(v, first(_threshold_product(S, γ, f.λ1, w))) : first(_l1_prox_threshold(v, γ, f.λ1, w, S))
 end
 @inline _elastic_fixed(f::ElasticNet, γ) = isinf(f.λ2) & (γ >= 0)
@@ -146,10 +150,11 @@ _prox_sep!(y::SparseIterate, f::ElasticNet, x::SparseIterate, γ::Real) = _elast
 _prox_sep!(y::SymmetricSparseIterate, f::ElasticNet, x::Union{AbstractMatrix, SymmetricSparseIterate}, γ::Real) =
   _elastic_prepared!(_prox_coordinates!, y, f, x, γ)
 
-# Array steps on a dense array. Where every step takes the ordinary branches (_elastic_ordinary_step), which a pass
-# over the steps decides (it stops after the first block of 256 that holds another step), the loop applies those
-# branches alone: no call to the code of the other paths remains in it, and it vectorizes. Each entry is still
-# prox_block(f, xᵢ, i, γᵢ), bit for bit. Otherwise, and for element types that are not concrete, prox_block.
+# Array steps in the loop over every entry (separable.jl). When the element types of x and γ are concrete and every
+# step takes the ordinary branches (_elastic_ordinary_step), which a pass over the steps in blocks of 256 decides (it
+# returns false after the first block that holds a step outside them), the loop calls _elastic_prox with the constant
+# true, whose code can leave out the other branches, and LLVM can vectorize it. Otherwise it calls prox_block(f, …).
+# Either loop stores convert(eltype(y), prox_block(f, xᵢ, i, γᵢ)) in entry i, bit for bit.
 struct _ElasticOrdinarySteps{F<:ElasticNet} <: SeparableFunction
   f::F
 end

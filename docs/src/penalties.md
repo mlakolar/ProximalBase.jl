@@ -297,10 +297,23 @@ negative or `NaN` scalar step before anything is written. The entries of
 an array of steps are not checked: they must be nonnegative, a documented
 precondition. This is an exception to the requirement of
 [#908](https://github.com/mlakolar/ProximalBase.jl/issues/908) that
-negative and `NaN` steps fail before writes, because the check would add a
-pass over the steps to each such call
+negative and `NaN` steps fail before writes: a check reads every step,
+while such a call reads the steps before its loop only to choose the loop,
+up to the first block of 256 steps that holds a step outside the ordinary
+branches (below), and a call from a `SparseIterate` into a `SparseIterate`
+reads none; the check would add a pass over the steps, or the rest of one
 ([#874](https://github.com/mlakolar/ProximalBase.jl/pull/874)).
 `prox_block` does not check its step, and `Scaled` keeps its own step rule.
+
+For `Float32` and `Float64` entries, a step ``\gamma`` takes the ordinary
+branches when `λ1` is zero or ``\gamma\lambda_1`` is a positive normal
+number, and ``\gamma\lambda_2`` lies in ``[2^{-126}, 2^{125}]`` (`Float32`)
+or ``[2^{-1022}, 2^{1021}]`` (`Float64`) or one of ``\gamma``, `λ2` is zero
+or not finite. When the argument and the array of steps have concrete element
+types, a call other than from a `SparseIterate` into a `SparseIterate` runs
+a loop specialized to these branches if every step takes them; one step
+outside them, anywhere, sends the whole call to the general loop. Both loops
+store the same results, bit for bit.
 
 ```@example library_l1
 y = [7.0, 7.0, 7.0]

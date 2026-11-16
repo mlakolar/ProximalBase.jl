@@ -202,8 +202,7 @@ z
 Nested positive finite `Scaled` factors can retain their exponent sum so an
 overflowed/underflowed intermediate scale does not discard a recoverable leaf
 result. This mechanism is implemented for retained kernels, not synthesized
-for custom functions. Original `Squared()` scalar arithmetic has no such
-array-value recovery.
+for custom functions.
 
 A known limitation ([#567](https://github.com/mlakolar/ProximalBase.jl/issues/567)):
 for `Scaled(ElasticNet(λ1, λ2, w), α)` with finite levels, a finite positive `α`

@@ -8,7 +8,7 @@ step selection and stopping rule.
 
 | Your model term | Use | What to check |
 |:--|:--|:--|
-| Squared regression error, `sum(abs2, X*β - y)/2` | [`LeastSquaresLoss(y, X)`](@ref LeastSquaresLoss) | Response first; use `Scaled(LeastSquaresLoss(y, X), 1/n)` for the mean loss |
+| Squared regression error, `sum(abs2, X*β - y)/2` | [`LeastSquaresLoss(y, X)`](@ref LeastSquaresLoss) | Response first; use `Scaled(LeastSquaresLoss(y, X), 1/size(X, 1))` for the mean loss |
 | Squared distance or ridge penalty, `λ*sum(abs2, x - y)/2` | [`SqrNormL2(λ, y)`](@ref SqrNormL2) | Omit the center for ridge at zero |
 | General quadratic, `x' * A * x / 2 + b' * x + c` | [`QuadraticFunction(A, b, c)`](@ref QuadraticFunction) | `A` must be symmetric (not checked); indefinite matrices restrict proximal steps |
 | Lasso or weighted absolute values | [`NormL1(λ, w)`](@ref NormL1) | Weights are optional; scalar prox is soft thresholding |

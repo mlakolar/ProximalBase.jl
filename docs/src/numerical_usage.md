@@ -65,6 +65,7 @@ arithmetic and recovery unless they explicitly adopt these conventions.
 |:--|:--|
 | Built-in function array parameters/data | Usually retained by reference; copy at construction if you need independence |
 | `LeastSquaresLoss` / `QuadraticFunction` | Own scratch and lazy decomposition caches; the calls that write them (for `LeastSquaresLoss`: `f(β)`, `gradient!`, `value_and_gradient!` and the proximal operators) are not safe to run concurrently on one object without synchronization. The least-squares oracles at a supplied predictor or residual write no field of the loss ([smooth functions](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds)) |
+| `NormLinf` | Keeps a buffer of its own, used by `prox!` and `value_and_prox!` when the output is the argument itself, a view, an iterate, or not a dense `Array` of the computation type, or overlaps the argument. Those calls write the object and are not safe to run concurrently on one object without synchronization; a distinct dense `Array` output serves as the buffer and leaves the object unwritten |
 | `Scaled` | Retains the inner object, scratch and parameters |
 | Iterate `copy` | Independent mutable values and active state; `BlockIterate` layout shared, immutable in use |
 | Coordinate / block / matrix views | Live aliases; only `matrixview` is read-only |

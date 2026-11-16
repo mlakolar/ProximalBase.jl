@@ -38,3 +38,9 @@ ElasticNet
 NormL2
 GroupNormL2
 ```
+
+## ℓ∞ norm
+
+```@docs
+NormLinf
+```

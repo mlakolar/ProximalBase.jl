@@ -732,9 +732,10 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
       g = Scaled(f, T(3))
       @test identical(prox!(similar(x), g, x, steps), perentry(x, g, x, steps))
 
-      # linear indices that end at typemax(Int) - 1: the last block of the pass starts within 255 of typemax(Int).
-      # The step 2^emax (γλ2 above the ridge band) is planted at the last index only; an infinite λ1 sends every
-      # step to another branch than the ordinary threshold product.
+      # The pass over linear indices that end at typemax(Int) - 1, where the last block starts within 255 of
+      # typemax(Int). The step 2^emax (γλ2 above the ridge band) is planted at the last index only; an infinite λ1
+      # sends every step to another branch than the ordinary threshold product. prox! refuses these offset axes
+      # before any write (#923), so the pass is called directly.
       for m in (2, 300)
         lo = typemax(Int) - m
         xs = ShiftedVector(T(2) .* randn(rng, T, m), lo); xs[lo] = T(Inf)
@@ -744,10 +745,9 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
         @test PB._elastic_ordinary_steps(fu, gs, T, si) && !PB._elastic_ordinary_steps(finf, gs, T, si)
         gp = ShiftedVector(copy(gs.data), lo); gp[last(si)] = T(2)^emax
         @test !PB._elastic_ordinary_steps(fu, gp, T, si)
-        for h in (finf, fu), γs in (gs, gp)
-          ys = ShiftedVector(zeros(T, m), lo)
-          @test prox!(ys, h, xs, γs) === ys && identical(ys, perentry(ys, h, xs, γs))
-        end
+        ys = ShiftedVector(zeros(T, m), lo)
+        @test_throws ArgumentError prox!(ys, fu, xs, gs)
+        @test all(iszero, ys.data)
       end
     end
   end

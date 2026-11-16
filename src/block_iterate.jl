@@ -71,8 +71,10 @@ mutable struct BlockIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <
 end
 # Low-level: storage, active and position must not overlap in memory with each other or
 # with those of another iterate (see the docstring); groups and group_of may be shared.
-BlockIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}, layout_cache, active::Vector{Int}, position::Vector{Int}, nactive::Int) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}} =
+function BlockIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}, layout_cache, active::Vector{Int}, position::Vector{Int}, nactive::Int) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}}
+  _check_one_based_groups(groups)
   BlockIterate{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
+end
 
 _stored_values(x::BlockIterate) = x.storage
 
@@ -108,10 +110,20 @@ function _BlockIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}) whe
   x
 end
 
+# the list of groups and each group have axes that start at 1 (the groups are read by position under @inbounds)
+function _check_one_based_groups(groups)
+  _check_one_based(groups)
+  for G in groups
+    _check_one_based(G)
+  end
+  true
+end
+
 # an owned copy of the groups, with a concrete element type: ranges are kept and
 # other collections of indices become Vector{Int}s, so that loops over a group
 # do not dispatch on its type
 function _own_groups(groups::AbstractVector{<:AbstractVector{<:Integer}})
+  _check_one_based_groups(groups)
   R = eltype(groups)
   isconcretetype(R) && R <: AbstractRange ? Vector{R}(groups) : [Vector{Int}(G) for G in groups]
 end
@@ -501,6 +513,7 @@ end
 LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::BlockIterate) =
   mul!(out, A, x, true, false)
 function LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::BlockIterate, α::Number, β::Number)
+  _check_one_based(out, A)
   _checkreal(x, out); _checkreal(x, A); _checkreal(x, α); _checkreal(x, β)
   size(A, 2) == length(x) || throw(DimensionMismatch("A has second dimension $(size(A, 2)), length of x is $(length(x))"))
   size(A, 1) == length(out) || throw(DimensionMismatch("A has first dimension $(size(A, 1)), length of out is $(length(out))"))
@@ -525,6 +538,7 @@ end
 LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::BlockIterate) =
   mul!(out, A, x, true, false)
 function LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::BlockIterate, α::Number, β::Number)
+  _check_one_based(out, A)
   _checkreal(x, out); _checkreal(x, A); _checkreal(x, α); _checkreal(x, β)
   length(x) == size(A, 2) && length(out) == size(A, 1) || throw(DimensionMismatch())
   _scale_product_output!(out, β)
@@ -542,6 +556,7 @@ end
 # sparse vectors. A zero entry of x contributes nothing, even against ±Inf or
 # NaN in v (numerics M1), and so does a zero of v when v is an iterate too.
 function LinearAlgebra.dot(v::Union{StridedVector, SparseIterate{<:Any, 1}, BlockIterate}, x::BlockIterate)
+  _check_one_based(v)
   _checkreal(x, v)
   length(v) == length(x) || throw(DimensionMismatch())
   s = zero(promote_type(eltype(v), eltype(x)))

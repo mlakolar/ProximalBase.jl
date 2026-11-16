@@ -103,8 +103,8 @@ function _value_unchecked(f::SqrNormL2, x::_ArrayOrSymmetricIterate)
   T = _valtype(x)
   iszero(f.λ) && return zero(T)
   y = f.y
-  # A center is a parameter: it is rounded to the model precision of the value, the
-  # argument's (T3), so a Float64 center does not widen a Float32 value.
+  # Float32 arguments with Float64 centers use _ridge_value_wide_center; other type combinations
+  # pass through _ridge_value_center. _value_at converts the returned value to _valtype(x).
   T === Float32 && y !== nothing && eltype(y) === Float64 && return _ridge_value_wide_center(f.λ, x, y)
   _square_value(f.λ, x, _ridge_value_center(T, y))
 end
@@ -126,7 +126,7 @@ _value_parts(f::SqrNormL2, x::AbstractArray, v) = _square_parts(f.λ, x, _ridge_
   iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
 _parameter_alias(f::SqrNormL2, out) = _mightalias_parameter(out, f.y)
 
-# Does a center entry keep its range when rounded to the model precision W (R3)?
+# Does a center entry keep its range when rounded to the value's type W?
 # Branchless, so that a loop over the entries still vectorizes. Free for a center
 # already stored in W; non-finite and zero entries convert without loss.
 @inline _ridge_fits(::Type{W}, c::W) where {W} = true
@@ -170,21 +170,22 @@ function _ridge_all_fit(::Type{Float32}, c::AbstractArray{Float64})
   hi <= _F32_MAX_BITS && lo >= _F32_MIN_BITS - one(UInt64)
 end
 
-# A center entry rounded to the model precision T where that keeps its range, as given otherwise (R3).
+# A center entry rounded to the value's type T where that keeps its range, as given otherwise.
 @inline _ridge_round(::Type{T}, c) where {T} = _ridge_fits(T, c) ? oftype(c, T(c)) : c
-# The centers as the value at an argument of type T reads them (T3, R3), for the recomputation and
-# the value parts: a Float64 center at a Float32 argument, and a BigFloat center at a Float32 or
-# Float64 argument, are rounded entry by entry (_ridge_round); other centers are read as stored.
+# The centers as the value at an argument of type T reads them, for the recomputation and
+# the value parts: Float64 centers at a Float32 argument, and centers whose floating element type
+# is BigFloat at a Float32 or Float64 argument, pass entrywise through _ridge_round; other center
+# arrays are returned unchanged.
 function _ridge_value_center(::Type{T}, y) where {T}
   y === nothing && return y
   ((T === Float32 && eltype(y) === Float64) || (T <: Union{Float32, Float64} && float(eltype(y)) <: BigFloat)) || return y
   map(c -> _ridge_round(T, c), y)
 end
 
-# Σ (xᵢ - round(cᵢ))² for a Float32 argument and a Float64 center. The ordinary
-# computation runs in Float32 when every center entry keeps its range on rounding;
-# otherwise the centers that fit are rounded and the scaled recovery of
-# _square_value sees them in Float64 (R3).
+# Σ (xᵢ - cᵢ)² for a Float32 argument and a Float64 center. Convert each center and form each
+# residual in Float32, square and accumulate in Float64, then convert the sum to Float32 before
+# applying the level. A rejected ordinary result calls _exceptional_square_value with
+# _ridge_value_center(Float32, y); endpoint checks may retain the ordinary result.
 function _ridge_value_wide_center(λ, x, y)
   T = Float32
   s = 0.0           # the squares are exact in Float64; the sum accumulates there
@@ -235,10 +236,10 @@ _ridge_gradient_coordinates!(g, l, c, x) =
   _symmetric_coordinates!(g, (v, j) -> _ridge_gradient_entry(l, v, @inbounds c[j]), x)
 _ridge_gradient_wide_coordinates!(g, ::Type{W}, l, c, x) where {W} =
   _symmetric_coordinates!(g, (v, j) -> _ridge_gradient_wide(W, l, v, c === nothing ? zero(W) : @inbounds c[j]), x)
-# gᵢ = λ(xᵢ - cᵢ) in the model precision W of the gradient: the wider of the
-# destination and the argument. λ and c are rounded to W (T3), except where the
-# rounding leaves W's range (R3); an overflowing xᵢ - cᵢ does not hide a finite
-# gradient entry (R2).
+# gᵢ = λ(xᵢ - cᵢ) in the precision W of the gradient (_model_precision): the wider of the
+# destination and the argument. λ and c are rounded to W, except where the rounding leaves
+# W's range; an overflowing xᵢ - cᵢ does not hide a finite gradient entry
+# (numerics.md, "Overflow and underflow of values").
 function _ridge_gradient!(g, λ, c, x)
   W = _model_precision(eltype(g), eltype(x))
   if _level_fits(W, λ)
@@ -335,10 +336,10 @@ end
 
 # The ridge proximal point (x + γλc)/(1 + γλ) = a x + b c with the convex weights
 # a = 1/(1+t), b = t/(1+t), t = γλ. t is formed once from the unrounded factors in
-# P = promote_type(W, factors) and rounded to the model precision W (T3).
+# P = promote_type(W, factors) and rounded to W.
 #
 # Ordinary: t, 1/t and both weights are normal numbers in W (or a factor is zero or
-# not finite, which keeps its earlier meaning). Scaled (R3): t = τ·2^k from the
+# not finite, which keeps its earlier meaning). Scaled: t = τ·2^k from the
 # significands; the smaller weight is carried as m·2^e and applied last, so a
 # coefficient that is not representable still acts on the coordinate.
 struct _RidgeOrdinary{W<:Real}

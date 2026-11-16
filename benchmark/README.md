@@ -383,3 +383,39 @@ the reversed run (the ratios are the inverse in the reversed run). A cell above 
 spread does not explain is repeated in a fresh process with `PB_FILTER` before it is reported. The exceptional cells
 are reported, not judged against 1.05. The oracle value cells at n = 64 take about 10 to 25 ns on the cluster nodes used, where a difference of 1 ns is
 4 to 10 percent.
+
+## Square-root least-squares harness
+
+`sqrt_leastsquares.jl` times the value oracles `value_from_predictor` and `value_from_residual` of
+`SqrtLeastSquaresLoss` (#960), raw and `Scaled(f, 1/√n)`, Float32 and Float64. It loads one tree (`PB_ROOT`, default
+the repository) with `Base.include`, as the other harnesses do, and compares the oracles with a reference in the
+same process; there are no roles X and Y.
+
+| n | Reference | A/A control |
+|---|---|---|
+| 100, 10³, 10⁴, 10⁵ (one vectorizing loop) | a loop written in the script, `α √(Σ (zᵢ - Yᵢ)²)` or `α √(Σ rᵢ²)`, no `α` for the raw loss, no recovery from overflow or underflow | the same loop compiled again from the same source in a second module |
+| 10⁶ (the pairwise reduction) | the oracle `value_from_predictor` or `value_from_residual` of `LeastSquaresLoss` of the same tree on the same data | the same least-squares oracle of a second compiled copy of the tree |
+
+Each round times the three roles of a cell (reference, oracle, control) in an order that alternates between rounds,
+and visits the cells in an order that alternates too; a timing is the median and the minimum over batches of calls.
+The script prints, per cell, the median over the rounds of the ratio oracle/reference of the medians and of the
+minima, the median over the rounds of the control's ratio of the medians, the range of the control's ratios and the
+distance of their median from one, the warm allocations of each side (measured behind a function barrier, after the
+check of the values), and a verdict: PASS where the median ratio is at most 1.25 (n = 100) or 1.10 (the other n);
+otherwise INCONCLUSIVE where the median ratio minus one is at most the control's noise (the larger of its range and
+its distance from one), FAIL otherwise. The value check is the comparison with the reference loop within 8 `eps(T)` for
+n ≤ 10⁵. At n = 10⁶ the reference is a least-squares value, so the check compares `v_sqrt² / (2 v_LS)` with the factor
+of the cell (1 for the raw loss) within 64 `eps(T)` relative, and the printed error is the relative error of that
+quotient in `eps(T)`. A failed value check, or an oracle that allocates, is a failure. Run it again in a fresh process before reading a ratio near its limit:
+at n = 100 a call takes 7 to 15 ns, where 1 ns is 7 to 14 percent, and the placement of code moves such a cell by
+more than that.
+
+```sh
+PB_ROOT="$PWD" PB_OUTPUT=/tmp/sqrt-ls PB_ROUNDS=15 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/sqrt_leastsquares.jl
+PB_ROOT="$PWD" PB_CHECK_ONLY=1 julia --threads=1 --check-bounds=no --project=benchmark benchmark/sqrt_leastsquares.jl
+```
+
+`PB_FILTER` selects cells by a regular expression on their ids `type/operation/variant/n` (for example
+`'Float64/residual/.*/n100$'`), `PB_ROUNDS` sets the number of rounds, `PB_CHECK_ONLY=1` checks values and allocations
+without timing, and `PB_OUTPUT` receives `raw.csv` and `provenance.txt`.

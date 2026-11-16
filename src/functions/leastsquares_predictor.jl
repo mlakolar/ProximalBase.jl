@@ -9,12 +9,17 @@
 const _LSStrided{T} = LeastSquaresLoss{T, <:StridedVector{T}, <:StridedMatrix{T}}
 const _LSScaledStrided{T} = Scaled{<:_LSStrided{T}}
 const _LSOracleLoss{T} = Union{_LSStrided{T}, _LSScaledStrided{T}}
+# The same for SqrtLeastSquaresLoss, which shares the oracles value_from_predictor and value_from_residual and the accessor
+# leastsquares_data with the least-squares loss, and has no gradient oracle.
+const _SqrtLSStrided{T} = SqrtLeastSquaresLoss{T, <:StridedVector{T}, <:StridedMatrix{T}}
+const _SqrtLSOracleLoss{T} = Union{_SqrtLSStrided{T}, Scaled{<:_SqrtLSStrided{T}}}
 
 # The loss and the scale a of the computation: one(T) for a LeastSquaresLoss, and for a Scaled the factor
 # as supplied when it is a positive finite Float32 or Float64 (not rounded to T), or the Float64 of an
 # integer α with Float64(α) == α. The type of a is determined by the type of the factor. Any other
 # factor is refused here, before the callers write.
 @inline _ls_base_scale(f::LeastSquaresLoss{T}) where {T} = (f, one(T))
+@inline _ls_base_scale(f::SqrtLeastSquaresLoss{T}) where {T} = (f, one(T))
 @inline _ls_base_scale(s::Scaled) = (s.f, _ls_scale(s.α))
 @inline _ls_scale(α::Union{Float32, Float64}) = isfinite(α) & (α > 0) ? α : _ls_scale_error(α)
 @inline function _ls_scale(α::Integer)
@@ -90,6 +95,14 @@ julia> ProximalBase.value_from_predictor(f, [3.0])
 2.0
 ```
 
+For [`SqrtLeastSquaresLoss`](@ref), or one `Scaled` wrapper, this returns
+`α*norm(z-Y)` rather than a squared loss. The strided type, axes and factor
+restrictions are the same, including rejection of an infinite scale **before**
+evaluating a zero residual. Extreme sums and products use power-of-two range
+recovery, not `sqrt(2*v)` of the squared-loss value; see the
+[`SqrtLeastSquaresLoss`](@ref) accuracy contract. Neither `X`, `f.tmp` nor `z`
+is read or written beyond the caller-supplied predictor entries.
+
 # Edge cases
 - A scale must be positive finite `Float32`/`Float64`, or an integer exactly
   representable as `Float64`; other factors throw `ArgumentError`.
@@ -157,6 +170,11 @@ axes (`DimensionMismatch` otherwise). The result type, accuracy, allocation and
 concurrency guarantees are the same, with non-finite residuals producing
 non-finite values.
 
+For [`SqrtLeastSquaresLoss`](@ref), or one `Scaled` wrapper, the value is
+`α*norm(r)` for either residual sign. It has the same scale, domain, accuracy
+and range-recovery rules as that loss's `value_from_predictor`; no `X`, `Y` or
+`f.tmp` entries are accessed and `r` is not modified.
+
 # Examples
 ```jldoctest
 julia> f = LeastSquaresLoss([1.0], reshape([2.0], 1, 1));
@@ -177,10 +195,16 @@ arrays themselves, with no copy or conversion. The scale is `one(T)` for a
 [`LeastSquaresLoss`](@ref) of type `T`, or the stored factor of one [`Scaled`](@ref)
 wrapper, with its original type.
 
-Any `LeastSquaresLoss` is accepted, including data outside the strided domain of
+Any `LeastSquaresLoss` or `SqrtLeastSquaresLoss` is accepted, including data outside the strided domain of
 the predictor oracles. Other functions throw `MethodError`. This accessor does
 not validate or convert the scale; the predictor oracles can reject it or use
 its converted value.
+
+The accessor also accepts [`SqrtLeastSquaresLoss`](@ref) and one `Scaled`
+wrapper of it; `α` is the raw loss's `one(T)` or the wrapper's stored factor,
+respectively. The returned data do not distinguish the two losses; their
+types do. Calling the accessor does not validate that a scale is accepted
+by the numerical oracles.
 
 # Examples
 ```jldoctest
@@ -229,5 +253,23 @@ function value_from_residual(f::_LSOracleLoss{T}, r::StridedVector{T}) where {T<
   _ls_value(f, r, nothing)
 end
 
+@inline _sqrt_ls_response(src::Scaled{<:SqrtLeastSquaresLoss}) = src.f.Y
+
+# The square-root loss: the factor is checked first (_ls_base_scale: a positive finite Float32 or Float64, or an integer
+# that Float64 holds), then the axes of z or r against those of Y, before any entry is read; the oracles read no entry
+# of X and neither read nor write f.tmp.
+function value_from_predictor(f::_SqrtLSOracleLoss{T}, z::StridedVector{T}) where {T<:Union{Float32, Float64}}
+  base, a = _ls_base_scale(f)
+  _sqrt_ls_value(a, z, base.Y, f)
+end
+
+function value_from_residual(f::_SqrtLSOracleLoss{T}, r::StridedVector{T}) where {T<:Union{Float32, Float64}}
+  base, a = _ls_base_scale(f)
+  axes(r) == axes(base.Y) || _ls_axes_error("r", axes(r, 1), axes(base.Y, 1))
+  _sqrt_ls_value(a, r, nothing, nothing)
+end
+
 leastsquares_data(f::LeastSquaresLoss{T}) where {T} = (; Y = f.Y, X = f.X, α = one(T))
 leastsquares_data(s::Scaled{<:LeastSquaresLoss}) = (; Y = s.f.Y, X = s.f.X, α = s.α)
+leastsquares_data(f::SqrtLeastSquaresLoss{T}) where {T} = (; Y = f.Y, X = f.X, α = one(T))
+leastsquares_data(s::Scaled{<:SqrtLeastSquaresLoss}) = (; Y = s.f.Y, X = s.f.X, α = s.α)

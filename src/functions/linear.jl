@@ -104,10 +104,10 @@ function _linear_expsum(acc, c, x::SymmetricSparseIterate)
   acc
 end
 
-# A matrix SparseIterate (D1): an entry of x that is not stored, or is stored as a zero, adds
-# nothing to the value, also if the coefficient there is NaN or Inf. The value of x is read from
-# the storage (nzval, ind2nzval), not through getindex: a scan of the logical matrix that visits
-# the implicit entries forms a zero at each of them. size(c) == size(x) is checked first.
+# A matrix SparseIterate (#902; numerics.md, "Sparse product semantics"): an entry of x that is not
+# stored, or is stored as a zero, adds nothing to the value, also if the coefficient there is NaN or Inf.
+# The value of x is read from the storage (nzval, ind2nzval), not through getindex: a scan of the logical
+# matrix that visits the implicit entries forms a zero at each of them. size(c) == size(x) is checked first.
 function _value_unchecked(f::LinearFunction, x::SparseIterate{<:Any, 2})
   _checkvalue(f, x)
   _value_at(_linear_value(f, x, _linear_stored_dot(f.c, x) + f.d), x)

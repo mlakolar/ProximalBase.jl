@@ -87,9 +87,9 @@ through one of its views, or copy it:
   - `Matrix(x)`: an independent dense copy.
 
 The size `p` may be an `Integer` of a type other than `Int`. A negative `p`
-throws an `ArgumentError` before any conversion; a nonnegative `p` is converted
-with `Int`, which throws an `InexactError` for a value of a Base integer type
-that does not fit in `Int`.
+throws an `ArgumentError` before the conversion to `Int`; a nonnegative `p` is
+converted with `Int`, which throws an `InexactError` for a value of a Base
+integer type that does not fit in `Int`.
 
 `x[i, j]` reads and `x[i, j] = v` writes one variable, from either triangle: the
 positions `(i, j)` and `(j, i)` name the same variable, and an index outside

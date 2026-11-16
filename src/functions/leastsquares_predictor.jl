@@ -9,12 +9,17 @@
 const _LSStrided{T} = LeastSquaresLoss{T, <:StridedVector{T}, <:StridedMatrix{T}}
 const _LSScaledStrided{T} = Scaled{<:_LSStrided{T}}
 const _LSOracleLoss{T} = Union{_LSStrided{T}, _LSScaledStrided{T}}
+# The same for SqrtLeastSquaresLoss, which shares the oracles value_from_predictor and value_from_residual and the accessor
+# leastsquares_data with the least-squares loss, and has no gradient oracle.
+const _SqrtLSStrided{T} = SqrtLeastSquaresLoss{T, <:StridedVector{T}, <:StridedMatrix{T}}
+const _SqrtLSOracleLoss{T} = Union{_SqrtLSStrided{T}, Scaled{<:_SqrtLSStrided{T}}}
 
 # The loss and the scale a of the computation: one(T) for a LeastSquaresLoss, and for a Scaled the factor
 # as supplied when it is a positive finite Float32 or Float64 (not rounded to T), or the Float64 of an
 # integer α with Float64(α) == α. The type of a is determined by the type of the factor. Any other
 # factor is refused here, before the callers write.
 @inline _ls_base_scale(f::LeastSquaresLoss{T}) where {T} = (f, one(T))
+@inline _ls_base_scale(f::SqrtLeastSquaresLoss{T}) where {T} = (f, one(T))
 @inline _ls_base_scale(s::Scaled) = (s.f, _ls_scale(s.α))
 @inline _ls_scale(α::Union{Float32, Float64}) = isfinite(α) & (α > 0) ? α : _ls_scale_error(α)
 @inline function _ls_scale(α::Integer)
@@ -98,6 +103,14 @@ section "Least squares at a predictor or residual that the caller holds" of the 
 For a raw loss, or a `Scaled` one with a `Float32`, `Float64` or `Int` factor, the call allocates nothing on its
 ordinary path. It writes no field of `f`, so several tasks may call it on one `f` while `X` and `Y` are not
 mutated.
+
+The function is shared with [`SqrtLeastSquaresLoss`](@ref): for `f = SqrtLeastSquaresLoss(Y, X)`, or one `Scaled` of
+it, the value is `α ‖z - Y‖₂`, with `α` as above and the domain, the axes check and the result type as above. The
+factor is checked before the sum on every call, so that `Scaled(f, Inf)` is an `ArgumentError` also where `z == Y`.
+The value is `α√ŝ` for the computed sum of squares `ŝ` when `ŝ` is not below `n floatmin(T)/eps(T)` and the product is
+below `floatmax(T)/2`; when either test rejects it, it is recomputed in power-of-two units. It is never formed as
+`sqrt(2 * v)` from the least-squares value `v`. The accuracy is that stated for `SqrtLeastSquaresLoss`.
+No entry of `X` is read, `f.tmp` is neither read nor written, and `z` is not modified.
 """
 function value_from_predictor end
 
@@ -141,6 +154,11 @@ The domain, the factor, the result type, the rounding, the recomputation and the
 [`ProximalBase.value_from_predictor`](@ref), with `r::StridedVector{T}` with the axes of `Y` (other axes are a
 `DimensionMismatch`) and a non-finite entry of `r` in place of one of `z`. The call allocates nothing on its
 ordinary path in the same cases, and it is reentrant as `value_from_predictor` is.
+
+For a [`SqrtLeastSquaresLoss`](@ref), or one `Scaled` of it, the value is `α ‖r‖₂` for `r = Y - Xβ` and for
+`r = Xβ - Y`, with the domain, the factor check and the accuracy of `value_from_predictor` for that loss; the value
+at `r` and at `-r` is the same. `Y` and `X` are not read, `f.tmp` is neither read nor written, and `r` is not
+modified.
 """
 function value_from_residual end
 
@@ -152,8 +170,12 @@ nor converted), and the scale `α`. `α` is `one(T)` for a `LeastSquaresLoss{T}`
 `α` of one `Scaled` of a `LeastSquaresLoss`, as it was supplied, with its type and without a
 check or conversion: the scale that [`ProximalBase.value_from_predictor`](@ref) and its companions
 compute with can differ from it, and they refuse a factor outside their domain. Any
-`LeastSquaresLoss` is accepted here, also with array types outside the strided domain; any other function is a
-`MethodError`.
+`LeastSquaresLoss` or `SqrtLeastSquaresLoss` is accepted here, also with array types outside the strided domain; any other
+function is a `MethodError`.
+
+The accessor is shared with [`SqrtLeastSquaresLoss`](@ref): for `SqrtLeastSquaresLoss{T}` it returns `α = one(T)`,
+and for one `Scaled` of it the stored factor, under the same rules, so that the two losses are told apart by their
+types and not by the result.
 
 The arrays are borrowed, not copied and not protected: do not mutate `Y` or `X` while the loss or
 one of its oracles is in use, also on another task.
@@ -192,5 +214,23 @@ function value_from_residual(f::_LSOracleLoss{T}, r::StridedVector{T}) where {T<
   _ls_value(f, r, nothing)
 end
 
+@inline _sqrt_ls_response(src::Scaled{<:SqrtLeastSquaresLoss}) = src.f.Y
+
+# The square-root loss: the factor is checked first (_ls_base_scale: a positive finite Float32 or Float64, or an integer
+# that Float64 holds), then the axes of z or r against those of Y, before any entry is read; the oracles read no entry
+# of X and neither read nor write f.tmp.
+function value_from_predictor(f::_SqrtLSOracleLoss{T}, z::StridedVector{T}) where {T<:Union{Float32, Float64}}
+  base, a = _ls_base_scale(f)
+  _sqrt_ls_value(a, z, base.Y, f)
+end
+
+function value_from_residual(f::_SqrtLSOracleLoss{T}, r::StridedVector{T}) where {T<:Union{Float32, Float64}}
+  base, a = _ls_base_scale(f)
+  axes(r) == axes(base.Y) || _ls_axes_error("r", axes(r, 1), axes(base.Y, 1))
+  _sqrt_ls_value(a, r, nothing, nothing)
+end
+
 leastsquares_data(f::LeastSquaresLoss{T}) where {T} = (; Y = f.Y, X = f.X, α = one(T))
 leastsquares_data(s::Scaled{<:LeastSquaresLoss}) = (; Y = s.f.Y, X = s.f.X, α = s.α)
+leastsquares_data(f::SqrtLeastSquaresLoss{T}) where {T} = (; Y = f.Y, X = f.X, α = one(T))
+leastsquares_data(s::Scaled{<:SqrtLeastSquaresLoss}) = (; Y = s.f.Y, X = s.f.X, α = s.α)

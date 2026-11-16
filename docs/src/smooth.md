@@ -83,7 +83,9 @@ out = similar(x)
 A solver that keeps the linear predictor ``z=X\beta`` current (after a coordinate update, say) can
 evaluate the loss from it without a product by ``X``. Three qualified public functions, not exported,
 serve this for a vector-response `LeastSquaresLoss` or one `Scaled` of it, and a fourth returns the data
-of the loss. Here ``\alpha`` is the factor of the `Scaled` wrapper, and ``\alpha=1`` for the loss itself:
+of the loss. Here ``\alpha`` is the factor of the `Scaled` wrapper, and ``\alpha=1`` for the loss itself. The
+value oracles and the accessor serve `SqrtLeastSquaresLoss` as well, which has its
+[own section](#Square-root-least-squares-is-not-smooth) below:
 
 ```math
 v=\frac{\alpha}{2}\|z-Y\|^2,\qquad
@@ -103,7 +105,7 @@ v=\frac{\alpha}{2}\|r\|^2\ \text{ for a residual } r.
 **Domain.** The loss has a vector `Y` and strided `Float32` or `Float64` arrays `Y` and `X` of one type `T`;
 `z`, `r`, `d` and `g` are strided vectors of that type. Anything else is a `MethodError`: a matrix response,
 a sparse or other non-strided design, another element type, a nested `Scaled`. The accessor takes any
-`LeastSquaresLoss` and one `Scaled` of it. `z`, `r` and `d` must have the axes of `Y` (another length, or an offset
+`LeastSquaresLoss` or `SqrtLeastSquaresLoss` and one `Scaled` of it. `z`, `r` and `d` must have the axes of `Y` (another length, or an offset
 view of the same length, is a `DimensionMismatch`). `Y` and `X` must be one-based: an offset-axes `Y` or `X` is an
 `ArgumentError` when the loss is constructed. For `value_and_gradient_from_predictor!` an output `g` with offset axes is
 an `ArgumentError` before anything is written.
@@ -189,6 +191,95 @@ v = ProximalBase.value_and_gradient_from_predictor!(g, d, f, z)
 s = Scaled(f, 0.25)
 @assert ProximalBase.value_from_residual(s, d) ≈ 0.25 * f(x)
 ProximalBase.leastsquares_data(s).α
+```
+
+## Square-root least squares is not smooth
+
+`SqrtLeastSquaresLoss` is described on this page because it stores the data of `LeastSquaresLoss` and is evaluated
+by the same value oracles; it is not a smooth function, and it has no gradient and no proximal operator in this package.
+
+```math
+f(\beta)=\|Y-X\beta\|_2,\qquad Y\in\mathbb{R}^n,\ X\in\mathbb{R}^{n\times p}.
+```
+
+The loss is convex. For ``X\ne 0`` it is not differentiable where ``Y=X\beta`` (for ``X=0`` it is constant in ``\beta``). It has the unnormalized convention: there is no
+``1/\sqrt n`` in the type. The normalized square-root lasso objective and its relation to the unnormalized one are
+
+```math
+\frac{1}{\sqrt n}\|Y-X\beta\|_2+\lambda_{\text{normalized}}\|\beta\|_1,\qquad
+\lambda_{\text{unnormalized}}=\sqrt n\,\lambda_{\text{normalized}},
+```
+
+so that the data term of the normalized objective is `Scaled(f, inv(sqrt(n)))` and the penalty is `NormL1(λ)` with
+the level of the objective in use. ProximalBase defines no sum of functions: an algorithm adds the two terms itself.
+
+`issmooth(f)` and `isproximable(f)` are `false` and `isconvex(f)` is `true`. `gradient!`, `value_and_gradient!`,
+`prox!`, `value_and_prox!`, `prox_block`, `kkt_violation` and `restrict` are a `MethodError`, and `lipschitz(f)` is an
+`ArgumentError`. There is no `ProximalBase.value_and_gradient_from_predictor!` for it: a subgradient at the point
+of zero residual is a separate decision that this package does not make. `Scaled(f, 0)` is the zero function for finite data.
+
+**Construction.** `SqrtLeastSquaresLoss(Y, X)` takes a vector `Y` and a matrix `X` with real entries and
+`size(X, 1) == length(Y)` (a `DimensionMismatch` otherwise), both with axes that start at 1. A matrix `Y` is a
+`MethodError`. `T = float(promote_type(eltype(Y), eltype(X)))` is the type of the scratch that `f(β)` uses.
+
+**Values.** `f(β)` forms ``X\beta`` in the scratch of the loss and takes the norm of ``X\beta-Y``. An entry of
+``X\beta`` that overflows is not formed again, unlike `LeastSquaresLoss`: the value is then the norm of the computed
+``X\beta-Y``, typically `Inf` or `NaN`. The value oracles, with ``\alpha`` the factor of one `Scaled` wrapper and
+``\alpha=1`` for the loss, are
+
+```math
+v=\alpha\,\|z-Y\|_2\ \text{ for a predictor } z=X\beta,\qquad
+v=\alpha\,\|r\|_2\ \text{ for a residual } r=\pm(Y-X\beta).
+```
+
+`ProximalBase.value_from_predictor(f, z)` and `ProximalBase.value_from_residual(f, r)` read no entry of ``X``, neither
+read nor write the scratch of the loss, do not modify `z` or `r`, and allocate nothing on their ordinary path for a
+raw loss or a `Scaled` one with a `Float32`, `Float64` or `Int` factor. The domain, the axes check, the factors that
+are accepted and the result type are those of the least-squares oracles above: a vector `Y`, strided `Float32` or
+`Float64` arrays of one type `T`, one `Scaled` at most, and an `ArgumentError` for another factor. The factor is
+checked before the sum on every call here, so that `Scaled(f, Inf)` is an `ArgumentError` also at an exact fit, where
+`Inf * 0` would be `NaN`. `ProximalBase.leastsquares_data(f)` returns `(; Y, X, α)` as for the least-squares loss; the
+accessor is shared, and the two losses are told apart by their types.
+
+**Accuracy and range.** The value is never formed as ``\sqrt{2\,v_{\text{LS}}}`` from the least-squares value
+``v_{\text{LS}}``, whose squares overflow where the norm does not. For strided `Float32` or `Float64` vectors of one
+element type, which covers both oracles, the sum of squares ``s`` is formed in `T` in one vectorizing loop up to
+``2^{17}`` entries and by pairwise summation above. The other arguments of `f(β)`, such as mixed element types or
+non-strided arrays, take generic sums in one loop at every length. The product ``\alpha\sqrt s`` is kept when ``s`` is not below ``n\,\texttt{floatmin}(T)/\varepsilon_T`` and the
+product is below ``\texttt{floatmax}(T)/2`` (a `NaN` or infinite ``s`` is not kept). Otherwise, and for every sum that is not finite, the norm is recomputed
+from the squares in units of a power of two, with ``\alpha`` folded in and the squares summed compensated, in
+at least `Float64`. For finite entries that `T` represents exactly, ``n\le 2^{40}`` of them, with ``(n+3)\varepsilon_T\le 1/16`` or
+strided `Float32` or `Float64` vectors of one element type, and ``v`` the exact value, the result is within ``(n/2+4)\,\varepsilon_T|v|`` of ``v``, plus two units of
+the smallest subnormal where ``|v|<\texttt{floatmin}(T)``; with ``u`` and ``w=(n/2+4)\varepsilon_T`` as in the
+range statement above, the result is finite where ``|v|(1+w)\le\texttt{floatmax}(T)``, is `Inf` above
+``(\texttt{floatmax}(T)+u/2)(1+w)``, and between the two is `Inf` or finite within the bound (`floatmax(T)` is possible
+within ``w`` of the threshold, below it as well as above it). The proof is in the comments of `src/functions/sqrt_leastsquares.jl`. `f(β)` returns its value converted to `float(eltype(β))`, so the bound holds for `eltype(β) == T`, and a narrower `β` adds one rounding to its type. An entry that `T` does not represent exactly (an `Int` `Y` above `maxintfloat(T)`, a `Rational` `Y`) is rounded to `T` in the sum, outside the bound. An exact fit gives
+`+0`; a `NaN` entry gives `NaN`; an entry that is `±Inf` gives `Inf`, unless it meets an `Inf` of the same sign in `z`
+and `Y`, where the difference is `NaN`.
+
+**The wrapper.** `Scaled(f, α)(β)` is the generic wrapper. It receives `f(β)` already rounded to `float(eltype(β))`,
+forms the product with ``\alpha`` from that rounded value and returns it converted to `float(eltype(β))`. A `β` narrower
+than `T` therefore rounds the inner value to its own type first: with `f = SqrtLeastSquaresLoss([0.0], fill(0.25, 1, 1))`,
+`β = Float32[nextfloat(0f0)]` and `α = 4.0`, `f(β)` and `Scaled(f, α)(β)` are `0.0f0`, while the oracle at `X * β` is about
+`1.4e-45`. For `eltype(β) == T`, with a `Float64` factor on `Float32` data the result can differ from the oracle in the last bit, and where
+the oracle recovers a value that the wrapper's product loses it can differ on the exceptional range (issue #609, as for
+the least-squares loss). `Scaled(f, Inf)(β)` is `Inf * f(β)`, which is `NaN` at an exact fit; the oracles refuse the
+factor `Inf`.
+
+```@example library_sqrt_ls
+using ProximalBase, LinearAlgebra
+Y = [3.0, 0.0]
+X = Matrix(1.0I, 2, 2)
+f = SqrtLeastSquaresLoss(Y, X)
+β = [0.0, 4.0]
+@assert f(β) == 5.0
+@assert ProximalBase.value_from_predictor(f, X * β) == 5.0
+@assert ProximalBase.value_from_residual(f, [3.0, -4.0]) == 5.0 == ProximalBase.value_from_residual(f, [-3.0, 4.0])
+n = length(Y)
+s = Scaled(f, inv(sqrt(n)))                 # the data term of the normalized objective
+@assert ProximalBase.value_from_predictor(s, X * β) ≈ 5 / sqrt(2)
+@assert isconvex(f) && !issmooth(f) && !isproximable(f)
+ProximalBase.value_from_residual(Scaled(f, 0.5), [3.0, -4.0])
 ```
 
 ## Squared Euclidean norm

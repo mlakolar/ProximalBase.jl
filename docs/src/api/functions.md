@@ -13,10 +13,20 @@ ZeroFunction
 LinearFunction
 ```
 
+## Square-root least squares
+
+`SqrtLeastSquaresLoss` is convex and not smooth, with no gradient and no proximal operator. It is evaluated by the
+value oracles of the next group.
+
+```@docs
+SqrtLeastSquaresLoss
+```
+
 ## Least-squares oracles at a supplied predictor or residual
 
-The qualified public names below evaluate a vector-response `LeastSquaresLoss`, or one `Scaled` of it,
-at a linear predictor or a residual that the caller has already formed. They are not exported.
+The qualified public names below evaluate a vector-response `LeastSquaresLoss` or `SqrtLeastSquaresLoss`, or one
+`Scaled` of either, at a linear predictor or a residual that the caller has already formed
+(`value_and_gradient_from_predictor!` serves `LeastSquaresLoss` only). They are not exported.
 
 ```@docs
 ProximalBase.value_from_predictor

@@ -682,6 +682,29 @@ const _LS_ONE_LOOP_MAX = 2^17
   s
 end
 
+# The sums of the unweighted values of NormL1 and NormL2 for a strided Float32 or Float64 array of
+# _VALUE_LOOP_MIN to _VALUE_LOOP_MAX entries: one vectorizing loop. Up to 1024 entries Julia's pairwise reduction is
+# one such loop too (1024 is its block size), reached through the generic reduction, whose first entries are taken
+# separately; the rounding error of this loop is of the same kind, and the loop is two to three times faster for a
+# few hundred entries. Shorter arrays keep Julia's reduction, which is faster for a few entries, and longer ones keep
+# its pairwise blocks, so that the error of a long sum does not grow with its length.
+const _VALUE_LOOP_MIN = 16
+const _VALUE_LOOP_MAX = 1024
+@inline _value_sumabs2(x) = _sumabs2(x)
+@inline _value_sumabs2(x::StridedArray{T}) where {T<:Union{Float32, Float64}} =
+  _VALUE_LOOP_MIN <= length(x) <= _VALUE_LOOP_MAX ? _value_loop(abs2, x) : _sumabs2(x)
+@inline _value_sumabs(x) = sum(abs, x)
+@inline _value_sumabs(x::StridedArray{T}) where {T<:Union{Float32, Float64}} =
+  _VALUE_LOOP_MIN <= length(x) <= _VALUE_LOOP_MAX ? _value_loop(abs, x) : sum(abs, x)
+# out of line, so that the callers keep the code that they had for the other lengths
+@noinline function _value_loop(f::F, x::StridedArray{T}) where {F, T<:Union{Float32, Float64}}
+  s = zero(T)
+  @inbounds @simd for i in eachindex(x)
+    s += f(x[i])
+  end
+  s
+end
+
 @noinline function _exceptional_square_value(λ, x, y, s, v)
   T = _valtype(x)
   !isfinite(λ) && return _value_at(v, x)
@@ -910,6 +933,13 @@ _recovery_type(types...) = promote_type(Float64, types...)
 # of every ordinary value. The test is false for NaN, so an ordinary NaN (or Inf) is returned as it was.
 @inline _sum_kept(s, n) = !(s < n * floatmin(typeof(s)))
 
+# Whether a threshold c decides the shrinkage of a group of n entries whose sum of squares is zero (_l2_shrink!):
+# c ≥ n √(floatmin/eps), with the root rounded up to a power of two, so that the test is one product and one
+# comparison of normal numbers (c² would underflow for a small c). Float32 and Float64 only; other types scan the group.
+@inline _l2_threshold_decides(c, n) = false
+@inline _l2_threshold_decides(c::Float64, n) = c >= n * 0x1p-485       # √(2^-1022 / 2^-52) = 2^-485
+@inline _l2_threshold_decides(c::Float32, n) = c >= n * Float32(0x1p-51)   # √(2^-126 / 2^-23) = 2^-51.5 < 2^-51
+
 # Codes returned by the shrinkage kernel in place of the norm of the stored group: the term of the group is zero
 # (the stored group is exactly zero, or the group is unpenalized), or its value must be recomputed from the stored entries.
 const _L2_ZERO = -2
@@ -978,7 +1008,14 @@ end
         return t * n
       end
       return T(_l2_zero!(y, G))
-    elseif iszero(s) && _l2_zero_group(x, G, T)
+    elseif iszero(s) && (_l2_threshold_decides(c, length(G)) || _l2_zero_group(x, G, T))
+      # A zero sum of squares: every square rounded to zero, so each is at most nextfloat(zero(T))/2 and their exact
+      # sum is at most |G| nextfloat(zero(T))/2. Where c is at least |G| √(floatmin(T)/eps(T)) (_l2_threshold_decides),
+      # c² is at least |G|² floatmin(T)/eps(T), far above that sum: the exact norm is below c and the proximal point
+      # is the zero group, which the cold path would return as well. No second pass over the group is then needed
+      # to tell a zero group from one whose squares underflow. A smaller threshold keeps the scan for the zero
+      # group, and the cold path. An entry of a wider type than T exceeds its rounding to T by at most half a unit
+      # of T, so the norm of the entries as the cold path reads them (in their own type) is still far below c.
       return T(_l2_zero!(y, G))
     end
   end
@@ -1100,7 +1137,7 @@ end
 function _l2_value(λ, x)
   T = _valtype(x)
   iszero(λ) && return zero(T)
-  s = _sumabs2(x)
+  s = _value_sumabs2(x)
   if _level_fits(T, λ)
     v = convert(T, convert(T, λ) * sqrt(s))
     (_l2_ordinary(v, T) & _squares_normal(s, _square_term_count(x), T)) && return v

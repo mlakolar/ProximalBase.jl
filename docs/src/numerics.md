@@ -200,6 +200,13 @@ an appropriate infinity or underflow to zero may be unavoidable, subject
 to the function's endpoint semantics. There is no cross-platform or
 cross-version bitwise arithmetic-order guarantee.
 
+The order in which an ordinary value adds its terms is not part of the contract either. The unweighted
+`NormL1` value of a dense `Float32` or `Float64` array of 16 to 1024 entries, and the `NormL2` value of such an
+array or strided view, add their terms in one vectorized loop. Julia's `sum` is also one vectorized loop up to
+1024 entries, so the rounding error is of the same kind and grows with the length in the same way, but the result
+can differ from `λ0 * sum(abs, x)` or `λ * sqrt(sum(abs2, x))` in the last place. The tests bound these values
+against a high-precision sum and do not compare their bits; shorter and longer arrays use `sum`.
+
 ```@example numerical_range
 using ProximalBase
 λ = 2.0^-1022

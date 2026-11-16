@@ -1,4 +1,4 @@
-# The ℓ₁ norm and soft thresholding
+# [The ℓ₁ norm and soft thresholding](@id l1-guide)
 
 *Assumes: norms and basic convexity · You will learn: the weighted ℓ₁ function, its Julia constructor and soft-thresholding proximal map.*
 
@@ -147,7 +147,7 @@ assumed to be zero**, not an optimality certificate for an arbitrary
 nonzero coordinate. See [Coordinate descent](coordinate_descent.md) and
 [Operations on functions](operations.md).
 
-## Supported inputs and numerical considerations
+## [Supported inputs and numerical considerations](@id l1-endpoints)
 
 `NormL1` acts on real vector or matrix entries. When weights are given,
 they must have the same total number of entries as the argument, paired
@@ -171,11 +171,9 @@ there is **no fixed-zero guarantee**: ordinary soft-threshold arithmetic can
 return `NaN` ([#853](https://github.com/mlakolar/ProximalBase.jl/issues/853)).
 A genuinely infinite overall level `λ0 = Inf` separately fixes every
 positive-weight entry at `+0` at any nonnegative step, including non-finite
-inputs (decision 49). At `γ = 0` this is the limit `γ → 0+` of the proximal map
-of the fixed function, which is the projection onto the closure of its domain,
-not soft thresholding by `0⋅Inf`
-([#665](https://github.com/mlakolar/ProximalBase.jl/issues/665)). Zero-weight
-entries stay free:
+inputs, also at zero step. See the canonical
+[infinite-penalty rule](@ref infinite-penalty-at-zero-step) for its interpretation.
+Zero-weight entries stay free:
 
 ```julia
 prox(NormL1(Inf, [1.0, 0.0, 2.0]), [3.0, 4.0, 5.0], 0.0)  # [0.0, 4.0, 0.0]
@@ -183,9 +181,8 @@ prox(NormL1(Inf), [1.0, 2.0], 0.0)                         # [0.0, 0.0]
 prox(NormL1(1.0), [1.0, 2.0], 0.0)                         # [1.0, 2.0]: finite level
 ```
 
-Before #665 these zero-step calls with an infinite level returned their input.
 The infinite overall level and an infinite coordinate weight are distinct: the
-latter, at a finite level, keeps the #853 rule above at every step.
+latter, at a finite level, keeps the finite-input restriction above at every step.
 
 A threshold formed from entirely finite factors may itself overflow to `Inf`.
 For an input of `±Inf` this can also return `NaN`, even though the mathematical
@@ -196,7 +193,7 @@ of normal `Float32`/`Float64` weighted operations; the measured cost of extra
 checks is recorded in the [numerical contract](numerics.md).
 See also [Numerical usage](numerical_usage.md).
 
-## The elastic-net penalty
+## [The elastic-net penalty](@id The-elastic-net-penalty)
 
 `ElasticNet` adds a ridge term to the weighted ℓ₁ function. For levels
 ``\lambda_1,\lambda_2\geq0`` and nonnegative weights ``w_i\geq0``,
@@ -290,40 +287,17 @@ destination (an `ArgumentError` before any write), or with a dense
 destination and a `SymmetricSparseIterate` argument (a `MethodError`);
 the vector form of `prox_block`; complex arguments or weights.
 
-### Steps and endpoint rules
+### [Steps and endpoint rules](@id elastic-net-steps)
 
 `prox`, `prox!` and `value_and_prox!` throw an `ArgumentError` for a
 negative or `NaN` scalar step before anything is written. The entries of
 an array of steps are not checked: they must be nonnegative, a documented
-precondition. This is an exception to the requirement of
-[#908](https://github.com/mlakolar/ProximalBase.jl/issues/908) that
-negative and `NaN` steps fail before writes: a check reads every step,
-while such a call reads the steps before its loop only to choose the loop,
-up to the first block of 256 steps that holds a step outside the ordinary
-branches (below), and a call from a `SparseIterate` into a `SparseIterate`
-reads none; the check would add a pass over the steps, or the rest of one
-([#874](https://github.com/mlakolar/ProximalBase.jl/pull/874)).
-`prox_block` does not check its step, and `Scaled` keeps its own step rule.
+precondition. `prox_block` does not check its step, and `Scaled` keeps its own step rule.
 
-Let `T` be `float` of the element type of the entries. A step ``\gamma``
-of entry ``i`` takes the ordinary branches when both conditions hold:
-
-- `λ1` is zero, or the product ``\gamma\lambda_1`` is a positive normal
-  number of the type `R` in which it is formed. `R` is the promotion of `T`
-  with one type for each of ``\gamma``, `λ1` and the weight of entry ``i``:
-  `float` of its type, or `Float16` for a `Bool` (an `ElasticNet` without
-  weights has the weight `true`).
-- For `T` = `Float32` or `Float64`: one of ``\gamma``, `λ2` is zero or not
-  finite, or ``\gamma\lambda_2``, formed in the promotion of `T` with `float`
-  of the types of ``\gamma`` and `λ2`, lies in ``[2^{-126}, 2^{125}]``
-  (`Float32`) or ``[2^{-1022}, 2^{1021}]`` (`Float64`). Other types of `T`
-  have no condition on ``\gamma\lambda_2``.
-
-When the argument and the array of steps have concrete element
-types, a call other than from a `SparseIterate` into a `SparseIterate` runs
-a loop specialized to these branches if every step takes them; one step
-outside them, anywhere, sends the whole call to the general loop. Both loops
-store the same results, bit for bit.
+The optimized array-step loop and the general loop store the same results,
+bit for bit. See the [implementation notes](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/function-docs-history-921.md#elastic-net-step-traversal)
+for branch-selection conditions and the reason array-step validation remains a
+caller precondition.
 
 ```@example library_l1
 y = [7.0, 7.0, 7.0]
@@ -336,9 +310,8 @@ step ``\gamma\geq0``, ``\gamma=0`` included, each entry of the proximal
 point is `+0`, also for `NaN` and `±Inf` inputs; the value is `0` at the
 zero vector, `NaN` if an entry is `NaN`, and `Inf` otherwise; and
 `kkt_violation` is `-Inf`. An infinite `λ1` and infinite weights follow
-the rules of `NormL1` above (decision 49, #665, #853 and
-[#653](https://github.com/mlakolar/ProximalBase.jl/issues/653)), and a
-threshold that overflows from finite factors keeps the #866 limitation.
+the [ℓ₁ endpoint rules](@ref l1-endpoints), and a threshold that overflows from
+finite factors keeps their documented limitation for infinite inputs.
 
 ```@example library_l1
 hard = ElasticNet(1.0, Inf)

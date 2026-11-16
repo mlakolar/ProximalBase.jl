@@ -7,17 +7,22 @@
 """
     AbstractFunction
 
-Abstract supertype for mathematical functions with callable values, gradients
-and proximal operators. Declare `issmooth`, `isproximable`, `isseparable` and
-`isconvex` for the function's type. Mutating oracles take their output first.
+Supertype for mathematical functions with callable values, gradients and
+proximal operators. Declare capabilities with [`issmooth`](@ref),
+[`isproximable`](@ref), [`isseparable`](@ref) and [`isconvex`](@ref).
+Mutating operations put the output first.
 
-Shapes, real element types and parameter extents are checked before predictable
-output writes. The per-entry parameters of a function used on a
-SymmetricSparseIterate (weights, centers, coefficients) must be exactly symmetric:
-this is a precondition on the model that the oracles assume and do not compare.
-Validate it once per model with `ProximalBase.check_symmetric_parameters`; custom
-separable functions declare their arrays with `entry_parameters`. A failure during
-numerical computation may leave the output changed.
+Built-in operations check supported real types, one-based axes, shapes and
+parameter extents before predictable writes. Numerical failures can leave
+partial output. Custom public methods must provide their own validation.
+
+On a [`SymmetricSparseIterate`](@ref), per-entry weights, centers and coefficients
+must be exactly symmetric. Oracles assume this model precondition; validate it
+with [`ProximalBase.check_symmetric_parameters`](@ref). Custom separable functions
+declare their arrays with [`ProximalBase.entry_parameters`](@ref).
+
+See [operations](@ref operation-guide) and [array, precision and ownership
+conventions](@ref numerical-usage).
 """
 abstract type AbstractFunction end
 
@@ -36,7 +41,7 @@ function gradient! end
 """
     issmooth(f)
 
-Whether f provides a gradient and value_and_gradient! on the interior of its
+Whether `f` provides [`gradient`](@ref) and [`value_and_gradient!`](@ref) on the interior of its
 domain. Declare the trait on its type; the instance query forwards to it.
 """
 issmooth(::Type{<:AbstractFunction}) = false
@@ -46,7 +51,7 @@ issmooth(f::AbstractFunction) = issmooth(typeof(f))
     isproximable(f)
 
 Whether `f` has an efficient proximal operator, computed by `prox!` and
-`value_and_prox!`.
+[`value_and_prox!`](@ref).
 """
 isproximable(::Type{<:AbstractFunction}) = false
 isproximable(f::AbstractFunction) = isproximable(typeof(f))
@@ -100,20 +105,21 @@ isconvex(f::AbstractFunction) = isconvex(typeof(f))
 """
     prox!(y, f, x, γ = 1)
 
-Store the proximal operator
+Write the proximal point of `f` at `x` into `y` and return `y`. For `γ > 0`,
+this minimizes ``f(z) + \\|z-x\\|^2/(2\\gamma)`` over `z`. A nonconvex function
+may have several minimizers; a supported method returns one.
 
-    prox_{γf}(x) = argmin_z  f(z) + ‖z - x‖² / (2γ)
+`y` must have the supported shape of `x`. Exact in-place use,
+`prox!(x, f, x, γ)`, is supported. Other overlapping inputs and outputs,
+including distinct views of the same entries, are unsupported and generally
+undetected; copy the input first. A supported symmetric-iterate destination
+uses the Frobenius metric and accepts only a scalar step; array or per-group
+steps throw `ArgumentError` before writes.
 
-in `y` and return `y`. For a nonconvex `f` the result is one of the minimizers.
-
-The output may be the argument itself: `prox!(x, f, x, γ)` works for every
-function. A `SymmetricSparseIterate` output takes a scalar step `γ`, the Frobenius
-proximal operator of the symmetric matrix; an array or per-group step is an `ArgumentError`
-before anything is written (use `Matrix(x)` or `matrixview(x)` with a dense output). Any other sharing of memory between `y` and `x` is not supported and
-is not detected, even when the two cover the same entries: a call such as
-`prox!(view(x, :), f, x, γ)`, or with a shifted or reversed view of `x`, can
-return wrong values without an error. Copy the argument first, as in
-`prox!(y, f, copy(x), γ)`. Supported operand shapes depend on the concrete function.
+Use positive finite steps for the mathematical proximal map. Validation and
+zero/non-finite endpoints depend on the function; see the
+[Numerical contract](@ref numerics). For a new output use [`prox`](@ref); for
+the value at the stored output use [`value_and_prox!`](@ref).
 """
 function prox! end
 prox!(y, f::AbstractFunction, x) = prox!(y, f, x, 1)
@@ -121,8 +127,17 @@ prox!(y, f::AbstractFunction, x) = prox!(y, f, x, 1)
 """
     prox(f, x, γ = 1)
 
-Allocating version of `prox!`. For a supported `SymmetricSparseIterate` `x` the result is an
-independent `SymmetricSparseIterate` of the float element type, and `γ` is a scalar.
+Return a newly allocated proximal point; see [`prox!`](@ref) for the definition
+and step restrictions. Array results use floating-point element types.
+`Symmetric`/`Hermitian` array wrappers produce a dense matrix. Supported
+[`SymmetricSparseIterate`](@ref) calls produce an independent symmetric iterate
+and require a scalar step.
+
+# Examples
+```jldoctest
+julia> Tuple(prox(NormL1(0.5), [2.0, -1.0], 1.0))
+(1.5, -0.5)
+```
 """
 prox(f::AbstractFunction, x::AbstractArray, γ::Real = 1) =
   (_check_one_based(x); prox!(similar(x, float(eltype(x))), f, x, γ))
@@ -131,12 +146,23 @@ prox(f::AbstractFunction, x::Union{Symmetric, Hermitian}, γ::Real = 1) =
   (_check_one_based(x); prox!(Matrix{float(eltype(x))}(undef, size(x)), f, x, γ))
 
 """
-    value_and_prox!(y, f, x, γ=1)
+    value_and_prox!(y, f, x, γ = 1)
 
-Store the proximal point in `y` and return the value at that stored result.
-Exact input/output aliasing is supported. Other shared-memory views are not
-supported. Shape and parameter checks precede writes; failures during numerical
-computation may leave output changed.
+Write the proximal point into `y` and return **`f(y)` at the stored output**,
+including its rounding. The return value is a scalar, not `(value, y)`.
+
+Exact `y === x` is supported; other overlapping views are unsupported.
+Predictable shape and parameter checks precede writes, but a numerical failure
+can leave partial output. Step and storage restrictions are those of
+[`prox!`](@ref) and the concrete function.
+
+# Examples
+```jldoctest
+julia> y = zeros(2); v = value_and_prox!(y, NormL1(0.5), [2.0, -1.0], 1.0);
+
+julia> (v, Tuple(y))
+(1.0, (1.5, -0.5))
+```
 """
 value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1) =
   (x = _symmetric_argument(y, x); _check_fallback_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_body!(y, f, x, γ))
@@ -186,12 +212,13 @@ guaranteed numerical meaning. Built-in wrappers expose their inner function's
 arrays to the checker. Raw entry oracles and `restrict` have no iterate; validate the
 original function before using them.
 
-See Symmetric parameters for which arrays must be symmetric and who validates them.
+See [symmetric parameters](@ref symmetric-parameter-guide) for the arrays
+to declare and the model validation boundary.
 """
 function entry_parameters end
 
 """
-    ProximalBase.check_symmetric_parameters(f,x)
+    ProximalBase.check_symmetric_parameters(f, x)
 
 Validate caller-supplied per-entry parameters on a symmetric iterate. Every
 declared array must be exactly symmetric at every off-diagonal pair, including
@@ -249,10 +276,16 @@ _checkvalue(f, x) = (_checkreal(f, x); _checkparams(f, x))
 """
     gradient!(g, f, x)
 
-Store the gradient of `f` at `x` in `g` and return `g`.
-`g` must not be `x` unless the function documents otherwise; built-in functions
-throw an `ArgumentError`. A `SymmetricSparseIterate` `g` receives the symmetric part
-of the gradient, the derivative over symmetric matrices.
+Write the gradient of `f` at `x` into `g` and return `g`.
+
+Use a destination with the supported shape of `x` and independent storage.
+Built-in functions reject `g === x` with `ArgumentError`; other overlapping
+views are unsupported. For supported methods, a
+[`SymmetricSparseIterate`](@ref) destination receives the symmetric part of
+the gradient, the derivative over symmetric matrices.
+
+See [`gradient`](@ref) for an allocating call and
+[`value_and_gradient!`](@ref) to obtain the value in the same call.
 """
 gradient!(g, f::AbstractFunction, x) =
   (_check_fallback_arrays(gradient!, f, g, x); _gradient_body!(g, f, x))
@@ -267,10 +300,20 @@ end
 """
     value_and_gradient!(g, f, x)
 
-Store the gradient of `f` at `x` in `g` and return `f(x)`. Usually cheaper than
-calling `f(x)` and `gradient!` separately.
-`g` must not be `x` unless the function documents otherwise; built-in functions
-throw an `ArgumentError`.
+Write the gradient into `g` and return **the value at the input `x`**.
+The return value is a scalar, not `(value, g)`.
+
+The destination must be independent of the input and have its supported shape.
+Built-in functions reject `g === x`; other overlapping views are unsupported.
+As with [`gradient!`](@ref), numerical failures can leave partial output.
+
+# Examples
+```jldoctest
+julia> g = zeros(2); v = value_and_gradient!(g, SqrNormL2(1.0), [2.0, -1.0]);
+
+julia> (v, Tuple(g))
+(2.5, (2.0, -1.0))
+```
 """
 function value_and_gradient! end
 
@@ -295,10 +338,19 @@ prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = (_check_one_based(x); prox!(
 """
     gradient(f, x)
 
-Allocating version of `gradient!`; array arguments get dense floating output.
-Supported symmetric-iterate gradients (SqrNormL2, LinearFunction and supported Scaled
-leaves) return a dense symmetric Matrix. ZeroFunction has symmetric-iterate value/prox
-but no symmetric-iterate gradient method. Traits do not supply missing operand methods.
+Return a newly allocated gradient. Array inputs produce a dense floating-point
+array with the same shape; see [`gradient!`](@ref) to reuse an output buffer.
+
+Supported symmetric-iterate gradients (`SqrNormL2`, `LinearFunction` and
+supported `Scaled` leaves) produce a dense symmetric matrix. `ZeroFunction`
+has no symmetric-iterate gradient method. A capability trait does not supply
+missing operand methods.
+
+# Examples
+```jldoctest
+julia> Tuple(gradient(SqrNormL2(0.5), [2.0, -4.0]))
+(1.0, -2.0)
+```
 """
 gradient(f::AbstractFunction, x::AbstractArray) = (_check_one_based(x); gradient!(_gradient_buffer(x), f, x))
 gradient(f::AbstractFunction, x::Tuple) = (_check_one_based(x); gradient!(_gradient_buffer(x), f, x))
@@ -306,7 +358,16 @@ gradient(f::AbstractFunction, x::Tuple) = (_check_one_based(x); gradient!(_gradi
 """
     value_and_gradient(f, x)
 
-Allocating version of `value_and_gradient!`: returns `(f(x), ∇f(x))`.
+Return `(f(x), ∇f(x))`, allocating the gradient as [`gradient`](@ref) does.
+To reuse a destination, call [`value_and_gradient!`](@ref).
+
+# Examples
+```jldoctest
+julia> value, grad = value_and_gradient(SqrNormL2(1.0), [2.0, -1.0]);
+
+julia> (value, Tuple(grad))
+(2.5, (2.0, -1.0))
+```
 """
 function value_and_gradient(f::AbstractFunction, x::Union{AbstractArray, Tuple})
   _check_one_based(x)
@@ -320,44 +381,55 @@ end
 ####################################
 
 """
-prox_block(f, v::Real, i::Integer, γ::Real)
+    prox_block(f, v::Real, i::Integer, γ::Real)
     prox_block(f, u::AbstractVector, k::Integer, γ::Real)
 
-Compute a pure mathematical proximal point at an already constructed trial.
-Scalar methods use the underlying array's global linear entry index `i`;
-retained built-ins are NormL1, ElasticNet, SqrNormL2, LinearFunction,
-ZeroFunction and supported Scaled leaves. Custom SeparableFunction subtypes implement this
-scalar method together with value_entry. No iterate or cache is updated.
+Compute a proximal point for one entry or compact block at the supplied trial,
+without changing an iterate, active set or solver cache.
 
-The vector form allocates a plain floating Vector of length(u) and delegates
-to prox_block!: the built-in GroupNormL2 (group k of its groups, in their order)
-or a custom implementation, whose group index and compact vector order that
-extension defines. The generic wrapper adds no group, shape, parameter or
-overlap validation of its own; GroupNormL2 validates in its prox_block!.
-Implementing a block hook does not add a full-array prox or capability trait.
+The scalar form uses the **global linear entry index** `i` to select parameters.
+It is implemented by `NormL1`, `ElasticNet`, `SqrNormL2`, `LinearFunction`,
+`ZeroFunction` and supported `Scaled` leaves. A custom [`SeparableFunction`](@ref)
+implements it together with [`value_entry`](@ref).
 
-For symmetric iterate coordinate k, convert `(r,c)=tril_cartesian(p,k)` to
-full-entry `i=(c-1)p+r` for a scalar hook and validate the original function
-with ProximalBase.check_symmetric_parameters before using raw entry calls.
+The vector form allocates a plain floating `Vector` of `length(u)` and calls
+[`prox_block!`](@ref). [`GroupNormL2`](@ref) interprets `k` as its group number
+and `u` in that group's order. Custom methods define their own layout and must
+validate it; the allocating wrapper adds no group, shape, parameter or overlap
+checks. A block method alone does not supply full-array operations or traits.
+
+For symmetric coordinate `k`, convert `(r,c) = tril_cartesian(p,k)` to the
+full-entry index `i = (c-1)*p+r`. Validate the original model with
+[`ProximalBase.check_symmetric_parameters`](@ref) before raw entry calls.
+
+# Examples
+```jldoctest
+julia> prox_block(NormL1(0.5), 2.0, 1, 1.0)
+1.5
+```
+
+See [coordinate and block operations](@ref block-proximal-oracle).
 """
 function prox_block end
 """
     prox_block!(out, f, u, k, γ)
 
-Pure compact-vector block proximal extension hook. A conforming custom method
-writes the proximal point of its selected block into out and returns out.
-Buffers follow that block's compact ordered indices. GroupNormL2 is the
-built-in implementation; the allocating vector prox_block delegates here.
+Write the proximal point of compact block `k` into `out` and return `out`.
+[`GroupNormL2`](@ref) supplies the built-in implementation; custom functions
+can implement this hook. Buffers follow the selected group's ordered indices.
 
-The extension validates one-based real vectors, group bounds, exact lengths,
-parameters and supported step before predictable writes. Exact out===u is
-supported; other overlap must be rejected by the extension. Failed reads,
-conversions or user arithmetic may leave partial numerical output.
+A conforming method validates real one-based vectors, group bounds, exact
+lengths, parameters and the supported step before predictable writes. Exact
+`out === u` is supported; other overlap must be rejected by the implementation.
+Failed reads, conversions or numerical computations may leave partial output.
 
-Caller precondition: out is independent of iterate storage and solver/model
-caches, including activevalues, coordinates and blockview aliases. Ownership
-is not inferred from buffer types. Compute in independent scratch, then write
-public storage and update caller caches separately. No activation occurs here.
+**Caller precondition:** `out` must be independent of iterate storage and
+solver/model caches, including `activevalues`, `coordinates` and `blockview`
+aliases. Buffer types do not establish ownership. Compute in independent
+scratch, then commit with a public storage writer and update caches separately.
+This operation never activates an iterate coordinate.
+
+See [compact block buffers](@ref block-proximal-oracle) for the full extension contract.
 """
 function prox_block! end
 
@@ -366,32 +438,33 @@ function prox_block! end
 ####################################
 
 """
-kkt_violation(f, g, i)
+    kkt_violation(f, g, i)
     kkt_violation(f, g, x, k)
 
-Signed screen of a coordinate assumed zero in `h+f`, with full smooth-part
-gradient `g=∇h(x)`. A positive value means zero violates its condition;
-a nonpositive value checks zero only, not stationarity of a nonzero coordinate.
-NormL1 returns `abs(g[i])-λ0*w[i]`, and ElasticNet `abs(g[i])-λ1*w[i]`
-(`-Inf` for an infinite ridge level). Retained scalar screens also cover
-ZeroFunction, LinearFunction, SqrNormL2 and supported Scaled leaves.
+Return a signed optimality screen for a coordinate **assumed zero** in `h + f`,
+where `g = ∇h(x)` is the full smooth-part gradient. A positive result means
+zero violates its condition. A nonpositive result does not certify a nonzero
+coordinate or the entire point.
 
-For SparseIterate and SymmetricSparseIterate, the four-argument form checks
-real types, coordinate bounds (BoundsError), then full gradient entry count
-(DimensionMismatch): length(x) or p², respectively. A flat or matrix-shaped
-gradient of that count is accepted. The symmetric iterate uses the symmetric gradient pair;
-opposing infinities in that gradient pair throw ArgumentError. The extent of
-the function's parameters is checked, but their mirrored entries are not compared:
-symmetric parameters are a precondition (see `check_symmetric_parameters`).
+For `NormL1` the scalar screen is `abs(g[i]) - λ0*w[i]`; `ElasticNet` uses
+`λ1` and returns `-Inf` for an infinite ridge level. Other supported scalar
+screens are `ZeroFunction`, `LinearFunction`, `SqrNormL2` and `Scaled` leaves.
 
-For BlockIterate, k is a group and retained scalar-screen functions return
-the maximum screen over its ordered global entry indices. That path does not
-add the same explicit full-gradient extent preflight. GroupNormL2 instead
-returns the group screen `‖g[Gₖ]‖₂-λ0*wₖ` after checking that group k of x is
-its group k and that g has length(x) entries; on an array point it takes an
-entry index (see GroupNormL2), and its three-argument form throws. Other array points add
-no coordinate/gradient extent check beyond function/indexing checks. Raw
-three-argument calls have no symmetric iterate, so no parameter-symmetry preflight.
+In the four-argument form, `k` is an entry for a `SparseIterate`, an independent
+symmetric coordinate for a `SymmetricSparseIterate`, or a group for a
+`BlockIterate`. Scalar penalties take the maximum member screen on a block;
+[`GroupNormL2`](@ref) uses `norm(g[Gₖ]) - λ0*wₖ` and checks the group count and selected group layout.
+It has no three-argument screen.
+
+Symmetric models require validated symmetric parameters. The gradient's chosen
+symmetric pair must not contain opposing infinities. Gradient-length and bounds
+checks differ by storage and function; see [screening a zero coordinate](@ref kkt-screens).
+
+# Examples
+```jldoctest
+julia> kkt_violation(NormL1(0.5), [0.75, 0.25], 1)
+0.25
+```
 """
 function kkt_violation end
 
@@ -426,7 +499,7 @@ _gradient_extent(x::SymmetricSparseIterate) = x.p^2
   "the gradient has length $(length(g)), but the $(nameof(typeof(x))) needs one of length $(_gradient_extent(x))"))
 
 """
-    restrict(f,S)
+    restrict(f, S)
 
 Restrict a retained function's entry parameters to the integer index vector S.
 NormL1 and ElasticNet slice weights, centered SqrNormL2 slices its center, LinearFunction

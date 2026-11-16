@@ -50,7 +50,23 @@ value_and_deriv(ℓ::ScalarLoss, η, y) = (ℓ(η, y), deriv(ℓ, η, y))
 """
     ProximalBase.Squared()
 
-The squared loss `ℓ(η, y) = (η - y)² / 2`.
+Squared observation loss ``ℓ(η, y) = (η-y)^2/2``. The first derivative is
+`η-y`, the second derivative and global curvature bound are one. This uses the
+qualified [`ProximalBase.ScalarLoss`](@ref) interface, separate from array functions.
+
+# Examples
+```jldoctest
+julia> ℓ = ProximalBase.Squared();
+
+julia> ℓ(3.0, 1.0)
+2.0
+
+julia> ProximalBase.value_and_deriv(ℓ, 3.0, 1.0)
+(2.0, 2.0)
+```
+
+See [`ProximalBase.deriv`](@ref), [`ProximalBase.deriv2`](@ref) and
+[`ProximalBase.curvature`](@ref).
 """
 struct Squared <: ScalarLoss end
 (::Squared)(η::Real, y::Real) = abs2(η - y) / 2

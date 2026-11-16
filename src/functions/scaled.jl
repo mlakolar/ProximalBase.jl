@@ -64,16 +64,37 @@ Base.@propagate_inbounds Base.getindex(a::_ExpScaledArray{T}, i::Int) where {T} 
 """
     Scaled(f, α)
 
-The nonnegative multiple `α*f`. Multiplication `α*f` and `f*α` construct it.
-Traits and mathematical oracles forward to the wrapped function. Zero scales
-simplify only when the original data and parameters permit it; invalid or
-non-finite parameters keep the frozen function's validation policy.
+Nonnegative multiple ``h(x) = α f(x)``. The expressions `α*f` and `f*α` construct
+it too. Negative or `NaN` scales are invalid. For positive finite `α`, a proximal
+step for `h` uses the inner function's step `α*γ`.
 
-Nested positive finite factors retain their exponents when an intermediate
-product would overflow or underflow. NormL1 can fold a scale into its level;
-SqrNormL2 supplies exponent-separated values. Ordinary calls preserve their
-original multiply order. Combined oracles return the value at the stored
-result using its model precision. Exact input/output aliasing is supported.
+The wrapper retains `f` by reference, including its parameters, scratch and caches.
+Traits and supported oracles forward to `f`; scaling does not add missing methods.
+Call [`reset_cache!`](@ref) on the outermost function after changing cached data.
+
+# Examples
+```jldoctest
+julia> f = Scaled(SqrNormL2(2.0), 0.5);
+
+julia> f([2.0, -1.0])
+2.5
+
+julia> prox(f, [2.0, -1.0], 1.0)
+2-element Vector{Float64}:
+  1.0
+ -0.5
+```
+
+# Edge cases
+- A zero scale may return a simpler function, or throw if no domain-preserving
+  representation is supported; the result need not be a `Scaled`.
+- Infinite scales and nested factors outside floating-point range have
+  function-specific behavior, not a general recovery guarantee.
+- Exact input/output identity follows the supported inner prox; other overlaps
+  remain subject to the [ownership rules](@ref numerical-usage).
+
+See [scaling details](@ref scaling-guide) for zero scales, numerical limits and
+which operations are available.
 """
 struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
   f::F
@@ -89,7 +110,7 @@ Scaled(f::AbstractFunction, α::Real) = Scaled{typeof(f), typeof(α)}(f, α)
 # Two scales merge when their product is an ordinary number. A product that is not a normal
 # number (it underflows, is subnormal or overflows) no longer says what the two factors said,
 # so the wrappers stay nested and every oracle forms the coefficient it needs from all of the
-# factors (`_scaled_chain`). Zero and infinite scales keep their meaning and merge as before.
+# factors (`_scaled_chain`). Zero and infinite scales keep their meaning and merge without changing arithmetic.
 @inline function _nested_scales(a, b)
   (isfinite(a) & isfinite(b) & (a > 0) & (b > 0)) || return false
   p = a * b
@@ -191,7 +212,7 @@ function _folded_level(λ, α::_NormalScale)
   c === nothing || iszero(c) || abs(c) >= floatmin(typeof(float(c))) ? c : nothing
 end
 _fold_level(::AbstractFunction, α) = nothing
-# NormL1 member of the frozen literal folding loop.
+# Fold a finite scale into the NormL1 level when its range is preserved.
 function _fold_level(f::NormL1, α)
   c = _folded_level(f.λ0, α)
   c === nothing ? nothing : NormL1(c, f.w)
@@ -453,7 +474,7 @@ _elastic_finite_scale(α::Real) = isfinite(α) && α > 0
 _elastic_finite_scale(α::_ProjectionScale) = isfinite(α.m) && !iszero(α.m)
 _elastic_finite_scale(α) = false
 
-# The scaled-value mechanism (R1, "Wrappers"). A function with `_has_value_parts` returns its
+# The scaled-value mechanism (range recovery for wrappers). A function with `_has_value_parts` returns its
 # value at x as (m, e), the value m 2^e with a finite significand m, or `nothing` to keep the
 # ordinary result (`_value_parts`, defaults in utils.jl). Only host arrays take it; a NaN value
 # stays NaN, and a normal value is its own significand and exponent, so the function is asked

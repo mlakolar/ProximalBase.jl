@@ -73,90 +73,126 @@ end
 """
     ProximalBase.value_from_predictor(f, z)
 
-The value `α ‖z - Y‖² / 2` of the least-squares loss `f` at the linear predictor `z = Xβ` computed by the
-caller, where `α = 1` for a `LeastSquaresLoss(Y, X)` and `α` is the factor of `Scaled(LeastSquaresLoss(Y, X), α)`.
-No entry of `X` is read and the scratch `f.tmp` is neither read nor written, so `z` may be a view of it.
+Evaluate the least-squares value `α*sum(abs2, z-Y)/2` from a predictor `z = X*β`
+already computed by the caller. Here `α = 1` for a [`LeastSquaresLoss`](@ref), or
+is the factor of one [`Scaled`](@ref) wrapper. No design entries are read and no
+loss fields are written. Scratch is not accessed separately; `z` may be a view of it.
 
-The domain is a vector-response `LeastSquaresLoss{T}` with strided `Float32` or `Float64` `Y` and `X`, or one
-`Scaled` of it, and `z::StridedVector{T}` with the axes of `Y`. Another argument type is a `MethodError`; other
-axes (another length, or an offset view of the same length) are a `DimensionMismatch`.
+Use a vector-response loss with strided `Float32` or `Float64` data of one type
+`T`, and a `StridedVector{T}` predictor with the response's axes. Other types
+throw `MethodError`; mismatched axes throw `DimensionMismatch`. The result is `T`.
 
-A `Scaled` factor is used as supplied, not rounded to `T`: a positive finite `Float32` or `Float64`, or an integer
-`α` with `Float64(α) == α`, which is converted to `Float64` once. Any other factor (`Inf`, an integer that
-`Float64` does not hold, a `Float16`, `BigFloat` or `Rational`) is an `ArgumentError`. The factor as stored is
-what [`ProximalBase.leastsquares_data`](@ref) returns.
+# Examples
+```jldoctest
+julia> f = LeastSquaresLoss([1.0], reshape([2.0], 1, 1));
 
-The result has type `T`. The sum of squares `s` is formed in `T` and `α s / 2` in the promoted type of `α` and
-`T`, then rounded to `T`. Where the squares overflow or underflow, where `z - Y` overflows, and where the ordinary
-value `α s / 2` is above `floatmax(T)/2`, the value is recomputed from the squares in units of a power of two with `α` folded
-in, summed compensated. For finite `z` and `Y` and a value `v` representable with a margin, the result is within
-`(n + 8) eps(T) |v|` of `v`, plus `2 nextfloat(zero(T))` where `|v| < floatmin(T)`. A non-finite entry of `z` or
-`Y` gives a non-finite value: unlike `f(β)`, the call does not form `Xβ` again. The behavior near the overflow
-threshold, and the difference from `Scaled(f, α)(β)` on the exceptional range (issue #609), are stated in the
-section "Least squares at a predictor or residual that the caller holds" of the guide to the smooth functions.
+julia> ProximalBase.value_from_predictor(f, [3.0])
+2.0
+```
 
-For a raw loss, or a `Scaled` one with a `Float32`, `Float64` or `Int` factor, the call allocates nothing on its
-ordinary path. It writes no field of `f`, so several tasks may call it on one `f` while `X` and `Y` are not
-mutated.
+# Edge cases
+- A scale must be positive finite `Float32`/`Float64`, or an integer exactly
+  representable as `Float64`; other factors throw `ArgumentError`.
+- A non-finite predictor gives a non-finite value; the call does not recompute `X*β`.
+- Finite-input value recovery has explicit rounding and overflow-boundary limits.
+- Calls write no loss fields and can share one loss across tasks while its data
+  remain unchanged. The ordinary path allocates nothing for raw losses and
+  `Float32`, `Float64` or `Int` scales.
+
+See [predictor domains, accuracy and ownership](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds)
+and [`ProximalBase.value_from_residual`](@ref).
 """
 function value_from_predictor end
 
 """
     ProximalBase.value_and_gradient_from_predictor!(g, d, f, z)
 
-Writes the residual `d = z - Y` and the gradient `g = α fl(Xᵀd)` of the least-squares loss `f` at the linear
-predictor `z = Xβ` computed by the caller, and returns the value `α ‖d‖² / 2`. The call forms one product with
-`Xᵀ` and none with `X`, and neither reads nor writes the scratch `f.tmp` (`z` may be a view of it).
+Write residual `d = z-Y` and gradient `g = α*(X'*d)` from the caller's predictor
+`z = X*β`, and return `α*sum(abs2, d)/2`. This forms one product with `X'` and
+none with `X`; no loss fields or private scratch are written.
 
-The domain, the factor `α`, the result type and the value's rounding and recomputation are those of
-[`ProximalBase.value_from_predictor`](@ref), with `g`, `d` and `z` of type `StridedVector{T}`: `z` and `d` have the
-axes of `Y` and length `size(X, 1)`, and `g` has length `size(X, 2)`.
+Use the domain and scale of [`ProximalBase.value_from_predictor`](@ref), with
+strided vectors `g`, `d` and `z` of the data type. `z` and `d` have the response's
+axes; `g` has length `size(X, 2)` and must be one-based.
 
-The gradient is `α · fl(Xᵀd)`: an `Xᵀd` that overflows or underflows before the scaling is not recovered, even
-where `α` would bring the exact gradient back into range. A difference `z - Y` that overflows with finite
-entries gives an infinite entry of `d`, a non-finite value and, when `size(X, 2) > 0`, non-finite gradient
-entries; `value_from_predictor` recovers the value in that case. The value sums the squares of `d`, and
-`value_from_predictor` those of the differences `z - Y`; the two are not promised to agree in the last bits.
+# Examples
+```jldoctest
+julia> f = LeastSquaresLoss([1.0], reshape([2.0], 1, 1));
 
-Checks before any write: lengths and axes (`DimensionMismatch`), which include `z` and `d` having the axes of `Y`;
-`g` and a nonempty `X` starting at index 1 (the product with `Xᵀ` refuses offset axes; the loss constructor already
-requires it of `X`), the factor, and the overlap of the outputs (`ArgumentError`). `d` must not overlap `g`, `X`, `Y`, `z` or `f.tmp`, and `g`
-must not overlap `X`, `Y`, `z` or `f.tmp`, as `Base.mightalias` decides for nonempty arrays; memory shared in ways
-that `mightalias` does not detect is a precondition on the caller. On any error `g`, `d` and `f.tmp` are unchanged.
+julia> g = zeros(1); d = zeros(1);
 
-The call writes no field of `f`, so tasks that use distinct `g` and `d` may call it on one `f` while `X` and `Y`
-are not mutated. For a raw loss, or a `Scaled` one with a `Float32`, `Float64` or `Int` factor, it allocates
-nothing on its ordinary path.
+julia> ProximalBase.value_and_gradient_from_predictor!(g, d, f, [3.0])
+2.0
+
+julia> (g[1], d[1])
+(4.0, 2.0)
+```
+
+# Edge cases
+- Outputs must not overlap each other, the predictor, design, response or loss
+  scratch. Nonempty overlaps reported by `Base.mightalias` are rejected;
+  undetected sharing remains the caller's responsibility. In-place `d === z`
+  is not supported.
+- Length/axis, factor and overlap checks precede writes.
+- Overflow/underflow in `X'*d` is not recovered before applying `α`.
+  Overflow in `z-Y` makes the value non-finite, even where the standalone
+  predictor value can recover it. Last-bit agreement is not promised.
+
+See [predictor accuracy, failure and concurrency rules](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds).
 """
 function value_and_gradient_from_predictor! end
 
 """
     ProximalBase.value_from_residual(f, r)
 
-The value `α ‖r‖² / 2` of the least-squares loss `f` at the residual `r = Xβ - Y`, or `r = Y - Xβ`, computed by
-the caller; `α = 1` for a `LeastSquaresLoss(Y, X)` and `α` is the factor of a `Scaled` one. No entry of `X` or `Y`
-is read and `f.tmp` is neither read nor written, so `r` may be a view of it.
+Evaluate `α*sum(abs2, r)/2` from a least-squares residual already held by the
+caller. Either sign, `r = X*β-Y` or `r = Y-X*β`, is accepted. No design or response
+entries are read and no loss fields are written. Scratch is not accessed
+separately; `r` may be a view of it.
 
-The domain, the factor, the result type, the rounding, the recomputation and the accuracy are those of
-[`ProximalBase.value_from_predictor`](@ref), with `r::StridedVector{T}` with the axes of `Y` (other axes are a
-`DimensionMismatch`) and a non-finite entry of `r` in place of one of `z`. The call allocates nothing on its
-ordinary path in the same cases, and it is reentrant as `value_from_predictor` is.
+Use the loss, scale and strided floating-point domain of
+[`ProximalBase.value_from_predictor`](@ref). The residual must have the response's
+axes (`DimensionMismatch` otherwise). The result type, accuracy, allocation and
+concurrency guarantees are the same, with non-finite residuals producing
+non-finite values.
+
+# Examples
+```jldoctest
+julia> f = LeastSquaresLoss([1.0], reshape([2.0], 1, 1));
+
+julia> ProximalBase.value_from_residual(f, [-2.0])
+2.0
+```
+
+See [predictor and residual operations](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds).
 """
 function value_from_residual end
 
 """
     ProximalBase.leastsquares_data(f)
 
-The data of a least-squares loss as `(; Y, X, α)`: `f.Y` and `f.X` themselves (`===`, neither copied
-nor converted), and the scale `α`. `α` is `one(T)` for a `LeastSquaresLoss{T}`, and the stored factor
-`α` of one `Scaled` of a `LeastSquaresLoss`, as it was supplied, with its type and without a
-check or conversion: the scale that [`ProximalBase.value_from_predictor`](@ref) and its companions
-compute with can differ from it, and they refuse a factor outside their domain. Any
-`LeastSquaresLoss` is accepted here, also with array types outside the strided domain; any other function is a
-`MethodError`.
+Return borrowed least-squares data as `(; Y, X, α)`. `Y` and `X` are the stored
+arrays themselves, with no copy or conversion. The scale is `one(T)` for a
+[`LeastSquaresLoss`](@ref) of type `T`, or the stored factor of one [`Scaled`](@ref)
+wrapper, with its original type.
 
-The arrays are borrowed, not copied and not protected: do not mutate `Y` or `X` while the loss or
-one of its oracles is in use, also on another task.
+Any `LeastSquaresLoss` is accepted, including data outside the strided domain of
+the predictor oracles. Other functions throw `MethodError`. This accessor does
+not validate or convert the scale; the predictor oracles can reject it or use
+its converted value.
+
+# Examples
+```jldoctest
+julia> y = [1.0]; X = reshape([2.0], 1, 1);
+
+julia> data = ProximalBase.leastsquares_data(LeastSquaresLoss(y, X));
+
+julia> (data.Y === y, data.X === X, data.α)
+(true, true, 1.0)
+```
+
+Do not mutate the borrowed arrays while the loss or any of its oracles is in use,
+including on another task. See [ownership rules](@ref numerical-usage).
 """
 function leastsquares_data end
 

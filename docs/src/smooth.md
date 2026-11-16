@@ -1,4 +1,4 @@
-# Smooth array functions
+# [Smooth array functions](@id Smooth-array-functions)
 
 *Assumes: derivatives, matrices and convexity · You will learn: the exact formulas, constructors and supported operations for smooth array functions.*
 
@@ -16,7 +16,7 @@ storage and numerical limitations, see
 [Operations on functions](operations.md) and
 [Numerical usage](numerical_usage.md).
 
-## Least-squares loss
+## [Least-squares loss](@id Least-squares-loss)
 
 ```math
 f(B)=\frac12\|Y-XB\|_F^2,\qquad
@@ -43,7 +43,9 @@ For positive finite ``\gamma``,
 ```
 
 The implementation uses a thin SVD cached on the first proximal call, including
-when ``p>n``. The value and gradient use reusable residual scratch and read
+when ``p>n``. It stores `X = U*Diagonal(s)*V'` and `Diagonal(s)*U'*Y`;
+subsequent proximal calls use two products with `V`, without rebuilding the
+factorization when the step changes. The value and gradient use reusable residual scratch and read
 current data entries. Do not call `f(β)`, `gradient!`, `value_and_gradient!` or the
 proximal operator of the same loss object concurrently without synchronization; the
 oracles [at a supplied predictor or residual](#Least-squares-at-a-predictor-or-residual-that-the-caller-holds)
@@ -79,7 +81,7 @@ out = similar(x)
 (value = f(x), gradient = gradient(f,x), prox = out)
 ```
 
-### Least squares at a predictor or residual that the caller holds
+### [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)
 
 A solver that keeps the linear predictor ``z=X\beta`` current (after a coordinate update, say) can
 evaluate the loss from it without a product by ``X``. Three qualified public functions, not exported,
@@ -192,7 +194,7 @@ s = Scaled(f, 0.25)
 ProximalBase.leastsquares_data(s).α
 ```
 
-## Squared Euclidean norm
+## [Squared Euclidean norm](@id Squared-Euclidean-norm)
 
 ```math
 f(x)=\frac{\lambda}{2}\|x-y\|^2,\qquad
@@ -226,7 +228,14 @@ cannot be ignored when reasoning about the original extended-valued objective.
 For supported homogeneous `Float32` or `Float64` calls, the value and
 numerical outputs use that working precision. The implementation may compute
 in a wider type for heterogeneous argument/destination calls, but this is
-not a supported mixed-precision contract. Range recovery avoids losing a
+not a supported mixed-precision contract. In the current kernels, the value
+uses the argument's precision; gradients and proximal points use the wider of
+the argument and destination precisions. Parameters are rounded to that working
+precision when representable, and proximal products are formed from their
+unrounded factors before rounding. Combined gradient calls return the standalone
+input value and gradient; combined proximal calls return the value at the stored
+output. These implementation details do not extend the supported configurations.
+Range recovery avoids losing a
 representable result to overflow/underflow in a coefficient or difference.
 For the supported mode, supply the level, center, step and destination in
 the same floating-point type as the argument. See
@@ -252,7 +261,7 @@ x = [3.0, -1]
 prox(f,x,0.5)
 ```
 
-## Quadratic function
+## [Quadratic function](@id Quadratic-function)
 
 ```math
 f(x)=\frac12x^\top A x+b^\top x+c,\qquad
@@ -305,8 +314,10 @@ convexity validates the model itself, or relies on a documented caller
 assertion, and does so again after the data change.
 
 `A` and `b` are retained by reference; `c` is converted to the promoted
-floating constructor type. Scratch and the eigenbasis are private. Changing
-entries of `A` requires `reset_cache!(f)` before another prox, which then uses
+floating constructor type. Scratch and the eigenbasis are private. For a nonempty matrix, the first prox
+caches the eigendecomposition; subsequent calls use two eigenbasis products.
+An empty matrix recomputes its empty decomposition on each call. Changing
+entries of `A` or `b` requires `reset_cache!(f)` before another prox, which then uses
 the new spectrum and its step domain. Reconstruct
 for changed dimensions. `restrict(f,S)` selects `A[S,S]`, `b[S]` and retains
 `c`, corresponding to omitted variables fixed at zero. Arbitrary nonzero
@@ -333,7 +344,7 @@ x = [2.0, -1]
 prox(f,x,0.5)
 ```
 
-## Zero function
+## [Zero function](@id Zero-function)
 
 The no-argument constructor `f = ZeroFunction()` represents
 ``f(x)=0`` for any supported real array `x`. Its gradient is
@@ -369,7 +380,7 @@ x = [2.0, -1]
 prox(f,x)
 ```
 
-## Linear function
+## [Linear function](@id Linear-function)
 
 ```math
 f(x)=\langle c,x\rangle+d,\qquad
@@ -414,7 +425,8 @@ exception to the cost: its value is summed over the nonzero stored diagonal entr
 in the diagonal-only `dot` of `Diagonal`. An entry that is not stored, or is stored as
 `+0` or `-0`, adds nothing, even when the coefficient at that position is `NaN`,
 `Inf` or `-Inf`, and `c` is not read there; a nonzero entry follows ordinary
-arithmetic, also when it or its coefficient is not finite. The constant `d` is added
+arithmetic, also when it or its coefficient is not finite. Historical traversal measurements
+are recorded in the [implementation notes](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/function-docs-history-921.md#linearfunction-sparse-value-measurements). The constant `d` is added
 after the sum. When the ordinary value is not finite but `d`, the nonzero entries
 and the coefficients at them are, the value is recomputed from those entries (a
 coefficient at a zero does not prevent it) as exponent-separated terms, each product

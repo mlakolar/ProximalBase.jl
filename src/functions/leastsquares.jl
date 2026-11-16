@@ -7,18 +7,39 @@
 """
     LeastSquaresLoss(Y, X)
 
-The least-squares loss `f(β) = ‖Y - Xβ‖² / 2`, smooth with gradient
-`X'(Xβ - Y)`. `Y` may be a vector or an `n × k` matrix with one column per
-response; then `β` and the gradient are `p × k` matrices and `‖⋅‖` is the
-Frobenius norm, as in multi-response regression. `β` may be a dense array, a
-`SparseIterate` or a `BlockIterate`, whose products cost
-O(n ⋅ nnz). `Y` and `X` must have axes that start at 1: an offset-axes `Y` or
-`X` is an `ArgumentError` at construction.
+Least-squares loss ``f(β) = \\lVert Y-X\\beta\\rVert^2/2`` with gradient `X'*(X*β-Y)`.
+`X` is an `n × p` design matrix. A length-`n` response `Y` uses length-`p`
+coefficients; an `n × k` response uses `p × k` coefficients and the Frobenius norm.
+Data and arguments must be real and one-based.
 
-It is also proximable: the first proximal operator computes the thin SVD
-`X = U Diagonal(s) V'` and `Diagonal(s) U'Y` once, after which
-`prox_{γf}(v) = (X'X + I/γ)⁻¹ (X'Y + v/γ)` costs two products with `V` for any
-`γ`, also when `p > n`. ADMM changes `γ` freely at no cost.
+The loss is smooth, convex and proximable. Dense arrays, [`SparseIterate`](@ref)
+and [`BlockIterate`](@ref) use their supported array products. The first proximal
+call caches a thin SVD; later calls reuse it for different steps, including when
+`p > n`.
+
+# Examples
+```jldoctest
+julia> f = LeastSquaresLoss([1.0, -1.0], [1.0 0.0; 0.0 1.0]);
+
+julia> f([3.0, 1.0])
+4.0
+
+julia> gradient(f, [3.0, 1.0])
+2-element Vector{Float64}:
+ 2.0
+ 2.0
+```
+
+# Edge cases
+- `X` and `Y` are retained by reference. After same-shape changes, call
+  [`reset_cache!`](@ref) before another prox; reconstruct after dimension changes.
+- Values, gradients and prox reuse private scratch: synchronize concurrent calls
+  on one loss. Supplied-predictor oracles have separate ownership rules.
+- No symmetric-iterate or scalar-coordinate prox is provided.
+- Value range recovery does not guarantee recovery of matrix products or SVDs.
+
+See [least-squares operations](@ref Least-squares-loss) and
+[supplied-predictor oracles](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds).
 """
 mutable struct LeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVecOrMat, Tx<:AbstractMatrix, N, A<:AbstractArray{T, N}} <: AbstractFunction
   Y::Ty

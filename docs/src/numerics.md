@@ -51,7 +51,9 @@ will be treated as a supported `Float32` parameter. The
 [array and precision conventions](numerical_usage.md) include a
 homogeneous example for both supported types.
 
-## Overflow and underflow of values
+## [Overflow and underflow of values](@id Overflow-and-underflow-of-values)
+
+### [Range guarantees](@id numerical-value-range)
 
 Ordinary finite calls use efficient numerical paths. Exceptional paths
 selectively recover representable values when an intermediate product or sum
@@ -247,18 +249,18 @@ all-NaN result or a particular exception.
 | Unweighted `NormL1`, zero level | Zero value on dense float arrays, including NaN entries |
 | `NormL1`, zero weight | Unpenalized entry at every level |
 | `NormL1`, infinite weight | Finite input values map to zero, even with zero level or step. No fixed-zero guarantee for `NaN`/`±Inf` inputs with finite level; `shrink` can return `NaN`. Value is `Inf` away from zero. See [#853](https://github.com/mlakolar/ProximalBase.jl/issues/853). |
-| `NormL1`, infinite level, nonnegative step | Positive-weight entries prox to `+0`, including non-finite inputs; zero-weight entries stay free. At `γ = 0` this is the fixed-function limit `γ → 0+`, the projection onto the closure of the domain ([#665](https://github.com/mlakolar/ProximalBase.jl/issues/665)) |
+| `NormL1`, infinite level, nonnegative step | Positive-weight entries prox to `+0`, including non-finite inputs; zero-weight entries stay free. See [the zero-step rule](@ref infinite-penalty-at-zero-step) |
 | `NormL1`, finite factors whose product overflows | Distinguished from genuinely infinite weights/levels; recovery handles representable finite results where supported. With an input of `±Inf`, an overflowed finite threshold can yield `NaN`; [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) is a documented, deferred limitation, not an authorized hot-loop fix. |
 | `NormL2` | The rules of one `GroupNormL2` group with weight one (rows below); value `0` at zero level; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
 | `GroupNormL2`, zero weight | Unpenalized group: returned unchanged (`NaN`/`±Inf` included), zero value |
-| `GroupNormL2`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` included (#665 reading), also for `NaN`/`±Inf` inputs; value `0` at zero, `Inf` elsewhere (`NaN` at a `NaN` entry) |
+| `GroupNormL2`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` included (see [zero-step rule](@ref infinite-penalty-at-zero-step)), also for `NaN`/`±Inf` inputs; value `0` at zero, `Inf` elsewhere (`NaN` at a `NaN` entry) |
 | `GroupNormL2`, positive finite parameters and step | A `NaN` entry makes the group `NaN`; a `±Inf` entry (no `NaN`) leaves the group unchanged, also when the finite threshold's product overflows; `γ = Inf` fixes the group at `+0` |
 | `GroupNormL2`, negative or `NaN` step | `ArgumentError` before any write, in `prox!`, `value_and_prox!` and `prox_block!` |
 | `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
 | `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual |
 | `ElasticNet`, negative or `NaN` scalar step | `prox`, `prox!` and `value_and_prox!` throw `ArgumentError` before any write. The entries of an array of steps are not checked: nonnegative entries are a precondition, an exception to the requirement of [#908](https://github.com/mlakolar/ProximalBase.jl/issues/908) that negative and `NaN` steps fail before writes (a check reads every step, while the loop selection of an array-step call stops after the first block of 256 steps that holds one outside the ordinary branches; as for #874). `prox_block` and `Scaled` routes do not check |
 | `ElasticNet`, infinite ridge level `λ2`, nonnegative step | The indicator of `{0}` (#908): every entry proxes to `+0`, including at `γ = 0` and for non-finite inputs; value `0` at the zero vector, `NaN` at a `NaN` entry, `Inf` otherwise; `kkt_violation` is `-Inf`. `SqrNormL2(Inf)` keeps its own rule |
-| `ElasticNet`, infinite `λ1` or infinite weight, overflowing finite threshold | The `NormL1` rows above (decision 49, #665, #853, #866) |
+| `ElasticNet`, infinite `λ1` or infinite weight, overflowing finite threshold | The `NormL1` rows above and [zero-step rule](@ref infinite-penalty-at-zero-step) |
 | `ElasticNet`, zero `λ2` | Values of `NormL1(λ1, w)`, and at `γ ≥ 0` with one element type its proximal points, bit for bit; a zero `λ2` adds `0` also at `NaN`/`±Inf` entries |
 | Generic custom value/prox | Author-defined arithmetic; traits do not grant recovery or NaN policy |
 | Paired symmetric parameters, in `check_symmetric_parameters` | Exact equality, NaN matches NaN, signed zeros agree; the numerical oracles assume it and do not compare |
@@ -299,11 +301,11 @@ intentionally not extended: retained soft-threshold arithmetic may return
 though the mathematical threshold is finite. These examples characterize
 present behavior, not additional non-finite-output guarantees. A genuinely
 infinite **level** at any nonnegative step retains its distinct fixed-zero rule
-for positive weights, including non-finite inputs (historical decision 49,
-extended to `γ = 0` by #665 below).
+for positive weights, including non-finite inputs; see [the zero-step rule](@ref infinite-penalty-at-zero-step).
 
-**Zero step at an infinite `NormL1` level (#665, Option A).** For
-`NormL1(Inf, w)`, the `γ = 0` endpoint is `lim_{γ→0+} prox_{γf}(x)` with the
+### [Infinite penalties at zero step](@id infinite-penalty-at-zero-step)
+
+For `NormL1(Inf, w)`, the `γ = 0` endpoint is `lim_{γ→0+} prox_{γf}(x)` with the
 function `f` held fixed. That function is the indicator of `{0}` in each
 coordinate with `w[i] > 0` (an infinite `w[i]` included) and is zero in each
 coordinate with `w[i] = 0`, so the limit is the projection onto the closure of
@@ -313,40 +315,31 @@ a zero threshold returns them (`NaN` and `±Inf` unchanged). Unweighted
 `NormL1(Inf)` therefore maps every coordinate to `+0`. The order of limits
 matters: for a fixed *finite* level, `shrink(x, γλ) → x` as `γ → 0+`, but
 `NormL1(Inf)` is already the constraint at every positive step, so the result
-is not computed as `shrink(x, 0⋅Inf)`. Before #665 the zero step returned the
-identity; results at `γ = 0` with an infinite level changed, and every other
-case is unchanged. Among the `NormL1` parameters, this rule is specific to the infinite *overall level*. An infinite *coordinate weight* at a finite level keeps the narrower
+is not computed as `shrink(x, 0⋅Inf)`. Among the `NormL1` parameters, this rule
+is specific to the infinite *overall level*. An infinite *coordinate weight* at a finite level keeps the narrower
 #853 rule above (finite inputs fixed; non-finite inputs may give `NaN`), and
 finite factors whose product overflows are never treated as an infinite level
-(#866). Finite levels at `γ = 0` keep the identity. A finite positive `Scaled`
+(the finite-threshold limitation above). For finite levels and finite weights,
+`γ = 0` keeps the identity. A finite positive `Scaled`
 factor passes the zero step through, so `2 * NormL1(Inf)` projects as well; an
 infinite factor at a zero step forms the step `Inf⋅0 = NaN` in the wrapper
-before `NormL1` sees it, and that wrapper step rule is unchanged (#311).
+before `NormL1` sees it, and follows the wrapper's existing step arithmetic.
 `ElasticNet` follows this rule for an infinite `λ1`, and implements the
 same zero-step projection for an infinite ridge level `λ2`, the indicator
-of `{0}` in every coordinate (#908). `GroupNormL2` applies the same reading at `γ = 0` to an infinite level (groups with
+of `{0}` in every coordinate. `GroupNormL2` applies the same reading at `γ = 0` to an infinite level (groups with
 a positive weight become `+0`) and to an infinite group weight, and `NormL2` to an
 infinite level; no other function
-is claimed to implement a zero-step projection rule. In `NormL1` the test is made only on the
-exceptional branch of the kernel (the product `0⋅Inf` is not an ordinary
-number), so ordinary positive finite steps run the unchanged loop.
+is claimed to implement a zero-step projection rule.
 
-The endpoint extensions were deferred to protect ordinary proximal throughput:
-PR [#874](https://github.com/mlakolar/ProximalBase.jl/pull/874) measured
-slowdowns of **+5.9% (`Float32`) and +9.9% (`Float64`)** for weighted array steps
-at 65,536 entries after optimization, and reported **+19–31%** for weighted
-scalar steps on a newer local CPU. Unlike finite-input overflow/underflow
-recovery, these cases require a particular convention for a genuinely
-non-finite input. No additional checks or scans are authorized in the hot
-loop for #853 or #866. Reconsider #866 if a practically important finite-input
-failure is demonstrated or an implementation preserves ordinary-path speed.
+The [endpoint history](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-endpoint-history-921.md)
+records the design decisions and performance evidence.
 
 Signed zeros do not activate absent coordinates; explicit active signed zeros
 can be retained in storage. Symmetric-iterate `isequal` distinguishes stored negative zero
 from absent positive zero; `==` does not. `dropzeros!` removes either signed zero
 and preserves NaN/Inf.
 
-## Sparse product semantics
+## [Sparse product semantics](@id Sparse-product-semantics)
 
 The specialized products in [the operation table](iterates.md#Supported-products)
 ignore zero iterate coefficients, stored or absent. No term is formed even if

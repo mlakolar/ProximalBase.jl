@@ -25,8 +25,8 @@ end
 # when it is far from one, outside the band of a quarter of the exponent range (2^±255 for Float64,
 # 2^±31 for Float32), whatever the entries are: reading them to decide would cost a pass over the step
 # on every call. An entry of the step that is itself within a quarter of the range limit, with a factor
-# inside the band, is rounded with the product as before. An indicator ignores its scale. An infinite
-# factor over any other function takes the route below too, which hands it on as before and applies the
+# inside the band, is rounded with the product without changing arithmetic. An indicator ignores its scale. An infinite
+# factor over any other function takes the route below too, which hands it on without changing arithmetic and applies the
 # rule of its value there.
 @inline _factor_band(::Type{T}) where {T<:AbstractFloat} = exponent(floatmax(T)) ÷ 4
 @inline _wide_factor(α::Real, ::Type{T}) where {T<:AbstractFloat} =

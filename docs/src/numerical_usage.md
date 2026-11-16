@@ -1,8 +1,11 @@
-# Array and precision conventions
+# [Array and precision conventions](@id numerical-usage)
 
 ## Shapes and destination-first mutation
 
-Use real arrays in each function's supported shape. Vector and matrix iterates
+Use real, one-based arrays in each function's supported shape. Built-in array
+value, gradient and proximal interfaces check one-based arguments, destinations
+and positional parameter arrays before reading their entries or writing output.
+See [supported operations](operations.md) for method-specific boundaries. Vector and matrix iterates
 participate in array dispatch; a symmetric iterate requires an explicit method.
 Gradients and proximal points must match their input shape. Per-entry weights
 and array steps can use equal entry count in linear order, while centers,

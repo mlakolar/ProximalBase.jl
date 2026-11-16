@@ -1,4 +1,4 @@
-# Scaling a function
+# [Scaling a function](@id scaling-guide)
 
 *Assumes: scalar multiplication and gradients · You will learn: how `Scaled(f, α)` changes function values, gradients and proximal steps.*
 

@@ -13,7 +13,7 @@ proximal point and changes the iterate's active set.
 | Hook/call | Trial and index | Storage write afterward |
 |:--|:--|:--|
 | `prox_block(f,v,i,γ)` | Scalar v, global array-entry index i | `x[i]=result` for `SparseIterate` |
-| `prox_block!(out,f,u,k,γ)` | Compact vectors in custom group k's order | `copyto!(blockview(x,k),out)` after matching layouts |
+| `prox_block!(out,f,u,k,γ)` | Compact vectors in the selected group k's order | `copyto!(blockview(x,k),out)` after matching layouts |
 | Scalar hook for a symmetric iterate | Scalar v, entry index `(c-1)p+r` derived from independent coordinate k | `coordinates(x)[k]=result` |
 
 An active slot is never a coordinate or group index. `BlockIterate` has a storage partition,
@@ -35,11 +35,13 @@ x[2] = prox_block(NormL1(1.0),3.0,2,1.0)
 Vector(x)
 ```
 
-## Compact block buffers
+## [Compact block buffers](@id block-proximal-oracle)
 
-The generic vector `prox_block` allocates a floating Vector of `length(u)`
-and invokes the custom `prox_block!`. No built-in function implements a compact group proximal update by default. An extension must validate group ID, dimensions, real one-based
-buffers and overlap before writes. Exact `out === u` is supported by the
+The generic vector `prox_block` allocates a plain floating `Vector` of `length(u)`
+and invokes `prox_block!`. [`GroupNormL2`](@ref) is the built-in implementation:
+`k` selects `f.groups[k]`, and `u` follows that group's ordered global indices.
+It checks the group, buffer lengths, real one-based storage, step and overlap
+before writes. Custom extensions must provide these checks themselves. Exact `out === u` is supported by the
 contract; other overlap must be rejected by the extension. The generic
 allocating wrapper adds no such checks on the extension's behalf.
 
@@ -56,12 +58,12 @@ implementation. Implementing this hook does not automatically supply a full
 array value, full-array prox, traits, KKT screen, symmetric-iterate interface or
 `Scaled` compact-vector forwarding.
 
-## Screening a zero coordinate
+## [Screening a zero coordinate](@id kkt-screens)
 
 For the supported scalar functions, `kkt_violation(g,grad,i)` reports a signed
 violation of the zero-coordinate condition. `NormL1` returns
 ``|\mathrm{grad}_i|-\lambda_0w_i``. A positive value means zero fails the
-condition. The routine does not inspect whether the coordinate is actually zero.
+condition. The scalar routine does not inspect whether the coordinate is actually zero.
 
 `kkt_violation(g,grad,x,k)` interprets k in x's coordinate space:
 
@@ -69,13 +71,25 @@ condition. The routine does not inspect whether the coordinate is actually zero.
 |:--|:--|
 | `SparseIterate` | Valid coordinate first, then gradient entry count equal to length(x); flat or matrix-shaped gradient of that length is accepted |
 | `SymmetricSparseIterate` | Valid independent coordinate, then p² gradient entries; symmetric part of that gradient pair, and the extent of the function's parameters (their mirrored entries are not compared) |
-| `BlockIterate` | Maximum scalar screen over global members of group k for supported scalar-screen functions |
-| Other arrays | No extra point/gradient extent validation; indexing/function checks still apply |
+| `BlockIterate`, scalar penalties | Maximum scalar screen over global members of group k; no full-gradient extent preflight |
+| `BlockIterate`, `GroupNormL2` | Group norm screen; selected group layout and full gradient length checked |
+| Other arrays, scalar penalties | No extra point/gradient extent validation; indexing/function checks still apply |
+| Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked |
 
 For `SparseIterate`/`SymmetricSparseIterate`, invalid coordinate throws `BoundsError` before
-extent mismatch throws `DimensionMismatch`, after checking real element types.
-The `BlockIterate` path does not add that same explicit full-gradient extent
-preflight; ensure the gradient is full-length. Nonzero coordinates need their
+extent mismatch throws `DimensionMismatch`, after checking one-based axes and
+real element types. A flat or matrix-shaped gradient of the required entry
+count is accepted. Opposing infinities in the selected symmetric gradient pair
+throw `ArgumentError`. Parameter extents are checked for symmetric iterates;
+mirrored parameters are a caller precondition, not an oracle check.
+For scalar-screen functions, the `BlockIterate` path does not add that same
+explicit full-gradient extent preflight; ensure the gradient is full-length.
+`GroupNormL2` instead checks the number of groups, the selected ordered group
+layout and `length(g) == length(x)`, then returns
+`norm(g[Gₖ]) - λ0*wₖ`. With an ordinary array point it accepts an entry index:
+it uses the group screen if that entire group is zero, otherwise `abs(g[i])`;
+ungrouped entries also use `abs(g[i])`. Its three-argument form throws
+`ArgumentError` because the penalty is not entrywise separable. Nonzero coordinates need their
 own stationarity test, as explained in [coordinate descent](coordinate_descent.md).
 
 ## Symmetric scalar steps
@@ -83,7 +97,8 @@ own stationarity test, as explained in [coordinate descent](coordinate_descent.m
 For symmetric-iterate coordinate k, compute `(r,c)=tril_cartesian(p,k)`, then use the
 full-matrix entry index `i=(c-1)p+r`. The function's parameters must be symmetric;
 validate the original function with `check_symmetric_parameters` before raw scalar hooks,
-since the hook has no symmetric iterate to inspect and no oracle checks it.
+since the hook has no symmetric iterate to inspect and no numerical oracle
+compares mirrored parameters.
 Use a symmetric matrix gradient and the appropriate Frobenius curvature.
 
 ```@example symmetric_coordinate_trial

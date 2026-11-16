@@ -67,6 +67,7 @@ struct ElasticNet{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunctio
   l1::NormL1{T, W}
 
   function ElasticNet{T, W}(λ1::T, λ2::T, w::W) where {T<:Real, W<:Union{Nothing, AbstractArray}}
+    _check_one_based(w)
     w === nothing || eltype(w) <: Real || _real_error(:ElasticNet)
     _checknonneg("λ1", λ1)
     _checknonneg("λ2", λ2)
@@ -356,6 +357,7 @@ value_and_prox!(y::_ArrayOrSymmetricIterate, f::ElasticNet, x::_ArrayOrSymmetric
 
 # the ℓ1 screen of NormL1; an infinite ridge level fixes the coordinate at zero, which then never violates (D2)
 function kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer)
+  _check_one_based(g)
   eltype(g) <: Real || _real_error(:kkt_violation)
   v = abs(g[i]) - _kkt_coefficient(eltype(g), f.λ1, _entry(f.w, i))
   isinf(f.λ2) ? oftype(v, -Inf) : v

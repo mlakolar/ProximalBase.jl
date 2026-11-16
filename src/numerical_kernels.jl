@@ -601,9 +601,10 @@ function _norm_diff2(A::AbstractArray, B::AbstractArray)
   _scaled_norm(A, B, s)
 end
 
-# scale ⋅ √(Σ μᵢ (xᵢ - yᵢ)²) for a scale ≥ 0 (one by default) and an ordinary sum of squares s in R that
-# overflowed or fell below floatmin(R): the squared-residual kernel gives the sum as m 2^(2k), and the
-# norm is scale √m 2^k, rounded once (twice where it is subnormal). An entry that is not finite keeps
+# scale ⋅ √(Σ μᵢ (xᵢ - yᵢ)²) for a scale ≥ 0 (one by default) and the ordinary sum of squares s in R, which the
+# callers pass where it overflowed or fell below floatmin(R) (norm_diff) and also where it is a normal number that
+# their own tests do not keep (the value of SqrtLeastSquaresLoss): the squared-residual kernel gives the sum as
+# m 2^(2k), and the norm is scale √m 2^k, rounded once (twice where it is subnormal). An entry that is not finite keeps
 # the ordinary result scale √s: Inf, or NaN where a NaN or an Inf - Inf residual occurs.
 @noinline function _scaled_norm(x, y, s::R, scale::R = one(R)) where {R}
   q = _residual_squares(x, y, R)

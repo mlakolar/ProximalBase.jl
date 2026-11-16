@@ -23,6 +23,12 @@ retained. Compute mathematical gradient mappings in caller code. Coordinate
 curvatures and residual/working-set policies are algorithm responsibilities.
 ProximalSolvers migration is separate; this documentation does not change it.
 
+## Restored functions
+
+| Function | Restored from the archive | Differences from the archived version |
+|:--|:--|:--|
+| `ElasticNet(λ1, λ2, w)` ([#908](https://github.com/mlakolar/ProximalBase.jl/issues/908)) | Constructor, fields `λ1`, `λ2`, `w`, value, `prox_block`, `value_entry`, array proximal operators, KKT screen, `restrict`, `Scaled` folds and zero scaling | Built on the retained `NormL1` threshold and `SqrNormL2` ridge kernels, so ordinary results can differ in the last bits (multiplication by the rounded `1/(1 + γλ2)`). An infinite `λ1` follows the current `NormL1` rule (`+0` for positive weights, also at `γ = 0` and for `NaN`/`±Inf` inputs) where the archive returned `NaN`. An infinite `λ2` is the indicator of `{0}`. A negative or `NaN` scalar step throws `ArgumentError` before writes; the archive applied the arithmetic |
+
 ## Names, coordinates and writes
 
 | Historical code | Retained interface |
@@ -64,6 +70,29 @@ finite level (#853) and finite-factor overflow (#866) are unchanged. See
 Pairs of the same size are unchanged, with the same values. To keep a model
 written with a flattened coefficient vector, reshape it once to the shape of the
 argument, as in `LinearFunction(reshape(c, size(x)), d)`.
+
+## Changed traits and proximal domains
+
+| Call | Before | Now |
+|:--|:--|:--|
+| `isconvex` of `QuadraticFunction`, its type or an instance, and of `Scaled` of it ([#919](https://github.com/mlakolar/ProximalBase.jl/issues/919)) | `true` | `false`, which means that convexity is not guaranteed for an arbitrary instance; `f` is convex when the symmetric `A` is positive semidefinite |
+| `prox!`, `prox` and `value_and_prox!` of `QuadraticFunction`, directly or through `Scaled`, when the smallest eigenvalue `λmin` of the cached decomposition of `A` is negative and the rounded product `γT·(-λmin)` is not `< 1` (a NaN step included), where `γT` is the step after the factors of any `Scaled` are applied, converted to the element type of the function ([#919](https://github.com/mlakolar/ProximalBase.jl/issues/919)) | Unchecked spectral division by `1 + γλi`, which could return non-finite values or finite values that are not the proximal point | `DomainError` before the output is written |
+
+A symmetric `A` need not be positive semidefinite. The check applies to a
+singular positive semidefinite `A` whose computed `λmin` is slightly negative
+from rounding, at steps with `γT·(-λmin) ≥ 1` (about `γ ≥ 1/|λmin|`); at those
+steps the earlier kernel divided by a computed denominator `1 + γT·λmin ≤ 0`.
+A matrix with `λmin ≥ 0`, and a negative step, are not checked and behave as
+before. For a nonnegative finite `γT` and finite cached eigenvalues, the check
+accepts exactly when every computed denominator `1 + γT·λi` is positive. In
+exact arithmetic and for `γ > 0`, the proximal subproblem has a unique minimizer if and only if
+`1 + γ λmin(A) > 0` for the true smallest eigenvalue, so near that boundary
+the check can accept a step for which the true `I + γA` is not positive
+definite, and reject one for which it is.
+
+A caller that knows `A ⪰ 0` and relies on convexity asserts it at its own model
+boundary, and does so again after changing `A`. A successful prox does not
+establish convexity.
 
 ## Historical contracts
 

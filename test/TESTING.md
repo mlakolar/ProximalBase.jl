@@ -14,6 +14,11 @@ and BigFloat references across Float32/64.
 `numerical_kernels` tests the shared overflow/underflow kernels of numerical_kernels.jl
 (bounded products, halved residuals, squared residuals) against BigFloat
 references in Float32/64, including genuine NaN/Inf inputs and exact zeros.
+`quadratic_domain` tests `QuadraticFunction` for a symmetric `A` that need not be positive
+semidefinite: values, gradients and the proximal point against analytic and BigFloat references,
+the step domain of the proximal operator (accepted and rejected steps at the boundary, outputs
+preserved on `DomainError`, `Scaled` and nested wrappers, `reset_cache!` after a change of
+definiteness), the empty matrix, the traits and warm-call allocations, in Float32/64.
 `numerical_recovery` audits the live recovery paths themselves, branch by branch
 (`docs/audit/numerical-kernels-file/recovery-coverage.md` lists each one and the coverage evidence):
 the `_ExpSum` accumulator and the signed/overflowing/underflowing `QuadraticFunction` values, nested and
@@ -28,6 +33,18 @@ symmetric models (`NormL1`, `SqrNormL2`, `LinearFunction`, nested `Scaled` and a
 function) against dense and structurally symmetric references in Float32/64, the explicit `check_symmetric_parameters` (stored and unstored pairs, nested `Scaled`,
 NaN and signed zeros, malformed metadata), the structural refusals that the oracles keep, and
 instrumented parameter arrays that count reads to show the oracles perform no mirrored-pair scan.
+`elasticnet` and `elasticnet_extremes` cover `ElasticNet` (#908): the constructor, traits, analytic cases (at steps
+`γ ≥ 0` and one element type, a zero `λ2` is `NormL1` bit for bit, and with a finite `λ2` an entry with a zero weight,
+or with a zero `λ1` and a finite weight, is the `SqrNormL2` ridge bit for bit, except that `-0` gives `+0`; an
+infinite weight fixes finite inputs at `+0` and an infinite `λ2` follows its own rule), values whose two parts round
+below the subnormal spacing on their own, the refusal of negative
+and NaN scalar steps before writes, dense, sparse, block and symmetric representations, the KKT screen and
+restriction, agreement with the archived implementation within 4 ulp, warmed allocations, the endpoint truth
+table of the plan, Float32/Float64 extremes against 4096-bit BigFloat (proximal points within 4 ulp of
+`shrink(v, t̂)/(1 + γλ2)` with the kernel's threshold, values within `(n + 2) eps`), `Scaled` folds, chains,
+infinite and zero factors, an infinite level beside a finite one, levels that need different folds, and read
+counts that show values and proximal points on sparse and symmetric iterates read the weights of the stored
+entries only.
 `groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
 its value, group soft thresholding and group KKT screen in Float32/64: analytical
 and threshold cases, singleton groups against weighted `NormL1`, noncontiguous

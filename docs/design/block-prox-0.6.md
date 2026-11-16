@@ -31,7 +31,7 @@ v = 2.0
 result = prox_block(g, v, 1, 1.0)  # 1.5; does not write to an iterate
 ```
 
-Current scalar `prox_block` methods include `NormL1`, `SqrNormL2`,
+Current scalar `prox_block` methods include `NormL1`, `ElasticNet`, `SqrNormL2`,
 `LinearFunction`, `ZeroFunction`, and supported `Scaled` functions.
 A custom `SeparableFunction` implements `prox_block(f, v, i, γ)`
 and `value_entry(f, v, i)`; generic kernels can then provide full-array

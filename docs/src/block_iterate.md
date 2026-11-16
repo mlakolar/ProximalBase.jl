@@ -123,9 +123,9 @@ abstractly typed arrays and conversions can fail after partial writes. See
 
 ## [Ownership and low-level construction](@id block-iterate-ownership)
 
-The public constructors, `copy` and `similar` own independent `storage`,
-`active` and `position` arrays. Constructors also copy the supplied group
-lists. Copies and similar buffers share `groups`, `group_of` and the layout
+High-level constructors, `copy` and `similar` own independent `storage`,
+`active` and `position` arrays. High-level constructors also copy the supplied
+group lists. Copies and similar buffers share `groups`, `group_of` and the layout
 cache with their source; these describe a fixed layout and must not be
 mutated. Use [`blockindices`](@ref) to inspect a group safely.
 

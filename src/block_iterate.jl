@@ -33,11 +33,12 @@ julia> (x[3], ncoordinates(x), nactive(x))
 ```
 
 # Ownership and writes
-- Constructors copy values and group lists. `copy` and `similar` own mutable
-  value/activity storage but share layout data, which must not be mutated.
+- High-level constructors copy values and group lists. `copy` and `similar`
+  own mutable value/activity storage but share layout data, which must not be
+  mutated.
   Low-level construction requires independent mutable storage.
-- Same-layout `copyto!` replaces active state; ordinary array copies and
-  broadcasts write values and retain existing activity.
+- Same-layout `copyto!` replaces active state. Ordinary array copies and
+  broadcasts never deactivate groups, though nonzero writes can activate them.
 - Direct bulk writes preflight known complex source types. Views, indexed
   writes and per-element conversions may fail after partial writes. See
   [write validation](@ref iterate-write-validation).
@@ -205,7 +206,7 @@ isactive(x::BlockIterate, k::Integer) = x.position[k] != 0
 
 Return a writable view of group `k` in its stored index order. The view aliases
 `x`: nonzero writes activate the group, and zero writes preserve activity.
-Use [`dropzeros!`](@ref) to remove an all-zero active group.
+Use [`dropzeros!(::BlockIterate)`](@ref) to remove an all-zero active group.
 
 For a trial proximal step, compute `prox_block!(out, f, u, k, γ)` in independent
 numerical buffers, then commit with `copyto!(blockview(x, k), out)`. Copying

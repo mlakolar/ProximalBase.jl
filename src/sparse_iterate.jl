@@ -325,8 +325,9 @@ end
 
 # In the products and inner products below, a zero coefficient of the iterate,
 # stored or not, contributes nothing, even against ±Inf or NaN in the other
-# operand (see "Sparse product semantics" in docs/src/numerics.md): each kernel tests the stored value, before scaling
-# by α, so that an α·c that underflows still multiplies and α = Inf does not
+# operand (see "Sparse product semantics" in docs/src/numerics.md):
+# each kernel tests the stored value before scaling by α, so that an
+# α·c that underflows still multiplies and α = Inf does not
 # turn a zero coefficient into NaN.
 
 function *(A::StridedMatrix{Ta}, x::SparseIterate{Tx, 1}) where {Ta,Tx}

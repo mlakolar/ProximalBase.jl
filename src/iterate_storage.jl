@@ -315,8 +315,9 @@ lower-triangle variables. Signed zeros are removed; `NaN` and infinities are
 kept.
 
 Compaction may reorder active slots. Reacquire [`activecoordinates`](@ref) and
-[`activevalues`](@ref) afterward; their old handles are not snapshots. The
-cost is O(nactive(x)) before compaction.
+[`activevalues`](@ref) afterward. Old handles are live, fixed-length views:
+after compaction they can expose stale or reordered entries, not a snapshot.
+The cost is O(nactive(x)) before compaction.
 
 # Examples
 ```jldoctest

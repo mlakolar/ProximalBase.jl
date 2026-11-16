@@ -120,8 +120,9 @@ For a vector iterate, `vec(x)` and `reshape(x, length(x))` are the iterate
 itself and retain its direct-write checks. A matrix's `vec`, or a reshape to
 a different shape, is a wrapper and follows elementwise conversion behavior.
 
-`copy!` from a source of another size uses Base's size error first, except
-for iterate-to-iterate copies: `SparseIterate` or `BlockIterate` sources of
+`copy!` from a source of another size first uses Base's own mismatch behavior
+(which depends on the array shape), except for iterate-to-iterate copies:
+`SparseIterate` or `BlockIterate` sources of
 different entry length raise `DimensionMismatch`. Equal-length copies
 between different shapes or block layouts write values in linear order;
 matching shapes/layouts of the same kind copy working-set state.
@@ -193,11 +194,11 @@ coefficient produces `NaN`. Consequently, this operation need not equal
 from the correctly rounded exact product by at most one neighboring
 floating-point number for a normal result (relative error below about
 `2eps(T)`), or one spacing for a subnormal result. Correct rounding is not
-promised. Within that margin of the overflow threshold or half the smallest
+promised. Within that margin of the overflow threshold or of half the smallest
 subnormal, a term can fall on either side of the boundary: the neighbor of
 `floatmax(T)` is `Inf`, and the neighbor of zero is the smallest subnormal.
-Beyond that margin, the final term determines its range, rather than an
-intermediate product. For example, `2^600 * 2^600 * 2^-600` and its underflow
+Beyond that margin, whether a term overflows or underflows is determined by
+its exact value, not by an intermediate partial product. For example, `2^600 * 2^600 * 2^-600` and its underflow
 mirror are evaluated exactly when the powers are `Float64` values.
 
 **Summation.** Terms are added in the storage order of `X`, in precision `T`.

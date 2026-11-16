@@ -266,20 +266,39 @@ formula, and `f(x)` evaluates it at the variable `x`. The constructor takes
 length-``p`` linear coefficient vector; and `c`, an optional scalar constant.
 When omitted, `b` and `c` are zero. The domain is real length-``p`` vectors,
 including vector `SparseIterate` and `BlockIterate`; matrix and symmetric iterate
-inputs are not supported. All four capability traits except separability are
-true. There is no scalar `prox_block`, `value_entry` or KKT screen.
+inputs are not supported. `issmooth` and `isproximable` are true;
+`isseparable` and `isconvex` are false. There is no scalar `prox_block`,
+`value_entry` or KKT screen.
 
-**Caller assumption:** `A` is symmetric positive semidefinite. Construction
-checks real types, squareness and `b`'s length, but does not check symmetry
-or eigenvalue signs. Values/gradients multiply by the supplied `A`; the prox
-uses an eigendecomposition of `Symmetric(Matrix(A))`, which selects the upper
+**Caller precondition:** `A` is symmetric; positive semidefiniteness is not
+required. Construction checks real types, squareness and `b`'s length, but does
+not check or symmetrize `A`. Values and gradients multiply by the supplied `A`
+and are valid for a symmetric indefinite `A`; the prox uses an
+eigendecomposition of `Symmetric(Matrix(A))`, which selects the upper
 triangle by default. For nonsymmetric data these operations need not describe
-one mathematical function. An indefinite matrix is outside the convex/prox
-contract even though the trait reports true.
+one mathematical function.
+
+**Step domain of the prox:** let ``\lambda_{\min}`` be the smallest computed
+eigenvalue of `A`. When ``\lambda_{\min}\ge0``, the prox uses the formula above
+and no step check is made. When ``\lambda_{\min}<0``, the prox throws
+`DomainError` before the output is written unless ``\gamma|\lambda_{\min}|<1``;
+a NaN step fails that test and a negative step passes it. For ``\gamma>0`` the
+test is ``1+\gamma\lambda_{\min}>0``, the condition for the proximal subproblem
+to have a minimizer. A singular positive semidefinite `A` whose computed
+``\lambda_{\min}`` is slightly negative from rounding is treated by that
+computed value, so steps with ``\gamma|\lambda_{\min}|\ge1`` throw for it.
+
+**Convexity:** `isconvex` is `false` for `QuadraticFunction` because convexity
+depends on the matrix: for a symmetric `A`, `f` is convex if and only if ``A\succeq0``, which the
+package does not check. A successful prox, including one at an accepted step on
+an indefinite `A`, does not establish that `f` is convex. A solver that needs
+convexity validates the model itself, or relies on a documented caller
+assertion, and does so again after the data change.
 
 `A` and `b` are retained by reference; `c` is converted to the promoted
 floating constructor type. Scratch and the eigenbasis are private. Changing
-entries of `A` requires `reset_cache!(f)` before another prox. Reconstruct
+entries of `A` requires `reset_cache!(f)` before another prox, which then uses
+the new spectrum and its step domain. Reconstruct
 for changed dimensions. `restrict(f,S)` selects `A[S,S]`, `b[S]` and retains
 `c`, corresponding to omitted variables fixed at zero. Arbitrary nonzero
 fixed coordinates require the caller to derive new linear/constant terms.

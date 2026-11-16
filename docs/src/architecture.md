@@ -48,7 +48,7 @@ There is no automatic device registration or removed-family plugin layer.
 | `prox!(y,NormL1(λ,w),x,γ)` | Checked separable boundary → dense/stored traversal → scalar `prox_block` → shrink |
 | `f(x)` for custom `SeparableFunction` | Parameter-extent validation (symmetric parameters are assumed, not compared) → entry values; skip inactive zeros only under declared promise |
 | `gradient!(g,LeastSquaresLoss(Y,X),β)` | Checked output → residual Xβ−Y → transpose-design product |
-| `prox!(y,QuadraticFunction(A,b),x,γ)` | Shape/type preflight → cached eigenbasis → diagonal inverse factors → output conversion |
+| `prox!(y,QuadraticFunction(A,b),x,γ)` | Shape/type preflight → cached eigenbasis → step-domain check → diagonal inverse factors → output conversion |
 | `prox_block(f,u::AbstractVector,k,γ)` | Allocate plain floating Vector → user `prox_block!` |
 | `prox!(X::SymmetricSparseIterate,g,V,γ)` | Symmetric argument where needed → structural preflight (parameter symmetry is a model precondition) → the symmetric-coordinate kernel of the function, which follows the iterate activity rules |
 | `kkt_violation(g,grad,block,k)` | Retained scalar screen at each global member → maximum |

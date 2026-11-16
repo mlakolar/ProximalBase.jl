@@ -65,6 +65,23 @@ Pairs of the same size are unchanged, with the same values. To keep a model
 written with a flattened coefficient vector, reshape it once to the shape of the
 argument, as in `LinearFunction(reshape(c, size(x)), d)`.
 
+## Changed traits and proximal domains
+
+| Call | Before | Now |
+|:--|:--|:--|
+| `isconvex` of `QuadraticFunction`, its type or an instance, and of `Scaled` of it ([#919](https://github.com/mlakolar/ProximalBase.jl/issues/919)) | `true` | `false`, which means that convexity is not guaranteed for an arbitrary instance; `f` is convex when the symmetric `A` is positive semidefinite |
+| `prox!`, `prox` and `value_and_prox!` of `QuadraticFunction`, directly or through `Scaled`, when the computed smallest eigenvalue `λmin` of `A` is negative and `γ·abs(λmin) ≥ 1` (a NaN step included), where `γ` is the step after the factor of any `Scaled` is applied ([#919](https://github.com/mlakolar/ProximalBase.jl/issues/919)) | Non-finite values, or a stationary point of an unbounded subproblem | `DomainError` before the output is written |
+
+A symmetric `A` need not be positive semidefinite. The check applies to a
+singular positive semidefinite `A` whose computed `λmin` is slightly negative
+from rounding, at steps `γ ≥ 1/|λmin|` of the computed value; the earlier
+results at those steps were already inaccurate. A matrix with `λmin ≥ 0`,
+and a negative step, are not checked and behave as before.
+
+A caller that knows `A ⪰ 0` and relies on convexity asserts it at its own model
+boundary, and does so again after changing `A`. A successful prox does not
+establish convexity.
+
 ## Historical contracts
 
 Current [developer contracts](developer/index.md) are reconciled against retained

@@ -14,6 +14,11 @@ and BigFloat references across Float32/64.
 `numerical_kernels` tests the shared overflow/underflow kernels of numerical_kernels.jl
 (bounded products, halved residuals, squared residuals) against BigFloat
 references in Float32/64, including genuine NaN/Inf inputs and exact zeros.
+`quadratic_domain` tests `QuadraticFunction` for a symmetric `A` that need not be positive
+semidefinite: values, gradients and the proximal point against analytic and BigFloat references,
+the step domain of the proximal operator (accepted and rejected steps at the boundary, outputs
+preserved on `DomainError`, `Scaled` and nested wrappers, `reset_cache!` after a change of
+definiteness), the empty matrix, the traits and warm-call allocations, in Float32/64.
 `numerical_recovery` audits the live recovery paths themselves, branch by branch
 (`docs/audit/numerical-kernels-file/recovery-coverage.md` lists each one and the coverage evidence):
 the `_ExpSum` accumulator and the signed/overflowing/underflowing `QuadraticFunction` values, nested and

@@ -5,17 +5,32 @@
 """
     QuadraticFunction(A, b = nothing, c = 0)
 
-The quadratic `f(x) = x'Ax / 2 + b'x + c` for a symmetric positive semidefinite
-`A`, with `b = 0` when omitted. Smooth, with gradient `Ax + b`, and proximable:
-the first proximal operator computes the eigendecomposition `A = QΛQ'` once,
-after which `prox_{γf}(x) = Q (I + γΛ)⁻¹ Q'(x - γb)` costs two products with
-`Q` for any positive finite `γ`.
+The quadratic `f(x) = x'Ax / 2 + b'x + c` for a symmetric `A`, with `b = 0`
+when omitted. `A` need not be positive semidefinite. Smooth, with gradient
+`Ax + b`, valid for symmetric indefinite `A`, and proximable: the first
+proximal operator computes the eigendecomposition `A = QΛQ'` once, after which
+`prox_{γf}(x) = Q (I + γΛ)⁻¹ Q'(x - γb)` costs two products with `Q`.
 
-The constructor checks real types, squareness and the length of b, but does
-not verify symmetry or positive semidefiniteness. Those are caller assumptions.
-Values/gradients use A directly; the cached eigenbasis uses Symmetric(Matrix(A))
-with its default upper triangle. Use vectors of compatible length. Data are
-retained by reference; after same-shape A changes call reset_cache!.
+Step domain of `prox!`, with `λmin` the smallest computed eigenvalue of `A`:
+when `λmin ≥ 0`, no step check is made. When `λmin < 0`, `prox!` throws
+`DomainError` before `y` is written unless `γ |λmin| < 1`. A NaN step fails
+that test and a negative step passes it. For `γ > 0` the test is
+`1 + γ λmin > 0`, the condition for the proximal subproblem to have a
+minimizer. A singular positive semidefinite `A` whose computed `λmin` is
+slightly negative from rounding is treated by that computed value.
+
+`isconvex` is `false` for this type: `f` is convex when `A` is positive
+semidefinite, which the package does not certify, and a successful `prox!`
+does not establish it. A solver that needs convexity validates the model
+itself, or relies on a documented caller assertion, and does so again after
+the data change.
+
+Symmetry of `A` is a caller precondition that is not checked or symmetrized.
+The constructor checks real types, squareness and the length of `b`.
+Values/gradients use `A` directly; the cached eigenbasis reads the upper
+triangle of `Symmetric(Matrix(A))`. `A` and `b` are retained by reference;
+after same-shape changes call `reset_cache!`, and the next prox uses the new
+spectrum and its step domain.
 """
 mutable struct QuadraticFunction{T<:AbstractFloat, M<:AbstractMatrix, V<:Union{Nothing, AbstractVector}} <: AbstractFunction
   A::M
@@ -49,7 +64,7 @@ end
 issmooth(::Type{<:QuadraticFunction}) = true
 _argument_type(::Type{<:QuadraticFunction}) = AbstractVector
 isproximable(::Type{<:QuadraticFunction}) = true
-isconvex(::Type{<:QuadraticFunction}) = true
+isconvex(::Type{<:QuadraticFunction}) = false
 
 function (f::QuadraticFunction)(x::AbstractVector)
   _checkreal(f, x)
@@ -168,10 +183,26 @@ function _eigen!(f::QuadraticFunction{T}) where {T}
   f
 end
 
+# With λ the smallest cached eigenvalue (the decomposition is ascending), the kernel divides by
+# 1 + γ Λ. For a step γ ≥ 0 the smallest computed denominator is 1 - fl(γ (-λ)), which is positive
+# when fl(γ (-λ)) < 1. A negative λ with a step that fails that comparison (an overflowing product
+# and a NaN step included) throws; λ ≥ 0, an empty matrix, and a negative step are not checked.
+@inline function _check_quadratic_step(f::QuadraticFunction, γ)
+  isempty(f.Λ) && return nothing
+  λ = @inbounds f.Λ[1]
+  (λ < 0 && !(γ * -λ < 1)) && _quadratic_step_error(γ, λ)
+  nothing
+end
+
+@noinline _quadratic_step_error(γ, λ) =
+  throw(DomainError(γ, "the proximal operator of a QuadraticFunction needs γ |λmin| < 1 when its smallest " *
+                       "eigenvalue λmin is negative (so that 1 + γ λmin > 0); got γ = $γ and λmin = $λ"))
+
 function prox!(y::AbstractVector, f::QuadraticFunction{T}, x::AbstractVector, γ::Real) where {T}
   _checkwrite(prox!, f, y, x)
   _eigen!(f)
   γ = convert(T, γ)
+  _check_quadratic_step(f, γ)
   t = f.tmp
   f.b === nothing ? copyto!(t, x) : (t .= x .- γ .* f.b)
   mul!(f.w, transpose(f.Q), t)

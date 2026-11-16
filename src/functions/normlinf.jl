@@ -12,10 +12,10 @@
 The ℓ∞ norm `f(x) = λ max|xᵢ|` (the largest magnitude of the entries, of a matrix included), with a
 nonnegative level `λ` (an `ArgumentError` otherwise, `NaN` included). It is not separable. Its proximal operator
 clips the entries at a level `τ ≥ 0`: `prox_{γf}(x)ᵢ = clamp(xᵢ, -τ, τ)`, where `τ` solves
-`Σᵢ (|xᵢ| - τ)₊ = γλ`, and `τ = 0` (the output `+0`) when `γλ ≥ ‖x‖₁`, for finite entries. This is `x` minus its
-projection onto the ℓ1 ball of radius `γλ`, formed by the clip itself, which copies the entries of magnitude at most `τ`.
-The level `τ` comes from Condat's algorithm, in O(n) expected time, with Michelot's algorithm when many entries become
-candidates.
+`Σᵢ (|xᵢ| - τ)₊ = γλ`, and `τ = 0` (the output `+0`) when `γλ ≥ ‖x‖₁` in floating point, for finite entries. This is
+`x` minus its projection onto the ℓ1 ball of radius `γλ`, formed by the clip itself: for a positive clip level, the entries within the
+clip interval are copied, and a zero level fills `+0`. The level `τ` comes from Condat's algorithm, in O(n) expected
+time, with Michelot's algorithm when many entries become candidates.
 
 The value takes arrays, the three iterates and a `SymmetricSparseIterate` (its largest stored magnitude: a
 repeated off-diagonal coordinate does not change a maximum), and is `λ` times the largest magnitude rounded once, in
@@ -34,7 +34,10 @@ identity). Otherwise `γ = Inf` gives `+0`. At positive finite `γ` and `λ`, a 
 infinite entry without `NaN` leaves the argument unchanged, also when the finite product `γλ` overflows in floating
 point; otherwise the clip above, with the output `+0` when `γλ` is at least `‖x‖₁` or overflows while `‖x‖₁` is finite.
 For finite entries a sum of magnitudes above `floatmax/2` is handled in power-of-two units. `value_and_prox!` returns the
-value of the stored output.
+value of the stored output. Through `Scaled`, the wrapper's recovery of a radius `γλα` beyond the range has a limit: for
+`Scaled(NormLinf(2.0 * 2.0^-1000), 2.0^1000)` at the step `0.75 floatmax(Float64)` on two entries equal to
+`floatmax(Float64)`, even the folded level at half the scale is out of range, the wrapper passes an infinite step, and the
+output is `+0` where the exact result is about `floatmax/4`.
 
 The accuracy of `τ` is absolute, of order `n eps(T) max|xᵢ| + δ` in the floating type `T` of the output for `n`
 entries, with `δ = nextfloat(zero(T))`: unlike the relative bounds of `NormL2`, an entry far below `max|xᵢ|` has no
@@ -47,8 +50,8 @@ The threshold needs a buffer of length `length(x)`. The object's own buffer is l
 argument (`Base.mightalias` is false): `y` then serves as the buffer, before the clip overwrites it. Otherwise (for
 instance `y === x`, an overlapping output, a view or an iterate as output, another output type, or an argument of
 another type) a threshold call may use the object's own buffer, which is allocated by the first threshold call that
-needs it and again when the size or the element type changes. The endpoint branches (a zero or infinite level, a zero or
-infinite step, a `NaN` or infinite entry, a zero output) do not touch it. The same object must not be used from several
+needs it and again when the size or the element type changes. The early exits before the threshold is selected (a zero or
+infinite level, a zero or infinite step, a `NaN` or infinite entry, the zero fill when `γλ ≥ ‖x‖₁`) do not touch it. The same object must not be used from several
 tasks at once when its buffer may be in use: construct a fresh `NormLinf(f.λ)` for each task, or synchronize the calls.
 """
 struct NormLinf{T<:Real} <: AbstractFunction
@@ -141,31 +144,32 @@ end
 
 # The branches at a sum of magnitudes that is NaN, infinite or above floatmax/2: a NaN entry gives NaN everywhere;
 # an infinite entry without NaN gives the identity (the level τ ≥ max|xᵢ| - γλ is then infinite, so the clip changes no
-# entry), also when γλ overflows. Finite entries whose sum overflows or exceeds floatmax/2 are read scaled by 2^-k, and the clip level
-# found in those units is multiplied by 2^k: the prox is positively homogeneous, prox_c(x) = 2^k prox_{c 2^-k}(2^-k x).
+# entry), also when γλ overflows. Finite entries whose sum overflows or exceeds floatmax/2 are read scaled by 2^-k, and the
+# clip level found in those units is multiplied by 2^k: the prox is positively homogeneous,
+# prox_c(x) = 2^k prox_{c 2^-k}(2^-k x).
 #
-# The scaled computation, for finite entries, a finite positive step and level:
-# - Each scaled entry is at most floatmax 2^-k. With the initial k = ceil(log2 n) + 2 the sum of the scaled entries is at
-#   most n floatmax 2^-k ≤ floatmax/4 before rounding. Under the hypothesis n eps(T) ≤ 1/2 of `_l1ball_threshold!` the
-#   computed sum s′ is then at most floatmax/2; the loop below raises k when it is not, which ends because the scaled
-#   entries shrink with k. The selector then sees the data under the conditions stated there.
-# - An entry that becomes subnormal when scaled changes by less than δ, the smallest subnormal of T (by at most δ/2 when
-#   the scaling rounds to nearest). The sum of the scaled entries then changes by less than n δ. For a scaled radius
-#   r′ > 0, the level τ′ solves Σᵢ (yᵢ - τ′)₊ = r′, and the left side has a slope in τ′ of minus the number of entries
-#   above τ′, at least one at the solution, so a change of the left side by L moves the root by at most L. If the
-#   radius r′ rounds to zero, the level of the problem with radius zero is the largest scaled entry, and the exact level
-#   differs from it by at most the exact radius, which is at most δ/2. In the units of x the level 2^k τ′
-#   changes by less than (n + 1/2) 2^k δ < 12 n² δ (2^k < 8n for the initial k). The nominal scale of the error of the
-#   level, n eps(T) max|xᵢ|, is at least eps(T) floatmax/4 here, as max|xᵢ| ≥ floatmax/(4n): the computed sum exceeds
-#   floatmax/2 or is infinite, and the exact sum is at least the computed one divided by 1 + θ, with θ ≤ 0.29 for
-#   n eps(T) ≤ 1/2, so it is above 0.38 floatmax. The loss is below that scale when 48 n² δ ≤ eps(T) floatmax(T). The
-#   ratio eps(T) floatmax(T)/(48 δ) is above 2^248 in Float32 and above 2^2040 in Float64, so the inequality holds for
-#   the n with n eps(T) ≤ 1/2 (n ≤ 2^22 in Float32, n ≤ 2^51 in Float64). The loss is then below the nominal scale of the
-#   error, and the statement of the docstring applies to the scaled path with the additive term δ.
+# The scaled computation, for finite entries and a finite positive step and level. Hypotheses are stated where used.
+# - Range. Each scaled entry is at most floatmax 2^-k. With the initial k = ceil(log2 n) + 2 their sum is at most
+#   floatmax/4 before rounding. Under the hypothesis n eps(T) ≤ 1/2 (as at `_l1ball_threshold!`) the computed sum s′ is at
+#   most floatmax/2. The loop below raises k when it is not, and ends since the scaled entries shrink as k grows. The
+#   selector then sees the data under the conditions stated there.
+# - Subnormal losses. Hypothesis: the scaling of an entry, or of the radius, changes it by at most one subnormal spacing
+#   δ = nextfloat(zero(T)). Rounding to nearest gives at most δ/2; the allowance δ is meant to cover Julia 1.10, whose
+#   `ldexp` can lose a whole spacing. Then the scaled sum changes by at most n δ and the scaled radius by at most δ. For a
+#   positive radius, the left side of the level equation Σᵢ (yᵢ - τ′)₊ = r′ decreases with slope at most -1 where it is
+#   positive, so those changes move the level τ′ by at most (n + 1) δ. If the computed scaled radius is zero, the exact
+#   scaled radius is at most δ, and the exact level is within that δ of the largest exact scaled entry (the level for
+#   radius zero), whose computed value differs by at most δ: the level moves by at most 2 δ ≤ (n + 1) δ. In the units of x the level 2^k τ′ moves by at most 2^k (n + 1) δ < 16 n² δ (2^k < 8n for the initial k).
+#   The nominal scale of the error, n eps(T) max|xᵢ|, is at least eps(T) floatmax/3 here: the computed sum exceeds
+#   floatmax/2 or is infinite, and the exact sum is at least the computed one divided by 1 + θ with θ ≤ 0.29 (hypothesis
+#   n eps(T) ≤ 1/2), so the exact sum is above floatmax/3 and max|xᵢ| ≥ floatmax/(3n). The movement is below that scale
+#   when 64 n² δ ≤ eps(T) floatmax(T). The ratio eps(T) floatmax(T)/δ is about 2^254 in Float32 and 2^2046 in Float64,
+#   against 64 n² ≤ 2^50 (n ≤ 2^22, Float32) and 64 n² ≤ 2^108 (n ≤ 2^51, Float64), the sizes of the hypothesis. The
+#   statement of the docstring then applies to the scaled path.
 # - No lower bound on τ is needed: x = [floatmax, 2^970] with γλ = floatmax in Float64 has the level 2^969.
 # - r′ = 2^-k γλ is formed from the significands and exponents of γ and λ, so that it does not overflow where γλ does:
-#   r′ ≥ s′ gives the output +0, and an r′ below the range rounds to a subnormal or zero, a change of at most δ/2 in the
-#   scaled units, covered by the bound above.
+#   r′ ≥ s′ gives the output +0, and an r′ below the range rounds to a subnormal or zero, which the radius allowance δ
+#   above covers.
 @noinline function _linf_exceptional!(y, f::NormLinf, x, γ, s::T) where {T}
   n = length(x)
   isnan(s) && return _linf_fill!(y, n, T(NaN))
@@ -461,7 +465,7 @@ end
 # Stopping rule. In exact arithmetic the sets above the levels decrease and the process ends when two consecutive sets
 # have the same count. With rounding, a level can round onto the entries: x = ones(2001), a = 8e-14 in Float64 has the
 # level (2001 - a)/2001 = 1.0, no entry is above it, and the next level is -a/0 = -Inf, from which the sets alternate
-# between all the entries and none (the loop of the legacy kernel returned -Inf or 1.0 by the parity of n). Here the
+# between all the entries and none (the loop of the legacy kernel ended at -Inf for n = 2001). Here the
 # loop stops when the count c of the entries above τ is 0 or is not below the count of the pass before, and returns τ,
 # the last level computed from a nonempty set. The first pass has τ = -Inf, c = n ≥ 1, and a count that decreases at each
 # later pass that continues, so the loop runs at most n + 1 passes. When c is 0 or has not decreased, the level τ of the
@@ -492,21 +496,22 @@ end
 #  Scaled
 ####################################
 
-# The member of the folding of a factor into the level (`_fold_level`) that NormL1 has: the nested route of `Scaled`
+# The member of the folding of a factor into the level (`_fold_level`) that NormL1 has. The nested route of `Scaled`
 # (`_nested_step`) folds the exponents of the factors and of the step into the level, so that the function gets a level
-# and a step that are normal numbers when the level folds. The folded level is nothing when it is not a normal number.
+# and a step whose product is the radius. The fold accepts what `_folded_level` accepts: an exact zero level, or a finite
+# nonzero level representable in the type (a subnormal one included), and gives nothing otherwise.
 function _fold_level(f::NormLinf, α)
   c = _folded_level(f.λ, α)
   c === nothing ? nothing : NormLinf(c)
 end
-# The fold of `_nested_step`, which passes the step reduced to its significand in [1/2, 1). When the level folded with the
-# whole exponent overflows but the level folded with half the scale is a normal number (the radius γλα is then in
-# (floatmax/2, floatmax], too large for a level with a significand step below one), the fold is the function with the
-# half-scale level inside a factor 2: the leaf receives the step 2 mγ in [1, 2), a normal number, and the radius is the
-# level times that step, the folded product. When the fold fails by underflow the half-scale fold fails too (it is
-# smaller), and the radius is below floatmin, which needs no branch. The fold with half the scale needs the scale as a
-# `_ProjectionScale`, which `_nested_step` passes. The value of the chain is computed from the original chain by the
-# caller (the factor returned with this fold is nothing), not from this function.
+# The fold of `_nested_step`, which passes the step reduced to its significand in [1/2, 1). The fold with the whole
+# exponent can fail where the fold with half the scale succeeds: the level then overflows with the whole exponent. The
+# result is the function with the half-scale level inside a factor 2: the leaf receives the step 2 mγ in [1, 2), a normal
+# number, and the radius is the level times that step, the folded product. The half-scale fold succeeds only where the
+# whole fold overflowed, since a smaller scale cannot turn an underflow to zero into a nonzero level. When the half-scale
+# fold fails too, the result is nothing and the wrapper keeps its rounded step (see the limit in the docstring). The
+# fold with half the scale needs the scale as a `_ProjectionScale`, which `_nested_step` passes. The value of the chain is
+# computed from the original chain by the caller (the factor returned with this fold is nothing), not from this function.
 function _fold_level_step(f::NormLinf, α)
   g = _fold_level(f, α)
   g === nothing || return g

@@ -545,9 +545,28 @@ end
   @test close_prox(y2, ref, x2) && all(!iszero, y2)
   v2 = value_and_prox!(zeros(T, 2), s, x2, γ)
   @test v2 ≈ s(y2)
-  # the same through a nested chain of two factors
+  # two factors whose product is normal are combined by the constructor (a simplification, not a retained chain)
   s2 = Scaled(Scaled(NormLinf(ldexp(one(T), -e)), ldexp(one(T), e ÷ 2)), ldexp(one(T), e - e ÷ 2))
-  @test prox(s2, T[M], γ) == T[M - γ]
+  @test !(s2.f isa Scaled) && prox(s2, T[M], γ) == T[M - γ]
+  # a retained nested chain: the factors 2^e and 2^e have no normal product, and the step is γ 2^-e
+  s3 = Scaled(Scaled(NormLinf(ldexp(one(T), -e)), ldexp(one(T), e)), ldexp(one(T), e))
+  @test s3.f isa Scaled
+  γ3 = ldexp(γ, -e)
+  y3 = prox(s3, x2, γ3)
+  @test close_prox(y3, ref, x2) && all(!iszero, y3)
+  @test prox(s3, T[M], γ3) == T[M - γ]
+  v3 = value_and_prox!(zeros(T, 2), s3, x2, γ3)
+  @test v3 ≈ s3(y3)
+end
+
+@testset "the documented limit of the Scaled recovery (Float64)" begin
+  # the radius 2 ⋅ 0.75 floatmax is beyond the range of the folded level even at half the scale: the wrapper passes an
+  # infinite step, and the output is +0 where the exact result is about floatmax/4 (documented, no further recovery)
+  M = floatmax(Float64)
+  s = Scaled(NormLinf(2.0 * 2.0^-1000), 2.0^1000)
+  @test prox(s, [M, M], 0.75M) == [0.0, 0.0]
+  ref, _ = ref_prox([M, M], 0.75M, 2.0)
+  @test abs(ref[1] - M / 4) <= big(M) / 100
 end
 
 @testset "equality, hash and signed-zero levels ($T)" for T in (Float32, Float64)

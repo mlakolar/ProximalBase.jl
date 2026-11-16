@@ -183,7 +183,12 @@ storage of a subnormal radius or output), unlike the relative bounds of the `Nor
 far below `max|xᵢ|` has no relative guarantee, and `x = [δ]`, `λ = δ`, `γ = 0.5` gives `[δ]` where the exact point is
 `δ/2`. A sum of magnitudes that overflows or exceeds `floatmax(T)/2` is processed in power-of-two units, whose subnormal
 losses are below the nominal scale `n eps(T) max|xᵢ|` when `n eps(T) ≤ 1/2` (up to `2^22` entries in `Float32` and
-`2^51` in `Float64`), a hypothesis of that argument that the code does not check. For positive
+`2^51` in `Float64`) and the scaling of an entry or of the radius changes it by at most one subnormal spacing (the
+allowance covers the `ldexp` of Julia 1.10 noted above), two hypotheses of that argument that the code does not check.
+Through `Scaled`, the wrapper's recovery of a radius `γλα` beyond the range has a limit: for
+`Scaled(NormLinf(2.0 * 2.0^-1000), 2.0^1000)` at the step `0.75 floatmax(Float64)` on two entries equal to
+`floatmax(Float64)`, even the folded level at half the scale is out of range, the wrapper passes an infinite step, and the
+output is `+0` where the exact result is about `floatmax/4`. For positive
 finite level and step, an infinite entry without `NaN` gives the identity; on the finite clipping branch the value is
 `λ τ`, computed from the largest stored magnitude `τ`, and `value_and_prox!` returns the value of the stored output,
 computed as `f(y)` computes it. Endpoint precedence is given in the table below.

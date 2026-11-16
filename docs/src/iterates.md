@@ -96,6 +96,42 @@ the same entry length copy by value. A symmetric iterate's `copyto!(x,A)` is a
 checked import, replacing state with nonzero coordinates in increasing order.
 See the individual guides for validation and failure behavior.
 
+## [Real values and write validation](@id iterate-write-validation)
+
+`SparseIterate` and `BlockIterate` store real values. Their constructors and
+direct bulk writes reject a known complex element type, even when every
+imaginary part is zero. This applies to two-argument `copyto!` from an array,
+`copy!`, broadcasting into the iterate and `fill!`; matrix `SparseIterate`
+also checks `UniformScaling` and orthogonal-factor sources. The rejection is
+an `ArgumentError` before any destination write.
+
+Broadcasts check both their input leaves and their inferred result. A known
+complex result is rejected; a result of an uncertain non-real type, such as
+`Any`, `Number` or a union with a complex member, is evaluated before writing
+and rejected if any element is complex. The destination is unchanged.
+
+These checks do not make every write atomic. Two-argument `copyto!` and
+`copy!` inspect source types, so tuples, generators and arrays such as
+`Vector{Any}` pass this preflight and convert values one at a time. Indexed
+assignment, writes through views or `coordinates`, offset/index-range
+`copyto!` and `map!` also use ordinary element conversion. A complex value
+then raises `InexactError`, possibly after earlier entries have been written.
+For a vector iterate, `vec(x)` and `reshape(x, length(x))` are the iterate
+itself and retain its direct-write checks. A matrix's `vec`, or a reshape to
+a different shape, is a wrapper and follows elementwise conversion behavior.
+
+`copy!` from a source of another size uses Base's size error first, except
+for iterate-to-iterate copies: `SparseIterate` or `BlockIterate` sources of
+different entry length raise `DimensionMismatch`. Equal-length copies
+between different shapes or block layouts write values in linear order;
+matching shapes/layouts of the same kind copy working-set state.
+
+For failure-atomic conversion, stage an independent correctly typed result
+and then use a supported state copy. A same-kind state copy preconverts
+fallible stored values. A symmetric iterate's matrix import has a separate
+[validation and conversion policy](symmetric_sparse_iterate.md#Copying-state-versus-importing-a-matrix),
+and an orthogonal factor uses the [staged matrix-copy path](@ref sparse-orthogonal-copy).
+
 ## Supported products
 
 The following sparse-aware operations are available for these iterate types. Real types and compatible
@@ -132,3 +168,48 @@ even against NaN/Inf in the other operand. This differs from an ordinary
 dense IEEE `0*Inf`. A coordinate view has ordinary vector products and does
 not inherit sparse work or strong-zero semantics. See
 [array conventions](numerical_usage.md).
+
+## [Three-factor products](@id three-factor-products)
+
+For matching `Float32` or `Float64` operands, `A * X * B` has a direct
+stored-entry method when `A` and `B` are `Symmetric` wrappers of strided
+matrices and `X` is a matrix `SparseIterate` or a `SymmetricSparseIterate`.
+The result is an ordinary dense matrix. Each entry is the sum of
+`A[i,k] * X[k,l] * B[l,j]` over the mathematically nonzero entries of `X`.
+For an `m × n` matrix iterate the cost is `O(nactive(X) * m * n)` operations
+and `O(m * n)` memory. For a symmetric iterate both dimensions are `p`;
+each stored off-diagonal coordinate contributes its two mirrored entries.
+
+**Zeros belong to the sparse coefficient.** A stored zero and an absent
+entry of `X` contribute no term, even if the corresponding entry of `A` or
+`B` is non-finite. An iterate with no nonzeros produces the zero matrix
+without reading numerical entries of either factor. A nonzero coefficient,
+including `NaN` or an infinity, always contributes. Zeros in `A` and `B`
+have ordinary IEEE behavior, so a zero factor multiplied by an infinite
+coefficient produces `NaN`. Consequently, this operation need not equal
+`A * Matrix(X) * B` on non-finite data.
+
+**Range and rounding.** A term with three finite nonzero factors differs
+from the correctly rounded exact product by at most one neighboring
+floating-point number for a normal result (relative error below about
+`2eps(T)`), or one spacing for a subnormal result. Correct rounding is not
+promised. Within that margin of the overflow threshold or half the smallest
+subnormal, a term can fall on either side of the boundary: the neighbor of
+`floatmax(T)` is `Inf`, and the neighbor of zero is the smallest subnormal.
+Beyond that margin, the final term determines its range, rather than an
+intermediate product. For example, `2^600 * 2^600 * 2^-600` and its underflow
+mirror are evaluated exactly when the powers are `Float64` values.
+
+**Summation.** Terms are added in the storage order of `X`, in precision `T`.
+For a symmetric coordinate `(r,c)`, its `(r,c)` term precedes the `(c,r)`
+term. Tiny terms beside large ones can round away. A non-finite ordinary sum
+is recomputed in scaled units only when every factor of every contributing
+term is finite. This recovers a representable result after an overflowing
+partial sum followed by cancellation; a result beyond the range remains
+`±Inf`. If any contributing factor is `NaN` or infinite, the ordinary IEEE
+result stands. An exactly zero sum is `+0.0`.
+
+Other matching element types or non-strided wrappers use restricted/dense
+methods, and mixed types use generic/dense multiplication. These paths do
+not inherit the direct method's range and rounding guarantees. The general
+zero, precision and failure rules are in the [numerical contract](@ref numerics).

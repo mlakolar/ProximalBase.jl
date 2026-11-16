@@ -1,4 +1,4 @@
-# SparseIterate: storage, access, and working-set interface
+# [SparseIterate: storage, access, and working-set interface](@id sparse-iterate-guide)
 
 *Assumes: vectors and indexed assignment · You will learn: sparse working-set storage, active zeros and the costs of its operations.*
 
@@ -116,13 +116,17 @@ activecoordinates(x)       # [3]: source state replaces destination state
 
 Value writes through `coordinates(x)`, views, `vec` and `reshape` follow ordinary Julia conversion and indexing conventions; unlike the iterate's own bulk-write preflight, such wrappers need not reject an invalid value before earlier entries have been written. A failed same-kind state copy, by contrast, must leave the destination unchanged if a stored value cannot convert to its element type.
 
+The shared [write-validation rules](@ref iterate-write-validation) distinguish
+direct bulk writes from elementwise conversions, including the exceptions for
+`vec`, `reshape`, broadcasts and abstractly typed sources.
+
 ## Sparse linear algebra: an additional, narrower guarantee
 
 ProximalBase implements selected sparse-aware methods for `SparseIterate`, including `dot`, `mul!`, `A*x`, and matrix bilinear/three-factor products in their documented dispatch domains. Those methods walk active entries and skip mathematically zero coefficients. For a vector `x` with `s` active entries, supported `dot(v,x)` is `O(s)`, and `mul!(out,A,x)` is approximately `O(size(A,1) * s)`.
 
 A matrix `SparseIterate` has selected kernels with stored-entry or column-wise traversal; a three-factor `A * X * B` fast path has a more restrictive supported type/domain contract. **Do not assume every generic Julia product is sparse-aware.** For instance, a product through `coordinates(x)` is a product of an ordinary vector view and can traverse all `n` entries. See [the product domain table](iterates.md#Supported-products) and [the numerical contract](@ref numerics) for the supported operation-specific rules.
 
-## Writing from an orthogonal factor
+## [Writing from an orthogonal factor](@id sparse-orthogonal-copy)
 
 For a matrix `x`, `copyto!(x, Q)` accepts an orthogonal or unitary factor `Q` such
 as `qr(A).Q`, `qr(A, ColumnNorm()).Q`, `lq(A).Q` or `hessenberg(A).Q` (the types

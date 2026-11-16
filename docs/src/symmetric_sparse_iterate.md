@@ -1,4 +1,4 @@
-# SymmetricSparseIterate: independent coordinates and matrix views
+# [SymmetricSparseIterate: independent coordinates and matrix views](@id symmetric-iterate-guide)
 
 *Assumes: symmetric matrices and indexing · You will learn: independent lower-triangle variables, views and symmetric-matrix geometry.*
 
@@ -185,6 +185,9 @@ Two symmetric iterates compare by represented matrix values under `==` and `iseq
 independently of active order. NaNs and signed zeros follow those operators'
 ordinary distinctions; equal symmetric iterates have equal hashes. There is no symmetric-iterate/array
 value comparison or `isapprox` symmetric-iterate method: compare `Matrix(x)` or the view.
+In particular, `isequal(x, y)` agrees with `isequal(Matrix(x), Matrix(y))`:
+an active `-0.0` differs from an absent coordinate under `isequal` but not
+under `==`, while paired NaNs are `isequal` but not `==`.
 
 See [the complete example](examples/symmetric_storage.md) and
 [developer invariants](developer/symmetric_storage.md).

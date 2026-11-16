@@ -3,55 +3,39 @@
     SparseIterate([T = Float64,] n, m)
     SparseIterate(x::Union{SparseVector, SparseMatrixCSC, Array})
 
-A vector or matrix that stores its nonzero entries in a compact list, so that
-reading or writing any entry is O(1), with supported sparse-aware products
-scaling with the number of active coordinates, `nactive(x)`.
-Intended for coordinate-descent and active-set iterates that stay sparse. Its
-coordinates (see `ncoordinates`) are its entries, in linear order.
+A real vector or matrix with a working set of explicitly stored coordinates.
+Each coordinate is a Julia linear entry index. Reading or writing an entry
+costs O(1); reserved storage costs O(length(x)), even when few entries are
+active.
 
-Setting an entry to zero keeps it in the list; call `dropzeros!` to remove
-stored zeros. The stored entries are the active coordinates
-(`activecoordinates`).
+A nonzero write activates its coordinate. A zero write preserves existing
+activity; [`activate!`](@ref) stores an explicit zero and [`dropzeros!`](@ref)
+removes active zeros. [`nactive`](@ref) counts stored coordinates, including
+zeros. [`coordinates`](@ref) exposes all entries, while
+[`activecoordinates`](@ref) and [`activevalues`](@ref) expose the working set.
 
-Its entries are real. The constructors, two-argument `copyto!` from an array
-(for a matrix also from a `UniformScaling` or an orthogonal factor), `copy!`,
-broadcasting into `x` and `fill!` throw an `ArgumentError` for a source or value
-of complex type, even with a zero imaginary part, before anything is written.
-A broadcast into `x` checks its leaves and its result: a result known to be
-complex from the types is rejected, and a result of another non-real type (a
-`Union` with a complex member, `Any`, `Number`) is evaluated before writing and
-rejected if an element is complex, with `x` unchanged.
-For a vector `x`, `vec(x)` and `reshape(x, length(x))` are `x` itself and are
-checked too. `copy!` from a source of another size throws Base's error first,
-unless the source is a `SparseIterate` or a `BlockIterate`: one of the
-same length is copied by value in linear order, and one of another length throws
-a `DimensionMismatch`. The two-argument `copyto!` and `copy!` read types: a tuple, a generator or an
-array of abstract element type such as `Vector{Any}` passes the check, and its
-values are converted one by one. Other
-writes also convert values one by one, as writes into a plain `Array` of the
-element type of `x` do: writes through a view, through `coordinates(x)`, through
-`vec` of a matrix or a
-`reshape` to another shape, indexed assignment such as `x[i] = v` or `x[:] = c`,
-`copyto!` with offsets or index ranges, and `map!`. A complex value converted
-one by one throws an `InexactError`, possibly after part of `x` has been
-written.
+# Examples
+```jldoctest
+julia> x = SparseIterate(4); x[2] = 3; activate!(x, 4);
 
-For a matrix, `copyto!(x, Q)` from an orthogonal or unitary factor `Q`, such as
-`qr(A).Q`, `qr(A, ColumnNorm()).Q`, `lq(A).Q`, `hessenberg(A).Q` (types
-`QRCompactWYQ`, `QRPackedQ`, `LQPackedQ`, `HessenbergQ`) or the adjoint of one,
-takes `Q` to be a lazy factorization object, not a dense matrix. It materializes
-`Q` into a dense temporary of the element type of `x` and then writes that matrix
-as an ordinary array value write. A complex factor, a size other than `size(x)`,
-a failure to materialize `Q` and a failing conversion (an `InexactError` for a
-fractional value written into an integer `x`) throw before anything is written, so
-`x` is unchanged. The write is
-a value write, not a copy of a working-set state: an active coordinate whose new
-value is zero stays active. The dense temporary
-and its allocation are deliberate; a caller who needs speed can pass a
-precomputed dense matrix of the full size `size(Q)`, such as
-`lmul!(Q, Matrix{T}(I, size(Q)))` with `T = eltype(Q)`. `Matrix(Q)` can be thin,
-for example for a tall QR factor (`qr(randn(4, 3)).Q` has size 4x4 while `Matrix(Q)`
-is 4x3), whereas the write uses the full `size(Q)` matrix.
+julia> (ncoordinates(x), nactive(x), x[4])
+(4, 2, 0.0)
+
+julia> x[2] = 0; dropzeros!(x); nactive(x)
+0
+```
+
+# Write semantics
+- `copyto!(x, y)` replaces working-set state when `y` is a same-size
+  `SparseIterate`; ordinary array copies and broadcasts write values.
+- Direct bulk writes reject known complex source types before writing.
+  Views, indexed writes and per-element conversions can fail after partial
+  writes. See [write validation](@ref iterate-write-validation).
+- Only documented product methods traverse active entries; views use ordinary
+  array operations.
+
+See the [storage guide](@ref sparse-iterate-guide) for copies, operation costs
+and [writing from an orthogonal factor](@ref sparse-orthogonal-copy).
 """
 mutable struct SparseIterate{T, N} <: AbstractArray{T, N}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
@@ -68,57 +52,45 @@ SparseIterate(nzval::Vector{T}, nzval2ind::Vector{Int}, ind2nzval::Array{Int, N}
 
 """
     SymmetricSparseIterate([T = Float64,] p)
-    SymmetricSparseIterate(X::AbstractMatrix)
+    SymmetricSparseIterate(A::AbstractMatrix)
 
-Symmetric matrix storage for the `q = p(p + 1) / 2` variables of a real symmetric `p × p` matrix:
-the entries of its lower triangle, stored in a compact list with O(1) access, as
-`SparseIterate`. It is not an array. It has `size(x) == (p, p)`,
-`eltype(x)`, `ncoordinates``(x) == q`, and the two-index access below; it
-has no `length`, `axes`, iteration, broadcasting or one-index access. Read it
-through one of its views, or copy it:
+Store the ``p(p+1)/2`` independent variables of a real symmetric ``p × p``
+matrix, with O(1) access and O(p²) reserved storage.
 
-  - `coordinates(x)`: a live, writable vector of the `q` variables, in the
-    column-major order of the lower triangle (`tril_index`);
-  - `matrixview(x)`: a live, read-only `p × p` matrix (`matrixview`);
-  - `Matrix(x)`: an independent dense copy.
+This object is not an `AbstractArray`. Read or write a matrix entry with
+`x[i,j]`; both triangles address the same variable. Use [`coordinates`](@ref)
+for a writable lower-triangle vector in column-major order,
+[`matrixview`](@ref) for a read-only live matrix, or `Matrix(x)` for an
+independent dense copy. `size(x)` is `(p,p)`; there is no `length`, `axes`, iteration,
+broadcasting or one-index `x[k]` access.
 
-`x[i, j]` reads and `x[i, j] = v` writes one variable, from either triangle: the
-positions `(i, j)` and `(j, i)` name the same variable, and an index outside
-`1:p` throws a `BoundsError`. `x[k]` with one integer is an `ArgumentError`,
-because `coordinates(x)[k]` and `matrixview(x)[k]` mean different things. A write
-converts the value to `T` first, and stores a nonzero converted value (`NaN`
-included) as an active coordinate; a zero written to a coordinate that is not
-active does not activate it, and a zero written to an active coordinate keeps it
-active. Use `activate!` for an explicit active zero and `dropzeros!` to
-remove active zeros. `nactive` counts the active coordinates;
-`count(!iszero, activevalues(x))` counts those that are nonzero.
+Nonzero writes activate a coordinate; zero writes retain existing activity.
+[`activate!`](@ref) stores an explicit zero, [`nactive`](@ref) counts active
+independent variables, and [`dropzeros!`](@ref) removes active zeros.
 
-  - `copy(x)` is an independent state: values, active zeros and activation order.
-  - `similar(x)` and `similar(x, S)` are empty symmetric iterates of the same `p`.
-  - `copyto!(y, x)` between symmetric iterates replaces the state of `y` with a copy of that
-    of `x`; `copyto!(x, x)` does nothing.
-  - `copyto!(x, A)` and `SymmetricSparseIterate(A)` import a matrix `A`: it must
-    be real, of size `(p, p)` and exactly symmetric (`NaN` matches `NaN`, `0.0`
-    matches `-0.0`), compared before conversion to `T`. The previous active set
-    of `x` is replaced by the coordinates whose converted value is nonzero, in
-    increasing coordinate order. `copyto!(x, A)` with a source that shares memory
-    with `x`, such as `matrixview(x)`, throws an `ArgumentError`. To store one
-    triangle of a matrix that is not symmetric, pass `Symmetric(A, :L)`.
-  - `fill!(coordinates(x), 0)` writes only the active values; with `dropzeros!(x)`
-    it empties `x` in O(`nactive(x)`). There is no `fill!(x, v)`.
+# Examples
+```jldoctest
+julia> x = SymmetricSparseIterate(2); x[2, 1] = 3;
 
-Two symmetric iterates are `==` and `isequal` when their matrices are: `isequal(x, y)` is
-`isequal(Matrix(x), Matrix(y))`, so an active `-0.0` differs from an absent
-coordinate under `isequal` but not under `==`, and paired `NaN`s are `isequal`
-but not `==`. Equal matrices have equal hashes whatever the active sets and their
-order. There is no comparison with an array and no `isapprox`: use `Matrix(x)` or
-`matrixview(x)`.
+julia> (ncoordinates(x), nactive(x), x[1, 2])
+(3, 1, 3.0)
 
-Its coordinates are numbered column by column (`tril_index`):
-Public indexed assignment updates them, `activecoordinates` lists the
-active ones and `coordinates` is a vector view of them.
+julia> Matrix(x) == [0.0 3.0; 3.0 0.0]
+true
+```
 
-See Symmetric parameters for which arrays must be symmetric and who validates them.
+# Copies and imports
+- `copy(x)` and same-kind `copyto!` preserve values, active zeros and order;
+  `similar(x)` creates empty storage of the same dimension.
+- A matrix import must be real, one-based and exactly symmetric before
+  conversion. It replaces activity with converted nonzeros. Use
+  `Symmetric(A, :L)` to select one triangle deliberately.
+- `copyto!(x, A)` rejects a source sharing memory with `x`. Shape, symmetry
+  and alias checks precede writes; a failing conversion can partially write.
+
+See the [symmetric-iterate guide](@ref symmetric-iterate-guide) for comparisons,
+matrix geometry and supported operations, and
+[`ProximalBase.check_symmetric_parameters`](@ref) for model validation.
 """
 mutable struct SymmetricSparseIterate{T}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
@@ -145,7 +117,7 @@ function _scaled_dot(a, x::SparseIterate, s)
   v
 end
 
-# the stored entries of an iterate: the recoveries of R1 read only these
+# Range recovery reads stored entries only; inactive coordinates contribute zero.
 _stored_maxabs(x::Union{SparseIterate, SymmetricSparseIterate}) = _maximum_abs(view(x.nzval, 1:x.nnz))
 _maximum_abs(x::SymmetricSparseIterate) = _maximum_abs(view(x.nzval, 1:x.nnz))
 _all_finite(x::Union{SparseIterate, SymmetricSparseIterate}) = all(isfinite, view(x.nzval, 1:x.nnz))
@@ -311,11 +283,22 @@ end
     activate!(x::SymmetricSparseIterate, k)
     activate!(x::BlockIterate, k)
 
-Make coordinate `i` of `x` active, storing it as an explicit zero if it is not
-stored already, and return `x`. Assigning a zero does not store an entry, so
-this is how a coordinate joins the active set of an active-set solver;
-`dropzeros!` removes it again while it is zero. For a `BlockIterate`,
-make group `k` active, keeping its entries.
+Make a coordinate active and return `x`, without changing its value. An absent
+scalar coordinate is stored as an explicit zero. For a [`BlockIterate`](@ref),
+`k` is a group ID and the group's entries are kept. An already active
+coordinate is unchanged.
+
+Assigning zero to an absent coordinate does not activate it. Use this operation
+to retain zero coordinates for a solver's next sweep; [`dropzeros!`](@ref)
+removes them when they are no longer needed.
+
+# Examples
+```jldoctest
+julia> x = SparseIterate(3); activate!(x, 2);
+
+julia> (x[2], isactive(x, 2), nactive(x))
+(0.0, true, 1)
+```
 """
 function activate!(x::_StoredIterate{T}, i::Integer) where {T}
   checkbounds(x.ind2nzval, i)
@@ -326,11 +309,25 @@ end
 """
     dropzeros!(x::Union{SparseIterate, SymmetricSparseIterate})
 
-Remove stored zero coordinates from `x` and return `x`. On a
-`SymmetricSparseIterate`, these are coordinates of the lower triangle.
-When every stored value is zero, the working set is emptied. Otherwise the last
-stored coordinate moves into the place of each removed one, so the order of
-`activecoordinates` can change. The entries of `x` do not change.
+Remove active zero coordinates and return `x`, preserving all mathematical
+values. For a [`SymmetricSparseIterate`](@ref), coordinates are independent
+lower-triangle variables. Signed zeros are removed; `NaN` and infinities are
+kept.
+
+Compaction may reorder active slots. Reacquire [`activecoordinates`](@ref) and
+[`activevalues`](@ref) afterward; their old handles are not snapshots. The
+cost is O(nactive(x)) before compaction.
+
+# Examples
+```jldoctest
+julia> x = SparseIterate([0.0, 3.0]); activate!(x, 1);
+
+julia> nactive(x)
+2
+
+julia> dropzeros!(x); (nactive(x), x[2])
+(1, 3.0)
+```
 """
 function SparseArrays.dropzeros!(x::_StoredIterate)
   nz, idx, pos = x.nzval, x.nzval2ind, x.ind2nzval

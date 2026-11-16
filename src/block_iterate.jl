@@ -10,50 +10,40 @@
     BlockIterate([T = Float64,] p, num_groups::Integer)
     BlockIterate(x::AbstractVector, num_groups::Integer)
 
-A vector of length `p` whose coordinates, for coordinate descent, are the groups
-("blocks") `x.groups[k]`, which partition `1:p`. The groups are ranges such as
-`1:5` or vectors of indices such as `[2, 7, 9]`, of any sizes;
-`BlockIterate(p, num_groups)` and `BlockIterate(x, num_groups)` split `1:p` into
-`num_groups` equal contiguous groups.
+A real vector whose optimization coordinates are ordered groups of entries.
+The nonempty, disjoint groups must partition `1:p`; ranges and reordered
+index vectors are supported. An integer group count divides the entries into
+equal contiguous groups and must be positive and divide the entry length.
 
-As the stored entries of a `SparseIterate` do, a set of active groups
-serves as the active set of a solver, and the entries of the other groups are
-zero. Writing a nonzero entry activates its group, `activate!` activates
-a group, and `dropzeros!` deactivates the active groups whose entries are all
-zero; an iterate built from a vector `x` starts with the groups that hold a
-nonzero entry. Reading or writing an entry is O(1), and so is activating or
-deactivating a group. `ncoordinates` is the number of groups,
-`nactive`, `activecoordinates` and `isactive` give the
-active groups, and `blockview` is a view of `x` at the entries of a group.
-Writing through this view follows the same activation rule as writing to `x`.
+`x[j]` indexes an entry; [`ncoordinates`](@ref), [`activate!`](@ref),
+[`isactive`](@ref) and [`activecoordinates`](@ref) use group IDs. A nonzero
+entry activates its group. Zero writes preserve activity; [`dropzeros!`](@ref)
+removes all-zero active groups. [`blockview`](@ref) gives a writable alias in
+stored group order, and [`blockindices`](@ref) gives its read-only indices.
+Entry access and group activation cost O(1); storage costs O(p + length(groups)).
 
-Its entries are real. The constructors, two-argument `copyto!` from an array,
-`copy!`, broadcasting into `x` and `fill!` throw an `ArgumentError` for a source
-or value of complex type, even with a zero imaginary part, before anything is
-written. A broadcast into `x` checks its leaves and its result: a result known
-to be complex from the types is rejected, and a result of another non-real type
-(a `Union` with a complex member, `Any`, `Number`) is evaluated before writing
-and rejected if an element is complex, with `x` unchanged. `vec(x)` and `reshape(x, length(x))` are `x` itself and are checked
-too. `copy!` from a source of another length throws Base's error first, unless
-the source is a `BlockIterate` or a `SparseIterate`, which throws a
-`DimensionMismatch`. The two-argument `copyto!` and `copy!` read types: a tuple, a generator or an
-array of abstract element type such as `Vector{Any}` passes the check, and its
-values are converted one by one. Other
-writes also convert values one by one, as writes into a plain `Vector` of the
-element type of `x` do: writes through `blockview(x, k)` or another view, indexed
-assignment such as `x[i] = v` or `x[:] = c`, `copyto!` with offsets or index
-ranges, and `map!`. A complex value converted one by one throws an
-`InexactError`, possibly after part of `x` has been written.
+# Examples
+```jldoctest
+julia> x = BlockIterate(4, [[3, 1], [4, 2]]);
 
-Iterates built by these constructors, `copy` and `similar` own independent
-`storage`, `active` and `position` arrays; `copy` and `similar` share the
-`groups`, `group_of` and layout cache of their argument, which must not be mutated.
-The seven-argument constructor
-`BlockIterate(storage, groups, group_of, layout_cache, active, position, nactive)`
-is a low-level construction mechanism. Passing it `storage`, `active` or
-`position` arrays that overlap in memory, with each other or with those of another
-iterate, is unsupported and may give incorrect results, in particular when
-copying; callers that arrange storage themselves are responsible for its aliasing.
+julia> copyto!(blockview(x, 1), [2.0, 0.0]);
+
+julia> (x[3], ncoordinates(x), nactive(x))
+(2.0, 2, 1)
+```
+
+# Ownership and writes
+- Constructors copy values and group lists. `copy` and `similar` own mutable
+  value/activity storage but share layout data, which must not be mutated.
+  Low-level construction requires independent mutable storage.
+- Same-layout `copyto!` replaces active state; ordinary array copies and
+  broadcasts write values and retain existing activity.
+- Direct bulk writes preflight known complex source types. Views, indexed
+  writes and per-element conversions may fail after partial writes. See
+  [write validation](@ref iterate-write-validation).
+
+See the [block guide](@ref block-iterate-guide) for group-penalty constructors,
+copying and the [ownership contract](@ref block-iterate-ownership).
 """
 mutable struct BlockIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractVector{T}
   storage::Vector{T}       # the entries; those of inactive groups are zero
@@ -213,14 +203,18 @@ isactive(x::BlockIterate, k::Integer) = x.position[k] != 0
 """
     blockview(x::BlockIterate, k)
 
-A view of the entries of group `k`. It is a view of `x` itself, so it aliases
-`x`. Writing through it follows the rule of `x[i] = v`: a nonzero entry
-activates the group and a zero never deactivates it (see `dropzeros!`).
-To take a proximal step at a trial point without activating the group first,
-compute `prox_block!``(out, f, u, k, γ)` in a numerical buffer, then
-write the result with `copyto!(blockview(x, k), out)`.
-`norm` and `dot` of the view read the storage directly (BLAS for contiguous
-groups), while other BLAS routines take generic paths for it.
+Return a writable view of group `k` in its stored index order. The view aliases
+`x`: nonzero writes activate the group, and zero writes preserve activity.
+Use [`dropzeros!`](@ref) to remove an all-zero active group.
+
+For a trial proximal step, compute `prox_block!(out, f, u, k, γ)` in independent
+numerical buffers, then commit with `copyto!(blockview(x, k), out)`. Copying
+into a block view follows ordinary value-copy semantics, including possible
+partial writes on conversion failure.
+
+`norm` and `dot` read the underlying storage directly, using BLAS for contiguous
+groups; other BLAS routines use generic paths. See [`blockindices`](@ref) and
+the [block guide](@ref block-iterate-guide).
 """
 function blockview(x::BlockIterate, k::Integer)
   G = x.groups[k]
@@ -230,29 +224,33 @@ end
 """
     blockindices(x::BlockIterate, k::Integer)
 
-The indices of the entries of group `k`, in the order in which `x` stores them, as a
-read-only `AbstractVector{<:Integer}`. A group stored as a range is returned as that range,
-whatever its index type: a group stored as `UnitRange{Int32}` is returned as a
-`UnitRange{Int32}`. A group stored as a vector is returned as a read-only wrapper of the
-stored vector whose element type is `Int`. A write through the wrapper (`h[i] = v`, `fill!`,
-`copyto!`, `h .= v`, `sort!` and the like) throws an `ArgumentError` and leaves the groups
-unchanged.
+Return the global entry indices of group `k`, in stored order, as a read-only
+`AbstractVector{<:Integer}`. A stored range retains its range and integer types;
+a vector group is exposed through a read-only wrapper of element type `Int`.
+Use `collect` for an independent writable vector.
 
-Constructing the result takes constant time and does not allocate or copy, and it stays valid
-for as long as `x`: the groups of an iterate never change, and activating groups,
-`dropzeros!`, `copyto!` and the other writes of values do not affect it. `k` must be in
-`1:ncoordinates(x)`, or a `BoundsError` is thrown (a `Bool` is not a group index).
+The result takes O(1) time without allocation or copying and stays valid for
+`x`'s lifetime. Value writes and active-set changes do not change the layout.
+`k` must be in `1:ncoordinates(x)`; invalid IDs, including `Bool`, throw
+`BoundsError`. Writes through the wrapper throw `ArgumentError`.
 
-The result can index any array: `view(g, blockindices(x, k))` is the part of `g` that belongs to
-group `k`. The fields of `x` and of the wrapper (`h.ids`) are internal, and so is the array that
-`parentindices(blockview(x, k))` returns: reading or changing them is not supported, and is not blocked.
+Use the result to index other arrays, for example
+`view(g, blockindices(x, k))`. Never modify private layout fields, wrapper
+fields or `parentindices(blockview(x, k))`; doing so bypasses validation.
 
 # Examples
-```julia
-x = BlockIterate(6, [[1, 4], [2, 5], [3, 6]])
-blockindices(x, 2) == [2, 5]                 # a read-only vector of Int
-blockindices(BlockIterate(6, 3), 2) === 3:4   # the stored range
+```jldoctest
+julia> x = BlockIterate(6, [[1, 4], [2, 5], [3, 6]]);
+
+julia> blockindices(x, 2) == [2, 5]
+true
+
+julia> blockindices(BlockIterate(6, 3), 2) === 3:4
+true
 ```
+
+See [`blockview`](@ref) for values and the [block guide](@ref block-iterate-guide)
+for ordered layouts.
 """
 function blockindices(x::BlockIterate, k::Integer)
   # the error names the range of valid groups: a BoundsError holds the array it was thrown for, and
@@ -314,10 +312,21 @@ end
 """
     dropzeros!(x::BlockIterate)
 
-Deactivate the active groups of `x` whose entries are all zero and return `x`.
-When every entry of every active group is zero, all groups are deactivated.
-Otherwise the last active group moves into the place of each removed one, so the
-order of `activecoordinates` can change. The entries of `x` do not change.
+Deactivate all-zero active groups and return `x`, preserving entry values.
+Signed zeros count as zero; a group containing `NaN` or an infinity stays
+active. Compaction may reorder active slots, so reacquire
+[`activecoordinates`](@ref) afterward.
+
+# Examples
+```jldoctest
+julia> x = BlockIterate([0.0, 0.0, 2.0, 0.0], 2); activate!(x, 1);
+
+julia> nactive(x)
+2
+
+julia> dropzeros!(x); (nactive(x), isactive(x, 2))
+(1, true)
+```
 """
 function SparseArrays.dropzeros!(x::BlockIterate)
   allzero = true

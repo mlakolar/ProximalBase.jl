@@ -1,0 +1,135 @@
+epyc7513-julia1.10.13 A3 (6 procs): in reach 7 of 390, outside 0 of 316
+    in   enet/prox_w/Float64/n12/normal 1.09-1.09
+    in   l1/block_loop/Float32/n24/normal 1.32-1.36
+    in   l1/block_loop/Float32/n8/normal 1.21-1.26
+    in   l1/block_loop/Float32/n9/normal 1.09-1.13
+    in   l1/block_loop/Float64/n12/normal 1.18-1.21
+    in   l1/prox_w/Float64/n12/normal 1.16-1.19
+    in   l1/valprox_w/Float32/n8/normal 1.06-1.08
+epyc7513-julia1.10.13 B925 (6 procs): in reach 6 of 60, outside 0 of 646
+    in   l1/prox_g/Float32/n1/normal 2.00-2.09
+    in   l1/prox_g/Float32/n4/normal 1.51-1.56
+    in   l1/prox_g/Float32/n7/normal 1.30-1.36
+    in   l1/prox_g/Float64/n1/normal 2.00-2.09
+    in   l1/prox_g/Float64/n2/normal 1.85-1.93
+    in   l1/prox_gw/Float32/n1/normal 2.35-2.55
+epyc7513-julia1.10.13 D3 (6 procs): in reach 0 of 256, outside 0 of 450
+epyc7513-julia1.10.13 FINAL (6 procs): in reach 7 of 706, outside 0 of 0
+    in   enet/prox_w/Float64/n12/normal 1.09-1.09
+    in   l1/block_loop/Float32/n24/normal 1.32-1.36
+    in   l1/block_loop/Float32/n8/normal 1.21-1.26
+    in   l1/block_loop/Float32/n9/normal 1.09-1.13
+    in   l1/block_loop/Float64/n12/normal 1.18-1.21
+    in   l1/prox_w/Float64/n12/normal 1.16-1.19
+    in   l1/valprox_w/Float32/n8/normal 1.06-1.08
+epyc7513-julia1.10.13 V (6 procs): in reach 0 of 270, outside 0 of 436
+epyc7513-julia1.13.4 A3 (6 procs): in reach 2 of 390, outside 0 of 316
+    in   enet/block_loop/Float32/n100/normal 1.06-1.12
+    in   enet/block_loop/Float32/n4/normal 1.11-1.14
+epyc7513-julia1.13.4 B925 (6 procs): in reach 17 of 60, outside 0 of 646
+    in   l1/prox_g/Float32/n1/normal 1.95-2.00
+    in   l1/prox_g/Float32/n2/normal 1.79-1.83
+    in   l1/prox_g/Float32/n3/normal 1.64-1.71
+    in   l1/prox_g/Float32/n4/normal 1.44-1.53
+    in   l1/prox_g/Float32/n9/normal 1.06-1.12
+    in   l1/prox_g/Float64/n1/normal 1.14-1.95
+    in   l1/prox_g/Float64/n2/normal 1.75-1.79
+    in   l1/prox_g/Float64/n3/normal 1.61-1.64
+    in   l1/prox_g/Float64/n4/normal 1.44-1.50
+    in   l1/prox_g/Float64/n7/normal 1.34-1.41
+    in   l1/prox_g/Float64/n9/normal 1.06-1.10
+    in   l1/prox_gw/Float32/n1/normal 2.14-2.14
+    in   l1/prox_gw/Float32/n2/normal 1.88-1.96
+    in   l1/prox_gw/Float32/n3/normal 1.71-1.73
+    in   l1/prox_gw/Float32/n4/normal 1.44-1.56
+    in   l1/prox_gw/Float32/n7/normal 1.33-1.40
+    in   l1/prox_gw/Float64/n1/normal 1.78-2.14
+epyc7513-julia1.13.4 D3 (6 procs): in reach 0 of 256, outside 0 of 450
+epyc7513-julia1.13.4 FINAL (6 procs): in reach 3 of 706, outside 0 of 0
+    in   enet/block_loop/Float32/n100/normal 1.07-1.12
+    in   enet/block_loop/Float32/n4/normal 1.11-1.14
+    in   l1/prox_g/Float32/n1/normal 1.05-1.05
+epyc7513-julia1.13.4 V (6 procs): in reach 0 of 270, outside 0 of 436
+xeon2640v4-julia1.10.13 A3 (6 procs): in reach 14 of 390, outside 1 of 316
+    in   enet/prox/Float32/n24/normal 1.16-1.20
+    in   enet/prox/Float32/n8/normal 1.20-1.25
+    in   enet/prox/Float32/n9/normal 1.12-1.17
+    in   enet/prox_w/Float32/n1/normal 1.07-1.07
+    in   enet/prox_w/Float32/n8/normal 1.07-1.08
+    in   enet/valprox/Float32/n8/normal 1.10-1.15
+    in   enet/valprox/Float32/n9/normal 1.06-1.10
+    in   enet/valprox/Float64/n12/normal 1.09-1.18
+    in   enet/valprox/Float64/n8/normal 1.07-1.12
+    in   l1/block_loop/Float64/n4/normal 1.05-1.11
+    in   l1/prox/Float64/n8/normal 1.29-1.29
+    in   l1/prox_w/Float32/n8/normal 1.28-1.34
+    in   l1/prox_w/Float64/n4/normal 1.06-1.06
+    in   l1/valprox_w/Float32/n9/normal 1.08-1.29
+    out  l2/prox/Float32/n3/shrink 1.05-1.09
+xeon2640v4-julia1.10.13 B925 (6 procs): in reach 10 of 60, outside 0 of 646
+    in   l1/prox_g/Float32/n2/normal 1.97-1.99
+    in   l1/prox_gw/Float32/n1/normal 2.13-2.20
+    in   l1/prox_gw/Float32/n3/normal 1.73-1.81
+    in   l1/prox_gw/Float32/n4/normal 1.59-1.66
+    in   l1/prox_gw/Float32/n7/normal 1.37-1.40
+    in   l1/prox_gw/Float64/n1/normal 2.06-2.20
+    in   l1/prox_gw/Float64/n2/normal 1.98-2.09
+    in   l1/prox_gw/Float64/n3/normal 1.52-1.81
+    in   l1/prox_gw/Float64/n4/normal 1.61-1.71
+    in   l1/prox_gw/Float64/n7/normal 1.40-1.46
+xeon2640v4-julia1.10.13 D3 (6 procs): in reach 1 of 256, outside 6 of 450
+    in   l2/prox/Float32/n3/shrink 1.06-1.08
+    out  enet/prox_w/Float32/n1/normal 1.09-1.10
+    out  enet/prox_w/Float32/n17/normal 1.07-1.08
+    out  enet/prox_w/Float32/n2/normal 1.07-1.08
+    out  enet/prox_w/Float32/n24/normal 1.07-1.08
+    out  enet/prox_w/Float32/n8/normal 1.08-1.08
+    out  enet/prox_w/Float32/n9/normal 1.06-1.06
+xeon2640v4-julia1.10.13 FINAL (6 procs): in reach 16 of 706, outside 0 of 0
+    in   enet/prox/Float32/n24/normal 1.16-1.20
+    in   enet/prox/Float32/n8/normal 1.20-1.25
+    in   enet/prox/Float32/n9/normal 1.12-1.17
+    in   enet/prox_w/Float32/n1/normal 1.06-1.07
+    in   enet/prox_w/Float32/n8/normal 1.07-1.08
+    in   enet/valprox/Float32/n8/normal 1.10-1.15
+    in   enet/valprox/Float32/n9/normal 1.05-1.10
+    in   enet/valprox/Float64/n12/normal 1.09-1.17
+    in   enet/valprox/Float64/n8/normal 1.07-1.11
+    in   l1/block_loop/Float64/n4/normal 1.07-1.08
+    in   l1/prox/Float64/n8/normal 1.29-1.29
+    in   l1/prox_w/Float32/n8/normal 1.30-1.34
+    in   l1/prox_w/Float64/n4/normal 1.06-1.06
+    in   l1/valprox_w/Float32/n9/normal 1.08-1.13
+    in   l1/value/Float32/n12/normal 1.05-1.06
+    in   l2/value/Float32/n1/shrink 1.08-1.13
+xeon2640v4-julia1.10.13 V (6 procs): in reach 1 of 270, outside 0 of 436
+    in   l2/value/Float32/n1/shrink 1.08-1.13
+xeon2640v4-julia1.13.4 A3 (6 procs): in reach 4 of 390, outside 0 of 316
+    in   enet/block_loop/Float32/n12/normal 1.17-1.19
+    in   enet/block_loop/Float32/n4/normal 1.06-1.10
+    in   l1/prox/Float32/n1/normal 1.12-1.13
+    in   l1/prox/Float32/n4/normal 1.07-1.07
+xeon2640v4-julia1.13.4 B925 (6 procs): in reach 11 of 60, outside 0 of 646
+    in   l1/prox_g/Float32/n4/normal 1.53-1.65
+    in   l1/prox_g/Float32/n7/normal 1.24-1.35
+    in   l1/prox_g/Float64/n3/normal 1.63-1.74
+    in   l1/prox_g/Float64/n4/normal 1.41-1.62
+    in   l1/prox_g/Float64/n7/normal 1.24-1.34
+    in   l1/prox_gw/Float32/n3/normal 1.72-1.85
+    in   l1/prox_gw/Float32/n4/normal 1.34-1.54
+    in   l1/prox_gw/Float32/n7/normal 1.24-1.29
+    in   l1/prox_gw/Float64/n3/normal 1.56-1.76
+    in   l1/prox_gw/Float64/n4/normal 1.31-1.48
+    in   l1/prox_gw/Float64/n7/normal 1.15-1.26
+xeon2640v4-julia1.13.4 D3 (6 procs): in reach 1 of 256, outside 0 of 450
+    in   tinygroup/prox/Float32/m5/zero/floatmin 1.10-1.11
+xeon2640v4-julia1.13.4 FINAL (6 procs): in reach 6 of 706, outside 0 of 0
+    in   enet/block_loop/Float32/n12/normal 1.17-1.21
+    in   enet/block_loop/Float32/n4/normal 1.06-1.09
+    in   l1/prox/Float32/n1/normal 1.12-1.13
+    in   l2/value/Float64/n2/shrink 1.07-1.08
+    in   l2/value/Float64/n2/zero 1.06-1.06
+    in   tinygroup/prox/Float32/m5/zero/floatmin 1.10-1.11
+xeon2640v4-julia1.13.4 V (6 procs): in reach 2 of 270, outside 0 of 436
+    in   l2/value/Float64/n2/shrink 1.07-1.08
+    in   l2/value/Float64/n2/zero 1.06-1.06

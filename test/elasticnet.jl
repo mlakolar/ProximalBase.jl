@@ -772,4 +772,107 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
     end
   end
 end
+
+# Every proximal point of ElasticNet bit for bit (NaN for NaN) against a scalar reference written here: the threshold
+# of the NormL1 kernel (_threshold_product, or _weight_product with the fixed zero of an infinite λ1 off the ordinary
+# range; Inf or 0 at a zero λ1), soft thresholding by the formula of shrink, max(v - t, 0) + min(v + t, 0), then the
+# ridge weight of the step from the ridge helpers (ordinary or scaled) and the +0 of an infinite λ2. The ordinary branch
+# and the zero-λ1 line soft-threshold with _shrink_nonneg, whose result is that of the formula at every threshold that
+# is not negative: these tests pin it through prox!, prox, prox_block and value_and_prox!, at scalar steps and at
+# arrays of steps, with the loop of #925 for ordinary arrays and the generic loop for an array with one exceptional
+# step.
+enet_formula(v, t) = ((a, c) = promote(v, t); max(a - c, zero(a)) + min(a + c, zero(a)))
+function enet_ref(f, v, i, γ, ::Type{S}) where {S}
+  w = PB._entry(f.w, i)
+  if iszero(f.λ1)
+    z = enet_formula(v, isinf(w) ? S(Inf) : zero(S))
+  else
+    t, normal = PB._threshold_product(S, γ, f.λ1, w)
+    if normal
+      z = enet_formula(v, t)
+    else
+      z = enet_formula(v, PB._weight_product(S, γ, f.λ1, w))
+      PB._l1_fixed(γ, f.λ1, w) && (z = zero(z))
+    end
+  end
+  r = PB._ridge_needs_scaling(S, γ, f.λ2) ? PB._ridge_apply(PB._ridge_scaled(S, γ, f.λ2), z) :
+                                             PB._ridge_apply(PB._ridge_ordinary(S, γ, f.λ2), z)
+  PB._elastic_fixed(f, γ) ? zero(r) : r
+end
+enet_same(a, b) = size(a) == size(b) && all(i -> isnan(b[i]) ? isnan(a[i]) : a[i] === b[i], eachindex(a, b))
+enet_refs(f, x::AbstractArray{T}, γ) where {T} =
+  reshape([convert(T, enet_ref(f, x[i], i, γ isa Real ? γ : γ[i], float(T))) for i in eachindex(IndexLinear(), x)], size(x))
+# every dense entry point at (f, x, γ) against the reference
+function enet_check(f, x, γ)
+  r = enet_refs(f, x, γ)
+  ok = enet_same(prox!(similar(x), f, x, γ), r) && enet_same(prox(f, x, γ), r)
+  z = copy(x); prox!(z, f, z, γ); ok &= enet_same(z, r)                           # in place
+  y = similar(x); v = value_and_prox!(y, f, x, γ); ok &= enet_same(y, r) && isequal(v, f(y))
+  if γ isa AbstractArray && size(γ) == size(x)                                     # the steps are the output
+    g = copy(γ); prox!(g, f, x, g); ok &= enet_same(g, r)
+  end
+  pb = reshape([convert(eltype(x), prox_block(f, x[i], i, γ isa Real ? γ : γ[i])) for i in eachindex(IndexLinear(), x)], size(x))
+  ok & enet_same(pb, r)
+end
+
+@testset "ElasticNet proximal points against the formula of shrink, bit for bit ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(925)
+  n = 600                                         # three blocks of the selection pass of #925 (256, 256 and 88)
+  emax = exponent(floatmax(T))
+  specials = T[0, -0.0, NaN, -NaN, Inf, -Inf, nextfloat(zero(T)), -3 * nextfloat(zero(T)), prevfloat(floatmin(T)),
+               floatmin(T), -floatmax(T), floatmax(T), 1, -1]
+  x = T(2) .* randn(rng, T, n)
+  m = length(specials)
+  x[1:m] .= specials; x[250:249+m] .= specials; x[n-m+1:n] .= specials
+  wpos = T(0.5) .+ rand(rng, T, n)
+  wmix = copy(wpos); wmix[1:3:n] .= zero(T); wmix[2:7:n] .= T(Inf); wmix[5] = -zero(T); wmix[257] = -zero(T)
+  levels = ((T(0.3), T(0.5)), (zero(T), T(0.5)), (T(0.3), zero(T)), (zero(T), zero(T)), (T(Inf), T(0.5)),
+            (T(0.3), T(Inf)), (T(3), T(2)))
+  steps = T(0.5) .+ rand(rng, T, n)
+  # steps off the ordinary branches: 0, -0, the smallest subnormal, 3 floatmin, floatmax, 2^emax (γλ2 above the ridge
+  # band), Inf, and -1 and NaN, which violate the precondition of an array of steps
+  exceptional = T[0, -0.0, nextfloat(zero(T)), 3 * floatmin(T), floatmax(T), T(2)^emax, Inf, -1, NaN]
+  inds = eachindex(IndexLinear(), x)
+  for (λ1, λ2) in levels, w in (nothing, wpos, wmix)
+    f = ElasticNet(λ1, λ2, w)
+    # scalar steps, zero and large ones included
+    for γ in (T(0.25), T(1), zero(T), floatmin(T), T(2)^emax, T(Inf))
+      ok = enet_check(f, x, γ)
+      ok || @info "scalar step differs" T λ1 λ2 w === nothing γ
+      @test ok
+    end
+    # an ordinary array of steps takes the loop of #925; one exceptional step sends the array to the generic loop
+    ordinary = PB._elastic_ordinary_steps(f, steps, T, inds)
+    @test ordinary == isfinite(λ1)                   # an infinite λ2 keeps the ordinary ridge weight (then the +0)
+    @test enet_check(f, x, steps)
+    for s in exceptional, k in (1, 256, 257, n)
+      γe = copy(steps); γe[k] = s
+      ok = enet_check(f, x, γe)
+      ok || @info "array of steps differs" T λ1 λ2 w === nothing s k
+      @test ok
+    end
+    # a matrix argument, and views of the argument and of the steps
+    @test enet_check(f, reshape(copy(x), 20, 30), reshape(copy(steps), 20, 30))
+    u = vcat(x, x)
+    xv = view(u, 1:2:2n)
+    @test enet_same(prox!(similar(x), f, xv, steps), enet_refs(f, xv, steps))
+  end
+  # weights changed to NaN after construction (outside the precondition): the threshold of the ordinary branch is NaN
+  # there, and the entry NaN, as the formula gives; the other entries are unchanged
+  for (λ1, λ2) in ((T(0.3), T(0.5)), (zero(T), T(0.5)), (T(0.3), zero(T)))
+    wn = copy(wpos)
+    f = ElasticNet(λ1, λ2, wn)
+    wn[4] = T(NaN); wn[300] = -T(NaN)
+    for γ in (T(1), steps)
+      @test enet_check(f, x, γ)
+    end
+    iszero(λ1) || @test isnan(prox(f, ones(T, n), T(1))[4]) && isnan(prox(f, ones(T, n), steps)[300])
+  end
+  # a zero weight at a -0 entry on the ordinary branch, and a zero λ1, give +0, as the formula does
+  for f in (ElasticNet(T(0.3), T(0.5), T[0]), ElasticNet(zero(T), T(0.5), T[1]), ElasticNet(zero(T), zero(T)))
+    @test prox(f, T[-0.0], T(1))[1] === zero(T)
+    @test prox(f, T[-0.0], T[1])[1] === zero(T)
+    @test prox_block(f, -zero(T), 1, T(1)) === zero(T)
+  end
+end
 end

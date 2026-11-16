@@ -153,7 +153,7 @@ end
 ####################################
 
 # One-based indexing is checked before any read, so the default bounds checking (elided under @inbounds) gives the
-# same ArgumentError as --check-bounds=yes, which the runner forces. The child reports every case that differs.
+# same ArgumentError as --check-bounds=yes, which the runner forces. The child reports the cases that differ.
 const CHILD = raw"""
 using ProximalBase, LinearAlgebra
 Base.JLOptions().check_bounds == 0 || (println(stderr, "the child runs with check_bounds = ", Base.JLOptions().check_bounds); exit(3))
@@ -231,7 +231,7 @@ end
 end
 
 ####################################
-#  The oracles of every family
+#  The oracles of the families
 ####################################
 
 for T in (Float32, Float64)
@@ -353,7 +353,7 @@ for T in (Float32, Float64)
       check("kkt_violation(f, g, x, i) at an offset gradient, $tag", () -> kkt_violation(f, off(x), x, 2))
       check("kkt_violation(f, g, x, i) at an offset point, $tag", () -> kkt_violation(f, x, off(x), 2))
     end
-    # a custom function that is checked at the boundary of the public four-argument screen only
+    # a custom separable function: the public four-argument screen checks g
     check("kkt_violation of a custom separable function at an offset gradient, $kind", () -> kkt_violation(ws, off(x), x, 2))
     # sparse and block points, and a group norm
     sx = SparseIterate(T, 4); sx[2] = two; sx[4] = -three
@@ -369,14 +369,14 @@ for T in (Float32, Float64)
 
   @testset "extensions: $kind" for kind in KINDS
     off(v) = mkvec(kind, v)
-    # a function of an extension keeps its own oracles: the generic fallbacks forward to them whatever the array
+    # a function of an extension keeps its own oracles: the generic fallbacks forward to them with an offset input
     log = Symbol[]; r = Recorded(log)
     y, g = fill(T(7), 4), fill(T(7), 4)
     @test value_and_prox!(y, r, off(x), 1.0) === zero(T)
     @test log == [:prox, :value]
     @test gradient!(g, r, off(x)) === g
     @test last(log) === :gradient
-    # a Scaled function whatever it wraps, and a separable function that runs the kernels of this package, are checked
+    # a Scaled function (here of a custom function), and a separable function that runs the kernels of this package, are checked
     empty!(log)
     check("Scaled custom function at an offset input, $kind", () -> value_and_prox!(y, Scaled(r, two), off(x), 1.0), y)
     check("Scaled custom function with an offset step array, $kind", () -> prox!(y, Scaled(r, two), x, off(γ1)), y)
@@ -385,7 +385,7 @@ for T in (Float32, Float64)
     @test isempty(log)
     check("custom separable function, value, $kind", () -> ws(off(x)))
     check("custom separable function, prox!, $kind", () -> prox!(y, ws, off(x), 1.0), y)
-    # the allocating wrappers check x before they allocate for it, for every function
+    # the allocating wrappers check x before they allocate for it, for a custom function too
     check("prox of a custom function at an offset input, $kind", () -> prox(r, off(x), 1.0))
     check("gradient of a custom function at an offset input, $kind", () -> gradient(r, off(x)))
     check("value_and_gradient of a custom function at an offset input, $kind", () -> value_and_gradient(r, off(x)))
@@ -477,11 +477,9 @@ for T in (Float32, Float64)
   @testset "the routes that keep their DimensionMismatch" begin
     for kind in KINDS
       off(v) = mkvec(kind, v)
-      # an iterate or a matrix built from offset storage
+      # an iterate built from an offset vector
       @test_throws DimensionMismatch BlockIterate(off(x), [1:2, 3:4])
       @test_throws DimensionMismatch BlockIterate(off(x), 2)
-      # the predictor and the residual oracles at a one-based response: an offset z or r is a DimensionMismatch, an offset
-      # output g or d an ArgumentError, and the outputs are as they were
     end
     for kind in MATKINDS
       @test_throws DimensionMismatch SymmetricSparseIterate(mkmat(kind, A))
@@ -490,6 +488,8 @@ for T in (Float32, Float64)
       @test_throws DimensionMismatch copyto!(S, mkmat(kind, A))
       @test unchanged(S, before)
     end
+    # the predictor and the residual oracles at a one-based response: an offset z, r or d is a DimensionMismatch, an
+    # offset output g an ArgumentError, and the outputs are as they were
     f = LeastSquaresLoss(T[1, 2, 3, 4], Matrix{T}(I, 4, 4))
     buf = T[100, 2, 4, 6, 8, 20]
     zoff = view(buf, Base.IdentityUnitRange(2:5))
@@ -545,7 +545,7 @@ for T in (Float32, Float64)
   end
 
   @testset "products of the iterates with an offset array" begin
-    # the methods for strided arguments take the strided offset views; the methods for any vector take every kind
+    # the methods for strided arguments take the strided offset views; the methods for any vector take the three kinds
     sx = SparseIterate(T, 4); sx[2] = two; sx[4] = -three
     sX = SparseIterate(T, 4, 3); sX[1, 2] = two; sX[3, 1] = -three; sX[4, 3] = one(T)
     bx = BlockIterate(T[0, 2, 0, -3], [1:2, 3:4])
@@ -598,7 +598,7 @@ for T in (Float32, Float64)
   end
 
   @testset "ordinary one-based arrays give the results of plain arrays" begin
-    # a view of a longer array that starts at an index other than 1 is one-based, as are strided views of every kind
+    # a view of a longer array, such as view(v, 3:n+2), has the axes 1:n and is one-based
     bigvec(v) = view(vcat(T[-999, 77], v, T[88]), 3:length(v)+2)
     bigmat(M) = view(vcat(fill(T(-999), 2, size(M, 2) + 1), hcat(fill(T(-999), size(M, 1)), M)), 3:size(M, 1)+2, 2:size(M, 2)+1)
     for v in (x, w, c)

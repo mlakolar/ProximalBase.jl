@@ -421,9 +421,10 @@ partially changed destination. The built-in functions, their constructors
 and the products of the iterates require one-based arrays: an array with
 offset axes is an `ArgumentError`, raised before any entry is read or written. The iterate constructors that take an array, and the least-squares
 predictor and residual oracles at a one-based response, report offset axes as
-a `DimensionMismatch` instead. A function defined outside this package gets the
-check only where this package's own code indexes its arrays, for example in
-`Scaled` and in the kernels of a `SeparableFunction`. Positive finite steps are the
+a `DimensionMismatch` instead. The generic `value_and_prox!` and `gradient!` hand a
+function defined outside this package to its own methods without this check;
+`Scaled`, the kernels of a `SeparableFunction` and the allocating calls `prox`,
+`gradient` and `value_and_gradient` apply it to the arrays of such a function. Positive finite steps are the
 standard mathematical setting. Exceptional `NaN`, infinite and zero
 steps are function-specific rather than universally validated.
 See [Numerical usage](numerical_usage.md),

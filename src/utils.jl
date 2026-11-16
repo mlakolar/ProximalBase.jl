@@ -50,7 +50,7 @@ _checknonneg(name, ::Nothing) = true
 Base.@propagate_inbounds _entry(w::AbstractArray, i::Integer) = w[i]
 @inline _entry(::Nothing, ::Integer) = true
 
-# a parameter array has an entry for every entry of x, and its axes and those of x start at 1
+# a parameter array has an entry for every entry of x; it and x, when x is an array, have one-based axes
 _checkparam(::Union{Nothing, Real}, x) = true
 function _checkparam(w::AbstractArray, x)
   _check_one_based(w, x)
@@ -85,7 +85,7 @@ _checkreal(f, x) = eltype(x) <: Real || _real_error(nameof(typeof(f)))
 # The arrays that built-in code reads by position (under @inbounds, or in loops over 1:n) start at index 1.
 # An argument that is an AbstractArray, or a block of a tuple (nested tuples included), is checked by
 # Base.require_one_based_indexing, an ArgumentError; anything else passes, including numbers, nothing and a
-# SymmetricSparseIterate (whose axes are not defined). The check reads axes only. It returns true.
+# SymmetricSparseIterate (whose axes are not defined). The check calls axes and reads no entry. It returns true.
 @inline _check_one_based(args...) = (_check_one_based_each(args...); true)
 @inline _check_one_based_each() = nothing
 @inline function _check_one_based_each(a, rest...)

@@ -118,8 +118,8 @@ function _check_oracle_arrays(op::O, f, y, x, γ = nothing) where {O}
   _check_one_based(y, x, γ)
   _check_oracle_types(op, f, y, x, γ)
 end
-# The generic fallbacks forward to the methods of the function itself: the arrays of a function outside this package
-# are not indexed here, so only the built-in functions get the one-based check.
+# For the generic fallbacks, which hand a function defined outside this package to its own methods: the one-based
+# check is made for a function of this package only (_isbuiltin).
 function _check_fallback_arrays(op::O, f, y, x, γ = nothing) where {O}
   _isbuiltin(f) && _check_one_based(y, x, γ)
   _check_oracle_types(op, f, y, x, γ)

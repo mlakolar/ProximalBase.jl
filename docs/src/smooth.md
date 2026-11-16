@@ -202,7 +202,7 @@ by the same value oracles; it is not a smooth function, and it has no gradient a
 f(\beta)=\|Y-X\beta\|_2,\qquad Y\in\mathbb{R}^n,\ X\in\mathbb{R}^{n\times p}.
 ```
 
-The loss is convex and not differentiable where ``Y=X\beta``. It has the unnormalized convention: there is no
+The loss is convex. For ``X\ne 0`` it is not differentiable where ``Y=X\beta`` (for ``X=0`` it is constant in ``\beta``). It has the unnormalized convention: there is no
 ``1/\sqrt n`` in the type. The normalized square-root lasso objective and its relation to the unnormalized one are
 
 ```math
@@ -241,10 +241,11 @@ checked before the sum on every call here, so that `Scaled(f, Inf)` is an `Argum
 `Inf * 0` would be `NaN`. `ProximalBase.leastsquares_data(f)` returns `(; Y, X, α)` as for the least-squares loss; the
 accessor is shared, and the two losses are told apart by their types.
 
-**Accuracy and range.** The value is computed by the norm kernel of `NormL2` and is not formed as
-``\sqrt{2\,v_{\text{LS}}}`` from the least-squares value ``v_{\text{LS}}``, whose squares overflow where the norm does
-not. The sum of squares ``s`` is formed in `T` (one vectorizing loop up to ``2^{17}`` entries, pairwise summation above),
-and ``\alpha\sqrt s`` is kept when ``s`` is not below ``n\,\texttt{floatmin}(T)/\varepsilon_T`` and the
+**Accuracy and range.** The value is never formed as ``\sqrt{2\,v_{\text{LS}}}`` from the least-squares value
+``v_{\text{LS}}``, whose squares overflow where the norm does not. For strided `Float32` or `Float64` vectors of one
+element type, which covers both oracles, the sum of squares ``s`` is formed in `T` in one vectorizing loop up to
+``2^{17}`` entries and by pairwise summation above. The other arguments of `f(β)`, such as mixed element types or
+non-strided arrays, take generic sums in one loop at every length. The product ``\alpha\sqrt s`` is kept when ``s`` is not below ``n\,\texttt{floatmin}(T)/\varepsilon_T`` and the
 product is below ``\texttt{floatmax}(T)/2`` (a `NaN` or infinite ``s`` is not kept). Otherwise, and for every sum that is not finite, the norm is recomputed
 from the squares in units of a power of two, with ``\alpha`` folded in and the squares summed compensated, in
 at least `Float64`. For finite entries that `T` represents exactly, ``n\le 2^{40}`` of them, with ``(n+3)\varepsilon_T\le 1/16`` or
@@ -256,8 +257,11 @@ within ``w`` of the threshold, below it as well as above it). The proof is in th
 `+0`; a `NaN` entry gives `NaN`; an entry that is `±Inf` gives `Inf`, unless it meets an `Inf` of the same sign in `z`
 and `Y`, where the difference is `NaN`.
 
-**The wrapper.** `Scaled(f, α)(β)` is the generic wrapper: it rounds `f(β)` to `T` and multiplies by ``\alpha``, so
-that with a `Float64` factor on `Float32` data it can differ from the oracle in the last bit, and where
+**The wrapper.** `Scaled(f, α)(β)` is the generic wrapper. It receives `f(β)` already rounded to `float(eltype(β))`,
+forms the product with ``\alpha`` from that rounded value and returns it converted to `float(eltype(β))`. A `β` narrower
+than `T` therefore rounds the inner value to its own type first: with `f = SqrtLeastSquaresLoss([0.0], fill(0.25, 1, 1))`,
+`β = Float32[nextfloat(0f0)]` and `α = 4.0`, `f(β)` and `Scaled(f, α)(β)` are `0.0f0`, while the oracle at `X * β` is about
+`1.4e-45`. For `eltype(β) == T`, with a `Float64` factor on `Float32` data the result can differ from the oracle in the last bit, and where
 the oracle recovers a value that the wrapper's product loses it can differ on the exceptional range (issue #609, as for
 the least-squares loss). `Scaled(f, Inf)(β)` is `Inf * f(β)`, which is `NaN` at an exact fit; the oracles refuse the
 factor `Inf`.

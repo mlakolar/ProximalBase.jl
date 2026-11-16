@@ -12,7 +12,8 @@ The square-root least-squares loss `f(β) = ‖Y - Xβ‖₂` for a vector respo
 `Scaled(f, inv(sqrt(n)))`, and a penalty `λ_normalized` on that scale corresponds to `λ_unnormalized = √n λ_normalized`
 on the unnormalized loss. PB defines no sum of functions; the objective is written here as a formula.
 
-The loss is convex and is not smooth: it is not differentiable where `Y = Xβ`. It has no gradient and no proximal
+The loss is convex and is not smooth: for `X ≠ 0` it is not differentiable where `Y = Xβ` (for `X = 0` it is constant in
+`β`). It has no gradient and no proximal
 operator in this package (`issmooth(f)` and `isproximable(f)` are `false`, `isconvex(f)` is `true`); `gradient!`,
 `value_and_gradient!`, `prox!`, `value_and_prox!`, `prox_block`, `kkt_violation` and `restrict` are a `MethodError`
 and `lipschitz(f)` is an `ArgumentError`. It stores the same data as [`LeastSquaresLoss`](@ref), which an
@@ -23,14 +24,16 @@ and for one `Scaled` of it. There is no `ProximalBase.value_and_gradient_from_pr
 
 `Y` is a vector with real entries and `X` a matrix with real entries and `size(X, 1) == length(Y)` (a
 `DimensionMismatch` otherwise); a matrix `Y` is a `MethodError` and complex entries are an `ArgumentError`. `Y` and `X`
-must have axes that start at 1 (an `ArgumentError` otherwise). `β` of `f(β)` is a vector that `mul!` with `X` accepts: a
-dense vector, a `SparseIterate` or a `BlockIterate`.
+must have axes that start at 1 (an `ArgumentError` otherwise). `β` of `f(β)` is a vector that `mul!` with `X` accepts, such
+as a dense vector, a `SparseIterate` or a `BlockIterate`.
 
 `f(β)` forms `Xβ` in the scratch `f.tmp` and is not safe to call from two tasks on one `f`. An entry of `Xβ` that
 overflows is not formed again: the value is then the norm of the computed `Xβ - Y`, typically `Inf` or `NaN`. The
-norm of the computed `Xβ - Y` is evaluated by the kernel of the oracles, not as the square root of a sum of squares:
-where the squares overflow or underflow in `T = float(promote_type(eltype(Y), eltype(X)))`, the norm is recomputed in
-power-of-two units. The accuracy statement is for finite entries that `T` represents exactly, `n` of them with
+norm of the computed `Xβ - Y` is evaluated by the kernel of the oracles, in
+`T = float(promote_type(eltype(Y), eltype(X)))`: the value is `α√ŝ` (`α = 1` here) for the computed sum of squares `ŝ`
+when `ŝ` is not below `n floatmin(T)/eps(T)` and the product is below `floatmax(T)/2`, and when either test rejects it
+the norm is recomputed from the squares in power-of-two units. It is never formed as `sqrt(2 * v)` from the
+least-squares value `v`. The accuracy statement is for finite entries that `T` represents exactly, `n` of them with
 `n ≤ 2^40`, and either `(n + 3) eps(T) ≤ 1/16` or strided `Float32` or `Float64` vectors of one element type. An
 entry that `T` does not represent (an `Int` `Y` above `maxintfloat(T)`, a `Rational` `Y`) is converted to `T` inside the
 sum, and that rounding is outside the bound. With `e = (n/2 + 4) eps(T)` and `v` the exact norm of the computed

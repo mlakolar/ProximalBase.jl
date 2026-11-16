@@ -399,11 +399,14 @@ same process; there are no roles X and Y.
 Each round times the three roles of a cell (reference, oracle, control) in an order that alternates between rounds,
 and visits the cells in an order that alternates too; a timing is the median and the minimum over batches of calls.
 The script prints, per cell, the median over the rounds of the ratio oracle/reference of the medians and of the
-minima, the same for the control, the range and the distance from one of the control's ratios, the warm allocations
-of each side (measured behind a function barrier, after the check of the values: an oracle that allocates, or whose
-value differs from the reference by more than 8 `eps(T)` (64 at n = 10⁶), is a failure), and a verdict: PASS where the median ratio is
-at most 1.25 (n = 100) or 1.10 (the other n), INCONCLUSIVE where it is above the limit by no more than the control's
-range or distance from one, FAIL otherwise. Run it again in a fresh process before reading a ratio near its limit:
+minima, the median over the rounds of the control's ratio of the medians, the range of the control's ratios and the
+distance of their median from one, the warm allocations of each side (measured behind a function barrier, after the
+check of the values), and a verdict: PASS where the median ratio is at most 1.25 (n = 100) or 1.10 (the other n);
+otherwise INCONCLUSIVE where the median ratio minus one is at most the control's noise (the larger of its range and
+its distance from one), FAIL otherwise. The value check is the comparison with the reference loop within 8 `eps(T)` for
+n ≤ 10⁵. At n = 10⁶ the reference is a least-squares value, so the check compares `v_sqrt² / (2 v_LS)` with the factor
+of the cell (1 for the raw loss) within 64 `eps(T)` relative, and the printed error is the relative error of that
+quotient in `eps(T)`. A failed value check, or an oracle that allocates, is a failure. Run it again in a fresh process before reading a ratio near its limit:
 at n = 100 a call takes 7 to 15 ns, where 1 ns is 7 to 14 percent, and the placement of code moves such a cell by
 more than that.
 

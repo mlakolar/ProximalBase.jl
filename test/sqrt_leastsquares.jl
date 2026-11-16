@@ -124,7 +124,7 @@ resetcount!(A::CountMat) = (A.forward = 0; A.adjoint = 0; A)
 # equal to a few units in the last place: a view and an array can be summed in different orders
 close(a::T, b::T) where {T} = abs(a - b) <= 8 * eps(T) * abs(b)
 
-# equal bits, NaN payloads included
+# equal values (isequal) and equal signs, which tells -0.0 from 0.0; NaN payloads are not compared
 samebits(a, b) = length(a) == length(b) && all(i -> isequal(a[i], b[i]) && signbit(a[i]) == signbit(b[i]), eachindex(a))
 
 # allocation barriers: a call after warm calls, with the result stored so that it is not discarded

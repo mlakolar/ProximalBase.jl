@@ -107,8 +107,9 @@ mutated.
 The function is shared with [`SqrtLeastSquaresLoss`](@ref): for `f = SqrtLeastSquaresLoss(Y, X)`, or one `Scaled` of
 it, the value is `α ‖z - Y‖₂`, with `α` as above and the domain, the axes check and the result type as above. The
 factor is checked before the sum on every call, so that `Scaled(f, Inf)` is an `ArgumentError` also where `z == Y`.
-The value is formed by the norm kernel of `NormL2`, not as the square root of a sum of squares: it is recomputed in
-power-of-two units where the squares overflow or underflow, within the accuracy stated for `SqrtLeastSquaresLoss`.
+The value is `α√ŝ` for the computed sum of squares `ŝ` when `ŝ` is not below `n floatmin(T)/eps(T)` and the product is
+below `floatmax(T)/2`; when either test rejects it, it is recomputed in power-of-two units. It is never formed as
+`sqrt(2 * v)` from the least-squares value `v`. The accuracy is that stated for `SqrtLeastSquaresLoss`.
 No entry of `X` is read, `f.tmp` is neither read nor written, and `z` is not modified.
 """
 function value_from_predictor end

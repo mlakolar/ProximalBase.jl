@@ -17,11 +17,14 @@
 # Each round times the three roles of a cell (reference, oracle, control) in alternating order, and the cells in
 # alternating order; one timing is the median and the minimum over a number of batches of calls. After the rounds the
 # script prints, per cell, the median over the rounds of the ratios oracle/reference of the medians and of the
-# minima, the same for the control, the spread of the control's ratios (their range over the rounds, and its
-# distance from one), the warm allocations of each side, and a verdict: PASS where the median ratio is at most 1.25
-# (n = 100) or 1.10 (the other n), INCONCLUSIVE where it is above the limit by no more than the control's range or
-# distance from one, and FAIL otherwise. The exit status is nonzero on a FAIL, on a result that differs from the
-# reference by more than 8 eps(T) (64 eps(T) at n = 10^6), or on an allocation of the oracle on its ordinary path.
+# minima, the median over the rounds of the control's ratios of the medians, the spread of the control's ratios (their
+# range over the rounds, and the distance of their median from one), the warm allocations of each side, and a verdict:
+# PASS where the median ratio is at most 1.25 (n = 100) or 1.10 (the other n); otherwise INCONCLUSIVE where the median
+# ratio minus one is at most the control's noise, the larger of its range and its distance from one, and FAIL otherwise.
+# The value check is the comparison with the reference loop within 8 eps(T) for n ≤ 10^5. At n = 10^6 the reference is
+# a least-squares value, so the check compares v_sqrt² / (2 v_LS) with the factor of the cell (1 for the raw loss)
+# within 64 eps(T) relative, and the printed error is the relative error of that quotient in eps(T). The exit status
+# is nonzero on a FAIL, on a failed value check, or on an allocation of the oracle on its ordinary path.
 #
 # PB_ROUNDS (default 15, at least 15 is the criterion), PB_OUTPUT (raw.csv and provenance.txt), PB_FILTER (a regular
 # expression on the cell ids type/operation/variant/n), PB_CHECK_ONLY=1 (check values and allocations, no timing).
@@ -162,12 +165,12 @@ end
 allocated_by(op) = (op(); op(); @allocated op())
 failures = String[]
 println("cells: ", length(cells), "; tree: ", root)
-println("value check (error in eps(T) of the oracle against the reference) and warm allocations in bytes (reference/oracle/control):")
+println("value check (n ≤ 10^5: relative error of the oracle against the reference loop, in eps(T); n = 10^6: relative error of v_sqrt² / (2 v_LS) against the factor, in eps(T)) and warm allocations in bytes (reference/oracle/control):")
 for c in cells
     err, ok = checkvalue(c)
     bytes = [allocated_by(last(r)) for r in c.roles]
     println("  ", rpad(c.id, 36), " error ", rpad(round(err; sigdigits = 3), 8), " ", join(lpad.(bytes, 6), "/"))
-    ok || push!(failures, "$(c.id): the oracle differs from the reference by $err eps(T)")
+    ok || push!(failures, "$(c.id): the value check gives $err eps(T)")
     bytes[2] == 0 || push!(failures, "$(c.id): the oracle allocates $(bytes[2]) bytes on its ordinary path")
 end
 if !isempty(failures)
@@ -176,7 +179,7 @@ if !isempty(failures)
 end
 get(ENV, "PB_CHECK_ONLY", "0") == "1" && (println("check passed"); exit())
 
-# one timing of a role: the median and the minimum over batches of `evals` calls, each batch about 20 µs or longer
+# one timing of a role: the median and the minimum over batches of `evals` calls, with `evals` chosen to aim at batches of 20 µs
 function calibrate(op)
     for _ in 1:10
         op()

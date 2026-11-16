@@ -83,9 +83,12 @@ iszeropreserving(::AbstractFunction) = false
 """
     isconvex(f)
 
-Whether `f` is convex. For a nonconvex `f`, `prox!` returns one of the
-minimizers that define the proximal operator, and accelerated methods such as
-FISTA lose their guarantees.
+Whether `f` is convex. `true` means the type guarantees convexity for every
+instance that satisfies its documented preconditions. `false` means convexity
+is not guaranteed; some instances may still be convex, for example a
+`QuadraticFunction` with a positive semidefinite matrix. For a nonconvex `f`,
+`prox!` returns one of the minimizers that define the proximal operator, and
+accelerated methods such as FISTA lose their guarantees.
 """
 isconvex(::Type{<:AbstractFunction}) = false
 isconvex(f::AbstractFunction) = isconvex(typeof(f))

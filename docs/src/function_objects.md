@@ -18,7 +18,7 @@ function traits:
 | [`issmooth(f)`](@ref issmooth) | A gradient is available on the interior of the function's domain | Consider gradient-based updates |
 | [`isproximable(f)`](@ref isproximable) | A proximal operator is efficiently computable | Consider proximal updates |
 | [`isseparable(f)`](@ref isseparable) | The function is a sum of separate scalar-coordinate terms | Consider coordinate-wise computation |
-| [`isconvex(f)`](@ref isconvex) | The function satisfies the convexity property under its stated assumptions | Apply suitable convex-optimization guarantees |
+| [`isconvex(f)`](@ref isconvex) | The type guarantees convexity for every instance that satisfies its documented preconditions; `false` means not guaranteed | Apply suitable convex-optimization guarantees |
 | [`iszeropreserving(f)`](@ref iszeropreserving) | Each scalar term is zero at zero and its proximal map sends zero to zero | Skip inactive zeros in supported sparse computations |
 
 These are **all five traits in the current function interface**, not an
@@ -43,9 +43,11 @@ and discuss what its value does *and does not* guarantee.
 You already know the definition of convexity. In this package,
 `isconvex(f)` reports that the function **declares** this property,
 which an algorithm may use when choosing its convergence guarantees.
-This is a declaration, not a runtime verification of the parameters:
-for example, `QuadraticFunction` assumes a symmetric positive-semidefinite
-coefficient matrix and does not certify that condition at construction.
+This is a declaration, not a runtime verification of the parameters.
+`false` means that convexity is not guaranteed for an arbitrary instance, not
+that the function is nonconvex: `QuadraticFunction` declares `false` because its
+convexity depends on the coefficient matrix, and it is convex when that
+symmetric matrix is positive semidefinite, which the package does not certify.
 A convex function need not be differentiable, as ``|t|`` illustrates.
 
 ```@example properties
@@ -215,7 +217,7 @@ the parameters of the particular object.
 | `ZeroFunction` | yes | yes | yes | yes | yes |
 | `LinearFunction` | yes | yes | yes | yes | no |
 | `SqrNormL2` | yes | yes | yes | yes | uncentered and finite level only |
-| `QuadraticFunction` | yes | yes | no | yes¹ | no |
+| `QuadraticFunction` | yes | yes | no | no¹ | no |
 | `LeastSquaresLoss` | yes | yes | no | yes | no |
 | `NormL1` | no | yes | yes | yes | yes |
 | `ElasticNet` | no | yes | yes | yes | yes |
@@ -223,9 +225,15 @@ the parameters of the particular object.
 | `GroupNormL2` | no | yes | no | yes | no |
 | `Scaled` | forwards | forwards | forwards | forwards | finite scale and zero-preserving inner function |
 
-¹ `QuadraticFunction` assumes a symmetric positive semidefinite matrix.
-Its constructor does not verify these assumptions, and the trait is not a
-matrix validator.
+¹ Convexity of `QuadraticFunction` is not guaranteed by the type: it is convex
+when its symmetric matrix is positive semidefinite, which is not checked. When
+the smallest eigenvalue `λmin` of the cached decomposition (a computed
+approximation) is negative and the rounded product `γ (-λmin)`, with `γ` the
+step converted to the element type after any `Scaled` factors, is not `< 1`
+(a NaN step included), the prox throws `DomainError`. In exact arithmetic and for
+`γ > 0`, the proximal subproblem has a unique minimizer if and only if `1 + γ λmin(A) > 0`
+for the true smallest eigenvalue; the check tests the computed value. A
+successful prox does not establish convexity.
 
 **Important:** A true trait describes a mathematical capability but does
 not manufacture Julia methods or guarantee support for every array layout,

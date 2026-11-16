@@ -22,6 +22,7 @@ quick = [
   "norml2",
   "numerical_kernels",
   "numerical_recovery",
+  "one_based_axes",
   "real_iterates",
   "ridge_precision",
   "sparse_iterate",

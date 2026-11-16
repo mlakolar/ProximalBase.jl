@@ -898,15 +898,15 @@ end
 end
 
 @testset "offset axes of the predictor, the residual and the response" begin
-  # A vector with other axes than the response is a DimensionMismatch, also where the lengths agree (an offset view of
-  # length n); vectors with the same axes, offset or not, give the value of the same entries in ordinary vectors.
+  # A loss takes a response and a design with one-based axes (an ArgumentError at construction, also for a design with no
+  # entries). A vector with other axes than the response is a DimensionMismatch, also where the lengths agree (an offset
+  # view of length n); vectors with the same axes, ordinary views of longer arrays included, give the value of the same
+  # entries in ordinary vectors.
   for T in (Float32, Float64)
     buf = T[100, 1, 2, 3, 4]
     Yoff = view(buf, Base.IdentityUnitRange(2:5))            # axes 2:5, entries 1, 2, 3, 4
     @test Yoff isa StridedVector{T} && axes(Yoff, 1) == 2:5
-    f = LeastSquaresLoss(Yoff, ones(T, 4, 1))
-    @test_throws DimensionMismatch f(T[0])                    # the scratch Xβ is a 1-based vector
-    @test_throws DimensionMismatch value_and_gradient!(zeros(T, 1), f, T[0])
+    @test_throws ArgumentError LeastSquaresLoss(Yoff, ones(T, 4, 1))
     Y = T[1, 2, 3, 4]
     X = Matrix{T}(I, 4, 4)
     zpar = T[10, 2, 4, 6, 8, 20]
@@ -918,55 +918,34 @@ end
       gd, dd = fill(T(7), 4), fill(T(7), 4)
       @test_throws DimensionMismatch PB.value_and_gradient_from_predictor!(gd, dd, g, zoff)
       @test all(==(T(7)), gd) && all(==(T(7)), dd)
-      # the same axes: a loss with the offset response and offset predictor and residual
-      h = mkloss(Yoff, X, α)
-      a = α === nothing ? 1 : 2
+      @test_throws ArgumentError mkloss(Yoff, X, α)
       z1 = T[2, 4, 6, 8]
-      @test PB.value_from_predictor(h, zoff) == T(a * sum(abs2, z1 .- Y) / 2) == PB.value_from_predictor(g, z1)
-      roff = view(T[0, 1, 2, 3, 4, 0], Base.IdentityUnitRange(2:5))
-      @test PB.value_from_residual(h, roff) == T(a * 30 / 2)
-      gd, dd = fill(T(7), 4), fill(T(7), 4)
-      @test_throws DimensionMismatch PB.value_and_gradient_from_predictor!(gd, dd, h, zoff)
-      @test all(==(T(7)), gd) && all(==(T(7)), dd)
-      # offset outputs with the axes of the response: refused before d is written (the product with Xᵀ refuses them)
+      # an offset d has other axes than the response: refused before anything is written
       doff = view(fill(T(7), 6), Base.IdentityUnitRange(2:5))
-      @test_throws ArgumentError PB.value_and_gradient_from_predictor!(gd, doff, h, zoff)
+      @test_throws DimensionMismatch PB.value_and_gradient_from_predictor!(gd, doff, g, z1)
       @test all(==(T(7)), gd) && all(==(T(7)), doff)
-      # an offset design (rows or columns): the combined oracle refuses it before anything is written; the value
-      # oracles do not read the design
+      # an offset g is an ArgumentError (the product with Xᵀ refuses it), also refused before d is written
+      goff = view(fill(T(7), 6), Base.IdentityUnitRange(2:5))
+      @test_throws ArgumentError PB.value_and_gradient_from_predictor!(goff, dd, g, z1)
+      @test all(==(T(7)), goff) && all(==(T(7)), dd)
+      # an offset design (rows or columns) is refused when the loss is built
       for Xo in (view(ones(T, 5, 4), Base.IdentityUnitRange(2:5), :), view(ones(T, 4, 5), :, Base.IdentityUnitRange(2:5)))
         @test Xo isa StridedMatrix{T} && size(Xo) == (4, 4)
-        fo = mkloss(Y, Xo, α)
-        bo = α === nothing ? fo : fo.f
-        fill!(bo.tmp, T(7))
-        gd, dd = fill(T(7), 4), fill(T(7), 4)
-        @test_throws ArgumentError PB.value_and_gradient_from_predictor!(gd, dd, fo, z1)
-        @test all(==(T(7)), gd) && all(==(T(7)), dd) && all(==(T(7)), bo.tmp)
-        @test PB.value_from_predictor(fo, z1) == PB.value_from_predictor(g, z1)
+        @test_throws ArgumentError mkloss(Y, Xo, α)
       end
       # ordinary (1-based) strided views of longer arrays
       zv = view(zpar, 2:5)
       Yv = view(buf, 2:5)
       @test PB.value_from_predictor(mkloss(Yv, X, α), zv) == PB.value_from_predictor(g, z1)
     end
-    # empty designs with offset axes (n = 0, p = 0, 0 × 0): the product with Xᵀ needs no BLAS call, and the combined
-    # oracle gives the value, d and g of the same empty design without offset
+    # designs with no entries and offset axes (n = 0, p = 0, 0 × 0) are refused too
     for α in (nothing, T(2))
-      a = α === nothing ? 1 : 2
-      cases = ((view(ones(T, 5, 0), Base.IdentityUnitRange(2:5), :), ones(T, 4), zeros(T, 4), T(a * 4 / 2)),
-               (view(ones(T, 0, 4), :, Base.IdentityUnitRange(2:3)), T[], T[], zero(T)),
-               (view(ones(T, 2, 2), Base.IdentityUnitRange(2:1), Base.IdentityUnitRange(2:1)), T[], T[], zero(T)))
-      for (Xe, Ye, ze, v) in cases
+      cases = ((view(ones(T, 5, 0), Base.IdentityUnitRange(2:5), :), ones(T, 4)),
+               (view(ones(T, 0, 4), :, Base.IdentityUnitRange(2:3)), T[]),
+               (view(ones(T, 2, 2), Base.IdentityUnitRange(2:1), Base.IdentityUnitRange(2:1)), T[]))
+      for (Xe, Ye) in cases
         @test isempty(Xe) && Xe isa StridedMatrix{T}
-        n, p = size(Xe)
-        fe = mkloss(Ye, Xe, α)
-        fp = mkloss(Ye, zeros(T, n, p), α)
-        ge, de = fill(T(7), p), fill(T(7), n)
-        gp, dp = fill(T(7), p), fill(T(7), n)
-        @test PB.value_and_gradient_from_predictor!(ge, de, fe, ze) === v ===
-              PB.value_and_gradient_from_predictor!(gp, dp, fp, ze)
-        @test de == dp == ze .- Ye && ge == gp == zeros(T, p)
-        @test PB.value_from_predictor(fe, ze) === v
+        @test_throws ArgumentError mkloss(Ye, Xe, α)
       end
     end
   end

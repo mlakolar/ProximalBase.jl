@@ -453,10 +453,10 @@ _elastic_finite_scale(α::Real) = isfinite(α) && α > 0
 _elastic_finite_scale(α::_ProjectionScale) = isfinite(α.m) && !iszero(α.m)
 _elastic_finite_scale(α) = false
 
-# The scaled-value mechanism (R1, "Wrappers"). A function with `_has_value_parts` returns its
-# value at x as (m, e), the value m 2^e with a finite significand m, or `nothing` to keep the
-# ordinary result (`_value_parts`, defaults in utils.jl). Only host arrays take it; a NaN value
-# stays NaN, and a normal value is its own significand and exponent, so the function is asked
+# The scaled-value mechanism (numerics.md, "Overflow and underflow of values"). A function with
+# `_has_value_parts` returns its value at x as (m, e), the value m 2^e with a finite significand m, or
+# `nothing` to keep the ordinary result (`_value_parts`, defaults in utils.jl). Only host arrays take it;
+# a NaN value stays NaN, and a normal value is its own significand and exponent, so the function is asked
 # only for a value that is infinite, zero or subnormal. An exactly zero value whose true value,
 # times α, cannot be a normal number (`_zero_value_exponent`) is not recomputed.
 @inline _parts_argument(x) = false

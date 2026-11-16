@@ -81,10 +81,6 @@ makedocs(;
             "The ℓ₂ and group ℓ₂ norms" => "group_penalty.md",
             "Scaling a function" => "calculus.md",
         ],
-        "Scalar losses" => [
-            "Interface and operations" => "scalar_losses.md",
-            "Squared loss" => "scalar_squared.md",
-        ],
         "Building optimization algorithms" => [
             "Overview" => "optimization_algorithms.md",
             "Proximal gradient methods" => "proximal_gradient.md",
@@ -119,7 +115,6 @@ makedocs(;
             "Overview" => "api.md",
             "The interface" => "api/interface.md",
             "Functions" => "api/functions.md",
-            "Scalar-loss interface" => "api/scalar_losses.md",
             "Functions built from functions" => "api/calculus.md",
             "Iterates and utilities" => "api/iterates.md",
             "Coverage matrix" => "api/coverage.md",

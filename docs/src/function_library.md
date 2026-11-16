@@ -19,6 +19,7 @@ to see exactly how the symbols in a definition become Julia arguments.
 | [`NormL1(λ0, w)`](@ref NormL1) | ``g(x)=\lambda_0\sum_i w_i\lvert x_i\rvert`` | ``\lambda_0\geq0``: overall level; ``w``: nonnegative weights (all one when omitted) | [The ℓ₁ norm](penalties.md) |
 | [`ElasticNet(λ1, λ2, w)`](@ref ElasticNet) | ``g(x)=\lambda_1\sum_i w_i\lvert x_i\rvert+\frac{\lambda_2}{2}\sum_i x_i^2`` | ``\lambda_1,\lambda_2\geq0``: ℓ₁ and ridge levels; ``w``: nonnegative ℓ₁ weights (all one when omitted) | [The elastic-net penalty](penalties.md#The-elastic-net-penalty) |
 | [`NormL2(λ)`](@ref NormL2) | ``g(x)=\lambda\lVert x\rVert_2`` | ``\lambda\geq0``: level; the Frobenius norm for a matrix | [The ℓ₂ and group ℓ₂ norms](group_penalty.md) |
+| [`NormLinf(λ)`](@ref NormLinf) | ``g(x)=\lambda\max_i\lvert x_i\rvert`` | ``\lambda\geq0``: level; the largest magnitude of a matrix | [The ℓ∞ norm](group_penalty.md#The-NormLinf-norm) |
 | [`GroupNormL2(λ0, groups, w)`](@ref GroupNormL2) | ``g(x)=\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_2`` | ``\lambda_0\geq0``: overall level; ``G_k``: disjoint groups of indices; ``w``: nonnegative weights (``\sqrt{\lvert G_k\rvert}`` when omitted) | [The ℓ₂ and group ℓ₂ norms](group_penalty.md) |
 | [`Scaled(f, α)`](@ref Scaled) | ``h(x)=\alpha f(x)`` | ``f``: existing function object; ``\alpha\geq0``: scale | [Scaling a function](calculus.md) |
 
@@ -63,27 +64,6 @@ To learn what these operations compute, see
     - `LeastSquaresLoss(y, X)` represents
       ``\|y-X\beta\|^2/2`` as a function of coefficients ``\beta``.
       It also supplies array gradients and proximal operations.
-    - `ProximalBase.Squared()` evaluates just one prediction–observation
-      pair, ``(\eta-y)^2/2``, with scalar derivatives but **no array
-      proximal method**. The `ProximalBase.` prefix is required because
-      this name is not exported.
-
-## Scalar squared loss
-
-The [qualified-name convention](glossary.md#Exported-and-qualified-names)
-explains the module prefix. For functions of an individual **prediction** ``\eta`` and
-**observation** ``y``, ProximalBase also provides
-[`ProximalBase.Squared()`](@ref ProximalBase.Squared), representing
-
-```math
-\ell(\eta,y)=\frac12(\eta-y)^2.
-```
-
-It is called as `loss(η, y)`, not `f(x)`, and has the
-specialized `deriv`, `deriv2` and `value_and_deriv` operations.
-It is not a general array loss constructor or an automatic regression
-model. See [Scalar losses](scalar_losses.md) for the separate interface and
-[Squared loss](scalar_squared.md) for its mathematical definition and Julia example.
 
 ## Combining functions
 

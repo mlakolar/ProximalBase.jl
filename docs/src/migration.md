@@ -23,6 +23,23 @@ retained. Compute mathematical gradient mappings in caller code. Coordinate
 curvatures and residual/working-set policies are algorithm responsibilities.
 ProximalSolvers migration is separate; this documentation does not change it.
 
+### Removed scalar-loss interface (breaking)
+
+The qualified-public `ProximalBase.ScalarLoss` and `ProximalBase.Squared` types and
+their scalar derivative interface (`ProximalBase.deriv`, `ProximalBase.deriv2`,
+`ProximalBase.curvature`, `ProximalBase.value_and_deriv`) were removed
+([#916](https://github.com/mlakolar/ProximalBase.jl/issues/916)). No retained loss
+in ProximalBase used them. The names were not exported, but code that names them,
+subtypes `ScalarLoss` or adds methods to these functions now fails with an
+`UndefVarError`. For least squares, use `LeastSquaresLoss` and its predictor/residual
+operations (`ProximalBase.value_from_predictor`,
+`ProximalBase.value_and_gradient_from_predictor!`, `ProximalBase.value_from_residual`,
+`ProximalBase.leastsquares_data`; see
+[Least squares at a caller-held predictor or residual](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds)).
+For squared-norm regularization, use `SqrNormL2`. Code that defines its own
+scalar loss must move to the [`AbstractFunction` interface](extending.md) or keep
+its own scalar-loss machinery.
+
 ## Restored functions
 
 | Function | Restored from the archive | Differences from the archived version |

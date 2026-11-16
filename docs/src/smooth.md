@@ -9,8 +9,7 @@ it is evaluated. The following sections pair each formula with its constructor,
 gradient, proximal map and an executable example.
 
 All functions on this page operate on arrays. Each has values, gradients
-and [proximal operators](glossary.md#Proximal-operator) for its supported inputs. **Scalar prediction losses**
-use a separate [scalar-loss interface](scalar_losses.md).
+and [proximal operators](glossary.md#Proximal-operator) for its supported inputs.
 For allocating and mutating conventions, input restrictions, shared
 storage and numerical limitations, see
 [Operations on functions](operations.md) and
@@ -461,11 +460,3 @@ x = [2.0, 1]
 @assert kkt_violation(f, [-1.0, 2], 1) == 0
 prox(f,x,0.5)
 ```
-
-## Scalar squared loss
-
-For a loss of one prediction and one observation, use the separate
-[Scalar losses](scalar_losses.md) interface. The built-in
-[Squared loss](scalar_squared.md) represents
-``\ell(\eta,y)=(\eta-y)^2/2`` and supplies scalar derivatives,
-rather than array gradients and proximal maps.

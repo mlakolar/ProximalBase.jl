@@ -445,4 +445,54 @@ end
   @test checked >= 100
 end
 
+@testset "arguments with a zero sum of squares ($T)" for T in (Float32, Float64)
+  # The zero argument (+0 and -0 entries) and a nonzero argument every square of which rounds to zero (entries in
+  # [2^(h-1), 2^h), about √nextfloat(0)/4): at ordinary levels (0.5, floatmax/2, a Float64 level for Float32 data) the
+  # proximal point is +0 and the fused value 0, through prox, prox!, in place and value_and_prox!, on vectors and
+  # matrices; at a tiny level below the norm of the tiny argument, the shrinkage is nonzero and agrees with BigFloat.
+  rng = Xoshiro(921)
+  h = exponent(nextfloat(zero(T))) ÷ 2 - 2
+  for m in (1, 2, 5, 32, 1024), shape in (:vector, :matrix)
+    shape === :matrix && m < 32 && continue
+    dims = shape === :vector ? (m,) : (8, m ÷ 8)
+    zero_arg = reshape([rand(rng, (zero(T), -zero(T))) for _ in 1:m], dims)
+    tiny = reshape([signif(rng, T, h) for _ in 1:m], dims)
+    @test iszero(sum(abs2, tiny)) && !any(iszero, tiny)
+    for x in (zero_arg, tiny), λ in (T(0.5), floatmax(T) / 2, 0.5), γ in (T(1), T(0.25))
+      f = NormL2(λ)
+      y1 = prox(f, x, γ)
+      y2 = prox!(fill(T(7), dims), f, x, γ)
+      y3 = copy(x); prox!(y3, f, y3, γ)
+      y4 = fill(T(7), dims)
+      v = value_and_prox!(y4, f, x, γ)
+      @test v === zero(T)
+      @test all(y -> all(a -> a === zero(T), y), (y1, y2, y3, y4))
+    end
+    for r in (0.5, 0.875)
+      λt = T(r * bignorm(tiny))
+      f = NormL2(λt)
+      y = fill(T(7), dims)
+      v = value_and_prox!(y, f, tiny, one(T))
+      @test all(!iszero, y) && close_prox(vec(y), refprox(vec(tiny), one(T), λt), vec(tiny))
+      yp = prox(f, tiny, one(T))
+      @test all(i -> yp[i] === y[i], eachindex(y))
+      @test close_value(v, refvalue(vec(y), λt))
+      @test all(a -> a === zero(T), prox(f, zero_arg, one(T)))
+    end
+  end
+  # mixed precision: Float64 entries that round to Float32 entries with squares that round to zero, into a Float32
+  # output: +0 at an ordinary level, and at a tiny level below their norm the shrinkage against BigFloat
+  if T === Float32
+    for m in (1, 5, 32, 1024)
+      x = [Float64(signif(rng, Float32, h)) * (1 + 2.0^-27) for _ in 1:m]
+      @test all(a -> iszero(abs2(Float32(a))), x)
+      y = fill(7f0, m)
+      @test value_and_prox!(y, NormL2(0.5), x, 1.0) === 0f0 && all(a -> a === 0f0, y)
+      λt = Float32(bignorm(x) / 2)
+      yt = prox!(fill(7f0, m), NormL2(λt), x, 1f0)
+      @test all(!iszero, yt) && close_prox(yt, refprox(x, 1f0, λt), Float32.(x))
+    end
+  end
+end
+
 end

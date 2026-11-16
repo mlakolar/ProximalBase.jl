@@ -417,7 +417,13 @@ Each concrete function defines which vector, matrix and storage inputs
 it supports; a `true` trait does not guarantee every argument shape.
 Built-in methods check predictable shape, type and parameter errors
 before output writes, but an error during computation may leave a
-partially changed destination. Positive finite steps are the
+partially changed destination. The built-in functions, their constructors
+and the products of the iterates require one-based arrays: an array with
+offset axes is an `ArgumentError`, raised before any entry is read or written. The iterate constructors that take an array, and the least-squares
+predictor and residual oracles at a one-based response, report offset axes as
+a `DimensionMismatch` instead. A function defined outside this package gets the
+check only where this package's own code indexes its arrays, for example in
+`Scaled` and in the kernels of a `SeparableFunction`. Positive finite steps are the
 standard mathematical setting. Exceptional `NaN`, infinite and zero
 steps are function-specific rather than universally validated.
 See [Numerical usage](numerical_usage.md),

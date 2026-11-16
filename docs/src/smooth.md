@@ -105,9 +105,9 @@ v=\frac{\alpha}{2}\|r\|^2\ \text{ for a residual } r.
 `z`, `r`, `d` and `g` are strided vectors of that type. Anything else is a `MethodError`: a matrix response,
 a sparse or other non-strided design, another element type, a nested `Scaled`. The accessor takes any
 `LeastSquaresLoss` and one `Scaled` of it. `z`, `r` and `d` must have the axes of `Y` (another length, or an offset
-view of the same length, is a `DimensionMismatch`). For `value_and_gradient_from_predictor!` the outputs `g` and `d`
-and both axes of a nonempty `X` must start at index 1 (the product with ``X^\top`` refuses offset axes; an `ArgumentError`
-before anything is written).
+view of the same length, is a `DimensionMismatch`). `Y` and `X` must be one-based: an offset-axes `Y` or `X` is an
+`ArgumentError` when the loss is constructed. For `value_and_gradient_from_predictor!` an output `g` with offset axes is
+an `ArgumentError` before anything is written.
 
 **The scale as stored and as computed.** The accessor returns the factor ``\alpha`` as stored, with its type.
 The oracles compute with it as supplied, not rounded to `T` first: a positive finite `Float32` or `Float64`

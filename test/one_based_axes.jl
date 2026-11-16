@@ -206,6 +206,11 @@ for T in (Float32, Float64), kind in (:view, :shifted)
          () -> prox!(y, Scaled(Scaled(NormL1(one(T), w), T(2)), T(3)), x, off(one_)), y)
   yo = off(fill(T(7), 4))
   expect("prox! into an offset output, $tag", () -> prox!(yo, NormL1(one(T), w), x, one(T)), yo)
+  expect("ElasticNet construction, $tag", () -> ElasticNet(one(T), T(2), off(w)))
+  expect("ElasticNet value at an offset input, $tag", () -> ElasticNet(one(T), T(2), w)(off(x)))
+  expect("ElasticNet prox! at an offset input, $tag", () -> prox!(y, ElasticNet(one(T), T(2), w), off(x), one(T)), y)
+  expect("ElasticNet prox! with an offset step array, $tag", () -> prox!(y, ElasticNet(one(T), T(2), w), x, off(one_)), y)
+  expect("Scaled ElasticNet prox! with an offset step array, $tag", () -> prox!(y, Scaled(ElasticNet(one(T), T(2)), T(2)), x, off(one_)), y)
   expect("least-squares response, $tag", () -> LeastSquaresLoss(off(w), Matrix{T}(I, 4, 4)))
   expect("least-squares design, $tag", () -> LeastSquaresLoss(w, view(vcat(zeros(T, 1, 4), Matrix{T}(I, 4, 4)), Base.IdentityUnitRange(2:5), :)))
 end
@@ -241,12 +246,15 @@ for T in (Float32, Float64)
   γ1 = T[1, 1, 1, 1]
   A = T[2 1 0 0; 1 3 1 0; 0 1 4 1; 0 0 1 5]
   M4 = T[1 2 0 1; 0 3 1 0; 2 0 1 1; 1 1 0 2]
+  Aindef = T[-2 1 0 0; 1 3 1 0; 0 1 4 1; 0 0 1 -5]
 
   @testset "construction with an offset array" begin
     for kind in KINDS
       off(v) = mkvec(kind, v)
       check("NormL1 weights, $kind", () -> NormL1(one(T), off(w)))
       check("SqrNormL2 center, $kind", () -> SqrNormL2(one(T), off(c)))
+      check("ElasticNet weights, $kind", () -> ElasticNet(one(T), two, off(w)))
+      check("ElasticNet weights, equal levels of another type, $kind", () -> ElasticNet(1, two, off(w)))
       check("LinearFunction coefficients, $kind", () -> LinearFunction(off(c)))
       check("LinearFunction coefficients and constant, $kind", () -> LinearFunction(off(c), one(T)))
       check("QuadraticFunction b, $kind", () -> QuadraticFunction(A, off(w)))
@@ -266,6 +274,8 @@ for T in (Float32, Float64)
       # restricting to an offset index set gives an offset parameter
       S = off([1, 2])
       check("restrict NormL1, $kind", () -> restrict(NormL1(one(T), w), S))
+      check("restrict ElasticNet, $kind", () -> restrict(ElasticNet(one(T), two, w), S))
+      check("restrict QuadraticFunction of an indefinite matrix, $kind", () -> restrict(QuadraticFunction(Aindef, w), S))
       check("restrict SqrNormL2, $kind", () -> restrict(SqrNormL2(one(T), c), S))
       check("restrict LinearFunction, $kind", () -> restrict(LinearFunction(c), S))
       check("restrict QuadraticFunction, $kind", () -> restrict(QuadraticFunction(A, w), S))
@@ -297,12 +307,16 @@ for T in (Float32, Float64)
   # the functions with a scalar step, a step array, a gradient
   nl1w, nl1, sq, sqc = NormL1(one(T), w), NormL1(one(T)), SqrNormL2(two), SqrNormL2(two, c)
   lin, zf, ws = LinearFunction(c, one(T)), ZeroFunction(), WeightedSquare(w)
+  en, en0 = ElasticNet(T(0.5), two, w), ElasticNet(T(0.5), two)
   chain(f) = Scaled(Scaled(f, two), three)
   prox_fs = (("NormL1 with weights", nl1w), ("NormL1", nl1), ("SqrNormL2", sq), ("SqrNormL2 with a center", sqc),
              ("LinearFunction", lin), ("ZeroFunction", zf), ("WeightedSquare", ws),
-             ("Scaled NormL1", Scaled(nl1w, two)), ("Scaled chain", chain(nl1w)), ("Scaled SqrNormL2", Scaled(sqc, two)),
+             ("ElasticNet with weights", en), ("ElasticNet", en0), ("Scaled ElasticNet", Scaled(en, two)),
+             ("Scaled chain of ElasticNet", chain(en)), ("Scaled NormL1", Scaled(nl1w, two)), ("Scaled chain", chain(nl1w)), ("Scaled SqrNormL2", Scaled(sqc, two)),
              ("Scaled ZeroFunction", Scaled(zf, two)), ("Scaled WeightedSquare", Scaled(ws, two)))
   array_step_fs = (("NormL1 with weights", nl1w), ("NormL1", nl1), ("ZeroFunction", zf), ("WeightedSquare", ws),
+                   ("ElasticNet with weights", en), ("ElasticNet", en0), ("Scaled ElasticNet", Scaled(en, two)),
+                   ("Scaled chain of ElasticNet", chain(en)),
                    ("Scaled NormL1", Scaled(nl1w, two)), ("Scaled chain", chain(nl1w)), ("Scaled ZeroFunction", Scaled(zf, two)),
                    ("Scaled WeightedSquare", Scaled(ws, two)), ("Scaled chain of WeightedSquare", chain(ws)))
   gradient_fs = (("SqrNormL2", sq), ("SqrNormL2 with a center", sqc), ("LinearFunction", lin), ("ZeroFunction", zf),
@@ -346,6 +360,7 @@ for T in (Float32, Float64)
     end
     # the screens: the gradient g and the point x
     for (name, f) in (("NormL1 with weights", nl1w), ("SqrNormL2", sq), ("SqrNormL2 with a center", sqc), ("LinearFunction", lin),
+                      ("ElasticNet with weights", en), ("ElasticNet", en0), ("Scaled ElasticNet", Scaled(en, two)),
                       ("ZeroFunction", zf), ("Scaled NormL1", Scaled(nl1w, two)), ("Scaled chain", chain(nl1w)),
                       ("Scaled SqrNormL2", Scaled(sqc, two)), ("Scaled chain of SqrNormL2", chain(sqc)))
       tag = "$name, $kind"
@@ -358,6 +373,13 @@ for T in (Float32, Float64)
     # sparse and block points, and a group norm
     sx = SparseIterate(T, 4); sx[2] = two; sx[4] = -three
     check("kkt_violation at a SparseIterate with an offset gradient, $kind", () -> kkt_violation(nl1w, off(x), sx, 2))
+    check("kkt_violation of ElasticNet at a SparseIterate with an offset gradient, $kind", () -> kkt_violation(en, off(x), sx, 2))
+    # the sparse iterate kernels with an offset step array: the destination keeps its stored entries
+    ysp = SparseIterate(T, 4); ysp[1] = two
+    for (name, f) in (("NormL1 with weights", nl1w), ("ElasticNet with weights", en), ("ElasticNet", en0))
+      check("prox! into a SparseIterate with an offset step array, $name, $kind", () -> prox!(ysp, f, sx, off(γ1)), ysp)
+      check("value_and_prox! into a SparseIterate with an offset step array, $name, $kind", () -> value_and_prox!(ysp, f, sx, off(γ1)), ysp)
+    end
     gb = BlockIterate(T, 4, [1:2, 3:4]); gf = GroupNormL2(one(T), [1:2, 3:4])
     check("kkt_violation of GroupNormL2 at a BlockIterate with an offset gradient, $kind", () -> kkt_violation(gf, off(x), gb, 1))
     check("kkt_violation of GroupNormL2 at an array with an offset gradient, $kind", () -> kkt_violation(gf, off(x), x, 1))
@@ -410,7 +432,8 @@ for T in (Float32, Float64)
   @testset "QuadraticFunction: $kind" for kind in KINDS
     off(v) = mkvec(kind, v)
     for (name, q) in (("dense A", QuadraticFunction(A, w)), ("dense A without b", QuadraticFunction(A)),
-                      ("Diagonal A", QuadraticFunction(Diagonal(w), w)), ("sparse A", QuadraticFunction(sparse(A), w)))
+                      ("Diagonal A", QuadraticFunction(Diagonal(w), w)), ("sparse A", QuadraticFunction(sparse(A), w)),
+                      ("indefinite A", QuadraticFunction(Aindef, w)), ("indefinite Diagonal A", QuadraticFunction(Diagonal(T[-1, 2, -3, 4]), w)))
       tag = "$name, $kind"
       fill!(q.tmp, T(7))
       g, go, y, yo = fill(T(7), 4), off(fill(T(7), 4)), fill(T(7), 4), off(fill(T(7), 4))
@@ -425,6 +448,10 @@ for T in (Float32, Float64)
       check("value_and_prox! into an offset output, $tag", () -> value_and_prox!(yo, q, x, one(T)), yo, q.tmp)
       check("gradient at an offset input, $tag", () -> gradient(q, off(x)), q.tmp)
       check("prox at an offset input, $tag", () -> prox(q, off(x), one(T)), q.tmp)
+      @test isempty(q.Λ) && isempty(q.Q)
+      # a step outside the domain of an indefinite matrix: the offset array is refused first, and no cache is formed
+      check("prox! at an offset input and a step outside the domain, $tag", () -> prox!(y, q, off(x), T(100)), y, q.tmp)
+      check("prox! into an offset output and a step outside the domain, $tag", () -> prox!(yo, q, x, T(100)), yo, q.tmp)
       @test isempty(q.Λ) && isempty(q.Q)
     end
   end
@@ -526,7 +553,8 @@ for T in (Float32, Float64)
     offm(M) = mkmat(kind, M)
     Msym = T[2 1 0; 1 3 1; 0 1 4]
     for (name, f) in (("NormL1", NormL1(one(T))), ("NormL1 with weights", NormL1(one(T), ones(T, 9))), ("SqrNormL2", SqrNormL2(two)),
-                      ("LinearFunction", LinearFunction(Msym)), ("ZeroFunction", ZeroFunction()), ("Scaled NormL1", Scaled(NormL1(one(T)), two)),
+                      ("ElasticNet", ElasticNet(one(T), two)), ("ElasticNet with weights", ElasticNet(one(T), two, ones(T, 9))),
+                      ("Scaled ElasticNet", Scaled(ElasticNet(one(T), two), two)), ("LinearFunction", LinearFunction(Msym)), ("ZeroFunction", ZeroFunction()), ("Scaled NormL1", Scaled(NormL1(one(T)), two)),
                       ("WeightedSquare", WeightedSquare(ones(T, 9))))
       S = SymmetricSparseIterate(T, 3); S[1, 1] = T(5); S[3, 2] = T(-1)
       check("prox! into a SymmetricSparseIterate at an offset matrix, $name, $kind", () -> prox!(S, f, offm(Msym), one(T)), S)
@@ -607,9 +635,9 @@ for T in (Float32, Float64)
     @test bigmat(A) == A
     xv, wv, cv, γv = bigvec(x), bigvec(w), bigvec(c), bigvec(γ1)
     sample = (nl1 = NormL1(one(T)), nl1w = NormL1(one(T), w), sq = SqrNormL2(two), sqc = SqrNormL2(two, c), lin = LinearFunction(c, one(T)),
-              zf = ZeroFunction(), ws = WeightedSquare(w))
+              zf = ZeroFunction(), ws = WeightedSquare(w), en = ElasticNet(T(0.5), two, w), en0 = ElasticNet(T(0.5), two))
     viewed = (nl1 = NormL1(one(T)), nl1w = NormL1(one(T), wv), sq = SqrNormL2(two), sqc = SqrNormL2(two, cv), lin = LinearFunction(cv, one(T)),
-              zf = ZeroFunction(), ws = WeightedSquare(wv))
+              zf = ZeroFunction(), ws = WeightedSquare(wv), en = ElasticNet(T(0.5), two, wv), en0 = ElasticNet(T(0.5), two))
     for k in keys(sample)
       f, fv = sample[k], viewed[k]
       @test same(fv(xv), f(x))
@@ -625,7 +653,7 @@ for T in (Float32, Float64)
       @test same(value_and_prox!(yv, Sfv, xv, two), value_and_prox!(y, Sf, x, two)) && same(yv, y)
       @test same(prox!(yv, Scaled(Sfv, two), xv, two), prox!(y, Scaled(Sf, two), x, two))
     end
-    for k in (:nl1, :nl1w, :zf, :ws)
+    for k in (:nl1, :nl1w, :zf, :ws, :en, :en0)
       f, fv = sample[k], viewed[k]
       y, yv = fill(T(7), 4), view(fill(T(7), 6), 2:5)
       γ = T[0.5, 1, 2, 3]; γvw = view(vcat(T[0], γ, T[0]), 2:5)
@@ -644,6 +672,18 @@ for T in (Float32, Float64)
       @test same(kkt_violation(fv, xv, 2), kkt_violation(f, x, 2)) && same(kkt_violation(fv, xv, xv, 2), kkt_violation(f, x, x, 2))
     end
     @test same(kkt_violation(viewed.nl1w, xv, 3), kkt_violation(sample.nl1w, x, 3))
+    @test same(kkt_violation(viewed.en, xv, 3), kkt_violation(sample.en, x, 3))
+    @test same(kkt_violation(viewed.en, xv, xv, 3), kkt_violation(sample.en, x, x, 3))
+    @test same(kkt_violation(Scaled(viewed.en, two), xv, 3), kkt_violation(Scaled(sample.en, two), x, 3))
+    @test same(restrict(viewed.en, [1, 3]).w, restrict(sample.en, [1, 3]).w)
+    # the sparse and block kernels of ElasticNet, with weights and a step array that are views
+    for f in (sample.en, sample.en0), fv in (f === sample.en ? viewed.en : viewed.en0,)
+      sx0 = SparseIterate(T, 4); sx0[2] = two; sx0[4] = -three
+      y1, y2 = SparseIterate(T, 4), SparseIterate(T, 4)
+      γa = T[0.5, 1, 2, 3]
+      @test same(prox!(y2, fv, sx0, view(vcat(T[0], γa, T[0]), 2:5)), prox!(y1, f, sx0, γa))
+      @test same(fv(sx0), f(sx0)) && same(fv(BlockIterate(T[0, 2, 0, -3], [1:2, 3:4])), f(BlockIterate(T[0, 2, 0, -3], [1:2, 3:4])))
+    end
     @test same(kkt_violation(Scaled(viewed.nl1w, two), xv, 3), kkt_violation(Scaled(sample.nl1w, two), x, 3))
     @test same(norm_diff(xv, cv), norm_diff(x, c)) && same(norm_diff(xv, cv, Inf), norm_diff(x, c, Inf))
     @test same(norm_diff(bigmat(A), bigmat(M4)), norm_diff(A, M4))
@@ -656,6 +696,16 @@ for T in (Float32, Float64)
       @test same(gradient!(gv, qv, xv), gradient!(g, q, x))
       @test same(value_and_gradient!(gv, qv, xv), value_and_gradient!(g, q, x)) && same(gv, g)
       @test same(prox!(gv, qv, xv, one(T)), prox!(g, q, x, one(T)))
+    end
+    # an indefinite matrix: the step domain is checked as for plain arrays, and the same proximal point is returned
+    let q = QuadraticFunction(Aindef, w), qv = QuadraticFunction(Aindef, wv)
+      yq, yqv = fill(T(7), 4), view(fill(T(7), 6), 2:5)
+      @test same(prox!(yqv, qv, xv, T(0.1)), prox!(yq, q, x, T(0.1)))
+      yq, yqv = fill(T(7), 4), view(fill(T(7), 6), 2:5)
+      @test_throws DomainError prox!(yq, q, x, T(100))
+      @test_throws DomainError prox!(yqv, qv, xv, T(100))
+      @test all(==(T(7)), yq) && all(==(T(7)), yqv)
+      @test same(qv(xv), q(x)) && same(gradient(qv, xv), gradient(q, x))
     end
     Dq = QuadraticFunction(Diagonal(wv), wv)
     Dp = QuadraticFunction(Diagonal(w), w)

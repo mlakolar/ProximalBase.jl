@@ -94,6 +94,47 @@ PB_ARCHIVE=/tmp/pb849-baseline PB_CANDIDATE="$PWD" PB_ROUNDS=21 PB_OUTPUT=/tmp/p
   julia --threads=1 --check-bounds=no --project=benchmark benchmark/elasticnet.jl
 ```
 
+## ElasticNet array-step harness
+
+`ridge910.jl` times the loop of `ElasticNet` with an array of steps (issue #910) and the code
+around it, 76 cases in Float32 and Float64 at n = 1024 and 65536: `ElasticNet` with an array of
+steps (dense `prox!` weighted, unweighted and with every 64th step outside the ridge band,
+`value_and_prox!`, and a `SparseIterate`), `ElasticNet` with a scalar step (dense `prox!`, a
+loop of `prox_block`, the `SparseIterate`), `SqrNormL2` loops of `prox_block` with and without
+a center (array and scalar steps), scalar `prox!` and `value_and_prox!`, and neighbours that
+#910 does not change (`SqrNormL2` value and `gradient!`, `NormL1` `prox!` with an array of
+steps). The header of the script lists the cases.
+
+The roles are a base tree (`PB_BASE`), one or more candidate trees (`PB_CANDIDATES`, a comma-separated
+list of `name=root`) and a second compilation of the base as the A/A control. Pass a byte-identical
+copy of the base as one more candidate: it measures the noise floor of a role that loads its own
+copy of the same source. Each round times every role of every case in rotating order and keeps the
+minimum over the samples of each role; the summary gives per case the median, minimum and maximum of
+the paired ratios candidate/base and control/base, with the warmed allocations, and marks medians
+above 1.05. Before timing, the script compares every candidate output with the base output, reports
+the cases whose outputs are `isequal` (finite entries and signed zeros bit for bit, any two NaNs
+equal) and stops at a difference above 4 ulp or at an entry that is not `isequal` and not finite in
+at least one output.
+`PB_REVERSE=1` loads the candidates before the base; `PB_FILTER` selects cases by a regular
+expression on their ids; `PB_CHECK_ONLY=1` stops after the comparison.
+
+```sh
+BASE=$(mktemp -d); NOISE=$(mktemp -d); CAND=$(mktemp -d); OUT=$(mktemp -d)
+git archive <base-sha> src | tar -x -C "$BASE"
+git archive <base-sha> src | tar -x -C "$NOISE"
+git archive <candidate-sha> src | tar -x -C "$CAND"
+julia scripts/instantiate.jl benchmark
+PB_BASE="$BASE" PB_CANDIDATES="C=$CAND,N=$NOISE" PB_CHECK_ONLY=1 \
+  julia --threads=1 --project=benchmark benchmark/ridge910.jl
+PB_BASE="$BASE" PB_CANDIDATES="C=$CAND,N=$NOISE" PB_ROUNDS=21 PB_OUTPUT="$OUT/forward" \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/ridge910.jl
+PB_BASE="$BASE" PB_CANDIDATES="C=$CAND,N=$NOISE" PB_ROUNDS=21 PB_OUTPUT="$OUT/reversed" PB_REVERSE=1 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/ridge910.jl
+```
+
+Judge a slowdown above five percent only when it appears in both role orders and in fresh
+processes, and compare it with the noise-floor candidate and the A/A control of the same process.
+
 ## ℓ₂ norms harness
 
 `l2_norms.jl` times `GroupNormL2` and `NormL2` (issue #900) between two source trees that both define

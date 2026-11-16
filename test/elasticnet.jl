@@ -1,8 +1,8 @@
 module ElasticNetTest
 # ElasticNet (#908): the elastic-net penalty λ1 Σᵢ wᵢ|xᵢ| + (λ2/2) Σᵢ xᵢ². Constructor and traits, the analytic
 # cases, the scalar step check of the public array oracles (D1), the representations, the KKT screen and
-# restriction, agreement with the archived implementation (eff21b6d) and allocations. The endpoint truth
-# table, the extreme ranges and Scaled are in elasticnet_extremes.jl.
+# restriction, agreement with the archived implementation (eff21b6d), the loop selection for a dense array of steps
+# and allocations. The endpoint truth table, the extreme ranges and Scaled are in elasticnet_extremes.jl.
 #
 # References are independent of the kernels: the closed form shrink(v, t̂)/(1 + γλ2) in 4096-bit BigFloat,
 # with t̂ the threshold that the NormL1 kernel forms (the ridge kernel multiplies by the rounded weight
@@ -40,6 +40,16 @@ valref(f, x) = big4096() do
     big(f.λ2) / 2 * sum(big(v)^2 for v in x; init = big(0))
 end
 valok(got::T, ref, n) where {T} = isfinite(got) && abs(big(got) - ref) <= (n + 2) * eps(T) * abs(ref)
+# a vector with linear indices lo:lo+n-1, for the selection pass over the steps at indices near typemax(Int)
+struct ShiftedVector{T} <: AbstractVector{T}
+  data::Vector{T}
+  lo::Int
+end
+Base.size(a::ShiftedVector) = size(a.data)
+Base.axes(a::ShiftedVector) = (a.lo:(a.lo + length(a.data) - 1),)
+Base.IndexStyle(::Type{<:ShiftedVector}) = IndexLinear()
+Base.getindex(a::ShiftedVector, i::Int) = a.data[i - a.lo + 1]
+Base.setindex!(a::ShiftedVector, v, i::Int) = (a.data[i - a.lo + 1] = v)
 
 # The archived ElasticNet (eff21b6d) at ordinary inputs, computed once from that source tree: prox_block of
 # ElasticNet(λ1, λ2, w) (w = nothing, or the single weight given) at the trial v and step γ, and values at a
@@ -635,6 +645,113 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
     end
   end
 
+  # A dense array of steps: when PB._elastic_ordinary_steps is true, the loop runs without the exceptional threshold
+  # product and the scaled ridge weights; one step outside the ordinary branches sends the call to the loop over
+  # prox_block. Both store convert(eltype(y), prox_block(f, xᵢ, i, γᵢ)) in each entry, compared bit for bit here.
+  # n = 600 makes three blocks of the selection pass (256, 256 and 88 steps).
+  for T in (Float32, Float64)
+    @testset "$T array steps: the loop for ordinary steps" begin
+      rng = Xoshiro(910)
+      n = 600
+      inds = eachindex(IndexLinear(), zeros(T, n))
+      x = T(2) .* randn(rng, T, n)
+      x[1:37:n] .= zero(T); x[2:41:n] .= -zero(T)
+      steps = T(0.5) .+ rand(rng, T, n)
+      w = T(0.5) .+ rand(rng, T, n)
+      identical(a, b) = length(a) == length(b) && all(((u, v),) -> u === v, zip(a, b))
+      perentry(y, f, x, γ) = [convert(eltype(y), prox_block(f, x[i], i, γ[i])) for i in eachindex(IndexLinear(), x)]
+      λ1, λ2 = T(0.3), T(0.5)
+      fs = (ElasticNet(λ1, λ2, w), ElasticNet(λ1, λ2), ElasticNet(zero(T), λ2, w), ElasticNet(λ1, zero(T), w),
+            ElasticNet(zero(T), λ2))
+      for f in fs
+        @test PB._elastic_ordinary_steps(f, steps, T, inds)
+        y = similar(x)
+        @test prox!(y, f, x, steps) === y && identical(y, perentry(y, f, x, steps))
+        for γ in (T(0.25), T(1), T(3))
+          @test identical(prox!(similar(x), f, x, fill(γ, n)), prox!(similar(x), f, x, γ))
+        end
+        yv = similar(x)
+        @test value_and_prox!(yv, f, x, steps) === f(yv) && identical(yv, y)
+      end
+
+      # Candidate steps, classified by _elastic_ordinary_step for each f of fs (one row each): 0, -0, Inf, floatmax,
+      # the smallest subnormal, 2^(emax - 1) (γλ2 = 2^(emax - 2), the top of the ridge band), 2^emax (γλ2 above
+      # the band, γλ1 normal), 3 floatmin (γλ1 subnormal, γλ2 in the band), and -1 and NaN, which violate the
+      # precondition (the output is still compared with prox_block). Each is planted at k = 1, 256, 257 and 600, the
+      # first and last entries of the blocks of the selection pass, with the other steps ordinary.
+      emax = exponent(floatmax(T))
+      cands = (zero(T), -zero(T), T(Inf), floatmax(T), nextfloat(zero(T)), T(2)^(emax - 1), T(2)^emax,
+               3 * floatmin(T), -one(T), T(NaN))
+      expected = ((false, false, false, false, false, true, false, false, false, false),
+                  (false, false, false, false, false, true, false, false, false, false),
+                  (true, true, true, false, false, true, false, true, false, true),
+                  (false, false, false, true, false, true, true, false, false, false),
+                  (true, true, true, false, false, true, false, true, false, true))
+      for (f, expect) in zip(fs, expected)
+        @test Tuple(PB._elastic_ordinary_step(f, γ, 1, T) for γ in cands) === expect
+        for (γ, ordinary) in zip(cands, expect), k in (1, 256, 257, 600)
+          s = copy(steps); s[k] = γ
+          @test PB._elastic_ordinary_steps(f, s, T, inds) === ordinary
+          y = similar(x)
+          @test identical(prox!(y, f, x, s), perentry(y, f, x, s))
+        end
+      end
+      # a zero and an infinite weight under λ1 > 0 at ordinary steps: the range test reads γλ1, not the weight
+      w0 = copy(w); w0[3] = 0; w0[400] = Inf
+      f0 = ElasticNet(λ1, λ2, w0)
+      @test PB._elastic_ordinary_step(f0, steps[3], 3, T) && PB._elastic_ordinary_step(f0, steps[400], 400, T)
+      @test PB._elastic_ordinary_steps(f0, steps, T, inds)
+      @test identical(prox!(similar(x), f0, x, steps), perentry(x, f0, x, steps))
+
+      # representations and element types
+      f = fs[1]
+      u = T(2) .* randn(rng, T, 2n); us = T(0.5) .+ rand(rng, T, 2n)
+      xv = view(u, 1:2:2n-1); sv = view(us, 1:2:2n-1)
+      @test PB._elastic_ordinary_steps(f, sv, T, inds)
+      @test identical(prox!(similar(x), f, xv, steps), perentry(x, f, xv, steps))
+      @test identical(prox!(similar(x), f, x, sv), perentry(x, f, x, sv))
+      yv = view(zeros(T, 2n), 2:2:2n)
+      @test prox!(yv, f, xv, sv) === yv && identical(yv, perentry(yv, f, xv, sv))
+      X = reshape(copy(x), 20, 30); G = reshape(copy(steps), 20, 30)
+      @test identical(prox!(similar(X), f, X, G), perentry(X, f, X, G))
+      if T === Float32
+        s64 = 0.5 .+ rand(rng, n)
+        @test PB._elastic_ordinary_steps(f, s64, T, inds)
+        @test identical(prox!(similar(x), f, x, s64), perentry(x, f, x, s64))
+      end
+      sr = Vector{Real}(steps); sr[2] = 1                    # an element type that is not concrete: the loop over prox_block
+      @test identical(prox!(similar(x), f, x, sr), perentry(x, f, x, sr))
+
+      # exact aliasing: the output is the argument, or the array of steps
+      x2 = copy(x); r = perentry(x2, f, x2, steps)
+      @test prox!(x2, f, x2, steps) === x2 && identical(x2, r)
+      s2 = copy(steps); r = perentry(s2, f, x, copy(s2))
+      @test prox!(s2, f, x, s2) === s2 && identical(s2, r)
+
+      # Scaled with the factor 3 passes ElasticNet the array of steps 3γᵢ
+      g = Scaled(f, T(3))
+      @test identical(prox!(similar(x), g, x, steps), perentry(x, g, x, steps))
+
+      # The pass over linear indices that end at typemax(Int) - 1, where the last block starts within 255 of
+      # typemax(Int). The step 2^emax (γλ2 above the ridge band) is planted at the last index only; an infinite λ1
+      # sends every step to another branch than the ordinary threshold product. prox! refuses these offset axes
+      # before any write (#923), so the pass is called directly.
+      for m in (2, 300)
+        lo = typemax(Int) - m
+        xs = ShiftedVector(T(2) .* randn(rng, T, m), lo); xs[lo] = T(Inf)
+        gs = ShiftedVector(T(0.5) .+ rand(rng, T, m), lo)
+        finf, fu = ElasticNet(T(Inf), λ2), ElasticNet(λ1, λ2)
+        si = eachindex(IndexLinear(), xs)
+        @test PB._elastic_ordinary_steps(fu, gs, T, si) && !PB._elastic_ordinary_steps(finf, gs, T, si)
+        gp = ShiftedVector(copy(gs.data), lo); gp[last(si)] = T(2)^emax
+        @test !PB._elastic_ordinary_steps(fu, gp, T, si)
+        ys = ShiftedVector(zeros(T, m), lo)
+        @test_throws ArgumentError prox!(ys, fu, xs, gs)
+        @test all(iszero, ys.data)
+      end
+    end
+  end
+
   for T in (Float32, Float64)
     @testset "$T allocations" begin
       rng = Xoshiro(908)
@@ -643,12 +760,14 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
                 ElasticNet(zero(T), T(0.5)), ElasticNet(T(0.3), zero(T)))
         for _ in 1:2
           alloc_prox(y, f, x, T(0.7)); alloc_prox(y, f, x, steps); alloc_vprox(y, f, x, T(0.7)); alloc_value(f, x); alloc_loop(f, x, T(0.7))
+          alloc_vprox(y, f, x, steps)
         end
         @test alloc_prox(y, f, x, T(0.7)) == 0
         @test alloc_prox(y, f, x, steps) == 0
         @test alloc_vprox(y, f, x, T(0.7)) == 0
         @test alloc_value(f, x) == 0
         @test alloc_loop(f, x, T(0.7)) == 0
+        @test alloc_vprox(y, f, x, steps) == 0
       end
     end
   end

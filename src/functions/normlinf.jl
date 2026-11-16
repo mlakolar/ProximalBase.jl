@@ -12,10 +12,13 @@
 The ℓ∞ norm `f(x) = λ max|xᵢ|` (the largest magnitude of the entries, of a matrix included), with a
 nonnegative level `λ` (an `ArgumentError` otherwise, `NaN` included). It is not separable. Its proximal operator
 clips the entries at a level `τ ≥ 0`: `prox_{γf}(x)ᵢ = clamp(xᵢ, -τ, τ)`, where `τ` solves
-`Σᵢ (|xᵢ| - τ)₊ = γλ`, and `τ = 0` (the output `+0`) when `γλ ≥ ‖x‖₁` in floating point, for finite entries. This is
-`x` minus its projection onto the ℓ1 ball of radius `γλ`, formed by the clip itself: for a positive clip level, the entries within the
-clip interval are copied, and a zero level fills `+0`. The level `τ` comes from Condat's algorithm, in O(n) expected
-time, with Michelot's algorithm when many entries become candidates.
+`Σᵢ (|xᵢ| - τ)₊ = γλ`, and `τ = 0` (the output `+0`) when `γλ ≥ ‖x‖₁`, for finite entries. The comparison is made in
+floating point, and in units of a power of two when the sum or the radius leaves the range: with `M = floatmax(Float64)`,
+`prox(NormLinf(1.0), [M, M], M)` gives `[M/2, M/2]` and `prox(NormLinf(1.5), [M, M], M)`, whose radius `1.5M` is beyond the
+range, gives about `[M/4, M/4]`. This is `x` minus its projection onto the ℓ1 ball of radius `γλ`, formed by the clip
+itself: for a positive clip level, the entries within the clip interval are copied, and a zero level fills `+0`. The
+level `τ` comes from Condat's algorithm, in O(n) expected time, with Michelot's algorithm when many entries become
+candidates.
 
 The value takes arrays, the three iterates and a `SymmetricSparseIterate` (its largest stored magnitude: a
 repeated off-diagonal coordinate does not change a maximum), and is `λ` times the largest magnitude rounded once, in
@@ -124,7 +127,8 @@ prox(f::NormLinf, ::SymmetricSparseIterate, ::Real = 1) = _symmetric_prox_error(
 # float(eltype(y)), or -1 when that is not known without a pass (the identity branches). The branches are those of the
 # docstring, in its order. The ordinary path is the pass over the magnitudes (their sum), the threshold and the clip; a
 # NaN or infinite sum of magnitudes, or one above floatmax/2, goes to `_linf_exceptional!`, which is not inlined. This
-# function is inlined into its callers, so that the returned magnitude of the zero output is a constant there.
+# function is marked `@inline`, so that the compiler can resolve the returned magnitude of the zero output in its callers
+# (the measurements at n = 1 favored it).
 @inline function _linf_prox!(y, f::NormLinf, x, γ::Real)
   T = float(eltype(y))
   λ = f.λ
@@ -143,10 +147,10 @@ prox(f::NormLinf, ::SymmetricSparseIterate, ::Real = 1) = _symmetric_prox_error(
 end
 
 # The branches at a sum of magnitudes that is NaN, infinite or above floatmax/2: a NaN entry gives NaN everywhere;
-# an infinite entry without NaN gives the identity (the level τ ≥ max|xᵢ| - γλ is then infinite, so the clip changes no
-# entry), also when γλ overflows. Finite entries whose sum overflows or exceeds floatmax/2 are read scaled by 2^-k, and the
-# clip level found in those units is multiplied by 2^k: the prox is positively homogeneous,
-# prox_c(x) = 2^k prox_{c 2^-k}(2^-k x).
+# an infinite entry without NaN gives the identity, the limit of the clip as that entry grows (for a finite radius γλ the
+# level τ ≥ max|xᵢ| - γλ grows with it, so the clip changes no other entry), also when the rounded γλ overflows. Finite
+# entries whose sum overflows or exceeds floatmax/2 are read scaled by 2^-k, and the clip level found in those units is
+# multiplied by 2^k: the prox is positively homogeneous, prox_c(x) = 2^k prox_{c 2^-k}(2^-k x).
 #
 # The scaled computation, for finite entries and a finite positive step and level. Hypotheses are stated where used.
 # - Range. Each scaled entry is at most floatmax 2^-k. With the initial k = ceil(log2 n) + 2 their sum is at most
@@ -159,17 +163,22 @@ end
 #   positive radius, the left side of the level equation Σᵢ (yᵢ - τ′)₊ = r′ decreases with slope at most -1 where it is
 #   positive, so those changes move the level τ′ by at most (n + 1) δ. If the computed scaled radius is zero, the exact
 #   scaled radius is at most δ, and the exact level is within that δ of the largest exact scaled entry (the level for
-#   radius zero), whose computed value differs by at most δ: the level moves by at most 2 δ ≤ (n + 1) δ. In the units of x the level 2^k τ′ moves by at most 2^k (n + 1) δ < 16 n² δ (2^k < 8n for the initial k).
-#   The nominal scale of the error, n eps(T) max|xᵢ|, is at least eps(T) floatmax/3 here: the computed sum exceeds
-#   floatmax/2 or is infinite, and the exact sum is at least the computed one divided by 1 + θ with θ ≤ 0.29 (hypothesis
-#   n eps(T) ≤ 1/2), so the exact sum is above floatmax/3 and max|xᵢ| ≥ floatmax/(3n). The movement is below that scale
+#   radius zero), whose computed value differs by at most δ: the level moves by at most 2 δ ≤ (n + 1) δ. In the units of
+#   x the level 2^k τ′ moves by at most 2^k (n + 1) δ < 16 n² δ (2^k < 8n for the initial k).
+#   The nominal scale of the error, n eps(T) max|xᵢ|, is at least eps(T) floatmax/3 here, as the exact sum is above
+#   floatmax/3 and max|xᵢ| ≥ floatmax/(3n). Take θ ≤ 0.29 (hypothesis n eps(T) ≤ 1/2), so that a finite computed sum of
+#   some of the entries is within a factor 1 + θ of the exact sum of its terms. If the computed sum is finite and exceeds
+#   floatmax/2, the exact sum is at least that divided by 1 + θ. If it is infinite, the first overflowing addition adds two
+#   finite computed partial sums (or one and an entry) whose sum is at least floatmax, so the exact sum of their terms,
+#   and the exact total, is at least floatmax/(1 + θ). The movement is below that scale
 #   when 64 n² δ ≤ eps(T) floatmax(T). The ratio eps(T) floatmax(T)/δ is about 2^254 in Float32 and 2^2046 in Float64,
 #   against 64 n² ≤ 2^50 (n ≤ 2^22, Float32) and 64 n² ≤ 2^108 (n ≤ 2^51, Float64), the sizes of the hypothesis. The
 #   statement of the docstring then applies to the scaled path.
 # - No lower bound on τ is needed: x = [floatmax, 2^970] with γλ = floatmax in Float64 has the level 2^969.
-# - r′ = 2^-k γλ is formed from the significands and exponents of γ and λ, so that it does not overflow where γλ does:
-#   r′ ≥ s′ gives the output +0, and an r′ below the range rounds to a subnormal or zero, which the radius allowance δ
-#   above covers.
+# - r′ = 2^-k γλ is formed from the significands and exponents of γ and λ, so that γλ does not overflow prematurely when
+#   r′ is representable. r′ can itself be Inf (`_linf_scaled_radius(T, floatmax(T), floatmax(T), 2)` is), and then
+#   r′ ≥ s′ gives the output +0, as the exact radius exceeds the sum. An r′ below the range rounds to a subnormal or zero,
+#   which the radius allowance δ above covers.
 @noinline function _linf_exceptional!(y, f::NormLinf, x, γ, s::T) where {T}
   n = length(x)
   isnan(s) && return _linf_fill!(y, n, T(NaN))
@@ -185,7 +194,7 @@ end
   r′ = _linf_scaled_radius(T, γ, f.λ, k)
   r′ >= s′ && return _linf_fill!(y, n, zero(T))
   τ′ = _linf_threshold(y, f, x, r′, _ScaledAbsRead{T}(k), T)
-  # τ′ is at most the largest scaled entry, 2^-k m rounded; 2^k τ′ is capped at m, as the rounding may exceed it by δ
+  # τ′ is at most the largest scaled entry, 2^-k m rounded; 2^k τ′ is capped at m, which the rounding of the scaling can exceed
   _linf_clip!(y, x, min(ldexp(τ′, k), m), n)
 end
 
@@ -349,10 +358,12 @@ end
 # Condat's or Michelot's passes, a sum of nonnegative terms, differs from the exact sum of its terms by a relative error
 # of at most θ = (1 + eps(T)/2)^n - 1 ≤ 0.29 (n eps(T) ≤ 1/2), and the sum of the pass over the magnitudes is at most
 # floatmax/2; the exact total is then at most floatmax/2 / (1 - θ) and a computed partial sum at most
-# floatmax/2 (1 + θ)/(1 - θ) < floatmax. The sums s of the passes are therefore finite.
+# floatmax/2 (1 + θ)/(1 - θ) < floatmax. The sums s of the passes are therefore finite (the subtractions `s -= y` in the
+# last loop of Condat's algorithm do not increase s).
 #
 # Why an overflowing (y - r) nv still decides correctly. The test of Condat's pass is s > (y - r) nv, the exact test
-# (s + y - r)/(nv + 1) > y - r. With y ≤ floatmax/2 the factor y - r is finite, and the product with nv ≥ 1 overflows
+# (s + y - r)/(nv + 1) > y - r. With y ≤ floatmax/2 (a computed sum of nonnegative terms is at least each term, and the
+# sum of the pass is at most floatmax/2) the factor y - r is finite, and the product with nv ≥ 1 overflows
 # to +Inf, which needs (y - r) nv > floatmax; since s is a sum of some of the yᵢ it is below floatmax (see above), so
 # the exact test is false, as the comparison s > Inf is. A product that overflows to -Inf has y - r < 0 and the exact
 # test (s ≥ 0 > -∞) is true, as s > -Inf is. The level (s - r)/nv is finite as s is and nv ≥ 1.

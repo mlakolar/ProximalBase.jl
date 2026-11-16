@@ -33,8 +33,8 @@ function givens(n, i, j, θ)
   R[i, i] = c; R[j, j] = c; R[i, j] = -s; R[j, i] = s
   R
 end
-# R D R' with R a product of rotations rounded to T: the stored matrix is the BigFloat product rounded
-# to T and symmetrized, so that the reference is built from the stored A and not from D
+# R D R' with R a product of rotations kept in BigFloat: only the final product is rounded to T and
+# symmetrized, and the reference is built from the stored A and not from D
 function rotated(::Type{T}, d) where {T}
   n = length(d)
   R = givens(n, 1, 2, big"0.7") * givens(n, 3, 4, big"-1.1") * givens(n, 2, 3, big"0.4") * givens(n, 1, 4, big"0.9")
@@ -110,8 +110,12 @@ for T in (Float32, Float64)
       @test proxok(fb, Adiag, b, v, γ)
     end
     @test all(isfinite, prox(f, v, prevfloat(T(0.5))))
-    # a subnormal step: the product with λmin underflows to a value below 1
+    # a subnormal step: the product 2 nextfloat(zero(T)) with λmin = -2 is exact and below 1
+    @test 2 * nextfloat(zero(T)) < 1
     @test prox(f, v, nextfloat(zero(T))) ≈ v
+    # a product that rounds to zero: 0.5 nextfloat(zero(T)) is a tie that rounds to even, that is to 0
+    @test T(0.5) * nextfloat(zero(T)) == 0
+    @test prox(QuadraticFunction(Diagonal(T[-0.5, 1])), v, nextfloat(zero(T))) ≈ v
     # a rotated dense matrix with eigenvalues -3, -0.5, 1, 4 (up to the rounding of the entries)
     A = rotated(T, T[-3, -0.5, 1, 4])
     vv = T[1, -2, 0.5, 3]
@@ -134,7 +138,7 @@ for T in (Float32, Float64)
     g = QuadraticFunction(A)
     λ1 = eigvals(Symmetric(Matrix(A)))[1]
     @test_throws DomainError prox(g, T[1, -2, 0.5, 3], T(1.1) / abs(λ1))
-    # a step that is converted: Float64 0.5 is the boundary in either type
+    # a Float64 or Int step is converted to T first; 0.5 and 1 are the same number in either type
     @test_throws DomainError prox(f, v, 0.5)
     @test_throws DomainError prox(f, v, 1)
     # the message names the step and λmin
@@ -283,6 +287,24 @@ for T in (Float32, Float64)
     @test allocs(y, dia, w, T(1)) == 0
     @test allocs(y, ind, w, T(0.1)) == 0
   end
+end
+
+# The step is converted to the element type before the check. For Float32 data and the Float64 step 1/41,
+# the Float64 product with 41 is not below 1 but the converted step times 41 is (accepted), and
+# prevfloat(0.5) converts to the boundary step 0.5f0 (rejected). Both are verified in the test.
+@testset "the step is checked after conversion to Float32" begin
+  γ = 1 / 41
+  @test Float32(γ) * 41f0 < 1
+  @test γ * 41 >= 1
+  f = QuadraticFunction(Diagonal(Float32[-41, 1]))
+  v = Float32[1, 2]
+  y = prox(f, v, γ)
+  @test f.Λ[1] == -41f0
+  @test all(isfinite, y)
+  @test relerr(y, refprox(Diagonal(Float32[-41, 1]), nothing, v, Float32(γ))) <= 100 * Float64(eps(Float32)) * condmat(Diagonal(Float32[-41, 1]), Float32(γ))
+  γ = prevfloat(0.5)
+  @test Float32(γ) == 0.5f0
+  @test_throws DomainError prox(QuadraticFunction(Diagonal(Float32[-2, 1])), v, γ)
 end
 
 end

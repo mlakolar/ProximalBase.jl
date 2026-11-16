@@ -278,19 +278,28 @@ eigendecomposition of `Symmetric(Matrix(A))`, which selects the upper
 triangle by default. For nonsymmetric data these operations need not describe
 one mathematical function.
 
-**Step domain of the prox:** let ``\lambda_{\min}`` be the smallest computed
-eigenvalue of `A`. When ``\lambda_{\min}\ge0``, the prox uses the formula above
-and no step check is made. When ``\lambda_{\min}<0``, the prox throws
-`DomainError` before the output is written unless ``\gamma|\lambda_{\min}|<1``;
-a NaN step fails that test and a negative step passes it. For ``\gamma>0`` the
-test is ``1+\gamma\lambda_{\min}>0``, the condition for the proximal subproblem
-to have a unique minimizer. A singular positive semidefinite `A` whose computed
-``\lambda_{\min}`` is slightly negative from rounding is treated by that
-computed value, so steps with ``\gamma|\lambda_{\min}|\ge1`` throw for it.
+**Step domain of the prox:** let ``\gamma`` be the step after the factors of
+any `Scaled` wrappers are applied, converted to the element type ``T`` of the
+function, and let ``\lambda_{\min}`` be the smallest eigenvalue of the cached
+decomposition of `A`, a computed approximation of the true smallest eigenvalue.
+When ``\lambda_{\min}<0`` and the rounded product ``\gamma(-\lambda_{\min})`` is not
+``<1`` (a NaN step included), the prox throws `DomainError` before the output
+is written; otherwise it applies the formula above, and when
+``\lambda_{\min}\ge0`` no step check is made. For a nonnegative finite
+``\gamma`` and finite cached eigenvalues, the check accepts exactly when every
+computed denominator ``1+\gamma\lambda_i`` is positive.
+
+In exact arithmetic the proximal subproblem has a unique minimizer if and only
+if ``1+\gamma\lambda_{\min}(A)>0`` for the true smallest eigenvalue. The check
+tests computed values, so near that boundary it can accept a step for which the
+true ``I+\gamma A`` is not positive definite, and reject one for which it is. The
+second case includes a singular positive semidefinite `A` whose computed
+``\lambda_{\min}`` is slightly negative: steps with ``\gamma(-\lambda_{\min})\ge1``
+throw for it, which is about ``\gamma\ge1/|\lambda_{\min}|``.
 
 **Convexity:** `isconvex` is `false` for `QuadraticFunction` because convexity
-depends on the matrix: for a symmetric `A`, `f` is convex if and only if ``A\succeq0``, which the
-package does not check. A successful prox, including one at an accepted step on
+depends on the matrix: for a symmetric `A`, `f` is convex if and only if
+``A\succeq0``, which the package does not check. A successful prox, including one at an accepted step on
 an indefinite `A`, does not establish that `f` is convex. A solver that needs
 convexity validates the model itself, or relies on a documented caller
 assertion, and does so again after the data change.

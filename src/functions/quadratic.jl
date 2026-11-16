@@ -7,17 +7,26 @@
 
 The quadratic `f(x) = x'Ax / 2 + b'x + c` for a symmetric `A`, with `b = 0`
 when omitted. `A` need not be positive semidefinite. Smooth, with gradient
-`Ax + b`, valid for symmetric indefinite `A`, and proximable: the first
-proximal operator computes the eigendecomposition `A = QΛQ'` once, after which
+`Ax + b`, valid for symmetric indefinite `A`, and proximable: for a nonempty
+matrix the first proximal operator computes the eigendecomposition `A = QΛQ'`,
+which is cached until `reset_cache!` (an empty matrix recomputes its empty
+decomposition on each call), after which
 `prox_{γf}(x) = Q (I + γΛ)⁻¹ Q'(x - γb)` costs two products with `Q`.
 
-Step domain of `prox!`, with `λmin` the smallest computed eigenvalue of `A`:
-when `λmin ≥ 0`, no step check is made. When `λmin < 0`, `prox!` throws
-`DomainError` before `y` is written unless `γ |λmin| < 1`. A NaN step fails
-that test and a negative step passes it. For `γ > 0` the test is
-`1 + γ λmin > 0`, the condition for the proximal subproblem to have a
-unique minimizer. A singular positive semidefinite `A` whose computed `λmin` is
-slightly negative from rounding is treated by that computed value.
+Step domain of `prox!`. Let `γ` be the step after the factors of any `Scaled`
+wrappers are applied, converted to the element type `T` of the function, and
+`λmin` the smallest eigenvalue of the cached decomposition, a computed
+approximation of the true smallest eigenvalue of `A`. When `λmin < 0` and the
+rounded product `γ (-λmin)` is not `< 1` (a NaN step included), `prox!` throws
+`DomainError` before `y` is written; otherwise it applies the formula above.
+For a nonnegative finite `γ` and finite cached eigenvalues, the check accepts
+exactly when every computed denominator `1 + γ λi` is positive. In exact
+arithmetic the proximal subproblem has a unique minimizer if and only if
+`1 + γ λmin(A) > 0` for the true smallest eigenvalue. The check tests computed
+values, so near that boundary it can accept a step for which the true
+`I + γA` is not positive definite, and reject one for which it is. The
+second case includes a singular positive semidefinite `A` whose computed
+`λmin` is slightly negative: steps with `γ (-λmin) ≥ 1` throw for it.
 
 `isconvex` is `false` for this type: `f` is convex when `A` is positive
 semidefinite, which the package does not certify, and a successful `prox!`
@@ -184,9 +193,12 @@ function _eigen!(f::QuadraticFunction{T}) where {T}
 end
 
 # With λ the smallest cached eigenvalue (the decomposition is ascending), the kernel divides by
-# 1 + γ Λ. For a step γ ≥ 0 the smallest computed denominator is 1 - fl(γ (-λ)), which is positive
-# when fl(γ (-λ)) < 1. A negative λ with a step that fails that comparison (an overflowing product
-# and a NaN step included) throws; λ ≥ 0, an empty matrix, and a negative step are not checked.
+# 1 + γ Λ. For a finite step γ ≥ 0 and finite cached eigenvalues, the smallest computed denominator is
+# 1 - fl(γ (-λ)), which is positive when fl(γ (-λ)) < 1, so the check accepts exactly when every
+# computed denominator is positive. A negative λ with a step that fails the comparison (an overflowing
+# product and a NaN step included) throws; λ ≥ 0, an empty matrix, and a negative step are not
+# checked. For a step γ = Inf and a nonnegative Λ that contains 0, the check accepts and the
+# denominators are [NaN, ...]: the step behavior there is unchanged.
 @inline function _check_quadratic_step(f::QuadraticFunction, γ)
   isempty(f.Λ) && return nothing
   λ = @inbounds f.Λ[1]

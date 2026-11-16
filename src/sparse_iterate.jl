@@ -341,6 +341,7 @@ end
 LinearAlgebra.mul!(out::StridedVector, A::StridedMatrix, coef::SparseIterate{T, 1}) where {T} =
   mul!(out, A, coef, true, false)
 function LinearAlgebra.mul!(out::StridedVector, A::StridedMatrix, coef::SparseIterate{T, 1}, α::Number, β::Number) where {T}
+  _check_one_based(out, A)
   _checkreal(coef, out); _checkreal(coef, A); _checkreal(coef, α); _checkreal(coef, β)
   length(coef) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of coef is $(length(coef))"))
   length(out) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of out is $(length(out))"))
@@ -364,6 +365,7 @@ end
 LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIterate{T, 2}) where {T} =
   mul!(out, A, coef, true, false)
 function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIterate{T, 2}, α::Number, β::Number) where {T}
+  _check_one_based(out, A)
   _checkreal(coef, out); _checkreal(coef, A); _checkreal(coef, α); _checkreal(coef, β)
   size(coef, 1) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), coef has $(size(coef, 1)) rows"))
   size(out) == (size(A, 1), size(coef, 2)) || throw(DimensionMismatch("out has size $(size(out))"))
@@ -440,6 +442,7 @@ end
 LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::SparseIterate{<:Any, 1}) =
   mul!(out, A, x, true, false)
 function LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::SparseIterate{<:Any, 1}, α::Number, β::Number)
+  _check_one_based(out, A)
   _checkreal(x, out); _checkreal(x, A); _checkreal(x, α); _checkreal(x, β)
   length(x) == size(A, 2) && length(out) == size(A, 1) || throw(DimensionMismatch())
   _scale_product_output!(out, β)
@@ -455,6 +458,7 @@ end
 LinearAlgebra.mul!(out::StridedMatrix, A::_StridedSymmetric, x::SparseIterate{<:Any, 2}) =
   mul!(out, A, x, true, false)
 function LinearAlgebra.mul!(out::StridedMatrix, A::_StridedSymmetric, x::SparseIterate{<:Any, 2}, α::Number, β::Number)
+  _check_one_based(out, A)
   _checkreal(x, out); _checkreal(x, A); _checkreal(x, α); _checkreal(x, β)
   size(x, 1) == size(A, 2) && size(out) == (size(A, 1), size(x, 2)) || throw(DimensionMismatch())
   _scale_product_output!(out, β)
@@ -486,6 +490,7 @@ end
 LinearAlgebra.mul!(out::StridedVector, trans_a::TransposedStridedMatrix, coef::SparseIterate{T, 1}) where {T} =
     mul!(out, trans_a, coef, true, false)
 function LinearAlgebra.mul!(out::StridedVector, trans_a::TransposedStridedMatrix, coef::SparseIterate{T, 1}, α::Number, β::Number) where {T}
+  _check_one_based(out, trans_a)
   _checkreal(coef, out); _checkreal(coef, trans_a); _checkreal(coef, α); _checkreal(coef, β)
     A = trans_a.parent
     length(coef) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of coef is $(length(coef))"))
@@ -512,6 +517,7 @@ end
 # column of a matrix: dot(view(A, i, :), x) is (A * x)[i] in O(nactive(x)). Other
 # vectors take the generic method, as SparseArrays has its own for sparse vectors.
 function LinearAlgebra.dot(v::StridedVector, coef::SparseIterate{<:Any, 1})
+  _check_one_based(v)
   _checkreal(coef, v)
     length(v) == length(coef) || throw(DimensionMismatch())
     s = zero(promote_type(eltype(v), eltype(coef)))
@@ -539,6 +545,7 @@ end
 
 # a' X b and the entries of A X B for a sparse matrix X, in O(nactive(X))
 function LinearAlgebra.dot(a::StridedVector, X::SparseIterate{<:Any, 2}, b::StridedVector)
+  _check_one_based(a, b)
   _checkreal(X, a); _checkreal(X, b)
   (length(a), length(b)) == size(X) || throw(DimensionMismatch())
   m = size(X, 1)

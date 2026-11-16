@@ -419,7 +419,29 @@ Each concrete function defines which vector, matrix and storage inputs
 it supports; a `true` trait does not guarantee every argument shape.
 Built-in methods check predictable shape, type and parameter errors
 before output writes, but an error during computation may leave a
-partially changed destination. Positive finite steps are the
+partially changed destination. The built-in functions, their constructors,
+the screens, `norm_diff`, `opnorm2` and the products of the iterates require
+one-based arrays. Such a call checks the axes of its array arguments when it
+starts, reading axes metadata and no entries of the arrays it checks: an array
+with offset axes raises an `ArgumentError` before the numerical kernels read the
+arrays by position and before any write to an output or a cache. The group
+constructors read the list of groups to reach each group's axes. `restrict`
+indexes the stored parameter arrays with the index set, and the constructor of
+the restricted function rejects a result with offset axes; a function with no
+stored parameter array, such as `ElasticNet(λ1, λ2)` without weights, does not
+inspect the index set. Offset axes are reported as a `DimensionMismatch`
+by the point argument of `BlockIterate(x, groups)` and `SymmetricSparseIterate(X)`,
+by `copyto!` into a `SymmetricSparseIterate`, and by an offset `z`, `r` or `d` at the
+supported strided arguments of the least-squares predictor and residual oracles
+at a one-based response; an offset gradient output `g` of those oracles, and the
+group arguments of the group constructors, raise an `ArgumentError`, and a
+representation the oracles do not support is a `MethodError`. For a function
+defined outside this package, the generic `value_and_prox!` and `gradient!`
+hand the arrays to its own methods without a one-based check, except where this
+package symmetrizes the argument for a `SymmetricSparseIterate` output, which
+checks the arrays that it reads; `Scaled`, the kernels of a `SeparableFunction`
+and the allocating calls `prox`, `gradient` and `value_and_gradient` check the
+arrays of such a function. Positive finite steps are the
 standard mathematical setting. Exceptional `NaN`, infinite and zero
 steps are function-specific rather than universally validated.
 See [Numerical usage](numerical_usage.md),

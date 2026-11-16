@@ -11,7 +11,8 @@
 # method with the step 1/Lₖ in coordinate k, from the per-coordinate curvatures
 # below, takes the scale of each column into account without standardizing X.
 
-prox(f::AbstractFunction, x::AbstractArray, γ::AbstractArray) = prox!(similar(x, float(eltype(x))), f, x, γ)
+prox(f::AbstractFunction, x::AbstractArray, γ::AbstractArray) =
+  (_check_one_based(x, γ); prox!(similar(x, float(eltype(x))), f, x, γ))
 
 prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))

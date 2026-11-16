@@ -52,6 +52,7 @@ mutable struct QuadraticFunction{T<:AbstractFloat, M<:AbstractMatrix, V<:Union{N
 
   function QuadraticFunction{T, M, V}(A, b, c, tmp, Λ, Q, w) where {T<:AbstractFloat, M<:AbstractMatrix,
       V<:Union{Nothing, AbstractVector}}
+    _check_one_based(A, b, tmp, Λ, Q, w)
     all(a -> a === nothing || eltype(a) <: Real,
         (A, b, tmp, Λ, Q, w)) || _real_error(:QuadraticFunction)
     new{T, M, V}(A, b, c, tmp, Λ, Q, w)
@@ -76,6 +77,7 @@ isproximable(::Type{<:QuadraticFunction}) = true
 isconvex(::Type{<:QuadraticFunction}) = false
 
 function (f::QuadraticFunction)(x::AbstractVector)
+  _check_one_based(x)
   _checkreal(f, x)
   m = _mul_maxabs!(f.tmp, f.A, x)
   v = dot(x, f.tmp) / 2 + f.c
@@ -224,6 +226,7 @@ function prox!(y::AbstractVector, f::QuadraticFunction{T}, x::AbstractVector, γ
 end
 
 function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, f::QuadraticFunction{T}, y::AbstractVector, x::AbstractVector) where {T}
+  _check_one_based(y, x)
   _checkreal(f, x)
   _checkreal(f, y)
   _checksize(y, x)
@@ -232,6 +235,7 @@ function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, f::Quadr
 end
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::QuadraticFunction, g::AbstractVector, x::AbstractVector)
+  _check_one_based(g, x)
   _checkreal(f, x)
   _checkreal(f, g)
   _checkgradient_output(g, x)

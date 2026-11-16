@@ -64,7 +64,7 @@ NormL2(λ::Real = 1) = NormL2{typeof(λ)}(λ)
 isproximable(::Type{<:NormL2}) = true
 isconvex(::Type{<:NormL2}) = true
 
-(f::NormL2)(x::_ArrayOrSymmetricIterate) = (_checkreal(f, x); _l2_value(f.λ, x))
+(f::NormL2)(x::_ArrayOrSymmetricIterate) = (_check_one_based(x); _checkreal(f, x); _l2_value(f.λ, x))
 
 function _check_l2_arrays(f, y::AbstractArray, x::AbstractArray, γ::Real)
   _checkreal(f, x)

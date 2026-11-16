@@ -261,6 +261,7 @@ end
 # that does not match y is left to the shape checks, which run before any entry is read.
 _symmetric_argument(y, x) = x
 function _symmetric_argument(y::SymmetricSparseIterate, x::AbstractMatrix)
+  _check_one_based(x)
   _symmetric_by_type(x) && return x
   # a device matrix is read on the host, as the decompositions do, so the rule holds for it too
   _is_device_array(x) && return _symmetric_argument(y, Array(x))
@@ -275,7 +276,8 @@ _has_symmetric_type(::Type{T}) where {T<:Tuple} = any(_has_symmetric_type, field
 _has_symmetric_type(::Type) = false
 @generated function _symmetric_blocks(y::Tuple, x::Tuple)
   (fieldcount(y) == fieldcount(x) && _has_symmetric_type(y)) || return :x
-  Expr(:tuple, (:(_symmetric_argument(y[$k], x[$k])) for k in 1:fieldcount(y))...)
+  # the blocks of y and x, nested tuples included, are checked before a symmetric block is scanned
+  Expr(:block, :(_check_one_based(y, x)), Expr(:tuple, (:(_symmetric_argument(y[$k], x[$k])) for k in 1:fieldcount(y))...))
 end
 
 # the first pair (r, c), r > c, in column-major order, at which the square,
@@ -452,8 +454,10 @@ Base.transpose(x::SymmetricSparseIterate) = x
 Base.adjoint(x::SymmetricSparseIterate{<:Real}) = x
 
 # a parameter array has an entry for every position of the matrix that x represents
-_checkparam(w::AbstractArray, x::SymmetricSparseIterate) =
+function _checkparam(w::AbstractArray, x::SymmetricSparseIterate)
+  _check_one_based(w)
   length(w) == x.p^2 || _parameter_length_mismatch(length(w), x.p^2)
+end
 
 # copies of the state of x: values, active zeros and the order of activation
 Base.copy(x::SymmetricSparseIterate) = copyto!(similar(x), x)
@@ -610,6 +614,7 @@ end
 LinearAlgebra.mul!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::AbstractMatrix{T}) where T = _mul_symsparse!(C, A, B)
 
 function _mul_symsparse!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::AbstractMatrix{T}) where T
+  _check_one_based(C, B)
   _checkreal(A, C); _checkreal(A, B)
   size(A, 2) == size(B, 1) || throw(DimensionMismatch())
   size(A, 1) == size(C, 1) || throw(DimensionMismatch())
@@ -649,6 +654,7 @@ end
 
 # any element types: the generic fallback would loop over all p² entries
 function LinearAlgebra.mul!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector)
+  _check_one_based(C, B)
   _checkreal(A, C); _checkreal(A, B)
   size(A, 2) == size(B, 1) || throw(DimensionMismatch())
   size(A, 1) == size(C, 1) || throw(DimensionMismatch())
@@ -691,6 +697,7 @@ end
 
 # the trace inner product tr(A'X) over the stored entries of X
 function LinearAlgebra.dot(A::StridedMatrix, X::SymmetricSparseIterate)
+  _check_one_based(A)
   _checkreal(X, A)
   size(A) == size(X) || throw(DimensionMismatch())
   s = zero(promote_type(eltype(A), eltype(X)))
@@ -768,6 +775,7 @@ end
 # A coefficient that is zero, stored or not, contributes nothing, even against a
 # non-finite entry of B or a non-finite α.
 function _mul_stored!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector, α::Number, β::Number)
+  _check_one_based(C, B)
   p = A.p
   length(B) == p || throw(DimensionMismatch("A has $p columns but B has length $(length(B))"))
   length(C) == p || throw(DimensionMismatch("A has $p rows but C has length $(length(C))"))

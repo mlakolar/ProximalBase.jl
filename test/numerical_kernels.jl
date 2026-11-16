@@ -908,11 +908,11 @@ end
       @test !PB._all_zero(z) && !PB._all_zero_early(z)
       @test PB._all_zero(ZeroBasedVector(zeros(T, n))) && PB._all_zero_early(ZeroBasedVector(zeros(T, n)))
     end
-    # public values whose ordinary sum underflows to 0, so that the zero scan runs: the tiny entry is at index 0
+    # the public values refuse an array whose axes do not start at 1, before any scan
     x = ZeroBasedVector(T[floatmin(T), 0, 0])
-    @test NormL2(one(T))(x) === floatmin(T)
-    @test NormL1(floatmin(T))(x) === zero(T)
-    @test NormL1(floatmin(T))(ZeroBasedVector(zeros(T, 3))) === zero(T)
+    @test_throws ArgumentError NormL2(one(T))(x)
+    @test_throws ArgumentError NormL1(floatmin(T))(x)
+    @test_throws ArgumentError NormL1(floatmin(T))(ZeroBasedVector(zeros(T, 3)))
   end
   @testset "all-zero scans on an axis that ends at typemax(Int)" begin
     # no block end or block start passes the last index, typemax(Int) here: an index outside the axis throws

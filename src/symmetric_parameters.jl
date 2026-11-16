@@ -74,7 +74,7 @@ _check_value_shape(f::Scaled, x) = _check_value_shape(f.f, x)
 # check_parameters for a custom one.
 _check_parameter_extent(f, x) = _checkparams(f, x)
 _check_parameter_extent(f::Scaled, x) = _check_parameter_extent(f.f, x)
-_check_value_arrays(f, x) = _checkreal(f, x)
+_check_value_arrays(f, x) = (_check_one_based(x); _checkreal(f, x))
 function _check_value_arrays(f, x::SymmetricSparseIterate)
   _checkreal(f, x)
   _check_value_shape(f, x)
@@ -116,6 +116,16 @@ _has_symmetric(::SymmetricSparseIterate) = true
 # are structural: element types, and for a symmetric output the sizes, aliases and supported operation of
 # _checkwrite. A symmetric point with another output reaches the same _checkwrite in the kernel body.
 function _check_oracle_arrays(op::O, f, y, x, γ = nothing) where {O}
+  _check_one_based(y, x, γ)
+  _check_oracle_types(op, f, y, x, γ)
+end
+# For the generic fallbacks, which hand a function defined outside this package to its own methods: the one-based
+# check is made for a function of this package only (_isbuiltin).
+function _check_fallback_arrays(op::O, f, y, x, γ = nothing) where {O}
+  _isbuiltin(f) && _check_one_based(y, x, γ)
+  _check_oracle_types(op, f, y, x, γ)
+end
+function _check_oracle_types(op::O, f, y, x, γ) where {O}
   _checkreal(f, y)
   _checkreal(f, x)
   γ === nothing || _checkreal(f, γ)

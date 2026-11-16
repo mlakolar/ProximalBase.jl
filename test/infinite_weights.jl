@@ -712,4 +712,69 @@ generic_loop!(y, f, x, γ) = invoke(PB._prox_sep_dense!, Tuple{AbstractArray, An
     @test isempty(ambiguous)
     @test length(methods(PB._prox_sep_dense!)) >= 3
 end
+
+# The same routes on both sides of the length at which the pass over the steps starts (PB._L1_STEP_PASS_MIN): arrays of
+# 0 to 17 entries as views, reshaped arrays, arrays of an abstract element type and iterates, the output aliased with
+# the argument and with the steps, value_and_prox!, and calls whose checks fail, which must throw what the generic
+# loop throws and leave the output as it was. Results are compared entry by entry with prox_block, or with the generic
+# loop of separable.jl called by invoke.
+@testset "per-entry steps on short other arrays ($T)" for T in (Float32, Float64)
+    rng = Xoshiro(968)
+    for n in (0, 1, 2, 15, 16, 17)
+        x = step_data(T, (n,), 968 + n); γ = T(0.5) .+ rand(rng, T, n)
+        w = T(0.5) .+ rand(rng, T, n)
+        n > 0 && (w[1:4:n] .= zero(T))
+        n > 2 && (w[3:5:n] .= T(Inf))
+        γe = copy(γ)
+        n > 0 && (γe[end] = zero(T))                 # an exceptional step: the generic loop on both sides
+        for f in (NormL1(T(0.3)), NormL1(T(0.3), w)), s in (γ, γe)
+            ref = per_entry(f, x, s)
+            u = zeros(T, 2n); u[1:2:2n] .= x; g = zeros(T, 2n); g[1:2:2n] .= s; perm = collect(1:2:2n)
+            for xa in (view(u, 1:2:2n), view(u, perm)), sa in (s, view(g, 1:2:2n), view(g, perm))
+                @test same_bits(prox!(similar(x), f, xa, sa), ref)
+            end
+            Y = fill(T(7), 2n); prox!(view(Y, 2:2:2n), f, x, s)
+            @test same_bits(Y[2:2:2n], ref) && all(==(T(7)), Y[1:2:2n])
+            if n == 15 || n == 16
+                X = reshape(copy(x), n == 15 ? (3, 5) : (4, 4)); S = reshape(copy(s), n == 15 ? (5, 3) : (2, 8))
+                @test same_bits(vec(prox!(similar(X), f, X, S)), ref)
+            end
+            # abstract element types
+            @test same_bits(prox!(similar(x), f, x, Vector{Real}(s)), ref)
+            @test same_bits(prox!(similar(x), f, Vector{Real}(x), s), ref)
+            # the output is the argument, and the output is the array of steps
+            z = copy(x)
+            @test same_bits(prox!(z, f, z, s), ref)
+            gs = copy(s)
+            @test same_bits(prox!(gs, f, x, gs), ref)
+            vy = similar(x); v = value_and_prox!(vy, f, x, s)
+            @test same_bits(vy, ref) && isequal(v, PB._value_sep(f, ref))
+            n == 0 && continue
+            # the iterates
+            xs = copy(x); xs[2:3:n] .= zero(T)
+            sp = PB.SparseIterate(xs)
+            @test same_bits(prox!(similar(x), f, sp, s), generic_loop!(similar(x), f, sp, s))
+            a = prox!(copy(sp), f, sp, s)
+            stored = findall(!iszero, xs)
+            @test same_bits(Vector(a)[stored], per_entry(f, xs, s)[stored]) && all(iszero, Vector(a)[setdiff(1:n, stored)])
+            if n >= 2
+                bl = PB.BlockIterate(copy(x), [collect(1:2:n), collect(2:2:n)])
+                b1, b2 = copy(bl), copy(bl)
+                prox!(b1, f, bl, s); generic_loop!(b2, f, bl, s)
+                @test same_bits(Vector(b1), Vector(b2)) && same_bits(Vector(b1), ref)
+                @test b1.nactive == b2.nactive && b1.active[1:b1.nactive] == b2.active[1:b2.nactive]
+            end
+            # failing checks: an output of another size, steps of another length, and both at once
+            for (ny, ns) in ((n + 1, n), (n, n + 1), (n + 1, n + 1))
+                yb = fill(T(7), ny); sb = vcat(s, ones(T, ns - n))
+                got = outcome(() -> prox!(yb, f, x, sb))
+                want = outcome(() -> generic_loop!(fill(T(7), ny), f, x, sb))
+                @test !got[1] && !want[1] && got[2] === want[2] && all(==(T(7)), yb)
+                yv = fill(T(7), ny)
+                gotv = outcome(() -> value_and_prox!(yv, f, x, sb))
+                @test !gotv[1] && gotv[2] === want[2] && all(==(T(7)), yv)
+            end
+        end
+    end
+end
 end

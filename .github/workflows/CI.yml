@@ -82,8 +82,8 @@ jobs:
         run: python3 docs/check_markdown.py
       - name: Check that source comments cite no numerical rule labels
         run: |
-          python3 docs/check_source_labels.py --self-test
-          python3 docs/check_source_labels.py
+          julia --startup-file=no docs/check_source_labels.jl --self-test
+          julia --startup-file=no docs/check_source_labels.jl
       - name: Verify direct docs instantiation uses this checkout (Julia 1.11+)
         run: |
           julia --project=docs -e 'using Pkg; Pkg.instantiate(); @assert realpath(Base.find_package("ProximalBase")) == realpath("src/ProximalBase.jl")'

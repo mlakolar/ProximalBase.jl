@@ -1204,7 +1204,7 @@ an eigenspace orthogonal to its deterministic starting vector. Algorithms
 requiring a guaranteed bound should use an independently known bound (for
 example `opnorm(X, 1) * opnorm(X, Inf)`) or a suitable line search.
 """
-opnorm2(X::AbstractMatrix{<:Real}) = _opnorm2(X)
+opnorm2(X::AbstractMatrix{<:Real}) = (_check_one_based(X); _opnorm2(X))
 
 function _opnorm2(X::AbstractMatrix, w = nothing)
   T = float(eltype(X))

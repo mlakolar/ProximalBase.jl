@@ -52,7 +52,7 @@ mutable struct QuadraticFunction{T<:AbstractFloat, M<:AbstractMatrix, V<:Union{N
 
   function QuadraticFunction{T, M, V}(A, b, c, tmp, Λ, Q, w) where {T<:AbstractFloat, M<:AbstractMatrix,
       V<:Union{Nothing, AbstractVector}}
-    _check_one_based(A, b)
+    _check_one_based(A, b, tmp, Λ, Q, w)
     all(a -> a === nothing || eltype(a) <: Real,
         (A, b, tmp, Λ, Q, w)) || _real_error(:QuadraticFunction)
     new{T, M, V}(A, b, c, tmp, Λ, Q, w)

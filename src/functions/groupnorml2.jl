@@ -104,6 +104,7 @@ struct GroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: A
   free::Vector{Int}       # the indices up to the largest in a group that are in none
 
   function GroupNormL2{T, G}(λ0::T, groups::G, w::Vector{T}) where {T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}}
+    _check_one_based_groups(groups)
     length(w) == length(groups) ||
       throw(DimensionMismatch("GroupNormL2 needs one weight per group: $(length(groups)) groups and $(length(w)) weights"))
     _checknonneg("λ0", λ0)

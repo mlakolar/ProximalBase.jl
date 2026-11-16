@@ -65,16 +65,16 @@ mutable struct BlockIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <
   position::Vector{Int}    # position[k] is the index of group k in active, 0 if it is inactive
   nactive::Int
   function BlockIterate{T, G}(storage, groups, group_of, layout_cache, active, position, nactive) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}}
+    _check_one_based_groups(groups)
+    _check_one_based(storage, group_of, active, position)
     T <: Real || _real_error(:BlockIterate)
     new{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
   end
 end
 # Low-level: storage, active and position must not overlap in memory with each other or
 # with those of another iterate (see the docstring); groups and group_of may be shared.
-function BlockIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}, layout_cache, active::Vector{Int}, position::Vector{Int}, nactive::Int) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}}
-  _check_one_based_groups(groups)
+BlockIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}, layout_cache, active::Vector{Int}, position::Vector{Int}, nactive::Int) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}} =
   BlockIterate{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
-end
 
 _stored_values(x::BlockIterate) = x.storage
 
@@ -574,10 +574,12 @@ _block_view_storage(v::SubArray{<:Real, 1, <:BlockIterate}) =
   @inbounds view(parent(v).storage, parentindices(v)...)
 LinearAlgebra.norm(v::SubArray{<:Real, 1, <:BlockIterate}) = norm(_block_view_storage(v))
 LinearAlgebra.norm(v::SubArray{<:Real, 1, <:BlockIterate}, p::Real) = norm(_block_view_storage(v), p)
-LinearAlgebra.dot(v::SubArray{<:Real, 1, <:BlockIterate}, w::StridedVector) = dot(_block_view_storage(v), w)
-LinearAlgebra.dot(v::StridedVector, w::SubArray{<:Real, 1, <:BlockIterate}) = dot(v, _block_view_storage(w))
+LinearAlgebra.dot(v::SubArray{<:Real, 1, <:BlockIterate}, w::StridedVector) =
+  (_check_one_based(v, w); dot(_block_view_storage(v), w))
+LinearAlgebra.dot(v::StridedVector, w::SubArray{<:Real, 1, <:BlockIterate}) =
+  (_check_one_based(v, w); dot(v, _block_view_storage(w)))
 LinearAlgebra.dot(v::SubArray{<:Real, 1, <:BlockIterate}, w::SubArray{<:Real, 1, <:BlockIterate}) =
-  dot(_block_view_storage(v), _block_view_storage(w))
+  (_check_one_based(v, w); dot(_block_view_storage(v), _block_view_storage(w)))
 
 
 function Base.show(io::IO, ::MIME"text/plain", x::BlockIterate)

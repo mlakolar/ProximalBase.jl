@@ -276,7 +276,8 @@ _has_symmetric_type(::Type{T}) where {T<:Tuple} = any(_has_symmetric_type, field
 _has_symmetric_type(::Type) = false
 @generated function _symmetric_blocks(y::Tuple, x::Tuple)
   (fieldcount(y) == fieldcount(x) && _has_symmetric_type(y)) || return :x
-  Expr(:tuple, (:(_symmetric_argument(y[$k], x[$k])) for k in 1:fieldcount(y))...)
+  # every block of y and x is checked before the first scan of a symmetric block reads an entry
+  Expr(:block, :(_check_one_based(y, x)), Expr(:tuple, (:(_symmetric_argument(y[$k], x[$k])) for k in 1:fieldcount(y))...))
 end
 
 # the first pair (r, c), r > c, in column-major order, at which the square,

@@ -71,6 +71,29 @@ Pairs of the same size are unchanged, with the same values. To keep a model
 written with a flattened coefficient vector, reshape it once to the shape of the
 argument, as in `LinearFunction(reshape(c, size(x)), d)`.
 
+## Changed traits and proximal domains
+
+| Call | Before | Now |
+|:--|:--|:--|
+| `isconvex` of `QuadraticFunction`, its type or an instance, and of `Scaled` of it ([#919](https://github.com/mlakolar/ProximalBase.jl/issues/919)) | `true` | `false`, which means that convexity is not guaranteed for an arbitrary instance; `f` is convex when the symmetric `A` is positive semidefinite |
+| `prox!`, `prox` and `value_and_prox!` of `QuadraticFunction`, directly or through `Scaled`, when the smallest eigenvalue `λmin` of the cached decomposition of `A` is negative and the rounded product `γT·(-λmin)` is not `< 1` (a NaN step included), where `γT` is the step after the factors of any `Scaled` are applied, converted to the element type of the function ([#919](https://github.com/mlakolar/ProximalBase.jl/issues/919)) | Unchecked spectral division by `1 + γλi`, which could return non-finite values or finite values that are not the proximal point | `DomainError` before the output is written |
+
+A symmetric `A` need not be positive semidefinite. The check applies to a
+singular positive semidefinite `A` whose computed `λmin` is slightly negative
+from rounding, at steps with `γT·(-λmin) ≥ 1` (about `γ ≥ 1/|λmin|`); at those
+steps the earlier kernel divided by a computed denominator `1 + γT·λmin ≤ 0`.
+A matrix with `λmin ≥ 0`, and a negative step, are not checked and behave as
+before. For a nonnegative finite `γT` and finite cached eigenvalues, the check
+accepts exactly when every computed denominator `1 + γT·λi` is positive. In
+exact arithmetic and for `γ > 0`, the proximal subproblem has a unique minimizer if and only if
+`1 + γ λmin(A) > 0` for the true smallest eigenvalue, so near that boundary
+the check can accept a step for which the true `I + γA` is not positive
+definite, and reject one for which it is.
+
+A caller that knows `A ⪰ 0` and relies on convexity asserts it at its own model
+boundary, and does so again after changing `A`. A successful prox does not
+establish convexity.
+
 ## Historical contracts
 
 Current [developer contracts](developer/index.md) are reconciled against retained

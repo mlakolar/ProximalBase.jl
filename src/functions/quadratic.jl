@@ -5,17 +5,41 @@
 """
     QuadraticFunction(A, b = nothing, c = 0)
 
-The quadratic `f(x) = x'Ax / 2 + b'x + c` for a symmetric positive semidefinite
-`A`, with `b = 0` when omitted. Smooth, with gradient `Ax + b`, and proximable:
-the first proximal operator computes the eigendecomposition `A = QΛQ'` once,
-after which `prox_{γf}(x) = Q (I + γΛ)⁻¹ Q'(x - γb)` costs two products with
-`Q` for any positive finite `γ`.
+The quadratic `f(x) = x'Ax / 2 + b'x + c` for a symmetric `A`, with `b = 0`
+when omitted. `A` need not be positive semidefinite. Smooth, with gradient
+`Ax + b`, valid for symmetric indefinite `A`, and proximable: for a nonempty
+matrix the first proximal operator computes the eigendecomposition `A = QΛQ'`,
+which is cached until `reset_cache!` (an empty matrix recomputes its empty
+decomposition on each call), after which
+`prox_{γf}(x) = Q (I + γΛ)⁻¹ Q'(x - γb)` costs two products with `Q`.
 
-The constructor checks real types, squareness and the length of b, but does
-not verify symmetry or positive semidefiniteness. Those are caller assumptions.
-Values/gradients use A directly; the cached eigenbasis uses Symmetric(Matrix(A))
-with its default upper triangle. Use vectors of compatible length. Data are
-retained by reference; after same-shape A changes call reset_cache!.
+Step domain of `prox!`. Let `γ` be the step after the factors of any `Scaled`
+wrappers are applied, converted to the element type `T` of the function, and
+`λmin` the smallest eigenvalue of the cached decomposition, a computed
+approximation of the true smallest eigenvalue of `A`. When `λmin < 0` and the
+rounded product `γ (-λmin)` is not `< 1` (a NaN step included), `prox!` throws
+`DomainError` before `y` is written; otherwise it applies the formula above.
+For a nonnegative finite `γ` and finite cached eigenvalues, the check accepts
+exactly when every computed denominator `1 + γ λi` is positive. In exact
+arithmetic and for `γ > 0`, the proximal subproblem has a unique minimizer if and only if
+`1 + γ λmin(A) > 0` for the true smallest eigenvalue. The check tests computed
+values, so near that boundary it can accept a step for which the true
+`I + γA` is not positive definite, and reject one for which it is. The
+second case includes a singular positive semidefinite `A` whose computed
+`λmin` is slightly negative: steps with `γ (-λmin) ≥ 1` throw for it.
+
+`isconvex` is `false` for this type: `f` is convex when `A` is positive
+semidefinite, which the package does not certify, and a successful `prox!`
+does not establish it. A solver that needs convexity validates the model
+itself, or relies on a documented caller assertion, and does so again after
+the data change.
+
+Symmetry of `A` is a caller precondition that is not checked or symmetrized.
+The constructor checks real types, squareness and the length of `b`.
+Values/gradients use `A` directly; the cached eigenbasis reads the upper
+triangle of `Symmetric(Matrix(A))`. `A` and `b` are retained by reference;
+after same-shape changes call `reset_cache!`, and the next prox uses the new
+spectrum and its step domain.
 """
 mutable struct QuadraticFunction{T<:AbstractFloat, M<:AbstractMatrix, V<:Union{Nothing, AbstractVector}} <: AbstractFunction
   A::M
@@ -49,7 +73,7 @@ end
 issmooth(::Type{<:QuadraticFunction}) = true
 _argument_type(::Type{<:QuadraticFunction}) = AbstractVector
 isproximable(::Type{<:QuadraticFunction}) = true
-isconvex(::Type{<:QuadraticFunction}) = true
+isconvex(::Type{<:QuadraticFunction}) = false
 
 function (f::QuadraticFunction)(x::AbstractVector)
   _checkreal(f, x)
@@ -168,10 +192,29 @@ function _eigen!(f::QuadraticFunction{T}) where {T}
   f
 end
 
+# With λ the smallest cached eigenvalue (the decomposition is ascending), the kernel divides by
+# 1 + γ Λ. For a finite step γ ≥ 0 and finite cached eigenvalues, the smallest computed denominator is
+# 1 - fl(γ (-λ)), which is positive when fl(γ (-λ)) < 1, so the check accepts exactly when every
+# computed denominator is positive. A negative λ with a step that fails the comparison (an overflowing
+# product and a NaN step included) throws; λ ≥ 0, an empty matrix, and a negative step are not
+# checked. For a step γ = Inf and a nonnegative Λ that contains 0, the check accepts and the
+# denominators are [NaN, ...]: the step behavior there is unchanged.
+@inline function _check_quadratic_step(f::QuadraticFunction, γ)
+  isempty(f.Λ) && return nothing
+  λ = @inbounds f.Λ[1]
+  (λ < 0 && !(γ * -λ < 1)) && _quadratic_step_error(γ, λ)
+  nothing
+end
+
+@noinline _quadratic_step_error(γ, λ) =
+  throw(DomainError(γ, "the proximal operator of a QuadraticFunction needs γ |λmin| < 1 when its smallest " *
+                       "eigenvalue λmin is negative (so that 1 + γ λmin > 0); got γ = $γ and λmin = $λ"))
+
 function prox!(y::AbstractVector, f::QuadraticFunction{T}, x::AbstractVector, γ::Real) where {T}
   _checkwrite(prox!, f, y, x)
   _eigen!(f)
   γ = convert(T, γ)
+  _check_quadratic_step(f, γ)
   t = f.tmp
   f.b === nothing ? copyto!(t, x) : (t .= x .- γ .* f.b)
   mul!(f.w, transpose(f.Q), t)

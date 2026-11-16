@@ -76,7 +76,7 @@ end
 Evaluate the least-squares value `α*sum(abs2, z-Y)/2` from a predictor `z = X*β`
 already computed by the caller. Here `α = 1` for a [`LeastSquaresLoss`](@ref), or
 is the factor of one [`Scaled`](@ref) wrapper. No design entries are read and no
-loss fields are written. Scratch is not accessed separately; `z` may be a view of it.
+loss fields are written. Scratch is neither read nor written separately; `z` may be a view of it.
 
 Use a vector-response loss with strided `Float32` or `Float64` data of one type
 `T`, and a `StridedVector{T}` predictor with the response's axes. Other types
@@ -147,7 +147,7 @@ function value_and_gradient_from_predictor! end
 
 Evaluate `α*sum(abs2, r)/2` from a least-squares residual already held by the
 caller. Either sign, `r = X*β-Y` or `r = Y-X*β`, is accepted. No design or response
-entries are read and no loss fields are written. Scratch is not accessed
+entries are read and no loss fields are written. Scratch is neither read nor written
 separately; `r` may be a view of it.
 
 Use the loss, scale and strided floating-point domain of

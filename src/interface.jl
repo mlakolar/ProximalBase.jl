@@ -106,7 +106,7 @@ isconvex(f::AbstractFunction) = isconvex(typeof(f))
     prox!(y, f, x, γ = 1)
 
 Write the proximal point of `f` at `x` into `y` and return `y`. For `γ > 0`,
-this minimizes ``f(z) + \\|z-x\\|^2/(2\\gamma)`` over `z`. A nonconvex function
+this minimizes `f(z) + ‖z-x‖²/(2γ)` over `z`. A nonconvex function
 may have several minimizers; a supported method returns one.
 
 `y` must have the supported shape of `x`. Exact in-place use,
@@ -114,7 +114,8 @@ may have several minimizers; a supported method returns one.
 including distinct views of the same entries, are unsupported and generally
 undetected; copy the input first. A supported symmetric-iterate destination
 uses the Frobenius metric and accepts only a scalar step; array or per-group
-steps throw `ArgumentError` before writes.
+steps throw `ArgumentError` before writes. To use array steps with a symmetric
+iterate, use a dense output and pass `Matrix(x)` or [`matrixview(x)`](@ref).
 
 Use positive finite steps for the mathematical proximal map. Validation and
 zero/non-finite endpoints depend on the function; see the
@@ -280,8 +281,9 @@ Write the gradient of `f` at `x` into `g` and return `g`.
 
 Use a destination with the supported shape of `x` and independent storage.
 Built-in functions reject `g === x` with `ArgumentError`; other overlapping
-views are unsupported. For supported methods, a
-[`SymmetricSparseIterate`](@ref) destination receives the symmetric part of
+views are unsupported. Numerical failures can leave a partially written
+destination. For supported methods, a [`SymmetricSparseIterate`](@ref)
+destination receives the symmetric part of
 the gradient, the derivative over symmetric matrices.
 
 See [`gradient`](@ref) for an allocating call and
@@ -450,11 +452,14 @@ For `NormL1` the scalar screen is `abs(g[i]) - λ0*w[i]`; `ElasticNet` uses
 `λ1` and returns `-Inf` for an infinite ridge level. Other supported scalar
 screens are `ZeroFunction`, `LinearFunction`, `SqrNormL2` and `Scaled` leaves.
 
-In the four-argument form, `k` is an entry for a `SparseIterate`, an independent
-symmetric coordinate for a `SymmetricSparseIterate`, or a group for a
-`BlockIterate`. Scalar penalties take the maximum member screen on a block;
-[`GroupNormL2`](@ref) uses `norm(g[Gₖ]) - λ0*wₖ` and checks the group count and selected group layout.
-It has no three-argument screen.
+In the four-argument form, `k` is an entry index for a plain array or a
+`SparseIterate`, an independent symmetric coordinate for a
+`SymmetricSparseIterate`, or a group ID for a `BlockIterate`. Scalar
+penalties take the maximum member screen on a block. [`GroupNormL2`](@ref)
+uses `norm(g[Gₖ]) - λ0*wₖ` for an inactive group and checks the group layout.
+For plain array `x`, however, `k` is an **entry index**: when its group is
+nonzero, the screen is `abs(g[k])`, not the group norm. There is no
+three-argument `GroupNormL2` screen.
 
 Symmetric models require validated symmetric parameters. The gradient's chosen
 symmetric pair must not contain opposing infinities. Gradient-length and bounds

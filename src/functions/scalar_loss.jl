@@ -50,7 +50,7 @@ value_and_deriv(ℓ::ScalarLoss, η, y) = (ℓ(η, y), deriv(ℓ, η, y))
 """
     ProximalBase.Squared()
 
-Squared observation loss ``ℓ(η, y) = (η-y)^2/2``. The first derivative is
+Squared observation loss `ℓ(η, y) = (η-y)²/2`. The first derivative is
 `η-y`, the second derivative and global curvature bound are one. This uses the
 qualified [`ProximalBase.ScalarLoss`](@ref) interface, separate from array functions.
 

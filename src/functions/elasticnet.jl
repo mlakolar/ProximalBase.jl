@@ -6,7 +6,7 @@
     ElasticNet(λ1, λ2)
     ElasticNet(λ1, λ2, w)
 
-Elastic-net penalty ``f(x) = \\lambda_1\\sum_i w_i|x_i|+(\\lambda_2/2)\\sum_i x_i^2``.
+Elastic-net penalty `f(x) = λ₁ Σᵢ wᵢ|xᵢ| + (λ₂/2) Σᵢ xᵢ²`.
 The levels and weights must be nonnegative and not `NaN`; omitted weights are
 one. Weights are retained by reference, one per entry in linear order.
 
@@ -68,7 +68,7 @@ _checkparams(f::ElasticNet, x) = (_checkparam(f.w, x); true)
 # The soft threshold of NormL1(λ1, w) (_l1_prox_threshold), then the ridge weight of SqrNormL2(λ2) as its
 # prox_block applies it. A zero λ1 gives the threshold that the NormL1 kernel forms for it, Inf at an infinite
 # weight and 0 otherwise, without the kernel's exceptional product, which a zero level reaches for every
-# entry with a finite weight. An infinite λ2 at γ >= 0 gives +0, whatever the ridge arithmetic gives (NaN at γ = 0, a
+# entry with a finite weight. An infinite λ2 at γ >= 0 gives +0 (#908, D2), whatever the ridge arithmetic gives (NaN at γ = 0, a
 # NaN or ±Inf entry). The tests of λ1, λ2 and a scalar γ do not depend on the entry.
 Base.@propagate_inbounds prox_block(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real} =
   _elastic_prox(f, v, i, γ, float(T), false)
@@ -231,7 +231,7 @@ end
 
 # λ a²/2 for a = |v|. While a² is normal and λ a² is in [2 floatmin, floatmax], the two products are kept and
 # the halving is exact. Otherwise: a zero λ or a zero a gives 0 (a zero λ also at a NaN or ±Inf entry), an
-# infinite λ gives λ a, Inf or NaN, and other factors the bounded-product kernel, rounded once
+# infinite λ gives λ a, Inf or NaN (#908, D2), and other factors the bounded-product kernel, rounded once
 # from scaled significands, so that a square that underflows or overflows is not lost before λ restores it.
 @inline _elastic_square(λ::Real, a::Real) = _elastic_square(promote(float(λ), a)...)
 @inline function _elastic_square(λ::T, a::T) where {T<:AbstractFloat}
@@ -301,7 +301,7 @@ function _elastic_expsum(acc, w, m1, e1, m2, e2, x::SymmetricSparseIterate)
 end
 
 # λ/2 Σ xᵢ²: exactly 0 for a zero λ, also at NaN and ±Inf entries, as for SqrNormL2, and for an infinite λ the
-# indicator of {0}, from the largest stored magnitude, never from Inf⋅0: 0 when every stored entry
+# indicator of {0} (#908, D2), from the largest stored magnitude, never from Inf⋅0: 0 when every stored entry
 # is a zero, NaN when one is NaN, Inf otherwise.
 @inline function _elastic_ridge_value(λ, x)
   T = _valtype(x)
@@ -370,7 +370,7 @@ _value_sep(f::ElasticNet, x::SparseIterate) = (_checkparams(f, x); _elastic_valu
 _value_sep(f::ElasticNet, x::BlockIterate) = (_checkparams(f, x); _elastic_value(f, x))
 _value_sep(f::ElasticNet, x::SymmetricSparseIterate) = (_checkparams(f, x); _elastic_value(f, x))
 
-# The public array oracles refuse a negative or NaN scalar step before anything is written, and
+# D1 (#908): the public array oracles refuse a negative or NaN scalar step before anything is written, and
 # then take the checked separable route. prox_block and the routes inside ProximalBase do not test the step:
 # Scaled hands its own step on (α γ, NaN for α = Inf at γ = 0, #311). Array steps are not read here.
 @noinline _elastic_step_error(γ) = throw(ArgumentError("ElasticNet requires a nonnegative step γ, got $γ"))

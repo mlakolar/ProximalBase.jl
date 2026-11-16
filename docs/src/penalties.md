@@ -190,7 +190,7 @@ threshold is finite. This is a **documented, deferred limitation**
 ([#866](https://github.com/mlakolar/ProximalBase.jl/issues/866)), not an
 approved change to the proximal kernel. The decision preserves performance
 of normal `Float32`/`Float64` weighted operations; the measured cost of extra
-checks is recorded in the [numerical contract](numerics.md).
+checks is recorded in the [numerical endpoint history](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-endpoint-history-921.md).
 See also [Numerical usage](numerical_usage.md).
 
 ## [The elastic-net penalty](@id The-elastic-net-penalty)

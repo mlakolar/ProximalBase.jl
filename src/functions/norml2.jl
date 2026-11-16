@@ -19,9 +19,9 @@
 """
     NormL2(λ = 1)
 
-Euclidean-norm penalty ``f(x) = \\lambda\\lVert x\\rVert_2``; for a matrix, use the Frobenius norm.
+Euclidean-norm penalty `f(x) = λ‖x‖₂`; for a matrix this is the Frobenius norm.
 The level must be nonnegative and not `NaN`. Its proximal operator shrinks the
-whole argument: ``\\max(1-\\gamma\\lambda/\\lVert x\\rVert_2,0)x``. Use [`GroupNormL2`](@ref) to
+whole argument: `max(1 - γλ/‖x‖₂, 0) * x`. Use [`GroupNormL2`](@ref) to
 shrink separate groups.
 
 Values accept real, one-based arrays and the three iterate types. Sparse and
@@ -36,10 +36,10 @@ julia> f = NormL2(1.0);
 julia> f([3.0, 4.0])
 5.0
 
-julia> prox(f, [3.0, 4.0], 5.0)
+julia> prox(f, [3.0, 4.0], 2.5)
 2-element Vector{Float64}:
- 0.0
- 0.0
+ 1.5
+ 2.0
 ```
 
 # Edge cases

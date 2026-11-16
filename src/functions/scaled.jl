@@ -64,7 +64,7 @@ Base.@propagate_inbounds Base.getindex(a::_ExpScaledArray{T}, i::Int) where {T} 
 """
     Scaled(f, α)
 
-Nonnegative multiple ``h(x) = α f(x)``. The expressions `α*f` and `f*α` construct
+Nonnegative multiple `h(x) = α f(x)`. The expressions `α*f` and `f*α` construct
 it too. Negative or `NaN` scales are invalid. For positive finite `α`, a proximal
 step for `h` uses the inner function's step `α*γ`.
 
@@ -110,7 +110,7 @@ Scaled(f::AbstractFunction, α::Real) = Scaled{typeof(f), typeof(α)}(f, α)
 # Two scales merge when their product is an ordinary number. A product that is not a normal
 # number (it underflows, is subnormal or overflows) no longer says what the two factors said,
 # so the wrappers stay nested and every oracle forms the coefficient it needs from all of the
-# factors (`_scaled_chain`). Zero and infinite scales keep their meaning and merge without changing arithmetic.
+# factors (`_scaled_chain`). Zero and infinite scales keep their meaning and merge as before.
 @inline function _nested_scales(a, b)
   (isfinite(a) & isfinite(b) & (a > 0) & (b > 0)) || return false
   p = a * b
@@ -212,7 +212,7 @@ function _folded_level(λ, α::_NormalScale)
   c === nothing || iszero(c) || abs(c) >= floatmin(typeof(float(c))) ? c : nothing
 end
 _fold_level(::AbstractFunction, α) = nothing
-# Fold a finite scale into the NormL1 level when its range is preserved.
+# NormL1 member of the frozen literal folding loop.
 function _fold_level(f::NormL1, α)
   c = _folded_level(f.λ0, α)
   c === nothing ? nothing : NormL1(c, f.w)
@@ -474,7 +474,7 @@ _elastic_finite_scale(α::Real) = isfinite(α) && α > 0
 _elastic_finite_scale(α::_ProjectionScale) = isfinite(α.m) && !iszero(α.m)
 _elastic_finite_scale(α) = false
 
-# The scaled-value mechanism (range recovery for wrappers). A function with `_has_value_parts` returns its
+# The scaled-value mechanism (R1, "Wrappers"). A function with `_has_value_parts` returns its
 # value at x as (m, e), the value m 2^e with a finite significand m, or `nothing` to keep the
 # ordinary result (`_value_parts`, defaults in utils.jl). Only host arrays take it; a NaN value
 # stays NaN, and a normal value is its own significand and exponent, so the function is asked

@@ -5,7 +5,7 @@
 """
     ZeroFunction()
 
-Zero function ``f(x) = 0`` for an unpenalized problem. Its gradient is zero and
+Zero function `f(x) = 0` for an unpenalized problem. Its gradient is zero and
 its proximal operator is the identity. Real, one-based arrays are required;
 shape and output checks still apply.
 

@@ -317,8 +317,9 @@ assertion, and does so again after the data change.
 floating constructor type. Scratch and the eigenbasis are private. For a nonempty matrix, the first prox
 caches the eigendecomposition; subsequent calls use two eigenbasis products.
 An empty matrix recomputes its empty decomposition on each call. Changing
-entries of `A` or `b` requires `reset_cache!(f)` before another prox, which then uses
-the new spectrum and its step domain. Reconstruct
+entries of `A` requires `reset_cache!(f)` before another prox, which then uses
+the new spectrum and its step domain. Changes to `b` alone need no reset:
+the prox reads `b` on each call. Reconstruct
 for changed dimensions. `restrict(f,S)` selects `A[S,S]`, `b[S]` and retains
 `c`, corresponding to omitted variables fixed at zero. Arbitrary nonzero
 fixed coordinates require the caller to derive new linear/constant terms.

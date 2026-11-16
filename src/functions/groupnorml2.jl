@@ -6,8 +6,8 @@
     GroupNormL2(λ0, groups)
     GroupNormL2(λ0, groups, w)
 
-Group-lasso penalty ``f(x) = \\lambda_0\\sum_k w_k\\lVert x[G_k]\\rVert_2``, with default weights
-``w_k = \\sqrt{|G_k|}``. Groups are nonempty, disjoint lists or ranges of positive
+Group-lasso penalty `f(x) = λ₀ Σₖ wₖ‖x[Gₖ]‖₂`, with default weights
+`wₖ = √|Gₖ|`. Groups are nonempty, disjoint lists or ranges of positive
 linear indices. Their order is preserved; entries in no group are unpenalized.
 The nonnegative level and weights cannot be `NaN`. Supply one weight per group;
 the constructor copies `groups` and `w`.
@@ -24,17 +24,23 @@ julia> f = GroupNormL2(1.0, [1:2], [1.0]);
 julia> f([3.0, 4.0])
 5.0
 
-julia> prox_block(f, [3.0, 4.0], 1, 5.0)
+julia> prox_block(f, [3.0, 4.0], 1, 2.5)
 2-element Vector{Float64}:
- 0.0
- 0.0
+ 1.5
+ 2.0
+
+julia> h = GroupNormL2(1.0, [[3, 1]], [1.0]);
+
+julia> Tuple(prox(h, [3.0, 9.0, 4.0], 2.5))
+(1.5, 9.0, 2.0)
 ```
 
 # Edge cases
 - Real, one-based arrays and valid shapes/groups are required. Negative or `NaN`
   steps fail before writes.
 - Exact in-place prox is supported. For compact blocks, `out === u` is supported;
-  other reported overlaps are rejected, and `out` must not alias iterate storage.
+  other overlaps detected by `Base.mightalias` are rejected, and `out` must
+  not alias iterate storage.
 - Zero-weight groups stay unchanged. Infinite weights or an infinite level with
   positive weight fix a group at `+0`, including at zero step.
 - No `SymmetricSparseIterate`, `restrict`, per-group steps or compact block method

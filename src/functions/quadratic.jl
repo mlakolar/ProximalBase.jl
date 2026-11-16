@@ -5,7 +5,7 @@
 """
     QuadraticFunction(A, b = nothing, c = 0)
 
-Quadratic function ``f(x) = x^T A x/2 + b^T x + c``, with gradient `A*x+b`;
+Quadratic function `f(x) = x' * A * x / 2 + b' * x + c`, with gradient `A*x+b`;
 omitted `b` is zero. Arguments are real, one-based vectors. `A` must be square and
 **symmetric**, and `b` must have matching length. Symmetry is a caller precondition:
 the constructor neither checks nor repairs it. Indefinite symmetric `A` is allowed.
@@ -14,7 +14,9 @@ The proximal point solves `(I + γ*A)*y = x - γ*b` using a cached eigendecompos
 For a negative computed minimum eigenvalue, the prox rejects a step whose rounded
 `γ*(-λmin)` is not less than one, raising `DomainError` before writing the output.
 This uses the effective step after scaling and conversion to the function's type.
-Near the spectral boundary, computed and exact positive definiteness can disagree.
+A singular positive-semidefinite `A` (for example `X'X` when `p > n`) may
+have a slightly negative computed eigenvalue; large steps can then raise
+`DomainError` even though the exact matrix is positive semidefinite.
 
 # Examples
 ```jldoctest
@@ -32,9 +34,10 @@ julia> gradient(f, [1.0, 1.0])
 # Edge cases
 - [`isconvex`](@ref) returns `false`: positive semidefiniteness is not certified.
   Solvers that require convexity must validate it, including after data changes.
-- `A` and `b` are retained by reference. Call [`reset_cache!`](@ref) after same-shape
-  changes; reconstruct after dimension changes. The cached eigenbasis reads `A`'s
-  upper triangle, while values and gradients use `A` directly.
+- `A` and `b` are retained by reference. Call [`reset_cache!`](@ref) after
+  same-shape changes to `A`; changing `b` alone needs no reset. Reconstruct
+  after dimension changes. The cached eigenbasis reads `A`'s upper triangle,
+  while values and gradients use `A` directly.
 
 See [quadratic operations and step domain](@ref Quadratic-function) for exact
 boundary qualifications, caching, alias rules and numerical limits.
@@ -119,7 +122,7 @@ end
 
 # The ordinary value, or its recomputation from the exact products: after an overflow (a non-finite
 # value of finite data), or when the products A x rounded into the buffer type P, and the final dots,
-# could have lost more than eps |v| (finite-input value accuracy). m is max|x|, which the product A x has already read.
+# could have lost more than eps |v| (R1, #520). m is max|x|, which the product A x has already read.
 @inline function _quadratic_checked(f::QuadraticFunction, x, v, ::Type{P}, m) where {P}
   if !isfinite(v) || (_quadratic_underflow_risk(f, x, v, P, m) && !_quadratic_products_normal(f, x, v, P))
     _quadratic_value_recover(f, x, v)
@@ -130,7 +133,7 @@ end
 
 # The threshold of _quadratic_underflow_risk is a worst case: it assumes that products may be subnormal.
 # When none can be, the ordinary value carries only relative errors, and the value is as accurate as the
-# ordinary computation, however small it is, an exact zero of a null-space argument included.
+# ordinary computation (R1), however small it is, an exact zero of a null-space argument included.
 # Every nonzero product of two operands is normal if the sum of the exponents of their smallest nonzero
 # entries is at least exponent(floatmin): |a b| >= 2^(ea + eb) (Julia's exponent has a significand in
 # [1, 2)); a product with a zero is exact; and a sum with a subnormal result is exact. The products are

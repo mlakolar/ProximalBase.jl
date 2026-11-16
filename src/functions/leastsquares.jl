@@ -7,7 +7,7 @@
 """
     LeastSquaresLoss(Y, X)
 
-Least-squares loss ``f(β) = \\lVert Y-X\\beta\\rVert^2/2`` with gradient `X'*(X*β-Y)`.
+Least-squares loss `f(β) = ‖Y-Xβ‖²/2` with gradient `X'*(X*β-Y)`.
 `X` is an `n × p` design matrix. A length-`n` response `Y` uses length-`p`
 coefficients; an `n × k` response uses `p × k` coefficients and the Frobenius norm.
 Data and arguments must be real and one-based.

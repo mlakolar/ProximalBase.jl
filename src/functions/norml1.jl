@@ -6,12 +6,12 @@
     NormL1(λ0 = 1)
     NormL1(λ0, w)
 
-Weighted ℓ₁ penalty ``f(x) = \\lambda_0\\sum_i w_i |x_i|``, with all weights equal to
+Weighted ℓ₁ penalty `f(x) = λ₀ Σᵢ wᵢ |xᵢ|`, with all weights equal to
 one when `w` is omitted. The level and weights must be nonnegative and not `NaN`.
 Weights are retained by reference and paired with entries by linear index.
 
 [`prox`](@ref) applies entrywise soft thresholding ([`shrink`](@ref)) with
-threshold ``\\gamma\\lambda_0 w_i``. The function is separable and zero-preserving; value
+threshold `γλ₀wᵢ`. The function is separable and zero-preserving; value
 and same-kind sparse-iterate prox calls visit only stored entries.
 
 # Examples
@@ -69,10 +69,10 @@ Base.@propagate_inbounds prox_block(f::NormL1, v::T, i::Integer, γ::Real) where
   first(_l1_prox_threshold(v, γ, f.λ0, _entry(f.w, i), float(T)))
 
 # Whether the level and the step, as given, fix a penalized entry (w > 0) at zero whatever it holds,
-# NaN and ±Inf included (hard constraints take precedence over IEEE propagation): an infinite level at a nonnegative step, where the domain of
+# NaN and ±Inf included (E4 before E2): an infinite level at a nonnegative step, where the domain of
 # the entry is {0}. At γ = 0 this is the limit γ → 0+ with the function fixed (#665), the projection
 # onto the closure of the domain, not the identity that the threshold 0⋅Inf would suggest. Never
-# decided from the threshold γλ0w, which overflows for finite parameters and is 0⋅Inf at a
+# decided from the threshold γλ0w, which overflows for finite parameters (R3) and is 0⋅Inf at a
 # zero step. Only the exceptional branch below reads it: 0⋅Inf is NaN, outside the ordinary range.
 @inline _l1_fixing(γ, λ) = (γ >= 0) & isinf(λ)
 @inline _l1_fixed(γ, λ, w) = (w > 0) & _l1_fixing(γ, λ)
@@ -101,7 +101,7 @@ function (f::NormL1{<:Real, Nothing})(x::DenseArray{<:AbstractFloat})
   iszero(f.λ0) && return zero(T)
   _level_fits(T, f.λ0) || return _converted_l1_value(f.λ0, x)
   s = sum(abs, x)
-  # an infinite level fixes every entry at zero: the value at the zero vector is 0, not Inf⋅0
+  # an infinite level fixes every entry at zero (E4): the value at the zero vector is 0, not Inf⋅0
   isinf(f.λ0) && iszero(s) && return zero(T)
   v = convert(T, f.λ0) * s
   isfinite(v) || !isfinite(f.λ0) || !all(isfinite, x) ? v : _value_dense(f, x)
@@ -134,7 +134,7 @@ end
   s, ordinary
 end
 
-# Keep the ordinary loop vectorizable; the checks of its result are scalar tests after it. Every pass
+# Preserve the original ordinary loop; the checks of its result are scalar tests after it. Every pass
 # checks intermediates, not just the final sum.
 function _value_dense(
     f::NormL1{T,<:Array{T}},

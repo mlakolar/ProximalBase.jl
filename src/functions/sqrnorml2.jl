@@ -6,7 +6,7 @@
     SqrNormL2(λ = 1)
     SqrNormL2(λ, y)
 
-Squared-distance function ``f(x) = (\\lambda/2)\\lVert x-y\\rVert^2`` with nonnegative level `λ`
+Squared-distance function `f(x) = (λ/2)‖x-y‖²` with nonnegative level `λ`
 and center zero when `y` is omitted. For a matrix, the norm is Frobenius.
 This is the ridge penalty when uncentered, or half the squared error when `λ = 1`.
 
@@ -101,7 +101,7 @@ function _value_unchecked(f::SqrNormL2, x::_ArrayOrSymmetricIterate)
   iszero(f.λ) && return zero(T)
   y = f.y
   # A center is a parameter: it is rounded to the model precision of the value, the
-  # argument's, so a Float64 center does not widen a Float32 value.
+  # argument's (T3), so a Float64 center does not widen a Float32 value.
   T === Float32 && y !== nothing && eltype(y) === Float64 && return _ridge_value_wide_center(f.λ, x, y)
   _square_value(f.λ, x, _ridge_value_center(T, y))
 end
@@ -123,7 +123,7 @@ _value_parts(f::SqrNormL2, x::AbstractArray, v) = _square_parts(f.λ, x, _ridge_
   iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
 _parameter_alias(f::SqrNormL2, out) = _mightalias_parameter(out, f.y)
 
-# Does a center entry keep its range when rounded to the model precision W?
+# Does a center entry keep its range when rounded to the model precision W (R3)?
 # Branchless, so that a loop over the entries still vectorizes. Free for a center
 # already stored in W; non-finite and zero entries convert without loss.
 @inline _ridge_fits(::Type{W}, c::W) where {W} = true
@@ -167,9 +167,9 @@ function _ridge_all_fit(::Type{Float32}, c::AbstractArray{Float64})
   hi <= _F32_MAX_BITS && lo >= _F32_MIN_BITS - one(UInt64)
 end
 
-# A center entry rounded to the model precision T where that keeps its range, as given otherwise.
+# A center entry rounded to the model precision T where that keeps its range, as given otherwise (R3).
 @inline _ridge_round(::Type{T}, c) where {T} = _ridge_fits(T, c) ? oftype(c, T(c)) : c
-# The centers as the value at an argument of type T reads them, for the recomputation and
+# The centers as the value at an argument of type T reads them (T3, R3), for the recomputation and
 # the value parts: a Float64 center at a Float32 argument, and a BigFloat center at a Float32 or
 # Float64 argument, are rounded entry by entry (_ridge_round); other centers are read as stored.
 function _ridge_value_center(::Type{T}, y) where {T}
@@ -181,7 +181,7 @@ end
 # Σ (xᵢ - round(cᵢ))² for a Float32 argument and a Float64 center. The ordinary
 # computation runs in Float32 when every center entry keeps its range on rounding;
 # otherwise the centers that fit are rounded and the scaled recovery of
-# _square_value sees them in Float64.
+# _square_value sees them in Float64 (R3).
 function _ridge_value_wide_center(λ, x, y)
   T = Float32
   s = 0.0           # the squares are exact in Float64; the sum accumulates there
@@ -233,9 +233,9 @@ _ridge_gradient_coordinates!(g, l, c, x) =
 _ridge_gradient_wide_coordinates!(g, ::Type{W}, l, c, x) where {W} =
   _symmetric_coordinates!(g, (v, j) -> _ridge_gradient_wide(W, l, v, c === nothing ? zero(W) : @inbounds c[j]), x)
 # gᵢ = λ(xᵢ - cᵢ) in the model precision W of the gradient: the wider of the
-# destination and the argument. λ and c are rounded to W, except where the
-# rounding leaves W's range; an overflowing xᵢ - cᵢ does not hide a finite
-# gradient entry.
+# destination and the argument. λ and c are rounded to W (T3), except where the
+# rounding leaves W's range (R3); an overflowing xᵢ - cᵢ does not hide a finite
+# gradient entry (R2).
 function _ridge_gradient!(g, λ, c, x)
   W = _model_precision(eltype(g), eltype(x))
   if _level_fits(W, λ)
@@ -332,10 +332,10 @@ end
 
 # The ridge proximal point (x + γλc)/(1 + γλ) = a x + b c with the convex weights
 # a = 1/(1+t), b = t/(1+t), t = γλ. t is formed once from the unrounded factors in
-# P = promote_type(W, factors) and rounded to the model precision W.
+# P = promote_type(W, factors) and rounded to the model precision W (T3).
 #
 # Ordinary: t, 1/t and both weights are normal numbers in W (or a factor is zero or
-# not finite, which keeps its earlier meaning). Scaled: t = τ·2^k from the
+# not finite, which keeps its earlier meaning). Scaled (R3): t = τ·2^k from the
 # significands; the smaller weight is carried as m·2^e and applied last, so a
 # coefficient that is not representable still acts on the coordinate.
 struct _RidgeOrdinary{W<:Real}
@@ -432,7 +432,7 @@ end
 # For a hardware-float center, R holds x and c with room to spare (it is wider than W,
 # which holds x), so the plain convex combination cannot overflow. prox_block inlines
 # it, so that a loop over the entries has no call and vectorizes (its weights do not
-# depend on the entry); the array methods call it, without changing arithmetic.
+# depend on the entry); the array methods call it, as before.
 @inline function _ridge_wide_entry(o::_RidgeOrdinary{W}, x, c::Base.IEEEFloat) where {W}
   R = promote_type(W, typeof(c))
   a, b = _ridge_weights_t(convert(R, o.t))

@@ -82,6 +82,30 @@ end
 
 @testset "sparseIterate" begin
 
+    @testset "coordinate-count overflow is rejected before allocation (#958)" begin
+        # Both huge requests must fail at the count check, without trying to allocate.
+        for (make, label) in (
+            (() -> SparseIterate(Float64, typemax(Int), 2), "SparseIterate dimensions"),
+            (() -> SymmetricSparseIterate(Float64, typemax(Int)), "SymmetricSparseIterate dimension"),
+        )
+            err = try
+                make()
+                nothing
+            catch e
+                e
+            end
+            @test err isa ArgumentError
+            if err isa ArgumentError
+                message = sprint(showerror, err)
+                @test occursin(label, message)
+                @test occursin("coordinate count exceeds typemax(Int)", message)
+            end
+        end
+        @test_throws ArgumentError SparseIterate(Float64, -1, -1)
+        @test ncoordinates(SparseIterate(Float64, 2, 3)) == 6
+        @test ncoordinates(SymmetricSparseIterate(Float64, 3)) == 6
+    end
+
     @testset "dropzeros and active counts" begin
         x = SparseIterate(3)
         x[3] = 2.

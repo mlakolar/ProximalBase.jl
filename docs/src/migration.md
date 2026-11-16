@@ -74,8 +74,8 @@ argument, as in `LinearFunction(reshape(c, size(x)), d)`.
 
 A symmetric `A` need not be positive semidefinite. The check applies to a
 singular positive semidefinite `A` whose computed `λmin` is slightly negative
-from rounding, at steps `γ ≥ 1/|λmin|` of the computed value; the earlier
-results at those steps were already inaccurate. A matrix with `λmin ≥ 0`,
+from rounding, at steps `γ ≥ 1/|λmin|` of the computed value; at those steps
+the earlier kernel divided by a computed denominator `1 + γλmin ≤ 0`. A matrix with `λmin ≥ 0`,
 and a negative step, are not checked and behave as before.
 
 A caller that knows `A ⪰ 0` and relies on convexity asserts it at its own model

@@ -284,7 +284,7 @@ and no step check is made. When ``\lambda_{\min}<0``, the prox throws
 `DomainError` before the output is written unless ``\gamma|\lambda_{\min}|<1``;
 a NaN step fails that test and a negative step passes it. For ``\gamma>0`` the
 test is ``1+\gamma\lambda_{\min}>0``, the condition for the proximal subproblem
-to have a minimizer. A singular positive semidefinite `A` whose computed
+to have a unique minimizer. A singular positive semidefinite `A` whose computed
 ``\lambda_{\min}`` is slightly negative from rounding is treated by that
 computed value, so steps with ``\gamma|\lambda_{\min}|\ge1`` throw for it.
 

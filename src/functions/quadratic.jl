@@ -16,7 +16,7 @@ when `λmin ≥ 0`, no step check is made. When `λmin < 0`, `prox!` throws
 `DomainError` before `y` is written unless `γ |λmin| < 1`. A NaN step fails
 that test and a negative step passes it. For `γ > 0` the test is
 `1 + γ λmin > 0`, the condition for the proximal subproblem to have a
-minimizer. A singular positive semidefinite `A` whose computed `λmin` is
+unique minimizer. A singular positive semidefinite `A` whose computed `λmin` is
 slightly negative from rounding is treated by that computed value.
 
 `isconvex` is `false` for this type: `f` is convex when `A` is positive

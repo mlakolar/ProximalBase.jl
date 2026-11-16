@@ -79,7 +79,7 @@ Base.@propagate_inbounds prox_block(f::NormL1, v::T, i::Integer, γ::Real) where
 Base.@propagate_inbounds function _l1_prox_threshold(v, γ, λ, w, ::Type{S}) where {S}
   t, normal = _threshold_product(S, γ, λ, w)
   if normal
-    return shrink(v, t), t
+    return _shrink_nonneg(v, t), t          # γλ0 > 0 and w ≥ 0: the threshold is not negative
   end
   t = _weight_product(S, γ, λ, w)
   r = shrink(v, t)

@@ -104,9 +104,10 @@ Base.@propagate_inbounds function _elastic_prox(f::ElasticNet, v, i, γ, ::Type{
 end
 Base.@propagate_inbounds function _elastic_threshold(f::ElasticNet, v, i, γ, ::Type{S}, ordinary::Bool = false) where {S}
   w = _entry(f.w, i)
-  iszero(f.λ1) && return shrink(v, ifelse(isinf(w), S(Inf), zero(S)))
+  # the thresholds of these two lines are not negative (Inf or 0; the ordinary product of nonnegative factors)
+  iszero(f.λ1) && return _shrink_nonneg(v, ifelse(isinf(w), S(Inf), zero(S)))
   # with `ordinary` true, the ordinary branch of _l1_prox_threshold
-  ordinary ? shrink(v, first(_threshold_product(S, γ, f.λ1, w))) : first(_l1_prox_threshold(v, γ, f.λ1, w, S))
+  ordinary ? _shrink_nonneg(v, first(_threshold_product(S, γ, f.λ1, w))) : first(_l1_prox_threshold(v, γ, f.λ1, w, S))
 end
 @inline _elastic_fixed(f::ElasticNet, γ) = isinf(f.λ2) & (γ >= 0)
 # whether the step γ of entry i takes the ordinary branches of _elastic_prox: the threshold product γλ1 in the

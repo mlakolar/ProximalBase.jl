@@ -1,8 +1,9 @@
 module NormLinfTest
 # NormLinf (#946): f(x) = λ max|xᵢ| and its proximal operator, the clip yᵢ = clamp(xᵢ, -τ, τ) with
 # Σ(|xᵢ| - τ)₊ = γλ (and +0 when γλ ≥ ‖x‖₁), against an independent sort-based ℓ1-ball threshold written in this
-# file in BigFloat, in Float32 and Float64. The tolerance of an output entry is TOL_C n eps(T) max|xᵢ| (the absolute
-# accuracy of the threshold, which the docstring states), plus two subnormal spacings.
+# file in BigFloat, in Float32 and Float64. The tolerance of an output entry is TOL_C n eps(T) max|xᵢ| plus two subnormal
+# spacings: the absolute accuracy O(n eps(T) max|xᵢ| + δ) of the threshold that the docstring states, with the constants
+# TOL_C and 2 (δ = nextfloat(zero(T))).
 using Test, ProximalBase, LinearAlgebra, Random, OffsetArrays
 using ..TestUtils
 
@@ -507,6 +508,61 @@ end
   # the value of the chain at the output
   v = value_and_prox!(zeros(2), s, x, 1e200)
   @test isfinite(v) && v ≈ s(y)
+end
+
+@testset "Scaled validates before writing, in prox! and in the fused hook ($T)" for T in (Float32, Float64)
+  x = T[3, -1]
+  for λ in (zero(T), one(T), T(Inf)), g in (2 * NormLinf(λ), 2 * (3 * NormLinf(λ))), op in (prox!, value_and_prox!)
+    for γ in (T(-1), T(NaN))
+      y = fill(T(7), 2)
+      @test_throws ArgumentError op(y, g, x, γ)
+      @test y == fill(T(7), 2)
+    end
+    for m in (3, 1)
+      y = fill(T(7), m)
+      @test_throws DimensionMismatch op(y, g, x, one(T))
+      @test y == fill(T(7), m)
+    end
+    # an infinite factor at the zero step forms the step Inf⋅0 = NaN
+    y = fill(T(7), 2)
+    @test_throws ArgumentError op(y, T(Inf) * NormLinf(λ), x, zero(T))
+    @test y == fill(T(7), 2)
+  end
+end
+
+@testset "Scaled at the top binade: the folded level needs exponent headroom ($T)" for (T, e) in ((Float64, 1000), (Float32, 100))
+  M = floatmax(T)
+  s = Scaled(NormLinf(ldexp(one(T), -e)), ldexp(one(T), e))
+  γ = T(0.75) * M                  # the radius γ ⋅ 2^-e ⋅ 2^e = γ is representable, the step α γ is not
+  y = prox(s, T[M], γ)
+  @test y == T[M - γ]
+  v = value_and_prox!(zeros(T, 1), s, T[M], γ)
+  @test v ≈ s(y) && v ≈ M - γ
+  # two entries at the maximum
+  x2 = T[M, M]
+  ref, _ = ref_prox(x2, γ, one(T))
+  y2 = prox(s, x2, γ)
+  @test close_prox(y2, ref, x2) && all(!iszero, y2)
+  v2 = value_and_prox!(zeros(T, 2), s, x2, γ)
+  @test v2 ≈ s(y2)
+  # the same through a nested chain of two factors
+  s2 = Scaled(Scaled(NormLinf(ldexp(one(T), -e)), ldexp(one(T), e ÷ 2)), ldexp(one(T), e - e ÷ 2))
+  @test prox(s2, T[M], γ) == T[M - γ]
+end
+
+@testset "equality, hash and signed-zero levels ($T)" for T in (Float32, Float64)
+  f, g = NormLinf(zero(T)), NormLinf(-zero(T))
+  @test f == g && isequal(f, g) && hash(f) == hash(g)
+  @test get(Dict(f => 42), g, :missing) == 42
+  @test length(Set([f, g])) == 1
+  @test NormLinf(one(T)) != NormLinf(T(2)) && length(Set([NormLinf(one(T)), NormLinf(T(2))])) == 2
+end
+
+@testset "subnormal outputs: the absolute accuracy has the additive term δ ($T)" for T in (Float32, Float64)
+  δ = nextfloat(zero(T))
+  y = prox(NormLinf(δ), T[δ], T(0.5))
+  @test y == T[δ]                                  # the exact point is δ/2
+  @test abs(big(y[1]) - big(δ) / 2) <= tol(T, 1, δ)
 end
 
 @testset "allocations ($T)" for T in (Float32, Float64)

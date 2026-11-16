@@ -39,7 +39,7 @@ NormL2
 GroupNormL2
 ```
 
-## ℓ∞ norm
+## Maximum-magnitude norm
 
 ```@docs
 NormLinf

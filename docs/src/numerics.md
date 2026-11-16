@@ -177,12 +177,16 @@ squares overflows or underflows and a threshold `γ*λ0*w[k]` outside the range,
 power-of-two units; the ordinary path needs a normal threshold and a normal sum of
 squares, and is otherwise unchanged.
 
-The clip level `τ` of `NormLinf` has an **absolute** error of order `n eps(T) max|xᵢ|` for `n` entries in the
-floating type `T` of the output (from the running sums of Condat's algorithm), unlike the relative bounds of the
-`NormL2` and `GroupNormL2` kernels: an entry far below `max|xᵢ|` has no relative guarantee. A sum of magnitudes that
-overflows or exceeds `floatmax(T)/2` is processed in power-of-two units, whose subnormal losses are below that error
-for up to `2^60` entries in `Float32` and `Float64`, and the output of an infinite entry without `NaN` is the identity. The
-value is `λ τ`, and `value_and_prox!` returns the value of the stored output, computed as `f(y)` computes it.
+The clip level `τ` of `NormLinf` has an **absolute** error of order `n eps(T) max|xᵢ| + δ` for `n` entries in the
+floating type `T` of the output, with `δ = nextfloat(zero(T))` (from the running sums of Condat's algorithm and the
+storage of a subnormal radius or output), unlike the relative bounds of the `NormL2` and `GroupNormL2` kernels: an entry
+far below `max|xᵢ|` has no relative guarantee, and `x = [δ]`, `λ = δ`, `γ = 0.5` gives `[δ]` where the exact point is
+`δ/2`. A sum of magnitudes that overflows or exceeds `floatmax(T)/2` is processed in power-of-two units, whose subnormal
+losses are below the nominal scale `n eps(T) max|xᵢ|` when `n eps(T) ≤ 1/2` (up to `2^22` entries in `Float32` and
+`2^51` in `Float64`), a hypothesis of that argument that the code does not check. For positive
+finite level and step, an infinite entry without `NaN` gives the identity; on the finite clipping branch the value is
+`λ τ`, computed from the largest stored magnitude `τ`, and `value_and_prox!` returns the value of the stored output,
+computed as `f(y)` computes it. Endpoint precedence is given in the table below.
 
 These are practical numerical safeguards, not a promise of exhaustive
 range recovery or correctly rounded arbitrary reductions, gradients, or
@@ -256,10 +260,11 @@ all-NaN result or a particular exception.
 | `NormL1`, infinite level, nonnegative step | Positive-weight entries prox to `+0`, including non-finite inputs; zero-weight entries stay free. At `γ = 0` this is the fixed-function limit `γ → 0+`, the projection onto the closure of the domain ([#665](https://github.com/mlakolar/ProximalBase.jl/issues/665)) |
 | `NormL1`, finite factors whose product overflows | Distinguished from genuinely infinite weights/levels; recovery handles representable finite results where supported. With an input of `±Inf`, an overflowed finite threshold can yield `NaN`; [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) is a documented, deferred limitation, not an authorized hot-loop fix. |
 | `NormL2` | The rules of one `GroupNormL2` group with weight one (rows below); value `0` at zero level; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
-| `NormLinf`, infinite level, nonnegative step | `+0` at every entry, `γ = 0` included (#665 reading, #946), also for `NaN`/`±Inf` inputs; value `0` at the zero vector (an empty one included), `Inf` at any other argument without a `NaN`, `NaN` at a `NaN` entry |
-| `NormLinf`, zero level or zero step | The identity (`-0`, `NaN` and `±Inf` entries unchanged), also at `γ = Inf` with a zero level; value `0` at a zero level, `λ maxᵢ abs(xᵢ)` at a zero step of a finite level |
-| `NormLinf`, positive finite level and step | A `NaN` entry makes every output `NaN`; a `±Inf` entry (no `NaN`) leaves the argument unchanged, also when the finite product `γλ` overflows; `γ = Inf` gives `+0`; otherwise the clip at `τ` with `Σ(abs(xᵢ) - τ)₊ = γλ`, and `+0` when `γλ` is at least `‖x‖₁` or overflows while `‖x‖₁` is finite; a sum of magnitudes above `floatmax(T)/2` is processed in power-of-two units |
-| `NormLinf`, negative or `NaN` step | `ArgumentError` before any write; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write, also through `Scaled`) |
+| `NormLinf`, negative or `NaN` step | Checked first: `ArgumentError` before any write, ahead of the rows below, also through `Scaled` (a size mismatch is a `DimensionMismatch`); no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write, also through `Scaled`) |
+| `NormLinf`, infinite level, nonnegative step | `+0` at every entry, `γ = 0` and `γ = Inf` included (#665 reading, #946), also for `NaN`/`±Inf` inputs; value `0` at the zero vector (an empty one included), `Inf` at any other argument without a `NaN`, `NaN` at a `NaN` entry |
+| `NormLinf`, finite level, zero level or zero step | After the rows above: the identity (`-0`, `NaN` and `±Inf` entries unchanged), also at `γ = Inf` with a zero level; value `0` at a zero level, `λ maxᵢ abs(xᵢ)` at a zero step of a positive level |
+| `NormLinf`, positive finite level, infinite step | `+0` for every input (decided before the entries are classified), `NaN` and `±Inf` entries included |
+| `NormLinf`, positive finite level and positive finite step | A `NaN` entry makes every output `NaN`; a `±Inf` entry (no `NaN`) leaves the argument unchanged, also when the finite product `γλ` overflows; otherwise the clip at `τ` with `Σ(abs(xᵢ) - τ)₊ = γλ`, and `+0` when `γλ` is at least `‖x‖₁` or overflows while `‖x‖₁` is finite; a sum of magnitudes above `floatmax(T)/2` is processed in power-of-two units |
 | `GroupNormL2`, zero weight | Unpenalized group: returned unchanged (`NaN`/`±Inf` included), zero value |
 | `GroupNormL2`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` included (#665 reading), also for `NaN`/`±Inf` inputs; value `0` at zero, `Inf` elsewhere (`NaN` at a `NaN` entry) |
 | `GroupNormL2`, positive finite parameters and step | A `NaN` entry makes the group `NaN`; a `±Inf` entry (no `NaN`) leaves the group unchanged, also when the finite threshold's product overflows; `γ = Inf` fixes the group at `+0` |

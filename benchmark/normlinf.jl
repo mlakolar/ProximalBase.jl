@@ -5,8 +5,8 @@
 #
 #   julia --project=<package root> benchmark/normlinf.jl <out.csv> <label>
 #
-# One BLAS thread. The data come from Xoshiro generators with fixed seeds. A sample is a loop of calls that lasts at least
-# 5 ms; 31 samples per cell after a warm-up. The in-place operation restores x from a copy in each call and subtracts the
+# One BLAS thread. The data come from Xoshiro generators with fixed seeds. A sample is a loop of calls whose repetition
+# count is calibrated to target at least 5 ms per sample; 31 samples per cell after a warm-up. The in-place operation restores x from a copy in each call and subtracts the
 # time of the copies. The CSV has the columns label, julia, op, T, n, regime, median_ns, min_ns, allocs_bytes.
 using ProximalBase, Random, LinearAlgebra, Statistics
 
@@ -51,7 +51,7 @@ function loop_value(f, x, reps)
   s
 end
 
-# the number of calls per sample: at least MIN_SECONDS
+# the number of calls per sample: the first count whose loop took at least MIN_SECONDS (later samples may be shorter)
 function calibrate(run)
   run(1)
   reps = 1

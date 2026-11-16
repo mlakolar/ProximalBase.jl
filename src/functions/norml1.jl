@@ -86,6 +86,40 @@ Base.@propagate_inbounds function _l1_prox_threshold(v, γ, λ, w, ::Type{S}) wh
   ifelse(_l1_fixed(γ, λ, w), zero(r), r), t
 end
 
+# Array steps in the loop over every entry (separable.jl), as for ElasticNet (elasticnet.jl, #910). With a step
+# array the range test of γᵢλ0 (_threshold_product) is a test per entry, which keeps the loop scalar. When the
+# element types of x and γ are concrete and every step takes the ordinary branch of _l1_prox_threshold, which a pass
+# over the steps in blocks of 256 decides (it returns false after the first block that holds a step outside it), the
+# loop calls that branch alone, and LLVM can vectorize it. Otherwise it calls prox_block(f, …). Either loop stores
+# convert(eltype(y), prox_block(f, xᵢ, i, γᵢ)) in entry i, bit for bit.
+struct _L1OrdinarySteps{F<:NormL1} <: SeparableFunction
+  f::F
+end
+Base.@propagate_inbounds prox_block(g::_L1OrdinarySteps, v::T, i::Integer, γ::Real) where {T<:Real} =
+  shrink(v, first(_threshold_product(float(T), γ, g.f.λ0, _entry(g.f.w, i))))
+iszeropreserving(::_L1OrdinarySteps) = true
+_checkparams(g::_L1OrdinarySteps, x) = _checkparams(g.f, x)
+
+function _prox_sep_dense!(y::AbstractArray, f::NormL1, x::AbstractArray, γ::AbstractArray)
+  _checkwrite(prox!, f, y, x)
+  _checkparam(γ, x)
+  isconcretetype(eltype(x)) && isconcretetype(eltype(γ)) &&
+    _l1_ordinary_steps(f, γ, float(eltype(x)), eachindex(IndexLinear(), y, x)) &&
+    return _l1_prox_entries!(y, _L1OrdinarySteps(f), x, γ)
+  _l1_prox_entries!(y, f, x, γ)
+end
+function _l1_ordinary_steps(f::NormL1, γ, ::Type{S}, inds) where {S}
+  for b in first(inds):256:last(inds)
+    ok = true
+    @inbounds for i in b:(b + min(255, last(inds) - b))   # b + 255 can overflow at indices near typemax(Int)
+      ok &= last(_threshold_product(S, _entry(γ, i), f.λ0, _entry(f.w, i)))
+    end
+    ok || return false
+  end
+  true
+end
+_l1_prox_entries!(y, f, x, γ) = invoke(_prox_sep_dense!, Tuple{AbstractArray, Any, AbstractArray, Any}, y, f, x, γ)
+
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _kkt_coefficient(eltype(g), f.λ0, _entry(f.w, i)))
 restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entries(f.w, S))

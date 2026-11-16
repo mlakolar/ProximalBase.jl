@@ -23,9 +23,9 @@ a `NaN` entry. A level that is not of the type of the entries is applied in the 
 
 `prox!`, `prox` and `value_and_prox!` take arrays of the same size (a `BlockIterate` or a `SparseIterate` through
 indexed reads and writes of its entries, O(length)) and a scalar step; `prox!(x, f, x, γ)` is supported. A negative
-or `NaN` step throws an `ArgumentError` before anything is written, and so do sizes, real element types and one-based
-indexing. A `SymmetricSparseIterate` argument or output throws an `ArgumentError` before anything is written, also
-through `Scaled`: its proximal operator is not provided. The rules apply in this order: `λ = Inf` gives `+0` at
+or `NaN` step, complex entries and indexing that is not one-based throw an `ArgumentError`, and a size mismatch a
+`DimensionMismatch`, before anything is written. A `SymmetricSparseIterate` argument or output throws an
+`ArgumentError` before anything is written, also through `Scaled`: its proximal operator is not provided. The rules apply in this order: `λ = Inf` gives `+0` at
 every nonnegative step, `γ = 0` included (#665), for every input; otherwise `λ = 0` or `γ = 0` gives the identity (so
 `γ = Inf` with `λ = 0` is the identity); `γ = Inf` with a positive finite `λ` gives `+0`. At positive finite `γ` and
 `λ`, a `NaN` entry makes every output `NaN`, and an infinite entry without `NaN` leaves the argument unchanged, also
@@ -39,10 +39,10 @@ entries are read as `abs(convert(T, xᵢ))`; Float32 and Float64 with arguments 
 precisions.
 
 The threshold needs a buffer of length `length(x)`. A dense `Array` output of type `T` that does not overlap an
-`Array` or a view of an `Array` argument serves as that buffer, before the clip overwrites it. Otherwise (`y === x`,
-a view, an iterate or another output type) the object keeps a buffer of its own, allocated on the first call and
-again when the size or the element type changes: the same object must not be used from several tasks at once
-when that buffer is in use.
+argument that is an `Array` or a view of an `Array` serves as that buffer, before the clip overwrites it. Otherwise
+(`y === x`, an overlapping output, a view or an iterate as output, another output type, or an argument of another
+type) the object keeps a buffer of its own, allocated on the first call and again when the size or the element type
+changes: the same object must not be used from several tasks at once when that buffer is in use.
 """
 struct NormLinf{T<:Real} <: AbstractFunction
   λ::T
@@ -111,7 +111,8 @@ prox(f::NormLinf, ::SymmetricSparseIterate, ::Real = 1) = _symmetric_prox_error(
 
 # The output when the arguments have been checked. It returns the largest magnitude of the stored output, in T =
 # float(eltype(y)), or nothing when that is not known without a pass (the identity branches). The branches are those of
-# the table of the docstring, in its order; the clip is out of line of the exceptional ones.
+# the docstring, in its order. The ordinary path is the classification pass, the threshold and the clip; a NaN or infinite
+# sum of magnitudes, or one above floatmax/2, goes to `_linf_exceptional!`, which is not inlined.
 function _linf_prox!(y, f::NormLinf, x, γ::Real)
   T = float(eltype(y))
   λ = f.λ
@@ -145,8 +146,8 @@ end
 #   2^k τ′ moves by less than n 2^k δ < 8 n² δ (2^k < 8n for the initial k). The ordinary path has an error of order
 #   n eps(T) max|xᵢ| in τ, and max|xᵢ| ≥ floatmax/(4n) here (the sum is at least floatmax/2 up to rounding), so its
 #   error is at least eps(T) floatmax/4. The loss is below it when 32 n² δ ≤ eps(T) floatmax(T), which holds for
-#   n ≤ 2^60 in Float32 (the ratio eps floatmax/(32 δ) is 2^249) and in Float64 (2^2041). The loss of the scaled path is
-#   then below the rounding error of the ordinary path, and the accuracy statement of the docstring holds.
+#   n ≤ 2^60 in Float32 (the ratio eps floatmax/(32 δ) is 2^249) and in Float64 (2^2041). The loss is then below that
+#   error, so the error of the scaled path is of the order stated in the docstring.
 # - No lower bound on τ is needed: x = [floatmax, 2^970] with γλ = floatmax in Float64 has the level 2^969.
 # - r′ = 2^-k γλ is formed from the significands and exponents of γ and λ, so that it does not overflow where γλ
 #   does: r′ ≥ s′ gives the output +0, and an r′ below the range rounds to a subnormal or zero, a change of at most
@@ -173,7 +174,7 @@ end
 # ceil(log2(n)) + 2 for n ≥ 1, from the bit length of n - 1
 @inline _linf_exponent(n::Int) = 64 - leading_zeros(n - 1) + 2
 
-# The radius γλ, rounded once to T from the product in the promoted type; infinite where it exceeds floatmax(T).
+# The radius γλ, rounded once to T from the product in the promoted type; Inf where the product is beyond floatmax(T).
 @inline function _linf_radius(::Type{T}, γ, λ) where {T}
   R = promote_type(T, float(typeof(γ)), float(typeof(λ)))
   convert(T, convert(R, γ) * convert(R, λ))
@@ -227,7 +228,7 @@ end
 
 # The sum and the largest of the magnitudes rd(x[i]), in one pass. A NaN entry gives a NaN sum. The maximum is that of
 # the bit patterns for Float32 and Float64, where it vectorizes (a NaN or an infinite entry gives a NaN or an infinite
-# maximum, as in `_maximum_abs`); it is used for finite data only, which a sum that is not NaN or infinite certifies.
+# maximum, as in `_maximum_abs`); the callers use it on finite data, which a sum that is neither NaN nor infinite certifies.
 function _linf_classify(x, rd, ::Type{T}) where {T}
   s = zero(T)
   m = zero(T)
@@ -287,7 +288,7 @@ end
 end
 
 # y = x, the identity; the largest stored magnitude is not known without a pass
-@inline function _linf_copy!(y, x, n::Int)
+@noinline function _linf_copy!(y, x, n::Int)
   if y !== x
     @inbounds for i in 1:n
       y[i] = x[i]
@@ -305,15 +306,15 @@ end
 # algorithm (J. Optim. Theory Appl. 50, 1986) when many entries become candidates. `rd` maps an entry to its magnitude
 # in T = eltype(buf): `_AbsRead{T}()`, or the scaled read of the overflow path. `buf` is a scratch array whose length
 # is at least length(x), indexed linearly. The level is a Float of type T with a rounding error of order n eps(T) max yᵢ
-# (absolute), not clamped: the caller clamps it to [0, max yᵢ]. The proximal operator of the ℓ∞ norm, the projection
-# onto the ℓ1 ball and the group variants of the restored functions use it as the threshold.
+# (absolute), not clamped: the caller clamps it to [0, max yᵢ]. The projection onto the ℓ1 ball can reuse it as its
+# threshold.
 #
-# Conditions on the data, which the caller (`_linf_prox!`) establishes with its classification pass: every yᵢ is finite
-# and nonnegative, r is a number with 0 ≤ r < Σ yᵢ, the sum computed in the order of the classification pass is at
-# most floatmax(T)/2, and n eps(T) ≤ 1/2. Plain comparisons are used, so that a NaN would be skipped (`NaN > ρ` is false):
-# #677 was that omission in the legacy kernel, and a NaN entry is routed to its own branch before this function runs.
+# Conditions on the data, which the caller (`_linf_prox!`) establishes with its classification pass: the yᵢ are finite
+# and nonnegative, r is a number with 0 ≤ r < s, where s is the sum of the classification pass and is at most
+# floatmax(T)/2, and n eps(T) ≤ 1/2. The comparisons are plain: a NaN entry would be skipped (`NaN > ρ` is false),
+# which was #677 in the legacy kernel, and a NaN entry is routed to its own branch before this function runs.
 #
-# Why the selector sees only finite data whose partial sums stay in range. A partial sum in the order of Condat's or
+# Why the selector sees finite data and partial sums in range. A partial sum in the order of Condat's or
 # Michelot's passes, a sum of nonnegative terms, differs from the exact sum of its terms by a relative error of at most
 # θ = (1 + eps(T)/2)^n - 1 ≤ 1/3 (for n eps(T) ≤ 1/2), and the sum of the classification pass is at most floatmax/2; the
 # exact total is then at most floatmax/2 / (1 - θ) and a computed partial sum at most floatmax/2 (1 + θ)/(1 - θ) ≤
@@ -321,8 +322,8 @@ end
 #
 # Why an overflowing (y - r) nv still decides correctly. The test of Condat's pass is s > (y - r) nv, the exact test
 # (s + y - r)/(nv + 1) > y - r. With y ≤ floatmax/2 the factor y - r is finite, and the product with nv ≥ 1 overflows
-# to +Inf only if (y - r) nv > floatmax; since s is a sum of some of the yᵢ it is below floatmax (see above), so the
-# exact test is false, as the comparison s > Inf is. A product that overflows to -Inf has y - r < 0 and the exact
+# to +Inf, which needs (y - r) nv > floatmax; since s is a sum of some of the yᵢ it is below floatmax (see above), so
+# the exact test is false, as the comparison s > Inf is. A product that overflows to -Inf has y - r < 0 and the exact
 # test (s ≥ 0 > -∞) is true, as s > -Inf is. The level (s - r)/nv is finite as s is and nv ≥ 1.
 function _l1ball_threshold!(buf::AbstractArray{T}, x, a::T, rd::F) where {T, F}
   n = length(x)
@@ -378,7 +379,7 @@ end
 end
 
 # The end of Condat's algorithm, from the discarded entries buf[1:nt] and the candidates buf[nt+1:nt+nv] of sum s, whose
-# level is ρ = (s - a)/nv, recomputed from the sum whenever the candidates change.
+# level is ρ = (s - a)/nv, recomputed from the sum after each change of the candidates.
 function _condat_finish!(buf::AbstractArray{T}, nt::Int, nv::Int, s::T, a::T) where {T}
   ρ = (s - a) / nv
   # the discarded entries above ρ rejoin the candidates, collected at the front
@@ -404,7 +405,7 @@ function _condat_finish!(buf::AbstractArray{T}, nt::Int, nv::Int, s::T, a::T) wh
     while i <= len
       y = buf[i]
       if y <= ρ
-        len == 1 && return ρ            # from rounding only: the largest entry stays
+        len == 1 && return ρ            # reached through rounding: the largest entry stays
         buf[i] = buf[len]
         len -= 1
         s -= y
@@ -428,9 +429,8 @@ end
 # between all the entries and none (the loop of the legacy kernel returned -Inf or 1.0 by the parity of n). Here the
 # loop stops when the count c of the entries above τ is 0 or is not below the count of the pass before, and returns τ,
 # the last level computed from a nonempty set. The first pass has τ = -Inf, c = n ≥ 1, and a count that decreases at each
-# later pass that continues, so the loop runs at most n + 1 passes. When c is 0 or has not decreased, the set that gave τ
-# is the set that the rounded level would give again, or is empty: τ is then the level of the last nonempty set, which
-# is within rounding of the solution for finite data.
+# later pass that continues, so the loop runs at most n + 1 passes. When c is 0 or has not decreased, the level τ of the
+# last nonempty set is returned as it is: 1.0 in the example above, the value of the entries.
 function _l1ball_michelot(x, a::T, rd::F, ::Type{T}) where {T, F}
   τ = T(-Inf)
   cnt = length(x) + 1

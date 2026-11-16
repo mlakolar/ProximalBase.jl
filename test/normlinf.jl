@@ -10,7 +10,7 @@ const PB = ProximalBase
 const PREC = 256
 const TOL_C = 8
 
-# ---- independent references (BigFloat, from the definition only) ----
+# ---- independent references (BigFloat, from the definition) ----
 
 # the sorted magnitudes and their cumulative sums
 function ref_setup(u)
@@ -239,7 +239,7 @@ end
   rng = Xoshiro(948)
   f = NormLinf(one(T))
   γ = one(T)
-  # a NaN entry makes every output NaN, in any position (#677: the middle and the last positions failed in legacy)
+  # a NaN entry makes all the outputs NaN, in each position tested (#677: the middle and the last positions failed in legacy)
   for n in (2, 3, 5, 16, 17, 40), pos in unique((1, 2, n ÷ 2 + 1, n - 1, n))
     x = T[1 + i for i in 1:n]
     x[pos] = T(NaN)
@@ -274,7 +274,7 @@ end
     v = value_and_prox!(y, h0, x, g)
     @test same(y, x) && v === zero(T) && h0(x) === zero(T)
   end
-  # finite λ > 0: γ = 0 is the identity (-0 kept), γ = Inf gives +0 for every input
+  # finite λ > 0: γ = 0 is the identity (-0 kept), γ = Inf gives +0 for the inputs listed
   y = prox(f, T[-0.0, 2], zero(T))
   @test same(y, T[-0.0, 2]) && value_and_prox!(zeros(T, 2), f, T[-0.0, 2], zero(T)) === T(2)
   @test same(prox(f, T[NaN, Inf, 1], zero(T)), T[NaN, Inf, 1])
@@ -499,7 +499,7 @@ end
     @test abs(big(y[1]) - (big(1e150) - r)) <= 8 * 2 * big(eps(Float64)) * big(1e150)
   end
   @test y[1] != 0 && y[2] == 0
-  # a radius that clips the largest entry only: τ = 2e100 for r = 1e100 (the radius is rounded in the reference)
+  # a radius that clips the largest entry alone: τ = 2e100 for r = 1e100 (the radius is rounded in the reference)
   x2 = [3e100, 1e100]
   y2 = prox(s, x2, 1e200)
   ref2, _ = ref_prox(x2, 1e200, 1e-300 * 1e200)

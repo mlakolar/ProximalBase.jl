@@ -558,6 +558,55 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
       value_and_prox!(y, s, x, T(0.4)); value_and_prox!(y, s, x, st)
       @test alloc_vprox_scaled(y, s, x, T(0.4)) == 0 && alloc_vprox_scaled(y, s, x, st) == 0
     end
+    # the domain of the recomputation: both levels positive and finite, a nonzero subnormal leaf value (checked here at
+    # f(y)) and a finite factor above one (2^57 or 2^20, inside the band, with a scalar step whose product with it is
+    # normal). A row gives the levels, coordinate 1 (zero, or a subnormal or normal f(y)), the weight and the entry of
+    # coordinate 2 (:same repeats coordinate 1), the class of f(y) and whether the row is in the domain. Inside, the value
+    # is within one unit in the last place of the value at y; outside, it is finite, NaN or infinite as s(y) is, and a
+    # non-finite value is s(y). Rows with a zero entry 2 also run on a one-entry SparseIterate and SymmetricSparseIterate.
+    @testset "eligibility of the recomputation" begin
+      cls(u) = isnan(u) ? :nan : isinf(u) ? :inf : iszero(u) ? :z : issubnormal(u) ? :s : :n
+      rows = [(:both, :sub, 0, 0, :s, true), (:both, :sub, 1, 0, :s, true), (:both, :sub, 0, :same, :s, true),
+              (:both, :sub, 1, :same, :s, true), (:both, :sub, 0, Inf, :inf, false), (:both, :sub, 0, -Inf, :inf, false),
+              (:both, :sub, 0, NaN, :nan, false), (:both, :sub, 1, Inf, :inf, false), (:both, :sub, 1, NaN, :nan, false),
+              (:both, :zero, 1, 0, :z, false), (:both, :normal, 1, 0, :n, false),
+              (:l1, :sub, 0, 0, :s, false), (:l1, :sub, 1, 0, :s, false), (:l1, :sub, 0, Inf, :s, false),
+              (:l1, :sub, 0, -Inf, :s, false), (:l1, :sub, 0, NaN, :s, false), (:l1, :sub, 1, Inf, :inf, false),
+              (:l1, :sub, 1, NaN, :nan, false), (:l1, :zero, 0, Inf, :z, false), (:l1, :zero, 1, 0, :z, false),
+              (:l1, :normal, 1, 0, :n, false),
+              (:l2, :sub, 0, 0, :s, false), (:l2, :sub, 1, 0, :s, false), (:l2, :sub, 0, Inf, :inf, false),
+              (:l2, :sub, 0, NaN, :nan, false), (:l2, :sub, 1, -Inf, :inf, false), (:l2, :zero, 1, 0, :z, false),
+              (:l2, :normal, 1, 0, :n, false),
+              (:none, :sub, 1, 0, :z, false), (:none, :sub, 0, Inf, :z, false), (:none, :sub, 0, NaN, :z, false),
+              (:none, :normal, 1, Inf, :z, false), (:none, :normal, 1, NaN, :z, false)]
+      for T in (Float32, Float64)
+        α, γ, a, xs1, xs2 = T === Float64 ? (2.0^57, 2.0^-157, 2.0^-499, 1.25 * 2.0^-537, 1.25 * 2.0^-520) :
+                                            (2.0f0^20, 2.0f0^-30, 2.0f0^-60, 2.25f0 * 2.0f0^-70, 1.25f0 * 2.0f0^-66)
+        for (l, c1, w2, e2, leaf, inside) in rows
+          λ1, λ2 = l === :both ? (a, one(T)) : l === :l1 ? (a, zero(T)) : l === :l2 ? (zero(T), one(T)) : (zero(T), zero(T))
+          x1 = c1 === :zero ? zero(T) : c1 === :normal ? T(1.25) : l === :l2 ? xs2 : xs1
+          x2 = e2 === :same ? x1 : T(e2)
+          s = Scaled(ElasticNet(λ1, λ2, T[1, w2]), α)
+          cases = Any[(s, T[x1, x2], γ), (s, T[x1, x2], [γ, γ])]
+          if iszero(x2)
+            xs = SparseIterate(T, 2); xs[1] = x1
+            S = SymmetricSparseIterate(T, 2); S[2, 1] = x1
+            append!(cases, [(s, xs, γ), (s, xs, [γ, γ]), (Scaled(ElasticNet(λ1, λ2, T[w2 1; 1 w2]), α), S, γ)])
+          end
+          for (sc, x, g) in cases
+            y, v = fused(sc, x, g)
+            fy = sc.f(y)
+            @test cls(fy) === leaf && PB._fused_small_case(sc.f, sc.α, fy) === inside
+            if inside
+              @test within(v, big4096(() -> big(α) * valref(sc.f, y isa SymmetricSparseIterate ? Matrix(y) : Vector(y))), 1)
+            else
+              sy = sc(y)
+              @test isfinite(v) == isfinite(sy) && isnan(v) == isnan(sy) && (isfinite(v) || isequal(v, sy))
+            end
+          end
+        end
+      end
+    end
   end
 
   @testset "the fused value up to 1/(2 eps) - 2 entries" begin

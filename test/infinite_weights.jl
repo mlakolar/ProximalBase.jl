@@ -527,6 +527,15 @@ function check_steps(f, x::Array{T}, γ) where {T}
     ok
 end
 
+# an array of steps that counts how often its entries are read
+struct CountedSteps{T} <: AbstractVector{T}
+    steps::Vector{T}
+    reads::Base.RefValue{Int}
+end
+Base.size(c::CountedSteps) = size(c.steps)
+Base.IndexStyle(::Type{<:CountedSteps}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(c::CountedSteps, i::Int) = (c.reads[] += 1; c.steps[i])
+
 # data with every class of value at scattered positions, the rest ordinary
 function step_data(::Type{T}, dims, seed) where {T}
     rng = Xoshiro(seed)
@@ -542,8 +551,10 @@ end
     rng = Xoshiro(916)
     levels = Any[T(0.3), T(3), 2, zero(T), T(Inf), big(0.3)]   # a BigFloat level: the products are formed in BigFloat
     T === Float32 && push!(levels, 0.3, 3.0)        # a Float64 level with Float32 data: the products are formed in Float64
-    # around the block length (256) of the pass over the steps, and a last partial block
-    shapes = [(0,), (1,), (7,), (8,), (9,), (64,), (255,), (256,), (257,), (511,), (512,), (513,), (1000,), (8, 8), (25, 40)]
+    # around the block length (256) of the pass over the steps, and a last partial block; and around the length
+    # (PB._L1_STEP_PASS_MIN = 16) below which there is no pass and the generic loop runs
+    shapes = [(0,), (1,), (2,), (3,), (7,), (8,), (9,), (14,), (15,), (16,), (17,), (3, 5), (4, 4), (64,), (255,), (256,),
+              (257,), (511,), (512,), (513,), (1000,), (8, 8), (25, 40)]
     for dims in shapes, λ in levels
         n = prod(dims)
         λ isa BigFloat && n > 257 && continue
@@ -595,6 +606,30 @@ end
         @test same_bits(y, ref)
         γe = copy(γ); γe[50] = T(NaN)
         @test same_bits(prox!(similar(x), f, view(x, :), γe), per_entry(f, x, γe))
+    end
+    # the pass over the steps starts at PB._L1_STEP_PASS_MIN entries: a shorter array of ordinary steps is read once (the
+    # generic loop alone), a longer one twice (the pass, then the loop of the ordinary branch), with the same bits
+    @test PB._L1_STEP_PASS_MIN == 16
+    for n in (1, 2, 8, PB._L1_STEP_PASS_MIN - 1, PB._L1_STEP_PASS_MIN, PB._L1_STEP_PASS_MIN + 1, 300)
+        xs = step_data(T, (n,), 40 + n); steps = T(0.5) .+ rand(rng, T, n)
+        for f in (NormL1(T(0.3)), NormL1(T(0.3), T(0.5) .+ rand(rng, T, n)))
+            counted = CountedSteps(steps, Ref(0))
+            @test same_bits(prox!(similar(xs), f, xs, counted), per_entry(f, xs, steps))
+            @test counted.reads[] == (n < PB._L1_STEP_PASS_MIN ? n : 2n)
+            # an exceptional first step: the pass, where there is one, stops after its first block, and the generic loop
+            # reads every step
+            bad = copy(steps); bad[1] = T(NaN)
+            counted = CountedSteps(bad, Ref(0))
+            @test same_bits(prox!(similar(xs), f, xs, counted), per_entry(f, xs, bad))
+            @test counted.reads[] == (n < PB._L1_STEP_PASS_MIN ? n : min(n, 256) + n)
+        end
+    end
+    # no allocation below the length of the pass either
+    let xs = step_data(T, (8,), 3), steps = T(0.5) .+ rand(rng, T, 8), ys = Vector{T}(undef, 8)
+        for f in (NormL1(T(0.3)), NormL1(T(0.3), T(0.5) .+ rand(rng, T, 8)))
+            @test allocs(prox!, ys, f, xs, steps) == 0
+            @test allocs(value_and_prox!, ys, f, xs, steps) == 0
+        end
     end
     # a step array that is the output (each step is read before its entry is written)
     f = NormL1(T(0.3))

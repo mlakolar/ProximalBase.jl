@@ -100,7 +100,11 @@ Base.@propagate_inbounds prox_block(g::_L1OrdinarySteps, v::T, i::Integer, γ::R
 iszeropreserving(::_L1OrdinarySteps) = true
 _checkparams(g::_L1OrdinarySteps, x) = _checkparams(g.f, x)
 
+# Arrays of fewer than _L1_STEP_PASS_MIN entries go to the generic loop at once: for a few entries the pass over the
+# steps costs more than the ordinary loop saves. The generic loop makes the same checks, in the same order.
+const _L1_STEP_PASS_MIN = 16
 function _prox_sep_dense!(y::AbstractArray, f::NormL1, x::AbstractArray, γ::AbstractArray)
+  length(x) < _L1_STEP_PASS_MIN && return _l1_prox_entries!(y, f, x, γ)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   isconcretetype(eltype(x)) && isconcretetype(eltype(γ)) &&

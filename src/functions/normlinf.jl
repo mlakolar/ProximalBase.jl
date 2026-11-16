@@ -354,7 +354,7 @@ end
 # test (s ≥ 0 > -∞) is true, as s > -Inf is. The level (s - r)/nv is finite as s is and nv ≥ 1.
 #
 # Why the level is at most one of the yᵢ. Condat's algorithm returns a level ρ below every remaining candidate (the last
-# loop ends only when no candidate is at or below ρ), and the candidates are entries, so ρ is below an entry; the one
+# loop ends when no candidate is at or below ρ), and the candidates are entries, so ρ is below an entry; the one
 # exit with ρ at or above its single candidate y (reached through rounding) returns y. Michelot's level (s - r)/c is a
 # mean of entries minus a nonnegative number in exact arithmetic, but its rounded sum can exceed c times the largest
 # entry, so that path returns the minimum of its level and the largest entry, which its first pass computes.

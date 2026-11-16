@@ -31,6 +31,33 @@ an array. A
 `SymmetricSparseIterate` has no `NormL2` proximal operator: those calls throw an
 `ArgumentError` before anything is written.
 
+## The NormLinf norm
+
+`NormLinf(λ)` is ``g(x)=\lambda\max_i\lvert x_i\rvert`` with ``\lambda\ge0``; it is not separable.
+Its proximal operator clips the entries at a level ``\tau\ge0``,
+``\operatorname{clamp}(x_i,-\tau,\tau)``, where ``\sum_i(\lvert x_i\rvert-\tau)_+=\gamma\lambda``,
+and it is zero when ``\gamma\lambda\ge\lVert x\rVert_1``. The level comes from the
+projection onto the ℓ₁ ball of radius ``\gamma\lambda`` (Condat's algorithm, with Michelot's as a fallback),
+and the output is the clip itself, not ``x`` minus that projection. The error of ``\tau`` is absolute, of order
+``n\,\varepsilon\max_i\lvert x_i\rvert+\delta`` with ``\delta`` the smallest subnormal number of the output type
+(the storage of a subnormal radius or output adds ``\delta``). The value takes arrays and the three iterates, and a
+`SymmetricSparseIterate` (its largest stored magnitude); the proximal operators take arrays and
+the sparse and block iterates, and a `SymmetricSparseIterate` argument or output throws an `ArgumentError` before
+anything is written. The endpoint rules (a zero or infinite level or step, `NaN` and infinite entries, overflow of
+``\gamma\lambda``) are in the [numerical contract](numerics.md). A `NormLinf` object may keep a buffer of its own, so
+that it must not be used from several tasks at once: construct a fresh `NormLinf(f.λ)` for each task, or synchronize
+the calls ([ownership](numerical_usage.md#Ownership-and-aliases)).
+
+```@example group_penalty
+hinf = NormLinf(1.0)
+@assert hinf([3.0, -1.0]) == 3.0
+@assert prox(hinf, [3.0, -1.0], 1.0) == [2.0, -1.0]          # τ = 2: Σ(|xᵢ| - τ)₊ = 1
+@assert prox(hinf, [2.0, 1.0], 2.0) == [0.5, 0.5]            # τ = 0.5
+@assert prox(hinf, [3.0, -1.0], 4.0) == [0.0, 0.0]           # ‖x‖₁ = 4 ≤ γλ
+@assert prox(NormLinf(1.0), [5.0], 2.0) == prox(NormL1(1.0), [5.0], 2.0)   # one entry: soft thresholding
+prox(hinf, [3.0, -1.0], 1.0)
+```
+
 ## The group ℓ₂ norm
 
 `GroupNormL2` represents the group-lasso penalty

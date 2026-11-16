@@ -65,8 +65,9 @@ end
 @inline _weight_product(a::Real, b::Real, w::Real) = _weight_product(promote(float(a), float(b), float(w))...)
 
 # The same products rounded once to the destination type U, formed in the promotion of U and
-# the factors' types (numerics T3), so that a product that overflows or underflows the factors'
-# type is still finite in U. For R == U the promotion and the conversion are no-ops.
+# the factors' types before conversion to U; overflow or underflow in a narrower factor type can
+# be avoided when the result is representable in U. For R == U the promotion and the conversion
+# are no-ops.
 # A Bool factor (the weight `true` of an unweighted entry) does not widen the type.
 @inline _factor_type(a) = float(typeof(a))
 @inline _factor_type(::Bool) = Float16
@@ -239,7 +240,7 @@ end
 
 ####################################
 #
-#  Values recomputed in power-of-two units (R1)
+#  Values recomputed in power-of-two units (numerics.md, "Overflow and underflow of values")
 #
 ####################################
 
@@ -250,7 +251,7 @@ end
 @inline _max_exponent(::Type{R}) where {R} = exponent(floatmax(R))
 
 # w Σ mᵢ 2^eᵢ over finite mᵢ, for the terms of a value recomputed in different
-# power-of-two units (R1). The terms are added from the largest exponent down
+# power-of-two units. The terms are added from the largest exponent down
 # to an accumulator kept as a significand in [1/2, 1) and its own exponent,
 # renormalized after each addition, so terms that cancel do so before a
 # smaller term is aligned to what remains; the weight is applied last, with
@@ -343,7 +344,7 @@ _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_wei
 
 ####################################
 #
-#  Values as a significand and an exponent (R1, "Wrappers")
+#  Values as a significand and an exponent (numerics.md, "Overflow and underflow of values")
 #
 ####################################
 
@@ -378,7 +379,7 @@ end
 
 ####################################
 #
-#  Values recomputed when an intermediate underflows (R1, #520)
+#  Values recomputed when an intermediate underflows (#520; numerics.md, "Overflow and underflow of values")
 #
 ####################################
 
@@ -611,8 +612,9 @@ _square_term_count(x) = length(x)
 _square_term_count(x::SparseArrays.AbstractSparseArray) = length(nonzeros(x))
 _square_multiplicity(x, i) = 1
 
-# Can an ordinary sum s of n squares in T be kept (R1)? Below n floatmin/eps a square may have
-# underflowed and lost more than eps of the sum, and the scaled recomputation runs instead.
+# Can an ordinary sum s of n squares in T be kept? Below n floatmin/eps a square may have
+# underflowed enough to lose more than eps of the sum. This predicate rejects that sum for the
+# ordinary path; callers retain their endpoint checks before recovery.
 @inline _squares_normal(s, n, ::Type{T}) where {T} = s >= n * (floatmin(T) / eps(T))
 
 # λ/2 Σ μᵢ (xᵢ - yᵢ)² at the level λ from the ordinary sum s of the squares, with `l` the level of the ordinary
@@ -768,7 +770,8 @@ end
   v + e
 end
 
-# The squared-residual kernel (R1): Σ μᵢ (xᵢ - yᵢ)² = s 2^(2k) in R, so that the half sum is
+# The squared-residual kernel (numerics.md, "Overflow and underflow of values"):
+# Σ μᵢ (xᵢ - yᵢ)² = s 2^(2k) in R, so that the half sum is
 # s 2^(2k-1). y === nothing stands for y = 0 and visits the stored entries of x only, each with its
 # logical multiplicity μᵢ (2 for an off-diagonal entry of a symmetric iterate). Every residual is
 # formed before it is scaled by 2^-k, k the exponent of the largest one, and the squares are summed
@@ -793,7 +796,8 @@ _square_type(λ, x, y) = promote_type(_valtype(x), y === nothing ? _valtype(x) :
 end
 
 # The k >= 0 for which n products of entries below 2^bound(ma) and 2^bound(mb), scaled by 2^-k, sum
-# below 2^(emax - margin) in R: the units of the recomputation of an overflowing dot (R1).
+# below 2^(emax - margin) in R: the units of the recomputation of an overflowing dot
+# (numerics.md, "Overflow and underflow of values").
 @inline _product_sum_shift(::Type{R}, ma, mb, n, margin) where {R} =
   max(0, _bound_exponent(ma) + _bound_exponent(mb) + _log2_ceil(n) + margin - _max_exponent(R))
 

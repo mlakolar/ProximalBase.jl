@@ -151,5 +151,5 @@ mutating operations; see [array and precision conventions](numerical_usage.md).
 
 An **exported name** is available directly after `using ProximalBase`,
 while an **unexported name** is called with the module prefix, such as
-`ProximalBase.Squared()` or `ProximalBase.deriv(...)`. See
-[scalar losses](scalar_losses.md) and the [API reference](api/interface.md).
+`ProximalBase.leastsquares_data(f)` or `ProximalBase.value_from_predictor(f, z)`. See
+the [coverage matrix](api/coverage.md) and the [API reference](api/interface.md).

@@ -128,7 +128,7 @@ def main():
                 'math or code inside a rendered table cell'
             )
         assert page.footer, f'Missing previous/next footer: {page.path}'
-        assert len(page.toggles) == 8, f'Expected eight shallow expandable categories: {page.path}'
+        assert len(page.toggles) == 7, f'Expected seven shallow expandable categories: {page.path}'
     # These pages are generated from docs/design/*.md. Their math and code
     # must render as formatted elements, not plain prose in the HTML.
     contracts = [

@@ -222,6 +222,7 @@ the parameters of the particular object.
 | `NormL1` | no | yes | yes | yes | yes |
 | `ElasticNet` | no | yes | yes | yes | yes |
 | `NormL2` | no | yes | no | yes | no |
+| `NormLinf` | no | yes | no | yes | no |
 | `GroupNormL2` | no | yes | no | yes | no |
 | `Scaled` | forwards | forwards | forwards | forwards | finite scale and zero-preserving inner function |
 

@@ -732,7 +732,7 @@ setprecision(BigFloat, 1200) do
     @test within(norm(S), sqrt(big(2.0)) * big(pow2(T, E - 2)), 1)
     S = owner(T[pow2(T, es), -pow2(T, es + 1), pow2(T, es)], 2)       # subnormal entries only
     @test within(norm(S), sqrt(big(1.0) + 2 * 4 + 1) * big(pow2(T, es)), 1)
-    @test (@allocated norm(S)) == 0
+    @test alloc(norm, S) == 0    # behind a function barrier: inline, 1.10 counts the boxed result
     # genuine NaN/Inf keep the ordinary result; exact and signed zeros give +0
     @test isnan(norm_diff(T[NaN, 1], T[0, 1])) && isnan(norm_diff(T[Inf, NaN], T[0, 0]))
     @test isnan(norm_diff(T[Inf], T[Inf]))                              # Inf - Inf

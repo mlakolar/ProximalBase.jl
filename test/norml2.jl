@@ -445,4 +445,125 @@ end
   @test checked >= 100
 end
 
+# The NormL2 value of a strided Float32 or Float64 array (an Array or a strided view) with 16 to 1024 entries sums the
+# squares in one vectorizing loop (_value_loop); shorter and longer arrays keep master's sum. The value must be within
+# (n + 8) eps relative of the BigFloat value (the level rounded to T, as the value uses it), and outside the window it
+# must be master's convert(T, convert(T, λ) * sqrt(sum(abs2, x))) for ordinary data. SqrNormL2 is unchanged: its value
+# is master's convert(T, λ) * sum(abs2, x) / 2 at every length.
+@testset "values of strided arrays: one loop for 16 to 1024 entries ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(1024)
+  lo, hi = ProximalBase._VALUE_LOOP_MIN, ProximalBase._VALUE_LOOP_MAX
+  sumsq(u) = setprecision(() -> sum(a -> big(a)^2, u; init = big(0)), BigFloat, PREC)
+  within_n(v, r, n) = abs(big(v) - r) <= (n + 8) * big(eps(T)) * r
+  # the value of u at the level λ, with S the BigFloat sum of the squares of u
+  function check(λ, u, S)
+    n = length(u)
+    a, b = NormL2(λ)(u), SqrNormL2(λ)(u)
+    l = big(convert(T, λ))
+    ok = a isa T && b isa T && within_n(a, setprecision(() -> l * sqrt(S), BigFloat, PREC), n)
+    s = lo <= n <= hi ? ProximalBase._value_loop(abs2, u) : sum(abs2, u)
+    ok &= a === convert(T, convert(T, λ) * sqrt(s))
+    ok &= b === convert(T, λ) * sum(abs2, u) / 2                      # SqrNormL2 as on master
+    n == 0 && (ok &= a === zero(T) && b === zero(T))
+    ok
+  end
+  levels = T === Float32 ? (one(T), T(0.3), 0.3) : (one(T), T(0.3))
+  for n in (0, 1, 15, 16, 17, 100, 1023, 1024, 1025, 2000),
+      x in (randn(rng, T, n), fill(T(0.1), n), fill(-T(1.1), n), ldexp.(randn(rng, T, n), -20))
+    S = sumsq(x)
+    # strided views of the same entries: every other entry of a longer vector, and a column of a matrix
+    p = zeros(T, 2n); p[1:2:end] .= x
+    M = randn(rng, T, n, 2); M[:, 2] .= x
+    for λ in levels
+      ok = check(λ, x, S)
+      ok || @info "value out of bound" T n λ x[1:min(n, 3)]
+      @test ok
+      @test check(λ, view(p, 1:2:2n), S)
+      @test check(λ, view(M, :, 2), S)
+    end
+  end
+  # matrices and a two-dimensional view in and out of the window
+  for dims in ((4, 4), (16, 16), (32, 32), (33, 32)), λ in levels
+    M = randn(rng, T, dims...)
+    @test check(λ, M, sumsq(M))
+    B = randn(rng, T, dims[1] + 3, dims[2] + 2)
+    V = view(B, 2:dims[1]+1, 2:dims[2]+1)
+    @test check(λ, V, sumsq(V))
+  end
+  # exact sums of the squares of small integers, at every length of the remainder loop
+  for n in vcat(0:70, [1023, 1024, 1025])
+    x = T.(rand(rng, -8:8, n))
+    @test NormL2(one(T))(x) === sqrt(T(sum(abs2, Int.(x); init = 0)))
+  end
+  # squares that overflow, or underflow, with a representable norm are recovered from the entries
+  for n in (15, 16, 100, 1024, 1025)
+    for x in (fill(sqrt(floatmax(T)), n), fill(sqrt(floatmin(T)) / 4, n))
+      v = NormL2(one(T))(x)
+      @test close_value(v, refvalue(x, one(T)); k = 2)
+    end
+    x = randn(rng, T, n); x[end] = T(NaN)
+    @test isnan(NormL2(T(0.3))(x)) && isnan(NormL2(T(Inf))(x))
+    x[end] = -T(Inf)
+    @test NormL2(T(0.3))(x) === T(Inf)
+    @test NormL2(T(Inf))(zeros(T, n)) === zero(T) && NormL2(zero(T))(fill(T(NaN), n)) === zero(T)
+    @test NormL2(T(Inf))(vcat(zeros(T, n - 1), nextfloat(zero(T)))) === T(Inf)
+  end
+  # no allocation in and out of the window
+  for n in (7, 100, 1024, 2000)
+    x = randn(rng, T, n)
+    @test allocs(NormL2(T(0.3)), x) == 0
+    @test allocs(NormL2(T(0.3)), view(x, 1:2:n)) == 0
+  end
+end
+
+@testset "arguments with a zero sum of squares ($T)" for T in (Float32, Float64)
+  # The zero argument (+0 and -0 entries) and a nonzero argument every square of which rounds to zero (entries in
+  # [2^(h-1), 2^h), about √nextfloat(0)/4): at ordinary levels (0.5, floatmax/2, a Float64 level for Float32 data) the
+  # proximal point is +0 and the fused value 0, through prox, prox!, in place and value_and_prox!, on vectors and
+  # matrices; at a tiny level below the norm of the tiny argument, the shrinkage is nonzero and agrees with BigFloat.
+  rng = Xoshiro(921)
+  h = exponent(nextfloat(zero(T))) ÷ 2 - 2
+  for m in (1, 2, 5, 32, 1024), shape in (:vector, :matrix)
+    shape === :matrix && m < 32 && continue
+    dims = shape === :vector ? (m,) : (8, m ÷ 8)
+    zero_arg = reshape([rand(rng, (zero(T), -zero(T))) for _ in 1:m], dims)
+    tiny = reshape([signif(rng, T, h) for _ in 1:m], dims)
+    @test iszero(sum(abs2, tiny)) && !any(iszero, tiny)
+    for x in (zero_arg, tiny), λ in (T(0.5), floatmax(T) / 2, 0.5), γ in (T(1), T(0.25))
+      f = NormL2(λ)
+      y1 = prox(f, x, γ)
+      y2 = prox!(fill(T(7), dims), f, x, γ)
+      y3 = copy(x); prox!(y3, f, y3, γ)
+      y4 = fill(T(7), dims)
+      v = value_and_prox!(y4, f, x, γ)
+      @test v === zero(T)
+      @test all(y -> all(a -> a === zero(T), y), (y1, y2, y3, y4))
+    end
+    for r in (0.5, 0.875)
+      λt = T(r * bignorm(tiny))
+      f = NormL2(λt)
+      y = fill(T(7), dims)
+      v = value_and_prox!(y, f, tiny, one(T))
+      @test all(!iszero, y) && close_prox(vec(y), refprox(vec(tiny), one(T), λt), vec(tiny))
+      yp = prox(f, tiny, one(T))
+      @test all(i -> yp[i] === y[i], eachindex(y))
+      @test close_value(v, refvalue(vec(y), λt))
+      @test all(a -> a === zero(T), prox(f, zero_arg, one(T)))
+    end
+  end
+  # mixed precision: Float64 entries that round to Float32 entries with squares that round to zero, into a Float32
+  # output: +0 at an ordinary level, and at a tiny level below their norm the shrinkage against BigFloat
+  if T === Float32
+    for m in (1, 5, 32, 1024)
+      x = [Float64(signif(rng, Float32, h)) * (1 + 2.0^-27) for _ in 1:m]
+      @test all(a -> iszero(abs2(Float32(a))), x)
+      y = fill(7f0, m)
+      @test value_and_prox!(y, NormL2(0.5), x, 1.0) === 0f0 && all(a -> a === 0f0, y)
+      λt = Float32(bignorm(x) / 2)
+      yt = prox!(fill(7f0, m), NormL2(λt), x, 1f0)
+      @test all(!iszero, yt) && close_prox(yt, refprox(x, 1f0, λt), Float32.(x))
+    end
+  end
+end
+
 end

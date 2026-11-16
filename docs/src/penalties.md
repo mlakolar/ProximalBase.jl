@@ -306,8 +306,9 @@ reads none; the check would add a pass over the steps, or the rest of one
 `prox_block` does not check its step, and `Scaled` keeps its own step rule.
 
 For `Float32` and `Float64` entries, a step ``\gamma`` takes the ordinary
-branches when `λ1` is zero or ``\gamma\lambda_1`` is a positive normal
-number, and ``\gamma\lambda_2`` lies in ``[2^{-126}, 2^{125}]`` (`Float32`)
+branches when `λ1` is zero or ``\gamma\lambda_1``, formed in the promoted
+type of the entries, the step, `λ1` and the weights, is a positive normal
+number of that type, and ``\gamma\lambda_2`` lies in ``[2^{-126}, 2^{125}]`` (`Float32`)
 or ``[2^{-1022}, 2^{1021}]`` (`Float64`) or one of ``\gamma``, `λ2` is zero
 or not finite. When the argument and the array of steps have concrete element
 types, a call other than from a `SparseIterate` into a `SparseIterate` runs

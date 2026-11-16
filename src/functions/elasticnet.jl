@@ -87,18 +87,27 @@ _checkparams(f::ElasticNet, x) = (_checkparam(f.w, x); true)
 # weight and 0 otherwise, without the kernel's exceptional product, which a zero level reaches for every
 # entry with a finite weight. An infinite λ2 at γ >= 0 gives +0 (#908, D2), whatever the ridge arithmetic gives (NaN at γ = 0, a
 # NaN or ±Inf entry). The tests of λ1, λ2 and a scalar γ do not depend on the entry.
-Base.@propagate_inbounds function prox_block(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
-  S = float(T)
-  z = _elastic_threshold(f, v, i, γ, S)
-  r = _ridge_needs_scaling(S, γ, f.λ2) ? _ridge_apply(_ridge_scaled(S, γ, f.λ2), z) :
-                                         _ridge_apply(_ridge_ordinary(S, γ, f.λ2), z)
+Base.@propagate_inbounds prox_block(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real} =
+  _elastic_prox(f, v, i, γ, float(T), false)
+# With `ordinary` (a constant), the step is known to take the ordinary threshold product and the ordinary ridge
+# weights (_elastic_ordinary_step), and the code of the other paths is left out: the same arithmetic otherwise.
+Base.@propagate_inbounds function _elastic_prox(f::ElasticNet, v, i, γ, ::Type{S}, ordinary::Bool) where {S}
+  z = _elastic_threshold(f, v, i, γ, S, ordinary)
+  r = !ordinary && _ridge_needs_scaling(S, γ, f.λ2) ? _ridge_apply(_ridge_scaled(S, γ, f.λ2), z) :
+                                                      _ridge_apply(_ridge_ordinary(S, γ, f.λ2), z)
   ifelse(_elastic_fixed(f, γ), zero(r), r)
 end
-Base.@propagate_inbounds function _elastic_threshold(f::ElasticNet, v, i, γ, ::Type{S}) where {S}
+Base.@propagate_inbounds function _elastic_threshold(f::ElasticNet, v, i, γ, ::Type{S}, ordinary::Bool = false) where {S}
   w = _entry(f.w, i)
-  iszero(f.λ1) ? shrink(v, ifelse(isinf(w), S(Inf), zero(S))) : first(_l1_prox_threshold(v, γ, f.λ1, w, S))
+  iszero(f.λ1) && return shrink(v, ifelse(isinf(w), S(Inf), zero(S)))
+  # the ordinary branch of _l1_prox_threshold
+  ordinary ? shrink(v, first(_threshold_product(S, γ, f.λ1, w))) : first(_l1_prox_threshold(v, γ, f.λ1, w, S))
 end
 @inline _elastic_fixed(f::ElasticNet, γ) = isinf(f.λ2) & (γ >= 0)
+# whether the step γ of entry i takes the ordinary branches of _elastic_prox: the threshold product γλ1 in the
+# normal range (unused at a zero λ1), and the ridge weights not scaled
+Base.@propagate_inbounds _elastic_ordinary_step(f::ElasticNet, γ, i, ::Type{S}) where {S} =
+  (iszero(f.λ1) | last(_threshold_product(S, γ, f.λ1, _entry(f.w, i)))) & !_ridge_needs_scaling(S, γ, f.λ2)
 
 # A scalar step on an array: the ridge weights of the step, formed once per call as the array prox of SqrNormL2
 # forms them (ordinary or scaled), and the D2 test, so that the loops of separable.jl apply them after the soft
@@ -136,7 +145,40 @@ _prox_sep!(y::AbstractArray, f::ElasticNet, x::AbstractArray, γ::Real) = _elast
 _prox_sep!(y::SparseIterate, f::ElasticNet, x::SparseIterate, γ::Real) = _elastic_prepared!(_prox_stored!, y, f, x, γ)
 _prox_sep!(y::SymmetricSparseIterate, f::ElasticNet, x::Union{AbstractMatrix, SymmetricSparseIterate}, γ::Real) =
   _elastic_prepared!(_prox_coordinates!, y, f, x, γ)
+
+# Array steps on a dense array. Where every step takes the ordinary branches (_elastic_ordinary_step), which a pass
+# over the steps decides (it stops after the first block of 256 that holds another step), the loop applies those
+# branches alone: no call to the code of the other paths remains in it, and it vectorizes. Each entry is still
+# prox_block(f, xᵢ, i, γᵢ), bit for bit. Otherwise, and for element types that are not concrete, prox_block.
+struct _ElasticOrdinarySteps{F<:ElasticNet} <: SeparableFunction
+  f::F
+end
+Base.@propagate_inbounds prox_block(g::_ElasticOrdinarySteps, v::T, i::Integer, γ::Real) where {T<:Real} =
+  _elastic_prox(g.f, v, i, γ, float(T), true)
+iszeropreserving(::_ElasticOrdinarySteps) = true
+_checkparams(g::_ElasticOrdinarySteps, x) = _checkparams(g.f, x)
+
+function _prox_sep_dense!(y::AbstractArray, f::ElasticNet, x::AbstractArray, γ::AbstractArray)
+  _checkwrite(prox!, f, y, x)
+  _checkparam(γ, x)
+  isconcretetype(eltype(x)) && isconcretetype(eltype(γ)) &&
+    _elastic_ordinary_steps(f, γ, float(eltype(x)), eachindex(IndexLinear(), y, x)) &&
+    return _prox_entries!(y, _ElasticOrdinarySteps(f), x, γ)
+  _prox_entries!(y, f, x, γ)
+end
+function _elastic_ordinary_steps(f::ElasticNet, γ, ::Type{S}, inds) where {S}
+  for b in first(inds):256:last(inds)
+    ok = true
+    @inbounds for i in b:min(b + 255, last(inds))
+      ok &= _elastic_ordinary_step(f, _entry(γ, i), i, S)
+    end
+    ok || return false
+  end
+  true
+end
+
 # the loops of separable.jl for these arguments, also for an ElasticNet whose step is not prepared
+_prox_entries!(y, f, x, γ) = invoke(_prox_sep_dense!, Tuple{AbstractArray, Any, AbstractArray, Any}, y, f, x, γ)
 _prox_stored!(y, f, x, γ) = invoke(_prox_sep!, Tuple{SparseIterate, Any, SparseIterate, Union{Real, AbstractArray}}, y, f, x, γ)
 _prox_coordinates!(y, f, x, γ) =
   invoke(_prox_sep!, Tuple{SymmetricSparseIterate, Any, Union{AbstractMatrix, SymmetricSparseIterate}, Real}, y, f, x, γ)

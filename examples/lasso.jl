@@ -33,4 +33,11 @@ B = hcat(β, -β)
 multi = LeastSquaresLoss(Y, X)
 @assert multi(B) ≈ sum(abs2, X * B - Y) / 2
 @assert gradient(multi, B) ≈ X' * (X * B - Y)
-(value = f(β), penalty = g(β), gradient = gradient(f, β))
+# --- Elastic net ---
+# ElasticNet(λ1, λ2) is λ1||β||₁ + (λ2/2)||β||² as one separable penalty. Its proximal
+# map is, coordinate by coordinate, the soft threshold by γλ1 divided by 1 + γλ2.
+h = ElasticNet(0.2, 0.5)
+@assert h(β) ≈ 0.2 * sum(abs, β) + 0.5 / 2 * sum(abs2, β)
+@assert prox(h, β, 0.1) ≈ sign.(β) .* max.(abs.(β) .- 0.02, 0) ./ (1 + 0.1 * 0.5)
+@assert value_and_prox!(out, h, β, 0.1) ≈ h(out)
+(value = f(β), penalty = g(β), gradient = gradient(f, β), elastic_net = h(β))

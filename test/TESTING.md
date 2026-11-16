@@ -28,6 +28,18 @@ symmetric models (`NormL1`, `SqrNormL2`, `LinearFunction`, nested `Scaled` and a
 function) against dense and structurally symmetric references in Float32/64, the explicit `check_symmetric_parameters` (stored and unstored pairs, nested `Scaled`,
 NaN and signed zeros, malformed metadata), the structural refusals that the oracles keep, and
 instrumented parameter arrays that count reads to show the oracles perform no mirrored-pair scan.
+`elasticnet` and `elasticnet_extremes` cover `ElasticNet` (#908): the constructor, traits, analytic cases (at steps
+`γ ≥ 0` and one element type, a zero `λ2` is `NormL1` bit for bit, and with a finite `λ2` an entry with a zero weight,
+or with a zero `λ1` and a finite weight, is the `SqrNormL2` ridge bit for bit, except that `-0` gives `+0`; an
+infinite weight fixes finite inputs at `+0` and an infinite `λ2` follows its own rule), values whose two parts round
+below the subnormal spacing on their own, the refusal of negative
+and NaN scalar steps before writes, dense, sparse, block and symmetric representations, the KKT screen and
+restriction, agreement with the archived implementation within 4 ulp, warmed allocations, the endpoint truth
+table of the plan, Float32/Float64 extremes against 4096-bit BigFloat (proximal points within 4 ulp of
+`shrink(v, t̂)/(1 + γλ2)` with the kernel's threshold, values within `(n + 2) eps`), `Scaled` folds, chains,
+infinite and zero factors, an infinite level beside a finite one, levels that need different folds, and read
+counts that show values and proximal points on sparse and symmetric iterates read the weights of the stored
+entries only.
 `groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
 its value, group soft thresholding and group KKT screen in Float32/64: analytical
 and threshold cases, singleton groups against weighted `NormL1`, noncontiguous

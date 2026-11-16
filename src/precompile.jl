@@ -8,7 +8,7 @@ using PrecompileTools: @setup_workload, @compile_workload
       X = T[1 0 2 0; 0 1 0 2; 1 1 0 0; 0 0 1 1; 2 0 0 1]
       b = T[1, 2, -1, 0, 3]
       for f in (ZeroFunction(), LinearFunction(copy(x)), SqrNormL2(T(0.2)),
-                NormL1(T(0.1)), Scaled(LeastSquaresLoss(b, X), T(0.2)),
+                NormL1(T(0.1)), ElasticNet(T(0.1), T(0.2)), Scaled(LeastSquaresLoss(b, X), T(0.2)),
                 QuadraticFunction(Matrix{T}(I, 4, 4)))
         f(x)
         prox!(y, f, x, one(T))

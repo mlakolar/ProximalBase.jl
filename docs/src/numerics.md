@@ -121,12 +121,50 @@ below. Under an infinite `Scaled` factor a recovered positive value gives `Inf`,
 as the folded level `NormL1(Inf, w)` does; before #373 a value whose terms all
 rounded to zero gave `NaN` there. An exactly zero value still gives `0`.
 
+`ElasticNet` values are the value of the ℓ₁ part, computed as `NormL1`
+computes it, plus the value of the ridge part, computed as `SqrNormL2`
+computes it, each with the recovery above, then one addition; on sparse
+and symmetric iterates both parts read the stored entries only, and on a
+`BlockIterate` its storage. On a
+dense `Float32` or `Float64` `Array` with parameters of its type, a single
+pass over the entries is returned instead when a test on its sum bounds its
+relative error by `(n + 2) eps(T)` for `n ≤ 1/(2 eps(T)) - 2` entries; the bound is proved in a
+comment next to the code (`src/functions/elasticnet.jl`). With both levels
+positive and finite, a sum of the two parts below `2 floatmin(T)` (each part
+rounded on its own) is recomputed: the terms of both parts are added in one
+exponent-sum accumulator, as the `NormL1` recomputation adds its terms, and
+the sum is rounded once. For `N` nonzero terms (`λ1*w[i]*abs(x[i])` and
+`λ2*x[i]^2/2`, up to two per entry and three per off-diagonal coordinate of a
+symmetric iterate), with `u` half the epsilon of the accumulator (`Float64` for
+`Float32` data) and `N u < 1`, the hypothesis of the summation bound used, the
+result is within `(γ_3 + (γ_{N-1}^2 + N 2^-1070)(1 + γ_2)) V` of the exact
+value `V` plus half a spacing of `T` at the result (`γ_m = m u/(1 - m u)`), as
+proved next to the code, which is below the worst case of the separate parts. On Julia 1.10 `ldexp` returns `0`
+for a `Float64` result in `[δ/2, δ)`, `δ` the smallest subnormal
+([#896](https://github.com/mlakolar/ProximalBase.jl/issues/896)), and the final
+term of the bound is a whole spacing;
+`ElasticNet(2.0^-538, 1.0)([2.0^-537])` is `2.0^-1074`. Only a value whose
+stored entries are all zero keeps its sum. Under `Scaled`, the value of an
+`ElasticNet` is recovered as for any function with levels. For a finite
+positive factor, where that gives no finite value, or `0` at a point where the
+function is not exactly `0`, the scaled values of the ℓ₁ part and of the ridge
+part, each rounded on its own, are added; the sum replaces that result if it is
+finite after conversion to its type, and the first result is kept otherwise.
+Where one part
+dominates, the test can pass although the other part alone would be
+recomputed (ℓ₁ terms below `floatmin(T)` beside a normal ridge part, or
+squares below `floatmin(T)` beside a normal ℓ₁ part). Its proximal point soft thresholds
+by the threshold of the `NormL1` kernel and multiplies by the ridge factor
+`1/(1 + γλ2)` of the `SqrNormL2` kernel, both formed from the unrounded
+factors, so a factor `γλ2` outside the range still acts on a representable
+result.
+
 `NormL2` values recompute a sum of squares that overflows or falls below the normal
 range from the squared-residual kernel above, in units of the largest stored entry.
 On a `SparseIterate` and a `SymmetricSparseIterate` both the ordinary sum and that
 recomputation visit the stored entries only, each off-diagonal symmetric coordinate
 twice ([#808](https://github.com/mlakolar/ProximalBase.jl/issues/808)).
-Both functions, and their fused values, recompute a value at or above `floatmax(T)/2`
+`NormL2` and `GroupNormL2` values, and their fused values, recompute a value at or above `floatmax(T)/2`
 in power-of-two units, with sums accumulated in at least `Float64`. Within a few eps of
 the overflow threshold `floatmax(T) + ulp/2` that recomputation does not decide on
 which side the exact value lies, so a value that rounds to `floatmax(T)` may be
@@ -167,6 +205,32 @@ result. This mechanism is implemented for retained kernels, not synthesized
 for custom functions. Original `Squared()` scalar arithmetic has no such
 array-value recovery.
 
+A known limitation ([#567](https://github.com/mlakolar/ProximalBase.jl/issues/567)):
+for `Scaled(ElasticNet(λ1, λ2, w), α)` with finite levels, a finite positive `α`
+and a positive finite scalar step `γ` whose product `αγ` is above `floatmax`,
+`prox`, `prox!`, `prox_block` and `value_and_prox!` can return `0` where the
+exact result is representable. A representable result does not need a
+representable coefficient. With `λ1 = 0`, `α = γ = 2.0^600` and `x = [2.0^1000]`,
+the coefficient `αγλ2` is `2^1300` for `λ2 = 2.0^100`, above `floatmax`,
+while the quotient `x/(1 + αγλ2)`, about `2^-300`, is representable, and the
+result is `0`. For `λ2 = 2.0^-1000` and `x = [4.0]` the coefficient is `2^200`
+and the result is the representable `4/(1 + 2^200)`.
+`Scaled(SqrNormL2(λ2), α)` also returns `0` in the first case.
+In some cases the same step passed as an array of steps gives the
+representable result, for example in the first case and in its `Float32`
+analogue (`λ2 = 2.0f0^80`, `α = γ = 2.0f0^80`, `x = [2.0f0^127]`); for
+`λ2 = 2.0^880` and `x = [2.0^1023]`, with the same `α` and `γ`, both steps
+give `0` where the result is `2^-1057`:
+
+```julia
+s = Scaled(ElasticNet(0.0, 2.0^100), 2.0^600)
+prox(s, [2.0^1000], 2.0^600)      # [0.0]
+prox(s, [2.0^1000], [2.0^600])    # [4.909093465297727e-91], about 2^-300
+t = Scaled(ElasticNet(0.0, 2.0^880), 2.0^600)
+prox(t, [2.0^1023], 2.0^600)      # [0.0]
+prox(t, [2.0^1023], [2.0^600])    # [0.0]; the result is 2^-1057
+```
+
 ## NaN, infinities and zeros
 
 There is no universal non-finite endpoint rule or universal step validator.
@@ -192,6 +256,10 @@ all-NaN result or a particular exception.
 | `GroupNormL2`, negative or `NaN` step | `ArgumentError` before any write, in `prox!`, `value_and_prox!` and `prox_block!` |
 | `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
 | `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual |
+| `ElasticNet`, negative or `NaN` scalar step | `prox`, `prox!` and `value_and_prox!` throw `ArgumentError` before any write. The entries of an array of steps are not checked: nonnegative entries are a precondition, an exception to the requirement of [#908](https://github.com/mlakolar/ProximalBase.jl/issues/908) that negative and `NaN` steps fail before writes (no scan of the steps, as for #874). `prox_block` and `Scaled` routes do not check |
+| `ElasticNet`, infinite ridge level `λ2`, nonnegative step | The indicator of `{0}` (#908): every entry proxes to `+0`, including at `γ = 0` and for non-finite inputs; value `0` at the zero vector, `NaN` at a `NaN` entry, `Inf` otherwise; `kkt_violation` is `-Inf`. `SqrNormL2(Inf)` keeps its own rule |
+| `ElasticNet`, infinite `λ1` or infinite weight, overflowing finite threshold | The `NormL1` rows above (decision 49, #665, #853, #866) |
+| `ElasticNet`, zero `λ2` | Values of `NormL1(λ1, w)`, and at `γ ≥ 0` with one element type its proximal points, bit for bit; a zero `λ2` adds `0` also at `NaN`/`±Inf` entries |
 | Generic custom value/prox | Author-defined arithmetic; traits do not grant recovery or NaN policy |
 | Paired symmetric parameters, in `check_symmetric_parameters` | Exact equality, NaN matches NaN, signed zeros agree; the numerical oracles assume it and do not compare |
 | Opposing infinities in a symmetric iterate KKT gradient pair | ArgumentError at that chosen pair |
@@ -211,6 +279,15 @@ using ProximalBase
 @assert isnan(prox(NormL1(1e300,[1e10]),[Inf],1.0)[1])  # final factor overflows (#866)
 @assert isnan(prox(NormL1(1e10,[1.0]),[Inf],1e300)[1]) # intermediate product overflows (#866)
 prox(NormL1(Inf),[NaN,Inf],1.0)
+```
+
+```@example numerical_endpoints
+@assert prox(ElasticNet(1.0,Inf),[3.0,NaN,-Inf],0.0) == [0,0,0]  # infinite ridge level: {0}
+@assert ElasticNet(1.0,Inf)([0.0,0.0]) == 0 && ElasticNet(1.0,Inf)([0.0,1e-300]) == Inf
+@assert isnan(ElasticNet(1.0,Inf)([NaN,0.0]))
+@assert prox(ElasticNet(Inf,1.0,[1.0,0.0]),[NaN,3.0],0.0) == [0,3]  # the NormL1 rule (#665)
+@assert try prox(ElasticNet(1.0,1.0),[1.0],-1.0); false catch e; e isa ArgumentError end
+prox(ElasticNet(1.0,Inf),[3.0,NaN,-Inf],0.0)
 ```
 
 **Decision on `NormL1` non-finite inputs (#853 and #866).** A genuinely infinite
@@ -245,7 +322,9 @@ finite factors whose product overflows are never treated as an infinite level
 factor passes the zero step through, so `2 * NormL1(Inf)` projects as well; an
 infinite factor at a zero step forms the step `Inf⋅0 = NaN` in the wrapper
 before `NormL1` sees it, and that wrapper step rule is unchanged (#311).
-`GroupNormL2` applies the same reading at `γ = 0` to an infinite level (groups with
+`ElasticNet` follows this rule for an infinite `λ1`, and implements the
+same zero-step projection for an infinite ridge level `λ2`, the indicator
+of `{0}` in every coordinate (#908). `GroupNormL2` applies the same reading at `γ = 0` to an infinite level (groups with
 a positive weight become `+0`) and to an infinite group weight, and `NormL2` to an
 infinite level; no other function
 is claimed to implement a zero-step projection rule. In `NormL1` the test is made only on the
@@ -338,7 +417,9 @@ ridge references), `test/minimal_math.jl`, `test/core_functions.jl`,
 `SparseIterate`), `test/sparse_value_cost.jl` (counts of the zeros formed and of the
 coefficient entries read by that value) and
 `test/numerical_kernels.jl` (BigFloat references for the shared recovery
-kernels and their `SqrNormL2`/`LeastSquaresLoss`/`LinearFunction` consumers) and
+kernels and their `SqrNormL2`/`LeastSquaresLoss`/`LinearFunction` consumers),
+`test/elasticnet.jl` and `test/elasticnet_extremes.jl` (`ElasticNet`
+against 4096-bit BigFloat references and its endpoint rules), and
 `test/groupnorml2.jl` and `test/norml2.jl` (BigFloat references for `GroupNormL2`
 and `NormL2` values and proximal points, and for the `GroupNormL2` KKT screens,
 including the exceptional cases above), and `test/sparse_value_cost.jl` (a counting element type that shows the

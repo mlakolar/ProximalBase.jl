@@ -257,7 +257,9 @@ coordinate ``i`` is
 
 The scalar `kkt_violation(g,grad,i)` measures
 ``|\mathrm{grad}_i|-\lambda`` for `NormL1` (with its
-appropriate coordinate weight). A **positive** result signals that
+appropriate coordinate weight); for `ElasticNet` it is
+``|\mathrm{grad}_i|-\lambda_1 w_i``, and `-Inf` for an infinite ridge
+level. A **positive** result signals that
 the zero-coordinate condition is violated:
 
 ```@example operations_basics

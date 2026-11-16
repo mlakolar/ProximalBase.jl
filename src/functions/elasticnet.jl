@@ -174,7 +174,7 @@ end
 function _elastic_ordinary_steps(f::ElasticNet, γ, ::Type{S}, inds) where {S}
   for b in first(inds):256:last(inds)
     ok = true
-    @inbounds for i in b:min(b + 255, last(inds))
+    @inbounds for i in b:(b + min(255, last(inds) - b))   # b + 255 can overflow at indices near typemax(Int)
       ok &= _elastic_ordinary_step(f, _entry(γ, i), i, S)
     end
     ok || return false

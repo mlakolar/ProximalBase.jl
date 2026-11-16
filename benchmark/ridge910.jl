@@ -22,10 +22,11 @@
 # base, which also puts them first in the role order of the first round; the control is loaded last in both orders.
 # PB_ROUNDS defaults to 21, PB_OUTPUT to /tmp/pb-ridge910-bench.
 # The roles share their plain input and output arrays; each role builds its own SparseIterate. Before timing, every
-# candidate output is compared with the base output: the number of cases that are bit-identical is reported, and a
-# case whose outputs differ by more than 4 ulp, or differ at all in a non-finite entry, stops the run. The control
-# must equal the base. PB_CHECK_ONLY=1 stops after that check; PB_FILTER selects cases by a regular expression on
-# their ids.
+# candidate output is compared with the base output under isequal, which compares finite entries and signed zeros
+# bit for bit and treats any two NaNs as equal: the number of cases whose outputs are isequal is reported, and a
+# case with an entry that differs by more than 4 ulp, or is not isequal and not finite in at least one output,
+# stops the run. The control must be isequal to the base. PB_CHECK_ONLY=1 stops after that check; PB_FILTER selects
+# cases by a regular expression on their ids.
 using BenchmarkTools, LinearAlgebra, SparseArrays, Random, Statistics, Dates, Printf
 Threads.nthreads() == 1 || error("one Julia thread required")
 BLAS.set_num_threads(1)

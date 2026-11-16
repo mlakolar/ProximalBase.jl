@@ -305,12 +305,22 @@ reads none; the check would add a pass over the steps, or the rest of one
 ([#874](https://github.com/mlakolar/ProximalBase.jl/pull/874)).
 `prox_block` does not check its step, and `Scaled` keeps its own step rule.
 
-For `Float32` and `Float64` entries, a step ``\gamma`` takes the ordinary
-branches when `λ1` is zero or ``\gamma\lambda_1``, formed in the promoted
-type of the entries, the step, `λ1` and the weights, is a positive normal
-number of that type, and ``\gamma\lambda_2`` lies in ``[2^{-126}, 2^{125}]`` (`Float32`)
-or ``[2^{-1022}, 2^{1021}]`` (`Float64`) or one of ``\gamma``, `λ2` is zero
-or not finite. When the argument and the array of steps have concrete element
+Let `T` be `float` of the element type of the entries. A step ``\gamma``
+of entry ``i`` takes the ordinary branches when both conditions hold:
+
+- `λ1` is zero, or the product ``\gamma\lambda_1`` is a positive normal
+  number of the type `R` in which it is formed. `R` is the promotion of `T`
+  with `float` of the types of ``\gamma``, `λ1` and the weight of entry ``i``;
+  a `Bool` weight (an `ElasticNet` without weights has the weight `true`)
+  does not widen `R`. An integer step with `Float32` entries, for example,
+  gives `R = Float64`.
+- For `T` = `Float32` or `Float64`: one of ``\gamma``, `λ2` is zero or not
+  finite, or ``\gamma\lambda_2``, formed in the promotion of `T` with `float`
+  of the types of ``\gamma`` and `λ2`, lies in ``[2^{-126}, 2^{125}]``
+  (`Float32`) or ``[2^{-1022}, 2^{1021}]`` (`Float64`). Other types of `T`
+  have no condition on ``\gamma\lambda_2``.
+
+When the argument and the array of steps have concrete element
 types, a call other than from a `SparseIterate` into a `SparseIterate` runs
 a loop specialized to these branches if every step takes them; one step
 outside them, anywhere, sends the whole call to the general loop. Both loops

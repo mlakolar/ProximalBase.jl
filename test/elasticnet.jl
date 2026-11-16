@@ -40,6 +40,16 @@ valref(f, x) = big4096() do
     big(f.λ2) / 2 * sum(big(v)^2 for v in x; init = big(0))
 end
 valok(got::T, ref, n) where {T} = isfinite(got) && abs(big(got) - ref) <= (n + 2) * eps(T) * abs(ref)
+# a vector with linear indices lo:lo+n-1, for the selection pass over the steps at indices near typemax(Int)
+struct ShiftedVector{T} <: AbstractVector{T}
+  data::Vector{T}
+  lo::Int
+end
+Base.size(a::ShiftedVector) = size(a.data)
+Base.axes(a::ShiftedVector) = (a.lo:(a.lo + length(a.data) - 1),)
+Base.IndexStyle(::Type{<:ShiftedVector}) = IndexLinear()
+Base.getindex(a::ShiftedVector, i::Int) = a.data[i - a.lo + 1]
+Base.setindex!(a::ShiftedVector, v, i::Int) = (a.data[i - a.lo + 1] = v)
 
 # The archived ElasticNet (eff21b6d) at ordinary inputs, computed once from that source tree: prox_block of
 # ElasticNet(λ1, λ2, w) (w = nothing, or the single weight given) at the trial v and step γ, and values at a
@@ -721,6 +731,21 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
       # Scaled with the factor 3 passes ElasticNet the array of steps 3γᵢ
       g = Scaled(f, T(3))
       @test identical(prox!(similar(x), g, x, steps), perentry(x, g, x, steps))
+
+      # linear indices that end at typemax(Int) - 1: the last block of the pass starts within 255 of typemax(Int).
+      # An infinite λ1 sends every step to another branch than the ordinary threshold product.
+      for m in (2, 300)
+        lo = typemax(Int) - m
+        xs = ShiftedVector(T(2) .* randn(rng, T, m), lo); xs[lo] = T(Inf)
+        gs = ShiftedVector(T(0.5) .+ rand(rng, T, m), lo)
+        finf = ElasticNet(T(Inf), λ2)
+        @test !PB._elastic_ordinary_steps(finf, gs, T, eachindex(IndexLinear(), xs))
+        @test PB._elastic_ordinary_steps(f, gs, T, eachindex(IndexLinear(), xs))
+        for h in (finf, f)
+          ys = ShiftedVector(zeros(T, m), lo)
+          @test prox!(ys, h, xs, gs) === ys && identical(ys, perentry(ys, h, xs, gs))
+        end
+      end
     end
   end
 

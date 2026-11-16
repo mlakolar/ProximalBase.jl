@@ -112,7 +112,9 @@ copy of the same source. Each round times every role of every case in rotating o
 minimum over the samples of each role; the summary gives per case the median, minimum and maximum of
 the paired ratios candidate/base and control/base, with the warmed allocations, and marks medians
 above 1.05. Before timing, the script compares every candidate output with the base output, reports
-the cases that are bit-identical and stops at a difference above 4 ulp or in a non-finite entry.
+the cases whose outputs are `isequal` (finite entries and signed zeros bit for bit, any two NaNs
+equal) and stops at a difference above 4 ulp or at an entry that is not `isequal` and not finite in
+at least one output.
 `PB_REVERSE=1` loads the candidates before the base; `PB_FILTER` selects cases by a regular
 expression on their ids; `PB_CHECK_ONLY=1` stops after the comparison.
 

@@ -9,10 +9,6 @@ scaling with the number of active coordinates, `nactive(x)`.
 Intended for coordinate-descent and active-set iterates that stay sparse. Its
 coordinates (see `ncoordinates`) are its entries, in linear order.
 
-The sizes `n` and `m` may be `Integer`s of a type other than `Int`; each is
-converted with `Int`, which throws an `InexactError` for a value of a Base
-integer type that does not fit in `Int`.
-
 Setting an entry to zero keeps it in the list; call `dropzeros!` to remove
 stored zeros. The stored entries are the active coordinates
 (`activecoordinates`).
@@ -85,11 +81,6 @@ through one of its views, or copy it:
     column-major order of the lower triangle (`tril_index`);
   - `matrixview(x)`: a live, read-only `p × p` matrix (`matrixview`);
   - `Matrix(x)`: an independent dense copy.
-
-The size `p` may be an `Integer` of a type other than `Int`. A negative `p`
-throws an `ArgumentError` before the conversion to `Int`; a nonnegative `p` is
-converted with `Int`, which throws an `InexactError` for a value of a Base
-integer type that does not fit in `Int`.
 
 `x[i, j]` reads and `x[i, j] = v` writes one variable, from either triangle: the
 positions `(i, j)` and `(j, i)` name the same variable, and an index outside

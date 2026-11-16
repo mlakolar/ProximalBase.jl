@@ -335,7 +335,7 @@ end
 
 # In the products and inner products below, a zero coefficient of the iterate,
 # stored or not, contributes nothing, even against ±Inf or NaN in the other
-# operand (numerics M1): each kernel tests the stored value, before any scaling
+# operand (numerics.md, "Sparse product semantics"): each kernel tests the stored value, before any scaling
 # by α, so that an α·c that underflows still multiplies and α = Inf does not
 # turn a zero coefficient into NaN.
 

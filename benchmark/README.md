@@ -244,3 +244,76 @@ shared arrays of each size are). The usage is in the header of the script.
 PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
   julia --threads=1 --project=benchmark benchmark/linear_sparse_value.jl
 ```
+
+## Least-squares predictor harness
+
+`leastsquares_predictor.jl` times the least-squares paths of `LeastSquaresLoss`, the `SqrNormL2` value with a
+center, and the predictor and residual oracles `value_from_predictor`, `value_and_gradient_from_predictor!` and
+`value_from_residual` (#915). It has the design of `l2_norms.jl` (roles X, Y and the A/A control XC compiled from
+source in one process, alternating order, shared inputs and output buffers, `raw.csv` and `provenance.txt` in the
+format of `summarize_norml1_infinite_weight.py`). The scratch `f.tmp` of the losses of the `LeastSquaresLoss` cells
+and of the ordinary oracle cells is also shared, assigned after the constructor; the losses of the exceptional
+oracle cells (`over_scaled`, `under_scaled`) keep the scratch of their constructor, which the value oracles timed
+there do not use. The BLAS runs on one thread.
+
+**Cases.** A case is one operation, one element type (Float32 or Float64) and one input, with an id
+`family/operation/type/scenario/size`.
+
+| Family | Operations | Inputs |
+|---|---|---|
+| `LeastSquaresLoss` | `value` at p = 6 and n = 64, 4096, 100000, raw and `Scaled(f, 1/n)`; `value_and_gradient` raw and scaled and `gradient` raw at (n, p) = (64, 6) and (2000, 500) | random data |
+| `LeastSquaresLoss` | `value` at n = 64, p = 6: `under`, `over_val`, `exact_fit`, `prod_over` | squares that underflow to zero with a subnormal value; one square that overflows with a value below `floatmax`; an exact fit; a product `Xβ` that overflows (`Inf - Inf`) with `Xβ = 0` in exact arithmetic |
+| `SqrNormL2` | `value` with a center of the data type and a level of the data type, and for Float32 data with a Float64 level (`center_lam64`), n = 64, 4096, 100000; `underflow` at n = 64 | random data; the underflow input of `under` |
+| `LeastSquaresOracle` | the three oracles, raw (no scale), `scaled` (a scale 1/n of the data type) and for Float32 data `scaled_alpha64` (a Float64 scale 1/n), at n = 64, 4096, 100000 (the value oracles) and (n, p) = (64, 6) and (2000, 500) (value and gradient) | random data |
+| `LeastSquaresOracle` | the two value oracles at n = 64 with `over_scaled` and `under_scaled` inputs (a sum of squares that overflows, or squares that underflow to zero, with a scale that brings the value into range) | constant residual vectors |
+| `LeastSquaresOracle` | `value_from_predictor` and `value_from_residual`, raw, at n = 10⁶ and 10⁷ (p = 1) | random data; the check compares the oracle with a reference in extended precision and prints the error of each role in eps |
+
+**Roles of the oracle cells.** The cells of the families `LeastSquaresLoss` and `SqrNormL2` (the first three rows of
+the table) call the same methods in the three trees.
+The oracle cells compare the oracles of the tree that has them with the loops that the script defines (value from
+predictor `α (Σ (Yᵢ - zᵢ)² / 2)`, value and gradient `d = z - Y`, `g = Xᵀd`, `g .*= α`, `α (Σ dᵢ² / 2)`, value from residual
+`α Σ rᵢ² / 2`; no `α` for the raw loss), which do not recover from overflow or underflow. A role whose tree has the
+oracles calls them, and a role whose tree does not calls the loops. In a forward run (X = tree before, Y = tree
+with the oracles) X and XC are the loops, compiled twice, and Y is the oracle; in a run with the roles reversed X
+and XC are the oracle, compiled twice, and Y is the loop. XC/X is therefore the A/A control of these cells,
+and Y/X compares different code.
+
+**Check mode.** `PB_CHECK_ONLY=1` runs the check and the allocation measurement and exits.
+- XC must equal X with `===`.
+- On the ordinary cells Y must agree with X within 32 `eps(T)` (the largest difference per operation is printed;
+  the bound is empirical for the random data of the cells, not an error bound). The long-vector cells (n = 10⁶ and
+  10⁷) are left out of this comparison: the loops and the oracles sum differently there. Their oracle result must
+  satisfy `|v - v*| <= (n + 8) eps(T) |v*|` against a reference `v*` in extended precision, and the error of each
+  role is printed in eps.
+- Each exceptional cell has a 256-bit BigFloat reference `v*` computed from its inputs. The result of the
+  implementation from the tree with the new methods must be finite and satisfy `|v - v*| <= (n + 8) eps(T) |v*|`, plus `2 nextfloat(zero(T))` where
+  `|v*| < floatmin(T)`. The result of the other implementation is printed, with whether it meets the bound.
+- After warming, `@allocated op()` is measured for each role in each selected case behind a function barrier and printed.
+  The check fails where the implementation from the tree with the new methods allocates more than the other, or allocates on an ordinary cell.
+
+**Usage.**
+
+```sh
+PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/leastsquares_predictor.jl
+
+# forward: X = tree before, Y = tree with the oracles
+PB_FIRST=/path/to/tree-before PB_SECOND="$PWD" PB_OUTPUT=/tmp/ls-fwd PB_ROUNDS=15 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/leastsquares_predictor.jl
+python3 benchmark/summarize_norml1_infinite_weight.py /tmp/ls-fwd
+
+# reversed roles, summarized on its own
+PB_FIRST="$PWD" PB_SECOND=/path/to/tree-before PB_OUTPUT=/tmp/ls-rev PB_ROUNDS=15 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/leastsquares_predictor.jl
+python3 benchmark/summarize_norml1_infinite_weight.py /tmp/ls-rev
+```
+
+`PB_FILTER` selects cases by a regular expression on their ids (for example `'^LeastSquaresOracle/'`), `PB_ROUNDS`
+sets the number of rounds, and `PB_PRINT=1` also prints `provenance.txt` and `raw.csv` to the standard output,
+between the lines `BEGIN <file>` and `END <file>`, for a run whose output directory is not copied back.
+
+**How to judge.** Judge each cell by its median paired ratio Y/X against the A/A ratio XC/X, in the forward and in
+the reversed run (the ratios are the inverse in the reversed run). A cell above 1.05 in both orders that the A/A
+spread does not explain is repeated in a fresh process with `PB_FILTER` before it is reported. The exceptional cells
+are reported, not judged against 1.05. The oracle value cells at n = 64 take about 10 to 25 ns on the cluster nodes used, where a difference of 1 ns is
+4 to 10 percent.

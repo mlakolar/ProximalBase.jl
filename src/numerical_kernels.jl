@@ -614,15 +614,49 @@ _square_multiplicity(x, i) = 1
 # underflowed and lost more than eps of the sum, and the scaled recomputation runs instead.
 @inline _squares_normal(s, n, ::Type{T}) where {T} = s >= n * (floatmin(T) / eps(T))
 
-@inline function _square_value(λ, x, y)
+# λ/2 Σ μᵢ (xᵢ - yᵢ)² at the level λ from the ordinary sum s of the squares, with `l` the level of the ordinary
+# product and `fits` whether that level is kept as it is on the ordinary path (the two entry points below set
+# them and form s). The product is formed in the type of `l` and s and rounded to the type of x at the result.
+@inline function _square_value_level(l, λ, x, y, s, fits::Bool)
   T = _valtype(x)
-  s = y === nothing ? _sumabs2(x) : _sumabs2_diff(x, y)
-  v = convert(T, λ) * s / 2
+  v = l * s / 2
   n = y === nothing ? _square_term_count(x) : length(x)
-  if (isfinite(v) & _squares_normal(real(s), n, T)) && _level_fits(T, λ)
+  if (isfinite(v) & _squares_normal(real(s), n, T)) && fits
     return _value_at(v, x)
   end
   _exceptional_square_value(λ, x, y, real(s), v)
+end
+# SqrNormL2: the level is converted to the type of x. A level that is already stored in that type (Float32 or Float64
+# data with a level of the same type) always fits, a subnormal level included. A level converted from another type
+# fits when it is zero, not finite, or converts to a normal number; otherwise the ordinary result is not kept
+# (_level_fits). The sum is _sumabs2 for y === nothing and _sumabs2_diff otherwise.
+@inline function _square_value(λ, x, y)
+  s = y === nothing ? _sumabs2(x) : _sumabs2_diff(x, y)
+  _square_value_level(convert(_valtype(x), λ), λ, x, y, s, _level_fits(_valtype(x), λ))
+end
+# LeastSquaresLoss and its predictor and residual oracles, except for a strided Float32 or Float64 vector x with
+# y === nothing or a strided vector y of the same element type (_ls_value, which has its own ordinary path for those
+# and calls _square_value_level on its exceptional path); mixed element types, as for f(β) of a loss with Float32 Y
+# and Float64 X, come here. The level as supplied, so that the product is formed in the promoted type of the level and the sum; a
+# Float64 level with Float32 data is not narrowed before the product. The sum for y === nothing is _sumabs2_loop (one
+# vectorizing loop up to _LS_ONE_LOOP_MAX entries of a strided Float32 or Float64 array and Julia's pairwise sum above,
+# and _sumabs2 otherwise); for y !== nothing it is _sumabs2_diff.
+@inline _square_value_wide(λ, x, y) = _square_value_level(λ, λ, x, y, y === nothing ? _sumabs2_loop(x) : _sumabs2_diff(x, y), true)
+# The largest length summed in one vectorizing loop on the least-squares route (_sumabs2_loop, _ls_sumabs2_diff);
+# longer vectors are summed by Julia's pairwise reduction, whose blocks of at most 1024 entries (the block size of
+# sum(abs2, x) and of mapreduce with + on Julia 1.10 and 1.13) are each summed in one loop. The loop keeps
+# one partial sum per vector lane, each accumulated left to right, so that its rounding error can grow in proportion
+# to the length; it is faster than the pairwise reduction on vectors held in cache.
+const _LS_ONE_LOOP_MAX = 2^17
+@inline _sumabs2_loop(x) = _sumabs2(x)
+@inline _sumabs2_loop(x::StridedArray{T}) where {T<:Union{Float32, Float64}} =
+  length(x) > _LS_ONE_LOOP_MAX ? sum(abs2, x) : _simd_sumabs2(x)
+@inline function _simd_sumabs2(x::StridedArray{T}) where {T<:Union{Float32, Float64}}
+  s = zero(T)
+  @inbounds @simd for i in eachindex(x)
+    s += abs2(x[i])
+  end
+  s
 end
 
 @noinline function _exceptional_square_value(λ, x, y, s, v)

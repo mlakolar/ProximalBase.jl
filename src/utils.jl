@@ -110,8 +110,8 @@ function _maximum_abs(x::AbstractArray)
   m
 end
 
-# TOOLING(julia-1.10): dispatch selects the signed integer type of the same width;
-# a conditional on the type is not constant-folded on that compiler.
+# Julia 1.10 compatibility: dispatch selects the signed integer type of the same
+# width; a conditional on the type is not constant-folded on that compiler.
 _int_type(::Type{Float32}) = Int32
 _int_type(::Type{Float64}) = Int64
 

@@ -3,7 +3,8 @@
 API help should let a reader make the next correct call. The manual should
 explain the model, storage and numerical conditions behind that call. Keep
 historical decisions and measurement reports in `docs/design/` or their issue
-records. The [editorial audit](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/documentation-style-921.md)
+records. Preserve traceability when moving a historical issue reference out of
+source comments; do not silently delete the only pointer to an active rule. The [editorial audit](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/documentation-style-921.md)
 records the inventory, reviewed samples and preservation map for this structure.
 
 ## API help
@@ -51,7 +52,11 @@ For editorial changes, compare every removed guarantee with its destination.
 Check the implemented interface and tests before simplifying a statement;
 do not import APIs from the archived package or decide a new numerical policy.
 Source comments should explain present invariants and arithmetic choices.
-Replace cryptic historical rule labels with a short description of the rule.
+Prefer a description of a current invariant to an unexplained historical rule
+label. Do not partially remove indexed labels or issue references from source
+comments during an unrelated editorial change; audit them in a separate pass.
+REPL quick help should use readable Unicode or code spans for formulas, while
+the detailed manual may use rendered LaTeX. Check both displays.
 
 Run the [strict documentation workflow](change_process.md), including doctests,
 isolated examples, Markdown and rendered-link checks. Inspect actual rendered

@@ -80,8 +80,9 @@ limits. Source links track master; validation evidence records the PR commit.
 
 The nine [executable examples](../examples/lasso.md) complement these suites:
 lasso values/gradients/prox, PG stationarity, scalar coordinate updates, sparse
-working sets, ordered blocks, symmetric geometry, custom separable hooks and
-compact-vector block extension, and group-lasso proximal building blocks. The extension examples validate their own
+working sets, ordered blocks, symmetric geometry, custom separable hooks,
+compact-vector block extension and group-lasso proximal building blocks. The
+extension examples validate their own
 checked contract; the allocating generic wrapper alone does not validate a
 custom block implementation. Test names identify evidence domains, not complete
 coverage of every parameter endpoint.

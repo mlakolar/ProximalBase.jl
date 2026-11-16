@@ -8,13 +8,13 @@ step selection and stopping rule.
 
 | Your model term | Use | What to check |
 |:--|:--|:--|
-| Squared regression error, `sum(abs2, X*β - y)/2` | [`LeastSquaresLoss(y, X)`](@ref LeastSquaresLoss) | Response comes first; divide by the sample count explicitly for a mean loss |
+| Squared regression error, `sum(abs2, X*β - y)/2` | [`LeastSquaresLoss(y, X)`](@ref LeastSquaresLoss) | Response first; use `Scaled(LeastSquaresLoss(y, X), 1/n)` for the mean loss |
 | Squared distance or ridge penalty, `λ*sum(abs2, x - y)/2` | [`SqrNormL2(λ, y)`](@ref SqrNormL2) | Omit the center for ridge at zero |
-| General quadratic, `x' * A * x / 2 + b' * x + c` | [`QuadraticFunction(A, b, c)`](@ref QuadraticFunction) | Supply symmetric `A`; indefinite matrices require an admissible proximal step |
+| General quadratic, `x' * A * x / 2 + b' * x + c` | [`QuadraticFunction(A, b, c)`](@ref QuadraticFunction) | `A` must be symmetric (not checked); indefinite matrices restrict proximal steps |
 | Lasso or weighted absolute values | [`NormL1(λ, w)`](@ref NormL1) | Weights are optional; scalar prox is soft thresholding |
 | Lasso plus ridge | [`ElasticNet(λ1, λ2, w)`](@ref ElasticNet) | Weights affect only the ℓ₁ term |
 | One Euclidean norm | [`NormL2(λ)`](@ref NormL2) | This is a norm, not its square; a matrix uses its Frobenius norm |
-| Sum of norms over disjoint groups | [`GroupNormL2(λ, groups, w)`](@ref GroupNormL2) | Group order matters; default weights are square roots of group sizes |
+| Sum of norms over disjoint groups | [`GroupNormL2(λ, groups, w)`](@ref GroupNormL2) | Unlisted indices are unpenalized; compact vectors use each group's index order; default weights are √group size |
 | Affine or zero term | [`LinearFunction(c, d)`](@ref LinearFunction), [`ZeroFunction()`](@ref ZeroFunction) | Choose the coefficient shape for your array argument |
 | Nonnegative multiple of an existing function | [`Scaled(f, α)`](@ref Scaled) or `α*f` | Supported operations depend on the inner function |
 | One prediction–observation squared loss | [`ProximalBase.Squared()`](@ref ProximalBase.Squared) | This separate scalar interface has derivatives, not array proximal operations |
@@ -30,16 +30,18 @@ their operations separately. The minimal core has no general `f + g` object.
 | Function value | `f(x)` | Scalar value at `x` |
 | New gradient | [`gradient(f, x)`](@ref gradient) | New dense gradient array |
 | Value and gradient | [`value_and_gradient(f, x)`](@ref value_and_gradient) | `(value, gradient)` |
+| Gradient Lipschitz bound, when available | [`lipschitz(f)`](@ref lipschitz) | Bound for step selection; check for zero before dividing |
 | Reuse a gradient buffer | [`value_and_gradient!(out, f, x)`](@ref value_and_gradient!) | Writes the gradient; returns the value at **input** `x` |
 | New proximal point | [`prox(g, x, γ)`](@ref prox) | New proximal output |
 | Reuse a proximal buffer and evaluate it | [`value_and_prox!(out, g, x, γ)`](@ref value_and_prox!) | Writes the proximal point; returns the value at **stored output** `out` |
 | One scalar or compact-group proximal point | [`prox_block`](@ref), [`prox_block!`](@ref) | Numerical result; commit it to iterate storage separately |
 | Test whether a zero coordinate should move | [`kkt_violation`](@ref) | Signed screen; a positive result violates the zero condition |
+| Refresh caches after changing data in place | [`reset_cache!(f)`](@ref reset_cache!) | After changes to quadratic `A` or least-squares `X`/`Y`; not needed for changing quadratic `b` alone |
 
 Use positive finite steps for ordinary proximal calls. Match shapes and use
 independent gradient buffers. A proximal call supports exact in-place input
 and output; other overlapping views are unsupported. Read [operations](operations.md)
-for storage-specific methods and [numerical usage](numerical_usage.md) for
+for storage-specific methods and [array and precision conventions](numerical_usage.md) for
 precision, ownership and failure behavior.
 
 ## Try the basic calls

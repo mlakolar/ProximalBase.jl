@@ -74,7 +74,7 @@ makedocs(;
             "Operations on functions" => "operations.md",
             "Restricting functions" => "restrict.md",
             "Writing your own function" => "extending.md",
-            "Array, precision and ownership conventions" => "numerical_usage.md",
+            "Array and precision conventions" => "numerical_usage.md",
             "Numerical contract" => "numerics.md",
         ],
         "Function library" => [

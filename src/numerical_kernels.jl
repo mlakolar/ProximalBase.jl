@@ -39,7 +39,7 @@ end
 @noinline _exceptional_product(a::T, b::T, c::T) where {T<:AbstractFloat} = _scaled_product(a, b, c, 0)
 @inline _positive_product(a::Real, b::Real, c::Real) = _positive_product(promote(float(a), float(b), float(c))...)
 
-# Coefficients of separable functions: at nonnegative level/step endpoints,
+# Coefficients of separable functions: at every nonnegative level and step, including 0 and Inf,
 # an infinite weight selects an infinite coefficient and a zero weight selects
 # zero. Non-finite input values follow the caller's rule. Positive finite
 # scales keep the ordinary product order in entry loops.

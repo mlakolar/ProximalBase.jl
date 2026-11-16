@@ -190,7 +190,7 @@ threshold is finite. This is a **documented, deferred limitation**
 ([#866](https://github.com/mlakolar/ProximalBase.jl/issues/866)), not an
 approved change to the proximal kernel. The decision preserves performance
 of normal `Float32`/`Float64` weighted operations; the measured cost of extra
-checks is recorded in the [numerical endpoint history](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-endpoint-history-921.md).
+checks is recorded in the [numerical endpoint history](https://github.com/mlakolar/ProximalBase.jl/blob/dd8c1a2e9846d434e81fae63903bb667c57c8158/docs/design/numerical-endpoint-history-921.md).
 See also [Numerical usage](numerical_usage.md).
 
 ## [The elastic-net penalty](@id The-elastic-net-penalty)
@@ -295,7 +295,7 @@ an array of steps are not checked: they must be nonnegative, a documented
 precondition. `prox_block` does not check its step, and `Scaled` keeps its own step rule.
 
 The optimized array-step loop and the general loop store the same results,
-bit for bit. See the [implementation notes](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/function-docs-history-921.md#elastic-net-step-traversal)
+bit for bit. See the [implementation notes](https://github.com/mlakolar/ProximalBase.jl/blob/dd8c1a2e9846d434e81fae63903bb667c57c8158/docs/design/function-docs-history-921.md#elastic-net-step-traversal)
 for branch-selection conditions and the reason array-step validation remains a
 caller precondition.
 

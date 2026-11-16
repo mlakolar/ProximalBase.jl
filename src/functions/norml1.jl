@@ -7,8 +7,9 @@
     NormL1(λ0, w)
 
 Weighted ℓ₁ penalty `f(x) = λ₀ Σᵢ wᵢ |xᵢ|`, with all weights equal to
-one when `w` is omitted. The level and weights must be nonnegative and not `NaN`.
-Weights are retained by reference and paired with entries by linear index.
+one when `w` is omitted. The level and weights must be nonnegative and not `NaN`; these are checked
+at construction. Weights are retained by reference and paired with entries
+by linear index; later array mutations are not revalidated.
 
 [`prox`](@ref) applies entrywise soft thresholding ([`shrink`](@ref)) with
 threshold `γλ₀wᵢ`. The function is separable and zero-preserving; value
@@ -33,7 +34,8 @@ julia> prox(f, [2.0, -1.0], 1.0)
   linear order, interpreted as an exactly symmetric `p × p` array. Oracles assume this; validate with
   [`ProximalBase.check_symmetric_parameters`](@ref).
 - A zero weight leaves an entry unpenalized. An infinite weight fixes a **finite**
-  input at zero, but can return `NaN` for non-finite inputs at finite level.
+  input at zero, even at zero level or step, but can return `NaN` for non-finite
+  inputs at finite level.
 - An infinite overall level fixes positive-weight entries at `+0`, even for
   non-finite inputs and zero step; zero-weight entries remain free.
 

@@ -12,7 +12,9 @@ This is the ridge penalty when uncentered, or half the squared error when `λ = 
 
 The function is smooth, convex and separable, with gradient `λ*(x-y)` and
 proximal point `(x + γ*λ*y)/(1 + γ*λ)`. A supplied center is retained by reference
-and must have the same shape as `x`. Use real, one-based arrays; `λ = NaN` is invalid.
+and must have the same shape as `x`. Use real, one-based arrays; `λ` is
+checked nonnegative and not `NaN` at construction. The retained center's
+array type and axes are checked at construction; later edits are not revalidated.
 
 # Examples
 ```jldoctest
@@ -31,7 +33,8 @@ julia> prox(f, [3.0, -1.0], 0.5)
 - For a symmetric iterate, the center must be exactly symmetric; validate with
   [`ProximalBase.check_symmetric_parameters`](@ref).
 - Exact in-place prox is supported; gradient output must be independent of its input.
-- An infinite level uses exceptional arithmetic, not a general projection rule.
+- An infinite level follows IEEE arithmetic, not a general projection rule:
+  a zero residual can yield a `NaN` gradient from `Inf*0`.
   A zero level does not suppress every `0*Inf` or `0*NaN` in gradients or prox.
 
 See [squared-norm details](@ref Squared-Euclidean-norm) and the

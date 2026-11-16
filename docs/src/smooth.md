@@ -9,8 +9,7 @@ it is evaluated. The following sections pair each formula with its constructor,
 gradient, proximal map and an executable example.
 
 All functions on this page operate on arrays. Each has values, gradients
-and [proximal operators](glossary.md#Proximal-operator) for its supported inputs. **Scalar prediction losses**
-use a separate [scalar-loss interface](scalar_losses.md).
+and [proximal operators](glossary.md#Proximal-operator) for its supported inputs.
 For allocating and mutating conventions, input restrictions, shared
 storage and numerical limitations, see
 [Operations on functions](operations.md) and
@@ -427,7 +426,7 @@ in the diagonal-only `dot` of `Diagonal`. An entry that is not stored, or is sto
 `+0` or `-0`, adds nothing, even when the coefficient at that position is `NaN`,
 `Inf` or `-Inf`, and `c` is not read there; a nonzero entry follows ordinary
 arithmetic, also when it or its coefficient is not finite. Historical traversal measurements
-are recorded in the [implementation notes](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/function-docs-history-921.md#linearfunction-sparse-value-measurements). The constant `d` is added
+are recorded in the [implementation notes](https://github.com/mlakolar/ProximalBase.jl/blob/dd8c1a2e9846d434e81fae63903bb667c57c8158/docs/design/function-docs-history-921.md#linearfunction-sparse-value-measurements). The constant `d` is added
 after the sum. When the ordinary value is not finite but `d`, the nonzero entries
 and the coefficients at them are, the value is recomputed from those entries (a
 coefficient at a zero does not prevent it) as exponent-separated terms, each product
@@ -474,11 +473,3 @@ x = [2.0, 1]
 @assert kkt_violation(f, [-1.0, 2], 1) == 0
 prox(f,x,0.5)
 ```
-
-## Scalar squared loss
-
-For a loss of one prediction and one observation, use the separate
-[Scalar losses](scalar_losses.md) interface. The built-in
-[Squared loss](scalar_squared.md) represents
-``\ell(\eta,y)=(\eta-y)^2/2`` and supplies scalar derivatives,
-rather than array gradients and proximal maps.

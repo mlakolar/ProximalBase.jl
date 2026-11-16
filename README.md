@@ -61,10 +61,6 @@ The [function library](docs/src/function_library.md) covers
 `LeastSquaresLoss`, `SqrNormL2`, `QuadraticFunction`,
 `ZeroFunction`, `LinearFunction`, `NormL1`, `ElasticNet`, `NormL2`,
 `GroupNormL2` and `Scaled`.
-A separate [Scalar-loss interface](docs/src/scalar_losses.md) handles
-individual prediction/observation pairs, with
-[`ProximalBase.Squared()`](docs/src/scalar_squared.md) as a built-in example.
-The `ProximalBase.` prefix is necessary because `Squared` is not exported.
 The [iterate guide](docs/src/iterates.md) covers
 `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate`.
 

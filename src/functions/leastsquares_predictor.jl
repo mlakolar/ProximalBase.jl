@@ -76,7 +76,7 @@ end
 Evaluate the least-squares value `α*sum(abs2, z-Y)/2` from a predictor `z = X*β`
 already computed by the caller. Here `α = 1` for a [`LeastSquaresLoss`](@ref), or
 is the factor of one [`Scaled`](@ref) wrapper. No design entries are read and no
-loss fields are written. Scratch is neither read nor written separately; `z` may be a view of it.
+loss fields are written. The call neither reads nor writes `f.tmp`; the supplied `z` may be a view of `f.tmp`.
 
 Use a vector-response loss with strided `Float32` or `Float64` data of one type
 `T`, and a `StridedVector{T}` predictor with the response's axes. Other types
@@ -133,7 +133,8 @@ julia> (g[1], d[1])
   scratch. Nonempty overlaps reported by `Base.mightalias` are rejected;
   undetected sharing remains the caller's responsibility. In-place `d === z`
   is not supported.
-- Length/axis, factor and overlap checks precede writes.
+- Length/axis, factor and overlap checks precede writes. On any error, `g`,
+  `d` and `f.tmp` remain unchanged.
 - Overflow/underflow in `X'*d` is not recovered before applying `α`.
   Overflow in `z-Y` makes the value non-finite, even where the standalone
   predictor value can recover it. Last-bit agreement is not promised.
@@ -147,8 +148,8 @@ function value_and_gradient_from_predictor! end
 
 Evaluate `α*sum(abs2, r)/2` from a least-squares residual already held by the
 caller. Either sign, `r = X*β-Y` or `r = Y-X*β`, is accepted. No design or response
-entries are read and no loss fields are written. Scratch is neither read nor written
-separately; `r` may be a view of it.
+entries are read and no loss fields are written. The call neither reads nor writes `f.tmp`;
+the supplied `r` may be a view of `f.tmp`.
 
 Use the loss, scale and strided floating-point domain of
 [`ProximalBase.value_from_predictor`](@ref). The residual must have the response's

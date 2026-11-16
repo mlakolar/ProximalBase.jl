@@ -7,8 +7,9 @@
     ElasticNet(λ1, λ2, w)
 
 Elastic-net penalty `f(x) = λ₁ Σᵢ wᵢ|xᵢ| + (λ₂/2) Σᵢ xᵢ²`.
-The levels and weights must be nonnegative and not `NaN`; omitted weights are
-one. Weights are retained by reference, one per entry in linear order.
+The levels and weights must be nonnegative and not `NaN`; these are checked
+at construction, with omitted weights equal to one. Weights are retained by
+reference, one per entry in linear order; subsequent edits are not revalidated.
 
 The proximal operator soft thresholds each entry and applies ridge shrinkage:
 `shrink(x[i], γ*λ1*w[i]) / (1 + γ*λ2)`. It uses the numerical kernels of

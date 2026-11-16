@@ -452,14 +452,16 @@ For `NormL1` the scalar screen is `abs(g[i]) - λ0*w[i]`; `ElasticNet` uses
 `λ1` and returns `-Inf` for an infinite ridge level. Other supported scalar
 screens are `ZeroFunction`, `LinearFunction`, `SqrNormL2` and `Scaled` leaves.
 
-In the four-argument form, `k` is an entry index for a plain array or a
+In the four-argument form, `k` is an entry index for a plain array or
 `SparseIterate`, an independent symmetric coordinate for a
 `SymmetricSparseIterate`, or a group ID for a `BlockIterate`. Scalar
-penalties take the maximum member screen on a block. [`GroupNormL2`](@ref)
-uses `norm(g[Gₖ]) - λ0*wₖ` for an inactive group and checks the group layout.
-For plain array `x`, however, `k` is an **entry index**: when its group is
-nonzero, the screen is `abs(g[k])`, not the group norm. There is no
-three-argument `GroupNormL2` screen.
+penalties take the maximum member screen on a block. For [`GroupNormL2`](@ref)
+on an array, an entry outside every group has screen `abs(g[k])`; so does an
+entry in a group containing any nonzero point value. Only when that entire
+group is zero does it use `norm(g[Gₖ]) - λ0*wₖ`. On a `BlockIterate`, `k`
+selects the group **assumed zero**, and the group screen is evaluated without
+testing its activity; the selected layout and gradient length are checked.
+There is no three-argument `GroupNormL2` screen.
 
 Symmetric models require validated symmetric parameters. The gradient's chosen
 symmetric pair must not contain opposing infinities. Gradient-length and bounds

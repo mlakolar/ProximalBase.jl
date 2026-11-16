@@ -48,3 +48,9 @@ ElasticNet
 NormL2
 GroupNormL2
 ```
+
+## Maximum-magnitude norm
+
+```@docs
+NormLinf
+```

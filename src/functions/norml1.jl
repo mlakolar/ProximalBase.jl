@@ -101,10 +101,13 @@ iszeropreserving(::_L1OrdinarySteps) = true
 _checkparams(g::_L1OrdinarySteps, x) = _checkparams(g.f, x)
 
 # Arrays of fewer than _L1_STEP_PASS_MIN entries go to the generic loop at once: for a few entries the pass over the
-# steps costs more than the ordinary loop saves. The generic loop makes the same checks, in the same order.
+# steps costs more than the ordinary loop saves. The generic loop makes the same checks, in the same order. This
+# method is only the test of the length, inlined, so that a short array runs the code that it ran without the pass;
+# the pass and its two loops are out of line.
 const _L1_STEP_PASS_MIN = 16
-function _prox_sep_dense!(y::AbstractArray, f::NormL1, x::AbstractArray, γ::AbstractArray)
-  length(x) < _L1_STEP_PASS_MIN && return _l1_prox_entries!(y, f, x, γ)
+@inline _prox_sep_dense!(y::AbstractArray, f::NormL1, x::AbstractArray, γ::AbstractArray) =
+  length(x) < _L1_STEP_PASS_MIN ? _l1_prox_entries!(y, f, x, γ) : _l1_prox_steps!(y, f, x, γ)
+@noinline function _l1_prox_steps!(y, f::NormL1, x, γ)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   isconcretetype(eltype(x)) && isconcretetype(eltype(γ)) &&

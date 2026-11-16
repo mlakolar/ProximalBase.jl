@@ -733,17 +733,20 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
       @test identical(prox!(similar(x), g, x, steps), perentry(x, g, x, steps))
 
       # linear indices that end at typemax(Int) - 1: the last block of the pass starts within 255 of typemax(Int).
-      # An infinite λ1 sends every step to another branch than the ordinary threshold product.
+      # The step 2^emax (γλ2 above the ridge band) is planted at the last index only; an infinite λ1 sends every
+      # step to another branch than the ordinary threshold product.
       for m in (2, 300)
         lo = typemax(Int) - m
         xs = ShiftedVector(T(2) .* randn(rng, T, m), lo); xs[lo] = T(Inf)
         gs = ShiftedVector(T(0.5) .+ rand(rng, T, m), lo)
         finf, fu = ElasticNet(T(Inf), λ2), ElasticNet(λ1, λ2)
-        @test !PB._elastic_ordinary_steps(finf, gs, T, eachindex(IndexLinear(), xs))
-        @test PB._elastic_ordinary_steps(fu, gs, T, eachindex(IndexLinear(), xs))
-        for h in (finf, fu)
+        si = eachindex(IndexLinear(), xs)
+        @test PB._elastic_ordinary_steps(fu, gs, T, si) && !PB._elastic_ordinary_steps(finf, gs, T, si)
+        gp = ShiftedVector(copy(gs.data), lo); gp[last(si)] = T(2)^emax
+        @test !PB._elastic_ordinary_steps(fu, gp, T, si)
+        for h in (finf, fu), γs in (gs, gp)
           ys = ShiftedVector(zeros(T, m), lo)
-          @test prox!(ys, h, xs, gs) === ys && identical(ys, perentry(ys, h, xs, gs))
+          @test prox!(ys, h, xs, γs) === ys && identical(ys, perentry(ys, h, xs, γs))
         end
       end
     end

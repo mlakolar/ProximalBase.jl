@@ -65,8 +65,9 @@ end
 @inline _weight_product(a::Real, b::Real, w::Real) = _weight_product(promote(float(a), float(b), float(w))...)
 
 # The same products rounded once to the destination type U, formed in the promotion of U and
-# the factors' types (numerics T3), so that a product that overflows or underflows the factors'
-# type is still finite in U. For R == U the promotion and the conversion are no-ops.
+# the factors' types before conversion to U; overflow or underflow in a narrower factor type can
+# be avoided when the result is representable in U. For R == U the promotion and the conversion
+# are no-ops.
 # A Bool factor (the weight `true` of an unweighted entry) does not widen the type.
 @inline _factor_type(a) = float(typeof(a))
 @inline _factor_type(::Bool) = Float16
@@ -239,7 +240,7 @@ end
 
 ####################################
 #
-#  Values recomputed in power-of-two units (R1)
+#  Values recomputed in power-of-two units (numerics.md, "Overflow and underflow of values")
 #
 ####################################
 
@@ -250,7 +251,7 @@ end
 @inline _max_exponent(::Type{R}) where {R} = exponent(floatmax(R))
 
 # w Σ mᵢ 2^eᵢ over finite mᵢ, for the terms of a value recomputed in different
-# power-of-two units (R1). The terms are added from the largest exponent down
+# power-of-two units. The terms are added from the largest exponent down
 # to an accumulator kept as a significand in [1/2, 1) and its own exponent,
 # renormalized after each addition, so terms that cancel do so before a
 # smaller term is aligned to what remains; the weight is applied last, with
@@ -343,7 +344,7 @@ _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_wei
 
 ####################################
 #
-#  Values as a significand and an exponent (R1, "Wrappers")
+#  Values as a significand and an exponent (numerics.md, "Overflow and underflow of values")
 #
 ####################################
 
@@ -378,7 +379,7 @@ end
 
 ####################################
 #
-#  Values recomputed when an intermediate underflows (R1, #520)
+#  Values recomputed when an intermediate underflows (#520; numerics.md, "Overflow and underflow of values")
 #
 ####################################
 
@@ -581,9 +582,10 @@ function _norm_diff2(A::AbstractArray, B::AbstractArray)
   _scaled_norm(A, B, s)
 end
 
-# scale ⋅ √(Σ μᵢ (xᵢ - yᵢ)²) for a scale ≥ 0 (one by default) and an ordinary sum of squares s in R that
-# overflowed or fell below floatmin(R): the squared-residual kernel gives the sum as m 2^(2k), and the
-# norm is scale √m 2^k, rounded once (twice where it is subnormal). An entry that is not finite keeps
+# scale ⋅ √(Σ μᵢ (xᵢ - yᵢ)²) for a scale ≥ 0 (one by default) and the ordinary sum of squares s in R, which the
+# callers pass where it overflowed or fell below floatmin(R) (norm_diff) and also where it is a normal number that
+# their own tests do not keep (the value of SqrtLeastSquaresLoss): the squared-residual kernel gives the sum as
+# m 2^(2k), and the norm is scale √m 2^k, rounded once (twice where it is subnormal). An entry that is not finite keeps
 # the ordinary result scale √s: Inf, or NaN where a NaN or an Inf - Inf residual occurs.
 @noinline function _scaled_norm(x, y, s::R, scale::R = one(R)) where {R}
   q = _residual_squares(x, y, R)
@@ -611,8 +613,9 @@ _square_term_count(x) = length(x)
 _square_term_count(x::SparseArrays.AbstractSparseArray) = length(nonzeros(x))
 _square_multiplicity(x, i) = 1
 
-# Can an ordinary sum s of n squares in T be kept (R1)? Below n floatmin/eps a square may have
-# underflowed and lost more than eps of the sum, and the scaled recomputation runs instead.
+# Can an ordinary sum s of n squares in T be kept? Below n floatmin/eps a square may have
+# underflowed enough to lose more than eps of the sum. This predicate rejects that sum for the
+# ordinary path; callers retain their endpoint checks before recovery.
 @inline _squares_normal(s, n, ::Type{T}) where {T} = s >= n * (floatmin(T) / eps(T))
 
 # λ/2 Σ μᵢ (xᵢ - yᵢ)² at the level λ from the ordinary sum s of the squares, with `l` the level of the ordinary
@@ -656,6 +659,29 @@ const _LS_ONE_LOOP_MAX = 2^17
   s = zero(T)
   @inbounds @simd for i in eachindex(x)
     s += abs2(x[i])
+  end
+  s
+end
+
+# The sums of the unweighted values of NormL1 and NormL2 for a strided Float32 or Float64 array of
+# _VALUE_LOOP_MIN to _VALUE_LOOP_MAX entries: one vectorizing loop. Up to 1024 entries Julia's pairwise reduction is
+# one such loop too (1024 is its block size), reached through the generic reduction, whose first entries are taken
+# separately; the rounding error of this loop is of the same kind, and the loop is two to three times faster for a
+# few hundred entries. Shorter arrays keep Julia's reduction, which is faster for a few entries, and longer ones keep
+# its pairwise blocks, so that the error of a long sum does not grow with its length.
+const _VALUE_LOOP_MIN = 16
+const _VALUE_LOOP_MAX = 1024
+@inline _value_sumabs2(x) = _sumabs2(x)
+@inline _value_sumabs2(x::StridedArray{T}) where {T<:Union{Float32, Float64}} =
+  _VALUE_LOOP_MIN <= length(x) <= _VALUE_LOOP_MAX ? _value_loop(abs2, x) : _sumabs2(x)
+@inline _value_sumabs(x) = sum(abs, x)
+@inline _value_sumabs(x::StridedArray{T}) where {T<:Union{Float32, Float64}} =
+  _VALUE_LOOP_MIN <= length(x) <= _VALUE_LOOP_MAX ? _value_loop(abs, x) : sum(abs, x)
+# out of line, so that the callers keep the code that they had for the other lengths
+@noinline function _value_loop(f::F, x::StridedArray{T}) where {F, T<:Union{Float32, Float64}}
+  s = zero(T)
+  @inbounds @simd for i in eachindex(x)
+    s += f(x[i])
   end
   s
 end
@@ -768,7 +794,8 @@ end
   v + e
 end
 
-# The squared-residual kernel (R1): Σ μᵢ (xᵢ - yᵢ)² = s 2^(2k) in R, so that the half sum is
+# The squared-residual kernel (numerics.md, "Overflow and underflow of values"):
+# Σ μᵢ (xᵢ - yᵢ)² = s 2^(2k) in R, so that the half sum is
 # s 2^(2k-1). y === nothing stands for y = 0 and visits the stored entries of x only, each with its
 # logical multiplicity μᵢ (2 for an off-diagonal entry of a symmetric iterate). Every residual is
 # formed before it is scaled by 2^-k, k the exponent of the largest one, and the squares are summed
@@ -793,7 +820,8 @@ _square_type(λ, x, y) = promote_type(_valtype(x), y === nothing ? _valtype(x) :
 end
 
 # The k >= 0 for which n products of entries below 2^bound(ma) and 2^bound(mb), scaled by 2^-k, sum
-# below 2^(emax - margin) in R: the units of the recomputation of an overflowing dot (R1).
+# below 2^(emax - margin) in R: the units of the recomputation of an overflowing dot
+# (numerics.md, "Overflow and underflow of values").
 @inline _product_sum_shift(::Type{R}, ma, mb, n, margin) where {R} =
   max(0, _bound_exponent(ma) + _bound_exponent(mb) + _log2_ceil(n) + margin - _max_exponent(R))
 
@@ -886,6 +914,13 @@ _recovery_type(types...) = promote_type(Float64, types...)
 # of every ordinary value. The test is false for NaN, so an ordinary NaN (or Inf) is returned as it was.
 @inline _sum_kept(s, n) = !(s < n * floatmin(typeof(s)))
 
+# Whether a threshold c decides the shrinkage of a group of n entries whose sum of squares is zero (_l2_shrink!):
+# c ≥ n √(floatmin/eps), with the root rounded up to a power of two, so that the test is one product and one
+# comparison of normal numbers (c² would underflow for a small c). Float32 and Float64 only; other types scan the group.
+@inline _l2_threshold_decides(c, n) = false
+@inline _l2_threshold_decides(c::Float64, n) = c >= n * 0x1p-485       # √(2^-1022 / 2^-52) = 2^-485
+@inline _l2_threshold_decides(c::Float32, n) = c >= n * Float32(0x1p-51)   # √(2^-126 / 2^-23) = 2^-51.5 < 2^-51
+
 # Codes returned by the shrinkage kernel in place of the norm of the stored group: the term of the group is zero
 # (the stored group is exactly zero, or the group is unpenalized), or its value must be recomputed from the stored entries.
 const _L2_ZERO = -2
@@ -954,7 +989,14 @@ end
         return t * n
       end
       return T(_l2_zero!(y, G))
-    elseif iszero(s) && _l2_zero_group(x, G, T)
+    elseif iszero(s) && (_l2_threshold_decides(c, length(G)) || _l2_zero_group(x, G, T))
+      # A zero sum of squares: every square rounded to zero, so each is at most nextfloat(zero(T))/2 and their exact
+      # sum is at most |G| nextfloat(zero(T))/2. Where c is at least |G| √(floatmin(T)/eps(T)) (_l2_threshold_decides),
+      # c² is at least |G|² floatmin(T)/eps(T), far above that sum: the exact norm is below c and the proximal point
+      # is the zero group, which the cold path would return as well. No second pass over the group is then needed
+      # to tell a zero group from one whose squares underflow. A smaller threshold keeps the scan for the zero
+      # group, and the cold path. An entry of a wider type than T exceeds its rounding to T by at most half a unit
+      # of T, so the norm of the entries as the cold path reads them (in their own type) is still far below c.
       return T(_l2_zero!(y, G))
     end
   end
@@ -1076,7 +1118,7 @@ end
 function _l2_value(λ, x)
   T = _valtype(x)
   iszero(λ) && return zero(T)
-  s = _sumabs2(x)
+  s = _value_sumabs2(x)
   if _level_fits(T, λ)
     v = convert(T, convert(T, λ) * sqrt(s))
     (_l2_ordinary(v, T) & _squares_normal(s, _square_term_count(x), T)) && return v

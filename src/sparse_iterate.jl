@@ -335,9 +335,8 @@ end
 
 # In the products and inner products below, a zero coefficient of the iterate,
 # stored or not, contributes nothing, even against ±Inf or NaN in the other
-# operand (see "Sparse product semantics" in docs/src/numerics.md):
-# each kernel tests the stored value before scaling by α, so that an
-# α·c that underflows still multiplies and α = Inf does not
+# operand (numerics.md, "Sparse product semantics"): each kernel tests the stored value, before any scaling
+# by α, so that an α·c that underflows still multiplies and α = Inf does not
 # turn a zero coefficient into NaN.
 
 function *(A::StridedMatrix{Ta}, x::SparseIterate{Tx, 1}) where {Ta,Tx}
@@ -383,9 +382,17 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIt
   _scale_product_output!(out, β)
   iszero(α) && return out
   scale = _product_scale(A, coef, α)
-  # Few coefficients: visit stored entries. Many: sweep columns, reading A in order.
-  # No fixed cutoff is best on every CPU; measurements of 1/32 and alternatives
-  # are recorded in docs/design/iterate-product-notes-921.md.
+  # Stored-entry traversal wins for few coefficients; column order reads A
+  # sequentially and matches LinearAlgebra's generic loop for denser coefficients.
+  # The crossover density falls as columns of A get longer: for Float64 and a
+  # random entry order its median is 7-16% for 64 to 512 rows, 3-5% for 1024,
+  # about 1.5-2% for 2048 and 1-5% for 4096, on Apple M3, AMD Zen 3 and Intel
+  # Skylake-SP (larger for Float32), and it differs by a factor of two or more
+  # between those CPUs. No constant is best everywhere: 1/32 costs 2.5-5% of the
+  # time on average over densities of 0.5-50%, the best constant (1/16) 1-3%.
+  # A cutoff in bytes, min(1/8, 256/(m*sizeof(T))), cost 0.6-1.5%; that rule was
+  # not adopted because its gain over the best constant was under 2 points.
+  # See "Matrix coefficients" in docs/src/iterates.md.
   if 32 * nactive(coef) <= length(coef)
     p = size(coef, 1)
     @inbounds for inz = 1:nactive(coef)
@@ -562,9 +569,15 @@ function LinearAlgebra.dot(a::StridedVector, X::SparseIterate{<:Any, 2}, b::Stri
   s
 end
 
-# Cold three-factor term: classify genuine NaN/Inf/zero inputs first, then form
-# finite nonzero products in scaled units. The range and rounding contract is
-# documented under "Three-factor products" in docs/src/iterates.md.
+# The scalar three-factor term for the product A * X * B. A NaN factor gives NaN, a zero factor
+# against an infinite one gives NaN (the genuine 0 * Inf), a zero factor otherwise gives zero, and an
+# infinite factor otherwise gives an infinity of the sign of the product. Three finite nonzero
+# factors give a product with the accuracy of an ordinary product of three numbers: the result is
+# within one neighbouring floating-point number of the correctly rounded exact product for a normal
+# result, and within one spacing for a subnormal one, and a term within that margin of the overflow
+# threshold or of half the smallest subnormal can fall on either side of it. Correct rounding is not
+# promised. Overflow and underflow are decided by the final value, not by a partial product, beyond
+# that margin. Only the exceptional entries of the product kernel reach it.
 function _triple(a::T, x::T, b::T) where {T<:Union{Float32, Float64}}
   (isnan(a) | isnan(x) | isnan(b)) && return T(NaN)
   infinite = isinf(a) | isinf(x) | isinf(b)

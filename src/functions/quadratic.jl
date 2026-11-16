@@ -121,7 +121,8 @@ end
 
 # The ordinary value, or its recomputation from the exact products: after an overflow (a non-finite
 # value of finite data), or when the products A x rounded into the buffer type P, and the final dots,
-# could have lost more than eps |v| (R1, #520). m is max|x|, which the product A x has already read.
+# could have lost more than eps |v| (#520; numerics.md, "Overflow and underflow of values"). m is max|x|,
+# which the product A x has already read.
 @inline function _quadratic_checked(f::QuadraticFunction, x, v, ::Type{P}, m) where {P}
   if !isfinite(v) || (_quadratic_underflow_risk(f, x, v, P, m) && !_quadratic_products_normal(f, x, v, P))
     _quadratic_value_recover(f, x, v)
@@ -132,7 +133,7 @@ end
 
 # The threshold of _quadratic_underflow_risk is a worst case: it assumes that products may be subnormal.
 # When none can be, the ordinary value carries only relative errors, and the value is as accurate as the
-# ordinary computation (R1), however small it is, an exact zero of a null-space argument included.
+# ordinary computation, however small it is, an exact zero of a null-space argument included.
 # Every nonzero product of two operands is normal if the sum of the exponents of their smallest nonzero
 # entries is at least exponent(floatmin): |a b| >= 2^(ea + eb) (Julia's exponent has a significand in
 # [1, 2)); a product with a zero is exact; and a sum with a subnormal result is exact. The products are

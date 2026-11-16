@@ -177,12 +177,35 @@ squares overflows or underflows and a threshold `γ*λ0*w[k]` outside the range,
 power-of-two units; the ordinary path needs a normal threshold and a normal sum of
 squares, and is otherwise unchanged.
 
+The clip level `τ` of `NormLinf` has an **absolute** error of order `n eps(T) max|xᵢ| + δ` for `n` entries in the
+floating type `T` of the output, with `δ = nextfloat(zero(T))` (from the running sums of Condat's algorithm and the
+storage of a subnormal radius or output), unlike the relative bounds of the `NormL2` and `GroupNormL2` kernels: an entry
+far below `max|xᵢ|` has no relative guarantee, and `x = [δ]`, `λ = δ`, `γ = 0.5` gives `[δ]` where the exact point is
+`δ/2`. A sum of magnitudes that overflows or exceeds `floatmax(T)/2` is processed in power-of-two units, whose subnormal
+losses are below the nominal scale `n eps(T) max|xᵢ|` when `n eps(T) ≤ 1/2` (up to `2^22` entries in `Float32` and
+`2^51` in `Float64`) and the scaling of an entry or of the radius changes it by at most one subnormal spacing (the
+allowance covers the `ldexp` of Julia 1.10 noted above), two hypotheses of that argument that the code does not check.
+Through `Scaled`, the wrapper's recovery of a radius `γλα` beyond the range has a limit: for
+`Scaled(NormLinf(2.0 * 2.0^-1000), 2.0^1000)` at the step `0.75 floatmax(Float64)` on two entries equal to
+`floatmax(Float64)`, even the folded level at half the scale is out of range, the wrapper passes an infinite step, and the
+output is `+0` where the exact result is about `floatmax/4`. For positive
+finite level and step, an infinite entry without `NaN` gives the identity; on the finite clipping branch the value is
+`λ τ`, computed from the largest stored magnitude `τ`, and `value_and_prox!` returns the value of the stored output,
+computed as `f(y)` computes it. Endpoint precedence is given in the table below.
+
 These are practical numerical safeguards, not a promise of exhaustive
 range recovery or correctly rounded arbitrary reductions, gradients, or
 matrix products. When the final mathematical value itself is out of range,
 an appropriate infinity or underflow to zero may be unavoidable, subject
 to the function's endpoint semantics. There is no cross-platform or
 cross-version bitwise arithmetic-order guarantee.
+
+The order in which an ordinary value adds its terms is not part of the contract either. The unweighted
+`NormL1` value of a dense `Float32` or `Float64` array of 16 to 1024 entries, and the `NormL2` value of such an
+array or strided view, add their terms in one vectorized loop. Julia's `sum` is also one vectorized loop up to
+1024 entries, so the rounding error is of the same kind and grows with the length in the same way, but the result
+can differ from `λ0 * sum(abs, x)` or `λ * sqrt(sum(abs2, x))` in the last place. The tests bound these values
+against a high-precision sum and do not compare their bits; shorter and longer arrays use `sum`.
 
 ```@example numerical_range
 using ProximalBase
@@ -249,6 +272,11 @@ all-NaN result or a particular exception.
 | `NormL1`, infinite level, nonnegative step | Positive-weight entries prox to `+0`, including non-finite inputs; zero-weight entries stay free. At `γ = 0` this is the fixed-function limit `γ → 0+`, the projection onto the closure of the domain ([#665](https://github.com/mlakolar/ProximalBase.jl/issues/665)) |
 | `NormL1`, finite factors whose product overflows | Distinguished from genuinely infinite weights/levels; recovery handles representable finite results where supported. With an input of `±Inf`, an overflowed finite threshold can yield `NaN`; [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) is a documented, deferred limitation, not an authorized hot-loop fix. |
 | `NormL2` | The rules of one `GroupNormL2` group with weight one (rows below); value `0` at zero level; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
+| `NormLinf`, negative or `NaN` step | Checked first: `ArgumentError` before any write, ahead of the rows below, also through `Scaled` (a size mismatch is a `DimensionMismatch`); no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write, also through `Scaled`) |
+| `NormLinf`, infinite level, nonnegative step | `+0` at every entry, `γ = 0` and `γ = Inf` included (#665 reading, #946), also for `NaN`/`±Inf` inputs; value `0` at the zero vector (an empty one included), `Inf` at any other argument without a `NaN`, `NaN` at a `NaN` entry |
+| `NormLinf`, finite level, zero level or zero step | After the rows above: the identity (`-0`, `NaN` and `±Inf` entries unchanged), also at `γ = Inf` with a zero level; value `0` at a zero level, `λ maxᵢ abs(xᵢ)` at a zero step of a positive level |
+| `NormLinf`, positive finite level, infinite step | `+0` for every input (decided before the entries are classified), `NaN` and `±Inf` entries included |
+| `NormLinf`, positive finite level and positive finite step | A `NaN` entry makes every output `NaN`; a `±Inf` entry (no `NaN`) leaves the argument unchanged, also when the finite product `γλ` overflows; otherwise the clip at `τ` with `Σ(abs(xᵢ) - τ)₊ = γλ`, and `+0` when `γλ` is at least `‖x‖₁` or overflows while `‖x‖₁` is finite; a sum of magnitudes above `floatmax(T)/2` is processed in power-of-two units |
 | `GroupNormL2`, zero weight | Unpenalized group: returned unchanged (`NaN`/`±Inf` included), zero value |
 | `GroupNormL2`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` included (#665 reading), also for `NaN`/`±Inf` inputs; value `0` at zero, `Inf` elsewhere (`NaN` at a `NaN` entry) |
 | `GroupNormL2`, positive finite parameters and step | A `NaN` entry makes the group `NaN`; a `±Inf` entry (no `NaN`) leaves the group unchanged, also when the finite threshold's product overflows; `γ = Inf` fixes the group at `+0` |
@@ -324,7 +352,7 @@ before `NormL1` sees it, and that wrapper step rule is unchanged (#311).
 `ElasticNet` follows this rule for an infinite `λ1`, and implements the
 same zero-step projection for an infinite ridge level `λ2`, the indicator
 of `{0}` in every coordinate (#908). `GroupNormL2` applies the same reading at `γ = 0` to an infinite level (groups with
-a positive weight become `+0`) and to an infinite group weight, and `NormL2` to an
+a positive weight become `+0`) and to an infinite group weight, and `NormL2` and `NormLinf` to an
 infinite level; no other function
 is claimed to implement a zero-step projection rule. In `NormL1` the test is made only on the
 exceptional branch of the kernel (the product `0⋅Inf` is not an ordinary
@@ -421,7 +449,9 @@ kernels and their `SqrNormL2`/`LeastSquaresLoss`/`LinearFunction` consumers),
 against 4096-bit BigFloat references and its endpoint rules), and
 `test/groupnorml2.jl` and `test/norml2.jl` (BigFloat references for `GroupNormL2`
 and `NormL2` values and proximal points, and for the `GroupNormL2` KKT screens,
-including the exceptional cases above), and `test/sparse_value_cost.jl` (a counting element type that shows the
+including the exceptional cases above), `test/normlinf.jl` (a sort-based ℓ1-ball reference in `BigFloat` for the
+`NormLinf` clip and its KKT conditions, the endpoint rows above, overflow of `γλ` and of `‖x‖₁`, and the
+fallback of the threshold), and `test/sparse_value_cost.jl` (a counting element type that shows the
 `NormL2` value visits no unstored entry of a sparse or symmetric iterate). These are concrete tested
 domains; a historical acceptance goal for a removed family is not evidence for
 this implementation. New numerical claims need independent calculations,

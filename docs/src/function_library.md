@@ -12,6 +12,7 @@ to see exactly how the symbols in a definition become Julia arguments.
 | Julia constructor | Mathematical function | Arguments and interpretation | Detailed guide |
 |:--|:--|:--|:--|
 | [`LeastSquaresLoss(Y, X)`](@ref LeastSquaresLoss) | ``f(B)=\frac12\lVert Y-XB\rVert_F^2`` | ``X``: design matrix; ``Y``: response; ``B``: argument supplied to `f(B)` | [Least squares](smooth.md#Least-squares-loss) |
+| [`SqrtLeastSquaresLoss(Y, X)`](@ref SqrtLeastSquaresLoss) | ``f(\beta)=\lVert Y-X\beta\rVert_2`` | ``X``: design matrix; ``Y``: response vector; ``\beta``: argument supplied to `f(β)`; convex, not smooth, no proximal operator | [Square-root least squares](smooth.md#Square-root-least-squares-is-not-smooth) |
 | [`SqrNormL2(λ, y)`](@ref SqrNormL2) | ``f(x)=\frac{\lambda}{2}\lVert x-y\rVert^2`` | ``\lambda\geq0``: level; ``y``: center (zero when omitted) | [Squared Euclidean norm](smooth.md#Squared-Euclidean-norm) |
 | [`QuadraticFunction(A, b, c)`](@ref QuadraticFunction) | ``f(x)=\frac12x^\mathsf{T}Ax+b^\mathsf{T}x+c`` | ``A``: symmetric matrix (caller precondition), positive semidefinite not required; ``b``: linear coefficient (zero when omitted); ``c``: constant (zero when omitted) | [Quadratic function](smooth.md#Quadratic-function) |
 | [`ZeroFunction()`](@ref ZeroFunction) | ``f(x)=0`` | No parameters | [Zero function](smooth.md#Zero-function) |
@@ -19,6 +20,7 @@ to see exactly how the symbols in a definition become Julia arguments.
 | [`NormL1(λ0, w)`](@ref NormL1) | ``g(x)=\lambda_0\sum_i w_i\lvert x_i\rvert`` | ``\lambda_0\geq0``: overall level; ``w``: nonnegative weights (all one when omitted) | [The ℓ₁ norm](penalties.md) |
 | [`ElasticNet(λ1, λ2, w)`](@ref ElasticNet) | ``g(x)=\lambda_1\sum_i w_i\lvert x_i\rvert+\frac{\lambda_2}{2}\sum_i x_i^2`` | ``\lambda_1,\lambda_2\geq0``: ℓ₁ and ridge levels; ``w``: nonnegative ℓ₁ weights (all one when omitted) | [The elastic-net penalty](penalties.md#The-elastic-net-penalty) |
 | [`NormL2(λ)`](@ref NormL2) | ``g(x)=\lambda\lVert x\rVert_2`` | ``\lambda\geq0``: level; the Frobenius norm for a matrix | [The ℓ₂ and group ℓ₂ norms](group_penalty.md) |
+| [`NormLinf(λ)`](@ref NormLinf) | ``g(x)=\lambda\max_i\lvert x_i\rvert`` | ``\lambda\geq0``: level; the largest magnitude of a matrix | [The ℓ∞ norm](group_penalty.md#The-NormLinf-norm) |
 | [`GroupNormL2(λ0, groups, w)`](@ref GroupNormL2) | ``g(x)=\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_2`` | ``\lambda_0\geq0``: overall level; ``G_k``: disjoint groups of indices; ``w``: nonnegative weights (``\sqrt{\lvert G_k\rvert}`` when omitted) | [The ℓ₂ and group ℓ₂ norms](group_penalty.md) |
 | [`Scaled(f, α)`](@ref Scaled) | ``h(x)=\alpha f(x)`` | ``f``: existing function object; ``\alpha\geq0``: scale | [Scaling a function](calculus.md) |
 

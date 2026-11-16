@@ -1031,6 +1031,270 @@ end
   end
 end
 
+@testset "ℓ2 shrinkage of a group with a zero sum of squares: $T" for T in (Float32, Float64)
+  # A group whose sum of squares in T is exactly zero: a zero group (entries +0 and -0), or a nonzero group every square
+  # of which rounds to zero. At a threshold c = γλw with c² ≥ |G| floatmin/eps the exact norm is far below c and the
+  # proximal point is the zero group; the shortcut takes it where c ≥ |G| 2^-485 (Float64) or |G| 2^-51 (Float32),
+  # above |G| √(floatmin/eps); at a smaller threshold the scan for the zero group and the cold path decide. In
+  # every case _l2_shrink! must write the group and return the code of the cold route (_l2_shrink_values!: the
+  # parameters below are positive and finite), bit for bit, called or inlined (prox_block!), in place or not, through a
+  # range or a permuted index vector of a longer array whose other entries are large. Where the exact norm is above a
+  # tiny threshold the result is the nonzero shrinkage, also against a BigFloat reference.
+  rng = Xoshiro(921)
+  hexp(S) = exponent(nextfloat(zero(S))) ÷ 2 - 2      # entries in [2^(h-1), 2^h): squares below nextfloat(0)/2 in S
+  bound(S, n) = n * (floatmin(S) / eps(S))              # |G| floatmin/eps, the bound of the exact sum of squares
+  # the threshold of the shortcut: c at or above it is the zero group without a scan
+  tbound(S, n) = S === Float64 ? n * 0x1p-485 : n * Float32(0x1p-51)
+  function cold(x, G, λ, w, γ, ::Type{S}) where {S}
+    y = fill(S(7), length(x))
+    code = PB._l2_shrink_values!(y, x, G, λ, w, γ)
+    y, S(code)
+  end
+  # _l2_shrink! against the cold route, in all its call forms; returns the code
+  function check_cold(x, G, λ, w, γ, ::Type{S}) where {S}
+    yc, code = cold(x, G, λ, w, γ, S)
+    y1, y2 = fill(S(7), length(x)), fill(S(7), length(x))
+    @test PB._l2_shrink!(y1, x, G, λ, w, γ) === code
+    @test PB._l2_shrink!(y2, x, G, λ, w, γ, PB._l2_shrink_fixed!) === code
+    @test same(y1, yc) && same(y2, yc)
+    if eltype(x) === S
+      z = copy(x)
+      zc = copy(x)
+      @test PB._l2_shrink!(z, z, G, λ, w, γ) === S(PB._l2_shrink_values!(zc, zc, G, λ, w, γ)) === code
+      @test same(z, zc)
+    end
+    code, y1
+  end
+  # a longer array with large entries outside the group: a range G, or a permuted index vector
+  function embed(v, layout)
+    n = length(v)
+    layout === :range && return v, 1:n
+    L = 2n + 3
+    x = fill(eltype(v)(3), L)
+    G = randperm(rng, L)[1:n]
+    x[G] = v
+    x, G
+  end
+  sizes = (1, 2, 5, 32, 1024)
+  h = hexp(T)
+  for n in sizes, layout in (:range, :index)
+    zero_group = [rand(rng, (zero(T), -zero(T))) for _ in 1:n]
+    tiny = [signif(rng, T, h) for _ in 1:n]
+    @test all(iszero, abs2.(tiny)) && iszero(sum(abs2, tiny)) && !any(iszero, tiny)
+    nrm = setprecision(() -> sqrt(sum(big.(tiny) .^ 2)), BigFloat, 256)
+    # ordinary thresholds (c² at or above the bound, also where it overflows): the zero group, with the zero code
+    for v in (zero_group, tiny), (γ, λ, w) in ((T(1), T(0.5), T(1)), (T(0.5), T(3), sqrt(T(n))), (T(1), floatmax(T) / 2, T(1)),
+                                                (T(1), floatmax(T), T(1)), (T(1), T(0.5), true))
+      x, G = embed(v, layout)
+      c = γ * λ * w
+      @test floatmin(T) <= c <= floatmax(T) && PB._l2_threshold_decides(c, n)
+      code, y = check_cold(x, G, λ, w, γ, T)
+      @test code === T(PB._L2_ZERO) && all(i -> y[i] === zero(T), G)
+    end
+    # the threshold at the bound of the shortcut: the two sides of c ≥ tbound(T, |G|), a few floats each way, and the
+    # smallest ordinary threshold floatmin; the zero group, from the cold route below the bound, except for the tiny
+    # group at floatmin, which is below its norm
+    c0 = tbound(T, n)
+    sides = Set{Bool}()
+    for c in (floatmin(T), prevfloat(c0, 2), prevfloat(c0), c0, nextfloat(c0), nextfloat(c0, 2)), v in (zero_group, tiny)
+      x, G = embed(v, layout)
+      push!(sides, PB._l2_threshold_decides(c, n))
+      @test PB._l2_threshold_decides(c, n) == (c >= c0)
+      code, y = check_cold(x, G, c, T(1), T(1), T)
+      if v === tiny && big(c) < nrm
+        @test c == floatmin(T) && code === T(PB._L2_RECOMPUTE) && all(i -> !iszero(y[i]), G)
+      else
+        @test code === T(PB._L2_ZERO) && all(i -> y[i] === zero(T), G)
+      end
+    end
+    @test sides == Set((false, true))
+    # a tiny threshold below the norm of the tiny group (c² far below the bound): the scan and the cold path, which give
+    # the nonzero shrinkage (1 - c/‖x‖) x and the recompute code, within a few eps of the BigFloat reference
+    for r in (0.5, 0.875)
+      c = T(r * nrm)
+      @test floatmin(T) <= c && !PB._l2_threshold_decides(c, n)
+      x, G = embed(tiny, layout)
+      code, y = check_cold(x, G, c, T(1), T(1), T)
+      @test code === T(PB._L2_RECOMPUTE)
+      ref = setprecision(() -> (1 - big(c) / nrm) .* big.(tiny), BigFloat, 256)
+      m = maximum(abs, tiny)
+      @test all(j -> abs(big(y[G[j]]) - ref[j]) <= 4 * big(eps(T)) * big(m), 1:n)
+      @test all(j -> !iszero(y[G[j]]), 1:n)
+      # the zero group at the same threshold: the scan finds it
+      xz, Gz = embed(zero_group, layout)
+      code, y = check_cold(xz, Gz, c, T(1), T(1), T)
+      @test code === T(PB._L2_ZERO) && all(i -> y[i] === zero(T), Gz)
+    end
+  end
+
+  # Mixed precision: the sum of squares is formed from the entries converted to the output type S, and the cold route
+  # reads the entries in their own type (at least Float64). A wider x whose entries convert to S with squares that
+  # round to zero, entries that convert to subnormals or to zero in S, -0, and for BigFloat entries beyond the range
+  # of S: at ordinary thresholds the zero group, at a tiny one below the norm of the entries as stored the cold
+  # shrinkage, both bit for bit with the cold route; a narrower x has no zero sum except at the zero group.
+  for (S, X) in ((Float32, Float64), (Float32, BigFloat), (Float64, BigFloat))
+    T === S || continue
+    hS = hexp(S)
+    setprecision(BigFloat, 256) do
+      for n in sizes, layout in (:range, :index)
+        v = [X(signif(rng, S, hS)) * (1 + X(2)^-(precision(S) + 3)) for _ in 1:n]
+        n >= 2 && (v[2] = ldexp(X(1), exponent(nextfloat(zero(S))) + 3))      # a subnormal in S
+        n >= 5 && (v[3] = ldexp(X(1), exponent(nextfloat(zero(S))) - 3))      # rounds to zero in S
+        n >= 5 && (v[4] = -zero(X))
+        X === BigFloat && n >= 5 && (v[5] = -ldexp(X(1), 4 * exponent(nextfloat(zero(S)))))
+        @test all(a -> iszero(abs2(S(a))), v) && !all(iszero, v)
+        nrm = sqrt(sum(big.(v) .^ 2))
+        x, G = embed(v, layout)
+        for (γ, λ, w) in ((S(1), S(0.5), S(1)), (1.0, 0.5, 1.0), (S(1), S(0.5), true))
+          code, y = check_cold(x, G, λ, w, γ, S)
+          @test code === S(PB._L2_ZERO) && all(i -> y[i] === zero(S), G)
+        end
+        c0 = tbound(S, n)
+        sides = Set{Bool}()
+        for c in (prevfloat(c0, 2), prevfloat(c0), c0, nextfloat(c0), nextfloat(c0, 2))
+          push!(sides, PB._l2_threshold_decides(c, n))
+          code, y = check_cold(x, G, c, S(1), S(1), S)
+          @test code === S(PB._L2_ZERO) && all(i -> y[i] === zero(S), G)
+        end
+        @test sides == Set((false, true))
+        c = S(nrm / 2)
+        @test floatmin(S) <= c && !PB._l2_threshold_decides(c, n)
+        code, y = check_cold(x, G, c, S(1), S(1), S)
+        @test code === S(PB._L2_RECOMPUTE)
+        ref = (1 - big(c) / nrm) .* big.(v)
+        @test all(j -> abs(big(y[G[j]]) - ref[j]) <= 4 * big(eps(S)) * maximum(abs, big.(v)) + big(nextfloat(zero(S))), 1:n)
+      end
+      # a narrower x: the zero group only (a nonzero Float32 or Float64 entry has a nonzero square in the wider type)
+      if S === Float64
+        x = Float32[0, -0.0, 0]
+        code, y = check_cold(x, 1:3, 0.5, 1.0, 1.0, Float64)
+        @test code === Float64(PB._L2_ZERO) && all(a -> a === 0.0, y)
+      end
+    end
+  end
+
+  # A Float16 output, where the bound overflows for long groups and the zero group is found by the scan: the cold route,
+  # bit for bit, at ordinary thresholds (c² = Inf at c = 300), at floatmin and at the bound
+  if T === Float32
+    for n in sizes, X in (Float16, Float64), layout in (:range, :index)
+      tiny = X.([signif(rng, Float16, hexp(Float16)) for _ in 1:n])
+      zero_group = [rand(rng, (zero(X), -zero(X))) for _ in 1:n]
+      @test all(a -> iszero(abs2(Float16(a))), tiny)
+      for v in (tiny, zero_group), c in (Float16(0.5), Float16(300), floatmin(Float16), sqrt(bound(Float16, n)))
+        x, G = embed(v, layout)
+        code, y = check_cold(x, G, c, Float16(1), Float16(1), Float16)
+        v === zero_group && @test code === Float16(PB._L2_ZERO) && all(i -> y[i] === zero(Float16), G)
+      end
+    end
+  end
+end
+
+# The test of the zero-group shortcut: c ≥ n 2^-485 for Float64 and c ≥ n 2^-51 for Float32, one product and one
+# comparison (2^-485 = √(floatmin/eps) of Float64, and 2^-51 ≥ √(floatmin/eps) = 2^-51.5 of Float32); false for
+# other types, which scan the group
+@testset "threshold of the zero-group shortcut" begin
+  for (T, e) in ((Float64, -485), (Float32, -51))
+    @test ldexp(one(T), e) >= sqrt(floatmin(T) / eps(T)) && ldexp(one(T), e - 1) < sqrt(floatmin(T) / eps(T))
+    for n in (1, 5, 1024, 2^30)
+      b = n * ldexp(one(T), e)
+      @test b isa T && isfinite(b) && b >= floatmin(T)
+      @test PB._l2_threshold_decides(b, n) && PB._l2_threshold_decides(nextfloat(b), n)
+      @test !PB._l2_threshold_decides(prevfloat(b), n) && !PB._l2_threshold_decides(prevfloat(b, 3), n)
+      @test PB._l2_threshold_decides(floatmax(T), n) && PB._l2_threshold_decides(T(Inf), n)
+      @test !PB._l2_threshold_decides(floatmin(T), n) && !PB._l2_threshold_decides(zero(T), n)
+      @test !PB._l2_threshold_decides(T(NaN), n)
+      # c² ≥ n floatmin/eps wherever the shortcut is taken
+      @test big(b)^2 >= n * big(floatmin(T)) / big(eps(T))
+    end
+  end
+  for n in (1, 5, 1024, 2^30)
+    @test !PB._l2_threshold_decides(Float16(1), n) && !PB._l2_threshold_decides(floatmax(Float16), n)
+    @test !PB._l2_threshold_decides(big(1.0), n) && !PB._l2_threshold_decides(big(2.0)^100, n)
+  end
+end
+
+end
+
+# The unweighted NormL1 value of an Array of Float32 or Float64 with 16 to 1024 entries sums |xᵢ| in one vectorizing
+# loop (_value_loop); shorter and longer arrays keep Base's sum, as on master. Views take the generic route of the
+# other arrays and never reach the loop. The value must be within 4n eps(T) λ0 Σ|xᵢ| of λ0 Σ|xᵢ| summed in BigFloat
+# (λ0 rounded to T, as the value uses it), and outside the window it must be master's convert(T, λ0) * sum(abs, x).
+@testset "unweighted NormL1 value: one loop for 16 to 1024 entries ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(1024)
+  lo, hi = PB._VALUE_LOOP_MIN, PB._VALUE_LOOP_MAX
+  @test (lo, hi) == (16, 1024)
+  l1_ref(λ, x) = setprecision(BigFloat, 512) do
+    big(convert(T, λ)) * sum(a -> abs(big(a)), x; init = big(0))
+  end
+  l1_within(v, λ, x) = (r = l1_ref(λ, x); abs(big(v) - r) <= 4 * length(x) * eps(T) * r)
+  levels = T === Float32 ? (one(T), T(0.3), 0.3) : (one(T), T(0.3))
+  for n in (0, 1, 15, 16, 17, 100, 1023, 1024, 1025, 2000), λ in levels
+    f = NormL1(λ)
+    for x in (randn(rng, T, n), fill(T(0.1), n), fill(-T(1.1), n), ldexp.(randn(rng, T, n), -40))
+      v = f(x)
+      @test v isa T
+      @test l1_within(v, λ, x)
+      if lo <= n <= hi
+        @test v === convert(T, λ) * PB._value_loop(abs, x)
+      else
+        @test v === convert(T, λ) * sum(abs, x)                 # master's value, bit for bit
+      end
+      n == 0 && @test v === zero(T)
+    end
+  end
+  # a sum of small integers is exact in any order: every entry counts once, at every length of the remainder loop
+  for n in vcat(0:70, [1023, 1024, 1025])
+    x = T.(rand(rng, -8:8, n))
+    @test NormL1(one(T))(x) === T(sum(abs, Int.(x); init = 0))
+    @test NormL1(T(2))(x) === T(2 * sum(abs, Int.(x); init = 0))
+  end
+  # matrices in and out of the window; views of a length in the window take the generic route (not the loop)
+  for dims in ((4, 4), (16, 16), (32, 32), (33, 32), (3, 5)), λ in levels
+    M = randn(rng, T, dims...)
+    f = NormL1(λ)
+    @test l1_within(f(M), λ, M)
+    @test f(M) === convert(T, λ) * (lo <= length(M) <= hi ? PB._value_loop(abs, M) : sum(abs, M))
+    @test l1_within(f(view(M, :, 2)), λ, M[:, 2])
+    @test l1_within(f(view(vec(M), 1:2:length(M))), λ, vec(M)[1:2:end])
+  end
+  @test which(NormL1(T(1)), Tuple{typeof(view(zeros(T, 100), 1:2:100))}) !== which(NormL1(T(1)), Tuple{Vector{T}})
+  # NaN and ±Inf entries propagate, at both ends, in and out of the window
+  for n in (1, 15, 16, 100, 1024, 1025), at in unique((1, n)), λ in (T(0.3), T(Inf))
+    f = NormL1(λ)
+    x = randn(rng, T, n)
+    x[at] = T(NaN); @test isnan(f(x))
+    x[at] = T(Inf); @test f(x) === T(Inf)
+    x[at] = -T(Inf); @test f(x) === T(Inf)
+    if n > 1
+      x[n + 1 - at] = T(Inf); x[at] = -T(Inf); @test f(x) === T(Inf)
+      x[n + 1 - at] = T(NaN); @test isnan(f(x))
+    end
+  end
+  # a sum that overflows with finite entries is recovered from the entries (Inf where the value overflows, the
+  # value where it is finite), at both ends of the window
+  for n in (15, 16, 100, 1024, 1025)
+    x = fill(floatmax(T) / 4, n)
+    @test NormL1(one(T))(x) === T(Inf)
+    for λ in (T(2) / n, T(1) / (8n))
+      v = NormL1(λ)(x)
+      r = l1_ref(λ, x)
+      @test isfinite(v) == (r <= floatmax(T)) && (!isfinite(v) || abs(big(v) - r) <= 4 * n * eps(T) * r)
+    end
+  end
+  # an infinite level at the zero vector is 0, elsewhere Inf; a zero level is 0, NaN entries included
+  for n in (0, 1, 15, 16, 100, 1024, 1025)
+    @test NormL1(T(Inf))(zeros(T, n)) === zero(T)
+    @test NormL1(T(Inf))(fill(-zero(T), n)) === zero(T)
+    @test NormL1(0.0)(zeros(T, n)) === zero(T)
+    @test NormL1(zero(T))(fill(T(NaN), n)) === zero(T)
+    n > 0 && @test NormL1(T(Inf))(vcat(zeros(T, n - 1), nextfloat(zero(T)))) === T(Inf)
+  end
+  # no allocation, in and out of the window
+  for n in (7, 100, 1024, 2000)
+    x = randn(rng, T, n)
+    @test alloc(NormL1(T(0.3)), x) == 0
+    @test alloc(NormL1(T(0.3)), reshape(x, 1, n)) == 0
+  end
 end
 
 end

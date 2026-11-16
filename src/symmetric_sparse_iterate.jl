@@ -89,7 +89,7 @@ Base.@propagate_inbounds Base.setindex!(c::SymmetricCoordinates, v, k::Int) = (_
 
 coordinates(x::SymmetricSparseIterate) = SymmetricCoordinates(x)
 
-# Filling the coordinate vector is a value write: the value is
+# fill! of the vector of coordinates is a value write like any other (CRD-3): the value is
 # converted first, and a zero reaches only the active coordinates, in O(nactive), so that
 # fill!(coordinates(x), 0) followed by dropzeros!(x) empties x without a pass over all q
 function Base.fill!(c::SymmetricCoordinates{T}, v) where {T}

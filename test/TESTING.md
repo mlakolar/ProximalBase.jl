@@ -88,6 +88,22 @@ offset axes accepted), the accuracy of the sums of squares of a constant vector 
 oracles, `f(β)` and `value_and_gradient!`, and the classification at the top of the range of Float32 values from
 sums of 2^16 to 2^20 + 1 squares with Float64, `Int` and Float32 scales (the oracles must give `Inf` where the
 exact value overflows and an accurate finite value just below `floatmax`).
+`sqrt_leastsquares` checks `SqrtLeastSquaresLoss` (#960): construction (types and element-type promotion,
+dimension, complex and matrix-response refusals, one-based axes of `Y`, `X` and the scratch through the positional
+constructor, empty losses, `Scaled(f, 0)`), the traits, the worked examples, `f(β)` for dense, `SparseIterate` and
+`BlockIterate` `β` against the value oracles at `X * β` and the residuals of either sign, and mixed-type, sparse,
+integer and `Float16` data, the value oracles `value_from_predictor` and `value_from_residual` and the accessor
+`leastsquares_data` in Float32/64, raw and `Scaled`, against 256-bit BigFloat references formed from the exact bits of
+`Y`, `z` (or `r`) and the factor as supplied, within `(n/2 + 4) eps(T)`: ordinary, exact-fit, near-fit, cancelling,
+underflowing and overflowing sums of squares (the norm finite where the sum of squares is not), subnormal,
+one-large-residual and near-`floatmax` data, extreme and subnormal factors, the edges of the two ordinary-path tests
+(sums near `n*floatmin/eps`, values near `floatmax/2` and `floatmax`), the overflow threshold of the value with its
+boundary region, vectors of `2^17` and `2^17 + 1` entries and of 10^6 equal entries, non-finite entries (`NaN`, and
+`Inf` of the same and of opposite signs in `z` and `Y`), the domain (lengths, offset axes, element types, non-strided
+arrays, a nested `Scaled`, the factors that are refused also at an exact fit and with `Inf`), the design and the scratch
+left unread and unwritten (a counting matrix, a design of `NaN`, a sentinel in the scratch, a view of the scratch as the
+predictor, arguments unchanged bitwise), the oracles that the loss does not provide (`MethodError`, `lipschitz`, and
+`reset_cache!`), and warmed zero allocation and inference, also above `2^17` entries.
 `linear_shapes` checks the `LinearFunction` shape contract, `size(c) == size(x)` (the
 p × p matrix of a symmetric iterate): every value, gradient and proximal oracle, allocating
 and in place, `Scaled` included, on dense, sparse, wrapped and iterate arguments in Float32/64,

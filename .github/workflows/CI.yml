@@ -80,8 +80,13 @@ jobs:
       - uses: julia-actions/cache@v3
       - name: Lint authored Markdown and generated contract sources
         run: python3 docs/check_markdown.py
+      - name: Verify direct docs instantiation uses this checkout (Julia 1.11+)
+        run: |
+          julia --project=docs -e 'using Pkg; Pkg.instantiate(); @assert realpath(Base.find_package("ProximalBase")) == realpath("src/ProximalBase.jl")'
       - name: Prepare documentation environment
-        run: julia scripts/instantiate.jl docs
+        run: |
+          julia scripts/instantiate.jl docs
+          git diff --exit-code -- docs/Project.toml
       - name: Build strict documentation, doctests and isolated Literate examples
         run: |
           set -o pipefail

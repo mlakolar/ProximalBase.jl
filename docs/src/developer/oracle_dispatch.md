@@ -62,11 +62,13 @@ and converted full matrix indices for symmetric-iterate variables. Symmetric val
 both mirrored entry terms. A declared zero-preserving function can skip inactive
 zeros. No kernel reads parameter entries to compare mirrored pairs.
 
-Compact-vector `prox_block!` is a public extension hook with no retained built-in
-implementation. The default allocating method supplies an independent floating
-Vector and delegates. Its index denotes a custom block and its vectors follow
-that block's order. The hook author validates buffer shapes/types/overlap;
-no generic full-array lifting, wrapper forwarding or KKT follows from it.
+Compact-vector `prox_block!` is a public hook implemented by `GroupNormL2` and
+available to custom functions. The default allocating method supplies an independent
+floating `Vector` and delegates. For `GroupNormL2`, the index is its group number
+and the compact vectors follow that group's order; custom methods define their
+own layout. The implementation validates buffer shapes, real one-based storage,
+step and overlap. A custom hook alone supplies no full-array lifting, wrapper
+forwarding or KKT screen.
 
 The solver constructs trials, verifies group layouts, calls the mathematical
 hook in independent scratch, writes public storage, then updates residuals and
@@ -78,7 +80,11 @@ independent ID to the full-entry index; no symmetric iterate is available in the
 
 Retained scalar screens are explicitly implemented for `NormL1`, `ElasticNet`, `SqrNormL2`,
 `ZeroFunction` and `LinearFunction`; `Scaled` forwards. Four-argument dispatch adds
-coordinate semantics and checks, or maximum-over-group for `BlockIterate`.
+coordinate semantics and checks, or maximum-over-group for scalar penalties
+on `BlockIterate`. `GroupNormL2` instead supplies a native group-norm screen,
+checking the selected ordered layout and the full gradient length. Its array-point
+form takes an entry index and distinguishes zero from nonzero groups; its
+three-argument form throws because it is not entrywise separable.
 It does not turn a quadratic/least-squares loss into a scalar penalty screen.
 KKT means a signed screen at a coordinate assumed zero, not a general solver
 residual. restrict slices supported parameters; no default exists for custom

@@ -40,7 +40,7 @@ limits. Source links track master; validation evidence records the PR commit.
 | `LeastSquaresLoss` | (Y,X); half residual sum of squares | [Least squares](functions.md) / [guide](../smooth.md) | [functions/leastsquares.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/leastsquares.jl) | core_functions / minimal_math |
 | `NormL1` | (λ0=1,w=nothing) | [Penalty](functions.md) / [guide](../penalties.md) | [functions/norml1.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/norml1.jl) | core_functions / minimal_math |
 | `ElasticNet` | (λ1,λ2,w=nothing) | [Penalty](functions.md) / [guide](../penalties.md#The-elastic-net-penalty) | [functions/elasticnet.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/elasticnet.jl) | elasticnet / elasticnet_extremes |
-| `NormL2` | (λ=1); value on arrays and iterates (stored entries only, #808) | [Penalty](functions.md) / [guide](../group_penalty.md) | [functions/norml2.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/norml2.jl) | norml2 / sparse_value_cost |
+| `NormL2` | (λ=1); value on arrays and iterates (stored entries only) | [Penalty](functions.md) / [guide](../group_penalty.md) | [functions/norml2.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/norml2.jl) | norml2 / sparse_value_cost |
 | `GroupNormL2` | (λ0,groups,w=√\|Gₖ\|); compact `prox_block!`, group `kkt_violation` | [Penalty](functions.md) / [guide](../group_penalty.md) | [functions/groupnorml2.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/groupnorml2.jl) | groupnorml2 |
 | `Scaled` | (f,α), α*f, f*α; may simplify at zero | [Wrapper](calculus.md) / [guide](../calculus.md) | [functions/scaled.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/scaled.jl) | minimal_math / ridge_precision |
 | `SparseIterate` | ([T,]n[,m]) or dense/sparse array | [Storage](iterates.md) / [guide](../iterates.md) | [iterate_storage.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/iterate_storage.jl) | iterate_invariants / iterate_queries |
@@ -78,10 +78,10 @@ limits. Source links track master; validation evidence records the PR commit.
 | `ProximalBase.curvature` | (ℓ) → global second-derivative bound | [Scalar loss API](scalar_losses.md) / [guide](../scalar_losses.md) | [functions/scalar_loss.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/scalar_loss.jl) | core_functions |
 | `ProximalBase.value_and_deriv` | (ℓ,η,y) → (value,derivative) | [Scalar loss API](scalar_losses.md) / [guide](../scalar_losses.md) | [functions/scalar_loss.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/scalar_loss.jl) | core_functions |
 
-The eight [executable examples](../examples/lasso.md) complement these suites:
+The nine [executable examples](../examples/lasso.md) complement these suites:
 lasso values/gradients/prox, PG stationarity, scalar coordinate updates, sparse
 working sets, ordered blocks, symmetric geometry, custom separable hooks and
-compact-vector block extension. The extension examples validate their own
+compact-vector block extension, and group-lasso proximal building blocks. The extension examples validate their own
 checked contract; the allocating generic wrapper alone does not validate a
 custom block implementation. Test names identify evidence domains, not complete
 coverage of every parameter endpoint.

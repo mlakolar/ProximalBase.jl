@@ -3,7 +3,8 @@
 *Assumes: gradients, convexity and basic Julia · You will learn: how to assemble a lasso objective, take a proximal-gradient step and run a short iteration.*
 
 Start with a loss and a regularizer, evaluate their operations, and assemble a
-proximal-gradient method.
+proximal-gradient method. For a constructor or calling-convention lookup, see
+[Choose a function or operation](choosing.md).
 
 ## Installation
 

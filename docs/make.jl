@@ -67,12 +67,15 @@ makedocs(;
     pages=[
         "Home" => "index.md",
         "Getting started" => "getting_started.md",
+        "Choose a function or operation" => "choosing.md",
         "Glossary" => "glossary.md",
         "Working with functions" => [
             "Function objects and their properties" => "function_objects.md",
             "Operations on functions" => "operations.md",
             "Restricting functions" => "restrict.md",
             "Writing your own function" => "extending.md",
+            "Array, precision and ownership conventions" => "numerical_usage.md",
+            "Numerical contract" => "numerics.md",
         ],
         "Function library" => [
             "Browse available functions" => "function_library.md",
@@ -108,12 +111,11 @@ makedocs(;
             "BlockIterate internals" => "developer/block_storage.md",
             "Coordinate views and aliasing" => "developer/views_aliasing.md",
             "Function and oracle dispatch" => "developer/oracle_dispatch.md",
-            "Numerical usage: arrays, precision and ownership" => "numerical_usage.md",
-            "Numerical contract" => "numerics.md",
             "Pure block proximal contract" => "developer/contracts/block-prox-0.6.md",
             "Iterate-family contract" => "developer/contracts/iterate-family-0.6.md",
             "SymmetricSparseIterate contract" => "developer/contracts/symmetric-sparse-iterate-0.6.md",
             "Conformance and change process" => "developer/change_process.md",
+            "Writing useful documentation" => "developer/writing_documentation.md",
         ],
         "API reference" => [
             "Overview" => "api.md",

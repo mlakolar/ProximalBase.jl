@@ -310,10 +310,9 @@ of entry ``i`` takes the ordinary branches when both conditions hold:
 
 - `λ1` is zero, or the product ``\gamma\lambda_1`` is a positive normal
   number of the type `R` in which it is formed. `R` is the promotion of `T`
-  with `float` of the types of ``\gamma``, `λ1` and the weight of entry ``i``;
-  a `Bool` weight (an `ElasticNet` without weights has the weight `true`)
-  does not widen `R`. An integer step with `Float32` entries, for example,
-  gives `R = Float64`.
+  with one type for each of ``\gamma``, `λ1` and the weight of entry ``i``:
+  `float` of its type, or `Float16` for a `Bool` (an `ElasticNet` without
+  weights has the weight `true`).
 - For `T` = `Float32` or `Float64`: one of ``\gamma``, `λ2` is zero or not
   finite, or ``\gamma\lambda_2``, formed in the promotion of `T` with `float`
   of the types of ``\gamma`` and `λ2`, lies in ``[2^{-126}, 2^{125}]``

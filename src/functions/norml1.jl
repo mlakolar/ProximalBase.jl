@@ -140,9 +140,11 @@ _l1_prox_entries!(y, f, x, γ) = invoke(_prox_sep_dense!, Tuple{AbstractArray, A
 # shrink on the ordinary branch, and one of up to that size _shrink_nonneg. In a loop over arrays that do not fit the
 # first-level cache together, the selects of _shrink_nonneg are slower than shrink for some placements of the output
 # relative to the argument (by up to 1.4 times on AMD Zen 3 with huge pages, at 20 KiB per array and more), and
-# faster for the others; up to 16 KiB per array they are faster at every placement that was measured. The results are
-# the same bit for bit. The length test is inlined and the long loop is a separate method, so that the loop over a
-# short array is reached without another call. The iterates, arrays of steps and prox_block keep _shrink_nonneg.
+# faster for the others; up to 16 KiB per array they were faster there at every placement that was measured (on an
+# Intel Skylake-SP core one placement read 1.06 times at 12 KiB). The two give the same values, signed zeros
+# included (numerical_kernels.jl). The length test is inlined and the long loop is a separate method, so that the
+# loop over a short array is reached without another call. The iterates and prox_block keep _shrink_nonneg, as does
+# the generic loop of an array of steps; the loop of ordinary steps above calls shrink.
 const _L1_SELECT_BYTES = 16384
 # An output that is the argument has no placement relative to it and keeps _shrink_nonneg at every length, as does
 # an array whose element type has no size of its own (an abstract type, BigFloat) or a size of zero.

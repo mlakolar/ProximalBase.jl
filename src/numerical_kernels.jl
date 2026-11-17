@@ -30,7 +30,8 @@ shrink(v::Real, c::Real) = shrink(promote(float(v), float(c))...)
 # addition of +0 turns the one -0 that the difference can give
 # (v = -0 at a zero threshold) into the +0 of shrink and changes no other value. For Float16, Float32 and Float64
 # the result is that of shrink for every v and every c that is not negative (+0, -0, positive, infinite and NaN;
-# compared for such pairs of Float16 values in the tests). At a negative c, which no valid parameter gives, the
+# compared for such pairs of Float16 values in the tests), where a NaN is equal to any NaN: for Float32 and Float64
+# the comparisons that were made found the same NaN bits too, and for Float16 the payload of a NaN can differ. At a negative c, which no valid parameter gives, the
 # two differ, and shrink is not replaced by this function.
 @inline function _shrink_nonneg(v::T, c::T) where {T<:Base.IEEEFloat}
   lo = -c

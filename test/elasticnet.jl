@@ -911,6 +911,22 @@ function cut_data(::Type{T}, rng, n) where {T}
   x, w
 end
 
+# which loop a call takes: up to _L1_SELECT_BYTES bytes (the boundary included), an output that is the argument, and
+# element types that are not bits types or have no size take the loop of the short arrays
+@testset "selection of the dense loop" begin
+  B = PB._L1_SELECT_BYTES
+  for T in (Float16, Float32, Float64)
+    m = B ÷ sizeof(T)
+    x, xl = zeros(T, m), zeros(T, m + 1)
+    @test PB._l1_select_short(similar(x), x) && !PB._l1_select_short(similar(xl), xl) && PB._l1_select_short(xl, xl)
+    @test PB._l1_select_short(similar(x), view(xl, 1:m)) && !PB._l1_select_short(similar(xl), view(zeros(T, 2m + 2), 1:2:2m+2))
+    @test !PB._l1_select_short(zeros(T, m + 1, 1), reshape(xl, :, 1))
+  end
+  @test PB._l1_select_short(zeros(B + 1), Vector{Real}(zeros(B + 1)))
+  @test PB._l1_select_short(zeros(BigFloat, B + 1), zeros(BigFloat, B + 1))
+  @test PB._l1_select_short(zeros(B + 1), fill(ZeroSizeReal(), B + 1))
+end
+
 @testset "dense loops on both sides of _L1_SELECT_BYTES ($T)" for T in (Float32, Float64)
   rng = Xoshiro(8192)
   M = PB._L1_SELECT_BYTES ÷ sizeof(T)

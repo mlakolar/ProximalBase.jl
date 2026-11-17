@@ -321,11 +321,14 @@ so `kkt_violation(SqrNormL2(Inf), [1.0], 1)` is `1.0`. The four-argument form `k
 full-point form `kkt_violation(f,v,x)` use the entry ``d_i`` of ``\nabla f(x)`` as the ridge-gradient
 helpers form it, in the working type of the call (``\lambda x_i``, or ``\lambda(x_i-y_i)`` with a
 center). The score of entry ``i`` is ``\lvert v_i+d_i\rvert``, nonnegative at a zero coordinate as well, and
-the full-point value is ``\lVert v+\nabla f(x)\rVert_\infty`` when `gradient(f,x)` is computed in the
-same precision. It need not be: for `f = SqrNormL2(1.0, [nextfloat(1.0)])`, `x = Float32[1]` and
+the full-point value is ``\lVert v+\nabla f(x)\rVert_\infty`` for finite `v` and `x` when `gradient(f,x)` is
+computed in the same precision. The rules for non-finite entries of `v` and `x` take precedence over this formula
+(for `f = SqrNormL2(1.0)`, `v = [-Inf]` and `x = [Inf]` the score is `+Inf` while `norm(v + gradient(f,x), Inf)` is `NaN`).
+The precision can differ: for `f = SqrNormL2(1.0, [nextfloat(1.0)])`, `x = Float32[1]` and
 `v = Float32[0]` the score works in `Float64` and is `eps(Float64)`, while `gradient(f,x)` rounds the center to
-`Float32` and is zero. With an infinite level the four-argument and full-point scores follow the gradient
-oracle (`NaN` at a zero residual, `Inf` elsewhere).
+`Float32` and is zero. With an infinite level and finite `v` and `x` the four-argument and full-point scores follow the gradient
+oracle (`NaN` at a zero residual, `Inf` elsewhere); a non-finite entry of `v` or `x` still follows the non-finite rules
+(for `f = SqrNormL2(Inf)`, `v = [Inf]` and `x = [0.0]` the score is `+Inf`, while the gradient is `NaN`).
 
 For supported homogeneous `Float32` or `Float64` calls, the value and
 numerical outputs use that working precision. The implementation may compute

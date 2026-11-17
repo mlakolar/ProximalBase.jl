@@ -284,8 +284,9 @@ For `LinearFunction`, ``c_i`` is its coefficient entry. For `SqrNormL2`, the
 three-argument screen takes ``x_i=0`` (``\lvert v_i\rvert``, or ``\lvert v_i-\lambda y_i\rvert`` with a
 center ``y``), and the four-argument and full-point forms use ``d_i``, entry ``i`` of ``\nabla g(x)`` as the
 ridge-gradient helpers form it in the working type of the call: ``\lambda x_i``, or
-``\lambda(x_i-y_i)`` with a center. The full-point value equals the ``\ell_\infty`` norm of `v + gradient(g,x)` when
-the gradient is computed in the same precision. The subdifferential of a smooth function is its gradient, so its score is
+``\lambda(x_i-y_i)`` with a center. For finite `v` and `x`, the full-point value equals the ``\ell_\infty`` norm of `v + gradient(g,x)` when
+the gradient is computed in the same precision; the rules for non-finite entries take precedence over this formula,
+at an infinite level too. The subdifferential of a smooth function is its gradient, so its score is
 nonnegative at a zero coordinate as well. The norm of the full-point value is the ``\ell_\infty`` norm for these
 five functions; [`GroupNormL2`](group_penalty.md) measures block 2-norms, so a
 tolerance chosen for one is not a tolerance for the other.

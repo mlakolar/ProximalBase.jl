@@ -750,8 +750,8 @@ _kkt_full(h::_KktLevel, v, x::AbstractArray) = _level_point(h.f, h.λ, v, x)
 # dᵢ the gradient entry at zero. For the other functions it is that of the function with the folded levels, and where the
 # levels do not fold, that of the function at g divided by the product (kept as an exponent), multiplied by it, which
 # does not recover a g that is out of range after the division. Other smooth functions and indicators forward their existing
-# three-argument screen, where one is defined. A chain with an infinite factor takes the last two routes (the screen
-# before the point-aware forms).
+# three-argument screen, where one is defined. A chain with an infinite factor takes the last two routes; its three-argument
+# value is outside the contract (see the scaling guide) and is computed by them, without a guarantee.
 _screen_chain(s::Scaled, g, i) = ((f, a) = _scaled_chain(s); _chain_finite(a) ? _chain_screen(f, a, g, i) : _chain_screen_plain(f, a, g, i))
 _chain_screen(f, a, g, i) = _chain_screen_plain(f, a, g, i)
 function _chain_screen_plain(f, a, g, i)
@@ -775,7 +775,10 @@ end
 # coordinate or group and is refused at a nonzero one, also when it defines a four-argument method, unless the method for
 # Scaled{<:T} is defined. A function of this package without a score gives a MethodError for the call on the Scaled. An
 # infinite factor is refused at a nonzero coordinate or group, also in a retained chain that holds one; at a zero one, one
-# wrapper with an infinite factor takes the formula's value for a finite v.
+# wrapper with an infinite factor takes the formula's value for a finite v. A stack that nests an infinite factor with another
+# Scaled is built by a direct call of the parameterized constructor Scaled{F, T} (Scaled(f, α) merges the factors): it is
+# refused in the same cases, and its values at a zero coordinate or group are outside the contract and are computed by
+# _kkt_chain_infinite, without a guarantee.
 # The rare branches are in functions that are not inlined, so that the route is small enough to be inlined into the call
 # that reaches it. Inlining permits the compiler to hoist loop-invariant state for the unweighted cases; weighted
 # coefficients remain entry-dependent.
@@ -820,8 +823,9 @@ end
     "and SymmetricSparseIterate where they are used"))
 end
 # A chain whose product of factors is not a normal number (_chained), scored through _kkt_resolve. Where there is nothing
-# to resolve to, a zero coordinate or group has the value that it had before (the screen at g divided by the product,
-# multiplied by it) and a nonzero one is refused; a function defined outside the package keeps its own semantics.
+# to resolve to, a zero coordinate or group is scored by the screen at g divided by the product (kept as an exponent),
+# multiplied by it, which is unsupported where that division leaves the range (#978), and a nonzero one is refused; a function
+# defined outside the package keeps its own semantics.
 function _kkt_chain(s::Scaled, g, x, k)
   f, a = _scaled_chain(s)
   _chain_finite(a) || return _kkt_chain_infinite(s, f, a, g, x, k)
@@ -834,13 +838,13 @@ function _kkt_chain(s::Scaled, g, x, k)
   r
 end
 # The product of the factors of a chain is finite (it is infinite or NaN when a retained chain holds an infinite factor, which
-# the public constructor of Scaled{F, T} can build).
+# a direct call of the parameterized constructor Scaled{F, T} builds; Scaled(f, α) merges an infinite factor).
 _chain_finite(a::_ProjectionScale) = isfinite(a.m)
 _chain_finite(a::Real) = isfinite(a)
-# A chain with an infinite factor is refused at a nonzero coordinate or group, as an infinite factor of one wrapper is. At a
-# zero coordinate or group it has the value of the route that preceded the point-aware forms: the screen of the function at g
-# for a smooth function or an indicator, of the function with its folded levels, or of the function at g divided by the
-# product, multiplied by it.
+# A chain with an infinite factor is refused at a nonzero coordinate or group, as an infinite factor of one wrapper is. Its
+# value at a zero coordinate or group is outside the contract (see the scaling guide) and is computed here without a guarantee:
+# by the screen of the function at g for a smooth function or an indicator, of the function with its folded levels, or of the
+# function at g divided by the product, multiplied by it.
 @noinline function _kkt_chain_infinite(s::Scaled, f, a, g, x, k)
   cls = _kkt_class(typeof(f))
   ge = _ExpScaledArray(g, _scale_inverse(a))
@@ -857,7 +861,7 @@ _chain_finite(a::Real) = isfinite(a)
 end
 # The value of a chain at a zero coordinate or group that has no function to resolve to: the screen of the three-argument
 # form of the five scalar functions (at the coordinate, at each coordinate of a group of a BlockIterate, at the lower position
-# of a symmetric coordinate), as before the point-aware forms; for the other functions their own method.
+# of a symmetric coordinate); for the other functions their own method.
 const _KktScalar = Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2}
 _kkt_unfolded(f, g, x, k) = _kkt_violation(f, g, x, k)
 _kkt_unfolded(f::_KktScalar, g, x::AbstractArray, i) = kkt_violation(f, g, i)

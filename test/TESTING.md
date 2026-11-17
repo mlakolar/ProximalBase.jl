@@ -71,8 +71,8 @@ score, functions defined outside the package under `Scaled` (with a screen alone
 their own, and with methods for `Scaled{<:T}`), out-of-range indices through the refusing routes, mixed element types and result
 types, `@inferred` (also of the class of a `Scaled`), zero allocations of the dense forms and of the cold paths of the block
 kernel, entries converted to the working type before they are classified or measured (integer extremes, `UInt128`, `Float16`
-with an integer point, `Rational` and `BigInt` points), retained chains with an infinite factor, and malformed parameters of a
-symmetric model under `Scaled`.
+with an integer point, `Rational` and `BigInt` points), the merging of an infinite factor by the constructors, the refusals of hand-built stacks with an infinite factor (nonzero points of
+each point type and the full-point form), and malformed parameters of a symmetric model under `Scaled`.
 `groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
 its value, group soft thresholding and group KKT screen in Float32/64: analytical
 and threshold cases, singleton groups against weighted `NormL1`, noncontiguous

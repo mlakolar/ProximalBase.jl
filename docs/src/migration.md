@@ -126,7 +126,10 @@ What changed besides the values of the table:
   was computed from `v` divided by the product, which overflows for an ordinary `v`). Where the level does not fold, the values of the
   three-argument screen and of a zero coordinate or group are unchanged and unsupported
   ([#978](https://github.com/mlakolar/ProximalBase.jl/issues/978)); a nonzero coordinate or group and the
-  full-point form throw an `ArgumentError`, as does an infinite factor (see the [scaling guide](@ref scaled-kkt)).
+  full-point form throw an `ArgumentError`, as does an infinite factor (see the [scaling guide](@ref scaled-kkt)). A stack that
+  nests an infinite factor with another `Scaled` wrapper is built by a direct call of the parameterized constructor
+  `Scaled{F,T}(f, α)` (`Scaled(f, α)` and `α * f` merge the factors): its three-argument and zero-coordinate values are unspecified and can differ from
+  0.5, and the nonzero and full-point forms throw an `ArgumentError`.
 * `Scaled` over a function of the package without a score (`NormLinf`, the losses) throws a
   `MethodError` for the call on the `Scaled` function; the `MethodError` named the inner function
   and a private array type before.

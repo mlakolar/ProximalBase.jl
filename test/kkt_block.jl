@@ -962,28 +962,51 @@ end
   @test abs(kkt_violation(GroupNormL2(1.0, [[1, 2]], [1.0]), [-0.6, -0.8], xb, 1)) <= 1e-15
 end
 
-# a retained chain that holds an infinite factor (the parameterized constructor builds it) is refused at a nonzero point and
-# in the full-point form, as an infinite factor of one wrapper is; at a zero point it has the value of the route of master
-@testset "$T retained chains with an infinite factor" for T in TYPES
+# A stack that holds an infinite factor under or over another wrapper is built by a direct call of the parameterized
+# constructor Scaled{F, T}(f, α): Scaled(f, α) and α * f merge an infinite factor with the wrapper next to it (first testset). For such a
+# stack the four-argument form at a nonzero coordinate or group and the full-point form throw an ArgumentError (second
+# testset). Its three-argument and zero-point values are outside the contract (the scaling guide) and are not tested.
+@testset "$T the constructor merges an infinite factor" for T in TYPES
+  t, inf = tiny(T), T(Inf)
+  leaves = (ZeroFunction(), LinearFunction(T[1]), NormL1(T(1)), GroupNormL2(T(1), [[1]], T[1]), NormL1(zero(T)))
+  for leaf in leaves
+    stacks = (Scaled(Scaled(leaf, t), inf), Scaled(Scaled(leaf, inf), t), Scaled(chain(T, leaf), inf), inf * (t * (t * leaf)))
+    for s in stacks
+      @test s isa Scaled && !(s.f isa Scaled) && isinf(s.α)
+    end
+  end
+end
+
+@testset "$T stacks with an infinite factor are refused at nonzero points and in the full-point form" for T in TYPES
   raw(f, a) = Scaled{typeof(f), typeof(a)}(f, a)
   t, inf = tiny(T), T(Inf)
-  leaves = ((ZeroFunction(), T(0.25)), (LinearFunction(T[1]), T(1.25)), (NormL1(T(1)), -inf),
-            (GroupNormL2(T(1), [[1]], T[1]), -inf), (NormL1(zero(T)), T(0.25)))
-  for (leaf, at_zero) in leaves
-    s = raw(raw(Scaled(leaf, inf), t), t)
-    @test s.f isa Scaled && PB._chained(s)
-    @test_throws ArgumentError kkt_violation(s, T[0.25], T[1], 1)
-    @test_throws ArgumentError kkt_violation(s, T[0.25], T[1])
-    @test occursin("infinite factor", msg(() -> kkt_violation(s, T[0.25], T[1], 1)))
-    @test_throws ArgumentError kkt_violation(s, T[0.25], T[0])               # the full-point form, also at a zero point
-    @test kkt_violation(s, T[0.25], T[0], 1) === at_zero                     # the value of master's route at a zero point
-    leaf isa Union{ZeroFunction, LinearFunction} && @test kkt_violation(s, T[0.25], 1) === at_zero   # and of the three-argument screen
-    # the infinite factor outermost, around a retained chain
-    o = raw(chain(T, leaf), inf)
-    @test !PB._chained(o)
-    @test_throws ArgumentError kkt_violation(o, T[0.25], T[1], 1)
-    @test_throws ArgumentError kkt_violation(o, T[0.25], T[1])
-    @test kkt_violation(o, T[0.25], T[0], 1) isa T
+  leaves = (ZeroFunction(), LinearFunction(T[1]), NormL1(T(1)), GroupNormL2(T(1), [[1]], T[1]), NormL1(zero(T)))
+  stacks(leaf) = (raw(raw(Scaled(leaf, inf), t), t),       # the infinite factor innermost, under a retained chain
+                  raw(raw(Scaled(leaf, t), inf), t),       # in the middle
+                  raw(chain(T, leaf), inf))                # outermost, around a retained chain
+  for leaf in leaves
+    for (depth, s) in enumerate(stacks(leaf))
+      @test s.f isa Scaled
+      depth == 1 && @test PB._chained(s)
+      depth == 3 && @test !PB._chained(s)
+      depth == 1 && @test occursin("infinite factor", msg(() -> kkt_violation(s, T[0.25], T[1], 1)))
+      @test_throws ArgumentError kkt_violation(s, T[0.25], T[0])               # the full-point form, also at a zero point
+      for pt in (T[1], SparseIterate(T[1]), BlockIterate(T[1], [[1]]))
+        @test_throws ArgumentError kkt_violation(s, T[0.25], pt, 1)            # a nonzero coordinate or group
+      end
+      for pt in (T[1], SparseIterate(T[1]), BlockIterate(T[1], [[1]]))
+        @test_throws ArgumentError kkt_violation(s, T[0.25], pt)
+      end
+    end
+  end
+  # a SymmetricSparseIterate at a nonzero coordinate, for the leaves that have a symmetric form
+  xs = SymmetricSparseIterate(T, 2)
+  xs[2, 1] = 1
+  G = ones(T, 2, 2)
+  for leaf in (ZeroFunction(), NormL1(T(1)), LinearFunction(ones(T, 2, 2)))
+    for s in stacks(leaf)
+      @test_throws ArgumentError kkt_violation(s, G, xs, 2)
+    end
   end
   # a chain with a zero-level leaf and finite factors is scored by the folded zero level
   z = chain(T, NormL1(zero(T)))

@@ -112,13 +112,17 @@ remain `BigFloat`.
   [#978](https://github.com/mlakolar/ProximalBase.jl/issues/978). The four-argument form at a
   nonzero coordinate or group (an entry in no group of a `GroupNormL2` counts as nonzero when `x`
   is nonzero there) and the full-point form throw an `ArgumentError` for such a chain.
-* **An infinite factor.** `kkt_violation(h, v, x)` and the four-argument form at a nonzero
-  coordinate or group throw an `ArgumentError` (an entry in no group of a `GroupNormL2` counts as
-  nonzero when `x` is nonzero there), also for a retained chain that holds an infinite factor. For one wrapper with an
-  infinite factor and a finite supplied `v`, the lazy gradient `v/α` is zero and a zero point has these values: `-Inf` for a penalized
-  coordinate with a positive coefficient, and `NaN` (`Inf * 0`) where the coefficient is zero and for an entry in no group
-  of a `GroupNormL2`; for the smooth functions it is `α` times the score at `v = 0`. The zero-point and
-  three-argument values of a retained chain that holds an infinite factor are not specified in this guide.
+* **An infinite factor.** `Scaled(f, Inf)` and `Inf * f` give one wrapper with an infinite factor, also when `f` is
+  itself scaled, because the constructor merges the factors. `kkt_violation(h, v, x)` and the four-argument form at a
+  nonzero coordinate or group throw an `ArgumentError` for it (an entry in no group of a `GroupNormL2` counts as
+  nonzero when `x` is nonzero there). For a finite supplied `v`, the lazy gradient `v/α` is zero and a zero point has
+  these values: `-Inf` for a penalized coordinate with a positive coefficient, and `NaN` (`Inf * 0`) where the coefficient
+  is zero and for an entry in no group of a `GroupNormL2`; for the smooth functions it is `α` times the score at `v = 0`.
+* **A stack that nests an infinite factor with another `Scaled` wrapper.** `Scaled(f, α)` and `α * f` do not produce it,
+  because they merge the infinite factor; a direct call of the parameterized constructor `Scaled{F,T}(f, α)` does. For such a stack the
+  three-argument screen and the four-argument value at a zero coordinate or group are **unspecified**: they can differ from
+  version 0.5, and no particular value, `NaN` included, is promised. The four-argument form at a nonzero coordinate or
+  group and the full-point form throw an `ArgumentError`.
 * **Chains around `LinearFunction` and `SqrNormL2`.** The product of the factors is applied
   to the gradient entry of the function, as the gradient of the chain applies it, and the score is
   ``\lvert v_i+a\,d_i\rvert`` in all three forms (an uncentered `SqrNormL2` at a zero coordinate,
@@ -141,6 +145,14 @@ refused(f) = try f(); false catch e; e isa ArgumentError end
 inf = Scaled(NormL1(1.0), Inf)
 @assert kkt_violation(inf, [3.0], [0.0], 1) == -Inf
 @assert refused(() -> kkt_violation(inf, [3.0], [1.0], 1)) && refused(() -> kkt_violation(inf, [3.0], [0.0]))
+t = 2.0^-600
+@assert !(Scaled(Scaled(LinearFunction([1.0]), 2.0), Inf).f isa Scaled)             # the constructor merges the infinite factor
+@assert !(Scaled(Scaled(Scaled(NormL1(1.0), t), t), Inf).f isa Scaled)
+@assert !((Inf * (t * (t * NormL1(1.0)))).f isa Scaled)
+raw(f, a) = Scaled{typeof(f), typeof(a)}(f, a)
+handbuilt = raw(Scaled(NormL1(1.0), t), Inf)                    # two wrappers, one of them infinite: only a direct call builds it
+@assert handbuilt.f isa Scaled
+@assert refused(() -> kkt_violation(handbuilt, [0.25], [1.0], 1)) && refused(() -> kkt_violation(handbuilt, [0.25], [0.0]))
 @assert isnan(kkt_violation(Scaled(NormL1(0.0), Inf), [3.0], [0.0], 1))
 nomethod = try kkt_violation(Scaled(NormLinf(1.0), 2.0), [1.0, 2.0], [0.0, 1.0], 1); false catch e; e isa MethodError end
 @assert nomethod

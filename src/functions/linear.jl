@@ -5,44 +5,41 @@
 """
     LinearFunction(c, d = 0)
 
-The linear function `f(x) = ⟨c, x⟩ + d`, with gradient `c`. Its proximal operator
-is the shift `x - γc`.
+Affine function `f(x) = ⟨c,x⟩ + d`, with gradient `c` and proximal point `x-γ*c`.
+For matrices the inner product is Frobenius. Coefficients are real, one-based
+arrays retained by reference; `size(c)` must equal `size(x)`, not just its entry count.
 
-The coefficients and the argument have the same dimensions, `size(c) == size(x)`;
-on a `SymmetricSparseIterate`, `c` is `p × p`. Every oracle throws a
-`DimensionMismatch` for any other pair, even one with as many entries, before it writes.
+With a `Diagonal` coefficient array, only diagonal coefficients contribute for
+both dense and sparse matrix arguments. On a matrix [`SparseIterate`](@ref),
+only stored nonzero entries contribute: unstored entries and stored zeros are
+skipped even against `NaN` or `Inf`. Skipping those zero entries can give a
+different result from evaluating a dense copy. Vector and symmetric iterates
+have their own rules.
 
-At a matrix `SparseIterate` the value is the sum over its stored entries whose value is
-nonzero, and reads `c` at those entries only. A `Diagonal` `c` is read at the nonzero stored
-diagonal entries, in `O(p)`; the other entries of `x` are ignored, as in the diagonal-only
-`dot` of `Diagonal`. An entry that is not stored, or is stored as `+0` or `-0`, adds nothing,
-even if the coefficient there is `NaN`, `Inf` or `-Inf`; the constant `d` is added after the
-sum. A nonzero entry follows ordinary arithmetic, also when it or its coefficient is not
-finite. The order of the summation is not specified: the general loop may reassociate
-(`@simd`), and the `Diagonal` loop runs in increasing diagonal index. The order can change
-the IEEE class of the result when an entry is not finite. For example, with `c = ones(2, 2)`, `d = 0`
-and `h = 2^exponent(floatmax(T))`, storing `x[2] = h`, `x[3] = h` and then `x[1] = -Inf`, a
-serial sum in the storage order overflows to `+Inf` before it adds `-Inf` and gives `NaN`,
-while the dense `dot` gives `-Inf`.
-When `d`, the nonzero entries of `x` and the coefficients at them are finite, a dot that
-overflows is summed again in exponent-separated terms and combined with `d` in its own units.
-Its accuracy is the absolute bound `4 n eps (sum |cᵢxᵢ| + |d|)`, and when that bound is below
-the range of the type and the exact value lies inside the range by that bound, the value is
-finite, also if products or partial sums overflow. When the bound exceeds the range (products
-far beyond it), there is no guarantee of a finite value: extreme cancellation can give an
-infinity for a finite exact value.
+# Examples
+```jldoctest
+julia> x = SparseIterate(2, 2); x[1, 1] = 2.0;
 
-```julia
-x = SparseIterate(2, 2); x[1, 1] = 2.0
-f = LinearFunction([1.0 NaN; 1.0 1.0], 0.25)    # NaN at an entry of x that is not stored
-f(x)                                            # 2.25
-f(Matrix(x))                                    # NaN, as dot(f.c, Matrix(x)) + f.d
+julia> f = LinearFunction([1.0 NaN; 1.0 1.0], 0.25);
+
+julia> f(x)
+2.25
+
+julia> isnan(f(Matrix(x)))
+true
 ```
 
-This rule is for the value at a matrix `SparseIterate`. For a dense `c` that is not a
-`Diagonal`, `dot(c, x)` is the generic `dot`, which visits all positions; for a `Diagonal` it is
-the diagonal-only `dot` of `Diagonal`. A vector `SparseIterate` and a `SymmetricSparseIterate`
-keep their own rules.
+# Edge cases
+- Every oracle checks coefficient/input shape before writes.
+- For a symmetric iterate, `c` is an exactly symmetric `p × p` matrix; use
+  [`ProximalBase.check_symmetric_parameters`](@ref) to validate it.
+- Exact in-place prox is supported; gradient output must be independent of input
+  and coefficients. Array-step prox is not implemented.
+- Summation order is unspecified. Non-finite terms can change the result's IEEE
+  class; extreme cancellation can exceed finite-value recovery guarantees.
+
+See [linear operations and sparse values](@ref Linear-function) for the
+summation, cost and accuracy contract.
 """
 struct LinearFunction{C<:AbstractArray, D<:Real} <: AbstractFunction
   c::C
@@ -73,7 +70,9 @@ _value_unchecked(f::LinearFunction, x::SymmetricSparseIterate) =
 # dot is recomputed from exponent-separated products (_ExpSum, as below) and combined with d by
 # `_linear_recovered_value`; otherwise the ordinary value stands. The terms are every linear position
 # of a generic array pair, the stored entries of a vector SparseIterate, and each stored coordinate of
-# a symmetric iterate at both of its positions. A device array is copied to the host before the loop.
+# a symmetric iterate at both of its positions. The minimal core has no
+# device-array classifier or automatic host transfer; generic arrays are read
+# through their existing indexing methods.
 # A matrix SparseIterate has its own method below, which checks only the participating entries.
 @inline _linear_value(f::LinearFunction, x, v) = isfinite(v) ? v : _linear_value_recover(f.c, f.d, x, v)
 @noinline function _linear_value_recover(c, d, x, v)

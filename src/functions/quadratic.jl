@@ -5,41 +5,42 @@
 """
     QuadraticFunction(A, b = nothing, c = 0)
 
-The quadratic `f(x) = x'Ax / 2 + b'x + c` for a symmetric `A`, with `b = 0`
-when omitted. `A` need not be positive semidefinite. Smooth, with gradient
-`Ax + b`, valid for symmetric indefinite `A`, and proximable: for a nonempty
-matrix the first proximal operator computes the eigendecomposition `A = QΛQ'`,
-which is cached until `reset_cache!` (an empty matrix recomputes its empty
-decomposition on each call), after which
-`prox_{γf}(x) = Q (I + γΛ)⁻¹ Q'(x - γb)` costs two products with `Q`.
+Quadratic function `f(x) = x' * A * x / 2 + b' * x + c`, with gradient `A*x+b`;
+omitted `b` is zero. Arguments are real, one-based vectors. `A` must be square and
+**symmetric**, and `b` must have matching length. Symmetry is a caller precondition:
+the constructor neither checks nor repairs it. Indefinite symmetric `A` is allowed.
 
-Step domain of `prox!`. Let `γ` be the step after the factors of any `Scaled`
-wrappers are applied, converted to the element type `T` of the function, and
-`λmin` the smallest eigenvalue of the cached decomposition, a computed
-approximation of the true smallest eigenvalue of `A`. When `λmin < 0` and the
-rounded product `γ (-λmin)` is not `< 1` (a NaN step included), `prox!` throws
-`DomainError` before `y` is written; otherwise it applies the formula above.
-For a nonnegative finite `γ` and finite cached eigenvalues, the check accepts
-exactly when every computed denominator `1 + γ λi` is positive. In exact
-arithmetic and for `γ > 0`, the proximal subproblem has a unique minimizer if and only if
-`1 + γ λmin(A) > 0` for the true smallest eigenvalue. The check tests computed
-values, so near that boundary it can accept a step for which the true
-`I + γA` is not positive definite, and reject one for which it is. The
-second case includes a singular positive semidefinite `A` whose computed
-`λmin` is slightly negative: steps with `γ (-λmin) ≥ 1` throw for it.
+The proximal point solves `(I + γ*A)*y = x - γ*b` using a cached eigendecomposition.
+For a negative computed minimum eigenvalue, the prox rejects a step whose rounded
+`γ*(-λmin)` is not less than one, raising `DomainError` before writing the output.
+This uses the effective step after scaling and conversion to the function's type.
+A singular positive-semidefinite `A` (for example `X'X` when `p > n`) may
+have a slightly negative computed eigenvalue; large steps can then raise
+`DomainError` even though the exact matrix is positive semidefinite.
 
-`isconvex` is `false` for this type: `f` is convex when `A` is positive
-semidefinite, which the package does not certify, and a successful `prox!`
-does not establish it. A solver that needs convexity validates the model
-itself, or relies on a documented caller assertion, and does so again after
-the data change.
+# Examples
+```jldoctest
+julia> f = QuadraticFunction([2.0 0.0; 0.0 4.0], [1.0, -2.0]);
 
-Symmetry of `A` is a caller precondition that is not checked or symmetrized.
-The constructor checks real types, squareness and the length of `b`.
-Values/gradients use `A` directly; the cached eigenbasis reads the upper
-triangle of `Symmetric(Matrix(A))`. `A` and `b` are retained by reference;
-after same-shape changes call `reset_cache!`, and the next prox uses the new
-spectrum and its step domain.
+julia> f([1.0, 1.0])
+2.0
+
+julia> gradient(f, [1.0, 1.0])
+2-element Vector{Float64}:
+ 3.0
+ 2.0
+```
+
+# Edge cases
+- [`isconvex`](@ref) returns `false`: positive semidefiniteness is not certified.
+  Solvers that require convexity must validate it, including after data changes.
+- `A` and `b` are retained by reference. Call [`reset_cache!`](@ref) after
+  same-shape changes to `A`; changing `b` alone needs no reset. Reconstruct
+  after dimension changes. The cached eigenbasis reads `A`'s upper triangle,
+  while values and gradients use `A` directly.
+
+See [quadratic operations and step domain](@ref Quadratic-function) for exact
+boundary qualifications, caching, alias rules and numerical limits.
 """
 mutable struct QuadraticFunction{T<:AbstractFloat, M<:AbstractMatrix, V<:Union{Nothing, AbstractVector}} <: AbstractFunction
   A::M

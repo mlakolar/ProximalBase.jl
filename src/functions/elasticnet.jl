@@ -6,61 +6,41 @@
     ElasticNet(λ1, λ2)
     ElasticNet(λ1, λ2, w)
 
-The elastic-net penalty `f(x) = λ1 Σᵢ wᵢ |xᵢ| + (λ2/2) Σᵢ xᵢ²`, with levels
-`λ1, λ2 ≥ 0` and nonnegative weights `w`, all `wᵢ = 1` when `w` is omitted.
-Convex, separable and zero-preserving, not smooth. Its proximal operator is
-`shrink(xᵢ, γλ1wᵢ) / (1 + γλ2)` in each entry: soft thresholding by the threshold
-of `NormL1(λ1, w)`, then the ridge weight of `SqrNormL2(λ2)`, each formed by
-the kernel of that function from the unrounded factors. The ridge kernel
-multiplies by the rounded weight `1/(1 + γλ2)`, so a result can differ in its
-last bits from a division by `1 + γλ2`: `prox_block(ElasticNet(1.0, 1.0), 3.0, 1, 0.5)`
-is `1.6666666666666665`, where `2.5 / 1.5` is `1.6666666666666667`.
-Values are the ℓ1 part, computed as `NormL1(λ1, w)` computes its value, plus
-the ridge part, computed as `SqrNormL2(λ2)` computes its value, each with its
-recovery of terms that leave the range (Overflow and underflow of values). On a
-dense `Float32` or `Float64` `Array` with parameters of its type, a single pass
-over the entries replaces the two when a test on its sum bounds its relative
-error by `(n + 2) eps` for `n` entries, `n ≤ 1/(2 eps) - 2`. With both levels positive and finite, a
-sum of the two parts below `2 floatmin` is recomputed with the terms of both parts added in one
-exponent-sum accumulator and rounded together: `ElasticNet(2.0^-538, 1.0)([2.0^-537])` is `2.0^-1074`,
-although each part rounds to zero on its own. A zero `λ2` gives the values of
-`NormL1(λ1, w)`, and at steps `γ ≥ 0` its proximal points, bit for bit.
+Elastic-net penalty `f(x) = λ₁ Σᵢ wᵢ|xᵢ| + (λ₂/2) Σᵢ xᵢ²`.
+The levels and weights must be nonnegative and not `NaN`; these are checked
+at construction, with omitted weights equal to one. Weights are retained by
+reference, one per entry in linear order; subsequent edits are not revalidated.
 
-`w` has one weight per entry of the argument, paired by linear index, and is
-stored by reference. On a `SymmetricSparseIterate` the weights are a `p × p`
-matrix (or anything indexed by the linear indices of one), read at both
-positions of an off-diagonal coordinate, and the value counts such a coordinate
-twice. On a symmetric iterate the weights must be exactly symmetric, a
-precondition that the oracles assume and do not compare; validate it with
-`ProximalBase.check_symmetric_parameters`.
+The proximal operator soft thresholds each entry and applies ridge shrinkage:
+`shrink(x[i], γ*λ1*w[i]) / (1 + γ*λ2)`. It uses the numerical kernels of
+[`NormL1`](@ref) and [`SqrNormL2`](@ref). The function is convex, separable and
+zero-preserving; `λ2 = 0` recovers `NormL1` values and nonnegative-step proximal
+points bit for bit.
 
-`prox`, `prox!` and `value_and_prox!` throw an `ArgumentError` for a negative
-or `NaN` scalar step before anything is written. The entries of an array of
-steps are not checked: they must be nonnegative, a precondition. This is an
-exception to the requirement of issue #908 that negative and `NaN` steps fail
-before writes: a check reads every step, while such a call reads the steps
-before its loop only to choose the loop, up to the first block of 256 steps
-that holds a step outside the ordinary branches (a call from a `SparseIterate`
-into a `SparseIterate` reads none); the check would add a pass over the steps,
-or the rest of one (issue #874).
-`prox_block` does not check its step.
+# Examples
+```jldoctest
+julia> f = ElasticNet(1.0, 2.0);
 
-An infinite ridge level makes `f` the indicator of `{0}` (issue #908): at
-every step `γ ≥ 0`, `γ = 0` included, each entry of the proximal point is
-`+0`, also for `NaN` and `±Inf` inputs; the value is `0` at the zero vector,
-`NaN` if an entry is `NaN`, and `Inf` otherwise; `kkt_violation` is `-Inf`.
-An infinite `λ1` and infinite weights follow the rules of `NormL1`: an infinite
-`λ1` fixes every positive-weight entry at `+0` at every `γ ≥ 0` (issue #665),
-and an infinite weight maps a finite input to `+0`, with no fixed-zero
-guarantee for `NaN` or `±Inf` inputs at a finite `λ1` (issues #853, #653). A
-threshold that overflows from finite factors keeps the limitation of issue #866
-for `±Inf` inputs.
+julia> f([2.0, -1.0])
+8.0
 
-Array steps are not supported with a `SymmetricSparseIterate` destination, nor
-with a dense destination and a `SymmetricSparseIterate` argument; there is no
-vector form of `prox_block`, and complex entries or weights are rejected.
+julia> prox(f, [2.0, -1.0], 0.5)
+2-element Vector{Float64}:
+  0.75
+ -0.25
+```
 
-See Symmetric parameters for which arrays must be symmetric and who validates them.
+# Edge cases
+- Use real, one-based arrays. Symmetric-iterate weights must be exactly symmetric;
+  validate with [`ProximalBase.check_symmetric_parameters`](@ref).
+- Negative/`NaN` scalar steps fail before writes. **Array-step entries and scalar
+  `prox_block` steps are not checked**; nonnegative steps are a caller precondition.
+- `λ2 = Inf` fixes every output at `+0`, including non-finite inputs and zero step.
+  Infinite ℓ₁ levels and weights follow the distinct [`NormL1`](@ref) rules.
+- Array steps with a symmetric iterate and compact-vector `prox_block` are unsupported.
+
+See [elastic-net details](@ref The-elastic-net-penalty) and
+[step and endpoint rules](@ref elastic-net-steps) for rounding, storage and range limits.
 """
 struct ElasticNet{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ1::T

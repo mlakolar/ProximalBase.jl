@@ -24,7 +24,7 @@ ridge precision tests cover `Float32` and `Float64`; a custom function verifies 
 extension hooks. This suite is not the historical full package suite, which is
 preserved on legacy/full.
 
-Build the strict docs, doctests and all eight isolated Literate examples:
+Build the strict docs, doctests and all nine isolated Literate examples:
 
 ```sh
 julia scripts/instantiate.jl docs

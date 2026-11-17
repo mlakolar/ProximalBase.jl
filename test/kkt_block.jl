@@ -686,6 +686,11 @@ PB.kkt_violation(s::Scaled{<:OwnScaled}, g::AbstractArray, x::AbstractArray) = 7
   @test_throws ArgumentError kkt_violation(sgi, T[0.3, 0.4, 2], T[0, 0, 5], 3)
   @test_throws ArgumentError kkt_violation(sgi, T[0.3, 0.4, 2], T[0, 0, 5], 4 - 1)
   @test kkt_violation(sgi, T[0.3, 0.4, 2], T[0, 0, 5], 1) === -inf              # the group of entry 1 is zero
+  # an unfoldable chain around a GroupNormL2: a nonzero entry in no group is a nonzero coordinate, a zero one keeps its value
+  cg = chain(T, GroupNormL2(T(1), [[1, 2]], T[1]))
+  @test_throws ArgumentError kkt_violation(cg, T[0.3, 0.4, 2], T[0, 0, 5], 3)
+  @test occursin("Scaled wrappers around GroupNormL2", msg(() -> kkt_violation(cg, T[0.3, 0.4, 2], T[0, 0, 5], 3)))
+  @test kkt_violation(cg, T[0.3, 0.4, 2], T[0, 0, 0], 3) isa T
   # a function of the package without a score: a MethodError for the call on the Scaled function
   for f in (NormLinf(T(1)), SqrtLeastSquaresLoss(randn(T, 3), randn(T, 3, 2)))
     for s in (Scaled(f, T(2)), Scaled(Scaled(f, T(2)), T(3)))

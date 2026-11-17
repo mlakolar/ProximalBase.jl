@@ -677,10 +677,11 @@ function _kkt_nonzero_at(f::GroupNormL2, x::AbstractArray, i)
   k != 0 && any(j -> !iszero(x[j]), f.groups[k])
 end
 _kkt_nonzero_at(f::GroupNormL2, x::BlockIterate, k) = any(j -> !iszero(x[j]), x.groups[k])
-# the same for an infinite factor, which also refuses a nonzero entry in no group of a GroupNormL2
-_kkt_nonzero_inf(f, x, k) = _kkt_nonzero_at(f, x, k)
-_kkt_nonzero_inf(f::GroupNormL2, x::AbstractArray, i) = (i <= length(f.group_of) && f.group_of[i] != 0) ? _kkt_nonzero_at(f, x, i) : !iszero(x[i])
-_kkt_nonzero_inf(f::GroupNormL2, x::BlockIterate, k) = _kkt_nonzero_at(f, x, k)
+# the same for the refusals of an infinite factor and of an unfoldable chain, which also count a nonzero entry in no group of a
+# GroupNormL2 as a nonzero coordinate
+_kkt_nonzero_coord(f, x, k) = _kkt_nonzero_at(f, x, k)
+_kkt_nonzero_coord(f::GroupNormL2, x::AbstractArray, i) = (i <= length(f.group_of) && f.group_of[i] != 0) ? _kkt_nonzero_at(f, x, i) : !iszero(x[i])
+_kkt_nonzero_coord(f::GroupNormL2, x::BlockIterate, k) = _kkt_nonzero_at(f, x, k)
 
 @noinline _kkt_infinite_error(s) = throw(ArgumentError(
   "kkt_violation of a Scaled function with an infinite factor is not defined at a nonzero coordinate or group, or in the full-point form"))
@@ -773,7 +774,7 @@ function _kkt_scaled(s::Scaled, g, x, k)
   cls isa _KktNone && throw(MethodError(kkt_violation, (s, g, x, k)))
   _chained(s) && return _kkt_chain(s, g, x, k)
   r = s.α * _kkt_inner(s.f, _ScaledArray(g, inv(s.α)), x, k)
-  isinf(s.α) && cls isa _KktScore && _kkt_nonzero_inf(_kkt_innermost(s), x, k) && _kkt_infinite_error(s)
+  isinf(s.α) && cls isa _KktScore && _kkt_nonzero_coord(_kkt_innermost(s), x, k) && _kkt_infinite_error(s)
   r
 end
 # the function under one wrapper: a Scaled through its own route, a function of this package by its own method, and a
@@ -813,7 +814,7 @@ function _kkt_chain(s::Scaled, g, x, k)
   cls = _kkt_class(typeof(f))
   ge = _ExpScaledArray(g, _scale_inverse(a))
   r = _apply_scale(a, cls isa _KktCustom ? _kkt_custom_zero(f, ge, x, k) : _kkt_unfolded(f, ge, x, k))
-  cls isa _KktScore && _kkt_nonzero_at(f, x, k) && _kkt_chain_error(s, f)
+  cls isa _KktScore && _kkt_nonzero_coord(f, x, k) && _kkt_chain_error(s, f)
   r
 end
 # The value of a chain at a zero coordinate or group that has no function to resolve to: the screen of the three-argument

@@ -130,7 +130,7 @@ soft thresholding rather than an explicit equality constraint.
     [`opnorm2`](@ref) uses an iterative estimate of a squared spectral
     norm. Such an estimate can **underestimate** the true norm, so it is
     not interchangeable with the bound from `lipschitz` when choosing a
-    guaranteed descent step. See [numerical usage](numerical_usage.md).
+    guaranteed descent step. See [array and precision conventions](numerical_usage.md).
 
 
 
@@ -142,7 +142,7 @@ argument; it does not promise zero allocations. ProximalBase puts the
 A gradient needs an output buffer separate from its input, while a proximal
 map permits exact in-place use. Other overlapping views are not supported.
 See [aliasing](glossary.md#Aliasing) and
-[the numerical usage contract](numerical_usage.md) for the precise rules.
+[array and precision conventions](numerical_usage.md) for the precise rules.
 
 ```@example getting_started
 gradbuf = similar(β)

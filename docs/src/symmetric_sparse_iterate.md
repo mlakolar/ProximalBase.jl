@@ -1,4 +1,4 @@
-# SymmetricSparseIterate: independent coordinates and matrix views
+# [SymmetricSparseIterate: independent coordinates and matrix views](@id symmetric-iterate-guide)
 
 *Assumes: symmetric matrices and indexing · You will learn: independent lower-triangle variables, views and symmetric-matrix geometry.*
 
@@ -45,8 +45,9 @@ Matrix(x)
 Pair bounds are checked before narrowing other integer types, with a
 `BoundsError` for an invalid pair. `ncoordinates(x)` is q, `nactive(x)` counts
 stored independent variables, and `isactive/activate!` take independent IDs.
-The direct constructor `SymmetricSparseIterate([T,]p)` accepts nonnegative
-Int dimensions, with `Float64` as the default element type.
+The direct constructor `SymmetricSparseIterate([T,] p)` accepts nonnegative
+`Integer` dimensions (converted to `Int` internally), with
+`Float64` as the default element type.
 
 ## The live views and dense copy
 
@@ -85,7 +86,7 @@ slot, keep their old extent and must be reacquired after activation,
 compaction or whole-state replacement. Coordinate/matrix views instead keep
 a stable index mapping for the symmetric iterate's lifetime.
 
-## Copying state versus importing a matrix
+## [Copying state versus importing a matrix](@id symmetric-copy-import)
 
 `copy(x)` preserves active zeros and slot order independently. `similar(x)`
 and `similar(x,T)` allocate an empty symmetric iterate of the same dimension.
@@ -185,6 +186,9 @@ Two symmetric iterates compare by represented matrix values under `==` and `iseq
 independently of active order. NaNs and signed zeros follow those operators'
 ordinary distinctions; equal symmetric iterates have equal hashes. There is no symmetric-iterate/array
 value comparison or `isapprox` symmetric-iterate method: compare `Matrix(x)` or the view.
+In particular, `isequal(x, y)` agrees with `isequal(Matrix(x), Matrix(y))`:
+an active `-0.0` differs from an absent coordinate under `isequal` but not
+under `==`, while paired NaNs are `isequal` but not `==`.
 
 See [the complete example](examples/symmetric_storage.md) and
 [developer invariants](developer/symmetric_storage.md).

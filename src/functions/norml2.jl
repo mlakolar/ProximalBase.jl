@@ -19,40 +19,40 @@
 """
     NormL2(λ = 1)
 
-The Euclidean norm `f(x) = λ ‖x‖₂` (the Frobenius norm for a matrix), with a
-nonnegative level `λ` (an `ArgumentError` otherwise, `NaN` included). Its
-proximal operator shrinks the whole argument towards zero:
-`prox_{γf}(x) = max(1 - γλ/‖x‖₂, 0) x`. On a nonempty argument it is
-`GroupNormL2(λ, [1:length(x)], [1])`, one group with weight one, and follows the
-same rules: a sum of such norms over groups of entries is `GroupNormL2`.
+Euclidean-norm penalty `f(x) = λ‖x‖₂`; for a matrix this is the Frobenius norm.
+The level must be nonnegative and not `NaN`. Its proximal operator shrinks the
+whole argument: `max(1 - γλ/‖x‖₂, 0) * x`. Use [`GroupNormL2`](@ref) to
+shrink separate groups.
 
-The value takes arrays, the three iterates and a `SymmetricSparseIterate`, whose
-norm is that of the symmetric matrix it represents: each stored off-diagonal
-coordinate counts twice in the squared norm. On a `SparseIterate` or a
-`SymmetricSparseIterate` the value reads the stored entries only, also when a sum
-of squares that overflows or underflows is recomputed in power-of-two units (#808).
-With `λ = 0` the value is zero; with `λ = Inf` it is zero at the zero argument
-(an empty one included), `Inf` at any other argument without a `NaN` entry, and
-`NaN` at a `NaN` entry.
+Values accept real, one-based arrays and the three iterate types. Sparse and
+symmetric values read only stored entries; symmetric off-diagonal coordinates
+count twice in the squared norm. Proximal calls accept arrays of the same size,
+a nonnegative scalar step and exact input/output identity.
 
-`prox!`, `prox` and `value_and_prox!` take arrays of the same size (a `BlockIterate`
-or a `SparseIterate` through indexed reads and writes of its entries, O(length) in
-general, as for an array) and a scalar step. A negative or `NaN` step throws an `ArgumentError`
-before anything is written, and so do sizes, real element types and one-based
-indexing; `prox!(x, f, x, γ)` is supported. A `SymmetricSparseIterate` argument or
-output throws an `ArgumentError` before anything is written: its proximal operator is
-not provided. Exceptional cases are those of a single group of `GroupNormL2` with
-weight one, in this order: `λ = Inf` gives `+0` at every nonnegative step, `γ = 0`
-included (#665), for every input; otherwise `λ = 0` or `γ = 0` gives the identity
-(so `γ = Inf` with `λ = 0` is the identity); `γ = Inf` with a positive finite `λ` gives `+0`; at
-positive finite `γ` and `λ`, a `NaN` entry makes every output `NaN`, an infinite entry
-without `NaN` leaves the argument unchanged, also when the finite threshold `γλ`
-overflows in floating point, and the zero argument gives `+0`. For finite inputs,
-a norm whose sum of squares overflows or underflows and a threshold out of range are
-recomputed in power-of-two units. A value at or above `floatmax/2` is recomputed in
-power-of-two units, accumulated in at least Float64; within a few eps of the overflow
-threshold either `floatmax` or `Inf` may be returned, regardless of which of them the
-exact value rounds to (#904). `value_and_prox!` returns the value at the stored output.
+# Examples
+```jldoctest
+julia> f = NormL2(1.0);
+
+julia> f([3.0, 4.0])
+5.0
+
+julia> prox(f, [3.0, 4.0], 2.5)
+2-element Vector{Float64}:
+ 1.5
+ 2.0
+```
+
+# Edge cases
+- No proximal operator is provided for [`SymmetricSparseIterate`](@ref).
+- Invalid shapes, real types, one-based axes and negative/`NaN` steps are checked
+  before writes. Other overlapping input/output buffers are unsupported.
+- `λ = Inf` fixes every output at `+0`, including at zero step and non-finite input.
+- Otherwise, zero level or zero step gives the identity. At positive finite
+  level and step, a `NaN` entry makes the entire result `NaN`.
+
+See [ℓ₂ operations](@ref norm-l2-guide),
+[group endpoint rules](@ref group-l2-endpoints) and the
+[numerical contract](@ref numerics) for the remaining endpoints and range limits.
 """
 struct NormL2{T<:Real} <: AbstractFunction
   λ::T

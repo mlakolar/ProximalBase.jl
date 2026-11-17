@@ -6,35 +6,41 @@
     NormL1(λ0 = 1)
     NormL1(λ0, w)
 
-The weighted ℓ1 norm `f(x) = λ0 Σᵢ wᵢ |xᵢ|`, with all `wᵢ = 1` when `w` is
-omitted. Its proximal operator is entry-wise soft thresholding
-(`shrink`). Separable, so `prox_block` computes any scalar
-coordinate, and on a sparse iterate the value and the proximal operator touch
-only the stored entries. On a `SymmetricSparseIterate` the weights are a
-`p × p` matrix (or anything indexed by the linear indices of one), as for a
-dense matrix. On a symmetric iterate the weights must be exactly symmetric, a
-precondition that the oracles assume and do not compare; validate it with
-`ProximalBase.check_symmetric_parameters`. Wrap a matrix in `Symmetric(W, :L)` to use its
-lower triangle.
-Values follow the overflow rule in Overflow and underflow of values; terms that
-round below `floatmin` are recomputed where they could change the value by more
-than ordinary rounding (issue #373).
-An infinite weight maps a **finite input value** to zero at every level and
-step, including a zero level or step (the value is `Inf` away from zero).
-For inputs of `NaN` or `±Inf` at finite level there is **no fixed-zero
-guarantee**: ordinary soft thresholding may return `NaN` (issue #853).
-A zero weight remains unpenalized. An infinite overall level `λ0` at any
-nonnegative step instead fixes every positive-weight entry at `+0`, even for
-non-finite inputs (historical decision 49). At `γ = 0` this is the limit
-`γ → 0+` of the proximal map of the fixed function, the projection onto the
-closure of its domain, not soft thresholding by `0⋅Inf` (issue #665):
-`prox(NormL1(Inf, [1, 0, 2]), [3.0, 4.0, 5.0], 0.0) == [0.0, 4.0, 0.0]`.
-Zero-weight entries stay free. A threshold that overflows to `Inf` from
-finite level, step and weight factors is not an infinite model parameter;
-its behavior for `±Inf` inputs is a deferred limitation (issue #866).
-The value is `0` at the zero vector and remains `NaN` at a `NaN` entry.
+Weighted ℓ₁ penalty `f(x) = λ₀ Σᵢ wᵢ |xᵢ|`, with all weights equal to
+one when `w` is omitted. The level and weights must be nonnegative and not `NaN`; these are checked
+at construction. Weights are retained by reference and paired with entries
+by linear index; later array mutations are not revalidated.
 
-See Symmetric parameters for which arrays must be symmetric and who validates them.
+[`prox`](@ref) applies entrywise soft thresholding ([`shrink`](@ref)) with
+threshold `γλ₀wᵢ`. The function is separable and zero-preserving; value
+and same-kind sparse-iterate prox calls visit only stored entries.
+
+# Examples
+```jldoctest
+julia> f = NormL1(0.5, [1.0, 2.0]);
+
+julia> f([2.0, -1.0])
+2.0
+
+julia> prox(f, [2.0, -1.0], 1.0)
+2-element Vector{Float64}:
+ 1.5
+ 0.0
+```
+
+# Edge cases
+- Use real, one-based arrays and one weight per entry.
+- On a [`SymmetricSparseIterate`](@ref), weights have `p²` entries in full-matrix
+  linear order, interpreted as an exactly symmetric `p × p` array. Oracles assume this; validate with
+  [`ProximalBase.check_symmetric_parameters`](@ref).
+- A zero weight leaves an entry unpenalized. An infinite weight fixes a **finite**
+  input at zero, even at zero level or step, but can return `NaN` for non-finite
+  inputs at finite level.
+- An infinite overall level fixes positive-weight entries at `+0`, even for
+  non-finite inputs and zero step; zero-weight entries remain free.
+
+See [ℓ₁ endpoint rules](@ref l1-endpoints), the
+[numerical contract](@ref numerics) and [`prox!`](@ref) for step and alias rules.
 """
 struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T

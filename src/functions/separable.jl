@@ -45,7 +45,8 @@ symmetric, which the kernels assume and do not compare; also declare
 `ProximalBase.entry_parameters`, so that `ProximalBase.check_symmetric_parameters`
 can validate the model once, before the first oracle call.
 
-See Symmetric parameters for which arrays must be symmetric and who validates them.
+See [symmetric parameters](@ref symmetric-parameter-guide) for the required
+arrays and validation responsibilities.
 """
 abstract type SeparableFunction <: AbstractFunction end
 

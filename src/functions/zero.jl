@@ -5,11 +5,30 @@
 """
     ZeroFunction()
 
-The zero function `f(x) = 0`: smooth, with gradient zero, and proximable, with
-the identity as proximal operator. The penalty of an unpenalized problem.
-Array proximal copies use copyto!, so matching SparseIterate/BlockIterate
-input and output replace active state when distinct. Symmetric-iterate proximal writes
-preserve destination activity. Symmetric-iterate gradients are not implemented.
+Zero function `f(x) = 0` for an unpenalized problem. Its gradient is zero and
+its proximal operator is the identity. Real, one-based arrays are required;
+shape and output checks still apply.
+
+# Examples
+```jldoctest
+julia> f = ZeroFunction();
+
+julia> f([2.0, -1.0])
+0.0
+
+julia> prox(f, [2.0, -1.0])
+2-element Vector{Float64}:
+  2.0
+ -1.0
+```
+
+# Edge cases
+- Distinct matching sparse/block iterate inputs and outputs use `copyto!`,
+  replacing destination activity, including stored zeros.
+- Symmetric-iterate proximal writes preserve destination activity; gradients
+  at or into symmetric iterates are not implemented.
+
+See [zero-function operations](@ref Zero-function) for copying and step behavior.
 """
 struct ZeroFunction <: AbstractFunction end
 

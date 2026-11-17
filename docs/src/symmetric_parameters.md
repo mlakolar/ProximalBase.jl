@@ -1,4 +1,4 @@
-# Symmetric parameters
+# [Symmetric parameters](@id symmetric-parameter-guide)
 
 *Assumes: symmetric matrices · You will learn: when per-entry parameters must match across mirrored matrix positions.*
 

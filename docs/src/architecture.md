@@ -23,8 +23,8 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/sqrnorml2.jl` | Squared Euclidean norm and centered ridge operations |
 | `src/functions/quadratic.jl` | Quadratic function and cached eigendecomposition-based proximal map |
 | `src/functions/leastsquares.jl` | Least-squares residual scratch and lazy thin SVD prox |
-| `src/functions/sqrt_leastsquares.jl` | Convex nonsmooth square-root residual-norm loss and shared supplied-predictor value oracles |
-| `src/functions/leastsquares_predictor.jl` | Qualified value/gradient operations at caller-owned predictors and residuals |
+| `src/functions/sqrt_leastsquares.jl` | Convex nonsmooth square-root residual-norm loss, its value evaluation and shared norm kernel |
+| `src/functions/leastsquares_predictor.jl` | Shared qualified predictor/residual value oracles for both least-squares losses, and gradient oracle for `LeastSquaresLoss` |
 | `src/functions/separable.jl` | Generic separable entry kernels and array/sparse traversal |
 | `src/functions/norml1.jl` | Weighted ℓ₁ family, value and specialized proximal operations |
 | `src/functions/elasticnet.jl` | Weighted ℓ₁ plus ridge, reusing the soft-threshold and ridge kernels |

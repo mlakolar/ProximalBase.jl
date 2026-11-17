@@ -130,7 +130,7 @@ soft thresholding rather than an explicit equality constraint.
     [`opnorm2`](@ref) uses an iterative estimate of a squared spectral
     norm. Such an estimate can **underestimate** the true norm, so it is
     not interchangeable with the bound from `lipschitz` when choosing a
-    guaranteed descent step. See [numerical usage](numerical_usage.md).
+    guaranteed descent step. See [array and precision conventions](numerical_usage.md).
 
 
 

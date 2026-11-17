@@ -37,7 +37,7 @@ their operations separately. The minimal core has no general `f + g` object.
 | Reuse a proximal buffer and evaluate it | [`value_and_prox!(out, g, x, γ)`](@ref value_and_prox!) | Writes the proximal point; returns the value at **stored output** `out` |
 | One scalar or compact-group proximal point | [`prox_block`](@ref), [`prox_block!`](@ref) | Numerical result; commit it to iterate storage separately |
 | Test whether a zero coordinate should move | [`kkt_violation`](@ref) | Signed screen; a positive result violates the zero condition |
-| Refresh caches after changing data in place | [`reset_cache!(f)`](@ref reset_cache!) | After changes to quadratic `A` or least-squares `X`/`Y`; not needed for changing quadratic `b` alone |
+| Refresh caches after changing data in place | [`reset_cache!(f)`](@ref reset_cache!) | After changes to `QuadraticFunction.A` or `LeastSquaresLoss` data `X`/`Y`; no reset for quadratic `b` alone; `SqrtLeastSquaresLoss` has no cache |
 
 Use positive finite steps for ordinary proximal calls. Match shapes and use
 independent gradient buffers. A proximal call supports exact in-place input

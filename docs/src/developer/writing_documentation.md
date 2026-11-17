@@ -44,8 +44,8 @@ Preserve existing heading IDs when adding explicit anchors, or repair every
 incoming fragment link. Method-specific reference entries, including the
 three-factor products and `dropzeros!` overloads, need their full signatures.
 The API coverage checker includes qualified public names as well as exports;
-keep their explicit reference entries and coverage rows. Removing a family
-also means updating the first-use [chooser](../choosing.md), the
+keep their explicit reference entries and coverage rows. Adding or removing a
+function family means updating the first-use [chooser](../choosing.md), the
 [function library](../function_library.md), the API coverage matrix, navigation
 and the architectural source map. Do not leave obsolete references behind.
 

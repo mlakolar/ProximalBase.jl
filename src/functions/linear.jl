@@ -359,7 +359,7 @@ kkt_violation(f::LinearFunction, g::AbstractArray, i::Integer) =
 @inline _kkt_state(::LinearFunction, ::Type) = nothing
 Base.@propagate_inbounds _kkt_natural(f::LinearFunction, s, ::Type{W}, v::W, x::W, i) where {W} =
   abs(v + convert(W, f.c[i]))
-@inline _kkt_unusable(::LinearFunction, v, x, r) = !isfinite(v) | isnan(r)
+@inline _kkt_flag(::LinearFunction, x, r) = zero(r)
 Base.@propagate_inbounds function _kkt_entry(f::LinearFunction, s, ::Type{W}, v, x, i) where {W}
   vw = convert(W, v)
   _kkt_override(_kkt_natural(f, s, W, vw, zero(W), i), vw)

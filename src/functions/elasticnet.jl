@@ -437,6 +437,8 @@ Base.@propagate_inbounds function _kkt_natural(f::ElasticNet, s, ::Type{W}, v::W
   t = s.ridge ? v + s.l2 * x : v
   ifelse(iszero(x), screen, abs(t + c * sign(x)))
 end
+# an infinite λ2 gives -Inf at a zero entry for any v: the pass by entry applies the rules for a non-finite v
+@inline _kkt_fast_ok(::ElasticNet, s) = !s.infinite
 @_kkt_entrywise ElasticNet
 
 restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2, _restrict_entries(f.w, S))

@@ -512,7 +512,7 @@ end
 Base.@propagate_inbounds _kkt_plain(y::AbstractArray, l::W, x::W, i) where {W} = l * (x - convert(W, y[i]))
 Base.@propagate_inbounds _kkt_natural(f::SqrNormL2, s, ::Type{W}, v::W, x::W, i) where {W} =
   abs(v + _kkt_plain(f.y, s.l, x, i))
-@inline _kkt_unusable(::SqrNormL2, v, x, r) = !isfinite(v) | !isfinite(x) | !isfinite(r)
+@inline _kkt_flag(::SqrNormL2, x, r) = r - r
 @inline _kkt_ridge(::Nothing, s, ::Type{W}, x, i) where {W} =
   s.fits ? s.l * x : convert(W, _ridge_gradient_wide(W, s.lr, x, zero(W)))
 Base.@propagate_inbounds _kkt_ridge(y, s, ::Type{W}, x, i) where {W} =

@@ -1217,17 +1217,19 @@ end
 end
 
 # The score of the block G at the point x and the gradient entries v, for the penalty λw‖·‖₂, in
-# W = float(promote_type(eltype(v), eltype(x))), with the coefficient c = _kkt_coefficient(W, λ, w).
-#   x[G] = 0:  the screen ‖v[G]‖₂ - c (_l2_screen on v read in W), which is signed;
-#   x[G] ≠ 0:  ‖v[G] + c x[G]/‖x[G]‖₂‖₂, which is nonnegative.
+# W = float(promote_type(eltype(v), eltype(x))), with the coefficient c = _kkt_coefficient(W, λ, w). The entries are read in W.
+#   x[G] = 0:  the existing screen (_l2_screen on v read in W), signed: ‖v[G]‖₂ - c for a finite c, with the recovery of the
+#              difference that the screen makes where finite factors give an out-of-range product;
+#   x[G] ≠ 0:  ‖v[G] + c x[G]/‖x[G]‖₂‖₂ with the coefficient rounded to W, nonnegative.
 # Exceptional values, in this order: a NaN in v[G] or x[G] gives NaN, otherwise an infinite entry gives Inf; at a
 # nonzero block an infinite c gives Inf and c = 0 gives ‖v[G]‖₂. At a zero block the rules of _l2_screen stay, except
 # that an infinite entry of v[G] gives Inf where the screen has Inf - Inf = NaN (c = Inf).
-# Ordinary path (two sums and one residual sum, no allocation): sx = Σ xⱼ², t = c/√sx, s = Σ (vⱼ + t xⱼ)², √s, used
-# when sx and s are finite and normal in the sense of _squares_normal and t is finite. To first order in n u, with u
-# the unit roundoff of W and n = |G|, its error is at most (n + 8) u (‖v[G]‖₂ + c), where c is the coefficient as
-# rounded to W; the rounding of c itself adds at most u c to the distance from the exact λw. Any other finite case is
-# the cold path.
+# Ordinary path (no allocation): after the scan for a zero block (_l2_zero_group), two arithmetic passes, sx = Σ xⱼ² and
+# t = c/√sx, then s = Σ (vⱼ + t xⱼ)² and √s, used when sx and s are finite and normal in the sense of _squares_normal and t is
+# finite. To first order in n u, with u the unit roundoff of W and n = |G|, its error is at most (n + 8) u (‖v[G]‖₂ + c),
+# where c is the coefficient as rounded to W. Rounding λw to W adds a relative u to c where the product is a normal finite
+# number, and an absolute term of the subnormal spacing where it is subnormal or rounds to zero. Any other finite case is the
+# cold path.
 @inline function _l2_score(λ, w, v, x, G)
   W = float(promote_type(eltype(v), eltype(x)))
   _l2_zero_group(x, G, W) && return _l2_zero_score(λ, w, v, G, W)
@@ -1266,23 +1268,29 @@ end
   W(Inf)
 end
 
-# The nonzero block out of the ordinary range, or with an exceptional value: the classification of v[G] and x[G]
-# (_l2_classified_norm), and, for a finite c ≠ 0, the residual v[G] + (c/‖x[G]‖₂) x[G] formed in the recovery type R,
-# with the factor c/‖x[G]‖₂ kept as a significand and an exponent (_ProjectionScale), and its sum of squares by the
-# squared-residual kernel (_residual_squares), so that no square overflows or underflows. This extends the range and
-# not the precision: the error is that of the ordinary path with the unit roundoff of R, plus the rounding of the
-# result to W, plus, where a term of the residual falls below floatmin(R), the subnormal spacing of R.
+# The nonzero block out of the ordinary range, or with an exceptional value: the classification of v[G] and x[G] read in W
+# (_l2_classified_norm), and, for a finite c ≠ 0, the residual v[G] + (c/‖x[G]‖₂) x[G] formed in the recovery type R from
+# those values, with the factor c/‖x[G]‖₂ kept as a significand and an exponent (_ProjectionScale), and its sum of squares by
+# the squared-residual kernel (_residual_squares). That kernel scales the residuals by the exponent of the largest one, so
+# that the accumulated squares do not overflow; a scaled square far below the largest one can underflow below the rounding
+# scale of the norm. This extends the range and not the precision: the error is that of the ordinary path with the unit
+# roundoff of R, plus the rounding of the result to W, plus, where a term of the residual falls below floatmin(R), the
+# subnormal spacing of R.
 @noinline function _l2_score_cold(λ, w, v, x, G, ::Type{W}, c) where {W}
-  R = _recovery_type(W, float(typeof(λ)), float(typeof(w)), float(eltype(v)), float(eltype(x)))
-  kv, nv = _l2_classified_norm(v, G, R, iszero(c))
-  kx, nx = _l2_classified_norm(x, G, R)
+  # the entries are read in W, as the ordinary path reads them (an entry that does not fit W is infinite there), and widened
+  # to R from those values
+  R = _recovery_type(W, float(typeof(λ)), float(typeof(w)))
+  n = Base.OneTo(length(G))
+  vw, xw = _IndexedValues(v, G, W), _IndexedValues(x, G, W)
+  kv, nv = _l2_classified_norm(vw, n, R, iszero(c))
+  kx, nx = _l2_classified_norm(xw, n, R)
   (kv == _EXPONENT_NAN) | (kx == _EXPONENT_NAN) && return W(NaN)
   (kv == _EXPONENT_INF) | (kx == _EXPONENT_INF) && return W(Inf)
   isinf(c) && return W(Inf)
   iszero(c) && return convert(W, _scaled_product(nv, one(R), kv))
   mc, ec = _frexp(convert(R, c))
   m, e = _frexp(mc / nx)
-  vs, xs = _IndexedValues(v, G, R), _IndexedValues(x, G, R)
+  vs, xs = _IndexedValues(vw, n, R), _IndexedValues(xw, n, R)
   q = _residual_squares(vs, _ExpScaledArray(xs, _ProjectionScale(-m, Int(ec - kx + e))), R)
   h = 0
   if q === nothing

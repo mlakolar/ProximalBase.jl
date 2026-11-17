@@ -256,7 +256,7 @@ function _level_score(f::GroupNormL2, λ, g::AbstractArray, x::AbstractArray, i:
   _check_group_extent(f, x)
   checkbounds(x, i)
   k = i <= length(f.group_of) ? @inbounds(f.group_of[i]) : 0
-  k == 0 && return convert(float(promote_type(eltype(g), eltype(x))), abs(g[i]))
+  k == 0 && return abs(convert(float(promote_type(eltype(g), eltype(x))), g[i]))
   _l2_score(λ, @inbounds(f.w[k]), g, x, @inbounds(f.groups[k]))
 end
 function _level_score(f::GroupNormL2, λ, g::AbstractArray, x::BlockIterate, k::Integer)
@@ -298,10 +298,10 @@ function _level_point(f::GroupNormL2, λ, v::AbstractArray, x::AbstractArray)
     m = max(m, _l2_score(λ, @inbounds(f.w[k]), v, x, @inbounds(f.groups[k])))
   end
   @inbounds for i in f.free
-    m = max(m, convert(W, abs(v[i])))
+    m = max(m, abs(convert(W, v[i])))
   end
   @inbounds for i in length(f.group_of)+1:length(x)
-    m = max(m, convert(W, abs(v[i])))
+    m = max(m, abs(convert(W, v[i])))
   end
   m
 end

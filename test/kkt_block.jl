@@ -4,12 +4,15 @@ module KktBlockTest
 #   kkt_violation(f, v, x)      max(0, max over the groups of the block scores, over the entries in no group of |vᵢ|);
 #   NormL2: the whole vector is one block, and the full-point form is the one that it has;
 #   Scaled: the score of a·f, with a the product of the factors.
-# A block of the penalty c‖·‖₂ scores, from the definition (the distance from -v_G to the subdifferential at x_G),
-#   ‖v_G‖₂ - c                    at x_G = 0   (signed margin),
-#   ‖v_G + c x_G/‖x_G‖₂‖₂        at x_G ≠ 0   (mismatch).
+# A block of the penalty c‖·‖₂ scores
+#   ‖v_G‖₂ - c                    at x_G = 0   (the signed screen; its positive part is the distance from -v_G to the
+#                                              subdifferential at 0, the ball of radius c),
+#   ‖v_G + c x_G/‖x_G‖₂‖₂        at x_G ≠ 0   (the distance from -v_G to the subdifferential {c x_G/‖x_G‖₂}).
 # Each reference is a BigFloat evaluation of that definition, for c the exact product of the level and the weight (and,
 # under Scaled, of the factors); no reference calls a ProximalBase kernel or the formula α score(v/α, x) of the route.
-# Accuracy is measured against (n + 8) u (‖v_G‖₂ + c) with u = eps/2, the bound of the ordinary path derived in the PR.
+# A value is accepted within (n + 8) u (‖v_G‖₂ + c) + 4 n nextfloat(zero(W)) of its reference, u = eps(W)/2: the bound of the
+# ordinary path derived in the PR plus the subnormal spacing of W. A reference within 100 eps(W) of floatmax(W) is not judged,
+# and one beyond that band must be the overflow to the infinity of its sign (blockok).
 #
 # Which tests fail at the base (2f787fd8): the nonzero blocks of GroupNormL2 (an ArgumentError there), the full-point
 # forms of GroupNormL2, NormL2 and Scaled (MethodError), NormL2 with a local form (MethodError, not ArgumentError),
@@ -52,6 +55,7 @@ function blockok(r, ::Type{W}, λ, w, v, x) where {W}
     ref = refblock(c, V, X)
     lim = big(floatmax(W))
     ref > lim * (1 + 100 * big(eps(W))) && return r == W(Inf)
+    ref < -lim * (1 + 100 * big(eps(W))) && return r == W(-Inf)
     abs(ref) > lim * (1 - 100 * big(eps(W))) && return true
     isfinite(r) && abs(big(r) - ref) <= blocktol(length(v), W, V, c)
   end
@@ -887,6 +891,98 @@ end
   @test @inferred(PB._kkt_class(typeof(sf))) isa PB._KktScore
   @test @inferred(PB._kkt_class(typeof(Scaled(NormLinf(T(1)), T(2))))) isa PB._KktNone
   @test @inferred(PB._kkt_class(typeof(Scaled(OwnAll(), T(2))))) isa PB._KktCustom
+end
+
+# ---- entries that are converted before they are classified or measured -----------------------------------------------------
+# fails at the base: the nonzero blocks; the entries in no group with integer extremes fail since stage A of the function
+@testset "entries are converted to the working type before classification and magnitude" begin
+  # the magnitude of an entry in no group is taken after the conversion: abs(typemin(Int)) overflows in Int
+  f = GroupNormL2(1.0, [[2]], [1.0])
+  @test kkt_violation(f, [typemin(Int), 0], [0, 0], 1) === 2.0^63
+  @test kkt_violation(f, [typemin(Int), 0], [0, 0]) === 2.0^63
+  @test kkt_violation(f, Int8[typemin(Int8), 0], Int8[0, 0], 1) === 128.0
+  @test kkt_violation(f, Int8[typemin(Int8), 0], Int8[0, 0]) === 128.0
+  ft = GroupNormL2(1.0, [[1]], [1.0])                       # the entry 2 is past the groups
+  @test kkt_violation(ft, [0, typemin(Int)], [0, 0], 2) === 2.0^63
+  @test kkt_violation(ft, [0, typemin(Int)], [0, 0]) === 2.0^63
+  @test kkt_violation(f, UInt8[255, 0], UInt8[0, 0], 1) === 255.0 && kkt_violation(f, UInt8[255, 0], UInt8[0, 0]) === 255.0
+  @test kkt_violation(f, [true, false], [false, false], 1) === 1.0 && kkt_violation(f, [true, false], [false, false]) === 1.0
+  # the same through Scaled (v/α is a lazy Float64 array, so the entries are converted there)
+  @test kkt_violation(Scaled(f, 2.0), [typemin(Int), 0], [0, 0], 1) === 2.0^63
+  # an entry that does not fit the working type is infinite there, on the ordinary and on the cold path
+  big128 = typemax(UInt128)
+  @test kkt_violation(NormL2(1.0), Float32[0], UInt128[big128]) === Inf32
+  @test kkt_violation(GroupNormL2(1.0, [[1]], [1.0]), Float32[0], UInt128[big128], 1) === Inf32
+  @test kkt_violation(GroupNormL2(1.0, [[1]], [1.0]), Float32[0], UInt128[big128]) === Inf32
+  @test kkt_violation(NormL2(1.0), Float16[0], [10^6]) === Inf16
+  @test kkt_violation(GroupNormL2(1.0, [[1]], [1.0]), Float16[0], [10^6], 1) === Inf16
+  @test kkt_violation(NormL2(1.0), Float32[Inf], UInt128[0]) === Inf32          # a zero block with an infinite v
+  @test isnan(kkt_violation(NormL2(1.0), Float32[NaN], UInt128[big128]))        # NaN takes precedence over the infinity
+  # a point of Rational or BigInt entries that converts to finite values of the working type has its documented score
+  xr = Rational{BigInt}[1 // big(10)^300, 2 // big(10)^300]                       # squares underflow in Float64: the cold path
+  vr = [0.3e-300, -0.4e-300]
+  for (λ, w) in ((0.37, 1.0), (1e-300, 1.0))
+    @test blockok(kkt_violation(GroupNormL2(λ, [[1, 2]], [w]), vr, xr, 1), Float64, λ, w, vr, Float64.(xr))
+    @test blockok(kkt_violation(NormL2(λ), vr, xr), Float64, λ, 1.0, vr, Float64.(xr))
+  end
+  xq = Rational{Int}[3, 4]
+  @test kkt_violation(GroupNormL2(1.0, [[1, 2]], [1.0]), [-0.6, -0.8], xq, 1) <= 1e-15
+  xb = BigInt[3, 4]                                       # the working type is BigFloat
+  @test kkt_violation(NormL2(1.0), [-0.6, -0.8], xb) isa BigFloat
+  @test abs(kkt_violation(GroupNormL2(1.0, [[1, 2]], [1.0]), [-0.6, -0.8], xb, 1)) <= 1e-15
+end
+
+# a retained chain that holds an infinite factor (the parameterized constructor builds it) is refused at a nonzero point and
+# in the full-point form, as an infinite factor of one wrapper is; at a zero point it has the value of the route of master
+@testset "$T retained chains with an infinite factor" for T in TYPES
+  raw(f, a) = Scaled{typeof(f), typeof(a)}(f, a)
+  t, inf = tiny(T), T(Inf)
+  leaves = ((ZeroFunction(), T(0.25)), (LinearFunction(T[1]), T(1.25)), (NormL1(T(1)), -inf),
+            (GroupNormL2(T(1), [[1]], T[1]), -inf), (NormL1(zero(T)), T(0.25)))
+  for (leaf, at_zero) in leaves
+    s = raw(raw(Scaled(leaf, inf), t), t)
+    @test s.f isa Scaled && PB._chained(s)
+    @test_throws ArgumentError kkt_violation(s, T[0.25], T[1], 1)
+    @test_throws ArgumentError kkt_violation(s, T[0.25], T[1])
+    @test occursin("infinite factor", msg(() -> kkt_violation(s, T[0.25], T[1], 1)))
+    @test_throws ArgumentError kkt_violation(s, T[0.25], T[0])               # the full-point form, also at a zero point
+    @test kkt_violation(s, T[0.25], T[0], 1) === at_zero                     # the value of master's route at a zero point
+    leaf isa Union{ZeroFunction, LinearFunction} && @test kkt_violation(s, T[0.25], 1) === at_zero   # and of the three-argument screen
+    # the infinite factor outermost, around a retained chain
+    o = raw(chain(T, leaf), inf)
+    @test !PB._chained(o)
+    @test_throws ArgumentError kkt_violation(o, T[0.25], T[1], 1)
+    @test_throws ArgumentError kkt_violation(o, T[0.25], T[1])
+    @test kkt_violation(o, T[0.25], T[0], 1) isa T
+  end
+  # a chain with a zero-level leaf and finite factors is scored by the folded zero level
+  z = chain(T, NormL1(zero(T)))
+  @test kkt_violation(z, T[0.25], T[0.5], 1) === T(0.25) && kkt_violation(z, T[0.25], T[0.5]) === T(0.25)
+end
+
+# the helper of the block tests rejects values that are wrong
+@testset "blockok rejects wrong values" begin
+  for W in TYPES
+    # a zero block with an overflowing coefficient: the reference -1.5 floatmax is below the range, the value is -Inf
+    args = (W, floatmax(W), W(1.5), W[0], W[0])
+    @test blockok(-W(Inf), args...)
+    for bad in (W(NaN), zero(W), W(Inf), -floatmax(W), one(W))
+      @test !blockok(bad, args...)
+    end
+    # a nonzero block with an overflowing reference: +Inf is the right value and the others are not
+    big_args = (W, floatmax(W), W(1.5), W[1], W[1])
+    @test blockok(W(Inf), big_args...) && !blockok(W(NaN), big_args...) && !blockok(floatmax(W), big_args...) && !blockok(-W(Inf), big_args...)
+    # a bounded block: the value within the bound is accepted, and a value off by more than it is not
+    v, x = W[0.3, -0.4], W[1, 2]
+    ref = bigprec() do
+      refblock(big(W(0.37)) * big(W(0.61)), big.(v), big.(x))
+    end
+    r = W(ref)
+    @test blockok(r, W, W(0.37), W(0.61), v, x)
+    for bad in (W(NaN), zero(W), W(Inf), -W(Inf), r + 100 * eps(W), r - 100 * eps(W))
+      @test !blockok(bad, W, W(0.37), W(0.61), v, x)
+    end
+  end
 end
 
 # ---- 12. a malformed parameter at the selected coordinate of a SymmetricSparseIterate under Scaled -------------------------

@@ -875,4 +875,85 @@ end
     @test prox_block(f, -zero(T), 1, T(1)) === zero(T)
   end
 end
+
+# The dense loops with a scalar step soft-threshold with _shrink_nonneg up to _L1_SELECT_BYTES bytes and with shrink
+# above (an output that is the argument keeps _shrink_nonneg). Both lengths give prox_block(f, xᵢ, i, γ) in every entry, bit for bit (NaN for NaN, signed zeros),
+# through prox!, prox!(x, f, x, γ), prox and value_and_prox!, for NormL1 and ElasticNet with and without weights, at
+# ordinary and exceptional parameters, and neither loop allocates.
+struct ZeroSizeReal <: Real end
+Base.float(::Type{ZeroSizeReal}) = Float64
+Base.float(::ZeroSizeReal) = 1.0
+cut_ref(f, x::AbstractArray{T}, γ) where {T} =
+  reshape([convert(T, prox_block(f, x[i], i, γ)) for i in eachindex(IndexLinear(), x)], size(x))
+function cut_check(f, x, γ)
+  r = cut_ref(f, x, γ)
+  ok = enet_same(prox!(similar(x), f, x, γ), r) && enet_same(prox(f, x, γ), r)
+  z = copy(x); prox!(z, f, z, γ); ok &= enet_same(z, r)
+  y = similar(x); v = value_and_prox!(y, f, x, γ); ok &= enet_same(y, r) && isequal(v, f(y))
+  z = copy(x); v = value_and_prox!(z, f, z, γ); ok & enet_same(z, r) && isequal(v, f(z))
+end
+function cut_allocated(f, x, γ)
+  y = similar(x)
+  prox!(y, f, x, γ); value_and_prox!(y, f, x, γ)
+  (@allocated prox!(y, f, x, γ)) + (@allocated value_and_prox!(y, f, x, γ))
+end
+function cut_data(::Type{T}, rng, n) where {T}
+  specials = T[NaN, -NaN, Inf, -Inf, 0, -0.0, nextfloat(zero(T)), -3 * nextfloat(zero(T)), prevfloat(floatmin(T)),
+               -floatmin(T), floatmin(T), floatmax(T), -floatmax(T), 1, -1]
+  x = T(2) .* randn(rng, T, n)
+  for k in eachindex(specials)                  # at the start, in the middle and at the end
+    for j in (k, n ÷ 2 + k, n - length(specials) + k)
+      1 <= j <= n && (x[j] = specials[k])
+    end
+  end
+  w = T(0.5) .+ rand(rng, T, n)
+  w[1:3:n] .= zero(T); w[2:5:n] .= T(Inf)
+  x, w
+end
+
+@testset "dense loops on both sides of _L1_SELECT_BYTES ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(8192)
+  M = PB._L1_SELECT_BYTES ÷ sizeof(T)
+  for n in (1, 2, 3, 16, M - 1, M, M + 1)
+    x, w = cut_data(T, rng, n)
+    for ww in (nothing, w)
+      for λ in (T(0.3), zero(T), T(Inf)), γ in (T(0.7), zero(T), floatmin(T), T(Inf), -one(T), T(NaN))
+        f = NormL1(λ, ww)
+        ok = cut_check(f, x, γ)
+        ok || @info "NormL1 differs" T n ww === nothing λ γ
+        @test ok
+      end
+      for (λ1, λ2) in ((T(0.3), T(0.5)), (zero(T), T(0.5)), (T(0.3), zero(T)), (T(Inf), T(0.5)), (T(0.3), T(Inf))),
+          γ in (T(0.7), zero(T), floatmin(T), floatmax(T), T(Inf))
+        f = ElasticNet(λ1, λ2, ww)
+        ok = cut_check(f, x, γ)
+        ok || @info "ElasticNet differs" T n ww === nothing λ1 λ2 γ
+        @test ok
+      end
+      for γ in (-one(T), T(NaN))
+        @test_throws ArgumentError prox!(similar(x), ElasticNet(T(0.3), T(0.5), ww), x, γ)
+      end
+      @test cut_allocated(NormL1(T(0.3), ww), x, T(0.7)) == 0
+      @test cut_allocated(ElasticNet(T(0.3), T(0.5), ww), x, T(0.7)) == 0
+    end
+    if n > 3                                     # element types without a size: the loop of the short arrays
+      for A in (Real, AbstractFloat), f in (NormL1(T(0.3)), ElasticNet(T(0.3), T(0.5)))
+        xa = Vector{A}(x)
+        r = prox!(similar(x), f, x, T(0.7))
+        @test isequal(prox!(similar(xa), f, xa, T(0.7)), r)
+        @test isequal(prox(f, xa, T(0.7)), r)
+      end
+    end
+    if n == 2                                    # an element type of size zero takes the loop of the short arrays
+      xz = [ZeroSizeReal(), ZeroSizeReal()]
+      @test prox!(zeros(T, 2), NormL1(T(0.3)), xz, T(0.7)) ≈ fill(T(1) - T(0.7) * T(0.3), 2)
+      @test prox!(zeros(T, 2), ElasticNet(T(0.3), T(0.5)), xz, T(0.7)) ≈ fill((T(1) - T(0.7) * T(0.3)) / (T(1) + T(0.7) * T(0.5)), 2)
+    end
+    if n > 3                                     # a matrix, and a view of every other entry
+      @test cut_check(NormL1(T(0.3), w), reshape(copy(x), :, 1), T(0.7))
+      u = vcat(x, x)
+      @test cut_check(ElasticNet(T(0.3), T(0.5)), view(u, 1:2:2n), T(0.7))
+    end
+  end
+end
 end

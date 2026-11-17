@@ -60,10 +60,11 @@ prox(h,x,0.4)
 finite positive `α` evaluate the existing score of `f` on the lazy gradient `v/α` and multiply it
 by `α`: in exact arithmetic the score of ``\alpha f`` is positively homogeneous in ``\alpha`` and `v`
 together. `f` is `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction`, `SqrNormL2`,
-`GroupNormL2` or, for the full-point form, `NormL2`. At a zero coordinate, for a finite supplied
-`v` and arrays and parameters of one floating type, the signed score agrees bit for bit with the
-scaled three-argument screen, except for `SqrNormL2` with an infinite level, whose score
-takes its gradient entry from the ridge-gradient helpers (see the [numerical contract](numerics.md)).
+`GroupNormL2` or, for the full-point form, `NormL2`. For one wrapper with a finite positive factor, on the
+numerical domain below with finite entries of the lazily scaled gradient `v/α`, at a zero coordinate and for arrays and
+parameters of one floating type, the signed score agrees bit for bit with the scaled three-argument
+screen, except for the endpoint cases of the [numerical contract](numerics.md) and for `SqrNormL2` with an infinite level,
+whose score takes its gradient entry from the ridge-gradient helpers.
 The scores of the function are in [scoring a coordinate](@ref kkt-screens).
 
 ```@example library_scaled
@@ -113,12 +114,11 @@ remain `BigFloat`.
   is nonzero there) and the full-point form throw an `ArgumentError` for such a chain.
 * **An infinite factor.** `kkt_violation(h, v, x)` and the four-argument form at a nonzero
   coordinate or group throw an `ArgumentError` (an entry in no group of a `GroupNormL2` counts as
-  nonzero when `x` is nonzero there), also for a retained chain that holds an infinite factor. For a finite
-  supplied `v`, the lazy gradient `v/α` is zero and a zero point has these values: `-Inf` for a penalized
+  nonzero when `x` is nonzero there), also for a retained chain that holds an infinite factor. For one wrapper with an
+  infinite factor and a finite supplied `v`, the lazy gradient `v/α` is zero and a zero point has these values: `-Inf` for a penalized
   coordinate with a positive coefficient, and `NaN` (`Inf * 0`) where the coefficient is zero and for an entry in no group
-  of a `GroupNormL2`; for the smooth functions it is `α` times the score at `v = 0`. Non-finite
-  supplied entries follow the IEEE evaluation of the same route: `kkt_violation(Scaled(NormL1(1.0), Inf), [Inf], [0.0], 1)`
-  is `NaN`.
+  of a `GroupNormL2`; for the smooth functions it is `α` times the score at `v = 0`. The zero-point and
+  three-argument values of a retained chain that holds an infinite factor are not specified in this guide.
 * **Chains around `LinearFunction` and `SqrNormL2`.** The product of the factors is applied
   to the gradient entry of the function, as the gradient of the chain applies it, and the score is
   ``\lvert v_i+a\,d_i\rvert`` in all three forms (an uncentered `SqrNormL2` at a zero coordinate,
@@ -142,7 +142,6 @@ inf = Scaled(NormL1(1.0), Inf)
 @assert kkt_violation(inf, [3.0], [0.0], 1) == -Inf
 @assert refused(() -> kkt_violation(inf, [3.0], [1.0], 1)) && refused(() -> kkt_violation(inf, [3.0], [0.0]))
 @assert isnan(kkt_violation(Scaled(NormL1(0.0), Inf), [3.0], [0.0], 1))
-@assert isnan(kkt_violation(inf, [Inf], [0.0], 1))                   # a non-finite supplied entry
 nomethod = try kkt_violation(Scaled(NormLinf(1.0), 2.0), [1.0, 2.0], [0.0, 1.0], 1); false catch e; e isa MethodError end
 @assert nomethod
 kkt_violation(lin, [0.25], 1)

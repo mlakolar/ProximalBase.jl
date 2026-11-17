@@ -11,8 +11,9 @@ module KktBlockTest
 # Each reference is a BigFloat evaluation of that definition, for c the exact product of the level and the weight (and,
 # under Scaled, of the factors); no reference calls a ProximalBase kernel or the formula α score(v/α, x) of the route.
 # A value is accepted within (n + 8) u (‖v_G‖₂ + c) + 4 n nextfloat(zero(W)) of its reference, u = eps(W)/2: the bound of the
-# ordinary path derived in the PR plus the subnormal spacing of W. A reference within 100 eps(W) of floatmax(W) is not judged,
-# and one beyond that band must be the overflow to the infinity of its sign (blockok).
+# ordinary path derived in the PR plus the subnormal spacing of W.
+# The excluded band is (1 - 100 eps(W)) floatmax(W) < |ref| <= (1 + 100 eps(W)) floatmax(W); references beyond it must
+# overflow with the correct sign (blockok).
 #
 # Which tests fail at the base (2f787fd8): the nonzero blocks of GroupNormL2 (an ArgumentError there), the full-point
 # forms of GroupNormL2, NormL2 and Scaled (MethodError), NormL2 with a local form (MethodError, not ArgumentError),
@@ -897,18 +898,19 @@ end
 # fails at the base: the nonzero blocks; the entries in no group with integer extremes fail since stage A of the function
 @testset "entries are converted to the working type before classification and magnitude" begin
   # the magnitude of an entry in no group is taken after the conversion: abs(typemin(Int)) overflows in Int
+  imin = abs(Float64(typemin(Int)))                          # 2^63 where Int is Int64
   f = GroupNormL2(1.0, [[2]], [1.0])
-  @test kkt_violation(f, [typemin(Int), 0], [0, 0], 1) === 2.0^63
-  @test kkt_violation(f, [typemin(Int), 0], [0, 0]) === 2.0^63
+  @test kkt_violation(f, [typemin(Int), 0], [0, 0], 1) === imin
+  @test kkt_violation(f, [typemin(Int), 0], [0, 0]) === imin
   @test kkt_violation(f, Int8[typemin(Int8), 0], Int8[0, 0], 1) === 128.0
   @test kkt_violation(f, Int8[typemin(Int8), 0], Int8[0, 0]) === 128.0
   ft = GroupNormL2(1.0, [[1]], [1.0])                       # the entry 2 is past the groups
-  @test kkt_violation(ft, [0, typemin(Int)], [0, 0], 2) === 2.0^63
-  @test kkt_violation(ft, [0, typemin(Int)], [0, 0]) === 2.0^63
+  @test kkt_violation(ft, [0, typemin(Int)], [0, 0], 2) === imin
+  @test kkt_violation(ft, [0, typemin(Int)], [0, 0]) === imin
   @test kkt_violation(f, UInt8[255, 0], UInt8[0, 0], 1) === 255.0 && kkt_violation(f, UInt8[255, 0], UInt8[0, 0]) === 255.0
   @test kkt_violation(f, [true, false], [false, false], 1) === 1.0 && kkt_violation(f, [true, false], [false, false]) === 1.0
   # the same through Scaled (v/α is a lazy Float64 array, so the entries are converted there)
-  @test kkt_violation(Scaled(f, 2.0), [typemin(Int), 0], [0, 0], 1) === 2.0^63
+  @test kkt_violation(Scaled(f, 2.0), [typemin(Int), 0], [0, 0], 1) === imin
   # an entry that does not fit the working type is infinite there, on the ordinary and on the cold path
   big128 = typemax(UInt128)
   @test kkt_violation(NormL2(1.0), Float32[0], UInt128[big128]) === Inf32
@@ -919,11 +921,39 @@ end
   @test kkt_violation(NormL2(1.0), Float32[Inf], UInt128[0]) === Inf32          # a zero block with an infinite v
   @test isnan(kkt_violation(NormL2(1.0), Float32[NaN], UInt128[big128]))        # NaN takes precedence over the infinity
   # a point of Rational or BigInt entries that converts to finite values of the working type has its documented score
-  xr = Rational{BigInt}[1 // big(10)^300, 2 // big(10)^300]                       # squares underflow in Float64: the cold path
+  # Float64 gradient with a Rational{BigInt} point: the working type is BigFloat, and the squares (about 1e-600) are ordinary
+  # there, so this is the ordinary path; the reference is built from the entries converted to BigFloat
+  @test float(promote_type(Float64, Rational{BigInt})) === BigFloat
+  xr = Rational{BigInt}[1 // big(10)^300, 2 // big(10)^300]
+  xrw = BigFloat.(xr)
   vr = [0.3e-300, -0.4e-300]
+  u = big(eps(BigFloat)) / 2                               # the unit roundoff of the working type at the default precision
   for (λ, w) in ((0.37, 1.0), (1e-300, 1.0))
-    @test blockok(kkt_violation(GroupNormL2(λ, [[1, 2]], [w]), vr, xr, 1), Float64, λ, w, vr, Float64.(xr))
-    @test blockok(kkt_violation(NormL2(λ), vr, xr), Float64, λ, 1.0, vr, Float64.(xr))
+    for r in (kkt_violation(GroupNormL2(λ, [[1, 2]], [w]), vr, xr, 1), kkt_violation(NormL2(λ), vr, xr))
+      @test r isa BigFloat
+      ok = bigprec() do
+        c = big(λ) * big(w)
+        ref = refblock(c, big.(vr), big.(xrw))
+        abs(big(r) - ref) <= (2 + 8) * u * (sqrt(sum(abs2, big.(vr))) + c)
+      end
+      @test ok
+    end
+  end
+  # Float32 gradient with a Rational{Int128} point of denominator 10^30: the working type is Float32 and the converted
+  # entries (about 1e-30) have squares that underflow in Float32, so the sum of squares fails the test of the ordinary path
+  # and the score is computed by the cold path
+  @test float(promote_type(Float32, Rational{Int128})) === Float32
+  xi = Rational{Int128}[1 // Int128(10)^30, 2 // Int128(10)^30]
+  xiw = Float32.(xi)
+  vi = Float32[0.3f-30, -0.4f-30]
+  sxi = PB._indexed_sumabs2(xi, [1, 2], Float32)
+  @test !(isfinite(sxi) & PB._squares_normal(sxi, 2, Float32))                    # the ordinary-path test fails on these entries
+  for (λ, w) in ((0.37, 1.0), (1e-30, 1.0))
+    r1 = kkt_violation(GroupNormL2(λ, [[1, 2]], [w]), vi, xi, 1)
+    r2 = kkt_violation(NormL2(λ), vi, xi)
+    @test r1 isa Float32 && r2 isa Float32
+    @test blockok(r1, Float32, λ, w, vi, xiw)
+    @test blockok(r2, Float32, λ, 1.0, vi, xiw)
   end
   xq = Rational{Int}[3, 4]
   @test kkt_violation(GroupNormL2(1.0, [[1, 2]], [1.0]), [-0.6, -0.8], xq, 1) <= 1e-15

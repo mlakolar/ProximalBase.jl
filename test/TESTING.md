@@ -58,9 +58,9 @@ inputs, inference and zero allocations.
 `kkt_block` tests the point-aware forms of `kkt_violation` (#970) for `GroupNormL2`, `NormL2` and `Scaled` in Float32/64.
 Blocks are checked against a BigFloat evaluation of the definition (the signed screen `‖v_G‖₂ - c` at a zero block, whose
 positive part is the distance from `-v_G` to the subdifferential, and that distance at a nonzero block, with `c` the exact
-product of level and weight) within `(n + 8) u (‖v_G‖₂ + c) + 4 n nextfloat(zero(W))`, with `u = eps(W)/2`. A reference within
-100 `eps(W)` of `floatmax(W)` is not judged, and a reference beyond it must overflow to the infinity of its sign; the helper is
-itself tested on wrong values. The magnitudes run from subnormal to `floatmax` (squares that overflow and underflow), the block
+product of level and weight) within `(n + 8) u (‖v_G‖₂ + c) + 4 n nextfloat(zero(W))`, with `u = eps(W)/2`. The
+excluded band is `(1-100eps(W))*floatmax(W) < abs(ref) <= (1+100eps(W))*floatmax(W)`; references beyond it must overflow with
+the correct sign. The helper is itself tested on wrong values. The magnitudes run from subnormal to `floatmax` (squares that overflow and underflow), the block
 sizes from 1 to 64, and the coefficients zero, tiny, large and infinite: the group example of the contract, the full-point value against the maximum of the local scores and the entries
 in no group, `SparseIterate` and `BlockIterate` points, NaN and infinite entries and their precedence, signed zeros and
 subnormals, validation and layout, `NormL2` (the full-point form, and the errors of the other forms), `Scaled` over each

@@ -768,14 +768,17 @@ end
 
 # The four-argument form. A wrapper with a finite positive factor α evaluates the existing score of its function on the lazy
 # gradient v/α, with the rounding and range limits of that evaluation (underflow, overflow and NaN are not recovered), and
-# multiplies it by α. At a zero coordinate, for a finite v and arrays and parameters of one floating type, this is the
-# scaled three-argument screen, bit for bit, except for the endpoint cases of the numerical contract. A function of this
+# multiplies it by α. For one wrapper with a finite positive factor, with finite entries of v/α, at a zero coordinate and for
+# arrays and parameters of one floating type, this is the scaled three-argument screen, bit for bit, except for the endpoint
+# cases of the numerical contract. A function of this
 # package with a score uses its private point-aware score; a function defined outside the package uses its screen at a zero
 # coordinate or group and is refused at a nonzero one, also when it defines a four-argument method, unless the method for
 # Scaled{<:T} is defined. A function of this package without a score gives a MethodError for the call on the Scaled. An
-# infinite factor is refused at a nonzero coordinate or group, and at a zero one takes the formula's value for a finite v.
+# infinite factor is refused at a nonzero coordinate or group, also in a retained chain that holds one; at a zero one, one
+# wrapper with an infinite factor takes the formula's value for a finite v.
 # The rare branches are in functions that are not inlined, so that the route is small enough to be inlined into the call
-# that reaches it (the loop of a caller then forms the coefficient of the function once, as it does for the function alone).
+# that reaches it. Inlining permits the compiler to hoist loop-invariant state for the unweighted cases; weighted
+# coefficients remain entry-dependent.
 @inline function _kkt_scaled(s::Scaled, g, x, k)
   cls = _kkt_class(typeof(s))
   cls isa _KktNone && _kkt_none_error(s, g, x, k)
@@ -867,8 +870,9 @@ for X in (:AbstractArray, :BlockIterate)
   @eval @inline _kkt_violation(s::Scaled, g::AbstractArray, x::$X, k::Integer) = _kkt_scaled(s, g, x, k)
 end
 # The public four-argument methods of a Scaled: the checks of the methods for any function (interface.jl) and then the route
-# above, marked for inlining so that a loop over coordinates that calls it forms the coefficient of the function once, as it
-# does for the function alone. A method for Scaled{<:T} that a function defined outside the package defines is more specific.
+# above, marked for inlining. Inlining permits the compiler to hoist loop-invariant state for the unweighted cases; weighted
+# coefficients remain entry-dependent. A user overload with a narrower Scaled leaf type and the same owner signature takes
+# precedence; provide the owner overloads listed in the extension guide.
 @inline kkt_violation(s::Scaled, g::AbstractArray, x::AbstractArray, i::Integer) =
   (_check_one_based(g, x); eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation);
    _check_kkt_coordinate(g, x, i); length(g) == length(x) || _gradient_length_error(g, x); _kkt_scaled(s, g, x, i))

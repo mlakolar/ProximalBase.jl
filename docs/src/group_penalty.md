@@ -182,8 +182,9 @@ form throws an `ArgumentError`, because the penalty is not separable, and a
 
 `kkt_violation(g, G, x)` is the full-point measure: the maximum of `0`, of the positive
 scores of the groups and of ``\lvert G_i\rvert`` over the entries in no group (including the
-entries past the largest index of a group). It is a **maximum of block 2-norms** (the block scores
-are 2-norms of vectors) and of single entries, not an ``\ell_\infty``
+entries past the largest index of a group). The positive parts of the group scores are Euclidean
+subgradient distances; the full-point measure takes their maximum together with the uncovered-entry
+magnitudes. It is not an ``\ell_\infty``
 distance, and a tolerance chosen for an ``\ell_\infty`` residual does not carry
 over. It is zero of the working type for an empty `x`. It validates one-based axes, real
 entries, `length(G) == length(x)` and the group extent once, and on a `BlockIterate`

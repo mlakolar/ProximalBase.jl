@@ -617,16 +617,14 @@ _kkt_screen(f, g, x, k) = _kkt_violation(f, g, x, k)
 #   _kkt_state(f, W)                   what a call holds fixed: the coefficient of an unweighted function, a level
 #   _kkt_natural(f, s, W, v, x, i)     the score of entry i from v and x in W, by the formulas of kkt_violation
 #   _kkt_entry(f, s, W, v, x, i)       the same with the rules for NaN and infinite v and x
-#   _kkt_flag(f, x, r)                 0, or NaN for an entry that the loop of dense arrays does not decide
-# The natural score is the loop of the full-point form for dense arrays of one type. The loop takes its maximum by
-# comparison, which drops a NaN score, so a float flag collects what the loop does not decide: it is NaN when the score
-# r is NaN or infinite, and for NormL1 and ElasticNet when x is NaN or infinite (an infinite x changes their score).
-# A NaN flag sends the call to the pass by entry of _kkt_entry, which applies the rules for non-finite entries; it
-# is the specification of the result. Examples of inputs that take that second pass: a NaN or infinite entry of v or x,
-# and a score of -Inf at a zero entry (an infinite coefficient with finite inputs), which is correct and only slower.
+#   _kkt_flag(f, x, r)                 0, or NaN for an entry that makes the natural result of the loop doubtful beyond a NaN
+# The natural score is the loop of the full-point form for dense arrays of one type. The loop keeps a NaN in its
+# maximum, which is also the result the rules give for a NaN in v or x; the entries that the loop does not decide
+# (an infinite x, which changes the score of NormL1 and ElasticNet, or a non-finite gradient entry of SqrNormL2)
+# and a NaN maximum send the call to the pass by entry of _kkt_entry.
 @inline _kkt_type(f, ::Type{V}, ::Type{X}) where {V, X} = float(promote_type(V, X))
 @inline _kkt_fast_ok(f, s) = true
-@inline _kkt_flag(f, x, r) = (x - x) + (r - r)
+@inline _kkt_flag(f, x, r) = x - x
 @inline function _kkt_entry(f, s, ::Type{W}, v, x, i) where {W}
   vw = convert(W, v)
   xw = convert(W, x)
@@ -687,10 +685,9 @@ function _kkt_scalar(f, s, ::Type{W}, v, x) where {W}
   m
 end
 _kkt_reduce(f, s, ::Type{W}, v, x) where {W} = _kkt_scalar(f, s, W, v, x)
-# Dense arrays of one hardware type: a loop over the natural scores. The running maximum from zero, by comparison and
-# selection, is the maximum of the scores and 0 for scores that are not NaN. The flag sum is NaN when an entry is one
-# that the loop does not decide (see _kkt_flag: for example a NaN or infinite score), and then the pass by entry
-# decides.
+# Dense arrays of one hardware type: a loop over the natural scores. The running maximum from zero is the maximum
+# of the scores and 0, and keeps a NaN. The flag sum is NaN when an entry is one that the loop does not decide, and
+# then the pass by entry decides, as it does for a NaN maximum.
 function _kkt_reduce(f, s, ::Type{W}, v::Array{W}, x::Array{W}) where {W<:Union{Float32, Float64}}
   _kkt_fast_ok(f, s) || return _kkt_scalar(f, s, W, v, x)
   m = zero(W)
@@ -700,9 +697,9 @@ function _kkt_reduce(f, s, ::Type{W}, v::Array{W}, x::Array{W}) where {W<:Union{
     xi = x[i]
     r = _kkt_natural(f, s, W, vi, xi, i)
     flag += _kkt_flag(f, xi, r)
-    m = ifelse(r > m, r, m)
+    m = max(m, r)
   end
-  isnan(flag) ? _kkt_scalar(f, s, W, v, x) : m
+  isnan(m + flag) ? _kkt_scalar(f, s, W, v, x) : m
 end
 
 @noinline _kkt_symmetric_point_error(f) = throw(ArgumentError(

@@ -77,7 +77,7 @@ kkt_violation(::ZeroFunction, g::AbstractArray, i::Integer) =
 # The point-aware score (see kkt_violation): |vᵢ|, from v alone; x is not read.
 @inline _kkt_state(::ZeroFunction, ::Type) = nothing
 @inline _kkt_natural(::ZeroFunction, s, ::Type{W}, v::W, x::W, i) where {W} = abs(v)
-@inline _kkt_flag(::ZeroFunction, x, r) = r - r      # x is not read; a NaN or infinite score takes the pass by entry
+@inline _kkt_flag(::ZeroFunction, x, r) = zero(r)
 @inline _kkt_entry(f::ZeroFunction, s, ::Type{W}, v, x, i) where {W} = (vw = convert(W, v); _kkt_override(abs(vw), vw))
 @_kkt_entrywise ZeroFunction
 

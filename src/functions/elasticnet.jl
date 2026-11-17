@@ -83,11 +83,12 @@ Base.@propagate_inbounds function _elastic_prox(f::ElasticNet, v, i, γ, ::Type{
                                                       _ridge_apply(_ridge_ordinary(S, γ, f.λ2), z)
   ifelse(_elastic_fixed(f, γ), zero(r), r)
 end
-Base.@propagate_inbounds function _elastic_threshold(f::ElasticNet, v, i, γ, ::Type{S}, ordinary::Bool = false) where {S}
+Base.@propagate_inbounds function _elastic_threshold(f::ElasticNet, v, i, γ, ::Type{S}, ordinary::Bool = false,
+                                                     soft::K = _shrink_nonneg) where {S, K}
   w = _entry(f.w, i)
   iszero(f.λ1) && return shrink(v, ifelse(isinf(w), S(Inf), zero(S)))
   # with `ordinary` true, the ordinary branch of _l1_prox_threshold
-  ordinary ? shrink(v, first(_threshold_product(S, γ, f.λ1, w))) : first(_l1_prox_threshold(v, γ, f.λ1, w, S))
+  ordinary ? shrink(v, first(_threshold_product(S, γ, f.λ1, w))) : first(_l1_prox_threshold(v, γ, f.λ1, w, S, soft))
 end
 @inline _elastic_fixed(f::ElasticNet, γ) = isinf(f.λ2) & (γ >= 0)
 # whether the step γ of entry i takes the ordinary branches of _elastic_prox: the threshold product γλ1 in the
@@ -104,13 +105,14 @@ Base.@propagate_inbounds _elastic_ordinary_step(f::ElasticNet, γ, i, ::Type{S})
 # again for each entry in the loops over the stored entries of the iterates, and in the dense loop for weights
 # outside the ordinary band (a zero λ2 included), which did not vectorize (benchmark/elasticnet.jl). An argument
 # whose element type is not concrete keeps prox_block.
-struct _ElasticStep{F<:ElasticNet, R} <: SeparableFunction
+struct _ElasticStep{F<:ElasticNet, R, K} <: SeparableFunction
   f::F
   ridge::R          # a _RidgeOrdinary or a _RidgeScaled of the step
   fixed::Bool       # _elastic_fixed(f, γ)
+  soft::K           # the soft thresholding of the ordinary branch of _l1_prox_threshold
 end
 Base.@propagate_inbounds function prox_block(g::_ElasticStep, v::T, i::Integer, γ::Real) where {T<:Real}
-  r = _ridge_apply(g.ridge, _elastic_threshold(g.f, v, i, γ, float(T)))
+  r = _ridge_apply(g.ridge, _elastic_threshold(g.f, v, i, γ, float(T), false, g.soft))
   ifelse(g.fixed, zero(r), r)
 end
 iszeropreserving(::_ElasticStep) = true
@@ -118,16 +120,20 @@ _checkparams(g::_ElasticStep, x) = _checkparams(g.f, x)
 
 # The loops of separable.jl with the prepared step: the dense one, the stored entries of a sparse iterate, and
 # a symmetric iterate output (a dense output from a symmetric argument reaches the first through matrixview).
-# The checks of the function run before the step is formed, which needs real entries.
-@inline function _elastic_prepared!(loop!::L, y, f::ElasticNet, x, γ::Real) where {L}
+# The checks of the function run before the step is formed, which needs real entries. On a host array of
+# more than _L1_SELECT_BYTES bytes, the soft threshold of the ordinary branch is shrink, as for NormL1 (norml1.jl).
+@inline function _elastic_prepared!(loop!::L, y, f::ElasticNet, x, γ::Real, soft::K = _shrink_nonneg) where {L, K}
   _checkwrite(prox!, f, y, x)
   isconcretetype(eltype(x)) || return loop!(y, f, x, γ)
   S = float(eltype(x))
   fixed = _elastic_fixed(f, γ)
-  _ridge_needs_scaling(S, γ, f.λ2) ? loop!(y, _ElasticStep(f, _ridge_scaled(S, γ, f.λ2), fixed), x, γ) :
-                                     loop!(y, _ElasticStep(f, _ridge_ordinary(S, γ, f.λ2), fixed), x, γ)
+  _ridge_needs_scaling(S, γ, f.λ2) ? loop!(y, _ElasticStep(f, _ridge_scaled(S, γ, f.λ2), fixed, soft), x, γ) :
+                                     loop!(y, _ElasticStep(f, _ridge_ordinary(S, γ, f.λ2), fixed, soft), x, γ)
 end
 _prox_sep!(y::AbstractArray, f::ElasticNet, x::AbstractArray, γ::Real) = _elastic_prepared!(_prox_sep_dense!, y, f, x, γ)
+_prox_sep!(y::_HostArray, f::ElasticNet, x::_HostArray, γ::Real) =
+  _l1_select_short(y, x) ? _elastic_prepared!(_prox_sep_dense!, y, f, x, γ) : _elastic_prox_long!(y, f, x, γ)
+@noinline _elastic_prox_long!(y, f::ElasticNet, x, γ) = _elastic_prepared!(_prox_sep_dense!, y, f, x, γ, shrink)
 _prox_sep!(y::SparseIterate, f::ElasticNet, x::SparseIterate, γ::Real) = _elastic_prepared!(_prox_stored!, y, f, x, γ)
 _prox_sep!(y::SymmetricSparseIterate, f::ElasticNet, x::Union{AbstractMatrix, SymmetricSparseIterate}, γ::Real) =
   _elastic_prepared!(_prox_coordinates!, y, f, x, γ)

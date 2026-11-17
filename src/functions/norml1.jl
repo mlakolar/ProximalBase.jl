@@ -81,11 +81,12 @@ Base.@propagate_inbounds prox_block(f::NormL1, v::T, i::Integer, γ::Real) where
 
 # The scalar proximal operator and its threshold γλ0w, as _weight_product forms it. In the ordinary
 # range of γλ0, where the step and the level are finite and positive, no entry is fixed, and the loop
-# keeps the bare soft thresholding.
-Base.@propagate_inbounds function _l1_prox_threshold(v, γ, λ, w, ::Type{S}) where {S}
+# keeps the bare soft thresholding, `soft`: _shrink_nonneg, or shrink in the loop over a long array
+# (_l1_prox_long!). The two agree for every threshold that is not negative.
+Base.@propagate_inbounds function _l1_prox_threshold(v, γ, λ, w, ::Type{S}, soft::K = _shrink_nonneg) where {S, K}
   t, normal = _threshold_product(S, γ, λ, w)
   if normal
-    return shrink(v, t), t
+    return soft(v, t), t          # γλ0 > 0 and w ≥ 0: the threshold is not negative
   end
   t = _weight_product(S, γ, λ, w)
   r = shrink(v, t)
@@ -134,6 +135,32 @@ function _l1_ordinary_steps(f::NormL1, γ, ::Type{S}, inds) where {S}
   true
 end
 _l1_prox_entries!(y, f, x, γ) = invoke(_prox_sep_dense!, Tuple{AbstractArray, Any, AbstractArray, Any}, y, f, x, γ)
+
+# A scalar step on a host array (an Array, or a view or a reshape of one) of more than _L1_SELECT_BYTES bytes takes
+# shrink on the ordinary branch, and one of up to that size _shrink_nonneg. In a loop over arrays that do not fit the
+# first-level cache together, the selects of _shrink_nonneg are slower than shrink for some placements of the output
+# relative to the argument (by up to 1.4 times on AMD Zen 3 with huge pages, at 20 KiB per array and more), and
+# faster for the others; up to 16 KiB per array they were faster there at every placement that was measured (on an
+# Intel Skylake-SP core one placement read 1.06 times at 12 KiB). The two give the same values, signed zeros
+# included (numerical_kernels.jl). The length test is inlined and the long loop is a separate method, so that the
+# loop over a short array is reached without another call. The iterates and prox_block keep _shrink_nonneg, as does
+# the generic loop of an array of steps; the loop of ordinary steps above calls shrink.
+const _L1_SELECT_BYTES = 16384
+# An output that is the argument has no placement relative to it and keeps _shrink_nonneg at every length, as does
+# an array whose element type has no size of its own (an abstract type, BigFloat) or a size of zero.
+@inline _l1_select_short(y, x) = y === x || _l1_select_short(x, eltype(x))
+@inline _l1_select_short(x, ::Type{T}) where {T} =
+  !isbitstype(T) || sizeof(T) == 0 || length(x) <= _L1_SELECT_BYTES ÷ sizeof(T)
+struct _L1Shrink{F<:NormL1} <: SeparableFunction
+  f::F
+end
+Base.@propagate_inbounds prox_block(g::_L1Shrink, v::T, i::Integer, γ::Real) where {T<:Real} =
+  first(_l1_prox_threshold(v, γ, g.f.λ0, _entry(g.f.w, i), float(T), shrink))
+_checkwrite(p::Union{typeof(prox!), typeof(value_and_prox!)}, g::_L1Shrink, y::_ArrayOrSymmetricIterate, x::_ArrayOrSymmetricIterate) =
+  _checkwrite(p, g.f, y, x)
+@inline _prox_sep!(y::_HostArray, f::NormL1, x::_HostArray, γ::Real) =
+  _l1_select_short(y, x) ? _prox_sep_dense!(y, f, x, γ) : _l1_prox_long!(y, f, x, γ)
+@noinline _l1_prox_long!(y, f::NormL1, x, γ) = _prox_sep_dense!(y, _L1Shrink(f), x, γ)
 
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _kkt_coefficient(eltype(g), f.λ0, _entry(f.w, i)))

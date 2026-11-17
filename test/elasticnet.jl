@@ -772,4 +772,204 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
     end
   end
 end
+
+# Every proximal point of ElasticNet bit for bit (NaN for NaN) against a scalar reference written here: the threshold
+# of the NormL1 kernel (_threshold_product, or _weight_product with the fixed zero of an infinite λ1 off the ordinary
+# range; Inf or 0 at a zero λ1), soft thresholding by the formula of shrink, max(v - t, 0) + min(v + t, 0), then the
+# ridge weight of the step from the ridge helpers (ordinary or scaled) and the +0 of an infinite λ2. The ordinary branch
+# and the zero-λ1 line soft-threshold with _shrink_nonneg, whose result is that of the formula at every threshold that
+# is not negative: these tests pin it through prox!, prox, prox_block and value_and_prox!, at scalar steps and at
+# arrays of steps, with the loop of #925 for ordinary arrays and the generic loop for an array with one exceptional
+# step.
+enet_formula(v, t) = ((a, c) = promote(v, t); max(a - c, zero(a)) + min(a + c, zero(a)))
+function enet_ref(f, v, i, γ, ::Type{S}) where {S}
+  w = PB._entry(f.w, i)
+  if iszero(f.λ1)
+    z = enet_formula(v, isinf(w) ? S(Inf) : zero(S))
+  else
+    t, normal = PB._threshold_product(S, γ, f.λ1, w)
+    if normal
+      z = enet_formula(v, t)
+    else
+      z = enet_formula(v, PB._weight_product(S, γ, f.λ1, w))
+      PB._l1_fixed(γ, f.λ1, w) && (z = zero(z))
+    end
+  end
+  r = PB._ridge_needs_scaling(S, γ, f.λ2) ? PB._ridge_apply(PB._ridge_scaled(S, γ, f.λ2), z) :
+                                             PB._ridge_apply(PB._ridge_ordinary(S, γ, f.λ2), z)
+  PB._elastic_fixed(f, γ) ? zero(r) : r
+end
+enet_same(a, b) = size(a) == size(b) && all(i -> isnan(b[i]) ? isnan(a[i]) : a[i] === b[i], eachindex(a, b))
+enet_refs(f, x::AbstractArray{T}, γ) where {T} =
+  reshape([convert(T, enet_ref(f, x[i], i, γ isa Real ? γ : γ[i], float(T))) for i in eachindex(IndexLinear(), x)], size(x))
+# every dense entry point at (f, x, γ) against the reference
+function enet_check(f, x, γ)
+  r = enet_refs(f, x, γ)
+  ok = enet_same(prox!(similar(x), f, x, γ), r) && enet_same(prox(f, x, γ), r)
+  z = copy(x); prox!(z, f, z, γ); ok &= enet_same(z, r)                           # in place
+  y = similar(x); v = value_and_prox!(y, f, x, γ); ok &= enet_same(y, r) && isequal(v, f(y))
+  if γ isa AbstractArray && size(γ) == size(x)                                     # the steps are the output
+    g = copy(γ); prox!(g, f, x, g); ok &= enet_same(g, r)
+  end
+  pb = reshape([convert(eltype(x), prox_block(f, x[i], i, γ isa Real ? γ : γ[i])) for i in eachindex(IndexLinear(), x)], size(x))
+  ok & enet_same(pb, r)
+end
+
+@testset "ElasticNet proximal points against the formula of shrink, bit for bit ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(925)
+  n = 600                                         # three blocks of the selection pass of #925 (256, 256 and 88)
+  emax = exponent(floatmax(T))
+  specials = T[0, -0.0, NaN, -NaN, Inf, -Inf, nextfloat(zero(T)), -3 * nextfloat(zero(T)), prevfloat(floatmin(T)),
+               floatmin(T), -floatmax(T), floatmax(T), 1, -1]
+  x = T(2) .* randn(rng, T, n)
+  m = length(specials)
+  x[1:m] .= specials; x[250:249+m] .= specials; x[n-m+1:n] .= specials
+  wpos = T(0.5) .+ rand(rng, T, n)
+  wmix = copy(wpos); wmix[1:3:n] .= zero(T); wmix[2:7:n] .= T(Inf); wmix[5] = -zero(T); wmix[257] = -zero(T)
+  levels = ((T(0.3), T(0.5)), (zero(T), T(0.5)), (T(0.3), zero(T)), (zero(T), zero(T)), (T(Inf), T(0.5)),
+            (T(0.3), T(Inf)), (T(3), T(2)))
+  steps = T(0.5) .+ rand(rng, T, n)
+  # steps off the ordinary branches: 0, -0, the smallest subnormal, 3 floatmin, floatmax, 2^emax (γλ2 above the ridge
+  # band), Inf, and -1 and NaN, which violate the precondition of an array of steps
+  exceptional = T[0, -0.0, nextfloat(zero(T)), 3 * floatmin(T), floatmax(T), T(2)^emax, Inf, -1, NaN]
+  inds = eachindex(IndexLinear(), x)
+  for (λ1, λ2) in levels, w in (nothing, wpos, wmix)
+    f = ElasticNet(λ1, λ2, w)
+    # scalar steps, zero and large ones included
+    for γ in (T(0.25), T(1), zero(T), floatmin(T), T(2)^emax, T(Inf))
+      ok = enet_check(f, x, γ)
+      ok || @info "scalar step differs" T λ1 λ2 w === nothing γ
+      @test ok
+    end
+    # an ordinary array of steps takes the loop of #925; one exceptional step sends the array to the generic loop
+    ordinary = PB._elastic_ordinary_steps(f, steps, T, inds)
+    @test ordinary == isfinite(λ1)                   # an infinite λ2 keeps the ordinary ridge weight (then the +0)
+    @test enet_check(f, x, steps)
+    for s in exceptional, k in (1, 256, 257, n)
+      γe = copy(steps); γe[k] = s
+      ok = enet_check(f, x, γe)
+      ok || @info "array of steps differs" T λ1 λ2 w === nothing s k
+      @test ok
+    end
+    # a matrix argument, and views of the argument and of the steps
+    @test enet_check(f, reshape(copy(x), 20, 30), reshape(copy(steps), 20, 30))
+    u = vcat(x, x)
+    xv = view(u, 1:2:2n)
+    @test enet_same(prox!(similar(x), f, xv, steps), enet_refs(f, xv, steps))
+  end
+  # weights changed to NaN after construction (outside the precondition): the threshold of the ordinary branch is NaN
+  # there, and the entry NaN, as the formula gives; the other entries are unchanged
+  for (λ1, λ2) in ((T(0.3), T(0.5)), (zero(T), T(0.5)), (T(0.3), zero(T)))
+    wn = copy(wpos)
+    f = ElasticNet(λ1, λ2, wn)
+    wn[4] = T(NaN); wn[300] = -T(NaN)
+    for γ in (T(1), steps)
+      @test enet_check(f, x, γ)
+    end
+    iszero(λ1) || @test isnan(prox(f, ones(T, n), T(1))[4]) && isnan(prox(f, ones(T, n), steps)[300])
+  end
+  # a zero weight at a -0 entry on the ordinary branch, and a zero λ1, give +0, as the formula does
+  for f in (ElasticNet(T(0.3), T(0.5), T[0]), ElasticNet(zero(T), T(0.5), T[1]), ElasticNet(zero(T), zero(T)))
+    @test prox(f, T[-0.0], T(1))[1] === zero(T)
+    @test prox(f, T[-0.0], T[1])[1] === zero(T)
+    @test prox_block(f, -zero(T), 1, T(1)) === zero(T)
+  end
+end
+
+# The dense loops with a scalar step soft-threshold with _shrink_nonneg up to _L1_SELECT_BYTES bytes and with shrink
+# above (an output that is the argument keeps _shrink_nonneg). Both lengths give prox_block(f, xᵢ, i, γ) in every entry, bit for bit (NaN for NaN, signed zeros),
+# through prox!, prox!(x, f, x, γ), prox and value_and_prox!, for NormL1 and ElasticNet with and without weights, at
+# ordinary and exceptional parameters, and neither loop allocates.
+struct ZeroSizeReal <: Real end
+Base.float(::Type{ZeroSizeReal}) = Float64
+Base.float(::ZeroSizeReal) = 1.0
+cut_ref(f, x::AbstractArray{T}, γ) where {T} =
+  reshape([convert(T, prox_block(f, x[i], i, γ)) for i in eachindex(IndexLinear(), x)], size(x))
+function cut_check(f, x, γ)
+  r = cut_ref(f, x, γ)
+  ok = enet_same(prox!(similar(x), f, x, γ), r) && enet_same(prox(f, x, γ), r)
+  z = copy(x); prox!(z, f, z, γ); ok &= enet_same(z, r)
+  y = similar(x); v = value_and_prox!(y, f, x, γ); ok &= enet_same(y, r) && isequal(v, f(y))
+  z = copy(x); v = value_and_prox!(z, f, z, γ); ok & enet_same(z, r) && isequal(v, f(z))
+end
+function cut_allocated(f, x, γ)
+  y = similar(x)
+  prox!(y, f, x, γ); value_and_prox!(y, f, x, γ)
+  (@allocated prox!(y, f, x, γ)) + (@allocated value_and_prox!(y, f, x, γ))
+end
+function cut_data(::Type{T}, rng, n) where {T}
+  specials = T[NaN, -NaN, Inf, -Inf, 0, -0.0, nextfloat(zero(T)), -3 * nextfloat(zero(T)), prevfloat(floatmin(T)),
+               -floatmin(T), floatmin(T), floatmax(T), -floatmax(T), 1, -1]
+  x = T(2) .* randn(rng, T, n)
+  for k in eachindex(specials)                  # at the start, in the middle and at the end
+    for j in (k, n ÷ 2 + k, n - length(specials) + k)
+      1 <= j <= n && (x[j] = specials[k])
+    end
+  end
+  w = T(0.5) .+ rand(rng, T, n)
+  w[1:3:n] .= zero(T); w[2:5:n] .= T(Inf)
+  x, w
+end
+
+# which loop a call takes: up to _L1_SELECT_BYTES bytes (the boundary included), an output that is the argument, and
+# element types that are not bits types or have no size take the loop of the short arrays
+@testset "selection of the dense loop" begin
+  B = PB._L1_SELECT_BYTES
+  for T in (Float16, Float32, Float64)
+    m = B ÷ sizeof(T)
+    x, xl = zeros(T, m), zeros(T, m + 1)
+    @test PB._l1_select_short(similar(x), x) && !PB._l1_select_short(similar(xl), xl) && PB._l1_select_short(xl, xl)
+    @test PB._l1_select_short(similar(x), view(xl, 1:m)) && !PB._l1_select_short(similar(xl), view(zeros(T, 2m + 2), 1:2:2m+2))
+    @test !PB._l1_select_short(zeros(T, m + 1, 1), reshape(xl, :, 1))
+  end
+  @test PB._l1_select_short(zeros(B + 1), Vector{Real}(zeros(B + 1)))
+  @test PB._l1_select_short(zeros(BigFloat, B + 1), zeros(BigFloat, B + 1))
+  @test PB._l1_select_short(zeros(B + 1), fill(ZeroSizeReal(), B + 1))
+end
+
+@testset "dense loops on both sides of _L1_SELECT_BYTES ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(8192)
+  M = PB._L1_SELECT_BYTES ÷ sizeof(T)
+  for n in (1, 2, 3, 16, M - 1, M, M + 1)
+    x, w = cut_data(T, rng, n)
+    for ww in (nothing, w)
+      for λ in (T(0.3), zero(T), T(Inf)), γ in (T(0.7), zero(T), floatmin(T), T(Inf), -one(T), T(NaN))
+        f = NormL1(λ, ww)
+        ok = cut_check(f, x, γ)
+        ok || @info "NormL1 differs" T n ww === nothing λ γ
+        @test ok
+      end
+      for (λ1, λ2) in ((T(0.3), T(0.5)), (zero(T), T(0.5)), (T(0.3), zero(T)), (T(Inf), T(0.5)), (T(0.3), T(Inf))),
+          γ in (T(0.7), zero(T), floatmin(T), floatmax(T), T(Inf))
+        f = ElasticNet(λ1, λ2, ww)
+        ok = cut_check(f, x, γ)
+        ok || @info "ElasticNet differs" T n ww === nothing λ1 λ2 γ
+        @test ok
+      end
+      for γ in (-one(T), T(NaN))
+        @test_throws ArgumentError prox!(similar(x), ElasticNet(T(0.3), T(0.5), ww), x, γ)
+      end
+      @test cut_allocated(NormL1(T(0.3), ww), x, T(0.7)) == 0
+      @test cut_allocated(ElasticNet(T(0.3), T(0.5), ww), x, T(0.7)) == 0
+    end
+    if n > 3                                     # element types without a size: the loop of the short arrays
+      for A in (Real, AbstractFloat), f in (NormL1(T(0.3)), ElasticNet(T(0.3), T(0.5)))
+        xa = Vector{A}(x)
+        r = prox!(similar(x), f, x, T(0.7))
+        @test isequal(prox!(similar(xa), f, xa, T(0.7)), r)
+        @test isequal(prox(f, xa, T(0.7)), r)
+      end
+    end
+    if n == 2                                    # an element type of size zero takes the loop of the short arrays
+      xz = [ZeroSizeReal(), ZeroSizeReal()]
+      @test prox!(zeros(T, 2), NormL1(T(0.3)), xz, T(0.7)) ≈ fill(T(1) - T(0.7) * T(0.3), 2)
+      @test prox!(zeros(T, 2), ElasticNet(T(0.3), T(0.5)), xz, T(0.7)) ≈ fill((T(1) - T(0.7) * T(0.3)) / (T(1) + T(0.7) * T(0.5)), 2)
+    end
+    if n > 3                                     # a matrix, and a view of every other entry
+      @test cut_check(NormL1(T(0.3), w), reshape(copy(x), :, 1), T(0.7))
+      u = vcat(x, x)
+      @test cut_check(ElasticNet(T(0.3), T(0.5)), view(u, 1:2:2n), T(0.7))
+    end
+  end
+end
 end

@@ -1216,6 +1216,86 @@ end
   convert(T, ldexp(d, E))
 end
 
+# The score of the block G at the point x and the gradient entries v, for the penalty λw‖·‖₂, in
+# W = float(promote_type(eltype(v), eltype(x))), with the coefficient c = _kkt_coefficient(W, λ, w).
+#   x[G] = 0:  the screen ‖v[G]‖₂ - c (_l2_screen on v read in W), which is signed;
+#   x[G] ≠ 0:  ‖v[G] + c x[G]/‖x[G]‖₂‖₂, which is nonnegative.
+# Exceptional values, in this order: a NaN in v[G] or x[G] gives NaN, otherwise an infinite entry gives Inf; at a
+# nonzero block an infinite c gives Inf and c = 0 gives ‖v[G]‖₂. At a zero block the rules of _l2_screen stay, except
+# that an infinite entry of v[G] gives Inf where the screen has Inf - Inf = NaN (c = Inf).
+# Ordinary path (two sums and one residual sum, no allocation): sx = Σ xⱼ², t = c/√sx, s = Σ (vⱼ + t xⱼ)², √s, used
+# when sx and s are finite and normal in the sense of _squares_normal and t is finite. To first order in n u, with u
+# the unit roundoff of W and n = |G|, its error is at most (n + 8) u (‖v[G]‖₂ + c), where c is the coefficient as
+# rounded to W; the rounding of c itself adds at most u c to the distance from the exact λw. Any other finite case is
+# the cold path.
+@inline function _l2_score(λ, w, v, x, G)
+  W = float(promote_type(eltype(v), eltype(x)))
+  c = _kkt_coefficient(W, λ, w)
+  _l2_zero_group(x, G, W) && return _l2_zero_score(λ, w, v, G, W)
+  sx = _indexed_sumabs2(x, G, W)
+  if isfinite(sx) & _squares_normal(sx, length(G), W) & isfinite(c)
+    t = c / sqrt(sx)
+    if isfinite(t)
+      s = _indexed_residual_sumabs2(v, x, G, t)
+      (isfinite(s) & _squares_normal(s, length(G), W)) && return sqrt(s)
+    end
+  end
+  _l2_score_cold(λ, w, v, x, G, W, c)
+end
+
+# Σ (v[i] + t x[i])² over i ∈ G, the entries converted to the type of t
+@inline function _indexed_residual_sumabs2(v, x, G, t::T) where {T}
+  s = zero(T)
+  @inbounds @simd for i in G
+    s += abs2(convert(T, v[i]) + t * convert(T, x[i]))
+  end
+  s
+end
+
+# the zero block: the screen of v read in W. When the element type of v is not W, the screen reads a lazy copy of v in W
+# (_ScaledArray with the factor one, which does not round)
+@inline function _l2_zero_score(λ, w, v, G, ::Type{W}) where {W}
+  r = eltype(v) === W ? _l2_screen(λ, w, v, G) : _l2_screen(λ, w, _ScaledArray{W}(v, one(W)), G)
+  isnan(r) ? _l2_zero_nan(v, G, W) : r
+end
+# a NaN screen is a NaN entry of v[G], or an infinite one with c = Inf, which gives Inf
+@noinline function _l2_zero_nan(v, G, ::Type{W}) where {W}
+  for i in G
+    isnan(convert(W, v[i])) && return W(NaN)
+  end
+  W(Inf)
+end
+
+# The nonzero block out of the ordinary range, or with an exceptional value: the classification of v[G] and x[G]
+# (_l2_classified_norm), and, for a finite c ≠ 0, the residual v[G] + (c/‖x[G]‖₂) x[G] formed in the recovery type R,
+# with the factor c/‖x[G]‖₂ kept as a significand and an exponent (_ProjectionScale), and its sum of squares by the
+# squared-residual kernel (_residual_squares), so that no square overflows or underflows. This extends the range and
+# not the precision: the error is that of the ordinary path with the unit roundoff of R, plus the rounding of the
+# result to W, plus, where a term of the residual falls below floatmin(R), the subnormal spacing of R.
+@noinline function _l2_score_cold(λ, w, v, x, G, ::Type{W}, c) where {W}
+  R = _recovery_type(W, float(typeof(λ)), float(typeof(w)), float(eltype(v)), float(eltype(x)))
+  kv, nv = _l2_classified_norm(v, G, R, iszero(c))
+  kx, nx = _l2_classified_norm(x, G, R)
+  (kv == _EXPONENT_NAN) | (kx == _EXPONENT_NAN) && return W(NaN)
+  (kv == _EXPONENT_INF) | (kx == _EXPONENT_INF) && return W(Inf)
+  isinf(c) && return W(Inf)
+  iszero(c) && return convert(W, _scaled_product(nv, one(R), kv))
+  mc, ec = _frexp(convert(R, c))
+  m, e = _frexp(mc / nx)
+  vs, xs = _IndexedValues(v, G, R), _IndexedValues(x, G, R)
+  q = _residual_squares(vs, _ExpScaledArray(xs, _ProjectionScale(-m, Int(ec - kx + e))), R)
+  h = 0
+  if q === nothing
+    # an entry c x_j/‖x‖ rounded to an infinity (c within rounding of floatmax(R)): the residual again at half the scale
+    h = 1
+    q = _residual_squares(_ExpScaledArray(vs, _ProjectionScale(oftype(m, 0.5), 0)),
+                          _ExpScaledArray(xs, _ProjectionScale(-m, Int(ec - kx + e) - 1)), R)
+    q === nothing && return W(Inf)
+  end
+  s, k = q
+  convert(W, _scaled_product(sqrt(s), one(R), k + h))
+end
+
 ####################################
 #
 #  The largest eigenvalue of an operator

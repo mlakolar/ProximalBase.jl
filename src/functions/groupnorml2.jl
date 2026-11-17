@@ -240,51 +240,73 @@ end
 kkt_violation(f::GroupNormL2, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); _not_separable_error(f))
 
-_kkt_violation(f::GroupNormL2, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
-  throw(ArgumentError("GroupNormL2 groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))
-
 @noinline _gradient_length_error(g, x) = throw(DimensionMismatch(
   "the gradient has length $(length(g)), but the argument has $(length(x)) entries"))
-
-@noinline _group_point_error(f) = throw(ArgumentError(
-  "kkt_violation of $(nameof(typeof(f))) is not supported at a group with a nonzero entry"))
-
-# entry i of an array point: the group screen when the group of i is zero in x, |g[i]| when i is in no
-# group (the penalty does not depend on xᵢ, and the partial derivative is 0); an ArgumentError when the group
-# of i has a nonzero entry
-function _kkt_violation(f::GroupNormL2, g::AbstractArray, x::AbstractArray, i::Integer)
-  length(g) == length(x) || _gradient_length_error(g, x)
-  _check_group_extent(f, x)
-  checkbounds(x, i)
-  k = i <= length(f.group_of) ? @inbounds(f.group_of[i]) : 0
-  k == 0 && return abs(g[i])
-  G = @inbounds f.groups[k]
-  @inbounds for j in G
-    iszero(x[j]) || _group_point_error(f)
-  end
-  _group_screen(f, k, g, G)
-end
 
 @noinline _block_layout_error(k) = throw(DimensionMismatch("group $k of the BlockIterate differs from group $k of GroupNormL2"))
 @noinline _block_count_error(x, f) = throw(DimensionMismatch(
   "the BlockIterate has $(ncoordinates(x)) groups and GroupNormL2 has $(length(f.groups))"))
 
-# group k of a BlockIterate: the group screen when its entries are zero, an ArgumentError when one is not;
-# the two layouts are compared at group k alone
-function _kkt_violation(f::GroupNormL2, g::AbstractArray, x::BlockIterate, k::Integer)
+# The score of a group (_l2_score) with the level λ of the call, which is f.λ0 or, for the function under a chain of
+# Scaled wrappers, the level that the chain folds into it. Group k of f is selected by the entry i of an array point (an
+# entry in no group has the score |gᵢ|, as the penalty does not depend on it) or by the group number k of a
+# BlockIterate, whose layout is compared with that of f at group k alone. A SymmetricSparseIterate has no groups.
+function _level_score(f::GroupNormL2, λ, g::AbstractArray, x::AbstractArray, i::Integer)
+  length(g) == length(x) || _gradient_length_error(g, x)
+  _check_group_extent(f, x)
+  checkbounds(x, i)
+  k = i <= length(f.group_of) ? @inbounds(f.group_of[i]) : 0
+  k == 0 && return convert(float(promote_type(eltype(g), eltype(x))), abs(g[i]))
+  _l2_score(λ, @inbounds(f.w[k]), g, x, @inbounds(f.groups[k]))
+end
+function _level_score(f::GroupNormL2, λ, g::AbstractArray, x::BlockIterate, k::Integer)
   ncoordinates(x) == length(f.groups) || _block_count_error(x, f)
   B = blockindices(x, k)          # BoundsError for an invalid group
   G = @inbounds f.groups[k]
   B == G || _block_layout_error(k)
   length(g) == length(x) || _gradient_length_error(g, x)
-  @inbounds for j in G
-    iszero(x[j]) || _group_point_error(f)
+  _l2_score(λ, @inbounds(f.w[k]), g, x, G)
+end
+_level_score(::GroupNormL2, λ, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+  throw(ArgumentError("GroupNormL2 groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))
+_kkt_violation(f::GroupNormL2, g::AbstractArray, x::AbstractArray, i::Integer) = _level_score(f, f.λ0, g, x, i)
+_kkt_violation(f::GroupNormL2, g::AbstractArray, x::BlockIterate, k::Integer) = _level_score(f, f.λ0, g, x, k)
+_kkt_violation(f::GroupNormL2, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) = _level_score(f, f.λ0, g, x, k)
+
+# The group layout of a BlockIterate point of the full-point form: its group count, and each of its groups, are those of f
+_check_point_layout(f::GroupNormL2, x::AbstractArray) = nothing
+function _check_point_layout(f::GroupNormL2, x::BlockIterate)
+  ncoordinates(x) == length(f.groups) || _block_count_error(x, f)
+  for k in eachindex(f.groups)
+    blockindices(x, k) == @inbounds(f.groups[k]) || _block_layout_error(k)
   end
-  _group_screen(f, k, g, G)
+  nothing
 end
 
-# ‖g[G]‖₂ - λ0 w of group k, with the level and the weight of the group
-@inline _group_screen(f::GroupNormL2, k::Integer, g, G) = _l2_screen(f.λ0, @inbounds(f.w[k]), g, G)
+# max(0, max_k score_k), the maximum that keeps a NaN: the scores of the groups and |vᵢ| of the entries in no group
+# (the entries that no group holds up to the largest index of a group, and those past it)
+function _level_point(f::GroupNormL2, λ, v::AbstractArray, x::AbstractArray)
+  _check_one_based(v, x)
+  eltype(v) <: Real || _real_error(:kkt_violation)
+  eltype(x) <: Real || _real_error(:kkt_violation)
+  length(v) == length(x) || _gradient_length_error(v, x)
+  _check_group_extent(f, x)
+  _check_point_layout(f, x)
+  W = float(promote_type(eltype(v), eltype(x)))
+  m = zero(W)
+  for k in eachindex(f.groups)
+    m = max(m, _l2_score(λ, @inbounds(f.w[k]), v, x, @inbounds(f.groups[k])))
+  end
+  @inbounds for i in f.free
+    m = max(m, convert(W, abs(v[i])))
+  end
+  @inbounds for i in length(f.group_of)+1:length(x)
+    m = max(m, convert(W, abs(v[i])))
+  end
+  m
+end
+kkt_violation(f::GroupNormL2, v::AbstractArray, x::AbstractArray) = _level_point(f, f.λ0, v, x)
+kkt_violation(f::GroupNormL2, ::AbstractArray, ::SymmetricSparseIterate) = _kkt_symmetric_point_error(f)
 
 # no proximal operator for a symmetric iterate (argument or output); nothing is written
 for F in (:NormL2, :GroupNormL2)

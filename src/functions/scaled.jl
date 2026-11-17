@@ -649,44 +649,168 @@ _checkwrite(op::O, s::Scaled, y, x) where {O} = (_checkreal(s, y); _checkreal(s,
 iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
-  (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _nested_kkt((f, h) -> kkt_violation(f, h, i), s, g) :
+  (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _screen_chain(s, g, i) :
    iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
-# The four-argument form of a scaled function at a zero coordinate or group is the screen of the function under
-# the scales (_kkt_screen). At a nonzero coordinate or group the screen route runs first, so that the reads of the
-# selected parameter entries raise what they raise on the unscaled function, and then the call is refused when the
-# function under the scales is NormL1, ElasticNet, ZeroFunction, LinearFunction or SqrNormL2, which have a score of
-# their own that is not defined for a scaled function. The other functions keep the value of the screen: GroupNormL2
-# refuses a nonzero penalized group in its own method, and an entry in no group keeps its value.
-const _KktEntrywise = Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2}
-_kkt_leaf(f::AbstractFunction) = f
-_kkt_leaf(s::Scaled) = _kkt_leaf(s.f)
-_kkt_nonzero_point(x::AbstractArray, k::Integer) = checkbounds(Bool, x, k) && !iszero(x[k])
-_kkt_nonzero_point(x::BlockIterate, k::Integer) =
-  checkbounds(Bool, x.groups, k) && any(j -> !iszero(x[j]), x.groups[k])
-_kkt_nonzero_point(x::SymmetricSparseIterate, k::Integer) = !iszero(_getstored(x, k))
-@noinline _kkt_scaled_error(f) = throw(ArgumentError(
-  "kkt_violation of a scaled $(nameof(typeof(f))) is not supported at a nonzero coordinate or group"))
-function _kkt_scaled_guard(s::Scaled, x, k::Integer, v)
-  f = _kkt_leaf(s)
-  f isa _KktEntrywise && _kkt_nonzero_point(x, k) && _kkt_scaled_error(f)
-  v
+
+# ---- the point-aware scores of a scaled function ----
+# Which leaves have the four-argument and full-point scores: :score for the functions of this package that have them
+# (NormL2 has the full-point form and throws an ArgumentError in the others), :none for the other functions of this
+# package, :custom for a function defined outside it. The class of a Scaled is that of the function under all its wrappers.
+_kkt_class(::Type{F}) where {F} = parentmodule(F) === (@__MODULE__) ? :none : :custom
+_kkt_class(::Type{<:Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2, GroupNormL2, NormL2}}) = :score
+_kkt_class(::Type{<:Scaled{F}}) where {F} = _kkt_class(F)
+_kkt_innermost(f::AbstractFunction) = f
+_kkt_innermost(s::Scaled) = _kkt_innermost(s.f)
+
+# Whether the coordinate or group that a call selects holds a nonzero entry of x: coordinate k of an array or of a
+# symmetric iterate, group k of a BlockIterate, and, for GroupNormL2, the group of entry k of an array (an entry in no
+# group has none).
+_kkt_nonzero_at(f, x::AbstractArray, k) = !iszero(x[k])
+_kkt_nonzero_at(f, x::BlockIterate, k) = any(j -> !iszero(x[j]), x.groups[k])
+_kkt_nonzero_at(f, x::SymmetricSparseIterate, k) = !iszero(_getstored(x, k))
+function _kkt_nonzero_at(f::GroupNormL2, x::AbstractArray, i)
+  k = i <= length(f.group_of) ? f.group_of[i] : 0
+  k != 0 && any(j -> !iszero(x[j]), f.groups[k])
+end
+_kkt_nonzero_at(f::GroupNormL2, x::BlockIterate, k) = any(j -> !iszero(x[j]), x.groups[k])
+
+@noinline _kkt_infinite_error(s) = throw(ArgumentError(
+  "kkt_violation of a Scaled function with an infinite factor is not defined at a nonzero coordinate or group, or in the full-point form"))
+@noinline _kkt_chain_error(s, f) = throw(ArgumentError(
+  "kkt_violation of a chain of $(_kkt_depth(s)) Scaled wrappers around $(nameof(typeof(f))) is not defined at a nonzero " *
+  "coordinate or group, or in the full-point form: the product of the factors is not a normal number and does not fold " *
+  "into a normal level of the function"))
+_kkt_depth(::AbstractFunction) = 0
+_kkt_depth(s::Scaled) = 1 + _kkt_depth(s.f)
+
+# What a chain of wrappers around the leaf f, with the product a of its factors, is scored as, or nothing: the product
+# is applied to a parameter of the leaf, and v is not divided by it.
+#   ZeroFunction                 itself (|vᵢ|);
+#   LinearFunction, SqrNormL2    |vᵢ + a dᵢ| with dᵢ the entry of the leaf's gradient (_KktChain);
+#   NormL1, ElasticNet           the function with the folded levels (_fold_level);
+#   GroupNormL2, NormL2          the block kernel with the level folded by _folded_level (_KktLevel).
+# Levels that do not fold to a normal number, and a function defined outside the package, have none.
+_kkt_resolve(f::ZeroFunction, a) = f
+_kkt_resolve(f::Union{LinearFunction, SqrNormL2}, a) = _KktChain(f, a)
+_kkt_resolve(f::Union{NormL1, ElasticNet}, a) = _fold_level(f, a)
+_kkt_resolve(f::GroupNormL2, a) = (λ = _folded_level(f.λ0, a); λ === nothing ? nothing : _KktLevel(f, λ))
+_kkt_resolve(f::NormL2, a) = (λ = _folded_level(f.λ, a); λ === nothing ? nothing : _KktLevel(f, λ))
+_kkt_resolve(f, a) = nothing
+
+# |vᵢ + a dᵢ| with dᵢ the entry of the gradient of f at x, multiplied by a as the gradient of the chain multiplies it
+# (_apply_scale), in a working type W that includes the type of the factors. It is not an AbstractFunction: it has the
+# entry kernels of interface.jl, which are what the local, block, symmetric and full-point forms of an entrywise function
+# call. An uncentered ridge has no gradient at a zero coordinate, and its score is |vᵢ| there.
+struct _KktChain{F, A}
+  f::F
+  a::A
+end
+@inline _kkt_type(c::_KktChain, ::Type{V}, ::Type{X}) where {V, X} = _kkt_type(c.f, promote_type(V, _kkt_factor_type(c.a)), X)
+@inline _kkt_factor_type(a::_ProjectionScale) = typeof(float(a.m))
+@inline _kkt_factor_type(a::Real) = typeof(float(a))
+@inline _kkt_state(c::_KktChain, ::Type{W}) where {W} = _kkt_state(c.f, W)
+@inline _kkt_fast_ok(::_KktChain, s) = false
+_checkparams(c::_KktChain, x) = _checkparams(c.f, x)
+Base.@propagate_inbounds function _kkt_entry(c::_KktChain{<:LinearFunction}, s, ::Type{W}, v, x, i) where {W}
+  vw = convert(W, v)
+  _kkt_override(abs(vw + convert(W, _apply_scale(c.a, c.f.c[i]))), vw)
+end
+Base.@propagate_inbounds function _kkt_entry(c::_KktChain{<:SqrNormL2}, s, ::Type{W}, v, x, i) where {W}
+  vw = convert(W, v)
+  xw = convert(W, x)
+  iszero(xw) && c.f.y === nothing && return _kkt_override(abs(vw), vw, xw)
+  _kkt_override(abs(vw + convert(W, _apply_scale(c.a, _kkt_ridge(c.f.y, s, W, xw, i)))), vw, xw)
+end
+# a GroupNormL2 or NormL2 with the level λ that the chain folds into it
+struct _KktLevel{F, T}
+  f::F
+  λ::T
+end
+
+# the four-argument and full-point scores of what _kkt_resolve returns
+_kkt_apply(h, g, x::AbstractArray, k) = _kkt_local(h, g, x, k)
+_kkt_apply(h, g, x::BlockIterate, k) = _kkt_block(h, g, x, k)
+_kkt_apply(h, g, x::SymmetricSparseIterate, k) = _kkt_symmetric(h, g, x, k)
+_kkt_apply(h::_KktLevel, g, x::AbstractArray, k) = _level_score(h.f, h.λ, g, x, k)
+_kkt_apply(h::_KktLevel, g, x::BlockIterate, k) = _level_score(h.f, h.λ, g, x, k)
+_kkt_apply(h::_KktLevel, g, x::SymmetricSparseIterate, k) = _level_score(h.f, h.λ, g, x, k)
+_kkt_full(h, v, x::AbstractArray) = _kkt_point(h, v, x)
+_kkt_full(h::_KktLevel, v, x::AbstractArray) = _level_point(h.f, h.λ, v, x)
+
+# The screen of a chain (the three-argument form). Around LinearFunction and a centered SqrNormL2 it is |gᵢ + a dᵢ| with
+# dᵢ the gradient entry at zero. For the other functions it is that of the function with the folded levels, and where the
+# levels do not fold, that of the function at g divided by the product (kept as an exponent), multiplied by it, which
+# does not recover a g that is out of range after the division. A function with a gradient and no entry above, and an
+# indicator, have |gᵢ|.
+_screen_chain(s::Scaled, g, i) = (c = _scaled_chain(s); _chain_screen(c[1], c[2], g, i))
+function _chain_screen(f, a, g, i)
+  (issmooth(typeof(f)) || _isindicator(f)) && return kkt_violation(f, g, i)
+  h = _fold_level(f, a)
+  h === nothing ? _apply_scale(a, kkt_violation(f, _ExpScaledArray(g, _scale_inverse(a)), i)) : kkt_violation(h, g, i)
+end
+_chain_screen(f::LinearFunction, a, g, i) = _chain_screen_entry(_KktChain(f, a), g, i)
+_chain_screen(f::SqrNormL2, a, g, i) = f.y === nothing ? kkt_violation(f, g, i) : _chain_screen_entry(_KktChain(f, a), g, i)
+@inline function _chain_screen_entry(c, g, i)
+  W = _kkt_type(c, eltype(g), eltype(g))
+  _kkt_entry(c, _kkt_state(c, W), W, g[i], zero(W), i)
+end
+
+# The four-argument form. A wrapper with a finite positive factor α scores as α times the score of its function at v/α (the
+# score of αf is homogeneous in α and v together), which at a zero coordinate is the screen of the three-argument form. The
+# function inside is scored by its own methods, so that a function defined outside the package keeps its own semantics. A
+# function of this package without a score gives a MethodError for the call on the Scaled. An infinite factor has these
+# values at a zero coordinate or group and is refused at a nonzero one.
+function _kkt_scaled(s::Scaled, g, x, k)
+  _kkt_class(typeof(s)) === :none && throw(MethodError(kkt_violation, (s, g, x, k)))
+  _chained(s) && return _kkt_chain(s, g, x, k)
+  r = s.α * _kkt_violation(s.f, _ScaledArray(g, inv(s.α)), x, k)
+  isinf(s.α) && _kkt_class(typeof(s)) === :score && _kkt_nonzero_at(_kkt_innermost(s), x, k) && _kkt_infinite_error(s)
+  r
+end
+# A chain whose product of factors is not a normal number (_chained), scored through _kkt_resolve. Where there is nothing
+# to resolve to, a zero coordinate or group has the value that it had before (the screen at g divided by the product,
+# multiplied by it) and a nonzero one is refused; a function defined outside the package keeps its own semantics.
+function _kkt_chain(s::Scaled, g, x, k)
+  f, a = _scaled_chain(s)
+  h = _kkt_resolve(f, a)
+  h === nothing || return _kkt_apply(h, g, x, k)
+  r = _apply_scale(a, _kkt_unfolded(f, _ExpScaledArray(g, _scale_inverse(a)), x, k))
+  _kkt_class(typeof(f)) === :score && _kkt_nonzero_at(f, x, k) && _kkt_chain_error(s, f)
+  r
+end
+# The value of a chain at a zero coordinate or group that has no function to resolve to: the screen of the three-argument
+# form of NormL1 and ElasticNet (at the coordinate, at each coordinate of a group of a BlockIterate, at the lower position of a
+# symmetric coordinate), as before the point-aware forms; for the other functions their own method.
+_kkt_unfolded(f, g, x, k) = _kkt_violation(f, g, x, k)
+_kkt_unfolded(f::Union{NormL1, ElasticNet}, g, x::AbstractArray, i) = kkt_violation(f, g, i)
+_kkt_unfolded(f::Union{NormL1, ElasticNet}, g, x::BlockIterate, k) = maximum(i -> kkt_violation(f, g, i), x.groups[k])
+function _kkt_unfolded(f::Union{NormL1, ElasticNet}, g, x::SymmetricSparseIterate, k)
+  r, c = tril_cartesian(x.p, k)
+  kkt_violation(f, g, (c - 1) * x.p + r)
 end
 for X in (:AbstractArray, :BlockIterate)
-  @eval function _kkt_violation(s::Scaled, g::AbstractArray, x::$X, k::Integer)
-    v = _chained(s) ? _nested_kkt((f, h) -> _kkt_screen(f, h, x, k), s, g) :
-      iszero(s.α) ? _kkt_screen(ZeroFunction(), g, x, k) : s.α * _kkt_screen(s.f, _ScaledArray(g, inv(s.α)), x, k)
-    _kkt_scaled_guard(s, x, k, v)
-  end
+  @eval _kkt_violation(s::Scaled, g::AbstractArray, x::$X, k::Integer) = _kkt_scaled(s, g, x, k)
 end
-# The violation of a nested chain: that of the function with the factors folded into its levels, or
-# of the function at the gradient divided by the product of the factors, and multiplied by it.
-function _nested_kkt(kkt, s::Scaled, g)
+
+# The full-point form. v is validated before it is wrapped, since the lazy array reports one-based axes for any parent.
+function kkt_violation(s::Scaled, v::AbstractArray, x::AbstractArray)
+  _kkt_class(typeof(s)) === :score || throw(MethodError(kkt_violation, (s, v, x)))
+  _check_one_based(v, x)
+  eltype(v) <: Real || _real_error(:kkt_violation)
+  eltype(x) <: Real || _real_error(:kkt_violation)
+  length(v) == length(x) || _gradient_length_error(v, x)
+  _chained(s) && return _kkt_chain_point(s, v, x)
+  isinf(s.α) && _kkt_infinite_error(s)
+  s.α * kkt_violation(s.f, _ScaledArray(v, inv(s.α)), x)
+end
+function _kkt_chain_point(s::Scaled, v, x)
   f, a = _scaled_chain(s)
-  # a smooth function has the violation |g|, whatever the scale, and an indicator is its own scaling
-  (issmooth(typeof(f)) || _isindicator(f)) && return kkt(f, g)
-  h = _fold_level(f, a)
-  h === nothing ? _apply_scale(a, kkt(f, _ExpScaledArray(g, _scale_inverse(a)))) : kkt(h, g)
+  h = _kkt_resolve(f, a)
+  h === nothing && _kkt_chain_error(s, f)
+  _kkt_full(h, v, x)
 end
+kkt_violation(s::Scaled, v::AbstractArray, x::SymmetricSparseIterate) =
+  _kkt_class(typeof(s)) === :score ? _kkt_symmetric_point_error(s) : throw(MethodError(kkt_violation, (s, v, x)))
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
 
 # The parts of a scaled function inside another wrapper: those of the function under the chain,

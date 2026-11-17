@@ -431,11 +431,11 @@ end
     @test close_value(kkt_violation(f, g, x, k), ref)
   end
   @test kkt_violation(f, g, x, 4) ≈ norm(g[[8, 6]])               # zero weight
-  # array points: the group screen at a zero group, |g[i]| outside the groups, an ArgumentError at a group with a
-  # nonzero entry
+  # array points: the group screen at a zero group, |g[i]| outside the groups, the mismatch ‖g_G + c x_G/‖x_G‖‖ at a group
+  # with a nonzero entry (here x_G = (1, 0, 0) and c = λ w₂)
   a = zeros(T, 9); a[2] = 1
   @test kkt_violation(f, [g; T(5)], a, 1) == kkt_violation(f, g, x, 1)
-  @test_throws ArgumentError kkt_violation(f, [g; T(5)], a, 7)
+  @test kkt_violation(f, [g; T(5)], a, 7) ≈ norm([g[2] + λ * w[2], g[7], g[3]])
   @test kkt_violation(f, [g; T(-5)], a, 9) == 5
   # infinite weight or level: never violated
   @test kkt_violation(GroupNormL2(λ, groups, T[Inf, 1, 1, 1]), g, x, 1) == -Inf
@@ -604,8 +604,8 @@ value_matches(v, kind) = kind == :nan ? isnan(v) : kind == :inf ? v === typeof(v
       end
     end
   end
-  # the screen ‖g‖ - λw: a NaN gives NaN; an Inf (no NaN) the IEEE Inf - λw, which is Inf, or NaN where λw is
-  # infinite after rounding (an overflow of finite factors included); the zero gradient gives -λw
+  # the screen ‖g‖ - λw: a NaN gives NaN; an Inf (no NaN) gives Inf, also where λw is infinite after rounding (an overflow of
+  # finite factors included), where Inf - Inf would be NaN; the zero gradient gives -λw
   for (ctx, a, λ, w, _) in cold_contexts(T)
     f2 = GroupNormL2(λ, [G1, G2], T[w, w])
     c = T(big(λ) * big(w))
@@ -616,7 +616,7 @@ value_matches(v, kind) = kind == :nan ? isnan(v) : kind == :inf ? v === typeof(v
         if k1 == :nan
           @test isnan(v)
         elseif k1 == :inf
-          @test isfinite(c) ? v === T(Inf) : isnan(v)
+          @test v === T(Inf)
         else
           @test close_value(v, -big(λ) * big(w))
         end
@@ -625,8 +625,8 @@ value_matches(v, kind) = kind == :nan ? isnan(v) : kind == :inf ? v === typeof(v
     end
   end
   # infinite parameters: an infinite level or weight fixes the group at +0 for each pattern below (D1), the value
-  # is Inf at an infinite entry and NaN at a NaN (the zero group gives +0), the screen is NaN at an Inf entry
-  # (Inf - Inf) and at a NaN, and -Inf at the zero gradient; a zero weight leaves the group unchanged with value 0
+  # is Inf at an infinite entry and NaN at a NaN (the zero group gives +0), the screen is Inf at an Inf entry, NaN at a NaN,
+  # and -Inf at the zero gradient; a zero weight leaves the group unchanged with value 0
   for (ctx, a, _, _, γ) in cold_contexts(T), (λ, w) in ((T(Inf), one(T)), (one(T), T(Inf)), (T(Inf), T(Inf)))
     f1 = GroupNormL2(λ, [1:4], T[w])
     for (n1, u1, k1) in nonfinite_patterns(a)
@@ -636,7 +636,7 @@ value_matches(v, kind) = kind == :nan ? isnan(v) : kind == :inf ? v === typeof(v
       @test all(v -> v === zero(T), y) && v === zero(T)
       @test value_matches(f1(u1), k1)
       v = kkt_violation(f1, u1, zeros(T, 4), 1)
-      @test k1 == :zero ? v === T(-Inf) : isnan(v)
+      @test k1 == :zero ? v === T(-Inf) : k1 == :inf ? v === T(Inf) : isnan(v)
     end
   end
   for (ctx, a, _, _, γ) in cold_contexts(T), λ in (T(0.5), T(Inf), floatmax(T))

@@ -52,9 +52,21 @@ parameter types against BigFloat within `k eps(W) (|v| + |λ2 x| + c)`, the full
 the two loops of ProximalSolvers (bit for bit, unweighted), a point from a proximal step, the cancellation case, empty
 arrays, matrices, `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate`, NaN and infinite entries of `v` and `x`
 (the precedence rules, at the first, a middle and the last position of a vector long enough to take the loop of natural scores and the pass by
-entry), infinite coefficients, levels and weights, signed zeros and subnormals, validation before the refusals of
-`GroupNormL2` and `Scaled` at a nonzero point, functions defined outside the package, no mutation, ranges as inputs,
-inference and zero allocations.
+entry), infinite coefficients, levels and weights, signed zeros and subnormals, validation of `GroupNormL2` and `Scaled`
+at a nonzero point (their scores are in `kkt_block`), functions defined outside the package, no mutation, ranges as
+inputs, inference and zero allocations.
+`kkt_block` tests the point-aware forms of `kkt_violation` (#970) for `GroupNormL2`, `NormL2` and `Scaled` in Float32/64.
+Blocks are checked against a BigFloat evaluation of the definition (the distance from `-v_G` to the subdifferential
+of `c‖·‖₂` at `x_G`, with `c` the exact product of level and weight) within `(n + 8) u (‖v_G‖₂ + c)`, over magnitudes from
+subnormal to `floatmax` (squares that overflow and underflow), block sizes 1 to 64, and coefficients zero, tiny, large and
+infinite: the group example of the contract, the full-point value against the maximum of the local scores and the entries
+in no group, `SparseIterate` and `BlockIterate` points, NaN and infinite entries and their precedence, signed zeros and
+subnormals, validation and layout, `NormL2` (the full-point form, and the errors of the other forms), `Scaled` over each
+leaf against the BigFloat definition of the scaled function and its stated domain, chains of wrappers whose factors do not
+multiply to a normal number (the product applied to the gradient of `LinearFunction` and `SqrNormL2`, folded into
+the level of the others where it gives a normal one, an `ArgumentError` where it does not), infinite factors, leaves without a
+score and functions defined outside the package, mixed element types and result types, `@inferred`, zero allocations of the
+dense forms, and malformed parameters of a symmetric model under `Scaled`.
 `groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
 its value, group soft thresholding and group KKT screen in Float32/64: analytical
 and threshold cases, singleton groups against weighted `NormL1`, noncontiguous

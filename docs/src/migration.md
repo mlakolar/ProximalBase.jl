@@ -45,8 +45,9 @@ or keep its own scalar-loss types and functions.
 
 ### The four-argument `kkt_violation` reads the point (0.6, breaking)
 
-Before 0.6, `kkt_violation(g,v,x,k)` returned the screen of coordinate `k` assumed
-zero whatever the value of `x[k]`. In 0.6 it evaluates the actual coordinate or group:
+Before 0.6, for `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` and `SqrNormL2`,
+`kkt_violation(g,v,x,k)` returned the screen of coordinate `k` assumed zero, also when
+`x[k]` was nonzero. In 0.6 it evaluates the actual coordinate or group:
 at a zero coordinate it is the signed screen as before, and at a nonzero coordinate it is
 a nonnegative stationarity mismatch. The three-argument form
 `kkt_violation(g,v,i)` is unchanged. With `g = NormL1(0.5)`, `x = [0, 0, 2, -1]` and

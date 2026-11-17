@@ -45,8 +45,8 @@ Matrix(x)
 Pair bounds are checked before narrowing other integer types, with a
 `BoundsError` for an invalid pair. `ncoordinates(x)` is q, `nactive(x)` counts
 stored independent variables, and `isactive/activate!` take independent IDs.
-The direct constructor `SymmetricSparseIterate([T,]p)` accepts nonnegative
-nonnegative `Integer` dimensions (converted to `Int` internally), with
+The direct constructor `SymmetricSparseIterate([T,] p)` accepts nonnegative
+`Integer` dimensions (converted to `Int` internally), with
 `Float64` as the default element type.
 
 ## The live views and dense copy

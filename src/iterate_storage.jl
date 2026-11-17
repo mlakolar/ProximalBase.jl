@@ -316,12 +316,12 @@ end
 """
     dropzeros!(x::Union{SparseIterate, SymmetricSparseIterate})
 
-Remove active zero coordinates and return `x`, preserving all mathematical
-values. For a [`SymmetricSparseIterate`](@ref), coordinates are independent
-lower-triangle variables. Signed zeros, including stored `-0.0`, are
-removed; afterward an absent coordinate reads `+0.0`. Thus mathematical values
-are preserved, but `isequal` can distinguish the old active `-0.0` from the
-new absent coordinate. `NaN` and infinities are kept.
+Remove active zero coordinates and return `x`, preserving numerical values
+under `==` for finite entries. For a [`SymmetricSparseIterate`](@ref),
+coordinates are independent lower-triangle variables. Signed zeros, including
+stored `-0.0`, are removed; an absent coordinate reads `+0.0` afterward.
+Thus `isequal` can distinguish the old active `-0.0` from the absent
+coordinate. `NaN` and infinities are kept.
 
 Compaction may reorder active slots. Reacquire [`activecoordinates`](@ref) and
 [`activevalues`](@ref) afterward. Old handles are live, fixed-length views:

@@ -21,8 +21,9 @@ equal contiguous groups and must be positive and divide the entry length.
 [`nactive`](@ref) counts active groups, and [`activate!`](@ref),
 [`isactive`](@ref) and [`activecoordinates`](@ref) use group IDs. A nonzero
 entry activates its group. Zero writes preserve activity;
-[`dropzeros!(::BlockIterate)`](@ref) removes all-zero active groups. [`blockview`](@ref) gives a writable alias in
-stored group order, and [`blockindices`](@ref) gives its read-only indices.
+[`dropzeros!(::BlockIterate)`](@ref) removes all-zero active groups.
+[`blockview`](@ref) gives a writable alias in stored group order, and
+[`blockindices`](@ref) gives its read-only indices.
 Entry access and group activation cost O(1); storage costs O(p + length(groups)).
 
 # Examples

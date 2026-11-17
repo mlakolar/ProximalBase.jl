@@ -12,7 +12,7 @@ contain only zeros until `dropzeros!` removes it.
 ## Construction and partitions
 
 Use `BlockIterate([T,] p, groups)` for empty storage or
-`BlockIterate(x::AbstractVector,groups)` to copy entry values. `T` defaults
+`BlockIterate(x::AbstractVector, groups)` to copy entry values. `T` defaults
 to `Float64`. A copied input starts with the groups containing a converted
 nonzero entry active, in group order. Real element types are required.
 
@@ -23,7 +23,7 @@ An out-of-domain index, duplicate, empty group, gap or overlap throws
 the order used by compact block buffers. Vector groups are copied into owned
 `Vector{Int}` arrays. Homogeneous concrete range groups keep their range type.
 
-`BlockIterate([T,] p, K)` and `BlockIterate(x,K)` divide the entries into `K`
+`BlockIterate([T,] p, K)` and `BlockIterate(x, K)` divide the entries into `K`
 equal contiguous groups; `K` must be positive and divide the entry length.
 A group partition describes how variables are **stored and updated**; it
 is not itself a penalty or regularization function. Pass groups as indices,

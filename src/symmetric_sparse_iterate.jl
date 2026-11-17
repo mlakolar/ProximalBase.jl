@@ -270,7 +270,8 @@ _symmetric_argument(y, x) = x
 function _symmetric_argument(y::SymmetricSparseIterate, x::AbstractMatrix)
   _check_one_based(x)
   _symmetric_by_type(x) && return x
-  # a device matrix is read on the host, as the decompositions do, so the rule holds for it too
+  # This optional host-copy branch is inactive in the minimal core, where
+  # _is_device_array(::AbstractArray) always returns false.
   _is_device_array(x) && return _symmetric_argument(y, Array(x))
   _exactly_symmetric(x) ? x : _SymmetricPart(x)
 end

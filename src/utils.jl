@@ -23,7 +23,7 @@ function _array_buffer!(s::Scratch, ::Type{T}, dims::NTuple{N, Int}) where {T, N
   b
 end
 
-# CPU prototypes keep the existing dense buffer and cache checks.
+# The array argument supplies dimensions only; cached scratch is a Julia Array.
 _array_buffer!(s::Scratch, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(s, T, size(x))
 
 # Scratch is an implementation detail: copies of a function object share no buffer
@@ -96,8 +96,8 @@ end
 @inline _one_based_arg(a::AbstractArray) = Base.require_one_based_indexing(a)
 @generated _one_based_arg(a::Tuple) = _blockwise(k -> :(_one_based_arg(a[$k])), fieldcount(a), nothing)
 
-# A buffer of zeros of type T and size dims, next to the array a: an Array,
-# and a device array of the type of a GPU array a (see the GPU extension).
+# Allocate an ordinary Julia Array of zeros with element type T and size dims.
+# The argument a does not select a storage backend in the minimal core.
 _zeros_like(a, ::Type{T}, dims) where {T} = zeros(T, dims)
 
 # The stored values suffice for maxima; symmetric multiplicities do not matter.
@@ -247,7 +247,7 @@ end
 
 ####################################
 #
-#  Types and devices
+#  Working precision and array classification
 #
 ####################################
 
@@ -267,5 +267,7 @@ function _model_precision(::Type{D}, types::Type...) where {D}
   promote_type(map(T -> real(float(T)), (D, types...))...)
 end
 
-# CPU fallback retained from frozen lapack.jl.
+# No device-specific specialization is shipped in the minimal core. The
+# default classifier is false for every AbstractArray, so host-copy branches
+# guarded by it are inactive unless an external method is supplied.
 _is_device_array(::AbstractArray) = false

@@ -210,8 +210,9 @@ _value_and_prox_sep!(y::_ArrayOrSymmetricIterate, f, x::_ArrayOrSymmetricIterate
 _restrict_entries(w::Union{Nothing, Real}, ::AbstractVector{<:Integer}) = w
 _restrict_entries(w::AbstractArray, S::AbstractVector{<:Integer}) = w[S]
 
-# The arrays in host memory: an Array, or a view or a reshape of one. A device array is none of these, whatever
-# its supertypes are (a GPU array is a DenseArray), and keeps its own routes.
+# Arrays known to be backed by Julia Array storage: Array, and supported views
+# or reshapes of one. Other AbstractArray types do not match _HostArray, even
+# if they share an abstract supertype; no GPU-specific route is shipped here.
 const _HostArray = Union{Array,
   SubArray{<:Any, <:Any, <:Union{Array, Base.ReshapedArray{<:Any, <:Any, <:Array}}},
   Base.ReshapedArray{<:Any, <:Any, <:Array}}

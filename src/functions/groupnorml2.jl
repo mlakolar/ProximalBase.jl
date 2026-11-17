@@ -36,10 +36,12 @@ build an iterate with the groups of `f`. The groups must then partition
 
 `kkt_violation(f, g, x, k)` on a `BlockIterate` is `‖g[Gₖ]‖₂ - λ0 wₖ`, the
 violation of the optimality of the zero group `k` for the smooth-part gradient
-`g`. Group `k` of `x` must equal `groups[k]` (`DimensionMismatch` otherwise). On
-an array point, `kkt_violation(f, g, x, i)` takes an entry `i`: the same
-group screen when the group of `i` is zero in `x`, and `|g[i]|` when `i` is in
-no group or its group has a nonzero entry. The three-argument form throws an
+`g`, when the entries of group `k` of `x` are zero, and throws an `ArgumentError`
+when one of them is not. Group `k` of `x` must equal `groups[k]`
+(`DimensionMismatch` otherwise). On an array point, `kkt_violation(f, g, x, i)`
+takes an entry `i`: the same group screen when the group of `i` is zero in `x`,
+`|g[i]|` when `i` is in no group, and an `ArgumentError` when its group has a
+nonzero entry. The three-argument form throws an
 `ArgumentError`: the penalty is not separable. In the group screen the
 coefficient `λ0 wₖ` follows the `NormL1` screen: `0` for a zero weight, also
 with an infinite level, and `Inf` for an infinite weight or for an infinite
@@ -293,8 +295,12 @@ _kkt_violation(f::GroupNormL2, g::AbstractArray, ::SymmetricSparseIterate, ::Int
 @noinline _gradient_length_error(g, x) = throw(DimensionMismatch(
   "the gradient has length $(length(g)), but the argument has $(length(x)) entries"))
 
+@noinline _group_point_error(f) = throw(ArgumentError(
+  "kkt_violation of $(nameof(typeof(f))) is not supported at a group with a nonzero entry"))
+
 # entry i of an array point: the group screen when the group of i is zero in x, |g[i]| when i is in no
-# group or its group is nonzero (the norm is then differentiable, and its partial derivative at xᵢ = 0 is 0)
+# group (the penalty does not depend on xᵢ, and the partial derivative is 0); an ArgumentError when the group
+# of i has a nonzero entry
 function _kkt_violation(f::GroupNormL2, g::AbstractArray, x::AbstractArray, i::Integer)
   length(g) == length(x) || _gradient_length_error(g, x)
   _check_group_extent(f, x)
@@ -303,7 +309,7 @@ function _kkt_violation(f::GroupNormL2, g::AbstractArray, x::AbstractArray, i::I
   k == 0 && return abs(g[i])
   G = @inbounds f.groups[k]
   @inbounds for j in G
-    iszero(x[j]) || return abs(g[i])
+    iszero(x[j]) || _group_point_error(f)
   end
   _group_screen(f, k, g, G)
 end
@@ -312,13 +318,17 @@ end
 @noinline _block_count_error(x, f) = throw(DimensionMismatch(
   "the BlockIterate has $(ncoordinates(x)) groups and GroupNormL2 has $(length(f.groups))"))
 
-# group k of a BlockIterate assumed zero; only that group of the two layouts is compared
+# group k of a BlockIterate: the group screen when its entries are zero, an ArgumentError when one is not;
+# the two layouts are compared at group k alone
 function _kkt_violation(f::GroupNormL2, g::AbstractArray, x::BlockIterate, k::Integer)
   ncoordinates(x) == length(f.groups) || _block_count_error(x, f)
   B = blockindices(x, k)          # BoundsError for an invalid group
   G = @inbounds f.groups[k]
   B == G || _block_layout_error(k)
   length(g) == length(x) || _gradient_length_error(g, x)
+  @inbounds for j in G
+    iszero(x[j]) || _group_point_error(f)
+  end
   _group_screen(f, k, g, G)
 end
 

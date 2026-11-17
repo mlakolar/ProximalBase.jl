@@ -108,6 +108,14 @@ end
 # the screen of a coordinate exists for the built-in functions only
 haskkt(f) = hasmethod(kkt_violation, Tuple{typeof(f), AbstractArray, Int})
 haskkt(f::Scaled) = haskkt(f.f)
+# a call that may throw: the value, or the type and message of its error
+function outcome(call)
+  try
+    call()
+  catch e
+    (typeof(e), sprint(showerror, e))
+  end
+end
 
 for T in (Float32, Float64)
   @testset "$T valid symmetric models agree with dense and structurally symmetric references" begin
@@ -146,13 +154,24 @@ for T in (Float32, Float64)
           g4 = output_iterate(T, p); gradient!(g4, f, X)
           @test near(g4, T.(symm(gradient(f, X))))
         end
-        # the screens of a coordinate at zero, from the symmetric part of a full gradient
+        # the scores of a coordinate, from the symmetric part of a full gradient: the screen at a zero coordinate;
+        # at a nonzero coordinate of an unscaled function the score of the dense array at the lower position, and
+        # an ArgumentError for a scaled function
         G = randn(rng, T, p, p); Gs = T.(symm(G))
         if haskkt(f)
           for k in 1:ncoordinates(x)
             r, c = tril_cartesian(p, k)
-            @test kkt_violation(f, G, x, k) == kkt_violation(f, Gs, (c - 1) * p + r)
-            @test kkt_violation(f, vec(G), x, k) == kkt_violation(f, Gs, (c - 1) * p + r)
+            j = (c - 1) * p + r
+            if iszero(x[r, c])
+              @test kkt_violation(f, G, x, k) == kkt_violation(f, Gs, j)
+              @test kkt_violation(f, vec(G), x, k) == kkt_violation(f, Gs, j)
+            elseif f isa Scaled
+              @test_throws ArgumentError kkt_violation(f, G, x, k)
+              @test_throws ArgumentError kkt_violation(f, vec(G), x, k)
+            else
+              @test kkt_violation(f, G, x, k) == kkt_violation(f, Gs, D, j)
+              @test kkt_violation(f, vec(G), x, k) == kkt_violation(f, Gs, D, j)
+            end
           end
         end
       end
@@ -181,7 +200,7 @@ for T in (Float32, Float64)
         end
         G = reshape(T.(1:p^2), p, p) .- T(7)
         haskkt(f) && for k in 1:ncoordinates(x)
-          @test same(kkt_violation(f, G, x, k), kkt_violation(c, G, x, k))
+          @test same(outcome(() -> kkt_violation(f, G, x, k)), outcome(() -> kkt_violation(c, G, x, k)))
         end
       end
     end
@@ -353,7 +372,8 @@ end
       "value_and_prox! to a dense matrix" => g -> value_and_prox!(zeros(p, p), g, x, 0.4),
       "prox! from a dense matrix" => g -> prox!(output_iterate(Float64, p), g, Matrix(x), 0.4),
     ]
-    haskkt(f) && push!(ops, "kkt_violation" => g -> kkt_violation(g, ones(p, p), x, 2))
+    # at a nonzero coordinate a scaled function throws before it reads a parameter
+    haskkt(f) && push!(ops, "kkt_violation" => g -> outcome(() -> kkt_violation(g, ones(p, p), x, 2)))
     if issmooth(f)
       push!(ops, "gradient! to a symmetric iterate" => g -> gradient!(output_iterate(Float64, p), g, x))
       push!(ops, "gradient! to a dense matrix" => g -> gradient!(zeros(p, p), g, x))

@@ -431,10 +431,11 @@ end
     @test close_value(kkt_violation(f, g, x, k), ref)
   end
   @test kkt_violation(f, g, x, 4) ≈ norm(g[[8, 6]])               # zero weight
-  # array points: the group screen at a zero group, |g[i]| at a nonzero group and outside the groups
+  # array points: the group screen at a zero group, |g[i]| outside the groups, an ArgumentError at a group with a
+  # nonzero entry
   a = zeros(T, 9); a[2] = 1
   @test kkt_violation(f, [g; T(5)], a, 1) == kkt_violation(f, g, x, 1)
-  @test kkt_violation(f, [g; T(5)], a, 7) == abs(g[7])
+  @test_throws ArgumentError kkt_violation(f, [g; T(5)], a, 7)
   @test kkt_violation(f, [g; T(-5)], a, 9) == 5
   # infinite weight or level: never violated
   @test kkt_violation(GroupNormL2(λ, groups, T[Inf, 1, 1, 1]), g, x, 1) == -Inf

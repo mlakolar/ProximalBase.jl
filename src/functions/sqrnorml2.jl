@@ -489,6 +489,41 @@ kkt_violation(::SqrNormL2{<:Real, Nothing}, g::AbstractArray, i::Integer) =
 kkt_violation(f::SqrNormL2, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] - f.λ * f.y[i]))
 
+
+# The point-aware score (see kkt_violation): |vᵢ + dᵢ| with dᵢ the entry of the gradient at x as the ridge gradient
+# forms it (_ridge_gradient!): the level and the center in W, or in the wider type when the level does not fit W,
+# and a finite entry recovered when xᵢ - yᵢ overflows. The type W includes the element type of a center.
+@inline _kkt_type(f::SqrNormL2, ::Type{V}, ::Type{X}) where {V, X} = _kkt_center_type(f.y, V, X)
+@inline _kkt_center_type(::Nothing, ::Type{V}, ::Type{X}) where {V, X} = float(promote_type(V, X))
+@inline _kkt_center_type(y, ::Type{V}, ::Type{X}) where {V, X} = float(promote_type(V, X, eltype(y)))
+struct _RidgeKkt{W, R}
+  l::W        # the level in W, when it fits
+  lr::R       # the level in the wider type
+  fits::Bool
+end
+@inline function _kkt_state(f::SqrNormL2, ::Type{W}) where {W}
+  fits = _level_fits(W, f.λ)
+  R = promote_type(W, float(typeof(f.λ)))
+  _RidgeKkt{W, R}(fits ? convert(W, f.λ) : zero(W), convert(R, f.λ), fits)
+end
+@inline _kkt_fast_ok(::SqrNormL2, s) = s.fits
+# the loop of dense arrays computes the gradient entry without the recovery, which a non-finite score repeats by entry
+@inline _kkt_plain(::Nothing, l, x, i) = l * x
+Base.@propagate_inbounds _kkt_plain(y::AbstractArray, l::W, x::W, i) where {W} = l * (x - convert(W, y[i]))
+Base.@propagate_inbounds _kkt_natural(f::SqrNormL2, s, ::Type{W}, v::W, x::W, i) where {W} =
+  abs(v + _kkt_plain(f.y, s.l, x, i))
+@inline _kkt_unusable(::SqrNormL2, v, x, r) = !isfinite(v) | !isfinite(x) | !isfinite(r)
+@inline _kkt_ridge(::Nothing, s, ::Type{W}, x, i) where {W} =
+  s.fits ? s.l * x : convert(W, _ridge_gradient_wide(W, s.lr, x, zero(W)))
+Base.@propagate_inbounds _kkt_ridge(y, s, ::Type{W}, x, i) where {W} =
+  s.fits ? _ridge_gradient_entry(s.l, x, y[i]) : convert(W, _ridge_gradient_wide(W, s.lr, x, y[i]))
+Base.@propagate_inbounds function _kkt_entry(f::SqrNormL2, s, ::Type{W}, v, x, i) where {W}
+  vw = convert(W, v)
+  xw = convert(W, x)
+  _kkt_override(abs(vw + _kkt_ridge(f.y, s, W, xw, i)), vw, xw)
+end
+@_kkt_entrywise SqrNormL2
+
 restrict(f::SqrNormL2{<:Real, Nothing}, ::AbstractVector{<:Integer}) = f
 restrict(f::SqrNormL2, S::AbstractVector{<:Integer}) = SqrNormL2(f.λ, f.y[S])
 

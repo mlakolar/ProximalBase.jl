@@ -48,7 +48,8 @@ or the rest of one (issue #874).
 An infinite ridge level makes `f` the indicator of `{0}` (issue #908): at
 every step `γ ≥ 0`, `γ = 0` included, each entry of the proximal point is
 `+0`, also for `NaN` and `±Inf` inputs; the value is `0` at the zero vector,
-`NaN` if an entry is `NaN`, and `Inf` otherwise; `kkt_violation` is `-Inf`.
+`NaN` if an entry is `NaN`, and `Inf` otherwise; the screen `kkt_violation(f, g, i)` is `-Inf`, and so is
+`kkt_violation(f, g, x, i)` at a zero entry of `x` and a finite `g[i]`.
 An infinite `λ1` and infinite weights follow the rules of `NormL1`: an infinite
 `λ1` fixes every positive-weight entry at `+0` at every `γ ≥ 0` (issue #665),
 and an infinite weight maps a finite input to `+0`, with no fixed-zero
@@ -413,4 +414,29 @@ function kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer)
   v = abs(g[i]) - _kkt_coefficient(eltype(g), f.λ1, _entry(f.w, i))
   isinf(f.λ2) ? oftype(v, -Inf) : v
 end
+
+# The point-aware score (see kkt_violation): the coefficient cᵢ = λ1 wᵢ as in the NormL1 score, |vᵢ| - cᵢ at a zero
+# entry (-Inf for an infinite λ2, as the screen above), and |(vᵢ + λ2 xᵢ) + cᵢ sign(xᵢ)| at a nonzero one, with λ2
+# converted to W; the ridge term is left out for λ2 = 0. A call holds the coefficient of an unweighted function.
+struct _ElasticKkt{C, W}
+  c::C
+  l2::W
+  ridge::Bool
+  infinite::Bool
+end
+@inline _kkt_state(f::ElasticNet{<:Real, Nothing}, ::Type{W}) where {W} =
+  _ElasticKkt(_kkt_coefficient(W, f.λ1, true), convert(W, f.λ2), !iszero(f.λ2), isinf(f.λ2))
+@inline _kkt_state(f::ElasticNet, ::Type{W}) where {W} =
+  _ElasticKkt(nothing, convert(W, f.λ2), !iszero(f.λ2), isinf(f.λ2))
+Base.@propagate_inbounds _kkt_coef(f::ElasticNet, s::_ElasticKkt{Nothing}, ::Type{W}, i) where {W} =
+  _kkt_coefficient(W, f.λ1, _entry(f.w, i))
+@inline _kkt_coef(::ElasticNet, s::_ElasticKkt, ::Type, i) = s.c
+Base.@propagate_inbounds function _kkt_natural(f::ElasticNet, s, ::Type{W}, v::W, x::W, i) where {W}
+  c = _kkt_coef(f, s, W, i)
+  screen = s.infinite ? oftype(c, -Inf) : abs(v) - c
+  t = s.ridge ? v + s.l2 * x : v
+  ifelse(iszero(x), screen, abs(t + c * sign(x)))
+end
+@_kkt_entrywise ElasticNet
+
 restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2, _restrict_entries(f.w, S))

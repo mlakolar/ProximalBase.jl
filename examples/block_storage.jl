@@ -26,7 +26,9 @@ out = [prox_block(g, u[a], ids[a], 1f0) for a in eachindex(u)]
 @assert out ≈ Float32[1.5, -1.5]
 copyto!(blockview(x, 1), out)
 @assert collect(activecoordinates(x)) == [1]
-@assert kkt_violation(g, Float32[1, 2, 3, 4], x, 1) ≈ 1.5f0
+# The score of the nonzero group 1 is the largest mismatch |gᵢ + 0.5 wᵢ sign(xᵢ)| over its entries:
+# 4.5 at entry 3 (|3 + 1.5|, with x₃ = 1.5), and 0.5 at entry 1 (|1 - 0.5|, with x₁ = -1.5).
+@assert kkt_violation(g, Float32[1, 2, 3, 4], x, 1) ≈ 4.5f0
 A = Float32[1 2 3 4; 4 3 2 1]
 @assert A * x ≈ A * Vector(x)
 Vector(x)

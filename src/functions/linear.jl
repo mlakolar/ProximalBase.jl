@@ -353,6 +353,19 @@ _gradient_unchecked!(g::_ArrayOrSymmetricIterate, f::LinearFunction, x::_ArrayOr
 Base.@propagate_inbounds prox_block(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
 kkt_violation(f::LinearFunction, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] + f.c[i]))
+
+# The point-aware score (see kkt_violation): |vᵢ + cᵢ|, in the type of v, x and c; x is not read.
+@inline _kkt_type(f::LinearFunction, ::Type{V}, ::Type{X}) where {V, X} = float(promote_type(V, X, eltype(f.c)))
+@inline _kkt_state(::LinearFunction, ::Type) = nothing
+Base.@propagate_inbounds _kkt_natural(f::LinearFunction, s, ::Type{W}, v::W, x::W, i) where {W} =
+  abs(v + convert(W, f.c[i]))
+@inline _kkt_unusable(::LinearFunction, v, x, r) = !isfinite(v) | isnan(r)
+Base.@propagate_inbounds function _kkt_entry(f::LinearFunction, s, ::Type{W}, v, x, i) where {W}
+  vw = convert(W, v)
+  _kkt_override(_kkt_natural(f, s, W, vw, zero(W), i), vw)
+end
+@_kkt_entrywise LinearFunction
+
 restrict(f::LinearFunction, S::AbstractVector{<:Integer}) = LinearFunction(f.c[S], f.d)
 
 

@@ -126,25 +126,41 @@ example with definitions of `X`, `y`, `β` and `λ`.
 ## Other operations
 
 The same function supports coordinate restriction,
-a zero-coordinate KKT test, and per-entry proximal steps:
+KKT scores, and per-entry proximal steps:
 
 ```@example library_l1
 # Keep original coordinates 3 and 1, in that order.
 small_g = restrict(g, [3, 1])
 @assert small_g([1.0, -2.0]) == 2.0
 
-# Positive means the zero-coordinate KKT condition is violated.
+# The screen of a coordinate assumed zero: positive means that the
+# zero-coordinate KKT condition is violated.
 grad_at_zero = [0.1, -4.0, 0.8]
 @assert kkt_violation(g, grad_at_zero, 3) ≈ -0.2
+
+# The score of the actual coordinate of a point: the margin at the zero
+# coordinate 1, and a nonnegative mismatch at the nonzero coordinates 2 and 3.
+xz = [0.0, -3.0, 0.25]
+@assert kkt_violation(g, grad_at_zero, xz, 1) ≈ 0.1 - 0.5 * 1.0
+@assert kkt_violation(g, grad_at_zero, xz, 2) ≈ 4.0
+@assert kkt_violation(g, grad_at_zero, xz, 3) ≈ 0.8 + 0.5 * 2.0
+# The full-point measure: max(0, largest score).
+@assert kkt_violation(g, grad_at_zero, xz) ≈ 4.0
 
 # Each coordinate may have a different proximal step.
 steps = [1.0, 2.0, 0.5]
 @assert prox(g, x, steps) ≈ [1.5, -3.0, 0.0]
 ```
 
-For an active working set, `kkt_violation` is a **screen for coordinates
-assumed to be zero**, not an optimality certificate for an arbitrary
-nonzero coordinate. See [Coordinate descent](coordinate_descent.md) and
+`kkt_violation(g,v,i)` is the screen of a coordinate **assumed to be zero**;
+`kkt_violation(g,v,x,k)` reads the coordinate `x[k]` and gives
+``\lvert v_k\rvert-\lambda_0w_k`` at a zero coordinate and
+``\lvert v_k+\lambda_0w_k\operatorname{sign}(x_k)\rvert`` at a nonzero one, a
+stationarity mismatch; and `kkt_violation(g,v,x)` is the nonnegative
+``\max(0,\max_k s_k)`` over the entries, the ``\ell_\infty`` distance from
+``-v`` to ``\partial g(x)`` when the inputs are finite. A positive score at
+a nonzero coordinate is not an instruction to set it to zero. See
+[Coordinate descent](coordinate_descent.md) and
 [Operations on functions](operations.md).
 
 ## [Supported inputs and numerical considerations](@id l1-endpoints)
@@ -260,6 +276,23 @@ is recomputed with the terms of both parts added in one exponent-sum
 accumulator and rounded once: `ElasticNet(2.0^-538, 1.0)([2.0^-537])` is
 `2.0^-1074`, although each part, `2.0^-1075`, rounds to zero on its own.
 
+The KKT scores of `ElasticNet` use ``c_i=\lambda_1w_i``: at a zero entry
+``\lvert v_i\rvert-c_i`` (`-Inf` for an infinite ridge level, as for the screen), and at
+a nonzero entry ``\lvert(v_i+\lambda_2x_i)+c_i\operatorname{sign}(x_i)\rvert``, with the
+ridge term left out for `λ2 = 0`. For arrays and parameters of one floating
+type, `ElasticNet(λ1, 0)` and `NormL1(λ1)` give the same scores bit for bit.
+The full-point value `kkt_violation(h, v, x)` is the ``\ell_\infty`` distance from
+``-v`` to ``\partial h(x)`` when the inputs are finite.
+
+```@example library_l1
+vh = [0.1, -4.0, 0.8]
+xh = [2.0, -3.0, 0.25]
+@assert kkt_violation(h, vh, xh, 1) ≈ (0.1 + 2.0 * 2.0) + 0.5 * 1.0
+@assert kkt_violation(h, vh, xh, 2) ≈ abs(-4.0 + 2.0 * -3.0)
+@assert kkt_violation(h, vh, xh) ≈ 10.0
+@assert kkt_violation(h, vh, [0.0, 0.0, 0.0], 3) ≈ 0.8 - 0.5 * 2.0
+```
+
 ### Weights, shapes and representations
 
 The array `w` has one weight per entry of the argument, paired by Julia's
@@ -309,7 +342,9 @@ An infinite ridge level makes `g` the indicator of ``\{0\}``: at every
 step ``\gamma\geq0``, ``\gamma=0`` included, each entry of the proximal
 point is `+0`, also for `NaN` and `±Inf` inputs; the value is `0` at the
 zero vector, `NaN` if an entry is `NaN`, and `Inf` otherwise; and
-`kkt_violation` is `-Inf`. An infinite `λ1` and infinite weights follow
+the screen `kkt_violation(g, v, i)` is `-Inf`, as is `kkt_violation(g, v, x, i)`
+at a zero entry of `x` with a finite `v[i]`, while that form is `Inf` at a nonzero
+entry of `x` with finite `v[i]`. An infinite `λ1` and infinite weights follow
 the [ℓ₁ endpoint rules](@ref l1-endpoints), and a threshold that overflows from
 finite factors keeps their documented limitation for infinite inputs.
 
@@ -318,4 +353,6 @@ hard = ElasticNet(1.0, Inf)
 @assert prox(hard, [3.0, NaN], 0.0) == [0.0, 0.0]
 @assert hard([0.0, 0.0]) == 0 && hard([0.0, 1e-300]) == Inf
 @assert kkt_violation(hard, [5.0], 1) == -Inf
+@assert kkt_violation(hard, [5.0], [0.0], 1) == -Inf
+@assert kkt_violation(hard, [5.0], [1.0], 1) == Inf
 ```

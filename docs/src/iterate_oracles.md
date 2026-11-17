@@ -55,42 +55,67 @@ output; keeping it independent protects the iterate until the separate write.
 
 The [block extension](examples/block_prox_extension.md) is a complete checked
 implementation. Implementing this hook does not automatically supply a full
-array value, full-array prox, traits, KKT screen, symmetric-iterate interface or
+array value, full-array prox, traits, `kkt_violation` method, symmetric-iterate interface or
 `Scaled` compact-vector forwarding.
 
-## [Screening a zero coordinate](@id kkt-screens)
+## [Scoring a coordinate](@id kkt-screens)
 
-For the supported scalar functions, `kkt_violation(g,grad,i)` reports a signed
-violation of the zero-coordinate condition. `NormL1` returns
-``|\mathrm{grad}_i|-\lambda_0w_i``. A positive value means zero fails the
-condition. The scalar routine does not inspect whether the coordinate is actually zero.
+`kkt_violation(g,v,i)` reports the signed screen of coordinate `i` **assumed
+zero**. `NormL1` returns ``|v_i|-\lambda_0w_i``. A positive value means zero fails
+the condition. The routine does not inspect whether the coordinate is actually
+zero, and it takes no iterate.
 
-`kkt_violation(g,grad,x,k)` interprets k in x's coordinate space:
+`kkt_violation(g,v,x,k)` reads `x` and interprets `k` in x's coordinate space.
+For `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` and `SqrNormL2` it
+returns the signed screen at a zero coordinate and a nonnegative stationarity
+mismatch at a nonzero one (see [Mathematical operations](operations.md) for each
+scalar). `kkt_violation(g,v,x)` is the nonnegative full-point measure
+``\max(0,\max_k s_k)`` of these five functions on a one-based array,
+`SparseIterate` or `BlockIterate`, read by entry.
 
-| Iterate | Interpretation/checks |
+| Iterate | Four-argument form (`k` is the index) |
 |:--|:--|
-| `SparseIterate` | Valid coordinate first, then gradient entry count equal to length(x); flat or matrix-shaped gradient of that length is accepted |
-| `SymmetricSparseIterate` | Valid independent coordinate, then p² gradient entries; symmetric part of that gradient pair, and the extent of the function's parameters (their mirrored entries are not compared) |
-| `BlockIterate`, scalar penalties | Maximum scalar screen over global members of group k; no full-gradient extent preflight |
-| `BlockIterate`, `GroupNormL2` | Group norm screen; selected group layout and full gradient length checked |
-| Other arrays, scalar penalties | No extra point/gradient extent validation; indexing/function checks still apply |
-| Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked |
+| `SparseIterate` | Valid coordinate first, then gradient entry count equal to length(x); flat or matrix-shaped gradient of that length is accepted. The coordinate is read from `x` |
+| `SymmetricSparseIterate` | Valid independent coordinate, then p² gradient entries; symmetric part of that gradient pair, the stored value of the coordinate, and the extent of the function's parameters (their mirrored entries are not compared). The score is in matrix-entry units. There is no full-point form: it throws `ArgumentError` |
+| `BlockIterate`, scalar penalties | Group `k`. The maximum of the scores of the entries of the group: signed if every entry of the group is zero, nonnegative otherwise. A gradient whose length differs from `length(x)` throws `DimensionMismatch` |
+| `BlockIterate`, `GroupNormL2` | Group norm screen at a zero group; selected group layout and full gradient length checked; `ArgumentError` at a group with a nonzero entry |
+| Other arrays, scalar penalties | Real one-based axes, then gradient length equal to length(x) (`DimensionMismatch`); entry `k` is read from `x` |
+| Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The group screen at a zero group, `abs(v[k])` for an entry in no group, `ArgumentError` at a group with a nonzero entry |
 
 For `SparseIterate`/`SymmetricSparseIterate`, invalid coordinate throws `BoundsError` before
 extent mismatch throws `DimensionMismatch`, after checking one-based axes and
 real element types. A flat or matrix-shaped gradient of the required entry
 count is accepted. Opposing infinities in the selected symmetric gradient pair
 throw `ArgumentError`. Parameter extents are checked for symmetric iterates;
-mirrored parameters are a caller precondition, not an oracle check.
-For scalar-screen functions, the `BlockIterate` path does not add that same
-explicit full-gradient extent preflight; ensure the gradient is full-length.
-`GroupNormL2` instead checks the number of groups, the selected ordered group
-layout and `length(g) == length(x)`, then returns
-`norm(g[Gₖ]) - λ0*wₖ`. With an ordinary array point it accepts an entry index:
-it uses the group screen if that entire group is zero, otherwise `abs(g[i])`;
-ungrouped entries also use `abs(g[i])`. Its three-argument form throws
-`ArgumentError` because the penalty is not entrywise separable. Nonzero coordinates need their
-own stationarity test, as explained in [coordinate descent](coordinate_descent.md).
+mirrored parameters are a caller precondition, not an oracle check; the
+three-argument form takes no iterate and makes no parameter-symmetry check.
+`GroupNormL2` checks the number of groups, the selected ordered group
+layout and `length(v) == length(x)`, then returns `norm(v[Gₖ]) - λ0*wₖ` at a zero
+group. Its three-argument form throws `ArgumentError` because the penalty is not
+entrywise separable; see [the group penalty](group_penalty.md). `Scaled` forwards the four-argument form to the screen of
+its function at a zero coordinate or group, and throws `ArgumentError` at a nonzero
+coordinate when the function under the scales is `NormL1`, `ElasticNet`,
+`ZeroFunction`, `LinearFunction` or `SqrNormL2`. The full-point forms of `GroupNormL2` and `Scaled` are not defined.
+
+The full-point form checks real element types, one-based axes (`ArgumentError`),
+`length(v) == length(x)` (`DimensionMismatch`) and the extent of the function's
+parameters. It makes a pass over the entries and writes nothing. A second pass
+that applies the rules for non-finite values entry by entry can follow it, for
+instance when an entry of `v` or `x` is not finite or a score is `NaN` or infinite.
+Dense `Float32` or `Float64` arrays of one type take the fast path, where the tests
+measure no allocation; other arrays, `SparseIterate` and `BlockIterate` included, are
+read by entry, and element types such as `BigFloat` can allocate in their arithmetic. The
+four-argument form on an array reads the parameters of entry `k`. The element
+type, the rules for non-finite values and the rounding error are in the
+[numerical contract](numerics.md).
+
+A function defined outside the package that has only the three-argument method
+gets that method's value from the four-argument form at a zero coordinate (a
+group of zero entries) and an `ArgumentError` at a nonzero one;
+see [Writing your own function](extending.md). The built-in functions without a
+score, such as `SqrtLeastSquaresLoss`, throw `MethodError`. A positive score at
+a nonzero coordinate is a stationarity mismatch; see
+[coordinate descent](coordinate_descent.md).
 
 ## Symmetric scalar steps
 

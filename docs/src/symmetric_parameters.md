@@ -62,7 +62,7 @@ domains; declaring a parameter does not make a negative/NaN weight valid.
 |:--|:--|
 | `check_symmetric_parameters(f,x)` on a symmetric iterate | Yes: every declared pair, recursively through `Scaled` |
 | `f(x)`, `prox!`, `value_and_prox!`, `gradient!`, `value_and_gradient!` | No. They read the entries the mathematics needs, such as both positions of each stored off-diagonal coordinate in a value |
-| Four-argument `kkt_violation` on a symmetric iterate | No. It checks the parameter extent, the coordinate and the gradient |
+| Four-argument `kkt_violation` on a symmetric iterate | No. It checks the parameter extent, the coordinate and the gradient, and reads the stored value of the coordinate |
 | Raw `value_entry`, `prox_block`, three-argument KKT, `restrict` | No: there is no symmetric iterate |
 
 `check_symmetric_parameters` is not a substitute for the ordinary shape checks:
@@ -130,3 +130,19 @@ factor of two. An opposing `+Inf/-Inf` gradient pair has no symmetric part and
 throws `ArgumentError` at the chosen coordinate. The routine does not scan
 unrelated gradient pairs. Do not confuse this computed-gradient policy with
 per-entry coefficient/center symmetry, which is a precondition on the model.
+
+The four-argument `kkt_violation(f,v,x,k)` on a symmetric iterate also reads the
+stored value of coordinate `k` of the lower triangle: for `NormL1`, `ElasticNet`,
+`ZeroFunction`, `LinearFunction` and `SqrNormL2` it is the signed screen when the
+value is zero and a nonnegative mismatch when it is not, formed from the symmetric
+gradient pair. The score is in matrix-entry units. For an off-diagonal coordinate with a
+nonzero value it is half of the residual of the derivative in the independent parameter; with
+a zero value it is half of the signed margin in that parameter, and the positive part of
+that margin is the distance. For `NormL1(1.0)`, a zero point and a zero gradient, the score of an
+off-diagonal coordinate is `-1.0` while the distance is `0`. The score assumes
+symmetric parameters. The full-point form `kkt_violation(f,v,x)` throws an
+`ArgumentError` for these five functions on a symmetric iterate: use the coordinate form.
+`Scaled` over one of them gives the screen at a zero stored coordinate and throws an
+`ArgumentError` at a nonzero one. A function defined outside the package that has only
+the three-argument method gets its value at a zero stored coordinate and an `ArgumentError`
+at a nonzero one.

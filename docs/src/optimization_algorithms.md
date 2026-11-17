@@ -12,7 +12,7 @@ use ProximalBase's mathematical operations.
 | Method | ProximalBase operations | Caller responsibility |
 |:--|:--|:--|
 | Proximal gradient | `gradient!`, `prox!`, `lipschitz` | Step, iteration, optional acceleration and stationarity test |
-| Scalar coordinate descent | `prox_block`, `kkt_violation`, `restrict` | Coordinate curvature, trial, write and residual update |
+| Scalar coordinate descent | `prox_block`, `kkt_violation`, `restrict` | Coordinate curvature, trial, write and residual update; scaling, tolerance and use of the `kkt_violation` score |
 | Block coordinate method | Custom `prox_block!`; `BlockIterate` views | Block decomposition/layout, curvature and cache updates |
 | Working sets | `activate!`, `activecoordinates`, `dropzeros!` | Screening policy and verification outside the working set |
 
@@ -24,5 +24,5 @@ valid bounds and update schedules, which the function objects do not verify.
 
 The [proximal-gradient page](proximal_gradient.md) derives the full step.
 The [coordinate page](coordinate_descent.md) derives a scalar lasso update
-and KKT checks. The [executable examples](examples/proximal_gradient.md) use
+and checks with `kkt_violation`. The [executable examples](examples/proximal_gradient.md) use
 small deterministic fixtures, with independently derived answers.

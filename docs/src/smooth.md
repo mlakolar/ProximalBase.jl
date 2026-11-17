@@ -53,7 +53,7 @@ construct a new object if dimensions change. The input data are not copied.
 
 Dense coefficients, vector/matrix `SparseIterate` and vector `BlockIterate` use
 supported array products. This loss has no `SymmetricSparseIterate`,
-scalar `prox_block`, `value_entry` or KKT-screen method. Converting a symmetric iterate
+scalar `prox_block`, `value_entry` or `kkt_violation` method. Converting a symmetric iterate
 to `Matrix` gives an ordinary matrix-coefficient problem if dimensions fit.
 `restrict(f,S)` selects design columns only for **vector-response** losses.
 `lipschitz(f)` bounds ``\|X\|_2^2``; it uses a full spectral norm for dense
@@ -306,7 +306,7 @@ When used as a regularizer, this is the usual squared-ℓ₂ (ridge) term
 with a factor of one half. `SqrNormL2(1,y)` is half
 the squared distance to `y`. It is smooth, convex, proximable and separable
 by trait, but it is not a `SeparableFunction` subtype and has no `value_entry`.
-It has scalar `prox_block`, scalar zero-coordinate screens and `restrict`:
+It has scalar `prox_block`, the three forms of `kkt_violation` and `restrict`:
 the latter slices the center, or returns the same uncentered object. Slicing a
 center omits the constant ``(λ/2)\sum_{j\notin S}y_j^2`` from dropped coordinates
 fixed at zero. When that omitted contribution is finite, restore it when comparing full
@@ -314,6 +314,21 @@ objective values; the restricted minimizers, gradient and prox are unaffected. R
 not check whether the discarded contribution is finite; a non-finite constant
 cannot be ignored when reasoning about the original extended-valued objective.
 `lipschitz(f)` is `float(λ)`. Array-step prox is not implemented.
+
+For `SqrNormL2`, the three-argument screen `kkt_violation(f,v,i)` takes ``x_i=0`` and does not use
+the gradient oracle: it is ``\lvert v_i\rvert``, or ``\lvert v_i-\lambda y_i\rvert`` with a center,
+so `kkt_violation(SqrNormL2(Inf), [1.0], 1)` is `1.0`. The four-argument form `kkt_violation(f,v,x,k)` and the
+full-point form `kkt_violation(f,v,x)` use the entry ``d_i`` of ``\nabla f(x)`` as the ridge-gradient
+helpers form it, in the working type of the call (``\lambda x_i``, or ``\lambda(x_i-y_i)`` with a
+center). The score of entry ``i`` is ``\lvert v_i+d_i\rvert``, nonnegative at a zero coordinate as well, and
+the full-point value is ``\lVert v+\nabla f(x)\rVert_\infty`` for finite `v` and `x` when `gradient(f,x)` is
+computed in the same precision. The rules for non-finite entries of `v` and `x` take precedence over this formula
+(for `f = SqrNormL2(1.0)`, `v = [-Inf]` and `x = [Inf]` the score is `+Inf` while `norm(v + gradient(f,x), Inf)` is `NaN`).
+The precision can differ: for `f = SqrNormL2(1.0, [nextfloat(1.0)])`, `x = Float32[1]` and
+`v = Float32[0]` the score works in `Float64` and is `eps(Float64)`, while `gradient(f,x)` rounds the center to
+`Float32` and is zero. With an infinite level and finite `v` and `x` the four-argument and full-point scores follow the gradient
+oracle (`NaN` at a zero residual, `Inf` elsewhere); a non-finite entry of `v` or `x` still follows the non-finite rules
+(for `f = SqrNormL2(Inf)`, `v = [Inf]` and `x = [0.0]` the score is `+Inf`, while the gradient is `NaN`).
 
 For supported homogeneous `Float32` or `Float64` calls, the value and
 numerical outputs use that working precision. The implementation may compute
@@ -348,6 +363,9 @@ x = [3.0, -1]
 @assert prox(f,x,0.5) == [2, -0.5]
 @assert prox_block(f, x[2], 2, 0.5) == -0.5
 @assert !iszeropreserving(f) && iszeropreserving(SqrNormL2(2.0))
+v = [-4.0, 1.0]            # ∇f(x) = [4, -2]
+@assert kkt_violation(f, v, x, 1) ≈ 0.0 && kkt_violation(f, v, x, 2) ≈ 1.0
+@assert kkt_violation(f, v, x) ≈ maximum(abs, v + gradient(f, x))
 prox(f,x,0.5)
 ```
 
@@ -367,7 +385,7 @@ When omitted, `b` and `c` are zero. The domain is real length-``p`` vectors,
 including vector `SparseIterate` and `BlockIterate`; matrix and symmetric iterate
 inputs are not supported. `issmooth` and `isproximable` are true;
 `isseparable` and `isconvex` are false. There is no scalar `prox_block`,
-`value_entry` or KKT screen.
+`value_entry` or `kkt_violation` method.
 
 **Caller precondition:** `A` is symmetric; positive semidefiniteness is not
 required. Construction checks real types, squareness and `b`'s length, but does
@@ -443,7 +461,9 @@ The no-argument constructor `f = ZeroFunction()` represents
 ``\operatorname{prox}_{\gamma f}(x)=x``. It has all four traits true and is zero preserving.
 It needs no parameters or dimensions. `lipschitz(f)==0`; `restrict(f,S)`
 returns `f`; scalar `prox_block(f,v,i,γ)` returns `v`; its zero-coordinate
-screen is ``|\mathrm{grad}_i|``. It has no `value_entry` method.
+screen `kkt_violation(f,v,i)` is ``|v_i|``, and so is the four-argument score at a
+zero or a nonzero coordinate; the full-point value `kkt_violation(f,v,x)` is
+``\lVert v\rVert_\infty``. It has no `value_entry` method.
 
 Value/prox also accept symmetric iterates, but gradients at/into symmetric iterates are
 not implemented. `prox!` into a symmetric iterate symmetrizes a matrix argument before
@@ -495,8 +515,9 @@ The gradient is a dense matrix when allocated at a symmetric iterate.
 
 The function is smooth, convex, proximable and separable by trait, but is
 not declared zero preserving and has no `value_entry`. It supports scalar
-`prox_block(f,v,i,γ)=v-γ*c[i]`, a zero-coordinate screen
-``|\mathrm{grad}_i+c_i|``, and `restrict(f,S)=LinearFunction(c[S],d)`.
+`prox_block(f,v,i,γ)=v-γ*c[i]`, the zero-coordinate screen
+``|v_i+c_i|`` of `kkt_violation(f,v,i)`, the same score from the four-argument form
+at zero and nonzero coordinates, the full-point value ``\lVert v+c\rVert_\infty``, and `restrict(f,S)=LinearFunction(c[S],d)`.
 `lipschitz(f)` is zero. Array-step prox is not implemented.
 
 The coefficient array is retained by reference, the scalar constant keeps
@@ -562,5 +583,6 @@ x = [2.0, 1]
 @assert f(x) == 3 && gradient(f,x) == [1, -2]
 @assert prox(f,x,0.5) == [1.5, 2]
 @assert kkt_violation(f, [-1.0, 2], 1) == 0
+@assert kkt_violation(f, [-1.0, 3.0], x, 2) == 1 && kkt_violation(f, [-1.0, 3.0], x) == 1
 prox(f,x,0.5)
 ```

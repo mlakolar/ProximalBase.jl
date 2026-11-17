@@ -207,10 +207,15 @@ same two conditions.
 For a coordinate assumed to be zero, `kkt_violation(g, grad, j)`
 returns ``|\mathrm{grad}_j|-\lambda``. A **positive** result means
 that keeping that coefficient at zero violates its stationarity condition;
-a **nonpositive** result means zero passes this one check. It does not
-evaluate the stationarity condition for a nonzero coefficient, and
-checking zero coordinates alone is not a global optimality certificate.
-See [coordinate descent](coordinate_descent.md) for the full screening
+a **nonpositive** result means zero passes this one check. This
+three-argument form does not evaluate the stationarity condition for a nonzero
+coefficient. The four-argument form `kkt_violation(g, grad, β, j)` reads
+``\beta_j``: it returns the same signed value at a zero coefficient and
+``|\mathrm{grad}_j+\lambda\operatorname{sign}(\beta_j)|`` at a nonzero one, a
+mismatch of the first equality, and `kkt_violation(g, grad, β)` is the
+nonnegative maximum of these scores and ``0`` over the coordinates. The
+caller supplies `grad` and decides the tolerance. See
+[coordinate descent](coordinate_descent.md) for the full screening
 procedure.
 
 A solver can store coefficients in a [`SparseIterate`](@ref) and use

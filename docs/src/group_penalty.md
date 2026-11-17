@@ -164,14 +164,16 @@ the general extension hook.
 ### Optimality screen
 
 For a smooth part `h` with gradient `G = ∇h(x)`, a zero group ``k`` is optimal
-for `h + g` when ``\lVert G_{G_k}\rVert_2\le\lambda_0w_k``. On a `BlockIterate`,
-`kkt_violation(g, G, x, k)` returns ``\lVert G_{G_k}\rVert_2-\lambda_0w_k``: a positive
-value means that zero violates the condition. The three-argument
-`kkt_violation(g, G, i)` throws `ArgumentError` because this penalty is not
-separable. Group `k` of the iterate must equal
-`groups[k]`. On an array point, `kkt_violation(g, G, x, i)` takes an entry `i`:
-it is the same group screen when the group of `i` is zero in `x`, and
-``\lvert G_i\rvert`` when `i` is in no group or its group is nonzero. In the group
+for `h + g` when ``\lVert G_{G_k}\rVert_2\le\lambda_0w_k``. On a `BlockIterate`
+whose group `k` is zero, `kkt_violation(g, G, x, k)` returns
+``\lVert G_{G_k}\rVert_2-\lambda_0w_k``: a positive value means that zero violates the
+condition. Group `k` of the iterate must equal `groups[k]`. If an entry of group `k`
+is nonzero, the call throws an `ArgumentError`: this version has no score of a nonzero
+group. On an array point, `kkt_violation(g, G, x, i)` takes an entry `i`: it is the same
+group screen when the group of `i` is zero in `x`, ``\lvert G_i\rvert`` when `i` is in
+no group (also when `x[i]` is nonzero), and an `ArgumentError` when the group of `i`
+has a nonzero entry. The three-argument form throws an `ArgumentError` and there is no
+full-point form `kkt_violation(g, G, x)` (a `MethodError`). In the group
 screen, a zero weight gives the coefficient `0` (also with an infinite level), and an
 infinite weight, or an infinite level with a positive weight, gives `-Inf` for a
 finite gradient. Norms and coefficients outside the range are recomputed for finite
@@ -181,9 +183,15 @@ also when it overflows from finite factors; a `NaN` entry gives `NaN`.
 
 ```@example group_penalty
 G = [0.3, -0.4, 1.0, 0.0, 0.0, 2.0]
-@assert kkt_violation(f, G, z, 1) ≈ 0.5 - 0.4 * sqrt(3)
-@assert kkt_violation(f, G, z, 3) ≈ 2.0 - 0.4
-kkt_violation(f, G, z, 3)
+z0 = BlockIterate(6, f)                     # every group is zero
+@assert kkt_violation(f, G, z0, 1) ≈ 0.5 - 0.4 * sqrt(3)
+@assert kkt_violation(f, G, z0, 3) ≈ 2.0 - 0.4
+z1 = BlockIterate(6, f)
+copyto!(blockview(z1, 1), [1.0, 1.0, 1.0])  # group 1 is nonzero
+@assert kkt_violation(f, G, z1, 3) ≈ 2.0 - 0.4
+refused = try kkt_violation(f, G, z1, 1); false catch e; e isa ArgumentError end
+@assert refused
+kkt_violation(f, G, z0, 3)
 ```
 
 ### [Exceptional parameters and values](@id group-l2-endpoints)
@@ -216,9 +224,10 @@ which one the exact value rounds to. See [value range limits](@ref numerical-val
 throw an `ArgumentError` before anything is written), and it has no
 `restrict`, no per-group step and no compact block method under `Scaled`.
 With a positive finite `α`, `Scaled(GroupNormL2(...), α)` multiplies the value by
-`α`, computes the array proximal operator with the step `αγ`, and gives the screen
-`α*kkt_violation(f, g/α, x, k)` (`test/groupnorml2.jl` checks the array prox and the
-screen). A zero `α` throws an
+`α`, computes the array proximal operator with the step `αγ`, and gives, at a zero group or
+for an entry in no group, the screen `α*kkt_violation(f, g/α, x, k)`
+(`test/groupnorml2.jl` checks the array prox and the screen), and throws an
+`ArgumentError` at a group with a nonzero entry. A zero `α` throws an
 `ArgumentError`, and an infinite `α` has no endpoint rule of its own. The
 [group-lasso example](examples/group_lasso_prox.md) checks the value, the
 proximal operators, the block operations and the screen against their formulas.

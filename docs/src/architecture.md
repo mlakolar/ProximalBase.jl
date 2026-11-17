@@ -17,7 +17,7 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/sparse_iterate.jl` | `SparseIterate` constructors, array indexing and conversion, broadcasting, sparse products and numerical recovery |
 | `src/symmetric_sparse_iterate.jl` | `SymmetricSparseIterate` constructors, coordinate/matrix views, copying, indexing and symmetric matrix operations |
 | `src/block_iterate.jl` | Ordered partitions, dense values, group activity, block views and layout comparison |
-| `src/interface.jl` | `AbstractFunction`, traits, generic allocating/mutating interfaces and coordinate KKT dispatch |
+| `src/interface.jl` | `AbstractFunction`, traits, generic allocating/mutating interfaces, and coordinate and full-point KKT dispatch |
 | `src/functions/zero.jl` | Zero function and its value/gradient/proximal operations |
 | `src/functions/linear.jl` | Linear functions and their value/gradient/proximal operations |
 | `src/functions/sqrnorml2.jl` | Squared Euclidean norm and centered ridge operations |
@@ -56,8 +56,9 @@ There is no automatic device registration or removed-family plugin layer.
 | `prox!(y,QuadraticFunction(A,b),x,γ)` | Shape/type preflight → cached eigenbasis → step-domain check → diagonal inverse factors → output conversion |
 | `prox_block(f,u::AbstractVector,k,γ)` | Allocate plain floating Vector → `GroupNormL2` or custom `prox_block!` |
 | `prox!(X::SymmetricSparseIterate,g,V,γ)` | Symmetric argument where needed → structural preflight (parameter symmetry is a model precondition) → the symmetric-coordinate kernel of the function, which follows the iterate activity rules |
-| `kkt_violation(g,grad,block,k)`, scalar penalty | Retained scalar screen at each global member → maximum |
-| `kkt_violation(g,grad,block,k)`, `GroupNormL2` | Check selected group layout and gradient length → group norm minus penalty coefficient |
+| `kkt_violation(g,v,block,k)`, scalar penalty | Entry score at each global member of group `k` (the screen at a zero entry) → maximum |
+| `kkt_violation(g,v,block,k)`, `GroupNormL2` | Check selected group layout and gradient length → group norm minus penalty coefficient at a zero group; `ArgumentError` at a group with a nonzero entry |
+| `kkt_violation(g,v,x)` | Checked array point, `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` or `SqrNormL2` → a pass over the entries, possibly followed by a pass that applies the rules for non-finite values by entry → `max(0, max score)` |
 
 Traits describe mathematical properties and capabilities; Julia concrete
 methods determine supported signatures. `isseparable=true` alone neither

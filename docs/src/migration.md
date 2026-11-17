@@ -43,6 +43,64 @@ For squared-norm regularization, use `SqrNormL2`. Code that relied on this inter
 implement the operations it needs through the [`AbstractFunction` interface](extending.md),
 or keep its own scalar-loss types and functions.
 
+### The four-argument `kkt_violation` reads the point (0.6, breaking)
+
+Before 0.6, for `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` and `SqrNormL2`,
+`kkt_violation(g,v,x,k)` returned the screen of coordinate `k` assumed zero, also when
+`x[k]` was nonzero. In 0.6 it evaluates the actual coordinate or group:
+at a zero coordinate it is the signed screen as before, and at a nonzero coordinate it is
+a nonnegative stationarity mismatch. The three-argument form
+`kkt_violation(g,v,i)` is unchanged. With `g = NormL1(0.5)`, `x = [0, 0, 2, -1]` and
+`v = [0.8, 0.2, 0, 0.5]` (values to rounding):
+
+| `i` | `xᵢ` | `kkt_violation(g,v,i)` | `kkt_violation(g,v,x,i)` before 0.6 | `kkt_violation(g,v,x,i)` in 0.6 |
+|--:|--:|--:|--:|--:|
+| 1 | 0 | 0.3 | 0.3 | 0.3 |
+| 2 | 0 | -0.3 | -0.3 | -0.3 |
+| 3 | 2 | -0.5 | -0.5 | **0.5** |
+| 4 | -1 | 0 | 0 | 0 |
+
+A new full-point form gives `kkt_violation(g,v,x) = 0.5` here, the nonnegative
+``\max(0,\max_k s_k)``. A positive score at a nonzero coordinate is a stationarity
+mismatch and not an instruction to set the coordinate to zero.
+
+What did not change:
+
+* Three-argument calls `kkt_violation(g,v,i)`.
+* Four-argument calls at zero coordinates, when `x`, `v` and the function's parameters
+  (levels, weights, centers and coefficients) are `Float32` or `Float64` arrays and values of one type, `v` is finite and
+  the function is not a `SqrNormL2` with an infinite level: they return the same values as
+  before. A working-set solver that ranks the inactive coordinates of a `SparseIterate` with
+  the four-argument form in that case is unaffected. Outside that case the arithmetic is in
+  the working type of the call, which can differ: for `f = SqrNormL2(0.1, Float32[1])`,
+  `v = Float32[1]` and `x = Float32[0]` the value was the `Float64` `0.9` before 0.6 and is the
+  `Float32` `0.9f0` in 0.6.
+* The group screen of `GroupNormL2` at a zero group (on an array point, for an entry
+  of a zero group), and its value `abs(v[i])` for an entry in no group.
+* `Scaled` over `GroupNormL2`: the screen at a zero group, and the value for an entry in no
+  group (`kkt_violation(Scaled(GroupNormL2(1.0, [[1]], [1.0]), 2.0), [0.0, 3.0], [0.0, 1.0], 2)`
+  is `3.0`).
+
+What changed besides the values of the table:
+
+* `GroupNormL2` at a group with a nonzero entry, on a `BlockIterate` or on an array
+  point, `Scaled` over `GroupNormL2` at a nonzero penalized group, and `Scaled` over
+  `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` or `SqrNormL2` at a nonzero
+  coordinate, throw an `ArgumentError`; before 0.6 they returned a screen value or a
+  surrogate such as `abs(v[i])`. A malformed parameter at the selected entry raises its own
+  error first.
+* A function defined outside the package with only the three-argument method gets its
+  value at a zero coordinate and an `ArgumentError` at a nonzero one, on arrays, a
+  `BlockIterate` and a `SymmetricSparseIterate`; see [Writing your own function](extending.md).
+* On a `SymmetricSparseIterate` the four-argument form reads the stored value of the
+  coordinate, and its score is in matrix-entry units. The full-point form throws an
+  `ArgumentError` there.
+* For arrays and `BlockIterate`, `length(v)` must equal `length(x)`
+  (`DimensionMismatch`).
+
+If code relied on the old value at a nonzero coordinate, call the three-argument form
+`kkt_violation(g,v,i)`, which is the screen of the coordinate assumed zero.
+
 ## Restored functions
 
 | Function | Restored from the archive | Differences from the archived version |

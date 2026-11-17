@@ -440,47 +440,71 @@ function prox_block! end
 ####################################
 
 """
-    kkt_violation(f, g, i)
-    kkt_violation(f, g, x, k)
+    kkt_violation(f, v, i)
+    kkt_violation(f, v, x, k)
+    kkt_violation(f, v, x)
 
-Return a signed optimality screen for a coordinate **assumed zero** in `h + f`,
-where `g = ∇h(x)` is the full smooth-part gradient. A positive result means
-zero violates its condition. A nonpositive result does not certify a nonzero
-coordinate or the entire point.
+Return a first-order optimality score of `h + f` from a vector `v` that the caller
+supplies, usually `∇h(x)`; `v` is not recomputed. The score is raw: no scaling,
+tolerance or stopping rule is applied, and it concerns stationarity, not global
+optimality.
 
-For `NormL1` the scalar screen is `abs(g[i]) - λ0*w[i]`; `ElasticNet` uses
-`λ1` and returns `-Inf` for an infinite ridge level. Other supported scalar
-screens are `ZeroFunction`, `LinearFunction`, `SqrNormL2` and `Scaled` leaves.
+* `kkt_violation(f, v, i)` is the signed screen of coordinate `i` **assumed zero**.
+  It reads no `x`. A positive value means that zero violates its condition.
+* `kkt_violation(f, v, x, k)` is the score of the actual coordinate `k` of `x`
+  (group `k` of a `BlockIterate`): the signed margin at a zero coordinate, and a
+  nonnegative mismatch of stationarity at a nonzero one. A positive mismatch is not
+  an instruction to set the coordinate to zero. *Since 0.6 this form reads `x`: at a
+  nonzero coordinate it does not return the screen.*
+* `kkt_violation(f, v, x)` is `max(0, max_k score_k)`, nonnegative, and zero of the
+  working type for an empty `x`.
 
-In the four-argument form, `k` is an entry index for a plain array or
-`SparseIterate`, an independent symmetric coordinate for a
-`SymmetricSparseIterate`, or a group ID for a `BlockIterate`. Scalar
-penalties take the maximum member screen on a block. For [`GroupNormL2`](@ref)
-on an array, an entry outside every group has screen `abs(g[k])`; so does an
-entry in a group containing any nonzero point value. Only when that entire
-group is zero does it use `norm(g[Gₖ]) - λ0*wₖ`. On a `BlockIterate`, `k`
-selects the group **assumed zero**, and the group screen is evaluated without
-testing its activity; the selected layout and gradient length are checked.
-There is no three-argument `GroupNormL2` screen.
+With `cᵢ = λ0*wᵢ` (`λ1*wᵢ` for `ElasticNet`), the scores of entry `i` at `xᵢ = 0` and
+at `xᵢ ≠ 0` are, for the five functions that have all three forms:
 
-Symmetric models require validated symmetric parameters. The gradient's chosen
-symmetric pair must not contain opposing infinities. Gradient-length and bounds
-checks differ by storage and function; see [screening a zero coordinate](@ref kkt-screens).
+* `NormL1`: `abs(vᵢ) - cᵢ` and `abs(vᵢ + cᵢ*sign(xᵢ))`.
+* `ElasticNet`: `abs(vᵢ) - cᵢ` (`-Inf` for an infinite ridge level) and
+  `abs((vᵢ + λ2*xᵢ) + cᵢ*sign(xᵢ))`.
+* `ZeroFunction`: `abs(vᵢ)` in both cases.
+* `LinearFunction`: `abs(vᵢ + cᵢ)` in both cases, with `cᵢ` its coefficient entry.
+* `SqrNormL2`: `abs(vᵢ + dᵢ)` in both cases, with `dᵢ` the entry `λ*xᵢ` or `λ*(xᵢ - yᵢ)` of the gradient at `x`,
+  computed in the working type of the call. The screen `kkt_violation(f, v, i)` takes `xᵢ = 0` and does not use it.
+
+`GroupNormL2` returns its group screen at a zero group and throws an `ArgumentError`
+at a group with a nonzero entry; `Scaled` over it does so at a nonzero penalized group, and
+`Scaled` over one of the five functions at a nonzero coordinate. A function defined outside this package gets its
+three-argument value at a zero coordinate and an `ArgumentError` at a nonzero one,
+unless it defines the method.
 
 # Examples
-```jldoctest
+```jldoctest kkt_violation_example
 julia> kkt_violation(NormL1(0.5), [0.75, 0.25], 1)
 0.25
+
+julia> g = NormL1(0.5); x = [0.0, 0.0, 2.0, -1.0]; v = [0.8, 0.2, 0.0, 0.5];
+
+julia> kkt_violation(g, v, 3)  # the screen assumes x[3] = 0
+-0.5
+
+julia> kkt_violation(g, v, x, 3)  # x[3] = 2 is read: a mismatch
+0.5
+
+julia> kkt_violation(g, v, x)
+0.5
 ```
+
+Storage-specific checks, element types, non-finite values and the extension rules are in
+[scoring a coordinate](@ref kkt-screens) and the [numerical contract](@ref numerics).
 """
 function kkt_violation end
 
-# for a separable function, the optimality of a coordinate at zero does not
-# depend on the rest of x
+# The four-argument form reads the point. A function of this package takes its own method (_kkt_violation);
+# a function defined outside it has the screen of the three-argument form at a zero coordinate (_kkt_custom).
 kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
   (_check_one_based(g, x); eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation);
    _check_kkt_coordinate(g, x, i);
-   _isbuiltin(f) ? _kkt_violation(f, g, x, i) : kkt_violation(f, g, i))
+   length(g) == length(x) || _gradient_length_error(g, x);
+   _isbuiltin(f) ? _kkt_violation(f, g, x, i) : _kkt_custom(f, g, x, i))
 function kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
   _check_one_based(g)
   eltype(g) <: Real || _real_error(:kkt_violation)
@@ -537,18 +561,163 @@ lipschitz(f::AbstractFunction) =
   throw(ArgumentError(issmooth(f) ? "no Lipschitz constant is known for the gradient of $(nameof(typeof(f)))" :
                                     "$(nameof(typeof(f))) is not smooth"))
 
-function _kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
-  r, c = tril_cartesian(x.p, k)
-  kkt_violation(f, g, (c - 1) * x.p + r)
-end
-
+# A function of this package without a point-aware method (or, below, a custom function) reaches these methods:
+# the four-argument call has no value for it, and for a function defined outside the package the value is the
+# screen of the three-argument form at a zero coordinate or group.
 _kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
-  _isbuiltin(f) ? kkt_violation(f, g, i) : kkt_violation(f, g, x, i)
+  _isbuiltin(f) ? throw(MethodError(kkt_violation, (f, g, x, i))) : kkt_violation(f, g, x, i)
 
 # a group at zero violates optimality as much as its worst index
 kkt_violation(f::AbstractFunction, g::AbstractArray, x::BlockIterate, k::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation);
-   _isbuiltin(f) ? _kkt_violation(f, g, x, k) : maximum(i -> kkt_violation(f, g, i), x.groups[k]))
+   length(g) == length(x) || _gradient_length_error(g, x);
+   _isbuiltin(f) ? _kkt_violation(f, g, x, k) : _kkt_custom(f, g, x, k))
 
 _kkt_violation(f::AbstractFunction, g::AbstractArray, x::BlockIterate, k::Integer) =
-  _isbuiltin(f) ? maximum(i -> kkt_violation(f, g, i), x.groups[k]) : kkt_violation(f, g, x, k)
+  _isbuiltin(f) ? throw(MethodError(kkt_violation, (f, g, x, k))) : kkt_violation(f, g, x, k)
+
+function _kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
+  _isbuiltin(f) && throw(MethodError(kkt_violation, (f, g, x, k)))
+  r, c = tril_cartesian(x.p, k)
+  i = (c - 1) * x.p + r
+  iszero(_getstored(x, k)) ? kkt_violation(f, g, i) : _kkt_custom_error(f, g, i)
+end
+
+# a function defined outside the package: its three-argument screen where the coordinate or group of x is
+# zero, an error where it is not
+function _kkt_custom(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer)
+  iszero(x[i]) && return kkt_violation(f, g, i)
+  _kkt_custom_error(f, g, i)
+end
+function _kkt_custom(f::AbstractFunction, g::AbstractArray, x::BlockIterate, k::Integer)
+  G = x.groups[k]
+  all(j -> iszero(x[j]), G) && return maximum(i -> kkt_violation(f, g, i), G)
+  _kkt_custom_error(f, g, first(G))
+end
+@noinline function _kkt_custom_error(f, g, i)
+  hasmethod(kkt_violation, Tuple{typeof(f), typeof(g), typeof(i)}) || throw(MethodError(kkt_violation, (f, g, i)))
+  name = nameof(typeof(f))
+  throw(ArgumentError("kkt_violation(f, g, x, k) at a nonzero coordinate or group is not defined for $name: its " *
+    "three-argument method is the screen of a coordinate assumed zero. Define " *
+    "kkt_violation(f::$name, g::AbstractArray, x::AbstractArray, k::Integer), and a method for BlockIterate " *
+    "and SymmetricSparseIterate where they are used"))
+end
+
+# The screen of a coordinate or group assumed zero, by the methods that serve the three-argument form: the old
+# value of the four-argument form. Scaled reaches the screen of its function through it at a zero point.
+_kkt_screen(f, g, x, k) = _kkt_violation(f, g, x, k)
+
+####################################
+#  Point-aware scores of the entrywise functions
+####################################
+
+# Each of NormL1, ElasticNet, ZeroFunction, LinearFunction and SqrNormL2 supplies, for the floating type W of
+# the call:
+#   _kkt_type(f, V, X)                 W, from the element types of v and x
+#   _kkt_state(f, W)                   what a call holds fixed: the coefficient of an unweighted function, a level
+#   _kkt_natural(f, s, W, v, x, i)     the score of entry i from v and x in W, by the formulas of kkt_violation
+#   _kkt_entry(f, s, W, v, x, i)       the same with the rules for NaN and infinite v and x
+#   _kkt_flag(f, x, r)                 0, or NaN for an entry that makes the natural result of the loop doubtful beyond a NaN
+# The natural score is the loop of the full-point form for dense arrays of one type. The loop keeps a NaN in its
+# maximum, which is also the result the rules give for a NaN in v or x; the entries that the loop does not decide
+# (an infinite x, which changes the score of NormL1 and ElasticNet, or a non-finite gradient entry of SqrNormL2)
+# and a NaN maximum send the call to the pass by entry of _kkt_entry.
+@inline _kkt_type(f, ::Type{V}, ::Type{X}) where {V, X} = float(promote_type(V, X))
+@inline _kkt_fast_ok(f, s) = true
+@inline _kkt_flag(f, x, r) = x - x
+@inline function _kkt_entry(f, s, ::Type{W}, v, x, i) where {W}
+  vw = convert(W, v)
+  xw = convert(W, x)
+  _kkt_override(_kkt_natural(f, s, W, vw, xw, i), vw, xw)
+end
+
+# a NaN in the entries the formula reads gives NaN, and otherwise an infinite one gives Inf, replacing the natural score r
+@inline function _kkt_override(r::W, v, x) where {W}
+  (isnan(v) | isnan(x)) && return W(NaN)
+  (isinf(v) | isinf(x)) && return W(Inf)
+  r
+end
+@inline function _kkt_override(r::W, v) where {W}
+  isnan(v) && return W(NaN)
+  isinf(v) && return W(Inf)
+  r
+end
+
+Base.@propagate_inbounds function _kkt_local(f, g::AbstractArray, x::AbstractArray, i::Integer)
+  W = _kkt_type(f, eltype(g), eltype(x))
+  _kkt_entry(f, _kkt_state(f, W), W, g[i], x[i], i)
+end
+function _kkt_block(f, g::AbstractArray, x::BlockIterate, k::Integer)
+  G = x.groups[k]
+  W = _kkt_type(f, eltype(g), eltype(x))
+  s = _kkt_state(f, W)
+  m = W(-Inf)
+  for j in G
+    m = max(m, _kkt_entry(f, s, W, g[j], x[j], j))
+  end
+  m
+end
+# coordinate k of the lower triangle: the symmetric gradient pair of g, the parameters at the lower position
+function _kkt_symmetric(f, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
+  r, c = tril_cartesian(x.p, k)
+  j = (c - 1) * x.p + r
+  W = _kkt_type(f, eltype(g), eltype(x))
+  _kkt_entry(f, _kkt_state(f, W), W, g[j], _getstored(x, k), j)
+end
+
+# the full-point form: one validation and a pass over the entries; dense arrays of one hardware type can be followed by
+# a pass by entry that applies the rules for non-finite values (see _kkt_reduce)
+function _kkt_point(f, v::AbstractArray, x::AbstractArray)
+  _check_one_based(v, x)
+  eltype(v) <: Real || _real_error(:kkt_violation)
+  eltype(x) <: Real || _real_error(:kkt_violation)
+  length(v) == length(x) || _gradient_length_error(v, x)
+  _checkparams(f, x)
+  W = _kkt_type(f, eltype(v), eltype(x))
+  _kkt_reduce(f, _kkt_state(f, W), W, v, x)
+end
+# max(0, max score) by entry, with the maximum that keeps a NaN
+function _kkt_scalar(f, s, ::Type{W}, v, x) where {W}
+  m = zero(W)
+  for i in 1:length(x)
+    m = max(m, _kkt_entry(f, s, W, v[i], x[i], i))
+  end
+  m
+end
+_kkt_reduce(f, s, ::Type{W}, v, x) where {W} = _kkt_scalar(f, s, W, v, x)
+# Dense arrays of one hardware type: a loop over the natural scores. The running maximum from zero is the maximum
+# of the scores and 0, and keeps a NaN. The flag sum is NaN when an entry is one that the loop does not decide, and
+# then the pass by entry decides, as it does for a NaN maximum.
+function _kkt_reduce(f, s, ::Type{W}, v::Array{W}, x::Array{W}) where {W<:Union{Float32, Float64}}
+  _kkt_fast_ok(f, s) || return _kkt_scalar(f, s, W, v, x)
+  m = zero(W)
+  flag = zero(W)
+  @inbounds @simd for i in 1:length(x)
+    vi = v[i]
+    xi = x[i]
+    r = _kkt_natural(f, s, W, vi, xi, i)
+    flag += _kkt_flag(f, xi, r)
+    m = max(m, r)
+  end
+  isnan(m + flag) ? _kkt_scalar(f, s, W, v, x) : m
+end
+
+@noinline _kkt_symmetric_point_error(f) = throw(ArgumentError(
+  "kkt_violation(f, v, x) is not defined for a SymmetricSparseIterate and $(nameof(typeof(f))): use the coordinate form kkt_violation(f, v, x, k)"))
+
+# The methods of a function with the entry kernels above, for arrays, a BlockIterate and a SymmetricSparseIterate.
+macro _kkt_entrywise(F)
+  esc(quote
+    _kkt_violation(f::$F, g::AbstractArray, x::AbstractArray, i::Integer) = _kkt_local(f, g, x, i)
+    _kkt_violation(f::$F, g::AbstractArray, x::BlockIterate, k::Integer) = _kkt_block(f, g, x, k)
+    _kkt_violation(f::$F, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) = _kkt_symmetric(f, g, x, k)
+    _kkt_screen(f::$F, g::AbstractArray, ::AbstractArray, i::Integer) = kkt_violation(f, g, i)
+    _kkt_screen(f::$F, g::AbstractArray, x::BlockIterate, k::Integer) = maximum(i -> kkt_violation(f, g, i), x.groups[k])
+    function _kkt_screen(f::$F, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
+      r, c = tril_cartesian(x.p, k)
+      kkt_violation(f, g, (c - 1) * x.p + r)
+    end
+    kkt_violation(f::$F, v::AbstractArray, x::AbstractArray) = _kkt_point(f, v, x)
+    kkt_violation(f::$F, ::AbstractArray, ::SymmetricSparseIterate) = _kkt_symmetric_point_error(f)
+  end)
+end

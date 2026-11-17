@@ -164,6 +164,22 @@ _checkwrite(p::Union{typeof(prox!), typeof(value_and_prox!)}, g::_L1Shrink, y::_
 
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _kkt_coefficient(eltype(g), f.λ0, _entry(f.w, i)))
+
+# The point-aware score (see kkt_violation): the coefficient cᵢ = λ0 wᵢ formed by _kkt_coefficient(W, ...) and rounded
+# once to the floating working type W (the screen above does the same with the element type of g when that type is
+# floating, and otherwise keeps the coefficient in the types of the level and the weight), then |vᵢ| - cᵢ at a zero
+# entry and |vᵢ + cᵢ sign(xᵢ)| at a nonzero one. An unweighted function forms the coefficient once per call.
+@inline _kkt_state(f::NormL1{<:Real, Nothing}, ::Type{W}) where {W} = _kkt_coefficient(W, f.λ0, true)
+@inline _kkt_state(::NormL1, ::Type) = nothing
+Base.@propagate_inbounds _kkt_coef(f::NormL1, ::Nothing, ::Type{W}, i) where {W} =
+  _kkt_coefficient(W, f.λ0, _entry(f.w, i))
+@inline _kkt_coef(::NormL1, c, ::Type, i) = c
+Base.@propagate_inbounds function _kkt_natural(f::NormL1, s, ::Type{W}, v::W, x::W, i) where {W}
+  c = _kkt_coef(f, s, W, i)
+  ifelse(iszero(x), abs(v) - c, abs(v + c * sign(x)))
+end
+@_kkt_entrywise NormL1
+
 restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entries(f.w, S))
 
 # without weights: one loop for a few hundred entries (_value_sumabs) and Base's vectorized sum otherwise (a sum with

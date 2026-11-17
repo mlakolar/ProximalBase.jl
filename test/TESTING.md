@@ -45,6 +45,16 @@ table of the plan, Float32/Float64 extremes against 4096-bit BigFloat (proximal 
 infinite and zero factors, an infinite level beside a finite one, levels that need different folds, and read
 counts that show values and proximal points on sparse and symmetric iterates read the weights of the stored
 entries only.
+`kkt_point` tests the three forms of `kkt_violation` (#970) for `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction`
+and `SqrNormL2` in Float32/64: the worked example of the contract, the signed margin at a zero entry against the
+nonnegative mismatch at a nonzero one, `ElasticNet(λ1, 0)` against `NormL1(λ1)` bit for bit, mixed element and
+parameter types against BigFloat within `k eps(W) (|v| + |λ2 x| + c)`, the full-point value against `max(0, max score)`,
+the two loops of ProximalSolvers (bit for bit, unweighted), a point from a proximal step, the cancellation case, empty
+arrays, matrices, `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate`, NaN and infinite entries of `v` and `x`
+(the precedence rules, at the first, a middle and the last position of a vector long enough to take the loop of natural scores and the pass by
+entry), infinite coefficients, levels and weights, signed zeros and subnormals, validation before the refusals of
+`GroupNormL2` and `Scaled` at a nonzero point, functions defined outside the package, no mutation, ranges as inputs,
+inference and zero allocations.
 `groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
 its value, group soft thresholding and group KKT screen in Float32/64: analytical
 and threshold cases, singleton groups against weighted `NormL1`, noncontiguous

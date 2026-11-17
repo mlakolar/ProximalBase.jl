@@ -73,6 +73,14 @@ gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray) = (_value_and_gra
 prox_block(::ZeroFunction, v::Real, ::Integer, ::Real) = v
 kkt_violation(::ZeroFunction, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]))
+
+# The point-aware score (see kkt_violation): |vᵢ|, from v alone; x is not read.
+@inline _kkt_state(::ZeroFunction, ::Type) = nothing
+@inline _kkt_natural(::ZeroFunction, s, ::Type{W}, v::W, x::W, i) where {W} = abs(v)
+@inline _kkt_flag(::ZeroFunction, x, r) = zero(r)
+@inline _kkt_entry(f::ZeroFunction, s, ::Type{W}, v, x, i) where {W} = (vw = convert(W, v); _kkt_override(abs(vw), vw))
+@_kkt_entrywise ZeroFunction
+
 restrict(f::ZeroFunction, ::AbstractVector{<:Integer}) = f
 
 

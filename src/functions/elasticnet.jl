@@ -394,9 +394,11 @@ function kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer)
   isinf(f.λ2) ? oftype(v, -Inf) : v
 end
 
-# The point-aware score (see kkt_violation): the coefficient cᵢ = λ1 wᵢ as in the NormL1 score, |vᵢ| - cᵢ at a zero
-# entry (-Inf for an infinite λ2, as the screen above), and |(vᵢ + λ2 xᵢ) + cᵢ sign(xᵢ)| at a nonzero one, with λ2
-# converted to W; the ridge term is left out for λ2 = 0. A call holds the coefficient of an unweighted function.
+# The point-aware score (see kkt_violation): the coefficient cᵢ = λ1 wᵢ formed by _kkt_coefficient(W, ...) and rounded
+# once to the floating working type W, as in the NormL1 score (the screen above does the same with the element type of
+# g when that type is floating, and otherwise keeps the coefficient in the types of the level and the weight), |vᵢ| - cᵢ
+# at a zero entry (-Inf for an infinite λ2, as the screen above), and |(vᵢ + λ2 xᵢ) + cᵢ sign(xᵢ)| at a nonzero one,
+# with λ2 converted to W; the ridge term is left out for λ2 = 0. A call holds the coefficient of an unweighted function.
 struct _ElasticKkt{C, W}
   c::C
   l2::W

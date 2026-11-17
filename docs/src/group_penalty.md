@@ -182,8 +182,8 @@ form throws an `ArgumentError`, because the penalty is not separable, and a
 
 `kkt_violation(g, G, x)` is the full-point measure: the maximum of `0`, of the positive
 scores of the groups and of ``\lvert G_i\rvert`` over the entries in no group (including the
-entries past the largest index of a group). It is a **maximum of block 2-norms** (of the
-residuals ``G_{G_k}+\partial g_k``, and of single entries), not an ``\ell_\infty``
+entries past the largest index of a group). It is a **maximum of block 2-norms** (the block scores
+are 2-norms of vectors) and of single entries, not an ``\ell_\infty``
 distance, and a tolerance chosen for an ``\ell_\infty`` residual does not carry
 over. It is zero of the working type for an empty `x`. It validates one-based axes, real
 entries, `length(G) == length(x)` and the group extent once, and on a `BlockIterate`
@@ -258,9 +258,9 @@ which one the exact value rounds to. See [value range limits](@ref numerical-val
 throw an `ArgumentError` before anything is written), and it has no
 `restrict`, no per-group step and no compact block method under `Scaled`.
 With a positive finite `α`, `Scaled(GroupNormL2(...), α)` multiplies the value by
-`α`, computes the array proximal operator with the step `αγ`, and scores a group as
-`α` times the score of `GroupNormL2` at `v/α` (see the [scaling guide](@ref scaling-guide)
-for the domain and the unsupported cases); `test/kkt_block.jl` checks these scores
+`α`, computes the array proximal operator with the step `αγ`, and scores a group by evaluating the score of
+`GroupNormL2` on `v/α` and multiplying it by `α` (see the [scaling guide](@ref scaling-guide)
+for the limits and the unsupported cases); `test/kkt_block.jl` checks these scores
 against the definition of the scaled function. A zero `α` throws an
 `ArgumentError`, and an infinite `α` has no endpoint rule of its own. The
 [group-lasso example](examples/group_lasso_prox.md) checks the value, the

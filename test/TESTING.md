@@ -56,10 +56,12 @@ entry), infinite coefficients, levels and weights, signed zeros and subnormals, 
 at a nonzero point (their scores are in `kkt_block`), functions defined outside the package, no mutation, ranges as
 inputs, inference and zero allocations.
 `kkt_block` tests the point-aware forms of `kkt_violation` (#970) for `GroupNormL2`, `NormL2` and `Scaled` in Float32/64.
-Blocks are checked against a BigFloat evaluation of the definition (the distance from `-v_G` to the subdifferential
-of `c‖·‖₂` at `x_G`, with `c` the exact product of level and weight) within `(n + 8) u (‖v_G‖₂ + c)`, over magnitudes from
-subnormal to `floatmax` (squares that overflow and underflow), block sizes 1 to 64, and coefficients zero, tiny, large and
-infinite: the group example of the contract, the full-point value against the maximum of the local scores and the entries
+Blocks are checked against a BigFloat evaluation of the definition (the signed screen `‖v_G‖₂ - c` at a zero block, whose
+positive part is the distance from `-v_G` to the subdifferential, and that distance at a nonzero block, with `c` the exact
+product of level and weight) within `(n + 8) u (‖v_G‖₂ + c) + 4 n nextfloat(zero(W))`, with `u = eps(W)/2`. A reference within
+100 `eps(W)` of `floatmax(W)` is not judged, and a reference beyond it must overflow to the infinity of its sign; the helper is
+itself tested on wrong values. The magnitudes run from subnormal to `floatmax` (squares that overflow and underflow), the block
+sizes from 1 to 64, and the coefficients zero, tiny, large and infinite: the group example of the contract, the full-point value against the maximum of the local scores and the entries
 in no group, `SparseIterate` and `BlockIterate` points, NaN and infinite entries and their precedence, signed zeros and
 subnormals, validation and layout, `NormL2` (the full-point form, and the errors of the other forms), `Scaled` over each
 leaf against the BigFloat definition of the scaled function and its stated domain, chains of wrappers whose factors do not
@@ -68,7 +70,9 @@ the level of the others where it gives a normal one, an `ArgumentError` where it
 score, functions defined outside the package under `Scaled` (with a screen alone, with four-argument and full-point methods of
 their own, and with methods for `Scaled{<:T}`), out-of-range indices through the refusing routes, mixed element types and result
 types, `@inferred` (also of the class of a `Scaled`), zero allocations of the dense forms and of the cold paths of the block
-kernel, and malformed parameters of a symmetric model under `Scaled`.
+kernel, entries converted to the working type before they are classified or measured (integer extremes, `UInt128`, `Float16`
+with an integer point, `Rational` and `BigInt` points), retained chains with an infinite factor, and malformed parameters of a
+symmetric model under `Scaled`.
 `groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
 its value, group soft thresholding and group KKT screen in Float32/64: analytical
 and threshold cases, singleton groups against weighted `NormL1`, noncontiguous

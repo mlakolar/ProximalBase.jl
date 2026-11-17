@@ -97,7 +97,7 @@ selected ordered layout and the full gradient length; its array-point form takes
 its full-point form checks the whole layout of a `BlockIterate`, and its three-argument form throws
 because it is not entrywise separable. `NormL2` has the full-point form, the kernel with all of `x`
 as one block, and its other forms throw `ArgumentError`. `Scaled` scores a wrapper with a finite
-positive factor as `α` times the score of its function at `v/α`; a nested chain whose product of factors
+positive factor by evaluating the score of its function on `v/α` and multiplying it by `α`; a nested chain whose product of factors
 is not a normal number is scored through the function with the product applied to the gradient
 (`LinearFunction`, `SqrNormL2`) or folded into the level (`NormL1`, `ElasticNet`, `GroupNormL2`, `NormL2`),
 and refuses the nonzero and full-point forms where there is no fold, as it does for an infinite

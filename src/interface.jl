@@ -479,9 +479,9 @@ that of `f`. The value of `kkt_violation(f, v, x)` is then a maximum of block 2-
 to first order in `n*u`, with `n` the size of the block and `u = eps(W)/2` for the working type `W` of `v` and `x`; outside
 that range the sums are scaled by an exponent, which extends the range and not the precision.
 
-`Scaled` scores a wrapper with a finite positive factor `α` as `α` times the score of its function at `v/α`, for the
-functions above (`NormL2` in the full-point form), so `1/α` and `abs(vᵢ)/α` must be representable: outside that, the
-value is the NaN or `Inf` of the formula. For a chain of wrappers whose factors do not multiply to a normal number, the product is applied to the gradient
+`Scaled` with a finite positive factor `α` evaluates the existing score of its function (the functions above; `NormL2` in
+the full-point form) on the lazy gradient `v/α`, with the rounding and range limits of that evaluation, and multiplies it by
+`α`; underflow, overflow and `NaN` are not recovered. For a chain of wrappers whose factors do not multiply to a normal number, the product is applied to the gradient
 of `LinearFunction` and `SqrNormL2` (the three-argument form too), and folded into the level of the other functions where
 that gives a normal level. Where it does not, the three-argument form and a zero coordinate or group have a value, and a
 nonzero point and the full-point form throw an `ArgumentError`. So does an infinite factor at a nonzero point and in

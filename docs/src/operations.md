@@ -300,8 +300,8 @@ tolerance chosen for one is not a tolerance for the other.
 
 The local form of `GroupNormL2` takes an entry of an array point, which selects its group, or the group
 `k` of a `BlockIterate`; an entry in no group scores ``\lvert v_i\rvert``. `NormL2` has no form for an entry or a group
-(an `ArgumentError`). `Scaled` of these functions and of the five above scores as `α` times the score at `v/α`, with
-the unsupported cases of the [scaling guide](@ref scaled-kkt).
+(an `ArgumentError`). `Scaled` of these functions and of the five above evaluates the score on `v/α` and multiplies it by `α`, with
+the limits and unsupported cases of the [scaling guide](@ref scaled-kkt).
 
 The worked example uses ``g=\lambda\|x\|_1`` with ``\lambda=0.5``, a point with
 two zero coordinates and two nonzero ones, and a supplied `v`:

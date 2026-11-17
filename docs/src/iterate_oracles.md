@@ -102,8 +102,9 @@ because the penalty is not entrywise separable, as does a `SymmetricSparseIterat
 point. `NormL2` takes the whole of `x` as one block and has the full-point form
 and no other: its three-argument and four-argument forms throw `ArgumentError`.
 
-`Scaled` with a finite positive factor `α` scores as `α` times the score of its function at
-`v/α`, for the five scalar functions, `GroupNormL2` and, in the full-point form, `NormL2`.
+`Scaled` with a finite positive factor `α` evaluates the score of its function on `v/α` and multiplies it by `α`,
+for the five scalar functions, `GroupNormL2` and, in the full-point form, `NormL2` (the rounding and range limits
+of that evaluation are in the [scaling guide](@ref scaled-kkt)).
 Nested wrappers whose factors do not multiply to a normal number, an infinite factor,
 and the functions without a score have unsupported cases, which are listed in
 the [scaling guide](@ref scaled-kkt), and a function without a score gives a `MethodError` for the

@@ -79,9 +79,11 @@ the block mismatch ``\lVert v_G+c\,x_G/\lVert x_G\rVert_2\rVert_2``, which is ze
 The full-point value is the maximum of `0` and of the positive block scores, here about `0`; it is a
 maximum of block 2-norms, not an ``\ell_\infty`` distance. `NormL2` has the full-point form and no other.
 
-What did not change:
+What did not change, for the unscaled functions and for a single wrapper with a finite positive factor (nested wrappers
+with a product of factors that is not a normal number, and infinite factors, have the changes listed below):
 
-* Three-argument calls `kkt_violation(g,v,i)`.
+* Three-argument calls `kkt_violation(g,v,i)`, except the screen of a nested wrapper around `LinearFunction` and a
+  centered `SqrNormL2` (corrected below) and of `NormL2` (an `ArgumentError` below).
 * Four-argument calls at zero coordinates, when `x`, `v` and the function's parameters
   (levels, weights, centers and coefficients) are `Float32` or `Float64` arrays and values of one type, `v` is finite and
   the function is not a `SqrNormL2` with an infinite level: they return the same values as
@@ -98,19 +100,21 @@ What did not change:
   was `NaN` (`Inf - Inf`).
 * `Scaled` over `GroupNormL2`: the screen at a zero group, and the value for an entry in no
   group (`kkt_violation(Scaled(GroupNormL2(1.0, [[1]], [1.0]), 2.0), [0.0, 3.0], [0.0, 1.0], 2)`
-  is `3.0`), under the same conditions.
+  is `3.0`), for a single wrapper with a finite positive factor and under the same conditions.
 
 What changed besides the values of the table:
 
 * `GroupNormL2` at a group with a nonzero entry, on a `BlockIterate` or on an array
   point, has the block mismatch (see above), and so has `Scaled` over `GroupNormL2` and, at a nonzero
   coordinate, `Scaled` over `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` or `SqrNormL2`
-  (`α` times the score at `v/α`). A malformed parameter at the selected entry raises its own
+  (the score evaluated on `v/α`, times `α`). A malformed parameter at the selected entry raises its own
   error first.
-* The result type of the point-aware forms is `W = float(promote_type(eltype(v), eltype(x)))`
-  (with the element type of a parameter array for `LinearFunction` and a centered `SqrNormL2`).
-  A `Float32` gradient with a `Float64` iterate, such as the default `BlockIterate(p, f)`, gives a
-  `Float64` score for `GroupNormL2`, where earlier versions gave the type of `v`.
+* The result type of the point-aware forms of the unscaled functions is `W = float(promote_type(eltype(v), eltype(x)))`
+  (with the element type of a parameter array for `LinearFunction` and a centered `SqrNormL2`). A single `Scaled`
+  wrapper also promotes with the type of the reciprocal factor, and a smooth chain includes the type of its factors:
+  `kkt_violation(2 * NormL1(0.5f0), Float32[1], Float32[1], 1)` is a `Float64`. A `Float32` gradient with a `Float64`
+  iterate, such as the default `BlockIterate(p, f)`, gives a `Float64` score for `GroupNormL2`, where earlier versions
+  gave the type of `v`. The branches of the scaled forms are in the [numerical contract](numerics.md).
 * `NormL2` has the full-point form `kkt_violation(f,v,x)`. Its three-argument and four-argument
   forms, which were a `MethodError`, throw an `ArgumentError` that names the full-point form.
 * Nested `Scaled` wrappers whose product of factors is not a normal number: around

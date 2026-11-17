@@ -67,18 +67,28 @@ mismatch and not an instruction to set the coordinate to zero.
 What did not change:
 
 * Three-argument calls `kkt_violation(g,v,i)`.
-* Four-argument calls at zero coordinates, with `x` and `v` of one element type and a
-  finite `v`: they return the same values as before. A working-set solver that ranks the inactive
-  coordinates of a `SparseIterate` with the four-argument form is in this case.
+* Four-argument calls at zero coordinates, when `x`, `v` and the function's parameters
+  (levels, weights, centers and coefficients) have one floating type, `v` is finite and
+  the function is not a `SqrNormL2` with an infinite level: they return the same values as
+  before. A working-set solver that ranks the inactive coordinates of a `SparseIterate` with
+  the four-argument form in that case is unaffected. Outside that case the arithmetic is in
+  the working type of the call, which can differ: for `f = SqrNormL2(0.1, Float32[1])`,
+  `v = Float32[1]` and `x = Float32[0]` the value was the `Float64` `0.9` before 0.6 and is the
+  `Float32` `0.9f0` in 0.6.
 * The group screen of `GroupNormL2` at a zero group (on an array point, for an entry
   of a zero group), and its value `abs(v[i])` for an entry in no group.
+* `Scaled` over `GroupNormL2`: the screen at a zero group, and the value for an entry in no
+  group (`kkt_violation(Scaled(GroupNormL2(1.0, [[1]], [1.0]), 2.0), [0.0, 3.0], [0.0, 1.0], 2)`
+  is `3.0`).
 
 What changed besides the values of the table:
 
 * `GroupNormL2` at a group with a nonzero entry, on a `BlockIterate` or on an array
-  point, and `Scaled` over `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction`,
-  `SqrNormL2` or `GroupNormL2` at a nonzero coordinate or group, throw an `ArgumentError`;
-  before 0.6 they returned a screen value or a surrogate such as `abs(v[i])`.
+  point, `Scaled` over `GroupNormL2` at a nonzero penalized group, and `Scaled` over
+  `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` or `SqrNormL2` at a nonzero
+  coordinate, throw an `ArgumentError`; before 0.6 they returned a screen value or a
+  surrogate such as `abs(v[i])`. A malformed parameter at the selected entry raises its own
+  error first.
 * A function defined outside the package with only the three-argument method gets its
   value at a zero coordinate and an `ArgumentError` at a nonzero one, on arrays, a
   `BlockIterate` and a `SymmetricSparseIterate`; see [Writing your own function](extending.md).

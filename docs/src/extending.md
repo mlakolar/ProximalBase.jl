@@ -153,6 +153,12 @@ function that is called on a `BlockIterate`: with only the first, a call with a
 `BlockIterate` is ambiguous with the method of the package. A method that leaves `v`, `x`
 or `k` untyped is ambiguous with the methods of the package for array points.
 
+A `SymmetricSparseIterate` is not an `AbstractArray`, so a method with `x::AbstractArray`
+does not apply to it and is not ambiguous with the method of the package for it. A call
+with a symmetric iterate then follows the rules above: the value of the three-argument
+method at a zero coordinate and an `ArgumentError` at a nonzero one, or a `MethodError`
+without that method. Symmetric support needs a method typed `x::SymmetricSparseIterate`.
+
 ```@example custom_kkt
 using ProximalBase
 import ProximalBase: kkt_violation

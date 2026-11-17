@@ -58,7 +58,7 @@ There is no automatic device registration or removed-family plugin layer.
 | `prox!(X::SymmetricSparseIterate,g,V,γ)` | Symmetric argument where needed → structural preflight (parameter symmetry is a model precondition) → the symmetric-coordinate kernel of the function, which follows the iterate activity rules |
 | `kkt_violation(g,v,block,k)`, scalar penalty | Entry score at each global member of group `k` (the screen at a zero entry) → maximum |
 | `kkt_violation(g,v,block,k)`, `GroupNormL2` | Check selected group layout and gradient length → group norm minus penalty coefficient at a zero group; `ArgumentError` at a group with a nonzero entry |
-| `kkt_violation(g,v,x)` | Checked array point, `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` or `SqrNormL2` → one pass over the entries → `max(0, max score)` |
+| `kkt_violation(g,v,x)` | Checked array point, `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` or `SqrNormL2` → a pass over the entries, possibly followed by a pass that applies the rules for non-finite values by entry → `max(0, max score)` |
 
 Traits describe mathematical properties and capabilities; Julia concrete
 methods determine supported signatures. `isseparable=true` alone neither

@@ -280,9 +280,12 @@ the five families with these forms return the following scalars.
 | `LinearFunction` | ``\lvert v_i+c_i\rvert`` | ``\lvert v_i+c_i\rvert`` | ``\lVert v+c\rVert_\infty`` |
 | `SqrNormL2` | ``\lvert v_i+d_i\rvert`` | ``\lvert v_i+d_i\rvert`` | ``\lVert v+\nabla g(x)\rVert_\infty`` |
 
-For `LinearFunction`, ``c_i`` is its coefficient entry. For `SqrNormL2`,
-``d_i`` is entry ``i`` of ``\nabla g(x)`` as the gradient oracle forms it:
-``\lambda x_i``, or ``\lambda(x_i-y_i)`` with a center ``y``. The subdifferential of a smooth function is its gradient, so its score is
+For `LinearFunction`, ``c_i`` is its coefficient entry. For `SqrNormL2`, the
+three-argument screen takes ``x_i=0`` (``\lvert v_i\rvert``, or ``\lvert v_i-\lambda y_i\rvert`` with a
+center ``y``), and the four-argument and full-point forms use ``d_i``, entry ``i`` of ``\nabla g(x)`` as the
+ridge-gradient helpers form it in the working type of the call: ``\lambda x_i``, or
+``\lambda(x_i-y_i)`` with a center. The full-point value equals the ``\ell_\infty`` norm of `v + gradient(g,x)` when
+the gradient is computed in the same precision. The subdifferential of a smooth function is its gradient, so its score is
 nonnegative at a zero coordinate as well. The norm of the full-point value is the ``\ell_\infty`` norm for these
 five functions; [`GroupNormL2`](group_penalty.md) measures block 2-norms, so a
 tolerance chosen for one is not a tolerance for the other.

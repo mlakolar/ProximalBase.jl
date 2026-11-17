@@ -152,8 +152,10 @@ symmetric parameter pairs itself.
 The `SymmetricSparseIterate`-specific `kkt_violation` checks the extent of the function's
 parameters, uses the symmetric matrix gradient and the stored value of the coordinate, and
 rejects an opposing-infinity gradient pair. It does not compare mirrored parameter entries.
-The score is in matrix-entry units: for an off-diagonal coordinate it is half of the residual
-of the derivative in the independent parameter. The full-point form is not defined for a
+The score is in matrix-entry units. For an off-diagonal coordinate with a nonzero value it is
+half of the residual of the derivative in the independent parameter; with a zero value it is half
+of the signed margin in that parameter, whose positive part is the distance (for `NormL1(1.0)`, a
+zero point and a zero gradient, the score is `-1.0` and the distance is `0`). The full-point form is not defined for a
 `SymmetricSparseIterate` (`ArgumentError` for `NormL1`, `ElasticNet`, `ZeroFunction`,
 `LinearFunction` and `SqrNormL2`).
 

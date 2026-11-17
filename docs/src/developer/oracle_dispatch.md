@@ -83,7 +83,7 @@ Retained scalar screens are explicitly implemented for `NormL1`, `ElasticNet`, `
 screen of a coordinate assumed zero. For those five functions, the four-argument form on an
 array, a `SparseIterate`, a `BlockIterate` (maximum over the group) or a `SymmetricSparseIterate`
 evaluates the actual coordinate through one entry kernel per function, and the full-point form
-`kkt_violation(f,v,x)` makes one pass over an array point; it is not provided for a
+`kkt_violation(f,v,x)` makes a pass over an array point, possibly followed by a pass by entry for non-finite values; it is not provided for a
 `SymmetricSparseIterate` (`ArgumentError`). For a function defined outside the package, the public
 four-argument methods read `x`: the three-argument value at a zero coordinate or group, and an
 `ArgumentError` at a nonzero one; a method of the function itself is used as defined, and there
@@ -92,7 +92,8 @@ throws `MethodError`. `GroupNormL2` supplies a native group-norm screen instead,
 selected ordered layout and the full gradient length; its array-point form takes an entry index,
 and its three-argument form throws because it is not entrywise separable. `GroupNormL2` and
 `Scaled` keep the screen at a zero coordinate or group and throw `ArgumentError` at a nonzero
-group, and at a nonzero coordinate for `Scaled` over one of the five functions. Dispatch does not
+penalized group (an entry in no group keeps its value), and at a nonzero coordinate for `Scaled`
+over one of the five functions. Dispatch does not
 turn a quadratic/least-squares loss into a scalar penalty screen. KKT is the raw first-order score
 of the supplied `v`, not a general solver residual: scaling, tolerances and convergence decisions
 are the caller's. restrict slices supported parameters; no default exists for custom

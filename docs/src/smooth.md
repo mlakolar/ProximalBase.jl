@@ -315,13 +315,17 @@ not check whether the discarded contribution is finite; a non-finite constant
 cannot be ignored when reasoning about the original extended-valued objective.
 `lipschitz(f)` is `float(λ)`. Array-step prox is not implemented.
 
-For `SqrNormL2`, `kkt_violation(f,v,i)`, `kkt_violation(f,v,x,k)` and
-`kkt_violation(f,v,x)` use the entry ``d_i`` of ``\nabla f(x)`` as the gradient
-oracle forms it (``\lambda x_i``, or ``\lambda(x_i-y_i)`` with a center). The score
-of entry ``i`` is ``\lvert v_i+d_i\rvert``, nonnegative at a zero coordinate as well, and
-the full-point value is ``\lVert v+\nabla f(x)\rVert_\infty``. The three-argument screen
-uses ``x_i=0``. With an infinite level the scores follow the gradient oracle
-(`NaN` at a zero residual, `Inf` elsewhere).
+For `SqrNormL2`, the three-argument screen `kkt_violation(f,v,i)` takes ``x_i=0`` and does not use
+the gradient oracle: it is ``\lvert v_i\rvert``, or ``\lvert v_i-\lambda y_i\rvert`` with a center,
+so `kkt_violation(SqrNormL2(Inf), [1.0], 1)` is `1.0`. The four-argument form `kkt_violation(f,v,x,k)` and the
+full-point form `kkt_violation(f,v,x)` use the entry ``d_i`` of ``\nabla f(x)`` as the ridge-gradient
+helpers form it, in the working type of the call (``\lambda x_i``, or ``\lambda(x_i-y_i)`` with a
+center). The score of entry ``i`` is ``\lvert v_i+d_i\rvert``, nonnegative at a zero coordinate as well, and
+the full-point value is ``\lVert v+\nabla f(x)\rVert_\infty`` when `gradient(f,x)` is computed in the
+same precision. It need not be: for `f = SqrNormL2(1.0, [nextfloat(1.0)])`, `x = Float32[1]` and
+`v = Float32[0]` the score works in `Float64` and is `eps(Float64)`, while `gradient(f,x)` rounds the center to
+`Float32` and is zero. With an infinite level the four-argument and full-point scores follow the gradient
+oracle (`NaN` at a zero residual, `Inf` elsewhere).
 
 For supported homogeneous `Float32` or `Float64` calls, the value and
 numerical outputs use that working precision. The implementation may compute

@@ -467,11 +467,12 @@ at `xᵢ ≠ 0` are, for the five functions that have all three forms:
   `abs((vᵢ + λ2*xᵢ) + cᵢ*sign(xᵢ))`.
 * `ZeroFunction`: `abs(vᵢ)` in both cases.
 * `LinearFunction`: `abs(vᵢ + cᵢ)` in both cases, with `cᵢ` its coefficient entry.
-* `SqrNormL2`: `abs(vᵢ + dᵢ)` in both cases, with `dᵢ` entry `i` of `∇f(x)`.
+* `SqrNormL2`: `abs(vᵢ + dᵢ)` in both cases, with `dᵢ` the entry `λ*xᵢ` or `λ*(xᵢ - yᵢ)` of the gradient at `x`,
+  computed in the working type of the call. The screen `kkt_violation(f, v, i)` takes `xᵢ = 0` and does not use it.
 
 `GroupNormL2` returns its group screen at a zero group and throws an `ArgumentError`
-at a group with a nonzero entry; `Scaled` over one of the five functions throws one
-at a nonzero coordinate. A function defined outside this package gets its
+at a group with a nonzero entry; `Scaled` over it does so at a nonzero penalized group, and
+`Scaled` over one of the five functions at a nonzero coordinate. A function defined outside this package gets its
 three-argument value at a zero coordinate and an `ArgumentError` at a nonzero one,
 unless it defines the method.
 
@@ -664,7 +665,8 @@ function _kkt_symmetric(f, g::AbstractArray, x::SymmetricSparseIterate, k::Integ
   _kkt_entry(f, _kkt_state(f, W), W, g[j], _getstored(x, k), j)
 end
 
-# the full-point form: one validation, one pass
+# the full-point form: one validation and a pass over the entries; dense arrays of one hardware type can be followed by
+# a pass by entry that applies the rules for non-finite values (see _kkt_reduce)
 function _kkt_point(f, v::AbstractArray, x::AbstractArray)
   _check_one_based(v, x)
   eltype(v) <: Real || _real_error(:kkt_violation)

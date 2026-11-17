@@ -99,10 +99,12 @@ coordinate when the function under the scales is `NormL1`, `ElasticNet`,
 
 The full-point form checks real element types, one-based axes (`ArgumentError`),
 `length(v) == length(x)` (`DimensionMismatch`) and the extent of the function's
-parameters. It makes one pass over the entries, and a second pass when an entry
-of `v` or `x` is not finite or a score is `NaN`; it allocates and writes nothing.
-Dense `Float32` or `Float64` arrays of one type take the fast path, and other
-arrays, `SparseIterate` and `BlockIterate` included, are read by entry. The
+parameters. It makes a pass over the entries and writes nothing. A second pass
+that applies the rules for non-finite values entry by entry can follow it, for
+instance when an entry of `v` or `x` is not finite or a score is `NaN` or infinite.
+Dense `Float32` or `Float64` arrays of one type take the fast path, where the tests
+measure no allocation; other arrays, `SparseIterate` and `BlockIterate` included, are
+read by entry, and element types such as `BigFloat` can allocate in their arithmetic. The
 four-argument form on an array reads the parameters of entry `k`. The element
 type, the rules for non-finite values and the rounding error are in the
 [numerical contract](numerics.md).

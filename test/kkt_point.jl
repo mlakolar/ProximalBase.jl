@@ -225,6 +225,31 @@ end
   end
 end
 
+# a center that promotes to the working type but exceeds its range: the gradient entry is recovered in a wider type
+# and the result is rounded back to the working type
+@testset "SqrNormL2 with a center that does not fit the working type returns the working type" begin
+  cases = ((Float32, UInt128[typemax(UInt128), 7], 2f0^-100), (Float16, Int[10^6, -10^6, 3], Float16(2)^-10))
+  for (W, y, λ) in cases
+    n = length(y)
+    f = SqrNormL2(λ, y)
+    @test isinf(W(y[1]))                       # the center does not fit W
+    for (v, x) in ((zeros(W, n), zeros(W, n)), (W[3, -2, 1][1:n], W[2, 0, -1][1:n]))
+      for i in 1:n
+        r = @inferred kkt_violation(f, v, x, i)
+        @test r isa W
+        @test within(r, f, v[i], x[i], i)
+      end
+      R = @inferred kkt_violation(f, v, x)
+      @test R isa W && within_point(R, f, v, x)
+      b = BlockIterate(copy(x), [collect(1:n)])
+      @test (@inferred kkt_violation(f, v, b, 1)) isa W
+    end
+  end
+  # the value of the reproducer: |λ (0 - (2^128 - 1))| is about 2^28 and finite in Float32
+  r = kkt_violation(SqrNormL2(2f0^-100, UInt128[typemax(UInt128)]), Float32[0], Float32[0], 1)
+  @test r isa Float32 && isapprox(r, 2f0^28; rtol = 4 * eps(Float32))
+end
+
 # ---- 3. the full point form -------------------------------------------------------------------------------------
 @testset "$T the full point value" for T in TYPES
   rng = MersenneTwister(973)
@@ -528,6 +553,27 @@ end
     @test_throws DimensionMismatch kkt_violation(f, v[1:3], nz, 1)
     @test_throws DimensionMismatch kkt_violation(f, v, nz[1:3], 1)
   end
+  # a malformed parameter at the selected entry raises its own error before the refusal, scaled or not
+  etype(f) = try f(); nothing catch e; typeof(e) end
+  bad = (NormL1(T(0.5), T[]), ElasticNet(T(0.5), T(1), T[1, 2, 3]), LinearFunction(T[1, 2, 3]), SqrNormL2(T(1), T[]),
+         SqrNormL2(T(1), T[1, 2, 3]))
+  sp = SparseIterate(T, 4)
+  sp[4] = 1
+  bp = BlockIterate(T, 4, [[1, 2], [3, 4]])
+  bp[4] = 1
+  for leaf in bad
+    for (pt, k) in ((nz, 4), (sp, 4), (bp, 2))
+      e0 = etype(() -> kkt_violation(leaf, v, pt, k))
+      @test e0 !== nothing && e0 !== ArgumentError
+      for s in (Scaled(leaf, T(2)), Scaled(Scaled(leaf, T(2)), T(3)))
+        @test etype(() -> kkt_violation(s, v, pt, k)) === e0
+      end
+    end
+  end
+  @test_throws BoundsError kkt_violation(Scaled(NormL1(T(1), T[]), T(2)), T[1], T[1], 1)
+  @test_throws BoundsError kkt_violation(NormL1(T(1), T[]), T[1], T[1], 1)
+  @test_throws BoundsError kkt_violation(Scaled(LinearFunction(T[]), T(2)), T[1], T[1], 1)
+  @test_throws BoundsError kkt_violation(Scaled(SqrNormL2(T(1), T[]), T(2)), T[1], T[1], 1)
   gl = GroupNormL2(T(1), [[1, 2], [3, 4]], T[1, 1])
   for layout in ([[1, 3], [2, 4]], [[1], [2], [3], [4]])
     bn = BlockIterate(T, 4, layout)

@@ -652,8 +652,11 @@ kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _nested_kkt((f, h) -> kkt_violation(f, h, i), s, g) :
    iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
 # The four-argument form of a scaled function at a zero coordinate or group is the screen of the function under
-# the scales (_kkt_screen). Where that function has a score of its own, the point-aware score of a scaled function is
-# not defined, and a nonzero coordinate or group is refused before either route runs.
+# the scales (_kkt_screen). At a nonzero coordinate or group the screen route runs first, so that the reads of the
+# selected parameter entries raise what they raise on the unscaled function, and then the call is refused when the
+# function under the scales is NormL1, ElasticNet, ZeroFunction, LinearFunction or SqrNormL2, which have a score of
+# their own that is not defined for a scaled function. The other functions keep the value of the screen: GroupNormL2
+# refuses a nonzero penalized group in its own method, and an entry in no group keeps its value.
 const _KktEntrywise = Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2}
 _kkt_leaf(f::AbstractFunction) = f
 _kkt_leaf(s::Scaled) = _kkt_leaf(s.f)
@@ -663,16 +666,16 @@ _kkt_nonzero_point(x::BlockIterate, k::Integer) =
 _kkt_nonzero_point(x::SymmetricSparseIterate, k::Integer) = !iszero(_getstored(x, k))
 @noinline _kkt_scaled_error(f) = throw(ArgumentError(
   "kkt_violation of a scaled $(nameof(typeof(f))) is not supported at a nonzero coordinate or group"))
-function _kkt_scaled_guard(s::Scaled, x, k::Integer)
+function _kkt_scaled_guard(s::Scaled, x, k::Integer, v)
   f = _kkt_leaf(s)
   f isa _KktEntrywise && _kkt_nonzero_point(x, k) && _kkt_scaled_error(f)
-  nothing
+  v
 end
 for X in (:AbstractArray, :BlockIterate)
   @eval function _kkt_violation(s::Scaled, g::AbstractArray, x::$X, k::Integer)
-    _kkt_scaled_guard(s, x, k)
-    _chained(s) ? _nested_kkt((f, h) -> _kkt_screen(f, h, x, k), s, g) :
-    iszero(s.α) ? _kkt_screen(ZeroFunction(), g, x, k) : s.α * _kkt_screen(s.f, _ScaledArray(g, inv(s.α)), x, k)
+    v = _chained(s) ? _nested_kkt((f, h) -> _kkt_screen(f, h, x, k), s, g) :
+      iszero(s.α) ? _kkt_screen(ZeroFunction(), g, x, k) : s.α * _kkt_screen(s.f, _ScaledArray(g, inv(s.α)), x, k)
+    _kkt_scaled_guard(s, x, k, v)
   end
 end
 # The violation of a nested chain: that of the function with the factors folded into its levels, or

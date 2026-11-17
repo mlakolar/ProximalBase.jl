@@ -525,7 +525,7 @@ Base.@propagate_inbounds _kkt_natural(f::SqrNormL2, s, ::Type{W}, v::W, x::W, i)
 @inline _kkt_ridge(::Nothing, s, ::Type{W}, x, i) where {W} =
   s.fits ? s.l * x : convert(W, _ridge_gradient_wide(W, s.lr, x, zero(W)))
 Base.@propagate_inbounds _kkt_ridge(y, s, ::Type{W}, x, i) where {W} =
-  s.fits ? _ridge_gradient_entry(s.l, x, y[i]) : convert(W, _ridge_gradient_wide(W, s.lr, x, y[i]))
+  convert(W, s.fits ? _ridge_gradient_entry(s.l, x, y[i]) : _ridge_gradient_wide(W, s.lr, x, y[i]))
 Base.@propagate_inbounds function _kkt_entry(f::SqrNormL2, s, ::Type{W}, v, x, i) where {W}
   vw = convert(W, v)
   xw = convert(W, x)

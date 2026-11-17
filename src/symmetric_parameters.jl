@@ -195,10 +195,10 @@ function _symmetric_matrix_dot(a, x::SymmetricSparseIterate)
 end
 
 function _kkt_violation(s::Scaled, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
-  _kkt_scaled_guard(s, x, k)
-  _chained(s) ? _nested_kkt((f, h) -> _kkt_screen(f, h, x, k), s, g) :
-  iszero(s.α) ? _kkt_screen(ZeroFunction(), g, x, k) :
+  v = _chained(s) ? _nested_kkt((f, h) -> _kkt_screen(f, h, x, k), s, g) :
+    iszero(s.α) ? _kkt_screen(ZeroFunction(), g, x, k) :
     s.α * _kkt_screen(s.f, _ScaledArray(g, inv(s.α)), x, k)
+  _kkt_scaled_guard(s, x, k, v)
 end
 
 # Fallbacks for functions outside the entry-array kernels.

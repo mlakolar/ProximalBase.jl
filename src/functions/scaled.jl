@@ -778,7 +778,7 @@ end
 # wrapper with an infinite factor takes the formula's value for a finite v. A stack that nests an infinite factor with another
 # Scaled is built by a direct call of the parameterized constructor Scaled{F, T} (Scaled(f, α) merges the factors): it is
 # refused in the same cases, and its values at a zero coordinate or group are outside the contract and are computed by
-# _kkt_chain_infinite, without a guarantee.
+# the existing wrapper routes, without a guarantee.
 # The rare branches are in functions that are not inlined, so that the route is small enough to be inlined into the call
 # that reaches it. Inlining permits the compiler to hoist loop-invariant state for the unweighted cases; weighted
 # coefficients remain entry-dependent.

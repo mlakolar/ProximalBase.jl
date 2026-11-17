@@ -86,7 +86,9 @@ end
   convert(S, ab * convert(R, w)), floatmin(R) <= ab <= floatmax(R)
 end
 # The coefficient and product of a KKT diagnostic in the gradient's element type T, rounded once. A
-# gradient that is not floating point (integers) keeps the untyped value and type of the baseline.
+# gradient that is not floating point (integers) keeps the untyped value and type of the baseline. This is the
+# numerical rule that forms a coefficient; _kkt_entry_coefficient (see interface.jl) is the lookup of the point-aware
+# scores that returns a coefficient held for the call or applies this rule to the weight of one entry.
 @inline _kkt_coefficient(::Type{T}, λ, w) where {T<:AbstractFloat} = _weight_coefficient(T, λ, w)
 @inline _kkt_coefficient(::Type, λ, w) = _weight_coefficient(λ, w)
 @inline function _weight_coefficient(::Type{U}, λ, w) where {U<:AbstractFloat}

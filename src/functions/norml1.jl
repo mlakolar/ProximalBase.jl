@@ -144,11 +144,14 @@ kkt_violation(f::NormL1, g::AbstractArray, i::Integer) =
 # entry and |vᵢ + cᵢ sign(xᵢ)| at a nonzero one. An unweighted function forms the coefficient once per call.
 @inline _kkt_state(f::NormL1{<:Real, Nothing}, ::Type{W}) where {W} = _kkt_coefficient(W, f.λ0, true)
 @inline _kkt_state(::NormL1, ::Type) = nothing
-Base.@propagate_inbounds _kkt_coef(f::NormL1, ::Nothing, ::Type{W}, i) where {W} =
+# The coefficient of entry i within a call: the value that _kkt_state computed once for an unweighted function is
+# returned as it is, so that it is not formed again for each entry; a weighted function forms λ0 wᵢ here with
+# _kkt_coefficient.
+Base.@propagate_inbounds _kkt_entry_coefficient(f::NormL1, ::Nothing, ::Type{W}, i) where {W} =
   _kkt_coefficient(W, f.λ0, _entry(f.w, i))
-@inline _kkt_coef(::NormL1, c, ::Type, i) = c
+@inline _kkt_entry_coefficient(::NormL1, c, ::Type, i) = c
 Base.@propagate_inbounds function _kkt_natural(f::NormL1, s, ::Type{W}, v::W, x::W, i) where {W}
-  c = _kkt_coef(f, s, W, i)
+  c = _kkt_entry_coefficient(f, s, W, i)
   ifelse(iszero(x), abs(v) - c, abs(v + c * sign(x)))
 end
 @_kkt_entrywise NormL1

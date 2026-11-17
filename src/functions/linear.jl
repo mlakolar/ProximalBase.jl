@@ -9,12 +9,12 @@ Affine function `f(x) = ⟨c,x⟩ + d`, with gradient `c` and proximal point `x-
 For matrices the inner product is Frobenius. Coefficients are real, one-based
 arrays retained by reference; `size(c)` must equal `size(x)`, not just its entry count.
 
-A `Diagonal` coefficient array visits only diagonal entries for any matrix
-argument. On a matrix [`SparseIterate`](@ref), the value also reads coefficients
-only at stored nonzero entries: unstored entries and stored zeros add nothing,
-even against `NaN` or `Inf`. This sparse traversal can differ from evaluating
-a dense copy; the diagonal restriction alone does not. Vector and symmetric
-iterates have their own rules.
+With a `Diagonal` coefficient array, only diagonal coefficients contribute for
+both dense and sparse matrix arguments. On a matrix [`SparseIterate`](@ref),
+only stored nonzero entries contribute: unstored entries and stored zeros are
+skipped even against `NaN` or `Inf`. Skipping those zero entries can give a
+different result from evaluating a dense copy. Vector and symmetric iterates
+have their own rules.
 
 # Examples
 ```jldoctest

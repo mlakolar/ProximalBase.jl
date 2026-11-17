@@ -378,7 +378,7 @@ exact same object for input and output, as in `prox!(x,g,x,γ)`.
 Other partially overlapping views are not supported and may produce
 incorrect results without warning. Use an independent input copy when
 in doubt. Parameter and scratch ownership details are in
-[Numerical usage](numerical_usage.md).
+[Array and precision conventions](numerical_usage.md).
 
 ### Different steps for different entries
 
@@ -439,7 +439,7 @@ and the allocating calls `prox`, `gradient` and `value_and_gradient` check the
 arrays of such a function. Positive finite steps are the
 standard mathematical setting. Exceptional `NaN`, infinite and zero
 steps are function-specific rather than universally validated.
-See [Numerical usage](numerical_usage.md),
+See [Array and precision conventions](numerical_usage.md),
 [Numerical contract](numerics.md), and the
 [API reference](api/interface.md) for precise limits.
 

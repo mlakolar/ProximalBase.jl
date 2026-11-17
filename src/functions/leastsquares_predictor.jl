@@ -100,8 +100,8 @@ For [`SqrtLeastSquaresLoss`](@ref), or one `Scaled` wrapper, this returns
 restrictions are the same, including rejection of an infinite scale **before**
 evaluating a zero residual. Extreme sums and products use power-of-two range
 recovery, not `sqrt(2*v)` of the squared-loss value; see the
-[`SqrtLeastSquaresLoss`](@ref) accuracy contract. Neither `X`, `f.tmp` nor `z`
-is read or written beyond the caller-supplied predictor entries.
+[`SqrtLeastSquaresLoss`](@ref) accuracy contract. No entry of `X` is read,
+`f.tmp` is not accessed separately, and the supplied `z` is read but not modified.
 
 # Edge cases
 - A scale must be positive finite `Float32`/`Float64`, or an integer exactly
@@ -195,16 +195,13 @@ arrays themselves, with no copy or conversion. The scale is `one(T)` for a
 [`LeastSquaresLoss`](@ref) of type `T`, or the stored factor of one [`Scaled`](@ref)
 wrapper, with its original type.
 
-Any `LeastSquaresLoss` or `SqrtLeastSquaresLoss` is accepted, including data outside the strided domain of
-the predictor oracles. Other functions throw `MethodError`. This accessor does
-not validate or convert the scale; the predictor oracles can reject it or use
-its converted value.
-
-The accessor also accepts [`SqrtLeastSquaresLoss`](@ref) and one `Scaled`
-wrapper of it; `α` is the raw loss's `one(T)` or the wrapper's stored factor,
-respectively. The returned data do not distinguish the two losses; their
-types do. Calling the accessor does not validate that a scale is accepted
-by the numerical oracles.
+Both [`LeastSquaresLoss`](@ref) and [`SqrtLeastSquaresLoss`](@ref), including
+data outside the strided predictor-oracle domain, are supported, as is one
+[`Scaled`](@ref) wrapper of either. For an unscaled loss, `α = one(T)`;
+for a wrapper, `α` is the stored factor with its original type. The returned
+arrays do not distinguish the two losses; their types do. Other functions
+throw `MethodError`. The accessor neither validates nor converts the scale;
+numerical oracles may reject it or use a converted value.
 
 # Examples
 ```jldoctest

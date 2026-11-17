@@ -22,7 +22,7 @@ Call `h(x)` to evaluate the scaled function. Thus **`f` is the function
 being scaled, `α` is the multiplier, and `x` is the evaluation point**.
 Negative or NaN scales throw `ArgumentError`; infinite scaling has
 function-specific exceptional arithmetic described in
-[Numerical usage](numerical_usage.md).
+[Array and precision conventions](numerical_usage.md).
 
 Smoothness, convexity, proximability and separability traits come from the
 original function. Zero preservation additionally requires a finite scale
@@ -59,7 +59,7 @@ prox(h,x,0.4)
 The wrapper follows the original function's supported input shapes and
 allocation conventions. It retains the function object by reference, not as
 an independent copy. See [Operations on functions](operations.md) for mutating
-calls and [Numerical usage](numerical_usage.md) for aliasing and cache rules.
+calls and [Array and precision conventions](numerical_usage.md) for aliasing and cache rules.
 
 Nested positive finite scales retain their exponents when multiplying them
 would overflow or underflow. Built-in recovery paths can fold the total scale

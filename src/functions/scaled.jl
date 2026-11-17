@@ -88,8 +88,9 @@ julia> prox(f, [2.0, -1.0], 1.0)
 # Edge cases
 - A zero scale may return a simpler function, or throw if no domain-preserving
   representation is supported; the result need not be a `Scaled`.
-- Infinite scales and nested factors outside floating-point range have
-  function-specific behavior, not a general recovery guarantee.
+- Nested positive finite factors retain their exponents when intermediate
+  products exceed floating-point range; whether a result is recovered depends
+  on the inner function. Infinite scales have function-specific endpoint rules.
 - Exact input/output identity follows the supported inner prox; other overlaps
   remain subject to the [ownership rules](@ref numerical-usage).
 

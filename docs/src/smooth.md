@@ -13,7 +13,7 @@ and [proximal operators](glossary.md#Proximal-operator) for its supported inputs
 For allocating and mutating conventions, input restrictions, shared
 storage and numerical limitations, see
 [Operations on functions](operations.md) and
-[Numerical usage](numerical_usage.md).
+[Array and precision conventions](numerical_usage.md).
 
 ## [Least-squares loss](@id Least-squares-loss)
 
@@ -517,7 +517,7 @@ in the diagonal-only `dot` of `Diagonal`. An entry that is not stored, or is sto
 `+0` or `-0`, adds nothing, even when the coefficient at that position is `NaN`,
 `Inf` or `-Inf`, and `c` is not read there; a nonzero entry follows ordinary
 arithmetic, also when it or its coefficient is not finite. Historical traversal measurements
-are recorded in the [implementation notes](https://github.com/mlakolar/ProximalBase.jl/blob/dd8c1a2e9846d434e81fae63903bb667c57c8158/docs/design/function-docs-history-921.md#linearfunction-sparse-value-measurements). The constant `d` is added
+are recorded in the [implementation notes](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/function-docs-history-921.md#linearfunction-sparse-value-measurements). The constant `d` is added
 after the sum. When the ordinary value is not finite but `d`, the nonzero entries
 and the coefficients at them are, the value is recomputed from those entries (a
 coefficient at a zero does not prevent it) as exponent-separated terms, each product

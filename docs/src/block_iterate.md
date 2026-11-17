@@ -1,4 +1,4 @@
-# BlockIterate
+# [BlockIterate](@id block-iterate-guide)
 
 *Assumes: vector indexing and block-coordinate methods · You will learn: group storage, active blocks and block views.*
 
@@ -11,8 +11,8 @@ contain only zeros until `dropzeros!` removes it.
 
 ## Construction and partitions
 
-Use `BlockIterate([T,]p,groups)` for empty storage or
-`BlockIterate(x::AbstractVector,groups)` to copy entry values. `T` defaults
+Use `BlockIterate([T,] p, groups)` for empty storage or
+`BlockIterate(x::AbstractVector, groups)` to copy entry values. `T` defaults
 to `Float64`. A copied input starts with the groups containing a converted
 nonzero entry active, in group order. Real element types are required.
 
@@ -23,11 +23,14 @@ An out-of-domain index, duplicate, empty group, gap or overlap throws
 the order used by compact block buffers. Vector groups are copied into owned
 `Vector{Int}` arrays. Homogeneous concrete range groups keep their range type.
 
-`BlockIterate([T,]p,K)` and `BlockIterate(x,K)` divide the entries into `K`
+`BlockIterate([T,] p, K)` and `BlockIterate(x, K)` divide the entries into `K`
 equal contiguous groups; `K` must be positive and divide the entry length.
 A group partition describes how variables are **stored and updated**; it
 is not itself a penalty or regularization function. Pass groups as indices,
-not as a penalty object. `NormL1` remains an entrywise mathematical function.
+or use `BlockIterate(x, f)` / `BlockIterate([T,] p, f)` with a
+[`GroupNormL2`](@ref) penalty to copy its groups. Those groups must partition
+the full iterate, even though a penalty can leave entries unpenalized.
+`NormL1` remains an entrywise mathematical function.
 
 ```@example block_layout
 using ProximalBase
@@ -100,7 +103,7 @@ member's **global entry index**, then copy the resulting compact vector into
 The [extension example](examples/block_prox_extension.md) checks the layout
 explicitly and keeps the numerical and storage writes separate.
 
-## Copies, broadcasting and products
+## Copies and broadcasting
 
 | Operation | Working-set effect |
 |:--|:--|
@@ -116,7 +119,24 @@ explicitly and keeps the numerical and storage writes separate.
 State-copy length mismatch is `DimensionMismatch`. Direct bulk writes reject
 known complex source types before writes; generic views, indexed writes,
 abstractly typed arrays and conversions can fail after partial writes. See
-[array validation](numerical_usage.md).
+[write validation](@ref iterate-write-validation).
+
+## [Ownership and low-level construction](@id block-iterate-ownership)
+
+High-level constructors, `copy` and `similar` own independent `storage`,
+`active` and `position` arrays. High-level constructors also copy the supplied
+group lists. Copies and similar buffers share `groups`, `group_of` and the layout
+cache with their source; these describe a fixed layout and must not be
+mutated. Use [`blockindices`](@ref) to inspect a group safely.
+
+The seven-argument constructor
+`BlockIterate(storage, groups, group_of, layout_cache, active, position, nactive)`
+is a low-level construction mechanism. Its caller is responsible for
+aliasing: `storage`, `active` and `position` must not overlap one another or
+the mutable storage of another iterate. Unsupported overlap can give
+incorrect results, particularly during copying.
+
+## Linear algebra
 
 Dense strided/Symmetric-strided matrix products and dot with supported dense
 or iterate vectors traverse active-group entries and skip zero coefficients.

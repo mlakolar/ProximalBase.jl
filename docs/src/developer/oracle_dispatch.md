@@ -62,11 +62,13 @@ and converted full matrix indices for symmetric-iterate variables. Symmetric val
 both mirrored entry terms. A declared zero-preserving function can skip inactive
 zeros. No kernel reads parameter entries to compare mirrored pairs.
 
-Compact-vector `prox_block!` is a public extension hook with no retained built-in
-implementation. The default allocating method supplies an independent floating
-Vector and delegates. Its index denotes a custom block and its vectors follow
-that block's order. The hook author validates buffer shapes/types/overlap;
-no generic full-array lifting, wrapper forwarding or KKT follows from it.
+Compact-vector `prox_block!` is a public hook implemented by `GroupNormL2` and
+available to custom functions. The default allocating method supplies an independent
+floating `Vector` and delegates. For `GroupNormL2`, the index is its group number
+and the compact vectors follow that group's order; custom methods define their
+own layout. `GroupNormL2` validates buffer shapes, real one-based storage,
+steps and overlap; a custom hook must do the same before writing. A custom
+hook alone supplies no full-array lifting, wrapper forwarding or KKT screen.
 
 The solver constructs trials, verifies group layouts, calls the mathematical
 hook in independent scratch, writes public storage, then updates residuals and
@@ -86,11 +88,14 @@ evaluates the actual coordinate through one entry kernel per function, and the f
 four-argument methods read `x`: the three-argument value at a zero coordinate or group, and an
 `ArgumentError` at a nonzero one; a method of the function itself is used as defined, and there
 is no generic full-point method. A built-in function without a method, such as `SqrtLeastSquaresLoss`,
-throws `MethodError`. `GroupNormL2` and `Scaled` keep the screen at a zero coordinate or group and
-throw `ArgumentError` at a nonzero group, and at a nonzero coordinate for `Scaled` over one of
-the five functions. Dispatch does not turn a quadratic/least-squares loss into a scalar penalty
-screen. KKT is the raw first-order score of the supplied `v`, not a general solver
-residual: scaling, tolerances and convergence decisions are the caller's. restrict slices supported parameters; no default exists for custom
+throws `MethodError`. `GroupNormL2` supplies a native group-norm screen instead, checking the
+selected ordered layout and the full gradient length; its array-point form takes an entry index,
+and its three-argument form throws because it is not entrywise separable. `GroupNormL2` and
+`Scaled` keep the screen at a zero coordinate or group and throw `ArgumentError` at a nonzero
+group, and at a nonzero coordinate for `Scaled` over one of the five functions. Dispatch does not
+turn a quadratic/least-squares loss into a scalar penalty screen. KKT is the raw first-order score
+of the supplied `v`, not a general solver residual: scaling, tolerances and convergence decisions
+are the caller's. restrict slices supported parameters; no default exists for custom
 functions. A restricted quadratic keeps its constant and assumes omitted
 variables zero; vector-response least squares keeps Y and selects columns.
 

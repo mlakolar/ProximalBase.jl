@@ -6,97 +6,48 @@
     GroupNormL2(λ0, groups)
     GroupNormL2(λ0, groups, w)
 
-The group-lasso penalty `f(x) = λ0 Σₖ wₖ ‖x[Gₖ]‖₂` over disjoint groups
-`Gₖ = groups[k]` of linear indices of `x`, of any sizes and in any order, such
-as `1:5` or `[7, 2, 9]`. The weights default to `wₖ = √|Gₖ|`. A group of one
-index with weight `w` is the term `λ0 w |xᵢ|` of `NormL1(λ0, w)`. Indices in no
-group are not penalized: `prox!` copies them and `f(x)` ignores them.
+Group-lasso penalty `f(x) = λ₀ Σₖ wₖ‖x[Gₖ]‖₂`, with default weights
+`wₖ = √|Gₖ|`. Groups are nonempty, disjoint lists or ranges of positive
+linear indices. Their order is preserved; entries in no group are unpenalized.
+The nonnegative level and weights cannot be `NaN`. Supply one weight per group;
+the constructor copies `groups` and `w`.
 
-`λ0` and the weights must be nonnegative (an `ArgumentError` otherwise, `NaN`
-included), with one weight per group (`DimensionMismatch`). Groups must be
-nonempty and disjoint, with positive indices (`ArgumentError`). The constructor
-stores its own copies of `groups` (integer indices: when the element type of
-`groups` is a concrete range type the ranges are kept, otherwise every group
-becomes a `Vector{Int}`) and of `w`; the level and the weights are converted to the
-promoted floating type of `λ0` and `w`. Changing the arrays passed in does not
-change `f`.
+[`prox`](@ref) shrinks each group toward zero using a nonnegative **scalar** step.
+[`prox_block`](@ref) takes a compact vector in `groups[k]` order; it does not
+update an iterate. To commit its result, use `copyto!(blockview(x, k), out)`.
+See [group operations](@ref group-l2-guide) for the formula and KKT screen.
 
-The proximal operator shrinks each group towards zero in Euclidean norm:
-`prox_{γf}(x)[Gₖ] = max(1 - γλ0wₖ/‖x[Gₖ]‖₂, 0) x[Gₖ]`. On arrays, `prox!`,
-`prox` and `value_and_prox!` take a scalar step. For one group,
-`prox_block!(out, f, u, k, γ)` writes the result for the compact vector
-`u = x[Gₖ]` (in the order of `groups[k]`) into `out` and returns `out`.
-`prox_block(f, u, k, γ)` allocates `out`. Neither writes to or activates an
-iterate (`u` may be a view that reads one; `out` must not alias iterate
-storage, as the block contract requires): to update a `BlockIterate` with the
-same groups, write `out` with
-`copyto!(blockview(x, k), out)`. `BlockIterate(x, f)` and `BlockIterate(p, f)`
-build an iterate with the groups of `f`. The groups must then partition
-`1:length(x)`.
+# Examples
+```jldoctest
+julia> f = GroupNormL2(1.0, [1:2], [1.0]);
 
-`kkt_violation(f, g, x, k)` on a `BlockIterate` is `‖g[Gₖ]‖₂ - λ0 wₖ`, the
-violation of the optimality of the zero group `k` for the smooth-part gradient
-`g`, when the entries of group `k` of `x` are zero, and throws an `ArgumentError`
-when one of them is not. Group `k` of `x` must equal `groups[k]`
-(`DimensionMismatch` otherwise). On an array point, `kkt_violation(f, g, x, i)`
-takes an entry `i`: the same group screen when the group of `i` is zero in `x`,
-`|g[i]|` when `i` is in no group, and an `ArgumentError` when its group has a
-nonzero entry. The three-argument form throws an
-`ArgumentError`: the penalty is not separable. In the group screen the
-coefficient `λ0 wₖ` follows the `NormL1` screen: `0` for a zero weight, also
-with an infinite level, and `Inf` for an infinite weight or for an infinite
-level with a positive weight. A norm or coefficient outside the range is
-recomputed for finite gradients. When the screened group holds a `±Inf` entry
-and no `NaN`, the screen is the IEEE `Inf - λ0 wₖ`, which is `NaN` when that
-coefficient is infinite, also when it overflows from finite factors; a `NaN`
-entry gives `NaN`.
+julia> f([3.0, 4.0])
+5.0
 
-Steps must be nonnegative: a negative or `NaN` step throws an `ArgumentError`
-before anything is written, in `prox!`, `value_and_prox!` and `prox_block!`.
-Shapes, the group extent (every group index at most `length(x)`), real element
-types, one-based indexing, and for `prox_block!` the group index, the buffer
-lengths and the aliasing of `out` and `u`, are checked before writes as well.
-`out === u` is supported; any other overlap of `out` and `u` that
-`Base.mightalias` reports throws an `ArgumentError`. On arrays, `prox!(x, f, x, γ)`
-is supported and other sharing of memory is not, as for every function.
+julia> prox_block(f, [3.0, 4.0], 1, 2.5)
+2-element Vector{Float64}:
+ 1.5
+ 2.0
 
-Exceptional parameters and values, for each group `k`:
+julia> h = GroupNormL2(1.0, [[3, 1]], [1.0]);
 
-- `wₖ = 0`: unpenalized, the group is returned unchanged (`NaN` and `±Inf`
-  included), and its value is zero.
-- `wₖ = Inf`, or `λ0 = Inf` with `wₖ > 0`: the group is fixed at `+0` at every
-  nonnegative step, `γ = 0` included, and for every input, `NaN` and `±Inf`
-  included. At `γ = 0` this is the limit `γ → 0+` with the function fixed, the
-  projection onto the closure of its domain, as for `NormL1(Inf)` (#665).
-  The value is zero at the zero group and `Inf` (or `NaN` at a `NaN` entry)
-  elsewhere.
-- `λ0 = 0` or `γ = 0` (finite `wₖ` and `λ0`): the identity.
-- `γ = Inf` (positive finite `λ0` and `wₖ`): the group is fixed at `+0`.
-- Positive finite `γ`, `λ0` and `wₖ`: a group with a `NaN` entry becomes all
-  `NaN`; a group with an infinite entry and no `NaN` is returned unchanged,
-  since its norm is infinite and the threshold `γλ0wₖ` is finite, also when
-  that product overflows in floating point; a zero group becomes `+0`.
-
-For finite inputs, a norm whose sum of squares overflows or underflows, and a
-threshold `γλ0wₖ` outside the floating-point range, are recomputed in
-power-of-two units, so that a representable proximal point is returned
-accurately. Values follow the overflow rule in Overflow and underflow of
-values: for Float32 and Float64 values, a sum of group terms below `K⋅floatmin`,
-for `K` groups, is recomputed with each term's exponent, as for `NormL1` (#373), and
-a value at or above `floatmax/2` is recomputed in power-of-two units, accumulated in
-at least Float64; within a few eps of the overflow threshold the result may be
-`floatmax` or `Inf`, regardless of which of them the exact value rounds to (#904). `value_and_prox!` returns
-the value at the stored output.
-
-The penalty does not apply to a `SymmetricSparseIterate`, and it has no
-`restrict`, no per-group step and no compact block method under `Scaled`.
-
-# Example
-```julia
-f = GroupNormL2(0.5, [1:3, [6, 4]])     # x[5] is not penalized
-prox(f, randn(6), 1.0)
-out = prox_block(f, [3.0, 4.0], 2, 1.0)  # (1 - 0.5√2/5) .* [3, 4]
+julia> Tuple(prox(h, [3.0, 9.0, 4.0], 2.5))
+(1.5, 9.0, 2.0)
 ```
+
+# Edge cases
+- Real, one-based arrays and valid shapes/groups are required. Negative or `NaN`
+  steps fail before writes.
+- Exact in-place prox is supported. For compact blocks, `out === u` is supported;
+  other overlaps detected by `Base.mightalias` are rejected, and `out` must
+  not alias iterate storage.
+- Zero-weight groups stay unchanged. Infinite weights or an infinite level with
+  positive weight fix a group at `+0`, including at zero step.
+- No `SymmetricSparseIterate`, `restrict`, per-group steps or compact block method
+  under [`Scaled`](@ref).
+
+See [group endpoint rules](@ref group-l2-endpoints) and the
+[numerical contract](@ref numerics) for non-finite inputs and range limits.
 """
 struct GroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractFunction
   λ0::T

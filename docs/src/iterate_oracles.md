@@ -13,7 +13,7 @@ proximal point and changes the iterate's active set.
 | Hook/call | Trial and index | Storage write afterward |
 |:--|:--|:--|
 | `prox_block(f,v,i,γ)` | Scalar v, global array-entry index i | `x[i]=result` for `SparseIterate` |
-| `prox_block!(out,f,u,k,γ)` | Compact vectors in custom group k's order | `copyto!(blockview(x,k),out)` after matching layouts |
+| `prox_block!(out,f,u,k,γ)` | Compact vectors in the selected group k's order | `copyto!(blockview(x,k),out)` after matching layouts |
 | Scalar hook for a symmetric iterate | Scalar v, entry index `(c-1)p+r` derived from independent coordinate k | `coordinates(x)[k]=result` |
 
 An active slot is never a coordinate or group index. `BlockIterate` has a storage partition,
@@ -35,11 +35,13 @@ x[2] = prox_block(NormL1(1.0),3.0,2,1.0)
 Vector(x)
 ```
 
-## Compact block buffers
+## [Compact block buffers](@id block-proximal-oracle)
 
-The generic vector `prox_block` allocates a floating Vector of `length(u)`
-and invokes the custom `prox_block!`. No built-in function implements a compact group proximal update by default. An extension must validate group ID, dimensions, real one-based
-buffers and overlap before writes. Exact `out === u` is supported by the
+The generic vector `prox_block` allocates a plain floating `Vector` of `length(u)`
+and invokes `prox_block!`. [`GroupNormL2`](@ref) is the built-in implementation:
+`k` selects `f.groups[k]`, and `u` follows that group's ordered global indices.
+It checks the group, buffer lengths, real one-based storage, step and overlap
+before writes. Custom extensions must provide these checks themselves. Exact `out === u` is supported by the
 contract; other overlap must be rejected by the extension. The generic
 allocating wrapper adds no such checks on the extension's behalf.
 
@@ -56,7 +58,7 @@ implementation. Implementing this hook does not automatically supply a full
 array value, full-array prox, traits, `kkt_violation` method, symmetric-iterate interface or
 `Scaled` compact-vector forwarding.
 
-## Scoring a coordinate
+## [Scoring a coordinate](@id kkt-screens)
 
 `kkt_violation(g,v,i)` reports the signed screen of coordinate `i` **assumed
 zero**. `NormL1` returns ``|v_i|-\lambda_0w_i``. A positive value means zero fails
@@ -75,13 +77,35 @@ scalar). `kkt_violation(g,v,x)` is the nonnegative full-point measure
 |:--|:--|
 | `SparseIterate` | Valid coordinate first, then gradient entry count equal to length(x); flat or matrix-shaped gradient of that length is accepted. The coordinate is read from `x` |
 | `SymmetricSparseIterate` | Valid independent coordinate, then p² gradient entries; symmetric part of that gradient pair, the stored value of the coordinate, and the extent of the function's parameters (their mirrored entries are not compared). The score is in matrix-entry units. There is no full-point form: it throws `ArgumentError` |
-| `BlockIterate` | Group `k`. For the five functions above, the maximum of the scores of the entries of the group: signed if every entry of the group is zero, nonnegative otherwise. For `GroupNormL2`, see [the group penalty](group_penalty.md) |
-| Other arrays | Real one-based axes, then gradient length equal to length(x) (`DimensionMismatch`); entry `k` is read from `x` |
+| `BlockIterate`, scalar penalties | Group `k`. The maximum of the scores of the entries of the group: signed if every entry of the group is zero, nonnegative otherwise. A gradient whose length differs from `length(x)` throws `DimensionMismatch` |
+| `BlockIterate`, `GroupNormL2` | Group norm screen at a zero group; selected group layout and full gradient length checked; `ArgumentError` at a group with a nonzero entry |
+| Other arrays, scalar penalties | Real one-based axes, then gradient length equal to length(x) (`DimensionMismatch`); entry `k` is read from `x` |
+| Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The group screen at a zero group, `abs(v[k])` for an entry in no group, `ArgumentError` at a group with a nonzero entry |
 
 For `SparseIterate`/`SymmetricSparseIterate`, invalid coordinate throws `BoundsError` before
-extent mismatch throws `DimensionMismatch`, after checking real element types.
-For a `BlockIterate` and for other arrays, a gradient whose length differs from
-`length(x)` throws `DimensionMismatch`.
+extent mismatch throws `DimensionMismatch`, after checking one-based axes and
+real element types. A flat or matrix-shaped gradient of the required entry
+count is accepted. Opposing infinities in the selected symmetric gradient pair
+throw `ArgumentError`. Parameter extents are checked for symmetric iterates;
+mirrored parameters are a caller precondition, not an oracle check; the
+three-argument form takes no iterate and makes no parameter-symmetry check.
+`GroupNormL2` checks the number of groups, the selected ordered group
+layout and `length(v) == length(x)`, then returns `norm(v[Gₖ]) - λ0*wₖ` at a zero
+group. Its three-argument form throws `ArgumentError` because the penalty is not
+entrywise separable; see [the group penalty](group_penalty.md). `Scaled` forwards the four-argument form to the screen of
+its function at a zero coordinate or group, and throws `ArgumentError` at a nonzero
+coordinate when the function under the scales is `NormL1`, `ElasticNet`,
+`ZeroFunction`, `LinearFunction` or `SqrNormL2`. The full-point forms of `GroupNormL2` and `Scaled` are not defined.
+
+The full-point form checks real element types, one-based axes (`ArgumentError`),
+`length(v) == length(x)` (`DimensionMismatch`) and the extent of the function's
+parameters. It makes one pass over the entries, and a second pass when an entry
+of `v` or `x` is not finite or a score is `NaN`; it allocates and writes nothing.
+Dense `Float32` or `Float64` arrays of one type take the fast path, and other
+arrays, `SparseIterate` and `BlockIterate` included, are read by entry. The
+four-argument form on an array reads the parameters of entry `k`. The element
+type, the rules for non-finite values and the rounding error are in the
+[numerical contract](numerics.md).
 
 A function defined outside the package that has only the three-argument method
 gets that method's value from the four-argument form at a zero coordinate (a
@@ -96,7 +120,8 @@ a nonzero coordinate is a stationarity mismatch; see
 For symmetric-iterate coordinate k, compute `(r,c)=tril_cartesian(p,k)`, then use the
 full-matrix entry index `i=(c-1)p+r`. The function's parameters must be symmetric;
 validate the original function with `check_symmetric_parameters` before raw scalar hooks,
-since the hook has no symmetric iterate to inspect and no oracle checks it.
+since the hook has no symmetric iterate to inspect and no numerical oracle
+compares mirrored parameters.
 Use a symmetric matrix gradient and the appropriate Frobenius curvature.
 
 ```@example symmetric_coordinate_trial

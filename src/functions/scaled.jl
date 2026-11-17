@@ -64,16 +64,38 @@ Base.@propagate_inbounds Base.getindex(a::_ExpScaledArray{T}, i::Int) where {T} 
 """
     Scaled(f, α)
 
-The nonnegative multiple `α*f`. Multiplication `α*f` and `f*α` construct it.
-Traits and mathematical oracles forward to the wrapped function. Zero scales
-simplify only when the original data and parameters permit it; invalid or
-non-finite parameters keep the frozen function's validation policy.
+Nonnegative multiple `h(x) = α f(x)`. The expressions `α*f` and `f*α` construct
+it too. Negative or `NaN` scales are invalid. For positive finite `α`, a proximal
+step for `h` uses the inner function's step `α*γ`.
 
-Nested positive finite factors retain their exponents when an intermediate
-product would overflow or underflow. NormL1 can fold a scale into its level;
-SqrNormL2 supplies exponent-separated values. Ordinary calls preserve their
-original multiply order. Combined oracles return the value at the stored
-result using its model precision. Exact input/output aliasing is supported.
+The wrapper retains `f` by reference, including its parameters, scratch and caches.
+Traits and supported oracles forward to `f`; scaling does not add missing methods.
+Call [`reset_cache!`](@ref) on the outermost function after changing cached data.
+
+# Examples
+```jldoctest
+julia> f = Scaled(SqrNormL2(2.0), 0.5);
+
+julia> f([2.0, -1.0])
+2.5
+
+julia> prox(f, [2.0, -1.0], 1.0)
+2-element Vector{Float64}:
+  1.0
+ -0.5
+```
+
+# Edge cases
+- A zero scale may return a simpler function, or throw if no domain-preserving
+  representation is supported; the result need not be a `Scaled`.
+- Nested positive finite factors retain their exponents when intermediate
+  products exceed floating-point range; whether a result is recovered depends
+  on the inner function. Infinite scales have function-specific endpoint rules.
+- Exact input/output identity follows the supported inner prox; other overlaps
+  remain subject to the [ownership rules](@ref numerical-usage).
+
+See [scaling details](@ref scaling-guide) for zero scales, numerical limits and
+which operations are available.
 """
 struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
   f::F

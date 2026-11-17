@@ -1,4 +1,4 @@
-# Operations on functions
+# [Operations on functions](@id operation-guide)
 
 *Assumes: gradients and basic Julia · You will learn: the complete function-operation catalog, including proximal maps, mutation and coordinate checks.*
 
@@ -227,8 +227,9 @@ prox_block(g, 2.0, 1, 1.0)  # 1.5
 
 `value_entry(g,v,i)` evaluates the scalar contribution ``g_i(v)``
 where this operation is implemented (not for every mathematically
-separable function). A custom group function can instead implement
-`prox_block!(out,g,u,k,γ)` on compact vector buffers. These hooks
+separable function). `GroupNormL2` implements
+`prox_block!(out,g,u,k,γ)` on compact vector buffers; custom group functions
+can implement the same hook. These hooks
 compute mathematical answers; **they do not update an iterate's active
 set or write back to solver state**. See [Coordinate oracles](iterate_oracles.md)
 and [Writing your own function](extending.md) for precise contracts.
@@ -428,7 +429,7 @@ exact same object for input and output, as in `prox!(x,g,x,γ)`.
 Other partially overlapping views are not supported and may produce
 incorrect results without warning. Use an independent input copy when
 in doubt. Parameter and scratch ownership details are in
-[Numerical usage](numerical_usage.md).
+[Array and precision conventions](numerical_usage.md).
 
 ### Different steps for different entries
 
@@ -489,7 +490,7 @@ and the allocating calls `prox`, `gradient` and `value_and_gradient` check the
 arrays of such a function. Positive finite steps are the
 standard mathematical setting. Exceptional `NaN`, infinite and zero
 steps are function-specific rather than universally validated.
-See [Numerical usage](numerical_usage.md),
+See [Array and precision conventions](numerical_usage.md),
 [Numerical contract](numerics.md), and the
 [API reference](api/interface.md) for precise limits.
 

@@ -1,8 +1,8 @@
-# The ℓ₂ and group ℓ₂ norms
+# [The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide)
 
 *Assumes: the ℓ₁ norm guide and grouped variables · You will learn: the Euclidean norm penalty, the group-lasso penalty, their proximal operators, the compact block form and the group optimality screen.*
 
-## The ℓ₂ norm
+## [The ℓ₂ norm](@id norm-l2-guide)
 
 `NormL2(λ)` is ``g(x)=\lambda\lVert x\rVert_2`` (the Frobenius norm for a matrix)
 with ``\lambda\ge0``. Its proximal operator shrinks the whole argument,
@@ -29,7 +29,11 @@ The proximal operators take arrays of the same size; a `BlockIterate` or a
 `SparseIterate` is read and written by indexing its entries, O(length) in general, as
 an array. A
 `SymmetricSparseIterate` has no `NormL2` proximal operator: those calls throw an
-`ArgumentError` before anything is written.
+`ArgumentError` before anything is written. A zero level gives value zero.
+An infinite level gives zero at the zero argument (including an empty array),
+`NaN` at a `NaN` entry, and `Inf` otherwise. With unit group weight, the
+[endpoint table](@ref group-l2-endpoints) also describes the norm's prox;
+in particular zero level takes precedence over an infinite step.
 
 ## The NormLinf norm
 
@@ -58,7 +62,7 @@ hinf = NormLinf(1.0)
 prox(hinf, [3.0, -1.0], 1.0)
 ```
 
-## The group ℓ₂ norm
+## [The group ℓ₂ norm](@id group-l2-guide)
 
 `GroupNormL2` represents the group-lasso penalty
 
@@ -81,6 +85,12 @@ The constructor keeps its own copies of `groups` and `w`. A negative or `NaN`
 level or weight, an empty group, a nonpositive index and an index in two groups
 (or twice in one) throw an `ArgumentError`; a weight count that differs from the
 group count throws a `DimensionMismatch`.
+Groups retain their index order. Concrete range collections keep ranges;
+otherwise groups are copied into integer vectors. The level and weights are
+converted to their promoted floating-point type. These copies protect the
+function from later edits to constructor inputs; they do not make arbitrary
+changes to the function's fields valid. At an oracle call, every group index
+must fit the argument, and arrays must be real and one-based.
 
 ```@example group_penalty
 groups = [[1, 4, 2], [5, 3]]          # entry 6 is in no group
@@ -122,14 +132,18 @@ negative or `NaN` step throws an `ArgumentError` before anything is written.
 compact trial vector `u`, whose entries follow the order of `groups[k]`, and
 writes it into `out`. It returns `out`, and `out === u` is supported. The group
 index, the buffer lengths, the step and the overlap of `out` and `u` are checked
-before any write. `prox_block(g, u, k, γ)` allocates the output.
+before any write. The buffers must be real, one-based vectors of the group's
+length. Any nonidentical overlap reported by `Base.mightalias(out, u)` throws
+`ArgumentError`. `prox_block(g, u, k, γ)` allocates the output.
 
 The call does not write to or activate any iterate: `u` may be a view that reads
 one, and `out` must be independent of iterate storage, the caller precondition of
 the block contract. With a `BlockIterate` that has the groups of `g` (for example
 `BlockIterate(p, g)`), the caller builds the trial,
 computes the result in its own buffer and then writes it, which is the step that
-activates the group:
+activates the group. `BlockIterate(p, g)` and `BlockIterate(x, g)` require the groups
+to partition every entry of the iterate, including entries unpenalized by a zero
+weight:
 
 ```@example group_penalty
 f = GroupNormL2(0.4, [[1, 4, 2], [5, 3], [6]])
@@ -180,28 +194,31 @@ refused = try kkt_violation(f, G, z1, 1); false catch e; e isa ArgumentError end
 kkt_violation(f, G, z0, 3)
 ```
 
-### Exceptional parameters and values
+### [Exceptional parameters and values](@id group-l2-endpoints)
 
 | Case | Result for group ``k`` |
 |:--|:--|
 | ``w_k=0`` | Unpenalized: returned unchanged, `NaN` and `±Inf` included; value zero |
-| ``w_k=\infty``, or ``\lambda_0=\infty`` with ``w_k>0`` | Fixed at `+0` at every nonnegative step, ``\gamma=0`` included, also for `NaN` and `±Inf` inputs ([#665](https://github.com/mlakolar/ProximalBase.jl/issues/665)) |
+| ``w_k=\infty``, or ``\lambda_0=\infty`` with ``w_k>0`` | Fixed at `+0` at every nonnegative step, ``\gamma=0`` included, also for `NaN` and `±Inf` inputs (see [infinite penalties at zero step](@ref infinite-penalty-at-zero-step)) |
 | ``\lambda_0=0`` or ``\gamma=0``, finite parameters | The identity |
 | ``\gamma=\infty``, positive finite level and weight | Fixed at `+0` |
 | A `NaN` entry, positive finite level, weight and step | Every entry of the group becomes `NaN` |
 | A `±Inf` entry and no `NaN`, positive finite level, weight and step | Returned unchanged: the norm is infinite and the threshold ``\gamma\lambda_0w_k`` is finite, also when its floating-point product overflows |
 | ``\gamma<0`` or ``\gamma=`` `NaN` | `ArgumentError` before any write |
 
-At ``\gamma=0`` an infinite level is the limit ``\gamma\to0^+`` with the function
-fixed, the projection onto the closure of its domain, as for `NormL1(Inf)`.
+The common interpretation of [infinite penalties at zero step](@ref infinite-penalty-at-zero-step)
+applies. A finite zero group becomes `+0` under positive finite parameters. An
+infinite-weight or infinite-level group's value is zero at a zero group, `NaN`
+when it contains `NaN`, and `Inf` otherwise; a zero weight overrides these value
+rules and contributes zero.
 For finite inputs, norms whose sums of squares overflow or underflow and
 thresholds outside the floating-point range are recomputed in power-of-two
-units, so that a representable proximal point is returned accurately. Values
-recover terms that round below `floatmin` as `NormL1` values do. Values at or above
-`floatmax/2` are recomputed in power-of-two units; within a few eps of the overflow
-threshold the result may be `floatmax` or `Inf`
-([#904](https://github.com/mlakolar/ProximalBase.jl/issues/904); see the
-[numerical contract](numerics.md)).
+units, so that a representable proximal point is returned accurately. Values recover terms that round below `floatmin`: for `Float32` and `Float64`,
+a sum below `K*floatmin`, where `K` is the total number of groups, is recomputed
+using term exponents. Values at or above `floatmax/2` are recomputed in
+power-of-two units and accumulated in at least `Float64`. Within a few eps of
+the overflow threshold the result may be `floatmax` or `Inf`, regardless of
+which one the exact value rounds to. See [value range limits](@ref numerical-value-range).
 
 `GroupNormL2` does not apply to a `SymmetricSparseIterate` (its proximal operators
 throw an `ArgumentError` before anything is written), and it has no

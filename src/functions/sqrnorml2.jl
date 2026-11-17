@@ -6,31 +6,40 @@
     SqrNormL2(λ = 1)
     SqrNormL2(λ, y)
 
-The squared Euclidean norm `f(x) = (λ/2) ‖x - y‖²`, with `y = 0` when omitted:
-the ridge penalty, and for `λ = 1` the loss `‖x - y‖² / 2`. Smooth, with
-gradient `λ(x - y)`, separable, and proximable, with proximal operator
-`(x + γλy) / (1 + γλ)`. For a matrix `x`, `‖⋅‖` is the Frobenius norm.
-Values follow the overflow rule in Overflow and underflow of values.
+Squared-distance function `f(x) = (λ/2)‖x-y‖²` with nonnegative level `λ`
+and center zero when `y` is omitted. For a matrix, the norm is Frobenius.
+This is the ridge penalty when uncentered, or half the squared error when `λ = 1`.
 
-# Precision
+The function is smooth, convex and separable, with gradient `λ*(x-y)` and
+proximal point `(x + γ*λ*y)/(1 + γ*λ)`. A supplied center is retained by reference
+and must have the same shape as `x`. Use real, one-based arrays; `λ` is
+checked nonnegative and not `NaN` at construction. The retained center's
+array type and axes are checked at construction; later edits are not revalidated.
 
-The level `λ`, the center `y` and the step are parameters; they are rounded once
-to the *model precision* of each result and never widen it. That precision is the wider of the argument's and the
-destination's for a gradient or a proximal point, and the argument's for the value
-(so the value written by `value_and_prox!` is the value at the stored point, and
-`value_and_gradient!` returns the standalone value and writes the standalone
-gradient). The proximal weight `γλ` is formed from the unrounded factors before it
-is rounded.
+# Examples
+```jldoctest
+julia> f = SqrNormL2(2.0, [1.0, 0.0]);
 
-A parameter, a product or a coefficient that would leave the range of the model
-precision does not change a representable result: the gradient of
-`SqrNormL2(2^-1022, [-2^1023])` at `[2^1023]` is `[4.0]` although `x - y`
-overflows, and `prox!` of `SqrNormL2(2^800)` with step `2^800` at `[2^900]`
-gives `2^-700` in `Float64`, where `1/(1 + γλ)` is not a number. The ordinary
-computation runs first, and the recovery is chosen once per call from the
-parameters, except for a `Float64` center entry outside the range of a `Float32`
-model, which is handled for that entry.
+julia> f([3.0, -1.0])
+5.0
 
+julia> prox(f, [3.0, -1.0], 0.5)
+2-element Vector{Float64}:
+  2.0
+ -0.5
+```
+
+# Edge cases
+- For a symmetric iterate, the center must be exactly symmetric; validate with
+  [`ProximalBase.check_symmetric_parameters`](@ref).
+- Exact in-place prox is supported; gradient output must be independent of its input.
+- An infinite level follows IEEE arithmetic, not a general projection rule:
+  a zero residual can yield a `NaN` gradient from `Inf*0`.
+  A zero level does not suppress every `0*Inf` or `0*NaN` in gradients or prox.
+
+See [squared-norm details](@ref Squared-Euclidean-norm) and the
+[numerical contract](@ref numerics) for supported precision, range recovery,
+restriction constants and non-finite values.
 """
 struct SqrNormL2{T<:Real, Y<:Union{Nothing, AbstractArray}} <: AbstractFunction
   λ::T

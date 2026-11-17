@@ -8,7 +8,7 @@ const PO = ProximalOperators
 function loadtree(name, root)
   m = Core.eval(Main, :(module $(Symbol("Tree_", name)) end))
   Base.include(m, joinpath(root, "src", "ProximalBase.jl"))
-  getfield(m, :ProximalBase)
+  Base.invokelatest(getfield, m, :ProximalBase)   # the binding is defined in a later world than this call
 end
 specs = [split(s, '=') for s in split(ENV["KO_TREES"], ';') if !isempty(s)]
 const TREES = [(String(n), loadtree(n, abspath(String(r)))) for (n, r) in specs]

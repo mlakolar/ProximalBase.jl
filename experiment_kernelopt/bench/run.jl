@@ -20,7 +20,7 @@ const PO = ProximalOperators
 function loadtree(name, root)
   m = Core.eval(Main, :(module $(Symbol("Tree_", name)) end))
   Base.include(m, joinpath(root, "src", "ProximalBase.jl"))
-  getfield(m, :ProximalBase)
+  Base.invokelatest(getfield, m, :ProximalBase)   # the binding is defined in a later world than this call
 end
 # a synced copy without git metadata carries its commit in the file TREE_SHA
 treesha(root) = isfile(joinpath(root, "TREE_SHA")) ? strip(read(joinpath(root, "TREE_SHA"), String)) : try
@@ -71,6 +71,8 @@ for T in types
   "ls" in suites && append!(cases, Base.invokelatest(cases_ls, pbs, K, KC, PO, T))
   "enet" in suites && append!(cases, Base.invokelatest(cases_enet, pbs, K, KC, PO, T))
   "solver" in suites && append!(cases, Base.invokelatest(cases_solver, pbs, T))
+  "steps" in suites && append!(cases, Base.invokelatest(cases_steps, pbs, T))
+  "a3" in suites && append!(cases, Base.invokelatest(cases_a3, pbs, T))
   if "tiny" in suites
     append!(cases, Base.invokelatest(cases_l1, pbs, K, KC, PO, T; sizes = TINY_SIZES))
     append!(cases, Base.invokelatest(cases_l2, pbs, K, KC, PO, T; sizes = TINY_SIZES))

@@ -412,6 +412,133 @@ function cases_zero_groups(pbs, ::Type{T}) where {T}
 end
 const TINY_SIZES = (1, 2, 3, 4, 7, 8, 9, 12, 15, 17, 24, 31, 33, 48, 100)
 
+# NormL1 with a step per entry, for the revision of B925 that skips the pass over the steps below 16 entries: every
+# length from 1 to 17, larger lengths up to 2^20, with and without weights, prox! and value_and_prox!, and the fallback
+# when one step is exceptional (a zero step, at the first or at the last entry; the pass stops after the first block
+# of 256 steps in the first case and reads every step in the second). Source trees only. The offsets of the output
+# and of the steps relative to the argument modulo 4096 are printed (section 8.7 of the report).
+const STEP_SIZES = (1:17..., 24, 32, 64, 256, 1024, 16384, 65536, 1048576)
+function cases_steps(pbs, ::Type{T}; sizes = STEP_SIZES) where {T}
+  cases = Case[]
+  r = Ref(zero(T))
+  for n in sizes
+    d = l1_data(T, n, :normal)
+    x, y, w, γv, λ = d.x, d.y, d.w, d.γv, d.λ
+    γfirst = copy(γv); γfirst[1] = zero(T)
+    γlast = copy(γv); γlast[n] = zero(T)
+    off(a) = mod(Int(pointer(a)) - Int(pointer(x)), 4096)
+    println("steps layout ", T, " n=", n, ": y ", off(y), " steps ", off(γv), " weights ", off(w), " steps_first ", off(γfirst), " steps_last ", off(γlast))
+    id(op) = "l1/$op/$T/n$n/normal"
+    for (op, wt, γ) in (("prox_g", nothing, γv), ("prox_gw", w, γv), ("prox_gx_first", nothing, γfirst), ("prox_gx_last", nothing, γlast),
+                        ("prox_gwx_last", w, γlast))
+      c = Case(id(op), "l1", REFNAME; rtol = 0.0, expected = nothing)
+      for (name, pb) in pbs
+        add!(c, name, 2, thunk(pb.prox!, y, pb.NormL1(λ, wt), x, γ), outarr(y))
+      end
+      push!(cases, c)
+    end
+    for (op, wt) in (("valprox_g", nothing), ("valprox_gw", w))
+      c = Case(id(op), "l1", REFNAME; rtol = 0.0, expected = nothing)
+      for (name, pb) in pbs
+        add!(c, name, 2, thunkref(r, pb.value_and_prox!, y, pb.NormL1(λ, wt), x, γv), outboth(r, y))
+      end
+      push!(cases, c)
+    end
+  end
+  cases
+end
+
+# Suite "a3": the soft-threshold loops of NormL1 and ElasticNet (with and without weights) as a caller reaches them,
+# for the comparison of the two soft-threshold formulas. Source trees only; outputs are compared bit for bit.
+#   prox_out      prox!(y, f, x, γ), y allocated right after x by similar(x), as Julia places it (the offsets are printed)
+#   prox_in       prox!(z, f, z, γ) in place, repeated without restoring z: after the first calls z is at the fixed
+#                 point (all zeros), so this times the in-place call on that stationary input; the checked output is
+#                 the timed call itself applied once to a fresh copy of x
+#   prox_incopy   copyto!(z, x), then prox!(z, f, z, γ): in place on the same input in every call; the implementation
+#                 "copy" of the case is the copy alone
+#   prox_alloc    prox(f, x, γ): the output is allocated in every call
+#   valprox_out   value_and_prox!(y, f, x, γ)
+#   prox_g_out    prox!(y, f, x, γv), a step per entry
+#   block_loop    prox_block entry by entry in a loop that the compiler may inline and vectorize, 4 to 1024 entries
+#   block_one     one prox_block call on one number (under the length n1), its result stored in a Ref
+#   sparse_prox   prox! of a SparseIterate with a tenth of 65,536 entries stored into another, the same input in every call
+include(joinpath(@__DIR__, "hugepct.jl"))
+const A3_SIZES = (1, 2, 4, 8, 16, 32, 64, 128, 256, 1000, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 100000, 262144, 1048576)
+inplace_thunk(p::P, z, f, γ) where {P} = () -> (p(z, f, z, γ); nothing)
+inplace_copy_thunk(p::P, z, f, x, γ) where {P} = () -> (copyto!(z, x); p(z, f, z, γ); nothing)
+inplace_out(p::P, z, f, x, γ) where {P} = () -> (copyto!(z, x); p(z, f, z, γ); z)
+reset_run_out(op::O, z, x) where {O} = () -> (copyto!(z, x); op(); z)       # the timed operation itself, once, from x
+block_one_thunk(r::Base.RefValue, pbk::P, f, v, γ) where {P} = () -> (r[] = pbk(f, v, 1, γ); nothing)
+alloc_thunk(p::P, keep, f, x, γ) where {P} = () -> (keep[] = p(f, x, γ); nothing)
+function cases_a3(pbs, ::Type{T}; sizes = A3_SIZES) where {T}
+  cases = Case[]
+  r = Ref(zero(T))
+  λ2 = T(0.5)
+  for n in sizes
+    d = l1_data(T, n, :normal)
+    x, y, w, γv, λ, γ = d.x, d.y, d.w, d.γv, d.λ, d.γ
+    z = copy(x)
+    keep = Ref(similar(x))
+    off(a) = mod(Int(pointer(a)) - Int(pointer(x)), 4096)
+    fill!(y, zero(T))          # written before the backing is read; every implementation overwrites it
+    println("a3 layout ", T, " n=", n, ": y ", off(y), " weights ", off(w), " steps ", off(γv), " inplace ", off(z), " x64 ", mod(Int(pointer(x)), 64),
+            " hugepct x ", Sys.islinux() ? hugepct(x) : -1, " y ", Sys.islinux() ? hugepct(y) : -1)
+    fams = (("l1", pb -> pb.NormL1(λ)), ("l1w", pb -> pb.NormL1(λ, w)), ("enet", pb -> pb.ElasticNet(λ, λ2)), ("enetw", pb -> pb.ElasticNet(λ, λ2, w)))
+    for (fam, mk) in fams
+      id(op) = "$fam/$op/$T/n$n/normal"
+      c = Case(id("prox_out"), "a3", REFNAME)
+      for (name, pb) in pbs; add!(c, name, 2, thunk(pb.prox!, y, mk(pb), x, γ), outarr(y)); end
+      push!(cases, c)
+      c = Case(id("prox_in"), "a3", REFNAME)
+      for (name, pb) in pbs
+        timed = inplace_thunk(pb.prox!, z, mk(pb), γ)
+        add!(c, name, 2, timed, reset_run_out(timed, z, x))
+      end
+      push!(cases, c)
+      c = Case(id("prox_incopy"), "a3", REFNAME)
+      for (name, pb) in pbs; add!(c, name, 2, inplace_copy_thunk(pb.prox!, z, mk(pb), x, γ), outarr(z)); end
+      add!(c, "copy", 1, thunk(copyto!, z, x), inplace_out(pbs[1][2].prox!, z, mk(pbs[1][2]), x, γ))
+      push!(cases, c)
+      c = Case(id("prox_alloc"), "a3", REFNAME)
+      for (name, pb) in pbs; add!(c, name, 2, alloc_thunk(pb.mod.prox, keep, mk(pb), x, γ), () -> keep[]); end
+      push!(cases, c)
+      c = Case(id("valprox_out"), "a3", REFNAME)
+      for (name, pb) in pbs; add!(c, name, 2, thunkref(r, pb.value_and_prox!, y, mk(pb), x, γ), outboth(r, y)); end
+      push!(cases, c)
+      c = Case(id("prox_g_out"), "a3", REFNAME)
+      for (name, pb) in pbs; add!(c, name, 2, thunk(pb.prox!, y, mk(pb), x, γv), outarr(y)); end
+      push!(cases, c)
+      if n == 1
+        c = Case(id("block_one"), "a3", REFNAME)
+        for (name, pb) in pbs; add!(c, name, 2, block_one_thunk(r, pb.prox_block, mk(pb), T(1.7), γ), outref(r)); end
+        push!(cases, c)
+      end
+      if n in (4, 16, 128, 1024)
+        c = Case(id("block_loop"), "a3", REFNAME)
+        for (name, pb) in pbs; add!(c, name, 2, block_loop_thunk(pb.prox_block, y, mk(pb), x, γ), outarr(y)); end
+        push!(cases, c)
+      end
+    end
+  end
+  # sparse iterates: every tree wraps the same index and value arrays in its own SparseIterate type
+  n = 65536
+  rng = MersenneTwister(910)
+  xs = zeros(T, n); stored = randperm(rng, n)[1:(n ÷ 10)]; xs[stored] .= T(2) .* randn(rng, T, length(stored))
+  ws = T(0.5) .+ rand(rng, T, n)
+  M0 = pbs[1][2].mod
+  sp0 = M0.SparseIterate(xs); out0 = copy(sp0)
+  wrap(M, s) = M.SparseIterate(s.nzval, s.nzval2ind, s.ind2nzval, s.nnz)
+  for (fam, mk) in (("l1", pb -> pb.NormL1(T(0.3))), ("l1w", pb -> pb.NormL1(T(0.3), ws)), ("enet", pb -> pb.ElasticNet(T(0.3), λ2)), ("enetw", pb -> pb.ElasticNet(T(0.3), λ2, ws)))
+    c = Case("$fam/sparse_prox/$T/n$n/tenth", "a3", REFNAME)
+    for (name, pb) in pbs
+      so = wrap(pb.mod, out0)
+      add!(c, name, 2, thunk(pb.prox!, so, mk(pb), wrap(pb.mod, sp0), T(0.7)), outarr(out0.nzval))
+    end
+    push!(cases, c)
+  end
+  cases
+end
+
 ####################################
 #  C. Least squares
 ####################################

@@ -1,18 +1,20 @@
 # ProximalBase numerical kernels: optimization study
 
-Status: complete. Nothing was merged, and nothing was changed in ProximalSolvers.
+Status: complete, and decided. The maintainer ruled on each patch after the publication of 2026-11-16: #966, #967
+and #968 are merged, #969 is closed, and #974 (A3's formula in place and on arrays of up to 16 KiB) is merged in
+its place. **Section 12 has the rulings and the measurements made for them; sections 1 to 11 are the study as
+published and are not updated for them.** Nothing was changed in ProximalSolvers.
 
-**This branch is a reading copy** (published 2026-11-16): the report, the scripts and the summary tables. The raw
-results (`results/`, 205 MB of CSV, provenance and Slurm outputs) are not in it; they are kept in the study's
-local branch and on the cluster. The four patches are draft pull requests, each the measured commit plus a
-merge of master `b8ddeaf3`:
+**This branch is a reading copy**: the report, the scripts, the summary tables and the review notes. The raw
+results (`results/`, CSV, provenance and Slurm outputs) are not in it; they are kept in the study's local branch
+and on the cluster.
 
-| Patch | Draft PR | Recommendation |
-|:--|:--|:--|
-| D3: skip the second scan of a zero group | #966 | implement |
-| V: one loop for NormL1 and NormL2 values of 16 to 1024 entries | #967 | implement if the last-bit change is acceptable |
-| B925: #925's design for NormL1 step arrays | #968 | one revision, then propose |
-| A3: select-based soft threshold on the ordinary NormL1 path | #969 | do not merge under the current policy |
+| Patch | Pull request | Recommendation at publication | Outcome (§12.1) |
+|:--|:--|:--|:--|
+| D3: skip the second scan of a zero group | #966 | implement | merged |
+| V: one loop for NormL1 and NormL2 values of 16 to 1024 entries | #967 | implement if the last-bit change is acceptable | merged |
+| B925: #925's design for NormL1 step arrays | #968 | one revision, then propose | merged with a bypass below 16 entries |
+| A3: select-based soft threshold on the ordinary NormL1 path | #969 | do not merge under the current policy | closed; merged as #974 with a 16 KiB cutoff |
 
 Baselines: the study started from ProximalBase master `50db4b1ef376cbe01831c3dd019b6be0027db0b6` (after #918), and
 §§4–8.5 are measured against it. Master then moved to `18b27149` (#909 ElasticNet, #922, #923, #925, which
@@ -27,7 +29,7 @@ structure of the ℓ1 loops are at the floor of check-free kernels written for t
 BLAS `nrm2` and Blue's algorithm are not faster where they are as accurate (§4, §6). What is left is small and
 specific: the four patches below change 15 to 34 lines of source each.
 
-**Recommendations (§9).**
+**Recommendations at publication (§9); for what was decided, see §12.1.**
 
 | | Patch | Recommendation | Gain | Needs from the maintainer |
 |--:|:--|:--|:--|:--|
@@ -1204,13 +1206,238 @@ python3 bench/sparse_digest.py results/m3/probe6
 julia bench/numerics.jl                                  # section 6 (KO_TREES as above)
 ```
 
+```sh
+# section 12: the step-array comparison, the matrix of the soft-threshold candidates, and its probes
+sbatch --exclusive --mem=0 --export=ALL,KO_ROOT=...,KO_TAG=a3matrix5,KO_KIND=epyc7513a,KO_REF=M4,KO_TREE_LIST="M4 A3M4 A3e",KO_SUITES=a3,KO_PROCS=3,KO_JULIAS=1.13.4 slurm/formal.sbatch
+sbatch --exclusive --mem=0 --export=ALL,KO_ROOT=...,KO_TAG=a3probe4,KO_KIND=epyc7513,KO_REF=M4,KO_CAND=A3e,KO_OFFSET_PAGES=0,1,5,64,301 slurm/a3probes.sbatch
+python3 bench/steps_digest.py results/m3/steps2 --summary
+python3 bench/matrix_digest.py results/m7/a3matrix5 --tables
+python3 bench/a3probe_digest.py results/m7/a3probe4
+julia --project=env-v1.13 --check-bounds=yes bench/equiv_trees.jl /path/to/master cutoff=/path/to/tree   # exit status 1 on any difference
+```
+
 Files: `bench/` (harness, suites, solver loops, probes, numerics tables, digests), `kernels/` (standalone
 kernels), `slurm/` (job scripts), `probes/` (the exhaustive, code-generation and allocator checks cited above),
 `notes/` (inventory, prior findings, reviews, tables), `results/` (not in this reading copy: raw CSV, provenance, Slurm outputs; the
 outputs of one faulty probe version are kept apart in `results/m3/probe-invalid/` with a note and are not used).
 
+Trees of §12 (the same kind of local worktrees): `master4` = master `f8148203` (M4); universal `0271e994` (A3M4);
+NormL1 only `684e1ee5`; 2 MiB `87270d4e`; 32 KiB `8d36871b`; 32 KiB Zen only `c5911eb7`; 16 KiB `41772a98`
+(the measured tree of #974); the step-array variants `B925m`, `B925s`, `B925t` and `B925u` `3d24a783` (merged
+as #968). Their results are under `results/m3/{steps1,steps2}`, `results/m4/{a3matrix1,a3probe1}`,
+`results/m5/a3probe2`, `results/m6/{a3matrix3,a3matrix4,a3probe3}` and `results/m7/{a3matrix5,a3probe4}` of the
+local branch.
+
 Published branches: `kernelopt/d3-zero-group-scan` (#966), `kernelopt/v-value-loop` (#967),
-`kernelopt/b925-l1-step-arrays` (#968), `kernelopt/a3-select-soft-threshold` (#969), `kernelopt/report` (this copy).
+`kernelopt/b925-l1-step-arrays` (#968), `kernelopt/a3-select-soft-threshold` (#969, closed), `kernelopt/a3-select-cutoff`
+(#974), `kernelopt/report` (this copy).
 
 Measured trees (local worktrees under `pbopt/`, branches `exp/kernelopt-*`, not pushed): `base2` = master `18b27149`;
 `A3r` `26d61415`; `Vr` `453906c8`; `D3r` `1a783f47`; `B925` `741cd0ac`; `FINALr` `7da6f7df`.
+
+## 12. After publication: rulings, the revision of #968, and the revisit of #969
+
+Sections 1 to 11 are the study as published on 2026-11-16 and are kept as they were. This section records what
+the maintainer decided afterwards and the measurements made for those decisions.
+
+### 12.1 Outcome
+
+| Patch of §9 | Pull request | Result |
+|:--|:--|:--|
+| D3 | #966 | merged (`33202cd0`); the 1.10–1.15× for zero groups of 1 to 5 entries accepted |
+| V | #967 | merged (`684ebd49`); the last-place difference accepted as an accuracy-preserving optimization, not a promise of bitwise reproducibility, and stated so in `docs/src/numerics.md` and in the tests |
+| B925 | #968 | merged (`78baabc8`) after the revision of §12.2 (a bypass below 16 entries) |
+| A3, at every length | #969 | **closed without merging** (§12.3) |
+| A3 in place and up to 16 KiB | #974 | **merged** (`da8d9c2e`) |
+
+### 12.2 #968: the bypass for short arrays
+
+The maintainer asked for the reviewer's bypass before merging: arrays of fewer than 16 entries skip the pass over
+the steps and take the generic loop. Three forms were measured against the design without a bypass (`steps1` and
+`steps2`: jobs 14298971–14298973 and 14299168–14299170; six processes per CPU and Julia version; suite `steps`).
+
+- **A length test inside the method is not enough.** The method that holds the pass does not inline into `prox!`,
+  so a short array still pays its call: 1.2–1.4× master at 1 to 4 entries, in 42 to 92 cells per stratum
+  (without any bypass: 53 to 88 cells, up to 2.2×).
+- **The merged form** is an inlined method that only tests the length and an out-of-line method with the checks,
+  the pass and the loop. Below 16 entries no cell is slower in every process, on any of the three CPUs and on
+  either Julia version (worst single ratios 1.02–1.05).
+- **From 16 entries on, Julia 1.13.4, ordinary steps:** 0.53–0.74 at 16 entries, 0.10–0.31 at 1024, 0.12–0.45
+  at 65,536 and 0.18–0.80 at 2^20 (all three CPUs; Zen 3 alone 0.56–0.74, 0.16–0.31, 0.17–0.38, 0.18–0.33).
+- **Accepted by the maintainer:** 1.07× for Float64 at one entry on Julia 1.13.4 (0.2 ns), and the cost of an
+  exceptional step, which runs the pass and then the generic loop: 1.26–1.45× at 16 to 17 entries and
+  1.06–1.13× at 1024 as accepted (1.18–1.47× and 1.06–1.13× over all three CPUs in the final runs), confined to
+  that fallback. On Zen 3 it stays 1.07–1.13× up to 2^20 entries when the
+  exceptional step is the last one, because the pass reads every step first.
+- **Julia 1.10 only** (not merge-blocking under the policy of §12.3): the fallback reaches 1.61× at 17 entries on
+  Skylake-SP, and three ordinary Float32 cells there (16, 17 and 24 entries) read 1.01–1.36× with controls of
+  0.87–1.15.
+
+Reviews: `notes/REVIEW-b925-bypass-round5.md` (rejected the two forms with the test inside the method, approved
+the inlined form with changes, and found two defects of the digest, since corrected) and
+`notes/REVIEW-b925-final-round6.md` (approve). Tables: `notes/tables/steps1-digest.md`, `steps2-digest.md`.
+
+### 12.3 #969: the two soft-threshold formulas, revisited
+
+**Policy.** The maintainer replaced the 5% rule for this patch: maximize Float32 and Float64 performance on Julia
+1.13.4; Julia 1.10 performance is not merge-blocking; preserve correctness and API compatibility; benchmark both
+formulas on Zen 3, Broadwell and Skylake-SP, in place and out of place, scalar and array, short to large;
+characterize the placement regressions including ordinary Julia allocations; investigate a simple size cutoff;
+evaluate processor-specific selection only if it has a meaningful advantage; no complex numerical recovery,
+pointer heuristics or extensive dispatch machinery; propose the simplest implementation with the best overall
+performance.
+
+**Candidates.** All measured against master `f8148203` ("M4"); net source lines against it.
+
+| Name | Rule | Lines |
+|:--|:--|--:|
+| universal (#969) | `_shrink_nonneg` on the ordinary branch at every length | 19 |
+| NormL1 only | the same for NormL1; ElasticNet passes `shrink` | 19 (22 added, 3 removed) |
+| 2 MiB cutoff | `shrink` for a separate output on arrays of 2 MiB and more | 48 |
+| 32 KiB cutoff | the same from 32 KiB | 48 |
+| 32 KiB cutoff, Zen only | the cutoff held in a `Ref` that `__init__` sets from `Sys.CPU_NAME` | 62 |
+| **16 KiB cutoff (#974)** | `shrink` for a separate output on arrays of more than 16 KiB; element types of size zero guarded | 50 (53 on current master) |
+
+Every cutoff exempts `y === x`. Two earlier variants that cut at 8192 entries instead of bytes were measured in
+the first matrix and superseded.
+
+**Method.** Suite `a3` of `bench/suites.jl` (1,008 cells: NormL1 and ElasticNet with and without weights; `prox!`
+out of place, in place repeated on the fixed point, and in place after a copy of the input; allocating `prox`;
+`value_and_prox!`; a step per entry; a `prox_block` loop and a single `prox_block` call; sparse iterates; 1 to
+2^20 entries; both element types), with the pairing, the A/A control and the decision rule of §2.2. The output
+of every case is allocated by `similar(x)` right after its input, as a caller would, and the offsets and the
+huge-page backing are printed. Two probes: `bench/offset_probe.jl` (both arrays forced onto huge pages at chosen
+output offsets, optionally shifted by whole 4 KiB pages; the backing obtained is recorded) and
+`bench/alloc_probe.jl` (ordinary allocations in four patterns, and two patterns that advise huge pages for arrays
+at the addresses Julia chose; address difference, backing before and after timing, and the times of both trees
+and of the A/A control on those arrays). `bench/hugepct.jl` measures the backing of one array by splitting the
+mappings at multiples of 2 MiB. `bench/equiv_trees.jl` compares trees bit for bit through the public entry
+points. After the seventh review the matrix digest classifies a cell only with complete rounds, valid metadata
+and a finished process, and the same filter applies to its means.
+
+| Campaign | Trees | Jobs (Zen 3; Broadwell; Skylake-SP) |
+|:--|:--|:--|
+| `a3matrix1` | universal, the two entry cutoffs | 14299658, 14299659 (node b05-19); 14299660; 14299661 |
+| `a3matrix3` | universal, 32 KiB, 32 KiB Zen only, 2 MiB | 14304626, 14304627 (b04-05); 14304629; 14304630 |
+| `a3matrix4` | universal, NormL1 only, 32 KiB Zen only | 14310003, 14310004 (a02-03); 14310006; 14310007 |
+| `a3matrix5` | universal, 16 KiB | 14313346 (a04-02), 14313347 (b10-18); 14313350; 14313351 |
+| `a3probe1` | universal, first version of the allocation probe | 14299470, 14299471 (b10-18; the second overwrote the first); 14299472; 14299473 |
+| `a3probe3` | universal; 32 KiB; 2 MiB; NormL1 only | 14304602 (a04-02), 14304603 (b04-05), 14304628 (a02-03), 14310005 (a04-08); 14304606; 14304607 |
+| `a3probe4` | 16 KiB | 14313344, 14313345 (both a04-08); 14313348; 14313349 |
+
+Julia 1.13.4, exclusive nodes, 21 alternating paired rounds; six processes per Intel CPU and two jobs of three on
+Zen 3. An interim Intel run of the allocation probe (`a3probe2`, 14304133 and 14304134) and several jobs that I
+cancelled before they produced data (14304099–14304102, 14304604, 14304605, 14304608, 14304609, replaced after
+fixes of the probe or of the tree list) are in the job logs.
+
+**Bitwise equivalence.** For Float32 and Float64 every candidate gives the bits of master: 332,640 results per
+candidate (350,784 with the lengths around the 16 KiB boundary), none different and no NaN with other bits, with
+and without bounds checks, on the workstation and in the probe jobs on each CPU. The inputs hold signed zeros,
+subnormals, infinities, quiet NaNs with payloads and signaling NaNs, values at and next to the thresholds,
+weights with zeros and infinities, steps that are zero, infinite, negative and NaN, views and sparse iterates.
+For Float16, outside the guaranteed types, the reviewer found that the payload of a NaN can differ; values and
+exceptions do not.
+
+**Intel.** The universal version is equal or faster than master in every cell except a few of 1 to 16 entries:
+on Broadwell 3 or 4 cells slower in every process (7.1 → 8.0 ns at one Float32 entry, 4.1 → 4.4 ns for one
+`prox_block` call), on Skylake-SP none. Without weights its gain is 0.67–0.69 (Broadwell) and 0.78–0.84
+(Skylake-SP) at 128 to 8192 entries out of place, 0.86–0.89 above, and 0.67 and 0.74–0.78 in place from 128
+entries on. Under ordinary allocations
+the largest ratio of about 6,900 comparisons per CPU was 0.99 on Broadwell and 1.04 on Skylake-SP. With forced
+placement Broadwell never exceeds 1.02 and Skylake-SP reaches 1.06–1.09 at single offsets.
+
+**Zen 3: the universal version is not robust under ordinary allocations.**
+
+- In the matrices, ElasticNet `prox!` and `value_and_prox!` out of place are 1.2–1.41× master at 32,768 and
+  65,536 Float64 entries and at 65,536 to 2^20 Float32 entries when the output is 64 or 128 bytes after the input
+  modulo 4096. In `a3matrix3` that is every process of both jobs at 262,144 and 2^20 Float32 entries and five of
+  six at the Float64 sizes; in `a3matrix5`, for example, 14.1 → 18.6 µs at 65,536 Float64 entries and 111.6 →
+  145.0 µs at 2^20 Float32 entries. All five nodes of the four matrices show it.
+- NormL1 is affected less often: 0.84–1.02 in most of those placements, and 1.11–1.25× with a clean control at
+  32,768 and 65,536 Float32 entries on one node (7.1 → 8.7 µs).
+- The allocation probe with the backing measured (node a04-02): at 2^20 entries, with the output in the band and
+  both arrays on huge pages, ElasticNet is 1.20× in the median and 1.27× at most in Float64 (130 trials) and
+  1.09× and 1.15× in Float32 (148 trials); about 60% of all ordinary ElasticNet trials at that length are above
+  1.05×. Over all ordinary trials with some huge-page backing the reviewer counted 251 comparisons above 1.05×
+  with a clean control (223 ElasticNet, 28 NormL1).
+- Everything else on Zen 3 is faster: 0.67–0.72 up to 16,384 entries, about 0.83 at large sizes outside those
+  placements, 0.68–0.79 in place at every size.
+- The first allocation probe (`a3probe1`, another node) had found no trial above 0.93× in 3,456. Its arrays in
+  the band were on small pages, where the second probe also finds no slowdown (0.85–0.92×). That earlier evidence
+  was the basis of a conditional approval of the universal version; the condition was not met.
+
+**What the placement effect depends on.** More than the low 12 address bits. On Zen 3 the slowdown at an output
+offset of 64 to 192 bytes disappears when 1, 5 or 301 whole pages are added to the offset and is unchanged with
+64 pages (256 KiB); on Skylake-SP it disappears with any of these shifts. With forced placement on huge pages it
+starts on Zen 3 at 20 KiB per array (1.25–1.33× for ElasticNet and 1.10–1.16× for NormL1 at 20 to 28 KiB) and is
+absent at 16 KiB and below (at most 0.92× at the worst offset), that is, where the two arrays no longer fit the
+32 KiB first-level cache together. Ordinary allocation produces the placement for consecutively allocated arrays
+of a power-of-two size. The mechanism is not established. The matrix reported most of the affected arrays as not
+on huge pages at setup; that the kernel collapses them into huge pages during the minutes-long process is a
+plausible explanation that was not verified. On Zen 3 master's own loops are unstable in these placements: two
+compilations of master differ by 0.81–1.29× on one node, so single ratios there are not classifiable.
+
+**The candidates compared.** Geometric mean of tree/master over all cells of the matrix (ranges over the
+campaigns a tree is in), and what remains slower in every process with a clean control at 1,024 entries or more.
+
+| Candidate | Broadwell | Skylake-SP | Zen 3 | Reproducible regressions at 1,024 entries or more |
+|:--|--:|--:|--:|:--|
+| universal | 0.851 | 0.917–0.924 | 0.883–0.891 | Zen 3: ElasticNet 1.2–1.41×, NormL1 1.11–1.17× |
+| NormL1 only | 0.913 | 0.955 | 0.938 | Zen 3: NormL1 1.17–1.25× |
+| 2 MiB cutoff | 0.855 | 0.922 | 0.891 | Zen 3: as universal below 2 MiB |
+| 32 KiB cutoff | 0.865 | 0.930 | 0.898 | none in the matrix; forced placement 1.25–1.33× at 20 to 28 KiB |
+| 32 KiB cutoff, Zen only | 0.857–0.858 | 0.922–0.929 | 0.900 | the same |
+| **16 KiB cutoff** | 0.866 | 0.930 | 0.899 | none |
+
+- **In place.** No cutoff penalizes it from 128 entries on: every variant equals the universal version (0.74,
+  0.85 and 0.78 on the three CPUs for the 16 KiB cutoff). At one entry the selection costs about 1 ns.
+- **Small arrays.** The selection costs 3 to 4% of an out-of-place call of 1 to 64 entries with a fixed cutoff
+  and 4 to 7% with the cutoff in a `Ref`; the regressions it adds are cells of 1 to 16 entries, at most 1.5 ns
+  in any process.
+- **Processor-specific selection** is safe with package images (the `Ref` is written in `__init__`; a cache
+  built with one setting loads with the processor's own, checked with a changed `Sys.CPU_NAME` by the reviewer)
+  and keeps the Intel gains above the cutoff. It was not chosen: it adds initialization and a global load, its
+  small-call cost is the largest, and Skylake-SP has placement losses of its own.
+- **The 16 KiB cutoff on Zen 3:** 5 cells slower in every process in each job, all of 1 to 4 entries (4.9 → 5.2
+  ns; 9.8 → 10.9 ns for a four-entry `prox_block` loop of weighted ElasticNet). Forced placement with verified
+  backing: at most 0.91× up to 16 KiB and 1.03× above over the placements with clean controls. Above the cutoff
+  the branch runs master's loop; single trials there read up to 1.15×, the spread of master's own loop.
+- **What the 16 KiB cutoff gives up:** the out-of-place gain above 16 KiB in favorable placements, 0.67 → 1.00
+  at mid sizes on Broadwell and Zen 3 and 0.76 → 1.00 on Skylake-SP, about 0.84 → 1.00 at large sizes on Zen 3.
+
+**Decision (maintainer, 2026-11-17).** #974 is merged: the fixed 16 KiB cutoff with the in-place exemption. Its
+aggregate cost against the universal version (0.013 to 0.015) is accepted in exchange for removing the
+reproducible Zen 3 regressions; the nanosecond-scale regressions on small arrays are explicitly accepted; no
+further size tuning, processor-specific dispatch or numerical recovery work follows.
+
+**Baseline of the timings.** The cluster measured the candidates on master `f8148203`, before #966 to #968. The
+scalar-step routes that #974 changes are the same on current master. #968 changed the route of NormL1 with a
+step array: its loop of ordinary steps calls `shrink`, so the step-array cells above describe the measured base.
+
+**Reviews.** Round 7 (`notes/REVIEW-a3-revisit-round7.md`): the candidates and the methodology before the last
+runs; it found that the byte cutoff threw on abstract element types, that the probe digests could not read the
+new formats and that the matrix digest could classify incomplete data; all corrected before the final campaigns.
+Round 8 (`REVIEW-a3-final-round8.md`): the Zen 3 regression is real and the allocation pattern ordinary; the
+universal version is not approved under the stated condition and the 2 MiB cutoff is rejected. Round 9
+(`REVIEW-a3-followup-round9.md`): after the runs of the NormL1-only variant, a static byte cutoff just above
+16 KiB on every CPU with the in-place exemption. Round 10 (`REVIEW-a3-cutoff-round10.md`): approve with changes
+for the measured candidate; the changes were corrections of comments and of claims (NaN bits for Float16, the
+step-array comment, the placement claim, the measured baseline, bounds of the probes) and are applied.
+
+**Corrections to §8.7.** That section describes the band as a property of the offset modulo 4096. The page-shift
+sweeps show that the offset modulo 4096 is necessary and not sufficient. Its statement that the effect needs
+huge pages is supported by the allocation probe for ordinary arrays, with one advised trial as a
+counterexample (1.11× with no huge page measured before or after).
+
+Tables: `notes/tables/a3matrix{1,3,4,5}-digest.md`, `a3probe{1,3,4}-digest.md`, `a3probe2-intel-digest.md`.
+
+### 12.4 Two findings not acted on
+
+1. **A call with the output equal to the argument runs LLVM's scalar loop**, in master and in every candidate:
+   the runtime overlap check of the vectorized loop fails for identical arrays. On the workstation NormL1 `prox!`
+   of 1024 Float64 entries takes 640 ns in place and 173 ns out of place. A loop without that check, written for
+   the identical case, read 0.1–0.3 of master in place on the Intel nodes in `a3matrix1` (trees `A3i`, `Mi`). With
+   it three tests of `test/one_based_axes.jl` fail on a last-bit difference of the fused ElasticNet value between
+   a view and a Vector, and some NaN results have other bits; it was an experiment only.
+2. **The fused ElasticNet `value_and_prox!` differs in the last bit between a view and a Vector of the same
+   entries** when bounds checks are off, on master.

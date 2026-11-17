@@ -11,7 +11,7 @@ using Random, Printf, Statistics
 function loadtree(name, root)
   m = Core.eval(Main, :(module $(Symbol("Tree_", name)) end))
   Base.include(m, joinpath(abspath(root), "src", "ProximalBase.jl"))
-  getfield(m, :ProximalBase)
+  Base.invokelatest(getfield, m, :ProximalBase)   # the binding is defined in a later world than this call
 end
 const REF = loadtree("ref", ARGS[1]); const CAND = loadtree("cand", ARGS[2]); const REFC = loadtree("refC", ARGS[1])
 const ROUNDS = length(ARGS) >= 4 ? parse(Int, ARGS[4]) : 11

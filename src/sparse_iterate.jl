@@ -382,17 +382,9 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIt
   _scale_product_output!(out, β)
   iszero(α) && return out
   scale = _product_scale(A, coef, α)
-  # Stored-entry traversal wins for few coefficients; column order reads A
-  # sequentially and matches LinearAlgebra's generic loop for denser coefficients.
-  # The crossover density falls as columns of A get longer: for Float64 and a
-  # random entry order its median is 7-16% for 64 to 512 rows, 3-5% for 1024,
-  # about 1.5-2% for 2048 and 1-5% for 4096, on Apple M3, AMD Zen 3 and Intel
-  # Skylake-SP (larger for Float32), and it differs by a factor of two or more
-  # between those CPUs. No constant is best everywhere: 1/32 costs 2.5-5% of the
-  # time on average over densities of 0.5-50%, the best constant (1/16) 1-3%.
-  # A cutoff in bytes, min(1/8, 256/(m*sizeof(T))), cost 0.6-1.5%; that rule was
-  # not adopted because its gain over the best constant was under 2 points.
-  # See "Matrix coefficients" in docs/src/iterates.md.
+  # Few coefficients: visit stored entries. Many: sweep columns, reading A in order.
+  # No fixed cutoff is best on every CPU; measurements of 1/32 and alternatives
+  # are recorded in docs/design/iterate-product-notes-921.md.
   if 32 * nactive(coef) <= length(coef)
     p = size(coef, 1)
     @inbounds for inz = 1:nactive(coef)
@@ -569,15 +561,9 @@ function LinearAlgebra.dot(a::StridedVector, X::SparseIterate{<:Any, 2}, b::Stri
   s
 end
 
-# The scalar three-factor term for the product A * X * B. A NaN factor gives NaN, a zero factor
-# against an infinite one gives NaN (the genuine 0 * Inf), a zero factor otherwise gives zero, and an
-# infinite factor otherwise gives an infinity of the sign of the product. Three finite nonzero
-# factors give a product with the accuracy of an ordinary product of three numbers: the result is
-# within one neighbouring floating-point number of the correctly rounded exact product for a normal
-# result, and within one spacing for a subnormal one, and a term within that margin of the overflow
-# threshold or of half the smallest subnormal can fall on either side of it. Correct rounding is not
-# promised. Overflow and underflow are decided by the final value, not by a partial product, beyond
-# that margin. Only the exceptional entries of the product kernel reach it.
+# Cold three-factor term: classify genuine NaN/Inf/zero inputs first, then form
+# finite nonzero products in scaled units. The range and rounding contract is
+# documented under "Three-factor products" in docs/src/iterates.md.
 function _triple(a::T, x::T, b::T) where {T<:Union{Float32, Float64}}
   (isnan(a) | isnan(x) | isnan(b)) && return T(NaN)
   infinite = isinf(a) | isinf(x) | isinf(b)
@@ -704,34 +690,23 @@ end
 """
     *(A::Symmetric{T}, X::SparseIterate{T, 2}, B::Symmetric{T}) where {T<:Union{Float32, Float64}}
 
-The product `C = A * X * B` for a sparse iterate `X`, with `C[i, j]` the sum of
-`A[i, k] * X[k, l] * B[l, j]` over the coordinates `(k, l)` where `X` is
-mathematically nonzero, in `O(nactive(X) * m * n)` operations and `O(m * n)` memory for
-`X` of size `m × n`. A stored zero and an unstored entry are the same: no term is formed,
-and an `X` without nonzeros gives the zero matrix without reading `A` or `B`. A nonzero
-coefficient of `X`, including `NaN` and `±Inf`, always contributes; the zeros of `A` and
-`B` are ordinary zeros, so a nonzero `Inf` of `X` against a zero of `A` or `B` gives `NaN`.
-The result need not equal `A * Matrix(X) * B`.
+Return the dense matrix `A * X * B` by summing terms for nonzero entries of `X`.
+The direct method requires `Symmetric` wrappers of strided matrices, with all
+three operands of the same `Float32` or `Float64` element type and compatible
+dimensions. For `X` of size `m × n`, it costs O(nactive(X) * m * n) operations
+and O(m * n) memory.
 
-A term with three finite nonzero factors has the accuracy of an ordinary product of three
-numbers: it differs from the correctly rounded exact product by at most one neighbouring
-floating-point number for a normal result (a relative error below about `2 eps(T)`), and by at
-most one spacing for a subnormal one. A term within that error of the overflow threshold or of
-half the smallest subnormal can fall on either side of it, the neighbour of `floatmax(T)` being
-`Inf` and the neighbour of zero being the smallest subnormal. Correct rounding is not promised.
-Beyond that margin the class of a term is decided by its final value and not by the first partial
-product, so `2^600 * 2^600 * 2^-600` is `2^600` and its underflow mirror is exact.
+A zero coefficient of `X`, stored or absent, contributes nothing even against
+`NaN` or infinity in the factors. Nonzero coefficients always contribute;
+zeros in `A` and `B` keep ordinary IEEE behavior. The result can therefore
+differ from `A * Matrix(X) * B` on non-finite inputs.
 
-Terms are added in the storage order of `X` in the precision `T`, so tiny terms next to large ones
-are rounded away, as in any floating-point sum. An entry whose ordinary sum is non-finite is
-recomputed from its terms as a scaled sum when every factor of every nonzero coefficient at that
-entry is finite, so a sum that overflows before a later cancellation gives its finite value, and a
-sum beyond the range of `T` is `±Inf`. If any such factor is `NaN` or infinite the ordinary
-IEEE value stands. A sum that is exactly zero is `+0.0`.
-
-The guarantee covers `Float32` and `Float64` with `Symmetric` wrappers of strided matrices
-of the same element type as `X`. Other element types, and mixed element types, are outside
-the guarantee and take other methods of `*`. See Numerical contract.
+Finite three-factor terms avoid spurious intermediate overflow or underflow,
+without promising correct rounding. Terms are summed in storage order; a non-finite sum is
+recomputed only when all contributing factors are finite. See
+[three-factor products](@ref three-factor-products) for the precise rounding,
+range-boundary and cancellation guarantees. Mixed and generic product methods
+do not inherit that guarantee.
 """
 function *(A::Symmetric{T, <:StridedMatrix{T}}, X::SparseIterate{T, 2},
            B::Symmetric{T, <:StridedMatrix{T}}) where {T<:Union{Float32, Float64}}

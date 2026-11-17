@@ -89,7 +89,7 @@ Base.@propagate_inbounds Base.setindex!(c::SymmetricCoordinates, v, k::Int) = (_
 
 coordinates(x::SymmetricSparseIterate) = SymmetricCoordinates(x)
 
-# fill! of the vector of coordinates is a value write like any other (CRD-3): the value is
+# Filling the coordinate vector is a value write: the value is
 # converted first, and a zero reaches only the active coordinates, in O(nactive), so that
 # fill!(coordinates(x), 0) followed by dropzeros!(x) empties x without a pass over all q
 function Base.fill!(c::SymmetricCoordinates{T}, v) where {T}
@@ -855,33 +855,23 @@ end
 """
     *(A::Symmetric{T}, X::SymmetricSparseIterate{T}, B::Symmetric{T}) where {T<:Union{Float32, Float64}}
 
-The product `C = A * X * B` for a symmetric sparse iterate `X`, with the same contract as the
-product for a matrix `SparseIterate`: `C[i, j]` is the sum of `A[i, k] * X[k, l] * B[l, j]` over the
-entries `(k, l)` of the `p × p` matrix `X` that are mathematically nonzero, in `O(X.nnz * p^2)`
-operations and `O(p^2)` memory. A stored off-diagonal coefficient stands for the two entries
-`(r, c)` and `(c, r)`, each contributing one term, and a diagonal coefficient for one. A stored
-zero and an unstored entry are the same: no term is formed, and an `X` without nonzeros gives the
-zero matrix without reading `A` or `B`. A nonzero coefficient, including `NaN` and `±Inf`, always
-contributes; the zeros of `A` and `B` are ordinary zeros, so `0 * Inf` is `NaN`. The result need
-not equal `A * Matrix(X) * B`.
+Return the dense matrix `A * X * B` using the nonzero independent coordinates
+of `X`. A diagonal coordinate contributes one matrix term; an off-diagonal
+coordinate contributes its two mirrored terms. The cost is O(nactive(X) * p²)
+operations and O(p²) memory for a `p × p` symmetric iterate.
 
-A term with three finite nonzero factors has the accuracy of an ordinary product of three
-numbers: it differs from the correctly rounded exact product by at most one neighbouring
-floating-point number for a normal result (a relative error below about `2 eps(T)`), and by at
-most one spacing for a subnormal one. A term within that error of the overflow threshold or of
-half the smallest subnormal can fall on either side of it. Correct rounding is not promised.
-Beyond that margin the class of a term is decided by its final value and not by the first partial
-product. Terms are added in the storage order of `X` in the precision `T`, the entry `(r, c)` of a
-coefficient before `(c, r)`, so tiny terms next to large ones are rounded away, as in any
-floating-point sum. An entry whose ordinary sum is non-finite is recomputed from its terms as a
-scaled sum when every factor of every nonzero entry of `X` at that entry is finite, so a sum that
-overflows before a later cancellation gives its finite value; if any such factor is `NaN` or
-infinite the ordinary IEEE value stands. A sum that is exactly zero is `+0.0`.
+This direct method requires `Symmetric` wrappers of strided matrices, with
+all three operands of the same `Float32` or `Float64` element type and
+compatible dimensions. Stored and absent zeros of `X` contribute nothing,
+even against non-finite factors. Nonzero coefficients always contribute,
+and zeros in `A` and `B` keep ordinary IEEE behavior. Thus the result can
+differ from `A * Matrix(X) * B` on non-finite inputs.
 
-The guarantee covers `Float32` and `Float64` with `Symmetric` wrappers of strided matrices of the
-same element type as `X`. Other element types, and mixed element types, are outside the guarantee
-and take other methods of `*`. The method reads the stored fields `nzval`, `nzval2ind`, `nnz` and
-`p`. See Numerical contract.
+The finite-term range recovery and conditional recomputation of non-finite
+sums follow the [three-factor product contract](@ref three-factor-products).
+Terms are summed in storage order, `(r,c)` before `(c,r)` for a mirrored
+pair. Correct rounding is not promised; mixed and generic methods do not
+inherit the direct method's guarantee.
 """
 function *(A::Symmetric{T, <:StridedMatrix{T}}, X::SymmetricSparseIterate{T},
            B::Symmetric{T, <:StridedMatrix{T}}) where {T<:Union{Float32, Float64}}

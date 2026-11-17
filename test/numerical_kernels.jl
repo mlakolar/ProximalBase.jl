@@ -1297,4 +1297,196 @@ end
   end
 end
 
+# The reference of the soft-thresholding tests below: the formula of shrink, written out here. A result must have its
+# bits, NaN in either operand, signed zeros, infinities and subnormals included (any NaN for a NaN).
+shrink_formula(v::T, c::T) where {T<:AbstractFloat} = max(v - c, zero(T)) + min(v + c, zero(T))
+shrink_same(a, b) = isnan(b) ? isnan(a) : a === b
+# the number of pairs of vs × cs where shrink and the formula differ, and the first such pair
+function shrink_mismatches(vs::AbstractVector{T}, cs::AbstractVector{T}) where {T}
+  bad, first_bad = 0, nothing
+  for c in cs, v in vs
+    if !shrink_same(shrink(v, c), shrink_formula(v, c))
+      bad += 1
+      first_bad === nothing && (first_bad = (v, c))
+    end
+  end
+  bad, first_bad
+end
+function shrink_pair_mismatches(vs::AbstractVector{T}, cs::AbstractVector{T}) where {T}
+  bad, first_bad = 0, nothing
+  for i in eachindex(vs, cs)
+    v, c = vs[i], cs[i]
+    if !shrink_same(shrink(v, c), shrink_formula(v, c))
+      bad += 1
+      first_bad === nothing && (first_bad = (v, c))
+    end
+  end
+  bad, first_bad
+end
+# zeros, the ends of the subnormal and normal ranges, values near one, infinities and NaNs of either sign (with a payload)
+function shrink_edges(::Type{T}) where {T<:AbstractFloat}
+  U = Base.uinttype(T)
+  pos = T[0, nextfloat(zero(T)), 3 * nextfloat(zero(T)), prevfloat(floatmin(T)), floatmin(T), nextfloat(floatmin(T)),
+          eps(T), prevfloat(one(T)), 1, nextfloat(one(T)), 2, 3, prevfloat(floatmax(T)), floatmax(T), Inf, NaN,
+          reinterpret(T, reinterpret(U, T(NaN)) | one(U))]
+  vcat(pos, -pos)
+end
+
+@testset "soft thresholding of other types" begin
+  # under a directed rounding mode v - c is -0 at v = c, and max orders the zeros
+  setprecision(BigFloat, 256) do
+    for mode in (RoundDown, RoundNearest, RoundUp, RoundToZero)
+      r = setrounding(() -> shrink(big(1.0), big(1.0)), BigFloat, mode)
+      @test iszero(r) && !signbit(r)
+      # the generic formula in every mode (at v = -c it is -0 under RoundDown, from min(-0, +0))
+      for (v, c) in ((1.0, 1.0), (-1.0, 1.0), (3.0, 1.0), (-3.0, 1.0), (0.5, 1.0), (-0.0, 0.0), (0.0, -0.0))
+        @test bigsame(setrounding(() -> shrink(big(v), big(c)), BigFloat, mode),
+                      setrounding(() -> shrink_formula(big(v), big(c)), BigFloat, mode))
+      end
+    end
+    @test shrink(big(3.0), big(1.0)) == 2 && shrink(big(-3.0), big(1.0)) == -2
+  end
+  # mixed and integer arguments promote to a common floating-point type, as before
+  @test shrink(1, 0.5) === 0.5
+  @test shrink(1f0, 0.25) === 0.75
+  @test shrink(-3, 1) === -2.0
+  @test shrink(1, 2) === 0.0 && shrink(-1, 2) === 0.0
+  @test shrink(Float16(1), 0.5f0) === 0.5f0
+  @test shrink(Float16(-3), Float16(1)) === Float16(-2)
+  @test shrink(2, 1//2) === 1.5
+end
+
+# The ordinary branch of the NormL1 proximal operator soft-thresholds with _shrink_nonneg: v minus its projection onto
+# [-c, c], plus +0. Its threshold γλ0w is a product of nonnegative factors, and for every v and every c that is not
+# negative (+0, -0, positive, +Inf and every NaN) the result must have the bits of the formula of shrink (any NaN for
+# a NaN). At a negative c the two differ.
+nonneg(c) = !(c < 0)
+function nonneg_mismatches(vs::AbstractVector{T}, cs::AbstractVector{T}) where {T}
+  bad, first_bad = 0, nothing
+  for c in cs, v in vs
+    if !shrink_same(PB._shrink_nonneg(v, c), shrink_formula(v, c))
+      bad += 1
+      first_bad === nothing && (first_bad = (v, c))
+    end
+  end
+  bad, first_bad
+end
+function nonneg_pair_mismatches(vs::AbstractVector{T}, cs::AbstractVector{T}) where {T}
+  bad, first_bad = 0, nothing
+  for i in eachindex(vs, cs)
+    v, c = vs[i], cs[i]
+    if !shrink_same(PB._shrink_nonneg(v, c), shrink_formula(v, c))
+      bad += 1
+      first_bad === nothing && (first_bad = (v, c))
+    end
+  end
+  bad, first_bad
+end
+# pairs that the tests name explicitly: signed zeros, infinities at an infinite threshold, NaN in either operand
+function nonneg_named(::Type{T}) where {T}
+  U = Base.uinttype(T)
+  nan2 = reinterpret(T, reinterpret(U, T(NaN)) | one(U))
+  T[-0.0, -0.0, 0.0, Inf, -Inf, NaN, -T(NaN), 1, -1, 0.0, nan2, -nan2],
+  T[0.0, -0.0, -0.0, Inf, Inf, 1, 1, NaN, -T(NaN), NaN, 0.0, Inf]
+end
+
+@testset "soft thresholding at a nonnegative threshold: Float16, every v" begin
+  U = UInt16
+  vs = [reinterpret(Float16, b) for b in typemin(U):typemax(U)]
+  cs = filter(nonneg, unique(b -> reinterpret(U, b),
+                             vcat([reinterpret(Float16, b) for b in typemin(U):typemax(U) if b % 97 == 0], shrink_edges(Float16))))
+  @test length(vs) == 65536 && length(cs) > 350 && all(nonneg, cs)
+  @test any(c -> c === -zero(Float16), cs) && any(c -> isnan(c) && signbit(c), cs) && any(c -> isnan(c) && !signbit(c), cs)
+  bad, first_bad = nonneg_mismatches(vs, cs)
+  @test bad == 0
+  bad == 0 || @info "first Float16 pair that differs" first_bad
+  @test nonneg_pair_mismatches(nonneg_named(Float16)...)[1] == 0
+end
+
+@testset "soft thresholding at a nonnegative threshold: $T" for T in (Float32, Float64)
+  rng = Xoshiro(197)
+  U = Base.uinttype(T)
+  E = shrink_edges(T)
+  C = filter(nonneg, E)
+  bad, first_bad = nonneg_mismatches(E, C)
+  @test bad == 0
+  bad == 0 || @info "first $T edge pair that differs" first_bad
+  # random bit patterns, the threshold as the absolute value of one (NaN thresholds keep their payload)
+  vs = [reinterpret(T, rand(rng, U)) for _ in 1:10^6]
+  cs = [abs(reinterpret(T, rand(rng, U))) for _ in 1:10^6]
+  bad, first_bad = nonneg_pair_mismatches(vs, cs)
+  @test bad == 0
+  bad == 0 || @info "first random $T pair that differs" first_bad
+  # random magnitudes against the edges, and thresholds within a few units in the last place of |v|
+  ms = [rand(rng, (-1, 1)) * ldexp(one(T) + rand(rng, T), rand(rng, exponent(floatmin(T)) - precision(T):exponent(floatmax(T))))
+        for _ in 1:2000]
+  @test nonneg_mismatches(ms, C)[1] == 0 && nonneg_mismatches(E, abs.(ms))[1] == 0
+  vn, cn = T[], T[]
+  for v in vcat(ms, E), k in -3:3
+    a = abs(v)
+    c = k < 0 ? prevfloat(a, -k) : nextfloat(a, k)
+    nonneg(c) || continue
+    push!(vn, v, -v)
+    push!(cn, c, c)
+  end
+  bad, first_bad = nonneg_pair_mismatches(vn, cn)
+  @test bad == 0
+  bad == 0 || @info "first near-threshold $T pair that differs" first_bad
+  # the named pairs, and the values at the signed zeros and infinities
+  @test nonneg_pair_mismatches(nonneg_named(T)...)[1] == 0
+  @test PB._shrink_nonneg(-zero(T), zero(T)) === zero(T)
+  @test PB._shrink_nonneg(-zero(T), -zero(T)) === zero(T)
+  @test PB._shrink_nonneg(zero(T), -zero(T)) === zero(T)
+  @test isnan(PB._shrink_nonneg(T(Inf), T(Inf))) && isnan(PB._shrink_nonneg(-T(Inf), T(Inf)))
+  @test isnan(PB._shrink_nonneg(T(NaN), one(T))) && isnan(PB._shrink_nonneg(one(T), T(NaN)))
+  @test PB._shrink_nonneg(T(Inf), one(T)) === T(Inf) && PB._shrink_nonneg(-T(Inf), one(T)) === -T(Inf)
+end
+
+@testset "soft thresholding at a nonnegative threshold: other types, and a negative threshold" begin
+  # BigFloat forwards to shrink, in every rounding mode
+  setprecision(BigFloat, 256) do
+    for mode in (RoundDown, RoundNearest, RoundUp, RoundToZero)
+      for (v, c) in ((1.0, 1.0), (-1.0, 1.0), (3.0, 1.0), (-3.0, 1.0), (0.5, 1.0), (-0.0, 0.0), (0.0, -0.0), (0.5, -1.0))
+        @test bigsame(setrounding(() -> PB._shrink_nonneg(big(v), big(c)), BigFloat, mode),
+                      setrounding(() -> shrink(big(v), big(c)), BigFloat, mode))
+      end
+    end
+  end
+  # mixed and integer arguments promote as shrink does
+  for (v, c) in ((1, 0.5), (1f0, 0.25), (-3, 1), (1, 2), (-1, 2), (Float16(1), 0.5f0), (Float16(-3), Float16(1)), (2, 1//2))
+    @test PB._shrink_nonneg(v, c) === shrink(v, c)
+  end
+  # at a negative threshold the projection onto [-c, c] is not soft thresholding: 0.5 - (-1) = 1.5, where shrink gives
+  # (0.5 + 1) + (0.5 - 1) = 1. Neither can replace the other.
+  for T in (Float16, Float32, Float64)
+    @test PB._shrink_nonneg(T(0.5), T(-1)) === T(1.5)
+    @test shrink(T(0.5), T(-1)) === T(1)
+  end
+end
+
+@testset "NormL1 ordinary branch: a free -0 and a weight changed to NaN ($T)" for T in (Float32, Float64)
+  # a zero weight at a -0 entry and a normal γλ0: the ordinary branch at a zero threshold gives +0, as on master,
+  # through every dense entry point
+  f = NormL1(T(1), T[0])
+  @test prox(f, T[-0.0], T(1))[1] === zero(T)
+  @test PB.prox_block(f, -zero(T), 1, T(1)) === zero(T)
+  @test prox(f, T[-0.0], T[1])[1] === zero(T)
+  y = T[7]; value_and_prox!(y, f, T[-0.0], T(1)); @test y[1] === zero(T)
+  z = T[-0.0]; prox!(z, f, z, T(1)); @test z[1] === zero(T)
+  @test prox(NormL1(1.0, [0.0]), [-0.0], 1.0)[1] === 0.0
+  @test prox(NormL1(T(2), T[0, 1, 0]), T[-0.0, -0.0, 0.0], T(0.5)) |> r -> all(a -> a === zero(T), r)
+  # weights changed to NaN after construction: the threshold is NaN and the entry NaN (master gives the same); the
+  # other entries keep their soft thresholding
+  w = T[1, 2, 0.5, 1]
+  f = NormL1(T(0.5), w)
+  x = T[3, -3, 0.25, -0.0]
+  w[2] = T(NaN); w[4] = -T(NaN)
+  for γ in (T(1), T[1, 1, 1, 1])
+    r = prox(f, x, γ)
+    @test isnan(r[2]) && isnan(r[4]) && r[1] === T(2.5) && r[3] === T(0)
+    r = prox!(copy(x), f, copy(x), γ)
+    @test isnan(r[2]) && isnan(r[4]) && r[1] === T(2.5) && r[3] === T(0)
+  end
+end
+
 end

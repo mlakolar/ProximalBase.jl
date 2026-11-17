@@ -21,6 +21,26 @@ proximal operator of `c|⋅|`. A `NaN` in `v` propagates.
 shrink(v::T, c::T) where {T<:AbstractFloat} = max(v - c, zero(T)) + min(v + c, zero(T))
 shrink(v::Real, c::Real) = shrink(promote(float(v), float(c))...)
 
+# Soft thresholding at a threshold that is not negative, as the ordinary threshold γλ0w of the proximal loops is
+# (a product of nonnegative factors): v minus its projection onto [-c, c], formed with the two-operand selects that
+# are the hardware maximum and minimum, plus +0. That is three operations and an addition per entry, also in a
+# vectorized loop, where the sum of shrink needs Julia's max and min, which order the signed zeros and return NaN
+# for a NaN in either operand. The selects are ordered so that a NaN in v or in c gives NaN: a NaN c is selected by
+# both, and for a NaN v the first select gives -c, a number, from which the subtraction from v gives NaN. The
+# addition of +0 turns the one -0 that the difference can give
+# (v = -0 at a zero threshold) into the +0 of shrink and changes no other value. For Float16, Float32 and Float64
+# the result is that of shrink for every v and every c that is not negative (+0, -0, positive, infinite and NaN;
+# compared for such pairs of Float16 values in the tests), where a NaN is equal to any NaN: for Float32 and Float64
+# the comparisons that were made found the same NaN bits too, and for Float16 the payload of a NaN can differ. At a negative c, which no valid parameter gives, the
+# two differ, and shrink is not replaced by this function.
+@inline function _shrink_nonneg(v::T, c::T) where {T<:Base.IEEEFloat}
+  lo = -c
+  m = ifelse(v > lo, v, lo)
+  (v - ifelse(m < c, m, c)) + zero(T)
+end
+@inline _shrink_nonneg(v::T, c::T) where {T<:AbstractFloat} = shrink(v, c)
+@inline _shrink_nonneg(v::Real, c::Real) = _shrink_nonneg(promote(float(v), float(c))...)
+
 # Nonnegative coefficients: keep the usual multiply order when it is well
 # scaled. At exceptional scales, multiply bounded significands and apply the
 # combined exponent once, so no intermediate subnormal loses precision. The

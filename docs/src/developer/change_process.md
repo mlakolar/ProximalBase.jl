@@ -46,7 +46,7 @@ shards plus independent frozen benchmark and strict documentation validation
 run concurrently on Linux/current Julia 1.x. The `PR required jobs` verdict
 and `PR merge gate` require all five validation lanes. There is no
 LTS/cross-platform/GPU matrix. HTML and job-specific logs are retained as
-artifacts; every PR still executes all 19 declared test files with bounds
+artifacts; every PR still executes every declared test file with bounds
 checks. On master pushes, a deployment job waits for the merge gate, retrieves
 the validated HTML artifact and calls `docs/deploy.jl` to publish development
 documentation. Same-repository non-draft PRs publish their validated HTML
@@ -102,3 +102,6 @@ and [symmetric-iterate acceptance](https://github.com/mlakolar/ProximalBase.jl/b
 include old targets, amendments and past evidence. They are not current test
 commands or new public requirements. The current contracts and actual retained
 source/tests must agree before a behavior is described as supported.
+
+For editorial changes, follow [Writing useful documentation](writing_documentation.md)
+and preserve every moved contract condition at its rendered destination.

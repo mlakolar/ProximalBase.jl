@@ -41,7 +41,7 @@ limits. Source links track master; validation evidence records the PR commit.
 | `SqrtLeastSquaresLoss` | (Y,X); ‖Y-Xβ‖₂, convex, not smooth, no prox | [Square-root least squares](functions.md) / [guide](../smooth.md#Square-root-least-squares-is-not-smooth) | [functions/sqrt_leastsquares.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/sqrt_leastsquares.jl) | sqrt_leastsquares |
 | `NormL1` | (λ0=1,w=nothing) | [Penalty](functions.md) / [guide](../penalties.md) | [functions/norml1.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/norml1.jl) | core_functions / minimal_math |
 | `ElasticNet` | (λ1,λ2,w=nothing) | [Penalty](functions.md) / [guide](../penalties.md#The-elastic-net-penalty) | [functions/elasticnet.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/elasticnet.jl) | elasticnet / elasticnet_extremes |
-| `NormL2` | (λ=1); value on arrays and iterates (stored entries only, #808) | [Penalty](functions.md) / [guide](../group_penalty.md) | [functions/norml2.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/norml2.jl) | norml2 / sparse_value_cost |
+| `NormL2` | (λ=1); value on arrays and iterates (stored entries only) | [Penalty](functions.md) / [guide](../group_penalty.md) | [functions/norml2.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/norml2.jl) | norml2 / sparse_value_cost |
 | `NormLinf` | (λ=1); value on arrays and iterates (largest stored magnitude); clip prox with an ℓ1-ball threshold, no `SymmetricSparseIterate` prox | [Penalty](functions.md) / [guide](../group_penalty.md#The-NormLinf-norm) | [functions/normlinf.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/normlinf.jl) | normlinf |
 | `GroupNormL2` | (λ0,groups,w=√\|Gₖ\|); compact `prox_block!`, group `kkt_violation` | [Penalty](functions.md) / [guide](../group_penalty.md) | [functions/groupnorml2.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/groupnorml2.jl) | groupnorml2 |
 | `Scaled` | (f,α), α*f, f*α; may simplify at zero | [Wrapper](calculus.md) / [guide](../calculus.md) | [functions/scaled.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/scaled.jl) | minimal_math / ridge_precision |
@@ -74,10 +74,11 @@ limits. Source links track master; validation evidence records the PR commit.
 | `ProximalBase.value_from_residual` | (f,r); α‖r‖²/2 (`LeastSquaresLoss`) or α‖r‖₂ (`SqrtLeastSquaresLoss`) at a caller-computed residual | [Least-squares oracles](functions.md) / [guide](../smooth.md) | [functions/leastsquares_predictor.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/leastsquares_predictor.jl) | leastsquares_predictor / sqrt_leastsquares |
 | `ProximalBase.leastsquares_data` | (f) → (; Y, X, α) for either loss; borrowed arrays, stored scale | [Least-squares oracles](functions.md) / [guide](../smooth.md) | [functions/leastsquares_predictor.jl](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/leastsquares_predictor.jl) | leastsquares_predictor / sqrt_leastsquares |
 
-The eight [executable examples](../examples/lasso.md) complement these suites:
+The nine [executable examples](../examples/lasso.md) complement these suites:
 lasso values/gradients/prox, PG stationarity, scalar coordinate updates, sparse
-working sets, ordered blocks, symmetric geometry, custom separable hooks and
-compact-vector block extension. The extension examples validate their own
+working sets, ordered blocks, symmetric geometry, custom separable hooks,
+compact-vector block extension and group-lasso proximal building blocks. The
+extension examples validate their own
 checked contract; the allocating generic wrapper alone does not validate a
 custom block implementation. Test names identify evidence domains, not complete
 coverage of every parameter endpoint.

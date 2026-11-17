@@ -7,6 +7,8 @@ algorithms. Each Julia object represents a **specific mathematical formula**.
 The table below pairs the formula with the constructor: you should be able
 to see exactly how the symbols in a definition become Julia arguments.
 
+For a task-oriented starting point, use [Choose a function or operation](choosing.md).
+
 ## Functions of a vector or matrix
 
 | Julia constructor | Mathematical function | Arguments and interpretation | Detailed guide |

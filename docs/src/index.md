@@ -53,6 +53,10 @@ coordinates to visit. [ProximalSolvers.jl](https://github.com/mlakolar/ProximalS
 implements algorithms that combine such operations; ProximalBase itself
 does not provide a `solve()` function.
 
+For a quick decision table, start with [Choose a function or operation](choosing.md).
+The [array and precision conventions](numerical_usage.md) explain shapes, precision and
+buffer ownership; the [numerical contract](numerics.md) gives exact endpoint rules.
+
 ## Four pieces that fit together
 
 | Part | Responsibility | Start here |

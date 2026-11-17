@@ -68,7 +68,7 @@ What did not change:
 
 * Three-argument calls `kkt_violation(g,v,i)`.
 * Four-argument calls at zero coordinates, when `x`, `v` and the function's parameters
-  (levels, weights, centers and coefficients) have one floating type, `v` is finite and
+  (levels, weights, centers and coefficients) are `Float32` or `Float64` arrays and values of one type, `v` is finite and
   the function is not a `SqrNormL2` with an infinite level: they return the same values as
   before. A working-set solver that ranks the inactive coordinates of a `SparseIterate` with
   the four-argument form in that case is unaffected. Outside that case the arithmetic is in

@@ -144,7 +144,7 @@ the score and the decision that a solver has converged belong to the caller.
 A solver that ranks inactive coordinates calls the three-argument or the
 four-argument form at coordinates of value zero; both give the signed screen
 there when `x`, `v` and the function's parameters (levels, weights, centers and
-coefficients) have one floating type, `v` is finite and a `SqrNormL2` level is not infinite. On a `BlockIterate`, the
+coefficients) are `Float32` or `Float64` arrays and values of one type, `v` is finite and a `SqrNormL2` level is not infinite. On a `BlockIterate`, the
 four-argument form takes the maximum of the entry scores of the group for the
 functions above, and `GroupNormL2` scores the group (see
 [The ℓ₂ and group ℓ₂ norms](group_penalty.md)).

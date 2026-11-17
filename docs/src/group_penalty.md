@@ -161,25 +161,41 @@ The [block storage guide](block_iterate.md) describes the activation rule of
 these writes, and the [pure block-prox contract](developer/contracts/block-prox-0.6.md)
 the general extension hook.
 
-### Optimality screen
+### Optimality scores
 
-For a smooth part `h` with gradient `G = ∇h(x)`, a zero group ``k`` is optimal
-for `h + g` when ``\lVert G_{G_k}\rVert_2\le\lambda_0w_k``. On a `BlockIterate`
-whose group `k` is zero, `kkt_violation(g, G, x, k)` returns
-``\lVert G_{G_k}\rVert_2-\lambda_0w_k``: a positive value means that zero violates the
-condition. Group `k` of the iterate must equal `groups[k]`. If an entry of group `k`
-is nonzero, the call throws an `ArgumentError`: this version has no score of a nonzero
-group. On an array point, `kkt_violation(g, G, x, i)` takes an entry `i`: it is the same
-group screen when the group of `i` is zero in `x`, ``\lvert G_i\rvert`` when `i` is in
-no group (also when `x[i]` is nonzero), and an `ArgumentError` when the group of `i`
-has a nonzero entry. The three-argument form throws an `ArgumentError` and there is no
-full-point form `kkt_violation(g, G, x)` (a `MethodError`). In the group
-screen, a zero weight gives the coefficient `0` (also with an infinite level), and an
-infinite weight, or an infinite level with a positive weight, gives `-Inf` for a
-finite gradient. Norms and coefficients outside the range are recomputed for finite
-gradients. When the screened group holds a `±Inf` entry and no `NaN`, the screen is
-the IEEE ``\infty-\lambda_0w_k``, which is `NaN` when the coefficient is infinite,
-also when it overflows from finite factors; a `NaN` entry gives `NaN`.
+For a smooth part `h` with gradient `G = ∇h(x)`, group ``k`` is optimal for `h + g` at
+`x` when ``0\in G_{G_k}+\partial g_k(x_{G_k})``. With ``c_k=\lambda_0w_k``,
+`kkt_violation(g, G, x, k)` returns the score of the group:
+
+| Group of `x` | Score | Sign |
+|:--|:--|:--|
+| zero | ``\lVert G_{G_k}\rVert_2-c_k``, the screen of the group | signed; a positive value means that zero violates the condition |
+| not zero | ``\lVert G_{G_k}+c_k\,x_{G_k}/\lVert x_{G_k}\rVert_2\rVert_2`` | nonnegative; a stationarity mismatch, not an instruction to set the group to zero |
+
+A group is zero when its entries, converted to the working type of the call, are zeros
+of either sign. On an array point `k` is an entry and selects its group; the score is
+the same for every entry of the group. An entry in no group has the score
+``\lvert G_k\rvert``, also when `x[k]` is nonzero. On a `BlockIterate`, `k` is the
+group number and group `k` of the iterate must equal `groups[k]`. The three-argument
+form throws an `ArgumentError`, because the penalty is not separable, and a
+`SymmetricSparseIterate` has no `GroupNormL2` score: the call throws an `ArgumentError`.
+
+`kkt_violation(g, G, x)` is the full-point measure: the maximum of `0`, of the positive
+scores of the groups and of ``\lvert G_i\rvert`` over the entries in no group (including the
+entries past the largest index of a group). It is a **maximum of block 2-norms** (of the
+residuals ``G_{G_k}+\partial g_k``, and of single entries), not an ``\ell_\infty``
+distance, and a tolerance chosen for an ``\ell_\infty`` residual does not carry
+over. It is zero of the working type for an empty `x`. It validates one-based axes, real
+entries, `length(G) == length(x)` and the group extent once, and on a `BlockIterate`
+the whole layout (its group count and every group), which is stricter than the local
+form, which compares group `k` only. A `NaN` in an entry that a group reads gives `NaN`,
+and takes precedence over an infinite entry in another group.
+
+In a score, a zero weight gives the coefficient `0` (also with an infinite level), and an
+infinite weight, or an infinite level with a positive weight, gives `-Inf` at a zero
+group and `+Inf` at a nonzero one (for finite entries). The working type `W` is
+`float(promote_type(eltype(G), eltype(x)))`; the rules for non-finite entries and the
+accuracy are in the [numerical contract](numerics.md).
 
 ```@example group_penalty
 G = [0.3, -0.4, 1.0, 0.0, 0.0, 2.0]
@@ -189,9 +205,27 @@ z0 = BlockIterate(6, f)                     # every group is zero
 z1 = BlockIterate(6, f)
 copyto!(blockview(z1, 1), [1.0, 1.0, 1.0])  # group 1 is nonzero
 @assert kkt_violation(f, G, z1, 3) ≈ 2.0 - 0.4
-refused = try kkt_violation(f, G, z1, 1); false catch e; e isa ArgumentError end
-@assert refused
-kkt_violation(f, G, z0, 3)
+# group 1 holds entries 1, 4, 2: G + 0.4 √3 x/‖x‖ = (0.7, 0.4, 0)
+@assert kkt_violation(f, G, z1, 1) ≈ sqrt(0.7^2 + 0.4^2)
+@assert kkt_violation(f, G, z1) ≈ 2.0 - 0.4     # the largest of the group scores
+kkt_violation(f, G, z1, 1)
+```
+
+The group example of the [`kkt_violation` contract](@ref kkt-screens): with
+`g = GroupNormL2(1.0, [[1, 2], [3, 4]], [1.0, 1.0])` and `x = [3, 4, 0, 0]`, the vector
+`v = [-0.6, -0.8, 0.3, 0.4]` is stationary on the first group and has slack on the second.
+The nonzero group is scored (see the [migration notes](migration.md) for the value that earlier
+versions returned there), and its score is zero up to rounding, shown here with a tolerance:
+
+```@example group_penalty
+g0 = GroupNormL2(1.0, [[1, 2], [3, 4]], [1.0, 1.0])
+x0 = [3.0, 4.0, 0.0, 0.0]
+v0 = [-0.6, -0.8, 0.3, 0.4]
+scores = [kkt_violation(g0, v0, x0, k) for k in 1:4]
+@assert scores[1] == scores[2] && abs(scores[1]) <= 1e-15      # a mismatch at rounding level
+@assert scores[3] ≈ -0.5 && scores[4] ≈ -0.5                   # the signed margin of the zero group
+@assert 0 <= kkt_violation(g0, v0, x0) <= 1e-15                # the negative margin is dropped
+scores
 ```
 
 ### [Exceptional parameters and values](@id group-l2-endpoints)
@@ -224,10 +258,10 @@ which one the exact value rounds to. See [value range limits](@ref numerical-val
 throw an `ArgumentError` before anything is written), and it has no
 `restrict`, no per-group step and no compact block method under `Scaled`.
 With a positive finite `α`, `Scaled(GroupNormL2(...), α)` multiplies the value by
-`α`, computes the array proximal operator with the step `αγ`, and gives, at a zero group or
-for an entry in no group, the screen `α*kkt_violation(f, g/α, x, k)`
-(`test/groupnorml2.jl` checks the array prox and the screen), and throws an
-`ArgumentError` at a group with a nonzero entry. A zero `α` throws an
+`α`, computes the array proximal operator with the step `αγ`, and scores a group as
+`α` times the score of `GroupNormL2` at `v/α` (see the [scaling guide](@ref scaling-guide)
+for the domain and the unsupported cases); `test/kkt_block.jl` checks these scores
+against the definition of the scaled function. A zero `α` throws an
 `ArgumentError`, and an infinite `α` has no endpoint rule of its own. The
 [group-lasso example](examples/group_lasso_prox.md) checks the value, the
 proximal operators, the block operations and the screen against their formulas.

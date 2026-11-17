@@ -54,6 +54,84 @@ x = [2.0,-1]
 prox(h,x,0.4)
 ```
 
+## [Scoring optimality](@id scaled-kkt)
+
+`kkt_violation(h, v, x, k)` and `kkt_violation(h, v, x)` of `h = Scaled(f, α)` with a
+finite positive `α` return `α` times the score of `f` at `v/α` (the score of ``\alpha f``
+is positively homogeneous in ``\alpha`` and `v` together), where `f` is `NormL1`,
+`ElasticNet`, `ZeroFunction`, `LinearFunction`, `SqrNormL2`, `GroupNormL2` or, for the
+full-point form, `NormL2`. At a zero coordinate this is the scaled screen of the
+three-argument form. The scores of the function are in
+[scoring a coordinate](@ref kkt-screens).
+
+```@example library_scaled
+h1 = Scaled(NormL1(0.5), 2.0)             # the function NormL1(1.0)
+@assert kkt_violation(h1, [3.0, 0.5], [0.0, 1.0], 1) == 2.0      # 2 (|3/2| - 0.5)
+@assert kkt_violation(h1, [3.0, 0.5], [0.0, 1.0], 2) == 1.5      # 2 |0.5/2 + 0.5|
+kkt_violation(h1, [3.0, 0.5], [0.0, 1.0])
+```
+
+**Domain.** The call divides `v` by `α`. Its value agrees with the score of the scaled function
+up to rounding when `1/α` and `abs(v[i])/α` are representable in the working type.
+Outside that range the value is that of the formula evaluated with the infinity or `NaN` that
+the division gives: `kkt_violation(Scaled(SqrNormL2(1.0), 1e-300), [1e10], [1.0], 1)` is `+Inf`,
+where the score of the scaled function is `1e10`. A factor of an integer type (as in `2 * f`)
+is inverted in `Float64`, so that the result of data of another floating type has type `Float64`.
+
+```@example library_scaled
+@assert kkt_violation(Scaled(SqrNormL2(1.0), 1e-300), [1e10], [1.0], 1) == Inf
+@assert kkt_violation(Scaled(SqrNormL2(1.0), 1e-30), [1e10], [1.0], 1) ≈ 1e10
+@assert kkt_violation(2 * NormL1(0.5f0), Float32[1, 2], Float32[0, 3], 2) isa Float64
+```
+
+### Unsupported cases
+
+* **Nested wrappers whose level does not fold.** The constructor merges two factors
+  into one when their product is a normal number; otherwise the wrappers stay nested.
+  For a chain around `NormL1`, `ElasticNet`, `GroupNormL2` or `NormL2` the product of the
+  factors is folded into the level (the levels of `ElasticNet`) when the result is a normal
+  number, and the chain then has the score of the function with that level, in every form. Where
+  it does not fold, **the three-argument screen, and the four-argument form at a zero coordinate
+  or group, can return an incorrect value**: they divide `v` by the product, which is out of
+  range, and an ordinary `v` overflows. `Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at
+  `v = [0.25]` returns `Inf`, where the value is `0.25` to rounding. This is tracked as
+  [#978](https://github.com/mlakolar/ProximalBase.jl/issues/978). The four-argument form at a
+  nonzero coordinate or group (an entry in no group of a `GroupNormL2` counts as nonzero when `x`
+  is nonzero there) and the full-point form throw an `ArgumentError` for such a chain.
+* **An infinite factor.** `kkt_violation(h, v, x)` and the four-argument form at a nonzero
+  coordinate or group throw an `ArgumentError` (an entry in no group of a `GroupNormL2` counts as
+  nonzero when `x` is nonzero there). At a zero point the values are those of the formula `α` times the
+  score at `v/α = 0`: `-Inf` for a penalized coordinate with a positive coefficient, and `NaN`
+  (`Inf * 0`) where the coefficient is zero and for an entry in no group of a `GroupNormL2`. For the
+  smooth functions it is `α` times the score at `v = 0`.
+* **Chains around `LinearFunction` and `SqrNormL2`.** The product of the factors is applied
+  to the gradient entry of the function, as the gradient of the chain applies it, and the score is
+  ``\lvert v_i+a\,d_i\rvert`` in all three forms (an uncentered `SqrNormL2` at a zero coordinate,
+  and `ZeroFunction`, have ``\lvert v_i\rvert``). The three-argument screen of such a chain
+  around `LinearFunction` and a centered `SqrNormL2` was incorrect before 0.6: it
+  returned the screen of the function at the unscaled `v`.
+* **Functions without the forms.** `NormLinf`, the losses and the indicators have no
+  score; the call on the `Scaled` function throws a `MethodError` (the call names the `Scaled`
+  function). A function defined outside the package is treated as in
+  [Writing your own function](extending.md).
+
+```@example library_scaled
+lin = Scaled(Scaled(LinearFunction([1.0]), 1e-200), 1e-200)    # the product 1e-400 is not a number
+@assert lin.f isa Scaled
+@assert kkt_violation(lin, [0.25], 1) == 0.25 && kkt_violation(lin, [0.25], [0.7]) == 0.25
+nl = Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)
+@assert kkt_violation(nl, [0.25], 1) == Inf                 # unsupported: the value is 0.25 to rounding
+refused(f) = try f(); false catch e; e isa ArgumentError end
+@assert refused(() -> kkt_violation(nl, [0.25], [1.0], 1)) && refused(() -> kkt_violation(nl, [0.25], [1.0]))
+inf = Scaled(NormL1(1.0), Inf)
+@assert kkt_violation(inf, [3.0], [0.0], 1) == -Inf
+@assert refused(() -> kkt_violation(inf, [3.0], [1.0], 1)) && refused(() -> kkt_violation(inf, [3.0], [0.0]))
+@assert isnan(kkt_violation(Scaled(NormL1(0.0), Inf), [3.0], [0.0], 1))
+nomethod = try kkt_violation(Scaled(NormLinf(1.0), 2.0), [1.0, 2.0], [0.0, 1.0], 1); false catch e; e isa MethodError end
+@assert nomethod
+kkt_violation(lin, [0.25], 1)
+```
+
 ## Allocation, aliases and validation
 
 The wrapper follows the original function's supported input shapes and

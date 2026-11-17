@@ -69,18 +69,23 @@ zero, and it takes no iterate.
 For `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` and `SqrNormL2` it
 returns the signed screen at a zero coordinate and a nonnegative stationarity
 mismatch at a nonzero one (see [Mathematical operations](operations.md) for each
-scalar). `kkt_violation(g,v,x)` is the nonnegative full-point measure
-``\max(0,\max_k s_k)`` of these five functions on a one-based array,
-`SparseIterate` or `BlockIterate`, read by entry.
+scalar). `GroupNormL2` has the same two scores for a group, and `Scaled` forwards
+them (below). `kkt_violation(g,v,x)` is the nonnegative full-point measure
+``\max(0,\max_k s_k)`` of these functions on a one-based array,
+`SparseIterate` or `BlockIterate`: the scores ``s_k`` of the entries for the five scalar
+functions, and for `GroupNormL2` the scores of the groups and ``\lvert v_i\rvert`` of the entries in no
+group, a **maximum of block 2-norms** and not an ``\ell_\infty`` distance. `NormL2` has the full-point
+form only.
 
 | Iterate | Four-argument form (`k` is the index) |
 |:--|:--|
 | `SparseIterate` | Valid coordinate first, then gradient entry count equal to length(x); flat or matrix-shaped gradient of that length is accepted. The coordinate is read from `x` |
 | `SymmetricSparseIterate` | Valid independent coordinate, then p² gradient entries; symmetric part of that gradient pair, the stored value of the coordinate, and the extent of the function's parameters (their mirrored entries are not compared). The score is in matrix-entry units. There is no full-point form: it throws `ArgumentError` |
 | `BlockIterate`, scalar penalties | Group `k`. The maximum of the scores of the entries of the group: signed if every entry of the group is zero, nonnegative otherwise. A gradient whose length differs from `length(x)` throws `DimensionMismatch` |
-| `BlockIterate`, `GroupNormL2` | Group norm screen at a zero group; selected group layout and full gradient length checked; `ArgumentError` at a group with a nonzero entry |
+| `BlockIterate`, `GroupNormL2` | Group `k`. The block score: the group screen at a zero group, the mismatch at a nonzero one. The group count, the layout of group `k` and the full gradient length are checked |
 | Other arrays, scalar penalties | Real one-based axes, then gradient length equal to length(x) (`DimensionMismatch`); entry `k` is read from `x` |
-| Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The group screen at a zero group, `abs(v[k])` for an entry in no group, `ArgumentError` at a group with a nonzero entry |
+| Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The block score of that group, `abs(v[k])` for an entry in no group (also when `x[k]` is nonzero) |
+| Any point, `NormL2` | No form for an entry or a group: `ArgumentError` that names the full-point form |
 
 For `SparseIterate`/`SymmetricSparseIterate`, invalid coordinate throws `BoundsError` before
 extent mismatch throws `DimensionMismatch`, after checking one-based axes and
@@ -90,16 +95,25 @@ throw `ArgumentError`. Parameter extents are checked for symmetric iterates;
 mirrored parameters are a caller precondition, not an oracle check; the
 three-argument form takes no iterate and makes no parameter-symmetry check.
 `GroupNormL2` checks the number of groups, the selected ordered group
-layout and `length(v) == length(x)`, then returns `norm(v[Gₖ]) - λ0*wₖ` at a zero
-group. Its three-argument form throws `ArgumentError` because the penalty is not
-entrywise separable; see [the group penalty](group_penalty.md). `Scaled` forwards the four-argument form to the screen of
-its function at a zero coordinate or group, and throws `ArgumentError` at a nonzero
-coordinate when the function under the scales is `NormL1`, `ElasticNet`,
-`ZeroFunction`, `LinearFunction` or `SqrNormL2`. The full-point forms of `GroupNormL2` and `Scaled` are not defined.
+layout and `length(v) == length(x)`, then scores the group `Gₖ` with ``c=\lambda_0w_k``:
+`norm(v[Gₖ]) - c` at a zero group and `norm(v[Gₖ] + c*x[Gₖ]/norm(x[Gₖ]))` at a nonzero one
+(see [the group penalty](group_penalty.md)). Its three-argument form throws `ArgumentError`
+because the penalty is not entrywise separable, as does a `SymmetricSparseIterate`
+point. `NormL2` takes the whole of `x` as one block and has the full-point form
+only: its three-argument and four-argument forms throw `ArgumentError`.
+
+`Scaled` with a finite positive factor `α` scores as `α` times the score of its function at
+`v/α`, for the five scalar functions, `GroupNormL2` and, in the full-point form, `NormL2`.
+Nested wrappers whose factors do not multiply to a normal number, an infinite factor,
+and the functions without a score have unsupported cases, which are listed in
+the [scaling guide](@ref scaled-kkt), and a function without a score gives a `MethodError` for the
+call on the `Scaled` function.
 
 The full-point form checks real element types, one-based axes (`ArgumentError`),
 `length(v) == length(x)` (`DimensionMismatch`) and the extent of the function's
-parameters. It makes a pass over the entries and writes nothing. A second pass
+parameters (for `GroupNormL2` the group extent and, on a `BlockIterate`, the whole layout:
+the group count and every group; for `NormL2` no parameter). It makes a pass over the entries
+(over the groups for `GroupNormL2`) and writes nothing. A second pass
 that applies the rules for non-finite values entry by entry can follow it, for
 instance when an entry of `v` or `x` is not finite or a score is `NaN` or infinite.
 Dense `Float32` or `Float64` arrays of one type take the fast path, where the tests
@@ -109,9 +123,10 @@ four-argument form on an array reads the parameters of entry `k`. The element
 type, the rules for non-finite values and the rounding error are in the
 [numerical contract](numerics.md).
 
-A function defined outside the package that has only the three-argument method
-gets that method's value from the four-argument form at a zero coordinate (a
-group of zero entries) and an `ArgumentError` at a nonzero one;
+A function defined outside the package gets its three-argument method's value from the
+four-argument form at a zero coordinate (a group of zero entries) and an `ArgumentError` at
+a nonzero one, unless it defines the four-argument method itself; under `Scaled` it has the
+scaled three-argument value and that error also when it defines the method;
 see [Writing your own function](extending.md). The built-in functions without a
 score, such as `SqrtLeastSquaresLoss`, throw `MethodError`. A positive score at
 a nonzero coordinate is a stationarity mismatch; see

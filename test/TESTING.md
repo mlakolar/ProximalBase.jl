@@ -64,9 +64,11 @@ in no group, `SparseIterate` and `BlockIterate` points, NaN and infinite entries
 subnormals, validation and layout, `NormL2` (the full-point form, and the errors of the other forms), `Scaled` over each
 leaf against the BigFloat definition of the scaled function and its stated domain, chains of wrappers whose factors do not
 multiply to a normal number (the product applied to the gradient of `LinearFunction` and `SqrNormL2`, folded into
-the level of the others where it gives a normal one, an `ArgumentError` where it does not), infinite factors, leaves without a
-score and functions defined outside the package, mixed element types and result types, `@inferred`, zero allocations of the
-dense forms, and malformed parameters of a symmetric model under `Scaled`.
+the level of the others where it gives a normal one, an `ArgumentError` where it does not), infinite factors (also at an entry in no group), leaves without a
+score, functions defined outside the package under `Scaled` (with a screen only, with four-argument and full-point methods of
+their own, and with methods for `Scaled{<:T}`), out-of-range indices through the refusing routes, mixed element types and result
+types, `@inferred` (also of the class of a `Scaled`), zero allocations of the dense forms and of the cold paths of the block
+kernel, and malformed parameters of a symmetric model under `Scaled`.
 `groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
 its value, group soft thresholding and group KKT screen in Float32/64: analytical
 and threshold cases, singleton groups against weighted `NormL1`, noncontiguous

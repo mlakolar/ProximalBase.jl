@@ -186,6 +186,50 @@ kkt_violation(::UnitL1, v::AbstractArray, x::AbstractArray) =
 @assert kkt_violation(f, v, x) ≈ 0.5
 ```
 
+#### Under `Scaled`
+
+`Scaled(f, α)` of a function defined outside the package does not forward its four-argument
+method, even when it defines one. PB does not know that a custom score scales as
+``\alpha\,s(v/\alpha, x)``, which the forwarding to its own functions assumes, so the call
+gives its scaled three-argument screen at a zero coordinate, `α * kkt_violation(f, v/α, i)` (on a `BlockIterate`,
+at a group whose entries are all zero, the maximum over its entries; on a
+`SymmetricSparseIterate`, at the lower position), and throws an `ArgumentError` at a nonzero
+coordinate or group, which names the methods to define. A function without the three-argument
+method gives a `MethodError`, and the full-point form of `Scaled` over it is a `MethodError`.
+The previous version scaled the method of the function at every coordinate (see the [migration notes](migration.md)).
+
+To score a scaled function of your own, define the methods for `Scaled{<:MyFunction}` with the
+signatures of the table; the first type parameter of `Scaled` is the function. As above, define
+the `BlockIterate` method together with the array one, since with only the array
+method a call with a `BlockIterate` is ambiguous with the method of the package, and the
+`SymmetricSparseIterate` method where that point is used.
+
+| Form | Signature |
+|:--|:--|
+| Array point | `kkt_violation(s::Scaled{<:MyFunction},v::AbstractArray,x::AbstractArray,k::Integer)` |
+| `BlockIterate` | `kkt_violation(s::Scaled{<:MyFunction},v::AbstractArray,x::BlockIterate,k::Integer)` |
+| `SymmetricSparseIterate` | `kkt_violation(s::Scaled{<:MyFunction},v::AbstractArray,x::SymmetricSparseIterate,k::Integer)` |
+| Full point | `kkt_violation(s::Scaled{<:MyFunction},v::AbstractArray,x::AbstractArray)` |
+
+```@example custom_kkt
+s = Scaled(f, 2.0)                         # f is UnitL1, which has its own four-argument method
+@assert kkt_violation(s, v, x, 1) ≈ 2.0 * (abs(0.4 / 2.0) - 1)     # the scaled screen, not the method of f
+@assert kkt_violation(s, v, x, 2) ≈ 2.0 * (abs(1.5 / 2.0) - 1)
+refused = try kkt_violation(s, v, x, 3); false catch e; e isa ArgumentError end
+@assert refused                                                    # nonzero coordinate
+@assert try kkt_violation(s, v, x); false catch e; e isa MethodError end
+
+kkt_violation(s::Scaled{<:UnitL1}, v::AbstractArray, x::AbstractArray, k::Integer) = s.α * score(v[k] / s.α, x[k])
+kkt_violation(s::Scaled{<:UnitL1}, v::AbstractArray, x::BlockIterate, k::Integer) =
+    maximum(s.α * score(v[i] / s.α, x[i]) for i in blockindices(x, k))
+kkt_violation(s::Scaled{<:UnitL1}, v::AbstractArray, x::AbstractArray) =
+    max(0.0, maximum(s.α * score(v[k] / s.α, x[k]) for k in eachindex(x); init = -Inf))
+@assert kkt_violation(s, v, x, 3) ≈ 2.0 * abs(-1.0 / 2.0 + 1.0)    # the method of the scaled function runs
+@assert kkt_violation(s, v, x) ≈ 1.0
+b = BlockIterate(copy(x), [[1, 2], [3]])
+@assert kkt_violation(s, v, b, 1) ≈ 2.0 * (abs(1.5 / 2.0) - 1) && kkt_violation(s, v, b, 2) ≈ 1.0
+```
+
 ## Compact-vector block extensions
 
 A block function may act on a compact vector ``u`` representing one group.

@@ -142,7 +142,9 @@ that margin is the distance. For `NormL1(1.0)`, a zero point and a zero gradient
 off-diagonal coordinate is `-1.0` while the distance is `0`. The score assumes
 symmetric parameters. The full-point form `kkt_violation(f,v,x)` throws an
 `ArgumentError` for these five functions on a symmetric iterate: use the coordinate form.
-`Scaled` over one of them gives the screen at a zero stored coordinate and throws an
-`ArgumentError` at a nonzero one. A function defined outside the package that has only
-the three-argument method gets its value at a zero stored coordinate and an `ArgumentError`
-at a nonzero one.
+`Scaled` over one of them scores as `α` times the score of the function at `v/α` (an infinite
+factor throws an `ArgumentError` at a nonzero stored coordinate). `GroupNormL2` and `NormL2` have no
+symmetric form: the call throws an `ArgumentError`. A function defined outside the package
+gets its three-argument value at a zero stored coordinate and an `ArgumentError`
+at a nonzero one, also under `Scaled`, unless it defines the four-argument method (and, under
+`Scaled`, the method for `Scaled{<:TheirType}`).

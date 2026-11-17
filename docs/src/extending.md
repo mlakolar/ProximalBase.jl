@@ -18,7 +18,7 @@ declare the appropriate type traits. Generic defaults are deliberately limited:
 | Compact block-only oracle | `prox_block!(out,f,u,k,γ)` | Allocating vector `prox_block` only |
 
 `isconvex` defaults false and must be declared when justified. There is no
-automatic gradient from a value, scalar prox from a full-array prox, KKT screen,
+automatic gradient from a value, scalar prox from a full-array prox, `kkt_violation` method,
 restriction, Lipschitz bound or full-array lifting of a compact block oracle.
 Generic methods accepting tuples do not imply that the underlying function
 supports tuple inputs; it still needs methods for the requested argument types. The generic `gradient!` default depends on
@@ -120,6 +120,65 @@ quadratic does not synthesize a gradient method. Its simple scalar arithmetic
 does not promise the built-in ridge kernel's extreme-range recovery.
 To make it smooth, implement/check a full fused gradient and define the trait;
 to support KKT/restrict/`lipschitz`, define and validate those independently.
+
+### Optimality scores of your own function
+
+`kkt_violation` has a three-argument form, the screen of a coordinate assumed zero,
+a four-argument form `kkt_violation(f,v,x,k)` that evaluates the actual coordinate
+`k` of `x`, and a full-point form `kkt_violation(f,v,x)`. For a function defined
+outside the package, they behave as follows.
+
+* With only the three-argument method
+  `kkt_violation(f::MyFunction,v::AbstractArray,i::Integer)`, the four-argument form
+  returns that method's value at a zero coordinate (on a `BlockIterate`, at a group
+  whose entries are all zero, the maximum of the screens of its entries) and throws an
+  `ArgumentError` at a nonzero coordinate or group. The error names the method to
+  define. This holds on arrays, on a `BlockIterate` and on a `SymmetricSparseIterate`.
+* Without the three-argument method, the four-argument form throws a `MethodError`.
+* There is no generic full-point fallback: `kkt_violation(f,v,x)` is a `MethodError`
+  until the function defines it.
+* To support nonzero points, define the methods of the table. A method that you
+  define is called as defined, and it owns the validation of its arguments.
+
+| Form | Signature |
+|:--|:--|
+| Array point | `kkt_violation(f::MyFunction,v::AbstractArray,x::AbstractArray,k::Integer)` |
+| `BlockIterate` | `kkt_violation(f::MyFunction,v::AbstractArray,x::BlockIterate,k::Integer)` |
+| `SymmetricSparseIterate` | `kkt_violation(f::MyFunction,v::AbstractArray,x::SymmetricSparseIterate,k::Integer)` |
+| Full point | `kkt_violation(f::MyFunction,v::AbstractArray,x::AbstractArray)` |
+
+Type `f`, `v` and `x` as in the table. A `BlockIterate` is an `AbstractVector`, so a
+method with `x::AbstractArray` and one with `x::BlockIterate` are both needed for a
+function that is called on a `BlockIterate`: with only the first, a call with a
+`BlockIterate` is ambiguous with the method of the package. A method that leaves `v`, `x`
+or `k` untyped is ambiguous with the methods of the package for array points.
+
+```@example custom_kkt
+using ProximalBase
+import ProximalBase: kkt_violation
+
+struct UnitL1 <: AbstractFunction end        # the penalty ‖x‖₁, with only its zero screen
+kkt_violation(::UnitL1, v::AbstractArray, i::Integer) = abs(v[i]) - 1
+
+f = UnitL1()
+x = [0.0, 0.0, 2.0]
+v = [0.4, 1.5, -1.0]
+@assert kkt_violation(f, v, x, 2) == kkt_violation(f, v, 2)    # a zero coordinate
+refused = try kkt_violation(f, v, x, 3); false catch e; e isa ArgumentError end
+@assert refused                                                # a nonzero coordinate
+```
+
+Its own methods give the score of the nonzero coordinate and the full-point value:
+
+```@example custom_kkt
+score(vk, xk) = iszero(xk) ? abs(vk) - 1 : abs(vk + sign(xk))
+kkt_violation(::UnitL1, v::AbstractArray, x::AbstractArray, k::Integer) = score(v[k], x[k])
+kkt_violation(::UnitL1, v::AbstractArray, x::AbstractArray) =
+    max(0.0, maximum(score(v[k], x[k]) for k in eachindex(x); init = -Inf))
+@assert kkt_violation(f, v, x, 1) ≈ -0.6
+@assert kkt_violation(f, v, x, 3) ≈ 0.0
+@assert kkt_violation(f, v, x) ≈ 0.5
+```
 
 ## Compact-vector block extensions
 

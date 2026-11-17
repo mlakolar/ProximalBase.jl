@@ -53,30 +53,43 @@ output; keeping it independent protects the iterate until the separate write.
 
 The [block extension](examples/block_prox_extension.md) is a complete checked
 implementation. Implementing this hook does not automatically supply a full
-array value, full-array prox, traits, KKT screen, symmetric-iterate interface or
+array value, full-array prox, traits, `kkt_violation` method, symmetric-iterate interface or
 `Scaled` compact-vector forwarding.
 
-## Screening a zero coordinate
+## Scoring a coordinate
 
-For the supported scalar functions, `kkt_violation(g,grad,i)` reports a signed
-violation of the zero-coordinate condition. `NormL1` returns
-``|\mathrm{grad}_i|-\lambda_0w_i``. A positive value means zero fails the
-condition. The routine does not inspect whether the coordinate is actually zero.
+`kkt_violation(g,v,i)` reports the signed screen of coordinate `i` **assumed
+zero**. `NormL1` returns ``|v_i|-\lambda_0w_i``. A positive value means zero fails
+the condition. The routine does not inspect whether the coordinate is actually
+zero, and it takes no iterate.
 
-`kkt_violation(g,grad,x,k)` interprets k in x's coordinate space:
+`kkt_violation(g,v,x,k)` reads `x` and interprets `k` in x's coordinate space.
+For `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` and `SqrNormL2` it
+returns the signed screen at a zero coordinate and a nonnegative stationarity
+mismatch at a nonzero one (see [Mathematical operations](operations.md) for each
+scalar). `kkt_violation(g,v,x)` is the nonnegative full-point measure
+``\max(0,\max_k s_k)`` of these five functions on a one-based array,
+`SparseIterate` or `BlockIterate`, read by entry.
 
-| Iterate | Interpretation/checks |
+| Iterate | Four-argument form (`k` is the index) |
 |:--|:--|
-| `SparseIterate` | Valid coordinate first, then gradient entry count equal to length(x); flat or matrix-shaped gradient of that length is accepted |
-| `SymmetricSparseIterate` | Valid independent coordinate, then p² gradient entries; symmetric part of that gradient pair, and the extent of the function's parameters (their mirrored entries are not compared) |
-| `BlockIterate` | Maximum scalar screen over global members of group k for supported scalar-screen functions |
-| Other arrays | No extra point/gradient extent validation; indexing/function checks still apply |
+| `SparseIterate` | Valid coordinate first, then gradient entry count equal to length(x); flat or matrix-shaped gradient of that length is accepted. The coordinate is read from `x` |
+| `SymmetricSparseIterate` | Valid independent coordinate, then p² gradient entries; symmetric part of that gradient pair, the stored value of the coordinate, and the extent of the function's parameters (their mirrored entries are not compared). The score is in matrix-entry units. There is no full-point form: it throws `ArgumentError` |
+| `BlockIterate` | Group `k`. For the five functions above, the maximum of the scores of the entries of the group: signed if every entry of the group is zero, nonnegative otherwise. For `GroupNormL2`, see [the group penalty](group_penalty.md) |
+| Other arrays | Real one-based axes, then gradient length equal to length(x) (`DimensionMismatch`); entry `k` is read from `x` |
 
 For `SparseIterate`/`SymmetricSparseIterate`, invalid coordinate throws `BoundsError` before
 extent mismatch throws `DimensionMismatch`, after checking real element types.
-The `BlockIterate` path does not add that same explicit full-gradient extent
-preflight; ensure the gradient is full-length. Nonzero coordinates need their
-own stationarity test, as explained in [coordinate descent](coordinate_descent.md).
+For a `BlockIterate` and for other arrays, a gradient whose length differs from
+`length(x)` throws `DimensionMismatch`.
+
+A function defined outside the package that has only the three-argument method
+gets that method's value from the four-argument form at a zero coordinate (a
+group of zero entries) and an `ArgumentError` at a nonzero one;
+see [Writing your own function](extending.md). The built-in functions without a
+score, such as `SqrtLeastSquaresLoss`, throw `MethodError`. A positive score at
+a nonzero coordinate is a stationarity mismatch; see
+[coordinate descent](coordinate_descent.md).
 
 ## Symmetric scalar steps
 

@@ -23,7 +23,7 @@ each operation is explained below, including its mathematics and Julia usage.
 | Value and proximal point | `value_and_prox!` | Proximal point and its function value |
 | Individual entries | `value_entry` | Contribution of one scalar entry to a separable function |
 | Scalar or block proximal update | `prox_block`, `prox_block!` | Proximal point for one entry or an explicitly implemented block |
-| Check zero-coordinate optimality | `kkt_violation` | Violation of a zero-coordinate stationarity condition |
+| Check first-order optimality | `kkt_violation` | Screen of a coordinate assumed zero, score of the actual coordinate, or the nonnegative full-point measure |
 | Make a reduced function | `restrict` | Function on selected coordinates, normally fixing others at zero |
 | Gradient bound | `lipschitz` | Bound on how rapidly the gradient can change |
 | Squared spectral norm estimate | `opnorm2` | Estimate of the squared matrix operator norm |
@@ -249,25 +249,76 @@ coordinate ``i`` is
 |\nabla_i f(x)|\leq\lambda.
 ```
 
-The scalar `kkt_violation(g,grad,i)` measures
-``|\mathrm{grad}_i|-\lambda`` for `NormL1` (with its
-appropriate coordinate weight); for `ElasticNet` it is
-``|\mathrm{grad}_i|-\lambda_1 w_i``, and `-Inf` for an infinite ridge
-level. A **positive** result signals that
-the zero-coordinate condition is violated:
+`kkt_violation` has three forms. In each, `v` is a vector that the caller
+supplies, usually the gradient of the smooth part at the point `x`; it is not
+recomputed. The result is the raw score of the stationarity condition.
+
+| Call | What it evaluates | Sign |
+|:--|:--|:--|
+| `kkt_violation(g,v,i)` | The screen of coordinate `i` **assumed zero**; it reads no `x` | Signed |
+| `kkt_violation(g,v,x,k)` | The score of the **actual** coordinate `k` of `x` (the group `k` for a `BlockIterate`) | The signed margin at a zero coordinate; a nonnegative mismatch at a nonzero one |
+| `kkt_violation(g,v,x)` | The full-point measure ``\max(0,\max_k s_k)`` over the entries of `x`, with ``s_k`` the score of entry ``k``; zero of the result type for an empty `x` | Nonnegative |
+
+The sign says the following.
+
+* A **positive** score at a zero coordinate says that zero violates its
+  condition: the coordinate is a candidate for a working set.
+* A **positive** score at a nonzero coordinate is a stationarity mismatch. It
+  is not an instruction to set the coordinate to zero.
+* A **negative** score occurs only at a zero coordinate (or at a zero block)
+  and is slack. The full-point form drops it through the maximum with `0`.
+
+For an entry `i` with ``c_i=\lambda_0w_i`` (``\lambda_1w_i`` for `ElasticNet`),
+the five families with these forms return the following scalars.
+
+| Function | Entry at zero | Entry ``x_i\neq0`` | Full-point value, for finite inputs |
+|:--|:--|:--|:--|
+| `NormL1` | ``\lvert v_i\rvert-c_i`` | ``\lvert v_i+c_i\operatorname{sign}(x_i)\rvert`` | ``\ell_\infty`` distance from ``-v`` to ``\partial g(x)``; zero when ``0\in v+\partial g(x)`` |
+| `ElasticNet` | ``\lvert v_i\rvert-c_i`` (`-Inf` for an infinite ridge level) | ``\lvert (v_i+\lambda_2x_i)+c_i\operatorname{sign}(x_i)\rvert`` | As `NormL1` |
+| `ZeroFunction` | ``\lvert v_i\rvert`` | ``\lvert v_i\rvert`` | ``\lVert v\rVert_\infty`` |
+| `LinearFunction` | ``\lvert v_i+c_i\rvert`` | ``\lvert v_i+c_i\rvert`` | ``\lVert v+c\rVert_\infty`` |
+| `SqrNormL2` | ``\lvert v_i+d_i\rvert`` | ``\lvert v_i+d_i\rvert`` | ``\lVert v+\nabla g(x)\rVert_\infty`` |
+
+For `LinearFunction`, ``c_i`` is its coefficient entry. For `SqrNormL2`,
+``d_i`` is entry ``i`` of ``\nabla g(x)`` as the gradient oracle forms it:
+``\lambda x_i``, or ``\lambda(x_i-y_i)`` with a center ``y``. The subdifferential of a smooth function is its gradient, so its score is
+nonnegative at a zero coordinate as well. The norm of the full-point value is the ``\ell_\infty`` norm for these
+five functions; [`GroupNormL2`](group_penalty.md) measures block 2-norms, so a
+tolerance chosen for one is not a tolerance for the other.
+
+The worked example uses ``g=\lambda\|x\|_1`` with ``\lambda=0.5``, a point with
+two zero coordinates and two nonzero ones, and a supplied `v`:
 
 ```@example operations_basics
-gradient_at_zero = [0.8, 0.2]
-(kkt_violation(g, gradient_at_zero, 1),
- kkt_violation(g, gradient_at_zero, 2))
+xk = [0.0, 0.0, 2.0, -1.0]
+vk = [0.8, 0.2, 0.0, 0.5]
+screen = [kkt_violation(g, vk, i) for i in 1:4]
+local_scores = [kkt_violation(g, vk, xk, i) for i in 1:4]
+(screen = screen, local_scores = local_scores, full_point = kkt_violation(g, vk, xk))
 ```
 
-For this penalty with ``\lambda=0.5``, the result is
-``(0.3,-0.3)``: the first zero coordinate fails the test; the second
-passes it. This is **not** a general optimality certificate for a
-nonzero coordinate or the entire vector. The iterate-aware variant
-`kkt_violation(g,grad,x,k)` interprets `k` in the iterate's
-coordinate or block space. See [Coordinate descent](coordinate_descent.md).
+The two forms agree at the zero coordinates 1 and 2: ``0.8-0.5>0`` says that
+coordinate 1 violates the zero condition, and ``0.2-0.5<0`` is slack at
+coordinate 2. At coordinate 3 the screen assumes ``x_3=0`` and returns
+``\lvert 0\rvert-0.5=-0.5``; the four-argument form reads ``x_3=2`` and returns
+``\lvert 0+0.5\operatorname{sign}(2)\rvert=0.5``, a mismatch. At coordinate 4
+the condition holds and the score is ``0``. The full-point value is ``0.5``.
+The values at coordinates 1 and 2 are computed in floating point, so compare
+them with `≈` and not with `==`:
+
+```@example operations_basics
+@assert screen[3] == -0.5 && local_scores[3] == 0.5
+@assert local_scores[1] ≈ 0.3 && local_scores[2] ≈ -0.3 && local_scores[4] == 0
+@assert kkt_violation(g, vk, xk) == 0.5
+```
+
+ProximalBase returns the raw score. Scaling by the size of the problem, the
+tolerance, when to evaluate the score, and the decision that a solver has
+converged belong to the caller. The score is a statement about first-order
+stationarity of the supplied `v`, not a claim of global optimality, and its accuracy depends on the
+accuracy of `v`. `kkt_violation(g,v,x,k)` interprets `k` in the
+iterate's coordinate or block space; see [Coordinate oracles](iterate_oracles.md)
+and [Coordinate descent](coordinate_descent.md).
 
 ## Restricting a function to selected coordinates
 

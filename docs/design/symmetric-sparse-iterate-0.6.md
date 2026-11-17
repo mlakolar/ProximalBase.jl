@@ -107,7 +107,7 @@ Mathematical function methods accept a `SymmetricSparseIterate`
 | `f(x)`, `prox(f,x,γ)` | `SeparableFunction`, `SqrNormL2`, `LinearFunction`, `ZeroFunction`, and supported `Scaled` wrappers |
 | `gradient(f,x)` | `SqrNormL2`, `LinearFunction`, and supported scaling; the allocated result is a dense symmetric matrix |
 | `prox!(out,f,x,γ)` with a symmetric iterate `out` | An independent-coordinate symmetric iterate is written; only scalar steps `γ` are supported |
-| `kkt_violation(f,grad,x,k)` | The chosen independent coordinate, using the symmetric matrix gradient and relevant parameter pair |
+| `kkt_violation(f,grad,x,k)` | The chosen independent coordinate, using the symmetric matrix gradient, the relevant parameter pair and the stored value of the coordinate; the score is in matrix-entry units. The full-point form `kkt_violation(f,grad,x)` is not provided |
 
 `ZeroFunction` supports symmetric-iterate values and proximal maps, but no symmetric iterate
 gradient. `LeastSquaresLoss` and `QuadraticFunction` have no
@@ -150,9 +150,12 @@ A raw scalar hook has no `SymmetricSparseIterate` argument and therefore does no
 symmetric parameter pairs itself.
 
 The `SymmetricSparseIterate`-specific `kkt_violation` checks the extent of the function's
-parameters, uses the symmetric matrix gradient, and rejects an opposing-infinity
-gradient pair. It does not compare mirrored parameter entries and does not double the
-reported scalar screen.
+parameters, uses the symmetric matrix gradient and the stored value of the coordinate, and
+rejects an opposing-infinity gradient pair. It does not compare mirrored parameter entries.
+The score is in matrix-entry units: for an off-diagonal coordinate it is half of the residual
+of the derivative in the independent parameter. The full-point form is not defined for a
+`SymmetricSparseIterate` (`ArgumentError` for `NormL1`, `ElasticNet`, `ZeroFunction`,
+`LinearFunction` and `SqrNormL2`).
 
 ## Linear algebra and aliasing
 

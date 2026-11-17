@@ -43,6 +43,53 @@ For squared-norm regularization, use `SqrNormL2`. Code that relied on this inter
 implement the operations it needs through the [`AbstractFunction` interface](extending.md),
 or keep its own scalar-loss types and functions.
 
+### The four-argument `kkt_violation` reads the point (0.6, breaking)
+
+Before 0.6, `kkt_violation(g,v,x,k)` returned the screen of coordinate `k` assumed
+zero whatever the value of `x[k]`. In 0.6 it evaluates the actual coordinate or group:
+at a zero coordinate it is the signed screen as before, and at a nonzero coordinate it is
+a nonnegative stationarity mismatch. The three-argument form
+`kkt_violation(g,v,i)` is unchanged. With `g = NormL1(0.5)`, `x = [0, 0, 2, -1]` and
+`v = [0.8, 0.2, 0, 0.5]` (values to rounding):
+
+| `i` | `xᵢ` | `kkt_violation(g,v,i)` | `kkt_violation(g,v,x,i)` before 0.6 | `kkt_violation(g,v,x,i)` in 0.6 |
+|--:|--:|--:|--:|--:|
+| 1 | 0 | 0.3 | 0.3 | 0.3 |
+| 2 | 0 | -0.3 | -0.3 | -0.3 |
+| 3 | 2 | -0.5 | -0.5 | **0.5** |
+| 4 | -1 | 0 | 0 | 0 |
+
+A new full-point form gives `kkt_violation(g,v,x) = 0.5` here, the nonnegative
+``\max(0,\max_k s_k)``. A positive score at a nonzero coordinate is a stationarity
+mismatch and not an instruction to set the coordinate to zero.
+
+What did not change:
+
+* Three-argument calls `kkt_violation(g,v,i)`.
+* Four-argument calls at zero coordinates, with `x` and `v` of one element type and a
+  finite `v`: they return the same values as before. A working-set solver that ranks the inactive
+  coordinates of a `SparseIterate` with the four-argument form is in this case.
+* The group screen of `GroupNormL2` at a zero group (on an array point, for an entry
+  of a zero group), and its value `abs(v[i])` for an entry in no group.
+
+What changed besides the values of the table:
+
+* `GroupNormL2` at a group with a nonzero entry, on a `BlockIterate` or on an array
+  point, and `Scaled` over `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction`,
+  `SqrNormL2` or `GroupNormL2` at a nonzero coordinate or group, throw an `ArgumentError`;
+  before 0.6 they returned a screen value or a surrogate such as `abs(v[i])`.
+* A function defined outside the package with only the three-argument method gets its
+  value at a zero coordinate and an `ArgumentError` at a nonzero one, on arrays, a
+  `BlockIterate` and a `SymmetricSparseIterate`; see [Writing your own function](extending.md).
+* On a `SymmetricSparseIterate` the four-argument form reads the stored value of the
+  coordinate, and its score is in matrix-entry units. The full-point form throws an
+  `ArgumentError` there.
+* For arrays and `BlockIterate`, `length(v)` must equal `length(x)`
+  (`DimensionMismatch`).
+
+If code relied on the old value at a nonzero coordinate, call the three-argument form
+`kkt_violation(g,v,i)`, which is the screen of the coordinate assumed zero.
+
 ## Restored functions
 
 | Function | Restored from the archive | Differences from the archived version |

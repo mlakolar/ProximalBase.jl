@@ -194,7 +194,7 @@ function _symmetric_matrix_dot(a, x::SymmetricSparseIterate)
   s
 end
 
-_kkt_violation(s::Scaled, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) = _kkt_scaled(s, g, x, k)
+@inline _kkt_violation(s::Scaled, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) = _kkt_scaled(s, g, x, k)
 
 # Fallbacks for functions outside the entry-array kernels.
 _prox_unchecked!(y, f::AbstractFunction, x, γ) = prox!(y, f, x, γ)

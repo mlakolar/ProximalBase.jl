@@ -769,20 +769,27 @@ end
 # function inside is scored by its own methods, so that a function defined outside the package keeps its own semantics. A
 # function of this package without a score gives a MethodError for the call on the Scaled. An infinite factor has these
 # values at a zero coordinate or group and is refused at a nonzero one.
-function _kkt_scaled(s::Scaled, g, x, k)
+# The rare branches are in functions that are not inlined, so that the route is small enough to be inlined into the call
+# that reaches it (the loop of a caller then forms the coefficient of the function once, as it does for the function alone).
+@inline function _kkt_scaled(s::Scaled, g, x, k)
   cls = _kkt_class(typeof(s))
-  cls isa _KktNone && throw(MethodError(kkt_violation, (s, g, x, k)))
+  cls isa _KktNone && _kkt_none_error(s, g, x, k)
   _chained(s) && return _kkt_chain(s, g, x, k)
   r = s.α * _kkt_inner(s.f, _ScaledArray(g, inv(s.α)), x, k)
-  isinf(s.α) && cls isa _KktScore && _kkt_nonzero_coord(_kkt_innermost(s), x, k) && _kkt_infinite_error(s)
+  isinf(s.α) && _kkt_infinite_guard(cls, s, x, k)
   r
+end
+@noinline _kkt_none_error(s, g, x, k) = throw(MethodError(kkt_violation, (s, g, x, k)))
+@noinline function _kkt_infinite_guard(cls, s, x, k)
+  cls isa _KktScore && _kkt_nonzero_coord(_kkt_innermost(s), x, k) && _kkt_infinite_error(s)
+  nothing
 end
 # the function under one wrapper: a Scaled through its own route, a function of this package by its own method, and a
 # function defined outside the package by its screen at a zero coordinate or group (_kkt_custom_zero)
-_kkt_inner(f::Scaled, g, x, k) = _kkt_scaled(f, g, x, k)
-_kkt_inner(f, g, x, k) = _kkt_leaf(_kkt_class(typeof(f)), f, g, x, k)
-_kkt_leaf(::_KktCustom, f, g, x, k) = _kkt_custom_zero(f, g, x, k)
-_kkt_leaf(::Union{_KktScore, _KktNone}, f, g, x, k) = _kkt_violation(f, g, x, k)
+@inline _kkt_inner(f::Scaled, g, x, k) = _kkt_scaled(f, g, x, k)
+@inline _kkt_inner(f, g, x, k) = _kkt_leaf(_kkt_class(typeof(f)), f, g, x, k)
+@inline _kkt_leaf(::_KktCustom, f, g, x, k) = _kkt_custom_zero(f, g, x, k)
+@inline _kkt_leaf(::Union{_KktScore, _KktNone}, f, g, x, k) = _kkt_violation(f, g, x, k)
 # A function defined outside the package has its three-argument screen at a zero coordinate or group, also when it defines
 # a four-argument method of its own: that method is not a score that homogeneity carries through the wrapper. At a nonzero
 # one the call is refused, and the method for the scaled function is the one to define.
@@ -828,8 +835,17 @@ function _kkt_unfolded(f::Union{NormL1, ElasticNet}, g, x::SymmetricSparseIterat
   kkt_violation(f, g, (c - 1) * x.p + r)
 end
 for X in (:AbstractArray, :BlockIterate)
-  @eval _kkt_violation(s::Scaled, g::AbstractArray, x::$X, k::Integer) = _kkt_scaled(s, g, x, k)
+  @eval @inline _kkt_violation(s::Scaled, g::AbstractArray, x::$X, k::Integer) = _kkt_scaled(s, g, x, k)
 end
+# The public four-argument methods of a Scaled: the checks of the methods for any function (interface.jl) and then the route
+# above, marked for inlining so that a loop over coordinates that calls it forms the coefficient of the function once, as it
+# does for the function alone. A method for Scaled{<:T} that a function defined outside the package defines is more specific.
+@inline kkt_violation(s::Scaled, g::AbstractArray, x::AbstractArray, i::Integer) =
+  (_check_one_based(g, x); eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation);
+   _check_kkt_coordinate(g, x, i); length(g) == length(x) || _gradient_length_error(g, x); _kkt_scaled(s, g, x, i))
+@inline kkt_violation(s::Scaled, g::AbstractArray, x::BlockIterate, k::Integer) =
+  (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); length(g) == length(x) || _gradient_length_error(g, x);
+   _kkt_scaled(s, g, x, k))
 
 # The full-point form. v is validated before it is wrapped, since the lazy array reports one-based axes for any parent.
 function kkt_violation(s::Scaled, v::AbstractArray, x::AbstractArray)

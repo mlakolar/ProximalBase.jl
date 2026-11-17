@@ -614,14 +614,24 @@ _kkt_screen(f, g, x, k) = _kkt_violation(f, g, x, k)
 # Each of NormL1, ElasticNet, ZeroFunction, LinearFunction and SqrNormL2 supplies, for the floating type W of
 # the call:
 #   _kkt_type(f, V, X)                 W, from the element types of v and x
-#   _kkt_state(f, W)                   what a call holds fixed: the coefficient of an unweighted function, a level
-#   _kkt_natural(f, s, W, v, x, i)     the score of entry i from v and x in W, by the formulas of kkt_violation
-#   _kkt_entry(f, s, W, v, x, i)       the same with the rules for NaN and infinite v and x
+#   _kkt_state(f, W)                   the values that a call prepares once and reuses for its entries: the coefficient
+#                                      of an unweighted NormL1 or ElasticNet, a level
+#   _kkt_natural(f, s, W, v, x, i)     the ordinary score of entry i from v and x in W, by the formulas of kkt_violation
+#   _kkt_entry(f, s, W, v, x, i)       the score of entry i for the local form and the pass by entry: the inputs that
+#                                      the formula of f uses are converted to W, and the rules for NaN and infinite
+#                                      inputs are applied
 #   _kkt_flag(f, x, r)                 0, or NaN for an entry that makes the natural result of the loop doubtful beyond a NaN
-# The natural score is the loop of the full-point form for dense arrays of one type. The loop keeps a NaN in its
-# maximum, which is also the result the rules give for a NaN in v or x; the entries that the loop does not decide
-# (an infinite x, which changes the score of NormL1 and ElasticNet, or a non-finite gradient entry of SqrNormL2)
-# and a NaN maximum send the call to the pass by entry of _kkt_entry.
+# NormL1 and ElasticNet also supply
+#   _kkt_entry_coefficient(f, s, W, i) the coefficient of entry i: the one held by the state of an unweighted function,
+#                                      or the one that _kkt_coefficient forms from the level and the weight of the entry
+# _kkt_coefficient (numerical_kernels.jl) is the numerical rule that forms a coefficient λw in a requested type, and
+# _kkt_entry_coefficient is the lookup for one entry of a call, which returns the held value or applies that rule.
+# _kkt_reduce computes the full-point score. When v and x are both an Array{W} with W Float32 or Float64 and
+# _kkt_fast_ok(f, s) holds, it is a loop over the natural scores; otherwise it is the pass by entry of _kkt_entry
+# (_kkt_scalar). The loop keeps a NaN score in its maximum, which is also the result the rules give for a NaN in an
+# input that the formula uses; the entries that the loop does not decide (for example an infinite x, which changes the
+# score of NormL1 and ElasticNet, or a non-finite natural score of SqrNormL2) and a NaN maximum send the call to the
+# pass by entry.
 @inline _kkt_type(f, ::Type{V}, ::Type{X}) where {V, X} = float(promote_type(V, X))
 @inline _kkt_fast_ok(f, s) = true
 @inline _kkt_flag(f, x, r) = x - x

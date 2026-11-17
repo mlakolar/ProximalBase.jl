@@ -415,11 +415,11 @@ end
   _ElasticKkt(_kkt_coefficient(W, f.λ1, true), convert(W, f.λ2), !iszero(f.λ2), isinf(f.λ2))
 @inline _kkt_state(f::ElasticNet, ::Type{W}) where {W} =
   _ElasticKkt(nothing, convert(W, f.λ2), !iszero(f.λ2), isinf(f.λ2))
-Base.@propagate_inbounds _kkt_coef(f::ElasticNet, s::_ElasticKkt{Nothing}, ::Type{W}, i) where {W} =
+Base.@propagate_inbounds _kkt_entry_coefficient(f::ElasticNet, s::_ElasticKkt{Nothing}, ::Type{W}, i) where {W} =
   _kkt_coefficient(W, f.λ1, _entry(f.w, i))
-@inline _kkt_coef(::ElasticNet, s::_ElasticKkt, ::Type, i) = s.c
+@inline _kkt_entry_coefficient(::ElasticNet, s::_ElasticKkt, ::Type, i) = s.c
 Base.@propagate_inbounds function _kkt_natural(f::ElasticNet, s, ::Type{W}, v::W, x::W, i) where {W}
-  c = _kkt_coef(f, s, W, i)
+  c = _kkt_entry_coefficient(f, s, W, i)
   screen = s.infinite ? oftype(c, -Inf) : abs(v) - c
   t = s.ridge ? v + s.l2 * x : v
   ifelse(iszero(x), screen, abs(t + c * sign(x)))

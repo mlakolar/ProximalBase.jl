@@ -107,7 +107,7 @@ function functions(rng, ::Type{T}, n) where {T}
    SqrNormL2(T(0.7), y), SqrNormL2(T(0), y)]
 end
 
-# a function defined outside the package: only the screen of a coordinate assumed zero; one without it; and one
+# a function defined outside the package: with the screen of a coordinate assumed zero as its sole method; one without it; and one
 # with its own four-argument and full-point methods
 struct OnlyScreen <: AbstractFunction end
 PB.kkt_violation(::OnlyScreen, g::AbstractArray, i::Integer) = abs(g[i]) - 1
@@ -263,7 +263,7 @@ end
 @testset "the cancellation case" begin
   f, x, v = ElasticNet(0.5, 0.1), [3.0], [-0.8]
   r = kkt_violation(f, v, x)
-  # 0.1·3 = 0.30000000000000004 and -0.8 + that = -0.5 exactly: the computed score is exactly 0, while the
+  # 0.1·3 = 0.30000000000000004 and -0.8 + that = -0.5 with no rounding error: the computed score is 0, while the
   # BigFloat value of the same rounded parameters is about 2.8e-17, within the bound of the size of the terms
   @test r === 0.0
   @test within_point(r, f, v, x)
@@ -626,7 +626,7 @@ end
   g = [3.0, -2.0, 0.5, 4.0]
   x = [0.0, 1.0, 0.0, -1.0]
   f = OnlyScreen()
-  # only the three-argument method: its value at a zero coordinate, an error that names the method at a nonzero one
+  # the three-argument method alone: its value at a zero coordinate, an error that names the method at a nonzero one
   @test kkt_violation(f, g, x, 1) === kkt_violation(f, g, 1)
   @test kkt_violation(f, g, x, 3) === kkt_violation(f, g, 3)
   @test_throws ArgumentError kkt_violation(f, g, x, 2)
@@ -725,8 +725,8 @@ end
   @test_throws MethodError kkt_violation(sq, zeros(T, 3), β, 1)
 end
 
-# ---- 10. no mutation, read-only inputs, aliasing, inference and allocation ---------------------------------------
-@testset "$T no mutation, read-only inputs and aliasing" for T in TYPES
+# ---- 10. no mutation, ranges as inputs, aliasing, inference and allocation ---------------------------------------
+@testset "$T no mutation, ranges as inputs and aliasing" for T in TYPES
   rng = MersenneTwister(981)
   n = 40
   x, v = data(rng, T, n)
@@ -736,7 +736,7 @@ end
     kkt_violation(f, v, x); kkt_violation(f, v, x, 3)
     @test v == v0 && x == x0
     @test pars == [copy(getfield(f, k)) for k in fieldnames(typeof(f)) if getfield(f, k) isa AbstractArray]
-    # a read-only point and gradient: ranges
+    # a point and a gradient that are ranges, which have no setindex!
     xr, vr = range(-one(T), 2one(T), length = n), range(T(0.5), T(1.5), length = n)
     @test eltype(xr) === T && eltype(vr) === T
     @test kkt_violation(f, vr, xr) === kkt_violation(f, collect(vr), collect(xr))

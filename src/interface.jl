@@ -487,7 +487,9 @@ that gives a normal level. Where it does not, the three-argument form and a zero
 nonzero point and the full-point form throw an `ArgumentError`. So does an infinite factor at a nonzero point and in
 the full-point form. A function of this package without a score gives a `MethodError` under `Scaled`. A function
 defined outside this package gets its three-argument value at a zero coordinate and an `ArgumentError` at a nonzero one,
-unless it defines the method.
+unless it defines the method. Under `Scaled` it has its scaled three-argument value and that error also when it defines
+a four-argument method of its own, because PB does not know that its score scales with `α`: a method for `Scaled{<:T}`
+supplies the scaled forms.
 
 # Examples
 ```jldoctest kkt_violation_example

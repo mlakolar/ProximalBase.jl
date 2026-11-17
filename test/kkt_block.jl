@@ -114,6 +114,13 @@ function blockdata(rng, ::Type{T}, n, ev, ex; zero_x = false) where {T}
 end
 fgroup(T, λ, w, n) = GroupNormL2(λ, [collect(1:n)], T[w])
 
+# chains of two wrappers whose product is not a normal number, and a level that folds into it
+tiny(T) = ldexp(one(T), T === Float32 ? -100 : -600)           # tiny(T)^2 is not a normal number
+lvl(T) = ldexp(one(T), T === Float32 ? 100 : 1000)             # tiny(T)^2 * lvl(T) is
+chain(T, f) = (c = Scaled(Scaled(f, tiny(T)), tiny(T)); c.f isa Scaled || error("merged"); c)
+chain_product(T) = bigprec(() -> big(tiny(T))^2)
+folded_level(T) = ldexp(one(T), T === Float32 ? -100 : -200)           # tiny(T)^2 lvl(T)
+
 # a point with zeros, groups and entries that no group holds
 function groupdata(rng, ::Type{T}) where {T}
   groups = [[2, 7, 3], [9], [1, 5], [4]]             # entries 6, 8, 10 and 11 are in no group
@@ -372,7 +379,11 @@ end
   # the three-argument form is the one that GroupNormL2 refuses
   @test_throws ArgumentError kkt_violation(f, v, 1)
   @test_throws ArgumentError kkt_violation(f, cv, 1)
-  @test_throws MethodError kkt_violation(nl, v, 1)
+  @test_throws ArgumentError kkt_violation(nl, v, 1)                     # NormL2 has no screen of an entry
+  @test occursin("full-point", msg(() -> kkt_violation(nl, v, 1)))
+  @test_throws ArgumentError kkt_violation(nl, cv, 1)
+  @test_throws ArgumentError kkt_violation(Scaled(nl, T(2)), v, 1)
+  @test_throws ArgumentError kkt_violation(Scaled(Scaled(nl, tiny(T)), tiny(T)), v, 1)
   # a range, a view and a transposed matrix are points
   @test close(kkt_violation(f, view(v, 1:4), view(x, 1:4)), kkt_violation(f, v, x), T, 10)
   @test close(kkt_violation(f, range(T(1), T(4), length = 4), x), kkt_violation(f, v, x), T, 10)
@@ -430,7 +441,7 @@ end
   @test occursin("SymmetricSparseIterate", msg(() -> kkt_violation(nl, ones(T, 2, 2), S)))
   # the group of one group is NormL2 with the weight one, bit for bit
   @test close(kkt_violation(GroupNormL2(T(0.7), [collect(1:4)], T[1]), v, x), kkt_violation(NormL2(T(0.7)), v, x), T, 10)
-  @test applicable(kkt_violation, nl, v, x) && !applicable(kkt_violation, nl, v, 1)
+  @test applicable(kkt_violation, nl, v, x)
 end
 
 # ---- 7. Scaled, one wrapper ----------------------------------------------------------------------------------------------
@@ -524,11 +535,6 @@ end
 # ---- 8. Scaled, wrappers that stay nested ------------------------------------------------------------------------------
 # fails at the base: the three-argument form around LinearFunction and a centered SqrNormL2 at v of order one; the
 # nonzero points and the full-point form
-tiny(T) = ldexp(one(T), T === Float32 ? -100 : -600)           # tiny(T)^2 is not a normal number
-lvl(T) = ldexp(one(T), T === Float32 ? 100 : 1000)             # tiny(T)^2 * lvl(T) is
-chain(T, f) = (c = Scaled(Scaled(f, tiny(T)), tiny(T)); c.f isa Scaled || error("merged"); c)
-chain_product(T) = bigprec(() -> big(tiny(T))^2)
-folded_level(T) = ldexp(one(T), T === Float32 ? -100 : -200)           # tiny(T)^2 lvl(T)
 
 @testset "$T the rows of the table: chains at v of order one" for T in TYPES
   t = tiny(T)
@@ -641,6 +647,19 @@ end
 struct OnlyScreen <: AbstractFunction end
 PB.kkt_violation(::OnlyScreen, g::AbstractArray, i::Integer) = abs(g[i]) - 1
 struct NoScreen <: AbstractFunction end
+# a function with a screen, four-argument methods and a full-point method of its own
+struct OwnAll <: AbstractFunction end
+PB.kkt_violation(::OwnAll, g::AbstractArray, i::Integer) = abs(g[i]) - 1
+PB.kkt_violation(::OwnAll, g::AbstractArray, x::AbstractArray, k::Integer) = 10 * g[k] + x[k]
+PB.kkt_violation(::OwnAll, g::AbstractArray, x::BlockIterate, k::Integer) = sum(g[blockindices(x, k)])
+PB.kkt_violation(::OwnAll, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) = 0.0
+PB.kkt_violation(::OwnAll, g::AbstractArray, x::AbstractArray) = sum(abs, g) + sum(abs, x)
+# a function whose methods for the scaled function are its own
+struct OwnScaled <: AbstractFunction end
+PB.kkt_violation(::OwnScaled, g::AbstractArray, i::Integer) = abs(g[i])
+PB.kkt_violation(s::Scaled{<:OwnScaled}, g::AbstractArray, x::AbstractArray, k::Integer) = -s.α
+PB.kkt_violation(s::Scaled{<:OwnScaled}, g::AbstractArray, x::BlockIterate, k::Integer) = -3 * s.α   # as the guide says, with the one above
+PB.kkt_violation(s::Scaled{<:OwnScaled}, g::AbstractArray, x::AbstractArray) = 7 * s.α
 
 @testset "$T infinite factors, functions without a score, custom functions" for T in TYPES
   inf = T(Inf)
@@ -661,8 +680,12 @@ struct NoScreen <: AbstractFunction end
   @test kkt_violation(sg, T[0.3, 0.4], BlockIterate(T, 2, [[1, 2]]), 1) === -inf
   @test_throws ArgumentError kkt_violation(Scaled(NormL1(T(1)), inf), T[1 2; 3 4], SymmetricSparseIterate(T[0 1; 1 0]), 2)
   @test kkt_violation(Scaled(NormL1(T(1)), inf), T[1 2; 3 4], SymmetricSparseIterate(T[0 1; 1 0]), 1) === -inf
-  # an entry in no group is not a nonzero group: the formula gives Inf * 0 for it, as the base does
-  @test isnan(kkt_violation(Scaled(GroupNormL2(T(1), [[1, 2]], T[1]), inf), T[0.3, 0.4, 2], T[0, 0, 5], 3))
+  # an entry in no group: at a zero entry the formula gives Inf * 0, as the base does; a nonzero entry is a nonzero coordinate
+  sgi = Scaled(GroupNormL2(T(1), [[1, 2]], T[1]), inf)
+  @test isnan(kkt_violation(sgi, T[0.3, 0.4, 2], T[0, 0, 0], 3))
+  @test_throws ArgumentError kkt_violation(sgi, T[0.3, 0.4, 2], T[0, 0, 5], 3)
+  @test_throws ArgumentError kkt_violation(sgi, T[0.3, 0.4, 2], T[0, 0, 5], 4 - 1)
+  @test kkt_violation(sgi, T[0.3, 0.4, 2], T[0, 0, 5], 1) === -inf              # the group of entry 1 is zero
   # a function of the package without a score: a MethodError for the call on the Scaled function
   for f in (NormLinf(T(1)), SqrtLeastSquaresLoss(randn(T, 3), randn(T, 3, 2)))
     for s in (Scaled(f, T(2)), Scaled(Scaled(f, T(2)), T(3)))
@@ -678,7 +701,7 @@ struct NoScreen <: AbstractFunction end
   @test kkt_violation(o, T[3, 4], T[0, 1], 1) === T(2) * (abs(T(3) / 2) - 1)
   @test kkt_violation(o, T[3, 4], T[0, 1], 1) === kkt_violation(o, T[3, 4], 1)
   @test_throws ArgumentError kkt_violation(o, T[3, 4], T[0, 1], 2)
-  @test occursin("kkt_violation(f::OnlyScreen", msg(() -> kkt_violation(o, T[3, 4], T[0, 1], 2)))
+  @test occursin("Scaled{<:OnlyScreen}", msg(() -> kkt_violation(o, T[3, 4], T[0, 1], 2)))
   @test_throws MethodError kkt_violation(o, T[3, 4], T[0, 1])
   @test_throws MethodError kkt_violation(Scaled(NoScreen(), T(2)), T[3, 4], T[0, 1], 1)
   # the functions that Scaled(f, 0) returns have their own forms
@@ -688,6 +711,68 @@ struct NoScreen <: AbstractFunction end
   zi = Scaled(NormL1(T(1), T[Inf, 1]), zero(T))
   @test kkt_violation(zi, T[3, -4], T[0, 1], 1) === -inf
   @test kkt_violation(zi, T[3, -4], T[0, 1], 2) === T(4)
+end
+
+# the plan's semantics of a function defined outside the package under Scaled, also when it has methods of its own
+@testset "custom functions under Scaled" begin
+  g, x = [3.0, -2.0, 0.5, 4.0], [0.0, 1.0, 0.0, -1.0]
+  for o in (OwnAll(), OnlyScreen())
+    s = Scaled(o, 2.0)
+    # the scaled screen at a zero coordinate, not a method of its own; an ArgumentError at a nonzero one that says what to define
+    @test kkt_violation(s, g, x, 1) === 2.0 * (abs(0.5 * 3.0) - 1)
+    @test kkt_violation(s, g, x, 1) === kkt_violation(s, g, 1)
+    @test_throws ArgumentError kkt_violation(s, g, x, 2)
+    @test occursin("Scaled{<:$(nameof(typeof(o)))}", msg(() -> kkt_violation(s, g, x, 2)))
+    @test_throws MethodError kkt_violation(s, g, x)
+    b = BlockIterate(copy(x), [[1, 3], [2, 4]])
+    @test kkt_violation(s, g, b, 1) === 2.0 * max(abs(0.5 * 3.0) - 1, abs(0.5 * 0.5) - 1)
+    @test_throws ArgumentError kkt_violation(s, g, b, 2)
+    S = SymmetricSparseIterate([0.0 1.0; 1.0 0.0])
+    GS = [1.0 2.0; 3.0 4.0]
+    @test kkt_violation(s, GS, S, 1) === kkt_violation(s, GS, 1)
+    @test_throws ArgumentError kkt_violation(s, GS, S, 2)
+    # a chain of wrappers
+    c = Scaled(Scaled(o, 1e-200), 1e-200)
+    @test c.f isa Scaled
+    @test kkt_violation(c, g, x, 1) === kkt_violation(c, g, 1)
+    @test_throws ArgumentError kkt_violation(c, g, x, 2)
+    @test_throws MethodError kkt_violation(c, g, x)
+  end
+  # the own methods of OwnAll are used unscaled
+  @test kkt_violation(OwnAll(), g, x, 2) === 10 * g[2] + x[2] && kkt_violation(OwnAll(), g, x) === sum(abs, g) + sum(abs, x)
+  # the method for Scaled{<:OwnScaled} is the one that runs, in both forms
+  so = Scaled(OwnScaled(), 2.0)
+  @test kkt_violation(so, g, x, 1) === -2.0 && kkt_violation(so, g, x, 2) === -2.0
+  @test kkt_violation(so, g, x) === 14.0
+  @test kkt_violation(so, g, BlockIterate(copy(x), [[1, 3], [2, 4]]), 1) === -6.0
+  @test kkt_violation(so, g, 1) === 2.0 * abs(0.5 * g[1])                 # the three-argument screen is that of the wrapper
+  @test isempty(Test.detect_ambiguities(ProximalBase))
+end
+
+# an out-of-range index raises the error of the unscaled function, before any read of x that decides a refusal
+@testset "$T out-of-range indices through the refusing routes" for T in TYPES
+  routes(f) = (Scaled(f, T(Inf)), chain(T, f))
+  pts(n) = (zeros(T, n), SparseIterate(T, n), BlockIterate(T, n, [collect(1:n)]))
+  for (leaf, n) in ((NormL1(T(1)), 2), (GroupNormL2(T(1), [[1, 2]], T[1]), 2))
+    for pt in pts(n), k in (0, n + 3)
+      e0 = etype(() -> kkt_violation(leaf, zeros(T, n), pt, k))
+      e0 === nothing && continue
+      for s in routes(leaf)
+        @test etype(() -> kkt_violation(s, zeros(T, n), pt, k)) === e0
+      end
+    end
+  end
+  # the same with a nonzero point elsewhere, which would be refused at an index in range
+  for (leaf, n) in ((NormL1(T(1)), 2), (GroupNormL2(T(1), [[1, 2]], T[1]), 3))
+    x = zeros(T, n); x[1] = 1
+    for k in (0, n + 3)
+      e0 = etype(() -> kkt_violation(leaf, zeros(T, n), x, k))
+      @test e0 === BoundsError
+      for s in routes(leaf)
+        @test etype(() -> kkt_violation(s, zeros(T, n), x, k)) === BoundsError
+      end
+    end
+  end
 end
 
 # ---- 10. mixed element types and the result type ---------------------------------------------------------------------------
@@ -775,6 +860,28 @@ end
   # the kernels of the block run on a view
   @test close(kkt_violation(f, view(v, 1:n), view(x, 1:n)), kkt_violation(f, v, x), T, norm(v) + 1)
   @test close(kkt_violation(nl, view(v, 1:n), view(x, 1:n)), kkt_violation(nl, v, x), T, norm(v) + 1)
+end
+
+# the cold paths of the block kernel (squares that overflow or underflow, c near floatmax, c = Inf, NaN, an infinite v at a zero
+# block) allocate nothing after warm-up, and the class of a Scaled is folded by inference
+@testset "$T cold paths: allocations and class" for T in TYPES
+  emax, emin = exponent(floatmax(T)), exponent(floatmin(T))
+  n = 8
+  f = GroupNormL2(T(0.3), [collect(1:n)], T[1])
+  cases = [(ldexp(T(1), emax ÷ 2 + 2), ldexp(T(1), emax ÷ 2 + 2), f), (ldexp(T(1), emin ÷ 2 - 3), ldexp(T(1), emin ÷ 2 - 3), f),
+           (T(1), ldexp(T(1), emin ÷ 2 - 3), f), (T(-1), ldexp(T(1), emax ÷ 2 + 2), GroupNormL2(floatmax(T), [collect(1:n)], T[1])),
+           (T(1), T(1), GroupNormL2(T(Inf), [collect(1:n)], T[1])), (T(NaN), T(1), f), (T(Inf), T(0), f)]
+  for (sv, sx, g) in cases
+    v, x = fill(sv, n), fill(sx, n)
+    @test allocs(kkt_violation, g, v, x, 1) == 0
+    @test allocs(kkt_violation, g, v, x) == 0
+    @test allocs(kkt_violation, NormL2(T(0.3)), v, x) == 0
+    @test allocs(kkt_violation, Scaled(g, T(2)), v, x, 1) == 0
+  end
+  sf = Scaled(f, T(2))
+  @test @inferred(PB._kkt_class(typeof(sf))) isa PB._KktScore
+  @test @inferred(PB._kkt_class(typeof(Scaled(NormLinf(T(1)), T(2))))) isa PB._KktNone
+  @test @inferred(PB._kkt_class(typeof(Scaled(OwnAll(), T(2))))) isa PB._KktCustom
 end
 
 # ---- 12. a malformed parameter at the selected coordinate of a SymmetricSparseIterate under Scaled -------------------------

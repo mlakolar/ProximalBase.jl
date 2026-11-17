@@ -102,6 +102,7 @@ _kkt_violation(f::NormL2, g::AbstractArray, x::AbstractArray, i::Integer) = _lev
 _kkt_violation(f::NormL2, g::AbstractArray, x::BlockIterate, k::Integer) = _level_score(f, f.λ, g, x, k)
 _kkt_violation(f::NormL2, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) = _level_score(f, f.λ, g, x, k)
 
+kkt_violation(f::NormL2, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); _norml2_local_error(f))
 function _level_point(f::NormL2, λ, v::AbstractArray, x::AbstractArray)
   _check_one_based(v, x)
   eltype(v) <: Real || _real_error(:kkt_violation)

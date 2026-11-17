@@ -1230,8 +1230,8 @@ end
 # the cold path.
 @inline function _l2_score(λ, w, v, x, G)
   W = float(promote_type(eltype(v), eltype(x)))
-  c = _kkt_coefficient(W, λ, w)
   _l2_zero_group(x, G, W) && return _l2_zero_score(λ, w, v, G, W)
+  c = _kkt_coefficient(W, λ, w)
   sx = _indexed_sumabs2(x, G, W)
   if isfinite(sx) & _squares_normal(sx, length(G), W) & isfinite(c)
     t = c / sqrt(sx)

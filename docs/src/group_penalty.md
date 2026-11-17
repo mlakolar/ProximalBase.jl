@@ -174,7 +174,7 @@ For a smooth part `h` with gradient `G = ∇h(x)`, group ``k`` is optimal for `h
 
 A group is zero when its entries, converted to the working type of the call, are zeros
 of either sign. On an array point `k` is an entry and selects its group; the score is
-the same for every entry of the group. An entry in no group has the score
+the same for each entry of the group. An entry in no group has the score
 ``\lvert G_k\rvert``, also when `x[k]` is nonzero. On a `BlockIterate`, `k` is the
 group number and group `k` of the iterate must equal `groups[k]`. The three-argument
 form throws an `ArgumentError`, because the penalty is not separable, and a
@@ -187,8 +187,8 @@ residuals ``G_{G_k}+\partial g_k``, and of single entries), not an ``\ell_\infty
 distance, and a tolerance chosen for an ``\ell_\infty`` residual does not carry
 over. It is zero of the working type for an empty `x`. It validates one-based axes, real
 entries, `length(G) == length(x)` and the group extent once, and on a `BlockIterate`
-the whole layout (its group count and every group), which is stricter than the local
-form, which compares group `k` only. A `NaN` in an entry that a group reads gives `NaN`,
+the whole layout (its group count and each group), which is stricter than the local
+form, which compares group `k`. A `NaN` in an entry that a group reads gives `NaN`,
 and takes precedence over an infinite entry in another group.
 
 In a score, a zero weight gives the coefficient `0` (also with an infinite level), and an

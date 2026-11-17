@@ -296,7 +296,7 @@ tolerance chosen for one is not a tolerance for the other.
 | Function | Block at zero | Block ``x_G\neq0`` | Full-point value, for finite inputs |
 |:--|:--|:--|:--|
 | `GroupNormL2` | ``\lVert v_G\rVert_2-c`` | ``\lVert v_G+c\,x_G/\lVert x_G\rVert_2\rVert_2`` | ``\max(0,\text{block scores},\lvert v_i\rvert\text{ for the entries in no group})``, a maximum of block 2-norms |
-| `NormL2` | (full-point form only) | (full-point form only) | the positive part of that score with ``G`` all of `x`, the 2-norm distance from ``-v`` to ``\partial g(x)`` |
+| `NormL2` | (no form for a block) | (no form for a block) | the positive part of that score with ``G`` all of `x`, the 2-norm distance from ``-v`` to ``\partial g(x)`` |
 
 The local form of `GroupNormL2` takes an entry of an array point, which selects its group, or the group
 `k` of a `BlockIterate`; an entry in no group scores ``\lvert v_i\rvert``. `NormL2` has no form for an entry or a group

@@ -196,12 +196,12 @@ at a group whose entries are all zero, the maximum over its entries; on a
 `SymmetricSparseIterate`, at the lower position), and throws an `ArgumentError` at a nonzero
 coordinate or group, which names the methods to define. A function without the three-argument
 method gives a `MethodError`, and the full-point form of `Scaled` over it is a `MethodError`.
-The previous version scaled the method of the function at every coordinate (see the [migration notes](migration.md)).
+The previous version scaled the method of the function at a nonzero coordinate too (see the [migration notes](migration.md)).
 
 To score a scaled function of your own, define the methods for `Scaled{<:MyFunction}` with the
 signatures of the table; the first type parameter of `Scaled` is the function. As above, define
-the `BlockIterate` method together with the array one, since with only the array
-method a call with a `BlockIterate` is ambiguous with the method of the package, and the
+the `BlockIterate` method together with the array one, because with the array
+method alone a call with a `BlockIterate` is ambiguous with the method of the package, and the
 `SymmetricSparseIterate` method where that point is used.
 
 | Form | Signature |

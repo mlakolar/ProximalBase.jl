@@ -77,7 +77,7 @@ the block mismatch ``\lVert v_G+c\,x_G/\lVert x_G\rVert_2\rVert_2``, which is ze
 | 3, 4 | zero | `-0.5` |
 
 The full-point value is the maximum of `0` and of the positive block scores, here about `0`; it is a
-maximum of block 2-norms, not an ``\ell_\infty`` distance. `NormL2` has the full-point form only.
+maximum of block 2-norms, not an ``\ell_\infty`` distance. `NormL2` has the full-point form and no other.
 
 What did not change:
 
@@ -130,7 +130,7 @@ What changed besides the values of the table:
   coordinate and an `ArgumentError` at a nonzero one, on arrays, a `BlockIterate` and a
   `SymmetricSparseIterate`, unless it defines the four-argument method; see
   [Writing your own function](extending.md). Under `Scaled`, a function that has a four-argument method of
-  its own was scaled through that method at every coordinate; it now gives its scaled three-argument
+  its own was scaled through that method at a nonzero coordinate too; it now gives its scaled three-argument
   screen at a zero coordinate and an `ArgumentError` at a nonzero one, unless the methods for
   `Scaled{<:TheirType}` are defined.
 * On a `SymmetricSparseIterate` the four-argument form reads the stored value of the

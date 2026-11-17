@@ -65,7 +65,7 @@ subnormals, validation and layout, `NormL2` (the full-point form, and the errors
 leaf against the BigFloat definition of the scaled function and its stated domain, chains of wrappers whose factors do not
 multiply to a normal number (the product applied to the gradient of `LinearFunction` and `SqrNormL2`, folded into
 the level of the others where it gives a normal one, an `ArgumentError` where it does not), infinite factors (also at an entry in no group), leaves without a
-score, functions defined outside the package under `Scaled` (with a screen only, with four-argument and full-point methods of
+score, functions defined outside the package under `Scaled` (with a screen alone, with four-argument and full-point methods of
 their own, and with methods for `Scaled{<:T}`), out-of-range indices through the refusing routes, mixed element types and result
 types, `@inferred` (also of the class of a `Scaled`), zero allocations of the dense forms and of the cold paths of the block
 kernel, and malformed parameters of a symmetric model under `Scaled`.

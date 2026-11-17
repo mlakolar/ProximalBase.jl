@@ -90,7 +90,7 @@ is inverted in `Float64`, so that the result of data of another floating type ha
   into one when their product is a normal number; otherwise the wrappers stay nested.
   For a chain around `NormL1`, `ElasticNet`, `GroupNormL2` or `NormL2` the product of the
   factors is folded into the level (the levels of `ElasticNet`) when the result is a normal
-  number, and the chain then has the score of the function with that level, in every form. Where
+  number, and the chain then has the score of the function with that level, in each form. Where
   it does not fold, **the three-argument screen, and the four-argument form at a zero coordinate
   or group, can return an incorrect value**: they divide `v` by the product, which is out of
   range, and an ordinary `v` overflows. `Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at

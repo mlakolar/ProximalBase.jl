@@ -75,7 +75,7 @@ them (below). `kkt_violation(g,v,x)` is the nonnegative full-point measure
 `SparseIterate` or `BlockIterate`: the scores ``s_k`` of the entries for the five scalar
 functions, and for `GroupNormL2` the scores of the groups and ``\lvert v_i\rvert`` of the entries in no
 group, a **maximum of block 2-norms** and not an ``\ell_\infty`` distance. `NormL2` has the full-point
-form only.
+form and no other.
 
 | Iterate | Four-argument form (`k` is the index) |
 |:--|:--|
@@ -100,7 +100,7 @@ layout and `length(v) == length(x)`, then scores the group `Gₖ` with ``c=\lamb
 (see [the group penalty](group_penalty.md)). Its three-argument form throws `ArgumentError`
 because the penalty is not entrywise separable, as does a `SymmetricSparseIterate`
 point. `NormL2` takes the whole of `x` as one block and has the full-point form
-only: its three-argument and four-argument forms throw `ArgumentError`.
+and no other: its three-argument and four-argument forms throw `ArgumentError`.
 
 `Scaled` with a finite positive factor `α` scores as `α` times the score of its function at
 `v/α`, for the five scalar functions, `GroupNormL2` and, in the full-point form, `NormL2`.
@@ -112,7 +112,7 @@ call on the `Scaled` function.
 The full-point form checks real element types, one-based axes (`ArgumentError`),
 `length(v) == length(x)` (`DimensionMismatch`) and the extent of the function's
 parameters (for `GroupNormL2` the group extent and, on a `BlockIterate`, the whole layout:
-the group count and every group; for `NormL2` no parameter). It makes a pass over the entries
+the group count and each group; for `NormL2` no parameter). It makes a pass over the entries
 (over the groups for `GroupNormL2`) and writes nothing. A second pass
 that applies the rules for non-finite values entry by entry can follow it, for
 instance when an entry of `v` or `x` is not finite or a score is `NaN` or infinite.

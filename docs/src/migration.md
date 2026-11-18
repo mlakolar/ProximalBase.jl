@@ -125,7 +125,7 @@ What changed besides the values of the table:
   `GroupNormL2` or `NormL2` chain now scores with the folded level (a `GroupNormL2` chain at a zero group
   was computed from `v` divided by the product, which overflows for an ordinary `v`). Where the level does not fold, the
   three-argument screen of `NormL1` and `ElasticNet` and the four-argument form of `NormL1`, `ElasticNet` and `GroupNormL2` at a zero
-  coordinate or group have the value of the definition, computed from the coefficient `a·λ·w`, with the exponents of the three applied in
+  coordinate or group have the value of the definition at finite entries of `v` (`NaN` and infinite entries as the [scaling guide](@ref scaled-kkt) states), computed from the coefficient `a·λ·w`, with the exponents of the three applied in
   one last step for a positive finite `λ` and `w` (a zero weight gives the coefficient 0, an infinite weight or level gives `Inf`, and an
   `ElasticNet` with an infinite `λ2` gives `-Inf`) (`Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at `v = [0.25]` was `Inf` and is `0.25`); a nonzero coordinate or group and the
   full-point form throw an `ArgumentError`, as does an infinite factor (see the [scaling guide](@ref scaled-kkt)). A stack that

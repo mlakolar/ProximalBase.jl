@@ -788,8 +788,8 @@ _kkt_full(h::_KktLevel, v, x::AbstractArray) = _level_point(h.f, h.λ, v, x)
 
 # The screen of a chain (the three-argument form). Around LinearFunction and a centered SqrNormL2 it is |gᵢ + a dᵢ| with
 # dᵢ the gradient entry at zero. For NormL1 and ElasticNet it is that of the function with the folded levels and, where the
-# levels do not fold, |gᵢ| - c with the coefficient c of _chain_coefficient (a λ wᵢ for a positive finite λ and wᵢ; -Inf for an
-# ElasticNet with an infinite λ2), formed without dividing g by a. For the
+# levels do not fold, |gᵢ| - c with the coefficient c ≥ 0 of _chain_coefficient (a λ wᵢ for a positive finite λ and wᵢ), formed
+# without dividing g by a; an ElasticNet with an infinite λ2 returns -Inf there before c is formed. For the
 # other functions it is that of the function with the folded levels, and where the levels do not fold, that of the function
 # at g divided by the product (kept as an exponent), multiplied by it, which does not recover a g that is out of range after
 # the division. Other smooth functions and indicators forward their existing three-argument screen, where one is defined.
@@ -802,9 +802,9 @@ function _chain_screen_plain(f, a, g, i)
   h = _fold_level(f, a)
   h === nothing ? _apply_scale(a, kkt_violation(f, _ExpScaledArray(g, _scale_inverse(a)), i)) : kkt_violation(h, g, i)
 end
-# NormL1 and ElasticNet: the fold, where the levels fold, and otherwise the screen |gᵢ| - c with the coefficient c of
-# _chain_coefficient (a λ wᵢ for a positive finite λ and wᵢ; -Inf for an ElasticNet with an infinite λ2), which is formed
-# without dividing g by a.
+# NormL1 and ElasticNet: the fold, where the levels fold, and otherwise the screen |gᵢ| - c with the coefficient c ≥ 0 of
+# _chain_coefficient (a λ wᵢ for a positive finite λ and wᵢ), which is formed without dividing g by a; an ElasticNet with an
+# infinite λ2 returns -Inf before c is formed.
 function _chain_screen(f::Union{NormL1, ElasticNet}, a::_ProjectionScale, g, i)
   h = _fold_level(f, a)
   h === nothing || return kkt_violation(h, g, i)
@@ -899,7 +899,7 @@ end
 _kkt_unresolved(f::Union{NormL1, ElasticNet}, a::_ProjectionScale, g, x, k) = _kkt_apply(_KktChain(f, a), g, x, k)
 function _kkt_unresolved(f::GroupNormL2, a::_ProjectionScale, g, x, k)
   W = promote_type(float(promote_type(eltype(g), eltype(x))), _kkt_factor_type(a))
-  # g is read in W (a lazy copy that does not round at the factor one), by the validation and by the entry in no group
+  # the validation and the entry in no group read g through a lazy copy whose entries are converted to W
   _level_score(f, _KktChainLevel(f.λ0, a), _ScaledArray{W}(g, one(W)), x, k)
 end
 # The product of the factors of a chain is finite (it is infinite or NaN when a retained chain holds an infinite factor, which

@@ -30,7 +30,7 @@ refproject(x) = map(refprox, float.(x))
 same(a, b) = typeof(a) === typeof(b) && isequal(a, b)
 sameall(a, b) = size(a) == size(b) && eltype(a) === eltype(b) && all(isequal(u, v) for (u, v) in zip(a, b))
 
-# every kind of entry: the infinities, the extremes, the subnormals, the signed zeros, ordinary numbers, NaN
+# the kinds of entry: the infinities, the extremes, the subnormals, the signed zeros, ordinary numbers, NaN
 specials(::Type{T}) where {T} = T[-Inf, -floatmax(T), -one(T), -floatmin(T), -nextfloat(zero(T)), -zero(T), zero(T),
                                   nextfloat(zero(T)), floatmin(T), one(T), floatmax(T), Inf, NaN]
 nonan(::Type{T}) where {T} = filter(!isnan, specials(T))
@@ -352,7 +352,7 @@ end
     vn = copy(bn)
     @test same(value_and_prox!(vn, IND, bn, γ), T(NaN)) && same(IND(vn), T(NaN))
     @test sameall(Vector(prox(IND, b, fill(-one(T), 10))), refproject(Vector(b)))
-    # only groups with stored values are visited by the value: an all-zero iterate is feasible
+    # an iterate with no active group is feasible
     @test same(IND(BlockIterate(T, 10, groups)), zero(T))
   end
 end
@@ -383,7 +383,7 @@ end
     # a matrix that is not stored symmetrically: a dense symmetric matrix
     D = SymmetricSparseIterate(T[1 2; 2 3])
     @test same(IND(D), zero(T))
-    # array steps with a symmetric output are unsupported, as for every separable function
+    # array steps with a symmetric output are unsupported, as for the other separable functions of the package
     @test_throws ArgumentError prox!(S, IND, S, ones(T, p, p))
   end
 end
@@ -426,7 +426,7 @@ end
 
 @testset "fused value at the stored output" begin
   for T in TYPES
-    # every kind of entry, alone and with the others, with scalar steps and with an array of steps
+    # the kinds of entry of specials, alone and with the others, with scalar steps and with an array of steps
     arrays = Any[specials(T), nonan(T), T[NaN, -1], T[-1, NaN], T[NaN], T[-1], T[1], T[0, -0.0], T[Inf, NaN, -Inf], T[]]
     for v in specials(T)
       push!(arrays, T[1, v]); push!(arrays, T[v, 1, -3])
@@ -499,7 +499,7 @@ end
           v = value_and_prox!(w, s, w, one(T))
           @test isequal(v, s(w)) && sameall(w, ref)
         end
-        # the value at an infeasible point is Inf under every factor
+        # the value at an infeasible point is Inf under each factor of the list
         @test isequal(s(xneg), T(Inf)) && isequal(s(xfeas), zero(T))
       end
     end

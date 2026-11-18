@@ -113,7 +113,7 @@ always 0), so the cells `value_and_prox!/...` report the ratio to the archive wi
 the cells `comparator/value_and_prox!/...` are the ones judged. In a comparator cell the role
 "archive" is the candidate's own `prox!` followed by `f(y)` and the roles "candidate" and "control" are
 `value_and_prox!` of their trees, so that the C/A column is the ratio of the candidate's
-`value_and_prox!` to its `prox!` then `f(y)`, and the A/A column is as in every other cell.
+`value_and_prox!` to its `prox!` then `f(y)`, and the A/A column is as in the other cells.
 
 The inputs have no `NaN` and their negative entries lie far below the tolerance of the archived
 value (`sqrt(eps(T))`). `PB_CHECK_ONLY=1` compares the outputs bit for bit: proximal points, values,

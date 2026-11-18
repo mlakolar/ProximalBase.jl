@@ -75,7 +75,7 @@ function makedata(::Type{T}) where {T}
 end
 
 # The timed operation and the check of each kind of case. The arrays and the oracles of the role (prox_block,
-# prox!, value_and_prox! of its tree) are arguments, so that every closure holds the arrays of its own size and
+# prox!, value_and_prox! of its tree) are arguments, so that each closure holds the arrays of its own size and
 # calls the oracle without a lookup in the module of the role.
 function prox_block_loop(pb::P, f, x, γ) where {P}
     s = zero(eltype(x))
@@ -169,7 +169,7 @@ open(joinpath(outdir, "provenance.txt"), "w") do io
     println(io, "Bounds option: ", Base.JLOptions().check_bounds, "\nReversed roles: ", reversed)
     println(io, "archive: ", archive_root, "\ncandidate: ", candidate_root)
 end
-for r in ("archive", "candidate", "control"), p in suites[r]     # compile and warm every specialization
+for r in ("archive", "candidate", "control"), p in suites[r]     # compile and warm: each probe of each role runs once
     bench(p)
 end
 rounds = parse(Int, get(ENV, "PB_ROUNDS", "21"))

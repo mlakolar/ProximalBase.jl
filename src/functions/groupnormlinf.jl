@@ -17,8 +17,10 @@ unpenalized. The nonnegative level and weights cannot be `NaN`. Supply one weigh
 `groups` and `w`.
 
 [`prox`](@ref) clips each group at a level `τₖ ≥ 0`: `prox_{γf}(x)ᵢ = clamp(xᵢ, -τₖ, τₖ)` for `i ∈ Gₖ`, where `τₖ` solves
-`Σ_{i∈Gₖ} (|xᵢ| - τₖ)₊ = γλ₀wₖ`, and the group becomes `+0` when `γλ₀wₖ ≥ ‖x[Gₖ]‖₁` for finite entries. The radius is formed
-from the three factors in power-of-two units when its product leaves the range. [`prox_block`](@ref) takes a compact
+`Σ_{i∈Gₖ} (|xᵢ| - τₖ)₊ = γλ₀wₖ`, and the group becomes `+0` when `γλ₀wₖ ≥ ‖x[Gₖ]‖₁` for finite entries. The radius is
+formed as `(γλ₀)wₖ` in the working type (the promotion of the output type and the types of the three factors) and then converted to
+the output type; when `γλ₀` is not a normal number or the product leaves the normal range of the output type, it is formed
+from the significands and exponents of the three factors instead. [`prox_block`](@ref) takes a compact
 vector in `groups[k]` order; it does not update an iterate. To commit its result, use `copyto!(blockview(x, k), out)`.
 See [the group ℓ∞ norm](@ref group-linf-guide) for the formula, the group step and the optimality screen at a zero
 group.
@@ -49,7 +51,7 @@ julia> kkt_violation(GroupNormLinf(1.0, [1:2]), [5/8, 5/8], zeros(2), 1)
 
 # Edge cases
 - Real, one-based arrays and valid shapes/groups are required. Negative or `NaN` steps fail before writes.
-- Exact in-place prox is supported. For compact blocks, `out === u` is supported; other overlaps detected by
+- In-place prox (`y === x`) is supported. For compact blocks, `out === u` is supported; other overlaps detected by
   `Base.mightalias` are rejected, and `out` must not alias iterate storage.
 - The rules apply to each group in this order. `wₖ = 0` leaves the group unchanged, also with `λ₀ = Inf` or `γ = Inf`.
   Otherwise `wₖ = Inf`, or `λ₀ = Inf`, gives `+0` at every nonnegative step, `γ = 0` and `γ = Inf` included. Otherwise
@@ -58,26 +60,33 @@ julia> kkt_violation(GroupNormLinf(1.0, [1:2]), [5/8, 5/8], zeros(2), 1)
   entry without `NaN` leaves its group unchanged, also when the finite product `γλ₀wₖ` overflows. For finite entries a
   sum of magnitudes above `floatmax/2` is handled in power-of-two units, and a radius that overflows while the sum is
   finite gives `+0`.
-- The value of a group is `λ₀wₖ max|x[Gₖ]|`, rounded once in the promoted type: zero when `wₖ = 0` (whatever the group
-  holds), when the group is zero, and when `λ₀ = 0` with a finite weight; `NaN` at a `NaN` entry; `Inf` at a nonzero
-  group, without `NaN`, when `λ₀` or `wₖ` is infinite. The sum of the terms is recomputed in power-of-two units where it
+- The value of a group is `λ₀wₖ max|x[Gₖ]|`, formed in the working type as `(λ₀wₖ) m` (two rounded products) when `λ₀wₖ` is a
+  normal number and by the three-factor kernel in power-of-two units otherwise, then converted to the output type: zero
+  when `wₖ = 0` (whatever the group holds), when the group is zero, and when `λ₀ = 0` with a finite weight; `NaN` at a
+  `NaN` entry; `Inf` at a nonzero group, without `NaN`, when `λ₀` or `wₖ` is infinite. The sum of the terms is recomputed in power-of-two units where it
   may have lost accuracy (below `K floatmin` for `K` groups) or class (at or above `floatmax/2`). `value_and_prox!`
   returns the value of the stored output.
 - The accuracy of each group's level is absolute, of order `n eps(T) max|x[Gₖ]| + δ` in the floating type `T` of the output
   for a group of `n` entries and `δ = nextfloat(zero(T))`, as for [`NormLinf`](@ref): an entry far below the largest has
   no relative guarantee. The entries are read as `abs(convert(T, xᵢ))`, and the level assumes `n eps(T) ≤ 1/2` for each
-  group (for `Float32` a group of at most `2^22` entries). Float32 and Float64 with arguments of the same type are the
-  supported precisions.
+  group (for `Float32` a group of at most `2^22` entries). The level comes from the threshold of the ℓ1 ball that
+  `NormLinf` shares; its Michelot fallback has a known failure on groups with large ties
+  ([#987](https://github.com/mlakolar/ProximalBase.jl/issues/987)), which this statement does not cover. Float32 and
+  Float64 with arguments of the same type are the supported precisions.
 - `kkt_violation(f, v, x, k)` is provided at a zero group (and at an entry in no group): the signed margin
   `‖v[Gₖ]‖₁ - λ₀wₖ`. A nonzero group, the full-point form `kkt_violation(f, v, x)` and the three-argument form `kkt_violation(f, v, i)`
   throw an `ArgumentError`.
 - The threshold needs a buffer of the length of the largest group. The object keeps one, allocated by the first group step
   that needs it and again when the element type changes. [`prox!`](@ref) and [`value_and_prox!`](@ref) use it for every
-  group that reaches the threshold; [`prox_block!`](@ref) leaves it untouched when `out` is an `Array` of the output type
-  that does not overlap `u`, and uses `out` as the buffer then. The parameter exits, a `NaN` or infinite group and the
-  zero fill do not touch it. The same object must not be used from several tasks at once while its buffer may be in
-  use: a [`Scaled`](@ref) wrapper shares the buffer of its function, and a threaded loop of `prox_block!(u, f, u, k, γ)`
-  over groups does too. Construct a fresh `GroupNormLinf` for each task, or synchronize the calls.
+  group that reaches the threshold. [`prox_block!`](@ref) uses `out` as the buffer, and leaves the buffer of the object
+  untouched, when `out` is an `Array` with a floating-point element type, `u` is an `Array` or a `SubArray` of an `Array`,
+  and `!Base.mightalias(out, u)` (so not when `out === u`); otherwise it uses the buffer of the object. The parameter
+  exits, a `NaN` or infinite group and a zero fill decided before the threshold (a radius that is at least the sum of
+  magnitudes) do not touch the buffer; a threshold whose level is zero has already used it. The same object must not be
+  used from several tasks at once while its buffer may be in use: a [`Scaled`](@ref) wrapper shares the buffer of its
+  function, and a threaded loop of `prox_block!(u, f, u, k, γ)` over groups does too. It must not be used reentrantly
+  either, also within one task: an argument type whose `getindex` calls `prox!` or `prox_block!` on the same object while
+  the threshold runs would overwrite the candidates. Construct a fresh `GroupNormLinf` for each task, or synchronize the calls.
 - No `SymmetricSparseIterate`, `restrict`, per-group steps or compact block method under [`Scaled`](@ref).
 """
 struct GroupNormLinf{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractFunction
@@ -222,16 +231,17 @@ function _linf_group_prox!(y, x, G, λ0, w, γ::Real, src, maxlen::Int)
   r = _linf_group_radius(T, γ, λ0, w)
   r >= s && return _linf_group_fill!(y, G, zero(T))
   # _l1ball_threshold! (in _linf_group_level) needs finite nonnegative magnitudes, which s <= floatmax/2 certifies, and a
-  # radius with 0 <= r < s: r is a product of positive finite factors, rounded to T (a number, not NaN), and r >= s failed.
+  # radius with 0 <= r < s: r is a product of positive finite factors, converted to T (a number, not NaN), and r >= s failed.
   # Its proof also assumes n eps(T) <= 1/2 for the n entries of the group, which is not checked here.
   τ = _linf_group_level(src, T, maxlen, xv, r, _AbsRead{T}())
   _linf_group_clip!(y, x, G, τ)
 end
 
-# The radius γ λ0 w rounded to T, for positive finite factors: the product in the working type R when γ λ0 is a normal
-# number and the result lies in the normal range of T; otherwise the three-factor kernel with the power 2^-k, which forms
-# the product from the significands and exponents, so that a factor product such as γ λ0 that underflows (or λ0 w that
-# overflows) does not decide the radius. The result can be zero, subnormal or Inf after the conversion to T.
+# The radius γ λ0 w in T, for positive finite factors: (γ λ0) w formed in the working type R and converted to T when γ λ0
+# is a normal number and the result lies in the normal range of T; otherwise the three-factor kernel with the power 2^-k,
+# which forms the product from the significands and exponents, so that a factor product such as γ λ0 that underflows (or
+# λ0 w that overflows) does not decide the radius, and then converted to T. The result can be zero, subnormal or Inf after
+# the conversion to T.
 @inline function _linf_group_radius(::Type{T}, γ, λ0, w, k::Int = 0) where {T}
   if k == 0
     c, normal = _threshold_product(T, γ, λ0, w)
@@ -282,8 +292,9 @@ end
 @inline _linf_buffer(buf::AbstractArray, ::Type{T}, maxlen::Int) where {T} = buf
 
 # y[i] = x[i] clipped to [-τ, τ] for i ∈ G, with τ ≥ 0; τ = 0 gives +0. Returns τ, the largest stored magnitude when τ is at
-# most the largest magnitude of the group, as the callers have it. A zero entry keeps its sign below τ. The entries are
-# read in T and stored in the type of y.
+# most the largest magnitude of the group, as the callers have it. A zero entry is passed to setindex! with its sign below τ;
+# whether the destination keeps that sign depends on its storage (a SparseIterate does not store a zero write). The entries
+# are read in T and stored in the type of y.
 @inline function _linf_group_clip!(y, x, G, τ::T) where {T}
   iszero(τ) && return _linf_group_fill!(y, G, zero(T))
   _linf_group_clip_loop!(y, x, G, τ)
@@ -328,7 +339,8 @@ value_and_prox!(y::AbstractArray, f::GroupNormLinf, x::AbstractArray, γ::Real) 
 _value_and_prox_unchecked!(y::AbstractArray, f::GroupNormLinf, x::AbstractArray, γ::Real) = value_and_prox!(y, f, x, γ)
 
 # The fused value needs the stored output to be in the floating type of its entries; an output of another element type (an
-# integer one) stores rounded entries, and its value is read from it.
+# integer one) is written by convert, which throws an InexactError for a fractional entry, and f(y) is recomputed after
+# the conversions succeed.
 @inline function _linf_value_and_prox!(y, f::GroupNormLinf, x, γ::Real)
   if eltype(y) === float(eltype(y))
     _linf_prox_all!(y, f, x, γ, Val(true))
@@ -374,8 +386,10 @@ end
 end
 
 # The compact block: u and out have the length of group k, whose entries they index as 1:m. out is the buffer of the threshold
-# when it is an Array of the output type that does not overlap u (as for NormLinf, so not when out === u), and the scratch
-# of the function otherwise.
+# when _linf_buffer_is_output holds (as for NormLinf): out is an Array of the output floating type, u is an Array or a SubArray
+# of an Array, and !Base.mightalias(out, u), so not when out === u. Otherwise the buffer is the scratch of the function. The
+# buffer is not reentrant: a getindex of u that calls prox! or prox_block! on the same function while the threshold runs
+# would overwrite it.
 function prox_block!(out::AbstractVector, f::GroupNormLinf, u::AbstractVector, k::Integer, γ::Real)
   m = _check_group_block(out, f, u, k, γ)
   T = float(eltype(out))
@@ -405,8 +419,8 @@ kkt_violation(f::GroupNormLinf, g::AbstractArray, i::Integer) =
   "kkt_violation(f, v, x) of $(nameof(typeof(f))) is not provided: use kkt_violation(f, v, x, k) at a zero group"))
 
 # the margin of the zero group G for the gradient entries v read in W: NaN for a NaN entry of v[G], Inf for an infinite
-# entry (or a sum of magnitudes that overflows), also when c = Inf, and -Inf for c = Inf with finite entries. A zero weight
-# gives c = 0 and the margin ‖v[G]‖₁.
+# entry or a computed sum of magnitudes that overflows (that branch comes first), also when c = Inf, and -Inf for c = Inf
+# when the computed sum of magnitudes is finite. A zero weight gives c = 0 and the margin ‖v[G]‖₁.
 @inline function _linf_zero_score(λ0, w, v, G, ::Type{W}) where {W}
   c = _kkt_coefficient(W, λ0, w)
   s = _linf_sum(_IndexedValues(v, G, W), _AbsRead{W}(), W)

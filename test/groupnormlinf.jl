@@ -540,7 +540,8 @@ end
     nchecked += 1
   end
   @test nchecked == 6 * 5 * 4 * 7
-  # the value of a group, at the endpoint rules and otherwise the product of the three factors rounded once
+  # the value of a group, at the endpoint rules and otherwise the product of the three factors: formed in the working type
+  # ((λ0 w) m, two rounded products, or the three-factor kernel) and converted, within 2 eps (relative) of the exact product
   for λ0 in (zero(T), T(0.5), T(Inf), M, δ), w in (zero(T), one(T), T(3), T(Inf), M), u in groupsets
     f = GroupNormLinf(λ0, [1:3], T[w])
     r = row_value(u, λ0, w)
@@ -702,7 +703,8 @@ end
   @test GroupNormLinf(T(4), [1:1], T[M])(T[1]) === T(Inf)
   # a zero argument and zero terms
   @test GroupNormLinf(ldexp(one(T), -e0), [1:2, 3:4])(zeros(T, 4)) === zero(T)
-  # a level that is not of the type of the entries: applied in the promoted type and rounded once
+  # a level that is not of the type of the entries: the product (λ0 w) m is formed in the promoted type (here the weight is 1,
+  # so one rounding) and converted to the type of the entries
   h = GroupNormLinf(0.7, [1:2], [1.0])
   xx = T[3, -1]
   @test h(xx) === T(0.7 * Float64(maximum(abs, xx)))
@@ -729,12 +731,14 @@ end
       @test same_value(value_and_prox!(xi, f, xi, γ), v) && same_nan(xi, y)
     end
   end
-  # an output of another type stores rounded entries, and the value is read from the output
+  # an output of another element type: f(y) is recomputed after the conversions succeed (an integer output needs integral
+  # entries; a fractional one throws an InexactError)
   f = GroupNormLinf(1.0, [1:2])
   y = zeros(Float32, 2)
   @test value_and_prox!(y, f, [3.0, -1.1], 1.0) === f(y)
   yi = zeros(Int, 2)
   @test value_and_prox!(yi, f, [3.0, -1.0], 1.0) === f(yi) && yi == [2, -1]
+  @test_throws InexactError value_and_prox!(zeros(Int, 2), f, [3.0, -1.0], 0.5)
   # through Scaled, the value of the chain at the output
   g = GroupNormLinf(T(0.5), [[3, 1], 4:5], T[1, 2])
   x = T[3, 9, 1, 4, -4, 7]
@@ -791,8 +795,8 @@ end
 end
 
 @testset "the buffer of the threshold ($T)" for T in (Float32, Float64)
-  # parameter exits, NaN and infinite groups and the zero fill do not touch the buffer of f; the first group that reaches the
-  # threshold allocates it at the length of the longest group, and it is reused
+  # parameter exits, NaN and infinite groups and a zero fill decided before the threshold do not touch the buffer of f; the
+  # first group that reaches the threshold allocates it at the length of the longest group, and it is reused
   groups = [1:3, 4:4, 5:12]
   x = T[3, 1, 2, 5, 1, 2, 3, 4, 5, 6, 7, 8]
   f = GroupNormLinf(one(T), groups, T[1, 1, 1])
@@ -808,12 +812,16 @@ end
   @test b isa Vector{T} && length(b) == 8
   prox!(y, f, x, T(1.5)); value_and_prox!(y, f, x, T(0.25))
   @test f.scratch.buf === b
-  # a compact block: a distinct Array output of the output type is the buffer, so the scratch stays unused
+  # a compact block: a distinct Array output of the output type, with an Array input, is the buffer, so the scratch stays unused
   g = GroupNormLinf(one(T), groups, T[1, 1, 1])
   expected = prox(GroupNormLinf(one(T), [1:3]), T[3, 1, 2], T(0.5))
   out = zeros(T, 3)
   prox_block!(out, g, T[3, 1, 2], 1, T(0.5))
   @test g.scratch.buf === nothing && out == expected
+  # an input that is neither an Array nor a SubArray of an Array (an iterate) does not qualify: the scratch is used
+  gs = GroupNormLinf(one(T), groups, T[1, 1, 1])
+  prox_block!(zeros(T, 3), gs, SparseIterate(T[3, 1, 2]), 1, T(0.5))
+  @test gs.scratch.buf isa Vector{T} && length(gs.scratch.buf) == 8
   # in place, the scratch of length maxlen serves the groups of different lengths
   u = T[3, 1, 2]
   prox_block!(u, g, u, 1, T(0.5))
@@ -862,7 +870,7 @@ end
   # a zero group of either sign of zero is zero
   @test kkt_violation(f1, T[5 // 8, 5 // 8], T[-0.0, 0.0], 1) === T(0.25)
   # the conventions: NaN in v[G] gives NaN; Inf (and no NaN) gives Inf, also at an infinite coefficient; an infinite
-  # coefficient with finite entries gives -Inf; a zero weight gives ‖v[G]‖₁; an overflowing sum gives Inf
+  # coefficient with a finite computed sum of magnitudes gives -Inf; a zero weight gives ‖v[G]‖₁; an overflowing sum gives Inf
   M = floatmax(T)
   for (λ0, w) in ((one(T), one(T)), (T(Inf), one(T)), (one(T), T(Inf)), (zero(T), T(Inf)), (M, T(4)))
     h = GroupNormLinf(λ0, [1:2], T[w])
@@ -877,6 +885,8 @@ end
     @test kkt_violation(h, T[1.5, -2], zeros(T, 2), 1) === T(3.5)
   end
   @test kkt_violation(GroupNormLinf(one(T), [1:2]), T[M, M], zeros(T, 2), 1) === T(Inf)
+  # a computed sum of magnitudes that overflows gives +Inf first, also at an infinite coefficient
+  @test kkt_violation(GroupNormLinf(T(Inf), [1:2]), T[M, M], zeros(T, 2), 1) === T(Inf)
   # a level that is not of the type of the gradient: the coefficient is formed in the working type
   @test kkt_violation(GroupNormLinf(0.5, [1:2]), T[1, 1], zeros(T, 2), 1) === T(1.5)
   @test kkt_violation(GroupNormLinf(1, [1:2]), [1, 1], [0, 0], 1) === 1.0

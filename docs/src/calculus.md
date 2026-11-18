@@ -206,7 +206,7 @@ rounded on its own, are added; the sum replaces that result if it is finite
 after conversion to its type, and the first result is kept otherwise. This is
 not a promise that arbitrary user-defined functions acquire numerical range
 recovery. `GroupNormLinf` has no fold of its level: under `Scaled` its proximal operator receives the step `αγ` as the wrapper rounds it,
-and an `αγ` that overflows reaches it as `Inf` and gives `+0` (see the [group ℓ∞ norm](group_penalty.md#group-linf-guide)).
+and an `αγ` that overflows reaches it as `Inf`. A group that reaches the infinite-step exit gives `+0`; a group with a zero weight, or a zero level with a finite weight, keeps the identity, because those exits come first (see the [group ℓ∞ norm](group_penalty.md#group-linf-guide)).
 
 ## A zero scale can change the returned type
 

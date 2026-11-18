@@ -298,13 +298,20 @@ For a step ``\gamma\ge0`` the proximal operator acts on each group separately. W
 \sum_{i\in G_k}\left(\lvert x_i\rvert-\tau_k\right)_+=r_k,\qquad i\in G_k,
 ```
 
-and the group becomes zero (`+0`) when ``r_k\ge\lVert x_{G_k}\rVert_1``. This is ``x_{G_k}`` minus its projection onto
+and, for finite entries, the group becomes zero (`+0`) when ``r_k\ge\lVert x_{G_k}\rVert_1`` (the table of exceptional
+parameters and values below gives the other cases). This is ``x_{G_k}`` minus its projection onto
 the ℓ₁ ball of radius ``r_k``, formed by the clip itself. The level comes from the same threshold as
 `NormLinf` (Condat's algorithm, with Michelot's as a fallback), applied to the entries of one group, read through
 its indices without a copy. Its error is absolute, of order ``n\,\varepsilon\max_{i\in G_k}\lvert x_i\rvert+\delta`` for a group of
-``n`` entries, with ``\delta`` the smallest subnormal number of the output type. When the product ``\gamma\lambda_0w_k``
-leaves the floating-point range, or ``\gamma\lambda_0`` alone underflows, the radius is formed from the three factors
-in power-of-two units, so that the clip keeps the group where the exact radius is below its ℓ₁ norm.
+``n`` entries with ``n\varepsilon\le 1/2``, with ``\delta`` the smallest subnormal number of the output type. This
+statement does not cover the known failure of the Michelot fallback on groups with large ties, which `GroupNormLinf`
+inherits from the shared threshold of `NormLinf`
+([#987](https://github.com/mlakolar/ProximalBase.jl/issues/987)). The radius is formed as
+``(\gamma\lambda_0)w_k`` in the working type (the promotion of the output type and the types of the factors) and then converted to the output
+type. When ``\gamma\lambda_0`` is not a normal number, or the product leaves the normal range of the output type, it is
+formed from the significands and exponents of the three factors, so that an intermediate overflow or underflow does not
+decide it. The radius is then rounded to the output type: a radius that rounds up to the ℓ₁ norm of a group gives `+0`
+for it, within the absolute error stated above.
 
 ```@example group_penalty
 gi = GroupNormLinf(1.0, [[1, 4, 2], [5, 3]], [1.0, 2.0])      # entry 6 is in no group
@@ -319,7 +326,8 @@ pg
 ```
 
 `prox!(y, g, x, γ)` writes into `y` and accepts `y === x`; `value_and_prox!` also returns the value at the stored
-output, which it forms from the clip levels. The step is a nonnegative scalar: a negative or `NaN` step throws an
+output, which it forms from the clip levels (for an output whose element type is not floating point, the value is
+recomputed from the stored output, after the conversions of its entries succeed). The step is a nonnegative scalar: a negative or `NaN` step throws an
 `ArgumentError` before anything is written. A `BlockIterate` or a `SparseIterate` is read and written by indexing its
 entries, as for `GroupNormL2`; a `SymmetricSparseIterate` has no `GroupNormLinf` proximal operator (an `ArgumentError`
 before any write).
@@ -340,17 +348,22 @@ out
 ```
 
 A `GroupNormLinf` object keeps a buffer for the threshold, with the length of its longest group, which the first group
-that needs one allocates. The buffer is left untouched by the parameter exits, by `NaN` and infinite groups, by the zero
-fill and, in `prox_block!`, by an output that is an `Array` of the output type that does not overlap `u`. The same object
-must not be used from several tasks at once while its buffer may be in use (`Scaled` wrappers of one object share it, and
-so do the groups of a threaded loop of `prox_block!(u, g, u, k, γ)`): construct a fresh `GroupNormLinf` for each task, or
-synchronize the calls ([ownership](numerical_usage.md#Ownership-and-aliases)).
+that needs one allocates. The buffer is left untouched by the parameter exits, by `NaN` and infinite groups, by a zero
+fill decided before the threshold (a radius that is at least the sum of magnitudes; a threshold whose level is zero has
+already used the buffer) and, in `prox_block!`, when `out` is an `Array` with a floating-point element type, `u` is an
+`Array` or a `SubArray` of an `Array`, and `!Base.mightalias(out, u)` (so not when `out === u`): `out` is then the
+buffer. The same object must not be used from several tasks at once while its buffer may be in use (`Scaled` wrappers of
+one object share it, and so do the groups of a threaded loop of `prox_block!(u, g, u, k, γ)`), and it must not be used
+reentrantly, also within one task: an argument type whose `getindex` calls `prox!` or `prox_block!` on the same object
+while the threshold runs would overwrite the candidates. Construct a fresh `GroupNormLinf` for each task, or synchronize
+the calls ([ownership](numerical_usage.md#Ownership-and-aliases)).
 
 ### Optimality score at a zero group
 
 The dual norm of the ℓ∞ norm is the ℓ₁ norm. At a zero group the subdifferential of the penalty is the ℓ₁ ball
-of radius ``c_k=\lambda_0w_k``, so the group is optimal for `h + g` when ``\lVert G_{G_k}\rVert_1\le c_k``, with
-`G = ∇h(x)`. `kkt_violation(g, G, x, k)` returns the signed margin of that screen:
+of radius ``c_k=\lambda_0w_k``, so ``\lVert G_{G_k}\rVert_1\le c_k``, with `G = ∇h(x)`, is the first-order (stationarity)
+condition of the zero group for `h + g`. It certifies that the block is optimal for `h + g` when `h` is convex in that
+block. `kkt_violation(g, G, x, k)` returns the signed margin of that condition:
 
 | Group of `x` | Score | Sign |
 |:--|:--|:--|
@@ -365,8 +378,9 @@ as does the full-point form `kkt_violation(g, G, x)`, which is not provided for 
 of the dual norm, which is not the Euclidean screen of `GroupNormL2` ([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)):
 the two differ in sign for the gradient `(5/8, 5/8)` with ``\lambda_0=w=1``, where the group must enter. The positive part of the
 margin is an ℓ₁ screen and not a stationarity distance, so a tolerance chosen for another score does not carry over.
-In the margin, a `NaN` in ``G_{G_k}`` gives `NaN` and an infinite entry (with no `NaN`) gives `+Inf`, also when ``c_k`` is
-infinite; an infinite ``c_k`` with finite entries gives `-Inf`, also where ``\lambda_0w_k`` overflows in the working type;
+In the margin, a `NaN` in ``G_{G_k}`` gives `NaN`, and an infinite entry (with no `NaN`) or a computed sum of magnitudes
+that overflows gives `+Inf`, also when ``c_k`` is infinite (that branch comes first); an infinite ``c_k`` gives `-Inf` when the
+computed sum of magnitudes is finite, also where ``\lambda_0w_k`` overflows in the working type;
 a zero weight gives ``\lVert G_{G_k}\rVert_1``. A group is zero when its entries, converted to the working type of the call
 (the floating type of `promote_type(eltype(G), eltype(x))`), are zeros of either sign, so a `NaN` or infinite entry of
 `x` makes its group nonzero.
@@ -401,12 +415,13 @@ so that the proximal operator and the value do not form a product such as ``\lam
 | Finite entries, radius at least ``\lVert x_{G_k}\rVert_1`` | `+0`, also when the product ``\gamma\lambda_0w_k`` overflows while the sum is finite |
 | ``\gamma<0`` or ``\gamma=`` `NaN` | `ArgumentError` before any write |
 
-The value of a group is ``\lambda_0w_k\max\lvert x_{G_k}\rvert``, rounded once in the promoted type of the factors and
-the entries; the sum over the groups is recomputed in power-of-two units, accumulated in at least `Float64`, where it may
+The value of a group is ``\lambda_0w_k\max\lvert x_{G_k}\rvert``, formed in the working type as
+``(\lambda_0w_k)m`` with two rounded products when ``\lambda_0w_k`` is a normal number and by the three-factor
+kernel in power-of-two units otherwise, and then converted to the output type; the sum over the groups is recomputed in power-of-two units, accumulated in at least `Float64`, where it may
 have lost accuracy (a sum below `K*floatmin(T)` for `K` groups, whose terms may have rounded into the subnormal range) or
 class (at or above `floatmax(T)/2`), as for `GroupNormL2` ([value range limits](@ref numerical-value-range)). A sum of
 magnitudes of one group above `floatmax(T)/2` is processed in power-of-two units. With a positive finite level and
-weight, `prox!` computes the clip of a group whose sum overflows from the entries scaled by a power of two:
+weight, `prox!` computes the clip of a group with finite entries whose sum overflows from the entries scaled by a power of two:
 
 ```@example group_penalty
 M = floatmax(Float64)
@@ -420,8 +435,10 @@ yh
 
 `GroupNormLinf` has no `SymmetricSparseIterate`, `restrict`, per-group step or compact block method under `Scaled`.
 `Scaled(GroupNormLinf(...), α)` multiplies the value by `α` and computes the array proximal operator with the step
-`αγ`; it has no folded level, so a step `αγ` that overflows reaches the function as `Inf` and gives `+0`, where the exact radius
-``\alpha\gamma\lambda_0w_k`` can be below the ℓ₁ norm of the group. A zero `α` throws an `ArgumentError`.
+`αγ`; it has no folded level, so a step `αγ` that overflows reaches the function as `Inf`. A group that reaches the
+infinite-step exit then gives `+0`, where the exact radius ``\alpha\gamma\lambda_0w_k`` can be below the ℓ₁ norm of the
+group; a group with a zero weight or a zero level with a finite weight keeps the identity, because those exits come first.
+A zero `α` throws an `ArgumentError`.
 
 ```@example group_penalty
 scaled = Scaled(GroupNormLinf(2.0^-1020, [1:2]), 2.0^1000)

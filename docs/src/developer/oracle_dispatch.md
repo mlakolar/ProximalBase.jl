@@ -79,7 +79,7 @@ independent ID to the full-entry index; no symmetric iterate is available in the
 ## KKT and restrictions
 
 Retained scalar screens are explicitly implemented for `NormL1`, `ElasticNet`, `SqrNormL2`,
-`ZeroFunction` and `LinearFunction`; `GroupNormL2` has block scores and `NormL2` a full-point form; `Scaled` forwards
+`ZeroFunction` and `LinearFunction`; `GroupNormL2` has block scores, and `NormL2` and `NormLinf` a full-point form; `Scaled` forwards
 to them (below). The three-argument form is the signed
 screen of a coordinate assumed zero. For those five functions, the four-argument form on an
 array, a `SparseIterate`, a `BlockIterate` (maximum over the group) or a `SymmetricSparseIterate`
@@ -96,10 +96,12 @@ throws `MethodError`; under `Scaled` the `MethodError` is for the call on the `S
 selected ordered layout and the full gradient length; its array-point form takes an entry index,
 its full-point form checks the whole layout of a `BlockIterate`, and its three-argument form throws
 because it is not entrywise separable. `NormL2` has the full-point form, the kernel with all of `x`
-as one block, and its other forms throw `ArgumentError`. `Scaled` scores a wrapper with a finite
+as one block, and its other forms throw `ArgumentError`. `NormLinf` has the full-point form too, with a kernel of its own
+for the distance to the subdifferential of the largest magnitude (the ℓ₁ ball at the zero point, and the face of the
+largest entries of `x` elsewhere) and no block; its other forms throw `ArgumentError`. `Scaled` scores a wrapper with a finite
 positive factor by evaluating the score of its function on `v/α` and multiplying it by `α`; a nested chain whose product of factors
 is not a normal number is scored through the function with the product applied to the gradient
-(`LinearFunction`, `SqrNormL2`) or folded into the level (`NormL1`, `ElasticNet`, `GroupNormL2`, `NormL2`),
+(`LinearFunction`, `SqrNormL2`) or folded into the level (`NormL1`, `ElasticNet`, `GroupNormL2`, `NormL2`, `NormLinf`),
 and refuses the nonzero and full-point forms where there is no fold, as it does for an infinite
 factor (the [scaling guide](@ref scaled-kkt)). Dispatch does not
 turn a quadratic/least-squares loss into a scalar penalty screen. KKT is the raw first-order score

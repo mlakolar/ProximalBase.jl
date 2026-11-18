@@ -60,7 +60,7 @@ prox(h,x,0.4)
 finite positive `α` evaluate the existing score of `f` on the lazy gradient `v/α` and multiply it
 by `α`: in exact arithmetic the score of ``\alpha f`` is positively homogeneous in ``\alpha`` and `v`
 together. `f` is `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction`, `SqrNormL2`,
-`GroupNormL2` or, for the full-point form, `NormL2`. For one wrapper with a finite positive factor, on the
+`GroupNormL2` or, for the full-point form, `NormL2` or `NormLinf`. For one wrapper with a finite positive factor, on the
 numerical domain below with finite entries of the lazily scaled gradient `v/α`, at a zero coordinate and for arrays and
 parameters of one floating type, the signed score agrees bit for bit with the scaled three-argument
 screen, except for the endpoint cases of the [numerical contract](numerics.md) and for `SqrNormL2` with an infinite level,
@@ -72,6 +72,16 @@ h1 = Scaled(NormL1(0.5), 2.0)             # the function NormL1(1.0)
 @assert kkt_violation(h1, [3.0, 0.5], [0.0, 1.0], 1) == 2.0      # 2 (|3/2| - 0.5)
 @assert kkt_violation(h1, [3.0, 0.5], [0.0, 1.0], 2) == 1.5      # 2 |0.5/2 + 0.5|
 kkt_violation(h1, [3.0, 0.5], [0.0, 1.0])
+```
+
+The full-point form of `NormLinf` is scored the same way. `Scaled(NormLinf(0.5), 2.0)` is the function
+`NormLinf(1.0)`, and for a power of two as `α` the quotient `v/α` is exact where it neither overflows nor underflows.
+
+```@example library_scaled
+h2 = Scaled(NormLinf(0.5), 2.0)           # the function NormLinf(1.0)
+@assert kkt_violation(h2, [3.0, 1.0], [0.0, 0.0]) ≈ sqrt(5.0)                 # 2 × the score at v/2 = (1.5, 0.5)
+@assert kkt_violation(h2, [3.0, 1.0], [0.0, 0.0]) ≈ kkt_violation(NormLinf(1.0), [3.0, 1.0], [0.0, 0.0])
+kkt_violation(h2, [-0.4, 0.3], [2.0, 1.0])
 ```
 
 **Domain.** The call evaluates the existing score of the leaf on the lazy gradient `v/α`, with the
@@ -102,11 +112,11 @@ remain `BigFloat`.
 
 * **Nested wrappers whose level does not fold.** For two positive finite factors, the
   constructor merges the wrappers when the product is a normal number and keeps them nested
-  otherwise; zero and infinite factors follow the endpoint rules of the constructor. For a chain around `NormL1`, `ElasticNet`, `GroupNormL2` or `NormL2` the product of the
+  otherwise; zero and infinite factors follow the endpoint rules of the constructor. For a chain around `NormL1`, `ElasticNet`, `GroupNormL2`, `NormL2` or `NormLinf` the product of the
   factors is folded into the level (the levels of `ElasticNet`) when the result is a normal
-  number, and the chain then has the score of the function with that level, in each form. Where
+  number, and the chain then has the score of the function with that level, in each form that the function has. Where
   it does not fold, **the three-argument screen, and the four-argument form at a zero coordinate
-  or group, can return an incorrect value**: they divide `v` by the product, which is out of
+  or group, can return an incorrect value** (`NormLinf` has neither form and throws an `ArgumentError`): they divide `v` by the product, which is out of
   range, and an ordinary `v` overflows. `Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at
   `v = [0.25]` returns `Inf`, where the value is `0.25` to rounding. This is tracked as
   [#978](https://github.com/mlakolar/ProximalBase.jl/issues/978). The four-argument form at a
@@ -129,9 +139,10 @@ remain `BigFloat`.
   and `ZeroFunction`, have ``\lvert v_i\rvert``). The three-argument screen of such a chain
   around `LinearFunction` and a centered `SqrNormL2` was incorrect before 0.6: it
   returned the screen of the function at the unscaled `v`.
-* **Functions without the forms.** `NormLinf`, the losses and the indicators have no
+* **Functions without the forms.** The losses and the indicators have no
   score; the call on the `Scaled` function throws a `MethodError` (the call names the `Scaled`
-  function). A function defined outside the package is treated as in
+  function). `NormLinf` has the full-point form and, as `NormL2` does, throws an `ArgumentError` for its other forms,
+  also under `Scaled`. A function defined outside the package is treated as in
   [Writing your own function](extending.md).
 
 ```@example library_scaled
@@ -154,7 +165,15 @@ handbuilt = raw(Scaled(NormL1(1.0), t), Inf)                    # two wrappers, 
 @assert handbuilt.f isa Scaled
 @assert refused(() -> kkt_violation(handbuilt, [0.25], [1.0], 1)) && refused(() -> kkt_violation(handbuilt, [0.25], [0.0]))
 @assert isnan(kkt_violation(Scaled(NormL1(0.0), Inf), [3.0], [0.0], 1))
-nomethod = try kkt_violation(Scaled(NormLinf(1.0), 2.0), [1.0, 2.0], [0.0, 1.0], 1); false catch e; e isa MethodError end
+nlinf = Scaled(Scaled(NormLinf(2.0^600), 2.0^-600), 2.0^-600)    # the product 2^-1200 is not a normal number; the level 2^-600 is
+@assert nlinf.f isa Scaled
+@assert kkt_violation(nlinf, [0.25, -0.5], [0.0, 0.0]) == kkt_violation(NormLinf(2.0^-600), [0.25, -0.5], [0.0, 0.0])
+nflinf = Scaled(Scaled(NormLinf(1.0), 2.0^-600), 2.0^-600)             # the level 2^-1200 does not fold
+@assert refused(() -> kkt_violation(nflinf, [0.25], [1.0])) && refused(() -> kkt_violation(nflinf, [0.25], [0.0]))
+@assert refused(() -> kkt_violation(nflinf, [0.25], [1.0], 1)) && refused(() -> kkt_violation(nflinf, [0.25], 1))
+@assert refused(() -> kkt_violation(h2, [3.0, 1.0], [0.0, 0.0], 1)) && refused(() -> kkt_violation(h2, [3.0, 1.0], 1))
+sqrtls = SqrtLeastSquaresLoss([1.0, 2.0], [1.0 0.0; 0.0 1.0])
+nomethod = try kkt_violation(Scaled(sqrtls, 2.0), [1.0, 2.0], [0.0, 1.0], 1); false catch e; e isa MethodError end
 @assert nomethod
 kkt_violation(lin, [0.25], 1)
 ```

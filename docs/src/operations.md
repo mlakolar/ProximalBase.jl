@@ -258,7 +258,7 @@ recomputed. The result is the raw score of the stationarity condition.
 |:--|:--|:--|
 | `kkt_violation(g,v,i)` | The screen of coordinate `i` **assumed zero**; it reads no `x` | Signed |
 | `kkt_violation(g,v,x,k)` | The score of the **actual** coordinate `k` of `x` (the group `k` for a `BlockIterate`) | The signed margin at a zero coordinate; a nonnegative mismatch at a nonzero one |
-| `kkt_violation(g,v,x)` | The full-point measure ``\max(0,\max_k s_k)`` over the entries of `x`, with ``s_k`` the score of entry ``k``; zero of the result type for an empty `x` | Nonnegative |
+| `kkt_violation(g,v,x)` | The full-point measure ``\max(0,\max_k s_k)`` over the entries of `x`, with ``s_k`` the score of entry ``k``; zero of the result type for an empty `x`. For `GroupNormL2`, `NormL2` and `NormLinf` see the table of block scores below | Nonnegative |
 
 The sign says the following.
 
@@ -291,16 +291,19 @@ nonnegative at a zero coordinate as well. The norm of the full-point value is th
 five functions; [`GroupNormL2`](group_penalty.md) measures block 2-norms, so a
 tolerance chosen for one is not a tolerance for the other.
 
-`GroupNormL2` and `NormL2` have a score per block, with ``c=\lambda_0w_k`` (``c=\lambda`` for `NormL2`):
+`GroupNormL2` has a score per block, with ``c=\lambda_0w_k``. `NormL2` (with ``c=\lambda``) and `NormLinf` have the
+full-point form and no form for a block:
 
 | Function | Block at zero | Block ``x_G\neq0`` | Full-point value, for finite inputs |
 |:--|:--|:--|:--|
 | `GroupNormL2` | ``\lVert v_G\rVert_2-c`` | ``\lVert v_G+c\,x_G/\lVert x_G\rVert_2\rVert_2`` | ``\max(0,\text{block scores},\lvert v_i\rvert\text{ for the entries in no group})``, a maximum of block 2-norms |
 | `NormL2` | (no form for a block) | (no form for a block) | the positive part of that score with ``G`` all of `x`, the 2-norm distance from ``-v`` to ``\partial g(x)`` |
+| `NormLinf` | (no form for a block) | (no form for a block) | the 2-norm distance from ``-v`` to ``\partial g(x)`` for ``g(x)=\lambda\max_i\lvert x_i\rvert``: at ``x=0``, the distance from ``v`` to the ℓ₁ ball of radius ``\lambda`` (``0`` when ``\sum_i\lvert v_i\rvert\le\lambda``); at ``x\ne0``, the distance with the face of the entries of largest magnitude, compared for equality after conversion to the working type |
 
 The local form of `GroupNormL2` takes an entry of an array point, which selects its group, or the group
-`k` of a `BlockIterate`; an entry in no group scores ``\lvert v_i\rvert``. `NormL2` has no form for an entry or a group
-(an `ArgumentError`). `Scaled` of these functions and of the five above evaluates the score on `v/α` and multiplies it by `α`, with
+`k` of a `BlockIterate`; an entry in no group scores ``\lvert v_i\rvert``. `NormL2` and `NormLinf` have no form for an entry or
+a group (an `ArgumentError`); the value of `NormLinf` is a 2-norm distance to the subdifferential and not a maximum of scores,
+and its definition, ties and an example are in [the ℓ∞ norm guide](@ref norm-linf-kkt). `Scaled` of these functions and of the five above evaluates the score on `v/α` and multiplies it by `α`, with
 the limits and unsupported cases of the [scaling guide](@ref scaled-kkt).
 
 The worked example uses ``g=\lambda\|x\|_1`` with ``\lambda=0.5``, a point with

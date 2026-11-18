@@ -417,7 +417,7 @@ end
 @inline function _scaled_value_by(f, α, x, v, recover_inner_small = true, out = nothing)
   r = _apply_scale(α, v)
   if (!isfinite(r) && _scale_below_one(α)) || (_scaled_small(r) && !iszero(v)) ||
-     (recover_inner_small && !_zero_value_exact(f) && _scaled_small(v) && _scale_above_one(α))
+     (recover_inner_small && _scaled_small(v) && _scale_above_one(α))
     return _scaled_value_recover(f, α, x, v, r, out)
   end
   r
@@ -438,26 +438,24 @@ _scaled_product_value(f, α, y, v) = (r = α * v; isnan(r) && !isnan(v) ? _scale
 # is 0. The entries they leave free (a zero level or weight, an index in no group) do not enter the
 # value, whatever they hold, as in the function's own value. Any other function: false.
 _exactly_zero_at(f, x) = _isindicator(f)
-_host_entries(x::AbstractArray) = _is_device_array(x) ? Array(x) : x
-_host_entries(::Nothing) = nothing
 # an entry with the weight w under the level λ is penalized (an infinite weight at any level)
 @inline _penalized(λ, w) = w > 0 && (λ > 0 || isinf(w))
 function _exactly_zero_at(f::NormL1, x::AbstractArray)
-  h, w = _host_entries(x), _host_entries(f.w)
-  w === nothing || length(w) == length(h) || return false
+  w = f.w
+  w === nothing || length(w) == length(x) || return false
   λ = f.λ0
-  for (j, i) in enumerate(eachindex(h))
+  for (j, i) in enumerate(eachindex(x))
     wi = w === nothing ? one(λ) : w[j]
-    _penalized(λ, wi) && !iszero(h[i]) && return false
+    _penalized(λ, wi) && !iszero(x[i]) && return false
   end
   true
 end
 # Exact zero also requires nonnegative entries.
-_exactly_zero_at(f::NormL1Nonneg, x::AbstractArray) = all(>=(0), _host_entries(x)) && _exactly_zero_at(f.l1, x)
+_exactly_zero_at(f::NormL1Nonneg, x::AbstractArray) = all(>=(0), x) && _exactly_zero_at(f.l1, x)
 # a positive ridge level penalizes every entry (an infinite one is the indicator of {0}, #908); a zero
 # one leaves the entries that the ℓ1 part penalizes, as for NormL1
 _exactly_zero_at(f::ElasticNet, x::AbstractArray) =
-  f.λ2 > 0 ? _all_zero(_host_entries(x)) : _exactly_zero_at(f.l1, x)
+  f.λ2 > 0 ? _all_zero(x) : _exactly_zero_at(f.l1, x)
 
 # The recovery of α f(x) for an ElasticNet f: the recovery of every function first (the fold of the factor into both
 # levels, the partial fold and the fold into a subnormal level, the rule of an infinite factor at a point where f is 0,
@@ -509,9 +507,7 @@ _elastic_finite_scale(α) = false
     # the larger of the two exponents decides.
     E === nothing || E + _scale_upper_exponent(α) >
       max(exponent(floatmin(_valtype(x))), exponent(floatmin(typeof(float(_apply_scale(α, v)))))) || return false
-  elseif isinf(v)
-    _infinite_value_exact(f, x) && return false
-  elseif isnan(v) || abs(v) >= floatmin(v)
+  elseif !isinf(v) && (isnan(v) || abs(v) >= floatmin(v))
     return false
   end
   out === nothing || !_parameter_alias(f, out)
@@ -1031,7 +1027,6 @@ function _zero_value_exponent(s::Scaled, x)
   E === _EXACT_ZERO ? U : max(E + _upper_exponent(s.α), U)
 end
 _parameter_alias(s::Scaled, out) = _parameter_alias(s.f, out)
-_infinite_value_exact(s::Scaled, x) = _infinite_value_exact(s.f, x)
 # The functions that a stored infinite level fixes, for a positive finite factor and step. The infinite level
 # makes the map the constant map of its domain, whatever positive finite number the factors and the step
 # are, so the call needs no factor and no step folded into a finite level: `_hard_function(f)` is f without the

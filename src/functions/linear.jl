@@ -70,16 +70,13 @@ _value_unchecked(f::LinearFunction, x::SymmetricSparseIterate) =
 # dot is recomputed from exponent-separated products (_ExpSum, as below) and combined with d by
 # `_linear_recovered_value`; otherwise the ordinary value stands. The terms are every linear position
 # of a generic array pair, the stored entries of a vector SparseIterate, and each stored coordinate of
-# a symmetric iterate at both of its positions. The minimal core has no
-# device-array classifier or automatic host transfer; generic arrays are read
-# through their existing indexing methods.
+# a symmetric iterate at both of its positions.
 # A matrix SparseIterate has its own method below, which checks only the participating entries.
 @inline _linear_value(f::LinearFunction, x, v) = isfinite(v) ? v : _linear_value_recover(f.c, f.d, x, v)
 @noinline function _linear_value_recover(c, d, x, v)
   (_all_finite(x) && _all_finite(c) && isfinite(d)) || return v
   R = typeof(v)
-  xh = x isa AbstractArray ? _host_entries(x) : x    # a SymmetricSparseIterate is not an AbstractArray
-  acc = _linear_expsum(_expsum_start(promote_type(R, Float64)), _host_entries(c), xh)
+  acc = _linear_expsum(_expsum_start(promote_type(R, Float64)), c, x)
   _linear_recovered_value(R, acc, d)
 end
 # Σ cᵢ xᵢ as exponent-separated products: every linear position of a generic pair (zero products

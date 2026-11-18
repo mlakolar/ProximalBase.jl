@@ -150,6 +150,8 @@ function _prox_sep_dense!(y::AbstractArray, f, x::AbstractArray, γ)
   end
   y
 end
+# that loop, also for an f that has a method of _prox_sep_dense! of its own (NormL1, ElasticNet)
+_prox_entries!(y, f, x, γ) = invoke(_prox_sep_dense!, Tuple{AbstractArray, Any, AbstractArray, Any}, y, f, x, γ)
 
 # on sparse iterates, only the stored entries when f preserves zeros; as for a
 # dense array, an entry stored in y stays stored, possibly as a zero

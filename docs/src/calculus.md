@@ -141,6 +141,115 @@ remain `BigFloat`.
   around `LinearFunction` and a centered `SqrNormL2` was incorrect before 0.6: it
   returned the screen of the function at the unscaled `v`.
 * **Functions without the forms.** `NormLinf`, the losses and `IndNonnegative` have no
+  four-argument or full-point score; the call on the `Scaled` function throws a `MethodError` (the call
+  names the `Scaled` function). `IndNonnegative` has the three-argument screen `-v[i]`. Under a single
+  `Scaled(IndNonnegative(), α)` wrapper with a finite positive `α`, the screen is `α` times the screen of
+  `IndNonnegative` at the entry `inv(α) * v[i]`. Each of the two products can round, underflow or
+  overflow, so the result need not be `-v[i]`: `kkt_violation(Scaled(f, 2.0), [nextfloat(0.0)], 1)` is
+  `-0.0`, and `kkt_violation(Scaled(f, 0.25), [floatmax(Float64)], 1)` is `-Inf`. An infinite `α` gives
+  `NaN` at a finite `v[i]`. A function defined outside the package is treated as in
+  [Writing your own function](extending.md).
+
+```@example library_scaled
+using ProximalBase
+f = SqrNormL2(2.0)
+h = Scaled(f,0.25)
+x = [2.0,-1]
+@assert h(x) == 0.25 * f(x)
+@assert gradient(h,x) == 0.25 * gradient(f,x)
+@assert prox(h,x,0.4) ≈ prox(f,x,0.1)
+@assert lipschitz(h) == 0.5
+@assert reset_cache!(h) === h
+prox(h,x,0.4)
+```
+
+## [Scoring optimality](@id scaled-kkt)
+
+`kkt_violation(h, v, x, k)` and `kkt_violation(h, v, x)` of `h = Scaled(f, α)` with a
+finite positive `α` evaluate the existing score of `f` on the lazy gradient `v/α` and multiply it
+by `α`: in exact arithmetic the score of ``\alpha f`` is positively homogeneous in ``\alpha`` and `v`
+together. `f` is `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction`, `SqrNormL2`,
+`GroupNormL2` or, for the full-point form, `NormL2`. For one wrapper with a finite positive factor, on the
+numerical domain below with finite entries of the lazily scaled gradient `v/α`, at a zero coordinate and for arrays and
+parameters of one floating type, the signed score agrees bit for bit with the scaled three-argument
+screen, except for the endpoint cases of the [numerical contract](numerics.md) and for `SqrNormL2` with an infinite level,
+whose score takes its gradient entry from the ridge-gradient helpers.
+The scores of the function are in [scoring a coordinate](@ref kkt-screens).
+
+```@example library_scaled
+h1 = Scaled(NormL1(0.5), 2.0)             # the function NormL1(1.0)
+@assert kkt_violation(h1, [3.0, 0.5], [0.0, 1.0], 1) == 2.0      # 2 (|3/2| - 0.5)
+@assert kkt_violation(h1, [3.0, 0.5], [0.0, 1.0], 2) == 1.5      # 2 |0.5/2 + 0.5|
+kkt_violation(h1, [3.0, 0.5], [0.0, 1.0])
+```
+
+**Domain.** The call evaluates the existing score of the leaf on the lazy gradient `v/α`, with the
+rounding and the range limits of that evaluation, and then multiplies by `α`; underflow, overflow
+and `NaN` are not recovered. The value agrees with the score of the scaled function up to
+rounding when `1/α`, the entries `v[i]/α` and the arithmetic of the leaf stay in the range of the working type. The
+limits are those of the leaf: for `Scaled(SqrNormL2(2.0^1000), 2.0^-1000)` at `v = [0.0]`,
+`x = [2.0^600]` the quotients are representable but the gradient entry of the leaf overflows, and the call returns
+`+Inf` where the score of the scaled function is `2.0^600`. Outside the range of `v/α` the value is the one the
+evaluation gives, which need not be an infinity or `NaN`: `Scaled(SqrNormL2(1.0), 1e-300)` at `v = [1e10]`,
+`x = [1.0]` gives `+Inf` (the score of the scaled function is `1e10`), and `Scaled(ZeroFunction(), 2.0)` at
+`v = [nextfloat(0.0)]` gives `0.0` (the quotient underflows).
+
+The reciprocal of the factor takes part in the type promotion. An ordinary `Int` factor, as in `2 * f`,
+introduces `Float64`: data of type `Float16` or `Float32` then widen to `Float64`, while `BigFloat` data
+remain `BigFloat`.
+
+```@example library_scaled
+@assert kkt_violation(Scaled(SqrNormL2(1.0), 1e-300), [1e10], [1.0], 1) == Inf
+@assert kkt_violation(Scaled(SqrNormL2(1.0), 1e-30), [1e10], [1.0], 1) ≈ 1e10
+@assert kkt_violation(Scaled(SqrNormL2(2.0^1000), 2.0^-1000), [0.0], [2.0^600], 1) == Inf
+@assert kkt_violation(Scaled(ZeroFunction(), 2.0), [nextfloat(0.0)], [0.0], 1) == 0.0
+@assert kkt_violation(2 * NormL1(0.5f0), Float32[1, 2], Float32[0, 3], 2) isa Float64
+@assert kkt_violation(2 * NormL1(big"0.5"), [big"1.0", big"2.0"], [big"0.0", big"3.0"], 2) isa BigFloat
+```
+
+### Unsupported cases
+
+* **Nested wrappers whose level does not fold.** For two positive finite factors, the
+  constructor merges the wrappers when the product is a normal number and keeps them nested
+  otherwise; zero and infinite factors follow the endpoint rules of the constructor. For a chain around `NormL1`, `ElasticNet`, `GroupNormL2` or `NormL2` the product of the
+  factors is folded into the level (both levels of `ElasticNet`, an infinite one being kept as it is) when the result is a nonzero finite
+  number that the type of the level accepts, or the level is zero: a normal number, or a subnormal one when the folded level is a
+  `Float32` or a `Float64` (a `Float16` level folds only to a normal number). The chain then has the score of the function with
+  that level, in each form. A subnormal folded level has fewer significant bits than a normal one, and the coefficient of an entry is that
+  rounded level times the weight. Where
+  it does not fold, the three-argument screen of `NormL1` and `ElasticNet`, and the four-argument
+  form of `NormL1`, `ElasticNet` and `GroupNormL2` at a zero coordinate or group, are computed from the coefficient
+  ``a\,\lambda\,w`` of the entry or group, with ``a`` the product of the factors, ``\lambda`` the level and ``w`` the
+  weight. For a positive finite ``\lambda`` and ``w`` the significands of the three are multiplied and their exponents are
+  applied in one last step, without forming ``a\lambda`` or dividing `v` by ``a``. A zero weight gives the coefficient 0 (also
+  under an infinite level), and an infinite weight or level gives `Inf`. For finite entries of `v` the value is
+  ``\lvert v_i\rvert-a\lambda w_i`` for a coordinate and ``\lVert v_G\rVert_2-a\lambda w_G`` for a group, up to the rounding
+  of the coefficient and of the difference in the type of the call. A `NaN` entry gives `NaN`. An infinite entry gives what the
+  three-argument screen gives for `NormL1` and `ElasticNet` (`Inf - Inf` is `NaN`), and `Inf` for `GroupNormL2`. An
+  `ElasticNet` with an infinite `λ2` gives `-Inf` at a zero coordinate, whatever `v` holds.
+  `Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at `v = [0.25]` returns `0.25`, the
+  coefficient ``2^{-1200}`` rounding to zero in `Float64`. The four-argument form at a
+  nonzero coordinate or group (an entry in no group of a `GroupNormL2` counts as nonzero when `x`
+  is nonzero there) and the full-point form throw an `ArgumentError` for such a chain, and the three-argument and four-argument
+  forms of `NormL2` throw an `ArgumentError`.
+* **An infinite factor.** `Scaled(f, Inf)` and `Inf * f` give one wrapper with an infinite factor, also when `f` is
+  itself scaled, because the constructor merges the factors. `kkt_violation(h, v, x)` and the four-argument form at a
+  nonzero coordinate or group throw an `ArgumentError` for it (an entry in no group of a `GroupNormL2` counts as
+  nonzero when `x` is nonzero there). For a finite supplied `v`, the lazy gradient `v/α` is zero and a zero point has
+  these values: `-Inf` for a penalized coordinate with a positive coefficient, and `NaN` (`Inf * 0`) where the coefficient
+  is zero and for an entry in no group of a `GroupNormL2`; for the smooth functions it is `α` times the score at `v = 0`.
+* **A stack that nests an infinite factor with another `Scaled` wrapper.** `Scaled(f, α)` and `α * f` do not produce it,
+  because they merge the infinite factor; a direct call of the parameterized constructor `Scaled{F,T}(f, α)` does. For such a stack the
+  three-argument screen and the four-argument value at a zero coordinate or group are **unspecified**: they can differ from
+  version 0.5, and no particular value, `NaN` included, is promised. The four-argument form at a nonzero coordinate or
+  group and the full-point form throw an `ArgumentError`.
+* **Chains around `LinearFunction` and `SqrNormL2`.** The product of the factors is applied
+  to the gradient entry of the function, as the gradient of the chain applies it, and the score is
+  ``\lvert v_i+a\,d_i\rvert`` in all three forms (an uncentered `SqrNormL2` at a zero coordinate,
+  and `ZeroFunction`, have ``\lvert v_i\rvert``). The three-argument screen of such a chain
+  around `LinearFunction` and a centered `SqrNormL2` was incorrect before 0.6: it
+  returned the screen of the function at the unscaled `v`.
+* **Functions without the forms.** `NormLinf`, the losses and `IndNonnegative` have no
   four-argument or full-point score (for `IndNonnegative`, only the three-argument screen `-v[i]`
   exists; under a single `Scaled(IndNonnegative(), α)` with finite `α` it is `α * kkt_violation(f, v/α, i)`,
   evaluated on the lazy gradient `v/α`, so it equals `-v[i]` when `v[i]/α` and its product with `α` are

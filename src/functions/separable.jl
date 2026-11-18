@@ -201,8 +201,7 @@ function _prox_sep!(y::SymmetricSparseIterate, f, x::Union{AbstractMatrix, Symme
   y
 end
 
-# the proximal operator, then the value at the stored output, also for an indicator function: an output
-# entry that is NaN gives a NaN value
+# the proximal operator, then the value of f at the stored output
 _value_and_prox_sep!(y::_ArrayOrSymmetricIterate, f, x::_ArrayOrSymmetricIterate, γ::Union{Real, AbstractArray}) =
   _value_sep(f, _prox_sep!(y, f, x, γ))
 

@@ -105,7 +105,7 @@ or `Inf`, #904) and subnormal values, zero-weight and infinite-weight groups nea
 `floatmax`, and the separation of the pure compact `prox_block!` from `BlockIterate`
 storage.
 `groupnormlinf` checks `GroupNormLinf` against a sort-based ℓ1-ball reference in BigFloat, written in the file, in Float32/64: one group
-equal to `NormLinf` and singleton groups equal to `NormL1` (bit for bit where both round the same way), irregular range and permuted
+equal to `NormLinf` and singleton groups equal to `NormL1` (the proximal outputs bit for bit, the values within a tolerance), irregular range and permuted
 partitions with entries in no group, a group above 1024 candidates (Michelot's pass), zero and infinite weights, the compact `prox_block!`
 against the array operator, the endpoint rows and their combinations (a NaN or infinite group beside ordinary ones), radii that overflow or
 underflow in two of their factors, sums above `floatmax/2`, the recomputed values, the fused value against the value at the stored output,

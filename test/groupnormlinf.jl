@@ -4,7 +4,7 @@ module GroupNormLinfTest
 # written in this file in BigFloat, in Float32 and Float64. The tolerance of an output entry is TOL_C n eps(T) max|xᵢ| plus
 # two subnormal spacings over the group of n entries: the absolute accuracy O(n eps(T) max|xᵢ| + δ) of the level that the
 # docstring states, with the constants TOL_C and 2 (δ = nextfloat(zero(T))). A group equal to the whole argument is also
-# compared with NormLinf, and singleton groups with NormL1, bit for bit where both round the same way.
+# compared with NormLinf, and singleton groups with NormL1: the proximal outputs bit for bit, the values within a tolerance.
 using Test, ProximalBase, LinearAlgebra, Random, OffsetArrays
 using ..TestUtils
 
@@ -540,8 +540,9 @@ end
     nchecked += 1
   end
   @test nchecked == 6 * 5 * 4 * 7
-  # the value of a group, at the endpoint rules and otherwise the product of the three factors: formed in the working type
-  # ((λ0 w) m, two rounded products, or the three-factor kernel) and converted, within 2 eps (relative) of the exact product
+  # the value of a group: where row_value gives a value, it is the same value; otherwise the exact product of the three
+  # factors is the reference of close_ref_value(...; k = 2), which allows 2 eps(T) |reference| plus two subnormal spacings,
+  # and requires Inf for a reference beyond floatmax(T) by more than rounding
   for λ0 in (zero(T), T(0.5), T(Inf), M, δ), w in (zero(T), one(T), T(3), T(Inf), M), u in groupsets
     f = GroupNormLinf(λ0, [1:3], T[w])
     r = row_value(u, λ0, w)
@@ -703,8 +704,8 @@ end
   @test GroupNormLinf(T(4), [1:1], T[M])(T[1]) === T(Inf)
   # a zero argument and zero terms
   @test GroupNormLinf(ldexp(one(T), -e0), [1:2, 3:4])(zeros(T, 4)) === zero(T)
-  # a level that is not of the type of the entries: the product (λ0 w) m is formed in the promoted type (here the weight is 1,
-  # so one rounding) and converted to the type of the entries
+  # a level of type Float64 with entries of type T: the product (λ0 w) m is formed in Float64 here (the weight is 1, so one
+  # rounding) and converted to the type of the entries
   h = GroupNormLinf(0.7, [1:2], [1.0])
   xx = T[3, -1]
   @test h(xx) === T(0.7 * Float64(maximum(abs, xx)))

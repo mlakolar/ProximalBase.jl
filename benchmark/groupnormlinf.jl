@@ -17,7 +17,7 @@
 # the independent A/A control XC); role Y is the one under test. Each round times X, Y and XC in alternating order;
 # benchmark/summarize_norml1_infinite_weight.py DIR... reports the per-round ratios Y/X and XC/X, and reads the raw.csv and
 # provenance.txt of this script as it does for l2_norms.jl. Run it again with the roles reversed (summarized on its own) and
-# in a fresh process. Inputs and outputs are shared by the three roles, so that array placement does not differ between them.
+# in a fresh process. Inputs and outputs are shared by the three roles.
 # PB_CHECK_ONLY=1 compares the outputs without timing: XC must be `isequal` to X, and Y must agree with X to a few rounding errors of
 # the level, 8 (m + K) eps(T) times the largest entry for groups of m entries and K groups (the two implementations may
 # round the level and the fused value differently); PB_EXACT=1 with PB_CHECK_ONLY=1 requires Y to equal X bit for bit
@@ -54,8 +54,7 @@ function makedata(::Type{T}, m::Int, layout::Symbol) where {T}
 end
 
 # The probes of one case. It is a function of the typed data `d` and of the package functions, so that the closures capture
-# values of concrete types and call the methods directly (a captured Module, or fields of the abstractly typed elements of
-# `data`, would make each call a runtime lookup and a dynamic dispatch that allocates).
+# values of concrete types and call the methods directly.
 function addcase!(probes, id, d, m, ::Type{G}, prox!, value_and_prox!, prox_block!) where {G}
     f = G(d.λ0, d.groups, d.w)
     x, x0, xi, y, U, outs, W, γ = d.x, d.x0, d.xi, d.y, d.U, d.outs, d.W, d.γ
@@ -103,7 +102,7 @@ end
 @assert getfield.(suites["X"], :id) == getfield.(suites["Y"], :id) == getfield.(suites["XC"], :id)
 
 # agreement to a few rounding errors of the level: 8 (m + K) eps(T) times the largest entry (arrays), and the same relative to
-# the value (scalars, whose sum of K terms each has the error of its level)
+# the value (scalars)
 agree(a::Tuple, b::Tuple, tf) = all(agree(u, v, tf) for (u, v) in zip(a, b))
 agree(a::Number, b::Number, tf) = isequal(a, b) || abs(a - b) <= tf * eps(typeof(a)) * abs(a)
 function agree(a, b, tf)
@@ -132,9 +131,9 @@ println(exact ? "outputs identical bit for bit across roles for $(length(suites[
                 "outputs agree across roles for $(length(suites["X"])) probes")
 get(ENV, "PB_CHECK_ONLY", "0") == "1" && exit()
 
-# A non-destructive op is timed with evals = max(1, 2^16 ÷ n) calls per sample and 100 samples. A destructive op (one with
-# a setup) is restored by the setup before each timed call, outside the timing, with evals = 1, and takes as many samples as
-# the other cases take timed calls (100 evals), within the same time budget.
+# A non-destructive op requests up to 100 samples of evals = max(1, 2^16 ÷ n) calls. A destructive op (one with a setup) is
+# restored by the setup before each timed call, outside the timing, with evals = 1, and requests up to 100 * evals samples.
+# Both are subject to seconds = 0.15.
 function bench(p)
     op = p.op
     evals = max(1, 2^16 ÷ p.n)

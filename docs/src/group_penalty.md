@@ -275,10 +275,10 @@ proximal operators, the block operations and the screen against their formulas.
 g(x)=\lambda_0\sum_{k=1}^{K}w_k\max_{i\in G_k}\lvert x_i\rvert,
 ```
 
-over disjoint groups ``G_k`` of linear indices of `x`. Its constructors, validation and storage rules are those of
+over disjoint groups ``G_k`` of linear indices of `x`. Its constructors follow those of
 [`GroupNormL2`](@ref group-l2-guide): groups of any sizes and orders, entries in no group unpenalized, the constructor's
 own copies of `groups` and `w`, a `DimensionMismatch` for a weight count that differs from the group count, and an
-`ArgumentError` for a negative or `NaN` level or weight, an empty group, a nonpositive index and an index in two groups.
+`ArgumentError` for a converted level or weight that is negative or `NaN`, an empty group, a nonpositive index and an index in two groups.
 The weights default to ``w_k=1``.
 
 | Mathematical form | Julia constructor | Meaning |
@@ -298,8 +298,8 @@ For a step ``\gamma\ge0`` the proximal operator acts on each group separately. W
 \sum_{i\in G_k}\left(\lvert x_i\rvert-\tau_k\right)_+=r_k,\qquad i\in G_k,
 ```
 
-and, for finite entries, the group becomes zero (`+0`) when ``r_k\ge\lVert x_{G_k}\rVert_1`` (the table of exceptional
-parameters and values below gives the other cases). This is ``x_{G_k}`` minus its projection onto
+and, for finite entries, the group becomes zero (`+0`) when the computed radius reaches the computed sum of magnitudes (see
+below; the table of exceptional parameters and values below gives the other cases). In exact arithmetic this is ``x_{G_k}`` minus its projection onto
 the ℓ₁ ball of radius ``r_k``, formed by the clip itself. The level comes from the same threshold as
 `NormLinf` (Condat's algorithm, with Michelot's as a fallback), applied to the entries of one group, read through
 its indices without a copy. Its error is absolute, of order ``n\,\varepsilon\max_{i\in G_k}\lvert x_i\rvert+\delta`` for a group of
@@ -307,11 +307,11 @@ its indices without a copy. Its error is absolute, of order ``n\,\varepsilon\max
 statement does not cover the known failure of the Michelot fallback on groups with large ties, which `GroupNormLinf`
 inherits from the shared threshold of `NormLinf`
 ([#987](https://github.com/mlakolar/ProximalBase.jl/issues/987)). The radius is formed as
-``(\gamma\lambda_0)w_k`` in the working type (the promotion of the output type and the types of the factors) and then converted to the output
+``(\gamma\lambda_0)w_k`` in floating point and then converted to the output
 type. When ``\gamma\lambda_0`` is not a normal number, or the product leaves the normal range of the output type, it is
 formed from the significands and exponents of the three factors, so that an intermediate overflow or underflow does not
-decide it. The radius is then rounded to the output type: a radius that rounds up to the ℓ₁ norm of a group gives `+0`
-for it, within the absolute error stated above.
+decide it. A group becomes `+0` when the computed radius reaches the computed sum of magnitudes, in the units of the branch
+that decides; both are rounded, so near this boundary the result is within the absolute error stated above.
 
 ```@example group_penalty
 gi = GroupNormLinf(1.0, [[1, 4, 2], [5, 3]], [1.0, 2.0])      # entry 6 is in no group
@@ -319,7 +319,7 @@ xi = [3.0, -1.0, 0.5, 2.0, 4.0, 7.0]
 @assert gi(xi) == 1.0 * 3.0 + 2.0 * 4.0
 pg = prox(gi, xi, 0.5)
 @assert pg == [2.5, -1.0, 0.5, 2.0, 3.0, 7.0]       # radii 0.5 (τ = 2.5) and 1 (τ = 3); entry 6 is unchanged
-@assert prox(gi, xi, 10.0)[[1, 4, 2, 5, 3]] == zeros(5)    # the radii reach the ℓ₁ norms
+@assert prox(gi, xi, 10.0)[[1, 4, 2, 5, 3]] == zeros(5)    # the radii 10 and 20 are at least the sums of magnitudes, 6 and 4.5
 @assert prox(GroupNormLinf(1.0, [1:2]), [3.0, -1.0], 1.0) == prox(NormLinf(1.0), [3.0, -1.0], 1.0)
 @assert prox(GroupNormLinf(0.5, [[1], [2]]), [3.0, -1.0], 1.0) == prox(NormL1(0.5), [3.0, -1.0], 1.0)
 pg
@@ -349,13 +349,13 @@ out
 
 A `GroupNormLinf` object keeps a buffer for the threshold, with the length of its longest group, which the first group
 that needs one allocates. The buffer is left untouched by the parameter exits, by `NaN` and infinite groups, by a zero
-fill decided before the threshold (a radius that is at least the sum of magnitudes; a threshold whose level is zero has
+fill decided before the threshold (the computed radius reaches the computed sum of magnitudes; a threshold whose level is zero has
 already used the buffer) and, in `prox_block!`, when `out` is an `Array` with a floating-point element type, `u` is an
 `Array` or a `SubArray` of an `Array`, and `!Base.mightalias(out, u)` (so not when `out === u`): `out` is then the
 buffer. The same object must not be used from several tasks at once while its buffer may be in use (`Scaled` wrappers of
 one object share it, and so do the groups of a threaded loop of `prox_block!(u, g, u, k, γ)`), and it must not be used
-reentrantly, also within one task: an argument type whose `getindex` calls `prox!` or `prox_block!` on the same object
-while the threshold runs would overwrite the candidates. Construct a fresh `GroupNormLinf` for each task, or synchronize
+reentrantly, also within one task: a nested call on the same object, from a `getindex` of an argument while the threshold
+runs, can overwrite the candidates of the running threshold if it reaches the threshold with the shared buffer. Construct a fresh `GroupNormLinf` for each task, or synchronize
 the calls ([ownership](numerical_usage.md#Ownership-and-aliases)).
 
 ### Optimality score at a zero group
@@ -412,10 +412,10 @@ so that the proximal operator and the value do not form a product such as ``\lam
 | ``\gamma=\infty``, positive finite level and weight | Fixed at `+0` |
 | A `NaN` entry, positive finite level, weight and step | Every entry of the group becomes `NaN`; the other groups are unaffected |
 | A `±Inf` entry and no `NaN`, positive finite level, weight and step | Returned unchanged, also when the finite product ``\gamma\lambda_0w_k`` overflows |
-| Finite entries, radius at least ``\lVert x_{G_k}\rVert_1`` | `+0`, also when the product ``\gamma\lambda_0w_k`` overflows while the sum is finite |
+| Finite entries, the computed radius reaches the computed sum of magnitudes | `+0`, also when the product ``\gamma\lambda_0w_k`` overflows while the sum is finite |
 | ``\gamma<0`` or ``\gamma=`` `NaN` | `ArgumentError` before any write |
 
-The value of a group is ``\lambda_0w_k\max\lvert x_{G_k}\rvert``, formed in the working type as
+The value of a group is ``\lambda_0w_k\max\lvert x_{G_k}\rvert``, formed in floating point as
 ``(\lambda_0w_k)m`` with two rounded products when ``\lambda_0w_k`` is a normal number and by the three-factor
 kernel in power-of-two units otherwise, and then converted to the output type; the sum over the groups is recomputed in power-of-two units, accumulated in at least `Float64`, where it may
 have lost accuracy (a sum below `K*floatmin(T)` for `K` groups, whose terms may have rounded into the subnormal range) or

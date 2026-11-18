@@ -94,6 +94,68 @@ PB_ARCHIVE=/tmp/pb849-baseline PB_CANDIDATE="$PWD" PB_ROUNDS=21 PB_OUTPUT=/tmp/p
   julia --threads=1 --check-bounds=no --project=benchmark benchmark/elasticnet.jl
 ```
 
+## NormL1Nonneg harness
+
+`norml1nonneg.jl` times `NormL1Nonneg` (issue #947) between the archived source tree at
+eff21b6d7d33c622313122f46c6ee71693c101ee (`PB_ARCHIVE`), the candidate (`PB_CANDIDATE`) and a
+second compilation of the candidate as the A/A control, in Float32 and Float64 at n = 8, 1024,
+2048 and 65536: a loop of `prox_block`, dense `prox!` (unweighted and
+weighted, a zero level, per-entry steps), dense values at a feasible point (unweighted, weighted,
+a zero level), `value_and_prox!`, `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate`
+values and `prox!`, and the `prox!` and `value_and_prox!` of a `Scaled` `NormL1Nonneg`. A dense call
+takes its argument in turn from four arrays, so that consecutive calls do not repeat their input;
+the roles share their plain input and output arrays. Cases whose id starts with `info/` time the value at an
+input with a negative or a `NaN` entry, in every round; their outputs are not compared with the archive, the A/A
+check applies to them, and they are not part of the comparison of the plan. Each round times every case in
+alternating role order and keeps the minimum over the samples of each role; the summary gives per case the median,
+minimum and maximum of the paired ratios candidate/archive and control/candidate, with the warmed
+allocations, and marks medians above 1.05. `PB_REVERSE=1` loads and times the candidate in the place
+of the archive, for the reversed-role rerun in a fresh process; `PB_FILTER` selects cases;
+`PB_CHECK_ONLY=1` performs the output checks and exits before timing; the control must be identical to the
+candidate. With `PB_VS_NORML1=1` the archive role is `NormL1` of the
+candidate tree.
+
+```sh
+# the archived source tree at eff21b6d, extracted once
+mkdir -p /tmp/pb947-archive && git archive eff21b6d7d33c622313122f46c6ee71693c101ee src | tar -x -C /tmp/pb947-archive
+PB_ARCHIVE=/tmp/pb947-archive PB_CANDIDATE="$PWD" PB_ROUNDS=21 PB_OUTPUT=/tmp/pb947-results \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/norml1nonneg.jl
+```
+
+## IndNonnegative harness
+
+`indnonnegative.jl` times `IndNonnegative` (issue #948) between the archived source tree at
+eff21b6d7d33c622313122f46c6ee71693c101ee (`PB_ARCHIVE`), the candidate (`PB_CANDIDATE`) and a
+second compilation of the candidate as the A/A control, in Float32 and Float64: a loop of
+`prox_block`, dense `prox!` with a scalar step and with an array of steps, dense values at a
+feasible input and at an input with one negative entry (the last), `value_and_prox!` (a scalar
+step and an array of steps), `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate` values
+and `prox!`, and the `prox!` of a `Scaled` `IndNonnegative`, at n = 1024 and 65536. The roles share
+their plain input and output arrays, and the summary has the columns of the ElasticNet harness
+(median, minimum and maximum of the paired ratios candidate/archive and control/candidate, warmed
+allocations of the archive and candidate roles, with those of the control in `raw.csv`, medians above 1.05
+marked). A case id starts with the element type `<T>`, Float32 or Float64. `PB_REVERSE=1`, `PB_FILTER`, `PB_ROUNDS` and `PB_OUTPUT`
+act as there.
+
+The archive does not evaluate the value at the output of `value_and_prox!` (its fused value is
+always 0), so the cells `<T>/value_and_prox!/...` report the ratio to the archive without a verdict, and
+the cells `<T>/comparator/value_and_prox!/...` are the ones judged. In a comparator cell the role
+"archive" is the candidate's own `prox!` followed by `f(y)` and the roles "candidate" and "control" are
+`value_and_prox!` of their trees, so that the C/A column is the ratio of the candidate's
+`value_and_prox!` to its `prox!` then `f(y)`, and the A/A column is as in the other cells.
+
+The inputs have no `NaN` and their negative entries lie far below the tolerance of the archived
+value (`sqrt(eps(T))`). `PB_CHECK_ONLY=1` compares the outputs bit for bit: proximal points, values,
+the fused values, the comparator cells against `value_and_prox!`, and the control against the
+candidate. The three intended differences from the archive (the tolerance of its value, its value
+`Inf` at a `NaN` entry where the candidate's is `NaN`, and its fused value, always 0) are outside
+the timed inputs.
+
+```sh
+PB_ARCHIVE=/tmp/pb849-baseline PB_CANDIDATE="$PWD" PB_ROUNDS=21 PB_OUTPUT=/tmp/pb948-results \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/indnonnegative.jl
+```
+
 ## ElasticNet array-step harness
 
 `ridge910.jl` times the loop of `ElasticNet` with an array of steps (issue #910) and the code
@@ -439,3 +501,25 @@ PB_ROOT="$PWD" PB_CHECK_ONLY=1 julia --threads=1 --check-bounds=no --project=ben
 `PB_FILTER` selects cells by a regular expression on their ids `type/operation/variant/n` (for example
 `'Float64/residual/.*/n100$'`), `PB_ROUNDS` sets the number of rounds, `PB_CHECK_ONLY=1` checks values and allocations
 without timing, and `PB_OUTPUT` receives `raw.csv` and `provenance.txt`.
+
+## Local `kkt_violation` harness
+
+`kkt_local.jl` times the three- and four-argument `kkt_violation` between source trees compiled as modules of one process: `PB_BASE`
+(required), `PB_HEAD` (default the repository), optionally earlier trees in `PB_HISTORY`, and a second compilation of `base` and of `head`
+as the A/A controls (`basectl`, `headctl`). Group A times zero coordinates of the entrywise functions and `Scaled` of three of them; group B
+all coordinates of points with a share of zeros and the scan of the inactive coordinates (the three-argument form is timed at array points)
+for weighted and unweighted `NormL1` and `ElasticNet` and plain and centered `SqrNormL2`; group C `GroupNormL2`; group D the unweighted
+`NormL1` against four reference kernels; group E one optimality check, in ns per inactive coordinate; group F a zero group of a
+`BlockIterate` and a zero coordinate of a `SymmetricSparseIterate`. Before a case is timed the script compares each coordinate result (and
+the scan lists) of the trees with `base`; if `base`, `basectl`, `head` and `headctl` differ it prints `VALUES DIFFER` and exits with a
+failure status. `PB_CHECK_ONLY=1` runs the value and allocation checks without timing and ends with `CHECK PASS (<n> cases)` or `CHECK FAIL`.
+`summarize_kkt_local.py` gives per row the median ns per call and the paired ratios `head/base` (`base/pre`, `head/pre` with a history tree
+`pre`) with the controls and `head_vs_controls`. Compare a row with its two controls: rows of one loop shape and function move together, so
+a difference of the size of the controls in one row is not evidence, and the same run in a second process with `PB_REVERSE=1` is the check.
+The header of the script lists the settings and the output lines. It was written for issue #980.
+
+```sh
+PB_BASE=/path/to/tree-before PB_ROUNDS=15 julia --threads=1 --project=benchmark benchmark/kkt_local.jl > run.out
+PB_BASE=/path/to/tree-before PB_REVERSE=1 julia --threads=1 --project=benchmark benchmark/kkt_local.jl > run-reversed.out
+python3 benchmark/summarize_kkt_local.py summary.tsv run.out run-reversed.out
+```

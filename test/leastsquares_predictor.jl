@@ -28,6 +28,19 @@ function ref_residual(α, r)
   end
 end
 
+# A value v of α Σ dᵢ² / 2 over n entries dᵢ (α = 1 for the raw loss) against ref, that quantity formed from the exact bits
+# of the dᵢ, within γ_n ref, γ_n = n u / (1 - n u) and u = eps(T) / 2. That is the bound on a sum of n nonnegative terms
+# for each order of its additions, each square being rounded at most once (contraction can fuse that rounding into an
+# addition) and entering at most n - 1 additions. It applies to a v that is the sum times a scale α that is exact (here
+# 1 or 1/2) and the division by 2, while the sum is far from the ends of the range of T.
+function within_sum_bound(v, ref, ::Type{T}, n) where {T}
+  with256() do
+    u = big(eps(T)) / 2
+    γ = n * u / (1 - n * u)
+    isfinite(v) && abs(big(v) - ref) <= γ * ref
+  end
+end
+
 # A value v of n squares against its reference ref, with u = floatmax - prevfloat(floatmax), thr = floatmax + u/2
 # the round-to-nearest overflow threshold and e = (n + 8) eps(T) the relative error bound:
 #   (a) |ref| (1 + e) <= floatmax: finite and within e |ref| (plus two units of the smallest subnormal where
@@ -55,6 +68,11 @@ function value_ok(v, ref, ::Type{T}, n) where {T}
     end
   end
 end
+
+# The class of the value of α Σ rᵢ² / 2 with a finite α > 0, for the entries r: NaN where an entry is NaN, +Inf where an
+# entry is infinite and none is NaN, and nonnegative (not NaN) where all entries are finite. value_ok alone accepts any
+# non-finite value beyond the overflow region and for a non-finite reference.
+value_class_ok(v, r) = any(isnan, r) ? isnan(v) : any(isinf, r) ? v == Inf : v >= 0
 
 # The gradient g against α Xᵀ(z - Y) componentwise within (n + 8) eps α (|X|ᵀ|z - Y|)ⱼ + 2 nextfloat(0), where
 # no entry of |X|ᵀ|z - Y| is subnormal-ish or near the top of the range and α times it stays in range
@@ -235,8 +253,15 @@ end
     rng = MersenneTwister(5)
     _, Y, z = make_case(rng, T, kind, 64, 3)
     for λ in (one(T), T(0.3), floatmin(T), floatmax(T) / 8)
-      # with a second operand both entry points form the sum over the differences and agree to the bit
-      @test PB._square_value(λ, z, Y) === PB._square_value_wide(λ, z, Y)
+      # with a second operand both entry points form the sum over the differences, in loops compiled at two call sites that
+      # may add in different orders: each value satisfies value_ok against the reference λ ‖z - Y‖² / 2 (the accuracy bound
+      # where the reference is in the range of T, a class where it overflows). The data and λ are finite and positive, so
+      # each value is also nonnegative and not NaN; value_ok alone accepts NaN and -Inf beyond the overflow region.
+      va, vb = PB._square_value(λ, z, Y), PB._square_value_wide(λ, z, Y)
+      @test va isa T && vb isa T
+      refλ = ref_value(λ, z, Y)
+      @test value_ok(va, refλ, T, 64) && value_ok(vb, refλ, T, 64)
+      @test va >= zero(T) && vb >= zero(T)
       # without one, SqrNormL2 sums with sum(abs2, x) and the least-squares route in one vectorizing loop: the two
       # recursive sums of the squares can differ in the last bits, and give the same class
       a, b = PB._square_value(λ, z, nothing), PB._square_value_wide(λ, z, nothing)
@@ -478,14 +503,24 @@ end
     z = similar(Y)
     mul!(z, X, β)
     f = LeastSquaresLoss(Y, X)
-    @test f(β) === PB.value_from_predictor(f, z)
+    # The values of f(β), the predictor oracle, value_and_gradient! and the residual oracle sum the squares of the same
+    # rounded residual z - Y (f(β) forms z in f.tmp by the same product), in loops that may add in different orders: each
+    # is checked against α Σ dᵢ² / 2 of that residual with α = 1 within the summation bound (the sum is far from the ends
+    # of the range of T, so the division by 2 is exact). The gradients are a BLAS product of the same operands, and are
+    # compared bit for bit.
+    ref = ref_residual(nothing, z .- Y)
+    vf, vp = f(β), PB.value_from_predictor(f, z)
+    @test vf isa T && vp isa T
+    @test within_sum_bound(vf, ref, T, n) && within_sum_bound(vp, ref, T, n)
     g1, g2, d = similar(β), similar(β), similar(Y)
     v1 = value_and_gradient!(g1, f, β)
     v2 = PB.value_and_gradient_from_predictor!(g2, d, f, z)
-    @test v1 === v2
+    @test v1 isa T && v2 isa T
+    @test within_sum_bound(v1, ref, T, n) && within_sum_bound(v2, ref, T, n)
     @test all(g1 .=== g2)
     @test all(gradient!(similar(β), f, β) .=== g1)
-    @test PB.value_from_residual(f, d) === v1
+    vd = PB.value_from_residual(f, d)
+    @test vd isa T && within_sum_bound(vd, ref_residual(nothing, d), T, n)
     # a scaled loss: the values agree to the rounding of the product, the gradient to α
     for α in (T(0.3), 3, 1e-3)
       s = Scaled(f, α)
@@ -551,17 +586,6 @@ end
   end
 end
 
-# A value v of the sum of n squares against its exact reference ref within gamma_n ref, gamma_n = n u / (1 - n u) and
-# u = eps(T) / 2: the bound on a sum of n nonnegative terms in any order of the additions, for a v that is that sum
-# times a scale that is exact (here 1 or 1/2, and the division by 2) while the sum is far from the ends of the range of T.
-function within_sum_bound(v, ref, ::Type{T}, n) where {T}
-  with256() do
-    u = big(eps(T)) / 2
-    γ = n * u / (1 - n * u)
-    isfinite(v) && abs(big(v) - ref) <= γ * ref
-  end
-end
-
 @testset "products and reads of the design" begin
   for T in (Float32, Float64), α in (nothing, T(0.5))
     rng = MersenneTwister(41)
@@ -579,13 +603,14 @@ end
     @test products(X) == (0, 1)
     g0, d0 = zeros(T, p), zeros(T, n)
     v0 = PB.value_and_gradient_from_predictor!(g0, d0, clean, z)
-    # The value is a sum of n squares, and the order of its additions can differ between two compiled methods (for
-    # example one loaded from a package image compiled for another CPU). So each value is checked against the exact
-    # sum of the squares of its own residual within gamma_n = n u / (1 - n u), u = eps(T) / 2, which bounds the error
-    # of a sum of n nonnegative terms in any order of the additions (each square is rounded once and enters at most
-    # n - 1 additions).
-    # The residual is an elementwise subtraction and the gradient one BLAS product on the same data in both losses,
-    # so they are compared bit for bit.
+    # The value is α Σ dᵢ² / 2 over the n entries dᵢ of the residual (α = 1 for the raw loss), and the order of its
+    # additions can differ between two compiled methods (for example one loaded from a package image compiled for
+    # another CPU). So each value is checked against α Σ dᵢ² / 2 of its own residual, formed from the exact bits of the
+    # dᵢ, within gamma_n = n u / (1 - n u), u = eps(T) / 2, which bounds the error of a sum of n nonnegative terms for
+    # each order of its additions (each square is rounded at most once, because contraction can fuse that rounding into
+    # an addition, and enters at most n - 1 additions).
+    # The residual is an elementwise subtraction in both losses, and the gradient is α Xᵀd, a BLAS product of the same
+    # operands scaled by α, so they are compared bit for bit.
     @test v isa T && v0 isa T
     @test within_sum_bound(v, ref_residual(α, d), T, n)
     @test within_sum_bound(v0, ref_residual(α, d0), T, n)
@@ -882,9 +907,19 @@ end
   # K = 2^63 floatmin(T)/eps(T), and, for a Scaled, α s <= floatmax; otherwise it runs the kernel's test (s >= n
   # floatmin(T)/eps(T) and α s / 2 finite) and recomputation on s. The inputs below put s near n floatmin(T)/eps(T)
   # and K (squares of rounded square roots and their neighbours, which bracket the two bounds without hitting them
-  # exactly in every case), near floatmax, and make it Inf or NaN. On each of them the oracles and the methods of the
-  # loss must give the kernel's result on the same sum, and agree with the 256-bit reference. The test of the bounds
-  # on s is checked directly at K, floatmax and their neighbours.
+  # exactly in every case), near floatmax, and make it Inf or NaN. The values of the three oracles on each of them
+  # satisfy value_ok against the 256-bit reference (the accuracy bound where the reference is in the range of T, a class
+  # where it overflows or is not finite), have the type T, and have the class of value_class_ok (NaN, +Inf, or
+  # nonnegative). Where at most two entries are nonzero (NaN and ±Inf are nonzero), the sum has at most one addition
+  # that is not with +0, so the order of the additions does not change it (for the two-entry inputs below it is also
+  # the same with a fused multiply-add), and the oracles must also agree under isequal with the kernel's result on the
+  # same sum (the finite results then bit for bit). The methods of the loss f(β) and value_and_gradient! run for
+  # α === nothing and a finite r only: there they agree under isequal with the oracles where at most two entries are
+  # nonzero, and are checked against the reference otherwise. The 64 equal entries are not compared with the kernel
+  # that way, because the oracles in a package image compiled for another CPU and the kernel called here can add them
+  # in different orders. The inputs [u; zeros(T, 63)], with u near the square roots of n floatmin(T)/eps(T) for n = 64
+  # and of K, keep the comparison with the kernel at both bounds for n = 64. The test of the bounds on s is checked
+  # directly at K, floatmax and their neighbours.
   for T in (Float32, Float64)
     E = exponent(floatmax(T))
     K = T(0x1p63) * (floatmin(T) / eps(T))
@@ -898,6 +933,17 @@ end
       c = sqrt(t / n)
       for u in (prevfloat(c, 2), prevfloat(c), c, nextfloat(c), nextfloat(c, 2))
         push!(inputs, fill(u, n))
+      end
+    end
+    # 64 entries, one nonzero: the sum is one square, rounded once, and the 63 zeros add exactly. The squares of the u
+    # lie on both sides of each t: 64 floatmin(T)/eps(T) is the bound of the kernel's test s >= n floatmin(T)/eps(T) for
+    # n = 64, and K is the bound of the ordinary product of the route.
+    for t in (64 * (floatmin(T) / eps(T)), K)
+      c = sqrt(t)
+      us = (prevfloat(c, 2), prevfloat(c), c, nextfloat(c), nextfloat(c, 2))
+      @test any(u -> abs2(u) < t, us) && any(u -> abs2(u) > t, us)
+      for u in us
+        push!(inputs, [u; zeros(T, 63)])
       end
     end
     h = pow2(T, (E - 1) ÷ 2)                          # s = 2 h^2 = 2^E, below floatmax; 2 s and 4 s are not
@@ -915,15 +961,28 @@ end
       vr, vp = PB.value_from_residual(f, r), PB.value_from_predictor(f, r)
       g, d = zeros(T, n), zeros(T, n)
       vg = PB.value_and_gradient_from_predictor!(g, d, f, r)
-      @test isequal(vr, kr) && isequal(vp, kp) && isequal(vg, kr)
+      @test vr isa T && vp isa T && vg isa T
+      few = count(!iszero, r) <= 2                    # at most one addition that is not with +0
+      if few
+        @test isequal(vr, kr) && isequal(vp, kp) && isequal(vg, kr)
+      end
       ok = value_ok(vr, ref_residual(α, r), T, n) && value_ok(vp, ref_value(α, r, Y), T, n)
       ok || @info "boundary input" T α r vr vp
       @test ok
+      @test value_ok(vg, ref_residual(α, r), T, n)
+      @test value_class_ok(vr, r) && value_class_ok(vp, r) && value_class_ok(vg, r)
       if α === nothing && all(isfinite, r)
-        # the methods of the loss: for finite r, X = I gives Xβ = r (products by one and zero, sums with zeros), so that
-        # f(β) and value_and_gradient! see the same sums
-        @test isequal(f(r), vp)
-        @test isequal(value_and_gradient!(similar(r), f, r), vr)
+        # the methods of the loss, for α === nothing and a finite r only (for r = T[1, Inf] and a zero response f(r) is
+        # NaN, from 0 * Inf in X r, where the oracles give +Inf): X = I gives Xβ = r (products by one and zero, sums with
+        # zeros), so that f(β) and value_and_gradient! see the same sums where at most two entries are nonzero
+        fv, fvg = f(r), value_and_gradient!(similar(r), f, r)
+        @test fv isa T && fvg isa T
+        if few
+          @test isequal(fv, vp) && isequal(fvg, vr)
+        else
+          @test value_ok(fv, ref_value(nothing, r, Y), T, n) && value_ok(fvg, ref_residual(nothing, r), T, n)
+          @test value_class_ok(fv, r) && value_class_ok(fvg, r)
+        end
       end
     end
     # an infinite scale: the value oracles check it on the exceptional path, which the call reaches for these sums

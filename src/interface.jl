@@ -390,7 +390,7 @@ Compute a proximal point for one entry or compact block at the supplied trial,
 without changing an iterate, active set or solver cache.
 
 The scalar form uses the **global linear entry index** `i` to select parameters.
-It is implemented by `NormL1`, `ElasticNet`, `SqrNormL2`, `LinearFunction`,
+It is implemented by `NormL1`, `NormL1Nonneg`, `ElasticNet`, `SqrNormL2`, `LinearFunction`,
 `ZeroFunction` and supported `Scaled` leaves. A custom [`SeparableFunction`](@ref)
 implements it together with [`value_entry`](@ref).
 
@@ -460,9 +460,11 @@ optimality.
   working type for an empty `x`.
 
 With `cᵢ = λ0*wᵢ` (`λ1*wᵢ` for `ElasticNet`), the scores of entry `i` at `xᵢ = 0` and
-at `xᵢ ≠ 0` are, for the five functions that have all three forms:
+at `xᵢ ≠ 0` are, for the six functions that have all three forms:
 
 * `NormL1`: `abs(vᵢ) - cᵢ` and `abs(vᵢ + cᵢ*sign(xᵢ))`.
+* `NormL1Nonneg`: for finite inputs, `-vᵢ - cᵢ` at `xᵢ = 0`, and at `xᵢ ≠ 0` `abs(vᵢ + cᵢ)` for `xᵢ > 0` and
+  `Inf` for `xᵢ < 0`, which is outside the domain `x ≥ 0`.
 * `ElasticNet`: `abs(vᵢ) - cᵢ` (`-Inf` for an infinite ridge level) and
   `abs((vᵢ + λ2*xᵢ) + cᵢ*sign(xᵢ))`.
 * `ZeroFunction`: `abs(vᵢ)` in both cases.
@@ -519,7 +521,10 @@ function kkt_violation end
 
 # The four-argument form reads the point. A function of this package takes its own method (_kkt_violation);
 # a function defined outside it has the screen of the three-argument form at a zero coordinate (_kkt_custom).
-kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
+# The method is marked for inlining, as the public four-argument methods of a Scaled are (functions/scaled.jl): inlining
+# permits the compiler to hoist loop-invariant state of the unweighted cases out of the caller's loop; weighted coefficients
+# remain entry-dependent.
+@inline kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
   (_check_one_based(g, x); eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation);
    _check_kkt_coordinate(g, x, i);
    length(g) == length(x) || _gradient_length_error(g, x);
@@ -552,7 +557,7 @@ _gradient_extent(x::SymmetricSparseIterate) = x.p^2
     restrict(f, S)
 
 Restrict a retained function's entry parameters to the integer index vector S.
-NormL1 and ElasticNet slice weights, centered SqrNormL2 slices its center, LinearFunction
+NormL1, NormL1Nonneg and ElasticNet slice weights, centered SqrNormL2 slices its center, LinearFunction
 slices coefficients, QuadraticFunction selects its principal submatrix and
 linear term, vector-response LeastSquaresLoss selects design columns, and
 Scaled forwards. For least squares and quadratics, omitted coordinates are fixed at zero.
@@ -626,17 +631,17 @@ end
 #  Point-aware scores of the entrywise functions
 ####################################
 
-# Each of NormL1, ElasticNet, ZeroFunction, LinearFunction and SqrNormL2 supplies, for the floating type W of
+# Each of NormL1, NormL1Nonneg, ElasticNet, ZeroFunction, LinearFunction and SqrNormL2 supplies, for the floating type W of
 # the call:
 #   _kkt_type(f, V, X)                 W, from the element types of v and x
 #   _kkt_state(f, W)                   the values that a call prepares once and reuses for its entries: the coefficient
-#                                      of an unweighted NormL1 or ElasticNet, a level
+#                                      of an unweighted NormL1, NormL1Nonneg or ElasticNet, a level
 #   _kkt_natural(f, s, W, v, x, i)     the ordinary score of entry i from v and x in W, by the formulas of kkt_violation
 #   _kkt_entry(f, s, W, v, x, i)       the score of entry i for the local form and the pass by entry: the inputs that
 #                                      the formula of f uses are converted to W, and the rules for NaN and infinite
 #                                      inputs are applied
 #   _kkt_flag(f, x, r)                 0, or NaN for an entry that makes the natural result of the loop doubtful beyond a NaN
-# NormL1 and ElasticNet also supply
+# NormL1, NormL1Nonneg and ElasticNet also supply
 #   _kkt_entry_coefficient(f, s, W, i) the coefficient of entry i: the one held by the state of an unweighted function,
 #                                      or the one that _kkt_coefficient forms from the level and the weight of the entry
 # _kkt_coefficient (numerical_kernels.jl) is the numerical rule that forms a coefficient λw in a requested type, and

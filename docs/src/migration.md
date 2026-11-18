@@ -11,12 +11,13 @@ API. This development reduction is not a release announcement.
 ## Retained and removed scope
 
 The [function library](function_library.md) is exhaustive. Norms and group penalties
-other than `NormL1`, `NormL2`, `NormLinf`, `GroupNormL2` and `GroupNormLinf`, nonconvex penalties, logistic/Poisson/robust-loss families, constraints and indicators,
+other than `NormL1`, `NormL2`, `NormLinf`, `GroupNormL2` and `GroupNormLinf`, nonconvex penalties, logistic/Poisson/robust-loss families, constraints and indicators other than `IndNonnegative`,
 spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
 frameworks and GPU extensions were removed. They have no replacement capability
 implied by this manual. `BlockIterate` retains grouped **storage**; the group-lasso
 penalty `GroupNormL2` and the norm `NormL2` were restored separately (#900), and
-the norm `NormLinf` (#946) and the group norm `GroupNormLinf` (#956) separately, without the other group penalties and norms.
+the norm `NormLinf` (#946) and the group norm `GroupNormLinf` (#956) separately, without the other group penalties and norms; the indicator
+`IndNonnegative` was restored separately (#948), without the other indicators.
 
 Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
 retained. Compute mathematical gradient mappings in caller code. Coordinate
@@ -88,7 +89,8 @@ with a product of factors that is not a normal number, and infinite factors, hav
   (levels, weights, centers and coefficients) are `Float32` or `Float64` arrays and values of one type, `v` is finite and
   the function is not a `SqrNormL2` with an infinite level: they return the same values as
   before. A working-set solver that ranks the inactive coordinates of a `SparseIterate` with
-  the four-argument form in that case is unaffected. Outside that case the arithmetic is in
+  the four-argument form in that case is unaffected in the values it receives, although each call of the four-argument
+  form does more work than a call of the screen (see [scoring a coordinate](@ref kkt-screens)). Outside that case the arithmetic is in
   the working type of the call, which can differ: for `f = SqrNormL2(0.1, Float32[1])`,
   `v = Float32[1]` and `x = Float32[0]` the value was the `Float64` `0.9` before 0.6 and is the
   `Float32` `0.9f0` in 0.6. The same applies to `GroupNormL2` at a zero group, whose result type
@@ -160,6 +162,8 @@ If code relied on the old value at a nonzero coordinate, call the three-argument
 | Function | Restored from the archive | Differences from the archived version |
 |:--|:--|:--|
 | `ElasticNet(λ1, λ2, w)` ([#908](https://github.com/mlakolar/ProximalBase.jl/issues/908)) | Constructor, fields `λ1`, `λ2`, `w`, value, `prox_block`, `value_entry`, array proximal operators, KKT screen, `restrict`, `Scaled` folds and zero scaling | Built on the retained `NormL1` threshold and `SqrNormL2` ridge kernels, so ordinary results can differ in the last bits (multiplication by the rounded `1/(1 + γλ2)`). An infinite `λ1` follows the current `NormL1` rule (`+0` for positive weights, also at `γ = 0` and for `NaN`/`±Inf` inputs) where the archive returned `NaN`. An infinite `λ2` is the indicator of `{0}`. A negative or `NaN` scalar step throws `ArgumentError` before writes; the archive applied the arithmetic |
+| `NormL1Nonneg(λ0, w)` ([#947](https://github.com/mlakolar/ProximalBase.jl/issues/947)) | Constructor, fields `λ0`, `w`, value, `prox_block`, `value_entry`, array proximal operators, KKT screen, `restrict`, `Scaled` zero scaling and level folds | The domain test is exact: `x ≥ 0` with `-0.0` feasible, where the archive accepted entries down to `-sqrt(eps)` and clamped them at zero (the value rules are in the [numerical contract](numerics.md)). An infinite level follows the current `NormL1` rule (`+0` for positive weights at every `γ ≥ 0`, `NaN` and `±Inf` inputs included). With a `Float32` level and an unweighted `Float32` entry, `value_entry` returns `Float32` rather than the archive's `Float64` ([#684](https://github.com/mlakolar/ProximalBase.jl/issues/684)). A negative or `NaN` scalar step throws `ArgumentError` before writes; the archive applied the arithmetic. New: the point-aware `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)` |
+| `IndNonnegative()` ([#948](https://github.com/mlakolar/ProximalBase.jl/issues/948)) | The type, `isconvex`, `iszeropreserving`, `value_entry`, `prox_block`, the screen `kkt_violation(f,v,i) = -v[i]`, `restrict`, and zero scaling (`Scaled(f, 0)` is `f`) | The value is exact: `0` at a point with no negative entry, `Inf` at a negative entry of any size (the archive accepted `v >= -_tol`), and `NaN` at a `NaN` entry (the archive gave `Inf`). `value_and_prox!` returns the value at the stored output, so `NaN` where an output entry is `NaN` (the archive returned `0`). A negative or `NaN` scalar step throws `ArgumentError` before writes in `prox`, `prox!` and `value_and_prox!`; the archive did not check the step. The point-aware `kkt_violation` forms, conjugates, `Constrained` and the envelope slopes are not restored |
 
 ## Names, coordinates and writes
 

@@ -192,6 +192,7 @@ terms must also be derived and included by the caller.
 | Function | What the method keeps | Omitted coordinates |
 |:--|:--|:--|
 | `NormL1` | Selected entry weights (or the unweighted penalty) | Set to zero; their penalty is zero |
+| `NormL1Nonneg` | The level and the selected entry weights (or the unweighted penalty) | Set to zero; their penalty is zero, and the domain `x ≥ 0` stays on the kept coordinates |
 | `ElasticNet` | Both levels and the selected entry weights (or the unweighted penalty) | Set to zero; their penalty is zero |
 | `SqrNormL2` | Selected center entries, if centered | Set to zero; omitted-center constant is **dropped** |
 | `LinearFunction` | Selected coefficients and the original constant | Set to zero |

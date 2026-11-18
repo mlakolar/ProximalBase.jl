@@ -69,12 +69,14 @@ zero, and it takes no iterate.
 For `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` and `SqrNormL2` it
 returns the signed screen at a zero coordinate and a nonnegative stationarity
 mismatch at a nonzero one (see [Mathematical operations](operations.md) for each
-scalar). `GroupNormL2` has the same two scores for a group, and `Scaled` forwards
+scalar). For `NormL1Nonneg` its point-aware entry formulas and non-finite overrides are
+described in [Mathematical operations](operations.md) and the [numerical contract](numerics.md).
+`GroupNormL2` has the same two scores for a group, and `Scaled` forwards
 them (below). `GroupNormLinf` has the signed margin ``\lVert v_G\rVert_1-c`` of its dual norm at a zero group, where `c = λ0 w[k]`, and
 throws an `ArgumentError` at a nonzero group; its screen is the ℓ₁ screen of [#634](https://github.com/mlakolar/ProximalBase.jl/issues/634), and its
 positive part is not a stationarity distance. `kkt_violation(g,v,x)` is the nonnegative full-point measure
 ``\max(0,\max_k s_k)`` of these functions on a one-based array,
-`SparseIterate` or `BlockIterate`: the scores ``s_k`` of the entries for the five scalar
+`SparseIterate` or `BlockIterate`: the scores ``s_k`` of the entries for the six scalar
 functions, and for `GroupNormL2` the scores of the groups and ``\lvert v_i\rvert`` of the entries in no
 group, a **maximum of block 2-norms** and not an ``\ell_\infty`` distance. `NormL2` has the full-point
 form and no other.
@@ -90,6 +92,18 @@ form and no other.
 | Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The block score of that group, `abs(v[k])` for an entry in no group (also when `x[k]` is nonzero) |
 | Other arrays, `GroupNormLinf` | Entry index selects its group, with the checks of `GroupNormL2`. The margin at a zero group, `abs(v[k])` for an entry in no group, `ArgumentError` at a nonzero group; the full-point and three-argument forms throw `ArgumentError` |
 | Any point, `NormL2` | No form for an entry or a group: `ArgumentError` that names the full-point form |
+
+At an array that is not a `BlockIterate` and at a `SparseIterate`, where `k` is an entry index, a call of the four-argument
+form for `NormL1` and `ElasticNet` reads `x[k]`, evaluates the score of a zero entry and that of a nonzero one, and selects
+between them; `SqrNormL2` forms its gradient entry from `x[k]` (and from the center, when it has one); and each of the five
+functions applies the rules for non-finite values to the entries of `v` and `x` that its formula uses. A call therefore does
+more work than a call of the three-argument screen. For these five functions the caller chooses between the forms for a
+coordinate that it knows to be zero: at those points, the three-argument form returns the same value as the four-argument form
+with the same index when `v`, `x` and the parameters of the function (levels, weights, centers, coefficients) are `Float32` or
+`Float64` arrays and values of one type, `v[k]` is finite and the function is not a `SqrNormL2` with an infinite level. A
+`BlockIterate`, where `k` is a group and the form takes the maximum over the entries of the group, and a
+`SymmetricSparseIterate`, where the form reads the symmetric gradient pair and the stored value, are not covered by this
+statement.
 
 For `SparseIterate`/`SymmetricSparseIterate`, invalid coordinate throws `BoundsError` before
 extent mismatch throws `DimensionMismatch`, after checking one-based axes and

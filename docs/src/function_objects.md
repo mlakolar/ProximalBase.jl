@@ -221,7 +221,9 @@ the parameters of the particular object.
 | `LeastSquaresLoss` | yes | yes | no | yes | no |
 | `SqrtLeastSquaresLoss` | no | no | no | yes | no |
 | `NormL1` | no | yes | yes | yes | yes |
+| `NormL1Nonneg` | no | yes | yes | yes | yes |
 | `ElasticNet` | no | yes | yes | yes | yes |
+| `IndNonnegative` | no | yes | yes | yes | yes |
 | `NormL2` | no | yes | no | yes | no |
 | `NormLinf` | no | yes | no | yes | no |
 | `GroupNormL2` | no | yes | no | yes | no |

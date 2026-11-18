@@ -54,14 +54,48 @@ message(path, line, token, kind=:comment) =
 # is_leaf; there children(n) returns nothing or an empty tuple for a leaf.
 isleaf(n) = (c = JS.children(n); c === nothing || isempty(c))
 
+# Whether the green leaf n is whitespace or a comment.
+is_trivia(n) = isleaf(n) && JS.kind(n) in (JS.K"Whitespace", JS.K"NewlineWs", JS.K"Comment")
+
+# The text of the leaves under n that are not trivia, as in Test. @testset, whose
+# whitespace the parser keeps inside the macro name; offset is where n starts.
+function code_text(n, offset, bytes)
+    is_trivia(n) && return ""
+    isleaf(n) && return String(bytes[offset:offset+JS.span(n)-1])
+    out = ""
+    for child in JS.children(n)
+        out *= code_text(child, offset, bytes)
+        offset += JS.span(child)
+    end
+    return out
+end
+
 # Whether the green node n is a call of the macro @testset or Test.@testset. The
 # macro name is the first child (Julia 1.13) or, after a leaf @, the second child
 # (Julia 1.10), so the text of these children is compared, not a node kind.
 function is_testset_call(n, bytes, offset)
     JS.kind(n) == JS.K"macrocall" || return false
     head = JS.children(n)
-    len = JS.span(head[1]) + (isleaf(head[1]) ? JS.span(head[2]) : 0)
-    return occursin(r"^(?:[A-Za-z_]\w*\.)*@testset$", String(bytes[offset:offset+len-1]))
+    text = code_text(head[1], offset, bytes)
+    isleaf(head[1]) && (text *= code_text(head[2], offset + JS.span(head[1]), bytes))
+    return occursin(r"^(?:[A-Za-z_]\w*\.)*@testset$", text)
+end
+
+# (string node, offset) if the green node n is a string literal, possibly in
+# parentheses, as in @testset ("name"); otherwise nothing.
+function string_literal(n, offset)
+    isleaf(n) && return nothing
+    JS.kind(n) == JS.K"string" && return (n, offset)
+    JS.kind(n) == JS.K"parens" || return nothing
+    inner = nothing
+    for child in JS.children(n)
+        if !is_trivia(child) && !(isleaf(child) && JS.kind(child) in (JS.K"(", JS.K")"))
+            inner === nothing || return nothing
+            inner = (child, offset)
+        end
+        offset += JS.span(child)
+    end
+    return inner === nothing ? nothing : string_literal(inner...)
 end
 
 # Append (byte offset, byte length, kind) to acc for each Comment leaf under n
@@ -72,9 +106,10 @@ function collect_pieces!(acc, n, offset, bytes)
     if is_testset_call(n, bytes, offset)
         o = offset
         for child in JS.children(n)
-            if JS.kind(child) == JS.K"string"
-                p = o
-                for piece in JS.children(child)
+            lit = string_literal(child, o)
+            if lit !== nothing
+                p = lit[2]
+                for piece in JS.children(lit[1])
                     JS.kind(piece) == JS.K"String" && push!(acc, (p, JS.span(piece), :name))
                     p += JS.span(piece)
                 end
@@ -295,6 +330,13 @@ const SELF_TEST_NAME_CASES = Tuple{String,String,Vector{Tuple{Int,String,Symbol}
     ("label in a @testset name inside a for loop and a let block",
      "for T in (Float32,)\n    let x = 1\n        @testset \"E4\" begin\n        end\n    end\nend\n",
      [(3, "E4", :name)]),
+    ("label in a Test. @testset name, with whitespace after the dot",
+     "Test. @testset \"R1 a\" begin end\n", [(1, "R1", :name)]),
+    ("label in a parenthesized @testset name", "@testset (\"T3 b\") begin end\n", [(1, "T3", :name)]),
+    ("label in a name in nested parentheses and a comment",
+     "@testset ((#= c =# \"T3 b\")) begin end\n", [(1, "T3", :name)]),
+    ("a concatenation in parentheses is not a name that is searched",
+     "@testset (\"a\" * \"R1\") begin end\n", []),
     ("label in a Test.@testset name", "Test.@testset \"R1 here\" begin\nend\n", [(1, "R1", :name)]),
     ("label in a @testset name with an option before the name",
      "@testset verbose = true \"D3 first\" begin\nend\n", [(1, "D3", :name)]),

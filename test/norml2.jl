@@ -342,8 +342,9 @@ value_matches(v, kind) = kind == :nan ? isnan(v) : kind == :inf ? v === typeof(v
     end
   end
   # an infinite level fixes the argument at +0 at the steps of the contexts and at step 0 (#900); its value is Inf
-  # at an infinite entry, NaN at a NaN, and +0 at the zero argument. A zero level and a zero step are the identity,
-  # and an infinite step with a positive finite level fixes the argument at +0
+  # at an infinite entry, NaN at a NaN, and +0 at the zero argument. A zero level is the identity at the steps of the
+  # contexts, a zero step is the identity at the finite level 0.5, and an infinite step at that level fixes the
+  # argument at +0
   for (ctx, a, _, γ) in cold_contexts(T), (name, u, kind) in nonfinite_patterns(a)
     f = NormL2(T(Inf))
     @test all(v -> v === zero(T), prox(f, u, γ)) && all(v -> v === zero(T), prox(f, u, zero(T)))

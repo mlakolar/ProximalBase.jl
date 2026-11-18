@@ -155,8 +155,7 @@ for T in (Float32, Float64)
           @test near(g4, T.(symm(gradient(f, X))))
         end
         # the scores of a coordinate, from the symmetric part of a full gradient: the screen at a zero coordinate;
-        # at a nonzero coordinate of an unscaled function the score of the dense array at the lower position, and
-        # an ArgumentError for a scaled function
+        # at a nonzero coordinate the score of the dense array at the lower position, scaled or not
         G = randn(rng, T, p, p); Gs = T.(symm(G))
         if haskkt(f)
           for k in 1:ncoordinates(x)
@@ -165,9 +164,6 @@ for T in (Float32, Float64)
             if iszero(x[r, c])
               @test kkt_violation(f, G, x, k) == kkt_violation(f, Gs, j)
               @test kkt_violation(f, vec(G), x, k) == kkt_violation(f, Gs, j)
-            elseif f isa Scaled
-              @test_throws ArgumentError kkt_violation(f, G, x, k)
-              @test_throws ArgumentError kkt_violation(f, vec(G), x, k)
             else
               @test kkt_violation(f, G, x, k) == kkt_violation(f, Gs, D, j)
               @test kkt_violation(f, vec(G), x, k) == kkt_violation(f, Gs, D, j)
@@ -372,7 +368,7 @@ end
       "value_and_prox! to a dense matrix" => g -> value_and_prox!(zeros(p, p), g, x, 0.4),
       "prox! from a dense matrix" => g -> prox!(output_iterate(Float64, p), g, Matrix(x), 0.4),
     ]
-    # at a nonzero coordinate a scaled function throws before it reads a parameter
+    # the score of a nonzero coordinate, scaled or not, reads the parameters of that coordinate in the same way for both models
     haskkt(f) && push!(ops, "kkt_violation" => g -> outcome(() -> kkt_violation(g, ones(p, p), x, 2)))
     if issmooth(f)
       push!(ops, "gradient! to a symmetric iterate" => g -> gradient!(output_iterate(Float64, p), g, x))

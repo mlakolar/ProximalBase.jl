@@ -702,44 +702,56 @@ end
   @test kkt_violation(o, g, b, 2) === g[2] + g[4]
   # a function of the package without a score
   @test_throws MethodError kkt_violation(NormLinf(1.0), g, x, 1)
-  @test_throws MethodError kkt_violation(NormL2(1.0), g, x, 1)
+  @test_throws ArgumentError kkt_violation(NormL2(1.0), g, x, 1)               # the forms of NormL2 for an entry or a group are refused
   @test_throws MethodError kkt_violation(NormLinf(1.0), g, x)
-  @test_throws MethodError kkt_violation(GroupNormL2(1.0, [[1, 2], [3, 4]], [1.0, 1.0]), g, x)
-  @test_throws MethodError kkt_violation(Scaled(NormL1(1.0), 2.0), g, x)
+  @test kkt_violation(GroupNormL2(1.0, [[1, 2], [3, 4]], [1.0, 1.0]), g, x) ≈ sqrt(10)   # the full-point form of the groups
+  @test kkt_violation(Scaled(NormL1(1.0), 2.0), g, x) === 2.0                  # and of Scaled
+  @test_throws MethodError kkt_violation(Scaled(NormLinf(1.0), 2.0), g, x)
   # no ambiguity inside the package for the new methods
   @test isempty(Test.detect_ambiguities(ProximalBase))
 end
 
-# ---- 9. the guards of GroupNormL2 and Scaled -------------------------------------------------------------------
+# ---- 9. GroupNormL2 and Scaled at nonzero points -----------------------------------------------------------------
+# (the full set of block scores is in kkt_block.jl; here the entry points that stage A refused)
+# the function a·f as a function of the same family, for the leaves whose parameters take the factor
+scaled_equiv(f::NormL1, a) = NormL1(a * f.λ0, f.w)
+scaled_equiv(f::ElasticNet, a) = ElasticNet(a * f.λ1, a * f.λ2, f.w)
+scaled_equiv(::ZeroFunction, a) = ZeroFunction()
+scaled_equiv(f::LinearFunction, a) = LinearFunction(a .* f.c)
+scaled_equiv(f::SqrNormL2, a) = f.y === nothing ? SqrNormL2(a * f.λ) : SqrNormL2(a * f.λ, f.y)
+factor(s::Scaled) = s.α * (s.f isa Scaled ? factor(s.f) : 1)
+inner(s::Scaled) = s.f isa Scaled ? inner(s.f) : s.f
 @testset "$T GroupNormL2 and Scaled at nonzero points" for T in TYPES
   rng = MersenneTwister(980)
   groups = [[2, 7, 3], [1, 5], [4]]                       # entries 6 and 8 are in no group
   gl = GroupNormL2(T(0.5), groups, T[1, 2, 3])
   v = randn(rng, T, 8)
   x = zeros(T, 8)
+  near(a, b) = isapprox(a, b; rtol = 64 * eps(T))
   # a zero group: the group screen; an entry in no group: |vᵢ|, also when it is nonzero
   @test kkt_violation(gl, v, x, 7) === kkt_violation(gl, v, x, 2)
   @test kkt_violation(gl, v, x, 7) ≈ norm(v[[2, 7, 3]]) - T(0.5)
   x[6] = 3
   @test kkt_violation(gl, v, x, 6) === abs(v[6]) && kkt_violation(gl, v, x, 8) === abs(v[8])
-  # a group with a nonzero entry
+  # a group with a nonzero entry: the mismatch ‖v_G + c x_G/‖x_G‖‖, the same for each entry of the group
   x[2] = 1
-  for i in (2, 7, 3)
-    @test_throws ArgumentError kkt_violation(gl, v, x, i)
+  G = [2, 7, 3]
+  mismatch = norm(v[G] + T(0.5) * x[G] / norm(x[G]))
+  for i in G
+    @test near(kkt_violation(gl, v, x, i), mismatch)
   end
   @test kkt_violation(gl, v, x, 1) ≈ norm(v[[1, 5]]) - 2 * T(0.5)
-  @test occursin("nonzero", msg(() -> kkt_violation(gl, v, x, 7)))
   bx = BlockIterate(T, 8, [[2, 7, 3], [1, 5], [4], [6, 8]])
   gb = GroupNormL2(T(0.5), [[2, 7, 3], [1, 5], [4], [6, 8]], T[1, 2, 3, 4])
   @test kkt_violation(gb, v, bx, 2) ≈ norm(v[[1, 5]]) - 2 * T(0.5)
   bx[3] = 1
-  @test_throws ArgumentError kkt_violation(gb, v, bx, 1)
+  @test near(kkt_violation(gb, v, bx, 1), norm(v[G] + T(0.5) * Vector(bx)[G] / norm(Vector(bx)[G])))
   @test kkt_violation(gb, v, bx, 2) ≈ norm(v[[1, 5]]) - 2 * T(0.5)
-  @test_throws ArgumentError kkt_violation(Scaled(gb, T(2)), v, bx, 1)
-  @test_throws ArgumentError kkt_violation(Scaled(gl, T(2)), v, x, 7)
+  @test near(kkt_violation(Scaled(gb, T(2)), v, bx, 1), kkt_violation(GroupNormL2(T(1), [[2, 7, 3], [1, 5], [4], [6, 8]], T[1, 2, 3, 4]), v, bx, 1))
+  @test near(kkt_violation(Scaled(gl, T(2)), v, x, 7), 2 * norm(v[G] / 2 + T(0.5) * x[G] / norm(x[G])))
   @test kkt_violation(Scaled(gl, T(2)), v, x, 1) === kkt_violation(Scaled(gl, T(2)), v, zeros(T, 8), 1)
 
-  # Scaled over the five functions: the screen at a zero coordinate, an ArgumentError at a nonzero one
+  # Scaled over the five functions: the screen at a zero coordinate, and at a nonzero one the score of the function a·f
   n = 6
   x, v = data(rng, T, n)
   x[1], x[2] = 0, 1
@@ -748,20 +760,21 @@ end
             SqrNormL2(T(0.5), randn(rng, T, n)), SqrNormL2(T(0.5)))
   for leaf in leaves
     for s in (Scaled(leaf, T(2)), Scaled(Scaled(leaf, T(2)), T(3)), Scaled(Scaled(leaf, T(0.5)), T(1e-3)))
+      e = scaled_equiv(leaf, factor(s))
       @test kkt_violation(s, v, x, 1) === kkt_violation(s, v, 1)
-      @test_throws ArgumentError kkt_violation(s, v, x, 2)
+      @test near(kkt_violation(s, v, x, 2), kkt_violation(e, v, x, 2))
       bx = BlockIterate(copy(x), [[1, 3], [2, 4], [5, 6]])
-      @test_throws ArgumentError kkt_violation(s, v, bx, 2)
+      @test near(kkt_violation(s, v, bx, 2), kkt_violation(e, v, bx, 2))
       sx = SparseIterate(T, n)
       sx[2] = 1
-      @test_throws ArgumentError kkt_violation(s, v, sx, 2)
+      @test near(kkt_violation(s, v, sx, 2), kkt_violation(e, v, sx, 2))
       @test kkt_violation(s, v, sx, 1) === kkt_violation(s, v, 1)
     end
   end
   S = SymmetricSparseIterate(T[0 1; 1 0])
   GS = T[1 2; 3 4]
-  for s in (Scaled(NormL1(T(0.3)), T(2)), Scaled(Scaled(SqrNormL2(T(0.5)), T(2)), T(3)))
-    @test_throws ArgumentError kkt_violation(s, GS, S, 2)
+  for (s, e) in ((Scaled(NormL1(T(0.3)), T(2)), NormL1(T(0.6))), (Scaled(Scaled(SqrNormL2(T(0.5)), T(2)), T(3)), SqrNormL2(T(3))))
+    @test near(kkt_violation(s, GS, S, 2), kkt_violation(e, GS, S, 2))
     @test kkt_violation(s, GS, S, 1) === kkt_violation(s, GS, 1)
   end
   # a function without a score stays a MethodError under a scale, at a nonzero point too

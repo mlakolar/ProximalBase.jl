@@ -866,13 +866,12 @@ for T in (Float32, Float64)
     gb = BlockIterate(T[0, 2, 0, -3], [1:2, 3:4])
     gy, gyv = fill(T(7), 4), view(fill(T(7), 6), 2:5)
     @test same(gf(xv), gf(x)) && same(prox!(gyv, gf, xv, one(T)), prox!(gy, gf, x, one(T)))
-    # the group screen at a zero point, with a view and with an array as the gradient; a group with a nonzero entry is refused
+    # the group screen at a zero point, with a view and with an array as the gradient; a group with a nonzero entry has its
+    # mismatch, with a view and with an array alike
     gz, xz = BlockIterate(T, 4, [1:2, 3:4]), zeros(T, 4)
     @test same(kkt_violation(gf, xv, gz, 1), kkt_violation(gf, x, gz, 1)) && same(kkt_violation(gf, xv, xz, 1), kkt_violation(gf, x, xz, 1))
-    @test_throws ArgumentError kkt_violation(gf, xv, gb, 1)
-    @test_throws ArgumentError kkt_violation(gf, x, gb, 1)
-    @test_throws ArgumentError kkt_violation(gf, xv, xv, 1)
-    @test_throws ArgumentError kkt_violation(gf, x, x, 1)
+    @test same(kkt_violation(gf, xv, gb, 1), kkt_violation(gf, x, gb, 1))
+    @test same(kkt_violation(gf, xv, xv, 1), kkt_violation(gf, x, x, 1))
     @test same(gf(gb), gf(Vector(gb)))
     # a custom function with its own oracles is called as before
     log = Symbol[]

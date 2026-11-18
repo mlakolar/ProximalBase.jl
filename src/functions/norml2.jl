@@ -86,3 +86,31 @@ function value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real
 end
 # routes of wrappers such as Scaled, which preflight with _checkwrite first
 _value_and_prox_unchecked!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = value_and_prox!(y, f, x, γ)
+
+####################################
+#  Optimality
+####################################
+
+# NormL2 has a full-point form: its whole argument is one block, and the score of that block is max(0, score) with
+# the block kernel (_l2_score), the weight one and the group 1:length(x). A SparseIterate and a BlockIterate are read
+# as one vector, as their values are. The forms that select an entry or a group throw an ArgumentError, as private
+# methods, so that they do not meet the generic methods for a BlockIterate.
+@noinline _norml2_local_error(f) = throw(ArgumentError(
+  "kkt_violation of $(nameof(typeof(f))) has the full-point form kkt_violation(f, v, x), and no form for an entry or a group: the whole vector is one block"))
+_level_score(f::NormL2, λ, g, x, k) = _norml2_local_error(f)
+_kkt_violation(f::NormL2, g::AbstractArray, x::AbstractArray, i::Integer) = _level_score(f, f.λ, g, x, i)
+_kkt_violation(f::NormL2, g::AbstractArray, x::BlockIterate, k::Integer) = _level_score(f, f.λ, g, x, k)
+_kkt_violation(f::NormL2, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) = _level_score(f, f.λ, g, x, k)
+
+kkt_violation(f::NormL2, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); _norml2_local_error(f))
+function _level_point(f::NormL2, λ, v::AbstractArray, x::AbstractArray)
+  _check_one_based(v, x)
+  eltype(v) <: Real || _real_error(:kkt_violation)
+  eltype(x) <: Real || _real_error(:kkt_violation)
+  length(v) == length(x) || _gradient_length_error(v, x)
+  W = float(promote_type(eltype(v), eltype(x)))
+  isempty(x) && return zero(W)
+  max(zero(W), _l2_score(λ, true, v, x, Base.OneTo(length(x))))
+end
+kkt_violation(f::NormL2, v::AbstractArray, x::AbstractArray) = _level_point(f, f.λ, v, x)
+kkt_violation(f::NormL2, ::AbstractArray, ::SymmetricSparseIterate) = _kkt_symmetric_point_error(f)

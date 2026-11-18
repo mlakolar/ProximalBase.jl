@@ -470,11 +470,26 @@ at `xᵢ ≠ 0` are, for the five functions that have all three forms:
 * `SqrNormL2`: `abs(vᵢ + dᵢ)` in both cases, with `dᵢ` the entry `λ*xᵢ` or `λ*(xᵢ - yᵢ)` of the gradient at `x`,
   computed in the working type of the call. The screen `kkt_violation(f, v, i)` takes `xᵢ = 0` and does not use it.
 
-`GroupNormL2` returns its group screen at a zero group and throws an `ArgumentError`
-at a group with a nonzero entry; `Scaled` over it does so at a nonzero penalized group, and
-`Scaled` over one of the five functions at a nonzero coordinate. A function defined outside this package gets its
-three-argument value at a zero coordinate and an `ArgumentError` at a nonzero one,
-unless it defines the method.
+`GroupNormL2` and `NormL2` score a block `G` with `c = λ*w_G` (`c = λ` for `NormL2`, whose block is all of `x`):
+`norm(v_G) - c` at a zero block and `norm(v_G + c*x_G/norm(x_G))` at a nonzero one. The block of the entry `k` of an
+array is its group (an entry in no group scores `abs(vₖ)`), and for a `BlockIterate` it is group `k`, whose layout must be
+that of `f`. The value of `kkt_violation(f, v, x)` is then a maximum of block 2-norms and of those entries, not a global
+∞-norm. `NormL2` has a full-point form, and its forms for an entry or a group, and those of `GroupNormL2` at a
+`SymmetricSparseIterate`, throw an `ArgumentError`. At a nonzero block, in the ordinary range of the squares, the error is at most `(n + 8)*u*(norm(v_G) + c)`
+to first order in `n*u`, with `n` the size of the block and `u = eps(W)/2` for the working type `W` of `v` and `x`; outside
+that range the sums are scaled by an exponent, which extends the range and not the precision.
+
+`Scaled` with a finite positive factor `α` evaluates the existing score of its function (the functions above; `NormL2` in
+the full-point form) on the lazy gradient `v/α`, with the rounding and range limits of that evaluation, and multiplies it by
+`α`; underflow, overflow and `NaN` are not recovered. For a chain of wrappers whose factors do not multiply to a normal number, the product is applied to the gradient
+of `LinearFunction` and `SqrNormL2` (the three-argument form too), and folded into the level of the other functions where
+that gives a normal level. Where it does not, the three-argument form and a zero coordinate or group have a value, and a
+nonzero point and the full-point form throw an `ArgumentError`. So does an infinite factor at a nonzero point and in
+the full-point form. A function of this package without a score gives a `MethodError` under `Scaled`. A function
+defined outside this package gets its three-argument value at a zero coordinate and an `ArgumentError` at a nonzero one,
+unless it defines the method. Under `Scaled` it has its scaled three-argument value and that error also when it defines
+a four-argument method of its own, because PB does not know that its score scales with `α`: a method for `Scaled{<:T}`
+supplies the scaled forms.
 
 # Examples
 ```jldoctest kkt_violation_example
@@ -603,10 +618,6 @@ end
     "and SymmetricSparseIterate where they are used"))
 end
 
-# The screen of a coordinate or group assumed zero, by the methods that serve the three-argument form: the old
-# value of the four-argument form. Scaled reaches the screen of its function through it at a zero point.
-_kkt_screen(f, g, x, k) = _kkt_violation(f, g, x, k)
-
 ####################################
 #  Point-aware scores of the entrywise functions
 ####################################
@@ -721,12 +732,6 @@ macro _kkt_entrywise(F)
     _kkt_violation(f::$F, g::AbstractArray, x::AbstractArray, i::Integer) = _kkt_local(f, g, x, i)
     _kkt_violation(f::$F, g::AbstractArray, x::BlockIterate, k::Integer) = _kkt_block(f, g, x, k)
     _kkt_violation(f::$F, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) = _kkt_symmetric(f, g, x, k)
-    _kkt_screen(f::$F, g::AbstractArray, ::AbstractArray, i::Integer) = kkt_violation(f, g, i)
-    _kkt_screen(f::$F, g::AbstractArray, x::BlockIterate, k::Integer) = maximum(i -> kkt_violation(f, g, i), x.groups[k])
-    function _kkt_screen(f::$F, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
-      r, c = tril_cartesian(x.p, k)
-      kkt_violation(f, g, (c - 1) * x.p + r)
-    end
     kkt_violation(f::$F, v::AbstractArray, x::AbstractArray) = _kkt_point(f, v, x)
     kkt_violation(f::$F, ::AbstractArray, ::SymmetricSparseIterate) = _kkt_symmetric_point_error(f)
   end)

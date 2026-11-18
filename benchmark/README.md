@@ -481,3 +481,25 @@ PB_ROOT="$PWD" PB_CHECK_ONLY=1 julia --threads=1 --check-bounds=no --project=ben
 `PB_FILTER` selects cells by a regular expression on their ids `type/operation/variant/n` (for example
 `'Float64/residual/.*/n100$'`), `PB_ROUNDS` sets the number of rounds, `PB_CHECK_ONLY=1` checks values and allocations
 without timing, and `PB_OUTPUT` receives `raw.csv` and `provenance.txt`.
+
+## Local `kkt_violation` harness
+
+`kkt_local.jl` times the three- and four-argument `kkt_violation` between source trees compiled as modules of one process: `PB_BASE`
+(required), `PB_HEAD` (default the repository), optionally earlier trees in `PB_HISTORY`, and a second compilation of `base` and of `head`
+as the A/A controls (`basectl`, `headctl`). Group A times zero coordinates of the entrywise functions and `Scaled` of three of them; group B
+all coordinates of points with a share of zeros and the scan of the inactive coordinates (the three-argument form is timed at array points)
+for weighted and unweighted `NormL1` and `ElasticNet` and plain and centered `SqrNormL2`; group C `GroupNormL2`; group D the unweighted
+`NormL1` against four reference kernels; group E one optimality check, in ns per inactive coordinate; group F a zero group of a
+`BlockIterate` and a zero coordinate of a `SymmetricSparseIterate`. Before a case is timed the script compares each coordinate result (and
+the scan lists) of the trees with `base`; if `base`, `basectl`, `head` and `headctl` differ it prints `VALUES DIFFER` and exits with a
+failure status. `PB_CHECK_ONLY=1` runs the value and allocation checks without timing and ends with `CHECK PASS (<n> cases)` or `CHECK FAIL`.
+`summarize_kkt_local.py` gives per row the median ns per call and the paired ratios `head/base` (`base/pre`, `head/pre` with a history tree
+`pre`) with the controls and `head_vs_controls`. Compare a row with its two controls: rows of one loop shape and function move together, so
+a difference of the size of the controls in one row is not evidence, and the same run in a second process with `PB_REVERSE=1` is the check.
+The header of the script lists the settings and the output lines. It was written for issue #980.
+
+```sh
+PB_BASE=/path/to/tree-before PB_ROUNDS=15 julia --threads=1 --project=benchmark benchmark/kkt_local.jl > run.out
+PB_BASE=/path/to/tree-before PB_REVERSE=1 julia --threads=1 --project=benchmark benchmark/kkt_local.jl > run-reversed.out
+python3 benchmark/summarize_kkt_local.py summary.tsv run.out run-reversed.out
+```

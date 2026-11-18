@@ -89,7 +89,8 @@ with a product of factors that is not a normal number, and infinite factors, hav
   (levels, weights, centers and coefficients) are `Float32` or `Float64` arrays and values of one type, `v` is finite and
   the function is not a `SqrNormL2` with an infinite level: they return the same values as
   before. A working-set solver that ranks the inactive coordinates of a `SparseIterate` with
-  the four-argument form in that case is unaffected. Outside that case the arithmetic is in
+  the four-argument form in that case is unaffected in the values it receives, although each call of the four-argument
+  form does more work than a call of the screen (see [scoring a coordinate](@ref kkt-screens)). Outside that case the arithmetic is in
   the working type of the call, which can differ: for `f = SqrNormL2(0.1, Float32[1])`,
   `v = Float32[1]` and `x = Float32[0]` the value was the `Float64` `0.9` before 0.6 and is the
   `Float32` `0.9f0` in 0.6. The same applies to `GroupNormL2` at a zero group, whose result type

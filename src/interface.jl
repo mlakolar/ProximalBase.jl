@@ -517,7 +517,10 @@ function kkt_violation end
 
 # The four-argument form reads the point. A function of this package takes its own method (_kkt_violation);
 # a function defined outside it has the screen of the three-argument form at a zero coordinate (_kkt_custom).
-kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
+# The method is marked for inlining, as the public four-argument methods of a Scaled are (functions/scaled.jl): inlining
+# permits the compiler to hoist loop-invariant state of the unweighted cases out of the caller's loop; weighted coefficients
+# remain entry-dependent.
+@inline kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
   (_check_one_based(g, x); eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation);
    _check_kkt_coordinate(g, x, i);
    length(g) == length(x) || _gradient_length_error(g, x);

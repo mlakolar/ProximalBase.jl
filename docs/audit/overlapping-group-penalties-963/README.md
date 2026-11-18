@@ -151,7 +151,7 @@ all statements hold
 [`docs/design/overlapping-group-penalties-963-literature.md`](../../design/overlapping-group-penalties-963-literature.md):
 weighted `ℓ∞` groups with proportional weights and the exact counterexample (L1, the counterexample in rational
 arithmetic and refuted by a directional derivative), a radial function on a maximal group and on a contained group
-(L2), weighted `ℓ1` groups inside `ℓ∞` groups (L3), the weights (W3) of Jenatton, Audibert and Bach on a chain, the
+(L2), weighted `ℓ1` groups inside `ℓ∞` groups and a duplicate-group counterexample in rational arithmetic (L3), the weights (W3) of Jenatton, Audibert and Bach on a chain, the
 latent penalty on a nested chain of Yan and Bien (L4: Algorithm 3 as published certified by a `BigFloat` duality gap
 from an explicit decomposition, the redundancy rule, ties, the hull form and the value formula), `λ_max` of the
 banding prox (L5), and dual block coordinate descent with every group at its threshold (line O, an observation). It

@@ -406,11 +406,11 @@ end
 # most ε = max(ε₀, ε₁), with
 #   the start:  τ₀ - τ* ≤ ε₀ = M[(2u + u²) + (1 + u)² γ_{n-1}] + δ/2,
 #   a step:     t - τ* ≤ ε₁ = (Γ (M + ζ) + u M + δ/2)/(1 - u),  Γ = max(γ_n + (2u + u²)/(1 - n u), (2 + 2u + u²) γ_n).
-# Proof for the plain start τ₀ = fl(fl(s - a)/n), s = Σ yᵢ (1 + θ_s), |θ_s| ≤ γ_{n-1}: s - a ≥ 0, and τ* ≥ (Σ yᵢ - a)/n by (G3)
-# with S = all the entries; s - a ≤ (Σ yᵢ - a) + γ_{n-1} Σ yᵢ, so τ₀ ≤ (1 + u)² [(Σ yᵢ - a) + γ_{n-1} Σ yᵢ]/n + δ/2, and Σ yᵢ -
-# a ≤ Σ yᵢ ≤ n M. For Condat's start, max(ρ, plain level of the final candidates V), the plain level of V is bounded in the same
-# way (S = V, |V| ≤ n, a negative level has no overshoot beyond -τ* ≤ γ_{n-1} M), and ρ ≤ τ* + γ_{n-1} M + δ/2 ≤ τ* + ε₀ by
-# claim 4.
+# Proof for the plain start τ₀ = fl(fl(s - a)/n), s = Σ yᵢ (1 + θ_s), |θ_s| ≤ γ_{n-1}: s - a ≥ 0 (otherwise τ₀ ≤ 0, with no
+# overshoot beyond -τ* ≤ γ_{n-1} M), and τ* ≥ (Σ yᵢ - a)/n by (G3) with S = all the entries; s - a ≤ (Σ yᵢ - a) + γ_{n-1} Σ yᵢ,
+# so τ₀ ≤ (1 + u)² [(Σ yᵢ - a) + γ_{n-1} Σ yᵢ]/n + δ/2, and Σ yᵢ - a ≤ Σ yᵢ ≤ n M. For Condat's start, max(ρ, plain level of the
+# final candidates V), the plain level of V is bounded in the same way (S = V, |V| ≤ n, a negative level has no overshoot beyond
+# -τ* ≤ γ_{n-1} M), and ρ ≤ τ* + γ_{n-1} M + δ/2 ≤ τ* + ε₀ by claim 4.
 # Proof for a step from a level τ′ with the pass (r′, k′), r′ > a, g′ = g(τ′), t = fl(τ′ + d), d = fl(fl(r′ - a)/k′) ≥ 0: d ≤
 # (r′ - a)(1 + u)²/k′ + δ/2, t ≤ τ′ + d + u|t|, and g′/k′ ≤ M - τ′ ≤ M + ζ (the k′ terms of g′ are at most M - τ′). If g′ ≥ a,
 # the Newton point N = τ′ + (g′ - a)/k′ has g(N) ≥ a by (G1), so N ≤ τ*; with r′ - a ≤ (g′ - a) + γ_{k′} g′ and r′ ≤ g′/(1 -
@@ -451,20 +451,21 @@ end
 # ((G3) with S = {y}) and below the entry y just stored. For the join value, f = 1 - (nv + 4) u is exact (nv u ≤ 1/4) and at
 # most 1, so P = fl(s f) ≤ s. If s is subnormal, the sum is exact, P ≤ s = Σ_V yᵢ, the difference is exact, and the quotient has
 # an absolute error of at most δ/2: the value is at most L_V + δ/2. If s is normal, s ≤ (1 + γ_{nv-1}) Σ_V yᵢ, so that P ≤ (1 +
-# u)(1 + γ_{nv-1}) f Σ_V yᵢ ≤ (1 - 4u) Σ_V yᵢ, and the difference and the quotient each have a relative error of at most u (or
-# the quotient an absolute error of at most δ/2): when the difference is nonnegative the value is at most (1 + u)² ((1 - 4u) Σ_V
-# yᵢ - a)/nv + δ/2 ≤ L_V + δ/2 ≤ τ* + δ/2, and L_V ≤ the mean of V, so that the value is at most the largest entry of V (no
-# float lies in (max V, max V + δ/2]). When the difference is negative the value is at most 0 ≤ τ* + γ_{n-1} M (if τ* < 0, then
-# a > Σ yᵢ and τ* ≥ -γ_{n-1} M, since a < s ≤ (1 + γ_{n-1}) Σ yᵢ). An entry that is not stored when it arrives is at most ρ,
-# hence at most the largest stored entry, so the largest stored entry is M. (ρ = M occurs in the subnormal range: x = [4δ, 4δ,
-# 4δ], a = δ gives the join value 4δ; the result is M by (a).) (iii) The iteration starts at max(ρ, plain level of the final
-# candidates) ≥ ρ and its levels increase, so each unstored entry is at most the level of each pass, and the stored entries
-# (buf[1:nt+nv]) give the same g, k and hi as all the entries at each level that the iteration visits, and an excess r that
-# satisfies (P) for the same set of terms (the order of the sum differs): claims 2 and 3 are statements about all the entries.
-# (iv) A start below zero is at least ρ ≥ -δ after a restart (for y - a < 0 the product (y - a) nv is negative and the join test
-# holds, so a restart has fl(y - a) ≥ 0). Without a restart no entry was discarded (a negative ρ discards no nonnegative entry),
-# so the candidates are all the entries and s is their sequential sum; a < s_plain ≤ (1 + γ_{n-1}) Σ yᵢ gives s - a ≥ -2 γ_{n-1}
-# Σ yᵢ, and the start is at least -ζ.
+# u)(1 + γ_{nv-1}) f Σ_V yᵢ + δ/2 ≤ (1 - 4u) Σ_V yᵢ + δ/2 ≤ (1 - 2u) Σ_V yᵢ (the term δ/2 occurs when s f is subnormal,
+# and then 2u Σ_V yᵢ ≥ δ/2), and the difference and the quotient each have a relative error of at most u (or the quotient an
+# absolute error of at most δ/2): when the difference is nonnegative the value is at most (1 + u)² ((1 - 2u) Σ_V yᵢ - a)/nv +
+# δ/2 ≤ L_V + δ/2 ≤ τ* + δ/2, and L_V ≤ the mean of V, so that the value is at most the largest entry of V (no float lies in
+# (max V, max V + δ/2]). When the difference is negative the value is at most 0 ≤ τ* + γ_{n-1} M (if τ* < 0, then a > Σ yᵢ and
+# τ* ≥ -γ_{n-1} M, since a < s ≤ (1 + γ_{n-1}) Σ yᵢ). An entry that is not stored when it arrives is at most ρ, hence at most
+# the largest stored entry, so the largest stored entry is M. (ρ = M occurs in the subnormal range: x = [4δ, 4δ, 4δ], a = δ
+# gives the join value 4δ; the result is M by (a).) (iii) The iteration starts at max(ρ, plain level of the final candidates) ≥
+# ρ and its levels increase, so each unstored entry is at most the level of each pass, and the stored entries (buf[1:nt+nv])
+# give the same g, k and hi as all the entries at each level that the iteration visits, and an excess r that satisfies (P) for
+# the same set of terms (the order of the sum differs): claims 2 and 3 are statements about all the entries. (iv) A start below
+# zero is at least ρ ≥ -δ after a restart (for y - a < 0 the product (y - a) nv is negative and the join test holds, so a
+# restart has fl(y - a) ≥ 0). Without a restart no entry was discarded (a negative ρ discards no nonnegative entry), so the
+# candidates are all the entries and s is their sequential sum; a < s_plain ≤ (1 + γ_{n-1}) Σ yᵢ gives s - a ≥ -2 γ_{n-1} Σ yᵢ,
+# and the start is at least -ζ.
 #
 # Claim 5 (consequences). (i) The level. For n u ≤ 1/4 each bound of claims 2 and 3 on |τ̂ - τ*| is at most 4.5 n u M + 2 n δ:
 # the overshoot ε; below τ*, γ_n M at (b), [1.5 γ_n/(1 - n u) + u/2 + n u] M + n δ at (c), (n u [1.5/(1 - n u)² + 1/2] + u) M +

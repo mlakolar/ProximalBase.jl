@@ -551,6 +551,17 @@ end
   end
 end
 
+# A value v of the sum of n squares against its exact reference ref within gamma_n ref, gamma_n = n u / (1 - n u) and
+# u = eps(T) / 2: the bound on a sum of n nonnegative terms in any order of the additions, for a v that is that sum
+# times a scale that is exact (here 1 or 1/2, and the division by 2) while the sum is far from the ends of the range of T.
+function within_sum_bound(v, ref, ::Type{T}, n) where {T}
+  with256() do
+    u = big(eps(T)) / 2
+    γ = n * u / (1 - n * u)
+    isfinite(v) && abs(big(v) - ref) <= γ * ref
+  end
+end
+
 @testset "products and reads of the design" begin
   for T in (Float32, Float64), α in (nothing, T(0.5))
     rng = MersenneTwister(41)
@@ -567,8 +578,18 @@ end
     v = PB.value_and_gradient_from_predictor!(g, d, f, z)
     @test products(X) == (0, 1)
     g0, d0 = zeros(T, p), zeros(T, n)
-    @test v === PB.value_and_gradient_from_predictor!(g0, d0, clean, z)
-    @test all(g .=== g0)
+    v0 = PB.value_and_gradient_from_predictor!(g0, d0, clean, z)
+    # The value is a sum of n squares, and the order of its additions can differ between two compiled methods (for
+    # example one loaded from a package image compiled for another CPU). So each value is checked against the exact
+    # sum of the squares of its own residual within gamma_n = n u / (1 - n u), u = eps(T) / 2, which bounds the error
+    # of a sum of n nonnegative terms in any order of the additions (each square is rounded once and enters at most
+    # n - 1 additions).
+    # The residual is an elementwise subtraction and the gradient one BLAS product on the same data in both losses,
+    # so they are compared bit for bit.
+    @test v isa T && v0 isa T
+    @test within_sum_bound(v, ref_residual(α, d), T, n)
+    @test within_sum_bound(v0, ref_residual(α, d0), T, n)
+    @test all(g .=== g0) && all(d .=== d0)
     # the methods that form Xβ keep their products
     β = randn(rng, T, p)
     fl = LeastSquaresLoss(Y, X)
@@ -581,6 +602,32 @@ end
     resetcount!(X)
     gradient!(g, fl, β)
     @test products(X) == (1, 1)
+  end
+end
+
+# Integer data in these ranges: the entries of the residual are at most 16 in absolute value, so the sum of the 30
+# squares is at most 30 * 256 = 7680, and a gradient entry is at most 30 * 8 * 16 = 3840 in absolute value. Each square,
+# product and partial sum is then an integer below 2^13, exact in Float32 and Float64 in any order of the additions,
+# with or without fused multiply-add, and so are the scale 1/2 and the division by 2. The value, the residual and the
+# gradient of both designs then equal the exact values bit for bit.
+@testset "an integer design, predictor and response give the exact value for both designs" begin
+  for T in (Float32, Float64), α in (nothing, T(0.5))
+    rng = MersenneTwister(43)
+    n, p = 30, 5
+    Xi = rand(rng, -8:8, n, p)
+    Yi = rand(rng, -16:16, n)
+    di = rand(rng, vcat(-16:-1, 1:16), n)   # no zero residual, so a dropped term changes the value
+    zi = Yi .+ di
+    Xd, Y, z = T.(Xi), T.(Yi), T.(zi)
+    a = α === nothing ? 1 : α
+    for X in (CountMat(Xd), Xd)   # the CountMat loss and the Matrix loss
+      f = mkloss(Y, X, α)
+      g, d = zeros(T, p), zeros(T, n)
+      v = PB.value_and_gradient_from_predictor!(g, d, f, z)
+      @test v === T(a * sum(abs2, di) / 2)
+      @test all(d .=== T.(di))
+      @test all(g .=== T.(a .* (transpose(Xi) * di)))
+    end
   end
 end
 

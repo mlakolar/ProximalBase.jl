@@ -104,7 +104,10 @@ data, `Int` scales above 2^24 and the integer that Float64 does not hold (refuse
 scales), the #609 inputs that `Scaled(f, α)(β)` misses, the overflow threshold (the boundary region where either `floatmax` or `Inf` is accepted, with a value below it that must be finite and one beyond it that must be `Inf`), non-finite entries, the documented range limits of the
 gradient and of an overflowing `z - Y`, agreement with `f(β)` and `value_and_gradient!` on the same predictor bits,
 the products counted with a strided matrix type (none for the value oracles, one by Xᵀ for the combined one, and
-the products of the existing methods), the scratch of the loss left unread and unwritten (also as a view that is
+the products of the existing methods), the values of a `CountMat` design and a plain matrix compared to the exact
+sum of the squares of their residuals within γ_n (the order of additions can differ between compiled methods) with
+residual and gradient bit for bit, and integer data (partial sums exact in any order) that compare value, residual
+and gradient of both designs bit for bit with the exact values, the scratch of the loss left unread and unwritten (also as a view that is
 the predictor), dimension, scale and overlap errors that leave `g`, `d` and the scratch unchanged, the accepted and
 refused layouts of `Base.mightalias`, empty designs, tasks that share one loss with distinct buffers (one thread
 here), the domain refusals (`MethodError`), public but unexported names, and warmed zero allocation and inference.

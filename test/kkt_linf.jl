@@ -415,7 +415,7 @@ end
   end
 end
 
-# Float16 counts up to 2048 exactly in a sum of ones: small sizes are accepted and their value is within the bound of the type; a
+# Float16 represents the integers up to 2048, so a sum of ones is not rounded below that: small sizes are accepted and their value is within the bound of the type; a
 # length n with n + 1 not finite in Float16 (n + 1 ≥ 65520) is refused before any pass
 @testset "Float16" begin
   for (v, x, λ, br) in ((Float16[3, 1], zeros(Float16, 2), 1, :zero), (Float16[0.3, -0.5], zeros(Float16, 2), 1, :zero),

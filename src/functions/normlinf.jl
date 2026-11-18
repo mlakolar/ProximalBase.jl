@@ -577,8 +577,8 @@ end
 #       the subtraction and the division add u |Σ_A uᵢ - c| = u a |τ| each: |η| ≤ (a - 1) u ‖u_A‖₁ + 2 u a |τ|. With
 #       ‖u_A‖₁ ≤ √a ‖u_A‖₂ ≤ √a ‖v‖₂ the effect on d is at most (a - 1) u ‖v‖₂ + 2 u d.
 #   (3a) The count above the level is zero (the set A is empty: v = ones(2001), c = 8e-14 in Float64 has the level 1.0, and
-#       no entry is above it). Write τ̂ = τ_G + e with τ_G = (Σ_G yᵢ - c)/g and η_G = g e, bounded as in (3) with a = g. As every
-#       yᵢ ≤ τ̂ on G, summing yᵢ ≤ τ_G + e over G gives c ≤ g e = η_G. The routine returns min(τ̂, largest entry), the level of
+#       no entry is above it). Write τ̂ = τ_G + e with τ_G = (Σ_G yᵢ - c)/g and η_G = g e, bounded as in (3) with a = g. As
+#       yᵢ ≤ τ̂ for the entries of G, summing yᵢ ≤ τ_G + e over G gives c ≤ g e = η_G. The routine returns min(τ̂, largest entry), the level of
 #       the radius 0, so the returned value is the exact value for a radius between 0 and c, and the radius is off by at most
 #       η_G. The exact level lies in [τ_G, τ̂] (τ_G is a lower bound of the level for any set G with Σ_G (yᵢ - τ_G) = c), and the
 #       entries of G have a total deficit Σ_G (τ_G - yᵢ)₊ ≤ g e below τ_G, so d ≥ √g (τ_G - e) and |τ|/d ≤ 1/√g to first order.

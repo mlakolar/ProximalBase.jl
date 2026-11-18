@@ -81,8 +81,8 @@ With ``u_i=-\operatorname{sign}(x_i)\,v_i``, the value is the following.
 The face ``J`` is the set of entries whose magnitude equals the largest one after conversion to the
 working type of the call, compared for equality, with no tolerance. An entry one unit in the last place below
 the largest is not on the face, so for a positive finite level an exact tie can make the value discontinuous in `x`
-(for ``\lambda=0`` the value is ``\lVert v\rVert_2`` at every finite `x`, and for an infinite level it is `Inf` at every
-nonzero `x`, ties or not). Where the
+(for finite entries of `v` and `x`, the value is ``\lVert v\rVert_2`` when ``\lambda=0`` and `Inf` at a nonzero `x` when the
+level is infinite, ties or not). Where the
 clip of `prox!` is active (a positive finite level and step with ``\gamma\lambda<\lVert x\rVert_1``), it writes the
 same level ``\tau``, with the sign of the entry, into each clipped entry. The clipped entries of such a point
 are therefore equal and form the face, which is the case the equality rule is made for: with

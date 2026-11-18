@@ -395,7 +395,7 @@ It is implemented by `NormL1`, `ElasticNet`, `SqrNormL2`, `LinearFunction`,
 implements it together with [`value_entry`](@ref).
 
 The vector form allocates a plain floating `Vector` of `length(u)` and calls
-[`prox_block!`](@ref). [`GroupNormL2`](@ref) interprets `k` as its group number
+[`prox_block!`](@ref). [`GroupNormL2`](@ref) and [`GroupNormLinf`](@ref) interpret `k` as their group number
 and `u` in that group's order. Custom methods define their own layout and must
 validate it; the allocating wrapper adds no group, shape, parameter or overlap
 checks. A block method alone does not supply full-array operations or traits.
@@ -417,7 +417,7 @@ function prox_block end
     prox_block!(out, f, u, k, γ)
 
 Write the proximal point of compact block `k` into `out` and return `out`.
-[`GroupNormL2`](@ref) supplies the built-in implementation; custom functions
+[`GroupNormL2`](@ref) and [`GroupNormLinf`](@ref) supply the built-in implementations; custom functions
 can implement this hook. Buffers follow the selected group's ordered indices.
 
 A conforming method validates real one-based vectors, group bounds, exact
@@ -478,6 +478,10 @@ that of `f`. The value of `kkt_violation(f, v, x)` is then a maximum of block 2-
 `SymmetricSparseIterate`, throw an `ArgumentError`. At a nonzero block, in the ordinary range of the squares, the error is at most `(n + 8)*u*(norm(v_G) + c)`
 to first order in `n*u`, with `n` the size of the block and `u = eps(W)/2` for the working type `W` of `v` and `x`; outside
 that range the sums are scaled by an exponent, which extends the range and not the precision.
+
+[`GroupNormLinf`](@ref) scores a group `G` at zero with the margin `norm(v_G, 1) - c`, `c = λ0*w_G`, of the dual (ℓ1) norm of its ∞-norm: the
+screen of the group, not the Euclidean screen of `GroupNormL2` (#634). Its positive part is not a stationarity distance. A nonzero
+group, the full-point form and the three-argument form throw an `ArgumentError`, and the call has no method under `Scaled`.
 
 `Scaled` with a finite positive factor `α` evaluates the existing score of its function (the functions above; `NormL2` in
 the full-point form) on the lazy gradient `v/α`, with the rounding and range limits of that evaluation, and multiplies it by

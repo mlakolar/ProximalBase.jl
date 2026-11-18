@@ -108,7 +108,7 @@ iterative; certified approximation (with a computable distance bound); generic f
 | `ω‖·‖∞` containing weighted `ℓ1` | laminar, duplicate clause of Proposition 2 | scalar on `ℓ∞` groups | one pass; finite | as above | none new | L3; Yu, Corollary 8, p. 8 | proved here; Yu stated |
 | `Σ ‖d^G ∘ x‖₂` | intervals, rectangles | per coordinate (W3) | active set and SOCP, or reweighting; generic | `O(p^3.5 + n_G^3.5)` per SOCP stated | solver tolerance | Jenatton, Audibert, Bach, Section 4, p. 2789 | stated |
 | `λ₁‖x‖₁ + Σ w_i ‖x_{G_i}‖₂` | arbitrary | scalar `≥ 0` | screen, dual accelerated gradient, gap; certified approximation | not checked | gap below `1e-10` | Yuan, Liu, Ye, pp. 3–6 | read (dual smoothness stated) |
-| `Σ ω_g ‖x_g‖₂` | arbitrary | scalar | no finite evaluation known to the authors ("not aware of any efficient algorithm providing the exact solution"); ADMM on the whole problem; iterative | — | — | Mairal et al., footnote 11 | stated |
+| `Σ ω_g ‖x_g‖₂` | arbitrary | scalar | no efficient exact algorithm known to the authors ("not aware of any efficient algorithm providing the exact solution"); ADMM on the whole problem; iterative | — | — | Mairal et al., footnote 11 | stated |
 | descendant-set group lasso | DAG | scalar `> 0` | dual block coordinate descent; iterative | `O(Σ size)` per cycle | stopping rule open | Yan and Bien, Algorithm 1 | stated |
 | `Σ η_g ‖x_g‖∞` | arbitrary | one positive scalar per group | projection, max-flow, recursion; finite-combinatorial | "finite and polynomial" proved; footnote 10 stated | exact comparisons; SPAMS `1e-10` | Mairal et al., Propositions 6–7 | 6 read; 7 stated (half omitted by authors) |
 | `½‖w − z‖² + f(abs(w))`, `f` the Lovász extension of `F` | nondecreasing submodular `F` | through `F` | divide and conquer; finite-combinatorial | at most `p` submodular minimizations | — | Bach, FnTML, Section 9.1, Proposition 8.9 | stated |
@@ -284,11 +284,12 @@ sets it to zero (ours). The dual norm is `max_ℓ ‖u_{g_ℓ}‖/w_ℓ` (their 
   `P_k` with slope `s = max_{j>k} f(j, k)²` lies on or above all points: those right of `P_k` by maximality, those
   left of it because they lie under the previous line, whose slope is at least `s` (the maximizer `P_K` lies under
   it). Such a line through `P_k` and `P_K` coincides with `c` on `[W_k, W_K]`, so `σ_i = f(K, k)²` there, and after
-  the last knot `c` has slope at most the stopping value `λ²`. On a segment Algorithm 3 returns
-  `S_G(y_seg, λ√(ΔW)) = (1 − λ/a)₊ y_seg`, as `‖y_seg‖ = a√(ΔW)` with `a = f(K, k)`, and 0 after the last knot. ∎ Any
-  maximizer in line 5 gives a point of `c` (Appendix C uses only maximality); the last maximizer gives exactly the
-  vertices of slope above `λ²`. A monotone stack over the points, sorted by `W`, finds the vertices in `O(D)` after
-  the `O(p)` block norms (the standard monotone-chain argument, not proved here), against `O(p + Dm)` in Lemma 3.
+  the last knot `c` has slope at most the stopping value `λ²`. Between knots, where `a = f(K, k) > λ ≥ 0`, Algorithm 3
+  returns `S_G(y_seg, λ√(ΔW)) = (1 − λ/a) y_seg = φ y_seg` (`σ = a²`), as `‖y_seg‖ = a√(ΔW) > 0`; after the last knot
+  it returns 0, and there `σ_i ≤ λ²`, so `φ_i = 0`. ∎ Any maximizer in line 5 gives a point of `c` (Appendix C uses
+  only maximality); the last maximizer gives exactly the vertices of slope above `λ²`. A monotone stack over the
+  points, sorted by `W`, finds the vertices in `O(D)` after the `O(p)` block norms (the standard monotone-chain
+  argument, not proved here), against `O(p + Dm)` in Lemma 3.
 - (ii) *Value.* With strictly increasing weights, `Ω(y) = Σ √(W_b − W_a) ‖y_{s_{a+1} ∪ … ∪ s_b}‖₂` over the segments
   `[P_a, P_b]` of `c` with positive slope **[proved here]**. *Proof.* Lower bound: `u_{s_i} = y_{s_i}/√σ_i` (0 where
   `σ_i = 0`, where `y_{s_i} = 0`) has `‖u_{g_ℓ}‖² ≤ W_ℓ` for all `ℓ` because `P_ℓ` lies under `c`, so `Ω(y) ≥ ⟨u, y⟩`,
@@ -455,7 +456,8 @@ weighted `ℓ∞` groups (L1: exact under the proportionality condition, but no 
   Euclidean norms. SIAM J. Sci. Comput. 22(1):243–262, 2000, https://cs.nyu.edu/~overton/papers/pdffiles/sumnorms.pdf
   (published text). Behavior without strict complementarity.
 - Qi, Sun, Zhou. A primal-dual algorithm for minimizing a sum of Euclidean norms. J. Comput. Appl. Math.
-  138(1):127–150, 2002 (published text, authors' copy). Local quadratic rate.
+  138(1):127–150, 2002 (published text, authors' copy). Local quadratic rate for the unconstrained sum of norms of
+  affine maps under strict complementarity and a nonsingular `A_O`; not transported to the proximal problem.
 - Hong, Wang, Razaviyayn, Luo. Iteration complexity analysis of block coordinate descent methods. Math. Program.
   163:85–114, 2017, arXiv:1310.6957v2. Sublinear rate.
 - Schmidt, Le Roux, Bach. Convergence rates of inexact proximal-gradient methods for convex optimization. NIPS 24,

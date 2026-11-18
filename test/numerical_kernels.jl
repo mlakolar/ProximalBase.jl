@@ -990,12 +990,24 @@ end
 end
 
 @testset "group value below K floatmin with zero-weight groups: $T" for T in (Float32, Float64)
-  # K counts every group, penalized or not: a value between npen floatmin (npen penalized groups) and K floatmin is
-  # recomputed with the terms' exponents, so it is within 2 units in the last place of the BigFloat value. The
-  # unpenalized groups hold tiny, large and non-finite entries, which add nothing.
+  # K counts every group, penalized or not. A value from npen floatmin (npen penalized groups) up to just below
+  # K floatmin is recomputed with the terms' exponents. For positive finite λ and weights stored in T and finite
+  # entries in the penalized groups, the recomputed value has about five roundings of u = eps(Float64)/2 against the
+  # BigFloat value: the squares and their compensated sum, the sqrt, the product with the weight, the rounding of the
+  # accumulated sum, and the product with λ. For Float64 data that is a relative error of at most 5u + O(K u²), up to
+  # 5 units in the last place near the top of a binade, and the test allows 3 eps(T) relative. For Float32 data the
+  # recovery runs in Float64 and the one rounding to Float32 dominates, so the test allows one unit in the last
+  # place. Two edges lie outside this bound. (a) For Float64 data a recomputed value just below floatmin is rounded
+  # into the subnormal range by the final scaling, by up to one subnormal spacing, which the Float64 bound adds.
+  # (b) A sum within a few eps of K floatmin can be kept by the ordinary path, whose error this bound does not
+  # cover, so the window stops at K floatmin (1 - 16 eps(T)). The unpenalized groups hold tiny, large and
+  # non-finite entries, which add nothing.
   rng = MersenneTwister(373)
   K = 8
   groups = [1:1, 2:3, 4:6, 7:7, 8:9, 10:12, 13:13, 14:15]
+  in_window(ref, npen) = npen * big(floatmin(T)) <= ref < K * big(floatmin(T)) * (1 - 16 * big(eps(T)))
+  recomputed_ok(v, ref) =
+    T === Float64 ? abs(big(v) - ref) <= 3 * big(eps(T)) * ref + big(nextfloat(zero(T))) : within(v, ref, 1)
   inwindow = 0
   for trial in 1:3000
     w = T[rand(rng, Bool) ? 0 : T(0.5) + rand(rng, T) * 2 for _ in 1:K]
@@ -1013,14 +1025,33 @@ end
     ref = setprecision(BigFloat, 256) do
       big(λ) * sum(iszero(w[k]) ? big(0) : big(w[k]) * sqrt(sum(big(x[i])^2 for i in groups[k])) for k in 1:K)
     end
-    (npen * big(floatmin(T)) <= ref < K * big(floatmin(T))) || continue
+    in_window(ref, npen) || continue
     inwindow += 1
-    @test within(f(x), ref, 2)
-    @test within(value_and_prox!(similar(x), f, x, zero(T)), ref, 2)          # the identity, then the fused value
+    @test recomputed_ok(f(x), ref)
+    @test recomputed_ok(value_and_prox!(similar(x), f, x, zero(T)), ref)      # the identity, then the fused value
   end
   @test inwindow >= 100
-  # two cases where the ordinary sum (kept at npen floatmin) and the recomputed value differ in the last place: the bits
-  # of the recomputed value
+  if T === Float64
+    let
+      # an input whose recomputed value is more than 2 ulps from the reference, within the derived bound
+      λ = reinterpret(Float64, 0x3feccccccccccccd)
+      w = reinterpret.(Float64, UInt64[0x0000000000000000, 0x0000000000000000, 0x3ffe2c98581cf65e, 0x4001df64c872c753,
+        0x0000000000000000, 0x3ffeff0492236dfa, 0x0000000000000000, 0x4000fea62bb673e9])
+      x = reinterpret.(Float64, UInt64[0x7ff8000000000000, 0x0000000000000000, 0x4008000000000000, 0x803157df512b25c7,
+        0x800000000067d9ce, 0x0000afb23a3d71ce, 0x0001e2242014c2b7, 0x0000000000000000, 0x4008000000000000,
+        0x8000021d366386ce, 0x00000000000009dc, 0x0000000000001fa9, 0xfff0000000000000, 0x00000000000090f6,
+        0x8000000000000efe])
+      f = GroupNormL2(λ, groups, w)
+      ref = big(λ) * sum(iszero(w[k]) ? big(0) : big(w[k]) * sqrt(sum(big(x[i])^2 for i in groups[k])) for k in 1:K)
+      @test in_window(ref, count(!iszero, w))
+      @test recomputed_ok(f(x), ref)
+      y = similar(x)
+      @test recomputed_ok(value_and_prox!(y, f, x, 0.0), ref)
+      @test isequal(y, x)
+    end
+  end
+  # two cases where the sum that a threshold of npen floatmin would keep (the code keeps the ordinary sum at K floatmin
+  # or above) and the recomputed value differ in the last place: the bits of the recomputed value
   g4 = [1:1, 2:2, 3:3, 4:4]
   if T === Float64
     x = [-2.906061108421734e-308, -9.19875727328223e-308, -0.0, 0.0]

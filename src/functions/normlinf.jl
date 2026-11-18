@@ -584,8 +584,8 @@ end
 #   (3a/2 + n/2 + 5) u d + (√a + 1) u c ≤ (2n + √n + 5) u Λ for τ0 > μ. That is the bound of the function,
 #   (2n + √n + 5) u (‖v‖₂ + λ). The √n term is the one with c: the shifted values of the active entries add up to c + a t, so
 #   the summation error of the level is proportional to c. On a long sum of nearly equal values the error grows about
-#   linearly in n in practice (measured about 0.01 n to 0.15 n units of u Λ on one entry far below the level and a bulk of equal
-#   entries), inside the bound. The exit sv ≤ c costs at most (n - 1) u ‖v‖₂: v scaled by c/Σ|vᵢ| is in the ball. The bound has
+#   linearly in n in practice (measured, in units of u Λ, about 0.01 n on one entry far below the level and a bulk of equal entries,
+#   and up to about 0.3 n on random entries of that shape, at n = 200000), inside the bound. The exit sv ≤ c costs at most (n - 1) u ‖v‖₂: v scaled by c/Σ|vᵢ| is in the ball. The bound has
 #   no term for entries or terms near the subnormal range, where each adds up to the spacing of W.
 
 # Entry reads with the sign: convert(W, v), and the same scaled by 2^-k (the scaled path).

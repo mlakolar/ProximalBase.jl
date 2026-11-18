@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Check the inventory citations of docs/design/overlapping-group-penalties-963.md.
 
-Each row of the two inventory tables names a symbol (first column, in backticks)
-and a `path:line` (second column). For each row, the file is read at the pinned
+Each row of the two inventory tables names one or more symbols (first column, in
+backticks) and as many `path:line` citations (second column, in the same order). For each row, the file is read at the pinned
 commit of its table with `git show <sha>:<path>`, and the check fails when the
 cited line does not contain the symbol. Run from anywhere inside the repository:
 
@@ -51,22 +51,23 @@ def main():
         if sha is None or not line.startswith("|") or set(line.replace("|", "").strip()) <= set("-: "):
             continue
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        symbol = CODE.search(cells[0])
-        cite = CODE.search(cells[1]) if len(cells) > 1 else None
-        if symbol is None and cite is None:
+        symbols = CODE.findall(cells[0])
+        cites = CODE.findall(cells[1]) if len(cells) > 1 else []
+        if not symbols and not cites:
             continue                      # the header row
-        match = CITE.match(cite.group(1)) if cite else None
-        if symbol is None or match is None:
-            print(f"FAIL note line {number}: a row needs a symbol and a path:line")
+        matches = [CITE.match(c) for c in cites]
+        if not symbols or len(symbols) != len(cites) or not all(matches):
+            print(f"FAIL note line {number}: a row needs as many symbols as path:line citations")
             failures += 1
             continue
-        path, lineno = match.group(1), int(match.group(2))
-        name = symbol.group(1).split("(")[0]
-        lines = file_lines(COMMITS[sha], path)
-        ok = 1 <= lineno <= len(lines) and name in lines[lineno - 1]
-        rows[sha] += 1
-        failures += not ok
-        print(f"{'ok  ' if ok else 'FAIL'} {sha} {path}:{lineno} {name}")
+        for symbol, match in zip(symbols, matches):
+            path, lineno = match.group(1), int(match.group(2))
+            name = symbol.split("(")[0]
+            lines = file_lines(COMMITS[sha], path)
+            ok = 1 <= lineno <= len(lines) and name in lines[lineno - 1]
+            rows[sha] += 1
+            failures += not ok
+            print(f"{'ok  ' if ok else 'FAIL'} {sha} {path}:{lineno} {name}")
     for name, count in rows.items():
         if count == 0:
             print(f"FAIL no rows for {name}")

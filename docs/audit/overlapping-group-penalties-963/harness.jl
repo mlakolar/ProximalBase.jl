@@ -7,6 +7,7 @@
 # for three kinds of group function N_g:
 #   :l2    the weighted ℓ2 norm ‖D z‖₂ with diagonal weights d ≥ 0 (zero allowed),
 #   :linf  ω‖z‖∞ with a scalar weight ω ≥ 0,
+#   :l1    ω‖z‖₁ with a scalar weight ω ≥ 0,
 #   :zero  the indicator of {0} (an infinite weight).
 # The code is generic in the element type, so that the same routines run in
 # Float64 and in BigFloat. Nothing here is part of ProximalBase.
@@ -16,11 +17,12 @@ using LinearAlgebra, Printf, Random
 struct Grp{T}
   kind::Symbol
   idx::Vector{Int}
-  d::Vector{T}          # :l2: one weight per index; :linf: [ω]; :zero: empty
+  d::Vector{T}          # :l2: one weight per index; :linf, :l1: [ω]; :zero: empty
 end
 l2(idx, d) = Grp(:l2, collect(Int, idx), collect(d))
 l2s(idx, ω) = Grp(:l2, collect(Int, idx), fill(ω, length(idx)))   # scalar weight
 linf(idx, ω) = Grp(:linf, collect(Int, idx), [ω])
+l1(idx, ω) = Grp(:l1, collect(Int, idx), [ω])
 gzero(::Type{T}, idx) where {T} = Grp(:zero, collect(Int, idx), T[])
 convert_group(::Type{T}, g::Grp) where {T} = Grp(g.kind, g.idx, T.(g.d))
 
@@ -30,6 +32,8 @@ function gvalue(g::Grp, x::AbstractVector{T}) where {T}
     return sqrt(sum((T(g.d[k]) * x[i])^2 for (k, i) in enumerate(g.idx)))
   elseif g.kind === :linf
     return T(g.d[1]) * maximum(abs(x[i]) for i in g.idx)
+  elseif g.kind === :l1
+    return T(g.d[1]) * sum(abs(x[i]) for i in g.idx)
   else
     return all(iszero(x[i]) for i in g.idx) ? zero(T) : T(Inf)
   end
@@ -51,6 +55,10 @@ function gdual(g::Grp, u::AbstractVector{T}) where {T}
   elseif g.kind === :linf
     ω = T(g.d[1])
     a = sum(abs(u[i]) for i in g.idx)
+    return iszero(ω) ? (iszero(a) ? zero(T) : T(Inf)) : a / ω
+  elseif g.kind === :l1
+    ω = T(g.d[1])
+    a = maximum(abs(u[i]) for i in g.idx)
     return iszero(ω) ? (iszero(a) ? zero(T) : T(Inf)) : a / ω
   else
     return zero(T)
@@ -98,6 +106,11 @@ function gprox!(x::AbstractVector{T}, g::Grp, t::T) where {T}
       for (j, k) in enumerate(P)
         x[g.idx[k]] = s * v[j] / (s + d[j]^2)
       end
+    end
+  elseif g.kind === :l1                                         # soft threshold at tω
+    r = t * T(g.d[1])
+    for i in g.idx
+      x[i] = sign(x[i]) * max(abs(x[i]) - r, zero(T))
     end
   else                                                          # :linf, x minus its projection onto the ℓ1 ball
     r = t * T(g.d[1])

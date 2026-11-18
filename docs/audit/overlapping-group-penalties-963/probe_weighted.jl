@@ -53,6 +53,21 @@ let
          "one pass $(fmtv(xh)), reference $(fmtv(xr)), distance $(fmt(dist)) > 2√(2 gap) = $(fmt(2bound)), largest gradient entry at the one-pass point $(fmt(gr)) (all group norms nonzero)")
 end
 
+# --- The condition of (a) is sufficient, not necessary, for other contained functions -------
+
+# An ℓ1 group inside an ℓ2 group whose weights differ on it: the step of the larger group is a
+# positive diagonal scaling (or zero), which keeps the signs and zeros that ∂‖·‖₁ depends on.
+let ok = true; worst = big"0.0"; det = String[]
+  for (y, c, t) in (([3.0, -2.0, 1.0], 0.5, 0.4), ([5.0, 4.0, -2.0], 1.2, 0.7))
+    groups = [l1(1:2, c), l2(1:3, [1.0, 3.0, 2.0])]
+    x, _, gap = big_one_pass(y, groups, [1, 2], t)
+    ok &= big_ok(gap, y) && nontrivial(x, groups); worst = max(worst, gap)
+    push!(det, "y = $(fmtv(y)): x = $(fmtv(x))")
+  end
+  record("P5 an ℓ1 group {1,2} inside ‖diag(1,3,2) z‖₂ on {1,2,3}: one pass exact although the weights differ on {1,2}",
+         ok, join(det, "; ") * ", largest BigFloat gap $(fmt(worst))")
+end
+
 # --- Duplicate groups with diagonal weights: the order between them matters -----------------
 
 let
@@ -66,6 +81,20 @@ let
          big_ok(gap12, y) && !iszero(x12), "x = $(fmtv(x12)), BigFloat gap $(fmt(gap12))")
   record("P4 the same duplicates, the scalar-weight group first: one pass refuted", refuted,
          "distance $(fmt(dist)) > 2√(2 gap) = $(fmt(2bound))")
+end
+
+# a later duplicate that is not a weighted ℓ2 norm: ‖z‖₂ then ‖z‖∞ on {1,2}, y = (3, 1), t = 1, whose
+# proximal point is (2 − 2/√5, 1 − 1/√5): there y − x = (2, 1)/√5 + e₁
+let
+  y = [3.0, 1.0]; t = 1.0
+  groups = [l2s(1:2, 1.0), linf(1:2, 1.0)]
+  x, _, _ = big_one_pass(y, groups, [1, 2], t)
+  xs = setprecision(BigFloat, 256) do; [2 - 2 / sqrt(big(5)), 1 - 1 / sqrt(big(5))]; end
+  ξs = setprecision(BigFloat, 256) do; [[2 / sqrt(big(5)), 1 / sqrt(big(5))], [big(1), big(0)]]; end
+  gs = big_gap(y, xs, ξs, groups, t)
+  d = Float64(norm(big.(x) .- xs))
+  record("P6 duplicates ‖z‖₂ then ‖z‖∞ on {1,2}, y = (3, 1), t = 1: the closed-form point is certified and one pass differs from it",
+         big_ok(gs, y) && d > 1e-3, "one pass $(fmtv(x)), proximal point $(fmtv(xs)) (BigFloat gap $(fmt(gs))), distance $(fmt(d))")
 end
 
 # --- A diagonal step: ½ Σ (xᵢ − yᵢ)²/τᵢ + Ω(x) is the problem in z = x/√τ with weights d √τ ----

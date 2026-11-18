@@ -4,12 +4,13 @@ The scripts behind the numerical statements of
 [`docs/design/overlapping-group-penalties-963.md`](../../design/overlapping-group-penalties-963.md).
 Each prints one line per recorded statement (`PASS` or `FAIL`) and exits with a nonzero status when one fails.
 Recorded instances are literal values in the scripts; random sweeps use seeded `Xoshiro` generators and print their
-counts. Sweep counts of the reference solver are an illustration, not a performance claim; no timing is recorded.
+counts. Sweep and iteration counts (lines C and N) are an illustration, not a performance claim; no timing is
+recorded.
 
 ## Method
 
-- `harness.jl` (included by the probes, not run alone): group steps for weighted `ℓ2`, `ℓ∞` and infinite-weight
-  groups, one pass with its dual blocks rebuilt from the steps, cyclic dual block coordinate descent, duality gaps and
+- `harness.jl` (included by the probes, not run alone): group steps for weighted `ℓ2`, `ℓ∞`, `ℓ1` and
+  infinite-weight groups, one pass with its dual blocks rebuilt from the steps, cyclic dual block coordinate descent, duality gaps and
   the objective gradient, generic in the element type.
 - A candidate is accepted when its duality gap, evaluated in `BigFloat` (256 bits), is at most
   `1e-50 (1 + ‖y‖²)` for a `BigFloat` candidate or `1e-12 (1 + ‖y‖²)` for a `Float64` one. The dual blocks are
@@ -26,8 +27,8 @@ Run from the repository root.
 | Script | Shows | Command |
 |---|---|---|
 | `probe_laminar.jl` | Propositions 1–3: disjoint groups against `prox` of `GroupNormL2` on master, laminar scalar weights, the sparse-group order, `ℓ∞` and mixed norms | `julia --project=. --check-bounds=yes docs/audit/overlapping-group-penalties-963/probe_laminar.jl` |
-| `probe_weighted.jl` | Propositions 4–5: diagonal weights inside a group, necessity for two groups, duplicates, a diagonal step | `julia --project=. --check-bounds=yes docs/audit/overlapping-group-penalties-963/probe_weighted.jl` |
-| `probe_banding.jl` | Section 5: reduction to band norms, the general weights of Bien, Bunea and Xiao, the weights of Yu and Bien, two-value weights, `λ_max`, sweeps of dual block coordinate descent | `julia --project=. --check-bounds=yes docs/audit/overlapping-group-penalties-963/probe_banding.jl` |
+| `probe_weighted.jl` | Propositions 4–5: diagonal weights inside a group, necessity for two groups, an `ℓ1` group (sufficient, not necessary), duplicates, a diagonal step | `julia --project=. --check-bounds=yes docs/audit/overlapping-group-penalties-963/probe_weighted.jl` |
+| `probe_banding.jl` | Section 5: reduction to band norms, the general weights of Bien, Bunea and Xiao, the weights of Yu and Bien, two-value weights, the small-step expansion, zero bands, `λ_max`, dual block coordinate descent and a Newton-type method | `julia --project=. --check-bounds=yes docs/audit/overlapping-group-penalties-963/probe_banding.jl` |
 | `check_inventory.py` | each `path:line` of the note's inventory holds the named symbol at the pinned commit | `python3 docs/audit/overlapping-group-penalties-963/check_inventory.py` |
 
 ## Recorded run

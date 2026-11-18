@@ -120,9 +120,10 @@ let rng = Xoshiro(6963)
     for K in Ks
       acc, ref, supp = family_sweep(rng, Wfun, K, N; scale)
       ok = exact ? acc == N : acc + ref == N && ref > 0
-      record("F $name, p = $(K + 1), $N random instances (seeded)", ok,
-             exact ? "one pass exact in $acc of $N" :
-                     "one pass exact in $acc, refuted in $ref, undecided in $(N - acc - ref); zero-band count differs in $supp")
+      size = startswith(name, "Yu") ? "$K penalized coordinates (row $(K + 1))" : "p = $(K + 1)"
+      record("F $name, $size, $N random instances (seeded)", ok,
+             exact ? "one pass accepted (BigFloat gap) in $acc of $N" :
+                     "one pass accepted in $acc, refuted in $ref, undecided in $(N - acc - ref); zero-band count differs in $supp")
     end
   end
 end
@@ -133,8 +134,64 @@ let
   x1, _ = one_pass(r, G, 1:3, t)
   xr, _, _, gapr = reference(r, G, 1:3, t)
   dist, bound, refuted = refutation(x1, xr, gapr)
-  record("Y recorded instance, Yu-Bien weights, three coordinates, y = (2, 1.5, 1), step 0.5: one pass refuted", refuted,
+  record("Y recorded instance, Yu-Bien weights, three penalized coordinates, y = (2, 1.5, 1), step 0.5: one pass refuted", refuted,
          "one pass $(fmtv(x1)), reference $(fmtv(xr)), distance $(fmt(dist)) > 2√(2 gap) = $(fmt(2bound))")
+end
+
+# --- Small steps: the one-pass gradient is −t² C(y) + O(t³) -----------------------------------
+
+# Input supported on the two outermost bands, y = (2, 3, 0, …, 0). C(y) = Σ_ℓ H_ℓ(y) Σ_{j>ℓ} ∇N_j(y),
+# with H_ℓ the Hessian of N_ℓ(z) = ‖W[ℓ,1:ℓ] ∘ z‖₂. Checked in BigFloat (512 bits) at t = 1e-40:
+# ‖G/t² + C‖ ≤ 1e-30 ‖C‖ where C ≠ 0 (K ≥ 3), and ‖G‖/t² ≤ 1e-30 for K = 2.
+function expansion(W, y, t)
+  K = size(W, 1); G = chain(W)
+  setprecision(BigFloat, 512) do
+    B = BigFloat; yb = B.(y); tb = B(t); GB = [convert_group(B, g) for g in G]
+    x, _ = one_pass(yb, GB, 1:K, tb)
+    grad = objective_gradient(yb, x, GB, tb)
+    C = zeros(B, K)
+    for l in 1:K-1
+      w2 = B.(W[l, 1:l]) .^ 2
+      n = sqrt(sum(w2 .* yb[1:l] .^ 2)); a = w2 .* yb[1:l]
+      v = zeros(B, l)
+      for j in l+1:K
+        wj = B.(W[j, 1:j]) .^ 2
+        v .+= (wj .* yb[1:j] ./ sqrt(sum(wj .* yb[1:j] .^ 2)))[1:l]
+      end
+      C[1:l] .+= (w2 .* v .- a .* (dot(a, v) / n^2)) ./ n     # H_ℓ v
+    end
+    norm(grad ./ tb^2 .+ C), norm(C)
+  end
+end
+
+let ok = true; det = String[]
+  for (name, Wfun) in (("general", general), ("Yu-Bien", yubien)), K in (2, 3, 5, 10, 30)
+    y = [2.0; 3.0; zeros(K - 2)]
+    e, c = expansion(Wfun(K), y, 1e-40)
+    ok &= K == 2 ? (c == 0 && e <= 1e-30) : (c > 0 && e <= 1e-30 * c)
+    push!(det, "$name K=$K ‖C‖=$(fmt(c))")
+  end
+  record("E one-pass gradient = −t² C(y) + O(t³) at t = 1e-40, C = 0 for K = 2 and C ≠ 0 for K ≥ 3 (general and Yu-Bien weights)",
+         ok, join(det, ", "))
+end
+
+# --- One pass can keep bands that the proximal point sets to zero -------------------------------
+
+# p = 4, λ = 1, band norms (2.05, 3, 0), general weights. The proximal point is zero: dual block
+# coordinate descent at 0.999λ gives blocks ξ₁, ξ₂; with ξ₃ = r − ξ₁ − ξ₂ (BigFloat) each block lies
+# in the λ-ball of its dual norm, so r ∈ λ Σ_ℓ B°_ℓ and 0 satisfies the optimality condition.
+let
+  r = [2.05, 3.0, 0.0]; λ = 1.0
+  W = general(3); G = chain(W)
+  x1, _, _ = big_one_pass(r, G, 1:3, λ)
+  xz, ξ, sweeps = dual_bcd(r, G, 1:3, 0.999λ; tol = 1e-20, maxsweeps = 100_000)
+  norms = setprecision(BigFloat, 256) do
+    B = BigFloat; ξb = [B.(z) for z in ξ]; ξb[3] = B.(r) .- ξb[1] .- ξb[2]
+    [gdual(convert_group(B, G[l]), ξb[l]) for l in 1:3]
+  end
+  record("Z p = 4, λ = 1, band norms (2.05, 3, 0): one pass keeps bands 1 and 2, the proximal point is zero",
+         maximum(norms) < λ && count(!iszero, x1) == 2,
+         "one pass $(fmtv(x1)); BCD point at 0.999λ $(fmtv(xz)); dual norms of the decomposition r = ξ₁ + ξ₂ + ξ₃ $(fmtv(norms)) < λ ($sweeps sweeps at 0.999λ)")
 end
 
 # --- λ_max of Appendix C (arXiv v1) and of lam.max.hierband: a diagonal result below it --------
@@ -148,50 +205,121 @@ let
          λ < lammax && all(iszero, x) && big_ok(gap, r), "x = $(fmtv(x)), BigFloat gap $(fmt(gap))")
 end
 
-# --- Exact evaluation for the general weights: sweeps of dual BCD against p ------------------
+# --- Certified evaluation for the general weights: dual BCD and a Newton-type method ----------
 
-# The largest spread, over the nonzero groups ℓ, of the factors s/(s + w_ℓm²) by which the step
-# of group ℓ scales the coordinates m < ℓ that are nonzero, at the point x (s = ‖W_ℓ x‖/t). A zero
-# spread for each group is the condition of Proposition 4; a large spread means that the later
-# steps turn the residuals of the earlier groups.
-function factor_spread(x, W, t)
-  sp = 0.0
-  for l in 2:size(W, 1)
-    n = norm(W[l, 1:l] .* x[1:l]); iszero(n) && continue
-    s = n / t
-    f = [s / (s + W[l, m]^2) for m in 1:l-1 if !iszero(x[m])]
-    length(f) >= 2 && (sp = max(sp, maximum(f) - minimum(f)))
-  end
-  sp
+# The smallest nonzero group norm at x, relative to λ w_ℓℓ: a value near 0 is a group barely nonzero.
+function smallest_group(x, W, λ)
+  v = [norm(W[l, 1:l] .* x[1:l]) / (λ * W[l, l]) for l in 1:size(W, 1)]
+  v = filter(!iszero, v)
+  isempty(v) ? NaN : minimum(v)
 end
 
-# An illustration, not a performance claim: cyclic dual BCD from zero (its first sweep is one
-# pass) until the Float64 gap is at most 1e-12 (1 + ‖r‖²) or 100000 sweeps; the final gap is
-# evaluated in BigFloat. Family A: signal in the b = K/4 bands next to the diagonal, λ = 1.
-# Family B: signal in each band, λ = 1. Families C and D: as B with λ = 2 and λ = 2.5.
-# "kept" is the largest one-pass band value at a band where the reference is zero, against
-# √(2 gap), the largest distance of the reference from the proximal point.
+# Newton's method with a backtracking (Armijo) line search on the bands L+1..K, the bands 1..L held
+# at zero. The objective there is ½‖z − r‖² + λ Σ_{ℓ>L} ‖W[ℓ, L+1:ℓ] ∘ z‖₂; its Hessian is
+# I + λ Σ_ℓ (diag(w²) − a aᵀ/n²)/n (a = w² ∘ z, n the group norm), formed densely and factored by
+# Cholesky: O(K³) operations per iteration. Stops when the Newton decrement −gᵀd is at most
+# 1e-14 (1 + ‖r‖²); a zero group norm, a stalled line search or 100 iterations stop it as a failure.
+function newton_bands(r, W, λ, L, z0; maxit = 100)
+  K = length(r); S = L+1:K; m = length(S)
+  rs = r[S]; z = copy(z0)
+  f(z) = sum(abs2, z .- rs) / 2 + λ * sum(norm(W[l, L+1:l] .* z[1:l-L]) for l in S)
+  for it in 0:maxit
+    g = z .- rs; H = Matrix{Float64}(I, m, m)
+    for l in S
+      k = l - L; w2 = W[l, L+1:l] .^ 2
+      n = sqrt(sum(w2 .* z[1:k] .^ 2)); iszero(n) && return z, it, false
+      a = w2 .* z[1:k]
+      g[1:k] .+= λ .* a ./ n
+      H[1:k, 1:k] .+= λ .* (Diagonal(w2) .- (a * a') ./ n^2) ./ n
+    end
+    d = -(cholesky(Symmetric(H)) \ g)
+    gd = dot(g, d)
+    -gd <= 1e-14 * (1 + sum(abs2, r)) && return z, it, true
+    it == maxit && return z, it, false
+    st = 1.0; f0 = f(z)
+    while f(z .+ st .* d) > f0 + 1e-4 * st * gd && st > 1e-12
+      st /= 2
+    end
+    st <= 1e-12 && return z, it, false
+    z .+= st .* d
+  end
+  z, maxit, false
+end
+
+# The safeguarded method: n₀ dual sweeps (from zero) propose the zero prefix L (the leading zero bands of the
+# iterate); Newton solves the remaining bands; dual BCD on the chain of the first L groups at r₁..L
+# supplies their dual blocks; the result is accepted only if the duality gap of the whole problem,
+# evaluated in BigFloat, is at most 1e-12 (1 + ‖r‖²). Otherwise the attempt is reported as failed
+# (a wrong prefix or a Newton failure) and the proposal is repeated with ten times more sweeps
+# (n₀ = 2, 20, 200, 2000).
+function newton_method(r, W, λ)
+  K = length(r); G = chain(W); tol = 1e-12 * (1 + sum(abs2, r))
+  rejected = 0; newton_its = 0; cert_sweeps = 0; n0 = 0
+  for n0_try in (2, 20, 200, 2000)
+    n0 = n0_try
+    x0, _, _ = dual_bcd(r, G, 1:K, λ; tol = 0.0, maxsweeps = n0)
+    L = something(findfirst(!iszero, x0), K + 1) - 1
+    ρ = zeros(K); ξ = [zeros(K) for _ in 1:K]; ok = true
+    if L < K
+      z, its, conv = newton_bands(r, W, λ, L, x0[L+1:K]); newton_its += its
+      ok = conv
+      ρ[L+1:K] .= z
+      for l in L+1:K
+        n = norm(W[l, 1:l] .* ρ[1:l]); iszero(n) && (ok = false; break)
+        ξ[l][1:l] .= λ .* W[l, 1:l] .^ 2 .* ρ[1:l] ./ n
+      end
+    end
+    if ok && L > 0
+      xL, ξL, sw = dual_bcd(r[1:L], chain(W[1:L, 1:L]), 1:L, λ; tol = 1e-13 * (1 + sum(abs2, r)), maxsweeps = 100_000)
+      cert_sweeps += sw
+      ok = all(iszero, xL)
+      for l in 1:L
+        ξ[l][1:L] .= ξL[l]
+      end
+    end
+    if ok && big_gap(r, ρ, ξ, G, λ) <= tol
+      return true, n0, newton_its, cert_sweeps, rejected
+    end
+    rejected += 1
+  end
+  false, n0, newton_its, cert_sweeps, rejected
+end
+
+# An illustration, not a performance claim, on four families of band norms (five instances per
+# size): A, signal in the b = K/4 bands next to the diagonal, λ = 1; B, signal in each band, λ = 1;
+# C and D, as B with λ = 2 and λ = 2.5. Dual BCD runs from zero (its first sweep is one pass) until
+# its Float64 gap is at most 1e-12 (1 + ‖r‖²) or 100000 sweeps; its final gap is evaluated in
+# BigFloat. Each instance is listed as (sweeps, smallest nonzero group norm / λw_ℓℓ), sorted by sweeps.
+# "kept" is the largest one-pass band value at a band where the BCD point is zero, against √(2 gap).
 let rng = Xoshiro(7963)
   N = 5; cap = 100_000
   for (fam, sig, λ) in (("A", K -> K - max(1, K ÷ 4), 1.0), ("B", K -> 0, 1.0), ("C", K -> 0, 2.0), ("D", K -> 0, 2.5))
     for K in (7, 15, 31, 63, 127)
-      sw = Int[]; gaps = Float64[]; nz = Int[]; off = Float64[]; spread = Float64[]; kept = 0.0; bnd = 0.0
+      runs = Tuple{Int, Float64}[]; gaps = Float64[]; nz = Int[]; off = Float64[]; kept = 0.0; bnd = 0.0
+      nt = Tuple{Int, Int, Int, Int, Float64}[]; ncert = 0
       for _ in 1:N
         r = [sqrt(2m) * (m > sig(K) ? 2 + abs(randn(rng)) : 0.5 * abs(randn(rng))) for m in 1:K]
         W = general(K); G = chain(W)
         x, ξ, s = dual_bcd(r, G, 1:K, λ; tol = 1e-12 * (1 + sum(abs2, r)), maxsweeps = cap)
         x1, _ = one_pass(r, G, 1:K, λ)
         g = big_gap(r, x, ξ, G, λ)
-        push!(sw, s); push!(gaps, Float64(g / (1 + sum(abs2, r))))
-        push!(nz, count(!iszero, x)); push!(off, norm(x1 .- x) / norm(r)); push!(spread, factor_spread(x, W, λ))
+        push!(runs, (s, smallest_group(x, W, λ))); push!(gaps, Float64(g / (1 + sum(abs2, r))))
+        push!(nz, count(!iszero, x)); push!(off, norm(x1 .- x) / norm(r))
         z = [abs(x1[m]) for m in 1:K if iszero(x[m])]
         isempty(z) || (kept = max(kept, maximum(z)))
         bnd = max(bnd, Float64(sqrt(2g)))
+        okn, n0, its, cs, rej = newton_method(r, W, λ)
+        ncert += okn; push!(nt, (n0, its, cs, rej, smallest_group(x, W, λ)))
       end
       reached = count(<=(1e-12), gaps)
-      record("C$fam p = $(K + 1), general weights, λ = $λ, $N instances (seeded): sweeps of dual BCD", true,
-             "sweeps $(sort(sw)) (gap reached in $reached of $N), nonzero bands $(extrema(nz)) of $K, largest factor spread $(fmt(maximum(spread))), " *
-             "largest gap/(1+‖r‖²) $(fmt(maximum(gaps))), one pass off by ‖x₁ − x‖/‖r‖ up to $(fmt(maximum(off))), kept $(fmt(kept)) against √(2 gap) ≤ $(fmt(bnd))")
+      sort!(runs)
+      record("C$fam p = $(K + 1), general weights, λ = $λ, $N instances (seeded): dual BCD", true,
+             "(sweeps, smallest group) $(join(("($a, $(fmt(b)))" for (a, b) in runs), " ")) (gap reached in $reached of $N), " *
+             "nonzero bands $(extrema(nz)) of $K, largest gap/(1+‖r‖²) $(fmt(maximum(gaps))), " *
+             "one pass off by ‖x₁ − x‖/‖r‖ up to $(fmt(maximum(off))), kept $(fmt(kept)) against √(2 gap) ≤ $(fmt(bnd))")
+      record("N$fam p = $(K + 1), λ = $λ: Newton-type method", true,
+             "certified in $ncert of $N; (proposal sweeps, Newton iterations, prefix-certificate sweeps, failed attempts, smallest group) " *
+             join(("($a, $b, $c, $d, $(fmt(e)))" for (a, b, c, d, e) in nt), " "))
     end
   end
 end

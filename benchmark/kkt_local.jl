@@ -59,15 +59,18 @@
 # kernel that fails a case is left out of that case with a SKIP line and the other trees run.
 #
 # PB_MODE=ir counts instead of timing, for the loop of each case of the selected groups (E excluded) and each tree. The
-# optimized LLVM text of the loop function (code_llvm, with the argument types of the first pool member) gives three counts:
-# its lines; its call instructions whose called symbol does not start with llvm. (a call through a pointer or an inline
-# assembly has no symbol and is counted as a call); and those of them whose called symbol contains kkt_violation. The called
-# symbol of a call instruction is the name after @ that precedes the argument list, without quotes. The IR field per tree is
-# name=lines:calls:kkt_calls. The counts are those of the loop function with what the compiler inlined into it; the code of a
-# function that the loop calls is not examined. Equal counts in two trees do not establish that their code is equal, and the
-# placement of machine code is not examined. A count of 0 calls naming kkt_violation shows that no call to a function of that
-# name remains in the loop, not what was inlined. A tree whose code is not generated for a case stops the run when it is
-# base, basectl, head or headctl, and is left out of the row with a SKIP line when it is a history tree or a reference kernel.
+# optimized LLVM text of the loop function (code_llvm, with the argument types of the first pool member) gives three counts
+# of lines of text: its lines; its call lines (a line whose instruction is call, with or without a result assignment and a
+# tail, notail or musttail marker) that do not contain the text @llvm.; and its call lines that contain the text
+# kkt_violation. The called operand is not parsed: a call line that contains @llvm. anywhere (as the callee, an argument or
+# inside a string) is left out of the second count, a call line that contains kkt_violation anywhere is in the third, and a
+# call through a pointer is attributed to no function. The IR field per tree is name=lines:calls:kkt_calls. The counts are
+# those of the loop function with what the compiler inlined into it; the code of a function that the loop calls is not
+# examined. Equal counts in two trees do not establish that their code is equal, and the placement of machine code is not
+# examined. A third count of 0 shows that no call line of the loop text contains that name; it does not show what was inlined,
+# and a call through a pointer could still reach such a function. A tree whose code is not generated for a case stops the
+# run when it is base, basectl, head or headctl, and is left out of the row with a SKIP line when it is a history tree or a
+# reference kernel.
 #
 # PB_CHECK_ONLY=1 runs the value comparison and the allocation measurement, and no timing rounds, for the cases of the
 # selected groups (E excluded). It exits with status 1 when a stop condition above arose, when one of the four trees
@@ -401,24 +404,17 @@ function runcase(group, label, parts0::Vector{Part}, loop, ncalls; batches = 25,
 end
 
 # ---- compiled code ------------------------------------------------------------------------------------------------------------
-# the called symbol of an LLVM call instruction: the name after @ that precedes the argument list, without quotes; "" for a
-# call through a pointer or an inline assembly; nothing for a line that is not a call instruction
+# a line of the LLVM text whose instruction is call, with or without a result assignment and a tail, notail or musttail marker
 const CALLSTART = r"^\s*(?:%(?:\"[^\"]*\"|[^\s=]+)\s*=\s*)?(?:(?:tail|notail|musttail)\s+)?call\b"
-const CALLEE = r"\bcall\b[^@%]*?@(\"[^\"]*\"|[^\s(,)]+)\("
-function calledsymbol(line)
-  occursin(CALLSTART, line) || return nothing
-  m = match(CALLEE, line)
-  m === nothing ? "" : strip(m.captures[1], '"')
-end
-# the lines of the text, its calls whose symbol does not start with llvm., and those whose symbol contains kkt_violation
+# the lines of the text, its call lines without the text @llvm., and its call lines with the text kkt_violation; the called
+# operand is not parsed
 function ircounts(text)
   ls = split(text, '\n')
   calls = 0; kcalls = 0
   for l in ls
-    sym = calledsymbol(l)
-    (sym === nothing || startswith(sym, "llvm.")) && continue
-    calls += 1
-    occursin("kkt_violation", sym) && (kcalls += 1)
+    occursin(CALLSTART, l) || continue
+    occursin("@llvm.", l) || (calls += 1)
+    occursin("kkt_violation", l) && (kcalls += 1)
   end
   (lines = length(ls), calls = calls, kcalls = kcalls)
 end

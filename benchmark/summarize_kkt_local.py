@@ -21,14 +21,16 @@ compilations of the same source). With m1 and m2 the medians of the controls, lo
 1/m2, and hi = 1/lo. The column is below when the median of head/base is under lo, above when it is over hi and within
 otherwise. It is empty when head/base is missing, and it uses the controls that are present.
 
-Compiled-code output (IR lines, PB_MODE=ir). The table OUT.ir.tsv (OUT without a final .tsv, followed by .ir.tsv) has
-the group, the label and, for each tree, the number of lines of the optimized code of the loop, the number of its call
-instructions whose called symbol does not start with llvm., and the number of those whose called symbol contains
-kkt_violation. It is written when a file has IR lines. For each file the summarizer prints the number of IR rows, the number
-of rows in which the three counts of head equal those of base, and the numbers in which those of basectl equal those of base
-and those of headctl equal those of head (when those trees are present). An IR line whose tree fields do not have three
-fields is skipped, and the number of skipped lines is printed. Equal counts do not establish equal code: the counts are
-those of the loop function with what was inlined into it, and the code of the functions that it calls is not examined.
+Compiled-code output (IR lines, PB_MODE=ir). The counts are counts of lines of the text of the optimized code of the loop,
+not of called operands: the lines of the text, its call lines (lines whose instruction is call) that do not contain the text
+@llvm., and its call lines that contain the text kkt_violation. The table OUT.ir.tsv (OUT without a final .tsv, followed by
+.ir.tsv) has the group, the label and, for each tree, these three counts as decimal numbers. It is written when at least one
+valid IR row remains. For each file the summarizer prints the number of IR rows, the number of rows in which the three counts
+of head equal those of base, and the numbers in which those of basectl equal those of base and those of headctl equal those
+of head (when those trees are present). An IR line whose number of tab-separated fields is not four, or whose tree fields
+are not name=lines:calls:kkt_calls with decimal numbers, is skipped; the number of skipped lines is printed and the timing
+tables are still written. Equal counts do not establish equal code: the counts are those of the loop function with what was
+inlined into it, and the code of the functions that it calls is not examined.
 
 It uses the Python standard library.
 """
@@ -42,6 +44,7 @@ PAIRS = [("head", "base"), ("base", "pre"), ("head", "pre"), ("basectl", "base")
 def parse(path):
     env, rows, vals, skips, irs = [], {}, {}, [], []
     scans, skipped, stops = {}, {}, []
+    badir = 0
     with open(path, errors="replace") as fh:
         for line in fh:
             line = line.rstrip("\n")
@@ -67,9 +70,12 @@ def parse(path):
             elif line.startswith(("VALUES DIFFER\t", "CASE FAILED\t", "CHECK")):
                 stops.append(line)
             elif line.startswith("IR\t"):
-                _, group, label, desc = line.split("\t")
-                irs.append((group, label, desc))
-    return env, rows, vals, skips, irs, scans, skipped, stops
+                f = line.split("\t")
+                if len(f) == 4:
+                    irs.append((f[1], f[2], f[3]))
+                else:
+                    badir += 1
+    return env, rows, vals, skips, irs, scans, skipped, stops, badir
 
 
 def ratio(a, b):
@@ -94,14 +100,14 @@ def head_vs_controls(parts):
 
 
 def parse_ir(desc):
-    """name=lines:calls:kkt_calls;... -> {name: (lines, calls, kkt_calls)}, or None when a tree field is malformed"""
+    """name=lines:calls:kkt_calls;... -> {name: (lines, calls, kkt_calls)} as integers, or None when a tree field is malformed"""
     out = {}
     for item in desc.split(";"):
         name, _, rest = item.partition("=")
         f = rest.split(":")
-        if not name or len(f) != 3 or not all(x.isdigit() for x in f):
+        if not name or len(f) != 3 or not all(re.fullmatch(r"[0-9]+", x) for x in f):
             return None
-        out[name] = tuple(f)
+        out[name] = tuple(int(x) for x in f)
     return out
 
 
@@ -118,7 +124,7 @@ def main():
     with open(out, "w") as fh:
         fh.write("\t".join(cols) + "\n")
         for path in files:
-            env, rows, vals, skips, irs, scans, skipped, stops = parse(path)
+            env, rows, vals, skips, irs, scans, skipped, stops, badir = parse(path)
             m = re.search(r"julia=(\S+)", " ".join(env))
             julia = m.group(1) if m else "?"
             print(f"## {path}")
@@ -145,8 +151,8 @@ def main():
                         rec[f"{a}/{b}"], rec[f"{a}/{b}_min"], rec[f"{a}/{b}_max"] = (f"{x:.3f}" for x in r)
                 rec["head_vs_controls"] = head_vs_controls(parts)
                 fh.write("\t".join(str(rec.get(c, "")) for c in cols) + "\n")
-            if irs:
-                kept, skipped_ir = [], 0
+            if irs or badir:
+                kept, skipped_ir = [], badir
                 for group, label, desc in irs:
                     d = parse_ir(desc)
                     if d is None:
@@ -174,7 +180,7 @@ def main():
             for fname, julia, group, label, d in irrows:
                 cells = [fname, julia, group, label]
                 for n in irtrees:
-                    cells += list(d.get(n, ("", "", "")))
+                    cells += [str(x) for x in d.get(n, ("", "", ""))]
                 fh.write("\t".join(cells) + "\n")
         print(f"wrote {irout}")
 

@@ -113,15 +113,26 @@ remain `BigFloat`.
 * **Nested wrappers whose level does not fold.** For two positive finite factors, the
   constructor merges the wrappers when the product is a normal number and keeps them nested
   otherwise; zero and infinite factors follow the endpoint rules of the constructor. For a chain around `NormL1`, `ElasticNet`, `GroupNormL2`, `NormL2` or `NormLinf` the product of the
-  factors is folded into the level (the levels of `ElasticNet`) when the result is a normal
-  number, and the chain then has the score of the function with that level, in each form that the function has. Where
-  it does not fold, **the three-argument screen, and the four-argument form at a zero coordinate
-  or group, can return an incorrect value** (`NormLinf` has neither form and throws an `ArgumentError`): they divide `v` by the product, which is out of
-  range, and an ordinary `v` overflows. `Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at
-  `v = [0.25]` returns `Inf`, where the value is `0.25` to rounding. This is tracked as
-  [#978](https://github.com/mlakolar/ProximalBase.jl/issues/978). The four-argument form at a
+  factors is folded into the level (both levels of `ElasticNet`, an infinite one being kept as it is) when the result is a nonzero finite
+  number that the type of the level accepts, or the level is zero: a normal number, or a subnormal one when the folded level is a
+  `Float32` or a `Float64` (a `Float16` level folds only to a normal number). The chain then has the score of the function with
+  that level, in each form that the function has (`NormLinf` has only the full-point form). A subnormal folded level has fewer significant bits than a normal one, and the coefficient of an entry is that
+  rounded level times the weight. Where
+  it does not fold, the three-argument screen of `NormL1` and `ElasticNet`, and the four-argument
+  form of `NormL1`, `ElasticNet` and `GroupNormL2` at a zero coordinate or group, are computed from the coefficient
+  ``a\,\lambda\,w`` of the entry or group, with ``a`` the product of the factors, ``\lambda`` the level and ``w`` the
+  weight. For a positive finite ``\lambda`` and ``w`` the significands of the three are multiplied and their exponents are
+  applied in one last step, without forming ``a\lambda`` or dividing `v` by ``a``. A zero weight gives the coefficient 0 (also
+  under an infinite level), and an infinite weight or level gives `Inf`. For finite entries of `v` the value is
+  ``\lvert v_i\rvert-a\lambda w_i`` for a coordinate and ``\lVert v_G\rVert_2-a\lambda w_G`` for a group, up to the rounding
+  of the coefficient and of the difference in the type of the call. A `NaN` entry gives `NaN`. An infinite entry gives what the
+  three-argument screen gives for `NormL1` and `ElasticNet` (`Inf - Inf` is `NaN`), and `Inf` for `GroupNormL2`. An
+  `ElasticNet` with an infinite `λ2` gives `-Inf` at a zero coordinate, whatever `v` holds.
+  `Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at `v = [0.25]` returns `0.25`, the
+  coefficient ``2^{-1200}`` rounding to zero in `Float64`. The four-argument form at a
   nonzero coordinate or group (an entry in no group of a `GroupNormL2` counts as nonzero when `x`
-  is nonzero there) and the full-point form throw an `ArgumentError` for such a chain.
+  is nonzero there) and the full-point form throw an `ArgumentError` for such a chain, and the three-argument and four-argument
+  forms of `NormL2` and `NormLinf` throw an `ArgumentError`, also at a zero coordinate and under a chain that does not fold.
 * **An infinite factor.** `Scaled(f, Inf)` and `Inf * f` give one wrapper with an infinite factor, also when `f` is
   itself scaled, because the constructor merges the factors. `kkt_violation(h, v, x)` and the four-argument form at a
   nonzero coordinate or group throw an `ArgumentError` for it (an entry in no group of a `GroupNormL2` counts as
@@ -150,7 +161,9 @@ lin = Scaled(Scaled(LinearFunction([1.0]), 1e-200), 1e-200)    # the product of 
 @assert lin.f isa Scaled
 @assert kkt_violation(lin, [0.25], 1) == 0.25 && kkt_violation(lin, [0.25], [0.7]) == 0.25
 nl = Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)
-@assert kkt_violation(nl, [0.25], 1) == Inf                 # unsupported: the value is 0.25 to rounding
+@assert kkt_violation(nl, [0.25], 1) == 0.25                # the coefficient 2^-1200 is not representable; the exponent is applied last
+gl = Scaled(Scaled(GroupNormL2(1.0, [[1, 2]], [1.0]), 2.0^-600), 2.0^-600)
+@assert kkt_violation(gl, [0.3, 0.4], [0.0, 0.0], 1) == 0.5   # a zero group: the norm of v, less the coefficient
 refused(f) = try f(); false catch e; e isa ArgumentError end
 @assert refused(() -> kkt_violation(nl, [0.25], [1.0], 1)) && refused(() -> kkt_violation(nl, [0.25], [1.0]))
 inf = Scaled(NormL1(1.0), Inf)

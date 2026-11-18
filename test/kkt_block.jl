@@ -539,7 +539,8 @@ end
 
 # ---- 8. Scaled, wrappers that stay nested ------------------------------------------------------------------------------
 # fails at the base: the three-argument form around LinearFunction and a centered SqrNormL2 at v of order one; the
-# nonzero points and the full-point form
+# nonzero points and the full-point form; the values of NormL1 and GroupNormL2 at a zero coordinate or group where the level
+# does not fold (Inf at the base)
 
 @testset "$T the rows of the table: chains at v of order one" for T in TYPES
   t = tiny(T)
@@ -550,17 +551,18 @@ end
     @test kkt_violation(s, T[0.25], xx, 1) === T(0.25)
     @test kkt_violation(s, T[0.25], xx) === T(0.25)
   end
-  # NormL1(1) under t, t: the level does not fold to a normal number. The values of the base stay where they are defined, and a
-  # nonzero point and the full-point form are refused
+  # NormL1(1) under t, t: the level does not fold to a normal number. The screen is |v| - a, with the coefficient a that rounds
+  # to zero, and a nonzero point and the full-point form are refused
   s = chain(T, NormL1(T(1)))
   @test_throws ArgumentError kkt_violation(s, T[0.25], T[0.7], 1)
   @test_throws ArgumentError kkt_violation(s, T[0.25], T[0.7])
   @test_throws ArgumentError kkt_violation(s, T[0.25], T[0], )
-  @test kkt_violation(s, T[0.25], 1) === T(Inf)                         # the value of the base, not the screen 0.25
-  @test kkt_violation(s, T[0.25], T[0], 1) === T(Inf)
-  # a GroupNormL2 under the same factors at a zero block
+  @test kkt_violation(s, T[0.25], 1) === T(0.25)
+  @test kkt_violation(s, T[0.25], T[0], 1) === T(0.25)
+  # a GroupNormL2 under the same factors at a zero block: ‖v‖₂ - a with the same coefficient
   s = chain(T, GroupNormL2(T(1), [[1, 2]], T[1]))
-  @test kkt_violation(s, T[0.3, 0.4], T[0, 0], 1) === T(Inf)
+  r = kkt_violation(s, T[0.3, 0.4], T[0, 0], 1)
+  @test r isa T && bigprec(() -> within(r, sqrt(big(T(0.3))^2 + big(T(0.4))^2) - chain_product(T), 1, 2, T))
   @test_throws ArgumentError kkt_violation(s, T[0.3, 0.4], T[0, 1], 1)
   @test_throws ArgumentError kkt_violation(s, T[0.3, 0.4], T[0, 1])
   @test_throws ArgumentError kkt_violation(chain(T, NormL2(T(1))), T[0.3, 0.4], T[0, 1])
@@ -647,6 +649,319 @@ end
   sqr = SqrtLeastSquaresLoss(T[1, 2, 3], T[1 0; 0 1; 1 1])
   @test_throws MethodError kkt_violation(chain(T, sqr), T[1, 2], T[0, 1], 1)
   @test_throws MethodError kkt_violation(chain(T, sqr), T[1, 2], T[0, 1])
+end
+
+# ---- 8b. chains whose level does not fold: the coefficient a λ w ------------------------------------------------------------
+# Where the product a of the factors is not a normal number and the level does not fold into it, the three-argument screen of
+# NormL1 and ElasticNet, and the four-argument form of NormL1, ElasticNet and GroupNormL2 at a zero coordinate or group, are
+# |vᵢ| - c and ‖v_G‖₂ - c with c = a λ w. Each reference below is that expression in BigFloat, with a, λ and w the exact product of
+# the factors and parameters for a positive finite λ and w; a zero weight gives c = 0 (also for an infinite λ), an infinite weight or
+# level gives c = Inf, and an ElasticNet with an infinite λ2 gives -Inf. No reference calls a package helper. The endpoint rules
+# for a non-finite entry of v are those of the three-argument screen for NormL1 and ElasticNet (|Inf| - Inf is NaN) and those of the
+# zero-block score for GroupNormL2 (an infinite entry gives Inf, a NaN entry NaN).
+# `scoreok` accepts a value of the type W when the reference is infinite and the value is the same infinity; when |reference|
+# exceeds floatmax(W) by more than 100 eps(W) relative and the value is the infinity of its sign; when |reference| is within
+# 100 eps(W) relative of floatmax(W), any value of the type (this band is not checked); and otherwise within the bound of
+# `within`: a few units in the last place of W times the scale (|vᵢ| + c for an entry, ‖v_G‖₂ + c for a group), plus the
+# subnormal spacing of W. A coefficient that rounds to Inf in W gives -Inf at a finite gradient.
+# fails at the base in cases where the level does not fold and v / a leaves the range of the type, for example Inf at an ordinary
+# v or NaN for an infinite weight under an underflowing product, and 0 under an overflowing product where v / a and λ w both round
+# to zero (the cases marked as folding are the route that this change leaves as it is)
+
+ex(T, e64, e32) = ldexp(one(T), T === Float32 ? e32 : e64)       # a power of two in the range of T (exponent e64 for Float64, e32 for Float32)
+huge(T) = ex(T, 600, 80)                                          # huge(T)^2 is not a finite number
+function mkchain(T, kind, f)
+  t = kind === :tiny ? tiny(T) : huge(T)
+  s = Scaled(Scaled(f, t), t)
+  s.f isa Scaled || error("merged")
+  s
+end
+chainprod(T, kind) = bigprec(() -> big(kind === :tiny ? tiny(T) : huge(T))^2)
+chaincoef(a, λ, w) = iszero(w) ? big(0) : (isinf(w) || isinf(λ)) ? big(Inf) : a * big(λ) * big(w)
+# the screen of one entry and the size of its terms
+function screenref(a, λ, w, v)
+  c = chaincoef(a, λ, w)
+  isinf(c) ? (big(-Inf), big(0)) : (abs(big(v)) - c, abs(big(v)) + c)
+end
+# r has the type W and is within the bound of the reference, or is the infinity that a reference beyond the range of W rounds to
+function scoreok(r, ref, scale, n, ::Type{W}) where {W}
+  r isa W || return false
+  bigprec() do
+    inf = ref > 0 ? W(Inf) : W(-Inf)
+    isinf(ref) && return isequal(r, inf)
+    lim = big(floatmax(W))
+    abs(ref) > lim * (1 + 100 * big(eps(W))) && return isequal(r, inf)
+    abs(ref) > lim * (1 - 100 * big(eps(W))) && return true
+    within(r, ref, scale, n, W)
+  end
+end
+
+# (label, kind of factors, level, weights, whether the level of NormL1 and GroupNormL2 stays unfolded). A level folds when the
+# product a λ is a nonzero finite number (a subnormal one included) or λ is zero; an infinite level of NormL1 does not fold.
+function nofold_cases(::Type{T}) where {T}
+  emin = exponent(floatmin(T))
+  e2 = T === Float32 ? 200 : 1200                                  # the product of the tiny factors is 2^-e2
+  [("underflow", :tiny, one(T), nothing, true),
+   ("underflow, weights 0, Inf, 1, 2.5", :tiny, one(T), T[0, Inf, 1, 2.5], true),
+   ("subnormal a λ folds", :tiny, T(1.3) * ldexp(one(T), emin - 4 + e2), nothing, false),
+   ("subnormal a λ folds, weights", :tiny, ldexp(one(T), emin - 3 + e2), T[1, 1.5, 0.75], false),
+   ("a λ rounds to zero", :tiny, ldexp(one(T), emin - 60 + e2), nothing, true),
+   ("subnormal coefficient from the weight", :tiny, T(1.1) * ex(T, 100, 40), T[T(1.3) * ex(T, 60, 30)], true),
+   ("representable after the three factors", :tiny, one(T), T[T(1.3) * ex(T, 1000, 120)], true),
+   ("λ w overflows", :tiny, T(1.1) * ex(T, 120, 45), T[T(1.3) * ex(T, 1000, 120)], true),
+   ("infinite level", :tiny, T(Inf), T[0, 1, 2], true),
+   ("zero level folds", :tiny, zero(T), T[1, 2, Inf], false),
+   ("overflow", :huge, one(T), nothing, true),
+   ("overflow, weights", :huge, one(T), T[0, Inf, 1], true),
+   ("overflow, λ w loses precision", :huge, T(1.3) * ex(T, -100, -20), T[T(1.7) * ex(T, -1000, -120)], true),
+   ("overflow, folds", :huge, ex(T, -1000, -120), nothing, false),
+   ("underflow, folds", :tiny, ex(T, 1000, 100), T[0.5, 2], false)]
+end
+# gradient entries around the coefficient: ordinary, zero, and below and above the coefficient c of the first finite weight
+function gradients(::Type{T}, a, λ, w) where {T}
+  ws = w === nothing ? T[1] : [x for x in w if isfinite(x) && !iszero(x)]
+  c = bigprec() do
+    isempty(ws) || !isfinite(λ) ? T(0) : T(chaincoef(a, λ, first(ws)))
+  end
+  (iszero(c) || !isfinite(c)) && (c = ex(T, -30, -12))
+  filter(isfinite, T[0.25, -0.75, 0, 2c, c / 2, -3c / 2])
+end
+
+@testset "$T NormL1 and ElasticNet chains whose level does not fold" for T in TYPES
+  for (label, kind, λ, w, route) in nofold_cases(T)
+    a = chainprod(T, kind)
+    for (name, λ2) in (("NormL1", nothing), ("ElasticNet λ2 = 0", zero(T)), ("ElasticNet λ2 = 0.7", T(0.7)), ("ElasticNet λ2 = Inf", T(Inf)))
+      leaf = λ2 === nothing ? (w === nothing ? NormL1(λ) : NormL1(λ, w)) : (w === nothing ? ElasticNet(λ, λ2) : ElasticNet(λ, λ2, w))
+      s = mkchain(T, kind, leaf)
+      f, p = PB._scaled_chain(s)
+      # ElasticNet with λ2 = 0.7 does not fold in these scenarios (a λ2 rounds to zero or overflows); with λ2 = 0 or Inf it follows the level λ
+      @test (PB._kkt_resolve(f, p) === nothing) == (λ2 === T(0.7) || (route && isfinite(λ) && !iszero(λ)) || (λ2 === nothing && route))
+      m = w === nothing ? 2 : length(w)
+      x0 = zeros(T, m)
+      groups = m == 1 ? [[1]] : [[1], collect(2:m)]
+      bx = BlockIterate(zeros(T, m), groups)
+      for vv in gradients(T, a, λ, w)
+        g = fill(vv, m)
+        refs = bigprec() do
+          [λ2 === T(Inf) ? (big(-Inf), big(0)) : screenref(a, λ, wt(w, i), g[i]) for i in 1:m]
+        end
+        for i in 1:m
+          @test scoreok(kkt_violation(s, g, i), refs[i]..., 1, T)
+          @test scoreok(kkt_violation(s, g, x0, i), refs[i]..., 1, T)
+        end
+        for (k, G) in enumerate(groups)
+          @test scoreok(kkt_violation(s, g, bx, k), maximum(first.(refs[G])), maximum(last.(refs[G])), 1, T)
+        end
+      end
+    end
+  end
+end
+
+@testset "$T the reproductions of the definition" for T in TYPES
+  s = chain(T, NormL1(T(1)))
+  r = kkt_violation(s, T[0.25], 1)
+  @test r === T(0.25) && kkt_violation(s, T[0.25], T[0], 1) === T(0.25)
+  # the weights 0, Inf and 1 at the gradient 0.25: the screens 0.25, -Inf and 0.25
+  sw = chain(T, NormL1(T(1), T[0, Inf, 1]))
+  @test [kkt_violation(sw, fill(T(0.25), 3), i) for i in 1:3] == T[0.25, -Inf, 0.25]
+  @test [kkt_violation(sw, fill(T(0.25), 3), zeros(T, 3), i) for i in 1:3] == T[0.25, -Inf, 0.25]
+  # a λ w = 2^-200 (Float64) or 2^-80 (Float32) with λ = 1, a = 2^-1200 or 2^-200: the weight and the exponent of a combine
+  sh = chain(T, NormL1(T(1), T[ex(T, 1000, 120)]))
+  vv = ex(T, -199, -79)                                  # 2c
+  @test kkt_violation(sh, [vv], 1) === ex(T, -200, -80) && kkt_violation(sh, [vv], [T(0)], 1) === ex(T, -200, -80)
+  # an overflowing coefficient gives -Inf, and a finite one the finite value
+  @test kkt_violation(mkchain(T, :huge, NormL1(T(1))), T[0.25], 1) === T(-Inf)
+  @test kkt_violation(mkchain(T, :huge, NormL1(ex(T, -1000, -120))), T[0.25], 1) === -ex(T, 200, 40)    # 0.25 - 2^200, rounded
+  # ElasticNet: λ2 = 0 and 1 give the screen of the ℓ1 part, and λ2 = Inf gives -Inf
+  for λ2 in (T(0), T(1))
+    se = chain(T, ElasticNet(T(1), λ2))
+    @test kkt_violation(se, T[0.25], 1) === T(0.25) && kkt_violation(se, T[0.25], T[0], 1) === T(0.25)
+  end
+  se = chain(T, ElasticNet(T(1), T(Inf)))
+  @test kkt_violation(se, T[0.25], 1) === T(-Inf) && kkt_violation(se, T[0.25], T[0], 1) === T(-Inf)
+  # GroupNormL2 at an array point and at a BlockIterate
+  sg = chain(T, GroupNormL2(T(1), [[1, 2]], T[1]))
+  @test kkt_violation(sg, T[0.3, 0.4], T[0, 0], 1) isa T
+  bx = BlockIterate(zeros(T, 2), [[1, 2]])
+  @test kkt_violation(sg, T[0.3, 0.4], bx, 1) === kkt_violation(sg, T[0.3, 0.4], T[0, 0], 1)
+  # NaN and infinite entries at a zero coordinate: the rules of the three-argument screen
+  s1 = chain(T, NormL1(T(1)))
+  g = T[NaN, Inf, -Inf, 0.25]
+  @test same.([kkt_violation(s1, g, i) for i in 1:4], T[NaN, Inf, Inf, 0.25]) == [true, true, true, true]
+  @test same.([kkt_violation(s1, g, zeros(T, 4), i) for i in 1:4], T[NaN, Inf, Inf, 0.25]) == [true, true, true, true]
+  sinf = chain(T, NormL1(T(1), T[Inf, Inf, Inf, Inf]))               # c = Inf: |Inf| - Inf is NaN, a finite entry gives -Inf
+  @test same.([kkt_violation(sinf, g, i) for i in 1:4], T[NaN, NaN, NaN, -Inf]) == [true, true, true, true]
+  @test same.([kkt_violation(sinf, g, zeros(T, 4), i) for i in 1:4], T[NaN, NaN, NaN, -Inf]) == [true, true, true, true]
+  sen = chain(T, ElasticNet(T(1), T(Inf)))
+  @test all(i -> kkt_violation(sen, g, i) === T(-Inf) && kkt_violation(sen, g, zeros(T, 4), i) === T(-Inf), 1:4)
+  sg = chain(T, GroupNormL2(T(1), [[1, 2], [3, 4]], T[1, 1]))
+  @test isnan(kkt_violation(sg, T[NaN, 0.4, 1, 2], zeros(T, 4), 1))
+  @test kkt_violation(sg, T[Inf, 0.4, 1, 2], zeros(T, 4), 1) === T(Inf)
+end
+
+# The zero-block score of GroupNormL2 keeps its own endpoint rules under an unfoldable chain, as it did at the base
+# (_l2_zero_score): an infinite entry of v[G] gives Inf, also where the coefficient is Inf, and a NaN entry gives NaN. NormL1 and
+# ElasticNet follow the three-argument screen instead (|Inf| - Inf is NaN, tested above).
+@testset "$T GroupNormL2 under a chain: infinite and NaN entries with an infinite coefficient" for T in TYPES
+  for w in (T(Inf), T(1))
+    s = chain(T, GroupNormL2(T(1), [[1, 2]], T[w]))
+    bx = BlockIterate(zeros(T, 2), [[1, 2]])
+    for form in (zeros(T, 2), bx)
+      @test kkt_violation(s, T[Inf, 0.4], form, 1) === T(Inf)
+      @test kkt_violation(s, T[-Inf, 0.4], form, 1) === T(Inf)
+      @test isnan(kkt_violation(s, T[NaN, 0.4], form, 1))
+    end
+  end
+end
+
+# the gradient entry in no group is read once in the working type, which includes the type of the factors
+@testset "an entry in no group is read in the type of the factors" begin
+  tb = ldexp(BigFloat(1), -((Int(1) << 61) + 10))                  # the retained exponent fits an Int
+  sb = Scaled(Scaled(GroupNormL2(Inf, [[1]], [1.0]), tb), tb)
+  @test sb.f isa Scaled
+  g = Int[0, 9007199254740993]                                      # 2^53 + 1 is not a Float64
+  r = kkt_violation(sb, g, zeros(Int, 2), 2)
+  @test r isa BigFloat && r == big(9007199254740993)
+  # a stack built by the parameterized constructor, whose factors are Float64 outside and BigFloat inside, with an ordinary exponent
+  raw(f, a) = Scaled{typeof(f), typeof(a)}(f, a)
+  hs = raw(raw(raw(GroupNormL2(Inf, [[1]], [1.0]), big(0.5)), 2.0^-600), 2.0^-600)
+  @test PB._chained(hs) && PB._scaled_chain(hs)[2] isa PB._ProjectionScale{BigFloat}
+  r = kkt_violation(hs, g, zeros(Int, 2), 2)
+  @test r isa BigFloat && r == big(9007199254740993)
+  # the validation of the delegated route is unchanged
+  @test_throws DimensionMismatch kkt_violation(hs, Int[0], zeros(Int, 2), 2)
+  @test_throws BoundsError kkt_violation(hs, g, zeros(Int, 2), 3)
+  @test_throws ArgumentError kkt_violation(hs, g, Int[1, 0], 1)
+end
+
+# a level folds when the product is a nonzero finite number that the type of the level accepts: a subnormal one for a Float32 or
+# a Float64, a normal one for a Float16
+@testset "Float16 levels fold only to normal numbers" begin
+  t = Float16(2)^(-8)                                               # t^2 = 2^-16 is not a normal Float16
+  s = Scaled(Scaled(NormL1(Float16(512)), t), t)                    # the level 2^-7 is normal
+  @test s.f isa Scaled
+  @test kkt_violation(s, Float16[0.25], Float16[1], 1) isa Float16
+  t = Float16(2)^(-12)
+  s = Scaled(Scaled(NormL1(Float16(512)), t), t)                    # the level 2^-15 is subnormal
+  @test s.f isa Scaled
+  @test_throws ArgumentError kkt_violation(s, Float16[0.25], Float16[1], 1)
+  @test kkt_violation(s, Float16[0.25], 1) isa Float16               # the screen from the coefficient
+  s32 = Scaled(Scaled(NormL1(ldexp(1f0, 70)), ldexp(1f0, -100)), ldexp(1f0, -100))     # the level 2^-130 is a subnormal Float32
+  @test kkt_violation(s32, Float32[0.25], Float32[1], 1) isa Float32
+end
+
+@testset "$T GroupNormL2 chains whose level does not fold" for T in TYPES
+  groups = [[1], [2, 3], [4, 5, 6]]                    # sizes 1, 2 and 3; entry 7 is in no group
+  base = T[0.3, -0.4, 0.5, -0.2, 0.7, 0.1, 0.9]
+  for (label, kind, λ, w, route) in nofold_cases(T)
+    a = chainprod(T, kind)
+    gw = w === nothing ? ones(T, 3) : T[w[min(j, end)] for j in 1:3]
+    f = GroupNormL2(λ, groups, gw)
+    s = mkchain(T, kind, f)
+    fl, p = PB._scaled_chain(s)
+    @test (PB._kkt_resolve(fl, p) === nothing) == route
+    for sc in unique(vcat(one(T), last(gradients(T, a, λ, w), 3)))
+      iszero(sc) && continue
+      v = sc .* base
+      bigprec() do
+        cs = [chaincoef(a, λ, gw[k]) for k in 1:3]
+        refs = Any[]
+        for k in 1:3
+          nv = sqrt(sum(abs2, big.(v[groups[k]])))
+          push!(refs, isinf(cs[k]) ? (big(-Inf), big(0)) : (nv - cs[k], nv + cs[k]))
+        end
+        x0 = zeros(T, 7)
+        bx = BlockIterate(zeros(T, 6), groups)
+        for k in 1:3, i in groups[k]
+          @test scoreok(kkt_violation(s, v, x0, i), refs[k]..., length(groups[k]), T)
+        end
+        @test scoreok(kkt_violation(s, v, x0, 7), abs(big(v[7])), abs(big(v[7])), 1, T)     # an entry in no group keeps |vᵢ|
+        for k in 1:3
+          @test scoreok(kkt_violation(s, v[1:6], bx, k), refs[k]..., length(groups[k]), T)
+        end
+      end
+    end
+  end
+  # the groups of a chain at nonzero points are refused, after the validation of the arguments
+  s = chain(T, GroupNormL2(T(1), groups, T[1, 2, 0]))
+  v = base
+  x = zeros(T, 7)
+  x[2] = 1
+  @test_throws ArgumentError kkt_violation(s, v, x, 2)
+  @test_throws ArgumentError kkt_violation(s, v, x, 3)
+  x[2] = 0
+  x[7] = 1                                              # a nonzero entry in no group counts as a nonzero coordinate
+  @test_throws ArgumentError kkt_violation(s, v, x, 7)
+  @test kkt_violation(s, v, x, 1) isa T
+  @test_throws ArgumentError kkt_violation(s, v, x)
+  @test_throws ArgumentError kkt_violation(s, v[1:6], BlockIterate(T[0, 1, 0, 0, 0, 0], groups), 2)
+  @test_throws DimensionMismatch kkt_violation(s, v[1:5], x, 2)
+  @test_throws DimensionMismatch kkt_violation(s, v[1:6], BlockIterate(T[0, 1, 1, 0, 0, 0], [[1, 2], [3], [4, 5, 6]]), 1)
+  @test_throws BoundsError kkt_violation(s, v, x, 8)
+end
+
+@testset "$T NormL1 and ElasticNet chains: nonzero points, symmetric points, types" for T in TYPES
+  for leaf in (NormL1(T(1), T[1, 2, 0.5]), ElasticNet(T(1), T(0.7), T[1, 2, 0.5]), NormL1(T(1)))
+    s = chain(T, leaf)
+    g = T[0.25, -0.5, 0.75]
+    @test_throws ArgumentError kkt_violation(s, g, T[0, 1, 0], 2)
+    @test_throws ArgumentError kkt_violation(s, g, T[0, 1, 0])
+    @test_throws ArgumentError kkt_violation(s, g, BlockIterate(T[0, 1, 0], [[1, 2], [3]]), 1)
+    @test kkt_violation(s, g, T[0, 1, 0], 1) isa T
+    @test_throws DimensionMismatch kkt_violation(s, g[1:2], T[0, 1, 0], 2)
+  end
+  # a SymmetricSparseIterate: the zero coordinates 1 = (1, 1) and 6 = (3, 3) of the lower triangle (the weights are read at the
+  # entry of the lower position)
+  p = 3
+  x = SymmetricSparseIterate(T, p)
+  x[2, 1] = 1
+  G = T[1 0.5 0.25; 0.5 2 -0.75; 0.25 -0.75 3] / 8
+  W = T[1 2 3; 2 4 5; 3 5 6]
+  a = chainprod(T, :tiny)
+  for λ in (one(T), T(1.1) * ex(T, 100, 40))                  # a λ is not a normal number and rounds to zero in the second
+    s = chain(T, NormL1(λ, W))
+    for (k, i) in ((1, 1), (6, 9))
+      ref = bigprec() do
+        screenref(a, λ, W[i], G[i])
+      end
+      @test scoreok(kkt_violation(s, G, x, k), ref..., 1, T)
+    end
+    @test_throws ArgumentError kkt_violation(s, G, x, 2)
+  end
+  # a Float32 gradient under a Float64 chain gives a Float64, as a Float64 gradient under a Float32 chain does
+  s64 = chain(Float64, NormL1(1.0))
+  @test kkt_violation(s64, Float32[0.25], 1) === 0.25
+  @test kkt_violation(s64, Float32[0.25], Float32[0], 1) === 0.25
+  @test kkt_violation(chain(Float32, NormL1(1f0)), [0.25], 1) === 0.25
+  @test kkt_violation(chain(Float32, ElasticNet(1f0, 0.5f0)), [0.25], [0.0], 1) === 0.25
+  sg = chain(Float64, GroupNormL2(1.0, [[1, 2]], [1.0]))
+  @test kkt_violation(sg, Float32[0.3, 0.4], zeros(Float32, 2), 1) isa Float64
+  @test kkt_violation(sg, Float32[0.3, 0.4], BlockIterate(zeros(Float32, 2), [[1, 2]]), 1) isa Float64
+  @test kkt_violation(chain(Float32, GroupNormL2(1f0, [[1, 2]], Float32[1])), [0.3, 0.4], zeros(2), 1) isa Float64
+  @test kkt_violation(chain(Float32, GroupNormL2(1f0, [[1, 2]], Float32[1])), Float32[0.3, 0.4], zeros(Float32, 2), 1) isa Float32
+end
+
+@testset "$T chains whose level does not fold: inference and allocations" for T in TYPES
+  n = 6
+  g = T[0.3, -0.4, 0.5, -0.2, 0.7, 0.1]
+  x = zeros(T, n)
+  groups = [[1], [2, 3], [4, 5, 6]]
+  bx = BlockIterate(zeros(T, n), groups)
+  bn = BlockIterate(zeros(T, n), [[1, 2], [3, 4, 5, 6]])
+  for leaf in (NormL1(T(1)), NormL1(T(1), T[1, 2, 3, 4, 5, 6]), ElasticNet(T(1), T(0.7)), ElasticNet(T(1), T(0.7), T[1, 2, 3, 4, 5, 6]))
+    s = chain(T, leaf)
+    @test @inferred(kkt_violation(s, g, 2)) isa T
+    @test @inferred(kkt_violation(s, g, x, 2)) isa T
+    @test @inferred(kkt_violation(s, g, bn, 2)) isa T
+    @test allocs(kkt_violation, s, g, 2) == 0
+    @test allocs(kkt_violation, s, g, x, 2) == 0
+    @test allocs(kkt_violation, s, g, bn, 2) == 0
+  end
+  s = chain(T, GroupNormL2(T(1), groups, T[1, 2, 0]))
+  @test @inferred(kkt_violation(s, g, x, 2)) isa T
+  @test @inferred(kkt_violation(s, g, bx, 2)) isa T
+  @test allocs(kkt_violation, s, g, x, 2) == 0
+  @test allocs(kkt_violation, s, g, bx, 2) == 0
 end
 
 # ---- 9. an infinite factor, functions without a score, functions defined outside the package -------------------------------

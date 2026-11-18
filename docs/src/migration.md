@@ -121,7 +121,7 @@ What changed besides the values of the table:
   `LinearFunction` and a centered `SqrNormL2` the three-argument screen returned the screen of the function
   at the unscaled `v` and omitted the product; it now applies the product to the gradient entry of the
   function (`Scaled(Scaled(LinearFunction([1.0]), 1e-200), 1e-200)` at `v = [0.25]` was `1.25` and is `0.25`). Around
-  `NormL1`, `ElasticNet`, `GroupNormL2` and `NormL2` whose level folds to a normal number, a
+  `NormL1`, `ElasticNet`, `GroupNormL2` and `NormL2` whose level folds (to a finite nonzero level, a subnormal one included), a
   `GroupNormL2` or `NormL2` chain now scores with the folded level (a `GroupNormL2` chain at a zero group
   was computed from `v` divided by the product, which overflows for an ordinary `v`). Where the level does not fold, the
   three-argument screen of `NormL1` and `ElasticNet` and the four-argument form of `NormL1`, `ElasticNet` and `GroupNormL2` at a zero

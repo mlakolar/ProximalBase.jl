@@ -36,24 +36,29 @@ julia> prox(NormL1Nonneg(0.5, [1.0, 2.0]), [2.0, -1.0], 1.0)
 # Edge cases
 - Use real, one-based arrays and one weight per entry.
 - The domain is `xᵢ ≥ 0` exactly: `-0.0` and `+Inf` are feasible, and any negative number,
-  a subnormal one included, is not. A zero level or weight keeps the domain:
+  a subnormal one included, is not. A zero level or weight keeps the domain. With finite weights,
   `NormL1Nonneg(0.0)` is the indicator of the orthant, with value `0` at a feasible point
-  (`+Inf` entries included) and `Inf` at a negative entry.
+  (`+Inf` entries included) and `Inf` at a negative entry; an infinite weight keeps its own
+  rule below at a zero level.
 - The value is `NaN` when an entry that is read is `NaN`, and otherwise `Inf` when one is
   negative; `NaN` takes precedence over `Inf`. At a feasible point the terms are those of
   `NormL1`: `-0.0` gives `+0`.
-- A zero level, a zero weight or a zero step gives the projection onto the orthant,
-  `max(vᵢ, 0)`, not the identity: `-Inf` and `-0.0` give `+0`, `+Inf` stays and `NaN` stays.
+- A zero weight gives the projection onto the orthant, `max(vᵢ, 0)`, not the identity, at every
+  level and step: `-Inf` and `-0.0` give `+0`, `+Inf` stays and `NaN` stays. A zero level does the
+  same for a finite weight, and a zero step for a finite level and weight. An infinite step with a
+  positive finite level and a positive finite weight maps finite inputs and `-Inf` to `+0`, and
+  `+Inf` and `NaN` to `NaN`; with a zero level or weight it projects.
 - An infinite level fixes positive-weight entries at `+0` for every step `γ ≥ 0`, `NaN` and
   `±Inf` inputs included; zero-weight entries are projected. The value of a positive-weight
   entry is `0` at `0`, `NaN` at `NaN` and `Inf` at any other entry.
 - An infinite weight at a finite level maps finite inputs and `-Inf` to `+0`, also at zero
-  level or step, and `+Inf` and `NaN` inputs to `NaN`, as for `NormL1`.
+  level or step, and `+Inf` and `NaN` inputs to `NaN`, as for `NormL1`. Its value is `0` at an
+  entry `0` and `Inf` at any other number, also at a zero level.
 - A negative or `NaN` scalar step throws an `ArgumentError` before any write in `prox`,
   `prox!` and `value_and_prox!`. The entries of an array of steps and the scalar step of
   `prox_block` are not checked, and neither is a step that reaches the function through
   [`Scaled`](@ref); there a negative step violates the precondition `γ ≥ 0`, and the
-  result depends on the representation (dense, sparse or symmetric).
+  result can depend on the representation (dense, sparse or symmetric).
 - On a [`SymmetricSparseIterate`](@ref), weights have `p²` entries in full-matrix
   linear order, interpreted as an exactly symmetric `p × p` array. Oracles assume this; validate with
   [`ProximalBase.check_symmetric_parameters`](@ref).
@@ -104,9 +109,10 @@ end
 
 # Step check (numerics.md, "NaN, infinities and zeros"), as for ElasticNet: the public array oracles refuse a negative
 # or NaN scalar step before anything is written, and then take the checked separable route. prox_block and the routes
-# inside ProximalBase do not test the step: Scaled hands its own step on. Array steps are not read here. With a negative
-# step the proximal point of 0 is -t̂ > 0, so the loops over the stored entries of a sparse iterate and over every entry
-# of a dense array would disagree.
+# inside ProximalBase do not test the step: Scaled hands its own step on. Array steps are not read here. The results of
+# the loops over the stored entries of a sparse iterate and over every entry of a dense array disagree only where an
+# unchecked negative step gives a strictly negative threshold at an entry that is not stored: its proximal point is
+# then positive, and the sparse loop leaves it at zero.
 @noinline _nonneg_step_error(γ) = throw(ArgumentError("NormL1Nonneg requires a nonnegative step γ, got $γ"))
 @inline _check_nonneg_step(γ::Real) = (γ >= 0 || _nonneg_step_error(γ); nothing)
 prox!(y::_ArrayOrSymmetricIterate, f::NormL1Nonneg, x::_ArrayOrSymmetricIterate, γ::Real) =
@@ -174,7 +180,16 @@ function _value_dense(f::NormL1Nonneg{<:Real, Nothing}, x::DenseArray{<:Abstract
 end
 
 kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) =
-  (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); -g[i] - _kkt_coefficient(eltype(g), f.λ0, _entry(f.w, i)))
+  (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation);
+   _nonneg_screen(g[i], _kkt_coefficient(eltype(g), f.λ0, _entry(f.w, i))))
+# -gᵢ - c, formed in the promotion of the types of gᵢ and of the coefficient c (the type in which NormL1 forms
+# abs(gᵢ) - c), with an unsigned type replaced by its floating type, so that the sign change does not wrap an unsigned or
+# a typemin entry. A floating gradient has the coefficient in its own type, and the arithmetic is that of -gᵢ - c.
+@inline function _nonneg_screen(gi, c)
+  P = promote_type(typeof(gi), typeof(c))
+  W = P <: Unsigned ? float(P) : P
+  -convert(W, gi) - convert(W, c)
+end
 
 # The point-aware score (see kkt_violation): the coefficient cᵢ = λ0 wᵢ of the NormL1 score (_kkt_state and
 # _kkt_entry_coefficient are NormL1's), then -vᵢ - cᵢ at a zero entry (the screen above in the working type), |vᵢ + cᵢ|

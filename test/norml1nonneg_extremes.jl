@@ -387,6 +387,45 @@ plant(x, k, v) = (y = copy(x); y[k] = v; y)
     end
   end
 
+  @testset "the screen of integer, unsigned and Bool gradients" begin
+    # the gradient entry is converted to the promotion of its type and the coefficient's before the sign changes, so that
+    # an unsigned entry or a typemin entry does not wrap: the result is the Float64 screen of the converted entry
+    w4 = [1.0, 2.0, 0.5, 4.0]
+    for f in (NormL1Nonneg(0.5), NormL1Nonneg(0.3, w4), NormL1Nonneg(0.0, w4), NormL1Nonneg(Inf, w4))
+      n = 4
+      for g in (UInt8[0, 3, 200, 255], Int8[-128, -1, 0, 127], Int[typemin(Int), -5, 0, typemax(Int)],
+                Bool[false, true, true, false], UInt16[0, 1, 65535, 7], UInt64[0, 5, typemax(UInt64), 9], Int32[typemin(Int32), -2, 2, typemax(Int32)])
+        gd = Float64.(g)
+        for i in 1:n
+          r = kkt_violation(f, g, i)
+          @test r isa Float64 && isequal(r, kkt_violation(f, gd, i)) && r == -gd[i] - PB._kkt_coefficient(Float64, f.λ0, PB._entry(f.w, i))
+        end
+        # the point-aware form converts the gradient before it forms the score
+        @test isequal(kkt_violation(f, g, zeros(n), 1), kkt_violation(f, gd, zeros(n), 1))
+      end
+    end
+    # a wrapped negation would give 56 for the unsigned entry 200
+    @test kkt_violation(NormL1Nonneg(0.5), UInt8[200], 1) === -200.5
+    @test kkt_violation(NormL1Nonneg(0.5), Int8[-128], 1) === 127.5
+    # integer levels and weights keep the integer type of the coefficient, as the screen of NormL1 does
+    @test kkt_violation(NormL1Nonneg(2), Int[-3, 0, 5], 1) === 1 && kkt_violation(NormL1Nonneg(2), Int[-3, 0, 5], 3) === -7
+    @test kkt_violation(NormL1Nonneg(2), UInt8[3], 1) === -5 && kkt_violation(NormL1Nonneg(2, [3]), Int8[-128], 1) === 122
+    @test typeof(kkt_violation(NormL1(2), UInt8[3], 1)) === typeof(kkt_violation(NormL1Nonneg(2), UInt8[3], 1))
+    @test typeof(kkt_violation(NormL1(0.5), Bool[true], 1)) === typeof(kkt_violation(NormL1Nonneg(0.5), Bool[true], 1))
+    # floating gradients are unchanged: the arithmetic -gᵢ - c in the type of the gradient
+    for T in (Float16, Float32, Float64)
+      g = T[0.2, -0.7, 1.5, 0.0, -0.0]
+      for f in (NormL1Nonneg(0.5), NormL1Nonneg(0.5, w4[1:1]), NormL1Nonneg(T(0.3), fill(T(2), 5)))
+        for i in eachindex(g)
+          i > length(f.w === nothing ? g : f.w) && continue
+          r = kkt_violation(f, g, i)
+          @test r isa T && r === -g[i] - PB._kkt_coefficient(T, f.λ0, PB._entry(f.w, i))
+        end
+      end
+    end
+    @test kkt_violation(NormL1Nonneg(big"0.5"), [big"2.5"], 1) isa BigFloat
+  end
+
   for T in (Float32, Float64)
     @testset "$T Scaled" begin
       E, m = exponent(floatmax(T)), exponent(floatmin(T))

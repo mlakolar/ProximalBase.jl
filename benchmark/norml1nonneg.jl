@@ -19,10 +19,8 @@
 # warmed allocations of each role. The roles share one set of plain input and output arrays (the iterates,
 # whose types belong to each tree, are built per role), so that the placement of the arrays does not differ
 # between the roles; a dense call takes its argument in turn from four arrays, so that consecutive calls do
-# not repeat their input. PB_CHECK_ONLY=1 only compares the outputs: proximal points within 4 units in the last
-# place of the archived ones, values within 2(n + 2) eps relative to the archived value at feasible points (each
-# value is within (n + 2) eps of the exact one), and the control identical to the candidate; the `info/` cells
-# are not compared with the archive. PB_FILTER selects cases by a regular expression on their ids. With
+# not repeat their input. PB_CHECK_ONLY=1 performs the output checks and exits before timing; the control must be
+# identical to the candidate; the `info/` cells are not compared with the archive. PB_FILTER selects cases by a regular expression on their ids. With
 # PB_VS_NORML1=1 the archive role is replaced by NormL1 of the candidate tree.
 using BenchmarkTools, LinearAlgebra, SparseArrays, Random, Statistics, Dates, Printf
 Threads.nthreads() == 1 || error("one Julia thread required")

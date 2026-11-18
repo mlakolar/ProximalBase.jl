@@ -128,13 +128,10 @@ rounded to zero gave `NaN` there. An exactly zero value still gives `0`.
 
 `NormL1Nonneg` values take the `NormL1` loops with an `Inf` term in place of the
 term of a negative entry; the rules for `NaN` and `Inf` entries are in the table below, and at a
-point with no negative entry the recovery above applies to the same terms. At such a point the
+feasible point the recovery above applies to the same terms. At such a point the
 value of a dense array agrees with that of `NormL1` within the error bound of the sum, and on the
 stored entries of `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate` the loops are
-sequential and the values are equal bit for bit. Without weights, a dense
-array of floats with a zero level, or with a level that does not convert to a normal
-number of the type of the data, decides membership in a pass of its own, because the sum
-of the terms above is `Inf` at a feasible `+Inf` entry (value `0` at a zero level) as it is at a negative one.
+sequential and the values are equal bit for bit.
 Where a positive finite level and weight have a product that rounds to zero and the entry is
 `+Inf`, the value is `NaN`, as for `NormL1` (the retained product forms `0*Inf`,
 [#655](https://github.com/mlakolar/ProximalBase.jl/issues/655)).

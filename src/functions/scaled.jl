@@ -452,8 +452,7 @@ function _exactly_zero_at(f::NormL1, x::AbstractArray)
   end
   true
 end
-# f(x) is exactly 0 where every entry is >= 0 (a negative entry makes the value Inf, also at a zero level, and a NaN
-# entry fails the test) and the NormL1 value is exactly 0
+# Exact zero also requires nonnegative entries.
 _exactly_zero_at(f::NormL1Nonneg, x::AbstractArray) = all(>=(0), _host_entries(x)) && _exactly_zero_at(f.l1, x)
 # a positive ridge level penalizes every entry (an infinite one is the indicator of {0}, #908); a zero
 # one leaves the entries that the ℓ1 part penalizes, as for NormL1
@@ -950,7 +949,7 @@ _chain_finite(a::Real) = isfinite(a)
   r
 end
 # The value at a zero coordinate or group of the function f inside a chain, scored at its argument g as it stands: the screen
-# of the three-argument form of the five scalar functions (at the coordinate, at each coordinate of a group of a BlockIterate,
+# of the three-argument form of the scalar functions (at the coordinate, at each coordinate of a group of a BlockIterate,
 # at the lower position of a symmetric coordinate); for the other functions their own method. NormL1, NormL1Nonneg, ElasticNet and
 # GroupNormL2 under a finite chain whose product is a _ProjectionScale do not use it (_kkt_unresolved); under a chain with an
 # infinite factor they do.

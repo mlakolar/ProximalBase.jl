@@ -53,7 +53,7 @@ julia> prox(NormL1Nonneg(0.5, [1.0, 2.0]), [2.0, -1.0], 1.0)
   `±Inf` inputs included; zero-weight entries are projected. The value of a positive-weight
   entry is `0` at `0`, `NaN` at `NaN` and `Inf` at any other entry.
 - An infinite weight at a finite level maps finite inputs and `-Inf` to `+0`, also at zero
-  level or step, and `+Inf` and `NaN` inputs to `NaN`, as for `NormL1`. Its value is `0` at an
+  level or step, and `+Inf` and `NaN` inputs to `NaN`. Its value is `0` at an
   entry `0` and `Inf` at any other number, also at a zero level.
 - A negative or `NaN` scalar step throws an `ArgumentError` before any write in `prox`,
   `prox!` and `value_and_prox!`. The entries of an array of steps and the scalar step of
@@ -110,10 +110,8 @@ end
 
 # Step check (numerics.md, "NaN, infinities and zeros"), as for ElasticNet: the public array oracles refuse a negative
 # or NaN scalar step before anything is written, and then take the checked separable route. prox_block and the routes
-# inside ProximalBase do not test the step: Scaled hands its own step on. Array steps are not read here. The results of
-# the loops over the stored entries of a sparse iterate and over every entry of a dense array disagree only where an
-# unchecked negative step gives a strictly negative threshold at an entry that is not stored: its proximal point is
-# then positive, and the sparse loop leaves it at zero.
+# inside ProximalBase do not test the step: Scaled hands its own step on. Array steps are not read here. Unchecked
+# steps can make dense and sparse results differ.
 @noinline _nonneg_step_error(γ) = throw(ArgumentError("NormL1Nonneg requires a nonnegative step γ, got $γ"))
 @inline _check_nonneg_step(γ::Real) = (γ >= 0 || _nonneg_step_error(γ); nothing)
 prox!(y::_ArrayOrSymmetricIterate, f::NormL1Nonneg, x::_ArrayOrSymmetricIterate, γ::Real) =
@@ -153,8 +151,8 @@ _value_sep(f::NormL1Nonneg, x::SymmetricSparseIterate) =
 # membership of the entries in the sum. A term of the sum of magnitudes is Inf at a negative entry and |v| otherwise,
 # and the sums are those of _value_sumabs (one loop for _VALUE_LOOP_MIN to _VALUE_LOOP_MAX entries of a strided
 # Float32 or Float64 array, Julia's reduction otherwise). That sum is Inf at a feasible +Inf entry as it is at a negative
-# one, while the value at a zero level is 0 at +Inf. So a zero level, and a level that does not convert to a normal
-# number of the type of the data (_level_fits), take a sum of membership terms: Inf at a negative entry, 0 at any other
+# one, while the value at a zero level is 0 at +Inf. So a zero level, and a level for which _level_fits(T, λ) is false,
+# take a sum of membership terms: Inf at a negative entry, 0 at any other
 # number, NaN at NaN. For the second case a feasible point then takes _converted_l1_value, which multiplies the sum of
 # magnitudes in the wider type. A product of a finite level and the sum of finite entries that is not finite (an overflow,
 # or a negative entry) takes the entrywise value through invoke: a call of _value_dense on f would be this method.

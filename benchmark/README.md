@@ -111,8 +111,8 @@ alternating role order and keeps the minimum over the samples of each role; the 
 minimum and maximum of the paired ratios candidate/archive and control/candidate, with the warmed
 allocations, and marks medians above 1.05. `PB_REVERSE=1` loads and times the candidate in the place
 of the archive, for the reversed-role rerun in a fresh process; `PB_FILTER` selects cases;
-`PB_CHECK_ONLY=1` compares the outputs only (proximal points within 4 ulp, values within
-`2(n + 2) eps` at feasible points). With `PB_VS_NORML1=1` the archive role is `NormL1` of the
+`PB_CHECK_ONLY=1` performs the output checks and exits before timing; the control must be identical to the
+candidate. With `PB_VS_NORML1=1` the archive role is `NormL1` of the
 candidate tree.
 
 ```sh

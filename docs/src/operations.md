@@ -275,7 +275,7 @@ the six families with these forms return the following scalars.
 | Function | Entry at zero | Entry ``x_i\neq0`` | Full-point value, for finite inputs |
 |:--|:--|:--|:--|
 | `NormL1` | ``\lvert v_i\rvert-c_i`` | ``\lvert v_i+c_i\operatorname{sign}(x_i)\rvert`` | ``\ell_\infty`` distance from ``-v`` to ``\partial g(x)``; zero when ``0\in v+\partial g(x)`` |
-| `NormL1Nonneg` | ``-v_i-c_i`` | ``\lvert v_i+c_i\rvert`` for ``x_i>0``, `Inf` for ``x_i<0`` | ``\ell_\infty`` distance from ``-v`` to ``\partial g(x)`` for ``x\geq0``, and `Inf` where an entry of ``x`` is negative |
+| `NormL1Nonneg` | ``-v_i-c_i``, for finite converted inputs | ``\lvert v_i+c_i\rvert`` for ``x_i>0``, `Inf` for ``x_i<0``, for finite converted inputs | ``\ell_\infty`` distance from ``-v`` to ``\partial g(x)`` for ``x\geq0``, and `Inf` where an entry of ``x`` is negative |
 | `ElasticNet` | ``\lvert v_i\rvert-c_i`` (`-Inf` for an infinite ridge level) | ``\lvert (v_i+\lambda_2x_i)+c_i\operatorname{sign}(x_i)\rvert`` | As `NormL1` |
 | `ZeroFunction` | ``\lvert v_i\rvert`` | ``\lvert v_i\rvert`` | ``\lVert v\rVert_\infty`` |
 | `LinearFunction` | ``\lvert v_i+c_i\rvert`` | ``\lvert v_i+c_i\rvert`` | ``\lVert v+c\rVert_\infty`` |
@@ -289,7 +289,7 @@ ridge-gradient helpers form it in the working type of the call: ``\lambda x_i``,
 the gradient is computed in the same precision; the rules for non-finite entries take precedence over this formula,
 at an infinite level too. The subdifferential of a smooth function is its gradient, so its score is
 nonnegative at a zero coordinate as well. The norm of the full-point value is the ``\ell_\infty`` norm for these
-five functions; [`GroupNormL2`](group_penalty.md) measures block 2-norms, so a
+functions; [`GroupNormL2`](group_penalty.md) measures block 2-norms, so a
 tolerance chosen for one is not a tolerance for the other.
 
 `GroupNormL2` and `NormL2` have a score per block, with ``c=\lambda_0w_k`` (``c=\lambda`` for `NormL2`):

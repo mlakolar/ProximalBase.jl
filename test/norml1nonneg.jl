@@ -6,7 +6,7 @@ module NormL1NonnegTest
 # endpoint truth table, the values against BigFloat, the point-aware KKT scores and Scaled are in
 # norml1nonneg_extremes.jl.
 #
-# References are independent of the kernels: a golden-section search of the objective c u + (u - v)²/(2γ) on u ≥ 0 in
+# References: a golden-section search of the objective c u + (u - v)²/(2γ) on u ≥ 0 in
 # 4096-bit BigFloat, and the closed form max(v - t̂, 0) in BigFloat with t̂ the threshold that the NormL1 kernel forms
 # (a proximal point is within 4 units in the last place of it, and within the rounding of the threshold of the exact
 # minimum), and the value λ0 Σ wᵢ xᵢ in BigFloat, within (n + 2) eps relative for n terms. Equalities are of two kinds:
@@ -492,8 +492,7 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
       end
       @test rows == 5 * 4 * 5 * 10
     end
-    # an infinite level with a positive weight fixes the entry at +0 for every step, and the archive did not: a positive
-    # trial at the zero step stays itself (an infinite one too), +Inf at a positive step gives NaN, and NaN gives NaN
+    # Infinite-level endpoint comparisons with the archive.
     for T in (Float32, Float64), wv in T[1, 0.5, Inf]
       f = NormL1Nonneg(T(Inf), T[wv])
       for v in T[3, floatmax(T), nextfloat(zero(T))]

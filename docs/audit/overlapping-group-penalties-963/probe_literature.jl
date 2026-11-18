@@ -29,7 +29,9 @@ end
 # A candidate outside a ball by rounding is moved into it before the gap is formed: its block is
 # scaled by a factor rounded down until its norm, computed as in `val`, is at most R. The gap then
 # bounds the distance of the moved point, so the candidate is within (distance moved) + √(2 gap)
-# of the proximal point. Returns the distance moved.
+# of the proximal point. Returns the distance moved: the square root of the sum of the squared block
+# movements, which is the Euclidean distance because the finite-radius radial groups are pairwise
+# disjoint (in this probe they are maximal groups).
 function into_balls!(x::AbstractVector{T}, groups) where {T}
   m2 = zero(T)
   for g in groups

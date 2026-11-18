@@ -216,14 +216,15 @@ end
 end
 
 # The clip level from the threshold of the ℓ1 ball, as a nonnegative number: a level of zero or below gives the output
-# +0. `_l1ball_threshold!` returns a level that is at most one of the magnitudes (see there). The buffer is y itself
-# when that is safe (see `_linf_buffer_is_output`), and the scratch of f otherwise.
+# +0. `_l1ball_threshold!` returns a level that is at most the largest magnitude, within the bound stated there of the exact
+# level (it can be negative or zero). The buffer is y itself when that is safe (see `_linf_buffer_is_output`), and the scratch
+# of f otherwise.
 #
 # The level makes λτ equal f(y) when y is stored in T. Let m be the largest magnitude of the entries, finite, and
 # τ = max(level, 0), so that τ ≤ m. If τ > 0, the entry of magnitude m is stored as ±τ and no stored entry exceeds τ in
 # magnitude, so the largest stored magnitude is τ, and `f(y)` applies `_linf_scale` to that same τ, as `value_and_prox!`
-# does. The max needs a level that is not NaN: under the conditions at `_l1ball_threshold!` the level is (s - r)/c with
-# s finite and c ≥ 1, or the initial y₁ - r, or an entry, so it is a number.
+# does. The max needs a level that is not NaN: under the conditions at `_l1ball_threshold!` the level is a level of the
+# iteration there (a finite number, computed from finite sums) or the largest entry, so it is a number.
 @inline function _linf_threshold(y, f::NormLinf, x, r::T, rd, ::Type{T}) where {T}
   τ = if _linf_buffer_is_output(y, x, T)
     _l1ball_threshold!(y, x, r, rd)
@@ -339,168 +340,263 @@ end
 #  The threshold of the ℓ1 ball
 ####################################
 
-# The level τ with Σᵢ (yᵢ - τ)₊ = r for the magnitudes yᵢ = rd(x[i]), i = 1:length(x), by Condat's algorithm (Fast
-# projection onto the simplex and the l1 ball, Math. Program. 158, 2016; expected O(n)), which hands over to Michelot's
-# algorithm (J. Optim. Theory Appl. 50, 1986) when many entries become candidates. `rd` maps an entry to its magnitude
-# in T = eltype(buf): `_AbsRead{T}()`, or the scaled read of the overflow path. `buf` is a scratch array whose length
-# is at least length(x), indexed linearly. The level is a number of type T with a rounding error of order
-# n eps(T) max yᵢ + δ, δ = nextfloat(zero(T)) (absolute), and it is at most one of the yᵢ; it can be negative or zero,
-# and the caller clamps it below at zero. The projection onto the ℓ1 ball can reuse it as its threshold.
+# The level τ with Σᵢ (yᵢ - τ)₊ = a for the magnitudes yᵢ = rd(x[i]), i = 1:length(x): the clip level of the ℓ1 ball of radius a
+# (the projection onto the ball is the soft threshold at τ). Condat's algorithm (Fast projection onto the simplex and the l1
+# ball, Math. Program. 158, 2016; expected O(n)) selects a small set of stored entries, or hands over to Michelot's algorithm
+# (J. Optim. Theory Appl. 50, 1986) on all the entries when many entries become candidates. Both then run the same iteration,
+# `_l1ball_iterate`: Newton's method on the convex function g(τ) - a, g(τ) = Σᵢ (yᵢ - τ)₊, from a level at or below the root, in
+# the residual form. A pass at a level τ sums the excesses yᵢ - τ of the entries above τ, and the next level is τ + (excess -
+# a)/(number of entries above τ). `rd` maps an entry to its magnitude in T = eltype(buf): `_AbsRead{T}()`, or the scaled read of
+# the overflow path. `buf` is a scratch array whose length is at least length(x), indexed linearly.
 #
-# Conditions on the data, which the caller (`_linf_prox!`) establishes with its pass over the magnitudes: the yᵢ are
-# finite and nonnegative (a sum that is neither NaN nor infinite certifies finite mapped entries), r is a number with
-# 0 ≤ r < s, where s is the sum of that pass and is at most floatmax(T)/2. The proof below also uses the hypothesis
-# n eps(T) ≤ 1/2 on the number of entries, which the caller does not check: the Float32 inputs with more than 2^22 entries
-# do not satisfy it. The comparisons are plain: a NaN entry would be skipped (`NaN > ρ` is false), which was #677 in the
-# legacy kernel, and a NaN entry is routed to its own branch before this function runs.
+# Contract. The caller (`_linf_prox!`) establishes with its pass over the magnitudes that the yᵢ are finite and nonnegative (a
+# sum that is neither NaN nor infinite certifies finite mapped entries) and that 0 ≤ a < s, where s is the sum of that pass and
+# is at most floatmax(T)/2. The derivation below also uses the hypothesis n u ≤ 1/4, u = eps(T)/2 (n eps(T) ≤ 1/2), which the
+# caller does not check: the Float32 inputs with more than 2^22 entries do not satisfy it. Under these conditions the level
+# returned is a number of type T, at most the largest entry M, within 4.5 n u M + 2 n δ of the exact level τ* (the root of g(τ)
+# = a, and M for a = 0), with δ = nextfloat(zero(T)). It can be negative, by at most about 6 n u M, when a is within the
+# rounding of s; the caller clamps it below at zero. The statements for each of the four returns of the iteration are in the
+# claims below; they do not assume that the set of entries that the iteration last used is the set of entries above the exact
+# level. Outside the conditions, for finite yᵢ and any a ≥ 0 the iteration ends (claim 1) and returns a number that is not NaN
+# and at most M (a pass sum that overflows gives the step +Inf, then no entry is above the level and M is returned); the bounds
+# are not claimed there.
 #
-# Why the selector sees finite data and partial sums in range, under that hypothesis. A partial sum in the order of
-# Condat's or Michelot's passes, a sum of nonnegative terms, differs from the exact sum of its terms by a relative error
-# of at most θ = (1 + eps(T)/2)^n - 1 ≤ 0.29 (n eps(T) ≤ 1/2), and the sum of the pass over the magnitudes is at most
-# floatmax/2; the exact total is then at most floatmax/2 / (1 - θ) and a computed partial sum at most
-# floatmax/2 (1 + θ)/(1 - θ) < floatmax. The sums s of the passes are therefore finite (the subtractions `s -= y` in the
-# last loop of Condat's algorithm do not increase s).
+# Notation. The sums defining g are exact here. k(τ) = #{i : yᵢ > τ}, γ_k = k u/(1 - k u). The function g is convex, piecewise
+# linear and nonincreasing, with the slope -k(τ) to the right of τ, and strictly decreasing where positive, so that τ* < M is
+# unique for a > 0. Facts used:
+#  (G1) g(τ + d) ≥ g(τ) - k(τ) d for all real d (the slope to the right of τ is a subgradient).
+#  (G2) If no entry lies in (τ, τ′], then g(τ′) = g(τ) - k(τ)(τ′ - τ).
+#  (G3) For a subset S of the entries, g(τ) ≥ Σ_S (yᵢ - τ), so the level L_S = (Σ_S yᵢ - a)/|S| has g(L_S) ≥ a and L_S ≤ τ*.
+#  (G4) With K = #{i : yᵢ ≥ τ*} ≥ 1: for τ ≤ τ*, K (τ* - τ) ≤ g(τ) - a ≤ k(τ)(τ* - τ); for τ ≥ τ*, a - g(τ) ≥ k(τ)(τ - τ*); and
+#       a = g(τ*) ≤ K (M - τ*).
+# Rounding. A sum or difference is fl(z) = z(1 + ε) with |ε| ≤ u (exact when the result is subnormal), and |fl(z) - z| ≤ u
+# |fl(z)|. A quotient is fl(z) = z(1 + ε) + η with |ε| ≤ u, |η| ≤ δ/2 and ε η = 0 (η = 0 unless the quotient is subnormal). fl
+# is monotone, and r - a is exact when a/2 ≤ r ≤ 2a. A pass at a level τ (`_l1ball_excess`) returns the count k = k(τ) of the
+# entries above τ, the smallest of them, hi, and the sum r of the floats fl(yᵢ - τ) over them, in any order. Each term goes
+# through at most k - 1 additions, so
+#  (P) r = Σ_{yᵢ>τ} (yᵢ - τ)(1 + θᵢ) with 1 - k u ≤ 1 + θᵢ ≤ 1/(1 - k u), hence (1 - k u) g(τ) ≤ r ≤ g(τ)/(1 - k u) and |r -
+#      g(τ)| ≤ γ_k g(τ).
+# The entries that are not above τ are at most τ, and those above τ are at least hi > τ. The subtraction of a term is exact when
+# its result is subnormal, so the subnormal spacing δ enters a step through its quotient and its sum.
 #
-# Why an overflowing (y - r) nv still decides correctly. The test of Condat's pass is s > (y - r) nv, the exact test
-# (s + y - r)/(nv + 1) > y - r. With y ≤ floatmax/2 (a computed sum of nonnegative terms is at least each term, and the
-# sum of the pass is at most floatmax/2) the factor y - r is finite, and the product with nv ≥ 1 overflows
-# to +Inf, which needs (y - r) nv > floatmax; since s is a sum of some of the yᵢ it is below floatmax (see above), so
-# the exact test is false, as the comparison s > Inf is. A product that overflows to -Inf has y - r < 0 and the exact
-# test (s ≥ 0 > -∞) is true, as s > -Inf is. The level (s - r)/nv is finite as s is and nv ≥ 1.
+# The iteration, from a level τ (`_l1ball_iterate`): a pass at τ gives (r, k, hi); then
+#   (a) k = 0: return the largest entry                      (no entry above the level)
+#   (b) r ≤ a: return τ                                      (the level of the pass)
+#   with t = fl(τ + fl(fl(r - a)/k)) ≥ τ, the Newton step τ + (r - a)/k:
+#   (c) r - a ≤ a/2 and t < hi: return t                     (the certified step: no entry lies in (τ, t], and the pass measured the
+#                                                              excess within a/2 of the radius)
+#   (d) t = τ: return τ                                      (the step vanished: the level does not move; t < hi holds, so (c) did not
+#                                                              return, and r - a > a/2)
+#   Otherwise τ ← t and the pass is repeated (the step is taken: it is larger than certified, or it crosses an entry). These are
+#   the four returns; the list is closed.
 #
-# Why the level is at most one of the yᵢ. Condat's algorithm returns a level ρ below every remaining candidate (the last
-# loop ends when no candidate is at or below ρ), and the candidates are entries, so ρ is below an entry; the one
-# exit with ρ at or above its single candidate y (reached through rounding) returns y. Michelot's level (s - r)/c is a
-# mean of entries minus a nonnegative number in exact arithmetic, but its rounded sum can exceed c times the largest
-# entry, so that path returns the minimum of its level and the largest entry, which its first pass computes.
+# Claim 1 (the levels increase; the loop ends). A level that is replaced is replaced by a larger one (t > τ), and the level of a
+# pass is below M (k ≥ 1). A strictly increasing sequence of floats ends, so the loop ends for finite entries, for any n, a and
+# start. A step that crosses an entry (t ≥ hi) leaves at most k - 1 entries above the next level. A step with t < hi crosses
+# nothing, so by (G2) the next excess is g(t) = g(τ) - k(t - τ), and with the roundings of claim 3 it is within γ_k g(τ) + (2u +
+# u²)|r - a| + k u|t| + kδ of a; such a step multiplies g - a by about γ_k + 2u when g(τ) is large against a, and a second one
+# in a row needs the noise of the pass to be at least a/2. A bound on the number of passes is not proved; the accuracy sweep
+# reports the largest count.
+#
+# Claim 2 (overshoot). Let ζ = 2(1 + u)² γ_{n-1} M + δ. The level of each pass is at least -ζ (claim 4 for Condat's start;
+# Michelot's start is nonnegative since s ≥ a). The return (a) is at most the level of its pass, and (b) is that level, so both
+# are bounded by the overshoot of the level of a pass over τ*, which is at most ε = max(ε₀, ε₁), with
+#   the start:  τ₀ - τ* ≤ ε₀ = M[(2u + u²) + (1 + u)² γ_{n-1}] + δ/2,
+#   a step:     t - τ* ≤ ε₁ = (Γ (M + ζ) + u M + δ/2)/(1 - u),  Γ = max(γ_n + (2u + u²)/(1 - n u), (2 + 2u + u²) γ_n).
+# Proof for the plain start τ₀ = fl(fl(s - a)/n), s = Σ yᵢ (1 + θ_s), |θ_s| ≤ γ_{n-1}: s - a ≥ 0, and τ* ≥ (Σ yᵢ - a)/n by (G3)
+# with S = all the entries; s - a ≤ (Σ yᵢ - a) + γ_{n-1} Σ yᵢ, so τ₀ ≤ (1 + u)² [(Σ yᵢ - a) + γ_{n-1} Σ yᵢ]/n + δ/2, and Σ yᵢ -
+# a ≤ Σ yᵢ ≤ n M. For Condat's start, max(ρ, plain level of the final candidates V), the plain level of V is bounded in the same
+# way (S = V, |V| ≤ n, a negative level has no overshoot beyond -τ* ≤ γ_{n-1} M), and ρ ≤ τ* + γ_{n-1} M by claim 4.
+# Proof for a step from a level τ′ with the pass (r′, k′), r′ > a, g′ = g(τ′), t = fl(τ′ + d), d = fl(fl(r′ - a)/k′) ≥ 0: d ≤
+# (r′ - a)(1 + u)²/k′ + δ/2, t ≤ τ′ + d + u|t|, and g′/k′ ≤ M - τ′ ≤ M + ζ (the k′ terms of g′ are at most M - τ′). If g′ ≥ a,
+# the Newton point N = τ′ + (g′ - a)/k′ has g(N) ≥ a by (G1), so N ≤ τ*; with r′ - a ≤ (g′ - a) + γ_{k′} g′ and r′ ≤ g′/(1 -
+# k′u), t - τ* ≤ t - N ≤ [γ_{k′} g′ + (2u + u²) g′/(1 - k′u)]/k′ + δ/2 + u|t|. If g′ < a < r′, then a - g′ < r′ - g′ ≤ γ_{k′} g′
+# and, by (G4), τ′ - τ* ≤ (a - g′)/k′ ≤ γ_{k′} g′/k′; with r′ - a < γ_{k′} g′, t - τ* ≤ (τ′ - τ*) + d + u|t| ≤ (2 + 2u + u²)
+# γ_{k′} g′/k′ + δ/2 + u|t|. Both cases are at most Γ (M + ζ) + δ/2 + u|t|; for t > 0 solve for t (τ* < M), and for t ≤ 0 the
+# overshoot is at most -τ* ≤ γ_{n-1} M.
+#
+# Claim 3 (the four returns). Let k be the count of the pass at the return and E = g(τ̂) - a the excess of the returned level
+# τ̂.
+#  (a) No entry above the level: τ̂ = M, the largest entry (Condat's buffer holds it, claim 4), g(M) = 0, E = -a. Since M ≤ τ,
+#      τ̂ - τ* ≤ ε by claim 2, and τ̂ ≥ τ* because g(τ*) = a > 0 = g(M).
+#  (b) The level of the pass, r ≤ a: by (P), g(τ̂) ≤ a/(1 - k u), so E ≤ γ_k a; τ̂ - τ* ≤ ε by claim 2; and if τ̂ < τ*, then by
+#      (G4) τ* - τ̂ ≤ E/K ≤ γ_k a/K ≤ γ_k (M - τ*).
+#  (c) The certified step, r - a ≤ a/2 (and r > a, so a < r ≤ 1.5a and r - a is exact): no entry lies in (τ, t], so the k
+#      entries above t are those above τ, and (G2) gives g(t) - a = (g(τ) - r) + (r - a) - k (t - τ), where k (t - τ) = (r -
+#      a)(1 + ε₂) + k η + e with |ε₂| ≤ u, |η| ≤ δ/2, |e| ≤ k u|t|, |g(τ) - r| ≤ γ_k g(τ) and g(τ) ≤ r/(1 - k u) ≤ (1.5 a +
+#      δ/2)/(1 - k u) (the δ/2 is the rounding of a/2). Hence
+#         |g(t) - a| ≤ E_c = (1.5 γ_k/(1 - k u) + u/2) a + k u|t| + k δ,
+#      for any level of the pass relative to τ* (the proof does not use that the set of entries is the final one). For the
+#      level, by (G4): if t > τ*, t - τ* ≤ E_c/k; if t ≤ τ*, τ* - t ≤ E_c/K ≤ [1.5 γ_k/(1 - k u) + u/2](M - τ*) + (k/K)(u|t| +
+#      δ).
+#  (d) The step vanished, t = τ, r - a > a/2 - δ/2: the step is at most the half-spacing at τ, d ≤ u|τ|, and d ≥ (r - a)(1 -
+#      u)²/k - δ/2, so (r - a)(1 - u)² ≤ k (u|τ| + δ/2); with g(τ) ≤ r/(1 - k u) and a < 2(r - a) + δ,
+#         g(τ̂) - a ≤ E_v = (1 + 2 k u)/(1 - k u) · k (u|τ̂| + δ/2)/(1 - u)²,
+#      and g(τ̂) - a > 0 when a ≥ 4δ and k u ≤ 1/4 (g ≥ (1 - k u) r > a); then τ* - τ̂ ≤ E_v/K by (G4).
+# So at (c) and (d) the level equation holds within E_c or E_v for the set of entries above τ̂ (the radius form), without the
+# assumption that this is the set above τ*; at (a) and (b) the level is above τ* by at most ε, with g(τ̂) ≤ a (1 + γ_k) (the
+# level form).
+#
+# Claim 4 (Condat's pass). The pass keeps a level ρ: ρ = prevfloat(y₁ - a) at the start; at a restart (the entry y is above ρ
+# and fails the join test s > (y - a) nv, so that the candidates start anew at y), ρ ← max(ρ, prevfloat(y - a)); when an entry
+# joins the nv candidates of running sum s, ρ ← max(ρ, (s (1 - (nv + 4) u) - a)/nv). An entry that is not above ρ is not stored.
+# (i) ρ does not decrease, so an entry discarded at any time is at most the final ρ. (ii) ρ < M and ρ ≤ τ* + γ_{n-1} M. Since
+# prevfloat(fl(z)) < z for a real z, the first two values are below y - a ≤ τ* ((G3) with S = {y}). For the join value, the sum
+# s of the candidates V (nv - 1 additions) is at most (1 + γ_{nv-1}) Σ_V yᵢ, and the factor 1 - (nv + 4) u, rounded, covers the
+# rounding of that sum and of the product, the difference and the quotient, so the computed value is at most ((1 - 3u)(1 + u)²
+# Σ_V yᵢ - a)/nv ≤ L_V ≤ τ* when the difference is nonnegative, and at most 0 ≤ τ* + γ_{n-1} M otherwise (if τ* < 0, then a > Σ
+# yᵢ and τ* ≥ -γ_{n-1} M, since a < s ≤ (1 + γ_{n-1}) Σ yᵢ). Each value is below an entry that is stored (M > 0 because a < s),
+# so ρ < M, and the largest entry is above ρ when it arrives and is stored. (iii) The iteration starts at max(ρ, plain level of
+# the final candidates) ≥ ρ and its levels increase, so each unstored entry is at most the level of each pass, and the stored
+# entries (buf[1:nt+nv]) give the same g, k, hi and excess as all the entries at each level that the iteration visits: claims 2
+# and 3 are statements about all the entries. (iv) A start below zero is at least ρ ≥ -δ after a restart (a restart needs fl(y -
+# a) ≥ 0). Without a restart no entry was discarded (a negative ρ discards no nonnegative entry), so the candidates are all the
+# entries and s is their sequential sum; a < s_plain ≤ (1 + γ_{n-1}) Σ yᵢ gives s - a ≥ -2 γ_{n-1} Σ yᵢ, and the start is at
+# least -ζ.
+#
+# Claim 5 (consequences). (i) The level. For n u ≤ 1/4 each bound of claims 2 and 3 on |τ̂ - τ*| is at most 4.5 n u M + 2 n δ:
+# the overshoot ε; below τ*, γ_n M at (b), [1.5 γ_n/(1 - n u) + u/2 + n u] M + n δ at (c), (n u [1.5/(1 - n u)² + 1/2] + u) M +
+# δ at (c) above τ* (there a ≤ n M), and E_v at (d). The largest coefficient, 4.45, is that of the overshoot at n u = 1/4; for
+# small n u the coefficients are about 2 + 3/n above τ* and 3 below. (ii) The distance. The vector that the prox returns at a
+# level τ ≥ 0 has the norm d(τ) = (Σ min(yᵢ, τ)²)^(1/2). For the radius a, D(a) = d(τ*(a)) has dD/da = -τ*/D and D ≥ τ*, so D is
+# 1-Lipschitz, and d(τ) = D(g(τ)): |d(τ̂) - d(τ*)| ≤ |g(τ̂) - a| ≤ E_c or E_v at (c) and (d). At (a) and (b), |d(τ̂) - d(τ*)| ≤
+# √K′ |τ̂ - τ*| with K′ = #{i : yᵢ > min(τ̂, τ*)} ≤ n; for a step from a level with g′ ≥ a (then K′ ≤ k′), √K′ Γ g′/k′ ≤ Γ ‖(y -
+# τ′)₊‖₂ ≤ Γ ‖y‖₂ at τ′ ≥ 0, by the Cauchy-Schwarz inequality g′ ≤ √k′ ‖(y - τ′)₊‖₂. This is not proved for a start (the factor
+# √n remains). Where Σ yᵢ < a < s the exact level is in [-γ_{n-1} M, 0) and the bounds hold with M replaced by (1 + γ_{n-1}) M.
+#
+# Range. A pass sum at a level τ ≥ 0 is at most (1 + θ) Σ yᵢ ≤ ((1 + θ)/(1 - θ)) s ≤ 0.91 floatmax, with θ = (1 + u)^n - 1 ≤
+# 0.29 (n u ≤ 1/4), so the sums of the passes and the sequential sums of Condat's pass are finite. At the negative start of
+# claim 4 (iv) the pass sums yᵢ - τ with Σ (yᵢ - τ) ≈ a + (Σ yᵢ - s_V) ≤ a + θ Σ yᵢ, which is below 0.71 floatmax up to the
+# rounding of τ, so the same bound applies.
+#
+# Why an overflowing (y - a) nv still decides correctly. The test of Condat's pass is s > (y - a) nv, the exact test (s + y -
+# a)/(nv + 1) > y - a. With y ≤ floatmax/2 (a computed sum of nonnegative terms is at least each term, and the sum of the pass
+# is at most floatmax/2) the factor y - a is finite, and the product with nv ≥ 1 overflows to +Inf, which needs (y - a) nv >
+# floatmax; since s is a sum of some of the yᵢ it is below floatmax (see above), so the exact test is false, as the comparison s
+# > Inf is. A product that overflows to -Inf has y - a < 0 and the exact test (s ≥ 0 > -∞) is true, as s > -Inf is.
+
+# Condat's pass. The stored entries are buf[1:nt] (the candidates that restarts have displaced) and buf[nt+1:nt+nv] (the nv candidates,
+# of running sum s); the level ρ and the rules that update it are in claim 4. Michelot's algorithm takes over, on all the entries, when
+# more than cap = max(1024, n ÷ 8) entries have become candidates: a heuristic for the cost, since a large candidate set often means that
+# the level starts far below the entries and rises slowly, and then this pass costs most (it need not hold, for instance for many tied
+# entries and a tiny radius). Once the level has risen, most entries fall below it, and one test for four entries reduces the
+# sensitivity of the loop to where its code lands in memory, as observed on one processor. The iteration then runs on the stored
+# entries from max(ρ, (s - a)/nv), the plain level of the final candidates.
 function _l1ball_threshold!(buf::AbstractArray{T}, x, a::T, rd::F) where {T, F}
   n = length(x)
   n == 0 && return zero(T)
+  u = eps(T) / 2
   @inbounds y1 = rd(x[1])
   @inbounds buf[1] = y1
-  # buf[1:nt] holds the discarded entries, buf[nt+1:nt+nv] the candidates, of sum s and level ρ = (s - a)/nv. The level
-  # is recomputed from the sum when a candidate joins, rather than updated by a division in a chain of dependent steps.
-  # Michelot's algorithm takes over when more than cap = max(1024, n ÷ 8) entries have become candidates. This is a
-  # heuristic for the cost: a large candidate set often means that the level starts far below the entries and rises
-  # slowly, and then Condat's pass costs most (it need not hold, for instance for many tied entries and a tiny radius).
   nt, nv = 0, 1
   s = y1
-  ρ = y1 - a
+  ρ = prevfloat(y1 - a)
   cap = max(1024, n ÷ 8)
   many = false
-  # Once the level has risen, most entries fall below it. One test for four entries reduces the sensitivity of the loop
-  # to where its code lands in memory, as observed on one processor.
   j = 2
   @inbounds while j + 3 <= n
     y₁, y₂, y₃, y₄ = rd(x[j]), rd(x[j + 1]), rd(x[j + 2]), rd(x[j + 3])
     if (y₁ > ρ) | (y₂ > ρ) | (y₃ > ρ) | (y₄ > ρ)
-      nt, nv, s, ρ, many = _condat_step!(buf, y₁, nt, nv, s, ρ, a, cap)
-      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₂, nt, nv, s, ρ, a, cap))
-      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₃, nt, nv, s, ρ, a, cap))
-      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₄, nt, nv, s, ρ, a, cap))
+      nt, nv, s, ρ, many = _condat_step!(buf, y₁, nt, nv, s, ρ, a, cap, u)
+      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₂, nt, nv, s, ρ, a, cap, u))
+      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₃, nt, nv, s, ρ, a, cap, u))
+      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₄, nt, nv, s, ρ, a, cap, u))
       many && break
     end
     j += 4
   end
   @inbounds while !many && j <= n
-    nt, nv, s, ρ, many = _condat_step!(buf, rd(x[j]), nt, nv, s, ρ, a, cap)
+    nt, nv, s, ρ, many = _condat_step!(buf, rd(x[j]), nt, nv, s, ρ, a, cap, u)
     j += 1
   end
   many && return _l1ball_michelot(x, a, rd, T)
-  _condat_finish!(buf, nt, nv, s, a)
+  _l1ball_iterate(buf, nt + nv, a, identity, max(ρ, (s - a) / nv))
 end
 
-# One entry y of Condat's pass: below the level ρ it is discarded; otherwise it joins the candidates when their level
-# with y, (s + y - a)/(nv + 1), exceeds y - a, and starts them anew if not. The last value is true when more than cap
-# entries have become candidates.
-@inline function _condat_step!(buf::AbstractArray{T}, y::T, nt::Int, nv::Int, s::T, ρ::T, a::T, cap::Int) where {T}
+# One entry y of Condat's pass, with the level ρ (claim 4): an entry not above ρ is not stored. Otherwise it joins the nv candidates when
+# their plain level with y, (s + y - a)/(nv + 1), exceeds y - a, which is the test s > (y - a) nv, and then ρ becomes
+# max(ρ, (s (1 - (nv + 4) u) - a)/nv) for the new candidates, u = eps(T)/2: the factor covers the roundings of the sum, the product, the
+# difference and the quotient, so that the value is a lower bound of the exact level of the candidates. If the test fails, the candidates
+# stay in the buffer in front of y (they are counted in nt) and y starts them anew, with ρ ← max(ρ, prevfloat(y - a)). The last value is
+# true when more than cap entries have become candidates.
+@inline function _condat_step!(buf::AbstractArray{T}, y::T, nt::Int, nv::Int, s::T, ρ::T, a::T, cap::Int, u::T) where {T}
   y > ρ || return nt, nv, s, ρ, false
   if s > (y - a) * nv
     nv += 1
     nv > cap && return nt, nv, s, ρ, true
     s += y
     @inbounds buf[nt + nv] = y
-    return nt, nv, s, (s - a) / nv, false
+    return nt, nv, s, max(ρ, (s * (1 - (nv + 4) * u) - a) / nv), false
   end
   nt += nv
   @inbounds buf[nt + 1] = y
-  nt, 1, y, y - a, false
+  nt, 1, y, max(ρ, prevfloat(y - a)), false
 end
 
-# The end of Condat's algorithm, from the discarded entries buf[1:nt] and the candidates buf[nt+1:nt+nv] of sum s, whose
-# level is ρ = (s - a)/nv, recomputed from the sum after each change of the candidates. The level returned is below every
-# remaining candidate, or is the single remaining candidate when rounding leaves it at or below ρ.
-function _condat_finish!(buf::AbstractArray{T}, nt::Int, nv::Int, s::T, a::T) where {T}
-  ρ = (s - a) / nv
-  # the discarded entries above ρ rejoin the candidates, collected at the front
-  w = 0
-  @inbounds for i in 1:nt
-    y = buf[i]
-    if y > ρ
-      w += 1
-      buf[w] = y
-      s += y
-      ρ = (s - a) / (w + nv)
+# One pass at the level τ over the first n entries rd(x[i]) (nonnegative): the sum r of the excesses y - τ of the entries above τ, their
+# count k, and the smallest of them, hi (meaningless when k = 0, and not to be used then). For Float32 and Float64 it is one vectorized
+# loop, in which the smallest entry is taken over the bit patterns, as `_linf_classify` takes its maximum (the patterns of nonnegative floats
+# are ordered as the floats, and typemax of the integer type, the pattern of a NaN, is above them); other types take a plain loop.
+@inline function _l1ball_excess(x, n::Int, τ::T, rd::F) where {T<:Union{Float32, Float64}, F}
+  U = _int_type(T)
+  r = zero(T)
+  k = 0
+  h = typemax(U)
+  @inbounds @simd for i in 1:n
+    y = rd(x[i])
+    above = y > τ
+    r += ifelse(above, y - τ, zero(T))
+    k += above
+    h = min(h, ifelse(above, reinterpret(U, y), typemax(U)))
+  end
+  r, k, reinterpret(T, h)
+end
+function _l1ball_excess(x, n::Int, τ::T, rd::F) where {T, F}
+  r = zero(T)
+  k = 0
+  hi = T(Inf)
+  @inbounds for i in 1:n
+    y = rd(x[i])
+    if y > τ
+      r += y - τ
+      k += 1
+      hi = min(hi, y)
     end
   end
-  @inbounds for i in 1:nv
-    buf[w + i] = buf[nt + i]
-  end
-  len = w + nv
-  # drop the candidates at or below ρ until none is left
-  changed = true
-  @inbounds while changed
-    changed = false
-    i = 1
-    while i <= len
-      y = buf[i]
-      if y <= ρ
-        len == 1 && return y            # reached through rounding: the single candidate is returned
-        buf[i] = buf[len]
-        len -= 1
-        s -= y
-        ρ = (s - a) / len
-        changed = true
-      else
-        i += 1
-      end
-    end
-  end
-  ρ
+  r, k, hi
 end
 
-# Michelot's algorithm: the level of all the entries, then of those above it, until that set stops changing (Newton's
-# method on the convex τ ↦ Σᵢ max(yᵢ - τ, 0) - a, from below, each step a vectorized pass). Each pass gives the sum s and
-# the count c of the entries above the current level τ, and the next level is (s - a)/c.
-#
-# Stopping rule. In exact arithmetic the sets above the levels decrease and the process ends when two consecutive sets
-# have the same count. With rounding, a level can round onto the entries: x = ones(2001), a = 8e-14 in Float64 has the
-# level (2001 - a)/2001 = 1.0, no entry is above it, and the next level is -a/0 = -Inf, from which the sets alternate
-# between all the entries and none (the loop of the legacy kernel ended at -Inf for n = 2001). Here the
-# loop stops when the count c of the entries above τ is 0 or is not below the count of the pass before, and returns τ,
-# the last level computed from a nonempty set. The first pass has τ = -Inf, c = n ≥ 1, and a count that decreases at each
-# later pass that continues, so the loop runs at most n + 1 passes. When c is 0 or has not decreased, the level τ of the
-# last nonempty set is returned, capped at the largest entry: 1.0 in the example above, the value of the entries.
+# The largest of the first n entries, the return of the iteration when no entry is above the level; a separate function that is
+# not inlined, as the return is rare.
+@noinline function _l1ball_top(x, n::Int, rd::F, ::Type{T}) where {T, F}
+  m = zero(T)
+  @inbounds for i in 1:n
+    y = rd(x[i])
+    m = ifelse(y > m, y, m)
+  end
+  m
+end
+
+# The iteration of the header from the level τ, on the first n entries rd(x[i]): the four returns (a) to (d) in that order, the step
+# τ ← t otherwise. It does not allocate.
+function _l1ball_iterate(x, n::Int, a::T, rd::F, τ::T) where {T, F}
+  while true
+    r, k, hi = _l1ball_excess(x, n, τ, rd)
+    k == 0 && return _l1ball_top(x, n, rd, T)                       # (a) no entry above the level
+    r <= a && return τ                                              # (b) the level of the pass
+    t = τ + (r - a) / k
+    (r - a <= a / 2 && t < hi) && return t                          # (c) the certified step
+    t > τ || return τ                                               # (d) the step vanished
+    τ = t
+  end
+end
+
+# Michelot's algorithm: the iteration of the header on all the entries, from the plain level (s - a)/n of all of them, with s their sum
+# from `_linf_sum` (the vectorized pass of the caller). The handover of Condat's pass calls it with the argument and the same reader.
 function _l1ball_michelot(x, a::T, rd::F, ::Type{T}) where {T, F}
   n = length(x)
-  # the first pass has τ = -Inf, so that every entry is above it: the sum and the count n, and with them the largest
-  # entry, which bounds the level returned (see `_l1ball_threshold!`)
-  s, mx = _linf_classify(x, rd, T)
-  τ = (s - a) / n
-  cnt = n
-  for _ in 1:n
-    s, c = zero(T), 0
-    @inbounds @simd for i in 1:n
-      y = rd(x[i])
-      above = y > τ
-      s += ifelse(above, y, zero(T))
-      c += above
-    end
-    (c == 0 || c >= cnt) && return min(τ, mx)
-    cnt = c
-    τ = (s - a) / c
-  end
-  min(τ, mx)
+  s = _linf_sum(x, rd, T)
+  _l1ball_iterate(x, n, a, rd, (s - a) / n)
 end
 
 ####################################

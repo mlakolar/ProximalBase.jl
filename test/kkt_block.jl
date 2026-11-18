@@ -658,10 +658,14 @@ end
 # level gives c = Inf, and an ElasticNet with an infinite λ2 gives -Inf. No reference calls a package helper. The endpoint rules
 # for a non-finite entry of v are those of the three-argument screen for NormL1 and ElasticNet (|Inf| - Inf is NaN) and those of the
 # zero-block score for GroupNormL2 (an infinite entry gives Inf, a NaN entry NaN).
-# A value is accepted within the bound of `within`: a few units in the last place of the type times |vᵢ| + c, plus the subnormal
-# spacing of the type. A coefficient above the range of the type gives -Inf.
-# fails at the base in the cases where the level does not fold and v / a leaves the range of the type: Inf at an ordinary v, or
-# NaN for an infinite weight (the cases marked as folding are the route that this change leaves as it is)
+# `scoreok` accepts a value of the type W when the reference is infinite and the value is the same infinity; when |reference|
+# exceeds floatmax(W) by more than 100 eps(W) relative and the value is the infinity of its sign; when |reference| is within
+# 100 eps(W) relative of floatmax(W), any value of the type (this band is not checked); and otherwise within the bound of
+# `within`: a few units in the last place of W times the scale (|vᵢ| + c for an entry, ‖v_G‖₂ + c for a group), plus the
+# subnormal spacing of W. A coefficient that rounds to Inf in W gives -Inf at a finite gradient.
+# fails at the base in cases where the level does not fold and v / a leaves the range of the type, for example Inf at an ordinary
+# v or NaN for an infinite weight under an underflowing product, and 0 under an overflowing product where v / a and λ w both round
+# to zero (the cases marked as folding are the route that this change leaves as it is)
 
 ex(T, e64, e32) = ldexp(one(T), T === Float32 ? e32 : e64)       # a power of two in the range of T (exponent e64 for Float64, e32 for Float32)
 huge(T) = ex(T, 600, 80)                                          # huge(T)^2 is not a finite number

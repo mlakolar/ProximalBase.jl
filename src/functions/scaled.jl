@@ -730,7 +730,8 @@ Base.@propagate_inbounds function _kkt_entry(c::_KktChain{<:SqrNormL2}, s, ::Typ
   iszero(xw) && c.f.y === nothing && return _kkt_override(abs(vw), vw, xw)
   _kkt_override(abs(vw + convert(W, _apply_scale(c.a, _kkt_ridge(c.f.y, s, W, xw, i)))), vw, xw)
 end
-# The coefficient a λ w of an entry, or of a group, of a chain whose level λ does not fold (_kkt_resolve returns nothing), rounded
+# The coefficient a λ w of an entry, or of a group, of a chain whose leaf does not resolve (_kkt_resolve returns nothing; for an
+# ElasticNet one level that does not fold is enough, so the λ passed here can be a level that folds on its own), rounded
 # to the floating type W (which includes the type of the factors of a). For a positive finite λ and w, the significands of a, λ
 # and w are multiplied and the exponents of the three are applied by one final ldexp (_scaled_product_retained), so that neither
 # a λ nor λ w is rounded first: either could underflow or overflow where a λ w is representable. _kkt_coefficient(W, λ, w)

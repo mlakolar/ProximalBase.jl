@@ -744,9 +744,11 @@ end
   end
   _kkt_coefficient(W, λ, w)
 end
-# The screen |vᵢ| - a λ wᵢ of the three-argument form, which is the value of the entry at a zero coordinate (a nonzero coordinate
-# is refused by the caller of the four-argument form after this value is formed). Endpoint cases are those of the screen of
-# NormL1 and ElasticNet: a NaN propagates, and |Inf| - Inf is NaN. An infinite λ2 of an ElasticNet gives -Inf, as its screen does.
+# The screen |vᵢ| - c of the three-argument form, with c = _chain_coefficient (a λ wᵢ for a positive finite λ and wᵢ), which is
+# the value of the entry at a zero coordinate (a nonzero coordinate is refused by the caller of the four-argument form after
+# this value is formed). The endpoint cases are those of the
+# three-argument screen of NormL1 and ElasticNet: a NaN entry gives NaN, and |Inf| - Inf is NaN. An infinite λ2 of an
+# ElasticNet gives -Inf for any entry, as its screen does.
 Base.@propagate_inbounds function _kkt_entry(c::_KktChain{<:NormL1, <:_ProjectionScale}, s, ::Type{W}, v, x, i) where {W}
   abs(convert(W, v)) - _chain_coefficient(W, c.f.λ0, _entry(c.f.w, i), c.a)
 end
@@ -755,12 +757,15 @@ Base.@propagate_inbounds function _kkt_entry(c::_KktChain{<:ElasticNet, <:_Proje
   abs(convert(W, v)) - _chain_coefficient(W, c.f.λ1, _entry(c.f.w, i), c.a)
 end
 # The level of a GroupNormL2 under a chain whose level does not fold: the level λ of the function and the product a of the
-# factors, not combined. Its _l2_score is the screen of a zero group with the coefficient a λ w of the group.
+# factors, not combined. Its _l2_score is the zero-block score with the coefficient c of _chain_coefficient for the group
+# (a λ w for a positive finite λ and w).
 struct _KktChainLevel{T, A<:_ProjectionScale}
   λ::T
   a::A
 end
-# W includes the type of the factors. The value at a nonzero group is not used by the caller, which refuses it.
+# W includes the type of the factors. The value at a nonzero group is not used by the caller, which refuses it. The endpoint
+# cases are those of the zero-block score (_l2_zero_score): an infinite entry of v[G] gives Inf, also where the coefficient is
+# Inf, and a NaN entry gives NaN.
 @inline function _l2_score(λ::_KktChainLevel, w, v, x, G)
   W = promote_type(float(promote_type(eltype(v), eltype(x))), _kkt_factor_type(λ.a))
   _l2_zero_score(_chain_coefficient(W, λ.λ, w, λ.a), true, v, G, W)
@@ -783,7 +788,8 @@ _kkt_full(h::_KktLevel, v, x::AbstractArray) = _level_point(h.f, h.λ, v, x)
 
 # The screen of a chain (the three-argument form). Around LinearFunction and a centered SqrNormL2 it is |gᵢ + a dᵢ| with
 # dᵢ the gradient entry at zero. For NormL1 and ElasticNet it is that of the function with the folded levels and, where the
-# levels do not fold, |gᵢ| - a λ wᵢ from the coefficient a λ wᵢ (_chain_coefficient), formed without dividing g by a. For the
+# levels do not fold, |gᵢ| - c with the coefficient c of _chain_coefficient (a λ wᵢ for a positive finite λ and wᵢ; -Inf for an
+# ElasticNet with an infinite λ2), formed without dividing g by a. For the
 # other functions it is that of the function with the folded levels, and where the levels do not fold, that of the function
 # at g divided by the product (kept as an exponent), multiplied by it, which does not recover a g that is out of range after
 # the division. Other smooth functions and indicators forward their existing three-argument screen, where one is defined.
@@ -796,8 +802,9 @@ function _chain_screen_plain(f, a, g, i)
   h = _fold_level(f, a)
   h === nothing ? _apply_scale(a, kkt_violation(f, _ExpScaledArray(g, _scale_inverse(a)), i)) : kkt_violation(h, g, i)
 end
-# NormL1 and ElasticNet: the fold, where the levels fold, and otherwise the screen |gᵢ| - a λ wᵢ from the coefficient a λ wᵢ
-# (_chain_coefficient), which is formed without dividing g by a.
+# NormL1 and ElasticNet: the fold, where the levels fold, and otherwise the screen |gᵢ| - c with the coefficient c of
+# _chain_coefficient (a λ wᵢ for a positive finite λ and wᵢ; -Inf for an ElasticNet with an infinite λ2), which is formed
+# without dividing g by a.
 function _chain_screen(f::Union{NormL1, ElasticNet}, a::_ProjectionScale, g, i)
   h = _fold_level(f, a)
   h === nothing || return kkt_violation(h, g, i)
@@ -879,9 +886,9 @@ function _kkt_chain(s::Scaled, g, x, k)
   r
 end
 # The value at a zero coordinate or group of a chain that has nothing to resolve to (a nonzero one is refused by the caller
-# after this value is formed). NormL1 and ElasticNet score the entry with the coefficient a λ w (_KktChain), GroupNormL2 the
-# group with the coefficient a λ w of the group (_KktChainLevel), converted to the type of the arguments and the factors.
-# Neither divides g by a. The other functions that this package scores, and a function defined outside it, score the screen
+# after this value is formed). NormL1 and ElasticNet score the entry with the coefficient c of _chain_coefficient (_KktChain),
+# GroupNormL2 the group with the coefficient of the group (_KktChainLevel), in the type of the arguments and the factors,
+# with g read in that type. Neither divides g by a. The other functions that this package scores, and a function defined outside it, score the screen
 # of the function at g divided by the product (kept as an exponent), multiplied by it, which does not recover a g that is
 # out of range after the division.
 function _kkt_unresolved(f, a, g, x, k)
@@ -892,7 +899,8 @@ end
 _kkt_unresolved(f::Union{NormL1, ElasticNet}, a::_ProjectionScale, g, x, k) = _kkt_apply(_KktChain(f, a), g, x, k)
 function _kkt_unresolved(f::GroupNormL2, a::_ProjectionScale, g, x, k)
   W = promote_type(float(promote_type(eltype(g), eltype(x))), _kkt_factor_type(a))
-  convert(W, _level_score(f, _KktChainLevel(f.λ0, a), g, x, k))
+  # g is read in W (a lazy copy that does not round at the factor one), by the validation and by the entry in no group
+  _level_score(f, _KktChainLevel(f.λ0, a), _ScaledArray{W}(g, one(W)), x, k)
 end
 # The product of the factors of a chain is finite (it is infinite or NaN when a retained chain holds an infinite factor, which
 # a direct call of the parameterized constructor Scaled{F, T} builds; Scaled(f, α) merges an infinite factor).

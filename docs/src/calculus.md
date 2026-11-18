@@ -103,21 +103,24 @@ remain `BigFloat`.
 * **Nested wrappers whose level does not fold.** For two positive finite factors, the
   constructor merges the wrappers when the product is a normal number and keeps them nested
   otherwise; zero and infinite factors follow the endpoint rules of the constructor. For a chain around `NormL1`, `ElasticNet`, `GroupNormL2` or `NormL2` the product of the
-  factors is folded into the level (the levels of `ElasticNet`) when the result is a finite nonzero
-  number (a subnormal one included) or the level is zero, and the chain then has the score of the function with that level,
-  in each form. A subnormal folded level has fewer significant bits than a normal one, and the coefficient of an entry is that
+  factors is folded into the level (both levels of `ElasticNet`, an infinite one being kept as it is) when the result is a nonzero finite
+  number that the type of the level accepts, or the level is zero: a normal number, or a subnormal one when the folded level is a
+  `Float32` or a `Float64` (a `Float16` level folds only to a normal number). The chain then has the score of the function with
+  that level, in each form. A subnormal folded level has fewer significant bits than a normal one, and the coefficient of an entry is that
   rounded level times the weight. Where
   it does not fold, the three-argument screen of `NormL1` and `ElasticNet`, and the four-argument
   form of `NormL1`, `ElasticNet` and `GroupNormL2` at a zero coordinate or group, are computed from the coefficient
   ``a\,\lambda\,w`` of the entry or group, with ``a`` the product of the factors, ``\lambda`` the level and ``w`` the
-  weight: their significands are multiplied and their exponents are applied in one last step, without
-  forming ``a\lambda`` or dividing `v` by ``a``. The value is ``\lvert v_i\rvert-a\lambda w_i`` for a
-  coordinate and ``\lVert v_G\rVert_2-a\lambda w_G`` for a group, up to the rounding of the coefficient and of the
-  difference in the type of the call.
+  weight. For a positive finite ``\lambda`` and ``w`` the significands of the three are multiplied and their exponents are
+  applied in one last step, without forming ``a\lambda`` or dividing `v` by ``a``, and the value is
+  ``\lvert v_i\rvert-a\lambda w_i`` for a coordinate and ``\lVert v_G\rVert_2-a\lambda w_G`` for a group, up to the rounding
+  of the coefficient and of the difference in the type of the call. A zero weight gives the coefficient 0 (also under an infinite
+  level), and an infinite weight or level gives `Inf`; an `ElasticNet` with an infinite `λ2` gives `-Inf` at a zero coordinate.
   `Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at `v = [0.25]` returns `0.25`, the
   coefficient ``2^{-1200}`` rounding to zero in `Float64`. The four-argument form at a
   nonzero coordinate or group (an entry in no group of a `GroupNormL2` counts as nonzero when `x`
-  is nonzero there) and the full-point form throw an `ArgumentError` for such a chain, and so do all the forms of `NormL2`.
+  is nonzero there) and the full-point form throw an `ArgumentError` for such a chain, and the three-argument and four-argument
+  forms of `NormL2` throw an `ArgumentError`.
 * **An infinite factor.** `Scaled(f, Inf)` and `Inf * f` give one wrapper with an infinite factor, also when `f` is
   itself scaled, because the constructor merges the factors. `kkt_violation(h, v, x)` and the four-argument form at a
   nonzero coordinate or group throw an `ArgumentError` for it (an entry in no group of a `GroupNormL2` counts as

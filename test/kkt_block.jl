@@ -653,8 +653,11 @@ end
 # ---- 8b. chains whose level does not fold: the coefficient a λ w ------------------------------------------------------------
 # Where the product a of the factors is not a normal number and the level does not fold into it, the three-argument screen of
 # NormL1 and ElasticNet, and the four-argument form of NormL1, ElasticNet and GroupNormL2 at a zero coordinate or group, are
-# |vᵢ| - a λ wᵢ and ‖v_G‖₂ - a λ w_G. Each reference below is that expression in BigFloat, with a, λ and w the exact product of the
-# factors and parameters (a zero weight gives 0, and an infinite weight or level gives Inf); no reference calls a package helper.
+# |vᵢ| - c and ‖v_G‖₂ - c with c = a λ w. Each reference below is that expression in BigFloat, with a, λ and w the exact product of
+# the factors and parameters for a positive finite λ and w; a zero weight gives c = 0 (also for an infinite λ), an infinite weight or
+# level gives c = Inf, and an ElasticNet with an infinite λ2 gives -Inf. No reference calls a package helper. The endpoint rules
+# for a non-finite entry of v are those of the three-argument screen for NormL1 and ElasticNet (|Inf| - Inf is NaN) and those of the
+# zero-block score for GroupNormL2 (an infinite entry gives Inf, a NaN entry NaN).
 # A value is accepted within the bound of `within`: a few units in the last place of the type times |vᵢ| + c, plus the subnormal
 # spacing of the type. A coefficient above the range of the type gives -Inf.
 # fails at the base in the cases where the level does not fold and v / a leaves the range of the type: Inf at an ordinary v, or
@@ -789,6 +792,57 @@ end
   sg = chain(T, GroupNormL2(T(1), [[1, 2], [3, 4]], T[1, 1]))
   @test isnan(kkt_violation(sg, T[NaN, 0.4, 1, 2], zeros(T, 4), 1))
   @test kkt_violation(sg, T[Inf, 0.4, 1, 2], zeros(T, 4), 1) === T(Inf)
+end
+
+# The zero-block score of GroupNormL2 keeps its own endpoint rules under an unfoldable chain, as it did at the base
+# (_l2_zero_score): an infinite entry of v[G] gives Inf, also where the coefficient is Inf, and a NaN entry gives NaN. NormL1 and
+# ElasticNet follow the three-argument screen instead (|Inf| - Inf is NaN, tested above).
+@testset "$T GroupNormL2 under a chain: infinite and NaN entries with an infinite coefficient" for T in TYPES
+  for w in (T(Inf), T(1))
+    s = chain(T, GroupNormL2(T(1), [[1, 2]], T[w]))
+    bx = BlockIterate(zeros(T, 2), [[1, 2]])
+    for form in (zeros(T, 2), bx)
+      @test kkt_violation(s, T[Inf, 0.4], form, 1) === T(Inf)
+      @test kkt_violation(s, T[-Inf, 0.4], form, 1) === T(Inf)
+      @test isnan(kkt_violation(s, T[NaN, 0.4], form, 1))
+    end
+  end
+end
+
+# the gradient entry in no group is read once in the working type, which includes the type of the factors
+@testset "an entry in no group is read in the type of the factors" begin
+  tb = ldexp(BigFloat(1), -((Int(1) << 61) + 10))                  # the retained exponent fits an Int
+  sb = Scaled(Scaled(GroupNormL2(Inf, [[1]], [1.0]), tb), tb)
+  @test sb.f isa Scaled
+  g = Int[0, 9007199254740993]                                      # 2^53 + 1 is not a Float64
+  r = kkt_violation(sb, g, zeros(Int, 2), 2)
+  @test r isa BigFloat && r == big(9007199254740993)
+  # a stack built by the parameterized constructor, whose factors are Float64 outside and BigFloat inside, with an ordinary exponent
+  raw(f, a) = Scaled{typeof(f), typeof(a)}(f, a)
+  hs = raw(raw(raw(GroupNormL2(Inf, [[1]], [1.0]), big(0.5)), 2.0^-600), 2.0^-600)
+  @test PB._chained(hs) && PB._scaled_chain(hs)[2] isa PB._ProjectionScale{BigFloat}
+  r = kkt_violation(hs, g, zeros(Int, 2), 2)
+  @test r isa BigFloat && r == big(9007199254740993)
+  # the validation of the delegated route is unchanged
+  @test_throws DimensionMismatch kkt_violation(hs, Int[0], zeros(Int, 2), 2)
+  @test_throws BoundsError kkt_violation(hs, g, zeros(Int, 2), 3)
+  @test_throws ArgumentError kkt_violation(hs, g, Int[1, 0], 1)
+end
+
+# a level folds when the product is a nonzero finite number that the type of the level accepts: a subnormal one for a Float32 or
+# a Float64, a normal one for a Float16
+@testset "Float16 levels fold only to normal numbers" begin
+  t = Float16(2)^(-8)                                               # t^2 = 2^-16 is not a normal Float16
+  s = Scaled(Scaled(NormL1(Float16(512)), t), t)                    # the level 2^-7 is normal
+  @test s.f isa Scaled
+  @test kkt_violation(s, Float16[0.25], Float16[1], 1) isa Float16
+  t = Float16(2)^(-12)
+  s = Scaled(Scaled(NormL1(Float16(512)), t), t)                    # the level 2^-15 is subnormal
+  @test s.f isa Scaled
+  @test_throws ArgumentError kkt_violation(s, Float16[0.25], Float16[1], 1)
+  @test kkt_violation(s, Float16[0.25], 1) isa Float16               # the screen from the coefficient
+  s32 = Scaled(Scaled(NormL1(ldexp(1f0, 70)), ldexp(1f0, -100)), ldexp(1f0, -100))     # the level 2^-130 is a subnormal Float32
+  @test kkt_violation(s32, Float32[0.25], Float32[1], 1) isa Float32
 end
 
 @testset "$T GroupNormL2 chains whose level does not fold" for T in TYPES

@@ -41,6 +41,11 @@ steps are rejected before writes. No trait automatically supplies this dispatch.
 for the same reason, and takes the generic separable loops after the check; an array of steps is
 not read by it. Its value reaches the `NormL1` loops through the hook `_l1_value` and its stored
 `NormL1`, and a dense array without weights has a method of its own (`_value_dense`).
+
+`IndNonnegative` overrides the two public scalar-step methods in the same way, with a check of its own, and has no
+loop of its own: the generic separable loops compute its value and projection, and `value_and_prox!` ends in
+`_value_and_prox_sep!`, which evaluates the value at the stored output also for an indicator.
+
 `ElasticNet` overrides the public scalar-step `prox!` and `value_and_prox!` only to
 refuse a negative or `NaN` step before writes, then takes the checked separable route;
 its private routes (used by `Scaled`) and `prox_block` do not check the step. Its
@@ -83,7 +88,7 @@ independent ID to the full-entry index; no symmetric iterate is available in the
 ## KKT and restrictions
 
 Retained scalar screens are explicitly implemented for `NormL1`, `NormL1Nonneg`, `ElasticNet`, `SqrNormL2`,
-`ZeroFunction` and `LinearFunction`; `GroupNormL2` has block scores and `NormL2` a full-point form; `Scaled` forwards
+`ZeroFunction` and `LinearFunction`; `GroupNormL2` has block scores, `NormL2` a full-point form and `IndNonnegative` the three-argument screen only; `Scaled` forwards
 to them (below). The three-argument form is the signed
 screen of a coordinate assumed zero. For those six functions, the four-argument form on an
 array, a `SparseIterate`, a `BlockIterate` (maximum over the group) or a `SymmetricSparseIterate`

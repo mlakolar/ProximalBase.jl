@@ -140,9 +140,14 @@ remain `BigFloat`.
   and `ZeroFunction`, have ``\lvert v_i\rvert``). The three-argument screen of such a chain
   around `LinearFunction` and a centered `SqrNormL2` was incorrect before 0.6: it
   returned the screen of the function at the unscaled `v`.
-* **Functions without the forms.** `NormLinf`, the losses and the indicators have no
-  score; the call on the `Scaled` function throws a `MethodError` (the call names the `Scaled`
-  function). A function defined outside the package is treated as in
+* **Functions without the forms.** `NormLinf`, the losses and `IndNonnegative` have no
+  four-argument or full-point score; the call on the `Scaled` function throws a `MethodError` (the call
+  names the `Scaled` function). `IndNonnegative` has the three-argument screen `-v[i]`. Under a single
+  `Scaled(IndNonnegative(), α)` wrapper with a finite positive `α`, the screen is `α` times the screen of
+  `IndNonnegative` at the entry `inv(α) * v[i]`. Each of the two products can round, underflow or
+  overflow, so the result need not be `-v[i]`: `kkt_violation(Scaled(f, 2.0), [nextfloat(0.0)], 1)` is
+  `-0.0`, and `kkt_violation(Scaled(f, 0.25), [floatmax(Float64)], 1)` is `-Inf`. An infinite `α` gives
+  `NaN` at a finite `v[i]`. A function defined outside the package is treated as in
   [Writing your own function](extending.md).
 
 ```@example library_scaled
@@ -217,8 +222,9 @@ identity; an infinite weight keeps its fixed zero (`0 * NormL1Nonneg(1.0, [Inf])
 a finite input to `+0`). Infinite `NormL1`, `NormL1Nonneg` and
 `ElasticNet` levels and non-finite parameters of other function families can make construction
 throw `ArgumentError`. A custom function's zero scale has no generic supported
-representation and throws. Inspect the constructed object rather than assume
-it is always a `Scaled`.
+representation and throws. The indicator `IndNonnegative` does not depend on its scale:
+`Scaled(IndNonnegative(), 0)` and `0 * IndNonnegative()` return the indicator itself.
+Inspect the constructed object rather than assume it is always a `Scaled`.
 
 ```@example scaled_zero
 using ProximalBase

@@ -122,6 +122,40 @@ PB_ARCHIVE=/tmp/pb947-archive PB_CANDIDATE="$PWD" PB_ROUNDS=21 PB_OUTPUT=/tmp/pb
   julia --threads=1 --check-bounds=no --project=benchmark benchmark/norml1nonneg.jl
 ```
 
+## IndNonnegative harness
+
+`indnonnegative.jl` times `IndNonnegative` (issue #948) between the archived source tree at
+eff21b6d7d33c622313122f46c6ee71693c101ee (`PB_ARCHIVE`), the candidate (`PB_CANDIDATE`) and a
+second compilation of the candidate as the A/A control, in Float32 and Float64: a loop of
+`prox_block`, dense `prox!` with a scalar step and with an array of steps, dense values at a
+feasible input and at an input with one negative entry (the last), `value_and_prox!` (a scalar
+step and an array of steps), `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate` values
+and `prox!`, and the `prox!` of a `Scaled` `IndNonnegative`, at n = 1024 and 65536. The roles share
+their plain input and output arrays, and the summary has the columns of the ElasticNet harness
+(median, minimum and maximum of the paired ratios candidate/archive and control/candidate, warmed
+allocations of the archive and candidate roles, with those of the control in `raw.csv`, medians above 1.05
+marked). A case id starts with the element type `<T>`, Float32 or Float64. `PB_REVERSE=1`, `PB_FILTER`, `PB_ROUNDS` and `PB_OUTPUT`
+act as there.
+
+The archive does not evaluate the value at the output of `value_and_prox!` (its fused value is
+always 0), so the cells `<T>/value_and_prox!/...` report the ratio to the archive without a verdict, and
+the cells `<T>/comparator/value_and_prox!/...` are the ones judged. In a comparator cell the role
+"archive" is the candidate's own `prox!` followed by `f(y)` and the roles "candidate" and "control" are
+`value_and_prox!` of their trees, so that the C/A column is the ratio of the candidate's
+`value_and_prox!` to its `prox!` then `f(y)`, and the A/A column is as in the other cells.
+
+The inputs have no `NaN` and their negative entries lie far below the tolerance of the archived
+value (`sqrt(eps(T))`). `PB_CHECK_ONLY=1` compares the outputs bit for bit: proximal points, values,
+the fused values, the comparator cells against `value_and_prox!`, and the control against the
+candidate. The three intended differences from the archive (the tolerance of its value, its value
+`Inf` at a `NaN` entry where the candidate's is `NaN`, and its fused value, always 0) are outside
+the timed inputs.
+
+```sh
+PB_ARCHIVE=/tmp/pb849-baseline PB_CANDIDATE="$PWD" PB_ROUNDS=21 PB_OUTPUT=/tmp/pb948-results \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/indnonnegative.jl
+```
+
 ## ElasticNet array-step harness
 
 `ridge910.jl` times the loop of `ElasticNet` with an array of steps (issue #910) and the code

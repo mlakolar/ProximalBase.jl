@@ -55,6 +55,16 @@ table of the plan, values against BigFloat on both sides of the loop switches an
 unweighted method (`NaN` before `Inf`, within `(n + 2) eps`), terms below `floatmin` (#373), the point-aware KKT scores
 and the full-point measure (an infinite entry at the first, a middle and the last position, array against view against
 the entry form), and `Scaled` folds, chains, infinite and zero factors and the hard route of an infinite level.
+
+`indnonnegative` covers `IndNonnegative` (#948) in Float32/64 against references written with comparisons, not the
+kernels: the truth table over the infinities, extremes, subnormals, signed zeros and `NaN` (value `NaN`, `Inf` or `0`,
+projection `max(v, 0)` with `-0` and `-Inf` giving `+0`), integer inputs, the admitted and refused scalar steps (refusal
+before writes, also with an aliased argument and on iterates), the routes that do not check the step (an array of
+steps, `prox_block`, `Scaled`), dense, view, reshape, `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate`
+arguments, a counting element type that shows the value, and the proximal operator between iterates of the same kind, read stored entries only, validation
+before writes (size, complex entries, offset axes), the value returned by `value_and_prox!` equal to the value at the
+stored output (`NaN` included), `Scaled` with finite, huge and infinite factors and nested chains, the screen and the
+`MethodError` of the forms with a point, traits, inference and warmed allocations.
 `kkt_point` tests the three forms of `kkt_violation` (#970) for `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction`
 and `SqrNormL2` in Float32/64: the worked example of the contract, the signed margin at a zero entry against the
 nonnegative mismatch at a nonzero one, `ElasticNet(λ1, 0)` against `NormL1(λ1)` bit for bit, mixed element and

@@ -70,8 +70,10 @@ end
 end
 
 @testset "one group of GroupNormL2 ($T)" for T in (Float32, Float64)
-  # NormL2(λ) and GroupNormL2(λ, [1:p], [1]) are the same function: their proximal points and values agree in each
-  # case below (#900)
+  # NormL2(λ) and GroupNormL2(λ, [1:p], [1]) are the same function (#900). In the ordinary cases with a nonzero
+  # projection, the outputs of both are each within the close_prox bound of the BigFloat reference: the two implementations
+  # may round the norm differently (for example under a package image compiled for another CPU), so they are not compared
+  # bit for bit there. In the exceptional cases and the zero projections they are compared with isequal.
   rng = Xoshiro(911)
   emax, emin = exponent(floatmax(T)), exponent(floatmin(T))
   s(e) = T(2)^e
@@ -87,11 +89,23 @@ end
   for x in inputs, (λ, γ) in params
     n2 = NormL2(λ)
     g1 = GroupNormL2(λ, [1:length(x)], T[1])
-    @test isequal(prox(n2, x, γ), prox(g1, x, γ))
-    @test isequal(prox(n2, x, γ), prox_block(g1, x, 1, γ))
+    p1, p2, p3 = prox(n2, x, γ), prox(g1, x, γ), prox_block(g1, x, 1, γ)
     y1, y2 = similar(x), similar(x)
     v1, v2 = value_and_prox!(y1, n2, x, γ), value_and_prox!(y2, g1, x, γ)
-    @test isequal(y1, y2)
+    ordinary = all(isfinite, x) && isfinite(λ) && isfinite(γ) && λ > 0 && γ > 0 && isfinite(γ * λ) && any(!iszero, x)
+    ref = ordinary ? refprox(x, γ, λ) : nothing
+    if ordinary && any(!iszero, ref)
+      for out in (p1, p2, p3, y1, y2)
+        @test close_prox(out, ref, x)
+      end
+    else
+      @test isequal(p1, p2)
+      @test isequal(p1, p3)
+      @test isequal(y1, y2)
+      # on this grid the ordinary zero-reference cases have ‖x‖ ≤ 0.6 γλ, except T[3, 4, 0, …] at γλ = 5, where the squares,
+      # their sum and the norm are computed without rounding error (‖x‖ = γλ), so the norm is not above the threshold
+      ordinary && @test all(o -> all(iszero, o), (p1, p2, p3, y1, y2))
+    end
     # the values may sum the squares in another order (Base's sum for NormL2)
     @test same_value(v1, v2) && same_value(n2(x), g1(x))
   end

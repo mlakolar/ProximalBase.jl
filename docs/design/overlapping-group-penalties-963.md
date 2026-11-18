@@ -305,7 +305,8 @@ excess of the one-pass point is `0.01022428370907346`. On 100 seeded instances p
   returns `max ‖S_{s_ℓ}‖/w_ℓℓ` (also arXiv v1, Appendix C). It is an upper bound: for `p = 3` with band norms `(2, 0)`
   and `λ = 1 < 1.41` the proximal point is diagonal (probe L).
 
-So `hierband` returns the one-pass point for its default weights, and a comparison with it cannot detect the error.
+So `hierband` returns the one-pass point for its default weights; a one-pass implementation agrees with it, and a
+comparison with it does not test exactness.
 
 **What the paper's theory uses.** Read in arXiv v1:
 - Theorem 6 (Frobenius rate) follows from Theorem 13, whose proof (Appendix G) uses the optimality conditions of (3);
@@ -360,7 +361,7 @@ So `hierband` returns the one-pass point for its default weights, and a comparis
 | Workspaces, aliasing | none; `y === x`, `out === u` | none | none for one pass; in place in the order | band norms; in place by band scaling |
 | `Float32`/`Float64` | master contract (`docs/src/numerics.md`) | soft threshold and shrink kernels | the same shrink kernel | root of `h(s)`: not measured here |
 | `SparseIterate` | `prox!` takes an `AbstractArray` (`groupnorml2.jl:189`): indexed reads and writes | as disjoint | as disjoint | not applicable to bands |
-| `BlockIterate` | blocks are the groups | blocks are the groups | blocks cannot be overlapping groups | not applicable |
+| `BlockIterate` | blocks are the groups | blocks are the groups | blocks partition `1:p` (`block_iterate.jl:146`), so nested groups are not blocks | not applicable |
 | `SymmetricSparseIterate` | refused on master (`groupnorml2.jl:314`) | not on master | not on master | bands are transpose-invariant; no owner path on master |
 
 ## 7. Matrix structures
@@ -379,7 +380,7 @@ So `hierband` returns the one-pass point for its default weights, and a comparis
 | Public names | one type per penalty: sparse-group, tree group `ℓ2`, the banding type of #965 | one type taking laminar lists and weights |
 | Validation | each layout its own: disjoint, laminar, square matrix | laminarity, inclusion order and the Proposition 4(a) condition on generic lists |
 | Aliasing | as `GroupNormL2`: in place allowed, other overlap rejected | the same |
-| Workspaces | none (scalar), `O(p)` band norms | order and parent map; band norms cannot be used on lists |
+| Workspaces | none (scalar), `O(p)` band norms | order and parent map; a list layout has no band norms |
 | Tests | per type: Propositions 1–2 or 4 with certified gaps, degenerate layouts, `Float32`/`Float64` | all laminar layouts, refusal of non-laminar lists, the condition check, plus each estimator's layout |
 | Estimators | sparse group lasso; hierarchical sparse coding (Jenatton et al.); convex banding; varband unweighted | the same, banding as `O(p³)` lists |
 | Oracle cost | value and prox `O(Σ g)` or `O(p²)`; fused value from the shrink | `O(Σ g)`, `O(p³)` for banding |
@@ -404,7 +405,7 @@ graphical lasso of Danaher, Wang and Witten (2014) as a `FiberSum`, both as cite
 `Σ_i c_i |x_i| + Σ_g ω_g ‖x_g‖₂`, disjoint groups. Operation: soft threshold, then scalar group shrink. Exact by the Corollary of Proposition 2.
 - *Proposed issue:* "Restore `SparseGroupNormL2` on disjoint groups". Scope: type, value, `prox!`,
   `value_and_prox!`, `prox_block!`, `kkt_violation` with the entry test, on the `GroupNormL2` layout and kernels; the
-  legacy file as a read-only reference. Evidence: the Corollary, probes W1, W2 and M2, the legacy implementation.
+  legacy file as a reference, unchanged. Evidence: the Corollary, probes W1, W2 and M2, the legacy implementation.
 
 **Tree-structured group `ℓ2` penalty, scalar weights.** Jenatton, Mairal, Obozinski and Bach (2011), hierarchical sparse
 coding; Yan and Bien (2017), the group lasso on the descendant sets of a tree. Penalty `Σ_g ω_g‖x_g‖₂` on laminar

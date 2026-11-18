@@ -33,7 +33,7 @@ Run from the repository root.
 
 ## Recorded run
 
-Local, Julia 1.13.4, at commit `b67cd3c4cb98189a2b1baa878245c8d17c197b48` (the commit of the scripts
+Local, Julia 1.13.4, at commit `2b370ace323a83709d0fbad778c7036534aea53e` (the commit of the scripts
 and the note as they stand; this README was updated afterwards). Output lines as printed:
 
 ### `probe_laminar.jl`

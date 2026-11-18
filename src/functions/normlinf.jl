@@ -517,8 +517,8 @@ end
 # their plain level with y, (s + y - a)/(nv + 1), exceeds y - a, which is the test s > (y - a) nv, and then ρ becomes
 # max(ρ, (s (1 - (nv + 4) u) - a)/nv) for the new candidates, u = eps(T)/2: the factor covers the roundings of the sum, the product, the
 # difference and the quotient, so that the value is a lower bound of the exact level of the candidates. If the test fails, the candidates
-# stay in the buffer in front of y (they are counted in nt) and y starts them anew, with ρ ← max(ρ, prevfloat(y - a)). The last value is
-# true when more than cap entries have become candidates.
+# stay in the buffer in front of y (they are counted in nt) and y starts them anew, with ρ ← max(ρ, prevfloat(y - a)). The maximum is taken
+# with a comparison (the values are not NaN). The last value is true when more than cap entries have become candidates.
 @inline function _condat_step!(buf::AbstractArray{T}, y::T, nt::Int, nv::Int, s::T, ρ::T, a::T, cap::Int, u::T) where {T}
   y > ρ || return nt, nv, s, ρ, false
   if s > (y - a) * nv
@@ -526,11 +526,13 @@ end
     nv > cap && return nt, nv, s, ρ, true
     s += y
     @inbounds buf[nt + nv] = y
-    return nt, nv, s, max(ρ, (s * (1 - (nv + 4) * u) - a) / nv), false
+    c = (s * (1 - (nv + 4) * u) - a) / nv
+    return nt, nv, s, ifelse(c > ρ, c, ρ), false
   end
   nt += nv
   @inbounds buf[nt + 1] = y
-  nt, 1, y, max(ρ, prevfloat(y - a)), false
+  c = prevfloat(y - a)
+  nt, 1, y, ifelse(c > ρ, c, ρ), false
 end
 
 # One pass at the level τ over the first n entries rd(x[i]) (nonnegative): the sum r of the excesses y - τ of the entries above τ, their
@@ -540,7 +542,7 @@ end
 @inline function _l1ball_excess(x, n::Int, τ::T, rd::F) where {T<:Union{Float32, Float64}, F}
   U = _int_type(T)
   r = zero(T)
-  k = 0
+  k = zero(U)
   h = typemax(U)
   @inbounds @simd for i in 1:n
     y = rd(x[i])
@@ -549,7 +551,7 @@ end
     k += above
     h = min(h, ifelse(above, reinterpret(U, y), typemax(U)))
   end
-  r, k, reinterpret(T, h)
+  r, Int(k), reinterpret(T, h)
 end
 function _l1ball_excess(x, n::Int, τ::T, rd::F) where {T, F}
   r = zero(T)

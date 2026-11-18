@@ -161,6 +161,11 @@ plant(x, k, v) = (y = copy(x); y[k] = v; y)
         @test agree(f(T[1, 0, 2]), g(T[1, 0, 2]), n) && agree(f(T[0, 0, 0]), g(T[0, 0, 0]), n)
         @test agree(f(T[1, Inf, 2]), g(T[1, Inf, 2]), n) && agree(f(T[-0.0, 0, 3]), g(T[-0.0, 0, 3]), n)
       end
+      # a +Inf entry whose coefficient rounds to zero gives NaN, as for NormL1 (#655), and that NaN takes precedence over the
+      # Inf of a negative entry
+      fz, gz = NormL1Nonneg(tiny, T[tiny, 1]), NormL1(tiny, T[tiny, 1])
+      @test isnan(fz(T[Inf, 1])) && isnan(gz(T[Inf, 1])) && isnan(fz(T[Inf, -1])) && isnan(gz(T[Inf, -1]))
+      @test fz(T[1, -1]) === T(Inf) && NormL1Nonneg(tiny)(T[Inf, -1]) === T(Inf)      # the unweighted coefficient tiny is not zero
       S = SymmetricSparseIterate(T, 2); S[1, 1] = 1; S[2, 1] = 2
       fs = NormL1Nonneg(T(0.5), T[1 2; 2 1])
       @test fs(S) === T(0.5) * (1 + 2 * 2 * 2) && NormL1(T(0.5), T[1 2; 2 1])(S) === fs(S)

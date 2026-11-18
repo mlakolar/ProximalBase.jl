@@ -41,8 +41,9 @@ julia> prox(NormL1Nonneg(0.5, [1.0, 2.0]), [2.0, -1.0], 1.0)
   (`+Inf` entries included) and `Inf` at a negative entry; an infinite weight keeps its own
   rule below at a zero level.
 - The value is `NaN` when an entry that is read is `NaN`, and otherwise `Inf` when one is
-  negative; `NaN` takes precedence over `Inf`. At a feasible point the terms are those of
-  `NormL1`: `-0.0` gives `+0`.
+  negative; `NaN` takes precedence over `Inf`. A `+Inf` entry whose positive finite coefficient
+  `λ₀wᵢ` rounds to zero also gives `NaN`, as for `NormL1` (#655), and then takes precedence over the
+  `Inf` of a negative entry. At a feasible point the terms are those of `NormL1`: `-0.0` gives `+0`.
 - A zero weight gives the projection onto the orthant, `max(vᵢ, 0)`, not the identity, at every
   level and step: `-Inf` and `-0.0` give `+0`, `+Inf` stays and `NaN` stays. A zero level does the
   same for a finite weight, and a zero step for a finite level and weight. An infinite step with a

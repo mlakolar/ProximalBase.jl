@@ -128,7 +128,8 @@ rounded to zero gave `NaN` there. An exactly zero value still gives `0`.
 
 `NormL1Nonneg` values take the `NormL1` loops with an `Inf` term in place of the
 term of a negative entry, so a sum is `Inf` where an entry is negative and `NaN`
-where one is `NaN` (a `NaN` takes precedence over `Inf`), and at a point with no
+where one is `NaN` (a `NaN` takes precedence over `Inf`, and the `NaN` of a `+Inf` entry with a
+product that rounds to zero, below, is one of them), and at a point with no
 negative entry the recovery above applies to the same terms. The sums over a dense
 array can differ from those of `NormL1` in their order (the extra select can change
 how the loop is vectorized), so the two values agree within the error bound of the sum;
@@ -138,7 +139,8 @@ array of floats with a zero level, or with a level that does not convert to a no
 number of the type of the data, decides membership in a pass of its own, because the sum
 of the terms above is `Inf` at a feasible `+Inf` entry (value `0` at a zero level) as it is at a negative one.
 Where a positive finite level and weight have a product that rounds to zero and the entry is
-`+Inf`, the value is `NaN`, as for `NormL1` (the retained product forms `0*Inf`).
+`+Inf`, the value is `NaN`, as for `NormL1` (the retained product forms `0*Inf`,
+[#655](https://github.com/mlakolar/ProximalBase.jl/issues/655)).
 
 `ElasticNet` values are the value of the ℓ₁ part, computed as `NormL1`
 computes it, plus the value of the ridge part, computed as `SqrNormL2`
@@ -315,7 +317,7 @@ all-NaN result or a particular exception.
 | `ElasticNet`, infinite ridge level `λ2`, nonnegative step | The indicator of `{0}` (#908): every entry proxes to `+0`, including at `γ = 0` and for non-finite inputs; value `0` at the zero vector, `NaN` at a `NaN` entry, `Inf` otherwise; the screen `kkt_violation(f,v,i)` is `-Inf`, as is `kkt_violation(f,v,x,i)` at a zero entry of `x` with a finite `v[i]`. `SqrNormL2(Inf)` keeps its own rule |
 | `ElasticNet`, infinite `λ1` or infinite weight, overflowing finite threshold | The `NormL1` rows above and [zero-step rule](@ref infinite-penalty-at-zero-step) |
 | `ElasticNet`, zero `λ2` | Values of `NormL1(λ1, w)`, and at `γ ≥ 0` with one element type its proximal points, bit for bit; a zero `λ2` adds `0` also at `NaN`/`±Inf` entries |
-| `NormL1Nonneg`, domain | The domain is `x ≥ 0` exactly: `-0.0` and `+Inf` are feasible, any negative number, a subnormal one included, is not. The value is `Inf` where an entry that is read is negative and `NaN` where one is `NaN` (`NaN` takes precedence); a zero level or weight keeps the domain. The value is `0` at a feasible point, `+Inf` entries included, for a zero weight and for a zero level with a finite weight; an infinite weight at a zero level has the value of its own row below (`NormL1Nonneg(0.0,[Inf])([1.0])` is `Inf`). A proximal point is `+0`, positive or `NaN`: `-0.0` gives `+0.0` |
+| `NormL1Nonneg`, domain | The domain is `x ≥ 0` exactly: `-0.0` and `+Inf` are feasible, any negative number, a subnormal one included, is not. The value is `Inf` where an entry that is read is negative and `NaN` where one is `NaN` (`NaN` takes precedence); a `+Inf` entry whose positive finite coefficient `λ0 w` rounds to zero also gives `NaN`, as for `NormL1` ([#655](https://github.com/mlakolar/ProximalBase.jl/issues/655)), and then takes precedence over the `Inf` of a negative entry (`NormL1Nonneg(5.0e-324,[5.0e-324,1.0])([Inf,-1.0])` is `NaN`); a zero level or weight keeps the domain. The value is `0` at a feasible point, `+Inf` entries included, for a zero weight and for a zero level with a finite weight; an infinite weight at a zero level has the value of its own row below (`NormL1Nonneg(0.0,[Inf])([1.0])` is `Inf`). A proximal point is `+0`, positive or `NaN`: `-0.0` gives `+0.0` |
 | `NormL1Nonneg`, zero weight; zero level with a finite weight; zero step with a finite level and weight | The projection `max(v, 0)` onto the orthant, not the identity: `-Inf` and `-0.0` give `+0`, `+Inf` and `NaN` are kept. A zero weight projects at every level and step, an infinite level and an infinite step included. An infinite weight, and an infinite level with a positive weight, follow their own rows |
 | `NormL1Nonneg`, infinite level, nonnegative step | Positive-weight entries prox to `+0` at every step, `γ = 0` included, for non-finite inputs too (the `NormL1` rule, #665); zero-weight entries are projected. The value of a positive-weight entry is `0` at `0`, `NaN` at `NaN` and `Inf` otherwise |
 | `NormL1Nonneg`, infinite weight, finite level | Finite inputs and `-Inf` map to `+0`, also at a zero level or step; `+Inf` and `NaN` map to `NaN` (the `NormL1` rule, #853). The value is `0` at `0`, `Inf` at any other number, `NaN` at `NaN`, also at a zero level |

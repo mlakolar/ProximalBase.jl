@@ -395,8 +395,10 @@ f([2.0, 1.0])
 
 The domain is ``x_i\geq0`` exactly: `-0.0` and `+Inf` are feasible, and any negative number,
 a subnormal one included, is not. The value is `Inf` where an entry that is read is negative and
-`NaN` where one is `NaN`; `NaN` takes precedence over `Inf`. A zero level or a zero weight keeps
-the domain. With finite weights, `NormL1Nonneg(0.0)` is the indicator of the orthant, with value `0` at a
+`NaN` where one is `NaN`; `NaN` takes precedence over `Inf`. A `+Inf` entry whose positive finite coefficient
+``\lambda_0w_i`` rounds to zero also gives `NaN`, as for `NormL1`
+([#655](https://github.com/mlakolar/ProximalBase.jl/issues/655)), which then takes precedence over the `Inf` of a negative
+entry. A zero level or a zero weight keeps the domain. With finite weights, `NormL1Nonneg(0.0)` is the indicator of the orthant, with value `0` at a
 feasible point (`+Inf` entries included) and `Inf` at a negative entry, and its proximal operator is the
 projection ``\max(v,0)`` onto the orthant, not the identity: `-0.0` and `-Inf` give `+0`, `+Inf` is
 kept and `NaN` stays `NaN`. The projection is the result for an entry in these cases:

@@ -105,7 +105,8 @@ remain `BigFloat`.
   otherwise; zero and infinite factors follow the endpoint rules of the constructor. For a chain around `NormL1`, `ElasticNet`, `GroupNormL2` or `NormL2` the product of the
   factors is folded into the level (the levels of `ElasticNet`) when the result is a finite nonzero
   number (a subnormal one included) or the level is zero, and the chain then has the score of the function with that level,
-  in each form; a subnormal folded level keeps the bits of its rounding only. Where
+  in each form. A subnormal folded level has fewer significant bits than a normal one, and the coefficient of an entry is that
+  rounded level times the weight. Where
   it does not fold, the three-argument screen of `NormL1` and `ElasticNet`, and the four-argument
   form of `NormL1`, `ElasticNet` and `GroupNormL2` at a zero coordinate or group, are computed from the coefficient
   ``a\,\lambda\,w`` of the entry or group, with ``a`` the product of the factors, ``\lambda`` the level and ``w`` the

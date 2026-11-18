@@ -388,7 +388,7 @@ kkt_violation(gp, v, zb, 2)
 ### Exceptional parameters and values
 
 The rules apply to each group in this order; ``\lambda_0``, ``w_k`` and ``\gamma`` are decided separately, before a radius is formed,
-so that a product such as ``\lambda_0w_k`` with ``\lambda_0=\infty`` and ``w_k=0`` is never taken.
+so that the proximal operator and the value do not form a product such as ``\lambda_0w_k`` with ``\lambda_0=\infty`` and ``w_k=0``.
 
 | Case | Result for group ``k`` |
 |:--|:--|

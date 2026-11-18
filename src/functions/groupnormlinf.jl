@@ -160,7 +160,7 @@ end
   convert(T, _scaled_product(convert(R, λ0), convert(R, w), convert(R, m), 0))
 end
 
-# the term of the group G of x, which is read only when it can matter
+# the term of the group G of x; the group is read after the exits of a zero weight and of a zero level with a finite weight
 @inline function _linf_group_term(λ0, w, x, G, ::Type{T}) where {T}
   iszero(w) && return zero(T)
   (iszero(λ0) && !isinf(w)) && return zero(T)

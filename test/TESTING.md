@@ -87,7 +87,7 @@ storage.
 `groupnormlinf` checks `GroupNormLinf` against a sort-based ℓ1-ball reference in BigFloat, written in the file, in Float32/64: one group
 equal to `NormLinf` and singleton groups equal to `NormL1` (bit for bit where both round the same way), irregular range and permuted
 partitions with entries in no group, a group above 1024 candidates (Michelot's pass), zero and infinite weights, the compact `prox_block!`
-against the array operator, every endpoint row and its combinations (a NaN or infinite group beside ordinary ones), radii that overflow or
+against the array operator, the endpoint rows and their combinations (a NaN or infinite group beside ordinary ones), radii that overflow or
 underflow in two of their factors, sums above `floatmax/2`, the recomputed values, the fused value against the value at the stored output,
 `BlockIterate` and `SparseIterate` arguments and outputs, the use of the object's buffer, `Scaled`, the margin at a zero group and the
 refusals at a nonzero group, validation before writes and zero warmed allocations (arrays, a `Matrix`, irregular partitions, in place, and sweeps of

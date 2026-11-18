@@ -175,7 +175,7 @@ PB_FIRST=/tmp/pb-ref PB_SECOND="$PWD" PB_EXACT=1 PB_CHECK_ONLY=1 \
 
 ## Group ℓ∞ norm harness
 
-`groupnormlinf.jl` times `GroupNormLinf` (issue #956) between two source trees that both define it, through its public methods only:
+`groupnormlinf.jl` times `GroupNormLinf` (issue #956) between two source trees that both define it, through its exported methods:
 the array `prox!` into a separate output, the in-place `prox!(x, f, x, γ)` (the argument restored from a copy before each call),
 `value_and_prox!`, the value, and sweeps of the compact `prox_block!` over all groups, with an output that is not the input and in place
 (each working copy restored by a copy before its call), for Float32 and Float64, groups of 4, 32, 512 and 4096 entries over 4096 entries

@@ -2,8 +2,8 @@
 # the value, and repeated sweeps of the compact prox_block! over all groups (an output that is not the input, and in
 # place), Float32/Float64, group sizes 4, 32, 512 and 4096 over 4096 entries (1024, 128, 8 and 1 groups), contiguous
 # (range) and noncontiguous (permuted index vector) layouts. The weights give each group a radius that is a fraction of
-# its ℓ1 norm, 0.1, 0.4, 0.8 and 1.2 in turn: three groups in four are clipped and one is zero. Only the public API is
-# used, so that the roles can be any trees that define GroupNormLinf with these methods.
+# its ℓ1 norm, 0.1, 0.4, 0.8 and 1.2 in turn: three groups in four are clipped and one is zero. The roles are used through
+# exported names, so that they can be any trees that define GroupNormLinf with these methods.
 #
 #   PB_FIRST=<root of role X> PB_SECOND=<root of role Y> PB_OUTPUT=<dir> PB_ROUNDS=15 \
 #     julia --threads=1 --check-bounds=no --project=benchmark benchmark/groupnormlinf.jl
@@ -14,7 +14,7 @@
 # benchmark/summarize_norml1_infinite_weight.py DIR... reports the per-round ratios Y/X and XC/X, and reads the raw.csv and
 # provenance.txt of this script as it does for l2_norms.jl. Run it again with the roles reversed (summarized on its own) and
 # in a fresh process. Inputs and outputs are shared by the three roles, so that array placement does not differ between them.
-# PB_CHECK_ONLY=1 only compares the outputs: XC must equal X exactly, and Y must agree with X to a few rounding errors of
+# PB_CHECK_ONLY=1 compares the outputs without timing: XC must be `isequal` to X, and Y must agree with X to a few rounding errors of
 # the level, 8 (m + K) eps(T) times the largest entry for groups of m entries and K groups (the two implementations may
 # round the level and the fused value differently); PB_EXACT=1 with PB_CHECK_ONLY=1 requires Y to equal X bit for bit
 # instead (`===` per array element and per scalar, so signed zeros and NaN bit patterns count, and XC must equal X the same
@@ -34,7 +34,7 @@ const SIZES = (4, 32, 512, 4096)
 const FRACTIONS = (0.1, 0.4, 0.8, 1.2)
 
 # Data shared by the roles: per (T, m, layout) the groups, the argument and its restore copy, an output, and the compact
-# trials of every group with their outputs and their working copies.
+# trials of each group with their outputs and their working copies.
 function makedata(::Type{T}, m::Int, layout::Symbol) where {T}
     rng = Random.MersenneTwister(956 + m + (layout === :perm))
     K = TOTAL ÷ m
@@ -136,7 +136,7 @@ open(joinpath(outdir, "provenance.txt"), "w") do io
     println(io, "Bounds option: ", Base.JLOptions().check_bounds)
     println(io, "X: ", first_root, "\nY: ", second_root)
 end
-for r in ("X", "Y", "XC"), p in suites[r]          # compile and warm every specialization
+for r in ("X", "Y", "XC"), p in suites[r]          # compile and warm each probe of the three roles
     bench(p)
 end
 rounds = parse(Int, get(ENV, "PB_ROUNDS", "11"))

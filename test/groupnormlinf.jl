@@ -286,7 +286,7 @@ end
       @test close_prox(y, ref, x)
     end
   end
-  # every endpoint row of NormLinf, with the weight 1
+  # the endpoint rows of NormLinf (zero and infinite levels and steps, NaN and infinite entries), with the weight 1
   inputs = (T[1, NaN, -Inf, -0.0, 3], T[-0.0, 2], T[Inf, 1], T[0, 0, 0], T[1, 2, 3], T[NaN, 1], T[1e30, -1e30])
   for λ1 in (zero(T), T(1e-30), one(T), T(1e30), floatmax(T), T(Inf)), γ in (zero(T), T(0.5), one(T), T(1e30), floatmax(T), T(Inf)), x in inputs
     f, h = GroupNormLinf(λ1, [1:length(x)]), NormLinf(λ1)
@@ -566,7 +566,7 @@ end
     @test same_nan(prox(f, x, γ), x)
     @test value_and_prox!(similar(x), f, x, γ) === zero(T)
   end
-  # an infinite weight, or an infinite level at a positive weight, gives +0 at every step, γ = 0 and γ = Inf included
+  # an infinite weight, or an infinite level at a positive weight, gives +0 at the steps 0, 1 and Inf
   for x in (u, nan_group, inf_group, zeros(T, 3)), γ in (zero(T), one(T), T(Inf))
     for f in (GroupNormLinf(zero(T), [1:3], T[Inf]), GroupNormLinf(one(T), [1:3], T[Inf]), GroupNormLinf(T(Inf), [1:3], T[2]), GroupNormLinf(T(Inf), [1:3], T[Inf]))
       y = fill(T(7), 3)
@@ -814,7 +814,7 @@ end
   out = zeros(T, 3)
   prox_block!(out, g, T[3, 1, 2], 1, T(0.5))
   @test g.scratch.buf === nothing && out == expected
-  # in place, the scratch of length maxlen serves every group
+  # in place, the scratch of length maxlen serves the groups of different lengths
   u = T[3, 1, 2]
   prox_block!(u, g, u, 1, T(0.5))
   @test g.scratch.buf isa Vector{T} && length(g.scratch.buf) == 8 && u == expected

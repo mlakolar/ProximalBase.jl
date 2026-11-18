@@ -140,8 +140,10 @@ remain `BigFloat`.
   and `ZeroFunction`, have ``\lvert v_i\rvert``). The three-argument screen of such a chain
   around `LinearFunction` and a centered `SqrNormL2` was incorrect before 0.6: it
   returned the screen of the function at the unscaled `v`.
-* **Functions without the forms.** `NormLinf`, the losses and the indicators have no
-  score; the call on the `Scaled` function throws a `MethodError` (the call names the `Scaled`
+* **Functions without the forms.** `NormLinf`, the losses and `IndNonnegative` have no
+  four-argument or full-point score (for `IndNonnegative`, only the three-argument screen `-v[i]`
+  exists, which `Scaled` with a finite factor, tested for 2 and 0.25, also gives; an infinite factor
+  gives `NaN` at a finite `v[i]`); the call on the `Scaled` function throws a `MethodError` (the call names the `Scaled`
   function). A function defined outside the package is treated as in
   [Writing your own function](extending.md).
 
@@ -212,8 +214,9 @@ finite weights also returns `ZeroFunction`. Infinite weights are retained in
 weights and `ElasticNet(0,0,w)` for infinite ones. Infinite `NormL1` and
 `ElasticNet` levels and non-finite parameters of other function families can make construction
 throw `ArgumentError`. A custom function's zero scale has no generic supported
-representation and throws. Inspect the constructed object rather than assume
-it is always a `Scaled`.
+representation and throws. The indicator `IndNonnegative` does not depend on its scale:
+`Scaled(IndNonnegative(), 0)` and `0 * IndNonnegative()` return the indicator itself.
+Inspect the constructed object rather than assume it is always a `Scaled`.
 
 ```@example scaled_zero
 using ProximalBase

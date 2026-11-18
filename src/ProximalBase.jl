@@ -19,7 +19,7 @@ export AbstractFunction, SeparableFunction,
   issmooth, isproximable, isseparable, isconvex, iszeropreserving,
   prox!, prox, value_and_prox!, gradient!, gradient, value_and_gradient!, value_and_gradient,
   prox_block, prox_block!, value_entry, kkt_violation, restrict, lipschitz, opnorm2, reset_cache!,
-  ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, LeastSquaresLoss, SqrtLeastSquaresLoss, NormL1, ElasticNet, NormL2, NormLinf, GroupNormL2, Scaled,
+  ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, LeastSquaresLoss, SqrtLeastSquaresLoss, NormL1, ElasticNet, IndNonnegative, NormL2, NormLinf, GroupNormL2, Scaled,
   SparseIterate, SymmetricSparseIterate, BlockIterate,
   ncoordinates, coordinates, nactive, activecoordinates, activevalues, matrixview, isactive,
   activate!, blockview, blockindices, nnz, dropzeros!, shrink, norm_diff, tril_index, tril_cartesian
@@ -45,6 +45,7 @@ include("functions/sqrt_leastsquares.jl")
 include("functions/separable.jl")
 include("functions/norml1.jl")
 include("functions/elasticnet.jl")
+include("functions/indnonnegative.jl")
 include("functions/norml2.jl")
 include("functions/normlinf.jl")
 include("functions/groupnorml2.jl")

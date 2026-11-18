@@ -87,6 +87,15 @@ form and no other.
 | Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The block score of that group, `abs(v[k])` for an entry in no group (also when `x[k]` is nonzero) |
 | Any point, `NormL2` | No form for an entry or a group: `ArgumentError` that names the full-point form |
 
+For `NormL1` and `ElasticNet`, a call of the four-argument form reads `x[k]`, evaluates the score of a zero entry and that
+of a nonzero one, and selects between them; `SqrNormL2` forms its gradient entry from `x[k]` (and from the center, when it
+has one); and each of the five functions applies the rules for non-finite values to the entries of `v` and `x` that its formula
+uses. A call therefore does more work than a call of the three-argument screen. For these five functions the caller chooses between the forms for a
+coordinate that it knows to be zero: at an array or a `SparseIterate` point and the same index, the three-argument form returns
+the same value as the four-argument form when `v`, `x` and the parameters of the function (levels, weights, centers,
+coefficients) are `Float32` or `Float64` arrays and values of one type, `v[k]` is finite and the function is not a `SqrNormL2`
+with an infinite level.
+
 For `SparseIterate`/`SymmetricSparseIterate`, invalid coordinate throws `BoundsError` before
 extent mismatch throws `DimensionMismatch`, after checking one-based axes and
 real element types. A flat or matrix-shaped gradient of the required entry

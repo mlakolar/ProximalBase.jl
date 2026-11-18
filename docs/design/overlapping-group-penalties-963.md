@@ -383,8 +383,8 @@ reach the proximal point to a certified accuracy (a duality gap) after a number 
 3. the general weights (2.6), arXiv (8), evaluated to a certified gap, by dual block coordinate descent or a
    Newton-type method as above. On our probes dual block coordinate descent needed 1 to 7591 sweeps and had not
    reached the gap after 100000 in one instance; counts above 300 came with a group norm below `0.005 λ w_ℓℓ` at the
-   dual point, but small norms also came with few sweeps. Newton failed on exactly the 8 instances with a group norm
-   below `1e-9 λ w_ℓℓ` at the dual point. Under item 7 of the maintainer's scope for #963, an implementation issue would have to
+   dual point, but small norms also came with few sweeps. Newton failed on the 8 instances with a group norm below
+   `1e-9 λ w_ℓℓ` at the dual point, and on no other. Under item 7 of the maintainer's scope for #963, an implementation issue would have to
    show, on sample covariances at the sizes of #965 (`p = 20, 100, 500`) along a `λ` path that includes the values where
    bands switch off: iterations, time and memory against one pass, the gap reached at the chosen tolerance, and the rule
    for groups at their thresholds;

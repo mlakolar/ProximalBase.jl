@@ -253,7 +253,7 @@ end
 # (a wrong prefix or a Newton failure) and the proposal is repeated with ten times more sweeps
 # (n₀ = 2, 20, 200, 2000). After these four, a fifth attempt uses a tolerance rule on the dual point of
 # the last proposal: the zero prefix runs through the last group whose norm there is below
-# TOLRULE λ w_ℓℓ. The rule is a heuristic; the gap certificate decides acceptance in every attempt.
+# TOLRULE λ w_ℓℓ. The rule is a heuristic; the gap certificate decides acceptance in each attempt.
 const TOLRULE = 1e-6
 function newton_attempt(r, W, λ, L, x0)
   K = length(r); G = chain(W)

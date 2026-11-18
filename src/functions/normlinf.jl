@@ -224,8 +224,8 @@ end
 # τ = max(level, 0), so that τ ≤ m. If τ > 0, the entry of magnitude m is stored as ±τ and no stored entry exceeds τ in
 # magnitude, so the largest stored magnitude is τ, and `f(y)` applies `_linf_scale` to that same τ, as `value_and_prox!`
 # does. The max needs a level that is not NaN: under the conditions at `_l1ball_threshold!` the level is a level of the
-# iteration there (a finite number, computed from finite sums) or the largest entry, so it is a number. s is the sum of the magnitudes
-# of the pass of the caller (the sum that is compared with the radius): the handover of Condat's pass starts from it.
+# iteration there (a finite number, computed from finite sums) or the largest entry, so it is a number. s is the sum of the
+# magnitudes of the pass of the caller (the sum that is compared with the radius): the handover of Condat's pass starts from it.
 @inline function _linf_threshold(y, f::NormLinf, x, r::T, s::T, rd, ::Type{T}) where {T}
   τ = if _linf_buffer_is_output(y, x, T)
     _l1ball_threshold!(y, x, r, rd, s)
@@ -467,18 +467,18 @@ end
 # yᵢ (the term δ/2 occurs when s f is subnormal, and then 2u Σ_V yᵢ ≥ δ/2), and the difference and the quotient each have a
 # relative error of at most u (or the quotient an absolute error of at most δ/2): the value is at most (1 + u)² ((1 - 2u) Σ_V yᵢ
 # - a)/nv + δ/2 ≤ L_V + δ/2. With P - a ≥ 0 the value is therefore at most L_V + δ/2 ≤ τ* + δ/2 ((G3) with S = V), and at most
-# the largest entry of V (L_V ≤ the mean of V, and no float lies in (max V, max V + δ/2]). It is not always below L_V: in
-# Float32, x = [δ, …, δ, 1] with 25 entries δ and a = 1/2 gives -0.02f0 at 25 candidates, above L_V + δ/2 by about 4.5e-10 (a
-# negative numerator, with s subnormal and a normal), and x = [4δ, 4δ, 4δ], a = δ gives the value 4δ, above L_V = 3.5δ. An entry
-# that is not stored when it arrives is at most ρ, hence at most the largest stored entry, so the largest stored entry is M. (ρ
-# = M occurs in the subnormal range, as in the example above; the result is then M by (a).) (iii) The iteration starts at max(ρ,
-# plain level of the final candidates) ≥ ρ and its levels increase, so each unstored entry is at most the level of each pass,
-# and the stored entries (buf[1:nt+nv]) give the same g, k and hi as all the entries at each level that the iteration visits,
-# and an excess r that satisfies (P) for the same set of terms (the order of the sum differs): claims 2 and 3 are statements
-# about all the entries. (iv) A start below zero is at least ρ ≥ -δ after a restart (for y - a < 0 the product (y - a) nv is
-# negative and the join test holds, so a restart has fl(y - a) ≥ 0). Without a restart no entry was discarded (a negative ρ
-# discards no nonnegative entry), so the candidates are all the entries and s is their sequential sum; a < s_plain ≤ (1 +
-# γ_{n-1}) Σ yᵢ gives s - a ≥ -2 γ_{n-1} Σ yᵢ, and the start is at least -ζ.
+# the largest entry of V (L_V ≤ the mean of V, and no float lies in (max V, max V + δ/2]). The value can exceed L_V: in Float32,
+# x = [δ, …, δ, 1] with 25 entries δ and a = 1/2 gives -0.02f0 at 25 candidates, above L_V + δ/2 by about 4.5e-10 (a negative
+# numerator, with s subnormal and a normal), and x = [4δ, 4δ, 4δ], a = δ gives the value 4δ at the second entry, above L_V =
+# 3.5δ (within L_V + δ/2). An entry that is not stored when it arrives is at most ρ, hence at most the largest stored entry, so
+# the largest stored entry is M. (ρ = M occurs in the subnormal range, as for x = [4δ, 4δ, 4δ], a = δ; the result is then M by
+# (a).) (iii) The iteration starts at max(ρ, plain level of the final candidates) ≥ ρ and its levels increase, so each unstored
+# entry is at most the level of each pass, and the stored entries (buf[1:nt+nv]) give the same g, k and hi as all the entries at
+# each level that the iteration visits, and an excess r that satisfies (P) for the same set of terms (the order of the sum
+# differs): claims 2 and 3 are statements about all the entries. (iv) A start below zero is at least ρ ≥ -δ after a restart (for
+# y - a < 0 the product (y - a) nv is negative and the join test holds, so a restart has fl(y - a) ≥ 0). Without a restart no
+# entry was discarded (a negative ρ discards no nonnegative entry), so the candidates are all the entries and s is their
+# sequential sum; a < s_plain ≤ (1 + γ_{n-1}) Σ yᵢ gives s - a ≥ -2 γ_{n-1} Σ yᵢ, and the start is at least -ζ.
 #
 # Claim 5 (consequences). (i) The level. For n u ≤ 1/4 each bound of claims 2 and 3 on |τ̂ - τ*| is at most 4.5 n u M + 2 n δ.
 # Since a < s ≤ (1 + γ_{n-1}) Σ yᵢ, a ≤ (1 + γ_{n-1}) n M (and a = g(τ*) ≤ n M when τ* ≥ 0). The bounds are: the overshoot ε;
@@ -524,16 +524,16 @@ end
 # floatmax; since s is a sum of some of the yᵢ it is below floatmax (see above), so the exact test is false, as the comparison s
 # > Inf is. A product that overflows to -Inf has y - a < 0 and the exact test (s ≥ 0 > -∞) is true, as s > -Inf is.
 
-# Condat's pass. The stored entries are buf[1:nt] (the candidates that restarts have displaced) and buf[nt+1:nt+nv] (the nv candidates,
-# of running sum s); the level ρ and the rules that update it are in claim 4. Michelot's algorithm takes over, on all the entries, when
-# the number nv of current candidates exceeds cap = max(1024, n ÷ 8) (a restart resets nv, so restarts are not capped; that costs time,
-# not accuracy): a heuristic for the cost, since a large candidate set often means that
-# the level starts far below the entries and rises slowly, and then this pass costs most (it need not hold, for instance for many tied
+# Condat's pass. The stored entries are buf[1:nt] (the candidates that restarts have displaced) and buf[nt+1:nt+nv] (the nv
+# candidates, of running sum s); the level ρ and the rules that update it are in claim 4. Michelot's algorithm takes over, on
+# all the entries, when the number nv of current candidates exceeds cap = max(1024, n ÷ 8) (a restart resets nv, so restarts are
+# not capped; that costs time, not accuracy): a heuristic for the cost, since a large candidate set often means that the level
+# starts far below the entries and rises slowly, and then this pass costs most (it need not hold, for instance for many tied
 # entries and a tiny radius). Once the level has risen, most entries fall below it, and one test for four entries reduces the
 # sensitivity of the loop to where its code lands in memory, as observed on one processor. The iteration then runs on the stored
-# entries from max(ρ, (s - a)/nv), the plain level of the final candidates. The handover starts the iteration at (s_all - a)/n with the sum
-# s_all of the caller's pass over the entries when it is given (the callers give it: one pass over the argument less), and with the sum of
-# the entries formed here when it is not (`nothing`).
+# entries from max(ρ, (s - a)/nv), the plain level of the final candidates. On the handover it runs on all the entries from
+# (s_all - a)/n, with the sum s_all of the caller's pass when the caller gives it (the callers do: one pass over the argument
+# less) and with the sum of the entries formed here when it does not (`nothing`).
 function _l1ball_threshold!(buf::AbstractArray{T}, x, a::T, rd::F, s_all::S = nothing) where {T, F, S<:Union{Nothing, T}}
   n = length(x)
   n == 0 && return zero(T)
@@ -566,8 +566,8 @@ function _l1ball_threshold!(buf::AbstractArray{T}, x, a::T, rd::F, s_all::S = no
   _l1ball_iterate(buf, nt + nv, a, identity, ifelse(lv > ρ, lv, ρ))
 end
 
-# The sum of all the entries for the plain start of the handover: the sum of the caller's pass when it is given, the entries summed here
-# when it is not.
+# The sum of all the entries for the plain start of the handover: the sum of the caller's pass when it is given, and the entries
+# summed here when it is not.
 @inline _handover_sum(x, rd, ::Type{T}, s::T) where {T} = s
 @inline _handover_sum(x, rd, ::Type{T}, ::Nothing) where {T} = _linf_sum(x, rd, T)
 

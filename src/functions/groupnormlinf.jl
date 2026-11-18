@@ -13,7 +13,7 @@
 
 Group ℓ∞ penalty `f(x) = λ₀ Σₖ wₖ max_{i∈Gₖ} |xᵢ|`, with default weights `wₖ = 1`. Groups are
 nonempty, disjoint lists or ranges of positive linear indices. Their order is preserved; entries in no group are
-unpenalized. The nonnegative level and weights cannot be `NaN`. Supply one weight per group; the constructor copies
+unpenalized. The constructor rejects a negative or `NaN` level or weight. Supply one weight per group; the constructor copies
 `groups` and `w`.
 
 [`prox`](@ref) clips each group at a level `τₖ ≥ 0`: `prox_{γf}(x)ᵢ = clamp(xᵢ, -τₖ, τₖ)` for `i ∈ Gₖ`, where `τₖ` solves

@@ -270,9 +270,6 @@ _symmetric_argument(y, x) = x
 function _symmetric_argument(y::SymmetricSparseIterate, x::AbstractMatrix)
   _check_one_based(x)
   _symmetric_by_type(x) && return x
-  # This optional host-copy branch is inactive in the minimal core, where
-  # _is_device_array(::AbstractArray) always returns false.
-  _is_device_array(x) && return _symmetric_argument(y, Array(x))
   _exactly_symmetric(x) ? x : _SymmetricPart(x)
 end
 _exactly_symmetric(x::AbstractMatrix) = size(x, 1) == size(x, 2) && _issymmetric_exact(x, _symequal)

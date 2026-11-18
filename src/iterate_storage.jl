@@ -112,19 +112,10 @@ SymmetricSparseIterate(nzval::Vector{T}, nzval2ind::Vector{Int}, ind2nzval::Vect
 
 _stored_values(x::Union{SparseIterate, SymmetricSparseIterate}) = view(x.nzval, 1:x.nnz)
 
-function _scaled_dot(a, x::SparseIterate, s)
-  _checkparam(a, x)
-  v = zero(s[1])
-  @inbounds @simd for k in 1:x.nnz
-    v += float(_entry(a, x.nzval2ind[k])) * _scale_value(x.nzval[k], s)
-  end
-  v
-end
-
 # Maximum-magnitude and finiteness scans over the stored entries of an iterate.
-_stored_maxabs(x::Union{SparseIterate, SymmetricSparseIterate}) = _maximum_abs(view(x.nzval, 1:x.nnz))
-_maximum_abs(x::SymmetricSparseIterate) = _maximum_abs(view(x.nzval, 1:x.nnz))
-_all_finite(x::Union{SparseIterate, SymmetricSparseIterate}) = all(isfinite, view(x.nzval, 1:x.nnz))
+_stored_maxabs(x::Union{SparseIterate, SymmetricSparseIterate}) = _maximum_abs(_stored_values(x))
+_maximum_abs(x::SymmetricSparseIterate) = _maximum_abs(_stored_values(x))
+_all_finite(x::Union{SparseIterate, SymmetricSparseIterate}) = all(isfinite, _stored_values(x))
 
 
 ####################################

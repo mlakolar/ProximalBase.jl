@@ -534,4 +534,4 @@ end
 # a zero factor: the zero function at a finite level; an infinite level is an indicator, which has no zero multiple here
 _zero_scaled(f::NormLinf) = (isfinite(f.λ) || _zero_scale_error(f); ZeroFunction())
 # f(x) is zero when the level is zero or the entries are all zero (a NaN or infinite entry is not zero)
-_exactly_zero_at(f::NormLinf, x::AbstractArray) = iszero(f.λ) || _all_zero(_host_entries(x))
+_exactly_zero_at(f::NormLinf, x::AbstractArray) = iszero(f.λ) || _all_zero(x)

@@ -10,11 +10,10 @@ themselves; custom functions with derived data should implement this hook.
 """
 reset_cache!(f::AbstractFunction) = f
 
-function reset_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
+function reset_cache!(f::LeastSquaresLoss)
   size(f.tmp) == size(f.Y) && size(f.X, 1) == size(f.Y, 1) ||
     throw(DimensionMismatch("data sizes changed; construct a new LeastSquaresLoss"))
   f.svd_ready = false
-  f.XtY = Array{T, N}(undef, ntuple(_ -> 0, N))
   f
 end
 

@@ -49,24 +49,23 @@ mutable struct LeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVecOrMat, Tx<:Abst
   # the proximal operator: X = U Diagonal(√s2) V', computed on first use
   V::Matrix{T}
   s2::Vector{T}
-  XtY::Array{T, N}        # only needed by an affine-constrained loss, built lazily
   sUtY::Array{T, N}       # Diagonal(s) U'Y, the right-hand side in the V basis
   w::Array{T, N}
   output::Scratch         # dense output for a non-strided destination
   svd_ready::Bool
 
-  function LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready) where {T<:AbstractFloat,
+  function LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, sUtY, w, output, svd_ready) where {T<:AbstractFloat,
       Ty<:AbstractVecOrMat, Tx<:AbstractMatrix, N, A<:AbstractArray{T, N}}
-    _check_one_based(Y, X, tmp, V, s2, XtY, sUtY, w)
+    _check_one_based(Y, X, tmp, V, s2, sUtY, w)
     all(a -> a === nothing || eltype(a) <: Real,
-        (Y, X, tmp, V, s2, XtY, sUtY, w)) || _real_error(:LeastSquaresLoss)
-    new{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready)
+        (Y, X, tmp, V, s2, sUtY, w)) || _real_error(:LeastSquaresLoss)
+    new{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, sUtY, w, output, svd_ready)
   end
 end
-LeastSquaresLoss(Y::Ty, X::Tx, tmp::A, V::Matrix{T}, s2::Vector{T}, XtY::Array{T, N}, sUtY::Array{T, N},
+LeastSquaresLoss(Y::Ty, X::Tx, tmp::A, V::Matrix{T}, s2::Vector{T}, sUtY::Array{T, N},
     w::Array{T, N}, output::Scratch, svd_ready::Bool) where {T<:AbstractFloat, Ty<:AbstractVecOrMat,
     Tx<:AbstractMatrix, N, A<:AbstractArray{T, N}} =
-  LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready)
+  LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, sUtY, w, output, svd_ready)
 
 function LeastSquaresLoss(Y::AbstractVecOrMat, X::AbstractMatrix)
   eltype(Y) <: Real || _real_error(:LeastSquaresLoss)
@@ -74,9 +73,8 @@ function LeastSquaresLoss(Y::AbstractVecOrMat, X::AbstractMatrix)
   size(X, 1) == size(Y, 1) || throw(DimensionMismatch("X has $(size(X, 1)) rows and Y has $(size(Y, 1))"))
   T = float(promote_type(eltype(Y), eltype(X)))
   N = ndims(Y)
-  tmp = _zeros_like(Y, T, size(Y))
+  tmp = zeros(T, size(Y))
   LeastSquaresLoss{T, typeof(Y), typeof(X), N, typeof(tmp)}(Y, X, tmp, Matrix{T}(undef, 0, 0), T[],
-                                                            Array{T, N}(undef, ntuple(_ -> 0, N)),
                                                             Array{T, N}(undef, ntuple(_ -> 0, N)),
                                                             Array{T, N}(undef, ntuple(_ -> 0, N)), Scratch(), false)
 end

@@ -67,7 +67,7 @@ function SqrtLeastSquaresLoss(Y::AbstractVector, X::AbstractMatrix)
   eltype(X) <: Real || _real_error(:SqrtLeastSquaresLoss)
   size(X, 1) == length(Y) || throw(DimensionMismatch("X has $(size(X, 1)) rows and Y has $(length(Y))"))
   T = float(promote_type(eltype(Y), eltype(X)))
-  SqrtLeastSquaresLoss(Y, X, _zeros_like(Y, T, size(Y)))
+  SqrtLeastSquaresLoss(Y, X, zeros(T, size(Y)))
 end
 
 issmooth(::Type{<:SqrtLeastSquaresLoss}) = false

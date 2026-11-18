@@ -250,16 +250,6 @@ function _scaled_value_sum(x::AbstractArray, s, f::F = identity) where {F}
   v + e
 end
 
-# Floating-point products also cover integer entries and integer coefficients.
-function _scaled_dot(a, x::AbstractArray, s)
-  _checkparam(a, x)
-  v = zero(s[1])
-  @inbounds @simd for i in eachindex(IndexLinear(), x)
-    v += float(_entry(a, i)) * _scale_value(x[i], s)
-  end
-  v
-end
-
 ####################################
 #
 #  Values recomputed in power-of-two units (numerics.md, "Overflow and underflow of values")

@@ -31,10 +31,6 @@ abstract type AbstractFunction end
 # SymmetricSparseIterate, does not accept it.
 const _ArrayOrSymmetricIterate = Union{AbstractArray, SymmetricSparseIterate}
 
-# the number of entries of the array, or of the matrix that the symmetric iterate represents
-_nentries(x::AbstractArray) = length(x)
-_nentries(x::SymmetricSparseIterate) = x.p^2
-
 function value_and_prox! end
 function gradient! end
 

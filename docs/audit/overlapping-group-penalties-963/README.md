@@ -32,7 +32,8 @@ Run from the repository root.
 
 ## Recorded run
 
-RECORDED_RUN_LINE
+Local, Julia 1.13.4, at commit `d48336f5905ff595763c77c4fc82063bacd19bad` (the commit that adds the scripts
+and the note in their current form; this README was updated afterwards). Output lines as printed:
 
 ### `probe_laminar.jl`
 
@@ -41,11 +42,11 @@ PASS D1 recorded disjoint instance, master prox(GroupNormL2) = one pass of the h
 PASS D2 200 random disjoint instances (seeded), master = harness: largest difference 1.78e-15, largest gap/(1+‖y‖²) 1.14e-16
 PASS L1 recorded laminar instance (forest, duplicate, five nested groups, threshold, 0 and Inf weights), one pass exact: order [2, 7, 8, 1, 9, 3, 4, 5, 6], BigFloat gap 5.53e-76, x[1:2] = (0.0, 0.0), x[11:12] = (9.0, -9.0)
 PASS L2 the same instance in another inclusion order gives the same point: BigFloat gap 5.53e-76
-PASS L3 300 random laminar families (seeded; forests, duplicates, free coordinates, 0 and Inf weights), scalar ℓ2 weights, one pass exact: 285 with a penalized group left nonzero, largest BigFloat gap/(1+‖y‖²) 1.16e-77
+PASS L3 300 random laminar families (seeded; forests, duplicates, coordinates in no group, 0 and Inf weights), scalar ℓ2 weights, one pass exact: 285 with a penalized group left nonzero, largest BigFloat gap/(1+‖y‖²) 1.16e-77
 PASS W1 sparse-group, coordinates before the group: one pass exact: x = (0.0, 0.0), BigFloat gap 0
 PASS W2 sparse-group, the group before the coordinates (wrong order): refuted: x = (0.0024814048950054326, 0.0), distance from the reference 0.00248 > 2√(2 gap) = 0 (reference: 1 sweeps)
-PASS M1 300 random laminar families (seeded), ℓ∞ with scalar weights for every group, one pass exact: 299 with a penalized group left nonzero, largest BigFloat gap/(1+‖y‖²) 7.66e-78
-PASS M2 300 random laminar families (seeded), scalar ℓ2 on every containing group, ℓ∞ or diagonal-weight ℓ2 on the others, one pass exact: 298 with a penalized group left nonzero, largest BigFloat gap/(1+‖y‖²) 1.03e-77
+PASS M1 300 random laminar families (seeded), ℓ∞ with scalar weights on all groups, one pass exact: 299 with a penalized group left nonzero, largest BigFloat gap/(1+‖y‖²) 7.66e-78
+PASS M2 300 random laminar families (seeded), scalar ℓ2 on each containing group, ℓ∞ or diagonal-weight ℓ2 on the others, one pass exact: 298 with a penalized group left nonzero, largest BigFloat gap/(1+‖y‖²) 1.03e-77
 PASS M3 an ℓ2 group {1,2} inside an ℓ∞ group {1,2,3}, y = (3, 1, 0): one pass refuted: one pass (1.0513167019494862, 0.6837722339831621, 0.0), reference (1.1055728090000843, 0.5527864045000421, 0.0), distance 0.142 > 2√(2 gap) = 3.85e-08
 all statements hold
 ```
@@ -58,7 +59,7 @@ PASS P2 two groups {1,2} ⊂ {1,2,3}, weights (1,2) and (1,3,2), y = (2,3,1), t 
 PASS P3 duplicates g₁ = g₂ = {1,2,3}, diagonal weights (1,2,3) then the scalar weight 1.5: one pass exact: x = (2.3410859616795348, -1.3505441490776786, 2.205965996464773), BigFloat gap 0
 PASS P4 the same duplicates, the scalar-weight group first: one pass refuted: distance 0.103 > 2√(2 gap) = 1.14e-07
 PASS S1 sparse-group penalty with the diagonal step τ = (0.5, 1, 2, 4, 3): one pass exact: x = (3.1098095611881957, -0.25985888054039324, 2.2919211968835707, 0.3090442947109622, -1.0), BigFloat gap 6.91e-77
-PASS S2 300 random laminar families (seeded), scalar weights, a diagonal step constant on every contained group, one pass exact: 292 with a penalized group left nonzero, largest BigFloat gap/(1+‖z‖²) 1.46e-77
+PASS S2 300 random laminar families (seeded), scalar weights, a diagonal step constant on each contained group, one pass exact: 292 with a penalized group left nonzero, largest BigFloat gap/(1+‖z‖²) 1.46e-77
 PASS S3 scalar weights on {1,2} ⊂ {1,2,3} with the step τ = (1, 4, 1), not constant on {1,2}: one pass refuted: distance (in z) 0.0273 > 2√(2 gap) = 1.05e-07
 all statements hold
 ```
@@ -99,15 +100,15 @@ PASS CB p = 16, general weights, λ = 1.0, 5 instances (seeded): sweeps of dual 
 PASS CB p = 32, general weights, λ = 1.0, 5 instances (seeded): sweeps of dual BCD: sweeps [5, 5, 5, 5, 5] (gap reached in 5 of 5), nonzero bands (31, 31) of 31, largest factor spread 0.165, largest gap/(1+‖r‖²) 9.31e-14, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0077, kept 0 against √(2 gap) ≤ 3.76e-05
 PASS CB p = 64, general weights, λ = 1.0, 5 instances (seeded): sweeps of dual BCD: sweeps [5, 5, 5, 5, 5] (gap reached in 5 of 5), nonzero bands (63, 63) of 63, largest factor spread 0.172, largest gap/(1+‖r‖²) 3.13e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.00676, kept 0 against √(2 gap) ≤ 0.000143
 PASS CB p = 128, general weights, λ = 1.0, 5 instances (seeded): sweeps of dual BCD: sweeps [5, 5, 5, 5, 5] (gap reached in 5 of 5), nonzero bands (127, 127) of 127, largest factor spread 0.171, largest gap/(1+‖r‖²) 7.17e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.00639, kept 0 against √(2 gap) ≤ 0.000417
-PASS CC p = 8, general weights, λ = 2.0, 5 instances (seeded): sweeps of dual BCD: sweeps [9, 10, 18, 22, 35] (gap reached in 5 of 5), nonzero bands (7, 7) of 7, largest factor spread 0.554, largest gap/(1+‖r‖²) 8.9e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0214, kept 0 against √(2 gap) ≤ 2.37e-05
-PASS CC p = 16, general weights, λ = 2.0, 5 instances (seeded): sweeps of dual BCD: sweeps [11, 12, 13, 24, 30] (gap reached in 5 of 5), nonzero bands (15, 15) of 15, largest factor spread 0.725, largest gap/(1+‖r‖²) 9.91e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0316, kept 0 against √(2 gap) ≤ 6.16e-05
-PASS CC p = 32, general weights, λ = 2.0, 5 instances (seeded): sweeps of dual BCD: sweeps [27, 30, 45, 90, 356] (gap reached in 5 of 5), nonzero bands (31, 31) of 31, largest factor spread 0.795, largest gap/(1+‖r‖²) 9.84e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0334, kept 0 against √(2 gap) ≤ 0.000134
-PASS CC p = 64, general weights, λ = 2.0, 5 instances (seeded): sweeps of dual BCD: sweeps [20, 21, 29, 39, 40] (gap reached in 5 of 5), nonzero bands (63, 63) of 63, largest factor spread 0.848, largest gap/(1+‖r‖²) 8.19e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0376, kept 0 against √(2 gap) ≤ 0.000232
-PASS CC p = 128, general weights, λ = 2.0, 5 instances (seeded): sweeps of dual BCD: sweeps [16, 23, 24, 30, 33] (gap reached in 5 of 5), nonzero bands (127, 127) of 127, largest factor spread 0.873, largest gap/(1+‖r‖²) 9.61e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0391, kept 0 against √(2 gap) ≤ 0.000491
-PASS CD p = 8, general weights, λ = 2.5, 5 instances (seeded): sweeps of dual BCD: sweeps [1, 5, 19, 43, 60] (gap reached in 5 of 5), nonzero bands (1, 7) of 7, largest factor spread 0.544, largest gap/(1+‖r‖²) 8.19e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0122, kept 0 against √(2 gap) ≤ 2.78e-05
-PASS CD p = 16, general weights, λ = 2.5, 5 instances (seeded): sweeps of dual BCD: sweeps [1, 35, 114, 975, 2332] (gap reached in 5 of 5), nonzero bands (0, 15) of 15, largest factor spread 0.738, largest gap/(1+‖r‖²) 1e-12, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0166, kept 0 against √(2 gap) ≤ 6.48e-05
-PASS CD p = 32, general weights, λ = 2.5, 5 instances (seeded): sweeps of dual BCD: sweeps [1, 1, 10, 2687, 3955] (gap reached in 5 of 5), nonzero bands (0, 26) of 31, largest factor spread 0.821, largest gap/(1+‖r‖²) 1e-12, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0242, kept 0 against √(2 gap) ≤ 0.000142
-PASS CD p = 64, general weights, λ = 2.5, 5 instances (seeded): sweeps of dual BCD: sweeps [13, 20, 328, 2760, 100000] (gap reached in 4 of 5), nonzero bands (5, 63) of 63, largest factor spread 0.931, largest gap/(1+‖r‖²) 2.2e-10, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0295, kept 0 against √(2 gap) ≤ 0.00387
+PASS CC p = 8, general weights, λ = 2.0, 5 instances (seeded): sweeps of dual BCD: sweeps [9, 10, 18, 22, 35] (gap reached in 5 of 5), nonzero bands (7, 7) of 7, largest factor spread 0.524, largest gap/(1+‖r‖²) 8.9e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0214, kept 0 against √(2 gap) ≤ 2.37e-05
+PASS CC p = 16, general weights, λ = 2.0, 5 instances (seeded): sweeps of dual BCD: sweeps [11, 12, 13, 24, 30] (gap reached in 5 of 5), nonzero bands (15, 15) of 15, largest factor spread 0.642, largest gap/(1+‖r‖²) 9.91e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0316, kept 0 against √(2 gap) ≤ 6.16e-05
+PASS CC p = 32, general weights, λ = 2.0, 5 instances (seeded): sweeps of dual BCD: sweeps [27, 30, 45, 90, 356] (gap reached in 5 of 5), nonzero bands (31, 31) of 31, largest factor spread 0.742, largest gap/(1+‖r‖²) 9.84e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0334, kept 0 against √(2 gap) ≤ 0.000134
+PASS CC p = 64, general weights, λ = 2.0, 5 instances (seeded): sweeps of dual BCD: sweeps [20, 21, 29, 39, 40] (gap reached in 5 of 5), nonzero bands (63, 63) of 63, largest factor spread 0.801, largest gap/(1+‖r‖²) 8.19e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0376, kept 0 against √(2 gap) ≤ 0.000232
+PASS CC p = 128, general weights, λ = 2.0, 5 instances (seeded): sweeps of dual BCD: sweeps [16, 23, 24, 30, 33] (gap reached in 5 of 5), nonzero bands (127, 127) of 127, largest factor spread 0.81, largest gap/(1+‖r‖²) 9.61e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0391, kept 0 against √(2 gap) ≤ 0.000491
+PASS CD p = 8, general weights, λ = 2.5, 5 instances (seeded): sweeps of dual BCD: sweeps [1, 5, 19, 43, 60] (gap reached in 5 of 5), nonzero bands (1, 7) of 7, largest factor spread 0.492, largest gap/(1+‖r‖²) 8.19e-13, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0122, kept 0 against √(2 gap) ≤ 2.78e-05
+PASS CD p = 16, general weights, λ = 2.5, 5 instances (seeded): sweeps of dual BCD: sweeps [1, 35, 114, 975, 2332] (gap reached in 5 of 5), nonzero bands (0, 15) of 15, largest factor spread 0.726, largest gap/(1+‖r‖²) 1e-12, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0166, kept 0 against √(2 gap) ≤ 6.48e-05
+PASS CD p = 32, general weights, λ = 2.5, 5 instances (seeded): sweeps of dual BCD: sweeps [1, 1, 10, 2687, 3955] (gap reached in 5 of 5), nonzero bands (0, 26) of 31, largest factor spread 0.781, largest gap/(1+‖r‖²) 1e-12, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0242, kept 0 against √(2 gap) ≤ 0.000142
+PASS CD p = 64, general weights, λ = 2.5, 5 instances (seeded): sweeps of dual BCD: sweeps [13, 20, 328, 2760, 100000] (gap reached in 4 of 5), nonzero bands (5, 63) of 63, largest factor spread 0.925, largest gap/(1+‖r‖²) 2.2e-10, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0295, kept 0 against √(2 gap) ≤ 0.00387
 PASS CD p = 128, general weights, λ = 2.5, 5 instances (seeded): sweeps of dual BCD: sweeps [9, 17, 620, 1358, 7591] (gap reached in 5 of 5), nonzero bands (97, 126) of 127, largest factor spread 0.965, largest gap/(1+‖r‖²) 1e-12, one pass off by ‖x₁ − x‖/‖r‖ up to 0.0308, kept 0 against √(2 gap) ≤ 0.000529
 all statements hold
 ```
@@ -115,5 +116,5 @@ all statements hold
 ### `check_inventory.py`
 
 ```text
-INVENTORY_LINE
+76 citations, 0 failure(s)
 ```

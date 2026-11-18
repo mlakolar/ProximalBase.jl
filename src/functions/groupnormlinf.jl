@@ -214,6 +214,8 @@ function _linf_group_prox!(y, x, G, λ0, w, γ::Real, src, maxlen::Int)
   if iszero(w) | isinf(w) | isinf(λ0) | iszero(λ0) | iszero(γ) | isinf(γ)
     return T(_l2_shrink_fixed_call!(y, x, G, λ0, w, γ))
   end
+  # _IndexedValues reads x[G[j]] without a bounds check: the callers have checked that the indices of G are linear indices of x
+  # (_check_group_extent for the array methods; G = OneTo(m) and length(u) == m in prox_block!)
   xv = _IndexedValues(x, G, T)
   s = _linf_sum(xv, _AbsRead{T}(), T)
   s <= floatmax(T) / 2 || return _linf_group_exceptional!(y, x, G, xv, λ0, w, γ, s, src, maxlen)
@@ -251,6 +253,8 @@ end
     _l2_copy!(y, x, G)
     return m
   end
+  # _linf_exponent needs a group of n >= 1 entries: the constructor rejects empty groups, and prox_block! passes G = OneTo(m) with
+  # m the length of a group
   k = _linf_exponent(length(G))
   local s′
   while true

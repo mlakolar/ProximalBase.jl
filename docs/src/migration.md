@@ -121,11 +121,13 @@ What changed besides the values of the table:
   `LinearFunction` and a centered `SqrNormL2` the three-argument screen returned the screen of the function
   at the unscaled `v` and omitted the product; it now applies the product to the gradient entry of the
   function (`Scaled(Scaled(LinearFunction([1.0]), 1e-200), 1e-200)` at `v = [0.25]` was `1.25` and is `0.25`). Around
-  `NormL1`, `ElasticNet`, `GroupNormL2` and `NormL2` whose level folds to a normal number, a
+  `NormL1`, `ElasticNet`, `GroupNormL2` and `NormL2` whose level folds (to a nonzero finite level that its type accepts: a normal one, or a subnormal one for a `Float32` or `Float64` level), a
   `GroupNormL2` or `NormL2` chain now scores with the folded level (a `GroupNormL2` chain at a zero group
-  was computed from `v` divided by the product, which overflows for an ordinary `v`). Where the level does not fold, the values of the
-  three-argument screen and of a zero coordinate or group are unchanged and unsupported
-  ([#978](https://github.com/mlakolar/ProximalBase.jl/issues/978)); a nonzero coordinate or group and the
+  was computed from `v` divided by the product, which overflows for an ordinary `v`). Where the level does not fold, the
+  three-argument screen of `NormL1` and `ElasticNet` and the four-argument form of `NormL1`, `ElasticNet` and `GroupNormL2` at a zero
+  coordinate or group have the value of the definition at finite entries of `v` (`NaN` and infinite entries as the [scaling guide](@ref scaled-kkt) states), computed from the coefficient `a·λ·w`, with the exponents of the three applied in
+  one last step for a positive finite `λ` and `w` (a zero weight gives the coefficient 0, an infinite weight or level gives `Inf`, and an
+  `ElasticNet` with an infinite `λ2` gives `-Inf`) (`Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at `v = [0.25]` was `Inf` and is `0.25`); a nonzero coordinate or group and the
   full-point form throw an `ArgumentError`, as does an infinite factor (see the [scaling guide](@ref scaled-kkt)). A stack that
   nests an infinite factor with another `Scaled` wrapper is built by a direct call of the parameterized constructor
   `Scaled{F,T}(f, α)` (`Scaled(f, α)` and `α * f` merge the factors): its three-argument and zero-coordinate values are unspecified and can differ from

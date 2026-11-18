@@ -119,8 +119,8 @@ What changed besides the values of the table:
   forms, which were a `MethodError`, throw an `ArgumentError` that names the full-point form.
 * `NormLinf` has the full-point form `kkt_violation(f,v,x)`: the Euclidean distance from `-v` to the
   subdifferential of `λ*maximum(abs, x)` at `x`, with the face of the largest entries decided by
-  equality after conversion to the working type (see [the ℓ∞ norm](@ref norm-linf-kkt)). These forms were unavailable before 0.6 (a `MethodError`): older coordinate forwarding under `Scaled` could
-  report the missing method of the inner function, and the master before this change reports the call on the `Scaled` function.
+  equality after conversion to the working type (see [the ℓ∞ norm](@ref norm-linf-kkt)). In 0.5.4 the three-argument and four-argument calls were a `MethodError`; a call on a positive `Scaled`
+  was forwarded to the inner function, so that the error named `NormLinf`, and there was no full-point form of any function.
   Now the full-point form
   has the value, also under `Scaled` with the limits of the [scaling guide](@ref scaled-kkt), and the three-argument and
   four-argument forms throw an `ArgumentError` that names the full-point form; the full-point form at a

@@ -621,13 +621,13 @@ end
 # ---- the exit of the threshold search when the count of entries above the level rises (#987) -------------------------------------
 # `_l1ball_michelot` computes each level from the entries above the level before it. When rounding puts a level at or above a
 # large tie, the tie leaves the set, the next level is computed from the few entries left and lies far below the previous one, the
-# count rises, and the routine used to return that lower level: a false zero threshold for the score at the zero point and a clip
-# of the tie at zero. It now returns the previous level. The references are exact levels in BigFloat of a head entry y1 above m
+# count rises. The routine then returns the previous level. Returning the lower level instead would give a false zero threshold for
+# the score at the zero point and a clip of the tie at zero. The references are exact levels in BigFloat of a head entry y1 above m
 # equal entries y0 (no kernel of the package is called); the tolerance of a prox entry is 4 n u max|xᵢ| with u = eps(T)/2, four times
 # the absolute error u ‖x‖₁ ≤ n u max|xᵢ| of a level formed from a sum of n entries, which is far below the size of the entries of
-# these inputs, while the false level was off by the whole entry. Which of the inputs below reached the exit before the
-# correction depends on the order in which the sum of the ties is formed (the compilation mode and the type of the loop), so each
-# input is a regression test in the modes in which it reaches it and a check of accuracy in the others.
+# these inputs, while the lower level is off by the whole entry. Whether an input below reaches that exit depends on the order in
+# which the sum of the ties is formed (the compilation mode and the loop that the compiler chooses): each input is a check of the
+# returned level where it reaches the exit and a check of accuracy where it does not.
 cluster_level(c, y1, y0, m) = setprecision(BigFloat, PREC) do
   C, Y1, Y0 = big(c), big(y1), big(y0)
   Y1 + m * Y0 <= C && return zero(BigFloat)
@@ -647,7 +647,7 @@ end
   ε = eps(T)
   # y = (3, 1 + 3ε), radius 2 - 2ε. The sum 4 + 3ε rounds to 4 + 4ε, the first level is 1 + 3ε (the second entry, which is not above
   # it), the next level is (3 - (2 - 2ε))/1 = 1 + 2ε, and the count rises from 1 to 2. The exact level is 1 + 2.5ε. The routine
-  # returns 1 + 3ε (it returned 1 + 2ε).
+  # returns the previous level 1 + 3ε; the lower level 1 + 2ε would be returned if the rise of the count were not an exit.
   y = T[3, 1 + 3ε]
   r = T(2) - 2ε
   @test PB._l1ball_michelot(y, r, PB._AbsRead{T}(), T) == 1 + 3ε
@@ -688,10 +688,9 @@ end
   end
 end
 
-@testset "random clusters: the prox against the exact level ($T)" for T in (Float32, Float64)
+@testset "a grid of clusters around the breakpoint: the prox against the exact level ($T)" for T in (Float32, Float64)
   # the shape of the failures: one head entry above m equal entries, the radius just above the breakpoint y1 - y0 by a multiple of
   # the rounding error of the sum of the entries (read from the sum that the kernel forms)
-  rng = MersenneTwister(987)
   bad = 0
   for m in (1000, 3000, 10_000), y0f in (0.1, 0.3, 1 / 3, 0.9), mult in (2, 10), pos in (:first, :last), θ in (0.05, 0.6, 1.5)
     y0 = T(y0f)

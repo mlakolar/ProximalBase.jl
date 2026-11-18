@@ -666,8 +666,8 @@ end
 # (-1, w, ..., w) with w = fl(1/√a + λ/a). The level is w - λ/a and the distance sqrt(a (w - λ/a)² + 1), from the stored w and λ. The
 # level of the face is found on the face values shifted by a lower bound of the level (the mean of the face entries minus λ/n);
 # a shift by the smallest entry instead gives each shifted value the size of |u₁| and a level whose error grows with the number of
-# entries. Measured in units of u (‖v‖₂ + λ) with default compilation, --check-bounds=yes and -O0 (scalar loops: the LLVM IR of
-# the reductions has no vector instructions at -O0 and has 4 and 8 lanes otherwise), on Julia 1.10.13 and 1.13.4, on znver2 and znver3 nodes
+# entries. Measured in units of u (‖v‖₂ + λ) with default compilation, --check-bounds=yes and optimization level 0 (scalar loops: the LLVM IR of
+# the reductions has no vector instructions at level 0 and has 4 and 8 lanes otherwise), on Julia 1.10.13 and 1.13.4, on znver2 and znver3 nodes
 # (and, for n = 200001, on a skylake-avx512 node), for the kernel with that shift (old) and for this kernel (new):
 #   Float32, n = 2000001, λ = 3:    old 1.56e6 to 1.57e6,  new at most 6.3e4 (guard 3e5)
 #   Float32, n = 2000001, λ = 0.3:  old 4.0e6 to 4.1e6,    new at most 1.6e5 (guard 8e5)
@@ -723,14 +723,14 @@ end
 # ---- 11c. a large tie and a level near it (#987) ---------------------------------------------------------------------------------------------
 # The threshold search `_l1ball_michelot` computes each level from the entries above the level before it. When rounding puts a
 # level at or above a large tie, the tie leaves the set, the next level is computed from the few entries left and lies far below
-# the previous one, and the count of entries above it rises. The routine used to return that lower level, which gave a false zero
-# score at the zero point (and a clip of the tie at zero in the prox, tested in normlinf.jl); it now returns the previous level.
+# the previous one, and the count of entries above it rises. The routine then returns the previous level; returning the lower
+# level would give a false zero score at the zero point (and a clip of the tie at zero in the prox, tested in normlinf.jl).
 # The inputs are a head entry y1 above m equal entries y0 with a radius c near the breakpoint y1 - y0, where the exact level is at or
 # just below y0. The reference is the exact distance in BigFloat from the stored entries and level (the levels of a head and a tie
 # have a closed form; no kernel of the package is called). The sum of the ties is rounded in an order that depends on the
-# compilation mode (and on the loop that the compiler chooses), so each input reached the exit before the correction in some modes
-# and not in others: each is a regression test in the modes in which it did, and a check of accuracy in the others. The failure
-# was the whole distance (31.6 for the first input of the list below, against a bound of 0.4).
+# compilation mode (and on the loop that the compiler chooses), so an input reaches that exit in some modes and not in others: each
+# is a check of the returned level and distance where it does, and a check of accuracy where it does not. The lower level gives
+# the whole distance as error (31.6 for the first input of the list below, against a bound of 0.4).
 # the exact distance for the head y1 and the tie (y0, m): at the zero point the distance to the ball of radius c (0 inside), on a
 # face (all entries on the face, u = (y1, y0, ..., y0)) the distance to the simplex, whose level can be negative
 function cluster_dist(c, y1, y0, m; face = false)
@@ -795,7 +795,7 @@ end
   end
 end
 
-@testset "$W random clusters against the exact distance" for W in TYPES
+@testset "$W a grid of clusters around the breakpoint against the exact distance" for W in TYPES
   # the radius is the breakpoint y1 - y0 plus θ times the rounding error of the sum of the entries, read from the sum that the
   # kernel forms
   bad = 0

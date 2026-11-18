@@ -74,9 +74,10 @@ proximal point (Proposition 7, pp. 2709–2712) **[stated]**: we read the proof 
 as `ξ_j ≠ γ_j`: real arithmetic. The bound `O(|V||E| log(|V|²/|E|))` for balanced cuts, "but we lose a factor |V|"
 otherwise, is in footnote 10 (pp. 2692–2693) **[stated]**; the "improved projection step" (Section 3.4, p. 2693) has
 no separate proof in the paper. SPAMS (Python port, commit `897314636898858f957ed82da7995eb27156150b`, read, not run)
-decides splits with the absolute constant `EPSILON_MAXFLOW = 1e-10` (`project.h:25`, test at `:2172`), adds a missed
-split to a local `flow_missed` that is not reported (`:2128`, `:2176`), and its FISTA parameters set `clever = true`
-(`fista.h:147`, passed on at `:3347`), which selects the box-constrained projection (`project.h:2148`) **[secondary]**.
+decides splits with the fixed constant `EPSILON_MAXFLOW = 1e-10` (`project.h:25`; a relative test at `:2172`), adds a
+missed split to a local `flow_missed` that is not reported (`:2128`, `:2176`), and its FISTA parameters set
+`clever = true` (`fista.h:147`, passed on at `:3347`), which selects the box-constrained projection (`project.h:2148`)
+**[secondary]**.
 Submodular view: `Σ_g η_g ‖w_g‖∞ = f(abs(w))` with `f` the Lovász extension of `F(A) = Σ_g η_g 1{A ∩ g ≠ ∅}` (Bach,
 FnTML, arXiv:1111.6453v2, Section 6.3, pp. 59–60); the divide-and-conquer algorithm of Section 9.1 (pp. 106–107)
 solves `f(w) + Σ_j ψ_j(w_j)`, `ψ_j` strictly convex, with at most `p` submodular minimizations **[stated]**. The flow
@@ -84,10 +85,10 @@ operator of Obozinski and Bach (arXiv:1205.1240v1, Algorithm 1, p. 19) is for `�
 ℓ1/ℓp norm with overlap" and has no simple closed form (Section 4, p. 12) **[stated]**.
 
 *Assessment.* Exact under its hypotheses, but it needs a max-flow engine (warm-started preflows, components, a
-recursion that can cost a factor `|V|` over one max-flow, footnote 10), and the released code decides splits by
-absolute-tolerance tests and does not report a missed split. Under the policy it is not appropriate for ProximalBase.
-What would change that: a named estimator needing `ℓ∞` groups with arbitrary overlap, a benchmark at its sizes, and a
-duality gap returned with each evaluation.
+recursion that can cost a factor `|V|` over one max-flow, footnote 10), and the released code decides splits by tests
+against a fixed tolerance and does not report a missed split. Under the policy it is not appropriate for
+ProximalBase. What would change that: a named estimator needing `ℓ∞` groups with arbitrary overlap, a benchmark at
+its sizes, and a duality gap returned with each evaluation.
 
 **Latent groups.** Yan and Bien (p. 539): "there is no known algorithm that solves the proximal operator of Ω_LOG in
 a closed form under a tree structure" **[stated]**. The methods for trees and DAGs in the sources read are iterative:
@@ -134,12 +135,12 @@ piecewise-linear function) is a finite candidate outside the group family **[sta
 
 In the sources read no algorithm for these weights is finite.
 
-- *Certified approximation with a worst-case bound that assumes no nondegeneracy.* The proximal problem is an SOCP
-  with `N = p` cones (ours). For the primal-dual potential-reduction method Lobo et al. (Section 4, p. 222) state a
-  gap below `ε` after at most `ν√(2N) log(η⁽⁰⁾/ε)/δ + ψ⁽⁰⁾/δ` iterations from a strictly feasible start, proof deferred
-  to Nesterov and Nemirovskii **[stated]**; each iteration solves a dense system, `O(p³)` here (ours). Andersen et
-  al. observe for their primal-dual method on sums of norms the same accuracy and "markedly higher" iteration counts
-  when strict complementarity fails (Section 4, p. 255; experiments) **[stated]**.
+- *Certified approximation with a worst-case bound logarithmic in `1/ε` that assumes no nondegeneracy.* The proximal
+  problem is an SOCP with `N = p` cones (ours). For the primal-dual potential-reduction method Lobo et al. (Section 4,
+  p. 222) state a gap below `ε` after at most `ν√(2N) log(η⁽⁰⁾/ε)/δ + ψ⁽⁰⁾/δ` iterations from a strictly feasible
+  start, proof deferred to Nesterov and Nemirovskii **[stated]**; each iteration solves a dense system, `O(p³)` here
+  (ours). Andersen et al. observe for their primal-dual method on sums of norms the same accuracy and "markedly
+  higher" iteration counts when strict complementarity fails (Section 4, p. 255; experiments) **[stated]**.
 - *Locally quadratic under strict complementarity.* Qi, Sun and Zhou prove Q-quadratic convergence of a smoothing
   Newton method for a sum of Euclidean norms when `‖y_i*‖ < 1` on the zero norms and `A_O` is nonsingular (Theorem
   5.2, p. 146) **[stated]**; the proximal problem fits after a reformulation (ours). The 8 failures of the Newton-type
@@ -337,9 +338,9 @@ Xing, HierBasis as computed and SPLAM use scalar weights).
    and 6 and Corollary 2 hold on our reading of the proofs for `w_ℓℓ = √(2ℓ)`, `Σ_ℓ a_ℓ² ≤ C p` (Section 5.2), to be
    verified independently (Section 12); the proof of Theorem 3 applies; Theorems 4, 5, 9 and 10 were not re-derived,
    and Theorem 9 as written needs `Σ_{ℓ≥m} w_ℓm²/(2ℓ) ≲ 1` (`a_ℓ = √(2/ℓ)`, not `√2`).
-3. General weights to a certified gap: unchanged. No finite method in the sources read; the best worst-case guarantee
-   is an interior-point method, a generic engine (Section 5.1); an evaluation would take a tolerance per call and
-   return its gap.
+3. General weights to a certified gap: unchanged. No finite method in the sources read; the strongest worst-case
+   bound among them is for an interior-point method, a generic engine (Section 5.1); an evaluation would take a
+   tolerance per call and return its gap.
 4. One pass with (2.6): unchanged; printed in three more places (Section 5.3).
 5. *New:* the latent penalty of Yan and Bien ((20), p. 544) on the nested band unions `s_{1:m}` nearest the diagonal,
    weights `w_m = √|s_{1:m}|`, diagonal unpenalized. A different penalty from (2.1): latent groups, inner rather than

@@ -1,12 +1,14 @@
 # ProximalBase.jl
 
+[![CI](https://github.com/mlakolar/ProximalBase.jl/actions/workflows/CI.yml/badge.svg?branch=master)](https://github.com/mlakolar/ProximalBase.jl/actions/workflows/CI.yml) [![Documentation (dev)](https://img.shields.io/badge/docs-dev-blue.svg)](https://mlakolar.github.io/ProximalBase.jl/dev/) [![Documentation (stable)](https://img.shields.io/badge/docs-stable-blue.svg)](https://mlakolar.github.io/ProximalBase.jl/stable/) [![Julia 1.10+](https://img.shields.io/badge/julia-1.10%2B-9558B2.svg)](https://julialang.org/) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Mathematical function objects and working-set storage for optimization in Julia.**
 
 Many optimization problems can be written as
 
-$$
+```math
 \min_{\beta\in\mathbb R^p}\bigl\{f(\beta)+g(\beta)\bigr\},
-$$
+```
 
 where $f$ may be a smooth data-fitting function and $g$ may
 be a regularizer. ProximalBase implements function evaluation, gradients,
@@ -24,12 +26,12 @@ For a design matrix $X\in\mathbb R^{n\times p}$, response
 $y\in\mathbb R^n$ and regularization level $\lambda\geq0$,
 consider
 
-$$
+```math
 \min_\beta\left\{
 \underbrace{\frac{1}{2n}\|y-X\beta\|_2^2}_{f(\beta)}
 +\underbrace{\lambda\|\beta\|_1}_{g(\beta)}
 \right\}.
-$$
+```
 
 The mathematical components correspond directly to the following Julia
 objects:

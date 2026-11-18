@@ -7,15 +7,16 @@
     NormL1Nonneg(λ0, w)
 
 Weighted ℓ₁ penalty on the nonnegative orthant: `f(x) = λ₀ Σᵢ wᵢ xᵢ` where every
-entry is `≥ 0`, and `Inf` where one is negative; all weights equal one when `w` is
-omitted. The level and weights must be nonnegative and not `NaN`; these are checked
-at construction. Weights are retained by reference and paired with entries by
-linear index; later array mutations are not revalidated.
+entry is `≥ 0`, and `Inf` at a point with a negative entry (the edge cases below give the
+rules for `NaN`); all weights equal one when `w` is omitted. The level and weights must be
+nonnegative and not `NaN`; these are checked at construction. Weights are retained by
+reference and paired with entries by linear index; later array mutations are not revalidated.
 
-[`prox`](@ref) applies `max(vᵢ - t̂ᵢ, 0)` to each entry, with the threshold
-`t̂ᵢ = γλ₀wᵢ` formed as [`NormL1`](@ref) forms it: the proximal operator of
-`λ₀wᵢxᵢ` on `xᵢ ≥ 0`. The function is separable, convex and zero-preserving; value and
-same-kind sparse-iterate prox calls visit only stored entries.
+For finite inputs and a positive finite level, weight and step, [`prox`](@ref) applies
+`max(vᵢ - t̂ᵢ, 0)` to each entry, with the threshold `t̂ᵢ = γλ₀wᵢ` formed as
+[`NormL1`](@ref) forms it: the proximal operator of `λ₀wᵢxᵢ` on `xᵢ ≥ 0`. The edge cases
+below give the other parameters. The function is separable, convex and zero-preserving;
+value and same-kind sparse-iterate prox calls visit only stored entries.
 
 # Examples
 ```jldoctest
@@ -38,8 +39,7 @@ julia> prox(NormL1Nonneg(0.5, [1.0, 2.0]), [2.0, -1.0], 1.0)
 - The domain is `xᵢ ≥ 0` exactly: `-0.0` and `+Inf` are feasible, and any negative number,
   a subnormal one included, is not. A zero level or weight keeps the domain. With finite weights,
   `NormL1Nonneg(0.0)` is the indicator of the orthant, with value `0` at a feasible point
-  (`+Inf` entries included) and `Inf` at a negative entry; an infinite weight keeps its own
-  rule below at a zero level.
+  (`+Inf` entries included); an infinite weight keeps its own rule below at a zero level.
 - The value is `NaN` when an entry that is read is `NaN`, and otherwise `Inf` when one is
   negative; `NaN` takes precedence over `Inf`. A `+Inf` entry whose positive finite coefficient
   `λ₀wᵢ` rounds to zero also gives `NaN`, as for `NormL1` (#655), and then takes precedence over the
@@ -121,9 +121,8 @@ prox!(y::_ArrayOrSymmetricIterate, f::NormL1Nonneg, x::_ArrayOrSymmetricIterate,
 value_and_prox!(y::_ArrayOrSymmetricIterate, f::NormL1Nonneg, x::_ArrayOrSymmetricIterate, γ::Real) =
   (_check_nonneg_step(γ); invoke(value_and_prox!, _SeparableScalarStep, y, f, x, γ))
 
-# The value. The term of an entry is that of NormL1, with Inf in place of it at a negative entry, so that a sum of the
-# terms is the NormL1 sum at a feasible point (the NormL1 loops take the term as the hook _l1_value), Inf when an entry
-# is negative, and NaN when one is NaN (NaN + Inf is NaN). A term is `Inf` in the type of the accumulator.
+# The value. The term of an entry is that of NormL1, with Inf in place of it at a negative entry (the NormL1 loops take
+# the term as the hook _l1_value). A term is `Inf` in the type of the accumulator.
 @inline _l1_value(::NormL1Nonneg, v, a) = ifelse(v < 0, oftype(a, Inf), a * abs(v))
 
 # Dense Float32 or Float64 arrays with weights of the type of the data: the NormL1 loop and the checks of its sum
@@ -157,8 +156,8 @@ _value_sep(f::NormL1Nonneg, x::SymmetricSparseIterate) =
 # one, while the value at a zero level is 0 at +Inf. So a zero level, and a level that does not convert to a normal
 # number of the type of the data (_level_fits), take a sum of membership terms: Inf at a negative entry, 0 at any other
 # number, NaN at NaN. For the second case a feasible point then takes _converted_l1_value, which multiplies the sum of
-# magnitudes in the wider type. An overflow of the sum or of its product with the level takes the entrywise value
-# (which gives a negative entry its Inf too) through invoke: a call of _value_dense on f would be this method.
+# magnitudes in the wider type. A product of a finite level and the sum of finite entries that is not finite (an overflow,
+# or a negative entry) takes the entrywise value through invoke: a call of _value_dense on f would be this method.
 @inline _nonneg_member(v::T) where {T} = ifelse(v < 0, T(Inf), ifelse(v == v, zero(T), v))
 @inline _nonneg_abs(v::T) where {T} = ifelse(v < 0, T(Inf), abs(v))
 @inline _nonneg_reduce(g, x) = isempty(x) ? zero(float(eltype(x))) : sum(g, x)
@@ -183,11 +182,8 @@ end
 kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation);
    _nonneg_screen(g[i], _kkt_coefficient(eltype(g), f.λ0, _entry(f.w, i))))
-# -gᵢ - c, formed in the promotion of the types of gᵢ and of the coefficient c (the type in which NormL1 forms
-# abs(gᵢ) - c). An unsigned promoted type is replaced by its floating type, so an unsigned entry does not wrap. A signed
-# integer entry is converted to the type of c when the level or the weight is floating, so typemin does not wrap there.
-# With an integer level and integer weights the screen stays in the signed integer type, and typemin wraps as it does in
-# NormL1 (abs(typemin)). A floating gradient has the coefficient in its own type, and the arithmetic is that of -gᵢ - c.
+# -gᵢ - c is formed in P = promote_type(typeof(gᵢ), typeof(c)), or in float(P) when P is an unsigned integer type;
+# otherwise the arithmetic of P applies (a signed integer type wraps at typemin). A floating gradient has c in its own type.
 @inline function _nonneg_screen(gi, c)
   P = promote_type(typeof(gi), typeof(c))
   W = P <: Unsigned ? float(P) : P
@@ -196,10 +192,10 @@ end
 
 # The point-aware score (see kkt_violation): the coefficient cᵢ = λ0 wᵢ of the NormL1 score (_kkt_state and
 # _kkt_entry_coefficient are NormL1's), then -vᵢ - cᵢ at a zero entry (the screen above in the working type), |vᵢ + cᵢ|
-# at a positive one, and +Inf at a negative one, outside the domain. The three are selected without a branch, so that
-# the loop over a dense array vectorizes. The flag of the loop is NaN where the natural score is infinite or NaN
-# (at vᵢ = +Inf the score at a zero entry is -Inf, which the rules for an infinite entry turn into +Inf), so that the
-# pass by entry decides those entries (interface.jl, _kkt_reduce); the default flag tests xᵢ alone.
+# at a positive one, and +Inf at a negative one, outside the domain. The three are selected with ifelse. The flag of the
+# loop is NaN where the natural score r or the entry xᵢ is infinite or NaN (at vᵢ = +Inf the score at a zero entry is
+# -Inf, which the rules for an infinite entry turn into +Inf), so that the pass by entry decides those entries
+# (interface.jl, _kkt_reduce); the default flag tests xᵢ alone.
 @inline _kkt_state(f::NormL1Nonneg, ::Type{W}) where {W} = _kkt_state(f.l1, W)
 Base.@propagate_inbounds _kkt_entry_coefficient(f::NormL1Nonneg, s, ::Type{W}, i) where {W} = _kkt_entry_coefficient(f.l1, s, W, i)
 Base.@propagate_inbounds function _kkt_natural(f::NormL1Nonneg, s, ::Type{W}, v::W, x::W, i) where {W}

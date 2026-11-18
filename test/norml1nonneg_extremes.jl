@@ -393,9 +393,9 @@ plant(x, k, v) = (y = copy(x); y[k] = v; y)
   end
 
   @testset "the screen of integer, unsigned and Bool gradients" begin
-    # the gradient entry is converted to the promotion of its type and the coefficient's before the sign changes. With a
-    # floating level an unsigned entry or a typemin entry does not wrap: the result is the Float64 screen of the converted
-    # entry. With an integer level and weights a signed entry stays in its integer type (below).
+    # -gᵢ - c is formed in P = promote_type(typeof(gᵢ), typeof(c)), or in float(P) when P is an unsigned integer type.
+    # With a Float64 level and weights P is Float64 for every gradient below: the result is the Float64 screen of the
+    # converted entry.
     w4 = [1.0, 2.0, 0.5, 4.0]
     for f in (NormL1Nonneg(0.5), NormL1Nonneg(0.3, w4), NormL1Nonneg(0.0, w4), NormL1Nonneg(Inf, w4))
       n = 4
@@ -413,11 +413,16 @@ plant(x, k, v) = (y = copy(x); y[k] = v; y)
     # a wrapped negation would give 56 for the unsigned entry 200
     @test kkt_violation(NormL1Nonneg(0.5), UInt8[200], 1) === -200.5
     @test kkt_violation(NormL1Nonneg(0.5), Int8[-128], 1) === 127.5
-    # integer levels and weights keep the integer type of the coefficient, as the screen of NormL1 does
+    # integer levels and weights: P is a signed integer type, and its arithmetic applies
     @test kkt_violation(NormL1Nonneg(2), Int[-3, 0, 5], 1) === 1 && kkt_violation(NormL1Nonneg(2), Int[-3, 0, 5], 3) === -7
     @test kkt_violation(NormL1Nonneg(2), UInt8[3], 1) === -5 && kkt_violation(NormL1Nonneg(2, [3]), Int8[-128], 1) === 122
     @test typeof(kkt_violation(NormL1(2), UInt8[3], 1)) === typeof(kkt_violation(NormL1Nonneg(2), UInt8[3], 1))
     @test typeof(kkt_violation(NormL1(0.5), Bool[true], 1)) === typeof(kkt_violation(NormL1Nonneg(0.5), Bool[true], 1))
+    # an unsigned P takes the floating route: a signed gradient with an unsigned level, and an unsigned gradient with an
+    # Int level (promote_type(UInt64, Int) is UInt64)
+    @test kkt_violation(NormL1Nonneg(UInt64(2)), Int64[-3], 1) === 1.0
+    @test kkt_violation(NormL1Nonneg(2), UInt64[3], 1) === -5.0
+    @test kkt_violation(NormL1Nonneg(UInt64(2)), Int64[typemin(Int64)], 1) === 2.0^63 - 2.0
     # floating gradients are unchanged: the arithmetic -gᵢ - c in the type of the gradient
     for T in (Float16, Float32, Float64)
       g = T[0.2, -0.7, 1.5, 0.0, -0.0]

@@ -463,8 +463,8 @@ With `cᵢ = λ0*wᵢ` (`λ1*wᵢ` for `ElasticNet`), the scores of entry `i` at
 at `xᵢ ≠ 0` are, for the six functions that have all three forms:
 
 * `NormL1`: `abs(vᵢ) - cᵢ` and `abs(vᵢ + cᵢ*sign(xᵢ))`.
-* `NormL1Nonneg`: `-vᵢ - cᵢ` at `xᵢ = 0`, and at `xᵢ ≠ 0` `abs(vᵢ + cᵢ)` for `xᵢ > 0` and `Inf` for
-  `xᵢ < 0`, which is outside the domain `x ≥ 0`.
+* `NormL1Nonneg`: for finite inputs, `-vᵢ - cᵢ` at `xᵢ = 0`, and at `xᵢ ≠ 0` `abs(vᵢ + cᵢ)` for `xᵢ > 0` and
+  `Inf` for `xᵢ < 0`, which is outside the domain `x ≥ 0`.
 * `ElasticNet`: `abs(vᵢ) - cᵢ` (`-Inf` for an infinite ridge level) and
   `abs((vᵢ + λ2*xᵢ) + cᵢ*sign(xᵢ))`.
 * `ZeroFunction`: `abs(vᵢ)` in both cases.

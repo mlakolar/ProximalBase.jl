@@ -192,14 +192,17 @@ squares overflows or underflows and a threshold `γ*λ0*w[k]` outside the range,
 power-of-two units; the ordinary path needs a normal threshold and a normal sum of
 squares, and is otherwise unchanged.
 
-The clip level `τ` of `NormLinf` has an **absolute** error of order `n eps(T) max|xᵢ| + δ` for `n` entries in the
-floating type `T` of the output, with `δ = nextfloat(zero(T))` (from the running sums of Condat's algorithm and the
-storage of a subnormal radius or output), unlike the relative bounds of the `NormL2` and `GroupNormL2` kernels: an entry
-far below `max|xᵢ|` has no relative guarantee, and `x = [δ]`, `λ = δ`, `γ = 0.5` gives `[δ]` where the exact point is
-`δ/2`. A sum of magnitudes that overflows or exceeds `floatmax(T)/2` is processed in power-of-two units, whose subnormal
-losses are below the nominal scale `n eps(T) max|xᵢ|` when `n eps(T) ≤ 1/2` (up to `2^22` entries in `Float32` and
-`2^51` in `Float64`) and the scaling of an entry or of the radius changes it by at most one subnormal spacing (the
-allowance covers the `ldexp` of Julia 1.10 noted above), two hypotheses of that argument that the code does not check.
+The clip level `τ` of `NormLinf` has an **absolute** error. For `n` entries in the floating type `T` of the output with
+`n eps(T) ≤ 1/2` (up to `2^22` entries in `Float32` and `2^51` in `Float64`), a hypothesis that the code does not check, the
+level returned by the threshold satisfies `|τ - τ*| ≤ 2.25 n eps(T) max|xᵢ| + 2nδ`, with `τ*` the exact level for the radius `γλ`
+rounded once to `T` and `δ = nextfloat(zero(T))` (the storage of a subnormal radius or output adds `δ`; `x = [δ]`, `λ = δ`,
+`γ = 0.5` gives `[δ]` where the exact point is `δ/2`). The derivation, in `src/functions/normlinf.jl`, bounds the excess
+`Σ(|xᵢ| - τ)₊ - γλ` for each of the four ways the threshold search ends, and it does not assume that the entries it found above
+the level are the entries above the exact level. Unlike the relative bounds of the `NormL2` and `GroupNormL2` kernels, the
+bound is absolute: an entry far below `max|xᵢ|` is not clipped to a relative accuracy. A sum of magnitudes that overflows or exceeds `floatmax(T)/2` is processed in
+power-of-two units, whose subnormal losses are below the nominal scale `n eps(T) max|xᵢ|` under the same hypothesis on `n`, and
+the scaling of an entry or of the radius changes it by at most one subnormal spacing (the allowance covers the `ldexp` of
+Julia 1.10 noted above), a second hypothesis of that argument that the code does not check.
 Through `Scaled`, the wrapper's recovery of a radius `γλα` beyond the range has a limit: for
 `Scaled(NormLinf(2.0 * 2.0^-1000), 2.0^1000)` at the step `0.75 floatmax(Float64)` on two entries equal to
 `floatmax(Float64)`, even the folded level at half the scale is out of range, the wrapper passes an infinite step, and the

@@ -449,10 +449,10 @@ end
 # so ρ < M, and the largest entry is above ρ when it arrives and is stored. (iii) The iteration starts at max(ρ, plain level of
 # the final candidates) ≥ ρ and its levels increase, so each unstored entry is at most the level of each pass, and the stored
 # entries (buf[1:nt+nv]) give the same g, k, hi and excess as all the entries at each level that the iteration visits: claims 2
-# and 3 are statements about all the entries. (iv) A start below zero is at least ρ ≥ -δ after a restart (a restart needs fl(y -
-# a) ≥ 0). Without a restart no entry was discarded (a negative ρ discards no nonnegative entry), so the candidates are all the
-# entries and s is their sequential sum; a < s_plain ≤ (1 + γ_{n-1}) Σ yᵢ gives s - a ≥ -2 γ_{n-1} Σ yᵢ, and the start is at
-# least -ζ.
+# and 3 are statements about all the entries. (iv) A start below zero is at least ρ ≥ -δ after a restart (for y - a < 0 the
+# product (y - a) nv is negative and the join test holds, so a restart has fl(y - a) ≥ 0). Without a restart no entry was
+# discarded (a negative ρ discards no nonnegative entry), so the candidates are all the entries and s is their sequential sum; a
+# < s_plain ≤ (1 + γ_{n-1}) Σ yᵢ gives s - a ≥ -2 γ_{n-1} Σ yᵢ, and the start is at least -ζ.
 #
 # Claim 5 (consequences). (i) The level. For n u ≤ 1/4 each bound of claims 2 and 3 on |τ̂ - τ*| is at most 4.5 n u M + 2 n δ:
 # the overshoot ε; below τ*, γ_n M at (b), [1.5 γ_n/(1 - n u) + u/2 + n u] M + n δ at (c), (n u [1.5/(1 - n u)² + 1/2] + u) M +

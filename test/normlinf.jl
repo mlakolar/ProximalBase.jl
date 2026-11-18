@@ -840,6 +840,8 @@ end
 
 @testset "the four inputs of #1003 through every entry point" begin
   # Entry points: prox, prox! (distinct output and in place), value_and_prox! (both) and the wrapper Scaled with a power of two.
+  # Paths: Condat's pass with the handover to Michelot's iteration (input 1), Condat's pass alone (input 2), and Michelot's iteration
+  # after the handover (inputs 3 and 4); the returns reached depend on the order of the vectorized sums, and the bounds hold for each.
   for (name, T, x, λ, exact) in issue1003_inputs()
     groups = ref_groups(x)
     @test abs(ref_level_groups(groups, λ) - big(exact)) < 1e-6      # the exact level of the issue
@@ -868,8 +870,9 @@ end
 end
 
 @testset "large ties: the threshold of the prox is not a false zero" begin
-  # the radius puts the level just below the tie y0 (or at it) with m large; each entry point and the wrapper return a level
-  # within the bounds and clip the ties at the level, not at zero
+  # the radius puts the level just below the tie y0 (or at it) with m large (the handover to Michelot's iteration, and the
+  # return of the level of the pass or of a certified step); each entry point and the wrapper return a level within the bounds
+  # and clip the ties at the level, not at zero
   for (T, v, λ) in large_tie_cases()
     @test prox_msg(T, v, ref_groups(v), λ) === nothing
     p = prox(NormLinf(λ), v, one(T))
@@ -880,7 +883,8 @@ end
 
 @testset "a grid of clusters around the breakpoint: the prox against the exact level ($T)" for T in (Float32, Float64)
   # one head entry above m equal entries, the radius just above the breakpoint y1 - y0 by a multiple of the rounding error of
-  # the sum of the entries (read from the sum that the kernel forms)
+  # the sum of the entries (read from the sum that the kernel forms): Condat's pass hands over for m ≥ 1024, and the returns of
+  # Michelot's iteration are those near a tie
   bad = 0
   for m in (1000, 3000, 10_000), y0f in (0.1, 0.3, 1 / 3, 0.9), mult in (2, 10), pos in (:first, :last), θ in (0.05, 0.6, 1.5)
     y0 = T(y0f)
@@ -1064,7 +1068,8 @@ end
   ncase = 0
   report(tag, msg) = (ncase += 1; msg === nothing || (bad += 1; @info "family" T tag msg))
   # equal entries with 1, 2 and 10 larger ones, n from 2 to 10^5, the radius around the breakpoint h (H - y0) where the level
-  # reaches the ties (H = y0 + 0.7 up to a rounding)
+  # reaches the ties (H = y0 + 0.7 up to a rounding). Paths: Condat's pass alone when the ties are not candidates, or when the zeros
+  # of the padded order keep the candidates below the handover, and the handover to Michelot's iteration otherwise (m ≥ 1024)
   for m in (1, 2, 9, 1000, 10^4), h in (1, 2, 10), y0f in (0.1, 0.3, 0.9), order in ORDERS, f in (0.2, 0.95, 1.0, 1.05, 3.0)
     x = tie_input(T, y0f, m, y0f + 0.7, h, order)
     a = T(f * h * 0.7)

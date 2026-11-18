@@ -42,9 +42,10 @@ Its proximal operator clips the entries at a level ``\tau\ge0``,
 ``\operatorname{clamp}(x_i,-\tau,\tau)``, where ``\sum_i(\lvert x_i\rvert-\tau)_+=\gamma\lambda``,
 and it is zero when ``\gamma\lambda\ge\lVert x\rVert_1``. The level comes from the
 projection onto the ℓ₁ ball of radius ``\gamma\lambda`` (Condat's algorithm, with Michelot's as a fallback),
-and the output is the clip itself, not ``x`` minus that projection. The error of ``\tau`` is absolute, of order
-``n\,\varepsilon\max_i\lvert x_i\rvert+\delta`` with ``\delta`` the smallest subnormal number of the output type
-(the storage of a subnormal radius or output adds ``\delta``). The value takes arrays and the three iterates, and a
+and the output is the clip itself, not ``x`` minus that projection. The error of ``\tau`` is absolute: at most
+``2.25\,n\,\varepsilon\max_i\lvert x_i\rvert+2n\delta`` for ``n\varepsilon\le 1/2``, with ``\varepsilon`` the machine epsilon
+and ``\delta`` the smallest subnormal number of the output type (the storage of a subnormal radius or output adds
+``\delta``; the [numerical contract](numerics.md) states the hypotheses). The value takes arrays and the three iterates, and a
 `SymmetricSparseIterate` (its largest stored magnitude); the proximal operators take arrays and
 the sparse and block iterates, and a `SymmetricSparseIterate` argument or output throws an `ArgumentError` before
 anything is written. The endpoint rules (a zero or infinite level or step, `NaN` and infinite entries, overflow of

@@ -22,10 +22,13 @@ compilations of the same source). With m1 and m2 the medians of the controls, lo
 otherwise. It is empty when head/base is missing, and it uses the controls that are present.
 
 Compiled-code output (IR lines, PB_MODE=ir). The table OUT.ir.tsv (OUT without a final .tsv, followed by .ir.tsv) has
-the group, the label and, for each tree, the number of lines of the optimized code of the loop, the number of Julia
-callees followed, the number of calls in the loop text whose target names kkt_violation, and same, differs or unresolved
-relative to base. It is written when a file has IR lines. The number of rows per state is printed for each file. Outputs
-written before the callees were followed count the calls named by Julia symbols in that column.
+the group, the label and, for each tree, the number of lines of the optimized code of the loop, the number of its call
+instructions whose called symbol does not start with llvm., and the number of those whose called symbol contains
+kkt_violation. It is written when a file has IR lines. For each file the summarizer prints the number of IR rows, the number
+of rows in which the three counts of head equal those of base, and the numbers in which those of basectl equal those of base
+and those of headctl equal those of head (when those trees are present). An IR line whose tree fields do not have three
+fields is skipped, and the number of skipped lines is printed. Equal counts do not establish equal code: the counts are
+those of the loop function with what was inlined into it, and the code of the functions that it calls is not examined.
 
 It uses the Python standard library.
 """
@@ -91,13 +94,14 @@ def head_vs_controls(parts):
 
 
 def parse_ir(desc):
-    """name=lines:calls:kkt_calls:same|differs;... -> {name: (lines, calls, kkt_calls, state)}"""
+    """name=lines:calls:kkt_calls;... -> {name: (lines, calls, kkt_calls)}, or None when a tree field is malformed"""
     out = {}
     for item in desc.split(";"):
         name, _, rest = item.partition("=")
         f = rest.split(":")
-        if len(f) == 4:
-            out[name] = tuple(f)
+        if not name or len(f) != 3 or not all(x.isdigit() for x in f):
+            return None
+        out[name] = tuple(f)
     return out
 
 
@@ -141,29 +145,36 @@ def main():
                         rec[f"{a}/{b}"], rec[f"{a}/{b}_min"], rec[f"{a}/{b}_max"] = (f"{x:.3f}" for x in r)
                 rec["head_vs_controls"] = head_vs_controls(parts)
                 fh.write("\t".join(str(rec.get(c, "")) for c in cols) + "\n")
-            for group, label, desc in irs:
-                d = parse_ir(desc)
-                for n in d:
-                    if n not in irtrees:
-                        irtrees.append(n)
-                irrows.append((fname, julia, group, label, d))
             if irs:
-                states = {}
-                for _, _, _, _, d in irrows[-len(irs):]:
-                    for n, t in d.items():
-                        states[t[3]] = states.get(t[3], 0) + 1
-                print("   IR rows:", len(irs), "; tree states:", ", ".join(f"{k}={v}" for k, v in sorted(states.items())))
+                kept, skipped_ir = [], 0
+                for group, label, desc in irs:
+                    d = parse_ir(desc)
+                    if d is None:
+                        skipped_ir += 1
+                        continue
+                    for n in d:
+                        if n not in irtrees:
+                            irtrees.append(n)
+                    irrows.append((fname, julia, group, label, d))
+                    kept.append(d)
+                msg = [f"IR rows: {len(kept)}"]
+                for a, b in (("head", "base"), ("basectl", "base"), ("headctl", "head")):
+                    both = [d for d in kept if a in d and b in d]
+                    if both:
+                        msg.append(f"{a} counts equal {b} in {sum(1 for d in both if d[a] == d[b])} of {len(both)}")
+                msg.append(f"skipped lines: {skipped_ir}")
+                print("   " + "; ".join(msg))
     print(f"wrote {out}")
     if irrows:
         irout = (out[:-4] if out.endswith(".tsv") else out) + ".ir.tsv"
         for n in irtrees:
-            ircols += [f"{n}_lines", f"{n}_callees", f"{n}_kkt_calls", f"{n}_vs_base"]
+            ircols += [f"{n}_lines", f"{n}_calls", f"{n}_kkt_calls"]
         with open(irout, "w") as fh:
             fh.write("\t".join(ircols) + "\n")
             for fname, julia, group, label, d in irrows:
                 cells = [fname, julia, group, label]
                 for n in irtrees:
-                    cells += list(d.get(n, ("", "", "", "")))
+                    cells += list(d.get(n, ("", "", "")))
                 fh.write("\t".join(cells) + "\n")
         print(f"wrote {irout}")
 

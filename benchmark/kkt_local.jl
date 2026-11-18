@@ -4,7 +4,7 @@
 #
 #   PB_BASE=<root of the tree before the change> [PB_HEAD=<root of the tree under test>] \
 #     [PB_HISTORY="name=<root>,name=<root>"] [PB_ROUNDS=15] [PB_GROUPS=ADCFBE] [PB_FILTER=<regular expression>] \
-#     [PB_REVERSE=1] [PB_MODE=ir] [PB_IRDEBUG=1] [PB_CHECK_ONLY=1] \
+#     [PB_REVERSE=1] [PB_MODE=ir] [PB_CHECK_ONLY=1] \
 #     julia --threads=1 --project=benchmark benchmark/kkt_local.jl
 #
 # A root is a directory that holds src/ProximalBase.jl. PB_BASE is required; PB_HEAD is the package root that contains this
@@ -45,34 +45,29 @@
 # trees in groups A to D and F (an array point is the same array for each tree, and each tree builds its own iterate from
 # the values); in group E the gradient buffer is shared and each tree builds its SparseIterate.
 #
-# Values. Before a case is timed (and in PB_CHECK_ONLY=1 runs) the script computes, for each tree and each pool member,
-# the results that the loop of the case evaluates (one per index of the case; one per coordinate for the rows over all
-# coordinates; for the scans and the rows of group E, one score per inactive coordinate and the lists of the collected
-# indices and scores) and compares the vectors of the trees with base entry by entry with isequal (NaN equals NaN, -0.0
-# differs from 0.0). The sums that the timed loops return are timing sinks and are not compared. When base, basectl, head
-# and headctl differ in a case, in any row, or one of them fails the case, the script prints a line VALUES DIFFER (or CASE
-# FAILED) and stops with status 1; with PB_CHECK_ONLY=1 it records the line and goes on. History trees and reference kernels
-# are compared and reported and do not stop the run; a history tree or reference kernel that fails a case is left out of
-# that case with a SKIP line and the other trees run.
+# Values. Before a case is timed (and in PB_CHECK_ONLY=1 runs) the script computes, for each tree and each pool member, a
+# check vector: for the loops that evaluate scores, one result per index of the case, one per coordinate for the rows over
+# all coordinates, and for the scans one score per inactive coordinate and the lists of the collected indices and scores.
+# The three rows of a group E case time the check (gradient, then scan), the scan (scanonly) and the gradient (gradonly).
+# The gradient loop evaluates no score: its check computes the gradient and then the scores and scan lists as a separate
+# step, as the check of the first row does; the check of the scanonly row does not compute the gradient (its buffer holds
+# the gradient computed before the row is run). The vectors of the trees are compared with base entry by entry with isequal
+# (NaN equals NaN, -0.0 differs from 0.0). The sums that the timed loops return are timing sinks and are not compared.
+# When base, basectl, head and headctl differ in a case, in any row, or one of them fails the case, the script prints a
+# line VALUES DIFFER (or CASE FAILED) and stops with status 1; with PB_CHECK_ONLY=1 it records the line and goes on.
+# History trees and reference kernels are compared and reported and do not stop the run; a history tree or reference
+# kernel that fails a case is left out of that case with a SKIP line and the other trees run.
 #
-# PB_MODE=ir compares compiled code instead of timing, for the loop of each case of the selected groups (E excluded) and
-# each tree. The text of a row for a tree is the optimized LLVM text of the loop followed by the texts of the Julia
-# functions that it invokes, in the order of first appearance, to a depth of 6 (the invoked method instances come from
-# code_typed of the loop with optimization; a method instance is followed once). Three replacements are made in the text:
-# the names of the tree modules (PBT followed by digits) become TREE; the digits after # become N, and the numeric suffix
-# of a symbol name (the _123 at the end of @julia_lsum_123) becomes _N; the integer in inttoptr (i64 <digits> and the integer
-# stored by store atomic i64 <digits>, (the type tag of an allocation) become PTR.
-# No other literal is replaced. A tree is same when its text equals that of base, differs when it does not, and unresolved
-# when an invoked method is neither a singleton function nor a type constructor or its code could not be generated. A row
-# is noisy, and each of its trees unresolved, when the texts of base and basectl differ, when the texts of head and headctl
-# differ (head is compared with headctl directly), or when one of these four has an unresolved callee: the replacements
-# did not remove the difference between two compilations of the same source, so the comparison does not tell in that row.
-# PB_IRDEBUG=1 prints, for a noisy row, the first differing lines of the pair that differs as IRNOISE lines (pair, then
-# line); for a row where head is differs, the first differing lines of base and head as IRDIFF lines; and the reasons of
-# unresolved callees as IRUNRES lines. Equal text establishes that the loop and the Julia
-# functions it calls (to the depth given) have the same optimized code after the replacements; calls into the runtime and
-# LLVM intrinsics are compared by name only, and the placement of the machine code is not compared. The IR field per tree
-# is name=lines of the loop text:Julia callees followed:calls in the loop text whose target names kkt_violation:state.
+# PB_MODE=ir counts instead of timing, for the loop of each case of the selected groups (E excluded) and each tree. The
+# optimized LLVM text of the loop function (code_llvm, with the argument types of the first pool member) gives three counts:
+# its lines; its call instructions whose called symbol does not start with llvm. (a call through a pointer or an inline
+# assembly has no symbol and is counted as a call); and those of them whose called symbol contains kkt_violation. The called
+# symbol of a call instruction is the name after @ that precedes the argument list, without quotes. The IR field per tree is
+# name=lines:calls:kkt_calls. The counts are those of the loop function with what the compiler inlined into it; the code of a
+# function that the loop calls is not examined. Equal counts in two trees do not establish that their code is equal, and the
+# placement of machine code is not examined. A count of 0 calls naming kkt_violation shows that no call to a function of that
+# name remains in the loop, not what was inlined. A tree whose code is not generated for a case stops the run when it is
+# base, basectl, head or headctl, and is left out of the row with a SKIP line when it is a history tree or a reference kernel.
 #
 # PB_CHECK_ONLY=1 runs the value comparison and the allocation measurement, and no timing rounds, for the cases of the
 # selected groups (E excluded). It exits with status 1 when a stop condition above arose, when one of the four trees
@@ -86,7 +81,7 @@
 #        coordinates of groups B and D, where a history tree or a reference kernel can give another value at a nonzero
 #        coordinate), the number of results compared, whether the four checked trees agree, and per tree name=same|differs
 #   SCAN group, label, the share of positive scores of base and the number of inactive coordinates scored
-#   IR   group, label, and per tree the field described above
+#   IR   group, label, and per tree name=lines:calls:kkt_calls (PB_MODE=ir)
 #   SKIP a history tree or a reference kernel that could not run a case, with the first words of its error
 #   VALUES DIFFER, CASE FAILED, CHECK  stop conditions and the result of PB_CHECK_ONLY=1
 # benchmark/summarize_kkt_local.py reads these lines. Judge a row against its two controls: rows of one loop shape and one
@@ -117,10 +112,9 @@ end
 const ROUNDS = parse(Int, get(ENV, "PB_ROUNDS", "15"))
 const GROUPS = get(ENV, "PB_GROUPS", "ADCFBE")
 const FILTER = Regex(get(ENV, "PB_FILTER", ""))
-const MODE = get(ENV, "PB_MODE", "time")                 # "time", or "ir": compare the optimized LLVM code of the loops, no timing
+const MODE = get(ENV, "PB_MODE", "time")                 # "time", or "ir": count lines and calls of the compiled loops, no timing
 const REVERSE = get(ENV, "PB_REVERSE", "0") == "1"        # reversed order of compilation and of the trees within a round
 const CHECK_ONLY = get(ENV, "PB_CHECK_ONLY", "0") == "1"  # no timing rounds
-const IRDEBUG = get(ENV, "PB_IRDEBUG", "0") == "1"
 MODE in ("time", "ir") || error("PB_MODE is time or ir")
 (MODE == "ir" && CHECK_ONLY) && error("PB_MODE=ir and PB_CHECK_ONLY=1 are separate runs")
 
@@ -272,9 +266,10 @@ struct Part
 end
 median_(a) = (s = sort(a); n = length(s); isodd(n) ? s[(n + 1) >> 1] : (s[n >> 1] + s[(n >> 1) + 1]) / 2)
 
-# ---- values: the results that a loop evaluates, coordinate by coordinate ----------------------------------------------------
+# ---- values: the check vector of a loop, coordinate by coordinate -------------------------------------------------------------
 # shape :idx is one result per index of the case, :all one per coordinate, :scan one score per inactive coordinate and the
-# collected indices and scores (the rows of group E compute the gradient first, as their loops do)
+# collected indices and scores. The check of the loops lcheck and lgrad computes the gradient first, as those loops do; the
+# loop lgrad evaluates no score, so the scores of its check are a separate step after the gradient; lscan does not compute it
 shape(loop) = loop === lsum || loop === lstore || loop === lbarrier ? :idx : loop === lall ? :all : :scan
 struct Res
   scores::Vector{Float64}
@@ -406,84 +401,31 @@ function runcase(group, label, parts0::Vector{Part}, loop, ncalls; batches = 25,
 end
 
 # ---- compiled code ------------------------------------------------------------------------------------------------------------
-# the replacements: names of the tree modules, digits after #, the numeric suffix of a symbol name, the integer of inttoptr
-# and of store atomic i64
-function normir(s)
-  s = replace(s, r"PBT\d+" => "TREE")
-  s = replace(s, r"#\d+" => "#N")
-  s = replace(s, r"(@\"?[^\"\s\(\),@]*?)_\d+(?=[\"\s\(\),]|$)" => s"\1_N")
-  s = replace(s, r"inttoptr \(i64 \d+" => "inttoptr (i64 PTR")
-  replace(s, r"store atomic i64 \d+," => "store atomic i64 PTR,")
+# the called symbol of an LLVM call instruction: the name after @ that precedes the argument list, without quotes; "" for a
+# call through a pointer or an inline assembly; nothing for a line that is not a call instruction
+const CALLSTART = r"^\s*(?:%(?:\"[^\"]*\"|[^\s=]+)\s*=\s*)?(?:(?:tail|notail|musttail)\s+)?call\b"
+const CALLEE = r"\bcall\b[^@%]*?@(\"[^\"]*\"|[^\s(,)]+)\("
+function calledsymbol(line)
+  occursin(CALLSTART, line) || return nothing
+  m = match(CALLEE, line)
+  m === nothing ? "" : strip(m.captures[1], '"')
 end
-const IRMEMO = Dict{Any, Any}()
-# the invoked method instances of the optimized typed code of fn at argument types tt: (function, argument types) pairs,
-# and whether one of them could not be resolved
-function invokes(fn, tt)
-  cis = code_typed(fn, tt; optimize = true)
-  isempty(cis) && return (Tuple{Any, Any}[], ["no typed code"])
-  ci = first(cis).first
-  calls = Tuple{Any, Any}[]; unres = String[]
-  for st in ci.code
-    (st isa Expr && st.head === :invoke) || continue
-    t = st.args[1]
-    mi = t isa Core.MethodInstance ? t : (hasproperty(t, :def) ? t.def : nothing)
-    if !(mi isa Core.MethodInstance) || !(mi.specTypes isa DataType)
-      push!(unres, string("not a method instance: ", typeof(t))); continue
-    end
-    spec = mi.specTypes
-    ft = spec.parameters[1]
-    if Base.issingletontype(ft)
-      push!(calls, (ft.instance, Tuple{spec.parameters[2:end]...}))
-    elseif ft isa DataType && ft <: Type && length(ft.parameters) == 1 && ft.parameters[1] isa DataType   # a constructor
-      push!(calls, (ft.parameters[1], Tuple{spec.parameters[2:end]...}))
-    else
-      push!(unres, string("first parameter is not a singleton: ", ft))
-    end
+# the lines of the text, its calls whose symbol does not start with llvm., and those whose symbol contains kkt_violation
+function ircounts(text)
+  ls = split(text, '\n')
+  calls = 0; kcalls = 0
+  for l in ls
+    sym = calledsymbol(l)
+    (sym === nothing || startswith(sym, "llvm.")) && continue
+    calls += 1
+    occursin("kkt_violation", sym) && (kcalls += 1)
   end
-  calls, unres
+  (lines = length(ls), calls = calls, kcalls = kcalls)
 end
-function irnode(fn, tt)
-  get!(IRMEMO, (fn, tt)) do
-    text = normir(sprint(io -> code_llvm(io, fn, tt; debuginfo = :none)))
-    calls, unres = invokes(fn, tt)
-    (text = text, calls = calls, unres = unres)
-  end
-end
-# the text of the loop for one participant followed by the texts of its Julia callees (depth 6, first appearance)
 function irtree(loop, p::Part)
   v, x, idx = first(p.pool)
   tt = Tuple{typeof(p.kkt), typeof(p.f), typeof(v), typeof(x), typeof(idx), typeof(p.act)}
-  root = irnode(loop, tt)
-  texts = String[root.text]
-  visited = Set{Any}([(loop, tt)])
-  unres = String[]; append!(unres, root.unres)
-  function walk(node, depth)
-    for (fn2, tt2) in node.calls
-      (fn2, tt2) in visited && continue
-      push!(visited, (fn2, tt2))
-      depth > 6 && continue
-      nd = try
-        irnode(fn2, tt2)
-      catch err
-        push!(unres, string("no code for ", fn2, ": ", errtext(err))); continue
-      end
-      push!(texts, nd.text); append!(unres, nd.unres)
-      walk(nd, depth + 1)
-    end
-  end
-  walk(root, 1)
-  ls = split(root.text, '\n')
-  kcalls = count(l -> occursin(r"\bcall\b", l) && occursin("kkt_violation", l), ls)
-  (text = join(texts, "\n;;; callee\n"), lines = length(ls), callees = length(texts) - 1, kcalls = kcalls, unres = unres)
-end
-function firstdiff(a, b)
-  la = split(a, '\n'); lb = split(b, '\n')
-  out = String[]
-  for i in 1:min(length(la), length(lb))
-    la[i] == lb[i] || (push!(out, string("[", i, "] ", la[i], "  ||  ", lb[i])); length(out) >= 3 && break)
-  end
-  length(la) == length(lb) || push!(out, string("lengths ", length(la), " ", length(lb)))
-  out
+  ircounts(sprint(io -> code_llvm(io, loop, tt; debuginfo = :none)))
 end
 function ircase(group, label, parts0, loop)
   n0 = length(parts0)
@@ -492,40 +434,16 @@ function ircase(group, label, parts0, loop)
     try
       nodes[j] = irtree(loop, parts0[j])
     catch err
+      if iscore(parts0[j].name)
+        stopcase!("CASE FAILED", group, label, string(parts0[j].name, ": ", errtext(err)))
+        return
+      end
       println("SKIP\t", group, "\t", label, "\t[", parts0[j].name, "] ", errtext(err))
     end
   end
   keep = [j for j in 1:n0 if nodes[j] !== nothing]
-  parts = parts0[keep]; nd = Any[nodes[j] for j in keep]
-  ib = findfirst(p -> p.name == "base", parts); ic = findfirst(p -> p.name == "basectl", parts)
-  (ib === nothing || ic === nothing) && return
-  ih = findfirst(p -> p.name == "head", parts); ihc = findfirst(p -> p.name == "headctl", parts)
-  (ih === nothing || ihc === nothing) && return
-  four = (ib, ic, ih, ihc)
-  noisy = any(j -> !isempty(nd[j].unres), four) || nd[ib].text != nd[ic].text || nd[ih].text != nd[ihc].text
-  if IRDEBUG
-    for j in eachindex(parts), r in first(unique(nd[j].unres), 3)
-      println("IRUNRES\t", group, "\t", label, "\t", parts[j].name, "\t", r)
-    end
-  end
-  if IRDEBUG
-    for (pair, (j1, j2)) in (("base/basectl", (ib, ic)), ("head/headctl", (ih, ihc)))
-      nd[j1].text == nd[j2].text && continue
-      for l in firstdiff(nd[j1].text, nd[j2].text)
-        println("IRNOISE\t", group, "\t", label, "\t", pair, "\t", l)
-      end
-    end
-    if !noisy && nd[ih].text != nd[ib].text
-      for l in firstdiff(nd[ib].text, nd[ih].text)
-        println("IRDIFF\t", group, "\t", label, "\t", "base/head", "\t", l)
-      end
-    end
-  end
-  desc = map(eachindex(parts)) do j
-    state = noisy || !isempty(nd[j].unres) ? "unresolved" : nd[j].text == nd[ib].text ? "same" : "differs"
-    string(parts[j].name, "=", nd[j].lines, ":", nd[j].callees, ":", nd[j].kcalls, ":", state)
-  end
-  println("IR\t", group, "\t", label, "\t", join(desc, ";"))
+  println("IR\t", group, "\t", label, "\t",
+          join((string(parts0[j].name, "=", nodes[j].lines, ":", nodes[j].calls, ":", nodes[j].kcalls) for j in keep), ";"))
   flush(stdout)
 end
 

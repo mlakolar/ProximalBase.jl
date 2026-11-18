@@ -429,10 +429,10 @@ all coordinates of points with a share of zeros and the scan of the inactive coo
 for weighted and unweighted `NormL1` and `ElasticNet` and plain and centered `SqrNormL2`; group C `GroupNormL2`; group D the unweighted
 `NormL1` against four reference kernels; group E one optimality check, in ns per inactive coordinate; group F a zero group of a
 `BlockIterate` and a zero coordinate of a `SymmetricSparseIterate`. Before a case is timed the script compares each coordinate result (and
-the scan lists) of the trees with `base`; if `base`, `basectl`, `head` and `headctl` differ it prints `VALUES DIFFER` and exits with status
-1. `PB_MODE=ir` compares the optimized LLVM text of each loop and of the Julia functions it invokes after replacing tree names, numeric
-symbol suffixes and `inttoptr` integers: `same` is equal text (machine-code placement is not compared), `unresolved` a callee that could not
-be followed, or a row where a control differs from its tree (`basectl` from `base`, `headctl` from `head`). `PB_CHECK_ONLY=1` runs the value
+the scan lists) of the trees with `base`; if `base`, `basectl`, `head` and `headctl` differ it prints `VALUES DIFFER` and exits with a
+failure status. `PB_MODE=ir` counts, for the loop of each case, the lines of its optimized LLVM text, its call instructions whose called
+symbol does not start with `llvm.`, and those that name `kkt_violation`; the counts are those of the loop function with what was inlined
+into it, the code of the functions it calls is not examined, and equal counts do not establish equal code. `PB_CHECK_ONLY=1` runs the value
 and allocation checks without timing and ends with `CHECK PASS (<n> cases)` or `CHECK FAIL`. `summarize_kkt_local.py` gives per row the
 median ns per call and the paired ratios `head/base` (`base/pre`, `head/pre` with a history tree `pre`) with the controls and
 `head_vs_controls`. Compare a row with its two controls: rows of one loop shape and function move together, so a difference of the size of

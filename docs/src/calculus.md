@@ -142,8 +142,12 @@ remain `BigFloat`.
   returned the screen of the function at the unscaled `v`.
 * **Functions without the forms.** `NormLinf`, the losses and `IndNonnegative` have no
   four-argument or full-point score (for `IndNonnegative`, only the three-argument screen `-v[i]`
-  exists, which `Scaled` with a finite factor, tested for 2 and 0.25, also gives; an infinite factor
-  gives `NaN` at a finite `v[i]`); the call on the `Scaled` function throws a `MethodError` (the call names the `Scaled`
+  exists; under a single `Scaled(IndNonnegative(), α)` with finite `α` it is `α * kkt_violation(f, v/α, i)`,
+  evaluated on the lazy gradient `v/α`, so it equals `-v[i]` when `v[i]/α` and its product with `α` are
+  exact (tested for `α = 2` and `0.25` at `v = [-0.5, 0.25, -3, 0]`), and it can round, underflow or
+  overflow otherwise: `kkt_violation(Scaled(f, 2.0), [nextfloat(0.0)], 1)` is `-0.0` and
+  `kkt_violation(Scaled(f, 0.25), [floatmax(Float64)], 1)` is `-Inf`; an infinite factor gives `NaN` at a
+  finite `v[i]`); the call on the `Scaled` function throws a `MethodError` (the call names the `Scaled`
   function). A function defined outside the package is treated as in
   [Writing your own function](extending.md).
 

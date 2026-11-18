@@ -35,10 +35,13 @@ julia> prox(f, [2.0, -1.0], 0.5)
   does not enter the result.
 - [`value_and_prox!`](@ref) returns the value at the stored output: `NaN` when an
   output entry is `NaN`, and otherwise `0`.
-- On a [`SparseIterate`](@ref) or [`SymmetricSparseIterate`](@ref), the value and the
-  proximal operator read stored entries only.
-- [`kkt_violation`](@ref) has the screen `-v[i]` only (positive when a zero coordinate would
-  violate the constraint); the point-aware forms are not defined.
+- The value of a [`SparseIterate`](@ref) or [`SymmetricSparseIterate`](@ref), and the proximal operator
+  from a `SparseIterate` into a `SparseIterate` or from a `SymmetricSparseIterate` into a
+  `SymmetricSparseIterate`, read stored entries only. A dense output from a sparse or symmetric input
+  goes through the dense loop and reads every entry, the unstored ones as zeros.
+- [`kkt_violation`](@ref) has the screen `-v[i]` only (positive when `v[i] < 0`, where the first-order
+  optimality condition fails at a zero coordinate: increasing it decreases the objective to first
+  order); the point-aware forms are not defined.
 
 See [the numerical contract](@ref numerics) for the endpoint rules.
 """
@@ -70,7 +73,8 @@ prox!(y::_ArrayOrSymmetricIterate, f::IndNonnegative, x::_ArrayOrSymmetricIterat
 value_and_prox!(y::_ArrayOrSymmetricIterate, f::IndNonnegative, x::_ArrayOrSymmetricIterate, γ::Real) =
   (_check_indnonnegative_step(γ); invoke(value_and_prox!, _SeparableScalarStep, y, f, x, γ))
 
-# the screen of coordinate i assumed zero: positive when v[i] < 0, where zero violates the constraint
+# the screen of coordinate i assumed zero: positive when v[i] < 0, where the first-order optimality condition
+# fails at zero (increasing the coordinate decreases the objective to first order)
 kkt_violation(::IndNonnegative, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); -g[i])
 

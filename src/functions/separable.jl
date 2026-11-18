@@ -201,9 +201,8 @@ function _prox_sep!(y::SymmetricSparseIterate, f, x::Union{AbstractMatrix, Symme
   y
 end
 
-# the proximal operator, then the value at the result (also for an indicator function, whose output can
-# hold a NaN entry): two vectorized passes are several times faster than one that stores and sums, which
-# does not vectorize
+# the proximal operator, then the value at the stored output, also for an indicator function: an output
+# entry that is NaN gives a NaN value
 _value_and_prox_sep!(y::_ArrayOrSymmetricIterate, f, x::_ArrayOrSymmetricIterate, γ::Union{Real, AbstractArray}) =
   _value_sep(f, _prox_sep!(y, f, x, γ))
 

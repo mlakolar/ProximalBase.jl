@@ -144,6 +144,7 @@ filter_re = Regex(get(ENV, "PB_FILTER", ""))
 for r in keys(suites)
     filter!(p -> occursin(filter_re, p.id), suites[r])
 end
+isempty(suites["archive"]) && error("PB_FILTER selects no case: ", repr(get(ENV, "PB_FILTER", "")))
 @assert getfield.(suites["archive"], :id) == getfield.(suites["candidate"], :id) == getfield.(suites["control"], :id)
 
 # the outputs are compared bit for bit: the inputs avoid the three intended differences from the archive

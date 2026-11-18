@@ -7,7 +7,7 @@ module IndNonnegativeTest
 #
 # The references are written here with comparisons and ifelse, not with max or the kernels of the package, and are
 # compared with isequal and the type of the result, so that signed zeros and NaN count.
-using Test, ProximalBase, LinearAlgebra, SparseArrays, OffsetArrays
+using Test, ProximalBase, LinearAlgebra, SparseArrays, OffsetArrays, Random
 using ..TestUtils
 const PB = ProximalBase
 
@@ -83,7 +83,7 @@ end
     vals = specials(T)
     for v in vals
       @test same(value_entry(IND, v, 1), refentry(v))
-      for γ in (T(0), one(T), T(Inf), -one(T), T(NaN))         # prox_block does not read the step
+      for γ in (T(0), one(T), T(Inf), -one(T), T(NaN))         # prox_block ignores the step
         @test same(prox_block(IND, v, 1, γ), refprox(v))
       end
       @test same(IND([v]), refvalue([v]))
@@ -192,7 +192,7 @@ end
       @test_throws ArgumentError prox(IND, S, γ)
       @test sameall(Matrix(S), Matrix(S0)) && collect(activecoordinates(S)) == collect(activecoordinates(S0))
     end
-    # an array of steps, any entries, projects: the entries are not read
+    # an array of steps, any entries, projects: the entries are read by the loops, not checked, and do not change the projection
     steps = T[mod(i, 3) == 0 ? -one(T) : (mod(i, 3) == 1 ? T(NaN) : T(Inf)) for i in eachindex(x)]
     @test sameall(prox(IND, x, steps), ref)
     y = similar(x)
@@ -597,7 +597,7 @@ end
     @test allocs(value_and_prox!, y, IND, x, one_) == 0
     @test allocs(prox!, y, IND, x, ones(T, 8)) == 0
     @test allocs(value_and_prox!, y, IND, x, ones(T, 8)) == 0
-    xl = randn(T, 4096); yl = similar(xl)
+    xl = randn(Xoshiro(948), T, 4096); yl = similar(xl)
     @test allocs(IND, xl) == 0
     @test allocs(prox!, yl, IND, xl, one_) == 0
     @test allocs(value_and_prox!, yl, IND, xl, one_) == 0

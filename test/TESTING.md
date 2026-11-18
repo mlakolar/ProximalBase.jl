@@ -50,7 +50,7 @@ kernels: the truth table over the infinities, extremes, subnormals, signed zeros
 projection `max(v, 0)` with `-0` and `-Inf` giving `+0`), integer inputs, the admitted and refused scalar steps (refusal
 before writes, also with an aliased argument and on iterates), the routes that do not check the step (an array of
 steps, `prox_block`, `Scaled`), dense, view, reshape, `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate`
-arguments, a counting element type that shows the value and the proximal operator read stored entries only, validation
+arguments, a counting element type that shows the value, and the proximal operator between iterates of the same kind, read stored entries only, validation
 before writes (size, complex entries, offset axes), the value returned by `value_and_prox!` equal to the value at the
 stored output (`NaN` included), `Scaled` with finite, huge and infinite factors and nested chains, the screen and the
 `MethodError` of the forms with a point, traits, inference and warmed allocations.

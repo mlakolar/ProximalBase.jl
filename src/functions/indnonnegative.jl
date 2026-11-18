@@ -51,11 +51,12 @@ isconvex(::Type{IndNonnegative}) = true
 iszeropreserving(::IndNonnegative) = true
 _isindicator(::Type{IndNonnegative}) = true
 
-# 0 at v >= 0 (-0.0 and +Inf included), NaN at a NaN entry, Inf at a negative entry (-Inf included); the sum of such
+# Three cases with one select: 0 at v >= 0 (-0.0 and +Inf included); at a negative v (-Inf and the subnormals
+# included) the product S(v) * (-Inf) is +Inf; a NaN fails the comparison and NaN * (-Inf) is NaN. The sum of such
 # values is NaN when an entry is NaN, otherwise Inf when an entry is negative, otherwise 0.
 Base.@propagate_inbounds function value_entry(::IndNonnegative, v::T, ::Integer) where {T<:Real}
   S = float(T)
-  ifelse(isnan(v), S(NaN), ifelse(v >= 0, zero(S), S(Inf)))
+  ifelse(v >= 0, zero(S), S(v) * S(-Inf))
 end
 # max(float(v), +0): -0.0 and -Inf give +0.0, NaN stays NaN; the step does not enter
 Base.@propagate_inbounds prox_block(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} =

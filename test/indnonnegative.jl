@@ -123,6 +123,7 @@ end
   @test same(IND(Int32[1, 2]), 0.0)
   @test same(IND(Int[]), 0.0)
   @test same(value_entry(IND, -2, 1), Inf)
+  @test same(value_entry(IND, Int8(-1), 1), Inf) && same(IND(Int32[-1]), Inf) && same(IND(Int8[0, 3]), 0.0)
   @test same(value_entry(IND, 0, 1), 0.0)
   @test same(prox_block(IND, -2, 1, 1.0), 0.0)
   @test same(prox_block(IND, 3, 1, 1.0), 3.0)

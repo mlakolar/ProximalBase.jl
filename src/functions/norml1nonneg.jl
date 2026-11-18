@@ -184,8 +184,10 @@ kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation);
    _nonneg_screen(g[i], _kkt_coefficient(eltype(g), f.λ0, _entry(f.w, i))))
 # -gᵢ - c, formed in the promotion of the types of gᵢ and of the coefficient c (the type in which NormL1 forms
-# abs(gᵢ) - c), with an unsigned type replaced by its floating type, so that the sign change does not wrap an unsigned or
-# a typemin entry. A floating gradient has the coefficient in its own type, and the arithmetic is that of -gᵢ - c.
+# abs(gᵢ) - c). An unsigned promoted type is replaced by its floating type, so an unsigned entry does not wrap. A signed
+# integer entry is converted to the type of c when the level or the weight is floating, so typemin does not wrap there.
+# With an integer level and integer weights the screen stays in the signed integer type, and typemin wraps as it does in
+# NormL1 (abs(typemin)). A floating gradient has the coefficient in its own type, and the arithmetic is that of -gᵢ - c.
 @inline function _nonneg_screen(gi, c)
   P = promote_type(typeof(gi), typeof(c))
   W = P <: Unsigned ? float(P) : P

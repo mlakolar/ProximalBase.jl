@@ -393,8 +393,9 @@ plant(x, k, v) = (y = copy(x); y[k] = v; y)
   end
 
   @testset "the screen of integer, unsigned and Bool gradients" begin
-    # the gradient entry is converted to the promotion of its type and the coefficient's before the sign changes, so that
-    # an unsigned entry or a typemin entry does not wrap: the result is the Float64 screen of the converted entry
+    # the gradient entry is converted to the promotion of its type and the coefficient's before the sign changes. With a
+    # floating level an unsigned entry or a typemin entry does not wrap: the result is the Float64 screen of the converted
+    # entry. With an integer level and weights a signed entry stays in its integer type (below).
     w4 = [1.0, 2.0, 0.5, 4.0]
     for f in (NormL1Nonneg(0.5), NormL1Nonneg(0.3, w4), NormL1Nonneg(0.0, w4), NormL1Nonneg(Inf, w4))
       n = 4

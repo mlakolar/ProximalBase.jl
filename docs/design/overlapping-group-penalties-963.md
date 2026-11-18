@@ -358,8 +358,8 @@ reach the proximal point to a certified accuracy (a duality gap) after a number 
   the `O(p²)` band norms it costs `p − 1` root solves of a two-term equation, keeping the running norm of the earlier
   bands. With `b_ℓ = √(2ℓ)` and `a_ℓ = √(2/ℓ)`: `w₀(0) = max_m (2m + Σ_{ℓ>m} 2/ℓ) = 2(p − 1)`, and
   `Σ_{ℓ≥m} w_{ℓm}²/(2ℓ) = 1 + Σ_{ℓ>m} 1/ℓ² ≤ π²/6`. They penalize all farther bands of a group alike, unlike (8). On our
-  reading the proofs of Theorems 13 and 6 and Corollary 2 (Frobenius rate) hold for such weights; the bandwidth and
-  operator-norm theorems were not re-derived (addendum, Section 5.2).
+  reading the proofs of Theorems 13, 6, 3 and 4 and Corollary 2 hold for such weights when `Σ_ℓ a_ℓ² ≤ C p` (addendum,
+  Section 5.2); Theorems 5, 9 and 10 were not re-derived.
 - *Dual block coordinate descent on the band norms*, stopped at a duality gap of `1e-12 (1 + ‖r‖²)`. Each sweep costs
   `p − 1` root solves, `O(p²)` operations per round of root iterations; the dual blocks take `p(p−1)/2` numbers. From
   zero (the first sweep is one pass), five instances per size, `p = 8, …, 128`, four families (probe C): 1–5 sweeps
@@ -389,8 +389,8 @@ reach the proximal point to a certified accuracy (a duality gap) after a number 
 
 **(e) For #965.** The options, for the maintainer to choose:
 1. the basic weights (2.5), arXiv (7): one pass exact (Proposition 2), `O(p²)`, but the slower rate of Remark 6;
-2. two-value weights in the one-pass class: one pass exact; the Frobenius rate holds on our reading of the proofs, the
-   bandwidth and operator-norm theory was not re-derived (addendum, Section 5.2);
+2. two-value weights in the one-pass class: one pass exact; Theorems 13, 6, 3, 4 and Corollary 2 hold on our reading
+   of the proofs, Theorems 5, 9 and 10 were not re-derived (addendum, Section 5.2);
 3. the general weights (2.6), arXiv (8), evaluated to a certified gap, by dual block coordinate descent or a
    Newton-type method as above. On our probes dual block coordinate descent needed 1 to 7591 sweeps and had not
    reached the gap after 100000 in one instance; counts above 300 came with a group norm below `0.005 λ w_ℓℓ` at the

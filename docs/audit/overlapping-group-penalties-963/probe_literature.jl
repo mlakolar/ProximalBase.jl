@@ -214,7 +214,19 @@ let rng = Xoshiro(11963), N = 300
   ok, det = sweep(rng, N, (rng, n, sets, kids) ->
     Any[!isempty(kids[j]) ? linf(sets[j], w03(rng)) : rand(rng) < 0.7 ? WL1(sets[j], [w03(rng) for _ in sets[j]]) : linf(sets[j], w03(rng))
         for j in eachindex(sets)])
-  record("L3 $N random laminar families (seeded), ω‖·‖∞ on each group that contains another, weighted ℓ1 or ℓ∞ on the others, one pass exact", ok, det)
+  record("L3 $N random laminar families (seeded), ω‖·‖∞ on each group that contains another (an equal group placed before it included), weighted ℓ1 or ℓ∞ on the others, one pass exact", ok, det)
+end
+
+# Without the duplicate clause: ‖z‖∞ and then |z₁| + 0|z₂| on the same group {1,2}, in exact rational arithmetic.
+let R = Rational{BigInt}
+  y = R[2, 19//10]; t = R(1)
+  G = Any[linf([1, 2], R(1)), WL1([1, 2], R[1, 0])]
+  x12, _ = pass(y, G, [1, 2], t)                    # the ℓ∞ copy first: the ℓ1 group comes after an equal ℓ∞ group
+  x21, ξ21 = pass(y, G, [2, 1], t)                  # the ℓ1 copy first
+  g21 = gap(y, x21, ξ21, G, t)
+  record("L3 duplicates {1,2}: ‖z‖∞ then |z₁|, t = 1, y = (2, 19/10): one pass refuted (exact), the order with |z₁| first certified",
+         x12 == R[9//20, 29//20] && x21 == R[19//20, 19//20] && iszero(g21),
+         "one pass $(join(string.(x12), ", ")), proximal point $(join(string.(x21), ", ")) (rational gap $(g21))")
 end
 
 # --- The weights (W3) of Jenatton, Audibert and Bach on a chain: d^ℓ_j = ρ^(ℓ−j) ------------------

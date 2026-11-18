@@ -177,10 +177,10 @@ Read in arXiv:1405.6210v1; the norms (35) use `w_ℓ := w_ℓℓ`, the notation 
   `4(2 + C)x²` and other constants in `≲`, and so does Corollary 2. Appendices G.1 and H do not use Property 1, which
   these weights satisfy exactly when `a_ℓ ≤ √(2ℓ)`. Both `a_ℓ = √(2/ℓ)` and `a_ℓ = √2` give `w₀(0) = 2(p − 1)`. The
   theorems state "(6) or (8)": the extension is ours, not the paper's, and is listed for verification in Section 12.
-- *Bandwidth and operator norm.* Theorems 3–5 (pp. 10–11) are stated for `w_ℓ = √(2ℓ)` and any other weights
-  (Theorem 5 adds `w_ℓℓ ≥ w_{ℓ+1,ℓ} > 0`); their proofs (Appendix F, p. 31) argue on the one-pass recursion (12), which
-  for weights in the one-pass class is the minimizer (Proposition 4(a)). The proofs of Theorems 3 and 4, which we read
-  in full, use only `w_ℓℓ = √(2ℓ)` and the diagonal term of `h_ℓ(0)`, so both hold for two-value weights
+- *Bandwidth and operator norm.* Theorems 3–5 (pp. 10–11) are stated for `w_ℓ = √(2ℓ)` and any other weights (Theorem
+  5 adds `w_ℓℓ ≥ w_{ℓ+1,ℓ} > 0`); their proofs (Appendix F, p. 31) argue on the one-pass recursion (12), which for
+  weights in the one-pass class is the minimizer (Proposition 4(a)). The proofs of Theorems 3 and 4, which we read in
+  full, use the weights through `w_ℓℓ = √(2ℓ)` and the diagonal term of `h_ℓ(0)` alone, so both hold for these weights
   **[proved here]**; Theorem 5 was not re-derived. Theorem 9 (Appendix J) needs `K̂ = K`, (12), Property 1 (the line
   before (50), p. 41), `w_ℓℓ = √(2ℓ)` and `Σ_{ℓ≥m} w_ℓm²/(2ℓ) ≲ 1` (ours, from the text): so `a_ℓ ≤ √(2ℓ)`, and
   `a_ℓ = √(2/ℓ)` gives at most `π²/6` while `a_ℓ = √2` gives `1 + Σ_{ℓ>m} 1/ℓ`, of order `log p`. Not re-derived.

@@ -479,6 +479,12 @@ that of `f`. The value of `kkt_violation(f, v, x)` is then a maximum of block 2-
 to first order in `n*u`, with `n` the size of the block and `u = eps(W)/2` for the working type `W` of `v` and `x`; outside
 that range the sums are scaled by an exponent, which extends the range and not the precision.
 
+`NormLinf(λ)` has the full-point form (its forms for an entry or a group throw an `ArgumentError`) and returns the
+Euclidean distance from `-v` to the subdifferential of `λ*maximum(abs, x)` at `x`. At `x = 0` that is the distance from `v`
+to the ℓ1 ball of radius `λ`, which is `0` when `sum(abs, v) <= λ`. At `x ≠ 0` the face is the set of entries whose
+magnitude equals the largest one after conversion to the working type, with no tolerance, so the value is not continuous
+in `x` where a tie forms or breaks.
+
 `Scaled` with a finite positive factor `α` evaluates the existing score of its function (the functions above; `NormL2` in
 the full-point form) on the lazy gradient `v/α`, with the rounding and range limits of that evaluation, and multiplies it by
 `α`; underflow, overflow and `NaN` are not recovered. For a chain of wrappers whose factors do not multiply to a normal number, the product is applied to the gradient

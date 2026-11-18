@@ -654,14 +654,14 @@ kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
 
 # ---- the point-aware scores of a scaled function ----
 # Which leaves have the four-argument and full-point scores: _KktScore for the functions of this package that have them
-# (NormL2 has the full-point form and throws an ArgumentError in the others), _KktNone for the other functions of this
+# (NormL2 and NormLinf have the full-point form and throw an ArgumentError in the others), _KktNone for the other functions of this
 # package, _KktCustom for a function defined outside it. The class of a Scaled is that of the function under all its
 # wrappers. The class is a singleton type chosen by dispatch, or by the module of the type, which inference folds.
 struct _KktScore end
 struct _KktNone end
 struct _KktCustom end
 Base.@assume_effects :foldable _kkt_class(::Type{F}) where {F} = parentmodule(F) === (@__MODULE__) ? _KktNone() : _KktCustom()
-_kkt_class(::Type{<:Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2, GroupNormL2, NormL2}}) = _KktScore()
+_kkt_class(::Type{<:Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2, GroupNormL2, NormL2, NormLinf}}) = _KktScore()
 _kkt_class(::Type{<:Scaled{F}}) where {F} = _kkt_class(F)
 _kkt_innermost(f::AbstractFunction) = f
 _kkt_innermost(s::Scaled) = _kkt_innermost(s.f)
@@ -697,13 +697,15 @@ _kkt_depth(s::Scaled) = 1 + _kkt_depth(s.f)
 #   ZeroFunction                 itself (|vᵢ|);
 #   LinearFunction, SqrNormL2    |vᵢ + a dᵢ| with dᵢ the entry of the leaf's gradient (_KktChain);
 #   NormL1, ElasticNet           the function with the folded levels (_fold_level);
-#   GroupNormL2, NormL2          the block kernel with the level folded by _folded_level (_KktLevel).
+#   GroupNormL2, NormL2          the block kernel with the level folded by _folded_level (_KktLevel);
+#   NormLinf                     the full-point kernel with the level folded by _folded_level (_KktLevel).
 # Levels that do not fold to a normal number, and a function defined outside the package, have none.
 _kkt_resolve(f::ZeroFunction, a) = f
 _kkt_resolve(f::Union{LinearFunction, SqrNormL2}, a) = _KktChain(f, a)
 _kkt_resolve(f::Union{NormL1, ElasticNet}, a) = _fold_level(f, a)
 _kkt_resolve(f::GroupNormL2, a) = (λ = _folded_level(f.λ0, a); λ === nothing ? nothing : _KktLevel(f, λ))
 _kkt_resolve(f::NormL2, a) = (λ = _folded_level(f.λ, a); λ === nothing ? nothing : _KktLevel(f, λ))
+_kkt_resolve(f::NormLinf, a) = (λ = _folded_level(f.λ, a); λ === nothing ? nothing : _KktLevel(f, λ))
 _kkt_resolve(f, a) = nothing
 
 # |vᵢ + a dᵢ| with dᵢ the entry of the gradient of f at x, multiplied by a as the gradient of the chain multiplies it
@@ -730,7 +732,7 @@ Base.@propagate_inbounds function _kkt_entry(c::_KktChain{<:SqrNormL2}, s, ::Typ
   iszero(xw) && c.f.y === nothing && return _kkt_override(abs(vw), vw, xw)
   _kkt_override(abs(vw + convert(W, _apply_scale(c.a, _kkt_ridge(c.f.y, s, W, xw, i)))), vw, xw)
 end
-# a GroupNormL2 or NormL2 with the level λ that the chain folds into it
+# a GroupNormL2, NormL2 or NormLinf with the level λ that the chain folds into it
 struct _KktLevel{F, T}
   f::F
   λ::T

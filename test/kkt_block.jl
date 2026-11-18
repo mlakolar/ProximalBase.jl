@@ -644,8 +644,9 @@ end
   @test kkt_violation(sl, GS, S, 2) ≈ T(2.5) atol = 4 * eps(T)             # the symmetric pair (2 + 3)/2, level tiny^2 lvl
   @test kkt_violation(sl, GS, S, 1) === kkt_violation(sl, GS, 1)
   # a chain around a function with no score: a MethodError for the call on the chain
-  @test_throws MethodError kkt_violation(chain(T, NormLinf(T(1))), T[1, 2], T[0, 1], 1)
-  @test_throws MethodError kkt_violation(chain(T, NormLinf(T(1))), T[1, 2], T[0, 1])
+  sqr = SqrtLeastSquaresLoss(T[1, 2, 3], T[1 0; 0 1; 1 1])
+  @test_throws MethodError kkt_violation(chain(T, sqr), T[1, 2], T[0, 1], 1)
+  @test_throws MethodError kkt_violation(chain(T, sqr), T[1, 2], T[0, 1])
 end
 
 # ---- 9. an infinite factor, functions without a score, functions defined outside the package -------------------------------
@@ -697,7 +698,7 @@ PB.kkt_violation(s::Scaled{<:OwnScaled}, g::AbstractArray, x::AbstractArray) = 7
   @test occursin("Scaled wrappers around GroupNormL2", msg(() -> kkt_violation(cg, T[0.3, 0.4, 2], T[0, 0, 5], 3)))
   @test kkt_violation(cg, T[0.3, 0.4, 2], T[0, 0, 0], 3) isa T
   # a function of the package without a score: a MethodError for the call on the Scaled function
-  for f in (NormLinf(T(1)), SqrtLeastSquaresLoss(randn(T, 3), randn(T, 3, 2)))
+  for f in (SqrtLeastSquaresLoss(randn(T, 3), randn(T, 3, 2)),)
     for s in (Scaled(f, T(2)), Scaled(Scaled(f, T(2)), T(3)))
       e = try kkt_violation(s, zeros(T, 2), zeros(T, 2), 1); nothing catch e; e end
       @test e isa MethodError && e.f === kkt_violation && e.args[1] === s
@@ -890,7 +891,8 @@ end
   end
   sf = Scaled(f, T(2))
   @test @inferred(PB._kkt_class(typeof(sf))) isa PB._KktScore
-  @test @inferred(PB._kkt_class(typeof(Scaled(NormLinf(T(1)), T(2))))) isa PB._KktNone
+  @test @inferred(PB._kkt_class(typeof(Scaled(NormLinf(T(1)), T(2))))) isa PB._KktScore
+  @test @inferred(PB._kkt_class(typeof(Scaled(SqrtLeastSquaresLoss(T[1, 2], T[1 0; 0 1]), T(2))))) isa PB._KktNone
   @test @inferred(PB._kkt_class(typeof(Scaled(OwnAll(), T(2))))) isa PB._KktCustom
 end
 

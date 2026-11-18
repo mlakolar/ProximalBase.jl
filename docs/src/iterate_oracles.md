@@ -87,14 +87,17 @@ form and no other.
 | Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The block score of that group, `abs(v[k])` for an entry in no group (also when `x[k]` is nonzero) |
 | Any point, `NormL2` | No form for an entry or a group: `ArgumentError` that names the full-point form |
 
-For `NormL1` and `ElasticNet`, a call of the four-argument form reads `x[k]`, evaluates the score of a zero entry and that
-of a nonzero one, and selects between them; `SqrNormL2` forms its gradient entry from `x[k]` (and from the center, when it
-has one); and each of the five functions applies the rules for non-finite values to the entries of `v` and `x` that its formula
-uses. A call therefore does more work than a call of the three-argument screen. For these five functions the caller chooses between the forms for a
-coordinate that it knows to be zero: at an array or a `SparseIterate` point and the same index, the three-argument form returns
-the same value as the four-argument form when `v`, `x` and the parameters of the function (levels, weights, centers,
-coefficients) are `Float32` or `Float64` arrays and values of one type, `v[k]` is finite and the function is not a `SqrNormL2`
-with an infinite level.
+At an array that is not a `BlockIterate` and at a `SparseIterate`, where `k` is an entry index, a call of the four-argument
+form for `NormL1` and `ElasticNet` reads `x[k]`, evaluates the score of a zero entry and that of a nonzero one, and selects
+between them; `SqrNormL2` forms its gradient entry from `x[k]` (and from the center, when it has one); and each of the five
+functions applies the rules for non-finite values to the entries of `v` and `x` that its formula uses. A call therefore does
+more work than a call of the three-argument screen. For these five functions the caller chooses between the forms for a
+coordinate that it knows to be zero: at those points, the three-argument form returns the same value as the four-argument form
+with the same index when `v`, `x` and the parameters of the function (levels, weights, centers, coefficients) are `Float32` or
+`Float64` arrays and values of one type, `v[k]` is finite and the function is not a `SqrNormL2` with an infinite level. A
+`BlockIterate`, where `k` is a group and the form takes the maximum over the entries of the group, and a
+`SymmetricSparseIterate`, where the form reads the symmetric gradient pair and the stored value, are not covered by this
+statement.
 
 For `SparseIterate`/`SymmetricSparseIterate`, invalid coordinate throws `BoundsError` before
 extent mismatch throws `DimensionMismatch`, after checking one-based axes and

@@ -4,7 +4,7 @@
 #
 #   PB_BASE=<root of the tree before the change> [PB_HEAD=<root of the tree under test>] \
 #     [PB_HISTORY="name=<root>,name=<root>"] [PB_ROUNDS=15] [PB_GROUPS=ADCFBE] [PB_FILTER=<regular expression>] \
-#     [PB_REVERSE=1] [PB_MODE=ir] [PB_CHECK_ONLY=1] \
+#     [PB_REVERSE=1] [PB_MODE=ir] [PB_IRDEBUG=1] [PB_CHECK_ONLY=1] \
 #     julia --threads=1 --project=benchmark benchmark/kkt_local.jl
 #
 # A root is a directory that holds src/ProximalBase.jl. PB_BASE is required; PB_HEAD is the package root that contains this
@@ -17,44 +17,78 @@
 # of a round is the minimum over batches of the time of one pass over the pool, per call; the rounds rotate the order of the
 # trees. PB_ROUNDS is the number of rounds (default 15), PB_GROUPS selects groups of cases (the letters A to F; the groups
 # run in the order A, D, C, F, B, E), PB_FILTER a regular expression on the case label, and PB_REVERSE=1 compiles and times
-# the trees in the reversed order (the second process of a measurement). The groups are
+# the trees in the reversed order (the second process of a measurement): the source trees are included, the first calls of
+# a case (validation, warm-up, allocation measurement) and the generation of compiled code visit the trees in that order.
+# The groups are
 #   A  zero coordinates of NormL1, ElasticNet (unweighted and weighted), SqrNormL2 (plain and centered), ZeroFunction,
 #      LinearFunction and Scaled of NormL1, ElasticNet and SqrNormL2, in Float64 and Float32: the four-argument form at array,
 #      view and SparseIterate points and the three-argument form at array points, with the results summed, stored, and
 #      each call behind a function barrier
-#   B  all coordinates of points with 50%, 90% and 99% zeros (lengths 2000 and 10^6), and the scan of the inactive
-#      coordinates in the form of the loop that an active-set solver used (the largest score and the list of the positive
-#      ones), with the four-argument form and, at array points, the three-argument form
+#   B  NormL1 and ElasticNet (unweighted and weighted), SqrNormL2 (plain and centered) and, for the scans, Scaled NormL1:
+#      all coordinates of points with 50%, 90% and 99% zeros (lengths 2000 and 10^6) with the four-argument form, and the
+#      scan of the inactive coordinates in the form of the loop that an active-set solver used (the largest score and the
+#      list of the positive ones) with the four-argument form at array and SparseIterate points and with the three-argument
+#      form at array points. The scan level leaves about 1% of the scores of NormL1, ElasticNet and Scaled NormL1 positive
+#      (the weighted ones use a larger level for weights in [0.5, 1.5)); SqrNormL2 has no threshold (its score is
+#      abs(v + d)), so its scan collects nearly all coordinates. A SCAN line gives the measured share of positive scores
 #   C  GroupNormL2 and Scaled of it at zero groups of four entries, at array and BlockIterate points
 #   D  where the work of the four-argument form comes from: the unweighted NormL1 at array points against four reference
 #      kernels written in this file (the screen, the point read with a selection, that with the tests for non-finite values,
 #      and one test of finiteness with the rules in a function that is not inlined), reported and not a design
-#   E  one optimality check of an active-set design: the gradient X'r of a dense n x p design followed by the scan of the
-#      inactive coordinates of a SparseIterate, and each of the two parts alone
+#   E  one optimality check of an active-set design, with unweighted NormL1 and ElasticNet: the gradient X'r of a dense
+#      n x p design followed by the scan of the inactive coordinates of a SparseIterate, and each of the two parts alone.
+#      The three rows of a case are normalized by the number of inactive coordinates (the unit is ns per inactive
+#      coordinate); the gradient row makes no kkt_violation call
 #   F  a zero group of a BlockIterate and a zero coordinate of a SymmetricSparseIterate under the entrywise functions
 # The rows over all coordinates of Scaled NormL1 in group B are left out: a history tree from before the methods of Scaled
-# for a nonzero coordinate refuses a Scaled function there. A history tree that fails a case gives a SKIP line for it.
+# for a nonzero coordinate refuses a Scaled function there. The dense v and x of a case are built once and shared by the
+# trees in groups A to D and F (an array point is the same array for each tree, and each tree builds its own iterate from
+# the values); in group E the gradient buffer is shared and each tree builds its SparseIterate.
 #
-# PB_MODE=ir compares compiled code instead of timing: for the loop of each case of the selected groups (E excluded) and
-# each tree the script takes the optimized LLVM text, replaces the names of the tree modules, numbered symbols and
-# addresses, and counts lines, calls and calls whose text names kkt_violation. A tree whose text equals that of base is
-# marked same, otherwise differs. Two trees whose loops compile to the same code are meant to give the same text, and equal
-# text means that the loop is the same code for them, not that the machine code is placed alike.
+# Values. Before a case is timed (and in PB_CHECK_ONLY=1 runs) the script computes, for each tree and each pool member,
+# the results that the loop of the case evaluates (one per index of the case; one per coordinate for the rows over all
+# coordinates; for the scans and the rows of group E, one score per inactive coordinate and the lists of the collected
+# indices and scores) and compares the vectors of the trees with base entry by entry with isequal (NaN equals NaN, -0.0
+# differs from 0.0). The sums that the timed loops return are timing sinks and are not compared. When base, basectl, head
+# and headctl differ in a case, in any row, or one of them fails the case, the script prints a line VALUES DIFFER (or CASE
+# FAILED) and stops with status 1; with PB_CHECK_ONLY=1 it records the line and goes on. History trees and reference kernels
+# are compared and reported and do not stop the run; a history tree or reference kernel that fails a case is left out of
+# that case with a SKIP line and the other trees run.
 #
-# PB_CHECK_ONLY=1 runs the value comparison and the allocation measurement, and no timing rounds, for the cases
-# of the selected groups (E excluded), and exits with status 1 when the values of base, basectl, head and headctl differ in
-# a row, when one of the four trees allocates in a warmed pass, or when one of the four fails a case. The history trees
-# are compared and reported and do not fail the run. The last line is CHECK PASS or CHECK FAIL.
+# PB_MODE=ir compares compiled code instead of timing, for the loop of each case of the selected groups (E excluded) and
+# each tree. The text of a row for a tree is the optimized LLVM text of the loop followed by the texts of the Julia
+# functions that it invokes, in the order of first appearance, to a depth of 6 (the invoked method instances come from
+# code_typed of the loop with optimization; a method instance is followed once). Three replacements are made in the text:
+# the names of the tree modules (PBT followed by digits) become TREE; the digits after # become N, and the numeric suffix
+# of a symbol name (the _123 at the end of @julia_lsum_123) becomes _N; the integer in inttoptr (i64 <digits> and the integer
+# stored by store atomic i64 <digits>, (the type tag of an allocation) become PTR.
+# No other literal is replaced. A tree is same when its text equals that of base, differs when it does not, and unresolved
+# when an invoked method is neither a singleton function nor a type constructor or its code could not be generated. A row
+# is noisy, and each of its trees unresolved, when the texts of base and basectl differ, when the texts of head and headctl
+# differ (head is compared with headctl directly), or when one of these four has an unresolved callee: the replacements
+# did not remove the difference between two compilations of the same source, so the comparison does not tell in that row.
+# PB_IRDEBUG=1 prints, for a noisy row, the first differing lines of the pair that differs as IRNOISE lines (pair, then
+# line); for a row where head is differs, the first differing lines of base and head as IRDIFF lines; and the reasons of
+# unresolved callees as IRUNRES lines. Equal text establishes that the loop and the Julia
+# functions it calls (to the depth given) have the same optimized code after the replacements; calls into the runtime and
+# LLVM intrinsics are compared by name only, and the placement of the machine code is not compared. The IR field per tree
+# is name=lines of the loop text:Julia callees followed:calls in the loop text whose target names kkt_violation:state.
+#
+# PB_CHECK_ONLY=1 runs the value comparison and the allocation measurement, and no timing rounds, for the cases of the
+# selected groups (E excluded). It exits with status 1 when a stop condition above arose, when one of the four trees
+# allocates in a warmed pass, or when no case was selected. The last line is CHECK PASS (<n> cases) or CHECK FAIL.
 #
 # Output lines, tab separated:
 #   ENV  the Julia version, the CPU, the settings, the trees (name, root, HEAD of a git checkout) and the load average
-#   RAW  group, label, tree, calls per pass, bytes allocated in a warmed pass, and the time in ns per call of each round
-#   VAL  group, label, whether the values of all trees agree, expected-equal or may-differ (the rows over all
+#   RAW  group, label, tree, calls per pass (for group E the number of inactive coordinates, the unit of its three rows
+#        being ns per inactive coordinate), bytes allocated in a warmed pass, and the time per call of each round in ns
+#   VAL  group, label, whether the trees that ran agree with base, expected-equal or may-differ (the rows over all
 #        coordinates of groups B and D, where a history tree or a reference kernel can give another value at a nonzero
-#        coordinate), the values of the trees, and whether the four checked trees agree
-#   IR   group, label, and per tree name=lines:calls:kkt_calls:same|differs (relative to base)
-#   SKIP a case that a tree could not run, with the first words of its error
-#   CHECK  one line per failed check, then CHECK PASS or CHECK FAIL (PB_CHECK_ONLY=1)
+#        coordinate), the number of results compared, whether the four checked trees agree, and per tree name=same|differs
+#   SCAN group, label, the share of positive scores of base and the number of inactive coordinates scored
+#   IR   group, label, and per tree the field described above
+#   SKIP a history tree or a reference kernel that could not run a case, with the first words of its error
+#   VALUES DIFFER, CASE FAILED, CHECK  stop conditions and the result of PB_CHECK_ONLY=1
 # benchmark/summarize_kkt_local.py reads these lines. Judge a row against its two controls: rows of one loop shape and one
 # function move together, so a difference of the size of the controls in a single row is not evidence, and a second process
 # with PB_REVERSE=1 is the check. All trees run in one thread, with the bounds checks of the command line.
@@ -86,6 +120,7 @@ const FILTER = Regex(get(ENV, "PB_FILTER", ""))
 const MODE = get(ENV, "PB_MODE", "time")                 # "time", or "ir": compare the optimized LLVM code of the loops, no timing
 const REVERSE = get(ENV, "PB_REVERSE", "0") == "1"        # reversed order of compilation and of the trees within a round
 const CHECK_ONLY = get(ENV, "PB_CHECK_ONLY", "0") == "1"  # no timing rounds
+const IRDEBUG = get(ENV, "PB_IRDEBUG", "0") == "1"
 MODE in ("time", "ir") || error("PB_MODE is time or ir")
 (MODE == "ir" && CHECK_ONLY) && error("PB_MODE=ir and PB_CHECK_ONLY=1 are separate runs")
 
@@ -98,6 +133,9 @@ const MODS = Tuple(m.ProximalBase for m in TMODS)
 const IBASE = findfirst(==("base"), NAMES)
 const CORENAMES = ("base", "basectl", "head", "headctl")
 iscore(name) = name in CORENAMES
+# the order in which the trees (the participants of a case) are visited by the first calls of a case and by the generation
+# of compiled code
+partorder(n) = REVERSE ? (n:-1:1) : (1:n)
 
 cpumodel() = try
   first(l for l in eachline("/proc/cpuinfo") if startswith(l, "model name"))
@@ -233,30 +271,116 @@ struct Part
   act::Any
 end
 median_(a) = (s = sort(a); n = length(s); isodd(n) ? s[(n + 1) >> 1] : (s[n >> 1] + s[(n >> 1) + 1]) / 2)
-sameval(a, b) = a == b || (isnan(a) && isnan(b))
-const FAILS = String[]
-function runcase(group, label, parts::Vector{Part}, loop, ncalls; batches = 25, samevalues = true)
-  occursin(FILTER, label) || return
-  MODE == "ir" && return ircase(group, label, parts, loop)
-  n = length(parts)
-  valsum = Vector{Float64}(undef, n)
-  for j in 1:n
-    p = parts[j]
-    try
-      valsum[j] = batch(loop, p.kkt, p.f, p.pool, p.act)
-      CHECK_ONLY || timeit(loop, p.kkt, p.f, p.pool, p.act, ncalls, 3)
-    catch err
-      println("SKIP\t", group, "\t", label, "\t[", p.name, "] ", sprint(showerror, err)[1:min(end, 160)])
-      iscore(p.name) && push!(FAILS, string(group, " ", label, ": ", p.name, " failed the case"))
-      return
+
+# ---- values: the results that a loop evaluates, coordinate by coordinate ----------------------------------------------------
+# shape :idx is one result per index of the case, :all one per coordinate, :scan one score per inactive coordinate and the
+# collected indices and scores (the rows of group E compute the gradient first, as their loops do)
+shape(loop) = loop === lsum || loop === lstore || loop === lbarrier ? :idx : loop === lall ? :all : :scan
+struct Res
+  scores::Vector{Float64}
+  extra::Vector{Float64}
+end
+sameres(a::Res, b::Res) = isequal(a.scores, b.scores) && isequal(a.extra, b.extra)
+nres(r::Res) = length(r.scores) + length(r.extra)
+@noinline function evalidx!(scores::Vector{Float64}, kkt::K, f::F, v, x, idx) where {K, F}
+  for i in idx
+    push!(scores, Float64(kkt(f, v, x, i)))
+  end
+end
+@noinline function evalall!(scores::Vector{Float64}, kkt::K, f::F, v, x) where {K, F}
+  for i in 1:length(v)
+    push!(scores, Float64(kkt(f, v, x, i)))
+  end
+end
+@noinline function evalscan!(scores::Vector{Float64}, extra::Vector{Float64}, kkt::K, f::F, v::Vector{T}, x, act) where {K, F, T}
+  viol = Int[]; vl = T[]
+  for k in 1:length(v)
+    act(x, k) && continue
+    s = convert(T, kkt(f, v, x, k))
+    push!(scores, Float64(s))
+    if s > 0
+      push!(viol, k); push!(vl, s)
     end
   end
-  al = map(p -> (allocs(loop, p.kkt, p.f, p.pool, p.act); allocs(loop, p.kkt, p.f, p.pool, p.act)), parts)
-  core = [j for j in 1:n if iscore(parts[j].name)]
-  same = all(v -> sameval(v, valsum[1]), valsum)
-  samecore = all(j -> sameval(valsum[j], valsum[first(core)]), core)
+  push!(extra, Float64(length(viol)))
+  append!(extra, Float64.(viol)); append!(extra, Float64.(vl))
+end
+function validate(loop, p::Part)
+  sh = shape(loop)
+  scores = Float64[]; extra = Float64[]
+  for (v, x, idx) in p.pool
+    if sh === :idx
+      evalidx!(scores, p.kkt, p.f, v, x, idx)
+    elseif sh === :all
+      evalall!(scores, p.kkt, p.f, v, x)
+    else
+      (loop === lcheck || loop === lgrad) && mul!(v, transpose(XMAT[]), RES[])
+      evalscan!(scores, extra, p.kkt, p.f, v, x, p.act)
+    end
+  end
+  Res(scores, extra)
+end
+
+# ---- one case -----------------------------------------------------------------------------------------------------------------
+const FAILS = String[]
+const NCHECKED = Ref(0)
+# a stop condition: the run stops with status 1, except with PB_CHECK_ONLY=1, where the line is recorded and the run goes on
+function stopcase!(kind, group, label, detail)
+  line = string(kind, "\t", group, "\t", label, "\t", detail)
+  println(line)
   if CHECK_ONLY
-    samecore || push!(FAILS, string(group, " ", label, ": the values of the four checked trees differ"))
+    push!(FAILS, replace(line, "\t" => " "))
+  else
+    flush(stdout)
+    exit(1)
+  end
+end
+errtext(err) = sprint(showerror, err)[1:min(end, 160)]
+# unit: what the calls per pass count (a call of the form; for group E an inactive coordinate)
+function runcase(group, label, parts0::Vector{Part}, loop, ncalls; batches = 25, samevalues = true, unit = "call")
+  occursin(FILTER, label) || return
+  MODE == "ir" && return ircase(group, label, parts0, loop)
+  n0 = length(parts0)
+  res0 = Vector{Union{Nothing, Res}}(nothing, n0)
+  for j in partorder(n0)
+    p = parts0[j]
+    try
+      res0[j] = validate(loop, p)
+    catch err
+      if iscore(p.name)
+        stopcase!("CASE FAILED", group, label, string(p.name, ": ", errtext(err)))
+        return
+      end
+      println("SKIP\t", group, "\t", label, "\t[", p.name, "] ", errtext(err))
+    end
+  end
+  keep = [j for j in 1:n0 if res0[j] !== nothing]
+  parts = parts0[keep]; res = Res[res0[j] for j in keep]
+  n = length(parts)
+  ib = findfirst(p -> p.name == "base", parts)
+  agree = [sameres(res[j], res[ib]) for j in 1:n]
+  core = [j for j in 1:n if iscore(parts[j].name)]
+  samecore = all(j -> agree[j], core)
+  if shape(loop) === :scan
+    println("SCAN\t", group, "\t", label, "\t", round(count(>(0), res[ib].scores) / max(length(res[ib].scores), 1), digits = 5), "\t",
+            length(res[ib].scores))
+  end
+  println("VAL\t", group, "\t", label, "\t", all(agree), "\t", samevalues ? "expected-equal" : "may-differ", "\t", nres(res[ib]), "\t",
+          samecore, "\t", join((string(parts[j].name, "=", agree[j] ? "same" : "differs") for j in 1:n), ";"))
+  if !samecore
+    stopcase!("VALUES DIFFER", group, label,
+              join((string(parts[j].name, "=", agree[j] ? "same" : "differs") for j in core), ";"))
+  end
+  # the first calls of the measured loops (warm-up and allocation measurement) in the order of the process
+  al = zeros(Int, n)
+  for j in partorder(n)
+    p = parts[j]
+    CHECK_ONLY || timeit(loop, p.kkt, p.f, p.pool, p.act, ncalls, 3)
+    allocs(loop, p.kkt, p.f, p.pool, p.act)
+    al[j] = allocs(loop, p.kkt, p.f, p.pool, p.act)
+  end
+  if CHECK_ONLY
+    NCHECKED[] += 1
     any(j -> al[j] > 0, core) && push!(FAILS, string(group, " ", label, ": a checked tree allocates (",
                                                       join((string(parts[j].name, "=", al[j]) for j in core), ", "), " bytes)"))
   else
@@ -271,40 +395,135 @@ function runcase(group, label, parts::Vector{Part}, loop, ncalls; batches = 25, 
               join((string(round(R[r, j], digits = 4)) for r in 1:ROUNDS), ","))
     end
   end
-  println("VAL\t", group, "\t", label, "\t", same, "\t", samevalues ? "expected-equal" : "may-differ", "\t",
-          join(valsum, ","), "\t", samecore)
-  print(rpad(string(group, " ", label), 58), CHECK_ONLY ? " check" : " ns/call")
+  print(rpad(string(group, " ", label), 58), CHECK_ONLY ? " check" : " ns/$(unit)")
   if !CHECK_ONLY
     for j in 1:n
       print(" ", parts[j].name, "=", round(median_(R[:, j]), digits = 2))
     end
   end
-  println(" alloc=", maximum(al), " same=", same)
+  println(" alloc=", maximum(al), " same=", all(agree))
   flush(stdout)
 end
 
-# the optimized LLVM code of the loop for one tree, with the names of the tree modules, numbered symbols and addresses
-# replaced; two trees whose loops compile to the same code are meant to give the same text
-function irtext(loop, p::Part)
+# ---- compiled code ------------------------------------------------------------------------------------------------------------
+# the replacements: names of the tree modules, digits after #, the numeric suffix of a symbol name, the integer of inttoptr
+# and of store atomic i64
+function normir(s)
+  s = replace(s, r"PBT\d+" => "TREE")
+  s = replace(s, r"#\d+" => "#N")
+  s = replace(s, r"(@\"?[^\"\s\(\),@]*?)_\d+(?=[\"\s\(\),]|$)" => s"\1_N")
+  s = replace(s, r"inttoptr \(i64 \d+" => "inttoptr (i64 PTR")
+  replace(s, r"store atomic i64 \d+," => "store atomic i64 PTR,")
+end
+const IRMEMO = Dict{Any, Any}()
+# the invoked method instances of the optimized typed code of fn at argument types tt: (function, argument types) pairs,
+# and whether one of them could not be resolved
+function invokes(fn, tt)
+  cis = code_typed(fn, tt; optimize = true)
+  isempty(cis) && return (Tuple{Any, Any}[], ["no typed code"])
+  ci = first(cis).first
+  calls = Tuple{Any, Any}[]; unres = String[]
+  for st in ci.code
+    (st isa Expr && st.head === :invoke) || continue
+    t = st.args[1]
+    mi = t isa Core.MethodInstance ? t : (hasproperty(t, :def) ? t.def : nothing)
+    if !(mi isa Core.MethodInstance) || !(mi.specTypes isa DataType)
+      push!(unres, string("not a method instance: ", typeof(t))); continue
+    end
+    spec = mi.specTypes
+    ft = spec.parameters[1]
+    if Base.issingletontype(ft)
+      push!(calls, (ft.instance, Tuple{spec.parameters[2:end]...}))
+    elseif ft isa DataType && ft <: Type && length(ft.parameters) == 1 && ft.parameters[1] isa DataType   # a constructor
+      push!(calls, (ft.parameters[1], Tuple{spec.parameters[2:end]...}))
+    else
+      push!(unres, string("first parameter is not a singleton: ", ft))
+    end
+  end
+  calls, unres
+end
+function irnode(fn, tt)
+  get!(IRMEMO, (fn, tt)) do
+    text = normir(sprint(io -> code_llvm(io, fn, tt; debuginfo = :none)))
+    calls, unres = invokes(fn, tt)
+    (text = text, calls = calls, unres = unres)
+  end
+end
+# the text of the loop for one participant followed by the texts of its Julia callees (depth 6, first appearance)
+function irtree(loop, p::Part)
   v, x, idx = first(p.pool)
   tt = Tuple{typeof(p.kkt), typeof(p.f), typeof(v), typeof(x), typeof(idx), typeof(p.act)}
-  s = sprint(io -> code_llvm(io, loop, tt; debuginfo = :none))
-  replace(s, r"PBT\d+" => "TREE", r"_\d+" => "_N", r"#\d+" => "#N", r"\b\d{7,}\b" => "PTR")
-end
-function ircase(group, label, parts, loop)
-  local txt
-  try
-    txt = map(p -> irtext(loop, p), parts)
-  catch err
-    println("SKIP\t", group, "\t", label, "\t", sprint(showerror, err)[1:min(end, 160)])
-    return
+  root = irnode(loop, tt)
+  texts = String[root.text]
+  visited = Set{Any}([(loop, tt)])
+  unres = String[]; append!(unres, root.unres)
+  function walk(node, depth)
+    for (fn2, tt2) in node.calls
+      (fn2, tt2) in visited && continue
+      push!(visited, (fn2, tt2))
+      depth > 6 && continue
+      nd = try
+        irnode(fn2, tt2)
+      catch err
+        push!(unres, string("no code for ", fn2, ": ", errtext(err))); continue
+      end
+      push!(texts, nd.text); append!(unres, nd.unres)
+      walk(nd, depth + 1)
+    end
   end
-  ib = findfirst(p -> p.name == "base", parts)
+  walk(root, 1)
+  ls = split(root.text, '\n')
+  kcalls = count(l -> occursin(r"\bcall\b", l) && occursin("kkt_violation", l), ls)
+  (text = join(texts, "\n;;; callee\n"), lines = length(ls), callees = length(texts) - 1, kcalls = kcalls, unres = unres)
+end
+function firstdiff(a, b)
+  la = split(a, '\n'); lb = split(b, '\n')
+  out = String[]
+  for i in 1:min(length(la), length(lb))
+    la[i] == lb[i] || (push!(out, string("[", i, "] ", la[i], "  ||  ", lb[i])); length(out) >= 3 && break)
+  end
+  length(la) == length(lb) || push!(out, string("lengths ", length(la), " ", length(lb)))
+  out
+end
+function ircase(group, label, parts0, loop)
+  n0 = length(parts0)
+  nodes = Vector{Any}(nothing, n0)
+  for j in partorder(n0)
+    try
+      nodes[j] = irtree(loop, parts0[j])
+    catch err
+      println("SKIP\t", group, "\t", label, "\t[", parts0[j].name, "] ", errtext(err))
+    end
+  end
+  keep = [j for j in 1:n0 if nodes[j] !== nothing]
+  parts = parts0[keep]; nd = Any[nodes[j] for j in keep]
+  ib = findfirst(p -> p.name == "base", parts); ic = findfirst(p -> p.name == "basectl", parts)
+  (ib === nothing || ic === nothing) && return
+  ih = findfirst(p -> p.name == "head", parts); ihc = findfirst(p -> p.name == "headctl", parts)
+  (ih === nothing || ihc === nothing) && return
+  four = (ib, ic, ih, ihc)
+  noisy = any(j -> !isempty(nd[j].unres), four) || nd[ib].text != nd[ic].text || nd[ih].text != nd[ihc].text
+  if IRDEBUG
+    for j in eachindex(parts), r in first(unique(nd[j].unres), 3)
+      println("IRUNRES\t", group, "\t", label, "\t", parts[j].name, "\t", r)
+    end
+  end
+  if IRDEBUG
+    for (pair, (j1, j2)) in (("base/basectl", (ib, ic)), ("head/headctl", (ih, ihc)))
+      nd[j1].text == nd[j2].text && continue
+      for l in firstdiff(nd[j1].text, nd[j2].text)
+        println("IRNOISE\t", group, "\t", label, "\t", pair, "\t", l)
+      end
+    end
+    if !noisy && nd[ih].text != nd[ib].text
+      for l in firstdiff(nd[ib].text, nd[ih].text)
+        println("IRDIFF\t", group, "\t", label, "\t", "base/head", "\t", l)
+      end
+    end
+  end
   desc = map(eachindex(parts)) do j
-    ls = split(txt[j], '\n')
-    calls = count(l -> occursin(r"\bcall\b", l) && occursin(r"@\"?j(ulia|fptr|lsys)?_", l), ls)
-    kcalls = count(l -> occursin(r"\bcall\b", l) && occursin("kkt_violation", l), ls)
-    string(parts[j].name, "=", length(ls), ":", calls, ":", kcalls, ":", ib === nothing ? "?" : txt[j] == txt[ib] ? "same" : "differs")
+    state = noisy || !isempty(nd[j].unres) ? "unresolved" : nd[j].text == nd[ib].text ? "same" : "differs"
+    string(parts[j].name, "=", nd[j].lines, ":", nd[j].callees, ":", nd[j].kcalls, ":", state)
   end
   println("IR\t", group, "\t", label, "\t", join(desc, ";"))
   flush(stdout)
@@ -319,8 +538,8 @@ function densepair(::Type{T}, p, zfrac, seed) where {T}
 end
 point(M, kind, x) = kind === :vector ? x : kind === :sparse ? M.SparseIterate(x) : kind === :view ? view(x, 1:length(x)) : error("kind")
 actfun(M, kind) = kind === :sparse ? M.isactive : vecactive
-# the dense pairs of a case are built once and shared by the trees: an array point is the same array for each tree, and an
-# iterate is built from the same values by each tree's own constructor (v is shared)
+# the dense pairs of a case in groups A, B and D are built once and shared by the trees: an array point is the same array for
+# each tree, and an iterate is built from the same values by each tree's own constructor (v is shared)
 const DENSE = Dict{Any, Any}()
 function densepool(::Type{T}, p, zfrac, npairs) where {T}
   key = (T, p, zfrac, npairs)
@@ -348,6 +567,7 @@ function makef(M, name, ::Type{T}, p; level = T(0.5)) where {T}
   name === :ZeroFunction ? M.ZeroFunction() :
   name === :LinearFunction ? M.LinearFunction(y) :
   name === :ScaledNormL1 ? M.Scaled(M.NormL1(level), T(2)) :
+  name === :ScaledNormL1scan ? M.Scaled(M.NormL1(level / 2), T(2)) :   # the score at a zero entry is abs(v) - level
   name === :ScaledElasticNet ? M.Scaled(M.ElasticNet(level, T(0.25)), T(2)) :
   name === :ScaledSqrNormL2 ? M.Scaled(M.SqrNormL2(T(0.5)), T(2)) : error("name")
 end
@@ -376,48 +596,60 @@ end
 function groupF()
   p = 2000; g = 4
   groups = [collect(((k - 1) * g + 1):(k * g)) for k in 1:(p ÷ g)]
-  for T in (Float64, Float32), name in (:NormL1, :NormL1w, :ElasticNet, :ElasticNetw, :SqrNormL2)
-    parts = map(1:length(MODS)) do j
-      M = MODS[j]
-      pool = map(1:12) do s
-        rng = MersenneTwister(2000 + s)
-        x = randn(rng, T, p)
-        zg = findall(rand(rng, length(groups)) .< 0.5)
-        for k in zg; x[groups[k]] .= 0; end
-        (randn(rng, T, p), M.BlockIterate(x, groups), zg)
-      end
-      Part(NAMES[j], Four(M.kkt_violation), makef(M, name, T, p), pool, vecactive)
+  for T in (Float64, Float32)
+    # the dense v and x of the pool members are shared by the trees; each tree builds its BlockIterate from the values
+    dense = map(1:12) do s
+      rng = MersenneTwister(2000 + s)
+      x = randn(rng, T, p)
+      zg = findall(rand(rng, length(groups)) .< 0.5)
+      for k in zg; x[groups[k]] .= 0; end
+      (randn(rng, T, p), x, zg)
     end
-    ncalls = sum(length(t[3]) for t in parts[1].pool)
-    for (loop, sl) in ((lsum, "sum"), (lbarrier, "barrier"))
-      runcase("F", "$name $T block 4arg $sl zero g=$g", parts, loop, ncalls)
+    for name in (:NormL1, :NormL1w, :ElasticNet, :ElasticNetw, :SqrNormL2), (loop, sl) in ((lsum, "sum"), (lbarrier, "barrier"))
+      label = "$name $T block 4arg $sl zero g=$g"
+      occursin(FILTER, label) || continue
+      parts = map(1:length(MODS)) do j
+        M = MODS[j]
+        Part(NAMES[j], Four(M.kkt_violation), makef(M, name, T, p), [(v, M.BlockIterate(x, groups), zg) for (v, x, zg) in dense], vecactive)
+      end
+      ncalls = sum(length(t[3]) for t in parts[1].pool)
+      runcase("F", label, parts, loop, ncalls)
     end
   end
   q = 60; nc = q * (q + 1) ÷ 2
-  for T in (Float64, Float32), name in (:NormL1, :ElasticNet, :SqrNormL2)
-    parts = map(1:length(MODS)) do j
-      M = MODS[j]
-      pool = map(1:12) do s
-        rng = MersenneTwister(3000 + s)
-        X = randn(rng, T, q, q); X = X + X'
-        Z = rand(rng, q, q) .< 0.5; Z = Z .& Z'
-        X[Z] .= 0
-        zc = [k for k in 1:nc if (rc = M.tril_cartesian(q, k); iszero(X[rc[1], rc[2]]))]
-        (randn(rng, T, q * q), M.SymmetricSparseIterate(X), zc)
-      end
-      Part(NAMES[j], Four(M.kkt_violation), makef(M, name, T, q * q), pool, vecactive)
+  for T in (Float64, Float32)
+    # the symmetric matrices and the gradients are shared by the trees; each tree builds its SymmetricSparseIterate
+    dense = map(1:12) do s
+      rng = MersenneTwister(3000 + s)
+      X = randn(rng, T, q, q); X = X + X'
+      Z = rand(rng, q, q) .< 0.5; Z = Z .& Z'
+      X[Z] .= 0
+      zc = [k for k in 1:nc if (rc = MODS[IBASE].tril_cartesian(q, k); iszero(X[rc[1], rc[2]]))]
+      (randn(rng, T, q * q), X, zc)
     end
-    ncalls = sum(length(t[3]) for t in parts[1].pool)
-    for (loop, sl) in ((lsum, "sum"), (lbarrier, "barrier"))
-      runcase("F", "$name $T symmetric 4arg $sl zero q=$q", parts, loop, ncalls)
+    for name in (:NormL1, :ElasticNet, :SqrNormL2), (loop, sl) in ((lsum, "sum"), (lbarrier, "barrier"))
+      label = "$name $T symmetric 4arg $sl zero q=$q"
+      occursin(FILTER, label) || continue
+      parts = map(1:length(MODS)) do j
+        M = MODS[j]
+        Part(NAMES[j], Four(M.kkt_violation), makef(M, name, T, q * q),
+             [(v, M.SymmetricSparseIterate(X), zc) for (v, X, zc) in dense], vecactive)
+      end
+      ncalls = sum(length(t[3]) for t in parts[1].pool)
+      runcase("F", label, parts, loop, ncalls)
     end
   end
 end
-# ---- group B: all coordinates of points with a share of zeros, and the scan of the inactive coordinates ----------------------
+# ---- group B: all coordinates of points with a share of zeros, and the scan of the inactive coordinates ------------------------
+# the level of a scan: with v standard normal, abs(v) exceeds 2.5 for about 1.2% of the entries (unweighted functions and
+# Scaled NormL1, whose scan function has the score abs(v) - level); the weights of the weighted functions are in [0.5, 1.5),
+# and level 3.5 gives about 1%; SqrNormL2 ignores the level
+scanlevel(name, ::Type{T}) where {T} = name in (:NormL1w, :ElasticNetw) ? T(3.5) : T(2.5)
 function groupB()
-  for T in (Float64, Float32), name in (:NormL1, :ElasticNet, :SqrNormL2, :ScaledNormL1)
+  for T in (Float64, Float32), name in (:NormL1, :NormL1w, :ElasticNet, :ElasticNetw, :SqrNormL2, :SqrNormL2c, :ScaledNormL1)
+    sname = name === :ScaledNormL1 ? :ScaledNormL1scan : name
+    lev = scanlevel(name, T)
     for kind in (:vector, :sparse), (p, npairs) in ((2000, 12), (1_000_000, 3)), zfrac in (0.5, 0.9, 0.99)
-      p == 1_000_000 && zfrac == 0.5 && continue
       # the trees before the scaled method for a nonzero coordinate refuse a Scaled function there: no row over all coordinates for it
       if name !== :ScaledNormL1
         label = "$name $T $kind 4arg all z=$zfrac p=$p"
@@ -426,16 +658,10 @@ function groupB()
           runcase("B", label, parts, lall, p * npairs; samevalues = false)
         end
       end
-      # the scan: a level that leaves about 1% of the scores positive
-      label = "$name $T $kind 4arg scan z=$zfrac p=$p"
-      if occursin(FILTER, label)
-        parts = treeparts(Four, name, T, kind, p, zfrac, npairs; zeros_only = false, level = T(2.5))
-        ninact = sum(count(iszero, t[2]) for t in densepool(T, p, zfrac, npairs))
-        runcase("B", label, parts, lscan, ninact)
-      end
-      label = "$name $T $kind 3arg scan z=$zfrac p=$p"
-      if kind === :vector && occursin(FILTER, label)
-        parts = treeparts(Three, name, T, kind, p, zfrac, npairs; zeros_only = false, level = T(2.5))
+      for (form, fl) in (kind === :vector ? ((Four, "4"), (Three, "3")) : ((Four, "4"),))
+        label = "$name $T $kind $(fl)arg scan z=$zfrac p=$p"
+        occursin(FILTER, label) || continue
+        parts = treeparts(form, sname, T, kind, p, zfrac, npairs; zeros_only = false, level = lev)
         ninact = sum(count(iszero, t[2]) for t in densepool(T, p, zfrac, npairs))
         runcase("B", label, parts, lscan, ninact)
       end
@@ -447,16 +673,19 @@ function groupC()
   p = 2000; g = 4
   groups = [collect(((k - 1) * g + 1):(k * g)) for k in 1:(p ÷ g)]
   for T in (Float64, Float32), scaled in (false, true), kind in (:vector, :block)
+    # the dense v and x of the pool members are shared by the trees; each tree builds its BlockIterate from the values
+    dense = map(1:12) do s
+      rng = MersenneTwister(2000 + s)
+      x = randn(rng, T, p)
+      zg = findall(rand(rng, length(groups)) .< 0.5)
+      for k in zg; x[groups[k]] .= 0; end
+      (randn(rng, T, p), x, zg)
+    end
     parts = map(1:length(MODS)) do j
       M = MODS[j]
       f0 = M.GroupNormL2(T(0.5), groups)
       f = scaled ? M.Scaled(f0, T(2)) : f0
-      pool = map(1:12) do s
-        rng = MersenneTwister(2000 + s)
-        x = randn(rng, T, p)
-        zg = findall(rand(rng, length(groups)) .< 0.5)
-        for k in zg; x[groups[k]] .= 0; end
-        v = randn(rng, T, p)
+      pool = map(dense) do (v, x, zg)
         kind === :vector ? (v, x, [first(groups[k]) for k in zg]) : (v, M.BlockIterate(x, groups), zg)
       end
       Part(NAMES[j], Four(M.kkt_violation), f, pool, vecactive)
@@ -471,6 +700,8 @@ end
 function groupD()
   p = 2000
   for T in (Float64, Float32), (loop, sl) in ((lsum, "sum"), (lstore, "store"), (lall, "all"))
+    label = "NormL1 $T vector kernels $sl p=$p"
+    occursin(FILTER, label) || continue
     zo = loop !== lall
     pool = mkpool(MODS[IBASE], T, :vector, p, 0.5, 12; zeros_only = zo)
     c = T(0.5)
@@ -481,7 +712,7 @@ function groupD()
       push!(parts, Part(NAMES[j], Four(MODS[j].kkt_violation), makef(MODS[j], :NormL1, T, p), pool, vecactive))
     end
     ncalls = zo ? sum(length(t[3]) for t in pool) : 12p
-    runcase("D", "NormL1 $T vector kernels $sl p=$p", parts, loop, ncalls; samevalues = zo)
+    runcase("D", label, parts, loop, ncalls; samevalues = zo)
   end
 end
 # ---- group E: one optimality check of the active-set design: the gradient X'r and the scan of the inactive coordinates ---------
@@ -508,7 +739,7 @@ function groupE()
       end
       for (loop, sl) in ((lcheck, "check"), (lscan, "scanonly"), (lgrad, "gradonly"))
         mul!(vbuf, transpose(X), r)
-        runcase("E", "$name $T sparse $sl n=$n p=$p", parts, loop, p - 20; batches = 9)
+        runcase("E", "$name $T sparse $sl n=$n p=$p", parts, loop, p - 20; batches = 9, unit = "inactive coordinate")
       end
     end
   end
@@ -529,6 +760,10 @@ if CHECK_ONLY
   for f in FAILS
     println("CHECK\t", f)
   end
-  println(isempty(FAILS) ? "CHECK PASS" : "CHECK FAIL")
+  if NCHECKED[] == 0 && isempty(FAILS)
+    println("CHECK FAIL: no case selected")
+    exit(1)
+  end
+  println(isempty(FAILS) ? "CHECK PASS ($(NCHECKED[]) cases)" : "CHECK FAIL ($(NCHECKED[]) cases)")
   isempty(FAILS) || exit(1)
 end

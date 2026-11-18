@@ -3,15 +3,18 @@
 
 usage: python3 benchmark/summarize_kkt_local.py OUT.tsv FILE.out [FILE.out ...]
 
-Timing output (RAW and VAL lines). For each row of each file the table OUT.tsv has the Julia version, the group, the
-label, the calls per pass, the median ns per call of each tree, the largest warmed allocation (bytes), the value flag
-(whether the values of the trees agree / whether they are expected to) and, for each pair a/b of
+Timing output (RAW, VAL, SCAN and SKIP lines). For each row of each file the table OUT.tsv has the Julia version, the
+group, the label, the calls per pass, the median ns per call of each tree, the largest warmed allocation (bytes), the value
+flag (whether the trees that ran agree with base / whether they are expected to), the number of results compared, whether
+the four checked trees agree, the share of positive scores of a scan, the trees left out of the row after a SKIP line and,
+for each pair a/b of
 
     head/base  base/pre  head/pre  basectl/base  headctl/head
 
 the median, minimum and maximum over the rounds of the ratio of the time of a to the time of b in the same round (the
 trees of a round run back to back). A pair is left empty when a tree is missing from the file; base/pre and head/pre
-need a history tree named pre.
+need a history tree named pre. For the rows of group E the calls per pass are the number of inactive coordinates, and the
+ns per call of its three rows are ns per inactive coordinate (the gradient row makes no kkt_violation call).
 
 The column head_vs_controls compares head/base with the two controls of the row (basectl/base and headctl/head, two
 compilations of the same source). With m1 and m2 the medians of the controls, lo is the smallest of m1, m2, 1/m1 and
@@ -19,8 +22,10 @@ compilations of the same source). With m1 and m2 the medians of the controls, lo
 otherwise. It is empty when head/base is missing, and it uses the controls that are present.
 
 Compiled-code output (IR lines, PB_MODE=ir). The table OUT.ir.tsv (OUT without a final .tsv, followed by .ir.tsv) has
-the group, the label and, for each tree, the number of lines of the optimized code of the loop, the number of calls, the
-number of calls of kkt_violation, and same or differs relative to base. It is written when a file has IR lines.
+the group, the label and, for each tree, the number of lines of the optimized code of the loop, the number of Julia
+callees followed, the number of calls in the loop text whose target names kkt_violation, and same, differs or unresolved
+relative to base. It is written when a file has IR lines. The number of rows per state is printed for each file. Outputs
+written before the callees were followed count the calls named by Julia symbols in that column.
 
 It uses the Python standard library.
 """
@@ -33,6 +38,7 @@ PAIRS = [("head", "base"), ("base", "pre"), ("head", "pre"), ("basectl", "base")
 
 def parse(path):
     env, rows, vals, skips, irs = [], {}, {}, [], []
+    scans, skipped, stops = {}, {}, []
     with open(path, errors="replace") as fh:
         for line in fh:
             line = line.rstrip("\n")
@@ -43,13 +49,24 @@ def parse(path):
                 rows.setdefault((group, label), {})[name] = (int(ncalls), int(alloc), [float(x) for x in raw.split(",")])
             elif line.startswith("VAL\t"):
                 f = line.split("\t")
-                vals[(f[1], f[2])] = (f[3], f[4])
+                # f[5] is the number of results compared and f[6] the agreement of the four checked trees in the
+                # current layout (8 fields); older outputs hold the values of the trees in f[5]
+                vals[(f[1], f[2])] = (f[3], f[4], f[5] if len(f) >= 8 else "", f[6] if len(f) >= 7 else "")
+            elif line.startswith("SCAN\t"):
+                f = line.split("\t")
+                scans[(f[1], f[2])] = f[3]
             elif line.startswith("SKIP\t"):
                 skips.append(line)
+                f = line.split("\t")
+                m = re.match(r"\[([^\]]+)\]", f[3]) if len(f) > 3 else None
+                if m:
+                    skipped.setdefault((f[1], f[2]), []).append(m.group(1))
+            elif line.startswith(("VALUES DIFFER\t", "CASE FAILED\t", "CHECK")):
+                stops.append(line)
             elif line.startswith("IR\t"):
                 _, group, label, desc = line.split("\t")
                 irs.append((group, label, desc))
-    return env, rows, vals, skips, irs
+    return env, rows, vals, skips, irs, scans, skipped, stops
 
 
 def ratio(a, b):
@@ -88,7 +105,8 @@ def main():
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     out, files = sys.argv[1], sys.argv[2:]
-    cols = ["file", "julia", "group", "label", "calls", "trees", "ns_per_call", "alloc_max", "values"]
+    cols = ["file", "julia", "group", "label", "calls", "trees", "ns_per_call", "alloc_max", "values", "compared", "core_values",
+            "scan_share", "skipped"]
     for a, b in PAIRS:
         cols += [f"{a}/{b}", f"{a}/{b}_min", f"{a}/{b}_max"]
     cols += ["head_vs_controls", "rounds"]
@@ -96,13 +114,13 @@ def main():
     with open(out, "w") as fh:
         fh.write("\t".join(cols) + "\n")
         for path in files:
-            env, rows, vals, skips, irs = parse(path)
+            env, rows, vals, skips, irs, scans, skipped, stops = parse(path)
             m = re.search(r"julia=(\S+)", " ".join(env))
             julia = m.group(1) if m else "?"
             print(f"## {path}")
             for e in env:
                 print("  ", e)
-            for s in skips:
+            for s in skips + stops:
                 print("  ", s)
             fname = path.split("/")[-1]
             for (group, label), parts in rows.items():
@@ -111,7 +129,11 @@ def main():
                        "calls": next(iter(parts.values()))[0], "trees": ",".join(parts),
                        "ns_per_call": ";".join(f"{n}={med[n]:.3f}" for n in parts),
                        "alloc_max": max(v[1] for v in parts.values()),
-                       "values": "/".join(vals.get((group, label), ("?", "?"))),
+                       "values": "/".join(vals.get((group, label), ("?", "?", "", ""))[:2]),
+                       "compared": vals.get((group, label), ("?", "?", "", ""))[2],
+                       "core_values": vals.get((group, label), ("?", "?", "", ""))[3],
+                       "scan_share": scans.get((group, label), ""),
+                       "skipped": ",".join(skipped.get((group, label), [])),
                        "rounds": len(next(iter(parts.values()))[2])}
                 for a, b in PAIRS:
                     if a in parts and b in parts:
@@ -125,11 +147,17 @@ def main():
                     if n not in irtrees:
                         irtrees.append(n)
                 irrows.append((fname, julia, group, label, d))
+            if irs:
+                states = {}
+                for _, _, _, _, d in irrows[-len(irs):]:
+                    for n, t in d.items():
+                        states[t[3]] = states.get(t[3], 0) + 1
+                print("   IR rows:", len(irs), "; tree states:", ", ".join(f"{k}={v}" for k, v in sorted(states.items())))
     print(f"wrote {out}")
     if irrows:
         irout = (out[:-4] if out.endswith(".tsv") else out) + ".ir.tsv"
         for n in irtrees:
-            ircols += [f"{n}_lines", f"{n}_calls", f"{n}_kkt_calls", f"{n}_vs_base"]
+            ircols += [f"{n}_lines", f"{n}_callees", f"{n}_kkt_calls", f"{n}_vs_base"]
         with open(irout, "w") as fh:
             fh.write("\t".join(ircols) + "\n")
             for fname, julia, group, label, d in irrows:

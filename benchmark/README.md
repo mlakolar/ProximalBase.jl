@@ -423,20 +423,21 @@ without timing, and `PB_OUTPUT` receives `raw.csv` and `provenance.txt`.
 ## Local `kkt_violation` harness
 
 `kkt_local.jl` times the three- and four-argument `kkt_violation` between source trees compiled as modules of one process: `PB_BASE`
-(required), `PB_HEAD` (default the repository), optionally earlier trees in `PB_HISTORY`, and a second compilation of `base` and of
-`head` as the A/A controls (`basectl`, `headctl`). Group A times zero coordinates of the entrywise functions and `Scaled` of three
-of them at array, view and `SparseIterate` points; group B the coordinates of points with a share of zeros and the scan of the
-inactive coordinates; group C `GroupNormL2` at zero groups; group D the unweighted `NormL1` against four reference kernels written
-in the script; group E one optimality check (the gradient of a dense design and the scan); group F a zero group of a `BlockIterate`
-and a zero coordinate of a `SymmetricSparseIterate`. `PB_MODE=ir` compares the optimized LLVM text of the loops instead of timing: a
-tree marked `same` has the text of `base` after the names of the trees, numbered symbols and addresses are replaced, and `differs`
-otherwise. `PB_CHECK_ONLY=1` compares the values of `base`, `basectl`, `head` and `headctl` and measures their allocations in groups
-A to D and F, without timing, and ends with `CHECK PASS` or `CHECK FAIL`. `summarize_kkt_local.py` gives, per row, the median ns per
-call of each tree and the median, minimum and maximum over the rounds of the paired ratios `head/base` (and `base/pre`, `head/pre`
-when a history tree is named `pre`), with the two controls and the column `head_vs_controls`. Compare a row with its two controls:
-rows of one loop shape and function move together, so a difference of the size of the controls in one row is not evidence, and the
-same run in a second process with `PB_REVERSE=1` is the check. The header of the script lists the settings and the output lines. It
-was written for issue #980.
+(required), `PB_HEAD` (default the repository), optionally earlier trees in `PB_HISTORY`, and a second compilation of `base` and of `head`
+as the A/A controls (`basectl`, `headctl`). Group A times zero coordinates of the entrywise functions and `Scaled` of three of them; group B
+all coordinates of points with a share of zeros and the scan of the inactive coordinates (the three-argument form is timed at array points)
+for weighted and unweighted `NormL1` and `ElasticNet` and plain and centered `SqrNormL2`; group C `GroupNormL2`; group D the unweighted
+`NormL1` against four reference kernels; group E one optimality check, in ns per inactive coordinate; group F a zero group of a
+`BlockIterate` and a zero coordinate of a `SymmetricSparseIterate`. Before a case is timed the script compares each coordinate result (and
+the scan lists) of the trees with `base`; if `base`, `basectl`, `head` and `headctl` differ it prints `VALUES DIFFER` and exits with status
+1. `PB_MODE=ir` compares the optimized LLVM text of each loop and of the Julia functions it invokes after replacing tree names, numeric
+symbol suffixes and `inttoptr` integers: `same` is equal text (machine-code placement is not compared), `unresolved` a callee that could not
+be followed, or a row where a control differs from its tree (`basectl` from `base`, `headctl` from `head`). `PB_CHECK_ONLY=1` runs the value
+and allocation checks without timing and ends with `CHECK PASS (<n> cases)` or `CHECK FAIL`. `summarize_kkt_local.py` gives per row the
+median ns per call and the paired ratios `head/base` (`base/pre`, `head/pre` with a history tree `pre`) with the controls and
+`head_vs_controls`. Compare a row with its two controls: rows of one loop shape and function move together, so a difference of the size of
+the controls in one row is not evidence, and the same run in a second process with `PB_REVERSE=1` is the check. The header of the script
+lists the settings and the output lines. It was written for issue #980.
 
 ```sh
 PB_BASE=/path/to/tree-before PB_ROUNDS=15 julia --threads=1 --project=benchmark benchmark/kkt_local.jl > run.out

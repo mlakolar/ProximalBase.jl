@@ -23,15 +23,15 @@ after the groups it contains (Section 2). It returns the proximal point for all 
 | laminar | `ω‖·‖₂`, `ω ∈ [0, ∞]` | diagonal `τ`, constant on each group contained in a group of positive weight | exact | Proposition 5 |
 
 Nesting alone does not make one pass exact: with weighted `ℓ2` groups the condition is on the weights inside a group.
-The condition of Proposition 4(a) is sufficient. It is necessary for two groups whose contained group is a weighted
-`ℓ2` norm with positive weights at two coordinates where the containing weights differ (Proposition 4(b)); otherwise
-one pass can be exact without it: an `ℓ1` group (P5), or `‖diag(1, 0) z‖₂` inside `‖diag(1, 3, 2) z‖₂` (P7).
+The condition of Proposition 4(a) is sufficient. For a step `t > 0` it is necessary for two groups whose contained group
+is a weighted `ℓ2` norm with positive weights at two coordinates where the containing weights differ (Proposition 4(b));
+at `t = 0` one pass is the identity and needs no condition, and otherwise one pass can be exact without it: an `ℓ1` group (P5), or `‖diag(1, 0) z‖₂` inside `‖diag(1, 3, 2) z‖₂` (P7).
 
 **The general weights of Bien, Bunea and Xiao.** For their weights `w_{ℓm} = √(2ℓ)/(ℓ−m+1)` and each `p ≥ 4` and
 `λ > 0`, some input gives a one-pass point that is not the proximal point (Section 5(a), with a proof); for `p ≤ 3`
 one pass is exact. The same holds for the weights of Yu and Bien, `1/(ℓ−m+1)²`, in rows with three or more penalized
 coordinates. The paper's one-pass claim cites a result for one scalar weight per group; the accepted manuscript of the
-published version keeps it, and the recursion of `hierband` 1.0 is that one pass (read from the source, not run). One pass can also keep bands that the
+published version keeps it, and the loop of `hierband` 1.0 is that one pass, with these weights as its default (read from the source, not run). One pass can also keep bands that the
 proximal point sets to zero. The proximal point can be computed to a certified accuracy (a duality gap): dual block
 coordinate descent on the `p − 1` band norms needed from 1 to 7591 sweeps on our instances, and one instance had not
 reached the gap after 100000 sweeps; a Newton-type method on the nonzero bands was certified in 92 of 100 instances,
@@ -41,7 +41,7 @@ with a tolerance rule for the zero prefix certified none of them). Neither has t
 of one pass. Section 5(e) lists the options for #965 and leaves the choice to the maintainer.
 
 **Recommended penalties.** The sparse-group penalty and a tree-structured group `ℓ2` penalty with scalar weights, both
-exact in one pass with the scalar group shrink of master; Section 9 proposes two follow-up issues.
+exact in one pass (Proposition 2) with the soft threshold and the scalar group shrink of master; Section 9 proposes two follow-up issues.
 
 **Design.** (A), specialized penalties that share small kernels, is the recommendation (Section 8).
 
@@ -52,7 +52,7 @@ exact in one pass with the scalar group shrink of master; Section 9 proposes two
 - **Laminar:** any two groups are disjoint or one contains the other. A laminar family is a forest under inclusion
   (Jenatton et al., JMLR 2011, Definition 1, which also asks the groups to cover all coordinates; nothing below needs that).
 - **Group function** `N_k` on `ℝ^{g_k}`: a finite-valued sublinear function (convex, positively homogeneous, finite
-  everywhere, so continuous with `N_k(0) = 0`), or the indicator of `{0}` for an infinite weight. This covers `ω‖z‖₂`,
+  everywhere, so continuous with `N_k(0) = 0`), or the indicator of `{0}` for an infinite weight. This covers, with finite weights, `ω‖z‖₂`,
   the weighted norm `‖D z‖₂` with `D = diag(d) ≥ 0`, `ω‖z‖∞`, `ω‖z‖₁` and the zero function (weight 0). Other
   extended-valued functions are excluded: at `t = 0` their proximal problem need not have a minimizer.
 - `Ω(x) = Σ_k N_k(x_{g_k})`, and the proximal problem with a scalar step `t ≥ 0`:
@@ -123,7 +123,7 @@ No overlap, nested, tree or latent group penalty exists on master.
 | `_prox_block!` | `src/block_prox.jl:71` | sparse-group block step | compact block | block prox |
 | `BlockIterate` | `src/block_iterate.jl:48` | group coordinates | partition | storage |
 | `_ArrayPrecompose`, `Precompose` | `src/composition.jl:246`, `src/composition.jl:254` | `f(a ∘ x)`; for a group penalty the scale must be constant on each group (checked at `:259`–`:265`) | disjoint groups | value, prox |
-| `Regularize`, `_value_and_prox_regularize_groups!`, `value_and_prox!`, `prox!`, `_checkgroupsteps` | `src/composition.jl:528`, `src/metric.jl:170`, `src/metric.jl:60`, `src/metric.jl:61`, `src/functions/norms.jl:887` | `f + (ρ/2)‖x − c‖²` (the group elastic net); group penalties with one step per group (length checked) | disjoint groups (covering all entries for `Regularize`) | prox |
+| `Regularize`, `_value_and_prox_regularize_groups!`, `value_and_prox!`, `prox!`, `_checkgroupsteps` | `src/composition.jl:528`, `src/metric.jl:170`, `src/metric.jl:60`, `src/metric.jl:61`, `src/functions/norms.jl:887` | `f + (ρ/2)‖x − c‖²` (the group elastic net); group penalties with one step per group (length checked) | disjoint groups; coverage of all entries required for per-group steps of `Regularize` (`metric.jl:158`–`159`), scalar steps allow entries in no group (`composition.jl:673`–`680`) | prox |
 | `lla_weights!`, `_zero_scaled`, `_fold_level`, `_conjugate_projection!` | `src/lla.jl:217`, `src/calculus.jl:250`, `src/calculus.jl:361`, `src/calculus.jl:2984` | one local-linear-approximation weight per group; levels and conjugate projection of group norms under the scale and conjugate wrappers | disjoint groups | weights, helpers |
 | `GroupMCP`, `GroupSCAD`, `IndBallGroupL0` | `src/functions/nonconvex.jl:381`, `src/functions/nonconvex.jl:405`, `src/functions/nonconvex.jl:705` | group MCP, group SCAD, at most `s` nonzero groups (nonconvex) | disjoint | value, prox |
 | `SliceSum`, `FiberSum` | `src/functions/fibers.jl:58`, `src/functions/fibers.jl:182` | `Σ_k f_k(x_k)` over slices; `Σ_ij f(x[i,j,:])`, optional symmetric fibers | slices; fibers (disjoint) | per slice or fiber |
@@ -158,11 +158,11 @@ by group; Jenatton et al., Lemma 4 and Proposition 5, is the same argument for s
 **Fact.** For a group function `N` (or any sublinear `N`), `∂N(c z) = ∂N(z)` for `c > 0` and `∂N(0) ⊇ ∂N(z)`. So (C) holds when `P_j` multiplies
 `x_{g_k}` by a scalar `c ≥ 0`.
 
-**Proposition 1 (disjoint groups).** Disjoint groups; group functions with a scalar step `t ≥ 0` or a diagonal step,
+**Proposition 1 (disjoint groups).** Disjoint groups; group functions with a scalar step `t ≥ 0` or a diagonal step `τ > 0`,
 or any proper closed convex `N_k` with `t > 0` (or a positive diagonal step). The problem separates over the groups and the unpenalized coordinates: the proximal point is
 the group steps in any order, and coordinates in no group are unchanged. *Needed:* disjointness, for the separation argument (overlapping groups are Propositions 2–5).
 Master's `GroupNormL2` implements this for scalar `ℓ2` weights; a zero weight copies the group, even with an infinite
-level, and an infinite weight, or an infinite level with a positive weight, fixes it at `+0` (`groupnorml2.jl:44`, kernel `numerical_kernels.jl:1042`). Probes D1 (recorded instance,
+level, and an infinite weight, or an infinite level with a positive weight, fixes it at `+0`, at each step `γ ≥ 0` (`groupnorml2.jl:44`, kernel `numerical_kernels.jl:1042`–`1047`). Probes D1 (recorded instance,
 difference `4.44e-16` from the harness) and D2 (200 instances).
 
 **Proposition 2 (laminar, scalar `ℓ2` on containing groups).** Laminar groups (forests, duplicates and unpenalized
@@ -182,7 +182,7 @@ case) and Yu, Corollary 3. *Hypotheses:*
 
 *Corollary (two-level, sparse-group).* `Ω(x) = Σ_i c_i|x_i| + Σ_g ω_g‖x_g‖₂` with disjoint groups `g`, coordinate
 weights `c_i ≥ 0` that may differ inside a group, `ω_g ∈ [0, ∞]`: the proximal point is the soft threshold at `t c_i`,
-then the group shrink (singletons contain no other group). The legacy `SparseGroupNormL2` computes the case `c_i = λ₁`
+then the group shrink (singletons contain no other group). The legacy `SparseGroupNormL2` computes, for finite `λ₁`, the case `c_i = λ₁`
 on entries in a group and `c_i = 0` on entries in no group (`sparsegroup.jl:18`–`19`, prox at `:265`). Probes W1, W2.
 
 **Proposition 3 (`ℓ∞` groups).** Laminar groups, an inclusion order, `N_k = ω_k‖·‖∞` with `ω_k ∈ [0, ∞]` for all
@@ -237,9 +237,9 @@ scalar shrink) correspond to those in `z`. So one pass is exact when `τ` is con
 of positive weight, and for two groups of positive finite weight it is needed (Proposition 4(b)); an infinite weight
 sets its group to zero for each `τ`. For the sparse-group penalty the contained groups are singletons, so one pass is
 exact for any `τ` (S1). Probes S2 (300 families) and S3 (refuted for
-`τ = (1, 4, 1)` on `{1,2} ⊂ {1,2,3}`). Master's `GroupNormL2` takes scalar steps (`groupnorml2.jl:15`). On disjoint groups `legacy/full` keeps the step and
-the scale constant on each group, which keeps the closed-form shrink: one step per group (`metric.jl:60`, length check
-`norms.jl:887`), and an array scale checked constant on each group (`composition.jl:259`–`:265`).
+`τ = (1, 4, 1)` on `{1,2} ⊂ {1,2,3}`). Master's `GroupNormL2` takes scalar steps (`groupnorml2.jl:15`). On disjoint groups `legacy/full` takes per-group steps
+as one step per group (`metric.jl:59`–`60`, length check `norms.jl:887`) and requires an array scale to be constant on
+each group (`composition.jl:259`–`:265`); its comment at `metric.jl:59` says this keeps the closed form.
 
 ## 5. The general weights of Bien, Bunea and Xiao
 
@@ -320,21 +320,20 @@ Corollary 1 computes `K̂` from the one-pass `ν̂`, which gives the one-pass ba
 **(c) `hierband` 1.0** (CRAN source, read, not run).
 - The recursion: `R/hierband.R:79` documents `subdiag.thresh` as "Performs a single pass of BCD on a matrix R"; the loop
   over `l` (lines 108–126) is one pass of the group steps on the band norms (scaling at 124, tapering at 127–128), with
-  the default weights `sqrt(2l)/(l−m+1)` (line 50, `src/subdiag.c:25`–`38`). Without `delta`, `hierband` returns
-  `subdiag.thresh(R=Sighat, lam=lam, w=w)` (line 56); with `delta`, line 62 calls it inside the eigenvalue loop. A
-  diagonal `w` goes to the exact disjoint `gpband` (lines 97–98).
+  the default weights `sqrt(2l)/(l−m+1)` (line 50, `src/subdiag.c:25`–`38`). With `delta = NULL`, `hierband` calls
+  `subdiag.thresh(R=Sighat, lam=lam, w=w)` directly (line 56); otherwise line 62 calls it inside the eigenvalue loop. A
+  diagonal `w` goes to the disjoint `gpband` (lines 97–98).
 - Edge cases, read from the source and not executed: the guard at lines 99–100 tests `w[lower.tri(w)]`, the strict
   lower triangle, so zero diagonal weights `w_ℓℓ` pass it; line 127 forms `pp / r`, which is `0/0` on a band with
-  `r = 0`, and line 128 multiplies it into that band, so the returned matrix can hold `NaN` where the one-pass point
-  has `0` (for example `S = I₃`).
+  `r = 0`, and line 128 multiplies it into that band (for example `S = I₃`); `lam = 0` passes the check at line 53, and
+  the branch for a nonzero group divides by `lam` at line 115.
 - `R/hierband.R:4` documents the objective without the factor `½` of the paper, while the zero test at line 110,
   `Σ (pp/ww)² ≤ lam²`, is that of `½‖·‖² + λΩ`: a factor 2 in `λ` to reconcile in any cross-check.
 - `R/hierband.path.R:68`–`79`: `lam.max.hierband` is documented as the smallest `λ` with a diagonal result and
   returns `max ‖S_{s_ℓ}‖/w_ℓℓ` (also arXiv v1, Appendix C). It is an upper bound: for `p = 3` with band norms `(2, 0)`
   and `λ = 1 < 1.41` the proximal point is diagonal (probe L).
 
-So, as read from the source, for its default weights and input bands with `r > 0` `hierband` returns the one-pass
-point; a comparison with it does not test exactness.
+So a one-pass implementation reproduces the recursion of `hierband`, and agreement with it does not test exactness.
 
 **What the paper's theory uses.** Read in arXiv v1:
 - Theorem 6 (Frobenius rate) follows from Theorem 13, whose proof (Appendix G) uses the optimality conditions of (3);
@@ -403,11 +402,11 @@ reach the proximal point to a certified accuracy (a duality gap) after a number 
 |---|---|---|---|---|
 | Semantics | `Σ w_k‖x[G_k]‖₂` | `Σ c_i x_i` in magnitude plus disjoint group `ℓ2` | `Σ ω_g‖x_g‖₂`, nested zero patterns | `Σ_ℓ ‖D_ℓ x_{1:ℓ}‖₂` on band or row prefixes |
 | Layout, weights | disjoint lists, `w ∈ [0, ∞]` | disjoint groups, `c_i ≥ 0`, `ω ∈ [0, ∞]` | laminar lists, `ω ∈ [0, ∞]` | prefixes, `W` triangular |
-| Value | direct, `O(Σ G_k)` | direct | direct, `O(n + K)` from subtree norms | direct, `O(p²)` with band norms |
-| Prox | direct (Proposition 1) | direct (Corollary) | direct (Proposition 2): `O(Σ g)` group updates in place, `O(n + K)` by Jenatton et al., Algorithm 3 | direct under Proposition 4(a); outside it not covered by 4(a), and the general-weight cases studied here use iterative evaluations to a certified gap (Section 5) |
+| Value | direct, `O(Σ G_k)` | direct | direct, `O(Σ g)` by scans of the lists, or `O(n + K)` from subtree norms with `O(K)` storage | direct, `O(p²)` with band norms |
+| Prox | direct (Proposition 1) | direct (Corollary) | direct (Proposition 2): `O(Σ g)` group updates in place by scans of the lists, or `O(n + K)` by Jenatton et al., Algorithm 3, with its workspace below | direct under Proposition 4(a); outside it not covered by 4(a), and the general-weight cases studied here use iterative evaluations to a certified gap (Section 5) |
 | Memory | `O(n + K)` | as disjoint | `O(Σ g)` for lists, `O(n + K)` for a parent map | `O(p)` band norms; `O(p²)` dual blocks if iterative |
 | Contracts | value, prox, fused, block prox, KKT on master | as disjoint, plus an entry test | value, prox, fused; no group score for nested groups on master | value, prox, fused; no gradient (nonsmooth) |
-| Workspaces, aliasing | none; `y === x`, `out === u`; out of place adds `O(n)` for the coordinates in no group | none | none for one pass; in place in the order | band norms; in place by band scaling |
+| Workspaces, aliasing | none (direct scans); `y === x`, `out === u`; out of place adds `O(n)` for the coordinates in no group | none (direct scans) | direct scans of the lists: none; Algorithm 3: `O(K)` scaling factors plus the parent and coordinate layout; in place in the order | `O(p)` band norms; in place by band scaling |
 | `Float32`/`Float64` | master contract (`docs/src/numerics.md`) | soft threshold and shrink kernels | the same shrink kernel | root of `h(s)`: not measured here |
 | `SparseIterate` | `prox!` takes an `AbstractArray` (`groupnorml2.jl:189`): indexed reads and writes | as disjoint | as disjoint | not applicable to bands |
 | `BlockIterate` | blocks are the groups | blocks are the groups | blocks partition `1:p` (`block_iterate.jl:146`), so nested groups are not blocks | not applicable |
@@ -429,10 +428,10 @@ reach the proximal point to a certified accuracy (a duality gap) after a number 
 | Public names | one type per penalty: sparse-group, tree group `ℓ2`, the banding type of #965 | one type taking laminar lists and weights |
 | Validation | each layout its own: disjoint, laminar, square matrix | laminarity, inclusion order and the Proposition 4(a) condition on generic lists |
 | Aliasing | as `GroupNormL2`: in place allowed, other overlap rejected | the same |
-| Workspaces | none (scalar), `O(p)` band norms | order, parent map, and band summaries for a chain, built from the lists |
+| Workspaces | direct scans: none; Algorithm 3: `O(K)` scaling factors and the parent layout; banding: `O(p)` band norms | order and parent map built from the lists; `O(K)` scaling factors for Algorithm 3; band summaries for a chain |
 | Tests | per type: Propositions 1–2 or 4 with certified gaps, degenerate layouts, `Float32`/`Float64` | all laminar layouts, refusal of non-laminar lists, the condition check, plus each estimator's layout |
 | Estimators | sparse group lasso; hierarchical sparse coding (Jenatton et al.); convex banding; varband unweighted | the same; a band chain as lists has `Σ ℓ(ℓ+1) = O(p³)` entries |
-| Oracle cost | value and prox `O(n + K)` (tree, Jenatton et al., Algorithm 3, Lemma 8) or `O(p²)` (banding); fused value from the shrink | the same after construction; construction and validation `O(Σ g)`, `O(p³)` for a band chain given as lists |
+| Oracle cost | tree: `O(Σ g)` by scans of the lists, or `O(n + K)` by Jenatton et al., Algorithm 3 (Lemma 8) with `O(K)` factors; banding `O(p²)`; fused value from the shrink | the same after construction; construction `O(Σ g)`, validation near linear in `Σ g` (Section 7), `O(p³)` for a band chain given as lists |
 
 Shared operations in (A): the scalar group shrink on an index set (`_l2_shrink!`), the soft threshold of `NormL1`, and,
 for diagonal weights or steps, the projection onto an ellipsoid with a bracketed scalar root. Convex banding with the
@@ -463,8 +462,8 @@ cover per-coordinate coefficients `c_i`; they are not proposed.
 **Tree-structured group `ℓ2` penalty, scalar weights.** Jenatton, Mairal, Obozinski and Bach (2011), hierarchical sparse
 coding; Yan and Bien (2017), the group lasso on the descendant sets of a tree. Penalty `Σ_g ω_g‖x_g‖₂` on laminar
 groups, `ω_g ∈ [0, ∞]`. Operation: one pass of scalar group shrinks in an inclusion order, `O(Σ_g g)` group updates
-in place (at most the depth times `n`, Jenatton et al., Section 3.5), or `O(n + K)` by their Algorithm 3 (Lemma 8); an
-out-of-place call adds `O(n)` for the coordinates in no group. Exact by Proposition 2.
+in place (at most the depth times `n`, Jenatton et al., Section 3.5), or `O(n + K)` by their Algorithm 3 (Lemma 8) with `O(K)`
+scaling factors; an out-of-place call adds `O(n)` for the coordinates in no group. Exact by Proposition 2.
 - *Proposed issue:* "Tree-structured group `ℓ2` penalty with scalar weights". Scope: laminar validation and the order at
   construction, value, prox, fused value; no diagonal weights; no `BlockIterate` blocks for nested groups. Evidence:
   Proposition 2, probes L1–L3, W2.

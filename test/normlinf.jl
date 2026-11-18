@@ -777,7 +777,7 @@ end
 function head_ties_cases(::Type{T}) where {T}
   u = Float64(eps(T)) / 2
   [(m, cf, ρ, order, tie_input(T, (1 - cf) / (1 + ρ * Float64(m)^2 * u), m, 1, 1, order))
-   for m in (T == Float32 ? (10, 1000, 10^4, 10^5) : (10, 1000, 10^5)), cf in (0.1, 0.5, 0.9), ρ in (0.01, 0.06, 0.25, 1.0), order in ORDERS]
+   for m in (T == Float32 ? (10, 1000, 10^4, 10^5) : (10, 1000, 10^5)), cf in (0.1, 0.5, 0.9), ρ in (0.003, 0.03, 0.25, 1.0), order in ORDERS]
 end
 # ---- end of the helpers ----
 
@@ -909,7 +909,7 @@ end
   bad = 0
   ncase = 0
   for (m, cf, ρ, order, x) in head_ties_cases(T)
-    msg = prox_msg(T, x, ref_groups(x), T(cf); entry_points = m <= 1000 || (ρ == 0.25 && cf == 0.5), scaled = m <= 10^4)
+    msg = prox_msg(T, x, ref_groups(x), T(cf); entry_points = m <= 1000 || (ρ == 0.003 && cf == 0.5), scaled = m <= 10^4)
     ncase += 1
     if msg !== nothing
       bad += 1

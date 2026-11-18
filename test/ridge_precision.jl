@@ -5,7 +5,7 @@ module RidgePrecisionTest
 # allocating, coordinate and fused methods. References are exact BigFloat
 # evaluations of the formulas, not other package oracles.
 
-using Test, ProximalBase, SparseArrays
+using Test, ProximalBase, SparseArrays, Random
 
 pow2(T, k) = ldexp(one(T), k)
 const BIG = 400   # bits: enough for every product below
@@ -280,6 +280,39 @@ setprecision(BigFloat, BIG) do
             normal(W, r) && @test near(z[1], r, 3)
           end
         end
+      end
+    end
+  end
+  @testset "array prox! and prox_block agree within one unit" begin
+    # Both routes compute the centered proximal point; the same-sign multiply-add of the
+    # formula may be contracted into one rounding in one route and not in the other, so
+    # the results are compared within one unit in the last place (see numerics.md).
+    function cases()
+      rng = Xoshiro(5)
+      x5, c5 = randn(rng, Float32, 40), randn(rng, Float32, 40)
+      λ5, γ5 = rand(rng) * 4, rand(rng) * 4
+      out = Any[]
+      for T in (Float32, Float64), (γ, λ, seed) in ((T(0.3), T(2), 1), (T(0.5), T(2), 2), (T(3), T(2), 3))
+        rng = Xoshiro(seed)
+        x = randn(rng, T, 1024)
+        push!(out, (x, randn(rng, T, 1024), γ, λ))
+      end
+      push!(out, (x5, c5, γ5, λ5))
+      push!(out, (fill(-0.27755527182914164, 16), fill(-0.14265039372910482, 16), 0.3102855942088909, 2.8975218985117315))
+      out
+    end
+    for (x, c, γ, λ) in cases()
+      T = eltype(x)
+      f = SqrNormL2(λ, c)
+      z = prox!(similar(x), f, x, γ)
+      s = [prox_block(f, x[i], i, γ) for i in eachindex(x)]
+      @test all(abs(z[i] - s[i]) <= eps(max(abs(z[i]), abs(s[i]))) for i in eachindex(x))
+      # same-sign entries do not cancel, so each result is within 2 units of the exact value
+      @test all(eachindex(x)) do i
+        x[i] * c[i] > 0 || return true
+        r = ref_prox(T, x[i], c[i], γ, λ)
+        normal(T, r) || return true
+        near(z[i], r, 2) && near(s[i], r, 2)
       end
     end
   end

@@ -457,12 +457,13 @@ end
 # Claim 5 (consequences). (i) The level. For n u ≤ 1/4 each bound of claims 2 and 3 on |τ̂ - τ*| is at most 4.5 n u M + 2 n δ:
 # the overshoot ε; below τ*, γ_n M at (b), [1.5 γ_n/(1 - n u) + u/2 + n u] M + n δ at (c), (n u [1.5/(1 - n u)² + 1/2] + u) M +
 # δ at (c) above τ* (there a ≤ n M), and E_v at (d). The largest coefficient, 4.45, is that of the overshoot at n u = 1/4; for
-# small n u the coefficients are about 2 + 3/n above τ* and 3 below. (ii) The distance. The vector that the prox returns at a
-# level τ ≥ 0 has the norm d(τ) = (Σ min(yᵢ, τ)²)^(1/2). For the radius a, D(a) = d(τ*(a)) has dD/da = -τ*/D and D ≥ τ*, so D is
-# 1-Lipschitz, and d(τ) = D(g(τ)): |d(τ̂) - d(τ*)| ≤ |g(τ̂) - a| ≤ E_c or E_v at (c) and (d). At (a) and (b), |d(τ̂) - d(τ*)| ≤
-# √K′ |τ̂ - τ*| with K′ = #{i : yᵢ > min(τ̂, τ*)} ≤ n; for a step from a level with g′ ≥ a (then K′ ≤ k′), √K′ Γ g′/k′ ≤ Γ ‖(y -
-# τ′)₊‖₂ ≤ Γ ‖y‖₂ at τ′ ≥ 0, by the Cauchy-Schwarz inequality g′ ≤ √k′ ‖(y - τ′)₊‖₂. This is not proved for a start (the factor
-# √n remains). Where Σ yᵢ < a < s the exact level is in [-γ_{n-1} M, 0) and the bounds hold with M replaced by (1 + γ_{n-1}) M.
+# small n u the coefficients are about 2 + 1/n above τ* (4 at n = 1) and at most 3 below. (ii) The distance. The vector that the
+# prox returns at a level τ ≥ 0 has the norm d(τ) = (Σ min(yᵢ, τ)²)^(1/2). For the radius a, D(a) = d(τ*(a)) has dD/da = -τ*/D
+# and D ≥ τ*, so D is 1-Lipschitz, and d(τ) = D(g(τ)): |d(τ̂) - d(τ*)| ≤ |g(τ̂) - a| ≤ E_c or E_v at (c) and (d). At (a) and
+# (b), |d(τ̂) - d(τ*)| ≤ √K′ |τ̂ - τ*| with K′ = #{i : yᵢ > min(τ̂, τ*)} ≤ n; for a step from a level with g′ ≥ a (then K′ ≤
+# k′), √K′ Γ g′/k′ ≤ Γ ‖(y - τ′)₊‖₂ ≤ Γ ‖y‖₂ at τ′ ≥ 0, by the Cauchy-Schwarz inequality g′ ≤ √k′ ‖(y - τ′)₊‖₂. This is not
+# proved for a start (the factor √n remains). Where Σ yᵢ < a < s the exact level is in [-γ_{n-1} M, 0) and the bounds hold with
+# M replaced by (1 + γ_{n-1}) M.
 #
 # Range. A pass sum at a level τ ≥ 0 is at most (1 + θ) Σ yᵢ ≤ ((1 + θ)/(1 - θ)) s ≤ 0.91 floatmax, with θ = (1 + u)^n - 1 ≤
 # 0.29 (n u ≤ 1/4), so the sums of the passes and the sequential sums of Condat's pass are finite. At the negative start of
@@ -580,7 +581,7 @@ end
 end
 
 # The iteration of the header from the level τ, on the first n entries rd(x[i]): the four returns (a) to (d) in that order, the step
-# τ ← t otherwise. It does not allocate.
+# τ ← t otherwise. It does not allocate for Float32 and Float64 entries.
 function _l1ball_iterate(x, n::Int, a::T, rd::F, τ::T) where {T, F}
   while true
     r, k, hi = _l1ball_excess(x, n, τ, rd)

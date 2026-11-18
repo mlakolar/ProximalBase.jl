@@ -290,7 +290,7 @@ setprecision(BigFloat, BIG) do
     function cases()
       rng = Xoshiro(5)
       x5, c5 = randn(rng, Float32, 40), randn(rng, Float32, 40)
-      λ5, γ5 = rand(rng) * 4, rand(rng) * 4
+      λ5, γ5 = rand(rng, Float32) * 4, rand(rng, Float32) * 4
       out = Any[]
       for T in (Float32, Float64), (γ, λ, seed) in ((T(0.3), T(2), 1), (T(0.5), T(2), 2), (T(3), T(2), 3))
         rng = Xoshiro(seed)
@@ -307,7 +307,7 @@ setprecision(BigFloat, BIG) do
       z = prox!(similar(x), f, x, γ)
       s = [prox_block(f, x[i], i, γ) for i in eachindex(x)]
       @test all(abs(z[i] - s[i]) <= eps(max(abs(z[i]), abs(s[i]))) for i in eachindex(x))
-      # same-sign entries do not cancel, so each result is within 2 units of the exact value
+      # same-sign entries do not cancel; at these inputs each result is within 2 units of the exact value
       @test all(eachindex(x)) do i
         x[i] * c[i] > 0 || return true
         r = ref_prox(T, x[i], c[i], γ, λ)

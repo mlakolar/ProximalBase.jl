@@ -206,11 +206,12 @@ to the function's endpoint semantics. There is no cross-platform or
 cross-version bitwise arithmetic-order guarantee.
 
 Routes that compute the same proximal point, such as the array `prox!` and the scalar `prox_block`, are not
-guaranteed to agree bit for bit. Whether a multiply-add is contracted into one rounding depends on how the compiler
-optimizes each call site and on the CPU. For example, for the centered `SqrNormL2` proximal point with `γλ < 1`,
-Julia 1.13 on a CPU with fused multiply-add contracts it in `prox_block` but not in the vectorized loop of `prox!`,
-so the two can differ in the last place. Both are roundings of the same formula, and the tests compare them within
-one unit in the last place.
+guaranteed to agree bit for bit. The centered `SqrNormL2` proximal point evaluates coordinates where the argument and
+the center have the same sign with `muladd`, which the compiler may or may not contract into one rounding, depending on
+how it optimizes each call site and on the CPU. On Julia 1.13.4 and an x86-64 CPU with fused multiply-add, with
+`γλ < 1`, `prox_block` was observed to contract it and the vectorized loop of `prox!` not to, so the two differed in
+the last place. Both are rounded evaluations of the same formula; the tests compare the two routes within one unit in
+the last place on selected inputs.
 
 The order in which an ordinary value adds its terms is not part of the contract either. The unweighted
 `NormL1` value of a dense `Float32` or `Float64` array of 16 to 1024 entries, and the `NormL2` value of such an

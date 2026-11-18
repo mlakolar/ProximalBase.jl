@@ -133,6 +133,11 @@ function _zero_scaled(f::NormL1)
   isfinite(f.λ0) || _zero_scale_error(f)
   _finite_parameter(f.w) ? ZeroFunction() : NormL1(zero(f.λ0), f.w)
 end
+# a finite level gives the level zero, which keeps the domain xᵢ >= 0 and the fixed zeros of an infinite weight
+function _zero_scaled(f::NormL1Nonneg)
+  isfinite(f.λ0) || _zero_scale_error(f)
+  NormL1Nonneg(zero(f.λ0), f.w)
+end
 # finite levels give the zero function, or, with an infinite weight, zero levels that keep its fixed zeros
 function _zero_scaled(f::ElasticNet)
   isfinite(f.λ1) && isfinite(f.λ2) || _zero_scale_error(f)
@@ -218,6 +223,10 @@ _fold_level(::AbstractFunction, α) = nothing
 function _fold_level(f::NormL1, α)
   c = _folded_level(f.λ0, α)
   c === nothing ? nothing : NormL1(c, f.w)
+end
+function _fold_level(f::NormL1Nonneg, α)
+  c = _folded_level(f.λ0, α)
+  c === nothing ? nothing : NormL1Nonneg(c, f.w)
 end
 # Both levels fold, or neither. An infinite level is kept as it is: it is the same level after any positive factor,
 # and the finite level still folds (the ridge of an entry with a zero weight under an infinite λ1, say). Probes of
@@ -443,6 +452,8 @@ function _exactly_zero_at(f::NormL1, x::AbstractArray)
   end
   true
 end
+# Exact zero also requires nonnegative entries.
+_exactly_zero_at(f::NormL1Nonneg, x::AbstractArray) = all(>=(0), _host_entries(x)) && _exactly_zero_at(f.l1, x)
 # a positive ridge level penalizes every entry (an infinite one is the indicator of {0}, #908); a zero
 # one leaves the entries that the ℓ1 part penalizes, as for NormL1
 _exactly_zero_at(f::ElasticNet, x::AbstractArray) =
@@ -662,6 +673,7 @@ struct _KktNone end
 struct _KktCustom end
 Base.@assume_effects :foldable _kkt_class(::Type{F}) where {F} = parentmodule(F) === (@__MODULE__) ? _KktNone() : _KktCustom()
 _kkt_class(::Type{<:Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2, GroupNormL2, NormL2}}) = _KktScore()
+_kkt_class(::Type{<:NormL1Nonneg}) = _KktScore()
 _kkt_class(::Type{<:Scaled{F}}) where {F} = _kkt_class(F)
 _kkt_innermost(f::AbstractFunction) = f
 _kkt_innermost(s::Scaled) = _kkt_innermost(s.f)
@@ -696,12 +708,13 @@ _kkt_depth(s::Scaled) = 1 + _kkt_depth(s.f)
 # is applied to a parameter of the leaf, and v is not divided by it.
 #   ZeroFunction                 itself (|vᵢ|);
 #   LinearFunction, SqrNormL2    |vᵢ + a dᵢ| with dᵢ the entry of the leaf's gradient (_KktChain);
-#   NormL1, ElasticNet           the function with the folded levels (_fold_level);
+#   NormL1, NormL1Nonneg, ElasticNet
+#                                the function with the folded levels (_fold_level);
 #   GroupNormL2, NormL2          the block kernel with the level folded by _folded_level (_KktLevel).
 # Levels that do not fold to a normal number, and a function defined outside the package, have none.
 _kkt_resolve(f::ZeroFunction, a) = f
 _kkt_resolve(f::Union{LinearFunction, SqrNormL2}, a) = _KktChain(f, a)
-_kkt_resolve(f::Union{NormL1, ElasticNet}, a) = _fold_level(f, a)
+_kkt_resolve(f::Union{NormL1, NormL1Nonneg, ElasticNet}, a) = _fold_level(f, a)
 _kkt_resolve(f::GroupNormL2, a) = (λ = _folded_level(f.λ0, a); λ === nothing ? nothing : _KktLevel(f, λ))
 _kkt_resolve(f::NormL2, a) = (λ = _folded_level(f.λ, a); λ === nothing ? nothing : _KktLevel(f, λ))
 _kkt_resolve(f, a) = nothing
@@ -752,6 +765,11 @@ end
 # ElasticNet gives -Inf for any entry, as its screen does.
 Base.@propagate_inbounds function _kkt_entry(c::_KktChain{<:NormL1, <:_ProjectionScale}, s, ::Type{W}, v, x, i) where {W}
   abs(convert(W, v)) - _chain_coefficient(W, c.f.λ0, _entry(c.f.w, i), c.a)
+end
+# NormL1Nonneg: the screen -vᵢ - c of a zero coordinate, with the same coefficient c; a nonzero coordinate (a negative
+# one included) is refused by the caller after this value is formed
+Base.@propagate_inbounds function _kkt_entry(c::_KktChain{<:NormL1Nonneg, <:_ProjectionScale}, s, ::Type{W}, v, x, i) where {W}
+  -convert(W, v) - _chain_coefficient(W, c.f.λ0, _entry(c.f.w, i), c.a)
 end
 Base.@propagate_inbounds function _kkt_entry(c::_KktChain{<:ElasticNet, <:_ProjectionScale}, s, ::Type{W}, v, x, i) where {W}
   isinf(c.f.λ2) && return W(-Inf)
@@ -805,8 +823,13 @@ function _chain_screen_plain(f, a, g, i)
 end
 # NormL1 and ElasticNet: the fold, where the levels fold, and otherwise the screen |gᵢ| - c with the coefficient c ≥ 0 of
 # _chain_coefficient (a λ wᵢ for a positive finite λ and wᵢ), which is formed without dividing g by a; an ElasticNet with an
-# infinite λ2 returns -Inf before c is formed.
+# infinite λ2 returns -Inf before c is formed. NormL1Nonneg: the same with the screen -gᵢ - c.
 function _chain_screen(f::Union{NormL1, ElasticNet}, a::_ProjectionScale, g, i)
+  h = _fold_level(f, a)
+  h === nothing || return kkt_violation(h, g, i)
+  _chain_screen_entry(_KktChain(f, a), g, i)
+end
+function _chain_screen(f::NormL1Nonneg, a::_ProjectionScale, g, i)
   h = _fold_level(f, a)
   h === nothing || return kkt_violation(h, g, i)
   _chain_screen_entry(_KktChain(f, a), g, i)
@@ -887,7 +910,7 @@ function _kkt_chain(s::Scaled, g, x, k)
   r
 end
 # The value at a zero coordinate or group of a chain that has nothing to resolve to (a nonzero one is refused by the caller
-# after this value is formed). NormL1 and ElasticNet score the entry with the coefficient c of _chain_coefficient (_KktChain),
+# after this value is formed). NormL1, NormL1Nonneg and ElasticNet score the entry with the coefficient c of _chain_coefficient (_KktChain),
 # GroupNormL2 the group with the coefficient of the group (_KktChainLevel), in the type of the arguments and the factors,
 # with g read in that type. Neither divides g by a. The other functions that this package scores, and a function defined outside it, score the screen
 # of the function at g divided by the product (kept as an exponent), multiplied by it, which does not recover a g that is
@@ -897,7 +920,7 @@ function _kkt_unresolved(f, a, g, x, k)
   ge = _ExpScaledArray(g, _scale_inverse(a))
   _apply_scale(a, cls isa _KktCustom ? _kkt_custom_zero(f, ge, x, k) : _kkt_unfolded(f, ge, x, k))
 end
-_kkt_unresolved(f::Union{NormL1, ElasticNet}, a::_ProjectionScale, g, x, k) = _kkt_apply(_KktChain(f, a), g, x, k)
+_kkt_unresolved(f::Union{NormL1, NormL1Nonneg, ElasticNet}, a::_ProjectionScale, g, x, k) = _kkt_apply(_KktChain(f, a), g, x, k)
 function _kkt_unresolved(f::GroupNormL2, a::_ProjectionScale, g, x, k)
   W = promote_type(float(promote_type(eltype(g), eltype(x))), _kkt_factor_type(a))
   # the validation and the entry in no group read g through a lazy copy whose entries are converted to W
@@ -926,11 +949,11 @@ _chain_finite(a::Real) = isfinite(a)
   r
 end
 # The value at a zero coordinate or group of the function f inside a chain, scored at its argument g as it stands: the screen
-# of the three-argument form of the five scalar functions (at the coordinate, at each coordinate of a group of a BlockIterate,
-# at the lower position of a symmetric coordinate); for the other functions their own method. NormL1, ElasticNet and
+# of the three-argument form of the scalar functions (at the coordinate, at each coordinate of a group of a BlockIterate,
+# at the lower position of a symmetric coordinate); for the other functions their own method. NormL1, NormL1Nonneg, ElasticNet and
 # GroupNormL2 under a finite chain whose product is a _ProjectionScale do not use it (_kkt_unresolved); under a chain with an
 # infinite factor they do.
-const _KktScalar = Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2}
+const _KktScalar = Union{NormL1, NormL1Nonneg, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2}
 _kkt_unfolded(f, g, x, k) = _kkt_violation(f, g, x, k)
 _kkt_unfolded(f::_KktScalar, g, x::AbstractArray, i) = kkt_violation(f, g, i)
 _kkt_unfolded(f::_KktScalar, g, x::BlockIterate, k) = maximum(i -> kkt_violation(f, g, i), x.groups[k])
@@ -1020,12 +1043,14 @@ _steps_hard(γ) = all(g -> g isa Real && isfinite(g) && g > 0, γ)
 # a stored infinite level in the function tree, read from the parameters as stored
 _has_infinite_level(::AbstractFunction) = false
 _has_infinite_level(f::NormL1) = isinf(f.λ0)
+_has_infinite_level(f::NormL1Nonneg) = isinf(f.λ0)
 _has_infinite_level(f::ElasticNet) = isinf(f.λ1) || isinf(f.λ2)
 _has_infinite_level(f::Scaled) = _has_infinite_level(f.f)
 _hard_function(f) = _hard(f)
 _hard(_) = nothing
 _hard(f::ZeroFunction) = f
 _hard(f::NormL1) = isinf(f.λ0) ? f : nothing
+_hard(f::NormL1Nonneg) = isinf(f.λ0) ? f : nothing
 # Two levels. An infinite ridge level fixes every entry (#908), and an infinite ℓ1 level every entry with a
 # positive weight. The finite level is then removed (set to zero) when the infinite one fixes every entry, or
 # when it is zero already; otherwise (an infinite ℓ1 level, a positive finite ridge level and a zero weight)

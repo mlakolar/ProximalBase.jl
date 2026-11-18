@@ -69,10 +69,12 @@ zero, and it takes no iterate.
 For `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` and `SqrNormL2` it
 returns the signed screen at a zero coordinate and a nonnegative stationarity
 mismatch at a nonzero one (see [Mathematical operations](operations.md) for each
-scalar). `GroupNormL2` has the same two scores for a group, and `Scaled` forwards
+scalar). For `NormL1Nonneg` its point-aware entry formulas and non-finite overrides are
+described in [Mathematical operations](operations.md) and the [numerical contract](numerics.md).
+`GroupNormL2` has the same two scores for a group, and `Scaled` forwards
 them (below). `kkt_violation(g,v,x)` is the nonnegative full-point measure
 ``\max(0,\max_k s_k)`` of these functions on a one-based array,
-`SparseIterate` or `BlockIterate`: the scores ``s_k`` of the entries for the five scalar
+`SparseIterate` or `BlockIterate`: the scores ``s_k`` of the entries for the six scalar
 functions, and for `GroupNormL2` the scores of the groups and ``\lvert v_i\rvert`` of the entries in no
 group, a **maximum of block 2-norms** and not an ``\ell_\infty`` distance. `NormL2` has the full-point
 form and no other.

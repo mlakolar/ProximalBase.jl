@@ -10,8 +10,8 @@
 # test checks in words.
 #
 # This script scans src/**/*.jl and test/**/*.jl and reports each token of the
-# form <letters><digits> for the label families NR, FT, R, T, M, E, O, A and D, and
-# of the form FN-<digits>, that occurs in a comment or in the literal text of a
+# form <letters><digits> for the label families NR, FT, R, T, M, E, O, A, D and V, and
+# of the form FN-<digits>, FP-<digits> or CRD-<digits>, that occurs in a comment or in the literal text of a
 # @testset name. It takes the comments and names from Julia's own parser
 # (Base.JuliaSyntax), so strings, docstrings, character literals, adjoints and
 # macro literals are not comments. A file that the parser rejects fails the check;
@@ -35,9 +35,9 @@
 
 const JS = Base.JuliaSyntax
 
-# A label: a family prefix followed by ASCII digits, as a whole word; or FN-, the
-# prefix of the test plan items of #504, followed by digits (not inside XFN-4).
-const LABEL = r"\b(?:(?:NR|FT|[RTMEOAD])[0-9]+|FN-[0-9]+)\b"
+# A label: a family prefix followed by ASCII digits, as a whole word; or FN-, FP- or
+# CRD-, prefixes of test plan items, followed by digits (not inside XFN-4).
+const LABEL = r"\b(?:(?:NR|FT|[RTMEOADV])[0-9]+|(?:FN|FP|CRD)-[0-9]+)\b"
 
 # CPU names are not labels: a token of one of the given families directly
 # preceded by the given prefix, as "M3" in "Apple M3". Pairs (prefix, family).
@@ -257,6 +257,11 @@ append!(SELF_TEST_CASES, [
     ("FN-4 next to a CPU name exemption", "# Apple M3 and FN-4\n", [(1, "FN-4")]),
     ("FN-<digits> inside a word, FN without digits, FN4", "# XFN-4, FN-, FN-4x, FN4 and FN-a\n", []),
     ("FN-4 in a string and as an expression", "s = \"FN-4\"\nx = FN - 4\n", []),
+    ("FP-7 and CRD-4 in a comment", "# FP-7 and CRD-4\nx = 1  # (FP-12)\n", [(1, "FP-7"), (1, "CRD-4"), (2, "FP-12")]),
+    ("V3 in a comment", "x = 1  # V3 to V6\n", [(1, "V3"), (1, "V6")]),
+    ("V label next to a CPU name exemption", "# Apple M3 and V9\n", [(1, "V9")]),
+    ("XFP-7, XCRD-4, CRD-, FP7, V and a variable V3 are not labels",
+     "# XFP-7, XCRD-4, CRD-, FP-x, FP7, V and V3x\nV3 = 1\n", []),
 ])
 
 # Each case: (name, Julia source, expected [(line, token, kind), ...]) for the
@@ -274,6 +279,10 @@ const SELF_TEST_NAME_CASES = Tuple{String,String,Vector{Tuple{Int,String,Symbol}
      "@testset \"\$(f(\"R1\")) and T3\" begin\nend\n", [(1, "T3", :name)]),
     ("labels in two literal pieces of one name",
      "@testset \"R1 \$x R2\" begin\nend\n", [(1, "R1", :name), (1, "R2", :name)]),
+    ("FP-7 and CRD-4 in a @testset name",
+     "@testset \"fill! (FP-7) and CRD-4\" begin\nend\n", [(1, "FP-7", :name), (1, "CRD-4", :name)]),
+    ("V3 in a @testset name", "@testset \"V3: the sweep\" begin\nend\n", [(1, "V3", :name)]),
+    ("a variable V3 in a @testset body", "@testset \"sweep\" begin\n    V3 = 1\n    @test V3 == 1\nend\n", []),
     ("FN-4 in a @testset name",
      "@testset \"finite overflow depends on the order (FN-4, A1)\" begin\nend\n",
      [(1, "FN-4", :name), (1, "A1", :name)]),

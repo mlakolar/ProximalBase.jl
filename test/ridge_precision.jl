@@ -33,14 +33,14 @@ setprecision(BigFloat, BIG) do
   ref_prox(W, x, c, γ, λ) = (t = big(γ) * big(λ); (big(x) + t * big(c)) / (1 + t))
   ref_grad(W, x, c, λ) = big(λ) * (big(x) - big(c))
 
-  @testset "cases from the contract" begin
-    # A: a wider argument keeps its effect in a narrower gradient
+  @testset "a wider argument, and a level or step outside the range of the data type" begin
+    # a wider argument keeps its effect in a narrower gradient
     x = Float64[1 + pow2(Float64, -28)]
     g = zeros(Float32, 1)
     gradient!(g, SqrNormL2(1, Float32[1]), x)
     @test g[1] === pow2(Float32, -28)
 
-    # B: the center's coefficient survives when γλ underflows
+    # the center's coefficient survives when γλ underflows
     z = zeros(Float32, 1)
     prox!(z, SqrNormL2(pow2(Float32, -100), Float32[pow2(Float32, 100)]), Float32[0], pow2(Float32, -60))
     @test z[1] === pow2(Float32, -60)
@@ -179,7 +179,7 @@ setprecision(BigFloat, BIG) do
     f = SqrNormL2(1.0, [1 + pow2(Float64, -28)])
     @test f(Float32[1]) === 0f0
     # a center outside Float32's range is used unrounded: 2^-400 (2^200)^2 / 2 = 0.5, although neither the level nor the
-    # center is a Float32 number
+    # center is representable in Float32
     f = SqrNormL2(pow2(Float64, -400), [pow2(Float64, 200)])
     @test f(Float32[0]) === 0.5f0
     # entries that fit are still rounded when another entry does not

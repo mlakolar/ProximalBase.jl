@@ -3,6 +3,8 @@
 Status: research note, no implementation. Pinned code: master at `13891ccfd5c33a042c5df82d670abf1f2d786a0f`,
 `legacy/full` at `eff21b6d7d33c622313122f46c6ee71693c101ee`. Numbers below are pasted from the probes in
 `docs/audit/overlapping-group-penalties-963/`, whose `README.md` gives the commands and the recorded output.
+The literature addendum [`overlapping-group-penalties-963-literature.md`](overlapping-group-penalties-963-literature.md)
+adds sources, new one-pass statements and a fifth option for #965.
 
 ## 1. Summary
 
@@ -311,7 +313,9 @@ Corollary 1 computes `K̂` from the one-pass `ν̂`, which gives the one-pass ba
   `w_{ℓm} = 1/(ℓ−m+1)²` by "a single pass as described in Algorithm 3", citing Jenatton et al. (proof of Theorem 8). In
   rows with three or more penalized coordinates (row `r ≥ 4`) (a) above applies; a recorded instance (probe Y) and 76, 97
   and 100 of 100 instances for 3, 5 and 9 penalized coordinates (F) are refuted. Their prox runs inside an ADMM (Algorithm 1); the effect on that ADMM was not
-  studied. The unweighted case (`w = 1`, Algorithm 2) satisfies Proposition 2. The published version was not read.
+  studied. The unweighted case (`w = 1`, Algorithm 2) satisfies Proposition 2. The published version (JMLR 18(42)) keeps
+  the claim (proof of Theorem 8), as do Yan and Bien (Appendix E.2) and `varband` 0.9.0 (read, not run); addendum,
+  Section 5.3.
 - Yan and Bien (Statistical Science 32(4), 2017; arXiv:1512.01631), Section 4, Algorithm 1: one pass for scalar
   weights `w_g > 0`, which Proposition 2 covers. Section 5 repeats that the convex banding estimators "can be
   evaluated in a single pass", and Section 4.2 gives the modified (general-weight) prox a cost of `O(p + D² log(n))`;
@@ -353,8 +357,9 @@ reach the proximal point to a certified accuracy (a duality gap) after a number 
   `w_ℓℓ = b_ℓ` ("two-value" weights). One pass is then exact (accepted in 100 of 100 at `p = 4, 6, 10`, F), and after
   the `O(p²)` band norms it costs `p − 1` root solves of a two-term equation, keeping the running norm of the earlier
   bands. With `b_ℓ = √(2ℓ)` and `a_ℓ = √(2/ℓ)`: `w₀(0) = max_m (2m + Σ_{ℓ>m} 2/ℓ) = 2(p − 1)`, and
-  `Σ_{ℓ≥m} w_{ℓm}²/(2ℓ) = 1 + Σ_{ℓ>m} 1/ℓ² ≤ π²/6`. We did not re-derive the proofs for such weights; they penalize
-  all farther bands of a group alike, unlike (8), and their statistical behavior is not established here.
+  `Σ_{ℓ≥m} w_{ℓm}²/(2ℓ) = 1 + Σ_{ℓ>m} 1/ℓ² ≤ π²/6`. They penalize all farther bands of a group alike, unlike (8). On our
+  reading the proofs of Theorems 13 and 6 and Corollary 2 (Frobenius rate) hold for such weights; the bandwidth and
+  operator-norm theorems were not re-derived (addendum, Section 5.2).
 - *Dual block coordinate descent on the band norms*, stopped at a duality gap of `1e-12 (1 + ‖r‖²)`. Each sweep costs
   `p − 1` root solves, `O(p²)` operations per round of root iterations; the dual blocks take `p(p−1)/2` numbers. From
   zero (the first sweep is one pass), five instances per size, `p = 8, …, 128`, four families (probe C): 1–5 sweeps
@@ -384,7 +389,8 @@ reach the proximal point to a certified accuracy (a duality gap) after a number 
 
 **(e) For #965.** The options, for the maintainer to choose:
 1. the basic weights (2.5), arXiv (7): one pass exact (Proposition 2), `O(p²)`, but the slower rate of Remark 6;
-2. two-value weights in the one-pass class: one pass exact; their theory is open;
+2. two-value weights in the one-pass class: one pass exact; the Frobenius rate holds on our reading of the proofs, the
+   bandwidth and operator-norm theory was not re-derived (addendum, Section 5.2);
 3. the general weights (2.6), arXiv (8), evaluated to a certified gap, by dual block coordinate descent or a
    Newton-type method as above. On our probes dual block coordinate descent needed 1 to 7591 sweeps and had not
    reached the gap after 100000 in one instance; counts above 300 came with a group norm below `0.005 λ w_ℓℓ` at the
@@ -394,7 +400,9 @@ reach the proximal point to a certified accuracy (a duality gap) after a number 
    bands switch off: iterations, time and memory against one pass, the gap reached at the chosen tolerance, and the rule
    for groups at their thresholds;
 4. one pass with (2.6) is a well-defined map, but not the proximal operator of (2.1), and its bandwidth can exceed that
-   of the proximal point (Zero bands); under the policy it is not a ProximalBase proximal operator.
+   of the proximal point (Zero bands); under the policy it is not a ProximalBase proximal operator;
+5. the latent penalty of Yan and Bien on nested band unions (their (20)): a different penalty with a finite exact prox
+   (Algorithm 3) and a stated bandwidth and Frobenius theory (addendum, Section 9.1).
 
 ## 6. Comparison of the covered families
 
@@ -451,7 +459,9 @@ policy and was not evaluated.
 
 **Sparse-group penalty.** Simon, Friedman, Hastie and Tibshirani (2013), the sparse group lasso, and the group
 graphical lasso of Danaher, Wang and Witten (2014) as a `FiberSum`, both as cited in the legacy docstring
-(`sparsegroup.jl:7`–`40`); the papers were not checked against the source. Penalty
+(`sparsegroup.jl:7`–`40`). Simon et al. ((12)) and Friedman, Hastie and Tibshirani (arXiv:1001.0736, (11)) give the soft
+threshold, then the group shrink, for one `ℓ1` coefficient and one weight per group (Friedman et al. for an orthonormal
+group design); the group graphical lasso paper was not checked (addendum, Section 9.2). Penalty
 `λ₁ Σ_{i in a group} |x_i| + λ₂ Σ_g ω_g ‖x_g‖₂`, disjoint groups, entries in no group unpenalized (the preserved
 contract). Operation: soft threshold, then scalar group shrink. Exact by the Corollary of Proposition 2, which would also
 cover per-coordinate coefficients `c_i`; they are not proposed.
@@ -474,8 +484,10 @@ No issue is proposed for diagonal weights: the one penalty that needs them is #9
 
 Groups with arbitrary overlap: the Lemma does not apply, and the sources read give no finite composition of group steps
 for them (Jenatton et al., Section 3.3, say that their dual block coordinate ascent need not, in general, finish in
-finitely many iterations, before proving one pass for ordered tree-structured groups); sums of `ℓ∞` norms have an exact
-polynomial algorithm (Mairal et al., JMLR 2011, abstract and Propositions 6–7, quadratic min-cost flow), and for `ℓ2`
+finitely many iterations, before proving one pass for ordered tree-structured groups); sums of `ℓ∞` norms with one
+positive scalar weight per group have an exact polynomial algorithm in real arithmetic (Mairal et al., JMLR 2011,
+abstract and Propositions 6–7, quadratic min-cost flow), and for `ℓ2`
 that paper uses proximal splitting. The latent penalty of Obozinski, Jacob and Vert (arXiv:1110.0413, Section 4.1,
-Remark 4) is an infimal convolution, so its value is itself an optimization problem; Yan and Bien (Section 4) note no
-closed-form prox on trees, the path (Algorithm 3) excepted. Under the policy neither is supported or probed.
+Remark 4) is an infimal convolution, so its value is in general itself an optimization problem (on a nested chain it
+has a finite formula, addendum L4); Yan and Bien (Section 4) note no closed-form prox on trees, the nested chain
+(Algorithm 3) excepted. Under the policy neither is supported or probed.

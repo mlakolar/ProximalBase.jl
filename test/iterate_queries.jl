@@ -106,7 +106,7 @@ end
 end
 
 
-# FT01: coordinates(x) of a SparseIterate is a coordinate-vector view, for both shapes
+# coordinates(x) of a SparseIterate is a coordinate-vector view, for both shapes
 @testset "coordinates of a SparseIterate" begin
   ws(x) = collect(activecoordinates(x))
   x = SparseIterate(Float64, 2, 3)

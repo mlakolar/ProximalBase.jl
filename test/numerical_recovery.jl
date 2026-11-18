@@ -1684,8 +1684,9 @@ function test_recorded_defects(::Type{T}) where {T<:AbstractFloat}
   rng = Xoshiro(1018)
   @testset "recorded defects (see the audit document): @test_broken against the independent reference" begin
     pp = E ÷ 2 + 20
-    # D1: the prox of a nested chain over a weighted NormL1 loses the threshold when the level cannot hold α γ λ and the weights
-    # compensate. The value of the same chain recovers it (partial fold) and so does the array-step route (_shifted_fold).
+    # A suspected defect (docs/audit/numerical-kernels-file/recovery-coverage.md, "Defects found"): the prox of a nested
+    # chain over a weighted NormL1 loses the threshold when the level cannot hold α γ λ and the weights compensate. The value
+    # of the same chain recovers it (partial fold) and so does the array-step route (_shifted_fold).
     # Underflow side: α1 α2 γ λ0 is below the range (zero, or a subnormal level with a few bits), α1 α2 γ λ0 w is representable.
     f = NormL1(T(1.3) * pow2(T, 20), T[pow2(T, E - 10)])
     s = Scaled(Scaled(f, pow2(T, -pp)), pow2(T, -pp))
@@ -1705,8 +1706,8 @@ function test_recorded_defects(::Type{T}) where {T<:AbstractFloat}
     xo = T[3 * T(to)]
     @test isfinite(T(to)) && isfinite(xo[1])
     @test_broken within(prox!(zeros(T, 1), so, xo, γo)[1], shrinkb(big(xo[1]), to), 4)
-    # D2: an infinite entry under a weighted level whose product underflows is NaN, where the unweighted value (and the exact
-    # product of the positive finite factors with +Inf) is +Inf
+    # A second suspected defect (same document): an infinite entry under a weighted level whose product underflows is NaN,
+    # where the unweighted value (and the exact product of the positive finite factors with +Inf) is +Inf
     fu = NormL1(pow2(T, -(E ÷ 2)), T[pow2(T, -(E - 5))])
     @test NormL1(pow2(T, -(E ÷ 2)))(T[Inf]) === T(Inf)
     @test_broken fu(T[Inf]) === T(Inf)

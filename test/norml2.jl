@@ -1,7 +1,8 @@
 module NormL2Test
 # NormL2 (#900 amendment): values on arrays and the three iterates (#808: stored entries only, symmetric
 # off-diagonal coordinates twice), proximal operators on arrays, the one-group equivalence with
-# GroupNormL2 (rulings D1–D3 and NR1), and the unsupported symmetric-iterate proximal operators (NR2),
+# GroupNormL2 (#900: the infinite level at a zero step, negative and NaN steps, overflowing thresholds), and the
+# unsupported symmetric-iterate proximal operators (#900),
 # against independent BigFloat evaluations of λ‖x‖₂ and max(1 - γλ/‖x‖₂, 0) x in Float32 and Float64.
 using Test, ProximalBase, LinearAlgebra, Random
 using ..TestUtils
@@ -69,7 +70,8 @@ end
 end
 
 @testset "one group of GroupNormL2 ($T)" for T in (Float32, Float64)
-  # NormL2(λ) and GroupNormL2(λ, [1:p], [1]) are the same function, with the same rules (NR1)
+  # NormL2(λ) and GroupNormL2(λ, [1:p], [1]) are the same function: their proximal points and values agree in each
+  # case below (#900)
   rng = Xoshiro(911)
   emax, emin = exponent(floatmax(T)), exponent(floatmin(T))
   s(e) = T(2)^e
@@ -78,9 +80,9 @@ end
             s(emax - 1) .* T[1, 0.75, -0.5, 0, 0, 0], s(emin - 5) .* T[1, 0.75, -0.5, 0, 0, 0],
             T[NaN, 1, 0, 0, 0, 0], T[Inf, 1, 0, 0, 0, 0], T[-Inf, Inf, 1, 0, 0, 0]]
   params = [(T(0.6), T(0.9)), (T(5), one(T)),                            # ordinary, at the threshold
-            (T(Inf), zero(T)), (T(Inf), one(T)),                         # D1 (#665)
+            (T(Inf), zero(T)), (T(Inf), one(T)),                         # infinite level (#665)
             (zero(T), one(T)), (one(T), zero(T)), (one(T), T(Inf)),
-            (big_, T(8)), (T(8), big_),                                  # D3: finite γλ overflows
+            (big_, T(8)), (T(8), big_),                                  # finite γλ overflows (#900)
             (s(emin), s(-2)), (s(emax - 2), s(emin + 1))]
   for x in inputs, (λ, γ) in params
     n2 = NormL2(λ)
@@ -93,11 +95,11 @@ end
     # the values may sum the squares in another order (Base's sum for NormL2)
     @test same_value(v1, v2) && same_value(n2(x), g1(x))
   end
-  # D1: an infinite level projects to +0 at every nonnegative step, γ = 0 included, for every input
+  # an infinite level projects to +0 at a zero and at a positive step for the inputs below, NaN and -Inf included (#900)
   for γ in (zero(T), one(T)), x in (T[3, 4], T[NaN, 1], T[-Inf, 2])
     @test all(isequal(zero(T)), prox(NormL2(T(Inf)), x, γ))
   end
-  # D3: ±Inf with an overflowing finite threshold leaves the argument unchanged
+  # ±Inf with an overflowing finite threshold leaves the argument unchanged (#900)
   @test prox(NormL2(big_), T[Inf, 1], T(8)) == T[Inf, 1]
   @test prox(NormL2(T(8)), T[1, -Inf], big_) == T[1, -Inf]
   @test all(isnan, prox(NormL2(one(T)), T[NaN, 1], one(T)))
@@ -111,7 +113,7 @@ end
 @testset "invalid steps and shapes fail before writes ($T)" for T in (Float32, Float64)
   f = NormL2(T(0.5))
   x = T[1, -2, 3]
-  for γ in (-one(T), T(NaN), -T(Inf))      # D2
+  for γ in (-one(T), T(NaN), -T(Inf))      # negative and NaN steps (#900)
     y = fill(T(7), 3)
     @test_throws ArgumentError prox!(y, f, x, γ)
     @test_throws ArgumentError value_and_prox!(y, f, x, γ)
@@ -173,7 +175,7 @@ end
   @test NormL2(T(Inf))(T[]) === zero(T)
 end
 
-@testset "proximal operators on iterates (NR2) ($T)" for T in (Float32, Float64)
+@testset "proximal operators on iterates ($T)" for T in (Float32, Float64)
   f = NormL2(T(0.7))
   d = T[0, 3, 0, -4, 0, 0]
   # BlockIterate and SparseIterate through their entries, as arrays
@@ -339,9 +341,10 @@ value_matches(v, kind) = kind == :nan ? isnan(v) : kind == :inf ? v === typeof(v
       end
     end
   end
-  # an infinite level fixes the argument at +0 at the steps of the contexts and at step 0 (D1); its value is Inf at an infinite
-  # entry, NaN at a NaN, and +0 at the zero argument. A zero level and a zero step are the identity, and an
-  # infinite step with a positive finite level fixes the argument at +0
+  # an infinite level fixes the argument at +0 at the steps of the contexts and at step 0 (#900); its value is Inf
+  # at an infinite entry, NaN at a NaN, and +0 at the zero argument. A zero level is the identity at the steps of the
+  # contexts, a zero step is the identity at the finite level 0.5, and an infinite step at that level fixes the
+  # argument at +0
   for (ctx, a, _, γ) in cold_contexts(T), (name, u, kind) in nonfinite_patterns(a)
     f = NormL2(T(Inf))
     @test all(v -> v === zero(T), prox(f, u, γ)) && all(v -> v === zero(T), prox(f, u, zero(T)))

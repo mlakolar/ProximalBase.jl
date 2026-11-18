@@ -80,7 +80,7 @@ jobs:
       - uses: julia-actions/cache@v3
       - name: Lint authored Markdown and generated contract sources
         run: python3 docs/check_markdown.py
-      - name: Check that source comments cite no numerical rule labels
+      - name: Check that source and test comments and testset names cite no numerical rule labels
         run: |
           julia --startup-file=no docs/check_source_labels.jl --self-test
           julia --startup-file=no docs/check_source_labels.jl

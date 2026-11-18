@@ -4,7 +4,7 @@
 #
 #   PB_BASE=<root of the tree before the change> [PB_HEAD=<root of the tree under test>] \
 #     [PB_HISTORY="name=<root>,name=<root>"] [PB_ROUNDS=15] [PB_GROUPS=ADCFBE] [PB_FILTER=<regular expression>] \
-#     [PB_REVERSE=1] [PB_MODE=ir] [PB_CHECK_ONLY=1] \
+#     [PB_REVERSE=1] [PB_CHECK_ONLY=1] \
 #     julia --threads=1 --project=benchmark benchmark/kkt_local.jl
 #
 # A root is a directory that holds src/ProximalBase.jl. PB_BASE is required; PB_HEAD is the package root that contains this
@@ -18,7 +18,7 @@
 # trees. PB_ROUNDS is the number of rounds (default 15), PB_GROUPS selects groups of cases (the letters A to F; the groups
 # run in the order A, D, C, F, B, E), PB_FILTER a regular expression on the case label, and PB_REVERSE=1 compiles and times
 # the trees in the reversed order (the second process of a measurement): the source trees are included, the first calls of
-# a case (validation, warm-up, allocation measurement) and the generation of compiled code visit the trees in that order.
+# a case (validation, warm-up, allocation measurement) visit the trees in that order.
 # The groups are
 #   A  zero coordinates of NormL1, ElasticNet (unweighted and weighted), SqrNormL2 (plain and centered), ZeroFunction,
 #      LinearFunction and Scaled of NormL1, ElasticNet and SqrNormL2, in Float64 and Float32: the four-argument form at array,
@@ -58,20 +58,6 @@
 # History trees and reference kernels are compared and reported and do not stop the run; a history tree or reference
 # kernel that fails a case is left out of that case with a SKIP line and the other trees run.
 #
-# PB_MODE=ir counts instead of timing, for the loop of each case of the selected groups (E excluded) and each tree. The
-# optimized LLVM text of the loop function (code_llvm, with the argument types of the first pool member) gives three counts
-# of lines of text: its lines; its call lines (a line whose instruction is call, with or without a result assignment and a
-# tail, notail or musttail marker) that do not contain the text @llvm.; and its call lines that contain the text
-# kkt_violation. The called operand is not parsed: a call line that contains @llvm. anywhere (as the callee, an argument or
-# inside a string) is left out of the second count, a call line that contains kkt_violation anywhere is in the third, and a
-# call through a pointer is attributed to no function. The IR field per tree is name=lines:calls:kkt_calls. The counts are
-# those of the loop function with what the compiler inlined into it; the code of a function that the loop calls is not
-# examined. Equal counts in two trees do not establish that their code is equal, and the placement of machine code is not
-# examined. A third count of 0 shows that no call line of the loop text contains that name; it does not show what was inlined,
-# and a call through a pointer could still reach such a function. A tree whose code is not generated for a case stops the
-# run when it is base, basectl, head or headctl, and is left out of the row with a SKIP line when it is a history tree or a
-# reference kernel.
-#
 # PB_CHECK_ONLY=1 runs the value comparison and the allocation measurement, and no timing rounds, for the cases of the
 # selected groups (E excluded). It exits with status 1 when a stop condition above arose, when one of the four trees
 # allocates in a warmed pass, or when no case was selected. The last line is CHECK PASS (<n> cases) or CHECK FAIL.
@@ -84,13 +70,12 @@
 #        coordinates of groups B and D, where a history tree or a reference kernel can give another value at a nonzero
 #        coordinate), the number of results compared, whether the four checked trees agree, and per tree name=same|differs
 #   SCAN group, label, the share of positive scores of base and the number of inactive coordinates scored
-#   IR   group, label, and per tree name=lines:calls:kkt_calls (PB_MODE=ir)
 #   SKIP a history tree or a reference kernel that could not run a case, with the first words of its error
 #   VALUES DIFFER, CASE FAILED, CHECK  stop conditions and the result of PB_CHECK_ONLY=1
 # benchmark/summarize_kkt_local.py reads these lines. Judge a row against its two controls: rows of one loop shape and one
 # function move together, so a difference of the size of the controls in a single row is not evidence, and a second process
 # with PB_REVERSE=1 is the check. All trees run in one thread, with the bounds checks of the command line.
-using Random, LinearAlgebra, InteractiveUtils
+using Random, LinearAlgebra
 Threads.nthreads() == 1 || error("one Julia thread required")
 BLAS.set_num_threads(1)
 
@@ -115,11 +100,8 @@ end
 const ROUNDS = parse(Int, get(ENV, "PB_ROUNDS", "15"))
 const GROUPS = get(ENV, "PB_GROUPS", "ADCFBE")
 const FILTER = Regex(get(ENV, "PB_FILTER", ""))
-const MODE = get(ENV, "PB_MODE", "time")                 # "time", or "ir": count lines and calls of the compiled loops, no timing
 const REVERSE = get(ENV, "PB_REVERSE", "0") == "1"        # reversed order of compilation and of the trees within a round
 const CHECK_ONLY = get(ENV, "PB_CHECK_ONLY", "0") == "1"  # no timing rounds
-MODE in ("time", "ir") || error("PB_MODE is time or ir")
-(MODE == "ir" && CHECK_ONLY) && error("PB_MODE=ir and PB_CHECK_ONLY=1 are separate runs")
 
 const NAMES = Tuple(first.(SPEC))
 const TMODS = Module[Module(Symbol("PBT", j)) for j in eachindex(SPEC)]
@@ -130,8 +112,7 @@ const MODS = Tuple(m.ProximalBase for m in TMODS)
 const IBASE = findfirst(==("base"), NAMES)
 const CORENAMES = ("base", "basectl", "head", "headctl")
 iscore(name) = name in CORENAMES
-# the order in which the trees (the participants of a case) are visited by the first calls of a case and by the generation
-# of compiled code
+# the order in which the trees (the participants of a case) are visited by the first calls of a case
 partorder(n) = REVERSE ? (n:-1:1) : (1:n)
 
 cpumodel() = try
@@ -149,7 +130,7 @@ function treehead(root)
   end
 end
 println("ENV julia=", VERSION, " cpu_name=", Sys.CPU_NAME, " ", cpumodel(), " threads=", Threads.nthreads(),
-        " blas=", BLAS.get_num_threads(), " rounds=", ROUNDS, " checkbounds=", Base.JLOptions().check_bounds, " mode=", MODE,
+        " blas=", BLAS.get_num_threads(), " rounds=", ROUNDS, " checkbounds=", Base.JLOptions().check_bounds,
         " reverse=", REVERSE, " check_only=", CHECK_ONLY, " groups=", GROUPS, " filter=", FILTER.pattern)
 println("ENV trees: ", join(("$(n) $(r) $(treehead(r))" for (n, r) in SPEC), "; "))
 println("ENV loadavg start: ", strip(loadavg()))
@@ -337,7 +318,6 @@ errtext(err) = sprint(showerror, err)[1:min(end, 160)]
 # unit: what the calls per pass count (a call of the form; for group E an inactive coordinate)
 function runcase(group, label, parts0::Vector{Part}, loop, ncalls; batches = 25, samevalues = true, unit = "call")
   occursin(FILTER, label) || return
-  MODE == "ir" && return ircase(group, label, parts0, loop)
   n0 = length(parts0)
   res0 = Vector{Union{Nothing, Res}}(nothing, n0)
   for j in partorder(n0)
@@ -400,46 +380,6 @@ function runcase(group, label, parts0::Vector{Part}, loop, ncalls; batches = 25,
     end
   end
   println(" alloc=", maximum(al), " same=", all(agree))
-  flush(stdout)
-end
-
-# ---- compiled code ------------------------------------------------------------------------------------------------------------
-# a line of the LLVM text whose instruction is call, with or without a result assignment and a tail, notail or musttail marker
-const CALLSTART = r"^\s*(?:%(?:\"[^\"]*\"|[^\s=]+)\s*=\s*)?(?:(?:tail|notail|musttail)\s+)?call\b"
-# the lines of the text, its call lines without the text @llvm., and its call lines with the text kkt_violation; the called
-# operand is not parsed
-function ircounts(text)
-  ls = split(text, '\n')
-  calls = 0; kcalls = 0
-  for l in ls
-    occursin(CALLSTART, l) || continue
-    occursin("@llvm.", l) || (calls += 1)
-    occursin("kkt_violation", l) && (kcalls += 1)
-  end
-  (lines = length(ls), calls = calls, kcalls = kcalls)
-end
-function irtree(loop, p::Part)
-  v, x, idx = first(p.pool)
-  tt = Tuple{typeof(p.kkt), typeof(p.f), typeof(v), typeof(x), typeof(idx), typeof(p.act)}
-  ircounts(sprint(io -> code_llvm(io, loop, tt; debuginfo = :none)))
-end
-function ircase(group, label, parts0, loop)
-  n0 = length(parts0)
-  nodes = Vector{Any}(nothing, n0)
-  for j in partorder(n0)
-    try
-      nodes[j] = irtree(loop, parts0[j])
-    catch err
-      if iscore(parts0[j].name)
-        stopcase!("CASE FAILED", group, label, string(parts0[j].name, ": ", errtext(err)))
-        return
-      end
-      println("SKIP\t", group, "\t", label, "\t[", parts0[j].name, "] ", errtext(err))
-    end
-  end
-  keep = [j for j in 1:n0 if nodes[j] !== nothing]
-  println("IR\t", group, "\t", label, "\t",
-          join((string(parts0[j].name, "=", nodes[j].lines, ":", nodes[j].calls, ":", nodes[j].kcalls) for j in keep), ";"))
   flush(stdout)
 end
 
@@ -667,7 +607,7 @@ end
 'C' in GROUPS && groupC()
 'F' in GROUPS && groupF()
 'B' in GROUPS && groupB()
-'E' in GROUPS && MODE != "ir" && !CHECK_ONLY && groupE()
+'E' in GROUPS && !CHECK_ONLY && groupE()
 println("ENV loadavg end: ", strip(loadavg()))
 println("DONE sink=", SINK[])
 if CHECK_ONLY

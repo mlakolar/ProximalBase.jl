@@ -732,7 +732,7 @@ end
 # and not in others: each is a regression test in the modes in which it did, and a check of accuracy in the others. The failure
 # was the whole distance (31.6 for the first input of the list below, against a bound of 0.4).
 # the exact distance for the head y1 and the tie (y0, m): at the zero point the distance to the ball of radius c (0 inside), on a
-# face (every entry on the face, u = (y1, y0, ..., y0)) the distance to the simplex, whose level can be negative
+# face (all entries on the face, u = (y1, y0, ..., y0)) the distance to the simplex, whose level can be negative
 function cluster_dist(c, y1, y0, m; face = false)
   bigprec() do
     C, Y1, Y0 = big(c), big(y1), big(y0)

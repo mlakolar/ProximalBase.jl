@@ -116,7 +116,7 @@ remain `BigFloat`.
   factors is folded into the level (both levels of `ElasticNet`, an infinite one being kept as it is) when the result is a nonzero finite
   number that the type of the level accepts, or the level is zero: a normal number, or a subnormal one when the folded level is a
   `Float32` or a `Float64` (a `Float16` level folds only to a normal number). The chain then has the score of the function with
-  that level, in each form that the function has (`NormLinf` has only the full-point form). A subnormal folded level has fewer significant bits than a normal one, and the coefficient of an entry is that
+  that level, in each form that the function has (`NormLinf` has the full-point form and no form for an entry or a group). A subnormal folded level has fewer significant bits than a normal one, and the coefficient of an entry is that
   rounded level times the weight. Where
   it does not fold, the three-argument screen of `NormL1` and `ElasticNet`, and the four-argument
   form of `NormL1`, `ElasticNet` and `GroupNormL2` at a zero coordinate or group, are computed from the coefficient

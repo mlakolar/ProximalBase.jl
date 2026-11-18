@@ -128,14 +128,14 @@ What changed besides the values of the table:
 * The proximal operator of `NormLinf` could return a wrong threshold on a large tie (#987): when rounding put a level at
   or above a tie of many equal entries, the tie was dropped from the set and the next level fell far below it, so that the
   clip was too low (in some compilation modes `prox(NormLinf(0.3f0), [0.2f0; fill(0.1f0, 100_000)], 1f0)` returned zeros, where the
-  exact clip is `0.0999980` in every entry). The threshold search now returns the previous level when the count of entries
+  exact clip is `0.0999980` in all entries). The threshold search now returns the previous level when the count of entries
   above a level rises. Other results can change by a rounding.
 * Nested `Scaled` wrappers whose product of factors is not a normal number: around
   `LinearFunction` and a centered `SqrNormL2` the three-argument screen returned the screen of the function
   at the unscaled `v` and omitted the product; it now applies the product to the gradient entry of the
   function (`Scaled(Scaled(LinearFunction([1.0]), 1e-200), 1e-200)` at `v = [0.25]` was `1.25` and is `0.25`). Around
   `NormL1`, `ElasticNet`, `GroupNormL2`, `NormL2` and `NormLinf` whose level folds (to a nonzero finite level that its type accepts: a normal one, or a subnormal one for a `Float32` or `Float64` level), a
-  `GroupNormL2`, `NormL2` or `NormLinf` chain now scores with the folded level (`NormLinf` in the full-point form only) (a `GroupNormL2` chain at a zero group
+  `GroupNormL2`, `NormL2` or `NormLinf` chain now scores with the folded level (for `NormLinf` the full-point form, which is its one form) (a `GroupNormL2` chain at a zero group
   was computed from `v` divided by the product, which overflows for an ordinary `v`). Where the level does not fold, the
   three-argument screen of `NormL1` and `ElasticNet` and the four-argument form of `NormL1`, `ElasticNet` and `GroupNormL2` at a zero
   coordinate or group have the value of the definition at finite entries of `v` (`NaN` and infinite entries as the [scaling guide](@ref scaled-kkt) states), computed from the coefficient `a·λ·w`, with the exponents of the three applied in

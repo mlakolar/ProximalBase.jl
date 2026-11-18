@@ -27,13 +27,13 @@ Run from the repository root.
 | Script | Shows | Command |
 |---|---|---|
 | `probe_laminar.jl` | Propositions 1–3: disjoint groups against `prox` of `GroupNormL2` on master, laminar scalar weights, the sparse-group order, `ℓ∞` and mixed norms | `julia --project=. --check-bounds=yes docs/audit/overlapping-group-penalties-963/probe_laminar.jl` |
-| `probe_weighted.jl` | Propositions 4–5: diagonal weights inside a group, necessity for two groups, an `ℓ1` group (sufficient, not necessary), duplicates, a diagonal step | `julia --project=. --check-bounds=yes docs/audit/overlapping-group-penalties-963/probe_weighted.jl` |
+| `probe_weighted.jl` | Propositions 4–5: diagonal weights inside a group, necessity for two groups, an `ℓ1` group and a zero contained weight (sufficient, not necessary), duplicates, a diagonal step | `julia --project=. --check-bounds=yes docs/audit/overlapping-group-penalties-963/probe_weighted.jl` |
 | `probe_banding.jl` | Section 5: reduction to band norms, the general weights of Bien, Bunea and Xiao, the weights of Yu and Bien, two-value weights, the small-step expansion, zero bands, `λ_max`, dual block coordinate descent and a Newton-type method | `julia --project=. --check-bounds=yes docs/audit/overlapping-group-penalties-963/probe_banding.jl` |
 | `check_inventory.py` | each `path:line` of the note's inventory holds the named symbol at the pinned commit | `python3 docs/audit/overlapping-group-penalties-963/check_inventory.py` |
 
 ## Recorded run
 
-Local, Julia 1.13.4, at commit `2da746784f7bc95dbada1ff654bd3f3f61fca268` (the commit of the scripts
+Local, Julia 1.13.4, at commit `b67cd3c4cb98189a2b1baa878245c8d17c197b48` (the commit of the scripts
 and the note as they stand; this README was updated afterwards). Output lines as printed:
 
 ### `probe_laminar.jl`
@@ -60,6 +60,7 @@ PASS P2 two groups {1,2} ⊂ {1,2,3}, weights (1,2) and (1,3,2), y = (2,3,1), t 
 PASS P5 an ℓ1 group {1,2} inside ‖diag(1,3,2) z‖₂ on {1,2,3}: one pass exact although the weights differ on {1,2}: y = (3.0, -2.0, 1.0): x = (2.551449046073624, -0.959109715890919, 0.7195992234821781); y = (5.0, 4.0, -2.0): x = (3.773028839174305, 1.6432125472623171, -1.4181883812242777), largest BigFloat gap 0
 PASS P3 duplicates g₁ = g₂ = {1,2,3}, diagonal weights (1,2,3) then the scalar weight 1.5: one pass exact: x = (2.3410859616795348, -1.3505441490776786, 2.205965996464773), BigFloat gap 0
 PASS P4 the same duplicates, the scalar-weight group first: one pass refuted: distance 0.103 > 2√(2 gap) = 1.14e-07
+PASS P7 ‖diag(1,0) z‖₂ on {1,2} inside ‖diag(1,3,2) z‖₂ on {1,2,3}, y = (4, −3, 2), t = 0.4: one pass exact: x = (3.4240704310473182, -2.0513912033125448, 1.659033770482706), BigFloat gap 6.91e-77
 PASS P6 duplicates ‖z‖₂ then ‖z‖∞ on {1,2}, y = (3, 1), t = 1: the closed-form point is certified and one pass differs from it: one pass (1.0513167019494862, 0.6837722339831621), proximal point (1.105572809000084, 0.552786404500042) (BigFloat gap 0), distance 0.142
 PASS S1 sparse-group penalty with the diagonal step τ = (0.5, 1, 2, 4, 3): one pass exact: x = (3.1098095611881957, -0.25985888054039324, 2.2919211968835707, 0.3090442947109622, -1.0), BigFloat gap 6.91e-77
 PASS S2 300 random laminar families (seeded), scalar weights, a diagonal step constant on each contained group, one pass exact: 292 with a penalized group left nonzero, largest BigFloat gap/(1+‖z‖²) 1.46e-77
@@ -141,5 +142,5 @@ all statements hold
 ### `check_inventory.py`
 
 ```text
-76 citations, 0 failure(s)
+87 citations, 0 failure(s)
 ```

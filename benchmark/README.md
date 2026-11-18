@@ -238,11 +238,14 @@ PB_FIRST=/tmp/pb-ref PB_SECOND="$PWD" PB_EXACT=1 PB_CHECK_ONLY=1 \
 ## Group ℓ∞ norm harness
 
 `groupnormlinf.jl` times `GroupNormLinf` (issue #956) between two source trees that both define it, through its exported methods:
-the array `prox!` into a separate output, the in-place `prox!(x, f, x, γ)` (the argument restored from a copy before each call),
-`value_and_prox!`, the value, and sweeps of the compact `prox_block!` over all groups, with an output that is not the input and in place
-(each working copy restored by a copy before its call), for Float32 and Float64, groups of 4, 32, 512 and 4096 entries over 4096 entries
-(1024, 128, 8 and 1 groups), contiguous (range) and permuted index layouts. The weights give the groups radii that are 0.1, 0.4, 0.8 and 1.2
-times their ℓ₁ norms in turn, so that three groups in four are clipped and one is zero. It has the design of `l2_norms.jl` (roles X, Y and
+the array `prox!` into a separate output, the in-place `prox!(x, f, x, γ)`, `value_and_prox!`, the value, and sweeps of the compact
+`prox_block!` over all groups, with an output that is not the input and in place, for Float32 and Float64, groups of 4, 32, 512 and 4096
+entries over 4096 entries (1024, 128, 8 and 1 groups), contiguous (range) and permuted index layouts. The two in-place cases destroy their
+argument: the BenchmarkTools `setup` restores it (the argument, or every working copy before a sweep) outside the timing, and each timed
+sample is one call (`evals = 1`, with as many samples as the other cases take timed calls); the other cases time 16 calls per sample. The
+weights give group `k` a radius that is 0.1, 0.4, 0.8 or 1.2 times its ℓ₁ norm (`k` modulo 4): with groups of 4, 32 and 512 entries three
+groups in four are clipped and one is zero (fraction 1.2); with 4096 entries there is one group, with fraction 0.1, which is clipped, and
+no group is zero. It has the design of `l2_norms.jl` (roles X, Y and
 the A/A control XC, alternating order, shared input and output arrays, `raw.csv` and `provenance.txt` summarized by
 `summarize_norml1_infinite_weight.py`). The frozen full tree at eff21b6d7d33c622313122f46c6ee71693c101ee (`legacy/full`) is the
 historical reference for X. `PB_CHECK_ONLY=1` requires agreement between X and Y to `8 (m + K) eps(T)` times the largest entry of an

@@ -1,9 +1,13 @@
 # Paired benchmark of GroupNormLinf (issue #956): the array prox!, the in-place prox!(x, f, x, γ), value_and_prox! and
 # the value, and repeated sweeps of the compact prox_block! over all groups (an output that is not the input, and in
 # place), Float32/Float64, group sizes 4, 32, 512 and 4096 over 4096 entries (1024, 128, 8 and 1 groups), contiguous
-# (range) and noncontiguous (permuted index vector) layouts. The weights give each group a radius that is a fraction of
-# its ℓ1 norm, 0.1, 0.4, 0.8 and 1.2 in turn: three groups in four are clipped and one is zero. The roles are used through
-# exported names, so that they can be any trees that define GroupNormLinf with these methods.
+# (range) and noncontiguous (permuted index vector) layouts. The weights give group k a radius that is the fraction
+# FRACTIONS[mod1(k, 4)] of its ℓ1 norm, 0.1, 0.4, 0.8 and 1.2 in turn. With groups of 4, 32 and 512 entries (1024, 128 and 8
+# groups) three groups in four are clipped and one is zero (fraction 1.2); with 4096 entries there is one group, with
+# fraction 0.1, which is clipped, and no group is zero. The in-place cases (prox_inplace, block_sweep_inplace) destroy
+# their argument: it is restored in the BenchmarkTools setup, outside the timing, and each timed sample is one call
+# (evals = 1). The roles are used through exported names, so that they can be any trees that define GroupNormLinf with
+# these methods.
 #
 #   PB_FIRST=<root of role X> PB_SECOND=<root of role Y> PB_OUTPUT=<dir> PB_ROUNDS=15 \
 #     julia --threads=1 --check-bounds=no --project=benchmark benchmark/groupnormlinf.jl
@@ -56,10 +60,13 @@ function makeprobes(PB, data)
         f = PB.GroupNormLinf(d.λ0, d.groups, d.w)
         x, x0, xi, y, U, outs, W, γ = d.x, d.x0, d.xi, d.y, d.U, d.outs, d.W, d.γ
         K = length(U)
-        add(name, op, check) = push!(probes, (id = "$id/$name", op = op, check = check, n = length(x), m = m, K = K))
+        # setup restores the argument of a destructive op outside the timing; check restores it too, then runs op
+        add(name, op, check; setup = nothing) =
+            push!(probes, (id = "$id/$name", op = op, check = check, setup = setup, n = length(x), m = m, K = K))
         add("prox", () -> (PB.prox!(y, f, x, γ); nothing), () -> copy(y))
-        add("prox_inplace", () -> (copyto!(xi, x0); PB.prox!(xi, f, xi, γ); nothing),
-            () -> (copyto!(xi, x0); PB.prox!(xi, f, xi, γ); copy(xi)))
+        restore_x() = (copyto!(xi, x0); nothing)
+        prox_inplace() = (PB.prox!(xi, f, xi, γ); nothing)
+        add("prox_inplace", prox_inplace, () -> (restore_x(); prox_inplace(); copy(xi)); setup = restore_x)
         add("value_and_prox", () -> (PB.value_and_prox!(y, f, x, γ); nothing),
             () -> (PB.value_and_prox!(y, f, x, γ), copy(y)))
         add("value", () -> (y[1] = f(x); nothing), () -> f(x))
@@ -69,13 +76,10 @@ function makeprobes(PB, data)
             end
             nothing
         end, () -> reduce(vcat, outs))
-        add("block_sweep_inplace", () -> begin
-            for k in 1:K
-                @inbounds copyto!(W[k], U[k])
-                @inbounds PB.prox_block!(W[k], f, W[k], k, γ)
-            end
-            nothing
-        end, () -> reduce(vcat, W))
+        restore_blocks() = (for k in 1:K; @inbounds copyto!(W[k], U[k]); end; nothing)
+        sweep_inplace() = (for k in 1:K; @inbounds PB.prox_block!(W[k], f, W[k], k, γ); end; nothing)
+        add("block_sweep_inplace", sweep_inplace, () -> (restore_blocks(); sweep_inplace(); reduce(vcat, W));
+            setup = restore_blocks)
     end
     probes
 end
@@ -120,12 +124,24 @@ println(exact ? "outputs identical bit for bit across roles for $(length(suites[
                 "outputs agree across roles for $(length(suites["X"])) probes")
 get(ENV, "PB_CHECK_ONLY", "0") == "1" && exit()
 
+# A non-destructive op is timed with evals = max(1, 2^16 ÷ n) calls per sample and 100 samples. A destructive op (one with
+# a setup) is restored by the setup before each timed call, outside the timing, with evals = 1, and takes as many samples as
+# the other cases take timed calls (100 evals), within the same time budget.
 function bench(p)
     op = p.op
     evals = max(1, 2^16 ÷ p.n)
-    b = @benchmarkable $op() evals = evals samples = 100 seconds = 0.15
-    for _ in 1:20
-        op()
+    if p.setup === nothing
+        b = @benchmarkable $op() evals = evals samples = 100 seconds = 0.15
+        for _ in 1:20
+            op()
+        end
+    else
+        setup = p.setup
+        b = @benchmarkable $op() setup = ($setup()) evals = 1 samples = 100 * evals seconds = 0.15
+        for _ in 1:20
+            setup()
+            op()
+        end
     end
     run(b)
 end

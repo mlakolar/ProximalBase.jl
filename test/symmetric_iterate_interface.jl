@@ -1,8 +1,8 @@
 module SymmetricIterateInterfaceTest
 
-# The surface of the SymmetricSparseIterate: what it has (T09), what it does
-# not have, the one throwing axes method (D3), the rejected fills (#638), equality and hash of two
-# symmetric iterates (D2), the display, and the retained storage.
+# The surface of the SymmetricSparseIterate: what it has, what it does not have, the one
+# throwing axes method, the rejected fills (#638), equality and hash of two symmetric
+# iterates, the display, and the retained storage.
 
 using Test, ProximalBase, LinearAlgebra, SparseArrays, Random
 
@@ -201,7 +201,7 @@ const ABSENT_BUILDS = Pair{String, Function}[
   "tril(X, k)" => X -> tril(X, -1),
 ]
 
-@testset "T09: the interface surface" begin
+@testset "the interface surface" begin
   @testset "what a symmetric iterate has, $T, p = $p" for T in (Float32, Float64, Int), p in (0, 1, 3, 6)
     X = SymmetricSparseIterate(T, p)
     q = p * (p + 1) ÷ 2
@@ -280,7 +280,7 @@ const ABSENT_BUILDS = Pair{String, Function}[
     end
   end
 
-  @testset "D3: the one throwing axes method" begin
+  @testset "axes throws an ArgumentError that names matrixview and size" begin
     for p in (0, 1, 3)
       X = SymmetricSparseIterate(Float64, p)
       err = try
@@ -334,7 +334,7 @@ const ABSENT_BUILDS = Pair{String, Function}[
     end
   end
 
-  @testset "FP-7: fill! of the coordinates writes the active values only" begin
+  @testset "fill! of the coordinates writes the active values only" begin
     p = 5
     q = p * (p + 1) ÷ 2
     # a stale tail of the value array, which a pass over all q slots would overwrite
@@ -376,7 +376,7 @@ const ABSENT_BUILDS = Pair{String, Function}[
   end
 end
 
-@testset "D2: equality and hash of two symmetric iterates" begin
+@testset "equality and hash of two symmetric iterates" begin
   @testset "an active zero is the absent coordinate" begin
     X = SymmetricSparseIterate(Float64, 3)
     activate!(X, 2)

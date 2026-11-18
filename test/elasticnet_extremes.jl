@@ -1,7 +1,8 @@
 module ElasticNetExtremesTest
-# ElasticNet (#908): the endpoint truth table of the plan (D1 is in elasticnet.jl), the extreme ranges of
-# Float32 and Float64 against 4096-bit BigFloat, Scaled (folds, chains, infinite and zero factors, the routes
-# that need the ElasticNet methods of scaled.jl) and the cost of values on sparse and symmetric iterates.
+# ElasticNet (#908): the endpoint truth table (the rejection of negative and NaN steps is in elasticnet.jl),
+# the extreme ranges of Float32 and Float64 against 4096-bit BigFloat, Scaled (folds, chains, infinite and
+# zero factors, the routes that need the ElasticNet methods of scaled.jl) and the cost of values on sparse
+# and symmetric iterates.
 #
 # Proximal points are compared with shrink(v, t̂)/(1 + γλ2) in BigFloat, t̂ the threshold that the NormL1
 # kernel forms, within 4 units in the last place; values with λ1 Σ wᵢ|xᵢ| + λ2/2 Σ xᵢ² within (n + 2) eps
@@ -58,7 +59,7 @@ Base.getindex(a::CountingArray, i::Int) = (a.reads += 1; a.data[i])
     @testset "$T truth table" begin
       trials = T[3, -3, 0.25, 0, -0.0, Inf, -Inf, NaN]
       steps = T[0, 0.5, 1, Inf]
-      # λ2 = Inf (D2): the indicator of {0}, +0 at each step and trial below, for each λ1 and weight below
+      # λ2 = Inf: the indicator of {0} (#908), +0 at each step and trial below, for each λ1 and weight below
       for λ1 in T[0, 1, Inf], w in (nothing, T[0], T[1], T[Inf]), γ in steps
         f = ElasticNet(λ1, T(Inf), w)
         @test all(prox_block(f, v, 1, γ) === zero(T) for v in trials)

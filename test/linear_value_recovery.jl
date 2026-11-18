@@ -7,8 +7,8 @@ const PB = ProximalBase
 # recomputed from exponent-separated products. The reference is a BigFloat sum computed here, without the package.
 # With B = 4 n eps(T) (Σ|cᵢxᵢ| + |d|), n the number of nonzero products (an off-diagonal coordinate of a symmetric
 # iterate counts at both positions), a value with |ref| + B <= floatmax(T) is asserted finite and within B of the
-# reference (R1); outside that region nothing is asserted about the value (#907). Nonfinite d, c or x give the
-# ordinary IEEE value.
+# reference (numerics.md, "Range guarantees"); outside that region nothing is asserted about the value (#907).
+# Nonfinite d, c or x give the ordinary IEEE value.
 
 pow2(T, e) = ldexp(one(T), e)
 emax(T) = exponent(floatmax(T))
@@ -57,8 +57,9 @@ function route_values(C, X, d)
    ("symmetric", fm(xo), PB._symmetric_matrix_dot(C, xo) + d)]
 end
 
-# The R1 assertion on every route; overflow = true also asserts that the ordinary value is not finite there, so that
-# the recovery runs. The route name is part of each comparison, so that a failure names it.
+# The assertion that the value is within B of the reference, on each route of route_values; overflow = true also
+# asserts that the ordinary value is not finite there, so that the recovery runs. The route name is part of each
+# comparison, so that a failure names it.
 function check_case(T, C, X, d; overflow = true)
   @test issymmetric(C) && issymmetric(X)
   ref = reference(T, C, X, d)

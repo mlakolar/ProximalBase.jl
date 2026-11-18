@@ -618,4 +618,101 @@ end
   @test allocs(prox!, ys, f, xs, T(0.3)) == 0
 end
 
+# ---- the exit of the threshold search when the count of entries above the level rises (#987) -------------------------------------
+# `_l1ball_michelot` computes each level from the entries above the level before it. When rounding puts a level at or above a
+# large tie, the tie leaves the set, the next level is computed from the few entries left and lies far below the previous one, the
+# count rises, and the routine used to return that lower level: a false zero threshold for the score at the zero point and a clip
+# of the tie at zero. It now returns the previous level. The references are exact levels in BigFloat of a head entry y1 above m
+# equal entries y0 (no kernel of the package is called); the tolerance of a prox entry is 4 n u max|xᵢ| with u = eps(T)/2, four times
+# the absolute error u ‖x‖₁ ≤ n u max|xᵢ| of a level formed from a sum of n entries, which is far below the size of the entries of
+# these inputs, while the false level was off by the whole entry. Which of the inputs below reached the exit before the
+# correction depends on the order in which the sum of the ties is formed (the compilation mode and the type of the loop), so each
+# input is a regression test in the modes in which it reaches it and a check of accuracy in the others.
+cluster_level(c, y1, y0, m) = setprecision(BigFloat, PREC) do
+  C, Y1, Y0 = big(c), big(y1), big(y0)
+  Y1 + m * Y0 <= C && return zero(BigFloat)
+  C <= Y1 - Y0 ? Y1 - C : (Y1 + m * Y0 - C) / (m + 1)
+end
+# the largest error of the entries of p against the clip of (y1, y0 × m) at the exact level for the radius c
+function cluster_prox_error(p, c, y1, y0, m)
+  setprecision(BigFloat, PREC) do
+    τ = cluster_level(c, y1, y0, m)
+    e1 = abs(big(p[1]) - min(big(y1), τ))
+    e0 = maximum(abs(big(q) - min(big(y0), τ)) for q in (p[2], p[end], p[(end + 2) ÷ 2]))
+    max(e1, e0), τ
+  end
+end
+
+@testset "the threshold search when the count rises: two entries ($T)" for T in (Float32, Float64)
+  ε = eps(T)
+  # y = (3, 1 + 3ε), radius 2 - 2ε. The sum 4 + 3ε rounds to 4 + 4ε, the first level is 1 + 3ε (the second entry, which is not above
+  # it), the next level is (3 - (2 - 2ε))/1 = 1 + 2ε, and the count rises from 1 to 2. The exact level is 1 + 2.5ε. The routine
+  # returns 1 + 3ε (it returned 1 + 2ε).
+  y = T[3, 1 + 3ε]
+  r = T(2) - 2ε
+  @test PB._l1ball_michelot(y, r, PB._AbsRead{T}(), T) == 1 + 3ε
+  @test cluster_level(r, y[1], y[2], 1) == big(1) + 2.5 * big(ε)
+  p = prox(NormLinf(r), y, one(T))
+  err, τ = cluster_prox_error(p, r, y[1], y[2], 1)
+  @test err <= 4 * 2 * (ε / 2) * 3
+  # the score at the zero point is the norm of the proximal point: sqrt(2) times the level, within the bound of the function
+  s = kkt_violation(NormLinf(r), y, zeros(T, 2))
+  setprecision(BigFloat, PREC) do
+    ref = sqrt(2) * τ
+    @test abs(big(s) - ref) <= (2 * 2 + sqrt(2) + 5) * big(ε) / 2 * (sqrt(sum(abs2, big.(y))) + big(r))
+  end
+end
+
+@testset "large ties: the threshold of the prox is not a false zero" begin
+  # (type, y1, y0, m, λ): the radius λ puts the level just below the tie y0 (or at it) with m large
+  cases = ((Float32, 0.2, 0.1, 10^5, 0.3), (Float32, 1.0, 0.1, 10^5, 1.2), (Float32, 0.2, 0.1, 10^4, 0.102),
+           (Float64, 1.8, 0.9, 10^6, 0.9000008))
+  for (T, y1, y0, m, λ) in cases
+    v = fill(T(y0), m + 1)
+    v[1] = T(y1)
+    f = NormLinf(T(λ))
+    p = prox(f, v, one(T))
+    err, τ = cluster_prox_error(p, T(λ), T(y1), T(y0), m)
+    @test err <= 4 * (m + 1) * (eps(T) / 2) * T(y1)
+    @test all(==(p[2]), view(p, 2:m + 1))
+    @test p[2] > T(y0) / 2                               # the tie is clipped at the level, not at zero
+    q = copy(v)
+    @test prox!(q, f, q, one(T)) === q                   # the same in place, and through value_and_prox!
+    @test q == p
+    w = similar(v)
+    @test value_and_prox!(w, f, v, one(T)) == f(w)
+    @test w == p
+    # the same through Scaled with a power of two
+    ps = prox(Scaled(NormLinf(T(λ) / 2), T(2)), v, one(T))
+    @test cluster_prox_error(ps, T(λ), T(y1), T(y0), m)[1] <= 4 * (m + 1) * (eps(T) / 2) * T(y1)
+  end
+end
+
+@testset "random clusters: the prox against the exact level ($T)" for T in (Float32, Float64)
+  # the shape of the failures: one head entry above m equal entries, the radius just above the breakpoint y1 - y0 by a multiple of
+  # the rounding error of the sum of the entries (read from the sum that the kernel forms)
+  rng = MersenneTwister(987)
+  bad = 0
+  for m in (1000, 3000, 10_000), y0f in (0.1, 0.3, 1 / 3, 0.9), mult in (2, 10), pos in (:first, :last), θ in (0.05, 0.6, 1.5)
+    y0 = T(y0f)
+    y1 = T(mult) * y0
+    v = fill(y0, m + 1)
+    v[pos === :first ? 1 : end] = y1
+    s, _ = PB._linf_classify(v, PB._AbsRead{T}(), T)
+    serr = setprecision(BigFloat, PREC) do
+      Float64(big(s) - (big(y1) + m * big(y0)))
+    end
+    c = setprecision(BigFloat, PREC) do
+      T(big(y1) - big(y0) + θ * abs(serr))
+    end
+    p = prox(NormLinf(c), v, one(T))
+    τ = cluster_level(c, y1, y0, m)
+    setprecision(BigFloat, PREC) do
+      e = maximum(abs(big(q) - min(big(vi), τ)) for (q, vi) in zip(p, v))
+      bad += !(e <= 4 * (m + 1) * (eps(T) / 2) * big(y1))
+    end
+  end
+  @test bad == 0
+end
+
 end

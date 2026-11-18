@@ -473,20 +473,30 @@ end
 # method on the convex τ ↦ Σᵢ max(yᵢ - τ, 0) - a, from below, each step a vectorized pass). Each pass gives the sum s and
 # the count c of the entries above the current level τ, and the next level is (s - a)/c.
 #
-# Stopping rule. In exact arithmetic the sets above the levels decrease and the process ends when two consecutive sets
-# have the same count. With rounding, a level can round onto the entries: x = ones(2001), a = 8e-14 in Float64 has the
-# level (2001 - a)/2001 = 1.0, no entry is above it, and the next level is -a/0 = -Inf, from which the sets alternate
-# between all the entries and none (the loop of the legacy kernel ended at -Inf for n = 2001). Here the
-# loop stops when the count c of the entries above τ is 0 or is not below the count of the pass before, and returns τ,
-# the last level computed from a nonempty set. The first pass has τ = -Inf, c = n ≥ 1, and a count that decreases at each
-# later pass that continues, so the loop runs at most n + 1 passes. When c is 0 or has not decreased, the level τ of the
-# last nonempty set is returned, capped at the largest entry: 1.0 in the example above, the value of the entries.
+# Stopping rule. In exact arithmetic the levels increase, the sets above them decrease, and the process ends when two
+# consecutive sets have the same count. With rounding, three things can happen at a pass that counts the c entries above the
+# current level τ, which was computed from the cnt entries above the level before it, τp.
+#  - c = 0: a level can round onto the entries. x = ones(2001), a = 8e-14 in Float64 has the level (2001 - a)/2001 = 1.0, no
+#    entry is above it, and the next level would be -a/0 = -Inf (the loop of the legacy kernel ended at -Inf for n = 2001). τ is
+#    returned, the last level computed from a nonempty set, capped at the largest entry: 1.0 in the example, the value of the
+#    entries.
+#  - c = cnt: the set did not change, and τ is returned.
+#  - c > cnt: τ is below τp, which exact arithmetic excludes. A level that rounded up to a large tie, or above it, dropped the
+#    tie from the set of the pass, and the level computed from the few entries left lies far below τp: x = (0.2, 0.1 × 10⁵) in
+#    Float32 with a = 0.3 can have τp at or above the tie 0.1f0 (the sum of the ties rounds up), so that the set holds the one
+#    entry 0.2, the next level is (0.2 - 0.3)/1 = -0.1, and all the entries are above it. τp is returned, capped at the largest entry. It is the level that the entries of its set generate within the rounding of
+#    that level equation, so that the set above it differs from the set that it was computed from by entries within that
+#    rounding of it (the derivation in the Optimality section below gives the effect of this exit on the distance). The result can differ
+#    from the one that returning τ would give by a rounding, also where that was accurate.
+# The first pass has τ = -Inf, c = n ≥ 1, and a count that decreases at each later pass that continues, so the loop runs at most
+# n + 1 passes.
 function _l1ball_michelot(x, a::T, rd::F, ::Type{T}) where {T, F}
   n = length(x)
   # the first pass has τ = -Inf, so that every entry is above it: the sum and the count n, and with them the largest
   # entry, which bounds the level returned (see `_l1ball_threshold!`)
   s, mx = _linf_classify(x, rd, T)
   τ = (s - a) / n
+  τp = τ
   cnt = n
   for _ in 1:n
     s, c = zero(T), 0
@@ -496,8 +506,9 @@ function _l1ball_michelot(x, a::T, rd::F, ::Type{T}) where {T, F}
       s += ifelse(above, y, zero(T))
       c += above
     end
-    (c == 0 || c >= cnt) && return min(τ, mx)
+    (c == 0 || c >= cnt) && return min(c > cnt ? τp : τ, mx)
     cnt = c
+    τp = τ
     τ = (s - a) / c
   end
   min(τ, mx)
@@ -572,8 +583,8 @@ end
 #       distance changes by |τ||η|/d to first order, and d ≥ √a |τ| gives |τ|/d ≤ 1/√a.
 #   (3) Zero point, and a face with τ0 ≤ μ (then A = J, a = cnt). For the zero point the routine returns the level
 #       τ̂ = fl((Σ_G yᵢ - c)/g) of the set G of g entries above the level of its previous pass (all entries for the first
-#       pass), with yᵢ = |vᵢ|, or its minimum with the largest entry; its two exits that are not an ordinary convergence are
-#       (3a) and (3b). When G is the set above τ̂ (A = G), the sum of the a terms uᵢ has an error of at most (a - 1) u ‖u_A‖₁;
+#       pass), with yᵢ = |vᵢ|, or its minimum with the largest entry; the exits that are not an ordinary convergence are
+#       (3a), (3b) and (3c). When G is the set above τ̂ (A = G), the sum of the a terms uᵢ has an error of at most (a - 1) u ‖u_A‖₁;
 #       the subtraction and the division add u |Σ_A uᵢ - c| = u a |τ| each: |η| ≤ (a - 1) u ‖u_A‖₁ + 2 u a |τ|. With
 #       ‖u_A‖₁ ≤ √a ‖u_A‖₂ ≤ √a ‖v‖₂ the effect on d is at most (a - 1) u ‖v‖₂ + 2 u d.
 #   (3a) The count above the level is zero (the set A is empty: v = ones(2001), c = 8e-14 in Float64 has the level 1.0, and
@@ -583,12 +594,25 @@ end
 #       η_G. The exact level lies in [τ_G, τ̂] (τ_G is a lower bound of the level for any set G with Σ_G (yᵢ - τ_G) = c), and the
 #       entries of G have a total deficit Σ_G (τ_G - yᵢ)₊ ≤ g e below τ_G, so d ≥ √g (τ_G - e) and |τ|/d ≤ 1/√g to first order.
 #       The effect on d is at most η_G/√g ≤ (g - 1) u ‖v‖₂ + 2 u d, the bound of (3).
-#   (3b) The count did not decrease. If the returned level is not below the level of the previous pass, the set above it is G,
-#       and this is (3). If it is below (rounding reversed two successive levels), the set above it, A′, holds G and further
-#       entries between τ̂ and the previous level. This case is NOT closed by the constants of the bound below: the argument
-#       of (2) with A′, when the further entries belong to the set of the previous pass, gives an effect of at most
-#       (g - 1 + a′/2 + g′) u ‖v‖₂ + 6 u d (g′ the size of the set of the previous pass, a′ = |A′|), which is larger than (3)
-#       when a′ and g′ are of the size of n.
+#   (3b) The count did not decrease (c = cnt): the level of the pass before, τp, gave the same count, and the set above the
+#       returned level is G (the levels did not decrease, since a lower level would give a larger count), so this is (3).
+#   (3c) The count rose (c > cnt, the returned level is τp, capped at the largest entry). Let G′ (g′ entries) be the set that
+#       generated τp, τp = τ_{G′} + e′ with τ_{G′} = (Σ_{G′} yᵢ - c)/g′ and |e′| at most the rounding of that level,
+#       ((g′ - 1) u ‖y_{G′}‖₁ + 2 u g′ |τ_{G′}|)/g′. G = {yᵢ > τp} has g < g′ entries and G ⊂ G′ (a lower τp would not give a
+#       smaller count). The level τ̂ = τ_G + e computed from G has more than g entries above it, so τ̂ < τp (a level not below τp
+#       has at most the entries of G above it). The returned residual is the exact residual for the radius
+#       c′ = Σ_G (yᵢ - τp) = c + g (τ_G - τp). The entries of G′ \ G are at or below τp, and
+#           Σ_{G′∖G} (τp - yᵢ) = g (τ_G - τp) + g′ e′,
+#       because Σ_{G′} (τp - yᵢ) = g′ τp - Σ_{G′} yᵢ = g′ e′ - c and Σ_G (τp - yᵢ) = -c - g (τ_G - τp). The left side is not
+#       negative, so c′ - c ≥ -g′ |e′|; and τ̂ < τp gives τ_G - τp < |e|, so c′ - c < g |e|. Hence
+#       |c′ - c| ≤ max(g′ |e′|, g |e|). The same identity gives Σ_{G′∖G} (τp - yᵢ) < g |e| + g′ |e′|: the entries that the pass
+#       before dropped lie within the rounding of the level, so to first order each contributes τ² to d² and d ≥ √g′ |τ|. The
+#       effect on d is |c′ - c| |τ|/d ≤ max(g′ |e′|, g |e|)/√g′ ≤ ((g′ - 1) u ‖y_{G′}‖₁ + 2 u g′ |τ|)/√g′
+#       ≤ (g′ - 1) u ‖v‖₂ + 2 u d, the bound of (3) with g′ ≤ n. On a face the same holds in the units of the shifted values, with
+#       the errors e′ and e of (4) in place of those of (3), and the effect is inside the bound of (4) with a = g′. The returned
+#       level can differ from the one that returning τ̂ would give by a rounding, also where that one was accurate
+#       (v = [nextfloat(2.0), nextfloat(1.0)], λ = nextfloat(nextfloat(1.0)), x = zeros(2): 1.4142135623730951 without the exit,
+#       1.4142135623730954 with it, both within the bound).
 #   (4) A face with τ0 > μ. (4a) The computed τ0 is at most the exact level; let σ be the computed τ0 (a number used
 #       consistently), t = τ - σ ≥ 0, A the active set, a = |A| and B = J \ A, b = |B| = cnt - a, whose residuals are the uᵢ
 #       themselves, so ‖u_B‖₂ ≤ d. Σ_A Lᵢ = c + a t. The values Lᵢ are rounded (u each), the sum of the a terms has an error of
@@ -613,9 +637,8 @@ end
 #   (6) d ≤ ‖v‖₂ + c, since -v is at distance d from a subgradient of 2-norm at most c (an element of the ball or of the simplex
 #       of radius c).
 #   Together, with d ≤ ‖v‖₂ + c: at most (3n/2 + 4) u Λ for the zero point and for τ0 ≤ μ, and for τ0 > μ with a ≤ n - 1,
-#   (3a/2 + n/2 + 5) u d + (√a + 1) u c ≤ (2n + √n + 5) u Λ. The function's bound is (2n + √n + 5) u (‖v‖₂ + λ), except in the
-#   case (3b) with a returned level below the previous one, which this comment does not cover. The √n term is the one with c: the
-#   shifted values of the active entries add up to c + a t, so the summation error of the level is proportional to c. On a
+#   (3a/2 + n/2 + 5) u d + (√a + 1) u c ≤ (2n + √n + 5) u Λ. The function's bound is (2n + √n + 5) u (‖v‖₂ + λ). The √n term
+#   is the one with c: the shifted values of the active entries add up to c + a t, so the summation error of the level is proportional to c. On a
 #   long sum of nearly equal values the error grows about linearly in n in practice (measured, in units of u Λ, about 0.01 n
 #   on one entry far below the level and a bulk of equal entries, and up to about 0.3 n on random entries of that shape, at
 #   n = 200000), inside the bound. The exit sv ≤ c costs at most (n - 1) u ‖v‖₂: v scaled by c/Σ|vᵢ| is in the ball. The bound

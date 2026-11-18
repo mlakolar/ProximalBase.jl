@@ -720,6 +720,103 @@ end
   end
 end
 
+# ---- 11c. a large tie and a level near it (#987) ---------------------------------------------------------------------------------------------
+# The threshold search `_l1ball_michelot` computes each level from the entries above the level before it. When rounding puts a
+# level at or above a large tie, the tie leaves the set, the next level is computed from the few entries left and lies far below
+# the previous one, and the count of entries above it rises. The routine used to return that lower level, which gave a false zero
+# score at the zero point (and a clip of the tie at zero in the prox, tested in normlinf.jl); it now returns the previous level.
+# The inputs are a head entry y1 above m equal entries y0 with a radius c near the breakpoint y1 - y0, where the exact level is at or
+# just below y0. The reference is the exact distance in BigFloat from the stored entries and level (the levels of a head and a tie
+# have a closed form; no kernel of the package is called). The sum of the ties is rounded in an order that depends on the
+# compilation mode (and on the loop that the compiler chooses), so each input reached the exit before the correction in some modes
+# and not in others: each is a regression test in the modes in which it did, and a check of accuracy in the others. The failure
+# was the whole distance (31.6 for the first input of the list below, against a bound of 0.4).
+# the exact distance for the head y1 and the tie (y0, m): at the zero point the distance to the ball of radius c (0 inside), on a
+# face (every entry on the face, u = (y1, y0, ..., y0)) the distance to the simplex, whose level can be negative
+function cluster_dist(c, y1, y0, m; face = false)
+  bigprec() do
+    C, Y1, Y0 = big(c), big(y1), big(y0)
+    !face && Y1 + m * Y0 <= C && return zero(BigFloat)
+    τ = C <= Y1 - Y0 ? Y1 - C : (Y1 + m * Y0 - C) / (m + 1)
+    sqrt(min(Y1, τ)^2 + m * min(Y0, τ)^2)
+  end
+end
+# the cluster as arrays: the head first (or last), at the zero point or on the face x = ones (v = -u there)
+function cluster_arrays(::Type{W}, y1, y0, m; face = false, pos = :first) where {W}
+  u = fill(W(y0), m + 1)
+  u[pos === :first ? 1 : end] = W(y1)
+  face ? (-u, ones(W, m + 1)) : (u, zeros(W, m + 1))
+end
+# whether r is within slack × the bound (and the subnormal term) of the reference
+function cluster_ok(r, c, y1, y0, m, ::Type{W}; face = false, slack = 1) where {W}
+  r isa W || return false
+  ref = cluster_dist(c, y1, y0, m; face)
+  bigprec() do
+    unit = (big(eps(W)) / 2) * (sqrt(big(y1)^2 + m * big(y0)^2) + big(c))
+    isfinite(r) && abs(big(r) - ref) <= slack * big(linf_bound(m + 1)) * unit + 4 * (m + 1) * big(nextfloat(zero(W)))
+  end
+end
+const TIE_CASES = ((Float32, 0.2, 0.1, 10^5, 0.3), (Float32, 1.0, 0.1, 10^5, 1.2), (Float32, 0.2, 0.1, 10^4, 0.102),
+                   (Float64, 1.8, 0.9, 10^6, 0.9000008), (Float32, 0.2, 0.1, 10^6, 1.0))
+
+@testset "the threshold search when the count rises: two entries ($T)" for T in TYPES
+  ε = eps(T)
+  # y = (3, 1 + 3ε), radius 2 - 2ε: the sum 4 + 3ε rounds up to 4 + 4ε, the first level is 1 + 3ε (the second entry is not above
+  # it), the next level is 1 + 2ε and the count rises from 1 to 2. The routine returns 1 + 3ε; the exact level is 1 + 2.5ε.
+  y = T[3, 1 + 3ε]
+  r = T(2) - 2ε
+  @test PB._l1ball_michelot(y, r, PB._AbsRead{T}(), T) == 1 + 3ε
+  @test cluster_ok(kkt_violation(NormLinf(r), y, zeros(T, 2)), r, y[1], y[2], 1, T)
+  @test cluster_ok(kkt_violation(NormLinf(r), -y, ones(T, 2)), r, y[1], y[2], 1, T; face = true)
+end
+
+@testset "large ties against the exact distance" begin
+  for (W, y1, y0, m, λ) in TIE_CASES
+    c = W(λ)
+    for pos in (:first, :last), face in (false, true)
+      v, x = cluster_arrays(W, y1, y0, m; face, pos)
+      r = kkt_violation(NormLinf(c), v, x)
+      @test cluster_ok(r, c, W(y1), W(y0), m, W; face)
+      # through Scaled with a power of two: the level c/2 under the factor 2 is the level c
+      @test cluster_ok(kkt_violation(Scaled(NormLinf(c / 2), W(2)), v, x), c, W(y1), W(y0), m, W; face, slack = 1 + 6 / linf_bound(m + 1))
+    end
+  end
+end
+
+@testset "$W large ties out of the ordinary range (the scaled path)" for W in TYPES
+  # the cluster (0.2, 0.1 × m) with the radius 0.102, scaled so that the sum of the ties is above floatmax/2 and (m + 1) times the
+  # sum is above floatmax/4: the zero point and the face take the scaled path
+  m = 10^4
+  sc = W(0.8) * floatmax(W) / (m * W(0.1))
+  y0, y1, c = W(0.1) * sc, W(0.2) * sc, W(0.102) * sc
+  for face in (false, true), pos in (:first, :last)
+    v, x = cluster_arrays(W, y1, y0, m; face, pos)
+    @test cluster_ok(kkt_violation(NormLinf(c), v, x), c, y1, y0, m, W; face, slack = 4)
+  end
+end
+
+@testset "$W random clusters against the exact distance" for W in TYPES
+  # the radius is the breakpoint y1 - y0 plus θ times the rounding error of the sum of the entries, read from the sum that the
+  # kernel forms
+  bad = 0
+  for m in (1000, 3000, 10_000), y0f in (0.1, 0.3, 1 / 3, 0.9), mult in (2, 10), pos in (:first, :last), θ in (0.05, 0.6, 1.5)
+    y0, y1 = W(y0f), W(mult) * W(y0f)
+    v, _ = cluster_arrays(W, y1, y0, m; pos)
+    s, _ = PB._linf_classify(v, PB._AbsRead{W}(), W)
+    serr = bigprec() do
+      Float64(big(s) - (big(y1) + m * big(y0)))
+    end
+    c = bigprec() do
+      W(big(y1) - big(y0) + θ * abs(serr))
+    end
+    for face in (false, true)
+      u, x = cluster_arrays(W, y1, y0, m; face, pos)
+      bad += !cluster_ok(kkt_violation(NormLinf(c), u, x), c, y1, y0, m, W; face)
+    end
+  end
+  @test bad == 0
+end
+
 # ---- 12. Scaled -----------------------------------------------------------------------------------------------------------------------
 tiny(T) = ldexp(one(T), T === Float32 ? -100 : -600)                    # tiny(T)^2 is not a normal number
 lvl(T) = ldexp(one(T), T === Float32 ? 100 : 1000)                      # tiny(T)^2 * lvl(T) is

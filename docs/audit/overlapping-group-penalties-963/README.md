@@ -163,7 +163,7 @@ Command, from the repository root:
 
 ### Recorded run of `probe_literature.jl`
 
-Local, Julia 1.13.4, at commit `e632033779a6a42f0f8e4cc78f386ce3d9f671fe` (the commit of the script and the addendum
+Local, Julia 1.13.4, at commit `68466337000e20d3400c12b716158882dfc17e9a` (the commit of the script and the addendum
 as they stand; this section was added afterwards). The three probes above, run again at that commit, printed the lines
 recorded above. Output lines as printed:
 
@@ -174,7 +174,8 @@ PASS L1 ‖z‖∞ on {1,2} inside ‖diag(1,2,1) z‖∞ on {1,2,3}, η = t = 1
 PASS L2 300 random laminar families (seeded), h(‖·‖₂) with h(r) = ωr + μr²/2 (and a ball) on each maximal group, Proposition 2 below it, one pass exact: 292 with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) 1.07e-77
 PASS L2 0.8‖z‖₂ on {1,2}, 0.5r + r² (r = ‖z‖₂) on {1,2,3}, y = (2, 3, 1.5), t = 0.3: one pass exact: x = (1.1192959196648145, 1.6789438794972218, 0.8993353169636529), BigFloat gap 0
 PASS L2 the radial function on the contained group {1,2} and 0.8‖z‖₂ on {1,2,3}: one pass refuted by the gradient: one pass (1.0886540969427958, 1.6329811454141936, 1.363093013485373), largest gradient entry 0.0984 (all group norms nonzero)
-PASS L3 300 random laminar families (seeded), ω‖·‖∞ on each group that contains another, weighted ℓ1 or ℓ∞ on the others, one pass exact: 294 with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) 4.47e-78
+PASS L3 300 random laminar families (seeded), ω‖·‖∞ on each group that contains another (an equal group placed before it included), weighted ℓ1 or ℓ∞ on the others, one pass exact: 294 with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) 4.47e-78
+PASS L3 duplicates {1,2}: ‖z‖∞ then |z₁|, t = 1, y = (2, 19/10): one pass refuted (exact), the order with |z₁| first certified: one pass 9//20, 29//20, proximal point 19//20, 19//20 (rational gap 0//1)
 PASS W3 chain {1} ⊂ {1,2} ⊂ {1,2,3}, weights ρ^(ℓ−j) with ρ = 0.5, y = (2, 1.5, 1), t = 0.5: one pass refuted: one pass (1.3178492726525024, 0.9398674314954554, 0.6302987403482098), reference (1.3101471285091393, 0.9495843853938258, 0.6309642768020816) (4 sweeps), distance 0.0124 > 2√(2 gap) = 1.98e-07, largest gradient entry 0.0129
 PASS L4 Algorithm 3 as published, 300 random nested chains (seeded), strictly increasing weights: certified: 679 knots in all, largest BigFloat gap/(1+‖y‖²) 3.82e-77, every ‖u_{g_ℓ}‖ ≤ λ w_ℓ
 PASS L4 300 random chains (seeded) with equal or decreasing weights (202 reduced): groups with w_k ≥ w_j for some j > k removed, Algorithm 3 on the rest, certified against all groups: largest BigFloat gap/(1+‖y‖²) 1.56e-77

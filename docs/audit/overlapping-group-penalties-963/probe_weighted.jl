@@ -83,6 +83,15 @@ let
          "distance $(fmt(dist)) > 2√(2 gap) = $(fmt(2bound))")
 end
 
+# a contained weighted ℓ2 norm with a zero weight, ‖diag(1, 0) z‖₂ = |z₁| on {1,2}, inside ‖diag(1,3,2) z‖₂
+let
+  y = [4.0, -3.0, 2.0]; t = 0.4
+  groups = [l2(1:2, [1.0, 0.0]), l2(1:3, [1.0, 3.0, 2.0])]
+  x, _, gap = big_one_pass(y, groups, [1, 2], t)
+  record("P7 ‖diag(1,0) z‖₂ on {1,2} inside ‖diag(1,3,2) z‖₂ on {1,2,3}, y = (4, −3, 2), t = 0.4: one pass exact",
+         big_ok(gap, y) && nontrivial(x, groups), "x = $(fmtv(x)), BigFloat gap $(fmt(gap))")
+end
+
 # a later duplicate that is not a weighted ℓ2 norm: ‖z‖₂ then ‖z‖∞ on {1,2}, y = (3, 1), t = 1, whose
 # proximal point is (2 − 2/√5, 1 − 1/√5): there y − x = (2, 1)/√5 + e₁
 let

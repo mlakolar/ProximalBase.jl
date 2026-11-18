@@ -838,7 +838,7 @@ function exit_msg(ar, groups, n, M, a, τ̂, exit, k)
   end
 end
 
-@testset "the four inputs of #1003 through every entry point" begin
+@testset "the four inputs of #1003 through prox, prox!, value_and_prox! and Scaled" begin
   # Entry points: prox, prox! (distinct output and in place), value_and_prox! (both) and the wrapper Scaled with a power of two.
   # Paths: Condat's pass with the handover to Michelot's iteration (input 1), Condat's pass alone (input 2), and Michelot's iteration
   # after the handover (inputs 3 and 4); the returns reached depend on the order of the vectorized sums, and the bounds hold for each.
@@ -869,10 +869,11 @@ end
   @test prox_msg(T, y, groups, r) === nothing
 end
 
-@testset "large ties: the threshold of the prox is not a false zero" begin
+@testset "large ties (#987): the level of the prox against the exact level, and the ties clipped at that level" begin
   # the radius puts the level just below the tie y0 (or at it) with m large (the handover to Michelot's iteration, and the
-  # return of the level of the pass or of a certified step); each entry point and the wrapper return a level within the bounds
-  # and clip the ties at the level, not at zero
+  # return of the level of the pass or of a certified step). At the base the level of these inputs is a false zero for some of
+  # them and a positive but inaccurate level for the others. Asserted: through each entry point and the wrapper the level is within
+  # the bounds of the exact level, the ties are clipped at the same level, and that level is above y0/2 (not zero)
   for (T, v, λ) in large_tie_cases()
     @test prox_msg(T, v, ref_groups(v), λ) === nothing
     p = prox(NormLinf(λ), v, one(T))
@@ -997,6 +998,38 @@ end
   @test c.calls[] == length(x)                                    # no handover
   @test maximum(prox(NormLinf(1f0), x, 1f0)) == 0.25f0
   @test prox_msg(Float32, x, ref_groups(x), 1f0) === nothing
+end
+
+@testset "a join value equal to the largest entry, in the subnormal range ($T)" for T in (Float32, Float64)
+  # x = [4δ, 4δ, 4δ], a = δ: at the first join the discard level is fl(fl(fl(8δ f) - δ)/2) = fl(3.5δ) = 4δ (a tie, rounded to even),
+  # f = 1 - 6u, so it equals the largest entry, which the third entry does not exceed: that entry is not stored. The largest stored
+  # entry is still the largest entry, and the result is the largest entry, 4δ, within the bounds of the exact level 11δ/3
+  δ = nextfloat(zero(T))
+  x = fill(4δ, 3)
+  τ = PB._l1ball_threshold!(Vector{T}(undef, 3), x, δ, PB._AbsRead{T}())
+  @test τ == 4δ
+  @test level_msg(arith(T), ref_groups(x), 3, 4δ, δ, τ) === nothing
+  @test prox(NormLinf(δ), x, one(T)) == x
+end
+
+@testset "the pass counts without wrapping ($T)" for T in (Float32, Float64)
+  # `_l1ball_excess` counts in the integer type of the width of the entries (Int32 for Float32) when n fits in it, and in Int
+  # otherwise (2^31 entries or more, which no test can allocate). Tested: the selection at the boundary sizes, and that the two
+  # counters give the same count and smallest entry on a small input, and sums within the bound of (P) of each other (the two
+  # loops can be vectorized differently, which changes the order of the sum). Not tested: a pass over 2^31 entries
+  rd = PB._AbsRead{T}()
+  U = T == Float32 ? Int32 : Int64
+  @test PB._excess_narrow(T, 10) && PB._excess_narrow(T, Int(typemax(U)))
+  T == Float32 && @test !PB._excess_narrow(Float32, Int(typemax(Int32)) + 1)
+  x = abs.(randn(Xoshiro(7), T, 1000))
+  for τ in T[0.2, 0.7, 1.5]
+    r0, k0, h0 = PB._excess_loop(x, 1000, τ, rd, Int)
+    @test k0 > 0
+    for (r, k, h) in (PB._excess_wide(x, 1000, τ, rd), PB._excess_loop(x, 1000, τ, rd, U), PB._l1ball_excess(x, 1000, τ, rd))
+      @test k == k0 && h == h0
+      @test abs(r - r0) <= 2 * 1000 * eps(T) / 2 * 1.01 * max(r, r0)          # both within γ₁₀₀₀ of the exact sum
+    end
+  end
 end
 
 @testset "a certified step is not accepted after a large excess ($T)" for T in (Float32, Float64)

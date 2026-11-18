@@ -258,38 +258,53 @@ end
     X, Y, β = randn(rng, T, n, p), randn(rng, T, n), randn(rng, T, p)
     z = X * β
     f = SqrtLeastSquaresLoss(Y, X)
+    # f(β) and the oracles sum the squares of the same entries in loops that may add in different orders (for example
+    # when the oracles come from a package image compiled for another CPU): each value is checked against the
+    # reference within the accuracy bound, not compared bit for bit with one another. The two residuals z - Y and Y - z
+    # have the same squares and go through the same method, so their values are compared bit for bit.
     @test f(β) isa T
-    @test f(β) === PB.value_from_predictor(f, z)
-    @test f(β) === PB.value_from_residual(f, z .- Y)
-    @test f(β) === PB.value_from_residual(f, Y .- z)
     ref = ref_norm(nothing, z, Y)
+    vp = PB.value_from_predictor(f, z)
+    @test vp isa T && value_ok(vp, ref, T, n)
+    vr = PB.value_from_residual(f, z .- Y)
+    @test vr isa T && value_ok(vr, ref_norm(nothing, z .- Y, nothing), T, n)
+    @test vr === PB.value_from_residual(f, Y .- z)
     @test value_ok(f(β), ref, T, n)
-    # the sparse and the block iterate: the value at their own product X * β, and that of the dense vector of their
-    # entries up to the order of the products
+    # the sparse and the block iterate: the value at their own product X * β against the reference at that product, and
+    # that of the dense vector of their entries up to the order of the products
     βs = SparseIterate(β)
-    @test f(βs) === PB.value_from_predictor(f, X * βs)
+    zs = X * βs
+    vs = PB.value_from_predictor(f, zs)
+    @test f(βs) isa T && vs isa T
+    @test value_ok(f(βs), ref_norm(nothing, zs, Y), T, n) && value_ok(vs, ref_norm(nothing, zs, Y), T, n)
     @test close(f(βs), f(Vector(βs)))
     βb = BlockIterate(copy(β), [Int[3, 1, 5], Int[6, 2, 4]])
-    @test f(βb) === PB.value_from_predictor(f, X * βb)
+    zb = X * βb
+    vb = PB.value_from_predictor(f, zb)
+    @test f(βb) isa T && vb isa T
+    @test value_ok(f(βb), ref_norm(nothing, zb, Y), T, n) && value_ok(vb, ref_norm(nothing, zb, Y), T, n)
     @test close(f(βb), f(Vector(βb)))
     βz = SparseIterate(T[0, 2, 0, 0, -1, 0])
-    @test f(βz) === PB.value_from_predictor(f, X * βz)
+    zz = X * βz
+    vz = PB.value_from_predictor(f, zz)
+    @test f(βz) isa T && vz isa T
+    @test value_ok(f(βz), ref_norm(nothing, zz, Y), T, n) && value_ok(vz, ref_norm(nothing, zz, Y), T, n)
     @test close(f(βz), f(Vector(βz)))
-    # scaled: the generic wrapper and the oracles agree, to the bit for a factor of the data type or an Int, and to
-    # one unit in the last place for a Float64 factor with Float32 data
+    # scaled: the generic wrapper and the oracles are each checked against α ‖z - Y‖₂ within the accuracy bound, for a
+    # factor of the data type, an Int and a Float64 factor with Float32 data
     for α in (inv(sqrt(T(n))), T(0.5), T(3), 2, 3, 1e-3)
       s = Scaled(f, α)
       v, o = s(β), PB.value_from_predictor(s, z)
       @test v isa T && o isa T
-      if α isa Float64 && T === Float32
-        @test abs(v - o) <= eps(T) * abs(o)
-      else
-        @test v === o
-      end
-      @test PB.value_from_residual(s, z .- Y) === o
+      refα = ref_norm(α, z, Y)
+      @test value_ok(v, refα, T, n) && value_ok(o, refα, T, n)
+      vsr = PB.value_from_residual(s, z .- Y)
+      @test vsr isa T && value_ok(vsr, ref_norm(α, z .- Y, nothing), T, n)
     end
     # a Float64 factor with Float32 data, and an inverse square root of n in Float64
-    @test abs(Scaled(f, inv(sqrt(n)))(β) - PB.value_from_predictor(Scaled(f, inv(sqrt(n))), z)) <= eps(T) * f(β)
+    sw = Scaled(f, inv(sqrt(n)))
+    refw = ref_norm(inv(sqrt(n)), z, Y)
+    @test value_ok(sw(β), refw, T, n) && value_ok(PB.value_from_predictor(sw, z), refw, T, n)
     # a factor Inf: the wrapper gives Inf * f(β), which is NaN at an exact fit; the oracles refuse it
     si = Scaled(f, Inf)
     @test si(β) == T(Inf)
@@ -396,7 +411,14 @@ end
       ok || @info "boundary input" T α r vr vp
       @test ok
       if α === nothing && all(isfinite, r)
-        @test f(r) === vp                                    # X = I: Xβ = r
+        # X = I: Xβ = r. With at most two nonzero entries the sum has at most one addition that is not with +0, so the
+        # order of the additions does not change it (for the two-entry inputs above it is also the same with a fused
+        # multiply-add), and the two values are compared bit for bit; otherwise f(r) is checked against the reference
+        if count(!iszero, r) <= 2
+          @test f(r) === vp
+        else
+          @test f(r) isa T && value_ok(f(r), ref_norm(nothing, r, Y), T, n)
+        end
       end
     end
   end
@@ -718,7 +740,12 @@ end
     resetcount!(X)
     v = fl(β)
     @test products(X) == (1, 0)
-    @test v === PB.value_from_predictor(SqrtLeastSquaresLoss(Y, Xd), Xd * β)
+    # the values of the two designs sum the same squares in loops that may add in different orders: each is checked
+    # against the reference at the product Xd * β
+    zd = Xd * β
+    vd = PB.value_from_predictor(SqrtLeastSquaresLoss(Y, Xd), zd)
+    @test v isa T && vd isa T
+    @test value_ok(v, ref_norm(nothing, zd, Y), T, n) && value_ok(vd, ref_norm(nothing, zd, Y), T, n)
     resetcount!(X)
     Scaled(fl, T(0.3))(β)
     @test products(X) == (1, 0)

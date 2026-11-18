@@ -122,17 +122,25 @@ bits of X, Y, z (or r) and the scale as supplied: ordinary, exact-fit, near-fit,
 overflowing, subnormal and one-large-residual data, extreme and subnormal scales, Float64 scales with Float32
 data, `Int` scales above 2^24 and the integer that Float64 does not hold (refused with the other unsupported
 scales), the #609 inputs that `Scaled(f, α)(β)` misses, the overflow threshold (the boundary region where either `floatmax` or `Inf` is accepted, with a value below it that must be finite and one beyond it that must be `Inf`), non-finite entries, the documented range limits of the
-gradient and of an overflowing `z - Y`, agreement with `f(β)` and `value_and_gradient!` on the same predictor bits,
+gradient and of an overflowing `z - Y`, agreement of `f(β)`, `value_and_gradient!` and the oracles on the same
+predictor (for the raw loss each value within γ_n of the reference of the same rounded residual, because the order of
+additions can differ between compiled methods, and the gradients bit for bit; for a `Scaled` loss each value against
+the exact-difference reference with `value_ok` and the gradients within 4 eps),
 the products counted with a strided matrix type (none for the value oracles, one by Xᵀ for the combined one, and
-the products of the existing methods), the values of a `CountMat` design and a plain matrix compared to the exact
-sum of the squares of their residuals within γ_n (the order of additions can differ between compiled methods) with
-residual and gradient bit for bit, and integer data (partial sums exact in any order) that compare value, residual
-and gradient of both designs bit for bit with the exact values, the scratch of the loss left unread and unwritten (also as a view that is
+the products of the existing methods), the values of a `CountMat` design and a plain matrix each compared to
+α Σ dᵢ² / 2 of its own residual within γ_n (α = 1 for the raw loss; the order of additions can differ between
+compiled methods) with the residual and the gradient α Xᵀd bit for bit, and integer data (partial sums exact in any
+order) that compare value, residual and gradient of both designs bit for bit with the exact values, the scratch of the loss left unread and unwritten (also as a view that is
 the predictor), dimension, scale and overlap errors that leave `g`, `d` and the scratch unchanged, the accepted and
 refused layouts of `Base.mightalias`, empty designs, tasks that share one loss with distinct buffers (one thread
 here), the domain refusals (`MethodError`), public but unexported names, and warmed zero allocation and inference.
 It also checks the ordinary path at its acceptance bounds (sums near `n*floatmin/eps` and near the bound of the
-exponent test, which is also checked directly), offset axes (an offset view of the predictor, the residual or the
+exponent test, which is also checked directly; on every input the values of the oracles satisfy `value_ok` against
+the reference (its accuracy bound, and its classes where the reference overflows or is not finite), have type `T` and
+are `NaN`, `+Inf` or nonnegative as the entries require, and on the inputs with at most two nonzero entries, among
+them 64 entries with one nonzero entry at both bounds, they agree under `isequal` with the kernel called directly;
+`f(β)` and `value_and_gradient!` of the unscaled loss at a finite `r` agree under `isequal` with the oracles on those
+inputs, and are checked against the reference on the others), offset axes (an offset view of the predictor, the residual or the
 response refused with `DimensionMismatch` where the axes differ, offset outputs and a row- or column-offset design
 refused by the combined oracle before any write, and equal
 offset axes accepted), the accuracy of the sums of squares of a constant vector of length 10^6 through the three
@@ -142,13 +150,14 @@ exact value overflows and an accurate finite value just below `floatmax`).
 `sqrt_leastsquares` checks `SqrtLeastSquaresLoss` (#960): construction (types and element-type promotion,
 dimension, complex and matrix-response refusals, one-based axes of `Y`, `X` and the scratch through the positional
 constructor, empty losses, `Scaled(f, 0)`), the traits, the worked examples, `f(β)` for dense, `SparseIterate` and
-`BlockIterate` `β` against the value oracles at `X * β` and the residuals of either sign, and mixed-type, sparse,
-integer and `Float16` data, the value oracles `value_from_predictor` and `value_from_residual` and the accessor
+`BlockIterate` `β` and the value oracles at `X * β` and at the residuals of either sign, each checked against the
+reference within `(n/2 + 4) eps(T)` (the two signs of one residual bit for bit), and mixed-type, sparse, integer and `Float16` data, the value oracles `value_from_predictor` and `value_from_residual` and the accessor
 `leastsquares_data` in Float32/64, raw and `Scaled`, against 256-bit BigFloat references formed from the exact bits of
 `Y`, `z` (or `r`) and the factor as supplied, within `(n/2 + 4) eps(T)`: ordinary, exact-fit, near-fit, cancelling,
 underflowing and overflowing sums of squares (the norm finite where the sum of squares is not), subnormal,
 one-large-residual and near-`floatmax` data, extreme and subnormal factors, the edges of the two ordinary-path tests
-(sums near `n*floatmin/eps`, values near `floatmax/2` and `floatmax`), the overflow threshold of the value with its
+(sums near `n*floatmin/eps`, values near `floatmax/2` and `floatmax`; `f(r)` of the unscaled loss bit for bit with
+the oracle where at most two entries are nonzero), the overflow threshold of the value with its
 boundary region, vectors of `2^17` and `2^17 + 1` entries and of 10^6 equal entries, non-finite entries (`NaN`, and
 `Inf` of the same and of opposite signs in `z` and `Y`), the domain (lengths, offset axes, element types, non-strided
 arrays, a nested `Scaled`, the factors that are refused also at an exact fit and with `Inf`), the design and the scratch

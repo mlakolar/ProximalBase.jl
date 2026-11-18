@@ -248,7 +248,7 @@ end
 
 # The safeguarded method: n₀ dual sweeps (from zero) propose the zero prefix L (the leading zero bands of the
 # iterate); Newton solves the remaining bands; dual BCD on the chain of the first L groups at r₁..L
-# supplies their dual blocks; the result is accepted only if the duality gap of the whole problem,
+# supplies their dual blocks; the result is accepted when the duality gap of the whole problem,
 # evaluated in BigFloat, is at most 1e-12 (1 + ‖r‖²). Otherwise the attempt is reported as failed
 # (a wrong prefix or a Newton failure) and the proposal is repeated with ten times more sweeps
 # (n₀ = 2, 20, 200, 2000).

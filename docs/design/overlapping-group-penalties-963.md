@@ -60,7 +60,7 @@ is in Section 8.
   at `v = x_{g_k}`: entries with `d_i = 0` are unchanged; with `t = 0` the step is the identity; with `t > 0` the
   entries with `d_i > 0` are set to zero when `Σ_{d_i>0} v_i²/d_i² ≤ t²`, and otherwise multiplied by `s/(s + d_i²)`,
   where `s > 0` solves `Σ_{d_i>0} d_i² v_i²/(s + d_i²)² = t²` (Bien, Bunea and Xiao, arXiv:1405.6210v1, Appendix B).
-  An infinite weight stands for the indicator of `{0}` at every step `t ≥ 0` (`t · ∞ = ∞`, including `t = 0`), as on
+  An infinite weight stands for the indicator of `{0}` for each step `t ≥ 0` (`t · ∞ = ∞`, including `t = 0`), as on
   master (`groupnorml2.jl:44`).
 - **Inclusion order:** an order in which `g_i ⊊ g_j` implies that `i` comes first. One pass is `x⁰ = y`,
   `x^k = P_{σ(k)}(x^{k−1})`; its dual blocks are `ξ_k = x^{k−1} − x^k`. The papers write this order differently (Jenatton
@@ -165,7 +165,7 @@ difference `4.44e-16` from the harness) and D2 (200 instances).
 coordinates allowed), an inclusion order, a scalar step `t ≥ 0`. Each group that contains another group of the
 family, an equal group placed before it included, has `N_j = ω_j‖·‖₂` with `ω_j ∈ [0, ∞]`; the other groups have any
 sublinear `N_k`. Then one pass is exact. *Proof.* `P_j` multiplies `x_{g_j}` by `c = (1 − tω_j/‖x_{g_j}‖)₊`:
-`c = 0` for `ω_j = ∞` (at every `t`), `c = 1` for `ω_j = 0` or for `t = 0` with `ω_j < ∞`; the Fact and the Lemma
+`c = 0` for `ω_j = ∞` (for each `t`), `c = 1` for `ω_j = 0` or for `t = 0` with `ω_j < ∞`; the Fact and the Lemma
 apply. ∎ With positive weights, one
 norm for all groups and a cover, this is Jenatton et al., Proposition 5 (`ℓ2` case) and Yu, Corollary 3.
 *Hypotheses:*
@@ -224,7 +224,7 @@ that contains another group of the family, an equal group placed before it inclu
   `G = t Σ_k (∇N_k(x^K) − ∇N_k(x^k))`, and `x^k − x^K = t Σ_{j>k} ∇N_j(y) + O(t²)`, so `G = −t² C(y) + O(t³)`,
   nonzero for small `t`. One pass and the proximal operator satisfy `T_t(y) = t T_1(y/t)` (each `N_k` is positively
   homogeneous), so a failure at `(y, t)` is a failure at `(c y/t, c)` for each `c > 0`. ∎ We do not prove that a pair
-  violating (a) gives `C ≠ 0` in every family; Section 5(a) shows it for the chains of interest.
+  violating (a) gives `C ≠ 0` in all families; Section 5(a) shows it for the chains of interest.
 - *Duplicates* make the order matter: `g_1 = g_2 = {1,2,3}` with `d_1 = (1, 2, 3)` and the scalar weight `1.5` on
   `g_2` is exact with `g_1` first (P3) and refuted with `g_2` first (P4).
 
@@ -233,7 +233,7 @@ groups and scalar weights `ω_k ‖·‖₂`, `ω_k ∈ [0, ∞]`. With `z = x/�
 `d_k = ω_k √τ` on `g_k`, and the group steps in `x` (each a weighted shrink with an ellipsoid root, not a closed-form
 scalar shrink) correspond to those in `z`. So one pass is exact when `τ` is constant on each group contained in a group
 of positive weight, and for two groups of positive finite weight it is needed (Proposition 4(b)); an infinite weight
-sets its group to zero at every `τ`. For the sparse-group
+sets its group to zero for each `τ`. For the sparse-group
 penalty the contained groups are singletons, so one pass is exact for any `τ` (S1). Probes S2 (300 families) and S3 (refuted for
 `τ = (1, 4, 1)` on `{1,2} ⊂ {1,2,3}`). Master's `GroupNormL2` takes scalar steps (`groupnorml2.jl:15`).
 
@@ -284,7 +284,7 @@ group `ℓ` (`‖v_{1:ℓ}/W[ℓ, 1:ℓ]‖₂ ≤ 1`). Then `ρ*_{1:L} = 0` if 
 `1..L` (its gradient `λW_ℓ²ρ/n_ℓ`, or the restricted dual element padded with zeros), and the groups `ℓ ≤ L` absorb
 `r_{1:L}`, so `(0, ρ̃)` satisfies the optimality condition. Conversely the gradients of the nonzero groups `ℓ > L*`
 vanish on bands `1..L*`, so the optimality condition there reads `r_{1:L*} ∈ λ Σ_{ℓ≤L*} B°_ℓ`. ∎ If the one-pass step of
-group `L` sets it to zero, its dual blocks `ξ_1, …, ξ_L` decompose `r_{1:L}` in that set, so `ρ*_{1:L} = 0`: every band
+group `L` sets it to zero, its dual blocks `ξ_1, …, ξ_L` decompose `r_{1:L}` in that set, so `ρ*_{1:L} = 0`: each band
 that one pass sets to zero is zero in the proximal point. The converse fails: for `p = 4`, `λ = 1`, band norms
 `(2.05, 3, 0)`, one pass gives `(0.0014776018749914932, 0.0015847207086445254, 0)` while the proximal point is zero,
 certified by a decomposition `r = ξ₁ + ξ₂ + ξ₃` with dual norms at most `0.999λ` (probe Z). So the bandwidth of the
@@ -360,11 +360,11 @@ reach the proximal point to a certified accuracy (a duality gap) after a number 
 - *A Newton-type method* (probe N, an illustration). Two dual sweeps from zero propose the zero prefix `L` (the leading
   zero bands of the iterate); Newton's method with a backtracking line search solves the bands `L+1, …, K`, where the
   objective is smooth while each group norm is nonzero; dual block coordinate descent on the first `L` groups supplies
-  their dual blocks; the point is accepted only if the duality gap of the whole problem, in `BigFloat`, is at most
+  their dual blocks; the point is accepted when the duality gap of the whole problem, in `BigFloat`, is at most
   `1e-12 (1 + ‖r‖²)`. A failed attempt is reported and the proposal repeated with 20, 200 and 2000 sweeps. Each Newton
   iteration forms and factors a dense Hessian, `O(p³)` operations. Results on the same 100 instances: certified in 92,
-  88 at the first attempt with at most 9 Newton iterations and at most 2 certificate sweeps, 4 at the second with up to
-  34 iterations in all. The 8 failures, in family D at `p = 16, 64, 128`, are the instances whose computed point has a
+  88 at the first attempt with at most 9 Newton iterations, 4 at the second with up to 34 iterations in all; the
+  certificate of the zero prefix took at most 2 sweeps. The 8 failures, in family D at `p = 16, 64, 128`, are the instances whose computed point has a
   nonzero group norm below `1e-9 λ w_ℓℓ`, the slow dual instance among them. The probe does not establish global
   convergence, a rule for a group at its threshold (where the Hessian grows like `1/n_ℓ` and the prefix is not
   determined to the certificate's accuracy), `Float32` behavior, or a structured solve cheaper than `O(p³)`.
@@ -459,7 +459,7 @@ No issue is proposed for diagonal weights: the one penalty that needs them is #9
 
 Groups with arbitrary overlap: for partially overlapping groups the Lemma does not apply, and the sources read give no
 finite composition of group steps for them (Jenatton et al., Section 3.3, say that their dual block coordinate ascent
-is in general not guaranteed to finish in finitely many iterations, before proving one pass for ordered tree-structured
+need not, in general, finish in finitely many iterations, before proving one pass for ordered tree-structured
 groups); an exact polynomial algorithm exists for sums of `ℓ∞` norms (Mairal et al., JMLR 2011, abstract
 and Propositions 6–7, by quadratic min-cost flow); for `ℓ2` that paper uses proximal splitting instead. The latent
 penalty of Obozinski, Jacob and Vert (arXiv:1110.0413, Section 4.1 and Remark 4) is an infimal convolution, so its value is itself an optimization problem;

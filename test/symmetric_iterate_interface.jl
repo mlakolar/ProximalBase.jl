@@ -334,7 +334,7 @@ const ABSENT_BUILDS = Pair{String, Function}[
     end
   end
 
-  @testset "fill! of the coordinates: a zero writes only the active values, a nonzero value activates the coordinates" begin
+  @testset "fill! of the coordinates: zero fills write only the active values, fills of 2 and NaN activate each coordinate" begin
     p = 5
     q = p * (p + 1) ÷ 2
     # a stale tail of the value array, which a pass over all q slots would overwrite

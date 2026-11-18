@@ -205,6 +205,15 @@ an appropriate infinity or underflow to zero may be unavoidable, subject
 to the function's endpoint semantics. There is no cross-platform or
 cross-version bitwise arithmetic-order guarantee.
 
+Routes that compute the same proximal point, such as the array `prox!` and the scalar `prox_block`, are not guaranteed
+to agree bit for bit. For homogeneous `Float32` or `Float64` inputs with `γλ` between `floatmin(T)` and `2^125`
+(`Float32`) or `2^1021` (`Float64`), the centered `SqrNormL2` proximal point evaluates the coordinates whose argument
+and center entries have the same sign bit with `muladd`, which the compiler may or may not contract into one rounding,
+depending on how it optimizes each call site and on the CPU. On Julia 1.13.4 and an x86-64 CPU with fused multiply-add,
+with `γλ < 1`, `prox_block` was observed to contract it and the vectorized loop of `prox!` not to, so the two differed
+in the last place. Both are rounded evaluations of the same formula; the tests compare the two routes within one unit in
+the last place on selected inputs.
+
 The order in which an ordinary value adds its terms is not part of the contract either. The unweighted
 `NormL1` value of a dense `Float32` or `Float64` array of 16 to 1024 entries, and the `NormL2` value of such an
 array or strided view, add their terms in one vectorized loop. Julia's `sum` is also one vectorized loop up to

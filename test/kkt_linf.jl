@@ -667,7 +667,7 @@ end
 # level of the face is found on the face values shifted by a lower bound of the level (the mean of the face entries minus λ/n);
 # a shift by the smallest entry instead gives each shifted value the size of |u₁| and a level whose error grows with the number of
 # entries. Measured in units of u (‖v‖₂ + λ) with default compilation, --check-bounds=yes and -O0 (scalar loops: the LLVM IR of
-# the reductions has no vector instructions at -O0 and has 4 and 8 lanes otherwise), on Julia 1.10.13 and 1.13.4, on a znver3 node
+# the reductions has no vector instructions at -O0 and has 4 and 8 lanes otherwise), on Julia 1.10.13 and 1.13.4, on znver2 and znver3 nodes
 # (and, for n = 200001, on a skylake-avx512 node), for the kernel with that shift (old) and for this kernel (new):
 #   Float32, n = 2000001, λ = 3:    old 1.56e6 to 1.57e6,  new at most 6.3e4 (guard 3e5)
 #   Float32, n = 2000001, λ = 0.3:  old 4.0e6 to 4.1e6,    new at most 1.6e5 (guard 8e5)

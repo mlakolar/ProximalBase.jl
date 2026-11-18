@@ -164,7 +164,7 @@ Command, from the repository root:
 
 ### Recorded run of `probe_literature.jl`
 
-Local, Julia 1.13.4, at commit `6b174cdef36e4386f25249a82070305fd82d5218` (the commit of the script and the addendum
+Local, Julia 1.13.4, at commit `d7557811cefcfb8f76a5d50ad692967388d46932` (the commit of the script and the addendum
 as they stand; this section was added afterwards). The three probes above, run again at that commit, printed the lines
 recorded above. Output lines as printed:
 

@@ -36,7 +36,7 @@ per-coordinate weights (Section 5.3); the new statements L1–L5 (Section 6). **
 | Propositions 1–5 | Liu and Ye state the special case of Proposition 2 with an index tree whose root is all coordinates, `ℓ2` on every node, `w ≥ 0` (Section 3, [stated]); we found no statement of the condition of Proposition 4 or of its necessity | confirmed |
 | Section 5(a): one pass fails for the general weights | Yan and Bien (Appendix E.2), Yu and Bien (published), `varband` 0.9.0 repeat the one-pass claim; the Claim of Section 5(a) applies to their weights | unchanged; three more places |
 | Section 5(d): no fixed number of root solves | no finite algorithm; interior-point and Newton methods are generic engines | confirmed |
-| Section 5(e) item 2: two-value theory open | the proofs of Theorems 13, 6, 3, 4 and Corollary 2 carry over on our reading | changed (Frobenius rate, Theorems 3–4) |
+| Section 5(e) item 2: two-value theory open | with `w_ℓℓ = √(2ℓ)` and `Σ_ℓ a_ℓ² ≤ C p` (`C` independent of `n`, `p`), the proofs of Theorems 13, 6, 3, 4 and Corollary 2 carry over on our reading | changed (Frobenius rate, Theorems 3–4) |
 | Section 9: sparse-group papers not checked | Simon et al. (12), Friedman et al. (11), narrower hypotheses | confirmed |
 | Section 10: exact flow algorithm for `ℓ∞` sums | for one positive scalar weight per group, real arithmetic: termination read, correctness stated (half of its proof omitted by the authors) | hypotheses added |
 | Section 10: latent value is an optimization problem | finite formula on a nested chain (L4) | qualified |
@@ -75,16 +75,17 @@ no separate proof in the paper. SPAMS (Python port, commit `897314636898858f957e
 decides splits with the fixed constant `EPSILON_MAXFLOW = 1e-10` (`project.h:25`; a relative test at `:2172`), adds a
 missed split to a local `flow_missed` that is not reported (`:2128`, `:2176`) **[secondary]**. Submodular view:
 `Σ_g η_g ‖w_g‖∞ = f(abs(w))` with `f` the Lovász extension of `F(A) = Σ_g η_g 1{A ∩ g ≠ ∅}` (Bach, FnTML,
-arXiv:1111.6453v2, Section 6.3, pp. 59–60); the divide-and-conquer algorithm of Section 9.1 (pp. 106–107) solves
-`f(w) + Σ_j ψ_j(w_j)`, `ψ_j` strictly convex, with at most `p` submodular minimizations **[stated]**. The flow
+arXiv:1111.6453v2, Section 6.3, pp. 59–60); for nondecreasing submodular `F`, as here, the divide-and-conquer
+algorithm of Section 9.1 (pp. 106–107), with the reduction of Proposition 8.9 (p. 104) for `f(abs(w))`, solves the
+proximal problem `½‖w − z‖² + f(abs(w))` with at most `p` submodular minimizations **[stated]**. The flow
 operator of Obozinski and Bach (arXiv:1205.1240v1, Algorithm 1, p. 19) is for `Ω₂^{F∩}`, which "is not the weighted
 ℓ1/ℓp norm with overlap" and has no simple closed form (Section 4, p. 12) **[stated]**.
 
-*Assessment.* Exact under its hypotheses by Propositions 6–7, but it needs a max-flow engine (warm-started preflows,
-components, a recursion that can cost a factor `|V|` over one max-flow, footnote 10), and the released code decides
-splits by tests against a fixed tolerance and does not report a missed split. Under the policy it is not appropriate
-for ProximalBase. What would change that: a named estimator needing `ℓ∞` groups with arbitrary overlap, a benchmark at
-its sizes, and a duality gap returned with each evaluation.
+*Assessment.* Exact under its hypotheses by Propositions 6–7 as stated, but it needs a max-flow engine (warm-started
+preflows, components, a recursion that can cost a factor `|V|` over one max-flow, footnote 10), and the released code
+decides splits by tests against a fixed tolerance and does not report a missed split. Under the policy it is not
+appropriate for ProximalBase. What would change that: a named estimator needing `ℓ∞` groups with arbitrary overlap, a
+benchmark at its sizes, and a duality gap returned with each evaluation.
 
 **Latent groups.** Yan and Bien (p. 539): "there is no known algorithm that solves the proximal operator of Ω_LOG in
 a closed form under a tree structure" **[stated]**. The methods for trees and DAGs in the sources read are iterative:
@@ -101,29 +102,32 @@ iterative; certified approximation (with a computable distance bound); generic f
 
 | Penalty | Structure | Weights | Algorithm, class | Complexity | Numerical requirements | Source, location | Label |
 |---|---|---|---|---|---|---|---|
-| `Σ ω_g ‖x_g‖₂` | tree, forest | scalar `≥ 0` | one pass; finite | `O(pd)` stated | scalar shrink | Liu and Ye, Theorem 1, p. 4 | stated (proof read in part) |
-| `Σ ω_g ‖x_g‖₂ + h(‖x_G‖₂)`, `G` maximal | laminar | scalar `ℓ2` on containing groups | one pass; finite when the scalar proximal map of `h` is (closed form for `ωr + μr²/2` and the ball) | one scalar proximal step of `h` more | none new | L2; Yu, Theorem 4, p. 5 | proved here |
+| `Σ ω_g ‖x_g‖₂` | index tree whose root is all coordinates (forests: note, Proposition 2) | scalar `≥ 0`, `λ > 0` | one pass; finite | `O(pd)` stated | scalar shrink | Liu and Ye, Theorem 1, p. 4 | stated (proof read in part) |
+| `Σ ω_g ‖x_g‖₂ + h(‖x_G‖₂)`, `G` maximal | laminar, `t > 0` | scalar `ℓ2` on non-maximal containing groups; `h` convex, nondecreasing, lsc, finite at 0 | one pass; finite when the scalar proximal map of `h` is (closed form for `ωr + μr²/2` and the ball) | one scalar proximal step of `h` more | none new | L2; Yu, Theorem 4, p. 5 | proved here |
 | `Σ η_k ‖D_k x‖∞` | laminar | `D_j` on `g_k` proportional to `D_k` | one pass; finite (sort, linear level) | `O(Σ size log size)` (ours) | breakpoint comparisons | L1 | proved here |
 | `ω‖·‖∞` containing weighted `ℓ1` | laminar, duplicate clause of Proposition 2 | scalar on `ℓ∞` groups | one pass; finite | as above | none new | L3; Yu, Corollary 8, p. 8 | proved here; Yu stated |
 | `Σ ‖d^G ∘ x‖₂` | intervals, rectangles | per coordinate (W3) | active set and SOCP, or reweighting; generic | `O(p^3.5 + n_G^3.5)` per SOCP stated | solver tolerance | Jenatton, Audibert, Bach, Section 4, p. 2789 | stated |
 | `λ₁‖x‖₁ + Σ w_i ‖x_{G_i}‖₂` | arbitrary | scalar `≥ 0` | screen, dual accelerated gradient, gap; certified approximation | not checked | gap below `1e-10` | Yuan, Liu, Ye, pp. 3–6 | read (dual smoothness stated) |
-| `Σ ω_g ‖x_g‖₂` | arbitrary | scalar | no exact operator; ADMM on the problem; iterative | — | — | Mairal et al., footnote 11 | stated |
-| descendant-set group lasso | DAG | scalar | dual block coordinate descent; iterative | `O(Σ size)` per cycle | stopping rule open | Yan and Bien, Algorithm 1 | stated |
+| `Σ ω_g ‖x_g‖₂` | arbitrary | scalar | no finite evaluation known to the authors ("not aware of any efficient algorithm providing the exact solution"); ADMM on the whole problem; iterative | — | — | Mairal et al., footnote 11 | stated |
+| descendant-set group lasso | DAG | scalar `> 0` | dual block coordinate descent; iterative | `O(Σ size)` per cycle | stopping rule open | Yan and Bien, Algorithm 1 | stated |
 | `Σ η_g ‖x_g‖∞` | arbitrary | one positive scalar per group | projection, max-flow, recursion; finite-combinatorial | "finite and polynomial" proved; footnote 10 stated | exact comparisons; SPAMS `1e-10` | Mairal et al., Propositions 6–7 | 6 read; 7 stated (half omitted by authors) |
-| `f(abs(w)) + Σ ψ_j(w_j)` | submodular `F` | strictly convex `ψ_j` | divide and conquer; finite-combinatorial | at most `p` minimizations | — | Bach, FnTML, Section 9.1 | stated |
-| `Ω₂^{F∩}` (not `Σ ‖x_g‖₂`) | arbitrary | per group | min-cuts and shrinks; finite-combinatorial | not checked | value needs the recursion | Obozinski and Bach, Algorithm 1 | stated |
+| `½‖w − z‖² + f(abs(w))`, `f` the Lovász extension of `F` | nondecreasing submodular `F` | through `F` | divide and conquer; finite-combinatorial | at most `p` submodular minimizations | — | Bach, FnTML, Section 9.1, Proposition 8.9 | stated |
+| `Ω₂^F`, `F` submodular, e.g. the overlap count `F∩` (not `Σ ‖x_g‖₂`) | arbitrary (through `F∩`) | per group, in `F∩` | min-cuts and shrinks; finite-combinatorial | not checked | value: no simple closed form in general; computed by the same recursion | Obozinski and Bach, Algorithm 1 | stated |
 | latent `ℓ2` | nested chain | scalar, increasing (any positive after L4(iii)) | Algorithm 3; finite | `O(p + Dm)` stated; `O(p + D)` (ours) | comparisons; any maximizer | Yan and Bien, Algorithm 3, Appendix C | read; L4 proved here |
 | latent `ℓ2` | tree, DAG | scalar | block coordinate descent, projections, ADMM; iterative | — | stopping rules | Yan and Bien; Villa et al.; Zhang et al. | stated |
-| BBX nested `ℓ2` | chain | per coordinate | interior point (certified), smoothing Newton (locally quadratic), dual block coordinate descent with a gap (certified) | `O(√N log(1/ε))` interior-point iterations stated; dual `O(1/k)` stated | strict complementarity for Newton; slow dual steps at thresholds | Section 5.1 | stated; numerical |
-| sorted `ℓ1` (SLOPE, OWL) | none | nonincreasing | stack algorithm; finite | `O(p log p)` | — | Bogdan et al., Algorithms 3–4 | stated |
-| group SLOPE | disjoint | nonincreasing | SLOPE step on group norms; finite | — | — | Brzyski et al., Appendix B.3 | stated |
-| squared `k`-support, squared box norm | all `k`-subsets | none | sort and search; finite | `O(d(k + log d))`, `O(d log d)` stated | — | Argyriou et al., Algorithm 1; McDonald et al., Theorem 15 | stated |
+| BBX nested `ℓ2` | chain | per coordinate | interior point (certified), dual block coordinate descent with a gap (certified); Newton-type methods (no convergence result for this problem in the sources read) | `O(√N log(1/ε))` interior-point iterations stated; dual `O(1/k)` stated | slow dual steps at thresholds | Section 5.1 | stated; numerical |
+| sorted `ℓ1` (SLOPE, OWL) | none | sorted `λ`, nonincreasing, `≥ 0` | stack algorithm; finite | `O(p)` after an `O(p log p)` sort, stated | — | Bogdan et al., Algorithms 3–4 | stated |
+| group SLOPE `J_λ(‖y_{I_i}‖)` | disjoint | sorted `λ` nonincreasing `≥ 0`; unit group weights (`W = I`) | SLOPE step on the group norms, (B.8); finite | — | — | Brzyski et al., Appendix B.3 | stated |
+| squared `k`-support, squared box norm | all `k`-subsets | parameter `k`; box parameters | sort and search; finite | `O(d(k + log d))`, `O(d log d)` stated | — | Argyriou et al., Algorithm 1; McDonald et al., Theorem 15 | stated |
 | `ℓ1,∞` ball | rows | none | projection by sorting; finite | `O(n log n)` stated | — | Quattoni et al. | stated |
 
 The last four rows are a different family (symmetric or sorted norms and their latent forms), not structured group
-penalties in the note's sense; each would be a separate issue. The row operator of the weak hierarchical lasso (Bien,
-Taylor and Tibshirani, problem (11), Appendix C, Algorithm 3: a soft threshold and the root of a nonincreasing
-piecewise-linear function) is a finite candidate outside the group family **[stated]**.
+penalties in the note's sense; each would be a separate issue. For positive group weights `w_i` other than a common
+factor, Brzyski et al. absorb them into the design ((B.9)–(B.10)) and solve the estimation problem by an iterative
+method (FISTA). The row
+operator of the weak hierarchical lasso (Bien, Taylor and Tibshirani, problem (11), Appendix C, Algorithm 3: a soft
+threshold and the root of a nonincreasing piecewise-linear function) is a finite candidate outside the group family
+**[stated]**.
 
 ## 5. The weighted nested problem of Bien, Bunea and Xiao
 
@@ -137,21 +141,23 @@ In the sources read no algorithm for these weights is finite (ours).
   start, proof deferred to Nesterov and Nemirovskii **[stated]**; each iteration solves a dense system, `O(p³)` here
   (ours). Andersen et al. observe for their primal-dual method on sums of norms the same accuracy and "markedly
   higher" iteration counts when strict complementarity fails (Section 4, p. 255; experiments) **[stated]**.
-- *Locally quadratic under strict complementarity.* Qi, Sun and Zhou prove Q-quadratic convergence of a smoothing
-  Newton method for a sum of Euclidean norms when `‖y_i*‖ < 1` on the zero norms and `A_O` is nonsingular (Theorem
-  5.2, p. 146) **[stated]**; the proximal problem fits after a reformulation (ours). The 8 failures of the Newton-type
-  probe (Section 5(d)) have a nonzero group norm below `1e-9 λ w_ℓℓ` at the dual point, close to the case these
-  hypotheses exclude, a zero norm whose dual block lies on the boundary (ours).
+- *Newton-type methods.* Qi, Sun and Zhou prove Q-quadratic convergence of a smoothing Newton method for the
+  unconstrained sum of Euclidean norms of affine maps `Σ_i ‖b_i − A_iᵀx‖`, when `‖y_i*‖ < 1` on the zero norms and
+  `A_O` is square and nonsingular (Theorem 5.2, p. 146) **[stated]**. The proximal problem has a quadratic term; we have
+  no reformulation with these hypotheses checked, so local quadratic convergence for it is an analogy we did not prove.
+  Observation: the 8 failures of the Newton-type probe (Section 5(d)) have a nonzero group norm below `1e-9 λ w_ℓℓ`
+  at the dual point (ours).
 - *Dual block coordinate descent.* Hong et al. state `f(x^r) − f* ≤ c/r` for cyclic exact block minimization under
   their Assumption A (Theorem 6.1, p. 29) **[stated]**. The dual of the proximal problem satisfies it: a quadratic
-  `½‖r − Σ_ℓ ξ_ℓ‖²` with block Lipschitz constant 1, over compact convex blocks (the dual balls, all weights positive),
-  minimum attained (ours). With `x = r − Σ_ℓ ξ_ℓ`, the dual excess is `⟨x*, x − x*⟩ + ½‖x − x*‖² ≥ ½‖x − x*‖²`, since
-  `⟨x*, x − x*⟩ ≥ 0` is the first-order optimality of `ξ*` over the product of the balls; so the primal error is
-  `O(r^{−1/2})` (ours). Linear rates need a local error bound (Hong et al., Section 1, p. 3) **[secondary]**; we did not
-  prove that it fails at a threshold. Observation (line O, one instance): with every group of the `p = 4` chain at its
-  threshold, the distance after 10, 100, 1000, 10000 sweeps is `0.00914, 0.00156, 0.000168, 1.7e-05`, ratios per decade
-  `5.9, 9.3, 9.9`, consistent with `1/k` over the last two decades; just inside (`c = 0.999`) it is
-  `0.00694, 0.000373, 1.15e-12, 7.41e-16` **[numerical]**.
+  `½‖r − Σ_ℓ ξ_ℓ‖²` with block Lipschitz constant 1, over compact convex blocks (the dual balls, all weights
+  positive), minimum attained (ours). With `x = r − Σ_ℓ ξ_ℓ`, the dual excess is
+  `⟨x*, x − x*⟩ + ½‖x − x*‖² ≥ ½‖x − x*‖²`, since `⟨x*, x − x*⟩ ≥ 0` is the first-order optimality of `ξ*` over the
+  product of the balls; so the primal error is `O(r^{−1/2})` (ours). The linear-rate results that Hong et al. cite
+  assume a local error bound (Section 1, p. 3) **[secondary]**; we did not prove that it fails at a threshold.
+  Observation (line O, one instance): with every group of the `p = 4` chain at its threshold, the distance after 10,
+  100, 1000, 10000 sweeps is `0.00914, 0.00156, 0.000168, 1.7e-05`, ratios per decade `5.9, 9.3, 9.9`, consistent with
+  `1/k` over the last two decades; just inside (`c = 0.999`) it is `0.00694, 0.000373, 1.15e-12, 7.41e-16`
+  **[numerical]**.
 
 *Inexact steps in outer solvers.* Schmidt, Le Roux and Bach (arXiv:1109.2415v2, (4), p. 5; Propositions 1–2,
 p. 6) keep the `O(1/k)` rate of proximal gradient when `Σ √ε_k < ∞` and the `O(1/k²)` rate of the accelerated
@@ -163,10 +169,10 @@ such bounds **[stated]**. A library whose operator is called by solvers it does 
 Read in arXiv:1405.6210v1; the norms (35) use `w_ℓ := w_ℓℓ`, the notation introduced with Property 1 (p. 6).
 
 - *Theorem 13* (p. 32, stated for "weights given by either (6) or (8)"). Its proof (Appendix G.1, pp. 32–38)
-  **[read]** uses: Lemma 3 (p. 33), which needs `w_ℓℓ > 0` and `‖A‖_{2,1} ≤ ‖A‖*_{2,1}`, true for `w_ℓm ≥ 0` because
-  `w_ℓℓ ‖A_{s_ℓ}‖` is one term under the `ℓ`-th root; Lemma 4 (pp. 33–34), `w_ℓm ≥ 0`; Proposition 1 (pp. 34–35), the
-  optimality relation (10) of the minimizer; Proposition 2 (pp. 35–37) and (39)–(42) (pp. 37–38), Cauchy–Schwarz and
-  `2λb ≤ aλ² + b²/a` with `a = 2w₀(L(B))`. The bound is written through `Σ_ℓ w_ℓ²`, `w₀(L(B))` and
+  **[read]** uses: Lemma 3 (p. 33), whose proof uses `w_ℓℓ > 0` and `‖A‖_{2,1} ≤ ‖A‖*_{2,1}`, true for `w_ℓm ≥ 0`
+  because `w_ℓℓ ‖A_{s_ℓ}‖` is one term under the `ℓ`-th root; Lemma 4 (pp. 33–34), `w_ℓm ≥ 0`; Proposition 1 (pp.
+  34–35), the optimality relation (10) of the minimizer; Proposition 2 (pp. 35–37) and (39)–(42) (pp. 37–38),
+  Cauchy–Schwarz and `2λb ≤ aλ² + b²/a` with `a = 2w₀(L(B))`. The bound is written through `Σ_ℓ w_ℓ²`, `w₀(L(B))` and
   `‖S − Σ*‖_{2,∞}`; neither the choice (6) or (8) nor the value of `λ` enters the proof.
 - *Theorem 6* (p. 12) and its proof (Appendix H, pp. 38–39) **[read]** add `w₀(L(B)) ≤ w₀(0) ≤ 4p` "for the given
   weights", `(Σ_ℓ w_ℓ²)^{1/2} ≲ p`, Lemma 5 (`‖S − Σ*‖_{2,∞} ≤ max_ij |S_ij − Σ*_ij| · max_ℓ √(2ℓ)/w_ℓ`), Theorem 12
@@ -174,15 +180,17 @@ Read in arXiv:1405.6210v1; the norms (35) use `w_ℓ := w_ℓℓ`, the notation 
 - *Two-value weights* `w_ℓm = a_ℓ` (`m < ℓ`), `w_ℓℓ = √(2ℓ)`, `a_ℓ ≥ 0`, `Σ_ℓ a_ℓ² ≤ C p` with `C` a constant
   independent of `n` and `p` **[proved here]**, by the reading above: `w₀(0) = max_m (2m + Σ_{ℓ>m} a_ℓ²) ≤ (2 + C) p`,
   `Σ_ℓ w_ℓ² = p(p − 1)`, and the factor of Lemma 5 is 1. So Theorem 13 holds, Theorem 6 holds with `16x²` replaced by
-  `4(2 + C)x²` and other constants in `≲`, and so does Corollary 2. Appendices G.1 and H do not use Property 1, which
-  these weights satisfy exactly when `a_ℓ ≤ √(2ℓ)`. Both `a_ℓ = √(2/ℓ)` and `a_ℓ = √2` give `w₀(0) = 2(p − 1)`. The
-  theorems state "(6) or (8)": the extension is ours, not the paper's, and is listed for verification in Section 12.
+  `4(2 + C)x²` and other constants in `≲`, and so does Corollary 2. Appendices G.1 and H do not use Property 1
+  (`1 ≤ ℓ ≤ p − 1`), which these weights satisfy exactly when `a_ℓ ≤ √(2ℓ)` for `2 ≤ ℓ ≤ p − 1` (`a_1` is unused).
+  Both `a_ℓ = √(2/ℓ)` and `a_ℓ = √2` give `w₀(0) = 2(p − 1)`. The theorems state "(6) or (8)": the extension is ours,
+  not the paper's, and is listed for verification in Section 12.
 - *Bandwidth and operator norm.* Theorems 3–5 (pp. 10–11) are stated for `w_ℓ = √(2ℓ)` and any other weights (Theorem
   5 adds `w_ℓℓ ≥ w_{ℓ+1,ℓ} > 0`); their proofs (Appendix F, p. 31) argue on the one-pass recursion (12), which for
   weights in the one-pass class is the minimizer (Proposition 4(a)). The proofs of Theorems 3 and 4, which we read in
   full, use the weights through `w_ℓℓ = √(2ℓ)` and the diagonal term of `h_ℓ(0)` alone, so both hold for these weights
-  **[proved here]**; Theorem 5 was not re-derived. Theorem 9 (Appendix J) needs `K̂ = K`, (12), Property 1 (the line
-  before (50), p. 41), `w_ℓℓ = √(2ℓ)` and `Σ_{ℓ≥m} w_ℓm²/(2ℓ) ≲ 1` (ours, from the text): so `a_ℓ ≤ √(2ℓ)`, and
+  **[proved here]**; Theorem 5 was not re-derived. The proof of Theorem 9 (Appendix J) uses `K̂ = K`, (12), Property 1
+  (the line before (50), p. 41), `w_ℓℓ = √(2ℓ)` and `Σ_{ℓ≥m} w_ℓm²/(2ℓ) ≲ 1` (ours, from the text): so it asks
+  `a_ℓ ≤ √(2ℓ)` (`2 ≤ ℓ ≤ p − 1`), and
   `a_ℓ = √(2/ℓ)` gives at most `π²/6` while `a_ℓ = √2` gives `1 + Σ_{ℓ>m} 1/ℓ`, of order `log p`. Not re-derived.
 
 ### 5.3 Further one-pass statements with per-coordinate weights in print
@@ -202,8 +210,10 @@ Read in arXiv:1405.6210v1; the norms (35) use `w_ℓ := w_ℓℓ`, the notation 
   `K ≥ 3` and each `λ > 0` some input gives a one-pass point that is not the proximal point **[proved here]**. Line W3
   (`ρ = 0.5`, `y = (2, 1.5, 1)`, `t = 0.5`): distance `0.0124 > 2√(2 gap) = 1.98e-07`, gradient entry `0.0129`
   **[numerical]**. Their own families (the intervals `[1, k]` and `[k, p]`, Section 3.5.1, p. 2786; half-spaces for
-  rectangles) are not laminar, so one pass is not defined for them; they compute with an SOCP solver or reweighting
-  (Section 4, p. 2789; Appendix H) and claim no proximal operator.
+  rectangles) are not laminar: a composition of the group steps in an order that respects strict containment exists,
+  but the laminar results (the Lemma of Section 4, Propositions 2–4) do not apply to it, and its result may depend on
+  the order of incomparable groups. They compute with an SOCP solver or reweighting (Section 4, p. 2789; Appendix H)
+  and give no proximal-operator algorithm.
 
 ## 6. New claims with proofs
 
@@ -235,13 +245,14 @@ the indicator of `[0, R]`. Then one pass is exact **[proved here]**. *Proof.* `t
 convex, and by Yu's Theorem 4 (i ⇒ iii) its proximal map is `u ↦ c u`, `c ∈ [0, 1]`; so `P_j` multiplies each
 contained `x_{g_k}` by `c` and the Fact gives (C). Groups after `j` are disjoint from `g_j` (laminarity, maximality,
 order), so `ξ_j ∈ ∂(t h_j(‖·‖) ∘ π_j)(x^j)` stays a subgradient at `x^K`, and the argument of the Lemma gives
-`y − x^K ∈ ∂(tΩ)(x^K)`. ∎ A ridge term `(μ/2)‖x‖²` on all coordinates is one maximal group containing all others:
-one pass, then division by `1 + tμ` (Yu, Example 5, p. 6, for any gauge **[read]**). Lines L2: 300 families
-accepted (`1.07e-77`); `0.8‖z‖₂` on `{1,2}` and `0.5r + r²` (`r = ‖z‖₂`) on `{1,2,3}`, `y = (2, 3, 1.5)`, `t = 0.3`,
-accepted with gap 0; the radial function on the *contained* group `{1,2}` instead is refuted (largest gradient entry
-`0.0984`, all group norms nonzero) **[numerical]**. Question 4: in the sources read, the overlapping `ℓ2`-based
-structures with a direct proximal operator beyond those of the note are the latent nested chain of Yan and Bien
-(Algorithm 3, L4); L2 is a further one, ours, resting on Yu's Theorem 4.
+`y − x^K ∈ ∂(tΩ)(x^K)`. ∎ A ridge term `(μ/2)‖x‖²` on all coordinates is one maximal group containing all others: one
+pass, then division by `1 + tμ` (Yu, Example 5, p. 6, for any gauge **[read]**). Lines L2: 300 families accepted
+(`1.07e-77`; a candidate outside its ball by rounding is first moved into it, here by at most `5.54e-77`, and the gap
+uses the exact indicator); `0.8‖z‖₂` on `{1,2}` and `0.5r + r²` (`r = ‖z‖₂`) on `{1,2,3}`, `y = (2, 3, 1.5)`,
+`t = 0.3`, accepted with gap 0; the radial function on the *contained* group `{1,2}` instead is refuted (largest
+gradient entry `0.0984`, all group norms nonzero) **[numerical]**. Question 4: in the sources read, the overlapping
+`ℓ2`-based structures with a direct proximal operator beyond those of the note are the latent nested chain of Yan and
+Bien (Algorithm 3, L4); L2 is a further one, ours, resting on Yu's Theorem 4.
 
 **L3 (weighted `ℓ1` inside `ℓ∞`).** Laminar groups, an inclusion order, `t ≥ 0`, `ω_k‖·‖∞` (`ω_k ∈ [0, ∞]`) on each
 group that contains another group of the family, an equal group placed before it included (as in Proposition 2), and
@@ -266,18 +277,18 @@ sets it to zero (ours). The dual norm is `max_ℓ ‖u_{g_ℓ}‖/w_ℓ` (their 
   Algorithm 3 requires; (i) and (ii) assume this.
 - (i) *Hull form.* With strictly increasing weights, let `W_j = w_j²`, `Z_j = ‖y_{g_j}‖²` (`W_0 = Z_0 = 0`), `c` the
   least concave majorant of the points `P_j = (W_j, Z_j)` and `σ_i` its slope on `[W_{i−1}, W_i]`. Then
-  `prox_{λΩ}(y)_{s_i} = (1 − λ/√σ_i)₊ y_{s_i}` **[proved here]**, given Lemma 3 of Yan and Bien, whose proof (Appendix
-  C, pp. 550–552: an explicit decomposition checked against the optimality conditions of Obozinski, Jacob and Vert,
-  Lemma 11) we read in full **[read]**. *Proof.* `f(j, k)²` of Algorithm 3 is the slope of the chord `P_k P_j`. By
-  induction over the knots, the line through a knot `P_k` with slope `s = max_{j>k} f(j, k)²` lies on or above all
-  points: those right of `P_k` by maximality, those left of it because they lie under the previous line, whose slope
-  is at least `s` (the maximizer `P_K` lies under it). Such a line through `P_k` and `P_K` coincides with `c` on
-  `[W_k, W_K]`, so `σ_i = f(K, k)²` there, and after the last knot `c` has slope at most the stopping value `λ²`. On a
-  segment Algorithm 3 returns `S_G(y_seg, λ√(ΔW)) = (1 − λ/a)₊ y_seg`, as `‖y_seg‖ = a√(ΔW)` with `a = f(K, k)`, and 0
-  after the last knot. ∎ Any maximizer in line 5 gives a point of `c` (Appendix C uses only maximality); the last
-  maximizer gives exactly the vertices of slope above `λ²`. A monotone stack over the points, sorted by `W`, finds the
-  vertices in `O(D)` after the `O(p)` block norms (the standard monotone-chain argument, not proved here), against
-  `O(p + Dm)` in Lemma 3.
+  `prox_{λΩ}(y)_{s_i} = φ_i y_{s_i}` with `φ_i = 0` if `σ_i ≤ λ²` and `φ_i = 1 − λ/√σ_i` otherwise (`λ ≥ 0`) **[proved
+  here]**, given Lemma 3 of Yan and Bien, whose proof (Appendix C, pp. 550–552: an explicit decomposition checked
+  against the optimality conditions of Obozinski, Jacob and Vert, Lemma 11) we read in full **[read]**. *Proof.*
+  `f(j, k)²` of Algorithm 3 is the slope of the chord `P_k P_j`. By induction over the knots, the line through a knot
+  `P_k` with slope `s = max_{j>k} f(j, k)²` lies on or above all points: those right of `P_k` by maximality, those
+  left of it because they lie under the previous line, whose slope is at least `s` (the maximizer `P_K` lies under
+  it). Such a line through `P_k` and `P_K` coincides with `c` on `[W_k, W_K]`, so `σ_i = f(K, k)²` there, and after
+  the last knot `c` has slope at most the stopping value `λ²`. On a segment Algorithm 3 returns
+  `S_G(y_seg, λ√(ΔW)) = (1 − λ/a)₊ y_seg`, as `‖y_seg‖ = a√(ΔW)` with `a = f(K, k)`, and 0 after the last knot. ∎ Any
+  maximizer in line 5 gives a point of `c` (Appendix C uses only maximality); the last maximizer gives exactly the
+  vertices of slope above `λ²`. A monotone stack over the points, sorted by `W`, finds the vertices in `O(D)` after
+  the `O(p)` block norms (the standard monotone-chain argument, not proved here), against `O(p + Dm)` in Lemma 3.
 - (ii) *Value.* With strictly increasing weights, `Ω(y) = Σ √(W_b − W_a) ‖y_{s_{a+1} ∪ … ∪ s_b}‖₂` over the segments
   `[P_a, P_b]` of `c` with positive slope **[proved here]**. *Proof.* Lower bound: `u_{s_i} = y_{s_i}/√σ_i` (0 where
   `σ_i = 0`, where `y_{s_i} = 0`) has `‖u_{g_ℓ}‖² ≤ W_ℓ` for all `ℓ` because `P_ℓ` lies under `c`, so `Ω(y) ≥ ⟨u, y⟩`,
@@ -316,7 +327,7 @@ exact (ours).
    `Σ_j Σ_v w_v ‖β_j^{G_v}‖₂`, `G_v` the responses under node `v` (singletons at the leaves), the same tree for every
    covariate `j`, `w_v = g_v Π_{m∈Ancestors(v)} s_m` (internal) or `Π_{m∈Ancestors(v)} s_m` (leaf), `s_v = h_v`,
    `g_v = 1 − h_v` (p. 9). They use smoothing proximal gradient (Section 3.2, p. 11) **[stated]**, an approximate
-   method; Proposition 2 gives the exact operator. Hierarchical sparse coding (Jenatton et al.) is a second user.
+   method; Proposition 2 makes one pass exact for it. Hierarchical sparse coding (Jenatton et al.) is a second user.
 3. *Adaptive basis truncation, partially linear additive models.* Haris, Shojaie and Simon compute their estimator as
    (11), `Σ_k w_k ‖β̃_{k:K̃}‖₂` in QR coordinates, `w_k = k^m − (k − 1)^m` (eq. (5)), by Algorithm 1, one pass
    `k = K̃, …, 1` (Section 3.2) **[stated]**. SPLAM (Lou, Bien, Caruana, Gehrke):
@@ -351,7 +362,7 @@ Xing, HierBasis as computed and SPLAM use scalar weights).
 2. Two-value weights: computation unchanged (one pass, `p − 1` root solves after the band norms). Theory: Theorems 13,
    6, 3 and 4 and Corollary 2 hold on our reading of the proofs for `w_ℓℓ = √(2ℓ)`, `Σ_ℓ a_ℓ² ≤ C p`, `C` independent
    of `n` and `p` (Section 5.2), to be verified independently (Section 12); Theorems 5, 9 and 10 were not re-derived,
-   and Theorem 9 as written needs `a_ℓ ≤ √(2ℓ)` and `Σ_{ℓ≥m} w_ℓm²/(2ℓ) ≲ 1` (`a_ℓ = √(2/ℓ)`, not `√2`).
+   and the written proof of Theorem 9 uses `a_ℓ ≤ √(2ℓ)` and `Σ_{ℓ≥m} w_ℓm²/(2ℓ) ≲ 1` (`a_ℓ = √(2/ℓ)`, not `√2`).
 3. General weights to a certified gap: unchanged. No finite method in the sources read; the strongest worst-case
    bound among them is for an interior-point method, a generic engine (Section 5.1); an evaluation would take a
    tolerance per call and return its gap.
@@ -390,11 +401,11 @@ global bandwidth without the eigenvalue constraint.
 
 ### 9.5 Excluded, with the reason
 
-Arbitrary overlap with `ℓ2` groups (no exact operator in the sources read; at best a certified approximation) or `ℓ∞`
-groups (a flow engine); the DAG group lasso and latent groups on trees or DAGs (iterative); the vector weights of
-Jenatton, Audibert and Bach (one pass fails); the general weights of Bien, Bunea and Xiao as an exact operator; the
-sorted and symmetric norms (a separate family); weighted `ℓ∞` groups (L1: exact under the proportionality condition,
-but no named estimator found).
+Arbitrary overlap with `ℓ2` groups (no finite evaluation of the proximal operator in the sources read; at best a
+certified approximation) or `ℓ∞` groups (a flow engine); the DAG group lasso and latent groups on trees or DAGs
+(iterative); the vector weights of Jenatton, Audibert and Bach (one pass fails); one pass with the general weights of
+Bien, Bunea and Xiao presented as their proximal operator; the sorted and symmetric norms (a separate family);
+weighted `ℓ∞` groups (L1: exact under the proportionality condition, but no named estimator found).
 
 ## 10. Annotated bibliography
 
@@ -499,6 +510,6 @@ but no named estimator found).
 | L4(a) | Algorithm 3 as published is the proximal operator | numerical (independent of the proof); lines L4 |
 | L5 | `λ_max` of the banding prox is `Ω°(r)`; `2√2 − 2` for `p = 3`, `r = (2, 0)` | proved here; line L5 evaluates the two closed-form bounds of the instance |
 | W3 | weights (W3) on a chain with `K ≥ 3`: one pass fails for each `λ > 0` | proved here (Claim of Section 5(a)); line W3 |
-| R1 | Theorems 13, 6, 3, 4 and Corollary 2 of Bien, Bunea and Xiao for two-value weights, `w_ℓℓ = √(2ℓ)`, `Σ a_ℓ² ≤ C p` | proved here (a reading of the paper's proofs); to be verified independently |
+| R1 | Theorems 13, 6, 3, 4 and Corollary 2 of Bien, Bunea and Xiao for two-value weights, `w_ℓℓ = √(2ℓ)`, `Σ_ℓ a_ℓ² ≤ C p`, `C` independent of `n` and `p` | proved here (a reading of the paper's proofs); to be verified independently |
 | R2 | primal error `O(r^{−1/2})` of dual block coordinate descent | (ours), given Hong et al.'s Theorem 6.1 [stated] |
 | O | one instance with every group at its threshold: ratios per decade `5.9, 9.3, 9.9` | numerical (line O) |

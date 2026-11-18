@@ -22,8 +22,25 @@ conv(::Type{T}, g::Radial) where {T} = Radial(g.idx, T(g.ω), T(g.μ), T(g.R))
 val(g::Grp, x) = gvalue(g, x)
 val(g::WLinf, x) = g.η * maximum(g.d[k] * abs(x[i]) for (k, i) in enumerate(g.idx))
 val(g::WL1, x) = sum(g.c[k] * abs(x[i]) for (k, i) in enumerate(g.idx))
-function val(g::Radial, x::AbstractVector{T}) where {T}        # the ball admits a rounding error
-  r = sqrt(sum(abs2, x[g.idx])); r > g.R * (1 + 64eps(T)) ? T(Inf) : g.ω * r + g.μ * r^2 / 2
+function val(g::Radial, x::AbstractVector{T}) where {T}        # the exact indicator of the ball
+  r = sqrt(sum(abs2, x[g.idx])); r > g.R ? T(Inf) : g.ω * r + g.μ * r^2 / 2
+end
+
+# A candidate outside a ball by rounding is moved into it before the gap is formed: its block is
+# scaled by a factor rounded down until its norm, computed as in `val`, is at most R. The gap then
+# bounds the distance of the moved point, so the candidate is within (distance moved) + √(2 gap)
+# of the proximal point. Returns the distance moved.
+function into_balls!(x::AbstractVector{T}, groups) where {T}
+  m2 = zero(T)
+  for g in groups
+    (g isa Radial && isfinite(g.R)) || continue
+    v = x[g.idx]; r = sqrt(sum(abs2, v))
+    r > g.R || continue
+    c = g.R / r
+    while sqrt(sum(abs2, c .* v)) > g.R; c = prevfloat(c); end
+    x[g.idx] .= c .* v; m2 += sum(abs2, v .- x[g.idx])
+  end
+  sqrt(m2)
 end
 
 # The step of t N on x[g.idx], in place.
@@ -94,25 +111,28 @@ end
 bigpass(y, groups, order, t) = setprecision(BigFloat, 256) do
   B = BigFloat; yb = B.(y); gb = [conv(B, g) for g in groups]
   x, ξ = pass(yb, gb, order, B(t))
-  x, ξ, gap(yb, x, ξ, gb, B(t))
+  xc = copy(x); d = into_balls!(xc, gb)
+  x, ξ, gap(yb, xc, ξ, gb, B(t)), d
 end
+moved_ok(d, y) = d <= big"1e-60" * (1 + sqrt(sum(abs2, big.(y))))
 moved(x, y, groups) = any(g -> any(i -> !iszero(x[i]), g.idx) && any(i -> x[i] != y[i], g.idx), groups)
 ischild(kids) = (c = falses(length(kids)); for ks in kids, k in ks; c[k] = true; end; c)
 
 # One sweep: random laminar families (children before parents), groups from `make`, one pass
 # accepted by its BigFloat gap.
-function sweep(rng, N, make)
-  ok = true; worst = big"0.0"; nz = 0
+function sweep(rng, N, make; balls = false)
+  ok = true; worst = big"0.0"; nz = 0; dmax = big"0.0"
   for _ in 1:N
     n = rand(rng, 3:12)
     sets, kids = random_laminar(rng, n)
     groups = make(rng, n, sets, kids)
     y = 3 .* randn(rng, n)
-    x, _, g = bigpass(y, groups, eachindex(groups), rand(rng) + 0.2)
+    x, _, g, d = bigpass(y, groups, eachindex(groups), rand(rng) + 0.2)
     nz += moved(x, y, groups)
-    worst = max(worst, g / (1 + sum(abs2, big.(y)))); ok &= big_ok(g, y)
+    worst = max(worst, g / (1 + sum(abs2, big.(y)))); ok &= big_ok(g, y) && moved_ok(d, y); dmax = max(dmax, d)
   end
-  ok, "$nz with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) $(fmt(worst))"
+  ok, "$nz with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) $(fmt(worst))" *
+      (balls ? ", largest distance moved into a ball $(fmt(dmax))" : "")
 end
 w03(rng) = rand(rng) < 0.1 ? 0.0 : 0.2 + 3rand(rng)      # a weight, zero in about 10%
 
@@ -178,8 +198,22 @@ let rng = Xoshiro(10963), N = 300
       end
     end
     G
-  end)
+  end; balls = true)
   record("L2 $N random laminar families (seeded), h(‖·‖₂) with h(r) = ωr + μr²/2 (and a ball) on each maximal group, Proposition 2 below it, one pass exact", ok, det)
+end
+
+# The certificate evaluates the exact indicator of the ball: a point outside the ball by rounding is
+# not accepted as it stands; moved into the ball, it is certified within the distance moved.
+let
+  setprecision(BigFloat, 256) do
+    G = [Radial([1], big"0.0", big"0.0", big"1.0")]; t = big"1.0"
+    y = [1 + 32eps(BigFloat)]; x = copy(y); ξ = [zeros(BigFloat, 1)]
+    g0 = gap(y, x, ξ, G, t)
+    xc = copy(x); d = into_balls!(xc, G); gc = gap(y, xc, ξ, G, t)
+    record("L2 certificate: ball of radius 1 (ω = μ = 0), t = 1, candidate x = y = 1 + 32 eps(BigFloat): not accepted as it stands, accepted after the move into the ball",
+           isinf(g0) && !big_ok(g0, y) && xc[1] <= 1 && big_ok(gc, y) && moved_ok(d, y),
+           "gap at the candidate $(g0), distance moved $(fmt(d)), gap after the move $(fmt(gc))")
+  end
 end
 
 function sgrad(y, x, groups, t)                     # gradient where every group norm is nonzero
@@ -197,9 +231,9 @@ function sgrad(y, x, groups, t)                     # gradient where every group
 end
 
 let y = [2.0, 3.0, 1.5], t = 0.3
-  xa, _, ga = bigpass(y, [l2s(1:2, 0.8), Radial([1, 2, 3], 0.5, 2.0, Inf)], [1, 2], t)
+  xa, _, ga, da = bigpass(y, [l2s(1:2, 0.8), Radial([1, 2, 3], 0.5, 2.0, Inf)], [1, 2], t)
   record("L2 0.8‖z‖₂ on {1,2}, 0.5r + r² (r = ‖z‖₂) on {1,2,3}, y = (2, 3, 1.5), t = 0.3: one pass exact",
-         big_ok(ga, y) && !iszero(xa), "x = $(fmtv(xa)), BigFloat gap $(fmt(ga))")
+         big_ok(ga, y) && iszero(da) && !iszero(xa), "x = $(fmtv(xa)), BigFloat gap $(fmt(ga))")
   G = [Radial([1, 2], 0.5, 2.0, Inf), l2s(1:3, 0.8)]
   xb, _, _ = bigpass(y, G, [1, 2], t)
   gr = setprecision(BigFloat, 256) do; maximum(abs, sgrad(big.(y), xb, [conv(BigFloat, g) for g in G], big(t))); end

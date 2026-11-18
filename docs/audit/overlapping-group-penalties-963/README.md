@@ -164,7 +164,7 @@ Command, from the repository root:
 
 ### Recorded run of `probe_literature.jl`
 
-Local, Julia 1.13.4, at commit `d6af986a765e9e77a3c3c337a549d295bbe2b048` (the commit of the script and the addendum
+Local, Julia 1.13.4, at commit `389cac96f79b396b137cb717f66c861a11b7c273` (the commit of the script and the addendum
 as they stand; this section was added afterwards). The three probes above, run again at that commit, printed the lines
 recorded above. Output lines as printed:
 
@@ -172,7 +172,8 @@ recorded above. Output lines as printed:
 PASS L1 300 random laminar families (seeded), η‖D z‖∞ with D_j on g_k proportional to D_k, η = 0 and ∞ included, one pass exact: 275 with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) 1.29e-77
 PASS L1 300 random laminar families (seeded), one weight vector D shared by all groups, one pass exact: 284 with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) 1.39e-77
 PASS L1 ‖z‖∞ on {1,2} inside ‖diag(1,2,1) z‖∞ on {1,2,3}, η = t = 1, y = (3, 2.9, 0): one pass refuted (exact): one pass 107//50, 107//100, 0//1, directional derivative along −e₁ -7//50
-PASS L2 300 random laminar families (seeded), h(‖·‖₂) with h(r) = ωr + μr²/2 (and a ball) on each maximal group, Proposition 2 below it, one pass exact: 292 with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) 1.07e-77
+PASS L2 300 random laminar families (seeded), h(‖·‖₂) with h(r) = ωr + μr²/2 (and a ball) on each maximal group, Proposition 2 below it, one pass exact: 292 with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) 1.07e-77, largest distance moved into a ball 5.54e-77
+PASS L2 certificate: ball of radius 1 (ω = μ = 0), t = 1, candidate x = y = 1 + 32 eps(BigFloat): not accepted as it stands, accepted after the move into the ball: gap at the candidate Inf, distance moved 5.53e-76, gap after the move 1.53e-151
 PASS L2 0.8‖z‖₂ on {1,2}, 0.5r + r² (r = ‖z‖₂) on {1,2,3}, y = (2, 3, 1.5), t = 0.3: one pass exact: x = (1.1192959196648145, 1.6789438794972218, 0.8993353169636529), BigFloat gap 0
 PASS L2 the radial function on the contained group {1,2} and 0.8‖z‖₂ on {1,2,3}: one pass refuted by the gradient: one pass (1.0886540969427958, 1.6329811454141936, 1.363093013485373), largest gradient entry 0.0984 (all group norms nonzero)
 PASS L3 300 random laminar families (seeded), ω‖·‖∞ on each group that contains another (an equal group placed before it included), weighted ℓ1 or ℓ∞ on the others, one pass exact: 294 with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) 4.47e-78

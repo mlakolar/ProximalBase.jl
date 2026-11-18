@@ -30,6 +30,7 @@ certificate: a successful check says nothing about later mutation.
 | Function | Per-entry array |
 |:--|:--|
 | `NormL1` | weights w |
+| `NormL1Nonneg` | weights w |
 | `ElasticNet` | weights w |
 | `SqrNormL2` | center y |
 | `LinearFunction` | coefficients c |
@@ -132,7 +133,7 @@ unrelated gradient pairs. Do not confuse this computed-gradient policy with
 per-entry coefficient/center symmetry, which is a precondition on the model.
 
 The four-argument `kkt_violation(f,v,x,k)` on a symmetric iterate also reads the
-stored value of coordinate `k` of the lower triangle: for `NormL1`, `ElasticNet`,
+stored value of coordinate `k` of the lower triangle: for `NormL1`, `NormL1Nonneg`, `ElasticNet`,
 `ZeroFunction`, `LinearFunction` and `SqrNormL2` it is the signed screen when the
 value is zero and a nonnegative mismatch when it is not, formed from the symmetric
 gradient pair. The score is in matrix-entry units. For an off-diagonal coordinate with a

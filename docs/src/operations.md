@@ -270,11 +270,12 @@ The sign says the following.
   and is slack. The full-point form drops it through the maximum with `0`.
 
 For an entry `i` with ``c_i=\lambda_0w_i`` (``\lambda_1w_i`` for `ElasticNet`),
-the five families with these forms return the following scalars.
+the six families with these forms return the following scalars.
 
 | Function | Entry at zero | Entry ``x_i\neq0`` | Full-point value, for finite inputs |
 |:--|:--|:--|:--|
 | `NormL1` | ``\lvert v_i\rvert-c_i`` | ``\lvert v_i+c_i\operatorname{sign}(x_i)\rvert`` | ``\ell_\infty`` distance from ``-v`` to ``\partial g(x)``; zero when ``0\in v+\partial g(x)`` |
+| `NormL1Nonneg` | ``-v_i-c_i`` | ``\lvert v_i+c_i\rvert`` for ``x_i>0``, `Inf` for ``x_i<0`` | ``\ell_\infty`` distance from ``-v`` to ``\partial g(x)`` for ``x\geq0``, and `Inf` where an entry of ``x`` is negative |
 | `ElasticNet` | ``\lvert v_i\rvert-c_i`` (`-Inf` for an infinite ridge level) | ``\lvert (v_i+\lambda_2x_i)+c_i\operatorname{sign}(x_i)\rvert`` | As `NormL1` |
 | `ZeroFunction` | ``\lvert v_i\rvert`` | ``\lvert v_i\rvert`` | ``\lVert v\rVert_\infty`` |
 | `LinearFunction` | ``\lvert v_i+c_i\rvert`` | ``\lvert v_i+c_i\rvert`` | ``\lVert v+c\rVert_\infty`` |

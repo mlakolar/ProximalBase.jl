@@ -69,6 +69,11 @@ function value_ok(v, ref, ::Type{T}, n) where {T}
   end
 end
 
+# The class of the value of α Σ rᵢ² / 2 with a finite α > 0, for the entries r: NaN where an entry is NaN, +Inf where an
+# entry is infinite and none is NaN, and nonnegative (not NaN) where all entries are finite. value_ok alone accepts any
+# non-finite value beyond the overflow region and for a non-finite reference.
+value_class_ok(v, r) = any(isnan, r) ? isnan(v) : any(isinf, r) ? v == Inf : v >= 0
+
 # The gradient g against α Xᵀ(z - Y) componentwise within (n + 8) eps α (|X|ᵀ|z - Y|)ⱼ + 2 nextfloat(0), where
 # no entry of |X|ᵀ|z - Y| is subnormal-ish or near the top of the range and α times it stays in range
 # (outside, the documented range limitation applies). Gives :skipped outside that range.
@@ -249,11 +254,14 @@ end
     _, Y, z = make_case(rng, T, kind, 64, 3)
     for λ in (one(T), T(0.3), floatmin(T), floatmax(T) / 8)
       # with a second operand both entry points form the sum over the differences, in loops compiled at two call sites that
-      # may add in different orders: each value is checked against the reference λ ‖z - Y‖² / 2 within the accuracy bound
+      # may add in different orders: each value satisfies value_ok against the reference λ ‖z - Y‖² / 2 (the accuracy bound
+      # where the reference is in the range of T, a class where it overflows). The data and λ are finite and positive, so
+      # each value is also nonnegative and not NaN; value_ok alone accepts NaN and -Inf beyond the overflow region.
       va, vb = PB._square_value(λ, z, Y), PB._square_value_wide(λ, z, Y)
       @test va isa T && vb isa T
       refλ = ref_value(λ, z, Y)
       @test value_ok(va, refλ, T, 64) && value_ok(vb, refλ, T, 64)
+      @test va >= zero(T) && vb >= zero(T)
       # without one, SqrNormL2 sums with sum(abs2, x) and the least-squares route in one vectorizing loop: the two
       # recursive sums of the squares can differ in the last bits, and give the same class
       a, b = PB._square_value(λ, z, nothing), PB._square_value_wide(λ, z, nothing)
@@ -899,15 +907,19 @@ end
   # K = 2^63 floatmin(T)/eps(T), and, for a Scaled, α s <= floatmax; otherwise it runs the kernel's test (s >= n
   # floatmin(T)/eps(T) and α s / 2 finite) and recomputation on s. The inputs below put s near n floatmin(T)/eps(T)
   # and K (squares of rounded square roots and their neighbours, which bracket the two bounds without hitting them
-  # exactly in every case), near floatmax, and make it Inf or NaN. Each of them is checked against the 256-bit
-  # reference within the accuracy bound (value_ok). Where at most two entries are nonzero (NaN and ±Inf are nonzero),
-  # the sum has at most one addition that is not with +0, so the order of the additions does not change it (for the
-  # two-entry inputs below it is also the same with a fused multiply-add), and the oracles and the methods of the
-  # loss must also give the kernel's result bit for bit on the same sum. The 64 equal entries are not compared that
-  # way, because the oracles in a package image compiled for another CPU and the kernel called here can add them in
-  # different orders. The inputs [u; zeros(T, 63)], with u near the square roots of n floatmin(T)/eps(T) for n = 64
-  # and of K, keep the bitwise comparison at both bounds for n = 64. The test of the bounds on s is checked directly at
-  # K, floatmax and their neighbours.
+  # exactly in every case), near floatmax, and make it Inf or NaN. The values of the three oracles on each of them
+  # satisfy value_ok against the 256-bit reference (the accuracy bound where the reference is in the range of T, a class
+  # where it overflows or is not finite), have the type T, and have the class of value_class_ok (NaN, +Inf, or
+  # nonnegative). Where at most two entries are nonzero (NaN and ±Inf are nonzero), the sum has at most one addition
+  # that is not with +0, so the order of the additions does not change it (for the two-entry inputs below it is also
+  # the same with a fused multiply-add), and the oracles must also agree under isequal with the kernel's result on the
+  # same sum (the finite results then bit for bit). The methods of the loss f(β) and value_and_gradient! run for
+  # α === nothing and a finite r only: there they agree under isequal with the oracles where at most two entries are
+  # nonzero, and are checked against the reference otherwise. The 64 equal entries are not compared with the kernel
+  # that way, because the oracles in a package image compiled for another CPU and the kernel called here can add them
+  # in different orders. The inputs [u; zeros(T, 63)], with u near the square roots of n floatmin(T)/eps(T) for n = 64
+  # and of K, keep the comparison with the kernel at both bounds for n = 64. The test of the bounds on s is checked
+  # directly at K, floatmax and their neighbours.
   for T in (Float32, Float64)
     E = exponent(floatmax(T))
     K = T(0x1p63) * (floatmin(T) / eps(T))
@@ -949,6 +961,7 @@ end
       vr, vp = PB.value_from_residual(f, r), PB.value_from_predictor(f, r)
       g, d = zeros(T, n), zeros(T, n)
       vg = PB.value_and_gradient_from_predictor!(g, d, f, r)
+      @test vr isa T && vp isa T && vg isa T
       few = count(!iszero, r) <= 2                    # at most one addition that is not with +0
       if few
         @test isequal(vr, kr) && isequal(vp, kp) && isequal(vg, kr)
@@ -957,15 +970,18 @@ end
       ok || @info "boundary input" T α r vr vp
       @test ok
       @test value_ok(vg, ref_residual(α, r), T, n)
+      @test value_class_ok(vr, r) && value_class_ok(vp, r) && value_class_ok(vg, r)
       if α === nothing && all(isfinite, r)
-        # the methods of the loss: for finite r, X = I gives Xβ = r (products by one and zero, sums with zeros), so that
-        # f(β) and value_and_gradient! see the same sums where at most two entries are nonzero
+        # the methods of the loss, for α === nothing and a finite r only (for r = T[1, Inf] and a zero response f(r) is
+        # NaN, from 0 * Inf in X r, where the oracles give +Inf): X = I gives Xβ = r (products by one and zero, sums with
+        # zeros), so that f(β) and value_and_gradient! see the same sums where at most two entries are nonzero
         fv, fvg = f(r), value_and_gradient!(similar(r), f, r)
+        @test fv isa T && fvg isa T
         if few
           @test isequal(fv, vp) && isequal(fvg, vr)
         else
-          @test fv isa T && fvg isa T
           @test value_ok(fv, ref_value(nothing, r, Y), T, n) && value_ok(fvg, ref_residual(nothing, r), T, n)
+          @test value_class_ok(fv, r) && value_class_ok(fvg, r)
         end
       end
     end

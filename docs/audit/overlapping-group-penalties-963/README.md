@@ -144,3 +144,44 @@ all statements hold
 ```text
 87 citations, 0 failure(s)
 ```
+
+## Literature addendum probe
+
+`probe_literature.jl` checks the numerical statements of
+[`docs/design/overlapping-group-penalties-963-literature.md`](../../design/overlapping-group-penalties-963-literature.md):
+weighted `ℓ∞` groups with proportional weights and the exact counterexample (L1, the counterexample in rational
+arithmetic and refuted by a directional derivative), a radial function on a maximal group and on a contained group
+(L2), weighted `ℓ1` groups inside `ℓ∞` groups (L3), the weights (W3) of Jenatton, Audibert and Bach on a chain, the
+latent penalty on a nested chain of Yan and Bien (L4: Algorithm 3 as published certified by a `BigFloat` duality gap
+from an explicit decomposition, the redundancy rule, ties, the hull form and the value formula), `λ_max` of the
+banding prox (L5), and dual block coordinate descent with every group at its threshold (line O, an observation). It
+includes `harness.jl` and adds its own group functions; acceptance and refutation follow the Method section above,
+with the exceptions named in the lines.
+
+Command, from the repository root:
+`julia --project=. --check-bounds=yes docs/audit/overlapping-group-penalties-963/probe_literature.jl`
+
+### Recorded run of `probe_literature.jl`
+
+Local, Julia 1.13.4, at commit `2eaea41d8a43484f24cd65981feb178b83c374ed` (the commit of the script and the addendum
+as they stand; this section was added afterwards). The three probes above, run again at that commit, printed the lines
+recorded above. Output lines as printed:
+
+```text
+PASS L1 300 random laminar families (seeded), η‖D z‖∞ with D_j on g_k proportional to D_k, η = 0 and ∞ included, one pass exact: 275 with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) 1.29e-77
+PASS L1 300 random laminar families (seeded), one weight vector D shared by all groups, one pass exact: 284 with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) 1.39e-77
+PASS L1 ‖z‖∞ on {1,2} inside ‖diag(1,2,1) z‖∞ on {1,2,3}, η = t = 1, y = (3, 2.9, 0): one pass refuted (exact): one pass 107//50, 107//100, 0//1, directional derivative along −e₁ -7//50
+PASS L2 300 random laminar families (seeded), h(‖·‖₂) with h(r) = ωr + μr²/2 (and a ball) on each maximal group, Proposition 2 below it, one pass exact: 292 with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) 1.07e-77
+PASS L2 0.8‖z‖₂ on {1,2}, 0.5r + r² (r = ‖z‖₂) on {1,2,3}, y = (2, 3, 1.5), t = 0.3: one pass exact: x = (1.1192959196648145, 1.6789438794972218, 0.8993353169636529), BigFloat gap 0
+PASS L2 the radial function on the contained group {1,2} and 0.8‖z‖₂ on {1,2,3}: one pass refuted by the gradient: one pass (1.0886540969427958, 1.6329811454141936, 1.363093013485373), largest gradient entry 0.0984 (all group norms nonzero)
+PASS L3 300 random laminar families (seeded), ω‖·‖∞ on each group that contains another, weighted ℓ1 or ℓ∞ on the others, one pass exact: 294 with a group moved and not zero, largest BigFloat gap/(1+‖y‖²) 4.47e-78
+PASS W3 chain {1} ⊂ {1,2} ⊂ {1,2,3}, weights ρ^(ℓ−j) with ρ = 0.5, y = (2, 1.5, 1), t = 0.5: one pass refuted: one pass (1.3178492726525024, 0.9398674314954554, 0.6302987403482098), reference (1.3101471285091393, 0.9495843853938258, 0.6309642768020816) (4 sweeps), distance 0.0124 > 2√(2 gap) = 1.98e-07, largest gradient entry 0.0129
+PASS L4 Algorithm 3 as published, 300 random nested chains (seeded), strictly increasing weights: certified: 679 knots in all, largest BigFloat gap/(1+‖y‖²) 3.82e-77, every ‖u_{g_ℓ}‖ ≤ λ w_ℓ
+PASS L4 300 random chains (seeded) with equal or decreasing weights (202 reduced): groups with w_k ≥ w_j for some j > k removed, Algorithm 3 on the rest, certified against all groups: largest BigFloat gap/(1+‖y‖²) 1.56e-77
+PASS L4 the hull variant (each segment y (1 − λ/√slope)₊) equals Algorithm 3 on the 600 chains: largest difference 8.64e-77
+PASS L4 the value formula Σ √(Δw²)‖y_seg‖ on the hull lies between a dual lower bound and a decomposition upper bound on the 600 chains: largest (upper − lower)/(1 + value) 3.91e-77
+PASS L4 exact ties in line 5 (y = (1 | 1, 1, 1 | 1, 2), w = (1, 2, 3), λ = 1/2): first and last maximizer both certified, same point: knots [1, 2, 3] and [3], x = y/2, BigFloat gaps 0 and 0
+PASS L5 p = 3, general weights, band norms (2, 0): λ_max = Ω°(r) between equal bounds, below max ‖S_sℓ‖/w_ℓℓ = 1.41: lower 0.828, upper 0.828 (2√2 − 2 = 0.828)
+PASS O p = 4, general weights, every group at its threshold (c = 1) and inside it (c = 0.999): dual BCD distance after 10, 100, 1000, 10000 sweeps: c = 1: 0.00914, 0.00156, 0.000168, 1.7e-05; c = 0.999: 0.00694, 0.000373, 1.15e-12, 7.41e-16
+all statements hold
+```

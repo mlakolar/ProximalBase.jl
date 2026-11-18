@@ -17,6 +17,7 @@ step selection and stopping rule.
 | One Euclidean norm | [`NormL2(λ)`](@ref NormL2) | This is a norm, not its square; a matrix uses its Frobenius norm |
 | Maximum absolute entry (ℓ∞ norm) | [`NormLinf(λ)`](@ref NormLinf) | Nonseparable; prox clips entries using an ℓ₁-ball threshold; matrix value is the largest entry magnitude |
 | Sum of norms over disjoint groups | [`GroupNormL2(λ, groups, w)`](@ref GroupNormL2) | Unlisted indices are unpenalized; compact vectors use each group's index order; default weights are √group size |
+| Sum of maximum magnitudes over disjoint groups | [`GroupNormLinf(λ, groups, w)`](@ref GroupNormLinf) | Unlisted indices are unpenalized; compact vectors use each group's index order; default weights are 1; the optimality score is provided at a zero group only |
 | Affine or zero term | [`LinearFunction(c, d)`](@ref LinearFunction), [`ZeroFunction()`](@ref ZeroFunction) | Choose the coefficient shape for your array argument |
 | Nonnegative multiple of an existing function | [`Scaled(f, α)`](@ref Scaled) or `α*f` | Supported operations depend on the inner function |
 

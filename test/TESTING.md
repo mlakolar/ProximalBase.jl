@@ -84,6 +84,14 @@ overflow threshold, the class and accuracy of the BigFloat value; within it, `fl
 or `Inf`, #904) and subnormal values, zero-weight and infinite-weight groups near
 `floatmax`, and the separation of the pure compact `prox_block!` from `BlockIterate`
 storage.
+`groupnormlinf` checks `GroupNormLinf` against a sort-based ℓ1-ball reference in BigFloat, written in the file, in Float32/64: one group
+equal to `NormLinf` and singleton groups equal to `NormL1` (bit for bit where both round the same way), irregular range and permuted
+partitions with entries in no group, a group above 1024 candidates (Michelot's pass), zero and infinite weights, the compact `prox_block!`
+against the array operator, every endpoint row and its combinations (a NaN or infinite group beside ordinary ones), radii that overflow or
+underflow in two of their factors, sums above `floatmax/2`, the recomputed values, the fused value against the value at the stored output,
+`BlockIterate` and `SparseIterate` arguments and outputs, the use of the object's buffer, `Scaled`, the margin at a zero group and the
+refusals at a nonzero group, validation before writes and zero warmed allocations (arrays, a `Matrix`, irregular partitions, in place, and sweeps of
+`prox_block!` over groups of different sizes).
 `norml2` checks `NormL2` against BigFloat: values on arrays and on the three
 iterates (stored zeros, empty iterates, symmetric off-diagonal multiplicity, huge and
 subnormal entries), proximal operators, invalid steps, the symmetric-iterate

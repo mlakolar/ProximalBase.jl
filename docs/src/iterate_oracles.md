@@ -38,7 +38,7 @@ Vector(x)
 ## [Compact block buffers](@id block-proximal-oracle)
 
 The generic vector `prox_block` allocates a plain floating `Vector` of `length(u)`
-and invokes `prox_block!`. [`GroupNormL2`](@ref) is the built-in implementation:
+and invokes `prox_block!`. [`GroupNormL2`](@ref) and [`GroupNormLinf`](@ref) are the built-in implementations:
 `k` selects `f.groups[k]`, and `u` follows that group's ordered global indices.
 It checks the group, buffer lengths, real one-based storage, step and overlap
 before writes. Custom extensions must provide these checks themselves. Exact `out === u` is supported by the
@@ -70,7 +70,9 @@ For `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` and `SqrNormL2` it
 returns the signed screen at a zero coordinate and a nonnegative stationarity
 mismatch at a nonzero one (see [Mathematical operations](operations.md) for each
 scalar). `GroupNormL2` has the same two scores for a group, and `Scaled` forwards
-them (below). `kkt_violation(g,v,x)` is the nonnegative full-point measure
+them (below). `GroupNormLinf` has the signed margin ``\lVert v_G\rVert_1-c`` of its dual norm at a zero group, where `c = λ0 w[k]`, and
+throws an `ArgumentError` at a nonzero group; its screen is the ℓ₁ screen of [#634](https://github.com/mlakolar/ProximalBase.jl/issues/634), and its
+positive part is not a stationarity distance. `kkt_violation(g,v,x)` is the nonnegative full-point measure
 ``\max(0,\max_k s_k)`` of these functions on a one-based array,
 `SparseIterate` or `BlockIterate`: the scores ``s_k`` of the entries for the five scalar
 functions, and for `GroupNormL2` the scores of the groups and ``\lvert v_i\rvert`` of the entries in no
@@ -83,8 +85,10 @@ form and no other.
 | `SymmetricSparseIterate` | Valid independent coordinate, then p² gradient entries; symmetric part of that gradient pair, the stored value of the coordinate, and the extent of the function's parameters (their mirrored entries are not compared). The score is in matrix-entry units. There is no full-point form: it throws `ArgumentError` |
 | `BlockIterate`, scalar penalties | Group `k`. The maximum of the scores of the entries of the group: signed if every entry of the group is zero, nonnegative otherwise. A gradient whose length differs from `length(x)` throws `DimensionMismatch` |
 | `BlockIterate`, `GroupNormL2` | Group `k`. The block score: the group screen at a zero group, the mismatch at a nonzero one. The group count, the layout of group `k` and the full gradient length are checked |
+| `BlockIterate`, `GroupNormLinf` | Group `k`, with the checks of `GroupNormL2`. The margin `‖v_G‖₁ - c` at a zero group; `ArgumentError` at a nonzero one |
 | Other arrays, scalar penalties | Real one-based axes, then gradient length equal to length(x) (`DimensionMismatch`); entry `k` is read from `x` |
 | Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The block score of that group, `abs(v[k])` for an entry in no group (also when `x[k]` is nonzero) |
+| Other arrays, `GroupNormLinf` | Entry index selects its group, with the checks of `GroupNormL2`. The margin at a zero group, `abs(v[k])` for an entry in no group, `ArgumentError` at a nonzero group; the full-point and three-argument forms throw `ArgumentError` |
 | Any point, `NormL2` | No form for an entry or a group: `ArgumentError` that names the full-point form |
 
 For `SparseIterate`/`SymmetricSparseIterate`, invalid coordinate throws `BoundsError` before

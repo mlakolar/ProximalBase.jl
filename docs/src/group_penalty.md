@@ -266,3 +266,166 @@ against the definition of the scaled function. A zero `α` throws an
 `ArgumentError`, and an infinite `α` has no endpoint rule of its own. The
 [group-lasso example](examples/group_lasso_prox.md) checks the value, the
 proximal operators, the block operations and the screen against their formulas.
+
+## [The group ℓ∞ norm](@id group-linf-guide)
+
+`GroupNormLinf` represents the group ℓ₁/ℓ∞ penalty
+
+```math
+g(x)=\lambda_0\sum_{k=1}^{K}w_k\max_{i\in G_k}\lvert x_i\rvert,
+```
+
+over disjoint groups ``G_k`` of linear indices of `x`. Its constructors, validation and storage rules are those of
+[`GroupNormL2`](@ref group-l2-guide): groups of any sizes and orders, entries in no group unpenalized, the constructor's
+own copies of `groups` and `w`, a `DimensionMismatch` for a weight count that differs from the group count, and an
+`ArgumentError` for a negative or `NaN` level or weight, an empty group, a nonpositive index and an index in two groups.
+The weights default to ``w_k=1``.
+
+| Mathematical form | Julia constructor | Meaning |
+|:--|:--|:--|
+| ``\lambda_0\sum_k\max_{i\in G_k}\lvert x_i\rvert`` | `GroupNormLinf(λ0, groups)` | Default weights 1 |
+| ``\lambda_0\sum_k w_k\max_{i\in G_k}\lvert x_i\rvert`` | `GroupNormLinf(λ0, groups, w)` | One nonnegative weight per group |
+| one group `1:length(x)` of weight one | `GroupNormLinf(λ0, [1:length(x)])` | The norm `NormLinf(λ0)` |
+| ``G_k=\{k\}`` for every ``k`` | `GroupNormLinf(λ0, [[i] for i in 1:p], w)` | The weighted ℓ₁ norm `NormL1(λ0, w)` |
+
+### Proximal operator: group clipping
+
+For a step ``\gamma\ge0`` the proximal operator acts on each group separately. With the radius
+``r_k=\gamma\lambda_0w_k`` it clips the group at a level ``\tau_k\ge0``,
+
+```math
+\operatorname{prox}_{\gamma g}(x)_i=\operatorname{clamp}(x_i,-\tau_k,\tau_k),\qquad
+\sum_{i\in G_k}\left(\lvert x_i\rvert-\tau_k\right)_+=r_k,\qquad i\in G_k,
+```
+
+and the group becomes zero (`+0`) when ``r_k\ge\lVert x_{G_k}\rVert_1``. This is ``x_{G_k}`` minus its projection onto
+the ℓ₁ ball of radius ``r_k``, formed by the clip itself. The level comes from the same threshold as
+`NormLinf` (Condat's algorithm, with Michelot's as a fallback), applied to the entries of one group, read through
+its indices without a copy. Its error is absolute, of order ``n\,\varepsilon\max_{i\in G_k}\lvert x_i\rvert+\delta`` for a group of
+``n`` entries, with ``\delta`` the smallest subnormal number of the output type. When the product ``\gamma\lambda_0w_k``
+leaves the floating-point range, or ``\gamma\lambda_0`` alone underflows, the radius is formed from the three factors
+in power-of-two units, so that the clip keeps the group where the exact radius is below its ℓ₁ norm.
+
+```@example group_penalty
+gi = GroupNormLinf(1.0, [[1, 4, 2], [5, 3]], [1.0, 2.0])      # entry 6 is in no group
+xi = [3.0, -1.0, 0.5, 2.0, 4.0, 7.0]
+@assert gi(xi) == 1.0 * 3.0 + 2.0 * 4.0
+pg = prox(gi, xi, 0.5)
+@assert pg == [2.5, -1.0, 0.5, 2.0, 3.0, 7.0]       # radii 0.5 (τ = 2.5) and 1 (τ = 3); entry 6 is unchanged
+@assert prox(gi, xi, 10.0)[[1, 4, 2, 5, 3]] == zeros(5)    # the radii reach the ℓ₁ norms
+@assert prox(GroupNormLinf(1.0, [1:2]), [3.0, -1.0], 1.0) == prox(NormLinf(1.0), [3.0, -1.0], 1.0)
+@assert prox(GroupNormLinf(0.5, [[1], [2]]), [3.0, -1.0], 1.0) == prox(NormL1(0.5), [3.0, -1.0], 1.0)
+pg
+```
+
+`prox!(y, g, x, γ)` writes into `y` and accepts `y === x`; `value_and_prox!` also returns the value at the stored
+output, which it forms from the clip levels. The step is a nonnegative scalar: a negative or `NaN` step throws an
+`ArgumentError` before anything is written. A `BlockIterate` or a `SparseIterate` is read and written by indexing its
+entries, as for `GroupNormL2`; a `SymmetricSparseIterate` has no `GroupNormLinf` proximal operator (an `ArgumentError`
+before any write).
+
+`prox_block!(out, g, u, k, γ)` computes the result for one group from a compact trial vector `u` in the order of
+`groups[k]`, with the checks, the aliasing rules and the commit through `copyto!(blockview(x, k), out)` of
+[the group ℓ₂ norm](@ref group-l2-guide). `BlockIterate(p, g)` and `BlockIterate(x, g)` copy the groups of `g` and
+require them to partition the iterate.
+
+```@example group_penalty
+gp = GroupNormLinf(1.0, [[1, 4, 2], [5, 3], [6]], [1.0, 2.0, 1.0])
+zb = BlockIterate(6, gp)
+out = prox_block(gp, [3.0, 2.0, -1.0], 1, 0.5)           # the group [1, 4, 2] in its own order
+@assert out == [2.5, 2.0, -1.0] && nactive(zb) == 0
+copyto!(blockview(zb, 1), out)
+@assert collect(activecoordinates(zb)) == [1]
+out
+```
+
+A `GroupNormLinf` object keeps a buffer for the threshold, with the length of its longest group, which the first group
+that needs one allocates. The buffer is left untouched by the parameter exits, by `NaN` and infinite groups, by the zero
+fill and, in `prox_block!`, by an output that is an `Array` of the output type that does not overlap `u`. The same object
+must not be used from several tasks at once while its buffer may be in use (`Scaled` wrappers of one object share it, and
+so do the groups of a threaded loop of `prox_block!(u, g, u, k, γ)`): construct a fresh `GroupNormLinf` for each task, or
+synchronize the calls ([ownership](numerical_usage.md#Ownership-and-aliases)).
+
+### Optimality score at a zero group
+
+The dual norm of the ℓ∞ norm is the ℓ₁ norm. At a zero group the subdifferential of the penalty is the ℓ₁ ball
+of radius ``c_k=\lambda_0w_k``, so the group is optimal for `h + g` when ``\lVert G_{G_k}\rVert_1\le c_k``, with
+`G = ∇h(x)`. `kkt_violation(g, G, x, k)` returns the signed margin of that screen:
+
+| Group of `x` | Score | Sign |
+|:--|:--|:--|
+| zero | ``\lVert G_{G_k}\rVert_1-c_k`` | signed; a positive value means that zero violates the condition |
+| not zero | `ArgumentError` | the score of a nonzero group is not provided |
+
+The group is selected as for `GroupNormL2`: on an array point `k` is an entry, which selects its group (an entry in no
+group has the score ``\lvert G_k\rvert``), and on a `BlockIterate` it is the group number, whose layout must equal that
+of `g`. The three-argument form `kkt_violation(g, G, k)` throws an `ArgumentError` because the penalty is not separable,
+as does the full-point form `kkt_violation(g, G, x)`, which is not provided for this function, and a
+`SymmetricSparseIterate` has no groups. Under `Scaled`, the call has no method (a `MethodError`). The margin is the screen
+of the dual norm, which is not the Euclidean screen of `GroupNormL2` ([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)):
+the two differ in sign for the gradient `(5/8, 5/8)` with ``\lambda_0=w=1``, where the group must enter. The positive part of the
+margin is an ℓ₁ screen and not a stationarity distance, so a tolerance chosen for another score does not carry over.
+In the margin, a `NaN` in ``G_{G_k}`` gives `NaN` and an infinite entry (with no `NaN`) gives `+Inf`, also when ``c_k`` is
+infinite; an infinite ``c_k`` with finite entries gives `-Inf`, also where ``\lambda_0w_k`` overflows in the working type;
+a zero weight gives ``\lVert G_{G_k}\rVert_1``. A group is zero when its entries, converted to the working type of the call
+(the floating type of `promote_type(eltype(G), eltype(x))`), are zeros of either sign, so a `NaN` or infinite entry of
+`x` makes its group nonzero.
+
+```@example group_penalty
+v = [0.3, -0.4, 1.0, 0.5, 0.0, 2.0]
+zb = BlockIterate(6, gp)                       # every group is zero
+@assert kkt_violation(gp, v, zb, 1) ≈ 0.2      # ‖(0.3, 0.5, -0.4)‖₁ - 1
+@assert kkt_violation(gp, v, zb, 2) == -1.0    # ‖(0.0, 1.0)‖₁ - 2
+@assert kkt_violation(gp, v, zb, 3) == 1.0     # ‖(2.0,)‖₁ - 1
+@assert kkt_violation(GroupNormLinf(1.0, [1:2]), [5/8, 5/8], zeros(2), 1) == 0.25
+@assert kkt_violation(GroupNormL2(1.0, [1:2], [1.0]), [5/8, 5/8], zeros(2), 1) < 0
+copyto!(blockview(zb, 1), [3.0, 2.0, -1.0])    # group 1 is nonzero
+nonzero_group = try kkt_violation(gp, v, zb, 1); false catch e; e isa ArgumentError end
+@assert nonzero_group && kkt_violation(gp, v, zb, 2) == -1.0
+kkt_violation(gp, v, zb, 2)
+```
+
+### Exceptional parameters and values
+
+The rules apply to each group in this order; ``\lambda_0``, ``w_k`` and ``\gamma`` are decided separately, before a radius is formed,
+so that a product such as ``\lambda_0w_k`` with ``\lambda_0=\infty`` and ``w_k=0`` is never taken.
+
+| Case | Result for group ``k`` |
+|:--|:--|
+| ``w_k=0`` | Unpenalized: returned unchanged, `NaN` and `±Inf` included, also at an infinite level or step; value zero |
+| ``w_k=\infty``, or ``\lambda_0=\infty`` with ``w_k>0`` | Fixed at `+0` at every nonnegative step, ``\gamma=0`` and ``\gamma=\infty`` included, for `NaN` and `±Inf` inputs too; ``w_k=\infty`` with ``\lambda_0=0`` is included. Value `0` at a zero group, `Inf` at a nonzero group without `NaN`, `NaN` at a `NaN` entry |
+| ``\lambda_0=0`` or ``\gamma=0``, finite positive ``w_k`` | The identity, also when ``\lambda_0w_k`` overflows and at ``\gamma=\infty`` with a zero level. Value `0` at a zero level, ``\lambda_0w_k\max\lvert x_{G_k}\rvert`` at a zero step |
+| ``\gamma=\infty``, positive finite level and weight | Fixed at `+0` |
+| A `NaN` entry, positive finite level, weight and step | Every entry of the group becomes `NaN`; the other groups are unaffected |
+| A `±Inf` entry and no `NaN`, positive finite level, weight and step | Returned unchanged, also when the finite product ``\gamma\lambda_0w_k`` overflows |
+| Finite entries, radius at least ``\lVert x_{G_k}\rVert_1`` | `+0`, also when the product ``\gamma\lambda_0w_k`` overflows while the sum is finite |
+| ``\gamma<0`` or ``\gamma=`` `NaN` | `ArgumentError` before any write |
+
+The value of a group is ``\lambda_0w_k\max\lvert x_{G_k}\rvert``, rounded once in the promoted type of the factors and
+the entries; the sum over the groups is recomputed in power-of-two units, accumulated in at least `Float64`, where it may
+have lost accuracy (a sum below `K*floatmin(T)` for `K` groups, whose terms may have rounded into the subnormal range) or
+class (at or above `floatmax(T)/2`), as for `GroupNormL2` ([value range limits](@ref numerical-value-range)). A sum of
+magnitudes of one group above `floatmax(T)/2` is processed in power-of-two units. With a positive finite level and
+weight, `prox!` computes the clip of a group whose sum overflows from the entries scaled by a power of two:
+
+```@example group_penalty
+M = floatmax(Float64)
+huge = GroupNormLinf(M, [1:2], [2.0])        # the radius γλ₀w = M/2 at γ = 0.25 is finite; λ₀w alone overflows
+yh = prox(huge, [M, M], 0.25)
+@assert yh[1] == yh[2] && isapprox(yh[1], 0.75M; rtol = 1e-14)
+tiny = GroupNormLinf(2.0^-100, [1:2], [2.0^1000])   # γλ₀ underflows, γλ₀w = 2^-100 equals ‖x‖₁
+@assert prox(tiny, [2.0^-100, 0.0], 2.0^-1000) == [0.0, 0.0]
+yh
+```
+
+`GroupNormLinf` has no `SymmetricSparseIterate`, `restrict`, per-group step or compact block method under `Scaled`.
+`Scaled(GroupNormLinf(...), α)` multiplies the value by `α` and computes the array proximal operator with the step
+`αγ`; it has no folded level, so a step `αγ` that overflows reaches the function as `Inf` and gives `+0`, where the exact radius
+``\alpha\gamma\lambda_0w_k`` can be below the ℓ₁ norm of the group. A zero `α` throws an `ArgumentError`.
+
+```@example group_penalty
+scaled = Scaled(GroupNormLinf(2.0^-1020, [1:2]), 2.0^1000)
+@assert prox(scaled, [2000.0, 500.0], 2.0^30) == [0.0, 0.0]           # the step 2^1030 overflows
+@assert prox(GroupNormLinf(2.0^-20, [1:2]), [2000.0, 500.0], 2.0^30) == [976.0, 500.0]   # the radius 2^10 = 1024 keeps the group
+prox(scaled, [2000.0, 500.0], 2.0^30)
+```

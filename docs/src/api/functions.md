@@ -49,8 +49,9 @@ NormL2
 GroupNormL2
 ```
 
-## Maximum-magnitude norm
+## Maximum-magnitude norms
 
 ```@docs
 NormLinf
+GroupNormLinf
 ```

@@ -30,12 +30,13 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/elasticnet.jl` | Weighted ℓ₁ plus ridge, reusing the soft-threshold and ridge kernels |
 | `src/functions/norml2.jl` | Euclidean/Frobenius norm and scalar-step proximal map |
 | `src/functions/normlinf.jl` | Maximum-entry norm and ℓ₁-threshold-based clipping proximal map |
+| `src/functions/groupnormlinf.jl` | Disjoint-group ℓ∞ norm: the group clipping step on the helpers of `NormLinf`, compact block proximal maps and the margin at a zero group; included before `groupnorml2.jl`, whose shared checks and checked value serve both group types |
 | `src/functions/groupnorml2.jl` | Disjoint-group norm, compact block proximal maps and group KKT scores |
 | `src/functions/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
 | `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods |
 | `src/functions/scaled_array.jl` | Diagonal array-step methods and scaling recovery for `Scaled` functions |
 | `src/symmetric_parameters.jl` | Per-entry metadata, the explicit all-pairs symmetric-parameter check, symmetric-iterate oracle preflight (structural checks only) |
-| `src/block_prox.jl` | Allocating compact-vector wrapper; dispatches to `GroupNormL2` or a custom mutating hook |
+| `src/block_prox.jl` | Allocating compact-vector wrapper; dispatches to `GroupNormL2`, `GroupNormLinf` or a custom mutating hook |
 | `src/caches.jl` | Public cache invalidation, recursing through `Scaled` |
 | `src/precompile.jl` | Small retained precompile workloads |
 
@@ -54,7 +55,7 @@ There is no automatic device registration or removed-family plugin layer.
 | `f(x)` for custom `SeparableFunction` | Parameter-extent validation (symmetric parameters are assumed, not compared) → entry values; skip inactive zeros only under declared promise |
 | `gradient!(g,LeastSquaresLoss(Y,X),β)` | Checked output → residual Xβ−Y → transpose-design product |
 | `prox!(y,QuadraticFunction(A,b),x,γ)` | Shape/type preflight → cached eigenbasis → step-domain check → diagonal inverse factors → output conversion |
-| `prox_block(f,u::AbstractVector,k,γ)` | Allocate plain floating Vector → `GroupNormL2` or custom `prox_block!` |
+| `prox_block(f,u::AbstractVector,k,γ)` | Allocate plain floating Vector → `GroupNormL2`, `GroupNormLinf` or custom `prox_block!` |
 | `prox!(X::SymmetricSparseIterate,g,V,γ)` | Symmetric argument where needed → structural preflight (parameter symmetry is a model precondition) → the symmetric-coordinate kernel of the function, which follows the iterate activity rules |
 | `kkt_violation(g,v,block,k)`, scalar penalty | Entry score at each global member of group `k` (the screen at a zero entry) → maximum |
 | `kkt_violation(g,v,block,k)`, `GroupNormL2` | Check group count, layout of group `k` and gradient length → block score: group norm minus penalty coefficient at a zero group, the mismatch `‖v_G + c x_G/‖x_G‖‖` at a nonzero one |

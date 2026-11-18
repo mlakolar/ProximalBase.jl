@@ -140,7 +140,7 @@ remain `BigFloat`.
   and `ZeroFunction`, have ``\lvert v_i\rvert``). The three-argument screen of such a chain
   around `LinearFunction` and a centered `SqrNormL2` was incorrect before 0.6: it
   returned the screen of the function at the unscaled `v`.
-* **Functions without the forms.** `NormLinf`, the losses and the indicators have no
+* **Functions without the forms.** `NormLinf`, `GroupNormLinf`, the losses and the indicators have no
   score; the call on the `Scaled` function throws a `MethodError` (the call names the `Scaled`
   function). A function defined outside the package is treated as in
   [Writing your own function](extending.md).
@@ -199,7 +199,8 @@ and of the ridge part, each recovered as for `NormL1` and `SqrNormL2` and
 rounded on its own, are added; the sum replaces that result if it is finite
 after conversion to its type, and the first result is kept otherwise. This is
 not a promise that arbitrary user-defined functions acquire numerical range
-recovery.
+recovery. `GroupNormLinf` has no fold of its level: under `Scaled` its proximal operator receives the step `αγ` as the wrapper rounds it,
+and an `αγ` that overflows reaches it as `Inf` and gives `+0` (see the [group ℓ∞ norm](group_penalty.md#group-linf-guide)).
 
 ## A zero scale can change the returned type
 

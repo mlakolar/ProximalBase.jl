@@ -119,11 +119,17 @@ What changed besides the values of the table:
   forms, which were a `MethodError`, throw an `ArgumentError` that names the full-point form.
 * `NormLinf` has the full-point form `kkt_violation(f,v,x)`: the Euclidean distance from `-v` to the
   subdifferential of `λ*maximum(abs, x)` at `x`, with the face of the largest entries decided by
-  equality after conversion to the working type (see [the ℓ∞ norm](@ref norm-linf-kkt)). Before 0.6 the three-argument, four-argument and full-point forms were a
-  `MethodError`, also under `Scaled`, where the `MethodError` was for the call on the `Scaled` function. Now the full-point form
+  equality after conversion to the working type (see [the ℓ∞ norm](@ref norm-linf-kkt)). These forms were unavailable before 0.6 (a `MethodError`): older coordinate forwarding under `Scaled` could
+  report the missing method of the inner function, and the master before this change reports the call on the `Scaled` function.
+  Now the full-point form
   has the value, also under `Scaled` with the limits of the [scaling guide](@ref scaled-kkt), and the three-argument and
   four-argument forms throw an `ArgumentError` that names the full-point form; the full-point form at a
   `SymmetricSparseIterate` throws an `ArgumentError`.
+* The proximal operator of `NormLinf` could return a wrong threshold on a large tie (#987): when rounding put a level at
+  or above a tie of many equal entries, the tie was dropped from the set and the next level fell far below it, so that the
+  clip was too low (in some compilation modes `prox(NormLinf(0.3f0), [0.2f0; fill(0.1f0, 100_000)], 1f0)` returned zeros, where the
+  exact clip is `0.0999980` in every entry). The threshold search now returns the previous level when the count of entries
+  above a level rises. Other results can change by a rounding.
 * Nested `Scaled` wrappers whose product of factors is not a normal number: around
   `LinearFunction` and a centered `SqrNormL2` the three-argument screen returned the screen of the function
   at the unscaled `v` and omitted the product; it now applies the product to the gradient entry of the

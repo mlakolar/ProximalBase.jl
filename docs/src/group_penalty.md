@@ -41,7 +41,8 @@ in particular zero level takes precedence over an infinite step.
 Its proximal operator clips the entries at a level ``\tau\ge0``,
 ``\operatorname{clamp}(x_i,-\tau,\tau)``, where ``\sum_i(\lvert x_i\rvert-\tau)_+=\gamma\lambda``,
 and it is zero when ``\gamma\lambda\ge\lVert x\rVert_1``. The level comes from the
-projection onto the ℓ₁ ball of radius ``\gamma\lambda`` (Condat's algorithm, with Michelot's as a fallback),
+projection onto the ℓ₁ ball of radius ``\gamma\lambda`` (Condat's algorithm, with Michelot's as a fallback; Michelot's
+iteration returns the previous level when rounding makes the count of entries above a level rise),
 and the output is the clip itself, not ``x`` minus that projection. The error of ``\tau`` is absolute, of order
 ``n\,\varepsilon\max_i\lvert x_i\rvert+\delta`` with ``\delta`` the smallest subnormal number of the output type
 (the storage of a subnormal radius or output adds ``\delta``). The value takes arrays and the three iterates, and a
@@ -85,10 +86,11 @@ the largest is not on the face, so for a positive finite level an exact tie can 
 level is infinite, ties or not). Where the
 clip of `prox!` is active (a positive finite level and step with ``\gamma\lambda<\lVert x\rVert_1``), it writes the
 same level ``\tau``, with the sign of the entry, into each clipped entry. The clipped entries of such a point
-are therefore equal and form the face, which is the case the equality rule is made for: with
-`v = (y - z)/γ` and `y = prox(g, z, γ)`, the vector ``-v`` is a subgradient at `y`. The example scores such a
-point, with a tolerance, and then the same `v` at a point where one clipped entry is one unit in the last
-place below the other:
+have the same magnitude and belong to the maximal face, and entries already at that magnitude belong to it as well
+(`prox(NormLinf(1.0), [3.0, 2.0, 1.0], 1.0)` is `[2.0, 2.0, 1.0]`): this is the case the equality rule is made for. For
+an exact proximal point `y = prox(g, z, γ)` and `v = (y - z)/γ`, the vector ``-v`` belongs to the subdifferential at `y`.
+With the computed proximal point and difference, the score is checked against a rounding tolerance, as in the example, which
+scores such a point and then the same `v` at a point where one clipped entry is one unit in the last place below the other:
 
 ```@example group_penalty
 fl = NormLinf(1.0)
@@ -98,7 +100,8 @@ fl = NormLinf(1.0)
 @assert kkt_violation(fl, [3.0, 1.0], [0.0, 0.0]) ≈ norm(prox(fl, [3.0, 1.0], 1.0))
 # a face of one entry: |v₁ + λ| there (τ = -0.6), and v₂ off it
 @assert kkt_violation(fl, [-0.4, 0.3], [2.0, 1.0]) ≈ sqrt(0.6^2 + 0.3^2)
-# a point computed by prox: the clipped entries tie, and the score is zero to rounding
+# a point computed by prox: the clipped entries tie in magnitude, and the score is zero to rounding
+@assert prox(fl, [3.0, 2.0, 1.0], 1.0) == [2.0, 2.0, 1.0]                  # an entry already at the magnitude belongs to the face
 z = [3.0, -2.5, 0.5]
 y = prox(fl, z, 1.0)
 v = y - z
@@ -120,8 +123,10 @@ The norm is not separable, so it has the full-point form and no form for an entr
 `kkt_violation(g, v, i)` and `kkt_violation(g, v, x, k)` at an array, a `SparseIterate`, a `BlockIterate` or a
 `SymmetricSparseIterate`, throw an `ArgumentError` that names the full-point form. The full-point form at a
 `SymmetricSparseIterate` throws an `ArgumentError`. A `SparseIterate` or a `BlockIterate` in the full-point
-form is read as one vector, by indexing. For `Array` arguments of one type, `Float32` or `Float64`, the tests
-measure no allocation and no write to `v`, `x` or the buffer of the `NormLinf` object.
+form is read as one vector, by indexing. A length `n` for which `n + 1` is not a finite number of the working type
+(`Float16` from `n = 65519`) throws an `ArgumentError`. For `Array` arguments of one type, `Float32` or `Float64`, with a level of a
+hardware float type, the tests measure no allocation and no write to `v`, `x` or the buffer of the `NormLinf` object; wider
+parameter arithmetic such as a `BigFloat` level can allocate.
 `Scaled(NormLinf(λ), α)` with a finite positive `α` scores `v/α` and multiplies the result by `α`; a chain of
 wrappers whose factors fold into a normal level is scored with that level (the
 [scaling guide](@ref scaled-kkt) has the limits and the refusals). `test/kkt_linf.jl` checks the value against

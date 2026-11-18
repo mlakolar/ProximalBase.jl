@@ -125,7 +125,7 @@ instance when an entry of `v` or `x` is not finite or a score is `NaN` or infini
 `NormLinf` makes several passes over `v` and `x` instead: one classification of each, the sums on the face,
 the search for the level, which repeats a pass while the count of entries above the level decreases, and the
 sum of squares of the residual. The tests measure no allocation of this form for `NormLinf` on `Float32` or
-`Float64` arrays of one type.
+`Float64` arrays of one type with a level of a hardware float type; a `BigFloat` level can allocate.
 Dense `Float32` or `Float64` arrays of one type take the fast path of the other functions, where the tests
 measure no allocation; other arrays, `SparseIterate` and `BlockIterate` included, are
 read by entry, and element types such as `BigFloat` can allocate in their arithmetic. The

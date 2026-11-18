@@ -973,7 +973,10 @@ function _kkt_chain_point(s::Scaled, v, x)
   _kkt_full(h, v, x)
 end
 kkt_violation(s::Scaled, v::AbstractArray, x::SymmetricSparseIterate) =
-  _kkt_class(typeof(s)) isa _KktScore ? _kkt_symmetric_point_error(s) : throw(MethodError(kkt_violation, (s, v, x)))
+  _kkt_class(typeof(s)) isa _KktScore ? _kkt_symmetric_scaled_error(s, _kkt_innermost(s)) : throw(MethodError(kkt_violation, (s, v, x)))
+# the refusal names the function under the wrappers when the function has no coordinate form to advise (NormLinf)
+_kkt_symmetric_scaled_error(s, f) = _kkt_symmetric_point_error(s)
+_kkt_symmetric_scaled_error(s, f::NormLinf) = _normlinf_symmetric_error(f)
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
 
 # The parts of a scaled function inside another wrapper: those of the function under the chain,

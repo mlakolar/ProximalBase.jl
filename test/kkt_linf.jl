@@ -881,8 +881,11 @@ chain(T, f) = (c = Scaled(Scaled(f, tiny(T)), tiny(T)); c.f isa Scaled || error(
   @test_throws ArgumentError kkt_violation(nf, v, x, 2)
   @test_throws ArgumentError kkt_violation(chain(T, NormLinf(lvl(T))), v, SymmetricSparseIterate(T[0 1; 1 0]))
   # a SymmetricSparseIterate point
-  for h in (s, Scaled(s, T(3)))
+  for h in (s, Scaled(s, T(3)), chain(T, NormLinf(lvl(T))), chain(T, NormLinf(T(1))))
     @test_throws ArgumentError kkt_violation(h, ones(T, 2, 2), SymmetricSparseIterate(T[0 1; 1 0]))
+    m = msg(() -> kkt_violation(h, ones(T, 2, 2), SymmetricSparseIterate(T[0 1; 1 0])))
+    @test occursin("NormLinf", m) && occursin("SymmetricSparseIterate", m)
+    @test !occursin("kkt_violation(f, v, x, k)", m)                       # the form that NormLinf refuses is not advised
   end
   # arguments are checked before the factor is applied
   @test_throws ArgumentError kkt_violation(s, Complex{T}.(v), x)

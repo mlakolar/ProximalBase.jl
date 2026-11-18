@@ -251,38 +251,50 @@ end
 # supplies their dual blocks; the result is accepted when the duality gap of the whole problem,
 # evaluated in BigFloat, is at most 1e-12 (1 + ‖r‖²). Otherwise the attempt is reported as failed
 # (a wrong prefix or a Newton failure) and the proposal is repeated with ten times more sweeps
-# (n₀ = 2, 20, 200, 2000).
+# (n₀ = 2, 20, 200, 2000). After these four, a fifth attempt uses a tolerance rule on the dual point of
+# the last proposal: the zero prefix runs through the last group whose norm there is below
+# TOLRULE λ w_ℓℓ. The rule is a heuristic; the gap certificate decides acceptance in every attempt.
+const TOLRULE = 1e-6
+function newton_attempt(r, W, λ, L, x0)
+  K = length(r); G = chain(W)
+  ρ = zeros(K); ξ = [zeros(K) for _ in 1:K]; ok = true; its = 0; sw = 0
+  if L < K
+    z, its, conv = newton_bands(r, W, λ, L, x0[L+1:K])
+    ok = conv
+    ρ[L+1:K] .= z
+    for l in L+1:K
+      n = norm(W[l, 1:l] .* ρ[1:l]); iszero(n) && (ok = false; break)
+      ξ[l][1:l] .= λ .* W[l, 1:l] .^ 2 .* ρ[1:l] ./ n
+    end
+  end
+  if ok && L > 0
+    xL, ξL, sw = dual_bcd(r[1:L], chain(W[1:L, 1:L]), 1:L, λ; tol = 1e-13 * (1 + sum(abs2, r)), maxsweeps = 100_000)
+    ok = all(iszero, xL)
+    for l in 1:L
+      ξ[l][1:L] .= ξL[l]
+    end
+  end
+  ok = ok && big_gap(r, ρ, ξ, G, λ) <= 1e-12 * (1 + sum(abs2, r))
+  ok, its, sw
+end
 function newton_method(r, W, λ)
-  K = length(r); G = chain(W); tol = 1e-12 * (1 + sum(abs2, r))
-  rejected = 0; newton_its = 0; cert_sweeps = 0; n0 = 0
+  K = length(r); G = chain(W)
+  rejected = 0; newton_its = 0; cert_sweeps = 0; n0 = 0; x0 = r
   for n0_try in (2, 20, 200, 2000)
     n0 = n0_try
     x0, _, _ = dual_bcd(r, G, 1:K, λ; tol = 0.0, maxsweeps = n0)
     L = something(findfirst(!iszero, x0), K + 1) - 1
-    ρ = zeros(K); ξ = [zeros(K) for _ in 1:K]; ok = true
-    if L < K
-      z, its, conv = newton_bands(r, W, λ, L, x0[L+1:K]); newton_its += its
-      ok = conv
-      ρ[L+1:K] .= z
-      for l in L+1:K
-        n = norm(W[l, 1:l] .* ρ[1:l]); iszero(n) && (ok = false; break)
-        ξ[l][1:l] .= λ .* W[l, 1:l] .^ 2 .* ρ[1:l] ./ n
-      end
-    end
-    if ok && L > 0
-      xL, ξL, sw = dual_bcd(r[1:L], chain(W[1:L, 1:L]), 1:L, λ; tol = 1e-13 * (1 + sum(abs2, r)), maxsweeps = 100_000)
-      cert_sweeps += sw
-      ok = all(iszero, xL)
-      for l in 1:L
-        ξ[l][1:L] .= ξL[l]
-      end
-    end
-    if ok && big_gap(r, ρ, ξ, G, λ) <= tol
-      return true, n0, newton_its, cert_sweeps, rejected
-    end
+    ok, its, sw = newton_attempt(r, W, λ, L, x0)
+    newton_its += its; cert_sweeps += sw
+    ok && return true, false, n0, newton_its, cert_sweeps, rejected
     rejected += 1
   end
-  false, n0, newton_its, cert_sweeps, rejected
+  rel = [norm(W[l, 1:l] .* x0[1:l]) / (λ * W[l, l]) for l in 1:K]
+  L = something(findlast(<(TOLRULE), rel), 0)
+  ok, its, sw = newton_attempt(r, W, λ, L, x0)
+  newton_its += its; cert_sweeps += sw
+  ok && return true, true, n0, newton_its, cert_sweeps, rejected
+  false, false, n0, newton_its, cert_sweeps, rejected + 1
 end
 
 # An illustration, not a performance claim, on four families of band norms (five instances per
@@ -296,7 +308,7 @@ let rng = Xoshiro(7963)
   for (fam, sig, λ) in (("A", K -> K - max(1, K ÷ 4), 1.0), ("B", K -> 0, 1.0), ("C", K -> 0, 2.0), ("D", K -> 0, 2.5))
     for K in (7, 15, 31, 63, 127)
       runs = Tuple{Int, Float64}[]; gaps = Float64[]; nz = Int[]; off = Float64[]; kept = 0.0; bnd = 0.0
-      nt = Tuple{Int, Int, Int, Int, Float64}[]; ncert = 0
+      nt = Tuple{Int, Int, Int, Int, Float64}[]; ncert = 0; nrule = 0
       for _ in 1:N
         r = [sqrt(2m) * (m > sig(K) ? 2 + abs(randn(rng)) : 0.5 * abs(randn(rng))) for m in 1:K]
         W = general(K); G = chain(W)
@@ -308,8 +320,8 @@ let rng = Xoshiro(7963)
         z = [abs(x1[m]) for m in 1:K if iszero(x[m])]
         isempty(z) || (kept = max(kept, maximum(z)))
         bnd = max(bnd, Float64(sqrt(2g)))
-        okn, n0, its, cs, rej = newton_method(r, W, λ)
-        ncert += okn; push!(nt, (n0, its, cs, rej, smallest_group(x, W, λ)))
+        okn, byrule, n0, its, cs, rej = newton_method(r, W, λ)
+        ncert += okn; nrule += byrule; push!(nt, (n0, its, cs, rej, smallest_group(x, W, λ)))
       end
       reached = count(<=(1e-12), gaps)
       sort!(runs)
@@ -318,7 +330,7 @@ let rng = Xoshiro(7963)
              "nonzero bands $(extrema(nz)) of $K, largest gap/(1+‖r‖²) $(fmt(maximum(gaps))), " *
              "one pass off by ‖x₁ − x‖/‖r‖ up to $(fmt(maximum(off))), kept $(fmt(kept)) against √(2 gap) ≤ $(fmt(bnd))")
       record("N$fam p = $(K + 1), λ = $λ: Newton-type method", true,
-             "certified in $ncert of $N; (proposal sweeps, Newton iterations, prefix-certificate sweeps, failed attempts, smallest group) " *
+             "certified in $ncert of $N ($nrule by the tolerance rule); (proposal sweeps, Newton iterations, prefix-certificate sweeps, failed attempts, smallest group) " *
              join(("($a, $b, $c, $d, $(fmt(e)))" for (a, b, c, d, e) in nt), " "))
     end
   end

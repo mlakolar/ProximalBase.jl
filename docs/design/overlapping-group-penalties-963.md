@@ -33,17 +33,17 @@ coordinates. The paper's one-pass claim cites a result for one scalar weight per
 published version keeps it, and `hierband` 1.0 computes the one-pass point. One pass can also keep bands that the
 proximal point sets to zero. The proximal point can be computed to a certified accuracy (a duality gap): dual block
 coordinate descent on the `p − 1` band norms needed from 1 to 7591 sweeps on our instances, and one instance had not
-reached the gap after 100000 sweeps; a Newton-type method on the nonzero bands was certified in 92 of 100 instances
-with at most 9 Newton iterations at the first attempt, and failed in the 8 instances that have a nonzero group norm
-below `1e-9 λ w_ℓℓ`. Neither has the fixed number of scalar root solves of one pass. Section 5(e) lists the options for #965 and
-leaves the choice to the maintainer.
+reached the gap after 100000 sweeps; a Newton-type method on the nonzero bands was certified in 92 of 100 instances,
+88 at the first attempt with at most 9 Newton iterations and 4 at the second with up to 34 in all, and failed in the 8
+instances whose dual block coordinate descent point has a nonzero group norm below `1e-9 λ w_ℓℓ` (a further attempt
+with a tolerance rule for the zero prefix certified none of them). Neither has the fixed number of scalar root solves
+of one pass. Section 5(e) lists the options for #965 and leaves the choice to the maintainer.
 
 **Recommended penalties.** The sparse-group penalty (`ℓ1` plus disjoint group `ℓ2`) and a tree-structured group `ℓ2`
 penalty with one scalar weight per group: both have an exact one-pass proximal operator built from the scalar group
 shrink that master already has. Section 9 proposes two follow-up issues.
 
-**Design.** (A), specialized penalties that share small kernels, is the recommendation. The evidence that would change it
-is in Section 8.
+**Design.** (A), specialized penalties that share small kernels, is the recommendation (Section 8).
 
 ## 2. Setting and notation
 
@@ -132,8 +132,7 @@ No overlap, nested, tree or latent group penalty exists on master.
 | `IndSOC`, `IndRotatedSOC`, `IndExpPrimal`, `IndExpDual` | `src/functions/cones.jl:32`, `src/functions/cones.jl:200`, `src/functions/cones.jl:377`, `src/functions/cones.jl:413` | second-order, rotated and exponential cones, per group | disjoint groups | projection |
 | `BallConstrained`, `SphereConstrained`, `_GroupReading` | `src/ballconstrained.jl:95`, `src/ballconstrained.jl:101`, `src/ballconstrained.jl:859` | `f` on an `ℓ2` ball or sphere, `GroupNormL2` included; its group reader | wrapper | prox |
 
-Neither tree holds an arbitrary-overlap or latent group penalty. The rows from `SliceSum` on are outside the covered
-families.
+Neither tree holds an arbitrary-overlap or latent group penalty; the rows from `SliceSum` on are outside the families.
 
 ## 4. Conditions for an exact one-pass proximal operator
 
@@ -144,10 +143,12 @@ that for each pair `k` before `j` with `g_k ⊆ g_j` and all `x`,
 
 Then one pass returns `prox_{tΩ}(y)` for all `y`.
 
-*Proof.* The optimality condition of step `k` gives `ξ_k ∈ t ∂(N_k ∘ π_k)(x^k)`, with `π_k` the restriction to `g_k`.
+*Proof.* Write `M_k = t N_k`, sublinear (with `t · ∞ = ∞`); (C) for `N_k` gives it for `M_k` when `t > 0`, and for
+`t = 0` `M_k` is `0` or the indicator of `{0}`, for which (C) holds because `P_j` keeps a zero subvector zero. The
+optimality condition of step `k` gives `ξ_k ∈ ∂(M_k ∘ π_k)(x^k)`, with `π_k` the restriction to `g_k`.
 A later step `j` either has `g_j ∩ g_k = ∅` and leaves `x_{g_k}` unchanged, or, by laminarity and the order,
-`g_j ⊇ g_k`, and then (C) keeps `ξ_k` a subgradient. So `ξ_k ∈ t ∂(N_k ∘ π_k)(x^K)` for each `k`, and
-`y − x^K = Σ_k ξ_k ∈ t ∂Ω(x^K)` (a sum of subgradients is a subgradient of the sum). This is the optimality condition
+`g_j ⊇ g_k`, and then (C) keeps `ξ_k` a subgradient. So `ξ_k ∈ ∂(M_k ∘ π_k)(x^K)` for each `k`, and
+`y − x^K = Σ_k ξ_k ∈ ∂(tΩ)(x^K)` (a sum of subgradients is a subgradient of the sum). This is the optimality condition
 of the strongly convex proximal problem, whose minimizer is unique. ∎ This is Yu (NIPS 2013), Theorem 1, applied group
 by group; Jenatton et al., Lemma 4 and Proposition 5, is the same argument for scalar `ℓ2` or `ℓ∞` groups.
 
@@ -166,9 +167,8 @@ coordinates allowed), an inclusion order, a scalar step `t ≥ 0`. Each group th
 family, an equal group placed before it included, has `N_j = ω_j‖·‖₂` with `ω_j ∈ [0, ∞]`; the other groups have any
 sublinear `N_k`. Then one pass is exact. *Proof.* `P_j` multiplies `x_{g_j}` by `c = (1 − tω_j/‖x_{g_j}‖)₊`:
 `c = 0` for `ω_j = ∞` (for each `t`), `c = 1` for `ω_j = 0` or for `t = 0` with `ω_j < ∞`; the Fact and the Lemma
-apply. ∎ With positive weights, one
-norm for all groups and a cover, this is Jenatton et al., Proposition 5 (`ℓ2` case) and Yu, Corollary 3.
-*Hypotheses:*
+apply. ∎ With positive weights, one norm for all groups and a cover, this is Jenatton et al., Proposition 5 (`ℓ2`
+case) and Yu, Corollary 3. *Hypotheses:*
 - laminar: needed for the Lemma; without it see Section 10;
 - the order: needed. The sparse-group penalty `|x₁|/2 + |x₂|/2 + ‖x‖₂/2` at `y = (1, 0.1)`, `t = 1`, has the proximal
   point `0`; the group step first, then the coordinates, gives `(0.0024814048950054326, 0)` (probe W2);
@@ -185,7 +185,7 @@ then the group shrink. The singletons are groups that contain no other. The lega
 
 **Proposition 3 (`ℓ∞` groups).** Laminar groups, an inclusion order, `N_k = ω_k‖·‖∞` with `ω_k ∈ [0, ∞]` for all
 groups, scalar step: one pass is exact (Jenatton et al., Proposition 5, `ℓ∞` case). *Proof of (C).* `P_j` clips
-`x_{g_j}` at a level `θ > 0`, sets it to zero, or leaves it unchanged (`ω_j = 0` or `t = 0`); clipping keeps the
+`x_{g_j}` at a level `θ > 0`, sets it to zero, or leaves it unchanged (`ω_j = 0`, or `t = 0` with `ω_j < ∞`); clipping keeps the
 signs and enlarges the set of coordinates of largest magnitude in `g_k`, so `∂‖·‖∞` does not shrink. ∎ Probe M1
 (300 families). *One norm for all groups* (the setting of Lemma 4): an `ℓ2` group inside an `ℓ∞` group is not covered, and fails: groups `{1,2}` (`ℓ2`, weight 1) inside
 `{1,2,3}` (`ℓ∞`, weight 1) at `y = (3, 1, 0)`, `t = 1`: one pass `(1.0513167019494862, 0.6837722339831621, 0)`, the
@@ -205,8 +205,8 @@ that contains another group of the family, an equal group placed before it inclu
   inside `‖diag(1, 3, 2) z‖₂` is exact (P5), since a positive diagonal scaling keeps the signs and zeros that `∂‖·‖₁`
   depends on. Without the duplicate clause a later duplicate could be any function: `‖z‖₂` then `‖z‖∞` on `{1,2}` at
   `y = (3, 1)`, `t = 1`, has the proximal point `(2 − 2/√5, 1 − 1/√5)`, which one pass misses (P6).
-- (b) *Necessity for two groups.* Let `g_1 ⊆ g_2`, `N_1 = ‖D_1·‖₂` with `d_1 > 0` on `g_1`, `N_2 = ‖D_2·‖₂`, and
-  `d_2(i_1) ≠ d_2(i_2)` for some `i_1, i_2 ∈ g_1`. Then for each `t > 0` some `y` gives a one-pass point that is not
+- (b) *Necessity for two groups.* Let `g_1 ⊆ g_2`, `N_1 = ‖D_1·‖₂`, `N_2 = ‖D_2·‖₂`, and `i_1, i_2 ∈ g_1` with
+  `d_1(i_1), d_1(i_2) > 0` and `d_2(i_1) ≠ d_2(i_2)`. Then for each `t > 0` some `y` gives a one-pass point that is not
   the proximal point. *Proof.* Take `y = α u`, `u` supported on `{i_1, i_2}` with both entries nonzero, `α` large.
   Both steps and the proximal point keep zeros outside `{i_1, i_2}` (weighted `ℓ2` norms grow with each magnitude).
   For large `α` neither step sets its group to zero, so `x² = Λ x¹` with `Λ = diag(f_{i_1}, f_{i_2})`,
@@ -216,11 +216,11 @@ that contains another group of the family, an equal group placed before it inclu
   two nonzero entries of `x¹` exclude. ∎ Probe P2 (`d_1 = (1, 2)`, `d_2 = (1, 3, 2)`, `y = (2, 3, 1)`, `t = 0.3`:
   refuted by the reference and by a gradient entry of the objective).
 - (c) *A failure test for more groups.* Let all groups be weighted `ℓ2` norms, numbered in the order of the pass, and
-  let `y` have
-  `D_k y_{g_k} ≠ 0` for each `k`, so that each `N_k` is twice differentiable near `y` with Hessian `H_k`. Put
+  let `y` have `D_k y_{g_k} ≠ 0` for each `k`, so that each `N_k` is twice differentiable near `y` with Hessian `H_k`. Put
   `C(y) = Σ_k H_k(y) Σ_{j>k} ∇N_j(y)`. If `C(y) ≠ 0`, then for each `t > 0` some input gives a one-pass point
-  that is not the proximal point. *Proof.* For small `t` no step sets its group to zero, so
-  `x^k = x^{k−1} − t∇N_k(x^k)` and `y − x^K = t Σ_k ∇N_k(x^k)`. The gradient of the objective at `x^K` is
+  that is not the proximal point. *Proof.* A step moves its input by at most `t max_i d_k(i)` (the Lipschitz constant
+  of `t N_k`), so each iterate is within `O(t)` of `y`, where `D_k y_{g_k} ≠ 0`; for small `t` no step sets its group
+  to zero and the objective is differentiable at `x^K`. Then `x^k = x^{k−1} − t∇N_k(x^k)` and `y − x^K = t Σ_k ∇N_k(x^k)`. The gradient of the objective at `x^K` is
   `G = t Σ_k (∇N_k(x^K) − ∇N_k(x^k))`, and `x^k − x^K = t Σ_{j>k} ∇N_j(y) + O(t²)`, so `G = −t² C(y) + O(t³)`,
   nonzero for small `t`. One pass and the proximal operator satisfy `T_t(y) = t T_1(y/t)` (each `N_k` is positively
   homogeneous), so a failure at `(y, t)` is a failure at `(c y/t, c)` for each `c > 0`. ∎ We do not prove that a pair
@@ -233,8 +233,8 @@ groups and scalar weights `ω_k ‖·‖₂`, `ω_k ∈ [0, ∞]`. With `z = x/�
 `d_k = ω_k √τ` on `g_k`, and the group steps in `x` (each a weighted shrink with an ellipsoid root, not a closed-form
 scalar shrink) correspond to those in `z`. So one pass is exact when `τ` is constant on each group contained in a group
 of positive weight, and for two groups of positive finite weight it is needed (Proposition 4(b)); an infinite weight
-sets its group to zero for each `τ`. For the sparse-group
-penalty the contained groups are singletons, so one pass is exact for any `τ` (S1). Probes S2 (300 families) and S3 (refuted for
+sets its group to zero for each `τ`. For the sparse-group penalty the contained groups are singletons, so one pass is
+exact for any `τ` (S1). Probes S2 (300 families) and S3 (refuted for
 `τ = (1, 4, 1)` on `{1,2} ⊂ {1,2,3}`). Master's `GroupNormL2` takes scalar steps (`groupnorml2.jl:15`).
 
 ## 5. The general weights of Bien, Bunea and Xiao
@@ -255,12 +255,13 @@ control `w_{ℓm} = √(2ℓ) 1{ℓ = m}` is `GroupNormL2` on the bands (B2, dif
 The general weights give `w_{3m} = (√6/3, √6/2)` on bands 1, 2, so the condition fails once `ℓ = 3` exists, that is
 `p ≥ 4`; for `p = 3` the contained group `{1}` is one band and one pass is exact.
 
-*Claim.* Let `K = p − 1 ≥ 3` and `w_{ℓ1}, w_{ℓ2} > 0` for `ℓ ≥ 2` with `w_{j2} > w_{j1}` for each `j ≥ 3`. Then for each
+*Claim.* Let `K = p − 1 ≥ 3`, `w₁₁ > 0`, and `w_{ℓ1}, w_{ℓ2} > 0` for `ℓ ≥ 2` with `w_{j2} > w_{j1}` for each `j ≥ 3`. Then for each
 `λ > 0` some band norms `r` give a one-pass point that is not the proximal point. *Proof.* Apply Proposition 4(c) at
 `y = (y₁, y₂, 0, …, 0)`, `y₁, y₂ > 0`; all iterates stay on bands 1, 2, and each group norm is nonzero. Group 1 is
 `w₁₁|z₁|`, with zero Hessian near `y`. For `ℓ ≥ 2` the group acts on `{1, 2}` as `‖diag(w_{ℓ1}, w_{ℓ2}) z‖₂`, whose
-Hessian at `y` annihilates `y`, so `H_ℓ = c_ℓ q qᵀ` with `q = (−y₂, y₁)` and `c_ℓ > 0` (strict Cauchy–Schwarz, as
-`q` is not parallel to `y`). And `qᵀ∇N_j(y) = y₁y₂(w_{j2}² − w_{j1}²)/n_j`, `n_j = N_j(y)`. So
+Hessian at `y`, restricted to bands 1, 2, annihilates `y`, so it is `c_ℓ q qᵀ` with `q = (−y₂, y₁)` and `c_ℓ > 0`
+(strict Cauchy–Schwarz, as `q` is not parallel to `y`); its other entries multiply components of
+`Σ_{j>ℓ} ∇N_j(y)` that are zero. And `qᵀ∇N_j(y) = y₁y₂(w_{j2}² − w_{j1}²)/n_j`, `n_j = N_j(y)`. So
 `C(y) = q Σ_{2≤ℓ<j≤K} c_ℓ y₁y₂ (w_{j2}² − w_{j1}²)/n_j`, a sum of positive terms, nonzero once `K ≥ 3`. ∎ The general
 weights have `w_{j2}/w_{j1} = j/(j−1)` and the Yu–Bien weights `j²/(j−1)²`, both above 1, so both fail for each
 `p ≥ 4` (Yu–Bien: rows with `K ≥ 3` penalized coordinates). Probe E checks `G/t² = −C(y)` in `BigFloat` at `t = 1e-40`
@@ -285,9 +286,10 @@ group `ℓ` (`‖v_{1:ℓ}/W[ℓ, 1:ℓ]‖₂ ≤ 1`). Then `ρ*_{1:L} = 0` if 
 `r_{1:L}`, so `(0, ρ̃)` satisfies the optimality condition. Conversely the gradients of the nonzero groups `ℓ > L*`
 vanish on bands `1..L*`, so the optimality condition there reads `r_{1:L*} ∈ λ Σ_{ℓ≤L*} B°_ℓ`. ∎ If the one-pass step of
 group `L` sets it to zero, its dual blocks `ξ_1, …, ξ_L` decompose `r_{1:L}` in that set, so `ρ*_{1:L} = 0`: each band
-that one pass sets to zero is zero in the proximal point. The converse fails: for `p = 4`, `λ = 1`, band norms
+that one pass sets to zero is zero in the proximal point, and a band with `r_m = 0` is zero in both (the penalty does
+not decrease as a band norm grows). The converse fails: for `p = 4`, `λ = 1`, band norms
 `(2.05, 3, 0)`, one pass gives `(0.0014776018749914932, 0.0015847207086445254, 0)` while the proximal point is zero,
-certified by a decomposition `r = ξ₁ + ξ₂ + ξ₃` with dual norms at most `0.999λ` (probe Z). So the bandwidth of the
+certified by a decomposition `r = ξ₁ + ξ₂ + ξ₃` with dual norms below `λ` (probe Z). So the bandwidth of the
 one-pass map is at least that of the proximal point and can be larger. Read against arXiv v1: the proof of Theorem 3
 (`K̂ ≤ K`, Appendix F) shows that one pass sets `g_L` to zero, so its conclusion holds for the minimizer as well;
 Corollary 1 computes `K̂` from the one-pass `ν̂`, which gives the one-pass bandwidth.
@@ -326,8 +328,7 @@ Corollary 1 computes `K̂` from the one-pass `ν̂`, which gives the one-pass ba
   returns `max ‖S_{s_ℓ}‖/w_ℓℓ` (also arXiv v1, Appendix C). It is an upper bound: for `p = 3` with band norms `(2, 0)`
   and `λ = 1 < 1.41` the proximal point is diagonal (probe L).
 
-So `hierband` returns the one-pass point for its default weights; a one-pass implementation agrees with it, and a
-comparison with it does not test exactness.
+So `hierband` returns the one-pass point for its default weights; a comparison with it does not test exactness.
 
 **What the paper's theory uses.** Read in arXiv v1:
 - Theorem 6 (Frobenius rate) follows from Theorem 13, whose proof (Appendix G) uses the optimality conditions of (3);
@@ -354,7 +355,7 @@ reach the proximal point to a certified accuracy (a duality gap) after a number 
   zero (the first sweep is one pass), five instances per size, `p = 8, …, 128`, four families (probe C): 1–5 sweeps
   in families A and B (`λ = 1`), 9–356 in C (`λ = 2`), 1–7591 in D (`λ = 2.5`), where one instance at `p = 64` was
   still at a relative gap `2.2e-10` (distance bound `3.87e-3`) after 100000 sweeps. Each count above 300 comes with a
-  smallest nonzero group norm below `0.005 λ w_ℓℓ` at the computed point, but values near `1e-12` also occur with 9
+  smallest nonzero group norm below `0.005 λ w_ℓℓ` at the dual block coordinate descent point, but values near `1e-12` also occur with 9
   and 17 sweeps; the data show no cause. Within a family the counts do not grow steadily with `p`. One pass is off by
   up to `0.039 ‖r‖` on these instances.
 - *A Newton-type method* (probe N, an illustration). Two dual sweeps from zero propose the zero prefix `L` (the leading
@@ -364,8 +365,11 @@ reach the proximal point to a certified accuracy (a duality gap) after a number 
   `1e-12 (1 + ‖r‖²)`. A failed attempt is reported and the proposal repeated with 20, 200 and 2000 sweeps. Each Newton
   iteration forms and factors a dense Hessian, `O(p³)` operations. Results on the same 100 instances: certified in 92,
   88 at the first attempt with at most 9 Newton iterations, 4 at the second with up to 34 iterations in all; the
-  certificate of the zero prefix took at most 2 sweeps. The 8 failures, in family D at `p = 16, 64, 128`, are the instances whose computed point has a
-  nonzero group norm below `1e-9 λ w_ℓℓ`, the slow dual instance among them. The probe does not establish global
+  certificate of the zero prefix took at most 2 sweeps. The 8 failures, in family D at `p = 16, 64, 128`, are the
+  instances whose dual block coordinate descent point has a nonzero group norm below `1e-9 λ w_ℓℓ`, the slow dual
+  instance among them. A fifth attempt, which takes as the zero prefix the bands through the last group whose norm at
+  the dual point of the last proposal is below `1e-6 λ w_ℓℓ` (a heuristic; the gap certificate decides acceptance),
+  certified none of the 8. The probe does not establish global
   convergence, a rule for a group at its threshold (where the Hessian grows like `1/n_ℓ` and the prefix is not
   determined to the certificate's accuracy), `Float32` behavior, or a structured solve cheaper than `O(p³)`.
 - *Structure of the optimality system.* With the zero bands `1, …, L` known, it is
@@ -374,12 +378,13 @@ reach the proximal point to a certified accuracy (a duality gap) after a number 
   Lemma 3) give a finite exact prox for the latent penalty on a path, a different penalty (Section 10).
 
 **(e) For #965.** The options, for the maintainer to choose:
-1. the basic weights (2.5), arXiv (7): one pass exact (Proposition 2), `O(p²)`, but the slower Frobenius rate of
-   Remark 6;
+1. the basic weights (2.5), arXiv (7): one pass exact (Proposition 2), `O(p²)`, but the slower rate of Remark 6;
 2. two-value weights in the one-pass class: one pass exact; their theory is open;
 3. the general weights (2.6), arXiv (8), evaluated to a certified gap, by dual block coordinate descent or a
-   Newton-type method as above; neither has a bounded iteration count on our probes, and both fail or slow down near
-   groups at their thresholds. Under item 7 of the maintainer's scope for #963, an implementation issue would have to
+   Newton-type method as above. On our probes dual block coordinate descent needed 1 to 7591 sweeps and had not
+   reached the gap after 100000 in one instance; counts above 300 came with a group norm below `0.005 λ w_ℓℓ` at the
+   dual point, but small norms also came with few sweeps. Newton failed on exactly the 8 instances with a group norm
+   below `1e-9 λ w_ℓℓ` at the dual point. Under item 7 of the maintainer's scope for #963, an implementation issue would have to
    show, on sample covariances at the sizes of #965 (`p = 20, 100, 500`) along a `λ` path that includes the values where
    bands switch off: iterations, time and memory against one pass, the gap reached at the chosen tolerance, and the rule
    for groups at their thresholds;

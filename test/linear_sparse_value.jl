@@ -3,10 +3,11 @@ using Test, ProximalBase, LinearAlgebra, SparseArrays, Random
 const PB = ProximalBase
 
 # The value f(x) of f = LinearFunction(c, d) at a matrix SparseIterate x (#810): the sum of c[i] * x[i] over the
-# stored entries of x whose value is nonzero (D1: an entry that is not stored, or is stored as +0 or -0, adds
-# nothing, even against a NaN or infinite coefficient; a nonzero entry follows ordinary arithmetic), then d. When
-# the ordinary value is not finite and d, the nonzero entries and the coefficients at them are finite, the value
-# is recomputed from exponent-separated terms (R1). A Diagonal coefficient array is read at the diagonal of x only.
+# stored entries of x whose value is nonzero (an entry that is not stored, or is stored as +0 or -0, adds
+# nothing, even against a NaN or infinite coefficient, and a nonzero entry follows ordinary arithmetic: #902;
+# numerics.md, "Sparse product semantics"), then d. When the ordinary value is not finite and d, the nonzero
+# entries and the coefficients at them are finite, the value is recomputed from exponent-separated terms
+# (numerics.md, "Range guarantees"). A Diagonal coefficient array is read at the diagonal of x only.
 # The references below are computed from the stored entries in BigFloat, without the package's value.
 
 # Writing a nonzero first keeps the coordinate stored when its value is zero.
@@ -24,7 +25,7 @@ state(x::SparseIterate) = (Array(x), collect(activecoordinates(x)), nactive(x))
 
 # ⟨c, x⟩ + d over the stored nonzero entries (the diagonal ones for a Diagonal c), in BigFloat of enough precision
 # for the exponents of Float32 and Float64 products; n = max(the number of those entries, 1), Σ|cᵢxᵢ| + |d|, and the
-# R1 bound 4 n eps(T) (Σ|cᵢxᵢ| + |d|) + n floatmin(T) eps(T) of a value of type T
+# bound 4 n eps(T) (Σ|cᵢxᵢ| + |d|) + n floatmin(T) eps(T) of a value of type T
 function reference(c, d, x, T; diagonal = false)
   setprecision(BigFloat, 4400) do
     p = size(x, 1)
@@ -45,10 +46,10 @@ reference(f::LinearFunction, x, T; kw...) = reference(f.c isa Diagonal ? f.c.dia
 # the smallest value that rounds to Inf
 overflow_threshold(T) = big(floatmax(T)) + (big(floatmax(T)) - big(prevfloat(floatmax(T)))) / 2
 # v is the value of the reference r: finite and within the bound when the bound keeps r in range, ±Inf of the sign of r
-# when r is beyond the overflow threshold by more than the bound, and anything between. This is R1 in the numerically
-# meaningful regime only: nothing is asserted for an exact value inside the output range whose error interval
-# |r| + bound crosses floatmax(T), where R1 gives no finite-output guarantee (#907). Such cases are constrained by the
-# pinned reference values of the tests, not by this function.
+# when r is beyond the overflow threshold by more than the bound, and anything between. This checks the bound in the
+# numerically meaningful regime only (numerics.md, "Range guarantees"): nothing is asserted for an exact value inside
+# the output range whose error interval |r| + bound crosses floatmax(T), where no finite output is guaranteed (#907).
+# Such cases are constrained by the pinned reference values of the tests, not by this function.
 function agrees(v, ref, T)
   r, bound = ref.value, ref.bound
   if abs(r) + bound <= big(floatmax(T))
@@ -149,7 +150,7 @@ const ORDERS4 = [[a, b, c, d] for a in 1:4 for b in 1:4 for c in 1:4 for d in 1:
 allocated(f, x) = (f(x); f(x); @allocated f(x))
 
 @testset "LinearFunction value at a matrix SparseIterate" begin
-  @testset "Strong zeros (D1) ($T)" for T in (Float32, Float64)
+  @testset "zero entries of x contribute nothing ($T)" for T in (Float32, Float64)
     p = 100
     mk() = make_iterate(T, p, [(1, 1, T(2)), (2, 2, zero(T)), (3, 3, -zero(T))])
     x = mk()
@@ -263,7 +264,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     p = 20
     emax = exponent(floatmax(T))
     M = emax + 1                                            # 2^M = 2 * 2^emax is the first power beyond the range
-    margin = T == Float64 ? 40 : 16                         # a relative 2^-margin exceeds the R1 bound of 3 terms
+    margin = T == Float64 ? 40 : 16                         # a relative 2^-margin exceeds the error bound of 3 terms
     h = ldexp(one(T), emax)                                 # 2^(M-1)
     ones_p = ones(T, p, p)
     f0 = LinearFunction(ones_p, zero(T))
@@ -330,7 +331,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     @test f0(xs) === T(3) * sub
     @test LinearFunction(ones_p, T(2) * sub)(xs) === T(5) * sub
     @test f0(make_iterate(T, p, [(1, 1, sub)])) === sub
-    # a small value beside large ones that cancel: the value is within the R1 bound
+    # a small value beside large ones that cancel: the value is within the error bound
     xb = make_iterate(T, p, [(1, 1, h), (2, 1, h), (3, 1, -h), (4, 1, -h), (5, 5, small)])
     @test check(f0, xb, T)
   end
@@ -602,7 +603,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     h = ldexp(one(T), E)
     e = T == Float64 ? -46 : -17
     # a small entry times the largest coefficient, beside two large entries that overflow: the exact value
-    # 2^(E+1) - floatmax(T) 2^e is inside the range by more than the R1 bound, for a Diagonal and for a dense c
+    # 2^(E+1) - floatmax(T) 2^e is inside the range by more than the error bound, for a Diagonal and for a dense c
     cs, vs = T[1, 1, floatmax(T)], T[h, h, -ldexp(one(T), e)]
     for diagonal in (true, false)
       x = SparseIterate(T, 3, 3)
@@ -820,14 +821,15 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
     end
   end
 
-  # Near cancellation: a cancelling set and one more product delta, beside d. The value is within the R1 bound of
+  # Near cancellation: a cancelling set and one more product delta, beside d. The value is within the error bound of
   # delta + d, and whenever the error budget of the argument is small relative to |delta| + |d| it is also within that
   # budget: 4 eps(T) (|delta| + |d|) for the roundings of delta and d, n^2 eps(A)^2 / 4 sum|terms| for the compensated
   # sum (A = Float64 the type of the accumulator; the Sum2 bound gamma_(n-1)^2 sum|terms|, gamma_k ~ k eps(A)/2, which
   # holds here since n <= 13) and 2 n 2^(E - 1074) for the terms below the frame of the largest product (2^E, E <= e + 3
   # for the exponent e of floatmax(T) here), which the accumulator drops. The products are exact in A, so none is rounded.
-  # The budget is not small for a delta much smaller than the terms. The R1 assertion in this testset is the bound
-  # of `reference`, which is at least about 2^970 in absolute terms for Float64 here and so constrains little: the budget does.
+  # The budget is not small for a delta much smaller than the terms. The error-bound assertion in this testset is
+  # the bound of `reference`, which is at least about 2^970 in absolute terms for Float64 here and so constrains
+  # little: the budget does.
   @testset "Near cancellation ($T)" for T in (Float32, Float64)
     for Tc in (T,)        # a mixed pair would need |delta| below floatmax(Float32) beside terms of size 2^1024: no relative claim
       R = promote_type(T, Tc)
@@ -853,7 +855,7 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
           f = LinearFunction(c, d)
           ref = reference(f, x, T)
           v = f(x)
-          @test isfinite(v) && abs(big(v) - ref.value) <= ref.bound                 # R1
+          @test isfinite(v) && abs(big(v) - ref.value) <= ref.bound                 # within the error bound
           δ = big(δx) * big(δc)
           sabs = sum(abs(big(a) * big(b)) for (a, b) in terms)
           budget = 4 * big(eps(T)) * (abs(δ) + abs(big(d))) + length(terms)^2 * big(eps(Float64))^2 / 4 * sabs +
@@ -871,7 +873,8 @@ allocated(f, x) = (f(x); f(x); @allocated f(x))
   # Drop and restart. A pair that reaches exactly (0, 0) restarts in the frame of the next term, and a term more than 1074
   # binades below an earlier frame is dropped: the products 1, 2^1100, -2^1100, -1 (and d = 0.25) give 0.25 when the
   # cancelling terms are adjacent in the order of the sum, and in the other orders the result is documented as not
-  # guaranteed: only `agrees` (R1 in its meaningful regime) is asserted there, with no finite-output requirement.
+  # guaranteed: only `agrees` (the error bound in its meaningful regime) is asserted there, with no finite-output
+  # requirement.
   @testset "Drop and restart" begin
     T = Float64
     a = ldexp(1.0, 550)

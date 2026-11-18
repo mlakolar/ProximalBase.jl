@@ -1,9 +1,9 @@
 module SymmetricIterateIndexingTest
 
-# The SymmetricSparseIterate: index spaces (T01), the two live views and the
-# dense copy (T02), and active zeros, compaction and handles (T03, T12). Expected values come from
-# a dense matrix that each test updates itself, and from the column-major order of the lower triangle
-# written out by hand, not from a second path through the symmetric iterate.
+# The SymmetricSparseIterate: index spaces, the two live views and the dense copy, and
+# active zeros, compaction and handles. Expected values come from a dense matrix that each
+# test updates itself, and from the column-major order of the lower triangle written out by
+# hand, not from a second path through the symmetric iterate.
 
 using Test, ProximalBase, LinearAlgebra, SparseArrays, Random
 
@@ -24,7 +24,7 @@ function rejected(f)
   err !== nothing && !(err isa BoundsError)
 end
 
-@testset "T01: index spaces and edges" begin
+@testset "index spaces and edges" begin
   @testset "p = 0" begin
     X = SymmetricSparseIterate(Float64, 0)
     @test size(X) == (0, 0) && ncoordinates(X) == 0 && nactive(X) == 0
@@ -157,7 +157,7 @@ end
   end
 end
 
-@testset "T02: one variable, two entries, live and copy" begin
+@testset "one variable, two entries, live and copy" begin
   X = SymmetricSparseIterate(Float64, 3)
   θ = coordinates(X)
   A = matrixview(X)
@@ -253,7 +253,7 @@ end
   end
 end
 
-@testset "T03, T12: active zeros, compaction and handles" begin
+@testset "active zeros, compaction and handles" begin
   X = SymmetricSparseIterate(Float64, 3)
   θ = coordinates(X)
 
@@ -310,7 +310,7 @@ end
     @test_throws ArgumentError (ids[1] = 2)
     @test_throws ArgumentError fill!(ids, 2)
     @test isequal(state(X), snapshot)
-    # T12: the values pair with the IDs by slot
+    # the values pair with the IDs by slot
     @test length(vals) == nactive(X) == length(ids)
     @test all(a -> vals[a] == coordinates(X)[ids[a]], eachindex(ids))
     @test count(!iszero, vals) == 2

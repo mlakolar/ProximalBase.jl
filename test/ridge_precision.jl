@@ -1,8 +1,10 @@
 module RidgePrecisionTest
 
-# SqrNormL2 under the numerical contract (T3, R2, R3, O1, O2, O7): the model
-# precision of each result, range recovery, and agreement between the in-place,
-# allocating, coordinate and fused methods. References are exact BigFloat
+# SqrNormL2: the precision of each result (a Float64 level or center with Float32
+# data, for example), range recovery (numerics.md, "Range guarantees"), and agreement
+# between the in-place, allocating, coordinate and fused methods. The mixed
+# Float32/Float64 cases check the current behavior: numerics.md ("Supported precision
+# and oracle agreement") does not promise it. References are exact BigFloat
 # evaluations of the formulas, not other package oracles.
 
 using Test, ProximalBase, SparseArrays, Random
@@ -31,20 +33,21 @@ setprecision(BigFloat, BIG) do
   ref_prox(W, x, c, γ, λ) = (t = big(γ) * big(λ); (big(x) + t * big(c)) / (1 + t))
   ref_grad(W, x, c, λ) = big(λ) * (big(x) - big(c))
 
-  @testset "cases from the contract" begin
-    # A: a wider argument keeps its effect in a narrower gradient
+  @testset "a wider argument, and a level or step outside the range of the data type" begin
+    # a wider argument keeps its effect in a narrower gradient
     x = Float64[1 + pow2(Float64, -28)]
     g = zeros(Float32, 1)
     gradient!(g, SqrNormL2(1, Float32[1]), x)
     @test g[1] === pow2(Float32, -28)
 
-    # B: the center's coefficient survives when γλ underflows
+    # the center's coefficient survives when γλ underflows
     z = zeros(Float32, 1)
     prox!(z, SqrNormL2(pow2(Float32, -100), Float32[pow2(Float32, 100)]), Float32[0], pow2(Float32, -60))
     @test z[1] === pow2(Float32, -60)
     @test prox_block(SqrNormL2(pow2(Float32, -100), Float32[pow2(Float32, 100)]), 0f0, 1, pow2(Float32, -60)) === pow2(Float32, -60)
 
-    # V3 to V6, uncentered and centered
+    # a Float64 level or step outside the range of Float32, and a product γλ outside the range of Float64
+    # (prox, uncentered and centered, and the gradient)
     @test prox!(zeros(Float32, 1), SqrNormL2(pow2(Float64, 160)), Float32[1], pow2(Float64, -160)) == Float32[0.5]
     @test prox!(zeros(Float32, 1), SqrNormL2(pow2(Float64, 160), Float32[0]), Float32[1], pow2(Float64, -160)) == Float32[0.5]
     @test prox!(zeros(Float32, 1), SqrNormL2(pow2(Float64, 160)), [pow2(Float32, 100)], 1.0) == [pow2(Float32, -60)]
@@ -124,7 +127,7 @@ setprecision(BigFloat, BIG) do
         @test gradient(f, x)[1] === g[1]
       end
     end
-    # V7: the difference overflows, the gradient does not, in the same call
+    # the difference overflows, the gradient does not, in the same call
     f = SqrNormL2(pow2(Float64, -1022), [-pow2(Float64, 1023)])
     g = fill(7.0, 1)
     @test value_and_gradient!(g, f, [pow2(Float64, 1023)]) == Inf
@@ -140,12 +143,12 @@ setprecision(BigFloat, BIG) do
   end
 
   @testset "fused calls: both outputs from one invocation" begin
-    # V11: value in the argument's model, gradient in the gradient's
+    # value in the argument's model, gradient in the gradient's
     g = fill(7.0, 1)
     v = value_and_gradient!(g, SqrNormL2(1.0, [1 + pow2(Float64, -28)]), Float32[1])
     @test v === 0f0
     @test g == [-pow2(Float64, -28)]
-    # V9: value at the stored point, destination written by the same call
+    # value at the stored point, destination written by the same call
     y = fill(7f0, 1)
     v = value_and_prox!(y, SqrNormL2(1.0, [1 + pow2(Float64, -28)]), Float32[1], 1.0)
     @test v === 0f0
@@ -175,7 +178,8 @@ setprecision(BigFloat, BIG) do
   @testset "value: a Float64 center does not widen a Float32 value" begin
     f = SqrNormL2(1.0, [1 + pow2(Float64, -28)])
     @test f(Float32[1]) === 0f0
-    # a center outside Float32's range is used unrounded (R3)
+    # a center outside Float32's range is used unrounded: 2^-400 (2^200)^2 / 2 = 0.5, although neither the level nor the
+    # center is representable in Float32
     f = SqrNormL2(pow2(Float64, -400), [pow2(Float64, 200)])
     @test f(Float32[0]) === 0.5f0
     # entries that fit are still rounded when another entry does not

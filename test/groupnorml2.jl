@@ -2,8 +2,8 @@ module GroupNormL2Test
 # GroupNormL2 (#900): values, array and compact block proximal operators, KKT screens and
 # BlockIterate interoperability, against independent BigFloat evaluations of the formulas
 #   g(x) = λ Σₖ wₖ ‖x[Gₖ]‖₂,   prox_{γgₖ}(u) = max(1 - γλwₖ/‖u‖₂, 0) u,
-# in Float32 and Float64, with the maintainer decisions D1–D3 of #900 (infinite level at a zero step,
-# invalid steps, ±Inf inputs with an overflowing finite threshold).
+# in Float32 and Float64, including the decisions of #900 on an infinite level at a zero step, on negative
+# and NaN steps, and on ±Inf inputs with an overflowing finite threshold.
 using Test, ProximalBase, LinearAlgebra, Random
 using ..TestUtils
 
@@ -110,8 +110,8 @@ end
     @test all(i -> pg[i] === pl[i] === zero(T), findall(isinf, wi))
     @test isapprox(pg, pl; rtol = 0, atol = 4eps(T) * maximum(abs, x))
   end
-  # D1: an infinite level projects positive-weight entries to +0 at every nonnegative step, γ = 0 included
-  # (#665), also at NaN and ±Inf, and keeps zero-weight entries unchanged
+  # an infinite level (#900, #665): positive-weight entries become +0 at a zero and at a positive step, also
+  # at NaN and ±Inf, and zero-weight entries stay unchanged
   xe = copy(x); xe[3] = NaN; xe[4] = T(Inf); xe[8] = T(-Inf)
   for γ in (zero(T), T(1.3))
     pg, pl = prox(GroupNormL2(T(Inf), singles, w), xe, γ), prox(NormL1(T(Inf), w), xe, γ)
@@ -193,7 +193,8 @@ end
   f = GroupNormL2(T(0.5), [[3, 1], [2, 4]], T[1, 2])
   x = T[1, -2, 3, 4]
   sentinel() = fill(T(7), 4)
-  # D2: negative and NaN steps in all three proximal interfaces; zero and infinite steps are accepted
+  # negative and NaN steps throw ArgumentError before any write (#900), in prox!, value_and_prox! and prox_block!
+  # and in the allocating prox and prox_block; zero and infinite steps are accepted below
   for γ in (-one(T), T(NaN), -T(Inf), -floatmin(T))
     y = sentinel()
     @test_throws ArgumentError prox!(y, f, x, γ)
@@ -233,7 +234,7 @@ end
   @test out == T[7, 7]
   # traits do not create symmetric-iterate or scalar-entry methods
   @test_throws MethodError prox_block(f, one(T), 1, one(T))
-  # no proximal operator for a symmetric iterate (#900 NR2): a clear error, nothing written
+  # there is no proximal operator for a symmetric iterate (#900): ArgumentError, and nothing is written
   S = SymmetricSparseIterate(T[1 2; 2 1])
   S2 = SymmetricSparseIterate(T[5 6; 6 7])
   g2 = GroupNormL2(T(0.5), [1:2, 3:4])
@@ -256,11 +257,12 @@ end
     @test isequal(pb(GroupNormL2(λ, G, T[0]), T[NaN, 4], γ), T[NaN, 4])
     @test GroupNormL2(λ, G, T[0])(T[NaN, Inf]) === zero(T)
   end
-  # infinite weight: fixed at +0 at every level and step, also for NaN and ±Inf (E4 before E2)
+  # infinite weight: the group is fixed at +0 at the levels 0 and 1 and the steps 0, 1 and Inf, also for NaN and
+  # Inf entries (the weight takes precedence over the entries)
   for λ in (zero(T), one_), γ in (zero(T), one_, T(Inf)), u in (T[3, 4], T[NaN, 1], T[Inf, 1])
     @test all(isequal(zero(T)), pb(GroupNormL2(λ, G, T[Inf]), u, γ))
   end
-  # D1: infinite level with a positive weight, every nonnegative step
+  # an infinite level with a positive weight (#900): +0 at the steps 0, 1 and Inf, NaN and -Inf entries included
   for γ in (zero(T), one_, T(Inf)), u in (T[3, 4], T[NaN, 1], T[-Inf, 1], T[-0.0, 0])
     @test all(isequal(zero(T)), pb(GroupNormL2(T(Inf), G, T[1]), u, γ))
   end
@@ -276,7 +278,7 @@ end
   @test all(isnan, pb(GroupNormL2(one_, G, T[1]), T[NaN, 1], one_))
   @test pb(GroupNormL2(one_, G, T[1]), T[Inf, 1], one_) == T[Inf, 1]
   @test pb(GroupNormL2(one_, G, T[1]), T[-Inf, Inf], one_) == T[-Inf, Inf]
-  # D3: the threshold of finite factors is finite also when its floating-point product overflows
+  # the threshold of finite factors is finite also when its floating-point product overflows (#900)
   big_ = floatmax(T) / 4
   for (λ, w, γ) in ((big_, T(8), one_), (one_, T(8), big_), (big_, one_, T(8)))
     f = GroupNormL2(λ, G, T[w])
@@ -624,7 +626,7 @@ value_matches(v, kind) = kind == :nan ? isnan(v) : kind == :inf ? v === typeof(v
       end
     end
   end
-  # infinite parameters: an infinite level or weight fixes the group at +0 for each pattern below (D1), the value
+  # infinite parameters: an infinite level or weight fixes the group at +0 for each pattern below (#900), the value
   # is Inf at an infinite entry and NaN at a NaN (the zero group gives +0), the screen is Inf at an Inf entry, NaN at a NaN,
   # and -Inf at the zero gradient; a zero weight leaves the group unchanged with value 0
   for (ctx, a, _, _, γ) in cold_contexts(T), (λ, w) in ((T(Inf), one(T)), (one(T), T(Inf)), (T(Inf), T(Inf)))

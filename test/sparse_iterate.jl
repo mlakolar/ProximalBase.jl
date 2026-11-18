@@ -30,10 +30,11 @@ function check_product_state(x, before)
     @test x.ind2nzval == before.ind2nzval
 end
 
-# The M1 reference: the sum over the coordinates where the iterate's coefficient is nonzero
-# (where both iterates' are, for two). The finite entries are small integers, so every
-# summation order gives the same result and isequal compares classes (FN-4); a zero of a
-# dense operand is an IEEE zero.
+# The reference for the zero coefficients (numerics.md, "Sparse product semantics"): the sum
+# over the coordinates where the iterate's coefficient is nonzero (where both iterates' are,
+# for two). The finite entries are small integers, so their sums are exact and the order of
+# summation does not change the result, and isequal compares the classes of the results
+# (finite, Inf, NaN); a zero of a dense operand is an IEEE zero.
 strong(v, x) = sum((v[j] * x[j] for j in 1:length(x) if !iszero(x[j])); init = zero(promote_type(eltype(v), eltype(x))))
 strong2(x, y) = sum((x[j] * y[j] for j in 1:length(x) if !iszero(x[j]) && !iszero(y[j]));
                     init = zero(promote_type(eltype(x), eltype(y))))
@@ -256,7 +257,7 @@ end
         end
     end
 
-    @testset "zero coefficients are strong (M1, FT12)" begin
+    @testset "zero coefficients ignore NaN and Inf operands" begin
         for T in (Float32, Float64), bad in T.((NaN, Inf, -Inf)), k in 1:5, stored in (true, false)
             # coefficients [0, 2, 0, -1, 0]: explicit zeros at 1 and 5, an unstored zero at 3
             x = SparseIterate(T, 5); x[2] = 2; x[4] = -1; activate!(x, 1); activate!(x, 5)
@@ -294,7 +295,7 @@ end
         end
     end
 
-    @testset "matrix coefficients: zero coefficients are strong (M1, FT12)" begin
+    @testset "matrix coefficients: zero coefficients ignore NaN and Inf operands" begin
         for T in (Float32, Float64), bad in T.((NaN, Inf, -Inf)), p in (64, 3), k in 1:3, stored in (true, false)
             # explicit zeros at (1, 1) and (1, 2)
             X = SparseIterate(T, p, 2); X[2, 1] = 2; X[3, 2] = -1; activate!(X, 1); activate!(X, p + 1)
@@ -319,7 +320,7 @@ end
         end
     end
 
-    @testset "the zero test comes before α (M1)" begin
+    @testset "the zero test comes before α" begin
         x = SparseIterate(2); x[2] = 1e-300; activate!(x, 1)
         # α·c underflows to zero, and the nonzero coefficient still meets NaN
         @test isnan(only(mul!(zeros(1), [Inf NaN], x, 1e-300, 0)))
@@ -340,7 +341,7 @@ end
         end
     end
 
-    @testset "an empty product ignores α (M1)" begin
+    @testset "an empty product ignores α" begin
         # no nonzero coefficient: out becomes β·out on every path, also for α = Inf or NaN
         A = [1.0 2.0 3.0; 4.0 5.0 6.0]
         for coef in (SparseIterate(3), (z = SparseIterate(3); activate!(z, 1); activate!(z, 3); z)),
@@ -356,10 +357,10 @@ end
         end
     end
 
-    @testset "finite overflow can depend on the order (FN-4, A1)" begin
+    @testset "finite overflow can depend on the order" begin
         # The sum follows the walk, which takes the argument with fewer stored entries (the
         # first at a tie), so a finite partial sum can overflow in one order only. The values
-        # are those of today and are allowed to differ (numerics M1 and A1).
+        # are those of today; numerics.md ("Sparse product semantics") does not fix a summation order.
         M = floatmax(Float64)
         x = SparseIterate([M, M, -M]); y = SparseIterate(3); y[1] = 1; y[3] = 1; y[2] = 1
         @test dot(x, y) == Inf

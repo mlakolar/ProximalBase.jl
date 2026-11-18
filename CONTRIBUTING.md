@@ -39,9 +39,11 @@ hook against grouped API entries and the coverage matrix. Edit `examples/*.jl`
 and `docs/design/*.md`; generated example/contract pages are ignored. See
 [the developer workflow](docs/src/developer/change_process.md) for validation
 and ownership contracts. CI retains HTML and full validation logs as artifacts.
-Comments in `src/` state numerical behavior in words, and refer to a section of
-`docs/src/numerics.md` where that page states it, not to rule labels such as `R1` or
-`D2`; `julia docs/check_source_labels.jl` checks for such labels in source comments.
+Comments in `src/` and `test/` state numerical behavior in words, and refer to a
+section of `docs/src/numerics.md` where that page states it, not to rule labels such
+as `R1` or `D2`; `@testset` names state what the test checks in the same way.
+`julia docs/check_source_labels.jl` checks for such labels in the comments of both
+directories and in `@testset` names.
 
 CI gates pull requests with current Julia 1.x on Linux. Three independent
 test shards cover the complete retained inventory with bounds checks. The

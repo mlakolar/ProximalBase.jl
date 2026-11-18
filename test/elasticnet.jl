@@ -1,8 +1,9 @@
 module ElasticNetTest
 # ElasticNet (#908): the elastic-net penalty λ1 Σᵢ wᵢ|xᵢ| + (λ2/2) Σᵢ xᵢ². Constructor and traits, the analytic
-# cases, the scalar step check of the public array oracles (D1), the representations, the KKT screen and
-# restriction, agreement with the archived implementation (eff21b6d), the loop selection for a dense array of steps
-# and allocations. The endpoint truth table, the extreme ranges and Scaled are in elasticnet_extremes.jl.
+# cases, the rejection of negative and NaN scalar steps by the public array oracles, the representations, the
+# KKT screen and restriction, agreement with the archived implementation (eff21b6d), the loop selection for a
+# dense array of steps and allocations. The endpoint truth table, the extreme ranges and Scaled are in
+# elasticnet_extremes.jl.
 #
 # References are independent of the kernels: the closed form shrink(v, t̂)/(1 + γλ2) in 4096-bit BigFloat,
 # with t̂ the threshold that the NormL1 kernel forms (the ridge kernel multiplies by the rounded weight
@@ -486,7 +487,7 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
   end
 
   for T in (Float32, Float64)
-    @testset "$T scalar steps are checked before writes (D1)" begin
+    @testset "$T negative and NaN scalar steps are rejected before writes" begin
       f = ElasticNet(T(1), T(1), T[1, 2])
       x = T[3, -2]
       for γ in (-one(T), T(NaN), -T(Inf), -T(0.5))
@@ -608,7 +609,8 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
       @test kkt_violation(f, g, 2) ≈ T(0.7) && kkt_violation(f, g, 3) ≈ T(0.5) && kkt_violation(f, g, 4) == -Inf
       @test kkt_violation(ElasticNet(T(Inf), T(1), w), g, 2) ≈ T(0.7)        # a zero weight is not penalized by the infinite level
       @test kkt_violation(ElasticNet(T(Inf), T(1), w), g, 1) == -Inf
-      @test kkt_violation(ElasticNet(T(1), T(Inf)), g, 3) === -T(Inf)          # an infinite ridge level (D2)
+      # an infinite ridge level is the indicator of {0}, so the screen is -Inf (#908)
+      @test kkt_violation(ElasticNet(T(1), T(Inf)), g, 3) === -T(Inf)
       @test kkt_violation(f, g, 1) === kkt_violation(NormL1(T(0.5), w), g, 1)
       # the four-argument forms, with their bounds and extent checks
       x = SparseIterate(T, 4)

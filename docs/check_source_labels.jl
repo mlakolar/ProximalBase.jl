@@ -1,21 +1,31 @@
-# Check that comments in src/ cite no numerical rule labels (issue #936).
+# Check that comments in src/ and test/ and @testset names cite no numerical rule
+# labels (issues #936 and #945).
 #
-# Comments in the sources used to name rules of an older, labeled numerical
-# contract by short labels such as R1, T3, M1, E4 or D2. The rendered manual
-# (docs/src/numerics.md) defines none of them, so a reader of such a comment has
-# no page to look the rule up in. A comment states the behavior in words instead
-# and, where docs/src/numerics.md states that behavior, refers to its section.
+# Comments in the sources and tests used to name rules of an older, labeled
+# numerical contract, and cases of an older test plan, by short labels such as R1,
+# T3, M1, E4, D2 or FN-4. The rendered manual (docs/src/numerics.md) defines none
+# of them, so a reader of such a comment has no page to look the rule up in. A
+# comment states the behavior in words instead and, where docs/src/numerics.md
+# states that behavior, refers to its section. A @testset name states what the
+# test checks in words.
 #
-# This script scans src/**/*.jl and reports each token of the form
-# <letters><digits> for the label families NR, FT, R, T, M, E, O, A and D that
-# occurs in a comment. It takes the comments from Julia's own parser
+# This script scans src/**/*.jl and test/**/*.jl and reports each token of the
+# form <letters><digits> for the label families NR, FT, R, T, M, E, O, A, D and V, and
+# of the form FN-<digits>, FP-<digits> or CRD-<digits>, that occurs in a comment or in the literal text of a
+# @testset name. It takes the comments and names from Julia's own parser
 # (Base.JuliaSyntax), so strings, docstrings, character literals, adjoints and
 # macro literals are not comments. A file that the parser rejects fails the check;
 # a parser warning alone does not.
 #
-# Known limit: a comment inside $( ... ) of a plain backtick command is not seen,
+# The name of a @testset (or Test.@testset) is its first argument that is a string
+# literal; only the literal text of that string is searched, not an interpolated
+# expression, so "$T1 and $T2" is not a hit and "$T scalar steps (D1)" is. Other
+# strings are not searched.
+#
+# Known limits: a comment inside $( ... ) of a plain backtick command is not seen,
 # because the parser keeps command text as a string that the command macro parses
-# later, so such a label can be missed.
+# later, so such a label can be missed. A @testset name that is not a string
+# literal (a variable, "a" * "b", a string macro, string(...)) is not searched.
 #
 # CPU names such as "Apple M3" are exempt (see EXEMPT_PREFIXES).
 #
@@ -25,47 +35,110 @@
 
 const JS = Base.JuliaSyntax
 
-# A label: a family prefix followed by ASCII digits, as a whole word.
-const LABEL = r"\b(?:NR|FT|[RTMEOAD])[0-9]+\b"
+# A label: a family prefix followed by ASCII digits, as a whole word; or FN-, FP- or
+# CRD-, prefixes of test plan items, followed by digits (not inside XFN-4).
+const LABEL = r"\b(?:(?:NR|FT|[RTMEOADV])[0-9]+|(?:FN|FP|CRD)-[0-9]+)\b"
 
 # CPU names are not labels: a token of one of the given families directly
 # preceded by the given prefix, as "M3" in "Apple M3". Pairs (prefix, family).
 const EXEMPT_PREFIXES = (("Apple ", "M"),)
 
-message(path, line, token) = string(path, ":", line, ": label ", token,
-    " in a comment; state the rule in words and cite the numerics.md section instead")
+# Where a label was found: a comment, or the literal text of a @testset name.
+const ADVICE = (comment = "a comment; state the rule in words and cite the numerics.md section instead",
+                name = "a @testset name; state what the test checks in words instead")
+
+message(path, line, token, kind=:comment) =
+    string(path, ":", line, ": label ", token, " in ", ADVICE[kind])
 
 # Whether the green node n has no children. JuliaSyntax of Julia 1.10 has no
 # is_leaf; there children(n) returns nothing or an empty tuple for a leaf.
 isleaf(n) = (c = JS.children(n); c === nothing || isempty(c))
 
-# Append (byte offset, byte length) of each Comment leaf under n to acc, in
-# source order; offset is the byte index in the source where n starts.
-function collect_comments!(acc, n, offset)
-    if isleaf(n)
-        JS.kind(n) == JS.K"Comment" && push!(acc, (offset, JS.span(n)))
-    else
-        for child in JS.children(n)
-            collect_comments!(acc, child, offset)
-            offset += JS.span(child)
+# Whether the green leaf n is whitespace or a comment.
+is_trivia(n) = isleaf(n) && JS.kind(n) in (JS.K"Whitespace", JS.K"NewlineWs", JS.K"Comment")
+
+# The text of the leaves under n that are not trivia, as in Test. @testset, whose
+# whitespace the parser keeps inside the macro name; offset is where n starts.
+function code_text(n, offset, bytes)
+    is_trivia(n) && return ""
+    isleaf(n) && return String(bytes[offset:offset+JS.span(n)-1])
+    out = ""
+    for child in JS.children(n)
+        out *= code_text(child, offset, bytes)
+        offset += JS.span(child)
+    end
+    return out
+end
+
+# Whether the green node n is a call of the macro @testset or Test.@testset. The
+# macro name is the first child (Julia 1.13) or, after a leaf @, the second child
+# (Julia 1.10), so the text of these children is compared, not a node kind.
+function is_testset_call(n, bytes, offset)
+    JS.kind(n) == JS.K"macrocall" || return false
+    head = JS.children(n)
+    text = code_text(head[1], offset, bytes)
+    isleaf(head[1]) && (text *= code_text(head[2], offset + JS.span(head[1]), bytes))
+    return occursin(r"^(?:[A-Za-z_]\w*\.)*@testset$", text)
+end
+
+# (string node, offset) if the green node n is a string literal, possibly in
+# parentheses, as in @testset ("name"); otherwise nothing.
+function string_literal(n, offset)
+    isleaf(n) && return nothing
+    JS.kind(n) == JS.K"string" && return (n, offset)
+    JS.kind(n) == JS.K"parens" || return nothing
+    inner = nothing
+    for child in JS.children(n)
+        if !is_trivia(child) && !(isleaf(child) && JS.kind(child) in (JS.K"(", JS.K")"))
+            inner === nothing || return nothing
+            inner = (child, offset)
         end
+        offset += JS.span(child)
+    end
+    return inner === nothing ? nothing : string_literal(inner...)
+end
+
+# Append (byte offset, byte length, kind) to acc for each Comment leaf under n
+# (kind :comment) and for each literal text piece of the name of a @testset call
+# under n (kind :name); offset is the byte index in the source where n starts.
+function collect_pieces!(acc, n, offset, bytes)
+    isleaf(n) && return JS.kind(n) == JS.K"Comment" ? push!(acc, (offset, JS.span(n), :comment)) : acc
+    if is_testset_call(n, bytes, offset)
+        o = offset
+        for child in JS.children(n)
+            lit = string_literal(child, o)
+            if lit !== nothing
+                p = lit[2]
+                for piece in JS.children(lit[1])
+                    JS.kind(piece) == JS.K"String" && push!(acc, (p, JS.span(piece), :name))
+                    p += JS.span(piece)
+                end
+                break
+            end
+            o += JS.span(child)
+        end
+    end
+    for child in JS.children(n)
+        collect_pieces!(acc, child, offset, bytes)
+        offset += JS.span(child)
     end
     return acc
 end
 
-# Vector of (line, text) for the comments of the Julia source src: one entry for
-# each comment and each source line it covers, with the part of the comment on
-# that line. Throws JS.ParseError if src does not parse.
-function comment_lines(src::AbstractString)
+# Vector of (line, text, kind) for the comments and @testset names of the Julia
+# source src, in source order: one entry for each comment or name piece and each
+# source line it covers, with the part on that line. Throws JS.ParseError if src
+# does not parse.
+function label_text_lines(src::AbstractString)
     src = String(src)
     tree = JS.parseall(JS.GreenNode, src; ignore_errors=false, ignore_warnings=true)
     bytes = codeunits(src)
-    out = Tuple{Int,String}[]
-    for (a, len) in collect_comments!(Tuple{Int,Int}[], tree, 1)
+    out = Tuple{Int,String,Symbol}[]
+    for (a, len, kind) in sort!(collect_pieces!(Tuple{Int,Int,Symbol}[], tree, 1, bytes); by=first)
         line = 1 + count(==(UInt8('\n')), view(bytes, 1:a-1))
         text = String(view(bytes, a:a+len-1))
         for (k, part) in enumerate(split(text, '\n'))
-            push!(out, (line + k - 1, String(part)))
+            push!(out, (line + k - 1, String(part), kind))
         end
     end
     return out
@@ -76,19 +149,20 @@ function exempt(text, m)
     return any(((p, f),) -> endswith(before, p) && startswith(m.match, f), EXEMPT_PREFIXES)
 end
 
-# (hits, error) for the Julia source src: hits lists (line, token) for each label
-# in a comment, and error is nothing, or the parser's message when src does not
-# parse (hits is then empty).
+# (hits, error) for the Julia source src: hits lists (line, token, kind) for each
+# label in a comment (kind :comment) or in the text of a @testset name (kind
+# :name), in source order, and error is nothing, or the parser's message when src
+# does not parse (hits is then empty).
 function scan(src::AbstractString)
     lines = try
-        comment_lines(src)
+        label_text_lines(src)
     catch e
         e isa JS.ParseError || rethrow()
-        return Tuple{Int,String}[], sprint(showerror, e)
+        return Tuple{Int,String,Symbol}[], sprint(showerror, e)
     end
-    hits = Tuple{Int,String}[]
-    for (line, text) in lines, m in eachmatch(LABEL, text)
-        exempt(text, m) || push!(hits, (line, String(m.match)))
+    hits = Tuple{Int,String,Symbol}[]
+    for (line, text, kind) in lines, m in eachmatch(LABEL, text)
+        exempt(text, m) || push!(hits, (line, String(m.match), kind))
     end
     return hits, nothing
 end
@@ -105,9 +179,10 @@ end
 
 relpath_posix(path, root) = join(splitpath(relpath(path, root)), "/")
 
-# Scan root/src/**/*.jl; return (files scanned, label messages, parse error messages).
+# Scan root/src/**/*.jl and root/test/**/*.jl; return (files scanned, label
+# messages, parse error messages), in the order of the sorted file paths.
 function check_tree(root)
-    files = julia_files(joinpath(root, "src"))
+    files = sort!(vcat(julia_files(joinpath(root, "src")), julia_files(joinpath(root, "test"))))
     messages = String[]
     errors = String[]
     for path in files
@@ -116,8 +191,8 @@ function check_tree(root)
         if err !== nothing
             push!(errors, string(rel, ": Julia's parser rejects this file, so its comments are not checked\n", err))
         end
-        for (line, token) in hits
-            push!(messages, message(rel, line, token))
+        for (line, token, kind) in hits
+            push!(messages, message(rel, line, token, kind))
         end
     end
     return length(files), messages, errors
@@ -209,6 +284,98 @@ const SELF_TEST_CASES = Tuple{String,String,Vector{Tuple{Int,String}}}[
     ("label after code with a parser warning", "import . .A  # R1\n", [(1, "R1")]),
 ]
 
+# FN-<digits> labels, in comments of src/ and test/ files.
+append!(SELF_TEST_CASES, [
+    ("FN-4 in a comment", "x = 1  # see FN-4\n", [(1, "FN-4")]),
+    ("FN-9 in a comment next to a family label", "# FN-9, R1\n", [(1, "FN-9"), (1, "R1")]),
+    ("FN-<digits> in a block comment on an inner line", "#= a\nFN-12 =#\n", [(2, "FN-12")]),
+    ("FN-4 next to a CPU name exemption", "# Apple M3 and FN-4\n", [(1, "FN-4")]),
+    ("FN-<digits> inside a word, FN without digits, FN4", "# XFN-4, FN-, FN-4x, FN4 and FN-a\n", []),
+    ("FN-4 in a string and as an expression", "s = \"FN-4\"\nx = FN - 4\n", []),
+    ("FP-7 and CRD-4 in a comment", "# FP-7 and CRD-4\nx = 1  # (FP-12)\n", [(1, "FP-7"), (1, "CRD-4"), (2, "FP-12")]),
+    ("V3 in a comment", "x = 1  # V3 to V6\n", [(1, "V3"), (1, "V6")]),
+    ("V label next to a CPU name exemption", "# Apple M3 and V9\n", [(1, "V9")]),
+    ("XFP-7, XCRD-4, CRD-, FP7, V and a variable V3 are not labels",
+     "# XFP-7, XCRD-4, CRD-, FP-x, FP7, V and V3x\nV3 = 1\n", []),
+])
+
+# Each case: (name, Julia source, expected [(line, token, kind), ...]) for the
+# names of @testset calls; kind is :name or :comment.
+const SELF_TEST_NAME_CASES = Tuple{String,String,Vector{Tuple{Int,String,Symbol}}}[
+    # flagged
+    ("label in a @testset name",
+     "@testset \"R1 cancellation behavior\" begin\n @test true\nend\n", [(1, "R1", :name)]),
+    ("label in the literal part of an interpolated name",
+     "@testset \"Strong zeros (M1) (\$T)\" for T in (Float32, Float64)\n @test true\nend\n",
+     [(1, "M1", :name)]),
+    ("label after an interpolation in a name",
+     "@testset \"\$T scalar steps (D1)\" for T in (Float32, Float64)\nend\n", [(1, "D1", :name)]),
+    ("label in a name after an interpolated expression with a string",
+     "@testset \"\$(f(\"R1\")) and T3\" begin\nend\n", [(1, "T3", :name)]),
+    ("labels in two literal pieces of one name",
+     "@testset \"R1 \$x R2\" begin\nend\n", [(1, "R1", :name), (1, "R2", :name)]),
+    ("FP-7 and CRD-4 in a @testset name",
+     "@testset \"fill! (FP-7) and CRD-4\" begin\nend\n", [(1, "FP-7", :name), (1, "CRD-4", :name)]),
+    ("V3 in a @testset name", "@testset \"V3: the sweep\" begin\nend\n", [(1, "V3", :name)]),
+    ("a variable V3 in a @testset body", "@testset \"sweep\" begin\n    V3 = 1\n    @test V3 == 1\nend\n", []),
+    ("FN-4 in a @testset name",
+     "@testset \"finite overflow depends on the order (FN-4, A1)\" begin\nend\n",
+     [(1, "FN-4", :name), (1, "A1", :name)]),
+    ("label in a nested @testset name, reported at the inner line",
+     "@testset \"outer\" begin\n    x = 1\n    @testset \"inner D2\" begin\n        @test true\n    end\nend\n",
+     [(3, "D2", :name)]),
+    ("labels in an outer name, an inner name and a comment in the body",
+     "@testset \"R1\" begin\n    # T3\n    @testset \"M1\" begin\n    end\nend\n",
+     [(1, "R1", :name), (2, "T3", :comment), (3, "M1", :name)]),
+    ("label in a @testset name inside a for loop and a let block",
+     "for T in (Float32,)\n    let x = 1\n        @testset \"E4\" begin\n        end\n    end\nend\n",
+     [(3, "E4", :name)]),
+    ("label in a Test. @testset name, with whitespace after the dot",
+     "Test. @testset \"R1 a\" begin end\n", [(1, "R1", :name)]),
+    ("label in a parenthesized @testset name", "@testset (\"T3 b\") begin end\n", [(1, "T3", :name)]),
+    ("label in a name in nested parentheses and a comment",
+     "@testset ((#= c =# \"T3 b\")) begin end\n", [(1, "T3", :name)]),
+    ("a concatenation in parentheses is not a name that is searched",
+     "@testset (\"a\" * \"R1\") begin end\n", []),
+    ("label in a Test.@testset name", "Test.@testset \"R1 here\" begin\nend\n", [(1, "R1", :name)]),
+    ("label in a @testset name with an option before the name",
+     "@testset verbose = true \"D3 first\" begin\nend\n", [(1, "D3", :name)]),
+    ("label in a name after an option, in parentheses",
+     "@testset(verbose = true, \"R1 x\", begin\nend)\n", [(1, "R1", :name)]),
+    ("label in a triple-quoted name, reported at its line",
+     "@testset \"\"\"a\nR1 b\"\"\" begin\nend\n", [(2, "R1", :name)]),
+    ("label in the name of a @testset in a function body",
+     "function f()\n    @testset \"O7 x\" begin\n    end\nend\n", [(2, "O7", :name)]),
+    ("a @testset name and a comment on one line",
+     "@testset \"R1\" begin # T3\nend\n", [(1, "R1", :name), (1, "T3", :comment)]),
+    # only the first string argument is the name
+    ("only the first string literal is the name",
+     "@testset \"plain\" \"R1\" begin\nend\n", []),
+    # not flagged
+    ("descriptive @testset name", "@testset \"scaling by a number follows the broadcast\" begin\nend\n", []),
+    ("an interpolated variable named like a label",
+     "@testset \"a \$T1 and \$T2\" for T1 in x, T2 in y\nend\n", []),
+    ("interpolated expressions named like labels",
+     "@testset \"a \$(R1) and \$(T2 + 1)\" begin\nend\n", []),
+    ("a label in an ordinary string and in a test",
+     "s = \"R1\"\n@test f(\"D2\") == 1\n@test x == \"R1\"\n", []),
+    ("a label in a string inside a @testset body",
+     "@testset \"descriptive\" begin\n    s = \"R1\"\n    @test f(\"D2\") == 1\nend\n", []),
+    ("a variable named like a label inside a @testset body",
+     "@testset \"descriptive\" begin\n    R1 = 1\n    D2, T3 = f(R1)\n    @test R1 == D2\nend\n", []),
+    ("a label in the string of another macro",
+     "@test_throws ErrorException(\"R1\") f()\n@info \"D2\"\n@testset_x \"R1\" begin\nend\n", []),
+    ("a label in a string of the options of a @testset",
+     "@testset \"descriptive\" label = \"R1\" begin\nend\n", []),
+    ("a name that is not a string literal is not searched",
+     "name = \"R1\"\n@testset name begin\nend\n@testset \"R1\" * \"x\" begin\nend\n" *
+     "@testset string(\"R1\") begin\nend\n@testset raw\"R1\" begin\nend\n", []),
+    ("FN-4 inside a word of a name", "@testset \"XFN-4 and FN4\" begin\nend\n", []),
+    ("a CPU name in a @testset name", "@testset \"on Apple M3\" begin\nend\n", []),
+    ("a CPU name next to a label in a @testset name",
+     "@testset \"on Apple M3 and R1\" begin\nend\n", [(1, "R1", :name)]),
+]
+
 # Names that end in one of these characters: in these cases, a quote after the
 # name is an adjoint (x∇'), and a string or command right after it is a macro literal.
 for c in ("∇", "∂", "℘", "₊", "₋", "₌", "₍", "₎")
@@ -263,6 +430,13 @@ function self_test()
     end
     for (name, src, expected) in SELF_TEST_CASES
         hits, err = scan(src)
+        want = [(line, token, :comment) for (line, token) in expected]
+        report(err === nothing && hits == want, name,
+               string(": expected ", want, ", got ", hits,
+                      err === nothing ? "" : string(" and a parse error\n", err)))
+    end
+    for (name, src, expected) in SELF_TEST_NAME_CASES
+        hits, err = scan(src)
         report(err === nothing && hits == expected, name,
                string(": expected ", expected, ", got ", hits,
                       err === nothing ? "" : string(" and a parse error\n", err)))
@@ -271,20 +445,44 @@ function self_test()
     hits, err = scan("f(x  # R1\n")
     report(err !== nothing && isempty(hits), "a source that does not parse is an error",
            string(": got hits ", hits, " and error ", repr(err)))
-    # the whole tree: message format, relative paths, nested directories, test/ ignored
+    # the whole tree: message format, relative paths, nested directories in src/ and
+    # test/, comments and @testset names, files sorted by path
     mktempdir() do tmp
         mkpath(joinpath(tmp, "src", "functions"))
-        mkpath(joinpath(tmp, "test"))
+        mkpath(joinpath(tmp, "test", "sub"))
         write(joinpath(tmp, "src", "a.jl"), "x = 1\n# fine\n")
         write(joinpath(tmp, "src", "functions", "b.jl"), "y = 2\n  # R1 here\n")
-        write(joinpath(tmp, "test", "c.jl"), "# R1 in a test comment is outside src/\n")
+        write(joinpath(tmp, "test", "c.jl"), "# D2 in a test comment\nz = 3\n")
+        write(joinpath(tmp, "test", "sub", "y.jl"),
+              "@testset \"outer\" begin\n    @testset \"inner R1 (\$T)\" for T in (Int,)\n    end\nend\n")
         nfiles, messages, errors = check_tree(tmp)
-        want = [message("src/functions/b.jl", 2, "R1")]
-        report(nfiles == 2 && messages == want && isempty(errors), "tree with a label (exit 1)",
-               string(": expected 2 files and ", want, ", got ", nfiles, ", ", messages, " and ", errors))
+        want = [message("src/functions/b.jl", 2, "R1"),
+                message("test/c.jl", 1, "D2"),
+                message("test/sub/y.jl", 2, "R1", :name)]
+        report(nfiles == 4 && messages == want && isempty(errors), "tree with labels (exit 1)",
+               string(": expected 4 files and ", want, ", got ", nfiles, ", ", messages, " and ", errors))
+        report(message("test/sub/y.jl", 2, "R1", :name) ==
+               "test/sub/y.jl:2: label R1 in a @testset name; state what the test checks in words instead" &&
+               message("src/a.jl", 7, "T3") ==
+               "src/a.jl:7: label T3 in a comment; state the rule in words and cite the numerics.md section instead",
+               "message format for a comment and for a @testset name")
         write(joinpath(tmp, "src", "functions", "b.jl"), "y = 2\n  # fine\n")
+        write(joinpath(tmp, "test", "c.jl"), "# fine\nz = 3\n")
         nfiles, messages, errors = check_tree(tmp)
-        report(nfiles == 2 && isempty(messages) && isempty(errors), "tree without a label (exit 0)",
+        want = [message("test/sub/y.jl", 2, "R1", :name)]
+        report(nfiles == 4 && messages == want && isempty(errors), "labels only in a nested test directory (exit 1)",
+               string(": expected 4 files and ", want, ", got ", nfiles, ", ", messages, " and ", errors))
+        write(joinpath(tmp, "test", "sub", "y.jl"),
+              "@testset \"outer\" begin\n    @testset \"inner (\$T)\" for T in (Int,)\n        R1 = 1\n    end\nend\n")
+        nfiles, messages, errors = check_tree(tmp)
+        report(nfiles == 4 && isempty(messages) && isempty(errors), "tree without a label (exit 0)",
+               string(": got ", nfiles, ", ", messages, " and ", errors))
+        # a test file that does not parse is an error, not a silent pass
+        write(joinpath(tmp, "test", "sub", "z.jl"), "@testset \"R1\" begin\n")
+        nfiles, messages, errors = check_tree(tmp)
+        report(nfiles == 5 && isempty(messages) && length(errors) == 1 &&
+               startswith(errors[1], "test/sub/z.jl: Julia's parser rejects this file"),
+               "a test file that does not parse is an error",
                string(": got ", nfiles, ", ", messages, " and ", errors))
     end
     println("check_source_labels self-test: ", passed, " passed, ", failed, " failed")

@@ -308,7 +308,8 @@ end
             before = copy(coef)
             dims = ndims(coef) == 1 ? (2,) : (2, size(coef, 2))
             reference = mul!(fill(NaN, dims...), M, coef)
-            @test reference[1] == 2. && reference[2] == 8.      # the explicit zero at 1 meets Inf and contributes nothing (M1)
+            # the explicit zero at 1 meets Inf and contributes nothing (numerics.md, "Sparse product semantics")
+            @test reference[1] == 2. && reference[2] == 8.
             if ndims(coef) == 2
                 @test reference[:, 2] == [-3., -5.]
                 @test all(iszero, view(reference, :, 3:size(coef, 2)))
@@ -325,7 +326,7 @@ end
         end
     end
 
-    @testset "scaling by a number follows the broadcast (FN-9)" begin
+    @testset "scaling by a number follows the broadcast" begin
         multipliers = (2, -3.0, 0, -0.0, 0.5, 1e300, 1e-300, Inf, -Inf, NaN, 1//2)
         divisors = (2, -0.0, 0.0, Inf, -Inf, NaN)
         operations = ((scale_right!, broadcast_scale_right!, multipliers),

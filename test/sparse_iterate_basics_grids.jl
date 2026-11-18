@@ -1,7 +1,7 @@
 module SparseIterateBasicsGridsTest
 
 # Cases of sparse_iterate_basics.jl that repeat one that stays there for another element type: the
-# Float16 pass and the left operations at Float32 of the scaling by a number (FN-9), and the Float32
+# Float16 pass and the left operations at Float32 of the scaling by a number (#504), and the Float32
 # pass of the sparse triple products. The rest of each testset is in sparse_iterate_basics.jl; the
 # helpers are copied from it.
 
@@ -48,7 +48,7 @@ end
 
 @testset "sparseIterate" begin
 
-    @testset "scaling by a number follows the broadcast (FN-9)" begin
+    @testset "scaling by a number follows the broadcast" begin
         multipliers = (2, -3.0, 0, -0.0, 0.5, 1e300, 1e-300, Inf, -Inf, NaN, 1//2)
         divisors = (2, -0.0, 0.0, Inf, -Inf, NaN)
         operations = ((scale_right!, broadcast_scale_right!, multipliers),

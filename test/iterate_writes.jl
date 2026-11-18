@@ -85,7 +85,7 @@ function check_value_write(mk, src, name, f, isbroadcast)
   end
 end
 
-@testset "value writes never remove (FT05)" begin
+@testset "value writes never remove active coordinates" begin
   @testset "SparseIterate: $name" for (name, f, isbc) in CALLS
     check_value_write(mkS, srcS, name, f, isbc)
   end
@@ -207,7 +207,7 @@ end
   end
 end
 
-@testset "imports and lengths (FT07)" begin
+@testset "imports and lengths" begin
   @testset "another shape of the same length is a value write" begin
     for cp! in (copyto!, copy!)
       x = SparseIterate(2, 2); x[1, 1] = 5.0
@@ -295,7 +295,7 @@ function staged_replace!(x, src)
   copyto!(x, t)
 end
 
-@testset "replace and clear (FT08, array iterates)" begin
+@testset "replace and clear, array iterates" begin
   @testset "SparseIterate" begin
     mk() = (x = SparseIterate(10); x[5] = 1.0; x[2] = 2.0; x[9] = 3.0; x)
     @test ws(mk()) == [5, 2, 9]
@@ -383,7 +383,7 @@ end
   end
 end
 
-@testset "coordinates(x) is an ordinary vector that writes values (FP-7)" begin
+@testset "coordinates(x) is an ordinary vector that writes values" begin
   mk(T) = (x = SparseIterate(T, 5); x[2] = T(3); activate!(x, 4); x)
   stored(x) = x.nzval[1:x.nnz]
   @testset "fill! with a zero writes into the stored entries" begin
@@ -452,7 +452,7 @@ end
 
 lower_positions(p) = [(r, c) for c in 1:p for r in c:p]
 
-@testset "the coordinates of a symmetric iterate are an ordinary vector (CRD-4)" begin
+@testset "the coordinates of a symmetric iterate are an ordinary vector" begin
   @testset "$T, p = $p" for T in (Float32, Float64), p in (0, 1, 3)
     q = p * (p + 1) ÷ 2
     vals = T.(1:q)

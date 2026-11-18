@@ -75,7 +75,9 @@ with an integer point, `Rational` and `BigInt` points), the merging of an infini
 each point type and the full-point form), and malformed parameters of a symmetric model under `Scaled`.
 `kkt_linf` tests the full-point form of `kkt_violation` (#970) for `NormLinf` and for `Scaled` over it in Float32/64: the Euclidean
 distance from `-v` to the subdifferential of `λ max|xᵢ|`, against a BigFloat evaluation with sort-based levels of the ball and the
-simplex within `(2n + 8) u (‖v‖₂ + λ) + 4 n nextfloat(zero(W))` (six families of data, `n` from 1 to 200), the worked examples,
+simplex within `(2n + √n + 5) u (‖v‖₂ + λ) + 4 n nextfloat(zero(W))` (six families of data, `n` from 1 to 200), the worked examples,
+a face with one entry far below the level and a bulk of equal entries (`n` up to 200,001, an exact reference in closed form, with
+measured guards that a shift of the level by the smallest face entry exceeds) and the same shape with random entries,
 the zero point against the norm of the proximal point, stationary points built from the proximal operator, the steepest descent
 rate along sampled directions and along the direction of the nearest subgradient, faces of one, several and all entries
 with mixed signs, both branches of the face (each checked on its inputs), a tie broken by one ulp, `x = 0` inside, on and

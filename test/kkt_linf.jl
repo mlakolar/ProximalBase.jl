@@ -10,7 +10,7 @@ module KktLinfTest
 # The references are BigFloat evaluations of these definitions (sort-based levels of the simplex and of the ball); none calls
 # a ProximalBase kernel. Besides them, the zero point is compared with the norm of the proximal point, stationary points
 # are built from the proximal operator, and the distance is checked as the steepest descent rate of v + ∂f at x.
-# A value is accepted within (2n + 8) u (‖v‖₂ + λ) + 4 n nextfloat(zero(W)) of its reference, u = eps(W)/2, where the reference
+# A value is accepted within (2n + √n + 5) u (‖v‖₂ + λ) + 4 n nextfloat(zero(W)) of its reference (linf_bound), u = eps(W)/2, where the reference
 # is in the range of W: the bound of the ordinary path, plus the subnormal spacing. A reference above floatmax(W) must
 # overflow to Inf, and the band of relative width 100 eps(W) around floatmax(W) is not decided.
 #
@@ -80,11 +80,13 @@ function branch(λ, v, x)
     (sum(u) - big(λ)) / length(u) <= minimum(u) ? :closed : :threshold
   end
 end
+# the constant of the accuracy bound of the ordinary path, in units of u (‖v‖₂ + λ)
+linf_bound(n) = 2n + sqrt(n) + 5
 # the accuracy bound of the ordinary path, plus the subnormal spacing of the type
 function tol(n, ::Type{W}, v, λ; slack = 1) where {W}
   u = eps(W) / 2
   bigprec() do
-    slack * ((2n + 8) * big(u) * (sqrt(sum(abs2, [big(W(a)) for a in v])) + big(λ)) + 4n * big(nextfloat(zero(W))))
+    slack * (big(linf_bound(n)) * big(u) * (sqrt(sum(abs2, [big(W(a)) for a in v])) + big(λ)) + 4n * big(nextfloat(zero(W))))
   end
 end
 # r is the value for the level λ at v and x: of the type W, within the bound of the reference where that is in range, and Inf
@@ -621,6 +623,58 @@ alloc_first(f, v, x) = @allocated kkt_violation(f, v, x)
   @test allocs(kkt_violation, Scaled(NormLinf(λ), T(2)), v, zeros(T, n)) == 0
 end
 
+# ---- 11b. a face with entries far below the level ------------------------------------------------------------------------------------
+# One face entry lies far below the level and the others (a bulk of a = n - 1 equal entries) are above it: x = ones(n), u = -v =
+# (-1, w, ..., w) with w = fl(1/√a + λ/a). The level is w - λ/a and the distance sqrt(a (w - λ/a)² + 1), from the stored w and λ. The
+# level of the face is found on the face values shifted by a lower bound of the level (the mean of the face entries minus λ/n);
+# a shift by the smallest entry instead gives every shifted value the size of |u₁| and a level whose error grows with the number of
+# entries. The measured errors of the kernel with that shift on these inputs, in units of u (‖v‖₂ + λ), with --check-bounds=yes and without, on Julia
+# 1.10.13 and 1.13.4, on two kinds of CPU: Float32, n = 200001, λ = 3: 1.8e4 to 1.2e6; Float64, n = 200001, λ = 0.3: 2.8e5 to 1.9e6,
+# and λ = 3: 8.4e4 to 3.1e6 (the stated bound, about 4e5 there, separates them in some runs only). The kernel here gave at most 100
+# (Float32, λ = 3), 4100 (Float64, λ = 0.3) and 1600 (Float64, λ = 3). The guards below are at least 4.9 times those maxima and at
+# least 10 times below the smallest error with the shift by the smallest entry; the stated bound holds too.
+function bulk_error(::Type{W}, a, λ) where {W}
+  w = one(W) / sqrt(W(a)) + λ / a
+  v = fill(-w, a + 1)
+  v[1] = one(W)
+  x = ones(W, a + 1)
+  r = kkt_violation(NormLinf(λ), v, x)
+  bigprec() do
+    τ = big(w) - big(λ) / a
+    ref = sqrt(a * τ^2 + 1)
+    unit = (big(eps(W)) / 2) * (sqrt(a * big(w)^2 + 1) + big(λ))
+    r isa W, Float64(abs(big(r) - ref) / unit), linf_bound(a + 1)
+  end
+end
+@testset "a face entry far below the level, equal bulk" begin
+  for (W, a, λ, guard) in ((Float32, 200_000, Float32(3), 1000.0), (Float64, 200_000, 0.3, 20_000.0), (Float64, 200_000, 3.0, 8_000.0))
+    isW, units, bound = bulk_error(W, a, W(λ))
+    @test isW
+    @test units <= bound
+    @test units <= guard
+  end
+end
+
+@testset "$T faces with entries far below the level, randomized" for T in TYPES
+  rng = MersenneTwister(978)
+  for n in (50, 500, 2000), nlow in (1, 8), ρ in (0.1, 1.0, 10.0), cf in (0.01, 0.3, 3.0), spread in (0.0, 0.3)
+    M = T(exp(randn(rng)))
+    λ = T(cf) * M
+    a = n - nlow
+    τt = T(ρ) * M / sqrt(T(a))
+    u = T[τt + λ / a * T(1 + spread * randn(rng)) for _ in 1:n]
+    for i in eachindex(u)
+      u[i] > τt || (u[i] = τt + λ / a)
+    end
+    for k in 1:nlow
+      u[k] = -M * T(0.5 + rand(rng))
+    end
+    x = T[rand(rng) < 0.5 ? 1 : -1 for _ in 1:n]
+    v = T[x[i] > 0 ? -u[i] : u[i] for i in 1:n]
+    @test ok(kkt_violation(NormLinf(λ), v, x), λ, v, x)
+  end
+end
+
 # ---- 12. Scaled -----------------------------------------------------------------------------------------------------------------------
 tiny(T) = ldexp(one(T), T === Float32 ? -100 : -600)                    # tiny(T)^2 is not a normal number
 lvl(T) = ldexp(one(T), T === Float32 ? 100 : 1000)                      # tiny(T)^2 * lvl(T) is
@@ -643,7 +697,7 @@ chain(T, f) = (c = Scaled(Scaled(f, tiny(T)), tiny(T)); c.f isa Scaled || error(
         @test r isa T
         bigprec() do
           ref = refbig(big(α) * big(λ), big.(v), big.(p))
-          b = (2n + 14) * big(eps(T)) / 2 * (sqrt(sum(abs2, big.(v))) + big(α) * big(λ))
+          b = (linf_bound(n) + 6) * big(eps(T)) / 2 * (sqrt(sum(abs2, big.(v))) + big(α) * big(λ))
           @test abs(big(r) - ref) <= b
         end
         # the same loops read the lazy v/α and the materialized v ./ α, but their sums can be formed in another order: close, not
